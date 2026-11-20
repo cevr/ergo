@@ -13,7 +13,7 @@ import (
 // landedStage is the last capstone stage that has landed (S0 to S6 of the
 // v1 capstone plan, "Ergo builds Ergo"). Each stage's swap unit raises it,
 // and from then on the rows that stage owns must hold.
-const landedStage = 0
+const landedStage = 2
 
 // capstoneRow is one row of the capstone probe: a fact of the tree that holds
 // when the capstone is done, and the stage that makes it hold.

@@ -32,7 +32,7 @@ func Bench(n int) int {
 	let mut sum = 0
 	with context { counter.Counter: counter.Tally } {
 		for i in 0..n {
-			let o = countercli.Run(cycle[i % len(cycle)], p)
+			let o = countercli.Run(cycle[i%len(cycle)], p)
 			sum = sum + o.Code + len(o.Out)
 			if o.Err != "" {
 				sum = sum + 1

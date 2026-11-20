@@ -1,0 +1,50 @@
+// Package store holds one package's checker tables (capstone S3a; the
+// design is selfhost/C0/plan.md §1, §2 and §4). It has tables only, no
+// passes: bind (S3b) writes them, every later pass reads them. Every id is
+// a std dense id local to its package; a reference to another package is
+// an XRef (import index, id), and identity across packages is the
+// canonical key (Canon), never a local id. No Map is declared here: a
+// per-id result is a dense column or side table.
+
+import dense
+
+// Decl is a declaration row, in collect order: what it is, its name, its
+// file and root node, and its object in its kind's table.
+type Decl { Kind uint8, Name dense.ID[dense.Str], File uint32, Node uint32, Obj ObjRef }
+
+// The object kinds, by ordinal; one fits the 4 bits of an ObjRef (Go's types.Object has 9; Ergo adds Context, Law and
+// Test and drops Label, Builtin and Nil, which the checker resolves as
+// universe names).
+let kFunc = 1
+let kVar = 2
+let kTypeName = 3
+let kConst = 4
+let kContext = 5
+let kLaw = 6
+let kTest = 7
+let kPkgName = 8
+
+// KindPkgName is an import's object kind (an import binds a PkgName).
+let KindPkgName = kPkgName
+
+// ObjRef names an object in one word: the kind in the top 4 bits, the id
+// in its kind's table in the low 28 (C0/plan.md Decided 4).
+type ObjRef { bits uint32 }
+
+// refOf packs kind and the index of an id.
+func refOf(kind int, index int) ObjRef { ObjRef{bits: uint32(kind)<<28 | uint32(index)} }
+
+// KindOf is the kind ref names.
+func KindOf(r ObjRef) int { int(r.bits >> 28) }
+
+// indexOf is ref's index in its kind's table.
+func indexOf(r ObjRef) int { int(r.bits & 0x0fffffff) }
+
+// PNode is the row tag of a package's nodes: the files' rows laid end to
+// end in file order (C0/plan.md §1, Decided 1).
+type PNode {}
+
+// XRef names a declaration of another package: the position of the
+// import in the importer's sorted import list, and the index of the
+// declaration's id there. Import 0 is the package itself (C0/plan.md §1: ids are local).
+type XRef { Import uint32, Decl uint32 }

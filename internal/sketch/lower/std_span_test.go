@@ -86,6 +86,15 @@ test TextFieldsAreGoFields(raw string) {
 	}
 }
 
+test TextCollectRefusesPastTheEnd(s string) {
+	match text.Collect(s, []text.Span{text.Span{Start: 0, End: len(s) + 1}}) {
+	case Some[text.Spans]:
+		assert false
+	case None:
+		assert true
+	}
+}
+
 test TextCollectChecksEverySpan(s string, xs []int) {
 	let mut at = []text.Span{}
 	for i in 0..len(xs)/2 {
@@ -163,6 +172,7 @@ var stdTextLawStatements = map[string]string{
 	"text EqualAgreesWithCut":       `EqualAgreesWithCut(s string, a int, b int, lit string) { let sp = spanNear(s, a, b) Equal(s, sp, lit) == (Get(s, sp) == Some[string]{Value: lit}) && (!In(s, sp) || Equal(s, sp, Cut(s, sp))) }`,
 	"text FindIsTheFirstInside":     `FindIsTheFirstInside(s string, a int, b int, sub string) { let sp = spanNear(s, a, b) match Find(s, sp, sub) { case Some[Span] as f: let u = f.Value let first = if sub == "" { u.Start == sp.Start } else { !strings.Contains(strings.Slice(s, sp.Start, u.End-1), sub) } In(s, u) && sp.Start <= u.Start && u.End <= sp.End && Cut(s, u) == sub && first case None: !In(s, sp) || !strings.Contains(Cut(s, sp), sub) } }`,
 	"text FieldsAreGoFields":        `FieldsAreGoFields(raw string) { let s = wordText(raw) let spans = Fields(s) let words = strings.Fields(s) if len(spans) != len(words) { return false } let mut ok = true let mut last = -1 for i, sp in spans { ok = ok && In(s, sp) && Width(sp) > 0 && sp.Start > last && Cut(s, sp) == words[i] last = sp.End } ok }`,
+	"text CollectRefusesPastTheEnd": `CollectRefusesPastTheEnd(s string) { match Collect(s, []Span{Span{Start: 0, End: len(s) + 1}}) { case Some[Spans]: false case None: true } }`,
 	"text CollectChecksEverySpan":   `CollectChecksEverySpan(s string, xs []int) { let mut at = []Span{} for i in 0..len(xs)/2 { at = at.Append(spanNear(s, xs[2*i], xs[2*i+1])) } let mut all = true for sp in at { all = all && In(s, sp) } match Collect(s, at) { case Some[Spans] as d: let mut ok = all && Source(d.Value) == s && Count(d.Value) == len(at) for i, sp in at { ok = ok && SpanAt(d.Value, i) == sp && At(d.Value, i) == Cut(s, sp) } ok case None: !all } }`,
 	"text ModelAgrees":              `ModelAgrees(raw string, seed int, count int) { let s = wordText(raw) let n = (count%64 + 64) % 64 let mut x = (seed%2147483648 + 2147483648) % 2147483648 let spans = Fields(s) let words = strings.Fields(s) if len(spans) == 0 { return true } let d = match Collect(s, spans) { case Some[Spans] as v: v.Value case None: return false } for _ in 0..n { x = (x*1103515245 + 12345) % 2147483648 let k = (x / 65536) % len(spans) let sp = spans[k] let w = words[k] let from = (x / 8) % (len(w) + 1) let to = from + (x / 512) % (len(w) - from + 1) match (x / 2) % 4 { case 0: if Cut(s, sp) != w || Get(s, sp) != (Some[string]{Value: w}) { return false } case 1: match Sub(s, sp, from, to) { case Some[Span] as u: if Cut(s, u.Value) != strings.Slice(w, from, to) { return false } case None: return false } case 2: let sub = strings.Slice(w, from, to) let want = strings.Index(w, sub) match Find(s, sp, sub) { case Some[Span] as f: if f.Value.Start-sp.Start != want || Cut(s, f.Value) != sub { return false } case None: return false } case _: if At(d, k) != w || SpanAt(d, k) != sp || !Equal(s, sp, w) { return false } } } true }`,
 }

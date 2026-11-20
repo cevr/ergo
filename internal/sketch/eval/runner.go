@@ -146,7 +146,8 @@ type entryRef struct {
 
 func (a *actorV) describe() string { return "an actor.Actor" }
 
-func registerRunner() {
+func registerRunner(t nativeTables) {
+	natives := t.std
 	natives["actor.start"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.actorStart(fr, at, fn, args)
 	}

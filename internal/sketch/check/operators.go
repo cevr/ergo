@@ -116,12 +116,33 @@ func intBounds(k BasicKind) (constant.Value, constant.Value) {
 
 // ---------------------------------------------------------------- unary
 
+// relend reports whether &x passes on the borrow of x, a mut parameter
+// of type t, and records it (Info.Relends): the call writes &x for a
+// borrow it lends as for one it was lent, and gets x's mut T, never a
+// borrow of the parameter (types.md, Borrows 1).
+func (c *checker) relend(x *syntax.UnaryExpr, t Type) bool {
+	id, ok := unparen(x.X).(*syntax.Ident)
+	if !ok || !isPointer(t) {
+		return false
+	}
+	v, ok := c.pkg.Info.Uses[id].(*Var)
+	if !ok || !v.param {
+		return false
+	}
+	c.pkg.Info.Relends[x] = true
+	return true
+}
+
 func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 	switch x.Op {
 	case syntax.AND:
 		op := c.valueExpr(x.X, nil)
 		if op.invalid() {
 			return op
+		}
+		if c.relend(x, op.typ) {
+			// &x of a mut parameter passes its borrow on (Borrows 1).
+			return operand{mode: modeValue, typ: op.typ}
 		}
 		if !op.addressable {
 			c.errorf(x, CodeType, "cannot take the address of this expression; a borrow &x names a variable, field or element")

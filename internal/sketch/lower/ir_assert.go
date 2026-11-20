@@ -44,7 +44,7 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body), b.fn.Pos) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -83,7 +83,7 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body), b.fn.Pos) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -171,27 +171,42 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		// stays inline): the comparison and the failure text read them.
 		b.plain(x)
 		op := x.Op.String()
-		b.operator(op, l.info.Types[x.X], x)
 		var vals []*irExpr
-		// A try that starts the assert covers the whole comparison: its
-		// operands are built under it (the emitter's assert, q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			b.tries++
-		}
-		pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
-		if inTry {
-			b.tries--
-		}
-		for k, e := range []syntax.Expr{x.X, x.Y} {
-			if vals[k].K == "const" || vals[k].K == "local" {
-				continue
+		build := func() []*irExpr {
+			// A try that starts the assert covers the whole comparison:
+			// its operands are built under it (the emitter's assert, q105).
+			inTry := tried(s.X) != s.X
+			if inTry {
+				b.tries++
 			}
-			t := b.temp("arg", b.goType(l.info.Types[e], e), vals[k].Pos)
-			pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
-			vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
+			pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
+			if inTry {
+				b.tries--
+			}
+			for k, e := range []syntax.Expr{x.X, x.Y} {
+				if vals[k].K == "const" || vals[k].K == "local" {
+					continue
+				}
+				t := b.temp("arg", b.goType(b.operandType(e), e), vals[k].Pos)
+				pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
+				vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
+			}
+			return vals
 		}
-		cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		// == and != on a type that is not basic: the emitter's binaryOf
+		// on the spilled operands, as any comparison (ir_equal.go).
+		if cond = b.equalOn(x, build); cond == nil {
+			b.operator(op, l.info.Types[x.X], x)
+			build()
+			cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		}
+		// The spilled operands hold their implicit conversions (a variant
+		// compared with its union is the union's value): the helper takes
+		// them at those types and prints the value it holds.
+		lt, rt = b.operandType(x.X), b.operandType(x.Y)
+		if !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+			irNo("assert of a converted operand that does not print")
+		}
 		show := &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(s, lt, rt, x), Args: vals}
 		text = &irExpr{K: "bin", Pos: p, Op: "+", X: text, Y: show}
 	} else {

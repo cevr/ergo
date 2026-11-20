@@ -1,0 +1,119 @@
+// Package balls is the first scene: balls dropped where the canvas is
+// clicked, each with a random speed, heading, size and colour, which
+// bounce off the canvas's edges.
+
+import canvasscenes/seed
+import math
+
+// Width and Height are the canvas's size.
+let Width = 600.0
+
+let Height = 400.0
+
+let radiusMin = 8.0
+
+let radiusMax = 24.0
+
+let speedMin = 80.0
+
+let speedMax = 240.0
+
+let fullTurn = 6.283185307179586
+
+// Palette is the balls' colours.
+let Palette = []string{"#ff2d55", "#ffcc00", "#34c759", "#5ac8fa", "#af52de", "#ff9500"}
+
+// Ball is a ball: its number, centre, velocity in pixels a second,
+// radius and colour.
+type Ball { ID int, X float64, Y float64, VX float64, VY float64, Radius float64, Color string }
+
+// Field is the scene: its balls, the next ball's number, and the stream
+// its new balls are drawn from.
+type Field { Balls []Ball, NextID int, Seed seed.Seed }
+
+// New is an empty field drawing from s.
+func New(s seed.Seed) Field { Field{Balls: []Ball{}, NextID: 0, Seed: s} }
+
+// BallsStayInBounds: balls dropped anywhere on the canvas are inside it,
+// a radius from each edge, after any frames, and a bounce turns a
+// ball's velocity round without changing its size.
+law BallsStayInBounds(n uint64, points []int, frames []int) {
+	let mut f = New(seed.Of(n))
+	for p in points {
+		let c = ((p % 240000) + 240000) % 240000
+		f = Drop(f, float64(c%600), float64(c/600))
+	}
+	for ms in frames {
+		let before = f.Balls
+		f = Advance(f, float64(((ms%200)+200)%200))
+		for i, b in f.Balls {
+			let was = before[i]
+			if !inBounds(b) || math.Abs(b.VX) != math.Abs(was.VX) || math.Abs(b.VY) != math.Abs(was.VY) || b.ID != was.ID {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func inBounds(b Ball) bool {
+	b.X >= b.Radius && b.X <= Width-b.Radius && b.Y >= b.Radius && b.Y <= Height-b.Radius
+}
+
+// Drop is f with a new ball at (x, y), its heading, speed, radius and
+// colour drawn from f's stream.
+func Drop(f Field, x float64, y float64) Field {
+	let angle, s1 = seed.Between(f.Seed, 0.0, fullTurn)
+	let speed, s2 = seed.Between(s1, speedMin, speedMax)
+	let radius, s3 = seed.Between(s2, radiusMin, radiusMax)
+	let color, s4 = seed.Below(s3, len(Palette))
+	let b = Ball{ID: f.NextID, X: x, Y: y, VX: math.Cos(angle) * speed, VY: math.Sin(angle) * speed, Radius: radius, Color: Palette[color]}
+	Field{Balls: f.Balls.Append(b), NextID: f.NextID + 1, Seed: s4}
+}
+
+// DropsDrawFromTheStream: a ball is dropped where the canvas is pressed,
+// with a size and speed in their ranges and a palette colour; the next
+// drop draws the next numbers and the next number, also after a clear,
+// and another seed draws others.
+law DropsDrawFromTheStream(n uint64, x int, y int) {
+	let at = float64(((x % 600) + 600) % 600)
+	let f = Drop(Drop(New(seed.Of(n)), at, 5.0), at, 5.0)
+	let other = Drop(New(seed.Of(n+1)), at, 5.0)
+	let a = f.Balls[0]
+	let b = f.Balls[1]
+	let speed = a.VX*a.VX + a.VY*a.VY
+	a.X == at && a.Y == 5.0 && a.Radius >= radiusMin && a.Radius < radiusMax && speed >= speedMin*speedMin*0.999 && speed <= speedMax*speedMax*1.001 && a.ID == 0 && b.ID == 1 && f.NextID == 2 && Drop(Clear(f), at, 5.0).Balls[0].ID == 2 && a.VX != b.VX && a.VX != other.Balls[0].VX
+}
+
+// Clear is f with no balls; the numbering and the stream go on.
+func Clear(f Field) Field { Field{..f, Balls: []Ball{}} }
+
+func clamp(v float64, lo float64, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// Move is b after seconds: it moves by its velocity, and an edge it
+// would pass stops it at the edge and turns that part of its velocity
+// back.
+func Move(b Ball, seconds float64) Ball {
+	let x = b.X + b.VX*seconds
+	let y = b.Y + b.VY*seconds
+	let bounceX = x < b.Radius || x > Width-b.Radius
+	let bounceY = y < b.Radius || y > Height-b.Radius
+	Ball{..b, X: clamp(x, b.Radius, Width-b.Radius), Y: clamp(y, b.Radius, Height-b.Radius), VX: if bounceX { -b.VX } else { b.VX }, VY: if bounceY { -b.VY } else { b.VY }}
+}
+
+// Advance is f after ms milliseconds.
+func Advance(f Field, ms float64) Field {
+	let mut moved = []Ball{}
+	for b in f.Balls {
+		moved = moved.Append(Move(b, ms/1000.0))
+	}
+	Field{..f, Balls: moved}
+}

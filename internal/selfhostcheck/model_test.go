@@ -19,15 +19,11 @@ import (
 // blocks are the plain ones: a run of adjacent lines with one indentation
 // that all have a cell in the column and another after it, padded to the
 // widest cell plus one, an all-empty column taking no width. The long-cell
-// section rules are the format property's (TestSelfhostFormatAgrees).
+// section rules are the format property's (TestSelfhostFormatLaws).
 //
 // Mutants it alone catches: testdata/mutants.json, killer
 // selfhostcheck:TestSelfhostLayoutModel.
-//
-// It builds Go because the property executes the Ergo layout through its
-// exported Go ABI: only a built library runs it.
 func TestSelfhostLayoutModel(t *testing.T) {
-	needsBuild(t)
 	seed := selfhostSeed(t)
 	r := rand.New(rand.NewPCG(seed, 0x6c61))
 	type run struct {
@@ -63,8 +59,7 @@ func TestSelfhostLayoutModel(t *testing.T) {
 	for i, x := range runs {
 		cases[i] = []string{encodeCommands(x.cmds), strconv.Itoa(x.limit)}
 	}
-	exe := buildDriver(t, "formatapi")
-	answers := runMode(t, exe, "steps", cases, 1)
+	answers := runMode(t, "steps", cases)
 	replay := "replay: " + seedVariable + "=" + strconv.FormatUint(seed, 10) + " go test -count=1 -run '^TestSelfhostLayoutModel$' ./internal/selfhostcheck"
 	failed := 0
 	for i, a := range answers {

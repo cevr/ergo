@@ -114,6 +114,11 @@ func TestKeywordsAreNotNames(t *testing.T) {
 			"type T { " + word + " int64 }\n",
 			"type " + word + " {}\n",
 		} {
+			if word == "mut" && strings.HasPrefix(src, "func f(") {
+				// `mut int64` is an unnamed parameter in the write-in-place
+				// mode (MODES-1): mut is still no name there.
+				continue
+			}
 			if _, err := Parse(src); err == nil {
 				t.Errorf("%q parsed: %s is a name", src, word)
 			}

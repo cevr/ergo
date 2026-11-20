@@ -1,0 +1,53 @@
+// canvas-scenes is a canvas program
+// (stage b: the view on std ui's test host): one program with two
+// scenes, balls that bounce where the canvas is pressed, and particles
+// that drift on a moving noise field and burst from a press, each drawn
+// on a canvas. It plays a script of frames and the user's acts on the
+// screen and shows what changed after each. Package scene is the two
+// scenes as a machine; balls and flow are the scenes; seed is the seeded
+// stream they draw from; app is the program, which turns the host's
+// frame times into the time between frames; screen is the view; script
+// plays the script on the test host. This binary is the only place that
+// chooses the clock: a time.Manual that only the script's frames move.
+// With -stats it also prints the work of each line; with -last it prints
+// only the last screen; -gen N prints the receipt's script, the flow
+// filled to about 600 trails and N frames on (the workload's input).
+
+import canvasscenes/script
+import flag
+import io
+import os
+import time
+
+let statsFlag = flag.Bool("stats", false, "print the work of each line (ui.Counts) and the frames sent")
+
+let lastFlag = flag.Bool("last", false, "print only the last screen")
+
+let genFlag = flag.Int("gen", -1, "print the receipt's script with N counted frames, and stop")
+
+let set = flag.Set{Name: "canvas-scenes", Usage: "", Flags: []flag.Flag{statsFlag, lastFlag, genFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: canvas-scenes [-stats] [-last] < script, or canvas-scenes -gen N"
+
+func main() fails os.Exit needs Console | Ambient {
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	if genFlag.Get(v) >= 0 {
+		for l in script.Receipt(genFlag.Get(v)) {
+			Console.Println(l)
+		}
+		return
+	}
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v), lastFlag.Get(v)) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "canvas-scenes: the script did not run"}
+	}
+}

@@ -1,0 +1,246 @@
+// Package memory holds Engine, a store.Engine and store.Leases whose keys
+// and leases live in memory. The keys are split into shards by a hash of
+// the key, each a Map behind its own sync.Ref, so two connections that
+// write different keys rarely wait for each other, and one operation on
+// a key is one Modify of its shard: Incr and a conditional Set read and
+// write with nothing between. An expiry is a time stored beside the
+// value and compared with the now each operation is given: there is no
+// timer per key, and an expired key is dropped when it is next written.
+
+import respd/store
+import sync
+import time
+
+// Entry is what a key holds: its value and its expiry, if any.
+type Entry { Value string, Until Option[time.Time] }
+
+// Shards is how many shards an Engine splits its keys into.
+let Shards = 16
+
+// Engine is a store.Engine and store.Leases in memory. Every copy of an
+// Engine is the same engine: its shards and its leases are sync.Refs.
+type Engine { shards []sync.Ref[Map[string, Entry]], leases sync.Ref[Map[string, store.Slot]] } implements store.Engine, store.Leases
+
+// NewEngine is an empty Engine.
+func NewEngine() Engine {
+	let mut shards = []sync.Ref[Map[string, Entry]]{}
+	for _ in 0..Shards {
+		shards = shards.Append(sync.NewRef[Map[string, Entry]](Map[string, Entry]{}))
+	}
+	Engine{shards: shards, leases: sync.NewRef[Map[string, store.Slot]](Map[string, store.Slot]{})}
+}
+
+// shard is the shard of key: FNV-1a of its bytes.
+func shard(e Engine, key string) sync.Ref[Map[string, Entry]] {
+	let mut h = uint32(2166136261)
+	for i in 0..len(key) {
+		h = (h ^ uint32(key[i])) * 16777619
+	}
+	e.shards[int(h%uint32(len(e.shards)))]
+}
+
+// live is whether entry holds its value at now.
+func live(entry Entry, now time.Time) bool {
+	match entry.Until {
+	case Some[time.Time] as u:
+		now.Before(u.Value)
+	case None:
+		true
+	}
+}
+
+// find is the live entry of key in m at now.
+func find(m Map[string, Entry], key string, now time.Time) Option[Entry] {
+	match m.Get(key) {
+	case Some[Entry] as found:
+		if live(found.Value, now) {
+			return found
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// Get is the value key holds at now.
+func Get(e Engine, key string, now time.Time) string fails store.Missing {
+	match find(shard(e, key).Get(), key, now) {
+	case Some[Entry] as found:
+		found.Value.Value
+	case None:
+		store.Missing{Key: key}
+	}
+}
+
+// Set makes key hold value until until, under the condition when.
+func Set(e Engine, key string, value string, when store.When, until Option[time.Time], now time.Time) fails store.Kept {
+	let set = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (bool, Map[string, Entry]) {
+		let present = find(m, key, now) != None
+		let allowed = match when {
+		case store.Always:
+			true
+		case store.IfAbsent:
+			!present
+		case store.IfPresent:
+			present
+		}
+		if !allowed {
+			return (false, m)
+		}
+		(true, m.Put(key, Entry{Value: value, Until: until}))
+	}
+	if !set {
+		return store.Kept{Key: key}
+	}
+}
+
+// Del removes key.
+func Del(e Engine, key string, now time.Time) fails store.Missing {
+	let found = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (bool, Map[string, Entry]) {
+		let present = find(m, key, now) != None
+		(present, m.Delete(key))
+	}
+	if !found {
+		return store.Missing{Key: key}
+	}
+}
+
+// Expire gives key the expiry in until; a time now or past removes it.
+func Expire(e Engine, key string, until Option[time.Time], now time.Time) fails store.Missing {
+	let found = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (bool, Map[string, Entry]) {
+		match find(m, key, now) {
+		case Some[Entry] as f:
+			let next = Entry{Value: f.Value.Value, Until: until}
+			if !live(next, now) {
+				return (true, m.Delete(key))
+			}
+			(true, m.Put(key, next))
+		case None:
+			(false, m.Delete(key))
+		}
+	}
+	if !found {
+		return store.Missing{Key: key}
+	}
+}
+
+// TTL is the expiry of key at now.
+func TTL(e Engine, key string, now time.Time) store.Expiry fails store.Missing {
+	match find(shard(e, key).Get(), key, now) {
+	case Some[Entry] as found:
+		match found.Value.Until {
+		case Some[time.Time] as u:
+			store.Until{At: u.Value}
+		case None:
+			store.Forever
+		}
+	case None:
+		store.Missing{Key: key}
+	}
+}
+
+// Counted is the result of one Incr inside its shard's Modify.
+type Counted = Total{N int64} | Text{} | Over{}
+
+// Incr adds by to the integer key holds, in one Modify of its shard.
+func Incr(e Engine, key string, by int64, now time.Time) int64 fails store.NotInteger | store.Overflow {
+	let r = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (Counted, Map[string, Entry]) {
+		let old = find(m, key, now)
+		let (start, until) = match old {
+		case Some[Entry] as f:
+			(store.Decimal(f.Value.Value), f.Value.Until)
+		case None:
+			(Some[int64]{Value: 0}, None)
+		}
+		match start {
+		case None:
+			(Text, m)
+		case Some[int64] as n:
+			match store.Sum(n.Value, by) {
+			case None:
+				(Over, m)
+			case Some[int64] as s:
+				(Total{N: s.Value}, m.Put(key, Entry{Value: "\(s.Value)", Until: until}))
+			}
+		}
+	}
+	match r {
+	case Total as t:
+		t.N
+	case Text:
+		store.NotInteger{Key: key}
+	case Over:
+		store.Overflow{Key: key}
+	}
+}
+
+// ask is the answer of name's slot to a, under the leases' Ref: the slot's
+// Step, its next state kept.
+func ask(e Engine, name string, a store.Ask) store.Answer {
+	sync.Modify(e.leases) func(m Map[string, store.Slot]) (store.Answer, Map[string, store.Slot]) {
+		let s = match m.Get(name) {
+		case Some[store.Slot] as found:
+			found.Value
+		case None:
+			store.Free{Last: 0}
+		}
+		match store.Step(s, a) {
+		case Emit[store.Slot, store.Answer] as d:
+			(d.Output, m.Put(name, d.Next))
+		case Tell[store.Slot, store.Answer] as d:
+			(d.Output, m.Put(name, d.Next))
+		case Enter[store.Slot] as d:
+			(store.Gone, m.Put(name, d.Next))
+		case Stay[store.Slot] as d:
+			(store.Gone, m.Put(name, d.Next))
+		case Done[store.Answer] as d:
+			(d.Output, m)
+		case Ignore:
+			(store.Gone, m)
+		case Reject:
+			(store.Gone, m)
+		}
+	}
+}
+
+// Acquire grants name to owner until until, when no grant holds it.
+func Acquire(e Engine, name string, owner string, until time.Time, now time.Time) store.Lease fails store.Held {
+	match ask(e, name, store.Take{Name: name, Owner: owner, Until: until, Now: now}) {
+	case store.Granted as g:
+		g.Lease
+	case store.Refused as r:
+		store.Held{Name: name, Owner: r.Owner, Until: r.Until}
+	case store.Gone:
+		store.Held{Name: name, Owner: "", Until: now}
+	case store.Freed:
+		store.Held{Name: name, Owner: "", Until: now}
+	}
+}
+
+// Renew moves the end of lease to until, when it is its name's grant.
+func Renew(e Engine, lease store.Lease, until time.Time, now time.Time) store.Lease fails store.Lost {
+	match ask(e, lease.Name, store.Extend{Lease: lease, Until: until, Now: now}) {
+	case store.Granted as g:
+		g.Lease
+	case store.Refused:
+		store.Lost{Name: lease.Name, Token: lease.Token}
+	case store.Gone:
+		store.Lost{Name: lease.Name, Token: lease.Token}
+	case store.Freed:
+		store.Lost{Name: lease.Name, Token: lease.Token}
+	}
+}
+
+// Release frees lease's name, when it is its grant.
+func Release(e Engine, lease store.Lease, now time.Time) fails store.Lost {
+	match ask(e, lease.Name, store.Give{Lease: lease, Now: now}) {
+	case store.Freed:
+		return
+	case store.Granted:
+		store.Lost{Name: lease.Name, Token: lease.Token}
+	case store.Refused:
+		store.Lost{Name: lease.Name, Token: lease.Token}
+	case store.Gone:
+		store.Lost{Name: lease.Name, Token: lease.Token}
+	}
+}

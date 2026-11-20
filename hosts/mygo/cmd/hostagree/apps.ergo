@@ -20,7 +20,7 @@ func counterMachine() Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) Option[func()] { None }}
 }
 
-func counterView(f *ui.Frame[int], s int) {
+func counterView(f mut ui.Frame[int], s int) {
 	let mut col = ui.Plain()
 	col.Gap = 8
 	col.Padding = ui.All(16)
@@ -88,7 +88,7 @@ func shelfMachine() Machine[shelf, int, int] {
 
 // shelfView: every row's delete button is labelled "del", so a script's
 // "del" takes the first row on the screen; the list scrolls.
-func shelfView(f *ui.Frame[int], s shelf) {
+func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(len(s.rows)) rows")
 		ui.Pressable(f, "add", 0) {
@@ -133,7 +133,7 @@ func formMachine() Machine[form, formEvent, int] {
 	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent], Exit: func(s form) Option[func()] { None }}
 }
 
-func formView(f *ui.Frame[formEvent], s form) {
+func formView(f mut ui.Frame[formEvent], s form) {
 	let mut col = ui.Plain()
 	col.Gap = 6
 	col.Padding = ui.All(12)
@@ -143,7 +143,9 @@ func formView(f *ui.Frame[formEvent], s form) {
 		let bold = ui.NewFlag(f, false)
 		ui.Toggle(f, bold, "bold")
 		let note = ui.NewDraft(f, "")
-		ui.Field(f, note, "note")
+		// A phone shows the note's field an email keyboard and a Send key
+		// (MB5).
+		ui.HintedField(f, ui.FieldLabel{Text: "", Description: "", Invalid: false}, ui.Hints{Keyboard: ui.EmailKeys, Return: ui.ReturnSend, Capitalize: ui.CapNone, Autocorrect: false}, note, "note")
 		ui.Pressable(f, "send", Sent) {
 			ui.Text(f, "Send \(s.sent)")
 		}
@@ -167,7 +169,7 @@ func loadMachine() Machine[chosen, int, int] {
 	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int], Exit: func(s chosen) Option[func()] { None }}
 }
 
-func loadView(f *ui.Frame[int], s chosen) {
+func loadView(f mut ui.Frame[int], s chosen) {
 	ui.Column(f, ui.Plain()) {
 		ui.Pressable(f, "next", 1) {
 			ui.Text(f, "Next")
@@ -188,7 +190,7 @@ func padMachine() Machine[pad, int, int] {
 	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
 }
 
-func padView(f *ui.Frame[int], s pad) {
+func padView(f mut ui.Frame[int], s pad) {
 	ui.Text(f, "last \(s.last) of \(s.n)")
 	let mut area = ui.Plain()
 	area.Width = ui.Fixed{Value: 200}
@@ -243,7 +245,7 @@ func rowsMachine() Machine[rowsApp, int, int] {
 	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) Option[func()] { None }}
 }
 
-func rowsView(f *ui.Frame[int], s rowsApp) {
+func rowsView(f mut ui.Frame[int], s rowsApp) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(s.n) rows, last \(s.last)")
 		ui.Row(f, ui.Plain()) {
@@ -288,7 +290,7 @@ func sketchMachine() Machine[sketch, int, int] {
 	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) Option[func()] { None }}
 }
 
-func sketchView(f *ui.Frame[int], s sketch) {
+func sketchView(f mut ui.Frame[int], s sketch) {
 	ui.Text(f, "mark \(s.x),\(s.y) of \(s.n)")
 	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) Option[int] {
 		match p.Phase {
@@ -298,7 +300,7 @@ func sketchView(f *ui.Frame[int], s sketch) {
 			None
 		}
 	}) {
-		ui.Canvas(f, "ink", 200, 150) func(p *ui.Paint) {
+		ui.Canvas(f, "ink", 200, 150) func(p mut ui.Paint) {
 			ui.Fill(p, ui.RectPath(0, 0, 200, 150), ui.Color{R: 240, G: 240, B: 240, A: 255})
 			let mx = float64(s.x)
 			let my = float64(s.y)
@@ -325,8 +327,12 @@ func sketchView(f *ui.Frame[int], s sketch) {
 // looks (UG1): boxes and buttons with looks of their own, a theme that a
 // tap changes, a shadow in one theme and a dimmed group a tap turns on, so
 // the window paints each look from the tree's table (fills, a border,
+// an underlined text in the theme's ink,
 // corners, a shadow, opacity) where both hosts hold the same Looks.
 type looksApp { theme int, dim bool }
+
+// inkedReading is the looks app's readout, drawn in the theme's ink.
+let inkedReading = ui.NewReadout("reading")
 
 func looksStep(s looksApp, e int) Decision[looksApp, int] {
 	if e == 0 {
@@ -340,14 +346,14 @@ func looksMachine() Machine[looksApp, int, int] {
 }
 
 // looked is a Style of the look l.
-func looked(f *ui.Frame[int], l ui.Look, pad ui.Length) ui.Style {
+func looked(f mut ui.Frame[int], l ui.Look, pad ui.Length) ui.Style {
 	let mut s = ui.Plain()
 	s.Padding = ui.All(pad)
 	s.Look = ui.LookFor(f, ui.Steady(l))
 	s
 }
 
-func looksView(f *ui.Frame[int], s looksApp) {
+func looksView(f mut ui.Frame[int], s looksApp) {
 	let cards = []uint32{0xdde7f5, 0xf5e6d8, 0xe2f2e2}
 	let accents = []uint32{0x3366cc, 0xcc6633, 0x339944}
 	let mut col = ui.Plain()
@@ -355,6 +361,12 @@ func looksView(f *ui.Frame[int], s looksApp) {
 	col.Padding = ui.All(16)
 	ui.Column(f, col) {
 		ui.Text(f, "theme \(s.theme)")
+		// A Text and a Readout in the theme's ink, underlined (bold in
+		// theme 1, italic in theme 2): the window's underline is a probe
+		// of the ink's colour, and its count of slanted runs is checked.
+		let inked = ui.Inked(ui.Ink{Color: ui.Rgb(accents[s.theme]), Bold: s.theme == 1, Italic: s.theme == 2, Underline: true})
+		ui.TextStyled(f, "inked", looked(f, inked, 0))
+		ui.ReadoutStyled(f, inkedReading, "reading", looked(f, inked, 0))
 		ui.Pressable(f, "next", 0) {
 			ui.Text(f, "Next")
 		}
@@ -384,6 +396,15 @@ func looksView(f *ui.Frame[int], s looksApp) {
 		}
 		ui.PressableStyled(f, "b", 0, looked(f, b, 0)) {
 			ui.Text(f, "B")
+		}
+		// A Pressable on a track at rest 24 DIP right of its place (TRACKS).
+		let mut tr = ui.Bare()
+		tr.Fill = ui.Rgb(0x884488)
+		tr.Corners = ui.Round(4)
+		ui.Track(f, ui.ByInt(7), ui.TrackX, 24.0, ui.TrackSpring{Stiffness: 170.0, Damping: 26.0}) {
+			ui.PressableStyled(f, "t", 0, looked(f, tr, 6)) {
+				ui.Text(f, "T")
+			}
 		}
 		let mut group = ui.Bare()
 		group.Opacity = if s.dim { 0.5 } else { 1.0 }
@@ -449,7 +470,7 @@ func roleDecl(r ui.Role, i int, t int, n int) ui.Access {
 	a
 }
 
-func rolesView(f *ui.Frame[int], t int) {
+func rolesView(f mut ui.Frame[int], t int) {
 	let roles = allRoles()
 	let n = len(roles)
 	let mut col = ui.Plain()
@@ -516,7 +537,7 @@ func stateLook(c uint32) ui.Look {
 }
 
 // tinted is a Pressable's style whose fill is k's colour in each state.
-func tinted(f *ui.Frame[int], k int) ui.Style {
+func tinted(f mut ui.Frame[int], k int) ui.Style {
 	let c = uint32(k * 0x0a)
 	let mut st = ui.PressStyle()
 	st.Look = ui.LookFor(f, ui.Looks{Rest: stateLook(0xd0e0f0 + c), Hover: stateLook(0xf0d080 + c), Focus: stateLook(0x80d0a0 + c), Active: stateLook(0xc06060 + c), Disabled: stateLook(0xa0a0a0 + c)})
@@ -524,13 +545,13 @@ func tinted(f *ui.Frame[int], k int) ui.Style {
 }
 
 // statePress is a tinted Pressable label, sending on.
-func statePress(f *ui.Frame[int], label string, on int, k int) {
+func statePress(f mut ui.Frame[int], label string, on int, k int) {
 	ui.PressableStyled(f, label, on, tinted(f, k)) {
 		ui.Text(f, label)
 	}
 }
 
-func statesView(f *ui.Frame[int], s statesApp) {
+func statesView(f mut ui.Frame[int], s statesApp) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "Escape" { Some{Value: 0} } else { None }
 	})

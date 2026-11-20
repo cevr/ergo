@@ -1,0 +1,373 @@
+// Package file is a proof.Store kept in a file of the host, so its proofs
+// outlive the process (docs/spec/stdlib.md, proof). The file is a log of
+// the changes, one line each, appended before any caller sees the
+// outcome: Open replays them with proof.Apply, a pure function of the
+// state and the change, so the replay reaches the state the store had. A
+// change the store refused (a Conflict, an Unknown, an Expired, a Spent,
+// a TooManyAttempts) is not kept; a Wrong is, as it spends an attempt.
+//
+// The lines are tab-separated fields: `iss "id" DIGEST SEC NSEC ATTEMPTS`,
+// `red "id" DIGEST SEC NSEC` and `clm "key" SEC NSEC SEC NSEC`, an ID and
+// a key quoted by strconv.Quote and a digest in hex. The log holds
+// digests, never codes. A crash inside an append can leave a part of the
+// last line: Open drops it and writes the log back without it. A whole
+// line that is not a change is a broken log, and Open fails naming it.
+//
+// One task at a time changes the store: each change takes the store's
+// lock (a queue.Queue of one slot), applies it, and appends its line. A
+// failed append leaves the state ahead of the log, so the store refuses
+// every later call with Failed until it is opened again. One process
+// opens the file at a time. The log is not compacted yet: spent and
+// expired proofs and ended claims stay in it.
+//
+// Effect: yielded/auth's proof store over a managed table. Go control: a
+// table of hashed codes, or an append-only log replayed at start.
+
+import fs
+import fstest
+import proof
+import proof/memory
+import queue
+import strconv
+import strings
+import sync
+import time
+
+// Store is a file store. Open makes one.
+type Store {
+	path   string,
+	files  fs.Files,
+	writes fs.Writes,
+	state  sync.Ref[proof.State],
+	broken sync.Ref[bool],
+	lock   queue.Queue[int],
+} implements proof.Store
+
+// Open is the store of the log at path, read with files and written with
+// writes: an empty store when there is no file there yet. It fails when
+// the log cannot be read, when a whole line of it is not a change, and
+// when it cannot drop a cut last line.
+func Open(files fs.Files, writes fs.Writes, path string) Store fails proof.Failed {
+	let text = files.ReadFile(path) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied:
+		return proof.Failed{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return proof.Failed{Reason: "\(path): \(f.Reason)"}
+	}
+	let mut s = proof.Empty()
+	let mut n = 0
+	let mut whole = 0
+	for raw in strings.Lines(text) {
+		if !strings.HasSuffix(raw, "\n") {
+			break
+		}
+		n = n + 1
+		let op = try opOf(path, n, strings.TrimSuffix(raw, "\n"))
+		let (_, next, _) = proof.Apply(s, op)
+		s = next
+		whole = whole + len(raw)
+	}
+	if whole < len(text) {
+		writes.WriteFile(path, strings.Slice(text, 0, whole)) catch {
+		case fs.NotFound:
+			return proof.Failed{Reason: "\(path): no such directory"}
+		case fs.Denied:
+			return proof.Failed{Reason: "\(path): permission denied"}
+		case fs.Failed as f:
+			return proof.Failed{Reason: "\(path): \(f.Reason)"}
+		}
+	}
+	Store{path: path, files: files, writes: writes, state: sync.NewRef(s), broken: sync.NewRef(false), lock: queue.New[int](1)}
+}
+
+// apply runs op under the lock: it applies op to the state, and appends
+// op's line when the state changed.
+func apply(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+	s.lock.Push(0) catch {
+	case queue.Closed:
+		Unreachable("the lock is never closed")
+	}
+	let o = step(s, op) catch {
+	case proof.Failed as f:
+		unlock(s)
+		return f
+	}
+	unlock(s)
+	o
+}
+
+// unlock lets the next change run.
+func unlock(s Store) {
+	let _ = s.lock.Pop() catch {
+	case queue.Closed:
+		Unreachable("the lock is never closed")
+	}
+}
+
+// step is apply's work, under the lock.
+func step(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+	if s.broken.Get() {
+		return proof.Failed{Reason: "\(s.path): a write failed; open the store again"}
+	}
+	let (o, changed) = sync.Modify(s.state, func(st proof.State) ((proof.Outcome, bool), proof.State) {
+		let (o, next, changed) = proof.Apply(st, op)
+		((o, changed), next)
+	})
+	if changed {
+		s.writes.AppendFile(s.path, lineOf(op)) catch {
+		case fs.NotFound:
+			s.broken.Set(true)
+			return proof.Failed{Reason: "\(s.path): no such directory"}
+		case fs.Denied:
+			s.broken.Set(true)
+			return proof.Failed{Reason: "\(s.path): permission denied"}
+		case fs.Failed as f:
+			s.broken.Set(true)
+			return proof.Failed{Reason: "\(s.path): \(f.Reason)"}
+		}
+	}
+	o
+}
+
+// Issue keeps a proof under id.
+func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed {
+	match try apply(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
+	case proof.Refused:
+		return proof.Conflict
+	case _:
+	}
+}
+
+// Redeem spends the proof under id.
+func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
+	match try apply(s, proof.RedeemOp{ID: id, Digest: d, Now: now}) {
+	case proof.Redeemed:
+	case proof.Missing:
+		return proof.Unknown
+	case proof.Late:
+		return proof.Expired
+	case proof.Used:
+		return proof.Spent
+	case proof.Exhausted:
+		return proof.TooManyAttempts
+	case proof.Mismatch as m:
+		return proof.Wrong{Left: m.Left}
+	case proof.Kept, proof.Refused:
+		Unreachable("a redeem is not kept or refused")
+	}
+}
+
+// Claim marks key used until until.
+func Claim(s Store, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed {
+	match try apply(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
+	case proof.Used:
+		return proof.Spent
+	case _:
+	}
+}
+
+// script is one step of a FileIsMemory script: wait Wait seconds, then
+// issue, redeem (with the right code or a wrong one) or claim, or open the
+// file store again.
+type script = issue{Pick int, Wait int} | redeem{Pick int, Right bool, Wait int} | claim{Pick int, Wait int} | reopen{}
+
+// FileIsMemory: a file store answers a generated script of issues,
+// redeems, claims and reopens as a memory store does, answer by answer;
+// and so does the store a reopen gives after a crash cut its last append
+// (torn, a part of a line with no line feed), down to the nanosecond of an
+// expiry.
+law FileIsMemory(steps []script, torn string) {
+	let disk = fstest.NewMemory()
+	let want = memory.New()
+	let mut got = try Open(disk, disk, "proofs.log")
+	let mut now = time.Unix(0, 0)
+	for st in steps {
+		match st {
+		case issue as i:
+			now = later(now, i.Wait)
+			let id = "p\t\"\(((i.Pick%4)+4)%4)"
+			if try issued(want, id, now) != try issued(got, id, now) {
+				return false
+			}
+		case redeem as r:
+			now = later(now, r.Wait)
+			let id = "p\t\"\(((r.Pick%4)+4)%4)"
+			let d = proof.DigestOf("p", if r.Right { "123456" } else { "654321" })
+			if try redeemed(want, id, d, now) != try redeemed(got, id, d, now) {
+				return false
+			}
+		case claim as c:
+			now = later(now, c.Wait)
+			let key = "k\(((c.Pick%3)+3)%3)"
+			if try claimed(want, key, now) != try claimed(got, key, now) {
+				return false
+			}
+		case reopen:
+			got = try Open(disk, disk, "proofs.log")
+		}
+	}
+	let edge = time.Unix(time.UnixSeconds(now) + 1, 999)
+	let e = proof.DigestOf("p", "edge")
+	try want.Issue("edge", e, edge, 1) catch {
+	case proof.Conflict:
+		return false
+	}
+	try got.Issue("edge", e, edge, 1) catch {
+	case proof.Conflict:
+		return false
+	}
+	try disk.AppendFile("proofs.log", "red\t" + strings.ReplaceAll(torn, "\n", ""))
+	let back = try Open(disk, disk, "proofs.log")
+	let justBefore = time.Unix(time.UnixSeconds(now) + 1, 500)
+	if try redeemed(want, "edge", e, justBefore) != try redeemed(back, "edge", e, justBefore) {
+		return false
+	}
+	for i in 0..4 {
+		let id = "p\t\"\(i)"
+		let d = proof.DigestOf("p", "123456")
+		if try redeemed(want, id, d, now) != try redeemed(back, id, d, now) {
+			return false
+		}
+	}
+	for k in 0..3 {
+		if try claimed(want, "k\(k)", now) != try claimed(back, "k\(k)", now) {
+			return false
+		}
+	}
+	true
+}
+
+// later is t plus sec seconds, with no monotonic reading, as a time read
+// back from the log is: == of two outcomes compares it.
+func later(t time.Time, sec int) time.Time { time.Unix(time.UnixSeconds(t) + int64(((sec%20)+20)%20), time.Nanosecond(t) + 1000) }
+
+// issued is whether s kept a proof of code 123456 under id for 30 seconds
+// and two wrong codes, or found it a Conflict.
+func issued(s proof.Store, id string, now time.Time) bool fails proof.Failed {
+	try s.Issue(id, proof.DigestOf("p", "123456"), now.Add(30s), 2) catch {
+	case proof.Conflict:
+		return false
+	}
+	true
+}
+
+// redeemed is the answer of a redeem, as a number: 0 redeemed, 1 Unknown,
+// 2 Expired, 3 Spent, 4 TooManyAttempts, 10 and up Wrong with Left.
+func redeemed(s proof.Store, id string, d proof.Digest, now time.Time) int fails proof.Failed {
+	try s.Redeem(id, d, now) catch {
+	case proof.Unknown:
+		return 1
+	case proof.Expired:
+		return 2
+	case proof.Spent:
+		return 3
+	case proof.TooManyAttempts:
+		return 4
+	case proof.Wrong as w:
+		return 10 + w.Left
+	}
+	0
+}
+
+// claimed is whether s claimed key for 40 seconds, or found it Spent.
+func claimed(s proof.Store, key string, now time.Time) bool fails proof.Failed {
+	try s.Claim(key, now.Add(40s), now) catch {
+	case proof.Spent:
+		return false
+	}
+	true
+}
+
+// OpenRefusesABrokenLine: a whole line that is not a change, after good
+// ones, makes Open fail.
+law OpenRefusesABrokenLine(id string, line string) {
+	let disk = fstest.NewMemory()
+	let s = try Open(disk, disk, "proofs.log")
+	try s.Issue(id, proof.DigestOf("p", "1"), time.Unix(60, 0), 3) catch {
+	case proof.Conflict:
+		return false
+	}
+	try disk.AppendFile("proofs.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	let _ = Open(disk, disk, "proofs.log") catch {
+	case proof.Failed:
+		return true
+	}
+	false
+}
+
+// LogHoldsNoCode: the log of a store that issued a proof holds the
+// code's digest and never the code.
+law LogHoldsNoCode(code string) {
+	let secret = "code:" + code
+	let d = proof.DigestOf("p", secret)
+	let disk = fstest.NewMemory()
+	let s = try Open(disk, disk, "proofs.log")
+	try s.Issue("id", d, time.Unix(60, 0), 3) catch {
+	case proof.Conflict:
+		return false
+	}
+	let log = try disk.ReadFile("proofs.log")
+	!strings.Contains(log, secret) && strings.Contains(log, proof.DigestText(d))
+}
+
+// timeText is the two fields of t.
+func timeText(t time.Time) string { "\(time.UnixSeconds(t))\t\(time.Nanosecond(t))" }
+
+// lineOf is the log line of op, with its line feed.
+func lineOf(op proof.Op) string {
+	match op {
+	case proof.IssueOp as i:
+		"iss\t" + strconv.Quote(i.ID) + "\t" + proof.DigestText(i.Digest) + "\t" + timeText(i.Expires) + "\t\(i.Attempts)\n"
+	case proof.RedeemOp as r:
+		"red\t" + strconv.Quote(r.ID) + "\t" + proof.DigestText(r.Digest) + "\t" + timeText(r.Now) + "\n"
+	case proof.ClaimOp as c:
+		"clm\t" + strconv.Quote(c.Key) + "\t" + timeText(c.Until) + "\t" + timeText(c.Now) + "\n"
+	}
+}
+
+// opOf is the change of line, the n-th of the log at path.
+func opOf(path string, n int, line string) proof.Op fails proof.Failed {
+	let f = strings.Split(line, "\t")
+	let bad = proof.Failed{Reason: "\(path):\(n): not a change"}
+	match (f[0], len(f)) {
+	case ("iss", 6):
+		proof.IssueOp{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Expires: try timeOf(f[3], f[4], bad), Attempts: try intOf(f[5], bad)}
+	case ("red", 5):
+		proof.RedeemOp{ID: try unquote(f[1], bad), Digest: try digestOf(f[2], bad), Now: try timeOf(f[3], f[4], bad)}
+	case ("clm", 6):
+		proof.ClaimOp{Key: try unquote(f[1], bad), Until: try timeOf(f[2], f[3], bad), Now: try timeOf(f[4], f[5], bad)}
+	case (_, _):
+		bad
+	}
+}
+
+// digestOf is the digest of a field, or bad.
+func digestOf(field string, bad proof.Failed) proof.Digest fails proof.Failed {
+	proof.ParseDigest(field) catch {
+	case proof.BadDigest:
+		return bad
+	}
+}
+
+// intOf is the number of a field, or bad.
+func intOf(field string, bad proof.Failed) int fails proof.Failed {
+	strconv.Atoi(field) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return bad
+	}
+}
+
+// timeOf is the time of two fields, or bad.
+func timeOf(sec string, nsec string, bad proof.Failed) time.Time fails proof.Failed {
+	time.Unix(int64(try intOf(sec, bad)), int64(try intOf(nsec, bad)))
+}
+
+// unquote is the text of a quoted field, or bad.
+func unquote(field string, bad proof.Failed) string fails proof.Failed {
+	strconv.Unquote(field) catch {
+	case strconv.Malformed:
+		return bad
+	}
+}

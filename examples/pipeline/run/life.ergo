@@ -1,0 +1,20 @@
+// The rules of a run, as laws of its machine and of its fold.
+
+// Life is the run as a machine: its step is Handle, so a durable actor
+// of it keeps the commands and replays them (std journal).
+type Life machine[Run, Command] {
+	initial: Unsubmitted,
+	step:    Handle,
+
+	// ClosedIsFinal: a run that ended refuses every command with Closed,
+	// whatever its outcome.
+	law ClosedIsFinal(o Outcome, c Command) {
+		let _ = Handle(Done{Outcome: o}, c) catch {
+		case Closed:
+			return true
+		case WrongState, WrongStage, BadLength:
+			return false
+		}
+		false
+	},
+}

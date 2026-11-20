@@ -2922,9 +2922,11 @@ extern go debug/elf.R_ARM_V4BX let R_ARM_V4BX R_ARM
 extern go debug/elf.R_ARM_XPC25 let R_ARM_XPC25 R_ARM
 
 // ergo:go func R_INFO(sym uint32, typ uint32) uint64
+// ergo:total
 extern go debug/elf.R_INFO func R_INFO(sym uint32, typ uint32) uint64 needs go.Foreign
 
 // ergo:go func R_INFO32(sym uint32, typ uint32) uint32
+// ergo:total
 extern go debug/elf.R_INFO32 func R_INFO32(sym uint32, typ uint32) uint32 needs go.Foreign
 
 // ergo:go type R_LARCH int
@@ -4524,15 +4526,19 @@ extern go debug/elf.R_SPARC_WDISP30 let R_SPARC_WDISP30 R_SPARC
 extern go debug/elf.R_SPARC_WPLT30 let R_SPARC_WPLT30 R_SPARC
 
 // ergo:go func R_SYM32(info uint32) uint32
+// ergo:total
 extern go debug/elf.R_SYM32 func R_SYM32(info uint32) uint32 needs go.Foreign
 
 // ergo:go func R_SYM64(info uint64) uint32
+// ergo:total
 extern go debug/elf.R_SYM64 func R_SYM64(info uint64) uint32 needs go.Foreign
 
 // ergo:go func R_TYPE32(info uint32) uint32
+// ergo:total
 extern go debug/elf.R_TYPE32 func R_TYPE32(info uint32) uint32 needs go.Foreign
 
 // ergo:go func R_TYPE64(info uint64) uint32
+// ergo:total
 extern go debug/elf.R_TYPE64 func R_TYPE64(info uint64) uint32 needs go.Foreign
 
 // ergo:go type R_X86_64 int
@@ -4937,15 +4943,19 @@ extern go debug/elf.STV_INTERNAL let STV_INTERNAL SymVis
 extern go debug/elf.STV_PROTECTED let STV_PROTECTED SymVis
 
 // ergo:go func ST_BIND(info uint8) SymBind
+// ergo:total
 extern go debug/elf.ST_BIND func ST_BIND(info uint8) SymBind needs go.Foreign
 
 // ergo:go func ST_INFO(bind SymBind, typ SymType) uint8
+// ergo:total
 extern go debug/elf.ST_INFO func ST_INFO(bind SymBind, typ SymType) uint8 needs go.Foreign
 
 // ergo:go func ST_TYPE(info uint8) SymType
+// ergo:total
 extern go debug/elf.ST_TYPE func ST_TYPE(info uint8) SymType needs go.Foreign
 
 // ergo:go func ST_VISIBILITY(other uint8) SymVis
+// ergo:total
 extern go debug/elf.ST_VISIBILITY func ST_VISIBILITY(other uint8) SymVis needs go.Foreign
 
 // ergo:go type Section struct
@@ -5131,7 +5141,9 @@ extern go debug/elf.Version.String func (i Version) String() string needs go.For
 extern go debug/elf.VersionIndex type VersionIndex uint16
 
 // ergo:go func (VersionIndex).Index() uint16
+// ergo:total
 extern go debug/elf.VersionIndex.Index func (vi VersionIndex) Index() uint16 needs go.Foreign
 
 // ergo:go func (VersionIndex).IsHidden() bool
+// ergo:total
 extern go debug/elf.VersionIndex.IsHidden func (vi VersionIndex) IsHidden() bool needs go.Foreign

@@ -1,0 +1,176 @@
+import actor
+import scopedengine/engine
+import scopedengine/memory
+import scopedengine/screen
+import strings
+import time
+import ui
+
+// Host is the panel on the test host.
+type Host = ui.TestHost[engine.Mode, engine.Signal, Decision[engine.Mode, Never]]
+
+// Frame is the screen read after a press: its lines in screen order, its
+// status line, the engines out, and the work of the press (ui.Counts).
+type Frame { Shown []string, Status string, Held int, Counts ui.StepCounts }
+
+// ScreenIsTheLivePanel: the panel's screen, clicked on the test host,
+// shows the status and the result of the live panel's mode and the same
+// engines out after every press and at the end, over generated starts,
+// stops, computes, faults and clock moves. So the laws over the live panel
+// (ReleasesEqualAcquires, OneBootPerStart) hold for the screen.
+law ScreenIsTheLivePanel(gaps []int, kinds []int, tail int) {
+	let ls = lines(gaps, kinds)
+	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 2000))
+	let seen = live(ls, end)
+	let c = time.NewManual(0)
+	let mut frames = []Frame{}
+	let pool = memory.OnClock(c, BootTakes())
+	with context { Scheduler: c, engine.Engines: pool } {
+		PlayScreen(ls, end, c, pool, func(f Frame) { frames = frames.Append(f) })
+	} catch {
+	case _:
+		return false
+	}
+	if len(frames) != len(seen) {
+		return false
+	}
+	for i, s in seen {
+		let f = frames[i]
+		if f.Status != screen.Status(s.Mode) || f.Held != s.Held || f.Shown[len(f.Shown)-1] != screen.Result(s.Mode) {
+			return false
+		}
+	}
+	true
+}
+
+// lines is a generated script: gaps of 0 to 2999 ms, or (for an even
+// number) whole tenths of a second up to 9.9 s, which land presses on the
+// instants boots end (a boot takes 500 ms), and presses of every kind.
+func lines(gaps []int, kinds []int) []Line {
+	let mut out = []Line{}
+	let mut t = 0s
+	for i, g in gaps {
+		t = t + if pick(g, 2) == 0 { time.Times(100ms, pick(g/2, 100)) } else { time.Times(1ms, pick(g, 3000)) }
+		let press = match pick(if i < len(kinds) { kinds[i] } else { 0 }, 4) {
+		case 0:
+			Start
+		case 1:
+			Stop
+		case 2:
+			Compute
+		case _:
+			Fault
+		}
+		out = out.Append(Line{At: t, Press: press})
+	}
+	out
+}
+
+// live is Play over ls until end, on a fresh time.Manual.
+func live(ls []Line, end duration) []Seen {
+	let c = time.NewManual(0)
+	let pool = memory.OnClock(c, BootTakes())
+	with context { Scheduler: c, engine.Engines: pool } { Play(ls, end, c, pool) }
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// PlayScreen plays lines on the panel's screen, on std ui's test host
+// over clock with pool, a fresh pool on it that the caller binds as
+// engine.Engines, as Play plays them on the live panel. For each line it
+// moves the clock to the line's time and settles, so a boot due by then
+// has ended; clicks the line's button (a fault is the pool's, not a
+// button) and settles; and gives the screen to show. After end it stops
+// the panel and gives the screen once more, with every engine back. A
+// press whose button is not on the screen (Start while the engine runs,
+// Stop while it is off) or is disabled (Compute without an engine) clicks
+// nothing.
+func PlayScreen[R](lines []Line, end duration, clock time.Manual, pool memory.Pool, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler | engine.Engines {
+	let app = actor.StartMachine(engine.Panel{}, 4, func(n Never) {})
+	played(app, pool, lines, end, clock, show) catch {
+	case err:
+		app.Stop()
+		return err
+	}
+}
+
+func played[R](app actor.Actor[engine.Mode, engine.Signal, Decision[engine.Mode, Never]], pool memory.Pool, lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
+	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 4)
+	let mut now = 0s
+	for l in lines {
+		try ui.Advance(&h, l.At-now)
+		try ui.Settle(&h)
+		now = l.At
+		match l.Press {
+		case Fault:
+			memory.Fault(pool)
+		case Start, Stop, Compute:
+			ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: Label(l.Press)}}, ui.SettleAll}) catch {
+			case ui.NoNode, ui.Ambiguous, ui.Mismatch:
+			case actor.Stopped as s:
+				return s
+			case ui.BadPatch as p:
+				return p
+			}
+		}
+		show(read(&h, memory.Held(pool)))
+	}
+	try ui.Advance(&h, end-now)
+	try ui.Settle(&h)
+	let last = read(&h, 0)
+	app.Stop()
+	let _ = actor.ExitOf(app)
+	show(Frame{Shown: last.Shown, Status: last.Status, Held: memory.Held(pool), Counts: last.Counts})
+}
+
+// Label is the name of the button a press clicks.
+func Label(p Press) string {
+	match p {
+	case Start:
+		screen.StartLabel
+	case Stop:
+		screen.StopLabel
+	case Compute, Fault:
+		screen.ComputeLabel
+	}
+}
+
+func read(h mut Host, held int) Frame {
+	let shown = tokens(ui.Screen(h), false)
+	// the status line is the text after the heading
+	Frame{Shown: shown, Status: if len(shown) > 1 { shown[1] } else { "" }, Held: held, Counts: ui.Counts(h)}
+}
+
+// tokens is the screen in screen order: the heading as # NAME, each text,
+// and each button as [LABEL] ([LABEL, disabled] in a disabled fieldset).
+func tokens(shapes []ui.Shape[engine.Signal], off bool) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.PressableNode as p:
+			out = out.Append(if off { "[\(p.Label), disabled]" } else { "[\(p.Label)]" })
+		case ui.FieldsetNode as fs:
+			for t in tokens(s.Kids, off || fs.Disabled) {
+				out = out.Append(t)
+			}
+		case ui.SemanticNode as g:
+			if g.Access.Role == ui.Heading {
+				out = out.Append("# \(g.Access.Name)")
+			} else {
+				for t in tokens(s.Kids, off) {
+					out = out.Append(t)
+				}
+			}
+		case _:
+			for t in tokens(s.Kids, off) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
+}
+
+// ShownLine is how a frame shows: the screen's parts joined by " | ".
+func ShownLine(f Frame) string { strings.Join(f.Shown, " | ") }

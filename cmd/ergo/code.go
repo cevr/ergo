@@ -144,23 +144,16 @@ type (
 	// JSON decodes back into api.Function, whose field names match them
 	// but for case.
 	codeContract struct {
-		Name            string         `json:"name"`
-		Signature       string         `json:"signature"`
-		TypeParameters  []string       `json:"typeParameters"`
-		Fails           string         `json:"fails"`
-		Needs           string         `json:"needs"`
-		Takes           []string       `json:"takes"`
-		TakesParameters []int          `json:"takesParameters"`
-		TakesSelf       bool           `json:"takesSelf"`
-		TakesInferred   bool           `json:"takesInferred"`
-		Copies          []codeCopySite `json:"copies"`
-	}
-	codeCopySite struct {
-		ParameterIndex int    `json:"parameterIndex"`
-		Parameter      string `json:"parameter"`
-		Where          string `json:"where"`
-		What           string `json:"what"`
-		Key            bool   `json:"key"`
+		Name            string   `json:"name"`
+		Signature       string   `json:"signature"`
+		TypeParameters  []string `json:"typeParameters"`
+		Fails           string   `json:"fails"`
+		Needs           string   `json:"needs"`
+		Takes           []string `json:"takes"`
+		TakesParameters []int    `json:"takesParameters"`
+		TakesSelf       bool     `json:"takesSelf"`
+		TakesInferred   bool     `json:"takesInferred"`
+		Own             []string `json:"own"`
 	}
 	codeDecl struct {
 		Handle   string `json:"handle"`
@@ -314,10 +307,7 @@ func codeContractsOf(p *check.Package) []codeContract {
 		return out
 	}
 	for _, f := range api.Functions(p) {
-		c := codeContract{Name: f.Name, Signature: f.Signature, TypeParameters: f.TypeParameters, Fails: f.Fails, Needs: f.Needs, Takes: f.Takes, TakesParameters: f.TakesParameters, TakesSelf: f.TakesSelf, TakesInferred: f.TakesInferred, Copies: []codeCopySite{}}
-		for _, cp := range f.Copies {
-			c.Copies = append(c.Copies, codeCopySite(cp))
-		}
+		c := codeContract{Name: f.Name, Signature: f.Signature, TypeParameters: f.TypeParameters, Fails: f.Fails, Needs: f.Needs, Takes: f.Takes, TakesParameters: f.TakesParameters, TakesSelf: f.TakesSelf, TakesInferred: f.TakesInferred, Own: append([]string{}, f.Own...)}
 		out = append(out, c)
 	}
 	return out

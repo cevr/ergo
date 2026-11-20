@@ -1,0 +1,30 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "read",
+     "arguments": "{\"path\":\"../secret.txt\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "That file is outside the directory."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {}
+}

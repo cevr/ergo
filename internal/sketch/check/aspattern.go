@@ -66,8 +66,7 @@ func (c *checker) catchAll(id *syntax.Ident) bool {
 // 7), so Totality 1 decides (patternNameTests), whatever the name's case:
 // a type, a type parameter, a constant or a capability tests; any other
 // name binds the rest. The binder rules then judge it: an enclosing local
-// or a law's operation is D-D2's S108, a prelude name D-D3's, and a
-// package function, an imported package or a package value Totality 1's
+// or a law's operation is D-D2's S108, and a package function, an imported package or a package value Totality 1's
 // (refusedRest); each still binds.
 func catchAllObject(o Object) bool {
 	return !patternNameTests(o, false, false, false)
@@ -77,12 +76,15 @@ func catchAllObject(o Object) bool {
 // names a package function, an imported package or a package value
 // (rows.md Totality 6: the rule holds in catch arms), and reports whether
 // it did. The name still binds, with no type, so its reads add nothing
-// (D3). A prelude name is D-D3's, at declareAs.
+// (D3). A prelude name it hides (D-D3, owner q244).
 func (c *checker) refusedRest(id *syntax.Ident) bool {
-	if id.Name == "_" || c.isPreludeName(id.Name) {
+	if id.Name == "_" {
 		return false
 	}
 	o := c.lookupPast(id.Name)
+	if preludeObject(o) {
+		return false
+	}
 	switch o := o.(type) {
 	case *Func, *PkgName:
 		if p, ok := o.(*PkgName); ok {

@@ -1,0 +1,186 @@
+// Package screen is the site on a screen (stage b): the navigation,
+// the route's page, and the transition log with a badge
+// per fact of each navigation (a cold load, an entry, an exit, a stay on
+// a painting). A link of the site is a Semantic with the Link role whose
+// press sends gallery.Clicked; the host pushes it, and the address change
+// comes back as gallery.Arrived, from OnURL.
+
+import gallery/gallery
+import ui
+
+// DraftPlaceholder is the studio's field.
+let DraftPlaceholder = "A half-finished thought…"
+
+// LogTitle is the transition log's heading.
+let LogTitle = "Transition Log"
+
+// Screen is the site: the navigation, the page and the log.
+func Screen(f mut ui.Frame[gallery.Signal], s gallery.Site) {
+	ui.OnURL(f, func(u ui.URL) Option[gallery.Signal] { Some[gallery.Signal]{Value: gallery.Arrived{URL: ui.Href(u)}} })
+	ui.Column(f, ui.Plain()) {
+		ui.Semantic(f, named(ui.List, "Navigation", None), None, ui.Plain()) {
+			link(f, "Home", "/")
+			link(f, "Gallery", "/gallery")
+			link(f, "Studio", "/studio")
+		}
+		match s.Route {
+		case Some[gallery.Route] as r:
+			page(f, s, r.Value)
+		case None:
+		}
+		heading(f, LogTitle, 2)
+		ui.Semantic(f, named(ui.List, LogTitle, None), None, ui.Plain()) {
+			ui.Each(f, s.Log, func(l gallery.Logged) ui.Key { ui.ByInt(l.Seq) }) func(l gallery.Logged) {
+				ui.Same(f, ui.ByInt(l.Seq)) {
+					ui.Text(f, Entry(l))
+				}
+			}
+		}
+	}
+}
+
+// page is the route's page.
+func page(f mut ui.Frame[gallery.Signal], s gallery.Site, r gallery.Route) {
+	match r {
+	case gallery.Home:
+		heading(f, "Route Transitions", 1)
+		ui.Text(f, "Every navigation in this app is described by the route before and the route after, and the log narrates what each one said. The cold load that brought you here is already in it.")
+	case gallery.Gallery:
+		heading(f, "Gallery", 1)
+		ui.Text(f, "The catalog loads when a navigation enters this route, whether by navigation or by cold load.")
+		match s.Catalog {
+		case gallery.Ready:
+			ui.Semantic(f, named(ui.List, "Paintings", None), None, ui.Plain()) {
+				for w in gallery.Paintings {
+					link(f, w.Title, "/gallery/\(w.ID)")
+					ui.Text(f, w.Artist)
+				}
+			}
+		case gallery.Idle, gallery.Loading:
+			ui.Text(f, "Hanging the paintings…")
+		}
+	case gallery.Painting as p:
+		painting(f, s.Painting, p.ID)
+	case gallery.Studio:
+		heading(f, "Studio", 1)
+		ui.Text(f, "Write something, then leave. Leaving this route saves whatever is here.")
+		ui.Input(f, s.Draft, DraftPlaceholder, func(t string) gallery.Signal { gallery.Drafted{Text: t} })
+		match s.Saved {
+		case Some[string] as d:
+			heading(f, "Last saved draft", 2)
+			ui.Text(f, d.Value)
+		case None:
+			ui.Text(f, "Nothing saved yet.")
+		}
+	case gallery.NotFound as n:
+		heading(f, "404 - Page Not Found", 1)
+		ui.Text(f, "The path \"\(n.Path)\" was not found.")
+		link(f, "← Go Home", "/")
+	}
+}
+
+// painting is a painting's page: unpacking while it loads, then the
+// painting and its neighbours, or the not-found panel.
+func painting(f mut ui.Frame[gallery.Signal], shown gallery.Shown, id int) {
+	match shown {
+	case gallery.ReadyPainting as p:
+		let mut at = -1
+		for i, w in gallery.Paintings {
+			if w.ID == p.ID {
+				at = i
+			}
+		}
+		if at < 0 {
+			heading(f, "Painting Not Found", 1)
+			ui.Text(f, "No painting with id \(p.ID) hangs in this gallery.")
+			link(f, "← Back to Gallery", "/gallery")
+			return
+		}
+		let w = gallery.Paintings[at]
+		link(f, "← Back to Gallery", "/gallery")
+		heading(f, w.Title, 1)
+		ui.Text(f, w.Artist)
+		if at > 0 {
+			link(f, "← Previous", "/gallery/\(gallery.Paintings[at-1].ID)")
+		}
+		ui.Text(f, "\(at + 1) of \(len(gallery.Paintings))")
+		if at+1 < len(gallery.Paintings) {
+			link(f, "Next →", "/gallery/\(gallery.Paintings[at+1].ID)")
+		}
+	case gallery.LoadingPainting, gallery.NoPainting:
+		link(f, "← Back to Gallery", "/gallery")
+		ui.Text(f, "Unpacking the painting…")
+	}
+}
+
+// Entry is a log line: `#N FROM → TO` and its badges.
+func Entry(l gallery.Logged) string {
+	let from = match l.From {
+	case Some[gallery.Route] as r:
+		gallery.Label(r.Value)
+	case None:
+		"Cold load"
+	}
+	let mut line = "#\(l.Seq) \(from) → \(gallery.Label(l.To))"
+	for b in Badges(l) {
+		line = line + " [\(b)]"
+	}
+	line
+}
+
+// Badges are the facts of a navigation: a cold load, the
+// route entered, the route left, a stay on a painting with its ids, or
+// else a stay within the route.
+func Badges(l gallery.Logged) []string {
+	let mut out = []string{}
+	match l.From {
+	case Some[gallery.Route] as r:
+		if kind(r.Value) != kind(l.To) {
+			out = out.Append("Entered \(kind(l.To))").Append("Exited \(kind(r.Value))")
+		}
+		match (r.Value, l.To) {
+		case (gallery.Painting as a, gallery.Painting as b):
+			out = out.Append("Stayed on Painting: \(a.ID) → \(b.ID)")
+		case (gallery.Home, _), (gallery.Gallery, _), (gallery.Painting, _), (gallery.Studio, _), (gallery.NotFound, _):
+		}
+	case None:
+		out = out.Append("Cold load").Append("Entered \(kind(l.To))")
+	}
+	if len(out) == 0 {
+		return []string{"Stayed within route"}
+	}
+	out
+}
+
+// kind is the name of a route's kind.
+func kind(r gallery.Route) string {
+	match r {
+	case gallery.Home:
+		"Home"
+	case gallery.Gallery:
+		"Gallery"
+	case gallery.Painting:
+		"Painting"
+	case gallery.Studio:
+		"Studio"
+	case gallery.NotFound:
+		"NotFound"
+	}
+}
+
+func link(f mut ui.Frame[gallery.Signal], label string, path string) {
+	ui.Semantic(f, named(ui.Link, label, None), Some[gallery.Signal]{Value: gallery.Clicked{Link: gallery.Internal{URL: path}}}, ui.Plain()) {
+		ui.Text(f, label)
+	}
+}
+
+func heading(f mut ui.Frame[gallery.Signal], text string, level int) {
+	ui.Semantic(f, named(ui.Heading, text, Some{Value: level}), None, ui.Plain()) {
+		ui.Text(f, text)
+	}
+}
+
+// named is the access of a container with a role and a name.
+func named(role ui.Role, name string, level Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+}

@@ -5,16 +5,89 @@
 // when it began, never from when a tick came, so the phases do not drift.
 // It is pure: the clock reaches it only as the time of each cue.
 
+import machines
+
 // Light is the colour the cars see and the time it began.
 type Light = Red{Since duration} | Green{Since duration, Asked bool} | Yellow{Since duration} | Flashing{Since duration}
+
+// ColoursFollow: from any light, every cue leads to a colour that may
+// follow it: never green to red, never red to yellow.
+law ColoursFollow(l Light, cues []Cue) {
+	let mut now = l
+	for c in cues {
+		let next = machines.Next(now, Step(now, c))
+		if !Follows(now, next) {
+			return false
+		}
+		now = next
+	}
+	true
+}
+
+// PhasesDoNotDrift: a phase that a tick ends begins the next phase at its
+// deadline, however late the tick came.
+law PhasesDoNotDrift(l Light, at duration) {
+	match Deadline(l) {
+	case Some[duration] as d:
+		let next = machines.Next(l, Step(l, Tick{At: at}))
+		if at < d.Value {
+			return Colour(next) == Colour(l) && SinceOf(next) == SinceOf(l)
+		}
+		SinceOf(next) == d.Value
+	case None:
+		true
+	}
+}
 
 // Cue is what reaches the light: the clock, the button, a fault and a
 // repair, each at a time since the light was switched on.
 type Cue = Tick{At duration} | Button{At duration} | Fault{At duration} | Repair{At duration}
 
+// ButtonShortensGreen: a press in green moves its end to MinGreen after
+// it began, and never later.
+law ButtonShortensGreen(since duration, at duration) {
+	let g Light = Green{Since: since, Asked: false}
+	let pressed = machines.Next(g, Step(g, Button{At: at}))
+	Deadline(pressed) == Some[duration]{Value: since + MinGreen}
+}
+
+// OnlyRepairEndsFlashing: a flashing light stays flashing for every cue
+// but a repair.
+law OnlyRepairEndsFlashing(since duration, c Cue) {
+	let f Light = Flashing{Since: since}
+	let next = machines.Next(f, Step(f, c))
+	match c {
+	case Repair:
+		Colour(next) == "red"
+	case Tick:
+		Colour(next) == "flashing"
+	case Button:
+		Colour(next) == "flashing"
+	case Fault:
+		Colour(next) == "flashing"
+	}
+}
+
 // The length of each phase.
 let RedFor = 30s
 let MinGreen = 20s
+
+// GreenLastsMinGreen: no cue ends a green before MinGreen, except a
+// fault.
+law GreenLastsMinGreen(since duration, asked bool, c Cue) {
+	let g Light = Green{Since: since, Asked: asked}
+	let next = machines.Next(g, Step(g, c))
+	match next {
+	case Yellow as y:
+		y.Since >= since+MinGreen
+	case Green:
+		true
+	case Flashing:
+		true
+	case Red:
+		false
+	}
+}
 let MaxGreen = 60s
 let YellowFor = 4s
 

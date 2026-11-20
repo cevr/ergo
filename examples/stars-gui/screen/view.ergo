@@ -8,7 +8,7 @@ let RowHeight = ui.Length(20.0)
 // that edits the cell under the cursor, the filter, mark and extend
 // buttons, the status line, the text field, and the view's rows as a
 // virtual list keyed by star id, one text a row (catalog.RowLine).
-func View(f *ui.Frame[Signal], s catalog.State) {
+func View(f mut ui.Frame[Signal], s catalog.State) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[Signal] { Keyed(k) })
 	let g = catalog.GridOf(s)
 	ui.Column(f, ui.Plain()) {

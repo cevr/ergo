@@ -67,3 +67,56 @@ func init() {
 	}, RunOnFailure: true})
 }
 `
+
+// ProfileHookFile is the name of the profile hook's file in a profiling
+// build (scripts/opcount -profile).
+const ProfileHookFile = "zz_opcount_profile.go"
+
+// ProfileVariable names the file the profile hook writes the run's CPU
+// profile to (pprof format, as go build -pgo reads it).
+const ProfileVariable = "OPCOUNT_PROFILE"
+
+// ProfileHook is the profile hook of scripts/opcount -profile (U4
+// PGO-RELEASE): it starts runtime/pprof's CPU profile in init and stops
+// and writes it at exit (main returns or os.Exit), so a run of the
+// workload records the profile that ergo build --release reads as the
+// program's default.pgo. Like Hook, it is added only in opcount's
+// scratch build, through -overlay, and needs -ldflags=-checklinkname=0.
+const ProfileHook = `package main
+
+// Profile hook of scripts/opcount -profile (internal/opcount/hook.go); a
+// profiling build only.
+
+import (
+	"os"
+	"runtime/pprof"
+	_ "unsafe"
+)
+
+type opcountProfileHook struct {
+	F            func()
+	RunOnFailure bool
+}
+
+//go:linkname opcountProfileHookAdd internal/runtime/exithook.Add
+func opcountProfileHookAdd(h opcountProfileHook)
+
+func init() {
+	out := os.Getenv("` + ProfileVariable + `")
+	if out == "" {
+		return
+	}
+	f, err := os.Create(out)
+	if err != nil {
+		return
+	}
+	if pprof.StartCPUProfile(f) != nil {
+		f.Close()
+		return
+	}
+	opcountProfileHookAdd(opcountProfileHook{F: func() {
+		pprof.StopCPUProfile()
+		f.Close()
+	}, RunOnFailure: true})
+}
+`

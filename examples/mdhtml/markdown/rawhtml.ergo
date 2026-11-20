@@ -2,6 +2,7 @@
 // and the tags a line may hold, read by hand.
 
 import strings
+import mdhtml/html
 
 // HtmlEnd is the kind of an open HTML block, which is what ends it
 // (CommonMark's kinds 1 to 7, in order).
@@ -211,6 +212,87 @@ func asciiLetter(c byte) bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 func asciiDigit(c byte) bool { c >= '0' && c <= '9' }
 
 func asciiAlnum(c byte) bool { asciiLetter(c) || asciiDigit(c) }
+
+// EscapedPunctuationIsText: each ASCII punctuation character after a
+// backslash is itself, so a line of letters and escaped punctuation is a
+// paragraph of its text, and no marker starts anything.
+law EscapedPunctuationIsText(s string) {
+	let mut src = strings.NewBuilder()
+	let mut want = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		// ASCII punctuation is every printable byte that is not a
+		// letter, a digit or a space.
+		if c > ' ' && c < 0x7f && !asciiAlnum(c) {
+			src.WriteByte('\\')
+			src.WriteByte(c)
+			want.WriteByte(c)
+		} else if asciiAlnum(c) {
+			src.WriteByte(c)
+			want.WriteByte(c)
+		}
+	}
+	let t = want.String()
+	md(src.String()) == if t == "" { "" } else { "<p>" + html.Escape(t) + "</p>\n" }
+}
+
+// md is the HTML of the trusted document src, with no highlighting.
+func md(src string) string { with noColor { Render(src, Unsafe) } }
+
+// DefinitionsAnywhere: a reference definition defines its label before
+// or after the link, in any case: [x] and [X]: /u make one link.
+law DefinitionsAnywhere(s string, d string) {
+	let label = letters(s)
+	let dest = "/" + letters(d)
+	if label == "" {
+		return true
+	}
+	let want = "<p><a href=\"" + dest + "\">" + label + "</a></p>\n"
+	let def = "[" + strings.ToUpper(label) + "]: " + dest
+	md("["+label+"]\n\n"+def) == want && md(def+"\n\n["+label+"]") == want
+}
+
+// letters is the ASCII letters and digits of s.
+func letters(s string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		if asciiAlnum(s[i]) {
+			b.WriteByte(s[i])
+		}
+	}
+	b.String()
+}
+
+// EmphasisNests: one delimiter is em, two strong, three both; _ inside a
+// word is text.
+law EmphasisNests(s string) {
+	let w = letters(s)
+	if w == "" {
+		return true
+	}
+	md("*"+w+"*") == "<p><em>"+w+"</em></p>\n" && md("__"+w+"__") == "<p><strong>"+w+"</strong></p>\n" && md("***"+w+"***") == "<p><em><strong>"+w+"</strong></em></p>\n" && md("a_"+w+"_b") == "<p>a_"+w+"_b</p>\n"
+}
+
+// TightListsHaveNoParagraphs: items on lines one after the other hold
+// their text; a blank line between them puts each in a paragraph.
+law TightListsHaveNoParagraphs(words []string) {
+	let mut items = []string{}
+	let mut tight = strings.NewBuilder()
+	let mut loose = strings.NewBuilder()
+	for w in words {
+		let l = letters(w)
+		if l != "" {
+			items = items.Append("- " + l)
+			tight.WriteString("<li>" + l + "</li>\n")
+			loose.WriteString("<li>\n<p>" + l + "</p>\n</li>\n")
+		}
+	}
+	if len(items) == 0 {
+		return true
+	}
+	let one = len(items) == 1
+	md(strings.Join(items, "\n")) == "<ul>\n"+tight.String()+"</ul>\n" && md(strings.Join(items, "\n\n")) == "<ul>\n"+(if one { tight.String() } else { loose.String() })+"</ul>\n"
+}
 
 func skipSpace(s string, from int) int {
 	let mut i = from

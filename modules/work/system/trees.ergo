@@ -29,9 +29,15 @@ func Run(t Trees, who string, name string, args []string) exec.Result fails work
 	}
 }
 
-// Has reports whether a folder is at root.
-func Has(t Trees, root string) bool {
-	let r = Run(t, "system", "test", []string{"-d", root}) catch {
+// Has reports whether a folder, or a file (a leave_out entry, Rift's
+// marker .rift), is at root.
+func Has(t Trees, root string) bool { at(t, "-e", root) }
+
+// folder reports whether a folder is at root.
+func folder(t Trees, root string) bool { at(t, "-d", root) }
+
+func at(t Trees, flag string, root string) bool {
+	let r = Run(t, "system", "test", []string{flag, root}) catch {
 	case work.CloneFailed:
 		return false
 	}
@@ -41,7 +47,7 @@ func Has(t Trees, root string) bool {
 // Prepare checks a clone's source and target and makes the target's
 // parent folder: from must be a folder, to must be free.
 func Prepare(t Trees, who string, from string, to string) fails work.Exists | work.Missing | work.CloneFailed {
-	if !Has(t, from) {
+	if !folder(t, from) {
 		return work.Missing{Path: from}
 	}
 	let r = try Run(t, who, "test", []string{"-e", to})

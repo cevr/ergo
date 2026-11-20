@@ -50,18 +50,18 @@ func stopType(pkgPath, name string) bool {
 	return false
 }
 
-// objectPaths are the paths of every object reached from pkg's
+// ObjectPaths are the paths of every object reached from pkg's
 // declarations, by object, each object's first path in a fixed walk order
 // (scope names, then contexts, sorted; fields in declaration order; map
 // entries by key). Compute it right after pkg's check, before an importer
-// fills lazy state in it (census.md §1).
-func objectPaths(pkg *Package) map[any]objPath {
-	out := map[any]objPath{pkg: ""}
+// fills lazy state in it (census.md §1). ResolvePath reads a path.
+func ObjectPaths(pkg *Package) map[any]string {
+	out := map[any]string{pkg: ""}
 	first := func(x any, path []byte) bool {
 		if _, seen := out[x]; seen {
 			return true
 		}
-		out[x] = objPath(path)
+		out[x] = string(path)
 		return false
 	}
 	if pkg.Scope != nil {
@@ -75,7 +75,7 @@ func objectPaths(pkg *Package) map[any]objPath {
 	return out
 }
 
-// ResolvePath returns the object at path (ObjectPath) in pkg, or false
+// ResolvePath returns the object at path (ObjectPaths) in pkg, or false
 // when the path names nothing there.
 func ResolvePath(pkg *Package, path string) (any, bool) { return resolvePath(pkg, objPath(path)) }
 

@@ -12,7 +12,9 @@ import (
 // defect; and Go's math/bits, which std bits binds through import go
 // (goNatives). std sha256 calls Go's Sum256 through import go (NP4f-5;
 // nativesgo.go).
-func registerNativesbits() {
+func registerNativesbits(t nativeTables) {
+	natives := t.std
+	goNatives := t.goLib
 	pureIn := func(into map[string]native, name string, f func(args []Value) Value) {
 		into[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {

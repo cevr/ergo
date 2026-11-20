@@ -9,6 +9,13 @@ import time
 // Key is what the top counts are of.
 type Key = ByPath | ByAddr | ByStatus | ByMethod
 
+// EveryRequestIsCounted: the status classes and the top counts with no
+// limit each add up to the number of requests, for any requests.
+law EveryRequestIsCounted(reqs []access.Request, k Key) {
+	let s = Summarize(reqs, 0, k, -1)
+	stats.Total(s.Classes) == s.Requests && stats.Total(s.Top) == s.Requests
+}
+
 type ByPath {}
 type ByAddr {}
 type ByStatus {}
@@ -44,6 +51,16 @@ func KeyName(k Key) string {
 		"status"
 	case ByMethod:
 		"method"
+	}
+}
+
+// KeyNameReadsBack: the name of a key reads back as the key.
+law KeyNameReadsBack(k Key) {
+	match KeyNamed(KeyName(k)) {
+	case Some as back:
+		KeyName(back.Value) == KeyName(k)
+	case None:
+		false
 	}
 }
 

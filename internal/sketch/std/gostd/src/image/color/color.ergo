@@ -41,6 +41,7 @@ extern go image/color.CMYK.RGBA func (c CMYK) RGBA() (uint32, uint32, uint32, ui
 // ergo:refused CMYKModel: a Go variable is host state; call a function
 
 // ergo:go func CMYKToRGB(c uint8, m uint8, y uint8, k uint8) (uint8, uint8, uint8)
+// ergo:total
 extern go image/color.CMYKToRGB func CMYKToRGB(c uint8, m uint8, y uint8, k uint8) (uint8, uint8, uint8) needs go.Foreign
 
 // ergo:go type Color interface
@@ -162,6 +163,7 @@ extern go image/color.RGBA64.RGBA func (c RGBA64) RGBA() (uint32, uint32, uint32
 extern go image/color.RGBToCMYK func RGBToCMYK(r uint8, g uint8, b uint8) (uint8, uint8, uint8, uint8) needs go.Foreign
 
 // ergo:go func RGBToYCbCr(r uint8, g uint8, b uint8) (uint8, uint8, uint8)
+// ergo:total
 extern go image/color.RGBToYCbCr func RGBToYCbCr(r uint8, g uint8, b uint8) (uint8, uint8, uint8) needs go.Foreign
 
 // ergo:go var Transparent Alpha16
@@ -184,4 +186,5 @@ extern go image/color.YCbCr.RGBA func (c YCbCr) RGBA() (uint32, uint32, uint32, 
 // ergo:refused YCbCrModel: a Go variable is host state; call a function
 
 // ergo:go func YCbCrToRGB(y uint8, cb uint8, cr uint8) (uint8, uint8, uint8)
+// ergo:total
 extern go image/color.YCbCrToRGB func YCbCrToRGB(y uint8, cb uint8, cr uint8) (uint8, uint8, uint8) needs go.Foreign

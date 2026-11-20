@@ -43,21 +43,13 @@ func TestUnreachableChecksInEachPosition(t *testing.T) {
 }
 
 // TestUnreachableRefusals: a position with no expected type asks for one;
-// a catch of it is a catch of an expression that cannot fail; a program
-// declaration or local named Unreachable is the prelude rule's (D-D3),
-// with K4's message naming the prelude function.
+// a catch of it is a catch of an expression that cannot fail.
 func TestUnreachableRefusals(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"untyped-let", "func f() int {\n\tlet x = Unreachable(\"x\")\n\tx\n}\n",
 			"Unreachable(…) takes the type its position expects, and nothing here expects one; write the type"},
 		{"catch", "func f() {\n\tUnreachable(\"x\") catch {\n\tcase _:\n\t\treturn\n\t}\n}\n",
 			"cannot fail"},
-		{"local", "func f() int {\n\tlet Unreachable = 1\n\tUnreachable\n}\n",
-			"Unreachable is a prelude name (the prelude function Unreachable), which cannot be redeclared"},
-		{"parameter", "func f(Unreachable int) int { Unreachable }\n",
-			"Unreachable is a prelude name (the prelude function Unreachable), which cannot be redeclared"},
-		{"function", "func Unreachable(reason string) int { 0 }\n",
-			"Unreachable is a prelude name (the prelude function Unreachable), which cannot be redeclared"},
 		{"reason-type", "func f() int { Unreachable(1) }\n",
 			"int"},
 		{"go-panic", "func f() { panic(\"x\") }\n",

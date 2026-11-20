@@ -39,7 +39,7 @@ func GenerateFnName(seed uint64) map[string]string {
 	m.WriteString("func check(f func(int) fails lib.Odd, x int) fails lib.Odd {\n\ttry f(x)\n}\n\n")
 	m.WriteString("func run(x int, f func(int) needs Console) needs Console {\n\tf(x)\n}\n\n")
 	m.WriteString("func cmp(f func(lib.Box, lib.Box) int, a int, b int) int {\n\tlet r = f(lib.Box{W: a}, lib.Box{W: b})\n\tr\n}\n\n")
-	m.WriteString("func grow(f func(*Cell, int) int, c *Cell, d int) int {\n\tlet r = f(c, d)\n\tr\n}\n\n")
+	m.WriteString("func grow(f func(mut Cell, int) int, c mut Cell, d int) int {\n\tlet r = f(c, d)\n\tr\n}\n\n")
 	fmt.Fprintf(&m, "func triple(x int) int {\n\tx * %d + 1\n}\n\n", 3+n(4))
 	fmt.Fprintf(&m, "func say(x int) needs Console {\n\tConsole.Println(\"say \\(x * %d)\")\n}\n\n", 1+n(5))
 	fmt.Fprintf(&m, "func odd(x int) fails lib.Odd {\n\tif x %% 2 != 0 {\n\t\treturn lib.Odd{N: x + %d}\n\t}\n}\n\n", n(9))

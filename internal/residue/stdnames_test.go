@@ -78,6 +78,16 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		}
 	}
 	listed := readStdNames(t)
+	// A row this inventory held when the rule landed and that moved to
+	// testdata/prelude-unions.txt (TestLoweringNamesNoPreludeUnion,
+	// ADT-NOPRIV: getPattern, isOptionType) is held there, with the unit
+	// that removes it. No other function leaves this rule by being listed
+	// there.
+	for key := range readPreludeUnions(t) {
+		if k := strings.TrimPrefix(key, "lower/"); listed[k] == "" && slices.Contains(stdNamesBaseline, "abi "+k) {
+			delete(found, k)
+		}
+	}
 	for key := range found {
 		if _, ok := listed[key]; !ok {
 			t.Errorf("%s decides by a std name and is not in testdata/std-names.txt: decide by a checked fact (OPT4a ruling)", key)

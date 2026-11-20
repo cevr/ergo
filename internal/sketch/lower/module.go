@@ -228,6 +228,7 @@ type lowerer struct {
 	libsDone     bool
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
+	siteIDs      map[siteKey]int         // each call position's CallSite Id (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope
@@ -268,6 +269,7 @@ type lowerer struct {
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
 	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	free   map[*check.Func]bool       // the program's env-free functions (pure.go, isEnvFree), once computed
 	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
@@ -298,6 +300,7 @@ type lowerer struct {
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
 	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
+	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
 	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
@@ -306,6 +309,9 @@ type lowerer struct {
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
+	// directReaders are the types whose values decode reads directly
+	// (wirereader.go), in typeKey order.
+	directReaders []directReader
 	// cellRewrites are the rewriters of std cell writers' laws, by
 	// package (wiretext.go).
 	cellRewrites map[*check.Package]*rewriter
@@ -335,9 +341,9 @@ type lowerer struct {
 	// by import path.
 	rtLeaves map[string]bool
 	// hostText is set when main.go imports the gofmt leaf of runtime/v1
-	// (v1.HostText) for its init: the program uses a Go package (hostPkg),
-	// whose values only fmt can write, or names a body that writes a
-	// machine state (v1.NeedsHostText).
+	// (v1.HostText) for its init: the program names a body that writes a
+	// machine state (v1.NeedsHostText). A Go package's values need no fmt:
+	// rt.Text writes any value.
 	hostText bool
 	// hostWalk is set when main.go imports the hostwalk leaf of runtime/v1
 	// (v1.HostWalk) for its init: the program names a body that makes an
@@ -381,6 +387,9 @@ type lowerer struct {
 	// an actor's start names ergoMachineGraph (machine.go, graphAccessor).
 	machineGraphs []machineGraphEntry
 	graphsUsed    bool
+	// actorStarted records that the program starts a machine actor, whose
+	// runner reads the table typeNamesInit registers.
+	actorStarted bool
 	// entryInits records that the entry calls ergoInit; program checks it
 	// against hasInits once every declaration is lowered (F13).
 	entryInits bool
@@ -618,14 +627,16 @@ func (l *lowerer) program() ([]byte, error) {
 		}
 	})
 	if l.ir != nil {
-		l.ir.reachAll(l) // CensusStd only (ir.go)
+		l.ir.reachAll(l) // CensusStd and LowerIRSplitReaching only (ir.go)
 	}
 	// Every initializer of every reached declaration of a sourced package
-	// is lowered here: a library's lets, and its machines' initial values
-	// (F13). A library's other declarations are lowered where they are
-	// used, and so is a std package's let (reachStdLet, wf10 defects D6),
-	// so the entry leaves a slot for the call of ergoInit, filled once
-	// every body is lowered.
+	// is lowered here: its machines' initial values (F13), and its lets
+	// where no reach set cuts the build (a test build, a library-shaped
+	// lowering) or under the reference libLetLowering "reach". A library's
+	// other declarations are lowered where they are used, and so are its
+	// lets otherwise, as a std package's are (reachStdLet, wf10 defects D6;
+	// libLetOnRead), so the entry leaves a slot for the call of ergoInit,
+	// filled once every body is lowered.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			if !l.declReached(d) {
@@ -633,9 +644,9 @@ func (l *lowerer) program() ([]byte, error) {
 			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
-				if l.constantLet(p, d) {
-					// No initializer to run: declared where a body reads
-					// it, as a std package's let is (reachStdLet).
+				if l.libLetOnRead(p, d) {
+					// Declared where a body reads it, as a std package's
+					// let is (reachStdLet).
 					return
 				}
 				l.packageLet(d)
@@ -696,7 +707,7 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	table := l.callTable()   // before the imports: it may name the runtime package
 	table += l.lineageDecl() // likewise (handover.go)
-	graphs := l.graphAccessor()
+	graphs := l.graphAccessor() + l.typeNamesInit()
 	inits := l.initFunc()
 	var out strings.Builder
 	out.WriteString("// Code generated by ergo from " + path.Base(strings.ReplaceAll(l.srcs[0].path, "\\", "/")) + ". DO NOT EDIT.\n\npackage " + l.goPackage() + "\n\n")

@@ -35,7 +35,7 @@ func TestPreludeDotCallRefusals(t *testing.T) {
 		{"get-wrong-key", "func f(m Map[string, int]) {\n\t_ = m.Get(1)\n}\n", []string{"S108:2"}, ""},
 		{"get-on-slice", "func f(xs []int) {\n\t_ = xs.Get(0)\n}\n", []string{"S104:2"}, "has no field or method Get"},
 		{"append-on-map", "func f(m Map[string, int]) {\n\t_ = m.Append(1)\n}\n", []string{"S104:2"}, "has no field or method Append"},
-		{"pointer-to-slice", "func f(xs *[]int) {\n\t_ = xs.Append(1)\n}\n", []string{"S104:2"}, ""},
+		{"pointer-to-slice", "func f(xs mut []int) {\n\t_ = xs.Append(1)\n}\n", []string{"S104:2"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

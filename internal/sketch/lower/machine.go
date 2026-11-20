@@ -7,6 +7,8 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 	rtpkg "ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Machine plan values (spec D5; runtime.md, Machines and actors 1 and 5).
@@ -219,7 +222,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 				goOf[v.Name] = rt + ".VariantOf[" + t + "]()"
 				continue
 			}
-			name, ok := l.variantName(t)
+			name, ok := l.ergoVariantName(t)
 			if !ok {
 				ice(td.tn.Decl.Name, "the machine %s has the variant %s, whose Go type %s the lowering cannot name", td.tn.Name, v.Name, t)
 			}
@@ -275,7 +278,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 			if graphRegistry() {
 				return rt + ".VariantOf[" + gt + "]()"
 			}
-			name, ok := l.variantName(gt)
+			name, ok := l.ergoVariantName(gt)
 			if !ok {
 				ice(td.tn.Decl.Name, "the machine %s has a variant whose Go type %s the lowering cannot name", td.tn.Name, gt)
 			}
@@ -322,6 +325,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 // graphArg is the hidden graph argument of an actor's start whose states
 // and signals are the Go types state and signal.
 func (l *lowerer) graphArg(state, signal string) string {
+	l.actorStarted = true
 	if graphRegistry() {
 		return l.rt() + ".RegisteredGraph[" + state + ", " + signal + "]"
 	}
@@ -390,6 +394,56 @@ func (l *lowerer) variantName(t string) (string, bool) {
 		return "", false
 	}
 	return rtpkg.TypeName(s), true
+}
+
+// variantLowering selects the name the lowering writes for a variant a
+// runner traces: "" (the default), its Ergo name (ergoVariantName); "go",
+// the reference, its Go type's name, which carries the suffix that keeps
+// a Go name unique (Idle_1 beside the root's Idle).
+var variantLowering string
+
+// ergoVariantName is the name a runner gives a value of the variant whose
+// Go type is t: variantName, with the head and each type argument whose Go
+// name the lowering suffixed spelled as its Ergo name (Box_1[main.Idle_1]
+// is Box[main.Idle]), by v1.ErgoTypeName over the table typeNamesInit
+// registers, which the runtime reads for a name it computes
+// (TRACE-VARIANT-SUFFIX).
+func (l *lowerer) ergoVariantName(t string) (string, bool) {
+	name, ok := l.variantName(t)
+	if !ok || variantLowering == "go" {
+		return name, ok
+	}
+	return v1.ErgoTypeName(name, "main", l.suffixedTypeNames()), true
+}
+
+// suffixedTypeNames maps the Go name of each type the program declares
+// whose Go name the lowering suffixed to keep it unique to its Ergo name.
+// A host type, named through its package, is never suffixed.
+func (l *lowerer) suffixedTypeNames() map[string]string {
+	names := map[string]string{}
+	for tn, td := range l.types {
+		if td.name != tn.Name && !strings.Contains(td.name, ".") {
+			names[td.name] = tn.Name
+		}
+	}
+	return names
+}
+
+// typeNamesInit registers the program's suffixed type names
+// (v1.RegisterTypeNames) when it starts a machine actor, whose runner
+// names the variants a graph does not (a boxed value, an actor of a
+// shared pair, a generic flat union's): "" when it starts none or no name
+// is suffixed, and under the reference.
+func (l *lowerer) typeNamesInit() string {
+	names := l.suffixedTypeNames()
+	if !l.actorStarted || len(names) == 0 || variantLowering == "go" {
+		return ""
+	}
+	var pairs []string
+	for _, goName := range slices.Sorted(maps.Keys(names)) {
+		pairs = append(pairs, strconv.Quote(goName), strconv.Quote(names[goName]))
+	}
+	return "func init() {\n\t" + l.rtRef("RegisterTypeNames") + "(\"main\", " + strings.Join(pairs, ", ") + ")\n}\n\n"
 }
 
 // runtimeSpelling is Go's runtime type string of the type expression x of
@@ -522,7 +576,7 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 // everyOption reports whether t is Option[machines.Every[E]].
 func everyOption(t check.Type) bool {
 	o, ok := t.(*check.Named)
-	return ok && len(o.TArgs) == 1 && check.IsStdEvery(o.TArgs[0])
+	return ok && len(o.TArgs) == 1 && check.IsEvery(o.TArgs[0])
 }
 
 // everyTimers is the After of a machine whose after function gives a
@@ -561,7 +615,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 	st, ok := every.Underlying().(*check.Struct)
 	var at check.Type
 	if ok {
-		// The checker admitted std machines.Every (check.IsStdEvery):
+		// The checker admitted an Every timer (check.IsEvery):
 		// its one function field is Signal.
 		for _, f := range st.Fields {
 			if fs, isSig := f.Type.(*check.Signature); isSig && len(fs.Params) == 1 {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -225,7 +226,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 	built := map[string]bool{}
 	for _, id := range ids {
 		suite, _ := splitID(id)
-		if detail := w.buildWith(ctx, e.suite(suite), built, e.cfg.CoverDeadline); detail != "" {
+		if detail := w.buildWith(ctx, "baseline", e.suite(suite), built, e.cfg.CoverDeadline); detail != "" {
 			return fmt.Errorf("the unmutated tree does not build what %s needs: %s", id, detail)
 		}
 	}
@@ -567,7 +568,12 @@ func (w *worker) runTests(ctx context.Context, m *Mutant, ids []string, r *Resul
 		if s == nil {
 			continue
 		}
-		if detail := w.build(ctx, s, built); detail != "" {
+		if detail := w.build(ctx, m.Name, s, built); detail != "" {
+			if killedByBuild(m, id, s, detail) {
+				r.Status, r.Killer, r.Killers, r.Reason = Killed, id, []string{id}, "build"
+				r.Detail = "killed by build failure after regenerate: " + firstCompileError(detail)
+				return true
+			}
 			r.Status, r.Detail, r.Killers, r.Killer = Invalid, detail, nil, ""
 			return true
 		}
@@ -637,6 +643,35 @@ func killedBy(o outcome) bool {
 	return o.reason != "" && o.reason != "interrupted" && !o.timeout && o.started
 }
 
+// killedByBuild says whether a build failure of suite s, met before the
+// test id ran, kills the row m rather than making it invalid. A failed
+// build is a kill only for a generator's row: the row has a regenerate
+// step, the mutated source compiled and the step ran (applyChecked, or
+// regenerated after the named pass checked it; either failure makes the
+// row invalid before any build), id is a killer the row names, and the
+// failure is the compiler refusing that suite's own build, not a tool's
+// build or its deadline. Then the generator's output no longer gives the
+// suite what it uses (H3f-layer-dropped: drawgen without raster, and the
+// host that draws with it does not compile), the strongest kill there is.
+// Any other build failure stays invalid, so a careless row cannot pass
+// for a kill (batch 23 fallout).
+func killedByBuild(m *Mutant, id string, s *Suite, detail string) bool {
+	return m.Regenerate != nil && s.Package != "" && slices.Contains(killerIDs(m), id) &&
+		strings.HasPrefix(detail, "build "+s.Name+": fail\n")
+}
+
+// compileError matches a compiler error line: FILE.go:LINE:COL: text.
+var compileError = regexp.MustCompile(`(?m)^\S+\.go:\d+:\d+: .*$`)
+
+// firstCompileError is the first compiler error of a failed build's
+// detail, or its first line when none is there.
+func firstCompileError(detail string) string {
+	if line := compileError.FindString(detail); line != "" {
+		return line
+	}
+	return firstLine(detail)
+}
+
 // notRun is the reason of a test that passed without starting: no test of
 // its name ran ("testing: warning: no tests to run").
 const notRun = "not run"
@@ -657,6 +692,7 @@ func (w *worker) runOne(ctx context.Context, m *Mutant, id string) outcome {
 	s := w.e.suite(suite)
 	deadline := max(w.e.testFloor(), time.Duration(deadlineFactor*w.e.info(id).Seconds*float64(time.Second)))
 	argv, cwd, env := w.e.argv(s, w.root, w.bin, name, deadline)
+	w.e.logf("%s: run %s (deadline %s)", m.Name, id, deadline.Round(time.Second))
 	return w.e.execStarted(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline, startLine(s, name))
 }
 
@@ -667,19 +703,25 @@ func (e *engine) testFloor() time.Duration {
 	return testFloor
 }
 
-// build builds what a suite needs in the mutated copy, once per mutant. It
-// returns why the mutated tree does not build, or "".
-func (w *worker) build(ctx context.Context, s *Suite, built map[string]bool) string {
-	return w.buildWith(ctx, s, built, 0)
+// build builds what a suite needs in the mutated copy of the mutant named
+// who, once per mutant. It returns why the mutated tree does not build,
+// or "".
+func (w *worker) build(ctx context.Context, who string, s *Suite, built map[string]bool) string {
+	return w.buildWith(ctx, who, s, built, 0)
 }
 
 // buildWith is build with a fixed deadline; 0 derives each one from the
-// build's time on the unmutated tree.
-func (w *worker) buildWith(ctx context.Context, s *Suite, built map[string]bool, deadline time.Duration) string {
+// build's time on the unmutated tree. Each build logs its start with its
+// deadline and its end with its time, so a run whose builds take minutes
+// (lower's test binary) shows where it is and what bounds it (GT-SINGLE:
+// a one-row run printed nothing for minutes between its first line and
+// its verdict).
+func (w *worker) buildWith(ctx context.Context, who string, s *Suite, built map[string]bool, deadline time.Duration) string {
 	for _, t := range toolsOf(s) {
 		if built["tool:"+t] {
 			continue
 		}
+		w.e.logf("%s: build tool %s (deadline %s)", who, t, w.buildDeadline(t, deadline).Round(time.Second))
 		o, err := w.e.buildTool(ctx, w.root, w.bin, t, false, w.buildDeadline(t, deadline))
 		if err != nil {
 			return err.Error()
@@ -687,14 +729,17 @@ func (w *worker) buildWith(ctx context.Context, s *Suite, built map[string]bool,
 		if o.reason != "" {
 			return "build " + t + ": " + o.reason + "\n" + lastLines(o.tail, 20)
 		}
+		w.e.logf("%s: built tool %s in %.0fs", who, t, o.seconds)
 		w.e.noteBuild(t, o.seconds)
 		built["tool:"+t] = true
 	}
 	if s.Package != "" && !built["suite:"+s.Name] {
+		w.e.logf("%s: build %s (deadline %s)", who, s.Name, w.buildDeadline(s.Name, deadline).Round(time.Second))
 		o := w.e.buildSuite(ctx, w.root, w.bin, s, false, w.buildDeadline(s.Name, deadline))
 		if o.reason != "" {
 			return "build " + s.Name + ": " + o.reason + "\n" + lastLines(o.tail, 20)
 		}
+		w.e.logf("%s: built %s in %.0fs", who, s.Name, o.seconds)
 		w.e.noteBuild(s.Name, o.seconds)
 		built["suite:"+s.Name] = true
 	}

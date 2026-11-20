@@ -188,7 +188,7 @@ law KebabRoundTrips(words []string) {
 // writes a request (an argument list, a tools/call line, an Effect RPC
 // request), reads it back with the transport's reader, hands it to
 // answer, writes answer's outcome as the transport does, and reads that
-// back. Each generated transport package provides one, Wire.
+// back. Each generated transport package provides one: Wire.
 // law-exempt: its rule compares wire values of its type parameters, and a law cannot encode them (no row of a law holds wired[C]); the function Agrees states it, each transport package's law Agrees runs it at its instance, and AgreesSeesTheLoss holds Agrees to tell a loss.
 type Transport[C wire, O wire] {
 	Carry(c C, answer own func(c C) O) O,

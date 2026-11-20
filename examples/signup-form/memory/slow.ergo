@@ -1,0 +1,16 @@
+import signupform/subscribe
+
+// Slow is a subscribe.Subscribers that answers as List does, after Wait
+// returns: main's Wait sleeps on the script's clock, so a screen shows the
+// check or the submit under way until the script moves the clock.
+type Slow { Wait func() } implements subscribe.Subscribers
+
+func Taken(s Slow, e subscribe.Email) bool {
+	s.Wait()
+	List.Taken(e)
+}
+
+func Join(s Slow, sub subscribe.Subscription) fails subscribe.JoinFailed {
+	s.Wait()
+	try List.Join(sub)
+}

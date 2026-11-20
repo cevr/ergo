@@ -18,11 +18,11 @@ import (
 func TestInlinedCallEndsAnArm(t *testing.T) {
 	const src = `type Box { n int }
 
-func put(b *Box, k int) {
+func put(b mut Box, k int) {
 	b.n = b.n + k
 }
 
-func shown(b *Box, k int) {
+func shown(b mut Box, k int) {
 	if k < 0 {
 		put(b, 1)
 	} else if k%2 == 0 {

@@ -528,6 +528,16 @@ func clean(d Disk) bool {
 // is as it was, and nothing of the apply is left.
 law AppliedIsPlanned(seed int, pick int, word int) { appliedIsPlanned(seed, pick, word) }
 
+// isReady is whether a verdict is Ready.
+func isReady(v Verdict) bool {
+	match v {
+	case Ready:
+		true
+	case Blocked:
+		false
+	}
+}
+
 func appliedIsPlanned(seed int, pick int, word int) bool {
 	let t = readyTrial(seed, pick, word)
 	if !t.Ok {

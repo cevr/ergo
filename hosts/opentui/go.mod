@@ -2,6 +2,8 @@ module ergo.local/prototype/hosts/opentui
 
 go 1.27
 
+toolchain go1.27.4
+
 require github.com/ebitengine/purego v0.11.1
 
 // The repository's module, for its C binder (internal/bindc), which writes

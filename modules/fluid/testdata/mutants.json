@@ -467,9 +467,8 @@
           "examples:fluid-gallery"
         ]
       },
-      "killers": [
-        "examples:fluid-gallery"
-      ]
+      "killers": [],
+      "gap": "equivalent once resolution is pure (FL-COUNTER, 2026-11-18): the view's web.Named of a constant look is a pure call with constant arguments, which the fold computes at build time; the counted guard ResolvedOncePerLook went with fluid/web's package counter, which kept every page that reached it from folding. Evidence: the button page folds to one constant (FL-COUNTER receipt)."
     },
     {
       "name": "fl1-theme-adds-rule",
@@ -800,6 +799,102 @@
       "from": "\t\tif dark { p.Dark } else { p.Light }",
       "to": "\t\tp.Light",
       "rule": "A dark scheme is painted with the light value: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-class-renamed-one-side",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "modules/fluid/web/ts.ergo",
+      "from": "Root: Named(names, c.Root), Plate:",
+      "to": "Root: Named(Long(), c.Root), Plate:",
+      "rule": "The island's table names a control root by another naming than the sheet's (renamed on one side only): TableNamesOnlySheetClasses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-tone-missing-from-sheet",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "modules/fluid/web/module.ergo",
+      "from": "\tfor t in look.Tones() {",
+      "to": "\tfor t in []look.Tone{look.Solid, look.Soft, look.Outline, look.Bare} {",
+      "rule": "The module's looks drop a tone, so the sheet lacks it while the island's table still offers it: TableNamesOnlySheetClasses.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "ts-island-own-naming",
+      "origin": "wf10/fluid-ts FLUID-TS",
+      "file": "examples/fluid-gallery/gallery/site.ergo",
+      "from": "func Island() string { web.TS(web.TableOf(token.Default, Looks())) }",
+      "to": "func Island() string { web.TS(web.TableOf(token.Default, web.Looks())) }",
+      "rule": "The island module names its classes from the module's looks alone, so it brings a second sheet whose short names collide with the page's: IslandUsesThePageSheet.",
+      "anchor": {
+        "tests": [
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "mg-retarget-drops-speed",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}",
+      "to": "Target: to, X0: Pos(k, t), V0: 0.0 * Vel(k, t), Start: t}",
+      "rule": "A retarget resets velocity to 0, so a value turned mid-flight stops dead: TracesAreSmooth.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "mg-retarget-from-target",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}",
+      "to": "Target: to, X0: k.Target + 0.0 * Pos(k, t), V0: Vel(k, t), Start: t}",
+      "rule": "A retarget starts from the old target, not from where the value is (a jump): TracesAreSmooth.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "mg-track-twice-frequency",
+      "origin": "wf10/motion-gate MOTION-GATE",
+      "file": "modules/fluid/motion/track.ergo",
+      "from": "\tlet w = frequency(z)\n\tif z < 1.0 {\n\t\tlet wd",
+      "to": "\tlet w = frequency(z) * 2.0\n\tif z < 1.0 {\n\t\tlet wd",
+      "rule": "A track's spring runs at twice the clip's frequency (still smooth and settled, but not the clip's motion): TrackIsTheClipSpring.",
       "anchor": {
         "tests": [
           "examples:modules/fluid"

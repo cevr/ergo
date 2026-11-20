@@ -22,7 +22,7 @@ func sketchMachine() Machine[sketch, int, int] {
 	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) Option[func()] { None }}
 }
 
-func sketchView(f *ui.Frame[int], s sketch) {
+func sketchView(f mut ui.Frame[int], s sketch) {
 	ui.Text(f, "mark \(s.x),\(s.y) of \(s.n)")
 	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) Option[int] {
 		match p.Phase {
@@ -32,7 +32,7 @@ func sketchView(f *ui.Frame[int], s sketch) {
 			None
 		}
 	}) {
-		ui.Canvas(f, "ink", 200, 150) func(p *ui.Paint) {
+		ui.Canvas(f, "ink", 200, 150) func(p mut ui.Paint) {
 			ui.Fill(p, ui.RectPath(0, 0, 200, 150), ui.Color{R: 240, G: 240, B: 240, A: 255})
 			let mx = float64(s.x)
 			let my = float64(s.y)
@@ -118,7 +118,7 @@ func probeOf(ops []ui.PaintOp) Option[probe] {
 // inked is why a canvas does not show its last fill, None when each does:
 // the cell under the probe of each canvas the terminal holds shows the
 // fill's color (a full block's foreground, or a space's background).
-func inked[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
+func inked[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
 	for sh in shapes {
 		match sh.Node {
 		case ui.CanvasNode as x:

@@ -350,7 +350,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if sp != nil && sp.wit != nil && !known {
 			lead = nil // the copy for a known witness takes none (witspec.go)
 		}
-		if !fd.pure {
+		if !fd.envFree {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
@@ -783,7 +783,6 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 		l.hostImports = map[string]bool{}
 	}
 	l.hostImports[path] = true
-	l.hostText = true // a Go package's panic value may need fmt's text
 	return l.pkgName(pkgKey{"import", path}, hostBase(path))
 }
 
@@ -800,6 +799,24 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 			if path, _ := f.Decl.Extern.Split(); path != "time" && !seen[path] {
 				seen[path] = true
 				paths = append(paths, path)
+			}
+		}
+	}
+	// The Go interface parameter of a Go function the program calls (an
+	// `own io.Reader` of a binding it imports): the IR spells a Go
+	// value's conversion to it (opsConv, ir_with.go; IR-GOCALLS-4) and
+	// another Go interface's (goWiden, ir_govar.go; IR-GOCALLS-5), though
+	// the program may not import its package.
+	for _, p := range pkgs {
+		for _, c := range p.Info.Calls {
+			if c == nil || c.Func == nil || c.Func.Sig == nil || c.Func.Pkg == nil || !c.Func.Pkg.Host() {
+				continue
+			}
+			for _, q := range c.Func.Sig.Params {
+				if n, ok := q.Type.(*check.Named); ok && goInterface(n) && n.Obj.Pkg.Path != "time" && !seen[n.Obj.Pkg.Path] {
+					seen[n.Obj.Pkg.Path] = true
+					paths = append(paths, n.Obj.Pkg.Path)
+				}
 			}
 		}
 	}
@@ -897,7 +914,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 	file, line, column := fc.l.locate(x, x.Pos())
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -972,7 +989,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	// The value has the one Go shape of every function value; for a pure
 	// function the closure discards its environment (pure.go).
 	envParam := "env"
-	if fd.pure {
+	if fd.envFree {
 		envParam = "_"
 	}
 	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
@@ -1640,7 +1657,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
 			pre, e := "", ""
-			if fd.pure {
+			if fd.envFree {
 				// A pure table function takes no environment (pure.go).
 				params[0] = "_ *" + l.taskPkg() + ".Task"
 			} else {

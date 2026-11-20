@@ -52,7 +52,7 @@ var implementedFamilies = []string{
 	// (types.md, Laws 14); examples/cborpack's codec is a witness.
 	"call:Encode",
 	// A refinement's pattern lowers to a Go matcher (types.md, Refinements
-	// 11; refinematch.go): fk-form's and fk-domains' wheres are its witnesses.
+	// 11; refinematch.go): signup-form's and domain-search' wheres are its witnesses.
 	"call:Pattern",
 }
 

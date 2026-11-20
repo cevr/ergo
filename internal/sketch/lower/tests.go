@@ -92,6 +92,16 @@ type testLowering struct {
 	importLaws []check.LawRun
 }
 
+// fresh is a record for a lowering that starts again (a round of
+// lowerIRRounds, flatunion.go lowerAgain): the unit's inputs t was made
+// with, and nothing a lowering emitted or set; nil for nil.
+func (t *testLowering) fresh() *testLowering {
+	if t == nil {
+		return nil
+	}
+	return &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: t.instances, posts: t.posts, importLaws: t.importLaws}
+}
+
 // LowerTests lowers the checked unit to the Go module of its test binary:
 // the package as Lower lowers it, each test as a Go function, and a main
 // that runs the tests (see Test mode). It takes the unit Lower takes.
@@ -1139,7 +1149,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 					shownArgs = append(shownArgs, l.litExpr(v.Type, a, law.Decl))
 				}
 				b.WriteString("\t\t\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(cargs, ", ") + ")\n")
-				call := strconv.Quote(sep + name + " = " + ctor.Name + "(")
+				call := strconv.Quote(sep + name + " = " + l.pkg.Qualified(ctor.Pkg, ctor.Name) + "(")
 				if len(shownArgs) > 0 {
 					call += " + " + strings.Join(shownArgs, ` + ", " + `)
 				}
@@ -2172,6 +2182,7 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 	case *check.Slice:
 		return l.helper("GenSlice") + "(" + r + ", " + d + ", " + elem(u.Elem) + ")"
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: GenMap makes Go's map
 		return l.helper("GenMap") + "(" + r + ", " + d + ", " + elem(u.Key) + ", " + elem(u.Elem) + ")"
 	case *check.Tuple:
 		parts := make([]string, len(u.Types))

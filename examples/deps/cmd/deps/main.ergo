@@ -1,8 +1,8 @@
 // deps resolves a project's dependencies from a manifest: it chooses the
 // newest version of each package that keeps every constraint on it, and
 // prints the packages in the order to build them (deps resolve), the
-// chain that pulls one in (deps why), or the edges (deps graph). Package
-// semver is versions and constraints, graph the order and its cycles,
+// chain that pulls one in (deps why), or the edges (deps graph). Std
+// semver is versions and ranges, graph the order and its cycles,
 // resolve the resolver and its Index contract, manifest the file format,
 // memory the Index of a manifest. This binary is the only place that
 // chooses the providers: the host's file system, standard output and
@@ -11,7 +11,7 @@
 import deps/manifest
 import deps/memory
 import deps/resolve
-import deps/semver
+import semver
 import flag
 import fs
 import fstest
@@ -242,8 +242,8 @@ test ResolvesWhyAndGraph {
 test FailuresExit {
 	assert ran(one(site), []string{"why", "db"}) == "exit 1: deps: site does not need db\n"
 	assert ran(one("project a\n  needs b\n"), []string{"resolve"}) == "exit 1: deps: no release of b\n"
-	assert ran(one("project a\n  needs b\npackage b 1\n  needs b 1\n"), []string{"resolve"}) == "exit 1: deps: circular needs: b 1.0.0 -> b 1.0.0\n"
-	assert ran(one("project a\n  needs b ^2\npackage b 1\n"), []string{"resolve"}) == "exit 1: deps: no version of b keeps every want:\n  ^2 (from the project)\n  versions: 1.0.0\n"
+	assert ran(one("project a\n  needs b\npackage b 1.0.0\n  needs b 1\n"), []string{"resolve"}) == "exit 1: deps: circular needs: b 1.0.0 -> b 1.0.0\n"
+	assert ran(one("project a\n  needs b ^2\npackage b 1.0.0\n"), []string{"resolve"}) == "exit 1: deps: no version of b keeps every want:\n  ^2 (from the project)\n  versions: 1.0.0\n"
 	assert ran(Map[string, string]{}, []string{"resolve", "-f", "x.txt"}) == "exit 1: deps: x.txt: no such file\n"
 	assert ran(one("projekt a\n"), []string{"graph"}) == "exit 1: deps: deps.txt:1: unknown line; want project, package or an indented needs\n"
 }
@@ -259,7 +259,7 @@ test EveryPlanResolvesAgain(entries []resolve.Entry, root []resolve.Need) {
 	let mut exact = []resolve.Requirement{}
 	for line in strings.Split(strings.TrimSuffix(first, "\n"), "\n") {
 		let words = strings.Fields(line)
-		exact = exact.Append(resolve.Requirement{Name: words[0], Want: try semver.ParseConstraint("=" + words[1])})
+		exact = exact.Append(resolve.Requirement{Name: words[0], Want: try resolve.ParseConstraint("=" + words[1])})
 	}
 	let again = ran(one(manifest.Format(manifest.Manifest{..m, Root: exact})), []string{"resolve"})
 	assert again == first

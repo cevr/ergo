@@ -27,8 +27,14 @@ package lower
 // The call is the same on every iteration when each operand is a literal,
 // a constant, or a name bound outside the loop that no assignment
 // reaches: a `let` without mut or a parameter (D-D1: only a `let mut` is
-// assigned). Operands and the result are of basic types (a number, a
-// bool, a string), so the shared result is a value no iteration writes.
+// assigned). Outside the loop is the body's own binding, not the
+// source's position: the name's local was declared before the loop's
+// entry (irMemo.first). A body built into the loop at its site (a fused
+// match's callee, ir_forms_match.go) binds its parameters and lets on
+// each iteration, though its source comes before the loop in its file; a
+// parameter it binds to the caller's local is that local. Operands and
+// the result are of basic types (a number, a bool, a string), so the
+// shared result is a value no iteration writes.
 // Everything else keeps its call. -X lower.pureHoist=off turns it off:
 // the reference, the IR without the change.
 //
@@ -58,17 +64,22 @@ func SetPureHoist(on bool) (restore func()) {
 }
 
 // irMemo is one loop of the function being built whose body may hold
-// memoized calls: the loop's source, and the declarations its pre-header
-// gets.
+// memoized calls: the first local declared at or after the loop's entry,
+// and the declarations its pre-header gets. A site that rolls
+// the builder back (unmark: a fused match that falls back, a law's
+// pattern) drops the declarations its memoized calls added.
 type irMemo struct {
-	loop  syntax.Stmt
+	first int
 	decls []*irStmt
 }
 
-// memoLoop builds the loop statements of s with build, then puts the
-// declarations of the calls its body memoized before them.
-func (b *irBuilder) memoLoop(s syntax.Stmt, build func() []*irStmt) []*irStmt {
-	m := &irMemo{loop: s}
+// memoLoop builds the statements of a loop with build, then puts the
+// declarations of the calls its body memoized before them. first is the
+// builder's next local before the loop bound any name of its own (a
+// range's index and element, declared before its body is built): every
+// local from first on may change between iterations.
+func (b *irBuilder) memoLoop(first int, build func() []*irStmt) []*irStmt {
+	m := &irMemo{first: first}
 	depth := len(b.memos)
 	b.memos = append(b.memos, m)
 	// A refusal inside the loop unwinds through here (irNo): the stack
@@ -105,7 +116,7 @@ func (b *irBuilder) memoCall(x *syntax.CallExpr, pre []*irStmt, e *irExpr) ([]*i
 		return nil, nil, false
 	}
 	m := b.memos[len(b.memos)-1]
-	if r := b.invariantPureCall(x, m.loop); r != nil {
+	if r := b.invariantPureCall(x, m); r != nil {
 		b.formSite(x, r)
 		return nil, nil, false
 	}
@@ -122,10 +133,10 @@ func (b *irBuilder) memoCall(x *syntax.CallExpr, pre []*irStmt, e *irExpr) ([]*i
 	return []*irStmt{first}, &irExpr{K: "local", Pos: p, I: v}, true
 }
 
-// invariantPureCall is nil for a call x, in loop's body, of a pure callee
-// with operands that are the same on every iteration of loop, all of
+// invariantPureCall is nil for a call x, in the body of m's loop, of a
+// pure callee with operands that are the same on every iteration, all of
 // basic types, as its result is; otherwise the reason it is not.
-func (b *irBuilder) invariantPureCall(x *syntax.CallExpr, loop syntax.Stmt) *FormReason {
+func (b *irBuilder) invariantPureCall(x *syntax.CallExpr, m *irMemo) *FormReason {
 	info := b.l.info
 	c := info.Calls[x]
 	if c.Recv != nil || x.Trailing != nil || c.StartsTask || c.Site != nil {
@@ -146,7 +157,7 @@ func (b *irBuilder) invariantPureCall(x *syntax.CallExpr, loop syntax.Stmt) *For
 		return memoFolds
 	}
 	for _, a := range x.Args {
-		if !b.loopInvariant(a, loop) {
+		if !b.loopInvariant(a, m) {
 			return memoVariant
 		}
 	}
@@ -164,20 +175,21 @@ func (b *irBuilder) pureCallee(f *check.Func) bool {
 }
 
 // loopInvariant reports an operand that is the same on every iteration of
-// loop: a literal, a constant, or a name bound before the loop that no
-// assignment reaches.
-func (b *irBuilder) loopInvariant(a syntax.Expr, loop syntax.Stmt) bool {
+// m's loop: a literal, a constant, or a name no assignment reaches whose
+// local this body declared before the loop's entry.
+func (b *irBuilder) loopInvariant(a syntax.Expr, m *irMemo) bool {
 	switch a := a.(type) {
 	case *syntax.BasicLit:
 		return true
 	case *syntax.ParenExpr:
-		return b.loopInvariant(a.X, loop)
+		return b.loopInvariant(a.X, m)
 	case *syntax.Ident:
 		switch o := b.l.info.Uses[a].(type) {
 		case *check.Const:
 			return true
 		case *check.Var:
-			return !o.Mut() && o.Pos < loop.Pos()
+			l, ok := b.locals[o]
+			return ok && !o.Mut() && l < m.first
 		}
 	}
 	return false

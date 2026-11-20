@@ -201,7 +201,9 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 		try unreserve(t, m)
 		return e
 	}
-	for folder in m.Config.LeaveOut {
+	// Rift's marker names the copy it is in: a clone of a Rift copy, or
+	// of a base Rift made, must not carry it (the Mac's WK-MARKER).
+	for folder in slices.Concat(m.Config.LeaveOut, []string{RiftMarker}) {
 		let left = filepath.Join([]string{m.Path, folder})
 		if by.Has(left) {
 			by.Discard(left) catch {

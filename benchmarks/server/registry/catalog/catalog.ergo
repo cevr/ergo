@@ -1,0 +1,76 @@
+// Package catalog is the domain of a package mirror: the catalog it lists,
+// which never changes while the mirror runs, and the pins its clients keep
+// (a version of a package that a client asked the mirror to hold). It
+// declares the contract every pin store keeps, Pins; package memory
+// provides it.
+
+import strconv
+import strings
+
+// Package is one entry of the catalog.
+type Package { Name string, Version string, Summary string, Size int }
+
+// Pin is a version of a package that a client keeps.
+type Pin { Name string, Version string }
+
+// Count is how many packages the catalog lists.
+let Count = 3000
+
+// Packages is the catalog, in name order: built once, when the program
+// starts.
+let Packages = listing(Count)
+
+// listing is a catalog of n packages.
+func listing(n int) []Package {
+	let mut out = []Package{}
+	for i in 0..n {
+		out = out.Append(Package{Name: NameOf(i), Version: VersionOf(i), Summary: "package " + NameOf(i) + " of the mirror, kept for its clients", Size: i * 7919 % 100000})
+	}
+	out
+}
+
+// NameOf is the name of the i-th package: "pkg" and i in four digits.
+func NameOf(i int) string {
+	let digits = strconv.Itoa(i)
+	"pkg" + strings.Repeat("0", 4-len(digits)) + digits
+}
+
+// VersionOf is the version of the i-th package.
+func VersionOf(i int) string { "\(i % 7).\(i % 13).\(i % 5)" }
+
+// Find is the index of the package called name, or None when the catalog
+// has none of that name.
+func Find(name string) Option[int] {
+	if len(name) != 7 || !strings.HasPrefix(name, "pkg") {
+		return None
+	}
+	let rest = strings.Slice(name, 3, 7)
+	for i in 0..len(rest) {
+		if rest[i] < '0' || rest[i] > '9' {
+			return None
+		}
+	}
+	let i = strconv.Atoi(rest) catch {
+	case _:
+		return None
+	}
+	if i >= Count { None } else { Some{i} }
+}
+
+// FindsEachName: every package is found under its own name, and only there.
+law FindsEachName(i int) {
+	let k = (i%Count + Count) % Count
+	Find(NameOf(k)) == Some{k} && Find(NameOf(k)+"0") == None && Find("pkg"+strings.Slice(NameOf(k), 4, 7)) == None
+}
+
+// Pins is the contract of a pin store. Add keeps a pin for a client, after
+// the pins it kept before, and is how many pins that client keeps now. Of
+// is a client's pins, oldest first; a client that kept none has none.
+// Total is how many pins every client keeps together. api's law
+// AgreesWithModel holds a provider to this through the routes, against a
+// model of every client's pins.
+type Pins {
+	Add(client string, pin Pin) int,
+	Of(client string) []Pin,
+	Total() int,
+}

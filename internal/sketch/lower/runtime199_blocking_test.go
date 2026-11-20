@@ -41,6 +41,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
 			"irBuilder.goTarget":       "the IR's rt.GoContext, the task as the hidden context.Context of a Go call, as funcCtx.goContext's; it neither waits nor releases (FLIP F7 FORK-GOLIB)",
+			"irBuilder.basicEvent":     "the IR's codec event of a basic value on the Writer, the caller's task first, as wireEvents.basic writes it (ENCDEC, ir_codec.go)",
 			"irBuilder.openScope":      "the IR's frame scope: NewScope of the frame's task, as openFrame writes it (FLIP F7 GP-FRAME)",
 			"irBuilder.taskClose":      "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",
 		}},
@@ -64,14 +65,14 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.rewriteCompare":  "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",
 			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
 			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or on a direct writer's methods (wiredirect.go)",
-			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",
+			"typeCtx.readOp":          "a codec read: the Reader interface call (L11), or on a direct reader its provider function, the task first (JVD-DIRECT, wirereader.go)",
 			"lowerer.cellEventsFrom":  "a cell writer's events, whose Writer calls on the task it rewrites into the provider's functions (LR3, wiretext.go)",
-			"typeCtx.wireKind":        "the Reader's Path for a WireWrongKind (L11)",
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
 			"irBuilder.stdCloseCall":    "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.taskClose":       "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",
+			"irBuilder.goBuiltin":       "the Value field of Some, for go.As's Option, as the emitter's goBuiltin writes it (IR-GOCALLS, ir_golib.go)",
 			"funcCtx.programOpCall":     "a program-declared operation's method",
 			"funcCtx.callText":          "a capability operation's method",
 			"funcCtx.everyTimers":       "a machines.Every After's Timeout fields In and Signal (FKG1)",
@@ -106,6 +107,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.hostResult":      "the Value field of Some, for an Option of a Go pointer result, as funcCtx.optionSome's (FLIP F7 FORK-GOLIB)",
 			"irBuilder.nicheNarrow":     "the Value field of Some, written from an Option of a go.Ref in the pointer niche, as flatUnion.flatNarrow's (FLIP F7 FORK-GOLIB)",
 			"irBuilder.nicheValue":      "the Value field of Some, read into an Option of a go.Ref in the pointer niche, as flatUnion.flatValue's (FLIP F7 FORK-GOLIB)",
+			"irBuilder.witnessOpCall":   "the IR's call through a witness field, as funcCtx.witnessCall's (B-WITNESS)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)

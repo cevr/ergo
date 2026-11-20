@@ -253,6 +253,40 @@ func walk(t tree, passes int) int {
 
 func benchView(n int) int { return walk(build(4096), n/4096) }
 
+// ---- segpath ----
+
+// seg is a hand Go path segment: its op and its point, no box.
+type seg struct {
+	op   uint8 // 0 move, 1 line
+	x, y float64
+}
+
+func segPath(i int) []seg {
+	segs := make([]seg, 0, 16)
+	for j := 0; j < 8; j++ {
+		x := float64(i + j)
+		segs = append(segs, seg{0, x, 1.0}, seg{1, x, x + 2.0})
+	}
+	return segs
+}
+
+func benchSegPath(n int) int {
+	acc := 0
+	for i := 0; i < n; i++ {
+		for _, s := range segPath(i & 1023) {
+			switch s.op {
+			case 0:
+				acc += int(s.x)
+			case 1:
+				acc += int(s.y)
+			default:
+				acc++
+			}
+		}
+	}
+	return acc
+}
+
 // ---- ctx ----
 
 type plain struct{ scale int }
@@ -326,6 +360,8 @@ func main() {
 		out = benchLoop(n)
 	case "viewlocal", "viewcross":
 		out = benchView(n)
+	case "segpath":
+		out = benchSegPath(n)
 	case "ctx":
 		out = benchCtx(n)
 	case "ref":

@@ -1,6 +1,6 @@
 // Glyphs the specimens draw. Plus, ArrowRight, Search, Copy, ChevronLeft and ChevronRight are Lucide's (ISC; derived from Feather,
-// MIT: README.md, Licences), drawn with the original's stroke of 1.5; Eight is the
-// original's busy glyph, a figure eight traced by a dash.
+// MIT: README.md, Licences), drawn with a stroke of 1.5; Eight is the
+// busy glyph, a figure eight traced by a dash.
 
 import ergo.dev/fluid/part
 

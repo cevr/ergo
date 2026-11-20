@@ -24,7 +24,7 @@ func Wire(a Attribute) string { a.Value }
 // the root, a field after the record's content, such as a union's tag,
 // or a key that is not an XML name) a is the element's text, as a string
 // is, which the reader reads back the same.
-func WireWrite(a Attribute, t *text) {
+func WireWrite(a Attribute, t mut text) {
 	if t.depth >= 2 {
 		let field = t.stack[t.depth-1]
 		let parent = t.stack[t.depth-2]

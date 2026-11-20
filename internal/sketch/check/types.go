@@ -165,7 +165,6 @@ type TypeSet uint8
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
-	SetLent                      // lent: every type, a borrow included; the body keeps none (types.md, Borrows 7)
 	SetWire                      // wire: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
@@ -174,8 +173,6 @@ const (
 
 func (s TypeSet) String() string {
 	switch s {
-	case SetLent:
-		return "lent"
 	case SetWire:
 		return "wire"
 	case SetComparable:
@@ -269,6 +266,11 @@ type Signature struct {
 	// R19). Function-type identity reads them in A3 (Gap 39).
 	Takes     []int
 	TakesSelf bool
+	// MutSelf marks an operation written `mut Bump()`: it writes its
+	// receiver, so a type argument's function on mut T implements it at a
+	// constraint, and a generic body calls it on a mut T only (types.md,
+	// Generics 2; MODES-4).
+	MutSelf bool
 }
 
 // Kind is the kind of a type parameter (rows-and-constraints §3: by
@@ -312,16 +314,19 @@ type TypeParam struct {
 	Kind       Kind
 	Constraint Type // nil for none: every type, no operation but assignment
 	Pos        syntax.Pos
-	// Lent: the bracket writes lent before the constraint, `[T lent C]`
-	// (types.md, Borrows 7); `[T lent]` is the constraint lent itself.
-	Lent bool
 	// Slot marks an error row parameter of a function that stands alone as
 	// a type argument of a generic type in the function's signature, such
 	// as F in `func Await[T, F](a Async[T, F]) T fails F` (CK-rowarg). Go
 	// must see the argument's value type there, so the lowering makes it a
 	// Go type parameter constrained by error: one error type when its row
 	// has one element, error otherwise (types.md, Generics 6 and 8).
-	Slot     bool
+	Slot bool
+	// Own is the mark own, [T own]: a resource may bind the parameter,
+	// and the declaration's body is held to it, as to a resource's
+	// value (types.md, Generics 9; EXM2). A parameter without it binds
+	// plain data only.
+	Own      bool
+	lang     bool // a parameter of Option or Some, which admits a resource unmarked
 	conflict bool // a kind conflict, already reported: resolves to nothing
 	id       int
 }
@@ -484,8 +489,11 @@ func (t *Slice) String() string { return "[]" + t.Elem.String() }
 func (t *Array) String() string {
 	return "[" + strconv.FormatInt(t.Len, 10) + "]" + t.Elem.String()
 }
-func (t *Map) String() string     { return "Map[" + t.Key.String() + ", " + t.Elem.String() + "]" }
-func (t *Pointer) String() string { return "*" + t.Elem.String() }
+func (t *Map) String() string { return "Map[" + t.Key.String() + ", " + t.Elem.String() + "]" }
+
+// A borrow prints as Ergo writes it, the mode word mut before the type
+// (MODES-2, q169), so a message and a generated source say mut T.
+func (t *Pointer) String() string { return "mut " + t.Elem.String() }
 func (t *Signature) String() string {
 	var b strings.Builder
 	b.WriteString("func(")
@@ -512,11 +520,13 @@ func (t *Signature) String() string {
 	case len(results) > 1:
 		b.WriteString(" (" + strings.Join(results, ", ") + ")")
 	}
-	// The error row is spelled as the decided signature writes it.
+	// The error row is spelled as the decided signature writes it. A
+	// signature is printed by what its identity compares (identical): a
+	// written fails whose row is empty, a row parameter left out or bound
+	// to {}, prints as no failure, as the type it is. Fallible stays the
+	// lowering's fact that the Go function has an error result.
 	if errs := t.Errors.String(); errs != "" {
 		b.WriteString(" fails " + errs)
-	} else if t.Fallible {
-		b.WriteString(" fails")
 	}
 	if uses := t.Uses.String(); uses != "" {
 		b.WriteString(" " + requirementKeyword + " " + uses)

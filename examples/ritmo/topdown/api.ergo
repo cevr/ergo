@@ -1,0 +1,216 @@
+// The game's Api: what a client can ask of a session, what each answer
+// is, and how each fails. A transport (cmd/topdown's script on standard
+// input) only reads requests and prints replies; it decides nothing.
+
+import strings
+import rand
+
+// Keep is how many ticks a session rewinds by default: ten seconds at Hz.
+let Keep = 600
+
+// Session is a game in play: a ring of the worlds of its last ticks
+// (ritmo's checkpoints, here the old values themselves). worlds[last] is
+// the world now; the kept worlds before it are the slots behind last,
+// around the ring of keep+1 slots. A tick writes one slot, so keeping
+// the past costs no copy of it.
+type Session { worlds []World, last int, kept int, keep int }
+
+// Request is one ask of a session: step a tick on some input, save the
+// world under a name, load a saved world, rewind some ticks, or look.
+type Request = Step{C Controls} | Save{Slot string} | Load{Slot string} | Rewind{Ticks int} | Look{}
+
+// Reply is a session's answer: what it did. The world it left is the
+// session's Now.
+type Reply = Stepped{} | Saved{Slot string} | Restored{Slot string} | Rewound{Ticks int} | Seen{}
+
+// TooFar is a rewind past the oldest tick the session keeps.
+type TooFar { Asked int, Kept int }
+
+// Missing is a load of a name nothing was saved under.
+type Missing { Slot string }
+
+// Broken is a store that cannot keep or give back a world.
+type Broken { Slot string, Why string }
+
+// plain is slot made a plain name, the names a store must keep: not
+// empty, no "/", no leading dot.
+func plain(slot string) string { "s" + strings.ReplaceAll(slot, "/", "-") }
+
+// Saves keeps worlds by name between sessions (ritmo's snapshot and
+// load, kept by the host). A slot is a plain name (plain); a store may
+// refuse any other as Broken.
+type Saves {
+	// Put keeps w under slot, in place of what slot held.
+	Put(slot string, w World) fails Broken,
+	// Get is the world last put under slot.
+	Get(slot string) World fails Missing | Broken,
+
+	// GetSeesPut: a world put under a slot is the world the slot gives,
+	// and the last put wins.
+	law GetSeesPut(slot string, a int, b int) {
+		let name = plain(slot)
+		try Put(name, Sample(a))
+		try Put(name, Sample(b))
+		try Get(name) == Sample(b)
+	},
+
+	// SlotsAreApart: a put under one slot leaves another's world.
+	law SlotsAreApart(a int, b int) {
+		try Put("one", Sample(a))
+		try Put("two", Sample(b))
+		try Get("one") == Sample(a)
+	},
+}
+
+// Begin is a session of a new game, the world after Setup, that keeps up
+// to keep ticks to rewind (none when keep is 0 or less).
+func Begin(keep int) Session {
+	Session{worlds: []World{Setup(Empty())}, last: 0, kept: 0, keep: if keep < 0 { 0 } else { keep }}
+}
+
+// Now is the world of s now.
+func Now(s Session) World { s.worlds[s.last] }
+
+// Kept is how many ticks s can rewind.
+func Kept(s Session) int { s.kept }
+
+// Handle answers r on s. Every failure is its own type, so a transport
+// that prints them names each one; a failed request leaves s as it was.
+func Handle(s mut Session, r Request) Reply fails TooFar | Missing | Broken needs Saves {
+	match r {
+	case Step as st:
+		Advance(s, st.C)
+		Stepped
+	case Save as sv:
+		try Saves.Put(sv.Slot, s.worlds[s.last])
+		Saved{Slot: sv.Slot}
+	case Load as l:
+		let w = try Saves.Get(l.Slot)
+		s.worlds = []World{w}
+		s.last = 0
+		s.kept = 0
+		Restored{Slot: l.Slot}
+	case Rewind as rw:
+		try Back(s, rw.Ticks)
+		Rewound{Ticks: rw.Ticks}
+	case Look:
+		Seen
+	}
+}
+
+// Advance steps s one tick on input c. The new world goes in the slot
+// after the world now: a new slot until the ring holds keep+1 worlds,
+// then the oldest, so the ring never copies the worlds it keeps.
+func Advance(s mut Session, c Controls) {
+	let next = Update(s.worlds[s.last], c)
+	let at = (s.last + 1) % (s.keep + 1)
+	if at == len(s.worlds) {
+		s.worlds = s.worlds.Append(next)
+	} else {
+		s.worlds[at] = next
+	}
+	s.last = at
+	s.kept = if s.kept < s.keep { s.kept + 1 } else { s.keep }
+}
+
+// Back puts s back ticks ticks. The worlds after the one it goes back to
+// stay in their slots until a tick writes over them.
+func Back(s mut Session, ticks int) fails TooFar {
+	if ticks < 0 || ticks > s.kept {
+		return TooFar{Asked: ticks, Kept: s.kept}
+	}
+	s.last = (s.last - ticks + s.keep + 1) % (s.keep + 1)
+	s.kept = s.kept - ticks
+}
+
+// Sample is a world drawn from n: the game after a walk that n chooses,
+// with a pickup collected for some n, so a store is tried on worlds with
+// moved, removed and focused entities.
+func Sample(n int) World {
+	let mut w = Setup(Empty())
+	let mut x = if n < 0 { -(n / 2) } else { n }
+	for _ in 0..(x % 40) {
+		let c = Controls{DX: (x % 3) - 1, DY: ((x / 3) % 3) - 1, Interact: (x/9)%2 == 0}
+		w = Update(w, c)
+		x = x/2 + 7
+	}
+	w
+}
+
+// The rewind laws: the session's ring of worlds against the worlds a
+// plain list of every tick keeps.
+
+// within maps n into 0..span-1.
+func within(n int, span int) int { if n < 0 { -(n % span) } else { n % span } }
+
+// RewindReplays: rewinding k ticks and stepping the same k inputs again
+// gives the same world, bit for bit (ritmo's Checkpoint promise), also
+// on a ring that has wrapped around and after an earlier rewind.
+law RewindReplays(seed int, k int, keep int) {
+	let inputs = inputsOf(seed, 120)
+	let size = 1 + within(keep, 40)
+	let back = within(k, size+1)
+	let mut s = Begin(size)
+	for i, c in inputs {
+		Advance(&s, c)
+		if i == 60 {
+			Back(&s, 0) catch {
+			case TooFar:
+				return false
+			}
+		}
+	}
+	let end = s.Now()
+	Back(&s, back) catch {
+	case TooFar:
+		return false
+	}
+	for c in inputs[len(inputs)-back : len(inputs)] {
+		Advance(&s, c)
+	}
+	s.Now() == end
+}
+
+// inputsOf is n ticks of fuzzed input from seed.
+func inputsOf(seed int, n int) []Controls {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Fuzz(n)
+	}
+}
+
+// RewindKeepsNoMore: a session of any keep, past the wrap of its ring,
+// rewinds keep ticks to the world of then and steps on from it, and a
+// rewind past what it keeps fails TooFar with what it keeps.
+law RewindKeepsNoMore(seed int, keep int, extra int) {
+	let size = within(keep, 30)
+	let mut s = Begin(size)
+	let mut worlds = []World{}
+	let inputs = inputsOf(seed, 3*size+5)
+	for c in inputs {
+		worlds = worlds.Append(s.Now())
+		Advance(&s, c)
+	}
+	worlds = worlds.Append(s.Now())
+	let past = size + 1 + within(extra, 50)
+	let mut refused = false
+	Back(&s, past) catch {
+	case TooFar as t:
+		refused = s.Kept() == size && t.Kept == size && t.Asked == past
+	}
+	if !refused {
+		return false
+	}
+	Back(&s, size) catch {
+	case TooFar:
+		return false
+	}
+	let then = len(worlds) - 1 - size
+	if s.Now() != worlds[then] || s.Kept() != 0 {
+		return false
+	}
+	if then == len(inputs) {
+		return true
+	}
+	Advance(&s, inputs[then])
+	s.Now() == worlds[then+1]
+}

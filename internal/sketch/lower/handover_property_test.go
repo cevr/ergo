@@ -629,14 +629,14 @@ func show(b Bag) string {
 }
 
 // The write is to a scalar field: the let needs no copy.
-func peekKind(s *Store, i int, v int) string {
+func peekKind(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	s.bags[i].N = s.bags[i].N + v
 	show(b)
 }
 
 // The write is to an element of the slice the let holds: it must copy.
-func peekItem(s *Store, i int, v int) string {
+func peekItem(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	if len(s.bags[i].Items) > 0 {
 		s.bags[i].Items[0] = v
@@ -645,33 +645,33 @@ func peekItem(s *Store, i int, v int) string {
 }
 
 // An Append in place on the element's field.
-func peekPush(s *Store, i int, v int) string {
+func peekPush(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	s.bags[i].Items = s.bags[i].Items.Append(v)
 	show(b)
 }
 
-func poke(s *Store, i int, v int) {
+func poke(s mut Store, i int, v int) {
 	if len(s.bags[i].Items) > 0 {
 		s.bags[i].Items[0] = v
 	}
 }
 
 // The borrow passed on writes the element's slice.
-func peekPass(s *Store, i int, v int) string {
+func peekPass(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	poke(s, i, v)
 	show(b)
 }
 
-func set(s *Store, i int, v int) {
+func set(s mut Store, i int, v int) {
 	if len(s.bags[i].Items) > 0 {
 		s.bags[i].Items[0] = v
 	}
 }
 
 // A pointer method on the borrow writes the element's slice.
-func peekMethod(s *Store, i int, v int) string {
+func peekMethod(s mut Store, i int, v int) string {
 	let b = s.bags[i]
 	s.set(i, v)
 	show(b)
@@ -932,14 +932,14 @@ func late(b Bag, v int) Bag {
 // pop cuts the window [k, len) off a borrowed field and keeps it; the
 // field's next Append writes the slot the window starts at, so the window
 // is copied (gobody.go, goBodyView; wf10 DF1).
-func pop(b *Bag, k int) []int {
+func pop(b mut Bag, k int) []int {
 	let w = slices.Slice(b.Items, k, len(b.Items))
 	b.Items = b.Items[0:k]
 	w
 }
 
 // popDig reads the window and keeps nothing of it: no copy.
-func popDig(b *Bag, k int) string {
+func popDig(b mut Bag, k int) string {
 	let s = dig(slices.Slice(b.Items, k, len(b.Items)))
 	b.Items = b.Items[0:k]
 	s
@@ -951,7 +951,7 @@ func keep(xs []int) []int {
 }
 
 // set0 writes the first item of a borrowed field.
-func set0(b *Bag, v int) int {
+func set0(b mut Bag, v int) int {
 	if len(b.Items) > 0 {
 		b.Items[0] = v
 	}
@@ -1004,7 +1004,7 @@ func cappedLate(b Bag, v int, cap int) Bag fails Full {
 }
 
 // trim reslices a borrowed field into itself: no copy (own-reslice).
-func trim(b *Bag) {
+func trim(b mut Bag) {
 	if len(b.Items) > 0 {
 		b.Items = b.Items[:len(b.Items)-1]
 	}

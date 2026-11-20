@@ -1,0 +1,165 @@
+// Package rows is a list of counters that the user adds and removes, each
+// with its own count. The parent holds each child counter as data and
+// routes a child's signal to it by key: the parent's step calls
+// counter.Step on that row alone. A pure child needs no actor; it is
+// function composition.
+
+import counterlist/counter
+import machines
+import slices
+
+// Row is one counter of the list, with the key the parent gave it.
+type Row { Key int, Counter counter.Count }
+
+// RowSignalTouchesOnlyItsRow: a counter's signal for a key steps that
+// row's counter, and every other row, and the order of rows, stay as they
+// were.
+law RowSignalTouchesOnlyItsRow(words []int, keys []int, key int, inc bool) {
+	let sig = if inc { counter.Increment } else { counter.Decrement }
+	let k = pick(key, 8)
+	for r in reached(words, keys) {
+		let n = machines.Next(r, Step(r, At{Key: k, Sig: sig}))
+		if len(n.Items) != len(r.Items) || n.Next != r.Next {
+			return false
+		}
+		for i, x in r.Items {
+			let want = if x.Key == k { machines.Next(x.Counter, counter.Step(x.Counter, sig)) } else { x.Counter }
+			if n.Items[i] != (Row{Key: x.Key, Counter: want}) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// signalOf is a signal from two numbers: n picks the kind and k the key,
+// which may name no row (keys run to 7, past the rows a short script has).
+func signalOf(n int, k int) Signal {
+	let key = pick(k, 8)
+	match pick(n, 4) {
+	case 0:
+		Add
+	case 1:
+		Remove{Key: key}
+	case 2:
+		At{Key: key, Sig: counter.Increment}
+	case _:
+		At{Key: key, Sig: counter.Decrement}
+	}
+}
+
+// reached is the initial list and the list after each signal.
+func reached(words []int, keys []int) []Rows {
+	let mut r = Initial()
+	let mut out = []Rows{r}
+	for i, w in words {
+		let k = if i < len(keys) { keys[i] } else { i }
+		r = machines.Next(r, Step(r, signalOf(w, k)))
+		out = out.Append(r)
+	}
+	out
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// Rows is the state: the rows in order, and the key the next row gets.
+// Keys are never reused, so a signal for a removed row finds no row.
+type Rows { Items []Row, Next int }
+
+// KeysAreUnique: in every reached list no two rows share a key, and every
+// key is below Next, so an add never gives a key a row had before.
+law KeysAreUnique(words []int, keys []int) {
+	for r in reached(words, keys) {
+		for i, x in r.Items {
+			if x.Key >= r.Next {
+				return false
+			}
+			for j, y in r.Items {
+				if i != j && x.Key == y.Key {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// Signal is what the list takes: add a row, remove one, or a counter's
+// own signal for the row with the key.
+type Signal = Add{} | Remove{Key int} | At{Key int, Sig counter.Signal}
+
+// RemoveKeepsTheOthers: a remove drops the rows with the key and keeps
+// every other row, in order, with its count.
+law RemoveKeepsTheOthers(words []int, keys []int, key int) {
+	let k = pick(key, 8)
+	for r in reached(words, keys) {
+		let n = machines.Next(r, Step(r, Remove{Key: k}))
+		let mut kept = []Row{}
+		for x in r.Items {
+			if x.Key != k {
+				kept = kept.Append(x)
+			}
+		}
+		if n != (Rows{Items: kept, Next: r.Next}) {
+			return false
+		}
+	}
+	true
+}
+
+// Initial is three fresh counters, keys 0 to 2.
+func Initial() Rows {
+	Rows{Items: []Row{fresh(0), fresh(1), fresh(2)}, Next: 3}
+}
+
+func fresh(key int) Row { Row{Key: key, Counter: counter.Initial()} }
+
+// Step is the transition. Add appends a fresh counter with the next key;
+// Remove drops the row with the key; At steps that row's counter and
+// leaves every other row as it was. A Remove or an At for a key with no
+// row changes nothing.
+func Step(r Rows, s Signal) Decision[Rows, Never] {
+	match s {
+	case Add:
+		Stay[Rows]{Next: Rows{Items: r.Items.Append(fresh(r.Next)), Next: r.Next + 1}}
+	case Remove as rm:
+		if !has(r, rm.Key) {
+			return Ignore
+		}
+		Stay[Rows]{Next: Rows{Items: slices.Filter(r.Items, func(x Row) bool { x.Key != rm.Key }), Next: r.Next}}
+	case At as at:
+		if !has(r, at.Key) {
+			return Ignore
+		}
+		let step = func(x Row) Row {
+			if x.Key != at.Key {
+				return x
+			}
+			Row{Key: x.Key, Counter: machines.Next(x.Counter, counter.Step(x.Counter, at.Sig))}
+		}
+		Stay[Rows]{Next: Rows{Items: slices.Transform(r.Items, step), Next: r.Next}}
+	}
+}
+
+// has reports whether r has a row with the key.
+func has(r Rows, key int) bool { slices.IndexFunc(r.Items, func(x Row) bool { x.Key == key }) >= 0 }
+
+// Counters is the list as a machine.
+type Counters machine[Rows, Signal] { initial: Initial(), step: Step }
+
+// Given is a list of rows with the counts, keys 0 up: a model for a
+// test to start from.
+func Given(counts []int) Rows {
+	let mut items = []Row{}
+	for i, n in counts {
+		items = items.Append(Row{Key: i, Counter: counter.Count{N: n}})
+	}
+	Rows{Items: items, Next: len(counts)}
+}
+
+// CountersFrom is the list as a machine that starts from the given counts
+// (Given): its input is the program's flags.
+type CountersFrom machine[Rows, Signal] { initial: Given, step: Step }
+
+// Name is the name the screen shows for the row with the key.
+func Name(key int) string { "counter-\(key)" }

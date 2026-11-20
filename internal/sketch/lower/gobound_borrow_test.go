@@ -43,11 +43,11 @@ func init() {
 // 2). Same receives a copy of *p (a value receiver): it takes p once.
 const recvBorrowSrc = `import go recvborrow
 
-func merge(p *recvborrow.P) needs go.Foreign {
+func merge(p mut recvborrow.P) needs go.Foreign {
 	p.Merge(1, p)
 }
 
-func same(p *recvborrow.P) bool needs go.Foreign {
+func same(p mut recvborrow.P) bool needs go.Foreign {
 	p.Same(p)
 }
 `

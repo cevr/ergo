@@ -1,0 +1,167 @@
+import respd/resp
+import respd/store
+import time
+
+// Session is what a connection keeps between commands: the protocol it
+// speaks, RESP2 until a HELLO 3.
+type Session { Protocol resp.Protocol }
+
+// NewSession is a session that speaks RESP2.
+func NewSession() Session { Session{Protocol: resp.Resp2} }
+
+// Run is the reply to c in session s. It reads the clock once and gives
+// that time to every operation of the engine and the leases.
+func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases | time.Clock {
+	let now = time.Clock.Now()
+	match c {
+	case Ping as p:
+		match p.Message {
+		case Some[string] as m:
+			resp.Bulk{Data: m.Value}
+		case None:
+			resp.Simple{Text: "PONG"}
+		}
+	case Echo as e:
+		resp.Bulk{Data: e.Text}
+	case Get as g:
+		let v = store.Engine.Get(g.Key, now) catch {
+		case store.Missing:
+			return resp.Null
+		}
+		resp.Bulk{Data: v}
+	case Set as x:
+		let until = match x.For {
+		case Some[int64] as ms:
+			Some[time.Time]{Value: now.Add(time.Times(1ms, int(ms.Value)))}
+		case None:
+			None
+		}
+		store.Engine.Set(x.Key, x.Value, x.When, until, now) catch {
+		case store.Kept:
+			return resp.Null
+		}
+		OK
+	case Del as d:
+		let mut n = 0
+		for k in d.Keys {
+			if store.Remove(k, now) {
+				n += 1
+			}
+		}
+		resp.Integer{N: int64(n)}
+	case Expire as e:
+		let until = Some[time.Time]{Value: now.Add(time.Times(1ms, int(e.Ms)))}
+		store.Engine.Expire(e.Key, until, now) catch {
+		case store.Missing:
+			return resp.Integer{N: 0}
+		}
+		resp.Integer{N: 1}
+	case Persist as p:
+		match store.Left(p.Key, now) {
+		case Some[store.Expiry] as e:
+			if e.Value == store.Forever {
+				return resp.Integer{N: 0}
+			}
+			store.Engine.Expire(p.Key, None, now) catch {
+			case store.Missing:
+				return resp.Integer{N: 0}
+			}
+			resp.Integer{N: 1}
+		case None:
+			resp.Integer{N: 0}
+		}
+	case TTL as t:
+		match store.Left(t.Key, now) {
+		case None:
+			resp.Integer{N: -2}
+		case Some[store.Expiry] as e:
+			match e.Value {
+			case store.Forever:
+				resp.Integer{N: -1}
+			case store.Until as u:
+				let ms = int64(time.Count(u.At.Sub(now), 1ms))
+				match t.Unit {
+				case Millis:
+					resp.Integer{N: ms}
+				case Seconds:
+					resp.Integer{N: (ms + 500) / 1000}
+				}
+			}
+		}
+	case Incr as i:
+		let n = store.Engine.Incr(i.Key, i.By, now) catch {
+		case store.NotInteger:
+			return resp.Fault{Text: "ERR value is not an integer or out of range"}
+		case store.Overflow:
+			return resp.Fault{Text: "ERR increment or decrement would overflow"}
+		}
+		resp.Integer{N: n}
+	case Hello as h:
+		let version = match h.Version {
+		case Some[int64] as v:
+			v.Value
+		case None:
+			if s.Protocol == resp.Resp3 { 3 } else { 2 }
+		}
+		if version != 2 && version != 3 {
+			return resp.Fault{Text: "NOPROTO unsupported protocol version"}
+		}
+		s.Protocol = if version == 3 { resp.Resp3 } else { resp.Resp2 }
+		resp.Dict{Pairs: []resp.Pair{field("server", resp.Bulk{Data: "respd"}), field("version", resp.Bulk{Data: Version}), field("proto", resp.Integer{N: version})}}
+	case Acquire as a:
+		let l = store.Leases.Acquire(a.Name, a.Owner, now.Add(time.Times(1ms, int(a.Ms))), now) catch {
+		case store.Held as h:
+			return resp.Fault{Text: "HELD \(h.Owner) \(time.Count(h.Until.Sub(now), 1ms))"}
+		}
+		grant(l)
+	case Renew as r:
+		let lease = store.Lease{Name: r.Name, Owner: r.Owner, Token: r.Token, Until: now}
+		let l = store.Leases.Renew(lease, now.Add(time.Times(1ms, int(r.Ms))), now) catch {
+		case store.Lost:
+			return lost(r.Name, r.Token)
+		}
+		grant(l)
+	case Release as r:
+		let lease = store.Lease{Name: r.Name, Owner: r.Owner, Token: r.Token, Until: now}
+		store.Leases.Release(lease, now) catch {
+		case store.Lost:
+			return lost(r.Name, r.Token)
+		}
+		OK
+	case Invalid as i:
+		resp.Fault{Text: i.Reason}
+	case Unknown as u:
+		let mut text = "ERR unknown command '\(u.Name)', with args beginning with: "
+		for a in u.Args {
+			text = text + "'\(a)' "
+		}
+		resp.Fault{Text: text}
+	}
+}
+
+// Version is the version HELLO reports.
+let Version = "0.1.0"
+
+// OK is the reply of a command that worked and has nothing to say.
+let OK = resp.Simple{Text: "OK"}
+
+// field is one entry of HELLO's map.
+func field(name string, v resp.Value) resp.Pair { resp.Pair{Key: resp.Bulk{Data: name}, Value: v} }
+
+// grant is the reply of a granted lease: its token and the milliseconds
+// of Unix time it ends at.
+func grant(l store.Lease) resp.Value {
+	let ms = l.Until.UnixSeconds()*1000 + l.Until.Nanosecond()/1000000
+	resp.Array{Items: []resp.Value{resp.Integer{N: l.Token}, resp.Integer{N: ms}}}
+}
+
+// lost is the reply of a renewal or a release of a lease that is not its
+// name's grant.
+func lost(name string, token int64) resp.Value { resp.Fault{Text: "LOST \(name) \(token)"} }
+
+// Answer is the bytes of the reply to c, in the protocol s speaks after
+// it: HELLO's reply is in the protocol it asks for.
+func Answer(out []byte, s mut Session, c Command) []byte needs store.Engine | store.Leases | time.Clock {
+	let v = Run(s, c)
+	resp.Append(out, v, s.Protocol)
+}

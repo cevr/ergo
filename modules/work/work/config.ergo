@@ -21,7 +21,7 @@ let ConfigFile = "work.toml"
 //     Rift's default list.
 //   - Copy allows a plain copy where no clone can share blocks.
 //   - Push is who may push from a workspace: "refuse" (the default)
-//     gives every remote of a new or adopted workspace a push URL that
+//     gives every remote of a workspace new makes a push URL that
 //     refuses every push, so work goes back only through ready;
 //     "origin" leaves the remotes as the clone has them, for a base
 //     whose owner pushes from workspaces.
@@ -100,11 +100,14 @@ type languageTable {
 }
 
 type classTable {
-	Match  json.Optional[string] "match",
-	Kind   json.Optional[string] "kind",
-	Sets   json.Optional[[]string] "sets",
-	By     json.Optional[string] "by",
-	Driver json.Optional[string] "driver",
+	Match     json.Optional[string] "match",
+	Kind      json.Optional[string] "kind",
+	Sets      json.Optional[[]string] "sets",
+	By        json.Optional[string] "by",
+	Driver    json.Optional[string] "driver",
+	Candidate json.Optional[bool] "candidate",
+	Check     json.Optional[string] "check",
+	Version   json.Optional[string] "version",
 }
 
 type workTable {
@@ -175,7 +178,7 @@ func ParseConfig(text string) Config fails BadConfig {
 	case json.Present[[]classTable] as list:
 		let mut lines = []ClassLine{}
 		for k in list.Value {
-			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver)}
+			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver), Candidate: orFalse(k.Candidate), Check: orText(k.Check), Version: orText(k.Version)}
 			if line.Match == "" {
 				return BadConfig{Line: 0, Why: "a [[class]] needs a match"}
 			}
@@ -184,6 +187,9 @@ func ParseConfig(text string) Config fails BadConfig {
 			}
 			if line.Kind == "driver" && line.Driver == "" {
 				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): a driver needs its command"}
+			}
+			if line.Kind != "driver" && (line.Candidate || line.Check != "" || line.Version != "") {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): candidate, check and version are a driver's"}
 			}
 			lines = lines.Append(line)
 		}
@@ -281,11 +287,24 @@ func Commands(c Config) []string {
 		if line.Driver != "" {
 			out = out.Append("class.\(line.Match).driver: \(line.Driver)")
 		}
+		if line.Check != "" {
+			out = out.Append("class.\(line.Match).check: \(line.Check)")
+		}
 	}
 	for l in c.Languages {
 		out = out.Append("language.\(l.Name).command: \(l.Command)")
 	}
 	out
+}
+
+// CandidateCommandsAreTrusted: a candidate line's driver and check are
+// both commands work trust allows, so a changed check asks again.
+law CandidateCommandsAreTrusted(n int, m int) {
+	let c = ParseConfig("[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv \(n)\"\ncandidate = true\ncheck = \"chk \(m)\"\n") catch {
+	case BadConfig:
+		return false
+	}
+	Commands(c) == []string{"class.*.go.driver: drv \(n)", "class.*.go.check: chk \(m)"}
 }
 
 // Digest is the digest of the commands a configuration runs: what work

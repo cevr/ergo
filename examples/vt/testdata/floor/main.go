@@ -1,6 +1,6 @@
 // Command floor is the Go-runtime floor of examples/vt's `vt replay`
 // (common.md GO-RUNTIME FLOOR): the hand Go control
-// (cmd/ergo/testdata/vt/control, Ghostty's dense form, below) with the
+// (cmd/ergo/testdata/vt/control, the dense form, below) with the
 // changes that cut its user instructions, each kept only when a count
 // showed it (perf stat, GOGC=off, `vt gen 7` at 2 and 16 MB, 2026-11-18:
 // control 79.0 instructions per byte, floor 70.4):
@@ -22,11 +22,11 @@
 // history and the buffer (each change of style in braces), the cursor,
 // pen and title, the parser's tally and the unhandled sequences.
 //
-// The parser is Ghostty's: a [256][14] transition table (parse_table.zig)
+// The parser is a [256][14] transition table (the reference table)
 // with the UTF-8 decoder in front of the ground state, the collector
 // beside it, and two fast paths (a run of printable ASCII, a run of OSC
 // data). It calls the screen directly; no event is built. The screen is
-// Ghostty's page form: 8-byte cells with no pointer in one slice (the
+// the page form: 8-byte cells with no pointer in one slice (the
 // alternate buffer's rows, then a ring of pages for the main buffer and
 // its history), a byte of flags per row, and a counted set of styles.
 //
@@ -876,7 +876,7 @@ func newCell(c rune, part int, st uint32) cell {
 
 func (c cell) part() int { return int(c.bits >> partShift & 3) }
 
-// styles is Ghostty's RefCountedSet: id 0 is the default style, never
+// styles is a reference-counted set: id 0 is the default style, never
 // counted; a style whose count falls to 0 leaves the set and its id is
 // free.
 type styles struct {

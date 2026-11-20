@@ -1,0 +1,105 @@
+// Package infer infers the type arguments of a call to a generic function
+// (capstone S3d; C0/plan.md §2.6). An inference is a frame on a scratch
+// stack: one slot per type parameter of the callee, found by the
+// parameter's position, never a map. A slot holds the parameter's binding,
+// whether it is a row parameter, and whether unification joined it. The
+// frame ends with a cut to its mark, so the stack's room serves every
+// later call with no allocation once it is as deep as the deepest call.
+//
+// The callee's signature is in the caller's pool with its parameters
+// renamed to the positions base, base+1, …: the pool has one Param per
+// position, so the caller's own parameters (0 to base-1) stay apart from
+// the callee's, as two distinct TypeParam objects are in the Go checker.
+
+import compiler/check/store
+import dense
+
+// Slot is one type parameter of a call in inference.
+type Slot { bound dense.Opt[store.TKey], row bool, joined bool }
+
+// Frame is the scratch stack of inference frames, and the count of
+// unification steps taken on it (the counted guard's work counter).
+type Frame { slots []Slot, top int, steps int }
+
+// Call is one inference: its frame's place on the stack, its parameter
+// count, and the position of its first parameter in the pool.
+type Call { at int, n int, base int }
+
+// NewFrame is an empty stack.
+func NewFrame() Frame { Frame{slots: []Slot{}, top: 0, steps: 0} }
+
+// FramesNest: an inference begun inside another, as a call's argument's
+// own call is, leaves the outer frame's bindings as they were, and the
+// outer frame's end cuts the stack to where it began.
+law FramesNest(picks []int) {
+	let mut s = store.New("p", []string{})
+	let mut f = NewFrame()
+	let outer = Begin(&f, []bool{false, true}, 5)
+	Bind(&f, outer, 0, store.TBasic(&s, 3))
+	let k = caseOf(&s, &f, picks)
+	let inner = Infer(&s, &f, NoUnions(), k.callee, []dense.ID[store.TKey]{}, k.args)
+	let kept = match Binding(f, outer, 0) {
+	case Some[dense.ID[store.TKey]] as b:
+		b.Value == store.TBasic(&s, 3)
+	case None:
+		false
+	}
+	let unbound = isNone(Binding(f, outer, 1))
+	let depth = Depth(f)
+	End(&f, outer)
+	!isNone(inner) && kept && unbound && depth == 2 && Depth(f) == 0
+}
+
+// Steps is the count of unification steps taken on f.
+func Steps(f Frame) int { f.steps }
+
+// Depth is the count of slots on f.
+func Depth(f Frame) int { f.top }
+
+// Begin pushes a frame of one free slot per type parameter, rows[i]
+// telling whether parameter i is a row parameter; the callee's parameter i
+// is the pool's Param(base+i).
+func Begin(f mut Frame, rows []bool, base int) Call {
+	let at = f.top
+	for r in rows {
+		let slot = Slot{bound: dense.NoID[store.TKey](), row: r, joined: false}
+		if f.top < len(f.slots) {
+			f.slots[f.top] = slot
+		} else {
+			f.slots = f.slots.Append(slot)
+		}
+		f.top = f.top + 1
+	}
+	Call{at: at, n: len(rows), base: base}
+}
+
+// End cuts f to c's mark: c's frame and every frame begun after it go.
+func End(f mut Frame, c Call) {
+	if c.at > f.top {
+		Unreachable("infer: a frame ended twice")
+	}
+	f.top = c.at
+}
+
+// Binding is the type parameter i of c's binding, if any.
+func Binding(f Frame, c Call, i int) Option[dense.ID[store.TKey]] { dense.Unpack(f.slots[c.at+i].bound) }
+
+// Bind binds parameter i of c to t (a written type argument, or the
+// unifier's binding).
+func Bind(f mut Frame, c Call, i int, t dense.ID[store.TKey]) { f.slots[c.at+i].bound = dense.OptOf(t) }
+
+// slotOf is the position in c of the type parameter t, -1 when t is no
+// parameter of c's callee.
+func slotOf(s store.Store, c Call, t dense.ID[store.TKey]) int {
+	if store.KindOfType(s, t) != store.KParam {
+		return -1
+	}
+	let i = store.ArgOf(s, t) - c.base
+	if i >= 0 && i < c.n { i } else { -1 }
+}
+
+// free is whether parameter i of c is unbound.
+func free(f Frame, c Call, i int) bool { f.slots[c.at+i].bound == dense.NoID[store.TKey]() }
+
+// Param is the pool's parameter for c's parameter i.
+func Param(s mut store.Store, c Call, i int) dense.ID[store.TKey] { store.TParam(s, c.base+i) }

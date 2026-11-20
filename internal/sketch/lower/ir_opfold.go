@@ -33,6 +33,9 @@ import (
 //     correctly rounded, so the folded value is the one the operation
 //     would compute when the program runs.
 //
+// The len of a constant string is its byte count, as Go's (INDEX-NONSLICE:
+// lzpack's len(Magic)).
+//
 // Comparisons, logical operators and shifts are not folded, as the reader
 // did not fold them. int and uint are 64 bits wide (the reader's bounds).
 //
@@ -81,6 +84,12 @@ func (b *irBuilder) foldConst(x syntax.Expr, e *irExpr) *irExpr {
 		v = foldUn(e.Op, b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
 	case "conv":
 		v = foldConv(b.consts[e.X], b.scalarBasic(b.l.info.Types[x]))
+	case "len":
+		// Go's len of a constant string is a constant (the spec's Length
+		// and capacity), so the text's len(K) is gc's constant.
+		if s := b.consts[e.X]; s != nil && s.Kind() == constant.String {
+			v = constant.MakeInt64(int64(len(constant.StringVal(s))))
+		}
 	}
 	if v == nil {
 		return e

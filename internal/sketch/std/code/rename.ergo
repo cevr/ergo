@@ -355,6 +355,58 @@ let RenameNames = []string{"Fresh", "Novel", "Tmp", "Zap", "Path", "Size", "Run"
 // writes the reference's text; else the plan is refused Capture.
 law RenameIsAlpha(seed int, pick int, to int) { renameIsAlpha(seed, pick, to) }
 
+// render is the text of p's files.
+func render(p prog) []Source {
+	let mut out = []Source{}
+	for f in p.Files {
+		let mut text = "// \(f.Path)\n"
+		for im in f.Imports {
+			text = text + "import " + im + "\n"
+		}
+		for d in f.Decls {
+			text = text + "\n" + headOf(p, d.Symbol) + "\n"
+			for line in d.Lines {
+				let mut ws = []string{}
+				for t in line {
+					ws = ws.Append(tokText(p, t))
+				}
+				text = text + "\t" + strings.Join(ws, " ") + "\n"
+			}
+		}
+		out = out.Append(Source{File: f.Path, Text: text})
+	}
+	out
+}
+
+// nameOf is a symbol's name in p.
+func nameOf(p prog, id string) string { maps.GetOr(p.Names, id, "") }
+
+// headOf is the line that declares a symbol.
+func headOf(p prog, id string) string {
+	match p.Owners.Get(id) {
+	case Some[string] as o:
+		"func " + nameOf(p, o.Value) + "." + nameOf(p, id)
+	case None:
+		maps.GetOr(p.Kinds, id, "") + " " + nameOf(p, id)
+	}
+}
+
+// tokText is a word as p writes it.
+func tokText(p prog, t tok) string {
+	match t {
+	case tword as w:
+		w.Text
+	case tuse as u:
+		nameOf(p, u.Symbol)
+	case tqual as q:
+		q.Prefix + "." + nameOf(p, q.Symbol)
+	case tmember as m:
+		nameOf(p, maps.GetOr(p.Owners, m.Symbol, "")) + "." + nameOf(p, m.Symbol)
+	case tkey as k:
+		nameOf(p, maps.GetOr(p.Owners, k.Symbol, "")) + "{" + nameOf(p, k.Symbol) + "}"
+	}
+}
+
 func renameIsAlpha(seed int, pick int, to int) bool {
 	let p = Program(seed)
 	let ids = slices.Sorted(maps.Keys(p.Names))

@@ -26,7 +26,7 @@ let Rows = 40
 type Outcome = Done{} | Missing{Label string} | Unclear{Count int} | Refused{} | Broken{}
 
 // onTest is how a step ended on the test host.
-func onTest[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], act ui.Act) Outcome {
+func onTest[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], act ui.Act) Outcome {
 	ui.Play(h, []ui.Act{act}) catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
@@ -41,7 +41,7 @@ func onTest[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], act ui.Act) Outco
 }
 
 // onCells is how a step ended on the cell host.
-func onCells[E comparable, S, D, F](h *host.Host[S, E, D, F], act ui.Act) Outcome {
+func onCells[E comparable, S, D, F](h mut host.Host[S, E, D, F], act ui.Act) Outcome {
 	host.Play(h, []ui.Act{act}) catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
@@ -58,7 +58,7 @@ func onCells[E comparable, S, D, F](h *host.Host[S, E, D, F], act ui.Act) Outcom
 // Agree plays acts on both hosts and is whether, after every step, both
 // ended it alike, both show the same tree, and the terminal that read
 // every frame shows the cell host's grid.
-func Agree[E comparable, S, D, F, D2, F2](t *ui.TestHost[S, E, D, F], c *host.Host[S, E, D2, F2], acts []ui.Act) bool {
+func Agree[E comparable, S, D, F, D2, F2](t mut ui.TestHost[S, E, D, F], c mut host.Host[S, E, D2, F2], acts []ui.Act) bool {
 	let mut screen = grid.New(Cols, Rows)
 	for f in host.Take(c) {
 		screen = grid.Replay(screen, f)

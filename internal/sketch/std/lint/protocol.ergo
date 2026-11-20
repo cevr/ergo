@@ -42,9 +42,34 @@ type ServeFailed = FrameMalformed | VersionUnsupported | RequestTooLarge | Reque
 // Frame is one decoded frame: its version and its payload.
 type Frame { Version int, Payload string }
 
+// FrameRoundTrips: ReadFrame reads the payload WriteFrame framed, in this
+// package's protocol version, whatever bytes the payload holds.
+law FrameRoundTrips(payload string) {
+	let f = ReadFrame(WriteFrame(payload)) catch {
+	case FrameMalformed:
+		return false
+	}
+	f == Frame{Version: ProtocolVersion, Payload: payload}
+}
+
 // WriteFrame is the frame of payload in this package's version.
 func WriteFrame(payload string) string {
 	"\(frameMagic) \(ProtocolVersion) \(len(payload))\n" + payload
+}
+
+// FrameIsExact: a frame with a byte more or a byte less than its header
+// says is malformed, so a pack never answers a request it read in part.
+law FrameIsExact(payload string, extra string) {
+	let framed = WriteFrame(payload)
+	let _ = ReadFrame(framed + extra + "x") catch {
+	case FrameMalformed:
+		let _ = ReadFrame(strings.Slice(framed, 0, len(framed)-1)) catch {
+		case FrameMalformed:
+			return true
+		}
+		return false
+	}
+	false
 }
 
 // ReadFrame is the one frame text holds: a valid header and then exactly
@@ -183,6 +208,41 @@ func Answer(p Pack, input string) string fails ServeFailed {
 		return RequestInvalid{Reason: "invalid request: \(at(u.Path, "")) has no variant \(u.Tag)"}
 	}
 	WriteFrame(json.Encode(json.Codec[response]{MaxBytes: 0, MaxDepth: 0}, respond(p, r)))
+}
+
+// AnswerAdmitsAndChecks: Answer runs a requested rule only at the version
+// the pack implements, fails a finding whose span is outside the one
+// admitted source, and completes one inside it, with the Go SDK's texts.
+// The length lies within two bytes of the source's end, where a bound
+// that is off by one shows.
+law AnswerAdmitsAndChecks(offset int, length int, sameVersion bool) {
+	let o = offset % 20
+	let l = 16 - o + length%3
+	let span = Span{File: "a.ergo", Offset: o, Length: l, Line: 1, Column: 1}
+	let rule = Rule{Name: "probe", Version: "1", Description: "d", DefaultSeverity: Warning, Requires: []Family{}, Options: []OptionSpec{}, Check: func(s Snapshot, options json.Value) []Finding fails RuleFailed {
+		[]Finding{Finding{Message: "m", Span: span, Related: []Related{}, Suggestions: []Suggestion{}}}
+	}}
+	let p = Pack{Namespace: "ns", Version: "0", Description: "", FactVersions: []int{SchemaVersion}, Rules: []Rule{rule}, Presets: []Preset{}}
+	let s = Snapshot{Schema: Schema{Name: SchemaName, Version: SchemaVersion}, Semantic: Semantic{Revision: "r", Target: "go", Producer: "", ReuseScope: ""}, Sources: []Source{Source{File: "a.ergo", URI: "", Bytes: 16}}, Checked: true, Families: []Family{CallsFamily}, Unavailable: []UnavailableFamily{}, Types: []TypeDecl{}, Contexts: []Context{}, Callables: []Callable{}, Calls: []Call{}, Withs: []With{}, Bindings: []Binding{}, Imports: []Import{}}
+	let version = if sameVersion { "1" } else { "2" }
+	let text = "{\"id\":\"i\",\"pack\":{\"namespace\":\"ns\",\"version\":\"0\",\"identity\":\"x\"},\"rules\":[{\"name\":\"probe\",\"version\":\"" + version + "\",\"options\":{}}],\"snapshot\":" + EncodeSnapshot(s) + "}"
+	let answer = Answer(p, WriteFrame(text)) catch {
+	case _:
+		return false
+	}
+	let frame = ReadFrame(answer) catch {
+	case FrameMalformed:
+		return false
+	}
+	let inside = o >= 0 && l >= 0 && o <= 16 && l <= 16-o
+	let want = if !sameVersion {
+		"\"status\":\"failed\",\"reason\":\"manifest declares rule version 2; the pack implements 1\""
+	} else if inside {
+		"\"status\":\"completed\",\"findings\":[{\"message\":\"m\""
+	} else {
+		"\"status\":\"failed\",\"reason\":\"finding \\\"m\\\": span {File:a.ergo Offset:"
+	}
+	strings.Contains(frame.Payload, want)
 }
 
 // Refusal is the frame Serve writes when a request speaks another

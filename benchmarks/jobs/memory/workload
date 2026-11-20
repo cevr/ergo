@@ -1,0 +1,10 @@
+# scripts/opcount: `jobsbench bench memory N` runs N jobs through a std
+# jobs/memory queue, each enqueued, reserved and acked, with 64 waiting
+# (ST2); the cost of one job is the slope between the two sizes. The
+# control is hand Go with a heap of ready jobs and a map of leases under a
+# mutex; the floor is a ring of ready jobs and a ring of lease ends.
+unit job
+sizes 200000 1200000
+args bench memory {n}
+control benchmarks/jobs/testdata/control
+floor benchmarks/jobs/testdata/floor

@@ -1,0 +1,281 @@
+import dense
+import slices
+import strings
+
+// TKey is a type of the package's pool: a kind and two operands
+// (C0/plan.md §2.4). A type with type operands keeps them in the pool's
+// extra list, and its key is (kind, start, length) of that run.
+type TKey { k uint8, a uint32, b uint32 }
+
+// The kinds of a TKey.
+let tBasic = 1
+let tNamed = 2
+let tParam = 3
+let tSlice = 4
+let tMap = 5
+let tFunc = 6
+let tRecord = 7
+let tUnion = 8
+let tRow = 9
+let tInstance = 10
+
+// Pool interns one package's types, so equal ids are equal types. An
+// operand list is interned by its content (its text in lists), so two
+// equal lists are one list, and a key names its list by number (starts
+// gives the list's run in extra). An instance's list text begins with its
+// origin, so instances of two origins never share a list, even with no
+// arguments (two empty runs share a start, never a number).
+type Pool {
+	keys   dense.Interner[TKey],
+	open   dense.Col[TKey, bool],
+	origin dense.Side[TKey, XRef],
+	extra  []dense.ID[TKey],
+	lists  dense.Strings,
+	starts []uint32,
+}
+
+// NewPool is a pool of no types.
+func NewPool() Pool {
+	Pool{
+		keys:   dense.NewInterner[TKey](),
+		open:   dense.NewCol[TKey, bool](),
+		origin: dense.NewSide[TKey, XRef](XRef{Import: uint32(0), Decl: uint32(0)}),
+		extra:  []dense.ID[TKey]{},
+		lists:  dense.NewStrings(),
+		starts: []uint32{},
+	}
+}
+
+// intern is the id of k; a new id gets its open bit, which is whether
+// the type mentions a type parameter (a pure function of the key, so it
+// is the same at 1 and at 8 threads).
+func intern(p mut Pool, k TKey, open bool) dense.ID[TKey] {
+	let n = dense.Interned(p.keys)
+	let id = dense.Intern(&p.keys, k)
+	if dense.Index(id) == n {
+		dense.Push(&p.open, open)
+	}
+	id
+}
+
+// list is the number of the list prefix then ts: a list equal to one
+// interned before shares its number.
+func list(p mut Pool, prefix string, ts []dense.ID[TKey]) uint32 {
+	let mut b = strings.NewBuilder()
+	b.WriteString(prefix)
+	for t in ts {
+		b.WriteString(",\(dense.Index(t))")
+	}
+	let text = b.String()
+	match dense.FindText(p.lists, text) {
+	case Some{Value: id}:
+		uint32(dense.Index(id))
+	case None:
+		let id = dense.InternText(&p.lists, text)
+		p.starts = p.starts.Append(uint32(len(p.extra)))
+		for t in ts {
+			p.extra = p.extra.Append(t)
+		}
+		uint32(dense.Index(id))
+	}
+}
+
+// anyOpen is whether a type of ts mentions a type parameter.
+func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
+	let mut o = false
+	for t in ts {
+		o = o || Open(p, t)
+	}
+	o
+}
+
+// composite interns a type of kind k over the operands ts.
+func composite(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
+	let l = list(p, "", ts)
+	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
+}
+
+// Basic is the basic type of ordinal n (int, string, …).
+func Basic(p mut Pool, n int) dense.ID[TKey] { intern(p, TKey{k: uint8(tBasic), a: uint32(n), b: uint32(0)}, false) }
+
+// Named is the type a TypeName row of this package names.
+func Named(p mut Pool, n dense.ID[TypeName]) dense.ID[TKey] { intern(p, TKey{k: uint8(tNamed), a: uint32(dense.Index(n)), b: uint32(0)}, false) }
+
+// Param is the type parameter at position i of the declaration in hand.
+func Param(p mut Pool, i int) dense.ID[TKey] { intern(p, TKey{k: uint8(tParam), a: uint32(i), b: uint32(0)}, true) }
+
+// Slice is []e.
+func Slice(p mut Pool, e dense.ID[TKey]) dense.ID[TKey] { composite(p, tSlice, []dense.ID[TKey]{e}) }
+
+// MapOf is Map[k, v].
+func MapOf(p mut Pool, k dense.ID[TKey], v dense.ID[TKey]) dense.ID[TKey] { composite(p, tMap, []dense.ID[TKey]{k, v}) }
+
+// FuncOf is a function from params to result.
+func FuncOf(p mut Pool, params []dense.ID[TKey], result dense.ID[TKey]) dense.ID[TKey] { composite(p, tFunc, params.Append(result)) }
+
+// Row is the row of the types ts: a sorted run with no repeats, so two
+// rows of the same types are one id (design.md: a row is a sorted set).
+func Row(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
+	let sorted = slices.SortFunc(ts, func(a dense.ID[TKey], b dense.ID[TKey]) int { dense.Index(a) - dense.Index(b) })
+	let mut set = []dense.ID[TKey]{}
+	for t in sorted {
+		if len(set) == 0 || set[len(set)-1] != t {
+			set = set.Append(t)
+		}
+	}
+	composite(p, tRow, set)
+}
+
+// Instance is the instance of the generic declaration origin at the
+// type arguments args, interned in this package's pool (C0/plan.md §2.4
+// ruling: identity across packages is Canon's key, never this id).
+func Instance(p mut Pool, o XRef, args []dense.ID[TKey]) dense.ID[TKey] {
+	let l = list(p, "\(o.Import).\(o.Decl)", args)
+	let id = intern(p, TKey{k: uint8(tInstance), a: l, b: uint32(len(args))}, anyOpen(*p, args))
+	dense.SideSet(&p.origin, id, o)
+	id
+}
+
+// Key is t's key.
+func Key(p Pool, t dense.ID[TKey]) TKey { dense.Value(p.keys, t) }
+
+// Operands is the type operands of t: none for a basic, named or
+// parameter type.
+func Operands(p Pool, t dense.ID[TKey]) []dense.ID[TKey] {
+	let k = Key(p, t)
+	if int(k.k) == tBasic || int(k.k) == tNamed || int(k.k) == tParam {
+		return []dense.ID[TKey]{}
+	}
+	let start = int(p.starts[int(k.a)])
+	p.extra[start : start+int(k.b)]
+}
+
+// OriginOf is the declaration an instance instantiates.
+func OriginOf(p Pool, t dense.ID[TKey]) XRef { dense.SideOf(p.origin, t) }
+
+// Open is whether t mentions a type parameter.
+func Open(p Pool, t dense.ID[TKey]) bool { dense.Of(p.open, t) }
+
+// Subst is t with the type parameter at position i replaced by args[i]
+// (a position past args stays). A closed type is itself, at once (Bun
+// T11: no walk for the common case).
+func Subst(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
+	if !Open(*p, t) {
+		return t
+	}
+	let k = Key(*p, t)
+	let kind = int(k.k)
+	if kind == tParam {
+		return if int(k.a) < len(args) { args[int(k.a)] } else { t }
+	}
+	// The operands are read one at a time: Subst writes the pool, whose
+	// keys and operands only grow, so each read after a write is the one
+	// before it, and no copy of the operands is taken.
+	let n = len(Operands(*p, t))
+	let mut ts = slices.WithCapacity[dense.ID[TKey]](n)
+	for i in 0..n {
+		ts = ts.Append(Subst(p, operandAt(*p, t, i), args))
+	}
+	if kind == tRow {
+		// A row parameter bound to a row splices its elements in (the Go
+		// checker's subst flattens them); a row written inside the row
+		// stays one element.
+		let mut flat = []dense.ID[TKey]{}
+		for i, o in ts {
+			if int(Key(*p, operandAt(*p, t, i)).k) == tParam && int(Key(*p, o).k) == tRow {
+				for e in Operands(*p, o) {
+					flat = flat.Append(e)
+				}
+			} else {
+				flat = flat.Append(o)
+			}
+		}
+		return Row(p, flat)
+	}
+	if kind == tInstance {
+		return Instance(p, OriginOf(*p, t), ts)
+	}
+	composite(p, kind, ts)
+}
+
+// operandAt is t's i-th operand.
+func operandAt(p Pool, t dense.ID[TKey], i int) dense.ID[TKey] { Operands(p, t)[i] }
+
+// rising is whether t, if a row, has a strictly rising run of operands.
+func rising(p Pool, t dense.ID[TKey]) bool {
+	if int(Key(p, t).k) != tRow {
+		return true
+	}
+	let run = Operands(p, t)
+	let mut ok = true
+	for k in 1..len(run) {
+		ok = ok && dense.Index(run[k-1]) < dense.Index(run[k])
+	}
+	ok
+}
+
+// InstancesKeepTheirOrigins: two instances with no type arguments are one
+// type exactly when their origins are one, and each keeps its origin (S3t
+// found two origins' empty runs sharing a start, so one key).
+law InstancesKeepTheirOrigins(i int, j int) {
+	let mut p = NewPool()
+	let a = XRef{Import: uint32(0), Decl: uint32(((i % 4) + 4) % 4)}
+	let b = XRef{Import: uint32(0), Decl: uint32(((j % 4) + 4) % 4)}
+	let x = Instance(&p, a, []dense.ID[TKey]{})
+	let y = Instance(&p, b, []dense.ID[TKey]{})
+	(x == y) == (a == b) && OriginOf(p, x) == a && OriginOf(p, y) == b
+}
+
+// PoolInterns: two types of a pool are one id exactly when their
+// canonical texts (the model's) are equal, and a row's operands are a
+// strictly rising run of ids.
+law PoolInterns(xs []int) {
+	let (s0, named) = setup("a", false)
+	let mut s = s0
+	let ids = build(&s, named, xs)
+	let texts = model("a", xs, []string{})
+	let mut ok = true
+	for i, t in ids {
+		for j, u in ids {
+			ok = ok && (t == u) == (texts[i] == texts[j])
+		}
+		ok = ok && rising(s.pool, t)
+	}
+	ok
+}
+
+// OpenIsMentionsAParam: a type's open bit is whether its canonical text
+// mentions a type parameter (the bit Subst trusts to return at once).
+law OpenIsMentionsAParam(xs []int) {
+	let (s0, named) = setup("a", false)
+	let mut s = s0
+	let ids = build(&s, named, xs)
+	let texts = model("a", xs, []string{})
+	let mut ok = true
+	for i, t in ids {
+		ok = ok && Open(s.pool, t) == strings.Contains(texts[i], "P")
+	}
+	ok
+}
+
+// SubstAgreesWithModel: substituting B1 and []B2 for the parameters 0
+// and 1 gives the type whose text the model gives with those texts in
+// their place, a row it gives is a sorted set again, and a closed type is
+// its own id.
+law SubstAgreesWithModel(xs []int) {
+	let (s0, named) = setup("a", false)
+	let mut s = s0
+	let ids = build(&s, named, xs)
+	let args = []dense.ID[TKey]{Basic(&s.pool, 1), Slice(&s.pool, Basic(&s.pool, 2))}
+	let want = model("a", xs, []string{"B1", "S(B2)"})
+	let closed = model("a", xs, []string{})
+	let mut ok = true
+	for i, t in ids {
+		let u = Subst(&s.pool, t, args)
+		ok = ok && Canon(s, []Frozen{lib()}, u) == want[i] && rising(s.pool, u)
+		if !strings.Contains(closed[i], "P") {
+			ok = ok && u == t
+		}
+	}
+	ok
+}

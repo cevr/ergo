@@ -55,7 +55,9 @@ func Generate(p Retry, r Request) Turn fails RateLimited | Overloaded | Unauthor
 }
 
 func Stream(p Retry, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
-	let start = p.Clock.Now()
+	// The schedule reads the time since the first run began only when it is
+	// timed; otherwise no ask reads the clock (schedule.UntimedIgnoresElapsed).
+	let start Option[time.Time] = if schedule.Timed(p.Schedule) { Some[time.Time]{Value: p.Clock.Now()} } else { None }
 	let mut runs = 0
 	for {
 		runs = runs + 1
@@ -86,18 +88,29 @@ func Stream(p Retry, r Request, put func(d Delta) fails SinkFailed) Turn fails R
 // again is the wait before run runs+1 after f, or None to stop: never
 // for an Unsafe failure, and otherwise the schedule's decision, at least
 // the vendor's After.
-func again(p Retry, f Failure, runs int, start time.Time) Option[duration] {
+func again(p Retry, f Failure, runs int, start Option[time.Time]) Option[duration] {
 	match SafetyOf(f) {
 	case Unsafe:
 		None
 	case Safe, Unknown:
-		match schedule.Decide(p.Schedule, runs, p.Clock.Now().Sub(start)) {
+		match schedule.Decide(p.Schedule, runs, elapsed(p, start)) {
 		case schedule.Stop:
 			None
 		case schedule.Continue as c:
 			let asked = after(f)
 			Some[duration]{Value: if asked > c.After { asked } else { c.After }}
 		}
+	}
+}
+
+// elapsed is the time since start, read from p's clock, or 0 when the
+// schedule is not timed and so start was never read.
+func elapsed(p Retry, start Option[time.Time]) duration {
+	match start {
+	case Some[time.Time] as s:
+		p.Clock.Now().Sub(s.Value)
+	case None:
+		0s
 	}
 }
 

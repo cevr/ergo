@@ -19,7 +19,7 @@ func spinMachine() Machine[spin, int, int] {
 	Machine[spin, int, int]{Initial: spin{n: 0, on: false}, Step: spinStep, After: none[spin, int], Work: idle[spin, int], Exit: func(s spin) Option[func()] { None }}
 }
 
-func spinView(f *ui.Frame[int], s spin) {
+func spinView(f mut ui.Frame[int], s spin) {
 	if s.on {
 		ui.Animate(f, func(at duration) int { 0 })
 	}

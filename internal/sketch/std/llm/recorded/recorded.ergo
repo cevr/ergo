@@ -13,6 +13,7 @@
 
 import hex
 import json
+import jsonschema
 import llm
 import llm/memory
 import sha256
@@ -51,7 +52,7 @@ func form(r llm.Request) []string {
 	}
 	out = out.Append("\(len(r.Tools));")
 	for t in r.Tools {
-		out = out.Append(piece(t.Name)).Append(piece(t.Description)).Append(piece(t.Input))
+		out = out.Append(piece(t.Name)).Append(piece(t.Description)).Append(piece(jsonschema.TextOf(t.Input)))
 	}
 	match r.Choice {
 	case llm.Auto:

@@ -1,0 +1,5 @@
+law github.com/cevr/ergo/modules/simd/scan.CountByteIsTheKernel validated by eval with github.com/cevr/ergo/modules/simd/kernel@b71cdc866174 h1:zVOQVnZMJT/OmU8ra2MYRjha6ACg1/+IYbpfHVak3l8=
+law github.com/cevr/ergo/modules/simd/scan.IndexAny2IsTheKernel validated by eval with github.com/cevr/ergo/modules/simd/kernel@cbcd53a88ef5 h1:hjlGWNu4dpETJ+kCAJaC5FlKW+yfQ8Sm7/1m8jfPePM=
+law github.com/cevr/ergo/modules/simd/scan.IndexByteIsTheKernel validated by eval with github.com/cevr/ergo/modules/simd/kernel@aa69398911f3 h1:/wYED0xbAfpDr9qqmX3tOEE7miib1ZO1cmSrIXNFT8s=
+law github.com/cevr/ergo/modules/simd/scan.IndexOutsideIsTheKernel validated by eval with github.com/cevr/ergo/modules/simd/kernel@a84996ea4948 h1:+d1zr9oWpZ01pXFJoEjzqQgMYbwed3sCVH8XdOTtqWw=
+law github.com/cevr/ergo/modules/simd/scan.QuoteScanIsScalar validated by eval with github.com/cevr/ergo/modules/simd/kernel@341c65f71692 h1:8IBUNUHP/igBaoNRQjmcsZThmH1M3efol7jb9UG1THc=

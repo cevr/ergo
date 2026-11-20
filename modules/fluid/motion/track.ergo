@@ -1,0 +1,146 @@
+import math
+
+// Track is a value a spring moves toward Target, as a host runs it frame by frame: where it was
+// (X0) and how fast it moved (V0, per second) when its spring last started, at Start. Retarget
+// starts the spring again toward a new target from where the value is, at the speed it has,
+// so the value neither jumps nor stops when its target changes (a hover that leaves before
+// the box arrives turns it round smoothly).
+type Track { Spring Spring, Target float64, X0 float64, V0 float64, Start duration }
+
+// Still is a track at rest at x.
+func Still(s Spring, x float64) Track { Track{Spring: s, Target: x, X0: x, V0: 0.0, Start: 0ns} }
+
+// Retarget is k sent toward to from time t on, from its place and speed at t.
+func Retarget(k Track, t duration, to float64) Track {
+	Track{Spring: k.Spring, Target: to, X0: Pos(k, t), V0: Vel(k, t), Start: t}
+}
+
+// seconds is d in seconds.
+func seconds(d duration) float64 { float64(int64(d)) / 1000000000.0 }
+
+// Pos is the track's value at t (t at or after Start; before it, the value it started from).
+func Pos(k Track, t duration) float64 {
+	let (y, _) = solve(k, t)
+	k.Target + y
+}
+
+// Vel is the track's speed at t, per second.
+func Vel(k Track, t duration) float64 {
+	let (_, v) = solve(k, t)
+	v / spanOf(k)
+}
+
+// spanOf is the spring's duration in seconds, at least a nanosecond.
+func spanOf(k Track) float64 { if k.Spring.Duration <= 0ns { 0.000000001 } else { seconds(k.Spring.Duration) } }
+
+// solve is the closed form of the spring's equation y'' = -w²y - 2zwy', y the distance from the
+// target and time in durations of the spring, from y0 = X0 - Target and y0' = V0 in those units:
+// the distance and its rate at t.
+func solve(k Track, t duration) (float64, float64) {
+	let span = spanOf(k)
+	let p = if t <= k.Start { 0.0 } else { seconds(t-k.Start) / span }
+	let y0 = k.X0 - k.Target
+	let v0 = k.V0 * span
+	let z = damping(k.Spring.Bounce)
+	let w = frequency(z)
+	if z < 1.0 {
+		let wd = w * math.Sqrt(1.0-z*z)
+		let e = math.Exp(-z * w * p)
+		let c = cos(wd * p)
+		let s = sin(wd * p)
+		(e * (y0*c + ((v0+z*w*y0)/wd)*s), e * (v0*c - ((z*w*v0+w*w*y0)/wd)*s))
+	} else {
+		let e = math.Exp(-w * p)
+		let b = v0 + w*y0
+		((y0 + b*p) * e, (v0 - w*b*p) * e)
+	}
+}
+
+// Glitch is a visible fault of a played trace at a retarget: the value jumped, its speed broke
+// (it stopped, or changed, where the curve keeps it), or it had not settled by the end.
+type Jump { At duration, By float64 }
+type Break { At duration, From float64, To float64 }
+type Unsettled { At duration, Off float64 }
+type Glitch = Jump | Break | Unsettled
+
+// Played is the tracks a script of retargets makes from a still value: the first track, then
+// one per retarget, each from its time on. (A host plays the same script on its frames.)
+type Cue { At duration, To float64 }
+
+func Played(s Spring, from float64, script []Cue) []Track {
+	let mut out = []Track{Still(s, from)}
+	for c in script {
+		out = out.Append(Retarget(out[len(out)-1], c.At, c.To))
+	}
+	out
+}
+
+// Glitches is what a viewer would see go wrong in a played trace, the tracks in the order they
+// took over, read only from the positions the trace plays (a microsecond apart): at each
+// hand-over the value does not jump (within a part in a million of its scale) and its speed
+// just after is its speed just before (within what the two sides' accelerations move it in
+// that microsecond, and a thousandth of a unit per second); three spring durations after the
+// last hand-over the value is within 0.001 of its distance and speed scale from its target.
+func Glitches(trace []Track) []Glitch {
+	let h = 1000ns
+	let hs = seconds(h)
+	let mut out = []Glitch{}
+	for i in 1..len(trace) {
+		let a = trace[i-1]
+		let b = trace[i]
+		let t = b.Start
+		let x = Pos(a, t)
+		let by = Pos(b, t) - x
+		if math.Abs(by) > 0.000001*(1.0+math.Abs(x)) {
+			out = out.Append(Jump{At: t, By: by})
+		}
+		let before = (x - Pos(a, t-h)) / hs
+		let after = (Pos(b, t+h) - Pos(b, t)) / hs
+		let accA = (x - 2.0*Pos(a, t-h) + Pos(a, t-h-h)) / (hs * hs)
+		let accB = (Pos(b, t+h+h) - 2.0*Pos(b, t+h) + Pos(b, t)) / (hs * hs)
+		if math.Abs(after-before) > hs*(math.Abs(accA)+math.Abs(accB))+0.001+0.000001*math.Abs(before) {
+			out = out.Append(Break{At: t, From: before, To: after})
+		}
+	}
+	if len(trace) > 0 {
+		let last = trace[len(trace)-1]
+		let end = last.Start + duration(int64(last.Spring.Duration)*3)
+		let off = Pos(last, end) - last.Target
+		let bound = 0.001*(math.Abs(last.X0-last.Target)+math.Abs(last.V0)*spanOf(last)) + 0.000000001
+		if math.Abs(off) > bound {
+			out = out.Append(Unsettled{At: end, Off: off})
+		}
+	}
+	out
+}
+
+// TracesAreSmooth: a seeded script of retargets (each at a time after the last, to a target in
+// [-500, 500], on a spring of each tier's duration and a bounce in [0, 0.5]) plays with no
+// glitch: no jump, no broken speed, settled by three durations after the last retarget. A
+// value retargeted mid-flight keeps its speed, so it turns round instead of stopping dead.
+law TracesAreSmooth(tier Tier, b int, from int, steps []int) {
+	let s = Spring{Duration: Entrance(tier).Duration, Bounce: bounceOf(b)}
+	let mut script = []Cue{}
+	let mut t = 0ns
+	for i in 0..len(steps) {
+		t = t + duration(int64(1+pick(steps[i], 400))*1000000)
+		script = script.Append(Cue{At: t, To: float64(pick(steps[i]*7919+i, 1001) - 500)})
+	}
+	len(Glitches(Played(s, float64(pick(from, 1001)-500), script))) == 0
+}
+
+// TrackIsTheClipSpring: a track released from rest toward a target follows the clip's spring,
+// within 1e-9 of the move at 20 points: Track and At are one model.
+law TrackIsTheClipSpring(b int, from int, to int) {
+	let s = Spring{Duration: 200ms, Bounce: bounceOf(b)}
+	let x0 = float64(pick(from, 1001) - 500)
+	let x1 = float64(pick(to, 1001) - 500)
+	let k = Retarget(Still(s, x0), 0ns, x1)
+	let c = Clip{From: x0, To: x1, Curve: Sprung{Spring: s}, Over: 200ms, Delay: 0ns, Repeat: false}
+	let mut ok = true
+	for i in 0..20 {
+		let at = duration(int64(i) * 10000000)
+		ok = ok && math.Abs(Pos(k, at)-At(c, at, false)) <= 0.000000001*(1.0+math.Abs(x1-x0))
+	}
+	ok
+}

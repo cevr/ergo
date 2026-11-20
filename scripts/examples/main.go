@@ -104,7 +104,7 @@ type program struct {
 	dir     string
 	tags    []string
 	sources []string // the .ergo files the fmt leg checks, sorted
-	port    bool     // holds record.sh and origin
+	port    bool     // holds record.sh
 	// module marks a program of packages (196b): ergo.mod, the binary's
 	// package cmd/NAME/main.ergo and package folders. main is what the
 	// build leg builds and the cases run; others are the program's other
@@ -158,9 +158,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.lawless {
 		return reportLawless(cfg.root, stdout)
 	}
-	programs, problems := loadExamples(cfg.root, cfg.record)
-	modules, moduleProblems := loadModules(cfg.root)
-	problems = append(problems, moduleProblems...)
+	programs, modules, problems := loadLayout(cfg.root, cfg.record)
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -367,8 +365,30 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	return cfg, nil
 }
 
+// originMoved is the problem of an origin, a file or a folder, in a
+// program: a port's provenance lives under conformance/upstream (checkPorts).
+const originMoved = "unexpected origin; a port's provenance lives in conformance/upstream/<source>/ports/%s/, never in the example"
+
 // loadExamples reads and checks the layout of every folder of examples/,
 // whatever the selection. Each problem names its folder.
+// loadLayout loads the programs of examples/ and the modules of modules/
+// under root, with every layout error of the programs, the ports'
+// provenance (checkPorts) and the modules. run stops on any of them
+// before it runs a program; TestRepoLayoutIsClean holds the repository to
+// none, in the fast tier, building nothing.
+// The root is made absolute first, as parseFlags makes the runner's: the
+// package folders' sources are absolute (packageAssetSources), and a
+// module's full-tier folders are compared with them.
+func loadLayout(root string, record bool) (programs, modules []*program, problems []string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}
+	}
+	programs, problems = loadExamples(root, record)
+	modules, moduleProblems := loadModules(root)
+	return programs, modules, append(problems, moduleProblems...)
+}
+
 func loadExamples(root string, record bool) ([]*program, []string) {
 	examples := filepath.Join(root, "examples")
 	entries, err := os.ReadDir(examples)
@@ -399,7 +419,34 @@ func loadExamples(root string, record bool) ([]*program, []string) {
 			programs = append(programs, p)
 		}
 	}
-	return programs, problems
+	return programs, append(problems, checkPorts(root)...)
+}
+
+// checkPorts checks the provenance of every port: a folder
+// conformance/upstream/<source>/ports/<name>/ (checkOrigin) of a program
+// examples/<name>. Provenance lives there, never in the example.
+func checkPorts(root string) []string {
+	dirs, err := filepath.Glob(filepath.Join(root, "conformance", "upstream", "*", "ports", "*"))
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	for _, dir := range dirs {
+		rel, _ := filepath.Rel(root, dir)
+		name := filepath.Base(dir)
+		if name == "README.md" {
+			// The ports' guide (EX-NEUTRAL), not a port.
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(root, "examples", name)); err != nil || !info.IsDir() {
+			problems = append(problems, fmt.Sprintf("%s: no program examples/%s; a port's provenance is named after its program", rel, name))
+			continue
+		}
+		for _, problem := range checkOrigin(dir, root) {
+			problems = append(problems, rel+": "+problem)
+		}
+	}
+	return problems
 }
 
 func loadProgram(dir, name string, record bool) (*program, []string) {
@@ -427,10 +474,10 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "origin" && entry.IsDir():
+		case file == "origin":
 			delete(present, file)
-			problems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)
-		case file == "main.ergo" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+			problem(originMoved, p.name)
+		case file == "main.ergo" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -439,7 +486,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 				p.sources = append(p.sources, filepath.Join(dir, file))
 			}
 		default:
-			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/, ergo.laws and other .ergo files", file)
+			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold record.sh, expected-skips, explored, testdata/, ergo.laws and other .ergo files", file)
 		}
 	}
 	if !present["main.ergo"] {
@@ -472,15 +519,14 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "origin" && entry.IsDir():
-			// A Foldkit port's origin folder (FK0): no record.sh goes with it.
+		case file == "origin":
 			delete(present, file)
-			problems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)
+			problem(originMoved, p.name)
 		case file == "go.mod" || file == "go.sum":
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 			}
-		case file == "ergo.mod" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+		case file == "ergo.mod" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -525,7 +571,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, workload, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold record.sh, expected-skips, explored, workload, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
 		}
 	}
 	if !present["cmd"] {
@@ -697,9 +743,6 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 		if !present[required] {
 			problem("no %s", required)
 		}
-	}
-	if present["origin"] != present["record.sh"] {
-		problem("origin and record.sh go together: a port names its original in the file origin and runs it in record.sh (a Foldkit port's origin is a folder with no record.sh)")
 	}
 	p.port = present["record.sh"]
 	if present["tags"] {

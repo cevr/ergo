@@ -88,7 +88,7 @@ func TestAppenderKeepsItsPlace(t *testing.T) {
 
 type Dec { out []byte, win [1024]byte }
 
-func run(d *Dec, n int, app bool) {
+func run(d mut Dec, n int, app bool) {
 	for i in 0..n {
 		if app {
 			d.out = push(d.out, byte(i))

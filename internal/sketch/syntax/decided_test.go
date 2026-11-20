@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/migrate196"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/sketchtest"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -539,6 +539,12 @@ func TestPreviewDecidedBlocksCanonical(t *testing.T) {
 // AltPattern is FK7a's nested alternatives (orpattern.go).
 var laterProductions = []string{"PatternCore", "ArrayType", "CapName", "Implements", "AltPattern"}
 
+// splitProductions are the sketch's productions that grammar.md states
+// under other names: PointerType became the borrow written as the mode
+// word mut (MutType) and Go's pointer, written only in a Go binding
+// (GoPointerType) (MODES-2, q169).
+var splitProductions = map[string][]string{"PointerType": {"MutType", "GoPointerType"}}
+
 // TestGrammarStatesTheSketch: the syntactic productions of
 // docs/spec/grammar.md are the 62 of the preview's decided sketch plus
 // laterProductions, so the specification and the sketch cannot drift.
@@ -558,7 +564,14 @@ func TestGrammarStatesTheSketch(t *testing.T) {
 			spec[m[1]] = true
 		}
 	}
-	sketch := append(sketchProductions(t), laterProductions...)
+	var sketch []string
+	for _, name := range append(sketchProductions(t), laterProductions...) {
+		if parts, ok := splitProductions[name]; ok {
+			sketch = append(sketch, parts...)
+			continue
+		}
+		sketch = append(sketch, name)
+	}
 	for _, name := range sketch {
 		if !spec[name] {
 			t.Errorf("grammar.md has no production %s", name)

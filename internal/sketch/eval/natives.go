@@ -33,41 +33,58 @@ import (
 // panics.
 type native func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)
 
-// natives is built on first use (loadNatives), not at process start: the
-// registrations make hundreds of closures, every ergo command's init cost
-// (TestStartBuildsNoTables).
-var natives map[string]native
-
-var nativesOnce sync.Once
-
-// loadNatives runs the registrations once, in the order of their files,
-// as Go ran them when each was an init (process.go wraps natives the
-// earlier files made).
-func loadNatives() {
-	nativesOnce.Do(func() {
-		registerNatives()
-		registerNativesbits()
-		registerNativesconfig()
-		registerNativescsv()
-		registerNativesembed()
-		registerNativesgo()
-		registerNativeshttp()
-		registerNativesjson()
-		registerNativesmore()
-		registerNativesnet()
-		registerNativestime()
-		registerNativestimeout()
-		registerNativestoml()
-		registerProcess()
-		registerRunner()
-		registerRunnerdurable()
-		registerRunnerkids()
-		registerTasks()
-	})
+// nativeTables are the evaluator's natives: std's, by import path and
+// name (std), Go's library functions a std body or a program reaches
+// through import go (goLib), and the natives a template run passes a hole
+// (holes, holeNative).
+type nativeTables struct {
+	std   map[string]native
+	goLib map[string]native
+	holes map[string]bool
 }
 
-func registerNatives() {
-	natives = map[string]native{}
+// loadedNatives is the only way to the tables: built by its first call,
+// not at process start, since the registrations make hundreds of closures,
+// every ergo command's init cost (TestStartBuildsNoTables). No package map
+// holds them, so no reader can see them before they are built (a preflight
+// read goNatives before any native ran, and skipped std math.Abs as a Go
+// function; EVAL-NATIVE-LOAD). A test may set it to a fresh one. It is set
+// in init, since buildNatives reaches the interpreter, which reads it.
+var loadedNatives func() nativeTables
+
+func init() { loadedNatives = sync.OnceValue(buildNatives) }
+
+// buildNatives runs the registrations, in the order of their files, as Go
+// ran them when each was an init (process.go wraps natives the earlier
+// files made).
+func buildNatives() nativeTables {
+	t := nativeTables{std: map[string]native{}, goLib: goNatives(), holes: map[string]bool{}}
+	registerNatives(t)
+	registerNativesbits(t)
+	registerNativesconfig(t)
+	registerNativescsv(t)
+	registerNativesembed(t)
+	registerNativesgo(t)
+	registerNativeshmac(t)
+	registerNativeshttp(t)
+	registerNativesjson(t)
+	registerNativesmore(t)
+	registerNativesnet(t)
+	registerNativespure(t)
+	registerNativestime(t)
+	registerNativestimeout(t)
+	registerNativestoml(t)
+	registerProcess(t)
+	registerRunner(t)
+	registerRunnerdurable(t)
+	registerRunnerkids(t)
+	registerTasks(t)
+	return t
+}
+
+func registerNatives(t nativeTables) {
+	natives := t.std
+	goNatives := t.goLib
 	str := func(v Value) string { return v.(string) }
 	i64 := func(v Value) int { return int(v.(int64)) }
 	strs := func(v Value) []string {
@@ -245,6 +262,10 @@ func registerNatives() {
 	})
 	pure("slices.Sort", func(a []Value) Value { return sortValues(elems(a[0])) })
 	pure("slices.sortOwned", func(a []Value) Value { return sortValues(elems(a[0])) })
+	// cmp.Max and Min are Go's builtin max and min: a float's NaN gives
+	// NaN, and max(-0, +0) is +0, min(-0, +0) is -0 (EVAL-BUILDER).
+	pure("cmp.Max", func(a []Value) Value { return pick(a[0], a[1], true) })
+	pure("cmp.Min", func(a []Value) Value { return pick(a[0], a[1], false) })
 	natives["slices.Slice"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs := args[0].(sliceV)
 		i, j := args[1].(int64), args[2].(int64)
@@ -260,6 +281,19 @@ func registerNatives() {
 			return nil, fr.defect(at, "runtime error: slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
 		}
 		return newSlice(append([]Value{}, xs.elems()[i:j]...)), nil
+	}
+	// bytes.grow is bs.Grow(n) (CollGrow; runtime/v1.StringsBuilderGrow):
+	// the same bytes with room for n more, which the evaluator does not
+	// hold apart from its length, so the value itself; a negative n is
+	// Go's defect.
+	natives["bytes.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if n := args[1].(int64); n < 0 {
+			return nil, fr.defect(at, "strings.Builder.Grow: negative count")
+		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return args[0], nil
 	}
 	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, i := args[0].(sliceV).elems(), args[1].(int64)
@@ -364,7 +398,8 @@ const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 // collNatives are the natives of the operations of the built-in types
 // (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
 // each runs as the std function it was before it became an operation.
-// The builder operations have none, as their std helpers had none.
+// Of the builder operations only Grow has one (std http's ParseQuery
+// calls it); the others have none, as their std helpers had none.
 var collNatives = map[check.CollOp]string{
 	check.CollTakeAt:     "slices.Take",
 	check.CollSlice:      "slices.Slice",
@@ -377,6 +412,7 @@ var collNatives = map[check.CollOp]string{
 	check.CollRuneText:   "utf8.RuneText",
 	check.CollMakeSlice:  "slices.WithCapacity",
 	check.CollBytes:      "strings.stringsBytes",
+	check.CollGrow:       "bytes.grow",
 }
 
 // nativeOf is fn's native, nil when the evaluator has none.
@@ -384,11 +420,11 @@ func nativeOf(fn *check.Func) native {
 	if fn.Pkg == nil || !fn.Pkg.Std() {
 		return nil
 	}
-	loadNatives()
+	t := loadedNatives()
 	if key, ok := collNatives[check.CollOpOf(fn)]; ok {
-		return natives[key]
+		return t.std[key]
 	}
-	return natives[fn.Pkg.Path+"."+fn.Name]
+	return t.std[fn.Pkg.Path+"."+fn.Name]
 }
 
 // guard runs f and turns a Go panic into its text, as the built program's
@@ -497,6 +533,44 @@ func sortValues(xs []Value) Value {
 		return sortAs[string](xs)
 	}
 	panic(fmt.Sprintf("a sort of %T", xs[0]))
+}
+
+// pick is Go's builtin max(a, b) when larger, else min(a, b), over the
+// ordered value types.
+func pick(a, b Value, larger bool) Value {
+	switch a := a.(type) {
+	case float64:
+		return pickOf(a, b.(float64), larger)
+	case float32:
+		return pickOf(a, b.(float32), larger)
+	case int64:
+		return pickOf(a, b.(int64), larger)
+	case int32:
+		return pickOf(a, b.(int32), larger)
+	case int16:
+		return pickOf(a, b.(int16), larger)
+	case int8:
+		return pickOf(a, b.(int8), larger)
+	case uint64:
+		return pickOf(a, b.(uint64), larger)
+	case uint32:
+		return pickOf(a, b.(uint32), larger)
+	case uint16:
+		return pickOf(a, b.(uint16), larger)
+	case uint8:
+		return pickOf(a, b.(uint8), larger)
+	case string:
+		return pickOf(a, b.(string), larger)
+	}
+	ice("cmp.Max or Min of %T", a)
+	return nil
+}
+
+func pickOf[T cmp.Ordered](a, b T, larger bool) Value {
+	if larger {
+		return max(a, b)
+	}
+	return min(a, b)
 }
 
 func sortAs[T cmp.Ordered](xs []Value) Value {

@@ -452,6 +452,11 @@ type inferer struct {
 	// joined marks the row parameters bound by unification, not written:
 	// a later argument widens them (see unifyRow).
 	joined map[*TypeParam]bool
+	// notError is the last type a free error row parameter met in a type
+	// position that is no error type where the call stands (types.md,
+	// Error types 1): the mismatch says so, where the bare "does not
+	// match" hides the cause.
+	notError *Named
 }
 
 func (in *inferer) free(tp *TypeParam) bool { return in.set[tp] && in.m[tp] == nil }
@@ -596,6 +601,12 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		// go/types infer.go).
 		if want := c.subst(pt, in.m); in.hasFree(pt) || c.identical(want, pt) {
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s (D6; type inference)", t, pt)
+		} else if n := in.notError; n != nil {
+			// An error row parameter binds only to error types: the
+			// argument's type is no error type here, since no error row of
+			// this package names it. A row argument written at the call
+			// names it in a row (Error types 1 and 4).
+			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s: %s binds an error row parameter, and no error row of this package names %s, so it is no error type here; name it in a row, or write the type arguments (types.md, Error types 1; D6)", t, want, pt, n, n)
 		} else {
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s (D6; type inference)", t, want, pt)
 		}
@@ -974,7 +985,7 @@ func (c *checker) body(t *target, ft *syntax.FuncType, params []*Var, check func
 			c.errorf(p.id, CodeType, "%s is already a parameter", p.Name)
 			continue
 		}
-		refused := c.localBinder(p.id) // D-D3, D-D2; the parameter still binds
+		refused := c.localBinder(p.id) // D-D2; the parameter still binds
 		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true, refused: refused}
 		c.def(p.id, v)
 		frame.insert(p.Name, v)

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 var typeParamsSeed = flag.Uint64("typeparams.seed", 0, "run TestTypeParamGroups on this seed alone")

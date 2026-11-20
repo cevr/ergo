@@ -1,0 +1,15 @@
+// Tools (wf10 L7): a tool set is an operation type. `ergo gen llm`
+// projects its hub (`ergo gen api`) as the tool specs a model gets, Parse
+// from a model's Call to the hub's Request, and Result from the hub's
+// Outcome to the Message that answers the call, as `ergo gen mcp` puts
+// the same hub on MCP: one operation type is a program's Api, its MCP
+// server and its model's tools. A program with no Api writes its
+// ToolSpecs with jsonschema.Encode and matches the names itself.
+
+// UnknownTool: a call names no tool of the set.
+type UnknownTool { Name string }
+
+// BadArguments: a call's arguments are not its tool's (not JSON, or not
+// the tool's parameters), and why. A caller answers it to the model as a
+// failed Result, so the model can write the call again.
+type BadArguments { Name string, Reason string }

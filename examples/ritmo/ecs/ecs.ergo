@@ -1,0 +1,125 @@
+// Package ecs is the core of ritmo (typeonce-dev/ritmo, packages/core) as
+// values: an entity, a column of one component's values by entity, and a
+// command that a system queues now and the schedule applies later.
+//
+// A world is a record of columns that its game declares (ritmo's schema),
+// so every column has its own type and a system's signature says which
+// columns it reads. A world is a value: a checkpoint is the old world and
+// a rewind goes back to it, with none of ritmo's Checkpoint bookkeeping.
+
+// Entity is one entity of a world. Ids are handed out in order and never
+// reused (ritmo's next id), so an Entity kept past its despawn names no
+// entity: a column lookup through it is None, as a stale ritmo Handle's
+// lookup fails.
+type Entity { Id int }
+
+// Column is one component's values, by entity: Vals[i] belongs to
+// Ents[i], in the order the entities got the component.
+type Column[T] { Ents []Entity, Vals []T }
+
+// Empty is a column with no values.
+func Empty[T]() Column[T] { Column[T]{Ents: []Entity{}, Vals: []T{}} }
+
+// Get is e's value in c, or None when e has none.
+func Get[T](c Column[T], e Entity) Option[T] {
+	for i, x in c.Ents {
+		if x == e {
+			return Some[T]{Value: c.Vals[i]}
+		}
+	}
+	None
+}
+
+// Has reports whether e has a value in c.
+func Has[T](c Column[T], e Entity) bool {
+	for x in c.Ents {
+		if x == e {
+			return true
+		}
+	}
+	false
+}
+
+// Set is c with v as e's value: in e's place when e has one, else last.
+func Set[T](c Column[T], e Entity, v T) Column[T] {
+	for i, x in c.Ents {
+		if x == e {
+			let mut vals = c.Vals
+			vals[i] = v
+			return Column[T]{Ents: c.Ents, Vals: vals}
+		}
+	}
+	Column[T]{Ents: c.Ents.Append(e), Vals: c.Vals.Append(v)}
+}
+
+// Remove is c without e's value, the others in their order.
+func Remove[T](c Column[T], e Entity) Column[T] {
+	let mut ents = []Entity{}
+	let mut vals = []T{}
+	for i, x in c.Ents {
+		if x != e {
+			ents = ents.Append(x)
+			vals = vals.Append(c.Vals[i])
+		}
+	}
+	Column[T]{Ents: ents, Vals: vals}
+}
+
+// Size is how many entities have a value in c.
+func Size[T](c Column[T]) int { len(c.Ents) }
+
+// Command is a change a system queues while it reads the world and the
+// schedule's Apply step makes visible (ritmo's Game.Command with
+// applyDeferred): a spawn of a draft D, or a despawn.
+type Command[D] = Spawn[D]{Draft D} | Despawn{E Entity}
+
+// The rules of a column as laws. Each builds its column from generated
+// ids and values with Set and Remove only.
+
+// columnOf is the column of ids[i] set to vals[i], for each i both have.
+func columnOf(ids []int, vals []int) Column[int] {
+	let mut c = Empty[int]()
+	for i, id in ids {
+		if i < len(vals) {
+			c = c.Set(Entity{Id: id}, vals[i])
+		}
+	}
+	c
+}
+
+// GetSeesSet: a value set for an entity is the value its lookup gives.
+law GetSeesSet(ids []int, vals []int, id int, v int) {
+	columnOf(ids, vals).Set(Entity{Id: id}, v).Get(Entity{Id: id}) == Some[int]{Value: v}
+}
+
+// SetKeepsTheOthers: a set changes no other entity's value.
+law SetKeepsTheOthers(ids []int, vals []int, id int, other int, v int) {
+	if id == other {
+		return true
+	}
+	let c = columnOf(ids, vals)
+	c.Set(Entity{Id: id}, v).Get(Entity{Id: other}) == c.Get(Entity{Id: other})
+}
+
+// RemoveForgets: a removed entity has no value, and the column is one
+// smaller exactly when it had one.
+law RemoveForgets(ids []int, vals []int, id int) {
+	let c = columnOf(ids, vals)
+	let e = Entity{Id: id}
+	let after = c.Remove(e)
+	after.Get(e) == None && !after.Has(e) && after.Size() == c.Size()-(if c.Has(e) { 1 } else { 0 })
+}
+
+// OneValueAnEntity: however often an entity is set, the column holds it
+// once.
+law OneValueAnEntity(ids []int, vals []int) {
+	let c = columnOf(ids, vals)
+	for i, e in c.Ents {
+		for j in (i + 1)..len(c.Ents) {
+			if c.Ents[j] == e {
+				return false
+			}
+		}
+	}
+	true
+}

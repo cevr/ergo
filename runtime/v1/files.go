@@ -216,6 +216,11 @@ func (b Bodies) Body(name string) (Body, error) {
 	if err != nil {
 		return Body{}, errors.New(strings.Replace(err.Error(), "runtime/v1: ", "", 1))
 	}
+	if body.Wait == "" && b.Effects(name) == "" {
+		// An effect-free body waits on nothing (LAWFFI LF2m): it needs
+		// no mark to say so.
+		body.Wait = "none"
+	}
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
@@ -286,8 +291,15 @@ func hostMember(path, member string) bool {
 
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
-// except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac"}
+// except the members PureImportsExcept names. net/url and net/netip parse
+// and format text (NP4f-URL, G2: an entry keyed by Go path that any
+// user's import go reaches trusts Go); net/url's ParseQuery reads the
+// process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
+// every Go program has it, not state that changes between calls.
+// simd/archsimd (Go's GOEXPERIMENT=simd vector types and operations, LAWFFI
+// LF2m r3) computes on values in registers and reaches no host state; unsafe
+// stays out.
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip", "simd/archsimd"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
@@ -392,19 +404,20 @@ const Path = runtimefiles.Module + "/runtime/v1"
 // Leaves are the leaf packages of runtime/v1, by name: the package Path/LEAF
 // in the directory runtime/v1/LEAF (binsize BS1). A leaf holds the bodies
 // whose Go packages no other body needs (crypto/sha256, encoding/csv,
-// os/exec, math/rand/v2, net/http, encoding/json, log/slog; fmt and reflect
-// for a test build's rewrite shadow): the Go linker keeps the init task of every
+// os/exec, math/rand/v2, net/http, encoding/json, log/slog, database/sql;
+// fmt and reflect for a test build's rewrite shadow): the Go linker keeps
+// the init task of every
 // imported package, so a program imports a leaf only when it calls one of
 // its bodies, and a program that calls none links none of those packages.
 // A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
 // unique across runtime/v1 and its leaves (sourceDecls), so a body is named
 // by its Go name alone, as before, and PackageOf finds its package.
-var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc", "shadow"}
+var Leaves = []string{"csv", "digest", "exec", "http", "net", "rand", "redacted", "rpc", "shadow", "sql"}
 
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,
 // rt.TypedText; binsize BS2). It declares no body: a program imports it
-// for its init alone, when it imports go or names a body of hostTextUsers.
+// for its init alone, when it names a body of hostTextUsers.
 const HostText = Path + "/gofmt"
 
 // hostTextUsers are the exported declarations of runtime/v1 that can
@@ -535,7 +548,8 @@ type GoType struct {
 	// or one of its leaves (Leaves).
 	Package string
 	// Basic is the predeclared Go type a defined type is over
-	// (`type Code int`), or "".
+	// (`type Code int`), or that an alias names (`type MappedText =
+	// string`), or "".
 	Basic string
 }
 
@@ -576,7 +590,7 @@ func (d goDecls) goType(name string) (GoType, bool) {
 			t.Fields = fields
 		}
 	}
-	if id, ok := g.typ.Type.(*ast.Ident); ok && !g.typ.Assign.IsValid() && types.Universe.Lookup(id.Name) != nil {
+	if id, ok := g.typ.Type.(*ast.Ident); ok && types.Universe.Lookup(id.Name) != nil {
 		if _, basic := types.Universe.Lookup(id.Name).Type().(*types.Basic); basic {
 			t.Basic = id.Name
 		}

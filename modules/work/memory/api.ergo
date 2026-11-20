@@ -69,6 +69,10 @@ func Refresh(w Workspaces) int fails work.NoBase | work.Unkept | work.VcsFailed 
 
 func Bases(w Workspaces) []string fails work.Unkept { try w.tool.Bases() }
 
+func ForgetBase(w Workspaces, base string) []string fails work.Unkept | fs.Denied | fs.Failed { try w.tool.ForgetBase(base) }
+
+func PruneBases(w Workspaces) []string fails work.Unkept | fs.Denied | fs.Failed { try w.tool.PruneBases() }
+
 func ShellInit(w Workspaces) string { w.tool.ShellInit() }
 
 func ImportRift(w Workspaces, o work.ImportRiftOptions) string fails work.BadConfig | fs.NotFound | fs.Denied | fs.Failed { try w.tool.ImportRift(o) }

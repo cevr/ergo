@@ -58,8 +58,26 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		}
 		return
 	case kindDefined:
-		if _, basic := td.defined.(*check.Basic); basic {
-			b.admit(td.defined, depth+1)
+		switch d := t.Defined().(type) {
+		case *check.Basic:
+			b.admit(d, depth+1)
+			return
+		case *check.Array:
+			// Go's `type N [k]E` (kmeans' Point of [8]int32): its values
+			// move as N, and an index reads the array's element (indexOther,
+			// ir_index.go). Once per declaration, so a type that holds
+			// itself through its element ends (GP-DEFINED, lane B's
+			// 6cebc4c40).
+			if !b.admitOnce(t.Obj) { // ir_pkg.go
+				b.admit(d, depth+1)
+			}
+			return
+		}
+		if isPreludeType(t, "Seq") && irSeqRangeLowering != "off" {
+			// A Seq is a function value of the uniform shape, spelled as
+			// the program's Seq[T] (PORT-FORIN, ir_seq.go): its instance's
+			// function type is admitted as any function value's is.
+			b.admit(t.Underlying(), depth+1)
 			return
 		}
 		irNo("type defined over a non-basic type")
@@ -164,6 +182,11 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 	gt, gf := b.goType(to, site), b.goType(from, site)
 	if gt == gf {
 		return e
+	}
+	if check.IsGoAny(to) {
+		// A value into go.Any is Go's own conversion to its empty
+		// interface (GB2), which the IR spells (IR-GOCALLS).
+		return &irExpr{K: "toiface", Pos: e.Pos, T: "any", X: e}
 	}
 	if fu := b.flatOf(to); fu != nil {
 		if fu.niche && b.goType(fu.inst, site) == gt && fu.tagOf(from) >= 0 {

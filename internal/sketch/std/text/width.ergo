@@ -1,0 +1,409 @@
+// Display width: how many columns of a terminal a text takes, and the
+// wrapping, cutting and tables that follow from it (docs/spec/stdlib.md,
+// Text width). A rune takes 0, 1 or 2 columns by the Unicode East Asian
+// Width and emoji tables (width_table.ergo, recorded from Bun's
+// stringWidth); a few grapheme rules join runes into one picture; ANSI
+// escape sequences take none.
+
+import strings
+
+// Cells is the number of terminal columns s takes, as Bun.stringWidth
+// counts them:
+//
+//   - printable ASCII takes 1, a control 0;
+//   - East Asian Wide and Fullwidth runes and emoji take 2, combining
+//     marks, format characters and other zero-width runes 0, any other
+//     rune 1;
+//   - a rune joined by U+200D (ZWJ) to a pictograph before it adds 0
+//     (one family emoji is 2; a narrow pictograph joined becomes 2), U+FE0F after a narrow emoji makes it 2, a
+//     skin tone after an emoji that takes one adds 0, two regional
+//     indicators make one flag of 2, and U+20E3 (the keycap) after a rune
+//     makes it 2;
+//   - an escape sequence, ESC [ … final (CSI), ESC ] … BEL or ESC \ (OSC),
+//     ESC and one rune, and their C1 forms U+009B and U+009D, take 0.
+//
+// It allocates nothing; printable ASCII is one compare a byte.
+func Cells(s string) int {
+	let mut st = noCells
+	for r in s {
+		st = step(st, int(r))
+	}
+	st.n
+}
+
+// clusterPieces are whole clusters of every kind Cells reads, for the
+// laws: a text of them ends each where the next begins.
+let clusterPieces = []string{"a", "Z", " ", " ", "\n", "~", "e\u0301", "\u65e5", "\uff76", "\u0436", "\uac00", "\U0001F600", "\U0001F468\u200d\U0001F469\u200d\U0001F467", "\U0001F1FA\U0001F1F8", "\u2764\ufe0f", "#\ufe0f\u20e3", "\U0001F44D\U0001F3FB", "\U0001F5B1\u200d\u21AA", "\t", "\u200b", "\x1b[31m", "\x1b[0m", "\x1b]8;;https://x.example/\x07"}
+
+// clusterText is the text of the pieces xs picks.
+func clusterText(xs []int) string {
+	let mut out = ""
+	for x in xs {
+		let k = (x%len(clusterPieces) + len(clusterPieces)) % len(clusterPieces)
+		out = out + clusterPieces[k]
+	}
+	out
+}
+
+// escapes are the SGR and OSC 8 openings a styled text starts with.
+let escapes = []string{"\x1b[1m", "\x1b[31m", "\x1b[1;32m", "\x1b[38;5;208m", "\x1b[38;2;1;2;3m", "\x1b]8;;https://x.example/a\x07", "\x1b]8;;https://x.example/b\x1b\\", "\u009b4m"}
+
+// CellsAddOverClusters: the cells of two texts put together are the sum
+// of theirs when the first ends a cluster.
+law CellsAddOverClusters(xs []int, ys []int) {
+	let a = clusterText(xs)
+	let b = clusterText(ys)
+	Cells(a+b) == Cells(a)+Cells(b)
+}
+
+// StylingTakesNoCells: an SGR or OSC 8 escape before a text and a reset
+// after it add no cells (the text side of ansi's Cells(Paint(s, t)) ==
+// Cells(t)).
+law StylingTakesNoCells(xs []int, k int) {
+	let t = clusterText(xs)
+	let open = escapes[(k%len(escapes)+len(escapes))%len(escapes)]
+	Cells(open+t+"\x1b[0m") == Cells(t) && Cells(open+t+"\x1b]8;;\x07") == Cells(t)
+}
+
+// cellState is the count so far and what the next rune may join: n is
+// the columns counted; esc is where an escape sequence stands (0 outside
+// one, 1 after ESC, 2 in a CSI, 3 in an OSC, 4 after ESC in an OSC); base
+// is the last rune that took columns and wide how many; pict says the
+// last cluster is a pictograph, joined that a ZWJ follows it, seq that
+// the last cluster is a ZWJ sequence, and flag
+// that a regional indicator waits for its pair.
+type cellState { n int, esc int, base int, wide int, pict bool, joined bool, seq bool, flag bool }
+
+// noCells is the state before the first rune.
+let noCells = cellState{n: 0, esc: 0, base: 0, wide: 0, pict: false, joined: false, seq: false, flag: false}
+
+// step is st after the rune c.
+func step(st cellState, c int) cellState {
+	if c >= 0x20 && c < 0x7f && st.esc == 0 {
+		return cellState{..noCells, n: st.n + 1, base: c, wide: 1}
+	}
+	if st.esc != 0 {
+		return cellState{..st, esc: escAfter(st.esc, c)}
+	}
+	if c == 0x1b {
+		return cellState{..st, esc: 1}
+	}
+	if c == 0x9b {
+		return cellState{..st, esc: 2}
+	}
+	if c == 0x9d {
+		return cellState{..st, esc: 3}
+	}
+	if c == 0x200d {
+		if st.pict {
+			return cellState{..st, n: st.n + 2 - st.wide, wide: 2, joined: true, seq: true}
+		}
+		return cellState{..st, joined: false}
+	}
+	if st.joined && inRanges(joinRunes, c) {
+		return cellState{..st, base: c, pict: inRanges(pictRunes, c), joined: false}
+	}
+	if st.seq && inRanges(seqRunes, c) {
+		return cellState{..st, joined: false}
+	}
+	if c == 0xfe0f {
+		if st.wide == 1 && inRanges(vs16Runes, st.base) {
+			return cellState{..st, n: st.n + 1, wide: 2, pict: true, joined: false, seq: true}
+		}
+		return cellState{..st, joined: false}
+	}
+	if c >= 0x1f3fb && c <= 0x1f3ff && st.wide == 2 && inRanges(modBaseRunes, st.base) {
+		return cellState{..st, joined: false, seq: true}
+	}
+	if c == 0x20e3 && st.wide > 0 {
+		return cellState{..st, n: st.n + 2 - st.wide, wide: 2, joined: false, seq: true}
+	}
+	if c >= 0x1f1e6 && c <= 0x1f1ff {
+		if st.flag {
+			return cellState{..noCells, n: st.n + 1, base: c, wide: 2, seq: true}
+		}
+		return cellState{..noCells, n: st.n + 1, base: c, wide: 1, flag: true}
+	}
+	let w = runeCells(c)
+	if w == 0 {
+		return cellState{..st, joined: false}
+	}
+	cellState{..noCells, n: st.n + w, base: c, wide: w, pict: inRanges(pictRunes, c)}
+}
+
+// escAfter is the escape state after c in the state esc (cellState.esc).
+func escAfter(esc int, c int) int {
+	match esc {
+	case 1:
+		if c == '[' {
+			2
+		} else if c == ']' {
+			3
+		} else {
+			0
+		}
+	case 2:
+		if c >= 0x40 && c <= 0x7e { 0 } else { 2 }
+	case 3:
+		if c == 7 {
+			0
+		} else if c == 0x1b {
+			4
+		} else {
+			3
+		}
+	case _:
+		0
+	}
+}
+
+// runeCells is the columns of the rune c on its own.
+func runeCells(c int) int {
+	if inRanges(zeroRunes, c) {
+		0
+	} else if inRanges(wideRunes, c) {
+		2
+	} else {
+		1
+	}
+}
+
+// inRanges reports whether c lies in one of the sorted inclusive ranges
+// of t, a pair of ints each: a binary search over the pairs.
+func inRanges(t []int, c int) bool {
+	if len(t) == 0 || c < t[0] || c > t[len(t)-1] {
+		return false
+	}
+	let mut lo = 0
+	let mut hi = len(t) / 2
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if t[2*mid+1] < c {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	lo < len(t)/2 && t[2*lo] <= c
+}
+
+// fit is the length of the longest prefix of s that takes at most limit
+// columns and ends where a rune that takes columns begins (or at the end
+// of s): a zero-width rune stays with the one before it.
+func fit(s string, limit int) int {
+	let mut st = noCells
+	let mut start = 0
+	for i, r in s {
+		let next = step(st, int(r))
+		let opens = next.n > st.n && opensCluster(st, int(r))
+		if opens {
+			start = i
+		}
+		if next.n > limit {
+			return start
+		}
+		st = next
+	}
+	len(s)
+}
+
+// opensCluster reports whether the rune c, which takes columns after st,
+// begins a cluster; else it widens the one before it (U+FE0F, the keycap
+// U+20E3, a ZWJ after a narrow pictograph, the second regional indicator
+// of a flag), and a cut goes before that one.
+func opensCluster(st cellState, c int) bool {
+	!(c == 0xfe0f || c == 0x20e3 || c == 0x200d || st.flag && c >= 0x1f1e6 && c <= 0x1f1ff)
+}
+
+// Pad is s with spaces after it to w columns, s itself when it takes w or
+// more.
+func Pad(s string, w int) string {
+	let n = Cells(s)
+	if n >= w {
+		return s
+	}
+	s + strings.Repeat(" ", w-n)
+}
+
+// PadIsWidth: a padded text starts with the text and takes w cells, or
+// as many as the text when it is wider.
+law PadIsWidth(xs []int, w int) {
+	let s = clusterText(xs)
+	let width = w % 32
+	let p = Pad(s, width)
+	let want = if Cells(s) > width { Cells(s) } else { width }
+	strings.HasPrefix(p, s) && Cells(p) == want
+}
+
+// Truncate is s when it takes at most w columns; else the longest prefix
+// of s that leaves room for tail, then tail: Truncate(s, 8, "…"). A tail
+// wider than w leaves no room, and the result is tail alone. An escape
+// sequence cut off with the rest of s is dropped too.
+func Truncate(s string, w int, tail string) string {
+	if Cells(s) <= w {
+		return s
+	}
+	let room = w - Cells(tail)
+	if room <= 0 {
+		return tail
+	}
+	s[:fit(s, room)] + tail
+}
+
+// TruncateFits: a cut text takes at most w cells (the tail alone when it
+// is wider), is the text itself when that fits, and else is a prefix of
+// the text ending on a cluster, then the tail.
+law TruncateFits(xs []int, w int) {
+	let s = clusterText(xs)
+	let width = (w%24 + 24) % 24
+	let t = Truncate(s, width, "\u2026")
+	if Cells(s) <= width {
+		return t == s
+	}
+	let head = t[:len(t)-len("\u2026")]
+	strings.HasSuffix(t, "\u2026") && strings.HasPrefix(s, head) && (Cells(t) <= width || head == "") && Cells(head)+Cells(s[len(head):]) == Cells(s)
+}
+
+// Wrap is the lines of s, each at most w columns: its lines break at
+// newlines, and each is filled with whole words, separated by single
+// spaces, as long as they fit; a word wider than w is cut where it fills
+// a line. A cluster wider than w (a wide rune when w is 1) takes a line
+// of its own. Runs of spaces collapse to one, and the spaces at a break
+// go; no other rune is lost. An empty line stays an empty line.
+func Wrap(s string, w int) []string {
+	let mut out = []string{}
+	let mut line = ""
+	let mut used = 0
+	let mut start = 0
+	for i in 0..len(s)+1 {
+		if i == len(s) || s[i] == ' ' || s[i] == '\n' {
+			if i > start {
+				let mut rest = s[start:i]
+				let mut n = Cells(rest)
+				if line != "" && used+1+n <= w {
+					line = line + " " + rest
+					used = used + 1 + n
+				} else {
+					if line != "" {
+						out = out.Append(line)
+					}
+					for n > w {
+						let mut cut = fit(rest, w)
+						if cut == 0 {
+							cut = firstCluster(rest)
+						}
+						out = out.Append(rest[:cut])
+						rest = rest[cut:]
+						n = Cells(rest)
+					}
+					line = rest
+					used = n
+				}
+			}
+			if i < len(s) && s[i] == '\n' {
+				out = out.Append(line)
+				line = ""
+				used = 0
+			}
+			start = i + 1
+		}
+	}
+	out.Append(line)
+}
+
+// WrapFits: every line of Wrap(s, w) takes at most w cells, for any w
+// a cluster fits in.
+law WrapFits(xs []int, w int) {
+	let s = clusterText(xs)
+	let width = 2 + (w%14+14)%14
+	let mut ok = true
+	for line in Wrap(s, width) {
+		ok = ok && Cells(line) <= width
+	}
+	ok
+}
+
+// WrapLosesNoRune: the lines of Wrap(s, w) hold every rune of s but its
+// spaces and newlines, in order.
+law WrapLosesNoRune(xs []int, w int) {
+	let s = clusterText(xs)
+	let width = (w%16 + 16) % 16
+	strings.ReplaceAll(strings.Join(Wrap(s, width), ""), " ", "") == strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "\n", "")
+}
+
+// firstCluster is the length of the first cluster of s: up to the
+// second rune that takes columns.
+func firstCluster(s string) int {
+	let mut st = noCells
+	for i, r in s {
+		let next = step(st, int(r))
+		if st.n > 0 && next.n > st.n && opensCluster(st, int(r)) {
+			return i
+		}
+		st = next
+	}
+	len(s)
+}
+
+// Columns is the lines of a table: each cell of rows padded with spaces to
+// the widest cell of its column, the cells of a row joined by sep. The
+// last cell of a row is not padded, so no line ends in padding. A row may
+// have fewer cells than another.
+func Columns(rows [][]string, sep string) []string {
+	let mut widths = []int{}
+	for row in rows {
+		for j, cell in row {
+			let n = Cells(cell)
+			if j == len(widths) {
+				widths = widths.Append(n)
+			} else if n > widths[j] {
+				widths[j] = n
+			}
+		}
+	}
+	let mut out = []string{}
+	for row in rows {
+		let mut line = ""
+		for j, cell in row {
+			if j > 0 {
+				line = line + sep
+			}
+			line = line + if j == len(row)-1 { cell } else { Pad(cell, widths[j]) }
+		}
+		out = out.Append(line)
+	}
+	out
+}
+
+// ColumnsAlign: in a table of rows with the same number of cells, every
+// line takes the same cells up to its last cell, the widest cell of each
+// column before it and a separator after each, and ends with the row's
+// own last cell.
+law ColumnsAlign(xs []int, k int) {
+	let n = 1 + (k%3+3)%3
+	let mut rows = [][]string{}
+	let mut row = []string{}
+	let m = if len(xs) > 9 { 9 } else { len(xs) }
+	for i in 0..m {
+		row = row.Append(strings.ReplaceAll(strings.ReplaceAll(clusterText([]int{xs[i], xs[i] / 7}), "\n", ""), "\t", ""))
+		if len(row) == n {
+			rows = rows.Append(row)
+			row = []string{}
+		}
+	}
+	let mut lead = n - 1
+	for j in 0..n-1 {
+		let mut widest = 0
+		for r in rows {
+			widest = if Cells(r[j]) > widest { Cells(r[j]) } else { widest }
+		}
+		lead = lead + widest
+	}
+	let lines = Columns(rows, "|")
+	let mut ok = len(lines) == len(rows)
+	for i, line in lines {
+		let last = rows[i][n-1]
+		ok = ok && strings.HasSuffix(line, last) && Cells(line)-Cells(last) == lead
+	}
+	ok
+}

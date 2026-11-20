@@ -47,7 +47,7 @@ func RewriteFacts(sites []RewriteSite, ledger string) []Fact {
 		if !s.Applied {
 			continue
 		}
-		key := ledgerKey(s.Law, s.Provider, s.Instance)
+		key := ledgerKey(s.Law, s.Provider, s.Instance, s.Build)
 		where := "std law ledger"
 		if n, ok := lines[key]; ok {
 			where = fmt.Sprintf("%s:%d", LedgerFile, n)

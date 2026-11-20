@@ -57,7 +57,16 @@ func Now(_ Host) Time {
 // clock, as Go's time.Since does; otherwise it is h.Now().Sub(t).
 func Elapsed(h Host, t Time) duration {
 	if t.hasMono {
-		subMono(hostMono(), t.mono)
+		// Sub's monotonic difference, saturated where it overflows.
+		let now = hostMono()
+		let m = now - t.mono
+		if m < 0 && now > t.mono {
+			return duration(maxDuration)
+		}
+		if m > 0 && now < t.mono {
+			return duration(minDuration)
+		}
+		duration(m)
 	} else {
 		h.Now().Sub(t)
 	}

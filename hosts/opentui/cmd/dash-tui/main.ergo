@@ -181,7 +181,7 @@ func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
 
 // run moves the driver's time n frames, a Tick each, and prints the notes
 // each frame makes after it.
-func run[D, F](d *tui.Driver[dash.Dash, dash.Signal, D, F], n int, notes sync.Ref[[]feed.Notice], out io.Host) fails os.Exit needs go.Foreign {
+func run[D, F](d mut tui.Driver[dash.Dash, dash.Signal, D, F], n int, notes sync.Ref[[]feed.Notice], out io.Host) fails os.Exit needs go.Foreign {
 	for _ in 0..n {
 		tui.Advance(d, script.Period) catch {
 		case actor.Stopped:

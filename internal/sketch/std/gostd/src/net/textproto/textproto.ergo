@@ -134,6 +134,7 @@ extern go net/textproto.Pipeline.StartResponse func (p *Pipeline) StartResponse(
 extern go net/textproto.ProtocolError type ProtocolError string
 
 // ergo:go func (ProtocolError).Error() string
+// ergo:total
 extern go net/textproto.ProtocolError.Error func (p ProtocolError) Error() string needs go.Foreign
 
 // ergo:go type Reader struct

@@ -1,0 +1,9 @@
+// ergo test runs AgreesWithModel here once per provider of catalog.Pins
+// this package sees: memory.Table, built by NewTable. No socket: Handle
+// is called as a function. A refuted case prints its ops;
+// Disagreement(Fresh(), ops) gives the requests so far and both answers.
+
+import registry/memory
+
+// Fresh is the store a replay of a refuted case starts from.
+func Fresh() memory.Table { memory.NewTable() }

@@ -1,0 +1,237 @@
+// The branch join (the Go checker's join.go, K3; rows.md, Totality 3):
+// branches of an if or match with no expected type that are variants of
+// one declared union have that union's type. A generic union of the
+// package takes its type arguments from the branches (joinInstance:
+// Submit[Cmd] and Pulled[S, E, F] join to Signal[S, Cmd, E, F]). The
+// prelude's Option (Some[int] and None to Option[int]) is joined by
+// compiler/check/expr (optionJoin); an import's generic union is not
+// joined yet: its interface does not say which parameters its variants
+// take.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+
+// Variants is the variants of t when it is a declared union of the
+// package or of an Ergo import with no type parameters, or an instance
+// of a generic union of the package; none for any other type.
+func Variants(s mut store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let o = store.OriginOfType(*s, t)
+	let args = store.OperandsOf(*s, t)
+	if store.KindOfType(*s, t) == store.KInstance && o.Import == uint32(0) && len(args) > 0 {
+		match genericMembers(s, e, store.DeclAt(*s, int(o.Decl))) {
+		case Some{Value: g}:
+			if len(args) != g.n {
+				return []dense.ID[store.TKey]{}
+			}
+			let mut out = []dense.ID[store.TKey]{}
+			for m in g.members {
+				out = out.Append(store.TSubst(s, m, args))
+			}
+			return out
+		case None:
+			return []dense.ID[store.TKey]{}
+		}
+	}
+	let ms = members(s, e, t)
+	if len(ms) == 1 && ms[0] == t { []dense.ID[store.TKey]{} } else { ms }
+}
+
+// Join is the union the branch types cur and next join to (unionJoin):
+// next when it is a declared union that lists cur; none when either is
+// another declared union; else the one union, declared in the package of
+// cur's record, that lists both.
+func Join(s mut store.Store, e Env, cur dense.ID[store.TKey], next dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let nv = Variants(s, e, next)
+	if len(nv) > 0 {
+		return if Has(nv, cur) { Some[dense.ID[store.TKey]]{Value: next} } else { None }
+	}
+	if len(Variants(s, e, cur)) > 0 {
+		return None
+	}
+	let cands = listing(s, e, cur, next)
+	if len(cands) == 1 { Some[dense.ID[store.TKey]]{Value: cands[0]} } else { None }
+}
+
+// Has is whether ts holds t.
+func Has(ts []dense.ID[store.TKey], t dense.ID[store.TKey]) bool {
+	for x in ts {
+		if x == t {
+			return true
+		}
+	}
+	false
+}
+
+// listing is every union declared in the package of a's record (an
+// import's exported ones) that lists both a and b.
+func listing(s mut store.Store, e Env, a dense.ID[store.TKey], b dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	let k = store.KindOfType(*s, a)
+	let local = k == store.KInstance && store.OriginOfType(*s, a).Import == uint32(0) && len(store.OperandsOf(*s, a)) > 0
+	if k == store.KNamed || local {
+		for i in 0..store.NumDecls(*s) {
+			let d = store.DeclAt(*s, i)
+			if store.KindName(int(store.DeclOf(*s, d).Kind)) != "type" {
+				continue
+			}
+			let u = if isSome(unionMembers(*s, e.files, d)) {
+				store.TNamed(s, d)
+			} else {
+				match joinInstance(s, e, i, d, []dense.ID[store.TKey]{a, b}) {
+				case Some{Value: g}:
+					g
+				case None:
+					continue
+				}
+			}
+			let vs = Variants(s, e, u)
+			if Has(vs, a) && Has(vs, b) {
+				out = out.Append(u)
+			}
+		}
+	} else if k == store.KInstance && len(store.OperandsOf(*s, a)) == 0 {
+		let o = store.OriginOfType(*s, a)
+		if o.Import == uint32(0) || int(o.Import) == store.ForeignBit || int(o.Import) > len(e.deps) {
+			return out
+		}
+		for j, dd in e.deps[int(o.Import)-1].Decls {
+			if len(dd.Variants) == 0 || dd.Name[0] < 65 || dd.Name[0] > 90 {
+				continue
+			}
+			let u = store.TInstance(s, store.XRef{Import: o.Import, Decl: uint32(j)}, []dense.ID[store.TKey]{})
+			let vs = Variants(s, e, u)
+			if Has(vs, a) && Has(vs, b) {
+				out = out.Append(u)
+			}
+		}
+	}
+	out
+}
+
+// Generic is a generic union of the package: its parameter count and its
+// members written in its parameters (the i-th is store.TParam(i)).
+type Generic { n int, members []dense.ID[store.TKey] }
+
+// genericMembers is the package's generic union d: an inline variant is
+// its record at the union's parameters its fields mention, in the
+// union's order (localVariant); another member is the type it writes.
+func genericMembers(s mut store.Store, e Env, d dense.ID[store.Decl]) Option[Generic] {
+	let u = match unionSpec(*s, e.files, d) {
+	case Some{Value: u}:
+		u
+	case None:
+		return None
+	}
+	if len(u.params) == 0 {
+		return None
+	}
+	let mut inner = e
+	inner.p = u.p
+	inner.params = u.params
+	let mut ms = []dense.ID[store.TKey]{}
+	for m in u.members {
+		match syntax.ViewOf(u.p.Tree, m) {
+		case syntax.VariantSpec as vs:
+			let vd = match store.Lookup(*s, nameText(u.p, vs.Name)) {
+			case Some{Value: vd}:
+				vd
+			case None:
+				return None
+			}
+			let used = mentioned(u.p, vs.Fields)
+			let mut vargs = []dense.ID[store.TKey]{}
+			for i, n in u.params {
+				if contains(used, n) {
+					vargs = vargs.Append(store.TParam(s, i))
+				}
+			}
+			ms = ms.Append(if len(vargs) == 0 { store.TNamed(s, vd) } else { store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(vd))}, vargs) })
+		case _:
+			ms = ms.Append(Resolve(s, inner, m))
+		}
+	}
+	Some{Value: Generic{n: len(u.params), members: ms}}
+}
+
+// joinInstance is the instance of the package's generic union d (the
+// i-th declaration) whose variants the branch types ts are, its type
+// arguments bound by the variants of the same type (join.go
+// joinInstance), or none when one stays free.
+func joinInstance(s mut store.Store, e Env, i int, d dense.ID[store.Decl], ts []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let g = match genericMembers(s, e, d) {
+	case Some{Value: g}:
+		g
+	case None:
+		return None
+	}
+	let mut binds = []Option[dense.ID[store.TKey]]{}
+	for _ in 0..g.n {
+		binds = binds.Append(None)
+	}
+	for t in ts {
+		for m in g.members {
+			if sameHead(*s, m, t) {
+				bindParams(*s, m, t, &binds)
+			}
+		}
+	}
+	let mut args = []dense.ID[store.TKey]{}
+	for b in binds {
+		match b {
+		case Some{Value: a}:
+			args = args.Append(a)
+		case None:
+			return None
+		}
+	}
+	Some{Value: store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(i)}, args)}
+}
+
+// sameHead is whether the member m and the type t are one declared type:
+// the same record, or instances of one origin.
+func sameHead(s store.Store, m dense.ID[store.TKey], t dense.ID[store.TKey]) bool {
+	let k = store.KindOfType(s, m)
+	if k != store.KindOfType(s, t) {
+		return false
+	}
+	if k == store.KInstance {
+		let a = store.OriginOfType(s, m)
+		let b = store.OriginOfType(s, t)
+		return a.Import == b.Import && a.Decl == b.Decl
+	}
+	k == store.KNamed && m == t
+}
+
+// bindParams binds each parameter m mentions to the part of t at its
+// place; a parameter bound already keeps its first binding.
+func bindParams(s store.Store, m dense.ID[store.TKey], t dense.ID[store.TKey], binds mut []Option[dense.ID[store.TKey]]) {
+	let k = store.KindOfType(s, m)
+	if k == store.KParam {
+		let i = store.ArgOf(s, m)
+		if i < len(*binds) && !isSome((*binds)[i]) {
+			(*binds)[i] = Some{Value: t}
+		}
+		return
+	}
+	if k != store.KindOfType(s, t) {
+		return
+	}
+	let mo = store.OperandsOf(s, m)
+	let to = store.OperandsOf(s, t)
+	if len(mo) != len(to) || k == store.KInstance && !sameHead(s, m, t) {
+		return
+	}
+	for j in 0..len(mo) {
+		bindParams(s, mo[j], to[j], binds)
+	}
+}
+
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}

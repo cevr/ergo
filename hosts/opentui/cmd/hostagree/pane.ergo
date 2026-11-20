@@ -16,7 +16,7 @@ func paneMachine() Machine[pane, int, int] {
 	Machine[pane, int, int]{Initial: pane{n: 0}, Step: paneStep, After: none[pane, int], Work: idle[pane, int], Exit: func(s pane) Option[func()] { None }}
 }
 
-func paneView(f *ui.Frame[int], s pane) {
+func paneView(f mut ui.Frame[int], s pane) {
 	ui.Text(f, "\(s.n) presses")
 	let mut box = ui.Plain()
 	box.Height = ui.Fixed{Value: 160}

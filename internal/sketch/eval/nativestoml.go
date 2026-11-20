@@ -20,7 +20,8 @@ import (
 // failure that names its line, the dotted key being read and the rule.
 // TestTOMLAgreesWithRuntime holds it to toml-test's corpus and to
 // runtime/v1, value for value and failure for failure.
-func registerNativestoml() {
+func registerNativestoml(t nativeTables) {
+	natives := t.std
 	natives["toml.parse"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		text := args[0].(string)
 		if ab := in.charge(fr, at, 1+int64(len(text))); ab != nil {

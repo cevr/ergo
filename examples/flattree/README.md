@@ -4,7 +4,7 @@ JSON (RFC 8259) read into a flat tree, in the data-oriented form of Zig's and Yu
 
 ```sh
 flattree stats FILE            # values of each kind, depth, distinct keys
-flattree path FILE POINTER     # the value at POINTER (RFC 6901), in jq's layout
+flattree path FILE POINTER     # the value at POINTER (RFC 6901), indented
 flattree print FILE            # FILE on one line
 flattree gen -seed S -n N      # write the workload: an array of N records for seed S
 ```

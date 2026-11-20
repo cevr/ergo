@@ -215,6 +215,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		out.Status, out.Reason = Skipped, p.Reason
 		return
 	}
+	in.casesBudget(p.Count)
 	opParams := map[*check.Var]check.Conversion{}
 	var own *check.Conversion
 	for _, input := range p.Inputs {
@@ -276,7 +277,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 					for j, param := range ctor.Sig.Params {
 						shown[j] = in.argument(cf, param.Type, vs[j])
 					}
-					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
+					return Argument{Name: input.Name, Value: in.root.Qualified(ctor.Pkg, ctor.Name) + "(" + strings.Join(shown, ", ") + ")"}
 				})
 			} else {
 				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
@@ -339,31 +340,39 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 // result and arguments are the case's, its Drawn the drawn arguments when
 // they differ. A smallest tape that no longer fails the same way (the body
 // is not a function of its draws) leaves the drawn case. A replay the
-// evaluator cannot finish (a skipped form, the budget spent) is the
-// result: tier 1 cannot give the native runner's counterexample, so it
-// does not decide the obligation.
+// evaluator cannot finish (a skipped form, the budget spent) ends the
+// shrink, and the drawn case is the result: the refutation already
+// decided the obligation, so it is reported refuted with the case as
+// drawn, never downgraded to skipped or incomplete (EVAL-SHRINK-REFUTED;
+// the native runner would have shrunk it further). The drawn arguments
+// are written before the shrink, while the budget lasts.
 func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func() Argument, run func() (Result, []func() Argument)) (Result, []func() Argument) {
 	tape := r.Tape()
-	var stop *Result
+	large := shown(drawnShows)
+	drawnShows = make([]func() Argument, len(large))
+	for i, a := range large {
+		drawnShows[i] = func() Argument { return a }
+	}
+	stopped := false
 	replay := func(c []uint64) (Result, []func() Argument) {
 		r.Replay(c)
 		return run()
 	}
 	best, _ := shrinkTape(tape, func(c []uint64) bool {
-		if stop != nil {
+		if stopped {
 			return false
 		}
 		got, _ := replay(c)
 		switch got.Status {
 		case Skipped, Incomplete:
-			stop = &got
+			stopped = true
 			return false
 		}
 		return got.Status == Refuted && got.escaped == drawn.escaped
 	}, shrinkBudget)
 	defer r.EndReplay()
-	if stop != nil {
-		return *stop, nil
+	if stopped {
+		return drawn, drawnShows
 	}
 	if slices.Equal(best, tape) {
 		return drawn, drawnShows
@@ -372,7 +381,7 @@ func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func(
 	if got.Status != Refuted || got.escaped != drawn.escaped {
 		return drawn, drawnShows // not deterministic: the drawn case
 	}
-	small, large := shown(shows), shown(drawnShows)
+	small := shown(shows)
 	if !slices.Equal(small, large) {
 		got.Drawn = large
 	}

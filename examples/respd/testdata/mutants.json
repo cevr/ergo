@@ -1,0 +1,61 @@
+{
+  "about": "respd's application mutants; each is judged by the example's laws, tests, explore leg and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "resp-parse-accepts-short-bulk", "origin": "wf10 plan §8 (RS1)",
+      "file": "examples/respd/resp/read.ergo",
+      "from": "\t\tlet stop = start + int(n)\n",
+      "to": "\t\tlet stop = try lineEnd(buf, start, MaxBulk)\n",
+      "rule": "A bulk string is the count of bytes its header says, then CRLF: a parser that ends it at the next CRLF reads data shorter than its length as a value. BulkTakesItsLength and SplitAnywhereParsesTheSame refute it.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    },
+    {
+      "name": "resp2-writes-resp3-null", "origin": "RS1 resp writer",
+      "file": "examples/respd/resp/write.ergo",
+      "from": "\t\t\treturn appendString(out, \"$-1\\r\\n\")\n",
+      "to": "\t\t\treturn appendString(out, \"_\\r\\n\")\n",
+      "rule": "RESP2 has no null type; it writes null as the null bulk string. The reader reads both as Null, so only Resp2WritesOnlyItsOwnTypes (resp/tests.ergo) sees it.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    },
+    {
+      "name": "memory-incr-reads-then-writes", "origin": "RS1 memory engine (IncrIsAtomic, explored)",
+      "file": "examples/respd/memory/engine.ergo",
+      "from": "\tlet r = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (Counted, Map[string, Entry]) {\n\t\tlet old = find(m, key, now)\n",
+      "to": "\tlet seen = shard(e, key).Get()\n\tlet r = sync.Modify(shard(e, key)) func(m Map[string, Entry]) (Counted, Map[string, Entry]) {\n\t\tlet old = find(seen, key, now)\n",
+      "rule": "Incr reads and writes its key in one Modify; a read before it lets two tasks write the same sum. The laws run one task and pass it; the explore leg of IncrIsAtomic finds the schedule.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    },
+    {
+      "name": "lease-release-ignores-token", "origin": "wf10 plan §8 (verifier must see it killed by a law)",
+      "file": "examples/respd/store/lease.ergo",
+      "from": "\t\t\tif t.Token != g.Lease.Token {\n",
+      "to": "\t\t\tif t.Owner != g.Lease.Owner {\n",
+      "rule": "A release frees a name only with the grant's token: an owner whose lease expired and who acquired the name again must not free the new grant with the old lease. ReleaseNeedsTheToken refutes it.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    },
+    {
+      "name": "lease-token-reset-on-expiry", "origin": "wf10 plan §8 (verifier must see it killed by a law)",
+      "file": "examples/respd/store/lease.ergo",
+      "from": "\t\tFree{Last: t.Token}\n",
+      "to": "\t\tFree{Last: 0}\n",
+      "rule": "An expired grant keeps its token as the name's last, so the next grant's token is greater. TokensRise refutes a counter that starts again.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    },
+    {
+      "name": "memory-expiry-holds-at-its-time", "origin": "RS1 memory engine",
+      "file": "examples/respd/memory/engine.ergo",
+      "from": "\t\tnow.Before(u.Value)\n",
+      "to": "\t\t!u.Value.Before(now)\n",
+      "rule": "A key is Missing from its expiry on, the expiry's own instant included. ExpiredIsMissing refutes an engine that holds the value at that instant.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    },
+    {
+      "name": "decimal-accepts-leading-zero", "origin": "RS1 store Decimal",
+      "file": "examples/respd/store/decimal.ergo",
+      "from": "\tif start == n || (text[start] == '0' && (n > start+1 || negative)) {\n",
+      "to": "\tif start == n {\n",
+      "rule": "Incr reads a value as Redis does: no leading zero and no -0. DecimalReadsItsText refutes a reader that takes 07.",
+      "anchor": {"tests": ["examples:respd"]}, "killers": ["examples:respd"]
+    }
+  ]
+}

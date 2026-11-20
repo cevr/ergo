@@ -6,8 +6,8 @@ import (
 )
 
 // concatInLoop is the speed hint for a string built by + in a loop
-// (catalog PF13, examples/jobs/api/laws.ergo and
-// examples/confparse/config/laws.ergo): inside a for or for-in body, an
+// (catalog PF13, examples/jobs/api/routes.ergo and
+// examples/confparse/config/encode.ergo): inside a for or for-in body, an
 // assignment `s = s + e`, `s = e + s` or `s += e` to a string variable declared
 // outside that loop. Each step copies all of s, so n steps copy O(n²)
 // bytes.

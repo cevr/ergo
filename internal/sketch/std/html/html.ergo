@@ -29,7 +29,7 @@ import strings
 type Node { text string, esc bool, late Option[Writer], parts []Child }
 
 // Writer writes a node's markup at the end of a buffer.
-type Writer { write func(b *strings.Builder) }
+type Writer { write func(b mut strings.Builder) }
 
 // Attr is an attribute of an element: its name, its value (escaped when
 // it is written), or a name alone (a boolean attribute such as hidden).
@@ -52,7 +52,7 @@ func markup(m string) Node { Node{text: m, esc: false, late: None, parts: []Chil
 
 // later is the node that w writes. In a fold a constructor builds its
 // template instead (compose).
-func later(w own func(b *strings.Builder)) Node {
+func later(w own func(b mut strings.Builder)) Node {
 	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: w}}, parts: []Child{}}
 }
 
@@ -73,7 +73,7 @@ func Raw(t Trusted) Node { markup(t.s) }
 // Each is the node f makes of each item, in order. f runs when the node
 // is written, so no list of nodes is built.
 func Each[T](items []T, f own func(item T) Node) Node {
-	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b *strings.Builder) {
+	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b mut strings.Builder) {
 		for x in items {
 			writeNode(b, f(x))
 		}
@@ -93,7 +93,7 @@ func Doc(root Node) Node {
 	if build.InFold() {
 		return compose("<!DOCTYPE html>", []Child{root}, "", "")
 	}
-	later(func(b *strings.Builder) {
+	later(func(b mut strings.Builder) {
 		b.WriteString("<!DOCTYPE html>")
 		writeNode(b, root)
 	})
@@ -109,8 +109,408 @@ func Render(n Node) string {
 	b.String()
 }
 
+// RenderParsesBack (WEB0): a generated tree, built with this package's
+// functions, renders to markup a reference parser reads back as the same
+// tree, as a document and as a fragment; every javascript: link the
+// generator draws is refused, and every attribute name it reads from
+// data stays one attribute.
+law RenderParsesBack(seed int) {
+	let mut r = trng{x: (seed%2147483648 + 2147483648) % 2147483648}
+	let mut unsafe = 0
+	let b = tkids(&r, 0, &unsafe)
+	let markup = Render(Div(b.kids))
+	let doc = Render(Doc(Body(b.kids)))
+	let want = []tnode{tel{tag: "div", attrs: []tattr{}, kids: b.model}}
+	let wantDoc = []tnode{tel{tag: "body", attrs: []tattr{}, kids: b.model}}
+	let got = tparse(markup)
+	let gotDoc = tparse(strings.TrimPrefix(doc, "<!DOCTYPE html>"))
+	let back = match got {
+	case Some[[]tnode] as t:
+		sameNodes(t.Value, want)
+	case None:
+		false
+	}
+	let backDoc = match gotDoc {
+	case Some[[]tnode] as t:
+		sameNodes(t.Value, wantDoc)
+	case None:
+		false
+	}
+	back && backDoc && strings.HasPrefix(doc, "<!DOCTYPE html>") && unsafe == 0
+}
+
+// tnode is the tree a parser reads: an element with its attributes and
+// children, a void element, a script with its raw body, or text. Two
+// texts are never next to each other and no text is empty. (a law's
+// helper)
+type tnode = tel{tag string, attrs []tattr, kids []tnode} | tvoid{tag string, attrs []tattr} | tscript{attrs []tattr, body string} | ttext{s string}
+
+// tattr is an attribute as a parser reads it. (a law's helper)
+type tattr { name string, value string, bare bool }
+
+// trng is the property's generator (a linear congruence). (a law's
+// helper)
+type trng { x int }
+
+// tdraw is the next draw of r below n. (a law's helper)
+func tdraw(r mut trng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+// pieces are the parts a generated string is made of. (a law's helper)
+func pieces() []string {
+	[]string{"a", "Zz", "<", ">", "&", "\"", "'", "&amp;", "&lt;", "</style>", "</script>", "<script>alert(1)</script>", "javascript:", " ", "=", "/>", "-->", "é", "\t", "{\"@type\":\"Post\"}"}
+}
+
+// tstring is a generated string of up to four pieces. (a law's helper)
+func tstring(r mut trng) string {
+	let mut b = strings.NewBuilder()
+	for _ in 0..tdraw(r, 5) {
+		let ps = pieces()
+		b.WriteString(ps[tdraw(r, len(ps))])
+	}
+	b.String()
+}
+
+// built is a generated tree beside the nodes that write it. (a law's
+// helper)
+type built { model []tnode, kids []Child }
+
+// addText puts text s at the end of m, joined to a text before it, and
+// none when s is empty. (a law's helper)
+func addText(m []tnode, s string) []tnode {
+	if s == "" {
+		return m
+	}
+	if len(m) > 0 {
+		match m[len(m)-1] {
+		case ttext as t:
+			let mut out = m[0 : len(m)-1]
+			out = out.Append(ttext{s: t.s + s})
+			return out
+		case tel, tvoid, tscript:
+		}
+	}
+	m.Append(ttext{s: s})
+}
+
+// tname is the name an attribute named from data s gets: s with each
+// byte other than a letter, a digit, -, _, . or : as -, or data- when s
+// is empty. (a law's helper)
+func tname(s string) string {
+	if s == "" {
+		return "data-"
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ':'
+		b.WriteByte(if ok { c } else { '-' })
+	}
+	b.String()
+}
+
+// tattrs draws up to three attributes, each with the tattr a parser
+// reads of it, and counts in unsafe each link written with a scheme a
+// link may not have. (a law's helper)
+func tattrs(r mut trng, unsafe mut int) ([]tattr, []Attr) {
+	let mut model = []tattr{}
+	let mut out = []Attr{}
+	for _ in 0..tdraw(r, 4) {
+		let v = tstring(r)
+		let n = tstring(r)
+		let k = tdraw(r, 7)
+		let (m, a) = if k == 0 {
+			(tattr{name: "class", value: v, bare: false}, Class(v))
+		} else if k == 1 {
+			(tattr{name: "id", value: v, bare: false}, Id(v))
+		} else if k == 2 {
+			(tattr{name: "title", value: v, bare: false}, TitleAttr(v))
+		} else if k == 3 {
+			(tattr{name: tname(n), value: v, bare: false}, Attribute(n, v))
+		} else if k == 4 {
+			(tattr{name: tname(n), value: "", bare: true}, Flag(n))
+		} else if k == 5 {
+			(tattr{name: tname("data-" + n), value: v, bare: false}, Data(n, v))
+		} else {
+			let u = ParseURL(v) catch {
+			case UnsafeURL:
+				LocalURL(v)
+			}
+			let sc = Scheme(URLText(u))
+			if !(sc == "" || sc == "http" || sc == "https" || sc == "mailto" || sc == "tel") {
+				*unsafe = *unsafe + 1
+			}
+			(tattr{name: "href", value: URLText(u), bare: false}, Href(u))
+		}
+		model = model.Append(m)
+		out = out.Append(a)
+	}
+	(model, out)
+}
+
+// tkids draws up to four children at depth d. (a law's helper)
+func tkids(r mut trng, d int, unsafe mut int) built {
+	let mut model = []tnode{}
+	let mut kids = []Child{}
+	for _ in 0..tdraw(r, 5) {
+		let k = if d > 3 { tdraw(r, 4) } else { tdraw(r, 8) }
+		if k == 0 {
+			let s = tstring(r)
+			model = addText(model, s)
+			kids = kids.Append(Text(s))
+		} else if k == 1 {
+			let n = tdraw(r, 2001) - 1000
+			model = addText(model, "\(n)")
+			kids = kids.Append(Int(n))
+		} else if k == 2 {
+			let show = tdraw(r, 2) == 0
+			let s = tstring(r)
+			if show {
+				model = addText(model, s)
+			}
+			kids = kids.Append(When(show, Text(s)))
+		} else if k == 3 {
+			let (m, as2) = tattrs(r, unsafe)
+			let tags = []string{"br", "img", "input", "hr", "meta"}
+			let t = tdraw(r, len(tags))
+			model = model.Append(tvoid{tag: tags[t], attrs: m})
+			kids = kids.Append([]Node{Br(as2), Img(as2), Input(as2), Hr(as2), Meta(as2)}[t])
+		} else if k == 4 {
+			let items = []string{tstring(r), tstring(r)}
+			for s in items {
+				model = addText(model, s)
+			}
+			kids = kids.Append(Each(items, Text))
+		} else if k == 5 {
+			let (m, as2) = tattrs(r, unsafe)
+			let body = []string{"{\"@context\":\"https://schema.org\"}", "let x = 1 < 2 && \"a\"", ""}[tdraw(r, 3)]
+			model = model.Append(tscript{attrs: m, body: body})
+			kids = kids.Append(Script(as2, Trust(body)))
+		} else {
+			let (m, as2) = tattrs(r, unsafe)
+			let inner = tkids(r, d+1, unsafe)
+			let tags = []string{"div", "p", "span", "li", "td", "title", "textarea", "a"}
+			let t = tdraw(r, len(tags))
+			let mut all = []Child{}
+			// attributes before, between and after the children: they are
+			// written in the start tag in their order.
+			let cut = if len(as2) == 0 { 0 } else { tdraw(r, len(as2)+1) }
+			for a in as2[0:cut] {
+				all = all.Append(a)
+			}
+			for c in inner.kids {
+				all = all.Append(c)
+			}
+			for a in as2[cut:len(as2)] {
+				all = all.Append(a)
+			}
+			let n = []Node{Div(all), P(all), Span(all), Li(all), Td(all), Title(all), Textarea(all), A(all)}[t]
+			model = model.Append(tel{tag: tags[t], attrs: m, kids: inner.model})
+			kids = kids.Append(n)
+		}
+	}
+	built{model: model, kids: kids}
+}
+
+// tparser is the reference parser's cursor; ok turns false at the first
+// byte it cannot read. (a law's helper)
+type tparser { s string, i int, ok bool }
+
+// tvoids are the void elements the generator writes. (a law's helper)
+func tvoids() []string { []string{"br", "img", "input", "hr", "meta"} }
+
+// ttext reads text up to the next < and decodes it. (a law's helper)
+func ptext(p mut tparser) string {
+	let start = p.i
+	for p.i < len(p.s) && p.s[p.i] != '<' {
+		p.i = p.i + 1
+	}
+	unescape(strings.Slice(p.s, start, p.i))
+}
+
+// pname reads a tag or attribute name. (a law's helper)
+func pname(p mut tparser) string {
+	let start = p.i
+	for p.i < len(p.s) && p.s[p.i] != ' ' && p.s[p.i] != '=' && p.s[p.i] != '>' && p.s[p.i] != '/' && p.s[p.i] != '"' && p.s[p.i] != '\'' && p.s[p.i] != '<' {
+		p.i = p.i + 1
+	}
+	if p.i == start {
+		p.ok = false
+	}
+	strings.Slice(p.s, start, p.i)
+}
+
+// pattrs reads attributes up to > or />. (a law's helper)
+func pattrs(p mut tparser) []tattr {
+	let mut out = []tattr{}
+	let mut more = true
+	for more && p.ok && p.i < len(p.s) && p.s[p.i] == ' ' {
+		p.i = p.i + 1
+		let n = pname(p)
+		if p.i < len(p.s) && p.s[p.i] == '=' {
+			if p.i+1 >= len(p.s) || p.s[p.i+1] != '"' {
+				p.ok = false
+				more = false
+			} else {
+				p.i = p.i + 2
+				let start = p.i
+				for p.i < len(p.s) && p.s[p.i] != '"' {
+					p.i = p.i + 1
+				}
+				let v = strings.Slice(p.s, start, p.i)
+				if p.i >= len(p.s) || !inert(v) {
+					p.ok = false
+				}
+				p.i = p.i + 1
+				out = out.Append(tattr{name: n, value: unescape(v), bare: false})
+			}
+		} else {
+			out = out.Append(tattr{name: n, value: "", bare: true})
+		}
+	}
+	out
+}
+
+// pkids reads nodes up to the end tag of close, or to the end of the
+// text when close is "". (a law's helper)
+func pkids(p mut tparser, close string) []tnode {
+	let mut out = []tnode{}
+	let mut done = false
+	for !done && p.ok {
+		if p.i >= len(p.s) {
+			if close != "" {
+				p.ok = false
+			}
+			done = true
+		} else if p.s[p.i] != '<' {
+			out = out.Append(ttext{s: ptext(p)})
+		} else if strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), "</") {
+			let end = "</" + close + ">"
+			if close != "" && strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), end) {
+				p.i = p.i + len(end)
+			} else {
+				p.ok = false
+			}
+			done = true
+		} else {
+			out = out.Append(pelement(p))
+		}
+	}
+	out
+}
+
+// pelement reads one element at <. (a law's helper)
+func pelement(p mut tparser) tnode {
+	p.i = p.i + 1
+	let tag = pname(p)
+	let as2 = pattrs(p)
+	let rest = strings.Slice(p.s, p.i, len(p.s))
+	if strings.HasPrefix(rest, "/>") {
+		p.i = p.i + 2
+		let mut known = false
+		for v in tvoids() {
+			if v == tag {
+				known = true
+			}
+		}
+		if !known {
+			p.ok = false
+		}
+		return tvoid{tag: tag, attrs: as2}
+	}
+	if !strings.HasPrefix(rest, ">") {
+		p.ok = false
+		return ttext{s: ""}
+	}
+	p.i = p.i + 1
+	for v in tvoids() {
+		if v == tag {
+			p.ok = false
+		}
+	}
+	if tag == "script" {
+		let start = p.i
+		for p.i < len(p.s) && !strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), "</script>") {
+			p.i = p.i + 1
+		}
+		if p.i >= len(p.s) {
+			p.ok = false
+		}
+		let body = strings.Slice(p.s, start, p.i)
+		p.i = p.i + 9
+		return tscript{attrs: as2, body: body}
+	}
+	tel{tag: tag, attrs: as2, kids: pkids(p, tag)}
+}
+
+// tparse is the tree markup s holds, when the reference parser reads all
+// of it. (a law's helper)
+func tparse(s string) Option[[]tnode] {
+	let mut p = tparser{s: s, i: 0, ok: true}
+	let out = pkids(&p, "")
+	if p.ok { Some[[]tnode]{Value: out} } else { None }
+}
+
+// sameAttrs is whether a and b are one attribute list. (a law's helper)
+func sameAttrs(a []tattr, b []tattr) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x.name != b[i].name || x.value != b[i].value || x.bare != b[i].bare {
+			return false
+		}
+	}
+	true
+}
+
+// sameNodes is whether a and b are one tree. (a law's helper)
+func sameNodes(a []tnode, b []tnode) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		let ok = match x {
+		case tel as e:
+			match b[i] {
+			case tel as f:
+				e.tag == f.tag && sameAttrs(e.attrs, f.attrs) && sameNodes(e.kids, f.kids)
+			case tvoid, tscript, ttext:
+				false
+			}
+		case tvoid as e:
+			match b[i] {
+			case tvoid as f:
+				e.tag == f.tag && sameAttrs(e.attrs, f.attrs)
+			case tel, tscript, ttext:
+				false
+			}
+		case tscript as e:
+			match b[i] {
+			case tscript as f:
+				e.body == f.body && sameAttrs(e.attrs, f.attrs)
+			case tel, tvoid, ttext:
+				false
+			}
+		case ttext as e:
+			match b[i] {
+			case ttext as f:
+				e.s == f.s
+			case tel, tvoid, tscript:
+				false
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
 // Write writes n's markup at the end of b.
-func Write(b *strings.Builder, n Node) { writeNode(b, n) }
+func Write(b mut strings.Builder, n Node) { writeNode(b, n) }
 
 // Static is whether n is markup, known before it is written: Int, Raw, an
 // empty When, and a node a build-time fold computed from constants (an
@@ -132,7 +532,7 @@ func isFixed(n Node) bool {
 }
 
 // writeNode writes n at the end of b.
-func writeNode(b *strings.Builder, n Node) {
+func writeNode(b mut strings.Builder, n Node) {
 	match n.late {
 	case Some[Writer] as w:
 		w.Value.write(b)
@@ -149,7 +549,7 @@ func writeNode(b *strings.Builder, n Node) {
 
 // writeParts writes a template's parts in order: an attribute as in a
 // start tag, a node as itself.
-func writeParts(b *strings.Builder, parts []Child) {
+func writeParts(b mut strings.Builder, parts []Child) {
 	for p in parts {
 		match p {
 		case Attr as a:
@@ -162,7 +562,7 @@ func writeParts(b *strings.Builder, parts []Child) {
 
 // attrs writes the attributes among kids, in order, each with a space
 // before it.
-func attrs(b *strings.Builder, kids []Child) {
+func attrs(b mut strings.Builder, kids []Child) {
 	for k in kids {
 		match k {
 		case Attr as a:
@@ -172,7 +572,7 @@ func attrs(b *strings.Builder, kids []Child) {
 	}
 }
 
-func attr(b *strings.Builder, a Attr) {
+func attr(b mut strings.Builder, a Attr) {
 	b.WriteString(" ")
 	b.WriteString(a.name)
 	if !a.bare {
@@ -184,7 +584,7 @@ func attr(b *strings.Builder, a Attr) {
 
 // writeElement writes the element tag around kids: its attributes in
 // the start tag, then its child nodes, then the end tag.
-func writeElement(b *strings.Builder, tag string, kids []Child) {
+func writeElement(b mut strings.Builder, tag string, kids []Child) {
 	b.WriteString("<")
 	b.WriteString(tag)
 	attrs(b, kids)
@@ -196,7 +596,7 @@ func writeElement(b *strings.Builder, tag string, kids []Child) {
 }
 
 // writeKids writes the child nodes among kids, in order.
-func writeKids(b *strings.Builder, kids []Child) {
+func writeKids(b mut strings.Builder, kids []Child) {
 	for k in kids {
 		match k {
 		case Node as n:
@@ -213,7 +613,7 @@ func element(tag string, kids []Child) Node {
 	if build.InFold() {
 		return compose("<"+tag, kids, ">", "</"+tag+">")
 	}
-	later(func(b *strings.Builder) { writeElement(b, tag, kids) })
+	later(func(b mut strings.Builder) { writeElement(b, tag, kids) })
 }
 
 // void is the void element tag: a start tag closed by />, with no
@@ -226,7 +626,7 @@ func void(tag string, attrList []Attr) Node {
 		}
 		return compose("<"+tag, kids, "/>", "")
 	}
-	later(func(b *strings.Builder) {
+	later(func(b mut strings.Builder) {
 		b.WriteString("<")
 		b.WriteString(tag)
 		for a in attrList {
@@ -246,7 +646,7 @@ func rawText(tag string, attrList []Attr, body Trusted) Node {
 		}
 		return compose("<"+tag, kids, ">"+body.s+"</"+tag+">", "")
 	}
-	later(func(b *strings.Builder) {
+	later(func(b mut strings.Builder) {
 		b.WriteString("<")
 		b.WriteString(tag)
 		for a in attrList {

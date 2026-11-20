@@ -225,7 +225,7 @@ func buttonPage(buttonOf func(p Press) html.Node) Doc {
 	Doc{
 		Title:    "Button",
 		Lead:     "Versatile button with variants, sizes, loading state, and icon support.",
-		Install:  "Foldkit source. Copy the prompt to install.",
+		Install:  "Ergo source. Copy the prompt to install.",
 		Sections: []Section{
 			Section{Title: "Playground", Lead: []Run{}, Stage: stages[0], Controls: true},
 			Section{Title: "Variants", Lead: []Run{Plain{T: "5 variants, inline or full width: add "}, Mono{T: "className=\"w-full\""}, Plain{T: " to stretch one to its container."}}, Stage: stages[1], Controls: false},

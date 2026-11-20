@@ -1,0 +1,70 @@
+// scandump scans files with compiler/syntax and prints what it found, for
+// the Go scanner agreement check and the counted receipt:
+//
+//	scandump FILE...      per file: "F path", "T kind start end" per token,
+//	                      "C start end" per comment, "N lines", then
+//	                      "E code offset length" or "OK"
+//	scandump -n FILE...   one line: files= bytes= tokens= comments= lines= failed=
+//
+// This binary is the only place that chooses the providers: the host's
+// files and standard output.
+
+import compiler/syntax
+import compiler/syntax/dump
+import fs
+import io
+import os
+import strings
+
+// listing is the dump of one file: "F path" and dump.Scan of its text.
+func listing(b mut strings.Builder, path string, src string) {
+	b.WriteString("F " + path + "\n" + dump.Scan(src))
+}
+
+func read(file string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(file) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "scandump: no file \(file)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "scandump: cannot read \(file): permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "scandump: cannot read \(file): \(e.Reason)"}
+	}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: "usage: scandump [-n] FILE..."}
+	}
+	if args[0] == "-n" {
+		let mut bytes = 0
+		let mut toks = 0
+		let mut comments = 0
+		let mut lines = 0
+		let mut failed = 0
+		for file in args[1:] {
+			let src = try read(file)
+			let s = syntax.Scan(src)
+			bytes = bytes + len(src)
+			toks = toks + syntax.NumToks(s.Toks)
+			comments = comments + syntax.NumComments(s.Comments)
+			lines = lines + syntax.NumLines(syntax.LinesOf(src))
+			if s.Failed {
+				failed = failed + 1
+			}
+		}
+		io.Stdout.Println("files=\(len(args) - 1) bytes=\(bytes) tokens=\(toks) comments=\(comments) lines=\(lines) failed=\(failed)")
+		return
+	}
+	let mut b = strings.NewBuilder()
+	for file in args {
+		listing(&b, file, try read(file))
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

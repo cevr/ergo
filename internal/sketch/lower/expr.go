@@ -469,6 +469,31 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	return operand{}
 }
 
+// aliased is the TypeName that package pkg's exported type name stands
+// for: an alias of a named type (`type BoardRequest =
+// pipelineapi.BoardRequest`) stands for the aliased type's own; any other
+// type name for itself. nil when pkg exports no type of that name.
+func aliased(pkg *check.Package, name string) *check.TypeName {
+	for _, o := range pkg.Exported() {
+		tn, ok := o.(*check.TypeName)
+		if !ok || tn.Name != name {
+			continue
+		}
+		for {
+			n, ok := tn.Type.(*check.Named)
+			if !ok {
+				return tn
+			}
+			a, ok := n.Alias().(*check.Named)
+			if !ok || a.Obj == nil || a.Obj == tn {
+				return tn
+			}
+			tn = a.Obj
+		}
+	}
+	return nil
+}
+
 // bareRecord reads the TypeName use of a bare record value. Its checked
 // type holds any type arguments; those arguments are never value indices.
 func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
@@ -487,19 +512,12 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 		}
 		pn, ok := fc.l.info.Uses[id].(*check.PkgName)
 		named, isNamed := fc.typeOf(x).(*check.Named)
-		if !ok || !isNamed {
+		if !ok || !isNamed || aliased(pn.Pkg, head.Sel.Name) != named.Obj {
 			return "", false
 		}
-		if named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
-			// pkg.T where T is an alias of another package's record
-			// (pipelinerpc.BoardRequest = pipelineapi.BoardRequest): the
-			// selected name is a TypeName of pkg (I22).
-			if sel, isType := fc.l.info.Uses[head.Sel].(*check.TypeName); !isType || sel.Pkg != pn.Pkg {
-				return "", false
-			}
-		}
 		// A qualified expression records its package use and final type;
-		// the Named's object is the selected TypeName.
+		// the Named's object is the selected TypeName, or the one an alias
+		// of that name stands for (S109-ALIAS).
 		tn = named.Obj
 	default:
 		return "", false
@@ -756,6 +774,10 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if fc.l.info.Relends[x] {
+		// &x of a mut parameter passes its pointer on (Info.Relends).
+		return fc.value(x.X)
+	}
 	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
 		// A Close through the address of an owned local takes it: its
 		// entry ends here, as at a by-address receiver (place).
@@ -872,6 +894,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		vals := fc.elements(x.Elts, u.Elem)
 		return goType + "{" + strings.Join(vals, ", ") + "}"
 	case *check.Map:
+		fc.l.intMapConflict(u) // intmap.go: Go's map literal
 		var list []syntax.Expr
 		for _, e := range x.Elts {
 			kv, ok := e.(*syntax.KeyValueExpr)

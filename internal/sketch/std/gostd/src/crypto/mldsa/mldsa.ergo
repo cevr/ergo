@@ -38,7 +38,7 @@ extern go crypto/mldsa.MLDSA87SignatureSize let MLDSA87SignatureSize int
 extern go crypto/mldsa.NewPrivateKey func NewPrivateKey(params Parameters, seed []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign
 
 // ergo:go func NewPublicKey(params Parameters, encoding []byte) (*PublicKey, error)
-extern go crypto/mldsa.NewPublicKey func NewPublicKey(params Parameters, encoding []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign
+extern go crypto/mldsa.NewPublicKey func NewPublicKey(params Parameters, encoding []byte) Option[go.Ref[PublicKey]] fails go.Error needs go.Foreign
 
 // ergo:go type Options struct
 extern go crypto/mldsa.Options type Options {

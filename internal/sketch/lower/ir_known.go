@@ -27,20 +27,31 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// irInstanceCopy reports a copy the IR does not build (LY-FIX): any copy
-// but one for a known record, so a monomorphic instance (mono.go), a copy
-// for a known provider (provider.go) or for a known witness (witspec.go).
-// Each is one more Go function beside f's, named sp.name; an IR body built
-// for it would take f's name and f's Go declaration, a second body for f
-// at the instance's types (a461a6b13's "Fold is not declared in the Go
-// source"). The emitter writes their bodies.
-func irInstanceCopy(sp *specCopy) bool { return sp != nil && sp.rec == nil }
+// irInstanceCopy reports a copy the IR does not build (LY-FIX): a copy for
+// a known provider (provider.go), or for a known witness (witspec.go) when
+// witnessCopyIR is "off". Each is one more Go function beside f's, named
+// sp.name; an IR body built for it would take f's name and f's Go
+// declaration, a second body for f at the instance's types (a461a6b13's
+// "Fold is not declared in the Go source"). The emitter writes their
+// bodies. A monomorphic copy (mono.go) is built: its body takes the copy's
+// name (monoName), and the IR calls it (callParts; MONO-HOOKS-MIN). A copy
+// for a known witness takes the IR (G4, ir_witness.go) under its own name
+// (copyName).
+func irInstanceCopy(sp *specCopy) bool {
+	return sp != nil && sp.rec == nil && (sp.prov != nil || sp.wit != nil && witnessCopyIR == "off")
+}
 
-// copyName is the Go name of the copy for a known record that the body of
-// f being built is, or "" when it is f itself.
+// copyName is the Go name of the copy for a known record or a known
+// witness that the body of f being built is, or "" when it is f itself.
 func (b *irBuilder) copyName(f *check.Func) string {
 	for _, rec := range b.fc.recs {
 		if sp := b.l.specs[specKey{f: f, tn: rec.tn}]; sp != nil {
+			return sp.name
+		}
+	}
+	for _, st := range b.fc.static {
+		tn, ptr := witArg(st.Arg)
+		if sp := b.l.specs[witKey(f, tn, ptr)]; sp != nil && tn != nil {
 			return sp.name
 		}
 	}
@@ -51,7 +62,7 @@ func (b *irBuilder) copyName(f *check.Func) string {
 // record argument is known (record.go specAt, which queues the copy's
 // body), else "".
 func (b *irBuilder) copyCall(x *syntax.CallExpr, c *check.Call) string {
-	if sp := b.fc.specAt(x, c); sp != nil && !irInstanceCopy(sp) {
+	if sp := b.fc.specAt(x, c); sp != nil && sp.rec != nil {
 		// A copy for a known provider takes the provider's adapter,
 		// which the IR does not build: the IR calls the function itself.
 		return sp.name

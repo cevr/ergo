@@ -92,59 +92,27 @@ type spawnScan struct {
 }
 
 // copyStmts is list with each read of a captured local replaced by sub's
-// expression, every node it passes through copied.
+// expression, every node it passes through copied: the one tree copy
+// (ir_treecopy.go), so each match form's facts are the copy's.
 func (s *spawnScan) copyStmts(list []*irStmt, sub func(*irExpr) *irExpr) []*irStmt {
-	if list == nil {
-		return nil
-	}
-	out := make([]*irStmt, len(list))
-	for i, st := range list {
-		if st == nil {
-			continue
+	c := &irTreeCopy{subj: s.subj, expr: func(e *irExpr) *irExpr {
+		if e.K == "local" && s.outer(e.I) {
+			return sub(e)
 		}
-		n := *st
-		n.X, n.Y = s.copyExpr(st.X, sub), s.copyExpr(st.Y, sub)
-		n.Then, n.Else, n.Body = s.copyStmts(st.Then, sub), s.copyStmts(st.Else, sub), s.copyStmts(st.Body, sub)
-		if st.Cases != nil {
-			n.Cases = make([]*irCase, len(st.Cases))
-			for j, c := range st.Cases {
-				nc := *c
-				nc.Body = s.copyStmts(c.Body, sub)
-				nc.Vals = s.copyExprs(c.Vals, sub)
-				n.Cases[j] = &nc
-			}
-		}
-		out[i] = &n
-	}
-	return out
-}
-
-func (s *spawnScan) copyExprs(list []*irExpr, sub func(*irExpr) *irExpr) []*irExpr {
-	if list == nil {
 		return nil
-	}
-	out := make([]*irExpr, len(list))
-	for i, e := range list {
-		out[i] = s.copyExpr(e, sub)
-	}
-	return out
-}
-
-func (s *spawnScan) copyExpr(e *irExpr, sub func(*irExpr) *irExpr) *irExpr {
-	if e == nil {
-		return nil
-	}
-	if e.K == "local" && s.outer(e.I) {
-		return sub(e)
-	}
-	n := *e
-	n.X, n.Y = s.copyExpr(e.X, sub), s.copyExpr(e.Y, sub)
-	n.Args, n.Elems = s.copyExprs(e.Args, sub), s.copyExprs(e.Elems, sub)
-	n.Body = s.copyStmts(e.Body, sub)
-	return &n
+	}}
+	return c.stmts(list)
 }
 
 func (s *spawnScan) outer(i int) bool { return i < s.mark }
+
+// subj is a match form's subject local in the copy: -1 for a captured one.
+func (s *spawnScan) subj(i int) int {
+	if s.outer(i) {
+		return -1
+	}
+	return i
+}
 
 // pointer reports a local of a pointer type.
 func (s *spawnScan) pointer(i int) bool {

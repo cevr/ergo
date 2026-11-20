@@ -1,0 +1,390 @@
+// Package sqltest is a database for tests (docs/spec/stdlib.md, Host
+// packages, sql). Script is a sql.DB and a sql.Conn that runs nothing: it
+// keeps every call it is given, one line each, in the order it was given
+// them, and answers each statement from rules. A test binds it as sql.DB
+// and reads Log after, so it states what a program sent and in which
+// transaction, with no database and no host. Each copy of a Script is the
+// same script: its log is a sync.Ref.
+
+import sql
+import sync
+import slices
+import queue
+import task
+import time
+
+// Rule is how a Script answers a statement: with rows and a count of rows
+// changed, or with a failure. A rule's Statement is the statement's text,
+// or one of the lines a Script logs for transaction control: BEGIN,
+// COMMIT, SAVEPOINT name, RELEASE SAVEPOINT name and ROLLBACK TO
+// SAVEPOINT name. A statement no rule names gives no rows and changes
+// none. The first rule that names a statement answers it.
+type Rule = Answer{Statement string, Rows []sql.Row, Affected int64} | Refuse{Statement string, With sql.Failure}
+
+// Script is a database that keeps the calls it is given. Begin gives the
+// Script itself as the transaction's connection, so one log holds them
+// all.
+type Script { log sync.Ref[[]string], rules []Rule } implements sql.DB, sql.Conn
+
+// NewScript is a script with an empty log that answers by rules.
+func NewScript(rules []Rule) Script { Script{log: sync.NewRef[[]string]([]string{}), rules: rules} }
+
+// CommitsOnce: a block that ends normally runs between BEGIN and one
+// COMMIT, its statements through Tx and through DB alike, and its value is
+// the Transaction's.
+law CommitsOnce(a string, b string, n int) {
+	let s = NewScript([]Rule{})
+	let got = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			let _ = try sql.DB.Exec(b, []sql.Value{sql.Int{N: int64(n)}})
+			n
+		} catch {
+		case _:
+			return false
+		}
+	}
+	got == n && slices.Equal(s.Log(), []string{"BEGIN", a, b, "COMMIT"})
+}
+
+// RollsBackOnFailure: a block that fails rolls back and never commits,
+// and its failure is the Transaction's; so is a statement's failure.
+law RollsBackOnFailure(a string, constraint string) {
+	let s = NewScript([]Rule{})
+	let first = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			try stop()
+			false
+		} catch {
+		case halt:
+			true
+		case _:
+			false
+		}
+	}
+	let refused = NewScript([]Rule{Refuse{Statement: a, With: sql.Unique{Constraint: constraint}}})
+	let second = with context { sql.DB: refused } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			true
+		} catch {
+		case sql.Unique as u:
+			u.Constraint == constraint
+		case _:
+			false
+		}
+	}
+	let want = []string{"BEGIN", a, "ROLLBACK"}
+	first && second && slices.Equal(s.Log(), want) && slices.Equal(refused.Log(), want)
+}
+
+// halt is a failure of a law's block, of no package's.
+type halt {}
+
+// stop fails halt.
+func stop() fails halt { halt }
+
+// CommitFailureEndsIt: a COMMIT that fails is the Transaction's failure,
+// and no ROLLBACK follows it: a failed commit has ended the transaction.
+law CommitFailureEndsIt(a string, message string) {
+	let s = NewScript([]Rule{Refuse{Statement: "COMMIT", With: sql.Serialization{Message: message}}})
+	let failed = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			false
+		} catch {
+		case sql.Serialization as x:
+			x.Message == message
+		case _:
+			false
+		}
+	}
+	failed && slices.Equal(s.Log(), []string{"BEGIN", a, "COMMIT"})
+}
+
+// RollsBackOnInterrupt: a block whose task is stopped while it waits rolls
+// back, and never commits.
+law RollsBackOnInterrupt(a string) {
+	let s = NewScript([]Rule{})
+	let started = queue.New[bool](1)
+	let t = with context { sql.DB: s, Scheduler: time.NewManual(0) } {
+		task.Go() {
+			sql.Transaction() {
+				let _ = try sql.Tx.Exec(a, []sql.Value{})
+				try started.Push(true)
+				Scheduler.Sleep(1h)
+			} catch {
+			case _:
+			}
+		}
+	}
+	let _ = started.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	t.Stop()
+	slices.Equal(s.Log(), []string{"BEGIN", a, "ROLLBACK"})
+}
+
+// NestedFailureKeepsTheOuter: a Transaction inside another is a savepoint;
+// when its block fails, the outer transaction goes back to the savepoint,
+// releases it, goes on and commits.
+law NestedFailureKeepsTheOuter(a string, b string, c string) {
+	let s = NewScript([]Rule{})
+	let ok = with context { sql.DB: s } {
+		sql.Transaction() {
+			let _ = try sql.Tx.Exec(a, []sql.Value{})
+			sql.Transaction() {
+				let _ = try sql.Tx.Exec(b, []sql.Value{})
+				try stop()
+			} catch {
+			case _:
+			}
+			let _ = try sql.DB.Exec(c, []sql.Value{})
+			true
+		} catch {
+		case _:
+			false
+		}
+	}
+	ok && slices.Equal(s.Log(), []string{"BEGIN", a, "SAVEPOINT ergo_savepoint", b, "ROLLBACK TO SAVEPOINT ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", c, "COMMIT"})
+}
+
+// NestedCommitReleases: a savepoint whose block ends normally is released,
+// and a savepoint inside it has a name of its own.
+law NestedCommitReleases(a string) {
+	let s = NewScript([]Rule{})
+	let ok = with context { sql.DB: s } {
+		sql.Transaction() {
+			try sql.Transaction() {
+				try sql.Transaction() {
+					let _ = try sql.Tx.Exec(a, []sql.Value{})
+				}
+			}
+			true
+		} catch {
+		case _:
+			false
+		}
+	}
+	ok && slices.Equal(s.Log(), []string{"BEGIN", "SAVEPOINT ergo_savepoint", "SAVEPOINT ergo_savepoint_ergo_savepoint", a, "RELEASE SAVEPOINT ergo_savepoint_ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", "COMMIT"})
+}
+
+// RowsReadEachRow: Rows parses every row in the order the database gives
+// them, One the first, and a query with no row is NoRows naming its
+// statement. Each At reads the kind it names and refuses another kind or
+// a column the row does not have.
+law RowsReadEachRow(a string, n int64, s string) {
+	let rows = []sql.Row{sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n}, sql.Text{S: s}}}, sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n + 1}, sql.Null}}}
+	let script = NewScript([]Rule{Answer{Statement: a, Rows: rows, Affected: 0}})
+	with context { sql.DB: script } {
+		let all = sql.Rows(a, []sql.Value{}, first) catch {
+		case _:
+			return false
+		}
+		let one = sql.One(a, []sql.Value{}, first) catch {
+		case _:
+			return false
+		}
+		let text = sql.TextAt(rows[0], 1) catch {
+		case sql.Mismatch:
+			return false
+		}
+		let null = sql.IsNull(rows[1], 1) catch {
+		case sql.Mismatch:
+			return false
+		}
+		slices.Equal(all, []int64{n, n + 1}) && one == n && noRows(a+" ") && text == s && null && textRefused(rows[0], 0) && intRefused(rows[0], 2)
+	}
+}
+
+// first is column 0 of r as an integer.
+func first(r sql.Row) int64 fails sql.Mismatch { try sql.IntAt(r, 0) }
+
+// noRows is whether One of stmt fails NoRows naming stmt.
+func noRows(stmt string) bool needs sql.DB {
+	let _ = sql.One(stmt, []sql.Value{}, first) catch {
+	case sql.NoRows as x:
+		return x.Statement == stmt
+	case _:
+		return false
+	}
+	false
+}
+
+// textRefused is whether TextAt of column i of r fails Mismatch naming i.
+func textRefused(r sql.Row, i int) bool {
+	let _ = sql.TextAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "text"
+	}
+	false
+}
+
+// intRefused is whether IntAt of column i of r fails Mismatch naming i.
+func intRefused(r sql.Row, i int) bool {
+	let _ = sql.IntAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "int"
+	}
+	false
+}
+
+// Log is every line the script kept: each statement's text, and BEGIN,
+// COMMIT, ROLLBACK and the savepoint lines, in the order they came.
+func Log(s Script) []string { s.log.Get() }
+
+// keep adds line to the log and is the rule that answers it, if any.
+func keep(s Script, line string) Option[Rule] {
+	s.log.Update() func(lines []string) []string { lines.Append(line) }
+	for r in s.rules {
+		let named = match r {
+		case Answer as a:
+			a.Statement
+		case Refuse as f:
+			f.Statement
+		}
+		if named == line {
+			return Some[Rule]{Value: r}
+		}
+	}
+	None
+}
+
+// refused is the failure of a statement refused with f. A failure a
+// statement cannot give (NoRows) is Other.
+func refused(f sql.Failure) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	match f {
+	case sql.Unique as u:
+		u
+	case sql.Serialization as x:
+		x
+	case sql.Deadlock as x:
+		x
+	case sql.Timeout as x:
+		x
+	case sql.Closed as x:
+		x
+	case sql.Other as x:
+		x
+	case sql.NoRows as n:
+		sql.Other{Code: "", Message: "no rows: " + n.Statement}
+	}
+}
+
+// control is the failure of a transaction-control line refused with f,
+// within the failures of a savepoint operation.
+func control(f sql.Failure) fails sql.Timeout | sql.Closed | sql.Other {
+	match f {
+	case sql.Timeout as x:
+		x
+	case sql.Closed as x:
+		x
+	case sql.Other as x:
+		x
+	case _:
+		sql.Other{Code: "", Message: "refused"}
+	}
+}
+
+// Exec keeps stmt and answers it.
+func Exec(s Script, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	match keep(s, stmt) {
+	case Some[Rule] as r:
+		match r.Value {
+		case Answer as a:
+			sql.Result{Affected: a.Affected}
+		case Refuse as f:
+			try refused(f.With)
+			sql.Result{Affected: 0}
+		}
+	case None:
+		sql.Result{Affected: 0}
+	}
+}
+
+// Query keeps stmt and answers it.
+func Query(s Script, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	match keep(s, stmt) {
+	case Some[Rule] as r:
+		match r.Value {
+		case Answer as a:
+			a.Rows
+		case Refuse as f:
+			try refused(f.With)
+			[]sql.Row{}
+		}
+	case None:
+		[]sql.Row{}
+	}
+}
+
+// line keeps a transaction-control line and fails as its rule says.
+func line(s Script, text string) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	match keep(s, text) {
+	case Some[Rule] as r:
+		match r.Value {
+		case Refuse as f:
+			try refused(f.With)
+		case Answer:
+		}
+	case None:
+	}
+}
+
+// Begin keeps BEGIN and is the script as the transaction's connection.
+func Begin(s Script) sql.Conn fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	line(s, "BEGIN") catch {
+	case sql.Unique as u:
+		return sql.Other{Code: "23505", Message: u.Constraint}
+	case sql.Serialization as x:
+		return x
+	case sql.Deadlock as x:
+		return x
+	case sql.Timeout as x:
+		return x
+	case sql.Closed as x:
+		return x
+	case sql.Other as x:
+		return x
+	}
+	s
+}
+
+// Commit keeps COMMIT.
+func Commit(s Script) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	try line(s, "COMMIT")
+}
+
+// Rollback keeps ROLLBACK. It never fails.
+func Rollback(s Script) {
+	let _ = keep(s, "ROLLBACK")
+}
+
+func savepointLine(s Script, text string) fails sql.Timeout | sql.Closed | sql.Other {
+	match keep(s, text) {
+	case Some[Rule] as r:
+		match r.Value {
+		case Refuse as f:
+			try control(f.With)
+		case Answer:
+		}
+	case None:
+	}
+}
+
+// Savepoint keeps SAVEPOINT name.
+func Savepoint(s Script, name string) fails sql.Timeout | sql.Closed | sql.Other {
+	try savepointLine(s, "SAVEPOINT "+name)
+}
+
+// Release keeps RELEASE SAVEPOINT name.
+func Release(s Script, name string) fails sql.Timeout | sql.Closed | sql.Other {
+	try savepointLine(s, "RELEASE SAVEPOINT "+name)
+}
+
+// RollbackTo keeps ROLLBACK TO SAVEPOINT name.
+func RollbackTo(s Script, name string) fails sql.Timeout | sql.Closed | sql.Other {
+	try savepointLine(s, "ROLLBACK TO SAVEPOINT "+name)
+}

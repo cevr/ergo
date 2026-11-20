@@ -1,0 +1,106 @@
+// Package host holds the provider of the agent's Tools over the host: the
+// working directory as a confined fs.Root, so no path a model writes
+// reads outside it. The shell tool runs on the exec.Runner the binary
+// binds (exec.NewHost), in the process's working directory.
+
+import fs
+import fstest
+import gent/agent
+import maps
+import slices
+import strings
+import utf8
+
+// Workdir is the Tools of the directory Root was opened at. Every read
+// resolves below the root (fs.Root): an absolute path, a ".." past the
+// root or a link that leads out fails Escapes, which the model is told.
+type Workdir { Root fs.Root } implements agent.Tools
+
+// NewWorkdir is a working directory over files in memory (an fstest
+// tree), every other one, in the order of their paths, moved into the
+// directory sub/. Law runs draw working directories by it (the generator
+// calls a package's New<T>), so the laws of Tools run on a real fs.Root
+// resolution and see directories. The binary makes its Workdir from
+// fs.OpenRoot instead.
+func NewWorkdir(files Map[string, string]) Workdir {
+	let mut nodes = []fstest.Node{}
+	for i, key in slices.Sorted(maps.Keys(files)) {
+		let name = clean(key)
+		if name == "" {
+			continue
+		}
+		let path = if i%2 == 1 { "sub/" + name } else { name }
+		nodes = nodes.Append(fstest.File{Path: path, Text: maps.GetOr(files, key, "")})
+	}
+	Workdir{Root: fstest.NewTree(nodes)}
+}
+
+// clean is key's letters and digits: a name with no "/", "." or "..", as
+// fstest.NewTree takes.
+func clean(key string) string {
+	let mut out = ""
+	for r in key {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			out = out + utf8.RuneText(r)
+		}
+	}
+	out
+}
+
+// rooted is path as fs.Root takes it: "" is the root, ".". A path that
+// starts at "/", or whose ".." elements climb above the directory, fails
+// Escapes before any lookup: fs.Root resolves element by element, so it
+// would answer NotFound for "a/../../x" when a is missing, and the model
+// is told the path leaves the directory whatever the tree holds.
+func rooted(path string) string fails agent.Escapes {
+	if strings.HasPrefix(path, "/") {
+		return agent.Escapes{Path: path}
+	}
+	let mut depth = 0
+	for name in strings.Split(path, "/") {
+		if name == ".." {
+			depth = depth - 1
+		} else if name != "" && name != "." {
+			depth = depth + 1
+		}
+		if depth < 0 {
+			return agent.Escapes{Path: path}
+		}
+	}
+	if path == "" { "." } else { path }
+}
+
+func Read(w Workdir, path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable {
+	w.Root.ReadFile(try rooted(path)) catch {
+	case fs.NotFound:
+		return agent.NotFound{Path: path}
+	case fs.Denied:
+		return agent.Denied{Path: path}
+	case fs.Escapes:
+		return agent.Escapes{Path: path}
+	case fs.Failed as f:
+		return agent.Unreadable{Reason: f.Reason}
+	}
+}
+
+func List(w Workdir, dir string) []string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable {
+	let names = w.Root.ReadDir(try rooted(dir)) catch {
+	case fs.NotFound:
+		return agent.NotFound{Path: dir}
+	case fs.Denied:
+		return agent.Denied{Path: dir}
+	case fs.Escapes:
+		return agent.Escapes{Path: dir}
+	case fs.Failed as f:
+		return agent.Unreadable{Reason: f.Reason}
+	}
+	let mut out = []string{}
+	for name in names {
+		let info = w.Root.Stat(try rooted(agent.Within(dir, name))) catch {
+		case fs.NotFound, fs.Denied, fs.Escapes, fs.Failed:
+			continue
+		}
+		out = out.Append(if info.Dir { name + "/" } else { name })
+	}
+	out
+}

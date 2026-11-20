@@ -1,0 +1,10 @@
+# scripts/opcount: `ratelimitbench bench bucket N` makes N takes of one
+# token from a token bucket of 10 tokens and one back each 1ms, over 64
+# keys, 10µs apart (ST1); the cost of one take is the slope between the
+# two sizes. The control is hand Go with time.Time under a mutex; the floor
+# keeps int64 nanoseconds.
+unit take
+sizes 200000 1200000
+args bench bucket {n}
+control benchmarks/ratelimit/testdata/control
+floor benchmarks/ratelimit/testdata/floor

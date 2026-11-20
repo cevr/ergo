@@ -471,6 +471,20 @@ test RepeatedKeepsOrder(items []string) {
 	for item in items { args = args.Append("-i=" + item) }
 	assert same(I.Get(try flag.Parse(set(), args)), items)
 }
+test RepeatedIntsKeepOrder(ns []int) {
+	let counts = flag.Int("count", 0, "a count").Repeated().WithAlias("c")
+	let s = flag.Set{Name: "law", Usage: "", Flags: []flag.Flag{counts}, Args: []flag.ArgSpec{}}
+	let mut args = []string{}
+	for i, n in ns {
+		let spelling = if i % 2 == 0 { "-c=" } else { "--count=" }
+		args = args.Append(spelling + strconv.Itoa(n))
+	}
+	let got = counts.Get(try flag.Parse(s, args))
+	assert len(got) == len(ns)
+	for i, n in ns {
+		assert got[i] == n
+	}
+}
 test HelpNamesEveryCommand(n int) {
 	let d = depth(n)
 	let help = flag.CommandUsage("tree", "", commands(d))
@@ -507,6 +521,7 @@ var flagTreeStatements = map[string]string{
 	"flag DeclaredShortAndLongAgree":   `DeclaredShortAndLongAgree(text string) { Equal(try Parse(treeSet(), []string{"-t=" + text}), try Parse(treeSet(), []string{"--text=" + text})) }`,
 	"flag AbsentIsNone":                `AbsentIsNone() { let v = try Parse(treeSet(), []string{}) treeText.Get(v) == None && treeNumber.Get(v) == None }`,
 	"flag RepeatedKeepsOrder":          `RepeatedKeepsOrder(items []string) { let mut args = []string{} for item in items { args = args.Append("-i=" + item) } sameStrings(treeItems.Get(try Parse(treeSet(), args)), items) }`,
+	"flag RepeatedIntsKeepOrder":       `RepeatedIntsKeepOrder(ns []int) { let counts = Int("count", 0, "a count").Repeated().WithAlias("c") let s = Set{Name: "law", Usage: "", Flags: []Flag{counts}, Args: []ArgSpec{}} let mut args = []string{} for i, n in ns { let spelling = if i % 2 == 0 { "-c=" } else { "--count=" } args = args.Append(spelling + strconv.Itoa(n)) } let got = counts.Get(try Parse(s, args)) if len(got) != len(ns) { return false } for i, n in ns { if got[i] != n { return false } } true }`,
 	"flag HelpNamesEveryCommand":       `HelpNamesEveryCommand(n int) { let depth = treeDepth(n) let help = CommandUsage("tree", "", treeCommands(depth)) let own = "\n    \tthe level's own\n" if !strings.Contains(help, "\n  tree"+own) { return false } let mut prefix = "" for _ in 0..depth { if !strings.Contains(help, "\n  "+prefix+"read\n") { return false } prefix = prefix + "group" if !strings.Contains(help, "\n  "+prefix+own) { return false } prefix = prefix + " " } strings.Contains(help, "\n  "+prefix+"read\n") }`,
 	"flag UnknownCommandNamesItsGroup": `UnknownCommandNamesItsGroup(n int, word string) { let depth = treeDepth(n) let groups = treeGroupPath(depth) let name = if word == "read" || word == "group" || strings.HasPrefix(word, "-") { "" } else { word } let args = if name == "" { groups } else { groups.Append(name) } let _ = ParseCommand("tree", "", treeGroups(depth), args) catch { case UnknownCommand as u: return u.Name == name && sameStrings(u.Group, groups) case Help, Unknown, NeedsValue, Invalid, Missing, Extra: return false } false }`,
 }

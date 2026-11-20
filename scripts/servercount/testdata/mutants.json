@@ -1,0 +1,66 @@
+{
+  "about": "scripts/servercount and benchmarks/server/registry (wf10 N2 SERVER-COUNT): the driver's replay must check an answer for every exchange and compare each body's digest, and the registry's three sides (the Ergo program, control/ and floor/) must answer as the model in registry.go. The replay rows are killed by the in-process tests; the sides rows by TestSidesAnswerAsTheModel (full tier: it builds the three servers); the program's own rows also by its laws, run with ergo test (command registry-laws).",
+  "commands": {
+    "registry-laws": ["go", "run", "-buildvcs=false", "./cmd/ergo", "test", "benchmarks/server/registry/api"],
+    "catalog-laws": ["go", "run", "-buildvcs=false", "./cmd/ergo", "test", "benchmarks/server/registry/catalog"]
+  },
+  "mutants": [
+    {
+      "name": "servercount-status-only",
+      "origin": "wf10 N2 SERVER-COUNT",
+      "file": "scripts/servercount/replay.go",
+      "from": "\tif resp.StatusCode != x.Status || sha256.Sum256(body) != x.Digest {\n",
+      "to": "\tif resp.StatusCode != x.Status {\n",
+      "rule": "A run counts an answer only after comparing its status and its body's digest with the script's: a wrong answer voids the run.",
+      "killers": ["scripts/servercount:TestWrongAnswerVoidsTheRun"]
+    },
+    {
+      "name": "servercount-replay-drops-a-connection",
+      "origin": "wf10 N2 SERVER-COUNT",
+      "file": "scripts/servercount/replay.go",
+      "from": "\tfor _, part := range parts {\n",
+      "to": "\tfor _, part := range parts[1:] {\n",
+      "rule": "A run sends every exchange of its script, on every connection, and checks each answer.",
+      "killers": ["scripts/servercount:TestReplayChecksEveryAnswer"]
+    },
+    {
+      "name": "servercount-control-listing-order",
+      "origin": "wf10 N2 SERVER-COUNT",
+      "file": "benchmarks/server/registry/control/main.go",
+      "from": "\t\tout[i] = Package{Name: name(i),",
+      "to": "\t\tout[(i+1)%packageCount] = Package{Name: name(i),",
+      "rule": "The control lists the catalog as the program does, in name order: the receipt compares sides that send the same bytes.",
+      "anchor": {"tests": ["scripts/servercount:TestSidesAnswerAsTheModel"]},
+      "killers": ["scripts/servercount:TestSidesAnswerAsTheModel"]
+    },
+    {
+      "name": "servercount-floor-no-body-limit",
+      "origin": "wf10 N2 SERVER-COUNT",
+      "file": "benchmarks/server/registry/floor/main.go",
+      "from": "\t\tif length > maxBody {\n",
+      "to": "\t\tif false && length > maxBody {\n",
+      "rule": "The floor keeps the program's limits: a body over maxBody is refused with 413, never read as a pin.",
+      "anchor": {"tests": ["scripts/servercount:TestSidesAnswerAsTheModel"]},
+      "killers": ["scripts/servercount:TestSidesAnswerAsTheModel"]
+    },
+    {
+      "name": "registry-hook-unsigned",
+      "origin": "wf10 N2 SERVER-COUNT",
+      "file": "benchmarks/server/registry/api/api.ergo",
+      "from": "\tif !hmac.Equal(signature, Sign(text)) {\n",
+      "to": "\tif false && !hmac.Equal(signature, Sign(text)) {\n",
+      "rule": "A hook is taken only under its body's signature (api.ergo, AgreesWithModel).",
+      "anchor": {"tests": ["scripts/servercount:TestSidesAnswerAsTheModel"]},
+      "killers": ["command:registry-laws", "scripts/servercount:TestSidesAnswerAsTheModel"]
+    },
+    {
+      "name": "registry-find-longer-name",
+      "origin": "wf10 N2 SERVER-COUNT",
+      "file": "benchmarks/server/registry/catalog/catalog.ergo",
+      "from": "\tif len(name) != 7 || !strings.HasPrefix(name, \"pkg\") {\n",
+      "to": "\tif len(name) < 7 || !strings.HasPrefix(name, \"pkg\") {\n",
+      "rule": "A package is found under its own name only (catalog.ergo, FindsEachName); no script sends a longer name, so no other test sees it.",
+      "killers": ["command:catalog-laws"]
+    }
+  ]
+}

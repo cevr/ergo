@@ -139,18 +139,35 @@ func (f importerFunc) Import(path string) (*types.Package, error) { return f(pat
 // component its own shard (the most names that cross), the sharded module
 // type-checks package by package, with no import cycle, in the run build
 // and the test build; and every program is cut (the law is not vacuous).
+// The IR split without shards type-checks too: a forwarder's signature
+// names only exported names of another package (a law of the root, run
+// from main in the test build, calls a function of the root returning its
+// unexported record: JL's looseRepair, SHARD-PRIVATE).
 // TestSplitLoweringAgrees runs the same shards. Mutants:
 // ft9-shard-scc-split, ft9-shard-order-source,
-// ft9-shard-root-reach-dropped.
+// ft9-shard-root-reach-dropped, split-forward-signature-private.
 func TestShardsTypecheck(t *testing.T) {
 	for _, seed := range []uint64{1, 2, 3, 4, 5, 6} {
 		u := genSplitProgram(seed).check(t)
-		for _, tests := range []bool{false, true} {
-			files, rep, err := lowerSplit(u, tests, programModule, everyShard)
-			if err != nil || rep.Reason != "" {
-				t.Fatalf("seed %d tests=%v: %v %+v", seed, tests, err, rep)
+		for _, c := range []struct {
+			tests bool
+			sh    *shardOpts
+		}{{false, nil}, {true, nil}, {false, everyShard}, {true, everyShard}} {
+			tests := c.tests
+			var files []File
+			var rep SplitReport
+			var err error
+			if c.sh == nil {
+				// The IR split: its IR bodies reach other packages
+				// through forwarders (irSplit.foreignDecls).
+				files, _, rep, err = lowerIRSplit(u, tests, programModule, nil)
+			} else {
+				files, rep, err = lowerSplit(u, tests, programModule, c.sh)
 			}
-			if rep.Shards < 2 {
+			if err != nil || rep.Reason != "" {
+				t.Fatalf("seed %d tests=%v shards=%v: %v %+v", seed, tests, c.sh != nil, err, rep)
+			}
+			if c.sh != nil && rep.Shards < 2 {
 				t.Fatalf("seed %d tests=%v: %d shards, want 2 or more: %+v", seed, tests, rep.Shards, rep)
 			}
 			if errs := typecheckModule(t, programModule, files); len(errs) > 0 {
@@ -160,7 +177,7 @@ func TestShardsTypecheck(t *testing.T) {
 						fmt.Fprintf(&src, "// %s\n%s\n", f.Path, f.Data)
 					}
 				}
-				t.Fatalf("seed %d tests=%v: the sharded module does not type-check:\n%s\n%s", seed, tests, firstLines(strings.Join(errs, "\n"), 20), src.String())
+				t.Fatalf("seed %d tests=%v shards=%v: the split module does not type-check:\n%s\n%s", seed, tests, c.sh != nil, firstLines(strings.Join(errs, "\n"), 20), src.String())
 			}
 		}
 	}

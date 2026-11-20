@@ -2,6 +2,8 @@
 // decides which question comes next, or that the results show. Settle
 // leaves it at once, before any signal sees it, so the step never waits
 // in it (M48: Ergo has no eventless transition; this is the pattern).
+
+import slices
 type Quiz = Calculating{Set Set, Next int, Answers []Answer} | Asking{Set Set, Question int, Answers []Answer} | Showing{Set Set, Answers []Answer}
 
 // Settled is a state that a signal may see: a question or the results.
@@ -125,7 +127,7 @@ func Step(q Quiz, s Signal) Decision[Quiz, Picked] fails NoSuchChoice | NoMatch 
 			return NothingToUndo
 		}
 		let last = answers[len(answers)-1]
-		enter(Calculating{Set: set, Next: last.Question, Answers: without(answers, len(answers)-1)})
+		enter(Calculating{Set: set, Next: last.Question, Answers: slices.Delete(answers, len(answers)-1, len(answers))})
 	case Choose as c:
 		match Settle(q) {
 		case Asking as a:
@@ -163,17 +165,6 @@ func Labels(set Set, answers []Answer) []string {
 		case Some[Choice] as c:
 			out = out.Append(c.Value.Label)
 		case None:
-		}
-	}
-	out
-}
-
-// without is xs without the element at i, in a new slice.
-func without[T](xs []T, i int) []T {
-	let mut out = []T{}
-	for j, x in xs {
-		if j != i {
-			out = out.Append(x)
 		}
 	}
 	out

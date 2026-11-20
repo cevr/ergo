@@ -1,9 +1,8 @@
 # fluid-gallery
 
-The docs gallery of `ergo.dev/fluid` (`modules/fluid`), the Ergo port of
-Fluid Functionalism (https://www.fluidfunctionalism.com, MIT) through its
-Foldkit port (https://fff.timhanlon.com). Each page is a component's docs
-page, laid out as the original's: the title, the installation row, a section
+The docs gallery of `ergo.dev/fluid` (`modules/fluid`; its NOTICE says
+where the design comes from). Each page is a component's docs page, laid
+out as the reference docs lay it out: the title, the installation row, a section
 per specimen with its stage, and the API reference.
 
 - `gallery/` is the site: `Route` and its route map `Docs` (`/docs/button`,
@@ -12,8 +11,8 @@ per specimen with its stage, and the API reference.
   Every box is drawn with a `look.Look`; the looks resolve to atomic classes
   once, when the program starts (`kit`, `parts`, `chipParts`, `docKit`), and
   the page's head holds the one sheet built from all of them
-  (`web.Style`). The counted guard `ResolvedOncePerLook` (`tests.ergo`)
-  holds that a render resolves no look.
+  (`web.Style`). Resolution is pure, so a page whose looks are constant
+  folds to one constant at build time.
 - `cmd/fluid-gallery` prints the answer to `GET` of each path it is given;
   its cases are the pages.
 - `cmd/fluid-gallery-web FONT-FOLDER [ADDR]` serves the site and the fonts
@@ -24,9 +23,9 @@ The pages' pixels are held to the live docs by
 `fluid-ui/pixel.ts <port> --only button,badge` (0 differing pixels at 390 and
 1440 pixels wide, light and dark, with the forced hover, focus and press
 rows). A stage's pixels depend on the page around it: the browser rasterizes
-in tiles anchored to the document, so a stage must sit at the original's
+in tiles anchored to the document, so a stage must sit at the reference's
 offset, and the API reference's fade mask changes how the disabled buttons
-above it are painted. That is why the pages draw the original's whole docs
+above it are painted. That is why the pages draw the reference's whole docs
 layout, not only the stages.
 
 ## Licences

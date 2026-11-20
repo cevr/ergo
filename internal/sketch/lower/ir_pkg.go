@@ -154,11 +154,6 @@ func (b *irBuilder) qualifiedName(s, n string) string {
 // put in, so they are admitted as any record's or union's.
 func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 	for _, a := range typeArgs(t) {
-		if a == check.NoValue {
-			// A type parameter bound by a block with no value (the
-			// emitter's struct{}): the decoder has no struct{} type.
-			irNo("type argument with no value")
-		}
 		b.admit(a, depth+1)
 	}
 }
@@ -170,9 +165,6 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	var out []string
-	if b.l.hasGoRow(c.Func.Sig) {
-		irNo("call of a function with a Go row") // its row is a Go type argument too (rowslot.go; LY-FIX)
-	}
 	for i, tp := range c.Func.Sig.TParams {
 		if !b.l.goParam(tp) {
 			continue
@@ -223,16 +215,24 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 	}
 	switch {
 	case preludeAppend(c.Func):
-		if len(c.TypeArgs) != 1 {
+		// The element type: the call's type argument, or the operand's
+		// for a []byte operation on its receiver (bs.AppendString(s)).
+		var et check.Type
+		switch st, isSlice := b.l.info.Types[args[0]].(*check.Slice); {
+		case len(c.TypeArgs) == 1:
+			et = c.TypeArgs[0]
+		case isSlice:
+			et = st.Elem
+		default:
 			irNo("append form")
 		}
-		elem := b.goType(c.TypeArgs[0], x)
+		elem := b.goType(et, x)
 		if b.goType(b.l.info.Types[args[0]], x) != "[]"+elem {
 			// Go assigns a defined slice type to []T; the decoder takes
 			// identical types only.
 			irNo("append to a defined slice type")
 		}
-		if keep := b.fc.goType(c.TypeArgs[0]); b.namesTypeParam(keep) {
+		if keep := b.fc.goType(et); b.namesTypeParam(keep) {
 			// A generic body's element type is no package-level type
 			// (I-FLIP: examples/counter-gui).
 			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]int]")
@@ -245,6 +245,10 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		if len(c.TypeArgs) != 2 {
 			irNo("Map write form")
 		}
+		if _, ok := b.intMapOf(b.l.info.Types[args[0]]); ok { // ir_intmap.go: the table's own copy
+			irArgs[0] = tableCall(irArgs[0].Pos, "Clone", irArgs[0])
+			return
+		}
 		k, v := b.goType(c.TypeArgs[0], x), b.goType(c.TypeArgs[1], x)
 		m := "map[" + k + "]" + v
 		if b.goType(b.l.info.Types[args[0]], x) != m {
@@ -252,13 +256,21 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
 			// A generic body's Map type is no package-level type, as
-			// Clip's above (I-FLIP: examples/fk-domains search/cache).
+			// Clip's above (I-FLIP: examples/domain-search search/cache) and
+			// Append's element (I-FLIP reds #15: pipeline's Book[E]
+			// Streams.Put).
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
 		} else {
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[" + keep + "]")
 		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
+	case len(irArgs) == 2:
+		// Go's copy of elements that hold a slice or Map (values.go,
+		// copyElemSource): the source is copied, as the emitter's is.
+		if t := copyElemSource(b.l, x, c, b.fc.typeOf); t != nil {
+			irArgs[1] = b.copyDeep(t, x, irArgs[1], !entryRule())
+		}
 	}
 }
 
@@ -328,6 +340,9 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call from a pure function")
 	case b.inPlaceSite(x):
 		return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
+	}
+	if tp, ptr := paramSource(b.l.info.Types[c.Recv]); tp != nil {
+		return b.witnessOpCall(x, c, tp, ptr, p) // ir_witness.go
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
@@ -420,6 +435,10 @@ func (b *irBuilder) conversion(x *syntax.CallExpr, c *check.Call, p irPos) ([]*i
 	if len(x.Args) != 1 {
 		irNo("conversion form")
 	}
+	if b.funcConversion(x, c) { // ir_defined.go
+		pre, v := b.value(x.Args[0])
+		return pre, &irExpr{K: "conv", Pos: p, T: b.goType(c.Type, x), X: v}, false
+	}
 	from, to := b.scalarBasic(b.l.info.Types[x.Args[0]]), b.scalarBasic(c.Type)
 	if from == nil || to == nil {
 		irNo("conversion of a non-scalar")
@@ -458,7 +477,7 @@ func (b *irBuilder) passesPointer(c *check.Call, x *syntax.CallExpr) bool {
 		}
 		recv = x.Args[0]
 	}
-	_, ptr := b.l.info.Types[recv].(*check.Pointer)
+	_, ptr := b.fc.boundType(b.l.info.Types[recv]).(*check.Pointer)
 	return ptr
 }
 
@@ -468,6 +487,12 @@ func (b *irBuilder) passesPointer(c *check.Call, x *syntax.CallExpr) bool {
 func derefNamed(t check.Type) (*check.Named, bool) {
 	if p, ok := t.(*check.Pointer); ok {
 		t = p.Elem
+	}
+	// A go.Ref[T] is Go's *T (gocall.go): its fields are T's. The Ref
+	// itself is never a declaration, so the naming pass gives it no name
+	// (std pace's stats.HeapAlloc stopped the census on that, NAMING-ICE).
+	if e, ok := check.GoRefElem(t); ok {
+		t = e
 	}
 	n, ok := t.(*check.Named)
 	return n, ok
@@ -501,21 +526,28 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		fd = &funcDecl{fn: f, library: true, extern: strings.Trim(f.Decl.Extern.Target.Value, "\"`")}
 	}
 	body, name, ok := b.l.stdBody(fd)
+	// An operation of the slice or Map type called on its receiver
+	// (bs.Text(); PRIM-4): the receiver is the body's first operand, as
+	// the emitter's callText passes it (PORT-CALLS).
+	ops := x.Args
+	if c.Recv != nil {
+		ops = append([]syntax.Expr{c.Recv}, x.Args...)
+	}
 	switch {
 	case !ok:
 		irNo("call of a std intrinsic")
-	case c.Recv != nil:
+	case c.Recv != nil && check.CollOpOf(f) == check.CollNone:
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
 		if b.inPlaceSite(x) {
 			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 		}
-		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), x.Args, nil, p) // ir_refown.go
+		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
-	case len(body.Params) != len(x.Args)+trailing(x):
+	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
-	case x.Trailing != nil && !adapted(body.Params[len(x.Args)]):
+	case x.Trailing != nil && !adapted(body.Params[len(ops)]):
 		irNo("std call with another arity")
 	case len(b.l.ownedParams(fd.fn)) > 0:
 		irNo("call that passes owned values")
@@ -551,23 +583,27 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		if !b.operandFits(x.Args[i], q.Type, subst) { // ir_operand.go
+		if !b.operandFits(ops[i], q.Type, subst, body.Package) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
 	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
 		irNo("fallible call with an empty row at its site")
 	}
-	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
+	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
-	pre, args := b.operands(x.Args)
+	pre, args := b.operands(ops)
+	// The value rule (V3), as the emitter's std call (std.go): an
+	// appender's operand is clipped and a Map write's copied, unless the
+	// call writes it in place (bs = bs.AppendString(s)).
+	b.valueSource(x, c, ops, args)
 	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
 	}
-	pre = append(pre, b.adaptOperands(body.Params, x, args, 0, p)...) // ir_adapt.go
+	pre = append(pre, b.adaptOperands(body.Params, x, ops, args, 0, p)...) // ir_adapt.go
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
@@ -634,9 +670,6 @@ func (b *irBuilder) stdTypeArgs(body v1.Body, c *check.Call, x *syntax.CallExpr)
 		if j < 0 || j >= len(c.TypeArgs) {
 			irNo("generic or task call")
 		}
-		if c.TypeArgs[j] == check.NoValue {
-			irNo("type argument with no value")
-		}
 		out = append(out, b.goType(c.TypeArgs[j], x))
 		subst[gp.Name] = b.fc.goType(c.TypeArgs[j])
 	}
@@ -645,12 +678,19 @@ func (b *irBuilder) stdTypeArgs(body v1.Body, c *check.Call, x *syntax.CallExpr)
 
 // sameRT reports whether the Ergo type t lowers to the Go type a
 // runtime/v1 body spells goType at a call whose type parameters are
-// subst: both read as main.go spells them (rtSpelling).
-func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string) bool {
+// subst: both read as main.go spells them (rtSpelling). pkg is the import
+// path of the body's package (v1.Body.Package): a runtime leaf's body
+// (runtime/v1/http's HTTPServe) spells its own types unqualified, which
+// main.go reaches through the leaf's import (rtRef; PORT-CALLS).
+func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string, pkg string) bool {
 	if t == nil {
 		return false
 	}
-	return b.fc.goType(t) == rtSpelling(goType, b.l.rt(), subst)
+	q := b.l.rt()
+	if pkg != "" && pkg != runtimeImport {
+		q = b.l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) // naming.go reserves every leaf
+	}
+	return b.fc.goType(t) == rtSpelling(goType, q, subst)
 }
 
 // rtSpelling is a runtime/v1 body's Go type spelling s as main.go spells
@@ -707,7 +747,13 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 		case v1.CallerTask:
 			out = append(out, &irExpr{K: "field", Pos: p, Name: envTask, X: env})
 		case v1.CallerScheduler:
-			out = append(out, &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env})
+			// The body takes the runtime's Sleeper, which the program's
+			// Scheduler interface implements: Go text assigns it, the
+			// decoder takes the parameter's type only, so the IR asserts
+			// it (PORT-CALLS-2: http.Serve's HTTPServe). The checker binds
+			// the provider at the call, so the field is never nil.
+			sched := &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env}
+			out = append(out, &irExpr{K: "assert", Pos: p, T: b.spelling(b.l.rt() + ".Sleeper"), X: sched})
 		case v1.ReadingPackage:
 			if c.Func == nil || c.Func.Pkg == nil {
 				irNo("std call with hidden arguments: a context read without its package")
@@ -758,19 +804,19 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil) { // ir_operand.go
+		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
 	if failsHere(c) && !goFallible(body) {
 		irNo("fallible call with an empty row at its site")
 	}
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) {
+	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) && !b.sameRT(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0]), nil, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
-	pre = append(pre, b.adaptOperands(body.Params, x, vals, 1, p)...) // ir_adapt.go
+	pre = append(pre, b.adaptOperands(body.Params, x, x.Args, vals, 1, p)...) // ir_adapt.go
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here

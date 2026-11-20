@@ -1,4 +1,5 @@
 import strings
+import maps
 
 // Interner gives each distinct value of T one id, the id of its row: the
 // first Intern of a value puts it, and every later Intern of an equal
@@ -8,12 +9,25 @@ import strings
 // Counted.
 type Interner[T comparable] { ids Map[T, ID[T]], rows []T }
 
+// DistinctValuesDistinctIDs: two ids are equal exactly when their values
+// are.
+law DistinctValuesDistinctIDs(xs []int) {
+	let (_, ids, _, tids) = interned(xs)
+	let mut ok = true
+	for i, x in xs {
+		for j, y in xs {
+			ok = ok && (x == y) == (ids[i] == ids[j]) && (word(x) == word(y)) == (tids[i] == tids[j])
+		}
+	}
+	ok
+}
+
 // NewInterner is an interner of no values.
 func NewInterner[T comparable]() Interner[T] { Interner[T]{ids: Map[T, ID[T]]{}, rows: []T{}} }
 
 // Intern is the id of v: the id an equal value was given before, or a new
 // one.
-func Intern[T comparable](s *Interner[T], v T) ID[T] {
+func Intern[T comparable](s mut Interner[T], v T) ID[T] {
 	match s.ids.Get(v) {
 	case Some[ID[T]] as id:
 		id.Value
@@ -25,8 +39,60 @@ func Intern[T comparable](s *Interner[T], v T) ID[T] {
 	}
 }
 
+// InternTwiceSameID: interning a value again gives the id it was given
+// first, and adds nothing.
+law InternTwiceSameID(xs []int) {
+	let (s0, ids, t0, tids) = interned(xs)
+	let mut s = s0
+	let mut t = t0
+	let mut ok = true
+	for i, x in xs {
+		ok = ok && s.Intern(x) == ids[i] && t.InternText(word(x)) == tids[i]
+	}
+	ok && Interned(s) == Interned(s0) && Texts(t) == Texts(t0)
+}
+
+// word is the text of x, empty for a multiple of 5, so the texts repeat,
+// differ in length and include the empty text.
+func word(x int) string {
+	if x%5 == 0 { "" } else { "w\(x)" }
+}
+
+// interned is an Interner and a Strings after an Intern of each of xs (as
+// x and as word(x)), and the ids each gave.
+func interned(xs []int) (Interner[int], []ID[int], Strings, []ID[Str]) {
+	let mut s = NewInterner[int]()
+	let mut t = NewStrings()
+	let mut ids = []ID[int]{}
+	let mut tids = []ID[Str]{}
+	for x in xs {
+		ids = ids.Append(s.Intern(x))
+		tids = tids.Append(t.InternText(word(x)))
+	}
+	(s, ids, t, tids)
+}
+
 // Value is the value id names. An id past the end is a defect.
 func Value[T comparable](s Interner[T], id ID[T]) T { s.rows[int(id.n)] }
+
+// ValueOfIntern: an id names the value interned under it, Lookup and
+// FindText find it, and the counts are the counts of distinct values.
+law ValueOfIntern(xs []int, probe int) {
+	let (s, ids, t, tids) = interned(xs)
+	let mut values = Map[int, bool]{}
+	let mut texts = Map[string, bool]{}
+	let mut ok = true
+	for i, x in xs {
+		values[x] = true
+		texts[word(x)] = true
+		ok = ok && Value(s, ids[i]) == x && Text(t, tids[i]) == word(x)
+		ok = ok && Lookup(s, x) == Some[ID[int]]{Value: ids[i]} && FindText(t, word(x)) == Some[ID[Str]]{Value: tids[i]}
+	}
+	let absent = maps.GetOr(values, probe, false)
+	let absentText = maps.GetOr(texts, word(probe), false)
+	ok = ok && (absent || Lookup(s, probe) == None) && (absentText || FindText(t, word(probe)) == None)
+	ok && Interned(s) == len(values) && Texts(t) == len(texts)
+}
 
 // Lookup is the id of v, or None when v was never interned.
 func Lookup[T comparable](s Interner[T], v T) Option[ID[T]] { s.ids.Get(v) }
@@ -101,7 +167,7 @@ func FindText(s Strings, text string) Option[ID[Str]] {
 }
 
 // place puts id in the first free slot of its text's probe sequence.
-func place(s *Strings, id ID[Str], text string) {
+func place(s mut Strings, id ID[Str], text string) {
 	let mask = len(s.slots) - 1
 	let mut at = int(hash(text)) & mask
 	for s.slots[at] != 0 {
@@ -112,7 +178,7 @@ func place(s *Strings, id ID[Str], text string) {
 }
 
 // grow doubles the slots, at least 16, and places every id again.
-func grow(s *Strings) {
+func grow(s mut Strings) {
 	let mut n = len(s.slots) * 2
 	if n < 16 {
 		n = 16
@@ -130,7 +196,7 @@ func grow(s *Strings) {
 }
 
 // settle joins the waiting texts onto the one string.
-func settle(s *Strings) {
+func settle(s mut Strings) {
 	let mut start = len(s.text)
 	let mut parts = []string{s.text}
 	for t in s.tail {
@@ -148,7 +214,7 @@ func settle(s *Strings) {
 
 // InternText is the id of text: the id an equal text was given before, or
 // a new one.
-func InternText(s *Strings, text string) ID[Str] {
+func InternText(s mut Strings, text string) ID[Str] {
 	match FindText(*s, text) {
 	case Some[ID[Str]] as found:
 		return found.Value

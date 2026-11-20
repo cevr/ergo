@@ -1,0 +1,207 @@
+// Package topdown is ritmo's top-down game (integration/top-down): a
+// player walks a walled room of 2200 by 1600 units and collects five
+// pickups. It knows nothing of terminals, files or flags.
+//
+// Lengths are thousandths of a unit, in int, where ritmo has float64.
+// Go may fuse a float multiply and add into one instruction on arm64 and
+// not on amd64, so a float game could replay differently on the Mac and
+// the workbox; integers replay the same everywhere (survey gap G3).
+
+import ritmo/ecs
+
+// Unit is one unit of ritmo's world, in thousandths.
+let Unit = 1000
+
+// WorldWidth and WorldHeight are the room's size.
+let WorldWidth = 2200000
+let WorldHeight = 1600000
+
+// Speed is how far the player walks in a second along an axis, and
+// Diagonal along each axis when it walks diagonally: 280 units times
+// 0.70710678, so a diagonal walk is as fast as a straight one.
+let Speed = 280000
+let Diagonal = 197990
+
+// Hz is the steps of the fixed loop in a second (ritmo's Clock.hz(60)).
+let Hz = 60
+
+// PlayerSide is the player's width and height; Reach is how near a
+// pickup must be to focus it.
+let PlayerSide = 36000
+let Reach = 72000
+
+// Vec is a point or a velocity: X to the right, Y down.
+type Vec { X int, Y int }
+
+// Size is a box's width and height, the box centred on its position.
+type Size { W int, H int }
+
+// Player and Wall mark an entity's kind (ritmo's empty components).
+type Player {}
+type Wall {}
+
+// Pickup is a collectable: its name, and how near the player must be
+// to focus it.
+type Pickup { Label string, Radius int }
+
+// Controls is one tick's input (ritmo's captured InputState): the
+// direction to walk, each of DX and DY -1, 0 or 1, and whether the
+// interact button went down.
+type Controls { DX int, DY int, Interact bool }
+
+// Idle is no input.
+let Idle = Controls{DX: 0, DY: 0, Interact: false}
+
+// Focus is the pickup the player can collect, the nearest in reach
+// (ritmo's FocusedCollectable), with its distance in units rounded down.
+type Focus = Nothing{} | Near{E ecs.Entity, Label string, Distance int}
+
+// Draft is an entity to spawn, by kind. Each kind's draft names every
+// component the kind always has (ritmo's Schema.requires): a player draft
+// without a collider is a literal that leaves Box out, which does not
+// check (types.md, Zero values 2).
+type Draft = PlayerDraft{At Vec, Vel Vec, Box Size} | WallDraft{At Vec, Box Size} | PickupDraft{At Vec, Box Size, Pickup Pickup}
+
+// World is the game at one tick: the next entity id, a column per
+// component, the resources, the two machines' committed states and the
+// signals queued for them, and the commands queued for Apply.
+type World {
+	Tick       int,
+	Next       int,
+	Pos        ecs.Column[Vec],
+	Vel        ecs.Column[Vec],
+	Box        ecs.Column[Size],
+	Players    ecs.Column[Player],
+	Walls      ecs.Column[Wall],
+	Pickups    ecs.Column[Pickup],
+	Input      Controls,
+	Focus      Focus,
+	Collected  int,
+	Total      int,
+	Facing     Dir,
+	Gait       Gait,
+	TurnQueued Option[Turn],
+	StepQueued Option[Stride],
+	Queue      []ecs.Command[Draft],
+}
+
+// WallLayout is the room's walls: four around it and six inside.
+let WallLayout = []WallDraft{
+	wall(1100, 48, 2200, 96),
+	wall(1100, 1552, 2200, 96),
+	wall(48, 800, 96, 1600),
+	wall(2152, 800, 96, 1600),
+	wall(500, 400, 520, 80),
+	wall(900, 820, 80, 520),
+	wall(1380, 620, 620, 80),
+	wall(1580, 1080, 80, 520),
+	wall(760, 1220, 640, 80),
+	wall(1280, 1320, 460, 80),
+}
+
+// PickupLayout is the five pickups.
+let PickupLayout = []PickupDraft{
+	pickup(240, 240, "Map Fragment"),
+	pickup(1740, 220, "Ancient Gear"),
+	pickup(470, 1040, "Blue Crystal"),
+	pickup(1880, 1310, "Signal Battery"),
+	pickup(1110, 1460, "Compass Core"),
+}
+
+// Start is where the player spawns.
+let Start = PlayerDraft{At: Vec{X: 640000, Y: 260000}, Vel: Vec{X: 0, Y: 0}, Box: Size{W: PlayerSide, H: PlayerSide}}
+
+// wall is a wall centred on (x, y) of w by h units.
+func wall(x int, y int, w int, h int) WallDraft {
+	WallDraft{At: Vec{X: x * Unit, Y: y * Unit}, Box: Size{W: w * Unit, H: h * Unit}}
+}
+
+// pickup is a pickup at (x, y) units with its label.
+func pickup(x int, y int, label string) PickupDraft {
+	PickupDraft{At: Vec{X: x * Unit, Y: y * Unit}, Box: Size{W: 28 * Unit, H: 28 * Unit}, Pickup: Pickup{Label: label, Radius: Reach}}
+}
+
+// Empty is a world with no entity, before Setup.
+func Empty() World {
+	World{
+		Tick:       0,
+		Next:       1,
+		Pos:        ecs.Empty[Vec](),
+		Vel:        ecs.Empty[Vec](),
+		Box:        ecs.Empty[Size](),
+		Players:    ecs.Empty[Player](),
+		Walls:      ecs.Empty[Wall](),
+		Pickups:    ecs.Empty[Pickup](),
+		Input:      Idle,
+		Focus:      Nothing,
+		Collected:  0,
+		Total:      len(PickupLayout),
+		Facing:     Down,
+		Gait:       Standing,
+		TurnQueued: None,
+		StepQueued: None,
+		Queue:      []ecs.Command[Draft]{},
+	}
+}
+
+// PlayerOf is the player entity, or None before Setup.
+func PlayerOf(w World) Option[ecs.Entity] {
+	if len(w.Players.Ents) == 0 {
+		return None
+	}
+	Some[ecs.Entity]{Value: w.Players.Ents[0]}
+}
+
+// PositionOf is e's position, or the origin when e has none.
+func PositionOf(w World, e ecs.Entity) Vec { orZero(w.Pos.Get(e)) }
+
+// VelocityOf is e's velocity, or zero when e has none.
+func VelocityOf(w World, e ecs.Entity) Vec { orZero(w.Vel.Get(e)) }
+
+// BoxOf is e's collider, or an empty box when e has none.
+func BoxOf(w World, e ecs.Entity) Size {
+	match w.Box.Get(e) {
+	case Some[Size] as s:
+		s.Value
+	case None:
+		Size{W: 0, H: 0}
+	}
+}
+
+func orZero(v Option[Vec]) Vec {
+	match v {
+	case Some[Vec] as s:
+		s.Value
+	case None:
+		Vec{X: 0, Y: 0}
+	}
+}
+
+// Spawn is w with d spawned as a new entity: each component its draft
+// names, and the kind's mark.
+func Spawn(w World, d Draft) World {
+	let e = ecs.Entity{Id: w.Next}
+	let next = World{..w, Next: w.Next + 1}
+	match d {
+	case PlayerDraft as p:
+		World{..next, Pos: next.Pos.Set(e, p.At), Vel: next.Vel.Set(e, p.Vel), Box: next.Box.Set(e, p.Box), Players: next.Players.Set(e, Player)}
+	case WallDraft as x:
+		World{..next, Pos: next.Pos.Set(e, x.At), Box: next.Box.Set(e, x.Box), Walls: next.Walls.Set(e, Wall)}
+	case PickupDraft as x:
+		World{..next, Pos: next.Pos.Set(e, x.At), Box: next.Box.Set(e, x.Box), Pickups: next.Pickups.Set(e, x.Pickup)}
+	}
+}
+
+// Despawn is w without e in any column. A world lists its columns by
+// hand: a derive over the columns would write this (survey gap G1).
+func Despawn(w World, e ecs.Entity) World {
+	World{
+		..w,
+		Pos:     w.Pos.Remove(e),
+		Vel:     w.Vel.Remove(e),
+		Box:     w.Box.Remove(e),
+		Players: w.Players.Remove(e),
+		Walls:   w.Walls.Remove(e),
+		Pickups: w.Pickups.Remove(e),
+	}
+}

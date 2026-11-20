@@ -20,13 +20,15 @@ import (
 // params that prints the new std function's answer, and per input the
 // Ergo arguments and the old body's answer, printed the same way. decls
 // are Ergo declarations the call uses: helpers set apart by a blank
-// line, each written once.
+// line, each written once. needs is the case function's capability row
+// ("Ambient"), which main lists too.
 type bodyCase struct {
 	name    string // the std function, as package.Name
 	imports []string
 	params  string // the Ergo parameters, "x int, y int"
 	call    string // an Ergo string expression over the parameters
 	decls   string
+	needs   string
 	lits    []string
 	wants   []string
 }
@@ -83,10 +85,18 @@ func bodyProgram(cases []bodyCase) string {
 			}
 		}
 	}
+	mainNeeds := "Console"
 	for i, c := range cases {
-		fmt.Fprintf(&b, "\n// %s\nfunc case%d(%s) string { %s }\n", c.name, i, c.params, c.call)
+		row := ""
+		if c.needs != "" {
+			row = " needs " + c.needs
+			if !strings.Contains(mainNeeds, c.needs) {
+				mainNeeds += " | " + c.needs
+			}
+		}
+		fmt.Fprintf(&b, "\n// %s\nfunc case%d(%s) string%s { %s }\n", c.name, i, c.params, row, c.call)
 	}
-	b.WriteString("\nfunc main() needs Console {\n")
+	b.WriteString("\nfunc main() needs " + mainNeeds + " {\n")
 	for i, c := range cases {
 		for _, l := range c.lits {
 			fmt.Fprintf(&b, "\tConsole.Println(case%d(%s))\n", i, l)
@@ -97,12 +107,15 @@ func bodyProgram(cases []bodyCase) string {
 }
 
 // bodyDisagreements are the inputs where the program's lines, out, differ
-// from the old bodies' answers, one problem per case at most.
+// from the old bodies' answers, one problem per case at most. Each case
+// reads its own lines, wherever an earlier case stopped at a problem.
 func bodyDisagreements(cases []bodyCase, out string) []string {
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	var problems []string
-	k := 0
+	first := 0
 	for _, c := range cases {
+		k := first
+		first += len(c.lits)
 		for j, l := range c.lits {
 			got := "<no line>"
 			if k < len(lines) {
@@ -138,6 +151,21 @@ func compareBodies(t *testing.T, test string, seed uint64, cases []bodyCase) {
 	}
 	if p := bodyDisagreements(cases, out); len(p) > 0 {
 		t.Errorf("seed %d: the moved functions differ from their old bodies:\n%s\nprogram:\n%s\nreplay: ERGO_BODIES_SEED=%d go test -run '^%s$' ./internal/sketch/lower", seed, strings.Join(p, "\n"), src, seed, test)
+	}
+}
+
+// TestBodyDisagreementsAlign: after a case's first difference, the next
+// case still reads its own lines, so an agreeing case is not reported
+// (mutant np4furl-report-misaligned: each case read from where the last
+// stopped, which reported every case after the first difference).
+func TestBodyDisagreementsAlign(t *testing.T) {
+	cases := []bodyCase{
+		{name: "fixture.a", lits: []string{"1", "2", "3"}, wants: []string{"a1", "a2", "a3"}},
+		{name: "fixture.b", lits: []string{"1"}, wants: []string{"b1"}},
+	}
+	p := bodyDisagreements(cases, "x\na2\na3\nb1\n")
+	if len(p) != 1 || !strings.HasPrefix(p[0], "fixture.a(1)") {
+		t.Errorf("want one disagreement, fixture.a(1); got %q", p)
 	}
 }
 

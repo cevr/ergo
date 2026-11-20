@@ -1,0 +1,16 @@
+// The router's rules, as laws over Step (machine laws are top-level laws:
+// MU6 is not on this base). Each law folds a generated run of clients,
+// the operator and the registry's results through the pure step; a result
+// the runner would not send (a check's answer in a state with no check)
+// is in the run too, and the step must ignore it. The live laws, over the
+// actor, its supervisor and its journal, are in memory, where the registry
+// is.
+
+func has(ids []int, id int) bool {
+	for x in ids {
+		if x == id {
+			return true
+		}
+	}
+	false
+}

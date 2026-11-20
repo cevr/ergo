@@ -155,6 +155,12 @@ type fileOptions struct {
 	// debug is build's, run's and test's --debug: the link keeps the symbol
 	// table and DWARF, which it leaves out by default (compile-speed CS7).
 	debug bool
+	// release is build's --release: the build compiles with the
+	// program's CPU profile, default.pgo beside its source (go build
+	// -pgo; U4 PGO-RELEASE). profile is that file's absolute path, set by
+	// buildCommand (releaseProfile).
+	release bool
+	profile string
 	// goTrace is build's, run's and test's --go-trace: the program links
 	// runtime/obs (the ergogotrace tag), and ERGO_GO_TRACE then shows its
 	// task tree to Go's tracer and pprof (RT-OBS).
@@ -204,6 +210,11 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// level is build's CPU level, the third part of --platform
+	// OS/ARCH/LEVEL (linux/amd64/v3, darwin/arm64/v8.2): GOAMD64 or
+	// GOARM64 of the build (build.Toolchain.Level); empty is the
+	// environment's, else Go's default.
+	level string
 	// phone is the phone platform a build is for (gobind.Phones), whose
 	// bindings are platform's; zero for any other platform. A phone build
 	// writes the module and stops before the link (buildPhone).
@@ -388,6 +399,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.emitted = true
 		case "--debug":
 			opts.debug = true
+		case "--release":
+			opts.release = true
 		case "--native":
 			opts.native = true
 		case "--go-trace":
@@ -439,6 +452,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
+	case opts.release && command != "build":
+		return opts, fmt.Errorf("--release is only supported by build")
 	case opts.native && command != "test":
 		return opts, fmt.Errorf("--native is only supported by test")
 	case opts.goTrace && command != "build" && command != "run" && command != "test":
@@ -491,6 +506,9 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		opts.more = positional[1:]
 	}
 	var err error
+	if platformed {
+		platform, opts.level = cutLevel(platform)
+	}
 	if opts.platform, opts.phone, err = targetPlatforms(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
 		return opts, err
 	}
@@ -499,13 +517,20 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		// can run it.
 		return opts, fmt.Errorf("%s does not run a program for %s, a phone platform; ergo build writes its module", command, opts.phone)
 	}
+	if opts.phone != (gobind.Platform{}) && opts.level != "" {
+		// The packager links a phone module for the phone's own levels.
+		return opts, fmt.Errorf("--platform: %s is a phone platform and takes no CPU level; drop /%s", opts.phone, opts.level)
+	}
+	if err := checkLevel(opts.platform.GOARCH, opts.level); err != nil {
+		return opts, err
+	}
 	opts.file = positional[0]
 	opts.uncached = counted
 	if opts.search.mode != "" {
 		// --schedule alone replays: it needs the explored build too.
 		opts.explore = true
 	}
-	if recursivePattern(opts.file) && (command == "check" || command == "test") {
+	if recursivePattern(opts.file) && (command == "check" || command == "test" || command == "lint") {
 		return opts, nil
 	}
 	if isPackageFolder(opts.file) {

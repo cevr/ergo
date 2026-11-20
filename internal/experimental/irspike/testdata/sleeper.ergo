@@ -1,0 +1,29 @@
+// PORT-CALLS-2: a std body's hidden scheduler argument is the runtime's
+// v1.Sleeper, which the program's Scheduler interface implements. Go text
+// assigns it; the decoder takes an argument of the parameter's type only,
+// so without the IR's assertion (mutant pc2-scheduler-unasserted) the IR
+// build fails ("shared.Scheduler is not v1.Sleeper").
+
+import queue
+import timeout
+
+func pop(q queue.Queue[int]) int needs Scheduler {
+	timeout.PopWithin(q, 1s) catch {
+	case queue.Closed:
+		-1
+	case timeout.Expired:
+		-2
+	}
+}
+
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } {
+		let q = queue.New[int](2)
+		q.Push(7) catch {
+		case queue.Closed:
+		}
+		Console.Println("first \(pop(q))")
+		q.End()
+		Console.Println("closed \(pop(q))")
+	}
+}

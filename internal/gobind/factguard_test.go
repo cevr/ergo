@@ -44,7 +44,7 @@ func TestPureTierActsOnlyValidated(t *testing.T) {
 		ledger := c.ledger
 		check.FactLedger = func() string { return ledger }
 		var upper string
-		for _, d := range gobind.Decls(pkg) {
+		for _, d := range gobind.Decls(pkg, nil) {
 			if d.Name == "ToUpper" {
 				upper = d.Ergo
 			}
@@ -87,7 +87,7 @@ func TestEffectTierActsOnlyValidated(t *testing.T) {
 		ledger := c.ledger
 		check.FactLedger = func() string { return ledger }
 		var add gobind.Decl
-		for _, d := range gobind.Decls(pkg) {
+		for _, d := range gobind.Decls(pkg, nil) {
 			if d.Name == "Int64.Add" {
 				add = d
 			}

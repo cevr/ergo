@@ -5,7 +5,6 @@
 // declaration share its class; the sheet is the union of the atoms of the looks it is built
 // from, in rank order, so it grows with the distinct declarations and not with the components.
 
-import atomic
 import ergo.dev/fluid/look
 import ergo.dev/fluid/token
 import html
@@ -113,17 +112,9 @@ func base36(n int) string {
 	b.String()
 }
 
-// resolutions counts the looks resolved to atoms since the program started.
-let resolutions = atomic.NewInt64(0)
-
-// Resolutions is how many looks have been resolved to atoms since the program started: a page
-// that resolves its looks once, at start, renders with no resolution (guard ResolvedOncePerLook).
-func Resolutions() int64 { resolutions.Load() }
-
 // Atoms is a look's atoms: its rest style's declarations, each state's overlay under its own
 // or its group's state, and each wider viewport's overlay; in rank order, then by key.
 func Atoms(l look.Look) []Atom {
-	resolutions.Add(1)
 	let mut out = []Atom{}
 	for d in look.Decls(l.Rest) {
 		out = out.Append(Atom{Cond: Self{S: look.Rest}, Decl: d})

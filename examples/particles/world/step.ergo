@@ -109,6 +109,26 @@ func Step(w World) (World, []Event) {
 	(World{..w, tick: w.tick + 1, ps: moved}, events)
 }
 
+// StaysInTheBox: every particle is in a cell after every step.
+law StaysInTheBox(seed uint64, size int, n int, loss int, steps int) {
+	let mut w = newWorld(seed, size, n, loss)
+	for _ in 0..within(steps, 0, 50) {
+		let next, _ = Step(w)
+		if !Inside(next) {
+			return false
+		}
+		w = next
+	}
+	true
+}
+
+// StepCountsOne: a step adds one to the tick and keeps every particle.
+law StepCountsOne(seed uint64, size int, n int, loss int) {
+	let w = newWorld(seed, size, n, loss)
+	let next, _ = Step(w)
+	next.Tick() == w.Tick()+1 && next.Count() == w.Count()
+}
+
 // Run is w after n steps, and the count of each kind of event.
 func Run(w World, n int) (World, Tally) {
 	let mut now = w
@@ -119,6 +139,14 @@ func Run(w World, n int) (World, Tally) {
 		t = t.Add(events)
 	}
 	(now, t)
+}
+
+// SeedReplays: one seed makes one run, step for step.
+law SeedReplays(seed uint64, size int, n int, loss int, steps int) {
+	let k = within(steps, 0, 50)
+	let a, ta = Run(newWorld(seed, size, n, loss), k)
+	let b, tb = Run(newWorld(seed, size, n, loss), k)
+	a == b && ta == tb
 }
 
 // Tally counts the events of some steps.

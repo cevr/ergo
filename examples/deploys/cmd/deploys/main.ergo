@@ -1,7 +1,8 @@
 // deploys is an HTTP/1.1 deploys server for one connection: it reads the
 // connection's requests from standard input and writes each response to
-// standard output, as a program under inetd does. Ergo has no listener
-// yet (gap G-ex-c-7), so a socket reaches it through a tool such as
+// standard output, as a program under inetd does. Std http's listener is
+// Go's net/http, which this program keeps out of its binary (gap
+// G-ex-c-7), so a socket reaches it through a tool such as
 // `socat TCP-LISTEN:8080,reuseaddr,fork EXEC:./deploys`. Package api is
 // the HTTP layer as plain functions, package http1 the HTTP/1.1 text format, and
 // package deploys the domain. This binary is the only place that chooses

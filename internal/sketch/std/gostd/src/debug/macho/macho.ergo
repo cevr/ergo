@@ -348,6 +348,7 @@ extern go debug/macho.Load type Load {
 extern go debug/macho.LoadBytes type LoadBytes []byte
 
 // ergo:go func (LoadBytes).Raw() []byte
+// ergo:total
 extern go debug/macho.LoadBytes.Raw func (b LoadBytes) Raw() []byte needs go.Foreign
 
 // ergo:go type LoadCmd uint32

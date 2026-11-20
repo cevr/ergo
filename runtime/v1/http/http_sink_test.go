@@ -176,7 +176,7 @@ func TestHTTPFetchIntoMatchesModel(t *testing.T) {
 		task := rt.Root("sink model")
 		fetch := func(t *rt.Task, put func(*rt.Task, string) error) (HTTPResponse, error) {
 			if fixed {
-				return HTTPDoInto(t, peer.URL, limits, "GET", "/first", nil, nil, "", accepts, put)
+				return HTTPDoInto(t, peer.URL, limits, "GET", "/first", "", nil, nil, "", accepts, put)
 			}
 			return HTTPFetchInto(t, nil, true, limits, 1, "GET", peer.URL+"/first", nil, nil, nil, "", accepts, put)
 		}

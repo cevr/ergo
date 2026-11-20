@@ -3,6 +3,7 @@
 
 import machines
 import rand
+import strings
 
 // world is a playing world of 6 by 4 cells with the body and the food.
 func world(body []Point, heading Dir, food Point) World {
@@ -26,6 +27,54 @@ test ATickMovesTheHead {
 		case Title, Paused, Over:
 			assert false
 		}
+	}
+}
+
+// Key is the text of one mode, short enough to read in a test.
+func Key(m Mode) string {
+	match m {
+	case Title as t:
+		"title \(t.Width)x\(t.Height)"
+	case Playing as p:
+		"playing " + worldKey(p.W)
+	case Paused as p:
+		"paused " + worldKey(p.W)
+	case Over as o:
+		"over " + causeName(o.Why) + " " + worldKey(o.W)
+	}
+}
+
+func worldKey(w World) string {
+	let mut cells = []string{}
+	for p in w.Body {
+		cells = cells.Append("\(p.X),\(p.Y)")
+	}
+	"\(w.Score) food \(w.Food.X),\(w.Food.Y) body " + strings.Join(cells, " ") + " " + dirName(w.Heading) + dirName(w.Moved)
+}
+
+// dirName is the letter of d.
+func dirName(d Dir) string {
+	match d {
+	case Up:
+		"U"
+	case Down:
+		"D"
+	case Left:
+		"L"
+	case Right:
+		"R"
+	}
+}
+
+// causeName is the word of c.
+func causeName(c Cause) string {
+	match c {
+	case Wall:
+		"wall"
+	case Bitten:
+		"bitten"
+	case Filled:
+		"filled"
 	}
 }
 
@@ -93,7 +142,7 @@ test ReplaysReachTheWallAndEat {
 	let mut ends = Map[string, bool]{}
 	let mut best = 0
 	for seed in 0..200 {
-		for m in Replay(seed) {
+		for m in replay(seed) {
 			match m {
 			case Over as o:
 				ends[causeName(o.Why)] = true

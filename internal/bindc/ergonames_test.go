@@ -25,34 +25,23 @@ import (
 // The Ergo names of a binding (names.go, Binding.ergoNames). The oracle of
 // these tests is the Ergo checker itself (internal/sketch/check, read
 // only): an emitted text is conflict-free when the checker reports no
-// declaration in it as already declared, declared twice or a prelude name,
+// declaration in it as already declared or declared twice, it declares no
+// predeclared name,
 // and no extern has two parameters with one name. The product reads no
 // diagnostics: it derives its reserved set from the syntax keywords and
 // the checker's predeclared set (check.IsPredeclared).
 
 var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// checkerRefuses returns the names of names that the checker refuses as a
-// parameter name for being predeclared (D-D3). Keywords and reserved words
-// do not parse as names and are left out.
-func checkerRefuses(t *testing.T, names []string) map[string]bool {
-	t.Helper()
-	var src strings.Builder
-	at := map[int]string{}
-	line := 1
-	for i, n := range names {
-		if syntax.IsKeyword(n) {
-			continue
-		}
-		at[line] = n
-		fmt.Fprintf(&src, "func p%d(%s int) {\n}\n", i, n)
-		line += 2
-	}
-	_, ds := check.CheckSource(src.String())
+// predeclaredOf returns the names of names the checker predeclares
+// (check.IsPredeclared). A declaration of one hides it in its package
+// (D-D3, owner q244), and an emitted binding's own text reads the
+// prelude (Option, the basic types), so the binding reserves them.
+// Keywords and reserved words do not parse as names and are left out.
+func predeclaredOf(names []string) map[string]bool {
 	out := map[string]bool{}
-	for _, d := range ds {
-		n, ok := at[d.Line]
-		if ok && strings.HasPrefix(d.Message, n+" is a prelude name") {
+	for _, n := range names {
+		if !syntax.IsKeyword(n) && check.IsPredeclared(n) {
 			out[n] = true
 		}
 	}
@@ -108,34 +97,13 @@ func checkerDomain(t *testing.T) []string {
 	return out
 }
 
-// TestErgoPredeclaredMatchesChecker: on the checker domain, a name is in
-// the product's predeclared set exactly when the checker refuses it as a
-// parameter name. A control: the checker refuses Option and len, so the
-// probe sees the checker's refusals.
-func TestErgoPredeclaredMatchesChecker(t *testing.T) {
-	domain := checkerDomain(t)
-	refused := checkerRefuses(t, domain)
-	if !refused["Option"] || !refused["len"] {
-		t.Fatalf("control: the checker refuses %d names of %d, not Option and len; the probe is broken", len(refused), len(domain))
-	}
-	for _, n := range domain {
-		if syntax.IsKeyword(n) {
-			continue
-		}
-		if got := ergoPredeclared(n); got != refused[n] {
-			t.Errorf("%s: predeclared %v, the checker refuses it: %v", n, got, refused[n])
-		}
-	}
-	t.Logf("domain %d names, the checker refuses %d", len(domain), len(refused))
-}
-
 // ergoConflicts is the oracle: the checker's diagnostics of src that name a
-// declaration that collides, and every extern with two parameters of one
-// name. The checker refuses an extern's parameter as it refuses a
-// function's (D-D3: a prelude name is "is a prelude name"; a name used
-// twice is "already a parameter", which this filter leaves out), so the
-// two parameters of one name are also checked on the syntax tree, and
-// TestErgoParamProperty checks that none is reserved.
+// declaration that collides, every name src declares that hides a
+// predeclared one (legal since owner q244, but the binding's own text reads
+// the prelude; predeclaredOf), and every extern with two parameters of
+// one name. The checker's "already a parameter" is left out by this
+// filter, so the two parameters of one name are checked on the syntax
+// tree, and TestErgoParamProperty checks that none is reserved.
 func ergoConflicts(t *testing.T, src string) []string {
 	t.Helper()
 	f, err := syntax.Parse(src)
@@ -158,12 +126,21 @@ func ergoConflicts(t *testing.T, src string) []string {
 			}
 		}
 	}
-	_, ds := check.CheckSource(src)
+	pkg, ds := check.CheckSource(src)
 	for _, d := range ds {
-		if strings.Contains(d.Message, "already declared") || strings.Contains(d.Message, "declared twice") ||
-			strings.Contains(d.Message, "is a prelude name") {
+		if strings.Contains(d.Message, "already declared") || strings.Contains(d.Message, "declared twice") {
 			out = append(out, d.String())
 		}
+	}
+	if pkg != nil && pkg.Info != nil {
+		var hides []string
+		for id := range pkg.Info.Defs {
+			if check.IsPredeclared(id.Name) {
+				hides = append(hides, fmt.Sprintf("%d: %s hides a predeclared name", id.Pos(), id.Name))
+			}
+		}
+		sort.Strings(hides)
+		out = append(out, hides...)
 	}
 	return out
 }
@@ -191,9 +168,8 @@ func ergoParams(t *testing.T, src string) map[string][]string {
 }
 
 // TestErgoConflictsControl: the oracle sees each kind of collision. The
-// prelude-name row redeclares a prelude function: since owner q30 (L6) a
-// package type may take a prelude type's name (type Option is legal), but a
-// prelude function's name stays S108.
+// prelude-name row declares a prelude function's name, legal Ergo that
+// would hide the prelude's in the binding (owner q244).
 func TestErgoConflictsControl(t *testing.T) {
 	for _, src := range []string{
 		"import go ergo.local/bind/fixture\n\ntype Unreachable {\n\tV uint32,\n}\n",
@@ -463,7 +439,7 @@ func ergoNamePool(t *testing.T, predeclared map[string]bool) []string {
 // extern's Ergo parameters are as many as its Go parameters, distinct, not
 // reserved, off the import's name, and the emitted text has no conflict.
 func TestErgoParamProperty(t *testing.T) {
-	reserved := checkerRefuses(t, checkerDomain(t))
+	reserved := predeclaredOf(checkerDomain(t))
 	pool := ergoNamePool(t, reserved)
 	stats := map[string]int{}
 	n := max(8, *propCases/10)
@@ -566,7 +542,7 @@ func packageNamePool(t *testing.T) []string {
 	set := map[string]bool{"Status": true, "CallError": true, "NotLoaded": true, "Destroyed": true, "TooLong": true,
 		"InvalidArgument": true, "WrongThread": true, "Node": true, "Point": true, "Box": true, "ContextOptions": true,
 		"AbiVersion": true, "PointLength": true, "NodeCount": true, "Fixture": true}
-	for n := range checkerRefuses(t, checkerDomain(t)) {
+	for n := range predeclaredOf(checkerDomain(t)) {
 		if n[0] >= 'A' && n[0] <= 'Z' {
 			set[n] = true
 		}
@@ -728,7 +704,7 @@ func ergoDeclared(t *testing.T, src string) (imp string, decls, params map[strin
 
 // importClashes is the oracle of the import's name: what makes the name
 // that the import of base binds collide in src. reserved is the set of
-// names the checker refuses (checkerRefuses). It returns nothing for an
+// names the checker predeclares (predeclaredOf). It returns nothing for an
 // import that is an identifier Ergo does not reserve, that no
 // package-level name and no parameter takes, in a text with no other
 // conflict (ergoConflicts).
@@ -793,7 +769,7 @@ func importNamePool(t *testing.T, reserved map[string]bool) []string {
 // status codes and parameters and import one of them (or a pool name),
 // Bind refuses with a name error, or the text has no clash.
 func TestErgoImportProperty(t *testing.T) {
-	reserved := checkerRefuses(t, checkerDomain(t))
+	reserved := predeclaredOf(checkerDomain(t))
 	pool := importNamePool(t, reserved)
 	_, src, err := bindErgo(t, "")
 	if err != nil {
@@ -919,7 +895,7 @@ func TestErgoImportProperty(t *testing.T) {
 // as one source, or binds to a text with no clash; ErgoText never sees a
 // colliding import.
 func TestErgoImportRegressions(t *testing.T) {
-	reserved := checkerRefuses(t, checkerDomain(t))
+	reserved := predeclaredOf(checkerDomain(t))
 	cases := []struct{ base, want string }{
 		{"CallError", "the import of ergo.local/bind/CallError and the CallError union have the Ergo name CallError"},
 		{"Status", "the import of ergo.local/bind/Status and the Status union have the Ergo name Status"},

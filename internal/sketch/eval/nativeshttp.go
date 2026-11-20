@@ -24,32 +24,8 @@ import (
 // (client.ergo, causeOf).
 const sendMalformed = 3
 
-func registerNativeshttp() {
-	natives["http.checkNetwork"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		origins := args[0].(sliceV).elems()
-		if ab := in.charge(fr, at, 1+argWork(args[:1])); ab != nil {
-			return nil, ab
-		}
-		limits := args[1].(*record)
-		if !limitsValid(limits) {
-			return nil, httpFail(fn, fr, at, "InvalidLimits", limitsFields(limits))
-		}
-		out := make([]Value, 0, len(origins))
-		for _, o := range origins {
-			origin := o.(string)
-			if reason := originReason(origin); reason != "" {
-				return nil, httpFail(fn, fr, at, "InvalidClient", map[string]Value{"Origin": origin, "Reason": reason})
-			}
-			u, _ := url.Parse(origin)
-			canonical, why := canonicalOrigin(u)
-			if why != "" {
-				return nil, httpFail(fn, fr, at, "InvalidClient", map[string]Value{"Origin": origin, "Reason": "the origin is not valid"})
-			}
-			out = append(out, canonical)
-		}
-		return newSlice(out), in.allocate(fr, at, valueSize(newSlice(out)))
-	}
-	hostNative("http.Listen", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+func registerNativeshttp(t nativeTables) {
+	hostNative(t, "http.Listen", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		addr := args[0].(string)
 		// Only a literal or empty host is resolved without a lookup,
 		// which would read the host's resolver.
@@ -115,11 +91,11 @@ func registerNativeshttp() {
 		}
 		return nil, fr.unsupported(at, "an http exchange: the simulated process has no network")
 	}
-	hostNative("http.fetch", fetch)
-	hostNative("http.fetchInto", fetch)
+	hostNative(t, "http.fetch", fetch)
+	hostNative(t, "http.fetchInto", fetch)
 	// IntoFile runs the fetch with a file it fills; a fetch that fails
 	// before its first part leaves no file. A filled file is not run yet.
-	hostNative("http.IntoFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	hostNative(t, "http.IntoFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if args[1].(string) == "" {
 			return nil, fr.unsupported(at, "an http.IntoFile of an empty path")
 		}
@@ -178,23 +154,6 @@ func limitsFields(r *record) map[string]Value {
 		out[n] = r.fields[fieldIndex(r.t, n)]
 	}
 	return out
-}
-
-// originReason is why origin is not scheme://authority of http or https,
-// or "" (http.ergo, NewClient's origin rule).
-func originReason(origin string) string {
-	u, err := url.Parse(origin)
-	switch {
-	case err != nil:
-		return err.Error()
-	case u.Scheme != "http" && u.Scheme != "https":
-		return "the scheme is not http or https"
-	case u.Host == "" || u.User != nil:
-		return "the authority is not a host and port"
-	case u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "", u.ForceQuery:
-		return "an origin has no path, query or fragment"
-	}
-	return ""
 }
 
 // canonicalOrigin is u's origin as the policy compares it: a lower-case

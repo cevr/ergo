@@ -21,10 +21,10 @@ test BadLinesNameTheirNumber {
 	assert failure("  needs web\nproject app\n") == "1: a needs line belongs under a project or package line"
 	assert failure("project app\n  depends web\n") == "2: an indented line is a needs line"
 	assert failure("project app\npackage web two\n") == "2: two is not a version"
-	assert failure("project app\npackage web 1.0\npackage web 1.0.0\n") == "3: web 1.0.0 is listed twice"
-	assert failure("project app\n  needs web ^x\n") == "2: ^x names no version"
+	assert failure("project app\npackage web v1.0.0\npackage web 1.0.0\n") == "3: web 1.0.0 is listed twice"
+	assert failure("project app\n  needs web ^y\n") == "2: ^y names no version"
 	assert failure("project app\nproject b\n") == "2: a second project line"
-	assert failure("package web 1.0\n") == "0: the manifest has no project line"
+	assert failure("package web 1.0.0\n") == "0: the manifest has no project line"
 	assert failure("project a b\n") == "1: write project NAME"
 }
 

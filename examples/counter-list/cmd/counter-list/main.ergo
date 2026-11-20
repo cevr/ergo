@@ -1,0 +1,22 @@
+// counter-list is a program of counters (stage b: the view
+// on std ui's test host). It runs a script of clicks on the screen of a
+// list of counters and shows the screen after each one. Package counter is
+// one counter, a pure machine, and its view; package rows is the list,
+// which holds each counter as data and routes a counter's signal to its
+// row by key; package screen is the list's view, which embeds each
+// counter's; package script plays the script. This binary binds io to the
+// host, and one manual clock as the test host's clock and the actor's
+// Scheduler.
+
+import counterlist/script
+import io
+import os
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let c = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: c } { script.Run(c) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "counter-list: the script did not run"}
+	}
+}

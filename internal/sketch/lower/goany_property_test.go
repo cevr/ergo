@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // goAnyKind is a value kind into a go.Any (GB2; docs/spec/interop.md, Go
@@ -142,6 +144,11 @@ func TestValuesIntoGoAny(t *testing.T) {
 			t.Errorf("%s: admitted, but the reference refuses it\n%s\n%s", c.name, numbered(c.src), replay)
 		default:
 			in++
+			// IR-GOCALLS: each admitted case takes IR bodies (IR-ONLY).
+			u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: c.src}}}
+			if _, rep, err := LowerIR(u); err != nil || len(rep.Fallback) > 0 {
+				t.Errorf("%s: the IR keeps a source body: %v %v\n%s\n%s", c.name, err, rep.Fallback, numbered(c.src), replay)
+			}
 			o.name = "goany_" + strings.NewReplacer("-", "_", "@", "_at_").Replace(c.name)
 			o.extra = hresFiles()
 			programs = append(programs, o)

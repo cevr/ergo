@@ -1,0 +1,90 @@
+import dense
+
+// The readers of a parse: its tokens, comment groups and node spans. A
+// token is its index; a position is a byte offset.
+
+func parsedToks(p Parsed) tokens { tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, cmt0: p.cmt0} }
+
+// TokPos is the offset of token j.
+func TokPos(p Parsed, j int) int { int(p.starts[j]) }
+
+// TokKind is the kind of token j.
+func TokKind(p Parsed, j int) uint8 { uint8(p.kinds[j]) }
+
+// TokText is the source text of token j (a raw string without carriage
+// returns).
+func TokText(p Parsed, j int) string {
+	let s = p.src[int(p.starts[j]):int(p.ends[j])]
+	if uint8(p.kinds[j]) == String && len(s) > 0 && s[0] == '`' {
+		return dropCR(s)
+	}
+	s
+}
+
+// TokStartingAt is the token that starts at offset at and is no inserted
+// semicolon, or -1.
+func TokStartingAt(p Parsed, at int) int {
+	let mut lo = 0
+	let mut hi = len(p.starts)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if int(p.starts[mid]) < at {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	for j in lo..len(p.starts) {
+		if int(p.starts[j]) != at {
+			return -1
+		}
+		if uint8(p.kinds[j]) != Semicolon {
+			return j
+		}
+	}
+	-1
+}
+
+// NumGroups is the number of comment groups.
+func NumGroups(p Parsed) int { len(p.gFirst) }
+
+// GroupPos, GroupEnd and GroupLen are comment group g's span and count.
+func GroupPos(p Parsed, g int) int { CommentStart(p.cmts, CommentAt(p.cmts, p.gFirst[g])) }
+
+func GroupEnd(p Parsed, g int) int { CommentEnd(p.cmts, CommentAt(p.cmts, p.gLast[g])) }
+
+func GroupLen(p Parsed, g int) int { p.gLast[g] - p.gFirst[g] + 1 }
+
+// NodePos and NodeEnd are node id's span.
+func NodePos(p Parsed, id dense.ID[Node]) int { posOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }
+
+func NodeEnd(p Parsed, id dense.ID[Node]) int { endOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }
+
+// SourceOf is the source of the parse.
+func SourceOf(p Parsed) string { p.src }
+
+// TokEnd is the offset after token j.
+func TokEnd(p Parsed, j int) int { int(p.ends[j]) }
+
+// TokAtOrAfter is the first token that starts at or after offset at,
+// inserted semicolons included.
+func TokAtOrAfter(p Parsed, at int) int {
+	let mut lo = 0
+	let mut hi = len(p.starts)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if int(p.starts[mid]) < at {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	lo
+}
+
+// CommentsOf is the comments of the parse, in source order.
+func CommentsOf(p Parsed) Comments { p.cmts }
+
+// Children appends the child rows of node id to out, by row index (NodeAt
+// reads one): its list items, then the node words of its record.
+func Children(t Tree, id dense.ID[Node], out []uint32) []uint32 { children(t, uint32(dense.Index(id)), out) }

@@ -304,6 +304,134 @@
       "killers": [
         "examples:gent"
       ]
+    },
+    {
+      "name": "gent-e2-gate-allows-shell",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/tools.ergo",
+      "from": "\tcase RunShell:\n\t\tAsk\n",
+      "to": "\tcase RunShell:\n\t\tAllow\n",
+      "rule": "A shell command runs only once the person approved it (law Agent.ShellRunsOnlyApproved).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-decline-runs",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/loop.ergo",
+      "from": "\tcase (Approving as p, Decline):\n\t\tlet why ToolFailure = Declined\n\t\tnext(State{..s, Log: s.Log.Append(Result{Id: p.Call.Id, Text: Told(why), Ok: false})}, p.Rest)\n",
+      "to": "\tcase (Approving as p, Decline):\n\t\tEnter[State]{Next: State{..s, Phase: Running{Next: p.Next, Call: p.Call, Rest: p.Rest}}}\n",
+      "rule": "A declined call is told the person declined it and is not run (law Agent.DenyIsToldNotRun).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-schema-key-renamed",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/tools.ergo",
+      "from": "Params: []Param{Param{Name: \"command\", About: \"the command line\"}}",
+      "to": "Params: []Param{Param{Name: \"cmd\", About: \"the command line\"}}",
+      "rule": "The keys a schema tells the model are the keys the parser reads (law ParseReadsWhatSchemaNames).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-bound-cuts-a-rune",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/shell.ergo",
+      "from": "\t\tat = at + utf8.DecodeRuneInString(text.Slice(at, len(text))).Size\n",
+      "to": "\t\tat = at + 1\n",
+      "rule": "A bounded result is cut between characters, never inside one (law ResultsAreBounded).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-workdir-trusts-the-root",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/host/workdir.ergo",
+      "from": "\t\tif depth < 0 {\n\t\t\treturn agent.Escapes{Path: path}\n\t\t}\n",
+      "to": "",
+      "rule": "A path that climbs out of the working directory fails Escapes whatever the tree holds (law Tools.LeavingEscapes for Workdir).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-unknown-is-the-first-tool",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/tools.ergo",
+      "from": "\tcase _:\n\t\tUnknownTool{Name: c.Name}\n",
+      "to": "\tcase _:\n\t\tReadFile{Path: c.Arguments}\n",
+      "rule": "A call of a tool no schema names fails UnknownTool, naming it (law UnknownNameIsTyped).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-headless-ignores-allow",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/run.ergo",
+      "from": "\tlet answer Signal = if allow { Approve } else { Decline }\n",
+      "to": "\tlet answer Signal = Decline\n",
+      "rule": "-p with --allow-shell approves each shell command (case shell-approved).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-e2-shell-unbounded",
+      "origin": "wf10/gent-e2",
+      "file": "examples/gent/agent/shell.ergo",
+      "from": "return Output{Text: Head(text, ResultLimit()) + ",
+      "to": "return Output{Text: text + ",
+      "rule": "A tool's result the model is told holds at most 8,000 characters and the cut line (case big-output).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
     }
   ]
 }

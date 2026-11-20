@@ -2,6 +2,7 @@
 // keeps, and replayed, as a fold of those signals.
 
 import actor
+import exec
 import journal
 import machines
 import journal/memory
@@ -27,8 +28,9 @@ func Replay(r Recorded) State {
 type Session { Agent actor.Actor[State, Signal, Decision[State, Never]], Journal memory.Journal[State, Signal], Limits Limits }
 
 // Open starts a live session under l. The actor's work asks the Model
-// and runs the Tools in the context; its timer waits on the Scheduler.
-func Open(l Limits) Session needs Model | Tools | Scheduler {
+// and runs the Tools and the shell (exec.Runner) in the context; its
+// timer waits on the Scheduler.
+func Open(l Limits) Session needs Model | Tools | exec.Runner | Scheduler {
 	let j = memory.New[State, Signal]()
 	let a = journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {}) catch {
 	case journal.Failed, journal.Diverged:
@@ -46,35 +48,57 @@ func RecordOf(s Session) Recorded {
 	Recorded{Limits: s.Limits, Signals: log.Signals}
 }
 
-// Say sends text to s and waits until the turn it starts has ended: the
-// state it ends in. A text of spaces starts no turn.
-func Say(s Session, text string) State {
+// Say sends text to s and waits until the turn it starts waits for the
+// person: the state it is in then, Idle at its end or Approving. A text
+// of spaces starts no turn.
+func Say(s Session, text string) State { tell(s, Submit{Text: text}) }
+
+// tell sends e to s and waits until the state has changed and waits for
+// the person, or has ended.
+func tell(s Session, e Signal) State {
 	let before = s.Agent.State()
-	let turn = actor.SendAndWait(s.Agent, Submit{Text: text}, func(now State) bool { len(now.Log) > len(before.Log) && settled(now) }) catch {
+	let now = actor.SendAndWait(s.Agent, e, func(now State) bool { now != before && settled(now) }) catch {
 	case actor.Stopped:
 		return s.Agent.State()
 	}
-	turn
+	now
 }
 
 // settled reports whether s waits for the person, or has ended.
 func settled(s State) bool {
 	match s.Phase {
-	case Idle, Ended:
+	case Idle, Approving, Ended:
 		true
-	case Asking, Waiting, Approving, Running:
+	case Asking, Waiting, Running:
+		false
+	}
+}
+
+// approving reports whether s waits for the person to allow a call.
+func approving(s State) bool {
+	match s.Phase {
+	case Approving:
+		true
+	case Idle, Asking, Waiting, Running, Ended:
 		false
 	}
 }
 
 // Headless is a session that asks each of texts in turn, with no
 // terminal, and ends: its last state and its record. A text of spaces is
-// skipped.
-func Headless(l Limits, texts []string) (State, Recorded) needs Model | Tools | Scheduler {
+// skipped. No person is there to answer a call the gate asks about, so
+// each is approved when allow says so up front (--allow-shell) and
+// declined otherwise: the machine still asks, and the record holds the
+// answer.
+func Headless(l Limits, texts []string, allow bool) (State, Recorded) needs Model | Tools | exec.Runner | Scheduler {
 	let s = Open(l)
+	let answer Signal = if allow { Approve } else { Decline }
 	for text in texts {
 		if strings.TrimSpace(text) != "" {
-			let _ = Say(s, text)
+			let mut now = Say(s, text)
+			for approving(now) {
+				now = tell(s, answer)
+			}
 		}
 	}
 	s.Agent.Stop()

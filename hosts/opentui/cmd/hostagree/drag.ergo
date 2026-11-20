@@ -15,7 +15,7 @@ func dragMachine() Machine[drag, int, int] {
 	Machine[drag, int, int]{Initial: drag{n: 0}, Step: dragStep, After: none[drag, int], Work: idle[drag, int], Exit: func(s drag) Option[func()] { None }}
 }
 
-func dragView(f *ui.Frame[int], s drag) {
+func dragView(f mut ui.Frame[int], s drag) {
 	ui.Text(f, "\(s.n) presses")
 	ui.Area(f, "drag", ui.Plain(), func(p ui.PointerEvent) Option[int] {
 		match p.Phase {
@@ -35,7 +35,7 @@ func dragView(f *ui.Frame[int], s drag) {
 // it, None when each is: after a frames step, each list's offset on
 // TestHost (its own edge scroll, in DIPs) rounds to the whole cells the
 // terminal shows.
-func edged[E comparable, S, D, F](d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+func edged[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
 	for sh in shapes {
 		match sh.Node {
 		case ui.RowsNode as x:

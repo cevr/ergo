@@ -69,7 +69,7 @@ func TestPropertyParamDomain(t *testing.T) {
 		{"[]int", true}, {"Map[string, bool]", true}, {"(int, string)", true},
 		{"Point", true}, {"Shape", true}, {"Celsius", true}, {"Pair", true},
 		{"List", true}, {"Tree", true}, {"Box[List]", true}, {"[]Map[int, (bool, Shape)]", true},
-		{"Store", false}, {"Fn", false}, {"func(int) int", false}, {"*Point", false},
+		{"Store", false}, {"Fn", false}, {"func(int) int", false}, {"mut Point", false},
 		{"Loop", false}, {"[]Loop", false}, {"Box[Store]", false},
 		{"Map[int, Fn]", false}, {"(int, Store)", false},
 	} {

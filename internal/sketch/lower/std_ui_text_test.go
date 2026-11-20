@@ -20,7 +20,7 @@ type Missing { V int }
 
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -29,7 +29,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -70,7 +70,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -102,7 +102,7 @@ func described(v int) string {
 	""
 }
 
-func swap(f *ui.Frame[int], v int, at CallSite) {
+func swap(f mut ui.Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		ui.Text(f, "even \(v)", at)
 	} else {
@@ -110,7 +110,7 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
+func render(f mut ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
 		ui.Text(f, "t\(s[x.slot] + row)")
@@ -216,7 +216,7 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 	}
 }
 
-func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+func sameBody(f mut ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
 	let fl = ui.NewFlag(f, false)
 	ui.Toggle(f, fl, "same")
@@ -362,7 +362,7 @@ func model(p prog, s []int, row int) outcome {
 	case pText as x:
 		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
 	case pInput as x:
-		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false})})
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: ui.PlainHints, Lines: 1, Caret: len("v\(s[x.slot] + row)"), Anchor: len("v\(s[x.slot] + row)")})})
 	case pCheck as x:
 		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
@@ -512,8 +512,8 @@ func boundRows(x pBound, s []int, row int) []int {
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
 
-func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
-	ui.Render(f, func(g *ui.Frame[int], st []int) {
+func pass(f mut ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
+	ui.Render(f, func(g mut ui.Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
 			case Missing:
@@ -525,7 +525,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	}, s)
 }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -543,7 +543,7 @@ func nodes(shapes []ui.Shape[int]) int {
 
 
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -554,7 +554,7 @@ func shuffled(xs []int, r *rng) []int {
 	out
 }
 
-func keyedRows(f *ui.Frame[int], xs []int) {
+func keyedRows(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "row \(x)")
@@ -566,7 +566,7 @@ func keyedRows(f *ui.Frame[int], xs []int) {
 	}
 }
 
-func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
+func rowIds(f mut ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	let mut out = Map[int, (ui.Id[int], ui.Id[int])]{}
 	let col = ui.Kids(f, ui.Root(f))
 	if len(col) != 1 {
@@ -583,7 +583,7 @@ func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	out
 }
 
-func keyedLines(f *ui.Frame[int], xs []int) {
+func keyedLines(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "line \(x)")
@@ -620,7 +620,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *ui.Frame[int], id ui.Id[int], off bool) bool {
+func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
@@ -758,7 +758,7 @@ func wants(loc ui.Locator, x seen) bool {
 	}
 }
 
-func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
+func matches(m mut ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	ui.ExpectIn(m, loc, is) catch {
 	case ui.Mismatch:
 		return false
@@ -766,7 +766,7 @@ func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	true
 }
 
-func extras(f *ui.Frame[int], v int) {
+func extras(f mut ui.Frame[int], v int) {
 	ui.Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = ui.NewFlag(f, true)
 		ui.Toggle(f, on, "tg\(v % 3)")
@@ -774,7 +774,7 @@ func extras(f *ui.Frame[int], v int) {
 		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Text(f, "in area")
 		}
-		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
+		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p mut ui.Paint) {}
 		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
 	}
 }
@@ -792,7 +792,7 @@ func extraLabel(v int) ui.FieldLabel {
 
 func extraShapes(v int) []ui.Shape[int] {
 	let l = extraLabel(v)
-	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid, Hints: ui.PlainHints, Lines: 1, Caret: len("val"), Anchor: len("val")}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -809,7 +809,7 @@ func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
 	true
 }
 
-func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+func signalsMatch(f mut ui.Frame[int], g mut ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
 	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
 		return false
 	}
@@ -841,7 +841,7 @@ func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]
 	true
 }
 
-func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+func toggles(f mut ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
 	let mut all = out
 	match ui.NodeOf(f, id) {
 	case Some[ui.Node[int]] as n:

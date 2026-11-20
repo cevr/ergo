@@ -31,7 +31,7 @@ func Bench(n int) int {
 	let s = mcp.Server{Name: "counter", Version: "1", Tools: countermcp.Tools(counter.Tally)}
 	let mut sum = 0
 	for i in 0..n {
-		match mcp.Handle(s, cycle[i % len(cycle)]) {
+		match mcp.Handle(s, cycle[i%len(cycle)]) {
 		case mcp.Answered as a:
 			sum = sum + len(a.Result)
 		case mcp.Refused as r:

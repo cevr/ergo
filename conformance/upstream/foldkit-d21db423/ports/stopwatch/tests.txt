@@ -1,0 +1,14 @@
+# stopwatch: the upstream tests of stopwatch at d21db423 and what restates each.
+src/scene.test.ts: initial view shows the zeroed time and Start + Reset buttons -> case `idle` (`00:00.00 [Reset] [Start]`, no Stop)
+src/scene.test.ts: clicking Start fires DetermineStartTime and switches to Stop -> case `laps` (@0: `[Reset] [Stop]`, no Start); no command: the step reads the clock (README)
+src/scene.test.ts: clicking Stop while running switches back to Start -> case `laps` (@1234: `[Reset] [Start]`)
+src/scene.test.ts: clicking Reset zeros the elapsed time -> case `laps` (@3000 reset: `00:00.00 [Reset] [Start]`)
+src/scene.test.ts: a tick from the running Subscription advances the elapsed time -> case `laps` (@65432, shown at the last tick the clock fired)
+src/scene.test.ts: elapsed time formats as MM:SS.cc -> case `laps` (`01:02.03`); `watch` law `FormatReadsBack` (minutes are not wrapped at an hour) and test `TicksStoreTheElapsedTime`
+src/story.test.ts: ClickedStart fires DetermineStartTime with current elapsed time -> `watch` test `StartEntersRunningFromTheShownTime`
+src/story.test.ts: CompletedDetermineStartTime stores the offset start time and starts running -> `watch` test `StartRunsTheWatchOnTheClock`
+src/story.test.ts: ClickedStop pauses the stopwatch without zeroing time -> `watch` test `StopKeepsTheTime`
+src/story.test.ts: ClickedReset zeros elapsedMs, isRunning, and startTime -> `watch` test `ResetZeros`
+src/story.test.ts: ClickedReset on an idle stopwatch is a no-op -> `watch` test `ResetOfAnIdleWatchKeepsIt`
+src/story.test.ts: Ticked fires DetermineTickTime with the stored startTime -> `watch` test `TickShowsTheClockTimeAndArmsTheNext`
+src/story.test.ts: CompletedDetermineTickTime stores the new elapsed time -> `watch` test `TicksStoreTheElapsedTime`

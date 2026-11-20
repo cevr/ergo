@@ -38,6 +38,25 @@ type PCG { src Stream } implements Random
 // Seeded is the PCG provider of seed.
 func Seeded(seed uint64) PCG { PCG{src: newStream(seed)} }
 
+// SeedReplays: two providers of one seed draw one stream, call for call.
+law SeedReplays(seed uint64, n int) {
+	let a = Seeded(seed)
+	let b = Seeded(seed)
+	let k = within(n, 1, 1000000)
+	a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64()
+}
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
 // Uint64 is the next 64 bits of p's stream.
 func Uint64(p PCG) uint64 { p.src.Uint64() }
 

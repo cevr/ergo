@@ -16,6 +16,51 @@ type Slot { Name string, Choices []Part }
 // of its slots.
 type Unit { Part string, Size int, Count int, Subs []Unit }
 
+// NestedPartsInsideParent: a composite's unit holds one sub-unit per slot, each
+// the unit its nested editor gave, and its size is the part's and its
+// subs'.
+law NestedPartsInsideParent(picks []int, count int) {
+	let composite = fixture().Pages[0][2]
+	let mut s = editing(composite)
+	let mut subs = []Unit{}
+	for k, slot in composite.Slots {
+		let c = if k < len(picks) { small(picks[k]) % len(slot.Choices) } else { 0 }
+		match editStep(s, Choose{Index: c}) {
+		case Enter[Edit] as x:
+			s = x.Next
+		case _:
+			return false
+		}
+		let sub = UnitOf(slot.Choices[c], 1+small(k+count), []Unit{})
+		subs = subs.Append(sub)
+		match editStep(s, SubAdded{L: sub}) {
+		case Enter[Edit] as x:
+			s = x.Next
+		case _:
+			return false
+		}
+	}
+	for _ in 0..small(count) {
+		match editStep(s, More) {
+		case Stay[Edit] as x:
+			s = x.Next
+		case _:
+			return false
+		}
+	}
+	match editStep(s, Add) {
+	case Done[EditOut] as d:
+		match d.Output {
+		case Added as a:
+			len(a.L.Subs) == len(composite.Slots) && a.L.Size == composite.Size+Total(subs) && a.L.Count == small(count)+1
+		case WentBack:
+			false
+		}
+	case _:
+		false
+	}
+}
+
 // Edit is an editor's state. Picking waits for the choice of the next
 // slot; Nested hosts the editor of that choice: Sub is its host, which
 // the entry's work fills, so a screen reaches the editor through it.
@@ -23,6 +68,17 @@ type Edit =
 	| Choosing{Part Part, Count int, Subs []Unit}
 	| Picking{Part Part, Count int, Subs []Unit}
 	| Nested{Part Part, Count int, Subs []Unit, Choice Part, Sub actor.Host[EditActor]}
+
+// CountStaysPositive: Less at a quantity of one is refused.
+law CountStaysPositive(n int) {
+	let s = Choosing{Part: fixture().Pages[0][0], Count: 1, Subs: []Unit{}}
+	match editStep(s, Less) {
+	case Reject:
+		true
+	case _:
+		false
+	}
+}
 
 type EditSignal =
 	| More{}

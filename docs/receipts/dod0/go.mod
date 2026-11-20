@@ -3,3 +3,5 @@
 module ergo.local/receipts/dod0
 
 go 1.26
+
+toolchain go1.27.4

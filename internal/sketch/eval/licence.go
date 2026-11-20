@@ -72,12 +72,15 @@ type ambient struct {
 	dir  string
 	env  []string
 	zone *time.Location
+	// index is the state's place in ambients: a module body's driver
+	// of the same state runs it (gobodies.go).
+	index int
 }
 
 // ambients are the two states each side runs under.
 var ambients = [2]ambient{
 	{dir: "/", zone: time.UTC},
-	{dir: "/nonexistent/ergo-licence", env: []string{"ERGO_LICENCE=second"}, zone: time.FixedZone("UTC+05:45", 5*3600+45*60)},
+	{dir: "/nonexistent/ergo-licence", env: []string{"ERGO_LICENCE=second"}, zone: time.FixedZone("UTC+05:45", 5*3600+45*60), index: 1},
 }
 
 // Licence is the outcome of a licence run.
@@ -142,7 +145,10 @@ func (l Licence) Line() string {
 // LicenceRun runs the licence run of law, a top-level law of pkg in the
 // rewrite's scope, under b (its Steps and Bytes bound the whole run). An
 // error is an internal error of the evaluator.
-func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string) (Licence, error) {
+//
+// goBodies runs the module's own Go bodies the law reaches (LAWFFI LF2m;
+// gobodies.go); nil runs none, and a law that reaches one is skipped.
+func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string, goBodies GoBodies) (Licence, error) {
 	if b.Steps <= 0 || b.Depth <= 0 || b.Bytes < 0 {
 		return Licence{}, ErrBudget
 	}
@@ -156,13 +162,13 @@ func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string) (
 		return Licence{}, fmt.Errorf("eval: law %v is no rewrite in scope", law)
 	}
 	defer raiseGC()()
-	l, ranged, err := licenceOrdered(pkg, law, b, corpus, mapAscending)
+	l, ranged, err := licenceOrdered(pkg, law, b, corpus, mapAscending, goBodies)
 	if err != nil || !ranged {
 		return l, err
 	}
 	// A for over a Map ran: only an outcome the other order also gives
 	// is a verdict (maporder.go).
-	other, _, err := licenceOrdered(pkg, law, b, corpus, mapDescending)
+	other, _, err := licenceOrdered(pkg, law, b, corpus, mapDescending, goBodies)
 	if err != nil {
 		return l, err
 	}
@@ -179,8 +185,8 @@ type licenceClass struct {
 	value func(in *interp, fr *frame) Value
 }
 
-func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []string, order mapOrder) (l Licence, ranged bool, err error) {
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
+func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []string, order mapOrder, goBodies GoBodies) (l Licence, ranged bool, err error) {
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order, goBodies: goBodies}
 	l.Name = lawName(law)
 	defer func() {
 		if r := recover(); r != nil {

@@ -673,7 +673,7 @@ func (w *ownWalk) refuseLoan(loan resourceLoan, at syntax.Node, what, format str
 		return
 	}
 	if w.genericOnly(loan.root.Type) {
-		w.copySite(loan.root.Type, at, what, false)
+		w.ownSite(loan.root.Type, at, what)
 		return
 	}
 	w.report(at, format, args...)

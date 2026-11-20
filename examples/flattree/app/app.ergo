@@ -98,8 +98,8 @@ func badPointer(b tree.BadPointer) Outcome { failed(b.Pointer + ": " + b.Why) }
 
 func noValue(path string, n tree.NoValue) Outcome { failed(path + ": no value at " + n.At) }
 
-// Path is the value at ptr (RFC 6901) in the document at path, in jq's
-// layout.
+// Path is the value at ptr (RFC 6901) in the document at path,
+// indented.
 func Path(side Side, path string, ptr string) Outcome needs Documents {
 	match side {
 	case Flat:

@@ -50,7 +50,7 @@ const warmSchema = "ergo-warm-1"
 // WarmKey is the key of a request: the parts the caller names (command,
 // folder, options, toolchain), the compiler's identity and every GO*,
 // CGO_* and ERGO_* variable of the environment but ERGO_STAGE_REPORT and
-// ERGO_BUILD. It is "" when the compiler has no shared identity (a
+// ERGO_BUILD, and the Go experiments (goExperiments). It is "" when the compiler has no shared identity (a
 // process-scoped one keys nothing another process may trust).
 func WarmKey(parts ...string) string {
 	compiler := preparedCompilerIdentity()
@@ -85,6 +85,9 @@ func WarmKey(parts ...string) string {
 	for _, kv := range env {
 		write(kv)
 	}
+	// The experiments choose a module's Go files (buildsFor) and may come
+	// from the go env file, which no variable above holds.
+	write("experiments " + strings.Join(goExperiments(), ","))
 	return hex.EncodeToString(h.Sum(nil))
 }
 

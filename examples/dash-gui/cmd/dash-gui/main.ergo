@@ -7,9 +7,11 @@
 // runs the view on ui.TestHost.
 //
 //	dash-gui gen [-seed S] [-n N]   write a script of N steps
-//	dash-gui play [-seed S] [-pace P] play the script on standard input,
+//	dash-gui play [-seed S] [-pace P] [-every N]
+//	                                play the script on standard input,
 //	                                pacing the collector by P (edges,
-//	                                the default; percent; default)
+//	                                the default; percent; default),
+//	                                one frame edge in N (pace.NewEvery)
 //	dash-gui scene [-seed S] [-frames N]
 //	                                move the view N frames, then play a
 //	                                scene script on it
@@ -34,7 +36,7 @@ import time
 import ui
 
 // Usage is the text of a usage failure.
-let Usage = "usage: dash-gui gen [-seed S] [-n N] | dash-gui play [-seed S] [-pace edges|percent|default] [-hold N] | dash-gui scene [-seed S] [-frames N]"
+let Usage = "usage: dash-gui gen [-seed S] [-n N] | dash-gui play [-seed S] [-pace edges|percent|default] [-hold N] [-every N] | dash-gui scene [-seed S] [-frames N]"
 
 let seedFlag = flag.Int("seed", 1, "the seed")
 let countFlag = flag.Int("n", 50, "how many steps")
@@ -42,7 +44,8 @@ let countFlag = flag.Int("n", 50, "how many steps")
 let genSet = flag.Set{Name: "dash-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
 let paceFlag = flag.Choice("pace", "edges", []string{"edges", "percent", "default"}, "when the collector runs: at frame edges, at GOGC=400, or at Go's own pace")
 let holdFlag = flag.Int("hold", 0, "hold the pacing over each run of at most N frames, as one request")
-let playSet = flag.Set{Name: "dash-gui play", Usage: "", Flags: []flag.Flag{seedFlag, paceFlag, holdFlag}, Args: []flag.ArgSpec{}}
+let everyFlag = flag.Int("every", 1, "pass one frame edge in N to the pacing (pace.NewEvery: a composed provider)")
+let playSet = flag.Set{Name: "dash-gui play", Usage: "", Flags: []flag.Flag{seedFlag, paceFlag, holdFlag, everyFlag}, Args: []flag.ArgSpec{}}
 
 // PaceLimit is the memory limit of the edges pacing: far above the
 // rings' live heap (about 16 MB), so Go collects by itself only if a
@@ -91,7 +94,7 @@ func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Std
 			try flag.Exit(err, Usage)
 			return
 		}
-		with context { feed.Sensors: synth.Bank{Seed: seedFlag.Get(v)}, pace.Pacing: pacing(paceFlag.Get(v)) } {
+		with context { feed.Sensors: synth.Bank{Seed: seedFlag.Get(v)}, pace.Pacing: pace.NewEvery(pacing(paceFlag.Get(v)), everyFlag.Get(v)) } {
 			try script.Play(io.Stdin.Lines(), holdFlag.Get(v))
 		}
 	case "scene":

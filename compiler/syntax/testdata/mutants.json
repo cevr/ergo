@@ -1,0 +1,649 @@
+{
+  "about": "compiler/syntax: the scanner (S2a, SL5) and the tree and parser (S2b, SL6). TestScanAgreesWithGo and TestParseAgreesWithGo (internal/sketch/syntax, in process through internal/linked/syntax) kill a row that names them; a gap names the law that kills the rest. Paths are from the repository root.",
+  "mutants": [
+    {
+      "name": "scan-semi-after-rparen",
+      "origin": "wf10 S2a (SL5)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": " || kind == StringTail || kind == RParen || ",
+      "to": " || kind == StringTail || ",
+      "rule": "A newline after `)` inserts a semicolon (Go's rule).",
+      "killers": [],
+      "gap": "killed by law SemiMasksAreTheRule (ergo test compiler/syntax), not by the agreement tests; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
+    },
+    {
+      "name": "scan-end-stops-at-escaped-quote",
+      "origin": "wf10 S2a (SL5)",
+      "file": "compiler/syntax/token.ergo",
+      "from": "\t\t\tif src[i+1] == '(' {\n\t\t\t\treturn i + 2\n\t\t\t}\n\t\t\ti = i + 1\n",
+      "to": "\t\t\tif src[i+1] == '(' {\n\t\t\t\treturn i + 2\n\t\t\t}\n",
+      "rule": "End steps over an escaped byte of a string: an escaped quote does not end it.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "scan-raw-end-off-by-one",
+      "origin": "wf10 S2a (SL5)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\ts.offset = start + close + 2\n",
+      "to": "\ts.offset = start + close + 1\n",
+      "rule": "A raw string ends after its closing backquote.",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures"
+      ]
+    },
+    {
+      "name": "scan-keyword-prefix",
+      "origin": "wf10 S2a (SL5)",
+      "file": "compiler/syntax/diag.ergo",
+      "from": "\tlet w = src[start:end]\n",
+      "to": "\tlet w = src[start:end]\n\tif n > 3 && src[start:start+3] == \"for\" {\n\t\treturn For\n\t}\n",
+      "rule": "A word is a keyword only when all of it is: `fortune` is an identifier.",
+      "killers": [],
+      "gap": "killed by law KeywordTableIsTheRule (ergo test compiler/syntax), not by the agreement tests; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
+    },
+    {
+      "name": "scan-two-byte-operator-split",
+      "origin": "wf10 S2a (SL5)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "return if c1 == '=' { Eql } else { Assign }",
+      "to": "return Assign",
+      "rule": "`==` is one token, not two `=`.",
+      "killers": [],
+      "gap": "killed by law OpFastIsOpKind (ergo test compiler/syntax): the slow path opKind runs inside an interpolation only, which no Go test reaches; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
+    },
+    {
+      "name": "scan-rune-octal-bound",
+      "origin": "wf10 S2a",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "int(lit[4]-'0') <= 255",
+      "to": "int(lit[4]-'0') <= 256",
+      "rule": "An octal rune escape names a byte: '\\400' is not a rune literal (Go's strconv.Unquote, which oneRune reads without allocating).",
+      "killers": [
+        "internal/sketch/syntax:TestRuneLiteralsAgreeWithStrconv"
+      ]
+    },
+    {
+      "name": "scan-class-zero-a-letter",
+      "origin": "wf10 S2a-speed",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\\x08\\x00\\x28\\x28\\x28\\x0a",
+      "to": "\\x08\\x00\\x28\\x28\\x28\\x0b",
+      "rule": "A digit is not a letter: `0` cannot start an identifier.",
+      "killers": [
+        "internal/sketch/syntax:TestNumberForms"
+      ]
+    },
+    {
+      "name": "scan-semi-mask-drops-ident",
+      "origin": "wf10 S2a-speed",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "let semiLo uint64 = 0x470000c0000013f8",
+      "to": "let semiLo uint64 = 0x470000c0000013f0",
+      "rule": "A newline after an identifier inserts a semicolon.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "scan-kwtable-swaps-two",
+      "origin": "wf10 S2a-speed",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\\x00\\x65\\x00\\x51",
+      "to": "\\x00\\x51\\x00\\x65",
+      "rule": "Each keyword hashes to its own kind.",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures"
+      ]
+    },
+    {
+      "name": "scan-punct-comma-as-period",
+      "origin": "wf10 S2a-speed",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\\x33\\x38\\x00\\x00\\x36",
+      "to": "\\x33\\x38\\x00\\x00\\x37",
+      "rule": "A comma is Comma.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "scan-path-ascii-digit-starts-element",
+      "origin": "wf10 S2a-speed",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "if elementStart && k&clsLetter == 0 ||",
+      "to": "if elementStart && k&(clsLetter|clsDigit) == 0 ||",
+      "rule": "An import path element starts with a letter or `_`, not a digit.",
+      "killers": [
+        "internal/sketch/syntax:TestImportPathGrammar"
+      ]
+    },
+    {
+      "name": "scan-opfast-ignores-doubled",
+      "origin": "wf10 S2a-speed (Bun #5)",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "if c1 == c || k1&clsOpNext != 0 ||",
+      "to": "if k1&clsOpNext != 0 ||",
+      "rule": "A doubled operator byte (`<<`, `&&`, `..`) is a longer token: run's arm leaves it to opKind.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "comments-blank-line-joins-groups",
+      "origin": "wf10 S2b (Bun #7)",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "if strings.IndexByte(p.src[a+k+1:b], '\\n') < 0 { 1 } else { 2 }",
+      "to": "if strings.IndexByte(p.src[a+k+1:b], '\\n') < 0 { 1 } else { 1 }",
+      "rule": "A blank line between two comments ends the first one's group (go/parser).",
+      "killers": [
+        "internal/sketch/syntax:TestCommentGroupsEndAtBlankLines"
+      ]
+    },
+    {
+      "name": "failure-position-from-file-start",
+      "origin": "wf10 S2b (Bun #7)",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "PositionOf(LinesOf(src), p.eoff)",
+      "to": "PositionOf(LinesOf(src), 0)",
+      "rule": "A failure reports the line and column of its own offset.",
+      "killers": [
+        "internal/sketch/check:TestSkipNamesItsReason"
+      ]
+    },
+    {
+      "name": "tree-children-flushed-in-reverse",
+      "origin": "wf10 S2b (SL6)",
+      "file": "compiler/syntax/tree.ergo",
+      "from": "\tt.extra = slices.AppendAll(t.extra, t.stack[m:t.top])\n",
+      "to": "\tt.extra = slices.AppendAll(t.extra, slices.Reverse(t.stack[m:t.top]))\n",
+      "rule": "A record keeps its children in source order.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "tree-stack-not-cut-after-list",
+      "origin": "wf10 S2b (SL6)",
+      "file": "compiler/syntax/tree.ergo",
+      "from": "\tt.ne = start + count\n\tt.top = m\n",
+      "to": "\tt.ne = start + count\n",
+      "rule": "rec cuts the stack back to the list's mark.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "tree-rewind-keeps-extra",
+      "origin": "wf10 S2b (SL6)",
+      "file": "compiler/syntax/tree.ergo",
+      "from": "\tt.ne = c.ne\n",
+      "to": "",
+      "rule": "A rewind cuts extra back to its checkpoint.",
+      "killers": [],
+      "gap": "killed by law ExtraTiles (ergo test compiler/syntax), not by the agreement tests; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
+    },
+    {
+      "name": "view-reads-b-for-a",
+      "origin": "wf10 S2b (SL6)",
+      "file": "compiler/syntax/readers.ergo",
+      "from": "\tBinaryExpr{X: nid(t, a), Op: int(tok), Y: nid(t, b)}",
+      "to": "\tBinaryExpr{X: nid(t, b), Op: int(tok), Y: nid(t, a)}",
+      "rule": "View reads each operand from its own word.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "view-none-as-row-0",
+      "origin": "wf10 S2b (SL6)",
+      "file": "compiler/syntax/view.ergo",
+      "from": "\t\treturn dense.NoID[Node]()\n",
+      "to": "\t\treturn dense.OptOf(dense.IDAt(t.ids, 0))\n",
+      "rule": "An optional child's 0 word is none, never row 0.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "tree-row-gains-string",
+      "origin": "wf10 S2b (SL6)",
+      "file": "compiler/syntax/tree.ergo",
+      "from": "\ttop   int,\n}\n",
+      "to": "\ttop   int,\n\tnames []string,\n}\n",
+      "rule": "A row holds no pointer (PointerFree).",
+      "gap": "PointerFree needs the layout std (LAY1), not on this base: the mutant does not even compile until NewTree sets names, and no law sees a pointer field. It survives until LAY1 lands.",
+      "killers": []
+    },
+    {
+      "name": "skip-without-literal",
+      "origin": "wf10 S2-syntax (TSKIP)",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tn == String || n == StringHead\n",
+      "to": "\tn == String || n == StringHead || n == LParen\n",
+      "rule": "skip is a statement only before a string literal: skip(x) stays a call (contextual, no scanner keyword).",
+      "killers": [
+        "internal/sketch/syntax:TestSkipIsAName"
+      ]
+    },
+    {
+      "name": "skip-end-at-keyword",
+      "origin": "wf10 S2-syntax (TSKIP)",
+      "file": "compiler/syntax/span.ergo",
+      "from": "\tif kd == KSkipStmt {\n\t\treturn tokEnd(k, int(a))\n",
+      "to": "\tif kd == KSkipStmt {\n\t\treturn tokEnd(k, tok)\n",
+      "rule": "A skip statement ends where its reason ends.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "skip-interpolation-accepted",
+      "origin": "wf10 S2-syntax (TSKIP)",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tif p.tk == StringHead {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
+      "to": "\tif false {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
+      "rule": "A skip's reason is a literal with no interpolation: an interpolated one is S001 at the literal.",
+      "killers": [
+        "internal/sketch/check:TestSkipNamesItsReason"
+      ]
+    },
+    {
+      "name": "columns-token-end-short",
+      "origin": "wf10 selfhost S2d",
+      "file": "compiler/syntax/columns.ergo",
+      "from": "\tout = slices.AppendAll(out, slices.Slice(p.ends, 0, ntok))\n",
+      "to": "\tout = slices.AppendAll(out, slices.Slice(p.starts, 0, ntok))\n",
+      "rule": "A token's column carries its end, the one the scan stored: a name's or a literal's text is its whole span.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "columns-group-last-is-first",
+      "origin": "wf10 selfhost S2d",
+      "file": "compiler/syntax/columns.ergo",
+      "from": "\t\tout = out.Append(uint32(p.gLast[g]))",
+      "to": "\t\tout = out.Append(uint32(p.gFirst[g]))",
+      "rule": "A comment group carries its last comment: a doc of several lines is every line.",
+      "killers": [
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "columns-failure-unflagged",
+      "origin": "wf10 selfhost S2d",
+      "file": "compiler/syntax/columns.ergo",
+      "from": "\tout = out.Append(if p.Failed { uint32(1) } else { uint32(0) })",
+      "to": "\tout = out.Append(uint32(0))",
+      "rule": "A failed parse says so in the header, so a host reports the failure, never an empty tree.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "entry-clause-not-parsed",
+      "origin": "wf10 STD-NOPRIV NP3b; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\tif isWord(p, \"entry\") && peek(p, 1) == Func {",
+      "to": "\tif isWord(p, \"entry\") && peek(p, 1) == Func && p.i < 0 {",
+      "rule": "grammar.md Declarations 17: entry before func is the entry type's prefix.",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures"
+      ]
+    },
+    {
+      "name": "pure-clause-not-parsed",
+      "origin": "wf10 STD-NOPRIV NP3a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\tif !isWord(p, \"pure\") {\n\t\treturn -1",
+      "to": "\tif !isWord(p, \"pure\") || p.i >= 0 {\n\t\treturn -1",
+      "rule": "grammar.md Declarations 16: pure between a parameter's name and its type is the clause.",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures"
+      ]
+    },
+    {
+      "name": "builtin-target-any-name",
+      "origin": "wf10 OPT4b; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\tif (path == \"\" && !isGoBuiltin(name)) || !isIdentifier(name) {",
+      "to": "\tif (path == \"\" && !isGoBuiltin(name) && p.i < 0) || !isIdentifier(name) {",
+      "rule": "An extern target with no import path names a Go builtin.",
+      "killers": [
+        "check:TestBuiltinBindingShapes"
+      ]
+    },
+    {
+      "name": "ex3-lent-modifier-unparsed",
+      "origin": "wf10 EXPLICIT EX3 r2; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\t\t\tif identIs(p, ty, \"lent\") && p.tk != Comma && p.tk != RBrack {",
+      "to": "\t\t\tif identIs(p, ty, \"lent\") && p.tk != Comma && p.tk != RBrack && p.i < 0 {",
+      "rule": "`lent` before a constraint marks the parameter lent: [T lent Counter] (types.md, Borrows 7).",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures"
+      ]
+    },
+    {
+      "name": "try1-groups-right",
+      "origin": "wf10 lang-2 TRY1; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\t\tlet x = parseUnary(p)\n\t\tleave(p)\n\t\tlet kind = if k == Mul",
+      "to": "\t\tlet x = if k == Try { parseBinary(p, 1) } else { parseUnary(p) }\n\t\tleave(p)\n\t\tlet kind = if k == Mul",
+      "rule": "grammar.md Expressions 1 (q105): a try in operand position wraps its operand only; it adds no grouping.",
+      "killers": [
+        "internal/sketch/syntax:TestTryAddsNoGrouping"
+      ]
+    },
+    {
+      "name": "exm1-own-name-read-as-mode",
+      "origin": "wf10 EXM1; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\t\tlet own = if e.ambiguous { none } else { e.own }",
+      "to": "\t\tlet own = e.own",
+      "rule": "own is contextual: in a named list, own T is a parameter named own (q168).",
+      "killers": [
+        "internal/sketch/fix:TestOwnSpellsTheOldModes",
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
+      ]
+    },
+    {
+      "name": "orp-top-bar-text",
+      "origin": "wf10 FK7a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\t\tif p.tk == Or {\n\t\t\terrorf(p, \"the alternatives of a case",
+      "to": "\t\tif p.tk == Or && p.i < 0 {\n\t\t\terrorf(p, \"the alternatives of a case",
+      "rule": "A | at the top of a case is S001 naming the comma form (FK7a).",
+      "killers": [
+        "check:TestOrPatternMessages"
+      ]
+    },
+    {
+      "name": "orp-let-admitted",
+      "origin": "wf10 FK7a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tif !p.orAllowed {\n",
+      "to": "\tif !p.orAllowed && p.i < 0 {\n",
+      "rule": "Alternatives stand only in a case's patterns: a let or for pattern is one shape (FK7a).",
+      "killers": [
+        "check:TestOrPatternMessages"
+      ]
+    },
+    {
+      "name": "orp-cap-missing",
+      "origin": "wf10 FK7a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\t\tif has && total > maxAlternatives {",
+      "to": "\t\tif has && total > maxAlternatives*1000 {",
+      "rule": "A case expands to at most 64 patterns (FK7a).",
+      "killers": [
+        "check:TestOrPatternMessages"
+      ]
+    },
+    {
+      "name": "tskip-interpolated-reason",
+      "origin": "wf10 TSKIP; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tif p.tk == StringHead {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
+      "to": "\tif p.tk == StringHead && p.i < 0 {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
+      "rule": "A skip's reason has no interpolation, and the message says so.",
+      "killers": [
+        "internal/sketch/check:TestSkipNamesItsReason"
+      ]
+    },
+    {
+      "name": "tskip-scanner-reserves",
+      "origin": "wf10 TSKIP; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\t\treturn uint8(k)\n\t}\n\tIdent\n}\n\n// kwTable",
+      "to": "\t\treturn uint8(k)\n\t}\n\tif src[start:end] == \"skip\" {\n\t\treturn Assert\n\t}\n\tIdent\n}\n\n// kwTable",
+      "rule": "skip is a contextual keyword: the scanner reads it as a name, so no program loses the name.",
+      "killers": [
+        "internal/sketch/syntax:TestSkipIsAName"
+      ]
+    },
+    {
+      "name": "tskip-call-is-skip",
+      "origin": "wf10 TSKIP; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tn == String || n == StringHead\n}",
+      "to": "\tn != Semicolon && n != EOF\n}",
+      "rule": "Only skip followed directly by a string literal is the statement; skip(x) is a call.",
+      "killers": [
+        "internal/sketch/syntax:TestSkipIsAName"
+      ]
+    },
+    {
+      "name": "gw-group",
+      "origin": "check ledger; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\t\tif mark(p.t)-fm != 1 {\n\t\t\terrorNode(p, k, \"a wire key names one field",
+      "to": "\t\tif mark(p.t)-fm != 1 && p.i < 0 {\n\t\t\terrorNode(p, k, \"a wire key names one field",
+      "rule": "One explicit key belongs to one field, never a field group.",
+      "killers": [
+        "check:TestWireKeyDiagnostics"
+      ]
+    },
+    {
+      "name": "parseall-every-task-parses-the-first",
+      "origin": "wf10/selfhost/S2e",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "\t\t\tout = out.Append(f(srcs[i]))\n",
+      "to": "\t\t\tout = out.Append(f(srcs[i-c.From]))\n",
+      "rule": "Each file of a run is parsed: the join is each file's own parse, in file order.",
+      "killers": [],
+      "gap": "killed by law ParseAllIsEachParse (ergo test compiler/syntax), not by a Go suite; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7)"
+    },
+    {
+      "name": "eachrun-inline-parses-the-first",
+      "origin": "wf10/selfhost/S2e, moved in S2f",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "\t\t\tout = out.Append(f(s))\n",
+      "to": "\t\t\tout = slices.AppendAll([]T{f(s)}, out)\n",
+      "rule": "The columns of a package's files are each file's own, in file order, also when the package is parsed on the caller's stack.",
+      "killers": [
+        "internal/sketchfront:TestLoaderOrderIsTheNames"
+      ]
+    },
+    {
+      "name": "chunks-drop-the-last-file",
+      "origin": "wf10/selfhost/S2e",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "\t\tlet to = from + (n-from)/(k-j)\n",
+      "to": "\t\tlet to = from + (n-from-1)/(k-j)\n",
+      "rule": "The runs cover every file: none is left out of the parse.",
+      "killers": [],
+      "gap": "killed by law ChunksTile (ergo test compiler/syntax); no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7)"
+    },
+    {
+      "name": "scan-rune-end-short",
+      "origin": "wf10 selfhost S2f",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\t\t\temit(s, Rune, start, i+1)\n",
+      "to": "\t\t\temit(s, Rune, start, i)\n",
+      "rule": "The end the scan stores for a token is the token's whole span (law EndsAreStored).",
+      "killers": [
+        "internal/sketch/syntax:TestGrammarFixtures"
+      ]
+    },
+    {
+      "name": "parse-extra-not-cut-on-rewind",
+      "origin": "wf10 selfhost S2f",
+      "file": "compiler/syntax/tree.ergo",
+      "from": "\tt.extra = t.extra[:c.ne]\n",
+      "to": "",
+      "rule": "A rewind cuts the extra pool back to the checkpoint, so the records after it start where the checkpoint's words end.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "name": "scan-failed-illegal-end-unset",
+      "origin": "wf10 selfhost S2f",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\ts.toks.end[n] = uint32(end)\n",
+      "to": "",
+      "rule": "A failed scan's ILLEGAL carries its end in the ends column, which Columns copies whole.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
+    },
+    {
+      "origin": "wf10 selfhost S2f",
+      "killers": [],
+      "name": "scan-word-stops-at-wide-rune",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\t\t\tif end < n && src[end] >= 0x80 {\n\t\t\t\tend = identRestWide(src, end)\n",
+      "to": "\t\t\tif false {\n\t\t\t\tend = identRestWide(src, end)\n",
+      "rule": "A word that starts with an ASCII letter goes on through the letters and digits past 0x7F that follow (identRest's rule, written out in run).",
+      "gap": "killed by law EndsAreStored (ergo test compiler/syntax), not by a Go suite; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7)"
+    },
+    {
+      "origin": "wf10 selfhost S2f",
+      "killers": [],
+      "name": "scan-op-alone-doubled",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\tif c1 == c || k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {\n",
+      "to": "\tif k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {\n",
+      "rule": "An operator byte that repeats (`++`, `&&`, `..`) is not decided by its first byte alone.",
+      "gap": "killed by law OpFastIsOpKind (ergo test compiler/syntax), not by a Go suite; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7)"
+    },
+    {
+      "origin": "wf10 selfhost S2f, kept in S1e",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ],
+      "name": "parse-next-past-eof",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "\tif p.tk > EOF {\n",
+      "to": "\tif p.tk >= EOF {\n",
+      "rule": "The parser stops at EOF: next never moves past it, so a failed parse unwinds (the mutant parses on forever, growing its rows: under the runner's memory bound, RLIMIT_DATA, the test dies out of memory, which counts as killed)."
+    },
+    {
+      "name": "diag-string-open-offset",
+      "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, s.quotes[s.open-1], 1, \"string literal not terminated\")",
+      "to": "fail(s, n, 1, \"string literal not terminated\")",
+      "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
+      "rule": "A string left open at the end of the source, its interpolation too, is reported at its opening quote, not at the end."
+    },
+    {
+      "name": "diag-newline-is-unterminated",
+      "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, s.quotes[s.open-1], 1, \"newline in string\")",
+      "to": "fail(s, s.quotes[s.open-1], 1, \"string literal not terminated\")",
+      "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
+      "rule": "A newline inside an open interpolation's string is \"newline in string\", not an unterminated string."
+    },
+    {
+      "name": "diag-utf8-byte-value",
+      "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "hexByte(src[start])",
+      "to": "hexByte(src[0])",
+      "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
+      "rule": "An invalid UTF-8 byte is named by its own value."
+    },
+    {
+      "name": "diag-nbsp-as-char",
+      "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "uPlus(d.Rune)+\" \"+strconv.QuoteRune(d.Rune)",
+      "to": "strconv.QuoteRune(d.Rune)",
+      "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
+      "rule": "An unexpected character outside ASCII is named by its code point (U+00A0) before its quoted form."
+    },
+    {
+      "name": "diag-raw-string-open-offset",
+      "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, start, 1, \"raw string literal not terminated\")",
+      "to": "fail(s, len(s.src), 1, \"raw string literal not terminated\")",
+      "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
+      "rule": "A raw string left open is reported at its opening backquote, not at the end of the source."
+    },
+    {
+      "name": "diag-parser-error-at-scan-offset-wins",
+      "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "if p.scanFailed && at >= p.scanOffset {",
+      "to": "if p.scanFailed && at > p.scanOffset {",
+      "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
+      "rule": "A parser error at the lexical error's own offset reports the lexical error: the token there is the scanner's ILLEGAL, not the source's."
+    },
+    {
+      "name": "g1-exit-set-twice",
+      "origin": "wf10 FK9-g1c",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": " || (isExit && exit) {",
+      "to": " || (isExit && exit && false) {",
+      "rule": "grammar.md Declarations 6: each machine entry is set once; exit is set twice is S001.",
+      "anchor": {
+        "tests": [
+          "check:TestMachineExitDiagnostics"
+        ]
+      },
+      "killers": [
+        "check:TestMachineExitDiagnostics"
+      ]
+    },
+    {
+      "name": "lf6-top-when-accepted",
+      "origin": "wf10 LF6a (ported to compiler/syntax, SELFHOST-MERGE)",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\tif top && when != none {\n\t\terrorAt(p, tpos(p, int(when)-1), 4,",
+      "to": "\tif false {\n\t\terrorAt(p, tpos(p, int(when)-1), 4,",
+      "rule": "A top-level rewrite law takes no when.",
+      "killers": [
+        "check:TestFunctionRewriteRows"
+      ]
+    },
+    {
+      "name": "lf6-equation-as-member-rewrite",
+      "origin": "wf10 SELFHOST-MERGE (LF6a on S1)",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "if top { uint32(2) } else { uint32(1) }",
+      "to": "uint32(1)",
+      "rule": "types.md Laws 14: a top-level rewrite law is marked 2, so the Go tree reads it as an Equation, not a member's Rewrite.",
+      "killers": [
+        "check:TestFunctionRewriteRows"
+      ]
+    },
+    {
+      "name": "lf6-side-not-one-expression",
+      "origin": "wf10 SELFHOST-MERGE (LF6a on S1)",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\tif Len(l) == 1 && kindAt(p, wid(Item(p.t, l, 0))) == KExprStmt {",
+      "to": "\tif Len(l) >= 0 {",
+      "rule": "A top-level rewrite law has one expression on each side.",
+      "killers": [
+        "check:TestFunctionRewriteRows"
+      ]
+    },
+    {
+      "name": "keyword-param-says-type",
+      "origin": "wf10 PKG G5 (ported to compiler/syntax, SELFHOST-MERGE)",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\tif isKeyword(k) && typeStarts(peek(p, 1)) {",
+      "to": "\tif false && isKeyword(k) && typeStarts(peek(p, 1)) {",
+      "rule": "A keyword where a parameter or field names itself is reported as a keyword, not only as a missing type (PKG G5).",
+      "killers": [
+        "internal/sketch/check:TestDiagnosticMessagesSayWhatHappened"
+      ],
+      "anchor": {
+        "tests": [
+          "internal/sketch/check:TestDiagnosticMessagesSayWhatHappened"
+        ]
+      }
+    },
+    {"name":"modes4-self-mut-op-dropped","origin":"wf10 MODES-4/5 self","file":"compiler/syntax/parse_decl.ergo","from":"\t\t\t\tmutW = someTok(p.i) // `mut Bump()`","to":"\t\t\t\tmutW = none // `mut Bump()`","rule":"`mut Bump()` records the mode word on the operation (types.md Generics 2; MODES-4).","killers":["internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"]},
+    {"name":"modes5-self-tparam-own-dropped","origin":"wf10 MODES-4/5 self","file":"compiler/syntax/parse_decl.ergo","from":"\t\t\t\townW = someTok(int(p.t.tok[int(ty)]))","to":"\t\t\t\townW = none","rule":"`[T own]` records the mark on the type parameter's field (types.md Generics 9; MODES-5).","killers":["internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"]},
+    {"name":"modes1-parse-mut-unmarked","origin":"wf10 SIMPLIFY MODES-1; SELFHOST-MERGE r2: on compiler/syntax","file":"compiler/syntax/parse_type.ergo","from":"\tif k == Mul || k == Mut {\n\t\tlet star = p.i","to":"\tif k == Mul {\n\t\tlet star = p.i","rule":"mut T is the borrow spelled as the write-in-place mode, kept as written (q169; SIMPLIFY U2).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
+    {"name":"modes1-own-before-mut","origin":"wf10 SIMPLIFY MODES-1; SELFHOST-MERGE r2: on compiler/syntax","file":"compiler/syntax/parse_type.ergo","from":"func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping }","to":"func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Func || k == Escaping }","rule":"own reads as the mode word before mut T (q168, q169).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
+    {"name":"modes1-format-mut-star","origin":"wf10 SIMPLIFY MODES-1; SELFHOST-MERGE r2: on compiler/format","file":"compiler/format/nodes.ergo","from":"\t\t\tp.token(p.tp(s.Star), \"mut\")\n\t\t\tp.space()\n","to":"\t\t\tp.token(p.tp(s.Star), \"*\")\n","rule":"format writes mut T as written (q169).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]}
+  ]
+}

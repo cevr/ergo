@@ -633,18 +633,47 @@ func (c *checker) machineAfterEvery(sig *Signature, signal Type) bool {
 		return false
 	}
 	ev, ok := o.TArgs[0].(*Named)
-	return ok && IsStdEvery(ev) && len(ev.TArgs) == 1 && c.identical(ev.TArgs[0], signal)
+	return ok && IsEvery(ev) && len(ev.TArgs) == 1 && c.identical(ev.TArgs[0], signal)
 }
 
-// IsStdEvery reports whether t is an instance of std machines.Every
-// (FKG1), which lives beside machines.Work.
-func IsStdEvery(t Type) bool {
+// IsEvery reports whether t is an Every timer (FKG1): an instance of a
+// record of one type parameter E whose fields are In duration and Signal
+// func(at T) E, where T's package declares the Clock its runner reads
+// (EveryClock). std machines.Every is one. The rule reads the record's
+// shape, never the package that declares it, so a copy of machines, or a
+// user package, declares one the same way (STD-COPY-SAME: std has no
+// privileges).
+func IsEvery(t Type) bool {
 	n, ok := t.(*Named)
-	if !ok || n.origin() == nil {
+	if !ok || len(n.TArgs) != 1 {
 		return false
 	}
-	tn := n.origin().Obj
-	return tn != nil && tn.Name == "Every" && tn.Pkg != nil && tn.Pkg.std && tn.Pkg.Path == "machines"
+	o := n.origin()
+	if o == nil || len(o.TParams) != 1 {
+		return false
+	}
+	st, ok := o.Underlying().(*Struct)
+	if !ok || len(st.Fields) != 2 {
+		return false
+	}
+	in, _ := st.field("In")
+	signal, _ := st.field("Signal")
+	if in == nil || signal == nil || !isDuration(in.Type) {
+		return false
+	}
+	fn, ok := signal.Type.(*Signature)
+	if !ok || len(fn.TParams) > 0 || len(fn.Params) != 1 || len(fn.Results) != 1 || !fn.Errors.Empty() || !fn.Uses.Empty() {
+		return false
+	}
+	if e, ok := fn.Results[0].(*TypeParam); !ok || e != o.TParams[0] {
+		return false
+	}
+	at, ok := fn.Params[0].Type.(*Named)
+	if !ok || at.Obj == nil || at.Obj.Pkg == nil {
+		return false
+	}
+	_, ok = at.Obj.Pkg.Scope.names["Clock"].(*TypeName)
+	return ok
 }
 
 // EveryClock is std time.Clock, the capability that an Every timer's

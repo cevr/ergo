@@ -1,0 +1,184 @@
+// Package scan finds bytes: the first of one byte, of either of two, the
+// first outside a range, and the count of one byte (U1 SIMD-SCAN). Each
+// operation is written here in Ergo as a plain byte loop, its reference
+// and specification, and has a kernel in this module's Go package kernel
+// (docs/spec/interop.md, Trusted Go 3), which scans 32 bytes at a time
+// with AVX2 in a GOEXPERIMENT=simd build and is the same scalar loop in
+// every other. Two laws sit beside each operation:
+//
+//   - a rewrite law, the operation == its kernel (Trusted Go 5, pure by a
+//     law): once `ergo test` validates it, the build calls the kernel
+//     wherever the operation is called;
+//   - a law that holds the kernel to the reference on texts long enough
+//     for the vector loop: a run of filler from 0 to 127 bytes, a drawn
+//     text, the needle and another drawn text, so the needle lands at
+//     every offset of the loop and of its tail.
+//
+// A plain go build is correct with no experiment (docs/decisions.md, the
+// 2026-11-02 SIMD rule and its 2026-11-18 and 2026-11-19 lines).
+
+import strings
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexByte func kernelIndexByte(s []byte, c byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexAny2 func kernelIndexAny2(s []byte, a byte, b byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexOutside func kernelIndexOutside(s []byte, lo byte, hi byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.CountByte func kernelCountByte(s []byte, c byte) int
+
+extern go github.com/cevr/ergo/modules/simd/kernel.IndexNeedsEscape func kernelIndexNeedsEscape(s []byte, html bool) int
+
+// IndexByte is the first index of c in s, or -1.
+func IndexByte(s []byte, c byte) int { indexByte(s, c) }
+
+// indexByte is IndexByte's reference.
+func indexByte(s []byte, c byte) int {
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == c {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// IndexByteIsTheKernel licenses the kernel for IndexByte.
+law IndexByteIsTheKernel(s []byte, c byte) { IndexByte(s, c) } == { kernelIndexByte(s, c) }
+
+// IndexByteKernelIsTheReference: the kernel is the reference with the
+// needle at every offset of the vector loop and its tail.
+law IndexByteKernelIsTheReference(pad int, fill byte, a string, c byte, b string) {
+	let s = padded(pad, fill, a, c, b)
+	kernelIndexByte(s, c) == indexByte(s, c)
+}
+
+// IndexAny2 is the first index of a or b in s, or -1.
+func IndexAny2(s []byte, a byte, b byte) int { indexAny2(s, a, b) }
+
+// indexAny2 is IndexAny2's reference.
+func indexAny2(s []byte, a byte, b byte) int {
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == a || s[i] == b {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// IndexAny2IsTheKernel licenses the kernel for IndexAny2.
+law IndexAny2IsTheKernel(s []byte, a byte, b byte) { IndexAny2(s, a, b) } == { kernelIndexAny2(s, a, b) }
+
+// IndexAny2KernelIsTheReference: as IndexByteKernelIsTheReference, with
+// either needle placed.
+law IndexAny2KernelIsTheReference(pad int, fill byte, x string, a byte, b byte, y string) {
+	let s = padded(pad, fill, x, a, y)
+	let t = padded(pad, fill, x, b, y)
+	kernelIndexAny2(s, a, b) == indexAny2(s, a, b) && kernelIndexAny2(t, a, b) == indexAny2(t, a, b)
+}
+
+// IndexOutside is the first index of a byte below lo or above hi, or -1.
+func IndexOutside(s []byte, lo byte, hi byte) int { indexOutside(s, lo, hi) }
+
+// indexOutside is IndexOutside's reference.
+func indexOutside(s []byte, lo byte, hi byte) int {
+	let mut i = 0
+	for i < len(s) {
+		if s[i] < lo || s[i] > hi {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// IndexOutsideIsTheKernel licenses the kernel for IndexOutside.
+law IndexOutsideIsTheKernel(s []byte, lo byte, hi byte) { IndexOutside(s, lo, hi) } == { kernelIndexOutside(s, lo, hi) }
+
+// IndexOutsideKernelIsTheReference: on a run of filler inside the range
+// (lo itself) and a drawn byte after it, the kernel is the reference.
+law IndexOutsideKernelIsTheReference(pad int, lo byte, hi byte, a string, c byte, b string) {
+	let s = padded(pad, lo, a, c, b)
+	kernelIndexOutside(s, lo, hi) == indexOutside(s, lo, hi)
+}
+
+// CountByte is the number of bytes of s equal to c.
+func CountByte(s []byte, c byte) int { countByte(s, c) }
+
+// countByte is CountByte's reference.
+func countByte(s []byte, c byte) int {
+	let mut n = 0
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == c {
+			n = n + 1
+		}
+		i = i + 1
+	}
+	n
+}
+
+// CountByteIsTheKernel licenses the kernel for CountByte.
+law CountByteIsTheKernel(s []byte, c byte) { CountByte(s, c) } == { kernelCountByte(s, c) }
+
+// CountByteKernelIsTheReference: on a run of the counted byte itself, so
+// every vector counts, the kernel is the reference.
+law CountByteKernelIsTheReference(pad int, a string, c byte, b string) {
+	let s = padded(pad, c, a, c, b)
+	kernelCountByte(s, c) == countByte(s, c)
+}
+
+// IndexNeedsEscape is the first index of a byte a JSON string cannot
+// write as itself, or -1: a control byte (below 0x20), '"', '\\', a byte
+// of a multi-byte UTF-8 sequence (0x80 and above, which a quoter reads as
+// a rune), and, when html, '<', '>' and '&'. A quoter copies the bytes
+// before it as one run (SIMD-JSON-QUOTE).
+func IndexNeedsEscape(s []byte, html bool) int { indexNeedsEscape(s, html) }
+
+// indexNeedsEscape is IndexNeedsEscape's reference.
+func indexNeedsEscape(s []byte, html bool) int {
+	let mut i = 0
+	for i < len(s) {
+		if needsEscape(s[i], html) {
+			return i
+		}
+		i = i + 1
+	}
+	-1
+}
+
+// needsEscape reports whether a JSON string writes c other than as itself.
+func needsEscape(c byte, html bool) bool {
+	c < 0x20 || c >= 0x80 || c == '"' || c == '\\' || html && (c == '<' || c == '>' || c == '&')
+}
+
+// QuoteScanIsScalar licenses the kernel for IndexNeedsEscape.
+law QuoteScanIsScalar(s []byte, html bool) { IndexNeedsEscape(s, html) } == { kernelIndexNeedsEscape(s, html) }
+
+// QuoteScanKernelIsTheReference: after a run of 0 to 127 plain bytes
+// ('a'), so the byte c lands at every offset of the vector loop and of
+// its tail, the kernel is the reference, in both modes. c is one of the
+// bytes at the edges of the escaped set, by k, so each edge is drawn
+// often, not once in 256.
+law QuoteScanKernelIsTheReference(pad int, k int, b string, html bool) {
+	let s = padded(pad, 'a', "", edge(k), b)
+	kernelIndexNeedsEscape(s, html) == indexNeedsEscape(s, html)
+}
+
+// edge is the k-th of the bytes at the edges of the escaped set, k taken
+// modulo their count: 0x00, 0x1f, ' ', '!', '"', '#', '%', '&', '\'',
+// ';', '<', '=', '>', '?', '[', '\\', ']', 0x7f, 0x80, 0xff.
+func edge(k int) byte {
+	let edges = []byte{0x00, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x25, 0x26, 0x27, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x5b, 0x5c, 0x5d, 0x7f, 0x80, 0xff}
+	edges[((k % len(edges)) + len(edges)) % len(edges)]
+}
+
+// padded is a run of fill, 0 to 127 bytes long by pad, then a, the
+// needle c and b, as bytes.
+func padded(pad int, fill byte, a string, c byte, b string) []byte {
+	let n = ((pad % 128) + 128) % 128
+	strings.Bytes(strings.Repeat(strings.FromBytes([]byte{fill}), n) + a + strings.FromBytes([]byte{c}) + b)
+}

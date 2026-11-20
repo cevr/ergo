@@ -25,10 +25,11 @@ import (
 //go:embed rt/rttrace/encode.go rt/rttrace/jsonl.go rt/rttrace/rttrace.go
 //go:embed v1/context.go v1/data.go v1/deadline.go v1/exit.go v1/explore_laws.go v1/explore_off.go v1/explore_on.go v1/queue.go v1/runtime.go v1/sealed.go v1/task.go v1/text.go
 //go:embed v1/host.go v1/testhost.go v1/term.go v1/term_unix.go v1/term_linux.go v1/term_darwin.go
-//go:embed v1/http/http.go v1/http/http_client.go v1/http/http_network.go v1/rpc/rpc.go
+//go:embed v1/http/http.go v1/http/http_engine.go v1/http/http_engine_fast.go v1/http/http_peer.go v1/http/http_peer_bsd.go v1/http/http_peer_linux.go v1/http/http_peer_other.go v1/http/http_client.go v1/http/http_network.go v1/rpc/rpc.go
 //go:embed v1/embed.go v1/leaves.go
 //go:embed v1/atomic.go v1/fuse.go
 //go:embed v1/shadow/shadow.go
+//go:embed v1/sql/sql.go
 //go:embed v1/civil.go v1/collections.go v1/intmap.go
 //go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzdata.go v1/tzhost.go v1/wire.go v1/json.go v1/json_append.go v1/json_bytes.go v1/toml.go
 //go:embed v1/gotrace_on.go v1/gotrace_off.go obs/obs.go
@@ -42,11 +43,11 @@ import (
 //go:embed v1/moves.go v1/static.go v1/owned.go v1/unchecked.go v1/exits.go v1/strbuf.go
 //go:embed v1/redacted/redacted.go v1/redacted/redacted_text.go v1/config_names.go v1/toml_encode.go
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
-//go:embed rt/mapfault.go rt/pace.go rt/gcknobs.go rt/readsmall.go rt/readsmall_other.go rt/park.go rt/park_stock.go rt/park_word.go
+//go:embed rt/mapfault.go rt/pace.go rt/gcknobs.go rt/readsmall.go rt/readsmall_other.go rt/park.go rt/park_stock.go rt/park_word.go rt/waiter.go
 //go:embed v1/lineage.go v1/mapfile_unix.go v1/mapped.go v1/stdout.go v1/ui_args.go
-//go:embed v1/exec/exec_unix.go
+//go:embed v1/exec/exec_unix.go v1/net/net.go
 //go:embed rt/group.go v1/buffer.go v1/heap.go v1/term_bsd.go v1/unsupported_os.go v1/exec/exec_spawn.go v1/exec/exec_spawn_darwin.go v1/exec/exec_spawn_linux.go v1/exec/exec_spawn_other.go v1/http/http_local.go v1/http/http_query.go
-//go:embed v1/exchange_darwin.go v1/exchange_darwin.s v1/exchange_linux.go v1/exchange_linux_amd64.go v1/exchange_linux_arm64.go v1/exchange_other.go
+//go:embed v1/exchange_darwin.go v1/exchange_linux.go v1/exchange_linux_amd64.go v1/exchange_linux_arm64.go v1/exchange_other.go
 //go:embed tzdata/tzdata.go tzdata/zones.bin
 var sources embed.FS
 
@@ -71,10 +72,10 @@ var packages = map[string]pkg{
 		files: []string{"explore.go"},
 	},
 	"runtime/rt": {
-		files: []string{"alone.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go"},
+		files: []string{"alone.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go", "waiter.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_darwin.s", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
 		imports: []string{"runtime/explore/sched", "runtime/obs", "runtime/rt", "runtime/rt/rttrace", "runtime/tzdata"},
 	},
 	// std tz/iana's copy of the IANA zone database: runtime/v1 imports it,
@@ -120,13 +121,24 @@ var packages = map[string]pkg{
 		files:   []string{"exec.go", "exec_confine.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_sandbox_linux.go", "exec_sandbox_other.go", "exec_spawn.go", "exec_spawn_darwin.go", "exec_spawn_linux.go", "exec_spawn_other.go", "exec_start.go", "exec_unix.go"},
 		imports: []string{"runtime/rt", "runtime/v1"},
 	},
+	// database/sql and reflect: std sql's Host (wf10 TX1).
+	"runtime/v1/sql": {
+		files:   []string{"sql.go"},
+		imports: []string{"runtime/rt"},
+	},
 	"runtime/v1/rand": {
 		files: []string{"rand.go"},
 	},
+	// Go's net: std net's sockets and memory pipe, and the Listener std
+	// http serves.
+	"runtime/v1/net": {
+		files:   []string{"net.go"},
+		imports: []string{"runtime/rt"},
+	},
 	// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
 	"runtime/v1/http": {
-		files:   []string{"http.go", "http_client.go", "http_local.go", "http_network.go", "http_query.go"},
-		imports: []string{"runtime/rt", "runtime/v1"},
+		files:   []string{"http.go", "http_client.go", "http_engine.go", "http_engine_fast.go", "http_local.go", "http_network.go", "http_peer.go", "http_peer_bsd.go", "http_peer_linux.go", "http_peer_other.go", "http_query.go"},
+		imports: []string{"runtime/rt", "runtime/v1", "runtime/v1/net"},
 	},
 	// fmt and log/slog: Redacted's Format and LogValue (binsize BS8).
 	"runtime/v1/redacted": {

@@ -34,7 +34,7 @@ func padMachine() Machine[pad, int, int] {
 	Machine[pad, int, int]{Initial: pad{last: 0, n: 0, crossed: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
 }
 
-func padView(f *ui.Frame[int], s pad) {
+func padView(f mut ui.Frame[int], s pad) {
 	ui.Text(f, "last \(s.last) of \(s.n)")
 	let mut area = ui.Plain()
 	area.Width = ui.Fixed{Value: 200}
@@ -107,7 +107,7 @@ func rowsMachine() Machine[rowsApp, int, int] {
 	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) Option[func()] { None }}
 }
 
-func rowsView(f *ui.Frame[int], s rowsApp) {
+func rowsView(f mut ui.Frame[int], s rowsApp) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(s.n) rows, last \(s.last)")
 		ui.Row(f, ui.Plain()) {

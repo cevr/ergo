@@ -1,0 +1,7 @@
+# scripts/opcount: SM2's program against the floor: the control parses
+# each URL in one pass into a value whose parts are spans of the text,
+# with no allocation, as std url's Parse is meant to.
+unit url
+sizes 409600 2457600
+args bench parsefloor {n}
+control benchmarks/url/testdata/control

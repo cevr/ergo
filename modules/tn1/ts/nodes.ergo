@@ -141,7 +141,7 @@ func trigrams(code []Token) []uint64 {
 type Votes { Planes []uint64, N int }
 
 // vote counts the run h.
-func vote(v *Votes, h uint64) {
+func vote(v mut Votes, h uint64) {
 	let mut carry = h
 	let mut j = 0
 	for carry != 0 {
@@ -157,7 +157,7 @@ func vote(v *Votes, h uint64) {
 }
 
 // addVotes adds o's counts to v's, plane by plane with a carry.
-func addVotes(v *Votes, o Votes) {
+func addVotes(v mut Votes, o Votes) {
 	let mut carry = uint64(0)
 	let mut j = 0
 	for j < len(o.Planes) || carry != 0 {

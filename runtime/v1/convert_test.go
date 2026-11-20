@@ -15,9 +15,10 @@ import (
 var convSeed = flag.Uint64("conv.seed", 0, "run TestFloatToIntegerMatchesModel on this seed alone")
 
 // convTarget is one integer type of Ergo's float conversion: its width,
-// its sign, the runtime/v1 function the lowering calls for it and the body
-// of its checked form in std math (ToInt8 …), with the result as a
-// big.Int.
+// its sign, the runtime/v1 function the lowering calls for it and, for a
+// narrow width, the body of its checked form in std math (ToInt8 …
+// ToUint32), with the result as a big.Int; the wider checked forms are
+// Ergo (NP4f-16), held by lower TestStdMatchesGo and TestStdLawsRun.
 type convTarget struct {
 	name    string
 	bits    uint
@@ -51,17 +52,17 @@ func unsignedChecked[T unsignedInt](f func(float64) (T, error)) func(float64) (*
 }
 
 var convTargets = []convTarget{
-	{"int", 64, true, signedOf(FloatToInt), signedChecked(MathToInt)},
+	{"int", 64, true, signedOf(FloatToInt), nil},
 	{"int8", 8, true, signedOf(FloatToInt8), signedChecked(MathToInt8)},
 	{"int16", 16, true, signedOf(FloatToInt16), signedChecked(MathToInt16)},
 	{"int32", 32, true, signedOf(FloatToInt32), signedChecked(MathToInt32)},
-	{"int64", 64, true, signedOf(FloatToInt64), signedChecked(MathToInt64)},
-	{"uint", 64, false, unsignedOf(FloatToUint), unsignedChecked(MathToUint)},
+	{"int64", 64, true, signedOf(FloatToInt64), nil},
+	{"uint", 64, false, unsignedOf(FloatToUint), nil},
 	{"uint8", 8, false, unsignedOf(FloatToUint8), unsignedChecked(MathToUint8)},
 	{"uint16", 16, false, unsignedOf(FloatToUint16), unsignedChecked(MathToUint16)},
 	{"uint32", 32, false, unsignedOf(FloatToUint32), unsignedChecked(MathToUint32)},
-	{"uint64", 64, false, unsignedOf(FloatToUint64), unsignedChecked(MathToUint64)},
-	{"uintptr", 64, false, unsignedOf(FloatToUintptr), unsignedChecked(MathToUintptr)},
+	{"uint64", 64, false, unsignedOf(FloatToUint64), nil},
+	{"uintptr", 64, false, unsignedOf(FloatToUintptr), nil},
 }
 
 // floatBounds are the float64 constants of the checked form's law: the
@@ -87,6 +88,9 @@ func literal(f float64) string {
 // compare moved by one.
 func init() {
 	for _, c := range convTargets {
+		if c.checked == nil {
+			continue
+		}
 		ergo := strings.ToUpper(c.name[:1]) + c.name[1:]
 		law := "math To" + ergo + "FailsOnlyOutside"
 		lo, hi := c.floatBounds()

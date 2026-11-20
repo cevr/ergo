@@ -29,6 +29,34 @@ let Pause = 250ms
 // Room is how many entries the pins hold.
 let Room = 3
 
+// PinsHoldRoom: a hit is pinned and told, unless the
+// pins hold Room entries; then the screen shows the problem.
+law PinsHoldRoom(n int) {
+	let have = ((n % 5) + 5) % 5
+	let mut pins = []Entry{}
+	for i in 0..have {
+		pins = pins.Append(Entry{Name: "x\(i)", Size: i})
+	}
+	let hits = []Entry{Entry{Name: "Pear.md", Size: 150}}
+	let d = Step(Showing{Query: "pe", Hits: hits, Pins: pins}, Pin{Hit: 1}) catch {
+	case NoSuchHit:
+		return false
+	}
+	match d {
+	case Emit[Search, Output] as e:
+		have < Room && len(PinsOf(e.Next)) == have+1 && e.Output == Pinned{Name: "Pear.md"}
+	case Enter[Search] as en:
+		match en.Next {
+		case Problem as p:
+			have >= Room && len(p.Pins) == have
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
 // Latency is how long a search takes: the work waits it on the Scheduler,
 // then asks the Index.
 let Latency = 100ms

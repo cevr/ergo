@@ -150,6 +150,9 @@ type knownStats struct {
 	Renamed int
 	// Consts is the package lets written as Go consts (forms.go).
 	Consts int
+	// StaticLets is the package lets of constant data written as a Go
+	// variable's literal initializer, with no init code (LITERAL-LET).
+	StaticLets int
 	// MapStores is the in-place Map writes whose store back is dropped
 	// (forms.go).
 	MapStores int

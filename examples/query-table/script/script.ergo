@@ -1,0 +1,386 @@
+// Package script is the host of stage b: it runs the program as an actor
+// on std ui's test host, plays a script of the user's acts on the screen,
+// does what the program asks (replace the address, push one, move the
+// focus), and shows after each act what the screen shows: the address,
+// the controls, an open list, the sorting, the count and the rows, or the
+// not-found page. A line is one of:
+//
+//	start PATH            open the program at PATH (the first line only)
+//	visit PATH            type PATH in the address bar
+//	search TEXT           fill the search box (the rest of the line; none clears it)
+//	sort COLUMN           click a column header: Name, Period, Diet, Length or Weight
+//	diet LABEL            open the diet list box and choose LABEL (All Diets, Carnivore, …)
+//	period LABEL          open the period list box and choose LABEL (All Periods, Triassic, …)
+//	press diet|period     click a list box's button
+//	choose LABEL          click an item of the open list
+//	key NAME              press a key: ArrowDown, ArrowUp, Home, End, Enter, Space, Escape
+//	link LABEL            follow a link of the page
+//	back                  the browser's Back
+//
+// A blank line or one that starts with # is skipped.
+
+import actor
+import querytable/explorer
+import querytable/query
+import querytable/screen
+import querytable/table
+import io
+import machines
+import queue
+import strings
+import time
+import ui
+
+// Bad is a script line the host cannot read.
+type Bad { Why string }
+
+// Site is the running program.
+type Site = actor.Actor[explorer.Page, explorer.Signal, Decision[explorer.Page, []explorer.Command]]
+
+// Host is the program on the test host.
+type Host = ui.TestHost[explorer.Page, explorer.Signal, Decision[explorer.Page, []explorer.Command]]
+
+// Run plays the script on standard input over clock and prints what the
+// screen shows; with stats, the work of each act too. It returns the exit
+// status: 0, or 1 for a line it cannot read or a screen that fails.
+func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler {
+	let mut lines = []string{}
+	for raw in io.Stdin.Lines() {
+		lines = lines.Append(raw)
+	}
+	let mut address = "/"
+	let mut first = 0
+	for i, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "start ") {
+			address = strings.TrimSpace(strings.TrimPrefix(line, "start "))
+			first = i + 1
+		}
+		break
+	}
+	let gone = queue.New[[]explorer.Command](64)
+	let site = actor.StartMachine(machines.Start(explorer.Explorer{}, address), 16, func(cs []explorer.Command) {
+		gone.Push(cs) catch {
+		case queue.Closed:
+		}
+	})
+	let status = played(site, gone, lines, first, address, clock, stats) catch {
+	case actor.Stopped:
+		Console.Println("? the program stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+	site.Stop()
+	status
+}
+
+func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, first int, address string, clock time.Manual, stats bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
+	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
+	// The browser opens at the start address: the history's first entry.
+	ui.OpenAt(&h, address)
+	try ui.Settle(&h)
+	let mut shown = []string{}
+	Console.Println("> start \(address)")
+	shown = show(shown, View(&h))
+	for i in first..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		Console.Println("> " + line)
+		let acts = actsOf(line) catch {
+		case Bad as b:
+			Console.Println("? line \(i + 1): \(b.Why)")
+			return 1
+		}
+		let mut missing = ""
+		for a in acts {
+			ui.Play(&h, []ui.Act{a, ui.SettleAll}) catch {
+			case ui.NoNode as no:
+				missing = "no node: \(no.Label)"
+			case ui.Ambiguous as m:
+				missing = "\(m.Count) nodes: \(m.At)"
+			case ui.Mismatch:
+				missing = "no match"
+			case actor.Stopped as st:
+				return st
+			case ui.BadPatch as b:
+				return b
+			}
+			if missing != "" {
+				break
+			}
+		}
+		let asks = try run(&h, site, gone)
+		// The act's work and that of the address it asked for: a replacement
+		// is no input of the test host, so its passes join the act's step.
+		let counts = ui.Counts(&h)
+		if len(asks) > 0 {
+			Console.Println("  asks: " + strings.Join(asks, ", "))
+		}
+		if missing != "" {
+			Console.Println("  ? " + missing)
+		}
+		shown = show(shown, View(&h))
+		if stats {
+			Console.Println("  stats: \(ui.CountsLine(counts))")
+		}
+	}
+	Console.Println("> stop")
+	0
+}
+
+// run does what the program asked since the host last looked: a
+// replacement of the address replaces the history's entry and tells the
+// table the address it is at (the test host has no replace that reports
+// the change, gap FK10-g1), a push is followed as a link is, and a focus
+// is noted. It is how each shows.
+func run(h mut Host, site Site, gone queue.Queue[[]explorer.Command]) []string fails actor.Stopped | ui.BadPatch {
+	let mut asks = []string{}
+	for {
+		let cs = match gone.Poll() {
+		case Some[[]explorer.Command] as x:
+			x.Value
+		case None:
+			return asks
+		}
+		for c in cs {
+			match c {
+			case explorer.Replace as r:
+				asks = asks.Append("replace \(r.Path)")
+				ui.Replace(ui.History(h), ui.ParseURL(r.Path))
+				let _ = try site.Ask(explorer.OnTable{Signal: table.Navigated{Path: r.Path}})
+				try ui.Settle(h)
+			case explorer.Push as p:
+				asks = asks.Append("push \(p.Path)")
+				try ui.Navigate(h, p.Path)
+				try ui.Settle(h)
+			case explorer.Focus as f:
+				asks = asks.Append("focus \(screen.ListName(f.Filter))")
+			}
+		}
+	}
+}
+
+// actsOf is a line's acts on the screen.
+func actsOf(line string) []ui.Act fails Bad {
+	let words = strings.Fields(line)
+	let rest = strings.TrimSpace(strings.TrimPrefix(line, words[0]))
+	match words[0] {
+	case "visit":
+		[]ui.Act{ui.NavigateTo{Href: rest}}
+	case "search":
+		[]ui.Act{ui.FillIn{At: ui.WithPlaceholder{Text: screen.SearchPlaceholder}, Text: rest}}
+	case "sort":
+		for c in query.Columns {
+			if query.ColumnName(c) == rest {
+				return []ui.Act{ui.ClickOn{At: ui.Within{In: ui.WithRole{Role: ui.TableCell, Name: screen.Label(c)}, At: ui.WithRole{Role: ui.Button, Name: ""}}}}
+			}
+		}
+		Bad{Why: "a column is Name, Period, Diet, Length or Weight"}
+	case "diet", "period":
+		let name = if words[0] == "diet" { "Diet" } else { "Period" }
+		[]ui.Act{press(name), ui.ClickOn{At: ui.Within{In: ui.WithRole{Role: ui.Menu, Name: name}, At: ui.WithRole{Role: ui.MenuItem, Name: rest}}}}
+	case "press":
+		match rest {
+		case "diet":
+			[]ui.Act{press("Diet")}
+		case "period":
+			[]ui.Act{press("Period")}
+		case _:
+			Bad{Why: "press diet or press period"}
+		}
+	case "choose":
+		[]ui.Act{ui.ClickOn{At: ui.WithRole{Role: ui.MenuItem, Name: rest}}}
+	case "key":
+		let name = if rest == "Space" { " " } else { rest }
+		[]ui.Act{ui.KeyIn{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}
+	case "link":
+		[]ui.Act{ui.ClickOn{At: ui.WithRole{Role: ui.Link, Name: rest}}}
+	case "back":
+		[]ui.Act{ui.GoBack}
+	case "start":
+		Bad{Why: "start is the first line only"}
+	case _:
+		Bad{Why: "unknown word \(words[0])"}
+	}
+}
+
+// press clicks the button of the list box named name.
+func press(name string) ui.Act {
+	ui.ClickOn{At: ui.Within{In: ui.WithRole{Role: ui.Group, Name: name}, At: ui.WithRole{Role: ui.Button, Name: ""}}}
+}
+
+// show prints the lines of now whose part (the words before the first
+// ": ") was absent from shown or read otherwise, and is now.
+func show(shown []string, now []string) []string needs Console {
+	for l in now {
+		let mut same = false
+		for s in shown {
+			if s == l {
+				same = true
+			}
+		}
+		if !same {
+			Console.Println("  " + l)
+		}
+	}
+	for s in shown {
+		let part = partOf(s)
+		let mut kept = false
+		for l in now {
+			if partOf(l) == part {
+				kept = true
+			}
+		}
+		if !kept {
+			Console.Println("  \(part): gone")
+		}
+	}
+	now
+}
+
+func partOf(l string) string {
+	let i = strings.Index(l, ": ")
+	if i < 0 { l } else { l[0:i] }
+}
+
+// seen is what the screen shows, read part by part.
+type seen { Search Option[string], Lists []string, List string, Header bool, Sorts []string, Showing string, Rows []string, Empty bool, Page []string }
+
+// View is the screen as lines, one per part: the address and its depth,
+// the page's headings, links and the not-found text, the controls (the
+// search box and each list box's button), an open list (its items, the
+// selected one with *, the active one with >), the sorting, the count,
+// and the rows.
+func View(h mut Host) []string {
+	let mut s = seen{Search: None, Lists: []string{}, List: "", Header: false, Sorts: []string{}, Showing: "", Rows: []string{}, Empty: false, Page: []string{}}
+	for x in ui.Screen(h) {
+		s = walk(x, s, "")
+	}
+	let at = ui.History(h)
+	let mut out = []string{"address: \(ui.Href(ui.Current(at))) (\(ui.Depth(at)) behind)", "page: " + strings.Join(s.Page, " | ")}
+	match s.Search {
+	case Some[string] as q:
+		out = out.Append("controls: search \"\(q.Value)\", " + strings.Join(s.Lists, ", "))
+	case None:
+	}
+	if s.List != "" {
+		out = out.Append("list: " + s.List)
+	}
+	if s.Header {
+		let sorts = if len(s.Sorts) == 0 { "unsorted" } else { strings.Join(s.Sorts, ", ") }
+		out = out.Append("sorting: " + sorts)
+	}
+	if s.Showing != "" {
+		out = out.Append(s.Showing)
+	}
+	if s.Empty {
+		out = out.Append("rows: " + screen.Empty)
+	} else if len(s.Rows) > 0 {
+		out = out.Append("rows: " + strings.Join(s.Rows, "; "))
+	}
+	out
+}
+
+func walk(x ui.Shape[explorer.Signal], s seen, within string) seen {
+	match x.Node {
+	case ui.TextNode as t:
+		if strings.HasPrefix(t.Value, "Showing ") {
+			return seen{..s, Showing: "count: " + t.Value}
+		}
+		if t.Value == screen.Empty {
+			return seen{..s, Empty: true}
+		}
+		if strings.HasPrefix(t.Value, "The path ") {
+			return seen{..s, Page: s.Page.Append(t.Value)}
+		}
+		s
+	case ui.InputNode as i:
+		seen{..s, Search: Some[string]{Value: i.Value}}
+	case ui.SemanticNode as g:
+		let a = g.Access
+		if a.Role == ui.Heading {
+			return seen{..s, Page: s.Page.Append("# " + a.Name)}
+		}
+		if a.Role == ui.Link {
+			return seen{..s, Page: s.Page.Append("<\(a.Name)>")}
+		}
+		if a.Role == ui.Group {
+			return kids(x, s, a.Name)
+		}
+		if a.Role == ui.Button && within == "header" {
+			let i = strings.Index(a.Name, ", currently ")
+			if i < 0 {
+				return s
+			}
+			return seen{..s, Sorts: s.Sorts.Append(strings.TrimPrefix(a.Name[0:i], "Sort by ") + " " + a.Name[i+len(", currently "):len(a.Name)])}
+		}
+		if a.Role == ui.Button && within != "" {
+			let open = match a.Expanded {
+			case Some[bool] as e:
+				if e.Value { " (open)" } else { "" }
+			case None:
+				""
+			}
+			return seen{..s, Lists: s.Lists.Append("\(strings.ToLower(within)) \(a.Name)\(open)")}
+		}
+		if a.Role == ui.Menu {
+			let active = match a.Value {
+			case Some[string] as v:
+				v.Value
+			case None:
+				""
+			}
+			let mut items = []string{}
+			for k in x.Kids {
+				match k.Node {
+				case ui.SemanticNode as m:
+					let mark = if m.Access.Name == active { ">" } else { "" }
+					let sel = match m.Access.Selected {
+					case Some[bool] as b:
+						if b.Value { "*" } else { "" }
+					case None:
+						""
+					}
+					items = items.Append(mark + m.Access.Name + sel)
+				case _:
+				}
+			}
+			return seen{..s, List: "\(a.Name): " + strings.Join(items, ", ")}
+		}
+		if a.Role == ui.TableRow && a.Name == "Columns" {
+			return kids(x, seen{..s, Header: true}, "header")
+		}
+		if a.Role == ui.TableRow {
+			let mut cells = []string{}
+			for k in x.Kids {
+				match k.Node {
+				case ui.SemanticNode as c:
+					cells = cells.Append(c.Access.Name)
+				case _:
+				}
+			}
+			if len(cells) == 5 {
+				return seen{..s, Rows: s.Rows.Append("\(cells[0]) (\(cells[1]), \(cells[2]), \(cells[3]) m, \(cells[4]) kg)")}
+			}
+			return s
+		}
+		kids(x, s, within)
+	case _:
+		kids(x, s, within)
+	}
+}
+
+func kids(x ui.Shape[explorer.Signal], s seen, within string) seen {
+	let mut out = s
+	for k in x.Kids {
+		out = walk(k, out, within)
+	}
+	out
+}

@@ -87,14 +87,14 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 		irNo("owning site of another shape")
 	}
 	for i, q := range owned.Params[:len(list)] {
-		if i != cb && !b.operandFits(list[i], q.Type, subst) { // ir_operand.go
+		if i != cb && !b.operandFits(list[i], q.Type, subst, owned.Package) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
 	if failsHere(c) {
 		irNo("fallible call with an empty row at its site")
 	}
-	if goValue(owned) && !b.sameGo(b.l.info.Types[x], owned.Results[0]) && !b.sameRT(b.l.info.Types[x], owned.Results[0], subst) {
+	if goValue(owned) && !b.sameGo(b.l.info.Types[x], owned.Results[0]) && !b.sameRT(b.l.info.Types[x], owned.Results[0], subst, owned.Package) {
 		irNo("std call with a converted result")
 	}
 	var pre []*irStmt

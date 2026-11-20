@@ -1,6 +1,7 @@
 import jsonv/json
 import stdjson json
 import math
+import slices
 import strconv
 import strings
 import utf8
@@ -30,11 +31,39 @@ func Validate(s Schema, v stdjson.Value) []Violation {
 	w.found
 }
 
+// InferredAccepts: the schema inferred from a value accepts that value.
+law InferredAccepts(v json.Tree) {
+	let w = try json.Lawful(v)
+	len(Validate(Infer(w), w)) == 0
+}
+
+// OtherKindsAreRejected: the schema inferred from a value rejects a value
+// of another kind, at the root.
+law OtherKindsAreRejected(a json.Tree, b json.Tree) {
+	let x = try json.Lawful(a)
+	let y = try json.Lawful(b)
+	if json.Kind(x) == json.Kind(y) {
+		return true
+	}
+	let found = Validate(Infer(x), y)
+	len(found) == 1 && PathOf(found[0]) == "$"
+}
+
+// PathsAreRooted: every violation names a path from $.
+law PathsAreRooted(a json.Tree, b json.Tree) {
+	for x in Validate(Infer(try json.Lawful(a)), try json.Lawful(b)) {
+		if !strings.HasPrefix(PathOf(x), "$") {
+			return false
+		}
+	}
+	true
+}
+
 type report { found []Violation }
 
-func add(w *report, x Violation) { w.found = w.found.Append(x) }
+func add(w mut report, x Violation) { w.found = w.found.Append(x) }
 
-func validate(w *report, s Schema, v stdjson.Value, path string) {
+func validate(w mut report, s Schema, v stdjson.Value, path string) {
 	match s {
 	case Anything:
 	case IsNull:
@@ -111,7 +140,7 @@ func validate(w *report, s Schema, v stdjson.Value, path string) {
 			if obj.Closed {
 				let mut seen = []string{}
 				for m in o.Members {
-					if indexOf(obj.Props, m.Key) < 0 && !has(seen, m.Key) {
+					if slices.IndexFunc(obj.Props, func(p Prop) bool { p.Name == m.Key }) < 0 && !has(seen, m.Key) {
 						add(w, ExtraMember{Path: path, Name: m.Key})
 						seen = seen.Append(m.Key)
 					}

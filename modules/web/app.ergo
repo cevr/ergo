@@ -80,9 +80,9 @@ func answer(method string, status int, page html.Node) http.Response {
 }
 
 // Request is a request of method for path with no query, header or body,
-// as a test or a prerender asks a site.
+// as a test or a prerender asks a site; its raw path is path as given.
 func Request(method string, path string) http.Request {
-	http.Request{Method: method, Path: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	http.Request{Method: method, Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 }
 
 // The laws' site: a home page and numbered items, where a negative item

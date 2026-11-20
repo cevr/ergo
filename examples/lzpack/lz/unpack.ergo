@@ -35,6 +35,76 @@ func Unpack(packed string) string fails Corrupt {
 	d.out.String()
 }
 
+// UnpackOfPackIsInput: what Pack writes, Unpack reads back.
+law UnpackOfPackIsInput(s string, k int) {
+	let input = sample(s, k)
+	let back = Unpack(Pack(input)) catch {
+	case Corrupt:
+		return false
+	}
+	back == input
+}
+
+// filler is n bytes that repeat no four-byte run of each other within
+// the window: a counter in base 251, three digits at a time.
+func filler(n int) string {
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for b.Len() < n {
+		b.WriteByte(byte(i % 251))
+		b.WriteByte(byte((i / 251) % 251))
+		b.WriteByte(byte((i/63001)%251 + 3))
+		i += 1
+	}
+	strings.Slice(b.String(), 0, n)
+}
+
+// sample is an input built from s and k: s, copies of it, a run, and,
+// for odd k, a filler of more than a Window between two copies of s.
+func sample(s string, k int) string {
+	let reps = (k%7 + 7) % 7
+	let mut b = strings.NewBuilder()
+	b.WriteString(s)
+	for _ in 0..reps {
+		b.WriteString(s)
+		b.WriteByte(byte(reps))
+	}
+	for _ in 0..(k%40+40)%40 {
+		b.WriteByte(byte(k))
+	}
+	if k%2 != 0 {
+		b.WriteString(filler(Window + (k%300+300)%300))
+		b.WriteString(s)
+		b.WriteString(s)
+	}
+	b.String()
+}
+
+// MalformedIsAFailure: any bytes after the magic, and any stream Pack
+// wrote with one byte changed or cut short, unpack to a text or fail with
+// Corrupt; none is a defect.
+law MalformedIsAFailure(body string, s string, k int, b int) {
+	let _ = Unpack(Magic + body) catch {
+	case Corrupt:
+		""
+	}
+	let packed = Pack(sample(s, k))
+	let at = (k%len(packed) + len(packed)) % len(packed)
+	let mut changed = strings.NewBuilder()
+	changed.WriteString(strings.Slice(packed, 0, at))
+	changed.WriteByte(byte((b%256 + 256) % 256))
+	changed.WriteString(strings.Slice(packed, at+1, len(packed)))
+	let _ = Unpack(changed.String()) catch {
+	case Corrupt:
+		""
+	}
+	let _ = Unpack(strings.Slice(packed, 0, at)) catch {
+	case Corrupt:
+		""
+	}
+	true
+}
+
 // advance is the frame after the part p read at offset at, or the
 // Corrupt that ends the frame there.
 func advance(f Frame, p Part, at int) Frame fails Corrupt {
@@ -54,7 +124,7 @@ func truncated(packed string) Corrupt { Corrupt{Offset: len(packed), Reason: Tru
 
 // uvarint reads a block header: at most three bytes of seven bits each,
 // low first. A third byte with its high bit set is BlockTooLong.
-func uvarint(d *Decoder, packed string) int fails Corrupt {
+func uvarint(d mut Decoder, packed string) int fails Corrupt {
 	let h = d.at
 	let mut v = 0
 	let mut shift = 0
@@ -77,7 +147,7 @@ func uvarint(d *Decoder, packed string) int fails Corrupt {
 
 // ext reads the rest of a length whose nibble is 15: base plus every byte
 // up to and with the first that is not 255.
-func ext(d *Decoder, packed string, base int) int fails Corrupt {
+func ext(d mut Decoder, packed string, base int) int fails Corrupt {
 	let mut v = base
 	for {
 		if d.at >= len(packed) {
@@ -93,7 +163,7 @@ func ext(d *Decoder, packed string, base int) int fails Corrupt {
 }
 
 // block reads the sequences of a block of n raw bytes.
-func block(d *Decoder, packed string, n int) fails Corrupt {
+func block(d mut Decoder, packed string, n int) fails Corrupt {
 	let mut pos = 0
 	for pos < n {
 		let t = d.at
@@ -142,7 +212,7 @@ func block(d *Decoder, packed string, n int) fails Corrupt {
 }
 
 // literals writes the l bytes of packed at d.at, which are there.
-func literals(d *Decoder, packed string, l int) {
+func literals(d mut Decoder, packed string, l int) {
 	let from = d.at
 	d.out.WriteString(strings.Slice(packed, from, from+l))
 	for k in 0..l {
@@ -155,7 +225,7 @@ func literals(d *Decoder, packed string, l int) {
 // copy writes m bytes from off back, one at a time, so a copy that
 // overlaps what it writes repeats it. 1 <= off <= d.total and off <
 // Window, so every byte it reads is in the ring.
-func copy(d *Decoder, off int, m int) {
+func copy(d mut Decoder, off int, m int) {
 	for k in 0..m {
 		let c = d.win[(d.total+k-off)&WindowMask]
 		d.win[(d.total+k)&WindowMask] = c

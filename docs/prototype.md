@@ -19,7 +19,7 @@ This is a single-file compiler experiment, not the full design in design.md. The
 - Built-in Console/Stdout, Clock/LiveClock, Env/LiveEnv and Http/LiveHttp; Go additionally supplies Files/LiveFiles and Runtime/RuntimeLive. See [runtime.md](runtime.md) for contracts and foreign adapters.
 - `scope { ... }`, `fork effectCall()`, inferred fiber `join()` / `cancel()` / `interrupt()`, and lazy `.timeout(milliseconds)` adding Timeout. The checker conservatively retains child failure rows even when a child is not joined.
 
-- `import go alias "module/package"` loads primitive native function declarations; `.orFail()` adapts returned Go errors explicitly. See [interop](interop.md).
+- `import go alias "module/package"` loads primitive native function declarations; `.orFail()` adapts returned Go errors explicitly. See [interop](spec/interop.md).
 - `Http.listen(address, HttpLimits, handler)` is the only builtin HTTP server operation: a bounded managed transport over builtin `HttpRequest`/`HttpReply` records whose native provider owns requests and shutdown. The raw `Http.serve` was removed (EF102). See [HTTP contract](runtime.md#http-server).
 
 Rows are normalized sets; declarations are upper bounds. Service calls use the service's declared contract even if one provider admits fewer failures. A library may retain requirements; the executable entry is an effect function named `main`, takes no parameters, and requires no remaining services. Its admitted typed failures are reported as runtime failures with nonzero exit status.

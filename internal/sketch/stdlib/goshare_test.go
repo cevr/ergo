@@ -28,7 +28,7 @@ import (
 //     class below its ceiling fails until the ceiling is lowered to it:
 //     the counts only fall.
 //
-// It is a one-way ledger, as std-copy.txt is, not a pinned count of a
+// It is a one-way ledger, not a pinned count of a
 // generated corpus: each row is a declaration a person reads.
 func TestStdGoShareOnlyFalls(t *testing.T) {
 	rows := readStdGoShare(t, "testdata/std-go-share.txt")
@@ -41,12 +41,12 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    79, // I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written); I22: +25 batch-22 externs
-	"host":        33, // I22: +14 batch-22 externs
+	"provider":    80, // I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
+	"host":        35, // I22: +14 batch-22 externs; NET1: +2 net.hostDial, net.hostListen
 	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs
-	"computation": 53, // I22: +5 batch-22 externs
-	"type":        79, // I22: +4 batch-22 externs
+	"computation": 43, // I22: +5 batch-22 externs; NP4f-15: -2, NP4f-16: -5, NP4f-17: -2, NP4f-URL: -2 (moved to Ergo); HTTP-RAWPATH: +1 http.DecodePath
+	"type":        86, // I22: +4 batch-22 externs; NET1 +6 (net Conn, Listener, three failures; nettest.PipeNet) less http.Listener, HTTP-RAWPATH +1 http.BadEscape; STD-COPY-SAME: +1 fs.Text, which names the runtime's MappedText (extern go), not the path fs
 }
 
 // stdGoShareClasses are the classes a row may name; the true ones need a
@@ -106,8 +106,13 @@ func stdRuntimeExterns(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	// The prelude is no importable package: its declarations are read from
-	// its parsed source.
+	// its parsed source. Its builtin.ergo is the language's own operations
+	// on slices, Maps, strings and runes (check/collop.go, PRIM-2b): their
+	// bodies are the language's, as + is int's, not Go that std binds.
 	for name, src := range stdlib.Prelude() {
+		if name == "builtin.ergo" {
+			continue
+		}
 		f, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatalf("prelude %s: %v", name, err)

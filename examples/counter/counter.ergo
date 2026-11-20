@@ -3,7 +3,7 @@
 type Digit int where 0 <= it && it <= 9
 
 type Counter {
-	Add(n Digit),
+	mut Add(n Digit),
 	Total() Digit,
 	law AddJoins(a Digit, b Digit) { Add(a); Add(b) } == { Add(Plus(a, b)) },
 }

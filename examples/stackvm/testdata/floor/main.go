@@ -24,7 +24,16 @@
 // What stays is the job: one dispatch per instruction, its arithmetic, the
 // division by zero check, the steps count and the printed values.
 //
+// `floor fib N` is the floor of `stackvm fib N`, a recursive program. Its
+// verifier (verifyCalls) reads subroutines as vm.Verify does: one depth per
+// instruction and per Ret in each, a fixed need of the caller's values, no
+// Ret in main. The program then runs on fastCalls: the values and the
+// return points in one slice sized from the proved depth and maxFrames,
+// indexed under its mask, with only the call-depth check, which a
+// recursion can pass at run time, and fuel checked when control goes back.
+//
 //	floor bench N
+//	floor fib N
 package main
 
 import (
@@ -84,6 +93,285 @@ func benchProgram(rounds int) []instr {
 		{opPrint, 0}, // done
 		{opPop, 0},
 	}
+}
+
+// fibProgram is FibProgram of cmd/stackvm/main.ergo: rounds times fib(15)
+// by the doubly recursive subroutine of cases/fib, summed and printed.
+func fibProgram(rounds int) []instr {
+	return []instr{
+		{opPush, 0},
+		{opPush, rounds},
+		{opDup, 0}, // loop
+		{opJumpIfNot, 12},
+		{opSwap, 0},
+		{opPush, 15},
+		{opCall, 15},
+		{opAdd, 0},
+		{opSwap, 0},
+		{opPush, 1},
+		{opSub, 0},
+		{opJump, 2},
+		{opPop, 0}, // done
+		{opPrint, 0},
+		{opHalt, 0},
+		{opDup, 0}, // fib
+		{opPush, 2},
+		{opLess, 0},
+		{opJumpIf, 28},
+		{opDup, 0},
+		{opPush, 1},
+		{opSub, 0},
+		{opCall, 15},
+		{opSwap, 0},
+		{opPush, 2},
+		{opSub, 0},
+		{opCall, 15},
+		{opAdd, 0},
+		{opRet, 0}, // base
+	}
+}
+
+// reachLimit bounds a depth from a subroutine's start, as vm.Reach does.
+const reachLimit = 64
+
+// verifyCalls reports whether program runs on fastCalls, and the room it
+// needs: a power of two that holds the deepest stack and the return
+// points.
+func verifyCalls(program []instr) (int, bool) {
+	size := len(program)
+	entries := []int{0}
+	fn := make([]int, size+1)
+	for i := range fn {
+		fn[i] = -1
+	}
+	for _, in := range program {
+		switch in.op {
+		case opJump, opJumpIf, opJumpIfNot, opCall:
+			if in.n < 0 || in.n > size {
+				return 0, false
+			}
+		}
+		if in.op == opCall && fn[in.n] == -1 {
+			fn[in.n] = len(entries)
+			entries = append(entries, in.n)
+		}
+	}
+	type summary struct {
+		returns     bool
+		delta, need int
+	}
+	sums := make([]summary, len(entries))
+	at := make([]int, size)
+	var work []int
+	high := 0
+	changed := true
+	demand := func(f, n int) bool {
+		if n <= sums[f].need {
+			return true
+		}
+		if n > reachLimit {
+			return false
+		}
+		sums[f].need, changed = n, true
+		return true
+	}
+	reach := func(pc, d int) bool {
+		if pc < 0 || pc > size || d > reachLimit || d < -reachLimit {
+			return false
+		}
+		high = max(high, d)
+		if pc == size {
+			return true
+		}
+		if at[pc] == reachLimit+1 {
+			at[pc] = d
+			work = append(work, pc)
+			return true
+		}
+		return at[pc] == d
+	}
+	for rounds := 0; changed; rounds++ {
+		if rounds > (reachLimit+2)*len(entries) {
+			return 0, false
+		}
+		changed, high = false, 0
+		for f, entry := range entries {
+			for i := range at {
+				at[i] = reachLimit + 1
+			}
+			work = work[:0]
+			if !reach(entry, 0) {
+				return 0, false
+			}
+			for len(work) > 0 {
+				pc := work[len(work)-1]
+				work = work[:len(work)-1]
+				in, d := program[pc], at[pc]
+				need, delta := effect(in.op)
+				if in.op == opCall || in.op == opRet {
+					need, delta = 0, 0
+				}
+				if !demand(f, need-d) {
+					return 0, false
+				}
+				next := d + delta
+				ok := true
+				switch in.op {
+				case opHalt:
+				case opRet:
+					s := &sums[f]
+					switch {
+					case f == 0:
+						ok = false
+					case !s.returns:
+						s.returns, s.delta, changed = true, d, true
+					default:
+						ok = s.delta == d
+					}
+				case opCall:
+					s := sums[fn[in.n]]
+					ok = demand(f, s.need-d) && (!s.returns || reach(pc+1, d+s.delta))
+				case opJump:
+					ok = reach(in.n, next)
+				case opJumpIf, opJumpIfNot:
+					ok = reach(in.n, next) && reach(pc+1, next)
+				default:
+					ok = reach(pc+1, next)
+				}
+				if !ok {
+					return 0, false
+				}
+			}
+		}
+	}
+	if sums[0].need > 0 {
+		return 0, false
+	}
+	bound := (maxFrames+1)*high + maxFrames
+	room := 1
+	for room <= bound {
+		room *= 2
+	}
+	return room, true
+}
+
+// fastCalls runs a program verifyCalls accepted.
+func fastCalls(program []instr, fuel, room int) (printed, stack []int, steps int, err error) {
+	mem := make([]int, room)
+	top := len(mem) - 1
+	sp, fp, pc, end := 0, 0, 0, len(program)
+	if fuel <= end || len(mem) == 0 { // len(mem) > 0 lets Go drop the masked indexes' checks
+		return nil, nil, 0, errFuel
+	}
+	left := fuel // fuel left: one counter for the fuel and the steps
+	for pc < end {
+		in := program[pc]
+		at := pc
+		pc++
+		left--
+		switch in.op {
+		case opPush:
+			mem[sp&top] = in.n
+			sp++
+		case opPop:
+			sp--
+		case opDup:
+			mem[sp&top] = mem[(sp-1)&top]
+			sp++
+		case opSwap:
+			a, b := &mem[(sp-1)&top], &mem[(sp-2)&top]
+			*a, *b = *b, *a
+		case opOver:
+			mem[sp&top] = mem[(sp-2)&top]
+			sp++
+		case opAdd:
+			mem[(sp-2)&top] += mem[(sp-1)&top]
+			sp--
+		case opSub:
+			mem[(sp-2)&top] -= mem[(sp-1)&top]
+			sp--
+		case opMul:
+			mem[(sp-2)&top] *= mem[(sp-1)&top]
+			sp--
+		case opDiv:
+			b := mem[(sp-1)&top]
+			if b == 0 {
+				return nil, nil, 0, &trap{at, "division by zero"}
+			}
+			mem[(sp-2)&top] /= b
+			sp--
+		case opMod:
+			b := mem[(sp-1)&top]
+			if b == 0 {
+				return nil, nil, 0, &trap{at, "division by zero"}
+			}
+			mem[(sp-2)&top] %= b
+			sp--
+		case opLess:
+			r := 0
+			if mem[(sp-2)&top] < mem[(sp-1)&top] {
+				r = 1
+			}
+			mem[(sp-2)&top] = r
+			sp--
+		case opSame:
+			r := 0
+			if mem[(sp-2)&top] == mem[(sp-1)&top] {
+				r = 1
+			}
+			mem[(sp-2)&top] = r
+			sp--
+		case opNot:
+			r := 0
+			if mem[(sp-1)&top] == 0 {
+				r = 1
+			}
+			mem[(sp-1)&top] = r
+		case opJump:
+			pc = in.n
+			if pc <= at && left <= end {
+				return nil, nil, 0, errFuel
+			}
+		case opJumpIf:
+			sp--
+			if mem[sp&top] != 0 {
+				pc = in.n
+				if pc <= at && left <= end {
+					return nil, nil, 0, errFuel
+				}
+			}
+		case opJumpIfNot:
+			sp--
+			if mem[sp&top] == 0 {
+				pc = in.n
+				if pc <= at && left <= end {
+					return nil, nil, 0, errFuel
+				}
+			}
+		case opCall:
+			if fp == maxFrames {
+				return nil, nil, 0, &trap{at, fmt.Sprintf("calls nested deeper than %d", maxFrames)}
+			}
+			mem[(top-fp)&top] = pc
+			fp++
+			pc = in.n
+			if pc <= at && left <= end {
+				return nil, nil, 0, errFuel
+			}
+		case opRet:
+			fp--
+			pc = mem[(top-fp)&top]
+			if pc <= at && left <= end {
+				return nil, nil, 0, errFuel
+			}
+		case opPrint:
+			sp--
+			printed = append(printed, mem[sp&top])
+		case opHalt:
+			pc = end
+		}
+	}
+	return printed, append([]int(nil), mem[:sp]...), fuel - left, nil
 }
 
 // depth is the size of the fast loop's stack, a power of two.
@@ -243,19 +531,30 @@ func fast(program []instr, fuel int) (printed, left []int, steps int, err error)
 			stack[(sp-1)&(depth-1)] = r
 		case opJump:
 			pc = in.n
-		case opJumpIf, opJumpIfNot:
+			if pc <= at && fuel-steps <= end {
+				return nil, nil, 0, errFuel
+			}
+		case opJumpIf:
 			sp--
-			if (stack[sp&(depth-1)] != 0) == (in.op == opJumpIf) {
+			if stack[sp&(depth-1)] != 0 {
 				pc = in.n
+				if pc <= at && fuel-steps <= end {
+					return nil, nil, 0, errFuel
+				}
+			}
+		case opJumpIfNot:
+			sp--
+			if stack[sp&(depth-1)] == 0 {
+				pc = in.n
+				if pc <= at && fuel-steps <= end {
+					return nil, nil, 0, errFuel
+				}
 			}
 		case opPrint:
 			sp--
 			printed = append(printed, stack[sp&(depth-1)])
 		case opHalt:
 			pc = end
-		}
-		if pc <= at && fuel-steps <= end {
-			return nil, nil, 0, errFuel
 		}
 	}
 	return printed, append([]int(nil), stack[:sp]...), steps, nil
@@ -388,13 +687,18 @@ func run(program []instr, fuel int) ([]int, []int, int, error) {
 		if err != errFuel {
 			return printed, left, steps, err
 		}
+	} else if room, ok := verifyCalls(program); ok {
+		printed, left, steps, err := fastCalls(program, fuel, room)
+		if err != errFuel {
+			return printed, left, steps, err
+		}
 	}
 	return checked(program, fuel)
 }
 
 func main() {
-	if len(os.Args) != 3 || os.Args[1] != "bench" {
-		fmt.Fprintln(os.Stderr, "usage: floor bench N")
+	if len(os.Args) != 3 || (os.Args[1] != "bench" && os.Args[1] != "fib") {
+		fmt.Fprintln(os.Stderr, "usage: floor bench N | fib N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[2])
@@ -402,7 +706,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "floor: bad round count")
 		os.Exit(2)
 	}
-	printed, left, steps, err := run(benchProgram(n), 4611686018427387904)
+	program := benchProgram(n)
+	if os.Args[1] == "fib" {
+		program = fibProgram(n)
+	}
+	printed, left, steps, err := run(program, 4611686018427387904)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "stackvm:", err)
 		os.Exit(1)

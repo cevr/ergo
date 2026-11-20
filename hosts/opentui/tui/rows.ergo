@@ -14,11 +14,11 @@ import ui
 let WheelRows = 3
 
 // rowCells is a row height in cells.
-func rowCells[S, E, D, F](d *Driver[S, E, D, F], rh ui.Length) float64 { Cells(rh, d.options.Cell.H) }
+func rowCells[S, E, D, F](d mut Driver[S, E, D, F], rh ui.Length) float64 { Cells(rh, d.options.Cell.H) }
 
 // content sets the height of list id's content, count rows of rh, when it
 // changed.
-func content[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], count int, rh ui.Length) needs go.Foreign {
+func content[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], count int, rh ui.Length) needs go.Foreign {
 	let h = float64(count) * rowCells(d, rh)
 	if d.lists.Get(id) != (Some{Value: h}) {
 		d.lists[id] = h
@@ -30,7 +30,7 @@ func content[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], count int, rh ui.Le
 // list whose first written row is First at First + i rows down its
 // content, one row high and as wide as the list. A row that stays keeps
 // its place, so only a new row or a moved one costs scene calls.
-func placeRows[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func placeRows[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 	for id, _ in d.lists {
 		match nodeOf(d, id) {
 		case ui.RowsNode as x:
@@ -61,7 +61,7 @@ func placeRows[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 // the driver last reported (RowsKeeping brought a row into view, or the
 // first pass's) to that offset, in whole cells, and is whether it
 // scrolled any.
-func keep[S, E, D, F](d *Driver[S, E, D, F]) bool fails ScreenFailed needs go.Foreign {
+func keep[S, E, D, F](d mut Driver[S, E, D, F]) bool fails ScreenFailed needs go.Foreign {
 	let c = d.options.Cell.H
 	let mut moved = false
 	for id, _ in d.lists {
@@ -87,7 +87,7 @@ func keep[S, E, D, F](d *Driver[S, E, D, F]) bool fails ScreenFailed needs go.Fo
 // its height, in DIPs) that changed since the last report: the next pass
 // writes the rows it shows, and that pass's show reports again, until no
 // list's viewport moves. A stopped actor takes none.
-func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func report[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let c = d.options.Cell.H
 	for id, _ in d.lists {
 		let st = d.s.ScrollOf(numOf(d, id))
@@ -110,7 +110,7 @@ func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.BadPatch | Sc
 // repaint paints the screen, scrolls each list to the offset its pass
 // chose (painting again when one moved), and reports the lists'
 // viewports.
-func repaint[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func repaint[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try present(d.s)
 	if try keep(d) {
 		try present(d.s)
@@ -120,7 +120,7 @@ func repaint[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.BadPatch | S
 
 // Viewport is the viewport the driver last reported for the list
 // labelled label, None before it reported one.
-func Viewport[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Viewport] {
+func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Viewport] {
 	match Find(d, label) {
 	case Some[ui.Id[E]] as id:
 		d.viewports.Get(id.Value)
@@ -131,7 +131,7 @@ func Viewport[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Viewpor
 
 // Captured is the Area that holds the pointer (a Down went to it, and no
 // Up yet), None when none does.
-func Captured[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] {
+func Captured[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] {
 	match d.captured {
 	case Some[ui.Id[E]] as c:
 		// A node that left the tree is no Area (nodeOf).
@@ -153,7 +153,7 @@ func isArea[E](n ui.Node[E]) bool {
 // wheel turns the wheel at the input's cell: the Area under it takes a
 // ui.Wheel of WheelRows rows (or columns), and the innermost Scroll or
 // list under it scrolls WheelRows rows.
-func wheel[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let dy = if input.Code == 0 { -WheelRows } else if input.Code == 1 { WheelRows } else { 0 }
 	let dx = if input.Code == 2 { -WheelRows } else if input.Code == 3 { WheelRows } else { 0 }
 	let mut area Option[ui.Id[E]] = None
@@ -196,18 +196,18 @@ func wheel[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fai
 
 // point sends a pointer event to the Area id: the input's cell in DIPs
 // from the Area's box, over the topmost Zone under the pointer in it.
-func point[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], input screen.Input, phase ui.Phase) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func point[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], input screen.Input, phase ui.Phase) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let c = d.options.Cell
 	let b = d.s.BoxOf(numOf(d, id))
 	let over = zoneUnder(d, id, b, input.X, input.Y)
 	d.heldY = float64(input.Y-b.Y) * c.H
-	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Phase: phase, X: float64(input.X-b.X) * c.W, Y: d.heldY, Zone: None}, Over: over})
+	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: d.heldY, Zone: None}, Over: over})
 }
 
 // zoneUnder is the topmost Zone of the Area area under column x, row y,
 // with its box in the Area's box (DIPs); None when the pointer is on no
 // Zone of it.
-func zoneUnder[S, E, D, F](d *Driver[S, E, D, F], area ui.Id[E], ab screen.Rect, x int, y int) Option[ui.ZoneBox[E]] needs go.Foreign {
+func zoneUnder[S, E, D, F](d mut Driver[S, E, D, F], area ui.Id[E], ab screen.Rect, x int, y int) Option[ui.ZoneBox[E]] needs go.Foreign {
 	let mut at = match d.ids.Get(d.s.HitTest(x, y)) {
 	case Some[ui.Id[E]] as id:
 		id.Value
@@ -241,7 +241,7 @@ func zoneUnder[S, E, D, F](d *Driver[S, E, D, F], area ui.Id[E], ab screen.Rect,
 
 // moved sends a move of the pointer (a drag, or a move with no button) to
 // the Area that holds it, or else to the Area under it.
-func moved[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func moved[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	match Captured(d) {
 	case Some[ui.Id[E]] as a:
 		try point(d, a.Value, input, ui.Moved)

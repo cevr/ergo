@@ -13,7 +13,10 @@ import (
 // seed writes a main whose calls take two borrows: of two elements of one
 // slice (each index a constant, an immutable let, or a let mut), of the
 // same or two fields of one record, of a record and its field, of places
-// in two roots, by `&` or by a dot call's implicit borrow of its receiver.
+// in two roots, by `&` or by a dot call's implicit borrow of its receiver;
+// and a relay whose call passes on its two mut parameters, by `&x`, by x
+// itself or as a dot call's receiver (Borrows 1), or &z of its read
+// parameter z, which D-D1 refuses.
 // A call is bare or under a guard: in the body of `if a != b` (alone or
 // after a conjunct), in the else of `if a == b`, or after
 // `if a == b { continue }` in a loop. The reference decides each call:
@@ -31,16 +34,19 @@ const borrowPrelude = `type C { n int }
 
 type P { a C, b C }
 
-func two(x *C, y *C) {
+func two(x mut C, y mut C) {
 	x.n += 1
 	y.n += 2
 }
 
-func whole(x *P, y *C) {
+func whole(x mut P, y mut C) {
 	x.a.n += 1
 	y.n += 2
 }
+`
 
+// borrowMain opens main, after the seed's relay.
+const borrowMain = `
 func main() needs Console {
 	let mut xs = []C{C{n: 0}, C{n: 0}, C{n: 0}}
 	let mut p = P{a: C{n: 0}, b: C{n: 0}}
@@ -92,6 +98,21 @@ func borrowProgram(seed uint64) (string, map[int]string) {
 		return line
 	}
 	want := map[int]string{}
+	// The relay passes on the borrows it was lent: &x of a mut parameter
+	// is x's own borrow (Borrows 1), so two of one parameter overlap.
+	relays := []struct{ call, verdict string }{
+		{"two(&x, &y)", ""}, {"two(&x, y)", ""}, {"x.two(&y)", ""},
+		{"two(&x, &x)", "one"}, {"two(x, &x)", "one"}, {"x.two(&x)", "one"},
+		{"two(&x, &z)", "read"}, // z is read: &z borrows it, which D-D1 refuses
+	}
+	relay := relays[r.IntN(len(relays))]
+	emit(0, "func relay(x mut C, y mut C, z C) {")
+	if at := emit(1, "%s", relay.call); relay.verdict != "" {
+		want[at] = relay.verdict
+	}
+	emit(0, "}")
+	b.WriteString(borrowMain)
+	line += strings.Count(borrowMain, "\n")
 	for range 2 + r.IntN(5) {
 		x := borrowIndexes[r.IntN(len(borrowIndexes))]
 		y := borrowIndexes[r.IntN(len(borrowIndexes))]
@@ -189,6 +210,8 @@ func TestBorrowOverlapModel(t *testing.T) {
 				got[d.Line] = "may"
 			case d.Code == "S108" && strings.Contains(d.Message, "are borrows of one place"):
 				got[d.Line] = "one"
+			case d.Code == "S108" && strings.Contains(d.Message, "the parameter z cannot be borrowed with &"):
+				got[d.Line] = "read"
 			default:
 				got[d.Line] = d.String()
 			}
@@ -203,7 +226,7 @@ func TestBorrowOverlapModel(t *testing.T) {
 			reached["admitted"] = true
 		}
 	}
-	for _, v := range []string{"one", "may", "admitted"} {
+	for _, v := range []string{"one", "may", "read", "admitted"} {
 		if *borrowSeed == 0 && !reached[v] {
 			t.Errorf("no seed reaches %q", v)
 		}

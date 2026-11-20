@@ -1,7 +1,7 @@
 import fs
 import http
-import jobs/api/endpoint
-import jobs/jobs
+import jobsapp/api/endpoint
+import jobsapp/jobs
 import json
 import strconv
 import strings
@@ -132,6 +132,6 @@ func WithSite(site fs.Root, r http.Request) http.Response needs Jobs | http.Stre
 	if r.Path == "/jobs" || strings.HasPrefix(r.Path, "/jobs/") {
 		return Handle(r)
 	}
-	let page = if r.Path == "/" { http.Request{..r, Path: "/index.html"} } else { r }
+	let page = if r.Path == "/" { http.Request{..r, Path: "/index.html", RawPath: "/index.html"} } else { r }
 	http.Files(site, "/", page)
 }

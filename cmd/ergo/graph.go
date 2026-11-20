@@ -187,7 +187,8 @@ func graphExport(dir string, args []string) error {
 }
 
 // graphRows is the rows of the program in dir, or of every package below
-// it for dir/....
+// it for dir/...; at a workspace root, with a node for each module and an
+// edge for each module another resolves locally.
 func graphRows(dir string) (*graphrows.Table, error) {
 	var as []sketchfront.Analysis
 	recursive := recursivePattern(dir)
@@ -202,9 +203,13 @@ func graphRows(dir string) (*graphrows.Table, error) {
 		return nil, err
 	}
 	if recursive {
-		as, err = sketchfront.CheckTree(dir)
+		var ws *sketchfront.Workspace
+		as, ws, err = sketchfront.CheckTree(dir)
 		if err != nil {
 			return nil, err
+		}
+		if ws != nil {
+			return sketchfront.GraphOfWorkspace(*ws, as), nil
 		}
 	} else {
 		a, err := sketchfront.CheckDir(dir)

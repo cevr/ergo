@@ -117,7 +117,7 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 		c.errorf(spec, CodeType, "%s is imported twice", name)
 		return
 	}
-	if spec.Name != nil && !c.preludeName(spec.Name) {
+	if spec.Name != nil && !c.refusedBinder(spec.Name) {
 		c.aliases = append(c.aliases, importAlias{fi, spec, path})
 	}
 	if name == "_" {
@@ -167,7 +167,8 @@ func (c *checker) unknownMember(x *syntax.SelectorExpr, pn *PkgName) {
 // hostSelector is x.Sel on a value of the host type n, or on a go.Ref[n]
 // (handle) or a borrow of one. A field is read-only (owner q34): the
 // operand is not addressable, and a read through a handle or a borrow
-// charges go.Foreign, since Go code may write that memory. A method is
+// charges go.Foreign, since Go code may write that memory, unless the
+// handle is a fresh one (gofresh.go). A method is
 // Go's: one in the method set of *T only needs a handle or a borrow, as Go
 // takes no address of a copy. A method is reached only by a call (called):
 // as a value it is S108 with the literal to pass, as for any call-only
@@ -176,7 +177,7 @@ func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, h
 	shared := handle || isPointer(base.typ)
 	if s := asStruct(n); s != nil {
 		if f, _ := s.field(x.Sel.Name); f != nil {
-			if shared {
+			if shared && !c.freshOperand(x.X) {
 				c.charge(x, goForeign())
 			}
 			return operand{mode: modeValue, typ: f.Type}

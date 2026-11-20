@@ -1,0 +1,184 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+import strconv
+import strings
+
+// Table is the module's class names for a TypeScript island: the classes of each control part
+// for every tone, density, radius and icon slot, and of each chip part for every hue, fill and
+// density, under the same short names as the site, so an island's buttons and chips print the
+// classes the site's one sheet styles (the island gets looks, not behaviour: the machines stay
+// Ergo).
+type Table { Controls []ControlRow, Chips []ChipRow, Sheet string }
+
+// ControlRow is one control's classes: its tone, density, radius and slot ("plain", "lead",
+// "trail" or "both": which icon slots it has) and the classes of its four parts.
+type ControlRow { Tone string, Density string, Radius string, Slot string, Root string, Plate string, Content string, Label string }
+
+// ChipRow is one chip's classes: its hue, fill ("solid" or "outline") and density and the
+// classes of its three parts.
+type ChipRow { Hue string, Fill string, Density string, Root string, Dot string, Label string }
+
+// TableOf is the module's table in theme t, with the short names and the sheet of looks: the
+// whole look list of the site the island sits in, which holds the module's (Looks()). A site
+// that serves an island builds its own names from the same list, so the island's classes are the
+// site's and one sheet styles both; an island alone passes Looks().
+func TableOf(t token.Theme, looks []look.Look) Table {
+	let names = NamesOf(looks)
+	let mut controls = []ControlRow{}
+	for tone in look.Tones() {
+		for d in look.Densities() {
+			for r in look.Radii() {
+				for slot in 0..4 {
+					let c = look.ControlLook(tone, d, r, slot == 1 || slot == 3, slot == 2 || slot == 3)
+					controls = controls.Append(ControlRow{Tone: toneName(tone), Density: densityName(d), Radius: radiusName(r), Slot: slotNames[slot], Root: Named(names, c.Root), Plate: Named(names, c.Plate), Content: Named(names, c.Content), Label: Named(names, c.Label)})
+				}
+			}
+		}
+	}
+	let mut chips = []ChipRow{}
+	for h in token.Hues() {
+		for outline in []bool{false, true} {
+			for d in look.Densities() {
+				let c = look.ChipLook(h, outline, d)
+				chips = chips.Append(ChipRow{Hue: token.HueName(h), Fill: if outline { "outline" } else { "solid" }, Density: densityName(d), Root: Named(names, c.Root), Dot: Named(names, c.Dot), Label: Named(names, c.Label)})
+			}
+		}
+	}
+	Table{Controls: controls, Chips: chips, Sheet: SheetNamed(t, names, looks)}
+}
+
+let slotNames = []string{"plain", "lead", "trail", "both"}
+
+func toneName(t look.Tone) string {
+	match t {
+	case look.Solid:
+		"solid"
+	case look.Soft:
+		"soft"
+	case look.Outline:
+		"outline"
+	case look.Bare:
+		"bare"
+	case look.Alarm:
+		"alarm"
+	}
+}
+
+func densityName(d token.Density) string {
+	match d {
+	case token.Comfortable:
+		"comfortable"
+	case token.Compact:
+		"compact"
+	}
+}
+
+func radiusName(r token.Radius) string {
+	match r {
+	case token.Square:
+		"square"
+	case token.Small:
+		"small"
+	case token.Medium:
+		"medium"
+	case token.Large:
+		"large"
+	case token.Round:
+		"round"
+	}
+}
+
+// TableNamesOnlySheetClasses: every class the island's table names is a class the table's sheet
+// styles (a selector of it, in a rule or a group's :where), and the table holds one row per
+// tone, density, radius and slot of a control and per hue, fill and density of a chip.
+law TableNamesOnlySheetClasses() {
+	let t = TableOf(token.Default, Looks())
+	let mut ok = len(t.Controls) == len(look.Tones())*len(look.Densities())*len(look.Radii())*4 && len(t.Chips) == len(token.Hues())*2*len(look.Densities())
+	for r in t.Controls {
+		ok = ok && styled(t.Sheet, r.Root) && styled(t.Sheet, r.Plate) && styled(t.Sheet, r.Content) && styled(t.Sheet, r.Label)
+	}
+	for r in t.Chips {
+		ok = ok && styled(t.Sheet, r.Root) && styled(t.Sheet, r.Dot) && styled(t.Sheet, r.Label)
+	}
+	ok
+}
+
+// styled reports whether every class of a class attribute is a selector of the sheet.
+func styled(sheet string, classes string) bool {
+	for c in strings.Split(classes, " ") {
+		if c == "" {
+			continue
+		}
+		let mut found = false
+		for end in []string{"{", ":", ")", " ", ","} {
+			found = found || strings.Contains(sheet, "."+c+end)
+		}
+		if !found {
+			return false
+		}
+	}
+	true
+}
+
+// TS is the table as a TypeScript module: string-literal unions for tone, density, radius, slot,
+// hue and fill (so tsc refuses a name the module lacks), `control` and `chip` keyed by
+// "tone/density/radius/slot" and "hue/fill/density" (tsc requires every key of the union), and
+// the sheet as a string. It is data: no Ergo function is compiled to TypeScript.
+func TS(t Table) string {
+	let mut tones = []string{}
+	let mut densities = []string{}
+	let mut radii = []string{}
+	for r in t.Controls {
+		tones = adding(tones, r.Tone)
+		densities = adding(densities, r.Density)
+		radii = adding(radii, r.Radius)
+	}
+	let mut hues = []string{}
+	for r in t.Chips {
+		hues = adding(hues, r.Hue)
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString("// Generated from ergo.dev/fluid/web.TableOf: the module's looks as class names. Do not edit.\n")
+	b.WriteString("export type Tone = " + union(tones) + "\n")
+	b.WriteString("export type Density = " + union(densities) + "\n")
+	b.WriteString("export type Radius = " + union(radii) + "\n")
+	b.WriteString("export type Slot = " + union(slotNames) + "\n")
+	b.WriteString("export type Hue = " + union(hues) + "\n")
+	b.WriteString("export type Fill = " + union([]string{"solid", "outline"}) + "\n")
+	b.WriteString("export interface ControlClasses { readonly root: string; readonly plate: string; readonly content: string; readonly label: string }\n")
+	b.WriteString("export interface ChipClasses { readonly root: string; readonly dot: string; readonly label: string }\n")
+	b.WriteString("export const control: { readonly [K in `${Tone}/${Density}/${Radius}/${Slot}`]: ControlClasses } = {\n")
+	for r in t.Controls {
+		b.WriteString("  " + strconv.Quote(r.Tone+"/"+r.Density+"/"+r.Radius+"/"+r.Slot) + ": { root: " + strconv.Quote(r.Root) + ", plate: " + strconv.Quote(r.Plate) + ", content: " + strconv.Quote(r.Content) + ", label: " + strconv.Quote(r.Label) + " },\n")
+	}
+	b.WriteString("}\n")
+	b.WriteString("export const chip: { readonly [K in `${Hue}/${Fill}/${Density}`]: ChipClasses } = {\n")
+	for r in t.Chips {
+		b.WriteString("  " + strconv.Quote(r.Hue+"/"+r.Fill+"/"+r.Density) + ": { root: " + strconv.Quote(r.Root) + ", dot: " + strconv.Quote(r.Dot) + ", label: " + strconv.Quote(r.Label) + " },\n")
+	}
+	b.WriteString("}\n")
+	b.WriteString("export const sheet: string = " + strconv.Quote(t.Sheet) + "\n")
+	b.String()
+}
+
+// adding is xs with x appended unless it is already there.
+func adding(xs []string, x string) []string {
+	for y in xs {
+		if y == x {
+			return xs
+		}
+	}
+	xs.Append(x)
+}
+
+// union is a TypeScript union of string literals.
+func union(xs []string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(xs) {
+		if i > 0 {
+			b.WriteString(" | ")
+		}
+		b.WriteString(strconv.Quote(xs[i]))
+	}
+	b.String()
+}

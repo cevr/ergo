@@ -31,6 +31,9 @@ import (
 // string, let and parameter fields are not of F0's type, the *Env),
 // gp-spawn2-param-type (a parameter's captured field takes the
 // environment's type).
+//
+// It checks GenerateSpawn without sorts, whose match forms irGo does not
+// print (TestIRSpawnsHaveBodies lowers sorts).
 func TestIRSpawnsTypeCheck(t *testing.T) {
 	root, err := filepath.Abs("../../..")
 	if err != nil {
@@ -40,7 +43,7 @@ func TestIRSpawnsTypeCheck(t *testing.T) {
 	for _, mode := range []string{"", "closure"} {
 		prev := lower.SetSpawnLoweringForTest(mode)
 		for seed := first; seed < first+count; seed++ {
-			text := GenerateSpawn(seed)
+			text := generateSpawn(seed, false)
 			file := filepath.Join(t.TempDir(), "p.ergo")
 			if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
 				t.Fatal(err)
@@ -57,7 +60,7 @@ func TestIRSpawnsTypeCheck(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mode %q seed %d: %v", mode, seed, err)
 			}
-			if want := map[string]int{"": len(spawnFuncs), "closure": 0}[mode]; withs != want {
+			if want := map[string]int{"": len(spawnFuncs) - 1, "closure": 0}[mode]; withs != want {
 				t.Errorf("mode %q seed %d: %d GoWith calls; want %d", mode, seed, withs, want)
 			}
 			if errs := typeCheckMain(t, root, src); len(errs) > 0 {
@@ -391,6 +394,14 @@ func (g *irGo) expr(e *irgExpr) string {
 		name := g.aliases[e.T] + "." + e.Name
 		if e.V != "" {
 			name += "[" + g.typ(e.V) + "]"
+		}
+		return name + "(" + g.exprs(e.Args) + ")"
+	case "call":
+		// A call of a function of main.go by its Go name, with its Go
+		// type arguments (PORT-CALLS: a task call of an Ergo body).
+		name := e.Name
+		if e.T != "" {
+			name += "[" + g.typ(e.T) + "]"
 		}
 		return name + "(" + g.exprs(e.Args) + ")"
 	case "mcall":

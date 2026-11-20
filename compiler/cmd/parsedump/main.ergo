@@ -1,0 +1,69 @@
+// parsedump parses files with compiler/syntax and prints each tree through
+// its view, in the canonical dump of the decoder property
+// (compiler/syntax/dump.Parse; internal/sketch/syntax, TestDecodeAgreesWithView):
+//
+//	parsedump FILE...      per file: "F path", then "G pos end n" per
+//	                       comment group and a line per node, or the
+//	                       diagnostic "E code offset length line column msg"
+//	parsedump -n FILE...   one line: files= bytes= rows= words= failed=
+//
+// This binary is the only place that chooses the providers: the host's
+// files and standard output.
+
+import compiler/syntax
+import compiler/syntax/dump
+import fs
+import io
+import os
+import strings
+
+// listing is the dump of one file: "F path" and dump.Parse of its text.
+func listing(b mut strings.Builder, path string, src string) {
+	b.WriteString("F " + path + "\n" + dump.Parse(src))
+}
+
+func read(file string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(file) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "parsedump: no file \(file)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "parsedump: cannot read \(file): permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "parsedump: cannot read \(file): \(e.Reason)"}
+	}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: "usage: parsedump [-n] FILE..."}
+	}
+	if args[0] == "-n" {
+		let mut bytes = 0
+		let mut rows = 0
+		let mut words = 0
+		let mut failed = 0
+		for file in args[1:] {
+			let src = try read(file)
+			let p = syntax.Parse(src)
+			bytes = bytes + len(src)
+			rows = rows + syntax.NumNodes(p.Tree)
+			words = words + syntax.ExtraWords(p.Tree)
+			if p.Failed {
+				failed = failed + 1
+			}
+		}
+		io.Stdout.Println("files=\(len(args) - 1) bytes=\(bytes) rows=\(rows) words=\(words) failed=\(failed)")
+		return
+	}
+	let mut b = strings.NewBuilder()
+	for file in args {
+		listing(&b, file, try read(file))
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

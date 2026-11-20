@@ -30,7 +30,7 @@ A script is one command a line: `show` writes the frame a window would show, as 
 ## Layout
 
 - `piece/`: the piece table and its line index.
-- `edit/`: the domain. `doc.ergo` (a document, edits, undo and redo, rune and line moves), `editor.ergo` (the machine's step), `laws.ergo` (the machine and its laws), `frame.ergo` (a frame as text), `store.ergo` (the contract, its failures, opening a document), `gen.ergo` (the seeded workload).
+- `edit/`: the domain. `doc.ergo` (a document, edits, undo and redo, rune and line moves), `editor.ergo` (the machine's step), `machine.ergo` (the machine and its laws), `frame.ergo` (a frame as text), `store.ergo` (the contract, its failures, opening a document), `gen.ergo` (the seeded workload).
 - `screen/`: the window: the app machine (`app.ergo`) and the view (`view.ergo`).
 - `script/`: the drivers: a line to a command (`LineParsesBack`), a script played on the machine with the save performed (`script.ergo`), or on the window on `ui.TestHost` (`scene.ergo`).
 - `files/`, `memory/`: the providers of `Store`.

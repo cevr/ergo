@@ -1,0 +1,301 @@
+// Package syntax scans Ergo source into token columns: a kind and a start
+// per token, five bytes, and no end and no text. A token's end is found by
+// scanning again from its start (End), as Zig's tokenizer does
+// (capstone §9 S2a; self-layout plan §2.2). Comments are two more columns
+// (comments.ergo) and the line starts a third (lines.ergo).
+
+import dense
+
+// The kinds of a token: the Token numbers of the Go AST
+// (internal/sketch/syntax/token.go), which the decoder reads as they are.
+let Illegal = uint8(0)
+let EOF = uint8(1)
+let Comment = uint8(2)
+let Ident = uint8(3)
+let Int = uint8(4)
+let Float = uint8(5)
+let Duration = uint8(6)
+let String = uint8(7)
+let Rune = uint8(8)
+let Path = uint8(9)
+let StringHead = uint8(10)
+let StringMid = uint8(11)
+let StringTail = uint8(12)
+let Add = uint8(13)
+let Sub = uint8(14)
+let Mul = uint8(15)
+let Quo = uint8(16)
+let Rem = uint8(17)
+let And = uint8(18)
+let Or = uint8(19)
+let Xor = uint8(20)
+let Shl = uint8(21)
+let Shr = uint8(22)
+let AndNot = uint8(23)
+let AddAssign = uint8(24)
+let SubAssign = uint8(25)
+let MulAssign = uint8(26)
+let QuoAssign = uint8(27)
+let RemAssign = uint8(28)
+let AndAssign = uint8(29)
+let OrAssign = uint8(30)
+let XorAssign = uint8(31)
+let ShlAssign = uint8(32)
+let ShrAssign = uint8(33)
+let AndNotAssign = uint8(34)
+let Land = uint8(35)
+let Lor = uint8(36)
+let Arrow = uint8(37)
+let Inc = uint8(38)
+let Dec = uint8(39)
+let DotDot = uint8(40)
+let Eql = uint8(41)
+let Lss = uint8(42)
+let Gtr = uint8(43)
+let Assign = uint8(44)
+let Not = uint8(45)
+let Neq = uint8(46)
+let Leq = uint8(47)
+let Geq = uint8(48)
+let Define = uint8(49)
+let Ellipsis = uint8(50)
+let LParen = uint8(51)
+let LBrack = uint8(52)
+let LBrace = uint8(53)
+let Comma = uint8(54)
+let Period = uint8(55)
+let RParen = uint8(56)
+let RBrack = uint8(57)
+let RBrace = uint8(58)
+let Semicolon = uint8(59)
+let Colon = uint8(60)
+let Break = uint8(62)
+let Case = uint8(63)
+let Continue = uint8(64)
+let Else = uint8(65)
+let For = uint8(66)
+let Func = uint8(67)
+let If = uint8(68)
+let Import = uint8(69)
+let Return = uint8(70)
+let Type = uint8(71)
+let Try = uint8(72)
+let Catch = uint8(73)
+let Needs = uint8(74)
+let Provides = uint8(75)
+let KwContext = uint8(76)
+let KwMachine = uint8(77)
+let Let = uint8(78)
+let Mut = uint8(79)
+let In = uint8(80)
+let Match = uint8(81)
+let Escaping = uint8(82)
+let Fails = uint8(83)
+let Test = uint8(84)
+let Law = uint8(85)
+let Assert = uint8(86)
+let Extern = uint8(87)
+let With = uint8(88)
+let Takes = uint8(89)
+let As = uint8(90)
+let Chan = uint8(93)
+let Const = uint8(94)
+let Default = uint8(95)
+let Defer = uint8(96)
+let Fallthrough = uint8(97)
+let Go = uint8(98)
+let Goto = uint8(99)
+let Interface = uint8(100)
+let KwMap = uint8(101)
+let Package = uint8(102)
+let KwRange = uint8(103)
+let Select = uint8(104)
+let Struct = uint8(105)
+let Switch = uint8(106)
+let Var = uint8(107)
+
+// Tok is the row tag of tokens.
+type Tok {}
+
+// Toks is the token stream as columns: token i has the kind Kind and the
+// start Start, the offset of its first byte. An inserted semicolon starts
+// where the line ends (or where the comment that ends it starts), and
+// covers no byte.
+//
+// The columns are plain slices with room past the last token (at least two
+// words: a failed scan puts its ILLEGAL and EOF there), indexed
+// by the token's id; ids counts the tokens.
+type Toks {
+	ids   dense.Count[Tok],
+	kind  []uint32,
+	start []uint32,
+	end   []uint32,
+}
+
+// NumToks is the number of tokens.
+func NumToks(t Toks) int { dense.Total(t.ids) }
+
+// TokAt is the id of the token at index i.
+func TokAt(t Toks, i int) dense.ID[Tok] { dense.IDAt(t.ids, i) }
+
+// Kind is the kind of token id.
+func Kind(t Toks, id dense.ID[Tok]) uint8 { uint8(t.kind[dense.Index(id)]) }
+
+// Start is the offset of token id's first byte.
+func Start(t Toks, id dense.ID[Tok]) int { int(t.start[dense.Index(id)]) }
+
+// TokEndOf is the offset after token id's last byte, as the scan stored it
+// (End, which scans the token again, gives the same: law EndsAreStored).
+func TokEndOf(t Toks, id dense.ID[Tok]) int { int(t.end[dense.Index(id)]) }
+
+// opLen is the length of an operator or punctuation kind: the three-byte
+// operators, the two-byte ones, else one byte.
+func opLen(kind uint8) int {
+	if kind == Ellipsis || kind == ShlAssign || kind == ShrAssign || kind == AndNotAssign {
+		return 3
+	}
+	if kind == AndNot || kind == Shl || kind == Shr || (kind >= AddAssign && kind <= RemAssign) || (kind >= AndAssign && kind <= XorAssign) || (kind >= Land && kind <= DotDot) || (kind >= Neq && kind <= Define) || kind == Eql {
+		return 2
+	}
+	1
+}
+
+// End is the end of the token of kind kind that starts at start in src:
+// the token scanned again (Zig's tokenizer), the end the Go scanner
+// gave every token (law EndRescans).
+func End(src string, kind uint8, start int) int {
+	if kind == EOF {
+		return start
+	}
+	if kind == Semicolon {
+		// An inserted semicolon covers no byte.
+		return if start < len(src) && src[start] == ';' { start + 1 } else { start }
+	}
+	if kind == Ident || (kind >= Break && kind <= Var) {
+		return identEnd(src, start)
+	}
+	if kind == Int || kind == Float || kind == Duration {
+		return numberEnd(src, start)
+	}
+	if kind == String && src[start] == '`' {
+		let mut i = start + 1
+		for src[i] != '`' {
+			i = i + 1
+		}
+		return i + 1
+	}
+	if kind == String || kind == StringHead || kind == StringMid || kind == StringTail {
+		return segmentEnd(src, start)
+	}
+	if kind == Rune {
+		let mut i = start + 1
+		for src[i] != '\'' {
+			if src[i] == '\\' {
+				i = i + 1
+			}
+			i = i + 1
+		}
+		return i + 1
+	}
+	if kind == Path {
+		return pathEnd(src, start)
+	}
+	start + opLen(kind)
+}
+
+// segmentEnd is the end of a string segment that starts at start (its
+// opening quote, or the `)` that closes an interpolation): through the
+// next `\(` or the closing quote.
+func segmentEnd(src string, start int) int {
+	let mut i = start + 1
+	for {
+		let c = src[i]
+		if c == '\\' {
+			if src[i+1] == '(' {
+				return i + 2
+			}
+			i = i + 1
+		} else if c == '"' {
+			return i + 1
+		}
+		i = i + 1
+	}
+	i
+}
+
+// numberEnd is the end of a number that starts at start: a prefixed
+// integer, or the digits, fraction and exponent of a decimal, then its
+// suffix (a duration's unit).
+func numberEnd(src string, start int) int {
+	let n = len(src)
+	let mut end = start
+	if src[start] == '0' && start+1 < n && isBase(src[start+1]) {
+		end = start + 2
+	} else {
+		end = digits(src, start)
+		if end < n && src[end] == '.' && !(end+1 < n && src[end+1] == '.') {
+			end = digits(src, end+1)
+		}
+		if end > start && end < n && (src[end] == 'e' || src[end] == 'E') {
+			let mut exp = end + 1
+			if exp < n && (src[exp] == '+' || src[exp] == '-') {
+				exp = exp + 1
+			}
+			let after = digits(src, exp)
+			if after > exp {
+				end = after
+			}
+		}
+	}
+	identRest(src, end)
+}
+
+// StartsAdvance: each token starts at or after the end of the one before
+// it, and the last is EOF at the end of the source, when the scan did not
+// fail.
+law StartsAdvance(src string) {
+	let s = Scan(src)
+	let t = s.Toks
+	let mut ok = true
+	let mut end = 0
+	for i in 0..NumToks(t) {
+		let id = TokAt(t, i)
+		let start = Start(t, id)
+		ok = ok && start >= end
+		end = End(src, Kind(t, id), start)
+	}
+	let n = NumToks(t)
+	ok && (s.Failed || (n > 0 && Kind(t, TokAt(t, n-1)) == EOF && Start(t, TokAt(t, n-1)) == len(src)))
+}
+
+// EndRescans: a token of a kind that depends on no context (an
+// identifier, a keyword, a number, an operator, a whole string or rune)
+// scans alone, from its start to its End, to itself and EOF.
+// EndsAreStored: the end the scan stores for each token is End's, the
+// token scanned again.
+law EndsAreStored(src string) {
+	let t = Scan(src).Toks
+	let mut ok = true
+	for i in 0..NumToks(t) {
+		let id = TokAt(t, i)
+		ok = ok && TokEndOf(t, id) == End(src, Kind(t, id), Start(t, id))
+	}
+	ok
+}
+
+law EndRescans(src string) {
+	let s = Scan(src)
+	let t = s.Toks
+	let mut ok = true
+	for i in 0..NumToks(t) {
+		let id = TokAt(t, i)
+		let k = Kind(t, id)
+		if k == Ident || k == Int || k == Float || k == Duration || k == String || k == Rune || (k >= Add && k <= Colon && k != Semicolon) {
+			let start = Start(t, id)
+			let text = src[start:End(src, k, start)]
+			let alone = Scan(text).Toks
+			ok = ok && NumToks(alone) >= 2 && Kind(alone, TokAt(alone, 0)) == k && Start(alone, TokAt(alone, 0)) == 0 && End(text, k, 0) == len(text)
+		}
+	}
+	ok
+}

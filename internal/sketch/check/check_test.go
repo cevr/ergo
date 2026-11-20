@@ -32,7 +32,7 @@ func TestPreludeAndStdAreClean(t *testing.T) {
 // (the unit-test mirror of the acceptance negatives, spec Work rules).
 var negativeSpans = map[string][2]string{
 	"argument-mismatch":                  {"S108", "\"x\""},
-	"borrow-in-field":                    {"S108", "*int64"},
+	"borrow-in-field":                    {"S108", "mut int64"},
 	"capability-as-value":                {"S104", "Store"},
 	"case-not-variant":                   {"S108", "C"},
 	"catch-arm-not-in-row":               {"S108", "B"},

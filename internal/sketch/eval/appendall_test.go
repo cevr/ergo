@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-// TestAppendAllKeepsValues is the property of slices.AppendAll's native
-// (SL2's dense.Pool PutList; Go's append(xs, ys...)). A slice is a value:
+// TestAppendAllKeepsValues is the property of appendAll, which runs an
+// extern of Go's append at its spread shape, append(xs, ys...): std's
+// slices.AppendAll (SL2's dense.Pool PutList; EVAL-IFP). A slice is a value:
 // AppendAll gives xs's elements then ys's, and no slice made before it
 // changes, though appendAll grows a store in place when no view sees past
 // xs's end. Each seed makes views over shared stores, some ending at their

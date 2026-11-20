@@ -1,0 +1,228 @@
+// The provider laws of a machine actor (decisions 2026-11-03 (b)): its
+// steps apply in send order, a Reject keeps the state, and Done is final.
+// They run over tally, a Machine built from parts that reaches every
+// Decision, on a time.Manual that no one advances (a law cannot hold
+// Ambient, so it binds no host Scheduler; tally has no timer).
+
+import machines
+import sync
+import time
+
+// Paces is a pacer: the reading its entry opened at, the beats it was
+// given, and how many carried a reading other than the opening reading
+// plus Pace.
+type Paces { Opened time.Time, Count int, Wrong int }
+
+// Pace is how long a pacer's entry waits for its beat.
+let Pace = 5ms
+
+// paceAt is a pacer opened at the reading at.
+func paceAt(at time.Time) Paces { Paces{Opened: at, Count: 0, Wrong: 0} }
+
+// paceStep counts a beat and opens a new entry at its reading, which arms
+// the next beat; a beat whose reading is not the opening plus Pace is
+// wrong.
+func paceStep(p Paces, at time.Time) Decision[Paces, Never] {
+	let wrong = if at.Equal(p.Opened.Add(Pace)) { p.Wrong } else { p.Wrong + 1 }
+	Enter[Paces]{Next: Paces{Opened: at, Count: p.Count + 1, Wrong: wrong}}
+}
+
+// paceEvery is every entry's timer: the reading it fires at, Pace after
+// the entry opened.
+func paceEvery(p Paces) Option[machines.Every[time.Time]] { Some{machines.Every[time.Time]{In: Pace, Signal: paceSignal}} }
+
+func paceSignal(at time.Time) time.Time { at }
+
+// Pacer is the pacer as a machine, opened at its input's reading.
+type Pacer machine[Paces, time.Time] { initial: paceAt, step: paceStep, after: paceEvery }
+
+// pacedOn: an actor's Every timer gives its signal at the clock's reading
+// when it fires: on m, moved Pace at a time, each of 1 to 4 beats reads
+// its entry's opening plus Pace.
+func pacedOn(m time.Manual, n int) bool needs time.Clock | Scheduler {
+	let beats = 1 + ((n % 4) + 4) % 4
+	let a = StartMachine(machines.Start(Pacer{}, time.Clock.Now()), 1, func(o Never) {})
+	for _ in 0..beats {
+		time.Advance(m, Pace)
+	}
+	let s = WaitFor(a, func(p Paces) bool { p.Count >= beats }) catch {
+	case Stopped:
+		return false
+	}
+	a.Stop()
+	s.Wrong == 0
+}
+
+// EveryFiresWithTheReading: an actor's machines.Every timer gives its
+// signal at the reading of the clock provider when it fires (FKG1).
+law EveryFiresWithTheReading(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m, time.Clock: m } {
+		pacedOn(m, n)
+	}
+}
+
+// Boom is the typed failure of boomStep: the state at the first negative
+// signal.
+type Boom { At int }
+
+// Exit actions (FK9-g1; runtime.md, Machines and actors 12a): when an
+// entry ends, the runner runs the exit action of the state the entry holds
+// then, once per entry, on every path that ends it.
+
+// exitSeen is where the counter's exit actions write the state they got;
+// the action's row holds it, so StartMachine's row does (the machine's W).
+//
+// law-exempt: a recorder the exit laws' machine writes to; it has no rule of its own, and ExitSeesLastState and ExitRunsOncePerEntry state what it records.
+type exitSeen {
+	Left(s int),
+}
+
+// exitLog is an exitSeen in memory.
+type exitLog { seen sync.Ref[[]int] } implements exitSeen
+
+func Left(l exitLog, s int) {
+	l.seen.Update(func(v []int) []int { v.Append(s) })
+}
+
+// exitCount is the counter's state and exitTick its signal.
+type exitCount { N int }
+type exitTick { K int }
+
+// exitStep reaches each Decision and a failure by the signal mod 7. A
+// Stay changes the state, so the state an entry ends with is not the one
+// it opened with.
+func exitStep(c exitCount, t exitTick) Decision[exitCount, int] fails Boom {
+	let s = c.N
+	let e = t.K
+	match ((e % 7) + 7) % 7 {
+	case 0:
+		Enter[exitCount]{Next: exitCount{N: s + 100}}
+	case 1:
+		Stay[exitCount]{Next: exitCount{N: s + 1}}
+	case 2:
+		Ignore
+	case 3:
+		Reject
+	case 4:
+		Emit[exitCount, int]{Next: exitCount{N: s + 1000}, Output: s}
+	case 5:
+		Done[int]{Output: s}
+	case _:
+		Boom{At: s}
+	}
+}
+
+// hasExit is whether the state s has an exit action: every state but one
+// in five, so None is reached too.
+func hasExit(s int) bool { s%5 != 4 }
+
+// leave is the counter's exit: the action of a state writes that state.
+func leave(c exitCount) Option[func() needs exitSeen] {
+	let s = c.N
+	if !hasExit(s) {
+		return None
+	}
+	Some{func() needs exitSeen { exitSeen.Left(s) }}
+}
+
+func exitFirst(i int) exitCount { exitCount{N: i} }
+
+// exitCounter is the counter as a declared machine with an exit entry,
+// started from an input, so the conversion (Exit from exit:) and
+// machines.Start are under the laws.
+type exitCounter machine[exitCount, exitTick] {
+	initial: exitFirst,
+	step:    exitStep,
+	exit:    leave,
+}
+
+// noteExit is out with s, when s has an exit action.
+func noteExit(out []int, s int) []int {
+	if hasExit(s) {
+		return out.Append(s)
+	}
+	out
+}
+
+// exitsLeft is what the exit actions of a run over signals write, by the
+// pure step: the state each entry held when it ended. An Enter and an
+// Emit end the entry in the state the step saw; a Done and a failure end
+// the last entry there; a run they do not end is ended by the caller (a
+// Stop or a Drain), in the state after the last signal. A Stay, an Ignore
+// and a Reject end no entry.
+func exitsLeft(signals []int) []int {
+	let mut s = 0
+	let mut out = []int{}
+	for e in signals {
+		let d = exitStep(exitCount{N: s}, exitTick{K: e}) catch {
+		case Boom:
+			return noteExit(out, s)
+		}
+		match d {
+		case Enter[exitCount] as en:
+			out = noteExit(out, s)
+			s = en.Next.N
+		case Emit[exitCount, int] as em:
+			out = noteExit(out, s)
+			s = em.Next.N
+		case Stay[exitCount] as st:
+			s = st.Next.N
+		case Done[int]:
+			return noteExit(out, s)
+		case _:
+		}
+	}
+	noteExit(out, s)
+}
+
+// exitsRan is what the exit actions wrote after an actor of the counter
+// (exitStep, leave) was sent signals and then ended: by Drain when drain,
+// else by Stop. The counter starts from an input (machines.Start), so a
+// Start that drops Exit is under the laws. durable starts it with
+// StartDurable (no journal: recover gives None, save keeps nothing), so a
+// durable start that drops Exit is under them too. Every signal is
+// stepped before the end: the State read comes after the Sends, in inbox
+// order.
+func exitsRan(signals []int, drain bool, durable bool) []int {
+	let log = exitLog{seen: sync.NewRef[[]int]([]int{})}
+	with context { Scheduler: time.NewManual(0), exitSeen: log } {
+		let a = if durable {
+			StartDurable(machines.Start(exitCounter{}, 0), 1, func(o int) {}, func() Option[exitCount] { None }, func(prev exitCount, next exitCount, sig exitTick) {})
+		} else {
+			StartMachine(machines.Start(exitCounter{}, 0), 1, func(o int) {})
+		}
+		for e in signals {
+			a.Send(exitTick{K: e}) catch {
+			case Stopped:
+			}
+		}
+		let _ = a.State()
+		if drain {
+			a.Drain() catch {
+			case Boom:
+			}
+		} else {
+			a.Stop() catch {
+			case Boom:
+			}
+		}
+	}
+	log.seen.Get()
+}
+
+// ExitSeesLastState: over drawn Stays, Enters, Emits, Ignores, Rejects,
+// Dones and failures, sent and then stopped, each exit action gets the
+// state its entry held when it ended, never the state the entry opened
+// with and never the next entry's.
+law ExitSeesLastState(signals []int) {
+	exitsRan(signals, false, false) == exitsLeft(signals)
+}
+
+// ExitRunsOncePerEntry: every entry that opened has ended when Stop or
+// Drain returns, and its exit action ran once, in entry order, whatever
+// ended it: an Enter, an Emit, a Done, a failure, a Stop or a Drain; for
+// a durable start too.
+law ExitRunsOncePerEntry(signals []int, drain bool) {
+	exitsRan(signals, drain, drain) == exitsLeft(signals)
+}

@@ -297,6 +297,27 @@ func retryHonoursAfter(ms int) bool {
 
 test MemoryRetryHonoursAfter(ms int) { assert retryHonoursAfter(ms) }
 
+func retryKeepsUpTo(n int) bool {
+	let k = (n%5 + 5) % 5
+	let mut replies = []memory.Reply{}
+	for _ in 0..8 {
+		let f llm.Failure = llm.Overloaded
+		replies = replies.Append(memory.Fails{Failure: f})
+	}
+	let s = memory.NewSequence(replies.Append(ok("done", none())))
+	let c = testing.NewVirtualClock(0)
+	let limit = duration(int64(k)*1000000000 + 500000000)
+	let _ = llm.Retry{Inner: s, Schedule: schedule.UpTo(schedule.Spaced(1s), limit), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case llm.Overloaded:
+		return memory.Asks(s) == k+1
+	case _:
+		return false
+	}
+	false
+}
+
+test MemoryRetryKeepsUpTo(n int) { assert retryKeepsUpTo(n) }
+
 func noReplayAfterFirstDelta(text string, f llm.Failure) bool {
 	let r = plain("q")
 	let failing = []memory.Reply{memory.Breaks{Deltas: []llm.Delta{llm.Text{Text: text}}, Failure: f}, ok("again", none())}
@@ -537,6 +558,7 @@ var stdLLMLawStatements = map[string]string{
 	"llm AnsweredCallsAreValid":           `AnsweredCallsAreValid(text string, names []string) { let mut calls = []Call{} let mut results = []Message{} for i, n in names { calls = calls.Append(Call{Id: "call-\(i)", Name: n, Arguments: "{}"}) results = results.Append(Result{CallId: "call-\(i)", Text: n, Failed: false}) } let asked = []Message{User{Text: text}, Assistant{Text: text, Calls: calls}} if !Valid(asked.Concat(results).Append(User{Text: text})) { return false } if len(names) == 0 { return true } let early = []Message{User{Text: text}, results[0], Assistant{Text: text, Calls: calls}}.Concat(results[1:]) let missing = asked.Concat(results[1:]) let twice = asked.Concat(results).Append(results[0]) !Valid(early) && !Valid(missing) && !Valid(twice) }`,
 	"llm/memory CutIsTruncated":           `CutIsTruncated(first []string, tools []string) { let s = NewScripted(first, tools, true, []Reply{}) let r = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0} let want = llm.Truncated{Text: strings.Join(first, "")} let _ = s.Generate(r) catch { case llm.Truncated as t: let _ = s.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.Truncated as u: return t == want && u == want case _: return false } return false case _: return false } false }`,
 	"llm/memory RetryFollowsSafety":       `RetryFollowsSafety(fs []llm.Failure, n int) { let budget = (n%8 + 8) % 8 let mut replies = []Reply{} for f in fs { replies = replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f}) } let s = NewSequence(replies.Append(ok("done", none()))) let c = testing.NewVirtualClock(0) let mut stop = len(fs) for i, f in fs { if i < stop && (llm.SafetyOf(f) == llm.Unsafe || i == budget) { stop = i } } let t = llm.Retry{Inner: s, Schedule: schedule.Recurs(budget), Clock: c, Sleep: c}.Generate(plain("q")) catch { case f: let got llm.Failure = f return stop < len(fs) && got == bare(fs[stop]) && Asks(s) == stop+1 } stop == len(fs) && t.Text == "done" && Asks(s) == len(fs)+1 }`,
+	"llm/memory RetryKeepsUpTo":           `RetryKeepsUpTo(n int) { let k = (n%5 + 5) % 5 let mut replies = []Reply{} for _ in 0..8 { let f llm.Failure = llm.Overloaded replies = replies.Append(Fails{Failure: f}) } let s = NewSequence(replies.Append(ok("done", none()))) let c = testing.NewVirtualClock(0) let limit = duration(int64(k)*1000000000 + 500000000) let _ = llm.Retry{Inner: s, Schedule: schedule.UpTo(schedule.Spaced(1s), limit), Clock: c, Sleep: c}.Generate(plain("q")) catch { case llm.Overloaded: return Asks(s) == k+1 case _: return false } false }`,
 	"llm/memory RetryHonoursAfter":        `RetryHonoursAfter(ms int) { let wait = (ms%100000 + 100000) % 100000 let c = testing.NewVirtualClock(0) let s = NewSequence([]Reply{Fails{Failure: llm.RateLimited{After: Some[int]{Value: wait}}}, ok("done", none())}) let start = c.Now() let t = llm.Retry{Inner: s, Schedule: schedule.Spaced(1ms), Clock: c, Sleep: c}.Generate(plain("q")) catch { case _: return false } let waited = c.Now().Sub(start) t.Text == "done" && waited >= duration(int64(wait)*1000000) && (wait > 0 || waited == 1ms) }`,
 	"llm/memory NoReplayAfterFirstDelta":  `NoReplayAfterFirstDelta(text string, f llm.Failure) { let r = plain("q") let failing = []Reply{Breaks{Deltas: []llm.Delta{llm.Text{Text: text}}, Failure: f}, ok("again", none())} let s = NewSequence(failing) let c = testing.NewVirtualClock(0) let _ = llm.Retry{Inner: s, Schedule: schedule.Recurs(4), Clock: c, Sleep: c}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.SinkFailed: return false case _: let a = NewSequence(failing) let b = NewSequence([]Reply{ok("other", none())}) let _ = llm.Fallback{Members: []llm.Model{a, b}}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.SinkFailed: return false case _: return Asks(s) == 1 && Asks(a) == 1 && Asks(b) == 0 } return false } false }`,
 	"llm/memory FallbackIsFirstSuccess":   `FallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) { let mut members = []llm.Model{} let mut seqs = []Sequence{} for f in fs { let s = NewSequence([]Reply{Breaks{Deltas: []llm.Delta{}, Failure: f}}) seqs = seqs.Append(s) members = members.Append(s) } let last = NewSequence([]Reply{ok("last", none())}) if succeeds { members = members.Append(last) } let t = llm.Fallback{Members: members}.Generate(plain("q")) catch { case f: let got llm.Failure = f let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs)-1]) } return !succeeds && got == want && askedOnce(seqs) } succeeds && t.Text == "last" && askedOnce(seqs) && Asks(last) == 1 }`,

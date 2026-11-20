@@ -31,7 +31,7 @@ let curveSteps = 16
 func pixelsAcross(width ui.Length, unit float64) int { 2 * int(math.Ceil(Cells(width, unit))) }
 
 // drawCanvas gives the canvas's scene node n its picture.
-func drawCanvas[S, E, D, F](d *Driver[S, E, D, F], n int, x ui.CanvasNode) needs go.Foreign {
+func drawCanvas[S, E, D, F](d mut Driver[S, E, D, F], n int, x ui.CanvasNode) needs go.Foreign {
 	let c = d.options.Cell
 	let w = pixelsAcross(x.Width, c.W)
 	let h = pixelsAcross(x.Height, c.H)
@@ -94,7 +94,7 @@ func quad(p pt, q pt, half float64, m ui.Affine) []pt {
 
 // fill paints with color the pixels inside clip whose centres the
 // contours cs hold under the nonzero rule.
-func fill(pic *picture, cs [][]pt, color ui.Color, clip area) {
+func fill(pic mut picture, cs [][]pt, color ui.Color, clip area) {
 	if len(cs) == 0 || color.A == 0 {
 		return
 	}
@@ -130,7 +130,7 @@ func fill(pic *picture, cs [][]pt, color ui.Color, clip area) {
 }
 
 // blend puts color over the pixel at byte i.
-func blend(p *picture, i int, c ui.Color) {
+func blend(p mut picture, i int, c ui.Color) {
 	let a = int(c.A)
 	let under = int(p.px[i+3])
 	if a == 255 || under == 0 {
