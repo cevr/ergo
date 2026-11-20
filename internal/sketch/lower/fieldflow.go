@@ -94,7 +94,7 @@ func (l *lowerer) touchedOf(h *check.Func, i int) (map[string]bool, bool) {
 	saved := l.info
 	l.info = info
 	defer func() { l.info = saved }()
-	w := &valueWalk{l: l, info: info, vf: l.valueFacts(), vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
+	w := newValueWalk(l, info, l.valueFacts(), d)
 	w.root = &vframe{node: d, tails: map[syntax.Expr]bool{}}
 	tailsOf(d.Body.List, w.root.tails)
 	w.walk(d, nil)
