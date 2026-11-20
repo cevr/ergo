@@ -60,6 +60,20 @@ func foreignKeys(a Analysis, fsys FS) lower.ForeignKeys {
 	return src.Keys()
 }
 
+// buildTags are this build's names in a key's build part: its platform
+// and its Go experiments (foreignKeys' variants).
+func buildTags(a Analysis) []string {
+	var platform gobind.Platform
+	if a.program != nil {
+		platform = a.program.platform
+	}
+	tags := []string{gobind.Platform{GOOS: cmp.Or(platform.GOOS, runtime.GOOS), GOARCH: cmp.Or(platform.GOARCH, runtime.GOARCH)}.String()}
+	for _, e := range goExperiments() {
+		tags = append(tags, "goexperiment."+e)
+	}
+	return tags
+}
+
 // readGoDir is the Go and assembly files of the package in dir that go
 // build compiles for platform and experiments (goBuilds), its tests
 // excluded; nil when dir cannot be read. A function's body is the one the
