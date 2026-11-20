@@ -134,7 +134,7 @@ type Draws { x int }
 func Seed(seed int) Draws { Draws{x: (if seed < 0 { -(seed + 1) } else { seed }) % 2147483648} }
 
 // Next is a draw in 0 to n-1.
-func Next(d *Draws, n int) int {
+func Next(d mut Draws, n int) int {
 	d.x = (d.x*1103515245 + 12345) % 2147483648
 	(d.x / 65536) % n
 }

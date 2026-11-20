@@ -11,7 +11,7 @@ import strconv
 
 type reader { stack []int, top int, out [][]int }
 
-func push(r *reader, x int) {
+func push(r mut reader, x int) {
 	if r.top < len(r.stack) {
 		r.stack[r.top] = x
 	} else {
@@ -20,7 +20,7 @@ func push(r *reader, x int) {
 	r.top += 1
 }
 
-func close(r *reader, mark int) {
+func close(r mut reader, mark int) {
 	r.out = r.out.Append(slices.Slice(r.stack, mark, r.top))
 	r.top = mark
 }
@@ -33,7 +33,7 @@ func total(xs []int) int {
 	s
 }
 
-func closeDig(r *reader, mark int) int {
+func closeDig(r mut reader, mark int) int {
 	let s = total(slices.Slice(r.stack, mark, r.top))
 	r.top = mark
 	s

@@ -37,7 +37,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
-	{"literal of *check.Array", "G1"}, // lane B's wf10/f7b-conv builds it (ir_defined.go)
+	{"literal of an array whose default holds a Map", "G1"}, // INDEX-NONSLICE: the emitter's default, built in a loop
 	{"index of a non-slice", "G1"},
 	{"index form", "G1"},
 	{"len of a non-slice", "G1"},
@@ -73,9 +73,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"assignment form *", "G1"},
 	{"assignment to a non-local", "G1"},
 	// F2 lowers places (stores, &p, *p, pointer receivers); these remain.
-	{"store to a place a value with statements may move", "F2"},
-	{"call on a receiver's address that operands with statements may move", "F2"},
-	{"place that is not addressable", "F2"}, // a Map entry: Maps are G4's
+	{"store to a place of the IR kind *", "F2"}, // PORT-TEMP's fixPlace: a place form it does not know
+	{"place that is not addressable", "F2"},     // a Map entry: Maps are G4's
 	{"place of the IR kind *", "F2"},
 	{"place with a conversion", "F2"},
 	{"place of a handed-off local", "G2"},            // a Close through its address
@@ -107,7 +106,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"owned local", "G2"},
 	{"owned temporary", "G2"},
 	{"statement that releases owned values", "G2"},
-	{"op-assignment of a value with statements", "G2"},
 	{"untried fallible call", "G2"},
 	{"fallible call with an empty row at its site", "G2"},
 	{"call of an impure function from a pure one", "G2"},
@@ -120,7 +118,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
 	{"call of an extern function", "G4"},
 	{"call that passes owned values", "G4"},
-	{"call that passes witnesses", "G4"},
+	{"call that passes witnesses", "G4"}, // a method with witnesses (ir_witness.go)
+	{"call that passes the caller's witness", "G4"},
+	{"witness without its reserved name", "G4"},
 	{"call with a call site", "G4"},
 	{"call that captures owners", "G4"},
 	{"catch value of another type", "G3"}, // a flat union the arms join to
@@ -152,6 +152,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
 	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
+	{"literal of a defined *", "G3b"},            // Point{…} with elements, of `type Point [8]int32` (GP-DEFINED)
 	{"record field of a converted value", "G3b"}, // B-CONVFIELD (ir_field.go): a difference neither a conversion nor a row explains
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},
@@ -175,6 +176,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
+	// slices.AppendAll, Go's append(xs, ys...): ir_builtin.go falls back to
+	// the text body (I22); the bulk append lowers with NB-ROLE (NO-BUILTINS
+	// findings §7).
+	{"append of a slice's elements", "NB-ROLE"},
 	{"Map write form", "G4"},
 	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
@@ -203,7 +208,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// leaf's generic function named by a generic body's type parameters.
 	{"record field of a converted value", "G4"},
 	{"runtime leaf's generic function in a generic body", "G4"},
-	{"literal of *check.Array", "G1"}, // as "type *check.Array": F7's arrays have no literal yet
 	{"type *check.Map", "G4"},
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
@@ -236,10 +240,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"runtime leaf's generic function in a generic body", "G4"},
 	{"owned parameters", "G4"},
 	// LY-FIX: a monomorphic, provider or witness copy keeps its emitter
-	// body; a function with a Go row (rowslot.go) and its calls too.
+	// body. (Its Go row gate went with ROWSLOT-IR: such a function and
+	// its calls take IR bodies.)
 	{"copy for an instance", "G4"},
-	{"Go row parameter", "G4"},
-	{"call of a function with a Go row", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
@@ -276,6 +279,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},
 	{"encode on a direct writer", "G6"},
+	// JVD-DIRECT: the IR declines a direct reader's decode as it declines the direct writer's encode.
+	{"decode on a direct reader", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 9", "G6"},  // CallGoError

@@ -1,0 +1,229 @@
+// The smallest repro of a store to a Map entry whose key runs statements
+// (FLIP F7 PORT-TEMP; pipeline's failing, ui's Frame.prior): the key
+// `try word(v) - 1` and the record key with a call that needs Console
+// each hoist a call to a temporary, and the IR had no statement list to
+// hold it ("operation call inside an expression"), so the body kept its
+// source body. The calls print, so a run shows their order: the map,
+// then the key's calls, then the value's (the emitter's target). A
+// slice's element takes the same order (slotted, both, gridded).
+
+type Bad { Why string }
+
+type kid { owner int, id int }
+
+func word(n int) int fails Bad needs Console {
+	Console.Println("word \(n)")
+	if n < 0 {
+		return Bad{Why: "negative"}
+	}
+	n
+}
+
+func seen(n int) int needs Console {
+	Console.Println("seen \(n)")
+	n
+}
+
+func keyed(values []int) Map[int, int] fails Bad needs Console {
+	let mut out = Map[int, int]{}
+	for v in values {
+		out[try word(v) - 1] = try word(v * 10)
+	}
+	out
+}
+
+func indexed(owner int, ids []int) Map[kid, int] needs Console {
+	let mut index = Map[kid, int]{}
+	for i in 0..len(ids) {
+		index[kid{owner: owner, id: seen(ids[i])}] = seen(i)
+	}
+	index
+}
+
+// slotted, both and gridded store to a slice's element whose index runs
+// statements (the PORT-TEMP follow-up): the index alone, the index and
+// the value, and an element of a slice reached through a pointer.
+func slotted(values []int) []int fails Bad needs Console {
+	let mut out = []int{0, 0, 0, 0}
+	for v in values {
+		out[try word(v)] = v * 10
+	}
+	out
+}
+
+func both(values []int) []int fails Bad needs Console {
+	let mut out = []int{0, 0, 0, 0}
+	for v in values {
+		out[try word(v)] = try word(v + 4)
+	}
+	out
+}
+
+// stepped stores under an index the value's call moves: the element is
+// the one the index named before the call (the emitter binds it first).
+func step(p mut int) int needs Console {
+	*p = *p + 1
+	seen(*p * 100)
+}
+
+func stepped() []int needs Console {
+	let mut out = []int{0, 0, 0}
+	let mut i = 0
+	out[i] = step(&i)
+	out[i] = step(&i)
+	out
+}
+
+// poke writes the element p points at, and its result is 1: an
+// op-assignment reads its place before the value's calls run, so
+// out[0] += poke(&out[0]) is old + 1, never 101 (the emitter's old).
+func poke(p mut int) int needs Console {
+	*p = 100
+	seen(1)
+}
+
+func added(values []int) []int fails Bad needs Console {
+	let mut out = []int{0, 0}
+	out[0] += poke(&out[0])
+	for v in values {
+		out[1] += try word(v)
+	}
+	out
+}
+
+func fseen(x float64) float64 needs Console {
+	Console.Println("fseen \(x)")
+	x
+}
+
+func scaled(xs []float64) float64 needs Console {
+	let mut f = 1.5
+	f *= fseen(2.0)
+	let mut out = xs
+	out[0] *= fseen(f)
+	out[0]
+}
+
+type Box { n int }
+
+// moved stores through a let mut pointer the value's statements
+// reassign: the store goes to the record the pointer held before them
+// (the emitter binds the pointer first), for =, op= and *q =.
+func moved(r mut Box, k int) int needs Console {
+	let mut other = Box{n: 0}
+	let mut p = r
+	p.n = if k > 1 {
+		p = &other
+		seen(5)
+	} else {
+		k
+	}
+	p.n += if k > 2 {
+		p = r
+		seen(3)
+	} else {
+		seen(1)
+	}
+	let mut q = r
+	*q = if k > 0 {
+		q = &other
+		Box{n: seen(9) + q.n}
+	} else {
+		*q
+	}
+	r.n * 100 + other.n
+}
+
+// add and bumped call a *Box function on a Box place whose index or
+// pointer the call's operands move: the call writes the place they picked
+// before (the emitter's &target, fixed first).
+func add(b mut Box, k int) {
+	b.n = b.n * 10 + k
+}
+
+type Outer { inner Box }
+
+func bumped(o mut Outer, k int) int needs Console {
+	let mut boxes = []Box{Box{n: 1}, Box{n: 2}, Box{n: 3}}
+	let mut j = 0
+	boxes[j].add(step(&j))
+	let mut other = Outer{inner: Box{n: 0}}
+	let mut p = o
+	p.inner.add(if k > 1 {
+		p = &other
+		seen(4)
+	} else {
+		k
+	})
+	boxes[0].n * 10000 + boxes[1].n * 100 + other.inner.n
+}
+
+type Grid { cells []int }
+
+func gridded(g mut Grid, n int) needs Console {
+	for i in 0..n {
+		g.cells[seen(i)] = seen(i + 7)
+	}
+}
+
+func at(m Map[int, int], k int) int {
+	match m.Get(k) {
+	case Some[int] as s:
+		s.Value
+	case None:
+		-1
+	}
+}
+
+func main() needs Console {
+	let m = keyed([]int{1, 3}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		Map[int, int]{}
+	}
+	Console.Println("keyed \(len(m)) \(at(m, 0)) \(at(m, 2))")
+	let n = keyed([]int{2, -1}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		Map[int, int]{}
+	}
+	Console.Println("keyed \(len(n))")
+	let x = indexed(7, []int{4, 5})
+	Console.Println("indexed \(len(x))")
+	let s = slotted([]int{1, 3}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		[]int{}
+	}
+	Console.Println("slotted \(s[1]) \(s[3])")
+	let t = both([]int{2, 0}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		[]int{}
+	}
+	Console.Println("both \(t[0]) \(t[2])")
+	let u = both([]int{-1}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		[]int{}
+	}
+	Console.Println("both \(len(u))")
+	let w = stepped()
+	Console.Println("stepped \(w[0]) \(w[1]) \(w[2])")
+	let ad = added([]int{2, 3}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		[]int{0, 0}
+	}
+	Console.Println("added \(ad[0]) \(ad[1])")
+	Console.Println("scaled \(scaled([]float64{0.1}))")
+	let mut box = Box{n: 0}
+	Console.Println("moved \(moved(&box, 3)) \(box.n)")
+	Console.Println("moved \(moved(&box, 1)) \(box.n)")
+	let mut out = Outer{inner: Box{n: 7}}
+	Console.Println("bumped \(bumped(&out, 3)) \(out.inner.n)")
+	let mut grid = Grid{cells: []int{0, 0, 0}}
+	let g = &grid
+	gridded(g, 2)
+	Console.Println("gridded \(g.cells[0]) \(g.cells[1]) \(g.cells[2])")
+}

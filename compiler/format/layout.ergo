@@ -1,0 +1,295 @@
+// The layout state: output lines of cells, and the whitespace the printer
+// has asked for before the next item. The printer decides what to ask
+// from the tree and the source; the layout only applies the requests. It
+// is a sequential transducer: step applies one Command, and Finish
+// (align.ergo) renders.
+//
+// Every cell's text lives in one buffer, Buf, and a cell is a range of
+// it, so a cell costs two offsets and no text of its own (capstone S1d:
+// the cells were strings, each built in a builder of its own and copied
+// when it closed).
+
+import slices
+import strings
+
+// Layout is the state of the output.
+type Layout {
+	// Buf holds the text of every cell in order. Cell k is the bytes
+	// [CellA[k], CellB[k]) of it.
+	Buf   strings.Builder,
+	CellA []int,
+	CellB []int,
+	// Line i has indentation LineIndent[i] in tabs (-1 for the
+	// continuation of a multi-line raw string or block comment, which is
+	// never re-indented) and the LineN[i] cells from LineFirst[i]. Every
+	// cell but a line's last is padded to the width of its column block.
+	LineIndent []int,
+	LineFirst  []int,
+	LineN      []int,
+	// Pend is the first cell no line holds yet: the finished cells of the
+	// current line, which endLine hands to it.
+	Pend int,
+	// Open is where the open cell starts in Buf. Trail is the blanks that
+	// end it and Solid its last byte that is not a blank. CellsTail is the
+	// last byte of the finished cells and CellTail of the open cell (0
+	// when there is none), so the last byte of the line is known without
+	// reading the text again.
+	Open      int,
+	Trail     int,
+	Solid     byte,
+	CellsTail byte,
+	CellTail  byte,
+	// Started reports that the current line has an item.
+	Started bool,
+	Indent  int,
+	// PendingNL is the line breaks before the next item, PendingSpace a
+	// blank before it on the same line; NoBlank makes the next line break
+	// never a blank line.
+	PendingNL    int,
+	PendingSpace bool,
+	NoBlank      bool,
+}
+
+// Command is one request of the printer.
+type Command =
+	| Space{}
+	| Newline{}
+	| NoBlank{}
+	| Emit{Blank bool}
+	| Write{Text string}
+	| Put{Text string}
+	| Separator{}
+	| Indent{By int}
+	| SetIndent{To int}
+	| EndLine{}
+
+// NewLayout is the empty output.
+func NewLayout() Layout {
+	Layout{
+		Buf:          strings.NewBuilder(),
+		CellA:        []int{},
+		CellB:        []int{},
+		LineIndent:   []int{},
+		LineFirst:    []int{},
+		LineN:        []int{},
+		Pend:         0,
+		Open:         0,
+		Trail:        0,
+		Solid:        0,
+		CellsTail:    0,
+		CellTail:     0,
+		Started:      false,
+		Indent:       0,
+		PendingNL:    0,
+		PendingSpace: false,
+		NoBlank:      false,
+	}
+}
+
+// NewLayoutFor is the empty output, with room for the layout of a source
+// of size bytes: the corpus has about 33 bytes a line and 1.1 cells a
+// line, and the text is the source's size.
+func NewLayoutFor(size int) Layout {
+	let lines = size/32 + 8
+	let cells = size/24 + 8
+	let mut b = strings.NewBuilder()
+	b.Grow(size + size/8)
+	Layout{
+		Buf:          b,
+		CellA:        slices.WithCapacity[int](cells),
+		CellB:        slices.WithCapacity[int](cells),
+		LineIndent:   slices.WithCapacity[int](lines),
+		LineFirst:    slices.WithCapacity[int](lines),
+		LineN:        slices.WithCapacity[int](lines),
+		Pend:         0,
+		Open:         0,
+		Trail:        0,
+		Solid:        0,
+		CellsTail:    0,
+		CellTail:     0,
+		Started:      false,
+		Indent:       0,
+		PendingNL:    0,
+		PendingSpace: false,
+		NoBlank:      false,
+	}
+}
+
+// step applies c to l.
+func step(l mut Layout, c Command) {
+	match c {
+	case Space:
+		l.PendingSpace = true
+	case Newline:
+		l.newline()
+	case NoBlank:
+		l.NoBlank = true
+	case Emit as e:
+		l.emit(e.Blank)
+	case Write as w:
+		l.write(w.Text)
+	case Put as p:
+		l.put(p.Text)
+	case Separator:
+		l.sep()
+	case Indent as i:
+		l.Indent += i.By
+	case SetIndent as s:
+		l.Indent = s.To
+	case EndLine:
+		l.endLine()
+	}
+}
+
+// newline asks for a line break before the next item; several requests
+// are one break.
+func newline(l mut Layout) {
+	if l.PendingNL == 0 {
+		l.PendingNL = 1
+	}
+}
+
+// addLine appends a line with no cells yet.
+func addLine(l mut Layout, indent int) {
+	l.LineIndent = l.LineIndent.Append(indent)
+	l.LineFirst = l.LineFirst.Append(len(l.CellA))
+	l.LineN = l.LineN.Append(0)
+}
+
+// emit applies the pending whitespace before an item. blank reports that
+// the source has a blank line before it, which is kept unless NoBlank.
+func emit(l mut Layout, blank bool) {
+	if l.PendingNL > 0 && (l.Started || len(l.LineIndent) > 0) {
+		l.endLine()
+		if blank && !l.NoBlank {
+			l.addLine(0)
+		}
+	}
+	l.PendingNL = 0
+	l.NoBlank = false
+	if !l.Started {
+		l.Started = true
+		l.PendingSpace = false
+		l.addLine(l.Indent)
+		return
+	}
+	if l.PendingSpace {
+		l.put(" ")
+	}
+	l.PendingSpace = false
+}
+
+// put appends text to the open cell as it is.
+func put(l mut Layout, text string) {
+	let n = len(text)
+	if n == 0 {
+		return
+	}
+	l.Buf.WriteString(text)
+	l.CellTail = text[n-1]
+	let mut k = n
+	for k > 0 && text[k-1] == ' ' {
+		k -= 1
+	}
+	if k == 0 {
+		l.Trail += n
+	} else {
+		l.Trail = n - k
+		l.Solid = text[k-1]
+	}
+}
+
+// closeCell ends the open cell, without its trailing blanks when trim:
+// the next cell starts after it.
+func closeCell(l mut Layout, trim bool) {
+	let end = l.Buf.Len()
+	l.CellA = l.CellA.Append(l.Open)
+	l.CellB = l.CellB.Append(if trim { end - l.Trail } else { end })
+	l.Open = end
+	l.Trail = 0
+	l.Solid = 0
+	l.CellTail = 0
+}
+
+// endLine closes the current line: its open cell is its last cell, and
+// trailing empty cells are dropped.
+func endLine(l mut Layout) {
+	if !l.Started {
+		return
+	}
+	l.closeCell(false)
+	let mut n = len(l.CellA)
+	for n-l.Pend > 1 && l.CellA[n-1] == l.CellB[n-1] {
+		n -= 1
+	}
+	if n < len(l.CellA) {
+		l.CellA = slices.Slice(l.CellA, 0, n)
+		l.CellB = slices.Slice(l.CellB, 0, n)
+	}
+	let last = len(l.LineIndent) - 1
+	l.LineFirst[last] = l.Pend
+	l.LineN[last] = n - l.Pend
+	l.Pend = n
+	l.CellsTail = 0
+	l.Started = false
+}
+
+// sep ends the open cell, without its trailing blanks: the next text
+// aligns with the cells of the same column on the neighbouring lines.
+func sep(l mut Layout) {
+	let solid = l.Solid
+	let has = l.Buf.Len()-l.Trail > l.Open
+	l.closeCell(true)
+	if has {
+		l.CellsTail = solid
+	}
+}
+
+// lastByte is the last byte written on the current line, or 0.
+func lastByte(l mut Layout) byte {
+	if l.Buf.Len() > l.Open {
+		return l.CellTail
+	}
+	l.CellsTail
+}
+
+// writeToken is write of a token or a keyword the printer writes. Only a
+// raw string or a block comment of the source holds a line break, so any
+// other text is put with no search for one.
+func writeToken(l mut Layout, text string) {
+	if text == "" || text[0] == '`' || text[0] == '/' {
+		l.write(text)
+		return
+	}
+	let last = l.lastByte()
+	if last != 0 && merges(last, text[0]) {
+		l.put(" ")
+	}
+	l.put(text)
+}
+
+// write appends text with a blank first when the last byte and text's
+// first would lex as one token; a text with line breaks (a raw string or
+// block comment) continues on lines that are never re-indented.
+func write(l mut Layout, text string) {
+	if text == "" {
+		return
+	}
+	let last = l.lastByte()
+	if last != 0 && merges(last, text[0]) {
+		l.put(" ")
+	}
+	let mut rest = text
+	for {
+		let i = indexNewline(rest)
+		if i < 0 {
+			l.put(rest)
+			return
+		}
+		l.put(strings.Slice(rest, 0, i))
+		l.endLine()
+		l.Started = true
+		l.addLine(-1)
+		rest = strings.Slice(rest, i+1, len(rest))
+	}
+}

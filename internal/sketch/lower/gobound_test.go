@@ -524,10 +524,15 @@ func goBoundRows(s string) string {
 // `*S`, q38). Any other type is t.
 func goBoundOwned(t string) string {
 	if s, ok := strings.CutPrefix(t, "*"); ok {
-		return "go.Ref[" + s + "]"
+		return "go.Ref[" + goBoundBorrows.ReplaceAllString(s, "${1}mut ") + "]"
 	}
-	return t
+	// A function type's borrow parameter (func(*Flag)) is the borrow,
+	// written mut in Ergo source (MODES-2).
+	return goBoundBorrows.ReplaceAllString(t, "${1}mut ")
 }
+
+// goBoundBorrows finds a borrow *T written as a function type's parameter.
+var goBoundBorrows = regexp.MustCompile(`([(,] ?|[(,] ?[a-z_][A-Za-z0-9_]* )\*`)
 
 // goBoundOwnFault marks a diagnostic that the generator's own text causes:
 // own on a name whose type is no resource after narrowing, a retired

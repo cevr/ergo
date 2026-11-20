@@ -61,6 +61,9 @@ func main() {
 				data, _ := json.Marshal(c.Funcs)
 				err = os.WriteFile(os.Args[3], data, 0o644)
 			}
+			if err == nil && len(c.Failed) > 0 {
+				err = fmt.Errorf("%d targets did not lower (listed in the table)", len(c.Failed))
+			}
 		}
 	case "gen":
 		var seed uint64

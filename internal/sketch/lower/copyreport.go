@@ -46,6 +46,7 @@ const (
 	whyRefCell  = "an owned Ref site's copy of the held value, taken when the cell is not fresh (refown.go)"
 	whyWrapper  = "the wrapper of an owned parameter: a caller that cannot hand its argument over gets a copy (V5)"
 	whyMapWrite = "Put or Delete's Map may be read again: the write goes to a copy (V3)"
+	whyCopyElem = "Go's copy stores the source's elements, each holding a slice or Map, in another array: they are copied (V3)"
 )
 
 // copyAt marks the value x copied where it is lowered, for why; the first

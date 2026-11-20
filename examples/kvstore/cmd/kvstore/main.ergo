@@ -2,9 +2,11 @@
 // command from its arguments, or a session of commands from standard
 // input, one per line: put KEY VALUE, get KEY, del KEY, keys, dump and
 // compact. -store chooses the store: file (the default) keeps the entries
-// in DIR/kv.log, and memory keeps them for one run. This binary is the
-// only place that chooses the providers: the store, the host's file
-// system and its standard streams.
+// in DIR/kv.log, and memory keeps them for one run. -pace chooses when
+// Go's collector runs: default (Go's own pace), percent (GOGC=400) or
+// edges (between requests). This binary is the only place that chooses
+// the providers: the store, the pacing, the host's file system and its
+// standard streams.
 
 import flag
 import fstest
@@ -14,22 +16,51 @@ import kvstore/file
 import kvstore/kv
 import kvstore/memory
 import os
+import pace
 
 let storeFlag = flag.Choice("store", "file", []string{"file", "memory"}, "where the entries live")
 let dirFlag = flag.String("dir", "data", "the `directory` of the file store")
+let paceFlag = flag.Choice("pace", "default", []string{"default", "percent", "edges"}, "when the collector runs: at Go's own pace, at GOGC=400, or between requests")
 let commandArgs = flag.Remaining("command", "one command; none reads commands from standard input")
 
-let set = flag.Set{Name: "kvstore", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag}, Args: []flag.ArgSpec{commandArgs}}
+let set = flag.Set{Name: "kvstore", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag, paceFlag}, Args: []flag.ArgSpec{commandArgs}}
+
+// Usage is the text of a usage failure.
+let Usage = "usage: kvstore [-store file|memory] [-dir DIR] [-pace default|percent|edges] [COMMAND...]"
+
+// PaceLimit is the memory limit of the edges pacing. A session's live heap
+// is its entries; an edge collects once the heap has grown by a quarter of
+// the limit since the last collection, and Go collects by itself as the
+// heap nears the limit, inside a request too: the memory bound holds
+// whatever a request allocates.
+let PaceLimit = int64(256 << 20)
+
+// pacing is the provider the -pace flag of args names; an args that does
+// not parse gets Go's own pace, and run reports the error.
+func pacing(args []string) pace.Pacing needs go.Foreign {
+	let v = flag.Parse(set, args) catch {
+	case _:
+		return pace.Default
+	}
+	match paceFlag.Get(v) {
+	case "percent":
+		pace.NewPercent(400)
+	case "edges":
+		pace.NewAtEdges(PaceLimit)
+	case _:
+		pace.Default
+	}
+}
 
 // Memory binds the memory store.
 let Memory = context { kv.Store: memory.NewTable() }
 
 // run is kvstore on args, with the file system files and writes for the
 // file store. A broken store ends it with status 1.
-func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
+func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin | pace.Pacing {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, "usage: kvstore [-store file|memory] [-dir DIR] [COMMAND...]")
+		try flag.Exit(err, Usage)
 		return
 	}
 	let command = flag.Rest(v)
@@ -53,7 +84,7 @@ func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io
 
 // serve answers command, or each line of standard input when command is
 // empty, from the Store in the context.
-func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin {
+func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin | pace.Pacing {
 	if len(command) == 0 {
 		kv.Session() catch {
 		case kv.Broken as b:
@@ -71,10 +102,13 @@ func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin
 // with it: return broken(b).
 func broken(b kv.Broken) os.Exit { os.Exit{Code: 1, Message: "kvstore: the store is broken: " + b.Reason} }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs Ambient | go.Foreign {
 	let host = fs.NewHost()
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
-		try run(os.Process.Args(), host, host)
+		let args = os.Process.Args()
+		with context { pace.Pacing: pacing(args) } {
+			try run(args, host, host)
+		}
 	}
 }
 
@@ -83,7 +117,7 @@ func main() fails os.Exit needs Ambient {
 // ran is run on args with input as standard input, over disk, with a
 // failure printed as "exit CODE: MESSAGE".
 func ran(out io.Recorder, disk fstest.Memory, input string, args []string) {
-	with context { io.Stdout: out, io.Stdin: io.Input{Text: input} } {
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, pace.Pacing: pace.Default } {
 		run(args, disk, disk) catch {
 		case os.Exit as e:
 			io.Stdout.Println("exit \(e.Code): \(e.Message)")
@@ -127,7 +161,7 @@ test ABrokenLogEndsTheRun {
 test AFullDiskEndsTheRun {
 	let out = io.NewRecorder()
 	let disk = fstest.NewMemory()
-	with context { io.Stdout: out, io.Stdin: io.Input{Text: ""} } {
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: ""}, pace.Pacing: pace.Default } {
 		run([]string{"put", "a", "1"}, disk, memory.FullOf(disk)) catch {
 		case os.Exit as e:
 			io.Stdout.Println("exit \(e.Code): \(e.Message)")
@@ -139,5 +173,5 @@ test AFullDiskEndsTheRun {
 test AnUnknownStoreIsAUsageError {
 	let out = io.NewRecorder()
 	ran(out, fstest.NewMemory(), "", []string{"-store", "s3"})
-	assert out.Text() == "exit 2: invalid value \"s3\" for flag -store: not one of file, memory\nusage: kvstore [-store file|memory] [-dir DIR] [COMMAND...]\n"
+	assert out.Text() == "exit 2: invalid value \"s3\" for flag -store: not one of file, memory\nusage: kvstore [-store file|memory] [-dir DIR] [-pace default|percent|edges] [COMMAND...]\n"
 }

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
@@ -61,7 +62,9 @@ func (b builder) program(cmdDir string) (bin, goLine string, err error) {
 	ergo := b.ergo
 	if ergo == "" {
 		ergo = filepath.Join(b.work, "ergo")
-		if err := b.run(b.root, exec.Command("go", "build", "-o", ergo, "./cmd/ergo")); err != nil {
+		cmd := ergobuild.Command(ergo, "./cmd/ergo")
+		cmd.Env = ergobuild.Env(append(os.Environ(), "GOWORK=off"))
+		if err := b.run(b.root, cmd); err != nil {
 			return "", "", err
 		}
 	}

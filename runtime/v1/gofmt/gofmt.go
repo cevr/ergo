@@ -1,9 +1,10 @@
 // Package gofmt gives the runtime fmt's text of a value (binsize BS2).
 // The core runtime writes a value without fmt (rt.Text), which knows the
 // values an Ergo program raises: texts, errors, Stringers, booleans and
-// numbers. A value of another Go type comes through import go, and a
-// machine state's text is its Go fields; a program that has either imports
-// this package, whose init makes fmt the runtime's text of such values.
+// numbers, and writes a value of another Go type (from import go) as Go's
+// runtime writes a panic of it. A machine state's text is its Go fields,
+// which only fmt writes; a program that writes one imports this package,
+// whose init makes fmt the runtime's text of every value.
 package gofmt
 
 import (

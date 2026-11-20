@@ -98,7 +98,7 @@ type patResolver struct {
 	bad      bool            // the current item has a reported error
 	bindings bool            // let/for only: D-D2 permits binding over package objects; never a match's or a catch's
 	// letFor: a let or for pattern, where a bare prelude name is a binder
-	// D-D3 refuses, never a type test or a constant.
+	// that hides it (D-D3), never a type test or a constant.
 	letFor bool
 	// local: a let or for pattern in a body, where a bare name of a
 	// package type binds (types.md, Scope 1; L5), never a package-level
@@ -341,26 +341,21 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 		}
 		if r.letFor && prelude {
 			// A let or for pattern has no type test on a bare name of
-			// the prelude: the name is a binder, D-D3's S108 is its one
-			// diagnostic, and it binds with the value's type.
-			c.preludeName(x)
+			// the prelude: the name is a binder that hides the prelude's
+			// (D-D3, owner q244), and it binds with the value's type.
 			info := &Pattern{Kind: PatBind}
 			r.bind(x, t, info, false)
 			return resolved{t: t, info: info}
 		}
 		switch o := o.(type) {
 		case *Func, *Builtin, *PkgName:
-			if r.bindings && reusableBinderName(o) {
+			// A prelude function or built-in is hidden by a binder of
+			// any kind, as every declaration hides it (D-D3, owner q244).
+			if preludeObject(o) || r.bindings && reusableBinderName(o) {
 				break
 			}
-			if r.bindings || c.isPreludeName(x.Name) {
-				// A prelude function or built-in: D-D3, in every
-				// binder kind (match and catch patterns included).
-				c.preludeName(x)
-			} else {
-				c.errorf(x, CodeType, "a pattern name binds; %s already names %s: compare with if, or choose another name (rows.md, Totality 1)", x.Name, objectNoun(o))
-				c.refuseBinder(x.Pos())
-			}
+			c.errorf(x, CodeType, "a pattern name binds; %s already names %s: compare with if, or choose another name (rows.md, Totality 1)", x.Name, objectNoun(o))
+			c.refuseBinder(x.Pos())
 			if p, ok := o.(*PkgName); ok {
 				p.used = true // The refused occurrence must not add an unused import.
 			}
@@ -401,13 +396,28 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 	return r.fail(nil, t)
 }
 
-// reusableBinderName is D-D2's package-name exception. Prelude names are
-// protected; match and catch never use this exception.
+// reusableBinderName is D-D2's package-name exception: a let or for
+// binder may take a package function's or an import's name; match and
+// catch never use this exception.
 func reusableBinderName(o Object) bool {
 	switch o := o.(type) {
 	case *Func:
 		return o.Pkg != nil && o.Pkg.Path != stdlib.PreludePath
 	case *PkgName:
+		return true
+	}
+	return false
+}
+
+// preludeObject reports a function or built-in of the prelude or the
+// universe, which a binder of any kind hides (D-D3, owner q244).
+func preludeObject(o Object) bool {
+	switch o := o.(type) {
+	case *Func:
+		// The functions D-D2's exception does not cover: one rule, one
+		// identity test (reusableBinderName).
+		return !reusableBinderName(o)
+	case *Builtin:
 		return true
 	}
 	return false

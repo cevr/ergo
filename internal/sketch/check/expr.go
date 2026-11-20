@@ -434,8 +434,7 @@ func (c *checker) localTypeCtx() *typeCtx {
 // lookup resolves a name in expression position, innermost frame first:
 // locals and the body's frame, the package, the universe and the prelude,
 // then the file's import names (D4). An import named after a prelude name
-// is refused (D-D3) and still binds, so it wins over the prelude name it
-// reuses.
+// hides it in its file (D-D3, owner q244; shadowImport).
 func (c *checker) lookup(name string) Object { return c.lookupWith(name, (*Scope).lookup) }
 
 // lookupWith is lookup with find as the scope search: Scope.lookup, or
@@ -877,6 +876,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 		}
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
+	c.recordTypeMark(n, targs, x)
 	return c.instantiate(n, targs)
 }
 
@@ -1234,6 +1234,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 					return bad(x)
 				}
 			}
+			if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {
+				// A mut operation writes its receiver: a value of T is
+				// read, so the call needs a mut T (types.md, Generics 2).
+				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), tp.Name, exprText(x.X), tp.Name)
+				return bad(x)
+			}
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
@@ -1308,7 +1314,7 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {
-				star = "*"
+				star = "mut " // the borrow, as Ergo writes it (MODES-2)
 			}
 			var tps []string
 			for _, tp := range n.Orig.TParams {
@@ -1353,7 +1359,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) && !base.addressable {
-		c.errorf(x.X, CodeType, "%s takes *%s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
+		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) {

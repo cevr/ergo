@@ -559,7 +559,7 @@ func commandsOf(jobs []Job) (Suite, []Tool, error) {
 var ergoTestsTool = Tool{Name: "ergotests", Package: "./scripts/ergotests", Flags: []string{"-buildvcs=false"}}
 
 // ergoTool is the ergo CLI, as ergoSuites builds it.
-var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}}
+var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}}
 
 // ergoPackage says whether dir is an Ergo package with no Go test of its
 // own (compiler/syntax): a killer DIR:Name there is the Ergo test Name,

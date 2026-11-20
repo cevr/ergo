@@ -1,4 +1,5 @@
 import io
+import pace
 import strconv
 import strings
 
@@ -54,12 +55,16 @@ func Answer(line string) []string fails Broken needs Store {
 }
 
 // Session answers each line of standard input on standard output, until
-// the input ends. A broken store ends it.
-func Session() fails Broken needs Store | io.Stdin | io.Stdout {
+// the input ends. A broken store ends it. Each line is one request: once
+// it is answered, Session marks a pacing edge, where the request's own
+// garbage is dead, so the provider main chose may collect between
+// requests and never inside one (std pace).
+func Session() fails Broken needs Store | io.Stdin | io.Stdout | pace.Pacing {
 	for line in io.Stdin.Lines() {
 		for out in try Answer(line) {
 			io.Stdout.Println(out)
 		}
+		pace.Pacing.Edge()
 	}
 }
 

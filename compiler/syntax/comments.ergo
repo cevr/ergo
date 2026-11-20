@@ -1,0 +1,38 @@
+import dense
+
+// Cmt is the row tag of comments.
+type Cmt {}
+
+// Comments are a source's comments as two columns, in source order: the
+// offset of each one's first byte (its `//` or `/*`) and of the byte after
+// it. A line comment ends before its newline and any carriage returns
+// before it. Comments are not tokens; a doc comment is found by position
+// when a reader needs it.
+type Comments {
+	ids   dense.Count[Cmt],
+	start dense.Col[Cmt, uint32],
+	end   dense.Col[Cmt, uint32],
+}
+
+// newComments is an empty comment store with room for n comments.
+func newComments(n int) Comments {
+	Comments{ids: dense.NewCount[Cmt](), start: dense.ColWithCap[Cmt, uint32](n), end: dense.ColWithCap[Cmt, uint32](n)}
+}
+
+func addComment(c mut Comments, start int, end int) {
+	let _ = dense.Next(&c.ids)
+	dense.Push(&c.start, uint32(start))
+	dense.Push(&c.end, uint32(end))
+}
+
+// NumComments is the number of comments.
+func NumComments(c Comments) int { dense.Total(c.ids) }
+
+// CommentAt is the id of the comment at index i.
+func CommentAt(c Comments, i int) dense.ID[Cmt] { dense.IDAt(c.ids, i) }
+
+// CommentStart is the offset of comment id's first byte.
+func CommentStart(c Comments, id dense.ID[Cmt]) int { int(dense.Of(c.start, id)) }
+
+// CommentEnd is the offset of the byte after comment id.
+func CommentEnd(c Comments, id dense.ID[Cmt]) int { int(dense.Of(c.end, id)) }

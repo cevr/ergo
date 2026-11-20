@@ -77,7 +77,7 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	{"ParenExpr", `func F() int { return (nope) }`, "S104", "nope"},
 	{"SelectorExpr", `func F(s S) int { return s.Nope }`, "S104", "Nope"},
 	{"SliceExpr", `func F(xs []int) []int { return xs[nope:] }`, "S104", "nope"},
-	{"StarExpr", `func F(p *Nope) {}`, "S104", "Nope"},
+	{"StarExpr", `func F(p mut Nope) {}`, "S104", "Nope"},
 	{"StructType", `type T { X Nope }`, "S104", "Nope"},
 	{"TryExpr", `func F() fails A {
 	try Fail(nope)

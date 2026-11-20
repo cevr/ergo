@@ -25,7 +25,7 @@ import time
 // union that every source pushes to (the inbox pattern) instead. A value
 // a loser returned is released when T holds a resource, and so is every
 // value when Race fails (Gap 47).
-extern go ergo.local/prototype/runtime/v1.TasksRace func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R
+extern go ergo.local/prototype/runtime/v1.TasksRace func Race[T own, E, R](blocks []func() T fails E needs R) T fails E needs R
 
 // Retry runs block until it gives a value or s stops (Effect retry): after
 // the n-th run fails, s decides by n and the time since the first run
@@ -168,7 +168,7 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 // binds. f is escaping: its calls run on other tasks, at once, so a
 // literal f writes no let mut of its caller (types.md, Function values 2
 // and 3); a result it builds is its own.
-extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f own func(x A) B fails E needs R) []B fails E needs R
+extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B own, E, R](xs []A, limit int, f own func(x A) B fails E needs R) []B fails E needs R
 
 // Closed is the failure of Go on a Set that admits no more tasks: FailFast
 // ended it, or it was stopped. Like queue.Closed, it is a normal end of
@@ -353,7 +353,7 @@ law RestartRunsAgain(n int) {
 	case Closed:
 	}
 	set.Wait()
-	runs.Get() == limit + 1
+	runs.Get() == limit+1
 }
 
 // limitOf is a limit from 1 to 4, drawn from k.
