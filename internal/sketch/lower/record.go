@@ -79,8 +79,13 @@ type specCopy struct {
 	prov *knownProv
 	// wit is the known witness a copy for a known witness is made for
 	// (witspec.go); rec and prov are nil then, and param is -1.
-	wit      *check.Witness
-	typeArgs map[*check.TypeParam]string
+	wit *check.Witness
+	// wits are the known witnesses of a copy for an instance (mono.go),
+	// one per witness parameter, when every one is known: the copy then
+	// takes none, and its callers pass none. Nil keeps the parameters.
+	wits        map[*check.TypeParam]*check.Witness
+	witsDecided bool
+	typeArgs    map[*check.TypeParam]string
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
 	bound map[*check.TypeParam]check.Type

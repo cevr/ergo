@@ -45,6 +45,33 @@ func TestMutGoRespellsFragments(t *testing.T) {
 	}
 }
 
+// TestMutGoReadsAGeneratorsImports is the smallest repro of the borrows
+// the respell left in irspike's gen_irinline.go (TestIRInlineMatchesSource
+// red on main 9c892bc73): the generator imports arena in one piece and
+// names `*arena.Of` in another, which alone reads as Go (goSource). Read
+// with the generator's imports it is respelled; the same text in a file
+// that emits Go stays. Mutant (fix ledger): respell-gen-imports-off.
+func TestMutGoReadsAGeneratorsImports(t *testing.T) {
+	dir := t.TempDir()
+	const body = "package p\n\nvar a = \"import arena\\n\\n\"\nvar b = \"func take[T](ar *arena.Of[T], r int) int {\\n\"\n"
+	gen, emit := filepath.Join(dir, "gen_inline.go"), filepath.Join(dir, "emit.go")
+	for _, f := range []string{gen, emit} {
+		if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := RunMut(Options{Paths: []string{dir}, Go: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rep.Files[gen]; !strings.Contains(got, `func take[T](ar mut arena.Of[T], r int) int {\n`) {
+		t.Errorf("the generator's piece is not respelled: %q", got)
+	}
+	if got, ok := rep.Files[emit]; ok {
+		t.Errorf("the emitter's Go piece is respelled: %q", got)
+	}
+}
+
 // TestMutFragmentRespellsGeneratorPieces is the smallest repro of the
 // borrows the --go respell left in generators (irspike gen_*.go, I-FLIP
 // on main 30ccad64e): a fmt format whose verb stops it parsing, and a

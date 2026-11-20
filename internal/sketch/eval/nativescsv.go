@@ -21,6 +21,7 @@ func registerNativescsv(t nativeTables) {
 		}
 		return stdRecord(fn, "ParseError", map[string]Value{"Line": int64(0), "Column": int64(0), "Reason": err.Error(), "Message": err.Error()})
 	}
+	t.reads["csv.ReadAll"] = "string"
 	natives["csv.ReadAll"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		text := args[0].(string)
 		if ab := in.charge(fr, at, 1+int64(len(text))); ab != nil {
@@ -40,6 +41,7 @@ func registerNativescsv(t nativeTables) {
 		}
 		return v, nil
 	}
+	t.reads["csv.Format"] = "sliceV"
 	natives["csv.Format"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
@@ -64,6 +66,7 @@ func registerNativescsv(t nativeTables) {
 		}
 		return b.String(), nil
 	}
+	t.reads["csv.scan"] = "string func/2"
 	natives["csv.scan"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		text := args[0].(string)
 		none := stdRecord(fn, "ParseError", map[string]Value{"Line": int64(0), "Column": int64(0), "Reason": "", "Message": ""})

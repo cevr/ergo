@@ -256,7 +256,9 @@ func (e *editor) include(file string, d *syntax.TypeDecl, text string, op check.
 		if len(m.Names) == 0 || !names[m.Names[0].Name] {
 			continue
 		}
-		from := int(m.Names[0].Pos())
+		// From the member's mode word (`own Close()`, `mut Bump()`) on:
+		// the name alone would leave the word behind.
+		from := int(m.Pos())
 		if m.Doc != nil {
 			from = int(m.Doc.Pos())
 		}
