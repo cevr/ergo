@@ -19,9 +19,13 @@ type Graph struct {
 	// reads, or a file in a folder to lists. Sorted, no repeats, no self
 	// edge.
 	Edges [][2]int
-	// Order is the nodes in an order every edge agrees with, ties by
-	// their declaration order.
+	// Order is the nodes in an order every edge outside a cycle agrees
+	// with, ties by their declaration order.
 	Order []int
+	// Cycles are the sets of nodes that read each other's outputs, each in
+	// declaration order (the order they run in, pass after pass, until
+	// they settle).
+	Cycles [][]int
 }
 
 // Graph reads the nodes' last runs from the store and orders them.
@@ -37,11 +41,7 @@ func (r *Runner) Graph(nodes []Node) (Graph, error) {
 		}
 	}
 	g.Edges = edgesOf(recs)
-	order, err := orderOf(nodes, g.Edges)
-	if err != nil {
-		return Graph{}, err
-	}
-	g.Order = order
+	g.Order, g.Cycles = orderOf(nodes, g.Edges)
 	return g, nil
 }
 
@@ -82,43 +82,97 @@ func edgesOf(recs []*record) [][2]int {
 	return edges
 }
 
-// orderOf orders the nodes so that every edge runs from earlier to later;
-// among the nodes ready at once, the one declared first goes first. A
-// cycle is an error naming its nodes.
-func orderOf(nodes []Node, edges [][2]int) ([]int, error) {
-	indeg := make([]int, len(nodes))
+// orderOf orders the nodes so that every edge outside a cycle runs from
+// earlier to later; among the parts ready at once, the one declared first
+// goes first. A cycle (generators that read each other's outputs, as a
+// compiler's generators do when each builds with the others' files) is
+// one part, its nodes in declaration order: the passes run it until it
+// settles. The cycles are returned, each in declaration order.
+func orderOf(nodes []Node, edges [][2]int) (order []int, cycles [][]int) {
 	next := make([][]int, len(nodes))
 	for _, e := range edges {
-		indeg[e[1]]++
 		next[e[0]] = append(next[e[0]], e[1])
 	}
-	var ready, out []int
+	// Tarjan's strongly connected components.
+	index := make([]int, len(nodes))
+	low := make([]int, len(nodes))
+	onStack := make([]bool, len(nodes))
+	for i := range index {
+		index[i] = -1
+	}
+	comp := make([]int, len(nodes))
+	var parts [][]int
+	var stack []int
+	counter := 0
+	var visit func(v int)
+	visit = func(v int) {
+		index[v], low[v] = counter, counter
+		counter++
+		stack = append(stack, v)
+		onStack[v] = true
+		for _, w := range next[v] {
+			if index[w] < 0 {
+				visit(w)
+				low[v] = min(low[v], low[w])
+			} else if onStack[w] {
+				low[v] = min(low[v], index[w])
+			}
+		}
+		if low[v] == index[v] {
+			var part []int
+			for {
+				w := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				onStack[w] = false
+				comp[w] = len(parts)
+				part = append(part, w)
+				if w == v {
+					break
+				}
+			}
+			slices.Sort(part)
+			parts = append(parts, part)
+		}
+	}
 	for i := range nodes {
-		if indeg[i] == 0 {
-			ready = append(ready, i)
+		if index[i] < 0 {
+			visit(i)
+		}
+	}
+	// The parts in an order every edge between parts agrees with, ties by
+	// each part's first-declared node.
+	indeg := make([]int, len(parts))
+	seen := map[[2]int]bool{}
+	pnext := make([][]int, len(parts))
+	for _, e := range edges {
+		a, b := comp[e[0]], comp[e[1]]
+		if a != b && !seen[[2]int{a, b}] {
+			seen[[2]int{a, b}] = true
+			indeg[b]++
+			pnext[a] = append(pnext[a], b)
+		}
+	}
+	var ready []int
+	for p := range parts {
+		if indeg[p] == 0 {
+			ready = append(ready, p)
 		}
 	}
 	for len(ready) > 0 {
-		slices.Sort(ready)
-		i := ready[0]
+		slices.SortFunc(ready, func(x, y int) int { return parts[x][0] - parts[y][0] })
+		p := ready[0]
 		ready = ready[1:]
-		out = append(out, i)
-		for _, j := range next[i] {
-			if indeg[j]--; indeg[j] == 0 {
-				ready = append(ready, j)
+		order = append(order, parts[p]...)
+		if len(parts[p]) > 1 {
+			cycles = append(cycles, parts[p])
+		}
+		for _, q := range pnext[p] {
+			if indeg[q]--; indeg[q] == 0 {
+				ready = append(ready, q)
 			}
 		}
 	}
-	if len(out) < len(nodes) {
-		var names []string
-		for i := range nodes {
-			if indeg[i] > 0 {
-				names = append(names, nodes[i].Name)
-			}
-		}
-		return nil, fmt.Errorf("gen %s form a cycle: each writes a file another of them reads", strings.Join(names, ", "))
-	}
-	return out, nil
+	return order, cycles
 }
 
 // contentKey is the key of node n's result over the inputs in now: its

@@ -208,6 +208,9 @@ func taskBudget(ctx context.Context, width int, root string) ([]string, func(), 
 type taskGraphJSON struct {
 	Gens  []taskGenJSON `json:"gens"`
 	Order []string      `json:"order"`
+	// Cycles are the generators that read each other's outputs, each in
+	// the order they run until they settle.
+	Cycles [][]string `json:"cycles"`
 }
 
 type taskGenJSON struct {
@@ -224,7 +227,14 @@ func printTaskGraph(w io.Writer, g task.Graph, asJSON bool) error {
 	for _, e := range g.Edges {
 		after[e[1]] = append(after[e[1]], g.Nodes[e[0]].Name)
 	}
-	out := taskGraphJSON{Gens: []taskGenJSON{}, Order: []string{}}
+	out := taskGraphJSON{Gens: []taskGenJSON{}, Order: []string{}, Cycles: [][]string{}}
+	for _, c := range g.Cycles {
+		var names []string
+		for _, i := range c {
+			names = append(names, g.Nodes[i].Name)
+		}
+		out.Cycles = append(out.Cycles, names)
+	}
 	for i, n := range g.Nodes {
 		a := after[i]
 		if a == nil {
@@ -249,6 +259,9 @@ func printTaskGraph(w io.Writer, g task.Graph, asJSON bool) error {
 			line += ": after " + strings.Join(gen.After, ", ")
 		}
 		fmt.Fprintln(w, line)
+	}
+	for _, c := range out.Cycles {
+		fmt.Fprintln(w, "cycle: "+strings.Join(c, ", ")+" (each reads another's outputs; run in this order until they settle)")
 	}
 	fmt.Fprintln(w, "order: "+strings.Join(out.Order, ", "))
 	return nil

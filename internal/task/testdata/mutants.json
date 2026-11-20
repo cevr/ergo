@@ -5,7 +5,7 @@
       "name": "task-order-ignores-edge",
       "origin": "wf10 MONOREPO WT1a",
       "file": "internal/task/gen.go",
-      "from": "\t\tindeg[e[1]]++\n",
+      "from": "\t\t\tindeg[b]++\n",
       "to": "",
       "rule": "A generator runs after every generator whose output it reads: with every last run known, a pass runs each generator at most once.",
       "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]

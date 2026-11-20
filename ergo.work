@@ -12,10 +12,14 @@ version 2
 gen irport go run ./scripts/irport -write
 reads irport toolchain/ir/_go toolchain/ir/lock
 
-// The export codecs, from the source of package check and of what it
-// imports (go/importer's source importer reads them).
+// The export codecs, from the source of package check and of every
+// package it imports (go/importer's source importer reads them): the
+// folders of `go list -deps ./internal/sketch/check ./internal/sketch/syntax`.
 gen codecs go run ./scripts/exportgen
-reads codecs internal/sketch/check internal/sketch/syntax internal/sketch/types internal/gobind internal/gofacts
+reads codecs internal/sketch/check internal/sketch/syntax internal/sketch/derive internal/sketch/fingerprint
+reads codecs internal/sketch/reflectread internal/sketch/regexpplan internal/sketch/std internal/sketch/stdlib
+reads codecs internal/gofacts internal/hostsyntax internal/linked/compiler internal/pinset internal/stage
+reads codecs internal/toolchain runtime toolchain/ir toolchain/pin
 
 // runtime/v1's body table, from runtime/v1's Go sources.
 gen bodies go test -count=1 -run=^TestBodyTableIsCurrent$ ./runtime/v1 -update-bodies

@@ -310,14 +310,23 @@ of the `ergo.work` at `DIR` (default `.`); `ergo task --list [--json]
   environment (`go env GOVERSION GOOS GOARCH GOFLAGS CGO_ENABLED
   GOEXPERIMENT GOAMD64 GOARM64`).
 - **Outputs** are the files whose stat (size, times, inode) a run
-  changed, and those of its last run that still exist.
+  changed, and those of its last run that still exist. So a generator
+  writes each of its outputs on every run, the same bytes too (Go's
+  build cache keys on content, so an unchanged rewrite costs no build): a
+  generator that leaves an unchanged file alone shows that output, and
+  its edges, only once the file changes, and until then the passes run
+  again what read it.
 - **Order.** A generator runs after each one that writes a file it reads,
   or a file in a folder it lists. The edges come from the generators'
   last runs; a generator never run has none, so after each pass the
   edges are read again and one whose inputs a later generator wrote runs
   again, until a pass runs none. Once every generator has run, a pass
-  runs each at most once. Ties go by the order of the `gen` lines; a
-  cycle is an error naming its generators.
+  runs each at most once. Ties go by the order of the `gen` lines.
+  Generators that read each other's outputs (a cycle: a compiler's
+  generators, each built with the others' files) run in the order of
+  their `gen` lines, pass after pass, until a pass runs none of them;
+  `--list` names each cycle. A run that has not settled after one pass
+  more than there are generators fails.
 - **Hits.** A generator's result is kept (the law-verdict store, under its
   own identity) under the content of its inputs after the run, with the
   digest of each output; the next run's key is over the files its last
