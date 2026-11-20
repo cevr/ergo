@@ -195,7 +195,7 @@ law LocatorAgreesWithAccessTree(seed int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
-		let ops = Render(&f, func(g *Frame[int], st []int) {
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
 				case Missing:
@@ -397,7 +397,7 @@ func wants(loc Locator, x seen) bool {
 	}
 }
 
-func matches(m *Mirror[int], loc Locator, is Matcher) bool {
+func matches(m mut Mirror[int], loc Locator, is Matcher) bool {
 	ExpectIn(m, loc, is) catch {
 	case Mismatch:
 		return false
@@ -410,7 +410,7 @@ func matches(m *Mirror[int], loc Locator, is Matcher) bool {
 // labelled Input (FK3-g5, FK5-g3), with labels, a description and an
 // invalid state read from the state, inside a disabled Fieldset for an
 // odd state value.
-func extras(f *Frame[int], v int) {
+func extras(f mut Frame[int], v int) {
 	Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = NewFlag(f, true)
 		Toggle(f, on, "tg\(v % 3)")
@@ -418,7 +418,7 @@ func extras(f *Frame[int], v int) {
 		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) Option[int] { None }) {
 			Text(f, "in area")
 		}
-		Canvas(f, "c\(v % 4)", 4, 4) func(p *Paint) {}
+		Canvas(f, "c\(v % 4)", 4, 4) func(p mut Paint) {}
 		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
 		Semantic(f, extraSem(v), None, Plain()) {
 			Text(f, "in sem")
@@ -506,7 +506,7 @@ type Mismatch { Want string, Got string }
 
 // LocateIn is the nodes of m that loc finds, in tree order. The root is
 // the host's, not the view's, and is never found.
-func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
+func LocateIn[E](m mut Mirror[E], loc Locator) []Id[E] {
 	match loc {
 	case First as x:
 		let all = LocateIn[E](m, x.At)
@@ -537,7 +537,7 @@ func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
 }
 
 // under is whether a node above id, below the root, is in outer.
-func under[E](m *Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
+func under[E](m mut Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
 	let mut at = entry(m, refOf(m, id)).parent
 	for at != m.root {
 		if outer.Get(at) != None {
@@ -550,7 +550,7 @@ func under[E](m *Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
 
 // locateFrom walks the siblings from at and their subtrees, in tree
 // order, reading each node once (MirrorReads).
-func locateFrom[E](m *Mirror[E], at Option[Id[E]], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
+func locateFrom[E](m mut Mirror[E], at Option[Id[E]], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
 	let mut out = acc
 	let mut c = at
 	for {
@@ -586,7 +586,7 @@ func within[E](n Node[E], off bool, desc string) (bool, string) {
 
 // AccessOf is the node id names on m as a locator reads it; a Generic
 // with no name for an Id m does not hold.
-func AccessOf[E](m *Mirror[E], id Id[E]) Access {
+func AccessOf[E](m mut Mirror[E], id Id[E]) Access {
 	let mut off = false
 	let mut desc = ""
 	let mut path = []Node[E]{}
@@ -742,7 +742,7 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 
 // TextIn is the values of the Texts in the subtree of id on m (id's own
 // included), in tree order, run together: a node's text content.
-func TextIn[E](m *Mirror[E], id Id[E]) string {
+func TextIn[E](m mut Mirror[E], id Id[E]) string {
 	match entryOf(m, id) {
 	case Some[mirrored[E]] as n:
 		let mut out = ""
@@ -762,7 +762,7 @@ func TextIn[E](m *Mirror[E], id Id[E]) string {
 
 // ExpectIn checks is against what loc finds on m, failing Mismatch with
 // both sides.
-func ExpectIn[E](m *Mirror[E], loc Locator, is Matcher) fails Mismatch {
+func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	let ids = LocateIn(m, loc)
 	let want = locatorText(loc) + " " + matcherText(is)
 	match is {
@@ -1000,7 +1000,7 @@ func semRoles() []Role {
 }
 
 // semMaybe is a drawn Option[bool]. (a law's helper)
-func semMaybe(r *rng) Option[bool] {
+func semMaybe(r mut rng) Option[bool] {
 	let k = draw(r, 3)
 	if k == 0 {
 		return None
@@ -1049,7 +1049,7 @@ func semDecls(seed int, n int) []Access {
 }
 
 // semHolds is whether the node named name holds is. (a law's helper)
-func semHolds[D, F](h *TestHost[int, int, D, F], name string, is Matcher) bool {
+func semHolds[D, F](h mut TestHost[int, int, D, F], name string, is Matcher) bool {
 	Expect(h, WithLabel{Label: name}, is) catch {
 	case Mismatch:
 		return false
@@ -1084,7 +1084,7 @@ law AccessIsWhatWasDeclared(seed int, count int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let n = (count%6+6)%6 + 2
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			let ds = semDecls(seed+s*7919, n)
 			Column(f, Plain()) {
 				for i, d in ds {
@@ -1179,7 +1179,7 @@ law WithinFindsUnder(seed int) {
 		let decl = func(role Role, name string, level Option[int]) Access {
 			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 		}
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			Column(f, Plain()) {
 				for i, col in board {
 					Semantic(f, decl(Region, "col \(i)", None), none, Plain()) {

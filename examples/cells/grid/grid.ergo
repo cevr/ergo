@@ -44,7 +44,7 @@ func At(g Grid, c int, r int) Cell {
 }
 
 // Put sets the cell at column c, row r; off the grid it does nothing.
-func Put(g *Grid, c int, r int, cell Cell) {
+func Put(g mut Grid, c int, r int, cell Cell) {
 	if inside(*g, c, r) {
 		g.Cells[r*g.Cols+c] = cell
 	}

@@ -7,8 +7,11 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-func (b *irBuilder) poll(site syntax.Node) *irStmt {
-	p := b.pos(site, site.Pos())
+func (b *irBuilder) poll(site syntax.Node) *irStmt { return b.pollAt(site, site.Pos()) }
+
+// pollAt is the poll at position at of site.
+func (b *irBuilder) pollAt(site syntax.Node, at syntax.Pos) *irStmt {
+	p := b.pos(site, at)
 	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	return &irStmt{K: "expr", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "Check", X: task}}
 }
@@ -173,7 +176,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 				irNo("len of a non-slice")
 			}
 		}
-		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
+		return nil, b.foldConst(x, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}), false // ir_opfold.go: a constant's len
 	case check.CallFunc:
 		f := c.Func
 		switch {
@@ -243,9 +246,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if b.addrRecv(c) { // ir_place.go
 			pre, irArgs = b.recvAddrCall(c, x.Args)
 		} else {
-			pre, irArgs = b.operands(args)
+			pre, irArgs = b.operands(args) // a row parameter's operand goes in by implicit (ir_rowgap.go)
 		}
-		b.valueSource(x, c, args, irArgs) // ir_pkg.go
+		b.valueSource(x, c, args, irArgs)   // ir_pkg.go
+		b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
 		}
@@ -316,6 +320,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallEncode, check.CallDecode:
 		return b.codecCall(x, c, p) // ir_codec.go
+	case check.CallPattern:
+		return b.patternCall(x, c, p) // refinematch.go
 	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:

@@ -233,7 +233,7 @@ func inlineNode(d Doc, trust Trust, id int) html.Node {
 }
 
 // plain writes the text of the inlines below id, for an image's alt.
-func plain(d Doc, b *strings.Builder, id int) {
+func plain(d Doc, b mut strings.Builder, id int) {
 	let mut k = d.nodes[id].first
 	for k >= 0 {
 		let n = d.nodes[k]

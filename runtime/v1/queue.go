@@ -273,6 +273,51 @@ func (q *Queue[T]) Offer(v T) error {
 	return nil
 }
 
+// Slide is q.Slide(v): v enters at the back now, never waiting; when the
+// queue holds its capacity, the value at the front leaves it first and is
+// given back, Some(old), so its caller owns it and releases it when it is a
+// resource (resources R42), as Poll's caller does (Effect's sliding
+// strategy: the newest values stay). The queue never releases it: a
+// release is the element type's Ergo code, which may need capabilities the
+// queue does not hold. Eviction and
+// entry are one step under the queue's lock, so v enters exactly once and
+// no other producer can take the room between them: a sliding value is
+// never lost while an older one stays. A Push still waiting for room keeps
+// waiting: v does not wait, so it enters before them. It fails with Closed
+// on a closed queue, and a capacity of 0 is a defect: there is never room
+// to slide into. Prior art: Effect's Queue.sliding; Java's
+// ArrayBlockingQueue has no sliding offer and needs poll and offer under
+// one lock to build it.
+//
+//ergo:wait none
+func (q *Queue[T]) Slide(v T) (T, bool, error) {
+	return q.slide(v)
+}
+
+// slide is Slide, giving the value it dropped and whether it dropped one
+// (the tests read them).
+func (q *Queue[T]) slide(v T) (old T, dropped bool, err error) {
+	rt.PointRunning(rt.Op{Kind: rt.OpPush, On: q})
+	if q.capacity == 0 {
+		panic("queue.Slide: a queue of capacity 0 has no room to slide into")
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return old, false, Closed{}
+	}
+	if len(q.buf) >= q.capacity {
+		old, dropped = q.buf[0], true
+		var zero T
+		q.buf[0] = zero // the slot keeps no reference
+		q.buf = q.buf[1:]
+	}
+	q.buf = append(q.buf, v)
+	q.size.Store(int64(len(q.buf)))
+	q.signal()
+	return old, dropped, nil
+}
+
 // Cap is q.Cap(): the capacity New gave the queue. It never waits.
 //
 //ergo:wait none

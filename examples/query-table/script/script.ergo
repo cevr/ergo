@@ -140,7 +140,7 @@ func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, fir
 // table the address it is at (the test host has no replace that reports
 // the change, gap FK10-g1), a push is followed as a link is, and a focus
 // is noted. It is how each shows.
-func run(h *Host, site Site, gone queue.Queue[[]explorer.Command]) []string fails actor.Stopped | ui.BadPatch {
+func run(h mut Host, site Site, gone queue.Queue[[]explorer.Command]) []string fails actor.Stopped | ui.BadPatch {
 	let mut asks = []string{}
 	for {
 		let cs = match gone.Poll() {
@@ -258,7 +258,7 @@ type seen { Search Option[string], Lists []string, List string, Header bool, Sor
 // search box and each list box's button), an open list (its items, the
 // selected one with *, the active one with >), the sorting, the count,
 // and the rows.
-func View(h *Host) []string {
+func View(h mut Host) []string {
 	let mut s = seen{Search: None, Lists: []string{}, List: "", Header: false, Sorts: []string{}, Showing: "", Rows: []string{}, Empty: false, Page: []string{}}
 	for x in ui.Screen(h) {
 		s = walk(x, s, "")

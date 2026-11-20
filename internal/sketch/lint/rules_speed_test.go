@@ -23,7 +23,7 @@ func read(c Counter, k int) int { c.N + k }
 
 func readAfter(k int, c Counter) int { c.N + k }
 
-func bump(s *Counter) int {
+func bump(s mut Counter) int {
 	s.N = s.N + 1
 	s.N
 }
@@ -140,10 +140,10 @@ func TestQuadraticScanAgreesWithReference(t *testing.T) {
 }
 
 var snapshotKinds = []planKind{
-	{true, 2, "func %s(s *Counter) int {\n\tread(*s, bump(s))\n}"},
-	{false, 0, "func %s(s *Counter) int {\n\tread(*s, 1)\n}"},
-	{false, 0, "func %s(s *Counter) int {\n\treadAfter(bump(s), *s)\n}"},
-	{false, 0, "func %s(s *Counter) int {\n\tread(*s, double(s.N))\n}"},
+	{true, 2, "func %s(s mut Counter) int {\n\tread(*s, bump(s))\n}"},
+	{false, 0, "func %s(s mut Counter) int {\n\tread(*s, 1)\n}"},
+	{false, 0, "func %s(s mut Counter) int {\n\treadAfter(bump(s), *s)\n}"},
+	{false, 0, "func %s(s mut Counter) int {\n\tread(*s, double(s.N))\n}"},
 }
 
 // TestSnapshotArgumentAgreesWithReference writes calls with an argument

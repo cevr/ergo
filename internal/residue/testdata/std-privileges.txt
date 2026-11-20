@@ -9,7 +9,10 @@
 # debt: any other; the unit names who removes it. Debt only shrinks.
 
 seam	internal/sketch/check/check.go:StdFixture	a test fixture checked as std (no Ergo source reaches it)	-
+seam	internal/sketch/check/check.go:installPrelude	installs a snapshot's decoded prelude and marks it std, as prelude marks the checked one	-
 seam	internal/sketch/check/check.go:prelude	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.decoded	marks a package decoded from a std segment std, as load marks one it checks; a module segment's stays unmarked	-
+seam	internal/sketch/check/check.go:stdImporter.importAll	finds every embedded std package (stdlib.Packages), so a snapshot of std has them all	-
 seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std package and marks it std	-
 seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
 seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
@@ -26,12 +29,13 @@ seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedde
 seam	internal/sketchfront/load.go:isStdPath	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
 seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
 seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
-language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqualified	-
+language	internal/rpcgen/rpcgen.go:importName	a prelude name is written unqualified	-
 language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	-
 language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
 language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test's host authority	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
+language	internal/sketch/check/decl.go:checker.resolveNamed	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
 language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
 language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-
@@ -99,7 +103,6 @@ debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
 debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
 debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
-debt	internal/rpcgen/hub.go:StdJSON	json's wire forms by name (moved from tsproj/project.go:stdJSON, one function for the hub's and tsproj's schemas)	NP7
 debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP

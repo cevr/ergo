@@ -105,7 +105,7 @@ func Label(p Press) string {
 	}
 }
 
-func read(h *Host) Frame {
+func read(h mut Host) Frame {
 	let mut f = Frame{Top: []string{}, Rows: []string{}, Actions: []string{}, Counts: ui.Counts(h)}
 	walk(&f, ui.Screen(h))
 	f
@@ -114,7 +114,7 @@ func read(h *Host) Frame {
 // walk reads shapes into f: a row group becomes a row, a heading its
 // text, a button outside a row its label, and a text outside a row
 // itself.
-func walk(f *Frame, shapes []ui.Shape[desk.Signal]) {
+func walk(f mut Frame, shapes []ui.Shape[desk.Signal]) {
 	for s in shapes {
 		match s.Node {
 		case ui.SemanticNode as g:

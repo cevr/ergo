@@ -40,7 +40,7 @@ func liveMachine() Machine[live, int, int] {
 	Machine[live, int, int]{Initial: live{k: 1, shown: true}, Step: liveStep, After: none, Work: idle}
 }
 
-func liveView(f *ui.Frame[int], s live) {
+func liveView(f mut ui.Frame[int], s live) {
 	ui.Column(f, ui.Plain()) {
 		for i in 0..len(Texts) {
 			ui.Pressable(f, "s\(i)", i) {

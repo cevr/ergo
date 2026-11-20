@@ -996,7 +996,7 @@ func mapsKeys[V any](m map[string]V) func(func(string) bool) {
 
 // copyAPIText is the text of fs as api.Text printed it before SEM2a moved
 // the view to std code's ApiText: each function's name, signature, type
-// parameters, what it takes and the copies it makes.
+// parameters, what it takes and its own marks.
 func copyAPIText(fs []api.Function) string {
 	var b strings.Builder
 	for _, f := range fs {
@@ -1013,12 +1013,8 @@ func copyAPIText(fs []api.Function) string {
 			origin = "inferred"
 		}
 		fmt.Fprintf(&b, "\n  takes %s (%s)\n", takes, origin)
-		for _, c := range f.Copies {
-			where := c.Where
-			if where == "" {
-				where = "foreign body"
-			}
-			fmt.Fprintf(&b, "  copies %s at %s (plain data only): %s\n", c.Parameter, where, c.What)
+		for _, n := range f.Own {
+			fmt.Fprintf(&b, "  own %s (a resource may bind it)\n", n)
 		}
 	}
 	if len(fs) == 0 {

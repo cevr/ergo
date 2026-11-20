@@ -111,7 +111,7 @@ func Paint(s Style, text string) string needs Colors {
 }
 
 // WritePaint writes Paint(s, text) to b.
-func WritePaint(b *strings.Builder, s Style, text string) needs Colors {
+func WritePaint(b mut strings.Builder, s Style, text string) needs Colors {
 	if s == Plain || !Colors.On() {
 		b.WriteString(text)
 		return
@@ -137,7 +137,7 @@ func SGR(s Style) string {
 let Reset = "\x1b[0m"
 
 // writeSGR writes s's codes to b: ESC [, the codes split by ';', m.
-func writeSGR(b *strings.Builder, s Style) {
+func writeSGR(b mut strings.Builder, s Style) {
 	b.WriteString("\x1b[")
 	let mut first = true
 	let attrs = [](bool, int){(s.Bold, 1), (s.Dim, 2), (s.Italic, 3), (s.Underline, 4), (s.Reverse, 7), (s.Strike, 9)}
@@ -154,7 +154,7 @@ func writeSGR(b *strings.Builder, s Style) {
 }
 
 // sep writes ';' unless first; it is false.
-func sep(b *strings.Builder, first bool) bool {
+func sep(b mut strings.Builder, first bool) bool {
 	if !first {
 		b.WriteByte(';')
 	}
@@ -163,7 +163,7 @@ func sep(b *strings.Builder, first bool) bool {
 
 // writeColor writes the codes of c as a foreground (base 30) or a
 // background (base 40), and is whether nothing is written yet.
-func writeColor(b *strings.Builder, c Color, base int, first bool) bool {
+func writeColor(b mut strings.Builder, c Color, base int, first bool) bool {
 	match c {
 	case DefaultColor:
 		first
@@ -195,7 +195,7 @@ func writeColor(b *strings.Builder, c Color, base int, first bool) bool {
 func clamp(n int, most int) int { if n < 0 { 0 } else if n > most { most } else { n } }
 
 // writeInt writes n, which is 0 or more, in decimal.
-func writeInt(b *strings.Builder, n int) {
+func writeInt(b mut strings.Builder, n int) {
 	if n >= 10 {
 		writeInt(b, n/10)
 	}

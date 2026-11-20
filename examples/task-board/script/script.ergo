@@ -78,12 +78,12 @@ func Open(columns []board.Column, clock time.Manual) Host fails Unread needs Sch
 }
 
 // Close stops the program.
-func Close(h *Host) {
+func Close(h mut Host) {
 	h.app.Stop()
 }
 
 // Board is the program's state.
-func Board(h *Host) kanban.Board { ui.StateOf(&h.view) }
+func Board(h mut Host) kanban.Board { ui.StateOf(&h.view) }
 
 // Run loads the board from the board.Store in the context (the default
 // board when nothing is saved), reads the script from io.Stdin and plays
@@ -135,7 +135,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | board.Store | Schedul
 // Play plays one line on the screen and answers what the program asks,
 // and is what it did: the drag's phase and the form when they changed,
 // what the live region newly said, and each thing the program asked.
-func Play(h *Host, line string, raw string) []string fails Unread needs board.Store {
+func Play(h mut Host, line string, raw string) []string fails Unread needs board.Store {
 	let before = Board(h)
 	let w = strings.Fields(line)
 	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
@@ -180,7 +180,7 @@ func Play(h *Host, line string, raw string) []string fails Unread needs board.St
 }
 
 // act sends the line's input to the screen.
-func act(h *Host, b kanban.Board, w []string, rest string) fails Unread | actor.Stopped | ui.BadPatch {
+func act(h mut Host, b kanban.Board, w []string, rest string) fails Unread | actor.Stopped | ui.BadPatch {
 	match w[0] {
 	case "press":
 		let (x, y) = try aim(b, w)
@@ -293,7 +293,7 @@ func aim(b kanban.Board, w []string) (float64, float64) fails Unread {
 
 // pointAt sends a pointer event at x, y in the Area's box, over the
 // topmost zone of the layout there.
-func pointAt(h *Host, b kanban.Board, x float64, y float64, phase ui.Phase) fails Unread | actor.Stopped | ui.BadPatch {
+func pointAt(h mut Host, b kanban.Board, x float64, y float64, phase ui.Phase) fails Unread | actor.Stopped | ui.BadPatch {
 	h.X = x
 	h.Y = y
 	let areas = ui.Locate(&h.view, ui.WithLabel{Label: screen.Label})
@@ -338,12 +338,12 @@ func Box(b kanban.Board, x float64, y float64) Option[Hit] {
 	Some{Value: Hit{Key: col.ID, Box: ui.Rect{X: ui.Length(left), Y: ui.Length(0.0), W: ui.Length(Column - 20.0), H: ui.Length(1000.0)}}}
 }
 
-func key(h *Host, name string, shift bool) fails actor.Stopped | ui.BadPatch {
+func key(h mut Host, name string, shift bool) fails actor.Stopped | ui.BadPatch {
 	try ui.PressKey(&h.view, ui.KeyPress{Name: name, Mods: ui.Mods{Shift: shift, Ctrl: false, Alt: false, Meta: false}})
 }
 
 // tap presses the k'th button named name.
-func tap(h *Host, name string, k int) fails Unread | actor.Stopped | ui.BadPatch {
+func tap(h mut Host, name string, k int) fails Unread | actor.Stopped | ui.BadPatch {
 	let ids = ui.Locate(&h.view, ui.WithRole{Role: ui.Button, Name: name})
 	if k >= len(ids) {
 		return Unread{Why: "the screen has no button \(name)"}
@@ -354,7 +354,7 @@ func tap(h *Host, name string, k int) fails Unread | actor.Stopped | ui.BadPatch
 // answer runs what the program asked until it asks nothing more, sending
 // each answer back as a signal, then settles the screen; it is a line per
 // thing asked.
-func answer(h *Host) []string fails Unread needs board.Store {
+func answer(h mut Host) []string fails Unread needs board.Store {
 	let mut out = []string{}
 	for {
 		// The actor's state waits for every signal sent before it, so
@@ -383,7 +383,7 @@ func answer(h *Host) []string fails Unread needs board.Store {
 }
 
 // reply is how the host says a command, and its answer.
-func reply(h *Host, b kanban.Board, c kanban.Command) (string, kanban.Signal) needs board.Store {
+func reply(h mut Host, b kanban.Board, c kanban.Command) (string, kanban.Signal) needs board.Store {
 	match c {
 	case kanban.MakeID as m:
 		h.Made = h.Made + 1
@@ -444,7 +444,7 @@ func Form(b kanban.Board) string {
 
 // Live is the text of the screen's live region (ui.Announce), "" when it
 // has none.
-func Live(h *Host) string {
+func Live(h mut Host) string {
 	let ids = ui.Locate(&h.view, ui.WithRole{Role: ui.Status, Name: ""})
 	if len(ids) == 0 {
 		return ""
@@ -454,7 +454,7 @@ func Live(h *Host) string {
 
 // Show is the board as the screen shows it: per column zone, its name,
 // its count and the ids of the card zones in it.
-func Show(h *Host) []string {
+func Show(h mut Host) []string {
 	let mut out = []string{}
 	for s in ui.Screen(&h.view) {
 		out = slices.Concat(out, columns(s))
@@ -583,7 +583,7 @@ func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Ma
 	ok
 }
 
-func dropped(h *Host, item string, from board.Spot, col board.Column, target string, index int, shelf memory.Shelf) bool needs board.Store {
+func dropped(h mut Host, item string, from board.Spot, col board.Column, target string, index int, shelf memory.Shelf) bool needs board.Store {
 	let _ = Play(h, "press \(item)", "press \(item)") catch {
 	case Unread:
 		return false

@@ -125,7 +125,7 @@ func newVisit(p Program) tagVisit { tagVisit{out: []Thread{}, marked: slices.Rep
 
 // add adds the thread at pc with history h, at offset at, and what it
 // reaches through Split (X first) and Save, each instruction once.
-func add(v *tagVisit, p Program, pc int, h syntax.History, at int) {
+func add(v mut tagVisit, p Program, pc int, h syntax.History, at int) {
 	if v.marked[pc] {
 		return
 	}

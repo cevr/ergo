@@ -1,0 +1,784 @@
+// ---------------------------------------------------------------- names
+
+// parseIdent parses a name. A keyword is never a name.
+func parseIdent(p mut parser) uint32 {
+	if p.tk != Ident {
+		expected(p, "expected a name, found ")
+		return noNode
+	}
+	let id = identRow(p, p.i)
+	next(p)
+	id
+}
+
+// startsTypeName reports whether the current token starts a type name:
+// `name`, `pkg.name` or `go.name`.
+func startsTypeName(p mut parser) bool { p.tk == Ident || (p.tk == Go && peek(p, 1) == Period) }
+
+// parseQualifiedName parses `name`, `pkg.name` or `go.name`.
+func parseQualifiedName(p mut parser) uint32 {
+	let mut x = noNode
+	if p.tk == Go && peek(p, 1) == Period {
+		x = identRow(p, p.i)
+		next(p)
+	} else {
+		x = parseIdent(p)
+	}
+	if got(p, Period) {
+		let sel = parseIdent(p)
+		x = row(&p.t, KSelectorExpr, uint32(0), x, sel)
+	}
+	x
+}
+
+// ---------------------------------------------------------------- signatures and parameters
+
+// Where a type stands, which decides what a comma after the needs row of a
+// function type means.
+let ctxDecl = 0
+let ctxList = 1
+let ctxMember = 2
+
+// parseSignature parses `Params [Type] [fails …] [needs …] [takes …]`. lit
+// marks the parameters of a function literal (funcLitParams).
+func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
+	let params = parseParameters(p, ctx == ctxDecl, lit)
+	let rm = mark(p.t)
+	if startsType(p) {
+		let ty = parseResultType(p, ctx)
+		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none, none))
+	}
+	if p.tk == Fails {
+		let er = parseFails(p)
+		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(er), none, none, none, none, none, none, none, none, none))
+	}
+	let mut results = none
+	if mark(p.t) > rm {
+		results = some(mkFieldList(&p.t, rm, none, none))
+	}
+	let mut nd = none
+	if p.tk == Needs {
+		nd = some(parseNeeds(p, ctx))
+	}
+	let mut tk = none
+	if p.tk == Takes {
+		tk = some(parseTakes(p, ctx))
+	}
+	mkFuncType(&p.t, mark(p.t), none, none, funcPos, params, results, nd, tk)
+}
+
+// parseTakes parses `takes [a, b]`.
+func parseTakes(p mut parser, ctx int) uint32 {
+	let tt = want(p, Takes)
+	let m = mark(p.t)
+	if p.tk != Ident {
+		return rec(&p.t, KTakesClause, uint32(tt), m)
+	}
+	pushW(&p.t, parseIdent(p))
+	for p.tk == Comma && peek(p, 1) == Ident {
+		if ctx == ctxList || (ctx == ctxMember && peek(p, 2) == LParen) {
+			break
+		}
+		next(p)
+		pushW(&p.t, parseIdent(p))
+	}
+	rec(&p.t, KTakesClause, uint32(tt), m)
+}
+
+// parseResultType parses the one result type. A tuple ending in `error` is
+// Go's `(T, error)`.
+func parseResultType(p mut parser, ctx int) uint32 {
+	let t = parseType(p, ctx)
+	if kindAt(p, t) == KTupleExpr {
+		let last = lastItem(p.t, t, 2)
+		if identIs(p, last, "error") {
+			habit(p, nodePos(p, last), 5, habitErrorResult)
+		}
+	}
+	t
+}
+
+// parseFails parses `fails A | B[T]`.
+func parseFails(p mut parser) uint32 {
+	let e = want(p, Fails)
+	let m = mark(p.t)
+	pushW(&p.t, parseTypeName(p, "fails"))
+	for got(p, Or) {
+		pushW(&p.t, parseTypeName(p, "fails"))
+	}
+	rec(&p.t, KErrorRow, uint32(e), m)
+}
+
+// startsType reports whether the current token can start a type.
+func startsType(p mut parser) bool {
+	let k = p.tk
+	if k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping || k == LParen {
+		return true
+	}
+	if k == Go {
+		return peek(p, 1) == Period
+	}
+	k == KwMap || k == Chan || k == Struct || k == Interface || k == Arrow || k == Ellipsis
+}
+
+// parseProvides parses a context's `provides A | B`.
+func parseProvides(p mut parser) uint32 {
+	let pr = want(p, Provides)
+	let m = mark(p.t)
+	parseRow(p, "provides")
+	if p.tk == Comma {
+		rowComma(p, pos(p), "provides")
+	}
+	rec(&p.t, KProvidesClause, uint32(pr), m)
+}
+
+// parseNeeds parses `needs A | B`.
+func parseNeeds(p mut parser, ctx int) uint32 {
+	let n = want(p, Needs)
+	let m = mark(p.t)
+	parseRow(p, "needs")
+	if p.tk == Comma && (ctx == ctxDecl || (ctx == ctxMember && commaContinuesRow(p))) {
+		rowComma(p, pos(p), "needs")
+	}
+	rec(&p.t, KNeedsClause, uint32(n), m)
+}
+
+// parseRow pushes the names of a capability row, `A | B`.
+func parseRow(p mut parser, what string) {
+	if p.tk == LParen {
+		errorAt(p, pos(p), 1, "a capability row takes no parentheses: write "+what+" A | B")
+	}
+	pushW(&p.t, parseCapabilityName(p, what))
+	for got(p, Or) {
+		pushW(&p.t, parseCapabilityName(p, what))
+	}
+}
+
+func rowComma(p mut parser, at int, what string) {
+	errorAt(p, at, 1, "a capability row separates its names with |: write "+what+" A | B")
+}
+
+// commaContinuesRow reports whether the comma at the current token would
+// continue a member's row.
+func commaContinuesRow(p mut parser) bool {
+	let mut i = 1
+	let k = peek(p, i)
+	if k != Ident && !(k == Go && peek(p, i+1) == Period) {
+		return false
+	}
+	i = i + 1
+	if peek(p, i) == Period {
+		i = i + 2
+	}
+	let n = peek(p, i)
+	if n == Comma || n == RBrace || n == Semicolon {
+		return true
+	}
+	if n == LBrack {
+		return !opensCollection(p, i)
+	}
+	false
+}
+
+// entry is one parameter as read, before the list decides whether its
+// entries are named.
+type entry {
+	hasName   bool,
+	name      uint32,
+	nameTok   int,
+	typ       uint32,
+	comma     int,
+	own       uint32,
+	ambiguous bool,
+	wherePos  uint32,
+	where     uint32,
+	purePos   uint32,
+}
+
+func newEntry(typ uint32) entry {
+	entry{hasName: false, name: noNode, nameTok: -1, typ: typ, comma: -1, own: none, ambiguous: false, wherePos: none, where: none, purePos: none}
+}
+
+func named(name uint32, typ uint32) entry {
+	entry{hasName: true, name: name, nameTok: -1, typ: typ, comma: -1, own: none, ambiguous: false, wherePos: none, where: none, purePos: none}
+}
+
+func pushEnt(p mut parser, e entry) {
+	if p.entTop < len(p.ents) {
+		p.ents[p.entTop] = e
+	} else {
+		p.ents = p.ents.Append(e)
+	}
+	p.entTop = p.entTop + 1
+}
+
+// entName is the name row of a named entry: an ambiguous `own`'s Ident row
+// is made when the list names it.
+func entName(p mut parser, e entry) uint32 {
+	if e.ambiguous {
+		return identRow(p, e.nameTok)
+	}
+	e.name
+}
+
+// parseParameters parses a parameter list with Go's grouping: either every
+// entry has a name (`a, b T` groups a and b) or none does. lit reads an
+// unnamed list as the untyped names of a function literal.
+func parseParameters(p mut parser, decl bool, lit bool) uint32 {
+	let open = want(p, LParen)
+	let saved = p.exprLev
+	p.exprLev = 1
+	let base = p.entTop
+	let mut comma = -1
+	for p.tk != RParen {
+		let mut e = parseParamEntry(p)
+		e.comma = comma
+		if e.hasName && atWhere(p) {
+			e.wherePos = someTok(p.i)
+			next(p)
+			e.where = some(parseExpr(p))
+		}
+		pushEnt(p, e)
+		if p.tk != Comma {
+			break
+		}
+		comma = p.i
+		next(p)
+	}
+	p.exprLev = saved
+	if p.tk != RParen {
+		expected(p, "expected \")\" or \",\", found ")
+	}
+	let closing = p.i
+	next(p)
+	let top = p.entTop
+	let mut isNamed = false
+	let mut ambiguous = false
+	for k in base..top {
+		let e = p.ents[k]
+		isNamed = isNamed || (e.hasName && !e.ambiguous)
+		ambiguous = ambiguous || e.ambiguous
+	}
+	isNamed = isNamed || (decl && ambiguous)
+	let lm = mark(p.t)
+	if !isNamed {
+		for k in base..top {
+			let e = p.ents[k]
+			let own = if e.ambiguous { someTok(e.nameTok) } else { e.own }
+			if lit && kindAt(p, e.typ) == KIdent {
+				let fm = mark(p.t)
+				pushW(&p.t, e.typ)
+				pushW(&p.t, mkField(&p.t, fm, none, none, none, none, none, none, none, none, none, own, none))
+			} else {
+				if lit && !p.litErr {
+					p.litErr = true
+					p.litPos = nodePos(p, e.typ)
+					p.litLen = nodeEnd(p, e.typ) - p.litPos
+				}
+				pushW(&p.t, mkField(&p.t, mark(p.t), none, some(e.typ), none, none, none, none, none, none, none, own, none))
+			}
+		}
+		p.entTop = base
+		return mkFieldList(&p.t, lm, someTok(open), someTok(closing))
+	}
+	let mut pm = lm
+	let mut npend = 0
+	for k in base..top {
+		let e = p.ents[k]
+		if !e.hasName {
+			if kindAt(p, e.typ) != KIdent {
+				needsComma(p, base, k-npend)
+				errorNode(p, e.typ, "mixed named and unnamed parameters")
+				break
+			}
+			pushW(&p.t, e.typ)
+			npend = npend + 1
+			continue
+		}
+		if e.where != none && npend > 0 {
+			errorAt(p, tpos(p, int(e.wherePos)-1), 5, "a where follows a parameter of one name: give "+identText(p, p.t.stack[pm])+" its own type")
+		}
+		pushW(&p.t, entName(p, e))
+		let own = if e.ambiguous { none } else { e.own }
+		let f = mkField(&p.t, pm, none, some(e.typ), none, none, none, none, e.where, e.wherePos, e.purePos, own, none)
+		pushW(&p.t, f)
+		pm = mark(p.t)
+		npend = 0
+	}
+	if npend > 0 && !p.failed {
+		needsComma(p, base, top-npend)
+		let last = p.t.stack[mark(p.t)-1]
+		let name = identText(p, last)
+		errorAt(p, nodePos(p, last), len(name), "mixed named and unnamed parameters: "+name+" has no type")
+	}
+	p.entTop = base
+	mkFieldList(&p.t, lm, someTok(open), someTok(closing))
+}
+
+// needsComma reports the comma spelling of a needs row in a named
+// parameter list, `f func() needs A, B`: the entries from at on (of the
+// list's entries from base) have no type, and the one before them is a
+// named parameter whose type ends in a needs row.
+func needsComma(p mut parser, base int, at int) {
+	if at == base {
+		return
+	}
+	let prev = p.ents[at-1]
+	let e = p.ents[at]
+	if !prev.hasName || !endsInNeeds(p, prev.typ) || !isCapabilityName(p, e.typ) {
+		return
+	}
+	rowComma(p, tpos(p, e.comma), "needs")
+}
+
+// endsInNeeds reports whether the type t ends in a needs row.
+func endsInNeeds(p mut parser, t uint32) bool {
+	let k = kindAt(p, t)
+	if k == KFuncType {
+		if fixed(p.t, t, 7, 5) != none {
+			return true
+		}
+		let res = fixed(p.t, t, 7, 4)
+		if res != none && items(p.t, res-uint32(1), 2) > 0 {
+			let last = lastItem(p.t, res-uint32(1), 2)
+			let ty = fixed(p.t, last, 11, 1)
+			return ty != none && endsInNeeds(p, ty-uint32(1))
+		}
+		return false
+	}
+	if k == KStarExpr || k == KArrayType {
+		return endsInNeeds(p, p.t.a[int(t)])
+	}
+	false
+}
+
+// isCapabilityName reports whether x has the shape of a capability name:
+// `Name`, `pkg.Name` or `go.Name`.
+func isCapabilityName(p mut parser, x uint32) bool {
+	let k = kindAt(p, x)
+	k == KIdent || (k == KSelectorExpr && kindAt(p, p.t.a[int(x)]) == KIdent)
+}
+
+// atOwn reports the mode word `own` before a token that starts a type.
+func atOwn(p mut parser) bool {
+	if !isWord(p, "own") {
+		return false
+	}
+	let k = peek(p, 1)
+	if k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping || k == LParen {
+		return true
+	}
+	k == Go && peek(p, 2) == Period
+}
+
+func parseParamEntry(p mut parser) entry {
+	if atOwn(p) {
+		// `own T`: the mode before an unnamed parameter's type, or a
+		// parameter named own; parseParameters decides by the list.
+		let w = p.i
+		next(p)
+		let ty = parseType(p, ctxList)
+		return entry{hasName: true, name: noNode, nameTok: w, typ: ty, comma: -1, own: someTok(w), ambiguous: true, wherePos: none, where: none, purePos: none}
+	}
+	if p.tk != Ident {
+		return newEntry(parseType(p, ctxList))
+	}
+	let start = save(p)
+	let id = parseIdent(p)
+	if atOwn(p) {
+		let own = someTok(p.i)
+		next(p)
+		let mut e = named(id, parseType(p, ctxList))
+		e.own = own
+		return e
+	}
+	if p.tk == Comma || p.tk == RParen {
+		return newEntry(id)
+	}
+	if p.tk == Period {
+		restore(p, start)
+		return newEntry(parseType(p, ctxList))
+	}
+	if p.tk == LBrack {
+		let k1 = peek(p, 1)
+		if k1 == RBrack || k1 == Int || opensCollection(p, 0) {
+			return named(id, parseType(p, ctxList))
+		}
+		restore(p, start)
+		let t = parseType(p, ctxList)
+		if startsType(p) {
+			restore(p, start)
+			let id2 = parseIdent(p)
+			return named(id2, parseType(p, ctxList))
+		}
+		return newEntry(t)
+	}
+	let pp = pureClause(p)
+	if pp >= 0 {
+		let mut own = none
+		if atOwn(p) {
+			own = someTok(p.i)
+			next(p)
+		}
+		let mut e = named(id, parseType(p, ctxList))
+		e.purePos = someTok(pp)
+		e.own = own
+		return e
+	}
+	named(id, parseType(p, ctxList))
+}
+
+// pureClause reads the word `pure` after a parameter's name when a type
+// follows it, and returns its token, or -1.
+func pureClause(p mut parser) int {
+	if !isWord(p, "pure") {
+		return -1
+	}
+	let k = peek(p, 1)
+	if !(k == Ident || k == Func || k == Escaping || k == LParen || (k == Go && peek(p, 2) == Period)) {
+		return -1
+	}
+	let at = p.i
+	next(p)
+	at
+}
+
+// ---------------------------------------------------------------- types
+
+// parseType parses a type.
+func parseType(p mut parser, ctx int) uint32 {
+	enter(p)
+	let t = parseType1(p, ctx)
+	leave(p)
+	t
+}
+
+func parseType1(p mut parser, ctx int) uint32 {
+	if isWord(p, "entry") && peek(p, 1) == Func {
+		// `entry func(…)`: the contextual word marks the type of an
+		// entry's send.
+		let at = p.i
+		next(p)
+		let t = parseFuncType(p, ctx)
+		if !p.failed {
+			setFixed(&p.t, t, 7, 1, someTok(at))
+		}
+		return t
+	}
+	let k = p.tk
+	if k == Ident || k == Go {
+		if k == Go && peek(p, 1) != Period {
+			expected(p, "expected a type, found ")
+			return noNode
+		}
+		if isWord(p, "error") && peek(p, 1) == LBrack {
+			errorAt(p, tpos(p, p.i+1), 1, "unexpected \"[\" after error")
+			return noNode
+		}
+		let mut x = parseQualifiedName(p)
+		if p.tk == LBrack {
+			x = parseTypeArgs(p, x)
+		}
+		return mapType(p, x)
+	}
+	if k == LBrack {
+		let lb = p.i
+		next(p)
+		// `[N]T` is a fixed array of a decimal length; `[]T` a slice.
+		let mut n = none
+		if p.tk == Int {
+			n = someTok(p.i)
+			next(p)
+		} else if p.tk == Ellipsis {
+			habit(p, tpos(p, lb), 1, habitArray)
+			next(p)
+		} else if p.tk == RBrack || p.tk == Illegal {
+		} else {
+			expected(p, "expected \"]\" or an integer length, found ")
+			next(p)
+		}
+		if p.tk == RBrack || p.tk == Illegal {
+			next(p)
+		} else if n != none {
+			expected(p, "expected \"]\", found ")
+		}
+		let elt = parseType(p, ctx)
+		return row(&p.t, KArrayType, uint32(lb), elt, n)
+	}
+	// `mut T` is the borrow spelled as the write-in-place mode (q169;
+	// MODES-1): one KStarExpr row, whose token is `mut` instead of `*`.
+	if k == Mul || k == Mut {
+		let star = p.i
+		next(p)
+		let x = parseType(p, ctx)
+		return row(&p.t, KStarExpr, uint32(star), x, none)
+	}
+	if k == Escaping {
+		let at = p.i
+		next(p)
+		if p.tk != Func {
+			expected(p, "expected \"func\" after escaping, found ")
+		}
+		let t = parseFuncType(p, ctx)
+		if !p.failed {
+			setFixed(&p.t, t, 7, 0, someTok(at))
+		}
+		return t
+	}
+	if k == Func {
+		return parseFuncType(p, ctx)
+	}
+	if k == LParen {
+		let lp = p.i
+		next(p)
+		let saved = p.exprLev
+		p.exprLev = 1
+		let m = mark(p.t)
+		let first = parseType(p, ctxList)
+		if p.tk == Or {
+			errorAt(p, pos(p), 1, "a row takes no parentheses: write it bare, T[A | B]")
+		}
+		if p.tk != Comma {
+			p.exprLev = saved
+			let rp = want(p, RParen)
+			return row(&p.t, KParenExpr, uint32(lp), first, uint32(rp))
+		}
+		refuseSingleton(p)
+		pushW(&p.t, first)
+		for got(p, Comma) && p.tk != RParen {
+			pushW(&p.t, parseType(p, ctxList))
+		}
+		p.exprLev = saved
+		let rp = want(p, RParen)
+		return mkTuple(&p.t, m, someTok(lp), someTok(rp))
+	}
+	if k == Needs {
+		errorf(p, "expected a type, found \"needs\": "+needsKeywordText)
+		return noNode
+	}
+	if isKeyword(k) && typeStarts(peek(p, 1)) {
+		// A keyword followed by a type was meant as a parameter's or a
+		// field's name (`in []int`; PKG G5): say that it is a keyword.
+		let kw = tokenName(k)
+		errorf(p, "expected a type, found "+quote(kw)+": "+kw+" is a keyword and is not a name; choose another name")
+		return noNode
+	}
+	expected(p, "expected a type, found ")
+	noNode
+}
+
+// typeStarts reports whether a type may start with k: a name, a slice or
+// array, a pointer, or a function type (the Go parser's startsType).
+func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping }
+
+func parseFuncType(p mut parser, ctx int) uint32 {
+	let fn = want(p, Func)
+	if p.tk != LParen {
+		expected(p, "expected \"(\", found ")
+	}
+	parseSignature(p, someTok(fn), ctx, false)
+}
+
+// isMapForm reports `Map[K, V]`: an IndexExpr of two indices on the name
+// Map.
+func isMapForm(p mut parser, x uint32) bool {
+	kindAt(p, x) == KIndexExpr && items(p.t, x, 2) == 2 && identIs(p, fixed(p.t, x, 2, 0), "Map")
+}
+
+// mapType turns `Map[K, V]` into a MapType, in place: the two kinds share
+// their record.
+func mapType(p mut parser, x uint32) uint32 {
+	if isMapForm(p, x) {
+		p.t.kind[int(x)] = uint32(KMapType)
+	}
+	x
+}
+
+// parseTypeName parses `name`, `pkg.name` or `go.name` with optional type
+// arguments.
+func parseTypeName(p mut parser, what string) uint32 {
+	enter(p)
+	if !startsTypeName(p) {
+		if loud(p) {
+			expected(p, what+" names a type; expected a type name, found ")
+		} else {
+			errorf(p, "")
+		}
+		leave(p)
+		return noNode
+	}
+	if isWord(p, "error") && peek(p, 1) == LBrack {
+		errorAt(p, tpos(p, p.i+1), 1, "unexpected \"[\" after error")
+		leave(p)
+		return noNode
+	}
+	let mut x = parseQualifiedName(p)
+	if p.tk == LBrack {
+		x = parseTypeArgs(p, x)
+	}
+	leave(p)
+	mapType(p, x)
+}
+
+// parseCapabilityName parses the TypeName of a needs, provides or context
+// key position.
+func parseCapabilityName(p mut parser, what string) uint32 {
+	enter(p)
+	if !startsTypeName(p) {
+		if loud(p) {
+			expected(p, what+" names a type; expected a type name, found ")
+		} else {
+			errorf(p, "")
+		}
+		leave(p)
+		return noNode
+	}
+	let mut x = parseQualifiedName(p)
+	if p.tk == LBrack {
+		x = parseTypeArgs(p, x)
+	}
+	leave(p)
+	x
+}
+
+func parseTypeArgs(p mut parser, x uint32) uint32 {
+	let lb = want(p, LBrack)
+	if p.tk == RBrack {
+		expected(p, "expected a type argument, found ")
+	}
+	let saved = p.exprLev
+	p.exprLev = 1
+	let m = mark(p.t)
+	for p.tk != RBrack {
+		pushW(&p.t, parseTypeArg(p))
+		if !got(p, Comma) {
+			break
+		}
+	}
+	p.exprLev = saved
+	let rb = want(p, RBrack)
+	mkIndex(&p.t, m, KIndexExpr, x, lb, rb)
+}
+
+// parseTypeArg parses one type argument: a type, or a row `A | B`.
+func parseTypeArg(p mut parser) uint32 {
+	let mut x = parseType(p, ctxList)
+	for p.tk == Or {
+		let op = p.i
+		next(p)
+		let y = parseTypeName(p, "a row")
+		x = row(&p.t, KBinaryExpr, uint32(op), x, y)
+	}
+	x
+}
+
+// ---------------------------------------------------------------- contexts
+
+// parseContextLit parses `context [provides …] [fails …] [needs …] { entries }`:
+// the header's rows in a signature's order (parseSignature), fails before
+// needs (CTX-ROWS-1b).
+func parseContextLit(p mut parser) uint32 {
+	let c = want(p, KwContext)
+	let mut prov = none
+	if p.tk == Provides {
+		prov = some(parseProvides(p))
+	}
+	let mut fl = none
+	if p.tk == Fails {
+		fl = some(parseFails(p))
+	}
+	let mut nd = none
+	if p.tk == Needs {
+		nd = some(parseNeeds(p, ctxDecl))
+	}
+	if p.tk != LBrace {
+		expected(p, "expected \"{\" after context, found ")
+	}
+	let body = parseContextBody(p)
+	mkContextLit(&p.t, mark(p.t), c, prov, fl, nd, body)
+}
+
+// parseContextBody parses `{ entry, … }`.
+func parseContextBody(p mut parser) uint32 {
+	let lb = want(p, LBrace)
+	let saved = p.exprLev
+	p.exprLev = 0
+	let m = mark(p.t)
+	for p.tk != RBrace {
+		let doc = leadComment(p)
+		let mut replace = none
+		if isWord(p, "replace") && (peek(p, 1) == Ident || peek(p, 1) == Go) {
+			replace = someTok(p.i)
+			next(p)
+		}
+		let km = mark(p.t)
+		let key = parseCapabilityName(p, "a context entry")
+		if keysContinue(p) {
+			for got(p, Comma) {
+				pushW(&p.t, parseCapabilityName(p, "a context entry"))
+				if p.tk == Colon {
+					break
+				}
+			}
+		}
+		let mut assign = none
+		let mut value = none
+		if p.tk == Colon {
+			assign = someTok(p.i)
+			next(p)
+			value = some(parseExpr(p))
+		} else if replace != none {
+			expected(p, "expected \":\", found ")
+		}
+		pushW(&p.t, mkContextEntry(&p.t, km, doc, replace, key, assign, value))
+		if !got(p, Comma) {
+			break
+		}
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \",\" or \"}\" in a context, found ")
+	}
+	let rb = p.i
+	next(p)
+	mkContextBody(&p.t, m, lb, rb)
+}
+
+// keysContinue reports whether the comma at the current token joins more
+// capability names to the entry: `, Name {, Name} :`.
+func keysContinue(p mut parser) bool {
+	let mut i = 0
+	for peek(p, i) == Comma {
+		i = i + 1
+		let k = peek(p, i)
+		if k != Ident && !(k == Go && peek(p, i+1) == Period) {
+			return false
+		}
+		i = i + 1
+		if peek(p, i) == Period {
+			i = i + 2
+		}
+		if peek(p, i) == LBrack {
+			let mut depth = 0
+			for {
+				let b = peek(p, i)
+				if b == LBrack {
+					depth = depth + 1
+				} else if b == RBrack {
+					depth = depth - 1
+				} else if b == EOF {
+					return false
+				}
+				if depth == 0 {
+					i = i + 1
+					break
+				}
+				i = i + 1
+			}
+		}
+		if peek(p, i) == Colon {
+			return true
+		}
+	}
+	false
+}

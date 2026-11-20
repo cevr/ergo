@@ -49,11 +49,15 @@ type Fix = Surrounded | Fenced | TrailingComma | UnquotedKey | SingleQuoted | Co
 // value that repairs to JSON, fails Open's Malformed for the text itself;
 // a value that is JSON but not a T fails decode[T]'s shape failure.
 func DecodeLoose[T wire](c Codec[T], text string) Read[T] fails Malformed | wired[T] needs wired[T] {
-	let r = Open(text, c.MaxBytes, c.MaxDepth) catch {
+	// The strict path is Decode's one pass (JSON-VALUE-DECODE): a JSON
+	// reply is read once; only a text Decode finds Malformed is repaired.
+	let v = Decode(c, text) catch {
 	case Malformed as m:
 		return try looseRead(c, text, m)
+	case err:
+		return err
 	}
-	Read[T]{Value: try decode[T](r), Fixes: []Fix{}}
+	Read[T]{Value: v, Fixes: []Fix{}}
 }
 
 // looseRead reads the candidates of a text Open refused with strict.
@@ -236,19 +240,19 @@ type looseFixer {
 }
 
 // looseStep passes n bytes of the text, as they are.
-func looseStep(f *looseFixer, n int) {
+func looseStep(f mut looseFixer, n int) {
 	f.i = f.i + n
 }
 
 // looseSplice writes src[a:b] as r: the text before it as it is, then r.
-func looseSplice(f *looseFixer, a int, b int, r string) {
+func looseSplice(f mut looseFixer, a int, b int, r string) {
 	f.out = f.out.AppendString(f.src[f.from:a]).AppendString(r)
 	f.from = b
 	f.spliced = true
 }
 
 // looseCutComma cuts the comma held back from the text.
-func looseCutComma(f *looseFixer) {
+func looseCutComma(f mut looseFixer) {
 	if f.comma >= 0 && !f.commaCut {
 		looseSplice(f, f.comma, f.comma+1, "")
 		f.commaCut = true
@@ -257,7 +261,7 @@ func looseCutComma(f *looseFixer) {
 
 // looseFlush keeps the comma held back, now that a token follows it: a
 // comma a comment cut is written again before the token.
-func looseFlush(f *looseFixer) {
+func looseFlush(f mut looseFixer) {
 	if f.comma >= 0 && f.commaCut {
 		looseSplice(f, f.i, f.i, ",")
 	}
@@ -265,7 +269,7 @@ func looseFlush(f *looseFixer) {
 }
 
 // looseText is the strict text of the value repaired from start to f.i.
-func looseText(f *looseFixer, start int) string {
+func looseText(f mut looseFixer, start int) string {
 	if !f.spliced {
 		return f.src[start:f.i]
 	}
@@ -274,7 +278,7 @@ func looseText(f *looseFixer, start int) string {
 
 // looseValue repairs the value at f.i, which opens a list or object, up to
 // its closing bracket or the end of the text.
-func looseValue(f *looseFixer) {
+func looseValue(f mut looseFixer) {
 	for f.i < len(f.src) {
 		let c = f.src[f.i]
 		if looseSpace(c) {
@@ -328,7 +332,7 @@ func looseValue(f *looseFixer) {
 
 // looseString passes the string at f.i as it is; one the text cuts is
 // closed by looseClose, which reports it.
-func looseString(f *looseFixer) {
+func looseString(f mut looseFixer) {
 	let start = f.i
 	let mut j = f.i + 1
 	for j < len(f.src) && f.src[j] != '"' {
@@ -346,7 +350,7 @@ func looseString(f *looseFixer) {
 
 // looseSingle writes the single-quoted string at f.i in double quotes:
 // \' is ', a " is escaped, other escapes are kept.
-func looseSingle(f *looseFixer) {
+func looseSingle(f mut looseFixer) {
 	let start = f.i
 	let mut r = []byte{}.Append('"')
 	let mut j = f.i + 1
@@ -385,7 +389,7 @@ func looseSingle(f *looseFixer) {
 
 // looseKey quotes the bare key at f.i when a colon follows it; other bare
 // words are passed as they are, for Open to refuse.
-func looseKey(f *looseFixer) {
+func looseKey(f mut looseFixer) {
 	let start = f.i
 	let mut j = f.i + 1
 	for j < len(f.src) && looseWord(f.src[j]) {
@@ -407,7 +411,7 @@ func looseKey(f *looseFixer) {
 // looseComment drops the comment at f.i: // to the line's end, /* to */
 // (or to the text's end). A comma held back before it is cut first, so
 // the splices stay in text order.
-func looseComment(f *looseFixer) {
+func looseComment(f mut looseFixer) {
 	let start = f.i
 	let line = f.src[f.i+1] == '/'
 	let mut j = f.i + 2
@@ -432,7 +436,7 @@ func looseComment(f *looseFixer) {
 // dropped, a cut string closed (a cut escape's backslash dropped, or it
 // would escape the quote), then each open list and object closed,
 // innermost first.
-func looseClose(f *looseFixer) {
+func looseClose(f mut looseFixer) {
 	let depth = len(f.stack)
 	if depth == 0 && f.quote < 0 {
 		return

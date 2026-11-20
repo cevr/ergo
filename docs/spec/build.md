@@ -85,6 +85,53 @@ compiler, the output deleted or replaced, a blob trimmed, two builds at once)
 against `ERGO_BUILD=full`: equal exits, check output and executable bytes
 after every step, and the least work the model allows.
 
+## Warm answer by tokens: `ergo check DIR/...`
+
+`ergo check DIR/...` with one shared load of its module keeps its answer by
+what a check reads, not by bytes (MONOREPO WS0; `cmd/ergo/checktree.go`).
+The answer is kept in the law-verdict store (`laws/v1`), not in a warm
+manifest.
+
+1. **The package key.** A package's key is the request's options, the
+   environment and the compiler (WarmKey's parts, with no request folder), its
+   import path, its own folder (a skipped obligation's replay command names
+   it), whether the load checked it as `main` or as its path, each file's
+   name and check text (`syntax.CheckText`: the token text, then each
+   comment's text with the token after it and the line breaks between them,
+   since the checker reads a binding's `// ergo:` lines by the line above a
+   declaration), and the keys of the local packages it imports. An edit
+   anywhere a package reaches changes its key; a layout edit (spaces, line
+   breaks away from a comment) keeps it, and a comment edit does not.
+2. **The request's manifest.** Under the request's folder and the same parts
+   it lists every other input the load read, by bytes (`ergo.mod`, `go.mod`,
+   `go.sum`, the law ledger, assets, folder listings, missing paths), the
+   packages the checks reached with their imports, and each package's with
+   work. The with budget is the one part of a check read from a file's size
+   (`check.WithLimit`): a hit needs each package's work to fit its files'
+   size now.
+3. **The answer printed again.** A kept envelope is printed with the
+   revision of the files as they are now, and each obligation's site where
+   its token now is (`syntax.TokenSites`; a site is kept as the ordinal of
+   the token it starts at, in the file that declares the test or law).
+4. **What is not kept.** A request with a failing package, a diagnostic, a
+   reason that names a site (`at FILE.ergo:LINE`, which a layout edit would
+   move), advice (it may quote the source), a site at no one token, a
+   package of a required
+   module, an answer that does not print again as it printed, and a run that
+   stored a verdict (its next run prints that verdict "cached").
+5. **All or nothing.** The request hits when its manifest holds and every
+   printed package's key finds its answer; any miss runs the shared load for
+   every package. Each package's answer is kept under its own key, so a
+   partial replay (WS0b) changes the lookup, not the store.
+   `ERGO_BUILD=full` and `ERGO_LAWCACHE=off` take the normal path.
+
+`TestCheckTreeAnswersByTokens` (`cmd/ergo`) runs seeded modules and edit
+scripts (none, layout, a comment, a body, a signature, a new file, a test, an
+imported package outside a sub-folder request): the answer equals the normal
+path's after every edit, and no file is parsed and no obligation evaluated
+exactly when nothing the request reaches changed in its tokens, comments or
+comments' line breaks.
+
 ## Pin archives
 
 What a pin compiles the same way on every machine ships built, so a cold
@@ -219,3 +266,57 @@ fingerprint exactly when its import closure has the same sources. `go run
 ./scripts/buildcost reuse` counts what the decision would reuse after each
 edit of generated programs and examples
 ([receipts](../receipts/compile-speed.md#incremental-check-cs5a)).
+
+## Workspace
+
+A workspace is the modules below one folder, its root (MONOREPO WS1). A
+command that names `DIR/...` (`check`, `test`, `fmt`, `lint`, `graph
+export`) runs over the workspace at `DIR` when `DIR` holds an `ergo.work`
+or no module holds `DIR`; inside a module it takes that module's packages
+below `DIR`, as before. `internal/sketchfront.DiscoverWorkspace` finds it.
+Inside a module, `DIR/...` uses the same admission rule as discovery: it
+leaves out `testdata`, hidden and `_` folders and, since WS1, also
+`node_modules` and `vendor`. A package named by its folder
+(`ergo check app/vendor/x`) still checks: the rule chooses what a
+pattern walks, never what a named folder is.
+
+- **Members.** Every folder below the root that holds an `ergo.mod` is a
+  member, the root too, and a module nested in another is a member of its
+  own. Discovery never enters a folder whose name starts with `.` or `_`,
+  `testdata`, `node_modules`, `vendor` or a folder `ergo.work` skips,
+  and it follows no directory link: those hold fixtures and copies.
+- **Edges.** A member resolves another locally when a `replace` line of its
+  `go.mod` names the other's folder (`./x`, `../x` or absolute). Each
+  pair is one edge. A remote replacement, or a folder that is no member,
+  is no edge.
+- **Divergences.** A member whose `go.mod` requires another member's Go
+  module by version with no `replace` builds against the module cache's
+  copy, not the one beside it, and no edge joins them (a local edit does
+  not reach it). `ergo lint DIR/...` at a root reports each as
+  `workspace-divergent-require` at the `require` line, naming both
+  members, the version and the fix (`replace PATH => ../member`), and
+  exits 1.
+- **Once each.** `DIR/...` at a root selects every member's packages once,
+  a member after each member it resolves locally (members in a cycle keep
+  folder order), and each member loads as its own module.
+
+### ergo.work
+
+The file is optional. Its grammar, in lines; `//` starts a comment that
+runs to the end of the line, and blank lines are ignored:
+
+```
+file    = version { key } .
+version = "version" N .          // the first line; N = 1, 2, ...
+key     = "skip" FOLDER .        // version 1 knows this key only
+```
+
+`FOLDER` is a clean, slash-separated folder below the root (no `..`, no
+`.` element) that exists; no member is found in it or below it. A key the
+file's version does not define, or a version newer than the binary reads,
+is an error naming the line, never ignored: a later key changes what a
+run does, so a binary that cannot read it must not run as if it were
+absent. Later versions only add keys; `skip` keeps its meaning in each.
+`TestWorkFileRefusesWhatItCannotRead` holds the refusals and
+`TestWorkspaceDiscoveryAgrees` the discovery, over seeded trees of
+modules.

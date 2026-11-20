@@ -328,9 +328,16 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 				need = append(need, padBytes(o.work))
 			}
 		} else {
+			// The step budget is each case's (TP-BUILT-FAST): an
+			// obligation of n cases needs its steps over n, rounded up.
 			for _, o := range full.Obligations {
-				need = append(need, o.Steps)
+				n := int64(max(1, o.TotalCases))
+				need = append(need, (o.Steps+n-1)/n)
 			}
+			// The initializers run under a step bound of their own
+			// (runtime.md, Tests 9; LITERAL-LET), far past any cut here,
+			// so a steps cut never stops them.
+			init = 0
 		}
 		most := init
 		for i := range need {
@@ -353,7 +360,10 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 			fail("%v", err)
 		}
 		cs, _ := statusesOf(cut)
-		ok := len(cs) == len(want) && slices.Contains(cs, "incomplete")
+		// The cut shows: a record is incomplete, or a refuted one whose
+		// shrink the cut stopped stays refuted (kept).
+		kept := false
+		ok := len(cs) == len(want)
 		// The initializer did not finish: the first record is incomplete
 		// and the rest not run. It must not when it needs more; pad's
 		// bytes are a least count, so a bytes cut may stop it anyway.
@@ -366,8 +376,19 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 		}
 		for i := 0; ok && init <= limit && !(axis == "bytes" && initStopped) && i < len(cs); i++ {
 			switch {
+			case need[i] > limit && want[i] == "refuted" && cs[i] == "refuted":
+				// The cut fell in its shrink, after the drawn case
+				// refuted it: a counterexample is a refutation whatever
+				// the shrink's budget (EVAL-SHRINK-REFUTED, 765), so it
+				// stays refuted, with its replay, and never passes.
+				kept = true
+				ok = cut.Obligations[i].Replay != ""
 			case need[i] > limit:
 				ok = cs[i] == "incomplete"
+			case want[i] == "skipped" && cs[i] == "incomplete":
+				// A skipped test runs its pad before it reaches the Go
+				// call that skips it, and its record carries no steps:
+				// the cut may stop it in the pad.
 			case cs[i] == "incomplete" && axis == "bytes":
 				// pad's bytes are a least count: the cut may stop it.
 			default:
@@ -377,12 +398,13 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 				break // a stopped defect lets the records after it run
 			}
 		}
+		ok = ok && (slices.Contains(cs, "incomplete") || kept)
 		if !ok || cut.Status != modelSummary(cs) || cut.Status == "passed" {
-			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d", axis, b, cs, cut.Status, want, limit)
+			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d (initializer needs %d, obligations %v)", axis, b, cs, cut.Status, want, limit, init, need)
 		}
 		for _, o := range cut.Obligations {
-			if o.Steps > cut.StepsLimit {
-				fail("a %s cut: %s used %d of %d steps", axis, o.Name, o.Steps, cut.StepsLimit)
+			if o.Steps > cut.StepsLimit*int64(max(1, o.TotalCases)) {
+				fail("a %s cut: %s used %d of %d steps for each of %d cases", axis, o.Name, o.Steps, cut.StepsLimit, o.TotalCases)
 			}
 		}
 	}

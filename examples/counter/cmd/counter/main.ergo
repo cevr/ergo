@@ -8,9 +8,9 @@ import counter/wheel
 // (types.md, Interface assignability 6), and this binary is not counter.
 type Wheel { inner wheel.Wheel } implements counter.Counter
 
-func NewWheel() Wheel               { Wheel{inner: wheel.NewWheel()} }
-func Add(w *Wheel, n counter.Digit) { w.inner.Add(n) }
-func Total(w Wheel) counter.Digit   { w.inner.Total() }
+func NewWheel() Wheel                  { Wheel{inner: wheel.NewWheel()} }
+func Add(w mut Wheel, n counter.Digit) { w.inner.Add(n) }
+func Total(w Wheel) counter.Digit      { w.inner.Total() }
 
 func main() needs Console {
 	let mut w = NewWheel()

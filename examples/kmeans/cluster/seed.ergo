@@ -13,7 +13,7 @@ type Mix { state uint64 }
 func Seeded(seed uint64) Mix { Mix{state: seed} }
 
 // Next is the stream's next 64 bits.
-func Next(m *Mix) uint64 {
+func Next(m mut Mix) uint64 {
 	m.state += 0x9E3779B97F4A7C15
 	let mut z = m.state
 	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
@@ -22,7 +22,7 @@ func Next(m *Mix) uint64 {
 }
 
 // Below is a draw from 0 to n-1; n > 0.
-func Below(m *Mix, n int) int { int(m.Next() % uint64(n)) }
+func Below(m mut Mix, n int) int { int(m.Next() % uint64(n)) }
 
 // SeedCentroids is k centroids of points (not empty) by k-means++ from
 // seed. When every point is a centroid already, the next is drawn

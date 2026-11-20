@@ -36,11 +36,11 @@ func main() needs Console {
 `, "generic pointer source\n")
 	})
 	t.Run("domain", func(t *testing.T) {
-		wantRun(t, `type J { M() int }
-type A[T] { M() T }
+		wantRun(t, `type J { mut M() int }
+type A[T] { mut M() T }
 type B[T, U] {
-	M() T,
-	K(u U) U,
+	mut M() T,
+	mut K(u U) U,
 }
 
 type S {} implements J, A[int], B[int, string]
@@ -50,8 +50,8 @@ type H[T, U] { V T, W U } implements A[T], B[T, U]
 
 func M(_ S) int { 1 }
 func K(_ S, u string) string { u }
-func M(_ *P) int { 2 }
-func K(_ *P, u string) string { u }
+func M(_ mut P) int { 2 }
+func K(_ mut P, u string) string { u }
 func M[T](g G[T]) T { g.V }
 func K[T](g G[T], u string) string { u }
 func M[T, U](h H[T, U]) T { h.V }

@@ -12,7 +12,7 @@ import "embed"
 // Sources are the std packages' .ergo files, by path under this directory.
 // Only stdlib reads them.
 //
-//go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
+//go:embed prelude.ergo builtin.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
 //go:embed fs/*.ergo fstest/*.ergo
 //go:embed io/*.ergo term/*.ergo prompt/*.ergo ansi/*.ergo
@@ -30,6 +30,7 @@ import "embed"
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
 //go:embed jsonschema/*.ergo
+//go:embed mcp/*.ergo mcp/memory/*.ergo mcp/stdio/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
 //go:embed schedule/*.ergo cron/*.ergo
@@ -54,7 +55,7 @@ import "embed"
 //go:embed semver/*.ergo
 //go:embed code/*.ergo
 //go:embed graph/*.ergo codegraph/*.ergo
-//go:embed html/*.ergo
+//go:embed html/*.ergo xml/*.ergo
 //go:embed build/*.ergo
 var Sources embed.FS
 

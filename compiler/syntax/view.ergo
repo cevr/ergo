@@ -1,0 +1,800 @@
+import dense
+
+// List is a run of node ids in a tree's extra pool.
+type List { at uint32, n uint32 }
+
+// Len is the number of nodes in l.
+func Len(l List) int { int(l.n) }
+
+// Item is node i of l.
+func Item(t Tree, l List, i int) dense.ID[Node] { dense.IDAt(t.ids, int(t.extra[int(l.at)+i])) }
+
+// View is a row read by its kind: one variant per node of the Go parser's
+// tree, with its fields in the Go node's order (ast.go). A token is its
+// index in the file's token columns, -1 for none; a doc comment is the
+// index of its comment group, -1 for none. The kind and the payload cannot
+// disagree, and View(t, Put(&t, v)) == v (ViewRoundTrips).
+//
+// Three nodes keep a child where the Go node keeps a position, so that no
+// row is left without a parent: MapType keeps the name Map (X), Field keeps
+// the `any` that ends a group of type parameters (Any) and the `lent` of a
+// lent constraint (Lent), and a TypeSwitchStmt keeps its subject, whose
+// elements are the subjects when it is a tuple.
+type View =
+	| File{Decls List, EOF int}
+	| ImportDecl{Doc int, Import int, Spec dense.ID[Node]}
+	| ImportSpec{NamePos int, Name dense.Opt[Node], Path dense.ID[Node]}
+	| VarDecl{Doc int, Extern dense.Opt[Node], Var int, Mut int, Spec dense.ID[Node]}
+	| VarSpec{Names List, Pattern dense.Opt[Node], Type dense.Opt[Node], Assign int, Value dense.Opt[Node]}
+	| TypeDecl{
+		Doc           int,
+		Extern        dense.Opt[Node],
+		Type          int,
+		Name          dense.ID[Node],
+		TypeParams    dense.Opt[Node],
+		Spec          dense.Opt[Node],
+		WherePos      int,
+		Where         dense.Opt[Node],
+		DerivePos     int,
+		Derive        dense.Opt[Node],
+		ImplementsPos int,
+		Implements    List,
+	}
+	| FuncDecl{
+		Doc        int,
+		Extern     dense.Opt[Node],
+		Func       int,
+		Recv       dense.Opt[Node],
+		Name       dense.ID[Node],
+		TypeParams dense.Opt[Node],
+		Type       dense.ID[Node],
+		Body       dense.Opt[Node],
+	}
+	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
+	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.ID[Node]}
+	| LawDecl{
+		Doc        int,
+		Law        int,
+		Name       dense.ID[Node],
+		TypeParams dense.Opt[Node],
+		Params     dense.Opt[Node],
+		Body       dense.Opt[Node],
+		Reach      dense.Opt[Node],
+		Rewrite    bool,
+		Equation   bool,
+		When       int,
+		Eq         int,
+	}
+	| LawReach{Never int, Word int, Path bool, Lbrack int, Targets List, Rbrack int, Invariant bool, Pred dense.Opt[Node]}
+	| ExternSpec{Extern int, Go int, Target dense.ID[Node]}
+	| ContextBody{Lbrace int, Entries List, Rbrace int}
+	| ContextEntry{Doc int, Replace int, Key dense.ID[Node], Keys List, Assign int, Value dense.Opt[Node]}
+	| Field{
+		Doc      int,
+		Names    List,
+		Type     dense.Opt[Node],
+		Key      dense.Opt[Node],
+		Any      dense.Opt[Node],
+		Lent     dense.Opt[Node],
+		Dots     int,
+		Where    dense.Opt[Node],
+		WherePos int,
+		PurePos  int,
+		Own      int,
+		Mut      int,
+	}
+	| FieldList{Opening int, List List, Closing int}
+	| NeedsClause{Needs int, Names List}
+	| TakesClause{Takes int, Names List}
+	| ProvidesClause{Provides int, Names List}
+	| MachineEntry{Doc int, Name int, Value dense.ID[Node]}
+	| CatchArm{Case int, Types List, Colon int, Body List}
+	| CaseClause{Case int, List List, Colon int, Body List}
+	| VariantSpec{Name dense.ID[Node], TypeArgs dense.Opt[Node], Fields dense.ID[Node]}
+	| Name{Tok int}
+	| BasicLit{Tok int}
+	| CompositeLit{Type dense.Opt[Node], Lbrace int, DotDot int, Base dense.Opt[Node], Elts List, Rbrace int}
+	| KeyValueExpr{Key dense.ID[Node], Colon int, Value dense.ID[Node]}
+	| FuncLit{Type dense.ID[Node], Body dense.ID[Node]}
+	| ParenExpr{Lparen int, X dense.ID[Node], Rparen int}
+	| SelectorExpr{X dense.ID[Node], Sel dense.ID[Node]}
+	| IndexExpr{X dense.ID[Node], Lbrack int, Indices List, Rbrack int}
+	| SliceExpr{X dense.ID[Node], Lbrack int, Low dense.Opt[Node], High dense.Opt[Node], Max dense.Opt[Node], Slice3 bool, Rbrack int}
+	| CallExpr{Fun dense.ID[Node], Lparen int, Args List, Rparen int, Trailing dense.Opt[Node], TrailingFunc bool}
+	| StarExpr{Star int, X dense.ID[Node]}
+	| UnaryExpr{Op int, X dense.ID[Node]}
+	| BinaryExpr{X dense.ID[Node], Op int, Y dense.ID[Node]}
+	| TryExpr{Try int, X dense.ID[Node]}
+	| CatchExpr{X dense.ID[Node], Catch int, Arms List, Rbrace int}
+	| ContextLit{Context int, Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
+	| ArrayType{Lbrack int, Len int, Elt dense.ID[Node]}
+	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Rbrack int}
+	| FuncType{
+		Escaping int,
+		Entry    int,
+		Func     int,
+		Params   dense.ID[Node],
+		Results  dense.Opt[Node],
+		Needs    dense.Opt[Node],
+		Takes    dense.Opt[Node],
+	}
+	| StructType{Fields dense.ID[Node]}
+	| InterfaceType{Lbrace int, Members List, Rbrace int}
+	| ErrorRow{Error int, Types List}
+	| MachineType{Machine int, State dense.ID[Node], Signal dense.ID[Node], Rbrack int, Members List, Rbrace int}
+	| TupleExpr{Lparen int, Elts List, Rparen int}
+	| AsPattern{X dense.ID[Node], As int, Name dense.ID[Node]}
+	| OrPattern{Alts List}
+	| InterpolatedString{Parts List}
+	| DeclStmt{Decl dense.ID[Node]}
+	| ExprStmt{X dense.ID[Node]}
+	| AssignStmt{Lhs dense.ID[Node], Tok int, Rhs dense.ID[Node]}
+	| ReturnStmt{Return int, Result dense.Opt[Node]}
+	| BranchStmt{Tok int}
+	| BlockStmt{Lbrace int, List List, Rbrace int}
+	| IfStmt{If int, Cond dense.ID[Node], Body dense.ID[Node], ElsePos int, Else dense.Opt[Node]}
+	| SwitchStmt{Switch int, Tag dense.ID[Node], Lbrace int, Clauses List, Rbrace int}
+	| TypeSwitchStmt{Switch int, Subject dense.ID[Node], Lbrace int, Clauses List, Rbrace int}
+	| ForStmt{For int, Cond dense.Opt[Node], Body dense.ID[Node]}
+	| RangeStmt{For int, Key dense.Opt[Node], Value dense.ID[Node], Range int, X dense.ID[Node], Body dense.ID[Node]}
+	| AssertStmt{Assert int, X dense.ID[Node]}
+	| SkipStmt{Skip int, Reason int}
+
+// ---------------------------------------------------------------- words
+
+// nid is the node id a word holds.
+func nid(t Tree, w uint32) dense.ID[Node] { dense.IDAt(t.ids, int(w)) }
+
+// onid is the optional node id a word holds: 0 for none, else id+1.
+func onid(t Tree, w uint32) dense.Opt[Node] {
+	if w == uint32(0) {
+		return dense.NoID[Node]()
+	}
+	dense.OptOf(dense.IDAt(t.ids, int(w)-1))
+}
+
+// otok is the optional token (or comment group) a word holds: 0 for none,
+// else its index+1; -1 for none.
+func otok(w uint32) int { int(w) - 1 }
+
+// flag is the boolean a word holds.
+func flag(w uint32) bool { w != uint32(0) }
+
+// wid is the word of a node id.
+func wid(id dense.ID[Node]) uint32 { uint32(dense.Index(id)) }
+
+// wopt is the word of an optional node id.
+func wopt(o dense.Opt[Node]) uint32 {
+	match dense.Unpack(o) {
+	case Some{Value: s}:
+		uint32(dense.Index(s)) + uint32(1)
+	case None:
+		uint32(0)
+	}
+}
+
+// wtok is the word of an optional token: -1 is 0.
+func wtok(tok int) uint32 { uint32(tok + 1) }
+
+// wflag is the word of a boolean.
+func wflag(b bool) uint32 { if b { uint32(1) } else { uint32(0) } }
+
+// listAt is the n items of row i's record from item j on.
+func listAt(t Tree, i uint32, j int, n int) List { List{at: t.a[int(i)] + uint32(j), n: uint32(n)} }
+
+// items is the number of items before the f fixed words of row i's record.
+func items(t Tree, i uint32, f int) int { int(t.b[int(i)]) - f }
+
+// pushList pushes the node ids of l.
+func pushList(t mut Tree, l List) {
+	for j in 0..int(l.n) {
+		pushW(t, t.extra[int(l.at)+j])
+	}
+}
+
+// ---------------------------------------------------------------- View
+
+// View is node id's row read by its kind.
+func ViewOf(t Tree, id dense.ID[Node]) View {
+	let k = uint8(t.kind[dense.Index(id)])
+	if k == KIdent {
+		return NameOf(t, id)
+	}
+	if k == KBasicLit {
+		return BasicLitOf(t, id)
+	}
+	if k == KSelectorExpr {
+		return SelectorExprOf(t, id)
+	}
+	if k == KCallExpr {
+		return CallExprOf(t, id)
+	}
+	if k == KBinaryExpr {
+		return BinaryExprOf(t, id)
+	}
+	if k == KUnaryExpr {
+		return UnaryExprOf(t, id)
+	}
+	if k == KStarExpr {
+		return StarExprOf(t, id)
+	}
+	if k == KTryExpr {
+		return TryExprOf(t, id)
+	}
+	if k == KExprStmt {
+		return ExprStmtOf(t, id)
+	}
+	if k == KDeclStmt {
+		return DeclStmtOf(t, id)
+	}
+	if k == KAssignStmt {
+		return AssignStmtOf(t, id)
+	}
+	if k == KReturnStmt {
+		return ReturnStmtOf(t, id)
+	}
+	if k == KBranchStmt {
+		return BranchStmtOf(t, id)
+	}
+	if k == KAssertStmt {
+		return AssertStmtOf(t, id)
+	}
+	if k == KSkipStmt {
+		return SkipStmtOf(t, id)
+	}
+	if k == KBlockStmt {
+		return BlockStmtOf(t, id)
+	}
+	if k == KIfStmt {
+		return IfStmtOf(t, id)
+	}
+	if k == KSwitchStmt {
+		return SwitchStmtOf(t, id)
+	}
+	if k == KTypeSwitchStmt {
+		return TypeSwitchStmtOf(t, id)
+	}
+	if k == KForStmt {
+		return ForStmtOf(t, id)
+	}
+	if k == KRangeStmt {
+		return RangeStmtOf(t, id)
+	}
+	if k == KCaseClause {
+		return CaseClauseOf(t, id)
+	}
+	if k == KCatchArm {
+		return CatchArmOf(t, id)
+	}
+	if k == KCompositeLit {
+		return CompositeLitOf(t, id)
+	}
+	if k == KKeyValueExpr {
+		return KeyValueExprOf(t, id)
+	}
+	if k == KFuncLit {
+		return FuncLitOf(t, id)
+	}
+	if k == KParenExpr {
+		return ParenExprOf(t, id)
+	}
+	if k == KIndexExpr {
+		return IndexExprOf(t, id)
+	}
+	if k == KMapType {
+		return MapTypeOf(t, id)
+	}
+	if k == KSliceExpr {
+		return SliceExprOf(t, id)
+	}
+	if k == KCatchExpr {
+		return CatchExprOf(t, id)
+	}
+	if k == KContextLit {
+		return ContextLitOf(t, id)
+	}
+	if k == KArrayType {
+		return ArrayTypeOf(t, id)
+	}
+	if k == KFuncType {
+		return FuncTypeOf(t, id)
+	}
+	if k == KStructType {
+		return StructTypeOf(t, id)
+	}
+	if k == KInterfaceType {
+		return InterfaceTypeOf(t, id)
+	}
+	if k == KErrorRow {
+		return ErrorRowOf(t, id)
+	}
+	if k == KMachineType {
+		return MachineTypeOf(t, id)
+	}
+	if k == KTupleExpr {
+		return TupleExprOf(t, id)
+	}
+	if k == KAsPattern {
+		return AsPatternOf(t, id)
+	}
+	if k == KOrPattern {
+		return OrPatternOf(t, id)
+	}
+	if k == KInterpolatedString {
+		return InterpolatedStringOf(t, id)
+	}
+	if k == KField {
+		return FieldOf(t, id)
+	}
+	if k == KFieldList {
+		return FieldListOf(t, id)
+	}
+	if k == KNeedsClause {
+		return NeedsClauseOf(t, id)
+	}
+	if k == KTakesClause {
+		return TakesClauseOf(t, id)
+	}
+	if k == KProvidesClause {
+		return ProvidesClauseOf(t, id)
+	}
+	if k == KMachineEntry {
+		return MachineEntryOf(t, id)
+	}
+	if k == KVariantSpec {
+		return VariantSpecOf(t, id)
+	}
+	if k == KContextBody {
+		return ContextBodyOf(t, id)
+	}
+	if k == KContextEntry {
+		return ContextEntryOf(t, id)
+	}
+	if k == KExternSpec {
+		return ExternSpecOf(t, id)
+	}
+	if k == KImportDecl {
+		return ImportDeclOf(t, id)
+	}
+	if k == KImportSpec {
+		return ImportSpecOf(t, id)
+	}
+	if k == KVarDecl {
+		return VarDeclOf(t, id)
+	}
+	if k == KVarSpec {
+		return VarSpecOf(t, id)
+	}
+	if k == KTypeDecl {
+		return TypeDeclOf(t, id)
+	}
+	if k == KFuncDecl {
+		return FuncDeclOf(t, id)
+	}
+	if k == KContextDecl {
+		return ContextDeclOf(t, id)
+	}
+	if k == KTestDecl {
+		return TestDeclOf(t, id)
+	}
+	if k == KLawDecl {
+		return LawDeclOf(t, id)
+	}
+	if k == KLawReach {
+		return LawReachOf(t, id)
+	}
+	FileOf(t, id)
+}
+
+// ---------------------------------------------------------------- Put
+
+// Put appends the row of v and returns its id: the children v names are
+// rows of t already.
+func Put(t mut Tree, v View) dense.ID[Node] {
+	let m = mark(*t)
+	let i = match v {
+	case File as x:
+		pushList(t, x.Decls)
+		mkFile(t, m, x.EOF)
+	case ImportDecl as x:
+		row(t, KImportDecl, uint32(x.Import), wid(x.Spec), wtok(x.Doc))
+	case ImportSpec as x:
+		row(t, KImportSpec, wtok(x.NamePos), wopt(x.Name), wid(x.Path))
+	case VarDecl as x:
+		mkVarDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Var, wtok(x.Mut), wid(x.Spec))
+	case VarSpec as x:
+		pushList(t, x.Names)
+		mkVarSpec(t, m, wopt(x.Pattern), wopt(x.Type), wtok(x.Assign), wopt(x.Value))
+	case TypeDecl as x:
+		pushList(t, x.Implements)
+		mkTypeDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Type, wid(x.Name), wopt(x.TypeParams), wopt(x.Spec), wtok(x.WherePos), wopt(x.Where), wtok(x.DerivePos), wopt(x.Derive), wtok(x.ImplementsPos))
+	case FuncDecl as x:
+		mkFuncDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Func, wopt(x.Recv), wid(x.Name), wopt(x.TypeParams), wid(x.Type), wopt(x.Body))
+	case ContextDecl as x:
+		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
+	case TestDecl as x:
+		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wid(x.Body))
+	case LawDecl as x:
+		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.TypeParams), wopt(x.Params), wopt(x.Body), wopt(x.Reach), if x.Equation { uint32(2) } else { wflag(x.Rewrite) }, wtok(x.When), wtok(x.Eq))
+	case LawReach as x:
+		pushList(t, x.Targets)
+		mkLawReach(t, m, wtok(x.Never), x.Word, x.Path, wtok(x.Lbrack), wtok(x.Rbrack), x.Invariant, wopt(x.Pred))
+	case ExternSpec as x:
+		row(t, KExternSpec, uint32(x.Extern), uint32(x.Go), wid(x.Target))
+	case ContextBody as x:
+		pushList(t, x.Entries)
+		mkContextBody(t, m, x.Lbrace, x.Rbrace)
+	case ContextEntry as x:
+		pushList(t, x.Keys)
+		mkContextEntry(t, m, wtok(x.Doc), wtok(x.Replace), wid(x.Key), wtok(x.Assign), wopt(x.Value))
+	case Field as x:
+		pushList(t, x.Names)
+		mkField(t, m, wtok(x.Doc), wopt(x.Type), wopt(x.Key), wopt(x.Any), wopt(x.Lent), wtok(x.Dots), wopt(x.Where), wtok(x.WherePos), wtok(x.PurePos), wtok(x.Own), wtok(x.Mut))
+	case FieldList as x:
+		pushList(t, x.List)
+		mkFieldList(t, m, wtok(x.Opening), wtok(x.Closing))
+	case NeedsClause as x:
+		pushList(t, x.Names)
+		rec(t, KNeedsClause, uint32(x.Needs), m)
+	case TakesClause as x:
+		pushList(t, x.Names)
+		rec(t, KTakesClause, uint32(x.Takes), m)
+	case ProvidesClause as x:
+		pushList(t, x.Names)
+		rec(t, KProvidesClause, uint32(x.Provides), m)
+	case MachineEntry as x:
+		row(t, KMachineEntry, uint32(x.Name), wid(x.Value), wtok(x.Doc))
+	case CatchArm as x:
+		pushList(t, x.Types)
+		pushList(t, x.Body)
+		mkClause(t, m, KCatchArm, x.Case, Len(x.Types), x.Colon)
+	case CaseClause as x:
+		pushList(t, x.List)
+		pushList(t, x.Body)
+		mkClause(t, m, KCaseClause, x.Case, Len(x.List), x.Colon)
+	case VariantSpec as x:
+		mkVariantSpec(t, m, wid(x.Name), wopt(x.TypeArgs), wid(x.Fields))
+	case Name as x:
+		row(t, KIdent, uint32(x.Tok), uint32(0), uint32(0))
+	case BasicLit as x:
+		row(t, KBasicLit, uint32(x.Tok), uint32(0), uint32(0))
+	case CompositeLit as x:
+		pushList(t, x.Elts)
+		mkCompositeLit(t, m, wopt(x.Type), x.Lbrace, wtok(x.DotDot), wopt(x.Base), x.Rbrace)
+	case KeyValueExpr as x:
+		row(t, KKeyValueExpr, uint32(x.Colon), wid(x.Key), wid(x.Value))
+	case FuncLit as x:
+		row(t, KFuncLit, uint32(0), wid(x.Type), wid(x.Body))
+	case ParenExpr as x:
+		row(t, KParenExpr, uint32(x.Lparen), wid(x.X), uint32(x.Rparen))
+	case SelectorExpr as x:
+		row(t, KSelectorExpr, uint32(0), wid(x.X), wid(x.Sel))
+	case IndexExpr as x:
+		pushList(t, x.Indices)
+		mkIndex(t, m, KIndexExpr, wid(x.X), x.Lbrack, x.Rbrack)
+	case SliceExpr as x:
+		mkSlice(t, m, wid(x.X), x.Lbrack, wopt(x.Low), wopt(x.High), wopt(x.Max), x.Slice3, x.Rbrack)
+	case CallExpr as x:
+		pushList(t, x.Args)
+		mkCall(t, m, wid(x.Fun), wtok(x.Lparen), wtok(x.Rparen), wopt(x.Trailing), x.TrailingFunc)
+	case StarExpr as x:
+		row(t, KStarExpr, uint32(x.Star), wid(x.X), uint32(0))
+	case UnaryExpr as x:
+		row(t, KUnaryExpr, uint32(x.Op), wid(x.X), uint32(0))
+	case BinaryExpr as x:
+		row(t, KBinaryExpr, uint32(x.Op), wid(x.X), wid(x.Y))
+	case TryExpr as x:
+		row(t, KTryExpr, uint32(x.Try), wid(x.X), uint32(0))
+	case CatchExpr as x:
+		pushList(t, x.Arms)
+		mkCatch(t, m, wid(x.X), x.Catch, x.Rbrace)
+	case ContextLit as x:
+		mkContextLit(t, m, x.Context, wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
+	case ArrayType as x:
+		row(t, KArrayType, uint32(x.Lbrack), wid(x.Elt), wtok(x.Len))
+	case MapType as x:
+		pushW(t, wid(x.Key))
+		pushW(t, wid(x.Value))
+		mkIndex(t, m, KMapType, wid(x.X), x.Lbrack, x.Rbrack)
+	case FuncType as x:
+		mkFuncType(t, m, wtok(x.Escaping), wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wopt(x.Takes))
+	case StructType as x:
+		row(t, KStructType, uint32(0), wid(x.Fields), uint32(0))
+	case InterfaceType as x:
+		pushList(t, x.Members)
+		mkInterface(t, m, wtok(x.Lbrace), wtok(x.Rbrace))
+	case ErrorRow as x:
+		pushList(t, x.Types)
+		rec(t, KErrorRow, uint32(x.Error), m)
+	case MachineType as x:
+		pushList(t, x.Members)
+		mkMachine(t, m, x.Machine, wid(x.State), wid(x.Signal), x.Rbrack, x.Rbrace)
+	case TupleExpr as x:
+		pushList(t, x.Elts)
+		mkTuple(t, m, wtok(x.Lparen), wtok(x.Rparen))
+	case AsPattern as x:
+		row(t, KAsPattern, uint32(x.As), wid(x.X), wid(x.Name))
+	case OrPattern as x:
+		pushList(t, x.Alts)
+		rec(t, KOrPattern, uint32(0), m)
+	case InterpolatedString as x:
+		pushList(t, x.Parts)
+		rec(t, KInterpolatedString, uint32(0), m)
+	case DeclStmt as x:
+		row(t, KDeclStmt, uint32(0), wid(x.Decl), uint32(0))
+	case ExprStmt as x:
+		row(t, KExprStmt, uint32(0), wid(x.X), uint32(0))
+	case AssignStmt as x:
+		row(t, KAssignStmt, uint32(x.Tok), wid(x.Lhs), wid(x.Rhs))
+	case ReturnStmt as x:
+		row(t, KReturnStmt, uint32(x.Return), wopt(x.Result), uint32(0))
+	case BranchStmt as x:
+		row(t, KBranchStmt, uint32(x.Tok), uint32(0), uint32(0))
+	case BlockStmt as x:
+		pushList(t, x.List)
+		mkBlock(t, m, x.Lbrace, x.Rbrace)
+	case IfStmt as x:
+		mkIf(t, m, x.If, wid(x.Cond), wid(x.Body), wtok(x.ElsePos), wopt(x.Else))
+	case SwitchStmt as x:
+		pushList(t, x.Clauses)
+		mkSwitch(t, m, KSwitchStmt, x.Switch, wid(x.Tag), x.Lbrace, x.Rbrace)
+	case TypeSwitchStmt as x:
+		pushList(t, x.Clauses)
+		mkSwitch(t, m, KTypeSwitchStmt, x.Switch, wid(x.Subject), x.Lbrace, x.Rbrace)
+	case ForStmt as x:
+		row(t, KForStmt, uint32(x.For), wopt(x.Cond), wid(x.Body))
+	case RangeStmt as x:
+		mkRange(t, m, x.For, wopt(x.Key), wid(x.Value), x.Range, wid(x.X), wid(x.Body))
+	case AssertStmt as x:
+		row(t, KAssertStmt, uint32(x.Assert), wid(x.X), uint32(0))
+	case SkipStmt as x:
+		row(t, KSkipStmt, uint32(x.Skip), uint32(x.Reason), uint32(0))
+	}
+	nid(*t, i)
+}
+
+// ---------------------------------------------------------------- encoders
+//
+// Each mk function ends the record of one kind: the list items are on the
+// stack from m, it pushes the fixed words and moves the record to extra.
+// The parser and Put share them, so the two write one encoding.
+
+func mkFile(t mut Tree, m int, eof int) uint32 { rec(t, KFile, uint32(eof), m) }
+
+func mkVarDecl(t mut Tree, m int, doc uint32, ext uint32, varTok int, mutTok uint32, spec uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, ext)
+	pushW(t, mutTok)
+	pushW(t, spec)
+	rec(t, KVarDecl, uint32(varTok), m)
+}
+
+func mkVarSpec(t mut Tree, m int, pattern uint32, typ uint32, assign uint32, value uint32) uint32 {
+	pushW(t, pattern)
+	pushW(t, typ)
+	pushW(t, assign)
+	pushW(t, value)
+	rec(t, KVarSpec, uint32(0), m)
+}
+
+func mkTypeDecl(t mut Tree, m int, doc uint32, ext uint32, typ int, name uint32, tparams uint32, spec uint32, wherePos uint32, wh uint32, derivePos uint32, drv uint32, implPos uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, ext)
+	pushW(t, name)
+	pushW(t, tparams)
+	pushW(t, spec)
+	pushW(t, wherePos)
+	pushW(t, wh)
+	pushW(t, derivePos)
+	pushW(t, drv)
+	pushW(t, implPos)
+	rec(t, KTypeDecl, uint32(typ), m)
+}
+
+func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, name uint32, tparams uint32, typ uint32, body uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, ext)
+	pushW(t, recv)
+	pushW(t, name)
+	pushW(t, tparams)
+	pushW(t, typ)
+	pushW(t, body)
+	rec(t, KFuncDecl, uint32(fn), m)
+}
+
+func mkContextDecl(t mut Tree, m int, doc uint32, letTok int, contextW int, name uint32, providesW uint32, failsW uint32, needsW uint32, body uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, uint32(contextW))
+	pushW(t, name)
+	pushW(t, providesW)
+	pushW(t, failsW)
+	pushW(t, needsW)
+	pushW(t, body)
+	rec(t, KContextDecl, uint32(letTok), m)
+}
+
+func mkTestDecl(t mut Tree, m int, doc uint32, testW int, name uint32, params uint32, body uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, name)
+	pushW(t, params)
+	pushW(t, body)
+	rec(t, KTestDecl, uint32(testW), m)
+}
+
+func mkLawDecl(t mut Tree, m int, doc uint32, lawW int, name uint32, tparams uint32, params uint32, body uint32, reach uint32, rewrite uint32, when uint32, eq uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, name)
+	pushW(t, tparams)
+	pushW(t, params)
+	pushW(t, body)
+	pushW(t, reach)
+	pushW(t, rewrite)
+	pushW(t, when)
+	pushW(t, eq)
+	rec(t, KLawDecl, uint32(lawW), m)
+}
+
+func mkLawReach(t mut Tree, m int, never uint32, word int, path bool, lbrack uint32, rbrack uint32, invariant bool, pred uint32) uint32 {
+	pushW(t, never)
+	pushW(t, wflag(path))
+	pushW(t, lbrack)
+	pushW(t, rbrack)
+	pushW(t, wflag(invariant))
+	pushW(t, pred)
+	rec(t, KLawReach, uint32(word), m)
+}
+
+func mkContextBody(t mut Tree, m int, lbrace int, rbrace int) uint32 {
+	pushW(t, uint32(rbrace))
+	rec(t, KContextBody, uint32(lbrace), m)
+}
+
+func mkContextEntry(t mut Tree, m int, doc uint32, replace uint32, key uint32, assign uint32, value uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, replace)
+	pushW(t, key)
+	pushW(t, assign)
+	pushW(t, value)
+	rec(t, KContextEntry, uint32(0), m)
+}
+
+func mkField(t mut Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32, lent uint32, dots uint32, where uint32, wherePos uint32, purePos uint32, own uint32, mutW uint32) uint32 {
+	pushW(t, doc)
+	pushW(t, typ)
+	pushW(t, key)
+	pushW(t, anyW)
+	pushW(t, lent)
+	pushW(t, dots)
+	pushW(t, where)
+	pushW(t, wherePos)
+	pushW(t, purePos)
+	pushW(t, own)
+	pushW(t, mutW)
+	rec(t, KField, uint32(0), m)
+}
+
+func mkFieldList(t mut Tree, m int, opening uint32, closing uint32) uint32 {
+	pushW(t, opening)
+	pushW(t, closing)
+	rec(t, KFieldList, uint32(0), m)
+}
+
+func mkClause(t mut Tree, m int, kind uint8, caseTok int, nlist int, colon int) uint32 {
+	pushW(t, uint32(nlist))
+	pushW(t, uint32(colon))
+	rec(t, kind, uint32(caseTok), m)
+}
+
+func mkVariantSpec(t mut Tree, m int, name uint32, targs uint32, fields uint32) uint32 {
+	pushW(t, name)
+	pushW(t, targs)
+	pushW(t, fields)
+	rec(t, KVariantSpec, uint32(0), m)
+}
+
+func mkCompositeLit(t mut Tree, m int, typ uint32, lbrace int, dotdot uint32, base uint32, rbrace int) uint32 {
+	pushW(t, typ)
+	pushW(t, dotdot)
+	pushW(t, base)
+	pushW(t, uint32(rbrace))
+	rec(t, KCompositeLit, uint32(lbrace), m)
+}
+
+func mkIndex(t mut Tree, m int, kind uint8, x uint32, lbrack int, rbrack int) uint32 {
+	pushW(t, x)
+	pushW(t, uint32(rbrack))
+	rec(t, kind, uint32(lbrack), m)
+}
+
+func mkSlice(t mut Tree, m int, x uint32, lbrack int, low uint32, high uint32, max uint32, slice3 bool, rbrack int) uint32 {
+	pushW(t, x)
+	pushW(t, low)
+	pushW(t, high)
+	pushW(t, max)
+	pushW(t, wflag(slice3))
+	pushW(t, uint32(rbrack))
+	rec(t, KSliceExpr, uint32(lbrack), m)
+}
+
+func mkCall(t mut Tree, m int, fun uint32, lparen uint32, rparen uint32, trailing uint32, tf bool) uint32 {
+	pushW(t, fun)
+	pushW(t, lparen)
+	pushW(t, rparen)
+	pushW(t, trailing)
+	pushW(t, wflag(tf))
+	rec(t, KCallExpr, uint32(0), m)
+}
+
+func mkCatch(t mut Tree, m int, x uint32, catchW int, rbrace int) uint32 {
+	pushW(t, x)
+	pushW(t, uint32(rbrace))
+	rec(t, KCatchExpr, uint32(catchW), m)
+}
+
+func mkContextLit(t mut Tree, m int, contextW int, providesW uint32, failsW uint32, needsW uint32, body uint32) uint32 {
+	pushW(t, providesW)
+	pushW(t, failsW)
+	pushW(t, needsW)
+	pushW(t, body)
+	rec(t, KContextLit, uint32(contextW), m)
+}
+
+func mkFuncType(t mut Tree, m int, escapingW uint32, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, takesW uint32) uint32 {
+	pushW(t, escapingW)
+	pushW(t, entryW)
+	pushW(t, fn)
+	pushW(t, params)
+	pushW(t, results)
+	pushW(t, needsW)
+	pushW(t, takesW)
+	rec(t, KFuncType, uint32(0), m)
+}
+
+func mkInterface(t mut Tree, m int, lbrace uint32, rbrace uint32) uint32 {
+	pushW(t, lbrace)
+	pushW(t, rbrace)
+	rec(t, KInterfaceType, uint32(0), m)
+}
+
+func mkMachine(t mut Tree, m int, machineW int, state uint32, signal uint32, rbrack int, rbrace int) uint32 {
+	pushW(t, state)
+	pushW(t, signal)
+	pushW(t, uint32(rbrack))
+	pushW(t, uint32(rbrace))
+	rec(t, KMachineType, uint32(machineW), m)
+}
+
+func mkTuple(t mut Tree, m int, lparen uint32, rparen uint32) uint32 {
+	pushW(t, lparen)
+	pushW(t, rparen)
+	rec(t, KTupleExpr, uint32(0), m)
+}
+
+func mkBlock(t mut Tree, m int, lbrace int, rbrace int) uint32 {
+	pushW(t, uint32(rbrace))
+	rec(t, KBlockStmt, uint32(lbrace), m)
+}
+
+func mkIf(t mut Tree, m int, ifTok int, cond uint32, body uint32, elsePos uint32, els uint32) uint32 {
+	pushW(t, cond)
+	pushW(t, body)
+	pushW(t, elsePos)
+	pushW(t, els)
+	rec(t, KIfStmt, uint32(ifTok), m)
+}
+
+func mkSwitch(t mut Tree, m int, kind uint8, sw int, subject uint32, lbrace int, rbrace int) uint32 {
+	pushW(t, subject)
+	pushW(t, uint32(lbrace))
+	pushW(t, uint32(rbrace))
+	rec(t, kind, uint32(sw), m)
+}
+
+func mkRange(t mut Tree, m int, forTok int, key uint32, value uint32, rng int, x uint32, body uint32) uint32 {
+	pushW(t, key)
+	pushW(t, value)
+	pushW(t, uint32(rng))
+	pushW(t, x)
+	pushW(t, body)
+	rec(t, KRangeStmt, uint32(forTok), m)
+}

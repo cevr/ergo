@@ -46,11 +46,11 @@ law RoundTrip(e ast.Expr, seed int) {
 	true
 }
 
-func peek(p *parser) Token { p.toks[p.pos] }
+func peek(p mut parser) Token { p.toks[p.pos] }
 
 // next is the token at the position, and moves past it. EndTok is never
 // passed, so the position stays inside the tokens.
-func next(p *parser) Token {
+func next(p mut parser) Token {
 	let t = p.toks[p.pos]
 	match t {
 	case EndTok:
@@ -81,7 +81,7 @@ func isWord(t Token, w string) bool {
 }
 
 // expect moves past the symbol or keyword want, or fails.
-func expect(p *parser, want string) fails Unexpected {
+func expect(p mut parser, want string) fails Unexpected {
 	let t = peek(p)
 	if isSym(t, want) || isWord(t, want) {
 		let _ = next(p)
@@ -91,7 +91,7 @@ func expect(p *parser, want string) fails Unexpected {
 }
 
 // parseExpr reads an expression: binary operators of any precedence.
-func parseExpr(p *parser) ast.Expr fails Unexpected | TooBig { try parseBinary(p, 1) }
+func parseExpr(p mut parser) ast.Expr fails Unexpected | TooBig { try parseBinary(p, 1) }
 
 // opOf is the binary operator that t spells.
 func opOf(t Token) Option[ast.Op] {
@@ -126,7 +126,7 @@ func opOf(t Token) Option[ast.Op] {
 
 // parseBinary reads operands joined by operators that bind at least min,
 // left to right: precedence climbing.
-func parseBinary(p *parser, min int) ast.Expr fails Unexpected | TooBig {
+func parseBinary(p mut parser, min int) ast.Expr fails Unexpected | TooBig {
 	let mut left = try parseUnary(p)
 	for {
 		match opOf(peek(p)) {
@@ -147,7 +147,7 @@ func parseBinary(p *parser, min int) ast.Expr fails Unexpected | TooBig {
 // parseUnary reads - and ! before an operand. A minus right before a
 // number, with no space, is part of the number: -5 is a literal, - 5 the
 // negation of 5.
-func parseUnary(p *parser) ast.Expr fails Unexpected | TooBig {
+func parseUnary(p mut parser) ast.Expr fails Unexpected | TooBig {
 	let t = peek(p)
 	if isSym(t, "-") {
 		let _ = next(p)
@@ -182,7 +182,7 @@ func intOf(text string, at int) int fails TooBig {
 
 // parseAtom reads a number, a name, true or false, an if, a let, or an
 // expression in parentheses.
-func parseAtom(p *parser) ast.Expr fails Unexpected | TooBig {
+func parseAtom(p mut parser) ast.Expr fails Unexpected | TooBig {
 	let t = next(p)
 	match t {
 	case IntTok as n:

@@ -1,0 +1,80 @@
+// One body per flow message (the Go checker's TestOwnershipMessages): a
+// use after a let moves it, a use after a Close on one path, a lent
+// parameter taken and returned (the signature to write), a Close from a
+// block passed to run, a lend and a take in one call, a dropped call and a
+// call bound to _, a replace from a block, and a package let handed off.
+
+type Res { id int } implements Closer
+
+func Close(r Res) {}
+
+func open(n int) Res { Res{id: n} }
+
+func lend(r Res) {}
+
+func keep(r own Res) {}
+
+func take(r own Res) int { 0 }
+
+func both(r Res, n int) {}
+
+func cond(n int) bool { n > 2 }
+
+func run(f func()) { f() }
+
+let shared = Res{id: 0}
+
+func moved() {
+	let a = open(1)
+	let b = a
+	lend(a) //want: flow
+	keep(b)
+}
+
+func maybe(n int) {
+	let a = open(1)
+	if cond(n) {
+		a.Close()
+	}
+	lend(a) //want: flow
+}
+
+func lent(n int, p Res, q own Res) {
+	keep(p) //want: flow
+	keep(q)
+}
+
+func Give(p Res) Res {
+	return p //want: flow
+}
+
+func nested() {
+	let a = open(1)
+	run() {
+		a.Close() //want: flow
+	}
+}
+
+func crossed() {
+	let a = open(1)
+	both(a, take(a)) //want: flow
+}
+
+func dropped() {
+	open(1)         //want: flow
+	let _ = open(2) //want: flow
+}
+
+func replaced() {
+	let mut a = open(1)
+	run() {
+		a = open(2) //want: flow
+	}
+	keep(a)
+}
+
+func global() {
+	keep(shared) //want: flow
+}
+
+func main() {}

@@ -24,7 +24,8 @@ import (
 //     appends each block, p.blocks = p.blocks.Append(block{…}) (in place,
 //     V3);
 //   - examples/router on n messages: each answer is appended to the
-//     board, Board{..b, Answers: b.Answers.Append(…)} (one extender);
+//     board, Board{..b, Answers: b.Answers.Append(…)} (in place: the
+//     source is a field of a local dead after the call);
 //   - testdata/ownring, GP's ring-copy repro (wf10 corpus GP) with n
 //     slots and 20n pushes: r = push(r, i), whose push takes its
 //     parameter over through its fields (fieldOwned) and writes one slot;
@@ -146,7 +147,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			}
 			return exec.Command(bin), b.String()
 		}, ""},
-		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:«Board{..b, Answers: b.Answers.Append(» one extender", func(bin string, n int) (*exec.Cmd, string) {
+		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:«Board{..b, Answers: b.Answers.Append(» in place", func(bin string, n int) (*exec.Cmd, string) {
 			lines := []string{"route 1 logs disk", "route 2 metrics socket", "route 3 alerts stdout"}
 			topics := []string{"logs", "metrics", "alerts"}
 			for i := range n {

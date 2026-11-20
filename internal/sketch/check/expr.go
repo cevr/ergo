@@ -876,6 +876,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 		}
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
+	c.recordTypeMark(n, targs, x)
 	return c.instantiate(n, targs)
 }
 
@@ -1233,6 +1234,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 					return bad(x)
 				}
 			}
+			if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {
+				// A mut operation writes its receiver: a value of T is
+				// read, so the call needs a mut T (types.md, Generics 2).
+				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), tp.Name, exprText(x.X), tp.Name)
+				return bad(x)
+			}
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
@@ -1307,7 +1314,7 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {
-				star = "*"
+				star = "mut " // the borrow, as Ergo writes it (MODES-2)
 			}
 			var tps []string
 			for _, tp := range n.Orig.TParams {
@@ -1337,9 +1344,17 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s", base.typ, x.Sel.Name)
 		return bad(x)
 	}
-	if !called {
+	if !called && (index != nil || isExtern(fn)) {
+		// An extern on a type (a prelude function on a collection, a Go
+		// body) is call-only, as the extern itself is (externValue).
 		c.errorf(x.Sel, CodeUnknown, "%s has no field %s; the function %s on its type is reached only by a call %s.%s(…)", base.typ, x.Sel.Name, fn.Name, exprText(x.X), fn.Name)
 		return bad(x)
+	}
+	if !called {
+		if text := c.methodValueRefused(x, base, sig, fn); text != "" {
+			c.errorf(x.Sel, CodeType, "a method value of %s %s; write the closure func(…) { %s.%s(…) } (types.md, Methods 2)", fn.Name, text, exprText(x.X), fn.Name)
+			return bad(x)
+		}
 	}
 	if index != nil && sig.NBracket == 0 {
 		// x.f[i](…): f has no bracket type parameter x does not bind, so
@@ -1352,7 +1367,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) && !base.addressable {
-		c.errorf(x.X, CodeType, "%s takes *%s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
+		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) {
@@ -1392,10 +1407,46 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		}
 		c.recordInstantiation(fn.Name, tps, targs, x)
 	}
+	if !called {
+		// x.f as a value: f with x bound here (types.md, Methods 2). Every
+		// type parameter of f is x's (methodValueRefused).
+		if c.silent == 0 {
+			c.pkg.Info.MethodValues[x] = fn
+			if len(fn.Sig.TParams) > 0 {
+				targs := make([]Type, len(fn.Sig.TParams))
+				for i, tp := range fn.Sig.TParams {
+					targs[i] = self[tp]
+				}
+				c.recordInstance(x, fn, targs)
+			}
+		}
+		return operand{mode: modeValue, typ: sig}
+	}
 	if len(sig.TParams) > 0 {
 		return operand{mode: modeGeneric, typ: sig, fn: fn, self: self}
 	}
 	return operand{mode: modeValue, typ: sig, fn: fn, self: self}
+}
+
+// methodValueRefused says why x.f, the function f on x's type with x of
+// base's type, is no method value (types.md, Methods 2), or "" when it is
+// one. A method value keeps a copy of x: a first parameter that borrows x
+// (*T) or takes it (own) would alias or move x out of sight of the borrow
+// and ownership rules, and a resource has one owner, so each is the
+// closure the program writes. (An own first parameter takes only a
+// resource; any other has no effect, S110.) A type parameter of f that
+// x's type does not bind has no brackets to fill.
+func (c *checker) methodValueRefused(x *syntax.SelectorExpr, base operand, sig *Signature, fn *Func) string {
+	recv := exprText(x.X)
+	switch {
+	case fn.Ptr:
+		return fmt.Sprintf("borrows %s (mut %s)", recv, fn.owner.Obj.Name)
+	case c.holdsResource(base.typ):
+		return fmt.Sprintf("would keep %s, a resource, which has one owner", recv)
+	case sig != nil && len(sig.TParams) > 0:
+		return fmt.Sprintf("leaves its type parameter %s unbound", sig.TParams[0].Name)
+	}
+	return ""
 }
 
 // overloadedText is the S108 of a plain reference to a name several package

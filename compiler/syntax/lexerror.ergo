@@ -1,0 +1,176 @@
+// Sources that end in a lexical error after a parser lookahead has
+// started: the lookahead runs into the scanner's error token and must stop
+// there (#226). For each, the token stream keeps its invariant (one EOF,
+// at the end; each token's span in the source; no token before the end of
+// the one before it), and the parse fails with S001 at the scanner's
+// offset, or a parser's earlier one, with the message. Before #226 each
+// panicked on a slice of the source or scanned without end. These tests
+// were internal/sketch/syntax's TestLexicalErrorInLookahead (wf10
+// TP-DIAG); its mutants are the diag-* rows of testdata/mutants.json.
+
+// lexStream is "" when the scan of src keeps the stream's invariant as the
+// parser reads it (a failed scan's ILLEGAL and EOF where it stopped, as
+// the parser's reader builds them), else the first break.
+func lexStream(src string) string {
+	let s = Scan(src)
+	let t = s.Toks
+	let n = NumToks(t)
+	let mut kinds = []uint8{}
+	let mut starts = []int{}
+	let mut ends = []int{}
+	for i in 0..n {
+		let id = TokAt(t, i)
+		let k = Kind(t, id)
+		let start = Start(t, id)
+		kinds = kinds.Append(k)
+		starts = starts.Append(start)
+		ends = ends.Append(End(src, k, start))
+	}
+	if s.Failed {
+		let mut at = s.Offset
+		let mut end = s.Offset + s.Length
+		if n > 0 && ends[n-1] > at {
+			at = ends[n-1]
+			end = ends[n-1]
+		}
+		kinds = kinds.Append(Illegal)
+		starts = starts.Append(at)
+		ends = ends.Append(end)
+		kinds = kinds.Append(EOF)
+		starts = starts.Append(end)
+		ends = ends.Append(end)
+	}
+	let m = len(kinds)
+	if m == 0 || kinds[m-1] != EOF {
+		return "the stream does not end with EOF"
+	}
+	let mut prev = 0
+	for i in 0..m {
+		if kinds[i] == EOF && i != m-1 {
+			return "EOF at token \(i) of \(m)"
+		}
+		if starts[i] < prev {
+			return "token \(i) starts at \(starts[i]), before the previous end \(prev)"
+		}
+		if ends[i] < starts[i] || ends[i] > len(src) {
+			return "token \(i) spans \(starts[i])..\(ends[i]) in a \(len(src))-byte source"
+		}
+		prev = ends[i]
+	}
+	""
+}
+
+// lexOutcome is what the parse of src reports: the stream's break,
+// "parsed", or the failure's code, offset and, when withMessage, message.
+func lexOutcome(src string, withMessage bool) string {
+	let broken = lexStream(src)
+	if broken != "" {
+		return "stream: " + broken
+	}
+	let p = Parse(src)
+	if !p.Failed {
+		return "parsed"
+	}
+	if withMessage {
+		return "\(p.Code) \(p.Offset) " + p.Message
+	}
+	"\(p.Code) \(p.Offset)"
+}
+
+// The two FuzzCheck crashers: positionalElement scanned past the
+// unterminated string of a header literal's body.
+
+test MatchHeaderUnterminatedString {
+	assert lexOutcome("func A(){match A{\"", true) == "S001 17 string literal not terminated"
+}
+
+test WithHeaderUnterminatedString {
+	assert lexOutcome("func A(){with A{\"0", true) == "S001 16 string literal not terminated"
+}
+
+test WithHeaderUnterminatedRawString {
+	assert lexOutcome("func A(){with A{`0", true) == "S001 16 raw string literal not terminated"
+}
+
+test MatchHeaderUnterminatedRune {
+	assert lexOutcome("func A(){match A{'", false) == "S001 17"
+}
+
+test MatchHeaderInvalidByte {
+	assert lexOutcome("func A(){match A{\xff", false) == "S001 17"
+}
+
+// The scanner reports an open interpolation at its string's opening
+// quote, behind the interpolation's tokens.
+
+test MatchHeaderOpenInterpolation {
+	assert lexOutcome("func A(){match A{\"\\(b", true) == "S001 17 string literal not terminated"
+}
+
+test MatchHeaderNewlineInInterpolation {
+	assert lexOutcome("func A(){match A{\"\\(b\n", true) == "S001 17 newline in string"
+}
+
+test MatchHeaderUnterminatedStringAfterInterpolation {
+	assert lexOutcome("func A(){match A{\"\\(b)c", true) == "S001 17 string literal not terminated"
+}
+
+// bracketsThenParen and the for header's habit scan stopped only at EOF
+// or a closing token. A member's `[` right before the error may open `[]T`
+// or `[N]T`, so the lexical error is the first; a member's `[` before a
+// name is an operation's type parameters or a length that is not a
+// literal, an error at that name whatever follows (196y).
+
+test MemberBracketsUnterminatedString {
+	assert lexOutcome("type A{F[\"", true) == "S001 9 string literal not terminated"
+}
+
+test MemberBracketsInvalidByte {
+	assert lexOutcome("type A{Items [\xff", true) == "S001 14 invalid UTF-8 byte 0xff"
+}
+
+test MemberBracketsOpenInterpolation {
+	assert lexOutcome("type A{F[\"\\(x", true) == "S001 9 string literal not terminated"
+}
+
+test MemberBracketsClosedBeforeTheError {
+	assert lexOutcome("type A{F[T]\"", true) == "S001 9 expected \"]\" or an integer length, found \"T\""
+}
+
+test ForHeaderUnterminatedString {
+	assert lexOutcome("func A(){for \"", true) == "S001 13 string literal not terminated"
+}
+
+test ForHeaderOpenInterpolation {
+	assert lexOutcome("func A(){for x in \"\\(y", true) == "S001 18 string literal not terminated"
+}
+
+// A speculative reading (attempt) that reaches the lexical error read the
+// source without fault up to it; the fallback reading must not report an
+// earlier error. The range-pattern reading of a for header, and the type
+// reading of an index.
+
+test ForHeaderNoBreakSpaceBeforeIn {
+	assert lexOutcome("func A(xs []int){for i, x\u00a0in xs {\n}}", true) == "S001 25 unexpected character U+00A0 '\\u00a0'"
+}
+
+test ForHeaderStrayCharacterBeforeIn {
+	assert lexOutcome("func A(xs []int){for i, x@ in xs {\n}}", true) == "S001 25 unexpected character '@'"
+}
+
+test ForHeaderUnterminatedStringAfterPatterns {
+	assert lexOutcome("func A(){for i, x \"", true) == "S001 18 string literal not terminated"
+}
+
+// `escaping func(` reads only as a type: with no repair, the fallback
+// expression reading reports "a type is not a value" at the `escaping`.
+
+test IndexTypeReadingReachesTheError {
+	assert lexOutcome("func A(){let y = f[escaping func(\"", true) == "S001 33 string literal not terminated"
+}
+
+// keysContinue reads a context body's key list.
+
+test ContextEntryKeysUnterminatedString {
+	assert lexOutcome("func A(){with context{A, \"", true) == "S001 25 string literal not terminated"
+}

@@ -111,7 +111,7 @@ law SplitAnywhereParsesTheSame(seed int) {
 }
 
 // drain is got with every value r holds, until r is Incomplete.
-func drain(r *Reader, got []Value) []Value fails Malformed {
+func drain(r mut Reader, got []Value) []Value fails Malformed {
 	let mut out = got
 	for {
 		let v = try Next(r) catch {

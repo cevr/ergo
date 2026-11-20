@@ -1,0 +1,61 @@
+// Method values (types.md, Methods 2; CV1): x.f is the function f on x's
+// type with x's value bound when x.f is evaluated. Checked at check time
+// (eval TestMethodValueAgrees) and built (lower TestMethodValueRuns).
+
+type Acc { N int }
+
+func Add(a Acc, b int) int { a.N + b }
+
+type Holder { A Acc }
+
+type Box[T] { V T }
+
+func Get[T](b Box[T]) T { b.V }
+
+func apply(f func(b int) int, x int) int { f(x) }
+
+// The method value and the closure that calls x.f give the same result.
+test MethodValueIsTheClosure(n int, m int) {
+	let a = Acc{N: n}
+	let f = a.Add
+	let g = func(k int) int { a.Add(k) }
+	assert apply(f, m) == apply(g, m)
+}
+
+// x is bound when x.f is evaluated: a later assignment to x, to a field
+// of x, or through a borrow of x does not reach the value.
+test MethodValueBindsAtTheTake(n int, m int) {
+	let mut a = Acc{N: n}
+	let f = a.Add
+	a = Acc{N: n + 1}
+	let mut h = Holder{A: Acc{N: n}}
+	let g = h.A.Add
+	h.A.N = n + 2
+	let p = &h.A
+	let k = p.Add
+	p.N = n + 3
+	assert f(m) == n + m && g(m) == n + m && k(m) == n + 2 + m && a.Add(m) == n + 1 + m
+}
+
+func applyAfter(f func(b int) int, k int, x int) int { f(x) + k }
+
+func bump(a mut Acc) int {
+	a.N = a.N + 1
+	0
+}
+
+// Passed to a known-callback variant (applyAfter), the value is the plain
+// closure, and x is still bound before the later argument writes it.
+test MethodValueBindsBeforeLaterArguments(n int, m int) {
+	let mut a = Acc{N: n}
+	assert applyAfter(a.Add, bump(&a), m) == n + m && a.N == n + 1
+}
+
+// A generic function on a generic type, every type parameter bound by x.
+test MethodValueOfAnInstance(s string) {
+	let b = Box[string]{V: s}
+	let f = b.Get
+	assert f() == s
+}
+
+func main() {}

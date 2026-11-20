@@ -49,6 +49,24 @@ func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
 	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
 }
 
+// holdsRowParam reports a parameter type that is an error row parameter
+// that is not a Slot, or a row that holds one: a Go error in the
+// declaration (types.md, Generics 1), where a Slot is a Go type parameter
+// (Generics 6). The row gaps start from it (rowgap.go).
+func holdsRowParam(t check.Type) bool {
+	switch t := t.(type) {
+	case *check.TypeParam:
+		return t.Kind == check.KindErrors && !t.Slot
+	case *check.Union:
+		for _, v := range t.Variants {
+			if holdsRowParam(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // value is x as an IR expression, after the statements that must run
 // before it (polls, an if expression's branches). An if or a match inside an
 // operand runs first too, after the operands to its left (exprOf, ir_order.go).
@@ -93,6 +111,11 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
 	case *syntax.SelectorExpr:
+		if b.l.info.MethodValues[y] != nil {
+			b.plain(y)
+			pre, e = b.methodValue(y) // ir_methodvalue.go
+			break
+		}
 		// A Go package variable whose Option goResult builds: Go's
 		// pointer read once, then the Option (ir_govar.go).
 		if t := b.l.info.Types[y]; hostRecv(b.l.info.Types[y.X]) && (isGoRef(t) || b.optionResult(t)) {
@@ -144,10 +167,30 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 	if !irOps[op] {
 		irNo("operator %s", op)
 	}
-	if b.scalarBasic(t) == nil { // ir_union.go: a named scalar's too
+	if b.scalarBasic(t) == nil && !orderedParam(op, t) { // ir_union.go: a named scalar's too
 		irNo("operator %s on a non-basic type", op)
 	}
 	b.goType(t, site)
+}
+
+// orderedParam reports an ordering operator on a type parameter whose
+// constraint is ordered (GP-ORDER): its Go constraint is the generated
+// type-set interface (constraint, decls.go), whose every type is ordered,
+// so Go's < compiles it per GC shape, as the text path writes it. Equality
+// goes through equalOn (ir_equal.go); arithmetic on number is left out
+// until a body needs it.
+func orderedParam(op string, t check.Type) bool {
+	switch op {
+	case "<", "<=", ">", ">=":
+	default:
+		return false
+	}
+	tp, ok := t.(*check.TypeParam)
+	if !ok || tp.Slot || tp.Constraint == nil {
+		return false
+	}
+	it := constraintOf(tp)
+	return it != nil && it.Set == check.SetOrdered
 }
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
@@ -208,7 +251,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		case *check.Const:
 			return &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(o.Val)}
 		case *check.Func:
-			return b.funcName(o, t, x, p) // ir_fnname.go
+			return b.funcName(o, t, x, p, nil) // ir_fnname.go
 		case *check.TypeName:
 			if e := b.bareRecord(o, t, x, p); e != nil { // ir_union.go
 				return e
@@ -227,6 +270,10 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		switch op {
 		case "!", "-", "+", "^":
 		case "&":
+			if b.l.info.Relends[x] {
+				// &x of a mut parameter passes its pointer on (Info.Relends).
+				return b.expr(x.X)
+			}
 			b.goType(t, x)
 			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
@@ -239,9 +286,16 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		if b.l.info.MethodValues[x] != nil {
+			// Outside a value position (valueOf takes the others,
+			// ir_methodvalue.go) there is no statement to spill the
+			// receiver into: a receiver no assignment changes is read by
+			// the closure itself, which then sees the value it had here.
+			return b.stableMethodValue(x, p)
+		}
 		switch o := check.QualifiedMember(b.l.info, x).(type) {
 		case *check.Func:
-			return b.funcName(o, t, x, p) // pkg.F as a value (ir_fnname.go)
+			return b.funcName(o, t, x, p, nil) // pkg.F as a value (ir_fnname.go)
 		case *check.TypeName:
 			// pkg.T of a record with no fields, as the bare name T is.
 			if e := b.bareRecord(o, t, x, p); e != nil {
@@ -283,6 +337,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
 		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
+		if check.ScriptOf(n) != nil {
+			// A Script's field is its operation's, as the emitter's
+			// fieldName (expr.go) names it: the Go struct script.go
+			// writes has one field per operation (testing.Script[Runner]'s
+			// s.Run).
+			return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: memberName(x.Sel.Name), X: b.expr(x.X)}
+		}
 		td := b.l.typeDecl(n.Obj, x)
 		if td.goError {
 			return b.goErrorText(x, td, p) // ir_golib.go
@@ -301,6 +362,15 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: field, X: b.expr(x.X)}
 	case *syntax.IndexExpr:
+		// A generic function named at its type arguments, f[A, B], is a
+		// value of the instance (the emitter's index, funcValue).
+		if sig, ok := b.l.info.Types[x.X].(*check.Signature); ok && len(sig.TParams) > 0 {
+			inst := b.l.info.Instances[x]
+			if inst == nil {
+				irNo("index form")
+			}
+			return b.funcName(inst.Func, b.l.info.Types[x], x, p, inst) // ir_fnname.go
+		}
 		if len(x.Indices) != 1 {
 			irNo("index form")
 		}
@@ -329,12 +399,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					irNo("keyed slice literal")
 				}
 			}
-			lit.Elems = b.inOrder(x.Elts) // ir_order.go
-			if check.IsGoAny(tt.Elem) {
-				for i, e := range lit.Elems {
-					lit.Elems[i] = b.assignedTo(x.Elts[i], e, tt.Elem) // ir_union.go: Go's any (IR-GOCALLS)
-				}
-			}
+			lit.Elems = b.listElems(x, tt.Elem)
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)
@@ -347,6 +412,17 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				b.seedSites++
 				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
 			}
+		case *check.Array:
+			// The checker took every element in order, or none for the
+			// default (types.md, Arrays 2), as the emitter writes it:
+			// [N]T{e1, …, eN}, or [N]T{}, the decoder's zero of an array.
+			if len(x.Elts) == 0 {
+				if b.l.holdsMap(tt) {
+					irNo("literal of an array whose default holds a Map") // the emitter's default, built in a loop
+				}
+				return &irExpr{K: "zero", Pos: p, T: lit.T}
+			}
+			lit.Elems = b.listElems(x, tt.Elem)
 		case *check.Map:
 			if b.l.intMap(tt) { // ir_intmap.go
 				if len(x.Elts) > 0 {
@@ -501,4 +577,17 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	irNo("constant kind %s", v.Kind())
 	return nil
+}
+
+// listElems are the elements of a slice or array literal x, in order
+// (ir_order.go), each as an element of type elem holds it: a value into
+// Go's any by assignedTo (ir_union.go, IR-GOCALLS), any other as written.
+func (b *irBuilder) listElems(x *syntax.CompositeLit, elem check.Type) []*irExpr {
+	elems := b.inOrder(x.Elts) // ir_order.go
+	if check.IsGoAny(elem) {
+		for i, e := range elems {
+			elems[i] = b.assignedTo(x.Elts[i], e, elem) // ir_union.go
+		}
+	}
+	return elems
 }

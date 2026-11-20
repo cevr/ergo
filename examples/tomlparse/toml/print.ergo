@@ -10,7 +10,7 @@ let hexDigits = "0123456789abcdef"
 // WriteQuoted writes s as a quoted string that JSON and TOML's basic
 // strings read the same: ", \ and the bytes below 0x20 and DEL escaped
 // (the short escapes where both have one), every other byte as it is.
-func WriteQuoted(b *strings.Builder, s string) {
+func WriteQuoted(b mut strings.Builder, s string) {
 	b.WriteByte('"')
 	for i in 0..len(s) {
 		let c = s[i]
@@ -78,13 +78,13 @@ func Tagged(v Value) string {
 	b.String()
 }
 
-func tag(b *strings.Builder, kind string, text string) {
+func tag(b mut strings.Builder, kind string, text string) {
 	b.WriteString("{\"type\":\"" + kind + "\",\"value\":")
 	WriteQuoted(b, text)
 	b.WriteByte('}')
 }
 
-func tagged(b *strings.Builder, v Value) {
+func tagged(b mut strings.Builder, v Value) {
 	match v {
 	case Str as s:
 		tag(b, "string", s.S)
@@ -184,7 +184,7 @@ func sections(v Value) bool {
 	}
 }
 
-func section(b *strings.Builder, t Table, path string) {
+func section(b mut strings.Builder, t Table, path string) {
 	for m in t.Members {
 		if !sections(m.Val) {
 			b.WriteString(Shown(m.Key) + " = ")
@@ -216,7 +216,7 @@ func section(b *strings.Builder, t Table, path string) {
 }
 
 // inlineValue writes v as a value on one line.
-func inlineValue(b *strings.Builder, v Value) {
+func inlineValue(b mut strings.Builder, v Value) {
 	match v {
 	case Str as s:
 		WriteQuoted(b, s.S)

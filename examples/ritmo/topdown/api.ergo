@@ -76,7 +76,7 @@ func Kept(s Session) int { s.kept }
 
 // Handle answers r on s. Every failure is its own type, so a transport
 // that prints them names each one; a failed request leaves s as it was.
-func Handle(s *Session, r Request) Reply fails TooFar | Missing | Broken needs Saves {
+func Handle(s mut Session, r Request) Reply fails TooFar | Missing | Broken needs Saves {
 	match r {
 	case Step as st:
 		Advance(s, st.C)
@@ -101,7 +101,7 @@ func Handle(s *Session, r Request) Reply fails TooFar | Missing | Broken needs S
 // Advance steps s one tick on input c. The new world goes in the slot
 // after the world now: a new slot until the ring holds keep+1 worlds,
 // then the oldest, so the ring never copies the worlds it keeps.
-func Advance(s *Session, c Controls) {
+func Advance(s mut Session, c Controls) {
 	let next = Update(s.worlds[s.last], c)
 	let at = (s.last + 1) % (s.keep + 1)
 	if at == len(s.worlds) {
@@ -115,7 +115,7 @@ func Advance(s *Session, c Controls) {
 
 // Back puts s back ticks ticks. The worlds after the one it goes back to
 // stay in their slots until a tick writes over them.
-func Back(s *Session, ticks int) fails TooFar {
+func Back(s mut Session, ticks int) fails TooFar {
 	if ticks < 0 || ticks > s.kept {
 		return TooFar{Asked: ticks, Kept: s.kept}
 	}

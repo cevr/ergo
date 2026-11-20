@@ -350,7 +350,7 @@ func Peek(path string) string fails Gone needs Ambient { try peek(NewHost(), pat
 `, nil},
 		{"control: a written Ambient", `func Peek(path string) string fails Gone needs Ambient { try hostRead(path) }
 `, nil},
-		{"a borrow of the provider is no authority", `func Peek(_ *Host, path string) string fails Gone { try hostRead(path) }
+		{"a borrow of the provider is no authority", `func Peek(_ mut Host, path string) string fails Gone { try hostRead(path) }
 `, reaches("Peek")},
 		{"an exported host extern", `extern go ergo.local/prototype/runtime/v1.FSStat func HostStat(path string) string fails Gone
 `, []string{"fixture.HostStat is an exported host extern and neither lists Ambient in its written row nor takes a parameter of a held type"}},

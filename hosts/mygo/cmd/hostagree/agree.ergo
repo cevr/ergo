@@ -14,7 +14,7 @@ type result = Done{} | Missing{Label string} | Broke{Why string}
 
 // agree plays steps on both hosts and prints whether they agree after
 // each.
-func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
 	let w = screen.Headless(480, 640) catch {
 	case go.Error as e:
 		Console.Println("differ 0: no window: \(e.Text)")
@@ -79,7 +79,7 @@ func said(r result) string {
 // the app state, each probe's pixel in the window's frame, the window's
 // accessibility tree (access.ergo), and each look's state (states.ergo). First
 // TestHost takes the viewport the window reported for each list (follow).
-func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], same func(a S, b S) bool) Option[string] needs go.Foreign {
+func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], same func(a S, b S) bool) Option[string] needs go.Foreign {
 	follow(h, d, desktop.Screen(d))
 	match desktop.Differs(d) {
 	case Some[string] as why:
@@ -172,7 +172,7 @@ func shot[E](shapes []ui.Shape[E], indent string) string {
 // viewport the window reported is the list's box height and an offset
 // inside its content, and each row it wrote (a button, by label) shows at
 // the list's top plus its index's rows, less the offset.
-func placed[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+func placed[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
 	for s in shapes {
 		match s.Node {
 		case ui.RowsNode as x:
@@ -221,7 +221,7 @@ func placed[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], shapes []ui.Sh
 // box the driver laid a text out in (by its value, the first node of that
 // label) is at least as wide as its widest word, as the window's text
 // engine measures it at the driver's size, 16 DIPs.
-func fits[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
+func fits[E comparable, S, D, F](d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], shapes []ui.Shape[E]) Option[string] needs go.Foreign {
 	for s in shapes {
 		match s.Node {
 		case ui.TextNode as x:
@@ -254,7 +254,7 @@ func fits[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], w go.Ref[screen.
 // reported for it: a window decides a list's height and where a person
 // scrolled it, and TestHost, which has no window, takes it as a host's
 // report (ui.ScrollTo). Then both write the same rows.
-func follow[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) needs go.Foreign {
+func follow[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) needs go.Foreign {
 	for s in shapes {
 		match s.Node {
 		case ui.RowsNode as x:
@@ -272,7 +272,7 @@ func follow[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver
 }
 
 // run does one step on each host.
-func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], line string) (result, result) needs go.Foreign {
+func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], line string) (result, result) needs go.Foreign {
 	let (verb, rest) = match strings.Cut(line, " ") {
 	case Some[strings.Halves] as c:
 		(c.Value.Before, c.Value.After)
@@ -382,7 +382,7 @@ func atoi(s string) int {
 }
 
 // both plays one act on each host.
-func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
+func both[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
 	let a = played(func() fails ui.NoNode | ui.Ambiguous | ui.Mismatch | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 		try ui.Play(h, []ui.Act{act})
 	})
@@ -415,7 +415,7 @@ func played(f func() fails ui.NoNode | ui.Ambiguous | ui.Mismatch | actor.Stoppe
 // with Enter (types "z" into a field); TestHost presses (or types into)
 // the node the desktop focused. The focus order is the tree's: after k
 // Tabs the focus is on the (k-1 mod n)-th of the n focusable nodes.
-func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], k int) (result, result) needs go.Foreign {
+func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window], k int) (result, result) needs go.Foreign {
 	// Both hosts click where no node is, then reach the node by keys.
 	let a0 = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
 		try ui.ClickNowhere(h)

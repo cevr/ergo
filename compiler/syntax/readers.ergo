@@ -1,0 +1,516 @@
+import dense
+
+// The readers: one per variant of View, the row id read as that variant
+// (ViewOf is the reader its kind names). A reader returns the variant's
+// record, no union, so a walk that reads KindOf first and then the reader
+// of that kind boxes no View. A reader of another kind than id's reads the
+// row's words as its own: the caller checks the kind.
+
+// NameOf reads a row of kind KIdent.
+func NameOf(t Tree, id dense.ID[Node]) Name {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	Name{Tok: int(tok)}
+}
+
+// BasicLitOf reads a row of kind KBasicLit.
+func BasicLitOf(t Tree, id dense.ID[Node]) BasicLit {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	BasicLit{Tok: int(tok)}
+}
+
+// SelectorExprOf reads a row of kind KSelectorExpr.
+func SelectorExprOf(t Tree, id dense.ID[Node]) SelectorExpr {
+	let i = uint32(dense.Index(id))
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	SelectorExpr{X: nid(t, a), Sel: nid(t, b)}
+}
+
+// CallExprOf reads a row of kind KCallExpr.
+func CallExprOf(t Tree, id dense.ID[Node]) CallExpr {
+	let i = uint32(dense.Index(id))
+	CallExpr{Fun: nid(t, fixed(t, i, 5, 0)), Lparen: otok(fixed(t, i, 5, 1)), Args: listAt(t, i, 0, items(t, i, 5)), Rparen: otok(fixed(t, i, 5, 2)), Trailing: onid(t, fixed(t, i, 5, 3)), TrailingFunc: flag(fixed(t, i, 5, 4))}
+}
+
+// BinaryExprOf reads a row of kind KBinaryExpr.
+func BinaryExprOf(t Tree, id dense.ID[Node]) BinaryExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	BinaryExpr{X: nid(t, a), Op: int(tok), Y: nid(t, b)}
+}
+
+// UnaryExprOf reads a row of kind KUnaryExpr.
+func UnaryExprOf(t Tree, id dense.ID[Node]) UnaryExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	UnaryExpr{Op: int(tok), X: nid(t, a)}
+}
+
+// StarExprOf reads a row of kind KStarExpr.
+func StarExprOf(t Tree, id dense.ID[Node]) StarExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	StarExpr{Star: int(tok), X: nid(t, a)}
+}
+
+// TryExprOf reads a row of kind KTryExpr.
+func TryExprOf(t Tree, id dense.ID[Node]) TryExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	TryExpr{Try: int(tok), X: nid(t, a)}
+}
+
+// ExprStmtOf reads a row of kind KExprStmt.
+func ExprStmtOf(t Tree, id dense.ID[Node]) ExprStmt {
+	let i = uint32(dense.Index(id))
+	let a = t.a[int(i)]
+	ExprStmt{X: nid(t, a)}
+}
+
+// DeclStmtOf reads a row of kind KDeclStmt.
+func DeclStmtOf(t Tree, id dense.ID[Node]) DeclStmt {
+	let i = uint32(dense.Index(id))
+	let a = t.a[int(i)]
+	DeclStmt{Decl: nid(t, a)}
+}
+
+// AssignStmtOf reads a row of kind KAssignStmt.
+func AssignStmtOf(t Tree, id dense.ID[Node]) AssignStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	AssignStmt{Lhs: nid(t, a), Tok: int(tok), Rhs: nid(t, b)}
+}
+
+// ReturnStmtOf reads a row of kind KReturnStmt.
+func ReturnStmtOf(t Tree, id dense.ID[Node]) ReturnStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	ReturnStmt{Return: int(tok), Result: onid(t, a)}
+}
+
+// BranchStmtOf reads a row of kind KBranchStmt.
+func BranchStmtOf(t Tree, id dense.ID[Node]) BranchStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	BranchStmt{Tok: int(tok)}
+}
+
+// AssertStmtOf reads a row of kind KAssertStmt.
+func AssertStmtOf(t Tree, id dense.ID[Node]) AssertStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	AssertStmt{Assert: int(tok), X: nid(t, a)}
+}
+
+// SkipStmtOf reads a row of kind KSkipStmt.
+func SkipStmtOf(t Tree, id dense.ID[Node]) SkipStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	SkipStmt{Skip: int(tok), Reason: int(a)}
+}
+
+// BlockStmtOf reads a row of kind KBlockStmt.
+func BlockStmtOf(t Tree, id dense.ID[Node]) BlockStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	BlockStmt{Lbrace: int(tok), List: listAt(t, i, 0, items(t, i, 1)), Rbrace: int(fixed(t, i, 1, 0))}
+}
+
+// IfStmtOf reads a row of kind KIfStmt.
+func IfStmtOf(t Tree, id dense.ID[Node]) IfStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	IfStmt{If: int(tok), Cond: nid(t, fixed(t, i, 4, 0)), Body: nid(t, fixed(t, i, 4, 1)), ElsePos: otok(fixed(t, i, 4, 2)), Else: onid(t, fixed(t, i, 4, 3))}
+}
+
+// SwitchStmtOf reads a row of kind KSwitchStmt.
+func SwitchStmtOf(t Tree, id dense.ID[Node]) SwitchStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	SwitchStmt{Switch: int(tok), Tag: nid(t, fixed(t, i, 3, 0)), Lbrace: int(fixed(t, i, 3, 1)), Clauses: listAt(t, i, 0, items(t, i, 3)), Rbrace: int(fixed(t, i, 3, 2))}
+}
+
+// TypeSwitchStmtOf reads a row of kind KTypeSwitchStmt.
+func TypeSwitchStmtOf(t Tree, id dense.ID[Node]) TypeSwitchStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	TypeSwitchStmt{Switch: int(tok), Subject: nid(t, fixed(t, i, 3, 0)), Lbrace: int(fixed(t, i, 3, 1)), Clauses: listAt(t, i, 0, items(t, i, 3)), Rbrace: int(fixed(t, i, 3, 2))}
+}
+
+// ForStmtOf reads a row of kind KForStmt.
+func ForStmtOf(t Tree, id dense.ID[Node]) ForStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	ForStmt{For: int(tok), Cond: onid(t, a), Body: nid(t, b)}
+}
+
+// RangeStmtOf reads a row of kind KRangeStmt.
+func RangeStmtOf(t Tree, id dense.ID[Node]) RangeStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	RangeStmt{For: int(tok), Key: onid(t, fixed(t, i, 5, 0)), Value: nid(t, fixed(t, i, 5, 1)), Range: int(fixed(t, i, 5, 2)), X: nid(t, fixed(t, i, 5, 3)), Body: nid(t, fixed(t, i, 5, 4))}
+}
+
+// CaseClauseOf reads a row of kind KCaseClause.
+func CaseClauseOf(t Tree, id dense.ID[Node]) CaseClause {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let nl = int(fixed(t, i, 2, 0))
+	return CaseClause{Case: int(tok), List: listAt(t, i, 0, nl), Colon: int(fixed(t, i, 2, 1)), Body: listAt(t, i, nl, items(t, i, 2)-nl)}
+}
+
+// CatchArmOf reads a row of kind KCatchArm.
+func CatchArmOf(t Tree, id dense.ID[Node]) CatchArm {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let nl = int(fixed(t, i, 2, 0))
+	return CatchArm{Case: int(tok), Types: listAt(t, i, 0, nl), Colon: int(fixed(t, i, 2, 1)), Body: listAt(t, i, nl, items(t, i, 2)-nl)}
+}
+
+// CompositeLitOf reads a row of kind KCompositeLit.
+func CompositeLitOf(t Tree, id dense.ID[Node]) CompositeLit {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	CompositeLit{Type: onid(t, fixed(t, i, 4, 0)), Lbrace: int(tok), DotDot: otok(fixed(t, i, 4, 1)), Base: onid(t, fixed(t, i, 4, 2)), Elts: listAt(t, i, 0, items(t, i, 4)), Rbrace: int(fixed(t, i, 4, 3))}
+}
+
+// KeyValueExprOf reads a row of kind KKeyValueExpr.
+func KeyValueExprOf(t Tree, id dense.ID[Node]) KeyValueExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	KeyValueExpr{Key: nid(t, a), Colon: int(tok), Value: nid(t, b)}
+}
+
+// FuncLitOf reads a row of kind KFuncLit.
+func FuncLitOf(t Tree, id dense.ID[Node]) FuncLit {
+	let i = uint32(dense.Index(id))
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	FuncLit{Type: nid(t, a), Body: nid(t, b)}
+}
+
+// ParenExprOf reads a row of kind KParenExpr.
+func ParenExprOf(t Tree, id dense.ID[Node]) ParenExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	ParenExpr{Lparen: int(tok), X: nid(t, a), Rparen: int(b)}
+}
+
+// IndexExprOf reads a row of kind KIndexExpr.
+func IndexExprOf(t Tree, id dense.ID[Node]) IndexExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	IndexExpr{X: nid(t, fixed(t, i, 2, 0)), Lbrack: int(tok), Indices: listAt(t, i, 0, items(t, i, 2)), Rbrack: int(fixed(t, i, 2, 1))}
+}
+
+// MapTypeOf reads a row of kind KMapType.
+func MapTypeOf(t Tree, id dense.ID[Node]) MapType {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	MapType{X: nid(t, fixed(t, i, 2, 0)), Lbrack: int(tok), Key: nid(t, item(t, i, 0)), Value: nid(t, item(t, i, 1)), Rbrack: int(fixed(t, i, 2, 1))}
+}
+
+// SliceExprOf reads a row of kind KSliceExpr.
+func SliceExprOf(t Tree, id dense.ID[Node]) SliceExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	SliceExpr{X: nid(t, fixed(t, i, 6, 0)), Lbrack: int(tok), Low: onid(t, fixed(t, i, 6, 1)), High: onid(t, fixed(t, i, 6, 2)), Max: onid(t, fixed(t, i, 6, 3)), Slice3: flag(fixed(t, i, 6, 4)), Rbrack: int(fixed(t, i, 6, 5))}
+}
+
+// CatchExprOf reads a row of kind KCatchExpr.
+func CatchExprOf(t Tree, id dense.ID[Node]) CatchExpr {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	CatchExpr{X: nid(t, fixed(t, i, 2, 0)), Catch: int(tok), Arms: listAt(t, i, 0, items(t, i, 2)), Rbrace: int(fixed(t, i, 2, 1))}
+}
+
+// ContextLitOf reads a row of kind KContextLit.
+func ContextLitOf(t Tree, id dense.ID[Node]) ContextLit {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	ContextLit{Context: int(tok), Provides: onid(t, fixed(t, i, 4, 0)), Fails: onid(t, fixed(t, i, 4, 1)), Needs: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
+}
+
+// ArrayTypeOf reads a row of kind KArrayType.
+func ArrayTypeOf(t Tree, id dense.ID[Node]) ArrayType {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	ArrayType{Lbrack: int(tok), Len: otok(b), Elt: nid(t, a)}
+}
+
+// FuncTypeOf reads a row of kind KFuncType.
+func FuncTypeOf(t Tree, id dense.ID[Node]) FuncType {
+	let i = uint32(dense.Index(id))
+	FuncType{Escaping: otok(fixed(t, i, 7, 0)), Entry: otok(fixed(t, i, 7, 1)), Func: otok(fixed(t, i, 7, 2)), Params: nid(t, fixed(t, i, 7, 3)), Results: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Takes: onid(t, fixed(t, i, 7, 6))}
+}
+
+// StructTypeOf reads a row of kind KStructType.
+func StructTypeOf(t Tree, id dense.ID[Node]) StructType {
+	let i = uint32(dense.Index(id))
+	let a = t.a[int(i)]
+	StructType{Fields: nid(t, a)}
+}
+
+// InterfaceTypeOf reads a row of kind KInterfaceType.
+func InterfaceTypeOf(t Tree, id dense.ID[Node]) InterfaceType {
+	let i = uint32(dense.Index(id))
+	InterfaceType{Lbrace: otok(fixed(t, i, 2, 0)), Members: listAt(t, i, 0, items(t, i, 2)), Rbrace: otok(fixed(t, i, 2, 1))}
+}
+
+// ErrorRowOf reads a row of kind KErrorRow.
+func ErrorRowOf(t Tree, id dense.ID[Node]) ErrorRow {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	ErrorRow{Error: int(tok), Types: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// MachineTypeOf reads a row of kind KMachineType.
+func MachineTypeOf(t Tree, id dense.ID[Node]) MachineType {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	MachineType{Machine: int(tok), State: nid(t, fixed(t, i, 4, 0)), Signal: nid(t, fixed(t, i, 4, 1)), Rbrack: int(fixed(t, i, 4, 2)), Members: listAt(t, i, 0, items(t, i, 4)), Rbrace: int(fixed(t, i, 4, 3))}
+}
+
+// TupleExprOf reads a row of kind KTupleExpr.
+func TupleExprOf(t Tree, id dense.ID[Node]) TupleExpr {
+	let i = uint32(dense.Index(id))
+	TupleExpr{Lparen: otok(fixed(t, i, 2, 0)), Elts: listAt(t, i, 0, items(t, i, 2)), Rparen: otok(fixed(t, i, 2, 1))}
+}
+
+// AsPatternOf reads a row of kind KAsPattern.
+func AsPatternOf(t Tree, id dense.ID[Node]) AsPattern {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	AsPattern{X: nid(t, a), As: int(tok), Name: nid(t, b)}
+}
+
+// OrPatternOf reads a row of kind KOrPattern.
+func OrPatternOf(t Tree, id dense.ID[Node]) OrPattern {
+	let i = uint32(dense.Index(id))
+	OrPattern{Alts: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// InterpolatedStringOf reads a row of kind KInterpolatedString.
+func InterpolatedStringOf(t Tree, id dense.ID[Node]) InterpolatedString {
+	let i = uint32(dense.Index(id))
+	InterpolatedString{Parts: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// FieldOf reads a row of kind KField.
+func FieldOf(t Tree, id dense.ID[Node]) Field {
+	let i = uint32(dense.Index(id))
+	return Field{
+		Doc:      otok(fixed(t, i, 11, 0)),
+		Names:    listAt(t, i, 0, items(t, i, 11)),
+		Type:     onid(t, fixed(t, i, 11, 1)),
+		Key:      onid(t, fixed(t, i, 11, 2)),
+		Any:      onid(t, fixed(t, i, 11, 3)),
+		Lent:     onid(t, fixed(t, i, 11, 4)),
+		Dots:     otok(fixed(t, i, 11, 5)),
+		Where:    onid(t, fixed(t, i, 11, 6)),
+		WherePos: otok(fixed(t, i, 11, 7)),
+		PurePos:  otok(fixed(t, i, 11, 8)),
+		Own:      otok(fixed(t, i, 11, 9)),
+		Mut:      otok(fixed(t, i, 11, 10)),
+	}
+}
+
+// FieldListOf reads a row of kind KFieldList.
+func FieldListOf(t Tree, id dense.ID[Node]) FieldList {
+	let i = uint32(dense.Index(id))
+	FieldList{Opening: otok(fixed(t, i, 2, 0)), List: listAt(t, i, 0, items(t, i, 2)), Closing: otok(fixed(t, i, 2, 1))}
+}
+
+// NeedsClauseOf reads a row of kind KNeedsClause.
+func NeedsClauseOf(t Tree, id dense.ID[Node]) NeedsClause {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	NeedsClause{Needs: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// TakesClauseOf reads a row of kind KTakesClause.
+func TakesClauseOf(t Tree, id dense.ID[Node]) TakesClause {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	TakesClause{Takes: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// ProvidesClauseOf reads a row of kind KProvidesClause.
+func ProvidesClauseOf(t Tree, id dense.ID[Node]) ProvidesClause {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	ProvidesClause{Provides: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// MachineEntryOf reads a row of kind KMachineEntry.
+func MachineEntryOf(t Tree, id dense.ID[Node]) MachineEntry {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	MachineEntry{Doc: otok(b), Name: int(tok), Value: nid(t, a)}
+}
+
+// VariantSpecOf reads a row of kind KVariantSpec.
+func VariantSpecOf(t Tree, id dense.ID[Node]) VariantSpec {
+	let i = uint32(dense.Index(id))
+	VariantSpec{Name: nid(t, fixed(t, i, 3, 0)), TypeArgs: onid(t, fixed(t, i, 3, 1)), Fields: nid(t, fixed(t, i, 3, 2))}
+}
+
+// ContextBodyOf reads a row of kind KContextBody.
+func ContextBodyOf(t Tree, id dense.ID[Node]) ContextBody {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	ContextBody{Lbrace: int(tok), Entries: listAt(t, i, 0, items(t, i, 1)), Rbrace: int(fixed(t, i, 1, 0))}
+}
+
+// ContextEntryOf reads a row of kind KContextEntry.
+func ContextEntryOf(t Tree, id dense.ID[Node]) ContextEntry {
+	let i = uint32(dense.Index(id))
+	ContextEntry{Doc: otok(fixed(t, i, 5, 0)), Replace: otok(fixed(t, i, 5, 1)), Key: nid(t, fixed(t, i, 5, 2)), Keys: listAt(t, i, 0, items(t, i, 5)), Assign: otok(fixed(t, i, 5, 3)), Value: onid(t, fixed(t, i, 5, 4))}
+}
+
+// ExternSpecOf reads a row of kind KExternSpec.
+func ExternSpecOf(t Tree, id dense.ID[Node]) ExternSpec {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	ExternSpec{Extern: int(tok), Go: int(a), Target: nid(t, b)}
+}
+
+// ImportDeclOf reads a row of kind KImportDecl.
+func ImportDeclOf(t Tree, id dense.ID[Node]) ImportDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	ImportDecl{Doc: otok(b), Import: int(tok), Spec: nid(t, a)}
+}
+
+// ImportSpecOf reads a row of kind KImportSpec.
+func ImportSpecOf(t Tree, id dense.ID[Node]) ImportSpec {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	let b = t.b[int(i)]
+	ImportSpec{NamePos: otok(tok), Name: onid(t, a), Path: nid(t, b)}
+}
+
+// VarDeclOf reads a row of kind KVarDecl.
+func VarDeclOf(t Tree, id dense.ID[Node]) VarDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	VarDecl{Doc: otok(fixed(t, i, 4, 0)), Extern: onid(t, fixed(t, i, 4, 1)), Var: int(tok), Mut: otok(fixed(t, i, 4, 2)), Spec: nid(t, fixed(t, i, 4, 3))}
+}
+
+// VarSpecOf reads a row of kind KVarSpec.
+func VarSpecOf(t Tree, id dense.ID[Node]) VarSpec {
+	let i = uint32(dense.Index(id))
+	VarSpec{Names: listAt(t, i, 0, items(t, i, 4)), Pattern: onid(t, fixed(t, i, 4, 0)), Type: onid(t, fixed(t, i, 4, 1)), Assign: otok(fixed(t, i, 4, 2)), Value: onid(t, fixed(t, i, 4, 3))}
+}
+
+// TypeDeclOf reads a row of kind KTypeDecl.
+func TypeDeclOf(t Tree, id dense.ID[Node]) TypeDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	return TypeDecl{
+		Doc:           otok(fixed(t, i, 10, 0)),
+		Extern:        onid(t, fixed(t, i, 10, 1)),
+		Type:          int(tok),
+		Name:          nid(t, fixed(t, i, 10, 2)),
+		TypeParams:    onid(t, fixed(t, i, 10, 3)),
+		Spec:          onid(t, fixed(t, i, 10, 4)),
+		WherePos:      otok(fixed(t, i, 10, 5)),
+		Where:         onid(t, fixed(t, i, 10, 6)),
+		DerivePos:     otok(fixed(t, i, 10, 7)),
+		Derive:        onid(t, fixed(t, i, 10, 8)),
+		ImplementsPos: otok(fixed(t, i, 10, 9)),
+		Implements:    listAt(t, i, 0, items(t, i, 10)),
+	}
+}
+
+// FuncDeclOf reads a row of kind KFuncDecl.
+func FuncDeclOf(t Tree, id dense.ID[Node]) FuncDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	return FuncDecl{
+		Doc:        otok(fixed(t, i, 7, 0)),
+		Extern:     onid(t, fixed(t, i, 7, 1)),
+		Func:       int(tok),
+		Recv:       onid(t, fixed(t, i, 7, 2)),
+		Name:       nid(t, fixed(t, i, 7, 3)),
+		TypeParams: onid(t, fixed(t, i, 7, 4)),
+		Type:       nid(t, fixed(t, i, 7, 5)),
+		Body:       onid(t, fixed(t, i, 7, 6)),
+	}
+}
+
+// ContextDeclOf reads a row of kind KContextDecl.
+func ContextDeclOf(t Tree, id dense.ID[Node]) ContextDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	ContextDecl{Doc: otok(fixed(t, i, 7, 0)), Let: int(tok), Context: int(fixed(t, i, 7, 1)), Name: nid(t, fixed(t, i, 7, 2)), Provides: onid(t, fixed(t, i, 7, 3)), Fails: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Body: nid(t, fixed(t, i, 7, 6))}
+}
+
+// TestDeclOf reads a row of kind KTestDecl.
+func TestDeclOf(t Tree, id dense.ID[Node]) TestDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	TestDecl{Doc: otok(fixed(t, i, 4, 0)), Test: int(tok), Name: nid(t, fixed(t, i, 4, 1)), Params: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
+}
+
+// LawDeclOf reads a row of kind KLawDecl.
+func LawDeclOf(t Tree, id dense.ID[Node]) LawDecl {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	return LawDecl{
+		Doc:        otok(fixed(t, i, 9, 0)),
+		Law:        int(tok),
+		Name:       nid(t, fixed(t, i, 9, 1)),
+		TypeParams: onid(t, fixed(t, i, 9, 2)),
+		Params:     onid(t, fixed(t, i, 9, 3)),
+		Body:       onid(t, fixed(t, i, 9, 4)),
+		Reach:      onid(t, fixed(t, i, 9, 5)),
+		Rewrite:    flag(fixed(t, i, 9, 6)),
+		Equation:   fixed(t, i, 9, 6) == uint32(2),
+		When:       otok(fixed(t, i, 9, 7)),
+		Eq:         otok(fixed(t, i, 9, 8)),
+	}
+}
+
+// LawReachOf reads a row of kind KLawReach.
+func LawReachOf(t Tree, id dense.ID[Node]) LawReach {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	LawReach{Never: otok(fixed(t, i, 6, 0)), Word: int(tok), Path: flag(fixed(t, i, 6, 1)), Lbrack: otok(fixed(t, i, 6, 2)), Targets: listAt(t, i, 0, items(t, i, 6)), Rbrack: otok(fixed(t, i, 6, 3)), Invariant: flag(fixed(t, i, 6, 4)), Pred: onid(t, fixed(t, i, 6, 5))}
+}
+
+// FileOf reads the file, the last row.
+func FileOf(t Tree, id dense.ID[Node]) File {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	File{Decls: listAt(t, i, 0, items(t, i, 0)), EOF: int(tok)}
+}

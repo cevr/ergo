@@ -93,7 +93,7 @@ law OpenOnce(n int) {
 }
 
 // OpenScope opens scope s inside scope parent.
-func OpenScope(t *Table, s int, parent int) Opened {
+func OpenScope(t mut Table, s int, parent int) Opened {
 	if t.scopes.Get(s) != None {
 		return Taken
 	}
@@ -107,7 +107,7 @@ func OpenScope(t *Table, s int, parent int) Opened {
 
 // Declare binds name to value in scope s; it reports false when s is not
 // open.
-func Declare(t *Table, s int, name string, value int) bool {
+func Declare(t mut Table, s int, name string, value int) bool {
 	match t.scopes.Get(s) {
 	case Some[Map[string, int]] as m:
 		let mut names = m.Value
@@ -124,7 +124,7 @@ func Declare(t *Table, s int, name string, value int) bool {
 type Resolved = Bound{Value int, Out int} | Unbound{}
 
 // Resolve looks name up in scope s, then in each enclosing scope.
-func Resolve(t *Table, s int, name string) Resolved {
+func Resolve(t mut Table, s int, name string) Resolved {
 	let mut at = s
 	for out in 0..len(t.parents)+1 {
 		match t.scopes.Get(at) {

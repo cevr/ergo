@@ -562,7 +562,7 @@ func (c *checker) seedSig(t *Signature) Type {
 		return nil
 	}
 	return &Signature{Params: params, Results: results, Fallible: t.Fallible, Errors: errs, Uses: uses,
-		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf}
+		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf, MutSelf: t.MutSelf}
 }
 
 // sameAcross reports that a, a type of one check, and b, of another,

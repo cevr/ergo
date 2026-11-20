@@ -53,14 +53,27 @@ var observe = func(name string) {
 	}
 }
 
-// Prelude returns the prelude's source files, by file name.
+// Prelude returns the prelude's source files, by file name: the .ergo
+// files of the std root, prelude.ergo and the language's operations,
+// builtin.ergo.
 func Prelude() map[string]string {
-	observe("prelude.ergo")
-	data, err := std.Sources.ReadFile("prelude.ergo")
+	entries, err := fs.ReadDir(std.Sources, ".")
 	if err != nil {
 		panic("std: the prelude is not embedded: " + err.Error())
 	}
-	return map[string]string{"prelude.ergo": string(data)}
+	files := map[string]string{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".ergo") {
+			continue
+		}
+		observe(entry.Name())
+		data, err := std.Sources.ReadFile(entry.Name())
+		if err != nil {
+			panic("std: the prelude is not embedded: " + err.Error())
+		}
+		files[entry.Name()] = string(data)
+	}
+	return files
 }
 
 // Package returns the source files of the standard-library package at the

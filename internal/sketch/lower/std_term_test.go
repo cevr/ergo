@@ -405,7 +405,6 @@ test ScriptPlaysKeys(texts []string) {
 		}
 		match term.Terminal.ReadKey() catch { case io.ReadFailed: term.Return } {
 		case term.EndOfInput:
-			ok = ok
 		case _:
 			ok = false
 		}
@@ -590,7 +589,7 @@ func lawScriptResizes(cols int, rows int) bool {
 type rng { x int }
 
 // draw is a number in [0, n) from r. (a law's helper)
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -615,7 +614,7 @@ test ScriptResizes(cols int, rows int) {
 var termLawStatements = map[string]string{
 	"term RawRestores":           `RawRestores(fail bool) { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut inside = 0 let got = with context { Terminal: s } { Raw() { inside = len(s.Modes()) try failWhen(fail) } catch { case failed: -1 case NotTerminal: -2 } } inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 }) }`,
 	"term NestedRestoresInOrder": `NestedRestoresInOrder() { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut seen = "" with context { Terminal: s } { Raw() { try NoEcho() { seen = seen + names(s.Modes()) } seen = seen + "|" + names(s.Modes()) } catch { case NotTerminal: seen = "not a terminal" } } seen == "raw,noecho|raw" && len(s.Modes()) == 0 }`,
-	"term ScriptPlaysKeys":       `ScriptPlaysKeys(texts []string) { let mut keys []Key = []Key{} for t in texts { keys = keys.Append(Char{Text: t}) } let s = NewScript(keys, Window{Cols: 1, Rows: 1}) let mut ok = true with context { Terminal: s } { for t in texts { match Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } { case Char as c: ok = ok && c.Text == t case _: ok = false } } match Terminal.ReadKey() catch { case io.ReadFailed: Return } { case EndOfInput: ok = ok case _: ok = false } } ok }`,
+	"term ScriptPlaysKeys":       `ScriptPlaysKeys(texts []string) { let mut keys []Key = []Key{} for t in texts { keys = keys.Append(Char{Text: t}) } let s = NewScript(keys, Window{Cols: 1, Rows: 1}) let mut ok = true with context { Terminal: s } { for t in texts { match Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } { case Char as c: ok = ok && c.Text == t case _: ok = false } } match Terminal.ReadKey() catch { case io.ReadFailed: Return } { case EndOfInput: case _: ok = false } } ok }`,
 	"term DecodeNamesControls":   `DecodeNamesControls(token string) { match Decode(token) { case Char as c: c.Text == token && token >= " " && token != "\x7f" case _: token < " " || token == "\x7f" || token == "" } }`,
 	"term DecodeIsTheTable":      `DecodeIsTheTable(seed int, length int) { let mut r = seeded(seed) let n = (length%24+24)%24 + 1 let mut want = []Key{} let mut chunks = []string{} let mut chunk = "" for _ in 0..n { let e = keyTable[draw(&r, len(keyTable))] if Cut(e.bytes, false) != len(e.bytes) || Decode(e.bytes) != e.key { return false } want = want.Append(e.key) for i in 0..len(e.bytes) { chunk = chunk + e.bytes[i:i+1] let startsLonger = e.bytes[i] == 0x1b && i+1 < len(e.bytes) if !startsLonger && draw(&r, 3) == 0 { chunks = chunks.Append(chunk) chunk = "" } } if e.bytes == "\x1b" && chunk != "" { chunks = chunks.Append(chunk) chunk = "" } } chunks = chunks.Append(chunk) let mut d = NewDecoder() let mut got = []Key{} for c in chunks { for k in Feed(&d, c) { got = got.Append(k) } } for k in Flush(&d) { got = got.Append(k) } got == want }`,
 	"term CutTakesOneKey":        `CutTakesOneKey(seed int, size int) { let mut r = seeded(seed) let mut b = "" let alphabet = "\x1b[O;<0123456789~uAHPMZ\x01\x7fa\xc3\xa9\xe7\x95\x8c" for _ in 0..(size%12+12)%12 { let i = draw(&r, len(alphabet)) b = b + alphabet[i:i+1] } let atEnd = Cut(b, true) let before = Cut(b, false) if len(b) == 0 { return atEnd == 0 && before == -1 } atEnd >= 1 && atEnd <= len(b) && (before == -1 || (before >= 1 && before <= atEnd)) }`,

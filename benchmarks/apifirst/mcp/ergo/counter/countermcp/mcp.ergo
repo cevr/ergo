@@ -8,8 +8,8 @@
 
 import api
 import json
+import mcp
 import rpc
-import github.com/cevr/ergo/modules/mcp
 import mcpbench/counter
 import mcpbench/counter/counterapi
 

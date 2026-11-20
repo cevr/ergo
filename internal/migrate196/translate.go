@@ -1,7 +1,7 @@
 // Package migrate196 is the one-off translator from the Go-shaped syntax of
 // 92fac236 to the decided syntax of #196 (D5). It parses old syntax with a
 // frozen copy of that parser (oldsyntax), rewrites the source by edits the
-// old tree locates, and prints the result with internal/sketch/format, so
+// old tree locates, and prints the result with internal/hostsyntax, so
 // its output is canonical and keeps every comment. A form with no decided
 // spelling of the same meaning is left as it was and reported as a note for
 // a hand edit; the translator never emits a form whose meaning differs.
@@ -17,8 +17,8 @@ import (
 	"strings"
 	"unicode"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/migrate196/oldsyntax"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 

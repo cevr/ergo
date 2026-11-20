@@ -42,7 +42,7 @@ func spend() fails Spent { return Spent }
 // Screen is the lab: the four workloads, the warning log and the patch
 // surface. The session judges each pass against Budget and sends each
 // warning back as a Recorded signal.
-func Screen(f *ui.Frame[Signal], s Lab) {
+func Screen(f mut ui.Frame[Signal], s Lab) {
 	ui.OnSlow(f, Budget(), func(x ui.Slow) Signal { Recorded{Slow: x} })
 	ui.Text(f, "Slow Warnings Lab")
 	ui.Text(f, "Each workload makes one part of a pass do more counted work than its budget allows.")
@@ -59,7 +59,7 @@ func Screen(f *ui.Frame[Signal], s Lab) {
 }
 
 // card is a phase's scenario: what it loads, its budget and its button.
-func card(f *ui.Frame[Signal], p Phase) {
+func card(f mut ui.Frame[Signal], p Phase) {
 	ui.Text(f, "Slow \(Label(p))")
 	ui.Text(f, "Budget: \(Bound(p)) \(Unit(p))")
 	ui.Pressable(f, Button(p), Run{Phase: p}) {
@@ -71,7 +71,7 @@ func card(f *ui.Frame[Signal], p Phase) {
 // of signals (the step), a group that writes many nodes and stops (the
 // view), nothing here for the patch (its rows are the patch surface's),
 // and a fetch per dependency (the subscriptions).
-func work(f *ui.Frame[Signal], p Phase) {
+func work(f mut ui.Frame[Signal], p Phase) {
 	match p {
 	case UpdatePhase:
 		for _ in 0..BurstSignals {
@@ -95,7 +95,7 @@ func work(f *ui.Frame[Signal], p Phase) {
 }
 
 // warnings is the log, newest first, and its Clear button.
-func warnings(f *ui.Frame[Signal], log []Warning) {
+func warnings(f mut ui.Frame[Signal], log []Warning) {
 	ui.Text(f, "Recorded warnings")
 	ui.Pressable(f, "Clear", Clear) {
 		ui.Text(f, "Clear")
@@ -117,7 +117,7 @@ func Title(w Warning) string { "\(Label(w.Phase)) exceeded \(w.Bound) \(Unit(w.P
 // patchSurface is the patch work's rows, which a Same keeps from pass to
 // pass until the next mount (lazy rows): a mount writes them
 // all, and no other pass writes them again.
-func patchSurface(f *ui.Frame[Signal], s Lab) {
+func patchSurface(f mut ui.Frame[Signal], s Lab) {
 	ui.Text(f, "Patch surface")
 	ui.Text(f, "\(s.PatchRows) keyed rows mounted")
 	ui.Same(f, ui.ByInt(s.PatchRun)) {
@@ -127,7 +127,7 @@ func patchSurface(f *ui.Frame[Signal], s Lab) {
 
 // patchRows is the rows of the run'th mount, keyed by run and row, so a
 // new mount replaces every row.
-func patchRows(f *ui.Frame[Signal], count int, run int) {
+func patchRows(f mut ui.Frame[Signal], count int, run int) {
 	if count == 0 {
 		ui.Text(f, "Patch rows will appear here.")
 		return

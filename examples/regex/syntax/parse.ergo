@@ -73,13 +73,13 @@ func Parse(text string) Node fails SyntaxError {
 }
 
 // more reports whether p has a byte left to read.
-func more(p *parser) bool { p.at < len(p.src) }
+func more(p mut parser) bool { p.at < len(p.src) }
 
 // peek is the next byte of p. p has one.
-func peek(p *parser) byte { p.src[p.at] }
+func peek(p mut parser) byte { p.src[p.at] }
 
 // alternation reads cat { "|" cat }, left to right.
-func alternation(p *parser) Node fails nested {
+func alternation(p mut parser) Node fails nested {
 	let mut n = try p.concatenation()
 	for p.more() && p.peek() == '|' {
 		p.at += 1
@@ -91,7 +91,7 @@ func alternation(p *parser) Node fails nested {
 
 // concatenation reads repeats up to a "|", a ")" or the end. None is
 // Empty, one is itself.
-func concatenation(p *parser) Node fails nested {
+func concatenation(p mut parser) Node fails nested {
 	let mut parts = []Node{}
 	for p.more() && p.peek() != '|' && p.peek() != ')' {
 		parts = parts.Append(try p.repetition())
@@ -107,7 +107,7 @@ func concatenation(p *parser) Node fails nested {
 
 // repetition reads an atom and the "*", "+", "?" and counted repeats
 // after it.
-func repetition(p *parser) Node fails nested {
+func repetition(p mut parser) Node fails nested {
 	let mut n = try p.atom()
 	for p.more() {
 		match p.peek() {
@@ -145,7 +145,7 @@ type bounds { Min int, Max int, End int }
 // counted reads the counted repeat at p's "{" without moving p, or is
 // None when the "{" does not start one. A count above maxRepeat reads as
 // maxRepeat+1.
-func counted(p *parser) Option[bounds] {
+func counted(p mut parser) Option[bounds] {
 	let mut at = p.at + 1
 	let lo = digitRun(p.src, at)
 	if lo.End == at {
@@ -188,7 +188,7 @@ func digitRun(src string, at int) decimal {
 }
 
 // atom reads one atom. The caller has seen a byte that is not "|" or ")".
-func atom(p *parser) Node fails nested {
+func atom(p mut parser) Node fails nested {
 	let start = p.at
 	let c = p.peek()
 	p.at += 1
@@ -243,7 +243,7 @@ func atom(p *parser) Node fails nested {
 let digits = Class{Spans: []Span{Span{Lo: '0', Hi: '9'}}, Negated: false}
 
 // groupName reads "?<name>" after the "(" at start, and is the name.
-func groupName(p *parser, start int) string fails BadGroup {
+func groupName(p mut parser, start int) string fails BadGroup {
 	p.at += 1
 	if !p.more() || p.peek() != '<' {
 		return BadGroup{At: start}
@@ -268,7 +268,7 @@ func nameByte(c byte, first bool) bool {
 }
 
 // escaped is the byte after a "\" at start.
-func escaped(p *parser, start int) byte fails TrailingEscape {
+func escaped(p mut parser, start int) byte fails TrailingEscape {
 	if !p.more() {
 		return TrailingEscape{At: start}
 	}
@@ -280,7 +280,7 @@ func escaped(p *parser, start int) byte fails TrailingEscape {
 // class reads a class after its "[" at start, up to its "]". The first
 // "]" ends it: a class has at least one item only when it is written so,
 // and [] is an empty class, which matches no byte.
-func class(p *parser, start int) Node fails UnclosedClass | TrailingEscape | BadRange {
+func class(p mut parser, start int) Node fails UnclosedClass | TrailingEscape | BadRange {
 	let mut negated = false
 	if p.more() && p.peek() == '^' {
 		negated = true
@@ -315,7 +315,7 @@ func class(p *parser, start int) Node fails UnclosedClass | TrailingEscape | Bad
 }
 
 // classByte reads one byte of a class, "\" taking the next as it is.
-func classByte(p *parser, start int) byte fails UnclosedClass | TrailingEscape {
+func classByte(p mut parser, start int) byte fails UnclosedClass | TrailingEscape {
 	if !p.more() {
 		return UnclosedClass{At: start}
 	}

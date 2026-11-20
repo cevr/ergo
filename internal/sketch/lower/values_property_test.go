@@ -353,6 +353,26 @@ func idM(m Map[int, int]) Map[int, int] { m }
 
 func idB(b Box) Box { b }
 
+// growB gives b's Map and b's slice grown by v (update.go): its base and
+// the field it sets are apart, so b = growB(b, v) hands b over (V7).
+func growB(b Box, v int) Box {
+	Box{..b, S: b.S.Append(v)}
+}
+
+// auditB owns b with field lets around its bind (ownedBind): s keeps b.S,
+// which growB's write through at reaches, so s is copied; m takes b.M
+// late, since nothing reads at.M before Box{..at, M: m} replaces it
+// (fieldflow.go).
+func auditB(b Box, k int) Box {
+	let s = b.S
+	let mut at = b
+	let mut m = b.M
+	m[k] = len(s)
+	at = growB(at, k)
+	at = Box{..at, M: m}
+	at
+}
+
 func freshM(k int) Map[int, int] {
 	let mut m = Map[int, int]{}
 	m[k] = k * 2
@@ -458,13 +478,13 @@ func upRef(m Map[int, int]) Map[int, int] {
 func dupM(m Map[int, int]) (Map[int, int], Map[int, int]) { (m, m) }
 
 // takeS and dropS move through a borrow (V7): a take, then a reslice.
-func takeS(p *[]int, v int) []int {
+func takeS(p mut []int, v int) []int {
 	let got = *p
 	*p = []int{v}
 	got
 }
 
-func dropS(p *[]int) {
+func dropS(p mut []int) {
 	if len(*p) > 1 {
 		*p = (*p)[1:]
 	}
@@ -621,7 +641,7 @@ func pick(p Pick) needs Console {
 	}
 }
 
-func flushS(p *[]int) needs Console {
+func flushS(p mut []int) needs Console {
 	note1(*p)
 	if len(*p) > 0 {
 		(*p)[0] = 0
@@ -650,7 +670,7 @@ func note3(s []int, f func()) needs Console {
 
 // viaF hands note3 its borrow's slice and f, which may write the slice's
 // root: note3 sees the slice as it was passed.
-func viaF(p *[]int, f func()) needs Console {
+func viaF(p mut []int, f func()) needs Console {
 	note3(*p, f)
 	if len(*p) > 0 {
 		(*p)[0] = 0
@@ -665,7 +685,7 @@ func holdP(s []int) (func() int) needs Console {
 
 // peekW writes through p, which is s's own root at its call, before it
 // reads s: s is the value passed.
-func peekW(s []int, p *[]int) int needs Console {
+func peekW(s []int, p mut []int) int needs Console {
 	Console.Println("peek")
 	if len(*p) > 0 {
 		(*p)[0] = 77
@@ -677,7 +697,7 @@ func peekW(s []int, p *[]int) int needs Console {
 // not in its result.
 type Hold { F func() int }
 
-func stashF(s []int, h *Hold) needs Console {
+func stashF(s []int, h mut Hold) needs Console {
 	Console.Println("stash")
 	h.F = func() int { ds(s) }
 }
@@ -689,7 +709,7 @@ func hold(s []int) func() int { func() int { ds(s) } }
 // binding: neither is a reslice (V7), so the write after reaches neither.
 type Two { A []int, B []int }
 
-func crossS(p *Two) int {
+func crossS(p mut Two) int {
 	p.A = p.B[1:]
 	let mut c = []int{}
 	c = p.B[1:]
@@ -1194,9 +1214,41 @@ func (g *valueGen) write() {
 			g.reached["write field slice"] = true
 			g.moveField(b, v)
 		default:
-			g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
+			// v, already drawn, picks the form, so the seeds keep their
+			// paths: a field write, a record update of b itself, or one
+			// through a body that returns one (update.go).
+			switch v % 3 {
+			case 1:
+				if v == 7 {
+					// A let keeps b.S, which the update below writes, and
+					// another takes b.M until a record update gives it
+					// back (fieldflow.go: an apart read, a late take).
+					k, m := g.fresh(), g.fresh()
+					g.line(fmt.Sprintf("let %s = %s.S", k, b.name))
+					g.line(fmt.Sprintf("let mut %s = %s.M", m, b.name))
+					g.line(fmt.Sprintf("%s[%d] = %d", m, v, v))
+					g.line(fmt.Sprintf("%s = Box{..%s, M: %s}", b.name, b.name, m))
+					g.later(k, slices.Clone(b.val.s))
+					b.val.m[v] = v
+					g.reached["update field lets"] = true
+				}
+				g.line(fmt.Sprintf("%s = Box{..%s, S: %s.S.Append(%d)}", b.name, b.name, b.name, v))
+				g.reached["update self"] = true
+			case 2:
+				if v >= 5 {
+					// An owned parameter with field lets (ownedBind).
+					g.line(fmt.Sprintf("%s = auditB(%s, %d)", b.name, b.name, v))
+					b.val.m[v] = len(b.val.s)
+					g.reached["update owned lets"] = true
+				} else {
+					g.line(fmt.Sprintf("%s = growB(%s, %d)", b.name, b.name, v))
+				}
+				g.reached["update handed"] = true
+			default:
+				g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
+				g.reached["append field"] = true
+			}
 			b.val.s = append(b.val.s, v)
-			g.reached["append field"] = true
 		}
 	case kMaps:
 		if len(b.val.ms) == 0 {
@@ -1758,7 +1810,8 @@ var valuePaths = []string{
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
 	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
-	"write field map", "write field slice", "append field", "write element",
+	"write field map", "write field slice", "append field", "write element", "update self", "update handed",
+	"update field lets", "update owned lets",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",

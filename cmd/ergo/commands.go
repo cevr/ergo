@@ -59,6 +59,7 @@ var commands = []cliCommand{
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
 	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
+	{name: "budget", usage: "budget [--config FILE] [--width N] [--memory SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]", help: budgetHelp, run: budgetCommand},
 	{name: "work", usage: "work COMMAND [ARGS...]", help: workHelp, run: workCommand},
 	{name: "code", usage: "code [--in DIR] [--json] COMMAND [ARGS...]", help: codeHelp, run: codeCommand},
 	{name: "graph", usage: "graph [--in DIR|DIR/...] export|cycles|why|affected|hidden|chains|fan|layers [--json]", help: graphHelp, run: graphCommand},

@@ -22,7 +22,7 @@ let BusyLabel = "Loading..."
 let ReportName = "Weather report"
 
 // Screen is the lookup: the form, then the panel.
-func Screen(f *ui.Frame[weather.Signal], l weather.Lookup) {
+func Screen(f mut ui.Frame[weather.Signal], l weather.Lookup) {
 	ui.Column(f, ui.Plain()) {
 		ui.Input(f, l.Draft, Placeholder, func(t string) weather.Signal { weather.Edited{Text: t} })
 		let busy = weather.Busy(l)
@@ -39,7 +39,7 @@ func Screen(f *ui.Frame[weather.Signal], l weather.Lookup) {
 // Panel is the panel in a typed boundary: nothing before the first ask;
 // else the report, read with try ui.Await, whose Pending and failures the
 // boundary's catch shows.
-func Panel(f *ui.Frame[weather.Signal], p weather.Panel) {
+func Panel(f mut ui.Frame[weather.Signal], p weather.Panel) {
 	match asyncOf(p) {
 	case None:
 	case Some[ui.Async[weather.Report, Refused]] as a:
@@ -90,13 +90,13 @@ func pick(n int, count int) int { ((n % count) + count) % count }
 
 // writtenBy is what view writes for p in a fresh frame: each node's text,
 // name and role, depth first.
-func writtenBy(view func(f *ui.Frame[weather.Signal], p weather.Panel), p weather.Panel) []string {
+func writtenBy(view func(f mut ui.Frame[weather.Signal], p weather.Panel), p weather.Panel) []string {
 	let mut f = ui.NewFrame[weather.Signal]()
 	let _ = ui.Render(&f, view, p)
 	written(&f, ui.Root(&f))
 }
 
-func written(f *ui.Frame[weather.Signal], id ui.Id[weather.Signal]) []string {
+func written(f mut ui.Frame[weather.Signal], id ui.Id[weather.Signal]) []string {
 	let mut out = []string{}
 	for k in ui.Kids(f, id) {
 		match ui.NodeOf(f, k) {
@@ -119,7 +119,7 @@ func written(f *ui.Frame[weather.Signal], id ui.Id[weather.Signal]) []string {
 }
 
 // PanelMatched is the panel as an exhaustive match on the lookup's panel.
-func PanelMatched(f *ui.Frame[weather.Signal], p weather.Panel) {
+func PanelMatched(f mut ui.Frame[weather.Signal], p weather.Panel) {
 	match p {
 	case weather.Blank:
 	case weather.Loading:
@@ -166,7 +166,7 @@ func Failure(w weather.Why) string {
 
 // report is the report's region: the zip as its
 // heading, the place, the temperature, the sky, the humidity and the wind.
-func report(f *ui.Frame[weather.Signal], r weather.Report) {
+func report(f mut ui.Frame[weather.Signal], r weather.Report) {
 	ui.Semantic(f, named(ui.Region, ReportName, None), None, ui.Plain()) {
 		ui.Semantic(f, named(ui.Heading, r.Zip, Some{Value: 2}), None, ui.Plain()) {
 			ui.Text(f, r.Zip)

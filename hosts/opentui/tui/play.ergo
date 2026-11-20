@@ -9,7 +9,7 @@ import go ergo.local/prototype/hosts/opentui/screen
 import ui
 
 // Drain feeds the screen's queued input to d.
-func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Drain[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		let next = d.s.Take()
 		if next.Kind == screen.None {
@@ -20,7 +20,7 @@ func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor
 }
 
 // Send feeds the terminal bytes b to the screen, then d.
-func Send[E comparable, S, D, F](d *Driver[S, E, D, F], b string) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Send[E comparable, S, D, F](d mut Driver[S, E, D, F], b string) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	d.s.Feed(b)
 	if b == "\x1b" {
 		// A lone Escape is a key once the parser's pause is over.
@@ -31,9 +31,9 @@ func Send[E comparable, S, D, F](d *Driver[S, E, D, F], b string) fails ui.Close
 
 // Find is the first node of the tree, in tree order, whose label is
 // label (labelOf).
-func Find[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
 
-func findIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
 	for k in kidsOf(d, id) {
 		if labelOf(nodeOf(d, k)) == (Some{Value: label}) {
 			return Some{Value: k}
@@ -74,7 +74,7 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 }
 
 // Box is the cell box where id shows, after the last frame.
-func Box[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) screen.Rect needs go.Foreign { d.s.BoxOf(numOf(d, id)) }
+func Box[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) screen.Rect needs go.Foreign { d.s.BoxOf(numOf(d, id)) }
 
 // Click is the bytes of a left button press and release at column x, row
 // y (SGR mouse form, 1-based on the wire).
@@ -92,7 +92,7 @@ func Mouse(b int, x int, y int, down bool) string { "\x1b[<\(b);\(x + 1);\(y + 1
 // while an Area holds the pointer and a move with no button otherwise, a
 // Wheel a turn of the wheel for each WheelRows rows (or columns) of its
 // DY (DX), at least one.
-func pointOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, p ui.PointerEvent) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func pointOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, p ui.PointerEvent) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if !d.s.Shown(numOf(d, id)) {
 		return ui.NoNode{Label: label}
 	}
@@ -123,7 +123,7 @@ func pointOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label st
 // scrollOn scrolls the list (or Scroll) id to offset (DIPs, whole rows
 // by the host's Cell), as a person drags its bar there, and reports its
 // viewport.
-func scrollOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], offset ui.Length) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+func scrollOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], offset ui.Length) fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let rows = float64(offset) / d.options.Cell.H
 	try scrollTo(d.s, numOf(d, id), int(rows+0.5), false)
 	try repaint(d)
@@ -132,7 +132,7 @@ func scrollOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], offset 
 // tapOn taps id at the first cell of its box, after the Scrolls around it
 // scrolled it into view, as a person scrolls to a row below the fold;
 // NoNode names it by label when it shows in no cell.
-func tapOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func tapOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try reveal(d.s, numOf(d, id))
 	try repaint(d)
 	if !d.s.Shown(numOf(d, id)) {
@@ -144,7 +144,7 @@ func tapOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label stri
 
 // typeInto taps the field id, moves its caret to the end (Ctrl+E),
 // deletes its text (Ctrl+U) and types text.
-func typeInto[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, text string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func typeInto[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, text string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try tapOn(d, id, label)
 	try Send(d, "\x05\x15")
 	if text != "" {
@@ -162,7 +162,7 @@ func typeInto[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label s
 // mouse bytes of its pointer event at the Area (pointOn); ScrollOn
 // scrolls the list to its offset (its height is the screen's, which the
 // list reports). AdvanceBy does nothing.
-func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for act in script {
 		match act {
 		case ui.TapOn as x:
@@ -217,10 +217,10 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 }
 
 // Locate is the nodes of the tree loc finds, in tree order.
-func Locate[S, E, D, F](d *Driver[S, E, D, F], loc ui.Locator) []ui.Id[E] { ui.LocateIn(&d.mirror, loc) }
+func Locate[S, E, D, F](d mut Driver[S, E, D, F], loc ui.Locator) []ui.Id[E] { ui.LocateIn(&d.mirror, loc) }
 
 // located is the first node of the tree loc finds.
-func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
+func located[E comparable, S, D, F](d mut Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
 	let ids = ui.LocateIn(&d.mirror, loc)
 	if len(ids) == 0 {
 		return ui.NoNode{Label: "a locator"}

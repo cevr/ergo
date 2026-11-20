@@ -33,9 +33,26 @@ func removeLeaf(t Tool, c Config, name string, expect Option[string], abandon bo
 	case Workspace as intent:
 		try MoveOut(t, intent)
 		let r = try Settle(t, intent)
+		let out = if c.Trash { r } else { try forGood(t, r) }
 		let _ = runHook(t, c, "postremove", intent.Parent, env)
-		r
+		out
 	}
+}
+
+// forGood deletes the workspace rm just put in the trash, in a base whose
+// work.toml says trash = false: as gc -id does, by the one id of its
+// record, never by a target read from a listing of folders. A record with
+// no id (written by an older work) keeps its trash: no single id names it.
+func forGood(t Tool, r Removed) Removed fails Missing | CloneFailed | Unkept | Locked {
+	if r.Id == "" {
+		return r
+	}
+	let due = try Collect(t, Some[string]{Value: r.Id}, 0s)
+	for w in due {
+		try t.DiscardOf(w)
+	}
+	let _ = try Purge(t, due)
+	Removed{..r, Trash: ""}
 }
 
 // Check is rm's first step, with no lock: a workspace whose work is not
@@ -54,15 +71,21 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 		if !mine {
 			return []Setting{}
 		}
-		match w.State {
+		// A Creating record over a checkout (its maker died after the
+		// clone) may hold work: its folder is held as an Active one's is.
+		let held = match w.State {
 		case Active:
-			if !abandon {
-				let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name)) }
-				if !kept {
-					return NotHeld{Name: name, Path: w.Path}
-				}
+			true
+		case Creating:
+			t.copier.Has(w.Path + "/.git")
+		case Landing, Landed, Abandoned, Trashed:
+			false
+		}
+		if held && !abandon {
+			let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), false) }
+			if !kept {
+				return NotHeld{Name: name, Path: w.Path}
 			}
-		case Creating, Landing, Landed, Abandoned, Trashed:
 		}
 		let env = hookEnv(w.Parent, w.Path, w.Id, "")
 		match runHook(t, c, "preremove", w.Path, env) {
@@ -324,7 +347,8 @@ let IdleTrash = 86400
 // (.git included) changed for idle, and no process working in it now;
 // a pinned one is never removed. One that stays has why (Pinned, InUse,
 // or the name of rm's refusal) and the detail; a failure of the host
-// ends gc. Its trash is kept IdleTrash seconds.
+// ends gc. Its trash is kept IdleTrash seconds, unless work.toml says
+// trash = false: then it is deleted at once.
 func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadConfig | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
 	let c = try config(t)
 	let at = now(t)
@@ -351,11 +375,17 @@ func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadCo
 			out = out.Append(Idle{..found, Why: "InUse", Detail: use})
 			continue
 		}
-		let (why, kept, detail) = try idleRm(t, c, w, archive, at+int64(IdleTrash))
+		// With trash = false nothing waits: rm deletes it at once.
+		let until = if c.Trash { at + int64(IdleTrash) } else { 0 }
+		let (why, kept, detail) = try idleRm(t, c, w, archive, until)
 		out = out.Append(Idle{..found, Removed: why == "", Why: why, Archived: kept, Detail: detail})
 	}
 	out
 }
+
+// IdleOnDefault: gc -idle counts a remote-tracking ref as holding a
+// commit only on a remote's default branch.
+let IdleOnDefault = true
 
 // idleRm removes one idle workspace as rm does, its trash kept until
 // the second until: why is "" when it is removed or the name of rm's
@@ -364,16 +394,20 @@ func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadCo
 // then removed with -abandon; when the base does not hold every commit
 // only the workspace had, it stays (NotKept, and the detail says why).
 func idleRm(t Tool, c Config, w Workspace, archive bool, until int64) (string, string, string) fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
-	let why = try rmOnce(t, c, w, false, until)
+	// A remote-tracking ref other than a default branch may be stale (a
+	// branch pushed, then deleted on the remote): gc -idle does not trust
+	// it, as workrift prune does not (the verifier's M2).
+	let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), IdleOnDefault) }
+	let why = if kept { try rmOnce(t, c, w, false, until) } else { "NotHeld" }
 	if why != "NotHeld" || !archive {
 		return (why, "", "")
 	}
-	let kept = keepWork(t, w) catch {
+	let ref = keepWork(t, w) catch {
 	case VcsFailed as e:
 		return ("NotKept", "", e.Reason)
 	}
 	let again = try rmOnce(t, c, w, true, until)
-	(again, if again == "" { kept } else { "" }, "")
+	(again, if again == "" { ref } else { "" }, "")
 }
 
 // keepWork keeps w's work in the base, under ArchivePrefix: a snapshot
@@ -396,7 +430,7 @@ func keepWork(t Tool, w Workspace) string fails VcsFailed {
 	let mut pushes = []Pushed{Pushed{From: LatestRef, To: ref, Force: false}}
 	let mut want = Map[string, string]{}
 	want[ref] = commit
-	for l in with context { Vcs: t.vcs } { try Unheld(w.Path, w.Parent) } {
+	for l in with context { Vcs: t.vcs } { try Unheld(w.Path, w.Parent, IdleOnDefault) } {
 		let to = ArchivePrefix(w.Name, w.Id) + "/" + strings.TrimPrefix(l.Ref, "refs/")
 		pushes = pushes.Append(Pushed{From: l.Commit, To: to, Force: false})
 		want[to] = l.Commit
@@ -512,7 +546,11 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 					return e
 				}
 				unreserved(t, w)
-			} else if taken && strings.HasPrefix(w.Path, t.home+"/") {
+			} else if taken && strings.HasPrefix(w.Path, t.home+"/") && !t.copier.Has(w.Path+"/.git") {
+				// A folder cut off before its checkout holds no work; one
+				// over a checkout may (its maker died after the clone, before
+				// the marker): gc leaves it, and rm decides it as it decides
+				// an active one.
 				due = due.Append(w)
 			} else if taken {
 				unreserved(t, w)

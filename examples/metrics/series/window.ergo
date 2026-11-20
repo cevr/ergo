@@ -133,7 +133,7 @@ law SlidingAgrees(seed int, n int) {
 
 // Add puts s in w and drops the samples that fall out of it. Samples are
 // added in time order.
-func Add(w *Sliding, s Sample) {
+func Add(w mut Sliding, s Sample) {
 	w.samples = w.samples.Append(s)
 	w.sum += s.Value
 	for w.samples[w.head].At <= s.At-w.width {

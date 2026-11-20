@@ -18,7 +18,7 @@ import (
 // root's sibling Map grows with the tree.
 const uiPassSource = `type index { kids Map[int, Map[int, int]], kept Map[int, []int] }
 
-func place(x *index, parent int, id int) int {
+func place(x mut index, parent int, id int) int {
 	let mut sib = Map[int, int]{}
 	match x.kids.Get(parent) {
 	case Some[Map[int, int]] as m:

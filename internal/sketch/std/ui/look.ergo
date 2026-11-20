@@ -177,7 +177,7 @@ func PressStyle() Style {
 // LookFor is the handle of ls in f: the one f gave ls before, else a new
 // one, which the next Commit sends to the host before the ops that use it
 // (Define). Write the handle in a node's Style (Style.Look).
-func LookFor[E](f *Frame[E], ls Looks) LookId {
+func LookFor[E](f mut Frame[E], ls Looks) LookId {
 	match f.lookIds.Get(ls) {
 	case Some[int] as n:
 		LookId{n: n.Value}
@@ -190,11 +190,11 @@ func LookFor[E](f *Frame[E], ls Looks) LookId {
 }
 
 // LookCount is how many Looks f has interned, the defaults included.
-func LookCount[E](f *Frame[E]) int { len(f.lookList) }
+func LookCount[E](f mut Frame[E]) int { len(f.lookList) }
 
 // defines are the Define ops of the looks f interned since its last
 // Commit, in LookId order, and marks them sent.
-func defines[E](f *Frame[E]) []Op[E] {
+func defines[E](f mut Frame[E]) []Op[E] {
 	let mut out = []Op[E]{}
 	for f.lookSent < len(f.lookList) {
 		out = out.Append(Define{Id: LookId{n: f.lookSent}, Looks: f.lookList[f.lookSent]})
@@ -205,7 +205,7 @@ func defines[E](f *Frame[E]) []Op[E] {
 
 // PressableStyled is a Pressable with a style of its own: its layout and
 // its looks, in place of PressStyle.
-func PressableStyled[E, F, R](f *Frame[E], label string, on E, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func PressableStyled[E, F, R](f mut Frame[E], label string, on E, style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, PressableNode{Label: label, On: on, Style: style}, body, at)
 }
 
@@ -308,16 +308,16 @@ func looksText[E](n Node[E], table []Looks) string {
 }
 
 // drawLookColor is a drawn colour, its alpha one of four. (a law's helper)
-func drawLookColor(r *rng) Color {
+func drawLookColor(r mut rng) Color {
 	let alphas = []uint8{255, 255, 128, 0}
 	Color{R: uint8(draw(r, 256)), G: uint8(draw(r, 256)), B: uint8(draw(r, 256)), A: alphas[draw(r, 4)]}
 }
 
 // drawLength is a drawn length from 0 to n-1. (a law's helper)
-func drawLength(r *rng, n int) Length { Length(float64(draw(r, n))) }
+func drawLength(r mut rng, n int) Length { Length(float64(draw(r, n))) }
 
 // drawLook is a drawn look. (a law's helper)
-func drawLook(r *rng) Look {
+func drawLook(r mut rng) Look {
 	let mut l = Bare()
 	l.Fill = drawLookColor(r)
 	l.Border = Border{Width: drawLength(r, 4), Color: drawLookColor(r)}
@@ -336,7 +336,7 @@ func drawLook(r *rng) Look {
 
 // drawLooks is drawn Looks: each state other than Rest is Rest's look or
 // one of its own. (a law's helper)
-func drawLooks(r *rng) Looks {
+func drawLooks(r mut rng) Looks {
 	let rest = drawLook(r)
 	let other = func() Look {
 		if draw(r, 2) == 0 {
@@ -388,7 +388,7 @@ func changeLooks(ls Looks, state int, part int) Looks {
 // lookedView writes looks[i] on the i-th of the containers that take a
 // Style, in a Column, each holding a Text, then a Pressable given no style
 // that sends 1. (a law's helper)
-func lookedView(f *Frame[int], looks []Looks) {
+func lookedView(f mut Frame[int], looks []Looks) {
 	let st = func(i int) Style {
 		let mut s = Plain()
 		s.Look = LookFor(f, looks[i])
@@ -445,7 +445,7 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 		for i, ls in before {
 			after = after.Append(if i == k { changed } else { ls })
 		}
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			if s == 0 {
 				lookedView(f, before)
 			} else {
@@ -494,7 +494,7 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 // nested writes a drawn tree under a node of looks ls: depth levels, each
 // a Box, Row, Column, Area or Pressable given ls, holding a child of the
 // same kind written with no look of its own, and a Text. (a law's helper)
-func nested(f *Frame[int], ls Looks, kinds []int, depth int) {
+func nested(f mut Frame[int], ls Looks, kinds []int, depth int) {
 	if depth >= len(kinds) {
 		Text(f, "leaf")
 		return
@@ -544,7 +544,7 @@ func nested(f *Frame[int], ls Looks, kinds []int, depth int) {
 // unpainted is whether every node of shapes whose depth is odd (written
 // with no look of its own) holds its kind's default looks. (a law's
 // helper)
-func unpainted[S, D, F](h *TestHost[S, int, D, F], shapes []Shape[int], odd bool) bool {
+func unpainted[S, D, F](h mut TestHost[S, int, D, F], shapes []Shape[int], odd bool) bool {
 	for s in shapes {
 		if odd && LooksOf(h, s.Node) != LooksIn(defaultTable(), DefaultLooks(s.Node)) {
 			return false
@@ -570,7 +570,7 @@ law PaintIsNotInherited(seed int) {
 		for _ in 0..draw(&r, 4)+1 {
 			kinds = kinds.Append(draw(&r, 4))
 		}
-		let view = func(f *Frame[int], s int) { nested(f, ls, kinds, 0) }
+		let view = func(f mut Frame[int], s int) { nested(f, ls, kinds, 0) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:
@@ -601,7 +601,7 @@ law PaintTableGrowsWithDistinctPaints(seed int, count int) {
 		for i in 0..size {
 			picks = picks.Append(if i < k { i } else { draw(&r, k) })
 		}
-		let view = func(f *Frame[int], xs []int) {
+		let view = func(f mut Frame[int], xs []int) {
 			Column(f, Plain()) {
 				for x in xs {
 					let mut s = Plain()
@@ -629,7 +629,7 @@ law PaintTableGrowsWithDistinctPaints(seed int, count int) {
 
 // lookRejected is whether patch fails with BadPatch on m and leaves its
 // screen as shown and its table at the defaults. (a law's helper)
-func lookRejected(m *Mirror[int], patch []Op[int], shown []Shape[int]) bool {
+func lookRejected(m mut Mirror[int], patch []Op[int], shown []Shape[int]) bool {
 	Apply(m, patch) catch {
 	case BadPatch:
 		return SameShapes(MirrorShape(m), shown) && MirrorLookCount(m) == len(defaultTable())
@@ -645,7 +645,7 @@ law MirrorRejectsUnheldLooks(seed int) {
 	let mut r = seeded(seed)
 	let mut l = drawLook(&r)
 	l.Border = Border{Width: 1, Color: Rgb(0x000000)}
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		let mut st = Plain()
 		if s == 1 {
 			st.Look = LookFor(f, Steady(l))

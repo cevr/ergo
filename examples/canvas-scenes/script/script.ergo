@@ -317,7 +317,7 @@ type seen { Page []string, Buttons []string, Texts []string, Sliders []string, P
 // View is the screen as lines, one per part: the page's headings and
 // prompt, the buttons and the count, the sliders and their values, and
 // the canvas, read from its paint (Canvas).
-func View(h *Host) []string {
+func View(h mut Host) []string {
 	let mut s = seen{Page: []string{}, Buttons: []string{}, Texts: []string{}, Sliders: []string{}, Paint: []ui.PaintOp{}, Size: "", Frames: ui.WantsFrames(h)}
 	for x in ui.Screen(h) {
 		s = walk(x, s, false)

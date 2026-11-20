@@ -21,8 +21,10 @@ import (
 // codego-stale.md). It regenerates only on a miss of the stamp
 // (linked.Fresh): while the generation's inputs digest is the one
 // `go run ./scripts/linked` stamped, the files are fresh when they hash
-// as stamped. Mutants linked-cli-not-written and linked-gofmt-one-pass
-// (testdata/mutants.json); the stamp's own mutants are internal/linked's.
+// as stamped. Mutants linked-source-ignored, linked-exports-all,
+// linked-ir-ignored, library-reach-main-only, linked-cli-not-written and
+// linked-gofmt-one-pass (testdata/mutants.json); the stamp's own mutants
+// are internal/linked's.
 func TestLinkedGoIsFresh(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {

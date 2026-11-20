@@ -28,7 +28,7 @@ func New() Board { Board{Items: []Item{}, Next: 0} }
 // Start starts the next transfer, sending at once. It writes the one
 // board in place: a new board built from a lent board's items would be
 // a second owner of the actors, which the lent board's release stops.
-func Start(b *Board) needs Scheduler {
+func Start(b mut Board) needs Scheduler {
 	let f = transfer.FileFor(b.Next)
 	let child = actor.StartMachine(machines.Start(transfer.Sender{}, f.MB), 4, func(n Never) {})
 	b.Items = b.Items.Append(Item{ID: b.Next, File: f, Child: child})

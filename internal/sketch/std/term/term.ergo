@@ -69,7 +69,6 @@ law ScriptPlaysKeys(texts []string) {
 			Return
 		} {
 		case EndOfInput:
-			ok = ok
 		case _:
 			ok = false
 		}

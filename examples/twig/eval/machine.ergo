@@ -181,7 +181,7 @@ func model(e syntax.Expr) Model {
 // one when there is one, else a new one. A slot read before its let (a
 // function a block binds at its start can be called before the let of a
 // name it reads) is nil, never a value of an earlier call.
-func enter(m *Machine, slots int, env int) int {
+func enter(m mut Machine, slots int, env int) int {
 	if len(m.free) == 0 {
 		m.frames = m.frames.Append(Frame{Slots: slices.Repeat([]Value{Nil}, slots), Parent: env})
 		return len(m.frames) - 1
@@ -200,7 +200,7 @@ func enter(m *Machine, slots int, env int) int {
 }
 
 // frameOf is the frame hops parents up from env.
-func frameOf(m *Machine, env int, hops int) int {
+func frameOf(m mut Machine, env int, hops int) int {
 	let mut f = env
 	for _ in 0..hops {
 		f = m.frames[f].Parent

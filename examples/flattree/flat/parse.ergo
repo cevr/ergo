@@ -201,7 +201,7 @@ law KeysAreInterned(seed int) {
 
 func ok(r reader) bool { dense.Len(r.problems) == 0 }
 
-func problem(r *reader, at int, reason string) {
+func problem(r mut reader, at int, reason string) {
 	let _ = dense.Put(&r.problems, tree.Locate(r.t.src, at, reason))
 }
 
@@ -212,7 +212,7 @@ func found(r reader) string {
 	strconv.Quote(strings.Slice(r.t.src, r.pos, r.pos+1))
 }
 
-func skip(r *reader) {
+func skip(r mut reader) {
 	let src = r.t.src
 	for r.pos < len(src) {
 		let c = src[r.pos]
@@ -224,7 +224,7 @@ func skip(r *reader) {
 }
 
 // push leaves id as the value read last.
-func push(r *reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
+func push(r mut reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
 
 // last is the id of the value read last; value leaves one when it reads
 // one, and a caller asks only then.
@@ -237,7 +237,7 @@ func last(r reader) dense.ID[Node] {
 	}
 }
 
-func value(r *reader) {
+func value(r mut reader) {
 	let src = r.t.src
 	if r.pos >= len(src) {
 		problem(r, r.pos, "expected a value, found the end")
@@ -263,7 +263,7 @@ func value(r *reader) {
 	}
 }
 
-func word(r *reader, w string, kind uint8) {
+func word(r mut reader, w string, kind uint8) {
 	let src = r.t.src
 	for k in 0..len(w) {
 		if r.pos >= len(src) || src[r.pos] != w[k] {
@@ -276,7 +276,7 @@ func word(r *reader, w string, kind uint8) {
 }
 
 // numeral reads a number with tree's machine and keeps its span.
-func numeral(r *reader) {
+func numeral(r mut reader) {
 	let start = r.pos
 	let (n, broken) = tree.Scan(strings.Slice(r.t.src, start, len(r.t.src)))
 	match broken {
@@ -291,7 +291,7 @@ func numeral(r *reader) {
 // text reads a string literal: a span of the source when it has no
 // escape and only ASCII, else tree's decoding, interned. It is the row
 // the string would have and whether it read one.
-func text(r *reader) Option[cell] {
+func text(r mut reader) Option[cell] {
 	let src = r.t.src
 	let start = r.pos + 1
 	let mut i = start
@@ -316,7 +316,7 @@ func text(r *reader) Option[cell] {
 	Some[cell]{Value: cell{kind: kText, a: uint32(dense.Index(k)), b: 0}}
 }
 
-func str(r *reader) {
+func str(r mut reader) {
 	match text(r) {
 	case Some[cell] as row:
 		push(r, put(&r.t, row.Value))
@@ -325,7 +325,7 @@ func str(r *reader) {
 }
 
 // key reads a member's key and is its interned id.
-func key(r *reader) Option[dense.ID[Key]] {
+func key(r mut reader) Option[dense.ID[Key]] {
 	match text(r) {
 	case Some[cell] as row:
 		if row.Value.kind == kText {
@@ -339,7 +339,7 @@ func key(r *reader) Option[dense.ID[Key]] {
 }
 
 // enter opens a container: one level deeper, at most tree.MaxDepth.
-func enter(r *reader) bool {
+func enter(r mut reader) bool {
 	r.depth += 1
 	if r.depth > tree.MaxDepth {
 		problem(r, r.pos, "nesting deeper than \(tree.MaxDepth)")
@@ -350,7 +350,7 @@ func enter(r *reader) bool {
 	true
 }
 
-func array(r *reader) {
+func array(r mut reader) {
 	if !enter(r) {
 		return
 	}
@@ -391,7 +391,7 @@ func array(r *reader) {
 	}
 }
 
-func object(r *reader) {
+func object(r mut reader) {
 	if !enter(r) {
 		return
 	}

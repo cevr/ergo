@@ -15,7 +15,7 @@ import html
 // box's keyboard map is an OnKey over its bindings (ui answers a key with the first map a pass
 // wrote: focus scopes come with UG3); while a modal layer is shown, the branches beside it are
 // not drawn (as they are inert on the web).
-func Draw[E](f *ui.Frame[E], n part.Node[E]) {
+func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
 	match n {
 	case part.Box as b:
 		if b.Sem.Hidden {
@@ -133,13 +133,13 @@ law PressSendsItsSignal(sends []int, keys []int) {
 // frameOf is a frame after one pass that draws n. (the laws' helper)
 func frameOf(n part.Node[int]) ui.Frame[int] {
 	let mut f = ui.NewFrame[int]()
-	let _ = ui.Render(&f, func(fr *ui.Frame[int], t part.Node[int]) { Draw(fr, t) }, n)
+	let _ = ui.Render(&f, func(fr mut ui.Frame[int], t part.Node[int]) { Draw(fr, t) }, n)
 	f
 }
 
 // presses is the ids of the frame's presses (Semantic nodes that are buttons), in tree order.
 // (the laws' helper)
-func presses(f *ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
+func presses(f mut ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
 	let mut out = []ui.Id[int]{}
 	for k in ui.Kids(f, id) {
 		match ui.NodeOf(f, k) {
@@ -184,13 +184,13 @@ func Case(seed []int) (string, string) {
 // Gen draws from a seed. (the property's helper)
 type Gen { xs []int, at int }
 
-func draw(g *Gen, n int) int {
+func draw(g mut Gen, n int) int {
 	let v = if len(g.xs) == 0 { g.at * 7919 } else { g.xs[g.at%len(g.xs)] + g.at*7919 }
 	g.at = g.at + 1
 	((v % n) + n) % n
 }
 
-func pick[T](g *Gen, xs []T) T { xs[draw(g, len(xs))] }
+func pick[T](g mut Gen, xs []T) T { xs[draw(g, len(xs))] }
 
 let words = []string{"a", "b c", "<x>", "&amp", "it's", "é", ""}
 
@@ -211,7 +211,7 @@ let pressRoles = []part.Role{part.Button, part.Tab, part.MenuItem, part.Switch, 
 
 let allStates = []part.State{part.Disabled, part.Busy, part.Invalid, part.Checked{Value: part.On}, part.Checked{Value: part.Mixed}, part.Selected{Yes: true}, part.Expanded{Yes: false}, part.Pressed{Yes: true}, part.Current{Kind: "page"}}
 
-func drawStates(g *Gen) []part.State {
+func drawStates(g mut Gen) []part.State {
 	let mut out = []part.State{}
 	for _ in 0..draw(g, 3) {
 		let s = pick(g, allStates)
@@ -226,7 +226,7 @@ func drawStates(g *Gen) []part.State {
 	out
 }
 
-func drawSem(g *Gen, role part.Role) part.Sem {
+func drawSem(g mut Gen, role part.Role) part.Sem {
 	part.Sem{
 		Role:   role,
 		Name:   if draw(g, 3) == 0 { pick(g, words) } else { "" },
@@ -239,7 +239,7 @@ func drawSem(g *Gen, role part.Role) part.Sem {
 	}
 }
 
-func genKids(g *Gen, depth int) []part.Node[int] {
+func genKids(g mut Gen, depth int) []part.Node[int] {
 	let mut out = []part.Node[int]{}
 	for _ in 0..draw(g, if depth >= 3 { 1 } else { 4 }) {
 		out = out.Append(drawNode(g, depth+1))
@@ -248,7 +248,7 @@ func genKids(g *Gen, depth int) []part.Node[int] {
 }
 
 // drawNode is a node of the tree a seed draws.
-func drawNode(g *Gen, depth int) part.Node[int] {
+func drawNode(g mut Gen, depth int) part.Node[int] {
 	match draw(g, if depth >= 3 { 4 } else { 12 }) {
 	case 0:
 		part.Text{Value: pick(g, words), Skin: part.Bare()}
@@ -258,7 +258,7 @@ func drawNode(g *Gen, depth int) part.Node[int] {
 		part.Live{Text: pick(g, words), Assertive: draw(g, 2) == 0}
 	case 3:
 		let w = pick(g, words)
-		part.Host{Web: "<b>" + html.Escape(w) + "</b>", Gui: func(f *ui.Frame[int]) { ui.Text(f, w) }}
+		part.Host{Web: "<b>" + html.Escape(w) + "</b>", Gui: func(f mut ui.Frame[int]) { ui.Text(f, w) }}
 	case 4:
 		part.Box{Sem: part.Plain(), Skin: part.Bare(), Inline: draw(g, 2) == 0, Keys: []part.Binding[int]{}, Kids: genKids(g, depth)}
 	case 5, 6:
@@ -279,7 +279,7 @@ func drawNode(g *Gen, depth int) part.Node[int] {
 }
 
 // drawKids draws kids; while one branch shows a modal layer, only the branches that hold one.
-func drawKids[E](f *ui.Frame[E], kids []part.Node[E]) {
+func drawKids[E](f mut ui.Frame[E], kids []part.Node[E]) {
 	let shown = part.Shown[E](kids)
 	for i in 0..len(kids) {
 		if shown[i] {

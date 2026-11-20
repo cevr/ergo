@@ -890,7 +890,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		}
 		borrow := !generic && r.Intn(2) == 0
 		if borrow {
-			fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(p *%s, n int) int {\n\tp.tag = p.tag + 1\n\t%s\n}\n\n", name, impl, name, body)
+			fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(p mut %s, n int) int {\n\tp.tag = p.tag + 1\n\t%s\n}\n\n", name, impl, name, body)
 		} else {
 			fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(_ %s, n %s) %s { %s }\n\n", name, impl, name, elem, elem, body)
 		}
@@ -934,7 +934,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 			want = append(want, "ok law Gate.Keeps for G (proved: all 4 cases)")
 			gate = "ok"
 		}
-		fmt.Fprintf(&b, "type Gate {\n\tSet(on bool),\n\tOn() bool,\n\tlaw Keeps(on bool) {\n\t\tSet(on)\n\t\tOn() == on\n\t},\n}\n\ntype G { on bool } implements Gate\n\nfunc Set(g *G, on bool) { %s }\n\nfunc On(g *G) bool { g.on }\n\n", set)
+		fmt.Fprintf(&b, "type Gate {\n\tmut Set(on bool),\n\tmut On() bool,\n\tlaw Keeps(on bool) {\n\t\tSet(on)\n\t\tOn() == on\n\t},\n}\n\ntype G { on bool } implements Gate\n\nfunc Set(g mut G, on bool) { %s }\n\nfunc On(g mut G) bool { g.on }\n\n", set)
 		providers++
 	}
 	top := r.Intn(2) == 0

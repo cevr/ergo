@@ -22,8 +22,8 @@ import (
 	"strings"
 	"unicode"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 

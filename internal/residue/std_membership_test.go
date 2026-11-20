@@ -75,7 +75,7 @@ func TestCompilerReadsNoStdMembership(t *testing.T) {
 var stdScanDirs = []string{
 	"internal/sketch/check", "internal/sketch/lower", "internal/sketch/eval",
 	"internal/sketch/lint", "internal/sketch/derive", "internal/sketch/build",
-	"internal/sketch/format", "internal/sketchfront", "internal/tsproj",
+	"internal/hostsyntax", "internal/sketchfront", "internal/tsproj",
 	"internal/rpcgen", "cmd/ergo",
 }
 
@@ -662,7 +662,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketchfront/rewrite.go:FreshStdLedger",
 	"internal/tsproj/http.go:httpFailureStatuses",
 	"internal/tsproj/http.go:httpTables",
-	"internal/rpcgen/hub.go:StdJSON", // was internal/tsproj/project.go:stdJSON (moved, not new)
 }
 
 // stringConsts are the lowering's package-level constants whose value is

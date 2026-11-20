@@ -62,36 +62,36 @@ extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset 
 type Text {
 	..Writer,
 	// Written is the text written so far.
-	Written() string,
+	mut Written() string,
 
 	// raw appends text as it is; the comma state is unchanged.
-	raw(text string),
+	mut raw(text string),
 	// sep writes a comma when one is due.
-	sep(),
+	mut sep(),
 	// commaDue reports that the next value or key needs a comma.
-	commaDue() bool,
+	mut commaDue() bool,
 	// setComma sets whether the next value or key needs a comma.
-	setComma(due bool),
+	mut setComma(due bool),
 	// quote writes s as a JSON string; plainBody a plain s between quotes;
 	// the bodies write a value's text. None writes a comma or sets the
 	// state.
-	quote(s string),
-	plainBody(s string),
-	stringBody(s string),
-	bytesBody(b []byte),
-	intBody(n int64),
-	uintBody(n uint64),
-	boolBody(b bool),
-	floatBody(f float64),
+	mut quote(s string),
+	mut plainBody(s string),
+	mut stringBody(s string),
+	mut bytesBody(b []byte),
+	mut intBody(n int64),
+	mut uintBody(n uint64),
+	mut boolBody(b bool),
+	mut floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish(hint int) string,
+	mut finish(hint int) string,
 	// bytes is the buffer written so far, read from the Text's value (no
 	// pointer to the cell, so the value rule lends it with no copy); drop
 	// gives it back to the pool (EncodeWith only: nothing may use the Text
 	// after).
 	bytes() []byte,
-	drop(hint int),
+	mut drop(hint int),
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -163,20 +163,20 @@ extern go ergo.local/prototype/runtime/v1.JSONAppendUint func appendUint(out []b
 extern go ergo.local/prototype/runtime/v1.JSONAppendBool func appendBool(out []byte, b bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out []byte, f float64) []byte
 
-func raw(t *text, s string) { t.out = appendString(t.out, s) }
+func raw(t mut text, s string) { t.out = appendString(t.out, s) }
 
-func sep(t *text) {
+func sep(t mut text) {
 	if t.comma {
 		t.raw(",")
 	}
 }
 
-func commaDue(t *text) bool { t.comma }
+func commaDue(t mut text) bool { t.comma }
 
 // commaText is the text sep writes when due says whether a comma is due.
 func commaText(due bool) string { if due { "," } else { "" } }
 
-func setComma(t *text, due bool) { t.comma = due }
+func setComma(t mut text, due bool) { t.comma = due }
 
 // plain reports that s is its own JSON string text: every byte is printable
 // ASCII and none of '"', '\', <, > and &, so neither escaping changes it.
@@ -194,7 +194,7 @@ func plain(s string) bool {
 
 // quote writes s quoted. A plain s is written as it is between quotes, so
 // a constant key or tag is constant text after the unfold (PlainIsRaw).
-func quote(t *text, s string) {
+func quote(t mut text, s string) {
 	if plain(s) {
 		t.plainBody(s)
 	} else {
@@ -203,54 +203,54 @@ func quote(t *text, s string) {
 }
 
 // plainBody writes s between quotes: one store of the buffer.
-func plainBody(t *text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
+func plainBody(t mut text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
 
 // inQuotes is s between quotes.
 func inQuotes(s string) string { "\"" + s + "\"" }
 
-func stringBody(t *text, s string) { t.out = appendQuoted(t.out, s, t.html) }
+func stringBody(t mut text, s string) { t.out = appendQuoted(t.out, s, t.html) }
 
-func bytesBody(t *text, b []byte) { t.out = appendQuotedBytes(t.out, b, t.html) }
+func bytesBody(t mut text, b []byte) { t.out = appendQuotedBytes(t.out, b, t.html) }
 
-func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }
+func intBody(t mut text, n int64) { t.out = appendInt(t.out, n) }
 
-func uintBody(t *text, n uint64) { t.out = appendUint(t.out, n) }
+func uintBody(t mut text, n uint64) { t.out = appendUint(t.out, n) }
 
-func boolBody(t *text, b bool) { t.out = appendBool(t.out, b) }
+func boolBody(t mut text, b bool) { t.out = appendBool(t.out, b) }
 
-func floatBody(t *text, f float64) { t.out = appendFloat(t.out, f) }
+func floatBody(t mut text, f float64) { t.out = appendFloat(t.out, f) }
 
-func Bool(t *text, b bool) {
+func Bool(t mut text, b bool) {
 	t.sep()
 	t.boolBody(b)
 	t.setComma(true)
 }
 
-func Int(t *text, n int64) {
+func Int(t mut text, n int64) {
 	t.sep()
 	t.intBody(n)
 	t.setComma(true)
 }
 
-func Uint(t *text, n uint64) {
+func Uint(t mut text, n uint64) {
 	t.sep()
 	t.uintBody(n)
 	t.setComma(true)
 }
 
-func Float(t *text, f float64) {
+func Float(t mut text, f float64) {
 	t.sep()
 	t.floatBody(f)
 	t.setComma(true)
 }
 
-func String(t *text, s string) {
+func String(t mut text, s string) {
 	t.sep()
 	t.stringBody(s)
 	t.setComma(true)
 }
 
-func StringBytes(t *text, b []byte) {
+func StringBytes(t mut text, b []byte) {
 	t.sep()
 	t.bytesBody(b)
 	t.setComma(true)
@@ -273,58 +273,58 @@ law StringBytesIsString(drawn []byte, html bool) {
 	t.Written() == u.Written()
 }
 
-func Null(t *text) {
+func Null(t mut text) {
 	t.sep()
 	t.raw("null")
 	t.setComma(true)
 }
 
-func Number(t *text, text string) {
+func Number(t mut text, text string) {
 	t.sep()
 	t.raw(text)
 	t.setComma(true)
 }
 
-func BeginList(t *text, n int) {
+func BeginList(t mut text, n int) {
 	t.sep()
 	t.raw("[")
 	t.setComma(false)
 }
 
-func EndList(t *text) {
+func EndList(t mut text) {
 	t.raw("]")
 	t.setComma(true)
 }
 
-func BeginObject(t *text, n int) {
+func BeginObject(t mut text, n int) {
 	t.sep()
 	t.raw("{")
 	t.setComma(false)
 }
 
-func EndObject(t *text) {
+func EndObject(t mut text) {
 	t.raw("}")
 	t.setComma(true)
 }
 
 // Tag writes a union's tag as the member "_tag" (owner q81).
-func Tag(t *text, name string) {
+func Tag(t mut text, name string) {
 	t.sep()
 	t.raw("\"_tag\":")
 	t.quote(name)
 	t.setComma(true)
 }
 
-func Key(t *text, k string) {
+func Key(t mut text, k string) {
 	t.sep()
 	t.quote(k)
 	t.raw(":")
 	t.setComma(false)
 }
 
-func Written(t *text) string { t.out.Text() }
+func Written(t mut text) string { t.out.Text() }
 
-func finish(t *text, hint int) string {
+func finish(t mut text, hint int) string {
 	let s = strings.FromBytes(t.out)
 	t.out = strings.Give(t.out, hint)
 	s
@@ -332,7 +332,7 @@ func finish(t *text, hint int) string {
 
 func bytes(t text) []byte { t.out }
 
-func drop(t *text, hint int) { t.out = strings.Give(t.out, hint) }
+func drop(t mut text, hint int) { t.out = strings.Give(t.out, hint) }
 
 // NewText is a Text with nothing written.
 func NewText() Text { text{comma: false, html: false, out: []byte{}} }

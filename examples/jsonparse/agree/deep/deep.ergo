@@ -1,0 +1,50 @@
+// Package deep holds jsonparse's agreement tests that nest past the
+// check-time evaluator's call depth: every JSONTestSuite file (y_ files
+// read, n_ files fail, and the two trees agree on each, i_ files too) and
+// the depth limit of both trees (MaxDepth arrays read, one more fails at
+// its bracket). The suite is JSONTestSuite's test_parsing at commit
+// 1ef36fa0, unchanged (JSONTestSuite-1ef36fa0/SOURCE, LICENSE).
+
+import embed
+import jsonparse/agree
+import jsonparse/json
+import strings
+
+// The whole pinned folder, its LICENSE and SOURCE with the files.
+let Suite = embedded[embed.FS]("JSONTestSuite-1ef36fa0")
+
+// SuiteVerdicts: each suite file reads as its name says, into both trees
+// alike.
+test SuiteVerdicts {
+	let dir = "JSONTestSuite-1ef36fa0/test_parsing"
+	let names = try Suite.ReadDir(dir)
+	let mut bad = strings.NewBuilder()
+	for name in names {
+		let text = try Suite.ReadFile(dir + "/" + name)
+		let tree = agree.TreeReading(text)
+		let flatRead = agree.FlatReading(text)
+		if flatRead != tree {
+			bad.WriteString(name + ": tree " + tree + ", flat " + flatRead + "\n")
+		}
+		if strings.HasPrefix(name, "y_") && !strings.HasPrefix(tree, "ok ") {
+			bad.WriteString(name + ": " + tree + ", want a value\n")
+		}
+		if strings.HasPrefix(name, "n_") && !strings.HasPrefix(tree, "fail ") {
+			bad.WriteString(name + ": " + tree + ", want a failure\n")
+		}
+	}
+	assert len(names) > 0
+	assert bad.String() == ""
+}
+
+// DepthLimit: arrays nest MaxDepth deep in both trees, and one more fails
+// at its bracket.
+test DepthLimit {
+	let n = json.MaxDepth
+	let deep = strings.Repeat("[", n) + strings.Repeat("]", n)
+	assert agree.TreeReading(deep) == "ok "+deep
+	assert agree.FlatReading(deep) == "ok "+deep
+	let over = strings.Repeat("[", n+1) + strings.Repeat("]", n+1)
+	assert agree.TreeReading(over) == "fail \(n)"
+	assert agree.FlatReading(over) == "fail \(n)"
+}

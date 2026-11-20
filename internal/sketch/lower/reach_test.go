@@ -108,7 +108,7 @@ func main() needs Console {
 `,
 	`type Count { n int }
 
-func Add(c *Count, k int) { c.n = c.n + k }
+func Add(c mut Count, k int) { c.n = c.n + k }
 
 type Pair[T] { a T, b T }
 

@@ -8,5 +8,5 @@
 # toolchain line); the go line is the release the patch was written on.
 go go1.27.0
 base 413adc6245e6dab11e09ca0ecd56c1a07cab7f09
-patch go1.27.0.patch sha256:773b41521e2b11cce7fbf5401a6d6a44f3a92e923a0ba96c2cc313f0236da67d
+patch go1.27.0.patch sha256:35f4267793610c2306fced31e2006fdbdc3118fdb2ea87cb96dd873009d0b706
 port go1.27.4 go1.27.0.patch

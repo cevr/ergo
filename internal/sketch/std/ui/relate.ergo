@@ -53,7 +53,7 @@ func relKey(r Rel) Key {
 // RelationsIn is the relations of the node id names on m, each with the
 // node it names: the first node of m, in tree order, whose Access
 // declares the relation's key.
-func RelationsIn[E](m *Mirror[E], id Id[E]) []Related[E] {
+func RelationsIn[E](m mut Mirror[E], id Id[E]) []Related[E] {
 	let mut out = []Related[E]{}
 	for r in AccessOf(m, id).Rels {
 		let k = relKey(r)
@@ -72,7 +72,7 @@ func RelationsIn[E](m *Mirror[E], id Id[E]) []Related[E] {
 
 // keyFrom is the first node, in tree order, of the siblings from at and
 // their subtrees whose Access declares the key k.
-func keyFrom[E](m *Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
+func keyFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
 	let mut c = at
 	for {
 		match c {
@@ -121,7 +121,7 @@ func relText(r Rel) string {
 
 // drawRel is a drawn relation to a key from 0 to keys-1, or a popup. (a
 // law's helper)
-func drawRel(r *rng, keys int) Rel {
+func drawRel(r mut rng, keys int) Rel {
 	let k = ByInt(draw(r, keys))
 	match draw(r, 5) {
 	case 0:
@@ -141,7 +141,7 @@ func drawRel(r *rng, keys int) Rel {
 // i keyed ByInt(i) when keyed[i], with the relations rels[i], and a
 // Pressable "next" that sends 1; the nodes gone[i] leaves out. (a law's
 // helper)
-func relScreen(f *Frame[int], keyed []bool, rels [][]Rel, gone []bool) {
+func relScreen(f mut Frame[int], keyed []bool, rels [][]Rel, gone []bool) {
 	Column(f, Plain()) {
 		for i, k in keyed {
 			if !gone[i] {
@@ -186,7 +186,7 @@ law RelationsNameHeldNodes(seed int) {
 			}
 			rels = rels.Append(rs)
 		}
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			relScreen(f, keyed, rels, if s == 0 { none } else { gone })
 		}
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})

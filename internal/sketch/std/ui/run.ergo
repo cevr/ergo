@@ -46,7 +46,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *Frame[int], id Id[int], off bool) bool {
+func signalsAgree(f mut Frame[int], id Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
@@ -196,7 +196,7 @@ type Host[E] {
 // capture) Run holds the pacing, so no collection lands mid-gesture, and
 // the Up's release runs the one the gesture's edges were due; a Run that
 // ends mid-drag releases as it returns.
-func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R | pace.Pacing {
+func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R) fails Closed | actor.Stopped needs R | pace.Pacing {
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)

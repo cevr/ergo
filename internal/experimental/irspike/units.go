@@ -37,7 +37,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
-	{"literal of *check.Array", "G1"}, // lane B's wf10/f7b-conv builds it (ir_defined.go)
+	{"literal of an array whose default holds a Map", "G1"}, // INDEX-NONSLICE: the emitter's default, built in a loop
 	{"index of a non-slice", "G1"},
 	{"index form", "G1"},
 	{"len of a non-slice", "G1"},
@@ -208,7 +208,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// leaf's generic function named by a generic body's type parameters.
 	{"record field of a converted value", "G4"},
 	{"runtime leaf's generic function in a generic body", "G4"},
-	{"literal of *check.Array", "G1"}, // as "type *check.Array": F7's arrays have no literal yet
 	{"type *check.Map", "G4"},
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
@@ -277,6 +276,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
 	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	// PORT-WIRE-READERS step 0: the codec functions that keep their text
+	// body, counted as census bodies (codecText). A decoder by its form.
+	{"codec reader: *", "PORT-WIRE-READERS"},
+	{"codec writer on the reference Writer", "PORT-WIRE-REF"},
+	{"codec writer on a direct writer that is no cell", "PORT-WIRE-REF"},
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},
 	{"encode on a direct writer", "G6"},

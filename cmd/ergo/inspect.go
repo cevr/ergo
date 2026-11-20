@@ -31,9 +31,9 @@ const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
        ergo inspect api --diff OLD NEW [--json]
 
 Shows exported functions and methods from checked source: fails, needs,
-takes (written or inferred), and generic copy sites (plain data only).
+takes (written or inferred), and the own marks of type parameters.
 This text is also the docs view. --diff reports public contract changes;
-a new take or copying parameter breaks callers that pass a resource.
+a new take or a dropped own mark breaks callers that pass a resource.
 --json prints structured contracts or changes. Both inputs must check.
 Exit status: 0 on success, 1 on a source error, 2 on invalid arguments.
 `
@@ -149,17 +149,6 @@ func inspectAPICommand(args []string) error {
 			return refuseUnchecked(l, opts)
 		}
 		t := codeTablesOf(l.analysis)
-		// A single-file check has no file name in the syntax snapshot.
-		if !isPackageFolder(path) {
-			root := &t.Packages[len(t.Packages)-1]
-			for i := range root.Contracts {
-				for j := range root.Contracts[i].Copies {
-					if c := &root.Contracts[i].Copies[j]; c.Where != "" {
-						c.Where = path + ":" + c.Where
-					}
-				}
-			}
-		}
 		b, err := json.Marshal(t)
 		if err != nil {
 			return exitStatusError{code: 1, message: "inspect api: " + err.Error()}

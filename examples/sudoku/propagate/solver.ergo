@@ -111,7 +111,7 @@ law FirstChoiceIsLowest(seed int) {
 }
 
 // assign leaves cell i with the digit d alone.
-func assign(s *state, i int, d int) fails Contradiction {
+func assign(s mut state, i int, d int) fails Contradiction {
 	let others = s.cand[i] &^ (uint16(1) << d)
 	for e in 1..10 {
 		if others&(uint16(1)<<e) != 0 {
@@ -121,7 +121,7 @@ func assign(s *state, i int, d int) fails Contradiction {
 }
 
 // eliminate removes d from cell i and propagates.
-func eliminate(s *state, i int, d int) fails Contradiction {
+func eliminate(s mut state, i int, d int) fails Contradiction {
 	let bit = uint16(1) << d
 	if s.cand[i]&bit == 0 {
 		return

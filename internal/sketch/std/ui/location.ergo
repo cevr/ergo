@@ -157,7 +157,7 @@ func Depth(h MemoryHistory) int { h.state.Get().at }
 // OnURL takes the changes of place the host reports (URLChanged): a
 // change goes to the OnURL calls in the order the pass made them, and the
 // first that gives a signal takes it, as OnKey does.
-func OnURL[E](f *Frame[E], on own func(u URL) Option[E]) {
+func OnURL[E](f mut Frame[E], on own func(u URL) Option[E]) {
 	if f.nurls < len(f.urls) {
 		f.urls[f.nurls] = on
 	} else {
@@ -168,7 +168,7 @@ func OnURL[E](f *Frame[E], on own func(u URL) Option[E]) {
 
 // routed is the signal of a change of place: the first OnURL of the last
 // pass that gives one.
-func routed[E](f *Frame[E], u URL) Option[E] {
+func routed[E](f mut Frame[E], u URL) Option[E] {
 	for i in 0..f.nurls {
 		match f.urls[i](u) {
 		case Some[E] as e:

@@ -30,100 +30,100 @@
 //   - A scroll by n of a region of h rows moves min(n, h) rows.
 type Screen {
 	// Print writes run, which is printable ASCII, one column a byte.
-	Print(run string),
+	mut Print(run string),
 	// PrintRune writes c, which takes width columns (1 or 2).
-	PrintRune(c rune, width int),
+	mut PrintRune(c rune, width int),
 	// Backspace moves left one column, stopping at column 0.
-	Backspace(),
+	mut Backspace(),
 	// Tab moves to the next multiple of 8, stopping at the last column.
-	Tab(),
+	mut Tab(),
 	// LineFeed is LF, VT, FF and IND.
-	LineFeed(),
+	mut LineFeed(),
 	// CarriageReturn moves to column 0.
-	CarriageReturn(),
+	mut CarriageReturn(),
 	// ReverseIndex (RI) moves up one row; at the top of the scroll
 	// region it scrolls the region down.
-	ReverseIndex(),
+	mut ReverseIndex(),
 	// Save (DECSC) keeps the cursor, the pen, origin mode and a pending
 	// wrap.
-	Save(),
+	mut Save(),
 	// Restore (DECRC) brings them back; with nothing saved, it homes
 	// the cursor, resets the pen and turns origin mode off.
-	Restore(),
+	mut Restore(),
 	// Reset (RIS) shows the main buffer, blanks it, homes the cursor
 	// and resets the pen, the region, the modes, the saved cursor and
 	// the title. The history stays.
-	Reset(),
+	mut Reset(),
 	// Up (CUU) moves up n rows, stopping at the region's top when the
 	// cursor is in the region.
-	Up(n int),
+	mut Up(n int),
 	// Down (CUD) moves down n rows, stopping at the region's bottom
 	// when the cursor is in the region.
-	Down(n int),
+	mut Down(n int),
 	// Forward (CUF) moves right n columns.
-	Forward(n int),
+	mut Forward(n int),
 	// Back (CUB) moves left n columns.
-	Back(n int),
+	mut Back(n int),
 	// MoveTo (CUP, HVP) moves to row and col, both 1-based; in origin
 	// mode the row counts from the region's top and stays in it.
-	MoveTo(row int, col int),
+	mut MoveTo(row int, col int),
 	// Column (CHA) moves to col, 1-based.
-	Column(col int),
+	mut Column(col int),
 	// Row (VPA) moves to row, 1-based, as MoveTo does.
-	Row(row int),
+	mut Row(row int),
 	// EraseDisplay (ED) blanks from the cursor to the end (mode 0),
 	// from the start to the cursor (1), or all of the screen (2).
-	EraseDisplay(mode int),
+	mut EraseDisplay(mode int),
 	// EraseLine (EL) blanks from the cursor to the end of its row (0),
 	// from the start to the cursor (1), or the row (2).
-	EraseLine(mode int),
+	mut EraseLine(mode int),
 	// InsertLines (IL) moves the rows from the cursor's down by n in the
 	// region, and moves to column 0; outside the region it does nothing.
-	InsertLines(n int),
+	mut InsertLines(n int),
 	// DeleteLines (DL) moves the rows below the cursor's up by n in the
 	// region, and moves to column 0; outside the region it does nothing.
-	DeleteLines(n int),
+	mut DeleteLines(n int),
 	// InsertBlanks (ICH) moves the cells from the cursor's right by n.
-	InsertBlanks(n int),
+	mut InsertBlanks(n int),
 	// DeleteChars (DCH) moves the cells right of the cursor's left by n.
-	DeleteChars(n int),
+	mut DeleteChars(n int),
 	// EraseChars (ECH) blanks n cells from the cursor's.
-	EraseChars(n int),
+	mut EraseChars(n int),
 	// ScrollUp (SU) scrolls the region up n rows.
-	ScrollUp(n int),
+	mut ScrollUp(n int),
 	// ScrollDown (SD) scrolls the region down n rows.
-	ScrollDown(n int),
+	mut ScrollDown(n int),
 	// SetRegion (DECSTBM) sets the scroll region to rows top to bottom,
 	// 1-based, 0 meaning the screen's edge, when top is above bottom,
 	// and homes the cursor.
-	SetRegion(top int, bottom int),
+	mut SetRegion(top int, bottom int),
 	// SetPen sets the style of the characters printed next.
-	SetPen(pen Style),
+	mut SetPen(pen Style),
 	// SetMode sets mode 6 (origin), 7 (autowrap), 25 (cursor shown) or
 	// 1049 (the alternate buffer, saving the cursor on the way in and
 	// restoring it on the way out, and blanking the alternate buffer
 	// as it is entered).
-	SetMode(mode int, on bool),
+	mut SetMode(mode int, on bool),
 	// SetTitle sets the window's title.
-	SetTitle(title string),
+	mut SetTitle(title string),
 
 	// Pen is the style of the characters printed next.
-	Pen() Style,
+	mut Pen() Style,
 	// Rows and Cols are the screen's size.
-	Rows() int,
-	Cols() int,
+	mut Rows() int,
+	mut Cols() int,
 	// History is the count of lines in the history.
-	History() int,
+	mut History() int,
 	// CellAt is the cell at col of line, where lines 0 to History()-1
 	// are the history, oldest first, and the next Rows() are the
 	// buffer shown.
-	CellAt(line int, col int) Shown,
+	mut CellAt(line int, col int) Shown,
 	// Wrapped reports whether line ended in an autowrap.
-	Wrapped(line int) bool,
+	mut Wrapped(line int) bool,
 	// Cursor is the cursor's place and modes.
-	Cursor() Cursor,
+	mut Cursor() Cursor,
 	// Title is the window's title.
-	Title() string,
+	mut Title() string,
 
 	// HistoryDropsOldestPage: on a screen of LawSize, whose history has
 	// room for one page of 16 lines, n line feeds from the top row send

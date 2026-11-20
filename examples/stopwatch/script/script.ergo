@@ -121,7 +121,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | time.Clock | Schedule
 // Host is the watch on the test host.
 type Host = ui.TestHost[watch.Watch, watch.Signal, Decision[watch.Watch, Never]]
 
-func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console {
+func play(h mut Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console {
 	let mut now = 0s
 	for x in s.Lines {
 		try ui.Advance(h, x.At-now)
@@ -165,7 +165,7 @@ func play(h *Host, s Script) int fails actor.Stopped | ui.BadPatch needs Console
 
 // Shown is the screen in a line: the time it shows and its buttons, in
 // order, each in brackets.
-func Shown(h *Host) string {
+func Shown(h mut Host) string {
 	let mut out = timeOf(ui.Screen(h))
 	for id in ui.Locate(h, ui.WithRole{Role: ui.Button, Name: ""}) {
 		out = out + " [\(ui.AccessAt(h, id).Name)]"

@@ -58,7 +58,7 @@ func Visible(count int, rowHeight Length, v Viewport) (int, int) {
 // First * rowHeight, and the offset the pass used (Offset), which a host
 // scrolls to when it is not its own. The viewport is (0, 0) until a host
 // reports one.
-func Rows[E, F, R](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+func Rows[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
 	try rowsKeeping(f, label, count, rowHeight, -1, key, row, at)
 }
 
@@ -128,7 +128,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *Frame[int], s roster) {
+	let view = func(f mut Frame[int], s roster) {
 		Pressable(f, "add", 0) {
 			Text(f, "+")
 		}
@@ -209,7 +209,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 // of the host's after it stays, as long as keep stays, so a user can
 // scroll away from the cursor; a keep outside [0, count) brings nothing.
 // While the host has reported no height, the row's top is the offset.
-func RowsKeeping[E, F, R](f *Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+func RowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
 	try rowsKeeping(f, label, count, rowHeight, keep, key, row, at)
 }
 
@@ -234,7 +234,7 @@ func Keep(keep int, rowHeight Length, v Viewport) Length {
 	v.Offset
 }
 
-func rowsKeeping[E, F, R](f *Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+func rowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0, Follow: -1}, at)
 	let mut v = Viewport{Offset: 0, Height: 0}
@@ -273,4 +273,4 @@ func rowsKeeping[E, F, R](f *Frame[E], label string, count int, rowHeight Length
 
 // ranRows is how many row functions of Rows the last pass ran: the work a
 // list costs, which grows with the viewport and not with the count.
-func ranRows[E](f *Frame[E]) int { f.rowRuns }
+func ranRows[E](f mut Frame[E]) int { f.rowRuns }

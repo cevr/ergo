@@ -43,6 +43,12 @@ func alignInputs() []sketchtest.Input {
 		{"record types", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ",\n" }},
 		{"record types before comments", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ", // c\n" }},
 		{"let values before comments", "", "", func(i, size int) string { return "let v" + strconv.Itoa(i) + " = " + cell("x", i, size) + " // c\n" }},
+		// A comment after a multi-line raw string sits on a line that
+		// continues the string and is never aligned with its neighbours
+		// (mutant sh-raw-string-not-split).
+		{"raw strings before comments", "", "", func(i, size int) string {
+			return "let v" + strconv.Itoa(i) + " = `a\n" + cell("x", i, size) + "` // c\n"
+		}},
 		{"map keys", "let m = Map[string, int]{\n", "}\n", func(i, size int) string { return strconv.Quote(cell("k", i, max(1, size-2))) + ": 1,\n" }},
 		{"context entry keys", "let W = context {\n", "}\n", func(i, size int) string { return cell("K", i, size) + ": T{},\n" }},
 	}
@@ -467,7 +473,14 @@ func (g *gen) decl() {
 		g.w("law ", g.name(), "(a int, b ", g.typeName(), ") {")
 		g.block()
 	case 10:
-		g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+		// A refined type, or a derived one, which has no spec: the Ergo
+		// formatter once read the spec of `type D derive Plan(1)` and
+		// failed (S2c).
+		if g.r.IntN(2) == 0 {
+			g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+		} else {
+			g.w("type ", g.name(), " derive ", g.pick("Plan(1)", "Fixed(\"TK\", 6)", "Refine(Of[int](), 1, 65535)"))
+		}
 	case 11:
 		// Variants on one line, one of whose fields span lines: the union
 		// prints one variant per line.

@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"math"
 	"unsafe"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -27,9 +28,13 @@ type interp struct {
 	// obligation has the whole budget, so one that runs no longer leaves
 	// less to the obligations after it.
 	stepsAt, bytesAt int64
-	// stepsEnd caches stepsAt + budget.Steps for charge; it is never past
+	// stepsEnd caches stepsAt + stepLimit() for charge; it is never past
 	// the true end (steps only grow), so a stale one only takes chargeSlow.
 	stepsEnd int64
+	// perCase is the case count the obligation in progress multiplies the
+	// step budget by (casesBudget); 0 is one, as for an initializer, a
+	// test without parameters or a machine search.
+	perCase int64
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
@@ -278,12 +283,15 @@ func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
 // chargeSlow is charge out of line, so that charge inlines: it renews the
 // cached end of the budget, then charges or stops the obligation.
 func (in *interp) chargeSlow(fr *frame, at syntax.Node, n int64) *abrupt {
-	in.stepsEnd = in.stepsAt + in.budget.Steps
+	in.stepsEnd = in.stepsAt + in.stepLimit()
 	if n >= 0 && n <= in.stepsEnd-in.steps {
 		in.steps += n
 		return nil
 	}
 	in.steps = in.stepsEnd
+	if in.perCase > 1 {
+		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps (%d for each of its %d cases)", in.stepLimit(), in.budget.Steps, in.perCase))
+	}
 	return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
 }
 
@@ -300,11 +308,32 @@ func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
 }
 
 // stepsLeft is what the obligation in progress may still spend.
-func (in *interp) stepsLeft() int64 { return in.budget.Steps - (in.steps - in.stepsAt) }
+func (in *interp) stepsLeft() int64 { return in.stepLimit() - (in.steps - in.stepsAt) }
 
-// begin gives the obligation that starts now the whole budget.
+// stepLimit is the step budget of the obligation in progress: the budget
+// for each of its cases, so a property's or law's limit grows with the
+// cases its plan runs (TP-BUILT-FAST; docs/testing.md, Budgets).
+func (in *interp) stepLimit() int64 {
+	if in.perCase <= 1 {
+		return in.budget.Steps
+	}
+	if in.budget.Steps > math.MaxInt64/4/in.perCase {
+		return math.MaxInt64 / 4 // stepsAt + the limit stays an int64
+	}
+	return in.budget.Steps * in.perCase
+}
+
+// casesBudget gives the obligation in progress the step budget of count
+// cases.
+func (in *interp) casesBudget(count int) {
+	in.perCase = int64(count)
+	in.stepsEnd = in.stepsAt + in.stepLimit()
+}
+
+// begin gives the obligation that starts now the whole budget, of one
+// case until its plan says how many it runs (casesBudget).
 func (in *interp) begin() {
-	in.stepsAt, in.bytesAt = in.steps, in.bytes
+	in.stepsAt, in.bytesAt, in.perCase = in.steps, in.bytes, 0
 	in.stepsEnd = in.stepsAt + in.budget.Steps
 }
 

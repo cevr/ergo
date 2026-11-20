@@ -90,9 +90,10 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			pre, v := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
 		}
-		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
-			// A function value's pair: its failure leaves, then the
-			// frame returns with no value (ir_closure.go).
+		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call)) && b.result == nil {
+			// A function value's pair, or a generic's whose result is
+			// no value (unitPair): its failure leaves, then the frame
+			// returns with no value (ir_closure.go).
 			pre, _ := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
@@ -109,7 +110,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+		return append(pre, &irStmt{K: "ret", Pos: p, X: e, Pair: true})
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)
@@ -274,9 +275,10 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
-	if x.K == "vcall" && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
+	if (x.K == "vcall" || b.unitPair(call)) && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
 		// A function value with no value returns struct{} first
-		// (ir_closure.go).
+		// (ir_closure.go), as a generic whose result is no value does
+		// (unitPair).
 		u := b.temp("unit", "struct{}", p)
 		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
 	}
@@ -332,6 +334,19 @@ func (b *irBuilder) bindMatch(x syntax.Expr, m syntax.Stmt) (pre []*irStmt, v, e
 		pre = append(pre, &irStmt{K: "var", Pos: p, Local: v})
 	}
 	return append(pre, b.matchStmt(m, true, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e // ir_match.go
+}
+
+// unitPair reports a call of a function whose declared result is a type
+// parameter: Go returns that parameter's value, struct{} when the call
+// has no value (term.Raw[T] at unit: (struct{}, error)), so a fallible
+// one is a pair, as a function value's is.
+func (b *irBuilder) unitPair(call *syntax.CallExpr) bool {
+	c := b.l.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || len(c.Func.Sig.Results) != 1 {
+		return false
+	}
+	_, ok := c.Func.Sig.Results[0].(*check.TypeParam)
+	return ok
 }
 
 // isNoValue reports the type of a call with no value.
@@ -603,6 +618,13 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
+	}
+	if r, ok := s.(*syntax.RangeStmt); ok && b.seqLoop(r) {
+		// A Seq loop's poll stands at the body's closing brace: at the
+		// loop's own position, Go's range-over-func rewrite also calls the
+		// adapter, and gc does not inline a call at a position already on
+		// its inlining stack (ir_seq.go).
+		return []*irStmt{b.pollAt(body, body.Rbrace)}
 	}
 	return []*irStmt{b.poll(s)}
 }

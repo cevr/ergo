@@ -1,0 +1,185 @@
+{
+  "about": "The host budget (WS4a, WS4c): each row is one of the model's mutants (models/gatebudget) ported to the implementation.",
+  "mutants": [
+    {
+      "name": "budget-admit-by-count",
+      "origin": "wf10 WS4a (model ByCount)",
+      "file": "internal/budget/decide.go",
+      "from": "\treturn s.Used()+e.Width <= r.Cores && (r.Memory == 0 || s.MemoryUsed()+e.Memory <= r.Memory)",
+      "to": "\treturn len(s.Holders) < r.Cores && (r.Memory == 0 || s.MemoryUsed()+e.Memory <= r.Memory)",
+      "rule": "Admission is by cores: the widths held never sum past the budget.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-admit-by-cores",
+      "origin": "wf10 WS4c (model ByCores)",
+      "file": "internal/budget/decide.go",
+      "from": "\treturn s.Used()+e.Width <= r.Cores && (r.Memory == 0 || s.MemoryUsed()+e.Memory <= r.Memory)",
+      "to": "\treturn s.Used()+e.Width <= r.Cores",
+      "rule": "Admission is by memory too: the reservations held never sum past the memory budget.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants", "internal/budget:TestMemoryQueues"]
+    },
+    {
+      "name": "budget-newest-first",
+      "origin": "wf10 WS4a (model Newest)",
+      "file": "internal/budget/decide.go",
+      "from": "if w.Crit == crit && (best == -1 || w.Ticket < ws[best].Ticket) {",
+      "to": "if w.Crit == crit && (best == -1 || w.Ticket > ws[best].Ticket) {",
+      "rule": "The hand-on serves the oldest waiter of a class: no take passes an older waiter of its own class.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-release-hands-nothing",
+      "origin": "wf10 WS4a (model Poll)",
+      "file": "internal/budget/decide.go",
+      "from": "\ts.Waiters = slices.DeleteFunc(s.Waiters, func(e Entry) bool { return e.ID == id })\n\treturn s.Admit(r)\n",
+      "to": "\ts.Waiters = slices.DeleteFunc(s.Waiters, func(e Entry) bool { return e.ID == id })\n\treturn nil\n",
+      "rule": "A release hands the freed cores on in the same step: no waiter waits while it fits.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-store-admit-by-count",
+      "origin": "wf10 WS4a (model ByCount, in the store)",
+      "file": "internal/budget/store_unix.go",
+      "from": "func (c Config) rules() Rules { return Rules{Cores: c.Cores, Memory: c.Memory, Share: c.Share} }",
+      "to": "func (c Config) rules() Rules { return Rules{Cores: 2 * c.Cores, Memory: c.Memory, Share: c.Share} }",
+      "rule": "The store decides with the host owner's budget, not a larger one.",
+      "killers": ["internal/budget:TestFullBudgetQueues"]
+    },
+    {
+      "name": "budget-watch-never-wakes",
+      "origin": "wf10 WS4a (model Poll, in the store)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tselect {\n\tcase woke <- struct{}{}:\n\tdefault:\n\t}\n}",
+      "to": "}",
+      "rule": "An entry's end (a release or a crash) wakes the waiters, so they take the freed cores.",
+      "killers": ["internal/budget:TestTakersShareTheBudget", "internal/budget:TestCrashFreesTheCores"]
+    },
+    {
+      "name": "budget-dead-entry-alive",
+      "origin": "wf10 WS4a (model LeakedChild)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif err := flock(f, syscall.LOCK_SH|syscall.LOCK_NB); err == nil {\n\t\tos.Remove(b.entry(id))\n\t\treturn false\n\t}",
+      "to": "\tif false {\n\t\treturn false\n\t}",
+      "rule": "A crash frees its cores: an entry whose lock the kernel dropped is pruned.",
+      "killers": ["internal/budget:TestCrashFreesTheCores"]
+    },
+    {
+      "name": "budget-lend-ignored",
+      "origin": "wf10 WS4a (model ChildQueues)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif g := b.lent(req); g != nil {\n\t\treturn g, nil\n\t}",
+      "to": "",
+      "rule": "A child runs in its parent's lent grant and never queues for the budget.",
+      "killers": ["internal/budget:TestLentGrantTakesNothing"]
+    },
+    {
+      "name": "budget-lend-wider-queues",
+      "origin": "wf10 WS4a (model ChildQueues, a child wider than its grant)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif err != nil || w < 1 || !b.alive(parts[1]) {",
+      "to": "\tif err != nil || w < req.Width || !b.alive(parts[1]) {",
+      "rule": "A child wider than its parent's grant runs in the grant at the grant's width and never queues.",
+      "killers": ["internal/budget:TestWiderChildRunsInTheGrant"]
+    },
+    {
+      "name": "budget-run-leaves-group",
+      "origin": "wf10 WS4a (leaked process groups)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tsyscall.Kill(-pgid, syscall.SIGKILL)\n",
+      "to": "\n",
+      "rule": "Run kills what its command left running in its process group.",
+      "killers": ["internal/budget:TestRunKillsTheGroup"]
+    },
+    {
+      "name": "budget-last-peak",
+      "origin": "wf10 WS4c (model LastPeak)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif peak > peaks[key] {",
+      "to": "\tif peak > 0 {",
+      "rule": "A command's reservation is the largest peak it reached; a smaller later peak does not shrink it.",
+      "killers": ["internal/budget:TestPeakRaisesTheReservation"]
+    },
+    {
+      "name": "budget-killed-keeps-cap",
+      "origin": "wf10 WS4c (model KilledPastOwnPeak)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\t\treturn max(peak, 2*own)\n",
+      "to": "\t\treturn peak\n",
+      "rule": "A run killed at its own cap raises the next reservation past the cap.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-kill-by-code",
+      "origin": "wf10 WS4c (2026-11-20: a capped chain killed at its mutants exited 1)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tcase killed && own > 0 && peak >= own:\n",
+      "to": "\tcase code == 128+int(syscall.SIGKILL) && own > 0 && peak >= own:\n",
+      "rule": "The scope's OOM kill count, not the exit code, says the cap killed a run.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-failed-run-keeps-peak",
+      "origin": "wf10 WS4c (2026-11-20: a chain that failed at its test capped its next run)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tcase killed || code == 0:\n\t\treturn peak\n\t}\n\treturn 0\n",
+      "to": "\tcase killed || code == 0:\n\t\treturn peak\n\t}\n\treturn peak\n",
+      "rule": "A run that failed, unkilled, leaves no peak: it may have stopped short of its work's peak.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak"]
+    },
+    {
+      "name": "budget-charge-at-join",
+      "origin": "wf10 WS4c (2026-11-20: a key deleted while its rerun waited still capped the rerun)",
+      "file": "internal/budget/decide.go",
+      "from": "\t\tif i != -1 && r.Peak != nil && r.Memory > 0 {\n",
+      "to": "\t\tif i != -1 && r.Peak != nil && r.Memory > 0 && s.Waiters[i].Memory == 0 {\n",
+      "rule": "A waiter is charged from its command's peak at its admission, not once at its join.",
+      "killers": ["internal/budget:TestPeakIsReadAtAdmission"]
+    },
+    {
+      "name": "budget-cap-unknown",
+      "origin": "wf10 WS4c (model CapUnknown; c012b9af5's rule)",
+      "file": "internal/budget/decide.go",
+      "from": "\tdefault:\n\t\tres = dflt\n",
+      "to": "\tdefault:\n\t\tres, capped = dflt, true\n",
+      "rule": "A command never measured is not capped at the default: it runs, and its peak is recorded.",
+      "killers": ["internal/budget:TestReservationIsTheLargestPeak", "internal/budget:TestUnknownCommandIsNotKilled"]
+    },
+    {
+      "name": "budget-no-slice-cap",
+      "origin": "wf10 WS4c (model RealWithinMemory)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\t\texec.Command(\"systemctl\", \"--user\", \"set-property\", \"--runtime\", slice, \"MemoryMax=\"+strconv.FormatInt(g.slice, 10), \"MemorySwapMax=0\").Run()\n",
+      "to": "\n",
+      "rule": "The budget's commands together are capped at the budget's memory.",
+      "killers": ["internal/budget:TestSliceCapsTheBudget"]
+    },
+    {
+      "name": "budget-no-cap",
+      "origin": "wf10 WS4c (model: a run over its reservation is killed alone)",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tif g.Memory() > 0 && scopes() {",
+      "to": "\tif false {",
+      "rule": "With memory budgeted, a command runs capped at its reservation.",
+      "killers": ["internal/budget:TestRunCapsAtTheReservation"]
+    },
+    {
+      "name": "budget-conf-not-reread",
+      "origin": "wf10 WS4c (an edit that does not take effect)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tif b.cfg.Path != \"\" {",
+      "to": "\tif false {",
+      "rule": "Every decision reads the budget's file again.",
+      "killers": ["internal/budget:TestConfigEditWakesAWaiter"]
+    },
+    {
+      "name": "budget-conf-edit-no-wake",
+      "origin": "wf10 WS4c (an edit that does not take effect)",
+      "file": "internal/budget/store_unix.go",
+      "from": "\tdefer watchConfig(cfg.Path, woke)()\n",
+      "to": "\n",
+      "rule": "An edit of the budget's file wakes the waiters.",
+      "killers": ["internal/budget:TestConfigEditWakesAWaiter"]
+    }
+  ]
+}

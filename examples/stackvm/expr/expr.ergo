@@ -19,7 +19,7 @@ law CompiledAgrees(seed int) { Agrees(of(seed)) }
 
 // gen is an expression of at most depth levels, drawn from d. Literals
 // are small, so a Quot or Rem by zero happens often.
-func gen(d *vm.Draws, depth int) Expr {
+func gen(d mut vm.Draws, depth int) Expr {
 	let k = if depth <= 0 { 0 } else { d.Next(8) }
 	match k {
 	case 0, 1:
@@ -134,7 +134,7 @@ func Compile(e Expr) []vm.Instr {
 }
 
 // emit adds the code of e to b. A Call's target is set by Compile.
-func emit(b *builder, e Expr) {
+func emit(b mut builder, e Expr) {
 	match e {
 	case Lit as l:
 		b.code = b.code.Append(vm.Push{N: l.N})

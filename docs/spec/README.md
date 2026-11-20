@@ -50,7 +50,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Construct | Status | Section |
 | --- | --- | --- |
 | Parsing every production of grammar.md and Go's productions where it is silent; S001 | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/syntax`); a parsed form that the checker does not check yet is S109 naming its owner | [grammar](grammar.md#parser) |
-| Formatting, `ergo-2026/formatter-2` | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`) | [formatting](../specs/formatting.md#2026-edition) |
+| Formatting, `ergo-2026/formatter-2` | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `compiler/format`) | [formatting](../specs/formatting.md#2026-edition) |
 | Name resolution, Go's types where the spec is silent, S101 to S113 | Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part | [types](types.md), [rows](rows.md), [diagnostics](diagnostics.md) |
 | One `import` path per line; the directory names the package; an alias only for a name clash | Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7) | [grammar](grammar.md#declarations) |
 | Identifiers by decoded code point (round-7 rule) | Checked; runs | [grammar](grammar.md#identifiers) |
@@ -114,64 +114,65 @@ The size of the language, counted from the parser and this specification by `scr
 | --- | --- | --- |
 | Keywords | 29 | `break`, `case`, `continue`, `else`, `for`, `func`, `if`, `import`, `return`, `type`, `try`, `catch`, `needs`, `provides`, `context`, `machine`, `let`, `mut`, `in`, `match`, `escaping`, `fails`, `test`, `law`, `assert`, `extern`, `with`, `takes`, `as` |
 | Reserved Go keywords | 15 | `chan`, `const`, `default`, `defer`, `fallthrough`, `go`, `goto`, `interface`, `map`, `package`, `range`, `select`, `struct`, `switch`, `var` |
-| Contextual words (the parser reads them by spelling) | 18 | `after`, `always`, `derive`, `entry`, `implements`, `initial`, `lent`, `never`, `own`, `path`, `pure`, `reaches`, `replace`, `sometimes`, `step`, `when`, `where`, `work` |
+| Contextual words (the parser reads them by spelling) | 19 | `after`, `always`, `derive`, `entry`, `exit`, `implements`, `initial`, `never`, `own`, `path`, `pure`, `reaches`, `replace`, `skip`, `sometimes`, `step`, `when`, `where`, `work` |
 | Planned words (specified, not built) | 3 | `given`, `gives`, `keeps` |
-| Productions (grammar.md) | 86 |  |
+| Productions (grammar.md) | 87 |  |
 | Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
-| Diagnostic rule bullets (diagnostics.md) | 75 |  |
-| Spec words (docs/spec) | 295974 |  |
+| Diagnostic rule bullets (diagnostics.md) | 76 |  |
+| Spec words (docs/spec) | 372655 |  |
 
-Uses count tokens, so neither a comment nor a string, in the 1514 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+Uses count tokens, so neither a comment nor a string, in the 1539 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
 
 | Form | Kind | Uses | Names | Previous | Note |
 | --- | --- | --- | --- | --- | --- |
-| `break` | keyword | 115 |  |  |  |
-| `case` | keyword | 15307 |  |  |  |
-| `continue` | keyword | 420 |  |  |  |
-| `else` | keyword | 2266 |  |  |  |
-| `for` | keyword | 4388 |  |  |  |
-| `func` | keyword | 14703 |  |  |  |
-| `if` | keyword | 8339 |  |  |  |
-| `import` | keyword | 3496 |  |  |  |
-| `return` | keyword | 7668 |  |  |  |
-| `type` | keyword | 4387 |  |  |  |
-| `try` | keyword | 3236 |  |  |  |
-| `catch` | keyword | 2527 |  |  |  |
-| `needs` | keyword | 5533 |  |  |  |
-| `provides` | keyword | 0 |  |  |  |
-| `context` | keyword | 526 |  |  |  |
-| `machine` | keyword | 94 |  |  |  |
-| `let` | keyword | 20784 |  |  |  |
-| `mut` | keyword | 4549 |  |  |  |
-| `in` | keyword | 3862 |  |  |  |
-| `match` | keyword | 3596 |  |  |  |
-| `escaping` | keyword | 0 |  |  |  |
-| `fails` | keyword | 3707 |  |  |  |
-| `test` | keyword | 595 |  |  |  |
-| `law` | keyword | 1575 |  |  |  |
-| `assert` | keyword | 1699 |  |  |  |
-| `extern` | keyword | 9466 |  |  |  |
-| `with` | keyword | 537 |  |  |  |
-| `takes` | keyword | 0 |  |  |  |
-| `as` | keyword | 6128 |  |  |  |
-| `after` | word | 19 | 317 |  |  |
-| `always` | word | 5 | 9 |  |  |
-| `derive` | word | 2 | 0 |  |  |
-| `entry` | word | 13 | 157 |  |  |
-| `implements` | word | 287 | 0 |  |  |
-| `initial` | word | 94 | 20 |  |  |
-| `lent` | word | 11 | 1 |  |  |
-| `never` | word | 1 | 0 |  |  |
-| `own` | word | 3843 | 28 |  |  |
-| `path` | word | 14 | 1376 |  |  |
-| `pure` | word | 3 | 6 |  |  |
-| `reaches` | word | 7 | 10 |  |  |
-| `replace` | word | 2 | 4 |  |  |
-| `sometimes` | word | 5 | 0 |  |  |
-| `step` | word | 94 | 169 |  |  |
-| `when` | word | 0 | 8 |  |  |
-| `where` | word | 88 | 38 |  |  |
-| `work` | word | 16 | 1332 |  |  |
+| `break` | keyword | 170 |  | 115 |  |
+| `case` | keyword | 20595 |  | 15307 |  |
+| `continue` | keyword | 553 |  | 420 |  |
+| `else` | keyword | 3267 |  | 2266 |  |
+| `for` | keyword | 5956 |  | 4388 |  |
+| `func` | keyword | 18304 |  | 14703 |  |
+| `if` | keyword | 11581 |  | 8339 |  |
+| `import` | keyword | 4239 |  | 3496 |  |
+| `return` | keyword | 10146 |  | 7668 |  |
+| `type` | keyword | 5305 |  | 4387 |  |
+| `try` | keyword | 4143 |  | 3236 |  |
+| `catch` | keyword | 3399 |  | 2527 |  |
+| `needs` | keyword | 5957 |  | 5533 |  |
+| `provides` | keyword | 0 |  | 0 | for the owner: delete or teach |
+| `context` | keyword | 673 |  | 526 |  |
+| `machine` | keyword | 106 |  | 94 |  |
+| `let` | keyword | 26847 |  | 20784 |  |
+| `mut` | keyword | 7876 |  | 4549 |  |
+| `in` | keyword | 5255 |  | 3862 |  |
+| `match` | keyword | 4788 |  | 3596 |  |
+| `escaping` | keyword | 0 |  | 0 | for the owner: delete or teach |
+| `fails` | keyword | 4451 |  | 3707 |  |
+| `test` | keyword | 605 |  | 595 |  |
+| `law` | keyword | 2042 |  | 1575 |  |
+| `assert` | keyword | 1704 |  | 1699 |  |
+| `extern` | keyword | 9730 |  | 9466 |  |
+| `with` | keyword | 681 |  | 537 |  |
+| `takes` | keyword | 0 |  | 0 | for the owner: delete or teach |
+| `as` | keyword | 8134 |  | 6128 |  |
+| `after` | word | 21 | 427 | 19 |  |
+| `always` | word | 7 | 9 | 5 | for the owner: delete or teach |
+| `derive` | word | 2 | 0 | 2 | for the owner: delete or teach |
+| `entry` | word | 18 | 201 | 13 |  |
+| `exit` | word | 2 | 51 |  |  |
+| `implements` | word | 367 | 0 | 287 |  |
+| `initial` | word | 106 | 20 | 94 |  |
+| `never` | word | 1 | 4 | 1 | for the owner: delete or teach |
+| `own` | word | 1464 | 46 | 3843 |  |
+| `path` | word | 14 | 1752 | 14 |  |
+| `pure` | word | 3 | 6 | 3 | for the owner: delete or teach |
+| `reaches` | word | 7 | 16 | 7 | for the owner: delete or teach |
+| `replace` | word | 2 | 4 | 2 | for the owner: delete or teach |
+| `skip` | word | 0 | 70 |  |  |
+| `sometimes` | word | 7 | 0 | 5 | for the owner: delete or teach |
+| `step` | word | 106 | 215 | 94 |  |
+| `when` | word | 0 | 17 | 0 | for the owner: delete or teach |
+| `where` | word | 89 | 42 | 88 |  |
+| `work` | word | 20 | 1851 | 16 |  |
 | `given` | planned | 0 |  | 0 | specified, not built |
 | `gives` | planned | 0 |  | 0 | specified, not built |
 | `keeps` | planned | 0 |  | 0 | specified, not built |
@@ -210,7 +211,7 @@ The prototype's behaviour and the sketches leave the points below unstated or in
 14. **Resources behind interfaces.** Review 9 (M2) showed that converting a resource to an interface without `Close` loses release authority. *Recommendation:* adopted in [resources.md](resources.md#conversions): that conversion is an error.
 15. **Moves into aggregates.** The owner's rule lists four moves. Building a struct whose field is a resource also transfers ownership, as the `Postgres` example does. *Recommendation:* adopted in [resources.md](resources.md#moves) as a fifth move.
 16. **Reserved names of the prototype's output.** The prototype reserves Go's predeclared identifiers, `rt`, `time`, `fmt`, `init`, `Error`, `timeout`, `duration`, names with `__` and names ending in `_` (S109). *Recommendation:* these are prototype limits. The main compiler mangles generated names, so only the language's own reserved words stay reserved ([grammar.md](grammar.md#reserved-names)). *Status:* the checker reserves none of them, and universe names may be shadowed (#196).
-17. **Capabilities in provider methods.** The prototype rejects a `needs` clause on a method and a capability call inside a provider method (S109). *Recommendation:* a provider method may use the capabilities its constructor captured, as Effect's layers capture their dependencies. A method signature still cannot widen the capability's row. *Status:* a method may write a capability row and is charged at its call; such a method cannot implement a capability method (S106) or an interface method (S108), because its row is wider (#196). The captured form exists for go.Foreign (STD-NOPRIV NP4e): a provider whose operations need go.Foreign beyond the operation type's row becomes a value of the operation type, or a context entry, where it is built, and that site is charged go.Foreign, as any call of Go is ([types](types.md#capabilities) Capabilities 4). go.Foreign has no provider value, so nothing is stored. A type parameter's constraint captures nothing, and every other capability stays with #37.
+17. **Capabilities in provider methods.** The prototype rejects a `needs` clause on a method and a capability call inside a provider method (S109). *Recommendation:* a provider method may use the capabilities its constructor captured, as Effect's layers capture their dependencies. A method signature still cannot widen the capability's row. *Status:* a method may write a capability row and is charged at its call; such a method cannot implement a capability method (S106) or an interface method (S108), because its row is wider (#196). The captured form exists for go.Foreign (STD-NOPRIV NP4e): a provider whose operations need go.Foreign beyond the operation type's row becomes a value of the operation type, or a context entry, where it is built, and that site is charged go.Foreign, as any call of Go is ([types](types.md#capabilities) Capabilities 4). go.Foreign has no provider value, so nothing is stored. A law case of the test binary holds go.Foreign, so a law runs natively on such a provider (owner q277; [types](types.md#laws) Laws 10). A type parameter's constraint captures nothing, and every other capability stays with #37.
 18. **Diagnostic codes.** The prototype's codes (S001, S101 to S110) are not in the main compiler's EF registry ([#79](https://github.com/cevr/ergo/issues/79)). *Recommendation:* the main compiler gives each rule in [diagnostics.md](diagnostics.md) an EF code, and keeps the rule text and fixture links.
 19. **No fixture file for S107.** The missing-return rule is pinned only by a table test in `sketch/sketch_test.go`. *Closed:* the checker's fixture `missing-return` pins S107 (#196).
 20. **Codec discovery by name.** The sketches find a type's codec by the names `ParseX` and `Wire`, as Go finds `TestX`. A rule keyed on a name risks the special-cased-library pattern the owner rejected. *Recommendation:* state it as a general method-set convention with laws in [#49](https://github.com/cevr/ergo/issues/49), so that a userland codec family can use the same rule.
@@ -238,7 +239,7 @@ Gaps 35 to 47 come from the [#101 spike](../research/actor-library.md) (A1 to A1
 39. **Owned parameters in function types (A5, [#196](https://github.com/cevr/ergo/issues/196), #197).** A handler `func(S, M)` must own `m` to consume the reply in it, and a function type has no body to infer A1 from. *Recommendation:* a function type marks an owned resource parameter; a call through it moves the argument. The spelling is open. *Prior art:* Swift `(consuming T) -> U`.
 40. **Generic types with row parameters (A6, #196, [#135](https://github.com/cevr/ergo/issues/135)).** `actor.Reply[T, E]` and `actor.Actor[M, E]` carry an error row as a type parameter, and `Reply[int64]` should mean an empty row. *Recommendation:* a generic type may take row parameters, and an omitted trailing row argument is the empty row. [types.md](types.md#generics) rule 3 covers only rows that pass through.
 41. **Failures as values (A7, #196).** A library that carries a typed failure from one task to another, as a reply does, needs a value form of an outcome. *Recommendation:* a prelude `Exit[T, E]` with `Succeed(v)`, `Fail(e)` and `x.Get() T fails E`. *Prior art:* Effect `Exit`; Gleam `Result`. A function literal that returns the failure works under the current rules, at one closure per value.
-42. **Release of a value typed by a type parameter (A8, #197; lowering [#190](https://github.com/cevr/ergo/issues/190)).** Generic code that owns a value of type `M` must release it when `M`'s instantiation is a resource. *Recommendation:* the checker treats such a value as possibly a resource. The lowering may test for `Close` on cold paths; a hot path needs per-type release passed through the generic dictionary or an argument, measured under #190. A `Close` test finds only a value that implements `Close` itself, so the same gap covers general drop glue: a struct with a resource field (R1) and a slice, array or map of resources (R34, R37) are resources with no `Close` of their own, and the compiler must generate their release, each field in reverse declaration order and each element, with every remaining release run after a defect, under the releasing task's masked boundary. The #101 prototype hand-writes it only for its own message envelopes and pins the other shapes as unreleased (the note's Q2). Status (L8 B2): the generated release of structs, tuples, unions, `Option`, slices and `Map`s is **implemented**; the release of a value typed by a type parameter is not, so a generic body that drops one is a copy site and its instance with a resource is S108.
+42. **Release of a value typed by a type parameter (A8, #197; lowering [#190](https://github.com/cevr/ergo/issues/190)).** Generic code that owns a value of type `M` must release it when `M`'s instantiation is a resource. *Recommendation:* the checker treats such a value as possibly a resource. The lowering may test for `Close` on cold paths; a hot path needs per-type release passed through the generic dictionary or an argument, measured under #190. A `Close` test finds only a value that implements `Close` itself, so the same gap covers general drop glue: a struct with a resource field (R1) and a slice, array or map of resources (R34, R37) are resources with no `Close` of their own, and the compiler must generate their release, each field in reverse declaration order and each element, with every remaining release run after a defect, under the releasing task's masked boundary. The #101 prototype hand-writes it only for its own message envelopes and pins the other shapes as unreleased (the note's Q2). Status (L8 B2): the generated release of structs, tuples, unions, `Option`, slices and `Map`s is **implemented**; the release of a value typed by a type parameter is not, so a generic body that drops a value of its own type parameter (`[T own]`) is S108 at the drop.
 43. **The result of `Task.Stop` (A9, [#207](https://github.com/cevr/ergo/issues/207), [#13](https://github.com/cevr/ergo/issues/13)).** [runtime.md](runtime.md#tasks) Tasks rule 4 does not say what `Stop` returns. `runtime/rt` returns defects only and drops the typed failure of a task that ended before the stop, which `actor.Actor.Stop() fails E` needs. *Recommendation:* `Stop` returns the task's typed failure when the task ended with one before the stop, and its defects; the interruption it caused is dropped. *Status:* closed as built (#197 decision D9): `actor.Actor.Stop() fails F` returns the typed failure of a runner that ended with one before the stop (batch 13); `Task.Stop` keeps [runtime](runtime.md#tasks) Tasks 10.
 44. **Escaping function parameters and shared handles by structure (A10, #196).** [types.md](types.md#function-values) rule 2 says a function parameter is non-escaping "unless its type says otherwise", with no spelling; `actor.Start` and `tasks.Set.Go` keep their function. [runtime.md](runtime.md#tasks) Tasks rule 6 and R1 name "actor handles" among shared handles and resources. *Recommendation:* spell the escaping mark in the function type, and make sharing structural: a value whose fields are all synchronised handles copies into tasks. An actor's owner handle is a resource because it holds a `Task`, with no name in the rule.
 45. **The copy at a task boundary (A11, #196, [#81](https://github.com/cevr/ergo/issues/81), [#211](https://github.com/cevr/ergo/issues/211)).** [runtime.md](runtime.md#tasks) Tasks rule 6 says values copy into a task, and [types.md](types.md#structs) Structs rule 6 says a copy is a snapshot. Neither says what the Go lowering emits for a slice or a map, which Go shares by reference, or where the copy happens when a value leaves a task through a channel, a reply or a callback result. *Recommendation:* every value that crosses a task boundary (a capture into `go`, a channel send, an actor message, a reply, an agent result, a machine snapshot) is a copy that shares no mutable storage: the lowering clones each reachable slice and map, per static type, and emits nothing for a type with none. Move on last use skips the clone. A resource moves and is not copied. The `actorlib` prototype applies the rule at run time with a cached per-type plan; its measured cost is in the note's Q8.

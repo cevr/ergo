@@ -122,6 +122,10 @@ type Plan struct {
 	Count  int
 	Listed bool
 	Reason string
+	// Native names a provider whose operations call Go (LawProvider.Native):
+	// only the test binary's law case builds it, so the plan runs natively
+	// and the check-time evaluator reports it native.
+	Native string
 }
 
 func makePlan(inputs []Input) Plan {
@@ -130,6 +134,9 @@ func makePlan(inputs []Input) Plan {
 		if in.Provider != nil {
 			if in.Provider.Unrun != "" {
 				p.Reason = in.Provider.Unrun
+			}
+			if in.Provider.Native && p.Native == "" {
+				p.Native = in.Provider.Type.Obj.Name
 			}
 			if in.Provider.Ctor != nil {
 				p.Listed = false
@@ -234,12 +241,15 @@ func (p Plan) At(k int) []Value {
 	return out
 }
 
-// SmallVariants is the checked value-rank decision at the depth boundary.
-func SmallVariants(variants []check.Type) []check.Type {
+// SmallVariants is the checked value-rank decision at the depth boundary,
+// with builder the builders of the package whose test build generates
+// (check.Package.Builder; eval and the Go build ask the same package, so
+// they pick the same variants).
+func SmallVariants(builder func(*check.Named) *check.Builder, variants []check.Type) []check.Type {
 	ranks, least := check.NewValueRanks(), -1
 	var small []check.Type
 	for _, v := range variants {
-		switch k := ranks.Rank(v); {
+		switch k := ranks.Rank(v, builder); {
 		case k < 0:
 		case least < 0 || k < least:
 			least, small = k, []check.Type{v}

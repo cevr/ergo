@@ -77,8 +77,8 @@ func statsMachine() Machine[int, int, int] {
 }
 
 // statsView shows the app of apps[s]; the key "i" signals i.
-func statsView(apps []statsApp) func(f *Frame[int], s int) {
-	func(f *Frame[int], s int) {
+func statsView(apps []statsApp) func(f mut Frame[int], s int) {
+	func(f mut Frame[int], s int) {
 		let st = apps[s]
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..len(apps) {
@@ -93,7 +93,7 @@ func statsView(apps []statsApp) func(f *Frame[int], s int) {
 				Text(f, "t\(j)")
 			}
 			if st.canvas {
-				Canvas(f, "c", 40, 40) func(p *Paint) {
+				Canvas(f, "c", 40, 40) func(p mut Paint) {
 					for j in 0..st.paints {
 						Fill(p, RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
 					}
@@ -197,7 +197,7 @@ func statsFollow(seed int, steps int) bool needs Scheduler {
 
 // committed is how many nodes the pass's specs stand for: a block spec
 // its group's tops.
-func committed[E](f *Frame[E]) int {
+func committed[E](f mut Frame[E]) int {
 	let mut c = 0
 	for i in 0..f.nspecs {
 		c = c + nodesOf(f, f.specs[i])
@@ -206,7 +206,7 @@ func committed[E](f *Frame[E]) int {
 }
 
 // PassStats is the last pass of f, Signals 0.
-func PassStats[E](f *Frame[E]) Stats {
+func PassStats[E](f mut Frame[E]) Stats {
 	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips + f.keptSames, Stopped: f.nstops, Committed: committed(f), Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
 	for op in f.ops {
 		match op {
@@ -247,7 +247,7 @@ func painted[E](n Node[E]) int {
 // StoppedAt is the call sites of the groups the last pass of s stopped,
 // in the order they stopped: the pass's boundary outcomes (a boundary has
 // no node, so the tree cannot show them).
-func StoppedAt[S, E, D, F](s *Session[S, E, D, F]) []CallSite {
+func StoppedAt[S, E, D, F](s mut Session[S, E, D, F]) []CallSite {
 	let mut out = []CallSite{}
 	for i in 0..s.frame.nstops {
 		out = out.Append(s.frame.stops[i])
@@ -257,7 +257,7 @@ func StoppedAt[S, E, D, F](s *Session[S, E, D, F]) []CallSite {
 
 // SessionStats is the last pass of s, with the signals the loop sent
 // before it.
-func SessionStats[S, E, D, F](s *Session[S, E, D, F]) Stats {
+func SessionStats[S, E, D, F](s mut Session[S, E, D, F]) Stats {
 	let mut st = PassStats(&s.frame)
 	st.Signals = s.passSignals
 	st
@@ -265,7 +265,7 @@ func SessionStats[S, E, D, F](s *Session[S, E, D, F]) Stats {
 
 // StatsOf is the last pass of the test host's session (the driver's
 // reading, plan H6b).
-func StatsOf[S, E, D, F](h *TestHost[S, E, D, F]) Stats { SessionStats(&h.session) }
+func StatsOf[S, E, D, F](h mut TestHost[S, E, D, F]) Stats { SessionStats(&h.session) }
 
 // Budget is the work a pass may do before it is slow, per counter: 0 is
 // no bound.
@@ -313,7 +313,7 @@ func slowExit(s slowLog) Option[func()] { None }
 
 func slowFollow(seed int, bound int) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *Frame[slowSignal], s slowLog) {
+	let view = func(f mut Frame[slowSignal], s slowLog) {
 		// Every third pass asks for nothing: an OnSlow holds for its pass.
 		if s.texts%3 != 0 {
 			OnSlow(f, Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x Slow) slowSignal { WasSlow{S: x} })
@@ -435,7 +435,7 @@ func CounterText(c Counter) string {
 // of a commit the loop did not cause (a work's reply, the Slow signals
 // themselves) is not judged, so a slow warning is never judged on its own
 // account. The last OnSlow of a pass counts.
-func OnSlow[E](f *Frame[E], b Budget, on own func(s Slow) E) {
+func OnSlow[E](f mut Frame[E], b Budget, on own func(s Slow) E) {
 	f.slow = Some{Value: slowWatch[E]{budget: b, on: on}}
 }
 
@@ -483,7 +483,7 @@ func NoCounts() StepCounts {
 // PassCounts is the last pass of f, counted. Kept walks the subtrees the
 // pass kept, only when it is asked for; the pass itself adds one to a
 // counter per node Commit visits.
-func PassCounts[E](f *Frame[E]) StepCounts {
+func PassCounts[E](f mut Frame[E]) StepCounts {
 	let mut c = NoCounts()
 	for op in f.ops {
 		match op {

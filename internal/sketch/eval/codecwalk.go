@@ -164,42 +164,14 @@ func (w wireWalk) callFunc(f *check.Func, arg Value) (Value, *abrupt) {
 	return w.in.callResolved(w.fr, w.at, f, nil, []Value{arg})
 }
 
-// pairWire is p's Wire of v as a value of p.Base: the append form,
-// Wire(v, into []byte) []byte (GX10), runs into an empty buffer and its
-// bytes are the base's string.
-func (w wireWalk) pairWire(p *check.WirePair, v Value) (Value, *abrupt) {
-	if !p.Append {
-		return w.callFunc(p.Wire, v)
-	}
-	out, ab := w.in.callResolved(w.fr, w.at, p.Wire, nil, []Value{v, newSlice(nil)})
-	if ab != nil {
-		return nil, ab
-	}
-	sl, ok := out.(sliceV)
-	if !ok {
-		ice("%s gives %T, not a []byte", p.Wire.Name, out)
-	}
-	s, ok := byteString(sl)
-	if !ok {
-		ice("%s gives a []byte of unknown bytes", p.Wire.Name)
-	}
-	return s, nil
-}
-
-// pairParse is p's Parse of raw, a value of p.Base: the append form's
-// ParseX reads the string's bytes.
-func (w wireWalk) pairParse(p *check.WirePair, raw Value) (Value, *abrupt) {
-	if p.Append {
-		raw = bytesValue(raw.(string))
-	}
-	return w.callFunc(p.Parse, raw)
-}
-
 func (w wireWalk) encode(r rtype, wr Value, v Value) *abrupt {
 	if ab := w.in.charge(w.fr, w.at, 1); ab != nil {
 		return ab
 	}
 	r = r.env.resolve(r.t)
+	if done, ab := w.ownWrite(r, wr, v); done {
+		return ab
+	}
 	switch check.WireFormOf(r.t) {
 	case check.WireNullable:
 		p := wrapperOf(r)
@@ -250,8 +222,18 @@ func (w wireWalk) encode(r rtype, wr Value, v Value) *abrupt {
 		_, ab := w.event(wr, "EndObject")
 		return ab
 	}
+	if p := w.in.wirePair(r.t); p != nil && p.Append {
+		// As the lowered encoder (lower/wire.go): the append form's text
+		// is written by the Writer's StringBytes, never as a String.
+		out, ab := w.in.callResolved(w.fr, w.at, p.Wire, nil, []Value{v, newSlice(nil)})
+		if ab != nil {
+			return ab
+		}
+		_, ab = w.event(wr, "StringBytes", out)
+		return ab
+	}
 	if p := w.in.wirePair(r.t); p != nil {
-		b, ab := w.pairWire(p, v)
+		b, ab := w.callFunc(p.Wire, v)
 		if ab != nil {
 			return ab
 		}
@@ -339,6 +321,67 @@ func (w wireWalk) encode(r rtype, wr Value, v Value) *abrupt {
 	return nil
 }
 
+// ownWrite writes v by its type's own write (check.WireWrite; types.md,
+// Codecs 10) when the writer wr is a cell of the write's provider P, as
+// the lowering's wireOwnWrite does: WireWrite(v, &cell), the provider's
+// value borrowed from the operation value that holds it, so the events
+// after it see what it wrote. On any other writer, done is false and v
+// takes its ordinary form.
+func (w wireWalk) ownWrite(r rtype, wr Value, v Value) (done bool, ab *abrupt) {
+	hook, ok := check.WireWriteOf(r.t)
+	if !ok {
+		return false, nil
+	}
+	op, ok := wr.(*operation)
+	for ok {
+		if rec, isRec := op.value.(*record); isRec && rec.t.Obj == hook.Provider.Obj {
+			break
+		}
+		op, ok = op.value.(*operation)
+	}
+	if !ok {
+		return false, nil
+	}
+	if op.cell == nil {
+		op.cell = &slot{v: op.value}
+	}
+	_, ab = w.in.callResolved(w.fr, w.at, hook.Func, nil, []Value{v, &ptrV{root: op.cell}})
+	return true, ab
+}
+
+// ownRead reads a value of r by its type's own read (check.WireRead;
+// types.md, Codecs 11) when the reader rd is an R, the read's direct
+// reader, or the operation value that holds one (the Reader interface
+// path), as the lowering's wireOwnRead does: WireRead(&x, r) into a zero
+// x, its failure the decode's. On any other reader, done is false and the
+// value takes its ordinary form.
+func (w wireWalk) ownRead(r rtype, rd Value) (v Value, done bool, ab *abrupt) {
+	hook, ok := check.WireReadOf(r.t)
+	if !ok {
+		return nil, false, nil
+	}
+	reader := rd
+	for {
+		if rec, isRec := reader.(*record); isRec && rec.t.Obj == hook.Reader.Obj {
+			break
+		}
+		op, isOp := reader.(*operation)
+		if !isOp {
+			return nil, false, nil
+		}
+		reader = op.value
+	}
+	x, ab := w.in.zero(w.fr, w.at, r)
+	if ab != nil {
+		return nil, true, ab
+	}
+	cell := &slot{v: x}
+	if _, ab := w.in.callResolved(w.fr, w.at, hook.Func, nil, []Value{&ptrV{root: cell}, reader}); ab != nil {
+		return nil, true, ab
+	}
+	return cell.v, true, nil
+}
+
 // encodeRecord writes the record rec of type r: tag is the variant's name
 // of a union value, "" for a record.
 func (w wireWalk) encodeRecord(r rtype, wr Value, rec *record, tag string) *abrupt {
@@ -399,6 +442,9 @@ func (w wireWalk) decode(r rtype, rd Value) (Value, *abrupt) {
 		return nil, ab
 	}
 	r = r.env.resolve(r.t)
+	if v, done, ab := w.ownRead(r, rd); done {
+		return v, ab // R's own read of r (types.md, Codecs 11)
+	}
 	switch check.WireFormOf(r.t) {
 	case check.WireNullable:
 		p := wrapperOf(r)
@@ -478,12 +524,21 @@ func (w wireWalk) decode(r rtype, rd Value) (Value, *abrupt) {
 		}
 		return newRecordOf(r, []Value{newSlice(out)}), nil
 	}
+	if p := w.in.wirePair(r.t); p != nil && p.Append {
+		// As the lowered decoder (lower/wire.go): the append form's ParseX
+		// reads the bytes the Reader's StringBytes adds to a buffer.
+		raw, ab := w.event(rd, "StringBytes", newSlice(nil))
+		if ab != nil {
+			return nil, ab
+		}
+		return w.callFunc(p.Parse, raw) // the append form's ParseX
+	}
 	if p := w.in.wirePair(r.t); p != nil {
 		raw, ab := w.decode(rtype{t: p.Base}, rd)
 		if ab != nil {
 			return nil, ab
 		}
-		return w.pairParse(p, raw)
+		return w.callFunc(p.Parse, raw)
 	}
 	if parse := check.RefinedParse(r.t); parse != nil {
 		raw, ab := w.decode(rtype{t: parse.Sig.Params[0].Type}, rd)

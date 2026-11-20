@@ -25,10 +25,9 @@ package lower
 // The text form stays selectable: wireIRLowering "text" keeps every codec
 // function's text body on the IR path.
 //
-// Not taken (the function keeps its text): a type that holds type
-// parameters (witnesses), an omittable or nullable field or value, a
-// bare, number-text or members form, a by-name pair, a refined type, a
-// tuple, a flat union by its pointer niche.
+// Not taken (the function keeps its text, IRReport.CodecText names it):
+// a type that holds type parameters (witnesses), a nullable or bare
+// flat union, a tuple, a flat union by its pointer niche.
 
 import (
 	"go/constant"
@@ -39,6 +38,21 @@ import (
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
+// codecText records that the codec function name keeps its text body,
+// and why (IRReport.CodecText).
+func (st *irState) codecText(name, reason string) {
+	if st.report.CodecText == nil {
+		st.report.CodecText = map[string]int{}
+	}
+	st.report.CodecText[name+"\t"+reason]++
+	if st.census != nil {
+		// A census counts the function as a body that is not lowered
+		// (PORT-WIRE-READERS step 0), keyed by its Go name: the same
+		// function in two targets is one function (IRCensusFunc.Codec).
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: "codec", Name: name, Codec: true, Reasons: []string{reason}})
+	}
+}
+
 // wireIRLowering selects the codec writers' form on the IR path: "" (an
 // IR body where wirePlan takes the type) or "text" (the reference: the
 // text emitter's body).
@@ -48,8 +62,11 @@ var wireIRLowering string
 // arguments' IR, nil for a constant), a call of another codec function
 // (call: callee by its Go name), a statement that names the writer (own:
 // a WireWrite call), a loop (loop, its body), a switch (sw, one arm per
-// case, entry is each arm's leading statements).
+// case, entry is each arm's leading statements), a statement that does
+// not name the writer (pre: an omittable field's local or the count of
+// the fields written, which leaves the walk's state as it is).
 type wireStep struct {
+	pre    *irStmt
 	ev     *rwCall
 	args   []*irExpr
 	call   *irStmt
@@ -85,13 +102,18 @@ var wireKeysLowering string
 // whether it did. params is the namer that named the function's Go
 // parameters (env, wv, v, in that order: locals 0, 1, 2).
 func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents, cw cellWriter, start *rwCall, params *namer, site syntax.Node) (ok bool) {
-	if wireIRLowering == "text" || st.census != nil || len(freeTypeParams(t)) > 0 {
+	if wireIRLowering == "text" || st.census != nil {
+		return false
+	}
+	if len(freeTypeParams(t)) > 0 {
+		st.codecText(name, "codec writer of a type that holds type parameters")
 		return false
 	}
 	scope := newNamer(params)
 	fc := newFuncCtx(l, scope, false)
 	fc.site = site
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: 0, next: 3, fn: &irFunc{Name: name}, names: scope}
+	b := st.newBuilder(fc, nil) // a codec cell: no source statements
+	b.env, b.next, b.fn, b.names = 0, 3, &irFunc{Name: name}, scope
 	keep := st.keep
 	files := len(st.out.Files)
 	g := &wireGen{b: b, cw: cw, em: em, site: site, env: 0, wv: 1}
@@ -105,9 +127,11 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			if _, no := r.(irUnsupported); !no {
+			why, no := r.(irUnsupported)
+			if !no {
 				panic(r)
 			}
+			st.codecText(name, why.reason)
 			// A refused function records nothing: no import, no file.
 			st.keep = keep
 			st.out.Files = st.out.Files[:files]
@@ -149,14 +173,36 @@ func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 		return []wireStep{{own: &irStmt{K: "expr", Pos: g.p, X: g.funcCall(hook.Func, []*irExpr{v, g.cell(true)})}}}
 	}
 	switch check.WireFormOf(t) {
-	case check.WireNullable, check.WireBare, check.WireNumberText, check.WireMembers:
-		irNo("codec writer of a wire form %v", check.WireFormOf(t))
+	case check.WireNullable:
+		return g.nullable(t, v)
+	case check.WireBare:
+		return g.bare(t, v)
+	case check.WireNumberText:
+		// The spelling Wire gives, as a Number (wireNumEncode).
+		p := l.info.WirePairOf(t)
+		return []wireStep{g.event("Number", &irExpr{K: "conv", Pos: g.p, T: "string", X: g.funcCall(p.Wire, []*irExpr{v})})}
+	case check.WireMembers:
+		return g.members(t, v)
 	}
-	if l.info.WirePairOf(t) != nil {
-		irNo("codec writer of a by-name pair")
+	if p := l.info.WirePairOf(t); p != nil {
+		if p.Append {
+			// The append form (check.WirePair): Wire appends v's text to
+			// an array of this frame (WireTextIn, as the text form's
+			// `var buf [64]byte`), and StringBytes writes those bytes.
+			buf := b.temp("buf", "["+strconv.Itoa(v1.WireTextRoom)+"]byte", g.p)
+			g.decls = append(g.decls, &irStmt{K: "var", Pos: g.p, Local: buf})
+			room := &irExpr{K: "pcall", Pos: g.p, T: runtimeImport, Name: "WireTextIn", Args: []*irExpr{{K: "addr", Pos: g.p, X: g.local(buf)}}}
+			return []wireStep{g.event("StringBytes", g.funcCall(p.Wire, []*irExpr{v, room}))}
+		}
+		// The pair's base, written from Wire(v) (wireEncodeWith).
+		return g.value(p.Base, g.funcCall(p.Wire, []*irExpr{v}))
 	}
 	if check.RefinementOf(t) != nil {
-		irNo("codec writer of a refined type")
+		// A refined basic type writes its base (wireEncodeBody); any
+		// other is written as its underlying type, below.
+		if base, ok := wireUnder(t).(*check.Basic); ok {
+			return g.value(base, v)
+		}
 	}
 	switch u := wireUnder(t).(type) {
 	case *check.Slice:
@@ -201,20 +247,150 @@ func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 // BeginObject(n), the tag, each field's key and value, EndObject.
 func (g *wireGen) record(n *check.Named, s *check.Struct, v *irExpr, tag string) []wireStep {
 	b := g.b
+	// An omittable field (a union whose WireForm is WireOmittable) is
+	// written only when its value is the present variant, and the count
+	// BeginObject takes leaves out each absent one (wireFieldCount,
+	// wireFields): each such field is read into a local once, before.
+	var out []wireStep
+	held := map[string]int{}
+	count := -1
 	for _, f := range s.Fields {
-		if _, _, param := g.b.fc.paramField(f.Type); param || check.WireFormOf(f.Type) == check.WireOmittable {
-			irNo("codec writer of an omittable field")
+		if _, _, param := b.fc.paramField(f.Type); param {
+			irNo("codec writer of a field typed by a type parameter")
 		}
+		if check.WireFormOf(f.Type) != check.WireOmittable {
+			continue
+		}
+		if b.flatOf(f.Type) != nil {
+			irNo("codec writer of an omittable field of a flat union")
+		}
+		if count < 0 {
+			count = b.temp("fields", "int", g.p)
+			out = append(out, wireStep{pre: &irStmt{K: "def", Pos: g.p, Local: count, X: &irExpr{K: "const", Pos: g.p, T: "int", V: strconv.Itoa(len(s.Fields))}}})
+		}
+		fl := b.temp("field", b.goType(f.Type, g.site), g.p)
+		held[f.Name] = fl
+		out = append(out, wireStep{pre: &irStmt{K: "def", Pos: g.p, Local: fl, X: b.recordField(n, v, f.Name, g.site)}})
+		empty, _, _ := b.fc.wrapperParts(f.Type)
+		less := &irStmt{K: "set", Pos: g.p, Local: count, X: &irExpr{K: "bin", Pos: g.p, Op: "-", X: g.local(count), Y: &irExpr{K: "const", Pos: g.p, T: "int", V: "1"}}}
+		sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, X: g.local(fl), Cases: []*irCase{{Pos: g.p, Types: []string{b.goType(empty, g.site)}}}}
+		out = append(out, wireStep{sw: sw, arms: [][]wireStep{{{pre: less}}}, heads: [][]*irStmt{nil}})
 	}
-	out := []wireStep{g.event("BeginObject", nil)}
-	out[0].ev.args[0] = rwArg{c: constant.MakeInt64(int64(len(s.Fields)))}
+	if count < 0 {
+		out = append(out, g.constEvent("BeginObject", constant.MakeInt64(int64(len(s.Fields)))))
+	} else {
+		out = append(out, g.event("BeginObject", g.local(count)))
+	}
 	if tag != "" {
 		out = append(out, g.constEvent("Tag", constant.MakeString(tag)))
 	}
 	for _, f := range s.Fields {
-		out = append(out, g.constEvent("Key", constant.MakeString(check.WireFieldName(f))))
-		out = append(out, g.value(f.Type, b.recordField(n, v, f.Name, g.site))...)
+		key := g.constEvent("Key", constant.MakeString(check.WireFieldName(f)))
+		fl, omittable := held[f.Name]
+		if !omittable {
+			out = append(out, key)
+			out = append(out, g.value(f.Type, b.recordField(n, v, f.Name, g.site))...)
+			continue
+		}
+		// switch x := field.(type) { case Present: Key; x's payload }
+		_, present, pf := b.fc.wrapperParts(f.Type)
+		pn, ok := present.(*check.Named)
+		if !ok {
+			irNo("omittable field whose present variant has no name")
+		}
+		gp := b.goType(present, g.site)
+		x := b.temp("present", gp, g.p)
+		head := []*irStmt{{K: "def", Pos: g.p, Local: x, X: &irExpr{K: "assert", Pos: g.p, T: gp, X: g.local(fl)}}}
+		arm := append([]wireStep{key}, g.value(pf.Type, b.recordField(pn, g.local(x), pf.Name, g.site))...)
+		sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, X: g.local(fl), Cases: []*irCase{{Pos: g.p, Types: []string{gp}}}}
+		out = append(out, wireStep{sw: sw, arms: [][]wireStep{arm}, heads: [][]*irStmt{head}})
 	}
+	return append(out, g.event("EndObject"))
+}
+
+// nullable is a switch on v's variant (wireNullableEncode): the empty
+// variant writes Null, the present one its payload.
+func (g *wireGen) nullable(t check.Type, v *irExpr) []wireStep {
+	b := g.b
+	if v.K != "local" {
+		irNo("union value not in a local")
+	}
+	if b.flatOf(t) != nil {
+		irNo("codec writer of a nullable flat union")
+	}
+	empty, present, field := b.fc.wrapperParts(t)
+	pn, ok := present.(*check.Named)
+	if !ok {
+		irNo("nullable whose present variant has no name")
+	}
+	gp := b.goType(present, g.site)
+	x := b.temp("value", gp, g.p)
+	head := []*irStmt{{K: "def", Pos: g.p, Local: x, X: &irExpr{K: "assert", Pos: g.p, T: gp, X: v}}}
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: v, Cases: []*irCase{
+		{Pos: g.p, Types: []string{b.goType(empty, g.site)}},
+		{Pos: g.p, Types: []string{gp}},
+	}}
+	arms := [][]wireStep{{g.event("Null")}, g.value(field.Type, b.recordField(pn, g.local(x), field.Name, g.site))}
+	return []wireStep{{sw: sw, arms: arms, heads: [][]*irStmt{nil, head}}}
+}
+
+// bare is a switch on v's variant with no tag (wireValueEncode): the
+// null variant writes Null, a variant of one field (barePart) that
+// field, any other variant itself.
+func (g *wireGen) bare(t check.Type, v *irExpr) []wireStep {
+	b := g.b
+	if v.K != "local" {
+		irNo("union value not in a local")
+	}
+	if b.flatOf(t) != nil {
+		irNo("codec writer of a bare flat union")
+	}
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: v} // a bare union: no tag
+	var arms [][]wireStep
+	var heads [][]*irStmt
+	for _, vt := range wireUnder(t).(*check.Union).Variants {
+		gs := b.goType(vt, g.site)
+		sw.Cases = append(sw.Cases, &irCase{Pos: g.p, Types: []string{gs}})
+		if check.WireVariantKind(vt) == "WireNull" {
+			arms, heads = append(arms, []wireStep{g.event("Null")}), append(heads, nil)
+			continue
+		}
+		x := b.temp("value", gs, g.p)
+		heads = append(heads, []*irStmt{{K: "def", Pos: g.p, Local: x, X: &irExpr{K: "assert", Pos: g.p, T: gs, X: v}}})
+		if f := barePart(vt); f != nil {
+			vn, ok := vt.(*check.Named)
+			if !ok {
+				irNo("variant with no name")
+			}
+			arms = append(arms, g.value(f.Type, b.recordField(vn, g.local(x), f.Name, g.site)))
+			continue
+		}
+		arms = append(arms, g.value(vt, g.local(x)))
+	}
+	return []wireStep{{sw: sw, arms: arms, heads: heads}}
+}
+
+// members is an object of v's one list of key-value entries, in their
+// order (wireMembersEncode).
+func (g *wireGen) members(t check.Type, v *irExpr) []wireStep {
+	b := g.b
+	n, ok := t.(*check.Named)
+	if !ok {
+		irNo("members form with no name")
+	}
+	outer := wireUnder(t).(*check.Struct).Fields[0]
+	list := wireUnder(outer.Type).(*check.Slice)
+	en, ok := list.Elem.(*check.Named)
+	if !ok {
+		irNo("members entry with no name")
+	}
+	entry := wireUnder(en).(*check.Struct)
+	m := b.temp("member", b.goType(en, g.site), g.p)
+	out := []wireStep{g.event("BeginObject", &irExpr{K: "len", Pos: g.p, X: b.recordField(n, v, outer.Name, g.site)})}
+	body := []wireStep{g.event("Key", &irExpr{K: "conv", Pos: g.p, T: "string", X: b.recordField(en, g.local(m), entry.Fields[0].Name, g.site)})}
+	body = append(body, g.value(entry.Fields[1].Type, b.recordField(en, g.local(m), entry.Fields[1].Name, g.site))...)
+	loop := &irStmt{K: "range", Pos: g.p, End: g.p, X: b.recordField(n, v, outer.Name, g.site), Val: &m}
+	out = append(out, wireStep{loop: loop, body: body})
 	return append(out, g.event("EndObject"))
 }
 
@@ -366,6 +542,10 @@ func (w *wireWalk) steps(steps []wireStep) []*irStmt {
 	var out []*irStmt
 	for _, s := range steps {
 		switch {
+		case s.pre != nil:
+			// It reads the value only: the run before it ends first, in
+			// the order the text writes them, and its state goes on.
+			out = append(w.flush(out), s.pre)
 		case s.ev != nil:
 			if len(w.run) == 0 && w.tail != nil {
 				// The run starts in tail's state.

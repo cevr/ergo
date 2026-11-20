@@ -21,7 +21,7 @@
       "file": "grammar.md",
       "heading": "Grammar",
       "status": "implemented",
-      "text": ": the parser `internal/sketch/syntax` and the formatter `internal/sketch/format` implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196), and nothing else. The source is the appendix \"Decided Go-shaped sketch\" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).",
+      "text": ": the parser `compiler/syntax` and the formatter `compiler/format` (both linked into `ergo`) implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196), and nothing else. The source is the appendix \"Decided Go-shaped sketch\" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).",
       "witnesses": [
         "internal/sketch/syntax:TestGrammarFixtures",
         "internal/sketch/syntax:TestGrammarStatesTheSketch",
@@ -143,7 +143,7 @@
     {
       "construct": "Formatting, `ergo-2026/formatter-2`",
       "status": "implemented",
-      "cell": "Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`)",
+      "cell": "Implemented ([#195](https://github.com/cevr/ergo/issues/195), `compiler/format`)",
       "section": "[formatting](../specs/formatting.md#2026-edition)",
       "witnesses": [
         "cmd/ergo:TestFmtUsesTheOneFormatter"
@@ -443,7 +443,7 @@
       "cell": "Checked; runs",
       "section": "[grammar](grammar.md#expressions)",
       "witnesses": [
-        "internal/sketch/format:TestTrailingFuncAgrees",
+        "internal/hostsyntax:TestTrailingFuncAgrees",
         "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
       ]
     },

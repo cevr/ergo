@@ -435,7 +435,7 @@ func Print(t Tree) string {
 	b.String()
 }
 
-func printTo(b *strings.Builder, t Tree, depth int) {
+func printTo(b mut strings.Builder, t Tree, depth int) {
 	for _ in 0..depth {
 		b.WriteString("  ")
 	}

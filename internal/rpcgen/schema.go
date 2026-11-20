@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // SchemaDir is the folder of the schema package of the package named

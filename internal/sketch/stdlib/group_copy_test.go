@@ -12,15 +12,15 @@ const groupCaller = `import ui
 
 type Item { n int, on bool }
 
-func head(f *ui.Frame[int]) {
+func head(f mut ui.Frame[int]) {
 	ui.Text(f, "head")
 }
 
-func card(f *ui.Frame[int], it Item) {
+func card(f mut ui.Frame[int], it Item) {
 	ui.Text(f, "n \(it.n)")
 }
 
-func view(f *ui.Frame[int], it Item) {
+func view(f mut ui.Frame[int], it Item) {
 	head(f)
 	card(f, it)
 }
