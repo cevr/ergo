@@ -49,24 +49,10 @@ func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
 	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
 }
 
-// argIntoRow is e, the operand x of a call, as the callee's parameter of
-// declared type want takes it. A parameter of an error row parameter's
-// type (`f F` where the function `fails F`, or a row that holds one) is a
-// Go error in the callee (types.md, Generics 1), so an error type's value
-// passed to it takes an explicit conversion, as Go assigns it implicitly:
-// the IR's call check wants the argument's type to be the parameter's
-// (toolchain/ir, assignable). A Slot parameter is a Go type parameter
-// (Generics 6), whose argument is the value's own type, so it is left as
-// it is.
-func (b *irBuilder) argIntoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
-	if e == nil || !holdsRowParam(want) || b.goType(b.operandType(x), x) == "error" {
-		return e
-	}
-	return &irExpr{K: "toiface", Pos: e.Pos, T: "error", X: e}
-}
-
 // holdsRowParam reports a parameter type that is an error row parameter
-// that is not a Slot, or a row that holds one.
+// that is not a Slot, or a row that holds one: a Go error in the
+// declaration (types.md, Generics 1), where a Slot is a Go type parameter
+// (Generics 6). The row gaps start from it (rowgap.go).
 func holdsRowParam(t check.Type) bool {
 	switch t := t.(type) {
 	case *check.TypeParam:
