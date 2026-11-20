@@ -21,6 +21,9 @@ func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.Fu
 	let names = types.Names{Params: f.Params, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}
 	let mut missing = [][]dense.ID[store.TKey]{[]dense.ID[store.TKey]{}, []dense.ID[store.TKey]{}}
 	for st in w.sites {
+		if st.lit {
+			continue
+		}
 		for e in st.extra {
 			if !slices.Contains(missing[st.kind], e) {
 				missing[st.kind] = missing[st.kind].Append(e)
@@ -38,6 +41,17 @@ func report(w mut walker, s mut store.Store, k expr.Pkg, f expr.Fn, fd syntax.Fu
 	for st in w.sites {
 		let at = syntax.NodePos(p, st.at)
 		let length = syntax.NodeEnd(p, st.at) - at
+		if st.lit {
+			// A literal is no declaration: its sites carry no clause to
+			// write (pend; rows.go escape and chargeAs).
+			let msg = if st.kind == kErrors {
+				"\(rowText(s, names, st.extra)) escapes this function literal, whose error row \(rowText(s, names, st.decl)) does not list it"
+			} else {
+				"this call requires \(types.Text(*s, names, store.TRow(s, st.extra))), which is not in the capability row of this function literal and no with provides it"
+			}
+			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: length, Code: if st.kind == kErrors { "S101" } else { "S102" }, Message: msg})
+			continue
+		}
 		if st.kind == kErrors {
 			let msg = "\(rowText(s, names, st.extra)) escapes \(fname), whose error row \(rowText(s, names, w.errs)) does not list it; \(writes[kErrors])"
 			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: length, Code: "S101", Message: msg})
