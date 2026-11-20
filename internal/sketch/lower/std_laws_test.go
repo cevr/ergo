@@ -66,7 +66,7 @@ func Carry(t apiDropping, c string, answer own func(c string) int) int {
 }
 
 test ApiExitKeepsTheCode(o api.Output) {
-	let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 }
+	let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 }
 	api.ExitOf(o) catch {
 	case os.Exit as e:
 		assert int(e.Code) == want && want != 0
@@ -165,7 +165,7 @@ test ApiCompletionNamesEachCommand(words []string, shell api.Shell) {
 
 test OsCodeWhere(v os.Code) {
 	let it = int(v)
-	assert 1 <= it && it <= 125
+	assert (1 <= it && it <= 125) || (129 <= it && it <= 192)
 	assert try os.ParseCode(it) == v
 }
 

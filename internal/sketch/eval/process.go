@@ -219,11 +219,13 @@ func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, o
 			return out, false, nil
 		}
 		code, msg := r.fields[fieldIndex(r.t, "Code")].(int64), r.fields[fieldIndex(r.t, "Message")].(string)
-		h.stderr.WriteString(msg + "\n")
-		if code >= 1 && code <= 125 {
+		if msg != "" {
+			h.stderr.WriteString(msg + "\n")
+		}
+		if code >= 1 && code <= 125 || code >= 129 && code <= 192 {
 			out.Status = int(code)
 		} else {
-			fmt.Fprintf(&h.stderr, "error: os.Exit code %d is outside 1..125\n", code)
+			fmt.Fprintf(&h.stderr, "error: os.Exit code %d is outside 1..125 and 129..192\n", code)
 			out.Status = 1
 		}
 	case ctlDefect, ctlAssert:

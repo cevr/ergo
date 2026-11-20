@@ -8,6 +8,7 @@
 // UntilStop turns a stop into structured cancellation: the body is
 // stopped, its exit actions run, and UntilStop fails with Stopped.
 
+import os
 import queue
 import scope
 import tasks
@@ -163,6 +164,34 @@ law StopEndsBody(pick int) {
 	}
 	false
 }
+
+// StatusOf is the exit status of a program a stop of kind k ended: 128
+// plus the signal's number, as a shell reports it: 130 for Interrupt, 143
+// for Terminate, 129 for Hangup (the numbers are one on every Unix host).
+// A main ends with it as signal.UntilStop(stops, run) catch { case
+// signal.Stopped as s: return os.Exit{Code: signal.StatusOf(s.Kind),
+// Message: ""} }, which writes no text, as the Go driver passes a stopped
+// program's status on.
+func StatusOf(k Stop) os.Code {
+	match k {
+	case Interrupt:
+		130
+	case Terminate:
+		143
+	case Hangup:
+		129
+	}
+}
+
+// StatusIsTheShells: StatusOf(k) is 128 plus the host's number of k's
+// signal, and never a status of a program's own failure (1..125).
+law StatusIsTheShells(pick int) {
+	let k = stopOf((pick%3+3)%3 + 1)
+	let s = int(StatusOf(k))
+	s == 128 + hostNumber(codeOf(k)) && !(1 <= s && s <= 125)
+}
+
+extern go ergo.local/prototype/runtime/v1.SignalNumber func hostNumber(code int) int
 
 // nextOf takes the next stop of q, waiting for it.
 func nextOf(q queue.Queue[int]) Stop {

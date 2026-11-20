@@ -42,6 +42,15 @@ func codeOfSignal(s os.Signal) int {
 	}
 }
 
+// SignalNumber is the host's number of the signal of a stop code: the
+// reference of std signal's StatusIsTheShells law.
+//
+//ergo:host
+//ergo:wait none
+func SignalNumber(code int) int {
+	return int(signalOfCode(code).(syscall.Signal))
+}
+
 // SignalWatch is the body of signal.Watch: from now until SignalUnwatch
 // of the number it returns, each host signal of kinds is offered to q as
 // its code instead of taking its default action. A stop that finds q full

@@ -636,31 +636,41 @@ func report(w io.Writer, err error) int {
 			defect, interruptedOnly = true, false
 			reportDefect(w, r)
 		case rt.KindInterruption:
-			io.WriteString(w, "interrupted\n")
+			io.WriteString(w, interruptedExit.Message+"\n")
 		}
 	}
 	switch {
 	case defect:
 		return 2
 	case interruptedOnly:
-		return 130
+		return int(interruptedExit.Code)
 	default:
 		return 1
 	}
 }
 
 // reportExit writes x, main's only reason, and returns its status: Message
-// and a line feed, verbatim, and Code when it is in 1..125. Any other Code
-// would claim success (0) or a status the shell reserves (126 and up), so
-// reportExit adds a line that names it and returns 1.
+// and a line feed, verbatim (nothing for an empty Message), and Code when
+// it is an os.Code: 1..125, or 129..192, 128 plus a signal's number. Any
+// other Code would claim success (0) or a status the shell keeps for itself
+// (126 to 128, and above 192), so reportExit adds a line that names it and
+// returns 1.
 func reportExit(w io.Writer, x Exit) int {
-	io.WriteString(w, x.Message+"\n")
-	if x.Code >= 1 && x.Code <= 125 {
+	if x.Message != "" {
+		io.WriteString(w, x.Message+"\n")
+	}
+	if x.Code >= 1 && x.Code <= 125 || x.Code >= 129 && x.Code <= 192 {
 		return int(x.Code)
 	}
-	io.WriteString(w, "error: os.Exit code "+strconv.Itoa(int(x.Code))+" is outside 1..125\n")
+	io.WriteString(w, "error: os.Exit code "+strconv.Itoa(int(x.Code))+" is outside 1..125 and 129..192\n")
 	return 1
 }
+
+// interruptedExit is how report ends a cause of interruptions alone: the
+// os.Exit a program writes for a stop by SIGINT (signal.StatusOf), so the
+// entry's status and text for an interruption are ones user code reaches
+// by the same path.
+var interruptedExit = Exit{Code: 130, Message: "interrupted"}
 
 // reportDefect writes the defect r as report describes.
 func reportDefect(w io.Writer, r rt.Reason) {
