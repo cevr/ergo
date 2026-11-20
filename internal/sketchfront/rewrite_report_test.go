@@ -65,6 +65,13 @@ func TestRewriteLawReported(t *testing.T) {
 		if len(got) == 1 && (got[0].By == "native") == (c.want.Verdict != "") && strings.HasPrefix(got[0].With, "runtime/v1@") {
 			got[0].By, got[0].With = "", ""
 		}
+		// The build part (LAW-BUILD-KEY): Tally's sync.Ref reaches runtime
+		// Go whose text differs by platform (v1.NewRef's closure, same
+		// declarations, other bodies), so the key may name this build,
+		// and never another, whichever host runs it.
+		if len(got) == 1 && (got[0].Build == "" || got[0].Build == lower.UnionBuild(buildTags(c.a)...)) {
+			got[0].Build = ""
+		}
 		if len(got) != 1 || got[0] != c.want {
 			t.Errorf("inspect's rewrite sites are %+v, want [%+v]", got, c.want)
 		}
