@@ -33,11 +33,11 @@ func GenerateEqualTests(seed uint64) string {
 		return "[]int{" + strings.Join(xs, ", ") + "}"
 	}
 	b.WriteString("type P { X int, Y int }\n\n")
-	b.WriteString("type Mode = Hi{N int} | Lo{}\n\n")
+	b.WriteString("type Mode = Hi{N int} | Lo\n\n")
 	b.WriteString("func evens(n int) []int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = xs.Append(i * 2)\n\t}\n\txs\n}\n\n")
 	b.WriteString("func words(n int) []string {\n\tif n > 2 {\n\t\treturn []string{\"a\", \"b\"}\n\t}\n\t[]string{\"a\"}\n}\n\n")
 	b.WriteString("func at(n int) P {\n\tP{X: n, Y: n * 2}\n}\n\n")
-	b.WriteString("func mode(n int) Mode {\n\tif n > 2 {\n\t\treturn Hi{N: n}\n\t}\n\tLo{}\n}\n\n")
+	b.WriteString("func mode(n int) Mode {\n\tif n > 2 {\n\t\treturn Hi{N: n}\n\t}\n\tLo\n}\n\n")
 	n := r.IntN(5)
 	fmt.Fprintf(&b, "test Slices {\n\tassert evens(%d) == %s\n\tassert words(%d) != []string{%s}\n}\n\n",
 		n, pick(ints(n, 0), ints(n+1, 0)), r.IntN(5), pick(`"z"`, `"a"`))

@@ -485,7 +485,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			bind, x = b.seqRange(s, lp, x) // ir_seq.go
 			pre = append(pre, bind...)
 		}
-		first := b.next               // before the key and value: ir_memo.go
+		first := b.next // before the key and value: ir_memo.go
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
