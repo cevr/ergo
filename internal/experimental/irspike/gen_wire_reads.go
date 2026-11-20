@@ -8,7 +8,7 @@ import (
 
 // wireReadSites are GenerateWireReads's functions that decode on a
 // direct reader, with an IR body in every seed (PORT-WIRE-READ).
-var wireReadSites = []string{"viaJSON", "viaRd", "load"}
+var wireReadSites = []string{"viaJSON", "viaRd", "load", "settle", "viaDecode"}
 
 // readerDecls is rd, a direct reader (wirereader.go: a named record that
 // provides the prelude's Reader by functions on its value) over json's
@@ -78,6 +78,28 @@ func load[T wire](text string) T fails json.Malformed | wired[T] needs wired[T] 
 	try decode[T](rd{inner: r})
 }
 
+// settle reads a decode's failure back as json's Decode does: a catch
+// that binds the whole row, wired[T] in it.
+func settle[T wire](text string) T fails json.Malformed | wired[T] needs wired[T] {
+	let r = try json.Open(text, 0, 0)
+	let v = decode[T](rd{inner: r}) catch {
+	case err:
+		r.Skip()
+		return err
+	}
+	v
+}
+
+func viaDecode(text string) string {
+	let e = json.Decode[Ev](json.Codec[Ev]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed:
+		return "malformed"
+	case _:
+		return "wrong"
+	}
+	show(e)
+}
+
 `
 
 // GenerateWireReads is a program that decodes records holding std's
@@ -115,6 +137,7 @@ func GenerateWireReads(seed uint64) string {
 		t := text()
 		fmt.Fprintf(&b, "\tConsole.Println(viaJSON(\"%s\"))\n\tConsole.Println(viaRd(\"%s\"))\n", t, t)
 		fmt.Fprintf(&b, "\tlet e%d = load[Ev](\"%s\") catch {\n\tcase _:\n\t\tEv{At: time.Unix(0, 0), N: -1, Name: \"failed\", Ts: []time.Time{}}\n\t}\n\tConsole.Println(show(e%d))\n", i, t, i)
+		fmt.Fprintf(&b, "\tlet s%d = settle[Ev](\"%s\") catch {\n\tcase json.Malformed:\n\t\tEv{At: time.Unix(0, 0), N: -2, Name: \"malformed\", Ts: []time.Time{}}\n\tcase _:\n\t\tEv{At: time.Unix(0, 0), N: -1, Name: \"failed\", Ts: []time.Time{}}\n\t}\n\tConsole.Println(show(s%d))\n\tConsole.Println(viaDecode(\"%s\"))\n", i, t, i, t)
 	}
 	b.WriteString("}\n")
 	return b.String()
