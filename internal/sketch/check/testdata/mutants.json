@@ -3412,6 +3412,39 @@
       "killers": [
         "cmd/ergo:TestCheckerFixtures"
       ]
+    },
+    {
+      "name": "vet-sign-none",
+      "origin": "wf10 VET-CHECK rank 2",
+      "file": "internal/sketch/check/operators.go",
+      "from": "\t\tc.decidedBySign(x, l, r)\n",
+      "to": "",
+      "rule": "diagnostics.md S108: a comparison of an unsigned value or a length with a constant its sign decides (u >= 0, len(xs) < 0) is refused.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "vet-sign-geq-strict",
+      "origin": "wf10 VET-CHECK rank 2",
+      "file": "internal/sketch/check/vet.go",
+      "from": "\t\talways, decided = true, s <= 0\n",
+      "to": "\t\talways, decided = true, s < 0\n",
+      "rule": "diagnostics.md S108: u >= 0 is decided (always true) for an unsigned u.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
+    },
+    {
+      "name": "vet-sign-no-mirror",
+      "origin": "wf10 VET-CHECK rank 2",
+      "file": "internal/sketch/check/vet.go",
+      "from": "\t\tv, vop, k, op = x.Y, r, l, mirror(x.Op)\n",
+      "to": "\t\tv, vop, k, op = x.Y, r, l, x.Op\n",
+      "rule": "diagnostics.md S108: a constant on the left reads mirrored: 0 > u is u < 0, always false.",
+      "killers": [
+        "cmd/ergo:TestCheckerFixtures"
+      ]
     }
   ]
 }

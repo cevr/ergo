@@ -8,3 +8,4 @@ exactly its markers; the lines with no marker are the rule's controls.
 | Program | Rule | Mutant |
 | --- | --- | --- |
 | self-assignment.ergo | `x = x`, a field or an element of one storing its own value (S110; go vet assign) | vet-self-assign-none, vet-self-assign-any-index |
+| sign-decided.ergo | a comparison of an unsigned value or a length with a constant its sign decides: `u >= 0`, `len(xs) < 0`, `0 > u`, `len(xs) == -1` (S108; staticcheck SA4003, SA4024) | vet-sign-none, vet-sign-geq-strict, vet-sign-no-mirror |

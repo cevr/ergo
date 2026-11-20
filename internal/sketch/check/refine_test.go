@@ -108,11 +108,18 @@ func genPredicate(rng *rand.Rand, subject string, isLen bool, d int) string {
 		ops := []string{"==", "!=", "<", "<=", ">", ">="}
 		op := ops[rng.Intn(len(ops))]
 		c := rng.Intn(256) - 128
+		left := rng.Intn(2) == 0
 		if isLen {
-			c = rng.Intn(46) - 3
+			// A length against a constant its sign decides is S108
+			// (VET-CHECK rank 2), so the bounds start at 0, and 0 itself
+			// only where it decides nothing.
+			c = rng.Intn(46)
+			if c == 0 && signDecides(op, left) {
+				c = 1
+			}
 		}
 		lit := strconv.Itoa(c)
-		if rng.Intn(2) == 0 {
+		if left {
 			return subject + " " + op + " " + lit
 		}
 		return lit + " " + op + " " + subject
@@ -178,4 +185,13 @@ func evalOperand(x syntax.Expr, v int) int {
 		return n
 	}
 	panic(fmt.Sprintf("evalOperand: %T", x))
+}
+
+// signDecides reports whether a length compared by op with 0 (the length
+// on the left when left) is decided by its sign: len >= 0, len < 0.
+func signDecides(op string, left bool) bool {
+	if left {
+		return op == ">=" || op == "<"
+	}
+	return op == "<=" || op == ">"
 }

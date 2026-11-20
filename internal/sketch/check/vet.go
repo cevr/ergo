@@ -1,6 +1,10 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"go/constant"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // The vet class (VET-CHECK): source that builds and is always wrong, which
 // Go leaves to go vet and staticcheck. Each rule here is decided by facts
@@ -60,4 +64,53 @@ func storageText(x syntax.Expr) string {
 		return storageText(x.X) + "[" + storageText(x.Indices[0]) + "]"
 	}
 	return exprText(x)
+}
+
+// nonNegative names why e's value is never negative, or "": an unsigned
+// integer, or a call of len (a prelude name, so never another function,
+// grammar Reserved names 2).
+func nonNegative(e syntax.Expr, t Type) string {
+	if isUnsigned(t) {
+		return "a value of type " + t.String() + " is never negative"
+	}
+	if call, ok := unparen(e).(*syntax.CallExpr); ok {
+		if id, ok := unparen(call.Fun).(*syntax.Ident); ok && id.Name == "len" {
+			return "a length is never negative"
+		}
+	}
+	return ""
+}
+
+// decidedBySign refuses a comparison of a never-negative value with a
+// constant that the sign alone decides: u >= 0, len(xs) < 0, 0 > u, n == -1
+// for a length (S108; staticcheck SA4003, SA4024). It reports whether it did.
+func (c *checker) decidedBySign(x *syntax.BinaryExpr, l, r operand) bool {
+	v, vop, k, op := x.X, l, r, x.Op
+	if l.mode == modeConst {
+		v, vop, k, op = x.Y, r, l, mirror(x.Op)
+	}
+	if vop.mode == modeConst || k.mode != modeConst || k.val.Kind() != constant.Int {
+		return false
+	}
+	why := nonNegative(v, vop.typ)
+	if why == "" {
+		return false
+	}
+	s := constant.Sign(k.val)
+	var always, decided bool
+	switch op {
+	case syntax.GEQ:
+		always, decided = true, s <= 0
+	case syntax.GTR, syntax.NEQ:
+		always, decided = true, s < 0
+	case syntax.LSS:
+		always, decided = false, s <= 0
+	case syntax.LEQ, syntax.EQL:
+		always, decided = false, s < 0
+	}
+	if !decided {
+		return false
+	}
+	c.errorf(x, CodeType, "this comparison is always %t: %s; compare with a value it can take, or delete the comparison", always, why)
+	return true
 }
