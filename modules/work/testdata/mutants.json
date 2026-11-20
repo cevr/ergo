@@ -1503,7 +1503,7 @@
       "from": "\tstrings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
       "to": "\tfalse && strings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
       "rule": "A memory fake that does not model a script stating its own status answers exec.NotFound, never status 0: exec.Runner.ShellRunsAsWritten for Runner, Serving and PackageManager.",
-      "anchor": {"tests": ["examples: modules/work"]}
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
