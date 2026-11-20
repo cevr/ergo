@@ -65,6 +65,22 @@ func MergeRows(base string, ours string, theirs string) Merged fails Unreadable 
 	Merged{Text: replaced(ours, edits), Conflicts: conflicts, Regenerate: false}
 }
 
+// KeyedRows is each row of the keyed lists of a JSON object, by
+// "MEMBER/NAME", to its text with its layout dropped (Bare): what a
+// lane record compares, so a reformat of a row changes none.
+func KeyedRows(text string) Map[string, string] fails Unreadable {
+	let mut out = Map[string, string]{}
+	for m in try Members(text, "rows") {
+		if !isKeyed(m.Raw) {
+			continue
+		}
+		for r in try rowsOf(m.Raw, "rows") {
+			out[m.Key + "/" + r.Key] = Bare(r.Raw)
+		}
+	}
+	out
+}
+
 // textOf is an optional raw text as text ("" when absent).
 func textOf(v Option[string]) string {
 	match v {

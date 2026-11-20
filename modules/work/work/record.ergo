@@ -1,0 +1,797 @@
+// The lane record (SEMWS M2, plan-r3 §2.2): what `ready` hands back
+// beside the branch, as a note of the tip under refs/notes/work. It is
+// not in the tree (it would conflict and it is not source) and not in a
+// run folder: the parent's repository has it wherever the branch goes.
+// Its change set is read through the language seam, so a format edit is
+// no change, a comment edit is none for a language whose Indexer says
+// so, and a rename is one change.
+
+import filepath
+import fs
+import github.com/cevr/ergo/modules/work/classes
+import hex
+import json
+import maps
+import sha256
+import slices
+import strings
+
+// RecordVersion is the version of the record's format.
+let RecordVersion = 1
+
+// NotesRef is the ref whose notes hold the records, one per tip.
+let NotesRef = "refs/notes/work"
+
+// LaneRecord is one tip's record: the unit and its branch, the tip and the
+// base it started at, the unlanded tips it stands on (On, from ancestry,
+// never typed), the intent and the request it came with, and its change
+// set, each change with the reason and the tests the request gave it.
+type LaneRecord {
+	V             int "v",
+	Unit          string "unit",
+	Branch        string "branch",
+	Tip           string "tip",
+	Base          string "base",
+	On            []OnTip "on",
+	Intent        string "intent",
+	Request       RequestRef "request",
+	Decisions     []string "decisions",
+	Changes       []RecordChange "changes",
+	Owed          []string "owed",
+	ForIntegrator []string "for_integrator",
+}
+
+// OnTip is an unlanded tip a record's tip contains: its unit (the
+// workspace's name) and the tip.
+type OnTip { Unit string "unit", Tip string "tip", Landed bool "landed" }
+
+// RequestRef is the request a tip was handed back with: its path and the
+// sha256 of its text ("" and "" for none).
+type RequestRef { Path string "path", Sha256 string "sha256" }
+
+// RecordChange is one unit of the change set: its key, its file, its kind
+// (RecordKinds), the key it had before a rename (From), the name-free
+// fingerprints of its text before and after (Fingerprint; "" for a side
+// it is absent from), and what the request said of it.
+type RecordChange {
+	Unit   string "unit",
+	File   string "file",
+	Kind   string "kind",
+	From   string "from",
+	Before string "before",
+	After  string "after",
+	Why    string "why",
+	Tests  []string "tests",
+}
+
+// RecordKinds are the kinds of a change.
+let RecordKinds = []string{"Added", "Removed", "BodyChanged", "ContractChanged", "Renamed"}
+
+let recordCodec = json.Codec[LaneRecord]{MaxBytes: 1 << 24, MaxDepth: 16}
+
+// EncodeRecord is a record's JSON text, the note ready writes.
+func EncodeRecord(r LaneRecord) string { json.Encode(recordCodec, r) }
+
+// DecodeRecord is the record a note holds.
+func DecodeRecord(tip string, text string) LaneRecord fails BadRecord {
+	json.Decode(recordCodec, text) catch {
+	case _:
+		return BadRecord{Tip: tip, Why: "its note is not a lane record"}
+	}
+}
+
+// BadRecord is a tip whose note is no record of this version.
+type BadRecord { Tip string, Why string }
+
+// NoRecord is a tip with no record: one ready did not hand back.
+type NoRecord { Tip string }
+
+// BadRequest is a request file ready -request cannot read, or whose
+// work-record block is no record block.
+type BadRequest { Path string, Why string }
+
+// change is a change of a unit with nothing said of it yet.
+func change(unit string, file string, kind string, before string, after string) RecordChange {
+	RecordChange{Unit: unit, File: file, Kind: kind, From: "", Before: before, After: after, Why: "", Tests: []string{}}
+}
+
+// Fingerprint is a unit's text with its own name read as one mark and
+// each run of white space as one space, by sha256 (16 hex digits): two
+// texts that differ only in layout, or only in the unit's name, have one
+// fingerprint.
+func Fingerprint(key string, text string) string {
+	let name = nameOf(key)
+	let free = if name == "" { text } else { strings.ReplaceAll(text, name, "\x00") }
+	strings.Slice(hex.Encode(sha256.Sum(strings.Join(strings.Fields(free), " "))), 0, 16)
+}
+
+// nameOf is the last name of a key (p.T.M is M).
+func nameOf(key string) string {
+	let at = strings.LastIndex(key, ".")
+	if at < 0 { key } else { strings.Slice(key, at+1, len(key)) }
+}
+
+// kindOfChange is a seam Change's kind as a record's.
+func kindOfChange(kind string) string {
+	match kind {
+	case "added":
+		"Added"
+	case "removed":
+		"Removed"
+	case "contract":
+		"ContractChanged"
+	case _:
+		"BodyChanged"
+	}
+}
+
+// UnitChanges is the change set of one file from its units before to its
+// units after: the seam's changes when the language gives them (indexed,
+// Some), else every unit whose fingerprint differs, so a layout edit is
+// none. Then each removed unit and each added one of equal fingerprints
+// are one Renamed change, From the old key.
+func UnitChanges(file string, before []Unit, after []Unit, indexed Option[[]Change]) []RecordChange {
+	let was = fingerprints(before)
+	let now = fingerprints(after)
+	let mut raw = []RecordChange{}
+	match indexed {
+	case Some[[]Change] as cs:
+		for c in cs.Value {
+			raw = raw.Append(change(c.Key, file, kindOfChange(c.Kind), maps.GetOr(was, c.Key, ""), maps.GetOr(now, c.Key, "")))
+		}
+	case None:
+		for u in before {
+			if now.Get(u.Key) == None {
+				raw = raw.Append(change(u.Key, file, "Removed", maps.GetOr(was, u.Key, ""), ""))
+			}
+		}
+		for u in after {
+			let print = maps.GetOr(now, u.Key, "")
+			match was.Get(u.Key) {
+			case None:
+				raw = raw.Append(change(u.Key, file, "Added", "", print))
+			case Some[string] as old:
+				if old.Value != print {
+					raw = raw.Append(change(u.Key, file, "BodyChanged", old.Value, print))
+				}
+			}
+		}
+	}
+	pairRenames(raw)
+}
+
+func fingerprints(units []Unit) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for u in units {
+		out[u.Key] = Fingerprint(u.Key, u.Text)
+	}
+	out
+}
+
+// pairRenames makes each Removed change and the first Added one of its file
+// with its fingerprint one Renamed change, in the Added one's place.
+func pairRenames(changes []RecordChange) []RecordChange {
+	let mut taken = Map[int, bool]{}
+	let mut from = Map[int, string]{}
+	for i, r in changes {
+		if r.Kind != "Removed" || r.Before == "" {
+			continue
+		}
+		for j, a in changes {
+			if a.Kind == "Added" && taken.Get(j) == None && a.File == r.File && a.After == r.Before {
+				taken[j] = true
+				taken[i] = true
+				from[j] = r.Unit
+				break
+			}
+		}
+	}
+	let mut out = []RecordChange{}
+	for i, c in changes {
+		match from.Get(i) {
+		case Some[string] as f:
+			out = out.Append(RecordChange{..c, Kind: "Renamed", From: f.Value, Before: c.After})
+		case None:
+			if taken.Get(i) == None {
+				out = out.Append(c)
+			}
+		}
+	}
+	out
+}
+
+// RecordIsTheDiff: for a file of units (key k's text "unit uK = V") and
+// an edit script on it, the change set is the reference's "units whose
+// text differs", added, removed or changed, and a layout edit of every
+// unit adds none.
+law RecordIsTheDiff(drawn Map[int, int], edits []classes.Edit, layout bool) {
+	let units = scripted(drawn, []classes.Edit{})
+	let after = scripted(drawn, edits)
+	let got = UnitChanges("f", unitsOf(units, false), unitsOf(after, layout), None)
+	let mut want = Map[string, string]{}
+	for k, v in units {
+		match after.Get(k) {
+		case None:
+			want["u\(k)"] = "Removed"
+		case Some[int] as w:
+			if w.Value != v {
+				want["u\(k)"] = "BodyChanged"
+			}
+		}
+	}
+	for k, _ in after {
+		if units.Get(k) == None {
+			want["u\(k)"] = "Added"
+		}
+	}
+	let mut seen = Map[string, string]{}
+	for c in got {
+		if c.Kind == "Renamed" {
+			// A rename pairs a removed unit and an added one of equal
+			// text: both are in the reference.
+			if maps.GetOr(want, c.From, "") != "Removed" || maps.GetOr(want, c.Unit, "") != "Added" {
+				return false
+			}
+			seen[c.From] = "Removed"
+			seen[c.Unit] = "Added"
+			continue
+		}
+		seen[c.Unit] = c.Kind
+	}
+	seen == want
+}
+
+// scripted is the drawn units, their keys folded into a few so that an
+// edit meets one, with the script applied.
+func scripted(drawn Map[int, int], script []classes.Edit) Map[int, int] {
+	let fold = func(k int) int { ((k % 8) + 8) % 8 }
+	let mut out = Map[int, int]{}
+	for k, v in drawn {
+		out[fold(k)] = v
+	}
+	for e in script {
+		match e {
+		case classes.Set as s:
+			out[fold(s.Key)] = s.Value
+		case classes.Drop as d:
+			out = out.Delete(fold(d.Key))
+		}
+	}
+	out
+}
+
+// unitsOf is a file of the generated units, in key order; with layout,
+// each text has its white space doubled.
+func unitsOf(units Map[int, int], layout bool) []Unit {
+	let mut out = []Unit{}
+	for k in slices.Sorted(maps.Keys(units)) {
+		let text = "unit u\(k) = \(maps.GetOr(units, k, 0))\n"
+		out = out.Append(Unit{Key: "u\(k)", Kind: "unit", Text: if layout { strings.ReplaceAll(text, " ", "  ") } else { text }, Exported: false, Members: []Unit{}})
+	}
+	out
+}
+
+// RenameIsOneChange: a unit renamed, its text otherwise the same, is one
+// Renamed change from its old key to its new one, and nothing else.
+law RenameIsOneChange(units Map[int, int], which int, to int) {
+	let keys = slices.Sorted(maps.Keys(units))
+	if len(keys) == 0 {
+		return true
+	}
+	let old = keys[((which%len(keys))+len(keys))%len(keys)]
+	let fresh = 1000000 + ((to%1000)+1000)%1000
+	let value = maps.GetOr(units, old, 0)
+	// Another unit of the old one's value would make the rename
+	// ambiguous: the law draws the files where it is not.
+	for k, v in units {
+		if k != old && v == value {
+			return true
+		}
+	}
+	let mut after = Map[int, int]{}
+	for k, v in units {
+		if k != old {
+			after[k] = v
+		}
+	}
+	after[fresh] = value
+	let got = UnitChanges("f", unitsOf(units, false), unitsOf(after, false), None)
+	len(got) == 1 && got[0].Kind == "Renamed" && got[0].From == "u\(old)" && got[0].Unit == "u\(fresh)"
+}
+
+// RowsChanges is the change set of a rows file (a mutant ledger) by row
+// id: a row added, removed, or changed past its layout. A side that does
+// not read as rows is one change of the file.
+func RowsChanges(file string, before string, after string) []RecordChange {
+	let b = classes.KeyedRows(before) catch {
+	case classes.Unreadable:
+		return fileChange(file, Some[string]{Value: before}, Some[string]{Value: after})
+	}
+	let a = classes.KeyedRows(after) catch {
+	case classes.Unreadable:
+		return fileChange(file, Some[string]{Value: before}, Some[string]{Value: after})
+	}
+	keyedChanges(file, "row:", b, a)
+}
+
+// keyedChanges compares two keyed texts: a key only after is Added, only
+// before Removed, with another text BodyChanged; in key order.
+func keyedChanges(file string, prefix string, before Map[string, string], after Map[string, string]) []RecordChange {
+	let mut keys = slices.Sorted(maps.Keys(before))
+	for k in slices.Sorted(maps.Keys(after)) {
+		if before.Get(k) == None {
+			keys = keys.Append(k)
+		}
+	}
+	let mut out = []RecordChange{}
+	for k in slices.Sort(keys) {
+		let b = before.Get(k)
+		let a = after.Get(k)
+		if printOf(k, b) == printOf(k, a) {
+			continue
+		}
+		let kind = if b == None { "Added" } else if a == None { "Removed" } else { "BodyChanged" }
+		out = out.Append(change(prefix+k, file, kind, printOf(k, b), printOf(k, a)))
+	}
+	out
+}
+
+func printOf(key string, text Option[string]) string {
+	match text {
+	case Some[string] as t:
+		Fingerprint(key, t.Value)
+	case None:
+		""
+	}
+}
+
+// Sections is a prose file's text by heading path ("A > B"): each
+// heading's text up to the next heading outside a fence. A heading that
+// comes twice under one path is "A > B #2". The text before the first
+// heading is the section "" when it has any.
+func Sections(text string) Map[string, string] {
+	let mut out = Map[string, string]{}
+	let mut path = []string{}
+	let mut at = ""
+	let mut body = []string{}
+	let mut fenced = false
+	for line in strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "```") {
+			fenced = !fenced
+		}
+		let depth = if fenced { 0 } else { headingDepth(line) }
+		if depth == 0 {
+			body = body.Append(line)
+			continue
+		}
+		out = section(out, at, body)
+		body = []string{}
+		let keep = if depth-1 < len(path) { depth - 1 } else { len(path) }
+		path = slices.Clone(path[0:keep]).Append(strings.TrimSpace(strings.TrimLeft(line, "#")))
+		at = strings.Join(path, " > ")
+	}
+	section(out, at, body)
+}
+
+// section is into with the lines of the section key, named again with
+// " #N" when key is taken.
+func section(into Map[string, string], key string, lines []string) Map[string, string] {
+	let joined = strings.Join(lines, "\n")
+	if key == "" && strings.TrimSpace(joined) == "" {
+		return into
+	}
+	let mut m = into
+	let mut k = key
+	let mut n = 1
+	for m.Get(k) != None {
+		n = n + 1
+		k = "\(key) #\(n)"
+	}
+	m[k] = joined
+	m
+}
+
+// headingDepth is the level of a Markdown heading line (# to ######), 0
+// for any other line.
+func headingDepth(line string) int {
+	let mut n = 0
+	for n < len(line) && n < 7 && line[n] == '#' {
+		n = n + 1
+	}
+	if n == 0 || n > 6 || n >= len(line) || line[n] != ' ' { 0 } else { n }
+}
+
+// fileChange is one change of a whole file keyed by its path: a file no
+// language reads (an .ergo file until its plugin, SEMWS M2E).
+func fileChange(file string, before Option[string], after Option[string]) []RecordChange {
+	if before == after {
+		return []RecordChange{}
+	}
+	let kind = if before == None { "Added" } else if after == None { "Removed" } else { "BodyChanged" }
+	[]RecordChange{change(file, file, kind, printOf(file, before), printOf(file, after))}
+}
+
+// ChangeSet is the change set from the tree base to the tree tip (path to
+// text), path by path in order: a rows file by row id, a file of a
+// trusted [language.NAME] by its plugin (one run for all the files of a
+// language), a Markdown file by heading, and any other file whole. A file
+// its language cannot read is whole too.
+func ChangeSet(t Tool, c Config, base Map[string, string], tip Map[string, string]) []RecordChange {
+	let mut changed = []string{}
+	for p in slices.Sorted(maps.Keys(base)) {
+		if base.Get(p) != tip.Get(p) {
+			changed = changed.Append(p)
+		}
+	}
+	for p in slices.Sorted(maps.Keys(tip)) {
+		if base.Get(p) == None {
+			changed = changed.Append(p)
+		}
+	}
+	changed = slices.Sort(changed)
+	let byLanguage = languageChanges(t, c, changed, base, tip)
+	let mut out = []RecordChange{}
+	for p in changed {
+		let b = base.Get(p)
+		let a = tip.Get(p)
+		if kindOf(ClassOf(c.Classes, p)) == "rows" && b != None && a != None {
+			out = slices.Concat(out, RowsChanges(p, textOf(b), textOf(a)))
+		} else if byLanguage.Get(p) != None {
+			out = slices.Concat(out, maps.GetOr(byLanguage, p, []RecordChange{}))
+		} else if strings.HasSuffix(p, ".md") {
+			out = slices.Concat(out, keyedChanges(p, p+"#", Sections(textOf(b)), Sections(textOf(a))))
+		} else {
+			out = slices.Concat(out, fileChange(p, b, a))
+		}
+	}
+	out
+}
+
+// languageChanges is the change set of each changed path a trusted
+// [language.NAME] takes, by its plugin: the units of both sides and the
+// changes (ChangesOf) of every such path in one run. A path the plugin
+// cannot read is absent.
+func languageChanges(t Tool, c Config, paths []string, base Map[string, string], tip Map[string, string]) Map[string, []RecordChange] {
+	let mut out = Map[string, []RecordChange]{}
+	if len(c.Languages) == 0 || !trusted(t, c) {
+		return out
+	}
+	for l in c.Languages {
+		let mut mine = []string{}
+		let mut asks = []Request{}
+		for p in paths {
+			if kindOf(ClassOf(c.Classes, p)) == "rows" {
+				continue
+			}
+			match LanguageOf(c, p) {
+			case Some[LanguageLine] as of:
+				if of.Value.Name != l.Name {
+					continue
+				}
+			case None:
+				continue
+			}
+			mine = mine.Append(p)
+			for side in []Option[string]{base.Get(p), tip.Get(p)} {
+				match side {
+				case Some[string] as text:
+					asks = asks.Append(UnitsOf{File: p, Text: text.Value})
+				case None:
+				}
+			}
+			asks = asks.Append(ChangesOf{Base: sideOf(p, base.Get(p)), Head: sideOf(p, tip.Get(p))})
+		}
+		if len(mine) == 0 {
+			continue
+		}
+		let plugin = Knowing(PluginOf(t.runner, l.Command, t.base), asks)
+		for p in mine {
+			let cs = FileChanges(plugin, plugin, p, base.Get(p), tip.Get(p)) catch {
+			case Unreadable, Unanswered:
+				continue
+			}
+			out[p] = cs
+		}
+	}
+	out
+}
+
+// sideOf is the snapshot of one file alone (none when text is None).
+func sideOf(file string, text Option[string]) Snapshot { Snapshot{Root: "", Layer: []FileEdit{FileEdit{Path: file, Text: text}}} }
+
+// FileChanges is the change set of one file by a language's Splitter s
+// and Indexer i (UnitChanges): an absent side has no units, and an
+// Indexer that does not give changes leaves them to the units' texts.
+func FileChanges(s Splitter, i Indexer, file string, before Option[string], after Option[string]) []RecordChange fails Unreadable | Unanswered {
+	let b = try unitsOfSide(s, file, before)
+	let a = try unitsOfSide(s, file, after)
+	let indexed = i.Changes(sideOf(file, before), sideOf(file, after)) catch {
+	case NotProvided:
+		return UnitChanges(file, b, a, None)
+	case Unanswered as u:
+		return u
+	}
+	UnitChanges(file, b, a, Some[[]Change]{Value: indexed})
+}
+
+func unitsOfSide(s Splitter, file string, text Option[string]) []Unit fails Unreadable | Unanswered {
+	match text {
+	case Some[string] as x:
+		try s.Units(file, x.Value)
+	case None:
+		[]Unit{}
+	}
+}
+
+// UnlandedOn is the record's On: each lane (unit and tip) whose tip the
+// tip holds, that is not the tip, and that the base's head does not hold
+// (not landed), in the lanes' order. holds(commit, ancestor) is whether
+// commit contains ancestor.
+func UnlandedOn(tip string, head string, lanes []OnTip, holds func(commit string, ancestor string) bool) []OnTip {
+	let mut out = []OnTip{}
+	for l in lanes {
+		if l.Tip != "" && l.Tip != tip && holds(tip, l.Tip) && !holds(head, l.Tip) {
+			out = out.Append(OnTip{Unit: l.Unit, Tip: l.Tip, Landed: false})
+		}
+	}
+	out
+}
+
+// OnIsTheUnlandedAncestry: on a generated commit graph (each commit's
+// parents are earlier commits), a lane is in On exactly when a reference
+// walk from the tip over the parents reaches its tip, it is not the tip,
+// and the walk from the base's head does not reach it.
+law OnIsTheUnlandedAncestry(parents Map[int, []int], lanes Map[int, int], tip int, head int) {
+	let graph = dagOf(parents)
+	let n = len(graph)
+	let at = func(i int) int { ((i % n) + n) % n }
+	let mut drawn = []OnTip{}
+	for name in slices.Sorted(maps.Keys(lanes)) {
+		drawn = drawn.Append(OnTip{Unit: "l\(name)", Tip: "c\(at(maps.GetOr(lanes, name, 0)))", Landed: false})
+	}
+	let fromTip = walk(graph, at(tip))
+	let fromHead = walk(graph, at(head))
+	let holds = func(commit string, ancestor string) bool {
+		let c = strings.TrimPrefix(commit, "c")
+		let a = strings.TrimPrefix(ancestor, "c")
+		reaches(graph, c, a)
+	}
+	let got = UnlandedOn("c\(at(tip))", "c\(at(head))", drawn, holds)
+	let mut want = []OnTip{}
+	for l in drawn {
+		let c = strings.TrimPrefix(l.Tip, "c")
+		if l.Tip != "c\(at(tip))" && fromTip.Get(c) != None && fromHead.Get(c) == None {
+			want = want.Append(l)
+		}
+	}
+	got == want
+}
+
+// dagOf is a graph of at least one commit, "0" to "n-1", whose parents
+// are the drawn ones taken below each commit.
+func dagOf(parents Map[int, []int]) Map[string, []string] {
+	let n = len(parents) + 1
+	let mut out = Map[string, []string]{}
+	for i in 0..n {
+		let mut ps = []string{}
+		if i > 0 {
+			for p in maps.GetOr(parents, i, []int{}) {
+				ps = ps.Append("\(((p % i) + i) % i)")
+			}
+		}
+		out["\(i)"] = ps
+	}
+	out
+}
+
+// walk is every commit reachable from start (itself too), breadth first:
+// the reference.
+func walk(graph Map[string, []string], start int) Map[string, bool] {
+	let mut seen = Map[string, bool]{"\(start)": true}
+	let mut queue = []string{"\(start)"}
+	let mut i = 0
+	for i < len(queue) {
+		for p in maps.GetOr(graph, queue[i], []string{}) {
+			if seen.Get(p) == None {
+				seen[p] = true
+				queue = queue.Append(p)
+			}
+		}
+		i = i + 1
+	}
+	seen
+}
+
+// reaches is whether from reaches to by parents, depth first: the walk
+// the provider stands for (git merge-base --is-ancestor).
+func reaches(graph Map[string, []string], from string, to string) bool {
+	if from == to {
+		return true
+	}
+	for p in maps.GetOr(graph, from, []string{}) {
+		if reaches(graph, p, to) {
+			return true
+		}
+	}
+	false
+}
+
+// RecordBlock is the fenced work-record block of a request (its JSON):
+// what the request says that ready cannot see. Each field may be absent.
+type RecordBlock {
+	Unit          json.Optional[string] "unit",
+	Intent        json.Optional[string] "intent",
+	Decisions     json.Optional[[]string] "decisions",
+	Changes       json.Optional[[]StatedChange] "changes",
+	Owed          json.Optional[[]string] "owed",
+	ForIntegrator json.Optional[[]string] "for_integrator",
+}
+
+// StatedChange is what a request says of one unit of its change set.
+type StatedChange { Unit string "unit", Why json.Optional[string] "why", Tests json.Optional[[]string] "tests" }
+
+let blockCodec = json.Codec[RecordBlock]{MaxBytes: 1 << 20, MaxDepth: 16}
+
+// RecordFence opens a request's work-record block.
+let RecordFence = "```work-record"
+
+// blockOf is the work-record block of a request's text, None when it has
+// none.
+func blockOf(path string, text string) Option[RecordBlock] fails BadRequest {
+	let at = strings.Index(text, RecordFence+"\n")
+	if at < 0 {
+		return None
+	}
+	let rest = strings.Slice(text, at+len(RecordFence)+1, len(text))
+	let end = strings.Index(rest, "\n```")
+	if end < 0 {
+		return BadRequest{Path: path, Why: "its work-record block has no end"}
+	}
+	let b = json.Decode(blockCodec, strings.Slice(rest, 0, end)) catch {
+	case _:
+		return BadRequest{Path: path, Why: "its work-record block is not a record block"}
+	}
+	Some[RecordBlock]{Value: b}
+}
+
+// Recorded is the record of a tip: its unit, branch, base and On, and the
+// change set; with a request (path and text), the request's digest, and
+// its block's intent, decisions, owed and notes, and each stated change's
+// why and tests; a request with no block gives its first line as the
+// intent. A change no request names has no why.
+func Recorded(unit string, branch string, tip string, base string, on []OnTip, changes []RecordChange, request Option[RequestText]) LaneRecord fails BadRequest {
+	let mut r = LaneRecord{V: RecordVersion, Unit: unit, Branch: branch, Tip: tip, Base: base, On: on, Intent: "", Request: RequestRef{Path: "", Sha256: ""}, Decisions: []string{}, Changes: changes, Owed: []string{}, ForIntegrator: []string{}}
+	let req = match request {
+	case Some[RequestText] as q:
+		q.Value
+	case None:
+		return r
+	}
+	r = LaneRecord{..r, Request: RequestRef{Path: req.Path, Sha256: hex.Encode(sha256.Sum(req.Text))}, Intent: strings.TrimSpace(strings.TrimLeft(strings.Split(strings.TrimSpace(req.Text), "\n")[0], "#"))}
+	let block = match try blockOf(req.Path, req.Text) {
+	case Some[RecordBlock] as b:
+		b.Value
+	case None:
+		return r
+	}
+	let stated = optional(block.Changes, []StatedChange{})
+	let mut told = []RecordChange{}
+	for c in changes {
+		let i = slices.IndexFunc(stated, func(s StatedChange) bool { s.Unit == c.Unit })
+		if i < 0 {
+			told = told.Append(c)
+		} else {
+			told = told.Append(RecordChange{..c, Why: optional(stated[i].Why, ""), Tests: optional(stated[i].Tests, []string{})})
+		}
+	}
+	LaneRecord{..r, Unit: optional(block.Unit, unit), Intent: optional(block.Intent, r.Intent), Decisions: optional(block.Decisions, []string{}), Changes: told, Owed: optional(block.Owed, []string{}), ForIntegrator: optional(block.ForIntegrator, []string{})}
+}
+
+// RequestText is a request file: its path as given and its text.
+type RequestText { Path string, Text string }
+
+// requestOf is the request ready -request names, read from the working
+// folder; None for no -request. It is read before the push, so a request
+// that cannot be read hands nothing back.
+func requestOf(t Tool, path Option[string]) Option[RequestText] fails BadRequest {
+	let p = match path {
+	case Some[string] as given:
+		given.Value
+	case None:
+		return None
+	}
+	let full = if filepath.IsAbs(p) { p } else { filepath.Join([]string{t.here, p}) }
+	let text = t.files.ReadFile(full) catch {
+	case fs.NotFound:
+		return BadRequest{Path: p, Why: "no such file"}
+	case fs.Denied:
+		return BadRequest{Path: p, Why: "it may not be read"}
+	case fs.Failed as f:
+		return BadRequest{Path: p, Why: f.Reason}
+	}
+	let req = RequestText{Path: p, Text: text}
+	let _ = try blockOf(p, text)
+	Some[RequestText]{Value: req}
+}
+
+// recordOf is the record of the tip ready handed back for w: the change
+// set from the tree of w's base commit (none when it has none) to the
+// tip's, by work.toml's classes and languages (none when it does not
+// read), and On from the other active workspaces' branches in the parent.
+func recordOf(t Tool, w Workspace, branch string, tip string, request Option[RequestText]) LaneRecord fails VcsFailed | BadRequest | Unkept {
+	let c = config(t) catch {
+	case BadConfig:
+		EmptyConfig()
+	}
+	let baseFiles = if w.Base == "" {
+		Map[string, string]{}
+	} else {
+		let tree = t.vcs.TreeOf(w.Path, w.Base) catch {
+		case NoRevision:
+			""
+		case VcsFailed as e:
+			return e
+		}
+		if tree == "" { Map[string, string]{} } else { try t.vcs.Read(w.Path, tree) }
+	}
+	let tipTree = t.vcs.TreeOf(w.Path, tip) catch {
+	case NoRevision:
+		return VcsFailed{Reason: "\(w.Path) has no commit \(tip)"}
+	case VcsFailed as e:
+		return e
+	}
+	let changes = ChangeSet(t, c, baseFiles, try t.vcs.Read(w.Path, tipTree))
+	let mut lanes = []OnTip{}
+	for other in try t.registry.All() {
+		if other.Name == w.Name || other.Branch == "" || other.State != Active {
+			continue
+		}
+		let at = t.vcs.Resolve(w.Parent, "refs/heads/"+other.Branch) catch {
+		case NoRevision, VcsFailed:
+			continue
+		}
+		lanes = lanes.Append(OnTip{Unit: other.Name, Tip: at, Landed: false})
+	}
+	let head = t.vcs.Resolve(t.base, "HEAD") catch {
+	case NoRevision:
+		""
+	case VcsFailed as e:
+		return e
+	}
+	let holds = func(commit string, ancestor string) bool {
+		if commit == "" {
+			return false
+		}
+		t.vcs.Contains(w.Parent, commit, ancestor) catch {
+		case VcsFailed:
+			false
+		}
+	}
+	try Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, holds), changes, request)
+}
+
+// Record reads the note of tip in the workspace the working folder is in
+// (else the base).
+func Record(t Tool, tip string) LaneRecord fails NoBase | NoRevision | NoRecord | BadRecord | Unkept | VcsFailed {
+	try initialized(t)
+	let here = chosen(t, None) catch {
+	case NotHere, NoWorkspace, Unkept:
+		Workspace{Name: "", Id: "", Path: t.base, Parent: "", Branch: "", Cloner: "", State: Active, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+	}
+	let root = here.Path
+	let commit = try t.vcs.Resolve(root, tip)
+	let note = try t.vcs.Note(root, commit)
+	if note == "" {
+		return NoRecord{Tip: commit}
+	}
+	try DecodeRecord(commit, note)
+}
+
+func optional[T](o json.Optional[T], otherwise T) T {
+	match o {
+	case json.Present[T] as p:
+		p.Value
+	case json.Absent:
+		otherwise
+	}
+}
