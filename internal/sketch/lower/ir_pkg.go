@@ -577,16 +577,22 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
 			irNo("std call with an adapted result")
 		}
-		for i, r := range body.Results {
-			if !b.sameGo(tuple.Types[i], r) {
-				irNo("std call with a converted result")
-			}
-		}
 	}
 	// A generic body's instance (F1): each Go type parameter takes the
 	// call's type argument for the Ergo type parameter of its name, as the
 	// emitter's stdTypeArgs writes it; the body's Go types read with them.
 	targs, subst := b.stdTypeArgs(body, c, x)
+	if isTuple {
+		// Each result is the element's Go type, read as a single result
+		// is (below): spelled alike, or the runtime's at the instance
+		// (TakeAt's (T, []T), actor's shown (S, int), keyState's []byte
+		// as []uint8; CONV-RESULT).
+		for i, r := range body.Results {
+			if !b.sameGo(tuple.Types[i], r) && !b.sameRT(tuple.Types[i], r, subst, body.Package) {
+				irNo("std call with a converted result")
+			}
+		}
+	}
 	// The decoder takes an argument and a result of the runtime's Go type
 	// itself (types2.Identical), where Go text would also assign a
 	// defined type to its underlying one: each must be spelled alike.
