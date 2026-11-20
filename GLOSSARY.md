@@ -262,13 +262,23 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Language protocol**: A nominal row label whose charging or discharge a construct's own checking rule defines, such as `go.Foreign` for calls through `import go`, or `sync.Tx` inside `sync.Atomically`. It is predeclared. An ordinary capability, whose label enters a row only through declared operations or requirements, is not a language protocol.
 
-**Constraint** ([#141](https://github.com/cevr/ergo/issues/141); was "Where clause"): A requirement on a generic type parameter that its type provides a method or belongs to a named interface such as `comparable` or `cmp.Ordered`. The spelling is provisional until [#135](https://github.com/cevr/ergo/issues/135).
+**Constraint** ([#141](https://github.com/cevr/ergo/issues/141), CONSTRAINTS; was "Where clause"): A requirement on a generic type parameter, written in bound position: `[T C]`. It is an operation type, whose operations the type argument must have by a declared `implements` clause, and whose **type set** it must be in, or the predeclared `comparable`. One mechanism serves std and users alike: the prelude's `ordered` and `number` are ordinary type-set declarations. A bound may name its own parameter, or its own type: `type Ranked[T Ranked[T]]`.
+
+**Type set** (CONSTRAINTS C1): The member of an operation type that lists types by terms joined by `|`: `~int | ~int64`. A `~T` term admits every type defined over `T`; a bare `T` admits `T` alone; the term `comparable` admits the comparable types. An operation type with a type set is a constraint only, never the type of a value. A body may apply to a `T` under it the operators that every type of the set has (Go's rule).
+
+**Order** (#211, CONSTRAINTS C3): std's `cmp.Order[T]`, an operation type with `Compare(a T, b T) int` and the laws `Reflexive`, `Antisymmetric` and `Transitive`. An order is a provider value that a call names (`slices.SortBy(xs, ByPriority)`), so a type may have many orders and a program may order a type it does not own (`cmp.Natural[int]`). Not a type's own method: nothing is looked up.
 
 **Owner package** ([#141](https://github.com/cevr/ergo/issues/141); was "Owner module"): The package that declares a type. Methods are declared only there, as in Go, so a constraint on a type has one answer: the owner's method. A function type, a row or a resource handle without such a method satisfies no method constraint.
 
-**Method argument** ([#141](https://github.com/cevr/ergo/issues/141)): The method value the compiler passes for a satisfied constraint in the lowered code. It is the same function value a caller could pass by hand, and Go generics carry it in their dictionaries.
+**Method argument** ([#141](https://github.com/cevr/ergo/issues/141)): The operations the compiler passes for a satisfied constraint in the lowered code: a witness, a struct with one function per operation, the same functions a caller could pass by hand, as Go generics carry them in their dictionaries. Where the instance is known, a copy of the callee for it calls the operations directly and takes no witness (types.md, Generics 5).
 
 **Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine, the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
+
+**Hashing provider**: A provider of the prelude's operation type `Hashing[K]` (`Hash` and `Equal`, with four laws), named as a Map's third type argument: `Map[K, V, H]` finds its keys through `H`. `Structural[K]` is the provider of `==` and `hash`, and `Map[K, V]` is `Map[K, V, Structural[K]]`. See [types](docs/spec/types.md#maps), Maps.
+
+**Normal-form shape**: A Hashing provider whose `Equal(a, b)` is `n(a) == n(b)` and whose `Hash(k)` is `hash(n(k))` for one expression `n` of the key alone, of the key's type. The checker derives its `NormalForm` true and `NormalKey` `n(k)`, so its Map holds Go's map keyed by `n(k)`, each entry keeping the key's first spelling; a provider without it holds the prelude's table. See [types](docs/spec/types.md#maps), Maps 6.
+
+**Admission**: A law parameter's `where` that names an earlier parameter, `b K where Equal(a, b)`: a law of its own over the parameters up to it. A case runs only when every admission holds, and a parameter that names an earlier one of an identical type is found among that value's near variants. See [types](docs/spec/types.md#laws), Laws 15.
 
 **Invariant law**: A machine law `law L always p` or `law L sometimes p`, with `p` a pure function from the machine's state to `bool`. `always` holds when every reachable state satisfies `p`, the start included; `sometimes` holds when one does, shown by a shortest witness run. See [types](docs/spec/types.md#laws) Laws 13.
 
@@ -286,7 +296,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Construction check** (patterns): The compiler's check that a deterministic matcher follows the canonical tagged NFA of a pattern on every reachable state, every byte and the end of input, with the same ordered capture events. Only this check selects a faster matcher; a law never does. See [patterns](docs/spec/patterns.md#lowering).
 
-**Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An interface used as a constraint together with the laws stated over its methods. A type satisfies the contract when it has the methods and its laws hold.
+**Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An operation type used as a constraint together with the laws stated in it. A type satisfies the contract when it declares that it implements the operation type and the laws hold for it: `ergo test` runs each law for each implementing type (types.md, Laws 10). `cmp.Order` is one.
 
 **Provider protocol** ([#170](https://github.com/cevr/ergo/issues/170)): A capability together with its provider laws. A provider is admitted for the capability by passing them, whatever its implementation.
 
