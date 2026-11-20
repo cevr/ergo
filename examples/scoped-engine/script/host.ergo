@@ -135,7 +135,7 @@ func Label(p Press) string {
 	}
 }
 
-func read(h *Host, held int) Frame {
+func read(h mut Host, held int) Frame {
 	let shown = tokens(ui.Screen(h), false)
 	// the status line is the text after the heading
 	Frame{Shown: shown, Status: if len(shown) > 1 { shown[1] } else { "" }, Held: held, Counts: ui.Counts(h)}

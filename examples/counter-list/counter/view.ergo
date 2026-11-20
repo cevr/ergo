@@ -5,7 +5,7 @@ import ui
 // signal from the counter's own, so a parent embeds the view as it routes
 // the signal back (a submodel and its message to the parent). The
 // counter still knows nothing of the list it is in.
-func View[E](f *ui.Frame[E], c Count, to func(s Signal) E) {
+func View[E](f mut ui.Frame[E], c Count, to func(s Signal) E) {
 	ui.Row(f, ui.Plain()) {
 		ui.Pressable(f, "-", to(Decrement)) {
 			ui.Text(f, "-")
