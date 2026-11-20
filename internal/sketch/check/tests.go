@@ -230,7 +230,7 @@ func (c *checker) checkTest(test *Test) {
 					c.errorf(id, CodeType, "%s is already a parameter of %s", id.Name, name)
 					continue
 				}
-				v.refused = c.preludeName(id) // D-D3; the parameter still binds
+				v.refused = c.refusedBinder(id) // the parameter still binds
 				c.def(id, v)
 				frame.insert(id.Name, v)
 			}

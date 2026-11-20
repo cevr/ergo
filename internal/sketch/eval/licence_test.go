@@ -210,21 +210,22 @@ func (l licenceLaw) model() (string, string) {
 //
 // ERGO_LICENCE_SEED=N replays one seed.
 func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
-	loadNatives()
-	lower, upper := goNatives["strings.ToLower"], goNatives["strings.ToUpper"]
+	lower, upper := loadedNatives().goLib["strings.ToLower"], loadedNatives().goLib["strings.ToUpper"]
 	if lower == nil || upper == nil {
 		t.Fatal("no native of strings.ToLower or strings.ToUpper")
 	}
-	goNatives["strings.ToLower"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	loadedNatives().goLib["strings.ToLower"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.ambient.zone != ambients[0].zone {
 			return args[0].(string) + "@", nil
 		}
 		return args[0], nil
 	}
-	goNatives["strings.ToUpper"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	loadedNatives().goLib["strings.ToUpper"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return nil, fr.unsupported(at, "the fixture's Skip")
 	}
-	t.Cleanup(func() { goNatives["strings.ToLower"], goNatives["strings.ToUpper"] = lower, upper })
+	t.Cleanup(func() {
+		loadedNatives().goLib["strings.ToLower"], loadedNatives().goLib["strings.ToUpper"] = lower, upper
+	})
 	seeds := []uint64{}
 	if s := os.Getenv("ERGO_LICENCE_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -262,7 +263,7 @@ func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
 			if law == nil || law.FuncRewrite == nil {
 				t.Fatalf("seed %d: %s is no rewrite in scope\n%s", seed, l.name, src)
 			}
-			got, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1}, nil)
+			got, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1}, nil, nil)
 			if err != nil {
 				t.Fatalf("seed %d, %s: %v", seed, l.name, err)
 			}
@@ -292,7 +293,7 @@ func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
 			if got.Verdict == "refuted" && got.Case != "" {
 				// The refuted case's corpus line, given back, is the
 				// next run's first case, and refutes it there.
-				again, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1}, []string{got.Case})
+				again, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1}, []string{got.Case}, nil)
 				if err != nil || again.Verdict != "refuted" || again.Cases != 0 {
 					fail(fmt.Sprintf("the corpus line %s does not refute the law at the first case: %s, %v", got.Case, again.Line(), err))
 				}

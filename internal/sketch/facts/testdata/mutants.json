@@ -132,7 +132,7 @@
       "file": "internal/sketch/facts/codec.go",
       "from": "\t\t\tm.Exit = append(m.Exit, d.place())\n",
       "to": "\t\t\t_ = d.place()\n",
-      "rule": "A machine's exit actions survive the table's encoding (fk-gallery's studio has one).",
+      "rule": "A machine's exit actions survive the table's encoding (gallery's studio has one).",
       "killers": [
         "internal/sketch/facts:TestTablesAgreeWithScanOnExamples"
       ]

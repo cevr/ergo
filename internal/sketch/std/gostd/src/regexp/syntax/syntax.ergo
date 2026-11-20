@@ -5,7 +5,7 @@
 extern go regexp/syntax.ClassNL let ClassNL Flags
 
 // ergo:go func Compile(re *Regexp) (*Prog, error)
-extern go regexp/syntax.Compile func Compile(re own *Regexp) go.Ref[Prog] fails go.Error needs go.Foreign
+extern go regexp/syntax.Compile func Compile(re own *Regexp) Option[go.Ref[Prog]] fails go.Error needs go.Foreign
 
 // ergo:go const DotNL Flags
 extern go regexp/syntax.DotNL let DotNL Flags
@@ -29,6 +29,7 @@ extern go regexp/syntax.EmptyNoWordBoundary let EmptyNoWordBoundary EmptyOp
 extern go regexp/syntax.EmptyOp type EmptyOp uint8
 
 // ergo:go func EmptyOpContext(r1 rune, r2 rune) EmptyOp
+// ergo:total
 extern go regexp/syntax.EmptyOpContext func EmptyOpContext(r1 rune, r2 rune) EmptyOp needs go.Foreign
 
 // ergo:go const EmptyWordBoundary EmptyOp
@@ -95,6 +96,7 @@ extern go regexp/syntax.Error.Error func (e *Error) Error() string needs go.Fore
 extern go regexp/syntax.ErrorCode type ErrorCode string
 
 // ergo:go func (ErrorCode).String() string
+// ergo:total
 extern go regexp/syntax.ErrorCode.String func (e ErrorCode) String() string needs go.Foreign
 
 // ergo:go type Flags uint16
@@ -163,6 +165,7 @@ extern go regexp/syntax.InstRuneAny let InstRuneAny InstOp
 extern go regexp/syntax.InstRuneAnyNotNL let InstRuneAnyNotNL InstOp
 
 // ergo:go func IsWordChar(r rune) bool
+// ergo:total
 extern go regexp/syntax.IsWordChar func IsWordChar(r rune) bool needs go.Foreign
 
 // ergo:go const Literal Flags
@@ -244,7 +247,7 @@ extern go regexp/syntax.OpWordBoundary let OpWordBoundary Op
 extern go regexp/syntax.POSIX let POSIX Flags
 
 // ergo:go func Parse(s string, flags Flags) (*Regexp, error)
-extern go regexp/syntax.Parse func Parse(s string, flags Flags) go.Ref[Regexp] fails go.Error needs go.Foreign
+extern go regexp/syntax.Parse func Parse(s string, flags Flags) Option[go.Ref[Regexp]] fails go.Error needs go.Foreign
 
 // ergo:go const Perl Flags
 extern go regexp/syntax.Perl let Perl Flags

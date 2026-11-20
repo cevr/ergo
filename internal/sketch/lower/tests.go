@@ -2250,6 +2250,7 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 	case *check.Slice:
 		return l.helper("GenSlice") + "(" + r + ", " + d + ", " + elem(u.Elem) + ")"
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: GenMap makes Go's map
 		return l.helper("GenMap") + "(" + r + ", " + d + ", " + elem(u.Key) + ", " + elem(u.Elem) + ")"
 	case *check.Tuple:
 		parts := make([]string, len(u.Types))

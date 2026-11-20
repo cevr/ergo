@@ -506,9 +506,11 @@ extern go syscall.Close func Close(fd int) fails go.Error needs go.Foreign
 extern go syscall.CloseOnExec func CloseOnExec(fd int) needs go.Foreign
 
 // ergo:go func CmsgLen(datalen int) int
+// ergo:total
 extern go syscall.CmsgLen func CmsgLen(datalen int) int needs go.Foreign
 
 // ergo:go func CmsgSpace(datalen int) int
+// ergo:total
 extern go syscall.CmsgSpace func CmsgSpace(datalen int) int needs go.Foreign
 
 // ergo:go type Cmsghdr struct
@@ -5308,6 +5310,7 @@ extern go syscall.Setuid func Setuid(uid int) fails go.Error needs go.Foreign
 extern go syscall.Signal type Signal int
 
 // ergo:go func (Signal).Signal()
+// ergo:total
 extern go syscall.Signal.Signal func (s Signal) Signal() needs go.Foreign
 
 // ergo:go func (Signal).String() string
@@ -6110,30 +6113,39 @@ extern go syscall.Wait4 func Wait4(pid int, wstatus own *WaitStatus, options int
 extern go syscall.WaitStatus type WaitStatus uint32
 
 // ergo:go func (WaitStatus).Continued() bool
+// ergo:total
 extern go syscall.WaitStatus.Continued func (w WaitStatus) Continued() bool needs go.Foreign
 
 // ergo:go func (WaitStatus).CoreDump() bool
+// ergo:total
 extern go syscall.WaitStatus.CoreDump func (w WaitStatus) CoreDump() bool needs go.Foreign
 
 // ergo:go func (WaitStatus).ExitStatus() int
+// ergo:total
 extern go syscall.WaitStatus.ExitStatus func (w WaitStatus) ExitStatus() int needs go.Foreign
 
 // ergo:go func (WaitStatus).Exited() bool
+// ergo:total
 extern go syscall.WaitStatus.Exited func (w WaitStatus) Exited() bool needs go.Foreign
 
 // ergo:go func (WaitStatus).Signal() Signal
+// ergo:total
 extern go syscall.WaitStatus.Signal func (w WaitStatus) Signal() Signal needs go.Foreign
 
 // ergo:go func (WaitStatus).Signaled() bool
+// ergo:total
 extern go syscall.WaitStatus.Signaled func (w WaitStatus) Signaled() bool needs go.Foreign
 
 // ergo:go func (WaitStatus).StopSignal() Signal
+// ergo:total
 extern go syscall.WaitStatus.StopSignal func (w WaitStatus) StopSignal() Signal needs go.Foreign
 
 // ergo:go func (WaitStatus).Stopped() bool
+// ergo:total
 extern go syscall.WaitStatus.Stopped func (w WaitStatus) Stopped() bool needs go.Foreign
 
 // ergo:go func (WaitStatus).TrapCause() int
+// ergo:total
 extern go syscall.WaitStatus.TrapCause func (w WaitStatus) TrapCause() int needs go.Foreign
 
 // ergo:go func Write(fd int, p []byte) (n int, err error)

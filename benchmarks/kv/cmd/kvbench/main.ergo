@@ -1,0 +1,92 @@
+// kvbench is ST3's receipt program: N operations on a std kv store over
+// 64 keys. Its hand Go twin and the Go floor are in ../../testdata; a
+// workload per kind in ../../KIND (go run ./scripts/opcount -control
+// -rounds 5 benchmarks/kv/KIND).
+//
+//	kvbench bench KIND N
+//
+// KIND is get (N gets from a memory store that holds the 64 keys), put (N
+// puts into a memory store) or fileput (N puts into a file store, each an
+// append to the log at $TMPDIR/kvbench-ergo.log, which it empties first).
+// One unit is one operation. It prints a checksum: the bytes of the
+// values the gets found, or the count of puts.
+
+import fs
+import kv
+import kv/file
+import kv/memory
+import os
+import strconv
+
+func keys() []string {
+	let mut ks = []string{}
+	for i in 0..64 {
+		ks = ks.Append("key-\(i)")
+	}
+	ks
+}
+
+func gets(n int) int fails kv.Failed {
+	let s = memory.New()
+	let ks = keys()
+	for k in ks {
+		try s.Put(k, "value of " + k)
+	}
+	let mut found = 0
+	for i in 0..n {
+		match try s.Get(ks[i%64]) {
+		case Some[string] as v:
+			found += len(v.Value)
+		case None:
+		}
+	}
+	found
+}
+
+func puts(s kv.Store, n int) int fails kv.Failed {
+	let ks = keys()
+	for i in 0..n {
+		try s.Put(ks[i%64], "v")
+	}
+	n
+}
+
+func bench(kind string, n int, dir string) int fails kv.Failed needs Ambient {
+	if kind == "get" {
+		return try gets(n)
+	}
+	if kind == "put" {
+		return try puts(memory.New(), n)
+	}
+	let host = fs.NewHost()
+	let path = dir + "/kvbench-ergo.log"
+	fs.WriteFile(host, path, "") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return kv.Failed{Reason: "cannot empty " + path}
+	}
+	try puts(try file.Open(host, host, path), n)
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: kvbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "kvbench: N is not a count"}
+		}
+		let dir = match os.Process.Getenv("TMPDIR") {
+		case Some[string] as d:
+			d.Value
+		case None:
+			"/tmp"
+		}
+		let sum = bench(args[1], n, dir) catch {
+		case kv.Failed as f:
+			return os.Exit{Code: 1, Message: "kvbench: " + f.Reason}
+		}
+		Console.Println("\(sum)")
+	}
+}

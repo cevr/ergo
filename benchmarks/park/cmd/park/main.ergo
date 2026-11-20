@@ -20,8 +20,10 @@ func untimed(s int) Option[Timeout[int]] { None }
 
 func unworked(s int) Option[func(send func(e int))] { None }
 
+func unexited(s int) Option[func()] { None }
+
 // counter adds each signal to its state; an Ask answers the new state.
-func counter() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: add, After: untimed, Work: unworked} }
+func counter() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: add, After: untimed, Work: unworked, Exit: unexited} }
 
 func spawn(n int) int {
 	let mut acc = 0

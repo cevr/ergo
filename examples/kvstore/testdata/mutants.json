@@ -1,0 +1,21 @@
+{
+  "about": "kvstore's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "kv-session-skips-the-edge", "origin": "wf10 RT-SPIKE GC-EDGE",
+      "file": "examples/kvstore/kv/session.ergo",
+      "from": "\t\tpace.Pacing.Edge()\n",
+      "to": "",
+      "rule": "A session marks one pacing edge for each request it answers (memory test SessionPacesEachRequest).",
+      "anchor": {"tests": ["examples:kvstore"]}, "killers": ["examples:kvstore"]
+    },
+    {
+      "name": "kv-session-paces-each-answer-line", "origin": "wf10 RT-SPIKE GC-EDGE",
+      "file": "examples/kvstore/kv/session.ergo",
+      "from": "\t\t\tio.Stdout.Println(out)\n\t\t}\n\t\tpace.Pacing.Edge()\n",
+      "to": "\t\t\tio.Stdout.Println(out)\n\t\t\tpace.Pacing.Edge()\n\t\t}\n",
+      "rule": "An edge ends a request, not an answer line: a request of several lines or none is one edge (memory test SessionPacesEachRequest).",
+      "anchor": {"tests": ["examples:kvstore"]}, "killers": ["examples:kvstore"]
+    }
+  ]
+}

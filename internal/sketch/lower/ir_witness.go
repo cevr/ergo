@@ -29,15 +29,20 @@ package lower
 // callText does: the IR never passes a witness the emitter's call does
 // not.
 //
+// A copy for a known witness (G4, fc.static) takes the IR under its own
+// name (copyName): an operation call on that witness is a direct call of
+// the implementing function (knownWitnessOp), as the emitter's
+// witnessCall calls it through the closure the witness would hold.
+//
 // A codec parameter (PORT-WITNESS) is a witness local too: the codec
 // calls read its Enc and Dec fields and pass it to a generic codec
 // function (ir_codec.go), and a call passes it on as any other.
 //
-// Still gated: in a copy for a known witness (fc.static, whose body "copy
-// for an instance" keeps the emitter's until G4) an operation call on
-// that witness, which the copy makes a direct call (witnessCall); and a
-// witness built from the caller's own for another type (a codec of []T
-// passed to a callee), a literal the IR does not build yet.
+// Still gated: in a copy, an operation whose function is generic, extern
+// or owns its parameters, and a use of the known witness itself (the
+// struct the copy builds); and a witness built from the caller's own for
+// another type (a codec of []T passed to a callee), a literal the IR does
+// not build yet.
 //
 // Prior art: Swift emits a protocol witness table for each concrete
 // conformance once, as a global constant, and passes its address; GHC
@@ -221,13 +226,49 @@ func witnessClosed(tp *check.TypeParam) bool {
 // witnessGate stops a body with witness parameters when the callee side
 // is off (witnessIR). A codec parameter's witness is a local as any
 // other's (PORT-WITNESS), read by the codec calls (codecCall). A copy for
-// a known witness keeps its own gate, "copy for an instance" (G4), and
-// its operation calls on the known witness theirs (witnessOpCall).
+// a known witness keeps "copy for an instance" only under
+// witnessCopyIR=off (decls.go), and its operation calls on the known
+// witness that knownWitnessOp cannot make direct theirs (witnessOpCall).
 func (b *irBuilder) witnessGate() {
 	if witnessIR == "off" {
 		b.gate("witness parameter")
 	}
 }
+
+// knownWitnessOp is c, the call x, as a direct call of the function that
+// implements its operation, when x calls an operation on a value of a type
+// parameter whose witness the copy being built knows (fc.static, G4): the
+// emitter's witnessCall calls the same function, through the closure the
+// witness would hold, where it is written. Else c. A generic implementing
+// function (op.Inst), an extern, one with owned parameters or a call
+// through a pointer to the parameter keeps c, which witnessOpCall refuses.
+// The function's fallibility is the operation's: the checker admits no
+// other implementation (types.md, Interface assignability 1).
+func (b *irBuilder) knownWitnessOp(c *check.Call) *check.Call {
+	if c.Kind != check.CallOp || c.Recv == nil || c.Op == nil || len(b.fc.static) == 0 || witnessCopyIR == "off" || c.StartsTask {
+		return c
+	}
+	tp, ptr := paramSource(b.l.info.Types[c.Recv])
+	st := b.fc.static[tp]
+	if tp == nil || ptr || st == nil {
+		return c
+	}
+	own := staticOp(st, c.Op.Name)
+	if own == nil || own.Func == nil || own.Inst != nil || len(own.Func.Sig.TParams) > 0 || own.Func.Pkg == nil || own.Func.Pkg.Info == nil {
+		return c
+	}
+	g := own.Func
+	gd := b.l.funcDecl(g)
+	if gd.extern != "" || len(b.l.ownedParams(g)) > 0 || len(witnessParams(g.Sig)) > 0 {
+		return c
+	}
+	return &check.Call{Kind: check.CallFunc, Func: g, Recv: c.Recv, Fails: c.Fails, Needs: c.Needs}
+}
+
+// witnessCopyIR selects G4: "" (on) or "off" (the reference: a copy for a
+// known witness keeps the emitter's body, "copy for an instance"), set by
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.witnessCopyIR=off.
+var witnessCopyIR = ""
 
 // witnessIR selects the callee side: "" (on) or "off" (the reference: a
 // body with witness parameters keeps its emitter body), set by
@@ -252,8 +293,8 @@ func (b *irBuilder) witnessSlots(f *check.Func) {
 
 // witnessCopy is the Go name of the copy for a known witness that the
 // call x of c goes to (specAt, witspec.go), or "": the copy takes no
-// witness and no type arguments (callText). Its body is the emitter's
-// (irInstanceCopy).
+// witness and no type arguments (callText). Its body is the IR's (G4)
+// unless witnessCopyIR is "off" (irInstanceCopy).
 func (b *irBuilder) witnessCopy(x *syntax.CallExpr, c *check.Call) string {
 	if sp := b.fc.specAt(x, c); sp != nil && sp.wit != nil {
 		return sp.name
@@ -272,8 +313,8 @@ func (b *irBuilder) witnessOpCall(x *syntax.CallExpr, c *check.Call, tp *check.T
 		return pre, e, effect // a copy for an instance (ir_instance.go)
 	}
 	if b.fc.static[tp] != nil {
-		// A copy for a known witness calls the implementing function
-		// (witnessCall); its body is the emitter's until G4 builds copies.
+		// knownWitnessOp made every call it admits a direct call before
+		// this (callParts); the rest keep the emitter's copy.
 		irNo("operation call on a known witness")
 	}
 	w, ok := b.wits[tp]

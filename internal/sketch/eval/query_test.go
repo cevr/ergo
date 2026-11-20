@@ -3,16 +3,14 @@ package eval
 import "testing"
 
 // TestQueryParsesAtCheckTime: std http.ParseQuery runs at check time as
-// the build's (runtime/v1/http HTTPParseQuery: Go's url.ParseQuery): "+"
-// is a space and %XX an escape, a pair with a malformed escape is
-// dropped, the fields come in key order and one key's values in the
-// order they came. Before MX-EVQUERY it was skipped ("a Go function
-// (ParseQuery)"), so fk-domains' 41 obligations never ran at check time.
-// No example kills its mutants (testdata/mutants.json): without the
-// native fk-domains' rows only turn back into skips, and its queries
-// carry neither a "+" nor keys out of order, so evquery-unsorted and
-// evquery-plus-literal leave its verdicts as they are; this test kills
-// evquery-missing, evquery-unsorted and evquery-plus-literal.
+// the build's: "+" is a space and %XX an escape, a pair with a malformed
+// escape is dropped, the fields come in key order and one key's values in
+// the order they came. Before MX-EVQUERY it was skipped ("a Go function
+// (ParseQuery)"), so domain-search' 41 obligations never ran at check time;
+// MX-EVQUERY gave it a native. Since STD-SURVEY SM2 it is Ergo over std
+// url, so the evaluator runs its body as any other, and this test holds
+// that the body runs at check time and answers as the build does (it
+// kills the lower ledger's sm2-query-unsorted at check time too).
 func TestQueryParsesAtCheckTime(t *testing.T) {
 	pkg := checked(t, `import http
 

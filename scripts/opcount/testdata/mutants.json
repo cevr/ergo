@@ -1,5 +1,5 @@
 {
-  "about": "scripts/opcount: the program mode builds the Ergo side as the product does (ergo's patched release, each package's IR read with -ergoir, through build.Toolchain.Command) and reports per package how many function bodies came from IR. The ergo build -work / -go-text choice and the runs are checked by hand (OPCOUNT-IR round-1 request: opcount onebrc on both paths), not by a gate test: they build ergo and run Go.",
+  "about": "scripts/opcount: the program mode builds the Ergo side as the product does (ergo's patched release, each package's IR read with -ergoir, through build.Toolchain.Command) and reports per package how many function bodies came from IR. The ergo build -work / -go-text choice and the runs are checked by hand (OPCOUNT-IR round-1 request: opcount station-stats on both paths), not by a gate test: they build ergo and run Go.",
   "mutants": [
     {
       "name": "opcount-ir-flag-dropped",

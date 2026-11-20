@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -36,11 +37,11 @@ type Tagger {
 type Plain {} implements Tagger
 
 func Tag(p Plain, note string, site CallSite) string {
-	"\(note) \(site.Line):\(site.Column)"
+	"\(note) \(site.Line):\(site.Column)#\(site.Id)"
 }
 
 func at(note string, site CallSite) string {
-	"\(note) \(site.Line):\(site.Column)"
+	"\(note) \(site.Line):\(site.Column)#\(site.Id)"
 }
 
 func fwd(note string, site CallSite) string {
@@ -56,11 +57,11 @@ func viaCap(note string) string needs Tagger {
 }
 
 func gen[T](x T, show func(v T) string, site CallSite) string {
-	"\(show(x)) \(site.Line):\(site.Column)"
+	"\(show(x)) \(site.Line):\(site.Column)#\(site.Id)"
 }
 
 func each(note string, f func() string, site CallSite) string {
-	"\(note)\(f()) \(site.Line):\(site.Column)"
+	"\(note)\(f()) \(site.Line):\(site.Column)#\(site.Id)"
 }
 
 func file(site CallSite) string {
@@ -144,12 +145,12 @@ func siteProgram(seed uint64, reached map[string]bool) (string, string) {
 		case "inner":
 			call = fmt.Sprintf("inner(%q)", note)
 		case "written":
-			call = fmt.Sprintf("at(%q, CallSite{File: \"w\", Line: %d, Column: %d})", note, 100+i, 1+r.IntN(9))
+			call = fmt.Sprintf("at(%q, CallSite{File: \"w\", Line: %d, Column: %d, Id: 0})", note, 100+i, 1+r.IntN(9))
 		case "provider":
 			emit(indent+"with context { Tagger: Plain } {", "")
 			text := indent + "\tConsole.Println(" + pad + fmt.Sprintf("Tagger.Tag(%q)", note) + ")"
 			col := emit(text, "Tagger.Tag(")
-			want.WriteString(fmt.Sprintf("%s %d:%d\n", note, line-1, col))
+			want.WriteString(fmt.Sprintf("%s %d:%d#?\n", note, line-1, col))
 			emit(indent+"}", "")
 			continue
 		}
@@ -161,26 +162,63 @@ func siteProgram(seed uint64, reached map[string]bool) (string, string) {
 		at := fmt.Sprintf("%d:%d", line-1, col)
 		switch kind {
 		case "trailing":
-			want.WriteString(note + "! " + at + "\n")
+			want.WriteString(note + "! " + at + "#?\n")
 		case "nested":
-			want.WriteString(fmt.Sprintf("%s %d:%d %s\n", note, line-1, col+3, at))
+			want.WriteString(fmt.Sprintf("%s %d:%d#? %s#?\n", note, line-1, col+3, at))
 		case "inner", "capability":
-			want.WriteString(note + " " + siteFixed[kind] + "\n")
+			want.WriteString(note + " " + siteFixed[kind] + "#?\n")
 		case "written":
 			var l, c int
 			fmt.Sscanf(call[strings.Index(call, "Line: "):], "Line: %d, Column: %d", &l, &c)
-			want.WriteString(fmt.Sprintf("%s %d:%d\n", note, l, c))
+			want.WriteString(fmt.Sprintf("%s %d:%d#0\n", note, l, c))
 		default:
-			want.WriteString(note + " " + at + "\n")
+			want.WriteString(note + " " + at + "#?\n")
 		}
 		emit(indent+"Console.Println("+v+")", "")
 	}
 	// Every binding is used, whichever forms the seed drew.
-	b.WriteString("\tlet z = CallSite{File: \"\", Line: 0, Column: 0}\n")
+	b.WriteString("\tlet z = CallSite{File: \"\", Line: 0, Column: 0, Id: 0}\n")
 	b.WriteString("\tConsole.Println(\"\\(p.Tag(\"e\", z))|\\(t.Tag(\"e\", z))|\\(fv(\"e\", z))|\\(lit(\"e\", z))\")\n")
-	want.WriteString("e 0:0|e 0:0|e 0:0|e 0:0\n")
+	want.WriteString("e 0:0#0|e 0:0#0|e 0:0#0|e 0:0#0\n")
 	b.WriteString("}\n")
 	return b.String(), want.String()
+}
+
+// siteAt is a printed site, `line:column#id`.
+var siteAt = regexp.MustCompile(`(\d+):(\d+)#(\d+|\?)`)
+
+// siteIdsAgree compares the program's output with the model's, the Ids
+// apart, and checks the Ids (types.md, Call sites 6): a site the program
+// wrote prints the Id it wrote (the model's `#0`), and the compiler's
+// sites (`#?`) print an Id above 0 that is the same for one position and
+// distinct for distinct positions. It is "" when they agree.
+func siteIdsAgree(out, want string) string {
+	strip := func(s string) string { return siteAt.ReplaceAllString(s, "$1:$2") }
+	if strip(out) != strip(want) {
+		return "the sites differ from the model"
+	}
+	got, model := siteAt.FindAllStringSubmatch(out, -1), siteAt.FindAllStringSubmatch(want, -1)
+	idOf, posOf := map[string]string{}, map[string]string{}
+	for i, g := range got {
+		pos, id := g[1]+":"+g[2], g[3]
+		if model[i][3] != "?" {
+			if id != model[i][3] {
+				return fmt.Sprintf("the written site %s prints Id %s, not the Id it wrote, %s", pos, id, model[i][3])
+			}
+			continue
+		}
+		if id == "0" {
+			return fmt.Sprintf("the compiler's site %s has Id 0", pos)
+		}
+		if p, ok := posOf[id]; ok && p != pos {
+			return fmt.Sprintf("the sites %s and %s share Id %s", p, pos, id)
+		}
+		if d, ok := idOf[pos]; ok && d != id {
+			return fmt.Sprintf("the site %s has Ids %s and %s", pos, d, id)
+		}
+		idOf[pos], posOf[id] = id, pos
+	}
+	return ""
 }
 
 // allReached reports whether reached holds every call form.
@@ -221,8 +259,8 @@ func TestCallSitesAgree(t *testing.T) {
 	}
 	for _, r := range runs {
 		out, stderr, code := runExe(t, exes[fmt.Sprintf("site%d", r.seed)])
-		if out != r.want || code != 0 {
-			t.Errorf("seed %d: the program and the call-site model differ\nReplay: go test -run '^TestCallSitesAgree$' ./internal/sketch/lower -args -site.seed=%d\n%s\n--- program (exit %d)\n%s%s\n--- model\n%s", r.seed, r.seed, r.src, code, out, stderr, r.want)
+		if bad := siteIdsAgree(out, r.want); bad != "" || code != 0 {
+			t.Errorf("seed %d: the program and the call-site model differ: %s\nReplay: go test -run '^TestCallSitesAgree$' ./internal/sketch/lower -args -site.seed=%d\n%s\n--- program (exit %d)\n%s%s\n--- model\n%s", r.seed, bad, r.seed, r.src, code, out, stderr, r.want)
 		}
 	}
 	if *siteSeed == 0 && !allReached(reached) {

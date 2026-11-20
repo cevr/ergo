@@ -911,13 +911,13 @@ func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 // sync.Once, which a nested import of another path does not hold. The std
 // has no import cycle (a cycle would wait on its own Once; TestStdImportsAreAcyclic).
 //
-// With an installed snapshot (InstallStd), a package's first import decodes
-// it from the snapshot instead (export.go).
+// With an installed snapshot (InstallBase; snapshot.InstallStd), a
+// package's first import decodes it from the snapshot instead.
 type stdImporter struct {
 	mu      sync.Mutex
 	entries map[string]*stdEntry
 	work    Work // guarded by mu
-	snap    *snapshot
+	snap    SnapshotSource
 	// order lists the std packages in the order they became available
 	// (checked or decoded), so each follows its imports (ExportStd).
 	order []string
@@ -952,7 +952,7 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 	s.mu.Unlock()
 	e.once.Do(func() {
 		if snap != nil {
-			if pkg, ok := snap.load(path, s.decoded); ok {
+			if pkg, ok := snap.Load(path, s.decoded); ok {
 				e.pkg = pkg
 				return
 			}
@@ -973,7 +973,7 @@ func (s *stdImporter) available(path string) {
 	s.mu.Unlock()
 }
 
-// decoded counts a package segment decoded from the snapshot; snapshot.load
+// decoded counts a package segment decoded from the snapshot; its Load
 // calls it under the snapshot's lock, for each segment in import order.
 func (s *stdImporter) decoded(path string) {
 	s.mu.Lock()
@@ -1014,7 +1014,7 @@ func (s *stdImporter) done() Work {
 	defer s.mu.Unlock()
 	w := s.work
 	if s.snap != nil {
-		w.StdSnapshotBytesRead = s.snap.read.Load()
+		w.StdSnapshotBytesRead = s.snap.BytesRead()
 	}
 	return w
 }

@@ -25,6 +25,14 @@ func Percentiles(sample slices.Ascending[int], ps []int) []Quantile {
 	out
 }
 
+// PercentileIsMonotone: a higher percentile is never a smaller value.
+law PercentileIsMonotone(xs []int, p int, q int) {
+	let lo = percent(p)
+	let hi = lo + natural(q)%(101-lo)
+	let qs = Percentiles(slices.Ascend(xs), []int{lo, hi})
+	len(qs) == 0 || qs[0].Value <= qs[1].Value
+}
+
 // rank is the index of the nearest-rank percentile p of n sorted values:
 // ceil(p * n / 100) - 1, and 0 for p = 0.
 func rank(p int, n int) int {
@@ -39,6 +47,55 @@ func Percentile(sample slices.Ascending[int], p int) Option[int] {
 		return None
 	}
 	Some{Value: qs[0].Value}
+}
+
+// PercentileIsASampleValue: a percentile of a sample is one of its
+// values.
+law PercentileIsASampleValue(xs []int, p int) {
+	for pc in []int{p, percent(p)} {
+		match Percentile(slices.Ascend(xs), pc) {
+		case Some as v:
+			if !slices.Contains(xs, v.Value) {
+				return false
+			}
+		case None:
+			if len(xs) != 0 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// percent is n made a percent, 0 to 100.
+func percent(n int) int { natural(n) % 101 }
+
+// natural is n made not negative, -1 to 0 and the least int to the
+// greatest.
+func natural(n int) int { if n < 0 { -(n + 1) } else { n } }
+
+// PercentileCovers: at least p percent of the sample is at or below
+// percentile p, and percentile 100 is the largest value.
+law PercentileCovers(xs []int, p int) {
+	for pc in []int{percent(p), 100} {
+		match Percentile(slices.Ascend(xs), pc) {
+		case Some as v:
+			let mut at = 0
+			for x in xs {
+				if x <= v.Value {
+					at += 1
+				}
+			}
+			if at*100 < pc*len(xs) || (pc == 100 && slices.Max(xs) != Some{Value: v.Value}) {
+				return false
+			}
+		case None:
+			if len(xs) != 0 {
+				return false
+			}
+		}
+	}
+	true
 }
 
 // Mean is the sum of xs over their count, rounded down, if there are

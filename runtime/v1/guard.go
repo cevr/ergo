@@ -16,7 +16,7 @@ import (
 //
 // GuardBytes copies s into fresh pages, so that the bytes end at the last
 // byte of the last page, makes those pages read-only and leaves the next
-// page unmapped (guard_unix.go). A write by the callee, a write it
+// page unmapped (guard_unix.go, on linux and darwin). A write by the callee, a write it
 // restores before it returns, and a read one byte past the end each fault
 // at the access. Done makes the pages unreadable and keeps them in a ring
 // of at most guardRingLen copies and guardRingBytes bytes, so a late read

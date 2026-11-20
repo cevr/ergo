@@ -3,6 +3,7 @@
 
 import jsonv/json
 import stdjson json
+import slices
 import strconv
 
 // BadSchema is a JSON value that is not a schema. Path names the part of
@@ -105,7 +106,7 @@ func props(o stdjson.Object, path string) []Prop fails BadSchema {
 		case stdjson.Object as members:
 			let mut out = []Prop{}
 			for m in members.Members {
-				if indexOf(out, m.Key) >= 0 {
+				if slices.IndexFunc(out, func(q Prop) bool { q.Name == m.Key }) >= 0 {
 					return BadSchema{Path: Member(at, m.Key), Reason: "the property is named twice"}
 				}
 				out = out.Append(Prop{Name: m.Key, S: try read(m.Value, Member(at, m.Key))})

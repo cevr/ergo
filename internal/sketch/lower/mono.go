@@ -34,8 +34,12 @@ import (
 //     parameter of a generic caller that is not a copy, a callee with
 //     owned parameters (its wrapper copies them, values.go V5), a call to
 //     an owned body, a known-callback variant (known.go), a known-record
-//     copy (record.go), a checked Close, a native or extern body, and a
-//     test build (shortcuts.go: the test build takes the reference).
+//     copy (record.go), a checked Close, and a native or extern body. A
+//     test build takes copies too (MONO-HOOKS-MIN, shortcuts.go inTests):
+//     tests run what ships, and a copy is compiled once, in its generic's
+//     package, which spares every other package and shard of a split test
+//     build a stencil of the instance (MONO-SHARED's aim, with no hook in
+//     Go's compiler).
 //
 // A copy is the generic body lowered again with each type parameter bound
 // to its Go type (typeCtx.mono): its //line directives, polls, failures

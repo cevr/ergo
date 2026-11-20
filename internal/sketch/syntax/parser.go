@@ -1895,9 +1895,10 @@ func (p *parser) parseFuncType(ctx typeCtx) *FuncType {
 	return p.parseSignature(pos, ctx)
 }
 
-// mapType turns `Map[K, V]` and `Map[K, V, H]` into a MapType: Map is a
-// prelude name that no declaration can take (#196, eighth round), so the
-// name is the map type.
+// mapType turns `Map[K, V]` and `Map[K, V, H]` into a MapType: Map is the
+// prelude's map type,
+// and a package that declares its own Map gets that one back from the
+// checker (check mapAsDeclared; D-D3, owner q244).
 func mapType(x Expr) Expr {
 	ix, ok := x.(*IndexExpr)
 	if !ok || len(ix.Indices) != 2 && len(ix.Indices) != 3 {

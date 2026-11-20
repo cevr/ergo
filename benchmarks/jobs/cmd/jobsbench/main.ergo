@@ -1,0 +1,57 @@
+// jobsbench is ST2's receipt program: N jobs through a std jobs/memory
+// queue, each enqueued, reserved and acked, with up to 64 waiting at a
+// time. Its hand Go twin and the Go floor are in ../../testdata; the
+// workload is ../../memory (go run ./scripts/opcount -control -rounds 5
+// benchmarks/jobs/memory).
+//
+//	jobsbench bench memory N
+//
+// One unit is one job. Job i is enqueued 1µs after job i-1, the first 64
+// before any reserve; then each enqueue is followed by a reserve and an
+// ack at the same time. It prints the sum of the jobs it acked.
+
+import jobs
+import jobs/memory
+import os
+import schedule
+import strconv
+import time
+
+func bench(n int) int fails jobs.Failed | jobs.BadPolicy | jobs.Unknown {
+	let q = try memory.New[int](jobs.Policy{Retry: schedule.Recurs(3), Lease: 1s})
+	let start = time.Unix(0, 0)
+	let mut sum = 0
+	for i in 0..n+64 {
+		let now = start.Add(time.Times(1us, i))
+		if i < n {
+			let _ = try q.EnqueueAt(i, now)
+		}
+		if i >= 64 {
+			match try q.ReserveAt(now) {
+			case Some[jobs.Lease[int]] as l:
+				try q.AckAt(l.Value.Ticket, now)
+				sum += l.Value.Job
+			case None:
+			}
+		}
+	}
+	sum
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: jobsbench bench memory N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "jobsbench: N is not a count"}
+		}
+		let sum = bench(n) catch {
+		case jobs.Failed, jobs.BadPolicy, jobs.Unknown:
+			return os.Exit{Code: 1, Message: "jobsbench: the queue failed"}
+		}
+		Console.Println("\(sum)")
+	}
+}

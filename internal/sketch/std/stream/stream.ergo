@@ -41,6 +41,80 @@ func Throttle[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
 	})
 }
 
+// ThrottleMatchesModel: Throttle keeps the values the model keeps: the
+// first, then each that arrives the window or more after the last kept.
+law ThrottleMatchesModel(gaps []int, xs []int, w int) {
+	let m = time.NewManual(0)
+	sameInts(collect(Throttle(arrivals(m, gaps, xs), millis(window(w)), m)), throttleModel(arrivalsAt(gaps, len(xs)), xs, window(w)))
+}
+
+// arrivals is xs as a Seq on m: before each value it moves m on by the
+// value's gap.
+func arrivals(m time.Manual, gaps []int, xs []int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for i, x in xs {
+			m.Advance(millis(gapAt(gaps, i)))
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+// arrivalsAt is the arrival time of each of n values, in milliseconds
+// from the first run's start.
+func arrivalsAt(gaps []int, n int) []int {
+	let mut at = []int{}
+	let mut t = 0
+	for i in 0..n {
+		t = t + gapAt(gaps, i)
+		at = at.Append(t)
+	}
+	at
+}
+
+// throttleModel keeps xs[0] and each xs[i] whose arrival is d or more
+// after the last kept one's.
+func throttleModel(at []int, xs []int, d int) []int {
+	let mut out = []int{}
+	let mut last = 0
+	for i, x in xs {
+		if i == 0 || at[i]-last >= d {
+			out = out.Append(x)
+			last = at[i]
+		}
+	}
+	out
+}
+
+// ThrottleStops: Throttle is a Seq that stops.
+law ThrottleStops(gaps []int, xs []int, w int) {
+	let m = time.NewManual(0)
+	stops(Throttle(arrivals(m, gaps, xs), millis(window(w)), m))
+}
+
+// stops: s is a Seq that stops (stdlib.md, Std laws 5): with n the count
+// of its values, a yield that returns false at its k-th call (k from 1 to
+// n+1) is called min(k, n) times.
+func stops[T](s Seq[T]) bool {
+	let mut n = 0
+	s(func(v T) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v T) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
 // Debounce keeps each value of s that the next value arrives d or more
 // after, and the last value, and drops the others: a burst of values less
 // than d apart leaves its last (Effect's debounce, Rx's debounceTime). A
@@ -70,6 +144,31 @@ func Debounce[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
 		case None:
 		}
 	})
+}
+
+// DebounceMatchesModel: Debounce keeps the values the model keeps: each
+// that the next arrives the window or more after, and the last.
+law DebounceMatchesModel(gaps []int, xs []int, w int) {
+	let m = time.NewManual(0)
+	sameInts(collect(Debounce(arrivals(m, gaps, xs), millis(window(w)), m)), debounceModel(arrivalsAt(gaps, len(xs)), xs, window(w)))
+}
+
+// debounceModel keeps each xs[i] that the next value arrives d or more
+// after, and the last.
+func debounceModel(at []int, xs []int, d int) []int {
+	let mut out = []int{}
+	for i, x in xs {
+		if i == len(xs)-1 || at[i+1]-at[i] >= d {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// DebounceStops: Debounce is a Seq that stops.
+law DebounceStops(gaps []int, xs []int, w int) {
+	let m = time.NewManual(0)
+	stops(Debounce(arrivals(m, gaps, xs), millis(window(w)), m))
 }
 
 // GroupedWithin is the values of s in chunks, in order (Effect's
@@ -104,4 +203,78 @@ func GroupedWithin[T](s Seq[T], n int, d duration, clock time.Clock) Seq[[]T] {
 			yield(chunk)
 		}
 	})
+}
+
+// GroupedWithinMatchesModel: GroupedWithin's chunks are the model's.
+law GroupedWithinMatchesModel(gaps []int, xs []int, w int, k int) {
+	let m = time.NewManual(0)
+	sameChunks(collectChunks(GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m)), groupedModel(arrivalsAt(gaps, len(xs)), xs, size(k), window(w)))
+}
+
+// size is k as a chunk size from 0 to 5.
+func size(k int) int { ((k % 6) + 6) % 6 }
+
+// groupedModel is the chunks of xs: one closes at n values or before a
+// value arriving d or more after its first.
+func groupedModel(at []int, xs []int, n int, d int) [][]int {
+	let mut out = [][]int{}
+	let mut chunk = []int{}
+	let mut start = 0
+	for i, x in xs {
+		if len(chunk) > 0 && at[i]-start >= d {
+			out = out.Append(chunk)
+			chunk = []int{}
+		}
+		if len(chunk) == 0 {
+			start = at[i]
+		}
+		chunk = chunk.Append(x)
+		if len(chunk) >= n {
+			out = out.Append(chunk)
+			chunk = []int{}
+		}
+	}
+	if len(chunk) > 0 {
+		out = out.Append(chunk)
+	}
+	out
+}
+
+// collectChunks is the chunks of s.
+func collectChunks(s Seq[[]int]) [][]int {
+	let mut out = [][]int{}
+	for c in s {
+		out = out.Append(c)
+	}
+	out
+}
+
+// sameChunks reports that a and b hold the same chunks in order.
+func sameChunks(a [][]int, b [][]int) bool {
+	let mut same = len(a) == len(b)
+	for i in 0..len(a) {
+		same = same && i < len(b) && sameInts(a[i], b[i])
+	}
+	same
+}
+
+// GroupedWithinKeepsEveryValue: the chunks, joined, are the values of s
+// in order, and none is empty.
+law GroupedWithinKeepsEveryValue(gaps []int, xs []int, w int, k int) {
+	let m = time.NewManual(0)
+	let mut joined = []int{}
+	let mut empty = false
+	for c in GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m) {
+		empty = empty || len(c) == 0
+		for x in c {
+			joined = joined.Append(x)
+		}
+	}
+	!empty && sameInts(joined, xs)
+}
+
+// GroupedWithinStops: GroupedWithin is a Seq that stops.
+law GroupedWithinStops(gaps []int, xs []int, w int, k int) {
+	let m = time.NewManual(0)
+	stops(GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m))
 }

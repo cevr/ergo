@@ -185,12 +185,13 @@ func (b *irBuilder) fuseSinkable(lets, rest []syntax.Stmt) map[syntax.Stmt]*sunk
 // saveBuilder is a restore of the builder's per-site state (fuseMatch's
 // way back to the two-step form).
 func (b *irBuilder) saveBuilder() (restore func(), locals map[*check.Var]int) {
-	next, nLocals, at := b.next, len(b.fn.Locals), b.at
+	mark, at := b.mark(), b.at // ir_rewrite_pass.go: the locals and the loops' memoized calls
 	locals, admitted, switches := maps.Clone(b.locals), maps.Clone(b.admitted), b.switches
 	hoisted, entry := maps.Clone(b.hoisted), len(b.entry)
 	given, label, labels := maps.Clone(b.given), b.label, b.labels
 	return func() {
-		b.next, b.fn.Locals, b.at = next, b.fn.Locals[:nLocals], at
+		b.unmark(mark)
+		b.at = at
 		b.locals, b.admitted, b.switches = locals, admitted, switches
 		b.hoisted, b.entry = hoisted, b.entry[:entry]
 		b.given, b.label, b.labels = given, label, labels

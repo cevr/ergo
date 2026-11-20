@@ -134,7 +134,7 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 	body := append(g.decls, w.steps(steps)...)
 	body = append(w.flush(body), &irStmt{K: "ret", Pos: g.p, X: g.local(g.wv)})
 	b.fn.Pos, b.fn.End = g.p, g.p
-	b.fn.Body = irScopesIncrease(irUseLocals(body)) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(body), b.fn.Pos) // ir_end.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	return true
 }
@@ -228,7 +228,9 @@ func (g *wireGen) union(t check.Type, u *check.Union, v *irExpr) []wireStep {
 	if fu != nil && fu.niche {
 		irNo("codec writer of a union by its pointer niche")
 	}
-	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, X: v}
+	// A type switch's default clause, empty here, takes ElsePos: the
+	// decoder's scope for it needs a known position (JOBS-ICE).
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: v}
 	if fu != nil {
 		sw = &irStmt{K: "switch", Pos: g.p, End: g.p, X: b.tagOf(v.I, g.p)}
 	}
@@ -334,7 +336,7 @@ func (g *wireGen) funcCall(f *check.Func, args []*irExpr) *irExpr {
 	if fd.extern != "" || len(witnessParams(f.Sig)) > 0 || len(f.Sig.TParams) > 0 {
 		irNo("codec writer's call of %s", f.Name)
 	}
-	if !fd.pure {
+	if !fd.envFree {
 		at := 0
 		if fd.method != nil {
 			at = 1

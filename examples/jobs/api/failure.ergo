@@ -1,5 +1,5 @@
 import http
-import jobs/jobs
+import jobsapp/jobs
 import json
 
 // A row can name failures from several packages. A declared union cannot:

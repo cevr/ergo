@@ -1,0 +1,53 @@
+// ritmo is a port of ritmo's top-down game (typeonce-dev/ritmo,
+// integration/top-down) to Ergo. It plays one request a line from
+// standard input (see package script): lines of keys walk the player one
+// fixed tick each, and look, save, load and rewind act on the session.
+// -store chooses where saves live: memory (the default) keeps them for
+// one run, and disk keeps each as DIR/NAME.json. This binary is the only
+// place that chooses the providers: the store, the host's file system and
+// its standard streams.
+
+import flag
+import fs
+import io
+import os
+import ritmo/disk
+import ritmo/memory
+import ritmo/script
+import ritmo/topdown
+
+let storeFlag = flag.Choice("store", "memory", []string{"memory", "disk"}, "where saves live")
+let dirFlag = flag.String("dir", "saves", "the `directory` of the disk store")
+let keepFlag = flag.Int("keep", 600, "the `ticks` a session keeps to rewind")
+
+let set = flag.Set{Name: "ritmo", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag, keepFlag}, Args: []flag.ArgSpec{}}
+
+// run plays standard input on args. A line that fails ends the run with
+// status 1 after the last line.
+func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, "usage: ritmo [-store memory|disk] [-dir DIR] [-keep TICKS] < SCRIPT")
+		return
+	}
+	let failed = match storeFlag.Get(v) {
+	case "disk":
+		with context { topdown.Saves: disk.At(dirFlag.Get(v), files, writes) } {
+			script.Run(keepFlag.Get(v))
+		}
+	case _:
+		with context { topdown.Saves: memory.NewShelf() } {
+			script.Run(keepFlag.Get(v))
+		}
+	}
+	if failed > 0 {
+		return os.Exit{Code: 1, Message: "ritmo: \(failed) lines failed"}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = fs.NewHost()
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.Process.Args(), host, host)
+	}
+}

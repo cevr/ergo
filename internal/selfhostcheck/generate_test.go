@@ -484,7 +484,16 @@ func (g *gen) decl() {
 		g.w("type ", g.name(), " = ", g.name(), " | ", g.name(), "{X int,\n\tY ", g.typeName(), "}", g.pick("", " | Z", " | W{}"))
 	default:
 		g.w("func ", g.pick("", "(p *Point) "), g.name(), g.pick("", "[T any, U comparable]"), "(")
-		g.list(func() { g.w(g.name(), " ", g.typeName()) })
+		g.list(func() {
+			// A parameter of a named type takes the pure clause (grammar,
+			// Declarations 16): the formatter keeps it. It draws nothing,
+			// so the other inputs stay as they were.
+			t := g.typeName()
+			if t == "Point" {
+				t = "pure Point"
+			}
+			g.w(g.name(), " ", t)
+		})
 		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " func() int"), " {")
 		g.block()
 	}

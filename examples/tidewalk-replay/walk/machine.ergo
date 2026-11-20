@@ -41,14 +41,6 @@ func Word(d Decision[Game, Never]) string {
 	}
 }
 
-func ignored(d Decision[Game, Never]) bool {
-	return Word(d) == "ignore"
-}
-
-func rejected(d Decision[Game, Never]) bool {
-	return Word(d) == "reject"
-}
-
 // Play plays a parsed move list from Start() and returns the last state.
 func Play(ms Moves) Game {
 	let mut g = Start()
