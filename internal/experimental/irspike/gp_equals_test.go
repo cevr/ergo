@@ -12,7 +12,7 @@ import "testing"
 // when the patched compile checks it or the test binary runs it.
 //
 // Mutants: gp-eq-assert-refused, gp-eq-assert-bin, gp-eq-branch-refused,
-// gp-eq-branch-bin, gp-eq-variant-refused, gp-eq-variant-shown-converted.
+// gp-eq-variant-refused, gp-eq-variant-shown-converted.
 func TestIREqualTestsMatchSource(t *testing.T) {
 	testBuildsAgree(t, "TestIREqualTestsMatchSource", GenerateEqualTests, "ergoTest", equalTestBodies, "FAIL ", "ok ")
 }
