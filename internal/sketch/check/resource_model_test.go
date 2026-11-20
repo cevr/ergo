@@ -305,9 +305,10 @@ func (g *resGen) program() (string, []string) {
 	g.add("type Res { ..Closer }")
 	g.add("type Rel { ..Closer }")
 	g.add("type Named { Name() string }")
-	g.add("type G[T] { v T, n int }")
-	g.add("type Box[T] { Put(v own T) }")
-	g.add("type View[T] { Get() T }")
+	// Each may bind a resource, so each marks its T own (Generics 9).
+	g.add("type G[T own] { v T, n int }")
+	g.add("type Box[T own] { Put(v own T) }")
+	g.add("type View[T own] { Get() T }")
 	for i, d := range g.decls {
 		// Every type declares Named (cv below); the release by its mode.
 		clause, marker := " implements Named", ""
@@ -397,7 +398,9 @@ func (g *resGen) program() (string, []string) {
 		}
 	}
 	if g.r.IntN(2) == 0 {
-		g.add("func tg[T](p own T, q own G[T], r own []T) {}")
+		// No S110: own on a type parameter is never reported as having no
+		// effect. (G[T] would need T own, the mark G requires, Generics 9.)
+		g.add("func tg[T](p own T, r own []T) {}")
 	}
 	g.add("func main() {}")
 	return strings.Join(g.lines, "\n") + "\n", g.want

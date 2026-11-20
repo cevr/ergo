@@ -37,7 +37,7 @@ func Merge(a Sums, b Sums) Sums {
 
 // Add is s with the point p, nearest to centroid j at distance d. The
 // assignment step updates its Sums in place by it.
-func Add(s *Sums, p Point, j int, d int) {
+func Add(s mut Sums, p Point, j int, d int) {
 	let at = j * Dims
 	s.Total[at] += int(p[0])
 	s.Total[at+1] += int(p[1])

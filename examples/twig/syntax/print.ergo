@@ -31,13 +31,13 @@ law PrintParsesBack(seed int) {
 	true
 }
 
-func indent(b *strings.Builder, depth int) {
+func indent(b mut strings.Builder, depth int) {
 	for _ in 0..depth {
 		b.WriteByte('\t')
 	}
 }
 
-func putBlock(b *strings.Builder, stmts []Stmt, depth int) {
+func putBlock(b mut strings.Builder, stmts []Stmt, depth int) {
 	for s in stmts {
 		indent(b, depth)
 		stmt(b, s, depth)
@@ -46,14 +46,14 @@ func putBlock(b *strings.Builder, stmts []Stmt, depth int) {
 }
 
 // body writes { stmts } with the closing brace at depth.
-func body(b *strings.Builder, stmts []Stmt, depth int) {
+func body(b mut strings.Builder, stmts []Stmt, depth int) {
 	b.WriteString("{\n")
 	putBlock(b, stmts, depth+1)
 	indent(b, depth)
 	b.WriteByte('}')
 }
 
-func names(b *strings.Builder, ns []string) {
+func names(b mut strings.Builder, ns []string) {
 	b.WriteByte('(')
 	for i, n in ns {
 		if i > 0 {
@@ -64,7 +64,7 @@ func names(b *strings.Builder, ns []string) {
 	b.WriteByte(')')
 }
 
-func stmt(b *strings.Builder, s Stmt, depth int) {
+func stmt(b mut strings.Builder, s Stmt, depth int) {
 	match s {
 	case FnDecl as f:
 		b.WriteString("fn " + f.Name)
@@ -110,7 +110,7 @@ func stmt(b *strings.Builder, s Stmt, depth int) {
 	}
 }
 
-func putIf(b *strings.Builder, i If, depth int) {
+func putIf(b mut strings.Builder, i If, depth int) {
 	b.WriteString("if ")
 	putExpr(b, i.Cond, 0, depth)
 	b.WriteByte(' ')
@@ -170,7 +170,7 @@ func postfixTarget(e Expr) bool {
 }
 
 // expr writes e where an operator of power min or more may stand bare.
-func putExpr(b *strings.Builder, e Expr, min int, depth int) {
+func putExpr(b mut strings.Builder, e Expr, min int, depth int) {
 	match e {
 	case IntLit as x:
 		b.WriteString(strconv.Itoa(x.N))
@@ -261,7 +261,7 @@ func putExpr(b *strings.Builder, e Expr, min int, depth int) {
 }
 
 // target writes e before a call, an index or a field.
-func target(b *strings.Builder, e Expr, depth int) {
+func target(b mut strings.Builder, e Expr, depth int) {
 	if postfixTarget(e) {
 		putExpr(b, e, 0, depth)
 		return
@@ -273,7 +273,7 @@ func target(b *strings.Builder, e Expr, depth int) {
 
 // quote writes s as a string literal: a quote, a backslash, a newline and
 // a tab escaped, every other byte as it is.
-func quote(b *strings.Builder, s string) {
+func quote(b mut strings.Builder, s string) {
 	b.WriteByte('"')
 	for i in 0..len(s) {
 		let c = s[i]

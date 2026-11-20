@@ -1,0 +1,492 @@
+// Unification of a parameter type with an argument type, after the Go
+// checker's unify.go (internal/sketch/check), on the pool's ids: a type is
+// its interned id, so identity is id equality and a row is a sorted run of
+// ids.
+//
+// S3d1 covers unify.go's structural rules: a parameter of the call binds,
+// or its binding matches; named types and instances match by origin and
+// arguments; slices, arrays, maps, pointers, tuples and signatures match
+// part by part; rows bind by the row-union rule (unifyRow); a result
+// parameter matched against no result binds to no value.
+//
+// A union and its variants (INFER-VARIANT-ARG) follow unify.go's two
+// union rules and the modes they read: a named union matches one of its
+// variants, and a parameter bound to a variant takes the union a later
+// argument names, both outside exact mode. A call's argument unifies in
+// assign mode; the elements of a slice, array, map or pointer and the
+// parts of a signature match exactly under assign, as Go's are invariant.
+// The unions come from the caller (Unions), as the Go checker reads them
+// from the declarations. An interface's methods and a machine's view are
+// not read yet: no such rule is here.
+
+import compiler/check/store
+import dense
+
+// depthLimit stops unification on a recursive type, as unify.go's
+// unifyDepthLimit does.
+let depthLimit = 50
+
+// The modes, unify.go's unifyMode bits: assign (an argument assigned to
+// its parameter) and exact (identical once parameters are bound); no bit
+// is inexact.
+let assign = 1
+let exact = 2
+
+// elemMode is the mode of the parts of a slice, array, map, pointer or
+// signature matched in mode: exact under assign (unify.go emode).
+func elemMode(mode int) int { if mode&assign != 0 { mode | exact } else { mode } }
+
+// Unions is the unions inference may meet, each with its variants
+// (types.md, Unions), as the Go checker's asUnion reads them from a named
+// type's underlying union. A union with no type parameters is held by its
+// type id, with its variants. A generic one is held by its declaration
+// (its origin), with each variant as a template over the union's
+// parameters, Param(0) to Param(n-1): an instance's variants are the
+// templates at its arguments, as under(Option[int]) is Some[int] | None.
+type Unions { at dense.Side[store.TKey, int], variants [][]dense.ID[store.TKey], origins []store.XRef, templates [][]dense.ID[store.TKey] }
+
+// NoUnions is the table of no union.
+func NoUnions() Unions {
+	Unions{at: dense.NewSide[store.TKey, int](-1), variants: [][]dense.ID[store.TKey]{}, origins: []store.XRef{}, templates: [][]dense.ID[store.TKey]{}}
+}
+
+// AddUnion records t, a union with no type parameters, as a union of the
+// variants vs.
+func AddUnion(u mut Unions, t dense.ID[store.TKey], vs []dense.ID[store.TKey]) {
+	dense.SideSet(&u.at, t, len(u.variants))
+	u.variants = u.variants.Append(vs)
+}
+
+// AddGeneric records the generic union declared at origin, its variants
+// the templates ts over its parameters.
+func AddGeneric(u mut Unions, origin store.XRef, ts []dense.ID[store.TKey]) {
+	u.origins = u.origins.Append(origin)
+	u.templates = u.templates.Append(ts)
+}
+
+// VariantsOf is the variants of t when t is a union u holds, or an
+// instance of a generic one (its templates at t's arguments), else none.
+func VariantsOf(s mut store.Store, u Unions, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let i = dense.SideOf(u.at, t)
+	if i >= 0 {
+		return u.variants[i]
+	}
+	if store.KindOfType(*s, t) != store.KInstance || len(store.OperandsOf(*s, t)) == 0 {
+		return []dense.ID[store.TKey]{}
+	}
+	let o = store.OriginOfType(*s, t)
+	for j, g in u.origins {
+		if g == o {
+			let args = store.OperandsOf(*s, t)
+			let mut out = []dense.ID[store.TKey]{}
+			for v in u.templates[j] {
+				out = out.Append(store.TSubst(s, v, args))
+			}
+			return out
+		}
+	}
+	[]dense.ID[store.TKey]{}
+}
+
+// sameOrigin is Go's x.origin() == y.origin(): one type, or two instances
+// of one declaration.
+func sameOrigin(s store.Store, x dense.ID[store.TKey], y dense.ID[store.TKey]) bool {
+	x == y || store.KindOfType(s, x) == store.KInstance && store.KindOfType(s, y) == store.KInstance && store.OriginOfType(s, x) == store.OriginOfType(s, y)
+}
+
+// matched is whether the union rule applied and matched.
+func matched(o Option[bool]) bool {
+	match o {
+	case Some[bool] as m:
+		m.Value
+	case None:
+		false
+	}
+}
+
+// unionMatch is unify.go's named-union rule, x a union of u's: x matches
+// y of another origin when a variant of x has y's origin and matches y
+// exactly; y of x's origin is left to the structural rules (none).
+func unionMatch(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], d int) Option[bool] {
+	let vs = VariantsOf(s, u, x)
+	if len(vs) == 0 || sameOrigin(*s, x, y) {
+		return None
+	}
+	for v in vs {
+		if sameOrigin(*s, v, y) {
+			return Some[bool]{Value: nify(s, f, u, c, v, y, exact, d)}
+		}
+	}
+	Some[bool]{Value: false}
+}
+
+// NoValue is the binding of a result parameter matched against a function
+// with no result: the empty tuple, a signature's absent result.
+func NoValue(s mut store.Store) dense.ID[store.TKey] { store.TTuple(s, []dense.ID[store.TKey]{}) }
+
+// Unmarked is t without an own or entry mark: the Go checker's signature
+// unification reads a parameter's type with its marks ignored.
+func Unmarked(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let k = store.KindOfType(s, t)
+	if k == store.KOwn || k == store.KEntry { store.OperandsOf(s, t)[0] } else { t }
+}
+
+// Unify matches the parameter type p against the argument type a,
+// binding c's free parameters, and reports whether they match: a is
+// assigned to p (callGeneric's unifyAssign), so a variant of u's unions
+// matches its union.
+func Unify(s mut store.Store, f mut Frame, u Unions, c Call, p dense.ID[store.TKey], a dense.ID[store.TKey]) bool { nify(s, f, u, c, p, a, assign, 0) }
+
+// InferWidensVariantsToTheirUnion: in unify.go's order, a variant argument
+// infers its union wherever the union binds the parameter, before it (the
+// variant rebinds) or after it (the union matches the variant), and
+// xs.Append(v) on []U infers U; an argument that is no variant still
+// conflicts; and a slice's element matches exactly, so a variant bound
+// first refuses a later []U, as the Go checker does.
+law InferWidensVariantsToTheirUnion(picks []int) {
+	let mut s = store.New("p", []string{})
+	let mut f = NewFrame()
+	// Stand-ins: U a union of A and B; X no variant.
+	let ut = store.TBasic(&s, 30+at(picks, 0)%3)
+	let a = store.TBasic(&s, 34)
+	let b = store.TBasic(&s, 35)
+	let x = store.TBasic(&s, 36)
+	let mut u = NoUnions()
+	AddUnion(&u, ut, []dense.ID[store.TKey]{a, b})
+	let v = if at(picks, 1)%2 == 0 { a } else { b }
+	let base = 1 + at(picks, 2)%3
+	let c = Begin(&f, []bool{false}, base)
+	let t = Param(&s, c, 0)
+	let ts = store.TSlice(&s, t)
+	End(&f, c)
+	let none = []dense.ID[store.TKey]{}
+	let rows = []bool{false}
+	let pair = Callee{Params: []dense.ID[store.TKey]{t, t}, Rows: rows, Base: base}
+	let appends = Infer(&s, &f, u, Callee{Params: []dense.ID[store.TKey]{ts, t}, Rows: rows, Base: base}, none, []Arg{Typed{T: store.TSlice(&s, ut)}, Typed{T: v}})
+	let variantFirst = Infer(&s, &f, u, pair, none, []Arg{Typed{T: v}, Typed{T: ut}})
+	let unionFirst = Infer(&s, &f, u, pair, none, []Arg{Typed{T: ut}, Typed{T: v}})
+	let stranger = Infer(&s, &f, u, pair, none, []Arg{Typed{T: v}, Typed{T: x}})
+	let invariant = Infer(&s, &f, u, Callee{Params: []dense.ID[store.TKey]{t, ts}, Rows: rows, Base: base}, none, []Arg{Typed{T: v}, Typed{T: store.TSlice(&s, ut)}})
+	infers(appends, ut) && infers(variantFirst, ut) && infers(unionFirst, ut) && isNone(stranger) && isNone(invariant) && Depth(f) == 0
+}
+
+// InferWidensGenericVariants: a generic union's instance has its
+// templates at its arguments as variants (under(Opt[E]) is Sm[E] | Nn), and
+// the union rules compare origins: xs.Append(Sm[E]) and xs.Append(Nn) on
+// []Opt[E] infer Opt[E], a variant before or after its union infers the
+// union, a parameter Opt[T] matched against Sm[E] binds T to E, and a
+// variant at other arguments than the union's conflicts.
+law InferWidensGenericVariants(picks []int) {
+	let mut s = store.New("p", []string{})
+	let mut f = NewFrame()
+	// Stand-ins: Opt[T] = Sm[T] | Nn, declarations 9 and 10 of the package.
+	let opt = store.XRef{Import: uint32(0), Decl: uint32(9)}
+	let sm = store.XRef{Import: uint32(0), Decl: uint32(10)}
+	let nn = store.TBasic(&s, 37)
+	let mut u = NoUnions()
+	AddGeneric(&u, opt, []dense.ID[store.TKey]{store.TInstance(&s, sm, []dense.ID[store.TKey]{store.TParam(&s, 0)}), nn})
+	let e = store.TBasic(&s, 2+at(picks, 0)%5)
+	let other = store.TBasic(&s, 8)
+	let oe = store.TInstance(&s, opt, []dense.ID[store.TKey]{e})
+	let se = store.TInstance(&s, sm, []dense.ID[store.TKey]{e})
+	let base = 1 + at(picks, 1)%3
+	let c = Begin(&f, []bool{false}, base)
+	let t = Param(&s, c, 0)
+	let ts = store.TSlice(&s, t)
+	let ot = store.TInstance(&s, opt, []dense.ID[store.TKey]{t})
+	End(&f, c)
+	let none = []dense.ID[store.TKey]{}
+	let rows = []bool{false}
+	let pair = Callee{Params: []dense.ID[store.TKey]{t, t}, Rows: rows, Base: base}
+	let appendTo = Callee{Params: []dense.ID[store.TKey]{ts, t}, Rows: rows, Base: base}
+	let v = if at(picks, 2)%2 == 0 { se } else { nn }
+	let appends = Infer(&s, &f, u, appendTo, none, []Arg{Typed{T: store.TSlice(&s, oe)}, Typed{T: v}})
+	let variantFirst = Infer(&s, &f, u, pair, none, []Arg{Typed{T: v}, Typed{T: oe}})
+	let unionFirst = Infer(&s, &f, u, pair, none, []Arg{Typed{T: oe}, Typed{T: v}})
+	let unwraps = Infer(&s, &f, u, Callee{Params: []dense.ID[store.TKey]{ot}, Rows: rows, Base: base}, none, []Arg{Typed{T: se}})
+	let conflict = Infer(&s, &f, u, pair, none, []Arg{Typed{T: se}, Typed{T: store.TInstance(&s, opt, []dense.ID[store.TKey]{other})}})
+	infers(appends, oe) && infers(variantFirst, oe) && infers(unionFirst, oe) && infers(unwraps, e) && isNone(conflict) && Depth(f) == 0
+}
+
+// infers is whether o is the one type argument t.
+func infers(o Option[[]dense.ID[store.TKey]], t dense.ID[store.TKey]) bool {
+	match o {
+	case Some[[]dense.ID[store.TKey]] as got:
+		len(got.Value) == 1 && got.Value[0] == t
+	case None:
+		false
+	}
+}
+
+func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TKey], y0 dense.ID[store.TKey], mode int, depth int) bool {
+	f.steps = f.steps + 1
+	let x = Unmarked(*s, x0)
+	let y = Unmarked(*s, y0)
+	let k = slotOf(*s, c, x)
+	if x == y && !(k >= 0 && !f.slots[c.at+k].row && free(*f, c, k)) {
+		return true
+	}
+	if store.KindOfType(*s, x) == store.KBasic && store.ArgOf(*s, x) == 0 || store.KindOfType(*s, y) == store.KBasic && store.ArgOf(*s, y) == 0 {
+		// An invalid type is reported elsewhere: no cascade.
+		return true
+	}
+	if depth > depthLimit {
+		return false
+	}
+	let d = depth + 1
+	if k >= 0 {
+		if f.slots[c.at+k].row {
+			// A row parameter in a type position. The Go checker accepts
+			// it (rows bind in unifyRow), but it arises only where the
+			// kinds of a generic type's parameters disagree with its uses
+			// (S3t's kinds read Async[T, F]'s F as a type where the Go
+			// checker reads a row), so the binding would be the empty row
+			// where Go's is the argument: the call is left uninferred.
+			return false
+		}
+		match Binding(*f, c, k) {
+		case None:
+			Bind(f, c, k, y)
+			return true
+		case Some{Value: b}:
+			let none = NoValue(s)
+			if b == none || y == none {
+				return b == y
+			}
+			// A parameter bound to a variant takes the variant's union
+			// when a later argument names the union (G-exup-2): the
+			// variant is assignable to it. The union first then the
+			// variant matches by the union rule below.
+			if mode&exact == 0 && matched(unionMatch(s, f, u, c, y, b, d)) {
+				Bind(f, c, k, y)
+				return true
+			}
+			return nify(s, f, u, c, b, y, mode, d)
+		}
+	}
+	// A union matches one of its variants (types.md, Unions).
+	if mode&exact == 0 {
+		match unionMatch(s, f, u, c, x, y, d) {
+		case Some[bool] as m:
+			return m.Value
+		case None:
+		}
+	}
+	let kx = store.KindOfType(*s, x)
+	let ky = store.KindOfType(*s, y)
+	if kx == store.KInstance {
+		if ky != store.KInstance || store.OriginOfType(*s, x) != store.OriginOfType(*s, y) {
+			return false
+		}
+		let xs = store.OperandsOf(*s, x)
+		let ys = store.OperandsOf(*s, y)
+		if len(xs) != len(ys) {
+			return false
+		}
+		for i in 0..len(xs) {
+			if store.KindOfType(*s, xs[i]) == store.KRow {
+				if store.KindOfType(*s, ys[i]) != store.KRow {
+					return false
+				}
+				unifyRow(s, f, c, xs[i], ys[i])
+				continue
+			}
+			if !nify(s, f, u, c, xs[i], ys[i], mode, d) {
+				return false
+			}
+		}
+		return true
+	}
+	if kx == store.KRow {
+		if ky != store.KRow {
+			return false
+		}
+		unifyRow(s, f, c, x, y)
+		return true
+	}
+	if kx == store.KSig {
+		return ky == store.KSig && nifySig(s, f, u, c, x, y, elemMode(mode), d)
+	}
+	if kx == store.KSlice || kx == store.KMap || kx == store.KPointer || kx == store.KArray || kx == store.KTuple {
+		if kx != ky {
+			return false
+		}
+		let xs = store.OperandsOf(*s, x)
+		let ys = store.OperandsOf(*s, y)
+		if len(xs) != len(ys) {
+			return false
+		}
+		// An array's first operand is its length: equal lengths are one id.
+		// A tuple's parts keep the mode; the others' elements match
+		// exactly under assign.
+		let m = if kx == store.KTuple { mode } else { elemMode(mode) }
+		for i in 0..len(xs) {
+			if !nify(s, f, u, c, xs[i], ys[i], m, d) {
+				return false
+			}
+		}
+		return true
+	}
+	// A basic, named or foreign type: identity.
+	x == y
+}
+
+// results is the count of results a signature's result operand stands
+// for: none for the empty tuple, a tuple's length, else one.
+func results(s store.Store, r dense.ID[store.TKey]) int {
+	if store.KindOfType(s, r) == store.KTuple { len(store.OperandsOf(s, r)) } else { 1 }
+}
+
+// nifySig unifies two signatures: parameters and results, then the rows by
+// the row rule. A result parameter matched against no result binds to no
+// value (unify.go nifySig).
+func nifySig(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], mode int, d int) bool {
+	let xs = store.OperandsOf(*s, x)
+	let ys = store.OperandsOf(*s, y)
+	if len(xs) != len(ys) {
+		return false
+	}
+	let n = len(xs) - 3
+	for i in 0..n {
+		if !nify(s, f, u, c, xs[i], ys[i], mode, d) {
+			return false
+		}
+	}
+	let xr = xs[n]
+	let yr = ys[n]
+	let rx = results(*s, xr)
+	let ry = results(*s, yr)
+	if rx == ry {
+		if rx > 0 && !nify(s, f, u, c, xr, yr, mode, d) {
+			return false
+		}
+	} else if rx == 1 && ry == 0 {
+		let k = slotOf(*s, c, xr)
+		if k < 0 || !free(*f, c, k) {
+			return false
+		}
+		Bind(f, c, k, NoValue(s))
+	} else {
+		return false
+	}
+	unifyRow(s, f, c, xs[n+1], ys[n+1])
+	unifyRow(s, f, c, xs[n+2], ys[n+2])
+	true
+}
+
+// unifyRow binds the free row parameter of the row p to the elements of
+// the row a that p's other elements do not cover. A row parameter an
+// earlier argument joined is widened to cover a as well: rows are sets
+// ordered by inclusion, so the least binding that admits every argument
+// is the union. A written type argument is never widened (call.go
+// unifyRow).
+func unifyRow(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a dense.ID[store.TKey]) {
+	f.steps = f.steps + 1
+	if store.KindOfType(*s, p) != store.KRow || store.KindOfType(*s, a) != store.KRow {
+		return
+	}
+	let mut firstFree = -1
+	let mut frees = 0
+	let mut firstJoined = -1
+	let mut rest = []dense.ID[store.TKey]{}
+	for e in store.OperandsOf(*s, p) {
+		let k = slotOf(*s, c, e)
+		if k >= 0 {
+			match Binding(*f, c, k) {
+			case None:
+				if firstFree < 0 {
+					firstFree = k
+				}
+				frees = frees + 1
+				continue
+			case Some{Value: b}:
+				if store.KindOfType(*s, b) == store.KRow {
+					if f.slots[c.at+k].joined && firstJoined < 0 {
+						firstJoined = k
+					}
+					rest = union(*s, rest, store.OperandsOf(*s, b))
+					continue
+				}
+			}
+		}
+		rest = union(*s, rest, []dense.ID[store.TKey]{e})
+	}
+	let extra = minus(*s, store.OperandsOf(*s, a), rest)
+	if frees > 0 {
+		let empty = store.TRow(s, []dense.ID[store.TKey]{})
+		for e in store.OperandsOf(*s, p) {
+			let k = slotOf(*s, c, e)
+			if k >= 0 && free(*f, c, k) {
+				Bind(f, c, k, if k == firstFree { store.TRow(s, extra) } else { empty })
+				f.slots[c.at+k].joined = true
+			}
+		}
+	} else if firstJoined >= 0 && len(extra) > 0 {
+		match Binding(*f, c, firstJoined) {
+		case Some{Value: b}:
+			Bind(f, c, firstJoined, store.TRow(s, union(*s, store.OperandsOf(*s, b), extra)))
+		case None:
+		}
+	}
+}
+
+// union is the sorted union of two sorted runs of ids.
+func union(s store.Store, a []dense.ID[store.TKey], b []dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	let mut i = 0
+	let mut j = 0
+	for i < len(a) || j < len(b) {
+		if j >= len(b) || i < len(a) && dense.Index(a[i]) < dense.Index(b[j]) {
+			out = out.Append(a[i])
+			i = i + 1
+		} else if i >= len(a) || dense.Index(b[j]) < dense.Index(a[i]) {
+			out = out.Append(b[j])
+			j = j + 1
+		} else {
+			out = out.Append(a[i])
+			i = i + 1
+			j = j + 1
+		}
+	}
+	out
+}
+
+// minus is the ids of the sorted run a that the sorted run b lacks.
+func minus(s store.Store, a []dense.ID[store.TKey], b []dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	let mut j = 0
+	for x in a {
+		for j < len(b) && dense.Index(b[j]) < dense.Index(x) {
+			j = j + 1
+		}
+		if j < len(b) && b[j] == x {
+			continue
+		}
+		out = out.Append(x)
+	}
+	out
+}
+
+// mentions is whether t mentions a parameter of c, bound or free (go/types
+// isParameterized).
+func mentions(s store.Store, f Frame, c Call, t dense.ID[store.TKey]) bool { walk(s, f, c, t, false) }
+
+// hasFree is whether t mentions an unbound parameter of c.
+func hasFree(s store.Store, f Frame, c Call, t dense.ID[store.TKey]) bool { walk(s, f, c, t, true) }
+
+func walk(s store.Store, f Frame, c Call, t dense.ID[store.TKey], onlyFree bool) bool {
+	let k = slotOf(s, c, t)
+	if k >= 0 {
+		return !onlyFree || free(f, c, k)
+	}
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic || kind == store.KNamed || kind == store.KParam || kind == store.KForeign {
+		return false
+	}
+	for o in store.OperandsOf(s, t) {
+		if walk(s, f, c, o, onlyFree) {
+			return true
+		}
+	}
+	false
+}
