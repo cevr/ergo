@@ -1149,7 +1149,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 					shownArgs = append(shownArgs, l.litExpr(v.Type, a, law.Decl))
 				}
 				b.WriteString("\t\t\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(cargs, ", ") + ")\n")
-				call := strconv.Quote(sep + name + " = " + ctor.Name + "(")
+				call := strconv.Quote(sep + name + " = " + l.pkg.Qualified(ctor.Pkg, ctor.Name) + "(")
 				if len(shownArgs) > 0 {
 					call += " + " + strings.Join(shownArgs, ` + ", " + `)
 				}
