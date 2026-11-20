@@ -215,6 +215,10 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		out.Status, out.Reason = Skipped, p.Reason
 		return
 	}
+	if p.Native != "" {
+		out.Status, out.Reason = Native, NativeReason(p.Native)
+		return
+	}
 	in.casesBudget(p.Count)
 	opParams := map[*check.Var]check.Conversion{}
 	var own *check.Conversion
