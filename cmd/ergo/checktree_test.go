@@ -132,6 +132,9 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		}
 		seeds = []uint64{s}
 	}
+	var unkept []string
+	treeUnkept = func(why string) { unkept = append(unkept, why) }
+	defer func() { treeUnkept = nil }()
 	for _, seed := range seeds {
 		t.Setenv("ERGO_CACHE", t.TempDir())
 		p := genprogram.GenerateProgram(seed, genprogram.Width+2, genprogram.Options{Groups: 2})
@@ -152,6 +155,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				// so the second run keeps the answer.
 				writeFiles(t, dir, p.Files)
 				removeExtra(t, dir, p.Files)
+				unkept = nil
 				for range 2 {
 					if r := runCheckTree(t, pattern, false); r.err != nil {
 						t.Fatalf("seed %d: the base does not check: %v\n%s", seed, r.err, r.out)
@@ -183,7 +187,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 							fmt.Fprintf(&diff, "--- %s at the base\n%s\n--- %s after the edit\n%s\n", name, p.Files[name], name, head[name])
 						}
 					}
-					t.Fatalf("seed %d, edit %s, %s: %s\n%sreplay: ERGO_TREE_SEED=%d go test -count=1 -run '^TestCheckTreeAnswersByTokens$' ./cmd/ergo", seed, edit.name, pattern, fmt.Sprintf(format, args...), diff.String(), seed)
+					t.Fatalf("seed %d, edit %s, %s: %s\n%sthe base was not kept because: %q\nreplay: ERGO_TREE_SEED=%d go test -count=1 -run '^TestCheckTreeAnswersByTokens$' ./cmd/ergo", seed, edit.name, pattern, fmt.Sprintf(format, args...), diff.String(), unkept, seed)
 				}
 				if !bytes.Equal(got.out, want.out) || (got.err == nil) != (want.err == nil) {
 					fail("the answer differs from the normal path's\n got %v\n%s\nwant %v\n%s", got.err, got.out, want.err, want.out)

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -312,26 +313,48 @@ func (t *checkTree) add(a sketchfront.Analysis, out []byte, exit error) {
 	t.kept = append(t.kept, treeKept{a: a, out: slices.Clone(out)})
 }
 
+// treeUnkept, when not nil, hears why a request was not kept (a test's
+// account of what the store leaves out).
+var treeUnkept func(why string)
+
 // record keeps the request when every selected package can be kept.
 func (t *checkTree) record() {
-	if t == nil || t.rec == nil || !t.complete || len(t.kept) == 0 || t.store.Puts() != t.puts {
+	if t == nil || t.rec == nil {
 		return
+	}
+	if why := t.keep(); why != "" && treeUnkept != nil {
+		treeUnkept(why)
+	}
+}
+
+// keep keeps the request, or says why it cannot.
+func (t *checkTree) keep() (why string) {
+	switch {
+	case !t.complete:
+		return "a package did not pass"
+	case len(t.kept) == 0:
+		return "no package"
+	case t.store.Puts() != t.puts:
+		return "the run stored verdicts"
 	}
 	inputs, ok := t.rec.Inputs()
 	if !ok {
-		return
+		return "a read failed"
 	}
 	root := t.kept[0].a.ModuleRoot()
 	if root == "" {
-		return
+		return "no module"
 	}
 	m := treeManifest{Schema: treeSchema, Root: root}
 	seen := map[string]bool{}
 	srcs := map[string]string{}
 	for _, k := range t.kept {
 		for _, p := range k.a.Packages() {
-			if p.Module != "" || p.Package == nil {
-				return
+			if p.Module != "" {
+				return "a package of a required module"
+			}
+			if p.Package == nil {
+				return "a package not checked"
 			}
 			if seen[p.Path] {
 				continue
@@ -339,12 +362,12 @@ func (t *checkTree) record() {
 			seen[p.Path] = true
 			work, ok := p.Package.WithWork()
 			if !ok {
-				return
+				return "a package this process did not check"
 			}
 			tp := treePackage{Path: p.Path, Imports: p.Imports, WithWork: work}
 			for _, f := range p.Files {
 				if f.Syntax == nil {
-					return
+					return "a file that did not parse"
 				}
 				name := filepath.Join(root, filepath.FromSlash(f.Rel))
 				srcs[name] = f.Syntax.Src
@@ -362,41 +385,46 @@ func (t *checkTree) record() {
 	m.Inputs = inputs
 	keys, ok := treeKeys(t.base, m.Packages, srcs)
 	if !ok {
-		return
+		return "an import outside the load"
 	}
 	entries := make([]string, len(t.kept))
 	for i, k := range t.kept {
-		e, ok := treeEntryOf(k.a, k.out, root, srcs)
-		if !ok {
-			return
+		e, why := treeEntryOf(k.a, k.out, root, srcs)
+		if why != "" {
+			return m.Selected[i] + ": " + why
 		}
 		data, err := json.Marshal(e)
 		if err != nil {
-			return
+			return err.Error()
 		}
 		entries[i] = string(data)
 	}
 	for i, path := range m.Selected {
 		t.store.Put(keys[path], entries[i])
 	}
-	if data, err := json.Marshal(m); err == nil {
-		t.store.Put(t.manifestKey(), string(data))
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err.Error()
 	}
+	t.store.Put(t.manifestKey(), string(data))
+	return ""
 }
 
 // treeEntryOf is the kept answer of a package whose check printed out, or
-// ok false when it cannot be printed again exactly (see the top of this
-// file).
-func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[string]string) (treeEntry, bool) {
+// why it cannot be printed again exactly (see the top of this file).
+func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[string]string) (treeEntry, string) {
 	var env report.CheckEnvelope
-	if json.Unmarshal(out, &env) != nil || !env.Checked || len(env.Diagnostics) > 0 || env.Evaluation == nil {
-		return treeEntry{}, false
+	switch {
+	case json.Unmarshal(out, &env) != nil || !env.Checked || env.Evaluation == nil:
+		return treeEntry{}, "no evaluated envelope"
+	case len(env.Diagnostics) > 0:
+		return treeEntry{}, "a diagnostic"
 	}
 	e := treeEntry{Out: out}
 	for rel, text := range a.Files() {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil || string(data) != text {
-			return treeEntry{}, false
+			return treeEntry{}, "the text of " + rel + " is not the file's"
 		}
 		e.Texts = append(e.Texts, rel)
 	}
@@ -428,20 +456,25 @@ func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[strin
 		return filepath.ToSlash(rel), token, found == 1 && err == nil
 	}
 	for i, o := range env.Evaluation.Obligations {
-		if o.Status != "passed" || o.Reason != "" || o.Advice != "" {
-			return treeEntry{}, false
+		switch {
+		case o.Status != "passed":
+			return treeEntry{}, "an obligation " + o.Status
+		case o.Reason != "":
+			return treeEntry{}, "a reason"
+		case o.Advice != "":
+			return treeEntry{}, "advice"
 		}
 		if o.Site != (report.Site{}) {
 			file, token, ok := at(o.Site)
 			if !ok {
-				return treeEntry{}, false
+				return treeEntry{}, fmt.Sprintf("a site at no one token (%s:%d:%d)", o.Site.File, o.Site.Line, o.Site.Column)
 			}
 			e.Sites = append(e.Sites, treeSite{Obligation: i, File: file, Token: token})
 		}
 		if o.Declaration != nil {
 			file, token, ok := at(*o.Declaration)
 			if !ok {
-				return treeEntry{}, false
+				return treeEntry{}, "a declaration site at no one token"
 			}
 			e.Sites = append(e.Sites, treeSite{Obligation: i, Decl: true, File: file, Token: token})
 		}
@@ -449,7 +482,7 @@ func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[strin
 	// It prints again, from the files it was checked from, as it printed.
 	again, ok := renderTree(e, root, srcs)
 	if !ok || !bytes.Equal(again, out) {
-		return treeEntry{}, false
+		return treeEntry{}, "its printing again differs:\n" + string(again) + "\n" + string(out)
 	}
-	return e, true
+	return e, ""
 }
