@@ -87,6 +87,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.Coverage, "coverage", "", "read the coverage from `FILE` instead of measuring it")
 	flags.DurationVar(&cfg.CoverDeadline, "cover-deadline", time.Hour, "deadline of each child of the coverage pass")
 	flags.StringVar(&jsonOut, "json", "", "write one JSON result per mutant to `FILE`")
+	var anchorDecls bool
+	flags.BoolVar(&anchorDecls, "anchor-decls", false, "judge nothing: give each row of every testdata/mutants.json below -root the declaration that holds its edit (decl, MN0), printing what it cannot anchor; with -write, rewrite the ledgers")
 	var alpha bool
 	var alphaOut, failLogs string
 	flags.BoolVar(&alpha, "alpha", false, "judge every killer of each row the packages' tests can kill (the kill matrix, testdata/kills.json) and print one row per test of the packages: class, seconds, unique and total kills, change coupling, failures, ranked as a deletion list (CS-ALPHA)")
@@ -101,6 +103,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return 2
+	}
+	if anchorDecls {
+		return migrateDecls(cfg.Root, write, stdout, stderr)
 	}
 	if flags.NArg() == 0 {
 		flags.Usage()
