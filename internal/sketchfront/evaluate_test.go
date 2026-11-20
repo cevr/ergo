@@ -385,6 +385,10 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 				ok = cut.Obligations[i].Replay != ""
 			case need[i] > limit:
 				ok = cs[i] == "incomplete"
+			case want[i] == "skipped" && cs[i] == "incomplete":
+				// A skipped test runs its pad before it reaches the Go
+				// call that skips it, and its record carries no steps:
+				// the cut may stop it in the pad.
 			case cs[i] == "incomplete" && axis == "bytes":
 				// pad's bytes are a least count: the cut may stop it.
 			default:
