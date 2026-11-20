@@ -25,9 +25,6 @@ import (
 // oracle here: it runs a package's tests and laws, and has no native of
 // Go's copy (eval/interp.go names only append among Go's builtins).
 //
-// It builds Go because the question is what the programs print at run
-// time, which only a run shows; the IR's run needs ergo's IR compiler.
-//
 // Mutant (lower ledger): copy-elems-blind (Go's copy takes its source
 // uncopied whatever its elements hold). Replay: go test -run
 // '^TestGoCopyKeepsValues$' ./internal/sketch/lower -args -gocopy.seed=N
@@ -139,6 +136,9 @@ func goCopyProgram(seed uint64) (string, string) {
 }
 
 // TestGoCopyKeepsValues is the property above.
+//
+// It builds Go because the question is what the programs print at run
+// time, which only a run shows; the IR's run needs ergo's IR compiler.
 func TestGoCopyKeepsValues(t *testing.T) {
 	needsBuild(t)
 	type run struct {
