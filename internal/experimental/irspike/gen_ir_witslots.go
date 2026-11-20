@@ -33,10 +33,10 @@ func GenerateWitnessSlots(seed uint64) string {
 	// note calls mix, so it is no Go leaf: the inliner copies a small
 	// non-leaf in (irInlSite.pays), as it copies vt's note.
 	fmt.Fprintf(&b, "func mix(a int, k int) int {\n\ta * %d + k\n}\n\n", 3+n(5))
-	fmt.Fprintf(&b, "func note(t *Tally, what string) {\n\tt.n = mix(t.n, len(what) + %d)\n\tt.last = what\n}\n\n", n(7))
+	fmt.Fprintf(&b, "func note(t mut Tally, what string) {\n\tt.n = mix(t.n, len(what) + %d)\n\tt.last = what\n}\n\n", n(7))
 	words := []string{"osc", "csi", "esc", "dcs", "apc"}
 	w := func() string { return words[n(len(words))] }
-	b.WriteString("func walk[P Shape, Q Shape](p P, q Q, k int, t *Tally) int {\n")
+	b.WriteString("func walk[P Shape, Q Shape](p P, q Q, k int, t mut Tally) int {\n")
 	fmt.Fprintf(&b, "\tlet x = p.Scale(k) catch {\n\tcase Bad as e:\n\t\tt.note(%q)\n\t\te.At * 10\n\t}\n", w())
 	fmt.Fprintf(&b, "\tif x > %d {\n\t\tt.note(%q)\n\t} else {\n\t\tt.note(%q)\n\t}\n", n(30), w(), w())
 	fmt.Fprintf(&b, "\tlet y = q.Scale(k + 1) catch {\n\tcase Bad as e:\n\t\te.At - %d\n\t}\n", n(9))
