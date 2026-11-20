@@ -9,6 +9,8 @@ package lower
 // lowers ConvNarrow (narrowFunc's).
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -93,7 +95,15 @@ func (b *irBuilder) rowFunc(from, to *check.Signature, fromGo, toGo string, asse
 	p := e.Pos
 	end := p
 	f := b.temp("f", fromGo, p)
-	env := b.temp("e", "*"+b.l.env(), p)
+	// The environment's type is the first parameter's of to's function
+	// type as a function value of Ergo spells it (sigType), so this body
+	// names no Env type of its own (TestRuntime199EnvTypeReaders).
+	sig := strings.TrimPrefix(b.sigType(to, site), "func(")
+	cut := strings.IndexAny(sig, ",)")
+	if cut < 0 {
+		irNo("row adapter of another shape")
+	}
+	env := b.temp("e", sig[:cut], p)
 	call := &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: f}, Args: []*irExpr{{K: "local", Pos: p, I: env}}}
 	inner := &irExpr{K: "func", Pos: p, T: toGo, Params: []int{env}, End: &end}
 	for i, tp := range to.Params {

@@ -39,7 +39,7 @@ import (
 //go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
 //go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
 //go:embed explore/explore.go
-//go:embed testgen/classes.go testgen/stream.go
+//go:embed testgen/classes.go testgen/near.go testgen/stream.go
 //go:embed v1/moves.go v1/static.go v1/owned.go v1/unchecked.go v1/exits.go v1/strbuf.go
 //go:embed v1/redacted/redacted.go v1/redacted/redacted_text.go v1/config_names.go v1/toml_encode.go
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
@@ -67,7 +67,7 @@ type pkg struct {
 // that serve only the compiler (runtime/v1/files.go and files_gen.go); a test keeps both
 // lists and the imports equal to the directories.
 var packages = map[string]pkg{
-	"runtime/testgen": {files: []string{"classes.go", "stream.go"}},
+	"runtime/testgen": {files: []string{"classes.go", "near.go", "stream.go"}},
 	"runtime/explore": {
 		files: []string{"explore.go"},
 	},

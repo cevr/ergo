@@ -1150,6 +1150,10 @@ func joined(s store.Store, n Names, ts []dense.ID[store.TKey], sep string) strin
 
 // rowText is a row's elements by their sort keys, the invalid type left
 // out (Row.list).
+// RowText is the text of the row of ts as the Go checker prints a row,
+// "A | B" in its sort order, with no row interned (compiler/check/rows).
+func RowText(s store.Store, n Names, ts []dense.ID[store.TKey]) string { rowText(s, n, ts, " | ") }
+
 func rowText(s store.Store, n Names, ts []dense.ID[store.TKey], sep string) string {
 	let mut keyed = []string{}
 	for t in ts {
