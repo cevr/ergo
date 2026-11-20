@@ -101,6 +101,41 @@ func picked(d mut dumper, id dense.ID[syntax.Node], pick int) bool {
 	k == syntax.KMachineEntry
 }
 
+// typeTerms dumps the terms of an operation type's type-set member: the
+// members that are neither a field nor a law, each `~T` (a UnaryExpr of
+// op `~`) or a bare type, as the Go tree's TypeTerm{Tilde, Type}.
+func typeTerms(d mut dumper, depth int, l syntax.List) {
+	let mut n = 0
+	for i in 0..syntax.Len(l) {
+		if isTypeTerm(d, syntax.Item(d.p.Tree, l, i)) {
+			n = n + 1
+		}
+	}
+	line(d, depth, "list "+itoa(n))
+	for i in 0..syntax.Len(l) {
+		let id = syntax.Item(d.p.Tree, l, i)
+		if !isTypeTerm(d, id) {
+			continue
+		}
+		let mut tilde = -1
+		let mut ty = id
+		if syntax.KindOf(d.p.Tree, id) == syntax.KUnaryExpr {
+			let u = syntax.UnaryExprOf(d.p.Tree, id)
+			if syntax.TokKind(d.p, u.Op) == syntax.Tilde {
+				tilde = tp(d, u.Op)
+				ty = u.X
+			}
+		}
+		line(d, depth+1, "TypeTerm "+at(d, id)+" Tilde="+itoa(tilde))
+		node(d, depth+2, ty)
+	}
+}
+
+func isTypeTerm(d mut dumper, id dense.ID[syntax.Node]) bool {
+	let k = syntax.KindOf(d.p.Tree, id)
+	k != syntax.KField && k != syntax.KLawDecl
+}
+
 func listParts(d mut dumper, depth int, l syntax.List, odd int) {
 	let n = (syntax.Len(l) + 1 - odd) / 2
 	line(d, depth, "list "+itoa(n))
@@ -293,6 +328,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		line(d, depth, "MapType "+a+" Map="+itoa(syntax.NodePos(d.p, x.X))+" Lbrack="+itoa(tp(d, x.Lbrack))+" Rbrack="+itoa(tp(d, x.Rbrack)))
 		node(d, c, x.Key)
 		node(d, c, x.Value)
+		opt(d, c, x.Hashing)
 	case syntax.FuncType as x:
 		line(d, depth, "FuncType "+a+" Escaping="+itoa(tp(d, x.Escaping))+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func)))
 		node(d, c, x.Params)
@@ -309,11 +345,13 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 			line(d, c, "list 0")
 			line(d, c, "list 0")
 			list(d, c, x.Members)
+			line(d, c, "list 0")
 		} else {
 			listWhere(d, c, x.Members, 0)
 			listWhere(d, c, x.Members, 1)
 			listWhere(d, c, x.Members, 2)
 			line(d, c, "list 0")
+			typeTerms(d, c, x.Members)
 		}
 	case syntax.ErrorRow as x:
 		line(d, depth, "ErrorRow "+a+" Error="+itoa(tp(d, x.Error)))

@@ -58,6 +58,11 @@ func (g *progGen) typ() {
 		g.typ()
 		g.w(", ")
 		g.typ()
+		if g.r.Intn(3) == 0 {
+			// The Hashing provider, Map[K, V, H] (CONSTRAINTS C5).
+			g.w(", ")
+			g.typ()
+		}
 		g.w("]")
 	case 4:
 		g.w("func(")
@@ -336,8 +341,17 @@ func (g *progGen) decl() {
 		g.w("}")
 	case 2:
 		g.w("type Op {\n")
-		for range g.r.Intn(4) {
-			g.w("\t", g.pick("Get(k string) int", "Put(K, V)", "own Close()", "Send(m Msg) fails E needs A"), ",\n")
+		// The type-set member (CONSTRAINTS C1), before, among or after the
+		// operations: `~T` and bare terms, one or more.
+		set := g.r.Intn(5)
+		n := g.r.Intn(4)
+		for i := range n + 1 {
+			if i == set {
+				g.w("\t", g.pick("~int | ~int64", "int | string", "comparable", "~pkg.T | T | ~[]byte", "K", "~Map[K, V]"), ",\n")
+			}
+			if i < n {
+				g.w("\t", g.pick("Get(k string) int", "Put(K, V)", "own Close()", "Send(m Msg) fails E needs A", "mut Bump()"), ",\n")
+			}
 		}
 		if g.r.Intn(2) == 0 {
 			g.w("\tlaw L(x int) { x == x },\n")
@@ -368,6 +382,19 @@ func (g *progGen) decl() {
 		g.w("type D derive ", g.pick("Plan(1)", "Provider(Of[S](), Of[F](), Of[N]())"))
 	case 11:
 		g.w("type Q[T] { x T } implements A, B")
+	case 12:
+		// Where a type set and a field group meet (grammar.md,
+		// Declarations 4), and the type sets the parser refuses.
+		g.w(g.pick(
+			"type S { X, Y (int64, int64) }",
+			"type K { comparable, Label() string }",
+			"type K { T, own Close() }",
+			"type K { pkg.T | ~int, law L(x int) { x == x } }",
+			"type R { x int, T }",
+			"type R { x int, ~int }",
+			"type Two { ~int, ~string }",
+			"type V = A{~int} | B",
+		))
 	default:
 		g.w("func main() ")
 		g.block()

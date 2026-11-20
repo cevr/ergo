@@ -141,6 +141,35 @@ func (s *switchUnion) bind(tp *TypeParam) Type {
 	return tp
 }
 
+// leftOutRowsVariant resolves a case written with its type arguments but
+// with trailing row parameters left out, Retrying[T] of Async2[T, F]: in
+// a case the variant's arguments come from the subject (Generics 6), so a
+// left-out row is the subject's, not the empty row Generics 7 gives a
+// type written where nothing is expected (ROW-PARAM AC1). It is the
+// variant of the written type's origin whose leading arguments are the
+// written ones; -1 when there is none.
+func (c *checker) leftOutRowsVariant(e syntax.Expr, t Type, u *switchUnion, b *lookupSteps) int {
+	ix, ok := unparen(e).(*syntax.IndexExpr)
+	n, isNamed := t.(*Named)
+	if !ok || !isNamed || n.Orig == nil || len(ix.Indices) >= len(n.TArgs) {
+		return -1
+	}
+	i := u.lookup(n.origin(), b)
+	if i < 0 {
+		return i
+	}
+	v, ok := u.at(i).(*Named)
+	if !ok || len(v.TArgs) != len(n.TArgs) {
+		return -1
+	}
+	for k := range ix.Indices {
+		if !c.identical(n.TArgs[k], v.TArgs[k]) {
+			return -1
+		}
+	}
+	return i
+}
+
 // variantSet is caseVariant's result for a declared union whose every
 // variant is one of the subject's: its indexes come in the set.
 const variantSet = -4
@@ -190,6 +219,9 @@ func (c *checker) caseVariant(e syntax.Expr, u *switchUnion, subj Type, b *looku
 	i := u.lookup(t, b)
 	if i >= 0 || i == variantOver {
 		return i, nil, nil
+	}
+	if j := c.leftOutRowsVariant(e, t, u, b); j >= 0 || j == variantOver {
+		return j, nil, nil
 	}
 	if !u.bad() {
 		what := t.String()
