@@ -1728,6 +1728,30 @@
       "to": "\t\tif false {\n\t\t\tout = out.Append",
       "rule": "A candidate's check is a command work trust allows: a changed check asks again (law CandidateCommandsAreTrusted).",
       "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "notrash-delete-by-listing", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet due = try Collect(t, Some[string]{Value: r.Id}, 0s)\n",
+      "to": "\tlet due = try Collect(t, None, 0s)\n",
+      "rule": "trash = false deletes by the one record id rm removed, never everything a listing of the trash finds: a trash made before the key stays (memory's NoTrashDeletesForGood, rm path).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "notrash-key-ignored-by-gc", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tlet until = if c.Trash { at + int64(IdleTrash) } else { 0 }\n",
+      "to": "\t\tlet until = if c.Trash || true { at + int64(IdleTrash) } else { 0 }\n",
+      "rule": "gc -idle honours trash = false: the workspace it removes leaves no trash for a day (memory's NoTrashDeletesForGood, gc path).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "notrash-refusal-skipped", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet env = try t.Check(c, name, expect, abandon)\n",
+      "to": "\tlet env = try t.Check(c, name, expect, abandon || !c.Trash)\n",
+      "rule": "trash = false deletes only after rm's refusal: a workspace with a commit only it has is NotHeld and stays (memory's NoTrashDeletesForGood, unsaved).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
