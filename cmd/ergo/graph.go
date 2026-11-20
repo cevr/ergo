@@ -281,8 +281,7 @@ func baseRows(dir, base string) (*graphrows.Table, []byte, error) {
 // gitArchive is the tar of base's tree, limited to the folders paths
 // (relative to the repository root top) when there are any.
 func gitArchive(top, base string, paths []string) ([]byte, error) {
-	args := append([]string{"archive", "--format=tar", base, "--"}, paths...)
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks", "archive", "--format=tar", base, "--"}, paths...)...)
 	cmd.Dir = top
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -371,7 +370,7 @@ func localReplaces(text string) []string {
 
 // gitOutput is git's standard output for args, run in dir.
 func gitOutput(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
