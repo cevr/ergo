@@ -35,6 +35,39 @@ func CheckText(src string) string {
 	return b.String()
 }
 
+// MarkerText is the `// ergo:` comments of the parsed file f, each with
+// the ordinal of the token after it (in TokenText's order) and the line
+// breaks between them: the comments the checker reads (a binding's
+// markers, which it finds by their line right above a declaration,
+// check/gobinding.go and goinspect.go). TokenText leaves them out, so a
+// fingerprint of the file's check holds TokenText and MarkerText. It reads
+// the parser's comments, not the bytes: Ergo is lexed only by
+// compiler/syntax.
+func MarkerText(f *File) string {
+	if f == nil {
+		return ""
+	}
+	var starts []int
+	var b strings.Builder
+	for _, g := range f.Comments {
+		for _, c := range g.List {
+			if !strings.HasPrefix(c.Text, "// ergo:") {
+				continue
+			}
+			if starts == nil {
+				starts = append(tokenStarts(scanTokens(f.Src)), len(f.Src))
+			}
+			k := 0
+			for k < len(starts)-1 && starts[k] < int(c.EndPos) {
+				k++
+			}
+			end := min(int(c.EndPos), starts[k])
+			b.WriteString("marker " + strconv.Itoa(k) + " " + strconv.Itoa(strings.Count(f.Src[end:starts[k]], "\n")) + " " + strconv.Quote(c.Text) + "\n")
+		}
+	}
+	return b.String()
+}
+
 // TokenSites is the one-based line and byte column of each token
 // TokenText writes, in its order: a position check reports at a token's
 // start is that token's ordinal and stays put across an edit that keeps

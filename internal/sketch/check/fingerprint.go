@@ -16,7 +16,8 @@ import (
 //   - Source: its import path, the path it is checked as, the program's
 //     environment (module, platform, Go module, bindings, assets) and each
 //     file's name and token text (syntax.TokenText: no comment, no space,
-//     no position). A comment or layout edit changes none of it.
+//     no position) with its `// ergo:` markers (syntax.MarkerText). Any
+//     other comment edit, or a layout edit, changes none of it.
 //   - Interface: what an importer can see. The token text of every file
 //     with the bodies an importer cannot see cut out (interfaceCuts), the
 //     rows the checker inferred from those bodies, the cell conversions
@@ -82,7 +83,7 @@ func SourceFingerprint(path string, files []*syntax.File, env string) string {
 		if f == nil {
 			return ""
 		}
-		parts = append(parts, f.Name, syntax.TokenText(f.Src))
+		parts = append(parts, f.Name, syntax.TokenText(f.Src), syntax.MarkerText(f))
 	}
 	return fingerprint.Of(parts...)
 }
@@ -104,6 +105,9 @@ func InterfaceText(pkg *Package) string {
 			at = c[1]
 		}
 		b.WriteString(syntax.TokenText(f.Src[at:]))
+		// A binding's `// ergo:` markers decide the facts an importer's
+		// call gets (gobinding.go), and token text has no comment.
+		b.WriteString(syntax.MarkerText(f))
 	}
 	// A body this text cuts decides an inferred row, which a caller in an
 	// importer reads through a value (`let Step = helper`).

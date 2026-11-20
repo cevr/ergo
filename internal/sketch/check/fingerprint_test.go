@@ -33,6 +33,7 @@ var fpSlots = map[string]int{
 	"where":      3, // a's Small is 0..9, 0..99 or 0..5 (b's 7 breaks the last)
 	"constraint": 2, // a's Same takes comparable or ordered (b's Plus is no ordered)
 	"import":     2, // c imports a too, or not
+	"marker":     2, // a's Body has an `// ergo:` marker line above it, or not
 }
 
 // fpSources are the packages' files for the slot values s, by package.
@@ -85,7 +86,7 @@ type Counter {
 func Same[T ` + pick("constraint", "comparable", "ordered") + `](x T, y T) bool { x == y }
 
 // Body is n times a constant.
-func Body(n int) int { n * ` + fmt.Sprint(2+s["body.a"]) + ` }
+` + pick("marker", "", "// ergo:effect none (vouched: a probe)\n") + `func Body(n int) int { n * ` + fmt.Sprint(2+s["body.a"]) + ` }
 
 // Sig is n.
 func Sig(n int) ` + pick("sig", "int { n }", "string { \"\\(n)\" }") + `
@@ -283,8 +284,9 @@ func lawText(l *Law) string {
 // two checks give one package the same implementation fingerprint exactly
 // when its import closure has the same sources. It kills cs-iface-omits-row,
 // cs-iface-omits-inferred-row, cs-iface-omits-law, cs-iface-omits-invariant,
-// cs-iface-omits-constraint, cs-iface-shallow, cs-eval-key-omits-dep-body
-// and cs-fingerprint-reads-position. A failing seed prints its edits.
+// cs-iface-omits-constraint, cs-iface-shallow, cs-eval-key-omits-dep-body,
+// cs-fingerprint-reads-position and ws0b-fingerprint-omits-markers (a
+// marker edit leaves no package reusable). A failing seed prints its edits.
 func TestIncrementalCheckDecides(t *testing.T) {
 	slots := make([]string, 0, len(fpSlots))
 	for k := range fpSlots {
@@ -335,6 +337,12 @@ func TestIncrementalCheckDecides(t *testing.T) {
 				}
 				if wantReused && !slices.Contains(reused, fp.Path) {
 					fail("after the %s edit, %s (clean before) is not reusable", slot, fp.Path)
+				}
+				// A binding's `// ergo:` marker decides the facts an
+				// importer's call gets (gobinding.go): its edit is in the
+				// interface, though no other comment is (CS5a's gap, WS0b).
+				if slot == "marker" && slices.Contains(reused, fp.Path) {
+					fail("after the marker edit, %s is reusable", fp.Path)
 				}
 				sameClosure := cur.closure[fp.Path] == prev.closure[fp.Path]
 				if sameImpl := fp.Implementation == was.Implementation; sameImpl != sameClosure {
