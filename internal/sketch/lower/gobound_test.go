@@ -413,13 +413,16 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			fullC, _ := forms("rm."+fn, args)
 			// let mut rm = recv moves recv, so the use owns it (a Go
 			// receiver is lent, GB1); own on a crossing type narrows.
+			// rm = sameRecv(rm) makes rm a reassigned let mut before the
+			// capture; rm = rm would be S110 (a self-assignment, VET-CHECK
+			// rank 1), so the program declares the own identity sameRecv.
 			sigC := sig
 			if !takesRecv {
 				sigC = strings.Replace(sig, "recv "+recvType, "recv own "+recvType, 1)
 			}
 			out = append(out, goBoundUse{
 				target:  target + " (captured receiver)",
-				full:    sigC + " {\n\tlet mut rm = recv\n\trm = rm\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
+				full:    sigC + " {\n\tlet mut rm = recv\n\trm = sameRecv(rm)\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
 				short:   sig + " {\n\t" + short + "\n}\n",
 				imports: paths,
 				capture: true,
@@ -831,6 +834,12 @@ func goBoundProgram(uses []goBoundUse, forms []goBoundForm) (string, []int) {
 		starts[i] = line
 		line += strings.Count(text, "\n")
 		b.WriteString(text)
+	}
+	for i, u := range uses {
+		if u.capture && forms[i] == goBoundFull {
+			b.WriteString("func sameRecv[T own](x own T) T { x }\n")
+			break
+		}
 	}
 	return b.String(), starts
 }

@@ -56,9 +56,70 @@ func chain(n int) int {
 	t
 }
 
+// tryLet passes c0's failure on through a try (INLINE-FAIL-LOCAL: its
+// failure is a local of type error).
+func tryLet(x int) int fails Gone | Bad {
+	let v = try c0(x)
+	v + 1
+}
+
+func tryLets(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (tryLet(i & 4095) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
+// orFail is a user's OrFail: its failure is its parameter f.
+func orFail[T, F](o Option[T], f F) T fails F {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		return f
+	}
+}
+
+func look(m Map[int, int], k int) int fails Gone {
+	let v = try orFail(m.Get(k), Gone{At: k})
+	v
+}
+
+func table() Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i in 0..1024 {
+		m = m.Put(i * 2, i)
+	}
+	m
+}
+
+func orFails(n int) int {
+	let m = table()
+	let mut t = 0
+	for i in 0..n {
+		t = t + (look(m, i & 2047) catch {
+		case Gone as g:
+			g.At & 1
+		})
+	}
+	t
+}
+
 func bench(kind string, n int) int {
 	if kind == "chain" {
 		return chain(n)
+	}
+	if kind == "trylet" {
+		return tryLets(n)
+	}
+	if kind == "orfail" {
+		return orFails(n)
 	}
 	0
 }

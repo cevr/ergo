@@ -1,0 +1,8 @@
+# scripts/opcount: `tailbench bench orfail N` makes N reads of a Map through a
+# user's generic orFail, whose failure is its parameter (INLINE-FAIL-LOCAL),
+# its miss caught in the loop; half the keys miss. The control is hand Go
+# comma-ok with the error built on the miss only: the floor.
+unit read
+sizes 409600 2457600
+args bench orfail {n}
+control benchmarks/tailcall/testdata/control

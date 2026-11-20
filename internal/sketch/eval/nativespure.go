@@ -65,18 +65,22 @@ func registerNativespure(t nativeTables) {
 
 	// bits: Go's math/bits, each a sum, difference, product or quotient
 	// and its carry, borrow, high word or remainder.
+	t.reads["bits.Add64"] = "uint64 uint64 uint64"
 	pure("bits.Add64", func(a []Value) Value {
 		s, c := bits.Add64(u64(a[0]), u64(a[1]), u64(a[2]))
 		return pair(s, c)
 	})
+	t.reads["bits.Sub64"] = "uint64 uint64 uint64"
 	pure("bits.Sub64", func(a []Value) Value {
 		d, b := bits.Sub64(u64(a[0]), u64(a[1]), u64(a[2]))
 		return pair(d, b)
 	})
+	t.reads["bits.Mul64"] = "uint64 uint64"
 	pure("bits.Mul64", func(a []Value) Value {
 		hi, lo := bits.Mul64(u64(a[0]), u64(a[1]))
 		return pair(hi, lo)
 	})
+	t.reads["bits.Div64"] = "uint64 uint64 uint64"
 	pure("bits.Div64", func(a []Value) Value {
 		q, r := bits.Div64(u64(a[0]), u64(a[1]), u64(a[2]))
 		return pair(q, r)
@@ -84,6 +88,8 @@ func registerNativespure(t nativeTables) {
 
 	// cmp: Go's builtin max and min over one ordered basic type; a NaN
 	// gives NaN, max(-0, +0) is +0 and min(-0, +0) is -0.
+	t.reads["cmp.Max"] = "T T"
+	t.reads["cmp.Min"] = "T T"
 	pure("cmp.Max", func(a []Value) Value { return ordered2(a[0], a[1], true) })
 	pure("cmp.Min", func(a []Value) Value { return ordered2(a[0], a[1], false) })
 
@@ -93,6 +99,7 @@ func registerNativespure(t nativeTables) {
 	// [-2^(n-1), 2^(n-1)) for n signed bits and [0, 2^n) for n unsigned,
 	// each bound a power of two a float64 holds exactly.
 	conv := func(name string, n int, signed bool, of func(t float64) Value) {
+		t.reads["math."+name] = "float64"
 		lo, hi := 0.0, math.Ldexp(1, n)
 		if signed {
 			lo, hi = -math.Ldexp(1, n-1), math.Ldexp(1, n-1)
@@ -124,7 +131,9 @@ func registerNativespure(t nativeTables) {
 		d.Write([]byte(s))
 		return string(d.Sum(nil))
 	}
+	t.reads["sha1.Sum"] = "string"
 	pure("sha1.Sum", func(a []Value) Value { return sum(sha1.New, str(a[0])) })
+	t.reads["sha512.Sum"] = "string"
 	pure("sha512.Sum", func(a []Value) Value { return sum(sha512.New, str(a[0])) })
 	keyed := func(h func() hash.Hash) func(a []Value) Value {
 		return func(a []Value) Value {
@@ -133,14 +142,19 @@ func registerNativespure(t nativeTables) {
 			return string(m.Sum(nil))
 		}
 	}
+	t.reads["hmac.sum1"] = "string string"
 	pure("hmac.sum1", keyed(sha1.New))
+	t.reads["hmac.sum256"] = "string string"
 	pure("hmac.sum256", keyed(sha256.New))
+	t.reads["hmac.sum512"] = "string string"
 	pure("hmac.sum512", keyed(sha512.New))
+	t.reads["hmac.Equal"] = "string string"
 	pure("hmac.Equal", func(a []Value) Value { return hmac.Equal([]byte(str(a[0])), []byte(str(a[1]))) })
 
 	// hex.Decode: the bytes two hex digits each give, or Malformed at the
 	// first byte that is no hex digit, else at len(s) when the length is
 	// odd.
+	t.reads["hex.Decode"] = "string"
 	pureFail(natives, "hex.Decode", func(fn *check.Func, a []Value) (Value, Value) {
 		s := str(a[0])
 		digit := func(c byte) (byte, bool) {
@@ -183,11 +197,14 @@ func registerNativespure(t nativeTables) {
 			return string(b), nil
 		}
 	}
+	t.reads["base64.decodeStd"] = "string"
 	pureFail(natives, "base64.decodeStd", decode64(base64.StdEncoding))
+	t.reads["base64.decodeURL"] = "string"
 	pureFail(natives, "base64.decodeURL", decode64(base64.URLEncoding))
 
 	// filepath.Rel is Go's filepath.Rel; any error is NotRelative{base,
 	// target}. Split is Go's, which std reaches through import go.
+	t.reads["filepath.Rel"] = "string string"
 	pureFail(natives, "filepath.Rel", func(fn *check.Func, a []Value) (Value, Value) {
 		rel, err := filepath.Rel(str(a[0]), str(a[1]))
 		if err != nil {
@@ -195,6 +212,7 @@ func registerNativespure(t nativeTables) {
 		}
 		return rel, nil
 	})
+	t.reads["path/filepath.Split"] = "string"
 	pureFail(goNatives, "path/filepath.Split", func(_ *check.Func, a []Value) (Value, Value) {
 		dir, file := filepath.Split(str(a[0]))
 		return pair(dir, file), nil
@@ -202,6 +220,7 @@ func registerNativespure(t nativeTables) {
 
 	// http.EncodeQuery: each field name=value in its order, joined by
 	// "&", each part escaped as Go's url.QueryEscape escapes it.
+	t.reads["http.EncodeQuery"] = "sliceV"
 	pure("http.EncodeQuery", func(a []Value) Value {
 		var b strings.Builder
 		for i, e := range a[0].(sliceV).elems() {
@@ -219,17 +238,21 @@ func registerNativespure(t nativeTables) {
 	// fs: a Mapped in memory, whose Text is its text, and Clone, a copy
 	// of a text (the evaluator's texts are values, so the copy is the
 	// text).
+	t.reads["fs.Clone"] = "string"
 	pure("fs.Clone", func(a []Value) Value { return str(a[0]) })
+	t.reads["fs.MapText"] = "string"
 	natives["fs.MapText"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 1, 0); ab != nil {
 			return nil, ab
 		}
 		return &mappedV{text: args[0].(string)}, nil
 	}
+	t.reads["utf8.String"] = "sliceV"
 	pure("utf8.String", func(a []Value) Value { return mustBytes(a[0]) })
 
 	// slices: Insert is xs with ys before index i, Delete xs without
 	// xs[i:j], each in a new array; a bound out of range is Go's panic.
+	t.reads["slices.Insert"] = "sliceV int64 sliceV"
 	pure("slices.Insert", func(a []Value) Value {
 		xs, i, ys := a[0].(sliceV).elems(), a[1].(int64), a[2].(sliceV).elems()
 		if i < 0 || i > int64(len(xs)) {
@@ -239,6 +262,7 @@ func registerNativespure(t nativeTables) {
 		out = append(append(append(out, xs[:i]...), ys...), xs[i:]...)
 		return newSlice(out)
 	})
+	t.reads["slices.Delete"] = "sliceV int64 int64"
 	pure("slices.Delete", func(a []Value) Value {
 		xs, i, j := a[0].(sliceV).elems(), a[1].(int64), a[2].(int64)
 		if i < 0 || j < i || j > int64(len(xs)) {
@@ -274,12 +298,17 @@ func registerNativespure(t nativeTables) {
 			return v, nil
 		}
 	}
+	t.reads["strconv.AppendInt"] = "sliceV int64 int64"
 	appender("strconv.AppendInt", func(a []Value) string { return strconv.FormatInt(a[0].(int64), int(a[1].(int64))) })
+	t.reads["strconv.AppendUint"] = "sliceV uint64 int64"
 	appender("strconv.AppendUint", func(a []Value) string { return strconv.FormatUint(u64(a[0]), int(a[1].(int64))) })
+	t.reads["strconv.AppendFloat"] = "sliceV float64 uint8 int64"
 	appender("strconv.AppendFloat", func(a []Value) string {
 		return strconv.FormatFloat(a[0].(float64), a[1].(uint8), int(a[2].(int64)), 64)
 	})
+	t.reads["json.appendQuotedBytes"] = "sliceV sliceV bool"
 	appender("json.appendQuotedBytes", func(a []Value) string { return jsonQuote(mustBytes(a[0]), a[1].(bool)) })
+	t.reads["time.appendUTC"] = "sliceV int64 int64 string"
 	appender("time.appendUTC", func(a []Value) string {
 		return time.Unix(a[0].(int64), a[1].(int64)).UTC().Format(str(a[2]))
 	})
@@ -293,9 +322,13 @@ func registerNativespure(t nativeTables) {
 			return stdRecord(fn, "Reading", map[string]Value{"Sec": t.Unix(), "Nsec": int64(t.Nanosecond()), "Mono": int64(0)}), nil
 		}
 	}
+	t.reads["time.truncate"] = "int64 int64 int64"
 	pureFail(natives, "time.truncate", reading(time.Time.Truncate))
+	t.reads["time.round"] = "int64 int64 int64"
 	pureFail(natives, "time.round", reading(time.Time.Round))
+	t.reads["time.DurationISO"] = "int64"
 	pure("time.DurationISO", func(a []Value) Value { return durationISO(a[0].(int64)) })
+	t.reads["time.ParseDurationISO"] = "string"
 	pureFail(natives, "time.ParseDurationISO", func(fn *check.Func, a []Value) (Value, Value) {
 		d, msg := parseDurationISO(str(a[0]))
 		if msg != "" {
@@ -326,9 +359,11 @@ func registerNativespure(t nativeTables) {
 			return wrapped(in, fr, at2, fn, args)
 		}
 	}
+	t.reads["hash/crc32.Update"] = "uint32 mut:sliceV sliceV"
 	overGo("hash/crc32.Update", 1, func(v any, a []Value) Value {
 		return crc32.Update(a[0].(uint32), v.(*crc32.Table), []byte(mustBytes(a[2])))
 	})
+	t.reads["encoding/base64.Encoding.EncodeToString"] = "sliceV"
 	overGo("encoding/base64.Encoding.EncodeToString", 0, func(v any, a []Value) Value {
 		return v.(*base64.Encoding).EncodeToString([]byte(mustBytes(a[1])))
 	})

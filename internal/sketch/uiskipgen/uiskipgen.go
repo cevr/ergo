@@ -190,18 +190,17 @@ func shown(f mut ui.Frame[int], n int) {
 	ui.Text(f, "shown \(n)")
 }
 
-func talliedView(f mut ui.Frame[int], c mut Counter) {
-	shown(f, tally(c))
-}
-
 // tallied renders a component whose argument calls tally, over four
 // passes: the argument is evaluated once a pass, whether the call runs or
-// is written again (its value changes every third call).
+// is written again (its value changes every third call). The view borrows
+// the counter it closes over; its state is no borrow (a type parameter
+// binds none).
 func tallied() needs Console {
 	let mut f = ui.NewFrame[int]()
 	let mut c = Counter{N: 0}
+	let view = func(g mut ui.Frame[int], s int) { shown(g, tally(&c)) }
 	for _ in 0..4 {
-		let _ = ui.Render(&f, talliedView, &c)
+		let _ = ui.Render(&f, view, 0)
 	}
 	Console.Println("tallied \(c.N)")
 	Console.Println(shot(ui.FrameShape(&f), ""))
@@ -492,10 +491,6 @@ func counted(f mut ui.Frame[int], c mut Counter) {
 	ui.Text(f, "n \(c.N)")
 }
 
-func counterView(f mut ui.Frame[int], c mut Counter) {
-	counted(f, c)
-}
-
 // flagged is a component whose Same holds a toggle: in a pass that
 // changes a but not a%2 it runs and skips the Same, so it read no cell,
 // yet the cell under the Same is state its arguments do not say.
@@ -603,15 +598,16 @@ func cutKept(f mut ui.Frame[int], s St) {
 	}
 }
 
-// pointers renders the counter at each of ns, through one pointer: a
-// component whose argument is a pointer is no group, since an equal
-// pointer may reach a changed value.
+// pointers renders the counter at each of ns, through one borrow of the
+// one counter the view closes over: a component whose argument is a
+// borrow is no group, since an equal borrow may reach a changed value.
 func pointers(ns []int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let mut c = Counter{N: 0}
+	let view = func(g mut ui.Frame[int], s int) { counted(g, &c) }
 	for n in ns {
 		c.N = n
-		let ops = ui.Render(&f, counterView, &c)
+		let ops = ui.Render(&f, view, 0)
 		Console.Println("pointer ops \(show(ops))")
 		Console.Println(shot(ui.FrameShape(&f), ""))
 	}
@@ -907,12 +903,12 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 // program writes the components and the view s<seed>view.
 func (g *uiSkipGen) program() {
 	for i := range g.comps {
-		fmt.Fprintf(&g.out, "\nfunc %s(f *ui.Frame[int], a int, it Item) {\n", g.name(i))
+		fmt.Fprintf(&g.out, "\nfunc %s(f mut ui.Frame[int], a int, it Item) {\n", g.name(i))
 		g.stmts(i, 0, "\t")
 		g.out.WriteString("}\n")
 	}
 	fmt.Fprintf(&g.out, `
-func s%dview(f *ui.Frame[int], s St) {
+func s%dview(f mut ui.Frame[int], s St) {
 	%s(f, s.A, s.It)
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {

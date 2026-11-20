@@ -1,0 +1,73 @@
+import compiler/report
+import strings
+
+// ReportProject runs report.Project and report.Lines on what a Go host
+// sends (capstone S5, the driver's pure parts). The agreement property in
+// internal/selfhostcheck (TestReportAgreesWithGo) compares the answer with
+// internal/report's Report and WriteText on the same input.
+//
+// files are name, text pairs. Each diagnostic is three strings (code,
+// file, message) and four numbers (offset, length, line, column). The
+// answer is one line per finding, "<code> <file> <message> <offset>
+// <length> <line> <column> <located> <start line> <start character> <end
+// line> <end character>\n", with each text written as "<len>:<bytes>",
+// then "--\n" and the lines of report.Lines naming the source as source.
+// It is "malformed\n" when the counts do not fit.
+func ReportProject(source string, text string, files []string, strs []string, nums []int) string {
+	if len(files)%2 != 0 || len(strs)%3 != 0 || len(nums) != len(strs)/3*4 {
+		return "malformed\n"
+	}
+	let mut held = Map[string, string]{}
+	let mut i = 0
+	for {
+		if i >= len(files) {
+			break
+		}
+		held[files[i]] = files[i+1]
+		i += 2
+	}
+	let mut ds = []report.Diagnostic{}
+	let mut k = 0
+	for {
+		if k*3 >= len(strs) {
+			break
+		}
+		let span = report.Span{Offset: nums[k*4], Length: nums[k*4+1], Line: nums[k*4+2], Column: nums[k*4+3]}
+		ds = ds.Append(report.Diagnostic{Code: strs[k*3], File: strs[k*3+1], Message: strs[k*3+2], Span: span})
+		k += 1
+	}
+	let fs = report.Project(text, held, ds)
+	let mut b = strings.NewBuilder()
+	for f in fs {
+		let located = if f.Located { 1 } else { 0 }
+		b.WriteString(field(f.Code) + " " + field(f.File) + " " + field(f.Message) + " \(f.Span.Offset) \(f.Span.Length) \(f.Span.Line) \(f.Span.Column) \(located) \(f.Range.Start.Line) \(f.Range.Start.Character) \(f.Range.End.Line) \(f.Range.End.Character)\n")
+	}
+	b.WriteString("--\n")
+	b.WriteString(report.Lines(source, fs))
+	b.String()
+}
+
+func field(s string) string { "\(len(s)):" + s }
+
+// ReportRevision is report.Revision of source.
+func ReportRevision(source string) string { report.Revision(source) }
+
+// ReportStatus is report.EvaluationStatus of statuses.
+func ReportStatus(statuses []string) string { report.EvaluationStatus(statuses) }
+
+// ReportTarget is the message of report.UnsupportedTarget's refusal of
+// target, or "" for Go.
+func ReportTarget(target string) string {
+	match report.UnsupportedTarget(target) {
+	case Some[report.Diagnostic] as d:
+		d.Value.Code + " " + d.Value.Message
+	case None:
+		""
+	}
+}
+
+// ReportPlatform is the code and message of report.UnsupportedPlatform.
+func ReportPlatform(platform string, platforms []string) string {
+	let d = report.UnsupportedPlatform(platform, platforms)
+	d.Code + " " + d.Message
+}

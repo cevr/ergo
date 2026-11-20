@@ -157,6 +157,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		line(d, depth, "ContextDecl "+a+" doc="+itoa(x.Doc)+" Let="+itoa(tp(d, x.Let))+" Context="+itoa(tp(d, x.Context)))
 		node(d, c, x.Name)
 		opt(d, c, x.Provides)
+		opt(d, c, x.Fails)
 		opt(d, c, x.Needs)
 		node(d, c, x.Body)
 	case syntax.TestDecl as x:
@@ -280,6 +281,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 	case syntax.ContextLit as x:
 		line(d, depth, "ContextLit "+a+" Context="+itoa(tp(d, x.Context)))
 		opt(d, c, x.Provides)
+		opt(d, c, x.Fails)
 		opt(d, c, x.Needs)
 		node(d, c, x.Body)
 	case syntax.ArrayType as x:
