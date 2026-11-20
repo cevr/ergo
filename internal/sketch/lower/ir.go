@@ -79,6 +79,9 @@ type IRReport struct {
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
+	// FlatWorkers counts the functions given a flat worker and wrapper
+	// (IR-FORMS IRF-2, ir_forms_flat.go).
+	FlatWorkers int `json:"-"`
 	// StoreFields counts the stored record literals written field by
 	// field (ir_forms_store.go).
 	StoreFields int `json:"-"`

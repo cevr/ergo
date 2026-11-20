@@ -123,8 +123,8 @@ func (b *irBuilder) flatResOf(f *check.Func) (fl *flatRes) {
 		return nil
 	}
 	fl = &flatRes{f: f, name: fd.name, val: "struct{}", unit: len(f.Sig.Results) == 0, params: len(f.Sig.Params)}
-	if !fd.pure {
-		fl.params++
+	if !fd.envFree {
+		fl.params++ // the environment (ENV-FREE-FALLIBLE: a fallible function may take none)
 	}
 	fl.err, fl.e = b.goType(e, f.Decl), e
 	if !fl.unit {
@@ -319,6 +319,7 @@ func (b *irBuilder) flatSplit(f *check.Func, name string, slots int) {
 	worker.Name, worker.Body = fl.worker, body
 	b.st.out.Funcs = append(b.st.out.Funcs, worker)
 	fl.built = true
+	b.st.report.FlatWorkers++
 	p, end := b.fn.Pos, b.fn.End
 	b.fn.Locals = nil
 	b.next = fl.params
