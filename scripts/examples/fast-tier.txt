@@ -13,6 +13,7 @@ counter-gui
 cron
 csvreport
 dash-gui
+deploys
 download
 draw-gui
 editor-gui
