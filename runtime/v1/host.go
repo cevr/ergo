@@ -37,7 +37,8 @@ type Exit struct {
 
 // Code is os.Code, an exit status, which os.ergo's declaration names as
 // its Go type (docs/spec/stdlib.md, The body contract). The refinement
-// (1..125) is the checker's; reportExit holds a Code outside it to 1.
+// (1..125 or 129..192) is the checker's; reportExit holds a Code outside
+// it to 1.
 type Code int
 
 // Error is the failure's text: its Ergo name and fields, as the lowering
