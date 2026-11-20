@@ -92,20 +92,23 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	}
 	first, to := b.storeTo(lhs) // ir_mapstore.go: a Map's entry, else a place
 	pre, x := b.value(s.Rhs[0])
-	if to.K == "mapAt" {
-		if ix, ok := unparen(lhs).(*syntax.IndexExpr); ok {
-			if _, ok := b.intMapOf(b.l.info.Types[ix.X]); ok { // ir_intmap.go
-				if op != "" {
-					irNo("int map entry op-assignment")
-				}
-				// first, as for Go's map below: the target's own statements
-				// (a key's call that runs statements) run before the value's.
-				return append(append(first, b.fixEntry(lhs, to, pre)...), intMapStore(b.pos(s, s.Pos()), to, x))
-			}
+	if to.K == "mapAt" { // storeTo's: lhs is a Map's index
+		_, intMap := b.intMapOf(b.l.info.Types[unparen(lhs).(*syntax.IndexExpr).X]) // ir_intmap.go
+		if intMap && op != "" {
+			irNo("int map entry op-assignment")
 		}
-	}
-	if op == "" && to.K == "mapAt" {
-		return append(append(first, b.fixEntry(lhs, to, pre)...), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
+		if op == "" {
+			// One statement list for both of a Map's representations: the
+			// target's own statements (a key's call), then the entry fixed
+			// and the value's (ir_mapstore.go). Only the store differs: Go's
+			// m[k] = v, or the int map's m.Put(k, v).
+			body := append(first, b.fixEntry(lhs, to, pre)...)
+			p := b.pos(s, s.Pos())
+			if intMap {
+				return append(body, intMapStore(p, to, x))
+			}
+			return append(body, &irStmt{K: "store", Pos: p, X: to, Y: x})
+		}
 	}
 	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
 		// The emitter's target with later set (body.go): the place's

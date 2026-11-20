@@ -138,7 +138,109 @@ func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args
 	if !fc.l.takes("mono-instance") {
 		return nil
 	}
-	return fc.monoFor(f, args)
+	sp := fc.monoFor(f, args)
+	if sp != nil && x != nil {
+		fc.monoWitnesses(sp, fc.l.info.Instances[x])
+	}
+	return sp
+}
+
+// monoWitnesses decides, at the first call that names the copy sp, whether
+// sp takes its witness parameters: it takes none when every witness of
+// the call's instance inst is known here (monoWitness), and then
+// builds each it needs from those (decls.go). The copy is keyed by its Go
+// types, and the implementing functions of a type's operations are one
+// per type (coherence), so a later call's witnesses are the same
+// functions. A copy whose first call passes a witness it does not know
+// keeps the parameters for every call.
+func (fc *funcCtx) monoWitnesses(sp *specCopy, inst *check.Instance) {
+	if sp.witsDecided {
+		return
+	}
+	sp.witsDecided = true
+	params := witnessParams(sp.f.Sig)
+	if len(params) == 0 || inst == nil || inst.Func != sp.f || witnessLowering == "dynamic" {
+		return
+	}
+	wits := map[*check.TypeParam]*check.Witness{}
+	for _, tp := range params {
+		if isWireParam(tp) {
+			return
+		}
+		for j := range inst.Witnesses {
+			if inst.Witnesses[j].Param == tp {
+				wits[tp] = fc.monoWitness(&inst.Witnesses[j])
+			}
+		}
+		if wits[tp] == nil {
+			return
+		}
+	}
+	sp.wits = wits
+}
+
+// copyIsPure reports a copy sp of f for an instance whose witnesses are
+// known (monoWitnesses) and whose frame is pure once they are: f's
+// footprint is empty but for the operations of its type parameters
+// (check.Footprint.TypeParams), and each of those is a function of the
+// instance's witness whose own footprint is empty. Such a frame does not
+// poll (rows.md, Footprints 3: a call specialised to a known function
+// with an empty footprint is pure), so a probe loop that the table's size
+// bounds runs no cancellation check (MAP-PROVIDER-PROBE c).
+func copyIsPure(f *check.Func, sp *specCopy) bool {
+	if sp == nil || sp.wits == nil || f.Pkg == nil || f.Pkg.Info == nil {
+		return false
+	}
+	fp, ok := f.Pkg.Info.Footprints[f.Decl]
+	if !ok || len(fp.Caps) > 0 || fp.Tasks || fp.OpaqueRest || len(fp.Params) > 0 {
+		return false
+	}
+	for _, i := range fp.TypeParams {
+		if i >= len(f.Sig.TParams) {
+			return false
+		}
+		w := sp.wits[f.Sig.TParams[i]]
+		if w == nil {
+			return false
+		}
+		for _, op := range w.Ops {
+			g := op.Func
+			if g == nil || g.Decl == nil || g.Pkg == nil || g.Pkg.Info == nil || op.Inst != nil && len(op.Inst.Witnesses) > 0 {
+				return false
+			}
+			if gfp, ok := g.Pkg.Info.Footprints[g.Decl]; !ok || !gfp.Empty() {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// monoWitness is w as a witness whose every operation is a package
+// function (staticWitness): w itself, or, when w's argument is a type
+// parameter of a copy whose witness for it is known (fc.static), that
+// witness's functions for w's operations; nil otherwise.
+func (fc *funcCtx) monoWitness(w *check.Witness) *check.Witness {
+	if staticWitness(w) {
+		return w
+	}
+	tp, ptr := paramSource(w.Arg)
+	if tp == nil || ptr || fc.static[tp] == nil {
+		return nil
+	}
+	st := fc.static[tp]
+	out := &check.Witness{Param: w.Param, Arg: st.Arg}
+	for _, op := range w.Ops {
+		own := staticOp(st, op.Name)
+		if own == nil {
+			return nil
+		}
+		out.Ops = append(out.Ops, *own)
+	}
+	if !staticWitness(out) {
+		return nil
+	}
+	return out
 }
 
 // monoFor is the copy of f for the type arguments args (the checker's, in
