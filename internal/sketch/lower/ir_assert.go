@@ -112,7 +112,8 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 // emitter's.
 func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 	last := out[len(out)-1]
-	if x == nil || last.K != "ret" || last.X == nil {
+	if x == nil || last.K != "ret" || last.X == nil || b.law.Admits != nil {
+		// An admission's false only skips its case (lawnear.go).
 		return out
 	}
 	if b.fallibleCall(x) != nil {

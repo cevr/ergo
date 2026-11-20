@@ -71,6 +71,13 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 			// The law of a generic operation type takes its provider after
 			// the environment, at the instance the context binds (lawDecl).
 			args = append(args, e+"."+l.envField(cap))
+			if len(lc.Witnesses) > 0 {
+				wfc := newFuncCtx(l, newNamer(scope), false)
+				wfc.site = law.Decl
+				for k := range lc.Witnesses {
+					args = append(args, wfc.witnessValue(&lc.Witnesses[k], law.Decl))
+				}
+			}
 			callee = l.lawCallee(law, lawGenericOwner(law), cap.TArgs) // mono.go
 		}
 		args = append(args, vals...)

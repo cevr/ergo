@@ -513,6 +513,11 @@ type irState struct {
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
 	fallbacks  []IRCensusFunc
+	// opFuncs are the implementing functions of closed types' operations
+	// (ir_instance.go staticOpFunc), filled on first use.
+	opFuncs map[opFuncKey]*check.WitnessOp
+	// totals are the functions decided total so far (ir_sink.go).
+	totals map[*check.Func]bool
 }
 
 // restart empties st for a lowering that runs again from the start

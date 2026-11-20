@@ -108,6 +108,22 @@ func (l *lowerer) enumRun(types []check.Type, site syntax.Node) ([][]string, int
 	return all, n, true
 }
 
+// tieExpr is the Go expression of a generated case's input i (the tie
+// rule; testplan.Plan.Ties): gen, or, when the stream r draws a tie, the
+// earlier input's value it repeats, whose variable drawn holds. The
+// evaluator applies the same rule through testplan.Tie, from the same
+// stream.
+func (l *lowerer) tieExpr(p testplan.Plan, i int, drawn []string, t check.Type, r, gen string, site syntax.Node) string {
+	if i >= len(p.Ties) || len(p.Ties[i]) == 0 {
+		return gen
+	}
+	var cases strings.Builder
+	for k, j := range p.Ties[i] {
+		cases.WriteString("case " + strconv.Itoa(k) + ": return " + drawn[j] + "; ")
+	}
+	return "func() " + (&typeCtx{l: l, site: site}).goType(t) + " { switch " + r + ".stream.Tie(" + strconv.Itoa(len(p.Ties[i])) + ") { " + cases.String() + "}; return " + gen + " }()"
+}
+
 // provedText is the report of a listed run that holds.
 func provedText(cases int) string {
 	if cases == 1 {
@@ -173,6 +189,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			pv := provide(bd[owner], vs[0])
 			if generic {
 				args = append(args, pv)
+				args = append(args, fc.lawWitnessArgs(bd[owner], law.Decl)...)
 				callee = l.lawCallee(law, lawGenericOwner(law), bd[owner].Slot.TArgs) // mono.go
 			} else {
 				bind += e + "." + l.envField(law.Slots[owner].Type) + " = " + pv + "; "

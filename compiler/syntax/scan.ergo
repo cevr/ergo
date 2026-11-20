@@ -1094,6 +1094,9 @@ func opKind(c byte, c1 byte, c2 byte) uint8 {
 	if c == '^' {
 		return if c1 == '=' { XorAssign } else { Xor }
 	}
+	if c == '~' {
+		return Tilde
+	}
 	Illegal
 }
 
