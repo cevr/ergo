@@ -16,8 +16,7 @@ import (
 // the smallest program for one rule, with the one diagnostic it gets, or
 // none; no S101 suggestion repeats a member the row has (UC's no-op
 // `fails F | F`). Mutants it alone catches (testdata/mutants.json):
-// case-variant-left-out-row, bare-variant-keeps-own-row,
-// variant-row-arg-as-type.
+// case-variant-left-out-row, bare-variant-keeps-own-row.
 func TestRowVariantCases(t *testing.T) {
 	const job = "type Idle {}\n\ntype Job[F] = Idle | Run{Go func() int fails F}\n\n"
 	const async2 = "type Waiting {}\n\ntype Async2[T, F] = Waiting | Retrying{Again func() T fails F} | Failed{Error F}\n\n"
