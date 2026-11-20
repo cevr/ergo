@@ -42,9 +42,6 @@ func TestLocalShadowsPackageType(t *testing.T) {
 		// `error` is a universe type and no prelude name: a let of it still
 		// tests the type.
 		{"universe-error", "func f() int {\n\tlet error = 1\n\t0\n}\n", []string{"S108@13:6"}},
-		// A prelude type stays protected (D-D3; L6 widens only package
-		// declarations).
-		{"prelude-type", "func f() int {\n\tlet Option = 1\n\tOption\n}\n", []string{"S108@13:6"}},
 		// In a catch arm, a lone name is the local in scope, not the error
 		// type: it binds the rest, which D-D2 refuses, unread.
 		{"catch-rest", "func f(v int) int {\n\tlet Bang = 1\n\tlet n = risky(v) catch {\n\tcase Bang:\n\t\t0\n\t}\n\tn + Bang\n}\n", []string{"S108@15:7", "S110@15:7"}},

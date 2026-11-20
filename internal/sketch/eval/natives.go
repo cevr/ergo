@@ -282,6 +282,19 @@ func registerNatives(t nativeTables) {
 		}
 		return newSlice(append([]Value{}, xs.elems()[i:j]...)), nil
 	}
+	// bytes.grow is bs.Grow(n) (CollGrow; runtime/v1.StringsBuilderGrow):
+	// the same bytes with room for n more, which the evaluator does not
+	// hold apart from its length, so the value itself; a negative n is
+	// Go's defect.
+	natives["bytes.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if n := args[1].(int64); n < 0 {
+			return nil, fr.defect(at, "strings.Builder.Grow: negative count")
+		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return args[0], nil
+	}
 	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, i := args[0].(sliceV).elems(), args[1].(int64)
 		if i < 0 || i >= int64(len(xs)) {
@@ -385,7 +398,8 @@ const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 // collNatives are the natives of the operations of the built-in types
 // (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
 // each runs as the std function it was before it became an operation.
-// The builder operations have none, as their std helpers had none.
+// Of the builder operations only Grow has one (std http's ParseQuery
+// calls it); the others have none, as their std helpers had none.
 var collNatives = map[check.CollOp]string{
 	check.CollTakeAt:     "slices.Take",
 	check.CollSlice:      "slices.Slice",
@@ -398,6 +412,7 @@ var collNatives = map[check.CollOp]string{
 	check.CollRuneText:   "utf8.RuneText",
 	check.CollMakeSlice:  "slices.WithCapacity",
 	check.CollBytes:      "strings.stringsBytes",
+	check.CollGrow:       "bytes.grow",
 }
 
 // nativeOf is fn's native, nil when the evaluator has none.

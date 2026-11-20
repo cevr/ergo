@@ -442,6 +442,50 @@
       ]
     },
     {"name":"vk1-flush-keeps-events","origin":"wf10/dod/VK1","file":"examples/vt/vt/play.ergo","from":"\tApply(s, p.out, &u)\n\tp.Clear()\n","to":"\tApply(s, p.out, &u)\n","rule":"Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.","killers":["examples:vt"]},
-    {"name":"vk1-clear-keeps-first","origin":"wf10/dod/VK1","file":"examples/vt/vt/stream.ergo","from":"func Clear(p mut Stream) { p.out = p.out[0:0] }","to":"func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }","rule":"Clear forgets every event kept, not all but the first. Killed by the replay cases.","killers":["examples:vt"]}
+    {"name":"vk1-clear-keeps-first","origin":"wf10/dod/VK1","file":"examples/vt/vt/stream.ergo","from":"func Clear(p mut Stream) { p.out = p.out[0:0] }","to":"func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }","rule":"Clear forgets every event kept, not all but the first. Killed by the replay cases.","killers":["examples:vt"]},
+    {
+      "name": "pacevt2-print-run-off",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\tfor e < k && s.cells[at+e].style == old {\n",
+      "to": "\t\t\tfor e < k && e == j {\n",
+      "rule": "Print recounts a run of cells of one old style once, not once per cell (the counts are the same: ScreenMatchesPlain). Killed by test screen.StyleRunsRecountOnce, the work counter.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "pacevt2-clear-run-off",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\tfor j < end && s.cells[j].style == st {\n",
+      "to": "\t\t\tfor j < end && j == i {\n",
+      "rule": "clearRow releases a run of cells of one style once, not once per cell (the counts are the same: ScreenMatchesPlain). Killed by test screen.StyleRunsRecountOnce, the work counter.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "pacevt2-print-retains-one",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\tretainN(&s.styles, id, taken)\n",
+      "to": "\t\t\tretainN(&s.styles, id, 1)\n",
+      "rule": "Print retains the pen's style once for each cell that took it. Killed by the screen's laws (a style freed while cells hold it).",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "pacevt2-clear-releases-one",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\t\treleaseN(&s.styles, st, j-i)\n",
+      "to": "\t\t\t\treleaseN(&s.styles, st, 1)\n",
+      "rule": "clearRow releases a style once for each cell of the run. Killed by the screen's laws (a style kept after its cells are cleared).",
+      "killers": [
+        "examples:vt"
+      ]
+    }
   ]
 }

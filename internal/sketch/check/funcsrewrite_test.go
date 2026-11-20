@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/hostsyntax"
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // fusionFixture is std slices' Transform and Filter (internal/sketch/std/

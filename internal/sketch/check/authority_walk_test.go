@@ -120,6 +120,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"undiagnosed": {why: "a diagnostic mark"},
 		"refused":     {why: "a diagnostic mark"},
 		"byValue":     {why: "the syntax of a let mut value, for a message"},
+		"freshRef":    {why: "a kind mark: a let of a fresh Go handle (gofresh.go)"},
 	},
 	"TypeParam": {
 		"Constraint": {sel: "Constraint"},

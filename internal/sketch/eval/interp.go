@@ -77,6 +77,9 @@ type interp struct {
 	// (licence.go): a native that would read the working directory, the
 	// environment or the time zone reads it here.
 	ambient ambient
+	// goBodies runs a module's own Go bodies in a licence run (LAWFFI
+	// LF2m; gobodies.go), nil elsewhere.
+	goBodies GoBodies
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair

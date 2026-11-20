@@ -37,8 +37,12 @@ func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
 	}
 	t := b.fc.equalType(x)
 	gt := b.goType(t, x)
-	operand := func(e syntax.Expr, et check.Type) *irExpr {
-		v := b.expr(e) // with its implicit conversion
+	// Both operands in order, each with its implicit conversion: a later
+	// one that runs statements (a call, an if) runs after the earlier
+	// (ir_order.go inOrder).
+	vals := b.inOrder([]syntax.Expr{x.X, x.Y})
+	operand := func(k int, e syntax.Expr, et check.Type) *irExpr {
+		v := vals[k]
 		if conv, ok := b.l.info.Implicit[e]; ok && conv.Kind == check.ConvVariant {
 			et = conv.To
 		}
@@ -52,14 +56,14 @@ func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
 		if !check.Comparable(t) {
 			irNo("operator %s on a type with no equality", op)
 		}
-		return &irExpr{K: "bin", Pos: pos, Op: op, X: operand(x.X, lt), Y: operand(x.Y, rt)}
+		return &irExpr{K: "bin", Pos: pos, Op: op, X: operand(0, x.X, lt), Y: operand(1, x.Y, rt)}
 	}
 	name, free := b.l.equalFunc(t, x)
 	args := make([]string, len(free))
 	for i, tp := range free {
 		args[i] = b.goType(tp, x)
 	}
-	call := &irExpr{K: "call", Pos: pos, Name: name, T: strings.Join(args, ", "), Args: []*irExpr{operand(x.X, lt), operand(x.Y, rt)}}
+	call := &irExpr{K: "call", Pos: pos, Name: name, T: strings.Join(args, ", "), Args: []*irExpr{operand(0, x.X, lt), operand(1, x.Y, rt)}}
 	if op == "!=" {
 		return &irExpr{K: "un", Pos: pos, Op: "!", X: call}
 	}

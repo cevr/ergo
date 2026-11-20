@@ -40,35 +40,38 @@ type Frame[E] {
 	// unplaced counts the pass's lookups that missed the old child at
 	// the node's place (Unplaced).
 	unplaced int,
-	cells    []cellSpec,
-	ncells   int,
-	loads    []loadSpec[E],
-	nloads   int,
-	seen     Map[slotOf, tally],
-	seenLog  []slotOf,
-	nseen    int,
-	index    Map[kid[E], arena.Ref[node[E]]],
-	indexed  Map[arena.Ref[node[E]], bool],
-	held     Map[arena.Ref[node[E]], bool],
-	stopped  Map[int, bool],
-	parent   int,
-	each     CallSite,
-	key      Key,
-	epoch    int,
-	ops      []Op[E],
-	jobs     []Job[E],
-	keys     []func(k KeyPress) Option[E],
-	nkeys    int,
-	urls     []func(u URL) Option[E],
-	nurls    int,
-	anims    []func(at duration) E,
-	nanims   int,
-	rowRuns  int,
-	skips    int,
-	written  int,
-	stops    []CallSite,
-	nstops   int,
-	slow     Option[slowWatch[E]],
+	cells   []cellSpec,
+	ncells  int,
+	loads   []loadSpec[E],
+	nloads  int,
+	// seen holds the counts by slotKey, and seenWide those of the slots
+	// slotKey cannot pack (a TextKey row, an Id out of range).
+	seen    Map[int, tally],
+	seenWide Map[slotOf, tally],
+	seenLog []slotOf,
+	nseen   int,
+	index   Map[kid[E], arena.Ref[node[E]]],
+	indexed Map[arena.Ref[node[E]], bool],
+	held    Map[arena.Ref[node[E]], bool],
+	stopped Map[int, bool],
+	parent  int,
+	each    CallSite,
+	key     Key,
+	epoch   int,
+	ops     []Op[E],
+	jobs    []Job[E],
+	keys    []func(k KeyPress) Option[E],
+	nkeys   int,
+	urls    []func(u URL) Option[E],
+	nurls   int,
+	anims   []func(at duration) E,
+	nanims  int,
+	rowRuns int,
+	skips   int,
+	written int,
+	stops   []CallSite,
+	nstops  int,
+	slow    Option[slowWatch[E]],
 	// Groups (group.ergo): the arguments' memo, the kept groups by key
 	// and their entries with the free ones, the passes kept, this pass's
 	// groups (the first ngroups) and whether one is inside another, the
@@ -90,7 +93,8 @@ type Frame[E] {
 	ngroups   int,
 	nested    bool,
 	group     int,
-	groupSeen Map[slotOf, tally],
+	groupSeen Map[int, tally],
+	groupWide Map[slotOf, tally],
 	groupRuns int,
 	sameSkips int,
 	// sames is the Sames the pass wrote, run, skipped or inside a group
@@ -1335,7 +1339,7 @@ type spec[E] {
 	focusAs int,
 }
 
-let nowhere = CallSite{File: "", Line: 0, Column: 0}
+let nowhere = CallSite{File: "", Line: 0, Column: 0, Id: 0}
 
 // Op is one change a host applies, in order. Before names the sibling the
 // node goes in front of; None puts it last. Define gives the host the
@@ -1346,7 +1350,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}}
 }
 
 // IncrementalEqualsFresh: committing the frames of a run of states in
@@ -1858,21 +1862,27 @@ func record[E](f *Frame[E], g groupRec[E]) int {
 	r
 }
 
+// groupCount is how many group identities of s this pass took, which it
+// then moves by d (count, frame.ergo).
+func groupCount[E](f *Frame[E], s slotOf, d int) int {
+	let k = slotKey(s)
+	if k >= 0 {
+		let n = thisPass(f.groupSeen.Get(k), f.pass)
+		f.groupSeen[k] = tally{pass: f.pass, n: n + d}
+		return n
+	}
+	let n = thisPass(f.groupWide.Get(s), f.pass)
+	f.groupWide[s] = tally{pass: f.pass, n: n + d}
+	n
+}
+
 // groupIdent is the identity of a group under the current parent, counted
 // apart from the nodes' (identify): a node keeps the identity it has when
 // the call is no group, so cells and matching see the same nodes under
 // either lowering.
 func groupIdent[E](f *Frame[E], at CallSite) ident {
 	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
-	let mut n = 0
-	match f.groupSeen.Get(s) {
-	case Some[tally] as t:
-		if t.Value.pass == f.pass {
-			n = t.Value.n
-		}
-	case None:
-	}
-	f.groupSeen[s] = tally{pass: f.pass, n: n + 1}
+	let n = groupCount(f, s, 1)
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
@@ -1963,8 +1973,7 @@ func clearBefore[E](f *Frame[E], p int, each CallSite) bool {
 func unsee[E](f *Frame[E], n int) {
 	for _ in 0..n {
 		f.nseen = f.nseen - 1
-		let s = f.seenLog[f.nseen]
-		f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
+		count(f, f.seenLog[f.nseen], -1)
 	}
 }
 
@@ -2123,7 +2132,7 @@ type row { a string, b string, on bool }
 // b is read inside the Row, so its cell lives in that row's node.
 func cellRows(f *Frame[int], keys []int) {
 	Column(f, Plain()) {
-		Each(f, keys, func(k int) Key { ByInt(k) }) func(k int) {
+		Each(f, keys, rowKey) func(k int) {
 			let a = NewDraft(f, "")
 			Field(f, a, "a")
 			Text(f, a.Value)
@@ -2138,6 +2147,15 @@ func cellRows(f *Frame[int], keys []int) {
 			}
 		}
 	}
+}
+
+// rowKey is the Key of cellRows' row k: an int for an even k, a text for
+// an odd one, so a reorder moves rows of both kinds of key.
+func rowKey(k int) Key {
+	if k%2 == 0 {
+		return ByInt(k)
+	}
+	ByText("k\(k)")
 }
 
 // cellShape is what cellRows means for the model rows of keys.
@@ -2274,8 +2292,9 @@ func begin[E](f mut Frame[E]) {
 	// The last pass's counts are stale by its number. A map holding many
 	// more than the last pass took (rows that went) starts again.
 	f.pass = f.pass + 1
-	if len(f.seen) > 2*f.nseen+64 {
-		f.seen = Map[slotOf, tally]{}
+	if len(f.seen)+len(f.seenWide) > 2*f.nseen+64 {
+		f.seen = Map[int, tally]{}
+		f.seenWide = Map[slotOf, tally]{}
 	}
 	// A map the last pass wrote starts again empty: deleting its keys one
 	// by one, or walking a map once grown, costs its size every pass.
@@ -2302,8 +2321,9 @@ func begin[E](f mut Frame[E]) {
 	f.written = 0
 	f.nstops = 0
 	f.slow = None
-	if len(f.groupSeen) > 2*f.ngroups+64 {
-		f.groupSeen = Map[slotOf, tally]{}
+	if len(f.groupSeen)+len(f.groupWide) > 2*f.ngroups+64 {
+		f.groupSeen = Map[int, tally]{}
+		f.groupWide = Map[slotOf, tally]{}
 	}
 	f.ngroups = 0
 	f.nested = false
@@ -2330,8 +2350,7 @@ func see[E](f mut Frame[E], s slotOf) int {
 	if pendingUnder(f, s.parent) {
 		takePending(f, s.parent)
 	}
-	let n = seenOf(f, s)
-	f.seen[s] = tally{pass: f.pass, n: n + 1}
+	let n = count(f, s, 1)
 	if f.nseen < len(f.seenLog) {
 		f.seenLog[f.nseen] = s
 	} else {
@@ -2341,16 +2360,77 @@ func see[E](f mut Frame[E], s slotOf) int {
 	n
 }
 
-// seenOf is how many identities of s this pass took.
-func seenOf[E](f mut Frame[E], s slotOf) int {
-	match f.seen.Get(s) {
-	case Some[tally] as t:
-		if t.Value.pass == f.pass {
-			return t.Value.n
+// count is how many identities of s this pass took, which it then moves
+// by d: one map lookup and one write, on the packed key when s packs.
+func count[E](f *Frame[E], s slotOf, d int) int {
+	let k = slotKey(s)
+	if k >= 0 {
+		let n = thisPass(f.seen.Get(k), f.pass)
+		f.seen[k] = tally{pass: f.pass, n: n + d}
+		return n
+	}
+	let n = thisPass(f.seenWide.Get(s), f.pass)
+	f.seenWide[s] = tally{pass: f.pass, n: n + d}
+	n
+}
+
+// thisPass is the count of t when the pass numbered pass took it, else 0.
+func thisPass(t Option[tally], pass int) int {
+	match t {
+	case Some[tally] as x:
+		if x.Value.pass == pass {
+			return x.Value.n
 		}
 		0
 	case None:
 		0
+	}
+}
+
+// slotKey packs s into one int, so the counts' map compares ints, not
+// two CallSites (types.md, Call sites 6): the parent spec + 1 in 16 bits,
+// the site's and the row's Ids in 15 bits each (0 for nowhere), and the
+// row's key in 16 (0 NoKey, IntKey v as v + 1). A slot with a part that
+// does not fit (a TextKey, an IntKey outside 0 to 65534, an Id of 32768 or
+// more, a written CallSite with Id 0 that is not nowhere) is -1: it counts
+// in the wide map, by its whole slotOf. Two sites with distinct Ids pack
+// apart; a written CallSite that sets an Id names the site of that Id.
+func slotKey(s slotOf) int {
+	let site = siteBits(s.b.site)
+	let each = siteBits(s.b.each)
+	let key = keyBits(s.b.key)
+	if site < 0 || each < 0 || key < 0 || s.parent+1 >= 65536 {
+		return -1
+	}
+	(((s.parent+1)*32768+site)*32768+each)*65536 + key
+}
+
+// siteBits is c's part of a slotKey, -1 when it does not fit.
+func siteBits(c CallSite) int {
+	if c.Id > 0 {
+		if c.Id < 32768 {
+			return c.Id
+		}
+		return -1
+	}
+	if c == nowhere {
+		return 0
+	}
+	-1
+}
+
+// keyBits is k's part of a slotKey, -1 when it does not fit.
+func keyBits(k Key) int {
+	match k {
+	case NoKey:
+		0
+	case IntKey as x:
+		if x.Value >= 0 && x.Value < 65535 {
+			return x.Value + 1
+		}
+		-1
+	case TextKey:
+		-1
 	}
 }
 

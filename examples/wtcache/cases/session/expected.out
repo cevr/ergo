@@ -1,0 +1,10 @@
+ok
+ok
+"\"blue\""
+"a\\tb"
+none
+none
+ok
+"red"
+3
+usage: set KEY VALUE | get KEY | load KEY | writes

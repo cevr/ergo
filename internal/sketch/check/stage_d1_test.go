@@ -169,36 +169,48 @@ func TestNoShadowing(t *testing.T) {
 	})
 }
 
-// D-D3: a prelude name cannot be redeclared at any scope. The refused
-// declaration still binds, so its uses add nothing; names that merely
-// resemble prelude names are ordinary.
-func TestPreludeNamesCannotBeRedeclared(t *testing.T) {
+// D-D3 (owner q244, 2026-11-19): a declaration of any kind and at any
+// scope may take a prelude name, as in Go, and hides the prelude's name
+// for the rest of its scope. Each row's use checks only when the name
+// means the declaration, not the prelude's (a string where the prelude's
+// would give an int, a type parameter where the prelude's is a basic
+// type), so a row fails both when the declaration is refused and when a
+// use still reaches the prelude.
+//
+// Mutant: prelude-decl-not-declared (declare leaves a package declaration
+// of a prelude name out of the package scope, so uses reach the prelude).
+func TestPreludeNamesCanBeDeclared(t *testing.T) {
 	runD1(t, []d1Case{
-		// A package type may take a prelude type's name and hides it in
-		// its package (L6, owner q30, which reversed the eighth round's
-		// item 3 for types); every other declaration below stays refused.
 		{"type", "type Option { Value int }\nfunc f(o Option) int { o.Value }\n", nil},
 		{"variant", "type Opt = Some{V int} | Empty{}\n", nil},
-		{"function-named-like-a-type", "func Option() int { 1 }\n", []string{"S108:1"}},
-		{"function", "func len(xs []int) int { 0 }\nfunc f(xs []int) int { len(xs) }\n", []string{"S108:1"}},
+		{"function-named-like-a-type", "func Option() string { \"\" }\nfunc f() string { Option() }\n", nil},
+		{"function", "func len(xs []int) string { \"\" }\nfunc f(xs []int) string { len(xs) }\n", nil},
+		// The repro r10-prelude-shadow (pfloor): a program function encode.
+		{"function-encode", "func encode(n int) string { \"n\" }\nfunc f() string { encode(1) }\n", nil},
+		{"type-named-like-a-function", "type len { V string }\nfunc f(l len) string { l.V }\n", nil},
 		// Sleep is a prelude operation, in no scope (prelude-scope S1):
 		// a program declares its own group of that name.
 		{"same-named-functions", "type A {}\ntype B {}\nfunc Sleep(a A) {}\nfunc Sleep(b B) {}\n", nil},
-		{"package-let", "let Console = 1\n", []string{"S108:1"}},
-		{"context", "type Store { Get() int }\ntype Mem {} implements Store\nfunc Get(m Mem) int { 1 }\nlet Random = context { Store: Mem }\nfunc f() int { with Random { Store.Get() } }\n", []string{"S108:4"}},
-		{"import-alias", "import string timeout\nfunc f() string.Expired { string.Expired }\nfunc g(n string.Expired) {}\n", []string{"S108:1"}},
-		{"function-type-parameter", "func g[int](x int) int { x }\n", []string{"S108:1"}},
-		{"type-type-parameter", "type Box[bool] { V bool }\n", []string{"S108:1"}},
-		{"parameter", "func f(string int) int { string + 1 }\n", []string{"S108:1"}},
+		{"package-let", "let Console = \"c\"\nfunc f() string { Console }\n", nil},
+		{"context", "type Store { Get() int }\ntype Mem {} implements Store\nfunc Get(m Mem) int { 1 }\nlet Random = context { Store: Mem }\nfunc f() int { with Random { Store.Get() } }\n", nil},
+		{"function-type-parameter", "func g[int](x int) int { x }\nfunc h() string { g(\"a\") }\n", nil},
+		{"type-type-parameter", "type Box[bool] { V bool }\nfunc f() Box[int] { Box[int]{V: 1} }\n", nil},
+		{"parameter", "func f(string int) int { string + 1 }\n", nil},
 		{"parameter-prelude-operation", "func f(Sleep int) int { Sleep + 1 }\n", nil},
-		{"parameter-built-in", "func f(len int) int { len + 1 }\n", []string{"S108:1"}},
-		{"literal-parameter", "func run(f func(int) int) int { f(1) }\nfunc f() int { run(func(Task int) int { Task }) }\n", []string{"S108:2"}},
-		{"local-map", "func f() int {\n\tlet Map = 1\n\tMap + 1\n}\n", []string{"S108:2"}},
-		{"local-ordered", "func f() int {\n\tlet ordered = 1\n\tordered\n}\n", []string{"S108:2"}},
+		{"parameter-built-in", "func f(len int) int { len + 1 }\n", nil},
+		{"literal-parameter", "func run(f func(int) int) int { f(1) }\nfunc f() int { run(func(Task int) int { Task }) }\n", nil},
+		{"local-map", "func f() int {\n\tlet Map = 1\n\tMap + 1\n}\n", nil},
+		{"local-constant", "func f() int {\n\tlet true = 2\n\ttrue + 1\n}\n", nil},
+		{"local-function", "func f(xs []int) string {\n\tlet len = func(ys []int) string { \"\" }\n\tlen(xs)\n}\n", nil},
 		{"local-prelude-operation", "func f() int {\n\tlet Sleep = 1\n\tSleep\n}\n", nil},
-		{"as-binder", "type E { N int }\nfunc g() int fails E { 1 }\nfunc f() int {\n\tg() catch {\n\tcase E as Decision:\n\t\tDecision.N\n\t}\n}\n", []string{"S108:5"}},
-		{"loop-binder", "func f(xs []int) int {\n\tlet mut s = 0\n\tfor number in xs {\n\t\ts += number\n\t}\n\ts\n}\n", []string{"S108:3"}},
-		{"resembling", "type Maybe { Value int }\nfunc f(xs []int, m Maybe) int {\n\tlet length = len(xs)\n\tlength + m.Value\n}\n", nil},
+		{"as-binder", "type E { N int }\nfunc g() int fails E { 1 }\nfunc f() int {\n\tg() catch {\n\tcase E as Decision:\n\t\tDecision.N\n\t}\n}\n", nil},
+		{"loop-binder", "func f(xs []int) int {\n\tlet mut s = 0\n\tfor number in xs {\n\t\ts += number\n\t}\n\ts\n}\n", nil},
+		// A catch arm's rest name hides a prelude function (len is a
+		// built-in, Unreachable a prelude function: TestBinderNamesAgree has
+		// the built-in).
+		{"catch-rest-prelude-function", "type E { N int }\nfunc g() int fails E { 1 }\nfunc f() int {\n\tg() catch {\n\tcase Unreachable:\n\t\tlet _ = Unreachable\n\t\t0\n\t}\n}\n", nil},
+		// Outside the declaration's scope the prelude's name is back.
+		{"after-scope", "func f(xs []int) int {\n\tif true {\n\t\tlet len = \"\"\n\t\t_ = len\n\t}\n\tlen(xs)\n}\n", nil},
 	})
 	if d := check.PreludeDiagnostics(); len(d) > 0 {
 		t.Fatalf("the prelude's own declarations are refused: %v", d)
