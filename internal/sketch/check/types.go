@@ -515,11 +515,13 @@ func (t *Signature) String() string {
 	case len(results) > 1:
 		b.WriteString(" (" + strings.Join(results, ", ") + ")")
 	}
-	// The error row is spelled as the decided signature writes it.
+	// The error row is spelled as the decided signature writes it. A
+	// signature is printed by what its identity compares (identical): a
+	// written fails whose row is empty, a row parameter left out or bound
+	// to {}, prints as no failure, as the type it is. Fallible stays the
+	// lowering's fact that the Go function has an error result.
 	if errs := t.Errors.String(); errs != "" {
 		b.WriteString(" fails " + errs)
-	} else if t.Fallible {
-		b.WriteString(" fails")
 	}
 	if uses := t.Uses.String(); uses != "" {
 		b.WriteString(" " + requirementKeyword + " " + uses)

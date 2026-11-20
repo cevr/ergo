@@ -1,0 +1,13 @@
+// A row parameter left out is the empty row, and a signature prints by what
+// its identity compares: Build's type is func() int, with no bare fails
+// (KSIG-FALLIBLE; types.md, Generics 7).
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func built(c Command[int]) int { c.Build } // want S108 "func() int as int"
+
+func main() {
+	let c = Command[int]{Name: "one", Build: one}
+	let _ = built(c)
+}
