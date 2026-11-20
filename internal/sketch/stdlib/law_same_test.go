@@ -15,13 +15,17 @@ import (
 
 // stdLawSources is the source text of every std law with a source slice,
 // from its name to its closing brace with its lines as written, by ledger
-// key. A derived or by-name pair law has none (lawStatement).
-func stdLawSources(t *testing.T) map[string]string {
+// key, and the keys of the member rewrite laws among them. A derived or
+// by-name pair law has none (lawStatement).
+func stdLawSources(t *testing.T) (map[string]string, map[string]bool) {
 	t.Helper()
-	out := map[string]string{}
+	out, rewrites := map[string]string{}, map[string]bool{}
 	add := func(key string, f *syntax.File, d *syntax.LawDecl) {
 		if d.Derived == nil && d.Pair == nil {
 			out[key] = f.Src[d.Name.Pos():d.Body.End()]
+			if d.Rewrite != nil {
+				rewrites[key] = true
+			}
 		}
 	}
 	for _, p := range stdLawPackages(t) {
@@ -40,7 +44,7 @@ func stdLawSources(t *testing.T) map[string]string {
 			}
 		}
 	}
-	return out
+	return out, rewrites
 }
 
 // literal is a string, rune or raw string literal of a law's text.
@@ -82,9 +86,10 @@ var unformat = strings.NewReplacer(
 // A failing law prints its key and the edit; the seed is fixed (1).
 //
 // Mutants only it kills (internal/lawledger/testdata/mutants.json):
-// same-paren-in-word, same-interpolation-as-text.
+// same-paren-in-word, same-interpolation-as-text,
+// same-licence-skips-plain-law.
 func TestLawledgerSameIsTheFormatters(t *testing.T) {
-	sources := stdLawSources(t)
+	sources, rewrites := stdLawSources(t)
 	if len(sources) == 0 {
 		t.Fatal("no std law with source text")
 	}
@@ -105,7 +110,12 @@ func TestLawledgerSameIsTheFormatters(t *testing.T) {
 		fromSource, err := format(src)
 		if err != nil {
 			// A member rewrite law ({ a; b } == { c }) is no top-level
-			// declaration, so the formatter cannot take it alone.
+			// declaration, so the formatter cannot take it alone (a
+			// formatter gap: it formats the law only in its type). No
+			// other law may be skipped.
+			if !rewrites[key] {
+				t.Errorf("%s: the formatter refuses the law, which is no member rewrite law: %v", key, err)
+			}
 			alone++
 			continue
 		}
@@ -151,7 +161,10 @@ func TestLawledgerSameIsTheFormatters(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d laws: %d respaced and held the same, %d kept in the formatter's layout, %d not formattable alone", len(sources), respacedSame, layout, alone)
+	t.Logf("%d laws: %d respaced and held the same, %d kept in the formatter's layout, %d skipped as member rewrite laws the formatter cannot take alone", len(sources), respacedSame, layout, alone)
+	if alone > len(rewrites) {
+		t.Errorf("%d laws skipped, but std has %d member rewrite laws", alone, len(rewrites))
+	}
 	if respacedSame*2 < len(sources) {
 		t.Errorf("only %d of %d laws were respaced and compared", respacedSame, len(sources))
 	}
