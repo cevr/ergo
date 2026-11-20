@@ -105,7 +105,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if anchorDecls {
-		return migrateDecls(cfg.Root, write, stdout, stderr)
+		sel, err := regexp.Compile(selectRE)
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: -run: %v\n", err)
+			return 2
+		}
+		return migrateDecls(cfg.Root, sel, write, stdout, stderr)
 	}
 	if flags.NArg() == 0 {
 		flags.Usage()

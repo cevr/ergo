@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"ergo.local/prototype/scripts/mutants/anchor"
@@ -22,8 +23,9 @@ import (
 // stale (its from does not occur once today: left as it is, repaired by
 // nobody here) and unreadable. With write it rewrites the ledgers, adding
 // `"decl": NAME` right after the row's file, so each row's diff is one
-// field.
-func migrateDecls(root string, write bool, stdout, stderr io.Writer) int {
+// field. Only the rows whose name sel matches are given one (-run; "" matches
+// every row).
+func migrateDecls(root string, sel *regexp.Regexp, write bool, stdout, stderr io.Writer) int {
 	counts := map[string]int{}
 	var notes []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -54,6 +56,9 @@ func migrateDecls(root string, write bool, stdout, stderr io.Writer) int {
 		cursor := 0
 		changed := false
 		for _, m := range l.Mutants {
+			if !sel.MatchString(m.Name) {
+				continue
+			}
 			kind, decl := anchorOf(root, m.File, m.Decl, m.From)
 			counts[kind]++
 			if kind != "decl" {
@@ -118,23 +123,23 @@ func anchorOf(root, file, decl, from string) (string, string) {
 // row's name. It answers the text, the cursor past the row, and whether it
 // found the row.
 func insertDecl(text string, cursor int, name, file, decl string) (string, int, bool) {
-	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
-	nameAt := strings.Index(text[cursor:], `"name": `+q(name))
-	if nameAt < 0 {
+	// A ledger is written either one field a line ("name": "x") or one row
+	// a line ("name":"x"): the space after the colon is optional.
+	q := func(s string) string { b, _ := json.Marshal(s); return regexp.QuoteMeta(string(b)) }
+	loc := regexp.MustCompile(`"name":\s*` + q(name)).FindStringIndex(text[cursor:])
+	if loc == nil {
 		return text, cursor, false
 	}
-	nameAt += cursor
-	next := strings.Index(text[nameAt+1:], `"name": `)
+	nameAt := cursor + loc[0]
 	limit := len(text)
-	if next >= 0 {
-		limit = nameAt + 1 + next
+	if next := regexp.MustCompile(`"name":`).FindStringIndex(text[nameAt+1:]); next != nil {
+		limit = nameAt + 1 + next[0]
 	}
-	fileText := `"file": ` + q(file)
-	fileAt := strings.Index(text[nameAt:limit], fileText)
-	if fileAt < 0 {
+	fileLoc := regexp.MustCompile(`"file":\s*` + q(file)).FindStringIndex(text[nameAt:limit])
+	if fileLoc == nil {
 		return text, cursor, false
 	}
-	at := nameAt + fileAt + len(fileText)
+	at := nameAt + fileLoc[1]
 	add := `, "decl": ` + q(decl)
 	return text[:at] + add + text[at:], at + len(add), true
 }

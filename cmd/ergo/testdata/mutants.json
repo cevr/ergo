@@ -317,8 +317,8 @@
     {
       "name": "cache-args-unkeyed",
       "origin": "wf10 g-b2",
-      "file": "cmd/ergo/testcache.go",
-      "from": "\tfor _, a := range args {\n\t\twrite(a)\n\t}\n",
+      "file": "internal/sketch/lawcache/keys.go",
+      "from": "\tparts = append(parts, args...)\n",
       "to": "",
       "rule": "A test result is keyed by the binary's arguments: a --run name replays no run of every test.",
       "killers": ["cmd/ergo:TestTestResultCache"],
@@ -327,9 +327,9 @@
     {
       "name": "cache-env-unkeyed",
       "origin": "wf10 g-b2",
-      "file": "cmd/ergo/testcache.go",
-      "from": "\twrite(strconv.Itoa(len(env)))\n\tfor _, kv := range env {\n\t\twrite(kv)\n\t}\n",
-      "to": "",
+      "file": "internal/sketch/lawcache/keys.go",
+      "from": "\treturn Framed(append(parts, env...)...)",
+      "to": "\treturn Framed(parts[:len(parts)-1]...)",
       "rule": "A test result is keyed by the GO*, CGO_* and ERGO_* variables the go command and the runtime read.",
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
