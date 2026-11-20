@@ -18,6 +18,7 @@ type reader { text string, c cursor, a attrs } implements Cursor
 // Cursor is a reader of a checked document: the prelude's Reader,
 // sealed here (seal), so its one provider, reader, is a cell that
 // decode[T] may borrow.
+// law-exempt: only Decode makes a Cursor, from a checked text, so a law cannot draw one; the package laws RoundTrips and AttributesRoundTrip hold its reads through Reader and decode.
 type Cursor {
 	..Reader,
 	mut seal(),
