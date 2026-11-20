@@ -1818,6 +1818,14 @@
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
+      "name": "lm-regenerate-answered-clean", "origin": "wf10/semws WORK-LOCKMERGE",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif merged.Regenerate {\n\t\tlet then",
+      "to": "\tif merged.Regenerate && by == \"never\" {\n\t\tlet then",
+      "rule": "merge-file never answers clean a merge that must be made again: under Git's driver nothing regenerates, so ours would be kept silently (memory's MergeFileReportsWhatItCannotMerge).",
+      "anchor": {"tests": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]}, "killers": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]
+    },
+    {
       "name": "wl-setting-trims-the-value", "origin": "wf10/semws WORK-LAWS",
       "file": "modules/work/git/git.ergo",
       "from": "\tstrings.TrimSuffix(r.Stdout, \"\\n\")\n",

@@ -1,3 +1,6 @@
+import strings
+import slices
+import maps
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
@@ -64,6 +67,104 @@ func put(disk fstest.Memory, path string, text string) bool {
 		return false
 	}
 	disk.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}
+
+// MergeFileReportsWhatItCannotMerge: merge-file, as Git's driver runs it
+// (class auto), never answers clean with a side's change lost, on a lock
+// its preset makes derived (bun.lock) or a measured file (a [[class]]
+// line with the command that measures it). A clean answer holds every
+// entry either side added or changed against base, with that side's
+// value, where the other side left it or agrees. A merge that would need
+// making again is a conflict whose why names the command; a derived file
+// is then ours, byte for byte, so the package manager still reads it.
+// The entries: base, ours and theirs (keys taken 0 to 5, so the sides
+// add, remove and change the same keys).
+law MergeFileReportsWhatItCannotMerge(base Map[int, int], ours Map[int, int], theirs Map[int, int], measured bool) {
+	let b = sixKeys(base)
+	let a = sixKeys(ours)
+	let o = sixKeys(theirs)
+	let disk = fstest.NewMemory()
+	let config = "[[class]]\nmatch = \"times.json\"\nkind = \"measured\"\nby = \"gate -measure\"\n"
+	let written = put(disk, "/m/o", entriesText(b)) && put(disk, "/m/a", entriesText(a)) && put(disk, "/m/b", entriesText(o)) && putIn(disk, "/base", "work.toml", config) && putIn(disk, "/base", "bun.lock", "{}\n")
+	let tool = work.NewTool("/base", "/.work/base", "/data", Providers(NewCloner(), []work.Cloner{}, NewRegistry(), NewVcs(), disk, time.NewManual(0), ""), "/")
+	let path = if measured { "times.json" } else { "bun.lock" }
+	let mut why = ""
+	let mut conflicted = false
+	tool.MergeFile("auto", "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: Some[string]{Value: path}}) catch {
+	case work.MergeConflict as m:
+		conflicted = true
+		why = m.Why
+	case work.BadClass, work.BadConfig, fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let got = disk.ReadFile("/m/a") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	if !written {
+		return false
+	}
+	if conflicted {
+		let command = if measured { "gate -measure" } else { "bun install --lockfile-only" }
+		return strings.Contains(why, command) && (measured || got == entriesText(a))
+	}
+	keepsEveryChange(b, a, o, got) && keepsEveryChange(b, o, a, got)
+}
+
+// sixKeys is m with each key taken to 0 to 5 (the last write of a key
+// wins, in key order).
+func sixKeys(m Map[int, int]) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k in slices.Sorted(maps.Keys(m)) {
+		out[((k%6)+6)%6] = maps.GetOr(m, k, 0)
+	}
+	out
+}
+
+// entriesText is a lock-like JSON object of the entries, key by key.
+func entriesText(m Map[int, int]) string {
+	let mut rows = []string{}
+	for key in 0..6 {
+		match m.Get(key) {
+		case Some[int] as v:
+			rows = rows.Append("    \"k\(key)\": \(v.Value)")
+		case None:
+		}
+	}
+	let inner = if len(rows) == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
+	"{\n  \"pkg\": " + inner + "\n}\n"
+}
+
+// keepsEveryChange reports whether got holds each entry side added or
+// changed against base where other left that key as base has it or
+// agrees with side.
+func keepsEveryChange(base Map[int, int], side Map[int, int], other Map[int, int], got string) bool {
+	for key in 0..6 {
+		match side.Get(key) {
+		case Some[int] as v:
+			let changed = base.Get(key) != Some[int]{Value: v.Value}
+			let free = other.Get(key) == base.Get(key) || other.Get(key) == Some[int]{Value: v.Value}
+			let entry = "\"k\(key)\": \(v.Value)"
+			if changed && free && !strings.Contains(got, entry+",\n") && !strings.Contains(got, entry+"\n") {
+				return false
+			}
+		case None:
+		}
+	}
+	true
+}
+
+// putIn writes text to name in the folder dir of disk.
+func putIn(disk fstest.Memory, dir string, name string, text string) bool {
+	disk.MkdirAll(dir) catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	disk.WriteFile(dir+"/"+name, text) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}
