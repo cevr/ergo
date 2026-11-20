@@ -742,10 +742,7 @@ func parseContextBody(p mut parser) uint32 {
 // capability names to the entry: `, Name {, Name} :`.
 func keysContinue(p mut parser) bool {
 	let mut i = 0
-	for {
-		if peek(p, i) != Comma {
-			return false
-		}
+	for peek(p, i) == Comma {
 		i = i + 1
 		let k = peek(p, i)
 		if k != Ident && !(k == Go && peek(p, i+1) == Period) {

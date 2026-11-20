@@ -1,0 +1,6 @@
+// Package calc doubles a number with the module's own Go body.
+
+extern go example.com/good/kernel.Twice func twice(n int) int
+
+// Double is n doubled.
+func Double(n int) int { twice(n) }

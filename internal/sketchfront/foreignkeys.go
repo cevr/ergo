@@ -39,22 +39,36 @@ func foreignKeys(a Analysis, fsys FS) lower.ForeignKeys {
 	experiments := goExperiments()
 	src.ReadDir = func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, experiments) }
 	// The builds a ledger entry's Go code may differ in (LAW-BUILD-KEY):
-	// the stock build, which a build with experiments is named apart
-	// from, and each other supported platform, which this platform is.
-	if len(experiments) > 0 {
-		tags := make([]string, len(experiments))
-		for i, e := range experiments {
-			tags[i] = "goexperiment." + e
-		}
-		src.Variants = append(src.Variants, lower.BuildVariant{Tag: strings.Join(tags, ","), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, platform, nil) }})
+	// each other supported platform, which this platform is named apart
+	// from. A build with experiments names them in every key of Go code
+	// it compares (LEDGER-EXP-KEY): it never shares an entry with the
+	// stock build.
+	for _, e := range experiments {
+		src.Always = append(src.Always, "goexperiment."+e)
 	}
 	here := gobind.Platform{GOOS: cmp.Or(platform.GOOS, runtime.GOOS), GOARCH: cmp.Or(platform.GOARCH, runtime.GOARCH)}
+	src.Target = &lower.GoTarget{GOOS: here.GOOS, GOARCH: here.GOARCH, Experiments: experiments}
 	for _, other := range gobind.Platforms {
 		if other != here {
-			src.Variants = append(src.Variants, lower.BuildVariant{Tag: here.String(), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, other, experiments) }})
+			src.Variants = append(src.Variants, lower.BuildVariant{Tag: here.String(), Read: func(dir string) []lower.GoSourceFile { return readGoDir(fsys, dir, other, experiments) },
+				Target: lower.GoTarget{GOOS: other.GOOS, GOARCH: other.GOARCH, Experiments: experiments}})
 		}
 	}
 	return src.Keys()
+}
+
+// buildTags are this build's names in a key's build part: its platform
+// and its Go experiments (foreignKeys' variants).
+func buildTags(a Analysis) []string {
+	var platform gobind.Platform
+	if a.program != nil {
+		platform = a.program.platform
+	}
+	tags := []string{gobind.Platform{GOOS: cmp.Or(platform.GOOS, runtime.GOOS), GOARCH: cmp.Or(platform.GOARCH, runtime.GOARCH)}.String()}
+	for _, e := range goExperiments() {
+		tags = append(tags, "goexperiment."+e)
+	}
+	return tags
 }
 
 // readGoDir is the Go and assembly files of the package in dir that go
