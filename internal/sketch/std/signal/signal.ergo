@@ -130,7 +130,7 @@ law PollTakesOnce(pick int) {
 // actions run before UntilStop returns) and UntilStop fails with
 // Stopped. A stop that comes as body ends may be taken and dropped, as a
 // loser of tasks.Race may take a value.
-func UntilStop[T own, E, R](s Stops, body func() T fails E needs R) T fails E | Stopped needs R {
+func UntilStop[T own, E, R](s Stops, body own func() T fails E needs R) T fails E | Stopped needs R {
 	try tasks.Race([]func() T fails E | Stopped needs R{
 		func() T fails E | Stopped needs R { try body() },
 		func() T fails E | Stopped needs R { Stopped{Kind: s.Next()} },

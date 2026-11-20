@@ -6,6 +6,7 @@
 // (NewTestHost) answers from the case's folder: its confined environment,
 // and its directories under the folder.
 
+import filepath
 import strings
 
 // NoDir is the failure of a directory Self cannot name: the variable it

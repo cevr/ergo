@@ -9,7 +9,7 @@ import sync
 
 // Lstat is Stat: Memory has no symbolic links.
 func Lstat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	try Stat(m, path)
+	try m.Stat(path)
 }
 
 // Mkdir makes the one directory path with exactly mode when nothing is

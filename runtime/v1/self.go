@@ -82,13 +82,13 @@ func OSExecutable() (string, error) {
 
 // OSPlatformOS is os.Current's OS: the GOOS the program was built for.
 //
-//ergo:pure
+//ergo:host
 //ergo:wait none
 func OSPlatformOS() string { return runtime.GOOS }
 
 // OSPlatformArch is os.Current's Arch: the GOARCH the program was built
 // for.
 //
-//ergo:pure
+//ergo:host
 //ergo:wait none
 func OSPlatformArch() string { return runtime.GOARCH }
