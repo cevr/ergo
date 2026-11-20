@@ -304,6 +304,9 @@ func (c *ergoChecker) stmt(s *ergoStmt) syntax.Stmt {
 			}
 			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
 		}
+		if _, isFunc := types2.CoreType(t).(*types2.Signature); isFunc {
+			c.rangeFunc = true // ergoir_closure.go
+		}
 		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
 		if elem == nil {
 			rc.Lhs = lhs.ElemList[0]
