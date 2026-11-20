@@ -1,0 +1,56 @@
+// weather is a weather lookup (stage b: the view on
+// std ui's test host). It plays a script of form events (type, submit,
+// wait) on the lookup's screen and shows the screen after each one.
+// Package weather is the machine, whose Loading state owns the fetch;
+// package screen is the view; package script plays the script; memory
+// and web are the forecasts. This binary is the only place that chooses
+// them: memory's stations, slowed on the script's manual clock, or with
+// -live the open-meteo services over the host network. The manual clock
+// is also the test host's clock and the actor's Scheduler.
+
+import flag
+import http
+import weather/memory
+import weather/script
+import weather/web
+import weather/weather
+import io
+import os
+import time
+
+let liveFlag = flag.Bool("live", false, "ask the open-meteo services over the network instead of the fixed stations")
+
+let set = flag.Set{Name: "weather", Usage: "", Flags: []flag.Flag{liveFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: weather [-live] < script"
+
+// Delay is how long the fixed stations take to answer on the script's
+// clock: a script shows the lookup loading until it waits this long.
+let Delay = 500ms
+
+func main() fails os.Exit needs Console | Ambient {
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	let c = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: c } {
+		if liveFlag.Get(v) {
+			let live = web.Live() catch {
+			case http.InvalidClient, http.InvalidLimits:
+				return os.Exit{Code: 1, Message: "weather: no client for open-meteo"}
+			}
+			with context { weather.Forecast: live } { script.Run(c) }
+		} else {
+			with context { weather.Forecast: memory.Slow{Wait: func() { time.Sleep(c, Delay) }} } { script.Run(c) }
+		}
+	}
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "weather: the script did not run"}
+	}
+}

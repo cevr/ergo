@@ -1,0 +1,163 @@
+// Package app is the program as a machine, Program: the scene, and the
+// time of the last frame it took. The screen's frames (ui.Animate) give a
+// frame's time since the host started, where an animation frame
+// subscription would give the time since the frame before, counted from
+// when the subscription began. So the program keeps the last frame's time and
+// steps the scene by the difference: the first frame after the frames
+// begin (the start, or play after a pause) starts the count and moves
+// nothing (not the few milliseconds since a subscription began).
+
+import canvasscenes/scene
+
+// Program is the program's state: the scene shown, and the time of the
+// last frame it took, in milliseconds, while frames come.
+type Program { Scene scene.Scene, Last Option[float64] }
+
+// Signal is what the program reads: a frame at At milliseconds since the
+// host started, or one of the scene's own signals.
+type Signal = Framed{At float64} | On{Signal scene.Signal}
+
+// Open is the program at the stream's start n: the balls, running, and no
+// frame yet.
+func Open(n uint64) Program { Program{Scene: scene.Open(n), Last: None} }
+
+// Running is whether the scene shown takes frames.
+func Running(s scene.Scene) bool {
+	match s {
+	case scene.Balls as b:
+		b.Running
+	case scene.Flow as f:
+		f.Field.Running
+	}
+}
+
+// Step is the program's transition. A frame of a running scene steps it
+// by the time since the last frame, and the first one only starts the
+// count. A scene's signal steps the scene; when the scene stops taking
+// frames, the count stops too, so the next frame starts it again.
+func Step(p Program, sig Signal) Decision[Program, Never] {
+	match sig {
+	case Framed as f:
+		if !Running(p.Scene) {
+			return Ignore
+		}
+		match p.Last {
+		case Some[float64] as l:
+			let next = match scene.Step(p.Scene, scene.Ticked{Ms: f.At - l.Value}) {
+			case Stay[scene.Scene] as s:
+				s.Next
+			case Enter[scene.Scene] as e:
+				e.Next
+			case Ignore, Reject:
+				p.Scene
+			}
+			Stay[Program]{Next: Program{Scene: next, Last: Some[float64]{Value: f.At}}}
+		case None:
+			Stay[Program]{Next: Program{..p, Last: Some[float64]{Value: f.At}}}
+		}
+	case On as o:
+		match scene.Step(p.Scene, o.Signal) {
+		case Stay[scene.Scene] as s:
+			Stay[Program]{Next: counted(p, s.Next)}
+		case Enter[scene.Scene] as e:
+			Enter[Program]{Next: counted(p, e.Next)}
+		case Ignore:
+			Ignore
+		case Reject:
+			Reject
+		}
+	}
+}
+
+// counted is p showing next, with the frame count kept while next takes
+// frames and stopped when it does not.
+func counted(p Program, next scene.Scene) Program {
+	if Running(next) { Program{Scene: next, Last: p.Last} } else { Program{Scene: next, Last: None} }
+}
+
+// Shown is the program as a machine; its input is the stream's start.
+type Shown machine[Program, Signal] {
+	initial: Open,
+	step:    Step,
+}
+
+// FramesAreTheTimeBetween: over drawn frame times, a running scene that
+// takes frames at t0 < t1 < … < tn is the scene stepped by t1-t0, …,
+// tn-t(n-1): the first frame starts the count and moves nothing.
+law FramesAreTheTimeBetween(start int where 0 <= start && start <= 1000, gaps []int, flow bool) {
+	let mut p = Open(7)
+	if flow {
+		p = match Step(p, On{Signal: scene.ShowFlow}) {
+		case Enter[Program] as e:
+			e.Next
+		case Stay[Program], Ignore, Reject:
+			return false
+		}
+	}
+	let mut want = p.Scene
+	let mut at = float64(start)
+	p = match Step(p, Framed{At: at}) {
+	case Stay[Program] as s:
+		s.Next
+	case Enter[Program], Ignore, Reject:
+		return false
+	}
+	if p.Scene != want {
+		return false
+	}
+	for g in gaps {
+		let ms = float64(1 + ((g%40)+40)%40)
+		at = at + ms
+		want = match scene.Step(want, scene.Ticked{Ms: ms}) {
+		case Stay[scene.Scene] as s:
+			s.Next
+		case Enter[scene.Scene], Ignore, Reject:
+			return false
+		}
+		p = match Step(p, Framed{At: at}) {
+		case Stay[Program] as s:
+			s.Next
+		case Enter[Program], Ignore, Reject:
+			return false
+		}
+		if p.Scene != want {
+			return false
+		}
+	}
+	true
+}
+
+// APauseStopsTheCount: a paused scene ignores frames, and the first frame
+// after play moves nothing, however long the pause was. It runs on the
+// flow, whose time moves with every step.
+law APauseStopsTheCount(pause int where 1 <= pause && pause <= 100000) {
+	let flowing = match Step(Open(3), On{Signal: scene.ShowFlow}) {
+	case Enter[Program] as e:
+		e.Next
+	case Stay[Program], Ignore, Reject:
+		return false
+	}
+	let p = Program{..flowing, Last: Some[float64]{Value: 100.0}}
+	let paused = match Step(p, On{Signal: scene.Toggled}) {
+	case Stay[Program] as s:
+		s.Next
+	case Enter[Program], Ignore, Reject:
+		return false
+	}
+	if Step(paused, Framed{At: 116.0}) != Ignore {
+		return false
+	}
+	let played = match Step(paused, On{Signal: scene.Toggled}) {
+	case Stay[Program] as s:
+		s.Next
+	case Enter[Program], Ignore, Reject:
+		return false
+	}
+	let first = match Step(played, Framed{At: 100.0 + float64(pause)}) {
+	case Stay[Program] as s:
+		s.Next
+	case Enter[Program], Ignore, Reject:
+		return false
+	}
+	first.Scene == played.Scene
+}

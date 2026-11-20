@@ -1,7 +1,7 @@
 {
-  "name": "@cevr/tn1-lint-linux-x64",
+  "name": "@cvr/tn1-lint-linux-x64",
   "version": "0.1.0",
-  "description": "The tn1-lint binary for Linux x64 (a static Go binary; see @cevr/tn1-lint).",
+  "description": "The tn1-lint binary for Linux x64 (a static Go binary; see @cvr/tn1-lint).",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cevr/ergo.git",

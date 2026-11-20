@@ -1,0 +1,458 @@
+// Package llm is the contract of a language model (wf10 L1): what a
+// program asks (Request), what a model says (Turn, and the Delta pieces
+// of a stream), how an ask fails (Failure, and SafetyOf, whether to ask
+// again), and the pure functions every provider and caller shares (Fold,
+// the reference of every stream law; Valid, the transcript rule). A
+// provider is a package with a type that implements Model: llm/memory
+// plays a script; the vendor packages speak a vendor's wire. A program
+// binds one in a context in its cmd/<name>, so one program text runs on
+// any vendor, and its tests run on a script with no network.
+//
+// Prior art: Effect's effect/ai LanguageModel (generateText, streamText),
+// the Vercel AI SDK's LanguageModelV4 (doGenerate, doStream and its stream
+// parts), BAML (a stream with no terminal event is a failure; retry only
+// before the first delta) and yielded/agent (budgets and settlement, in
+// llm/agent). docs/spec/stdlib.md, "llm", says which idea came from where.
+
+import jsonschema
+import strings
+import sync
+
+// ToolSpec is a tool the model may call: its name, what it does, and the
+// JSON schema of its arguments, checked and with its text written once
+// (jsonschema.Encode), so a provider splices the text into each request.
+type ToolSpec { Name string, Description string, Input jsonschema.Encoded }
+
+// Choice is which tools the model may call in this turn: it decides
+// (Auto), none (NoTools), at least one (AnyTool), or the one named.
+type Choice = Auto{} | NoTools{} | AnyTool{} | Named{Name string}
+
+// ResponseFormat is the form of the reply: free text (Prose), or JSON that
+// fits Schema, where the vendor has the mode. A schema the vendor refuses
+// fails UnsupportedSchema.
+type ResponseFormat = Prose{} | JSON{Schema string}
+
+// Request is one ask: the system text, the transcript, the tools, the
+// tool choice, the reply's form and the most output tokens (0: the
+// provider's default).
+type Request { System string, Messages []Message, Tools []ToolSpec, Choice Choice, Format ResponseFormat, MaxTokens int }
+
+// Message is one entry of a transcript: what the person said; a reply of
+// the model, its text and its tool calls; or the result of one call, by
+// the call's id, and whether the tool failed.
+type Message = User{Text string} | Assistant{Text string, Calls []Call} | Result{CallId string, Text string, Failed bool}
+
+// Call is one tool call the model wrote: its id, the tool's name, and the
+// arguments as the JSON text the model wrote.
+type Call { Id string, Name string, Arguments string }
+
+// Stop is why a turn ended: the model was done, it called tools, it hit
+// its length, or the vendor blocked the reply.
+type Stop = Ended{} | ToolUse{} | Length{} | Blocked{}
+
+// Usage is the tokens one ask used.
+type Usage { Input int, Output int, CacheRead int, CacheWrite int }
+
+// Turn is a whole reply: its text, its calls in order, why it stopped and
+// what it used.
+type Turn { Text string, Calls []Call, Stop Stop, Usage Usage }
+
+// Delta is one piece of a streamed reply: text; reasoning text; the start
+// of a tool call (Index names the call within the turn); a piece of a
+// call's argument text; the end of a call.
+type Delta = Text{Text string} | Reasoning{Text string} | CallStart{Index int, Id string, Name string} | CallArgs{Index int, Text string} | CallEnd{Index int}
+
+// The failures of an ask.
+
+// RateLimited: the vendor asks to wait After milliseconds (None: it did
+// not say). A count, not a duration: a duration has no wire form yet
+// (gent gap G3), and a recording holds this failure.
+type RateLimited { After Option[int] }
+
+// Overloaded: the vendor is busy now.
+type Overloaded {}
+
+// Unauthorized: the key was refused.
+type Unauthorized {}
+
+// Refused: the vendor refused the ask, and why.
+type Refused { Reason string }
+
+// Truncated: the reply stopped before its terminal event; Text is the
+// text that came.
+type Truncated { Text string }
+
+// Transport: the connection failed, and how.
+type Transport { Reason string }
+
+// InvalidRequest: the vendor says the request is wrong, and why.
+type InvalidRequest { Reason string }
+
+// InvalidResponse: the vendor's answer could not be read, and why.
+type InvalidResponse { Reason string }
+
+// UnsupportedSchema: the vendor refused the JSON schema of the format or
+// of a tool, and why.
+type UnsupportedSchema { Reason string }
+
+// Failure is every way an ask can fail.
+type Failure = RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema
+
+// SinkFailed is a stream's sink that could not take a delta.
+type SinkFailed {}
+
+// Model is the contract of a language model.
+type Model {
+	// Generate is the whole reply to r.
+	Generate(r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema,
+	// Stream is Generate, with each piece of the reply given to put as it
+	// comes.
+	Stream(r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed,
+
+	// StreamFoldsToGenerate: Stream's turn is Generate's turn, and a
+	// stream that fails fails as Generate does. The two sides are two
+	// asks of the provider. It holds for r and for the first ask of r's
+	// tools.
+	law StreamFoldsToGenerate(r Request) { foldsToGenerate(r) && foldsToGenerate(first(r)) },
+
+	// StreamReturnsItsFold: the text and the calls of Stream's turn are
+	// the Fold of the deltas it gave put; nothing arrives only in the
+	// turn.
+	law StreamReturnsItsFold(r Request) { returnsItsFold(r) && returnsItsFold(first(r)) },
+
+	// TruncatedIsNotATurn: a stream that fails Truncated holds the text
+	// of the deltas that came, and a stream with a call still open is
+	// never a turn.
+	law TruncatedIsNotATurn(r Request) { notATurn(r) && notATurn(first(r)) },
+
+	// CallsAreWhole: the calls of a turn have distinct ids, and each has
+	// the whole argument text its deltas gave.
+	law CallsAreWhole(r Request) { whole(r) && whole(first(r)) },
+}
+
+// first is r with no transcript: the first ask of a conversation.
+func first(r Request) Request {
+	Request{System: r.System, Messages: []Message{}, Tools: r.Tools, Choice: r.Choice, Format: r.Format, MaxTokens: r.MaxTokens}
+}
+
+// streamed is what one stream of r gave: a turn or a failure, with the
+// deltas put saw.
+type streamed = gotTurn{Turn Turn, Deltas []Delta} | gotFailure{Failure Failure, Deltas []Delta} | sinkFailed{}
+
+// stream streams r into a list of its deltas.
+func stream(r Request) streamed needs Model {
+	let got = sync.NewRef[[]Delta]([]Delta{})
+	let t = Model.Stream(r, func(d Delta) fails SinkFailed { got.Update(func(ds []Delta) []Delta { ds.Append(d) }) }) catch {
+	case SinkFailed:
+		return sinkFailed
+	case f:
+		let failure Failure = f
+		return gotFailure{Failure: failure, Deltas: got.Get()}
+	}
+	gotTurn{Turn: t, Deltas: got.Get()}
+}
+
+// generate is Generate of r as a value: a turn or a failure.
+func generate(r Request) streamed needs Model {
+	let t = Model.Generate(r) catch {
+	case f:
+		let failure Failure = f
+		return gotFailure{Failure: failure, Deltas: []Delta{}}
+	}
+	gotTurn{Turn: t, Deltas: []Delta{}}
+}
+
+// foldsToGenerate is StreamFoldsToGenerate for one request.
+func foldsToGenerate(r Request) bool needs Model {
+	match (stream(r), generate(r)) {
+	case (gotTurn as s, gotTurn as g):
+		s.Turn == g.Turn
+	case (gotFailure as s, gotFailure as g):
+		s.Failure == g.Failure
+	case (_, _):
+		false
+	}
+}
+
+// returnsItsFold is StreamReturnsItsFold for one request.
+func returnsItsFold(r Request) bool needs Model {
+	match stream(r) {
+	case gotTurn as s:
+		let d = Fold(s.Deltas)
+		d.Text == s.Turn.Text && d.Calls == s.Turn.Calls
+	case gotFailure:
+		true
+	case sinkFailed:
+		false
+	}
+}
+
+// notATurn is TruncatedIsNotATurn for one request.
+func notATurn(r Request) bool needs Model {
+	match stream(r) {
+	case gotTurn as s:
+		len(Fold(s.Deltas).Open) == 0
+	case gotFailure as s:
+		match s.Failure {
+		case Truncated as t:
+			t.Text == Fold(s.Deltas).Text
+		case RateLimited, Overloaded, Unauthorized, Refused, Transport, InvalidRequest, InvalidResponse, UnsupportedSchema:
+			true
+		}
+	case sinkFailed:
+		false
+	}
+}
+
+// whole is CallsAreWhole for one request.
+func whole(r Request) bool needs Model {
+	match stream(r) {
+	case gotTurn as s:
+		distinct(s.Turn.Calls) && Fold(s.Deltas).Calls == s.Turn.Calls
+	case gotFailure:
+		true
+	case sinkFailed:
+		false
+	}
+}
+
+// distinct reports whether the calls have distinct ids.
+func distinct(calls []Call) bool {
+	for i, a in calls {
+		for b in calls[i+1:] {
+			if a.Id == b.Id {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Draft is a reply so far: its text, its reasoning text, the calls whose
+// end came (in the order they started), and the calls still open.
+type Draft { Text string, Reasoning string, Calls []Call, Open []Call }
+
+// Fold joins deltas into the reply so far: the text pieces in order, the
+// reasoning pieces in order, and each call's argument pieces in order,
+// kept apart by the call's Index. A CallStart names the call's id and
+// name (a second one for an Index renames it); argument pieces for an
+// Index with no start yet start a call with no id or name, which no turn
+// may hold (CallsAreWhole). Fold is pure and is the reference of every
+// stream law: a provider's turn is the Fold of what it streamed.
+func Fold(ds []Delta) Draft {
+	let mut text = []string{}
+	let mut reasoning = []string{}
+	let mut index = []int{}
+	let mut ids = []string{}
+	let mut names = []string{}
+	let mut args = [][]string{}
+	let mut ended = []bool{}
+	for d in ds {
+		match d {
+		case Text as t:
+			text = text.Append(t.Text)
+		case Reasoning as t:
+			reasoning = reasoning.Append(t.Text)
+		case CallStart as s:
+			let k = slot(index, s.Index)
+			if k < 0 {
+				index = index.Append(s.Index)
+				ids = ids.Append(s.Id)
+				names = names.Append(s.Name)
+				args = args.Append([]string{})
+				ended = ended.Append(false)
+			} else {
+				ids[k] = s.Id
+				names[k] = s.Name
+			}
+		case CallArgs as a:
+			let mut k = slot(index, a.Index)
+			if k < 0 {
+				k = len(index)
+				index = index.Append(a.Index)
+				ids = ids.Append("")
+				names = names.Append("")
+				args = args.Append([]string{})
+				ended = ended.Append(false)
+			}
+			args[k] = args[k].Append(a.Text)
+		case CallEnd as e:
+			let k = slot(index, e.Index)
+			if k >= 0 {
+				ended[k] = true
+			}
+		}
+	}
+	let mut calls = []Call{}
+	let mut open = []Call{}
+	for k, id in ids {
+		let c = Call{Id: id, Name: names[k], Arguments: strings.Join(args[k], "")}
+		if ended[k] {
+			calls = calls.Append(c)
+		} else {
+			open = open.Append(c)
+		}
+	}
+	Draft{Text: strings.Join(text, ""), Reasoning: strings.Join(reasoning, ""), Calls: calls, Open: open}
+}
+
+// slot is the position of i in index, or -1.
+func slot(index []int, i int) int {
+	for k, x in index {
+		if x == i {
+			return k
+		}
+	}
+	-1
+}
+
+// FoldIsChunkFree: text cut into pieces two ways folds to the same draft,
+// as text, as reasoning and as one call's arguments.
+law FoldIsChunkFree(text string, cutsA []int, cutsB []int) {
+	let a = pieces(text, cutsA)
+	let b = pieces(text, cutsB)
+	Fold(chunked(a)) == Fold(chunked(b)) && Fold(chunked(a)).Text == text && Fold(chunked(a)).Calls[0].Arguments == text
+}
+
+// pieces is text cut at the cuts, each taken modulo the text's length +
+// 1, in the order given: the pieces join to text.
+func pieces(text string, cuts []int) []string {
+	let n = len(text)
+	let mut out = []string{}
+	let mut at = 0
+	for c in cuts {
+		let to = ((c % (n + 1)) + n + 1) % (n + 1)
+		if to > at {
+			out = out.Append(strings.Slice(text, at, to))
+			at = to
+		}
+	}
+	out.Append(strings.Slice(text, at, n))
+}
+
+// chunked is the deltas of a reply whose text, reasoning and call 0's
+// arguments are each the pieces given.
+func chunked(ps []string) []Delta {
+	let mut ds = []Delta{CallStart{Index: 0, Id: "c", Name: "n"}}
+	for p in ps {
+		ds = ds.Append(Text{Text: p}).Append(Reasoning{Text: p}).Append(CallArgs{Index: 0, Text: p})
+	}
+	ds.Append(CallEnd{Index: 0})
+}
+
+// FoldKeepsCallsApart: the argument pieces of two calls, interleaved,
+// fold to each call's own text, the calls in the order they started.
+law FoldKeepsCallsApart(a string, b string, cuts []int) {
+	let pa = pieces(a, cuts)
+	let pb = pieces(b, cuts)
+	let mut ds = []Delta{CallStart{Index: 7, Id: "a", Name: "x"}, CallStart{Index: 3, Id: "b", Name: "y"}}
+	let n = if len(pa) > len(pb) { len(pa) } else { len(pb) }
+	for i in 0..n {
+		if i < len(pb) {
+			ds = ds.Append(CallArgs{Index: 3, Text: pb[i]})
+		}
+		if i < len(pa) {
+			ds = ds.Append(CallArgs{Index: 7, Text: pa[i]})
+		}
+	}
+	let d = Fold(ds.Append(CallEnd{Index: 3}).Append(CallEnd{Index: 7}))
+	d.Calls == []Call{Call{Id: "a", Name: "x", Arguments: a}, Call{Id: "b", Name: "y", Arguments: b}} && len(d.Open) == 0
+}
+
+// Safety is whether a failed ask may be asked again: Safe, the vendor
+// did no work and asks to come back; Unknown, the vendor may have done
+// work (a retry may repeat it, so only before the first delta); Unsafe,
+// the same ask fails the same way again.
+type Safety = Safe{} | Unknown{} | Unsafe{}
+
+// SafetyOf is the safety of a failure. The match names every failure, so
+// a new one does not build until it is classed.
+func SafetyOf(f Failure) Safety {
+	match f {
+	case RateLimited, Overloaded:
+		Safe
+	case Transport, Truncated, InvalidResponse:
+		Unknown
+	case Unauthorized, Refused, InvalidRequest, UnsupportedSchema:
+		Unsafe
+	}
+}
+
+// RequestFaultsAreUnsafe: a failure that is a verdict on the request (its
+// key, its content, its form, its schema) is Unsafe: asking again gets
+// the same verdict. Only a vendor that asks to come back is Safe.
+law RequestFaultsAreUnsafe(f Failure) {
+	match f {
+	case Unauthorized, Refused, InvalidRequest, UnsupportedSchema:
+		SafetyOf(f) == Unsafe
+	case RateLimited, Overloaded:
+		SafetyOf(f) == Safe
+	case Transport, Truncated, InvalidResponse:
+		SafetyOf(f) == Unknown
+	}
+}
+
+// Valid reports whether a transcript may be sent: each Result answers a
+// call of the Assistant message before it, once, and every call is
+// answered before the next User or Assistant message and by the end.
+// The calls of one message have distinct ids. A caller checks it before
+// a send, so a bad transcript is the caller's failure, not a vendor's
+// InvalidRequest.
+func Valid(ms []Message) bool {
+	let mut open = []string{}
+	for m in ms {
+		match m {
+		case User:
+			if len(open) != 0 {
+				return false
+			}
+		case Assistant as a:
+			if len(open) != 0 || !distinct(a.Calls) {
+				return false
+			}
+			for c in a.Calls {
+				open = open.Append(c.Id)
+			}
+		case Result as r:
+			let k = position(open, r.CallId)
+			if k < 0 {
+				return false
+			}
+			open = open[:k].Concat(open[k+1:])
+		}
+	}
+	len(open) == 0
+}
+
+// position is the position of s in xs, or -1.
+func position(xs []string, s string) int {
+	for k, x in xs {
+		if x == s {
+			return k
+		}
+	}
+	-1
+}
+
+// AnsweredCallsAreValid: a turn whose calls each get one result is
+// valid; a result moved before its call, a result left out, or a result
+// given twice is not.
+law AnsweredCallsAreValid(text string, names []string) {
+	let mut calls = []Call{}
+	let mut results = []Message{}
+	for i, n in names {
+		calls = calls.Append(Call{Id: "call-\(i)", Name: n, Arguments: "{}"})
+		results = results.Append(Result{CallId: "call-\(i)", Text: n, Failed: false})
+	}
+	let asked = []Message{User{Text: text}, Assistant{Text: text, Calls: calls}}
+	if !Valid(asked.Concat(results).Append(User{Text: text})) {
+		return false
+	}
+	if len(names) == 0 {
+		return true
+	}
+	let early = []Message{User{Text: text}, results[0], Assistant{Text: text, Calls: calls}}.Concat(results[1:])
+	let missing = asked.Concat(results[1:])
+	let twice = asked.Concat(results).Append(results[0])
+	!Valid(early) && !Valid(missing) && !Valid(twice)
+}

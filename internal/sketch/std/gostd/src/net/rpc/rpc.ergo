@@ -139,4 +139,5 @@ extern go net/rpc.ServerCodec type ServerCodec {
 extern go net/rpc.ServerError type ServerError string
 
 // ergo:go func (ServerError).Error() string
+// ergo:total
 extern go net/rpc.ServerError.Error func (e ServerError) Error() string needs go.Foreign

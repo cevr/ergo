@@ -1,7 +1,7 @@
 #!/bin/sh
 # npmwork-check.sh SCRATCH: the npm packages' launcher with no postinstall
 # (the verifier's M3 of work r2). It builds the work binary for this host
-# into its platform package, packs @cevr/work and that package into
+# into its platform package, packs @cvr/work and that package into
 # SCRATCH (a folder that does not exist yet), and installs the tarballs
 # three ways that run no postinstall: bun add, bun add -g and
 # npm install --ignore-scripts. Each must run `work --help` through the
@@ -28,8 +28,8 @@ mkdir -p "$root/tools/npm/$pkg/bin"
 (cd "$root/examples/work" && CGO_ENABLED=0 "$ergo" build ./cmd/work --platform "$plat" -o "$root/tools/npm/$pkg/bin/work")
 chmod 755 "$root/tools/npm/$pkg/bin/work"
 for p in "$pkg" work; do (cd "$root/tools/npm/$p" && npm pack --silent --pack-destination "$S/tgz" >/dev/null); done
-tgz_plat=$(ls "$S"/tgz/cevr-"$pkg"-*.tgz)
-tgz_work=$(ls "$S"/tgz/cevr-work-[0-9]*.tgz)
+tgz_plat=$(ls "$S"/tgz/cvr-"$pkg"-*.tgz)
+tgz_work=$(ls "$S"/tgz/cvr-work-[0-9]*.tgz)
 failed=0
 run() {
 	if "$2" --help >"$S/out" 2>&1 && grep -q '^Usage of work' "$S/out"; then

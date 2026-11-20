@@ -1,0 +1,257 @@
+// Sequence: a Model whose replies follow the asks, for the tests of a
+// model that asks again (llm.Retry, llm.Fallback, a program's own loop).
+// The laws of llm's policy providers sit here, beside the model they run
+// on.
+
+import llm
+import schedule
+import sync
+import testing
+
+// Sequence is a Model that plays Replies in the order a request is
+// asked: its k-th Generate of a request gives reply k, and so does its
+// k-th Stream of it (the two counted apart, so one ask of each agrees, as
+// the contract asks). A retry of a request gets the next reply. Past its
+// replies it fails Transport. Its values are copies of one sequence: each
+// sees the asks of all of them.
+type Sequence { Replies []Reply, asked sync.Ref[[]asking] } implements llm.Model
+
+// asking is how often a sequence was asked a request, by each operation.
+type asking { Request llm.Request, Generated int, Streamed int }
+
+// NewSequence is a sequence of replies that has not been asked.
+func NewSequence(replies []Reply) Sequence { Sequence{Replies: replies, asked: sync.NewRef([]asking{})} }
+
+// Asks is how many times s was asked, by either operation.
+func Asks(s Sequence) int {
+	let mut n = 0
+	for a in s.asked.Get() {
+		n = n + a.Generated + a.Streamed
+	}
+	n
+}
+
+// next counts one ask of r and gives its reply.
+func next(s Sequence, r llm.Request, stream bool) Reply {
+	let mut k = 0
+	s.asked.Update(func(xs []asking) []asking {
+		for i, a in xs {
+			if a.Request == r {
+				let mut out = xs
+				out[i] = if stream { asking{Request: r, Generated: a.Generated, Streamed: a.Streamed + 1} } else { asking{Request: r, Generated: a.Generated + 1, Streamed: a.Streamed} }
+				k = if stream { a.Streamed } else { a.Generated }
+				return out
+			}
+		}
+		xs.Append(if stream { asking{Request: r, Generated: 0, Streamed: 1} } else { asking{Request: r, Generated: 1, Streamed: 0} })
+	})
+	if k >= len(s.Replies) {
+		let out llm.Failure = llm.Transport{Reason: "the sequence has no reply \(k + 1)"}
+		return Fails{Failure: out}
+	}
+	s.Replies[k]
+}
+
+func Generate(s Sequence, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try generated(next(s, r, false))
+}
+
+func Stream(s Sequence, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	try streamed(next(s, r, true), put)
+}
+
+// bare is the failure a reply that fails with f before any delta gives.
+func bare(f llm.Failure) llm.Failure { broken(Breaks{Deltas: []llm.Delta{}, Failure: f}) }
+
+// plain is a request with one message.
+func plain(text string) llm.Request {
+	llm.Request{System: "", Messages: []llm.Message{llm.User{Text: text}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+}
+
+// ok is a reply that says text with usage u.
+func ok(text string, u llm.Usage) Reply { Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Ended, Usage: u} }
+
+// none is no usage.
+func none() llm.Usage { llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0} }
+
+// RetryFollowsSafety: llm.Retry asks again after each Safe or Unknown
+// failure and gives the turn that follows; an Unsafe failure ends it at
+// once, and so does a schedule that stops. stop is the ask that ends it:
+// the first Unsafe failure, the schedule's end, or the turn.
+law RetryFollowsSafety(fs []llm.Failure, n int) {
+	let budget = (n%8 + 8) % 8
+	let mut replies = []Reply{}
+	for f in fs {
+		replies = replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f})
+	}
+	let s = NewSequence(replies.Append(ok("done", none())))
+	let c = testing.NewVirtualClock(0)
+	let mut stop = len(fs)
+	for i, f in fs {
+		if i < stop && (llm.SafetyOf(f) == llm.Unsafe || i == budget) {
+			stop = i
+		}
+	}
+	let t = llm.Retry{Inner: s, Schedule: schedule.Recurs(budget), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case f:
+		let got llm.Failure = f
+		return stop < len(fs) && got == bare(fs[stop]) && Asks(s) == stop+1
+	}
+	stop == len(fs) && t.Text == "done" && Asks(s) == len(fs)+1
+}
+
+// RetryHonoursAfter: after RateLimited with an After, llm.Retry asks
+// again no sooner than After, however short the schedule's delay.
+law RetryHonoursAfter(ms int) {
+	let wait = (ms%100000 + 100000) % 100000
+	let c = testing.NewVirtualClock(0)
+	let s = NewSequence([]Reply{Fails{Failure: llm.RateLimited{After: Some[int]{Value: wait}}}, ok("done", none())})
+	let start = c.Now()
+	let t = llm.Retry{Inner: s, Schedule: schedule.Spaced(1ms), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case _:
+		return false
+	}
+	let waited = c.Now().Sub(start)
+	t.Text == "done" && waited >= duration(int64(wait)*1000000) && (wait > 0 || waited == 1ms)
+}
+
+// RetryKeepsUpTo: a timed schedule reads the time since the first ask
+// began: by Spaced(1s) up to k and a half seconds, llm.Retry asks k+1
+// times and then fails as the last ask did.
+law RetryKeepsUpTo(n int) {
+	let k = (n%5 + 5) % 5
+	let mut replies = []Reply{}
+	for _ in 0..8 {
+		let f llm.Failure = llm.Overloaded
+		replies = replies.Append(Fails{Failure: f})
+	}
+	let s = NewSequence(replies.Append(ok("done", none())))
+	let c = testing.NewVirtualClock(0)
+	let limit = duration(int64(k)*1000000000 + 500000000)
+	let _ = llm.Retry{Inner: s, Schedule: schedule.UpTo(schedule.Spaced(1s), limit), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case llm.Overloaded:
+		return Asks(s) == k+1
+	case _:
+		return false
+	}
+	false
+}
+
+// NoReplayAfterFirstDelta: a stream that failed after a delta reached
+// put is not asked again, by llm.Retry or by llm.Fallback: the failure is
+// the caller's, and the next reply or member is never asked.
+law NoReplayAfterFirstDelta(text string, f llm.Failure) {
+	let r = plain("q")
+	let failing = []Reply{Breaks{Deltas: []llm.Delta{llm.Text{Text: text}}, Failure: f}, ok("again", none())}
+	let s = NewSequence(failing)
+	let c = testing.NewVirtualClock(0)
+	let _ = llm.Retry{Inner: s, Schedule: schedule.Recurs(4), Clock: c, Sleep: c}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+	case llm.SinkFailed:
+		return false
+	case _:
+		let a = NewSequence(failing)
+		let b = NewSequence([]Reply{ok("other", none())})
+		let _ = llm.Fallback{Members: []llm.Model{a, b}}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		case llm.SinkFailed:
+			return false
+		case _:
+			return Asks(s) == 1 && Asks(a) == 1 && Asks(b) == 0
+		}
+		return false
+	}
+	false
+}
+
+// FallbackIsFirstSuccess: llm.Fallback asks its members in order, each
+// once, until one gives a turn, and gives that turn; with every member
+// failed, it fails as the last did.
+law FallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) {
+	let mut members = []llm.Model{}
+	let mut seqs = []Sequence{}
+	for f in fs {
+		let s = NewSequence([]Reply{Breaks{Deltas: []llm.Delta{}, Failure: f}})
+		seqs = seqs.Append(s)
+		members = members.Append(s)
+	}
+	let last = NewSequence([]Reply{ok("last", none())})
+	if succeeds {
+		members = members.Append(last)
+	}
+	let t = llm.Fallback{Members: members}.Generate(plain("q")) catch {
+	case f:
+		let got llm.Failure = f
+		let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs)-1]) }
+		return !succeeds && got == want && askedOnce(seqs)
+	}
+	succeeds && t.Text == "last" && askedOnce(seqs) && Asks(last) == 1
+}
+
+// askedOnce reports whether each sequence was asked once.
+func askedOnce(seqs []Sequence) bool {
+	for s in seqs {
+		if Asks(s) != 1 {
+			return false
+		}
+	}
+	true
+}
+
+// UsageAdds: the meter of llm.Metered is the sum of the usage of the
+// turns it gave, by Generate and by Stream; a failure adds nothing (a
+// Failure reports no usage).
+law UsageAdds(us []llm.Usage, f llm.Failure) { meter(us, f, false).Summed && meter(us, f, true).Summed }
+
+// MeteredIsTransparent: llm.Metered gives the turns and the failures its
+// inner model gives, by Generate and by Stream.
+law MeteredIsTransparent(us []llm.Usage, f llm.Failure) { meter(us, f, false).Transparent && meter(us, f, true).Transparent }
+
+// metering is what a run of meter saw.
+type metering { Transparent bool, Summed bool }
+
+// meter asks a Metered sequence of turns of usage us, then a failure f,
+// by one operation, beside the bare sequence.
+func meter(us []llm.Usage, f llm.Failure, stream bool) metering {
+	let mut replies = []Reply{}
+	let mut want = none()
+	for i, u in us {
+		replies = replies.Append(ok("t\(i)", u))
+		want = llm.Usage{Input: want.Input + u.Input, Output: want.Output + u.Output, CacheRead: want.CacheRead + u.CacheRead, CacheWrite: want.CacheWrite + u.CacheWrite}
+	}
+	let m = llm.NewMetered(NewSequence(replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f})))
+	let alone = NewSequence(replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f}))
+	let r = plain("q")
+	let mut same = true
+	for i, _ in us {
+		let t = metered(m, r, stream) catch {
+		case _:
+			return metering{Transparent: false, Summed: false}
+		}
+		let b = alone.Generate(r) catch {
+		case _:
+			return metering{Transparent: false, Summed: false}
+		}
+		same = same && t == b && t.Text == "t\(i)"
+	}
+	let _ = metered(m, r, stream) catch {
+	case g:
+		let got llm.Failure = g
+		let _ = alone.Generate(r) catch {
+		case h:
+			let bare llm.Failure = h
+			return metering{Transparent: same && got == bare, Summed: llm.Used(m) == want}
+		}
+		return metering{Transparent: false, Summed: llm.Used(m) == want}
+	}
+	metering{Transparent: false, Summed: llm.Used(m) == want}
+}
+
+// metered asks m by Generate, or by Stream when stream.
+func metered(m llm.Metered, r llm.Request, stream bool) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	if stream {
+		return try m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		case llm.SinkFailed:
+			Unreachable("a sink that drops every delta failed")
+		}
+	}
+	try m.Generate(r)
+}

@@ -1,0 +1,196 @@
+// The policy providers (wf10 L2): models that wrap models. Retry asks
+// again by a schedule, Fallback asks the next member, Metered counts the
+// tokens. Each is a Model, so they nest (Metered{Retry{Fallback{…}}})
+// and a program binds the whole stack in one context. No ask is replayed
+// after a delta reached the caller: the caller has shown it (BAML;
+// yielded/agent's model retries "before content arrives"). Their laws
+// run on memory.Sequence and sit beside it (llm/memory/sequence.ergo).
+
+import schedule
+import sync
+import time
+
+// Raise fails with f: a provider that holds a Failure as a value gives
+// it back as the failure of its operation.
+func Raise(f Failure) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	match f {
+	case RateLimited as x:
+		x
+	case Overloaded as x:
+		x
+	case Unauthorized as x:
+		x
+	case Refused as x:
+		x
+	case Truncated as x:
+		x
+	case Transport as x:
+		x
+	case InvalidRequest as x:
+		x
+	case InvalidResponse as x:
+		x
+	case UnsupportedSchema as x:
+		x
+	}
+}
+
+// Retry asks Inner again after a failure that SafetyOf allows (Safe or
+// Unknown, never Unsafe), while Schedule continues, sleeping on Sleep
+// the schedule's delay or the vendor's After, the longer one; Clock
+// gives the time the schedule reads. A stream is asked again only while
+// no delta of it reached put. A program binds time.NewHost() and
+// NewLiveScheduler(); a test binds one testing.VirtualClock to both.
+type Retry { Inner Model, Schedule schedule.Schedule, Clock time.Clock, Sleep Scheduler } implements Model
+
+// Generate is Stream with a sink that drops each delta: a failure after
+// the inner model's first delta ends it as it ends the stream, so the two
+// agree (the contract's StreamFoldsToGenerate) and no reply is paid for
+// twice once it was under way.
+func Generate(p Retry, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	try p.Stream(r, func(d Delta) fails SinkFailed {}) catch {
+	case SinkFailed:
+		Unreachable("a sink that drops every delta failed")
+	}
+}
+
+func Stream(p Retry, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+	// The schedule reads the time since the first run began only when it is
+	// timed; otherwise no ask reads the clock (schedule.UntimedIgnoresElapsed).
+	let start Option[time.Time] = if schedule.Timed(p.Schedule) { Some[time.Time]{Value: p.Clock.Now()} } else { None }
+	let mut runs = 0
+	for {
+		runs = runs + 1
+		let mut seen = false
+		let t = p.Inner.Stream(r, func(d Delta) fails SinkFailed {
+			seen = true
+			try put(d)
+		}) catch {
+		case SinkFailed as s:
+			return s
+		case f:
+			let failure Failure = f
+			if seen {
+				return try Raise(failure)
+			}
+			match again(p, failure, runs, start) {
+			case Some[duration] as d:
+				p.Sleep.Sleep(d.Value)
+				continue
+			case None:
+				return try Raise(failure)
+			}
+		}
+		return t
+	}
+}
+
+// again is the wait before run runs+1 after f, or None to stop: never
+// for an Unsafe failure, and otherwise the schedule's decision, at least
+// the vendor's After.
+func again(p Retry, f Failure, runs int, start Option[time.Time]) Option[duration] {
+	match SafetyOf(f) {
+	case Unsafe:
+		None
+	case Safe, Unknown:
+		match schedule.Decide(p.Schedule, runs, elapsed(p, start)) {
+		case schedule.Stop:
+			None
+		case schedule.Continue as c:
+			let asked = after(f)
+			Some[duration]{Value: if asked > c.After { asked } else { c.After }}
+		}
+	}
+}
+
+// elapsed is the time since start, read from p's clock, or 0 when the
+// schedule is not timed and so start was never read.
+func elapsed(p Retry, start Option[time.Time]) duration {
+	match start {
+	case Some[time.Time] as s:
+		p.Clock.Now().Sub(s.Value)
+	case None:
+		0s
+	}
+}
+
+// after is the wait the vendor asked for, or 0.
+func after(f Failure) duration {
+	match f {
+	case RateLimited as r:
+		match r.After {
+		case Some[int] as ms:
+			if ms.Value > 0 { duration(int64(ms.Value) * 1000000) } else { 0s }
+		case None:
+			0s
+		}
+	case Overloaded, Unauthorized, Refused, Truncated, Transport, InvalidRequest, InvalidResponse, UnsupportedSchema:
+		0s
+	}
+}
+
+// Fallback asks each member in order and gives the first turn; after a
+// failure it asks the next member, while no delta of the stream reached
+// put. With every member failed, it fails as the last one did; with no
+// member, it fails InvalidRequest.
+type Fallback { Members []Model } implements Model
+
+// Generate is Stream with a sink that drops each delta, as Retry's is.
+func Generate(p Fallback, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	try p.Stream(r, func(d Delta) fails SinkFailed {}) catch {
+	case SinkFailed:
+		Unreachable("a sink that drops every delta failed")
+	}
+}
+
+func Stream(p Fallback, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+	let mut last Failure = InvalidRequest{Reason: "a fallback with no member"}
+	for m in p.Members {
+		let mut seen = false
+		let t = m.Stream(r, func(d Delta) fails SinkFailed {
+			seen = true
+			try put(d)
+		}) catch {
+		case SinkFailed as s:
+			return s
+		case f:
+			let failure Failure = f
+			if seen {
+				return try Raise(failure)
+			}
+			last = failure
+			continue
+		}
+		return t
+	}
+	try Raise(last)
+}
+
+// Metered is Inner, counting the usage of each turn it gives. Its values
+// are copies of one meter: each sees what any of them counted.
+type Metered { Inner Model, used sync.Ref[Usage] } implements Model
+
+// NewMetered is Inner with a meter at zero.
+func NewMetered(inner Model) Metered {
+	Metered{Inner: inner, used: sync.NewRef(Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0})}
+}
+
+// Used is the usage the meter counted.
+func Used(m Metered) Usage { m.used.Get() }
+
+func Generate(m Metered, r Request) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema {
+	let t = try m.Inner.Generate(r)
+	m.used.Update(func(u Usage) Usage { add(u, t.Usage) })
+	t
+}
+
+func Stream(m Metered, r Request, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | SinkFailed {
+	let t = try m.Inner.Stream(r, put)
+	m.used.Update(func(u Usage) Usage { add(u, t.Usage) })
+	t
+}
+
+// add is the sum of two usages.
+func add(a Usage, b Usage) Usage {
+	Usage{Input: a.Input + b.Input, Output: a.Output + b.Output, CacheRead: a.CacheRead + b.CacheRead, CacheWrite: a.CacheWrite + b.CacheWrite}
+}

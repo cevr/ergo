@@ -23,7 +23,7 @@ import (
 // second answer finds the header written and the declared length spent.)
 func TestHTTPSendWritesTheText(t *testing.T) {
 	texts := make(chan string, 1)
-	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		text := <-texts
 		x.Send(200, []HTTPField{{"Content-Type", "application/json"}}, []byte(text))
 		if err := x.Write(ct, "more"); err != (HTTPWriteFailed{Reason: "the stream has ended"}) {

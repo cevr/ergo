@@ -112,7 +112,7 @@ func TestJSONAgreesWithRuntime(t *testing.T) {
 				return
 			}
 			in.steps, in.bytes = 0, 0
-			v, ab := natives[name](in, fr, fr.decl, nil, append([]Value{newSlice([]Value{uint8('x')})}, args...))
+			v, ab := loadedNatives().std[name](in, fr, fr.decl, nil, append([]Value{newSlice([]Value{uint8('x')})}, args...))
 			if ab != nil {
 				t.Fatalf("seed %d: %s stopped: %s", seed, name, ab.msg)
 			}

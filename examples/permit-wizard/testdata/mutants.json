@@ -1,0 +1,150 @@
+{
+  "about": "permit-wizard's application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk7-day-trip-packs", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "\tcase (Plan as p, Continue):\n\t\tif p.Overnight {\n",
+      "to": "\tcase (Plan as p, Continue):\n\t\tif p.Overnight || true {\n",
+      "rule": "A day trip skips supplies going forward (law Wizard.DayTripsSkipSupplies).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-day-trip-back-to-supplies", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "\tcase (Permit as p, Back):\n\t\tif p.Overnight {\n",
+      "to": "\tcase (Permit as p, Back):\n\t\tif p.Overnight || true {\n",
+      "rule": "A day trip skips supplies going back (law Wizard.DayTripsSkipSupplies).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-file-without-leader", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "if !(r.Leader && r.Agreed) {",
+      "to": "if !(r.Agreed) {",
+      "rule": "Filing needs a leader named as well as the rules agreed (law ReviewGatesFile; the tour always names one).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-filing-drops-allowance", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "Allowance: granted(r.Pass)}",
+      "to": "Allowance: granted(NoCode)}",
+      "rule": "The filing keeps the allowance granted (law ReviewGatesFile).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-cancel-misses-review", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "(Permit, Cancel), (Review, Cancel):",
+      "to": "(Permit, Cancel):",
+      "rule": "Cancel leaves every open stage, review included (law CancelFromEveryOpenStep; the tour cancels from the plan only).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {"name":"fk7-cancel-forgets-kind","origin":"wf10/fk7a","file":"examples/permit-wizard/permit/permit.ergo","from":"Cancelled{Overnight: Overnight(s)}}","to":"Cancelled{Overnight: true}}","rule":"A cancel keeps the trip's kind (law CancelFromEveryOpenStep).","anchor":{"tests":["examples:permit-wizard"]},"killers":["examples:permit-wizard"]},
+    {
+      "name": "fk7-edit-clears-grant", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "\t\tcase NoCode, Granted:\n\t\t\tStay[Stage]{Next: r}\n",
+      "to": "\t\tcase NoCode, Granted:\n\t\t\tStay[Stage]{Next: Review{..r, Pass: NoCode}}\n",
+      "rule": "Editing the code keeps an allowance granted (law EditClearsOnlyARefusal).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-code-case-sensitive", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "strings.ToUpper(strings.TrimSpace(text))",
+      "to": "strings.TrimSpace(text)",
+      "rule": "A code parses in any case (law CodesIgnoreCaseAndSpace).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-code-untrimmed", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "strings.ToUpper(strings.TrimSpace(text))",
+      "to": "strings.ToUpper(text)",
+      "rule": "A code parses with spaces around it (law CodesIgnoreCaseAndSpace; the tour's field is already trimmed).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-filing-quick", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "let FilingTakes = 1s",
+      "to": "let FilingTakes = 999ms",
+      "rule": "The office answers a second after the filing (law FilingTakesASecond).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-filing-never-answered", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "\t\tEnter[Stage]{Next: Confirmed{Overnight: f.Overnight, Allowance: f.Allowance, ID: IDFor(f.Overnight)}}\n",
+      "to": "\t\tEnter[Stage]{Next: Filing{Overnight: f.Overnight, Allowance: f.Allowance}}\n",
+      "rule": "Some run confirms the permit (law Wizard.Confirms).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-confirm-wrong-id", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/permit/permit.ergo",
+      "from": "ID: IDFor(f.Overnight)}",
+      "to": "ID: IDFor(true)}",
+      "rule": "The permit number follows the trip's kind (law FilingTakesASecond).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-log-keeps-one-more", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/desk/desk.ergo",
+      "from": "if len(log) == LogLimit {",
+      "to": "if len(log) == LogLimit+1 {",
+      "rule": "The log keeps the newest twenty (law LogKeepsTheNewest; the tour shows only new lines).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-ignored-ends-the-entry", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/desk/desk.ergo",
+      "from": "\t\tStay[Desk]{Next: Logged(d, ",
+      "to": "\t\tEnter[Desk]{Next: Logged(d, ",
+      "rule": "An ignored signal keeps the stage's entry, so the filing's timer runs on (law IgnoredIsAStay; the screen sends no ignored signal).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7-move-logged-as-ignored", "origin": "wf10/fk7a",
+      "file": "examples/permit-wizard/desk/desk.ergo",
+      "from": "\"\\(StageName(d.Stage)) -> \\(StageName(next)) on \\(SignalName(sig))\"",
+      "to": "\"\\(SignalName(sig)) ignored in \\(StageName(d.Stage))\"+StageName(next)[0:0]",
+      "rule": "A transition is logged from, to and on what (case tour).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7b-review-back-files", "origin": "wf10/fk7b",
+      "file": "examples/permit-wizard/screen/screen.ergo",
+      "from": "button(f, label, permit.File)\n\t\t}\n\t\tbutton(f, BackLabel, permit.Back)",
+      "to": "button(f, label, permit.File)\n\t\t}\n\t\tbutton(f, BackLabel, permit.File)",
+      "rule": "Every enabled control is a step of the permit: the review's Back goes back (law ScreenOffersOnlyTransitions; no case clicks it).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7b-file-enabled-unagreed", "origin": "wf10/fk7b",
+      "file": "examples/permit-wizard/screen/screen.ergo",
+      "from": "ui.Fieldset(f, !(r.Leader && r.Agreed), \"\")",
+      "to": "ui.Fieldset(f, !r.Leader, \"\")",
+      "rule": "File is disabled until the rules are agreed, as upstream's Place order (case scenes, law ScreenOffersOnlyTransitions).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7b-typed-dropped", "origin": "wf10/fk7b",
+      "file": "examples/permit-wizard/desk/desk.ergo",
+      "from": "(Desk{..d0, Code: t.Text}, permit.Edited)",
+      "to": "(Desk{..d0, Code: t.Text[0:0]}, permit.Edited)",
+      "rule": "The code field shows what was typed, and Apply applies it (cases).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "fk7b-allowance-added", "origin": "wf10/fk7b",
+      "file": "examples/permit-wizard/screen/screen.ergo",
+      "from": "fee - Off(g.Allowance, fee)",
+      "to": "fee + Off(g.Allowance, fee)",
+      "rule": "The file button's fee is the fee less the allowance, as upstream's Place order total (case scenes).",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    }
+  ]
+}

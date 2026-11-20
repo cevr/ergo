@@ -87,6 +87,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.Coverage, "coverage", "", "read the coverage from `FILE` instead of measuring it")
 	flags.DurationVar(&cfg.CoverDeadline, "cover-deadline", time.Hour, "deadline of each child of the coverage pass")
 	flags.StringVar(&jsonOut, "json", "", "write one JSON result per mutant to `FILE`")
+	var alpha bool
+	var alphaOut, failLogs string
+	flags.BoolVar(&alpha, "alpha", false, "judge every killer of each row the packages' tests can kill (the kill matrix, testdata/kills.json) and print one row per test of the packages: class, seconds, unique and total kills, change coupling, failures, ranked as a deletion list (CS-ALPHA)")
+	flags.StringVar(&alphaOut, "o", "", "-alpha: write the table to `FILE`")
+	flags.StringVar(&failLogs, "fail-logs", "", "-alpha: count each test's failures in the go test logs under `DIR`")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/mutants [flags] PACKAGE...   (PACKAGE: check, lower, a package dir or a ledger file)")
 		flags.PrintDefaults()
@@ -151,6 +156,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "mutants: %v\n", err)
 			}
 		}
+	}
+	if alpha {
+		if !fresh {
+			if store, err := openCoverStore(); err == nil {
+				cfg.CoverStore = store.Dir
+			}
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		if err := runAlpha(ctx, cfg, jobs, alphaOut, failLogs, stdout); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		return 0
 	}
 	if compileOnly {
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -412,9 +431,17 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			}
 		}
 		if goFiles(absRoot, rel, true) {
-			// The ledger's env reaches every run of its own suite (the coverage
-			// pass and the mutant pass), and enters the tree key with it.
-			suites = append(suites, Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)})
+			// The ledger's env reaches every run of its own suite (the
+			// coverage pass and the mutant pass), and enters the tree key
+			// with it.
+			own := Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)}
+			// A package of a module nested in the checkout (hosts/mygo) is
+			// built and run in its own module, as namedSuite builds a
+			// killer there (MUT-MODULES).
+			if mod := nestedModule(absRoot, rel); mod != "" {
+				own.Module, own.Package = mod, "./"+strings.TrimPrefix(strings.TrimPrefix(rel, mod), "/")
+			}
+			suites = append(suites, own)
 		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
@@ -526,6 +553,41 @@ func commandsOf(jobs []Job) (Suite, []Tool, error) {
 	return s, need, nil
 }
 
+// ergoTestsTool runs the Ergo tests of a package at check time
+// (scripts/ergotests, ST-0).
+var ergoTestsTool = Tool{Name: "ergotests", Package: "./scripts/ergotests", Flags: []string{"-buildvcs=false"}}
+
+// ergoTool is the ergo CLI, as ergoSuites builds it.
+var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}}
+
+// ergoPackage says whether dir is an Ergo package with no Go test of its
+// own (compiler/syntax): a killer DIR:Name there is the Ergo test Name,
+// run by ergotests (ST-0). A directory with Go tests stays a Go suite.
+func ergoPackage(root, dir string) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
+	return len(files) > 0 && !goFiles(root, dir, true)
+}
+
+// ergoTest says whether dir declares the Ergo test named test, or for
+// law:L the law L, top-level or a member law (LAW-KILLER).
+func ergoTest(root, dir, test string) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
+	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
+	if law, ok := strings.CutPrefix(test, "law:"); ok {
+		_, member, _ := strings.Cut(law, ".")
+		if member == "" {
+			member = law
+		}
+		decl = regexp.MustCompile(`(?m)^\s*law ` + regexp.QuoteMeta(member) + `\b`)
+	}
+	for _, f := range files {
+		if data, err := os.ReadFile(f); err == nil && decl.Match(data) {
+			return true
+		}
+	}
+	return false
+}
+
 // goFiles says whether the module directory dir holds a Go file: a test
 // file with tests, a non-test one without.
 func goFiles(root, dir string, tests bool) bool {
@@ -562,6 +624,10 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 	}
 	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
 		return Suite{}, nil, false
+	}
+	if !tagged && ergoPackage(root, dir) {
+		// ergo decides a law check time leaves undecided (LAW-KILLER).
+		return Suite{Name: name, Command: []string{"{bin:ergotests}", "-ergo", "{bin:ergo}", "-killer", "{test}", "{root}/" + dir}}, []Tool{ergoTestsTool, ergoTool}, true
 	}
 	if mod := nestedModule(root, dir); mod != "" {
 		return Suite{Name: name, Module: mod, Package: "./" + strings.TrimPrefix(strings.TrimPrefix(dir, mod), "/"), Tags: tags}, nil, true
@@ -609,6 +675,8 @@ func hasTest(root string, s *Suite, test string) (found, family bool) {
 			}
 		}
 		return false, false
+	case len(s.Command) > 0 && s.Command[0] == "{bin:ergotests}":
+		return ergoTest(root, s.Name, test), false
 	case s.Name == "examples":
 		dir := filepath.Join(root, "examples", test)
 		if mod, ok := strings.CutPrefix(test, "modules/"); ok {

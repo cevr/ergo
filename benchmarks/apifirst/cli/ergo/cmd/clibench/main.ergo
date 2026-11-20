@@ -1,0 +1,55 @@
+// clibench is the Ergo side of the CLI receipt (API-FIRST spec §3): it
+// runs the generated command line of counter.Counter on a cycle of
+// command lines, as many times as asked, and prints a checksum of what
+// each run prints.
+//
+//	clibench bench N    run N command lines; print "N runs, sum S"
+
+import clibench/counter
+import clibench/counter/countercli
+import os
+import strconv
+
+// lines are the command lines of the cycle: a value, a value with --json,
+// a typed failure, one with --json, a positional argument, a usage error.
+func lines() [][]string {
+	[][]string{
+		[]string{"add", "-key=apple", "-n=3"},
+		[]string{"--json", "add", "-key=pear", "-n=40"},
+		[]string{"add", "-key=fig", "-n=-1"},
+		[]string{"--json", "add", "-key=kiwi", "-n=-7"},
+		[]string{"get", "--", "plum"},
+		[]string{"get", "--", "zest"},
+		[]string{"add", "-key=lime"},
+	}
+}
+
+// Bench is the checksum of n runs: each run's status, the length of its
+// standard output, and 1 when it wrote to standard error.
+func Bench(n int) int {
+	let cycle = lines()
+	let p = countercli.Defaults()
+	let mut sum = 0
+	with context { counter.Counter: counter.Tally } {
+		for i in 0..n {
+			let o = countercli.Run(cycle[i%len(cycle)], p)
+			sum = sum + o.Code + len(o.Out)
+			if o.Err != "" {
+				sum = sum + 1
+			}
+		}
+	}
+	sum
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) != 2 || args[0] != "bench" {
+		return os.Exit{Code: 2, Message: "usage: clibench bench N"}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case _:
+		return os.Exit{Code: 2, Message: "clibench: N is not a number"}
+	}
+	Console.Println("\(n) runs, sum \(Bench(n))")
+}

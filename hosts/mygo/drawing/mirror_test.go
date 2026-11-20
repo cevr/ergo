@@ -3,6 +3,7 @@ package drawing_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/importer"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -23,27 +25,55 @@ const (
 )
 
 // TestMirrorsInternal checks each package under drawing against the
-// internal package it mirrors, by go/types on this host's build: every
-// exported constant, type and function of the internal package has a
-// counterpart of the same name that is the same constant, the same type
-// (an alias) or a function of the identical signature whose body calls
-// the internal function with its own parameters in order, and nothing
-// else is exported. An internal name may be missing only when it is a
-// variable or a function whose signature names an unexported type.
+// internal package it mirrors, by go/types: on this host's build, and
+// on the build of each phone (android/arm64, ios/arm64), where files
+// constrained to the phone hold what a phone host needs (the Android
+// EGL window, for one). Every exported constant, type and function of
+// the internal package has a counterpart of the same name that is the
+// same constant, the same type (an alias) or a function of the
+// identical signature whose body calls the internal function with its
+// own parameters in order, and nothing else is exported. An internal
+// name may be missing only when it is a variable or a function whose
+// signature names an unexported type.
 //
 // Mutants it kills (drawgen, testdata/mutants.json in hosts/mygo): the
 // constants left out; a wrapper that passes its arguments in another
-// order.
+// order; a file constrained to a phone left out (only the phone builds
+// see it).
 func TestMirrorsInternal(t *testing.T) {
-	pkgs := goList(t)
-	fset := token.NewFileSet()
-	imp := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		p, ok := pkgs[path]
-		if !ok || p.Export == "" {
-			return nil, os.ErrNotExist
-		}
-		return os.Open(p.Export)
+	t.Run("host", func(t *testing.T) {
+		pkgs := goList(t, nil, "-export")
+		fset := token.NewFileSet()
+		imp := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+			p, ok := pkgs[path]
+			if !ok || p.Export == "" {
+				return nil, os.ErrNotExist
+			}
+			return os.Open(p.Export)
+		})
+		mirrors(t, fset, imp, pkgs)
 	})
+	// A phone's build uses cgo, and this host may have no C compiler
+	// for it, so there is no export data: the packages are checked from
+	// source under the phone's build constraints, with import "C" left
+	// to go/types' fake package.
+	for _, target := range []string{"android/arm64", "ios/arm64"} {
+		t.Run(target, func(t *testing.T) {
+			goos, goarch, _ := strings.Cut(target, "/")
+			pkgs := goList(t, []string{"GOOS=" + goos, "GOARCH=" + goarch, "CGO_ENABLED=1"})
+			fset := token.NewFileSet()
+			src := &sourceImporter{fset: fset, pkgs: pkgs, sizes: types.SizesFor("gc", goarch), done: map[string]*types.Package{}}
+			mirrors(t, fset, src, pkgs)
+			for _, err := range src.errs {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+// mirrors checks every package of the drawing module in pkgs against its
+// internal package, both resolved by imp.
+func mirrors(t *testing.T, fset *token.FileSet, imp types.Importer, pkgs map[string]listed) {
 	n := 0
 	for path, p := range pkgs {
 		rel, ok := strings.CutPrefix(path, module)
@@ -65,7 +95,11 @@ func TestMirrorsInternal(t *testing.T) {
 				files = append(files, af)
 			}
 			info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
-			out, err := (&types.Config{Importer: imp}).Check(path, fset, files, info)
+			conf := &types.Config{Importer: imp}
+			if s, ok := imp.(*sourceImporter); ok {
+				conf.Sizes = s.sizes
+			}
+			out, err := conf.Check(path, fset, files, info)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -237,13 +271,18 @@ func callsInOrder(fd *ast.FuncDecl, m, o *types.Func, info *types.Info) string {
 
 type listed struct {
 	ImportPath, Dir, Export string
-	GoFiles                 []string
+	GoFiles, CgoFiles       []string
+	ImportMap               map[string]string
 }
 
-// goList returns the packages of this module and their dependencies,
-// built, by import path.
-func goList(t *testing.T) map[string]listed {
-	cmd := exec.Command("go", "list", "-export", "-deps", "-json=ImportPath,Dir,Export,GoFiles", "./...")
+// goList returns the packages of this module and their dependencies, by
+// import path, as the go command lists them in env (added to this
+// process's) with flags.
+func goList(t *testing.T, env []string, flags ...string) map[string]listed {
+	args := append([]string{"list"}, flags...)
+	args = append(args, "-deps", "-json=ImportPath,Dir,Export,GoFiles,CgoFiles,ImportMap", "./...")
+	cmd := exec.Command("go", args...)
+	cmd.Env = append(os.Environ(), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	b, err := cmd.Output()
@@ -261,3 +300,63 @@ func goList(t *testing.T) map[string]listed {
 	}
 	return pkgs
 }
+
+// sourceImporter type-checks the listed packages from source, each once,
+// with import "C" left to go/types' fake package. It keeps the errors of
+// every package it checks that does not use cgo.
+type sourceImporter struct {
+	fset  *token.FileSet
+	pkgs  map[string]listed
+	sizes types.Sizes
+	done  map[string]*types.Package
+	errs  []error
+}
+
+func (s *sourceImporter) Import(path string) (*types.Package, error) {
+	if path == "unsafe" {
+		return types.Unsafe, nil
+	}
+	if pkg, ok := s.done[path]; ok {
+		return pkg, nil
+	}
+	p, ok := s.pkgs[path]
+	if !ok {
+		return nil, fmt.Errorf("%s is not listed", path)
+	}
+	var files []*ast.File
+	for _, f := range append(slices.Clone(p.GoFiles), p.CgoFiles...) {
+		af, err := parser.ParseFile(s.fset, filepath.Join(p.Dir, f), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, af)
+	}
+	conf := &types.Config{
+		FakeImportC: true,
+		Sizes:       s.sizes,
+		Importer: importerFunc(func(q string) (*types.Package, error) {
+			if m, ok := p.ImportMap[q]; ok {
+				q = m
+			}
+			return s.Import(q)
+		}),
+		Error: func(err error) {
+			// The fake "C" package has no types, so in a package that
+			// uses cgo an expression over one is untyped (net's
+			// cgo_unix.go calls the _C_ functions cgo would write); only
+			// those packages' errors are expected. None of the mirrored
+			// packages uses cgo.
+			if len(p.CgoFiles) > 0 {
+				return
+			}
+			s.errs = append(s.errs, err)
+		},
+	}
+	pkg, _ := conf.Check(path, s.fset, files, nil)
+	s.done[path] = pkg
+	return pkg, nil
+}
+
+type importerFunc func(path string) (*types.Package, error)
+
+func (f importerFunc) Import(path string) (*types.Package, error) { return f(path) }

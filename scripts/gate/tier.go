@@ -91,8 +91,12 @@ func tierFor(full, noCache, merge, recordDurations bool) string {
 
 // stepsFor declares the steps of a tier.
 func stepsFor(root, tier string) ([]*Step, error) {
-	if tier == fastTier {
+	switch tier {
+	case fastTier:
 		return fastSteps(root)
+	case roundTier:
+		steps, _, err := fastStepsSelected(root, "", nil, true)
+		return steps, err
 	}
 	return fullSteps(root)
 }
@@ -398,7 +402,7 @@ func fastExamples(root string, steps []*Step) error {
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
-	steps, _, err := fastStepsSelected(root, "", nil)
+	steps, _, err := fastStepsSelected(root, "", nil, false)
 	return steps, err
 }
 
@@ -406,15 +410,65 @@ func fastSteps(root string) ([]*Step, error) {
 // reaches (selectTests); env is the step's environment.
 type selector func(p testPackage, env, names []string) selection
 
+// plan is a package's fast-tier step before its selection: the tests it
+// runs (fast) and those it leaves to the full tier (large).
+type plan struct {
+	p           testPackage
+	relative    string
+	env, needs  []string
+	fast, large []string
+	measured    map[string]float64
+	chosen      *selection
+}
+
+// planOf is the plan of p's fast-tier step (relative is its directory in
+// the module, measured its recorded test times), or nil when the fast tier
+// gives p no step: a host package, or one every test of which builds Go
+// (fullTierOnly) outside the round tier.
+func planOf(root string, p testPackage, relative string, measured map[string]float64, round bool) (*plan, error) {
+	// A host package's tests are heavy (classHeavy): they start gates
+	// in systemd scopes and build in the merge tier's sandbox (754.8 s
+	// wall, 392 CPU-s under -short at 2b089097, gate-minute
+	// measure.md). The full tier runs them on every batch head.
+	if slices.Contains(hostTestPackages, relative) {
+		return nil, nil
+	}
+	if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
+		return nil, err
+	} else if only && !round {
+		return nil, nil
+	}
+	// A hermetic package builds as its full-tier step builds it.
+	var env, needs []string
+	if strings.HasPrefix(relative, hermeticTestRoot) {
+		env = hermeticEnvironment
+	}
+	// A package whose tests run the CLI runs the one this run built.
+	if slices.Contains(cliTestPackages, relative) {
+		env, needs = cliTestEnvironment, []string{buildCLIStep}
+	}
+	names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
+	if err != nil {
+		return nil, err
+	}
+	fast, large := fastSelection(names, measured)
+	if round {
+		fast, large = names, nil
+	}
+	return &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured}, nil
+}
+
 // fastStepsSelected is fastSteps, with the fast tests of each of
 // selectPackages narrowed by choose when it is not nil: a skipped test
 // joins the large ones that every shard skips, so a test the record does
 // not know still runs.
 // A package whose every fast test the selection skips has no step; dropped
-// says so, one line per package, for the gate to print.
+// says so, one line per package, for the gate to print. round declares
+// the round tier (affected.go) instead: every test of each package, no
+// -short, and choose judges every package, not only selectPackages.
 // The size rule reads the times of cacheDir's store over durationsFile's
 // (testSeconds); fastSteps reads durationsFile alone.
-func fastStepsSelected(root, cacheDir string, choose selector) (steps []*Step, dropped []string, err error) {
+func fastStepsSelected(root, cacheDir string, choose selector, round bool) (steps []*Step, dropped []string, err error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
 		return nil, nil, err
@@ -444,51 +498,21 @@ func fastStepsSelected(root, cacheDir string, choose selector) (steps []*Step, d
 	// record and hashes its compiled inputs, independent of the others, so
 	// they run at once. One after another they took 1.7 of the 6.8 s before
 	// a std edit's gate clock started, at 4 CPUs (gate-speed GS28).
-	type plan struct {
-		p           testPackage
-		relative    string
-		env, needs  []string
-		fast, large []string
-		measured    map[string]float64
-		chosen      *selection
-	}
 	var plans []*plan
 	for _, p := range packages {
-		relative := strings.TrimPrefix(p.importPath, module+"/")
-		// A host package's tests are heavy (classHeavy): they start gates
-		// in systemd scopes and build in the merge tier's sandbox (754.8 s
-		// wall, 392 CPU-s under -short at 2b089097, gate-minute
-		// measure.md). The full tier runs them on every batch head.
-		if slices.Contains(hostTestPackages, relative) {
-			continue
-		}
-		if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
-			return nil, nil, err
-		} else if only {
-			continue
-		}
-		// A hermetic package builds as its full-tier step builds it.
-		var env, needs []string
-		if strings.HasPrefix(relative, hermeticTestRoot) {
-			env = hermeticEnvironment
-		}
-		// A package whose tests run the CLI runs the one this run built.
-		if slices.Contains(cliTestPackages, relative) {
-			env, needs = cliTestEnvironment, []string{buildCLIStep}
-		}
-		names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
+		pl, err := planOf(root, p, strings.TrimPrefix(p.importPath, module+"/"), durations[p.importPath], round)
 		if err != nil {
 			return nil, nil, err
 		}
-		measured := durations[p.importPath]
-		fast, large := fastSelection(names, measured)
-		plans = append(plans, &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured})
+		if pl != nil {
+			plans = append(plans, pl)
+		}
 	}
 	if choose != nil {
 		var wg sync.WaitGroup
 		slots := make(chan struct{}, runtime.GOMAXPROCS(0))
 		for _, pl := range plans {
-			if !slices.Contains(selectPackages, pl.relative) {
+			if !round && !slices.Contains(selectPackages, pl.relative) {
 				continue
 			}
 			wg.Go(func() {
@@ -505,7 +529,11 @@ func fastStepsSelected(root, cacheDir string, choose selector) (steps []*Step, d
 		p, env, needs, fast, large, measured := pl.p, pl.env, pl.needs, pl.fast, pl.large, pl.measured
 		note := ""
 		pkg := "./" + p.dir
-		name := "go test " + pkg + " (fast)"
+		suffix := "fast"
+		if round {
+			suffix = roundTier
+		}
+		name := "go test " + pkg + " (" + suffix + ")"
 		if pl.chosen != nil {
 			chosen := *pl.chosen
 			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
@@ -528,6 +556,9 @@ func fastStepsSelected(root, cacheDir string, choose selector) (steps []*Step, d
 			continue
 		}
 		base := []string{"go", "test", fastFlag, "-json"}
+		if round {
+			base = []string{"go", "test", "-json"}
+		}
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
 			total := 0.0
@@ -541,7 +572,7 @@ func fastStepsSelected(root, cacheDir string, choose selector) (steps []*Step, d
 		for i, selection := range selections {
 			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Observe: true, GoStore: slices.Contains(goStorePackages, pl.relative), Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
-				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
+				step.Name = fmt.Sprintf("go test %s [%d/%d] (%s)", pkg, i+1, len(selections), suffix)
 			}
 			tests = append(tests, step)
 		}

@@ -31,6 +31,7 @@ scripts/gate/writes_test.go	TestCheckoutEntriesIgnoreLinkedWorktrees	a lower bou
 prototypes/actorlib/actor_test.go	TestBlockedSenderWakesOnStopAndReleasesItsMessage	lets the sender block first; the result does not depend on it (a prototype)
 prototypes/actorlib/actor_test.go	TestEveryMessageReleasedOnceUnderConcurrentStop	lets some senders run before the stop; the result does not depend on it (a prototype)
 internal/closure/sandbox_linux_test.go	collectChildren	the poll interval of the run's reaper loop, which the run's own deadline bounds; no verdict
+runtime/v1/http/http_raw_bench_test.go	rawFloor	the per-request read deadline a server pays, counted in the floor's cost (GO-RUNTIME FLOOR); an hour ahead, it never ends a run: shutdown closes the connection
 
 # the timeout under test: the runner's -timeout is the subject, and the case
 # sleeps caseLife, so load cannot end it first

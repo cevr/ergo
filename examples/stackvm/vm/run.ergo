@@ -22,15 +22,38 @@ type Result { Printed []int, Stack []int, Steps int }
 let MaxFrames = 10000
 
 // Run runs program from instruction 0 until Halt or the end of the
-// program, for at most fuel instructions.
+// program, for at most fuel instructions. It verifies program once: a
+// program that Verify accepts runs on Exec's loop, any other on Checked's
+// (verify.ergo).
 func Run(program []Instr, fuel int) Result fails Trap {
-	let mut stack = []int{}
-	let mut sp = 0
-	let mut frames = []int{}
-	let mut fp = 0
-	let mut printed = []int{}
-	let mut pc = 0
-	let mut steps = 0
+	match Verify(program) {
+	case Some[Verified] as v:
+		try Exec(v.Value, fuel)
+	case None:
+		try Checked(program, fuel)
+	}
+}
+
+// Checked is Run with every check on every instruction: the loop for a
+// program that Verify refuses, and the reference that Exec agrees with.
+func Checked(program []Instr, fuel int) Result fails Trap {
+	try resume(program, fuel, paused{stack: []int{}, frames: []int{}, printed: []int{}, pc: 0, steps: 0})
+}
+
+// paused is a run stopped before instruction pc: the stack, top last,
+// the return points of the open calls, innermost last, what it printed
+// and the instructions it ran.
+type paused { stack []int, frames []int, printed []int, pc int, steps int }
+
+// resume runs program on the checked loop from where.
+func resume(program []Instr, fuel int, where paused) Result fails Trap {
+	let mut stack = where.stack
+	let mut sp = len(stack)
+	let mut frames = where.frames
+	let mut fp = len(frames)
+	let mut printed = where.printed
+	let mut pc = where.pc
+	let mut steps = where.steps
 	for pc < len(program) {
 		if steps == fuel {
 			return Trap{PC: pc, Why: OutOfFuel}

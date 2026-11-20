@@ -497,14 +497,30 @@ func wordBit(w string) uint64 {
 
 // Record.
 
-var directives = []string{"// @ts-", "//@ts-", "/// <", "// eslint-", "/* eslint-", "/* eslint ", "// oxlint-", "/* oxlint-", "// prettier-ignore", "// biome-ignore", "// ergo-lint-", "// traits-ignore", "/* istanbul ", "// istanbul ", "/* @vite-ignore", "#!"}
+// directives are the openings of a comment body that make it a tool's,
+// as in modules/tn1/ts/record.ergo.
+var directives = []string{
+	"oxlint-disable", "oxlint-enable", "eslint-disable", "eslint-enable", "eslint ",
+	"@effect-diagnostics", "@ts-expect-error", "@ts-ignore", "@ts-nocheck", "@ts-check",
+	"/ <reference", "/<reference", "/ <amd-module", "/ <amd-dependency",
+	"#__PURE__", "@__PURE__", "#__NO_SIDE_EFFECTS__", "@__NO_SIDE_EFFECTS__", "#__KEY__", "@__KEY__",
+	"#__INLINE__", "@__INLINE__", "#__NOINLINE__", "@__NOINLINE__", "@vite-ignore", "@jsx",
+	"prettier-ignore", "oxfmt-ignore", "c8 ignore", "v8 ignore", "istanbul ignore",
+	"!", "@license", "SPDX-License-Identifier:", "nosemgrep", "# sourceMappingURL=", "@ sourceMappingURL=", "#sourceMappingURL=", "@sourceMappingURL=",
+	"# sourceURL=", "@ sourceURL=", "#sourceURL=", "@sourceURL=", "webpack", "turbopackIgnore",
+	"biome-ignore", "ergo-lint-", "traits-ignore",
+}
 var controls = set("if", "for", "while", "switch", "catch", "function", "return", "typeof", "void", "delete", "await", "yield", "in", "of", "instanceof", "as", "satisfies", "keyof")
 var assigns = set("=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??=")
 var neutral = []string{"function", "type", "branch", "loop", "handler", "return", "", "", "test"}
 
 func directive(text string) bool {
+	if strings.HasPrefix(text, "#!") {
+		return true
+	}
+	body := strings.TrimLeft(text[min(2, len(text)):], "*\n\r\t ")
 	for _, d := range directives {
-		if strings.HasPrefix(text, d) {
+		if strings.HasPrefix(body, d) {
 			return true
 		}
 	}
@@ -740,6 +756,8 @@ func record(w *bufio.Writer, src string) {
 		to := len(src)
 		if l+1 < n {
 			to = starts[l+1] - 1
+		} else if strings.HasSuffix(src, "\n") {
+			to = len(src) - 1
 		}
 		comment = comment[:0]
 		codeText = codeText[:0]

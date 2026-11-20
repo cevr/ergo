@@ -32,6 +32,16 @@ test NotFoundIsHandled {
 
 A test declares no `needs` row (S102): the services it uses come from a `with`.
 
+## Diagnostics
+
+A test of what the checker reports is a fixture file, not a test: a program whose `// want CODE` markers name each diagnostic it must get, on its line, with an optional quoted text the message must hold. `ergo check --want FILE|DIR` checks each fixture alone and prints the ones that differ ([tooling](tooling.md)):
+
+```go
+func f(o Option[A | B]) {} // want S104 "A is not an error type"
+```
+
+The checker's own families live in `internal/sketch/check/testdata/fixtures`, one folder each with a README.md that names the rule and its mutants.
+
 ## Running
 
 ```sh
@@ -167,6 +177,45 @@ reported where it belongs; `ergo check DIR/...` likewise checks each package
 alone when they cannot share one load.
 Formatting still uses syntax only; a type error does not prevent formatting.
 
+### Affected tests
+
+```
+ergo test ./... --affected main          # run only the tests and law runs whose reach changed since main
+ergo test ./... --affected main --list   # print them and run nothing
+ergo test ./... --affected main --why    # one reason line per obligation
+ergo test ./... --affected main --json   # the comparison as JSON; runs nothing
+```
+
+An obligation (a `test` block, or a law run under a provider, a context or a
+machine search) is affected when its reach digest in the working tree differs
+from its digest at BASE, and new when BASE has none of its name; both run. The
+reach digest is the one the law ledger and the verdict store key on: the
+obligation's declaration and every function, type, package `let` and context
+it reaches at any depth and in any package, by their tokens. So a comment, a
+reformat or a moved declaration affects nothing, and an edit in an imported
+package affects every obligation that reaches the edited declaration. BASE's
+sources are read from Git objects (no checkout) through the loader that reads
+the working tree, so both sides admit their files by one rule. Without BASE,
+`--affected` compares with the merge base of HEAD and the default branch
+(origin's HEAD, else `main`, else `master`).
+
+It fails closed: a changed `ergo.mod`, `go.mod`, `go.sum`, `ergo.laws` or
+`ergo.cases` affects every obligation of the module; a changed file other than
+an `.ergo` source in a package's folder (a binding, an embedded asset) every
+obligation of that package; a package missing or not checking at BASE every
+obligation of it. A test deleted since BASE is reported `gone` and runs
+nothing. The compiler is not compared: `--affected` assumes one `ergo` built
+both sides' answers.
+
+A package with an affected obligation runs as `ergo test` runs it, and the
+verdict store replays the law runs it already holds; the other packages are
+left out. `--affected` picks, the store replays: it answers the same on a
+runner with an empty cache. Reasons read `test Parses: new`, `law
+Counter.Joins for Tally: reaches func lib.Tally (lib/tally.ergo:4), changed`,
+`every obligation: ergo.mod changed` and `none: nothing it reaches changed`.
+`--affected` takes no `--law`, `--skip-law`, `--run`, `--receipt`,
+`--emitted`, `--explore` or `-work`; `--list` and `--why` need it.
+
 ## Exit status
 
 | Status | Meaning |
@@ -208,7 +257,7 @@ test ClonesFromHost {
 
 `ergo test` prints `skip ClonesFromHost: git is not on this host`, runs no more of the test's cases, and counts it as a skip: `PASS (1 tests, 1 skipped)`. `ergo check` reports the obligation `skipped` with the reason and the statement's line. The statement stands only in a test or law body, and its reason is a string literal that is not blank. `skip` is a contextual keyword, so a function or a local named `skip` is still legal ([runtime](spec/runtime.md#tests), Tests 4).
 
-A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
+A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. A skip line that the module's `expected-skips` file (beside `ergo.mod`) does not list fails `ergo test`, exit 1, in `examples/` and everywhere else ([runtime.md](spec/runtime.md), Tests 4). A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
 
 `ergo test DIR --receipt FILE` writes the run's law receipt to FILE: a JSON object with the schema version, the source, its revision, the seed, the target and one entry per law run, `proved` (a listed run, every value), `tested` with its case count, `refuted` with its counterexample, or `skipped` with the reason; a machine's reachability law has the search's report in place of a case count ([runtime](spec/runtime.md#tests), Tests 8). A drawn law that holds is tested, not proved. Without `--receipt` nothing is written.
 
@@ -246,7 +295,7 @@ The rules are the rules of `ergo test`, not a second test language:
 - a capability that no `with` of the run binds, and a task that a package initializer starts (it has no obligation's scheduler to run on);
 - a `tasks.Set` that logs its failures to standard error, `tasks.Race`, `tasks.Transform` and an actor's supervisor (Go functions with no native yet);
 - a release through a generic `Close`, a `Close` that borrows its receiver, or the values a std operation type holds; a `Context` value whose provider is a resource;
-- a Go function that has no native, an `extern go` function of the program (an extern of Go's `append` runs, as the prelude's `Append` and string concatenation do), or a host function (`a Go function (ParseDuration), even a pure one`);
+- a Go function that has no native, an `extern go` function of the program (an extern of Go's `append` runs, as the prelude's `Append` and string concatenation do), or a host function (`a Go function (ParseDuration), even a pure one`). Every std extern marked pure, and every pure Go function a std body reaches through `import go`, has a native (`TestEveryPureStdExternHasANative`), so a std law over one runs at `ergo check`; a read-only Go variable std passes to one (`crc32.IEEETable`, base64's encodings) is a value only that native reads, and any other Go package variable is a skip;
 - a function that borrows its receiver, a method, or a generic function whose type parameter an operation type constrains used as a value (a function literal, a package function and a generic one's instance are values, called where they are called), a call that passes its `CallSite`, and a trailing block of a Go function that has no native (a generic call whose type parameter an operation type constrains runs: each operation on a value of the parameter calls the function the instance's witness names, as the test build does);
 - an outcome that the order of a `for` over a Map decides, and a `for` over a Map that the loop adds to (Go leaves the order unspecified, and may or may not visit an added entry). A run that ranged over a Map runs again with every Map visited in the opposite key order, and an outcome counts only when both runs reach it (`maporder.go`). Within a run the loop follows Go with no snapshot: each value is read when its entry is reached, and a deleted entry is not visited. A `for` over a Seq that a function makes, `Seq[T](f)`, calls it with a yield that runs one iteration and returns false once the body ended the loop, as Go's range over a function does;
 - a write that replaces the slice an active `for` ranges over (its place or a place on its path), a refined literal, a `testing.Script` (a derived provider whose field type is a runtime Go type; one whose field type is declared in Ergo runs, its `NewF` and `Call` as the test build calls them) or pointer provider, and a machine timer that is not positive (a machine declaration's value `X{}` converts to the prelude `Machine` or `InputMachine`, with its step, after and work functions, and a fold runs it);

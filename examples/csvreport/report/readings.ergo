@@ -49,6 +49,31 @@ func Load(text string) []Reading fails csv.ParseError | MissingColumn | BadNumbe
 	out
 }
 
+// LoadReadsRows: readings written as CSV load back as the same readings.
+law LoadReadsRows(readings []Reading) {
+	let ps = metered(readings)
+	try Load(csv.Format(Rows(ps))) == ps
+}
+
+// metered is readings as a file can hold them: every kW not negative, and
+// no CR LF in a site or device (the reader reads a CR LF as LF).
+func metered(readings []Reading) []Reading {
+	let mut out = []Reading{}
+	for s in readings {
+		out = out.Append(Reading{Site: lf(s.Site), Device: lf(s.Device), Hours: s.Hours, Kw: if s.Kw < 0 { -(s.Kw % 1000000) } else { s.Kw % 1000000 }})
+	}
+	out
+}
+
+// lf is s with each CR LF turned into LF until none is left.
+func lf(s string) string {
+	let mut out = s
+	for strings.Contains(out, "\r\n") {
+		out = strings.ReplaceAll(out, "\r\n", "\n")
+	}
+	out
+}
+
 // header is the index of each of columns in fields.
 func header(fields []string) []int fails MissingColumn {
 	let mut at = []int{}
@@ -124,6 +149,13 @@ func ParseHundredths(text string) int64 fails NotFixed {
 		}
 	}
 	u*100 + f
+}
+
+// FixedRoundTrip: an amount of hundredths that is not negative reads back
+// from its text.
+law FixedRoundTrip(hundredths int64) {
+	let c = if hundredths < 0 { -(hundredths % 1000000000) } else { hundredths % 1000000000 }
+	try ParseHundredths(Hundredths(c)) == c
 }
 
 // digits reports whether s is decimal digits only.

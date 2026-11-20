@@ -107,9 +107,9 @@
     },
     {
       "name": "ws0-json-failure-empty-message", "origin": "wf10/semws WS0",
-      "file": "examples/work/cmd/work/main.ergo",
-      "from": "\t\tif o.Err == \"\" {\n",
-      "to": "\t\tif false {\n",
+      "file": "internal/sketch/std/api/api.ergo",
+      "from": "\tif o.Err == \"\" {\n",
+      "to": "\tif false {\n",
       "rule": "With --json a failure is its JSON on standard output, and standard error says so, not a bare \"ergo work: \" line (an os.Exit always writes its Message and a line feed): the json-noinit case.",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },

@@ -326,6 +326,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Lookup in flight**: In std `cache`, the call of a Get's lookup for a key while it runs. The cache holds one per key; every other Get of that key waits for it to end and then reads the entry it left, or, when it failed or its task stopped, runs its own. Go's `singleflight` call, Effect's pending `Deferred` of a `Cache` entry. See [stdlib](docs/spec/stdlib.md#cache).
 
+**Loose reader**: Std `json`'s `DecodeLoose`, which reads text that is nearly JSON, as a model writes it, into a typed value and returns every repair it made as a `Fix`. The repairs are syntax only (prose and fences around the value, trailing commas, bare and single-quoted keys and strings, comments, what the text's end left open, the first of several values); no value changes its kind. See [stdlib](docs/spec/stdlib.md#json), json 9.
+
+**Fix** (json): One repair the loose reader made, a variant of the closed union `json.Fix`, with the span of the original text it names. A read with no fix is a strict read: `Decode` gives the same value.
+
 **Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
 **Lawful runtime contract**: The host operations and laws an effect runtime provider must satisfy, with each obligation's evidence classified as nominally checked, trusted decision, tested law, refuted or unresolved/unavailable.
@@ -363,6 +367,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Virtual rows (ui)**: A `ui.Rows` list, whose row function the composer runs only for the rows its viewport shows, plus `ui.Overscan` rows on each side. Its viewport is view-local state the host reports (`ui.Scrolled`), and its rows are keyed as `Each` rows are. See [stdlib](docs/spec/stdlib.md#ui).
 
 **Text measure (ui)**: std `ui.Measure`, the operation type through which text layout asks the host how wide text is and how high its lines are (`Width`, `LineHeight`). `ui.LayoutText` breaks text into lines with it, and `ui.CaretAt`, `ui.OffsetAt` and `ui.SelectionRects` give the caret and selection geometry. `ui.Monospace` is the measure of cell grids and tests. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Pacing**: std `pace.Pacing`, the operation type `{ Edge(), Hold(), Release() }` through which a loop marks the end of one unit of its work (a frame, a turn) for Go's collector, and a stretch that must not be paced mid-way (`pace.Held`, a hold: no edge inside collects, and the last release runs the collection owed); the provider `cmd` main binds decides what an edge does (`Default`, `Percent`, `AtEdges`; `Counting` in tests). Not the runtime's heap floor (`rt.Pace`), which every program has. See [stdlib](docs/spec/stdlib.md#pacing).
 
 **UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, `Post`, through which a fetch's task hands its result to the loop, and `Frames`, through which `Run` asks for a `Tick` per frame only while the view animates); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
 

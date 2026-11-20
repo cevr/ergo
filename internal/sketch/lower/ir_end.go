@@ -163,7 +163,9 @@ func irUseLocals(body []*irStmt) []*irStmt {
 // closes at End; a loop or a block runs Pos..End. A position before the
 // last one met, in the same file, becomes that one. A function literal's
 // body is a function of its own (its own scope marks).
-func irScopesIncrease(body []*irStmt) []*irStmt { return irScopesIncreaseTagged(body, nil, irPos{}) }
+func irScopesIncrease(body []*irStmt, start irPos) []*irStmt {
+	return irScopesIncreaseTagged(body, nil, start)
+}
 
 // irScopesIncreaseTagged is irScopesIncrease where the files tagged are an
 // inlined body's (ir_forms_inline.go): Go orders positions of two files by
@@ -172,7 +174,41 @@ func irScopesIncrease(body []*irStmt) []*irStmt { return irScopesIncreaseTagged(
 // any, or a literal's own position in its body).
 func irScopesIncreaseTagged(body []*irStmt, tagged map[int]bool, start irPos) []*irStmt {
 	var last irPos
+	// place gives a node the lowering made with no position of its own
+	// (an else, a type switch's default, a statement or an operand it
+	// synthesized) the last scope position met, or start, the function's
+	// or the literal's: Go's compile stops at an unknown scope position
+	// and files an error at no place (JOBS-ICE). Every body passes here
+	// (irPlaced refuses what is still unplaced).
+	place := func(p *irPos) {
+		if p[1] > 0 {
+			return
+		}
+		if last[1] > 0 {
+			*p = last
+		} else {
+			*p = start
+		}
+	}
+	var operands func(e *irExpr, at irPos)
+	operands = func(e *irExpr, at irPos) {
+		if e == nil {
+			return
+		}
+		if e.Pos[1] <= 0 {
+			e.Pos = at
+		}
+		operands(e.X, e.Pos)
+		operands(e.Y, e.Pos)
+		for _, a := range e.Args {
+			operands(a, e.Pos)
+		}
+		for _, a := range e.Elems {
+			operands(a, e.Pos)
+		}
+	}
 	at := func(p *irPos) {
+		place(p)
 		if tagged[p[0]] {
 			if last == (irPos{}) {
 				*p = start
@@ -188,6 +224,14 @@ func irScopesIncreaseTagged(body []*irStmt, tagged map[int]bool, start irPos) []
 	var stmts func(list []*irStmt)
 	stmts = func(list []*irStmt) {
 		for _, s := range list {
+			place(&s.Pos)
+			operands(s.X, s.Pos)
+			operands(s.Y, s.Pos)
+			for _, c := range s.Cases {
+				for _, v := range c.Vals {
+					operands(v, s.Pos) // the clause is placed below (at)
+				}
+			}
 			irLiterals(s, func(e *irExpr) {
 				saved, savedStart := last, start
 				last, start = irPos{}, e.Pos

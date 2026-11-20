@@ -1,13 +1,16 @@
 // pipeline runs a build pipeline in this process. It reads an operator's
-// script on standard input (submit, cancel and retry runs; let an hour
-// pass; show a run or the board) and prints what the pipeline does. Its
-// runner is a memory runner whose stages fail their first tries as -fail
-// says; its clock is a manual clock that only `wait` moves, so a run
-// prints the same lines on every host. Package pipeline is the Api and
-// the context; this binary is the only place that chooses the providers:
-// the runner, the event log (module domain's memory log), the cursor of
-// the notices' follower and the clock.
+// script on standard input, a command of the generated command line
+// (pipeline/pipelinecli) on each line, as `pipeline --server` takes one:
+// submit, cancel and retry runs, board, run-of; and wait, which lets an
+// hour pass. It prints what the pipeline does. Its runner is a memory
+// runner whose stages fail their first tries as -fail says; its clock is
+// a manual clock that only `wait` moves, so a run prints the same lines on
+// every host. Package pipeline is the Api and the context; this binary is
+// the only place that chooses the providers: the runner, the event log
+// (module domain's memory log), the cursor of the notices' follower and
+// the clock.
 
+import api
 import flag
 import io
 import github.com/cevr/ergo/modules/domain
@@ -16,6 +19,7 @@ import os
 import runners pipeline/memory
 import pipeline/notify
 import pipeline/pipeline
+import pipeline/pipeline/pipelineapi
 import pipeline/pipeline/pipelinecli
 import pipeline/pipeline/pipelinerpc
 import pipeline/run
@@ -34,90 +38,24 @@ let set = flag.Set{
 	Args:  []flag.ArgSpec{},
 }
 
-// BadLine is a line of the script or a -fail value that pipeline cannot
-// read.
-type BadLine { Line int, Why string }
-
-// Order is a line of the script.
-type Order = Submitting{Run string, Stages int} | Cancelling{Run string, Why string} | Retrying{Run string, Stage int} | Resending{Line int} | Waiting{} | Showing{Run string} | Boarding{}
-
-func wordInt(n int, word string) int fails BadLine {
-	strconv.Atoi(word) catch {
-	case strconv.Malformed, strconv.OutOfRange:
-		return BadLine{Line: n, Why: "\(word) is not a number"}
-	}
-}
-
-// orderOf reads the line n, split into its words w:
-//
-//	submit RUN STAGES   a new run of STAGES stages
-//	cancel RUN WHY...   stop the run
-//	retry RUN STAGE     try the failed stage STAGE (1 is the first) now
-//	resend N            send the command of line N again, with its ID
-//	wait                an hour passes
-//	show RUN            the state of the run
-//	board               the board
-func orderOf(n int, w []string) Order fails BadLine {
-	match w[0] {
-	case "submit":
-		if len(w) != 3 {
-			return BadLine{Line: n, Why: "submit is submit RUN STAGES"}
-		}
-		Submitting{Run: w[1], Stages: try wordInt(n, w[2])}
-	case "cancel":
-		if len(w) < 3 {
-			return BadLine{Line: n, Why: "cancel is cancel RUN WHY"}
-		}
-		Cancelling{Run: w[1], Why: strings.Join(w[2:], " ")}
-	case "retry":
-		if len(w) != 3 {
-			return BadLine{Line: n, Why: "retry is retry RUN STAGE"}
-		}
-		Retrying{Run: w[1], Stage: try wordInt(n, w[2]) - 1}
-	case "resend":
-		if len(w) != 2 {
-			return BadLine{Line: n, Why: "resend is resend LINE"}
-		}
-		Resending{Line: try wordInt(n, w[1])}
-	case "wait":
-		Waiting
-	case "show":
-		if len(w) != 2 {
-			return BadLine{Line: n, Why: "show is show RUN"}
-		}
-		Showing{Run: w[1]}
-	case "board":
-		Boarding
-	case _:
-		BadLine{Line: n, Why: "unknown word \(w[0])"}
-	}
-}
-
-// Read is the orders of a script, by line number. A blank line or a line
-// that starts with # is no order.
-func Read(lines []string) Map[int, Order] fails BadLine {
-	let mut out = Map[int, Order]{}
-	for i, line in lines {
-		let text = strings.TrimSpace(line)
-		let w = strings.Fields(text)
-		if len(w) == 0 || strings.HasPrefix(text, "#") {
-			continue
-		}
-		out[i+1] = try orderOf(i+1, w)
-	}
-	out
-}
-
 // failing is the runner's table from the -fail values: stage (0 is the
 // first) to tries.
-func failing(values []string) Map[int, int] fails BadLine {
+func failing(values []string) Map[int, int] fails os.Exit {
 	let mut out = Map[int, int]{}
 	for v in values {
 		let parts = strings.Split(v, ":")
+		let bad = os.Exit{Code: 2, Message: "pipeline: -fail takes STAGE:TRIES, not \(v)"}
 		if len(parts) != 2 {
-			return BadLine{Line: 0, Why: "-fail takes STAGE:TRIES, not \(v)"}
+			return bad
 		}
-		out[try wordInt(0, parts[0])-1] = try wordInt(0, parts[1])
+		let stage = strconv.Atoi(parts[0]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return bad
+		}
+		out[stage-1] = strconv.Atoi(parts[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return bad
+		}
 	}
 	out
 }
@@ -146,99 +84,48 @@ func eventText(e run.Event) string {
 
 func column(name string, ids []string) string {
 	if len(ids) == 0 {
-		return "  \(name): -"
+		return "\(name): -"
 	}
-	"  \(name): \(strings.Join(ids, " "))"
+	"\(name): \(strings.Join(ids, " "))"
 }
 
-// send is the command of the order o, named id, through the Api, as a
-// line: its receipt or its rejection. An order that is no command is
-// None.
-func send(id string, o Order) Option[string] needs pipeline.Pipeline {
-	let receipt = match o {
-	case Submitting as s:
-		pipeline.Pipeline.Submit(pipeline.SubmitRun{ID: id, Run: s.Run, Stages: s.Stages})
-	case Cancelling as c:
-		pipeline.Pipeline.Cancel(pipeline.CancelRun{ID: id, Run: c.Run, Why: c.Why})
-	case Retrying as r:
-		pipeline.Pipeline.Retry(pipeline.RetryRun{ID: id, Run: r.Run, Stage: r.Stage})
-	case Resending, Waiting, Showing, Boarding:
-		return None
-	} catch {
-	case run.WrongState as e:
-		return Some[string]{Value: "  refused: the run is \(e.Status), which takes no \(e.Command)"}
-	case run.WrongStage as e:
-		return Some[string]{Value: "  refused: the run is at stage \(e.Expected + 1), not \(e.Got + 1)"}
-	case run.Closed as e:
-		return Some[string]{Value: "  refused: the run has ended (\(e.Status))"}
-	case run.BadLength as e:
-		return Some[string]{Value: "  refused: a run has 1 to \(run.MaxStages) stages, not \(e.Stages)"}
-	case pipeline.NoSuchRun as e:
-		return Some[string]{Value: "  refused: no run is named \(e.Run)"}
-	case pipeline.Unavailable:
-		return Some[string]{Value: "  refused: the pipeline does not run"}
+// code is the status of a typed failure in a script: a refused command
+// is the pipeline's answer, and the script goes on; a pipeline that does
+// not run ends it.
+func code(f pipelineapi.Failure) int {
+	match f {
+	case pipelineapi.WrongState, pipelineapi.WrongStage, pipelineapi.Closed, pipelineapi.BadLength, pipelineapi.NoSuchRun:
+		0
+	case pipelineapi.Unavailable:
+		1
 	}
-	Some[string]{Value: "  taken as \(receipt.Command) at log position \(receipt.Position)"}
 }
 
-// Play runs the orders against the context m, line by line, and is what
-// it shows: each line, the answer, then what the pipeline did until the
-// runner runs no try: each new event of the log and each notice it gives
-// (!), which the follower "notify" reads from log after its cursor. The
-// clock moves only for wait.
-func Play(lines []string, orders Map[int, Order], m pipeline.Model, log domain.Log[pipeline.Entry], cursor domain.Cursor, clock time.Manual) []string fails pipeline.Unavailable needs pipeline.Pipeline {
-	let mut out = []string{}
-	for i, line in lines {
-		let n = i + 1
-		let o = match orders.Get(n) {
-		case Some[Order] as v:
-			v.Value
-		case None:
-			continue
-		}
-		out = out.Append("> " + strings.TrimSpace(line))
-		match o {
-		case Resending as r:
-			match orders.Get(r.Line) {
-			case Some[Order] as first:
-				match send("c\(r.Line)", first.Value) {
-				case Some[string] as said:
-					out = out.Append(said.Value)
-				case None:
-					out = out.Append("  line \(r.Line) is no command")
-				}
-			case None:
-				out = out.Append("  line \(r.Line) is no command")
-			}
-		case Waiting:
-			clock.Advance(1h)
-		case Showing as s:
-			let r = pipeline.Pipeline.RunOf(s.Run) catch {
-			case pipeline.NoSuchRun:
-				out = out.Append("  no run is named \(s.Run)")
-				continue
-			}
-			out = out.Append("  \(s.Run): \(run.StatusOf(r))")
-		case Boarding:
-			let v = pipeline.Pipeline.Board()
-			out = out.Append(column("queued", v.Queued))
-			out = out.Append(column("running", v.Running))
-			out = out.Append(column("failing", v.Failing))
-			out = out.Append(column("passed", v.Passed))
-			out = out.Append(column("stopped", v.Stopped))
-		case Submitting, Cancelling, Retrying:
-			match send("c\(n)", o) {
-			case Some[string] as said:
-				out = out.Append(said.Value)
-			case None:
-			}
-		}
-		let _ = try pipeline.Settle(m)
-		for l in told(log, cursor) {
-			out = out.Append(l)
-		}
+// text is a value as the script shows it: a receipt as the command it
+// took, the board by column, a run by its status.
+func text(r pipelineapi.Reply) Option[string] {
+	let shown = match r {
+	case pipelineapi.SubmitReply as s:
+		receipt(s.Value)
+	case pipelineapi.CancelReply as c:
+		receipt(c.Value)
+	case pipelineapi.RetryReply as t:
+		receipt(t.Value)
+	case pipelineapi.BoardReply as b:
+		let v = b.Value
+		strings.Join([]string{column("queued", v.Queued), column("running", v.Running), column("failing", v.Failing), column("passed", v.Passed), column("stopped", v.Stopped)}, "\n")
+	case pipelineapi.RunOfReply as x:
+		run.StatusOf(x.Value)
 	}
-	out
+	Some[string]{Value: shown}
+}
+
+func receipt(r pipeline.Receipt) string { "taken as \(r.Command) at log position \(r.Position)" }
+
+// script is the policy of a script's commands: code and text.
+func script() pipelinecli.Policy {
+	let d = pipelinecli.Defaults()
+	pipelinecli.Policy{..d, Code: code, Text: text}
 }
 
 // told is what the follower "notify" tells of the records of log after its
@@ -247,9 +134,9 @@ func told(log domain.Log[pipeline.Entry], cursor domain.Cursor) []string {
 	let lines = sync.NewRef([]string{})
 	let _ = domain.Follow(log, cursor, "notify", pipeline.Stream, func(d domain.Delivery[pipeline.Entry]) fails domain.Unkept {
 		for e in d.Record.Events {
-			lines.Update(func(xs []string) []string { xs.Append("  \(e.Run): \(eventText(e.Event))") })
+			lines.Update(func(xs []string) []string { xs.Append("\(e.Run): \(eventText(e.Event))") })
 			for note in notify.React(e.Run, e.Event) {
-				lines.Update(func(xs []string) []string { xs.Append("  " + notify.Text(note)) })
+				lines.Update(func(xs []string) []string { xs.Append(notify.Text(note)) })
 			}
 		}
 	}) catch {
@@ -291,17 +178,7 @@ func call(r Remote) fails os.Exit needs Ambient | Console {
 	case rpc.Transport as t:
 		return os.Exit{Code: 1, Message: "pipeline: no pipeline answers at \(r.URL): \(t.Reason)"}
 	}
-	let o = with context { pipeline.Pipeline: client } { pipelinecli.Run(r.Command) }
-	if o.Out != "" {
-		Console.Println(strings.TrimSuffix(o.Out, "\n"))
-	}
-	if o.Code != 0 {
-		let code = os.ParseCode(o.Code) catch {
-		case Unsatisfied:
-			Unreachable("the generated CLI's Run gives status 0, 1 or 2")
-		}
-		return os.Exit{Code: code, Message: strings.TrimSuffix(o.Err, "\n")}
-	}
+	try api.Exit(with context { pipeline.Pipeline: client } { pipelinecli.Run(r.Command, pipelinecli.Defaults()) })
 }
 
 func main() fails os.Exit needs Ambient | Console {
@@ -319,48 +196,84 @@ func main() fails os.Exit needs Ambient | Console {
 			return
 		}
 	}
+	let table = try failing(failFlag.Get(v))
 	let mut lines = []string{}
 	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
 			lines = lines.Append(line)
 		}
 	}
-	let (orders, table) = prepare(lines, failFlag.Get(v)) catch {
-	case BadLine as b:
-		if b.Line == 0 {
-			return os.Exit{Code: 2, Message: "pipeline: \(b.Why)"}
-		}
-		return os.Exit{Code: 2, Message: "pipeline: line \(b.Line): \(b.Why)"}
-	}
-	let shown = session(lines, orders, table) catch {
+	let (steps, tries) = session(lines, table) catch {
 	case domain.Conflict, domain.Reused:
 		return os.Exit{Code: 1, Message: "pipeline: the log refused a record"}
 	case domain.Unkept as u:
 		return os.Exit{Code: 1, Message: "pipeline: the log could not keep a record: \(u.Reason)"}
-	case pipeline.Unavailable:
-		return os.Exit{Code: 1, Message: "pipeline: the context stopped"}
 	}
-	for l in shown {
-		Console.Println(l)
+	let mut last = api.Output{Out: "", Err: "", Code: 0}
+	let mut at = 0
+	for s in steps {
+		Console.Println("> " + s.Text)
+		for l in shown(s.Output.Out) {
+			Console.Println("  " + l)
+		}
+		if s.Output.Code == 0 {
+			for l in shown(s.Output.Err) {
+				Console.Println("  refused: " + l)
+			}
+		}
+		last = s.Output
+		at = s.Line
+	}
+	Console.Println("the runner ran \(tries) tries")
+	if last.Code != 0 {
+		try api.ExitOf(api.Output{..last, Err: "pipeline: line \(at): " + strings.TrimSuffix(last.Err, "\n")})
 	}
 }
 
-// prepare reads the script and the -fail values.
-func prepare(lines []string, values []string) (Map[int, Order], Map[int, int]) fails BadLine {
-	(try Read(lines), try failing(values))
+// shown is the lines of an output's text.
+func shown(text string) []string {
+	if text == "" {
+		return []string{}
+	}
+	strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
 // session binds the providers: a memory runner of the table, a manual
-// clock, a memory log and the notices' memory cursor. It plays the script and ends with the
-// number of tries the runner ran.
-func session(lines []string, orders Map[int, Order], table Map[int, int]) []string fails domain.Conflict | domain.Reused | domain.Unkept | pipeline.Unavailable {
+// clock, a memory log and the notices' memory cursor. It runs the script
+// through the generated command line (api.Session) under the script's
+// policy, where the one word that is not the Api's, wait, lets an hour
+// pass; after each line, what the pipeline did until the runner runs no
+// try: each new event of the log and each notice it gives, which the
+// follower "notify" reads after its cursor. It ends with the steps and
+// the number of tries the runner ran.
+func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain.Conflict | domain.Reused | domain.Unkept {
 	let runner = runners.New(table)
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runner } {
 		let log = memory.New[pipeline.Entry]()
 		let m = try pipeline.Open(log)
-		let said = with context { pipeline.Pipeline: m } { try Play(lines, orders, m, log, memory.NewCursor(), clock) }
+		let cursor = memory.NewCursor()
+		let p = script()
+		let steps = with context { pipeline.Pipeline: m } {
+			api.Session(lines, func(args []string) api.Output needs pipeline.Pipeline | Scheduler {
+				let o = if len(args) == 1 && args[0] == "wait" {
+					clock.Advance(1h)
+					api.Output{Out: "", Err: "", Code: 0}
+				} else {
+					pipelinecli.Run(args, p)
+				}
+				let _ = pipeline.Settle(m) catch {
+				case pipeline.Unavailable:
+					return api.Output{..o, Err: "the pipeline does not run\n", Code: 1}
+				}
+				let mut out = o.Out
+				for l in told(log, cursor) {
+					out = out + l + "\n"
+				}
+				api.Output{..o, Out: out}
+			})
+		}
 		pipeline.Stop(m)
-		said.Append("the runner ran \(runners.Ran(runner)) tries")
+		(steps, runners.Ran(runner))
 	}
 }

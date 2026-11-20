@@ -160,6 +160,75 @@ type View =
 	| Array{Items []dense.ID[Node]}
 	| Object{Members []Member}
 
+// ViewRoundTrips: the view of an encoded value is the value, for every
+// variant: the leaves of words, a number, an array of the leaves and an
+// object of the words as keys over the leaves.
+law ViewRoundTrips(words []string, digits int) {
+	let src = "\(if digits < 0 { -digits } else { digits })"
+	let mut t = Empty(src)
+	let mut leaves = []View{Null, Bool{B: true}, Bool{B: false}, Number{At: 0, Len: len(src)}}
+	for w in words {
+		leaves = leaves.Append(Str{S: w})
+	}
+	let mut ids = []dense.ID[Node]{}
+	let mut views = []View{}
+	for leaf in leaves {
+		ids = ids.Append(Encode(&t, leaf))
+		views = views.Append(leaf)
+	}
+	let mut members = []Member{}
+	for i, w in words {
+		members = members.Append(Member{Key: Intern(&t, w), Value: ids[i]})
+	}
+	let containers = []View{Array{Items: ids}, Object{Members: members}, Array{Items: []dense.ID[Node]{}}, Object{Members: []Member{}}}
+	for c in containers {
+		ids = ids.Append(Encode(&t, c))
+		views = views.Append(c)
+	}
+	for i, id in ids {
+		if !same(ViewOf(t, id), views[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// same reports whether two views are one.
+func same(a View, b View) bool {
+	match (a, b) {
+	case (Null, Null):
+		true
+	case (Bool as x, Bool as y):
+		x.B == y.B
+	case (Number as x, Number as y):
+		x.At == y.At && x.Len == y.Len
+	case (Str as x, Str as y):
+		x.S == y.S
+	case (Array as x, Array as y):
+		if len(x.Items) != len(y.Items) {
+			return false
+		}
+		for i in 0..len(x.Items) {
+			if x.Items[i] != y.Items[i] {
+				return false
+			}
+		}
+		true
+	case (Object as x, Object as y):
+		if len(x.Members) != len(y.Members) {
+			return false
+		}
+		for i in 0..len(x.Members) {
+			if x.Members[i].Key != y.Members[i].Key || x.Members[i].Value != y.Members[i].Value {
+				return false
+			}
+		}
+		true
+	case _:
+		false
+	}
+}
+
 // Encode puts the value v views and is its id. Every id in an Array or
 // an Object must be a value of t, and every key a key of t: they are its
 // children, so they come first.

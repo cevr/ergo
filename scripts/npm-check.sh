@@ -1,7 +1,7 @@
 #!/bin/sh
 # npm-check.sh NAME SCRATCH: a binary package of tools/npm installed the
 # ways a user installs it. It builds NAME's binary for this host into its
-# platform package (scripts/npm.sh's steps), packs @cevr/NAME and that
+# platform package (scripts/npm.sh's steps), packs @cvr/NAME and that
 # package into SCRATCH (a folder that does not exist yet), and installs
 # the tarballs four ways: bun add, bun add -g, npm install (postinstall
 # places the binary) and npm install --ignore-scripts (the launcher finds
@@ -26,8 +26,8 @@ S=$(cd "$S" && pwd -P)
 sh "$root/scripts/npm.sh" "$name" --pack "$S/tgz" >"$S/pack.log" 2>&1 || { echo "npm-check: npm.sh $name failed (see $S/pack.log)"; exit 1; }
 export HOME="$S/home" npm_config_cache="$S/cache" npm_config_userconfig="$S/home/.npmrc" npm_config_globalconfig="$S/home/.npmrc-global" npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false BUN_INSTALL_CACHE_DIR="$S/bun-cache"
 : > "$S/home/.npmrc"
-tgz_plat=$(ls "$S"/tgz/cevr-"$name"-"$plat"-*.tgz)
-tgz_main=$(ls "$S"/tgz/cevr-"$name"-[0-9]*.tgz)
+tgz_plat=$(ls "$S"/tgz/cvr-"$name"-"$plat"-*.tgz)
+tgz_main=$(ls "$S"/tgz/cvr-"$name"-[0-9]*.tgz)
 failed=0
 run() {
 	if "$2" --help >"$S/out" 2>&1 && grep -qi "^usage.*$name" "$S/out"; then

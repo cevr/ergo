@@ -32,7 +32,7 @@ extern go go/parser.ParseExpr func ParseExpr(x string) ast.Expr fails go.Error n
 extern go go/parser.ParseExprFrom func ParseExprFrom(fset own *token.FileSet, filename string, src go.Any, mode Mode) ast.Expr fails go.Error needs go.Foreign
 
 // ergo:go func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (f *ast.File, err error)
-extern go go/parser.ParseFile func ParseFile(fset own *token.FileSet, filename string, src go.Any, mode Mode) go.Ref[ast.File] fails go.Error needs go.Foreign
+extern go go/parser.ParseFile func ParseFile(fset own *token.FileSet, filename string, src go.Any, mode Mode) Option[go.Ref[ast.File]] fails go.Error needs go.Foreign
 
 // ergo:go const SkipObjectResolution Mode
 extern go go/parser.SkipObjectResolution let SkipObjectResolution Mode
