@@ -265,6 +265,12 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
+	case len(irArgs) == 2:
+		// Go's copy of elements that hold a slice or Map (values.go,
+		// copyElemSource): the source is copied, as the emitter's is.
+		if t := copyElemSource(b.l, x, c, b.fc.typeOf); t != nil {
+			irArgs[1] = b.copyDeep(t, x, irArgs[1], !entryRule())
+		}
 	}
 }
 
