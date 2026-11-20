@@ -236,6 +236,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 			c.fn.reach.contexts = append(c.fn.reach.contexts, w)
 		}
 		c.testAmbientWith(a, w)
+		c.chargeContextNeeds(a, w)
 		binds := c.contextBinds(w)
 		return binds, !w.unknown, w, nil, nil
 	case *syntax.SelectorExpr:
@@ -249,6 +250,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 					// Its package's pass summarised it; a set keyed by
 					// capability names needs no conversion.
 					c.testAmbientWith(a, w)
+					c.chargeContextNeeds(a, w)
 					return w.binds, !w.unknown, w, nil, nil
 				}
 				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported context of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
@@ -324,6 +326,7 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 			}
 			if inner != nil {
 				c.testAmbientEmbed(e.Key, inner)
+				c.chargeContextNeeds(e.Key, inner)
 			}
 			if inner != nil && c.silent == 0 {
 				w.Entries = append(w.Entries, &ContextEntry{Embedded: inner})
@@ -643,15 +646,13 @@ func (c *checker) checkContexts() {
 		if d.Provides != nil {
 			c.errorf(d.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 		}
-		ambient := c.contextTestAmbient(w)
-		if d.Needs != nil && !ambient {
-			c.rowExpr(d.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
-			c.errorf(d.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)")
-		}
+		c.readContextHeader(w)
 		t := &target{name: "context " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}
-		if ambient {
-			// Its build may require the test's ambient, and nothing else
-			// from the with site (testambient.go, rule 1).
+		if d.Needs != nil {
+			// Its build may require what its header writes, from the with
+			// site or the test runner (contextneeds.go, rule 1;
+			// testambient.go, rule 1). A name the row refuses is reported
+			// here, once.
 			t.declUses = c.rowExpr(d.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
 		}
 		// The context's providers may use what the context binds (Context 4).

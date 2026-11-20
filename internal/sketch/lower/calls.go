@@ -1353,8 +1353,8 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
-		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
+	if w.Decl.Provides != nil {
+		refuse(w.Decl, "a context header with provides is checked by 196b")
 	}
 }
 
@@ -1384,8 +1384,10 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	} else {
 		l.recordDecl(w.Name, w.Decl)
 	}
-	// A builder has no loop and calls no capability (a named context is
-	// closed); its frame reads the context's footprint all the same.
+	// A builder has no loop. Its providers read what its header needs from
+	// env, the with site's copy, which holds the capabilities the checker
+	// charged there (check/contextneeds.go); its frame reads the context's
+	// footprint all the same.
 	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
