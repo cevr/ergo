@@ -9,6 +9,8 @@
 #   ERGO_BUDGET_CRIT  a file of workspace names, one a line, whose runs take the crit class; every other run is the
 #                     lane class. Crit is the host owner's to grant: no variable of the caller's grants it.
 #   ERGO_BUDGET_QUIET a file holding an epoch second; until then a new run waits (a quiet window).
+#   ERGO_BUDGET_SCRATCH the root of the runs' own TMPDIR and GOTMPDIR folders (default $ERGO_BUDGET.tmp;
+#                     scratch.sh): each run's is removed when it ends, a killed run's by the next run's sweep.
 #
 # The lane is the basename of the caller's git top level ("none" outside a repository): the log's lane column and
 # the crit file's names.
@@ -22,4 +24,20 @@ lane=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
 lane=${lane:-none}
 class=lane
 if [ -n "${ERGO_BUDGET_CRIT:-}" ] && grep -qx "$lane" "$ERGO_BUDGET_CRIT" 2>/dev/null; then class=crit; fi
-exec "${ERGO_BUDGET_BIN:-ergo}" budget --config "$ERGO_BUDGET" --width 4 --class "$class" --lane "$lane" -- nice -n 19 "$@"
+. "$(dirname "$(readlink -f "$0")")/scratch.sh"
+scratch_sweep
+scratch_make "light-$$-$(date +%s%N)" || { echo "light.sh: cannot make a scratch folder under $scratch_root" >&2; exit 1; }
+trap scratch_drop EXIT
+# ergo budget runs as a child so the folder is removed after it; a signal to this script is passed on to it. An
+# asynchronous command's stdin is /dev/null unless redirected, so it reads this script's stdin through fd 3.
+exec 3<&0
+"${ERGO_BUDGET_BIN:-ergo}" budget --config "$ERGO_BUDGET" --width 4 --class "$class" --lane "$lane" -- nice -n 19 "$@" <&3 3<&- &
+child=$!
+exec 3<&-
+trap 'kill -TERM $child 2>/dev/null' TERM INT HUP
+while :; do
+  wait $child
+  rc=$?
+  kill -0 $child 2>/dev/null || break
+done
+exit $rc

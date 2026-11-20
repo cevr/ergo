@@ -11,6 +11,8 @@
 #   ERGO_BUDGET_BIN     the ergo that runs `ergo budget` (default: ergo on PATH).
 #   ERGO_BUDGET_CRIT    a file of workspace names, one a line, whose runs take the crit class; every other run is
 #                       the lane class. Crit is the host owner's to grant: no variable of the caller's grants it.
+#   ERGO_BUDGET_SCRATCH the root of the runs' own TMPDIR and GOTMPDIR folders (default $ERGO_BUDGET.tmp;
+#                       scratch.sh): each run's is removed when it ends or its unit stops, a stray one by a sweep.
 #   HEAVY_DIR           the folder of the runs' logs, exit codes and locks (default: $ERGO_BUDGET.heavy).
 #   HEAVY_NAME          the run's name (default: made from the command and the time).
 #   HEAVY_MEM           the unit's memory cap (default 24G, no swap).
@@ -35,6 +37,7 @@ R=$D/runs
 W=${HEAVY_WARM_GOCACHE:-$HOME/.cache/ergo-warm-gocache}
 CAP=${HEAVY_WARM_CAP_KIB:-10485760}
 SELF=$(readlink -f "$0")
+. "$(dirname "$SELF")/scratch.sh"
 mkdir -p "$R"
 
 # quote: $1 as one sh word.
@@ -76,6 +79,8 @@ post() {
     esac > "$R/$1.exit"
   fi
   rm -f "$R/$1.env"
+  scratch_dir=$scratch_root/heavy-$1
+  scratch_drop
 }
 
 # seed: reflink the warm cache into a missing or empty $GOCACHE.
@@ -144,10 +149,12 @@ run() {
   trap 'exit 143' TERM
   trap 'exit 130' INT
   seed
+  scratch_make "heavy-$name" || echo "heavy.sh: no scratch folder under $scratch_root; TMPDIR stays the caller's" >&2
   export HEAVY_HELD=1
   "${ERGO_BUDGET_BIN:-ergo}" budget --config "$ERGO_BUDGET" --width "$mine" --class "$cls" --lane "heavy:$ws" -- "$@"
   c=$?
   echo "$c" > "$R/$name.exit"
+  scratch_drop
   keep
   exit $c
 }
@@ -171,6 +178,7 @@ if active "$name"; then
   exit 2
 fi
 find "$R" -maxdepth 1 -type f -mtime +2 -delete 2>/dev/null
+scratch_sweep
 rm -f "$R/$name.exit" "$R/$name.log"
 mask=$(umask)
 (
@@ -186,7 +194,7 @@ mask=$(umask)
 echo "heavy.sh: run heavy-$name ($(cores "$@") cores); if this caller ends first: sh $SELF wait $name" >&2
 if ! systemd-run --user -q --collect --unit="heavy-$name" --same-dir \
   -p MemoryMax="${HEAVY_MEM:-24G}" -p MemorySwapMax=0 \
-  -E ERGO_BUDGET="$ERGO_BUDGET" -E HEAVY_DIR="$D" \
+  -E ERGO_BUDGET="$ERGO_BUDGET" -E ERGO_BUDGET_SCRATCH="$scratch_root" -E HEAVY_DIR="$D" \
   -E GIT_CONFIG_COUNT=2 -E GIT_CONFIG_KEY_0=gc.auto -E GIT_CONFIG_VALUE_0=0 -E GIT_CONFIG_KEY_1=maintenance.auto -E GIT_CONFIG_VALUE_1=false \
   -p "ExecStopPost=/bin/sh $SELF __post $name" \
   /bin/sh "$SELF" __run "$name"; then

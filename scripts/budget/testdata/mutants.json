@@ -11,6 +11,15 @@
       "killers": ["scripts/budget:TestLightCritComesOnlyFromTheCritFile"]
     },
     {
+      "name": "budget-scratch-no-sweep",
+      "origin": "wf10 TMPDIR-PER-RUN (2026-11-20: killed runs left tens of GiB under /tmp)",
+      "file": "scripts/budget/scratch.sh",
+      "from": "    flock -n \"$l\" true 2>/dev/null && rm -rf \"${l%.lock}\" \"$l\"\n",
+      "to": "    :\n",
+      "rule": "A run's start removes every scratch folder whose lock no run holds: a killed run's.",
+      "killers": ["scripts/budget:TestRunsGetTheirOwnScratch"]
+    },
+    {
       "name": "budget-heavy-crit-from-env",
       "origin": "wf10 BUDGET-WRAP (2026-11-20 crit starvation)",
       "file": "scripts/budget/heavy.sh",

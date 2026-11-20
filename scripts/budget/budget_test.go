@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -100,6 +101,54 @@ func TestLightCritComesOnlyFromTheCritFile(t *testing.T) {
 	}
 	if got := h.run(t, "light.sh", "ws-lane", []string{"LIGHT_CRIT=1"}, "true"); flag(got, "class") != "lane" {
 		t.Errorf("a run of ws-lane with LIGHT_CRIT=1: %q, want class lane", got)
+	}
+}
+
+// TestRunsGetTheirOwnScratch: a light run gets a TMPDIR and GOTMPDIR of its
+// own under the scratch root, removed when it ends, and its start sweeps a
+// folder a killed run left (its lock free) but not one whose run still holds
+// its lock (2026-11-20: killed runs left /tmp/ergo-mutants-*, /tmp/Test*
+// and /tmp/go-build*, tens of GiB). Mutant: budget-scratch-no-sweep.
+func TestRunsGetTheirOwnScratch(t *testing.T) {
+	h := newHost(t)
+	root := h.conf + ".tmp"
+	for _, d := range []string{"stale", "live"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, d, "left"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live, err := os.Create(filepath.Join(root, "live.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	if err := syscall.Flock(int(live.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "stale.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(h.dir, "tmpdir")
+	h.run(t, "light.sh", "ws-lane", nil, "sh", "-c", `printf '%s\n%s\n' "$TMPDIR" "$GOTMPDIR" > "$0" && touch "$TMPDIR/made"`, out)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := strings.Fields(string(got))
+	if len(dirs) != 2 || dirs[0] != dirs[1] || filepath.Dir(dirs[0]) != root {
+		t.Fatalf("the run's TMPDIR and GOTMPDIR: %q, want one folder under %s", dirs, root)
+	}
+	if _, err := os.Stat(dirs[0]); !os.IsNotExist(err) {
+		t.Errorf("the run's folder %s is left after it ended (%v)", dirs[0], err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "stale")); !os.IsNotExist(err) {
+		t.Errorf("a killed run's folder (lock free) was not swept (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "live", "left")); err != nil {
+		t.Errorf("a running run's folder (lock held) was swept: %v", err)
 	}
 }
 
