@@ -493,6 +493,10 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		"one/src_test.go": srcTest,
 		"cmd/src/main.go": srcTool,
 		"one/word.txt":    "hi\n",
+		// An init that reads a file of its package's directory, as lower's
+		// std_json_loose_test.go reads testdata: the runner lists the
+		// tests where go test runs them (mutant list-from-root).
+		"one/init_test.go": "package one_test\n\nimport \"os\"\n\nvar _ = mustRead()\n\nfunc mustRead() []byte {\n\tb, err := os.ReadFile(\"word.txt\")\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\treturn b\n}\n",
 		// two/names.go is generated from two/names.txt (regenNames), and
 		// TestNames uses the name it declares.
 		"two/names.txt":     "Seven\n",

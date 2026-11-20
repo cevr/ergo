@@ -1023,9 +1023,16 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
 			}
 			c.Builds[s.Name] = o.seconds
-			list, err := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".").Output()
+			// In the package's directory, as go test runs the binary: a
+			// test file's init may read testdata (lower's loose JSON
+			// cases), and from the root it panics before it lists.
+			lister := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".")
+			lister.Dir = filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package))
+			var stderr strings.Builder
+			lister.Stderr = &stderr
+			list, err := lister.Output()
 			if err != nil {
-				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
+				return nil, fmt.Errorf("list the tests of %s: %w\n%s", s.Name, err, firstLine(stderr.String()))
 			}
 			listed := strings.Fields(string(list))
 			for _, n := range listed {
