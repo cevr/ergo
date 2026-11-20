@@ -1837,7 +1837,7 @@
       "name": "tl-host-setting-ignored", "origin": "wf10/semws WORK-TRASH-LOCAL",
       "file": "modules/work/work/api.ergo",
       "from": "let local = try LocalTrash(c, setting)",
-      "to": "let local = try LocalTrash(c, \"\")",
+      "to": "let local = try LocalTrash(c, strings.TrimPrefix(setting, setting))",
       "rule": "the base's Git setting work.trash (host-local) decides rm's trash over work.toml and the default; doctor says which (memory's TheHostSettingDecidesTrash).",
       "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
     }
