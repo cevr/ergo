@@ -74,16 +74,16 @@ func kindsProgram(seed uint64) string {
 	fmt.Fprintf(&b, "func fBody(a int) bool {\n%s\t%s\n}\n\n", body.String(), check)
 	fmt.Fprintf(&b, "test VFunc {\n\tassert fBody(%d)\n}\n\n", a)
 	fmt.Fprintf(&b, "test VTest {\n\tlet a = %d\n%s\tassert %s\n}\n\n", a, body.String(), check)
-	fmt.Fprintf(&b, "test VLit {\n\tlet f = func(a int) bool {\n%s\t%s\n\t}\n\tassert f(%d)\n}\n\n", indent(body.String()), check, a)
+	fmt.Fprintf(&b, "test VLit {\n\tlet f = func(a int) bool {\n%s\t%s\n\t}\n\tassert f(%d)\n}\n\n", kindsIndent(body.String()), check, a)
 	fmt.Fprintf(&b, "law VLaw(a int) {\n%s\t%s\n}\n\n", body.String(), check)
-	fmt.Fprintf(&b, "type Holder {\n\tSeed() int,\n\tlaw VMember(a int) {\n%s\t\t%s\n\t},\n}\n\n", indent(body.String()), check)
+	fmt.Fprintf(&b, "type Holder {\n\tSeed() int,\n\tlaw VMember(a int) {\n%s\t\t%s\n\t},\n}\n\n", kindsIndent(body.String()), check)
 	b.WriteString("type Fixed { n int } implements Holder\n\nfunc Seed(f Fixed) int { f.n }\n\n")
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"x\")\n}\n")
 	return b.String()
 }
 
-// indent is body one tab deeper.
-func indent(body string) string {
+// kindsIndent is body one tab deeper.
+func kindsIndent(body string) string {
 	return strings.ReplaceAll(strings.TrimSuffix("\t"+body, "\t"), "\n\t", "\n\t\t")
 }
 
