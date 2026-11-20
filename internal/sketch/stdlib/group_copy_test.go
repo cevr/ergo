@@ -41,7 +41,8 @@ func main() {
 // frame package's own function (ui.Text) is never a group.
 //
 // Only view's Go is compared: the inlined bodies of ui's primitives differ
-// between std and a copy by the flat-union lowering (std-copy.txt, ui).
+// between std and a copy by the flat-union lowering (TestStdCopyAgrees
+// holds ui's copy the same).
 func TestGroupProtocolCopyAgrees(t *testing.T) {
 	const law = "law GroupSkipsEqualArguments("
 	const group = "group_#0[" // copyCanonicalNames

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lower"
@@ -68,9 +69,15 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 // the licence run (eval.LicenceRun), whose report line, with its count
 // per class, goes to w, and whose verdict the entry holds, by eval. The
 // run takes the law's corpus cases first (cases, by the entry's key), and
-// a refuted run's case joins them (the corpus file, ergo.cases).
-func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]lower.LedgerEntry, keys lower.ForeignKeys, w io.Writer, cases corpus) ([]lower.LedgerEntry, error) {
+// a refuted run's case joins them (the corpus file, ergo.cases). A law
+// over the module's own Go bodies calls them through their driver
+// (LAWFFI LF2m; gobodydriver.go), built with tc at the first law that
+// runs; a zero tc builds none, and such a law is skipped.
+func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]lower.LedgerEntry, keys lower.ForeignKeys, w io.Writer, cases corpus, tc build.Toolchain) ([]lower.LedgerEntry, error) {
 	var out []lower.LedgerEntry
+	var driver *goBodyDriver
+	started := false
+	defer func() { driver.Close() }()
 	for _, law := range pkg.Laws {
 		if law.TopRewrite() == nil {
 			continue
@@ -80,7 +87,19 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 			out = append(out, prev)
 			continue
 		}
-		l, err := eval.LicenceRun(pkg, law, eval.LicenceBudget(), cases[stub.Key()])
+		if !started && tc.Go != "" {
+			started = true
+			d, err := startGoBodies(pkg, tc, w)
+			if err != nil {
+				return nil, err
+			}
+			driver = d
+		}
+		var goBodies eval.GoBodies
+		if driver != nil {
+			goBodies = driver
+		}
+		l, err := eval.LicenceRun(pkg, law, eval.LicenceBudget(), cases[stub.Key()], goBodies)
 		if err != nil {
 			return nil, err
 		}

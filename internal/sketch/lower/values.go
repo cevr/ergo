@@ -2704,20 +2704,42 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 	if w.snapshotted(vv, o.frame) {
 		return false
 	}
-	for _, wr := range vv.writes {
-		if wr.frame != vv.frame {
-			return true // a write in another frame can run at any time
-		}
+	if o.kind == occReturn && o.frame == vv.frame {
+		// The binding's last use (KEPT-MOVE): no write can run after the
+		// return ends its frame. A write in that frame came before it, and
+		// a frame that writes a let mut of an enclosing frame is never
+		// escaping (the checker refuses the write in one that may outlive
+		// its call, types.md Function values 3), so it ran inside the
+		// frame, which has returned. The value moves: kidsOf's
+		// `change(f, r, func(n) { kids = n.kids }); kids` returns kids
+		// with no copy. A return from another frame (a literal's) may
+		// run while a write is still to come, and copies below.
+		return returnLowering == "copy" && w.writtenElsewhere(vv)
+	}
+	if w.writtenElsewhere(vv) {
+		return true // a write in another frame can run at any time
 	}
 	if o.frame != vv.frame {
 		return len(vv.writes) > 0
 	}
-	if o.kind == occReturn {
-		return false
-	}
 	for _, wr := range vv.writes {
 		if w.later(vv, o, wr) {
 			return !w.keptRead(vv, o)
+		}
+	}
+	return false
+}
+
+// returnLowering "copy" selects the reference of the return rule
+// (KEPT-MOVE, needsCopy): a return of a root that another frame writes
+// copies. Empty in every build; a build may set it with -X.
+var returnLowering string
+
+// writtenElsewhere reports whether a frame nested in vv's writes it.
+func (w *valueWalk) writtenElsewhere(vv *vvar) bool {
+	for _, wr := range vv.writes {
+		if wr.frame != vv.frame {
+			return true
 		}
 	}
 	return false
@@ -3345,6 +3367,10 @@ func (tc *typeCtx) cloneOf(t check.Type, val string, site syntax.Node, deep bool
 	switch u := underEqual(t).(type) {
 	case *check.Map:
 		if !deep && !tc.l.entryWritten(t) || !tc.l.holdsValue(u.Elem) || valueMutant == "shallow" {
+			if _, plain := t.(*check.Map); plain && tc.l.intMap(u) { // intmap.go: the table's own copy
+				return val + ".Clone()"
+			}
+			tc.l.intMapConflict(u) // a defined Map type: maps.Clone
 			return tc.l.goPkg("maps") + ".Clone(" + val + ")"
 		}
 	case *check.Slice:
@@ -3445,6 +3471,7 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node, deep bool) (string, 
 		body.WriteString("\tfor " + i + ", " + e + " := range " + v + " {\n")
 		body.WriteString("\t\t" + c + "[" + i + "] = " + tc.cloneOf(u.Elem, e, site, deep) + "\n\t}\n\treturn " + c + "\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: a deep copy over Go's map
 		k, e := scope.alloc("k"), scope.alloc("e")
 		body.WriteString("\t" + c + " := make(" + goType + ", len(" + v + "))\n")
 		body.WriteString("\tfor " + k + ", " + e + " := range " + v + " {\n")

@@ -233,7 +233,7 @@ func (b *irBuilder) machineCall(f *check.Func, env int, args []*irExpr, p irPos,
 	case len(witnessParams(f.Sig)) > 0:
 		irNo("call that passes witnesses")
 	}
-	if !fd.pure {
+	if !fd.envFree {
 		at := 0
 		if fd.method != nil {
 			at = 1

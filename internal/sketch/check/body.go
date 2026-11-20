@@ -266,9 +266,9 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 		}
 	case *syntax.Ident:
 		// A defined type over a basic type, a refinement too (os.Code):
-		// the Go type is a defined type over the same Go basic type. The
-		// refinement's predicate stays the checker's, as for any
-		// refinement.
+		// the Go type is a defined type over the same Go basic type, or an
+		// alias of it (fs.Text, v1.MappedText). The refinement's predicate
+		// stays the checker's, as for any refinement.
 		b, _ := n.Underlying().(*Basic)
 		if b == nil || b.Kind == Duration || gt.Basic != b.Name {
 			return fmt.Sprintf("extern go %s: %s is over %s, and v1.%s is not a defined type over the Go type %s (docs/spec/stdlib.md, The body contract)", target, tn.Name, n.Underlying(), name, n.Underlying())
