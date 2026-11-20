@@ -27,7 +27,7 @@ func TestReviewRegressions(t *testing.T) {
 		name: "ptrspill",
 		src: `type Counter { n int }
 
-func Add(c *Counter, k int) {
+func Add(c mut Counter, k int) {
 	c.n = c.n + k
 }
 
@@ -169,7 +169,7 @@ func main() fails Fault[int] needs Console {
 
 type Pair { c Counter }
 
-func Add(c *Counter, k int) { c.n = c.n + k }
+func Add(c mut Counter, k int) { c.n = c.n + k }
 
 func three() int { return 3 }
 

@@ -66,13 +66,13 @@ func Reading(r Readout) string { r.text.Get() }
 // ReadoutText shows the text r reads, in a box the size of reserve's
 // text. The node is the same across passes while r and reserve are, so a
 // pass that writes it again changes nothing.
-func ReadoutText[E](f *Frame[E], r Readout, reserve string, at CallSite) {
+func ReadoutText[E](f mut Frame[E], r Readout, reserve string, at CallSite) {
 	ReadoutStyled(f, r, reserve, Plain(), at)
 }
 
 // ReadoutStyled is ReadoutText with a Style: its layout, and its look,
 // whose Ink draws the reading (look.ergo).
-func ReadoutStyled[E](f *Frame[E], r Readout, reserve string, style Style, at CallSite) {
+func ReadoutStyled[E](f mut Frame[E], r Readout, reserve string, style Style, at CallSite) {
 	if f.nreadouts < len(f.readouts) {
 		f.readouts[f.nreadouts] = r
 	} else {
@@ -88,7 +88,7 @@ type watched { readout Readout, pending sync.Ref[bool] }
 // watchReadouts makes the session wake for each readout its last pass
 // placed and it does not watch yet. A readout a later pass removes keeps
 // its wake: its Published then finds no node to paint.
-func watchReadouts[S, E, D, F](s *Session[S, E, D, F]) {
+func watchReadouts[S, E, D, F](s mut Session[S, E, D, F]) {
 	for i in 0..s.frame.nreadouts {
 		let r = s.frame.readouts[i]
 		if has(s.readouts, r.id) {
@@ -107,7 +107,7 @@ func watchReadouts[S, E, D, F](s *Session[S, E, D, F]) {
 // taken clears the flag of readout id's Published, so the next Publish of
 // it posts again. The session clears it before the host reads the
 // readout, so a Publish after that is either read now or posts once more.
-func taken[S, E, D, F](s *Session[S, E, D, F], id int) {
+func taken[S, E, D, F](s mut Session[S, E, D, F], id int) {
 	match s.readouts.Get(id) {
 	case Some[watched] as w:
 		w.Value.pending.Set(false)
@@ -117,7 +117,7 @@ func taken[S, E, D, F](s *Session[S, E, D, F], id int) {
 
 // ReadingIn is the text the readout numbered id reads now, for a node of
 // s's tree; None for a number s never placed.
-func ReadingIn[S, E, D, F](s *Session[S, E, D, F], id int) Option[string] {
+func ReadingIn[S, E, D, F](s mut Session[S, E, D, F], id int) Option[string] {
 	match s.readouts.Get(id) {
 	case Some[watched] as w:
 		Some{Value: Reading(w.Value.readout)}
@@ -128,7 +128,7 @@ func ReadingIn[S, E, D, F](s *Session[S, E, D, F], id int) Option[string] {
 
 // ShownIn is what n, a node of s's tree, shows now: a ReadoutNode as the
 // TextNode of its reading, any other node as it is.
-func ShownIn[S, E, D, F](s *Session[S, E, D, F], n Node[E]) Node[E] {
+func ShownIn[S, E, D, F](s mut Session[S, E, D, F], n Node[E]) Node[E] {
 	match n {
 	case ReadoutNode as x:
 		// The Text keeps the readout's Style as every host reads a node's
@@ -153,7 +153,7 @@ func ShownIn[S, E, D, F](s *Session[S, E, D, F], n Node[E]) Node[E] {
 
 // ShownShapesIn is shapes of s's tree with each node ShownIn: the screen
 // as a host paints it at this moment.
-func ShownShapesIn[S, E, D, F](s *Session[S, E, D, F], shapes []Shape[E]) []Shape[E] {
+func ShownShapesIn[S, E, D, F](s mut Session[S, E, D, F], shapes []Shape[E]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for sh in shapes {
 		out = out.Append(Shape[E]{Node: ShownIn(s, sh.Node), Kids: ShownShapesIn[S, E, D, F](s, sh.Kids)})
@@ -170,7 +170,7 @@ let readWords = []string{"00:00", "00:01", "12:34", "", "a reading far wider tha
 // readout, in order at an even layout and reversed at an odd one, with
 // readout 0 left out at layouts 2 and 3. shown writes row i's text: a
 // readout, or a Text of the same reading. (a law's helper)
-func readoutRows(f *Frame[int], s int, n int, shown func(i int)) {
+func readoutRows(f mut Frame[int], s int, n int, shown func(i int)) {
 	Column(f, Plain()) {
 		Text(f, "at \(s)")
 		Pressable(f, "next", (s+1)%4) {
@@ -228,7 +228,7 @@ law LiveCostsNoPass(seed int, steps int) {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 1
 		let rs = readoutsOf(n)
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") })
 		}
 		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
@@ -319,14 +319,14 @@ law LiveEqualsRerun(seed int, steps int) {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 1
 		let rs = readoutsOf(n)
-		let live = func(f *Frame[int], s int) {
+		let live = func(f mut Frame[int], s int) {
 			readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") })
 		}
 		let mut zero = []int{}
 		for _ in 0..n {
 			zero = zero.Append(0)
 		}
-		let rerun = func(f *Frame[int], s readState) {
+		let rerun = func(f mut Frame[int], s readState) {
 			OnKey(f, func(k KeyPress) Option[int] {
 				for e in 100..100+10*n {
 					if k.Name == "\(e)" {

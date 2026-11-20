@@ -41,6 +41,64 @@ func Tumbling(samples []Sample, width int64) []Bucket fails BadWidth {
 	out
 }
 
+// TumblingSumsEqualFold: each tumbling bucket's sum and count are the
+// fold of the samples in its window, the buckets tile time in order, and
+// together they hold every sample.
+law TumblingSumsEqualFold(seed int, n int) {
+	let samples = run(seed, 40)
+	let width = widthOf(n)
+	let buckets = Tumbling(samples, width) catch {
+	case BadWidth:
+		return false
+	}
+	let mut total = 0
+	for i, b in buckets {
+		let sum, count = naiveSum(samples, len(samples), b.Start, b.Start+width)
+		if b.Sum != sum || b.Count != count || b.Start%width != 0 || (i > 0 && b.Start <= buckets[i-1].Start) {
+			return false
+		}
+		total += b.Count
+	}
+	total == len(samples)
+}
+
+// run is count samples drawn from seed: times that step 0 to 1500 ms from
+// an origin that may be negative, values from -50 to 50.
+func run(seed int, count int) []Sample {
+	let mut x = (if seed < 0 { -(seed + 1) } else { seed }) % 2147483648
+	let next = func(n int) int {
+		x = (x*1103515245 + 12345) % 2147483648
+		(x / 65536) % n
+	}
+	let mut at = int64(next(20000)) - 10000
+	let mut out = []Sample{}
+	for _ in 0..count {
+		at += int64(next(1501))
+		out = out.Append(Sample{At: at, Value: float64(next(101) - 50)})
+	}
+	out
+}
+
+// widthOf is a window width from any n: 1 to 5000 ms.
+func widthOf(n int) int64 {
+	let m = if n < 0 { -(n + 1) } else { n }
+	int64(1 + m%5000)
+}
+
+// naiveSum is the sum and count of the first upTo samples with
+// from <= At < to.
+func naiveSum(samples []Sample, upTo int, from int64, to int64) (float64, int) {
+	let mut sum = 0.0
+	let mut n = 0
+	for i, s in samples {
+		if i < upTo && s.At >= from && s.At < to {
+			sum += s.Value
+			n += 1
+		}
+	}
+	(sum, n)
+}
+
 // Sliding is the samples of the last width milliseconds: after Add of a
 // sample at t, it holds the samples added with At in (t-width, t]. Its
 // sum is kept as samples come and go, so Add is amortized O(1).
@@ -54,9 +112,28 @@ func NewSliding(width int64) Sliding fails BadWidth {
 	Sliding{width: width, samples: []Sample{}, head: 0, sum: 0}
 }
 
+// SlidingAgrees: after each Add, the sliding window's sum and count are
+// the fold of the samples added so far in the last width milliseconds.
+law SlidingAgrees(seed int, n int) {
+	let samples = run(seed, 120)
+	let width = widthOf(n)
+	let mut w = NewSliding(width) catch {
+	case BadWidth:
+		return false
+	}
+	for i, s in samples {
+		w.Add(s)
+		let sum, count = naiveSum(samples, i+1, s.At-width+1, s.At+1)
+		if w.Sum() != sum || w.Count() != count {
+			return false
+		}
+	}
+	true
+}
+
 // Add puts s in w and drops the samples that fall out of it. Samples are
 // added in time order.
-func Add(w *Sliding, s Sample) {
+func Add(w mut Sliding, s Sample) {
 	w.samples = w.samples.Append(s)
 	w.sum += s.Value
 	for w.samples[w.head].At <= s.At-w.width {
@@ -93,4 +170,31 @@ func Percentile(values []float64, p int) Option[float64] {
 	let sorted = slices.Sort(values)
 	let rank = (q*len(sorted) + 99) / 100
 	Some{sorted[rank-1]}
+}
+
+// PercentileIsARank: a percentile is one of the values, at least p
+// percent of the values are at or below it, and it does not fall as p
+// rises.
+law PercentileIsARank(seed int, p int) {
+	let mut values = []float64{}
+	for s in run(seed, 25) {
+		values = values.Append(s.Value)
+	}
+	let q = 1 + (if p < 0 { -(p + 1) } else { p })%100
+	match (Percentile(values, q), Percentile(values, if q < 100 { q + 1 } else { 100 })) {
+	case (Some[float64] as v, Some[float64] as w):
+		let mut below = 0
+		let mut found = false
+		for x in values {
+			if x <= v.Value {
+				below += 1
+			}
+			if x == v.Value {
+				found = true
+			}
+		}
+		found && below*100 >= q*len(values) && v.Value <= w.Value
+	case (_, _):
+		false
+	}
 }

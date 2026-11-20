@@ -106,7 +106,7 @@ func NewDecoder() Decoder { Decoder{pending: ""} }
 // Feed is the keys of chunk, after what d held. An ESC that ends the
 // chunk is the Escape key, as Cut has it; the start of any other
 // sequence or rune waits for the next chunk.
-func Feed(d *Decoder, chunk string) []Key {
+func Feed(d mut Decoder, chunk string) []Key {
 	let b = d.pending + chunk
 	let mut keys = []Key{}
 	let mut at = 0
@@ -124,7 +124,7 @@ func Feed(d *Decoder, chunk string) []Key {
 
 // Flush is the keys of what d holds, at the end of the input: the rest is
 // one key, as Cut has it at the end.
-func Flush(d *Decoder) []Key {
+func Flush(d mut Decoder) []Key {
 	let b = d.pending
 	d.pending = ""
 	let mut keys = []Key{}
@@ -163,6 +163,17 @@ func Decode(token string) Key {
 		return ss3Key(token)
 	}
 	withAlt(Decode(token[1:]), token)
+}
+
+// DecodeNamesControls: a token that starts with a control byte is never a
+// Char, and a token that does not is a Char unless it is the delete byte.
+law DecodeNamesControls(token string) {
+	match Decode(token) {
+	case Char as c:
+		c.Text == token && token >= " " && token != "\x7f"
+	case _:
+		token < " " || token == "\x7f" || token == ""
+	}
 }
 
 // byteKey is the key of the one byte c (token).
@@ -577,7 +588,7 @@ law CutTakesOneKey(seed int, size int) {
 type rng { x int }
 
 // draw is a number in [0, n) from r. (a law's helper)
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }

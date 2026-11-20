@@ -102,24 +102,58 @@ func firstLine(s string) string {
 }
 
 // both builds u by both paths in dir and returns the binaries and the IR
-// report.
+// report. The IR binary is lowered with the build-time fold off (Emit),
+// so it calls every body the source calls (Runs, vacuous.go): else the
+// property compares nothing. Where the fold changes the IR, the folded
+// program is built too and must print what the unfolded one prints (CF1
+// agrees with the bodies it skips).
 func both(t *testing.T, u lower.Unit, src, ir Toolchain, dir string, o BuildOptions) (srcBin, irBin string, rep lower.IRReport) {
 	t.Helper()
 	if _, err := Emit(u, Source, filepath.Join(dir, "source")); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := Emit(u, IR, filepath.Join(dir, "ir"))
+	irDir, foldDir := filepath.Join(dir, "ir"), filepath.Join(dir, "irfold")
+	rep, err := Emit(u, IR, irDir)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Runs(rep); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EmitFold(u, foldDir, ""); err != nil {
 		t.Fatal(err)
 	}
 	srcBin, irBin = filepath.Join(dir, "source.bin"), filepath.Join(dir, "ir.bin")
 	if _, err := Build(src, Source, filepath.Join(dir, "source"), srcBin, o); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Build(ir, IR, filepath.Join(dir, "ir"), irBin, o); err != nil {
+	if _, err := Build(ir, IR, irDir, irBin, o); err != nil {
 		t.Fatal(err)
 	}
+	if !sameFile(t, filepath.Join(irDir, lower.IRFileName), filepath.Join(foldDir, lower.IRFileName)) {
+		foldBin := filepath.Join(dir, "irfold.bin")
+		if _, err := Build(ir, IR, foldDir, foldBin, o); err != nil {
+			t.Fatal(err)
+		}
+		if a, b := run(t, irBin), run(t, foldBin); a != b {
+			t.Fatalf("the build-time fold (CF1) changes what the program prints\nunfolded: %+v\nfolded:   %+v", a, b)
+		}
+	}
 	return srcBin, irBin, rep
+}
+
+// sameFile reports whether the files at a and b hold the same bytes.
+func sameFile(t *testing.T, a, b string) bool {
+	t.Helper()
+	x, err := os.ReadFile(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := os.ReadFile(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytes.Equal(x, y)
 }
 
 // irKinds adds the statement and expression kinds of an IR file to seen.

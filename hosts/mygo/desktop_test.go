@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -22,7 +23,10 @@ import (
 // cache (internal/sketch/build.DefaultRoot), and a caller's cache would
 // make a verdict depend on what an earlier run left there. The commands
 // build with the go command on PATH, as check.sh's gate does, so the fresh
-// cache never installs ergo's pinned Go (ERGO_GO).
+// cache never installs ergo's pinned Go (ERGO_GO). That go is the pinned
+// one: go.mod's toolchain line is the root's (internal/residue
+// TestGoModulesAgreeOnTheToolchain), and `go test` puts its GOROOT/bin
+// first on the test's PATH.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	cache, err := os.MkdirTemp("", "hostsmygo-cache-")
@@ -203,6 +207,9 @@ func TestMyGoHostPrimitivesOnly(t *testing.T) {
 		for _, e := range entries {
 			if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 				continue
+			}
+			if ok, err := build.Default.MatchFile(dir, e.Name()); err != nil || !ok {
+				continue // the files of this platform, as go build reads them
 			}
 			f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
 			if err != nil {

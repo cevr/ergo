@@ -9,7 +9,10 @@
 # debt: any other; the unit names who removes it. Debt only shrinks.
 
 seam	internal/sketch/check/check.go:StdFixture	a test fixture checked as std (no Ergo source reaches it)	-
+seam	internal/sketch/check/check.go:installPrelude	installs a snapshot's decoded prelude and marks it std, as prelude marks the checked one	-
 seam	internal/sketch/check/check.go:prelude	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.decoded	marks a package decoded from a std segment std, as load marks one it checks; a module segment's stays unmarked	-
+seam	internal/sketch/check/check.go:stdImporter.importAll	finds every embedded std package (stdlib.Packages), so a snapshot of std has them all	-
 seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std package and marks it std	-
 seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
 seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
@@ -32,6 +35,7 @@ language	internal/sketch/check/authority.go:authorityText	a prelude constructor 
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
 language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test's host authority	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
+language	internal/sketch/check/decl.go:checker.resolveNamed	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
 language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
 language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-
@@ -40,12 +44,7 @@ language	internal/sketch/check/implements.go:isGoCloser	io.Closer, Go's release 
 language	internal/sketch/check/contextvalues.go:contextRow	Context, the predeclared row value	-
 language	internal/sketch/check/durable.go:pureSeer.step	Machine, a machine literal whose Step a pure parameter sees	-
 language	internal/sketch/check/durable.go:pureSeer.stepValue	Machine's Step	-
-debt	internal/sketch/check/entry.go:IsStdEvery	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:IsMappedText	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:checker.textPlacement	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:escWalk.textOwner	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:isMapped	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:ownWalk.textRootOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/mappedtext.go:textTemporary	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/never.go:IsNever	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
@@ -117,4 +116,3 @@ debt	internal/sketch/check/lintfacts.go:isStdObj	decides by std membership or a 
 debt	internal/sketch/check/lintfacts.go:stdRoles	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/facts.go:extractor.unit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lower/std.go:lowerer.runtimeType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP

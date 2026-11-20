@@ -76,7 +76,7 @@ type Layered[E] { Z Z, Anchor Option[Key], Place Place, Scrim bool, Dismiss Opti
 
 // Layer writes a layer above the flow: its body is laid out at its own
 // size and placed by PlaceLayer against its anchor.
-func Layer[E, F, R](f *Frame[E], l Layered[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Layer[E, F, R](f mut Frame[E], l Layered[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, LayerNode{Z: l.Z, Anchor: l.Anchor, Place: l.Place, Scrim: l.Scrim, Dismiss: l.Dismiss, Style: style}, body, at)
 }
 
@@ -158,7 +158,7 @@ func shift(x Length, size Length, lo Length, hi Length) Length {
 }
 
 // layerOf is r's Layered when r is a layer.
-func layerOf[E](f *Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
+func layerOf[E](f mut Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
 	match nodeAt(f, r).node {
 	case LayerNode[E] as l:
 		Some{Value: l}
@@ -168,7 +168,7 @@ func layerOf[E](f *Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
 }
 
 // layersIn is the layers at or under r, in tree order, onto out.
-func layersIn[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+func layersIn[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let mut all = out
 	match layerOf(f, r) {
 	case Some[LayerNode[E]]:
@@ -182,7 +182,7 @@ func layersIn[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []
 }
 
 // stack is f's layers, the bottom first (StackOrder).
-func stack[E](f *Frame[E]) []arena.Ref[node[E]] {
+func stack[E](f mut Frame[E]) []arena.Ref[node[E]] {
 	let ls = layersIn(f, f.root, []arena.Ref[node[E]]{})
 	let mut zs = []Z{}
 	for l in ls {
@@ -200,7 +200,7 @@ func stack[E](f *Frame[E]) []arena.Ref[node[E]] {
 }
 
 // Layers is the layers of f, the bottom first.
-func Layers[E](f *Frame[E]) []Id[E] {
+func Layers[E](f mut Frame[E]) []Id[E] {
 	let mut out = []Id[E]{}
 	for r in stack(f) {
 		out = out.Append(Id[E]{ref: r})
@@ -210,7 +210,7 @@ func Layers[E](f *Frame[E]) []Id[E] {
 
 // topWith is the top layer of f with a dismiss signal (dismiss) or a
 // scrim (!dismiss), the null ref for none.
-func topWith[E](f *Frame[E], dismiss bool) arena.Ref[node[E]] {
+func topWith[E](f mut Frame[E], dismiss bool) arena.Ref[node[E]] {
 	let s = stack(f)
 	let mut i = len(s) - 1
 	for i >= 0 {
@@ -238,7 +238,7 @@ func dismissable[E](d Option[E]) bool {
 }
 
 // inLayer is whether x is the layer l or a node under it.
-func inLayer[E](f *Frame[E], l arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
+func inLayer[E](f mut Frame[E], l arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
 	if x == l {
 		return true
 	}
@@ -257,13 +257,13 @@ func inLayer[E](f *Frame[E], l arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
 
 // Shielded is whether a layer's scrim covers the node id: a scrim is open
 // and id is outside the top scrim layer.
-func Shielded[E](f *Frame[E], id Id[E]) bool {
+func Shielded[E](f mut Frame[E], id Id[E]) bool {
 	let scrim = topWith(f, false)
 	scrim != arena.Null[node[E]]() && !inLayer(f, scrim, id.ref)
 }
 
 // dismissOf is the layer l's dismiss signal.
-func dismissOf[E](f *Frame[E], l arena.Ref[node[E]]) Option[E] {
+func dismissOf[E](f mut Frame[E], l arena.Ref[node[E]]) Option[E] {
 	match layerOf(f, l) {
 	case Some[LayerNode[E]] as x:
 		x.Value.Dismiss
@@ -278,7 +278,7 @@ func dismissOf[E](f *Frame[E], l arena.Ref[node[E]]) Option[E] {
 // the top dismissable layer queues its dismiss signal (sent before the
 // event's own). While a scrim is open, an event on a node outside the
 // top scrim layer does nothing else.
-func layerGate[E](f *Frame[E], event Event[E]) Option[Handled[E]] {
+func layerGate[E](f mut Frame[E], event Event[E]) Option[Handled[E]] {
 	let target = match event {
 	case KeyDown as k:
 		let m = k.Press.Mods
@@ -324,7 +324,7 @@ func layerGate[E](f *Frame[E], event Event[E]) Option[Handled[E]] {
 // AnchorIn is the node a layer anchored at k is placed against in the
 // mirror m: the first node in tree order that declares k, as a zone's
 // key or a Semantic's Access.Key; None when none does.
-func AnchorIn[E](m *Mirror[E], k Key) Option[Id[E]] {
+func AnchorIn[E](m mut Mirror[E], k Key) Option[Id[E]] {
 	if k == NoKey {
 		return None
 	}
@@ -338,7 +338,7 @@ func AnchorIn[E](m *Mirror[E], k Key) Option[Id[E]] {
 
 // anchorFrom is the first node from at, its next siblings and their
 // subtrees, in tree order, that declares k as an anchor.
-func anchorFrom[E](m *Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
+func anchorFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
 	let mut c = at
 	for {
 		match c {

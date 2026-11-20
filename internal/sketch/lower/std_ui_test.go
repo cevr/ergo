@@ -21,7 +21,7 @@ type Missing { V int }
 
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -30,7 +30,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -71,7 +71,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -103,7 +103,7 @@ func described(v int) string {
 	""
 }
 
-func swap(f *ui.Frame[int], v int, at CallSite) {
+func swap(f mut ui.Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		ui.Text(f, "even \(v)", at)
 	} else {
@@ -111,7 +111,7 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
+func render(f mut ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
 		ui.Text(f, "t\(s[x.slot] + row)")
@@ -217,7 +217,7 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 	}
 }
 
-func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+func sameBody(f mut ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
 	let fl = ui.NewFlag(f, false)
 	ui.Toggle(f, fl, "same")
@@ -513,8 +513,8 @@ func boundRows(x pBound, s []int, row int) []int {
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
 
-func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
-	ui.Render(f, func(g *ui.Frame[int], st []int) {
+func pass(f mut ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
+	ui.Render(f, func(g mut ui.Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
 			case Missing:
@@ -526,7 +526,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	}, s)
 }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -584,7 +584,7 @@ func lawIdempotentCommit(seed int) bool {
 	len(pass(&f, ps, s1)) == 0
 }
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -595,7 +595,7 @@ func shuffled(xs []int, r *rng) []int {
 	out
 }
 
-func keyedRows(f *ui.Frame[int], xs []int) {
+func keyedRows(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "row \(x)")
@@ -607,7 +607,7 @@ func keyedRows(f *ui.Frame[int], xs []int) {
 	}
 }
 
-func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
+func rowIds(f mut ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	let mut out = Map[int, (ui.Id[int], ui.Id[int])]{}
 	let col = ui.Kids(f, ui.Root(f))
 	if len(col) != 1 {
@@ -624,7 +624,7 @@ func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	out
 }
 
-func keyedLines(f *ui.Frame[int], xs []int) {
+func keyedLines(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "line \(x)")
@@ -729,7 +729,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *ui.Frame[int], id ui.Id[int], off bool) bool {
+func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
@@ -889,7 +889,7 @@ func wants(loc ui.Locator, x seen) bool {
 	}
 }
 
-func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
+func matches(m mut ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	ui.ExpectIn(m, loc, is) catch {
 	case ui.Mismatch:
 		return false
@@ -897,7 +897,7 @@ func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	true
 }
 
-func extras(f *ui.Frame[int], v int) {
+func extras(f mut ui.Frame[int], v int) {
 	ui.Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = ui.NewFlag(f, true)
 		ui.Toggle(f, on, "tg\(v % 3)")
@@ -905,7 +905,7 @@ func extras(f *ui.Frame[int], v int) {
 		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Text(f, "in area")
 		}
-		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
+		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p mut ui.Paint) {}
 		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
 		ui.Semantic(f, extraSem(v), None, ui.Plain()) {
 			ui.Text(f, "in sem")
@@ -1147,7 +1147,7 @@ func lawLocatorAgreesWithAccessTree(seed int) bool {
 	let mut m = ui.NewMirror[int](ui.Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
-		let ops = ui.Render(&f, func(g *ui.Frame[int], st []int) {
+		let ops = ui.Render(&f, func(g mut ui.Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
 				case Missing:
@@ -1238,7 +1238,7 @@ func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
 	true
 }
 
-func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+func signalsMatch(f mut ui.Frame[int], g mut ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
 	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
 		return false
 	}
@@ -1270,7 +1270,7 @@ func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]
 	true
 }
 
-func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+func toggles(f mut ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
 	let mut all = out
 	match ui.NodeOf(f, id) {
 	case Some[ui.Node[int]] as n:
@@ -1355,7 +1355,7 @@ func lawMirrorWorkIsLinear(n int, seed int) bool {
 		for i in 0..size {
 			xs = xs.Append(i)
 		}
-		let view = func(f *ui.Frame[int], rows []int) {
+		let view = func(f mut ui.Frame[int], rows []int) {
 			ui.Column(f, ui.Plain()) {
 				ui.Each(f, rows, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 					ui.Text(f, "row \(x)")
@@ -1460,7 +1460,7 @@ func lawMirrorRejectsBadPatches(a int, b int) bool {
 	true
 }
 
-func badPatchView(f *ui.Frame[int], cols [][]int) {
+func badPatchView(f mut ui.Frame[int], cols [][]int) {
 	for c in cols {
 		ui.Column(f, ui.Plain()) {
 			ui.Each(f, c, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
@@ -1639,7 +1639,7 @@ func slowCount(c ui.Counter, s ui.Stats) int {
 func lawKeyedReorderKeepsRows(seed int, steps int) bool {
 	let orders = reorders(seed, steps)
 	let mut r = seeded(steps)
-	let view = func(f *ui.Frame[int], k int) {
+	let view = func(f mut ui.Frame[int], k int) {
 		reorderTable(f, seed, steps, k)
 	}
 	let mut f = ui.NewFrame[int]()
@@ -1700,7 +1700,7 @@ func reorders(seed int, steps int) [][]int {
 	out
 }
 
-func reorderTable(f *ui.Frame[int], seed int, steps int, k int) {
+func reorderTable(f mut ui.Frame[int], seed int, steps int, k int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, reorders(seed, steps)[k], func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Same(f, ui.ByInt(x)) {
@@ -1710,7 +1710,7 @@ func reorderTable(f *ui.Frame[int], seed int, steps int, k int) {
 	}
 }
 
-func reorderRow(f *ui.Frame[int], x int) {
+func reorderRow(f mut ui.Frame[int], x int) {
 	ui.Text(f, "row \(x)")
 }
 
@@ -1778,7 +1778,7 @@ func gbSame(a gbArgs, b gbArgs) bool {
 
 func gbCheap(a gbArgs, b gbArgs) bool { a.n == b.n }
 
-func gbBody(f *ui.Frame[int], a gbArgs) {
+func gbBody(f mut ui.Frame[int], a gbArgs) {
 	ui.Text(f, "n \(a.n)")
 	for x in a.xs {
 		ui.Text(f, "x \(x)")
@@ -1788,7 +1788,7 @@ func gbBody(f *ui.Frame[int], a gbArgs) {
 // gbGrouped's call of gbBody is a component call: the compiler sends it
 // through std ui's groupBy, with cheap comparing n (the ledger's
 // gbGrouped calls groupBy itself).
-func gbGrouped(f *ui.Frame[int], a gbArgs) {
+func gbGrouped(f mut ui.Frame[int], a gbArgs) {
 	gbBody(f, a)
 }
 
@@ -1842,7 +1842,7 @@ test UiKeyedReorderKeepsRows(seed int, steps int) {
 
 type grArgs { n int, on bool }
 
-func grBody(f *ui.Frame[int], a grArgs) {
+func grBody(f mut ui.Frame[int], a grArgs) {
 	ui.Text(f, "n \(a.n)")
 	if a.on {
 		ui.Box(f, ui.Plain()) {
@@ -1853,7 +1853,7 @@ func grBody(f *ui.Frame[int], a grArgs) {
 
 // grGrouped's call of grBody is a component call: the compiler sends it
 // through std ui's group (the ledger's grGrouped calls group itself).
-func grGrouped(f *ui.Frame[int], a grArgs) {
+func grGrouped(f mut ui.Frame[int], a grArgs) {
 	grBody(f, a)
 }
 

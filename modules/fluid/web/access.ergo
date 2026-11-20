@@ -21,13 +21,13 @@ law AccessOfWebIsAccessOfPart(seed []int, links bool) {
 // still draws many values. (the property's helper)
 type Gen { xs []int, at int }
 
-func draw(g *Gen, n int) int {
+func draw(g mut Gen, n int) int {
 	let v = if len(g.xs) == 0 { g.at * 7919 } else { g.xs[g.at%len(g.xs)] + g.at*7919 }
 	g.at = g.at + 1
 	((v % n) + n) % n
 }
 
-func pick[T](g *Gen, xs []T) T { xs[draw(g, len(xs))] }
+func pick[T](g mut Gen, xs []T) T { xs[draw(g, len(xs))] }
 
 let words = []string{"a", "b c", "<x>", "&amp", "\"q\"", "it's", "é", ""}
 
@@ -35,7 +35,7 @@ let pressRoles = []part.Role{part.Button, part.Tab, part.MenuItem, part.Choice, 
 
 let reaches = []part.Reach{part.Out, part.Native, part.Stop, part.Roving{Here: true}, part.Roving{Here: false}, part.Descendant}
 
-func drawStates(g *Gen) []part.State {
+func drawStates(g mut Gen) []part.State {
 	let all = []part.State{part.Disabled, part.Busy, part.Invalid, part.Checked{Value: part.Mixed}, part.Selected{Yes: true}, part.Expanded{Yes: false}, part.Pressed{Yes: true}, part.Current{Kind: "page"}, part.Modal, part.MultiSelectable, part.Value{Now: 2.5, Min: 0, Max: 10, Text: "two"}}
 	let mut out = []part.State{}
 	for _ in 0..draw(g, 3) {
@@ -56,7 +56,7 @@ func hasState(states []part.State, s part.State) bool {
 	false
 }
 
-func drawRels(g *Gen) []part.Rel {
+func drawRels(g mut Gen) []part.Rel {
 	match draw(g, 4) {
 	case 0:
 		[]part.Rel{part.Controls{Key: "k1"}}
@@ -67,7 +67,7 @@ func drawRels(g *Gen) []part.Rel {
 	}
 }
 
-func drawSem(g *Gen, role part.Role) part.Sem {
+func drawSem(g mut Gen, role part.Role) part.Sem {
 	part.Sem{
 		Role:   role,
 		Name:   if draw(g, 3) == 0 { pick(g, words) } else { "" },
@@ -80,7 +80,7 @@ func drawSem(g *Gen, role part.Role) part.Sem {
 	}
 }
 
-func drawKids(g *Gen, depth int) []part.Node[int] {
+func drawKids(g mut Gen, depth int) []part.Node[int] {
 	let mut out = []part.Node[int]{}
 	for _ in 0..draw(g, if depth >= 3 { 1 } else { 4 }) {
 		out = out.Append(drawNode(g, depth+1))
@@ -91,7 +91,7 @@ func drawKids(g *Gen, depth int) []part.Node[int] {
 let skins = []part.Skin{part.Bare(), part.Skin{Look: part.Bare().Look, Class: "c1"}}
 
 // drawNode is a node of the tree a seed draws.
-func drawNode(g *Gen, depth int) part.Node[int] {
+func drawNode(g mut Gen, depth int) part.Node[int] {
 	let kind = draw(g, if depth >= 3 { 4 } else { 13 })
 	match kind {
 	case 0:
@@ -102,7 +102,7 @@ func drawNode(g *Gen, depth int) part.Node[int] {
 		part.Live{Text: pick(g, words), Assertive: draw(g, 2) == 0}
 	case 3:
 		let w = pick(g, words)
-		part.Host{Web: "<b>host &amp; " + html.Escape(w) + "</b>", Gui: func(f *ui.Frame[int]) { ui.Text(f, "host & "+w) }}
+		part.Host{Web: "<b>host &amp; " + html.Escape(w) + "</b>", Gui: func(f mut ui.Frame[int]) { ui.Text(f, "host & "+w) }}
 	case 4:
 		part.Box{Sem: part.Plain(), Skin: pick(g, skins), Inline: draw(g, 2) == 0, Keys: []part.Binding[int]{}, Kids: drawKids(g, depth)}
 	case 5, 6:

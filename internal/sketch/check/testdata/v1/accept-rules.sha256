@@ -33,9 +33,9 @@
 # G9-extern-allowlist.neg's S109 is os/signal.Stop, whose channel parameter
 # its binding refuses; the source rule takes the same change when the
 # orchestrator syncs it.
-# L6 (batch 12, owner q30): D3-prelude-names.neg refuses `type true` in place
-# of `type Option`, which a package may now declare; the source rule takes the
-# same change when the orchestrator syncs it.
+# PRELUDE-SHADOW (owner q244, 2026-11-19): any declaration may take a prelude
+# name, so D3-prelude-names.neg, which refused them, is gone; the source rule
+# goes when the orchestrator syncs the tree.
 # L8 A1 (#197 q53): Esub4-extern-call-only.neg calls q.End(), the queue's
 # half-close renamed from Close; the source rule takes the same change when the
 # orchestrator syncs it.
@@ -92,7 +92,6 @@ d708eaa92b5d03ddbb5937fd6137432fd3a1c015466c1268e1b077803dccac92  C6-break-in-ma
 9ec4c71110181ed82d82ac8bbcadd355031206cec27cb29bed639cfede412aaa  D10-mut-reassigned.pos.ergo
 f92d94b3d10c121112dc59a7b977c1fce4500acf8ff6336e41286e7ba783d463  D2-no-shadowing.neg.ergo
 053d81eac6d13ae29d0feeca9a773d62511db354e619879a1b68f520089a2a4b  D2-no-shadowing.pos.ergo
-d41c76d1cf11702dd18d27988905673a7154c8167d57a7a49705a22289b9d0eb  D3-prelude-names.neg.ergo
 2b298eb2fad0dcf8938bb44802949786decfdb4e7c468eb1d20782a59d784476  D3-prelude-names.pos.ergo
 0dc1d6ee7be696da557e307d787bd9e096304c693055a1684f787dcc97e95431  D4-one-for.neg.ergo
 438730621f7ac589e0fd10e5a64f8c438cb80b8fc4f8807fc498ba974249e4e5  D4-one-for.pos.ergo
@@ -132,5 +131,5 @@ e77eaf0581a635ea1e4b3a1fdaf9764c9de78175e7ecedf92c6a2cdeb3d5eef6  Esub5-context-
 2917d6ad940364798b32059bafaf0f3bfda63470eb2cc64806a5672f89b1ec36  G9-extern-allowlist.neg.ergo
 c5ae4909018425d11e3ebd7ffb4af48108083205dcff9897a39493e6e555b8de  G9-extern-allowlist.pos.ergo
 fccb7545dbf9c96ea89db46314c079e85b6bca9b0e418a311b098931582d5057  L8-C1-lends.neg.ergo
-bf0e3110c40e649aa2a4257fb43cb2d9bacc4876dd812fc1d506508e68bac469  L8-captures.neg.ergo
-61ae917e8d925cf25e099686881d6f2f6181b8c9e27385cd24f99101038d9624  L8-captures.pos.ergo
+10f2f1f2d313f6fb801227172c90db9b7d446b89e6796279a09cf93e728c2497  L8-captures.neg.ergo
+94b5a3c64fbf694748b7133a483cb23785eb87e6031804f58a7179eaa60e9f5c  L8-captures.pos.ergo

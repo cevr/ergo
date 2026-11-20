@@ -19,8 +19,56 @@ func BootTakes() duration { 500ms }
 // Press is a button (start, stop, compute), or a fault of the next boot.
 type Press = Start{} | Stop{} | Compute{} | Fault{}
 
+// OneBootPerStart: no more engines boot than the starts pressed while the
+// screen was off or failed; a start while booting or ready boots nothing,
+// and a stop while booting ends the boot before it gives an engine.
+law OneBootPerStart(gaps []int, kinds []int) {
+	let ls = lines(gaps, kinds)
+	let seen = live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s })
+	let mut starts = 0
+	for i, l in ls {
+		if l.Press == Start && canStart(seen[i].Before) {
+			starts = starts + 1
+		}
+	}
+	seen[len(seen)-1].Booted <= starts
+}
+
+func canStart(m engine.Mode) bool {
+	match m {
+	case engine.Off, engine.Failed:
+		true
+	case engine.Ready, engine.Booting:
+		false
+	}
+}
+
 // Line is a press at a time since the start.
 type Line { At duration, Press Press }
+
+// ReleasesEqualAcquires: after every press, one engine is out while the
+// screen is ready and none otherwise; once the screen stops, every engine
+// booted is back.
+law ReleasesEqualAcquires(gaps []int, kinds []int, tail int) {
+	let ls = lines(gaps, kinds)
+	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 2000))
+	let seen = live(ls, end)
+	for i, s in seen {
+		if i < len(ls) && s.Held != (if isReady(s.Mode) { 1 } else { 0 }) {
+			return false
+		}
+	}
+	seen[len(seen)-1].Held == 0
+}
+
+func isReady(m engine.Mode) bool {
+	match m {
+	case engine.Ready:
+		true
+	case engine.Off, engine.Booting, engine.Failed:
+		false
+	}
+}
 
 // Script is the presses, and the time the run ends.
 type Script { Lines []Line, End duration }

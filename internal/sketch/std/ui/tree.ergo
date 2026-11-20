@@ -13,7 +13,7 @@ type TreeEntry { Role string, Name string, States []string, Box Option[Rect] }
 
 // TreeOf is the nodes of m that are not Generic, in tree order, each with
 // its box in boxes.
-func TreeOf[E](m *Mirror[E], boxes Map[Id[E], Rect]) []TreeEntry {
+func TreeOf[E](m mut Mirror[E], boxes Map[Id[E], Rect]) []TreeEntry {
 	let mut out = []TreeEntry{}
 	match entryOf(m, m.root) {
 	case Some[mirrored[E]] as r:
@@ -25,7 +25,7 @@ func TreeOf[E](m *Mirror[E], boxes Map[Id[E], Rect]) []TreeEntry {
 	out
 }
 
-func treeFrom[E](m *Mirror[E], id Id[E], boxes Map[Id[E], Rect], acc []TreeEntry) []TreeEntry {
+func treeFrom[E](m mut Mirror[E], id Id[E], boxes Map[Id[E], Rect], acc []TreeEntry) []TreeEntry {
 	let mut out = acc
 	let a = AccessOf(m, id)
 	match a.Role {
@@ -56,7 +56,7 @@ law TreeAgreesWithLocate(seed int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..3 {
 		let s = genState(&r)
-		let ops = Render(&f, func(g *Frame[int], st []int) {
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
 			for p in ps {
 				render(g, p, st, 0) catch {
 				case Missing:

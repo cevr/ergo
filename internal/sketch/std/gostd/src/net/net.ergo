@@ -453,12 +453,15 @@ extern go net.Interfaces func Interfaces() []Interface fails go.Error needs go.F
 extern go net.InvalidAddrError type InvalidAddrError string
 
 // ergo:go func (InvalidAddrError).Error() string
+// ergo:total
 extern go net.InvalidAddrError.Error func (e InvalidAddrError) Error() string needs go.Foreign
 
 // ergo:go func (InvalidAddrError).Temporary() bool
+// ergo:total
 extern go net.InvalidAddrError.Temporary func (e InvalidAddrError) Temporary() bool needs go.Foreign
 
 // ergo:go func (InvalidAddrError).Timeout() bool
+// ergo:total
 extern go net.InvalidAddrError.Timeout func (e InvalidAddrError) Timeout() bool needs go.Foreign
 
 // ergo:go func JoinHostPort(host string, port string) string
@@ -1002,10 +1005,13 @@ extern go net.UnixListener.SetUnlinkOnClose func (l *UnixListener) SetUnlinkOnCl
 extern go net.UnknownNetworkError type UnknownNetworkError string
 
 // ergo:go func (UnknownNetworkError).Error() string
+// ergo:total
 extern go net.UnknownNetworkError.Error func (e UnknownNetworkError) Error() string needs go.Foreign
 
 // ergo:go func (UnknownNetworkError).Temporary() bool
+// ergo:total
 extern go net.UnknownNetworkError.Temporary func (e UnknownNetworkError) Temporary() bool needs go.Foreign
 
 // ergo:go func (UnknownNetworkError).Timeout() bool
+// ergo:total
 extern go net.UnknownNetworkError.Timeout func (e UnknownNetworkError) Timeout() bool needs go.Foreign

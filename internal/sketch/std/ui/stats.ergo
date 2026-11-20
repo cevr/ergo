@@ -5,6 +5,10 @@
 // read from what the pass already holds (its specs, its patch, its jobs),
 // only when it is asked for.
 
+import time
+import queue
+import actor
+
 // Stats is one pass's work, per phase:
 //   - step: Signals, the signals the loop sent the actor since the pass
 //     before (a session's; 0 for a bare Render);
@@ -35,9 +39,165 @@ type Stats {
 	Cancels   int,
 }
 
+// StatsCountEveryPhase (H6b): over drawn passes of an app with texts, a
+// canvas that comes and goes, a keyed Each whose order may flip (its rows
+// move), a list, a group that may stop and a load whose key may change,
+// a session's stats of each pass are the model's: one signal (the step);
+// the nodes the view wrote, the stopped group's text among them, and the
+// rows run (the view); the nodes committed (the compose); the patch's ops
+// by kind and its paint ops, as counted from the patch (the patch and the
+// paint); a fetch and a cancel when the key changed (the loads); and the
+// stopped group's call site once when it stopped.
+law StatsCountEveryPhase(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		statsFollow(seed, steps)
+	}
+}
+
+// statsApp is a pass's parameters for StatsCountEveryPhase: texts, paint
+// ops, rows of a list, whether the group stops, the load's key, whether
+// the canvas is there (so it is inserted with its paint), and whether a
+// keyed Each of three is reversed (so its rows move).
+type statsApp { texts int, paints int, rows int, stops bool, key int, canvas bool, rev bool }
+
+// Halt is the stats app's group's failure.
+type Halt {}
+
+func haltIf(b bool) fails Halt {
+	if b {
+		return Halt
+	}
+}
+
+func statsStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func statsMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0), Exit: replyExit}
+}
+
+// statsView shows the app of apps[s]; the key "i" signals i.
+func statsView(apps []statsApp) func(f mut Frame[int], s int) {
+	func(f mut Frame[int], s int) {
+		let st = apps[s]
+		OnKey(f, func(k KeyPress) Option[int] {
+			for i in 0..len(apps) {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		Column(f, Plain()) {
+			for j in 0..st.texts {
+				Text(f, "t\(j)")
+			}
+			if st.canvas {
+				Canvas(f, "c", 40, 40) func(p mut Paint) {
+					for j in 0..st.paints {
+						Fill(p, RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
+					}
+				}
+			}
+			let order = if st.rev { []int{2, 1, 0} } else { []int{0, 1, 2} }
+			Each(f, order, func(x int) Key { ByInt(x) }) func(x int) {
+				Text(f, "e\(x)")
+			}
+			Rows(f, "list", st.rows, 10, func(i int) Key { ByInt(i) }) func(i int) {
+				Text(f, "r\(i)")
+			}
+			Boundary(f) {
+				Text(f, "in")
+				try haltIf(st.stops)
+			} catch {
+			case Halt:
+				Text(f, "out")
+			}
+			let key = st.key
+			Load(f, ByInt(key), func() int { s })
+		}
+	}
+}
+
+// opCounts is the patch's ops by kind (Insert, Move, Remove, Set) and the
+// paint ops of the canvases it writes, counted from the patch itself.
+func opCounts(ops []Op[int]) (int, int, int, int, int) {
+	let mut ins = 0
+	let mut mov = 0
+	let mut rem = 0
+	let mut set = 0
+	let mut paint = 0
+	for op in ops {
+		let mut node Option[Node[int]] = None
+		match op {
+		case Insert[int] as x:
+			ins = ins + 1
+			node = Some{Value: x.Node}
+		case Move[int]:
+			mov = mov + 1
+		case Remove[int]:
+			rem = rem + 1
+		case Set[int] as x:
+			set = set + 1
+			node = Some{Value: x.Node}
+		case Define:
+		}
+		match node {
+		case Some[Node[int]] as n:
+			match n.Value {
+			case CanvasNode as c:
+				paint = paint + len(c.Paint)
+			case _:
+			}
+		case None:
+		}
+	}
+	(ins, mov, rem, set, paint)
+}
+
+func statsFollow(seed int, steps int) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut apps = []statsApp{statsApp{texts: 0, paints: 0, rows: 0, stops: false, key: 0, canvas: false, rev: false}}
+	let n = (steps%12+12)%12 + 1
+	for _ in 0..n {
+		apps = apps.Append(statsApp{texts: draw(&r, 5), paints: draw(&r, 4), rows: draw(&r, 3) * 10, stops: draw(&r, 2) == 0, key: draw(&r, 2), canvas: draw(&r, 3) != 0, rev: draw(&r, 2) == 0})
+	}
+	let a = actor.StartMachine(statsMachine(), 1, func(o int) {})
+	let (s, _) = Start(a, statsView(apps), func(ev Event[int]) {})
+	let mut session = s
+	let mut prev = apps[0]
+	for i in 1..len(apps) {
+		let ops = Step(&session, KeyDown{Press: KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+		case actor.Stopped:
+			return false
+		}
+		let st = apps[i]
+		let shown = len(shownRows(st.rows, 10.0, 0.0, 0.0))
+		let stopped = if st.stops { 1 } else { 0 }
+		let changed = if st.key != prev.key { 1 } else { 0 }
+		let canvas = if st.canvas { 1 } else { 0 }
+		let (ins, mov, rem, set, paint) = opCounts(ops)
+		let want = Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Painted: paint, Fetches: changed, Cancels: changed}
+		let got = SessionStats(&session)
+		if got != want || len(StoppedAt(&session)) != stopped {
+			return false
+		}
+		// The paint ops are the canvas's when it is new or its paint
+		// changed; three rows move when the Each's order flips.
+		if st.canvas && (!prev.canvas || st.paints != prev.paints) && paint != st.paints {
+			return false
+		}
+		if st.rev != prev.rev && mov == 0 {
+			return false
+		}
+		prev = st
+	}
+	true
+}
+
 // committed is how many nodes the pass's specs stand for: a block spec
 // its group's tops.
-func committed[E](f *Frame[E]) int {
+func committed[E](f mut Frame[E]) int {
 	let mut c = 0
 	for i in 0..f.nspecs {
 		c = c + nodesOf(f, f.specs[i])
@@ -46,7 +206,7 @@ func committed[E](f *Frame[E]) int {
 }
 
 // PassStats is the last pass of f, Signals 0.
-func PassStats[E](f *Frame[E]) Stats {
+func PassStats[E](f mut Frame[E]) Stats {
 	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips + f.keptSames, Stopped: f.nstops, Committed: committed(f), Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
 	for op in f.ops {
 		match op {
@@ -87,7 +247,7 @@ func painted[E](n Node[E]) int {
 // StoppedAt is the call sites of the groups the last pass of s stopped,
 // in the order they stopped: the pass's boundary outcomes (a boundary has
 // no node, so the tree cannot show them).
-func StoppedAt[S, E, D, F](s *Session[S, E, D, F]) []CallSite {
+func StoppedAt[S, E, D, F](s mut Session[S, E, D, F]) []CallSite {
 	let mut out = []CallSite{}
 	for i in 0..s.frame.nstops {
 		out = out.Append(s.frame.stops[i])
@@ -97,7 +257,7 @@ func StoppedAt[S, E, D, F](s *Session[S, E, D, F]) []CallSite {
 
 // SessionStats is the last pass of s, with the signals the loop sent
 // before it.
-func SessionStats[S, E, D, F](s *Session[S, E, D, F]) Stats {
+func SessionStats[S, E, D, F](s mut Session[S, E, D, F]) Stats {
 	let mut st = PassStats(&s.frame)
 	st.Signals = s.passSignals
 	st
@@ -105,7 +265,7 @@ func SessionStats[S, E, D, F](s *Session[S, E, D, F]) Stats {
 
 // StatsOf is the last pass of the test host's session (the driver's
 // reading, plan H6b).
-func StatsOf[S, E, D, F](h *TestHost[S, E, D, F]) Stats { SessionStats(&h.session) }
+func StatsOf[S, E, D, F](h mut TestHost[S, E, D, F]) Stats { SessionStats(&h.session) }
 
 // Budget is the work a pass may do before it is slow, per counter: 0 is
 // no bound.
@@ -114,6 +274,135 @@ type Budget { Signals int, Written int, Committed int, Ops int, Painted int, Fet
 // Slow is a pass that did more than its budget: the counter, its count
 // and its bound.
 type Slow { Counter Counter, Count int, Bound int }
+
+// SlowAboveTheBudget (H6b): a view that asks for its slow passes with a
+// budget of written nodes gets one Slow per pass of its input over it,
+// with the count and the bound, none for a pass whose view asked for
+// nothing (an OnSlow holds for its pass), and none for a pass of a commit
+// it did not cause (the one that shows the log). The pass that shows a
+// Slow counts its signal (Signals 1, UC-SIGNALS0).
+law SlowAboveTheBudget(seed int, bound int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		slowFollow(seed, (bound%5+5)%5+1)
+	}
+}
+
+// slowApp's state is a list of the Slow signals it got; signal 0 adds a
+// text, and a Slow is logged; a mark counts the marks taken.
+type slowLog { texts int, log []Slow, marks int }
+
+type slowSignal = MoreText{} | WasSlow{S Slow} | SlowMark{}
+
+func slowStep(s slowLog, e slowSignal) Decision[slowLog, int] {
+	match e {
+	case MoreText:
+		Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log, marks: s.marks}}
+	case WasSlow as w:
+		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S), marks: s.marks}}
+	case SlowMark:
+		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log, marks: s.marks + 1}}
+	}
+}
+
+func slowTimer(s slowLog) Option[Timeout[slowSignal]] { None }
+
+func slowWork(s slowLog) Option[func(send func(e slowSignal))] { None }
+
+func slowExit(s slowLog) Option[func()] { None }
+
+func slowFollow(seed int, bound int) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f mut Frame[slowSignal], s slowLog) {
+		// Every third pass asks for nothing: an OnSlow holds for its pass.
+		if s.texts%3 != 0 {
+			OnSlow(f, Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x Slow) slowSignal { WasSlow{S: x} })
+		}
+		OnKey(f, func(k KeyPress) Option[slowSignal] { Some{Value: MoreText} })
+		Text(f, "log \(len(s.log))")
+		for j in 0..s.texts {
+			Text(f, "t\(j)")
+		}
+	}
+	let posted = queue.New[Event[slowSignal]](256)
+	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []Slow{}, marks: 0}, Step: slowStep, After: slowTimer, Work: slowWork, Exit: slowExit}, 1, func(o int) {})
+	let (s, _) = Start(a, view, func(ev Event[slowSignal]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let mut want = []Slow{}
+	let mut marks = 0
+	for _ in 0..draw(&r, 8)+3 {
+		let _ = Step(&session, KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+		case actor.Stopped:
+			return false
+		}
+		// The pass wrote the log's line and the texts. A pass whose count
+		// is wrong fails here: no Slow would come for the wait below.
+		let texts = a.State().texts
+		if SessionStats(&session).Written != texts+1 {
+			return false
+		}
+		if texts%3 != 0 && texts+1 > bound {
+			want = want.Append(Slow{Counter: WrittenCounter, Count: texts + 1, Bound: bound})
+			// The pass sent its Slow signals before Step returned, so a mark
+			// sent now is taken after them: the log at the mark is every
+			// Slow so far, and a missing or extra one fails here rather
+			// than in a wait for a line that never comes.
+			marks = marks + 1
+			let target = marks
+			let at = actor.SendAndWait(a, SlowMark, func(st slowLog) bool { st.marks == target }) catch {
+			case actor.Stopped:
+				return false
+			}
+			if len(at.log) != len(want) {
+				return false
+			}
+			// The pass that shows the Slow, a Committed's, is not judged:
+			// the law takes the posted events until it shows it.
+			// A Slow is one commit, so it shows within a few posted
+			// events; a loop that judges its own passes never settles.
+			let mut shown = false
+			let mut taken = 0
+			for !shown {
+				taken = taken + 1
+				if taken > 16 {
+					return false
+				}
+				let ev = posted.Pop() catch {
+				case queue.Closed:
+					return false
+				}
+				let ops = Step(&session, ev) catch {
+				case actor.Stopped:
+					return false
+				}
+				for op in ops {
+					match op {
+					case Set[slowSignal] as x:
+						shown = shown || x.Node == TextNode{Value: "log \(len(want))", Style: Plain()}
+					case _:
+					}
+				}
+				if shown && SessionStats(&session).Signals != 1 {
+					return false
+				}
+			}
+		}
+	}
+	let log = a.State().log
+	if len(log) != len(want) {
+		return false
+	}
+	for i, x in want {
+		if log[i] != x {
+			return false
+		}
+	}
+	true
+}
 
 // Counter is a counter of Budget: a program matches on it, so a new
 // counter is a case each match must name (FK13-g4). OpsCounter is the
@@ -146,7 +435,7 @@ func CounterText(c Counter) string {
 // of a commit the loop did not cause (a work's reply, the Slow signals
 // themselves) is not judged, so a slow warning is never judged on its own
 // account. The last OnSlow of a pass counts.
-func OnSlow[E](f *Frame[E], b Budget, on own func(s Slow) E) {
+func OnSlow[E](f mut Frame[E], b Budget, on own func(s Slow) E) {
 	f.slow = Some{Value: slowWatch[E]{budget: b, on: on}}
 }
 
@@ -194,7 +483,7 @@ func NoCounts() StepCounts {
 // PassCounts is the last pass of f, counted. Kept walks the subtrees the
 // pass kept, only when it is asked for; the pass itself adds one to a
 // counter per node Commit visits.
-func PassCounts[E](f *Frame[E]) StepCounts {
+func PassCounts[E](f mut Frame[E]) StepCounts {
 	let mut c = NoCounts()
 	for op in f.ops {
 		match op {

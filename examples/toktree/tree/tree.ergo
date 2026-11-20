@@ -15,6 +15,34 @@ let Leaf = 1
 let Group = 2
 let Root = 3
 
+// OneParentRootLast: the last row is the root, and every other row is a
+// child of exactly one row; the pool holds exactly those children.
+law OneParentRootLast(picks []int) {
+	let tr = Build(token.Scan(token.Sample(picks))).Tree
+	let n = Len(tr)
+	if n == 0 || Kind(tr, At(tr, n-1)) != Root {
+		return false
+	}
+	let mut parents = []int{}
+	for _ in 0..n {
+		parents = parents.Append(0)
+	}
+	for i in 0..n {
+		if i < n-1 && Kind(tr, At(tr, i)) == Root {
+			return false
+		}
+		for c in Kids(tr, At(tr, i)) {
+			parents[dense.Index(c)] += 1
+		}
+	}
+	for i in 0..n-1 {
+		if parents[i] != 1 {
+			return false
+		}
+	}
+	parents[n-1] == 0 && Pooled(tr) == n-1
+}
+
 // Node is the row tag of the tree.
 type Node {}
 
@@ -47,7 +75,7 @@ func Kids(tr Tree, id dense.ID[Node]) []dense.ID[Node] { dense.List(tr.pool, den
 func Pooled(tr Tree) int { dense.Items(tr.pool) }
 
 // add puts one row with the child run kids and returns its id.
-func add(tr *Tree, kind int, tok int, kids dense.Run[dense.ID[Node]]) dense.ID[Node] {
+func add(tr mut Tree, kind int, tok int, kids dense.Run[dense.ID[Node]]) dense.ID[Node] {
 	let id = dense.Next(&tr.ids)
 	dense.Push(&tr.kind, uint8(kind))
 	dense.Push(&tr.tok, uint32(tok))
@@ -112,4 +140,49 @@ func Build(t token.Toks) Built {
 	}
 	let _ = add(&tr, Root, 0, dense.PutSince(&tr.pool, &stack, 0))
 	Built{Tree: tr, Depth: depth}
+}
+
+// ChildrenBeforeParent: every child's id is below its parent's.
+law ChildrenBeforeParent(picks []int) {
+	let tr = Build(token.Scan(token.Sample(picks))).Tree
+	for i in 0..Len(tr) {
+		for c in Kids(tr, At(tr, i)) {
+			if dense.Index(c) >= i {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// GroupsAreOpens: there is one group per open bracket, a group's main
+// token is an open bracket, and a leaf's is neither a comment nor an open
+// bracket.
+law GroupsAreOpens(picks []int) {
+	let t = token.Scan(token.Sample(picks))
+	let tr = Build(t).Tree
+	let mut opens = 0
+	for i in 0..token.Len(t) {
+		if token.Kind(t, token.At(t, i)) == token.Open {
+			opens = opens + 1
+		}
+	}
+	let mut groups = 0
+	for i in 0..Len(tr) {
+		let id = At(tr, i)
+		let k = Kind(tr, id)
+		if k == Group {
+			groups = groups + 1
+			if token.Kind(t, token.At(t, Tok(tr, id))) != token.Open {
+				return false
+			}
+		}
+		if k == Leaf {
+			let tk = token.Kind(t, token.At(t, Tok(tr, id)))
+			if tk == token.Comment || tk == token.Open {
+				return false
+			}
+		}
+	}
+	groups == opens
 }

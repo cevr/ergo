@@ -10,6 +10,36 @@ type Incomplete {}
 // is closed, as Redis closes it.
 type Malformed { At int, Reason string }
 
+// MalformedNeverPanics: any bytes give a frame, Incomplete or Malformed,
+// and never stop the reader. A frame uses at least one byte and no more
+// than it was given, and the same bytes alone read as the same frame; a
+// Malformed names an offset inside the bytes.
+law MalformedNeverPanics(seed int) {
+	for text in Noise(seed) {
+		let buf = strings.Bytes(text)
+		let f = Parse(buf) catch {
+		case Incomplete:
+			continue
+		case Malformed as m:
+			if m.At < 0 || m.At >= len(buf) {
+				return false
+			}
+			continue
+		}
+		if f.Used < 1 || f.Used > len(buf) {
+			return false
+		}
+		let again = Parse(buf[:f.Used]) catch {
+		case Incomplete, Malformed:
+			return false
+		}
+		if again.Used != f.Used || !Equal(again.Value, f.Value) {
+			return false
+		}
+	}
+	true
+}
+
 // Frame is a value read from the start of a buffer and Used, the count of
 // its bytes.
 type Frame { Value Value, Used int }
@@ -35,6 +65,31 @@ let maxDigits = 20
 // Parse is the frame at the start of buf: one value and the count of its
 // bytes. Bytes after it are not read.
 func Parse(buf []byte) Frame fails Incomplete | Malformed { ParseAt(buf, 0) }
+
+// ParseInvertsAppend: a value written and read back is the value, in both
+// protocols: Parse(Encode(v, p)) is Clean(v) in RESP3 and Clean(Down(v))
+// in RESP2, and it uses every byte written.
+law ParseInvertsAppend(seed int) {
+	for v in Samples(seed) {
+		for p in []Protocol{Resp3, Resp2} {
+			let enc = Encode(v, p)
+			let want = match p {
+			case Resp3:
+				Clean(v)
+			case Resp2:
+				Clean(Down(v))
+			}
+			let f = Parse(enc) catch {
+			case Incomplete, Malformed:
+				return false
+			}
+			if f.Used != len(enc) || !Equal(f.Value, want) {
+				return false
+			}
+		}
+	}
+	true
+}
 
 // ParseAt is the frame that starts at offset at of buf; its Used counts
 // from at.
@@ -198,7 +253,7 @@ func NewReader() Reader { Reader{buf: []byte{}, next: 0} }
 
 // Feed gives r the next chunk. The bytes of values already read are
 // dropped then.
-func Feed(r *Reader, chunk []byte) {
+func Feed(r mut Reader, chunk []byte) {
 	if r.next > 0 {
 		r.buf = slices.Concat(r.buf[r.next:], chunk)
 		r.next = 0
@@ -209,7 +264,7 @@ func Feed(r *Reader, chunk []byte) {
 
 // Next is the next value of r. Incomplete leaves r as it was, to read
 // again after the next Feed.
-func Next(r *Reader) Value fails Incomplete | Malformed {
+func Next(r mut Reader) Value fails Incomplete | Malformed {
 	let f = try value(r.buf, r.next, 0)
 	r.next = f.Used
 	f.Value

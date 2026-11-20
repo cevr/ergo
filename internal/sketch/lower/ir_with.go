@@ -141,7 +141,9 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	if w.Next != nil {
 		return append(out, b.withOperand(x, i+1, w.Next, ret, to)...)
 	}
-	return append(out, b.tailTo(x.Trailing.List, ret && to == nil, to)...)
+	// The block's scope releases what it owns at its end (the emitter's
+	// scoped; PORT-CALLS-2: a Listener and a Task let in main's with).
+	return append(out, b.scoped(x.Trailing, b.tailTo(x.Trailing.List, ret && to == nil, to), b.pos(x.Trailing, x.Trailing.Rbrace))...) // ir_own.go
 }
 
 // opsConv is e, the value of x, through the operations conversion conv:
@@ -154,6 +156,20 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 // emitter's.
 func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	l := b.l
+	if to, ok := conv.To.(*check.Named); ok && to.Obj.Pkg.Host() && !goAdapterConv(conv) {
+		// A Go value into a Go interface (a go.Ref[strings.Reader] as an
+		// io.Reader): Go's own implicit conversion, as the emitter's
+		// convert leaves it, spelled for the decoder, which inserts none
+		// (IR-GOCALLS-4). A Go interface value into another is Go's
+		// assignment the decoder does not spell.
+		if _, iface := underEqual(conv.From).(*check.Interface); iface {
+			irNo("Go interface value into another Go interface")
+		}
+		b.hostImported(to) // ir_govar.go
+		t := b.goType(conv.To, x)
+		b.keepImport("var _ " + b.fc.goType(conv.To)) // main.go imports its package
+		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
+	}
 	if check.ScriptOf(conv.From) != nil {
 		irNo("operations conversion of a script")
 	}
@@ -228,9 +244,6 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 		e := a.Entry
 		if !local[e] {
 			irNo("with of a context that embeds a named one")
-		}
-		if _, ok := b.l.sourceOf(e.Provider); !ok {
-			irNo("with of a context entry outside the program's sources")
 		}
 		p := b.pos(e.Provider, e.Provider.Pos())
 		saved := b.env

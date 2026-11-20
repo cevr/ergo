@@ -12,6 +12,9 @@ import stdjson json
 // Schema is what a value must be.
 type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLength int} | IsNumber{Integer bool, Min Option[float64], Max Option[float64]} | IsArray{Items Schema, MinItems int} | IsObject{Props []Prop, Required []string, Closed bool}
 
+// AnythingAcceptsAll: Anything has no violation.
+law AnythingAcceptsAll(v json.Tree) { len(Validate(Anything, try json.Lawful(v))) == 0 }
+
 // Prop is one named property of an object schema.
 type Prop { Name string, S Schema }
 
@@ -54,6 +57,13 @@ func Infer(v stdjson.Value) Schema {
 	}
 }
 
+// SchemaRoundTrips: an inferred schema, written as JSON and read back, is
+// the same schema.
+law SchemaRoundTrips(v json.Tree) {
+	let s = Infer(try json.Lawful(v))
+	try FromJSON(ToJSON(s)) == s
+}
+
 // Join is a schema that accepts every value a or b accepts: the same
 // kind joins field by field, two kinds join to Anything.
 func Join(a Schema, b Schema) Schema {
@@ -90,6 +100,14 @@ func Join(a Schema, b Schema) Schema {
 	case _:
 		Anything
 	}
+}
+
+// JoinAcceptsBoth: the join of two inferred schemas accepts both values.
+law JoinAcceptsBoth(a json.Tree, b json.Tree) {
+	let x = try json.Lawful(a)
+	let y = try json.Lawful(b)
+	let s = Join(Infer(x), Infer(y))
+	len(Validate(s, x)) == 0 && len(Validate(s, y)) == 0
 }
 
 // lower is the lower of two minimums, None when either has none.

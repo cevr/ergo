@@ -37,7 +37,7 @@ let TrackRest = 0.001
 // Track shows body under a track of key that moves prop to target
 // along curve, run by the host (TrackNode). A pass that writes another
 // target retargets it, keeping where it is and how fast it moves.
-func Track[E, F, R](f *Frame[E], key Key, prop TrackProp, target float64, curve TrackCurve, body func() fails F needs R, at CallSite) fails F needs R {
+func Track[E, F, R](f mut Frame[E], key Key, prop TrackProp, target float64, curve TrackCurve, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, TrackNode{Key: key, Prop: prop, Target: target, Curve: curve, Style: Plain()}, body, at)
 }
 
@@ -218,7 +218,7 @@ func aimTimer(s aiming) Option[Timeout[aimEvent]] { None }
 func aimWork(s aiming) Option[func(send func(e aimEvent))] { None }
 
 // aimView tracks x to the target on the host, and animates the reference.
-func aimView(f *Frame[aimEvent], s aiming) {
+func aimView(f mut Frame[aimEvent], s aiming) {
 	Track(f, ByText("aimed"), TrackX, s.target, TrackSpring{Stiffness: s.k, Damping: s.c}) {
 		Text(f, "aimed")
 	}
@@ -274,7 +274,7 @@ law TrackEqualsAnimate(seed int) {
 }
 
 // stillView tracks a box's opacity to target n's share; no Animate.
-func stillView(f *Frame[int], s int) {
+func stillView(f mut Frame[int], s int) {
 	Track(f, ByText("faded"), TrackOpacity, float64(s)/4.0, TrackEase{Over: 120ms}) {
 		Text(f, "faded")
 	}
@@ -338,7 +338,7 @@ law TrackCostsNoPass(seed int) {
 }
 
 // drawCurve is a Linear, an Ease or a spring curve.
-func drawCurve(r *rng) TrackCurve {
+func drawCurve(r mut rng) TrackCurve {
 	let kind = draw(r, 3)
 	if kind == 0 {
 		return TrackLinear{Over: duration(int64(draw(r, 400)+1) * int64(1000000))}
@@ -351,7 +351,7 @@ func drawCurve(r *rng) TrackCurve {
 }
 
 // faded is the value of the track keyed "faded" (-1: none).
-func faded[S, E, D, F](h *TestHost[S, E, D, F]) float64 {
+func faded[S, E, D, F](h mut TestHost[S, E, D, F]) float64 {
 	match TrackedValue(h, ByText("faded")) {
 	case Some[float64] as v:
 		v.Value
@@ -361,7 +361,7 @@ func faded[S, E, D, F](h *TestHost[S, E, D, F]) float64 {
 }
 
 // drawTrack is a track from a drawn place and speed to a drawn target.
-func drawTrack(r *rng) TrackState {
+func drawTrack(r mut rng) TrackState {
 	TrackState{From: float64(draw(r, 801) - 400), Velocity: float64(draw(r, 4001) - 2000), To: float64(draw(r, 801) - 400), Start: 0ns, Curve: drawCurve(r)}
 }
 

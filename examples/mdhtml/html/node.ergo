@@ -11,6 +11,38 @@ import strings
 // raw HTML inside a line or as a block of its own.
 type Node = Element{tag string, attrs []Attr, children []Node} | Text{S string} | Raw{S string} | RawBlock{S string}
 
+// TextSurvivesRendering: the text of a node, rendered and unescaped
+// without its tags and line breaks, is the node's text; markup never eats
+// text.
+law TextSurvivesRendering(words []string) {
+	let mut kids = []Node{}
+	for w in words {
+		let clean = strings.ReplaceAll(w, "\n", " ")
+		kids = kids.Append(El("em", []Node{Text{S: clean}}))
+		kids = kids.Append(El("br", []Node{}))
+	}
+	let n = El("blockquote", []Node{El("p", kids)})
+	Unescape(strings.ReplaceAll(stripTags(Render(n)), "\n", "")) == TextOf(n)
+}
+
+// stripTags is html with every <…> removed. Rendered text holds no < or
+// > of its own, since Escape wrote them as references.
+func stripTags(html string) string {
+	let mut out = strings.NewBuilder()
+	let mut inTag = false
+	for i in 0..len(html) {
+		let c = html[i]
+		if c == '<' {
+			inTag = true
+		} else if c == '>' {
+			inTag = false
+		} else if !inTag {
+			out.WriteByte(c)
+		}
+	}
+	out.String()
+}
+
 // Attr is an attribute of an element.
 type Attr { Name string, Value string }
 
@@ -72,6 +104,26 @@ func Href(raw string) Url {
 	Url{href: raw}
 }
 
+// HrefIsSafe: a Url from Href never names the scheme javascript:,
+// vbscript: or file:, nor data: other than an image. The raw text starts
+// with a scheme picked from a list half the time: generated strings
+// rarely spell one.
+law HrefIsSafe(raw string, scheme int) {
+	let schemes = []string{"javascript:", "JAVASCRIPT:", "data:", "http:", "vbscript:", "", "File:", "data:image/png", "data:image/svg", "data:text/html,"}
+	let pick = if scheme < 0 { -(scheme + 1) } else { scheme }
+	safeScheme(HrefOf(Href(schemes[pick%len(schemes)]+raw))) && safeScheme(HrefOf(Href(raw)))
+}
+
+// safeScheme reports whether href runs no script and loads no data other
+// than an image.
+func safeScheme(href string) bool {
+	let l = strings.ToLower(href)
+	if strings.HasPrefix(l, "data:") {
+		return strings.HasPrefix(l, "data:image/png") || strings.HasPrefix(l, "data:image/gif") || strings.HasPrefix(l, "data:image/jpeg") || strings.HasPrefix(l, "data:image/webp")
+	}
+	!strings.HasPrefix(l, "javascript:") && !strings.HasPrefix(l, "vbscript:") && !strings.HasPrefix(l, "file:")
+}
+
 // Trusted is the Url of raw as it is, for a document whose author is
 // trusted.
 func Trusted(raw string) Url { Url{href: raw} }
@@ -82,7 +134,7 @@ func HrefOf(u Url) string { u.href }
 // writer is the text so far, and whether it ends a line (or is empty).
 type writer { out strings.Builder, nl bool }
 
-func lit(w *writer, s string) {
+func lit(w mut writer, s string) {
 	if s == "" {
 		return
 	}
@@ -91,13 +143,13 @@ func lit(w *writer, s string) {
 }
 
 // cr ends the line unless it is ended.
-func cr(w *writer) {
+func cr(w mut writer) {
 	if !w.nl {
 		lit(w, "\n")
 	}
 }
 
-func open(w *writer, tag string, attrs []Attr, selfClose bool) {
+func open(w mut writer, tag string, attrs []Attr, selfClose bool) {
 	lit(w, "<")
 	lit(w, tag)
 	for a in attrs {
@@ -110,13 +162,13 @@ func open(w *writer, tag string, attrs []Attr, selfClose bool) {
 	lit(w, if selfClose { " />" } else { ">" })
 }
 
-func close(w *writer, tag string) {
+func close(w mut writer, tag string) {
 	lit(w, "</")
 	lit(w, tag)
 	lit(w, ">")
 }
 
-func kids(w *writer, ns []Node) {
+func kids(w mut writer, ns []Node) {
 	for k in ns {
 		write(w, k)
 	}
@@ -125,7 +177,7 @@ func kids(w *writer, ns []Node) {
 // write writes n with CommonMark's line breaks: a block element starts
 // and ends on a line of its own, a list or a quote also puts its
 // children on lines of their own, and br ends its line.
-func write(w *writer, n Node) {
+func write(w mut writer, n Node) {
 	match n {
 	case Text as t:
 		lit(w, Escape(t.S))
@@ -230,6 +282,15 @@ func Escape(s string) string {
 		}
 	}
 	b.String()
+}
+
+// EscapeRoundTrip: Unescape reads back what Escape wrote.
+law EscapeRoundTrip(s string) { Unescape(Escape(s)) == s }
+
+// EscapeHasNoMarkup: escaped text starts no tag and ends no attribute.
+law EscapeHasNoMarkup(s string) {
+	let e = Escape(s)
+	!strings.Contains(e, "<") && !strings.Contains(e, ">") && !strings.Contains(e, "\"")
 }
 
 // Unescape is the text that Escape wrote as s.

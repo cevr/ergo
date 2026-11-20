@@ -1,0 +1,10 @@
+set color "blue"
+set name a\tb
+get color
+load name
+get missing
+load missing
+set color red
+get color
+writes
+bogus

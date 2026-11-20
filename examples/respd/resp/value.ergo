@@ -5,10 +5,41 @@
 // Both work on flat bytes: the reader keeps one buffer and parses in
 // place, the writer appends to the caller's buffer.
 
+import strings
+
 // Value is one RESP frame. A bulk string holds any bytes, so Bulk's Data
 // is a string of bytes, not of text. Null is RESP3's null, and RESP2's
 // null bulk string ($-1) and null array (*-1) both read as it.
 type Value = Simple{Text string} | Fault{Text string} | Integer{N int64} | Bulk{Data string} | Null{} | Array{Items []Value} | Boolean{Truth bool} | Dict{Pairs []Pair} | Set{Items []Value}
+
+// BulkTakesItsLength: a bulk string is the count of bytes its header
+// says, followed by CRLF. Data of another length is never read as a bulk
+// string of that data: it is Incomplete while the declared bytes may yet
+// arrive, and Malformed when the CRLF is not where the length puts it.
+law BulkTakesItsLength(seed int) {
+	for v in Samples(seed) {
+		let data = strings.FromBytes(Encode(v, Resp3))
+		for n in []int{0, len(data) / 2, len(data) + 1, len(data) + 5} {
+			if n == len(data) {
+				continue
+			}
+			let enc = strings.Bytes("$\(n)\r\n" + data + "\r\n")
+			let f = Parse(enc) catch {
+			case Incomplete, Malformed:
+				continue
+			}
+			match f.Value {
+			case Bulk as b:
+				if b.Data == data || len(b.Data) != n {
+					return false
+				}
+			case _:
+				return false
+			}
+		}
+	}
+	true
+}
 
 // Pair is one entry of a Dict: RESP3 writes a map as its pairs one after another,
 // and so does Dict.

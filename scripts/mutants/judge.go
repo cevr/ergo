@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -568,6 +569,11 @@ func (w *worker) runTests(ctx context.Context, m *Mutant, ids []string, r *Resul
 			continue
 		}
 		if detail := w.build(ctx, m.Name, s, built); detail != "" {
+			if killedByBuild(m, id, s, detail) {
+				r.Status, r.Killer, r.Killers, r.Reason = Killed, id, []string{id}, "build"
+				r.Detail = "killed by build failure after regenerate: " + firstCompileError(detail)
+				return true
+			}
 			r.Status, r.Detail, r.Killers, r.Killer = Invalid, detail, nil, ""
 			return true
 		}
@@ -635,6 +641,35 @@ func (w *worker) runTests(ctx context.Context, m *Mutant, ids []string, r *Resul
 // (startLine), and not by its timeout.
 func killedBy(o outcome) bool {
 	return o.reason != "" && o.reason != "interrupted" && !o.timeout && o.started
+}
+
+// killedByBuild says whether a build failure of suite s, met before the
+// test id ran, kills the row m rather than making it invalid. A failed
+// build is a kill only for a generator's row: the row has a regenerate
+// step, the mutated source compiled and the step ran (applyChecked, or
+// regenerated after the named pass checked it; either failure makes the
+// row invalid before any build), id is a killer the row names, and the
+// failure is the compiler refusing that suite's own build, not a tool's
+// build or its deadline. Then the generator's output no longer gives the
+// suite what it uses (H3f-layer-dropped: drawgen without raster, and the
+// host that draws with it does not compile), the strongest kill there is.
+// Any other build failure stays invalid, so a careless row cannot pass
+// for a kill (batch 23 fallout).
+func killedByBuild(m *Mutant, id string, s *Suite, detail string) bool {
+	return m.Regenerate != nil && s.Package != "" && slices.Contains(killerIDs(m), id) &&
+		strings.HasPrefix(detail, "build "+s.Name+": fail\n")
+}
+
+// compileError matches a compiler error line: FILE.go:LINE:COL: text.
+var compileError = regexp.MustCompile(`(?m)^\S+\.go:\d+:\d+: .*$`)
+
+// firstCompileError is the first compiler error of a failed build's
+// detail, or its first line when none is there.
+func firstCompileError(detail string) string {
+	if line := compileError.FindString(detail); line != "" {
+		return line
+	}
+	return firstLine(detail)
 }
 
 // notRun is the reason of a test that passed without starting: no test of

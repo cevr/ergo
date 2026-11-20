@@ -114,6 +114,24 @@ type BodyWriter { put func(text string) fails WriteFailed }
 // flushes it to the client before Write returns.
 func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
 
+// WriteAfterStreamFails: a BodyWriter kept past the function Stream ran
+// fails WriteFailed, and the answer does not change.
+law WriteAfterStreamFails(text string) {
+	let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{})
+	let response = with context { Streaming: NewRecorder() } {
+		Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed {
+			kept.Set([]BodyWriter{w})
+		})
+	}
+	for w in kept.Get() {
+		w.Write(text) catch {
+		case WriteFailed:
+			return response.Body == ""
+		}
+	}
+	false
+}
+
 // Streaming is the response side of the request a handler answers: Serve
 // binds one per request, and NewRecorder makes one for a test. Its
 // operations are this package's; a program streams through Stream.
@@ -149,6 +167,25 @@ func Stream[R](status int, header []Field, write func(w BodyWriter) fails WriteF
 	case WriteFailed:
 	}
 	Response{Status: status, Header: header, Body: Streaming.close()}
+}
+
+// StreamIsItsWrites: Stream answers with its status and header, and its
+// body is every part write wrote, in order (under a Recorder, which keeps
+// what Serve's provider sends).
+law StreamIsItsWrites(status int, parts []string) {
+	let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}}
+	let response = with context { Streaming: NewRecorder() } {
+		Stream(status, header, func(w BodyWriter) fails WriteFailed {
+			for p in parts {
+				try w.Write(p)
+			}
+		})
+	}
+	let mut want = ""
+	for p in parts {
+		want = want + p
+	}
+	response == Response{Status: status, Header: header, Body: want}
 }
 
 // Exchange is the response side of one served request on the host. Only

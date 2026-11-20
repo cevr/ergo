@@ -23,6 +23,25 @@ let LogLimit = 20
 // Blank is a new desk: a new permit and an empty log.
 let Blank = Desk{Stage: permit.Start, Log: []Entry{}, Next: 0, Code: ""}
 
+// LogKeepsTheNewest: after n signals the log holds the newest LogLimit
+// entries (all n when fewer), newest first, numbered n-1 down.
+law LogKeepsTheNewest(n int where 0 <= n && n <= 60) {
+	let mut d = Blank
+	for i in 0..n {
+		d = machines.Next(d, Track(d, Do{Signal: permit.Chose{Overnight: i%2 == 0}}))
+	}
+	let kept = if n < LogLimit { n } else { LogLimit }
+	if len(d.Log) != kept || d.Next != n {
+		return false
+	}
+	for k, e in d.Log {
+		if e.ID != n-1-k {
+			return false
+		}
+	}
+	true
+}
+
 // StageName is the name of s's stage.
 func StageName(s permit.Stage) string {
 	match s {
@@ -108,6 +127,24 @@ func Track(d0 Desk, s Signal) Decision[Desk, Never] {
 		Stay[Desk]{Next: moved}
 	case Ignore, Reject:
 		Stay[Desk]{Next: Logged(d, "\(SignalName(sig)) ignored in \(StageName(d.Stage))")}
+	}
+}
+
+// IgnoredIsAStay: a signal the permit ignores is a Stay of the desk, so
+// the stage's timer runs on through it. The screen never offers one (law
+// ScreenOffersOnlyTransitions), so no case sends one; another host of the
+// desk may.
+law IgnoredIsAStay(s permit.Stage, sig permit.Signal) {
+	match permit.Step(s, sig) {
+	case Ignore, Reject:
+		match Track(Desk{..Blank, Stage: s}, Do{Signal: sig}) {
+		case Stay[Desk]:
+			true
+		case Enter[Desk], Ignore, Reject:
+			false
+		}
+	case Enter[permit.Stage], Stay[permit.Stage]:
+		true
 	}
 }
 

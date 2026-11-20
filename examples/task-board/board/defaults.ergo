@@ -29,6 +29,28 @@ let Defaults = []Column{
 	}, 12),
 }
 
+// SortKeysStrictlyIncrease: after drawn reorders of the default board,
+// every column's keys are valid and strictly increasing, so the key order
+// is the board's order.
+law SortKeysStrictlyIncrease(moves []int) {
+	let mut board = Defaults
+	for m in moves {
+		let from = pick(m, 3)
+		let col = board[from].Cards
+		if len(col) > 0 {
+			board = Reorder(board, col[pick(m/3, len(col))].ID, board[from].ID, board[pick(m/100, 3)].ID, pick(m/300, 8))
+		}
+	}
+	for c in board {
+		for i, card in c.Cards {
+			if !sortkey.Valid(card.Key) || (i > 0 && !(c.Cards[i-1].Key < card.Key)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
 // keyed is a column whose cards have the titles, ids from card-first on,
 // and keys in order.
 func keyed(id string, name string, titles []string, first int) Column {

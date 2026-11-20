@@ -182,6 +182,12 @@ test Line { assert line() == line() }
 test Fails { try oops() }
 
 law Ident(n int) { left.Boxed(n) == n + left.N }
+
+type scan { cands []int }
+
+func repair(n int) scan { scan{cands: []int{n, Total}} }
+
+law Repair(n int) { len(repair(n).cands) == 2 }
 `, k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k(), k())
 	return p
 }
@@ -313,8 +319,20 @@ func TestSplitLoweringAgrees(t *testing.T) {
 			if srep.Shards < 2 || srep.Reason != "" {
 				t.Fatalf("seed %d tests=%v: the program is not cut into shards: %+v\nsource:\n%s", seed, tests, srep, ref.src)
 			}
+			// The shards keep the inits in the root as the split does: in
+			// main, or in a test build's root package below the harness.
+			sroot, srootPath := shards.mainGo(), "main.go"
+			if tests {
+				srootPath = "p/" + shards.name + "/" + rootDir + "/" + rootDir + ".go"
+				if i := slices.IndexFunc(shards.extra, func(f File) bool { return f.Path == srootPath }); i >= 0 {
+					sroot = string(shards.extra[i].Data)
+				}
+			}
+			if n, m := strings.Count(ref.mainGo(), goInit), strings.Count(sroot, goInit); n != m {
+				t.Fatalf("seed %d tests=%v: the reference has %d Go inits and the shards' root %d", seed, tests, n, m)
+			}
 			for _, f := range shards.extra {
-				if strings.Contains(string(f.Data), goInit) {
+				if f.Path != srootPath && strings.Contains(string(f.Data), goInit) {
 					t.Fatalf("seed %d tests=%v: %s has a Go init, which would run before the root's", seed, tests, f.Path)
 				}
 			}

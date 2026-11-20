@@ -2,7 +2,7 @@
 // run under ergo test.
 
 test ABurstThenOneEach {
-	let got = Taken(2, 100ms, []duration{0s, 0s, 0s, 50ms, 100ms, 150ms, 200ms, 450ms, 450ms, 450ms})
+	let got = taken(2, 100ms, []duration{0s, 0s, 0s, 50ms, 100ms, 150ms, 200ms, 450ms, 450ms, 450ms})
 	// by 450ms the bucket is full again: two more
 	assert len(got) == 6
 	assert got[0] == 0s && got[1] == 0s && got[2] == 100ms && got[3] == 200ms && got[4] == 450ms && got[5] == 450ms

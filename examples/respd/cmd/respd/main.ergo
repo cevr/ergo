@@ -77,7 +77,7 @@ func serve() fails os.Exit needs io.Stdout | io.Source | store.Engine | store.Le
 type Answers { Out []byte, Broken Option[resp.Malformed] }
 
 // answer is the replies to every whole request r holds, in s.
-func answer(r *resp.Reader, s *command.Session) Answers needs store.Engine | store.Leases | time.Clock {
+func answer(r mut resp.Reader, s mut command.Session) Answers needs store.Engine | store.Leases | time.Clock {
 	let mut out = []byte{}
 	for {
 		let v = r.Next() catch {

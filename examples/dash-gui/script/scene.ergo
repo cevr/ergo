@@ -91,7 +91,7 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 }
 
 // advance moves h's clock n frames, writing each frame's notes.
-func advance(h *ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
+func advance(h mut ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
 	for _ in 0..n {
 		try ui.Advance(h, Period)
 		for x in notes.Get() {

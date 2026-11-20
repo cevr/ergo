@@ -23,7 +23,7 @@ func read(c Counter, k int) int { c.N + k }
 
 func readAfter(k int, c Counter) int { c.N + k }
 
-func bump(s *Counter) int {
+func bump(s mut Counter) int {
 	s.N = s.N + 1
 	s.N
 }
@@ -140,10 +140,10 @@ func TestQuadraticScanAgreesWithReference(t *testing.T) {
 }
 
 var snapshotKinds = []planKind{
-	{true, 2, "func %s(s *Counter) int {\n\tread(*s, bump(s))\n}"},
-	{false, 0, "func %s(s *Counter) int {\n\tread(*s, 1)\n}"},
-	{false, 0, "func %s(s *Counter) int {\n\treadAfter(bump(s), *s)\n}"},
-	{false, 0, "func %s(s *Counter) int {\n\tread(*s, double(s.N))\n}"},
+	{true, 2, "func %s(s mut Counter) int {\n\tread(*s, bump(s))\n}"},
+	{false, 0, "func %s(s mut Counter) int {\n\tread(*s, 1)\n}"},
+	{false, 0, "func %s(s mut Counter) int {\n\treadAfter(bump(s), *s)\n}"},
+	{false, 0, "func %s(s mut Counter) int {\n\tread(*s, double(s.N))\n}"},
 }
 
 // TestSnapshotArgumentAgreesWithReference writes calls with an argument
@@ -181,7 +181,7 @@ func TestSpeedPresetOnExamples(t *testing.T) {
 	}
 	root := filepath.Join("..", "..", "..", "examples")
 	got := append(layoutFindings(t, filepath.Join(root, "jobs"), conf), layoutFindings(t, filepath.Join(root, "confparse"), conf)...)
-	for _, want := range []string{"api/laws.ergo:249 concat-in-loop", "config/laws.ergo:56 concat-in-loop"} {
+	for _, want := range []string{"api/routes.ergo:268 concat-in-loop", "config/encode.ergo:26 concat-in-loop"} {
 		if !slices.ContainsFunc(got, func(g string) bool { return strings.HasSuffix(g, want) }) {
 			t.Errorf("the speed preset does not name %s; it found %v", want, got)
 		}

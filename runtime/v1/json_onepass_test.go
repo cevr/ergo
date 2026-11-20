@@ -59,6 +59,41 @@ func TestJSONOnePassAgreesWithOpen(t *testing.T) {
 	}
 }
 
+// TestJSONIsNumberIsOpensNumber holds ParseNum's fast path (JVD-DIRECT) to
+// the path it skips: JSONIsNumber accepts a text exactly when JSONOpen
+// accepts it, its one value is a number, and no white space is around it.
+// The texts are numbers of every spelling, cut, damaged or padded, and
+// pieces (mostly not numbers). A failing seed prints the text and the
+// replay command.
+//
+// Mutants only it kills (testdata/mutants.json): the jvd-isnumber-* rows.
+func TestJSONIsNumberIsOpensNumber(t *testing.T) {
+	n := 20000
+	first := uint64(0)
+	if s := os.Getenv("ERGO_JSON_ISNUMBER_SEED"); s != "" {
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, n = v, 1
+	}
+	alphabet := []string{"-", "+", "0", "1", "9", ".", "e", "E", " ", "\n", "x", "00", "12", ".5", "e+", "e-"}
+	for seed := first; seed < first+uint64(n); seed++ {
+		r := rand.New(rand.NewPCG(seed, 0x6e756d))
+		var b strings.Builder
+		k := r.IntN(7)
+		for i := 0; i < k; i++ {
+			b.WriteString(alphabet[r.IntN(len(alphabet))])
+		}
+		text := b.String()
+		c, err := JSONOpen(text, 0, 0)
+		want := err == nil && c.Kind() == JSONKindNumber && strings.TrimSpace(text) == text
+		if got := JSONIsNumber(text); got != want {
+			t.Fatalf("seed %d: JSONIsNumber(%q) = %v, JSONOpen says %v\nreplay: ERGO_JSON_ISNUMBER_SEED=%d go test ./runtime/v1 -run TestJSONIsNumberIsOpensNumber", seed, text, got, want, seed)
+		}
+	}
+}
+
 // onePassReference is the two phases: JSONOpen's verdict, then the walk.
 func onePassReference(text string, maxBytes, maxDepth int, walk uint64) string {
 	c, err := JSONOpen(text, maxBytes, maxDepth)

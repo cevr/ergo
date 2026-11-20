@@ -99,7 +99,7 @@ let Far = 1e300
 let Near = 0.001
 
 // Trace is the light that comes back along r, its bounces drawn from s.
-func Trace(sc Scene, r geom.Ray, s *Stream) geom.Vec {
+func Trace(sc Scene, r geom.Ray, s mut Stream) geom.Vec {
 	let mut color = geom.V(0.0, 0.0, 0.0)
 	let mut through = geom.V(1.0, 1.0, 1.0)
 	let mut ray = r
@@ -124,7 +124,7 @@ func Trace(sc Scene, r geom.Ray, s *Stream) geom.Vec {
 
 // bounce follows ray to what it meets: for a surface that scatters, ray
 // becomes the scattered ray and through takes the surface's color.
-func bounce(sc Scene, ray *geom.Ray, through *geom.Vec, s *Stream) Event {
+func bounce(sc Scene, ray mut geom.Ray, through mut geom.Vec, s mut Stream) Event {
 	let r = *ray
 	match geom.Nearest(sc.Tree, r, Near, Far) {
 	case None:

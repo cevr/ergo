@@ -41,14 +41,7 @@
       "rule": "Cancel leaves every open stage, review included (law CancelFromEveryOpenStep; the tour cancels from the plan only).",
       "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
     },
-    {
-      "name": "fk7-cancel-forgets-kind", "origin": "wf10/fk7a",
-      "file": "examples/permit-wizard/permit/permit.ergo",
-      "from": "Cancelled{Overnight: Overnight(s)}",
-      "to": "Cancelled{Overnight: true}",
-      "rule": "A cancel keeps the trip's kind (law CancelFromEveryOpenStep).",
-      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
-    },
+    {"name":"fk7-cancel-forgets-kind","origin":"wf10/fk7a","file":"examples/permit-wizard/permit/permit.ergo","from":"Cancelled{Overnight: Overnight(s)}}","to":"Cancelled{Overnight: true}}","rule":"A cancel keeps the trip's kind (law CancelFromEveryOpenStep).","anchor":{"tests":["examples:permit-wizard"]},"killers":["examples:permit-wizard"]},
     {
       "name": "fk7-edit-clears-grant", "origin": "wf10/fk7a",
       "file": "examples/permit-wizard/permit/permit.ergo",

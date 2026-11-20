@@ -721,6 +721,17 @@ func preludeType(name string) *Named {
 // failures rest holds, the anonymous union of their error types (D-C3). It
 // can be returned (a failure of those types), matched, caught or assigned
 // to a declared union that lists each of them (ConvRow); nothing else.
+//
+// A row of one error type is that type's value: a value of a one-member
+// row is its record, as a single type written for a type parameter is
+// (decl.go, typeArgs), so a named func(m Missing) and a literal check
+// alike where func(f F) is expected with F the row Missing (SM WEB1,
+// "status table"). A row variable or a row parameter stays a row.
 func (c *checker) rowValue(rest *Row) Type {
+	if es := rest.Elems(); len(es) == 1 {
+		if n, ok := es[0].(*Named); ok {
+			return n
+		}
+	}
 	return &Union{Variants: rest.Elems(), Row: rest}
 }

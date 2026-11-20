@@ -360,10 +360,3 @@ law MachinesFollowTheWalk(seed int) {
 	}
 	true
 }
-
-// inputsOf is n ticks of fuzzed input from seed.
-func inputsOf(seed int, n int) []Controls {
-	with context { Random: rand.Seeded(uint64(seed)) } {
-		Fuzz(n)
-	}
-}

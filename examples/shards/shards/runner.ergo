@@ -10,9 +10,68 @@ type Run = Running{Shares []Share, Answers []Answer}
 
 type RunSignal = Answered{A Answer}
 
+// RunnerWaitsForAll: the runner ends only after every share answered,
+// so no taken write is lost to an early end.
+law RunnerWaitsForAll(shareSizes []int, order int) {
+	let answers = answersOf(shareSizes, order)
+	let mut s = running(sharesOf(shareSizes))
+	for i, a in answers {
+		match runStep(s, Answered{A: a}) {
+		case Stay[Run] as x:
+			s = x.Next
+		case Done[Outcome]:
+			return i == len(answers)-1
+		case _:
+			return false
+		}
+	}
+	len(answers) == 0
+}
+
 // Outcome is the runner's end: every share taken, or some lost, with
 // the writes that were taken (the write erases them).
 type Outcome = AllTaken{Refs []Ref} | SomeLost{Refs []Ref, Why string}
+
+// OutcomeIgnoresArrival: the runner's outcome is the same whatever order
+// the writes answer in, and lists the taken writes in share order.
+law OutcomeIgnoresArrival(shareSizes []int, order int) {
+	told(OutcomeOf(answersOf(shareSizes, order))) == told(OutcomeOf(answersOf(shareSizes, 0)))
+}
+
+// answersOf is an answer per share, in the order given by order: a
+// share whose size is odd is lost.
+func answersOf(shareSizes []int, order int) []Answer {
+	let shares = sharesOf(shareSizes)
+	let n = len(shares)
+	let mut out = []Answer{}
+	for j in 0..n {
+		let i = if n == 0 { 0 } else { (j + hundredths(order)) % n }
+		let t = shares[i]
+		if SizeOf(t)%2 == 0 {
+			out = out.Append(Taken{Index: i, Share: t, R: Ref{ID: "r\(i)", Size: SizeOf(t)}})
+		} else {
+			out = out.Append(Lost{Index: i, Share: t, Why: "odd \(i)"})
+		}
+	}
+	out
+}
+
+// told is an outcome as text.
+func told(o Outcome) string {
+	let mut text = ""
+	let refs = match o {
+	case AllTaken as a:
+		text = "taken"
+		a.Refs
+	case SomeLost as d:
+		text = "lost \(d.Why)"
+		d.Refs
+	}
+	for r in refs {
+		text = text + " " + r.ID
+	}
+	text
+}
 
 type Runner machine[Run, RunSignal] { initial: running, step: runStep, work: runWork }
 

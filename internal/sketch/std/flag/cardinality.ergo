@@ -22,6 +22,12 @@ func OptionalInt(name string, usage string) OptionalIntFlag {
 }
 
 func Repeated(f StringFlag) RepeatedStringFlag     { RepeatedStringFlag{base: f} }
+
+law RepeatedKeepsOrder(items []string) {
+	let mut args = []string{}
+	for item in items { args = args.Append("-i=" + item) }
+	sameStrings(treeItems.Get(try Parse(treeSet(), args)), items)
+}
 func Repeated(f IntFlag) RepeatedIntFlag           { RepeatedIntFlag{base: f} }
 func Repeated(f BoolFlag) RepeatedBoolFlag         { RepeatedBoolFlag{base: f} }
 func Repeated(f DurationFlag) RepeatedDurationFlag { RepeatedDurationFlag{base: f} }

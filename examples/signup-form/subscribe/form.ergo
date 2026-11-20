@@ -8,6 +8,74 @@ type Form {
 	Stage Stage,
 }
 
+// EditClearsThatFieldsError: outside a submit, an edit sets its field to
+// the field its text gives, an earlier error included, and touches no
+// other field and not the stage; during a submit it changes nothing.
+law EditClearsThatFieldsError(f Form, k int, n int, generated string) {
+	let text = textOf(n, generated)
+	let next = machines.Next(f, Step(f, edit(k, text)))
+	match f.Stage {
+	case Sending:
+		next == f
+	case Editing, Sent, Refused:
+		match edit(k, text) {
+		case NameEdited:
+			next == Form{..f, Name: NameField(text)}
+		case EmailEdited:
+			next == Form{..f, Email: EmailField(text)}
+		case _:
+			next == Form{..f, Note: text}
+		}
+	}
+}
+
+// edit is the edit of kind k (name, email or note) with text.
+func edit(k int, text string) Signal {
+	match ((k % 3) + 3) % 3 {
+	case 0:
+		NameEdited{Text: text}
+	case 1:
+		EmailEdited{Text: text}
+	case _:
+		NoteEdited{Text: text}
+	}
+}
+
+// texts are drafts the laws type: an empty one, one byte, a name, a valid
+// address, and a malformed one; and the generated text.
+func textOf(n int, generated string) string {
+	let texts = []string{"", "A", "Alice", "alice@example.com", "alice@example", generated}
+	texts[((n%len(texts))+len(texts))%len(texts)]
+}
+
+// StaleCheckIsDropped: an edit of the email opens a new entry, so the
+// entry that owns a check of an older address ends and the runner drops
+// that check's answer (runtime.md, Machines and actors 12); an edit of
+// the name or the note keeps the entry, so a check under way goes on. And
+// an answer when no check is under way changes nothing: the old answer
+// never arrives, so no address needs comparing with the field's.
+law StaleCheckIsDropped(f Form, k int, text string, taken bool) {
+	let d = Step(f, edit(k, text))
+	let entry = match f.Stage {
+	case Sending:
+		d == Ignore
+	case Editing, Sent, Refused:
+		match edit(k, text) {
+		case EmailEdited:
+			d == Enter[Form]{Next: machines.Next(f, d)}
+		case _:
+			d == Stay[Form]{Next: machines.Next(f, d)}
+		}
+	}
+	let stray = match f.Email.Verdict {
+	case Checking[Email]:
+		true
+	case Unchecked, Valid[Email], Invalid[EmailWhy]:
+		Step(f, Checked{Taken: taken}) == Ignore
+	}
+	entry && stray
+}
+
 // Stage is the submit: not sent yet, under way, taken (with the welcome
 // text), or refused.
 type Stage = Editing{} | Sending{} | Sent{Text string} | Refused{}
@@ -61,6 +129,41 @@ func Step(f Form, s Signal) Decision[Form, Never] {
 	case (_, Joined), (_, JoinFailed):
 		Ignore
 	}
+}
+
+// SubmitOnlyWhenAllValid: a submit starts only from a form that is not
+// sending, whose name is valid or empty and whose email has passed its
+// check; any other submit is ignored.
+law SubmitOnlyWhenAllValid(n int, name string, e int, email string, settled bool, taken bool, stage int) {
+	let f = formOf(textOf(n, name), textOf(e, email), settled, taken, stage)
+	let nameOK = f.Name.Text == "" || len(f.Name.Text) >= 2
+	let emailOK = settled && !taken && !malformed(f.Email.Text) && f.Email.Text != ""
+	let sending = ((stage%4)+4)%4 == 1
+	let d = Step(f, Submitted)
+	if !sending && nameOK && emailOK {
+		d == Enter[Form]{Next: Form{..f, Stage: Sending}}
+	} else {
+		d == Ignore
+	}
+}
+
+// formOf is a form the user can reach: the fields its texts give, the
+// email's check answered (taken or not) when settled, and a stage.
+func formOf(name string, email string, settled bool, taken bool, stage int) Form {
+	let mut f = Form{..Initial(), Name: NameField(name), Email: EmailField(email)}
+	if settled {
+		f = machines.Next(f, Step(f, Checked{Taken: taken}))
+	}
+	let stages = []Stage{Editing, Sending, Sent{Text: Welcome(name)}, Refused}
+	Form{..f, Stage: stages[((stage%4)+4)%4]}
+}
+
+func malformed(text string) bool {
+	let _ = ParseEmail(text) catch {
+	case Unsatisfied:
+		return true
+	}
+	false
 }
 
 // Ready reports whether f may be sent: the name is valid or left empty,

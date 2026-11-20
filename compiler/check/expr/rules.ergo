@@ -1,0 +1,162 @@
+// The binding rules the typer reports beside its type errors (S3d6), as
+// the Go checker does: a name nothing declares (expr.go ident, S104), an
+// assignment rooted at a binder no let mut declares (bindings.go D-D1),
+// and a call of another count of arguments than its callee's parameters.
+// Each is judged only where the typer is sure: a form it does not read is
+// no diagnostic.
+
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// report records a diagnostic at x, in the function in hand.
+func report(k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
+	t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
+}
+
+// predeclared is whether text, a name bind resolved outside the package's
+// declarations and locals, names something: a universe name, a prelude
+// name, or an import of the package.
+func predeclared(s store.Store, k Pkg, text string) bool {
+	if universeName(text) || preludeName(text) {
+		return true
+	}
+	let mut i = 1
+	let mut b = types.BasicName(i)
+	for b != "invalid type" {
+		if b == text {
+			return true
+		}
+		i = i + 1
+		b = types.BasicName(i)
+	}
+	// An import's name is in the package's scope (bind resolves it outside).
+	if inScope(s, text) {
+		return true
+	}
+	let p = depOf(k, "prelude")
+	p >= 0 && inScope(k.Deps[p].S, text) && !receiverOp(k.Deps[p], text)
+}
+
+// receiverOp is whether text names an operation of the language, a
+// function of the prelude's builtin.ergo, reached from a receiver
+// (xs.Append(x)) and not a name in scope. MakeSlice, the one called by
+// name, is in the Go checker's scope, but its call MakeSlice[T](n) never
+// reaches this lookup (no test can tell), so the file alone decides.
+func receiverOp(d Dep, text string) bool {
+	let mut i = fnNamed(d.S, d.K, text)
+	for i >= 0 {
+		if operation(d.K.Files, d.K.Fns[i]) {
+			return true
+		}
+		i = d.K.sameName[i]
+	}
+	false
+}
+
+// inScope is whether s's package scope declares text.
+func inScope(s store.Store, text string) bool {
+	match store.FindName(s, text) {
+	case Some{Value: n}:
+		isSome(store.ScopeOf(s, n))
+	case None:
+		false
+	}
+}
+
+// universeName is whether text is a name of the universe that is no basic
+// type (check.go universe): the constants, the builtins, the constraints,
+// error, the go package, and Map, which the syntax spells.
+func universeName(text string) bool {
+	match text {
+	case "true", "false", "len", "with", "within", "encode", "decode", "embedded", "wired", "go", "Map", "byte", "rune", "error", "lent", "wire", "comparable", "ordered", "number":
+		true
+	case _:
+		false
+	}
+}
+
+// preludeName is whether text is declared by the prelude
+// (internal/sketch/std/prelude.ergo), read when no prelude package is
+// loaded beside the package.
+func preludeName(text string) bool {
+	match text {
+	case "Absurd", "NewLiveScheduler", "noMatch", "unsatisfied", "wireMissingField", "wireUnknownTag", "wireWrongKind", "liveOnly":
+		true
+	case "Option", "Some", "None", "Ambient", "CallSite", "Closer", "Console", "Context", "Decision", "Done", "Emit", "Enter", "Ignore", "InputMachine", "Keeping", "LiveScheduler", "Machine", "Never", "NoMatch", "Random", "Range", "Reader", "Reject", "Scheduler", "Seq", "Stay", "Tell", "Timeout", "Unsatisfied", "Writer":
+		true
+	case "WireBare", "WireBool", "WireEnd", "WireKind", "WireList", "WireMembers", "WireMissingField", "WireNull", "WireNullable", "WireNumber", "WireNumberText", "WireObject", "WireOmittable", "WireString", "WireUnknownTag", "WireWrongKind":
+		true
+	case _:
+		false
+	}
+}
+
+// assignsImmutable is whether the assignment target x is rooted, through
+// parentheses and at most one field or index of a value that is no
+// pointer, at a typed local that no let mut declares: a parameter, a let,
+// a pattern's or a loop's binding (D-D1). A deeper target, one through a
+// pointer, or a root that is no local is not judged.
+func assignsImmutable(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
+	let tr = tree(k, t.file)
+	let y = unparen(tr, x)
+	let kd = syntax.KindOf(tr, y)
+	let root = if kd == syntax.KSelectorExpr { unparen(tr, syntax.SelectorExprOf(tr, y).X) } else if kd == syntax.KIndexExpr { unparen(tr, syntax.IndexExprOf(tr, y).X) } else { y }
+	if syntax.KindOf(tr, root) != syntax.KIdent {
+		return false
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, root)) {
+	case bind.Declared as d:
+		match bind.DefOf(k.U, d.At) {
+		case bind.Local:
+			match dense.Unpack(dense.Of(t.defs, d.At)) {
+			case Some{Value: ty}:
+				if root != y && store.KindOfType(s, infer.Unmarked(s, ty)) == store.KPointer {
+					return false
+				}
+				!letMut(k, d.At)
+			case None:
+				false
+			}
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// letMut is whether the name row at is a name of a let mut: its parent a
+// VarSpec whose VarDecl writes mut.
+func letMut(k Pkg, at dense.ID[store.PNode]) bool {
+	match dense.Unpack(bind.ParentOf(k.Ps, at)) {
+	case Some{Value: spec}:
+		let (f, row) = bind.RowOf(k.Ps, spec)
+		let tr = k.Parsed[f].Tree
+		if syntax.KindOf(tr, syntax.NodeAt(tr, row)) != syntax.KVarSpec {
+			return false
+		}
+		match dense.Unpack(bind.ParentOf(k.Ps, spec)) {
+		case Some{Value: decl}:
+			let (g, drow) = bind.RowOf(k.Ps, decl)
+			let dtr = k.Parsed[g].Tree
+			let did = syntax.NodeAt(dtr, drow)
+			syntax.KindOf(dtr, did) == syntax.KVarDecl && syntax.VarDeclOf(dtr, did).Mut >= 0
+		case None:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+// arity reports the call x when it passes n arguments to np parameters
+// (sigParts has already left out a CallSite the call does not pass).
+func arity(k Pkg, t mut Typer, x dense.ID[syntax.Node], n int, np int) {
+	if n != np {
+		report(k, t, x)
+	}
+}

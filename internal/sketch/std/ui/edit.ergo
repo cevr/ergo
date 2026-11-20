@@ -276,7 +276,7 @@ func typedRunes(s string) int {
 let editPieces = []string{"", "a", "é", "日", "\n", "ab", "x\ny"}
 
 // drawEditText is a drawn text of pieces (a law's helper).
-func drawEditText(r *rng) string {
+func drawEditText(r mut rng) string {
 	let mut out = ""
 	for _ in 0..draw(r, 6) {
 		out = out + editPieces[draw(r, len(editPieces))]
@@ -299,7 +299,7 @@ law CaretIsTheModels(seed int) {
 func caretModel(seed int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let lines = 1 + draw(&r, 3)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		let d = NewDraft(f, "")
 		FieldLines(f, d, "draft", lines)
 		InputLines(f, if s == 99 { "reset" } else { "fixed" }, "own", lines, func(t string) int { if t == "go" { 99 } else { 0 } })

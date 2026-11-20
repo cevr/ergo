@@ -17,6 +17,14 @@ func Escape(s string) string {
 	out
 }
 
+// EscapeRoundTrips: Unescape reads back what Escape writes, and what it
+// writes has none of the bytes that end a segment or a query value.
+law EscapeRoundTrips(s string) {
+	let t = s + "/?&=#%+ "
+	let e = Escape(t)
+	Unescape(e) == t && !strings.Contains(e, "/") && !strings.Contains(e, "?") && !strings.Contains(e, "&") && !strings.Contains(e, "#") && !strings.Contains(e, "+") && !strings.Contains(e, " ")
+}
+
 // Unescape reads what Escape writes: each %XX is its byte, in either
 // case. A % not followed by two hex digits stands for itself.
 func Unescape(s string) string {

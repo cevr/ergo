@@ -11,6 +11,8 @@
 import taskboard/board
 import fs
 import json
+import fstest
+import strings
 
 // Sheet is a board.Store in the file at path. It holds the file system it
 // reads and writes as values (as kvstore's Log does).
@@ -58,6 +60,20 @@ func codec() json.Codec[saved] { json.Codec[saved]{MaxBytes: 1 << 20, MaxDepth: 
 
 // Encode is the file's text for columns.
 func Encode(columns []board.Column) string { json.Encode(codec(), saved{Columns: columns}) + "\n" }
+
+// ACutFileIsNamed: a file cut short anywhere before its last byte loads
+// as Broken, naming the file.
+law ACutFileIsNamed(n int, cut int where 0 <= cut) {
+	let disk = fstest.NewMemory()
+	let text = Encode(board.Sample(n))
+	let at = cut % (len(text) - 1)
+	try disk.WriteFile(Name, text[:at])
+	let _ = NewSheet(disk, disk).Load() catch {
+	case board.Broken as b:
+		return strings.HasPrefix(b.Why, Name+": ")
+	}
+	false
+}
 
 // Decode is the board of a file's text; path names the file in the
 // failure, with the place the text breaks.
