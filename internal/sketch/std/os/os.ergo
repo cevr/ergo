@@ -76,7 +76,7 @@ type Process {
 // writes os.Host{}, its zero value or a record update of it. root is ""
 // for the host's own (NewHost), and the case's folder for a test's
 // (NewTestHost, confined.ergo).
-type Host { root string } implements Process
+type Host { root string } implements Process, Self
 
 // NewHost is the host's Process provider. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one.
