@@ -787,7 +787,7 @@ func TestGoGetsEntryCopies(t *testing.T) {
 	src := "import go net/url\n\nfunc enc(m Map[string, []string]) string needs go.Foreign {\n\tlet mut c = m\n\tc[\"b\"] = []string{\"2\"}\n\tlet s = url.Values(c).Encode()\n\ts + \"\\(len(c))\"\n}\n\n" +
 		"func main() needs Console | go.Foreign {\n\tConsole.Println(enc(Map[string, []string]{\"a\": []string{\"1\"}}))\n}\n"
 	mainGo := mustLower(t, "goentries", src).mainGo()
-	call := regexp.MustCompile(`(` + goHelper("ergoClone") + `\w*)\(url\.Values\(c\)\)\.Encode\(\)`).FindStringSubmatch(mainGo)
+	call := regexp.MustCompile(`(` + goHelper("ergoClone") + `\w*)\(` + HostImportSpelling("net/url") + `\.Values\(c\)\)\.Encode\(\)`).FindStringSubmatch(mainGo)
 	if call == nil {
 		t.Fatalf("Go's operand is not copied by a copy function:\n%s", mainGo)
 	}
