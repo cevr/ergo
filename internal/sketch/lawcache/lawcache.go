@@ -186,6 +186,23 @@ func (s *Store) Put(key, text string) {
 	}
 }
 
+// Puts is how many times Put was called in this process, for any key:
+// a command that keeps an answer printed from verdicts asks it, since an
+// answer printed while verdicts were still being stored is not what the
+// next run, which finds them, prints (cmd/ergo, checktree.go).
+func (s *Store) Puts() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, k := range s.runs {
+		n += k
+	}
+	return n
+}
+
 // Runs is how many times Put was called for key in this process: the
 // count of the law's runs, which the counted guard holds at one.
 func (s *Store) Runs(key string) int {

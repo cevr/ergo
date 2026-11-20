@@ -144,6 +144,10 @@ type Package struct {
 	// goSource are the effect-free bodies of goBodies standing alone
 	// (v1.Bodies.Source; LAWFFI LF2m), for the licence run's driver.
 	goSource map[string]GoBodySource
+	// withSpent is the with meter's work when the package's own check
+	// finished, plus one; 0 is a package this process did not check (a
+	// decoded one). WithWork reads it.
+	withSpent int
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg

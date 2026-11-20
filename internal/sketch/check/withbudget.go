@@ -53,13 +53,25 @@ type withRefusal struct {
 	file *fileInfo
 }
 
+// WithLimit is the with budget of a package whose files hold size bytes.
+// It is the one input of a check that reads the bytes of a file and not
+// only its tokens and comments (syntax.CheckText): a check that kept a
+// package's answer by its check text holds only while the package's
+// WithWork stays within the limit of its files' size now.
+func WithLimit(size int) int { return withBudgetPerByte*size + withBudgetFloor }
+
+// WithWork is the with work the package's own check spent; ok is false
+// for a package this process did not check (one decoded from a snapshot
+// or a cache).
+func (p *Package) WithWork() (work int, ok bool) { return p.withSpent - 1, p.withSpent > 0 }
+
 // startWithBudget sets the package's with meter from its source size.
 func (c *checker) startWithBudget(files []*syntax.File) {
 	size := 0
 	for _, f := range files {
 		size += len(f.Src)
 	}
-	limit := withBudgetPerByte*size + withBudgetFloor
+	limit := WithLimit(size)
 	if c.withLimit != nil {
 		limit = c.withLimit(size)
 	}

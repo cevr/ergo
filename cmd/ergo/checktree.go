@@ -1,0 +1,435 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"ergo.local/prototype/internal/producer"
+	"ergo.local/prototype/internal/receipt"
+	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lawcache"
+	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketchfront"
+)
+
+// The warm answer of `ergo check DIR/...` by tokens (MONOREPO WS0;
+// findings §5.3, §7.1). A request whose every package checked and passed
+// is kept in the law-verdict store (laws/v1), so the next identical
+// request in which no package's check text changed prints the same
+// envelopes with no parse, no check and no evaluation.
+//
+//   - Each package is keyed by its files' check text (syntax.CheckText:
+//     tokens and comments, no layout) and the keys of the local packages
+//     it imports, composed in dependency order (treeKeys): an edit
+//     anywhere a package reaches changes its key.
+//   - The request's manifest holds every other input the shared load read
+//     (ergo.mod, go.mod, go.sum, the law ledger, assets, folder listings),
+//     compared by bytes, and each package's with work: the with budget is
+//     the one part of a check that reads a file's size
+//     (check.WithLimit), so a hit needs the work to fit the size now.
+//   - An answer is printed again with what a layout edit moves: the
+//     revision (report.Revision of the program's text) and each
+//     obligation's site, kept as the ordinal of the token it starts at
+//     (syntax.TokenSites). An answer this cannot print exactly is not
+//     kept: one with a diagnostic (a span), an obligation not passed (a
+//     reason may quote the source or a position), advice, a site at no
+//     token start, or one whose printing from its own files differs.
+//   - It is kept only from a run that stored no verdict: a law run whose
+//     verdict this run stored prints "cached" in the next run, so this
+//     run's envelope is not what the next one prints (lawcache Puts).
+//
+// The hit is all or nothing per request; each package's answer is kept
+// under its own key so a partial reuse (WS0b) changes the lookup, not the
+// store. ERGO_BUILD=full or ERGO_LAWCACHE=off takes the normal path.
+//
+// Prior art: go test's cache replays a package's result by its inputs;
+// Gleam and ReScript reuse a module whose source digest and dependency
+// digests are unchanged; Zig's manifests list a request's inputs. Bazel
+// and Turborepo key by bytes, so a comment edit misses there.
+
+// treeSchema versions the manifest, the entries and their keys.
+const treeSchema = "check tree/1"
+
+// treeManifest is a kept request.
+type treeManifest struct {
+	Schema string `json:"schema"`
+	// Root is the module's folder, which every text's Rel is relative to.
+	Root string `json:"root"`
+	// Inputs are what the load read but the packages' source files.
+	Inputs sketchfront.Inputs `json:"inputs"`
+	// Packages are every local package the checks reached, each after
+	// its imports.
+	Packages []treePackage `json:"packages"`
+	// Selected are the import paths the request printed, in order.
+	Selected []string `json:"selected"`
+}
+
+// treePackage is one local package of a kept request.
+type treePackage struct {
+	Path     string   `json:"path"`
+	Files    []string `json:"files"`
+	Imports  []string `json:"imports"`
+	WithWork int      `json:"withWork"`
+}
+
+// treeEntry is one printed package's kept answer: the envelope it
+// printed, the program's text files (Rel) its revision hashes, and the
+// sites a layout edit moves.
+type treeEntry struct {
+	Out   []byte     `json:"out"`
+	Texts []string   `json:"texts"`
+	Sites []treeSite `json:"sites"`
+}
+
+// treeSite is an obligation's site (or its declaration's) as the token
+// it starts at, in a file named by its absolute path.
+type treeSite struct {
+	Obligation int    `json:"obligation"`
+	Decl       bool   `json:"decl,omitempty"`
+	File       string `json:"file"`
+	Token      int    `json:"token"`
+}
+
+// checkTree is one `ergo check DIR/...` request's warm answer by tokens.
+type checkTree struct {
+	store *lawcache.Store
+	base  string // the request's part of every key
+	rec   *sketchfront.Recorder
+	puts  int // the store's Puts when the normal path started
+	// kept are the selected packages' answers so far; complete is false
+	// once one cannot be kept.
+	kept     []treeKept
+	complete bool
+}
+
+type treeKept struct {
+	a   sketchfront.Analysis
+	out []byte
+}
+
+// startTree is the request's warm answer: nil when it does not apply.
+func startTree(opts fileOptions) *checkTree {
+	if !sketchfront.WarmEnabled() || opts.work || opts.report != "" || opts.goText != "" {
+		return nil
+	}
+	source, err := receipt.LocateSource(filepath.Dir(filepath.Clean(opts.file)))
+	if err != nil {
+		return nil
+	}
+	compiler, err := build.IdentityOf(producer.Current())
+	if err != nil {
+		return nil
+	}
+	store := lawStoreOf(compiler)
+	base := sketchfront.WarmKey(treeSchema, source.Admitted(), warmOptions(opts))
+	if store == nil || base == "" {
+		return nil
+	}
+	return &checkTree{store: store, base: base, complete: true}
+}
+
+// manifestKey is the key of the request's manifest.
+func (t *checkTree) manifestKey() string { return lawcache.Key(treeSchema, "manifest", t.base) }
+
+// lookup is the printed answer of every selected package, in order, when
+// the request is kept and nothing it read changed but layout.
+func (t *checkTree) lookup() ([][]byte, bool) {
+	if t == nil {
+		return nil, false
+	}
+	text, ok := t.store.Get(t.manifestKey())
+	var m treeManifest
+	if !ok || json.Unmarshal([]byte(text), &m) != nil || m.Schema != treeSchema || !m.Inputs.Fresh() {
+		return nil, false
+	}
+	srcs := map[string]string{}
+	for _, p := range m.Packages {
+		size := 0
+		for _, name := range p.Files {
+			data, err := os.ReadFile(name)
+			if err != nil {
+				return nil, false
+			}
+			srcs[name] = string(data)
+			size += len(data)
+		}
+		if p.WithWork > check.WithLimit(size) {
+			return nil, false
+		}
+	}
+	keys, ok := treeKeys(t.base, m.Packages, srcs)
+	if !ok {
+		return nil, false
+	}
+	outs := make([][]byte, 0, len(m.Selected))
+	for _, path := range m.Selected {
+		text, ok := t.store.Get(keys[path])
+		var e treeEntry
+		if !ok || json.Unmarshal([]byte(text), &e) != nil {
+			return nil, false
+		}
+		out, ok := renderTree(e, m.Root, srcs)
+		if !ok {
+			return nil, false
+		}
+		outs = append(outs, out)
+	}
+	return outs, true
+}
+
+// treeKeys is each package's key: its import path, its files' names and
+// check text, and the keys of its imports. ok is false when an import is
+// not among packages, which each come after their imports.
+func treeKeys(base string, packages []treePackage, srcs map[string]string) (map[string]string, bool) {
+	keys := map[string]string{}
+	for _, p := range packages {
+		parts := []string{treeSchema, "package", base, p.Path}
+		for _, name := range p.Files {
+			parts = append(parts, filepath.Base(name), syntax.CheckText(srcs[name]))
+		}
+		imports := slices.Clone(p.Imports)
+		slices.Sort(imports)
+		for _, q := range imports {
+			k, ok := keys[q]
+			if !ok {
+				return nil, false
+			}
+			parts = append(parts, q, k)
+		}
+		keys[p.Path] = lawcache.Key(parts...)
+	}
+	return keys, true
+}
+
+// renderTree prints a kept answer against the files as they are now:
+// srcs holds the packages' files by absolute path; a text not among them
+// is read from root.
+func renderTree(e treeEntry, root string, srcs map[string]string) ([]byte, bool) {
+	var env report.CheckEnvelope
+	if json.Unmarshal(e.Out, &env) != nil {
+		return nil, false
+	}
+	texts := map[string]string{}
+	for _, rel := range e.Texts {
+		name := filepath.Join(root, filepath.FromSlash(rel))
+		src, ok := srcs[name]
+		if !ok {
+			data, err := os.ReadFile(name)
+			if err != nil {
+				return nil, false
+			}
+			src = string(data)
+		}
+		texts[rel] = src
+	}
+	revision := report.Revision(sketchfront.ProgramText(texts))
+	env.Revision = revision
+	if env.Snapshot.Revision != "" {
+		env.Snapshot.Revision = revision
+	}
+	if env.Evaluation == nil {
+		return nil, false
+	}
+	env.Evaluation.Revision = revision
+	sites := map[string][][2]int{}
+	for _, s := range e.Sites {
+		src, ok := srcs[s.File]
+		if !ok || s.Obligation >= len(env.Evaluation.Obligations) {
+			return nil, false
+		}
+		at, ok := sites[s.File]
+		if !ok {
+			at = syntax.TokenSites(src)
+			sites[s.File] = at
+		}
+		if s.Token >= len(at) {
+			return nil, false
+		}
+		o := &env.Evaluation.Obligations[s.Obligation]
+		site := &o.Site
+		if s.Decl {
+			if o.Declaration == nil {
+				return nil, false
+			}
+			site = o.Declaration
+		}
+		site.Line, site.Column = at[s.Token][0], at[s.Token][1]
+	}
+	var buf bytes.Buffer
+	if json.NewEncoder(&buf).Encode(env) != nil {
+		return nil, false
+	}
+	return buf.Bytes(), true
+}
+
+// fsys is the file system the normal path reads through.
+func (t *checkTree) fsys() sketchfront.FS {
+	if t == nil {
+		return nil
+	}
+	if t.rec == nil {
+		t.rec = sketchfront.NewRecorder()
+		t.puts = t.store.Puts()
+	}
+	return t.rec
+}
+
+// add keeps one selected package's printed answer; exit is its check's
+// exit status.
+func (t *checkTree) add(a sketchfront.Analysis, out []byte, exit error) {
+	if t == nil {
+		return
+	}
+	if exit != nil {
+		t.complete = false
+		return
+	}
+	t.kept = append(t.kept, treeKept{a: a, out: slices.Clone(out)})
+}
+
+// record keeps the request when every selected package can be kept.
+func (t *checkTree) record() {
+	if t == nil || t.rec == nil || !t.complete || len(t.kept) == 0 || t.store.Puts() != t.puts {
+		return
+	}
+	inputs, ok := t.rec.Inputs()
+	if !ok {
+		return
+	}
+	root := t.kept[0].a.ModuleRoot()
+	if root == "" {
+		return
+	}
+	m := treeManifest{Schema: treeSchema, Root: root}
+	seen := map[string]bool{}
+	srcs := map[string]string{}
+	for _, k := range t.kept {
+		for _, p := range k.a.Packages() {
+			if p.Module != "" || p.Package == nil {
+				return
+			}
+			if seen[p.Path] {
+				continue
+			}
+			seen[p.Path] = true
+			work, ok := p.Package.WithWork()
+			if !ok {
+				return
+			}
+			tp := treePackage{Path: p.Path, Imports: p.Imports, WithWork: work}
+			for _, f := range p.Files {
+				if f.Syntax == nil {
+					return
+				}
+				name := filepath.Join(root, filepath.FromSlash(f.Rel))
+				srcs[name] = f.Syntax.Src
+				tp.Files = append(tp.Files, name)
+			}
+			slices.Sort(tp.Files)
+			m.Packages = append(m.Packages, tp)
+		}
+		m.Selected = append(m.Selected, k.a.Root().Path)
+	}
+	// The packages' files are keyed by their check text, not their bytes.
+	for name := range srcs {
+		delete(inputs.Files, name)
+	}
+	m.Inputs = inputs
+	keys, ok := treeKeys(t.base, m.Packages, srcs)
+	if !ok {
+		return
+	}
+	entries := make([]string, len(t.kept))
+	for i, k := range t.kept {
+		e, ok := treeEntryOf(k.a, k.out, root, srcs)
+		if !ok {
+			return
+		}
+		data, err := json.Marshal(e)
+		if err != nil {
+			return
+		}
+		entries[i] = string(data)
+	}
+	for i, path := range m.Selected {
+		t.store.Put(keys[path], entries[i])
+	}
+	if data, err := json.Marshal(m); err == nil {
+		t.store.Put(t.manifestKey(), string(data))
+	}
+}
+
+// treeEntryOf is the kept answer of a package whose check printed out, or
+// ok false when it cannot be printed again exactly (see the top of this
+// file).
+func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[string]string) (treeEntry, bool) {
+	var env report.CheckEnvelope
+	if json.Unmarshal(out, &env) != nil || !env.Checked || len(env.Diagnostics) > 0 || env.Evaluation == nil {
+		return treeEntry{}, false
+	}
+	e := treeEntry{Out: out}
+	for rel, text := range a.Files() {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil || string(data) != text {
+			return treeEntry{}, false
+		}
+		e.Texts = append(e.Texts, rel)
+	}
+	slices.Sort(e.Texts)
+	// The files a site may name: every file of the program, by name.
+	byName := map[string][]string{}
+	for name := range srcs {
+		byName[filepath.Base(name)] = append(byName[filepath.Base(name)], name)
+	}
+	sites := map[string][][2]int{}
+	at := func(site report.Site) (string, int, bool) {
+		found, file, token := 0, "", 0
+		for _, name := range byName[filepath.Base(site.File)] {
+			if !strings.HasSuffix(filepath.ToSlash(name), "/"+site.File) && filepath.Base(name) != site.File {
+				continue
+			}
+			ts, ok := sites[name]
+			if !ok {
+				ts = syntax.TokenSites(srcs[name])
+				sites[name] = ts
+			}
+			for k, s := range ts {
+				if s[0] == site.Line && s[1] == site.Column {
+					found, file, token = found+1, name, k
+				}
+			}
+		}
+		return file, token, found == 1
+	}
+	for i, o := range env.Evaluation.Obligations {
+		if o.Status != "passed" || o.Reason != "" || o.Advice != "" {
+			return treeEntry{}, false
+		}
+		if o.Site != (report.Site{}) {
+			file, token, ok := at(o.Site)
+			if !ok {
+				return treeEntry{}, false
+			}
+			e.Sites = append(e.Sites, treeSite{Obligation: i, File: file, Token: token})
+		}
+		if o.Declaration != nil {
+			file, token, ok := at(*o.Declaration)
+			if !ok {
+				return treeEntry{}, false
+			}
+			e.Sites = append(e.Sites, treeSite{Obligation: i, Decl: true, File: file, Token: token})
+		}
+	}
+	// It prints again, from the files it was checked from, as it printed.
+	again, ok := renderTree(e, root, srcs)
+	if !ok || !bytes.Equal(again, out) {
+		return treeEntry{}, false
+	}
+	return e, true
+}

@@ -108,6 +108,7 @@ var skipFields = map[string]string{
 	// module Go package, and only a std package is exported.
 	"check.Package.goBodies": "std binds no module Go package (snapshot.ExportStd)",
 	"check.Package.goSource": "std binds no module Go package (snapshot.ExportStd; LAWFFI LF2m)",
+	"check.Package.withSpent": "a fresh check's with work; a decoded package reports none (Package.WithWork)",
 }
 
 // Generate returns the generated sources, by their path from root (the

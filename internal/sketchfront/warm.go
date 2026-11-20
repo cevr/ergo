@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"runtime"
 	"slices"
@@ -217,6 +218,29 @@ func (r *Recorder) Lstat(name string) (fs.FileInfo, error) {
 		r.spoiled = true
 	}
 	return info, err
+}
+
+// NewRecorder is a Recorder with nothing read yet.
+func NewRecorder() *Recorder { return newRecorder(nil) }
+
+// Inputs are what the request read so far; ok is false when a read
+// spoiled the record.
+func (r *Recorder) Inputs() (in Inputs, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return Inputs{Files: maps.Clone(r.inputs.Files), Dirs: maps.Clone(r.inputs.Dirs), Stats: maps.Clone(r.inputs.Stats)}, !r.spoiled
+}
+
+// Fresh reports whether every input still has the bytes, listing and kind
+// in holds, reading each file once.
+func (in Inputs) Fresh() bool {
+	for name, want := range in.Files {
+		data, err := hostFS{}.ReadFile(name)
+		if err != nil || int64(len(data)) != want.Size || hashInput(data) != want.SHA256 {
+			return false
+		}
+	}
+	return in.listingsFresh(hostListing)
 }
 
 // Record stores answer under key with the inputs the request read.
