@@ -15,6 +15,14 @@ type EffectCode = impl.EffectCode
 
 type EffectOp = impl.EffectOp
 
+const (
+	InstanceHead = impl.InstanceHead
+)
+
+const (
+	MaxInstanceData = impl.MaxInstanceData
+)
+
 type EffectPixels = impl.EffectPixels
 
 type Backdrop = impl.Backdrop

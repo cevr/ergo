@@ -1,0 +1,11 @@
+# scripts/opcount: `sessionbench bench verify N` checks N tokens against a
+# std session/memory store of 1024 sessions, each one SHA-256 of the token
+# and one Verify (AU2); the cost of one check is the slope between the two
+# sizes. The control is hand Go with a map of digests under a mutex and
+# two time compares; the floor is one SHA-256 into a fixed array and one
+# map read.
+unit check
+sizes 200000 1200000
+args bench verify {n}
+control benchmarks/session/testdata/control
+floor benchmarks/session/testdata/floor

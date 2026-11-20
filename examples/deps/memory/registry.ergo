@@ -2,7 +2,7 @@
 // releases of a manifest, indexed by name once.
 
 import deps/resolve
-import deps/semver
+import semver
 import slices
 
 // Registry is a resolve.Index over releases held in memory, each name's

@@ -109,7 +109,8 @@ type httpDone struct {
 }
 
 // HTTPDo sends one request to origin and reads the whole response within
-// limits. path is the decoded path, joined to origin; query and header
+// limits. path is the decoded path, joined to origin, and rawPath its
+// escaped form, sent when it is one ("/a%2Fb" for "/a/b"); query and header
 // keep their order. A refused connection is Refused; a response over a
 // budget is TooLarge; a request Go cannot send is Malformed; any other
 // failure of the exchange is Transport. A stop of t cancels the request,
@@ -118,8 +119,8 @@ type httpDone struct {
 //
 //ergo:host
 //ergo:wait caller
-func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string) (HTTPResponse, error) {
-	u, err := httpRequestURL(t, origin, method, path, query, header)
+func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path, rawPath string, query, header []HTTPField, body string) (HTTPResponse, error) {
+	u, err := httpRequestURL(t, origin, method, path, rawPath, query, header)
 	if err != nil {
 		return HTTPResponse{}, err
 	}
@@ -128,7 +129,7 @@ func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, q
 
 // httpRequestURL checks a fixed-origin request (HTTPDo, HTTPDoInto) and
 // joins path and query to origin.
-func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTTPField) (*url.URL, error) {
+func httpRequestURL(t *rt.Task, origin, method, path, rawPath string, query, header []HTTPField) (*url.URL, error) {
 	t.Check()
 	if !httpToken(method) {
 		return nil, httpFailed(httpMalformed, "the method is not a token: "+method)
@@ -145,7 +146,9 @@ func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTT
 	if err != nil {
 		return nil, httpFailed(httpMalformed, err.Error())
 	}
-	u.Path, u.RawQuery = path, HTTPEncodeQuery(query)
+	// Go sends rawPath when it is an encoding of path (url.URL.EscapedPath),
+	// and path escaped by its own rule otherwise.
+	u.Path, u.RawPath, u.RawQuery = path, rawPath, HTTPEncodeQuery(query)
 	return u, nil
 }
 
@@ -271,8 +274,8 @@ const httpPrefixBytes = 1024
 //
 //ergo:host
 //ergo:wait caller
-func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
-	u, err := httpRequestURL(t, origin, method, path, query, header)
+func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path, rawPath string, query, header []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
+	u, err := httpRequestURL(t, origin, method, path, rawPath, query, header)
 	if err != nil {
 		return HTTPResponse{}, err
 	}

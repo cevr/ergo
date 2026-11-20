@@ -1,0 +1,31 @@
+// Package memory holds Shelf, a topdown.Saves that keeps its worlds for
+// one run.
+
+import ritmo/topdown
+import sync
+
+// Shelf is a topdown.Saves in memory. Its worlds are in a sync.Ref, so
+// every copy of a Shelf is the same store. NewShelf makes one.
+type Shelf { worlds sync.Ref[Map[string, topdown.World]] } implements topdown.Saves
+
+// NewShelf is a Shelf with nothing saved.
+func NewShelf() Shelf {
+	Shelf{worlds: sync.NewRef[Map[string, topdown.World]](Map[string, topdown.World]{})}
+}
+
+// Put keeps w under slot.
+func Put(s Shelf, slot string, w topdown.World) fails topdown.Broken {
+	let mut all = s.worlds.Get()
+	all[slot] = w
+	s.worlds.Set(all)
+}
+
+// Get is the world last put under slot.
+func Get(s Shelf, slot string) topdown.World fails topdown.Missing | topdown.Broken {
+	match s.worlds.Get().Get(slot) {
+	case Some[topdown.World] as w:
+		w.Value
+	case None:
+		topdown.Missing{Slot: slot}
+	}
+}

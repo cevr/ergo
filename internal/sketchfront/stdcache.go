@@ -10,13 +10,14 @@ import (
 	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 )
 
 // The checked std cache (CHK1b): a process installs the snapshot of the
-// checked prelude and std (check.ExportStd, check.InstallStd) before its
+// checked prelude and std (snapshot.ExportStd, snapshot.InstallStd) before its
 // first check, so it checks no std package from source; it reads and
 // decodes a std package only on the package's first import
-// (check/export.go; CHK1c reads the file by offset). The snapshot is a
+// (check/snapshot; CHK1c reads the file by offset). The snapshot is a
 // file under the cache root, named by the key of the compiler's identity,
 // the digest of the compiler's bytes, which embed the std sources
 // (internal/sketch/std): a std edit is a new compiler and a new key, and a
@@ -114,7 +115,7 @@ func prepareStd(modules []string) {
 		if installSnapshot(path) {
 			return
 		}
-		data, err := check.ExportStd()
+		data, err := snapshot.ExportStd()
 		if err != nil {
 			return
 		}
@@ -133,7 +134,7 @@ func installSnapshot(path string) bool {
 		return false
 	}
 	info, err := f.Stat()
-	if err == nil && check.InstallStd(f, info.Size()) == nil {
+	if err == nil && snapshot.InstallStd(f, info.Size()) == nil {
 		return true
 	}
 	_ = f.Close()
@@ -195,7 +196,7 @@ func writeModuleSnapshot(modules []string, pkgs []*check.Package, keys []string)
 	if path != want {
 		return
 	}
-	data, err := check.ExportSnapshot(pkgs, keys)
+	data, err := snapshot.ExportSnapshot(pkgs, keys)
 	if err != nil {
 		return
 	}

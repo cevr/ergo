@@ -1,0 +1,95 @@
+// The seven story tests, restated (conformance/upstream maps each).
+// The clock is not read in commands and no start time is stored: every
+// signal carries
+// the clock's reading, a press its own and a tick the reading it fired at
+// (a machines.Every timer), and the Running state owns its timer, so
+// "fires the command" becomes "enters the state whose entry arms the
+// tick", and "resolve the command" is the next signal's reading, or a
+// timed run on a virtual clock. A test of the step binds no clock.
+
+import machines
+import time
+import testing
+
+func at(t duration, b Button) machines.Timed[Button] { machines.Timed[Button]{At: t, Signal: b} }
+
+// armed reports whether the entry of w arms the tick: after TickEvery, a
+// Ticked at the reading it fires at.
+func armed(w Watch) bool {
+	match tick(w) {
+	case Some[machines.Every[Signal]] as t:
+		t.Value.In == TickEvery && t.Value.Signal(reading(time.Times(1ms, 7))) == Ticked{At: reading(time.Times(1ms, 7))}
+	case None:
+		false
+	}
+}
+
+test StartEntersRunningFromTheShownTime {
+	// ClickedStart fires DetermineStartTime with current elapsed time.
+	let n = Running{Before: 2s, Since: reading(0s), Elapsed: 2s}
+	assert Step(Stopped{Elapsed: 2s}, Pressed{Button: Start, At: reading(0s)}) == Enter[Watch]{Next: n} && armed(n)
+}
+
+// tick is the timer of a running watch's entry: after TickEvery, Ticked
+// at the clock's reading when it fires.
+func tick(w Watch) Option[machines.Every[Signal]] {
+	match w {
+	case Running:
+		Some{machines.Every[Signal]{In: TickEvery, Signal: tickedAt}}
+	case Stopped, Starting, Stopping:
+		None
+	}
+}
+
+// tickedAt is the tick at the reading at.
+func tickedAt(at time.Time) Signal { Ticked{At: at} }
+
+test StartRunsTheWatchOnTheClock {
+	// CompletedDetermineStartTime stores the offset start time and starts
+	// running: started at 500ms, the watch runs from then, and 50ms later
+	// shows 50ms. (A timed run starts from the initial state, not from 2s
+	// shown, and the test above covers a shown time.)
+	let w = run([]machines.Timed[Button]{at(time.Times(1ms, 500), Start)}, time.Times(1ms, 550))
+	assert ElapsedOf(w) == time.Times(1ms, 50) && IsRunning(w)
+}
+
+// run is the watch over trace until end on a fresh VirtualClock, whose
+// timers fire on time: its last state.
+func run(trace []machines.Timed[Button], end duration) Watch {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } { Replay(trace, end) }
+}
+
+test StopKeepsTheTime {
+	// ClickedStop pauses the stopwatch without zeroing time: the time up to
+	// the stop, by the clock, not the time of the last tick.
+	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
+	let n = machines.Next(w, Step(w, Pressed{Button: Stop, At: reading(time.Times(1ms, 3))}))
+	assert n == Stopped{Elapsed: time.Times(1ms, 5003)} && !armed(n)
+}
+
+test ResetZeros {
+	// ClickedReset zeros elapsedMs, isRunning, and startTime.
+	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
+	assert machines.Next(w, Step(w, Pressed{Button: Reset, At: reading(0s)})) == Stopped{Elapsed: 0s}
+}
+
+test ResetOfAnIdleWatchKeepsIt {
+	// ClickedReset on an idle stopwatch is a no-op.
+	assert machines.Next(Initial(), Step(Initial(), Pressed{Button: Reset, At: reading(0s)})) == Initial()
+}
+
+test TickShowsTheClockTimeAndArmsTheNext {
+	// Ticked fires DetermineTickTime with the stored startTime: a tick 37ms
+	// after the start, late, shows 37ms more, not one interval.
+	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
+	let n = Running{Before: 5s, Since: reading(0s), Elapsed: time.Times(1ms, 5037)}
+	assert Step(w, Ticked{At: reading(time.Times(1ms, 37))}) == Enter[Watch]{Next: n} && armed(n)
+}
+
+test TicksStoreTheElapsedTime {
+	// CompletedDetermineTickTime stores the new elapsed time: started at 0
+	// and stopped at 1234ms, the watch shows 00:01.23.
+	let w = run([]machines.Timed[Button]{at(0s, Start), at(time.Times(1ms, 1234), Stop)}, 2s)
+	assert w == Stopped{Elapsed: time.Times(1ms, 1234)} && Format(ElapsedOf(w)) == "00:01.23"
+}

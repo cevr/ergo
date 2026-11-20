@@ -4,6 +4,7 @@
 // pure; the loop needs a Scheduler, a time.Clock and a Screen.
 
 import particles/world
+import machines
 
 // Game is the box and what happened to it since it was loaded: the steps
 // and the count of their events.
@@ -13,9 +14,70 @@ type Game { W world.World, Steps int, T world.Tally }
 // paused keeps it as it is.
 type Phase = Running{G Game} | Paused{G Game}
 
+// PausedIgnoresTicks: a paused game does not move.
+law PausedIgnoresTicks(seed uint64, n int) {
+	word(Step(Paused{G: Fresh(box(seed, n))}, Tick)) == "ignore"
+}
+
+// word names a decision.
+func word(d Decision[Phase, Game]) string {
+	match d {
+	case Enter[Phase]:
+		"enter"
+	case Stay[Phase]:
+		"stay"
+	case Emit[Phase, Game], Tell[Phase, Game]:
+		"emit"
+	case Ignore:
+		"ignore"
+	case Reject:
+		"reject"
+	case Done[Game]:
+		"done"
+	}
+}
+
+// RunningTicksStay: a tick of a running game is one step, in the same
+// phase.
+law RunningTicksStay(seed uint64, n int) {
+	let g = Fresh(box(seed, n))
+	match Step(Running{G: g}, Tick) {
+	case Stay[Phase] as s:
+		GameOf(s.Next).Steps == 1 && Name(s.Next) == "running"
+	case Enter[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject, Done[Game]:
+		false
+	}
+}
+
 // Input is what drives the machine: a tick of game time or a key of the
 // player.
 type Input = Tick{} | Pause{} | Resume{} | Quit{}
+
+// QuitIsDone: quit ends the game with the game as it is, in each phase.
+law QuitIsDone(seed uint64, n int) {
+	let g = Advance(Fresh(box(seed, n)))
+	for p in []Phase{Running{G: g}, Paused{G: g}} {
+		match Step(p, Quit) {
+		case Done[Game] as d:
+			if d.Output.W != g.W || d.Output.Steps != 1 {
+				return false
+			}
+		case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
+			return false
+		}
+	}
+	true
+}
+
+// PauseResumeRoundTrips: pausing then resuming gives the running game
+// back, unchanged.
+law PauseResumeRoundTrips(seed uint64, n int) {
+	let g = Advance(Fresh(box(seed, n)))
+	let running Phase = Running{G: g}
+	let paused = machines.Next(running, Step(running, Pause))
+	let back = machines.Next(paused, Step(paused, Resume))
+	Name(paused) == "paused" && Name(back) == "running" && GameOf(back).W == g.W
+}
 
 // Fresh is the game of a box just loaded.
 func Fresh(w world.World) Game { Game{W: w, Steps: 0, T: world.Tally{Bounces: 0, Meetings: 0}} }

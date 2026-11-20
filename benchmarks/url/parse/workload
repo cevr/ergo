@@ -1,0 +1,7 @@
+# scripts/opcount: `urlbench bench parse N` parses N URLs with no escape
+# (STD-SURVEY SM2), eight forms in turn; the cost of one URL is the slope
+# between the two sizes. The control is Go's url.Parse.
+unit url
+sizes 409600 2457600
+args bench parse {n}
+control benchmarks/url/testdata/control

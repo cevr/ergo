@@ -267,7 +267,10 @@
 //     ot_buffer_draw_header) is the interface <H>Record, which H and each
 //     of those record kinds implement: C gets a filled copy of the whole
 //     record, the record's size in the header's size field, or NULL for a
-//     nil record. Every typed function returns an error last, and a call
+//     nil record. An optional value (an exception of class "optional":
+//     a value C reads as absent when NULL, as OpenTUI's frame for an owned
+//     buffer) is a *S: C gets a filled copy, or NULL for nil; the Ergo
+//     text writes Option[S]. Every typed function returns an error last, and a call
 //     before Load, on a nil or destroyed handle, or with a slice too long
 //     for its C length, returns an error and does not call C.
 //

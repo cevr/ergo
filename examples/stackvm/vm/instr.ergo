@@ -24,6 +24,37 @@ type Instr =
 	| Print{}
 	| Halt{}
 
+// FuelBoundsSteps: fuel bounds a run exactly: a run that halts within its
+// fuel takes at most that fuel and more fuel changes nothing about it,
+// and a run that runs out takes more than its fuel when given more.
+law FuelBoundsSteps(seed int, fuel int) {
+	let f = if fuel < 0 { -(fuel + 1) % 50 } else { fuel % 50 }
+	for p in [][]Instr{Program(seed, 20), countdown(seed % 12)} {
+		if !bounded(p, f) {
+			return false
+		}
+	}
+	true
+}
+
+// bounded is the check of FuelBoundsSteps for one program.
+func bounded(p []Instr, f int) bool {
+	let more = Run(p, f+1000) catch {
+	case Trap:
+		return true
+	}
+	let r = Run(p, f) catch {
+	case Trap as t:
+		return t.Why == OutOfFuel && more.Steps > f
+	}
+	r.Steps <= f && r == more
+}
+
+// countdown is a loop of n rounds that halts after 5n+4 instructions.
+func countdown(n int) []Instr {
+	[]Instr{Push{N: if n < 0 { -n } else { n }}, Dup, JumpIfNot{To: 6}, Push{N: 1}, Sub, Jump{To: 1}, Pop}
+}
+
 // Target is the instruction index that i jumps or calls to, if any.
 func Target(i Instr) Option[int] {
 	match i {

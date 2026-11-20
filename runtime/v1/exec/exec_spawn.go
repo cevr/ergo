@@ -25,7 +25,8 @@ type ExecDetached struct {
 // starts name with args as ExecStart does (env over the host's
 // environment, dir, stdin), in a new session and process group (setsid),
 // with its standard output and standard error going to the sinks outKind
-// and errKind, which are Inherit, Discard or ToFile: a ToCaller sink is
+// and errKind, which are Inherit, Discard or ToFile, or ToStdout for
+// errKind (standard error goes where standard output goes): a ToCaller sink is
 // Failed, as no caller outlives the program to read it. It returns once
 // the program has started. A stop of t does not end the program, and
 // neither does the end of this process: the program is reparented. While
@@ -75,6 +76,13 @@ func ExecSpawn(t *rt.Task, name string, args []string, env map[string]string, di
 		case execToCaller:
 			closeAll()
 			return ExecDetached{}, ExecFailed{Name: name, Reason: s.label + ": a detached program has no caller to read it (ToCaller)"}
+		case execToStdout:
+			if i == 0 {
+				closeAll()
+				return ExecDetached{}, execToItself(name)
+			}
+			cmd.Stderr = cmd.Stdout // nil (the null device) or standard output's file
+			continue
 		default:
 			panic("exec: unknown sink kind")
 		}

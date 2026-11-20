@@ -1,0 +1,100 @@
+// Reading rows: Rows and One parse the rows of a query with a function the
+// program gives, and the At functions read one column of a row as a type.
+
+import strings
+import time
+
+// Mismatch is a column read as a type it does not hold, or a position the
+// row does not have. Want names the type asked for.
+type Mismatch { Column int, Want string }
+
+// Rows is every row of stmt with args, each parsed by parse, in the order
+// the database gives them.
+func Rows[T, F](stmt string, args []Value, parse func(r Row) T fails F) []T fails F | Unique | Serialization | Deadlock | Timeout | Closed | Other needs DB {
+	let rows = try DB.Query(stmt, args)
+	let mut out = []T{}
+	for r in rows {
+		out = out.Append(try parse(r))
+	}
+	out
+}
+
+// One is the one row of stmt with args, parsed by parse: the first, when
+// the query gives more. A query that gives none is NoRows.
+func One[T, F](stmt string, args []Value, parse func(r Row) T fails F) T fails F | NoRows | Unique | Serialization | Deadlock | Timeout | Closed | Other needs DB {
+	let rows = try DB.Query(stmt, args)
+	if len(rows) == 0 {
+		return NoRows{Statement: stmt}
+	}
+	try parse(rows[0])
+}
+
+// column is the value at position i of r.
+func column(r Row, i int, want string) Value fails Mismatch {
+	if i < 0 || i >= len(r.Values) {
+		return Mismatch{Column: i, Want: want}
+	}
+	r.Values[i]
+}
+
+// IntAt is column i of r as an integer.
+func IntAt(r Row, i int) int64 fails Mismatch {
+	match try column(r, i, "int") {
+	case Int as v:
+		v.N
+	case _:
+		Mismatch{Column: i, Want: "int"}
+	}
+}
+
+// FloatAt is column i of r as a float.
+func FloatAt(r Row, i int) float64 fails Mismatch {
+	match try column(r, i, "float") {
+	case Float as v:
+		v.F
+	case _:
+		Mismatch{Column: i, Want: "float"}
+	}
+}
+
+// BoolAt is column i of r as a boolean.
+func BoolAt(r Row, i int) bool fails Mismatch {
+	match try column(r, i, "bool") {
+	case Bool as v:
+		v.B
+	case _:
+		Mismatch{Column: i, Want: "bool"}
+	}
+}
+
+// TextAt is column i of r as text. A column of bytes reads as their text.
+func TextAt(r Row, i int) string fails Mismatch {
+	match try column(r, i, "text") {
+	case Text as v:
+		v.S
+	case Bytes as b:
+		strings.FromBytes(b.B)
+	case _:
+		Mismatch{Column: i, Want: "text"}
+	}
+}
+
+// TimeAt is column i of r as a time.
+func TimeAt(r Row, i int) time.Time fails Mismatch {
+	match try column(r, i, "time") {
+	case Stamp as v:
+		v.At
+	case _:
+		Mismatch{Column: i, Want: "time"}
+	}
+}
+
+// IsNull is whether column i of r is NULL.
+func IsNull(r Row, i int) bool fails Mismatch {
+	match try column(r, i, "null") {
+	case Null:
+		true
+	case _:
+		false
+	}
+}

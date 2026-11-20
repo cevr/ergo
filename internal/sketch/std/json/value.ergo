@@ -18,6 +18,8 @@ type Array { Items []Value }
 type Member { Key string, Value Value }
 type Object { Members []Member }
 type Value = Null | Boolean | Num | Str | Array | Object
+
+law ValueRoundTrips(d doc) { valueRoundTrips(d) }
 func WireForm(x Value) WireBare { WireBare }
 func WireForm(x Num) WireNumberText { WireNumberText }
 func WireForm(x Object) WireMembers { WireMembers }

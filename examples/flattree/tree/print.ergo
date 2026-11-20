@@ -9,8 +9,8 @@ func Compact(v Value) string {
 }
 
 // Indent is the text of v with each element on a line of its own, two
-// spaces deeper than its container, and a space after each colon: jq's
-// layout, the form `fmt` prints. An empty array or object is [] or {}.
+// spaces deeper than its container, and a space after each colon: the
+// indented layout `fmt` prints. An empty array or object is [] or {}.
 func Indent(v Value) string {
 	let mut b = strings.NewBuilder()
 	indent(&b, v, 0)

@@ -42,4 +42,12 @@ func Shared() *System {
 	return impl.Shared()
 }
 
+func New() *System {
+	return impl.New()
+}
+
+func RegisterAppFont(data []byte, family string) error {
+	return impl.RegisterAppFont(data, family)
+}
+
 type FontFamily = impl.FontFamily
