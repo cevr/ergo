@@ -16,7 +16,7 @@ Tag: `default`. It is an original program on the shape of survey E5 (a total ste
 ## What it shows
 
 - **A total step.** `Step` decides every (state, signal) pair. `case (_, Cancel)` ends the flow from every state; each state then lists the signals it takes and ignores the rest with `case (State, _): Ignore`.
-- **Input-initial and an eventless step.** The machine's input is the methods on (`Methods{Serial, Tag}`). `Settle` turns a state with nothing to choose into the state it would choose: with only the serial on, the flow starts on the serial pad. Every `Enter` goes through `Settle`, so no state waits on a choice it cannot make (effect-machine `.immediate`, XState `always`).
+- **Input-initial and an eventless step.** The machine's input is the methods on (`Methods{Serial, Tag}`). `Settle` turns a state with nothing to choose into the state it would choose: with only the serial on, the flow starts on the serial pad. Every `Enter` goes through `Settle`, so no state waits on a choice it cannot make.
 - **State-owned work with typed failures.** `SendingCode` and `Verifying` own a `machines.Work` against `Devices`. The runner starts it after the entry commits and interrupts it when the entry ends, so a `cancel` during a verify drops its answer by the entry's epoch. Each work is `machines.Attempt(run, onSuccess, onFailure)`, an ordinary std function: every map is an argument, so leaving one out is a call with too few arguments. `WrongCode` and `UnknownTag` are failures of `Devices` and also signals, so their `onFailure` hands the failure on as a `Signal`. `DeviceUnreachable` is not a signal, and its `onFailure` maps it to `SendFailed`.
 - **A state timer.** `after: timer` gives `Failed` a 30 s timer whose signal is `Back`. The runner owns it: a re-entry restarts it, and it never fires after its entry ended. The `timer` case moves the manual clock with `wait`.
 - **Rows.** `work` needs `Devices`; the machine's row is the work's row, so `screen.Run` needs `pair.Devices`, and only `main` binds it.
@@ -50,28 +50,6 @@ go run ./scripts/examples pairing
 ```
 
 Cases: `code` (serial pad, a refused submit, a wrong code, a tap the serial-only screen refuses, a pairing), `strikes` (three wrong codes lock), `tap` (a tag-only screen), `timer` (an unreachable serial, the 30 s timer back to the start, an unknown tag, cancel), `left` (the script ends mid-flow: `ExitOf` is `Halted`).
-
-## effect-machine side by side
-
-The same flow in effect-machine would use: `State`/`Event` schemas; `Machine.make` with an input; `.on` per (state, event); `.onAny(Event.Cancel)`; `.immediate(State.Options, …)` for the eventless step; `.task(State.SendingCode, …, { onSuccess, onFailure })` and `.task(State.Verifying, …)`; `.timeout(State.Failed, { duration: "30 seconds", event: Event.Back })`; `.background` for the tag reader; `Machine.spawn`, `actor.call`, `actor.waitFor` and `actor.awaitExit`.
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| every state × signal decided | an unhandled event is dropped at run time | `Step` is a total `match`; `(State, _): Ignore` is written | compiler |
-| Cancel from any state | `.onAny(Event.Cancel)`, which a specific `.on` overrides silently | `case (_, Cancel)` is the first arm: no state can override it | compiler (arm order is visible) |
-| eventless step | `.immediate`, run by the runtime before the next event | `Settle`, a plain function applied at every `Enter`, with the law `SettleIsStable` | law |
-| work result → event | `onSuccess`/`onFailure` handlers chosen by overloads (TS2769 when one is missing) | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; a failure that is a signal is handed on as a `Signal`, and `DeviceUnreachable` maps to `SendFailed` | compiler |
-| stale work result | a result sent after the state's exit may reach a later state (it is a plain `send`; inferred, em-parity §4.2) | dropped by the entry's epoch | runner (MU4 model and test) |
-| timer | `.timeout` compiles to a task in the state scope | `after: timer`, one function over the state union, exhaustive | compiler + runner |
-| sub-machine (pad) | a child actor, or fields updated in handlers | a pure function on a record field, with laws | law |
-| required services | `R` in the type | `needs Devices` from the work's row | compiler (equal) |
-| tag reader | `.background(effect)`, a device of the machine that runs in every state, with its own `send` | `actor.Feed(a, Taps(reader))`: a plain `Seq` of signals that the actor owns and stops; the machine stays a pure step, and the source is a value a test can read without an actor | runner (`TestActorFeedSourcesEndWithTheActor`) |
-
-Where Ergo could not improve:
-
-- **Signatures and type arguments.** `Stay[Flow]{…}`, `Done[Result]{…}`, `Timeout[Signal]{…}`, `Some[Flow]{…}` are written where effect-machine infers (em-parity §4.5 item 1).
-- **Ignore arms.** Seven `(State, _): Ignore` arms; effect-machine drops unhandled events with no line. The arms are the cost of totality (q40 keeps them explicit).
-- **The reader's beep.** A source's value is a `Send`: it returns when the value is queued, and nothing tells the screen when the flow has stepped it. The reader pushes a beep after each queued tag so the script can wait for it (finding MB2-G1). effect-machine's `.background` has no such answer either (inferred).
 
 ## Benchmark
 

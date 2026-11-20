@@ -27,8 +27,9 @@ package lower
 //
 // The tree visits arms in the order its tests decide, not in source
 // order, and the compiler's DWARF scopes must open at positions that do
-// not decrease (dwarfgen's marker): monotone moves a scope's position up
-// to the last one written before it.
+// not decrease (dwarfgen's marker): irScopesIncrease (ir_end.go) moves a
+// scope's position up to the last one written before it, in the tree as
+// in the rest of the body.
 //
 // A scalar-form local as a subject is gathered first, as the emitter's
 // headerValue does (ir_scalar.go). Not yet: a match the tree leaves to the
@@ -206,8 +207,6 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 		}
 		out = []*irStmt{{K: "block", Pos: p, End: ep, Body: body}}
 	}
-	cur := p
-	monotone(out, &cur)
 	return out
 }
 
@@ -313,9 +312,13 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 				ic.Vals = []*irExpr{{K: "const", Pos: p, T: "uint8", V: strconv.Itoa(k)}}
 				bound = b.narrow(fu, col.I, k, p, t.s)
 			} else {
-				ic.Types = []string{c.label}
+				// The case's Go type as the IR spells it (goType): a
+				// runtime type's by its import path (PORT-WITNESS: a
+				// catch of json.Malformed beside `case _`).
+				gt := b.goType(vt, t.s)
+				ic.Types = []string{gt}
 				arm.Tags = []int{unionTag(ct, vt)}
-				bound = &irExpr{K: "assert", Pos: p, T: c.label, X: col}
+				bound = &irExpr{K: "assert", Pos: p, T: gt, X: col}
 			}
 			l := b.temp(n.bound, b.goType(vt, t.s), p)
 			arm.Bind = &irStmt{K: "def", Pos: p, Local: l, X: bound}
@@ -416,7 +419,9 @@ func noCase(b *irBuilder, s syntax.Stmt, p irPos) *irStmt {
 // compiler marks them, so that none comes before the one marked before
 // it: a switch's position, each case's, its default's (ElsePos), its end;
 // an if's position, its then block, its end, its else block; a loop's
-// position, body and end. cur is the last position marked.
+// position, body and end. cur is the last position marked. The tree
+// leaves it to irScopesIncrease; the match form still calls it
+// (ir_forms_match.go).
 func monotone(list []*irStmt, cur *irPos) {
 	up := func(p *irPos) {
 		if *p == (irPos{}) {

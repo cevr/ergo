@@ -40,6 +40,7 @@ extern go os.DevNull let DevNull string
 // ergo:refused DirEntry: a Go alias; the binding names the type it stands for
 
 // ergo:go func DirFS(dir string) fs.FS
+// ergo:total
 extern go os.DirFS func DirFS(dir string) fs.FS needs go.Foreign
 
 // ergo:go func Environ() []string
@@ -211,6 +212,7 @@ extern go os.IsExist func IsExist(err go.Error) bool needs go.Foreign
 extern go os.IsNotExist func IsNotExist(err go.Error) bool needs go.Foreign
 
 // ergo:go func IsPathSeparator(c uint8) bool
+// ergo:total
 extern go os.IsPathSeparator func IsPathSeparator(c uint8) bool needs go.Foreign
 
 // ergo:go func IsPermission(err error) bool
@@ -381,7 +383,7 @@ extern go os.Process.Release func (p *Process) Release() fails go.Error needs go
 extern go os.Process.Signal func (p *Process) Signal(sig own Signal) fails go.Error needs go.Foreign
 
 // ergo:go func (*Process).Wait() (*ProcessState, error)
-extern go os.Process.Wait func (p *Process) Wait() go.Ref[ProcessState] fails go.Error needs go.Foreign
+extern go os.Process.Wait func (p *Process) Wait() Option[go.Ref[ProcessState]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Process).WithHandle(f func(handle uintptr)) error
 // ergo:refused Process.WithHandle: parameter 1: callback parameter 1: Ergo has no uintptr

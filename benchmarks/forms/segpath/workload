@@ -1,0 +1,10 @@
+# scripts/opcount: `irforms bench segpath N` builds N paths of std's ui.Seg
+# (dash-gui's chart stroke: 8 MoveTo and 8 LineTo appended to a path with
+# room for them) and reads each segment; the cost of one path is the slope
+# between the two sizes (FLAT-STD). The control is hand Go with a segment
+# struct of an op and a point, which is also the floor: a path needs its
+# 16 segments written once and read once.
+unit path
+sizes 20000 220000
+args bench segpath {n}
+control benchmarks/forms/testdata/control

@@ -72,6 +72,9 @@ type interp struct {
 	// (licence.go): a native that would read the working directory, the
 	// environment or the time zone reads it here.
 	ambient ambient
+	// goBodies runs a module's own Go bodies in a licence run (LAWFFI
+	// LF2m; gobodies.go), nil elsewhere.
+	goBodies GoBodies
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair
@@ -407,10 +410,13 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		return v, nil
 	}
 	if !p.ergo {
-		if check.GoBuiltin(fn) == "append" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0])) {
-			// An extern of Go's append at its first shape, [T](xs []T, x T)
-			// []T (check/builtin.go): the prelude's xs.Append(x), which the
-			// lowering also writes as Go's append (MX-EVAPPEND).
+		if spreads := check.AppendSpreads(fn); check.GoBuiltin(fn) == "append" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0]) && (!spreads || isSliceV(args[1]))) {
+			// An extern of Go's append (check/builtin.go) at its first
+			// shape, [T](xs []T, x T) []T: the prelude's xs.Append(x),
+			// which the lowering also writes as Go's append (MX-EVAPPEND);
+			// or at its spread shape, [T](xs []T, ys []T) []T, Go's
+			// append(xs, ys...): slices.AppendAll (EVAL-IFP: it ran as
+			// the first shape, ys one element).
 			xs, ok := args[0].(sliceV)
 			if !ok {
 				ice("append's first argument is %T", args[0])
@@ -418,6 +424,9 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 			var site syntax.Node = fr.decl
 			if at != nil {
 				site = at
+			}
+			if spreads {
+				return in.appendAll(fr, site, xs, args[1].(sliceV))
 			}
 			return in.appendTo(fr, site, xs, args[1], nil)
 		}

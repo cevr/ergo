@@ -4,7 +4,7 @@ An Ergo module of this repository (`modules/`, MK0): a server of the Model Conte
 
 | Package | What |
 | --- | --- |
-| `mcp` | `Transport` (an operation type with its law), `Tool`, `ToolError`, `UnknownTool`, `Server`, `Call`, `List`, `Handle` (one message to an `Answer`), `Line`, `Serve`, `Conforms` (a JSON value against an input schema, AP3) |
+| `mcp` | `Transport` (an operation type with its law), `Tool`, `ToolError`, `UnknownTool`, `Server`, `Call`, `List`, `Handle` (one message to an `Answer`), `Line`, `Serve`, `Conforms` (a JSON value against an input schema, by std `jsonschema`) |
 | `mcp/memory` | `Transport` in memory: the client's messages given at the start, `Sent` for the test |
 | `mcp/stdio` | `Transport` over standard input and output, one message per line, made in `main` (it needs `Ambient`) |
 
@@ -21,7 +21,7 @@ A tool's value goes back as one text block, which holds its JSON.
 
 ## Input schemas
 
-`Conforms(schema, v)` reports whether v is an instance of the schema. It reads the subset of JSON Schema that `ergo gen mcp` writes: `type`, `properties`, `required`, `additionalProperties` (a schema), `items`, `prefixItems`, `anyOf` and `const` (a string). Like JSON Schema, it ignores any other keyword, so a schema that uses more keywords is read as looser than it is. The generated packages state as a law that their tools' arguments fit their schemas (`ArgumentsFitTheSchema`). The server does not check a call's arguments: a generated tool's `Call` decodes them, and arguments that do not decode fail with `ToolError`.
+`Conforms(schema, v)` reports whether v is an instance of the schema, by std `jsonschema` (wf10 JS0; its keywords and laws are in docs/spec/stdlib.md, jsonschema), which `ergo gen mcp`, `ergo gen api` and `ergo gen schema` write for; a schema that is no `jsonschema.Schema` (a keyword of another kind, a `$ref` out of the document) fits nothing. The generated packages state as a law that their tools' arguments fit their schemas (`ArgumentsFitTheSchema`). The server does not check a call's arguments: a generated tool's `Call` decodes them, and arguments that do not decode fail with `ToolError`.
 
 ## Laws
 
@@ -29,7 +29,6 @@ A tool's value goes back as one text block, which holds its JSON.
 - `ListNamesEveryTool`: `tools/list` names every tool, in order, each once.
 - `UnknownToolIsATypedError`: a call of a name no tool has fails `UnknownTool`, and the answer is the JSON-RPC error that names the tool, not a result.
 - `memory.CallAnswersOnce`: in a session of generated requests and notifications, each request gets one answer that carries its id, in order, and a notification gets none.
-- `RequiredKeyIsRequired`, `PropertiesAreChecked`, `IntegerHasNoFraction`, `AnyOfIsOneOfItsSchemas`, `PrefixItemsFixTheLength`, `ItemsAreEachChecked`: what each keyword of `Conforms` refuses.
 - `memory.Session` is a scripted session: initialize, the initialized notification, the list, a call, a call whose tool fails, an unknown tool, an unknown method, a line that is not JSON, and a ping. Each answer is checked as an exact line.
 
 ## Decided

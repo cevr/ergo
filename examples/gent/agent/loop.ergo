@@ -3,6 +3,7 @@
 // each tool call the work of Running's, and a retry's wait the timer of
 // Waiting's. So a recorded run of signals replays as a fold (Replay).
 
+import exec
 import machines
 import strings
 
@@ -171,11 +172,11 @@ func PromptOf(s State) Prompt { Prompt{Log: s.Log, Tools: Schemas()} }
 // delta and then the reply or the failure; Running runs its call. The
 // runner interrupts the work when its entry ends, and drops what it
 // sends after.
-func ask(s State) Option[machines.Work[Signal, Model | Tools]] {
+func ask(s State) Option[machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]] {
 	match s.Phase {
 	case Asking:
 		let p = PromptOf(s)
-		Some{machines.Work[Signal, Model | Tools]{Start: func(send entry func(e Signal)) needs Model | Tools {
+		Some{machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | Scheduler {
 			let t = Model.Stream(p, func(d Delta) fails SinkFailed { send(d) }) catch {
 			case SinkFailed:
 				return
@@ -188,7 +189,7 @@ func ask(s State) Option[machines.Work[Signal, Model | Tools]] {
 		}}}
 	case Running as r:
 		let req = r.Next
-		Some{machines.Work[Signal, Model | Tools]{Start: func(send entry func(e Signal)) needs Model | Tools { send(ToolDone{Outcome: Run(req)}) }}}
+		Some{machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | Scheduler { send(ToolDone{Outcome: Run(req)}) }}}
 	case Idle, Waiting, Approving, Ended:
 		None
 	}
@@ -273,6 +274,99 @@ type Agent machine[State, Signal] {
 		}
 		true
 	},
+
+	// ShellRunsOnlyApproved: in every run, Running with a shell command is
+	// entered only by Approve, in Approving of that call and command. The
+	// run is steered: a reply's calls, then an answer and a result for
+	// each, then any signals.
+	law ShellRunsOnlyApproved(l Limits, uses []Use, answers []bool, signals []Signal) {
+		let mut s = Start(l)
+		for e in answered(uses, answers, signals) {
+			let after = machines.Next(s, Step(s, e))
+			if !approvedOrNoShell(s, e, after) {
+				return false
+			}
+			s = after
+		}
+		true
+	},
+
+	// DenyIsToldNotRun: a declined call is not run: Decline in Approving
+	// gives that call the result that the person declined it, and the
+	// next phase is not Running it.
+	law DenyIsToldNotRun(l Limits, uses []Use, answers []bool, signals []Signal) {
+		let mut s = Start(l)
+		for e in answered(uses, answers, signals) {
+			let after = machines.Next(s, Step(s, e))
+			match s.Phase {
+			case Approving as p:
+				if e == Decline && !toldNotRun(p.Call, after) {
+					return false
+				}
+			case Idle, Asking, Waiting, Running, Ended:
+			}
+			s = after
+		}
+		true
+	},
+}
+
+// toldNotRun reports whether after holds the declined result of c and
+// is not running it.
+func toldNotRun(c Call, after State) bool {
+	let why ToolFailure = Declined
+	let mut told = false
+	for row in after.Log {
+		match row {
+		case Result as res:
+			told = told || res.Id == c.Id && res.Text == Told(why) && !res.Ok
+		case User, Reply, Cut, Failed, Note:
+		}
+	}
+	match after.Phase {
+	case Running as r:
+		told && r.Call != c
+	case Idle, Asking, Waiting, Approving, Ended:
+		told
+	}
+}
+
+// answered is a run that asks, gets a reply that calls tools (uses), and
+// then for each of answers approves (true) or declines the call waiting,
+// with a result after it, and then takes any signals.
+func answered(uses []Use, answers []bool, signals []Signal) []Signal {
+	let mut run = []Signal{Submit{Text: "go"}, Replied{Text: "", Uses: uses}}
+	for yes in answers {
+		run = run.Append(if yes { Approve } else { Decline })
+		run = run.Append(ToolDone{Outcome: Output{Text: ""}})
+	}
+	run.Concat(signals)
+}
+
+// approvedOrNoShell reports whether the step from s by e to after runs
+// no shell command, or runs one the person approved: after is Running a
+// RunShell only when s was already running it, or s was Approving that
+// call and e is Approve.
+func approvedOrNoShell(s State, e Signal, after State) bool {
+	match after.Phase {
+	case Running as r:
+		match r.Next {
+		case RunShell:
+			if s.Phase == after.Phase {
+				return true
+			}
+			match s.Phase {
+			case Approving as p:
+				p.Call == r.Call && p.Next == r.Next && e == Approve
+			case Idle, Asking, Waiting, Running, Ended:
+				false
+			}
+		case ReadFile, ListDir:
+			true
+		}
+	case Idle, Asking, Waiting, Approving, Ended:
+		true
+	}
 }
 
 // steered is a run that asks, gets a reply that calls tools (uses), gets

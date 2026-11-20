@@ -113,6 +113,7 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	vals := fc.callArgs(list, call)
 	restore()
 	v, okName := fc.temp("v"), fc.temp("ok")
+	fc.l.intMapConflict(fc.typeOf(list[0])) // intmap.go: Go's comma-ok read
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")
 	if elemCopy {
 		m, ok := underEqual(fc.typeOf(list[0])).(*check.Map)

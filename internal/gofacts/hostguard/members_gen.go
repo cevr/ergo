@@ -12,6 +12,8 @@ import (
 	"hash/crc32"
 	"math"
 	"math/bits"
+	"net/netip"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -176,6 +178,32 @@ var members = map[string]any{
 	"math/bits.TrailingZeros32":           bits.TrailingZeros32,
 	"math/bits.TrailingZeros64":           bits.TrailingZeros64,
 	"math/bits.TrailingZeros8":            bits.TrailingZeros8,
+	"net/netip.AddrFrom16":                netip.AddrFrom16,
+	"net/netip.AddrFrom4":                 netip.AddrFrom4,
+	"net/netip.AddrFromSlice":             netip.AddrFromSlice,
+	"net/netip.AddrPortFrom":              netip.AddrPortFrom,
+	"net/netip.IPv4Unspecified":           netip.IPv4Unspecified,
+	"net/netip.IPv6LinkLocalAllNodes":     netip.IPv6LinkLocalAllNodes,
+	"net/netip.IPv6LinkLocalAllRouters":   netip.IPv6LinkLocalAllRouters,
+	"net/netip.IPv6Loopback":              netip.IPv6Loopback,
+	"net/netip.IPv6Unspecified":           netip.IPv6Unspecified,
+	"net/netip.MustParseAddr":             netip.MustParseAddr,
+	"net/netip.MustParseAddrPort":         netip.MustParseAddrPort,
+	"net/netip.MustParsePrefix":           netip.MustParsePrefix,
+	"net/netip.ParseAddr":                 netip.ParseAddr,
+	"net/netip.ParseAddrPort":             netip.ParseAddrPort,
+	"net/netip.ParsePrefix":               netip.ParsePrefix,
+	"net/netip.PrefixFrom":                netip.PrefixFrom,
+	"net/url.JoinPath":                    url.JoinPath,
+	"net/url.Parse":                       url.Parse,
+	"net/url.ParseQuery":                  url.ParseQuery,
+	"net/url.ParseRequestURI":             url.ParseRequestURI,
+	"net/url.PathEscape":                  url.PathEscape,
+	"net/url.PathUnescape":                url.PathUnescape,
+	"net/url.QueryEscape":                 url.QueryEscape,
+	"net/url.QueryUnescape":               url.QueryUnescape,
+	"net/url.User":                        url.User,
+	"net/url.UserPassword":                url.UserPassword,
 	"path/filepath.Base":                  filepath.Base,
 	"path/filepath.Clean":                 filepath.Clean,
 	"path/filepath.Dir":                   filepath.Dir,

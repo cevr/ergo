@@ -1,0 +1,64 @@
+// The board a first run starts with: the chores of an observatory.
+
+import taskboard/sortkey
+
+// Defaults is the board with nothing saved.
+let Defaults = []Column{
+	keyed("todo", "To Do", []string{
+		"Align the finder scope",
+		"Recoat the primary mirror",
+		"Log the meteor shower counts",
+		"Replace the dome's drive belt",
+		"Calibrate the spectrograph",
+		"Clear the moss off the north path",
+	}, 1),
+	keyed("in-progress", "In Progress", []string{
+		"Map the variable stars of Cygnus",
+		"Repaint the dome slit",
+		"Archive the 1998 plates",
+		"Fix the dew heater",
+		"Write the open-night guide",
+	}, 7),
+	keyed("done", "Done", []string{
+		"Order the new eyepieces",
+		"Survey the light pollution",
+		"Oil the declination gears",
+		"Photograph the Andromeda galaxy",
+		"Clean the telescope's corrector plate",
+		"Restock the red torches",
+	}, 12),
+}
+
+// SortKeysStrictlyIncrease: after drawn reorders of the default board,
+// every column's keys are valid and strictly increasing, so the key order
+// is the board's order.
+law SortKeysStrictlyIncrease(moves []int) {
+	let mut board = Defaults
+	for m in moves {
+		let from = pick(m, 3)
+		let col = board[from].Cards
+		if len(col) > 0 {
+			board = Reorder(board, col[pick(m/3, len(col))].ID, board[from].ID, board[pick(m/100, 3)].ID, pick(m/300, 8))
+		}
+	}
+	for c in board {
+		for i, card in c.Cards {
+			if !sortkey.Valid(card.Key) || (i > 0 && !(c.Cards[i-1].Key < card.Key)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// keyed is a column whose cards have the titles, ids from card-first on,
+// and keys in order.
+func keyed(id string, name string, titles []string, first int) Column {
+	let mut cards = []Card{}
+	let mut key = sortkey.Between(None, None)
+	for i, t in titles {
+		cards = cards.Append(Card{ID: "card-\(first + i)", Title: t, Description: "", Key: key})
+		key = sortkey.After(key)
+	}
+	Column{ID: id, Name: name, Cards: cards}
+}

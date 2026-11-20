@@ -1,0 +1,4 @@
+> read something
+→ read {"file": 3
+x bad arguments for read: want {"path": TEXT}
+< I wrote the arguments wrong.

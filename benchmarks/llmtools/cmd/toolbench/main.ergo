@@ -1,0 +1,59 @@
+// toolbench holds the counted probe of std llm's tools (wf10 L7), with a
+// hand Go twin in ../../testdata/control and a floor in
+// ../../testdata/floor; a workload per kind in ../../KIND (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/llmtools/KIND).
+//
+//	toolbench bench KIND N
+//
+// KIND parse: N tool calls a model wrote, each parsed by the generated
+// toolsllm.Parse into the hub's Request (the arguments read into the
+// Query of the find tool). One unit is one call: the cost of a model's
+// call from its argument text to the Request a provider answers.
+
+import llm
+import os
+import strconv
+import llmtools/tools/toolsapi
+import llmtools/tools/toolsllm
+
+let words = []string{"rust", "go", "ergo", "effect", "gleam", "elixir", "rescript", "ocaml"}
+
+// call is the find call number i, as a model writes it.
+func call(i int) llm.Call {
+	let w = words[i&7]
+	llm.Call{Id: "call-\(i & 7)", Name: "find", Arguments: "{\"text\": \"papers on " + w + "\", \"limit\": \(i & 15), \"tags\": [\"lang\", \"" + w + "\"]}"}
+}
+
+func bench(kind string, n int) int {
+	let mut t = 0
+	if kind == "parse" {
+		let calls = []llm.Call{call(0), call(1), call(2), call(3), call(4), call(5), call(6), call(7)}
+		for i in 0..n {
+			let r = toolsllm.Parse(calls[i&7]) catch {
+			case llm.UnknownTool, llm.BadArguments:
+				return -1
+			}
+			match r {
+			case toolsapi.FindRequest as f:
+				t = t + f.Q.Limit + len(f.Q.Tags)
+			case toolsapi.CountRequest:
+				t = t + 0
+			}
+		}
+	}
+	t
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: toolbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "toolbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

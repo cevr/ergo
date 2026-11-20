@@ -259,7 +259,7 @@ func TestStdEvidenceAdmitsOnlyProvedCurrent(t *testing.T) {
 	admitted := 0
 	for prov, rules := range newRewriter(jsonPkg, nil).rules {
 		for _, r := range rules {
-			key := ledgerKey(LedgerNames(nil).law(r.law), LedgerNames(nil).provider(prov), "")
+			key := ledgerKey(LedgerNames(nil).law(r.law), LedgerNames(nil).provider(prov), "", "")
 			entry, found := e.entries[key]
 			got, why := e.Admit(r.law, prov, RewriteInstance{})
 			if want := found && entry.Verdict == "proved"; got != want {

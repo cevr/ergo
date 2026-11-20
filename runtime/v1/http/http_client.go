@@ -45,29 +45,6 @@ func httpFailed(kind int, reason string) HTTPSendFailed {
 	return HTTPSendFailed{Kind: kind, Reason: reason}
 }
 
-// HTTPCheckOrigin accepts scheme://authority with the scheme http or
-// https and nothing after the authority (a lone "/" is allowed). It is
-// pure: http.NewClient holds the authority to choose the host.
-//
-//ergo:wait none
-func HTTPCheckOrigin(origin string, limits HTTPLimits) error {
-	if !limits.valid() {
-		return HTTPInvalidLimits(limits)
-	}
-	u, err := url.Parse(origin)
-	switch {
-	case err != nil:
-		return HTTPInvalidClient{origin, err.Error()}
-	case u.Scheme != "http" && u.Scheme != "https":
-		return HTTPInvalidClient{origin, "the scheme is not http or https"}
-	case u.Host == "" || u.User != nil:
-		return HTTPInvalidClient{origin, "the authority is not a host and port"}
-	case u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "", u.ForceQuery:
-		return HTTPInvalidClient{origin, "an origin has no path, query or fragment"}
-	}
-	return nil
-}
-
 // httpTransports holds one Go transport per response header budget, so
 // clients with one budget share their idle connections.
 var httpTransports sync.Map // int -> *http.Transport
@@ -109,7 +86,8 @@ type httpDone struct {
 }
 
 // HTTPDo sends one request to origin and reads the whole response within
-// limits. path is the decoded path, joined to origin; query and header
+// limits. path is the decoded path, joined to origin, and rawPath its
+// escaped form, sent when it is one ("/a%2Fb" for "/a/b"); query and header
 // keep their order. A refused connection is Refused; a response over a
 // budget is TooLarge; a request Go cannot send is Malformed; any other
 // failure of the exchange is Transport. A stop of t cancels the request,
@@ -118,8 +96,8 @@ type httpDone struct {
 //
 //ergo:host
 //ergo:wait caller
-func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string) (HTTPResponse, error) {
-	u, err := httpRequestURL(t, origin, method, path, query, header)
+func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path, rawPath string, query, header []HTTPField, body string) (HTTPResponse, error) {
+	u, err := httpRequestURL(t, origin, method, path, rawPath, query, header)
 	if err != nil {
 		return HTTPResponse{}, err
 	}
@@ -128,7 +106,7 @@ func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, q
 
 // httpRequestURL checks a fixed-origin request (HTTPDo, HTTPDoInto) and
 // joins path and query to origin.
-func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTTPField) (*url.URL, error) {
+func httpRequestURL(t *rt.Task, origin, method, path, rawPath string, query, header []HTTPField) (*url.URL, error) {
 	t.Check()
 	if !httpToken(method) {
 		return nil, httpFailed(httpMalformed, "the method is not a token: "+method)
@@ -145,7 +123,9 @@ func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTT
 	if err != nil {
 		return nil, httpFailed(httpMalformed, err.Error())
 	}
-	u.Path, u.RawQuery = path, HTTPEncodeQuery(query)
+	// Go sends rawPath when it is an encoding of path (url.URL.EscapedPath),
+	// and path escaped by its own rule otherwise.
+	u.Path, u.RawPath, u.RawQuery = path, rawPath, httpEncodeQuery(query)
 	return u, nil
 }
 
@@ -271,8 +251,8 @@ const httpPrefixBytes = 1024
 //
 //ergo:host
 //ergo:wait caller
-func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
-	u, err := httpRequestURL(t, origin, method, path, query, header)
+func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path, rawPath string, query, header []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
+	u, err := httpRequestURL(t, origin, method, path, rawPath, query, header)
 	if err != nil {
 		return HTTPResponse{}, err
 	}

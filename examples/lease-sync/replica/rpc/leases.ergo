@@ -4,6 +4,12 @@ import lease-sync/replica
 import lease-sync/replica/server
 import rpc
 import time
+import lease-sync/replica/memory
+import strings
+import sync
+import schedule
+import slices
+import testing
 
 type Frame = replica.Frame[lease.Pool, lease.Event, lease.Refusal]
 type Authority = server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal]
@@ -35,6 +41,69 @@ func Push(l Leases, m domain.Envelope[lease.Cmd]) domain.Receipt fails replica.U
 
 func Pull(l Leases, by replica.ClientID, from int) Frame fails replica.Unavailable | replica.Unauthorized { try Fetch(l.r, by, from) }
 
+// RetryResendsTheSameID: a push that the network drops is sent again with
+// the same envelope, so each try carries the command's own id, and after
+// the retries every pending command is in the log once at its id.
+law RetryResendsTheSameID(drops int, n int) {
+	let f = Flaky{..newFlaky(), left: sync.NewRef((drops%4 + 4) % 4)}
+	let k = (n%4+4)%4 + 1
+	let mut pending = []domain.Envelope[lease.Cmd]{}
+	for i in 1..k+1 {
+		pending = pending.Append(domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("a"), i), By: "a", At: at, Command: lease.Give{Name: "n\(i)"}})
+	}
+	let c = testing.NewVirtualClock(0)
+	let conn = with context { Scheduler: c, time.Clock: c } {
+		replica.Send(f, pending, schedule.Exponential(1s, 2.0, 1m).And(schedule.Recurs(4)))
+	}
+	if conn != replica.Live {
+		return false
+	}
+	let mut ids = []domain.CommandID{}
+	for m in pending {
+		ids = ids.Append(m.ID)
+	}
+	for id in f.seen.Get() {
+		if !slices.Contains(ids, id) {
+			return false
+		}
+	}
+	let log = f.inner.Pull(replica.ClientID("a"), 0) catch {
+	case replica.Unavailable, replica.Unauthorized:
+		return false
+	}
+	match log {
+	case replica.Delta[lease.Event, lease.Refusal] as d:
+		if len(d.Records) != k {
+			return false
+		}
+		for i, r in d.Records {
+			if r.ID != pending[i].ID {
+				return false
+			}
+		}
+		true
+	case replica.Snapshot[lease.Pool, lease.Refusal]:
+		false
+	}
+}
+
+// Flaky is a lease authority whose next Left pushes fail Unavailable
+// before they reach it; it records the id of each push it is given.
+type Flaky { inner Leases, left sync.Ref[int], seen sync.Ref[[]domain.CommandID] } implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
+
+func newFlaky() Flaky { Flaky{inner: NewLeases(), left: sync.NewRef(2), seen: sync.NewRef([]domain.CommandID{})} }
+
+func Push(f Flaky, m domain.Envelope[lease.Cmd]) domain.Receipt fails replica.Unavailable | replica.Unauthorized | replica.OutOfOrder | replica.IDConflict {
+	f.seen.Update(func(s []domain.CommandID) []domain.CommandID { s.Append(m.ID) })
+	let fail = sync.Modify(f.left, func(n int) (bool, int) { (n > 0, n - 1) })
+	if fail {
+		return replica.Unavailable{Reason: "dropped"}
+	}
+	try f.inner.Push(m)
+}
+
+func Pull(f Flaky, by replica.ClientID, from int) Frame fails replica.Unavailable | replica.Unauthorized { try f.inner.Pull(by, from) }
+
 // Serve is the handler of std rpc for the lease authority a: the clients
 // allow takes, a long poll held up to wait, stamped and timed by the
 // clock the caller binds.
@@ -56,6 +125,56 @@ func NewLeases() Leases {
 			try serve(tag, payload)
 		}
 	}), false)
+}
+
+// AgreesWithMemory: for any pushes (resends, commands out of order and
+// conflicts among them) and pulls from any position, the rpc provider over
+// std rpc end to end gives the same answers and the same frames as the memory
+// provider, and none of them is Unavailable: rpc carries every
+// receipt, failure and frame of the protocol both ways.
+law AgreesWithMemory(ops []int, froms []int) {
+	let remote = NewLeases()
+	let mem = memory.NewLeases()
+	let kept = sync.NewRef(Map[replica.ClientID, int]{})
+	let next = func(o replica.ClientID) int {
+		match kept.Get().Get(o) {
+		case Some[int] as n:
+			n.Value + 1
+		case None:
+			1
+		}
+	}
+	for i, op in ops {
+		let m = envelope(op, next)
+		let w = told(remote, m)
+		if w != told(mem, m) || strings.HasPrefix(w, "unavailable") {
+			return false
+		}
+		if strings.HasPrefix(w, "kept") {
+			let o = server.Origin(m.ID)
+			kept.Update(func(k Map[replica.ClientID, int]) Map[replica.ClientID, int] { k.Put(o, replica.SeqOf(m.ID, o)) })
+		}
+		if i < len(froms) {
+			let by = if froms[i]%2 == 0 { replica.ClientID("a") } else { replica.ClientID("b") }
+			let from = (froms[i]%12 + 12) % 12
+			let f = read(remote, by, from)
+			if f == None || f != read(mem, by, from) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// envelope is op as a command of client "a" or "b": a take or a give of
+// one of three names, at, before or after the client's next number.
+func envelope(op int, next func(origin replica.ClientID) int) domain.Envelope[lease.Cmd] {
+	let x = (op%1000 + 1000) % 1000
+	let origin = if x%2 == 0 { replica.ClientID("a") } else { replica.ClientID("b") }
+	let seq = next(origin) + (x/2)%3 - 1
+	let name = "n\((x / 6) % 3)"
+	let cmd = if (x/18)%2 == 0 { lease.Take{Name: name} } else { lease.Give{Name: name} }
+	domain.Envelope[lease.Cmd]{ID: replica.IDOf(origin, if seq < 1 { 1 } else { seq }), By: string(origin), At: at, Command: cmd}
 }
 
 func everyone(_ replica.ClientID) bool { true }

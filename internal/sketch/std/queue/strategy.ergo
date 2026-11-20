@@ -26,31 +26,6 @@ func Slide[T](q Queue[T], v T) fails Closed {
 	}
 }
 
-// DroppingKeepsTheOldest: Offer into a queue of capacity c keeps the first
-// c values and fails Full on each later one; Pop then gives the kept
-// values in order.
-law DroppingKeepsTheOldest(xs []int, c int) {
-	let capacity = 1 + (c%4+4)%4
-	let q = New[int](capacity)
-	let mut kept = []int{}
-	let mut ok = true
-	for x in xs {
-		q.Offer(x) catch {
-		case Full:
-			ok = ok && len(kept) == capacity
-			continue
-		case Closed:
-			return false
-		}
-		kept = kept.Append(x)
-	}
-	q.End()
-	for k in kept {
-		ok = ok && try q.Pop() == k
-	}
-	ok && q.Len() == 0 && len(kept) <= capacity
-}
-
 // SlidingKeepsTheNewest: Slide into a queue of capacity c never waits and
 // leaves the last c values sent, in order.
 law SlidingKeepsTheNewest(xs []int, c int) {

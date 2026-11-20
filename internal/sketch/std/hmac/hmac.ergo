@@ -6,6 +6,7 @@
 // (sha256.New) and Effect has no hmac.
 
 import hex
+import strings
 
 // SHA256 is HMAC-SHA-256: 32-byte tags.
 type SHA256 {}
@@ -48,6 +49,41 @@ func Sum(h Hash, key string, message string) string {
 extern go ergo.local/prototype/runtime/v1/digest.HmacSHA256 func sum256(key string, message string) string
 extern go ergo.local/prototype/runtime/v1/digest.HmacSHA512 func sum512(key string, message string) string
 extern go ergo.local/prototype/runtime/v1/digest.HmacSHA1 func sum1(key string, message string) string
+
+// Keyed is a key made ready for h once (Key): Tag signs each message with
+// it at the cost of the message alone, where Sum hashes the key's two
+// pads again for every message, as Go's hmac Reset spares a reused HMAC.
+// It holds the hash states after the pads, never the key.
+type Keyed { alg int, inner string, outer string }
+
+// Key is key made ready for h: the inner and outer hash states after
+// RFC 2104's key pads.
+func Key(h Hash, key string) Keyed {
+	let alg = match h {
+	case SHA256:
+		256
+	case SHA512:
+		512
+	case SHA1:
+		1
+	}
+	let inner, outer = keyState(alg, key)
+	Keyed{alg: alg, inner: inner, outer: outer}
+}
+
+// Tag is the HMAC of message under k: Sum(h, key, message) for the h and
+// key k was made from.
+func Tag(k Keyed, message string) string { keyedSum(k.alg, k.inner, k.outer, message) }
+
+extern go ergo.local/prototype/runtime/v1/digest.HmacKeyState func keyState(alg int, key string) (string, string)
+extern go ergo.local/prototype/runtime/v1/digest.HmacKeyedSum func keyedSum(alg int, inner string, outer string, message string) string
+
+// TagIsSum: a tag under a key made once is the HMAC of that key and the
+// message, for each hash, keys longer than a block included.
+law TagIsSum(key string, message string) {
+	let long = key + strings.Repeat("k", 129)
+	Tag(Key(SHA1, key), message) == Sum(SHA1, key, message) && Tag(Key(SHA256, key), message) == Sum(SHA256, key, message) && Tag(Key(SHA512, key), message) == Sum(SHA512, key, message) && Tag(Key(SHA1, long), message) == Sum(SHA1, long, message) && Tag(Key(SHA512, long), message) == Sum(SHA512, long, message)
+}
 
 // Equal is whether a and b hold the same bytes, in a time that depends on
 // their lengths only (Go's hmac.Equal), so comparing a received tag with

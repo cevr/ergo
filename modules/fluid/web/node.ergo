@@ -6,7 +6,8 @@ import strconv
 import strings
 
 // SkinOf is a look's skin: the look and its classes, resolved now. Make skins once (a package
-// value), never per render: a render reads the class string (guard ResolvedOncePerLook).
+// value), never per render: a render reads the class string. SkinOf is pure, so the fold
+// computes a constant look's skin at build time.
 func SkinOf(l look.Look) part.Skin { part.Skin{Look: l, Class: Classes(l)} }
 
 // SkinIn is SkinOf with the classes under names n.
@@ -34,9 +35,9 @@ type Act = Go{URL html.URL} | Inert{}
 // the key is the id, and how the node takes focus is its tabindex. A box with a keyboard map
 // marks its scope (data-web-keys) and holds a hidden link per key the applier follows
 // (data-web-key). While a modal layer is shown, the branches beside it are inert.
-func Node[E, R](n part.Node[E], act func(e E) Act needs R) html.Node needs R { emit[E, R](n, act, false) }
+func Node[E, R](n part.Node[E], act func(e E) Act needs R) html.Node needs R { emit[E, R](n, false, act) }
 
-func emit[E, R](n part.Node[E], act func(e E) Act needs R, inert bool) html.Node needs R {
+func emit[E, R](n part.Node[E], inert bool, act func(e E) Act needs R) html.Node needs R {
 	match n {
 	case part.Box as b:
 		let tag = boxTag(b.Sem.Role, b.Inline)
@@ -192,7 +193,7 @@ func emit[E, R](n part.Node[E], act func(e E) Act needs R, inert bool) html.Node
 		}
 		html.Div(emitKids[E, R](kids, l.Kids, act))
 	case part.Keyed as k:
-		emit[E, R](k.Node, act, inert)
+		emit[E, R](k.Node, inert, act)
 	case part.Live as l:
 		let mut kids = []html.Child{html.Role(if l.Assertive { "alert" } else { "status" }), html.Aria("live", if l.Assertive { "assertive" } else { "polite" })}
 		if inert {
@@ -212,7 +213,7 @@ func emitKids[E, R](out []html.Child, kids []part.Node[E], act func(e E) Act nee
 	let shown = part.Shown[E](kids)
 	let mut o = out
 	for i in 0..len(kids) {
-		o = o.Append(emit[E, R](kids[i], act, !shown[i]))
+		o = o.Append(emit[E, R](kids[i], !shown[i], act))
 	}
 	o
 }

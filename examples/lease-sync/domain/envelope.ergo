@@ -7,9 +7,8 @@
 // lives in a package named after what it keeps the log in: domain/memory
 // (the process's memory).
 //
-// Effect: the event journal of @effect/cluster's entities and of
-// effect-machine (an append per accepted event, replayed at start); the
-// command's id is EventStoreDB's event id, whose resend is a no-op.
+// The log is an event journal: an append per accepted event, replayed at
+// start; a command's id makes its resend a no-op.
 
 import time
 

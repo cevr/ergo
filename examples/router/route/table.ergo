@@ -26,6 +26,21 @@ type Request { ID int, Change Change }
 // registry's reason.
 type Answer = Applied{Table Table} | Cancelled{} | Refused{Why string}
 
+// AppliedIsTheTable: the router's table is the table of its last Applied
+// answer, and a router with no Applied answer has the initial table.
+law AppliedIsTheTable(moves []int) {
+	let run = fold(moves)
+	let mut want = BoardOf(Initial).Table
+	for a in BoardOf(run.Final).Answers {
+		match a.Answer {
+		case Applied as m:
+			want = m.Table
+		case _:
+		}
+	}
+	SameTable(BoardOf(run.Final).Table, want)
+}
+
 // Answered is the answer of the request ID.
 type Answered { ID int, Answer Answer }
 

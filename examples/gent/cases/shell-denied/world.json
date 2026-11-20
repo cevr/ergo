@@ -1,0 +1,34 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [
+    "I will run it."
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "shell",
+     "arguments": "{\"command\":\"rm notes.txt\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "I was not allowed to run it."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {
+  "notes.txt": "keep me\n"
+ },
+ "shell": {}
+}

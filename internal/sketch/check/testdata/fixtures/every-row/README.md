@@ -14,3 +14,8 @@ killer `ergo:TestCheckerFixtures`):
 - `fkg1-every-after-row-admitted` and `fkg1-after-every-refused`: an Every
   after with a capability row is not refused, or a plain one is
   (`every-after-row-refused.ergo`, `fold-needs-no-clock.ergo`).
+- `every-std-only`: an Every timer is admitted by its shape, wherever it is
+  declared (check.IsEvery; std has no privileges), so a user package's record
+  of the shape is one (`user-every-admitted.ergo`).
+- `every-any-shape`: a record with another field is no timer
+  (`user-every-other-shape-refused.ergo`).

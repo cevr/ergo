@@ -1,0 +1,141 @@
+// The origin checks of NewClient and the Network's policy, over Go's own
+// url.Parse and netip.ParseAddr (NP4f-URL: a Go-path entry any program's
+// import go reaches, trusted as Go's). Each reads the parsed URL's fields
+// in the frame that parsed it: a fresh Go handle (interop.md, Checking 4).
+
+import go net/netip
+import go net/url
+import go strconv
+import strings
+
+// limitsValid reports whether every budget of limits is positive.
+func limitsValid(limits Limits) bool {
+	limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0 && limits.IdleTimeout > 0s && limits.ReadHeaderTimeout > 0s && limits.ReadBodyTimeout > 0s
+}
+
+// limitsRefused is the InvalidLimits failure of limits.
+func limitsRefused(limits Limits) InvalidLimits {
+	InvalidLimits{MaxBodyBytes: limits.MaxBodyBytes, MaxHeaderBytes: limits.MaxHeaderBytes, IdleTimeout: limits.IdleTimeout, ReadHeaderTimeout: limits.ReadHeaderTimeout, ReadBodyTimeout: limits.ReadBodyTimeout}
+}
+
+// checkOrigin accepts scheme://authority with the scheme http or https
+// and nothing after the authority (a lone "/" is allowed). The reason of
+// an origin url.Parse refuses is Go's error text.
+func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits {
+	if !limitsValid(limits) {
+		return limitsRefused(limits)
+	}
+	let u = url.Parse(origin) catch {
+	case go.Error as e:
+		return InvalidClient{Origin: origin, Reason: e.Text}
+	}
+	let user = match u.User {
+	case Some:
+		true
+	case None:
+		false
+	}
+	let reason = shapeRefusal(u.Scheme, u.Host, user, u.Path, u.RawQuery, u.Fragment, u.ForceQuery)
+	if reason != "" {
+		return InvalidClient{Origin: origin, Reason: reason}
+	}
+}
+
+// shapeRefusal is why a parsed origin is not scheme://authority, or ""
+// when it is.
+func shapeRefusal(scheme string, host string, user bool, path string, rawQuery string, fragment string, forceQuery bool) string {
+	if scheme != "http" && scheme != "https" {
+		return "the scheme is not http or https"
+	}
+	if host == "" || user {
+		return "the authority is not a host and port"
+	}
+	if path != "" && path != "/" || rawQuery != "" || fragment != "" || forceQuery {
+		return "an origin has no path, query or fragment"
+	}
+	""
+}
+
+// checkNetwork is each origin checked as checkOrigin does, in its
+// canonical form (canonicalOrigin), or the first failure.
+func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits {
+	if !limitsValid(limits) {
+		return limitsRefused(limits)
+	}
+	let mut out = []string{}
+	for origin in origins {
+		let u = url.Parse(origin) catch {
+		case go.Error as e:
+			return InvalidClient{Origin: origin, Reason: e.Text}
+		}
+		let user = match u.User {
+		case Some:
+			true
+		case None:
+			false
+		}
+		let reason = shapeRefusal(u.Scheme, u.Host, user, u.Path, u.RawQuery, u.Fragment, u.ForceQuery)
+		if reason != "" {
+			return InvalidClient{Origin: origin, Reason: reason}
+		}
+		match canonicalOrigin(u.Scheme, u.Hostname(), u.Port(), user, u.Opaque) {
+		case Some as c:
+			out = out.Append(c.Value)
+		case None:
+			return InvalidClient{Origin: origin, Reason: "the origin is not valid"}
+		}
+	}
+	out
+}
+
+// canonicalOrigin is an origin identity, not a hostname suffix: scheme,
+// case-insensitive host and effective port. An IPv6 host takes netip's
+// canonical form; a zone keeps its case. None when the host or port is not
+// valid.
+func canonicalOrigin(scheme string, hostname string, rawPort string, user bool, opaque string) Option[string] {
+	if scheme != "http" && scheme != "https" || hostname == "" || user || opaque != "" {
+		return None
+	}
+	let mut host = hostname
+	let mut port = rawPort
+	if strings.Contains(host, ":") {
+		let parts = match strings.Cut(host, "%") {
+		case Some as h:
+			h.Value
+		case None:
+			strings.Halves{Before: host, After: ""}
+		}
+		let zoned = strings.Contains(host, "%")
+		let ip = netip.ParseAddr(parts.Before) catch {
+		case go.Error:
+			return None
+		}
+		if !ip.Is6() {
+			return None
+		}
+		host = ip.String()
+		if zoned {
+			host = host + "%" + parts.After
+		}
+	} else {
+		host = strings.ToLower(host)
+	}
+	if port != "" {
+		let n = strconv.ParseUint(port, 10, 16) catch {
+		case go.Error:
+			return None
+		}
+		port = strconv.FormatUint(n, 10)
+	}
+	if port == "80" && scheme == "http" || port == "443" && scheme == "https" {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host = host + ":" + port
+	}
+	let canonical = go.New(url.URL{..go.Zero[url.URL](), Scheme: scheme, Host: host})
+	Some[string]{Value: canonical.String()}
+}
