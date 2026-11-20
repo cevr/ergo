@@ -21,7 +21,7 @@ func TestInlineGrowth(t *testing.T) {
 
 type Oops { n int }
 
-func mid[T](b *Box[T], i int) T {
+func mid[T](b mut Box[T], i int) T {
 	if i < 0 || i >= len(b.items) {
 		return b.items[0]
 	}
@@ -45,9 +45,9 @@ func mid[T](b *Box[T], i int) T {
 	a
 }
 
-func wrap[T](b *Box[T], i int) T { mid(b, i) }
+func wrap[T](b mut Box[T], i int) T { mid(b, i) }
 
-func arms(b *Box[int], k int) int fails Oops {
+func arms(b mut Box[int], k int) int fails Oops {
 	if k == 0 {
 		return mid(b, 0) + mid(b, 1) + mid(b, 2) + mid(b, 0) + mid(b, 1)
 	}
@@ -60,7 +60,7 @@ func arms(b *Box[int], k int) int fails Oops {
 	0
 }
 
-func prefix(b *Box[int]) int {
+func prefix(b mut Box[int]) int {
 	let s = mid(b, 0) + mid(b, 1) + mid(b, 2) + mid(b, 0)
 	if s > 0 {
 		return s + mid(b, 1)
@@ -68,7 +68,7 @@ func prefix(b *Box[int]) int {
 	s
 }
 
-func nested(b *Box[int]) int {
+func nested(b mut Box[int]) int {
 	let s = mid(b, 0) + mid(b, 1) + mid(b, 2) + mid(b, 0)
 	s + wrap(b, 1)
 }

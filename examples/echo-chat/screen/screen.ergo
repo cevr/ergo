@@ -33,7 +33,7 @@ let ListLabel = "Messages"
 let RowHeight = ui.Length(56.0)
 
 // Screen is the chat.
-func Screen(f *ui.Frame[talk.Signal], s talk.Session) {
+func Screen(f mut ui.Frame[talk.Signal], s talk.Session) {
 	ui.Column(f, ui.Plain()) {
 		ui.Semantic(f, named(ui.Heading, Title, Some{Value: 1}), None, ui.Plain()) {
 			ui.Text(f, Title)
@@ -90,7 +90,7 @@ func Log(l talk.Link) []talk.Said {
 
 // conversation is the lines of log as virtual rows, keyed by their place
 // (a line never moves), or a word that there are none yet.
-func conversation(f *ui.Frame[talk.Signal], log []talk.Said) {
+func conversation(f mut ui.Frame[talk.Signal], log []talk.Said) {
 	if len(log) == 0 {
 		ui.Text(f, "No messages yet")
 		ui.Text(f, "Send a message to get started!")
@@ -111,7 +111,7 @@ func Stamp(t time.Time) string { t.Format(time.TimeOnly) }
 
 // compose is the field and Send, disabled while the field is blank; Enter
 // sends.
-func compose(f *ui.Frame[talk.Signal], input string) {
+func compose(f mut ui.Frame[talk.Signal], input string) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[talk.Signal] {
 		if k.Name == "Enter" { Some{Value: talk.Submit} } else { None }
 	})

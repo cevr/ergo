@@ -80,11 +80,11 @@ type Tally { n int }
 
 `)
 	if p.addNeeds {
-		b.WriteString("func Add(t *Tally, k int) needs Console {\n\tt.n = t.n + k\n\tConsole.Println(\"add\")\n}\n\n")
+		b.WriteString("func Add(t mut Tally, k int) needs Console {\n\tt.n = t.n + k\n\tConsole.Println(\"add\")\n}\n\n")
 	} else {
-		b.WriteString("func Add(t *Tally, k int) { t.n = t.n + k }\n\n")
+		b.WriteString("func Add(t mut Tally, k int) { t.n = t.n + k }\n\n")
 	}
-	b.WriteString(`func Two(x *Tally, y *Tally) {
+	b.WriteString(`func Two(x mut Tally, y mut Tally) {
 	x.n += 1
 	y.n += 2
 }
@@ -379,7 +379,7 @@ func insInstance(r *rand.Rand, name string) insSite {
 			site = func(c string) string { return fmt.Sprintf("func %s() Res {\n\tlet x = mk(1)\n\t%s(x)\n}\n", name, c) }
 		default:
 			site = func(c string) string {
-				return fmt.Sprintf("func %s(t *Tally) int {\n\tlet u = %s(t)\n\tu.n\n}\n", name, c)
+				return fmt.Sprintf("func %s(t mut Tally) int {\n\tlet u = %s(t)\n\tu.n\n}\n", name, c)
 			}
 		}
 	case "wrap":
@@ -391,7 +391,7 @@ func insInstance(r *rand.Rand, name string) insSite {
 			site = func(c string) string { return fmt.Sprintf("func %s() []Res {\n\tlet x = mk(1)\n\t%s(x)\n}\n", name, c) }
 		default:
 			site = func(c string) string {
-				return fmt.Sprintf("func %s(t *Tally) int {\n\tlet u = %s(t)\n\tlen(u)\n}\n", name, c)
+				return fmt.Sprintf("func %s(t mut Tally) int {\n\tlet u = %s(t)\n\tlen(u)\n}\n", name, c)
 			}
 		}
 	default: // hold
@@ -409,7 +409,7 @@ func insInstance(r *rand.Rand, name string) insSite {
 			}
 		default:
 			site = func(c string) string {
-				return fmt.Sprintf("func %s(t *Tally) func() {\n\t%s(t, func(v *Tally) { v.n = 1 })\n}\n", name, c)
+				return fmt.Sprintf("func %s(t mut Tally) func() {\n\t%s(t, func(v mut Tally) { v.n = 1 })\n}\n", name, c)
 			}
 		}
 	}
@@ -432,8 +432,8 @@ func insReceiver(r *rand.Rand, name string) insSite {
 			written:  fmt.Sprintf("func %s() int {\n\tlet mut h = Holder{t: Tally{n: 0}}\n\tAdd(&h.t, 2)\n\th.t.n\n}\n", name)}
 	case 2:
 		return insSite{rule: "receiver", variant: "borrow", name: name,
-			implicit: fmt.Sprintf("func %s(t *Tally) {\n\tt.Add(1)\n}\n", name),
-			written:  fmt.Sprintf("func %s(t *Tally) {\n\tAdd(t, 1)\n}\n", name)}
+			implicit: fmt.Sprintf("func %s(t mut Tally) {\n\tt.Add(1)\n}\n", name),
+			written:  fmt.Sprintf("func %s(t mut Tally) {\n\tAdd(t, 1)\n}\n", name)}
 	}
 	ix := []string{"0", "1", "i", "j"}
 	a, b := ix[r.IntN(4)], ix[r.IntN(4)]
