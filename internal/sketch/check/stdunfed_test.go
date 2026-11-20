@@ -16,19 +16,19 @@ import (
 // (atomic.Int64's) is judged by the same rule: fed by a context that
 // builds the host value, and unfed with none (lu-host-type-excluded).
 func TestStdIsOneModuleForUnfedLaws(t *testing.T) {
-	const shape = "type Shape {\n\tArea() int,\n\tlaw Positive() { Area() > 0 },\n}\ntype Fn { F func(int) int } implements Shape\nfunc Area(s Fn) int { s.F(1) }\n" +
-		"extern go ergo.local/prototype/runtime/v1.Int64 type Counter {\n\truntimeOnly(),\n\tLoad() int64,\n\tlaw Reads() { Load() == Load() },\n}\nextern go ergo.local/prototype/runtime/v1.NewInt64 func NewCounter(value int64) Counter\n"
+	const shape = "type Shape {\n\tArea() int,\n\tlaw Positive() { Area() > 0 },\n}\ntype Fn { F func(int) int } implements Shape\nfunc Area(s Fn) int { s.F(1) }\n"
+	const host = "extern go ergo.local/prototype/runtime/v1.Int64 type Counter {\n\truntimeOnly(),\n\tLoad() int64,\n\tlaw Reads() { Load() == Load() },\n}\nextern go ergo.local/prototype/runtime/v1.NewInt64 func NewCounter(value int64) Counter\n"
 	for _, row := range []struct {
-		name, memory, want string
+		name, shape, memory, want string
 	}{
-		{name: "fed by another std package", memory: "import zzshape\n\nlet overFn = context { zzshape.Shape: zzshape.Fn{F: func(n int) int { n + 1 }} }\n"},
-		{name: "a Go host type fed by its context", memory: "import zzshape\n\nlet zero = context { zzshape.Counter: zzshape.NewCounter(0) }\n"},
-		{name: "a Go host type fed by no context", memory: "import zzshape\n", want: "10:6: S108 law Counter.Reads cannot run: no package of module std provides Counter, so no case runs it; implement it in a package of the module, or bind a provider in a named context (types.md, Laws 10)"},
-		{name: "fed by no std package", memory: "import zzshape\n\nfunc Size(s zzshape.Fn) int { s.F(1) }\n", want: "5:40: S108 law Shape.Positive, declared at shape.ergo:3:6, cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it; no named context of a package of module std builds one (types.md, Laws 10)"},
+		{name: "fed by another std package", shape: shape, memory: "import zzshape\n\nlet overFn = context { zzshape.Shape: zzshape.Fn{F: func(n int) int { n + 1 }} }\n"},
+		{name: "a Go host type fed by its context", shape: host, memory: "import zzshape\n\nlet zero = context { zzshape.Counter: zzshape.NewCounter(0) }\n"},
+		{name: "a Go host type fed by no context", shape: host, memory: "import zzshape\n\nfunc Read(c zzshape.Counter) int64 { c.Load() }\n", want: "4:6: S108 law Counter.Reads cannot run: no package of module std provides Counter, so no case runs it; implement it in a package of the module, or bind a provider in a named context (types.md, Laws 10)"},
+		{name: "fed by no std package", shape: shape, memory: "import zzshape\n\nfunc Size(s zzshape.Fn) int { s.F(1) }\n", want: "5:40: S108 law Shape.Positive, declared at shape.ergo:3:6, cannot run at Fn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it; no named context of a package of module std builds one (types.md, Laws 10)"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			lib := map[string]map[string]string{
-				"zzshape":        {"shape.ergo": shape},
+				"zzshape":        {"shape.ergo": row.shape},
 				"zzshape/memory": {"memory.ergo": row.memory},
 			}
 			s := newStdImporter()
