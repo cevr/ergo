@@ -7,8 +7,11 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-func (b *irBuilder) poll(site syntax.Node) *irStmt {
-	p := b.pos(site, site.Pos())
+func (b *irBuilder) poll(site syntax.Node) *irStmt { return b.pollAt(site, site.Pos()) }
+
+// pollAt is the poll at position at of site.
+func (b *irBuilder) pollAt(site syntax.Node, at syntax.Pos) *irStmt {
+	p := b.pos(site, at)
 	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	return &irStmt{K: "expr", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "Check", X: task}}
 }
@@ -173,7 +176,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 				irNo("len of a non-slice")
 			}
 		}
-		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
+		return nil, b.foldConst(x, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}), false // ir_opfold.go: a constant's len
 	case check.CallFunc:
 		f := c.Func
 		switch {
@@ -319,7 +322,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			}
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
 		}
-		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
+		name := b.ownedCallName(x, f, fd.name)
+		if fd.pure && name == fd.name && x.Trailing == nil && c.Site == nil {
+			// The function's table, as the emitter's call reads it (ir_tab.go).
+			if tpre, v := b.tabCall(x, c, irArgs, p); v != nil {
+				return append(pre, tpre...), v, false
+			}
+		}
+		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: name, T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:

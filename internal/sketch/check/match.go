@@ -79,6 +79,7 @@ type patBinding struct {
 // resolved is one pattern resolved against its subject type.
 type resolved struct {
 	pat  int      // the solver pattern, when has
+	more []int    // the solver patterns of the other variants a sub-union test covers
 	has  bool     // false: a wildcard at its column
 	t    Type     // the matched value's type, narrowed by a type test
 	info *Pattern // the Info.Patterns node
@@ -107,6 +108,12 @@ type patResolver struct {
 	// own holds the binding names of a package-level let's pattern, which
 	// the package scope already declares: they bind, not refer.
 	own map[*syntax.Ident]bool
+	// nested counts the record fields and tuple elements the current
+	// pattern is inside: a sub-union test is a whole case (caseItem).
+	nested int
+	// more is the current item's other rows: a case `A as a` of a
+	// sub-union A is a row per variant of A (caseItem).
+	more []solverRow
 }
 
 func (c *checker) newPatResolver() *patResolver {
@@ -118,6 +125,7 @@ func (r *patResolver) begin() {
 	r.binds = nil
 	r.bound = nil
 	r.bad = false
+	r.more = nil
 }
 
 // subject adds a subject column of type t.
@@ -414,7 +422,9 @@ func reusableBinderName(o Object) bool {
 func preludeObject(o Object) bool {
 	switch o := o.(type) {
 	case *Func:
-		return o.Pkg == nil || o.Pkg.Path == stdlib.PreludePath
+		// The functions D-D2's exception does not cover: one rule, one
+		// identity test (reusableBinderName).
+		return !reusableBinderName(o)
 	case *Builtin:
 		return true
 	}
@@ -438,12 +448,26 @@ func objectNoun(o Object) string {
 // or the subject's own type. A match on an operation-type value admits
 // only `_` and bindings (no type assertions).
 func (r *patResolver) typeTest(e syntax.Expr, t Type, col int) resolved {
-	ctor, vt, ok := r.head(e, t, col)
+	ctor, vt, ok, set := r.head(e, t, col)
 	if !ok {
 		r.refusedTest(e)
 		return r.fail(nil, t)
 	}
 	info := &Pattern{Kind: PatTypeTest, Type: vt}
+	if set != nil {
+		// A sub-union: one solver pattern per variant it holds, each a row
+		// of the case (caseItem).
+		if r.nested > 0 {
+			r.c.errorf(e, CodeType, "a test of %s, a union of the subject's variants, is a case of its own: case %s as x: (rows.md, Totality 1)", vt, exprText(e))
+			r.refusedTest(e)
+			return r.fail(nil, t)
+		}
+		res := resolved{pat: r.sp.node(set[0], nil), has: true, t: vt, info: info}
+		for _, k := range set[1:] {
+			res.more = append(res.more, r.sp.node(k, nil))
+		}
+		return res
+	}
 	if ctor < 0 {
 		return resolved{t: vt, info: info} // the subject's own type: a wildcard
 	}
@@ -453,35 +477,38 @@ func (r *patResolver) typeTest(e syntax.Expr, t Type, col int) resolved {
 // head resolves the type a type test or a record pattern names against a
 // value of type t at col: its constructor (-1 when it is t's own type)
 // and the narrowed type; ok false when reported.
-func (r *patResolver) head(e syntax.Expr, t Type, col int) (int, Type, bool) {
+func (r *patResolver) head(e syntax.Expr, t Type, col int) (int, Type, bool, []int) {
 	c := r.c
 	ci := r.info[col]
 	switch {
 	case ci.dom == domUnion:
-		idx := c.caseVariant(e, ci.u, t, r.resolve)
+		idx, set, st := c.caseVariant(e, ci.u, t, r.resolve)
 		if idx == variantOver {
 			r.resolve.over = true // reported once by the match (S103)
-			return 0, nil, false
+			return 0, nil, false, nil
+		}
+		if idx == variantSet {
+			return set[0], st, true, set
 		}
 		if idx == -1 {
-			return -1, t, true
+			return -1, t, true, nil
 		}
 		if idx < 0 {
-			return 0, nil, false
+			return 0, nil, false, nil
 		}
 		if vt := ci.u.at(idx); c.uninhabited(vt) {
 			c.errorf(e, CodeType, "%s has no value: it holds a Never, so this case never runs; leave it out (types.md, Never)", vt)
-			return 0, nil, false
+			return 0, nil, false, nil
 		}
-		return idx, ci.u.at(idx), true
+		return idx, ci.u.at(idx), true, nil
 	}
 	pt := c.typExpr0(e, c.localTypeCtx())
 	if isInvalid(pt) {
-		return 0, nil, false
+		return 0, nil, false, nil
 	}
 	if asInterface(t) != nil {
 		c.errorf(e, CodeType, "a match on %s, an operation-type value, admits only _ and bindings: Ergo has no type assertions (rows.md, Totality 1)", t)
-		return 0, nil, false
+		return 0, nil, false, nil
 	}
 	if n, ok := pt.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 		if tn, ok := t.(*Named); ok && tn.origin() == n {
@@ -490,9 +517,9 @@ func (r *patResolver) head(e syntax.Expr, t Type, col int) (int, Type, bool) {
 	}
 	if !c.identical(pt, t) {
 		c.errorf(e, CodeType, "%s does not match a value of %s: a type in a pattern names a variant of the subject's union or the subject's own type (rows.md, Totality 1)", pt, t)
-		return 0, nil, false
+		return 0, nil, false, nil
 	}
-	return -1, t, true
+	return -1, t, true, nil
 }
 
 // constant resolves a constant pattern, typed by its subject (D-A2).
@@ -545,7 +572,7 @@ func (r *patResolver) record(x *syntax.CompositeLit, t Type, col int) resolved {
 		c.errorf(x, CodeType, "a record pattern names its type: T{F: p} (rows.md, Totality 1)")
 		return r.fail(x, t)
 	}
-	ctor, rt, ok := r.head(x.Type, t, col)
+	ctor, rt, ok, _ := r.head(x.Type, t, col)
 	if !ok {
 		return r.fail(x, t)
 	}
@@ -607,6 +634,8 @@ func (r *patResolver) record(x *syntax.CompositeLit, t Type, col int) resolved {
 	}
 	info := &Pattern{Kind: PatRecord, Type: rt}
 	var kids solverRow
+	r.nested++
+	defer func() { r.nested-- }()
 	for _, fp := range fps {
 		f := s.Fields[fp.idx]
 		child := r.child(recordCol, ctor, fp.idx, f.Type)
@@ -639,7 +668,9 @@ func (r *patResolver) tuple(x *syntax.TupleExpr, t Type, col int) resolved {
 	var kids solverRow
 	for i, e := range x.Elts {
 		child := r.child(col, 0, i, tt.Types[i])
+		r.nested++
 		sub := r.pattern(e, tt.Types[i], child)
+		r.nested--
 		el := sub.info
 		if el == nil {
 			el = &Pattern{Kind: PatWildcard}
@@ -714,6 +745,7 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	hasDefault := false
 	patternsOK := valid
 	rowOf := make([][]solverRow, len(clauses))
+	moreOf := make([][][]solverRow, len(clauses)) // a sub-union case's other rows (caseItem)
 	bindsOf := make([][][]patBinding, len(clauses))
 	var all []solverRow
 	for ci, cl := range clauses {
@@ -724,6 +756,7 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 			hasDefault = true
 		}
 		rowOf[ci] = make([]solverRow, len(cl.List))
+		moreOf[ci] = make([][]solverRow, len(cl.List))
 		bindsOf[ci] = make([][]patBinding, len(cl.List))
 		for ii, item := range cl.List {
 			r.begin()
@@ -741,7 +774,9 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 			bindsOf[ci][ii] = r.binds
 			if row != nil {
 				rowOf[ci][ii] = row
+				moreOf[ci][ii] = r.more
 				all = append(all, row)
+				all = append(all, r.more...)
 			}
 		}
 	}
@@ -753,16 +788,25 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	useful := r.sp.solverFor()
 	matrix := newRowSet(useful)
 	var origin []syntax.Node // the case of each row of matrix, in order
-	judge := func(at syntax.Node, row solverRow) {
-		u, ok := useful.caseUseful(matrix, row)
-		if ok && !u {
+	// A case of several rows (a sub-union's variants) is unreachable when
+	// none of them is useful; each useful one joins the matrix.
+	judge := func(at syntax.Node, rows ...solverRow) {
+		decided, any := true, false
+		for _, row := range rows {
+			u, ok := useful.caseUseful(matrix, row)
+			decided = decided && ok
+			any = any || u
+		}
+		if decided && !any {
 			c.errorf(at, CodeType, "%s (unreachable)", c.coveredBy(matrix, origin, at))
 			return
 		}
-		before := len(matrix.rows)
-		matrix.addRow(row)
-		if len(matrix.rows) > before {
-			origin = append(origin, at)
+		for _, row := range rows {
+			before := len(matrix.rows)
+			matrix.addRow(row)
+			if len(matrix.rows) > before {
+				origin = append(origin, at)
+			}
 		}
 	}
 	for ci, cl := range clauses {
@@ -771,7 +815,7 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 			if row == nil || r.resolve.over {
 				continue
 			}
-			judge(item, row)
+			judge(item, append([]solverRow{row}, moreOf[ci][ii]...)...)
 		}
 		if cl.List == nil && valid && !r.resolve.over {
 			// `case _` is judged like any case (D-B4): it is unreachable
@@ -885,6 +929,9 @@ func (r *patResolver) caseItem(item syntax.Expr, n int, subj []Type, cols []int,
 		if !res.has {
 			return solverRow{}, true
 		}
+		for _, p := range res.more {
+			r.more = append(r.more, r.sp.flat(solverRow{{cols[0], p}}))
+		}
 		return r.sp.flat(solverRow{{cols[0], res.pat}}), true
 	}
 	tup, ok := unparen(item).(*syntax.TupleExpr)
@@ -896,7 +943,9 @@ func (r *patResolver) caseItem(item syntax.Expr, n int, subj []Type, cols []int,
 	row := solverRow{}
 	info := &Pattern{Kind: PatTuple}
 	for j, e := range tup.Elts {
+		r.nested++
 		res := r.pattern(e, subj[j], cols[j])
+		r.nested--
 		el := res.info
 		if el == nil {
 			el = &Pattern{Kind: PatWildcard}

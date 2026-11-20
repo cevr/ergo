@@ -234,12 +234,15 @@ func (p Plan) At(k int) []Value {
 	return out
 }
 
-// SmallVariants is the checked value-rank decision at the depth boundary.
-func SmallVariants(variants []check.Type) []check.Type {
+// SmallVariants is the checked value-rank decision at the depth boundary,
+// with builder the builders of the package whose test build generates
+// (check.Package.Builder; eval and the Go build ask the same package, so
+// they pick the same variants).
+func SmallVariants(builder func(*check.Named) *check.Builder, variants []check.Type) []check.Type {
 	ranks, least := check.NewValueRanks(), -1
 	var small []check.Type
 	for _, v := range variants {
-		switch k := ranks.Rank(v); {
+		switch k := ranks.Rank(v, builder); {
 		case k < 0:
 		case least < 0 || k < least:
 			least, small = k, []check.Type{v}

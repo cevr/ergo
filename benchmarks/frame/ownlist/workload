@@ -1,0 +1,8 @@
+# scripts/opcount: `irframe bench ownlist N` calls a body that owns one
+# value and writes its field in place N times (OWNED-LOCAL: the list form,
+# v1.NewOwnerScope, Owning and OwningAt); the cost of one call is the slope
+# between the two sizes. The control defers the value's close.
+unit call
+sizes 409600 2457600
+args bench ownlist {n}
+control benchmarks/frame/testdata/control

@@ -280,7 +280,8 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //     parameter: no conversion;
 //  3. t's underlying type is an operation type and v implements it:
 //     ConvOperations with its table, none when v is an operation type;
-//  4. a variant or a row value into a union: ConvVariant or ConvRow;
+//  4. a variant or a row value into a union: ConvVariant or ConvRow; a
+//     union whose variants it all holds: ConvWiden;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
 //     Go shape, spec D5); where t's parameter is a row value of one error
@@ -487,6 +488,16 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 					}
 				}
 				return assignment{clause: assignUnion, conv: Conversion{Kind: ConvRow, From: v, To: t}}, ""
+			}
+			if vu := asUnion(v); vu != nil && vu.Row == nil && len(vu.Variants) > 0 {
+				// A declared union goes into one that holds each of its
+				// variants: a subset (ConvWiden).
+				for _, e := range vu.Variants {
+					if !c.hasVariant(u, e) {
+						return assignment{}, fmt.Sprintf("%s may hold %s, which %s does not list", v, e, t)
+					}
+				}
+				return assignment{clause: assignUnion, conv: Conversion{Kind: ConvWiden, From: v, To: t}}, ""
 			}
 			for _, variant := range u.Variants {
 				if c.identical(variant, v) {

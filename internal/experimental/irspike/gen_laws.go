@@ -31,10 +31,11 @@ func GenerateLaws(seed uint64) string {
 	b.WriteString("func shapeOf(n int) Shape {\n\tif n % 2 == 0 {\n\t\treturn Dot\n\t}\n\tBox{W: n}\n}\n\n")
 	b.WriteString("func check(n int) int fails Bad {\n\tif n % 7 == 3 {\n\t\treturn Bad{N: n}\n\t}\n\tn\n}\n\n")
 	// An operation type whose member laws call its operations bare
-	// (CallLawOp), run against its provider: the seed decides whether
-	// the provider keeps them.
+	// (CallLawOp), run against its provider Mem, which claims it (a law
+	// of an operation type with no provider does not run): the seed
+	// decides whether the provider keeps them.
 	fmt.Fprintf(&b, "type Store {\n\tGet(n int) int,\n\tFind(n int) int fails Bad,\n\n\tlaw Kept(n int) {\n\t\tlet a = Get(n)\n\t\tlet c = Get(a)\n\t\tc %s a + %d\n\t},\n\n\tlaw Found(n int) {\n\t\tlet v = Find(n) catch {\n\t\tcase Bad as e:\n\t\t\treturn e.N == n\n\t\t}\n\t\tlet g = Get(n)\n\t\tv %s g\n\t},\n}\n\n", cmp(">=", "<"), r.IntN(2), cmp("==", "!="))
-	b.WriteString("type Mem {}\n\n")
+	b.WriteString("type Mem {} implements Store\n\n")
 	fmt.Fprintf(&b, "func Get(_ Mem, n int) int {\n\tn + %d\n}\n\n", 1+r.IntN(3))
 	fmt.Fprintf(&b, "func Find(_ Mem, n int) int fails Bad {\n\tif n %% %d == 0 {\n\t\treturn Bad{N: n}\n\t}\n\tGet(Mem, n)\n}\n\n", 2+r.IntN(4))
 	fmt.Fprintf(&b, "law Scales(n int) {\n\tscale(n) %s n * %d\n}\n\n", cmp("==", "!="), k)

@@ -17,8 +17,8 @@ import (
 // IR builder can express as an IR body in the IR file, as LowerIR does.
 // The module is programModule's, so the derivative builds its root
 // package with -ergoir as it builds a program's; the package's file is
-// name.go. Its Go text is the derivative's view of what it compiled
-// (-ergoirtext): internal/experimental/irspike LibraryText. The report
+// name.go. Its Go text is the IR's view of what the derivative compiled,
+// printed by IRGoText: internal/experimental/irspike LibraryText. The report
 // names the bodies that kept a Go body, and why.
 func LowerIRLibrary(u Unit, name string) ([]File, IRReport, error) {
 	if err := u.Validate(); err != nil {

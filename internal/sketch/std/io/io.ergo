@@ -88,7 +88,7 @@ func NewHost() Host needs Ambient { Host{live: hostOnly, kept: None} }
 // HostOver is a Host over r: its writes go to r, in order, never to
 // standard output, so a test reads them with r.Text(). It reaches no host,
 // so it needs no authority, as NewRecorder does. A type that holds an
-// io.Host, as modules/mcp/stdio's Transport does, is built with it in a
+// io.Host, as std mcp/stdio's Transport does, is built with it in a
 // test: `Transport{input: io.InOver(text), out: io.HostOver(r)}`.
 func HostOver(r Recorder) Host { Host{live: hostOnly, kept: Some[Recorder]{Value: r}} }
 

@@ -2,11 +2,13 @@ package lower
 
 import (
 	"path"
+	goruntime "runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/toolchain"
 	runtimefiles "ergo.local/prototype/runtime"
 )
@@ -52,9 +54,24 @@ type ForeignKey struct{ Key, Shown, Group, Build string }
 type ForeignKeys func(target string) ForeignKey
 
 // ShippedForeignKeys are the keys of the packages the compiler ships (std
-// and its ledger): the pinned toolchain and the runtime; std links no Go
+// and its ledger): the pinned toolchain and the runtime, read as the host
+// compiles it, against every other supported platform; std links no Go
 // module.
-var ShippedForeignKeys = ForeignKeySource{Toolchain: toolchain.Version}.Keys()
+var ShippedForeignKeys = HostForeignKeySource(toolchain.Version).Keys()
+
+// HostForeignKeySource is the source of the toolchain's and the runtime's
+// keys for a build of the host's platform with no experiments, each other
+// supported platform its variant.
+func HostForeignKeySource(toolchain string) ForeignKeySource {
+	host := GoTarget{GOOS: goruntime.GOOS, GOARCH: goruntime.GOARCH}
+	s := ForeignKeySource{Toolchain: toolchain, Target: &host}
+	for _, p := range gobind.Platforms {
+		if p.GOOS != host.GOOS || p.GOARCH != host.GOARCH {
+			s.Variants = append(s.Variants, BuildVariant{Tag: host.GOOS + "/" + host.GOARCH, Target: GoTarget{GOOS: p.GOOS, GOARCH: p.GOARCH}})
+		}
+	}
+	return s
+}
 
 // ExternPath is the Go import path of an `extern go` target: hash/crc32
 // for hash/crc32.ChecksumIEEE, net/url for net/url.URL.Hostname, math for
@@ -87,6 +104,19 @@ type ForeignKeySource struct {
 	// kern_linux.go and kern_darwin.go pair, is keyed by the build that
 	// gave it, and one over code every build compiles alike is not.
 	Variants []BuildVariant
+	// Always are the tags every key of Go code the variants compare names,
+	// whatever the comparison finds: the experiments of this build
+	// (goexperiment.simd; LEDGER-EXP-KEY). A build with experiments
+	// never shares a key with the stock build, even where the two compile
+	// one closure, so no two builds read one entry by accident and the
+	// writer can tell whose an entry is (DropSuperseded).
+	Always []string
+	// Target is this build (LAW-BUILD-KEY r3): the runtime's embedded
+	// files are read as it compiles them, and as each variant's Target
+	// does, so a runtime function with a body per platform
+	// (exchange_linux.go, exchange_darwin.go) is keyed by the target's and
+	// names its platform. nil reads every file of the runtime, as before.
+	Target *GoTarget
 	// worlds are the Go packages the keys have read, one world per local
 	// module: a world's loader reads only its module's folders (LF2m r2:
 	// one world, made at the first key, read only the first module's, so
@@ -144,6 +174,31 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 	if p == "" {
 		name = target
 	}
+	if rel, ok := strings.CutPrefix(p, runtimefiles.Module+"/"); ok && strings.HasPrefix(rel, "runtime/") && s.Target != nil {
+		// The runtime is the compiler's own Go, with no contract that
+		// every platform runs one body (LAW-BUILD-KEY r3): its key is the
+		// closure the target compiles, and names the build of each
+		// variant whose closure differs.
+		memo := s.Target.ID()
+		for _, v := range s.Variants {
+			memo += "|" + v.Tag + "=" + v.Target.ID()
+		}
+		memo += "|" + target
+		if k, ok := runtimeKeys.Load(memo); ok {
+			return k.(ForeignKey)
+		}
+		c := runtimeWorldFor(*s.Target).closure(p, name)
+		k := ForeignKey{Key: "closure " + c.Hash, Group: rel}
+		var tags []string
+		for _, v := range s.Variants {
+			if vc := runtimeWorldFor(v.Target).closure(p, name); vc.Hash != c.Hash && !slices.Contains(tags, v.Tag) {
+				tags = append(tags, v.Tag)
+			}
+		}
+		k.Build = s.buildOf(tags)
+		runtimeKeys.Store(memo, k)
+		return k
+	}
 	if rel, ok := strings.CutPrefix(p, runtimefiles.Module+"/"); ok && strings.HasPrefix(rel, "runtime/") {
 		if k, ok := runtimeKeys.Load(target); ok {
 			return k.(ForeignKey)
@@ -155,26 +210,29 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 	mod, version, dir, repl := s.module(p)
 	if mod == "" && (p == "" || !strings.Contains(strings.Split(p, "/")[0], ".")) {
 		// Go's standard library: a module path with no dot in its first
-		// element (go.mod's own, such as app) was matched above.
+		// element (go.mod's own, such as app) was matched above. Its
+		// key names no build: a verdict over Go standard library code
+		// holds on every platform of the same Go version (interop.md,
+		// Trusted Go; LAW-BUILD-KEY r3), as the toolchain that compiles
+		// every emitted program is trusted to.
 		return ForeignKey{Key: "go " + s.Toolchain, Shown: s.Toolchain}
 	}
 	if mod == "" {
-		return ForeignKey{Key: "unknown " + p, Shown: p + "@unknown"}
+		return ForeignKey{Key: "unknown " + p, Shown: p + "@unknown", Build: s.everyTag()}
 	}
 	if dir != "" {
-		c := s.world(mod, s.ReadDir, "").closure(p, name)
+		c := s.world(mod, s.ReadDir, "", s.Target).closure(p, name)
 		if c.Unloaded {
-			return ForeignKey{Key: "unread " + p, Shown: p + "@unread"}
+			return ForeignKey{Key: "unread " + p, Shown: p + "@unread", Build: s.everyTag()}
 		}
 		k := ForeignKey{Key: "closure " + c.Hash, Group: p}
 		var tags []string
 		for i, v := range s.Variants {
-			if vc := s.world(mod, v.Read, strconv.Itoa(i)+" ").closure(p, name); (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
+			if vc := s.world(mod, v.Read, strconv.Itoa(i)+" ", &v.Target).closure(p, name); (vc.Unloaded || vc.Hash != c.Hash) && !slices.Contains(tags, v.Tag) {
 				tags = append(tags, v.Tag)
 			}
 		}
-		slices.Sort(tags)
-		k.Build = strings.Join(tags, ",")
+		k.Build = s.buildOf(tags)
 		return k
 	}
 	if repl != nil {
@@ -186,20 +244,60 @@ func (s *ForeignKeySource) key(target string) ForeignKey {
 			line = strings.Join(f, " ")
 		}
 	}
-	return ForeignKey{Key: "sum " + line, Shown: mod + "@" + version}
+	// A required module from go.sum is third-party Go with no contract
+	// that every build runs one body, and the keys do not read it: its
+	// key names every build tag (LAW-BUILD-KEY r3), so a verdict given
+	// in one build is read only in that build.
+	return ForeignKey{Key: "sum " + line, Shown: mod + "@" + version, Build: s.everyTag()}
+}
+
+// everyTag is the tag of every variant, sorted and joined by commas: the
+// build part of a key whose code the keys cannot compare between builds.
+func (s *ForeignKeySource) everyTag() string {
+	var tags []string
+	for _, v := range s.Variants {
+		if !slices.Contains(tags, v.Tag) {
+			tags = append(tags, v.Tag)
+		}
+	}
+	return s.buildOf(tags)
+}
+
+// buildOf is a key's build part: the tags of the variants that differ and
+// the Always tags, each once, sorted and joined by commas.
+func (s *ForeignKeySource) buildOf(tags []string) string {
+	return UnionBuild(strings.Join(tags, ","), strings.Join(s.Always, ","))
+}
+
+// UnionBuild is the build part naming every tag of the build parts bs,
+// each once, sorted: an entry reaching several packages names each
+// build any of them depends on.
+func UnionBuild(bs ...string) string {
+	var tags []string
+	for _, b := range bs {
+		for _, tag := range strings.Split(b, ",") {
+			if tag != "" && !slices.Contains(tags, tag) {
+				tags = append(tags, tag)
+			}
+		}
+	}
+	slices.Sort(tags)
+	return strings.Join(tags, ",")
 }
 
 // BuildVariant is another build of the program's Go: Read reads a
-// folder's files as that build compiles them, and Tag names this build
+// folder's files as that build compiles them, Target is that build (the
+// runtime's files are read as it compiles them), and Tag names this build
 // apart from it.
 type BuildVariant struct {
-	Tag  string
-	Read func(dir string) []GoSourceFile
+	Tag    string
+	Read   func(dir string) []GoSourceFile
+	Target GoTarget
 }
 
 // world is the Go packages of the local module mod as read reads its
 // folders, one world per module and reader (tag tells the readers apart).
-func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFile, tag string) *goWorld {
+func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFile, tag string, target *GoTarget) *goWorld {
 	if s.worlds == nil {
 		s.worlds = map[string]*goWorld{}
 	}
@@ -217,6 +315,9 @@ func (s *ForeignKeySource) world(mod string, read func(dir string) []GoSourceFil
 			files := read(d)
 			return files, files != nil
 		})
+		if target != nil {
+			w.std = stdTypesOf(*target)
+		}
 		s.worlds[name] = w
 	}
 	return w
@@ -234,7 +335,34 @@ func short(h string) string {
 // embeds: each is computed once per process.
 var runtimeKeys sync.Map // target -> ForeignKey
 
-// runtimeWorld is the runtime's Go packages, parsed and typed once.
+// runtimeWorlds are the runtime's Go packages as each target compiles
+// them, by GoTarget.ID, each parsed and typed once.
+var runtimeWorlds sync.Map // target ID -> *goWorld
+
+func runtimeWorldFor(t GoTarget) *goWorld {
+	if w, ok := runtimeWorlds.Load(t.ID()); ok {
+		return w.(*goWorld)
+	}
+	nw := newGoWorld(func(ip string) ([]GoSourceFile, bool) {
+		all, ok := runtimeGoFiles(ip)
+		if !ok {
+			return nil, false
+		}
+		var out []GoSourceFile
+		for _, f := range all {
+			if t.Compiles(f.Name, f.Data) {
+				out = append(out, f)
+			}
+		}
+		return out, true
+	})
+	nw.std = stdTypesOf(t)
+	w, _ := runtimeWorlds.LoadOrStore(t.ID(), nw)
+	return w.(*goWorld)
+}
+
+// runtimeWorld is the runtime's Go packages, every file of each, parsed
+// and typed once.
 var runtimeWorld = sync.OnceValue(func() *goWorld { return newGoWorld(runtimeGoFiles) })
 
 var runtimeGoCache sync.Map // import path -> []GoSourceFile

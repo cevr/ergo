@@ -9,8 +9,8 @@
 
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
-import github.com/cevr/ergo/modules/mcp
-import github.com/cevr/ergo/modules/mcp/stdio
+import mcp
+import mcp/stdio
 import os
 import runners pipeline/memory
 import pipeline/pipeline

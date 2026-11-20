@@ -110,7 +110,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+		return append(pre, &irStmt{K: "ret", Pos: p, X: e, Pair: true})
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)
@@ -618,6 +618,13 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
+	}
+	if r, ok := s.(*syntax.RangeStmt); ok && b.seqLoop(r) {
+		// A Seq loop's poll stands at the body's closing brace: at the
+		// loop's own position, Go's range-over-func rewrite also calls the
+		// adapter, and gc does not inline a call at a position already on
+		// its inlining stack (ir_seq.go).
+		return []*irStmt{b.pollAt(body, body.Rbrace)}
 	}
 	return []*irStmt{b.poll(s)}
 }

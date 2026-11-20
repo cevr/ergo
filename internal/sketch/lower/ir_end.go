@@ -84,11 +84,12 @@ func irBreaks(list []*irStmt, label string) bool {
 	return false
 }
 
-// irUseLocals puts `_ = x` after the declaration of each local x of body
-// that no expression reads. Every body's end passes here: an IR form still
-// in it is erased first (ir_forms_erase.go).
+// irUseLocals drops body's unreachable statements (irReachable), then puts
+// `_ = x` after the declaration of each local x of body that no expression
+// reads. Every body's end passes here: an IR form still in it is erased
+// first (ir_forms_erase.go).
 func irUseLocals(body []*irStmt) []*irStmt {
-	body = eraseForms(body, nil)
+	body = irReachable(eraseForms(body, nil))
 	read := map[int]bool{}
 	var stmts func(list []*irStmt)
 	var expr func(e *irExpr)
@@ -139,11 +140,26 @@ func irUseLocals(body []*irStmt) []*irStmt {
 			switch s.K {
 			case "def", "var":
 				declared = []int{s.Local}
-			case "def2":
+			case "def2", "mapget":
 				declared = []int{s.Local}
 				if s.Val != nil {
 					declared = append(declared, *s.Val)
 				}
+			case "tdef":
+				for _, l := range s.Ls {
+					if l >= 0 {
+						declared = append(declared, l)
+					}
+				}
+			case "range":
+				// A range variable is read in the body, or there.
+				var use []*irStmt
+				for _, l := range []*int{s.Key, s.Val} {
+					if l != nil && !read[*l] {
+						use = append(use, &irStmt{K: "discard", Pos: s.Pos, X: &irExpr{K: "local", Pos: s.Pos, I: *l}})
+					}
+				}
+				s.Body = append(use, s.Body...)
 			}
 			for _, l := range declared {
 				if !read[l] {
@@ -154,6 +170,28 @@ func irUseLocals(body []*irStmt) []*irStmt {
 		return out
 	}
 	return mark(body)
+}
+
+// irReachable is list without the statements after one that terminates,
+// up to a labeled one, which a goto reaches: they never run, the Go text
+// of the body would be unreachable code to go vet, and the decoder would
+// compile them all the same (a return after an endless loop).
+func irReachable(list []*irStmt) []*irStmt {
+	out := list[:0]
+	dead := false
+	for _, s := range list {
+		if dead && (s.Label == "" || s.K == "break" || s.K == "continue" || s.K == "goto") {
+			continue
+		}
+		s.Then, s.Else, s.Body = irReachable(s.Then), irReachable(s.Else), irReachable(s.Body)
+		irLiterals(s, func(e *irExpr) { e.Body = irReachable(e.Body) })
+		for _, c := range s.Cases {
+			c.Body = irReachable(c.Body)
+		}
+		out = append(out, s)
+		dead = irTerminates(s)
+	}
+	return out
 }
 
 // irScopesIncrease makes the scope positions of body increase, in the

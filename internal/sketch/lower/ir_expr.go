@@ -365,12 +365,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					irNo("keyed slice literal")
 				}
 			}
-			lit.Elems = b.inOrder(x.Elts) // ir_order.go
-			if check.IsGoAny(tt.Elem) {
-				for i, e := range lit.Elems {
-					lit.Elems[i] = b.assignedTo(x.Elts[i], e, tt.Elem) // ir_union.go: Go's any (IR-GOCALLS)
-				}
-			}
+			lit.Elems = b.listElems(x, tt.Elem)
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)
@@ -383,6 +378,17 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				b.seedSites++
 				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
 			}
+		case *check.Array:
+			// The checker took every element in order, or none for the
+			// default (types.md, Arrays 2), as the emitter writes it:
+			// [N]T{e1, …, eN}, or [N]T{}, the decoder's zero of an array.
+			if len(x.Elts) == 0 {
+				if b.l.holdsMap(tt) {
+					irNo("literal of an array whose default holds a Map") // the emitter's default, built in a loop
+				}
+				return &irExpr{K: "zero", Pos: p, T: lit.T}
+			}
+			lit.Elems = b.listElems(x, tt.Elem)
 		case *check.Map:
 			if b.l.intMap(tt) { // ir_intmap.go
 				if len(x.Elts) > 0 {
@@ -537,4 +543,17 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	irNo("constant kind %s", v.Kind())
 	return nil
+}
+
+// listElems are the elements of a slice or array literal x, in order
+// (ir_order.go), each as an element of type elem holds it: a value into
+// Go's any by assignedTo (ir_union.go, IR-GOCALLS), any other as written.
+func (b *irBuilder) listElems(x *syntax.CompositeLit, elem check.Type) []*irExpr {
+	elems := b.inOrder(x.Elts) // ir_order.go
+	if check.IsGoAny(elem) {
+		for i, e := range elems {
+			elems[i] = b.assignedTo(x.Elts[i], e, elem) // ir_union.go
+		}
+	}
+	return elems
 }
