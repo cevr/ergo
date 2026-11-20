@@ -1,10 +1,13 @@
 # scratch.sh, sourced by light.sh and heavy.sh: each run gets its own TMPDIR and GOTMPDIR, a folder under one
-# scratch root (ERGO_BUDGET_SCRATCH, default $ERGO_BUDGET.tmp), removed when the run ends. A run killed before it
+# scratch root (ERGO_BUDGET_SCRATCH, default ergo-budget in the caller's TMPDIR, else /tmp: the volume a run's
+# scratch was on before), removed when the run ends. A run killed before it
 # can remove its folder leaves it, with its lock file; the next run's sweep removes every folder whose lock no run
 # holds. The lock is fd 9 of the run, held by the run and the processes it starts, so a folder is never swept
 # while anything of its run still runs. (2026-11-20: killed runs had left hundreds of /tmp/ergo-mutants-*,
 # /tmp/Test* and /tmp/go-build* folders, tens of GiB.)
-scratch_root=${ERGO_BUDGET_SCRATCH:-$ERGO_BUDGET.tmp}
+scratch_root=${ERGO_BUDGET_SCRATCH:-${TMPDIR:-/tmp}/ergo-budget}
+# A removal is of the run's folder itself: rm -r removes a symbolic link inside it, never what it points to, and a
+# folder that is itself a link is removed as the link.
 
 # scratch_sweep: remove each run folder whose lock no run holds.
 scratch_sweep() {

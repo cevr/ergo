@@ -9,7 +9,7 @@
 #   ERGO_BUDGET_CRIT  a file of workspace names, one a line, whose runs take the crit class; every other run is the
 #                     lane class. Crit is the host owner's to grant: no variable of the caller's grants it.
 #   ERGO_BUDGET_QUIET a file holding an epoch second; until then a new run waits (a quiet window).
-#   ERGO_BUDGET_SCRATCH the root of the runs' own TMPDIR and GOTMPDIR folders (default $ERGO_BUDGET.tmp;
+#   ERGO_BUDGET_SCRATCH the root of the runs' own TMPDIR and GOTMPDIR folders (default $TMPDIR/ergo-budget;
 #                     scratch.sh): each run's is removed when it ends, a killed run's by the next run's sweep.
 #
 # The lane is the basename of the caller's git top level ("none" outside a repository): the log's lane column and

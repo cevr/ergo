@@ -614,7 +614,7 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
 - **The interim load gate.** With `gate-load N`, the lane class takes nothing while the 1-minute load is over N, and the load is read again every 15 seconds. Crit is never gated. The memory-admission unit (WS4c) replaces the gate.
 - **Exit.** COMMAND's exit code (128 plus the signal for a signal); 2 for an invalid invocation; 1 when the budget cannot be read.
 
-The host's wrappers are `scripts/budget/light.sh` (a light check: width 4, nice 19) and `scripts/budget/heavy.sh` (a heavy run: its declared width, in a systemd user unit that outlives its caller, `heavy.sh wait NAME` to reattach). A host calls them from a thin script of its own that names its files: `ERGO_BUDGET` (the budget file), `ERGO_BUDGET_BIN` (the ergo), `ERGO_BUDGET_CRIT` (the workspaces whose runs are crit; no variable of a caller's makes a run crit). Each file's header lists the rest.
+The host's wrappers are `scripts/budget/light.sh` (a light check: width 4, nice 19) and `scripts/budget/heavy.sh` (a heavy run: its declared width, in a systemd user unit that outlives its caller, `heavy.sh wait NAME` to reattach). A host calls them from a thin script of its own that names its files: `ERGO_BUDGET` (the budget file), `ERGO_BUDGET_BIN` (the ergo), `ERGO_BUDGET_CRIT` (the workspaces whose runs are crit; no variable of a caller's makes a run crit). Each file's header lists the rest. Each run gets its own `TMPDIR` and `GOTMPDIR` under `ERGO_BUDGET_SCRATCH` (default `ergo-budget` in the caller's `TMPDIR`, else `/tmp`: the volume its scratch was on before), removed when it ends; a killed run's is removed by the next run's sweep (`scripts/budget/scratch.sh`).
 
 ## ergo dev
 

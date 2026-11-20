@@ -11,7 +11,7 @@
 #   ERGO_BUDGET_BIN     the ergo that runs `ergo budget` (default: ergo on PATH).
 #   ERGO_BUDGET_CRIT    a file of workspace names, one a line, whose runs take the crit class; every other run is
 #                       the lane class. Crit is the host owner's to grant: no variable of the caller's grants it.
-#   ERGO_BUDGET_SCRATCH the root of the runs' own TMPDIR and GOTMPDIR folders (default $ERGO_BUDGET.tmp;
+#   ERGO_BUDGET_SCRATCH the root of the runs' own TMPDIR and GOTMPDIR folders (default $TMPDIR/ergo-budget;
 #                       scratch.sh): each run's is removed when it ends or its unit stops, a stray one by a sweep.
 #   HEAVY_DIR           the folder of the runs' logs, exit codes and locks (default: $ERGO_BUDGET.heavy).
 #   HEAVY_NAME          the run's name (default: made from the command and the time).

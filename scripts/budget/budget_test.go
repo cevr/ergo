@@ -57,7 +57,7 @@ func (h host) run(t *testing.T, script, ws string, extra []string, argv ...strin
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "ERGO_BUDGET="+h.conf, "ERGO_BUDGET_CRIT="+h.crit, "ERGO_BUDGET_BIN="+h.bin, "FAKE_ARGS="+h.args, "HEAVY_DIR="+filepath.Join(h.dir, "heavy"))
+	cmd.Env = append(cmd.Env, "TMPDIR="+filepath.Join(h.dir, "tmp"), "ERGO_BUDGET="+h.conf, "ERGO_BUDGET_CRIT="+h.crit, "ERGO_BUDGET_BIN="+h.bin, "FAKE_ARGS="+h.args, "HEAVY_DIR="+filepath.Join(h.dir, "heavy"))
 	cmd.Env = append(cmd.Env, extra...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %v: %v\n%s", script, argv, err, out)
@@ -111,7 +111,18 @@ func TestLightCritComesOnlyFromTheCritFile(t *testing.T) {
 // and /tmp/go-build*, tens of GiB). Mutant: budget-scratch-no-sweep.
 func TestRunsGetTheirOwnScratch(t *testing.T) {
 	h := newHost(t)
-	root := h.conf + ".tmp"
+	// The root is ergo-budget in the caller's TMPDIR, the volume the run's
+	// scratch was on before.
+	root := filepath.Join(h.dir, "tmp", "ergo-budget")
+	// A link out of the root, in the run's folder and in a stale one:
+	// removing either removes the link, never what it points to.
+	outside := filepath.Join(h.dir, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "keep"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	for _, d := range []string{"stale", "live"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
 			t.Fatal(err)
@@ -132,7 +143,10 @@ func TestRunsGetTheirOwnScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(h.dir, "tmpdir")
-	h.run(t, "light.sh", "ws-lane", nil, "sh", "-c", `printf '%s\n%s\n' "$TMPDIR" "$GOTMPDIR" > "$0" && touch "$TMPDIR/made"`, out)
+	if err := os.Symlink(outside, filepath.Join(root, "stale", "out")); err != nil {
+		t.Fatal(err)
+	}
+	h.run(t, "light.sh", "ws-lane", nil, "sh", "-c", `printf '%s\n%s\n' "$TMPDIR" "$GOTMPDIR" > "$0" && touch "$TMPDIR/made" && ln -s "$1" "$TMPDIR/out"`, out, outside)
 	got, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +163,9 @@ func TestRunsGetTheirOwnScratch(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "live", "left")); err != nil {
 		t.Errorf("a running run's folder (lock held) was swept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
+		t.Errorf("a removal followed a link out of the scratch root: %v", err)
 	}
 }
 
