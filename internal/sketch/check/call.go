@@ -966,6 +966,7 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 		// invalid, so nothing that uses it cascades (D3).
 		return bad(x)
 	}
+	c.etaMethodValue(x, sig)
 	// Creating the literal runs nothing: an unknown row in its body makes
 	// only a call of it unknown, through its inferred row (stage D1 round 2
 	// review M1).
