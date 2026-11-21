@@ -83,8 +83,14 @@ func Plain() Style {
 
 // Node is what one node shows, as a host receives it in a Patch. It holds
 // no function, so two Nodes compare with == (a canvas's paint list
-// structurally).
-type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string, Label string, Description string, Invalid bool} | ToggleNode{Label string, On bool} | AreaNode{Label string, Style Style} | CanvasNode{Label string, Width Length, Height Length, Paint []PaintOp} | RowsNode{Label string, Count int, RowHeight Length, First int, Offset Length} | FieldsetNode{Disabled bool, Description string} | ZoneNode{Key Key, Style Style} | LiveNode{Text string} | TransitionNode{Key Key, Motion Motion, T float64} | SemanticNode{Access Access, On Option[E], Style Style}
+// structurally). An InputNode is a text field (OpenTUI gap 2): Lines is
+// how many lines it shows (1 for a one-line field, which holds no
+// newline), and Caret and Anchor are byte offsets into Value at rune
+// starts: the caret, and the other end of the selection, which lies
+// between them (none when they are equal). The model holds them: an Edit
+// from the host moves them, a Type puts both at the end, and a pass keeps
+// them while the field's value is the text they were set for (edit.ergo).
+type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string, Label string, Description string, Invalid bool, Hints Hints, Lines int, Caret int, Anchor int} | ToggleNode{Label string, On bool} | AreaNode{Label string, Style Style} | CanvasNode{Label string, Width Length, Height Length, Paint []PaintOp} | RowsNode{Label string, Count int, RowHeight Length, First int, Offset Length} | FieldsetNode{Disabled bool, Description string} | ZoneNode{Key Key, Style Style} | LiveNode{Text string} | TransitionNode{Key Key, Motion Motion, T float64} | SemanticNode{Access Access, On Option[E], Style Style} | ReadoutNode{Readout int, Reserve string, Style Style} | LayerNode{Z Z, Anchor Option[Key], Place Place, Scrim bool, Dismiss Option[E], Style Style} | TrackNode{Key Key, Prop TrackProp, Target float64, Curve TrackCurve, Style Style}
 
 // Key names a row of an Each. Two rows of one Each with one Key are one
 // instance across frames, wherever they move.

@@ -165,6 +165,29 @@ func declAround(s store.Store, files []bind.File, f int, at int) int {
 	-1
 }
 
+// topRow is the top-level row of file f that holds row: a declaration's
+// row in the store is its Name row, and its body is the row above it
+// whose parent is the file's root.
+func topRow(ps bind.Parents, t syntax.Tree, f int, row int) dense.ID[syntax.Node] {
+	let mut pn = bind.PNodeOf(ps, f, syntax.NodeAt(t, row))
+	let mut climbing = true
+	for climbing {
+		climbing = false
+		match dense.Unpack(bind.ParentOf(ps, pn)) {
+		case Some{Value: up}:
+			match dense.Unpack(bind.ParentOf(ps, up)) {
+			case Some{Value: _}:
+				pn = up
+				climbing = true
+			case None:
+			}
+		case None:
+		}
+	}
+	let (_, r) = bind.RowOf(ps, pn)
+	syntax.NodeAt(t, r)
+}
+
 // rowOf is declaration i's row: its result and reads, from the package's
 // Uses as bind gave them.
 func rowOf(c task.Checked, files []bind.File, checked []task.Checked, i int, key string) Row {
@@ -173,7 +196,7 @@ func rowOf(c task.Checked, files []bind.File, checked []task.Checked, i int, key
 	let f = int(d.File)
 	let p = files[f].Parsed
 	let t = p.Tree
-	let top = syntax.NodeAt(t, int(d.Node))
+	let top = topRow(c.Parents, t, f, int(d.Node))
 	let lo = syntax.NodePos(p, top)
 	let hi = syntax.NodeEnd(p, top)
 	let fp = printText(store.PrintsOf(s, store.DeclAt(s, i)).Fp)
@@ -362,8 +385,9 @@ func Named(prev Snap, now Snap) []bool {
 // rows the rule names. The edits are models/checkinc's: a comment, a body,
 // a signature, a new export, a new file, a generic body, an import
 // added or removed, and edits in b and c. a.Double and a.helper read each
-// other; b reads a, including the names a only declares after an edit;
-// c reads b. Each edit flips one flag, so every A to B to A sequence is
+// other. a.UseLater reads a name a only declares after an edit, and b
+// reads a: names a only declares or exports after an edit, and one a
+// keeps unexported. c reads b. Each edit flips one flag, so every A to B to A sequence is
 // reachable. The law fails if no row was ever taken from the cache, so
 // that it cannot hold vacuously. (Invalidation of c through b is the
 // model's CutoffPasses: here b's interface does not change.)
@@ -415,8 +439,11 @@ func incProgram(flags []bool) []task.Package {
 	a = a + (if flags[5] { "\nfunc Map[T](xs []T) []T {\n\tlet ys = xs\n\tys\n}\n" } else { "\nfunc Map[T](xs []T) []T {\n\txs\n}\n" })
 	a = a + "\ntype Box { V int }\n"
 	a = a + (if flags[9] { "\nfunc Open(box Box) int {\n\tbox.V\n}\n" } else { "\nfunc Open(b Box) int {\n\tb.V\n}\n" })
+	// UseLater reads a name of its own package that only the new export
+	// declares: a negative read inside one package.
+	a = a + "\nfunc UseLater() int {\n\tlater()\n}\n"
 	if flags[3] {
-		a = a + "\nfunc Triple(n int) int {\n\tn * 3\n}\n"
+		a = a + "\nfunc Triple(n int) int {\n\tn * 3\n}\n\nfunc later() int {\n\t2\n}\n"
 	}
 	let mut aFiles = []bind.File{incFile("a.ergo", a)}
 	if flags[4] {
@@ -428,6 +455,9 @@ func incProgram(flags []bool) []task.Package {
 	b = b + "\nfunc UseTriple(n int) int {\n\ta.Triple(n)\n}\n"
 	b = b + "\nfunc UseExtra() int {\n\ta.Extra()\n}\n"
 	b = b + "\nfunc UseMap(xs []int) []int {\n\ta.Map(xs)\n}\n"
+	// UseHelper reads a name a declares unexported: an importer never
+	// sees it.
+	b = b + "\nfunc UseHelper(n int) int {\n\ta.helper(n)\n}\n"
 	let c = if flags[8] { "import inc/b\n\nfunc Top(n int) int {\n\tb.Quad(n) + 1\n}\n" } else { "import inc/b\n\nfunc Top(n int) int {\n\tb.Quad(n)\n}\n" }
 	[]task.Package{
 		task.Package{Path: "inc/a", Files: aFiles},
