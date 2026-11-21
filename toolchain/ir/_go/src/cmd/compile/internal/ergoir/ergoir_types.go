@@ -275,6 +275,9 @@ func (c *ergoChecker) name(p ergoPos, v *types2.Var, def bool) *syntax.Name {
 	n := syntax.NewName(c.pos(p), v.Name())
 	if def {
 		c.info.Defs[n] = v
+		if c.defined != nil {
+			c.defined[v] = true // ergoReadBeforeDef
+		}
 		return n
 	}
 	c.info.Uses[n] = v
