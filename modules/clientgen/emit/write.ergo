@@ -458,8 +458,15 @@ func records(op Op, p Provider) []string {
 		values = values.Append(initial(f, req))
 	}
 	b = b.Concat(literal(op.Input, keys, values, "\t")).Append("}").Append("")
-	b = b.Concat(comment("\(op.Output) is what \(op.Name) reads from the answer's headers"+(if streamed(op) { "; its body goes to the call's sink." } else { "." }), ""))
-	b.Concat(record(op.Output, kept(op.Out), rt))
+	b = b.Concat(comment("\(op.Output) is what \(op.Name) reads from the answer's headers"+(if streamed(op) { "; its body goes to the call's sink." } else { "." })+" New\(op.Output) makes one with every member None, for a provider of \(p.Service).", ""))
+	b = b.Concat(record(op.Output, kept(op.Out), rt))
+	let mut outKeys = []string{}
+	let mut outValues = []string{}
+	for f in kept(op.Out) {
+		outKeys = outKeys.Append(f.Name)
+		outValues = outValues.Append(initial(f, []Field{}))
+	}
+	b.Append("func New\(op.Output)() \(op.Output) {").Concat(literal(op.Output, outKeys, outValues, "\t")).Append("}").Append("")
 }
 
 func initial(f Field, req []Field) string {

@@ -830,6 +830,8 @@ func NewHeadObjectRequest(bucket string, key string) HeadObjectRequest {
 }
 
 // HeadObjectOutput is what HeadObject reads from the answer's headers.
+// NewHeadObjectOutput makes one with every member None, for a provider of
+// S3.
 type HeadObjectOutput {
 	DeleteMarker                     Option[bool],
 	AcceptRanges                     Option[string],
@@ -877,6 +879,57 @@ type HeadObjectOutput {
 	ObjectLockEventHold              Option[ObjectLockEventHold],
 	ObjectLockEventHoldDurationDays  Option[int],
 	ObjectLockEventHoldDurationYears Option[int],
+}
+
+func NewHeadObjectOutput() HeadObjectOutput {
+	HeadObjectOutput{
+		DeleteMarker:                     None,
+		AcceptRanges:                     None,
+		Expiration:                       None,
+		Restore:                          None,
+		ArchiveStatus:                    None,
+		LastModified:                     None,
+		ContentLength:                    None,
+		ChecksumCRC32:                    None,
+		ChecksumCRC32C:                   None,
+		ChecksumCRC64NVME:                None,
+		ChecksumSHA1:                     None,
+		ChecksumSHA256:                   None,
+		ChecksumSHA512:                   None,
+		ChecksumMD5:                      None,
+		ChecksumXXHASH64:                 None,
+		ChecksumXXHASH3:                  None,
+		ChecksumXXHASH128:                None,
+		ChecksumType:                     None,
+		ETag:                             None,
+		MissingMeta:                      None,
+		VersionId:                        None,
+		CacheControl:                     None,
+		ContentDisposition:               None,
+		ContentEncoding:                  None,
+		ContentLanguage:                  None,
+		ContentType:                      None,
+		ContentRange:                     None,
+		Expires:                          None,
+		WebsiteRedirectLocation:          None,
+		ServerSideEncryption:             None,
+		Metadata:                         Map[string, string]{},
+		SSECustomerAlgorithm:             None,
+		SSECustomerKeyMD5:                None,
+		SSEKMSKeyId:                      None,
+		BucketKeyEnabled:                 None,
+		StorageClass:                     None,
+		RequestCharged:                   None,
+		ReplicationStatus:                None,
+		PartsCount:                       None,
+		TagCount:                         None,
+		ObjectLockMode:                   None,
+		ObjectLockRetainUntilDate:        None,
+		ObjectLockLegalHoldStatus:        None,
+		ObjectLockEventHold:              None,
+		ObjectLockEventHoldDurationDays:  None,
+		ObjectLockEventHoldDurationYears: None,
+	}
 }
 
 // GetObjectRequest is what GetObject sends. NewGetObjectRequest makes one
@@ -932,7 +985,8 @@ func NewGetObjectRequest(bucket string, key string) GetObjectRequest {
 }
 
 // GetObjectOutput is what GetObject reads from the answer's headers; its
-// body goes to the call's sink.
+// body goes to the call's sink. NewGetObjectOutput makes one with every
+// member None, for a provider of S3.
 type GetObjectOutput {
 	DeleteMarker                     Option[bool],
 	AcceptRanges                     Option[string],
@@ -979,6 +1033,56 @@ type GetObjectOutput {
 	ObjectLockEventHold              Option[ObjectLockEventHold],
 	ObjectLockEventHoldDurationDays  Option[int],
 	ObjectLockEventHoldDurationYears Option[int],
+}
+
+func NewGetObjectOutput() GetObjectOutput {
+	GetObjectOutput{
+		DeleteMarker:                     None,
+		AcceptRanges:                     None,
+		Expiration:                       None,
+		Restore:                          None,
+		LastModified:                     None,
+		ContentLength:                    None,
+		ETag:                             None,
+		ChecksumCRC32:                    None,
+		ChecksumCRC32C:                   None,
+		ChecksumCRC64NVME:                None,
+		ChecksumSHA1:                     None,
+		ChecksumSHA256:                   None,
+		ChecksumSHA512:                   None,
+		ChecksumMD5:                      None,
+		ChecksumXXHASH64:                 None,
+		ChecksumXXHASH3:                  None,
+		ChecksumXXHASH128:                None,
+		ChecksumType:                     None,
+		MissingMeta:                      None,
+		VersionId:                        None,
+		CacheControl:                     None,
+		ContentDisposition:               None,
+		ContentEncoding:                  None,
+		ContentLanguage:                  None,
+		ContentRange:                     None,
+		ContentType:                      None,
+		Expires:                          None,
+		WebsiteRedirectLocation:          None,
+		ServerSideEncryption:             None,
+		Metadata:                         Map[string, string]{},
+		SSECustomerAlgorithm:             None,
+		SSECustomerKeyMD5:                None,
+		SSEKMSKeyId:                      None,
+		BucketKeyEnabled:                 None,
+		StorageClass:                     None,
+		RequestCharged:                   None,
+		ReplicationStatus:                None,
+		PartsCount:                       None,
+		TagCount:                         None,
+		ObjectLockMode:                   None,
+		ObjectLockRetainUntilDate:        None,
+		ObjectLockLegalHoldStatus:        None,
+		ObjectLockEventHold:              None,
+		ObjectLockEventHoldDurationDays:  None,
+		ObjectLockEventHoldDurationYears: None,
+	}
 }
 
 // PutObjectRequest is what PutObject sends. NewPutObjectRequest makes one
@@ -1090,6 +1194,7 @@ func NewPutObjectRequest(bucket string, key string) PutObjectRequest {
 }
 
 // PutObjectOutput is what PutObject reads from the answer's headers.
+// NewPutObjectOutput makes one with every member None, for a provider of S3.
 type PutObjectOutput {
 	Expiration              Option[string],
 	ETag                    Option[string],
@@ -1113,6 +1218,33 @@ type PutObjectOutput {
 	BucketKeyEnabled        Option[bool],
 	Size                    Option[int],
 	RequestCharged          Option[RequestCharged],
+}
+
+func NewPutObjectOutput() PutObjectOutput {
+	PutObjectOutput{
+		Expiration:              None,
+		ETag:                    None,
+		ChecksumCRC32:           None,
+		ChecksumCRC32C:          None,
+		ChecksumCRC64NVME:       None,
+		ChecksumSHA1:            None,
+		ChecksumSHA256:          None,
+		ChecksumSHA512:          None,
+		ChecksumMD5:             None,
+		ChecksumXXHASH64:        None,
+		ChecksumXXHASH3:         None,
+		ChecksumXXHASH128:       None,
+		ChecksumType:            None,
+		ServerSideEncryption:    None,
+		VersionId:               None,
+		SSECustomerAlgorithm:    None,
+		SSECustomerKeyMD5:       None,
+		SSEKMSKeyId:             None,
+		SSEKMSEncryptionContext: None,
+		BucketKeyEnabled:        None,
+		Size:                    None,
+		RequestCharged:          None,
+	}
 }
 
 // DeleteObjectRequest is what DeleteObject sends. NewDeleteObjectRequest
@@ -1146,10 +1278,20 @@ func NewDeleteObjectRequest(bucket string, key string) DeleteObjectRequest {
 }
 
 // DeleteObjectOutput is what DeleteObject reads from the answer's headers.
+// NewDeleteObjectOutput makes one with every member None, for a provider of
+// S3.
 type DeleteObjectOutput {
 	DeleteMarker   Option[bool],
 	VersionId      Option[string],
 	RequestCharged Option[RequestCharged],
+}
+
+func NewDeleteObjectOutput() DeleteObjectOutput {
+	DeleteObjectOutput{
+		DeleteMarker:   None,
+		VersionId:      None,
+		RequestCharged: None,
+	}
 }
 
 // NotFound is the service's error "NotFound": The specified content does not
