@@ -1,0 +1,63 @@
+// Function literals and method calls: a literal is a target of its own
+// whose rows are the ones it writes or its context's function type's (its
+// sites carry no clause to write); a literal's own failures and charges do
+// not reach the enclosing function; a call of a function on a value
+// (x.f()) escapes and charges as any call does.
+
+type Bad {}
+
+type Worse {}
+
+type Console { Println(s string) }
+
+type Box { n int }
+
+func fail(n int) int fails Bad {
+	if n > 5 {
+		return Bad
+	}
+	n
+}
+
+func Open(b Box) int fails Bad { try fail(b.n) }
+
+func Shout(b Box) needs Console { Console.Println("box") }
+
+func apply(f func(int) int fails Worse, n int) int fails Worse { try f(n) }
+
+func quiet(f func()) { f() }
+
+func viaMethod(b Box) int {
+	let m = try b.Open() //want: rows
+	m
+}
+
+func viaMethodNeeds(b Box) {
+	b.Shout() //want: rows
+}
+
+func written(n int) int {
+	let f = func(m int) int fails Worse {
+		let r = try fail(m) //want: rows
+		r
+	}
+	n
+}
+
+func expected(n int) int fails Worse {
+	try apply(func(m int) int {
+		let r = try fail(m) //want: rows
+		r
+	}, n)
+}
+
+func expectedNeeds() {
+	quiet(func() {
+		Console.Println("x") //want: rows
+	})
+}
+
+func inner(n int) int {
+	let f = func(m int) int fails Bad { try fail(m) }
+	n
+}
