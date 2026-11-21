@@ -102,7 +102,7 @@ func (b *irBuilder) plainLitIR(x *syntax.FuncLit, sig *check.Signature, params [
 	}()
 	lit := &irExpr{K: "func", Pos: p, T: b.plainSigType(sig, x)}
 	for i, v := range params {
-		lit.Params = append(lit.Params, b.local(v, ids[i]))
+		lit.Params = append(lit.Params, b.litParam(v, ids[i], sig.Params[i].Type, x, p)) // ir_closure.go
 	}
 	b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, result, 0, 0, 0, "", nil
 	lit.Body = b.bodyStmts(list) // ir_fail.go

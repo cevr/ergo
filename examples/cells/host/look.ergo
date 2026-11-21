@@ -159,7 +159,7 @@ func leftOutName[E](n ui.Node[E], holdsText bool) Option[Left] {
 		if holdsText { Some{Value: LabelUnderText} } else { None }
 	case ui.InputNode as x:
 		if x.Value != "" { Some{Value: PlaceholderUnderValue} } else { None }
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.CheckNode[E], ui.ToggleNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.CheckNode[E], ui.ToggleNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		None
 	}
 }
@@ -216,7 +216,7 @@ func namesShown[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
 			if d.vis.C == d.at.C && d.vis.W == d.at.W && holds(d.vis, d.at.C, d.markR) && !showsStates(rowOf(h.screen, d.at.C, d.at.W, d.markR), x.Access) {
 				return false
 			}
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 		// a leaf control's children are not drawn: its name stands for them
 		match styleOf(n, text).Content {
@@ -343,6 +343,13 @@ func styleOf[E](n ui.Node[E], holdsText bool) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.AreaNode as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.LayerNode[E] as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.TrackNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.ReadoutNode as x:
+		// a readout lays out by its reserve, so a new reading moves nothing
+		textOf(boxStyle(x.Style, layout.Column), x.Reserve)
 	case ui.FieldsetNode:
 		plainStyle()
 	case ui.RowsNode:
@@ -421,7 +428,7 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Text}
 	case ui.SemanticNode[E] as x:
 		Some{Value: x.Access.Name}
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		None
 	}
 }
@@ -434,7 +441,7 @@ func pressable[E](n ui.Node[E]) bool {
 		true
 	case ui.SemanticNode[E] as x:
 		declaresPress(x.On)
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
 }
@@ -447,7 +454,7 @@ func focusable[E](n ui.Node[E]) bool {
 		true
 	case ui.SemanticNode[E] as x:
 		declaresPress(x.On)
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
 }
@@ -468,7 +475,7 @@ func targeted[E](n ui.Node[E]) bool {
 	match n {
 	case ui.ScrollNode, ui.RowsNode, ui.ZoneNode:
 		false
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E]:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		true
 	}
 }

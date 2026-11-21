@@ -1022,6 +1022,13 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		}
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
+	case check.CallHash:
+		v, ab := in.expr(fr, x.Args[0])
+		if ab != nil {
+			return nil, ab
+		}
+		mustCharge(in, fr, 1)
+		return hashValue(v), nil
 	case check.CallLen:
 		// len reads a length, not the elements: a part it reads leaves
 		// no share behind, so its slot does not lend (MX-EVWITNESS: vt's

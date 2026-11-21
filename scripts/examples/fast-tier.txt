@@ -5,6 +5,7 @@
 # would miss without it (the unique-mutant rule, owner 2026-11-08).
 # internal/residue's TestFastTierExamplesAreLedgerKillers checks each line.
 adventure
+bookmarks
 catalog
 cborpack
 cells
@@ -66,6 +67,7 @@ timetable
 todo-gui
 toktree
 tomlparse
+triage
 tui
 twig
 vt

@@ -34,6 +34,9 @@ type Session[S, E, D, F] {
 	run         int,
 	signals     int,
 	passSignals int,
+	// readouts is the readouts a pass of the session placed, by number,
+	// each with the flag of its Published (readout.ergo).
+	readouts Map[int, watched],
 }
 
 // SessionCrashFollowsTheEnd (H6a): an app's session, as RunApp drives it,
@@ -223,7 +226,7 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f 
 			view(f, st)
 		}
 	}
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), shown: sync.NewRef(-1), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: None, run: 0, signals: 0, passSignals: 0}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), shown: sync.NewRef(-1), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: None, run: 0, signals: 0, passSignals: 0, readouts: Map[int, watched]{}}
 	watchActor(&s)
 	let ops = runPass(&s)
 	(s, ops)
@@ -345,6 +348,7 @@ func runPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 	}
 	s.passSignals = s.signals
 	s.signals = 0
+	watchReadouts(s)
 	for j in Jobs(&s.frame) {
 		match j {
 		case Fetch[E] as x:
@@ -382,6 +386,8 @@ func finish[S, E, D, F](s mut Session[S, E, D, F], epoch int) {
 // the result is that pass's patch, else no op. A Tick sends the signal of
 // each Animate of the last pass, in pass order, and renders once after
 // them; a Tick while the last pass made no Animate does nothing. A
+// Published runs no pass and gives no op: the host paints the readout's
+// nodes again. A
 // Committed renders again when the actor committed a state since the last
 // pass began, and does nothing when that pass showed it already. An app's
 // actor that ended with a defect or a typed failure (after a signal, or
@@ -440,6 +446,10 @@ func stepEvent[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []
 		case None:
 			return []Op[E]{}
 		}
+	case Published as x:
+		// No pass: the host paints the readout's nodes again (Host.Show).
+		taken(s, x.Readout)
+		return []Op[E]{}
 	case Tick as t:
 		let moving = s.frame.moving
 		let signals = ticked(&s.frame, t.At)
@@ -471,7 +481,7 @@ func stepEvent[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []
 	if done.Changed || len(crossed) > 0 {
 		return judgedPass(s)
 	}
-	[]Op[E]{}
+	done.Ops
 }
 
 // SessionRoot is the Id of the root of s's tree, the parent of the first
@@ -493,6 +503,11 @@ func SessionAnimates[S, E, D, F](s mut Session[S, E, D, F]) bool { Animating(&s.
 // SessionFocus is the node the keyboard is on in s's frame (Focused),
 // for a host that draws the focus.
 func SessionFocus[S, E, D, F](s mut Session[S, E, D, F]) Option[Id[E]] { Focused(&s.frame) }
+
+// SessionShielded is whether a layer's scrim covers id in s's frame
+// (Shielded): the frame takes no event of id, a host's report of its
+// viewport among them, until the scrim goes.
+func SessionShielded[S, E, D, F](s mut Session[S, E, D, F], id Id[E]) bool { Shielded(&s.frame, id) }
 
 // FocusSession puts the focus of s's frame on id, or nowhere (FocusOn).
 func FocusSession[S, E, D, F](s mut Session[S, E, D, F], id Option[Id[E]]) { FocusOn(&s.frame, id) }
