@@ -1,0 +1,132 @@
+// Package smithy reads a Smithy 2.0 JSON AST model into typed records,
+// prunes it to named operations and the shapes they reach, and writes it
+// back as JSON (wf10 GEN-MODEL; DISTILLED route C). A provider client is
+// generated from a model (`ergo gen client`, GEN-EMIT); the models come
+// from the providers' own descriptions: AWS publishes Smithy, and
+// distilled's converter turns other specs into Smithy and patches them.
+//
+// The records know nothing of Ergo: GEN-EMIT maps them to declarations.
+// Nothing in a model is dropped: a trait or a shape key the reader does
+// not read is kept as Refused, by name, and the emitter refuses a model
+// whose kept operations reach one (EveryTraitReadOrRefused).
+//
+// Prior art: Smithy's own JSON AST (smithy.io, "JSON AST"); smithy-go's
+// and smithy-rs's codegen read the same model into a shape graph; distilled
+// (packages/dev/src/codegen) and distilled-lua (lua/distilled/gen) read the
+// patched models this package reads.
+
+import json
+
+// Model is a model's version, its metadata as written, and its shapes in
+// the order the text gives them.
+type Model { Version string, Metadata json.Value, Shapes []Shape }
+
+// Shape is a shape's absolute id (`ns#Name`), its kind, its traits, and
+// the keys of its object the reader does not read (Unread).
+type Shape { Id string, Kind Kind, Traits []Trait, Keys []Unread }
+
+// Member is a member of a structure, union, enum, list or map: its name,
+// the id of its target shape and its traits.
+type Member { Name string, Target string, Traits []Trait }
+
+// Trait is a trait applied to a shape or member: Known when this package
+// reads its id (the value kept as written; a later unit types the ones the
+// emitter reads), Refused with the reason when it does not.
+type Trait = Known{Id string, Value json.Value} | Refused{Id string, Value json.Value, Why string}
+
+// Scalar is a simple shape's type.
+type Scalar = BlobType{} | BooleanType{} | StringType{} | ByteType{} | ShortType{} | IntegerType{} | LongType{} | FloatType{} | DoubleType{} | BigIntegerType{} | BigDecimalType{} | TimestampType{} | DocumentType{}
+
+// Ref is a lifecycle or identifier entry of a resource: the role it is
+// written under (`read`, `list`, an identifier's name) and its target.
+type Ref { Role string, Target string }
+
+// Kind is a shape's type and what it holds. Unsupported is a shape type
+// the reader does not read, kept by name with the shape's text.
+type Kind = Simple{Of Scalar} | Enum{Members []Member} | IntEnum{Members []Member} | List{Member Member} | Mapping{Key Member, Value Member} | Structure{Members []Member} | Union{Members []Member} | Operation{Input Option[string], Output Option[string], Errors []string} | Service{Version string, Operations []string, Resources []string, Errors []string, Rename json.Value} | Resource{Identifiers []Ref, Lifecycle []Ref, Operations []string, CollectionOperations []string, Resources []string} | Unsupported{Type string, Text json.Value}
+
+// NotSmithy is the failure of a text that is JSON but not a Smithy 2 JSON
+// AST: Path names where (`shapes/ns#Name/members`), Reason what is wrong.
+type NotSmithy { Path string, Reason string }
+
+// Unknown is the failure of Prune given an id the model does not declare
+// as an operation.
+type Unknown { Id string }
+
+// knownTraits are the trait ids the reader reads (the emitter's
+// vocabulary: HTTP bindings, wire names, errors, pagination, the protocol
+// and auth traits of the first providers). Every other id is Refused.
+let knownTraits = []string{
+	"smithy.api#http", "smithy.api#httpLabel", "smithy.api#httpQuery", "smithy.api#httpQueryParams",
+	"smithy.api#httpHeader", "smithy.api#httpPrefixHeaders", "smithy.api#httpPayload", "smithy.api#httpResponseCode",
+	"smithy.api#httpError", "smithy.api#error", "smithy.api#required", "smithy.api#default",
+	"smithy.api#jsonName", "smithy.api#xmlName", "smithy.api#xmlAttribute", "smithy.api#xmlFlattened",
+	"smithy.api#xmlNamespace", "smithy.api#timestampFormat", "smithy.api#paginated", "smithy.api#readonly",
+	"smithy.api#idempotent", "smithy.api#idempotencyToken", "smithy.api#sensitive", "smithy.api#documentation",
+	"smithy.api#enumValue", "smithy.api#streaming",
+	"aws.protocols#restXml", "aws.protocols#restJson1", "aws.auth#sigv4",
+	"com.cloudflare.protocols#v4Json", "com.cloudflare.protocols#errorMatchers",
+}
+
+// Refusals are the trait ids of a model that the reader refused, each
+// once, in the order met: the list the emitter checks against its kept
+// operations.
+func Refusals(m Model) []string {
+	let mut out = []string{}
+	for s in m.Shapes {
+		out = refusedIn(s.Traits, out)
+		for u in s.Keys {
+			out = once(out, "shape key "+u.Key)
+		}
+		for mem in membersOf(s.Kind) {
+			out = refusedIn(mem.Traits, out)
+		}
+		match s.Kind {
+		case Unsupported as u:
+			out = once(out, "shape type "+u.Type)
+		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Service, Resource:
+		}
+	}
+	out
+}
+
+func refusedIn(ts []Trait, out []string) []string {
+	let mut acc = out
+	for t in ts {
+		match t {
+		case Refused as r:
+			acc = once(acc, r.Id)
+		case Known:
+		}
+	}
+	acc
+}
+
+func once(xs []string, x string) []string {
+	for y in xs {
+		if y == x {
+			return xs
+		}
+	}
+	xs.Append(x)
+}
+
+// membersOf is every member a kind holds, in order.
+func membersOf(k Kind) []Member {
+	match k {
+	case Enum as e:
+		e.Members
+	case IntEnum as e:
+		e.Members
+	case List as l:
+		[]Member{l.Member}
+	case Mapping as m:
+		[]Member{m.Key, m.Value}
+	case Structure as s:
+		s.Members
+	case Union as u:
+		u.Members
+	case Simple, Operation, Service, Resource, Unsupported:
+		[]Member{}
+	}
+}
