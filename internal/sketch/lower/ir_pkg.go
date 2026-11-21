@@ -907,8 +907,15 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	if failsHere(c) && !goFallible(body) {
 		irNo("fallible call with an empty row at its site")
 	}
+	resConv := "" // the Go conversion the result takes (ir_operand.go basicOver)
 	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) && !b.sameRT(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0]), nil, body.Package) {
-		irNo("std call with a converted result")
+		// A runtime type over the method's basic result (Mapped.Text's
+		// string for fs.Text) is the result converted, when the call is
+		// a single value (CONV-OPERAND).
+		if !basicOver(b.l.info.Types[x], body.Results[0]) || goFallible(body) && failsHere(c) {
+			irNo("std call with a converted result")
+		}
+		resConv = b.goType(b.l.info.Types[x], x)
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
@@ -917,6 +924,9 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here
+	}
+	if resConv != "" {
+		e = &irExpr{K: "conv", Pos: p, T: resConv, X: e}
 	}
 	return pre, e, !body.Pure
 }

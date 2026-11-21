@@ -33,14 +33,26 @@ func (b *irBuilder) operandConv(x syntax.Expr, goType string, subst map[string]s
 	if b.operandFits(x, goType, subst, pkg) {
 		return "", true
 	}
-	if n, isNamed := b.operandType(x).(*check.Named); isNamed {
-		if name, bound := check.GoTypeOf(n); bound {
-			if gt, known := v1.TypeOf(name); known && gt.Basic != "" && gt.Basic == goType {
-				return goType, true
-			}
-		}
+	if basicOver(b.operandType(x), goType) {
+		return goType, true
 	}
 	return "", false
+}
+
+// basicOver reports whether t is a runtime type over the basic Go type
+// goType (fs's Text over string): a Go conversion takes a value between
+// them unchanged, either way.
+func basicOver(t check.Type, goType string) bool {
+	n, isNamed := t.(*check.Named)
+	if !isNamed {
+		return false
+	}
+	name, bound := check.GoTypeOf(n)
+	if !bound {
+		return false
+	}
+	gt, known := v1.TypeOf(name)
+	return known && gt.Basic != "" && gt.Basic == goType
 }
 
 // convOperands wraps each operand in args whose convs entry names a Go
