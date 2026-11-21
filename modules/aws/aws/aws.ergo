@@ -1,0 +1,253 @@
+// Package aws is the protocol runtime the generated AWS clients call: the
+// signer contract, the failures every operation shares, the reader of an
+// S3 error body and the encoding rules of Smithy's HTTP bindings (wf10
+// GEN-EMIT). It is written by hand and kept small: what a client of one
+// service needs lives in that client, generated from its model
+// (modules/clientgen). SigV4 is AWS-CORE's provider of Signer.
+
+import http
+import maps
+import slices
+import strconv
+import strings
+import time
+import url
+import xml
+
+// Signer adds a request's credentials just before it is sent. Only a
+// signer reads a credential: a generated client builds its requests with
+// none, so no wrapper, log or recording of the network sees one.
+// law-exempt: a signer's output is the service's to judge; AWS-CORE states SigV4's laws over AWS's test vectors.
+type Signer {
+	Sign(r http.Request) http.Request,
+}
+
+// Unsigned sends a request as it was built: for tests, a local endpoint,
+// and a public bucket.
+type Unsigned {} implements Signer
+
+func Sign(_ Unsigned, r http.Request) http.Request { r }
+
+// Failed is an answer the operation's model names no error for: its
+// status, the service's error code and message.
+type Failed { Status int, Code string, Message string }
+
+// Malformed is an answer the client cannot read: a header that is not of
+// its member's type, or an error body that is not XML.
+type Malformed { Reason string }
+
+// ErrorBody is an S3 error answer: its status, its code and message, and
+// the text of every other element under <Error>, by name.
+type ErrorBody { Status int, Code string, Message string, Fields Map[string, string] }
+
+// ErrorOf reads an S3 error answer. S3 writes <Error><Code>…</Code>
+// <Message>…</Message>…</Error> with no wrapper (the restXml protocol's
+// noErrorWrapping); an answer with no body (a HEAD) gets its status's
+// name as its code, as AWS's SDKs read it (404 NotFound).
+func ErrorOf(status int, body string) ErrorBody fails Malformed {
+	if strings.TrimSpace(body) == "" {
+		return ErrorBody{Status: status, Code: statusName(status), Message: "", Fields: Map[string, string]{}}
+	}
+	let mut p = xml.NewParser(body, 16)
+	let mut code = ""
+	let mut message = ""
+	let mut fields = Map[string, string]{}
+	let mut depth = 0
+	let mut name = ""
+	let mut text = ""
+	for {
+		let t = p.Next() catch {
+		case xml.Malformed as m:
+			return Malformed{Reason: "an error body that is not XML: \(m.Reason)"}
+		}
+		match t {
+		case xml.StartElement as s:
+			depth = depth + 1
+			name = s.Name
+			text = ""
+		case xml.CharData as c:
+			text = text + c.Text
+		case xml.EndElement:
+			if depth == 2 {
+				if name == "Code" {
+					code = text
+				} else if name == "Message" {
+					message = text
+				} else {
+					fields[name] = text
+				}
+			}
+			depth = depth - 1
+			text = ""
+		case xml.EndDocument:
+			return ErrorBody{Status: status, Code: code, Message: message, Fields: fields}
+		case xml.Comment, xml.ProcInst:
+		}
+	}
+}
+
+func statusName(status int) string {
+	if status == 301 {
+		return "MovedPermanently"
+	}
+	if status == 304 {
+		return "NotModified"
+	}
+	if status == 400 {
+		return "BadRequest"
+	}
+	if status == 403 {
+		return "Forbidden"
+	}
+	if status == 404 {
+		return "NotFound"
+	}
+	if status == 412 {
+		return "PreconditionFailed"
+	}
+	"Status\(status)"
+}
+
+// Format is how a timestamp member is written: Smithy's timestampFormat,
+// with http-date the default of a header and date-time of a query.
+type HTTPDate {}
+type DateTime {}
+type EpochSeconds {}
+type Format = HTTPDate | DateTime | EpochSeconds
+
+let httpDate = time.Custom{Text: "Mon, 02 Jan 2006 15:04:05 GMT"}
+
+// TimeText is t written in f.
+func TimeText(t time.Time, f Format) string {
+	match f {
+	case HTTPDate:
+		time.Format(t, httpDate)
+	case DateTime:
+		time.Format(t, time.RFC3339)
+	case EpochSeconds:
+		strconv.FormatInt(time.UnixSeconds(t), 10)
+	}
+}
+
+// IntText and BoolText are the wire text of a number and a flag.
+func IntText(n int) string { strconv.Itoa(n) }
+
+func BoolText(b bool) string { strconv.FormatBool(b) }
+
+// TextIn is the first value of the header name, or None.
+func TextIn(h []http.Field, name string) Option[string] { http.Header(h, name) }
+
+// IntIn reads the header name as a number.
+func IntIn(h []http.Field, name string) Option[int] fails Malformed {
+	match http.Header(h, name) {
+	case Some as v:
+		let n = strconv.Atoi(v.Value) catch {
+		case _:
+			return Malformed{Reason: "header \(name) is not a number: \(v.Value)"}
+		}
+		Some{n}
+	case None:
+		None
+	}
+}
+
+// BoolIn reads the header name as a flag.
+func BoolIn(h []http.Field, name string) Option[bool] fails Malformed {
+	match http.Header(h, name) {
+	case Some as v:
+		let b = strconv.ParseBool(v.Value) catch {
+		case _:
+			return Malformed{Reason: "header \(name) is not a flag: \(v.Value)"}
+		}
+		Some{b}
+	case None:
+		None
+	}
+}
+
+// TimeIn reads the header name as a timestamp written in f.
+func TimeIn(h []http.Field, name string, f Format) Option[time.Time] fails Malformed {
+	match http.Header(h, name) {
+	case Some as v:
+		Some[time.Time]{try timeOf(v.Value, f, name)}
+	case None:
+		None
+	}
+}
+
+func timeOf(s string, f Format, name string) time.Time fails Malformed {
+	match f {
+	case HTTPDate:
+		time.Parse(httpDate, s) catch {
+		case _:
+			return Malformed{Reason: "header \(name) is not an HTTP date: \(s)"}
+		}
+	case DateTime:
+		time.Parse(time.RFC3339, s) catch {
+		case _:
+			return Malformed{Reason: "header \(name) is not a date-time: \(s)"}
+		}
+	case EpochSeconds:
+		let n = strconv.ParseInt(s, 10, 64) catch {
+		case _:
+			return Malformed{Reason: "header \(name) is not epoch seconds: \(s)"}
+		}
+		time.Unix(n, 0)
+	}
+}
+
+// Prefixed is every header whose name starts with prefix (ignoring
+// case), by the rest of its name in lower case: httpPrefixHeaders.
+func Prefixed(h []http.Field, prefix string) Map[string, string] {
+	let low = strings.ToLower(prefix)
+	let mut out = Map[string, string]{}
+	for f in h {
+		let name = strings.ToLower(f.Name)
+		if strings.HasPrefix(name, low) {
+			out[strings.TrimPrefix(name, low)] = f.Value
+		}
+	}
+	out
+}
+
+// PutPrefixed adds a header prefix+name for each entry of m, in the
+// order of the names.
+func PutPrefixed(h []http.Field, prefix string, m Map[string, string]) []http.Field {
+	let mut out = h
+	for k in slices.Sorted(maps.Keys(m)) {
+		match m.Get(k) {
+		case Some as v:
+			out = out.Append(http.Field{Name: prefix + k, Value: v.Value})
+		case None:
+		}
+	}
+	out
+}
+
+// Label is a path label's escaped text: each segment escaped as Go's
+// url.PathEscape does, and with greedy (`{Key+}`) each "/" kept as a
+// separator. SigV4's canonical URI escapes more (AWS-CORE's rule); the
+// server decodes both to the same key.
+func Label(s string, greedy bool) string {
+	if !greedy {
+		return url.PathEscape(s)
+	}
+	let mut parts = []string{}
+	for seg in strings.Split(s, "/") {
+		parts = parts.Append(url.PathEscape(seg))
+	}
+	strings.Join(parts, "/")
+}
+
+// LabelDecodes: a greedy label's text, split at "/" and each part
+// unescaped, is the value again, and a plain label holds no "/".
+law LabelDecodes(s string) {
+	let mut back = []string{}
+	for seg in strings.Split(Label(s, true), "/") {
+		back = back.Append(url.PathUnescape(seg) catch {
+		case _:
+			return false
+		})
+	}
+	strings.Join(back, "/") == s && !strings.Contains(Label(s, false), "/")
+}
