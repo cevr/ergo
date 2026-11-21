@@ -447,14 +447,25 @@ func initialized(t Tool) fails NoBase {
 func config(t Tool) Config fails BadConfig {
 	let text = t.files.ReadFile(filepath.Join([]string{t.base, ConfigFile})) catch {
 	case fs.NotFound:
-		return Config{..EmptyConfig(), Classes: PresetLines([]ClassLine{}, presentLocks(t, t.base))}
+		return try overBase(t, EmptyConfig())
 	case fs.Denied:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): permission denied"}
 	case fs.Failed as f:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): \(f.Reason)"}
 	}
-	let c = try ParseConfig(text)
-	Config{..c, Classes: PresetLines(c.Classes, presentLocks(t, t.base))}
+	try overBase(t, try ParseConfig(text))
+}
+
+// overBase is c with what the base adds: its own Git setting work.trash
+// (LocalTrash) and the presets of the lock files at its root.
+func overBase(t Tool, c Config) Config fails BadConfig {
+	// A base Git cannot read has no setting: the next source decides.
+	let setting = t.vcs.Setting(t.base, TrashKey) catch {
+	case VcsFailed:
+		""
+	}
+	let local = try LocalTrash(c, setting)
+	Config{..local, Classes: PresetLines(local.Classes, presentLocks(t, t.base))}
 }
 
 // live is the record of name unless it is trashed.
@@ -915,7 +926,7 @@ func MergeFile(t Tool, class string, base string, ours string, theirs string, o 
 		}
 		return BadClass{Name: class, Known: slices.Concat(slices.Concat(classes.ClassNames, names), []string{"auto"})}
 	}
-	try mergeWith(t, c, class, path, base, ours, theirs)
+	try mergeWith(t, c, class, "", path, base, ours, theirs)
 }
 
 // mark writes the marker of the workspace at path: its id in its Git

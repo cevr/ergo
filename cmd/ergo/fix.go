@@ -160,6 +160,20 @@ func fixCommand(args []string) error {
 			fmt.Fprint(out, impl.Text())
 		}
 	}
+	// A sub-union re-listed and rebuilt arm by arm becomes the union
+	// listed and widened (DECL-VALUES §6 unit 2; types.md, Unions 1),
+	// kept per package only when its check verdict is unchanged.
+	flat, err := fix.RunUnionFlat(fix.Options{Paths: paths, Write: write})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if text := flat.Text(); text != "" {
+		out := os.Stdout
+		if asJSON {
+			out = os.Stderr // stdout holds only the JSON
+		}
+		fmt.Fprint(out, text)
+	}
 	// The law pass (LAWLOC); --check skips it while S115 is off.
 	if !check {
 		text, err := fixLaws(lawPaths, stdRoot, write)
@@ -225,6 +239,8 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "fix: diagnostics remain", handled: true}
 	case check && (len(rep.Changed) > 0 || len(impl.Written) > 0):
 		return exitStatusError{code: 1, message: "fix: signatures would change", handled: true}
+	case check && len(flat.Changes) > 0:
+		return exitStatusError{code: 1, message: "fix: unions would be listed", handled: true}
 	case check && len(rep.Linted) > 0:
 		return exitStatusError{code: 1, message: "fix: lint fixes would apply", handled: true}
 	}

@@ -119,7 +119,7 @@ func probeLabel[E](n ui.Node[E]) string {
 // its padding keeps its children off that pixel.
 func lookProbes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 	let mut out = []Probe{}
-	for p in d.looked {
+	for i, p in d.looked {
 		let l = p.look
 		if p.alpha != 1.0 || l.Opacity != 1.0 {
 			continue
@@ -133,7 +133,7 @@ func lookProbes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 		if l.Fill.A == 255 && !inset && p.padTop >= border+2 && b.W >= 4 {
 			let x = int(b.X + b.W/2)
 			let y = int(fceil(b.Y+border) + 0.5)
-			if probeShows(p.clip, x, y) && float32(y) < b.Y+b.H {
+			if probeShows(p.clip, x, y) && float32(y) < b.Y+b.H && !coveredLook(d, i, x, y) {
 				out = out.Append(Probe{Label: p.label, X: x, Y: y, Color: rgba(l.Fill)})
 			}
 		}
@@ -142,7 +142,7 @@ func lookProbes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 			if !d.shadowed && !p.ringed && float64(l.Corners.TopLeft) >= 9 && p.padTop >= 1 && p.padLeft >= 1 {
 				let x = int(fceil(b.X))
 				let y = int(fceil(b.Y))
-				if probeShows(p.clip, x, y) {
+				if probeShows(p.clip, x, y) && !coveredLook(d, i, x, y) {
 					out = out.Append(Probe{Label: p.label + " corner", X: x, Y: y, Color: u.Value})
 				}
 			}

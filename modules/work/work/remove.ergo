@@ -71,15 +71,21 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 		if !mine {
 			return []Setting{}
 		}
-		match w.State {
+		// A Creating record over a checkout (its maker died after the
+		// clone) may hold work: its folder is held as an Active one's is.
+		let held = match w.State {
 		case Active:
-			if !abandon {
-				let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), false) }
-				if !kept {
-					return NotHeld{Name: name, Path: w.Path}
-				}
+			true
+		case Creating:
+			t.copier.Has(w.Path + "/.git")
+		case Landing, Landed, Abandoned, Trashed:
+			false
+		}
+		if held && !abandon {
+			let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), false) }
+			if !kept {
+				return NotHeld{Name: name, Path: w.Path}
 			}
-		case Creating, Landing, Landed, Abandoned, Trashed:
 		}
 		let env = hookEnv(w.Parent, w.Path, w.Id, "")
 		match runHook(t, c, "preremove", w.Path, env) {
@@ -540,7 +546,11 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 					return e
 				}
 				unreserved(t, w)
-			} else if taken && strings.HasPrefix(w.Path, t.home+"/") {
+			} else if taken && strings.HasPrefix(w.Path, t.home+"/") && !t.copier.Has(w.Path+"/.git") {
+				// A folder cut off before its checkout holds no work; one
+				// over a checkout may (its maker died after the clone, before
+				// the marker): gc leaves it, and rm decides it as it decides
+				// an active one.
 				due = due.Append(w)
 			} else if taken {
 				unreserved(t, w)

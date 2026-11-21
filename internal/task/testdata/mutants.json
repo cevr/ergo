@@ -1,0 +1,59 @@
+{
+  "about": "ergo task gen (MONOREPO WT1a; docs/spec/build.md, Generators): each row is an edit of the runner some test must notice.",
+  "mutants": [
+    {
+      "name": "task-order-ignores-edge",
+      "origin": "wf10 MONOREPO WT1a",
+      "file": "internal/task/gen.go",
+      "from": "\t\t\tindeg[b]++\n",
+      "to": "",
+      "rule": "A generator runs after every generator whose output it reads: with every last run known, a pass runs each generator at most once.",
+      "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
+    },
+    {
+      "name": "task-gen-check-writes",
+      "origin": "wf10 MONOREPO WT1a",
+      "file": "internal/task/gen.go",
+      "from": "\t\t\tif mode.Check && !inCopy {\n",
+      "to": "\t\t\tif false && mode.Check && !inCopy {\n",
+      "rule": "gen --check writes nothing in the tree: a generator that misses runs in a copy.",
+      "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
+    },
+    {
+      "name": "task-listing-unkeyed",
+      "origin": "wf10 MONOREPO WT1a",
+      "file": "internal/task/gen.go",
+      "from": "\t\tparts = append(parts, \"d \"+dir+\" \"+l)\n",
+      "to": "\t\t_ = l\n",
+      "rule": "A folder a generator lists is in its key by the names it holds: a new file in it is a miss.",
+      "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
+    },
+    {
+      "name": "task-outputs-unchecked",
+      "origin": "wf10 MONOREPO WT1a",
+      "file": "internal/task/gen.go",
+      "from": "\t\tif d != o.digest {\n\t\t\treturn entry.outs, false, nil\n\t\t}\n",
+      "to": "\t\t_ = d\n",
+      "rule": "A hit needs the tree's outputs to hash as the stored run wrote them: a generated file edited or deleted by hand is a miss.",
+      "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
+    },
+    {
+      "name": "task-fresh-trusts-hits",
+      "origin": "wf10 MONOREPO WT1a",
+      "file": "internal/task/gen.go",
+      "from": "\t\t\tif hit && !(mode.Fresh && pass == 1) {\n",
+      "to": "\t\t\tif hit {\n",
+      "rule": "--fresh runs every generator: a stored result keyed without a file the generator reads is caught by the fresh run.",
+      "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
+    },
+    {
+      "name": "task-cycle-unbounded",
+      "origin": "wf10 MONOREPO WT1a addendum",
+      "file": "internal/task/gen.go",
+      "from": "\t\tif running == k+1 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A cycle of k generators settles in k+1 running passes; one still missing after them fails naming it, never loops (only the coarse backstop would stop it, past the bound).",
+      "killers": ["internal/task:TestGenStopsARestlessCycle"]
+    }
+  ]
+}

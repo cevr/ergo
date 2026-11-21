@@ -206,6 +206,11 @@ func Tag(p P) int { 1 }
 func f() Named { P{n: "x"} }
 func main() {}
 `, nil},
+	{"operation type", "a type set constrains a generic function (CONSTRAINTS C1)", `
+type Count { ~int | int64 }
+func Sum[T Count](a T, b T) T { a + b }
+func main() { _ = Sum(1, 2) }
+`, nil},
 	{"law", "a law in an operation type", `
 type Monoid {
 	Combine(a int, b int) int,
@@ -332,6 +337,13 @@ func f(m Map[string, int64], xs []int64) []int64 {
 	m.Delete("a")
 	return xs.Append(1).Append(2)
 }
+func main() {}
+`, nil},
+	{"Map type", "a Map with a provider", `
+type Fold {} implements Hashing[string]
+func Hash(_ Fold, k string) uint64 { hash(k) }
+func Equal(_ Fold, a string, b string) bool { a == b }
+func f(m Map[string, int, Fold]) int { len(m) }
 func main() {}
 `, nil},
 	{"Map type", "append checks its elements", `

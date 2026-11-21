@@ -14,7 +14,8 @@ let tokenNames = []string{
 	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
 	"escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as", "token(?)", "token(?)",
 	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
-	"range", "select", "struct", "switch", "var",
+	"range", "select", "struct", "switch", "var", "token(?)",
+	"~",
 }
 
 // KeywordTableIsTheRule: keyword says what keywordRule says for every

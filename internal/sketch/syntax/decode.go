@@ -503,7 +503,12 @@ func (d *rowDecoder) node(r uint32) Node {
 		}
 		return x
 	case kMapType:
-		return &MapType{Map: d.pos(d.tok(d.fixed(r, 2, 0))), Lbrack: d.pos(t), Key: one[Expr](d, d.item(r, 0)), Value: one[Expr](d, d.item(r, 1)), Rbrack: d.pos(d.fixed(r, 2, 1))}
+		x := &MapType{Map: d.pos(d.tok(d.fixed(r, 2, 0))), Lbrack: d.pos(t), Key: one[Expr](d, d.item(r, 0)), Value: one[Expr](d, d.item(r, 1)), Rbrack: d.pos(d.fixed(r, 2, 1))}
+		if d.items(r, 2) == 3 {
+			// `Map[K, V, H]`: the Hashing provider (CONSTRAINTS C5).
+			x.Hashing = one[Expr](d, d.item(r, 2))
+		}
+		return x
 	case kFuncType:
 		x := &FuncType{Escaping: d.opos(d.fixed(r, 7, 0)), EntryPos: d.zpos(d.fixed(r, 7, 1)), Func: d.opos(d.fixed(r, 7, 2)), Params: one[*FieldList](d, d.fixed(r, 7, 3)), Results: opt[*FieldList](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Takes: opt[*TakesClause](d, d.fixed(r, 7, 6))}
 		x.Entry = d.fixed(r, 7, 1) != 0
@@ -529,6 +534,12 @@ func (d *rowDecoder) node(r uint32) Node {
 				}
 			case *LawDecl:
 				x.Laws = append(x.Laws, m)
+			case *UnaryExpr:
+				// `~T`, a term of the type-set member (CONSTRAINTS C1).
+				x.Terms = append(x.Terms, &TypeTerm{Tilde: m.OpPos, Type: m.X})
+			case Expr:
+				// A bare term `T` of the type-set member.
+				x.Terms = append(x.Terms, &TypeTerm{Tilde: NoPos, Type: m})
 			}
 		}
 		return x
