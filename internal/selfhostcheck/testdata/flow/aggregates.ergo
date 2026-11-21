@@ -37,7 +37,7 @@ func fieldClosed() {
 
 func fieldKept() {
 	let b = Box{r: open(1), n: 1}
-	keep(b.r)
+	keep(b.r) //want: flow
 	lendBox(b)
 }
 
@@ -57,13 +57,13 @@ func litLent() {
 func indexed() {
 	let l = []Res{open(1)}
 	lend(l[0])
-	l[0].Close()
+	l[0].Close() //want: flow
 }
 
 func lentElements() {
 	let l = []Res{open(1)}
 	for e in l {
-		keep(e)
+		keep(e) //want: flow
 	}
 }
 

@@ -5,42 +5,159 @@
 // rune is one column here: std has no display width yet (gap 8).
 
 import gent/agent
+import slices
 import strings
 import term
+import time
 import utf8
 
-// View is what a frame shows: the agent's state and the composer's line.
-type View { State agent.State, Line Line }
+// View is what a frame shows: the agent's state, the composer's line,
+// where the transcript is scrolled to, whether finished calls show their
+// detail, when the work under way began (Since) and the time the frame is
+// drawn at (Now). screen reads no clock: the draw loop puts its reading
+// in Now, and the spinner is a function of Now less Since.
+type View { State agent.State, Line Line, Scroll Scroll, Detail bool, Since time.Time, Now time.Time }
+
+// Scroll is where the transcript is scrolled to: stuck to its end, so new
+// output shows as it comes, or with the line Top of the wrapped body at
+// the top of the screen, which new output does not move.
+type Scroll { Top int, Stuck bool }
+
+// Stuck is the scroll of a view that follows the end.
+func Stuck() Scroll { Scroll{Top: 0, Stuck: true} }
 
 // Frame is the screen of v in a window of w: exactly w.Rows lines, none
 // wider than w.Cols runes. The last two are the status line and the
-// composer; above them, the end of the transcript.
+// composer; above them, the wrapped transcript from the scroll's line, or
+// its end when stuck.
 func Frame(v View, w term.Window) []string {
 	if w.Rows <= 0 {
 		return []string{}
 	}
 	let cols = if w.Cols < 0 { 0 } else { w.Cols }
-	let composer = Clip("> "+v.Line.Text+"_", cols)
+	let composer = Clip("> "+Before(v.Line)+"_"+After(v.Line), cols)
 	if w.Rows == 1 {
 		return []string{composer}
 	}
-	let body = Body(v.State)
+	let body = Shown(v, cols)
 	let room = w.Rows - 2
+	let from = Top(v, len(body), room)
+	let to = if from+room < len(body) { from + room } else { len(body) }
 	let mut out = []string{}
-	let from = if len(body) > room { len(body) - room } else { 0 }
-	for i in 0..(room - (len(body) - from)) {
+	for i in 0..(room - (to - from)) {
 		let _ = i
 		out = out.Append("")
 	}
-	for line in body[from:] {
+	for line in body[from:to] {
 		out = out.Append(Clip(line, cols))
 	}
-	out.Append(Clip(Status(v.State), cols)).Append(composer)
+	out.Append(Clip(Spin(v)+Status(v.State), cols)).Append(composer)
 }
 
-// Body is the transcript's lines, then the reply streaming in, if any.
-func Body(s agent.State) []string {
-	let mut out = Transcript(s.Log)
+// Top is the first line of a body of n lines that a view shows in room
+// rows: the end's when stuck, else the scroll's, kept in range.
+func Top(v View, n int, room int) int {
+	let last = if n > room { n - room } else { 0 }
+	if v.Scroll.Stuck {
+		return last
+	}
+	if v.Scroll.Top < 0 { 0 } else if v.Scroll.Top > last { last } else { v.Scroll.Top }
+}
+
+// Paged is v after a page up (up) or down in a window of w: the top moves
+// a screen's rows, never above the first line, and a page down that
+// reaches the end sticks the view to it again.
+func Paged(v View, up bool, w term.Window) View {
+	let cols = if w.Cols < 0 { 0 } else { w.Cols }
+	let room = if w.Rows > 2 { w.Rows - 2 } else { 1 }
+	let n = len(Shown(v, cols))
+	let last = if n > room { n - room } else { 0 }
+	let from = Top(v, n, room)
+	let to = if up { from - room } else { from + room }
+	let top = if to < 0 { 0 } else if to > last { last } else { to }
+	View{..v, Scroll: Scroll{Top: top, Stuck: !up && top >= last}}
+}
+
+// Shown is the body of v wrapped to cols.
+func Shown(v View, cols int) []string {
+	let mut out = []string{}
+	for line in Body(v.State, v.Detail) {
+		out = out.Concat(Wrap(line, cols))
+	}
+	out
+}
+
+// Wrap is text cut into lines of at most cols runes, between words where
+// a space allows: a space where a line breaks is dropped, and a word
+// longer than a line is cut. One rune is one column (gap 8).
+func Wrap(text string, cols int) []string {
+	if cols <= 0 {
+		return []string{text}
+	}
+	let mut out = []string{}
+	let mut rest = text
+	for utf8.RuneCount(rest) > cols {
+		let head = Clip(rest, cols)
+		let after = strings.Slice(rest, len(head), len(rest))
+		if strings.HasPrefix(after, " ") {
+			out = out.Append(head)
+			rest = strings.Slice(after, 1, len(after))
+			continue
+		}
+		let space = strings.LastIndex(head, " ")
+		if space > 0 {
+			out = out.Append(strings.Slice(head, 0, space))
+			rest = strings.Slice(rest, space+1, len(rest))
+			continue
+		}
+		out = out.Append(head)
+		rest = after
+	}
+	out.Append(rest)
+}
+
+// Turn is how long the spinner shows one mark.
+let Turn = 120ms
+
+// Turns is how many turns of the spinner fit between since and now: none
+// before since.
+func Turns(since time.Time, now time.Time) int {
+	let d = now.Sub(since)
+	if d < 0s { 0 } else { int(int64(d) / int64(Turn)) }
+}
+
+// Spin is the spinner before the status line while the agent works: one
+// of four marks, by the turns since the work began.
+func Spin(v View) string {
+	match v.State.Phase {
+	case agent.Asking, agent.Waiting, agent.Running:
+		Marks[Turns(v.Since, v.Now)%4]
+	case agent.Idle, agent.Approving, agent.Ended:
+		""
+	}
+}
+
+// Marks is the spinner's marks, in turn order.
+let Marks = []string{"- ", "\\ ", "| ", "/ "}
+
+// SpinIsTheClock: while the agent works, the spinner shows the mark of
+// the turns between the work's start and the frame's time, a mark per
+// Turn; at rest it shows none.
+law SpinIsTheClock(v View, ms int) {
+	let d = ((ms % 100000) + 100000) % 100000
+	let at = View{..v, Now: v.Since.Add(duration(int64(d) * 1000000))}
+	match v.State.Phase {
+	case agent.Asking, agent.Waiting, agent.Running:
+		Spin(at) == Marks[(d/120)%4]
+	case agent.Idle, agent.Approving, agent.Ended:
+		Spin(at) == ""
+	}
+}
+
+// Body is the transcript's lines, then the reply streaming in, if any. A
+// finished call is one line unless detail is on.
+func Body(s agent.State, detail bool) []string {
+	let mut out = Transcript(s.Log, detail)
 	match s.Phase {
 	case agent.Asking as a:
 		if a.Draft != "" {
@@ -67,13 +184,53 @@ func Asked(r agent.Request) string {
 	}
 }
 
-// Transcript is the lines of every row of log, in order.
-func Transcript(log []agent.Row) []string {
+// Transcript is the lines of every row of log, in order. With detail
+// off, a call whose result is in log is one line, its name, its
+// arguments, how it ended and the lines its result has, and the result
+// is not shown apart.
+func Transcript(log []agent.Row, detail bool) []string {
+	let mut results = Map[string, agent.Result]{}
+	if !detail {
+		for r in log {
+			match r {
+			case agent.Result as res:
+				results[res.Id] = res
+			case agent.User, agent.Reply, agent.Cut, agent.Failed, agent.Note:
+			}
+		}
+	}
+	let mut folded = Map[string, bool]{}
 	let mut out = []string{}
 	for r in log {
-		out = out.Concat(Lines(r))
+		match r {
+		case agent.Reply as rep:
+			if rep.Text != "" || len(rep.Calls) == 0 {
+				out = out.Concat(Lines(agent.Reply{..rep, Calls: []agent.Call{}}))
+			}
+			for c in rep.Calls {
+				match results.Get(c.Id) {
+				case Some[agent.Result] as hit:
+					folded[c.Id] = true
+					out = out.Append(Folded(c, hit.Value))
+				case None:
+					out = out.Concat(marked("→ ", c.Name+" "+c.Arguments))
+				}
+			}
+		case agent.Result as res:
+			if folded.Get(res.Id) == None {
+				out = out.Concat(Lines(r))
+			}
+		case agent.User, agent.Cut, agent.Failed, agent.Note:
+			out = out.Concat(Lines(r))
+		}
 	}
 	out
+}
+
+// Folded is the one line of call c with its result res.
+func Folded(c agent.Call, res agent.Result) string {
+	let n = len(strings.Split(strings.TrimSuffix(res.Text, "\n"), "\n"))
+	Printable("→ " + c.Name + " " + c.Arguments + " · " + (if res.Ok { "ok" } else { "failed" }) + " · \(n) lines")
 }
 
 // Lines is the lines of r. Its first line starts with the marker of its
@@ -162,12 +319,74 @@ law FrameFitsWindow(v View, rows int, cols int) {
 // line above the status line.
 law TailIsVisible(v View, rows int, cols int) {
 	let w = window(rows, cols)
-	let body = Body(v.State)
+	let stuck = View{..v, Scroll: Stuck()}
+	let body = Shown(stuck, w.Cols)
 	if w.Rows < 3 || len(body) == 0 {
 		return true
 	}
-	let lines = Frame(v, w)
+	let lines = Frame(stuck, w)
 	lines[w.Rows-3] == Clip(body[len(body)-1], w.Cols)
+}
+
+// StuckToEndFollows: a view stuck to the end shows a row added to the
+// transcript: its last line is above the status line.
+law StuckToEndFollows(v View, r agent.Row, rows int, cols int) {
+	let w = window(rows, cols)
+	let s = agent.State{..v.State, Log: v.State.Log.Append(r), Phase: agent.Idle}
+	let after = View{..v, State: s, Scroll: Stuck()}
+	let body = Shown(after, w.Cols)
+	if w.Rows < 3 || len(body) == 0 {
+		return true
+	}
+	Frame(after, w)[w.Rows-3] == Clip(body[len(body)-1], w.Cols)
+}
+
+// ScrolledUpStays: a view scrolled up to a line of its body shows the
+// same transcript lines after a row is added to it: new output does not
+// pull it down.
+law ScrolledUpStays(v View, r agent.Row, top int, rows int, cols int) {
+	let w = window(rows, cols)
+	if w.Rows < 3 {
+		return true
+	}
+	let idle = agent.State{..v.State, Phase: agent.Idle}
+	let room = w.Rows - 2
+	let scrolled = View{..v, State: idle, Scroll: Scroll{Top: top, Stuck: false}}
+	let n = len(Shown(scrolled, w.Cols))
+	let before = View{..scrolled, Scroll: Scroll{Top: Top(scrolled, n, room), Stuck: false}}
+	let after = View{..before, State: agent.State{..idle, Log: idle.Log.Append(r)}}
+	// The rows above the status line, when the old body filled them.
+	n < room || slices.Equal(Frame(before, w)[0:room], Frame(after, w)[0:room])
+}
+
+// ScrollStaysInRange: after any page keys the top line is in the body,
+// and a view that pages down to the end is stuck to it.
+law ScrollStaysInRange(v View, ups []bool, rows int, cols int) {
+	let w = window(rows, cols)
+	let mut at = v
+	for up in ups {
+		at = Paged(at, up, w)
+		let room = if w.Rows > 2 { w.Rows - 2 } else { 1 }
+		let n = len(Shown(at, w.Cols))
+		let last = if n > room { n - room } else { 0 }
+		if at.Scroll.Top < 0 || at.Scroll.Top > last {
+			return false
+		}
+	}
+	true
+}
+
+// WrapLosesNothing: wrapped lines are at most cols runes, and joined they
+// are the text less the spaces at the breaks.
+law WrapLosesNothing(text string, n int) {
+	let cols = ((n%40)+40)%40 + 1
+	let lines = Wrap(text, cols)
+	for line in lines {
+		if utf8.RuneCount(line) > cols {
+			return false
+		}
+	}
+	strings.ReplaceAll(strings.Join(lines, ""), " ", "") == strings.ReplaceAll(text, " ", "")
 }
 
 // KindsLookDifferent: two rows of different kinds start with different
@@ -209,4 +428,52 @@ func marker(r agent.Row) string {
 // each line cleared to its end: what one frame writes.
 func Paint(lines []string) string {
 	"\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K"
+}
+
+// Write is one line of the screen written: the row, from 0, and its text.
+type Write { Row int, Text string }
+
+// Changes is the writes that turn the screen of frame a into frame b:
+// every row of b when the two differ in height, else the rows that
+// differ.
+func Changes(a []string, b []string) []Write {
+	let mut out = []Write{}
+	for i, line in b {
+		if len(a) != len(b) || a[i] != line {
+			out = out.Append(Write{Row: i, Text: line})
+		}
+	}
+	out
+}
+
+// Apply is the screen of n rows that a shows after ws.
+func Apply(a []string, n int, ws []Write) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append(if i < len(a) { a[i] } else { "" })
+	}
+	for w in ws {
+		if w.Row >= 0 && w.Row < n {
+			out[w.Row] = w.Text
+		}
+	}
+	out
+}
+
+// ChangedLinesRedrawTheFrame: the writes from frame a to frame b, applied
+// to a, give b; also from a frame of b's height (a cut or padded to it),
+// where only the changed lines are written.
+law ChangedLinesRedrawTheFrame(a []string, b []string) {
+	let same = Apply(a, len(b), []Write{})
+	slices.Equal(Apply(a, len(b), Changes(a, b)), b) && slices.Equal(Apply(same, len(b), Changes(same, b)), b)
+}
+
+// PaintChanges is the bytes of ws: each row moved to and written, cleared
+// to its end.
+func PaintChanges(ws []Write) string {
+	let mut out = ""
+	for w in ws {
+		out = out + "\x1b[\(w.Row + 1);1H" + w.Text + "\x1b[K"
+	}
+	out
 }
