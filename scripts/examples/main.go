@@ -203,8 +203,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return false
 		}
 		// Red by record (findings.go): its check fails until the owed
-		// units land, so no leg of it can pass; it is reported, not run.
-		fmt.Fprintf(stdout, "red by record %s: not run until %s land\n", p.name, strings.Join(p.owed, ", "))
+		// units land, and a build refuses a program with any diagnostic
+		// (sketchfront.emission), so no leg of it can run. Each run prints
+		// how many cases are dark.
+		fmt.Fprintf(stdout, "red by record: %s: cases not run (%d cases) until %s land\n", p.name, len(p.cases), strings.Join(p.owed, ", "))
 		return true
 	})
 	if len(selected) == 0 {
