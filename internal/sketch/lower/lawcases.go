@@ -190,12 +190,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 			if generic {
 				args = append(args, pv)
 				args = append(args, fc.lawWitnessArgs(bd[owner], law.Decl)...)
-				tc := &typeCtx{l: l, site: law.Decl}
-				targs := make([]string, len(bd[owner].Slot.TArgs))
-				for i, a := range bd[owner].Slot.TArgs {
-					targs[i] = tc.goType(a)
-				}
-				callee += "[" + strings.Join(targs, ", ") + "]"
+				callee = l.lawCallee(law, lawGenericOwner(law), bd[owner].Slot.TArgs) // mono.go
 			} else {
 				bind += e + "." + l.envField(law.Slots[owner].Type) + " = " + pv + "; "
 			}
