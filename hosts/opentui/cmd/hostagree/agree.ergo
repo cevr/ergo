@@ -709,13 +709,49 @@ func named(l Option[string]) string {
 // after k Tabs the focus is on the (k-1 mod n)-th of the n focusable
 // nodes.
 func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], k int) (result, result) needs go.Foreign {
-	let mut keys = tui.Click(s.Cols()-1, s.Lines()-1)
+	let (cx, cy) = (s.Cols() - 1, s.Lines() - 1)
+	// The click is a pointer event on both hosts (OT-PHASES): where no node
+	// takes the mouse it is TestHost's click nowhere (the hover leaves every
+	// Area); on an Area that fills the screen (drag) it is that Area's Down
+	// and Up at the same place.
+	let hit = tui.TargetAt(d, cx, cy)
+	let mut keys = tui.Click(cx, cy)
 	for _ in 0..k {
 		keys = keys + "\t"
 	}
 	let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Send(d, keys)
 	})
+	let clicked = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		match hit {
+		case Some[(ui.Id[E], ui.Node[E])] as t:
+			let (id, n) = t.Value
+			let box = tui.Box(d, id)
+			// An Area is found by its label (twin finds focusable nodes).
+			let at = match n {
+			case ui.AreaNode as a:
+				match ui.Find(h, a.Label) {
+				case Some[ui.Id[E]] as f:
+					f.Value
+				case None:
+					return ui.NoNode{Label: a.Label}
+				}
+			case _:
+				twin(h, n, id)
+			}
+			let x = float64(cx-box.X) * 8
+			let y = float64(cy-box.Y) * cellH
+			try ui.PointAt(h, at, ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: None})
+			try ui.PointAt(h, at, ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: None})
+		case None:
+			try ui.ClickNowhere(h)
+		}
+	})
+	match clicked {
+	case Done:
+	case _:
+		return (clicked, b)
+	}
 	// The order is TestHost's tree's, not the driver's.
 	let order = focusOrder(ui.Screen(h), []Option[string]{})
 	let mut want Option[string] = None
@@ -747,7 +783,10 @@ func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.
 				try tui.Send(d, "\r")
 			})
 			let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
-				try ui.Tap(h, twin(h, n.Value, id.Value))
+				// Enter presses the focused node with no pointer, so the
+				// hover stays where it was: TestHost's press that leaves the
+				// hover is a finger's (TapWith, MB4), not the mouse's Tap.
+				try ui.TapWith(h, twin(h, n.Value, id.Value), ui.Pointer{Id: 1, Kind: ui.Finger})
 			})
 			return (a, b2)
 		}

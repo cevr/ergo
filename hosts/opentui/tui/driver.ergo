@@ -637,6 +637,17 @@ func under[S, E, D, F](d mut Driver[S, E, D, F], hit Option[ui.Id[E]]) ui.Id[E] 
 	}
 }
 
+// TargetAt is the node that takes the mouse at column x, row y, and that
+// node, None where none does (a script mirrors a click on TestHost by it).
+func TargetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) Option[(ui.Id[E], ui.Node[E])] needs go.Foreign {
+	match targetAt(d, x, y) {
+	case Some[ui.Id[E]] as id:
+		Some{Value: (id.Value, nodeOf(d, id.Value))}
+	case None:
+		None
+	}
+}
+
 // targetAt is the node that takes the mouse at column x, row y: the
 // scene's hit there, or the first of its ancestors that takes input (a
 // Pressable, a Check, a Toggle, an Input or an Area).
