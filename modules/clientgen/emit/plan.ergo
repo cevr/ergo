@@ -276,13 +276,6 @@ func opOf(index Map[string, smithy.Shape], id string) Op fails Refused {
 	}
 	let ins = greedyOf(try fieldsOf(index, input, id, true), path)
 	let outs = try fieldsOf(index, output, id, false)
-	for f in ins.Concat(outs) {
-		match f.Where {
-		case AtBody:
-			return Refused{Operation: id, Reason: "member \(f.Name) is in the XML body: restXml structure bodies wait for the XML wire rules (G4)"}
-		case AtLabel, AtQuery, AtHeader, AtPrefix, AtPayload:
-		}
-	}
 	Op{Name: local(id), Doc: docOf(s.Traits), Method: textOf(member(http, "method")), Path: path, Query: query, Input: local(input), Output: local(output), In: ins, Out: outs, Errors: o.Errors}
 }
 
@@ -330,6 +323,12 @@ func fieldsOf(index Map[string, smithy.Shape], id string, op string, input bool)
 	}
 	let mut out = []Field{}
 	for m in members {
+		// An operation's member with no HTTP binding is in the XML body,
+		// refused before its type is read; an error's members are read
+		// from the error body (ErrorOf).
+		if op != id && unbound(m) {
+			return Refused{Operation: op, Reason: "member \(m.Name) is in the XML body: restXml structure bodies wait for the XML wire rules (G4)"}
+		}
 		out = out.Append(try fieldOf(index, m, op, input))
 	}
 	out
@@ -618,4 +617,13 @@ func drawnModel(ins []int, outs []int) smithy.Model {
 test GreedyLabelIsGreedy {
 	let plan = try PlanOf(drawnModel([]int{0, 5}, []int{}), Provider{Package: "t", Runtime: "rt", RuntimeName: "rt", Service: "T", Operations: []string{"t#Op"}})
 	assert plan.Ops[0].In == []Field{Field{Name: "M0", Ty: TString, Where: AtLabel{Greedy: false}, Required: true}, Field{Name: "M1", Ty: TString, Where: AtLabel{Greedy: true}, Required: true}}
+}
+
+func unbound(m smithy.Member) bool {
+	for t in []string{"smithy.api#httpLabel", "smithy.api#httpQuery", "smithy.api#httpHeader", "smithy.api#httpPrefixHeaders", "smithy.api#httpPayload"} {
+		if has(m.Traits, t) {
+			return false
+		}
+	}
+	true
 }
