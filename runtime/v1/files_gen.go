@@ -171,6 +171,7 @@ var bodyTable = []bodyRow{
 	{"FSChmod", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSClone", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path}}},
 	{"FSConfine", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string", "error"}, Host: true, Wait: "none", Package: Path}}},
+	{"FSConfineLast", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSExchange", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSIsLink", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"bool", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSLink", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"error"}, Host: true, Wait: "none", Package: Path}}},
