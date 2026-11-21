@@ -1,4 +1,4 @@
-module modelslice
+module clientgen
 
 go 1.27
 

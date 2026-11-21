@@ -237,7 +237,7 @@ func plain(html string) string {
 		}
 	}
 	let text = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(out.Text(), "&lt;", "<"), "&gt;", ">"), "&quot;", "\""), "&amp;", "&")
-	strings.Join(strings.Fields(text), " ")
+	strings.ReplaceAll(strings.ReplaceAll(strings.Join(strings.Fields(text), " "), " .", "."), " ,", ",")
 }
 
 func sentence(s string) string {
@@ -461,6 +461,13 @@ func failureOf(index Map[string, smithy.Shape], id string) Failure fails Refused
 		None
 	}
 	let fields = try fieldsOf(index, id, id, false)
+	for f in fields {
+		match f.Ty {
+		case TString, TEnum:
+		case TInt, TBool, TTime, TMap, TBlob:
+			return Refused{Operation: id, Reason: "error member \(f.Name) is not text: the error body reader gives text"}
+		}
+	}
 	Failure{Name: local(id), Doc: docOf(s.Traits), Status: status, Fields: fields}
 }
 
@@ -485,4 +492,123 @@ func greedyOf(fs []Field, path []Seg) []Field {
 		out = out.Append(g)
 	}
 	out
+}
+
+// EveryMemberIsBound: each member of a drawn operation's input lands in
+// exactly one field of the plan, in the place its trait names, and each
+// output member is read from exactly one place.
+law EveryMemberIsBound(ins []int, outs []int) {
+	let m = drawnModel(ins, outs)
+	let plan = PlanOf(m, Provider{Package: "t", Runtime: "rt", RuntimeName: "rt", Service: "T", Operations: []string{"t#Op"}}) catch {
+	case _:
+		return false
+	}
+	let op = plan.Ops[0]
+	bound(op.In, drawnMembers(ins, true)) && bound(op.Out, drawnMembers(outs, false))
+}
+
+// bound is whether fs holds each of want's (name, place) once and nothing else.
+func bound(fs []Field, want [](string, int)) bool {
+	if len(fs) != len(want) {
+		return false
+	}
+	for w in want {
+		let (name, place) = w
+		let mut n = 0
+		for f in fs {
+			if f.Name == name && placeOf(f.Where) == place {
+				n = n + 1
+			}
+		}
+		if n != 1 {
+			return false
+		}
+	}
+	true
+}
+
+func placeOf(w Where) int {
+	match w {
+	case AtLabel:
+		0
+	case AtQuery:
+		1
+	case AtHeader:
+		2
+	case AtPrefix:
+		3
+	case AtPayload:
+		4
+	case AtBody:
+		5
+	}
+}
+
+// drawnMembers are a drawn structure's members, at most four, by name
+// and place: an input's places are label, query, header, prefix and
+// payload, an output's header, prefix and payload; one prefix and one
+// payload at most.
+func drawnMembers(kinds []int, input bool) [](string, int) {
+	let mut out = [](string, int){}
+	let mut prefix = false
+	let mut payload = false
+	for i, k in kinds {
+		if i < 4 {
+			let mut place = if input { (k%5 + 5) % 5 } else { 2 + (k%3+3)%3 }
+			if place == 3 && prefix || place == 4 && payload {
+				place = 2
+			}
+			prefix = prefix || place == 3
+			payload = payload || place == 4
+			out = out.Append(("M\(i)", place))
+		}
+	}
+	out
+}
+
+func trait(id string, v json.Value) smithy.Trait { smithy.Known{Id: id, Value: v} }
+
+func drawnStruct(id string, ms [](string, int)) smithy.Shape {
+	let mut members = []smithy.Member{}
+	for x in ms {
+		let (name, place) = x
+		let low = strings.ToLower(name)
+		let mut ts = []smithy.Trait{}
+		let mut target = "smithy.api#String"
+		if place == 0 {
+			ts = ts.Append(trait("smithy.api#httpLabel", json.Object{Members: []json.Member{}})).Append(trait("smithy.api#required", json.Object{Members: []json.Member{}}))
+		} else if place == 1 {
+			ts = ts.Append(trait("smithy.api#httpQuery", json.Str{Value: low}))
+		} else if place == 2 {
+			ts = ts.Append(trait("smithy.api#httpHeader", json.Str{Value: "x-" + low}))
+		} else if place == 3 {
+			ts = ts.Append(trait("smithy.api#httpPrefixHeaders", json.Str{Value: "x-meta-"}))
+			target = "t#Meta"
+		} else {
+			ts = ts.Append(trait("smithy.api#httpPayload", json.Object{Members: []json.Member{}}))
+			target = "t#Blob"
+		}
+		members = members.Append(smithy.Member{Name: name, Target: target, Traits: ts})
+	}
+	smithy.Shape{Id: id, Kind: smithy.Structure{Members: members}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+}
+
+// drawnModel is one GET operation whose input and output hold the drawn
+// members; its uri names each label, the last one greedy.
+func drawnModel(ins []int, outs []int) smithy.Model {
+	let im = drawnMembers(ins, true)
+	let mut uri = ""
+	for x in im {
+		let (name, place) = x
+		if place == 0 {
+			uri = uri + "/{" + name + "}"
+		}
+	}
+	uri = (if uri == "" { "/" } else { strings.TrimSuffix(uri, "}") + "+}" }) + "?x-id=Op"
+	let http = json.Object{Members: []json.Member{json.Member{Key: "method", Value: json.Str{Value: "GET"}}, json.Member{Key: "uri", Value: json.Str{Value: uri}}}}
+	let op = smithy.Shape{Id: "t#Op", Kind: smithy.Operation{Input: Some[string]{"t#In"}, Output: Some[string]{"t#Out"}, Errors: []string{}}, Traits: []smithy.Trait{trait("smithy.api#http", http)}, Keys: []smithy.Unread{}}
+	let str = smithy.Shape{Id: "smithy.api#String", Kind: smithy.Simple{Of: smithy.StringType}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let blob = smithy.Shape{Id: "t#Blob", Kind: smithy.Simple{Of: smithy.BlobType}, Traits: []smithy.Trait{trait("smithy.api#streaming", json.Object{Members: []json.Member{}})}, Keys: []smithy.Unread{}}
+	let meta = smithy.Shape{Id: "t#Meta", Kind: smithy.Mapping{Key: smithy.Member{Name: "key", Target: "smithy.api#String", Traits: []smithy.Trait{}}, Value: smithy.Member{Name: "value", Target: "smithy.api#String", Traits: []smithy.Trait{}}}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	smithy.Model{Version: "2.0", Metadata: json.Object{Members: []json.Member{}}, Shapes: []smithy.Shape{op, drawnStruct("t#In", im), drawnStruct("t#Out", drawnMembers(outs, false)), str, blob, meta}}
 }
