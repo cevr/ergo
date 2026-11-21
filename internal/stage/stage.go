@@ -89,6 +89,10 @@ const (
 	// test module is linked otherwise; the examples runner checks that its
 	// test leg linked the modules its key hashed (gate-speed GS32a′).
 	SharedTestModules
+	// PackagesKeptByReads counts the packages `ergo check DIR/...` took
+	// from its cutoff although an import's implementation changed: no
+	// package their verdicts read did (GB-WS0C).
+	PackagesKeptByReads
 	numCounters
 )
 
@@ -103,7 +107,7 @@ var names = [numCounters]string{
 	"obligations_affected",
 	"shared_fallbacks", "binaries_ir", "binaries_text",
 	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored", "packages_routed",
-	"shared_test_modules",
+	"shared_test_modules", "packages_kept_by_reads",
 }
 
 var counts [numCounters]atomic.Int64

@@ -293,7 +293,10 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 						delete(may, path)
 					}
 					// What the implementation rule would run and the reads
-					// kept: the read set at work.
+					// kept: the read set at work, as the run counts it.
+					if n := got.counts["packages_kept_by_reads"]; n != int64(len(may)) {
+						fail("the run counts %d packages kept by their reads, want %d: %v", n, len(may), slices.Sorted(maps.Keys(may)))
+					}
 					narrowed += len(may)
 				}
 				if len(reran) < len(after) {

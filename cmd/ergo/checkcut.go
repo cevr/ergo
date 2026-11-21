@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"strings"
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 )
 
 // The early cutoff of `ergo check DIR/...` (MONOREPO WS0b; docs/spec/
@@ -55,7 +57,9 @@ type treeCut struct {
 	// Reads are the source fingerprints of the packages the verdicts read,
 	// by path ("" for one with none, a std package), checked when
 	// Obligations; Impls are the implementation fingerprints of the local
-	// imports, checked instead when a verdict's reads are not known.
+	// imports, checked instead when a verdict's reads are not known (Reads
+	// nil), and else only counted: a replay they would refuse is one the
+	// reads kept (stage.PackagesKeptByReads).
 	Reads       map[string]string `json:"reads"`
 	Impls       map[string]string `json:"impls,omitempty"`
 	Obligations bool              `json:"obligations"`
@@ -89,29 +93,22 @@ func (s cutState) importImpls() map[string]string {
 	return out
 }
 
-// holds says c's evaluation is still the answer under s.
-func (s cutState) holds(c treeCut) bool {
+// holds says c's evaluation is still the answer under s, and narrowed
+// that only its reads kept it: an import's implementation changed.
+func (s cutState) holds(c treeCut) (ok, narrowed bool) {
 	if !c.Obligations {
-		return true
+		return true, false
 	}
-	if c.Reads != nil {
-		for p, want := range c.Reads {
-			if s.sources[p] != want {
-				return false
-			}
-		}
-		return true
+	same := maps.Equal(c.Impls, s.importImpls())
+	if c.Reads == nil {
+		return same, false
 	}
-	now := s.importImpls()
-	if len(c.Impls) != len(now) {
-		return false
-	}
-	for p, want := range c.Impls {
-		if now[p] != want {
-			return false
+	for p, want := range c.Reads {
+		if s.sources[p] != want {
+			return false, false
 		}
 	}
-	return true
+	return true, !same
 }
 
 // treeRerun, when not nil, hears each package the cutoff evaluated (a
@@ -183,17 +180,19 @@ func (t *checkTree) replay(a sketchfront.Analysis) ([]byte, bool) {
 	if !ok || json.Unmarshal([]byte(text), &c) != nil {
 		return nil, false
 	}
-	if !s.holds(c) {
-		return nil, false
-	}
-	if !t.fresh(c.Inputs) {
+	holds, narrowed := s.holds(c)
+	if !holds || !t.fresh(c.Inputs) {
 		return nil, false
 	}
 	root, srcs, ok := programSources(a)
 	if !ok {
 		return nil, false
 	}
-	return renderTree(c.Entry, root, srcs)
+	out, ok := renderTree(c.Entry, root, srcs)
+	if ok && narrowed {
+		stage.Add(stage.PackagesKeptByReads, 1)
+	}
+	return out, ok
 }
 
 // storePuts is the store's Puts so far (0 with no tree).
@@ -264,13 +263,13 @@ func (t *checkTree) keepCut(a sketchfront.Analysis, sources map[string]bool, out
 	}
 	c := treeCut{Entry: e, Inputs: inputs, Obligations: len(env.Evaluation.Obligations) > 0}
 	if c.Obligations {
-		switch {
-		case ev == nil:
+		if ev == nil {
 			return
-		case ev.ReadsUnknown > 0:
-			c.Impls = s.importImpls()
+		}
+		c.Impls = s.importImpls()
+		if ev.ReadsUnknown > 0 {
 			t.cutFallbacks += ev.ReadsUnknown
-		default:
+		} else {
 			c.Reads = s.readsOf(ev.Reads)
 		}
 	}
