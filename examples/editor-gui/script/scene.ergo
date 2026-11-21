@@ -87,7 +87,7 @@ func PressAt(s edit.State, row int, col int) ui.Act {
 	let (from, to) = screen.Shown(d)
 	let l = ui.LayoutText(screen.Mono, piece.Slice(d.Buf, from, to), screen.Font, screen.PageWidth)
 	let k = ui.CaretAt(screen.Mono, l, edit.PointAt(s, row, col)-from)
-	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: None}}
+	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: None}}
 }
 
 // Acts is the window's steps of an editor signal.
@@ -165,7 +165,7 @@ func Texts(shapes []ui.Shape[screen.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.ReadoutNode, ui.TransitionNode, ui.SemanticNode, ui.LayerNode, ui.TrackNode:
 		}
 		for t in Texts(s.Kids) {
 			out = out.Append(t)

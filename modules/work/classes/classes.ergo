@@ -5,8 +5,8 @@
 // measured numbers (gate durations: by key path; a number both sides
 // measured apart is ours, and the file is to be measured again), a file
 // of lines (an allowlist: each side's added and removed lines), and a
-// derived file (generated: kept as ours, to be generated again, never
-// merged). Git runs it as a merge driver: `ergo work merge-file CLASS %O
+// derived file (generated: never merged; two changed sides are ours, to
+// be generated again, which work's merge-file reports as a conflict). Git runs it as a merge driver: `ergo work merge-file CLASS %O
 // %A %B %P`.
 //
 // Prior art: Git's merge drivers (gitattributes, merge.<name>.driver) and
@@ -64,9 +64,10 @@ func Merge(c Class, base string, ours string, theirs string) Merged fails Unread
 	ByUnits(c, base, ours, theirs)
 }
 
-// DerivedIsNeverMerged: a derived file merges to one side whole: theirs
-// when ours is the base, else ours, which is to be made again when
-// theirs changed too.
+// DerivedIsNeverMerged: a derived file is never merged: a side the other
+// did not change is taken whole; two changed sides are ours whole, marked
+// to be made again, which a tree merge regenerates (work's MergeTree) and
+// a file merge reports as a conflict (work's merge-file).
 law DerivedIsNeverMerged(base string, ours string, theirs string) {
 	let m = Merge(Derived, base, ours, theirs) catch {
 	case Unreadable:

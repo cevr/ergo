@@ -47,19 +47,24 @@ func main() {
 	for _, rel := range paths {
 		path := filepath.Join(*root, rel)
 		got, _ := os.ReadFile(path)
-		if bytes.Equal(got, srcs[rel]) {
-			continue
-		}
+		same := bytes.Equal(got, srcs[rel])
 		if *check {
-			fmt.Printf("stale %s\n", rel)
-			stale = true
+			if !same {
+				fmt.Printf("stale %s\n", rel)
+				stale = true
+			}
 			continue
 		}
+		// Every file is written, the same bytes too, so that `ergo task
+		// gen` sees it as this generator's output (docs/spec/build.md,
+		// Generators: outputs are observed by their stat).
 		if err := os.WriteFile(path, srcs[rel], 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, "exportgen:", err)
 			os.Exit(2)
 		}
-		fmt.Printf("wrote %s\n", rel)
+		if !same {
+			fmt.Printf("wrote %s\n", rel)
+		}
 	}
 	if stale {
 		os.Exit(1)

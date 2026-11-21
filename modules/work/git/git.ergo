@@ -446,13 +446,16 @@ func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFaile
 	let _ = try ok(r, root, args)
 }
 
-// Setting is git config --get: status 1 is a key no file sets.
+// Setting is git config --get: status 1 is a key no file sets. The value
+// is as Configure set it, its own spaces kept (Git quotes a value that
+// ends in one): only the newline git config ends its answer with goes.
 func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
 	let r = try reads(v, root, []string{"config", "--get", key})
 	if r.Status == 1 {
 		return ""
 	}
-	try ok(r, root, []string{"config", "--get", key})
+	let _ = try ok(r, root, []string{"config", "--get", key})
+	strings.TrimSuffix(r.Stdout, "\n")
 }
 
 // StatDirty counts the entries git diff-files reports (a stat that
