@@ -39,32 +39,41 @@ func TestWarmKeyLeavesLocationsOut(t *testing.T) {
 }
 
 // TestWarmEnvClassifiesTheScripts: every GO*, CGO_* and ERGO_* variable
-// the repository's scripts set (the budget wrappers, the gate) has a
-// class in warmEnv, so a wrapper's new variable fails here until it is
-// classified rather than splitting every warm key. Mutant
-// warm-env-forgets-a-script-variable.
+// the repository's scripts set, every one the run budget's scripts
+// (scripts/budget) name at all, and every one `ergo budget` puts in a
+// run's environment (internal/budget) has a class in warmEnv, so a
+// wrapper's new variable fails here until it is classified rather than
+// splitting every warm key. Mutant warm-env-forgets-a-script-variable.
 func TestWarmEnvClassifiesTheScripts(t *testing.T) {
-	var files []string
-	for _, pattern := range []string{"../../scripts/*.sh", "../../scripts/*/*.sh"} {
-		m, err := filepath.Glob(pattern)
+	sources := []struct {
+		glob string
+		name *regexp.Regexp
+	}{
+		{"../../scripts/*.sh", regexp.MustCompile(`\b((?:GO|CGO_|ERGO_)[A-Z0-9_]+)=`)},
+		{"../../scripts/*/*.sh", regexp.MustCompile(`\b((?:GO|CGO_|ERGO_)[A-Z0-9_]+)=`)},
+		{"../../scripts/budget/*.sh", regexp.MustCompile(`\b((?:GO|CGO_|ERGO_)[A-Z0-9_]+)\b`)},
+		{"../budget/*.go", regexp.MustCompile(`"((?:GO|CGO_|ERGO_)[A-Z0-9_]+)=?"`)},
+	}
+	read := 0
+	for _, s := range sources {
+		files, err := filepath.Glob(s.glob)
 		if err != nil {
 			t.Fatal(err)
 		}
-		files = append(files, m...)
-	}
-	if len(files) == 0 {
-		t.Fatal("no script found")
-	}
-	set := regexp.MustCompile(`\b((?:GO|CGO_|ERGO_)[A-Z0-9_]+)=`)
-	for _, name := range files {
-		data, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, m := range set.FindAllStringSubmatch(string(data), -1) {
-			if _, ok := warmEnv[m[1]]; !ok {
-				t.Errorf("%s sets %s, which warmEnv does not classify (an answer or a location)", name, m[1])
+		for _, name := range files {
+			data, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			read++
+			for _, m := range s.name.FindAllStringSubmatch(string(data), -1) {
+				if _, ok := warmEnv[m[1]]; !ok {
+					t.Errorf("%s names %s, which warmEnv does not classify (an answer or a location)", name, m[1])
+				}
 			}
 		}
+	}
+	if read == 0 {
+		t.Fatal("no script found")
 	}
 }
