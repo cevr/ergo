@@ -76,14 +76,14 @@ func Refusals(m Model) []string {
 	for s in m.Shapes {
 		out = refusedIn(s.Traits, out)
 		for u in s.Keys {
-			out = once(out, "shape key " + u.Key)
+			out = once(out, "shape key "+u.Key)
 		}
 		for mem in membersOf(s.Kind) {
 			out = refusedIn(mem.Traits, out)
 		}
 		match s.Kind {
 		case Unsupported as u:
-			out = once(out, "shape type " + u.Type)
+			out = once(out, "shape type "+u.Type)
 		case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Service, Resource:
 		}
 	}

@@ -80,7 +80,7 @@ func has(xs []string, x string) bool {
 func shapeOf(id string, v json.Value) Shape fails NotSmithy {
 	let path = "shapes/" + id
 	let o = try object(v, path)
-	let t = try str(try field(o, "type", path), path + "/type")
+	let t = try str(try field(o, "type", path), path+"/type")
 	let kind = try kindOf(t, o, path)
 	match kind {
 	case Unsupported:
@@ -92,7 +92,7 @@ func shapeOf(id string, v json.Value) Shape fails NotSmithy {
 	let read = shapeKeys(t)
 	for m in o.Members {
 		if m.Key == "traits" {
-			traits = try traitsOf(m.Value, path + "/traits")
+			traits = try traitsOf(m.Value, path+"/traits")
 		} else if !has(read, m.Key) {
 			keys = keys.Append(Unread{Key: m.Key, Value: m.Value})
 		}
@@ -119,10 +119,10 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 		return Union{Members: try membersIn(o, path)}
 	}
 	if t == "list" {
-		return List{Member: try memberOf("member", try field(o, "member", path), path + "/member")}
+		return List{Member: try memberOf("member", try field(o, "member", path), path+"/member")}
 	}
 	if t == "map" {
-		return Mapping{Key: try memberOf("key", try field(o, "key", path), path + "/key"), Value: try memberOf("value", try field(o, "value", path), path + "/value")}
+		return Mapping{Key: try memberOf("key", try field(o, "key", path), path+"/key"), Value: try memberOf("value", try field(o, "value", path), path+"/value")}
 	}
 	if t == "operation" {
 		return Operation{Input: try targetAt(o, "input", path), Output: try targetAt(o, "output", path), Errors: try targetsAt(o, "errors", path)}
@@ -131,7 +131,7 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 		let mut version = ""
 		match get(o, "version") {
 		case Some[json.Value] as v:
-			version = try str(v.Value, path + "/version")
+			version = try str(v.Value, path+"/version")
 		case None:
 		}
 		let mut rename json.Value = json.Object{Members: []json.Member{}}
@@ -146,8 +146,8 @@ func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
 		let mut ids = []Ref{}
 		match get(o, "identifiers") {
 		case Some[json.Value] as v:
-			for m in (try object(v.Value, path + "/identifiers")).Members {
-				ids = ids.Append(Ref{Role: m.Key, Target: try targetOf(m.Value, path + "/identifiers/" + m.Key)})
+			for m in (try object(v.Value, path+"/identifiers")).Members {
+				ids = ids.Append(Ref{Role: m.Key, Target: try targetOf(m.Value, path+"/identifiers/"+m.Key)})
 			}
 		case None:
 		}
@@ -234,8 +234,8 @@ func membersIn(o json.Object, path string) []Member fails NotSmithy {
 	let mut out = []Member{}
 	match get(o, "members") {
 	case Some[json.Value] as v:
-		for m in (try object(v.Value, path + "/members")).Members {
-			out = out.Append(try memberOf(m.Key, m.Value, path + "/members/" + m.Key))
+		for m in (try object(v.Value, path+"/members")).Members {
+			out = out.Append(try memberOf(m.Key, m.Value, path+"/members/"+m.Key))
 		}
 	case None:
 	}
@@ -248,9 +248,9 @@ func memberOf(name string, v json.Value, path string) Member fails NotSmithy {
 	let mut traits = []Trait{}
 	for m in o.Members {
 		if m.Key == "target" {
-			target = try str(m.Value, path + "/target")
+			target = try str(m.Value, path+"/target")
 		} else if m.Key == "traits" {
-			traits = try traitsOf(m.Value, path + "/traits")
+			traits = try traitsOf(m.Value, path+"/traits")
 		} else {
 			return NotSmithy{Path: path + "/" + m.Key, Reason: "a member key the reader does not read"}
 		}
@@ -275,13 +275,13 @@ func traitsOf(v json.Value, path string) []Trait fails NotSmithy {
 
 func targetOf(v json.Value, path string) string fails NotSmithy {
 	let o = try object(v, path)
-	try str(try field(o, "target", path), path + "/target")
+	try str(try field(o, "target", path), path+"/target")
 }
 
 func targetAt(o json.Object, key string, path string) Option[string] fails NotSmithy {
 	match get(o, key) {
 	case Some[json.Value] as v:
-		Some[string]{Value: try targetOf(v.Value, path + "/" + key)}
+		Some[string]{Value: try targetOf(v.Value, path+"/"+key)}
 	case None:
 		None
 	}
@@ -294,7 +294,7 @@ func targetsAt(o json.Object, key string, path string) []string fails NotSmithy 
 		match v.Value {
 		case json.Array as a:
 			for i, x in a.Items {
-				out = out.Append(try targetOf(x, path + "/" + key + "/\(i)"))
+				out = out.Append(try targetOf(x, path+"/"+key+"/\(i)"))
 			}
 		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
 			return NotSmithy{Path: path + "/" + key, Reason: "not a list of targets"}
@@ -346,7 +346,7 @@ func str(v json.Value, path string) string fails NotSmithy {
 // vocabulary, Refused for any other. No trait is dropped.
 law EveryTraitReadOrRefused(picks []int, shapes int) {
 	let pool = knownTraits.Concat([]string{"x.test#unread", "aws.protocols#httpChecksum", "smithy.api#examples"})
-	let n = ((shapes % 6) + 6) % 6 + 1
+	let n = ((shapes%6)+6)%6 + 1
 	let mut at = 0
 	let mut want = [][]string{}
 	let mut text = "{\"smithy\":\"2.0\",\"shapes\":{"

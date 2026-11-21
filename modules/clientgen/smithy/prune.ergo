@@ -470,5 +470,5 @@ func isIn(m Map[string, bool], k string) bool {
 // entry (cycled), or t#S0 when nothing is drawn.
 func refAt(refs []int, k int, n int) string {
 	let r = if len(refs) == 0 { 0 } else { refs[k%len(refs)] }
-	"t#S\(((r%n)+n)%n)"
+	"t#S\(((r % n) + n) % n)"
 }
