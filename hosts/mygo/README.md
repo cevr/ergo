@@ -149,7 +149,7 @@ need `go.Foreign` (README Gap 17), so `Run` drives the session itself, as
 state `needs MainThread` (H1, not built).
 
 `TestMyGoHostAgreesWithTestHost` builds `cmd/hostagree` and plays seeded
-scene scripts of ten apps on `ui.TestHost` and, through a headless window,
+scene scripts of eleven apps on `ui.TestHost` and, through a headless window,
 on the driver: after every step both hold the same tree and app state, and
 each filled node shows its color in the rendered frame where the driver
 laid it out (a canvas's last opaque fill at its centre; a look's fill

@@ -926,7 +926,7 @@ func MergeFile(t Tool, class string, base string, ours string, theirs string, o 
 		}
 		return BadClass{Name: class, Known: slices.Concat(slices.Concat(classes.ClassNames, names), []string{"auto"})}
 	}
-	try mergeWith(t, c, class, path, base, ours, theirs)
+	try mergeWith(t, c, class, "", path, base, ours, theirs)
 }
 
 // mark writes the marker of the workspace at path: its id in its Git

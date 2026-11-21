@@ -1,0 +1,38 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [
+    "I will run it."
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "shell",
+     "arguments": "{\"command\":\"ls\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "I did not run it again."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {
+  "ls": {
+   "status": 0,
+   "stdout": "ran twice\n",
+   "stderr": ""
+  }
+ }
+}

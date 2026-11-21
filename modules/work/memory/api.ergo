@@ -1,85 +1,27 @@
+import strings
+import slices
+import maps
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
+import github.com/cevr/ergo/modules/work/work/workapi
 import time
 
-// Workspaces is work.Api over a fresh memory world (a base committed and
-// initialized, one sharing Cloner): the value the Api's laws run on.
-type Workspaces { tool work.Tool } implements work.Api
+// overTool runs work.Api's laws on the Tool itself, over a fresh memory
+// world each case (a base committed and initialized, one sharing Cloner).
+let overTool = context { work.Api: world(true).tool }
 
-// NewWorkspaces is the Api of a fresh memory world.
-func NewWorkspaces() Workspaces { Workspaces{tool: world(true).tool} }
+// overClient runs them through the request wire: a workapi.Client whose
+// send is Call, bound to a fresh memory world's Tool.
+let overClient = context { work.Api: clientOf(world(true).tool) }
 
-func Init(w Workspaces) string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed { try w.tool.Init() }
-
-func New(w Workspaces, name string, o work.NewOptions) work.Created fails work.NoBase | work.BadConfig | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked | work.Busy {
-	try w.tool.New(name, o)
+// clientOf is the Client that sends each request to tool.
+func clientOf(tool work.Tool) workapi.Client {
+	workapi.NewClient(func(q workapi.Request) workapi.Outcome {
+		with context { work.Api: tool } { workapi.Call(q) }
+	})
 }
-
-func AdoptRift(w Workspaces, o work.RiftOptions) work.RiftAdopted fails work.NoBase | work.RiftUnread | work.Unkept | work.VcsFailed | work.Locked { try w.tool.AdoptRift(o) }
-
-func Adopt(w Workspaces, dir string, o work.AdoptOptions) work.Workspace fails work.NoBase | work.BadName | work.NameTaken | work.Missing | work.Unkept | work.VcsFailed | work.Locked {
-	try w.tool.Adopt(dir, o)
-}
-
-func List(w Workspaces) []work.Workspace fails work.NoBase | work.Unkept { try w.tool.List() }
-
-func Rm(w Workspaces, name string, o work.RmOptions) []work.Removed fails work.NoBase | work.BadConfig | work.NoWorkspace | work.NotHeld | work.Busy | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked | work.IdMismatch | work.HasDescendants {
-	try w.tool.Rm(name, o)
-}
-
-func Gc(w Workspaces, o work.GcOptions) work.Collected fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked { try w.tool.Gc(o) }
-
-func Du(w Workspaces) []work.Space fails work.NoBase | work.Unsupported | work.Missing | work.CloneFailed | work.Unkept { try w.tool.Du() }
-
-func Ready(w Workspaces, o work.ReadyOptions) work.Handed fails work.NoBase | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.NotFastForward | work.Moved | work.Unkept | work.VcsFailed | work.Locked | work.BadRequest {
-	try w.tool.Ready(o)
-}
-
-func Record(w Workspaces, tip string) work.LaneRecord fails work.NoBase | work.NoRevision | work.NoRecord | work.BadRecord | work.Unkept | work.VcsFailed {
-	try w.tool.Record(tip)
-}
-
-func Sync(w Workspaces, o work.SyncOptions) work.Synced fails work.NoBase | work.BadConfig | work.NotHere | work.NoWorkspace | work.Busy | work.Detached | work.Dirty | work.Conflicted | work.Unkept | work.VcsFailed | work.Locked {
-	try w.tool.Sync(o)
-}
-
-func Env(w Workspaces, o work.EnvOptions) string fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept { try w.tool.Env(o) }
-
-func MergeFile(w Workspaces, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadClass | work.BadConfig | work.MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
-	try w.tool.MergeFile(class, base, ours, theirs, o)
-}
-
-func Derive(w Workspaces, o work.DeriveOptions) work.Derived fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept | work.Untrusted | work.DeriveFailed { try w.tool.Derive(o) }
-
-func Deps(w Workspaces, o work.DepsOptions) work.DepsDone fails work.NoBase | work.NotHere | work.NoWorkspace | work.BadConfig | work.Unkept | work.Untrusted | work.DepsFailed | work.Locked { try w.tool.Deps(o) }
-
-func Trust(w Workspaces) work.Trusted fails work.NoBase | work.BadConfig | work.Unkept | fs.NotFound | fs.Denied | fs.Failed { try w.tool.Trust() }
-
-func Pin(w Workspaces, name string) work.Workspace fails work.NoBase | work.NoWorkspace | work.Unkept | work.Locked { try w.tool.Pin(name) }
-
-func Unpin(w Workspaces, name string) work.Workspace fails work.NoBase | work.NoWorkspace | work.Unkept | work.Locked { try w.tool.Unpin(name) }
-
-func Doctor(w Workspaces, o work.DoctorOptions) work.Report fails work.NoBase | work.BadConfig | work.Unkept | work.VcsFailed | work.RiftUnread | work.Locked { try w.tool.Doctor(o) }
-
-func PluginTest(w Workspaces, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.NoBase | work.BadConfig | work.Untrusted | work.VcsFailed | work.PluginRefused { try w.tool.PluginTest(command, o) }
-
-func MergeFolders(w Workspaces, base string, ours string, theirs string, out string) work.TreeMerged fails work.BadConfig | work.Untrusted | work.DeriveFailed | fs.NotFound | fs.Denied | fs.Failed {
-	try w.tool.MergeFolders(base, ours, theirs, out)
-}
-
-func Refresh(w Workspaces) int fails work.NoBase | work.Unkept | work.VcsFailed { try w.tool.Refresh() }
-
-func Bases(w Workspaces) []string fails work.Unkept { try w.tool.Bases() }
-
-func ForgetBase(w Workspaces, base string) []string fails work.Unkept | fs.Denied | fs.Failed { try w.tool.ForgetBase(base) }
-
-func PruneBases(w Workspaces) []string fails work.Unkept | fs.Denied | fs.Failed { try w.tool.PruneBases() }
-
-func ShellInit(w Workspaces) string { w.tool.ShellInit() }
-
-func ImportRift(w Workspaces, o work.ImportRiftOptions) string fails work.BadConfig | fs.NotFound | fs.Denied | fs.Failed { try w.tool.ImportRift(o) }
 
 // Providers is the memory providers over the trees of c, the registry r,
 // the Vcs v and the disk: a free lock, hooks that record (and fail the
@@ -125,6 +67,104 @@ func put(disk fstest.Memory, path string, text string) bool {
 		return false
 	}
 	disk.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}
+
+// MergeFileReportsWhatItCannotMerge: merge-file, as Git's driver runs it
+// (class auto), never answers clean with a side's change lost, on a lock
+// its preset makes derived (bun.lock) or a measured file (a [[class]]
+// line with the command that measures it). A clean answer holds every
+// entry either side added or changed against base, with that side's
+// value, where the other side left it or agrees. A merge that would need
+// making again is a conflict whose why names the command; a derived file
+// is then ours, byte for byte, so the package manager still reads it.
+// The entries: base, ours and theirs (keys taken 0 to 5, so the sides
+// add, remove and change the same keys).
+law MergeFileReportsWhatItCannotMerge(base Map[int, int], ours Map[int, int], theirs Map[int, int], measured bool) {
+	let b = sixKeys(base)
+	let a = sixKeys(ours)
+	let o = sixKeys(theirs)
+	let disk = fstest.NewMemory()
+	let config = "[[class]]\nmatch = \"times.json\"\nkind = \"measured\"\nby = \"gate -measure\"\n"
+	let written = put(disk, "/m/o", entriesText(b)) && put(disk, "/m/a", entriesText(a)) && put(disk, "/m/b", entriesText(o)) && putIn(disk, "/base", "work.toml", config) && putIn(disk, "/base", "bun.lock", "{}\n")
+	let tool = work.NewTool("/base", "/.work/base", "/data", Providers(NewCloner(), []work.Cloner{}, NewRegistry(), NewVcs(), disk, time.NewManual(0), ""), "/")
+	let path = if measured { "times.json" } else { "bun.lock" }
+	let mut why = ""
+	let mut conflicted = false
+	tool.MergeFile("auto", "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: Some[string]{Value: path}}) catch {
+	case work.MergeConflict as m:
+		conflicted = true
+		why = m.Why
+	case work.BadClass, work.BadConfig, fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let got = disk.ReadFile("/m/a") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	if !written {
+		return false
+	}
+	if conflicted {
+		let command = if measured { "gate -measure" } else { "bun install --lockfile-only" }
+		return strings.Contains(why, command) && (measured || got == entriesText(a))
+	}
+	keepsEveryChange(b, a, o, got) && keepsEveryChange(b, o, a, got)
+}
+
+// sixKeys is m with each key taken to 0 to 5 (the last write of a key
+// wins, in key order).
+func sixKeys(m Map[int, int]) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k in slices.Sorted(maps.Keys(m)) {
+		out[((k%6)+6)%6] = maps.GetOr(m, k, 0)
+	}
+	out
+}
+
+// entriesText is a lock-like JSON object of the entries, key by key.
+func entriesText(m Map[int, int]) string {
+	let mut rows = []string{}
+	for key in 0..6 {
+		match m.Get(key) {
+		case Some[int] as v:
+			rows = rows.Append("    \"k\(key)\": \(v.Value)")
+		case None:
+		}
+	}
+	let inner = if len(rows) == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
+	"{\n  \"pkg\": " + inner + "\n}\n"
+}
+
+// keepsEveryChange reports whether got holds each entry side added or
+// changed against base where other left that key as base has it or
+// agrees with side.
+func keepsEveryChange(base Map[int, int], side Map[int, int], other Map[int, int], got string) bool {
+	for key in 0..6 {
+		match side.Get(key) {
+		case Some[int] as v:
+			let changed = base.Get(key) != Some[int]{Value: v.Value}
+			let free = other.Get(key) == base.Get(key) || other.Get(key) == Some[int]{Value: v.Value}
+			let entry = "\"k\(key)\": \(v.Value)"
+			if changed && free && !strings.Contains(got, entry+",\n") && !strings.Contains(got, entry+"\n") {
+				return false
+			}
+		case None:
+		}
+	}
+	true
+}
+
+// putIn writes text to name in the folder dir of disk.
+func putIn(disk fstest.Memory, dir string, name string, text string) bool {
+	disk.MkdirAll(dir) catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	disk.WriteFile(dir+"/"+name, text) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
 	}

@@ -29,12 +29,13 @@ func admissionOf(law *check.Law, k int) *check.Law {
 
 // nearDraw writes the case's draw of parameter k, named a, of type t: the
 // search over its source's near variants, with gen as its fresh draw and
-// adm as its where. args are the law call's arguments so far (the
-// environment, then any provider and witnesses, then the parameters
-// before k), bind the statements that bind the case's providers on an
-// environment named e. It folds the draw's flags into admitted and
-// distinct.
-func (l *lowerer) nearDraw(b *strings.Builder, law, adm *check.Law, k int, a string, t check.Type, gen string, args, bind []string, lawCallee, e, env, r, admitted, distinct string, inner *namer, drawn []string, offset int) {
+// adm as its where, called as admCallee (its Go function at the law's
+// instance: a generic owner's copy, mono.go lawCallee). args are the law
+// call's arguments so far (the environment, then any provider and
+// witnesses, then the parameters before k), bind the statements that bind
+// the case's providers on an environment named e. It folds the draw's
+// flags into admitted and distinct.
+func (l *lowerer) nearDraw(b *strings.Builder, adm *check.Law, k int, a string, t check.Type, gen string, args, bind []string, admCallee, e, env, r, admitted, distinct string, inner *namer, drawn []string, offset int, law *check.Law) {
 	tc := &typeCtx{l: l, site: law.Decl}
 	gt := tc.goType(t)
 	src, hasSrc := "*new("+gt+")", "false"
@@ -46,8 +47,7 @@ func (l *lowerer) nearDraw(b *strings.Builder, law, adm *check.Law, k int, a str
 	for _, s := range bind {
 		binds = append(binds, strings.Replace(s, e+".", ea+".", 1))
 	}
-	// The law's own call's type arguments, a generic owner's instance.
-	callee := l.lawFunc(adm) + strings.TrimPrefix(lawCallee, l.lawFunc(law))
+	callee := admCallee
 	call := append([]string{"&" + ea}, args[1:]...)
 	call = append(call, x)
 	ok, dist := inner.alloc("admits"), inner.alloc("near")
