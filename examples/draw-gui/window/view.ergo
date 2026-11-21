@@ -28,7 +28,7 @@ func Pans() []canvas.Point {
 
 // View shows s: the toolbar, the status line, the picture, and one line
 // a shape on the screen, in paint order (canvas.Frame's lines).
-func View(f *ui.Frame[canvas.Signal], s canvas.State) {
+func View(f mut ui.Frame[canvas.Signal], s canvas.State) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[canvas.Signal] {
 		match k.Name {
 		case "Escape":
@@ -70,7 +70,7 @@ func View(f *ui.Frame[canvas.Signal], s canvas.State) {
 		}
 		ui.Text(f, lines[0])
 		ui.Area(f, "picture", ui.Plain(), func(p ui.PointerEvent) Option[canvas.Signal] { Pointed(p) }) {
-			ui.Canvas(f, "paint", ui.Length(float64(canvas.Screen.X)), ui.Length(float64(canvas.Screen.Y))) func(p *ui.Paint) {
+			ui.Canvas(f, "paint", ui.Length(float64(canvas.Screen.X)), ui.Length(float64(canvas.Screen.Y))) func(p mut ui.Paint) {
 				Draw(p, s)
 			}
 		}

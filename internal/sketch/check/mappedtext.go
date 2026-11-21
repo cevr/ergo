@@ -56,23 +56,33 @@ const (
 	textTakenText    = "%s is a text of %s, whose field was taken at %s: a text is a borrow of its Mapped's owner (types.md, Borrows 8); use %s before the field is taken"
 )
 
-// IsMappedText reports whether t is std fs's Text, a mapped text.
-func IsMappedText(t Type) bool {
+// IsMappedText reports whether t is a mapped text: a type whose
+// declaration names the runtime's MappedText, as std fs's Text does. It
+// reads the declaration, never a package's path, so a trusted copy of fs
+// declares a mapped text too (STD-COPY-SAME; as embedTree, NP3d).
+func IsMappedText(t Type) bool { return namesRuntimeType(t, "MappedText") }
+
+// isMapped reports whether t is a mapping: a type whose declaration names
+// the runtime's Mapped, as std fs's Mapped does.
+func isMapped(t Type) bool { return namesRuntimeType(t, "Mapped") }
+
+// namesRuntimeType reports whether t is a named type whose declaration
+// names the Go type goName of runtime/v1 itself (GoTypeOf).
+func namesRuntimeType(t Type, goName string) bool {
 	n, ok := t.(*Named)
-	return ok && n.Obj != nil && n.Obj.Name == "Text" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "fs" && n.Obj.Pkg.Std()
+	if !ok || n.origin().Obj == nil || n.origin().Obj.Decl == nil || !runtimeTypeDecl(n.origin().Obj.Decl) {
+		return false
+	}
+	path, name := n.origin().Obj.Decl.Extern.Split()
+	return path == v1.Path && name == goName
 }
 
-// isMapped reports whether t is std fs's Mapped.
-func isMapped(t Type) bool {
-	n, ok := t.(*Named)
-	return ok && n.Obj != nil && n.Obj.Name == "Mapped" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "fs" && n.Obj.Pkg.Std()
-}
-
-// textPlacement refuses fs.Text written as the type x outside a
+// textPlacement refuses a mapped text t written as the type x outside a
 // parameter's type (rule 1): ctx.textTop is the parameter's type
-// expression, the one place it may stand. Std fs declares it.
-func (c *checker) textPlacement(x syntax.Expr, ctx *typeCtx) bool {
-	if c.pkg.Std() && c.pkg.Path == "fs" {
+// expression, the one place it may stand. The package that declares the
+// text declares where it stands (fs: Mapped.Text's result).
+func (c *checker) textPlacement(x syntax.Expr, ctx *typeCtx, t Type) bool {
+	if n, ok := t.(*Named); ok && n.Obj != nil && n.Obj.Pkg == c.pkg {
 		return true
 	}
 	if ctx != nil && ctx.textTop != nil && unparen(ctx.textTop) == unparen(x) {
@@ -199,7 +209,7 @@ func (w *escWalk) endsBeforeReturn(n syntax.Node) bool {
 		return false
 	}
 	k := w.info.Calls[call]
-	if k == nil || k.Kind != CallFunc || k.Recv != nil || k.Func == nil || k.Func.Pkg == nil || !k.Func.Pkg.Std() || k.Func.Decl == nil || k.Func.Decl.Extern == nil {
+	if k == nil || k.Kind != CallFunc || k.Recv != nil || k.Func == nil || k.Func.Pkg == nil || !k.Func.Pkg.Trusted() || k.Func.Decl == nil || k.Func.Decl.Extern == nil {
 		return false
 	}
 	path, name := k.Func.Decl.Extern.Split()

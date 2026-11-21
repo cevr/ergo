@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // ErgoText emits the Ergo signatures of a binding (the <header>.ergo
 // golden). It is provisional: it has to parse with internal/sketch/syntax
-// and be in canonical internal/sketch/format form, and the checker does
+// and be in canonical internal/hostsyntax form, and the checker does
 // not read it yet (bind-c-5).
 //
 //   - a provenance header and `import go <import path>` (unquoted, as the
@@ -136,6 +136,8 @@ func (e *ergoEmitter) file() string {
 				} else if b.unions[t.Elem.Name] {
 					et = b.RecordType(t.Elem.Name)
 				}
+			case ClassOptional:
+				et = "Option[" + e.ergoType(*t.Elem) + "]"
 			case ClassInBuffer, ClassOutBuffer:
 				et = "[]" + e.ergoType(*t.Elem)
 				if et == "[]uint8" {

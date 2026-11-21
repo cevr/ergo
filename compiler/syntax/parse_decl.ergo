@@ -1,0 +1,1166 @@
+import utf8
+
+// ---------------------------------------------------------------- file and declarations
+
+func parseFile(p mut parser) {
+	for p.tk == Semicolon {
+		next(p)
+	}
+	let m = mark(p.t)
+	for p.tk == Import {
+		pushW(&p.t, parseImportDecl(p))
+		endDecl(p)
+	}
+	for p.tk != EOF {
+		let doc = leadComment(p)
+		let mut d = noNode
+		if p.tk == Type {
+			d = parseTypeDecl(p, doc)
+		} else if p.tk == Func {
+			d = parseFuncDecl(p, doc)
+		} else if p.tk == Extern {
+			d = parseExternDecl(p, doc)
+		} else if p.tk == Test {
+			d = parseTestDecl(p, doc)
+		} else if p.tk == Law {
+			d = parseLawDecl(p, doc, true)
+		} else if p.tk == Let {
+			d = parseLetDecl(p, doc, true)
+		} else if p.tk == Import {
+			errorf(p, "an import must come before every other declaration")
+		} else {
+			expected(p, "expected a declaration (type, func, extern, test, law or let), found ")
+		}
+		pushW(&p.t, d)
+		endDecl(p)
+	}
+	let _ = mkFile(&p.t, m, p.i)
+}
+
+func endDecl(p mut parser) {
+	if p.tk == Semicolon {
+		next(p)
+	} else if p.tk != EOF {
+		expected(p, "expected end of declaration, found ")
+	}
+}
+
+// parseImportDecl parses `import [go] [alias] path`, one per line, the path
+// unquoted. The scanner lexes the alias and the path as PATH.
+func parseImportDecl(p mut parser) uint32 {
+	let doc = leadComment(p)
+	let imp = want(p, Import)
+	if p.tk == LParen {
+		habit(p, pos(p), 1, habitImportGroup)
+	}
+	let mut namePos = none
+	if p.tk == Go {
+		namePos = someTok(p.i)
+		next(p)
+	}
+	unquotedPath(p)
+	if p.tk != Path {
+		expected(p, "expected an import path, found ")
+	}
+	let mut first = p.i
+	next(p)
+	unquotedPath(p)
+	let mut name = none
+	if p.tk == Path {
+		let text = lit(p, first)
+		if !isIdentifier(text) {
+			errorAt(p, tpos(p, first), tend(p, first)-tpos(p, first), "an import alias is a name, found "+quote(text))
+		}
+		name = some(identRow(p, first))
+		if namePos == none {
+			namePos = someTok(first)
+		}
+		first = p.i
+		next(p)
+	}
+	let path = row(&p.t, KBasicLit, uint32(first), none, none)
+	let spec = row(&p.t, KImportSpec, namePos, name, path)
+	row(&p.t, KImportDecl, uint32(imp), spec, doc)
+}
+
+func unquotedPath(p mut parser) {
+	if p.tk == String {
+		habit(p, pos(p), tokLen(p), habitImportQuoted)
+	}
+}
+
+// isIdentifier reports whether s is a name: a letter or `_`, then letters,
+// digits and `_`, and not a keyword or reserved word.
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	let d = utf8.DecodeRuneInString(s)
+	identRune(d.Rune, true) && identRest(s, d.Size) == len(s) && keyword(s, 0, len(s)) == Ident
+}
+
+func parseTypeDecl(p mut parser, doc uint32) uint32 {
+	let typ = want(p, Type)
+	let name = parseIdent(p)
+	let m = mark(p.t)
+	let mut tparams = none
+	if p.tk == LBrack && !opensCollection(p, 0) {
+		tparams = some(parseTypeParams(p))
+	}
+	if atDerive(p) {
+		return parseDerive(p, m, doc, typ, name, tparams)
+	}
+	let mut spec = none
+	let mut wherePos = none
+	let mut wh = none
+	if p.tk == LBrace {
+		spec = some(parseMembersType(p))
+	} else if p.tk == KwMachine {
+		spec = some(parseMachineType(p))
+	} else if p.tk == Assign {
+		next(p)
+		spec = some(parseUnion(p))
+	} else {
+		spec = some(parseType(p, ctxDecl))
+		if atWhere(p) {
+			// The refinement's derived parse function and law are left out:
+			// the tree is the written one.
+			wherePos = someTok(p.i)
+			next(p)
+			wh = some(parseExpr(p))
+		}
+	}
+	let mut implPos = none
+	if atImplements(p) {
+		implPos = someTok(p.i)
+		next(p)
+		for {
+			pushW(&p.t, parseTypeName(p, "implements"))
+			if !got(p, Comma) {
+				break
+			}
+		}
+	}
+	mkTypeDecl(&p.t, m, doc, none, typ, name, tparams, spec, wherePos, wh, none, none, implPos)
+}
+
+func atImplements(p mut parser) bool { isWord(p, "implements") }
+
+func atWhere(p mut parser) bool { isWord(p, "where") }
+
+// atDerive reports the contextual word `derive` before an expression on
+// its line.
+func atDerive(p mut parser) bool {
+	if !isWord(p, "derive") {
+		return false
+	}
+	let k = peek(p, 1)
+	k == Ident || k == Int || k == Float || k == String || k == Rune || k == LParen || k == Not || k == Sub || k == Add
+}
+
+// parseDerive parses `derive E` after the name (and any type parameters)
+// of a type declaration (derive.go).
+func parseDerive(p mut parser, m int, doc uint32, typ int, name uint32, tparams uint32) uint32 {
+	let at = p.i
+	next(p)
+	let drv = parseExpr(p)
+	let mut spec = none
+	if isProviderPlan(p, drv) {
+		let open = someTok(at)
+		let fm = mark(p.t)
+		let fields = mkFieldList(&p.t, fm, open, open)
+		spec = some(row(&p.t, KStructType, uint32(0), fields, none))
+		let why = providerPlanWhy(p, drv, tparams, name)
+		if why != "" {
+			errorAt(p, tpos(p, at), 6, why)
+		}
+	} else if tparams != none {
+		errorAt(p, tpos(p, at), 6, "a derived type has no type parameters: the plan fixes its shape (a Provider plan excepted)")
+	}
+	if atWhere(p) {
+		errorAt(p, tpos(p, at), 6, "derive does not combine with where: write the span in the plan, Refine(Of[B](), lo, hi)")
+	}
+	if p.tk == LBrace {
+		errorAt(p, tpos(p, at), 6, "derive does not combine with a body: the plan gives the type its fields")
+	}
+	mkTypeDecl(&p.t, m, doc, none, typ, name, tparams, spec, none, none, someTok(at), some(drv), none)
+}
+
+// isProviderPlan reports a direct call of the plan constructor Provider.
+func isProviderPlan(p mut parser, x uint32) bool { kindAt(p, x) == KCallExpr && identIs(p, fixed(p.t, x, 5, 0), "Provider") }
+
+// providerPlanWhy is why the plan `Provider(Of[S](), Of[F](), Of[N]())` of
+// a type is misshapen, or "" (derive.go's ProviderPlanOf).
+func providerPlanWhy(p mut parser, c uint32, tparams uint32, name uint32) string {
+	let shape = "Provider takes three Of plans: the capability, the field type and the type of no arguments"
+	if items(p.t, c, 5) != 3 {
+		return shape
+	}
+	let mut capT = noNode
+	for j in 0..3 {
+		let a = item(p.t, c, j)
+		if kindAt(p, a) != KCallExpr || items(p.t, a, 5) != 0 {
+			return shape
+		}
+		let ix = fixed(p.t, a, 5, 0)
+		if kindAt(p, ix) != KIndexExpr || items(p.t, ix, 2) != 1 || !identIs(p, fixed(p.t, ix, 2, 0), "Of") {
+			return shape
+		}
+		if j == 0 {
+			capT = item(p.t, ix, 0)
+		}
+	}
+	let mut params = 0
+	let mut firstParam = noNode
+	if tparams != none {
+		let l = tparams - uint32(1)
+		for f in 0..items(p.t, l, 2) {
+			let fl = item(p.t, l, f)
+			for k in 0..items(p.t, fl, 11) {
+				if params == 0 {
+					firstParam = item(p.t, fl, k)
+				}
+				params = params + 1
+			}
+		}
+	}
+	let n = identText(p, name)
+	if params != 1 || kindAt(p, capT) != KIdent || identText(p, capT) != identText(p, firstParam) {
+		return "a Provider derives " + n + " from the operations of its one type parameter: write type " + n + "[S] derive Provider(Of[S](), …)"
+	}
+	""
+}
+
+// identText is the name of the Ident row x.
+func identText(p mut parser, x uint32) string {
+	if kindAt(p, x) != KIdent {
+		return ""
+	}
+	lit(p, int(p.t.tok[int(x)]))
+}
+
+// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
+// `[T own]`, `[T own Counter]`, `[T lent Counter]` (for ergo fix) or
+// `[E any, K comparable]` with Go's grouping.
+func parseTypeParams(p mut parser) uint32 {
+	let open = want(p, LBrack)
+	let lm = mark(p.t)
+	let mut pm = lm
+	for {
+		pushW(&p.t, parseIdent(p))
+		if p.tk != Comma && p.tk != RBrack {
+			let mut ty = parseTypeName(p, "a constraint")
+			let mut lentW = none
+			if identIs(p, ty, "lent") && p.tk != Comma && p.tk != RBrack {
+				lentW = some(ty)
+				ty = parseTypeName(p, "a constraint")
+			}
+			// `own` marks the parameters a resource may bind, alone or
+			// before a constraint (types.md, Generics 9). It is a word.
+			let mut ownW = none
+			let mut tyW = some(ty)
+			if identIs(p, ty, "own") {
+				ownW = someTok(int(p.t.tok[int(ty)]))
+				tyW = none
+				if p.tk != Comma && p.tk != RBrack {
+					tyW = some(parseTypeName(p, "a constraint"))
+				}
+			}
+			let f = mkField(&p.t, pm, none, tyW, none, none, lentW, none, none, none, none, ownW, none)
+			pushW(&p.t, f)
+			pm = mark(p.t)
+		}
+		if !got(p, Comma) || p.tk == RBrack {
+			break
+		}
+	}
+	if mark(p.t) > pm {
+		let f = mkField(&p.t, pm, none, none, none, none, none, none, none, none, none, none, none)
+		pushW(&p.t, f)
+	}
+	if p.failed {
+		return noNode
+	}
+	// `any` ends a group of unconstrained parameters before a constrained
+	// group: `[E any, K comparable]`.
+	for j in lm..mark(p.t)-1 {
+		let f = p.t.stack[j]
+		let g = p.t.stack[j+1]
+		let ft = fixed(p.t, f, 11, 1)
+		let gt = fixed(p.t, g, 11, 1)
+		let gOwn = fixed(p.t, g, 11, 9)
+		if ft != none && identIs(p, ft-uint32(1), "any") && (gt != none || gOwn != none) && (gt == none || !identIs(p, gt-uint32(1), "any")) {
+			setFixed(&p.t, f, 11, 3, ft)
+			setFixed(&p.t, f, 11, 1, none)
+		}
+	}
+	if p.tk != RBrack {
+		expected(p, "expected \"]\" or \",\", found ")
+	}
+	let closing = p.i
+	next(p)
+	mkFieldList(&p.t, lm, someTok(open), someTok(closing))
+}
+
+// members is what parseMembers found: the braces, and how many operations,
+// laws and type-set terms the members (on the stack) are, and the first of
+// them.
+type members {
+	lbrace    int,
+	rbrace    int,
+	first     int,
+	either    int,
+	ops       int,
+	laws      int,
+	terms     int,
+	firstOp   uint32,
+	firstLaw  uint32,
+	firstTerm uint32,
+}
+
+let memberField = 0
+let memberOperation = 1
+let memberLaw = 2
+
+// parseMembers parses `{ Member, … }`, pushing the members. A body that
+// mixes fields with operations or laws is S108 at the first member of the
+// second kind. A member `f (A, B)` reads as an operation with two or more
+// unnamed parameters and no result, or as a field of a tuple type: when a
+// field is beside it the members are parsed again, it as the field.
+func parseMembers(p mut parser) members {
+	let lbrace = want(p, LBrace)
+	let saved = p.exprLev
+	p.exprLev = 0
+	let st = save(p)
+	let mut r = memberList(p, lbrace)
+	if !p.failed && r.first == memberField && r.either > 0 {
+		restore(p, st)
+		p.asFields = true
+		r = memberList(p, lbrace)
+		p.asFields = false
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \",\" or \"}\" after a member, found ")
+	}
+	r.rbrace = p.i
+	next(p)
+	r
+}
+
+func memberList(p mut parser, lbrace int) members {
+	let mut r = members{lbrace: lbrace, rbrace: 0, first: -1, either: 0, ops: 0, laws: 0, terms: 0, firstOp: noNode, firstLaw: noNode, firstTerm: noNode}
+	for p.tk != RBrace {
+		let doc = leadComment(p)
+		let start = p.i
+		let mut kind = -1
+		if p.tk == Law {
+			kind = memberLaw
+			let d = parseLawDecl(p, doc, false)
+			pushW(&p.t, d)
+			if r.laws == 0 {
+				r.firstLaw = d
+			}
+			r.laws = r.laws + 1
+		} else if typeSetStarts(p) && !(r.first == memberField && bareOneTerm(p)) {
+			// `~int | ~int64`: the type-set member of an operation type
+			// (types.md, Generics 2). It counts as an operation for the mix
+			// rule: a record has no type set. After fields, a lone bare
+			// name is the embedding the field branch refuses (S001), not a
+			// one-term type set.
+			kind = memberOperation
+			if r.terms > 0 {
+				errorAt(p, pos(p), 1, "an operation type has one type-set member; join the terms with |")
+				return r
+			}
+			let tm = mark(p.t)
+			r.terms = parseTypeTerms(p)
+			r.firstTerm = p.t.stack[tm]
+		} else if p.tk == Ident && peek(p, 1) == LBrack && bracketsThenParen(p) {
+			errorAt(p, tpos(p, p.i+1), 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
+			return r
+		} else if (p.tk == Ident && peek(p, 1) == LParen) || (isWord(p, "own") && peek(p, 1) == Ident && peek(p, 2) == LParen) || (p.tk == Mut && peek(p, 1) == Ident && peek(p, 2) == LParen) {
+			kind = memberOperation
+			let cp = save(p)
+			let fm = mark(p.t)
+			let mut own = none
+			let mut mutW = none
+			if p.tk == Mut {
+				mutW = someTok(p.i) // `mut Bump()`: the operation writes its receiver
+				next(p)
+			} else if peek(p, 1) != LParen {
+				own = someTok(p.i)
+				next(p)
+			}
+			pushW(&p.t, parseIdent(p))
+			let ft = parseSignature(p, none, ctxMember, false)
+			if tupleShaped(p, ft) && p.asFields {
+				restore(p, cp)
+				pushW(&p.t, opAsField(p, doc))
+				kind = -1
+			} else {
+				let op = mkField(&p.t, fm, doc, some(ft), none, none, none, none, none, none, none, own, mutW)
+				pushW(&p.t, op)
+				if r.ops == 0 {
+					r.firstOp = op
+				}
+				r.ops = r.ops + 1
+				if tupleShaped(p, ft) {
+					r.either = r.either + 1
+					kind = -1
+				}
+			}
+		} else if p.tk == Ident {
+			kind = memberField
+			pushW(&p.t, parseFieldDecl(p, doc))
+		} else if p.tk == DotDot {
+			// `..R` includes the fields of the record R, or the operations
+			// of the operation type R: the other members decide.
+			let fm = mark(p.t)
+			let dots = p.i
+			next(p)
+			let ty = parseType(p, ctxMember)
+			pushW(&p.t, mkField(&p.t, fm, doc, some(ty), none, none, none, someTok(dots), none, none, none, none, none))
+		} else {
+			expected(p, "expected a field, an operation or a law, found ")
+			return r
+		}
+		if kind >= 0 {
+			if r.first < 0 {
+				r.first = kind
+			} else if (r.first == memberField) != (kind == memberField) {
+				errorCode(p, CodeMixedMembers, tpos(p, start), tend(p, start)-tpos(p, start), mixedMembers)
+			}
+		}
+		if !got(p, Comma) {
+			break
+		}
+	}
+	r
+}
+
+// typeSetStarts reports whether the member at the current token is a
+// type-set member (grammar.md, Declarations 4): it starts with `~`, or it
+// is a type name (`T` or `pkg.T`) followed by `|`, by the end of the
+// braces, or by a comma and then a member that cannot continue a field
+// group `a, b T`. A field group goes on with a name and then a type, so
+// after `T,` the member `Label() string` (an operation with no
+// parameters, or one with a result) starts a new member, while
+// `Y (A, B)`, a tuple field, continues the group.
+func typeSetStarts(p mut parser) bool {
+	if p.tk == Tilde {
+		return true
+	}
+	if p.tk != Ident {
+		return false
+	}
+	let mut i = 1
+	if peek(p, 1) == Period && peek(p, 2) == Ident {
+		i = 3
+	}
+	let after = peek(p, i)
+	if after == Or || after == RBrace || after == Semicolon {
+		return true
+	}
+	if after != Comma {
+		return false
+	}
+	// `T, …`: a term when what follows cannot continue a name group.
+	let next = peek(p, i+1)
+	if next != Ident {
+		return next == Tilde || next == Law || next == DotDot || next == RBrace || next == Mut
+	}
+	if lit(p, p.i+i+1) == "own" && peek(p, i+2) == Ident && peek(p, i+3) == LParen {
+		return true // `own Close()`
+	}
+	if peek(p, i+2) != LParen {
+		return false // `a, b int`
+	}
+	// `T, Name(…)`: an operation unless the parentheses close with
+	// nothing after them that a result could start (a tuple field).
+	let mut depth = 0
+	let mut k = i + 2
+	for {
+		let tk = peek(p, k)
+		if tk == LParen || tk == LBrack {
+			depth = depth + 1
+		} else if tk == RParen || tk == RBrack {
+			depth = depth - 1
+			if depth == 0 {
+				if k == i+3 {
+					return true // `Name()`: a tuple has two or more elements
+				}
+				let close = peek(p, k+1)
+				return !(close == Comma || close == RBrace || close == Semicolon || close == String)
+			}
+		} else if tk == LBrace || tk == EOF || tk == Illegal {
+			return false
+		}
+		k = k + 1
+	}
+	false
+}
+
+// bareOneTerm reports a type-set member that is one bare type name, with
+// no `~` and no `|`.
+func bareOneTerm(p mut parser) bool {
+	if p.tk != Ident {
+		return false
+	}
+	let mut i = 1
+	if peek(p, 1) == Period && peek(p, 2) == Ident {
+		i = 3
+	}
+	peek(p, i) != Or
+}
+
+// parseTypeTerms parses `[~]T { | [~]T }`, the terms of a type-set member,
+// pushing one row per term: `~T` is a UnaryExpr of op `~` over T, a
+// bare term its type. The decoder gathers them into the operation type's
+// Terms. It is the number of terms.
+func parseTypeTerms(p mut parser) int {
+	let mut n = 0
+	for {
+		if p.tk == Tilde {
+			let tilde = p.i
+			next(p)
+			let ty = parseType(p, ctxMember)
+			pushW(&p.t, row(&p.t, KUnaryExpr, uint32(tilde), ty, none))
+		} else {
+			pushW(&p.t, parseType(p, ctxMember))
+		}
+		n = n + 1
+		if p.tk != Or {
+			return n
+		}
+		next(p)
+	}
+	n
+}
+
+// opAsField parses an operation `f (A, B)` as the field of the tuple type
+// of its parameters' types (its own word dropped, as parseMembers drops
+// it).
+func opAsField(p mut parser, doc uint32) uint32 {
+	let fm = mark(p.t)
+	if peek(p, 1) != LParen {
+		next(p)
+	}
+	pushW(&p.t, parseIdent(p))
+	let open = want(p, LParen)
+	let saved = p.exprLev
+	p.exprLev = 1
+	let tm = mark(p.t)
+	for p.tk != RParen {
+		let e = parseParamEntry(p)
+		pushW(&p.t, e.typ)
+		if p.tk != Comma {
+			break
+		}
+		next(p)
+	}
+	p.exprLev = saved
+	let closing = p.i
+	next(p)
+	let tup = mkTuple(&p.t, tm, someTok(open), someTok(closing))
+	mkField(&p.t, fm, doc, some(tup), none, none, none, none, none, none, none, none, none)
+}
+
+// restore goes back to the token and tree of st (a backtrack).
+func restore(p mut parser, st state) {
+	backtrack(p, st.i)
+	rewind(&p.t, st.tree)
+}
+
+// tupleShaped reports whether an operation's signature also reads as a
+// tuple type: two or more unnamed parameters, no result, no failure row
+// and no capability row.
+func tupleShaped(p mut parser, ft uint32) bool {
+	if kindAt(p, ft) != KFuncType || fixed(p.t, ft, 7, 4) != none || fixed(p.t, ft, 7, 5) != none {
+		return false
+	}
+	let l = fixed(p.t, ft, 7, 3)
+	if kindAt(p, l) != KFieldList || items(p.t, l, 2) < 2 {
+		return false
+	}
+	for j in 0..items(p.t, l, 2) {
+		let f = item(p.t, l, j)
+		if items(p.t, f, 11) > 0 || fixed(p.t, f, 11, 1) == none {
+			return false
+		}
+	}
+	true
+}
+
+// refuseSingleton refuses `(x,)` at its comma.
+func refuseSingleton(p mut parser) {
+	if p.tk == Comma && peek(p, 1) == RParen {
+		errorAt(p, pos(p), 1, "a tuple has two or more elements; drop the comma")
+	}
+}
+
+// bracketsThenParen reports whether the brackets that open at the next
+// token close before a `(`, as in the operation `Get[T](k string) T`.
+func bracketsThenParen(p mut parser) bool {
+	if peek(p, 2) != Ident {
+		return false
+	}
+	let mut depth = 0
+	let mut i = 1
+	for {
+		let k = peek(p, i)
+		if k == LBrack {
+			depth = depth + 1
+		} else if k == RBrack {
+			depth = depth - 1
+			if depth == 0 {
+				return peek(p, i+1) == LParen
+			}
+		} else if k == LBrace || k == RBrace || k == Semicolon || k == Illegal || k == EOF {
+			return false
+		}
+		i = i + 1
+	}
+	false
+}
+
+// parseFieldDecl parses `name {, name} Type [string_lit]`.
+func parseFieldDecl(p mut parser, doc uint32) uint32 {
+	let fm = mark(p.t)
+	let mut last = p.i
+	pushW(&p.t, parseIdent(p))
+	for p.tk == Comma && peek(p, 1) == Ident && groupsName(peek(p, 2)) {
+		next(p)
+		last = p.i
+		pushW(&p.t, parseIdent(p))
+	}
+	if p.tk == Comma || p.tk == RBrace || p.tk == Semicolon {
+		let name = lit(p, last)
+		errorAt(p, tpos(p, last), len(name), "a member names its type: write `"+name+" Type`; Ergo has no embedding")
+	}
+	let ty = parseType(p, ctxMember)
+	let mut key = none
+	if p.tk == String {
+		let k = basicLit(p)
+		key = some(k)
+		if mark(p.t)-fm != 1 {
+			errorNode(p, k, "a wire key names one field; split the field group")
+		}
+	}
+	mkField(&p.t, fm, doc, some(ty), key, none, none, none, none, none, none, none, none)
+}
+
+func groupsName(k uint8) bool {
+	k == Comma || k == Ident || k == LBrack || k == Mul || k == Func || k == Escaping || k == LParen || k == Go
+}
+
+// parseMembersType parses the braced body of `type T { … }`: a record of
+// fields (StructType) or an operation type of operations, laws and a type
+// set (InterfaceType, its members one list: the includes, operations, laws
+// and type-set terms in their order).
+func parseMembersType(p mut parser) uint32 {
+	let m = mark(p.t)
+	let r = parseMembers(p)
+	if r.ops > 0 || r.laws > 0 || r.terms > 0 {
+		return mkInterface(&p.t, m, someTok(r.lbrace), someTok(r.rbrace))
+	}
+	let fields = mkFieldList(&p.t, m, someTok(r.lbrace), someTok(r.rbrace))
+	row(&p.t, KStructType, uint32(0), fields, none)
+}
+
+// parseUnion parses `[ "|" ] Variant { "|" Variant }` after `=`.
+func parseUnion(p mut parser) uint32 {
+	let m = mark(p.t)
+	if p.tk == LParen {
+		errorf(p, "`=` declares a union of variants; a tuple type is written `type Name (A, B)`")
+	}
+	let _ = got(p, Or)
+	for {
+		pushW(&p.t, parseVariant(p))
+		if p.tk == Or {
+			next(p)
+			continue
+		}
+		if atLineEnd(p) && peek(p, 1) == Or {
+			next(p)
+			next(p)
+			continue
+		}
+		break
+	}
+	mkInterface(&p.t, m, none, none)
+}
+
+// parseVariant parses `TypeName [TypeArgs] [Members]`.
+func parseVariant(p mut parser) uint32 {
+	if !startsTypeName(p) {
+		expected(p, "a union variant is a type name, found ")
+		return noNode
+	}
+	let name = parseQualifiedName(p)
+	let mut x = name
+	if p.tk == LBrack {
+		x = parseTypeArgs(p, name)
+	}
+	if p.tk != LBrace {
+		return x
+	}
+	if kindAt(p, name) != KIdent {
+		expected(p, "a variant declared in place has a plain name, found ")
+		return noNode
+	}
+	let m = mark(p.t)
+	let mut targs = none
+	if x != name && kindAt(p, x) == KIndexExpr {
+		// The type arguments become the fields of a list: the IndexExpr
+		// row goes, its indices stay.
+		let lb = int(p.t.tok[int(x)])
+		let rb = int(fixed(p.t, x, 2, 1))
+		let n = items(p.t, x, 2)
+		for j in 0..n {
+			pushW(&p.t, item(p.t, x, j))
+		}
+		dropLast(&p.t)
+		for j in 0..n {
+			let a = p.t.stack[m+j]
+			let f = mkField(&p.t, mark(p.t), none, some(a), none, none, none, none, none, none, none, none, none)
+			p.t.stack[m+j] = f
+		}
+		targs = some(mkFieldList(&p.t, m, someTok(lb), someTok(rb)))
+	}
+	let mm = mark(p.t)
+	let r = parseMembers(p)
+	if r.ops > 0 || r.laws > 0 || r.terms > 0 {
+		let at = if r.ops > 0 { r.firstOp } else if r.laws > 0 { r.firstLaw } else { r.firstTerm }
+		errorAt(p, nodePos(p, at), 1, "a variant holds fields only")
+	}
+	let fields = mkFieldList(&p.t, mm, someTok(r.lbrace), someTok(r.rbrace))
+	mkVariantSpec(&p.t, mark(p.t), name, targs, fields)
+}
+
+// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with
+// optional after, work and exit entries, then the machine's laws.
+func parseMachineType(p mut parser) uint32 {
+	let mach = want(p, KwMachine)
+	let _ = want(p, LBrack)
+	let stateT = parseType(p, ctxList)
+	let _ = want(p, Comma)
+	let signal = parseType(p, ctxList)
+	let rbrack = want(p, RBrack)
+	let _ = want(p, LBrace)
+	let saved = p.exprLev
+	p.exprLev = 0
+	let m = mark(p.t)
+	let mut laws = 0
+	let mut initial = false
+	let mut step = false
+	let mut after = false
+	let mut work = false
+	let mut exit = false
+	for p.tk != RBrace {
+		let doc = leadComment(p)
+		if p.tk == Law {
+			pushW(&p.t, parseMachineLaw(p, doc))
+			laws = laws + 1
+			if !got(p, Comma) {
+				break
+			}
+			continue
+		}
+		if laws > 0 {
+			errorf(p, "a machine's entries come before its laws")
+		}
+		let at = p.i
+		let isInitial = isWord(p, "initial")
+		let isStep = isWord(p, "step")
+		let isAfter = isWord(p, "after")
+		let isWork = isWord(p, "work")
+		let isExit = isWord(p, "exit")
+		if !(isInitial || isStep || isAfter || isWork || isExit) {
+			expected(p, "expected initial, step, after, work or exit, found ")
+			break
+		}
+		if (isInitial && initial) || (isStep && step) || (isAfter && after) || (isWork && work) || (isExit && exit) {
+			errorf(p, lit(p, at)+" is set twice")
+		}
+		next(p)
+		let _ = want(p, Colon)
+		let v = parseExpr(p)
+		if isInitial {
+			initial = true
+		} else if isStep {
+			step = true
+		} else if isWork {
+			work = true
+		} else if isExit {
+			exit = true
+		} else {
+			after = true
+		}
+		pushW(&p.t, row(&p.t, KMachineEntry, uint32(at), v, doc))
+		if !got(p, Comma) {
+			break
+		}
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \",\" or \"}\" in a machine, found ")
+	}
+	let rbrace = p.i
+	next(p)
+	if !initial || !step {
+		errorAt(p, tpos(p, mach), 7, "a machine sets initial and step")
+	}
+	mkMachine(&p.t, m, mach, stateT, signal, rbrack, rbrace)
+}
+
+// parseMachineLaw parses a law of a machine: a law as any law, or a
+// reachability law `law Name reaches V`, `law Name never reaches V` or
+// `law Name path [V1, V2, …]`, or an invariant law `law Name always p` or
+// `law Name sometimes p`.
+func parseMachineLaw(p mut parser, doc uint32) uint32 {
+	if peek(p, 1) != Ident || peek(p, 2) != Ident {
+		return parseLawDecl(p, doc, true)
+	}
+	let lawTok = want(p, Law)
+	let name = parseIdent(p)
+	let m = mark(p.t)
+	let mut never = none
+	if isWord(p, "never") {
+		never = someTok(p.i)
+		next(p)
+		if !isWord(p, "reaches") {
+			expected(p, "expected reaches after never, found ")
+		}
+	}
+	let word = p.i
+	let mut path = false
+	let mut lbrack = none
+	let mut rbrack = none
+	let mut invariant = false
+	let mut pred = none
+	if isWord(p, "reaches") {
+		next(p)
+		pushW(&p.t, parseIdent(p))
+	} else if isWord(p, "always") || isWord(p, "sometimes") {
+		if never != none {
+			expected(p, "expected reaches after never, found ")
+		}
+		invariant = true
+		next(p)
+		pred = some(parseIdent(p))
+	} else if isWord(p, "path") {
+		if never != none {
+			expected(p, "expected reaches after never, found ")
+		}
+		path = true
+		next(p)
+		lbrack = someTok(want(p, LBrack))
+		for {
+			pushW(&p.t, parseIdent(p))
+			if !got(p, Comma) || p.tk == RBrack {
+				break
+			}
+		}
+		rbrack = someTok(want(p, RBrack))
+	} else {
+		expected(p, "expected (, reaches, never reaches, path, always or sometimes after a machine law's name, found ")
+	}
+	let r = mkLawReach(&p.t, m, never, word, path, lbrack, rbrack, invariant, pred)
+	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, none, none, none, some(r), uint32(0), none, none)
+}
+
+func parseFuncDecl(p mut parser, doc uint32) uint32 {
+	let fn = want(p, Func)
+	if p.tk == LParen {
+		habit(p, pos(p), 1, habitReceiver)
+	}
+	let name = parseIdent(p)
+	let mut tparams = none
+	if p.tk == LBrack {
+		tparams = some(parseTypeParams(p))
+	}
+	if p.tk != LParen {
+		expected(p, "expected \"(\", found ")
+	}
+	let ty = parseSignature(p, none, ctxDecl, false)
+	if p.tk != LBrace {
+		expected(p, "expected the function body \"{\", found ")
+	}
+	let body = parseBlock(p)
+	mkFuncDecl(&p.t, mark(p.t), doc, none, fn, none, name, tparams, ty, some(body))
+}
+
+// isGoBuiltin reports Go's builtins an extern func may bind by name.
+func isGoBuiltin(s string) bool {
+	s == "append" || s == "len" || s == "cap" || s == "copy" || s == "clear" || s == "delete" || s == "min" || s == "max"
+}
+
+// splitAt is where a target splits into its import path and its last
+// name: the last `.` after the last `/`, or -1.
+func splitAt(target string) int {
+	let mut slash = -1
+	let mut i = len(target) - 1
+	for i >= 0 {
+		if target[i] == '/' {
+			slash = i
+			break
+		}
+		i = i - 1
+	}
+	let mut j = len(target) - 1
+	for j > slash {
+		if target[j] == '.' {
+			return j
+		}
+		j = j - 1
+	}
+	-1
+}
+
+func targetPath(target string) string {
+	let at = splitAt(target)
+	if at < 0 { "" } else { target[:at] }
+}
+
+func targetName(target string) string {
+	let at = splitAt(target)
+	if at < 0 { target } else { target[at+1:] }
+}
+
+let runtimeModule = "ergo.local/prototype/runtime"
+
+func isRuntimeTarget(path string) bool {
+	path == runtimeModule || (len(path) > len(runtimeModule) && path[:len(runtimeModule)+1] == runtimeModule+"/")
+}
+
+// parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`,
+// and the binding forms `extern go path.T type T Spec`, `extern go path.C
+// let C Type` and `extern go path.T.M func (r R) M Sig`.
+func parseExternDecl(p mut parser, doc uint32) uint32 {
+	let ext = want(p, Extern)
+	let goTok = want(p, Go)
+	if p.tk != Path {
+		expected(p, "expected the Go target path.Func, found ")
+	}
+	let target = p.i
+	let text = lit(p, target)
+	let path = targetPath(text)
+	let name = targetName(text)
+	if (path == "" && !isGoBuiltin(name)) || !isIdentifier(name) {
+		expected(p, "an extern target is an import path, a dot and a function name, or a Go builtin (append, len, cap, copy, clear, delete, min, max), found ")
+	}
+	let tgt = row(&p.t, KBasicLit, uint32(target), none, none)
+	next(p)
+	if path == "" && p.tk != Func {
+		errorf(p, "a Go builtin is bound by a func: extern go "+name+" func …")
+	}
+	let spec = row(&p.t, KExternSpec, uint32(ext), uint32(goTok), tgt)
+	if p.tk == Type {
+		let d = parseTypeDecl(p, doc)
+		if p.failed {
+			return d
+		}
+		let wp = fixed(p.t, d, 10, 5)
+		if fixed(p.t, d, 10, 6) != none && !isRuntimeTarget(path) {
+			errorAt(p, tpos(p, int(wp)-1), 5, "a host type takes no where: Go checks nothing on it; declare a refined type over it in Ergo")
+		}
+		setFixed(&p.t, d, 10, 1, some(spec))
+		return d
+	}
+	if p.tk == Let {
+		let d = parseLetDecl(p, doc, false)
+		if p.failed {
+			return d
+		}
+		let s = fixed(p.t, d, 4, 3)
+		if fixed(p.t, d, 4, 2) != none || items(p.t, s, 4) != 1 || fixed(p.t, s, 4, 1) == none || fixed(p.t, s, 4, 3) != none {
+			errorf(p, "an extern let names one Go constant or variable and its type: extern go math.Pi let Pi float64")
+		}
+		setFixed(&p.t, d, 4, 1, some(spec))
+		return d
+	}
+	let fn = want(p, Func)
+	let mut recv = none
+	if p.tk == LParen {
+		let r = parseParameters(p, true, false)
+		recv = some(r)
+		let rest = targetPath(text)
+		let mpath = targetPath(rest)
+		let mtype = targetName(rest)
+		if !p.failed && (mpath == "" || !isIdentifier(mtype) || !isIdentifier(name) || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 11) != 1) {
+			errorf(p, "an extern method has one named receiver and the target path.Type.Method")
+		}
+	}
+	let fname = parseIdent(p)
+	let mut tparams = none
+	if p.tk == LBrack {
+		tparams = some(parseTypeParams(p))
+	}
+	if p.tk != LParen {
+		expected(p, "expected \"(\", found ")
+	}
+	let ty = parseSignature(p, none, ctxDecl, false)
+	mkFuncDecl(&p.t, mark(p.t), doc, some(spec), fn, recv, fname, tparams, ty, none)
+}
+
+// parseTestDecl parses `test Name { … }` or `test Name(x T) { … }`.
+func parseTestDecl(p mut parser, doc uint32) uint32 {
+	let testTok = want(p, Test)
+	let name = parseIdent(p)
+	let mut params = none
+	if p.tk == LParen {
+		params = some(parseParameters(p, true, false))
+	}
+	if p.tk != LBrace {
+		expected(p, "expected \"{\", found ")
+	}
+	let body = parseBlock(p)
+	mkTestDecl(&p.t, mark(p.t), doc, testTok, name, params, body)
+}
+
+// parseLawDecl parses `law Name(params) { body }`, top-level (top) or a
+// member of an operation type, and the rewrite form `law L(params) [when
+// R() == C] { lhs } == { rhs }`, whose body holds the guard, lhs and rhs.
+// A top-level rewrite law (types.md, Laws 14; LAWFFI LF6a) takes no when
+// and holds one expression on each side; its rewrite word is 2, so the
+// Go tree reads it as LawDecl.Equation.
+func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
+	let lawTok = want(p, Law)
+	let name = parseIdent(p)
+	// Only a rewrite law over functions takes type parameters (owner
+	// q234): its sides are stated once for every instance a site has.
+	let mut tparams = none
+	let tparamPos = pos(p)
+	if top && p.tk == LBrack {
+		tparams = some(parseTypeParams(p))
+	}
+	let params = parseParameters(p, true, false)
+	let mut when = none
+	let mut guard = noNode
+	if isWord(p, "when") {
+		when = someTok(p.i)
+		next(p)
+		let saved = p.exprLev
+		p.exprLev = -1
+		guard = parseExpr(p)
+		p.exprLev = saved
+	}
+	let lhs = parseBlock(p)
+	if p.tk != Eql && when == none {
+		if tparams != none {
+			errorAt(p, tparamPos, 1, "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type")
+		}
+		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(lhs), none, uint32(0), none, none)
+	}
+	if top && when != none {
+		errorAt(p, tpos(p, int(when)-1), 4, "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property")
+	}
+	if p.tk != Eql {
+		errorAt(p, pos(p), 1, "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }")
+		return noNode
+	}
+	let eq = someTok(p.i)
+	next(p)
+	let rhs = parseBlock(p)
+	if p.failed {
+		return noNode
+	}
+	if top {
+		oneSide(p, lhs)
+		oneSide(p, rhs)
+		if p.failed {
+			return noNode
+		}
+	}
+	let bm = mark(p.t)
+	if guard != noNode {
+		pushW(&p.t, row(&p.t, KExprStmt, uint32(0), guard, none))
+	}
+	pushW(&p.t, lhs)
+	pushW(&p.t, rhs)
+	let body = mkBlock(&p.t, bm, int(p.t.tok[int(lhs)]), int(fixed(p.t, rhs, 1, 0)))
+	mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(body), none, if top { uint32(2) } else { uint32(1) }, when, eq)
+}
+
+// oneSide refuses a side of a top-level rewrite law that is not one
+// expression statement.
+func oneSide(p mut parser, b uint32) {
+	let l = listAt(p.t, b, 0, items(p.t, b, 1))
+	if Len(l) == 1 && kindAt(p, wid(Item(p.t, l, 0))) == KExprStmt {
+		return
+	}
+	errorAt(p, tpos(p, int(p.t.tok[int(b)])), 1, "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }")
+}
+
+// parseLetDecl parses `let [mut] Pattern {, Pattern} [Type] [= e]`. At
+// package level, `let Name = context …` is a named context (ContextDecl).
+func parseLetDecl(p mut parser, doc uint32, top bool) uint32 {
+	let letTok = want(p, Let)
+	let mut mutTok = none
+	if p.tk == Mut {
+		mutTok = someTok(p.i)
+		next(p)
+	}
+	let pm = mark(p.t)
+	for {
+		pushW(&p.t, parseLetPattern(p))
+		if !got(p, Comma) {
+			break
+		}
+	}
+	let np = mark(p.t) - pm
+	let mut names = true
+	for j in pm..mark(p.t) {
+		if kindAt(p, p.t.stack[j]) != KIdent {
+			names = false
+		}
+	}
+	let mut pattern = none
+	if !names {
+		if np == 1 {
+			pattern = some(p.t.stack[pm])
+			cutStack(&p.t, pm)
+		} else {
+			pattern = some(mkTuple(&p.t, pm, none, none))
+		}
+	}
+	let mut typ = none
+	if !(p.tk == Assign || p.tk == Semicolon || p.tk == RBrace || p.tk == EOF) {
+		typ = some(parseType(p, ctxDecl))
+	}
+	let mut assign = none
+	let mut value = none
+	if p.tk == Assign {
+		assign = someTok(p.i)
+		next(p)
+		if top && mutTok == none && names && np == 1 && typ == none && p.tk == KwContext {
+			let w = parseContextLit(p)
+			if p.failed {
+				return noNode
+			}
+			// The literal's parts move to the declaration, and its row goes.
+			let ctxTok = int(p.t.tok[int(w)])
+			let prov = fixed(p.t, w, 4, 0)
+			let fl = fixed(p.t, w, 4, 1)
+			let nds = fixed(p.t, w, 4, 2)
+			let body = fixed(p.t, w, 4, 3)
+			dropLast(&p.t)
+			let name = p.t.stack[pm]
+			cutStack(&p.t, pm)
+			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, prov, fl, nds, body)
+		}
+		value = some(parseExpr(p))
+	}
+	let spec = mkVarSpec(&p.t, pm, pattern, typ, assign, value)
+	mkVarDecl(&p.t, mark(p.t), doc, none, letTok, mutTok, spec)
+}
+
+// parseLetPattern parses one pattern of a let. A name followed by a slice
+// or array type is the name.
+func parseLetPattern(p mut parser) uint32 {
+	if p.tk == Ident && opensCollection(p, 1) {
+		return parseIdent(p)
+	}
+	parsePattern(p)
+}

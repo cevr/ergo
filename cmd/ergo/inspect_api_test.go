@@ -18,8 +18,8 @@ func TestInspectAPIRoute(t *testing.T) {
 	dir := t.TempDir()
 	old, next := filepath.Join(dir, "old.ergo"), filepath.Join(dir, "new.ergo")
 	for path, src := range map[string]string{
-		old:  "func Read[T](x T) int { 1 }\nfunc Inspect[T](x T) int { 1 }\n",
-		next: "func Read[T](x T) int { 1 }\nfunc Inspect[T](x T) int { let y = x; Read(y) }\n",
+		old:  "func Inspect[T own](x T) int { 1 }\n",
+		next: "func Inspect[T](x T) int { 1 }\n",
 	} {
 		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
@@ -48,8 +48,8 @@ func TestInspectAPIRoute(t *testing.T) {
 		}
 		return string(b)
 	}
-	text := capture("api", next)
-	if !strings.Contains(text, "copies T at "+next+":") || !strings.Contains(text, "plain data only") {
+	text := capture("api", old)
+	if !strings.Contains(text, "own T (a resource may bind it)") {
 		t.Fatal(text)
 	}
 	var fs []api.Function

@@ -700,8 +700,8 @@
     {
       "name": "ws9a-idle-abandons", "origin": "wf10/semws WS9a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet why = try rmOnce(t, c, w, false, until)\n",
-      "to": "\tlet why = try rmOnce(t, c, w, true, until)\n",
+      "from": "\tlet why = if kept { try rmOnce(t, c, w, false, until) } else { \"NotHeld\" }\n",
+      "to": "\tlet why = if kept { try rmOnce(t, c, w, true, until) } else { try rmOnce(t, c, w, true, until) }\n",
       "rule": "gc -idle never abandons work: an idle workspace whose work is not held stays (memory's ToolAgreesWithTheReference: removed with no abandon).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -772,8 +772,8 @@
     {
       "name": "wg2-lock-preset-by-lines", "origin": "wf10/semws WG2",
       "file": "modules/work/work/merge.ergo",
-      "from": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"derived\", Sets: []string{}, By: p.By, Driver: \"\"})",
-      "to": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"lines\", Sets: []string{}, By: \"\", Driver: \"\"})",
+      "from": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"derived\", Sets: []string{}, By: p.By, Driver: \"\", Candidate: false, Check: \"\", Version: \"\"})",
+      "to": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"lines\", Sets: []string{}, By: \"\", Driver: \"\", Candidate: false, Check: \"\", Version: \"\"})",
       "rule": "A lock file is derived by its package manager, never merged by its lines (memory's LockIsTheManifests, PresetPicksTheLockThatExists).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -884,8 +884,8 @@
     {
       "name": "wg6-archive-not-kept", "origin": "wf10/semws WG6a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet kept = keepWork(t, w) catch {\n\tcase VcsFailed as e:\n\t\treturn (\"NotKept\", \"\", e.Reason)\n\t}\n",
-      "to": "\tlet kept = \"\"\n",
+      "from": "\tlet ref = keepWork(t, w) catch {\n\tcase VcsFailed as e:\n\t\treturn (\"NotKept\", \"\", e.Reason)\n\t}\n",
+      "to": "\tlet ref = \"\"\n",
       "rule": "gc -archive removes an unheld idle workspace only after its work is kept (memory's ArchiveKeepsTheWork).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1342,7 +1342,7 @@
       "file": "modules/work/clonefile/clonefile.ergo",
       "from": "[]string{\"-c\", \"-pPR\", from, to}",
       "to": "[]string{\"-pPR\", from, to}",
-      "rule": "clonefile clones on APFS and is Unsupported elsewhere: a plain copy succeeds off APFS (clonefile's ClonesARealTree).",
+      "rule": "clonefile clones on APFS and is Unsupported elsewhere. Since r3's U1 clonefile answers Unsupported before cp runs off APFS, so on Linux this mutant survives: its killer is the Mac's JOB 1 APFS check (a df delta on a 512 MB clone), until that check is a darwin test (clonefile's ClonesARealTree).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
@@ -1388,7 +1388,7 @@
     {
       "name": "b1-kept-skips-unheld", "origin": "wf10/semws verify r1 B1",
       "file": "modules/work/work/vcs.ergo",
-      "from": "\tif len(try Unheld(root, parent)) > 0 {\n",
+      "from": "\tif len(try Unheld(root, parent, onDefault)) > 0 {\n",
       "to": "\tif false {\n",
       "rule": "rm of a clean workspace refuses while another branch or a stash holds work only it has (memory's RmKeepsEveryBranch).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -1396,7 +1396,7 @@
     {
       "name": "g3-held-ignores-remote", "origin": "wf10/semws darwin JOB 1 G3",
       "file": "modules/work/work/vcs.ergo",
-      "from": "try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit)",
+      "from": "try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit, onDefault)",
       "to": "try Vcs.Holds(parent, commit)",
       "rule": "A commit a remote-tracking ref holds is not lost (git's LocalsRemotesAndGuards; memory's RmKeepsEveryBranch).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -1496,6 +1496,374 @@
       "to": "\tif false {\n",
       "rule": "clonefile is Unsupported off APFS, where cp -c copies silently (row HFSIsNotCloned; the Mac's u1-mac.sh runs the whole new on HFS+).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "b24-fake-answers-unmodelled-script", "origin": "wf10 WORK-B24-FALLOUT",
+      "file": "modules/work/memory/hooks.ergo",
+      "from": "\tstrings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
+      "to": "\tfalse && strings.HasPrefix(lines[len(lines)-1], \"exit \")\n",
+      "rule": "A memory fake that does not model a script stating its own status answers exec.NotFound, never status 0: exec.Runner.ShellRunsAsWritten for Runner, Serving and PackageManager.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-stale-remote-trusted", "origin": "wf10/semws verify r2 M2",
+      "file": "modules/work/work/remove.ergo",
+      "from": "let IdleOnDefault = true\n",
+      "to": "let IdleOnDefault = false\n",
+      "rule": "gc -idle trusts a remote-tracking ref only on a remote's default branch: a branch a stale ref holds is archived, or the workspace stays (memory's IdleKeepsAStaleBranch).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkm-clone-keeps-rift-marker", "origin": "wf10/semws WK-MARKER (the Mac)",
+      "file": "modules/work/work/new.ergo",
+      "from": "slices.Concat(m.Config.LeaveOut, []string{RiftMarker})",
+      "to": "slices.Concat(m.Config.LeaveOut, []string{})",
+      "rule": "A workspace never carries its parent's Rift marker .rift (memory's CloneLeavesTheRiftMarker).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkm-host-has-folders-only", "origin": "wf10/semws WK-MARKER (the Mac)",
+      "file": "modules/work/system/trees.ergo",
+      "from": "func Has(t Trees, root string) bool { at(t, \"-e\", root) }",
+      "to": "func Has(t Trees, root string) bool { at(t, \"-d\", root) }",
+      "rule": "A host Cloner finds a file to leave out (Rift's marker .rift), not only a folder (the new-rift-marker case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wkb-bases-lists-gone", "origin": "wf10/semws WK-BASES2 (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "func Bases(t Tool) []string fails Unkept { slices.Filter(try registered(t), func(b string) bool { exists(t, b) }) }",
+      "to": "func Bases(t Tool) []string fails Unkept { try registered(t) }",
+      "rule": "bases never lists a base whose folder is gone (memory's BasesAreTheLiveOnes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkb-prune-keeps-gone", "origin": "wf10/semws WK-BASES2 (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\ttry rewriteBases(t, slices.Filter(all, func(b string) bool { exists(t, b) }))\n",
+      "to": "\t\ttry rewriteBases(t, all)\n",
+      "rule": "prune-bases leaves the list the live bases (memory's BasesAreTheLiveOnes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkb-forget-nothing", "origin": "wf10/semws WK-BASES2 (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tlet left = slices.Filter(try registered(t), func(b string) bool { filepath.Clean(b) != gone })\n",
+      "to": "\tlet left = slices.Filter(try registered(t), func(b string) bool { filepath.Clean(b) != gone || true })\n",
+      "rule": "forget-base drops the base it names (memory's BasesAreTheLiveOnes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkb-replay-real-registry", "origin": "wf10/semws WK-BASES3 (the Mac)",
+      "file": "scripts/mergereplay/mergereplay.sh",
+      "from": "export HOME=\"$S/home\" XDG_DATA_HOME=\"$S/xdg\"\n",
+      "to": "\n",
+      "rule": "A script that runs work init, new or adopt keeps work's data in its scratch (internal/residue TestWorkScriptsKeepTheirRegistry).",
+      "anchor": {"tests": ["internal/residue:TestWorkScriptsKeepTheirRegistry"]}, "killers": ["internal/residue:TestWorkScriptsKeepTheirRegistry"]
+    },
+    {
+      "name": "wkg-adopt-guards", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet w = Workspace{Name: name, Id: idOf(t, name, folder),",
+      "to": "\ttry guarded(t, folder)\n\tlet w = Workspace{Name: name, Id: idOf(t, name, folder),",
+      "rule": "adopt writes no push guard into the copy (memory's AdoptLeavesPushesToTheOwner).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-adopt-rift-guards", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\t\tlet w = Workspace{Name: name, Id: idOf(t, name, c.Path),",
+      "to": "\t\ttry guarded(t, c.Path)\n\t\tlet w = Workspace{Name: name, Id: idOf(t, name, c.Path),",
+      "rule": "adopt-rift writes no file into a copy (memory's AdoptRiftKeepsTheTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-unguard-new-too", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif w.Cloner == \"adopted\" && w.State == Active && len(",
+      "to": "\t\tif w.State == Active && len(",
+      "rule": "doctor -unguard leaves a workspace new made guarded (memory's AdoptLeavesPushesToTheOwner).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-unguard-noop", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\t\t\ttry t.vcs.Unguard(w.Path)\n",
+      "to": "",
+      "rule": "doctor -unguard drops the guard of an adopted workspace (memory's AdoptLeavesPushesToTheOwner).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-git-guarded-any-url", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/git/git.ergo",
+      "from": "\t\tif slices.Contains(exec.Split(urls), Guard) {\n",
+      "to": "\t\tif urls != \"\" {\n",
+      "rule": "Guarded names only work's own guard, so Unguard keeps the owner's push URL (git's LocalsRemotesAndGuards).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m0-new-registers-nothing", "origin": "wf10/semws M0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry RegisterDrivers(t, path)\n",
+      "to": "",
+      "rule": "new writes the merge drivers into the workspace's own config, not only the base's: a base made before work wrote them gives its clones none (memory's NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-fix-registers-nothing", "origin": "wf10/semws M0",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\t\ttry RegisterDrivers(t, root)\n",
+      "to": "",
+      "rule": "doctor -fix registers the drivers of a checkout that lacks them (memory's DoctorSeesAnUnregisteredDriver, NewWorkspaceMergesByClass for an adopted copy).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-doctor-skips-workspaces", "origin": "wf10/semws M0",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif w.State == Active {\n\t\t\troots = roots.Append(w.Path)\n",
+      "to": "\t\tif false {\n\t\t\troots = roots.Append(w.Path)\n",
+      "rule": "doctor checks every active workspace, not only the base (memory's DoctorSeesAnUnregisteredDriver).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-unregistered-sees-none", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif !slices.Contains(out, l.Driver) && try t.vcs.Setting(root, \"merge.\\(l.Driver).driver\") == \"\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A driver the attributes name and the config lacks is named, never passed silently (memory's DoctorSeesAnUnregisteredDriver).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-unmatched-silent", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif !slices.Contains(out, l.Pattern) && slices.IndexFunc(files, func(p string) bool { Matches(l.Pattern, p) }) < 0 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A merge line that takes no file is named (memory's DoctorSeesAnUnregisteredDriver, gone).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-driver-wrong-class", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\"work merge-file -path %P \\(c) %O %A %B >&2\"",
+      "to": "\"work merge-file -path %P lines %O %A %B >&2\"",
+      "rule": "Each ergo-CLASS driver merges by its own class (memory's NewWorkspaceMergesByClass: a ledger merged as lines is not the rows merge).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-digest-blind", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif try t.vcs.Setting(root, DriversKey) == digest {\n",
+      "to": "\tif true {\n",
+      "rule": "The digest skips only a checkout that holds the drivers already (memory's NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-no-rerere", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tout.Append([]string{\"rerere.enabled\", \"true\"})\n",
+      "to": "\tout\n",
+      "rule": "Every registered checkout reuses a recorded resolution (memory's NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-builtin-driver-named", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "let gitDrivers = []string{\"text\", \"binary\", \"union\"}\n",
+      "to": "let gitDrivers = []string{}\n",
+      "rule": "Git's built-in drivers need no config and are never named (law MergeLinesNameTheirDrivers).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-driver-before-lines", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif h.Clashes == 0 {\n\t\ttry t.writes.WriteFile(ours, classes.Text(h))\n\t\treturn FileMerged{Path: path, Class: \"text\", Regenerate: false}\n\t}\n\tlet run",
+      "to": "\tlet run",
+      "rule": "A candidate never runs where Git's line merge is clean, and that merge is the file (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-candidate-unchecked", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif line.Check != \"\" {\n\t\tlet k",
+      "to": "\tif false {\n\t\tlet k",
+      "rule": "A candidate that fails its check (a Go file that does not parse) is withdrawn for Git's line merge (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-own-conflict-hidden", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif r.Status != 0 {\n\t\treturn CandidateConflicted",
+      "to": "\tif false {\n\t\treturn CandidateConflicted",
+      "rule": "The driver's own conflict (a status other than 0) is a conflict, never a clean merge (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-marker-unseen", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif strings.HasPrefix(text, \"<<<<<<<\") || strings.Contains(text, \"\\n<<<<<<<\") {\n",
+      "to": "\tif false {\n",
+      "rule": "A driver that ends with status 0 and leaves a conflict marker is withdrawn (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-missing-is-clean", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif r.Status == 127 {\n\t\treturn CandidateWithdrawn",
+      "to": "\tif r.Status == 127 {\n\t\treturn CandidateTaken\n\t}\n\tif false {\n\t\treturn CandidateWithdrawn",
+      "rule": "A missing tool (status 127) is Git's line merge, conflicted, never read as clean (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-version-unpinned", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif v.Status != 0 || !strings.Contains(v.Stdout, line.Version) {\n",
+      "to": "\t\tif v.Status != 0 {\n",
+      "rule": "A tool of another version than the pin never merges (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-candidate-untrusted", "origin": "wf10/semws M1",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif !trusted(t, c) {\n\t\treturn CandidateWithdrawn",
+      "to": "\tif false {\n\t\treturn CandidateWithdrawn",
+      "rule": "A candidate's driver runs only after work trust (law CandidateNeverWorseThanGit).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m1-check-untrusted", "origin": "wf10/semws M1",
+      "file": "modules/work/work/config.ergo",
+      "from": "\t\tif line.Check != \"\" {\n\t\t\tout = out.Append",
+      "to": "\t\tif false {\n\t\t\tout = out.Append",
+      "rule": "A candidate's check is a command work trust allows: a changed check asks again (law CandidateCommandsAreTrusted).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "notrash-delete-by-listing", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet due = try Collect(t, Some[string]{Value: r.Id}, 0s)\n",
+      "to": "\tlet due = try Collect(t, None, 0s)\n",
+      "rule": "trash = false deletes by the one record id rm removed, never everything a listing of the trash finds: a trash made before the key stays (memory's NoTrashDeletesForGood, rm path).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "notrash-key-ignored-by-gc", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tlet until = if c.Trash { at + int64(IdleTrash) } else { 0 }\n",
+      "to": "\t\tlet until = if c.Trash || true { at + int64(IdleTrash) } else { 0 }\n",
+      "rule": "gc -idle honours trash = false: the workspace it removes leaves no trash for a day (memory's NoTrashDeletesForGood, gc path).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "notrash-refusal-skipped", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet env = try t.Check(c, name, expect, abandon)\n",
+      "to": "\tlet env = try t.Check(c, name, expect, abandon || !c.Trash)\n",
+      "rule": "trash = false deletes only after rm's refusal: a workspace with a commit only it has is NotHeld and stays (memory's NoTrashDeletesForGood, unsaved).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-comment-edit-in-change-set", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\tUnitChanges(file, b, a, Some[[]Change]{Value: indexed})\n",
+      "to": "\tlet _ = indexed\n\tUnitChanges(file, b, a, None)\n",
+      "rule": "A comment edit is in no change set: the record takes the language Indexer's changes (memory's ReadyWritesTheRecord: a comment added to unit A is no change).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-format-edit-is-a-change", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\tstrings.Slice(hex.Encode(sha256.Sum(strings.Join(strings.Fields(free), \" \"))), 0, 16)\n",
+      "to": "\tstrings.Slice(hex.Encode(sha256.Sum(free)), 0, 16)\n",
+      "rule": "A layout edit is no change: a fingerprint drops white space runs (RecordIsTheDiff with layout; ReadyWritesTheRecord's rewrap and row layout).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-rename-as-remove-and-add", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "a.File == r.File && a.After == r.Before {",
+      "to": "a.File == r.File && false {",
+      "rule": "A rename is one Renamed change from the old key (RenameIsOneChange; ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-on-not-computed", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, holds), changes, request)\n",
+      "to": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, func(a string, b string) bool { holds(a, b) && false }), changes, request)\n",
+      "rule": "On is computed from ancestry, never typed or left empty: a workspace stacked on another names it (ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-unlanded-keeps-landed", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "holds(tip, l.Tip) && !holds(head, l.Tip) {",
+      "to": "holds(tip, l.Tip) {",
+      "rule": "A lane the base's head holds has landed and is not in On (OnIsTheUnlandedAncestry).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-record-on-the-branch-name", "origin": "wf10/semws M2",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry t.vcs.SetNote(w.Parent, held, record)\n",
+      "to": "\ttry t.vcs.SetNote(w.Parent, \"refs/heads/\" + branch, record)\n",
+      "rule": "The record is the note of the tip commit, not of the branch name (ReadyWritesTheRecord reads it by the tip).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-digest-of-the-wrong-text", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "Sha256: hex.Encode(sha256.Sum(req.Text))",
+      "to": "Sha256: hex.Encode(sha256.Sum(req.Path))",
+      "rule": "The request's digest is the sha256 of its own text (RequestWithoutABlockIsItsFirstLine; ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "lm-regenerate-answered-clean", "origin": "wf10/semws WORK-LOCKMERGE",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif merged.Regenerate {\n\t\tlet then",
+      "to": "\tif merged.Regenerate && by == \"never\" {\n\t\tlet then",
+      "rule": "merge-file never answers clean a merge that must be made again: under Git's driver nothing regenerates, so ours would be kept silently (memory's MergeFileReportsWhatItCannotMerge).",
+      "anchor": {"tests": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]}, "killers": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]
+    },
+    {
+      "name": "wl-setting-trims-the-value", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tstrings.TrimSuffix(r.Stdout, \"\\n\")\n",
+      "to": "\tstrings.TrimSpace(r.Stdout)\n",
+      "rule": "git.Setting reads back what Configure set, its own spaces kept; only git config's newline goes (git's law work.Vcs.SettingIsWhatConfigureSet under onShell).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wl-driver-plays-a-stated-status", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/memory/candidate.ergo",
+      "from": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) {\n",
+      "to": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) && c.Name == \"\" {\n",
+      "rule": "memory's Driver never answers a status a script did not state: a script ending in its own exit is NotFound (memory's law exec.Runner.ShellRunsAsWritten for Driver).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wcg-gc-deletes-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
+      "file": "modules/work/work/remove.ergo",
+      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {",
+      "to": "strings.HasPrefix(w.Path, t.home+\"/\") {",
+      "rule": "gc (bare, -idle, -id) never deletes a Creating record whose folder holds a checkout: its maker may have died after the clone, and an agent may work there (memory's ToolAgreesWithTheReference, CrashOp Cloned).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "wcg-rm-skips-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tcase Creating:\n\t\t\tt.copier.Has(w.Path + \"/.git\")\n",
+      "to": "\t\tcase Creating:\n\t\t\tfalse\n",
+      "rule": "rm on a Creating record over a checkout runs the unsaved-work check an Active one gets: work not held is NotHeld unless abandoned (memory's ToolAgreesWithTheReference, CrashOp Cloned then RmOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "tl-host-setting-ignored", "origin": "wf10/semws WORK-TRASH-LOCAL",
+      "file": "modules/work/work/api.ergo",
+      "from": "let local = try LocalTrash(c, setting)",
+      "to": "let local = try LocalTrash(c, strings.TrimPrefix(setting, setting))",
+      "rule": "the base's Git setting work.trash (host-local) decides rm's trash over work.toml and the default; doctor says which (memory's TheHostSettingDecidesTrash).",
+      "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
     }
   ]
 }

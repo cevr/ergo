@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,134 +17,10 @@ import (
 	"ergo.local/prototype/internal/proclimit"
 )
 
-// TestJSONParseAgreesWithControl is the correctness property of
-// examples/jsonparse (an RFC 8259 parser written in Ergo): the Ergo
-// program and the hand Go control (testdata/jsonparse/control) print what
-// a reference built on Go's encoding/json computes. The reference reads a
-// text with encoding/json's Decoder (tokens, numbers as their text, keys
-// in order and repeated), prints it with its own printers, and finds the
-// first byte that is not JSON from encoding/json's SyntaxError offset.
-// The texts are every file of JSONTestSuite (pinned in the example's
-// testdata: y_ files are accepted, n_ files rejected), seeded generated
-// documents (every escape, surrogate pairs and lone surrogates, bytes that
-// are not UTF-8, repeated keys, every number form, odd whitespace, and
-// nesting at encoding/json's depth limit), each again with one to three
-// bytes changed, and the `jsonparse gen` workload at two sizes. Both must
-// print, for `min`, `fmt`, `check` and `get`, each over the pointer tree
-// and over the flat tree (`-flat`), the reference's standard output and
-// exit status, a failure's line and column, and the same standard error
-// as each other. A failing seed prints the document and its
-// replay command.
-//
-// It builds Go because the programs under test are the linked binaries:
-// the Ergo program reads its file through the host and ends with os.Exit,
-// and the control is Go; no in-process check runs either. Each run is
-// bounded by proclimit, and the test waits for its exit.
-//
-// It kills the example's mutants that no law sees (examples/jsonparse/
-// testdata/mutants.json).
-func TestJSONParseAgreesWithControl(t *testing.T) {
-	needsBuild(t)
-	ergoBin, work := buildCorpusExample(t, "jsonparse")
-	control := buildHandControl(t, "jsonparse", work)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "p.json")
-	bins := []string{ergoBin, control}
-
-	suite, err := filepath.Glob(filepath.Join("..", "..", "examples", "jsonparse", "testdata", "JSONTestSuite-*", "test_parsing", "*.json"))
-	if err != nil || len(suite) == 0 {
-		t.Fatalf("JSONTestSuite is not in examples/jsonparse/testdata: %v", err)
-	}
-	for _, file := range suite {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		name := filepath.Base(file)
-		ref := jsonReference(data)
-		if (strings.HasPrefix(name, "y_") && ref.bad >= 0) || (strings.HasPrefix(name, "n_") && ref.bad < 0) {
-			t.Fatalf("%s: encoding/json disagrees with the suite's verdict", name)
-		}
-		writeFile(t, path, string(data))
-		for _, cmd := range []string{"min", "check"} {
-			jsonAgree(t, bins, ref, path, name, []string{cmd}, "")
-		}
-	}
-
-	seeds := 200
-	first := uint64(1)
-	if s := os.Getenv("JSONPARSE_SEED"); s != "" {
-		n, err := strconv.ParseUint(s, 10, 64)
-		if err != nil {
-			t.Fatalf("JSONPARSE_SEED=%q is not a seed", s)
-		}
-		first, seeds = n, 1
-	}
-	for seed := first; seed < first+uint64(seeds); seed++ {
-		r := rand.New(rand.NewPCG(seed, 0x150))
-		doc := jsonGenDoc(r, seed)
-		replay := fmt.Sprintf("replay: JSONPARSE_SEED=%d go test -count=1 -run '^TestJSONParseAgreesWithControl$' ./cmd/ergo", seed)
-		ref := jsonReference([]byte(doc))
-		writeFile(t, path, doc)
-		if ref.bad >= 0 {
-			if !strings.HasPrefix(doc, "[[[") {
-				t.Fatalf("seed %d: the generator wrote a text encoding/json rejects at %d:\n%q", seed, ref.bad, clip(doc))
-			}
-			jsonAgree(t, bins, ref, path, "seed "+strconv.FormatUint(seed, 10)+", nested too deep", []string{"min"}, replay)
-			continue
-		}
-		for _, cmd := range []string{"min", "check"} {
-			jsonAgree(t, bins, ref, path, "seed "+strconv.FormatUint(seed, 10), []string{cmd}, replay)
-		}
-		if jsonDepth(ref.v) > jsonDeep {
-			continue
-		}
-		jsonAgree(t, bins, ref, path, "seed "+strconv.FormatUint(seed, 10), []string{"fmt"}, replay)
-		for _, ptr := range jsonPointers(r, ref.v) {
-			jsonAgree(t, bins, ref, path, "seed "+strconv.FormatUint(seed, 10), []string{"get", ptr}, replay)
-		}
-		broken := jsonBreak(r, doc)
-		bref := jsonReference([]byte(broken))
-		writeFile(t, path, broken)
-		jsonAgree(t, bins, bref, path, "seed "+strconv.FormatUint(seed, 10)+", with bytes changed", []string{"min"}, replay)
-	}
-
-	for _, n := range []string{"2", "300"} {
-		gen := exec.Command(ergoBin, "gen", "-seed", strconv.FormatUint(first, 10), "-n", n)
-		var out bytes.Buffer
-		gen.Stdout = &out
-		if err := proclimit.Run(gen, 1<<30); err != nil {
-			t.Fatalf("jsonparse gen: %v", err)
-		}
-		ref := jsonReference(out.Bytes())
-		if ref.bad >= 0 {
-			t.Fatalf("the workload of %s records is not JSON at byte %d", n, ref.bad)
-		}
-		writeFile(t, path, out.String())
-		for _, cmd := range []string{"min", "check"} {
-			jsonAgree(t, bins, ref, path, "the workload of "+n+" records", []string{cmd}, "")
-		}
-	}
-}
-
-// jsonAgree runs args on path with each of bins and fails unless each
-// prints what ref says and both print the same.
-func jsonAgree(t *testing.T, bins []string, ref jsonRef, path, what string, args []string, replay string) {
-	t.Helper()
-	want := ref.outcome(args, filepath.Base(path))
-	flat := append([]string{args[0], "-flat"}, args[1:]...)
-	var first string
-	for i, run := range [][]string{args, flat, args, flat} {
-		bin := bins[i/2]
-		got := runCorpusArgs(t, bin, append(slices.Clone(run), path)...)
-		if !want.MatchString(got) || (i > 0 && got != first) {
-			src, _ := os.ReadFile(path)
-			t.Fatalf("%s: %s %s printed\n%s\nthe reference wants\n%s\nthe first run printed\n%s\nthe document:\n%q\n%s",
-				what, filepath.Base(bin), strings.Join(run, " "), clip(got), want, clip(first), clip(string(src)), replay)
-		}
-		first = got
-	}
-}
+// The reference and generator of examples/jsonparse's Go test, which
+// TP-BUILT replaced by Ergo tests (examples/jsonparse/agree), stay for
+// the tests that still use them: TestFlatTreeAgreesWithControl
+// (flattree_test.go) and the corpus helpers of mdhtml and tomlparse.
 
 // buildCorpusExample links examples/<name>/cmd/<name> with `ergo build`
 // and returns the binary and the emitted module's directory.

@@ -1,0 +1,9 @@
+look
+a*80
+e
+look
+.
+rewind 2
+d*10
+dw*5
+s*30

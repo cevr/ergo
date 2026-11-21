@@ -25,7 +25,7 @@ import (
 func TestHTTPStreamFlushesEachPart(t *testing.T) {
 	release := make(chan struct{})
 	kept := make(chan *Exchange, 1)
-	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		x.Begin(200, []HTTPField{{"Content-Type", "application/x-ndjson"}})
 		if err := x.Write(ct, "one\n"); err != nil {
 			t.Errorf("first part: %v", err)
@@ -69,7 +69,7 @@ func TestHTTPStreamFlushesEachPart(t *testing.T) {
 func TestHTTPStreamHangUpStopsTheWriter(t *testing.T) {
 	wrote, ended := make(chan struct{}), make(chan struct{})
 	var returned atomic.Bool
-	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		s := v1.NewScope(ct)
 		defer s.End(nil)
 		v1.OnExit(&s, func() { close(ended) })

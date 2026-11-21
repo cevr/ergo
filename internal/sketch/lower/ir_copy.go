@@ -35,8 +35,20 @@ func (b *irBuilder) copyOf(t check.Type, x syntax.Node, e *irExpr) *irExpr {
 	if xe, ok := x.(syntax.Expr); ok {
 		deep = deep || b.l.vals.deep[xe]
 	}
+	return b.copyDeep(t, x, e, deep)
+}
+
+// copyDeep is e, a value of t, copied as cloneOf copies it: each Map's
+// entries too when deep (cloneDeep, a Go result's copy, goResultCopy).
+func (b *irBuilder) copyDeep(t check.Type, x syntax.Node, e *irExpr, deep bool) *irExpr {
+	if !b.l.holdsValue(t) {
+		return e
+	}
 	switch u := underEqual(t).(type) {
 	case *check.Map:
+		if _, ok := b.intMapOf(t); ok && (!deep && !b.l.entryWritten(t) || !b.l.holdsValue(u.Elem) || valueMutant == "shallow") {
+			return tableCall(e.Pos, "Clone", e) // ir_intmap.go: the table's own copy
+		}
 		if !deep && !b.l.entryWritten(t) || !b.l.holdsValue(u.Elem) || valueMutant == "shallow" {
 			k, v := b.goType(u.Key, x), b.goType(u.Elem, x)
 			m := "map[" + k + "]" + v

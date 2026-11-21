@@ -84,5 +84,5 @@ test SpawnRefusesBadBoxes {
 // Every box NewWorld makes has particles to move, for most seeds: the laws
 // above are not vacuous.
 test SamplesAreNotEmpty(seed uint64) {
-	assert NewWorld(seed, 20, 30, 0).Count() == 30
+	assert newWorld(seed, 20, 30, 0).Count() == 30
 }

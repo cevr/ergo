@@ -1,0 +1,14 @@
+package lits
+
+// An Ergo source in a Go string: ergo fix --go respells its borrows.
+const ergoSource = "type Tally { n int }\n\nfunc Bump(t mut Tally) { t.n = t.n + 1 }\n"
+
+// An Ergo source that imports the package it names a type of.
+const ergoImport = "import go net/url\n\nfunc Host(u mut url.URL) string { u.Host }\n"
+
+// A Go test function in a Go string also parses as Ergo, but it names
+// testing.T with no import: Go source, left as it is.
+const goSource = "func TestA(t *testing.T) { buildAll(t, programs, true) }"
+
+// A generated Go TestMain, the same.
+const goMain = "func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }\n"

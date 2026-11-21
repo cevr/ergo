@@ -1,6 +1,6 @@
 # pipeline
 
-A build pipeline. A **run** has stages; a **runner** (an external system) runs one try of a stage; a failed try waits a backoff and the stage is tried again, three tries at most; an operator submits, cancels and retries runs; a **board** shows the runs by column. The binary reads an operator's script on standard input and prints what the pipeline does.
+A build pipeline. A **run** has stages; a **runner** (an external system) runs one try of a stage; a failed try waits a backoff and the stage is tried again, three tries at most; an operator submits, cancels and retries runs; a **board** shows the runs by column. The binary reads an operator's script on standard input, a command of the generated command line on each line, and prints what the pipeline does.
 
 Tag: `default`. It is an original program, a neutral domain. It is the worked example of domain modeling in Ergo: an aggregate as a machine, a view as a fold, a saga with a timer, a policy, an Api as one operation type with laws, and a scene that plays the real program against a reference story. Its goldens were made by running the program, and then checked line by line against the rules below.
 
@@ -8,21 +8,24 @@ Tag: `default`. It is an original program, a neutral domain. It is the worked ex
 
 - A run is `Unsubmitted`, `Queued`, `Running` at a stage, `Failing` at a stage, or `Done` with an outcome (`Passed`, `GaveUp` at a stage, `Cancelled` with a reason). A run has 1 to 9 stages.
 - The context runs one stage at a time, in the order the runs were submitted. A try that fails (or whose runner is offline) waits 1 s, then 2 s; the third failed try gives the run up, and the next run starts.
-- An operator's command may come at any time. `cancel` stops a queued, running or failing run. `retry RUN STAGE` tries a failed stage now, without its wait. A command that the run refuses is answered with its typed rejection, and nothing changes.
-- Each command has an ID (`c` and its line). A resend with the same ID gets the first receipt and changes nothing.
+- An operator's command may come at any time. `cancel` stops a queued, running or failing run. `retry` tries a failed stage now, without its wait. A command that the run refuses is answered with its typed rejection, and nothing changes.
+- Each command has an ID (`-id`). A resend with the same ID gets the first receipt and changes nothing.
 - A run that ends gives one notice (`!`).
 
 ## Script
 
+A script is the command line's own language (std `api.Session`): each line is a command of `pipeline/pipelinecli`, split into words as a shell splits a simple command (quotes group: `-why="no longer needed"`), and `wait`, the binary's one word, lets an hour pass. A blank line or a line that starts with `#` runs nothing.
+
 ```
-submit RUN STAGES   a new run
-cancel RUN WHY...   stop the run
-retry RUN STAGE     try the failed stage STAGE (1 is the first) now
-resend N            send the command of line N again, with its ID
-wait                an hour passes
-show RUN            the state of the run
-board               the board
+submit -id=ID -run=RUN -stages=N    a new run
+cancel -id=ID -run=RUN -why=WHY     stop the run
+retry -id=ID -run=RUN -stage=S      try the failed stage S (0 is the first) now
+board                               the board
+run-of -- RUN                       the state of the run
+wait                                an hour passes
 ```
+
+A value prints as the script's text (`text`: a receipt, the board by column, a run's status). A refused command prints as `refused: ` and its typed rejection (the tag and the wire's JSON), and the script goes on: the script's policy (`code`) gives a refusal status 0, and `Unavailable` status 1. A line that the command line cannot read (an unknown command, a missing flag, an unclosed quote) ends the script with status 2, naming the line; a resend is the same command again with its ID.
 
 `-fail STAGE:TRIES` (repeated) makes stage STAGE of every run fail its first TRIES tries; a negative TRIES makes the runner offline for them.
 
@@ -67,7 +70,7 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `view/` | The one view (`View`, `Board`), a function of the screen's state whose loads call the `pipeline.Pipeline` it is given; the law `ReplyIsShown` and the two scenes on `ui.TestHost`. |
 | `deploy/` | The stack: `Stack(Want) Outputs` over `infra.Kind` of module `infra-local`'s directory, file and program; `Place` (a stage's drivers, state stores and lock), `Bind`, `Stages` and `Deployment` (infra's command line over them); the laws `StackConverges` and `ServerListensOnTheOutputsPort` on `fstest.Memory` and `exec.Processes`. |
 | `memory/` | `Flaky`, a `pipeline.Runner` whose stages fail their first tries. |
-| `cmd/pipeline/` | The binary: the flags, the script reader, the text, and the context that binds `pipeline.Runner` to a `memory.Flaky`, the event log to module `domain`'s memory log, the notices' follower (`told`, which runs `notify.React` over the records after its cursor) to a memory cursor, and `Scheduler` to a manual clock that only `wait` moves. With `--server URL` it binds `pipeline.Pipeline` to the generated client instead. It is the only place that chooses them. |
+| `cmd/pipeline/` | The binary: the flags, the script's policy (`code`, `text`) for the generated command line, which `api.Session` runs line by line, and the context that binds `pipeline.Runner` to a `memory.Flaky`, the event log to module `domain`'s memory log, the notices' follower (`told`, which runs `notify.React` over the records after its cursor) to a memory cursor, and `Scheduler` to a manual clock that only `wait` moves. With `--server URL` it binds `pipeline.Pipeline` to the generated client instead. It is the only place that chooses them. |
 | `cmd/pipeline-server/` | The server: the context of a memory runner whose stages pass, module `domain`'s memory log and the live clock, served by `rpc.Answer` beside a `/health` route. |
 | `cmd/pipeline-infra/` | The stack's command line: binds `deploy.Place` to `infra-local`'s drivers, rows and file lock on the host, with the HTTP health check. |
 | `cmd/pipeline-mcp/` | The MCP server: the same context as the server's, its tools served by module `mcp` over standard input and output (`mcp/stdio`), for an agent's host that starts it as a process. |
@@ -144,6 +147,6 @@ go run ./scripts/examples pipeline
 | --- | --- |
 | `basic` | two runs, a stage that fails twice and passes on its third try, the board before and after, a resend |
 | `giveup` | an offline runner counts as a failed try; a stage that fails three times gives the run up, and the next run starts |
-| `operator` | a cancel of a queued run and a retry now during a backoff; each kind of refusal |
-| `badline` | a word the script does not know: status 2 |
+| `operator` | a cancel of a queued run (a quoted reason) and a retry now during a backoff; each kind of refusal, after which the script goes on |
+| `badline` | a command the command line does not know: the lines before it run, then status 2 |
 | `badflag` | a `-fail` value that is not `STAGE:TRIES`: status 2 |

@@ -4,6 +4,12 @@
     {"name":"H3f-consts-dropped","origin":"H3f","file":"hosts/mygo/drawing/internal/drawgen/main.go","from":"if len(names) == 0 {\n\t\t\t\t\tcontinue","to":"if true {\n\t\t\t\t\tcontinue","rule":"every exported constant of a drawing-layer package is mirrored","killers":["hosts/mygo/drawing:TestMirrorsInternal"],"regenerate":{"dir":"hosts/mygo/drawing","argv":["go","generate","."]}},
     {"name":"H3f-args-reordered","origin":"H3f","file":"hosts/mygo/drawing/internal/drawgen/main.go","from":"args = append(args, name)","to":"args = append([]string{name}, args...)","rule":"a wrapper calls the internal function with its parameters in order","killers":["hosts/mygo/drawing:TestMirrorsInternal"],"regenerate":{"dir":"hosts/mygo/drawing","argv":["go","generate","."]}},
     {"name":"H3f-layer-dropped","origin":"H3f","file":"hosts/mygo/drawing/internal/drawgen/main.go","from":"\"raster\",   // the CPU renderer","to":"","rule":"the export reaches every layer a host draws with","killers":["hosts/mygo:TestContentOutsideMyGo"],"regenerate":{"dir":"hosts/mygo/drawing","argv":["go","generate","."]}},
+    {"name":"MB0-phone-file-skipped","origin":"MB0","file":"hosts/mygo/drawing/internal/drawgen/main.go","from":"if f.Name.Name != name {\n\t\t\tcontinue // a generator's package main","to":"if f.Name.Name != name || strings.HasSuffix(base, \"_android.go\") || strings.HasSuffix(base, \"_ios.go\") {\n\t\t\tcontinue // a generator's package main","rule":"a file constrained to a phone is mirrored too (the Android EGL window, gl.NewWindow), which no desktop build sees","killers":["hosts/mygo/drawing:TestMirrorsInternal"]},
+    {"name":"MB1-cpu-despite-handle","origin":"MB1","file":"hosts/mygo/screen/render.go","from":"n != (platform.SurfaceNative{}) && os.Getenv","to":"false && n != (platform.SurfaceNative{}) && os.Getenv","rule":"a surface with a native handle (a phone's, which presents no pixels) shows frames drawn by its GPU renderer","killers":["hosts/mygo/screen:TestFrameNeedsNoPixelPresent"]},
+    {"name":"MB1-failed-renderer-kept","origin":"MB1","file":"hosts/mygo/screen/render.go","from":"if err := w.gpu.Render(s); err != nil {","to":"if err := w.gpu.Render(s); false && err != nil {","rule":"a frame the GPU renderer fails is drawn in memory, so the window still shows it","killers":["hosts/mygo/screen:TestFrameNeedsNoPixelPresent"]},
+    {"name":"MB1-renew-ignored","origin":"MB1","file":"hosts/mygo/screen/screen.go","from":"case platform.SurfaceRenew, platform.SurfaceLowMemory:","to":"case platform.SurfaceLowMemory:","rule":"a renewed surface (a phone app back from the background) gets a renderer for its new native objects","killers":["hosts/mygo/screen:TestFrameNeedsNoPixelPresent"]},
+    {"name":"MB3-ir-flag-dropped","origin":"MB3","file":"hosts/mygo/cmd/phone/main.go","from":"goflags := strings.ReplaceAll(said[\"GOFLAGS\"], \"=-ergoir=\"+work, \"=-ergoir=\"+dir)","to":"goflags := \"-v\"","rule":"the phone build's compile reads the module's IR file: without it the patched Go stops at \"missing function body\"","killers":["hosts/mygo:TestPhoneBuildsTheExamples"]},
+    {"name":"MB3-own-config-overwritten","origin":"MB3","file":"hosts/mygo/cmd/phone/main.go","from":"if b, err := os.ReadFile(filepath.Join(folder, \"mygo.json\")); err == nil {","to":"if b, err := os.ReadFile(filepath.Join(folder, \"mygo.json\")); err == nil && b == nil {","rule":"a program's own mygo.json is the app's; one is written only where the program has none","killers":["hosts/mygo:TestPhoneBuildsTheExamples"]},
     {"name":"H3f-hand-edit","origin":"H3f","file":"hosts/mygo/drawing/scene/scene.go","from":"type Rect = impl.Rect","to":"type Rect = impl.Color","rule":"the drawing packages are what drawgen writes from the pinned MyGo","killers":["hosts/mygo/drawing/internal/drawgen:TestFilesCurrent","hosts/mygo/drawing:TestMirrorsInternal"]},
     {"name":"H2L-gap-after-last","origin":"H2L","file":"internal/sketch/std/ui/layout/flex.ergo","from":"if k > first {","to":"if k >= first {","rule":"a gap goes between children, not after the last","killers":["hosts/mygo:TestLayoutMatchesMyGo"]},
     {"name":"H2L-grow-by-count","origin":"H2L","file":"internal/sketch/std/ui/layout/flex.ergo","from":"t.items[k].base + free*t.nodes[n].style.Grow/sum","to":"t.items[k].base + free/float32(end-first)","rule":"free space is shared by grow weight, not by count","killers":["hosts/mygo:TestLayoutMatchesMyGo"]},
@@ -14,7 +20,6 @@
     {"name":"H3g-tab-reversed","origin":"H3g","file":"internal/sketch/std/ui/input.ergo","from":"\tif back { order[(at+n-1)%n] } else { order[(at+1)%n] }\n","to":"\tif back { order[(at+1)%n] } else { order[(at+n-1)%n] }\n","rule":"Tab moves the focus forward in tree order, Shift+Tab back (std since UC-TAB; the desktop's Tab goes through it)","killers":["lower:TestUIHostModel"]},
     {"name":"FK12-move-uncaptured","origin":"wf10 corpus FK12-g1","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\tcase ui.AreaNode:\n\t\t\t\treturn Some{Value: s.Value}\n","to":"\t\t\tcase ui.AreaNode:\n\t\t\t\tlet _ = s\n","rule":"A move while an Area holds the pointer goes to that Area wherever the pointer is, as the test host's capture does, so a drag over a button on the Area stays the Area's","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"H3g-fill-off-its-box","origin":"H3g","file":"hosts/mygo/desktop/look.ergo","from":"\t\td.w.Box(x, y, w, h,","to":"\t\td.w.Box(x, y + 6, w, h,","rule":"a node's fill is painted on the box the layout gave it, where the hit test finds it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {"name":"H3g-backspace-keeps-text","origin":"H3g","file":"hosts/mygo/desktop/desktop.ergo","from":"Text: withoutLast(x.Value)","to":"Text: x.Value","rule":"Backspace in the focused field removes its last rune","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"H3g-release-dropped","origin":"H3g","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\tcase Some[spot[E]] as s:\n\t\t\t\ttry pointed(d, s.Value, ui.Up, x, y)\n\t\t\tcase None:","to":"\t\t\tcase Some[spot[E]] as s:\n\t\t\t\tlet _ = s\n\t\t\tcase None:","rule":"a release with no press goes to the Area under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"H3g-go-directive-dropped","origin":"H3g","file":"internal/sketch/lower/gomodule.go","from":"\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"","to":"\"\\n\\ngo \" + goVersion + \"\\n\"","rule":"a program that binds this module (which needs Go 1.27.3, as MyGo does) builds: the emitted go.mod states the later go version","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"X-gui-row-below-the-fold-not-scrolled-to","origin":"X-gui","file":"hosts/mygo/desktop/play.ergo","from":"\ttry reveal(d, id)\n","to":"","rule":"a step on a row below its Scroll's fold scrolls to it first, as a person does, so it presses that row and not the one painted over its box","killers":["hosts/mygo:TestExamplesAgreeOnTheDesktop"]},
@@ -85,10 +90,12 @@
       "name": "GPk-rebuilt-every-paint",
       "origin": "GPk",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "rebuild:   false,",
-      "to": "rebuild:   true,",
+      "from": "rebuild:    false,",
+      "to": "rebuild:    true,",
       "rule": "the driver keeps its layout tree across paints: a pass lays out what it changed, not the tree",
-      "killers": ["hosts/mygo:TestDesktopKeepsItsLayout"]
+      "killers": [
+        "hosts/mygo:TestDesktopKeepsItsLayout"
+      ]
     },
     {
       "name": "GPk-every-style-set",
@@ -130,10 +137,13 @@
       "name": "GPk-removed-box-stays",
       "origin": "GPk",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "\tif !d.rebuild {\n\t\tmatch d.lids.Get(id) {",
-      "to": "\tif false {\n\t\tmatch d.lids.Get(id) {",
+      "from": "\tif !d.rebuild {\n\t\t// A layer's box hangs",
+      "to": "\tif false {\n\t\t// A layer's box hangs",
       "rule": "a removed node's box leaves the kept tree",
-      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
+      "killers": [
+        "hosts/mygo:TestMyGoHostAgreesWithTestHost",
+        "hosts/mygo:TestStarsGuiOnTheDesktop"
+      ]
     },
     {
       "name": "GPk-room-kept",
@@ -238,10 +248,12 @@
       "name": "GP4c-no-frames-asked",
       "origin": "GP4c",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "d.w.Frames(animates)",
-      "to": "d.w.Frames(false)",
+      "from": "d.w.Frames(animates || fingerMoving(d))",
+      "to": "d.w.Frames(false || fingerMoving(d))",
       "rule": "a view that animates asks the window for its display's frames, and each frame is a tick of the session",
-      "killers": ["hosts/mygo:TestDashGuiOnTheDesktop"]
+      "killers": [
+        "hosts/mygo:TestDashGuiOnTheDesktop"
+      ]
     },
     {
       "name": "GP4c-frames-not-drawn",
@@ -301,8 +313,8 @@
       "name": "GPm-present-headless",
       "origin": "GPm (headless frame buffer)",
       "file": "hosts/mygo/screen/screen.go",
-      "from": "\tif w.fake == nil {\n\t\tw.conn.Surface.PresentPixels(",
-      "to": "\tif true {\n\t\tw.conn.Surface.PresentPixels(",
+      "from": "\t\tif w.fake == nil {\n\t\t\tw.conn.Surface.PresentPixels(",
+      "to": "\t\tif true {\n\t\t\tw.conn.Surface.PresentPixels(",
       "rule": "a Headless window's frame stays in the renderer's image, which Pixel reads; it is not copied into a new buffer of the fake surface each frame",
       "killers": ["hosts/mygo/screen:TestHeadlessFrameKeepsOneBuffer"]
     },
@@ -396,46 +408,10 @@
       "rule": "the window keeps the layouts of its last two lists only",
       "killers": ["hosts/mygo/screen:TestLayoutsOfOldListsGo"]
     },
-    {
-      "name": "GPa-count-no-break",
-      "origin": "GPa (allocations)",
-      "file": "hosts/mygo/desktop/metrics.ergo",
-      "from": "\t\t\t\tn = n + 1\n\t\t\t\tat = r\n",
-      "to": "\t\t\t\tat = r\n",
-      "rule": "Height counts the lines Lines breaks, a wrapped run starting one",
-      "killers": [],
-      "gap": "Killed by law CountIsLines (metrics.ergo), run as `ergo test ./desktop --law CountIsLines` in hosts/mygo (GP-KILLERS, 2026-11-17: refuted at case 17, seed 1); the runner has no suite for a host module's laws, and no Go test of hosts/mygo kills it (TestMyGoHostAgreesWithTestHost survives)."
-    },
-    {
-      "name": "ru17-fit-unspaced",
-      "origin": "wf10 MAPCOPY RU17",
-      "file": "hosts/mygo/desktop/metrics.ergo",
-      "from": "if len(words) > 0 && spaced(p, words) && ",
-      "to": "if len(words) > 0 && ",
-      "rule": "A paragraph is its own line only when it is its runs one space apart: one with two spaces between runs is the runs joined by one",
-      "killers": [],
-      "gap": "Killed by law FitIsBroken (metrics.ergo), run as `ergo test ./desktop --law FitIsBroken` in hosts/mygo; the runner has no suite for a host module's laws (as CountIsLines above)."
-    },
-    {
-      "name": "ru17-fit-tab-spaced",
-      "origin": "wf10 MAPCOPY RU17",
-      "file": "hosts/mygo/desktop/metrics.ergo",
-      "from": "n == len(p) && strings.Count(p, \" \") == len(words)-1",
-      "to": "n == len(p)",
-      "rule": "Runs a tab apart are not one space apart: the line joins them by a space",
-      "killers": [],
-      "gap": "Killed by law FitIsBroken (metrics.ergo), run as `ergo test ./desktop --law FitIsBroken` in hosts/mygo; the runner has no suite for a host module's laws (as CountIsLines above)."
-    },
-    {
-      "name": "ru17-fit-width-no-space",
-      "origin": "wf10 MAPCOPY RU17",
-      "file": "hosts/mygo/desktop/metrics.ergo",
-      "from": "at = if i == 0 { n } else { at + space + n }",
-      "to": "at = if i == 0 { n } else { at + n }",
-      "rule": "A paragraph fits when its runs and the spaces between them fit, summed as the greedy breaker sums them",
-      "killers": [],
-      "gap": "Killed by law FitIsBroken (metrics.ergo), run as `ergo test ./desktop --law FitIsBroken` in hosts/mygo; the runner has no suite for a host module's laws (as CountIsLines above)."
-    },
+    {"name":"GPa-count-no-break","origin":"GPa (allocations)","file":"hosts/mygo/desktop/metrics.ergo","from":"\t\t\t\tn = n + 1\n\t\t\t\tat = r\n","to":"\t\t\t\tat = r\n","rule":"Height counts the lines Lines breaks, a wrapped run starting one","killers":["hosts/mygo/desktop:law:CountIsLines"]},
+    {"name":"ru17-fit-unspaced","origin":"wf10 MAPCOPY RU17","file":"hosts/mygo/desktop/metrics.ergo","from":"if len(words) > 0 && spaced(p, words) && ","to":"if len(words) > 0 && ","rule":"A paragraph is its own line only when it is its runs one space apart: one with two spaces between runs is the runs joined by one","killers":["hosts/mygo/desktop:law:FitIsBroken"]},
+    {"name":"ru17-fit-tab-spaced","origin":"wf10 MAPCOPY RU17","file":"hosts/mygo/desktop/metrics.ergo","from":"n == len(p) && strings.Count(p, \" \") == len(words)-1","to":"n == len(p)","rule":"Runs a tab apart are not one space apart: the line joins them by a space","killers":["hosts/mygo/desktop:law:FitIsBroken"]},
+    {"name":"ru17-fit-width-no-space","origin":"wf10 MAPCOPY RU17","file":"hosts/mygo/desktop/metrics.ergo","from":"at = if i == 0 { n } else { at + space + n }","to":"at = if i == 0 { n } else { at + n }","rule":"A paragraph fits when its runs and the spaces between them fit, summed as the greedy breaker sums them","killers":["hosts/mygo/desktop:law:FitIsBroken"]},
     {
       "name": "GPo-pass-offset-ignored",
       "origin": "GPo (RowsKeeping scroll Offset)",
@@ -458,10 +434,12 @@
       "name": "GPd-box-not-compared",
       "origin": "GP damage redraw",
       "file": "hosts/mygo/desktop/paint.ergo",
-      "from": "if was.box == b && was.dy == dy",
-      "to": "if was.dy == dy",
+      "from": "if was.box == b && was.dx == dx && was.dy == dy",
+      "to": "if was.dx == dx && was.dy == dy",
       "rule": "a node whose box moved is drawn anew",
-      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": [
+        "hosts/mygo:TestMyGoHostAgreesWithTestHost"
+      ]
     },
     {
       "name": "GPd-old-focus-kept",
@@ -485,10 +463,12 @@
       "name": "GPd-insert-parent-not-soiled",
       "origin": "GP damage redraw",
       "file": "hosts/mygo/desktop/desktop.ergo",
-      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
-      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
+      "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\t\trunTrack(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
+      "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\t\trunTrack(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
       "rule": "a parent a node was inserted under is drawn anew, with the new node",
-      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": [
+        "hosts/mygo:TestMyGoHostAgreesWithTestHost"
+      ]
     },
     {
       "name": "GPd-scroll-not-soiled",
@@ -521,20 +501,20 @@
     {
       "name": "fk12c-control-always-last",
       "origin": "FK12c",
-      "file": "hosts/mygo/controls/fk-flow/main.go",
+      "file": "hosts/mygo/controls/canvas-scenes/main.go",
       "from": "status := play(os.Stdin, out, last, func(h *host) {",
       "to": "status := play(os.Stdin, out, true, func(h *host) {",
-      "rule": "the MyGo control prints what fk-flow prints after each line, not only the last screen (TestFkFlowControlAgrees; the copy check does not see main.go)",
-      "killers": ["hosts/mygo:TestFkFlowControlAgrees"]
+      "rule": "the MyGo control prints what canvas-scenes prints after each line, not only the last screen (TestCanvasScenesControlAgrees; the copy check does not see main.go)",
+      "killers": ["hosts/mygo:TestCanvasScenesControlAgrees"]
     },
     {
       "name": "fk12c-opcount-control-drifts",
       "origin": "FK12c",
-      "file": "examples/fk-flow/testdata/control/model.go",
+      "file": "examples/canvas-scenes/testdata/control/model.go",
       "from": "\tg := channel(8.0, h, lig, c)\n",
       "to": "\tg := channel(4.0, h, lig, c)\n",
-      "rule": "the control scripts/opcount measures is the MyGo control's model, so it prints what fk-flow prints (TestFkFlowControlAgrees, the copy check; opcount refuses a control that differs, but no test runs opcount)",
-      "killers": ["hosts/mygo:TestFkFlowControlAgrees"]
+      "rule": "the control scripts/opcount measures is the MyGo control's model, so it prints what canvas-scenes prints (TestCanvasScenesControlAgrees, the copy check; opcount refuses a control that differs, but no test runs opcount)",
+      "killers": ["hosts/mygo:TestCanvasScenesControlAgrees"]
     },
     {"name":"UG1-look-fill-dropped","origin":"wf10 UG1","file":"hosts/mygo/desktop/look.ergo","from":"\tif l.Fill.A != 0 || line > 0 {","to":"\tif false {","rule":"the window paints each node's look: its fill shows inside its box","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG1-look-corners-square","origin":"wf10 UG1","file":"hosts/mygo/desktop/look.ergo","from":"\t\td.w.Box(x, y, w, h, tl, tr, br, bl,","to":"\t\td.w.Box(x, y, w, h, 0, 0, 0, 0,","rule":"the window rounds a look's box by its corners: outside a round corner the colour under the node shows","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
@@ -546,6 +526,50 @@
     {"name":"UG2-rolename-slider-group","origin":"wf10 UG2","file":"internal/sketch/std/ui/locate.ergo","from":"\tcase Slider:\n\t\t\"slider\"\n","to":"\tcase Slider:\n\t\t\"group\"\n","rule":"ui.RoleName is a role's WAI-ARIA name, which the window's tree reads","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG3-desktop-paints-rest","origin":"wf10 UG3","file":"hosts/mygo/desktop/look.ergo","from":"ui.LookNow(ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)), ui.SessionLookState(&d.session, id))","to":"ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)).Rest","rule":"the window paints each node's look of the state std decides (at base it painted Rest)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
     {"name":"UG3-desktop-pointer-stays","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"\tif ui.SessionHovered(&d.session) != None {\n\t\ttry step(","to":"\tif false {\n\t\ttry step(","rule":"a move over no node tells the frame the pointer is over none, so the node it left shows its rest look","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
-    {"name":"UG3-desktop-areas-only","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\ttry step(","to":"func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\tmatch s.node {\n\tcase ui.AreaNode:\n\tcase _:\n\t\treturn\n\t}\n\ttry step(","rule":"the window sends the pointer's moves over every node, not only Areas, so hover follows it (at base only Areas got them)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]}
+    {"name":"UG3-desktop-areas-only","origin":"wf10 UG3","file":"hosts/mygo/desktop/desktop.ergo","from":"func pointed[E comparable, S, D, F](d mut Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\ttry step(","to":"func pointed[E comparable, S, D, F](d mut Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {\n\tmatch s.node {\n\tcase ui.AreaNode:\n\tcase _:\n\t\treturn\n\t}\n\ttry step(","rule":"the window sends the pointer's moves over every node, not only Areas, so hover follows it (at base only Areas got them)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"PUREGO-CALL-off","origin":"PUREGO-CALL","file":"hosts/mygo/screen/pango_linux.go","from":"var fastPangoCalls = true","to":"var fastPangoCalls = false","rule":"the Pango calls on the shaping path allocate nothing (MyGo's RegisterFunc binding allocates for each)","killers":["hosts/mygo/screen:TestFastPangoCallsAllocateNothing"]},
+    {"name":"PUREGO-CALL-arg-order","origin":"PUREGO-CALL","file":"hosts/mygo/screen/pango_linux.go","from":"call(f, 4, tabs, i32(index), i32(align), i32(location))","to":"call(f, 4, tabs, i32(index), i32(location), i32(align))","rule":"a rebound call passes MyGo's arguments in their C order","killers":["hosts/mygo/screen:TestFastPangoShapesAsMyGo"]},
+    {"name":"PUREGO-CALL-wrap-arg","origin":"PUREGO-CALL","file":"hosts/mygo/screen/pango_linux.go","from":"l.layoutSetWrap = func(layout uintptr, wrap int32) { call(f, 2, layout, i32(wrap), 0, 0) }","to":"l.layoutSetWrap = func(layout uintptr, wrap int32) { call(f, 1, layout, i32(wrap), 0, 0) }","rule":"a rebound call passes all of its arguments","killers":["hosts/mygo/screen:TestFastPangoShapesAsMyGo"]},
+    {"name":"PUREGO-CALL-mirror-drift","origin":"PUREGO-CALL","file":"hosts/mygo/screen/pango_linux.go","from":"\tgFree             func(p uintptr)\n","to":"","rule":"pangoTable is the pinned MyGo's pangoLib field for field, since fastPango writes MyGo's table through it","killers":["hosts/mygo/screen:TestPangoTableMirrorsMyGo"]},
+    {"name":"PUREGO-CALL-reload-unseen","origin":"PUREGO-CALL","file":"hosts/mygo/screen/pango_linux.go","from":"return fastLayoutNew != nil && funcWord(&pangoLib.layoutNew) == fastLayoutNew","to":"return true","rule":"a layout shaped after MyGo loads its Pango table again (its slow binding back) counts as slow in PangoCalls","killers":["hosts/mygo/screen:TestSlowPangoShapesAreCounted"]},
+    {"name":"PUREGO-CALL-mirror-version-stale","origin":"PUREGO-CALL (MyGo v0.10.0 port)","file":"hosts/mygo/screen/pango_linux.go","from":"var pangoMirror = \"v0.10.0\"","to":"var pangoMirror = \"v0.8.4-0.20261109183017-afb7d5f170f7\"","rule":"pangoMirror names the MyGo release go.mod pins: a bump that leaves the mirror behind fails by name, not as a SIGSEGV","killers":["hosts/mygo/screen:TestPangoMirrorIsThePinnedMyGo"]},
+    {"name":"PUREGO-CALL-mirror-unchecked","origin":"PUREGO-CALL (MyGo v0.10.0 port)","file":"hosts/mygo/screen/pango_linux.go","from":"\t\tif !linksMirroredMyGo() {\n","to":"\t\tif false && !linksMirroredMyGo() {\n","rule":"fastPango leaves MyGo's table alone when the binary links another MyGo than pangoTable mirrors","killers":["hosts/mygo/screen:TestStalePangoMirrorKeepsMyGosBinding"]},
+    {"name":"UG4-desktop-anchor-ignored","origin":"wf10 UG4","file":"hosts/mygo/desktop/layer.ergo","from":"\t\t\tlet p = ui.PlaceLayer(anchor, ","to":"\t\t\tlet p = ui.PlaceLayer(None, ","rule":"the window places a layer against its anchor's box (at base there were no layers)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4-desktop-layers-in-flow","origin":"wf10 UG4","file":"hosts/mygo/desktop/paint.ergo","from":"\t\tmatch layerNode(d, k) {\n\t\tcase Some[ui.LayerNode[E]]:\n\t\tcase None:\n\t\t\tdraw(d, k, dx, dy, clip, line, soiled, again)\n\t\t}","to":"\t\tdraw(d, k, dx, dy, clip, line, soiled, again)","rule":"the window paints layers after the flow, so a layer's node is hit before the flow's under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4-desktop-scrim-not-a-spot","origin":"wf10 UG4","file":"hosts/mygo/desktop/layer.ergo","from":"\t\t\t\td.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})\n","to":"","rule":"a press on a scrim is a press outside every layer, not on the node under it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG4b-anchor-unscrolled","origin":"wf10 UG4b","file":"hosts/mygo/desktop/layer.ergo","from":"laid.Y - liftOf(d, d.root, a.Value)","to":"laid.Y","rule":"the window places a layer against its anchor where it shows, lifted by the Scrolls and lists it is in (at UG4's head it took the unscrolled box)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-finger-no-reach","origin":"wf10 MB4","file":"hosts/mygo/desktop/touch.ergo","from":"\t\tlet target = reachAt(d, x, y)\n","to":"\t\tlet target = hitAt(d, x, y)\n","rule":"a finger hits the nearest control within the reach margin (hostagree's finger near pin)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-insets-ignored","origin":"wf10 MB4","file":"hosts/mygo/desktop/paint.ergo","from":"\trs.Padding = [4]float32{float32(float64(d.insets.Top)), float32(float64(d.insets.Right)), float32(float64(d.insets.Bottom)), float32(float64(d.insets.Left))}\n","to":"","rule":"the root lays out inside the insets, not under the system's bars (hostagree's insets step and root check)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-finger-offset-dropped","origin":"wf10 MB4","file":"hosts/mygo/desktop/touch.ergo","from":"\t\t\td.scrolled[id.Value] = v\n","to":"","rule":"the window shows the offset std ui's touch machine gives (hostagree's finger scroll)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-desktop-finger-as-mouse","origin":"wf10 MB4","file":"hosts/mygo/desktop/desktop.ergo","from":"\t} else if input.Finger && (input.Kind == screen.Down","to":"\t} else if false && (input.Kind == screen.Down","rule":"a finger's drag scrolls through the touch machine; as a mouse's it would not (hostagree's finger scroll)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB4-host-finger-taps-as-mouse","origin":"wf10 UI-B24 (MB4 x UG3)","file":"hosts/mygo/cmd/hostagree/agree.ergo","from":"try ui.TapWith(h, id.Value, desktop.TheFinger)","to":"try ui.TapWith(h, id.Value, ui.MousePointer)","rule":"a finger's tap leaves the hover where it was, on the test host as on the window (seed 21: finger tap pin, then pin's look state)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB5-utf16-offset-as-bytes","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"func at(s string, i int) int { return platform.UTF16ByteOffset(s, i) }","to":"func at(s string, i int) int { return min(i, len(s)) }","rule":"an input method's offsets count UTF-16 units, not bytes","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
+    {"name":"MB5-commit-keeps-composition","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\tcase d.marked:\n\t\treturn clamp(d.mark, units(d.text))","to":"\tcase false:\n\t\treturn clamp(d.mark, units(d.text))","rule":"a commit replaces the composition (else it is committed twice)","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
+    {"name":"MB5-composition-written","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\td.mark, d.marked = platform.TextRange{Start: t.Start, End: t.Start + n}, true\n","to":"\td.mark, d.marked = platform.TextRange{Start: t.Start, End: t.Start + n}, true\n\tc.w.commit()\n","rule":"a composition queues no Edited input: the program never sees half a character","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
+    {"name":"MB5-stale-paint-resets","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\tif taken < d.sent || value == d.known {","to":"\tif value == d.known {","rule":"a paint before the program took every Edited input leaves the document (fast typing while a pass runs)","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
+    {"name":"MB5-rewrite-ignored","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\tif taken < d.sent || value == d.known {","to":"\tif true || taken < d.sent || value == d.known {","rule":"a value the program rewrote replaces the field's document","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
+    {"name":"MB5-cancel-not-committed","origin":"wf10 MB5","file":"hosts/mygo/screen/textclient.go","from":"\t\tif d.committed() != d.known {\n\t\t\tc.w.commit()","to":"\t\tif false {\n\t\t\tc.w.commit()","rule":"a composition that ends empty commits the text it composed over going","killers":["hosts/mygo/screen:TestRangeEditsAgree"]},
+    {"name":"MB5-desktop-keyboard-dropped","origin":"wf10 MB5","file":"hosts/mygo/desktop/paint.ergo","from":"d.w.Editing(x.Value, ui.KeyboardName(x.Hints.Keyboard), d.edited,","to":"d.w.Editing(x.Value, \"text\", d.edited,","rule":"the window is told the keyboard the focused field's hints ask for (hostagree's keyboard check on form's note)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"MB5-desktop-edit-dropped","origin":"wf10 MB5","file":"hosts/mygo/desktop/text.ergo","from":"\t\t\t\ttry step(d, ui.Type[E]{Id: s.Value.id, Text: text})\n","to":"","rule":"a committed input-method edit becomes the field's value (hostagree's compose)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"tracks-desktop-x-unmoved","origin":"wf10 TRACKS","file":"hosts/mygo/desktop/paint.ergo","from":"\t\t\tdrawKids(d, id, dx-v, dy, clip, line, soiled, again)\n","to":"\t\t\tdrawKids(d, id, dx, dy, clip, line, soiled, again)\n","rule":"the window paints an x track's body moved by the track's value, where TestHost's track puts it (hostagree looks app, trackedWrong)","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"tree-json-window-boxes-dropped","origin":"wf10 TREE-JSON","file":"hosts/mygo/desktop/tree.ergo","from":"\t\tboxes[id] = rectOf(b)\n","to":"\t\tlet _ = rectOf(b)\n","rule":"TestHeadlessScriptIsData: a -tree line carries the box the window laid its node out in.","killers":["hosts/mygo:TestHeadlessScriptIsData"]},
+    {"name":"tree-json-png-blank","origin":"wf10 TREE-JSON","file":"hosts/mygo/screen/screen.go","from":"\t\t\timg.SetNRGBA(x, y, color.NRGBA{R: uint8(c >> 24), G: uint8(c >> 16), B: uint8(c >> 8), A: uint8(c)})\n","to":"\t\t\t_ = c\n","rule":"TestHeadlessScriptIsData: -png writes the window's last frame, not a blank picture.","killers":["hosts/mygo:TestHeadlessScriptIsData"]},
+    {"name":"ui-image-region-ignored","origin":"wf10 G9 UI-IMAGE","file":"hosts/mygo/screen/screen.go","from":"\tif sw == 0 || sh == 0 {\n\t\tpart = scene.Rect{W: float32(img.W), H: float32(img.H)}","to":"\tif true {\n\t\tpart = scene.Rect{W: float32(img.W), H: float32(img.H)}","rule":"TestImageDrawsItsPart: the window draws the region of the atlas Image names.","killers":["hosts/mygo/screen:TestImageDrawsItsPart"]},
+    {"name":"ui-image-transform-ignored","origin":"wf10 G9 UI-IMAGE","file":"hosts/mygo/screen/screen.go","from":"\tm := scene.Matrix(float32(a), float32(b), float32(c), float32(d), float32(e), float32(f))\n","to":"\tm := scene.Translation(0, 0)\n","rule":"TestImageDrawsItsPart: an image is drawn under the canvas's transform.","killers":["hosts/mygo/screen:TestImageDrawsItsPart"]},
+    {"name":"agree-probe-under-a-scrim","origin":"AGREE-SEED43","file":"hosts/mygo/desktop/look.ergo","from":"float32(y) < b.Y+b.H && !coveredLook(d, i, x, y) {","to":"float32(y) < b.Y+b.H {","rule":"a look's probe is not read where a layer or its scrim painted over it: the window shows the scrim there, not the fill","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"agree-background-down-not-sent","origin":"AGREE-SEED43","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\ttry step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: 0, Y: 0, Zone: None}, Over: None})\n","to":"","rule":"a Down on the window's background (no node, or a scrim) goes to the root, outside every layer, so the top layer with a dismiss signal sends it, as ui.ClickNowhere does","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"agree-scrim-click-keeps-focus","origin":"AGREE-SEED43","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\tif ui.SessionFocus(&d.session) != None {\n\t\t\t\tui.FocusSession(&d.session, None)\n\t\t\t}\n\t\t\ttry step(d, ui.Point[E]{Id: d.root","to":"\t\t\ttry step(d, ui.Point[E]{Id: d.root","rule":"a click on the window's background, a scrim too, takes the focus off every node, as ui.ClickNowhere does","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"agree-testhost-scrim-click-keeps-focus","origin":"AGREE-SEED43","file":"internal/sketch/std/ui/testhost.ergo","from":"\ttry PointNowhere(h)\n\tFocusSession(&h.session, None)\n\ttry point(h, r, None,","to":"\ttry PointNowhere(h)\n\ttry point(h, r, None,","rule":"the test host's click on a scrim takes the focus off every node, as the window's does","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"agree-wheel-under-a-scrim","origin":"AGREE-SEED43","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\tif s.id == d.root {\n\t\t\t// A scrim, over every spot before it","to":"\t\tif false {\n\t\t\t// A scrim, over every spot before it","rule":"the wheel over a scrim scrolls no list under it, as the frame takes no event of a node a scrim covers","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"live-desktop-box-follows-reading","origin":"wf10 LIVE","file":"hosts/mygo/desktop/keep.ergo","from":"restyle(d, n, styleIn(list, i, h.Value.node, line))","to":"restyle(d, n, styleIn(list, i, ui.ShownIn(&d.session, h.Value.node), line))","rule":"a readout lays out by its reserve, so no reading moves its siblings (stdlib.md UI 24)","killers":["hosts/mygo:TestReadoutsOnTheDesktop"]},
+    {"name":"live-desktop-reading-unpainted","origin":"wf10 LIVE","file":"hosts/mygo/desktop/desktop.ergo","from":"\tif any {\n\t\tpaint(d)\n\t}","to":"\tlet _ = any","rule":"a Published of a readout the window shows paints the window again","killers":["hosts/mygo:TestReadoutsOnTheDesktop"]},
+    {"name":"ink-desktop-plain","origin":"wf10 UC-GAP1","file":"hosts/mygo/desktop/paint.ergo","from":"\tlet color = if k.Color.A != 0 { rgba(k.Color) } else { ink }","to":"\tlet color = ink","rule":"the window draws a Text in its look's ink colour","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"ink-italic-upright","origin":"wf10 UC-GAP1","file":"hosts/mygo/screen/screen.go","from":"\t\tif t.slant {\n","to":"\t\tif false && t.slant {\n","rule":"the window draws a slanted run sheared (a synthetic oblique)","killers":["hosts/mygo/screen:TestTextSlants"]},
+    {"name":"ink-desktop-italic-upright","origin":"wf10 UC-GAP1","file":"hosts/mygo/desktop/paint.ergo","from":"\t\t\td.w.TextSlanted(px, float64(at), l, float64(textSize), color)","to":"\t\t\td.w.Text(px, float64(at), l, float64(textSize), color)","rule":"the desktop draws an italic ink's runs slanted","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UIB24-again-slant-uncounted","origin":"wf10 UI-B24 (UC-GAP1 x GPk)","file":"hosts/mygo/screen/screen.go","from":"\t\tw.glyphs = append(w.glyphs, g)\n\t\tif g.slant {\n\t\t\tw.slanted++\n\t\t}\n","to":"\t\tw.glyphs = append(w.glyphs, g)\n","rule":"the window counts a slanted run a kept part takes again","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UIB24-kept-draw-slants-dropped","origin":"wf10 UI-B24 (UC-GAP1 x GPk)","file":"hosts/mygo/desktop/paint.ergo","from":"\t\t\t\td.slants = d.slants + was.slants\n","to":"","rule":"a kept draw counts the italic runs it takes again","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UIB24-report-under-scrim","origin":"wf10 UI-B24 (MB4 x UG4, agreement seed 10)","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\tif ui.SessionShielded(&d.session, s.id) {\n\t\t\t\tcontinue\n\t\t\t}\n","to":"","rule":"a list a scrim covers is reported once the scrim goes, so its session takes the height the insets gave it","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UIB24-drag-keeps-press","origin":"wf10 UI-B24 (MB4 x UG3, agreement seed 49)","file":"hosts/mygo/desktop/touch.ergo","from":"\tlet mut f = g\n\tif dragged {","to":"\tlet mut f = g\n\tif false && dragged {","rule":"a finger that begins to drag lets go of the node it went down on, so no row stays active","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UIB24-reading-kept-stale","origin":"wf10 UI-B24 (LIVE x GPk), killed by UC readout-text","file":"hosts/mygo/desktop/desktop.ergo","from":"\t\t\t\td.soiled[n] = true\n","to":"\t\t\t\tlet _ = n\n","rule":"a new reading soils the nodes that read it, so the damage paint draws them anew","killers":["hosts/mygo:TestReadoutsOnTheDesktop"]}
   ]
 }

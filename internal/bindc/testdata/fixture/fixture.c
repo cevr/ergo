@@ -50,6 +50,7 @@
 #define FIXTURE_ID_fx_context_unbound 25
 #define FIXTURE_ID_fx_node_measure_as 26
 #define FIXTURE_ID_fx_shape_area 27
+#define FIXTURE_ID_fx_box_z 28
 #ifdef FIXTURE_OMIT
 #if FIXTURE_CAT(FIXTURE_ID_, FIXTURE_OMIT) == 0
 #error FIXTURE_OMIT does not name a function of fixture.h
@@ -463,5 +464,20 @@ fx_status fx_shape_area(fx_context *c, const fx_shape_header *shape, int64_t *ou
     }
     }
     return FX_INVALID_ARGUMENT;
+}
+#endif
+
+#if !OMITTED(28)
+fx_status fx_box_z(fx_context *c, const fx_box *clip, int64_t *out_z) {
+    fx_status st = owned(c);
+    if (st != FX_OK) return st;
+    if (out_z == NULL) return FX_INVALID_ARGUMENT;
+    if (clip == NULL) {
+        *out_z = -1;
+        return FX_OK;
+    }
+    if (clip->struct_size != sizeof(fx_box) || clip->abi_version != FX_ABI_VERSION) return FX_UNSUPPORTED_VERSION;
+    *out_z = clip->z;
+    return FX_OK;
 }
 #endif

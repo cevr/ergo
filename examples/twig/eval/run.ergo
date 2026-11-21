@@ -4,7 +4,7 @@ import twig/resolve
 import twig/syntax
 
 // exec runs the statements body in the frame env.
-func exec(m *Machine, p resolve.Program, body []resolve.Code, env int) fails Flow {
+func exec(m mut Machine, p resolve.Program, body []resolve.Code, env int) fails Flow {
 	for c in body {
 		m.nodes += 1
 		match c {
@@ -49,7 +49,7 @@ func exec(m *Machine, p resolve.Program, body []resolve.Code, env int) fails Flo
 }
 
 // loop runs a while loop: its body while its test is true, until a break.
-func loop(m *Machine, p resolve.Program, l resolve.Loop, env int) fails Flow {
+func loop(m mut Machine, p resolve.Program, l resolve.Loop, env int) fails Flow {
 	for try truth(m, p, l.Test, env, l.At) {
 		exec(m, p, l.Body, env) catch {
 		case Broke:
@@ -65,7 +65,7 @@ func loop(m *Machine, p resolve.Program, l resolve.Loop, env int) fails Flow {
 
 // each runs a for loop: its body once for each element of a list, by
 // index, while the index is inside the list as it is then.
-func each(m *Machine, p resolve.Program, e resolve.Each, env int) fails Flow {
+func each(m mut Machine, p resolve.Program, e resolve.Each, env int) fails Flow {
 	let over = try eval(m, p, e.Over, env)
 	match over {
 	case List as l:
@@ -89,7 +89,7 @@ func each(m *Machine, p resolve.Program, e resolve.Each, env int) fails Flow {
 }
 
 // truth is the bool that n gives, which must be one.
-func truth(m *Machine, p resolve.Program, n resolve.Node, env int, at Pos) bool fails RunError {
+func truth(m mut Machine, p resolve.Program, n resolve.Node, env int, at Pos) bool fails RunError {
 	let v = try eval(m, p, n, env)
 	match v {
 	case Bool as b:
@@ -100,7 +100,7 @@ func truth(m *Machine, p resolve.Program, n resolve.Node, env int, at Pos) bool 
 }
 
 // eval is the value of n in the frame env.
-func eval(m *Machine, p resolve.Program, n resolve.Node, env int) Value fails RunError {
+func eval(m mut Machine, p resolve.Program, n resolve.Node, env int) Value fails RunError {
 	m.nodes += 1
 	match n {
 	case resolve.KInt as k:
@@ -292,7 +292,7 @@ func mismatch(op syntax.BinOp, l Value, r Value, at Pos) RunError {
 }
 
 // call calls f with args.
-func call(m *Machine, p resolve.Program, f Value, args []Value, at Pos) Value fails RunError {
+func call(m mut Machine, p resolve.Program, f Value, args []Value, at Pos) Value fails RunError {
 	m.calls += 1
 	match f {
 	case Fn as fn:
@@ -340,7 +340,7 @@ func count(n int) string {
 }
 
 // builtin runs the builtin op on args, which are as many as it takes.
-func builtin(m *Machine, p resolve.Program, op resolve.Builtin, args []Value, at Pos) Value fails RunError {
+func builtin(m mut Machine, p resolve.Program, op resolve.Builtin, args []Value, at Pos) Value fails RunError {
 	let v = args[0]
 	match op {
 	case resolve.Print:
@@ -399,7 +399,7 @@ func builtin(m *Machine, p resolve.Program, op resolve.Builtin, args []Value, at
 }
 
 // elem is x[i].
-func elem(m *Machine, x Value, i Value, at Pos) Value fails RunError {
+func elem(m mut Machine, x Value, i Value, at Pos) Value fails RunError {
 	let k = try index(i, at)
 	match x {
 	case List as l:
@@ -418,7 +418,7 @@ func elem(m *Machine, x Value, i Value, at Pos) Value fails RunError {
 }
 
 // setElem is x[i] = v.
-func setElem(m *Machine, x Value, i Value, v Value, at Pos) fails RunError {
+func setElem(m mut Machine, x Value, i Value, v Value, at Pos) fails RunError {
 	let k = try index(i, at)
 	match x {
 	case List as l:
@@ -442,7 +442,7 @@ func index(i Value, at Pos) int fails RunError {
 }
 
 // slot is where the field key is in the record id, or -1.
-func slot(m *Machine, id int, key int) int {
+func slot(m mut Machine, id int, key int) int {
 	for i, k in m.recs[id].Keys {
 		if k == key {
 			return i
@@ -452,7 +452,7 @@ func slot(m *Machine, id int, key int) int {
 }
 
 // field is x.key.
-func field(m *Machine, p resolve.Program, x Value, key int, at Pos) Value fails RunError {
+func field(m mut Machine, p resolve.Program, x Value, key int, at Pos) Value fails RunError {
 	match x {
 	case Rec as r:
 		let i = slot(m, r.Id, key)
@@ -466,7 +466,7 @@ func field(m *Machine, p resolve.Program, x Value, key int, at Pos) Value fails 
 }
 
 // setField is x.key = v, for a field the record has.
-func setField(m *Machine, p resolve.Program, x Value, key int, v Value, at Pos) fails RunError {
+func setField(m mut Machine, p resolve.Program, x Value, key int, v Value, at Pos) fails RunError {
 	match x {
 	case Rec as r:
 		let i = slot(m, r.Id, key)

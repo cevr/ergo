@@ -1,0 +1,141 @@
+import lease-sync/domain
+import lease-sync/lease
+import lease-sync/replica
+import lease-sync/replica/server
+import rpc
+import schedule
+import strings
+import tasks
+import testing
+import time
+
+let at = time.Unix(0, 0)
+
+// told is what an authority answered a push, as text both providers can
+// be compared by.
+func told(a replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal], m domain.Envelope[lease.Cmd]) string {
+	let r = a.Push(m) catch {
+	case replica.Unavailable as u:
+		return "unavailable: \(u.Reason)"
+	case replica.Unauthorized:
+		return "unauthorized"
+	case replica.OutOfOrder as o:
+		return "out of order, expected \(o.Expected)"
+	case replica.IDConflict as x:
+		return "conflict \(x.ID)"
+	}
+	"kept \(r.ID) at \(r.Stream) \(r.Position)"
+}
+
+func read(a replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal], by replica.ClientID, from int) Option[Frame] {
+	let f = a.Pull(by, from) catch {
+	case replica.Unavailable, replica.Unauthorized:
+		return None
+	}
+	Some[Frame]{Value: f}
+}
+
+// loopback is a fresh lease authority served through std rpc on the
+// virtual clock c, for the clients allow takes, with long polls held up
+// to 30s. The request's wait for its call is one the clock sees, so a
+// held pull moves the time (runtime.md, Machines and actors 9.6).
+func loopback(allow own func(by replica.ClientID) bool, c testing.VirtualClock) Leases {
+	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8)
+	let serve = Serve(a, allow, 30s)
+	Over(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { Scheduler: c, time.Clock: c } {
+			try serve(tag, payload)
+		}
+	}), true)
+}
+
+let nothing = replica.Delta[lease.Event, lease.Refusal]{From: 0, Records: []domain.Recorded[replica.Fact[lease.Event, lease.Refusal]]{}}
+
+// LongPollHolds: through std rpc, a pull with nothing new is held until
+// the wait passes and is then an empty delta; a push during the hold
+// answers it at once, with the record; a pull that has something new is
+// answered at once.
+test LongPollHolds {
+	let c = testing.NewVirtualClock(0)
+	let l = loopback(everyone, c)
+	let start = c.Now()
+	assert read(l, replica.ClientID("a"), 0) == Some[Frame]{Value: nothing}
+	assert c.Now().Sub(start) == 30s
+	let held = c.Now()
+	let got = tasks.Transform([]int{0, 1}, 2, func(i int) Option[Frame] {
+		if i == 1 {
+			with context { Scheduler: c } {
+				Scheduler.Sleep(5s)
+			}
+			let answer = told(l, domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("a"), 1), By: "a", At: at, Command: lease.Take{Name: "build"}})
+			if strings.HasPrefix(answer, "kept") {
+				return None
+			}
+			return Some[Frame]{Value: nothing}
+		}
+		read(l, replica.ClientID("b"), 0)
+	})
+	assert c.Now().Sub(held) == 5s
+	assert got[1] == None
+	match got[0] {
+	case Some[Frame] as f:
+		match f.Value {
+		case replica.Delta[lease.Event, lease.Refusal] as d:
+			assert len(d.Records) == 1
+		case replica.Snapshot[lease.Pool, lease.Refusal]:
+			assert false
+		}
+	case None:
+		assert false
+	}
+	let before = c.Now()
+	assert read(l, replica.ClientID("a"), 0) != Some[Frame]{Value: nothing}
+	assert c.Now() == before
+}
+
+// IdleCostsOneCallPerWait: the pull loop over an idle log, through std
+// rpc, makes one call per held wait, never a loop of empty frames: four
+// calls take four waits.
+test IdleCostsOneCallPerWait {
+	let c = testing.NewVirtualClock(0)
+	let l = loopback(everyone, c)
+	let start = c.Now()
+	let mut calls = 0
+	with context { Scheduler: c, time.Clock: c } {
+		replica.Follow(l, replica.ClientID("a"), 0, schedule.Recurs(0), func(sig replica.Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]) Option[int] {
+			calls = calls + 1
+			if calls == 4 {
+				return None
+			}
+			Some[int]{Value: 0}
+		})
+	}
+	assert calls == 4
+	assert c.Now().Sub(start) == 120s
+}
+
+// RefusedClientNeedsSignIn: a client the authority's allow refuses is
+// shown as needing a sign-in, by the push loop and by the pull loop; never
+// as offline, which a retry would end. Another client is not refused.
+test RefusedClientNeedsSignIn {
+	let c = testing.NewVirtualClock(0)
+	let l = loopback(func(by replica.ClientID) bool { by != replica.ClientID("b") }, c)
+	let retry = schedule.Recurs(2)
+	let b = []domain.Envelope[lease.Cmd]{domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("b"), 1), By: "b", At: at, Command: lease.Take{Name: "x"}}}
+	let a = []domain.Envelope[lease.Cmd]{domain.Envelope[lease.Cmd]{ID: replica.IDOf(replica.ClientID("a"), 1), By: "a", At: at, Command: lease.Take{Name: "x"}}}
+	with context { Scheduler: c, time.Clock: c } {
+		assert replica.Send(l, b, retry) == replica.NeedsAuth
+		assert replica.Send(l, a, retry) == replica.Live
+		match replica.Fetch(l, replica.ClientID("b"), 0, retry) {
+		case replica.Link as k:
+			assert k.Conn == replica.NeedsAuth
+		case _:
+			assert false
+		}
+		match replica.Fetch(l, replica.ClientID("a"), 0, retry) {
+		case replica.Pulled[lease.Pool, lease.Event, lease.Refusal]:
+		case _:
+			assert false
+		}
+	}
+}

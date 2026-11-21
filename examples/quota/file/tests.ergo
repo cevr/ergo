@@ -46,7 +46,7 @@ func on(d fstest.Memory) Journal { NewJournal(d, d) }
 // day is a Journal on a fresh fstest.Memory with the volumes of quota.Sample and
 // the moves of quota.Day(ns) posted.
 func day(ns []int) quota.Store fails fs.NotFound | fs.Denied | fs.Failed {
-	let text, _ = Written(quota.Day(ns))
+	let text, _ = written(quota.Day(ns))
 	on(try memory.Files(Map[string, string]{"quota.journal": text}))
 }
 

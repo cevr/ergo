@@ -139,12 +139,58 @@ func Add(t Time, d duration) Time {
 
 // Sub is the duration t - u. A result past the range of a duration is the
 // largest or smallest duration, as in Go.
+//
+// It is Go's Time.Sub, step for step (NP4f-17). With two monotonic
+// readings it is their difference, saturated where it overflows. Without,
+// it works on Go's internal seconds (Unix seconds plus unixToInternal,
+// which wrap as Go's do): the difference d is right exactly when u + d,
+// with Add's saturating seconds, is t again; otherwise t - u is past the
+// range, on t's side of u.
 func Sub(t Time, u Time) duration {
 	if t.hasMono && u.hasMono {
-		subMono(t.mono, u.mono)
-	} else {
-		subWall(t.sec, t.nsec, u.sec, u.nsec)
+		let m = t.mono - u.mono
+		if m < 0 && t.mono > u.mono {
+			return duration(maxDuration)
+		}
+		if m > 0 && t.mono < u.mono {
+			return duration(minDuration)
+		}
+		return duration(m)
 	}
+	let ts = t.sec + unixToInternal
+	let us = u.sec + unixToInternal
+	let d = (ts - us) * 1000000000 + (t.nsec - u.nsec)
+	let mut dsec = d / 1000000000
+	let mut n = u.nsec + d % 1000000000
+	if n >= 1000000000 {
+		dsec = dsec + 1
+		n = n - 1000000000
+	} else if n < 0 {
+		dsec = dsec - 1
+		n = n + 1000000000
+	}
+	let mut s = us + dsec
+	if (s > us) != (dsec > 0) {
+		s = if dsec > 0 { maxDuration } else { -maxDuration }
+	}
+	if s == ts && n == t.nsec {
+		return duration(d)
+	}
+	if ts < us || ts == us && t.nsec < u.nsec {
+		return duration(minDuration)
+	}
+	duration(maxDuration)
+}
+
+// unixToInternal is Go's offset of its internal seconds (from January 1,
+// year 1) to Unix seconds.
+let unixToInternal int64 = 62135596800
+// SubAddInverse: t.Add(d).Sub(t) is d, for a d that keeps t.Add(d) in
+// range.
+law SubAddInverse(sec int64, nsec int64, n int64) {
+	let t = Unix(anyYear(sec), nsec)
+	let d = duration(within(n, -4000000000000000000, 4000000000000000000))
+	t.Add(d).Sub(t) == d
 }
 
 // Before reports whether t is before u.
@@ -346,6 +392,18 @@ law OverlapsIffIntersect(a int64, b int64, c int64, d int64) {
 // refuses; Parse reads it back (law FormatParseRoundTrip).
 func Format(t Time, layout Layout) string { format(t.sec, t.nsec, LayoutText(layout)) }
 
+// FormatParseRoundTrip: Parse reads back the instant Format writes in
+// RFC3339Nano, for every Unix second and every nanosecond: a year past
+// 9999 or before 0 is the ISO 8601 expanded year Format writes.
+law FormatParseRoundTrip(sec int64, nsec int64) {
+	let t = Unix(sec, within(nsec, 0, 999999999))
+	let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch {
+	case ParseError:
+		return false
+	}
+	back.Equal(t) && back == t
+}
+
 // Parse is the instant value writes in layout, as Go's time.Parse, with no
 // monotonic reading. A value with a zone offset is that instant; Format
 // writes it in UTC. A zone abbreviation (MST) is read against UTC, never
@@ -362,5 +420,3 @@ extern go ergo.local/prototype/runtime/v1.TimeFormat func format(sec int64, nsec
 extern go ergo.local/prototype/runtime/v1.TimeParse func parse(layout string, value string) Reading fails ParseError
 extern go ergo.local/prototype/runtime/v1.TimeTruncate func truncate(sec int64, nsec int64, d duration) Reading
 extern go ergo.local/prototype/runtime/v1.TimeRound func round(sec int64, nsec int64, d duration) Reading
-extern go ergo.local/prototype/runtime/v1.TimeSub func subWall(sec int64, nsec int64, usec int64, unsec int64) duration
-extern go ergo.local/prototype/runtime/v1.TimeSubMono func subMono(a int64, b int64) duration

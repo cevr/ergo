@@ -15,7 +15,7 @@ import (
 // TestStdOpCallCopyAgreesOnIR is the copy property (TestStdCopyAgrees) for
 // the calls of an operation type's operations on the IR path, which the
 // copy property's callers (functions taken as values) never make: sync and
-// queue have no such function (std-copy.txt, copy-by-call). A seeded
+// queue have no such function. A seeded
 // caller program calls the operations of a std operation type that binds a
 // runtime/v1 Go type (sync.Ref, queue.Queue), in a drawn order and subset;
 // lowered with LowerIR against the std package and against its copy in a

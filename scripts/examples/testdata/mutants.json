@@ -289,18 +289,9 @@
       "rule": "A line for a test upstream does not have is refused.",
       "killers": ["scripts/examples:TestOriginFollowsUpstream"]
     },
-    {
-      "name": "fk0-origin-folder-unchecked", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
-      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)\n", "to": "",
-      "rule": "A program of packages with an origin folder has its tests.txt checked.",
-      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
-    },
-    {
-      "name": "fk0-origin-folder-unchecked-single", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
-      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
-      "rule": "A program of one folder with an origin folder has its tests.txt checked.",
-      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
-    },
+    {"name":"ex-neutral-ports-unchecked","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\treturn programs, append(problems, checkPorts(root)...)\n","to":"\treturn programs, problems\n","rule":"A port's provenance under conformance/upstream/<source>/ports/<name>/ has its tests.txt checked, and names a program.","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-origin-admitted-single","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"main.ergo\"","to":"\t\tcase file == \"main.ergo\"","rule":"A program of one folder holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-origin-admitted-module","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"go.mod\"","to":"\t\tcase file == \"go.mod\"","rule":"A program of packages holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
     { "name": "gs1-key-ergo", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "{{\"runner\", self}, {\"ergo\", cfg.ergo}}", "to": "{{\"runner\", self}}", "rule": "A program's cache key holds the compiler's bytes: another bin/ergo at the same path reruns it.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
     { "name": "gs1-key-env", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tfor _, kv := range env {\n", "to": "\tfor _, kv := range env[:0] {\n", "rule": "A program's cache key holds the environment the compiler and the programs read.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
     { "name": "gs1-volatile-keyed", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "var volatileEnv = []string{\"INVOCATION_ID\", ", "to": "var volatileEnv = []string{", "rule": "A variable that changes on every invocation and that no verdict reads (systemd's INVOCATION_ID) is not keyed: with it every program missed.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
@@ -407,7 +398,7 @@
       "to": "case file == \"no \"+opcount.WorkloadFile && !entry.IsDir():",
       "rule": "A program of packages may hold a workload file (scripts/opcount).",
       "killers": [
-        "scripts/examples:TestRepoExamplesHoldTheirLaws",
+        "scripts/examples:TestRepoLayoutIsClean",
         "scripts/examples:TestModuleProgramWorkload"
       ]
     },
@@ -436,7 +427,7 @@
       "from": "map[string]bool{spec: true}",
       "to": "map[string]bool{spec: false}",
       "rule": "A workload package may hold its workload file beside its .ergo files.",
-      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoExamplesHoldTheirLaws"]
+      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoLayoutIsClean"]
     },
     {
       "name": "md2-mod-cold-skipped",
@@ -542,6 +533,10 @@
     {"name":"gs31b-main-build-unchecked","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\tbuilt = built || l.Package == main && l.Build != \"\"\n","to":"\t\tbuilt = true\n","rule":"A key whose main package has no build digest is refused (fail closed).","killers":["scripts/examples:TestPatternKeyCoversEveryTarget"]},
     {"name":"gs31b-json-lawcache-on","origin":"wf10 GS31b","file":"scripts/examples/main.go","from":"(args[0] == \"check\" || args[0] == \"test\" && slices.Contains(args, \"--json\"))","to":"args[0] == \"check\"","rule":"The key call checks with the law-verdict store off, as every check does.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
     {"name":"gs31a-hang-not-failed","origin":"wf10 GS31a","file":"internal/cases/exec.go","from":"\t\t\to.TimedOut = true\n","to":"\n","rule":"A case or leg that hangs past its safety net is stopped, fails, and the failure names the hang.","killers":["scripts/examples:TestCaseProcessGroupIsStopped"]},
-    {"name":"gs31a-folders-unshared","origin":"wf10 GS31a","file":"scripts/examples/main.go","from":"\tp.checked = loadPackageFolders(p.dir, entries)\n","to":"\tp.checked = nil\n","rule":"A program of packages is read with one load of its package folders; the asset scan and the law rule share it.","killers":["scripts/examples:TestModuleProgramLoadsItsPackagesOnce"]}
+    {"name":"gs31a-folders-unshared","origin":"wf10 GS31a","file":"scripts/examples/main.go","from":"\tp.checked = loadPackageFolders(p.dir, entries)\n","to":"\tp.checked = nil\n","rule":"A program of packages is read with one load of its package folders; the asset scan and the law rule share it.","killers":["scripts/examples:TestModuleProgramLoadsItsPackagesOnce"]},
+    {"name":"examples-layout-modules-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\treturn programs, modules, append(problems, moduleProblems...)\n","to":"\t_ = moduleProblems\n\treturn programs, modules, problems\n","rule":"A layout error of a module stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-programs-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\tprograms, problems = loadExamples(root, record)\n","to":"\tprograms, _ = loadExamples(root, record)\n","rule":"A layout error of a program or a port stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-go-unclaimed","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/modules.go","from":"\t\tcase goModule == \"\" || !claimed[importPath]:\n","to":"\t\tcase goModule == \"\":\n","rule":"A module holds only the Go packages its own extern go declarations bind (interop.md, Trusted Go 3).","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-ledger-anywhere","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/main.go","from":"\t\tcase assets[filepath.Join(dir, name)] && entry.Type().IsRegular():\n","to":"\t\tcase (assets[filepath.Join(dir, name)] || name == \"ergo.laws\") && entry.Type().IsRegular():\n","rule":"A module's law ledger sits beside ergo.mod (facts.md 3), never in a package folder.","killers":["scripts/examples:TestRepoLayoutIsClean"]}
   ]
 }

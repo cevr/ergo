@@ -194,33 +194,6 @@ func TimeRound(sec int64, nsec int64, d time.Duration) Reading {
 	return Reading{Sec: t.Unix(), Nsec: int64(t.Nanosecond())}
 }
 
-// TimeSub is the duration from (usec, unsec) to (sec, nsec), saturated at
-// the range of a duration, as Go's Time.Sub of two times with no
-// monotonic reading.
-//
-//ergo:pure
-//ergo:wait none
-func TimeSub(sec int64, nsec int64, usec int64, unsec int64) time.Duration {
-	return time.Unix(sec, nsec).Sub(time.Unix(usec, unsec))
-}
-
-// TimeSubMono is the duration a - b of two monotonic readings, saturated
-// at the range of a duration, as Go's Time.Sub of two times that both
-// have one.
-//
-//ergo:pure
-//ergo:wait none
-func TimeSubMono(a int64, b int64) time.Duration {
-	d := time.Duration(a - b)
-	switch {
-	case d < 0 && a > b:
-		return time.Duration(1<<63 - 1)
-	case d > 0 && a < b:
-		return time.Duration(-1 << 63)
-	}
-	return d
-}
-
 // TimeParseDuration is Go's time.ParseDuration: a sign, then one or more
 // decimal numbers, each with an optional fraction and a unit (ns, us, µs,
 // μs, ms, s, m, h), or "0". An error is ParseError with no layout, the

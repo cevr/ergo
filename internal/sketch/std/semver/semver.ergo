@@ -1,0 +1,1065 @@
+// Package semver reads semantic versions and npm's version ranges as
+// node-semver 7 reads them (strict, without includePrerelease): Parse is
+// semver.valid, Compare is semver.compare, ParseRange and FormatRange are
+// new Range and semver.validRange, and Satisfies is semver.satisfies
+// (docs/spec/stdlib.md, semver). Compare is SemVer 2.0's precedence, the
+// order of Go's golang.org/x/mod/semver on full versions. It is pure Ergo
+// over the bytes of its text.
+
+// Version is MAJOR.MINOR.PATCH with its pre-release and build identifiers.
+// Build identifiers never change the order.
+type Version { Major int, Minor int, Patch int, Pre []string, Build []string }
+
+// Malformed is a text that is not a version, or not a range.
+type Malformed { Text string }
+
+// Op is how a comparator compares a version with its own.
+type Op = Equal | Less | AtMost | Greater | AtLeast
+
+type Equal {}
+type Less {}
+type AtMost {}
+type Greater {}
+type AtLeast {}
+
+// Comparator holds for the versions that compare to Version as Op says.
+type Comparator { Op Op, Version Version }
+
+// Range is the versions that keep every comparator of one of its sets; a
+// set with no comparator is every version ("*").
+type Range { Sets [][]Comparator }
+
+// maxSafe is JavaScript's Number.MAX_SAFE_INTEGER: a version part past it
+// is malformed, as in node-semver.
+let maxSafe = 9007199254740991
+
+// maxLength is the longest version text node-semver reads.
+let maxLength = 256
+
+// Parse reads a version as semver.valid does: white space around it is
+// dropped and a leading "v" is allowed; each part is a number with no
+// leading zero up to 2^53-1; a pre-release follows "-" and build metadata
+// "+", as dot-separated identifiers of [0-9A-Za-z-], a numeric
+// pre-release identifier with no leading zero.
+func Parse(text string) Version fails Malformed {
+	if len(text) > maxLength {
+		return Malformed{Text: text}
+	}
+	match full(trim(text)) {
+	case Some as v:
+		v.Value
+	case None:
+		Malformed{Text: text}
+	}
+}
+
+// Format is v as node-semver writes it: MAJOR.MINOR.PATCH and the
+// pre-release, without build metadata.
+func Format(v Version) string {
+	let main = "\(v.Major).\(v.Minor).\(v.Patch)"
+	if len(v.Pre) == 0 {
+		return main
+	}
+	main + "-" + join(v.Pre, ".")
+}
+
+// Parse reads back what Format writes.
+law ParseInvertsFormat(major int, minor int, patch int, n int, word bool) {
+	let pre = if n%3 == 0 { []string{} } else if word { []string{"rc", "\((n%7+7)%7)"} } else { []string{"\((n%100+100)%100)"} }
+	let v = Version{Major: (major%1000+1000)%1000, Minor: (minor%1000+1000)%1000, Patch: (patch%1000+1000)%1000, Pre: pre, Build: []string{}}
+	let back = Parse(Format(v)) catch {
+	case Malformed:
+		return false
+	}
+	Compare(back, v) == 0 && Format(back) == Format(v)
+}
+
+// Compare is -1, 0 or 1 as a comes before, with, or after b: by MAJOR,
+// MINOR and PATCH, then a version with a pre-release before one without,
+// then pre-release identifiers in turn (numbers by value and before
+// words, words by their bytes, a prefix first). Build metadata is ignored.
+func Compare(a Version, b Version) int {
+	if a.Major != b.Major {
+		return if a.Major < b.Major { -1 } else { 1 }
+	}
+	if a.Minor != b.Minor {
+		return if a.Minor < b.Minor { -1 } else { 1 }
+	}
+	if a.Patch != b.Patch {
+		return if a.Patch < b.Patch { -1 } else { 1 }
+	}
+	if len(a.Pre) == 0 || len(b.Pre) == 0 {
+		return if len(a.Pre) == len(b.Pre) { 0 } else if len(a.Pre) == 0 { 1 } else { -1 }
+	}
+	for i in 0..len(a.Pre) {
+		if i >= len(b.Pre) {
+			return 1
+		}
+		let c = compareIdent(a.Pre[i], b.Pre[i])
+		if c != 0 {
+			return c
+		}
+	}
+	if len(a.Pre) < len(b.Pre) { -1 } else { 0 }
+}
+
+// Compare is an order: it turns over when its sides swap, and two steps
+// up are one step up. The laws draw versions through nearby, so that they
+// often tie on MAJOR.MINOR.PATCH and their pre-releases decide.
+law CompareIsAntisymmetric(a Version, b Version) { Compare(nearby(a), nearby(b)) == -Compare(nearby(b), nearby(a)) }
+
+law CompareIsTransitive(a Version, b Version, c Version) {
+	let x = nearby(a)
+	let y = nearby(b)
+	let z = nearby(c)
+	Compare(x, y) > 0 || Compare(y, z) > 0 || Compare(x, z) <= 0
+}
+
+// nearby is v with each of MAJOR, MINOR and PATCH made 0 or 1.
+func nearby(v Version) Version { Version{Major: v.Major & 1, Minor: v.Minor & 1, Patch: v.Patch & 1, Pre: v.Pre, Build: v.Build} }
+
+// Build metadata never changes the order.
+law CompareIgnoresBuild(v Version, build []string) { Compare(v, Version{Major: v.Major, Minor: v.Minor, Patch: v.Patch, Pre: v.Pre, Build: build}) == 0 }
+
+// ParseRange reads an npm range as node-semver's new Range does: sets
+// joined by "||", each a hyphen range "A - B" or comparators separated by
+// white space; a comparator is a version or a partial version (1, 1.2,
+// 1.x, *) after <, <=, >, >=, =, ~, ~> or ^, or none. Each desugars to
+// plain comparators exactly as node-semver's (~1.2.3 is >=1.2.3
+// <1.3.0-0); FormatRange writes them.
+func ParseRange(text string) Range fails Malformed {
+	let raw = squeeze(trim(text))
+	let mut sets = [][]Comparator{}
+	for part in splitOn(raw, "||") {
+		let set = parseSet(trim(part)) catch {
+		case Malformed:
+			return Malformed{Text: text}
+		}
+		sets = sets.Append(set)
+	}
+	if len(sets) > 1 {
+		let mut kept = [][]Comparator{}
+		for set in sets {
+			if !nullSet(set) {
+				kept = kept.Append(set)
+			}
+		}
+		if len(kept) == 0 {
+			return Range{Sets: [][]Comparator{sets[0]}}
+		}
+		if len(kept) > 1 {
+			for set in kept {
+				if len(set) == 0 {
+					return Range{Sets: [][]Comparator{set}}
+				}
+			}
+		}
+		return Range{Sets: kept}
+	}
+	Range{Sets: sets}
+}
+
+// FormatRange is r as semver.validRange writes it: each set's comparators
+// joined by a space, the sets by "||", and "*" for every version.
+func FormatRange(r Range) string {
+	let mut out = ""
+	for i, set in r.Sets {
+		if i > 0 {
+			out = out + "||"
+		}
+		for k, c in set {
+			if k > 0 {
+				out = out + " "
+			}
+			out = out + opText(c.Op) + Format(c.Version)
+		}
+	}
+	if out == "" { "*" } else { out }
+}
+
+// Satisfies reports whether v keeps every comparator of some set of r. A
+// version with a pre-release keeps a set only when one of the set's
+// comparators names a pre-release of the same MAJOR.MINOR.PATCH, so
+// ^1.2.3 holds for no 1.3.0-beta.
+func Satisfies(r Range, v Version) bool {
+	for set in r.Sets {
+		if keeps(set, v) {
+			return true
+		}
+	}
+	false
+}
+
+// Holds reports whether v keeps c.
+func Holds(c Comparator, v Version) bool {
+	let k = Compare(v, c.Version)
+	match c.Op {
+	case Equal:
+		k == 0
+	case Less:
+		k < 0
+	case AtMost:
+		k <= 0
+	case Greater:
+		k > 0
+	case AtLeast:
+		k >= 0
+	}
+}
+
+// A range of one comparator holds for a version without a pre-release
+// exactly when the comparator does.
+law OneComparatorHolds(c Comparator, v Version) { len(v.Pre) > 0 || Satisfies(Range{Sets: [][]Comparator{[]Comparator{c}}}, v) == Holds(c, v) }
+
+func keeps(set []Comparator, v Version) bool {
+	for c in set {
+		if !Holds(c, v) {
+			return false
+		}
+	}
+	if len(v.Pre) == 0 {
+		return true
+	}
+	for c in set {
+		if len(c.Version.Pre) > 0 && c.Version.Major == v.Major && c.Version.Minor == v.Minor && c.Version.Patch == v.Patch {
+			return true
+		}
+	}
+	false
+}
+
+func opText(op Op) string {
+	match op {
+	case Equal:
+		""
+	case Less:
+		"<"
+	case AtMost:
+		"<="
+	case Greater:
+		">"
+	case AtLeast:
+		">="
+	}
+}
+
+// nullSet reports whether set is node-semver's null set, <0.0.0-0 alone.
+func nullSet(set []Comparator) bool {
+	if len(set) != 1 {
+		return false
+	}
+	let c = set[0]
+	match c.Op {
+	case Less:
+		Format(c.Version) == "0.0.0-0"
+	case Equal, AtMost, Greater, AtLeast:
+		false
+	}
+}
+
+// parseSet is one set of a range, through node-semver's parseRange steps:
+// build metadata dropped, a hyphen range replaced, the white space after
+// an operator, ~ and ^ dropped, each comparator desugared, >=0.0.0 made
+// every version, duplicates dropped.
+func parseSet(text string) []Comparator fails Malformed {
+	let mut s = dropBuilds(text)
+	s = hyphen(s)
+	s = tightOps(s)
+	s = tightMark(s, '~')
+	s = tightMark(s, '^')
+	let mut texts = []string{}
+	for token in splitOn(s, " ") {
+		let expanded = stars(xranges(tildes(carets(token))))
+		for c in fields(expanded) {
+			texts = texts.Append(if c == ">=0.0.0" { "" } else { c })
+		}
+		if len(fields(expanded)) == 0 {
+			texts = texts.Append("")
+		}
+	}
+	let mut set = []Comparator{}
+	let mut values = []string{}
+	let mut parsed = []Comparator{}
+	let mut isAny = []bool{}
+	for t in texts {
+		if t == "" {
+			parsed = parsed.Append(Comparator{Op: Equal, Version: Version{Major: 0, Minor: 0, Patch: 0, Pre: []string{}, Build: []string{}}})
+			isAny = isAny.Append(true)
+			continue
+		}
+		parsed = parsed.Append(try comparator(t))
+		isAny = isAny.Append(false)
+	}
+	for i, c in parsed {
+		if isAny[i] {
+			continue
+		}
+		if nullSet([]Comparator{c}) {
+			return []Comparator{c}
+		}
+		let value = opText(c.Op) + Format(c.Version)
+		let mut seen = false
+		for v in values {
+			if v == value {
+				seen = true
+			}
+		}
+		if !seen {
+			values = values.Append(value)
+			set = set.Append(c)
+		}
+	}
+	set
+}
+
+// comparator reads one desugared comparator: an operator and a full
+// version, after which = is equality.
+func comparator(t string) Comparator fails Malformed {
+	let n = opLen(t)
+	let rest = t.Slice(n, len(t))
+	if len(rest) > maxLength {
+		return Malformed{Text: t}
+	}
+	let v = match full(trim(rest)) {
+	case Some as v:
+		v.Value
+	case None:
+		return Malformed{Text: t}
+	}
+	Comparator{Op: opOf(t.Slice(0, n)), Version: v}
+}
+
+func opOf(op string) Op {
+	if op == "<" {
+		return Less
+	}
+	if op == "<=" {
+		return AtMost
+	}
+	if op == ">" {
+		return Greater
+	}
+	if op == ">=" {
+		return AtLeast
+	}
+	Equal
+}
+
+// opLen is the length of node-semver's GTLT at the start of t: < or >,
+// then =, each if there.
+func opLen(t string) int {
+	let mut n = 0
+	if n < len(t) && (t[n] == '<' || t[n] == '>') {
+		n += 1
+	}
+	if n < len(t) && t[n] == '=' {
+		n += 1
+	}
+	n
+}
+
+// full reads FULLPLAIN: v?MAJOR.MINOR.PATCH(-PRE)?(+BUILD)?, all of s.
+func full(s string) Option[Version] {
+	let mut i = 0
+	if i < len(s) && s[i] == 'v' {
+		i += 1
+	}
+	let major = readNumber(s, i)
+	if major.N < 0 || major.End >= len(s) || s[major.End] != '.' {
+		return None
+	}
+	let minor = readNumber(s, major.End+1)
+	if minor.N < 0 || minor.End >= len(s) || s[minor.End] != '.' {
+		return None
+	}
+	let patch = readNumber(s, minor.End+1)
+	if patch.N < 0 {
+		return None
+	}
+	i = patch.End
+	let mut pre = []string{}
+	if i < len(s) && s[i] == '-' {
+		let j = identsEnd(s, i+1)
+		match idents(s.Slice(i+1, j), true) {
+		case Some as ids:
+			pre = ids.Value
+		case None:
+			return None
+		}
+		i = j
+	}
+	let mut build = []string{}
+	if i < len(s) && s[i] == '+' {
+		let j = identsEnd(s, i+1)
+		match idents(s.Slice(i+1, j), false) {
+		case Some as ids:
+			build = ids.Value
+		case None:
+			return None
+		}
+		i = j
+	}
+	if i != len(s) {
+		return None
+	}
+	Some[Version]{Value: Version{Major: major.N, Minor: minor.N, Patch: patch.N, Pre: pre, Build: build}}
+}
+
+// Read is a number read from a text and the offset after it.
+type Read { N int, End int }
+
+// readNumber reads the canonical number at i of s (canonical).
+func readNumber(s string, i int) Read {
+	let j = digitsEnd(s, i)
+	Read{N: canonical(s.Slice(i, j)), End: j}
+}
+
+// idents splits text at dots into identifiers of [0-9A-Za-z-], none
+// empty; a pre-release's all-digit identifier has no leading zero.
+func idents(text string, pre bool) Option[[]string] {
+	let ids = splitOn(text, ".")
+	for id in ids {
+		if id == "" {
+			return None
+		}
+		if pre && allDigits(id) && len(id) > 1 && id[0] == '0' {
+			return None
+		}
+	}
+	Some[[]string]{Value: ids}
+}
+
+// identsEnd is the end of the run of identifier bytes and dots from i.
+func identsEnd(s string, i int) int {
+	let mut j = i
+	for _ in i..len(s) {
+		if !isIdent(s[j]) && s[j] != '.' {
+			break
+		}
+		j += 1
+	}
+	j
+}
+
+func digitsEnd(s string, i int) int {
+	let mut j = i
+	for _ in i..len(s) {
+		if !isDigit(s[j]) {
+			break
+		}
+		j += 1
+	}
+	j
+}
+
+// canonical is the number s spells with no leading zero, -1 when s is
+// not one, and -2 when it is past maxSafe.
+func canonical(s string) int {
+	if s == "" || len(s) > 1 && s[0] == '0' || !allDigits(s) {
+		return -1
+	}
+	if len(s) > 16 {
+		return -2
+	}
+	let mut n = 0
+	for i in 0..len(s) {
+		n = n*10 + int(s[i]-'0')
+	}
+	if n > maxSafe { -2 } else { n }
+}
+
+// Partial is a partial version of a range (XRANGEPLAIN): each part a
+// number, or x (also X, * or missing).
+type Partial { M Part, Mi Part, P Part, Pre string }
+
+// Part is one part of a partial version.
+type Part = Num | X | Missing
+
+type Num { N int, Text string }
+type X {}
+type Missing {}
+
+func isX(p Part) bool {
+	match p {
+	case Num:
+		false
+	case X, Missing:
+		true
+	}
+}
+
+func num(p Part) int {
+	match p {
+	case Num as n:
+		n.N
+	case X, Missing:
+		0
+	}
+}
+
+// digitsOf is p's digits as the range wrote them, "" for x.
+func digitsOf(p Part) string {
+	match p {
+	case Num as n:
+		n.Text
+	case X, Missing:
+		""
+	}
+}
+
+// partial reads all of s as XRANGEPLAIN: [v= ]* then x, x.x or x.x.x
+// with a pre-release after the third part.
+func partial(s string) Option[Partial] {
+	let mut i = 0
+	for _ in 0..len(s) {
+		if s[i] != 'v' && s[i] != '=' && !isSpace(s[i]) {
+			break
+		}
+		i += 1
+	}
+	let mut parts = []Part{}
+	for k in 0..3 {
+		if k > 0 {
+			if i >= len(s) || s[i] != '.' {
+				break
+			}
+			i += 1
+		}
+		if i < len(s) && (s[i] == 'x' || s[i] == 'X' || s[i] == '*') {
+			parts = parts.Append(X)
+			i += 1
+			continue
+		}
+		let j = digitsEnd(s, i)
+		let digits = s.Slice(i, j)
+		if digits == "" || len(digits) > 1 && digits[0] == '0' {
+			return None
+		}
+		parts = parts.Append(Num{N: canonical(digits), Text: digits})
+		i = j
+	}
+	let mut pre = ""
+	if len(parts) == 3 && i < len(s) && s[i] == '-' {
+		let j = identsEnd(s, i+1)
+		match idents(s.Slice(i+1, j), true) {
+		case Some:
+			pre = s.Slice(i+1, j)
+		case None:
+			return None
+		}
+		i = j
+	}
+	if i != len(s) {
+		return None
+	}
+	let none = Missing
+	Some[Partial]{Value: Partial{M: parts[0], Mi: if len(parts) > 1 { parts[1] } else { none }, P: if len(parts) > 2 { parts[2] } else { none }, Pre: pre}}
+}
+
+// next is n + 1 in decimal, or a text no comparator reads when n is past
+// maxSafe.
+func next(p Part) string {
+	let n = num(p)
+	if n < 0 || n+1 > maxSafe {
+		return "!"
+	}
+	"\(n + 1)"
+}
+
+// hyphen replaces a set "A - B" by its two comparators (hyphenReplace).
+func hyphen(s string) string {
+	let mut at = len(s) - 3
+	for _ in 0..len(s) {
+		if at < 0 {
+			return s
+		}
+		if s.Slice(at, at+3) == " - " {
+			match hyphenAt(s.Slice(0, at), s.Slice(at+3, len(s))) {
+			case Some as h:
+				return h.Value
+			case None:
+				at -= 1
+				continue
+			}
+		}
+		at -= 1
+	}
+	s
+}
+
+// hyphenAt is the comparators of the hyphen range from - to, or None
+// when either side is not a partial version.
+func hyphenAt(from string, to string) Option[string] {
+	let f = match partial(from) {
+	case Some as f:
+		f.Value
+	case None:
+		return None
+	}
+	let t = match partial(to) {
+	case Some as t:
+		t.Value
+	case None:
+		return None
+	}
+	Some[string]{Value: trim(hyphenFrom(from, f) + " " + hyphenTo(to, t))}
+}
+
+func hyphenFrom(raw string, f Partial) string {
+	if isX(f.M) {
+		return ""
+	}
+	if isX(f.Mi) {
+		return ">=" + digitsOf(f.M) + ".0.0"
+	}
+	if isX(f.P) {
+		return ">=" + digitsOf(f.M) + "." + digitsOf(f.Mi) + ".0"
+	}
+	">=" + raw
+}
+
+func hyphenTo(raw string, t Partial) string {
+	if isX(t.M) {
+		return ""
+	}
+	if isX(t.Mi) {
+		return "<" + next(t.M) + ".0.0-0"
+	}
+	if isX(t.P) {
+		return "<" + digitsOf(t.M) + "." + next(t.Mi) + ".0-0"
+	}
+	if t.Pre != "" {
+		return "<=" + digitsOf(t.M) + "." + digitsOf(t.Mi) + "." + digitsOf(t.P) + "-" + t.Pre
+	}
+	"<=" + raw
+}
+
+// tightOps drops the white space between an operator (<, >, <=, >=, =)
+// and the version after it (COMPARATORTRIM).
+func tightOps(s string) string {
+	let mut out = ""
+	let mut i = 0
+	for _ in 0..len(s) {
+		if i >= len(s) {
+			break
+		}
+		let c = s[i]
+		if (c == '<' || c == '>' || c == '=') && opStart(s, i) {
+			let n = opLen(s.Slice(i, len(s)))
+			out = out + s.Slice(i, i+n)
+			i += n
+			if i+1 < len(s) && isSpace(s[i]) && versionStart(s, i+1) {
+				i += 1
+				let end = spaceAt(s, i)
+				out = out + s.Slice(i, end)
+				i = end
+			}
+			continue
+		}
+		out = out + s.Slice(i, i+1)
+		i += 1
+	}
+	out
+}
+
+// opStart reports whether an operator starts at i: not after another
+// operator byte.
+func opStart(s string, i int) bool { i == 0 || s[i-1] != '<' && s[i-1] != '>' && s[i-1] != '=' }
+
+// versionStart reports whether a version of a range starts at i: [v=]*
+// then a digit, x, X or *.
+func versionStart(s string, i int) bool {
+	let mut j = i
+	for _ in i..len(s) {
+		if s[j] != 'v' && s[j] != '=' {
+			break
+		}
+		j += 1
+	}
+	j < len(s) && (isDigit(s[j]) || s[j] == 'x' || s[j] == 'X' || s[j] == '*')
+}
+
+func spaceAt(s string, i int) int {
+	let mut j = i
+	for _ in i..len(s) {
+		if isSpace(s[j]) {
+			break
+		}
+		j += 1
+	}
+	j
+}
+
+// tightMark drops the white space after ~, ~> or ^ (TILDETRIM,
+// CARETTRIM).
+func tightMark(s string, mark byte) string {
+	let mut out = ""
+	let mut i = 0
+	for _ in 0..len(s) {
+		if i >= len(s) {
+			break
+		}
+		out = out + s.Slice(i, i+1)
+		if s[i] == mark {
+			i += 1
+			if mark == '~' && i < len(s) && s[i] == '>' && i+1 < len(s) && isSpace(s[i+1]) {
+				i += 2
+				continue
+			}
+			if i < len(s) && isSpace(s[i]) {
+				i += 1
+			}
+			continue
+		}
+		i += 1
+	}
+	out
+}
+
+// carets desugars ^ (replaceCaret).
+func carets(t string) string {
+	if len(t) == 0 || t[0] != '^' {
+		return t
+	}
+	let p = match partial(t.Slice(1, len(t))) {
+	case Some as p:
+		p.Value
+	case None:
+		return t
+	}
+	let mj = digitsOf(p.M)
+	let mi = digitsOf(p.Mi)
+	let pa = digitsOf(p.P)
+	if isX(p.M) {
+		return ""
+	}
+	if isX(p.Mi) {
+		return ">=" + mj + ".0.0 <" + next(p.M) + ".0.0-0"
+	}
+	if isX(p.P) {
+		if mj == "0" {
+			return ">=" + mj + "." + mi + ".0 <" + mj + "." + next(p.Mi) + ".0-0"
+		}
+		return ">=" + mj + "." + mi + ".0 <" + next(p.M) + ".0.0-0"
+	}
+	let from = ">=" + mj + "." + mi + "." + pa + if p.Pre != "" { "-" + p.Pre } else { "" }
+	if mj == "0" {
+		if mi == "0" {
+			return from + " <" + mj + "." + mi + "." + next(p.P) + "-0"
+		}
+		return from + " <" + mj + "." + next(p.Mi) + ".0-0"
+	}
+	from + " <" + next(p.M) + ".0.0-0"
+}
+
+// tildes desugars ~ and ~> (replaceTilde) in each comparator of t.
+func tildes(t string) string {
+	let mut out = []string{}
+	for c in fields(t) {
+		out = out.Append(tilde(c))
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	join(out, " ")
+}
+
+func tilde(t string) string {
+	if len(t) == 0 || t[0] != '~' {
+		return t
+	}
+	let start = if len(t) > 1 && t[1] == '>' { 2 } else { 1 }
+	let p = match partial(t.Slice(start, len(t))) {
+	case Some as p:
+		p.Value
+	case None:
+		return t
+	}
+	let mj = digitsOf(p.M)
+	let mi = digitsOf(p.Mi)
+	if isX(p.M) {
+		return ""
+	}
+	if isX(p.Mi) {
+		return ">=" + mj + ".0.0 <" + next(p.M) + ".0.0-0"
+	}
+	if isX(p.P) {
+		return ">=" + mj + "." + mi + ".0 <" + mj + "." + next(p.Mi) + ".0-0"
+	}
+	">=" + mj + "." + mi + "." + digitsOf(p.P) + (if p.Pre != "" { "-" + p.Pre } else { "" }) + " <" + mj + "." + next(p.Mi) + ".0-0"
+}
+
+// xranges desugars x-ranges and partial versions after an operator
+// (replaceXRange) in each comparator of t.
+func xranges(t string) string {
+	let mut out = []string{}
+	for c in fields(t) {
+		out = out.Append(xrange(c))
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	join(out, " ")
+}
+
+func xrange(t string) string {
+	let n = opLen(t)
+	let mut gtlt = t.Slice(0, n)
+	let p = match partial(t.Slice(n, len(t))) {
+	case Some as p:
+		p.Value
+	case None:
+		return t
+	}
+	if isX(p.M) && !isX(p.Mi) || isX(p.Mi) && !isX(p.P) {
+		return t
+	}
+	let xM = isX(p.M)
+	let xm = xM || isX(p.Mi)
+	let xp = xm || isX(p.P)
+	if gtlt == "=" && xp {
+		gtlt = ""
+	}
+	if xM {
+		return if gtlt == ">" || gtlt == "<" { "<0.0.0-0" } else { "*" }
+	}
+	if gtlt != "" && xp {
+		let mut mj = digitsOf(p.M)
+		let mut mi = if xm { "0" } else { digitsOf(p.Mi) }
+		if gtlt == ">" {
+			gtlt = ">="
+			if xm {
+				mj = next(p.M)
+			} else {
+				mi = next(p.Mi)
+			}
+		} else if gtlt == "<=" {
+			gtlt = "<"
+			if xm {
+				mj = next(p.M)
+			} else {
+				mi = next(p.Mi)
+			}
+		}
+		return gtlt + mj + "." + mi + ".0" + if gtlt == "<" { "-0" } else { "" }
+	}
+	if xm {
+		return ">=" + digitsOf(p.M) + ".0.0 <" + next(p.M) + ".0.0-0"
+	}
+	if xp {
+		return ">=" + digitsOf(p.M) + "." + digitsOf(p.Mi) + ".0 <" + digitsOf(p.M) + "." + next(p.Mi) + ".0-0"
+	}
+	t
+}
+
+// stars drops the first * of t with the < or >, = and white space before
+// it (replaceStars).
+func stars(t string) string {
+	let s = trim(t)
+	let mut k = -1
+	for i in 0..len(s) {
+		if k < 0 && s[i] == '*' {
+			k = i
+		}
+	}
+	if k < 0 {
+		return s
+	}
+	let mut start = k
+	for back in 1..4 {
+		let p = k - back
+		if p >= 0 && starPrefix(s.Slice(p, k)) {
+			start = p
+		}
+	}
+	s.Slice(0, start) + s.Slice(k+1, len(s))
+}
+
+// starPrefix reports whether s is (<|>)?=?\s? before a *.
+func starPrefix(s string) bool {
+	let mut i = 0
+	if i < len(s) && (s[i] == '<' || s[i] == '>') {
+		i += 1
+	}
+	if i < len(s) && s[i] == '=' {
+		i += 1
+	}
+	if i < len(s) && isSpace(s[i]) {
+		i += 1
+	}
+	i == len(s)
+}
+
+// dropBuilds drops each +build of s (BUILDSTRIPRE).
+func dropBuilds(s string) string {
+	let mut out = ""
+	let mut i = 0
+	for _ in 0..len(s) {
+		if i >= len(s) {
+			break
+		}
+		if s[i] == '+' && i+1 < len(s) && isIdent(s[i+1]) {
+			let mut j = i + 1
+			for _ in j..len(s) {
+				if j < len(s) && isIdent(s[j]) {
+					j += 1
+				} else if j+1 < len(s) && s[j] == '.' && isIdent(s[j+1]) {
+					j += 1
+				} else {
+					break
+				}
+			}
+			i = j
+			continue
+		}
+		out = out + s.Slice(i, i+1)
+		i += 1
+	}
+	out
+}
+
+func compareIdent(a string, b string) int {
+	let an = allDigits(a)
+	let bn = allDigits(b)
+	if an && bn {
+		let x = trimZeros(a)
+		let y = trimZeros(b)
+		if len(x) != len(y) {
+			return if len(x) < len(y) { -1 } else { 1 }
+		}
+		return bytesCompare(x, y)
+	}
+	if an {
+		return -1
+	}
+	if bn {
+		return 1
+	}
+	bytesCompare(a, b)
+}
+
+func trimZeros(s string) string {
+	let mut i = 0
+	for _ in 0..len(s) {
+		if i+1 >= len(s) || s[i] != '0' {
+			break
+		}
+		i += 1
+	}
+	s.Slice(i, len(s))
+}
+
+func bytesCompare(a string, b string) int {
+	for i in 0..len(a) {
+		if i >= len(b) {
+			return 1
+		}
+		if a[i] != b[i] {
+			return if a[i] < b[i] { -1 } else { 1 }
+		}
+	}
+	if len(a) < len(b) { -1 } else { 0 }
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..len(s) {
+		if !isDigit(s[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func isSpace(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r' }
+
+func isDigit(c byte) bool { c >= '0' && c <= '9' }
+
+func isIdent(c byte) bool { isDigit(c) || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-' }
+
+// trim is s without the white space at its ends.
+func trim(s string) string {
+	let mut i = 0
+	let mut j = len(s)
+	for _ in 0..len(s) {
+		if i >= j || !isSpace(s[i]) {
+			break
+		}
+		i += 1
+	}
+	for _ in 0..len(s) {
+		if j <= i || !isSpace(s[j-1]) {
+			break
+		}
+		j -= 1
+	}
+	s.Slice(i, j)
+}
+
+// squeeze is s with each run of white space made one space.
+func squeeze(s string) string {
+	let mut out = ""
+	let mut space = false
+	for i in 0..len(s) {
+		if isSpace(s[i]) {
+			space = true
+			continue
+		}
+		if space {
+			out = out + " "
+			space = false
+		}
+		out = out + s.Slice(i, i+1)
+	}
+	if space { out + " " } else { out }
+}
+
+// fields is the runs of s between white space.
+func fields(s string) []string {
+	let mut out = []string{}
+	let mut start = -1
+	for i in 0..len(s) {
+		if isSpace(s[i]) {
+			if start >= 0 {
+				out = out.Append(s.Slice(start, i))
+				start = -1
+			}
+		} else if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		out = out.Append(s.Slice(start, len(s)))
+	}
+	out
+}
+
+// splitOn is the parts of s between each sep, as Go's strings.Split.
+func splitOn(s string, sep string) []string {
+	let mut out = []string{}
+	let mut start = 0
+	let mut i = 0
+	for _ in 0..len(s)+1 {
+		if i+len(sep) > len(s) {
+			break
+		}
+		if s.Slice(i, i+len(sep)) == sep {
+			out = out.Append(s.Slice(start, i))
+			i += len(sep)
+			start = i
+			continue
+		}
+		i += 1
+	}
+	out.Append(s.Slice(start, len(s)))
+}
+
+func join(xs []string, sep string) string {
+	let mut out = ""
+	for i, x in xs {
+		out = if i == 0 { x } else { out + sep + x }
+	}
+	out
+}

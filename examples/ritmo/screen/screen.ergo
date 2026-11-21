@@ -1,0 +1,82 @@
+// Package screen draws a world as text, in place of ritmo's renderer
+// adapters (ritmo-render, ritmo-pixi). A window would draw it through
+// std ui once the desktop host lands (survey gap G6).
+
+import ritmo/ecs
+import ritmo/topdown
+import strings
+
+// Cell is the units of the room one character shows: 100 by 100.
+let Cell = 100000
+
+// Room is the room as 16 rows of 22 cells: # a wall, * a pickup, @ the
+// player, . the floor.
+func Room(w topdown.World) string {
+	let cols = topdown.WorldWidth / Cell
+	let rows = topdown.WorldHeight / Cell
+	let walls = topdown.WallsOf(w)
+	let mut b = strings.NewBuilder()
+	for r in 0..rows {
+		for c in 0..cols {
+			let centre = topdown.Vec{X: c*Cell + Cell/2, Y: r*Cell + Cell/2}
+			b.WriteString(glyph(w, walls, centre))
+		}
+		b.WriteString("\n")
+	}
+	b.String()
+}
+
+// glyph is the character of the cell around centre.
+func glyph(w topdown.World, walls []topdown.Block, centre topdown.Vec) string {
+	match topdown.PlayerOf(w) {
+	case Some[ecs.Entity] as p:
+		if inCell(topdown.PositionOf(w, p.Value), centre) {
+			return "@"
+		}
+	case None:
+	}
+	for e in w.Pickups.Ents {
+		if inCell(topdown.PositionOf(w, e), centre) {
+			return "*"
+		}
+	}
+	for b in walls {
+		if topdown.Overlaps(centre, topdown.Size{W: Cell, H: Cell}, b.At, b.Box) {
+			return "#"
+		}
+	}
+	"."
+}
+
+// inCell reports whether p is in the cell around centre.
+func inCell(p topdown.Vec, centre topdown.Vec) bool {
+	let half = Cell / 2
+	p.X >= centre.X-half && p.X < centre.X+half && p.Y >= centre.Y-half && p.Y < centre.Y+half
+}
+
+// Status is one line of what a world shows beside the room: the tick,
+// the player's place in units, its facing and gait, the count of
+// pickups, and the focus.
+func Status(w topdown.World) string {
+	let place = match topdown.PlayerOf(w) {
+	case Some[ecs.Entity] as p:
+		let at = topdown.PositionOf(w, p.Value)
+		"at \(units(at.X)),\(units(at.Y))"
+	case None:
+		"no player"
+	}
+	let focus = match w.Focus {
+	case topdown.Nothing:
+		"nothing in reach"
+	case topdown.Near as n:
+		"\(n.Label) \(n.Distance) away"
+	}
+	"tick \(w.Tick) \(place) facing \(topdown.DirName(w.Facing)) \(topdown.GaitName(w.Gait)) collected \(w.Collected)/\(w.Total), \(focus)"
+}
+
+// units is n thousandths as units with three decimals.
+func units(n int) string {
+	let sign = if n < 0 { "-" } else { "" }
+	let m = if n < 0 { -n } else { n }
+	"\(sign)\(m / 1000).\(strings.PadLeft("\(m % 1000)", 3, '0'))"
+}

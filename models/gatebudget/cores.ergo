@@ -1,0 +1,338 @@
+// cores.ergo models the budget in cores: priority classes, a lane share
+// and wide takes. It replaces the count-based classes model (WS4 r1),
+// after the r1 review: a take names its width (its GOMAXPROCS), and the
+// widths held never sum past the host's budget B, a number the host's
+// owner sets in the budget's file, not the machine's cores, since the
+// host is shared. WS4c deleted the interim load gate (and its mutants
+// GateAll, PollAfterLoad and GatedHead, the last the live bug of
+// 2026-11-20); memory admission (mem.ergo) replaces it.
+//
+// The world: B = 3 cores. Four runners, each with a width and a class:
+// A and N are lane runners of width 1, H is a heavy run of width 2 (as
+// heavy.sh, one at a time), all of the lane class; C is a crit runner of
+// width 1. A, N and C run up to twice, H once.
+//
+// The design:
+//   - Admission is by cores: a take fits when the widths held plus its
+//     own are at most B.
+//   - One queue order, no backfill. A newcomer joins the queue, and it
+//     takes at once only when it is the next waiter and fits. A join and
+//     a release hand the free cores on in the same step, to the next
+//     waiter by the rule below, as long as it fits; a next waiter that
+//     does not fit stops the hand-on (head of line), so a narrow
+//     newcomer never passes a wide older waiter.
+//   - The next waiter: the oldest lane waiter while the lane class holds
+//     fewer than Share cores, else the oldest crit waiter, else the
+//     oldest lane waiter.
+//
+// The invariants (laws of Cores, each `always`):
+//   - WithinBudget: the widths held never sum past B.
+//   - NextNotIdle: the next waiter never waits while it fits.
+//   - InOrder: no runner takes while an older waiter of its own class
+//     waits, and no lane runner takes while a crit waiter waits, unless
+//     the lane class is under its share.
+//
+// Mutants, each a machine whose law Breaks must hold:
+//   - ByCount: admission counts holders (at most 3), not cores
+//     (WithinBudget).
+//   - QuitIdle: a release hands nothing on; waiters find the cores at
+//     their next poll, as light.sh's sleep (NextNotIdle).
+//   - Backfill: a release hands free cores to any waiter that fits, and
+//     so a narrow runner passes a wide older one (InOrder).
+//
+// Witnesses (laws of Cores, each `sometimes`): H holds while a narrow
+// runner waits; a narrow runner waits behind H while a core is free (the
+// head of line); H takes after waiting; crit takes while a lane runner
+// waits (the lane class at its share); the budget is full with H and a
+// narrow runner.
+
+type Rn = A{} | N{} | H{} | C{}
+
+type CoreAct = Join{R Rn} | Quit{R Rn}
+
+let B = 3
+let Share = 1
+
+let CoreDesign = 0
+let ByCountMutant = 1
+let QuitIdleMutant = 2
+let BackfillMutant = 4
+
+// Cores is a world of this model: per runner (A, N, H, C) its step (Idle,
+// Waiting, Holding), its finished runs and its ticket; Passed: a take
+// broke InOrder. The other flags are the witnesses'.
+type Cores {
+	Pc         []int,
+	Done       []int,
+	Ticket     []int,
+	NextTicket int,
+	Passed     bool,
+	WideHolds  bool,
+	HeadBlocks bool,
+	WideWaited bool,
+	CritPassed bool,
+	Full       bool,
+}
+
+func coreWorld() Cores {
+	Cores{Pc: []int{0, 0, 0, 0}, Done: []int{0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1}, NextTicket: 0,
+		Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritPassed: false, Full: false}
+}
+
+func rn(r Rn) int {
+	match r {
+	case A:
+		return 0
+	case N:
+		return 1
+	case H:
+		return 2
+	case C:
+		return 3
+	}
+}
+
+func all4() []int { []int{0, 1, 2, 3} }
+
+func width(r int) int {
+	if r == 2 {
+		return 2
+	}
+	return 1
+}
+
+func runsOf(r int) int {
+	if r == 2 {
+		return 1
+	}
+	return 2
+}
+
+func isCrit(r int) bool { r == 3 }
+
+func used(c Cores) int {
+	let mut n = 0
+	for r in all4() {
+		if c.Pc[r] == Holding {
+			n = n + width(r)
+		}
+	}
+	return n
+}
+
+func holding(c Cores) int {
+	let mut n = 0
+	for r in all4() {
+		if c.Pc[r] == Holding {
+			n = n + 1
+		}
+	}
+	return n
+}
+
+func laneUsed(c Cores) int {
+	let mut n = 0
+	for r in all4() {
+		if c.Pc[r] == Holding && !isCrit(r) {
+			n = n + width(r)
+		}
+	}
+	return n
+}
+
+// fits reports admission: by cores, or by count under ByCount.
+func fits(m int, c Cores, r int) bool {
+	if m == ByCountMutant {
+		return holding(c) < 3
+	}
+	return used(c) + width(r) <= B
+}
+
+func oldestIn(c Cores, critClass bool) int {
+	let mut best = -1
+	for r in all4() {
+		if isCrit(r) == critClass && c.Pc[r] == Waiting && (best == -1 || c.Ticket[r] < c.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+// nextWaiter is the waiter the hand-on serves next, -1 for none.
+func nextWaiter(c Cores) int {
+	let lane = oldestIn(c, false)
+	let first = oldestIn(c, true)
+	if lane != -1 && laneUsed(c) < Share {
+		return lane
+	}
+	if first != -1 {
+		return first
+	}
+	return lane
+}
+
+// breaksOrder reports a take by r that passes an older waiter of its own
+// class, or a lane take while crit waits and the lane class has its share.
+func breaksOrder(c Cores, r int) bool {
+	for o in all4() {
+		if o != r && c.Pc[o] == Waiting {
+			let older = c.Pc[r] != Waiting || c.Ticket[o] < c.Ticket[r]
+			if isCrit(o) == isCrit(r) && older {
+				return true
+			}
+			if isCrit(o) && !isCrit(r) && laneUsed(c) >= Share {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func admit(c0 Cores, r int) Cores {
+	let mut c = c0
+	if breaksOrder(c, r) {
+		c.Passed = true
+	}
+	if c.Pc[r] == Waiting && r == 2 {
+		c.WideWaited = true
+	}
+	if isCrit(r) && (c.Pc[0] == Waiting || c.Pc[1] == Waiting || c.Pc[2] == Waiting) {
+		c.CritPassed = true
+	}
+	c.Pc[r] = Holding
+	c.Ticket[r] = -1
+	return c
+}
+
+// handOn serves waiters in order while the next fits; under Backfill, any
+// waiter that fits.
+func handOn(m int, c0 Cores) Cores {
+	let mut c = c0
+	for _ in all4() {
+		let mut to = nextWaiter(c)
+		if m == BackfillMutant {
+			to = -1
+			for r in all4() {
+				if to == -1 && c.Pc[r] == Waiting && fits(m, c, r) {
+					to = r
+				}
+			}
+		}
+		if to == -1 || !fits(m, c, to) {
+			return c
+		}
+		c = admit(c, to)
+	}
+	return c
+}
+
+func coreNext(m int, c0 Cores, a CoreAct) Option[Cores] {
+	let mut c = c0
+	match a {
+	case Join as x:
+		let r = rn(x.R)
+		if c.Pc[r] != Idle || c.Done[r] == runsOf(r) {
+			return None
+		}
+		// A newcomer joins the queue and the hand-on runs: it takes at once
+		// exactly when it is the next waiter and fits.
+		c.Pc[r] = Waiting
+		c.Ticket[r] = c.NextTicket
+		c.NextTicket = c.NextTicket + 1
+		c = handOn(m, c)
+	case Quit as x:
+		let r = rn(x.R)
+		if c.Pc[r] != Holding {
+			return None
+		}
+		c.Pc[r] = Idle
+		c.Done[r] = c.Done[r] + 1
+		// A release hands the cores on in the same step; under QuitIdle it
+		// hands nothing on, and the next waiter waits with cores free.
+		if m != QuitIdleMutant {
+			c = handOn(m, c)
+		}
+	}
+	if c.Pc[2] == Holding && (c.Pc[0] == Waiting || c.Pc[1] == Waiting || c.Pc[3] == Waiting) {
+		c.WideHolds = true
+	}
+	if c.Pc[2] == Waiting && used(c) < B && (c.Pc[0] == Waiting || c.Pc[1] == Waiting) {
+		c.HeadBlocks = true
+	}
+	if used(c) == B && c.Pc[2] == Holding {
+		c.Full = true
+	}
+	return Some[Cores]{Value: c}
+}
+
+func coreWith(m int, c Cores, a CoreAct) Decision[Cores, string] {
+	match coreNext(m, c, a) {
+	case None:
+		Ignore
+	case Some[Cores] as n:
+		Enter[Cores]{Next: n.Value}
+	}
+}
+
+func coreDesign(c Cores, a CoreAct) Decision[Cores, string] { coreWith(CoreDesign, c, a) }
+func byCount(c Cores, a CoreAct) Decision[Cores, string]    { coreWith(ByCountMutant, c, a) }
+func quitIdle(c Cores, a CoreAct) Decision[Cores, string]   { coreWith(QuitIdleMutant, c, a) }
+func backfill(c Cores, a CoreAct) Decision[Cores, string]   { coreWith(BackfillMutant, c, a) }
+
+func withinBudget(c Cores) bool { used(c) <= B }
+
+// nextNotIdle: the next waiter does not wait while it fits.
+func nextNotIdle(c Cores) bool {
+	let r = nextWaiter(c)
+	if r == -1 {
+		return true
+	}
+	return used(c) + width(r) > B
+}
+
+func inOrder2(c Cores) bool { !c.Passed }
+
+func overBudget(c Cores) bool { !withinBudget(c) }
+func nextIdle(c Cores) bool   { !nextNotIdle(c) }
+func passed2(c Cores) bool    { !inOrder2(c) }
+func wideHolds(c Cores) bool  { c.WideHolds }
+func headBlocks(c Cores) bool { c.HeadBlocks }
+func wideWaited(c Cores) bool { c.WideWaited }
+func critPassed(c Cores) bool { c.CritPassed }
+func full(c Cores) bool       { c.Full }
+
+type CoreBudget machine[Cores, CoreAct] {
+	initial: coreWorld(),
+	step:    coreDesign,
+
+	law WithinBudget always withinBudget,
+	law NextNotIdle always nextNotIdle,
+	law InOrder always inOrder2,
+
+	law WideHolds sometimes wideHolds,
+	law HeadOfLine sometimes headBlocks,
+	law WideTakesAfterWaiting sometimes wideWaited,
+	law CritPassesLane sometimes critPassed,
+	law FullWithWide sometimes full,
+}
+
+type ByCount machine[Cores, CoreAct] {
+	initial: coreWorld(),
+	step:    byCount,
+
+	law Breaks sometimes overBudget,
+}
+
+type QuitIdle machine[Cores, CoreAct] {
+	initial: coreWorld(),
+	step:    quitIdle,
+
+	law Breaks sometimes nextIdle,
+}
+
+type Backfill machine[Cores, CoreAct] {
+	initial: coreWorld(),
+	step:    backfill,
+
+	law Breaks sometimes passed2,
+}

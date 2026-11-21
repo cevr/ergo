@@ -220,12 +220,13 @@ func union(xs []string) string {
 	return "$Schema.Union([" + strings.Join(xs, ", ") + "])"
 }
 func (g *emitter) schema(t check.Type) string {
-	if arg := jsonArgument(t, "Nullable"); arg != nil {
+	if arg := formPayload(t, check.WireNullable); arg != nil {
 		return "$Schema.NullOr(" + g.schema(arg) + ")"
 	}
-	// std json.Value is written as the JSON value itself, untagged, so its
-	// wire projection is any JSON value, not the six-variant union.
-	if stdJSON(t, "Value", 0) != nil {
+	// A bare union (std json.Value) is written as its variant's value
+	// itself, untagged, so its projection is any JSON value, as the hub's
+	// schema of it is any value.
+	if check.WireFormOf(t) == check.WireBare {
 		return "$Schema.Json"
 	}
 	switch u := t.(type) {
@@ -259,6 +260,12 @@ func (g *emitter) schema(t check.Type) string {
 		}
 		return "$Schema.Tuple([" + strings.Join(xs, ", ") + "])"
 	case *check.Named:
+		if check.IsProviderMap(u) {
+			// CONSTRAINTS C5: the projection of a Map with a provider
+			// (its stored keys, decoded through the provider) is a
+			// follow-up; the table's record is not its wire form.
+			return g.fail(t, "a Map with a provider has no projection yet (S109; types.md, Maps 7)")
+		}
 		if u.Obj.Pkg != nil && u.Obj.Pkg.Path == stdlib.PreludePath && u.Obj.Name == "Option" && len(u.TArgs) == 1 {
 			return "$Schema.Option(" + g.schema(u.TArgs[0]) + ")"
 		}
@@ -425,26 +432,19 @@ func (g *emitter) fields(s *check.Struct, local bool) {
 // JSON's field form depends on the instantiated field type, not its spelling.
 // Optional remains tagged in a slice, a tuple or an operation's result.
 func (g *emitter) fieldSchema(t check.Type) string {
-	if arg := jsonArgument(t, "Optional"); arg != nil {
+	if arg := formPayload(t, check.WireOmittable); arg != nil {
 		return "$Schema.optionalKey(" + g.schema(arg) + ")"
 	}
 	return g.schema(t)
 }
 
-func jsonArgument(t check.Type, name string) check.Type {
-	if n := stdJSON(t, name, 1); n != nil {
-		return n.TArgs[0]
+// formPayload is the payload of t when t declares the JSON form form
+// (WireNullable, WireOmittable), read as the hub reads it.
+func formPayload(t check.Type, form check.WireForm) check.Type {
+	if check.WireFormOf(t) != form {
+		return nil
 	}
-	return nil
-}
-
-// stdJSON is t when it is std json's type name with args type arguments.
-func stdJSON(t check.Type, name string, args int) *check.Named {
-	n, ok := t.(*check.Named)
-	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name && len(n.TArgs) == args {
-		return n
-	}
-	return nil
+	return rpcgen.PayloadOf(t)
 }
 
 // Projected properties keep the default name. When explicit keys make a

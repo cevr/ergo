@@ -22,7 +22,7 @@ func TestForRefusals(t *testing.T) {
 		// it to an int is the one diagnostic, at the use.
 		{"string", "func f(s string) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", []string{"S108:4"}},
 		{"int", "func f() int {\n\tlet mut n = 0\n\tfor x in 5 {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
-		{"pointer", "func f(p *[]int) int {\n\tlet mut n = 0\n\tfor x in p {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
+		{"pointer", "func f(p mut []int) int {\n\tlet mut n = 0\n\tfor x in p {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
 		{"bool", "func f() int {\n\tlet mut n = 0\n\tfor x in true {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
 		{"record", "type R { N int }\nfunc f(r R) int {\n\tlet mut n = 0\n\tfor x in r {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:4"}},
 		{"range-two-bindings", "func f() int {\n\tlet mut n = 0\n\tfor i, x in 0..3 {\n\t\tn += i + x\n\t}\n\tn\n}\n", []string{"S108:3"}},
@@ -72,9 +72,9 @@ func TestMapReadAndWrite(t *testing.T) {
 func TestLenOnly(t *testing.T) {
 	runD1(t, []d1Case{
 		{"len-domains", "func f(xs []int, m Map[int, int], s string) int {\n\tlen(xs) + len(m) + len(s) + len(\"abc\")\n}\n", nil},
-		{"len-pointer", "func f(p *[]int) int {\n\tlen(p)\n}\n", []string{"S108:2"}},
+		{"len-pointer", "func f(p mut []int) int {\n\tlen(p)\n}\n", []string{"S108:2"}},
 		{"len-int", "func f() int {\n\tlen(3)\n}\n", []string{"S108:2"}},
-		{"index-pointer", "func f(p *[]int) int {\n\tp[0]\n}\n", []string{"S108:2"}},
+		{"index-pointer", "func f(p mut []int) int {\n\tp[0]\n}\n", []string{"S108:2"}},
 	})
 	forms := map[string]string{
 		"append": "xs.Append(x)", "delete": "m.Delete(k)", "make": "a literal", "new": "a literal T{…}",

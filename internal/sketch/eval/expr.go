@@ -94,11 +94,11 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	if f.owned != nil {
 		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
 	}
-	// A variant or a row value goes into its union unchanged: the value
+	// A variant, a sub-union's value (ConvWiden) or a row value goes into its union unchanged: the value
 	// keeps its record type; so does a function narrowed to a row value's
 	// one error type (ConvNarrow), whose row value is that type's value. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow && conv.Kind != check.ConvWiden {
 		return in.toOperation(fr, x, v, conv)
 	}
 	if convs := f.elems; len(convs) > 0 {
@@ -108,7 +108,7 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 		}
 		var out tuple
 		for i, conv := range convs {
-			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow || conv.Kind == check.ConvWiden {
 				continue
 			}
 			if out.elems == nil {
@@ -320,6 +320,20 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 	case *syntax.SelectorExpr:
+		if f := fr.info.MethodValues[x]; f != nil {
+			// x.f as a value (types.md, Methods 2): f with x's value bound
+			// now, as a dot call's receiver is passed.
+			ref, ab := in.funcValue(fr, x, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			recv, ab := in.receiver(fr, x.X, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			r := ref.(*funcRef)
+			return &funcRef{fn: r.fn, targs: r.targs, recv: recv, bound: true}, nil, nil
+		}
 		xf := in.fx(fr, x)
 		if xf.field.t != nil && fr.forms() {
 			// A record's field, checked at an earlier read (ORACLE O33).
@@ -347,6 +361,10 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 				var member check.Object
 				if pn := fr.info.Uses[id].(*check.PkgName); !pn.Pkg.Host() {
 					member = in.memberOf(pn.Pkg, x.Sel.Name)
+				} else if v, ok := goVars[pn.Pkg.Path+"."+x.Sel.Name]; ok {
+					// A read-only Go variable that a Go function's
+					// native reads (nativespure.go, goVars).
+					return v, nil, nil
 				}
 				switch o := member.(type) {
 				case *check.Var:
@@ -376,6 +394,22 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 				return nil, nil, in.symStop(fr, x.X, c.s.v)
 			}
 			return r.fields[fieldIndex(r.t, x.Sel.Name)], c.s, nil
+		}
+		if _, ref := check.GoRefElem(t.t); ref {
+			// A field of a Go value through its go.Ref (gohost.go).
+			base, root, ab := in.peekBase(fr, x.X, path)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			g, ok := base.(goVal)
+			if !ok {
+				return nil, nil, fr.unsupported(x, "a field of %s", describe(base))
+			}
+			v, ok := goField(g, x.Sel.Name, fr.rtypeOf(x))
+			if !ok {
+				return nil, nil, fr.unsupported(x, "the Go field %s", x.Sel.Name)
+			}
+			return v, root, nil
 		}
 		if p, ok := t.t.(*check.Pointer); ok {
 			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
@@ -988,6 +1022,13 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		}
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
+	case check.CallHash:
+		v, ab := in.expr(fr, x.Args[0])
+		if ab != nil {
+			return nil, ab
+		}
+		mustCharge(in, fr, 1)
+		return hashValue(v), nil
 	case check.CallLen:
 		// len reads a length, not the elements: a part it reads leaves
 		// no share behind, so its slot does not lend (MX-EVWITNESS: vt's
@@ -1113,6 +1154,10 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		return in.embedValue(fr, x, c) // nativesembed.go
 	case check.CallEncode, check.CallDecode:
 		return in.wireCall(fr, x, c) // codecwalk.go
+	case check.CallGoError:
+		if c.Name == "go.New" || c.Name == "go.Zero" {
+			return in.goBuiltin(fr, x, c) // gohost.go
+		}
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }

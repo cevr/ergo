@@ -1,0 +1,14 @@
+# scoped-engine: the upstream tests of managed-resource-layer at d21db423 and what restates each.
+src/scene.test.ts: initial view shows the engine off with a Start button -> case `scenes` (`@0 compute`: `Engine is off. | [Start engine] | [Compute next square, disabled] | No result yet.`, no Stop)
+src/scene.test.ts: clicking Start engine enters the booting state and shows Stop -> case `scenes` (`@100 start`: `Booting engine... | [Stop engine]`, no Start)
+src/scene.test.ts: a ready engine shows its id and the Stop button -> case `scenes` (`@600`: `Engine ready: engine-1 | [Stop engine] | [Compute next square]`)
+src/scene.test.ts: clicking Compute fires the Compute command and renders the result -> case `scenes` (the third compute: `Square result: 9`; upstream's model starts at 2 computes)
+src/scene.test.ts: the engine lifecycle drives boot, ready, and stop through the resource steps -> case `scenes` (start, the boot's 500 ms for upstream's ManagedResource.acquire, ready, stop, off) and case `engine`; law `ScreenIsTheLivePanel` holds the screen to the live panel, whose engines out are law `ReleasesEqualAcquires`
+src/scene.test.ts: a failed engine boot shows the failure reason -> case `scenes` (`fault`, `start`: `Engine failed: crypto unavailable | [Start engine]`)
+src/story.test.ts: ClickedStartEngine requests the engine by entering Booting -> `engine` test `StartEntersBooting`
+src/story.test.ts: StartedEngine marks the engine ready with its id -> `engine` test `StartedIsReadyWithItsId`
+src/story.test.ts: ClickedStopEngine releases the engine by entering Off -> `engine` test `StopEntersOff`; the release is law `ReleasesEqualAcquires`
+src/story.test.ts: StoppedEngine is a no-op lifecycle ack -> no restatement: there is no StoppedEngine; the end of the entry is the release
+src/story.test.ts: FailedStartEngine records the failure reason -> `engine` test `RefusedRecordsWhy`
+src/story.test.ts: ClickedCompute increments the counter and fires Compute with the next value -> `engine` test `ComputeCountsAndSquares`
+src/story.test.ts: SkippedCompute leaves the model unchanged -> no restatement: a compute without an engine is `Ignore` in the step (law `ComputeNeedsAnEngine`)

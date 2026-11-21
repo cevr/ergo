@@ -1,6 +1,7 @@
 // The tools: the contract of the working directory, the requests a model
 // can make of it, and the gate each request passes.
 
+import exec
 import json
 import strings
 
@@ -99,7 +100,7 @@ func Within(dir string, name string) string {
 }
 
 // Request is what a call asks of the tools, once its arguments are read.
-type Request = ReadFile{Path string} | ListDir{Dir string}
+type Request = ReadFile{Path string} | ListDir{Dir string} | RunShell{Command string}
 
 // Outcome is what a call gave: its text, or its failure.
 type Outcome = Output{Text string} | Broke{Why ToolFailure}
@@ -116,6 +117,7 @@ func Schemas() []Schema {
 	[]Schema{
 		Schema{Name: "read", About: "Read a text file of the working directory.", Params: []Param{Param{Name: "path", About: "the file's path, relative to the working directory"}}},
 		Schema{Name: "list", About: "List a directory of the working directory; a directory's name ends in /.", Params: []Param{Param{Name: "dir", About: "the directory's path, relative to the working directory; . for the directory itself"}}},
+		Schema{Name: "shell", About: "Run a command with sh -c in the working directory, once the person allows it; its output is cut at 8000 characters.", Params: []Param{Param{Name: "command", About: "the command line"}}},
 	}
 }
 
@@ -123,6 +125,7 @@ func Schemas() []Schema {
 // their keys.
 type readArgs { Path string }
 type listArgs { Dir string }
+type shellArgs { Command string }
 
 // Parse is the request a call makes: its name picks the tool, and its
 // arguments must be the JSON object the tool's schema names.
@@ -140,9 +143,69 @@ func Parse(c Call) Request fails UnknownTool | BadArguments {
 			return BadArguments{Tool: c.Name, Reason: "want {\"dir\": TEXT}"}
 		}
 		ListDir{Dir: a.Dir}
+	case "shell":
+		let a = json.Decode(json.Codec[shellArgs]{MaxBytes: 1 << 16, MaxDepth: 4}, c.Arguments) catch {
+		case _:
+			return BadArguments{Tool: c.Name, Reason: "want {\"command\": TEXT}"}
+		}
+		RunShell{Command: a.Command}
 	case _:
 		UnknownTool{Name: c.Name}
 	}
+}
+
+// ParseReadsWhatSchemaNames: the arguments written for r under the keys
+// its tool's schema names parse back to r, so the schema the model is
+// told and the parser agree.
+law ParseReadsWhatSchemaNames(r Request) {
+	let got = Parse(written(r)) catch {
+	case _:
+		return false
+	}
+	got == r
+}
+
+// UnknownNameIsTyped: a call of a name no schema has fails UnknownTool,
+// naming it.
+law UnknownNameIsTyped(name string) {
+	for s in Schemas() {
+		if s.Name == name {
+			return true
+		}
+	}
+	let _ = Parse(Call{Id: "law", Name: name, Arguments: "{}"}) catch {
+	case UnknownTool as u:
+		return u.Name == name
+	case BadArguments:
+		return false
+	}
+	false
+}
+
+// written is the call of r's tool with r's one argument under the key
+// its schema names.
+func written(r Request) Call {
+	match r {
+	case ReadFile as f:
+		calling("read", f.Path)
+	case ListDir as d:
+		calling("list", d.Dir)
+	case RunShell as s:
+		calling("shell", s.Command)
+	}
+}
+
+// calling is the call of the tool name with value under its schema's
+// first key.
+func calling(name string, value string) Call {
+	for s in Schemas() {
+		if s.Name == name {
+			let mut args = Map[string, string]{}
+			args[s.Params[0].Name] = value
+			return Call{Id: "law", Name: name, Arguments: json.Encode(json.Codec[Map[string, string]]{MaxBytes: 0, MaxDepth: 0}, args)}
+		}
+	}
+	Call{Id: "law", Name: name, Arguments: "{}"}
 }
 
 // Use is a call as the loop takes it: its request, or why it has none.
@@ -191,12 +254,15 @@ func Gate(r Request) Verdict {
 	match r {
 	case ReadFile, ListDir:
 		Allow
+	case RunShell:
+		Ask
 	}
 }
 
-// Run is the outcome of r on the tools in the context. It never fails: a
-// failure is an outcome, which the model is told.
-func Run(r Request) Outcome needs Tools {
+// Run is the outcome of r on the tools in the context, its text
+// bounded. It never fails: a failure is an outcome, which the model is
+// told.
+func Run(r Request) Outcome needs Tools | exec.Runner | Scheduler {
 	match r {
 	case ReadFile as f:
 		let text = Tools.Read(f.Path) catch {
@@ -204,14 +270,16 @@ func Run(r Request) Outcome needs Tools {
 			let why ToolFailure = e
 			return Broke{Why: why}
 		}
-		Output{Text: text}
+		Output{Text: Bounded(text)}
 	case ListDir as d:
 		let names = Tools.List(d.Dir) catch {
 		case e:
 			let why ToolFailure = e
 			return Broke{Why: why}
 		}
-		Output{Text: strings.Join(names, "\n")}
+		Output{Text: Bounded(strings.Join(names, "\n"))}
+	case RunShell as s:
+		Shell(s.Command)
 	}
 }
 

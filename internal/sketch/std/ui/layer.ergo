@@ -1,0 +1,366 @@
+import arena
+
+// Layers (UG4): a subtree above the flow, placed against the box of the
+// node that declares its anchor's key, flipped to the other side when its
+// side has no room and shifted to stay in the view, over an optional
+// scrim; Escape and a pointer's press outside it arrive as its dismiss
+// signal. Layers stack by kind (Z), and among one kind the later in tree
+// order is above.
+//
+// A view cannot read boxes, so placement is a pure function (PlaceLayer)
+// that every host with boxes calls, and dismissal is the frame's, so
+// every host dismisses alike.
+//
+// Prior art: Floating UI's computePosition (placement, then the flip and
+// shift middleware, in that order); the HTML popover attribute's top
+// layer and light dismiss; Radix's DismissableLayer (Escape and
+// onPointerDownOutside go to the top layer only); vercel-labs/ui's layers
+// (platform/layers.ts: an outside press and Escape go to the top layer,
+// a modal layer makes the rest inert).
+
+// Z is a layer's kind, which orders the stack: a popover (a menu, a
+// listbox, a popover) under a modal (a dialog, a sheet), under a toast,
+// under a tooltip.
+type Z = PopoverZ | ModalZ | ToastZ | TooltipZ
+
+// PopoverZ is a menu's, a listbox's or a popover's layer.
+type PopoverZ {}
+
+// ModalZ is a dialog's or a sheet's layer.
+type ModalZ {}
+
+// ToastZ is a toast's layer.
+type ToastZ {}
+
+// TooltipZ is a tooltip's layer, above every other.
+type TooltipZ {}
+
+// zRank is z's place in the stack, the lowest first.
+func zRank(z Z) int {
+	match z {
+	case PopoverZ:
+		0
+	case ModalZ:
+		1
+	case ToastZ:
+		2
+	case TooltipZ:
+		3
+	}
+}
+
+// Side is the side of its anchor a layer is placed on.
+type Side = SideTop | SideBottom | SideLeft | SideRight
+
+// SideTop is above the anchor.
+type SideTop {}
+
+// SideBottom is below the anchor.
+type SideBottom {}
+
+// SideLeft is before the anchor.
+type SideLeft {}
+
+// SideRight is after the anchor.
+type SideRight {}
+
+// Place is where a layer goes against its anchor: on Side, aligned on
+// the other axis by Align (AlignStretch as AlignStart), Gap away from it.
+type Place { Side Side, Align Align, Gap Length }
+
+// Layered is what a Layer is: its kind, the key of the node it is
+// placed against (None: centred in the view), where, whether a scrim
+// under it shields the rest, and the signal Escape and a press outside
+// it send (None: neither dismisses it).
+type Layered[E] { Z Z, Anchor Option[Key], Place Place, Scrim bool, Dismiss Option[E] }
+
+// Layer writes a layer above the flow: its body is laid out at its own
+// size and placed by PlaceLayer against its anchor.
+func Layer[E, F, R](f mut Frame[E], l Layered[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, LayerNode{Z: l.Z, Anchor: l.Anchor, Place: l.Place, Scrim: l.Scrim, Dismiss: l.Dismiss, Style: style}, body, at)
+}
+
+// StackOrder is the order layers of kinds zs (in tree order) paint in,
+// as indexes into zs, the bottom first: by kind, and among one kind in
+// tree order. A host hit-tests the reverse: the top layer first.
+func StackOrder(zs []Z) []int {
+	let mut out = []int{}
+	for r in 0..4 {
+		for i, z in zs {
+			if zRank(z) == r {
+				out = out.Append(i)
+			}
+		}
+	}
+	out
+}
+
+// PlaceLayer is the box of a layer w by h placed by p against anchor in
+// view: on p.Side, Gap away, or on the other side when p.Side has no
+// room and the other has (when neither has, the side with more room,
+// then shifted into view); along the side by p.Align, then shifted into
+// view. With no anchor, the layer is centred in view.
+func PlaceLayer(anchor Option[Rect], w Length, h Length, view Rect, p Place) Rect {
+	let a = match anchor {
+	case Some[Rect] as r:
+		r.Value
+	case None:
+		return Rect{X: view.X + (view.W-w)/2, Y: view.Y + (view.H-h)/2, W: w, H: h}
+	}
+	let vertical = match p.Side {
+	case SideTop, SideBottom:
+		true
+	case SideLeft, SideRight:
+		false
+	}
+	// The main axis: before (top or left) or after (bottom or right).
+	let (lo, hi, at, span, size) = if vertical { (view.Y, view.Y + view.H, a.Y, a.H, h) } else { (view.X, view.X + view.W, a.X, a.W, w) }
+	let before = match p.Side {
+	case SideTop, SideLeft:
+		true
+	case SideBottom, SideRight:
+		false
+	}
+	let roomBefore = at - p.Gap - lo
+	let roomAfter = hi - (at + span + p.Gap)
+	let mut first = before
+	let fits = if before { roomBefore >= size } else { roomAfter >= size }
+	let fitsOther = if before { roomAfter >= size } else { roomBefore >= size }
+	if !fits && fitsOther {
+		first = !before
+	} else if !fits && !fitsOther {
+		first = roomBefore > roomAfter
+	}
+	let main = shift(if first { at - p.Gap - size } else { at + span + p.Gap }, size, lo, hi)
+	// The cross axis.
+	let (clo, chi, cat, cspan, csize) = if vertical { (view.X, view.X + view.W, a.X, a.W, w) } else { (view.Y, view.Y + view.H, a.Y, a.H, h) }
+	let cross = shift(match p.Align {
+	case AlignCenter:
+		cat + (cspan-csize)/2
+	case AlignEnd:
+		cat + cspan - csize
+	case AlignStart, AlignStretch:
+		cat
+	}, csize, clo, chi)
+	if vertical { Rect{X: cross, Y: main, W: w, H: h} } else { Rect{X: main, Y: cross, W: w, H: h} }
+}
+
+// shift moves a span of size starting at x into [lo, hi], its start
+// first when it is larger.
+func shift(x Length, size Length, lo Length, hi Length) Length {
+	if x+size > hi {
+		if hi-size < lo { lo } else { hi - size }
+	} else if x < lo {
+		lo
+	} else {
+		x
+	}
+}
+
+// layerOf is r's Layered when r is a layer.
+func layerOf[E](f mut Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
+	match nodeAt(f, r).node {
+	case LayerNode[E] as l:
+		Some{Value: l}
+	case _:
+		None
+	}
+}
+
+// layersIn is the layers at or under r, in tree order, onto out.
+func layersIn[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let mut all = out
+	match layerOf(f, r) {
+	case Some[LayerNode[E]]:
+		all = all.Append(r)
+	case None:
+	}
+	for k in kidsOf(f, r) {
+		all = layersIn[E](f, k, all)
+	}
+	all
+}
+
+// stack is f's layers, the bottom first (StackOrder).
+func stack[E](f mut Frame[E]) []arena.Ref[node[E]] {
+	let ls = layersIn(f, f.root, []arena.Ref[node[E]]{})
+	let mut zs = []Z{}
+	for l in ls {
+		match layerOf(f, l) {
+		case Some[LayerNode[E]] as x:
+			zs = zs.Append(x.Value.Z)
+		case None:
+		}
+	}
+	let mut out = []arena.Ref[node[E]]{}
+	for i in StackOrder(zs) {
+		out = out.Append(ls[i])
+	}
+	out
+}
+
+// Layers is the layers of f, the bottom first.
+func Layers[E](f mut Frame[E]) []Id[E] {
+	let mut out = []Id[E]{}
+	for r in stack(f) {
+		out = out.Append(Id[E]{ref: r})
+	}
+	out
+}
+
+// topWith is the top layer of f with a dismiss signal (dismiss) or a
+// scrim (!dismiss), the null ref for none.
+func topWith[E](f mut Frame[E], dismiss bool) arena.Ref[node[E]] {
+	let s = stack(f)
+	let mut i = len(s) - 1
+	for i >= 0 {
+		match layerOf(f, s[i]) {
+		case Some[LayerNode[E]] as l:
+			let fit = if dismiss { dismissable(l.Value.Dismiss) } else { l.Value.Scrim }
+			if fit {
+				return s[i]
+			}
+		case None:
+		}
+		i = i - 1
+	}
+	arena.Null[node[E]]()
+}
+
+// dismissable is whether d is a signal.
+func dismissable[E](d Option[E]) bool {
+	match d {
+	case Some[E]:
+		true
+	case None:
+		false
+	}
+}
+
+// inLayer is whether x is the layer l or a node under it.
+func inLayer[E](f mut Frame[E], l arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
+	if x == l {
+		return true
+	}
+	match above(f, x) {
+	case Some[[]arena.Ref[node[E]]] as up:
+		for u in up.Value {
+			if u == l {
+				return true
+			}
+		}
+		false
+	case None:
+		false
+	}
+}
+
+// Shielded is whether a layer's scrim covers the node id: a scrim is open
+// and id is outside the top scrim layer.
+func Shielded[E](f mut Frame[E], id Id[E]) bool {
+	let scrim = topWith(f, false)
+	scrim != arena.Null[node[E]]() && !inLayer(f, scrim, id.ref)
+}
+
+// dismissOf is the layer l's dismiss signal.
+func dismissOf[E](f mut Frame[E], l arena.Ref[node[E]]) Option[E] {
+	match layerOf(f, l) {
+	case Some[LayerNode[E]] as x:
+		x.Value.Dismiss
+	case None:
+		None
+	}
+}
+
+// layerGate is what the layers make of event before its node does (UG4):
+// Some when they take it whole. Escape (no modifier) is the top
+// dismissable layer's dismiss signal. A pointer's Down on a node outside
+// the top dismissable layer queues its dismiss signal (sent before the
+// event's own). While a scrim is open, an event on a node outside the
+// top scrim layer does nothing else.
+func layerGate[E](f mut Frame[E], event Event[E]) Option[Handled[E]] {
+	let target = match event {
+	case KeyDown as k:
+		let m = k.Press.Mods
+		if k.Press.Name == "Escape" && !m.Shift && !m.Ctrl && !m.Alt && !m.Meta {
+			let top = topWith(f, true)
+			if top != arena.Null[node[E]]() {
+				return Some{Value: Handled[E]{Signal: dismissOf(f, top), Changed: false, Ops: []Op[E]{}}}
+			}
+		}
+		return None
+	case Press[E] as p:
+		p.Id.ref
+	case Type[E] as x:
+		x.Id.ref
+	case Edit[E] as x:
+		x.Id.ref
+	case Point[E] as p:
+		match p.Pointer.Phase {
+		case Down:
+			let top = topWith(f, true)
+			if top != arena.Null[node[E]]() && !inLayer(f, top, p.Id.ref) {
+				match dismissOf(f, top) {
+				case Some[E] as e:
+					f.crossed = f.crossed.Append(e.Value)
+				case None:
+				}
+			}
+		case _:
+		}
+		p.Id.ref
+	case Scrolled[E] as x:
+		x.Id.ref
+	case _:
+		return None
+	}
+	let scrim = topWith(f, false)
+	if scrim != arena.Null[node[E]]() && !inLayer(f, scrim, target) {
+		return Some{Value: Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}}
+	}
+	None
+}
+
+// AnchorIn is the node a layer anchored at k is placed against in the
+// mirror m: the first node in tree order that declares k, as a zone's
+// key or a Semantic's Access.Key; None when none does.
+func AnchorIn[E](m mut Mirror[E], k Key) Option[Id[E]] {
+	if k == NoKey {
+		return None
+	}
+	match entryOf(m, m.root) {
+	case Some[mirrored[E]] as root:
+		anchorFrom(m, root.Value.first, k)
+	case None:
+		None
+	}
+}
+
+// anchorFrom is the first node from at, its next siblings and their
+// subtrees, in tree order, that declares k as an anchor.
+func anchorFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
+	let mut c = at
+	for {
+		match c {
+		case Some[Id[E]] as x:
+			let e = entry(m, refOf(m, x.Value))
+			let own = match e.node {
+			case ZoneNode as z:
+				z.Key == k
+			case _:
+				declaresKey(e.node, k)
+			}
+			if own {
+				return c
+			}
+			match anchorFrom[E](m, e.first, k) {
+			case Some[Id[E]] as found:
+				return Some{Value: found.Value}
+			case None:
+			}
+			c = e.next
+		case None:
+			return None
+		}
+	}
+}

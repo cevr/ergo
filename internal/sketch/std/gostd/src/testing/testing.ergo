@@ -317,6 +317,7 @@ extern go testing.PB type PB {}
 extern go testing.PB.Next func (pb *PB) Next() bool needs go.Foreign
 
 // ergo:go func RegisterCover(c Cover)
+// ergo:total
 extern go testing.RegisterCover func RegisterCover(c Cover) needs go.Foreign
 
 // ergo:go func RunBenchmarks(matchString func(pat string, str string) (bool, error), benchmarks []InternalBenchmark)
@@ -464,6 +465,7 @@ extern go testing.TB type TB {
 // ergo:refused TB.Skipf: a variadic interface method
 
 // ergo:go func Testing() bool
+// ergo:total
 extern go testing.Testing func Testing() bool needs go.Foreign
 
 // ergo:go func Verbose() bool

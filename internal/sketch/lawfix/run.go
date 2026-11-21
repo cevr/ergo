@@ -261,8 +261,13 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	for _, h := range res.Helpers {
 		r.Moves = append(r.Moves, fmt.Sprintf("moved %s (%s)", h, dir))
 	}
+	// A renamed file's old name is removed too (Result.Deleted), but its
+	// declarations live on under the new one: the report says renamed.
+	renamed := map[string]bool{}
 	for _, rn := range res.Renamed {
 		r.Moves = append(r.Moves, fmt.Sprintf("renamed %s (%s)", rn, dir))
+		from, _, _ := strings.Cut(rn, " -> ")
+		renamed[from] = true
 	}
 	for _, u := range res.Unplaced {
 		r.Unplaced = append(r.Unplaced, fmt.Sprintf("law %s in %s names nothing in its package; state it in the package it is about", u, dir))
@@ -274,7 +279,9 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	}
 	for _, name := range res.Deleted {
 		path := filepath.Join(dir, name)
-		r.Deleted = append(r.Deleted, path)
+		if !renamed[name] {
+			r.Deleted = append(r.Deleted, path)
+		}
 		if write {
 			if err := os.Remove(path); err != nil {
 				return err

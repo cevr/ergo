@@ -235,10 +235,10 @@ func goStructScope() *nameScope {
 // names never reach Go.
 
 // ergoPredeclared reports whether the Ergo checker predeclares n for every
-// program package, so a declaration or a parameter may not take it (D-D3,
-// "a prelude name cannot be redeclared"). The checker owns the set
-// (check.IsPredeclared); TestErgoPredeclaredMatchesChecker compares it with
-// the checker's refusals.
+// program package. Ergo lets a declaration or a parameter take it and hide
+// it (D-D3, owner q244), but the binding's own text reads the prelude
+// (Option, the basic types), so its names avoid the set. The checker owns
+// the set (check.IsPredeclared).
 func ergoPredeclared(n string) bool { return check.IsPredeclared(n) }
 
 func isExported(n string) bool { return n != "" && n[0] >= 'A' && n[0] <= 'Z' }

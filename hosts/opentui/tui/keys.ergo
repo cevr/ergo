@@ -1,0 +1,156 @@
+// Keys: the names of OpenTUI's key codes, as the web names them, and the
+// terminal bytes of a key (what Play feeds the screen). Key codes are
+// Unicode scalars; functional keys use the Kitty keyboard protocol's
+// numbers (opentui.h, OT_INPUT_KEY_*).
+
+import strconv
+import ui
+import utf8
+
+// named is a functional key: its code and its name.
+type named { code int, name string }
+
+// namedKeys are the codes that have a name of their own.
+func namedKeys() []named {
+	let mut out = []named{
+		named{code: 27, name: "Escape"},
+		named{code: 13, name: "Enter"},
+		named{code: 9, name: "Tab"},
+		named{code: 127, name: "Backspace"},
+		named{code: 57348, name: "Insert"},
+		named{code: 57349, name: "Delete"},
+		named{code: 57350, name: "ArrowLeft"},
+		named{code: 57351, name: "ArrowRight"},
+		named{code: 57352, name: "ArrowUp"},
+		named{code: 57353, name: "ArrowDown"},
+		named{code: 57354, name: "PageUp"},
+		named{code: 57355, name: "PageDown"},
+		named{code: 57356, name: "Home"},
+		named{code: 57357, name: "End"},
+	}
+	for n in 1..36 {
+		out = out.Append(named{code: 57363 + n, name: "F\(n)"})
+	}
+	out
+}
+
+// KeyName is the name of the key of code: a functional key's name, else
+// the key's text (text, or the code's rune when the terminal sent none);
+// a code with neither is "Unidentified".
+func KeyName(code int, text string) string {
+	for k in namedKeys() {
+		if k.code == code {
+			return k.name
+		}
+	}
+	if text != "" {
+		return text
+	}
+	// A printable code below the private-use area, not a surrogate.
+	if code > 32 && code < 55296 {
+		return utf8.RuneText(rune(code))
+	}
+	if code == 32 {
+		return " "
+	}
+	"Unidentified"
+}
+
+// KeyNameIsTotal: every code has a name, a functional key's name is not
+// the text of a typed key, and no two named codes share a name.
+law KeyNameIsTotal(code int, other int) {
+	let keys = namedKeys()
+	let c = (code%70000 + 70000) % 70000
+	if KeyName(c, "") == "" {
+		return false
+	}
+	let a = keys[(other%len(keys)+len(keys))%len(keys)]
+	if KeyName(a.code, "") != a.name || utf8.RuneCount(a.name) == 1 {
+		return false
+	}
+	for b in keys {
+		if b.code != a.code && b.name == a.name {
+			return false
+		}
+	}
+	true
+}
+
+// Bytes is what a terminal sends for the key press k: a functional key's
+// sequence, a character's text, Ctrl and a letter as its control byte,
+// Alt as an Escape before the key, and any other chord in the Kitty
+// keyboard protocol's CSI u form.
+func Bytes(k ui.KeyPress) string {
+	let m = k.Mods
+	let plain = !m.Shift && !m.Ctrl && !m.Alt && !m.Meta
+	let seq = sequence(k.Name)
+	if plain {
+		if seq != "" {
+			return seq
+		}
+		return k.Name
+	}
+	if k.Name == "Tab" && m.Shift && !m.Ctrl && !m.Alt && !m.Meta {
+		return "\x1b[Z"
+	}
+	let one = utf8.RuneCount(k.Name) == 1
+	if one && m.Ctrl && !m.Shift && !m.Alt && !m.Meta {
+		let r = int(utf8.DecodeRuneInString(k.Name).Rune)
+		if r >= 97 && r <= 122 {
+			return utf8.RuneText(rune(r - 96))
+		}
+	}
+	if one && m.Alt && !m.Shift && !m.Ctrl && !m.Meta {
+		return "\x1b" + k.Name
+	}
+	let code = codeOf(k.Name)
+	let bits = (if m.Shift { 1 } else { 0 }) + (if m.Alt { 2 } else { 0 }) + (if m.Ctrl { 4 } else { 0 }) + (if m.Meta { 32 } else { 0 })
+	"\x1b[\(strconv.Itoa(code));\(strconv.Itoa(bits + 1))u"
+}
+
+// sequence is the legacy sequence of a functional key, "" for another.
+func sequence(name string) string {
+	match name {
+	case "Enter":
+		"\r"
+	case "Tab":
+		"\t"
+	case "Backspace":
+		"\x7f"
+	case "Escape":
+		"\x1b"
+	case "ArrowUp":
+		"\x1b[A"
+	case "ArrowDown":
+		"\x1b[B"
+	case "ArrowRight":
+		"\x1b[C"
+	case "ArrowLeft":
+		"\x1b[D"
+	case "Home":
+		"\x1b[H"
+	case "End":
+		"\x1b[F"
+	case "Insert":
+		"\x1b[2~"
+	case "Delete":
+		"\x1b[3~"
+	case "PageUp":
+		"\x1b[5~"
+	case "PageDown":
+		"\x1b[6~"
+	case _:
+		""
+	}
+}
+
+// codeOf is the code of the key named name: a named key's, else its first
+// rune's.
+func codeOf(name string) int {
+	for k in namedKeys() {
+		if k.name == name {
+			return k.code
+		}
+	}
+	int(utf8.DecodeRuneInString(name).Rune)
+}

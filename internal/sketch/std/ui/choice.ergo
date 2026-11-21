@@ -14,7 +14,7 @@ import time
 // sends on(its option); ArrowDown and ArrowRight pick the option after the
 // selected one and ArrowUp and ArrowLeft the one before, wrapping round,
 // as ARIA's radio group does; Home and End pick the first and the last.
-func Radios[E](f *Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func Radios[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	choose(f, RadioGroup, label, options, selected, on, at)
 }
 
@@ -23,7 +23,7 @@ func Radios[E](f *Frame[E], label string, options []string, selected string, on 
 // picks the option after the selected one and ArrowUp the one before,
 // stopping at the ends, as ARIA's list box does; Home and End pick the
 // first and the last.
-func Select[E](f *Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func Select[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	choose(f, ListBox, label, options, selected, on, at)
 }
 
@@ -31,7 +31,7 @@ func Select[E](f *Frame[E], label string, options []string, selected string, on 
 // its keys while the focus is in it (OnFocusKey, UC-FOCUS): a press on an
 // option puts it there, so of two choices on a screen the arrows move the
 // one last pressed.
-func choose[E](f *Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
+func choose[E](f mut Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	let radio = group == RadioGroup
 	let mut g = Named(group, label)
 	g.Value = Some{Value: selected}
@@ -130,7 +130,7 @@ func choiceIndex(options []string, v string) int {
 // option and exactly that option is checked (a radio) or selected (an
 // option), each found by its role and name and by its label.
 // (a law's helper)
-func choiceShown[S, D, F](h *TestHost[S, int, D, F], n int, sel int, radio bool) bool {
+func choiceShown[S, D, F](h mut TestHost[S, int, D, F], n int, sel int, radio bool) bool {
 	let options = choiceOptions(n)
 	let group = if radio { RadioGroup } else { ListBox }
 	let item = if radio { Radio } else { ListOption }
@@ -159,7 +159,7 @@ func choiceShown[S, D, F](h *TestHost[S, int, D, F], n int, sel int, radio bool)
 }
 
 // choiceKey presses the key named name on h. (a law's helper)
-func choiceKey[S, D, F](h *TestHost[S, int, D, F], name string) bool {
+func choiceKey[S, D, F](h mut TestHost[S, int, D, F], name string) bool {
 	PressKey(h, KeyPress{Name: name, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 	case actor.Stopped:
 		return false
@@ -171,7 +171,7 @@ func choiceKey[S, D, F](h *TestHost[S, int, D, F], name string) bool {
 
 // choiceWalk presses key steps times on h, and is whether each press
 // moves the state by by. (a law's helper)
-func choiceWalk[D, F](h *TestHost[int, int, D, F], key string, steps int, by int) bool {
+func choiceWalk[D, F](h mut TestHost[int, int, D, F], key string, steps int, by int) bool {
 	for _ in 0..steps {
 		let was = StateOf(h)
 		if !choiceKey(h, key) || StateOf(h) != was+by {
@@ -200,7 +200,7 @@ law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 		let options = choiceOptions(k)
 		let start = (from%k + k) % k
 		let target = (to%k + k) % k
-		let view = func(f *Frame[int], s int) {
+		let view = func(f mut Frame[int], s int) {
 			let on = func(v string) int { choiceIndex(options, v) }
 			if radio {
 				Radios(f, "pick", options, options[s], on)
@@ -267,7 +267,7 @@ func namedOptions(p string, n int) []string {
 // over ob, each a radio group (ra, rb) or a list box, and a button
 // "elsewhere"; the state is the first's selection times 10 plus the
 // second's. (a law's helper)
-func twoChoices(f *Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+func twoChoices(f mut Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
 	let a = s / 10
 	let b = s % 10
 	Column(f, Plain()) {
@@ -333,7 +333,7 @@ law ChoicesTakeKeysWhenFocused(seed int, steps int) {
 		let rb = draw(&r, 2) == 0
 		let mut a = draw(&r, len(oa))
 		let mut b = draw(&r, len(ob))
-		let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let view = func(f mut Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
 		let start = a*10 + b
 		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(app, view, m, 4) catch {
@@ -386,4 +386,378 @@ law ChoicesTakeKeysWhenFocused(seed int, steps int) {
 		}
 		true
 	}
+}
+
+// prog is a generated view. pSwap writes a Text or a Check at one
+// forwarded call site, as a helper with a CallSite parameter can. pBound
+// is a group with a catch right after it (a Boundary, a Box or an Each,
+// by form), whose arms write a Text for Pending, and for Missing a Text
+// only when its value is even (so a group may leave nothing); pRead,
+// drawn only under a pBound, is a read that fails with Pending or Missing by
+// the state (H8a), so a failure leaves nested containers, Each rows and
+// inner boundaries. pSame is a Same (UC-4) keyed by the state its kids read, with an OnKey and a Toggle of its
+// own and one in a Box under it; with memo false it is the Box a Same is, run every pass.
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
+
+// rng is the laws' generator (a linear congruence).
+type rng { x int }
+
+func draw(r mut rng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} }
+
+let slots = 6
+
+func genProg(r mut rng, depth int, bounded bool) prog {
+	let kind = draw(r, 12)
+	if kind == 9 && bounded {
+		return pRead{slot: draw(r, slots)}
+	}
+	if depth == 0 || kind < 4 {
+		match kind % 4 {
+		case 0:
+			pText{slot: draw(r, slots)}
+		case 1:
+			pInput{slot: draw(r, slots)}
+		case 2:
+			pCheck{slot: draw(r, slots)}
+		case _:
+			pSwap{slot: draw(r, slots)}
+		}
+	} else {
+		let inner = bounded || kind == 8 || kind == 9
+		let mut kids = []prog{}
+		for _ in 0..draw(r, 4) {
+			kids = kids.Append(genProg(r, depth-1, inner))
+		}
+		match kind {
+		case 4:
+			pBox{slot: draw(r, slots), kids: kids}
+		case 5:
+			pRow{kids: kids}
+		case 6:
+			pPress{slot: draw(r, slots), kids: kids}
+		case 7:
+			pEach{slot: draw(r, slots), kids: kids}
+		case 10:
+			pFieldset{slot: draw(r, slots), kids: kids}
+		case 11:
+			pSame{kids: kids, memo: true}
+		case _:
+			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
+		}
+	}
+}
+
+func genState(r mut rng) []int {
+	let mut s = []int{}
+	for _ in 0..slots {
+		s = s.Append(draw(r, 64))
+	}
+	s
+}
+
+// items are the keys an Each shows for state value v: 0 to 5 turned by v,
+// some left out, so a change of v moves, adds and removes rows.
+func items(v int) []int {
+	let mut out = []int{}
+	for i in 0..6 {
+		let k = (i + v) % 6
+		if (k+v/6)%3 != 0 {
+			out = out.Append(k)
+		}
+	}
+	out
+}
+
+func gapped(v int) Style {
+	let mut st = Plain()
+	st.Gap = Length(float64(v % 3))
+	st
+}
+
+// described is the description of a pFieldset at state value v: a text
+// for an even v, none for an odd one.
+func described(v int) string {
+	if v%2 == 0 {
+		return "d\(v)"
+	}
+	""
+}
+
+// reads marks the state slots p reads.
+func reads(p prog, used []bool) []bool {
+	let mut out = used
+	let mut kids = []prog{}
+	match p {
+	case pText as x:
+		out[x.slot] = true
+	case pInput as x:
+		out[x.slot] = true
+	case pCheck as x:
+		out[x.slot] = true
+	case pSwap as x:
+		out[x.slot] = true
+	case pRead as x:
+		out[x.slot] = true
+	case pBox as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pRow as x:
+		kids = x.kids
+	case pPress as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pEach as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pBound as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pFieldset as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pSame as x:
+		kids = x.kids
+	}
+	for c in kids {
+		out = reads(c, out)
+	}
+	out
+}
+
+// outcome is what a program means at a state: its shapes, or the failure
+// that leaves it (0 none, 1 Pending, 2 Missing with value v).
+type outcome { shapes []Shape[int], fail int, v int }
+
+func done(shapes []Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
+
+// model is what p means at state s: a failure in a container's body or an
+// Each row leaves the whole container or Each, and a pBound shows its
+// arm's Text in place of a body that failed.
+func model(p prog, s []int, row int) outcome {
+	match p {
+	case pText as x:
+		done([]Shape[int]{leaf(TextNode{Value: "t\(s[x.slot] + row)", Style: Plain()})})
+	case pInput as x:
+		done([]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len("v\(s[x.slot] + row)"), Anchor: len("v\(s[x.slot] + row)")})})
+	case pCheck as x:
+		done([]Shape[int]{leaf(CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
+	case pSwap as x:
+		let v = s[x.slot] + row
+		if v%2 == 0 {
+			return done([]Shape[int]{leaf(TextNode{Value: "even \(v)", Style: Plain()})})
+		}
+		done([]Shape[int]{leaf(CheckNode{Label: "odd", Checked: v%3 == 0, On: v})})
+	case pBox as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: BoxNode{Style: gapped(s[x.slot])}, Kids: o.shapes}})
+	case pRow as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: RowNode{Style: Plain()}, Kids: o.shapes}, leaf(TextNode{Value: "after", Style: Plain()})})
+	case pPress as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: PressStyle()}, Kids: o.shapes}})
+	case pFieldset as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
+	case pSame as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		let mut kids = []Shape[int]{leaf(ToggleNode{Label: "same", On: false}), Shape[int]{Node: BoxNode{Style: Plain()}, Kids: []Shape[int]{leaf(ToggleNode{Label: "inner", On: false})}}}
+		for k in o.shapes {
+			kids = kids.Append(k)
+		}
+		done([]Shape[int]{Shape[int]{Node: BoxNode{Style: Plain()}, Kids: kids}})
+	case pEach as x:
+		let mut out = []Shape[int]{}
+		for k in items(s[x.slot]) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail != 0 {
+				return o
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		done(out.Append(leaf(TextNode{Value: "after", Style: Plain()})))
+	case pBound as x:
+		let mut out = []Shape[int]{}
+		for k in boundRows(x, s, row) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail == 1 {
+				return done([]Shape[int]{leaf(TextNode{Value: "pending", Style: Plain()})})
+			}
+			if o.fail == 2 && o.v%2 == 0 {
+				return done([]Shape[int]{leaf(TextNode{Value: "missing \(o.v)", Style: Plain()})})
+			}
+			if o.fail == 2 {
+				return done([]Shape[int]{})
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		if x.form == 1 {
+			return done([]Shape[int]{Shape[int]{Node: BoxNode{Style: Plain()}, Kids: out}})
+		}
+		done(out)
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 0 {
+			return done([]Shape[int]{})
+		}
+		outcome{shapes: []Shape[int]{}, fail: v % 3, v: v}
+	}
+}
+
+func outcomes(ps []prog, s []int, row int) outcome {
+	let mut out = []Shape[int]{}
+	for p in ps {
+		let o = model(p, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		for x in o.shapes {
+			out = out.Append(x)
+		}
+	}
+	done(out)
+}
+
+// stops is whether some pBound of ps fails at s: then the frame may park
+// what it held; otherwise it holds only the tree.
+func stopsAt(ps []prog, s []int, row int) bool {
+	for p in ps {
+		if stopIn(p, s, row) {
+			return true
+		}
+	}
+	false
+}
+
+func stopIn(p prog, s []int, row int) bool {
+	match p {
+	case pBox as x:
+		stopsAt(x.kids, s, row)
+	case pRow as x:
+		stopsAt(x.kids, s, row)
+	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pFieldset as x:
+		stopsAt(x.kids, s, row)
+	case pSame as x:
+		stopsAt(x.kids, s, row)
+	case pEach as x:
+		for k in items(s[x.slot]) {
+			if stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case pBound as x:
+		for k in boundRows(x, s, row) {
+			if outcomes(x.kids, s, k).fail != 0 || stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+// boundRows is the rows a pBound runs its kids in: the Each's items for
+// form 2, and the enclosing row otherwise.
+func boundRows(x pBound, s []int, row int) []int {
+	if x.form == 2 {
+		return items(s[x.slot])
+	}
+	[]int{row}
+}
+
+func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
+
+func genRoot(r mut rng) []prog {
+	let mut ps = []prog{}
+	for _ in 0..draw(r, 4)+1 {
+		ps = ps.Append(genProg(r, 3, false))
+	}
+	ps
+}
+
+func shuffled(xs []int, r mut rng) []int {
+	let mut out = xs
+	for i in 0..len(out) {
+		let j = i + draw(r, len(out)-i)
+		let x = out[i]
+		out[i] = out[j]
+		out[j] = x
+	}
+	out
+}
+
+// pp is a generated paint program: fills and strokes of paths, and
+// transforms and clips around programs of their own. Every number it
+// paints reads the state, so a new state repaints.
+type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppImage{k int} | ppSprite{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
+
+func genPaint(r mut rng, depth int) []pp {
+	let mut out = []pp{}
+	for _ in 0..draw(r, 4) {
+		let k = draw(r, 50)
+		let kind = draw(r, 7)
+		if depth == 0 || kind < 5 {
+			match kind % 5 {
+			case 0:
+				out = out.Append(ppFill{k: k})
+			case 1:
+				out = out.Append(ppStroke{k: k})
+			case 2:
+				out = out.Append(ppImage{k: k})
+			case 3:
+				out = out.Append(ppSprite{k: k})
+			case _:
+				out = out.Append(ppRect{k: k})
+			}
+		} else if kind == 5 {
+			out = out.Append(ppMove{k: k, kids: genPaint(r, depth-1)})
+		} else {
+			out = out.Append(ppClip{k: k, kids: genPaint(r, depth-1)})
+		}
+	}
+	out
+}
+
+// pick is a subset of the keys 0 to 5 in a drawn order; all of them when
+// keepAll. A quarter of the other picks are empty, so a pass leaves every
+// row out and the column that held their cells holds none.
+func pick(r mut rng, keepAll bool) []int {
+	let mut keys = []int{}
+	if !keepAll && draw(r, 4) == 0 {
+		return keys
+	}
+	for k in 0..6 {
+		if keepAll || draw(r, 3) != 0 {
+			keys = keys.Append(k)
+		}
+	}
+	shuffled(keys, r)
 }

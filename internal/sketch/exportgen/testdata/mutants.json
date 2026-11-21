@@ -1,0 +1,6 @@
+{
+  "about": "The mutant ledger of internal/sketch/exportgen: edits of its source and of its regeneration entry (scripts/exportgen) that some test must kill. Run it with go run ./scripts/mutants ./internal/sketch/exportgen; docs/tooling.md, \"Mutant ledger\", says when a change must run it.",
+  "mutants": [
+    {"name":"exportgen-entry-imports-check","origin":"wf10 GB EXPORTGEN-ENTRY","file":"scripts/exportgen/main.go","from":"\t\"ergo.local/prototype/internal/sketch/exportgen\"\n","to":"\t\"ergo.local/prototype/internal/sketch/exportgen\"\n\t_ \"ergo.local/prototype/internal/sketch/check\"\n","rule":"The regeneration entry builds no package it generates for, so a stale codec_access_gen.go cannot stop it.","killers":["internal/sketch/exportgen:TestEntryBuildsNoGeneratedPackage"]}
+  ]
+}

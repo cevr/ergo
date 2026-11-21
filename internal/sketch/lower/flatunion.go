@@ -307,11 +307,7 @@ func flatBail(n syntax.Node, fu *flatUnion) {
 // this lowering bailed on an interface. Each round turns at least one union
 // into an interface, so the rounds end.
 func (l *lowerer) lowerAgain() ([]byte, error) {
-	var tests *testLowering
-	if l.tests != nil {
-		tests = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
-	}
-	next := lowererOf(l.canon, l.pkg, l.goModule, tests)
+	next := lowererOf(l.canon, l.pkg, l.goModule, l.tests.fresh())
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
 	next.ir = l.ir.restart() // LowerIR and CensusIR (ir.go)
 	if l.rewrite != nil {
@@ -1237,9 +1233,15 @@ func (l *lowerer) variantNamer(b interface{ WriteString(string) (int, error) }, 
 	}
 	names := make([]string, len(fu.variants))
 	for k, v := range fu.variants {
-		name, ok := l.variantName(tc.goType(v))
+		name, ok := l.ergoVariantName(tc.goType(v))
 		if !ok {
 			ice(td.tn.Decl.Name, "the flat union %s has the variant %s, whose Go type the lowering cannot name", td.tn.Name, v.Obj.Name)
+		}
+		// A variant whose Go name the namer made unique (sql's Text, which
+		// codec's Text took first, lowers as Text_1) is named as declared:
+		// the suffix is how the program is linked, not the variant's name.
+		if suffix, cut := strings.CutPrefix(name, v.Obj.Name+"_"); cut && suffix != "" && strings.Trim(suffix, "0123456789") == "" {
+			name = v.Obj.Name
 		}
 		names[k] = strconv.Quote(name)
 	}

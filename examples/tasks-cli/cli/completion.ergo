@@ -1,4 +1,6 @@
 import strings
+import slices
+import flag
 
 // Spec is what a completion offers after a command: its flags.
 type Spec { Name string, Usage string, Flags []string }
@@ -11,6 +13,33 @@ let Specs = []Spec{
 	Spec{Name: "create", Usage: "create a task", Flags: []string{"priority", "json"}},
 	Spec{Name: "close", Usage: "close a task, after asking", Flags: []string{"yes", "json"}},
 	Spec{Name: "completion", Usage: "print the completion script of a shell", Flags: []string{}},
+}
+
+// CompletionsMatchTheParser: Specs names each command of Commands, in
+// order, with the flags its usage lists, no more and no fewer.
+law CompletionsMatchTheParser() {
+	if len(Specs) != len(Commands) {
+		return false
+	}
+	for i, c in Commands {
+		let s = Specs[i]
+		if s.Name != c.Name || s.Usage != c.Usage || slices.Sort(s.Flags) != flagsOf(c.Set) {
+			return false
+		}
+	}
+	true
+}
+
+// flagsOf is the names of the flags of set, sorted, as its usage lists
+// them: each line "  -name …".
+func flagsOf(set flag.Set) []string {
+	let mut out = []string{}
+	for line in strings.Split(flag.Usage(set), "\n") {
+		if strings.HasPrefix(line, "  -") {
+			out = out.Append(strings.Fields(strings.TrimPrefix(line, "  -"))[0])
+		}
+	}
+	slices.Sort(out)
 }
 
 // Script is the completion script of shell for the program tasks-cli.

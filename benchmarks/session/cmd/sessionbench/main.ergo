@@ -1,0 +1,55 @@
+// sessionbench is AU2's receipt program: N checks of tokens against a std
+// session/memory store of 1024 sessions, each one SHA-256 of the token
+// and one Verify. Its hand Go twin and the Go floor are in ../../testdata;
+// the workload is ../../verify (go run ./scripts/opcount -control -rounds
+// 5 benchmarks/session/verify).
+//
+//	sessionbench bench verify N
+//
+// One unit is one check. Check i verifies token i%1024 at a time within
+// its session's renewal window. It prints how many checks were Valid.
+
+import os
+import session
+import session/memory
+import strconv
+import time
+
+func bench(n int) int fails session.BadPolicy | session.Conflict | session.Failed {
+	let p = try session.NewPolicy(1h, 2h, 24h)
+	let s = memory.New(p)
+	let now = time.Unix(1000, 0)
+	let mut tokens = []session.Token{}
+	for i in 0..1024 {
+		let t = session.TokenOf("token \(i) of the receipt, 32 bytes or more")
+		try s.Establish(session.DigestOf(t), "subject \(i)", 0, now)
+		tokens = tokens.Append(t)
+	}
+	let mut valid = 0
+	for i in 0..n {
+		match try s.Verify(session.DigestOf(tokens[i%1024]), now) {
+		case session.Valid:
+			valid += 1
+		case session.Renew, session.Invalid:
+		}
+	}
+	valid
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: sessionbench bench verify N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "sessionbench: N is not a count"}
+		}
+		let valid = bench(n) catch {
+		case session.BadPolicy, session.Conflict, session.Failed:
+			return os.Exit{Code: 1, Message: "sessionbench: the store failed"}
+		}
+		Console.Println("\(valid)")
+	}
+}

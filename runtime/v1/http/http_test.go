@@ -18,13 +18,14 @@ import (
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
 // httpHandler is the trusted transport callback; the std wrapper makes
 // its seven scalar arguments into a public Request with a closed Body.
-type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+type httpHandler = func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 
-func startHTTP(t *testing.T, handle httpHandler) (*Listener, *serverTask) {
+func startHTTP(t *testing.T, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	return startHTTPLimits(t, serveLimits(16, 4096), handle)
 }
@@ -40,30 +41,43 @@ type liveSleeper struct{}
 
 func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { v1.Sleep(t, d) }
 
-func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
+// Alarms is the host's timers, as LiveScheduler's Alarms gives them.
+func (liveSleeper) Alarms(*rt.Task) *v1.AlarmClock { return v1.HostAlarms() }
+
+func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	return startHTTPOn(t, liveSleeper{}, limits, handle)
 }
 
-func startHTTPOn(t *testing.T, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
+func startHTTPOn(t *testing.T, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	return startHTTPRoot(t, rt.Root(t.Name()), sleeper, limits, handle)
 }
 
-func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
+func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return l, serveOn(t, root, sleeper, l, limits, handle)
+}
+
+// serveOn serves l (a host listener or a pipe's) under root until the test
+// ends.
+func serveOn(t *testing.T, root *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle httpHandler) *serverTask {
+	t.Helper()
 	holder := rt.NewScope(root)
 	h := &serverTask{h: rt.Go(&holder, "http test server", func(ct *rt.Task) (struct{}, error) {
 		return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
+			if !*engineFlag {
+				return struct{}{}, httpServe("http test request", ct, sleeper, l, limits, handle, false)
+			}
 			return struct{}{}, HTTPServe("http test request", ct, sleeper, l, limits, handle)
 		})
 	})}
 	t.Cleanup(func() { h.Stop(); l.Close() })
-	return l, h
+	return h
 }
 
 // serverTask is the test server's task, started as v1.Go starts one, with
@@ -148,13 +162,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		case 4:
 			limits.ReadBodyTimeout = time.Duration(bad)
 		}
-		if err := HTTPCheckOrigin("http://localhost", limits); err != HTTPInvalidLimits(limits) {
-			t.Fatalf("client limits %+v: %v", limits, err)
-		}
-		if _, err := HTTPCheckNetwork(nil, limits); err != HTTPInvalidLimits(limits) {
-			t.Fatalf("network limits %+v: %v", limits, err)
-		}
-		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 			t.Error("invalid limits called handler")
 			return HTTPResponse{Status: 200}
 		})
@@ -172,7 +180,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			var mu sync.Mutex
 			store := map[string]string{}
-			l, server := startHTTP(t, func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
+			l, server := startHTTP(t, func(_ *rt.Task, _ *Exchange, method, path, _ string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
 				defer func() {
 					var queryText, echo string
 					for _, field := range query {
@@ -191,7 +199,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 					return HTTPResponse{Status: 413, Body: "budget"}
 				}
 				if readError != "" {
-					return HTTPResponse{Status: 400, Body: "read"}
+					return HTTPResponse{Status: 400, Body: readError}
 				}
 				switch method {
 				case "POST":
@@ -246,7 +254,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 			}
 			brokenText := httpText(t, broken)
 			conn.Close()
-			if broken.StatusCode != 400 || brokenText != "read" {
+			if broken.StatusCode != 400 || brokenText != "unexpected EOF" {
 				t.Fatalf("truncated body: %d %q", broken.StatusCode, brokenText)
 			}
 			model := map[string]string{}
@@ -307,11 +315,66 @@ type stepSleeper struct {
 	now     time.Duration
 	waiters map[*stepWait]bool
 	armed   chan time.Duration
+	// alarms and peak count stepAlarms' alarms (armedAlarms).
+	alarms, peak int
 }
 
 type stepWait struct {
 	at   time.Duration
 	done chan struct{}
+	f    func() // an alarm's function (stepAlarms), nil for a Sleep
+}
+
+// stepAlarms is stepSleeper with Alarms, as every program's Scheduler
+// has: Serve takes its alarm path on the same time. Each deadline read
+// reports its span on armed, as a Sleep does; Advance starts the function of
+// each alarm it reaches. alarms counts the armed ones, and peak the most
+// armed at once.
+type stepAlarms struct{ *stepSleeper }
+
+func (s stepAlarms) Alarms(*rt.Task) *v1.AlarmClock {
+	now := func() time.Duration {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.now
+	}
+	arm := func(d time.Duration, f func()) v1.Alarm {
+		w := &stepWait{f: f}
+		s.mu.Lock()
+		w.at = s.now + d
+		s.waiters[w] = true
+		s.alarms++
+		s.peak = max(s.peak, s.alarms)
+		s.mu.Unlock()
+		return stepAlarm{s.stepSleeper, w}
+	}
+	// A bounded phase arms an alarm only when its deadline comes first:
+	// its Began, after any arm, is the report.
+	return v1.NewAlarmClock(now, arm).Reporting(func(d time.Duration) { s.armed <- d })
+}
+
+type stepAlarm struct {
+	s *stepSleeper
+	w *stepWait
+}
+
+func (a stepAlarm) Stop() bool {
+	a.s.mu.Lock()
+	defer a.s.mu.Unlock()
+	if !a.s.waiters[a.w] {
+		return false
+	}
+	delete(a.s.waiters, a.w)
+	a.s.alarms--
+	return true
+}
+
+// armedAlarms is the number of alarms armed now, and the most armed at
+// once so far.
+func (s *stepSleeper) armedAlarms() (int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.alarms, s.peak
 }
 
 func newStepSleeper() *stepSleeper {
@@ -335,15 +398,28 @@ func (s *stepSleeper) Sleep(t *rt.Task, d time.Duration) {
 	}
 }
 
-// Advance moves the time by d and ends every sleep it reaches.
+// Advance moves the time by d and ends every sleep it reaches. It runs
+// the function of each alarm it reaches before it returns, outside its
+// lock, so a step that follows sees what the alarms did.
 func (s *stepSleeper) Advance(d time.Duration) {
+	var fired []func()
+	defer func() {
+		for _, f := range fired {
+			f()
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.now += d
 	for w := range s.waiters {
 		if w.at <= s.now {
-			close(w.done)
 			delete(s.waiters, w)
+			if w.f != nil {
+				s.alarms--
+				fired = append(fired, w.f)
+				continue
+			}
+			close(w.done)
 		}
 	}
 }
@@ -390,109 +466,166 @@ func (c *httpTimerCount) Event(e rt.Event) {
 // body phase instead of failing the read. Its task counter also kills
 // http-timers-overlap: starting the next phase before joining the old
 // timer, which the deadline results alone do not detect.
+//
+// It runs each seed on both of Serve's paths, on one test time: "tasks",
+// the reference (a Scheduler with no Alarms: a timer goroutine whose
+// sleeps are tasks), and "alarms", the path of every program (one
+// deadline per connection, and an alarm armed only when the deadline
+// comes before the armed one). On the alarm path its alarm count kills
+// http-alarm-overlap (an earlier alarm armed with the old one left
+// armed), and its task count http-alarm-path-never (a program's
+// Scheduler served on the reference path). Its early seeds (a body bound
+// shorter than the idle bound before it) kill lazy-arm-never-earlier,
+// and every seed's later phases, whose deadlines come after the armed
+// alarm, kill lazy-wake-no-rearm (an early alarm that does not arm
+// again for the deadline).
 func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
-	for seed := uint64(1); seed <= 6; seed++ {
-		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
-			rng := rand.New(rand.NewPCG(seed, 7))
-			budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
-			limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
-			sl := newStepSleeper()
-			count := &httpTimerCount{}
-			l, server := startHTTPRoot(t, rt.TracedRoot(t.Name(), count), sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
-				if readError != "" {
-					return HTTPResponse{Status: 408, Body: readError}
-				}
-				return HTTPResponse{Status: 200, Body: body}
+	for _, path := range []string{"tasks", "alarms"} {
+		for seed := uint64(1); seed <= 12; seed++ {
+			t.Run(path+"/"+strconv.FormatUint(seed, 10), func(t *testing.T) {
+				phasesExpire(t, path, seed)
 			})
-			conn, err := net.Dial("tcp", l.Addr())
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.Close()
-			// A watchdog only: a hung read fails the test with its step.
-			stop := testwait.AfterFunc(t, func() { conn.Close() })
-			defer stop()
-			r := bufio.NewReader(conn)
-			replay := fmt.Sprintf("seed %d, limits %+v; replay: go test ./runtime/v1/http -run TestHTTPPhasesExpireOnTheScheduler/%d", seed, limits, seed)
-			// armed takes the next sleep the server armed, which must be want's.
-			// A phase that one send enters and leaves at once (the header of
-			// a request sent whole) may be armed before its timer sees the
-			// change, or not at all: passing names its budget, skipped once.
-			armed := func(want time.Duration, step string, passing ...time.Duration) {
-				t.Helper()
-				for {
-					select {
-					case d := <-sl.armed:
-						if d != want && len(passing) > 0 && d == passing[0] {
-							passing = passing[1:]
-							continue
-						}
-						if d != want {
-							t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
-						}
-					case <-testwait.After(t):
-						t.Fatalf("%s armed no timer; %s", step, replay)
-					}
-					return
+		}
+	}
+}
+
+func phasesExpire(t *testing.T, path string, seed uint64) {
+	rng := rand.New(rand.NewPCG(seed, 7))
+	budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
+	limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
+	// early: the first request is sent whole at once, its body bound
+	// shorter than the header bound, so the body's deadline comes before
+	// the header's alarm, and the body expires (lazy-arm-never-earlier).
+	early := seed%3 == 2 && (seed/3)%2 == 1
+	if early {
+		limits.ReadHeaderTimeout = limits.ReadBodyTimeout + budget()
+	}
+	sl := newStepSleeper()
+	var sched v1.Sleeper = sl
+	if path == "alarms" {
+		sched = stepAlarms{sl}
+	}
+	count := &httpTimerCount{}
+	l, server := startHTTPRoot(t, rt.TracedRoot(t.Name(), count), sched, limits, func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
+		if readError != "" {
+			return HTTPResponse{Status: 408, Body: readError}
+		}
+		return HTTPResponse{Status: 200, Body: body}
+	})
+	conn, err := net.Dial("tcp", l.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// A watchdog only: a hung read fails the test with its step.
+	stop := testwait.AfterFunc(t, func() { conn.Close() })
+	defer stop()
+	r := bufio.NewReader(conn)
+	replay := fmt.Sprintf("%s seed %d, limits %+v; replay: go test ./runtime/v1/http -run TestHTTPPhasesExpireOnTheScheduler/%s/%d", path, seed, limits, path, seed)
+	// armed takes the next sleep the server armed, which must be want's.
+	// A phase that one send enters and leaves at once (the header of
+	// a request sent whole) may be armed before its timer sees the
+	// change, or not at all: passing names its budget, skipped once.
+	armed := func(want time.Duration, step string, passing ...time.Duration) {
+		t.Helper()
+		for {
+			select {
+			case d := <-sl.armed:
+				if d != want && len(passing) > 0 && d == passing[0] {
+					passing = passing[1:]
+					continue
 				}
-			}
-			send := func(text string) {
-				t.Helper()
-				if _, err := io.WriteString(conn, text); err != nil {
-					t.Fatalf("send %q: %v; %s", text, err, replay)
+				if d != want {
+					t.Fatalf("%s armed %v, want %v; %s", step, d, want, replay)
 				}
+			case <-testwait.After(t):
+				t.Fatalf("%s armed no timer; %s", step, replay)
 			}
-			answer := func(step string) (int, string) {
-				t.Helper()
-				resp, err := http.ReadResponse(r, nil)
-				if err != nil {
-					t.Fatalf("%s: %v; %s", step, err, replay)
-				}
-				defer resp.Body.Close()
-				b, err := io.ReadAll(resp.Body)
-				if err != nil {
-					t.Fatalf("%s: %v; %s", step, err, replay)
-				}
-				return resp.StatusCode, string(b)
-			}
-			armed(limits.ReadHeaderTimeout, "the first header")
-			send("POST /a HTTP/1.1\r\nHost: local\r\n")
-			sl.Advance(limits.ReadHeaderTimeout - 1)
-			send("Content-Length: 4\r\n\r\nab")
-			armed(limits.ReadBodyTimeout, "the first body")
-			sl.Advance(limits.ReadBodyTimeout - 1)
-			send("cd")
-			if status, body := answer("the first answer"); status != 200 || body != "abcd" {
-				t.Fatalf("the first answer: %d %q; %s", status, body, replay)
-			}
-			armed(limits.IdleTimeout, "idle")
-			sl.Advance(limits.IdleTimeout - 1)
-			switch seed % 3 {
-			case 0:
-				sl.Advance(1)
-			case 1:
-				send("GET /b HTTP/1.1\r\n")
-				armed(limits.ReadHeaderTimeout, "the second header")
-				sl.Advance(limits.ReadHeaderTimeout)
-			case 2:
-				send("POST /c HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\na")
-				armed(limits.ReadBodyTimeout, "the second body", limits.ReadHeaderTimeout)
-				sl.Advance(limits.ReadBodyTimeout)
-				if status, body := answer("the expired body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
-					t.Fatalf("the expired body: %d %q; %s", status, body, replay)
-				}
-			}
-			// The server closes the connection: the next read ends at EOF.
-			if b, err := r.ReadByte(); err != io.EOF {
-				t.Fatalf("after the expiry: read %q, %v, want EOF; %s", b, err, replay)
-			}
-			server.Stop()
-			count.mu.Lock()
-			defer count.mu.Unlock()
-			if count.peak > 1 || len(count.live) != 0 {
-				t.Fatalf("timer tasks: %d starts, peak %d live, %d left after stop; want peak <= 1 and none left; %s", count.starts, count.peak, len(count.live), replay)
-			}
-		})
+			return
+		}
+	}
+	send := func(text string) {
+		t.Helper()
+		if _, err := io.WriteString(conn, text); err != nil {
+			t.Fatalf("send %q: %v; %s", text, err, replay)
+		}
+	}
+	answer := func(step string) (int, string) {
+		t.Helper()
+		resp, err := http.ReadResponse(r, nil)
+		if err != nil {
+			t.Fatalf("%s: %v; %s", step, err, replay)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("%s: %v; %s", step, err, replay)
+		}
+		return resp.StatusCode, string(b)
+	}
+	armed(limits.ReadHeaderTimeout, "the first header")
+	if early {
+		send("POST /a HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\nab")
+		armed(limits.ReadBodyTimeout, "the first body")
+		sl.Advance(limits.ReadBodyTimeout)
+		if status, body := answer("the expired first body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
+			t.Fatalf("the expired first body: %d %q; %s", status, body, replay)
+		}
+	} else {
+		phasesThroughIdle(t, seed, limits, sl, armed, send, answer, replay)
+	}
+	// The server closes the connection: the next read ends at EOF.
+	if b, err := r.ReadByte(); err != io.EOF {
+		t.Fatalf("after the expiry: read %q, %v, want EOF; %s", b, err, replay)
+	}
+	server.Stop()
+	count.mu.Lock()
+	defer count.mu.Unlock()
+	if count.peak > 1 || len(count.live) != 0 {
+		t.Fatalf("timer tasks: %d starts, peak %d live, %d left after stop; want peak <= 1 and none left; %s", count.starts, count.peak, len(count.live), replay)
+	}
+	if _, peak := sl.armedAlarms(); peak > 1 {
+		t.Fatalf("alarms: peak %d armed at once, want at most 1; %s", peak, replay)
+	}
+	if path == "alarms" && count.starts != 0 {
+		t.Fatalf("the alarm path started %d timer tasks, want none; %s", count.starts, replay)
+	}
+}
+
+// phasesThroughIdle is phasesExpire's flow for a seed that is not early:
+// a request in parts, each phase ended 1ns inside its bound, then the
+// idle phase, and the expiry the seed picks.
+func phasesThroughIdle(t *testing.T, seed uint64, limits HTTPLimits, sl *stepSleeper, armed func(time.Duration, string, ...time.Duration), send func(string), answer func(string) (int, string), replay string) {
+	t.Helper()
+	send("POST /a HTTP/1.1\r\nHost: local\r\n")
+	sl.Advance(limits.ReadHeaderTimeout - 1)
+	send("Content-Length: 4\r\n\r\nab")
+	armed(limits.ReadBodyTimeout, "the first body")
+	sl.Advance(limits.ReadBodyTimeout - 1)
+	send("cd")
+	if status, body := answer("the first answer"); status != 200 || body != "abcd" {
+		t.Fatalf("the first answer: %d %q; %s", status, body, replay)
+	}
+	armed(limits.IdleTimeout, "idle")
+	sl.Advance(limits.IdleTimeout - 1)
+	switch seed % 3 {
+	case 0:
+		sl.Advance(1)
+	case 1:
+		send("GET /b HTTP/1.1\r\n")
+		armed(limits.ReadHeaderTimeout, "the second header")
+		sl.Advance(limits.ReadHeaderTimeout)
+	case 2:
+		send("POST /c HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\na")
+		armed(limits.ReadBodyTimeout, "the second body", limits.ReadHeaderTimeout)
+		// In two steps: the first reaches the idle phase's alarm, which
+		// comes before the body's deadline and must arm again for it
+		// (lazy-wake-no-rearm); the second reaches the deadline.
+		sl.Advance(1)
+		sl.Advance(limits.ReadBodyTimeout - 1)
+		if status, body := answer("the expired body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
+			t.Fatalf("the expired body: %d %q; %s", status, body, replay)
+		}
 	}
 }
 
@@ -504,7 +637,7 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 	var count, releaseCount atomic.Int64
 	started, released := make(chan struct{}, n), make(chan struct{}, n)
 	cleanup := make(chan struct{})
-	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, method, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, method, path, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		if path == "/count" {
 			return HTTPResponse{Status: 200, Body: strconv.FormatInt(count.Add(1), 10)}
 		}
@@ -573,7 +706,7 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 func TestHTTPDisconnectAndDefects(t *testing.T) {
 	started, ended, refused := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	sl := newStepSleeper()
-	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, readError string) HTTPResponse {
+	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path, _ string, _, _ []HTTPField, _ string, _ bool, readError string) HTTPResponse {
 		s := v1.NewScope(ct)
 		defer s.End(nil)
 		if path == "/refused" && readError != "" {

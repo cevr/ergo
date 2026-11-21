@@ -1,0 +1,7 @@
+hop
+rewind x
+d*3
+rewind 5000
+w*0
+quit
+d

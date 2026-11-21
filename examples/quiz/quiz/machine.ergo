@@ -2,12 +2,14 @@
 // decides which question comes next, or that the results show. Settle
 // leaves it at once, before any signal sees it, so the step never waits
 // in it (M48: Ergo has no eventless transition; this is the pattern).
-type Quiz = Calculating{Set Set, Next int, Answers []Answer} | Asking{Set Set, Question int, Answers []Answer} | Showing{Set Set, Answers []Answer}
+
+import slices
+type Quiz = Calculating{Set Set, Next int, Answers []Answer} | Settled
 
 // Settled is a state that a signal may see: a question or the results.
 // Asking and Showing are variants of both unions, so the type says that a
 // settled state is never Calculating.
-type Settled = Asking | Showing
+type Settled = Asking{Set Set, Question int, Answers []Answer} | Showing{Set Set, Answers []Answer}
 
 // Signal is what the user does: pick a choice of the question, go back to
 // the question before, pick an item of the results, or start again.
@@ -54,22 +56,13 @@ func Settle(q Quiz) Settled {
 			at = at + 1
 		}
 		Showing{Set: c.Set, Answers: c.Answers}
-	case Asking as a:
+	case Settled as a:
 		a
-	case Showing as s:
-		s
 	}
 }
 
 // AsQuiz is s as a Quiz.
-func AsQuiz(s Settled) Quiz {
-	match s {
-	case Asking as a:
-		a
-	case Showing as w:
-		w
-	}
-}
+func AsQuiz(s Settled) Quiz { s }
 
 // Begin is the first settled state of a quiz over set: the machine's
 // start function, so the set is the machine's input (V4), and a program
@@ -125,7 +118,7 @@ func Step(q Quiz, s Signal) Decision[Quiz, Picked] fails NoSuchChoice | NoMatch 
 			return NothingToUndo
 		}
 		let last = answers[len(answers)-1]
-		enter(Calculating{Set: set, Next: last.Question, Answers: without(answers, len(answers)-1)})
+		enter(Calculating{Set: set, Next: last.Question, Answers: slices.Delete(answers, len(answers)-1, len(answers))})
 	case Choose as c:
 		match Settle(q) {
 		case Asking as a:
@@ -163,17 +156,6 @@ func Labels(set Set, answers []Answer) []string {
 		case Some[Choice] as c:
 			out = out.Append(c.Value.Label)
 		case None:
-		}
-	}
-	out
-}
-
-// without is xs without the element at i, in a new slice.
-func without[T](xs []T, i int) []T {
-	let mut out = []T{}
-	for j, x in xs {
-		if j != i {
-			out = out.Append(x)
 		}
 	}
 	out

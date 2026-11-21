@@ -79,10 +79,16 @@ type irSlot struct {
 // body that starts a task, registers an exit action or receives a Task).
 // A fallible one has named results (namedResults); its exit settles on
 // the error result's address ("result", the emitter's End(&err)). A
-// plain frame not in the static form (owned values in the list form) is
-// the emitter's.
+// plain frame not in the static form keeps its owned values in the list
+// form of a plain scope (openScope, openList; OWNED-LOCAL).
 func irFrame(fc *funcCtx) bool {
-	return fc.frame != nil && (fc.frame.static != nil || !fc.frame.plain && frameScopeLowering != "off")
+	if fc.frame == nil || fc.frame.static != nil {
+		return fc.frame != nil
+	}
+	if fc.frame.plain {
+		return frameListLowering != "off" // owned values only: the list form (openList)
+	}
+	return frameScopeLowering != "off"
 }
 
 // frameScopeLowering selects the frame scope on the IR: "" builds it,
@@ -133,17 +139,11 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 // deferred End on the error result's address, or nil with no error row
 // (the emitter's openFrame). A std call that takes the frame passes the
 // local's address (frameArg). The scope's owned values are the emitter's
-// list form: a taken parameter stops the body here, and an owned local
-// or temporary where it is bound (ownable, releaseAt).
+// list form: a taken parameter registered here, and an owned local or
+// temporary where it is bound (ownable, releaseAt). A plain frame (owned
+// values only) opens v1.NewOwnerScope.
 func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
-	if b.fc.frame.plain || b.l.ownsParams(params) {
-		irNo("owned local") // owned values in a frame scope: the list form
-	}
-	if b.env < 0 {
-		irNo("body that needs a frame") // the checker gives a frame a task
-	}
 	p := b.pos(f.Decl, f.Decl.Pos())
-	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	errArg := &irExpr{K: "zero", Pos: p, T: "*error"}
 	if b.fc.frame.fallible {
 		// The frame's named error result, last (namedResults).
@@ -153,20 +153,58 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 		}
 		errArg = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
 	}
-	if b.l.staticExits(f.Decl.Body.List) {
+	return b.openScopeOf(f.Decl.Body, f.Decl, f.Decl.Name, params, errArg, true)
+}
+
+// openScopeOf is openScope's frame of body, whose node is site (a
+// declaration or a function literal) and whose parameters are params:
+// errArg is the address its End settles; exits admits the static exit
+// form, which a function literal's frame does not take (the emitter's
+// funcLitClosure opens a scope).
+func (b *irBuilder) openScopeOf(body *syntax.BlockStmt, site, name syntax.Node, params []*check.Var, errArg *irExpr, exits bool) []*irStmt {
+	plain, takes := b.fc.frame.plain, b.l.ownsParams(params)
+	if (plain || takes) && frameListLowering == "off" {
+		irNo("owned local") // owned values in a frame scope: the list form
+	}
+	if b.env < 0 {
+		irNo("body that needs a frame") // the checker gives a frame a task
+	}
+	p := b.pos(site, site.Pos())
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
+	if exits && !plain && !takes && b.l.staticExits(body.List) {
 		return b.openExits(p, task, errArg) // ir_exits.go (STATIC-EXIT)
+	}
+	// A frame that opens its scope only for its owned values opens a
+	// plain one, whose End is no interruption point (the emitter's
+	// openFrame).
+	ctor := "NewScope"
+	if plain {
+		ctor = "NewOwnerScope"
 	}
 	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
 	b.frame = fs + 1
-	b.keepImport("var _ = " + b.l.rt() + ".NewScope")
-	if b.ownsLocals(f.Decl.Body) && frameListLowering != "off" {
-		b.openList(f, p)
+	b.keepImport("var _ = " + b.l.rt() + "." + ctor)
+	if (takes || b.ownsLocals(body)) && frameListLowering != "off" {
+		b.openList(body, site, p)
 	}
-	return []*irStmt{
+	out := []*irStmt{
 		{K: "var", Pos: p, Local: fs},
-		{K: "set", Pos: p, Local: fs, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewScope", Args: []*irExpr{task}}},
+		{K: "set", Pos: p, Local: fs, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: ctor, Args: []*irExpr{task}}},
 		{K: "defer", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "End", X: b.addrOf(fs, p), Args: []*irExpr{errArg}}},
 	}
+	// A taken parameter is registered before the entry poll (R8; the
+	// emitter's ownVar after openFrame).
+	for _, v := range params {
+		if v == nil || b.l.info.OwnedVars[v] == nil {
+			continue
+		}
+		i, ok := b.locals[v]
+		if !ok {
+			irNo("owned parameters")
+		}
+		out = append(out, b.ownLet(v, i, name, nil)...)
+	}
+	return out
 }
 
 // frameListLowering selects the list form of a frame scope's owned locals
@@ -199,15 +237,16 @@ func (b *irBuilder) ownsLocals(body *syntax.BlockStmt) bool {
 	return owns
 }
 
-// openList starts the list form of the frame scope of f's body (the
+// openList starts the list form of the frame scope of body, whose node is
+// site (a declaration or a function literal) (the
 // emitter's own, owning, handoff and releaseAt on a frame that is not in
 // the static form): the checks a static frame runs (ownBodyChecks), and
 // an assignment to an owned local stops it (R41 registers the new value
 // and releases the old, which this form does not write).
-func (b *irBuilder) openList(f *check.Func, p irPos) {
-	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
-	b.ownBodyChecks(f.Decl.Body, o)
-	syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+func (b *irBuilder) openList(body *syntax.BlockStmt, site syntax.Node, p irPos) {
+	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: site, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	b.ownBodyChecks(body, o)
+	syntax.Inspect(body, func(n syntax.Node) bool {
 		if _, lit := n.(*syntax.FuncLit); lit || n == nil {
 			return false
 		}
@@ -222,7 +261,7 @@ func (b *irBuilder) openList(f *check.Func, p irPos) {
 		}
 		return true
 	})
-	delete(o.keys, f.Decl.Body) // the body's own scope ends at the frame's End
+	delete(o.keys, body) // the body's own scope ends at the frame's End
 	b.own = o
 }
 
@@ -247,10 +286,17 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 		here = b.goType(n.TArgs[0], site) // v1.Task's T: the IR names a generic function with its type arguments
 	}
 	rel := b.listRelease(d, v.Type, typ, p, here)
-	return []*irStmt{
+	out := []*irStmt{
 		{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
 		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, &irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "local", Pos: p, I: i}, rel)},
 	}
+	if b.l.writtenInPlace(v) {
+		// A local the code writes in place is released with its writes
+		// (v1.OwningAt; the emitter's ownAt).
+		at := b.listRelease(d, v.Type, typ, p, here)
+		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, &irExpr{K: "local", Pos: p, I: h}, b.addrOf(i, p), at)})
+	}
+	return out
 }
 
 // listRelease is the release of an owned value of type t, Go type typ: a
@@ -335,6 +381,17 @@ func (b *irBuilder) startsOnFrame(c *check.Call) bool {
 	return ok && hasHidden(body.Hidden, v1.Frame)
 }
 
+// ergoBodyCall reports a call c of a function with an Ergo body
+// (tasks.NewSet, a user's function) whose result holds a running task:
+// the callee started it on its own frame and hands it back, as any owned
+// result (Returned), so the caller's frame registers it as an owned local
+// (listLet) with its Close, as the emitter's own does (PORT-CALLS). A
+// function value or an operation keeps its source body.
+func ergoBodyCall(c *check.Call) bool {
+	f := c.Func
+	return c.Kind == check.CallFunc && f != nil && !f.Pkg.Host() && f.Decl != nil && f.Decl.Extern == nil && f.Decl.Body != nil
+}
+
 // frameArg is the hidden frame argument of a std call (v1.Frame): the
 // address of the body's frame scope (openScope; the emitter's
 // frameScope). A call outside one keeps its source body.
@@ -389,7 +446,8 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
 	deref := func(i int) *irExpr { return &irExpr{K: "deref", Pos: p, X: local(i)} }
 	// The deferred release: env, live, kept, err, then the slots.
-	h := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, own: o}
+	h := b.st.newBuilder(b.fc, nil) // a helper of b's analyzed body
+	h.env, h.names, h.own = 0, b.names, o
 	h.fn = &irFunc{Name: helper, Pos: p, End: p}
 	liveL, keptL, errL := 1, -1, -1
 	h.next = 2
@@ -451,7 +509,8 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		if s.helper == "" {
 			continue
 		}
-		f := &irBuilder{fc: b.fc, l: l, st: b.st, locals: map[*check.Var]int{}, env: 0, names: b.names, next: 2, own: o}
+		f := b.st.newBuilder(b.fc, nil) // a helper of b's analyzed body
+		f.env, f.names, f.next, f.own = 0, b.names, 2, o
 		c, _ := f.closeCall(s, 0, 1, p)
 		f.fn = &irFunc{Name: s.helper, Pos: p, End: p, Body: []*irStmt{{K: "expr", Pos: p, X: c}}}
 		b.st.out.Funcs = append(b.st.out.Funcs, *f.fn)
@@ -537,8 +596,8 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (
 	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}, true
 }
 
-// ownBodyChecks stops a static frame this form does not build: a try's
-// release (TryReleases), an owned temporary or arm value, a record
+// ownBodyChecks stops a static frame this form does not build: an owned
+// temporary or arm value, a record
 // update's replaced fields, a taking receiver passed by its address, a
 // match pattern that owns. It records in o the places with planned
 // releases (Info.Releases), which the builder must each reach.
@@ -554,11 +613,11 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		if len(info.Releases[n]) > 0 {
 			o.keys[n] = true
 		}
+		// A try's failure edge (Info.TryReleases) writes nothing here: it
+		// leaves the frame through its deferred release, which releases
+		// what the frame holds then (the live bits, or the scope's list),
+		// as the source path's does (OWNED-LOCAL-2).
 		switch n := n.(type) {
-		case *syntax.TryExpr:
-			if len(info.TryReleases[n]) > 0 {
-				irNo("statement that releases owned values")
-			}
 		case *syntax.CaseClause:
 			if po, ok := info.PatternOwners[n]; ok && (len(po.Sources) > 0 || len(po.Bindings) > 0) {
 				irNo("owned local") // patternOwners registers them
@@ -856,7 +915,8 @@ func (st *irState) ownedWrapper(fc *funcCtx, fd *funcDecl, head, params, results
 		return false // a census counts bodies; a wrapper is not one
 	}
 	f := fd.fn
-	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, fn: &irFunc{}}
+	b := st.newBuilder(fc, nil) // a wrapper: no source statements
+	b.fn = &irFunc{}
 	keep := st.keep
 	defer func() {
 		if r := recover(); r != nil {

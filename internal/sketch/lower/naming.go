@@ -91,9 +91,8 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, graphAccessor
 	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
-	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
-	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraries()
+	l.reserveTypeSets(append([]*check.Package{l.pkg}, libs...)) // ir_typeset.go
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
 		for _, tn := range l.canon.types(p) {
@@ -111,12 +110,12 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
-	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                   // moveout.go, V9: before any copy is decided
-	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
-	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
-	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
-	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                      // slot.go
-	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
+	l.markEntryWrites(append([]*check.Package{l.pkg}, libs...))                                                      // moveout.go, V9: before any copy is decided
+	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                                                         // values.go, V5
+	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                                                         // known.go
+	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                                                       // drop.go
+	l.reserveSlots(append([]*check.Package{l.pkg}, libs...))                                                         // slot.go
+	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.machinesOf(append([]*check.Package{l.pkg}, libs...))) // record.go
 	if valueOwned() {
 		l.pkgName(lineagesKey, "ergoLineages") // handover.go, own-lineage
 	}
@@ -133,9 +132,7 @@ func (l *lowerer) nameAll() {
 			switch d := d.(type) {
 			case *syntax.VarDecl:
 				l.declareName(d)
-				if l.constantLet(p, d) {
-					l.noteLibLet(p, d)
-				}
+				l.noteLibLet(p, d) // reachStdLet, where libLetOnRead
 			case *syntax.ContextDecl:
 				l.declareName(d)
 			}
@@ -233,6 +230,10 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if c.Cell {
+				// The IR's cell of a direct writer (ir_codec_direct.go).
+				generated = append(generated, entry{pkgKey{"cell of", key}, "cell of " + key, "ergoCellOf" + base})
+			}
 			if prov := l.providerOf(c); prov != nil {
 				for _, f := range provs[prov.to] {
 					generated = append(generated, entry{provSpecKey(f, prov), "spec " + key + " " + f.Pkg.Path + "." + f.Name, provSpecBase(f, prov)})
@@ -269,11 +270,18 @@ func (l *lowerer) nameAll() {
 	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
 		generated = append(generated, entry{key, sort, base})
 	})
+	reserveGoVars(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, sort, base string) { // ir_govar.go
+		generated = append(generated, entry{key, sort, base})
+	})
 	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
 	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
+	}
+	l.reserveHash() // ir_mapprovider.go
+	if l.ir != nil {
+		l.reserveWitnessValues() // an IR lowering's witness variables (ir_witness.go)
 	}
 	l.nameTests() // the test build's names (tests.go); none in the run build
 	l.prenamed = true
@@ -460,6 +468,15 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		}
 	}
 	visit(l.pkg)
+	if l.tests != nil {
+		// A test build's generators call functions no fact of the program
+		// names: an operation type's builder (fstest.NewMemory for an
+		// fs.Files field) and a record's or provider's constructor. Their
+		// packages are reached as the generated code reaches them, though
+		// the program reaches them through no import, or only through std
+		// imports whose facts the program does not read (LAW-GEN-NAMING).
+		l.genPackages(add)
+	}
 	if l.ir != nil {
 		for _, f := range l.ir.reach { // CensusStd only (ir.go)
 			add(f.Pkg)
@@ -470,6 +487,40 @@ func (l *lowerer) libraryPackages() []*check.Package {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// genPackages adds the package of every function a generator of the test
+// build calls: each generated named type's, its builder's and its
+// constructor's, and each law binding's provider constructor's.
+func (l *lowerer) genPackages(add func(*check.Package)) {
+	for _, r := range l.runLaws() {
+		if !lawLowered(r) {
+			continue
+		}
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) != "" {
+				continue
+			}
+			for _, p := range b {
+				if p.Ctor != nil {
+					add(p.Ctor.Pkg)
+				}
+			}
+		}
+	}
+	seen := map[check.Type]bool{}
+	l.genRoots(func(t check.Type) {
+		l.genNamed(t, seen, func(n *check.Named) {
+			add(n.Obj.Pkg)
+			if isOps(n) {
+				if b := l.pkg.Builder(n); b != nil {
+					add(b.Func.Pkg)
+				}
+			} else if c := genConstructor(n); c != nil {
+				add(c.Pkg)
+			}
+		})
+	})
 }
 
 // contextPackages adds the package of w and of each context w embeds,

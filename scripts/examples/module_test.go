@@ -276,6 +276,9 @@ func TestModuleProgramWorkloadPackage(t *testing.T) {
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	f.write(dir+"/workload/load.ergo", "func f() {}\n")
+	// A workload package holds its workload file (TOK-BISECT), which
+	// this fixture of SL1's bug predates (batch 23 fallout).
+	f.write(dir+"/workload/workload", "unit op\nsizes 10 20\nargs bench {n}\n")
 	if code, out := f.run(); code != 0 || !strings.Contains(out, "ok walker: test workload") {
 		t.Errorf("a workload package folder: exit %d\n%s", code, out)
 	}

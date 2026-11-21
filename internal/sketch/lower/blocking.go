@@ -124,6 +124,15 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 			head = fc.l.rtRef(name) + typeArgs // runtime/v1 or its leaf (BS8)
 		} else {
 			head = pkg + "." + name + typeArgs
+			// A module body's slice parameter (LAWFFI LF2m) gets a copy:
+			// the module's Go may write or keep it, and Ergo's slices are
+			// values. Go's slices.Clone evaluates its operand once.
+			vals = append([]string(nil), vals...)
+			for i, p := range body.Params {
+				if strings.HasPrefix(p.Type, "[]") && i < len(vals) {
+					vals[i] = fc.l.hostPkg("slices", site) + ".Clone(" + vals[i] + ")"
+				}
+			}
 		}
 	} else {
 		i := strings.LastIndex(name, ".")

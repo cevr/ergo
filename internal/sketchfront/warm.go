@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"runtime"
 	"slices"
@@ -50,7 +51,7 @@ const warmSchema = "ergo-warm-1"
 // WarmKey is the key of a request: the parts the caller names (command,
 // folder, options, toolchain), the compiler's identity and every GO*,
 // CGO_* and ERGO_* variable of the environment but ERGO_STAGE_REPORT and
-// ERGO_BUILD. It is "" when the compiler has no shared identity (a
+// ERGO_BUILD, and the Go experiments (goExperiments). It is "" when the compiler has no shared identity (a
 // process-scoped one keys nothing another process may trust).
 func WarmKey(parts ...string) string {
 	compiler := preparedCompilerIdentity()
@@ -60,7 +61,15 @@ func WarmKey(parts ...string) string {
 			return ""
 		}
 	}
-	if strings.HasPrefix(compiler, "process:") {
+	return warmKeyOf(compiler, parts, os.Environ(), goExperiments())
+}
+
+// warmKeyOf is WarmKey of its reads: the compiler's identity, the parts,
+// the environment and the Go experiments (which choose a module's Go files,
+// buildsFor, and may come from the go env file, which no variable holds).
+// compiler/cachekey's WarmKey is its port (TestWarmKeyAgreesWithErgo).
+func warmKeyOf(compiler string, parts, environ, experiments []string) string {
+	if compiler == "" || strings.HasPrefix(compiler, "process:") {
 		return ""
 	}
 	h := sha256.New()
@@ -72,7 +81,7 @@ func WarmKey(parts ...string) string {
 		write(p)
 	}
 	var env []string
-	for _, kv := range os.Environ() {
+	for _, kv := range environ {
 		if strings.HasPrefix(kv, StageReportVariable+"=") || strings.HasPrefix(kv, WarmVariable+"=") {
 			continue
 		}
@@ -85,6 +94,7 @@ func WarmKey(parts ...string) string {
 	for _, kv := range env {
 		write(kv)
 	}
+	write("experiments " + strings.Join(experiments, ","))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -214,6 +224,29 @@ func (r *Recorder) Lstat(name string) (fs.FileInfo, error) {
 		r.spoiled = true
 	}
 	return info, err
+}
+
+// NewRecorder is a Recorder with nothing read yet.
+func NewRecorder() *Recorder { return newRecorder(nil) }
+
+// Inputs are what the request read so far; ok is false when a read
+// spoiled the record.
+func (r *Recorder) Inputs() (in Inputs, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return Inputs{Files: maps.Clone(r.inputs.Files), Dirs: maps.Clone(r.inputs.Dirs), Stats: maps.Clone(r.inputs.Stats)}, !r.spoiled
+}
+
+// Fresh reports whether every input still has the bytes, listing and kind
+// in holds, reading each file once.
+func (in Inputs) Fresh() bool {
+	for name, want := range in.Files {
+		data, err := hostFS{}.ReadFile(name)
+		if err != nil || int64(len(data)) != want.Size || hashInput(data) != want.SHA256 {
+			return false
+		}
+	}
+	return in.listingsFresh(hostListing)
 }
 
 // Record stores answer under key with the inputs the request read.

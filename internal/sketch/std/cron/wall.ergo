@@ -5,6 +5,8 @@
 
 import civil
 import time
+import rand
+import strings
 
 // Horizon is how many years NextWall and Next look ahead, and PreviousWall
 // and Previous look back: a 29th of February that is a given weekday
@@ -242,6 +244,16 @@ law WalksKeepTheCalendar(seed uint64) {
 	ok
 }
 
+// wallOr is o's wall time, or d when o is None.
+func wallOr(o Option[civil.DateTime], d civil.DateTime) civil.DateTime {
+	match o {
+	case Some[civil.DateTime] as v:
+		v.Value
+	case None:
+		d
+	}
+}
+
 // NextWallIsFirstMatch: no wall minute between dt and NextWall(e, dt)
 // fires, and e fires at it: a walk of every minute of two days finds the
 // same minute, or none when NextWall's is later.
@@ -256,6 +268,24 @@ law NextWallIsFirstMatch(seed uint64) {
 		walked == None
 	}
 	ok
+}
+
+// drawnWall is a wall minute from 1970 to 2100 drawn from seed.
+func drawnWall(seed uint64) civil.DateTime {
+	civil.DateTimeOf(time.Unix(int64(rand.Seeded(seed+2).IntN(68374080))*60, 0))
+}
+
+// walkWall is the first of the n wall minutes after dt (step 1) or before
+// it (step -1), one at a time, at which e fires.
+func walkWall(e Expr, dt civil.DateTime, n int, step int) Option[civil.DateTime] {
+	let start = minuteOf(dt)
+	for k in 1..n+1 {
+		let w = civil.AddDuration(start, time.Times(1m, k*step))
+		if Matches(e, w) {
+			return Some[civil.DateTime]{Value: w}
+		}
+	}
+	None
 }
 
 // PreviousWallIsLastMatch: as NextWallIsFirstMatch, backward.
@@ -282,4 +312,22 @@ law EitherDayMatches() {
 	let a = firedDays(either, 1794441600, 6)
 	let b = firedDays(both, 1794096000, 1)
 	a == "1794528000 1795132800 1795737600 1796342400 1796947200 1797120000" && b == "1796947200"
+}
+
+// firedDays is the Unix seconds of the first n wall minutes after the
+// wall minute of the Unix second from, read as UTC, at which e fires,
+// each after the one before, joined by spaces.
+func firedDays(e Expr, from int64, n int) string {
+	let mut dt = civil.DateTimeOf(time.Unix(from, 0))
+	let mut out = []string{}
+	for _ in 0..n {
+		match NextWall(e, dt) {
+		case Some[civil.DateTime] as w:
+			out = out.Append("\(time.UnixSeconds(civil.Instant(w.Value)))")
+			dt = w.Value
+		case None:
+			return strings.Join(out, " ")
+		}
+	}
+	strings.Join(out, " ")
 }

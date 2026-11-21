@@ -92,6 +92,9 @@ func RewritesText(sites []lower.RewriteSite) string {
 		if s.Provider != "" {
 			law += " for " + s.Provider
 		}
+		if s.Build != "" {
+			law += " under " + s.Build
+		}
 		level := s.Verdict
 		if level == "" {
 			level = "none"

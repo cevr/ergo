@@ -1,0 +1,17 @@
+keys
+put lang Ergo
+put name Ada Lovelace
+put lang Go and Ergo
+get lang
+get nosuch
+keys
+
+del name
+del name
+dump
+compact
+dump
+fly
+get
+put
+keys extra

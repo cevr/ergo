@@ -12,7 +12,9 @@ import (
 // one line; one catch matches Malformed and OutOfRange of strconv by a
 // match, with no string test. Its test build restates the laws whose ledger
 // runner is this test (the ones over an Ergo body: Cut and Lines) and runs
-// them with --seed 1.
+// them with --seed 1, and IndexAnyFinds (G8: IndexAny and LastIndexAny
+// bind Go's through import go). Mutants it alone catches:
+// sq5-indexany-is-index, sq5-lastindexany-is-first.
 //
 // It builds Go because it checks what the built program prints and how it
 // exits; no in-process check observes that, and Ergo has no reference
@@ -226,6 +228,24 @@ test StringsTrimLeftRightKeepEnds(s string, cutset string) {
 	assert strings.TrimLeft(" \t"+s, " \t") == strings.TrimLeft(s, " \t") && strings.TrimRight(s+"\t ", " \t") == strings.TrimRight(s, " \t")
 }
 
+test StringsIndexAnyFinds(s string, chars string) {
+	for set in []string{chars, "\uFFFD", "é\xff", "a,", ""} {
+		for text in []string{s, s + set + s} {
+			let mut first = -1
+			let mut last = -1
+			for i, r in text {
+				if strings.ContainsRune(set, r) {
+					if first < 0 {
+						first = i
+					}
+					last = i
+				}
+			}
+			assert strings.IndexAny(text, set) == first && strings.LastIndexAny(text, set) == last
+		}
+	}
+}
+
 // last is 1 when text ends in a line with no line feed.
 func last(text string) int {
 	if strings.HasSuffix(text, "\n") || text == "" {
@@ -267,6 +287,7 @@ func last(text string) int {
 		"strings CutRebuilds":           `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
 		"strings LinesRebuild":          `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
 		"strings TrimLeftRightKeepEnds": `TrimLeftRightKeepEnds(s string, cutset string) { let l = TrimLeft(s, cutset) let r = TrimRight(s, cutset) HasSuffix(s, l) && HasPrefix(s, r) && TrimLeft(l, cutset) == l && TrimRight(r, cutset) == r }`,
+		"strings IndexAnyFinds":         `IndexAnyFinds(s string, chars string) { let mut first = -1 let mut last = -1 for i, r in s { if ContainsRune(chars, r) { if first < 0 { first = i } last = i } } IndexAny(s, chars) == first && LastIndexAny(s, chars) == last }`,
 		"strings LinesStops":            `LinesStops(s string) { let lines = Lines(s) let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	}, func(key string) string {
 		return "Strings" + strings.TrimPrefix(key, "strings ")

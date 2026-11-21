@@ -1,0 +1,21 @@
+// runtime-faults shows a crash view and slow warnings:
+// an app whose button defects, shown by its crash view, and a lab whose
+// workloads each make one phase of a pass do more counted work than its
+// budget allows. It plays a scene script from stdin on the test host and
+// prints what the screen shows. Package crash and package lab are the two
+// apps; package script reads and plays the script. This binary is the
+// only place that chooses the clock: a time.Manual, which only the
+// script's frames move.
+
+import runtimefaults/script
+import io
+import os
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "runtime-faults: the script did not run"}
+	}
+}

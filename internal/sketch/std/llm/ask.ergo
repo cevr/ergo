@@ -1,0 +1,128 @@
+// Ask is a typed function from a schema (wf10 L6; BAML's headline, the
+// Vercel AI SDK's Output.object, Effect's generateObject): Format asks for
+// a reply of a JSON schema, Parse reads the reply as a T through std
+// json's loose reader (the repairs a model's nearly-JSON text needs, each
+// reported as a json.Fix), and Ask does both around one Generate. Both
+// are pure, so a program tests its prompt and its parse with no model.
+// No default value is ever returned: a reply that is not a T fails NoFit
+// with the reply and the place it breaks.
+
+import json
+import jsonschema
+import strings
+
+// NoFit is a reply that is not the value asked for: the reply as the
+// model wrote it, the path of the member where it breaks ("" for the
+// whole reply: not JSON, or cut at its length), and why.
+type NoFit { Reply string, Path string, Reason string }
+
+// Format is r asking for a reply that fits s: the reply's form is JSON of
+// the schema, for a vendor with that mode, and the system text names the
+// schema, for one without it. The rest of r is kept.
+func Format(r Request, s jsonschema.Encoded) Request {
+	let note = "Reply with one JSON value that fits this JSON schema, and nothing else:\n" + jsonschema.TextOf(s)
+	let system = if r.System == "" { note } else { r.System + "\n\n" + note }
+	Request{System: system, Messages: r.Messages, Tools: r.Tools, Choice: r.Choice, Format: JSON{Schema: jsonschema.TextOf(s)}, MaxTokens: r.MaxTokens}
+}
+
+// Parse is the T that reply writes, read by json.DecodeLoose with c's
+// limits: a JSON reply with no fix, or the repaired one with its fixes. A
+// reply with no value that repairs to JSON, or whose value is not a T,
+// fails NoFit with the reply, the path and the reason.
+func Parse[T wire](c json.Codec[T], reply string) json.Read[T] fails NoFit needs wired[T] {
+	json.DecodeLoose(c, reply) catch {
+	case json.Malformed as m:
+		return NoFit{Reply: reply, Path: "", Reason: m.Reason}
+	case WireWrongKind as w:
+		return NoFit{Reply: reply, Path: w.Path, Reason: "not " + w.Want}
+	case _:
+		// A generic T's row names only its wrong kind; a missing member
+		// or an unknown tag is the reply's as a whole.
+		return NoFit{Reply: reply, Path: "", Reason: "a value its type refuses"}
+	}
+}
+
+// Ask asks the bound Model for a T of schema s: one Generate of
+// Format(r, s), and Parse of its text. A reply that stopped at its length
+// is cut short, so it is never parsed: it fails NoFit with the reply
+// (LengthStopIsNotParsed, in llm/memory).
+func Ask[T wire](c json.Codec[T], s jsonschema.Encoded, r Request) json.Read[T] fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | NoFit needs Model | wired[T] {
+	let t = try Model.Generate(Format(r, s))
+	let cut = match t.Stop {
+	case Length:
+		true
+	case _:
+		false
+	}
+	if cut {
+		return NoFit{Reply: t.Text, Path: "", Reason: "the reply stopped at its length"}
+	}
+	try Parse(c, t.Text)
+}
+
+// askProbe is the value the laws of Format and Parse write and read, and
+// askProbeSchema its schema as a program's ergo gen schema writes it: the
+// codec's member names, lowered.
+type askProbe { Name string, Count int, Tags []string }
+
+func askProbeSchema() jsonschema.Encoded {
+	let s = jsonschema.Parse("{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"name\",\"count\",\"tags\"],\"additionalProperties\":false}") catch {
+	case _:
+		return jsonschema.Encode(jsonschema.Parse("{}") catch {
+		case _:
+			return jsonschema.NewEncoded([]string{})
+		})
+	}
+	jsonschema.Encode(s)
+}
+
+func askCodec() json.Codec[askProbe] { json.Codec[askProbe]{MaxBytes: 0, MaxDepth: 0} }
+
+// FormatAgreesWithCodec: the text the codec writes for a value fits the
+// schema Format asks for, and Parse reads it back as the value, with no
+// fix.
+law FormatAgreesWithCodec(v askProbe) {
+	let text = json.Encode(askCodec(), v)
+	let doc = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return false
+	}
+	let back = Parse(askCodec(), text) catch {
+	case _:
+		return false
+	}
+	jsonschema.Conforms(jsonschema.SchemaOf(askProbeSchema()), doc) && back.Value == v && len(back.Fixes) == 0
+}
+
+// FormatKeepsTheRequest: Format changes only the system text, which ends
+// with the schema's text, and the reply's form, which is JSON of it.
+law FormatKeepsTheRequest(system string, max int) {
+	let r = Request{System: system, Messages: []Message{User{Text: "hi"}}, Tools: []ToolSpec{}, Choice: Auto, Format: Prose, MaxTokens: max}
+	let f = Format(r, askProbeSchema())
+	let text = jsonschema.TextOf(askProbeSchema())
+	let form = match f.Format {
+	case JSON as j:
+		j.Schema == text
+	case Prose:
+		false
+	}
+	form && strings.HasSuffix(f.System, text) && strings.HasPrefix(f.System, system) && f.Messages == r.Messages && f.MaxTokens == max
+}
+
+// ParseDecodesOrFails: Parse of any reply is the loose reader's value with
+// its fixes, or NoFit that holds the reply itself, never another value.
+law ParseDecodesOrFails(reply string) {
+	let want = json.DecodeLoose(askCodec(), reply) catch {
+	case _:
+		let _ = Parse(askCodec(), reply) catch {
+		case NoFit as n:
+			return n.Reply == reply
+		}
+		return false
+	}
+	let got = Parse(askCodec(), reply) catch {
+	case _:
+		return false
+	}
+	got == want
+}

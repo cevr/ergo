@@ -155,40 +155,6 @@ func callsByRounds(edges []Call, start string, depth int, inward bool) []Hop {
 	out
 }
 
-// CallsAreSteps: a calls answer at depth n+1 begins with the answer at
-// depth n, and the hops it adds are at depth n+1; at depth 1 out of a
-// declaration, they are exactly the calls it makes.
-func callsAreSteps(pick int, depth int, inbound bool) bool needs Reader {
-	let n = 1 + slot(depth, 3)
-	match picked(pick) {
-	case None:
-		true
-	case Some[Decl] as d:
-		if !callable(d.Value.Kind) {
-			return true
-		}
-		let dir = Some[string]{Value: if inbound { "in" } else { "out" }}
-		let short = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: Some[int]{Value: n}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
-		case _:
-			return false
-		}
-		let long = Reader.Calls(CallQuery{Of: d.Value.Handle, Direction: dir, Depth: Some[int]{Value: n + 1}, Offset: None, Limit: Some[int]{Value: MaxLimit}}) catch {
-		case _:
-			return false
-		}
-		let mut ok = len(long.Hops) >= len(short.Hops)
-		for i, h in long.Hops {
-			ok = ok && (if i < len(short.Hops) { h == short.Hops[i] } else { h.Depth == n + 1 })
-		}
-		if n == 1 {
-			for h in short.Hops {
-				ok = ok && (if inbound { h.Call.To } else { h.Call.From }) == d.Value.Handle
-			}
-		}
-		ok
-	}
-}
-
 // callTarget is the declaration of q's address, or the failure.
 func callTarget(q CallQuery, d Decl) Decl fails NotCallable {
 	if !callable(d.Kind) {

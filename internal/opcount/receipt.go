@@ -30,7 +30,10 @@ type Host struct {
 	Arch      string `json:"arch"`
 	CPUs      int    `json:"cpus"`
 	GoVersion string `json:"go_version"`
-	Counter   string `json:"counter"` // "user instructions" or why there is none
+	// Level is the CPU level the programs were built for (GOAMD64,
+	// GOARM64: build.Toolchain.TargetLevel), v1 or v8.0 by default.
+	Level   string `json:"level,omitempty"`
+	Counter string `json:"counter"` // "user instructions" or why there is none
 	// SamplePeriod is the user instructions between two samples of the
 	// parts (Period): with perf_event_max_sample_rate it sets how many
 	// samples a run takes, so how far a part may lie from its share.

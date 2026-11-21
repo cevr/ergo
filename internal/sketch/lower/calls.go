@@ -347,10 +347,13 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
 		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
-		if sp != nil && sp.wit != nil && !known {
-			lead = nil // the copy for a known witness takes none (witspec.go)
+		if sp != nil && sp.wit != nil && !known || mono != nil && mono.wits != nil {
+			// The copy for a known witness takes none (witspec.go), nor
+			// does a copy for an instance whose witnesses are known
+			// (mono.go monoWitnesses).
+			lead = nil
 		}
-		if !fd.pure {
+		if !fd.envFree {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
@@ -783,7 +786,6 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 		l.hostImports = map[string]bool{}
 	}
 	l.hostImports[path] = true
-	l.hostText = true // a Go package's panic value may need fmt's text
 	return l.pkgName(pkgKey{"import", path}, hostBase(path))
 }
 
@@ -800,6 +802,24 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 			if path, _ := f.Decl.Extern.Split(); path != "time" && !seen[path] {
 				seen[path] = true
 				paths = append(paths, path)
+			}
+		}
+	}
+	// The Go interface parameter of a Go function the program calls (an
+	// `own io.Reader` of a binding it imports): the IR spells a Go
+	// value's conversion to it (opsConv, ir_with.go; IR-GOCALLS-4) and
+	// another Go interface's (goWiden, ir_govar.go; IR-GOCALLS-5), though
+	// the program may not import its package.
+	for _, p := range pkgs {
+		for _, c := range p.Info.Calls {
+			if c == nil || c.Func == nil || c.Func.Sig == nil || c.Func.Pkg == nil || !c.Func.Pkg.Host() {
+				continue
+			}
+			for _, q := range c.Func.Sig.Params {
+				if n, ok := q.Type.(*check.Named); ok && goInterface(n) && n.Obj.Pkg.Path != "time" && !seen[n.Obj.Pkg.Path] {
+					seen[n.Obj.Pkg.Path] = true
+					paths = append(paths, n.Obj.Pkg.Path)
+				}
 			}
 		}
 	}
@@ -897,7 +917,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 	file, line, column := fc.l.locate(x, x.Pos())
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -969,15 +989,72 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			}
 		}
 	}
+	return fc.declaredValue(f, fd, sig, site, inst, "")
+}
+
+// methodValue196 lowers x.f, the function f on x's type taken as a value
+// (types.md, Methods 2; check.Info.MethodValues): x is evaluated here,
+// once, and the closure funcValue writes passes it as f's first argument,
+// as Go's method value binds its receiver. The checker admits only an
+// Ergo function whose first parameter takes x by value.
+func (fc *funcCtx) methodValue196(x *syntax.SelectorExpr, f *check.Func) string {
+	sig, ok := fc.typeOf(x).(*check.Signature)
+	if !ok {
+		ice(x, "the method value %s has no function type", x.Sel.Name)
+	}
+	recv := fc.value(x.X)
+	if _, ptr := fc.typeOf(x.X).(*check.Pointer); ptr {
+		recv = "*" + recv // a borrow's value, copied as a call's argument is
+	}
+	recv = fc.spill(recv)
+	fd := fc.l.useFunc(f, x)
+	if fc.plainMVs[x] {
+		return fc.plainMethodValue(fd, sig, x, recv)
+	}
+	return fc.declaredValue(f, fd, sig, x, fc.l.info.Instances[x], recv)
+}
+
+// plainMethodValue is the known pure method value x (pureMethodValue,
+// knownSite) as a plain Go closure, func(params) R, over recv, the
+// receiver's copy: a direct call of the function, which takes no
+// environment and cannot fail, as a known pure literal's body is.
+func (fc *funcCtx) plainMethodValue(fd *funcDecl, sig *check.Signature, x *syntax.SelectorExpr, recv string) string {
+	return fc.envClosure(plainEnv, "", x, func(string) (params []string, results, body string) {
+		args := []string{recv}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		head := fd.name
+		if fd.method != nil {
+			head, args = args[0]+"."+fd.name, args[1:]
+		}
+		call := head + "(" + strings.Join(args, ", ") + ")"
+		ind := strings.Repeat("\t", fc.depth+1)
+		if len(sig.Results) == 1 {
+			return params, " " + fc.goType(sig.Results[0]), ind + "return " + call + "\n"
+		}
+		return params, "", ind + call + "\n"
+	})
+}
+
+// declaredValue is the closure of the uniform shape that calls the
+// declared function f (funcValue), with recv, when not "", as its first
+// argument before the value's parameters (methodValue196).
+func (fc *funcCtx) declaredValue(f *check.Func, fd *funcDecl, sig *check.Signature, site syntax.Node, inst *check.Instance, recv string) string {
 	// The value has the one Go shape of every function value; for a pure
 	// function the closure discards its environment (pure.go).
 	envParam := "env"
-	if fd.pure {
+	if fd.envFree {
 		envParam = "_"
 	}
 	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
 		lead := fd.envLead(env)
 		var args []string
+		if recv != "" {
+			args = append(args, recv)
+		}
 		for _, p := range sig.Params {
 			name := fc.scope.alloc("p")
 			params = append(params, name+" "+fc.goType(p.Type))
@@ -985,7 +1062,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 		}
 		// An instance's witnesses, from its operations (witness.go): a
 		// struct value passed on each call of the value.
-		lead = append(lead, fc.witnessArgs(f, inst, site)...)
+		wits := fc.witnessArgs(f, inst, site)
 		var head string
 		switch {
 		case fd.method != nil:
@@ -994,11 +1071,14 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
 			if mono := fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
 				head = mono.name // the instance's plain copy (mono.go)
+				if fc.monoWitnesses(mono, inst); mono.wits != nil {
+					wits = nil // its witnesses are known: it takes none
+				}
 			}
 		default:
 			head = fd.name
 		}
-		args = append(lead, args...)
+		args = append(append(lead, wits...), args...)
 		call := head + "(" + strings.Join(args, ", ") + ")"
 		var result check.Type
 		if len(sig.Results) == 1 {
@@ -1640,7 +1720,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
 			pre, e := "", ""
-			if fd.pure {
+			if fd.envFree {
 				// A pure table function takes no environment (pure.go).
 				params[0] = "_ *" + l.taskPkg() + ".Task"
 			} else {

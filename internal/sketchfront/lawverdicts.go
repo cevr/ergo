@@ -33,11 +33,11 @@ const (
 
 // targetKey is the store's key of the run t of pkg's test build at seed
 // and states, run by runner (runnerEval or runnerNative).
-func targetKey(pkg *check.Package, t lower.RunTarget, seed uint64, states int, runner string) string {
+func targetKey(pkg *check.Package, t lower.RunTarget, seed uint64, states int, runner string, keys lower.ForeignKeys) string {
 	if states == 0 {
 		states = defaultStates
 	}
-	parts := []string{"law run", t.Label, t.Digest(pkg), strconv.FormatUint(seed, 10), strconv.Itoa(states)}
+	parts := []string{"law run", t.Label, t.DigestWith(pkg, keys), strconv.FormatUint(seed, 10), strconv.Itoa(states)}
 	if t.Machine {
 		parts = append(parts, "machine", runner)
 	}
@@ -65,7 +65,7 @@ func (a Analysis) EvalVerdicts(store *lawcache.Store, seed uint64, states int, n
 	if store == nil || pkg == nil {
 		return nil
 	}
-	v := &evalVerdicts{store: store, pkg: pkg, seed: seed, states: states, native: native}
+	v := &evalVerdicts{store: store, pkg: pkg, seed: seed, states: states, native: native, foreign: foreignKeys(a, nil)}
 	// The store keys no check-time run under a context: the evaluator
 	// runs one every time (eval/lawcontext.go), and ergo test keys its own.
 	for _, t := range lower.RunTargets(pkg) {
@@ -78,11 +78,13 @@ func (a Analysis) EvalVerdicts(store *lawcache.Store, seed uint64, states int, n
 }
 
 type evalVerdicts struct {
-	store   *lawcache.Store
-	pkg     *check.Package
-	seed    uint64
-	states  int
-	native  string // the toolchain whose test binary's verdicts are read
+	store  *lawcache.Store
+	pkg    *check.Package
+	seed   uint64
+	states int
+	native string // the toolchain whose test binary's verdicts are read
+	// foreign are the program's foreign keys (targetKey).
+	foreign lower.ForeignKeys
 	targets []lower.RunTarget
 	// keys memoizes each target's key, "" until it is asked for.
 	keys []string
@@ -95,7 +97,7 @@ func (v *evalVerdicts) target(law *check.Law, binding []check.LawProvider) (lowe
 			continue
 		}
 		if v.keys[i] == "" {
-			v.keys[i] = targetKey(v.pkg, t, v.seed, v.states, runnerEval)
+			v.keys[i] = targetKey(v.pkg, t, v.seed, v.states, runnerEval, v.foreign)
 		}
 		return t, v.keys[i], true
 	}
@@ -172,9 +174,10 @@ func (a Analysis) TestVerdicts(store *lawcache.Store, seed uint64, states int, t
 		return nil
 	}
 	tv := &TestVerdicts{store: store}
+	foreign := foreignKeys(a, nil)
 	for _, t := range lower.RunTargets(pkg) {
 		tv.targets = append(tv.targets, t)
-		k := targetKey(pkg, t, seed, states, runnerNative)
+		k := targetKey(pkg, t, seed, states, runnerNative, foreign)
 		tv.keys = append(tv.keys, k)
 		if toolchain != "" {
 			k = lawcache.Key(k, "toolchain", toolchain)

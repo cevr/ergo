@@ -1,0 +1,9 @@
+> start /
+  address: / (0 behind)
+  nav: <Home> <People> <Files> <Nested>
+  page: # Welcome Home | This is a routing example built with Ergo. Navigate using the links above to see different routes in action.
+> visit /people/3
+  address: /people/3 (1 behind)
+  page: <← Back to People> | # Carol Davis | ID: 3 | Role: Manager
+> key GX
+? line 2: a key is GH, GP, GF or GN

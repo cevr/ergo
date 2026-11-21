@@ -3,7 +3,7 @@ package check
 import (
 	"fmt"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 )
 
 // decided returns a source that a test generates in the decided syntax

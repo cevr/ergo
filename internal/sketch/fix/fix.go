@@ -77,6 +77,15 @@ type pairKey struct {
 	file         string // the program's file, for a program read alone
 }
 
+// ownKey is a type parameter the fix marks own: its package, its
+// declaration's name, its name and offset, and the program's file or
+// folder for a package main.
+type ownKey struct {
+	pkg, decl, name string
+	at              int
+	where           string
+}
+
 type pairRec struct {
 	pair  check.LegacyPair
 	sites []string
@@ -94,10 +103,29 @@ func Run(opts Options) (Report, error) {
 	var order []pairKey
 	where, alone := "", false
 	pkgDirs := map[string]string{}
+	owns := map[ownKey]bool{}
+	var ownOrder []ownKey
 	restore := check.RecordLegacy(func(p check.LegacyPair) {
+		if p.Own != "" {
+			// [T own]: a resource bound T, which the old inference
+			// admitted (MODES-5).
+			w := where
+			if p.Pkg != "main" {
+				w = ""
+			}
+			k := ownKey{p.Pkg, p.Decl, p.Own, p.At, w}
+			if !owns[k] {
+				owns[k] = true
+				ownOrder = append(ownOrder, k)
+			}
+			return
+		}
 		op := "?"
 		if p.Op != nil {
 			op = p.Op.String()
+		}
+		if p.MutOp != "" {
+			op = "mut " + p.MutOp
 		}
 		// A package main is the program's own: the one file read alone,
 		// or the package folder being checked.
@@ -225,7 +253,7 @@ func Run(opts Options) (Report, error) {
 		if r.where != "" {
 			desc += " in " + r.where
 		}
-		if p.Op == nil {
+		if p.Op == nil && p.MutOp == "" {
 			rep.Unwritten = append(rep.Unwritten, Unwritten{desc, "no instance of the operation type at the type's own parameters (generic), or an include whose operations differ: write it by hand"})
 			continue
 		}
@@ -257,6 +285,16 @@ func Run(opts Options) (Report, error) {
 			continue
 		}
 		if !under(file) {
+			continue
+		}
+		if p.MutOp != "" {
+			// mut Bump(): a function on mut T implements it at a
+			// constraint (MODES-4).
+			if err := ed.mutOp(file, decl, p.MutOp); err != nil {
+				rep.Unwritten = append(rep.Unwritten, Unwritten{desc, err.Error()})
+				continue
+			}
+			rep.Written = append(rep.Written, Written{file, p.Type.Name, "mut " + p.MutOp, strings.Join(r.sites, ", ")})
 			continue
 		}
 		pkgFiles := files
@@ -294,6 +332,39 @@ func Run(opts Options) (Report, error) {
 		if imp != "" {
 			ed.addImport(file, imp)
 		}
+	}
+	// A type parameter is recorded once per program that binds it, and the
+	// prelude's at the offsets of each text it is checked from: one mark
+	// per declaration and name.
+	marked := map[string]bool{}
+	for _, k := range ownOrder {
+		desc := fmt.Sprintf("%s.%s marks %s own", k.pkg, k.decl, k.name)
+		if marked[desc+"\x00"+k.where] {
+			continue
+		}
+		var files []string
+		switch {
+		case k.where != "" && strings.HasSuffix(k.where, ".ergo") || lits[k.where].file != "":
+			files = []string{k.where}
+		case k.where != "":
+			files = ergoFiles(k.where)
+		case k.pkg == stdlib.PreludePath && stdRoot != "":
+			files = []string{filepath.Join(stdRoot, "prelude.ergo")}
+		case pkgDirs[k.pkg] != "":
+			files = ergoFiles(pkgDirs[k.pkg])
+		case stdRoot != "" && slices.Contains(stdlib.Packages(), k.pkg):
+			files = ergoFiles(filepath.Join(stdRoot, filepath.FromSlash(k.pkg)))
+		}
+		if len(files) > 0 && !under(files[0]) {
+			continue
+		}
+		file, err := ed.ownMark(files, k.decl, k.name, k.at)
+		if err != nil {
+			rep.Unwritten = append(rep.Unwritten, Unwritten{desc, err.Error()})
+			continue
+		}
+		marked[desc+"\x00"+k.where] = true
+		rep.Written = append(rep.Written, Written{file, k.decl, "[" + k.name + " own]", "own"})
 	}
 	litOut := map[string]string{}
 	for file := range ed.edits {
@@ -408,6 +479,16 @@ func ergoFiles(dir string) []string {
 		}
 	}
 	return out
+}
+
+// WroteOwn reports whether the run wrote a mark [T own] (MODES-5).
+func (r Report) WroteOwn() bool {
+	for _, w := range r.Written {
+		if w.Site == "own" {
+			return true
+		}
+	}
+	return false
 }
 
 // Text prints the report: each written clause, then each pair not written

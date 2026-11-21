@@ -1,0 +1,16 @@
+// An appender called on its receiver keeps the value rule (V3): its
+// operand is clipped unless the call writes it in place, so cs keeps "a"
+// after bs appends "b" in place into the room Grow made (the IR's std call
+// had dropped the clip: cs read "b").
+
+func shared() string {
+	let mut bs = []byte{}
+	bs = bs.Grow(16)
+	let cs = bs.AppendString("a")
+	bs = bs.AppendString("b")
+	"\(cs.Text()) \(bs.Text())"
+}
+
+func main() needs Console {
+	Console.Println(shared())
+}

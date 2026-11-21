@@ -1,0 +1,27 @@
+// The program of TestIRMake (IR-MAKE): sized's and presized's IR bodies
+// return an empty slice literal, which the test rewrites to Go's
+// make([]int, n) and make([]int, 0, n), the forms the decoder takes since
+// IR-MAKE (a presize with a constant size stays on Go's stack).
+// The empty loop and the sizes known only when it runs keep each a call:
+// the IR inlines no body with a loop (inline.go inlineRule) and folds no
+// call of an operand it does not know (ir_fold.go),
+// and the test rewrites the callee.
+
+extern go cap func capOf[T](xs []T) int
+
+func sized(n int) []int {
+	for _ in 0..0 {}
+	[]int{}
+}
+
+func presized(n int) []int {
+	for _ in 0..0 {}
+	[]int{}
+}
+
+func main() needs Console {
+	let three = capOf([]int{1, 2, 3})
+	let a = sized(three)
+	let b = presized(three + 2)
+	Console.Println("\(len(a)) \(capOf(a)) \(len(b)) \(capOf(b))")
+}

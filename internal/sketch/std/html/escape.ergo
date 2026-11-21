@@ -7,7 +7,7 @@ import strings
 // control's set). A run with nothing to escape is one write. Each byte it
 // replaces is at most '>', so a byte above it (a letter, most of a page's
 // text) takes one compare.
-func escape(b *strings.Builder, s string) {
+func escape(b mut strings.Builder, s string) {
 	let mut last = 0
 	for i in 0..len(s) {
 		let c = s[i]
@@ -63,6 +63,56 @@ law TextIsInert(s string, t string) {
 	let text = Render(Text(x))
 	let attr = Render(Span([]Child{Class(x)}))
 	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" && Escape(s+">") == Escape(s)+"&gt;"
+}
+
+// unescape reads the five references escape writes back to their bytes,
+// and leaves every other byte, an & that starts none of them included.
+// (a law's helper)
+func unescape(s string) string {
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < len(s) {
+		let rest = strings.Slice(s, i, len(s))
+		if strings.HasPrefix(rest, "&amp;") {
+			b.WriteString("&")
+			i = i + 5
+		} else if strings.HasPrefix(rest, "&lt;") {
+			b.WriteString("<")
+			i = i + 4
+		} else if strings.HasPrefix(rest, "&gt;") {
+			b.WriteString(">")
+			i = i + 4
+		} else if strings.HasPrefix(rest, "&#34;") {
+			b.WriteString("\"")
+			i = i + 5
+		} else if strings.HasPrefix(rest, "&#39;") {
+			b.WriteString("'")
+			i = i + 5
+		} else {
+			b.WriteByte(s[i])
+			i = i + 1
+		}
+	}
+	b.String()
+}
+
+// inert is whether t holds no byte that ends a text or a quoted attribute
+// value (<, >, " or '), and each & in it starts a reference unescape
+// reads. (a law's helper)
+func inert(t string) bool {
+	for i in 0..len(t) {
+		let c = t[i]
+		if c == '<' || c == '>' || c == '"' || c == '\'' {
+			return false
+		}
+		if c == '&' {
+			let rest = strings.Slice(t, i, len(t))
+			if !(strings.HasPrefix(rest, "&amp;") || strings.HasPrefix(rest, "&lt;") || strings.HasPrefix(rest, "&gt;") || strings.HasPrefix(rest, "&#34;") || strings.HasPrefix(rest, "&#39;")) {
+				return false
+			}
+		}
+	}
+	true
 }
 
 // plain is whether s has none of the characters Escape replaces.

@@ -22,7 +22,7 @@ import (
 // it did, and the test's declaration is then written without one.
 func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params []*check.Var, needsFrame bool) (ok bool) {
 	l := fc.l
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: -1}
+	b := st.newBuilder(fc, d)
 	defer st.finish(b, l.pkg.Path, name, d, false, &ok)
 	if needsFrame {
 		b.gate("body that needs a frame")
@@ -56,19 +56,33 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 // lawBody gives the law, the Go function name, an IR body (lawDecl):
 // `func ergoLaw…(env, params…) (bool, error)`, each value it returns
 // checked where it is returned (lawResult). A law of a generic operation
-// type stays the emitter's.
+// type's copy (mono.go) also takes the provider under test after the
+// environment (lawOwn).
 func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame bool) (ok bool) {
 	l, d := fc.l, law.Decl
-	b := &irBuilder{fc: fc, l: l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result, law: law}
+	b := st.newBuilder(fc, d)
+	b.result, b.law = fc.frame.result, law
 	defer st.finish(b, law.Pkg.Path, name, d, law.Pkg.Std(), &ok)
 	if needsFrame {
 		b.gate("body that needs a frame")
 	}
-	if lawGenericOwner(law) != nil {
-		b.gate("law of a generic operation type")
-	}
 	b.env = b.next
 	b.next++
+	if own := lawGenericOwner(law); own != nil {
+		if !fc.mono || b.l.runtimeType(own, d) != "" {
+			// The generic law itself (the reference, genericLowering
+			// "stencil") is a Go generic function, whose body the IR
+			// does not fill; a std operation type's call takes its
+			// runtime binding (the emitter's opCall).
+			b.gate("law of a generic operation type")
+		}
+		// A copy of a law of a generic operation type at one instance
+		// (mono.go lawMonoFor; lawDecl writes its header: the provider
+		// under test `own` after the environment); its operation calls
+		// call own (ir_call.go).
+		b.lawOwn = b.next
+		b.next++
+	}
 	for _, v := range law.Params {
 		if v.Name != "_" {
 			b.locals[v] = b.next
@@ -98,7 +112,8 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 // emitter's.
 func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 	last := out[len(out)-1]
-	if x == nil || last.K != "ret" || last.X == nil {
+	if x == nil || last.K != "ret" || last.X == nil || b.law.Admits != nil {
+		// An admission's false only skips its case (lawnear.go).
 		return out
 	}
 	if b.fallibleCall(x) != nil {
@@ -171,27 +186,42 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		// stays inline): the comparison and the failure text read them.
 		b.plain(x)
 		op := x.Op.String()
-		b.operator(op, l.info.Types[x.X], x)
 		var vals []*irExpr
-		// A try that starts the assert covers the whole comparison: its
-		// operands are built under it (the emitter's assert, q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			b.tries++
-		}
-		pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
-		if inTry {
-			b.tries--
-		}
-		for k, e := range []syntax.Expr{x.X, x.Y} {
-			if vals[k].K == "const" || vals[k].K == "local" {
-				continue
+		build := func() []*irExpr {
+			// A try that starts the assert covers the whole comparison:
+			// its operands are built under it (the emitter's assert, q105).
+			inTry := tried(s.X) != s.X
+			if inTry {
+				b.tries++
 			}
-			t := b.temp("arg", b.goType(l.info.Types[e], e), vals[k].Pos)
-			pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
-			vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
+			pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
+			if inTry {
+				b.tries--
+			}
+			for k, e := range []syntax.Expr{x.X, x.Y} {
+				if vals[k].K == "const" || vals[k].K == "local" {
+					continue
+				}
+				t := b.temp("arg", b.goType(b.operandType(e), e), vals[k].Pos)
+				pre = append(pre, &irStmt{K: "def", Pos: vals[k].Pos, Local: t, X: vals[k]})
+				vals[k] = &irExpr{K: "local", Pos: vals[k].Pos, I: t}
+			}
+			return vals
 		}
-		cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		// == and != on a type that is not basic: the emitter's binaryOf
+		// on the spilled operands, as any comparison (ir_equal.go).
+		if cond = b.equalOn(x, build); cond == nil {
+			b.operator(op, l.info.Types[x.X], x)
+			build()
+			cond = &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: vals[0], Y: vals[1]}
+		}
+		// The spilled operands hold their implicit conversions (a variant
+		// compared with its union is the union's value): the helper takes
+		// them at those types and prints the value it holds.
+		lt, rt = b.operandType(x.X), b.operandType(x.Y)
+		if !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+			irNo("assert of a converted operand that does not print")
+		}
 		show := &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(s, lt, rt, x), Args: vals}
 		text = &irExpr{K: "bin", Pos: p, Op: "+", X: text, Y: show}
 	} else {

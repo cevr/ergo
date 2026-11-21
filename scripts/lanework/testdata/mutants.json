@@ -1,0 +1,23 @@
+{
+  "about": "scripts/lanework/lanework.sh: a lane hands its branch back to the main checkout whatever push guard work put on its remotes. Each mutant restores one way push failed (2026-11-19) and a test of this package kills it.",
+  "mutants": [
+    {
+      "name": "lanework-push-by-remote",
+      "origin": "wf10 LANEWORK-PUSH",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  git -C \"$lane\" push --quiet \"$MAIN\" \"HEAD:refs/heads/$branch\"\n",
+      "to": "  git -C \"$lane\" push --quiet main-checkout \"HEAD:refs/heads/$branch\"\n",
+      "rule": "push reaches the main checkout by its path, so work's guard on the main-checkout remote does not stop it.",
+      "killers": ["scripts/lanework:TestPushReachesTheMainCheckoutOfAGuardedLane"]
+    },
+    {
+      "name": "lanework-create-keeps-guard",
+      "origin": "wf10 LANEWORK-PUSH",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  git -C \"$path\" config --unset-all remote.main-checkout.pushurl || true\n",
+      "to": "",
+      "rule": "A lane create makes guards origin only; main-checkout, its push remote, takes a plain git push.",
+      "killers": ["scripts/lanework:TestCreateLeavesOnlyOriginGuarded"]
+    }
+  ]
+}

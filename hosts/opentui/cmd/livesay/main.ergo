@@ -1,0 +1,127 @@
+// livesay plays taps on ui.TestHost and on the terminal driver over a
+// headless screen, and prints after each step whether the terminal said
+// what the test host announced (gap 7): the texts its live region newly
+// showed, in order. TestLiveRegionSaysWhatTheTestHostAnnounces writes the
+// scripts.
+//
+// The app shows four buttons that set the live region's text (s0 the empty
+// text, s1 and s3 the same text, s2 another) and one that shows or hides
+// the region (toggle), so a script inserts it, sets it, sets it to the
+// same text and to the empty one, and removes it.
+//
+// Standard input: one step a line, "tap LABEL". Output: "ok N" or
+// "differ N: …" per step, then "end".
+
+import actor
+import ergo.local/prototype/hosts/opentui/tui
+import go ergo.local/prototype/hosts/opentui/screen
+import io
+import strings
+import time
+import ui
+
+// Texts are the live region's texts, by the button that sets them.
+let Texts = []string{"", "saved", "3 items", "saved"}
+
+type live { k int, shown bool }
+
+func liveStep(s live, e int) Decision[live, int] {
+	if e == 4 {
+		return Enter[live]{Next: live{k: s.k, shown: !s.shown}}
+	}
+	Enter[live]{Next: live{k: e, shown: s.shown}}
+}
+
+func none(s live) Option[Timeout[int]] { None }
+
+func idle(s live) Option[func(send func(e int))] { None }
+
+func liveMachine() Machine[live, int, int] {
+	Machine[live, int, int]{Initial: live{k: 1, shown: true}, Step: liveStep, After: none, Work: idle}
+}
+
+func liveView(f mut ui.Frame[int], s live) {
+	ui.Column(f, ui.Plain()) {
+		for i in 0..len(Texts) {
+			ui.Pressable(f, "s\(i)", i) {
+				ui.Text(f, "S\(i)")
+			}
+		}
+		ui.Pressable(f, "toggle", 4) {
+			ui.Text(f, "Toggle")
+		}
+		if s.shown {
+			ui.Announce(f, Texts[s.k])
+		}
+	}
+}
+
+// differs is why the terminal's said texts are not the test host's, None
+// when they are the same.
+func differs(said []string, announced []string) Option[string] {
+	if said == announced {
+		return None
+	}
+	Some{Value: "terminal said [\(strings.Join(said, "|"))], test host announced [\(strings.Join(announced, "|"))]"}
+}
+
+func main() needs Console | Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+		let text = io.Stdin.ReadAll() catch {
+		case io.ReadFailed:
+			Console.Println("differ 0: no input")
+			return
+		}
+		let s = screen.Headless(40, 10) catch {
+		case go.Error as e:
+			Console.Println("differ 0: no screen: \(e.Text)")
+			return
+		}
+		let ta = actor.StartMachine(liveMachine(), 1, func(o int) {})
+		let da = actor.StartMachine(liveMachine(), 1, func(o int) {})
+		let mut h = ui.NewTestHost(ta, liveView, time.NewManual(0), 16) catch {
+		case ui.BadPatch as b:
+			Console.Println("differ 0: test host: \(b.Why)")
+			return
+		}
+		let mut d = tui.New(s, da, liveView, 16) catch {
+		case ui.BadPatch as b:
+			Console.Println("differ 0: driver: \(b.Why)")
+			return
+		case tui.ScreenFailed as e:
+			Console.Println("differ 0: driver: \(e.Why)")
+			return
+		}
+		match differs(tui.Said(&d), ui.Announced(&h)) {
+		case Some[string] as why:
+			Console.Println("differ 0: \(why.Value)")
+		case None:
+			Console.Println("ok 0")
+		}
+		for i, line in strings.Split(strings.TrimSpace(text), "\n") {
+			let n = i + 1
+			let label = strings.TrimPrefix(line, "tap ")
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+			case ui.NoNode, ui.Mismatch, actor.Stopped, ui.BadPatch:
+				Console.Println("differ \(n): \(line): the test host failed")
+				continue
+			}
+			tui.Play(&d, []ui.Act{ui.TapOn{Label: label}}) catch {
+			case ui.NoNode, ui.Mismatch, ui.Closed, actor.Stopped, ui.BadPatch, tui.ScreenFailed:
+				Console.Println("differ \(n): \(line): the terminal failed")
+				continue
+			}
+			match differs(tui.Said(&d), ui.Announced(&h)) {
+			case Some[string] as why:
+				Console.Println("differ \(n): \(line): \(why.Value)")
+			case None:
+				Console.Println("ok \(n)")
+			}
+		}
+		s.Quit() catch {
+		// ergo-lint-disable-next-line silent-catch -- the run is over; nothing is left to tell
+		case go.Error:
+		}
+		Console.Println("end")
+	}
+}

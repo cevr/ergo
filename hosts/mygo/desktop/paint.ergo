@@ -8,6 +8,7 @@
 import arena
 import go ergo.local/prototype/hosts/mygo/screen
 import ui
+import strings
 import ui/layout
 
 // textSize is the font size of every text, in DIPs.
@@ -28,6 +29,9 @@ let danger = uint32(0xcf222eff)
 let track = uint32(0xc6ccd3ff)
 
 let paper = uint32(0xffffffff)
+
+// selection is the fill behind the selected text of a focused Input.
+let selection = uint32(0xb6e3ffff)
 
 // mark is the size of a Check's box; switchW and switchH a Toggle's track.
 let mark = float32(18)
@@ -120,6 +124,10 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.AreaNode as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.LayerNode[E] as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.TrackNode as x:
+		boxStyle(x.Style, layout.Column)
 	case ui.FieldsetNode:
 		// A Fieldset shows nothing of its own: it stacks its children.
 		plainStyle()
@@ -142,6 +150,12 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		let mut s = boxStyle(x.Style, layout.Column)
 		s.Content = layout.Text{Value: x.Value, Size: textSize}
 		s
+	case ui.ReadoutNode as x:
+		// A readout lays out by its reserve, whatever it reads, so a new
+		// reading moves nothing.
+		let mut s = boxStyle(x.Style, layout.Column)
+		s.Content = layout.Text{Value: x.Reserve, Size: textSize}
+		s
 	case ui.PressableNode[E] as x:
 		let mut s = boxStyle(x.Style, layout.Row)
 		if noPadding(s.Padding) {
@@ -161,11 +175,11 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		s.Content = layout.Text{Value: x.Label, Size: textSize}
 		s
 	case ui.InputNode as x:
-		// A label above the field and a description under it take a line
-		// each.
+		// The field is Lines lines high (OpenTUI gap 2); a label above the
+		// field and a description under it take a line each.
 		let mut s = plainStyle()
 		s.Width = layout.Px{Value: fieldW}
-		s.Height = layout.Px{Value: line + 12 + labelRoom(x, line) + describeRoom(x, line)}
+		s.Height = layout.Px{Value: float32(x.Lines)*line + 12 + labelRoom(x, line) + describeRoom(x, line)}
 		s.Padding = [4]float32{6, 8, 6, 8}
 		s
 	}
@@ -176,6 +190,8 @@ func textOf[E](n ui.Node[E]) string {
 	match n {
 	case ui.TextNode as x:
 		x.Value
+	case ui.ReadoutNode as x:
+		x.Reserve
 	case ui.CheckNode[E] as x:
 		x.Label
 	case ui.ToggleNode as x:
@@ -213,6 +229,45 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	}
 }
 
+// fieldText draws an Input's value, a line of it per line, under the
+// selection the model holds (OpenTUI gap 2) when the field has the focus:
+// a fill behind each line's selected part.
+func fieldText[S, E, D, F](d mut Driver[S, E, D, F], x ui.InputNode, inner layout.Box, line float32, focus bool) needs go.Foreign {
+	let (lo, hi) = ui.Selected(ui.EditingOf(x))
+	let mut start = 0
+	let mut row = 0
+	for l in strings.Split(x.Value, "\n") {
+		let y = inner.Y + float32(row)*line
+		let end = start + len(l)
+		if focus && lo != hi && lo <= end && hi >= start {
+			let a = if lo > start { lo - start } else { 0 }
+			let z = if hi < end { hi - start } else { len(l) }
+			let ax = width(d.metrics, l[0:a], textSize)
+			let zx = width(d.metrics, l[0:z], textSize)
+			fill(d, layout.Box{X: inner.X + ax, Y: y, W: fmax(zx-ax, 2), H: line}, 0, selection)
+		}
+		d.w.Text(float64(inner.X), float64(y), l, float64(textSize), ink)
+		start = end + 1
+		row = row + 1
+	}
+}
+
+// caretAt is where the caret at byte caret of value stands in its field:
+// across its line and down by the lines before it.
+func caretAt[S, E, D, F](d mut Driver[S, E, D, F], value string, caret int, line float32) (float32, float32) {
+	let mut start = 0
+	let mut row = 0
+	for l in strings.Split(value, "\n") {
+		let end = start + len(l)
+		if caret <= end {
+			return (width(d.metrics, l[0:caret-start], textSize), float32(row) * line)
+		}
+		start = end + 1
+		row = row + 1
+	}
+	(0, float32(row) * line)
+}
+
 // fieldName is an Input's accessible name: its label, or its placeholder
 // when it has none, as ui's locator reads it.
 func fieldName(x ui.InputNode) string {
@@ -240,7 +295,8 @@ func describeRoom(x ui.InputNode, line float32) float32 {
 
 // paint lays the window's tree out at the window's size and gives the
 // window its paint list.
-func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func paint[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
+	d.trackAt = d.w.Now()
 	if d.rebuild {
 		learn(&d.metrics, d.w, "", textSize)
 		for _, h in d.nodes {
@@ -254,7 +310,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 		d.top = top
 		d.lids = ids
 	} else {
-		layOutKept(d)
+		layOutKept(d, line)
 		if d.check {
 			checkKept(d, line)
 		}
@@ -263,6 +319,9 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.lastSpot = d.spots
 	d.lastCanv = d.canvases
 	d.lastSem = d.semantics
+	d.lastLook = d.looked
+	d.lastUnder = d.underlines
+	d.lastInks = d.inks
 	if d.rebuild {
 		// The reference: every node drawn, nothing kept from the last
 		// paint.
@@ -301,28 +360,46 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 // the nodes drawn anew (Drawn). With again, a node none of soiled
 // contains whose box, offset and clip are those of its last draw takes
 // that draw again (the damage paint); without, every node is drawn.
-func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawAll[S, E, D, F](d mut Driver[S, E, D, F], line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	d.spots = []spot[E]{}
 	d.canvases = []spot[E]{}
 	d.drawn = 0
 	d.looked = []lookProbe{}
+	d.underlines = []Probe{}
+	d.slants = 0
+	d.inks = []InkAt{}
+	d.covers = []cover{}
 	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
 	d.shadowed = false
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
-	for k in kidsOf(d, d.root) {
-		draw(d, k, 0, full, line, soiled, again)
-	}
+	drawKids(d, d.root, 0, 0, full, line, soiled, again)
+	paintLayers(d, line, soiled, again)
 }
 
 // spread is the nodes whose draw changed since the last paint and all
 // their ancestors: each node a pass set, a parent whose children changed,
 // a Scroll that moved, and the nodes that took and lost the focus.
-func spread[S, E, D, F](d *Driver[S, E, D, F]) Map[ui.Id[E], bool] {
+func spread[S, E, D, F](d mut Driver[S, E, D, F]) Map[ui.Id[E], bool] needs go.Foreign {
 	let mut out = Map[ui.Id[E], bool]{}
 	let mut seeds = []ui.Id[E]{}
 	for id, _ in d.soiled {
 		seeds = seeds.Append(id)
+	}
+	// A track whose value moved since its last draw moves or fades its
+	// body with no op (TRACKS).
+	for id, _ in d.tracks {
+		match d.nodes.Get(id) {
+		case Some[held[E]] as h:
+			match h.Value.node {
+			case ui.TrackNode as x:
+				if d.trackShown.Get(id) != (Some{Value: trackedNow(d, id, x.Target)}) {
+					seeds = seeds.Append(id)
+				}
+			case _:
+			}
+		case None:
+		}
 	}
 	// The focus, the hover and the pressed node, now and at the last paint:
 	// their looks (and their ancestors', LookStateIn) change with no op (UG3).
@@ -365,13 +442,13 @@ func sameSpots[E](a []spot[E], b []spot[E]) bool {
 	true
 }
 
-// drawn is what a node's last draw was given (its box, the offset its
-// Scrolls lifted it by, its clip and the line height) and the spots and
+// drawn is what a node's last draw was given (its box, the offsets its
+// tracks moved and its Scrolls lifted it by, its clip and the line height) and the spots and
 // canvases it added, as ranges of the paint's lists.
-type drawn { box layout.Box, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int }
+type drawn { box layout.Box, dx float32, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int, m0 int, m1 int, l0 int, l1 int, u0 int, u1 int, i0 int, i1 int, slants int }
 
 // keyOf is id's key in the window's list (Mark, Again).
-func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
+func keyOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 	match d.keys.Get(id) {
 	case Some[int] as k:
 		k.Value
@@ -382,18 +459,44 @@ func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
 	}
 }
 
-// rebuilt is the reference layout: a tree built anew from the window's
-// nodes, laid out at the window's size, each list that laid out no taller
-// than 0 given the window's room below its top and the tree laid out
-// again; with its window's box and each node's box.
-func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
-	let mut t = layout.New()
+// rootStyle is the window's box: the window's size, the root laid out
+// inside the insets (MB4).
+func rootStyle[S, E, D, F](d mut Driver[S, E, D, F]) layout.Style {
 	let mut rs = plainStyle()
 	rs.Width = layout.Px{Value: d.width}
 	rs.Height = layout.Px{Value: d.height}
-	let top = layout.Add(&t, rs)
+	rs.Padding = [4]float32{float32(float64(d.insets.Top)), float32(float64(d.insets.Right)), float32(float64(d.insets.Bottom)), float32(float64(d.insets.Left))}
+	rs
+}
+
+// placeAll moves each layer, laid out at its own size, to its place and
+// lays the tree out again (UG4); a layer anchored in a layer that moved
+// goes again, so this ends after at most one round per layer. It is the
+// layout work it took.
+func placeAll[S, E, D, F](d mut Driver[S, E, D, F], t mut layout.Tree, top layout.Id, ids Map[ui.Id[E], layout.Id]) int needs layout.Measure {
+	let mut work = 0
+	for _ in 0..len(stacked(d))+1 {
+		if !placeLayers(d, t, ids) {
+			break
+		}
+		layout.Layout(t, top, d.width, d.height) catch {
+		case arena.Stale:
+		}
+		work = work + layout.Work(*t)
+	}
+	work
+}
+
+// rebuilt is the reference layout: a tree built anew from the window's
+// nodes, laid out at the window's size, each list that laid out no taller
+// than 0 given the window's room below its top and the tree laid out
+// again, then each layer placed; with its window's box and each node's
+// box.
+func rebuilt[S, E, D, F](d mut Driver[S, E, D, F], line float32) (layout.Tree, layout.Id, Map[ui.Id[E], layout.Id]) {
+	let mut t = layout.New()
+	let top = layout.Add(&t, rootStyle(d))
 	let mut ids = Map[ui.Id[E], layout.Id]{}
-	build(d, &t, d.root, top, &ids, line)
+	build(d, &t, d.root, top, top, &ids, line)
 	with context { layout.Measure: d.metrics } {
 		layout.Layout(&t, top, d.width, d.height) catch {
 		case arena.Stale:
@@ -413,13 +516,14 @@ func rebuilt[S, E, D, F](d *Driver[S, E, D, F], line float32) (layout.Tree, layo
 			case arena.Stale:
 			}
 		}
+		let _ = placeAll(d, &t, top, ids)
 	}
 	(t, top, ids)
 }
 
 // checkKept builds the reference tree beside the kept one and keeps the
 // first box where they differ (Differs), once.
-func checkKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
+func checkKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
 	if d.differ != None {
 		return
 	}
@@ -457,18 +561,19 @@ func checkKept[S, E, D, F](d *Driver[S, E, D, F], line float32) {
 }
 
 // build adds id's children under into, in order, and their subtrees, in
-// the styles styleIn gives them, and names each one's box in ids.
-func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids *Map[ui.Id[E], layout.Id], line float32) {
+// the styles styleIn gives them, and names each one's box in ids. A layer
+// goes under the window's box (top) instead, out of the flow (UG4).
+func build[S, E, D, F](d mut Driver[S, E, D, F], t mut layout.Tree, id ui.Id[E], into layout.Id, top layout.Id, ids mut Map[ui.Id[E], layout.Id], line float32) {
 	let list = listOf(d, id)
 	for i, k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
 		case Some[held[E]] as h:
 			let n = layout.Add(t, styleIn(list, i, h.Value.node, line))
-			layout.Append(t, into, n) catch {
+			layout.Append(t, if isLayer(h.Value.node) { top } else { into }, n) catch {
 			case arena.Stale:
 			}
 			(*ids)[k] = n
-			build[S, E, D, F](d, t, k, n, ids, line)
+			build[S, E, D, F](d, t, k, n, top, ids, line)
 		case None:
 		}
 	}
@@ -478,22 +583,22 @@ func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into 
 // again, a node none of soiled names (no pass, scroll or focus changed it
 // or a node below it) given the box, offset, clip and line height of its
 // last draw takes that draw again from the window's last list, with the
-// spots it added then: its subtree lays out as it did, so it paints as it
+// spots, looks, underlines, inks and italic runs it added then: its subtree lays out as it did, so it paints as it
 // did. Any other node is drawn anew and counted (Drawn).
-func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func draw[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let laid = match d.lids.Get(id) {
 	case Some[layout.Id] as l:
 		boxOf(&d.tree, l.Value)
 	case None:
 		return
 	}
-	let b = layout.Box{X: laid.X, Y: laid.Y - dy, W: laid.W, H: laid.H}
+	let b = layout.Box{X: laid.X - dx, Y: laid.Y - dy, W: laid.W, H: laid.H}
 	let key = keyOf(d, id)
 	if again && soiled.Get(id) == None {
 		match d.drew.Get(id) {
 		case Some[drawn] as p:
 			let was = p.Value
-			if was.box == b && was.dy == dy && was.clip == clip && was.line == line && was.opacity == d.w.Opacity() && was.under == d.under && d.w.Again(key) {
+			if was.box == b && was.dx == dx && was.dy == dy && was.clip == clip && was.line == line && was.opacity == d.w.Opacity() && was.under == d.under && d.w.Again(key) {
 				if was.shadow {
 					d.shadowed = true
 				}
@@ -509,7 +614,20 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 				for i in was.c0..was.c1 {
 					d.canvases = d.canvases.Append(d.lastCanv[i])
 				}
-				d.drew[id] = drawn{..was, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics)}
+				let l0 = len(d.looked)
+				let u0 = len(d.underlines)
+				let i0 = len(d.inks)
+				for i in was.l0..was.l1 {
+					d.looked = d.looked.Append(d.lastLook[i])
+				}
+				for i in was.u0..was.u1 {
+					d.underlines = d.underlines.Append(d.lastUnder[i])
+				}
+				for i in was.i0..was.i1 {
+					d.inks = d.inks.Append(d.lastInks[i])
+				}
+				d.slants = d.slants + was.slants
+				d.drew[id] = drawn{..was, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics), l0: l0, l1: len(d.looked), u0: u0, u1: len(d.underlines), i0: i0, i1: len(d.inks)}
 				return
 			}
 		case None:
@@ -518,6 +636,10 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 	let s0 = len(d.spots)
 	let c0 = len(d.canvases)
 	let m0 = len(d.semantics)
+	let l0 = len(d.looked)
+	let u0 = len(d.underlines)
+	let i0 = len(d.inks)
+	let k0 = d.slants
 	// A look's opacity and the colour under it reach the whole subtree
 	// (look.ergo), so a kept draw is taken again only under the same
 	// ones, and says whether it painted a shadow.
@@ -526,18 +648,18 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 	let shadowed = d.shadowed
 	d.shadowed = false
 	d.w.Mark(key)
-	drawNode(d, id, laid, b, dy, clip, line, soiled, again)
+	drawNode(d, id, laid, b, dx, dy, clip, line, soiled, again)
 	d.w.Seal(key)
 	let shadow = d.shadowed
 	d.shadowed = shadowed || shadow
 	d.drawn = d.drawn + 1
 	if again {
-		d.drew[id] = drawn{box: b, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics)}
+		d.drew[id] = drawn{box: b, dx: dx, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases), m0: m0, m1: len(d.semantics), l0: l0, l1: len(d.looked), u0: u0, u1: len(d.underlines), i0: i0, i1: len(d.inks), slants: d.slants - k0}
 	}
 }
 
 // drawNode paints id itself at b and draws its children.
-func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+func drawNode[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b layout.Box, dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	let n = match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.node
@@ -549,8 +671,8 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	let look = paintLook(d, id, n, b, clip, line, focus)
 	match n {
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
-		drawKids(d, id, dy, clip, line, soiled, again)
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.LayerNode:
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
 	case ui.SemanticNode[E]:
 		// A Semantic a press sends from (a radio, an option, a link) takes
 		// the pointer and the focus, and shows the focus ring (UC-TAB).
@@ -561,7 +683,25 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 			}
 		}
 		semantic(d, id, n, b, focus)
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
+	case ui.TrackNode as x:
+		// The host runs the track (TRACKS): its body moves by the value the
+		// track has now, or fades by it. spread draws a track anew when its
+		// value moved since its last draw (trackShown).
+		let tv = trackedNow(d, id, x.Target)
+		d.trackShown[id] = tv
+		let v = float32(tv)
+		match x.Prop {
+		case ui.TrackX:
+			drawKids(d, id, dx-v, dy, clip, line, soiled, again)
+		case ui.TrackY:
+			drawKids(d, id, dx, dy-v, clip, line, soiled, again)
+		case ui.TrackOpacity:
+			let o = d.w.Opacity()
+			d.w.SetOpacity(o * float64(v))
+			drawKids(d, id, dx, dy, clip, line, soiled, again)
+			d.w.SetOpacity(o)
+		}
 	case ui.ScrollNode:
 		d.spots = d.spots.Append(s)
 		let mut reach = float32(0)
@@ -576,7 +716,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		d.extents[id] = reach
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		drawKids(d, id, dy+scrolledBy(d, id), inner, line, soiled, again)
+		drawKids(d, id, dx, dy+scrolledBy(d, id), inner, line, soiled, again)
 		d.w.Unclip()
 	case ui.RowsNode as x:
 		// A list scrolls its rows as a Scroll does, over Count rows of
@@ -591,7 +731,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
 		let inner = cut(clip, b)
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
-		drawKids(d, id, dy+scrolledBy(d, id), inner, line, soiled, again)
+		drawKids(d, id, dx, dy+scrolledBy(d, id), inner, line, soiled, again)
 		d.w.Unclip()
 	case ui.CanvasNode as x:
 		d.canvases = d.canvases.Append(s)
@@ -599,18 +739,37 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	case ui.AreaNode as x:
 		d.spots = d.spots.Append(s)
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
 	case ui.TextNode as x:
 		access(d, id, screen.RoleText, x.Value, "", b, false, false)
 		let st = styleOf(n, line)
-		lines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], ink)
+		let k = lookOf(d, id, n).Ink
+		d.inks = d.inks.Append(InkAt{Label: x.Value, Ink: k})
+		inkedLines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], k, clip)
+	case ui.ReadoutNode as x:
+		// What the readout reads now, on one line, clipped to the
+		// reserve's box.
+		let reading = match ui.ReadingIn(&d.session, x.Readout) {
+		case Some[string] as r:
+			r.Value
+		case None:
+			x.Reserve
+		}
+		access(d, id, screen.RoleText, reading, "", b, false, false)
+		let st = styleOf(n, line)
+		let inner = cut(clip, b)
+		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
+		let k = lookOf(d, id, n).Ink
+		d.inks = d.inks.Append(InkAt{Label: reading, Ink: k})
+		inkedRun(d, reading, b.X+st.Padding[3], b.Y+st.Padding[0], k, inner)
+		d.w.Unclip()
 	case ui.PressableNode[E] as x:
 		d.spots = d.spots.Append(s)
 		if focus {
 			ring(d, b, float32(float64(lookOf(d, id, n).Corners.TopLeft)))
 		}
 		access(d, id, screen.RoleButton, x.Label, "", b, false, focus)
-		drawKids(d, id, dy, clip, line, soiled, again)
+		drawKids(d, id, dx, dy, clip, line, soiled, again)
 	case ui.CheckNode[E] as x:
 		d.spots = d.spots.Append(s)
 		let at = layout.Box{X: b.X, Y: b.Y + (b.H-mark)/2, W: mark, H: mark}
@@ -658,40 +817,101 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		if x.Value == "" {
 			d.w.Text(float64(inner.X), float64(inner.Y), x.Placeholder, float64(textSize), faint)
 		} else {
-			d.w.Text(float64(inner.X), float64(inner.Y), x.Value, float64(textSize), ink)
+			fieldText(d, x, inner, line, focus)
 		}
 		d.w.Unclip()
 		access(d, id, screen.RoleField, fieldName(x), x.Value, b, false, focus)
 		if focus {
-			let caret = fmin(width(d.metrics, x.Value, textSize), inner.W)
-			d.w.Editing(x.Value, float64(inner.X+caret), float64(inner.Y), 1, float64(line))
-			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y, W: 1, H: line}, 0, ink)
+			// The caret the model holds (OpenTUI gap 2), on its line.
+			let (cx, cy) = caretAt(d, x.Value, x.Caret, line)
+			let caret = fmin(cx, inner.W)
+			d.w.Editing(x.Value, ui.KeyboardName(x.Hints.Keyboard), d.edited, float64(inner.X+caret), float64(inner.Y+cy), 1, float64(line))
+			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y + cy, W: 1, H: line}, 0, ink)
 		}
 	}
 	unpaint(d, look)
 }
 
-// drawKids paints id's children in order.
-func drawKids[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
+// drawKids paints id's children in order, but its layers, which
+// paintLayers paints over the flow (UG4).
+func drawKids[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], dx float32, dy float32, clip layout.Box, line float32, soiled Map[ui.Id[E], bool], again bool) needs go.Foreign {
 	for k in kidsOf(d, id) {
-		draw(d, k, dy, clip, line, soiled, again)
+		match layerNode(d, k) {
+		case Some[ui.LayerNode[E]]:
+		case None:
+			draw(d, k, dx, dy, clip, line, soiled, again)
+		}
 	}
 }
 
 // lines paints text broken as Metrics breaks it at width, from x, y.
-func lines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, color uint32) needs go.Foreign {
+func lines[S, E, D, F](d mut Driver[S, E, D, F], text string, x float32, y float32, wide float32, color uint32) needs go.Foreign {
 	let step = lineHeight(d.metrics, textSize)
 	for i, l in Lines(d.metrics, text, textSize, wide) {
 		d.w.Text(float64(x), float64(y+float32(i)*step), l, float64(textSize), color)
 	}
 }
 
-func fill[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
+// inkedLines draws a Text's lines in its look's ink (OpenTUI gap 1), one
+// inkedRun a line.
+func inkedLines[S, E, D, F](d mut Driver[S, E, D, F], text string, x float32, y float32, wide float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+	let step = lineHeight(d.metrics, textSize)
+	for i, l in Lines(d.metrics, text, textSize, wide) {
+		inkedRun(d, l, x, y+float32(i)*step, k, clip)
+	}
+}
+
+// inkedRun draws one line of text in ink k: in its colour, or the
+// window's ink when transparent; bold as the run drawn twice, a dip apart
+// (the window has one face); italic as that face sheared (TextSlanted,
+// a synthetic oblique), counted in slants so a test reads that the window
+// slanted each italic run; underlined as a fill of a dip under the run,
+// on a whole pixel row. An opaque underline inside clip is a probe
+// (Probes), so a test reads the ink's colour off the window.
+func inkedRun[S, E, D, F](d mut Driver[S, E, D, F], l string, x float32, at float32, k ui.Ink, clip layout.Box) needs go.Foreign {
+	let color = if k.Color.A != 0 { rgba(k.Color) } else { ink }
+	let opaque = (k.Color.A == 0 || k.Color.A == 255) && d.w.Opacity() == 1.0
+	let step = lineHeight(d.metrics, textSize)
+	let passes = if k.Bold { 2 } else { 1 }
+	for p in 0..passes {
+		let px = float64(x + float32(p))
+		if k.Italic {
+			d.w.TextSlanted(px, float64(at), l, float64(textSize), color)
+		} else {
+			d.w.Text(px, float64(at), l, float64(textSize), color)
+		}
+	}
+	if k.Italic {
+		d.slants = d.slants + passes
+	}
+	if k.Underline {
+		let under = layout.Box{X: fceil(x), Y: fceil(at + step - 3), W: float32(int(float32(d.w.TextWidth(l, float64(textSize))))), H: 1}
+		fill(d, under, 0, color)
+		let px = int(under.X) + 1
+		let py = int(under.Y)
+		if opaque && under.W >= 3 && probeShows(clip, px, py) {
+			// The probe's colour is the look's, read apart from what was
+			// drawn, as lookProbes reads a fill's.
+			d.underlines = d.underlines.Append(Probe{Label: l + " underline", X: px, Y: py, Color: inkColor(k)})
+		}
+	}
+}
+
+// inkColor is the colour a look's ink draws in: its own, or the window's
+// ink when transparent.
+func inkColor(k ui.Ink) uint32 {
+	if k.Color.A != 0 {
+		return rgba(k.Color)
+	}
+	ink
+}
+
+func fill[S, E, D, F](d mut Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
 	d.w.Fill(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), float64(radius), color)
 }
 
 // ring is the focus ring around b.
-func ring[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32) needs go.Foreign {
+func ring[S, E, D, F](d mut Driver[S, E, D, F], b layout.Box, radius float32) needs go.Foreign {
 	d.w.Border(float64(b.X-3), float64(b.Y-3), float64(b.W+6), float64(b.H+6), float64(radius+3), 2, accent)
 }
 
@@ -706,13 +926,13 @@ func cut(clip layout.Box, b layout.Box) layout.Box {
 
 // access adds a node of the window's accessibility tree, named by an
 // id that stays the node's while it shows.
-func access[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], role int, label string, value string, b layout.Box, checked bool, focus bool) needs go.Foreign {
+func access[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], role int, label string, value string, b layout.Box, checked bool, focus bool) needs go.Foreign {
 	d.w.Access(nameOf(d, id), -1, role, label, value, float64(b.X), float64(b.Y), float64(b.W), float64(b.H), checked, focus)
 }
 
 // nameOf is id's node's id in the accessibility tree, given the first
 // time it is asked for.
-func nameOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
+func nameOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
 	match d.names.Get(id) {
 	case Some[int] as n:
 		n.Value
@@ -724,13 +944,13 @@ func nameOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
 }
 
 // nextName is a name no node has had.
-func nextName[S, E, D, F](d *Driver[S, E, D, F]) int {
+func nextName[S, E, D, F](d mut Driver[S, E, D, F]) int {
 	d.named = d.named + 1
 	d.named
 }
 
 // contentHeight is how far the children of a Scroll reach below its top.
-func contentHeight[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
+func contentHeight[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) float32 {
 	match d.extents.Get(id) {
 	case Some[float32] as h:
 		h.Value

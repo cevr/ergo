@@ -81,7 +81,7 @@ type Window { Top int, Height int }
 
 // follow scrolls the list to the table's window when it moved: a host
 // reports a scroll only when it scrolls. It is the window shown now.
-func follow[D, F](h *ui.TestHost[catalog.State, screen.Signal, D, F], was Window) Window fails ui.BadPatch | actor.Stopped {
+func follow[D, F](h mut ui.TestHost[catalog.State, screen.Signal, D, F], was Window) Window fails ui.BadPatch | actor.Stopped {
 	let g = catalog.GridOf(ui.StateOf(h))
 	let now = Window{Top: g.Top, Height: g.Height}
 	if now == was {
@@ -96,7 +96,7 @@ func follow[D, F](h *ui.TestHost[catalog.State, screen.Signal, D, F], was Window
 	now
 }
 
-func found[D, F](h *ui.TestHost[catalog.State, screen.Signal, D, F], label string) ui.Id[screen.Signal] fails ui.BadPatch {
+func found[D, F](h mut ui.TestHost[catalog.State, screen.Signal, D, F], label string) ui.Id[screen.Signal] fails ui.BadPatch {
 	match ui.Find(h, label) {
 	case Some[ui.Id[screen.Signal]] as id:
 		id.Value
@@ -184,7 +184,7 @@ func Shown(shapes []ui.Shape[screen.Signal], w Window) []string {
 				}
 			}
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.ReadoutNode, ui.TransitionNode, ui.SemanticNode, ui.LayerNode, ui.TrackNode:
 		}
 		for t in Shown(s.Kids, w) {
 			out = out.Append(t)

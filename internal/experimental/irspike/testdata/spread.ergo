@@ -1,0 +1,25 @@
+// The program of TestIRAppendSpread (APPEND-SPREAD): cat's IR body is
+// Go's append(a, s...) of a string's bytes, which the test rewrites to
+// append(a, b...) of a slice, the form the decoder takes since
+// APPEND-SPREAD (GP-COLLECT's grow-and-copy as one append).
+// The empty loop and n, known only when it runs, keep cat a call: the IR
+// inlines no body with a loop (inline.go inlineRule) and folds no call of
+// an operand it does not know (ir_fold.go),
+// and the test rewrites the callee.
+
+extern go append func appendString(out []byte, s string) []byte
+extern go cap func capOf[T](xs []T) int
+
+func cat(a []byte, b []byte, s string, n int) []byte {
+	for _ in 0..0 {}
+	appendString(a, s)
+}
+
+func main() needs Console {
+	let out = cat([]byte{1, 2}, []byte{3, 4, 5}, "x", capOf([]byte{1}))
+	let mut sum = 0
+	for c in out {
+		sum = sum + int(c)
+	}
+	Console.Println("\(len(out)) \(sum)")
+}

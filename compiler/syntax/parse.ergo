@@ -1,0 +1,1056 @@
+import slices
+import strings
+import tasks
+import dense
+
+// noNode is what a parse function returns when the parse failed before it
+// built its node: no row has this index, and every reader of a row treats
+// it as a node of no kind.
+let noNode = uint32(4294967295)
+
+// Parsed is the parse of one source file: its scan, the tree, the comment
+// groups, and the first syntax error when the parse failed (Failed; the
+// tree is then not to be read). The tokens hold, after a failed scan, an
+// ILLEGAL and an EOF where the scan stopped, as the Go scanner's do.
+type Parsed {
+	Tree    Tree,
+	Failed  bool,
+	Code    string,
+	Message string,
+	Offset  int,
+	Length  int,
+	Line    int,
+	Column  int,
+	src     string,
+	kinds   []uint32,
+	starts  []uint32,
+	ends    []uint32,
+	cmts    Comments,
+	gFirst  []int,
+	gLast   []int,
+	// cmt0 is the start of the first comment, -1 for none.
+	cmt0 int,
+}
+
+// parser is the state of one parse: the token columns, the position in
+// them, the header and nesting state of the Go parser, the first error and
+// the tree being built. A failure is sticky: after it the current token
+// reads as EOF and no token is consumed, so every loop ends and the parse
+// returns along its normal paths (the Go parser's bailout panic).
+type parser {
+	src string,
+	// toks is the scan's columns, whole: ntok of them are the parse's
+	// tokens.
+	toks        Toks,
+	ntok        int,
+	cmts        Comments,
+	scanFailed  bool,
+	scanOffset  int,
+	scanLength  int,
+	scanMessage string,
+	i           int,
+	tk          uint8,
+	exprLev     int,
+	orAllowed   bool,
+	nest        int,
+	peak        int,
+	failed      bool,
+	lexical     bool,
+	code        string,
+	msg         string,
+	eoff        int,
+	elen        int,
+	gFirst      []int,
+	gLast       []int,
+	gOwn        []bool,
+	t           Tree,
+	litErr      bool,
+	litPos      int,
+	litLen      int,
+	asFields    bool,
+	ents        []entry,
+	entTop      int,
+	quiet       int,
+	gHint       int,
+}
+
+// Parse parses one source file (the Go parser's Parse, the derived
+// declarations and the expansion of or-patterns left out: the tree is the
+// tree as written).
+func Parse(src string) Parsed {
+	let s = scanAll(src)
+	let n = NumToks(s.toks)
+	// The parser reads the scan's columns in place, a failed scan's
+	// ILLEGAL and EOF past its tokens (Scan), and takes them whole as the
+	// last use of s, so they are not copied (scanAll).
+	let ntok = if s.failed { n + 2 } else { n }
+	let tk = uint8(s.toks.kind[0])
+	let mut p = parser{
+		src:         src,
+		ntok:        ntok,
+		cmts:        s.comments,
+		scanFailed:  s.failed,
+		scanOffset:  s.at,
+		scanLength:  s.length,
+		scanMessage: s.message,
+		i:           0,
+		tk:          tk,
+		exprLev:     0,
+		orAllowed:   false,
+		nest:        0,
+		peak:        0,
+		failed:      false,
+		lexical:     false,
+		code:        "",
+		msg:         "",
+		eoff:        0,
+		elen:        0,
+		gFirst:      []int{},
+		gLast:       []int{},
+		gOwn:        []bool{},
+		// Room for a row per token and two words per token: the corpus has
+		// 0.9 rows and 0.6 words per token, the parsebench workload 0.85
+		// rows and 1.6 words. Sized by the file's length instead (7 bytes a
+		// row, 4 a word) the per-file bench grew small files' columns and
+		// its GC share rose (S2b profile.md).
+		t:        NewTree(ntok, 2*ntok),
+		litErr:   false,
+		litPos:   0,
+		litLen:   0,
+		asFields: false,
+		ents:     []entry{},
+		entTop:   0,
+		quiet:    0,
+		gHint:    0,
+		toks:     s.toks,
+	}
+	groupComments(&p)
+	parseFile(&p)
+	// A failure reports its line and column, from a line table built for it
+	// alone; a parse that succeeds builds none.
+	let pos = if p.failed { PositionOf(LinesOf(src), p.eoff) } else { Position{Line: 0, Column: 0} }
+	let c0 = if NumComments(p.cmts) > 0 { cmtStart(&p, 0) } else { -1 }
+	Parsed{
+		Tree:    p.t,
+		Failed:  p.failed,
+		Code:    p.code,
+		Message: p.msg,
+		Offset:  p.eoff,
+		Length:  p.elen,
+		Line:    pos.Line,
+		Column:  pos.Column,
+		src:     src,
+		kinds:   p.toks.kind[:p.ntok],
+		starts:  p.toks.start[:p.ntok],
+		ends:    p.toks.end[:p.ntok],
+		cmts:    p.cmts,
+		gFirst:  p.gFirst,
+		gLast:   p.gLast,
+		cmt0:    c0,
+	}
+}
+
+// ChildrenBeforeParent: every child row comes before its parent, so a walk
+// of the rows in order meets each node after its children.
+law ChildrenBeforeParent(picks []int) {
+	let p = Parse(program(picks))
+	p.Failed || censusOf(p.Tree).inOrder
+}
+
+// children appends the child rows of row x to out (the words View reads as
+// node ids, required or present).
+func children(t Tree, x uint32, out []uint32) []uint32 {
+	let mut o = out
+	let i = int(x)
+	let k = uint8(t.kind[i])
+	let a = t.a[i]
+	let b = t.b[i]
+	if k == KIdent || k == KBasicLit || k == KBranchStmt || k == KSkipStmt {
+		return o
+	}
+	if k == KKeyValueExpr || k == KFuncLit || k == KSelectorExpr || k == KBinaryExpr || k == KAsPattern || k == KAssignStmt {
+		o = o.Append(a)
+		return o.Append(b)
+	}
+	if k == KImportDecl || k == KMachineEntry || k == KParenExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr || k == KArrayType || k == KStructType || k == KDeclStmt || k == KExprStmt || k == KAssertStmt {
+		return o.Append(a)
+	}
+	if k == KExternSpec {
+		return o.Append(b)
+	}
+	if k == KImportSpec || k == KReturnStmt || k == KForStmt {
+		if a != uint32(0) {
+			o = o.Append(a - uint32(1))
+		}
+		if k == KImportSpec || k == KForStmt {
+			o = o.Append(b)
+		}
+		return o
+	}
+	// A record: its items, then the node words among its fixed words.
+	let f = fixedWords(k)
+	for j in 0..items(t, x, f) {
+		o = o.Append(item(t, x, j))
+	}
+	let req = requiredMask(k)
+	let opt = optionalMask(k)
+	for j in 0..f {
+		let w = fixed(t, x, f, j)
+		if (req>>j)&1 == 1 {
+			o = o.Append(w)
+		} else if (opt>>j)&1 == 1 && w != uint32(0) {
+			o = o.Append(w - uint32(1))
+		}
+	}
+	o
+}
+
+// fixedWords is the count of fixed words that end a record of kind k.
+func fixedWords(k uint8) int {
+	if k == KField {
+		return 11
+	}
+	if k == KTypeDecl {
+		return 10
+	}
+	if k == KLawDecl {
+		return 9
+	}
+	if k == KFuncDecl || k == KFuncType || k == KContextDecl {
+		return 7
+	}
+	if k == KLawReach || k == KSliceExpr {
+		return 6
+	}
+	if k == KContextEntry || k == KCallExpr || k == KRangeStmt {
+		return 5
+	}
+	if k == KVarDecl || k == KVarSpec || k == KTestDecl || k == KCompositeLit || k == KMachineType || k == KIfStmt || k == KContextLit {
+		return 4
+	}
+	if k == KVariantSpec || k == KSwitchStmt || k == KTypeSwitchStmt {
+		return 3
+	}
+	if k == KFieldList || k == KCatchArm || k == KCaseClause || k == KIndexExpr || k == KMapType || k == KCatchExpr || k == KInterfaceType || k == KTupleExpr {
+		return 2
+	}
+	if k == KContextBody || k == KBlockStmt {
+		return 1
+	}
+	0
+}
+
+// requiredMask and optionalMask mark the fixed words of a record that hold
+// a node id, or an optional one.
+func requiredMask(k uint8) int {
+	if k == KVarDecl {
+		return 8
+	}
+	if k == KTypeDecl {
+		return 4
+	}
+	if k == KFuncDecl {
+		return 8 | 32
+	}
+	if k == KContextDecl {
+		return 4 | 64
+	}
+	if k == KTestDecl {
+		return 2 | 8
+	}
+	if k == KLawDecl {
+		return 2
+	}
+	if k == KContextEntry {
+		return 4
+	}
+	if k == KVariantSpec {
+		return 1 | 4
+	}
+	if k == KIndexExpr || k == KMapType || k == KSliceExpr || k == KCallExpr || k == KCatchExpr || k == KSwitchStmt || k == KTypeSwitchStmt {
+		return 1
+	}
+	if k == KContextLit {
+		return 8
+	}
+	if k == KFuncType {
+		return 8
+	}
+	if k == KMachineType || k == KIfStmt {
+		return 1 | 2
+	}
+	if k == KRangeStmt {
+		return 2 | 8 | 16
+	}
+	0
+}
+
+func optionalMask(k uint8) int {
+	if k == KVarDecl {
+		return 2
+	}
+	if k == KVarSpec {
+		return 1 | 2 | 8
+	}
+	if k == KTypeDecl {
+		return 2 | 8 | 16 | 64 | 256
+	}
+	if k == KFuncDecl {
+		return 2 | 4 | 16 | 64
+	}
+	if k == KContextDecl {
+		return 8 | 16 | 32
+	}
+	if k == KTestDecl {
+		return 4
+	}
+	if k == KLawDecl {
+		return 4 | 8 | 16 | 32
+	}
+	if k == KLawReach {
+		return 32
+	}
+	if k == KContextEntry {
+		return 16
+	}
+	if k == KField {
+		return 2 | 4 | 8 | 16 | 64
+	}
+	if k == KVariantSpec {
+		return 2
+	}
+	if k == KCompositeLit {
+		return 1 | 4
+	}
+	if k == KSliceExpr {
+		return 2 | 4 | 8
+	}
+	if k == KCallExpr {
+		return 8
+	}
+	if k == KContextLit {
+		return 1 | 2 | 4
+	}
+	if k == KFuncType {
+		return 16 | 32 | 64
+	}
+	if k == KIfStmt {
+		return 8
+	}
+	if k == KRangeStmt {
+		return 1
+	}
+	0
+}
+
+// parents counts, for each row of t, the rows that name it as a child, and
+// reports whether every child comes before its parent.
+type census { parents []int, inOrder bool }
+
+func censusOf(t Tree) census {
+	let mut parents = []int{}
+	for _ in 0..t.n {
+		parents = parents.Append(0)
+	}
+	let mut inOrder = true
+	let mut kids = []uint32{}
+	for i in 0..t.n {
+		kids = children(t, uint32(i), kids[:0])
+		for c in kids {
+			if int(c) >= i {
+				inOrder = false
+			} else {
+				parents[int(c)] = parents[int(c)] + 1
+			}
+		}
+	}
+	census{parents: parents, inOrder: inOrder}
+}
+
+// OneParent: every row but the root is the child of exactly one row: no
+// row is left over from a backtrack or a rewrite, and none is shared.
+law OneParent(picks []int) {
+	let p = Parse(program(picks))
+	if p.Failed {
+		return true
+	}
+	let c = censusOf(p.Tree)
+	let mut ok = true
+	for i in 0..p.Tree.n-1 {
+		ok = ok && c.parents[i] == 1
+	}
+	ok && c.parents[p.Tree.n-1] == 0
+}
+
+// RootLast: the last row is the file, and the only file.
+law RootLast(picks []int) {
+	let p = Parse(program(picks))
+	if p.Failed {
+		return true
+	}
+	let t = p.Tree
+	let mut files = 0
+	for i in 0..t.n {
+		if uint8(t.kind[i]) == KFile {
+			files = files + 1
+		}
+	}
+	t.n > 0 && uint8(t.kind[t.n-1]) == KFile && files == 1
+}
+
+// ViewRoundTrips: Put of a row's view writes the row again: the same kind
+// and main token, and the same operand words or the same record.
+law ViewRoundTrips(picks []int) {
+	let p = Parse(program(picks))
+	if p.Failed {
+		return true
+	}
+	let mut t = p.Tree
+	let n = t.n
+	let mut ok = true
+	for i in 0..n {
+		let id = NodeAt(t, i)
+		let again = Put(&t, ViewOf(t, id))
+		ok = ok && sameRow(t, uint32(i), uint32(dense.Index(again)))
+	}
+	ok
+}
+
+// sameRow reports rows x and y of t encoded alike.
+func sameRow(t Tree, x uint32, y uint32) bool {
+	let k = uint8(t.kind[int(x)])
+	if k != uint8(t.kind[int(y)]) || t.tok[int(x)] != t.tok[int(y)] {
+		return false
+	}
+	if !recorded(k) {
+		return t.a[int(x)] == t.a[int(y)] && t.b[int(x)] == t.b[int(y)]
+	}
+	if t.b[int(x)] != t.b[int(y)] {
+		return false
+	}
+	for j in 0..int(t.b[int(x)]) {
+		if t.extra[int(t.a[int(x)])+j] != t.extra[int(t.a[int(y)])+j] {
+			return false
+		}
+	}
+	true
+}
+
+// ExtraTiles: the records tile the extra pool: its words are the
+// records of the rows, each once, so a rewind leaves no words behind.
+law ExtraTiles(picks []int) {
+	let p = Parse(program(picks))
+	if p.Failed {
+		return true
+	}
+	let t = p.Tree
+	let mut words = 0
+	for i in 0..t.n {
+		if recorded(uint8(t.kind[i])) {
+			words = words + int(t.b[i])
+		}
+	}
+	words == t.ne
+}
+
+// The laws on any source: a source that parses keeps them too.
+law ChildrenBeforeParentAnySource(src string) {
+	let p = Parse(src)
+	p.Failed || censusOf(p.Tree).inOrder
+}
+
+// ParseAll is the parse of each source, in the order of srcs, on at most
+// workers tasks at once (capstone S2e, CAP-par). A parse shares nothing
+// with another: it reads its own source and builds its own columns and
+// tree, and its task hands them back whole, so the join is the results in
+// file order and no parse writes a table of another (there is no
+// interner: names stay offsets into the source). A workers below 1 is a
+// defect, as Transform's limit.
+func ParseAll(srcs []string, workers int) []Parsed { EachRun(srcs, workers, RunLeast, Parse) }
+
+// RunLeast is the source bytes a run must reach before a task of its own
+// pays for itself: a task starts on a small stack that the recursive
+// descent grows again, and that growth was a third of the instructions of
+// a corpus's ColumnsAll at four workers (capstone S2f), where most
+// packages are a few kilobytes.
+let RunLeast = 32768
+
+// EachRun is f of each source, in the order of srcs: on the caller's
+// stack, which has grown already, when the sources do not fill two runs of
+// least bytes; else on at most workers tasks at once, each a run of
+// adjacent files (Chunks), no more runs than the sources fill. A workers
+// below 1 is a defect, as Transform's limit.
+func EachRun[T](srcs []string, workers int, least int, f own func(src string) T) []T {
+	let mut total = 0
+	for s in srcs {
+		total = total + len(s)
+	}
+	let fill = if least < 1 { total } else { total / least }
+	let runs = if fill < workers { fill } else { workers }
+	if workers >= 1 && runs < 2 {
+		let mut out = slices.WithCapacity[T](len(srcs))
+		for s in srcs {
+			out = out.Append(f(s))
+		}
+		return out
+	}
+	let parts = tasks.Transform(Chunks(len(srcs), runs), workers, func(c Chunk) []T {
+		let mut out = slices.WithCapacity[T](c.To - c.From)
+		for i in c.From..c.To {
+			out = out.Append(f(srcs[i]))
+		}
+		out
+	})
+	let mut all = slices.WithCapacity[T](len(srcs))
+	for part in parts {
+		all = slices.AppendAll(all, part)
+	}
+	all
+}
+
+// Chunk is the files [From, To) one task parses, in order.
+type Chunk { From int, To int }
+
+// Chunks splits n files into at most workers runs of adjacent files, in
+// order, as even in count as they can be. A task parses a run, not one
+// file: a parse's task starts with a small stack and the recursive descent
+// grows it, so a task per file pays the growth once per file (about a
+// third of the parse's instructions, measured in S2e), and a task per run
+// once per worker.
+func Chunks(n int, workers int) []Chunk {
+	let k = if workers < 1 { 1 } else if workers > n { n } else { workers }
+	let mut out = slices.WithCapacity[Chunk](k)
+	let mut from = 0
+	for j in 0..k {
+		let to = from + (n-from)/(k-j)
+		out = out.Append(Chunk{From: from, To: to})
+		from = to
+	}
+	out
+}
+
+// ChunksTile: the runs cover 0..n in order with no gap and no overlap, no
+// run is empty, and there are at most workers of them.
+law ChunksTile(n int, workers int) {
+	let m = (n%500 + 500) % 500
+	let w = (workers%20+20)%20 + 1
+	let cs = Chunks(m, w)
+	let mut ok = len(cs) <= w
+	let mut at = 0
+	for c in cs {
+		ok = ok && c.From == at && c.To > c.From
+		at = c.To
+	}
+	ok && at == m
+}
+
+// ParseAllIsEachParse: the parses are each file's own parse, in file
+// order, on the caller's stack and on tasks (a run of one byte splits the
+// sources into as many runs as the workers): the rows, the extra words,
+// the tokens, the comments and the failure are the same bytes.
+law ParseAllIsEachParse(picks []int) {
+	let srcs = sourcesOf(picks)
+	let one = ParseAll(srcs, 1)
+	let many = EachRun(srcs, 8, 1, Parse)
+	let mut ok = len(one) == len(srcs) && len(many) == len(srcs)
+	for i in 0..len(srcs) {
+		let own = Columns(Parse(srcs[i]))
+		ok = ok && slices.Equal(Columns(one[i]), own) && slices.Equal(Columns(many[i]), own) && one[i].Message == many[i].Message
+	}
+	ok
+}
+
+let fragments = []string{
+	"func F(a int, b string) int fails E needs A | B { return a + 1 }\n",
+	"type P { X int, Y []int \"y\" }\n",
+	"type U = A | B{x int} | C[T]{v T}\n",
+	"type Op { Get(k string) int, own Close(), law L(x int) { x == x } }\n",
+	"type M machine[S, E] { initial: s, step: f, law R never reaches Bad }\n",
+	"let (x, y) = (1, 2)\n",
+	"let Ctx = context provides A needs B { A: a, replace C: c, D }\n",
+	"func g() { match (x, y) {\ncase (A | B, _) as z: f(z)\ncase _:\n} }\n",
+	"func h() { for i, v in 0..n { if v > i { break } else { x += v } } }\n",
+	"func k() { let s = xs[1:2]; let m = Map[string, int]{\"a\": 1}; try f() catch { case E as e: g(e) } }\n",
+	"test T(x int) { assert x == x }\n",
+	"test S(x int) { skip(x); let skip = 1; skip \"no host\" }\n",
+	"extern go strings.ToUpper func ToUpper(s string) string\n",
+	"type D[S] derive Provider(Of[S](), Of[F](), Of[N]())\n",
+	"func w() { with (W) { p(\"a \\(x) b\", func(y) { y }) } }\n",
+	"type R int where 0 <= it && it < 9 implements Q\n",
+	"func q() { let v = m[(a, b)] }\n",
+	"type E { f (A, B), x int }\n",
+	"type K[T] { ~int | pkg.T, Label() string }\n",
+	"type H { m Map[string, int, Fnv] }\n",
+	"// doc\nfunc d[T ordered, E any, K comparable](f pure own func() int, xs [3]*T) T { -x }\n",
+}
+
+// program is the source the picks assemble.
+func program(picks []int) string {
+	let mut s = ""
+	for k in picks {
+		let n = len(fragments)
+		s = s + fragments[((k%n)+n)%n]
+	}
+	s
+}
+
+// sourcesOf is a few sources from picks: programs of its rotations, and a
+// source that fails, so a failed parse sits among parses that succeed.
+func sourcesOf(picks []int) []string {
+	let mut srcs = []string{}
+	let n = len(picks)
+	for k in 0..n%6+2 {
+		let mut rot = []int{}
+		for j in 0..n {
+			rot = rot.Append(picks[(j+k)%n])
+		}
+		srcs = srcs.Append(program(rot))
+		if k == 1 {
+			srcs = srcs.Append("func f( {\n")
+		}
+	}
+	srcs
+}
+
+// ---------------------------------------------------------------- tokens
+
+// next advances to the next token. It stops at EOF and at the ILLEGAL
+// token of a lexical error, and after a failure: Illegal and EOF are the
+// two kinds below every other, so one comparison stops at both (capstone
+// S2f).
+func next(p mut parser) {
+	if p.tk > EOF {
+		p.i = p.i + 1
+		p.tk = uint8(p.toks.kind[p.i])
+	}
+}
+
+// peek is the kind of the token n past the current one, or of the final
+// EOF past the end.
+func peek(p mut parser, n int) uint8 {
+	let j = p.i + n
+	if j < p.ntok {
+		return uint8(p.toks.kind[j])
+	}
+	uint8(p.toks.kind[p.ntok-1])
+}
+
+// tpos is the offset of token j.
+func tpos(p mut parser, j int) int { int(p.toks.start[j]) }
+
+// tend is the end of token j.
+func tend(p mut parser, j int) int { int(p.toks.end[j]) }
+
+// pos and end are the current token's.
+func pos(p mut parser) int { int(p.toks.start[p.i]) }
+
+func tokLen(p mut parser) int { tend(p, p.i) - int(p.toks.start[p.i]) }
+
+// lit is the source text of token j (a raw string without its carriage
+// returns, as the Go scanner's literal).
+func lit(p mut parser, j int) string {
+	let s = p.src[tpos(p, j):tend(p, j)]
+	if uint8(p.toks.kind[j]) == String && len(s) > 0 && s[0] == '`' {
+		return dropCR(s)
+	}
+	s
+}
+
+func dropCR(s string) string {
+	let mut out = ""
+	let mut from = 0
+	for k in 0..len(s) {
+		if s[k] == '\r' {
+			out = out + s[from:k]
+			from = k + 1
+		}
+	}
+	out + s[from:]
+}
+
+// isWord reports the current token an identifier spelled w.
+func isWord(p mut parser, w string) bool {
+	if p.tk != Ident {
+		return false
+	}
+	let at = int(p.toks.start[p.i])
+	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
+}
+
+// wordAt reports token j an identifier spelled w.
+func wordAt(p mut parser, j int, w string) bool {
+	if j >= p.ntok || uint8(p.toks.kind[j]) != Ident {
+		return false
+	}
+	let at = int(p.toks.start[j])
+	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
+}
+
+// inserted reports an inserted semicolon (a newline's).
+func inserted(p mut parser, j int) bool {
+	uint8(p.toks.kind[j]) == Semicolon && !(int(p.toks.start[j]) < len(p.src) && p.src[int(p.toks.start[j])] == ';')
+}
+
+// atLineEnd reports whether the current token is an inserted semicolon.
+func atLineEnd(p mut parser) bool { p.tk == Semicolon && inserted(p, p.i) }
+
+func backtrack(p mut parser, j int) {
+	p.i = j
+	p.tk = uint8(p.toks.kind[j])
+}
+
+// want consumes a token of kind k and returns its index.
+func want(p mut parser, k uint8) int {
+	if p.tk != k {
+		if loud(p) {
+			expected(p, "expected "+quote(tokenName(k))+", found ")
+		} else {
+			errorf(p, "")
+		}
+	}
+	let j = p.i
+	next(p)
+	j
+}
+
+func got(p mut parser, k uint8) bool {
+	if p.tk == k {
+		next(p)
+		return true
+	}
+	false
+}
+
+// opensCollection reports whether the token n past the current one opens
+// a slice or array type, `[]` or `[N]`.
+func opensCollection(p mut parser, n int) bool {
+	if peek(p, n) != LBrack {
+		return false
+	}
+	let k = peek(p, n+1)
+	k == RBrack || ((k == Int || k == Ellipsis) && peek(p, n+2) == RBrack)
+}
+
+// found describes the current token for a message.
+func found(p mut parser) string {
+	let k = p.tk
+	if k == Semicolon {
+		return if inserted(p, p.i) { "newline" } else { "\";\"" }
+	}
+	if k == EOF {
+		return "end of file"
+	}
+	if k == Ident || k == Int || k == Float || k == Duration || k == String || k == Rune || k == Path || k == StringHead {
+		return quote(lit(p, p.i))
+	}
+	quote(tokenName(k))
+}
+
+// ---------------------------------------------------------------- errors
+
+// errorCode records the first error; a lexical error at or before pos wins,
+// since the tokens past it are not the source's.
+func errorCode(p mut parser, code string, at int, length int, message string) {
+	if p.failed {
+		return
+	}
+	p.failed = true
+	p.tk = EOF
+	if p.scanFailed && at >= p.scanOffset {
+		p.lexical = true
+		p.code = CodeSyntax
+		p.msg = p.scanMessage
+		p.eoff = p.scanOffset
+		p.elen = p.scanLength
+		return
+	}
+	p.lexical = false
+	p.code = code
+	p.msg = message
+	let n = len(p.src)
+	let offset = if at > n { n } else { at }
+	let mut l = if offset+length > n { n - offset } else { length }
+	if l < 0 {
+		l = 0
+	}
+	for l > 0 && offset+l < n && (p.src[offset+l]&0xC0) == 0x80 {
+		l = l + 1
+	}
+	p.eoff = offset
+	p.elen = l
+}
+
+func errorAt(p mut parser, at int, length int, message string) { errorCode(p, CodeSyntax, at, length, message) }
+
+// loud reports whether an error now would keep its message: no error yet
+// and no attempt under way. A message that loud does not keep is never
+// built (an attempt that fails allocates nothing).
+func loud(p mut parser) bool { !p.failed && p.quiet == 0 }
+
+// expected reports prefix and the token found at the current token.
+func expected(p mut parser, prefix string) {
+	if loud(p) {
+		errorf(p, prefix+found(p))
+	} else {
+		errorf(p, "")
+	}
+}
+
+// errorf reports an error at the current token; a Go token Ergo does not
+// use gets its habit message instead.
+func errorf(p mut parser, message string) {
+	if p.failed {
+		return
+	}
+	let h = tokenHabit(p.tk)
+	if h >= 0 {
+		habit(p, pos(p), tokLen(p), h)
+		return
+	}
+	errorAt(p, pos(p), tokLen(p), message)
+}
+
+func habit(p mut parser, at int, length int, h int) { errorAt(p, at, length, habitMessages[h]) }
+
+// ---------------------------------------------------------------- nesting
+
+func enter(p mut parser) {
+	p.nest = p.nest + 1
+	if p.nest > p.peak {
+		p.peak = p.nest
+	}
+	if p.nest > MaxNesting {
+		tooDeep(p)
+	}
+}
+
+func leave(p mut parser) { p.nest = p.nest - 1 }
+
+func tooDeep(p mut parser) { errorAt(p, pos(p), tokLen(p), "nesting deeper than "+itoa(MaxNesting)+" levels") }
+
+func measure(p mut parser) int {
+	let saved = p.peak
+	p.peak = p.nest
+	saved
+}
+
+func height(p mut parser, saved int) int {
+	let h = p.peak - p.nest
+	if saved > p.peak {
+		p.peak = saved
+	}
+	h
+}
+
+func maxInt(a int, b int) int { if a > b { a } else { b } }
+
+func reach(p mut parser, top int) {
+	if top > p.peak {
+		p.peak = top
+	}
+}
+
+// Mark is the parser state an attempt restores: the token, the nesting
+// and header state and the tree's lengths.
+type state {
+	i       int,
+	nest    int,
+	peak    int,
+	exprLev int,
+	tree    Checkpoint,
+}
+
+func save(p mut parser) state { state{i: p.i, nest: p.nest, peak: p.peak, exprLev: p.exprLev, tree: checkpoint(p.t)} }
+
+// failedAttempt ends an attempt: when it failed on an error that is not
+// the lexical one, the parser goes back to m and the attempt reports
+// false; the lexical error stays (the Go parser's attempt).
+func attemptFailed(p mut parser, m state) bool {
+	if !p.failed {
+		return false
+	}
+	if p.lexical {
+		return true
+	}
+	backtrack(p, m.i)
+	p.nest = m.nest
+	p.peak = m.peak
+	p.exprLev = m.exprLev
+	rewind(&p.t, m.tree)
+	p.failed = false
+	p.litErr = false
+	true
+}
+
+// ---------------------------------------------------------------- comments
+
+// oneLineApart reports exactly one newline in src[a:b]: b is on the line
+// after a's. It reads no further than the second newline.
+func oneLineApart(p mut parser, a int, b int) bool {
+	let k = strings.IndexByte(p.src[a:b], '\n')
+	k >= 0 && strings.IndexByte(p.src[a+k+1:b], '\n') < 0
+}
+
+// newlines is the number of newlines in src[a:b], counted up to 2: how
+// many lines further b is than a (0 on the same line, 1 the next, 2 or
+// more). It reads no further than the second newline.
+func newlines(p mut parser, a int, b int) int {
+	let k = strings.IndexByte(p.src[a:b], '\n')
+	if k < 0 {
+		return 0
+	}
+	if strings.IndexByte(p.src[a+k+1:b], '\n') < 0 { 1 } else { 2 }
+}
+
+func cmtStart(p mut parser, c int) int { CommentStart(p.cmts, CommentAt(p.cmts, c)) }
+
+func cmtEnd(p mut parser, c int) int { CommentEnd(p.cmts, CommentAt(p.cmts, c)) }
+
+// groupComments forms comment groups as go/parser does: comments with no
+// token and no blank line between them; a comment on the line of a token
+// before it starts its own (trailing) group.
+func groupComments(p mut parser) {
+	let nc = NumComments(p.cmts)
+	if nc == 0 {
+		return
+	}
+	let mut ti = 0
+	let mut lastTok = -1
+	let mut cur = -1
+	let mut curOwn = false
+	let mut curLast = 0
+	let mut curTokens = -1
+	for c in 0..nc {
+		let slash = cmtStart(p, c)
+		// The first token at or after the comment, by a galloping search of the
+		// tokens after the last comment's; the last real token is found
+		// walking back from it over inserted semicolons.
+		let from = ti
+		let mut step = 1
+		let mut hi = ti
+		for hi < p.ntok && int(p.toks.start[hi]) < slash {
+			ti = hi + 1
+			hi = hi + step
+			step = step * 2
+		}
+		if hi > p.ntok {
+			hi = p.ntok
+		}
+		for ti < hi {
+			let mid = (ti + hi) / 2
+			if int(p.toks.start[mid]) < slash {
+				ti = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		let mut j = ti - 1
+		for j >= from && (inserted(p, j) || uint8(p.toks.kind[j]) == EOF) {
+			j = j - 1
+		}
+		if j >= from {
+			lastTok = j
+		}
+		// Own line: a newline lies between the last token and the comment.
+		let own = lastTok < 0 || newlines(p, tend(p, lastTok), slash) > 0
+		if cur >= 0 && curTokens == ti {
+			// The comment is on the group's last line or the next one.
+			let apart = newlines(p, cmtEnd(p, curLast), slash)
+			if apart <= 1 && (curOwn || apart == 0) {
+				p.gLast[cur] = c
+				curLast = c
+				continue
+			}
+		}
+		p.gFirst = p.gFirst.Append(c)
+		p.gLast = p.gLast.Append(c)
+		p.gOwn = p.gOwn.Append(own)
+		cur = len(p.gFirst) - 1
+		curOwn = own
+		curLast = c
+		curTokens = ti
+	}
+}
+
+// leadComment is the comment group that documents a node starting at the
+// current token, as a word (its index+1, 0 for none): an own-line group
+// that ends on the line just above it, with no token in between.
+func leadComment(p mut parser) uint32 {
+	let ng = len(p.gFirst)
+	if ng == 0 {
+		return uint32(0)
+	}
+	let at = pos(p)
+	// The first group that ends after at, walked to from the last one asked
+	// for: the parser asks in source order but for a backtrack.
+	let mut lo = p.gHint
+	for lo > 0 && cmtEnd(p, p.gLast[lo-1]) > at {
+		lo = lo - 1
+	}
+	for lo < ng && cmtEnd(p, p.gLast[lo]) <= at {
+		lo = lo + 1
+	}
+	p.gHint = lo
+	let g = lo - 1
+	if g < 0 || !p.gOwn[g] {
+		return uint32(0)
+	}
+	if !oneLineApart(p, cmtEnd(p, p.gLast[g]), at) {
+		return uint32(0)
+	}
+	let gpos = cmtStart(p, p.gFirst[g])
+	let mut j = p.i - 1
+	for j >= 0 {
+		if !inserted(p, j) {
+			if tend(p, j) > gpos {
+				return uint32(0)
+			}
+			break
+		}
+		j = j - 1
+	}
+	uint32(g + 1)
+}
+
+// ---------------------------------------------------------------- rows
+
+// kindAt is the kind of row x, 0 for noNode or a row past the end.
+func kindAt(p mut parser, x uint32) uint8 {
+	if x >= uint32(p.t.n) {
+		return uint8(0)
+	}
+	uint8(p.t.kind[int(x)])
+}
+
+// ident appends the Ident row of token j.
+func identRow(p mut parser, j int) uint32 { row(&p.t, KIdent, uint32(j), uint32(0), uint32(0)) }
+
+// identIs reports row x an Ident spelled w.
+func identIs(p mut parser, x uint32, w string) bool { kindAt(p, x) == KIdent && wordAt(p, int(p.t.tok[int(x)]), w) }
+
+// some is the word of a present optional node or token index.
+func some(x uint32) uint32 { x + uint32(1) }
+
+func someTok(j int) uint32 { uint32(j + 1) }
+
+let none = uint32(0)
+
+// nodePos and nodeEnd are row x's span (the Go node's Pos and End).
+func nodePos(p mut parser, x uint32) int { posOf(p.t, toks(p), x) }
+
+func nodeEnd(p mut parser, x uint32) int { endOf(p.t, toks(p), x) }
+
+// toks is the parser's tokens, to read spans from.
+func toks(p mut parser) tokens {
+	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
+	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, cmt0: c0}
+}
+
+// errorNode reports message at the span of row x.
+func errorNode(p mut parser, x uint32, message string) {
+	if p.failed {
+		return
+	}
+	let a = nodePos(p, x)
+	errorAt(p, a, nodeEnd(p, x)-a, message)
+}

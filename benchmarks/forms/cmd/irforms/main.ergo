@@ -10,6 +10,7 @@ import os
 import slices
 import strconv
 import sync
+import ui
 
 // ---- step: a machine's step, driven in a loop ----
 
@@ -266,6 +267,39 @@ func benchViewLocal(n int) int {
 
 func benchViewCross(n int) int { walkCross(view.Build(4096), n / 4096) }
 
+// ---- segpath: a path of std's ui.Seg built and read (FLAT-STD) ----
+
+// segPath is dash-gui's chart stroke: eight columns, a MoveTo and a LineTo
+// each, appended to a path of room for them.
+func segPath(i int) ui.Path {
+	let mut segs = slices.WithCapacity[ui.Seg](16)
+	for j in 0..8 {
+		let x = float64(i + j)
+		segs = segs.Append(ui.MoveTo{X: x, Y: 1.0})
+		segs = segs.Append(ui.LineTo{X: x, Y: x + 2.0})
+	}
+	ui.Path{Segs: segs}
+}
+
+// benchSegPath builds n paths and reads each segment as a painter does.
+func benchSegPath(n int) int {
+	let mut acc = 0
+	for i in 0..n {
+		let p = segPath(i & 1023)
+		for s in p.Segs {
+			match s {
+			case ui.MoveTo as m:
+				acc = acc + int(m.X)
+			case ui.LineTo as l:
+				acc = acc + int(l.Y)
+			case _:
+				acc = acc + 1
+			}
+		}
+	}
+	acc
+}
+
 // ---- ctx: an operation of a capability, bound once, called in a loop ----
 
 type Meter {
@@ -370,8 +404,64 @@ func benchUpdateFields(n int) int {
 	a + 1 + 2 + 3 + e + (f & 1023)
 }
 
+// ---- widen and rebuild: a sub-union's value into its union (UNION-FLAT) ----
+
+type Settled = Asked{Q int} | Shown{N int}
+type Quiz = Calculating{Next int} | Settled
+
+func widenQ(s Settled) Quiz { s }
+
+// rebuildQ is the hand rebuild that widening replaces.
+func rebuildQ(s Settled) Quiz {
+	match s {
+	case Asked as a:
+		a
+	case Shown as v:
+		v
+	}
+}
+
+func score(q Quiz) int {
+	match q {
+	case Calculating as c:
+		c.Next
+	case Asked as a:
+		a.Q
+	case Shown as v:
+		v.N + 1
+	}
+}
+
+func settledOf(i int) Settled {
+	if i % 3 == 0 {
+		Asked{Q: i & 7}
+	} else {
+		Shown{N: i & 3}
+	}
+}
+
+func benchWiden(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + score(widenQ(settledOf(i)))
+	}
+	s
+}
+
+func benchRebuild(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + score(rebuildQ(settledOf(i)))
+	}
+	s
+}
+
 func run(kind string, n int) int {
-	if kind == "pipeloops" {
+	if kind == "widen" {
+		benchWiden(n)
+	} else if kind == "rebuild" {
+		benchRebuild(n)
+	} else if kind == "pipeloops" {
 		benchPipeLoops(n)
 	} else if kind == "pipefused" {
 		benchPipeFused(n)
@@ -393,6 +483,8 @@ func run(kind string, n int) int {
 		benchUpdate(n)
 	} else if kind == "viewlocal" {
 		benchViewLocal(n)
+	} else if kind == "segpath" {
+		benchSegPath(n)
 	} else if kind == "viewcross" {
 		benchViewCross(n)
 	} else if kind == "ctx" {

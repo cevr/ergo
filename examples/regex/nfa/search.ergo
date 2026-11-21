@@ -5,6 +5,8 @@ import regex/engine
 import regex/syntax
 import strings
 import machines
+import regex/backtrack
+import slices
 
 // Search compiles an Inside matcher; Compile still matches Whole texts.
 func Search(_ Engine, pattern syntax.Node) engine.Matcher { NewSearchCompiled(pattern) }
@@ -17,6 +19,107 @@ func NewSearchCompiled(pattern syntax.Node) SearchCompiled {
 	let prefix = syntax.Leading(pattern)
 	let p = if !prefix.Complete && prefix.Text == "" { syntax.Search(pattern) } else { pattern }
 	SearchCompiled{prefix: prefix, program: Build(p)}
+}
+
+// SearchAgreesWithReferences compares the prefix path with the original
+// Simulation (epsilon closure, byte transition, End) and the independent
+// bounded AST backtracker. Steering gives generated trees required common
+// prefixes, nullable heads, and shared/overlapping candidate positions.
+// Reuse the matcher after another text; it must hold no scan workspace.
+law SearchAgreesWithReferences(seed int, text string) {
+	let p = syntax.Sample(seed)
+	let literal = syntax.Literal(syntax.SampleText(seed))
+	let head = syntax.Literal("aa")
+	for pattern in []syntax.Node{
+		p, literal,
+		syntax.Cat{Parts: []syntax.Node{head, p}},
+		syntax.Alt{Left: syntax.Cat{Parts: []syntax.Node{head, p}}, Right: syntax.Cat{Parts: []syntax.Node{syntax.Literal("ab"), p}}},
+		syntax.Quest{Of: literal},
+		syntax.Plus{Of: literal},
+		syntax.Cat{Parts: []syntax.Node{syntax.Quest{Of: head}, p}},
+	} {
+		let fast = NewSearchCompiled(pattern)
+		let original = NewCompiled(syntax.Search(pattern))
+		let reference = backtrack.Search(backtrack.Engine, pattern)
+		for t in []string{text, "", syntax.SampleText(seed), "aa" + syntax.SampleText(seed) + "ab", "ab" + text} {
+			let got = fast.Matches(t)
+			let simulation = original.Matches(t)
+			let tree = reference.Matches(t)
+			// String operands print the pattern source, input and both answers;
+			// an assertion refutation keeps shrinking and the runner's replay
+			// seed (which is not this law's generated seed argument).
+			let description = "source=\(syntax.Print(pattern)) text=\(t) matched="
+			assert description+"\(got)" == description+"\(simulation)"
+			assert description+"\(got)" == description+"\(tree)"
+			let _ = fast.Matches("other")
+			if fast.Matches(t) != got {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// SearchTransitionsAreLinear catches repeated whole-candidate scans:
+// overlapping starts of a+b must share their live NFA configurations.
+law SearchTransitionsAreLinear(seed int) {
+	let n = 1 + int(uint64(seed)%40)
+	let p = syntax.Cat{Parts: []syntax.Node{syntax.Plus{Of: syntax.Literal("a")}, syntax.Literal("b")}}
+	let c = NewSearchCompiled(p)
+	let text = strings.Repeat("a", n)
+	let reference = c.Measure(text)
+	let mut w = NewWorkspace(c.program.Len())
+	let work = c.RunSearch(&w, text)
+		!work.Matched && work.Starts > 0 && work.Transitions <= n &&
+		!reference.Matched && reference.Transitions <= n
+}
+
+// WorkspaceAgreesWithReferences drives repeated line resets, epsilon
+// closure and byte transitions through the same iterator-owned storage.
+// Simulation and the AST backtracker are independent configuration models.
+law WorkspaceAgreesWithReferences(seed int, text string) {
+	let p = syntax.Sample(seed)
+	for pattern in []syntax.Node{
+		p, syntax.Star{Of: p}, syntax.Plus{Of: p},
+		syntax.Cat{Parts: []syntax.Node{syntax.Literal("a"), p}},
+		syntax.Alt{Left: p, Right: syntax.Literal("ab")},
+	} {
+		let search = NewSearchCompiled(pattern)
+		let whole = Build(pattern)
+		let mut inside = NewWorkspace(search.program.Len())
+		let mut anchored = NewWorkspace(whole.Len())
+		// Force rollover amid real transitions; marks from generation one
+		// must not survive when generation one is used again.
+		let texts = []string{text, syntax.SampleText(seed), "", "ab", text, "other", text}
+		for t in texts {
+			let got = search.RunSearch(&inside, t).Matched
+			let reference = search.Measure(t).Matched
+			let tree = backtrack.Search(backtrack.Engine, pattern).Matches(t)
+			let description = "source=\(syntax.Print(pattern)) text=\(t) inside="
+			assert description+"\(got)" == description+"\(reference)"
+			assert description+"\(got)" == description+"\(tree)"
+			let all = anchored.RunWhole(whole, t).Matched
+			let model = NewCompiled(pattern).Matches(t)
+			let wholeDescription = "source=\(syntax.Print(pattern)) text=\(t) whole="
+			assert wholeDescription+"\(all)" == wholeDescription+"\(model)"
+			inside.generation = 1073741823
+			anchored.generation = 1073741823
+		}
+		let mut gotLines = []string{}
+		for t in search.Lines(slices.Values(texts)) {
+			gotLines = gotLines.Append(t)
+		}
+		let mut referenceLines = []string{}
+		for t in texts {
+			if search.Measure(t).Matched {
+				referenceLines = referenceLines.Append(t)
+			}
+		}
+		if gotLines != referenceLines {
+			return false
+		}
+	}
+	true
 }
 
 // Work counts candidate NFA starts and byte transitions, not elapsed time,

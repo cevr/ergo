@@ -1,0 +1,256 @@
+// Virtual rows, the wheel and the pointer. A Rows node is a scene list
+// (screen.Lister): a scroll box whose content box is Count rows of
+// RowHeight high, each written row placed by its index, First + i rows
+// down; the driver reports each list's viewport to the session
+// (ui.Scrolled), so the next pass writes the rows it shows. An Area takes
+// the pointer as ui.Host's rules say (H5g): its events in DIPs from its
+// box, the topmost Zone under the pointer, capture from a Down to an Up.
+
+import actor
+import go ergo.local/prototype/hosts/opentui/screen
+import ui
+
+// WheelRows is how many rows one turn of the wheel scrolls.
+let WheelRows = 3
+
+// rowCells is a row height in cells.
+func rowCells[S, E, D, F](d mut Driver[S, E, D, F], rh ui.Length) float64 { Cells(rh, d.options.Cell.H) }
+
+// content sets the height of list id's content, count rows of rh, when it
+// changed.
+func content[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], count int, rh ui.Length) needs go.Foreign {
+	let h = float64(count) * rowCells(d, rh)
+	if d.lists.Get(id) != (Some{Value: h}) {
+		d.lists[id] = h
+		d.s.SetStyle(numOf(d, id), screen.Content, -1, h)
+	}
+}
+
+// placeRows puts the rows each list wrote where they belong: row i of a
+// list whose first written row is First at First + i rows down its
+// content, one row high and as wide as the list. A row that stays keeps
+// its place, so only a new row or a moved one costs scene calls.
+func placeRows[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
+	for id, _ in d.lists {
+		match nodeOf(d, id) {
+		case ui.RowsNode as x:
+			let rh = rowCells(d, x.RowHeight)
+			for i, k in kidsOf(d, id) {
+				let top = float64(x.First+i) * rh
+				let n = numOf(d, k)
+				match d.tops.Get(k) {
+				case Some[float64] as t:
+					if t.Value != top {
+						d.s.SetStyle(n, screen.Inset, 1, top)
+					}
+				case None:
+					d.s.SetStyle(n, screen.Absolute, -1, 1)
+					d.s.SetStyle(n, screen.Inset, 0, 0)
+					d.s.SetStyle(n, screen.Inset, 2, 0)
+					d.s.SetStyle(n, screen.Height, -1, rh)
+					d.s.SetStyle(n, screen.Inset, 1, top)
+				}
+				d.tops[k] = top
+			}
+		case _:
+		}
+	}
+}
+
+// keep scrolls each list whose pass chose an offset other than the one
+// the driver last reported (RowsKeeping brought a row into view, or the
+// first pass's) to that offset, in whole cells, and is whether it
+// scrolled any.
+func keep[S, E, D, F](d mut Driver[S, E, D, F]) bool fails ScreenFailed needs go.Foreign {
+	let c = d.options.Cell.H
+	let mut moved = false
+	for id, _ in d.lists {
+		match nodeOf(d, id) {
+		case ui.RowsNode as x:
+			let at = match d.viewports.Get(id) {
+			case Some[ui.Viewport] as v:
+				v.Value.Offset
+			case None:
+				ui.Length(0.0)
+			}
+			if x.Offset != at {
+				try scrollTo(d.s, numOf(d, id), int(float64(x.Offset)/c+0.5), false)
+				moved = true
+			}
+		case _:
+		}
+	}
+	moved
+}
+
+// report tells the session the viewport of a list (its scroll offset and
+// its height, in DIPs) that changed since the last report: the next pass
+// writes the rows it shows, and that pass's show reports again, until no
+// list's viewport moves. A stopped actor takes none.
+func report[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	let c = d.options.Cell.H
+	for id, _ in d.lists {
+		let st = d.s.ScrollOf(numOf(d, id))
+		let v = ui.Viewport{Offset: ui.Length(float64(st.Offset) * c), Height: ui.Length(float64(st.Height) * c)}
+		if d.viewports.Get(id) != (Some{Value: v}) {
+			d.viewports[id] = v
+			step(d, ui.Scrolled[E]{Id: id, Offset: v.Offset, Height: v.Height}) catch {
+			// ergo-lint-disable-next-line silent-catch -- a stopped actor takes no viewport; the next step it is sent fails actor.Stopped where the caller handles it
+			case actor.Stopped:
+			case ui.BadPatch as b:
+				return b
+			case ScreenFailed as e:
+				return e
+			}
+			return
+		}
+	}
+}
+
+// repaint paints the screen, scrolls each list to the offset its pass
+// chose (painting again when one moved), and reports the lists'
+// viewports.
+func repaint[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	try present(d.s)
+	if try keep(d) {
+		try present(d.s)
+	}
+	try report(d)
+}
+
+// Viewport is the viewport the driver last reported for the list
+// labelled label, None before it reported one.
+func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Viewport] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		d.viewports.Get(id.Value)
+	case None:
+		None
+	}
+}
+
+// Captured is the Area that holds the pointer (a Down went to it, and no
+// Up yet), None when none does.
+func Captured[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] {
+	match d.captured {
+	case Some[ui.Id[E]] as c:
+		// A node that left the tree is no Area (nodeOf).
+		if isArea(nodeOf(d, c.Value)) { d.captured } else { None }
+	case None:
+		None
+	}
+}
+
+func isArea[E](n ui.Node[E]) bool {
+	match n {
+	case ui.AreaNode:
+		true
+	case _:
+		false
+	}
+}
+
+// wheel turns the wheel at the input's cell: the Area under it takes a
+// ui.Wheel of WheelRows rows (or columns), and the innermost Scroll or
+// list under it scrolls WheelRows rows.
+func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let dy = if input.Code == 0 { -WheelRows } else if input.Code == 1 { WheelRows } else { 0 }
+	let dx = if input.Code == 2 { -WheelRows } else if input.Code == 3 { WheelRows } else { 0 }
+	let mut area Option[ui.Id[E]] = None
+	let mut list Option[ui.Id[E]] = None
+	let mut at = match d.ids.Get(d.s.HitTest(input.X, input.Y)) {
+	case Some[ui.Id[E]] as id:
+		id.Value
+	case None:
+		return
+	}
+	for at != d.root {
+		match nodeOf(d, at) {
+		case ui.AreaNode:
+			if area == None {
+				area = Some{Value: at}
+			}
+		case ui.ScrollNode, ui.RowsNode:
+			if list == None {
+				list = Some{Value: at}
+			}
+		case _:
+		}
+		at = parentOf(d, at)
+	}
+	match area {
+	case Some[ui.Id[E]] as a:
+		let c = d.options.Cell
+		try point(d, a.Value, input, ui.Wheel{DX: float64(dx) * c.W, DY: float64(dy) * c.H})
+	case None:
+	}
+	match list {
+	case Some[ui.Id[E]] as l:
+		if dy != 0 {
+			try scrollTo(d.s, numOf(d, l.Value), dy, true)
+			try repaint(d)
+		}
+	case None:
+	}
+}
+
+// point sends a pointer event to the Area id: the input's cell in DIPs
+// from the Area's box, over the topmost Zone under the pointer in it.
+func point[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], input screen.Input, phase ui.Phase) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let c = d.options.Cell
+	let b = d.s.BoxOf(numOf(d, id))
+	let over = zoneUnder(d, id, b, input.X, input.Y)
+	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: float64(input.Y-b.Y) * c.H, Zone: None}, Over: over})
+}
+
+// zoneUnder is the topmost Zone of the Area area under column x, row y,
+// with its box in the Area's box (DIPs); None when the pointer is on no
+// Zone of it.
+func zoneUnder[S, E, D, F](d mut Driver[S, E, D, F], area ui.Id[E], ab screen.Rect, x int, y int) Option[ui.ZoneBox[E]] needs go.Foreign {
+	let mut at = match d.ids.Get(d.s.HitTest(x, y)) {
+	case Some[ui.Id[E]] as id:
+		id.Value
+	case None:
+		return None
+	}
+	let mut zone Option[ui.Id[E]] = None
+	for at != d.root {
+		if at == area {
+			match zone {
+			case Some[ui.Id[E]] as z:
+				let c = d.options.Cell
+				let zb = d.s.BoxOf(numOf(d, z.Value))
+				let r = ui.Rect{X: ui.Length(float64(zb.X-ab.X) * c.W), Y: ui.Length(float64(zb.Y-ab.Y) * c.H), W: ui.Length(float64(zb.Width) * c.W), H: ui.Length(float64(zb.Height) * c.H)}
+				return Some{Value: ui.ZoneBox[E]{Id: z.Value, Box: r}}
+			case None:
+				return None
+			}
+		}
+		match nodeOf(d, at) {
+		case ui.ZoneNode:
+			if zone == None {
+				zone = Some{Value: at}
+			}
+		case _:
+		}
+		at = parentOf(d, at)
+	}
+	None
+}
+
+// moved sends a move of the pointer (a drag, or a move with no button) to
+// the Area that holds it, or else to the Area under it.
+func moved[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	match Captured(d) {
+	case Some[ui.Id[E]] as a:
+		try point(d, a.Value, input, ui.Moved)
+	case None:
+		match targetAt(d, input.X, input.Y) {
+		case Some[ui.Id[E]] as t:
+			if isArea(nodeOf(d, t.Value)) {
+				try point(d, t.Value, input, ui.Moved)
+			}
+		case None:
+		}
+	}
+}

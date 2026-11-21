@@ -3,10 +3,30 @@
 // registry of releases; package memory provides one from a manifest. The
 // resolver is pure but for its Index.
 
-import deps/semver
+import semver
+import strings
 
 // Requirement is a package name and the constraint on its version.
-type Requirement { Name string, Want semver.Constraint }
+type Requirement { Name string, Want Constraint }
+
+// Constraint is an npm range of versions (std semver) and the text the
+// manifest wrote it as, which messages and the manifest's Format show.
+type Constraint { Range semver.Range, Text string }
+
+// ParseConstraint reads text as an npm range; an empty text is *.
+func ParseConstraint(text string) Constraint fails semver.Malformed {
+	let words = strings.Fields(text)
+	if len(words) == 0 {
+		return Any()
+	}
+	Constraint{Range: try semver.ParseRange(text), Text: strings.Join(words, " ")}
+}
+
+// Any is the constraint every version keeps.
+func Any() Constraint { Constraint{Range: semver.Range{Sets: [][]semver.Comparator{[]semver.Comparator{}}}, Text: "*"} }
+
+// Allows reports whether v keeps c.
+func Allows(c Constraint, v semver.Version) bool { semver.Satisfies(c.Range, v) }
 
 // Release is one version of a package and what it needs.
 type Release { Name string, V semver.Version, Needs []Requirement }

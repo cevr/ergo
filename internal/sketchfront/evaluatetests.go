@@ -79,11 +79,12 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	b := eval.DefaultBudget()
 	b.Seed, b.States = seed, states
 	pkg := a.rootPackage()
+	foreign := foreignKeys(a, nil)
 	var notes map[string]string
 	if store != nil && pkg != nil {
 		// A route note of an obligation whose inputs did not change
 		// sends the package to the test binary with no evaluation.
-		notes = routes(pkg, seed, states, b.Steps)
+		notes = routes(pkg, seed, states, b.Steps, foreign)
 		for _, name := range plan.Names {
 			if text, ok := store.Get(notes[name]); ok && text == routeNote {
 				stage.Add(stage.PackagesRouted, 1)
@@ -91,7 +92,7 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 			}
 		}
 		b.Verdicts = a.EvalVerdicts(store, seed, states, native)
-		b.Tests = &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}}
+		b.Tests = &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}, foreign: foreign}
 	}
 	rep, err := a.Evaluate(b)
 	if err != nil {

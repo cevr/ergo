@@ -572,6 +572,7 @@ extern go image.Rectangle.Add func (r Rectangle) Add(p Point) Rectangle needs go
 extern go image.Rectangle.At func (r Rectangle) At(x int, y int) color.Color needs go.Foreign
 
 // ergo:go func (Rectangle).Bounds() Rectangle
+// ergo:total
 extern go image.Rectangle.Bounds func (r Rectangle) Bounds() Rectangle needs go.Foreign
 
 // ergo:go func (Rectangle).Canon() Rectangle
@@ -696,6 +697,7 @@ extern go image.YCbCr.YOffset func (p *YCbCr) YOffset(x int, y int) int needs go
 extern go image.YCbCrSubsampleRatio type YCbCrSubsampleRatio int
 
 // ergo:go func (YCbCrSubsampleRatio).String() string
+// ergo:total
 extern go image.YCbCrSubsampleRatio.String func (s YCbCrSubsampleRatio) String() string needs go.Foreign
 
 // ergo:go const YCbCrSubsampleRatio410 YCbCrSubsampleRatio

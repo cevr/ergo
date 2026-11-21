@@ -37,15 +37,20 @@ type Deadline struct {
 	// waiter is the task in PopBefore, which the fire wakes in a clock's
 	// domain (rt.Waking).
 	waiter *rt.Task
+	// wake is the word that waiter's wait parks on (Queue.waitOr), which
+	// the fire wakes; nil while it does not wait.
+	wake *rt.Waiter
 }
 
 // NewDeadline is timeout.NewDeadline() on the caller's task t: a deadline
 // that is not armed, on the AlarmClock of s, the program's Scheduler. A
 // Scheduler gives its AlarmClock (Alarmer): every program's does, since
 // Alarms is an operation of the prelude's Scheduler. A Go Sleeper of a
-// test with no Alarms is a defect.
+// test with no Alarms is a defect. It takes t only to ask s for its
+// AlarmClock, and never waits: its wait policy is none, which
+// TestRuntime199NoWaitBindings checks (BLOCKING-DEADLINE).
 //
-//ergo:wait caller
+//ergo:wait none
 func NewDeadline(t *rt.Task, s Sleeper) *Deadline {
 	a, ok := s.(Alarmer)
 	if !ok {
@@ -84,6 +89,23 @@ func (dl *Deadline) fire(gen uint64, ch chan rt.Instant) {
 	w := rt.Waking(dl.waiter, dl)
 	close(ch)
 	w.Done()
+	if dl.wake != nil {
+		// PopBefore parks on its wait's word (Queue.waitOr): the fire wakes
+		// it after ch is closed, so it sees the fire.
+		dl.wake.Wake()
+	}
+}
+
+// await sets the word the fire wakes, for the wait of PopBefore that
+// parks on w (nil when it ended). A fire that came before it wakes w at
+// once, so no fire is lost between the waiter's look and its park.
+func (dl *Deadline) await(w *rt.Waiter, fired chan rt.Instant) {
+	dl.mu.Lock()
+	dl.wake = w
+	if w != nil && fired != nil && closedChan(fired) {
+		w.Wake()
+	}
+	dl.mu.Unlock()
 }
 
 // Armed reports whether dl is armed: Arm armed it, and PopBefore has not

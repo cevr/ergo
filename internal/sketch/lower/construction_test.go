@@ -23,14 +23,14 @@ type openForm struct {
 var openForms = []openForm{
 	{name: "literal", decl: "func mk() P { P{s: 2, xs: []Small{}FIELDS} }", what: "a literal builds one", rank: 2},
 	{name: "update", decl: "func upd(p P) P { P{..p, s: 1} }", what: "a literal builds one", rank: 2},
-	{name: "write", decl: "func poke(p *P) { p.s = 3 }", what: "an assignment writes its field", rank: 2},
-	{name: "nested write", decl: "func pokeXs(p *P) { p.xs[0] = 1 }", what: "an assignment writes its field", rank: 2},
-	{name: "address", decl: "func set(x *Small) {}\n\nfunc poke2(p *P) { set(&p.s) }", what: "a borrow of its field", rank: 2},
-	{name: "dot borrow", decl: "func nudge(x *Small) {}\n\nfunc poke3(p *P) { p.s.nudge() }", what: "a call may write its field", rank: 2},
+	{name: "write", decl: "func poke(p mut P) { p.s = 3 }", what: "an assignment writes its field", rank: 2},
+	{name: "nested write", decl: "func pokeXs(p mut P) { p.xs[0] = 1 }", what: "an assignment writes its field", rank: 2},
+	{name: "address", decl: "func set(x mut Small) {}\n\nfunc poke2(p mut P) { set(&p.s) }", what: "a borrow of its field", rank: 2},
+	{name: "dot borrow", decl: "func nudge(x mut Small) {}\n\nfunc poke3(p mut P) { p.s.nudge() }", what: "a call may write its field", rank: 2},
 	{name: "conversion", decl: "type Q P\n\nfunc conv(q Q) P { P(q) }", what: "a conversion makes one", rank: 2},
 	{name: "exported field", field: ", S int", ctorField: ", S: 0", what: "its field S is exported", rank: 0},
 	{name: "self field", field: ", more []P", ctorField: ", more: []P{}", what: "its field more holds a P", rank: 0},
-	{name: "operation parameter", op: "Mix(o P),", opFunc: "func Mix(p *P, o P) {}", what: "its operation Mix takes a P besides its receiver", rank: 1},
+	{name: "operation parameter", op: "mut Mix(o P),", opFunc: "func Mix(p mut P, o P) {}", what: "its operation Mix takes a P besides its receiver", rank: 1},
 	{name: "operation result", op: "Fork() P,", opFunc: "func Fork(p P) P { p }", what: "its operation Fork returns a P", rank: 1},
 }
 
@@ -91,10 +91,10 @@ func constructionProgram(seed int64) (src, want, form string) {
 	fmt.Fprintf(&b, "type P { s Small, xs []Small%s } implements Ops\n\n", field)
 	fmt.Fprintf(&b, "func NewP() P { P{s: 0, xs: []Small{}%s} }\n\n", ctorField)
 	b.WriteString("func step(n Small) Small {\n\tmatch int(n) {\n\tcase 0:\n\t\t1\n\tcase 1:\n\t\t2\n\tcase 2:\n\t\t3\n\tcase _:\n\t\t0\n\t}\n}\n\n")
-	b.WriteString("func Inc(p *P) { p.s = step(p.s) }\n\nfunc Read(p P) int { int(p.s) }\n\n")
-	fmt.Fprintf(&b, "func Reset(p *P) { *p = P{s: 0, xs: []Small{}%s} }\n\n", ctorField)
+	b.WriteString("func Inc(p mut P) { p.s = step(p.s) }\n\nfunc Read(p P) int { int(p.s) }\n\n")
+	fmt.Fprintf(&b, "func Reset(p mut P) { *p = P{s: 0, xs: []Small{}%s} }\n\n", ctorField)
 	b.WriteString(opFuncs)
-	fmt.Fprintf(&b, "type Ops {\n\tInc(),\n\tRead() int,\n\tReset(),\n\t%s\n\tlaw Same() { Inc(); Reset() } == { Reset() },\n}\n\n", ops)
+	fmt.Fprintf(&b, "type Ops {\n\tmut Inc(),\n\tRead() int,\n\tmut Reset(),\n\t%s\n\tlaw Same() { Inc(); Reset() } == { Reset() },\n}\n\n", ops)
 	for _, d := range decls {
 		b.WriteString(strings.ReplaceAll(d, "FIELDS", ctorField) + "\n\n")
 	}

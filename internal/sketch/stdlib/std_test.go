@@ -312,7 +312,12 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
 				continue
 			}
-			if _, named := check.GoTypeOf(n); !named && hasUnexportedField(st) {
+			// A provider, a record that declares an operation type
+			// (cmp.Natural and cmp.Reverse implement cmp.Order; CONSTRAINTS
+			// C3), is the program's declaration too: an Ergo value its
+			// package's functions operate on, never a runtime error value.
+			provider := n.Obj.Decl != nil && len(n.Obj.Decl.Implements) > 0
+			if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider) {
 				// A record with construction authority whose declaration
 				// names no Go type (slices.Ascending, SS5) is the program's
 				// declaration (lower runtimeType): only its package builds
@@ -387,14 +392,20 @@ func goConstraint(c check.Type) (string, bool) {
 	if c == nil {
 		return "any", true
 	}
+	if n, ok := c.(*check.Named); ok {
+		// The prelude's type set ordered (prelude.ergo) is runtime/v1's
+		// ordered, the terms of Go's cmp.Ordered.
+		if i, ok := n.Underlying().(*check.Interface); ok && i.Terms != nil && len(i.Methods) == 0 && n.Obj.Name == "ordered" && n.Obj.Pkg.Prelude() {
+			return "ordered", true
+		}
+		return "", false
+	}
 	i, ok := c.(*check.Interface)
 	switch {
 	case !ok || len(i.Methods) > 0:
 		return "", false
 	case i.Set == check.SetComparable:
 		return "comparable", true
-	case i.Set == check.SetOrdered:
-		return "ordered", true
 	case i.Set == check.SetAll:
 		return "any", true
 	}
@@ -434,12 +445,18 @@ func matchSig(t *testing.T, where string, sig *check.Signature, body v1.Body) {
 		}
 	}
 	// An Option[T] result of an operation is Go's comma-ok (T, bool), which
-	// the lowering adapts to Some or None (stdlib.md, Types 5).
-	if len(sig.Results) == 1 && !sig.Fallible {
+	// the lowering adapts to Some or None (stdlib.md, Types 5); a fallible
+	// one adds Go's error, (T, bool, error), as queue's Slide returns
+	// (SLIDE-RELEASE 5cab53745; lower's stdResult).
+	if len(sig.Results) == 1 {
 		if n, ok := sig.Results[0].(*check.Named); ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" && n.Obj.Name == "Option" && len(n.TArgs) == 1 {
 			g, ok := goType(n.TArgs[0])
-			if !ok || len(body.Results) != 2 || body.Results[0] != g || body.Results[1] != "bool" {
-				t.Errorf("%s: an Option[%s] result needs the Go results (%s, bool), got %v", where, n.TArgs[0], g, body.Results)
+			want := []string{g, "bool"}
+			if sig.Fallible {
+				want = append(want, "error")
+			}
+			if !ok || !slices.Equal(body.Results, want) {
+				t.Errorf("%s: an Option[%s] result needs the Go results (%s), got %v", where, n.TArgs[0], strings.Join(want, ", "), body.Results)
 			}
 			return
 		}
@@ -653,7 +670,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	// built, and only Dial's reaches the host (rpc.Loopback's runs in
 	// process). Dial's authority is TestStdExternCallersHoldAuthority's:
 	// Dial without Ambient fails it (measured, R3b).
-	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Listener", "http.Remote", "io.Errors", "io.Host", "io.In", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "term.Host", "time.Host"}; !slices.Equal(found, want) {
+	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Remote", "io.Errors", "io.Host", "io.In", "net.Host", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "sql.Host", "sql.hostTx", "sql.pool", "term.Host", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {
@@ -682,7 +699,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 		want      []string
 	}{
 		{"implementer", "type Fake {}\n\nfunc ambient(_ Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
-		{"implementer by borrow", "type Fake { n int }\n\nfunc ambient(_ *Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
+		{"implementer by borrow", "type Fake { n int }\n\nfunc ambient(_ mut Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
 		{"a function of another name", "type Fake {}\n\nfunc other(_ Fake) {}\n", nil},
 		{"unexported named context", "type Fake {}\n\nfunc ambient(_ Fake) {}\n\nlet c = context { Ambient: Fake }\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry", "fixture.c is a named context that binds Ambient"}},
 		{"named context of another capability", "let C = context { Scheduler: LiveScheduler }\n", nil},
@@ -950,7 +967,7 @@ func Next(_ mint) Tok { Tok{v: 1} }
 
 let Minter = mint
 `, wrapped},
-		{"record passed by borrow to a function the caller supplies", tokBase + "func Give(f func(p *Tok)) {}\n", wrapped},
+		{"record passed by borrow to a function the caller supplies", tokBase + "func Give(f func(p mut Tok)) {}\n", wrapped},
 		// The failure row of an unexported function, handed out as a value.
 		{"record in the failure row of a function value", tokBase + `func raise() int fails Tok { return Tok{v: 1} }
 
@@ -998,7 +1015,7 @@ func Next(_ mint) Host { Host{root: "/"} }
 
 let Minter = mint
 `, []string{mentions("Next", "fixture.Host"), builds("Next", "fixture.Host (a literal)")}},
-		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p *Host)) {}\n", give},
+		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p mut Host)) {}\n", give},
 		{"Host in the failure row of a function value", hostBase + `type Oops { H Host }
 
 func raise() int fails Oops { try raise() }
@@ -1085,7 +1102,7 @@ func Give() M { Give() }
 		// The one exemption: a parameter of Host (or of a record it needs)
 		// itself. A borrow of it, or a record holding it, is none.
 		{"parameter of Host itself", hostBase + "func Clone(h Host) Host { h }\n", nil},
-		{"parameter of a borrow of Host", hostBase + "func Peek(h *Host) int { 1 }\n", []string{mentions("Peek", "fixture.Host")}},
+		{"parameter of a borrow of Host", hostBase + "func Peek(h mut Host) int { 1 }\n", []string{mentions("Peek", "fixture.Host")}},
 		{"parameter of a record holding Host", hostBase + "type Box { H Host }\n\nfunc Unbox(b Box) Host { b.H }\n", []string{mentions("Unbox", "fixture.Host")}},
 		// batch-10 r4 M1: a sealed operation-type provider handed out in an
 		// Option, a slice, a callback, a let, a failure or a needs row.

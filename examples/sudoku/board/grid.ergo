@@ -98,6 +98,12 @@ func Line(g Grid) string {
 	out.String()
 }
 
+// LineRoundTrip: a grid's line parses back to the grid.
+law LineRoundTrip(seed int, blanks int) {
+	let p = Puzzle(seed, if blanks < 0 { 0 } else { blanks % 82 })
+	try Parse(Line(p)) == p
+}
+
 // Picture is g as 11 lines of text, with a rule between boxes.
 func Picture(g Grid) []string {
 	let mut out = []string{}

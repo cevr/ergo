@@ -1,0 +1,137 @@
+import compiler/check/store
+import compiler/syntax
+import dense
+import sha256
+import strings
+
+// The fingerprints of a declaration (C0/plan.md §3, the Decl rows' fp
+// and ifp): a SHA-256 prefix over the declaration's tokens, each its kind
+// and its text, so positions, layout and comments do not count. A
+// semicolon counts by its kind alone: one the scanner inserts at a newline
+// and one written are the same token. The interface print cuts what an
+// importer cannot see, the body of a function with no type parameters and
+// the body of a test, and writes one cut token in its place.
+
+// printsOf is the prints of the top-level declaration row d. One walk
+// writes its tokens; the interface print's text is that text with the
+// bytes of the cut span's tokens replaced by one cut token.
+func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
+	let lo = syntax.NodePos(p, d)
+	let hi = syntax.NodeEnd(p, d)
+	let (cutLo, cutHi) = cutOf(p, d)
+	// A token writes its text and two bytes (six for a long one); twice
+	// the span's bytes is room for the usual run, so the builder rarely
+	// grows.
+	let mut b = strings.NewBuilder()
+	b.Grow(2*(hi-lo) + 16)
+	let mut m1 = -1
+	let mut m2 = -1
+	let mut j = firstToken(p, lo)
+	for j >= 0 && syntax.TokPos(p, j) < hi {
+		let at = syntax.TokPos(p, j)
+		let inCut = at >= cutLo && at < cutHi
+		if inCut && m1 < 0 {
+			m1 = b.Len()
+		}
+		let k = syntax.TokKind(p, j)
+		writeToken(&b, k, if k == syntax.Semicolon { "" } else { syntax.TokText(p, j) })
+		if inCut {
+			m2 = b.Len()
+		}
+		j = j + 1
+	}
+	let all = b.String()
+	let fp = printOf(all)
+	if m1 < 0 {
+		return store.Prints{Fp: fp, Ifp: fp}
+	}
+	store.Prints{Fp: fp, Ifp: printOf(all[0:m1] + "cut;" + all[m2:len(all)])}
+}
+
+// IfpCutsBodies: two functions that differ in their bodies alone have one
+// interface print, unless the function is generic (an importer
+// instantiates its body), and one Fp only when the bodies are one body; a
+// test's body is cut as a function's is.
+law IfpCutsBodies(i int, j int) {
+	let a = bodies[((i%4)+4)%4]
+	let b = bodies[((j%4)+4)%4]
+	let plain = func(body string) store.Prints { firstPrints("func f(n int) int " + body + "\n") }
+	let generic = func(body string) store.Prints { firstPrints("func f[T](n T) T " + body + "\n") }
+	let atTest = func(body string) store.Prints { firstPrints("test t(n int) " + body + "\n") }
+	plain(a).Ifp == plain(b).Ifp && atTest(a).Ifp == atTest(b).Ifp && (generic(a).Ifp == generic(b).Ifp) == (a == b) && (plain(a).Fp == plain(b).Fp) == (a == b)
+}
+
+let bodies = []string{"{ n }", "{ n + 1 }", "{ let m = n; m }", "{\n\treturn n\n}"}
+
+// firstPrints is the prints of the first top-level row of src (a test
+// is no declaration of the store, so the row's prints are read directly).
+func firstPrints(src string) store.Prints {
+	let p = syntax.Parse(src)
+	printsOf(p, topDecls(p)[0])
+}
+
+// firstToken is the first token at or after offset at (a node starts at
+// a token, so this is that token).
+func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
+
+// writeToken writes a token as its kind, its text's length and its text,
+// so no two token runs write the same bytes: a length under 255 is one
+// byte, a longer one 255 and four bytes, low first.
+func writeToken(b mut strings.Builder, k uint8, t string) {
+	let n = len(t)
+	b.WriteByte(byte(k))
+	if n < 255 {
+		b.WriteByte(byte(n))
+	} else {
+		b.WriteByte(byte(255))
+		b.WriteByte(byte(n & 255))
+		b.WriteByte(byte((n >> 8) & 255))
+		b.WriteByte(byte((n >> 16) & 255))
+		b.WriteByte(byte((n >> 24) & 255))
+	}
+	b.WriteString(t)
+}
+
+// cutOf is the span an importer cannot see in row d, or an empty span.
+func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
+	match syntax.ViewOf(p.Tree, d) {
+	case syntax.FuncDecl as fd:
+		if dense.Unpack(fd.TypeParams) != None {
+			return (0, 0)
+		}
+		match dense.Unpack(fd.Body) {
+		case Some{Value: body}:
+			(syntax.NodePos(p, body), syntax.NodeEnd(p, body))
+		case None:
+			(0, 0)
+		}
+	case syntax.TestDecl as td:
+		(syntax.NodePos(p, td.Body), syntax.NodeEnd(p, td.Body))
+	case _:
+		(0, 0)
+	}
+}
+
+// printOf is the first 16 bytes of text's SHA-256, as two big-endian words.
+func printOf(text string) store.Print {
+	let sum = sha256.Sum(text)
+	let mut hi = uint64(0)
+	let mut lo = uint64(0)
+	for i in 0..8 {
+		hi = hi<<8 | uint64(sum[i])
+		lo = lo<<8 | uint64(sum[i+8])
+	}
+	store.Print{Hi: hi, Lo: lo}
+}
+
+// setPrints gives the declarations from index from on, all of top-level
+// row d, d's prints.
+func setPrints(s mut store.Store, p syntax.Parsed, d dense.ID[syntax.Node], from int) {
+	if store.NumDecls(*s) == from {
+		return
+	}
+	let pr = printsOf(p, d)
+	for i in from..store.NumDecls(*s) {
+		store.SetPrints(s, store.DeclAt(*s, i), pr)
+	}
+}

@@ -326,6 +326,12 @@ func newEngine(cfg Config) (*engine, error) {
 	if inside(cfg.Work, cfg.Root) {
 		return nil, fmt.Errorf("work directory %s is inside the checkout %s", cfg.Work, cfg.Root)
 	}
+	// The copies are made under the work directory, each emptied first
+	// (copyTree) and restored by removing what the checkout lacks
+	// (restoreUnder): a checkout inside it could be one of them.
+	if inside(cfg.Root, cfg.Work) {
+		return nil, fmt.Errorf("the checkout %s is inside the work directory %s", cfg.Root, cfg.Work)
+	}
 	mod, err := os.ReadFile(filepath.Join(cfg.Root, "go.mod"))
 	if err != nil {
 		return nil, err
@@ -463,7 +469,20 @@ func (e *engine) copyTree(dst string) error {
 // rules run git ls-files) then see the checkout's file list in the copy and
 // can kill a mutant; without it they fail on every tree. The commit also
 // keeps go build's VCS stamp working. The user's Git configuration is left
-// out: a signing or hook setting must not reach the copy.
+// out: a signing or hook setting must not reach the copy. The copy's own
+// configuration turns Git's automatic maintenance off (noMaintenance), so
+// no git a test runs in it starts a repack: one ran 13 and 40 minutes on a
+// nearly full disk (wf10, 2026-11-19).
+// noMaintenance turns Git's automatic gc and maintenance off through the
+// environment, for the gits the runner and its children run. The runner's
+// own gits elsewhere (log, status, rev-parse, ls-files) are reads that
+// start no maintenance.
+var noMaintenance = []string{
+	"GIT_CONFIG_COUNT=2",
+	"GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0",
+	"GIT_CONFIG_KEY_1=maintenance.auto", "GIT_CONFIG_VALUE_1=false",
+}
+
 func commitCopy(dst string, files []treeFile) error {
 	var names bytes.Buffer
 	for _, f := range files {
@@ -472,6 +491,8 @@ func commitCopy(dst string, files []treeFile) error {
 	}
 	steps := [][]string{
 		{"init", "-q"},
+		{"config", "gc.auto", "0"},
+		{"config", "maintenance.auto", "false"},
 		{"add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"},
 		{"-c", "user.name=mutants", "-c", "user.email=mutants@invalid", "commit", "-q", "--no-verify", "-m", "mutants copy"},
 	}
@@ -479,6 +500,7 @@ func commitCopy(dst string, files []treeFile) error {
 		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		cmd.Dir = dst
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(cmd.Env, noMaintenance...)
 		if args[0] == "add" {
 			cmd.Stdin = bytes.NewReader(names.Bytes())
 		}
@@ -539,6 +561,7 @@ func (e *engine) env(extra ...string) []string {
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
 	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")
+	out = append(out, noMaintenance...)
 	return append(out, extra...)
 }
 
@@ -1006,9 +1029,16 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
 			}
 			c.Builds[s.Name] = o.seconds
-			list, err := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".").Output()
+			// In the package's directory, as go test runs the binary: a
+			// test file's init may read testdata (lower's loose JSON
+			// cases), and from the root it panics before it lists.
+			lister := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".")
+			lister.Dir = filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package))
+			var stderr strings.Builder
+			lister.Stderr = &stderr
+			list, err := lister.Output()
 			if err != nil {
-				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
+				return nil, fmt.Errorf("list the tests of %s: %w\n%s", s.Name, err, firstLine(stderr.String()))
 			}
 			listed := strings.Fields(string(list))
 			for _, n := range listed {

@@ -130,12 +130,12 @@ func view(b Bag, w int) int {
 	len(b.Items) + b.N + w
 }
 
-func bump(s *Store, i int) int {
+func bump(s mut Store, i int) int {
 	s.bags[i].N = s.bags[i].N + 1
 	0
 }
 
-func peek(s *Store) int {
+func peek(s mut Store) int {
 	view(s.bags[0], bump(s, 0))
 }
 
@@ -151,7 +151,7 @@ test Peek {
 `,
 	"own-enter-field": `type Walk { rows []int, n []int }
 
-func tally(w *Walk, v int) {
+func tally(w mut Walk, v int) {
 	w.n = w.n.Append(v)
 }
 
@@ -173,11 +173,11 @@ test Count {
 
 type Store { bags []Bag }
 
-func items(s *Store) []int {
+func items(s mut Store) []int {
 	s.bags[0].Items
 }
 
-func total(s *Store) int {
+func total(s mut Store) int {
 	let it = items(s)
 	len(it)
 }
@@ -196,7 +196,7 @@ test Total {
 
 type Store { blocks []Block }
 
-func total(p *Store) int {
+func total(p mut Store) int {
 	let mut n = 0
 	for i in 0..len(p.blocks) {
 		let b = p.blocks[i]
@@ -218,7 +218,7 @@ test Total {
 `,
 	"own-reslice": `type Stack { xs []int }
 
-func pop(s *Stack) {
+func pop(s mut Stack) {
 	if len(s.xs) > 0 {
 		s.xs = s.xs[:len(s.xs)-1]
 	}
@@ -466,7 +466,7 @@ type C { N int }
 
 func port(p Port) int { int(p) + 1 }
 
-func swap(a *C, b *C) {
+func swap(a mut C, b mut C) {
 	let n = a.N
 	a.N = b.N
 	b.N = n
@@ -495,7 +495,9 @@ test Port {
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered
 // shortcut twice: the run build takes the shortcut at some site, and the
 // test build (`ergo test`, LowerTests) takes it at none, so every proved
-// fact is checked where tests run (plan IR-G §2 item 4). It is also the
+// fact is checked where tests run (plan IR-G §2 item 4); a row marked
+// inTests (mono-instance) is taken by the test build too, at some site
+// (TestTestBuildCallsCopies holds the row to it). It is also the
 // receipt of the registry: the count of shortcuts and of the sites each
 // witness takes.
 //
@@ -532,7 +534,9 @@ func TestTestBuildsTakeNoShortcut(t *testing.T) {
 			switch {
 			case !tests && n == 0:
 				t.Errorf("%s: the run build of its witness takes it at no site\n%s", s.name, src)
-			case tests && n > 0:
+			case tests && s.inTests && n == 0:
+				t.Errorf("%s: the test build takes it at no site: it is marked inTests, so tests run what ships", s.name)
+			case tests && n > 0 && !s.inTests:
 				t.Errorf("%s: the test build takes it at %d sites: a test build lowers every site to its checking form", s.name, n)
 			case !tests:
 				t.Logf("%s (%s class): the run build takes %d sites", s.name, s.class, n)

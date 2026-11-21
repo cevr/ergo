@@ -58,8 +58,26 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		}
 		return
 	case kindDefined:
-		if _, basic := td.defined.(*check.Basic); basic {
-			b.admit(td.defined, depth+1)
+		switch d := t.Defined().(type) {
+		case *check.Basic:
+			b.admit(d, depth+1)
+			return
+		case *check.Array:
+			// Go's `type N [k]E` (kmeans' Point of [8]int32): its values
+			// move as N, and an index reads the array's element (indexOther,
+			// ir_index.go). Once per declaration, so a type that holds
+			// itself through its element ends (GP-DEFINED, lane B's
+			// 6cebc4c40).
+			if !b.admitOnce(t.Obj) { // ir_pkg.go
+				b.admit(d, depth+1)
+			}
+			return
+		}
+		if isPreludeType(t, "Seq") && irSeqRangeLowering != "off" {
+			// A Seq is a function value of the uniform shape, spelled as
+			// the program's Seq[T] (PORT-FORIN, ir_seq.go): its instance's
+			// function type is admitted as any function value's is.
+			b.admit(t.Underlying(), depth+1)
 			return
 		}
 		irNo("type defined over a non-basic type")
@@ -87,6 +105,14 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 		switch u := t.(type) {
 		case *check.Basic:
 			return u
+		case *check.TypeParam:
+			// In a copy for an instance (ir_instance.go) a type parameter
+			// is its type argument: `<` on int is the machine compare.
+			if !b.fc.mono || b.fc.bound[u] == nil {
+				return nil
+			}
+			t = b.fc.bound[u]
+			continue
 		case *check.Named:
 			if u.Obj.Decl == nil || len(u.TArgs) > 0 {
 				return nil
@@ -109,12 +135,18 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 
 // implicit is e, the value of x, after the implicit conversion the checker
 // records at x (Info.Implicit), as the emitter's convert does.
+//
+// Around it, the row gaps (ir_rowgap.go): what x reads is read as x's type
+// holds it first, and the converted value goes into x's place last.
 func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
-	conv, ok := b.l.info.Implicit[x]
-	if !ok || e == nil {
+	if e == nil || x == b.raw {
 		return e
 	}
-	return b.convert(conv, e, x)
+	e = b.rowRead(x, e)
+	if conv, ok := b.l.info.Implicit[x]; ok {
+		e = b.convert(conv, e, x)
+	}
+	return b.rowWrite(x, e)
 }
 
 // convert is e after the conversion conv, made at x (the emitter's
@@ -139,6 +171,18 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
+	case check.ConvNarrow:
+		return b.narrowValue(conv, e, x) // ir_rowgap.go
+	case check.ConvWiden:
+		// A sub-union's value into a union that holds its variants (the
+		// emitter's widen): an assertion between two sealed interfaces.
+		if b.l.flatUnionOf(conv.From) != nil || b.l.flatUnionOf(conv.To) != nil {
+			irNo("sub-union into a flat union")
+		}
+		if b.goType(conv.From, x) == b.goType(conv.To, x) {
+			return e
+		}
+		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	}
 	irNo("implicit conversion")
 	return nil
@@ -164,6 +208,11 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 	gt, gf := b.goType(to, site), b.goType(from, site)
 	if gt == gf {
 		return e
+	}
+	if check.IsGoAny(to) {
+		// A value into go.Any is Go's own conversion to its empty
+		// interface (GB2), which the IR spells (IR-GOCALLS).
+		return &irExpr{K: "toiface", Pos: e.Pos, T: "any", X: e}
 	}
 	if fu := b.flatOf(to); fu != nil {
 		if fu.niche && b.goType(fu.inst, site) == gt && fu.tagOf(from) >= 0 {

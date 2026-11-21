@@ -5,7 +5,7 @@
 // std http's Serve runs it for each request, and the tests call it with
 // no socket.
 
-import jobs/jobs
+import jobsapp/jobs
 import json
 import time
 

@@ -1,0 +1,12 @@
+# scripts/opcount: `toolbench bench parse N` parses N tool calls a model
+# wrote (eight find calls, each a query of text, limit and two tags) with
+# the generated toolsllm.Parse into the hub's Request (wf10 L7); the cost
+# of one call is the slope between the two sizes. The control is hand Go:
+# a switch on the tool's name and encoding/json's Unmarshal into the typed
+# request. The floor is one pass over the argument text into the typed
+# request, the strings sliced from the text.
+unit call
+sizes 100000 600000
+args bench parse {n}
+control benchmarks/llmtools/testdata/control
+floor benchmarks/llmtools/testdata/floor

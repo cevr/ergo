@@ -1,0 +1,77 @@
+// level holds the CPU-level probes of U3 CPU-LEVEL: kernels whose
+// instructions change with GOAMD64 or GOARM64, each with a hand Go twin
+// in ../../testdata/control; a workload per kind in ../../KIND (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/level/KIND, once with
+// GOAMD64=v1 and once with GOAMD64=v3).
+//
+//	level bench KIND N
+
+import bits
+import os
+import strconv
+
+// words are 1024 xorshift words, the same on every run.
+func words() []uint64 {
+	let mut out = []uint64{}
+	let mut x uint64 = 88172645463325252
+	for _ in 0..1024 {
+		x = x ^ (x << 13)
+		x = x ^ (x >> 7)
+		x = x ^ (x << 17)
+		out = out.Append(x)
+	}
+	out
+}
+
+// benchPopcount counts the one bits of n words: at v1 Go's OnesCount64
+// tests a CPU flag before its POPCNT on each call, at v2 and up it is
+// one POPCNT.
+func benchPopcount(n int) int {
+	let w = words()
+	let mut s = 0
+	for i in 0..n {
+		s = s + bits.OnesCount64(w[i & 1023])
+	}
+	s
+}
+
+// benchDot is n multiply-adds of a dot product. Each product rounds
+// (types.md, Numeric types 5), so no level fuses it: the v1 and v3
+// counts must match, and the sum is the same bits at both.
+func benchDot(n int) int {
+	let mut a = []float64{}
+	let mut b = []float64{}
+	for i in 0..1024 {
+		a = a.Append(float64(i & 7) + 0.1)
+		b = b.Append(0.5 + float64(i & 3) * 0.3)
+	}
+	let mut s = 0.0
+	for i in 0..n {
+		s = s + a[i & 1023] * b[i & 1023]
+	}
+	int(s * 1000.0)
+}
+
+func run(kind string, n int) int {
+	if kind == "popcount" {
+		benchPopcount(n)
+	} else if kind == "dot" {
+		benchDot(n)
+	} else {
+		0 - 1
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: level bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "level: N is not a count"}
+		}
+		Console.Println("\(run(args[1], n))")
+	}
+}

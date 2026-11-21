@@ -2,7 +2,7 @@ package v1
 
 import (
 	"io"
-	"unicode/utf8"
+	"os"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -86,75 +86,99 @@ func TermGetSize() (TermWindow, error) {
 	return TermWindow{}, TermNotTerminal{}
 }
 
-// TermReadKey is the body of term.Host's ReadKey on t, the caller's task:
-// the next key of standard input, read through the one shared reader of
-// io (so no byte that a line read buffered is lost). It returns the key's
-// token (keyToken): "" at the end of the input. A stop of t ends the wait
-// and raises rt.Interrupted; the bytes read stay for the next read.
+// TermPeeked is term's peeked: what TermPeek found in standard input's
+// buffer, not taken from it. Bytes is all the buffer holds; End is whether
+// the input ended after them; Resized is whether the window's size changed
+// while the peek waited (Bytes is then what the buffer held, maybe no
+// more than before).
+type TermPeeked struct {
+	Bytes   string
+	End     bool
+	Resized bool
+}
+
+// TermPeek is the body of term.Host's ReadKey's wait on t, the caller's
+// task: it waits until io's one shared reader of standard input holds more
+// than have bytes, the input ends, or the window's size changes, and
+// returns what the buffer holds without taking it, so a byte the key did
+// not use stays for the next read, a line read's included. term's Cut and
+// Decode name the key and TermDrop takes its bytes: the splitting is
+// Ergo's, in one place. A stop of t ends the wait and raises
+// rt.Interrupted. A read failure other than the end of the input fails
+// ReadFailed, once.
 //
 //ergo:host
 //ergo:wait caller
-func TermReadKey(t *rt.Task) (string, error) {
+func TermPeek(t *rt.Task, have int) (TermPeeked, error) {
 	t.Check()
-	b, err, ok := stdinReader().take(t, keyLen)
+	b, end, resized, err, ok := stdinReader().peek(t, have, termResizes())
 	switch {
 	case !ok:
 		panic(rt.Interrupted)
-	case err == io.EOF:
-		return "", nil
 	case err != nil:
-		return "", ReadFailed{Reason: fsReason(err)}
+		return TermPeeked{}, ReadFailed{Reason: fsReason(err)}
 	}
-	return keyToken(b), nil
+	return TermPeeked{Bytes: string(b), End: end, Resized: resized}, nil
 }
 
-// keyLen is the length of the first key at the front of b, or -1 when b
-// holds only the start of one and more input may come (end is false). A
-// key is one byte, one UTF-8 rune, or an escape sequence: ESC [ or ESC O,
-// parameter bytes, and a final byte in 0x40-0x7e. An ESC with nothing
-// after it in the bytes read is the Escape key, since a terminal writes a
-// sequence in one write.
-func keyLen(b []byte, end bool) int {
-	switch {
-	case len(b) == 0:
-		return -1
-	case b[0] == 0x1b:
-		if len(b) == 1 {
-			return 1
-		}
-		if b[1] != '[' && b[1] != 'O' {
-			return 1
-		}
-		for i := 2; i < len(b); i++ {
-			if b[i] >= 0x40 && b[i] <= 0x7e {
-				return i + 1
+// TermDrop is the body of term.Host's ReadKey's take: it drops the first
+// n bytes of io's shared reader of standard input, the bytes of the key
+// TermPeek showed.
+//
+//ergo:host
+//ergo:wait none
+func TermDrop(n int) {
+	stdinReader().drop(n)
+}
+
+// peek waits on t until l's buffer holds more than have bytes, the input
+// ended, or a value comes on resized, and returns the buffer (a copy),
+// whether the input ended after it and whether the size changed. The end
+// of the input stays, so every later peek sees it; any other read failure
+// is returned once. It is not ok when t stopped.
+func (l *lineReader) peek(t *rt.Task, have int, resized <-chan os.Signal) (b []byte, end bool, sized bool, err error, ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var stop <-chan struct{}
+	asked := false
+	for {
+		if len(l.buf) > have || l.err != nil {
+			if l.err != nil && l.err != io.EOF {
+				err, l.err = l.err, nil
+				return nil, false, false, err, true
 			}
+			return append([]byte(nil), l.buf...), l.err != nil, false, nil, true
 		}
-		if end {
-			return len(b)
+		if !asked && t != nil {
+			stop, asked = t.Done(), true
 		}
-		return -1
-	case b[0] < utf8.RuneSelf:
-		return 1
-	case !utf8.FullRune(b) && !end:
-		return -1
+		if !l.reading {
+			l.reading = true
+			l.landed = make(chan struct{})
+			go l.read()
+		}
+		landed := l.landed
+		l.mu.Unlock()
+		select {
+		case <-landed:
+		case <-resized:
+			l.mu.Lock()
+			return append([]byte(nil), l.buf...), false, true, nil, true
+		case <-stop:
+			l.mu.Lock()
+			return nil, false, false, nil, false
+		}
+		l.mu.Lock()
 	}
-	_, n := utf8.DecodeRune(b)
-	return n
 }
 
-// keyToken is the token of one key's bytes that term's decode reads: a
-// carriage return or a line feed is "\r"; a delete or a backspace is
-// "\x7f"; an arrow is ESC [ and its letter, whether the terminal sent
-// ESC [ or ESC O; every other key is its bytes.
-func keyToken(b []byte) string {
-	switch {
-	case len(b) == 1 && (b[0] == '\n' || b[0] == '\r'):
-		return "\r"
-	case len(b) == 1 && b[0] == 0x08:
-		return "\x7f"
-	case len(b) == 3 && b[0] == 0x1b && b[1] == 'O':
-		return "\x1b[" + string(b[2])
+// drop drops the first n bytes of l's buffer (all of them when it holds
+// fewer).
+func (l *lineReader) drop(n int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = l.buf[min(max(n, 0), len(l.buf)):]
+	if len(l.buf) == 0 {
+		l.buf = nil
 	}
-	return string(b)
 }

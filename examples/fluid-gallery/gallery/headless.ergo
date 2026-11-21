@@ -31,7 +31,7 @@ func Specimens(r Route) part.Node[int] {
 func Headless(r Route) string {
 	let tree = Specimens(r)
 	let mut f = ui.NewFrame[int]()
-	let _ = ui.Render(&f, func(fr *ui.Frame[int], t part.Node[int]) { gui.Draw(fr, t) }, tree)
+	let _ = ui.Render(&f, func(fr mut ui.Frame[int], t part.Node[int]) { gui.Draw(fr, t) }, tree)
 	let got = a11y.Print(a11y.OfUI(&f))
 	let markup = html.Render(web.Node(tree, func(_ int) web.Act { web.Inert }))
 	let fromWeb = a11y.Print(a11y.Narrow(a11y.OfHTML(markup)))

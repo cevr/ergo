@@ -14,12 +14,43 @@ func New() Pass {
 	Pass{siblings: Map[int, Map[int, int]]{}, paths: Map[int, []int]{0: []int{}}}
 }
 
+// SlotsInOrder: the k children of one parent take slots 0 to k-1, in the
+// order they are placed, one level below it.
+law SlotsInOrder(n int) {
+	let k = 1 + (if n < 0 { -(n + 1) } else { n })%9
+	let mut p = New()
+	for i in 0..k {
+		match Place(&p, 0, i+1) {
+		case At as a:
+			if a.Slot != i || a.Depth != 1 {
+				return false
+			}
+		case NoParent:
+			return false
+		}
+	}
+	Children(p, 0) == k
+}
+
+// UnplacedParent: a node under a parent never placed is refused, and the
+// pass does not change.
+law UnplacedParent(n int) {
+	let mut p = New()
+	let parent = 1 + (if n < 0 { -(n + 1) } else { n })%50
+	match Place(&p, parent, parent+1) {
+	case At:
+		false
+	case NoParent:
+		Children(p, parent) == 0 && len(Path(p, parent+1)) == 0
+	}
+}
+
 // Placed is the outcome of placing a node.
 type Placed = At{Slot int, Depth int} | NoParent{}
 
 // Place puts node id under parent: its slot is the number of siblings
 // placed before it, and its path is its parent's path and that slot.
-func Place(p *Pass, parent int, id int) Placed {
+func Place(p mut Pass, parent int, id int) Placed {
 	let mut path = []int{}
 	match p.paths.Get(parent) {
 	case Some[[]int] as q:
@@ -49,6 +80,19 @@ func Path(p Pass, id int) []int {
 	case None:
 		[]int{}
 	}
+}
+
+// PathExtends: a child's path is its parent's path and its slot.
+law PathExtends(n int) {
+	let mut p = New()
+	let _ = Place(&p, 0, 1)
+	let _ = Place(&p, 0, 2)
+	let slot = (if n < 0 { -(n + 1) } else { n }) % 5
+	for i in 0..slot+1 {
+		let _ = Place(&p, 2, 10+i)
+	}
+	let path = Path(p, 10+slot)
+	len(path) == 2 && path[0] == 1 && path[1] == slot
 }
 
 // Children is the number of nodes placed under parent.

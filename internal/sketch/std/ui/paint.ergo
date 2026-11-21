@@ -1,4 +1,7 @@
 import slices
+import time
+import actor
+import strings
 
 // Canvas (H5c): a node whose content is a paint list, values a host
 // replays: paths filled and stroked, under transforms and clips that nest.
@@ -39,8 +42,16 @@ func Scale(sx float64, sy float64) Affine { Affine{A: sx, B: 0.0, C: 0.0, D: sy,
 
 // PaintOp is one entry of a paint list. A PushTransform or a PushClip
 // holds until its PopPaint; Transformed and Clipped write both, so a list
-// a Canvas made is balanced.
-type PaintOp = FillOp{Path Path, Color Color} | StrokeOp{Path Path, Color Color, Width float64} | PushTransform{M Affine} | PushClip{X float64, Y float64, W float64, H float64} | PopPaint
+// a Canvas made is balanced. An ImageOp draws Part of the image the host
+// finds at Src into the rectangle at X, Y of W by H.
+type PaintOp = FillOp{Path Path, Color Color} | StrokeOp{Path Path, Color Color, Width float64} | PushTransform{M Affine} | PushClip{X float64, Y float64, W float64, H float64} | PopPaint | ImageOp{Src string, Part ImagePart, X float64, Y float64, W float64, H float64}
+
+// ImagePart is what of an image a draw takes: all of it, or the region
+// at X, Y of W by H in the image's pixels (a sprite of an atlas).
+type ImagePart = WholeImage | ImageRegion{X float64, Y float64, W float64, H float64}
+
+// WholeImage is all of an image.
+type WholeImage {}
 
 // PopPaint ends the innermost PushTransform or PushClip.
 type PopPaint {}
@@ -55,27 +66,194 @@ type PopPaint {}
 // never kept.
 type Paint { ops []PaintOp, segs []Seg, ends []int }
 
+// PaintMatchesList: a drawn paint program on a canvas, over states a
+// press moves to: after each press the test host's canvas shows exactly
+// the list the program means at the actor's state, written without a
+// Paint, its screenshot has a line for each node and each paint op, and
+// the canvas is findable by its label. A second pass at the
+// same state is an empty patch: an unchanged list repaints nothing. A
+// second canvas, and a third written inside the second's draw, show
+// exactly their own lists, though a frame's canvases paint into one scratch.
+law PaintMatchesList(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		paintFollows(seed, steps, m)
+	}
+}
+
+// num is the i-th number of op k at state s.
+func num(s int, k int, i int) float64 { float64((s*7+k*13+i*5)%60) + 0.5 }
+
+func tone(s int, k int) Color { Color{R: uint8((s + k) % 256), G: uint8(k % 256), B: uint8((s * 3) % 256), A: 255} }
+
+// tri is the path of op k at state s: a move, a line, a quad, a cubic and
+// a close.
+func tri(s int, k int) Path {
+	Path{Segs: []Seg{MoveTo{X: num(s, k, 0), Y: num(s, k, 1)}, LineTo{X: num(s, k, 2), Y: num(s, k, 3)}, QuadTo{CX: num(s, k, 4), CY: num(s, k, 5), X: num(s, k, 6), Y: num(s, k, 7)}, CubicTo{C1X: num(s, k, 8), C1Y: num(s, k, 9), C2X: num(s, k, 10), C2Y: num(s, k, 11), X: num(s, k, 12), Y: num(s, k, 13)}, ClosePath}}
+}
+
+// paintProg paints prog at s through the package's painting functions.
+func paintProg(p mut Paint, prog []pp, s int) {
+	for op in prog {
+		match op {
+		case ppFill as x:
+			Fill(p, tri(s, x.k), tone(s, x.k))
+		case ppStroke as x:
+			Stroke(p, tri(s, x.k), tone(s, x.k), num(s, x.k, 14))
+		case ppRect as x:
+			Fill(p, RectPath(num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)), tone(s, x.k))
+		case ppImage as x:
+			DrawImage(p, "img\(x.k % 3).png", num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3))
+		case ppSprite as x:
+			DrawSprite(p, "atlas.png", ImageRegion{X: num(s, x.k, 4), Y: num(s, x.k, 5), W: num(s, x.k, 6), H: num(s, x.k, 7)}, num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3))
+		case ppMove as x:
+			Transformed(p, Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}) {
+				paintProg(p, x.kids, s)
+			}
+		case ppClip as x:
+			Clipped(p, num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)) {
+				paintProg(p, x.kids, s)
+			}
+		}
+	}
+}
+
+// paintModel is the list prog means at s, written without a Paint: a
+// rectangle is its four corners closed, and a transform or a clip is its
+// push, its program's list and a pop.
+func paintModel(prog []pp, s int) []PaintOp {
+	let mut out = []PaintOp{}
+	for op in prog {
+		match op {
+		case ppFill as x:
+			out = out.Append(FillOp{Path: tri(s, x.k), Color: tone(s, x.k)})
+		case ppStroke as x:
+			out = out.Append(StrokeOp{Path: tri(s, x.k), Color: tone(s, x.k), Width: num(s, x.k, 14)})
+		case ppRect as x:
+			let rx = num(s, x.k, 0)
+			let ry = num(s, x.k, 1)
+			let rw = num(s, x.k, 2)
+			let rh = num(s, x.k, 3)
+			let corners = Path{Segs: []Seg{MoveTo{X: rx, Y: ry}, LineTo{X: rx + rw, Y: ry}, LineTo{X: rx + rw, Y: ry + rh}, LineTo{X: rx, Y: ry + rh}, ClosePath}}
+			out = out.Append(FillOp{Path: corners, Color: tone(s, x.k)})
+		case ppImage as x:
+			out = out.Append(ImageOp{Src: "img\(x.k % 3).png", Part: WholeImage, X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
+		case ppSprite as x:
+			out = out.Append(ImageOp{Src: "atlas.png", Part: ImageRegion{X: num(s, x.k, 4), Y: num(s, x.k, 5), W: num(s, x.k, 6), H: num(s, x.k, 7)}, X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
+		case ppMove as x:
+			out = out.Append(PushTransform{M: Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}})
+			for o in paintModel(x.kids, s) {
+				out = out.Append(o)
+			}
+			out = out.Append(PopPaint)
+		case ppClip as x:
+			out = out.Append(PushClip{X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
+			for o in paintModel(x.kids, s) {
+				out = out.Append(o)
+			}
+			out = out.Append(PopPaint)
+		}
+	}
+	out
+}
+
+// canvasOf is the paint list of the first canvas among shapes, and
+// whether there is one.
+func canvasOf(shapes []Shape[int], label string) ([]PaintOp, bool) {
+	for x in shapes {
+		match x.Node {
+		case CanvasNode as c:
+			if c.Label == label {
+				return (c.Paint, true)
+			}
+		case _:
+		}
+	}
+	([]PaintOp{}, false)
+}
+
+func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let prog = genPaint(&r, 2)
+	let view = func(f mut Frame[int], s int) {
+		Text(f, "at \(s)")
+		Pressable(f, "next", (s*5+3)%11) {
+			Text(f, "next")
+		}
+		Canvas(f, "board", 120, 80) func(p mut Paint) {
+			paintProg(p, prog, s)
+		}
+		Canvas(f, "rest", 120, 80) func(p mut Paint) {
+			paintProg(p, prog, s+1)
+			Canvas(f, "inner", 40, 40) func(q mut Paint) {
+				paintProg(q, prog, s+2)
+			}
+		}
+	}
+	let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	for _ in 0..(steps%12+12)%12+1 {
+		Play(&h, []Act{TapOn{Label: "next"}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		let (shown, ok) = canvasOf(Screen(&h), "board")
+		let want = paintModel(prog, s)
+		let (rest, okRest) = canvasOf(Screen(&h), "rest")
+		let (inner, okInner) = canvasOf(Screen(&h), "inner")
+		if !ok || shown != want || Find(&h, "board") == None || strings.Count(Screenshot(&h), "\n") != 6+3*len(want) {
+			return false
+		}
+		if !okRest || !okInner || rest != paintModel(prog, s+1) || inner != paintModel(prog, s+2) {
+			return false
+		}
+		let mut g = NewFrame[int]()
+		let _ = Render(&g, view, s)
+		if len(Render(&g, view, s)) != 0 {
+			return false
+		}
+	}
+	true
+}
+
 // Fill fills path with c.
-func Fill(p *Paint, path Path, c Color) {
+func Fill(p mut Paint, path Path, c Color) {
 	p.segs = slices.AppendAll(p.segs, path.Segs)
 	add(p, FillOp{Path: Path{Segs: []Seg{}}, Color: c})
 }
 
 // Stroke strokes path with c, width wide.
-func Stroke(p *Paint, path Path, c Color, width float64) {
+func Stroke(p mut Paint, path Path, c Color, width float64) {
 	p.segs = slices.AppendAll(p.segs, path.Segs)
 	add(p, StrokeOp{Path: Path{Segs: []Seg{}}, Color: c, Width: width})
 }
 
 // add writes op, whose path is the segments added since the last op.
-func add(p *Paint, op PaintOp) {
+func add(p mut Paint, op PaintOp) {
 	p.ops = p.ops.Append(op)
 	p.ends = p.ends.Append(len(p.segs))
 }
 
+// DrawImage draws the image at src (a host decodes it: the desktop host
+// reads a PNG or JPEG file) into the rectangle at x, y of w by h,
+// stretched to fill it. An image the host cannot read draws nothing.
+func DrawImage(p mut Paint, src string, x float64, y float64, w float64, h float64) {
+	add(p, ImageOp{Src: src, Part: WholeImage, X: x, Y: y, W: w, H: h})
+}
+
+// DrawSprite draws the region part of the image at src into the
+// rectangle at x, y of w by h, as DrawImage does.
+func DrawSprite(p mut Paint, src string, part ImageRegion, x float64, y float64, w float64, h float64) {
+	add(p, ImageOp{Src: src, Part: part, X: x, Y: y, W: w, H: h})
+}
+
 // Transformed paints body under m, composed with the transforms around
 // it.
-func Transformed(p *Paint, m Affine, body func()) {
+func Transformed(p mut Paint, m Affine, body func()) {
 	add(p, PushTransform{M: m})
 	body()
 	add(p, PopPaint)
@@ -83,7 +261,7 @@ func Transformed(p *Paint, m Affine, body func()) {
 
 // Clipped paints body inside the rectangle at x, y of w by h, in the
 // coordinates of the transforms around it.
-func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) {
+func Clipped(p mut Paint, x float64, y float64, w float64, h float64, body func()) {
 	add(p, PushClip{X: x, Y: y, W: w, H: h})
 	body()
 	add(p, PopPaint)
@@ -94,7 +272,7 @@ func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) 
 // into f's scratch after what is there (an enclosing canvas's ops, when
 // this one is written inside another's draw), and the canvas's list is
 // what it added (paintList).
-func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func(p *Paint), at CallSite) {
+func Canvas[E](f mut Frame[E], label string, width Length, height Length, draw func(p mut Paint), at CallSite) {
 	let from = len(f.paint.ops)
 	let segsFrom = len(f.paint.segs)
 	draw(&f.paint)
@@ -105,7 +283,7 @@ func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func
 // paintList is the list of p's ops from from on, each path its own
 // segments from segsFrom on, in a list of ops and a list of segments of
 // its own; p is cut back to from and segsFrom.
-func paintList(p *Paint, from int, segsFrom int) []PaintOp {
+func paintList(p mut Paint, from int, segsFrom int) []PaintOp {
 	let segs = p.segs[segsFrom:]
 	let mut out = slices.WithCapacity[PaintOp](len(p.ops) - from)
 	let mut at = 0
@@ -122,6 +300,8 @@ func paintList(p *Paint, from int, segsFrom int) []PaintOp {
 			out = out.Append(PushClip{X: x.X, Y: x.Y, W: x.W, H: x.H})
 		case PopPaint:
 			out = out.Append(PopPaint)
+		case ImageOp as x:
+			out = out.Append(ImageOp{Src: x.Src, Part: x.Part, X: x.X, Y: x.Y, W: x.W, H: x.H})
 		}
 		at = end
 	}
@@ -159,6 +339,8 @@ func paintLines(ops []PaintOp, indent string) []string {
 		case PushClip as x:
 			out = out.Append(at + "clip \(x.X) \(x.Y) \(x.W) \(x.H) {")
 			at = at + "  "
+		case ImageOp as x:
+			out = out.Append(at + "image \(x.Src)\(partText(x.Part)) at \(x.X) \(x.Y) \(x.W) \(x.H)")
 		case PopPaint:
 			if len(at) >= len(indent)+2 {
 				at = at[2:]
@@ -167,6 +349,15 @@ func paintLines(ops []PaintOp, indent string) []string {
 		}
 	}
 	out
+}
+
+func partText(p ImagePart) string {
+	match p {
+	case WholeImage:
+		""
+	case ImageRegion as r:
+		" part \(r.X) \(r.Y) \(r.W) \(r.H)"
+	}
 }
 
 func colorText(c Color) string { "rgba(\(c.R),\(c.G),\(c.B),\(c.A))" }

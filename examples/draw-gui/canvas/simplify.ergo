@@ -10,6 +10,37 @@ import slices
 // chord that replaces it.
 let Epsilon = 2
 
+// SimplifyWithinEpsilon: every point a simplified stroke drops is within
+// Epsilon of the chord between the kept points around it.
+law SimplifyWithinEpsilon(points []Point) {
+	let pts = bounded(points)
+	let keep = Kept(pts)
+	let mut last = 0
+	for i in 0..len(pts) {
+		if keep[i] {
+			last = i
+			continue
+		}
+		let mut next = i + 1
+		for !keep[next] {
+			next = next + 1
+		}
+		let a = pts[last]
+		let b = pts[next]
+		let bx = b.X - a.X
+		let by = b.Y - a.Y
+		let px = pts[i].X - a.X
+		let py = pts[i].Y - a.Y
+		let len2 = bx*bx + by*by
+		let e2 = Epsilon * Epsilon
+		let ok = if len2 == 0 { px*px+py*py <= e2 } else { (px*by-py*bx)*(px*by-py*bx) <= e2*len2 }
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
 // Simplify is the points of a stroke with the points dropped that lie
 // within Epsilon of the chord of the points kept around them. The first
 // and the last point are always kept.
@@ -22,6 +53,26 @@ func Simplify(points []Point) []Point {
 		}
 	}
 	out
+}
+
+// SimplifyKeepsEndpoints: a simplified stroke starts and ends where the
+// stroke did, and keeps its points in order.
+law SimplifyKeepsEndpoints(points []Point) {
+	if len(points) == 0 {
+		return true
+	}
+	let pts = bounded(points)
+	let out = Simplify(pts)
+	if out[0] != pts[0] || out[len(out)-1] != pts[len(pts)-1] {
+		return false
+	}
+	let mut j = 0
+	for p in pts {
+		if j < len(out) && out[j] == p {
+			j = j + 1
+		}
+	}
+	j == len(out)
 }
 
 // Kept is, for each point, whether Simplify keeps it.

@@ -37,10 +37,10 @@ func Locate(src string, offset int, reason string) Malformed {
 	Malformed{Offset: offset, Line: line, Col: offset - start + 1, Reason: reason}
 }
 
-func fail(p *parser, at int, reason string) Malformed { Locate(p.src, at, reason) }
+func fail(p mut parser, at int, reason string) Malformed { Locate(p.src, at, reason) }
 
 // found is how a failure names the next byte.
-func found(p *parser) string {
+func found(p mut parser) string {
 	if p.pos >= len(p.src) {
 		return "the end"
 	}
@@ -48,7 +48,7 @@ func found(p *parser) string {
 }
 
 // skip moves past whitespace: space, tab, newline and return.
-func skip(p *parser) {
+func skip(p mut parser) {
 	for p.pos < len(p.src) {
 		let c = p.src[p.pos]
 		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
@@ -59,7 +59,7 @@ func skip(p *parser) {
 }
 
 // value reads a value that starts at the next byte.
-func value(p *parser) Value fails Malformed {
+func value(p mut parser) Value fails Malformed {
 	if p.pos >= len(p.src) {
 		return fail(p, p.pos, "expected a value, found the end")
 	}
@@ -90,7 +90,7 @@ func value(p *parser) Value fails Malformed {
 
 // word moves past the literal w, or fails at the first byte that is not
 // w's.
-func word(p *parser, w string) fails Malformed {
+func word(p mut parser, w string) fails Malformed {
 	for k in 0..len(w) {
 		if p.pos >= len(p.src) || p.src[p.pos] != w[k] {
 			return fail(p, p.pos, "expected \(w), found "+found(p))
@@ -100,7 +100,7 @@ func word(p *parser, w string) fails Malformed {
 }
 
 // numeral reads a number with the machine Numeral.
-func numeral(p *parser) Value fails Malformed {
+func numeral(p mut parser) Value fails Malformed {
 	let start = p.pos
 	let (n, broken) = Scan(strings.Slice(p.src, start, len(p.src)))
 	match broken {
@@ -113,7 +113,7 @@ func numeral(p *parser) Value fails Malformed {
 }
 
 // enter opens an array or an object: one level deeper, at most MaxDepth.
-func enter(p *parser) fails Malformed {
+func enter(p mut parser) fails Malformed {
 	p.depth += 1
 	if p.depth > MaxDepth {
 		return fail(p, p.pos, "nesting deeper than \(MaxDepth)")
@@ -123,7 +123,7 @@ func enter(p *parser) fails Malformed {
 }
 
 // array reads an array after its [.
-func array(p *parser) Value fails Malformed {
+func array(p mut parser) Value fails Malformed {
 	try enter(p)
 	let mut items = []Value{}
 	if p.pos < len(p.src) && p.src[p.pos] == ']' {
@@ -152,7 +152,7 @@ func array(p *parser) Value fails Malformed {
 }
 
 // object reads an object after its {.
-func object(p *parser) Value fails Malformed {
+func object(p mut parser) Value fails Malformed {
 	try enter(p)
 	let mut members = []Member{}
 	if p.pos < len(p.src) && p.src[p.pos] == '}' {
@@ -205,7 +205,7 @@ func ReadString(src string, open int) Decoded fails Malformed {
 // text reads a string after its opening quote: its bytes, with the
 // escapes decoded. A string with no escape and only ASCII is a slice of
 // the source.
-func text(p *parser) string fails Malformed {
+func text(p mut parser) string fails Malformed {
 	let open = p.pos
 	let start = open + 1
 	let mut i = start
@@ -251,7 +251,7 @@ func text(p *parser) string fails Malformed {
 // escape decodes the escape at offset i into b, and is the offset after
 // it. A \u escape of a surrogate takes the next \u escape with it when the
 // two are a pair; a lone surrogate is U+FFFD, as in Go.
-func escape(p *parser, b *strings.Builder, i int) int fails Malformed {
+func escape(p mut parser, b mut strings.Builder, i int) int fails Malformed {
 	if i+1 >= len(p.src) {
 		return fail(p, len(p.src), "a string has no closing quote")
 	}

@@ -164,6 +164,7 @@ extern go crypto/x509.CertificateRequest.CheckSignature func (c *CertificateRequ
 extern go crypto/x509.ConstraintViolationError type ConstraintViolationError {}
 
 // ergo:go func (ConstraintViolationError).Error() string
+// ergo:total
 extern go crypto/x509.ConstraintViolationError.Error func (r ConstraintViolationError) Error() string needs go.Foreign
 
 // ergo:go func CreateCertificate(rand io.Reader, template *Certificate, parent *Certificate, pub any, priv any) ([]byte, error)
@@ -449,7 +450,7 @@ extern go crypto/x509.ParseCertificateRequest func ParseCertificateRequest(asn1D
 extern go crypto/x509.ParseDERCRL func ParseDERCRL(derBytes []byte) go.Ref[pkix.CertificateList] fails go.Error needs go.Foreign
 
 // ergo:go func ParseECPrivateKey(der []byte) (*ecdsa.PrivateKey, error)
-extern go crypto/x509.ParseECPrivateKey func ParseECPrivateKey(der []byte) go.Ref[ecdsa.PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/x509.ParseECPrivateKey func ParseECPrivateKey(der []byte) Option[go.Ref[ecdsa.PrivateKey]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseOID(oid string) (OID, error)
 extern go crypto/x509.ParseOID func ParseOID(oid string) OID fails go.Error needs go.Foreign
@@ -576,6 +577,7 @@ extern go crypto/x509.UnconstrainedName let UnconstrainedName InvalidReason
 extern go crypto/x509.UnhandledCriticalExtension type UnhandledCriticalExtension {}
 
 // ergo:go func (UnhandledCriticalExtension).Error() string
+// ergo:total
 extern go crypto/x509.UnhandledCriticalExtension.Error func (h UnhandledCriticalExtension) Error() string needs go.Foreign
 
 // ergo:go type UnknownAuthorityError struct

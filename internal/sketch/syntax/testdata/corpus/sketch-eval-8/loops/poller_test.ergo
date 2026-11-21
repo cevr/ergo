@@ -15,7 +15,7 @@ func Read(c Constant) float64 fails SourceDown {
 type Recorder { sizes sync.Ref[[]int] } implements Recorded
 
 func Flush(r Recorder, batch []Reading) fails FlushFailed {
-	r.sizes.Update(func(s *[]int) { *s = *s.Append(len(batch)) })
+	r.sizes.Update(func(s mut []int) { *s = *s.Append(len(batch)) })
 }
 
 func Sizes(r Recorder) []int {

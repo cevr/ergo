@@ -1,0 +1,6 @@
+--script
+world.json
+--here
+--allow-shell
+-p
+count on this machine

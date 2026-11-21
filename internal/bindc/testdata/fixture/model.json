@@ -1157,6 +1157,23 @@
           "type": "int64_t *"
         }
       ]
+    },
+    {
+      "name": "fx_box_z",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "clip",
+          "type": "const fx_box *"
+        },
+        {
+          "name": "out_z",
+          "type": "int64_t *"
+        }
+      ]
     }
   ]
 }

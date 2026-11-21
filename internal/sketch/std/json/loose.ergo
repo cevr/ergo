@@ -1,0 +1,845 @@
+// The loose reader (wf10 JL; BAML findings §5, idea 1 and 5): a text that
+// is nearly JSON, as a model writes it, decodes to a typed value, and the
+// caller is told every repair. The repairs are syntax only: the value
+// found in prose or a markdown fence, trailing commas, unquoted and
+// single-quoted keys and strings, comments, and the lists, objects and
+// string still open where the text ends. No value changes its kind: "12"
+// stays a string, and a field that does not decode fails as Decode's
+// does.
+//
+// DecodeLoose tries Open first; only a text Open refuses is repaired, in
+// one pass (looseRepair) into candidate texts of strict JSON, which the
+// same Open and decode[T] then read. So there is one tokenizer and one
+// decoder, and MaxDepth holds on the repaired text as on any other.
+
+import strings
+
+// Read is the value DecodeLoose read and the repairs it made to the text
+// to read it, in the order it made them; Fixes is empty when the text was
+// strict JSON.
+type Read[T] { Value T, Fixes []Fix }
+
+// The repairs. Each names a span of the original text, Start to End, End
+// excluded (FixesNameTheirText).
+//
+// Surrounded: the value is text[Start:End]; other text around it (prose,
+// another value) was dropped. Fenced: the value is inside a markdown fence
+// that opens at text[Start:End] ("```" and its language). TrailingComma: a
+// comma before a closing bracket, or at the end of a cut text, was
+// dropped. UnquotedKey: an object key written bare was quoted. SingleQuoted:
+// a string in single quotes was written in double quotes. Comment: a //
+// or /* */ comment was dropped. Closed: the text ended inside Depth lists
+// and objects (and a string, when String) and they were closed; Start is
+// where the innermost of them opens, End the text's end. Chose: the text
+// held Of values and the one at Index (from 0) was read, the first in text
+// order that decodes as T; Start to End is that value.
+type Surrounded { Start int, End int }
+type Fenced { Start int, End int }
+type TrailingComma { Start int, End int }
+type UnquotedKey { Start int, End int, Key string }
+type SingleQuoted { Start int, End int }
+type Comment { Start int, End int }
+type Closed { Start int, End int, Depth int, String bool }
+type Chose { Start int, End int, Index int, Of int }
+type Fix = Surrounded | Fenced | TrailingComma | UnquotedKey | SingleQuoted | Comment | Closed | Chose
+
+// DecodeLoose is the T that text writes, as Decode reads it when text is
+// JSON (with no fix), and else the T the first repaired value in the text
+// writes, with the repairs. A text longer than c.MaxBytes, or with no
+// value that repairs to JSON, fails Open's Malformed for the text itself;
+// a value that is JSON but not a T fails decode[T]'s shape failure.
+func DecodeLoose[T wire](c Codec[T], text string) Read[T] fails Malformed | wired[T] needs wired[T] {
+	// The strict path is Decode's one pass (JSON-VALUE-DECODE): a JSON
+	// reply is read once; only a text Decode finds Malformed is repaired.
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return try looseRead(c, text, m)
+	case err:
+		return err
+	}
+	Read[T]{Value: v, Fixes: []Fix{}}
+}
+
+// looseRead reads the candidates of a text Open refused with strict.
+func looseRead[T wire](c Codec[T], text string, strict Malformed) Read[T] fails Malformed | wired[T] needs wired[T] {
+	if c.MaxBytes > 0 && len(text) > c.MaxBytes {
+		return strict
+	}
+	let s = looseRepair(text)
+	let n = len(s.cands)
+	for k in 0..n {
+		let cand = s.cands[k]
+		match looseTry(c, cand.text) {
+		case Some[T] as v:
+			let mut fixes = []Fix{}
+			if !looseAlone(s.marks, k, cand.fenced) {
+				fixes = fixes.Append(Surrounded{Start: cand.start, End: cand.end})
+			}
+			for f in cand.fixes {
+				fixes = fixes.Append(f)
+			}
+			if n > 1 {
+				fixes = fixes.Append(Chose{Start: cand.start, End: cand.end, Index: k, Of: n})
+			}
+			return Read[T]{Value: v.Value, Fixes: fixes}
+		case None:
+		}
+	}
+	if n == 0 {
+		return strict
+	}
+	// No candidate is a T: the first one's failure, as Decode gives it, or
+	// the text's own Malformed when it does not repair to JSON (a repaired
+	// text's offsets are not the caller's).
+	let r = Open(s.cands[0].text, 0, c.MaxDepth) catch {
+	case Malformed:
+		return strict
+	}
+	let _ = try decode[T](r)
+	strict
+}
+
+// looseTry is the T a repaired candidate writes, under c.MaxDepth (its
+// length is bounded by the text's, which c.MaxBytes bounds).
+func looseTry[T wire](c Codec[T], text string) Option[T] needs wired[T] {
+	let r = Open(text, 0, c.MaxDepth) catch {
+	case _:
+		return None
+	}
+	let v = decode[T](r) catch {
+	case _:
+		return None
+	}
+	Some[T]{Value: v}
+}
+
+// looseCand is one value found in the text: text[start:end] repaired into
+// text, with its fixes (its fence's first).
+type looseCand { start int, end int, text string, fixes []Fix, fenced bool }
+
+// looseMark is one piece of the text outside the values: a run of prose
+// (fence false) or a fence marker (fence true); a value is a mark with its
+// index in cand, and -1 elsewhere.
+type looseMark { fence bool, cand int }
+
+// looseScan is the repair of a whole text: its values and the marks, in
+// text order, and steps, the bytes the pass moved over (RepairIsOnePass).
+type looseScan { cands []looseCand, marks []looseMark, steps int }
+
+// looseAlone is whether value k stands alone: no mark but its own fence
+// (the one just before it, when it is fenced, and the one just after).
+func looseAlone(marks []looseMark, k int, fenced bool) bool {
+	let mut at = -1
+	for i in 0..len(marks) {
+		if marks[i].cand == k {
+			at = i
+		}
+	}
+	let mut allowed = 1
+	if fenced {
+		if at == 0 || !marks[at-1].fence {
+			return false
+		}
+		allowed = 2
+		if at+1 < len(marks) && marks[at+1].fence {
+			allowed = 3
+		}
+	}
+	len(marks) == allowed
+}
+
+// looseRepair reads text once: outside a value, prose and fence markers;
+// each { or [ starts a value, repaired by looseValue to its end.
+func looseRepair(text string) looseScan {
+	let mut cands = []looseCand{}
+	let mut marks = []looseMark{}
+	let mut fence = -1
+	let mut fenceEnd = -1
+	// prose: the last mark is a run of prose.
+	let mut prose = false
+	let mut steps = 0
+	let mut i = 0
+	for i < len(text) {
+		let c = text[i]
+		if c == '{' || c == '[' {
+			let mut f = looseFixer{src: text, i: i, from: i, out: []byte{}, spliced: false, stack: []byte{}, opens: []int{}, key: false, comma: -1, commaCut: false, quote: -1, cutEscape: false, fixes: []Fix{}}
+			if fence >= 0 {
+				f.fixes = f.fixes.Append(Fenced{Start: fence, End: fenceEnd})
+			}
+			looseValue(&f)
+			marks = marks.Append(looseMark{fence: false, cand: len(cands)})
+			prose = false
+			cands = cands.Append(looseCand{start: i, end: f.i, text: looseText(&f, i), fixes: f.fixes, fenced: fence >= 0})
+			steps = steps + (f.i - i)
+			i = f.i
+		} else if c == '`' && i+2 < len(text) && text[i+1] == '`' && text[i+2] == '`' {
+			let mut j = i + 3
+			for j < len(text) && looseWord(text[j]) {
+				j = j + 1
+			}
+			if fence < 0 {
+				fence = i
+				fenceEnd = j
+			} else {
+				fence = -1
+			}
+			marks = marks.Append(looseMark{fence: true, cand: -1})
+			prose = false
+			steps = steps + (j - i)
+			i = j
+		} else {
+			if !prose && !looseSpace(c) {
+				marks = marks.Append(looseMark{fence: false, cand: -1})
+				prose = true
+			}
+			steps = steps + 1
+			i = i + 1
+		}
+	}
+	looseScan{cands: cands, marks: marks, steps: steps}
+}
+
+// looseSample is a text with every repair: prose, a fence, a comment, a
+// bare and a single-quoted key, a trailing comma, two values, a cut.
+let looseSample = "Here:\n```json\n{a: 1, 'b': [2, /* c */ 3,], \"d\": \"{x}\"}\n```\nand [4, {\"e\": \"f"
+
+// looseSteps is the bytes looseRepair moves over in text.
+func looseSteps(text string) int { looseRepair(text).steps }
+
+// RepairIsOnePass: the repair moves over each byte of the text once,
+// whatever the text: its count of bytes is the text's length (the growth
+// guard: a second pass over a value would count its bytes twice).
+law RepairIsOnePass(text string) {
+	let t = text + looseSample + text
+	looseSteps(t) == len(t) && looseSteps(looseSample) == len(looseSample)
+}
+
+// looseFixer repairs one value of src from i. A repair splices: out is the
+// strict text up to from, and src[from:i] is copied as it is when the next
+// repair or the end calls for it: a value with no repair inside is a slice
+// of the text, never copied (spliced false). stack is the open brackets
+// (opens where each opened), key whether a key is next, comma a comma held
+// back (its offset, or -1) until the next token shows it is not trailing
+// (commaCut: a comment after it already cut it from the text, so a value
+// after it writes it again), quote where a cut string opened, and cutEscape
+// whether the text ends inside that string's escape.
+type looseFixer {
+	src       string,
+	i         int,
+	from      int,
+	out       []byte,
+	spliced   bool,
+	stack     []byte,
+	opens     []int,
+	key       bool,
+	comma     int,
+	commaCut  bool,
+	quote     int,
+	cutEscape bool,
+	fixes     []Fix,
+}
+
+// looseStep passes n bytes of the text, as they are.
+func looseStep(f mut looseFixer, n int) {
+	f.i = f.i + n
+}
+
+// looseSplice writes src[a:b] as r: the text before it as it is, then r.
+func looseSplice(f mut looseFixer, a int, b int, r string) {
+	f.out = f.out.AppendString(f.src[f.from:a]).AppendString(r)
+	f.from = b
+	f.spliced = true
+}
+
+// looseCutComma cuts the comma held back from the text.
+func looseCutComma(f mut looseFixer) {
+	if f.comma >= 0 && !f.commaCut {
+		looseSplice(f, f.comma, f.comma+1, "")
+		f.commaCut = true
+	}
+}
+
+// looseFlush keeps the comma held back, now that a token follows it: a
+// comma a comment cut is written again before the token.
+func looseFlush(f mut looseFixer) {
+	if f.comma >= 0 && f.commaCut {
+		looseSplice(f, f.i, f.i, ",")
+	}
+	f.comma = -1
+}
+
+// looseText is the strict text of the value repaired from start to f.i.
+func looseText(f mut looseFixer, start int) string {
+	if !f.spliced {
+		return f.src[start:f.i]
+	}
+	f.out.AppendString(f.src[f.from:f.i]).Text()
+}
+
+// looseValue repairs the value at f.i, which opens a list or object, up to
+// its closing bracket or the end of the text.
+func looseValue(f mut looseFixer) {
+	for f.i < len(f.src) {
+		let c = f.src[f.i]
+		if looseSpace(c) {
+			looseStep(f, 1)
+		} else if c == '/' && f.i+1 < len(f.src) && (f.src[f.i+1] == '/' || f.src[f.i+1] == '*') {
+			looseComment(f)
+		} else if c == ',' {
+			looseFlush(f)
+			f.comma = f.i
+			f.commaCut = false
+			f.key = f.stack[len(f.stack)-1] == '{'
+			looseStep(f, 1)
+		} else if c == '}' || c == ']' {
+			if f.comma >= 0 {
+				f.fixes = f.fixes.Append(TrailingComma{Start: f.comma, End: f.comma + 1})
+				looseCutComma(f)
+				f.comma = -1
+			}
+			f.stack = f.stack[:len(f.stack)-1]
+			f.opens = f.opens[:len(f.opens)-1]
+			f.key = false
+			looseStep(f, 1)
+			if len(f.stack) == 0 {
+				return
+			}
+		} else {
+			looseFlush(f)
+			if c == '{' || c == '[' {
+				f.stack = f.stack.Append(c)
+				f.opens = f.opens.Append(f.i)
+				f.key = c == '{'
+				looseStep(f, 1)
+			} else if c == '"' {
+				looseString(f)
+				f.key = false
+			} else if c == '\'' {
+				looseSingle(f)
+				f.key = false
+			} else if f.key && looseIdentStart(c) {
+				looseKey(f)
+			} else {
+				if c == ':' {
+					f.key = false
+				}
+				looseStep(f, 1)
+			}
+		}
+	}
+	looseClose(f)
+}
+
+// looseString passes the string at f.i as it is; one the text cuts is
+// closed by looseClose, which reports it.
+func looseString(f mut looseFixer) {
+	let start = f.i
+	let mut j = f.i + 1
+	for j < len(f.src) && f.src[j] != '"' {
+		let n = if f.src[j] == '\\' { 2 } else { 1 }
+		j = j + n
+	}
+	if j < len(f.src) {
+		looseStep(f, j+1-start)
+		return
+	}
+	f.quote = start
+	f.cutEscape = j > len(f.src)
+	looseStep(f, len(f.src)-start)
+}
+
+// looseSingle writes the single-quoted string at f.i in double quotes:
+// \' is ', a " is escaped, other escapes are kept.
+func looseSingle(f mut looseFixer) {
+	let start = f.i
+	let mut r = []byte{}.Append('"')
+	let mut j = f.i + 1
+	let mut done = false
+	for j < len(f.src) && !done {
+		let b = f.src[j]
+		if b == '\'' {
+			done = true
+			j = j + 1
+		} else if b == '\\' && j+1 < len(f.src) {
+			if f.src[j+1] == '\'' {
+				r = r.Append('\'')
+			} else {
+				r = r.Append(b).Append(f.src[j+1])
+			}
+			j = j + 2
+		} else if b == '\\' {
+			j = j + 1
+		} else if b == '"' {
+			r = r.Append('\\').Append('"')
+			j = j + 1
+		} else {
+			r = r.Append(b)
+			j = j + 1
+		}
+	}
+	if done {
+		r = r.Append('"')
+	} else {
+		f.quote = start
+	}
+	looseSplice(f, start, j, r.Text())
+	f.fixes = f.fixes.Append(SingleQuoted{Start: start, End: j})
+	looseStep(f, j-start)
+}
+
+// looseKey quotes the bare key at f.i when a colon follows it; other bare
+// words are passed as they are, for Open to refuse.
+func looseKey(f mut looseFixer) {
+	let start = f.i
+	let mut j = f.i + 1
+	for j < len(f.src) && looseWord(f.src[j]) {
+		j = j + 1
+	}
+	let mut k = j
+	for k < len(f.src) && looseSpace(f.src[k]) {
+		k = k + 1
+	}
+	let word = f.src[start:j]
+	if k < len(f.src) && f.src[k] == ':' {
+		looseSplice(f, start, j, "\""+word+"\"")
+		f.fixes = f.fixes.Append(UnquotedKey{Start: start, End: j, Key: word})
+	}
+	f.key = false
+	looseStep(f, j-start)
+}
+
+// looseComment drops the comment at f.i: // to the line's end, /* to */
+// (or to the text's end). A comma held back before it is cut first, so
+// the splices stay in text order.
+func looseComment(f mut looseFixer) {
+	let start = f.i
+	let line = f.src[f.i+1] == '/'
+	let mut j = f.i + 2
+	let mut done = false
+	for j < len(f.src) && !done {
+		if line && f.src[j] == '\n' {
+			done = true
+		} else if !line && f.src[j] == '*' && j+1 < len(f.src) && f.src[j+1] == '/' {
+			done = true
+			j = j + 2
+		} else {
+			j = j + 1
+		}
+	}
+	looseCutComma(f)
+	looseSplice(f, start, j, "")
+	f.fixes = f.fixes.Append(Comment{Start: start, End: j})
+	looseStep(f, j-start)
+}
+
+// looseClose closes what the text's end left open: a held comma is
+// dropped, a cut string closed (a cut escape's backslash dropped, or it
+// would escape the quote), then each open list and object closed,
+// innermost first.
+func looseClose(f mut looseFixer) {
+	let depth = len(f.stack)
+	if depth == 0 && f.quote < 0 {
+		return
+	}
+	if f.comma >= 0 {
+		f.fixes = f.fixes.Append(TrailingComma{Start: f.comma, End: f.comma + 1})
+		looseCutComma(f)
+		f.comma = -1
+	}
+	let end = len(f.src)
+	let mut closers = []byte{}
+	if f.quote >= 0 {
+		closers = closers.Append('"')
+	}
+	let mut k = depth
+	for k > 0 {
+		k = k - 1
+		closers = closers.Append(if f.stack[k] == '{' { '}' } else { ']' })
+	}
+	let tail = if f.cutEscape { end - 1 } else { end }
+	looseSplice(f, tail, end, closers.Text())
+	let start = if f.quote >= 0 { f.quote } else { f.opens[depth-1] }
+	f.fixes = f.fixes.Append(Closed{Start: start, End: end, Depth: depth, String: f.quote >= 0})
+}
+
+// looseCodec reads the laws' sample record (laws.ergo's up).
+func looseCodec() Codec[up] { Codec[up]{MaxBytes: 0, MaxDepth: 0} }
+
+// StrictTextsAgree: on strict JSON, DecodeLoose is Decode with no fix:
+// the same value for a fleet's text, and a shape failure (not a value
+// found by repair) for an up's text read as a fleet.
+law StrictTextsAgree(v fleet, w up) {
+	let r = DecodeLoose(codec(), Encode(codec(), v)) catch {
+	case _:
+		return false
+	}
+	let _ = DecodeLoose(codec(), Encode(looseCodec(), w)) catch {
+	case Malformed:
+		return false
+	case _:
+		return r.Value == v && len(r.Fixes) == 0
+	}
+	false
+}
+
+// looseTricky is v with a host that holds what a repair must not touch
+// inside a string: a comment, a fence, braces, quotes, a comma.
+func looseTricky(v up) up {
+	up{Host: v.Host + " // ```json {'x',} \"q\" /*", Port: v.Port, Tags: v.Tags, Load: v.Load}
+}
+
+// looseProse is the prose a model writes around a value: no bracket, no
+// backtick.
+let looseProse = []string{"", "Sure! Here it is:", "The answer is below.", "Hope this helps."}
+
+// looseNoise is a text with noise and the sum of the fix kinds
+// (looseKind) DecodeLoose must report for it.
+type looseNoise { text string, kinds int }
+
+func looseAt(n int, size int) int {
+	let m = if n < 0 { -(n + 1) } else { n }
+	m % size
+}
+
+// looseNoisy is v's text with the noise the flags name: prose before and
+// after, a fence, a trailing comma, bare or single-quoted keys, a comment,
+// the last brace cut, another object before or after.
+func looseNoisy(v up, pre int, post int, fence bool, comma bool, bare bool, single bool, comment bool, cut bool, before bool, after bool) looseNoise {
+	let mut t = Encode(looseCodec(), v)
+	let mut kinds = []int{}
+	if comment {
+		// A line comment between a comma and the key after it.
+		t = strings.ReplaceAll(t, ",\"port\":", ", // note\n\"port\":")
+	}
+	for k in []string{"host", "port", "tags", "load"} {
+		if bare {
+			t = strings.ReplaceAll(t, "\""+k+"\":", k+":")
+		} else if single {
+			t = strings.ReplaceAll(t, "\""+k+"\":", "'"+k+"':")
+		}
+	}
+	if bare {
+		kinds = kinds.Append(looseKind(UnquotedKey{Start: 0, End: 0, Key: ""}))
+	} else if single {
+		t = looseSingleValue(t, "host")
+		kinds = kinds.Append(looseKind(SingleQuoted{Start: 0, End: 0}))
+	}
+	if comment {
+		t = "{/* note */" + t[1:]
+		kinds = kinds.Append(looseKind(Comment{Start: 0, End: 0}))
+	}
+	if comma {
+		t = t[:len(t)-1] + ",}"
+		kinds = kinds.Append(looseKind(TrailingComma{Start: 0, End: 0}))
+	}
+	if cut {
+		t = t[:len(t)-1]
+		kinds = kinds.Append(looseKind(Closed{Start: 0, End: 0, Depth: 0, String: false}))
+	}
+	if fence {
+		let close = if cut { "" } else { "\n```" }
+		t = "```json\n" + t + close
+		kinds = kinds.Append(looseKind(Fenced{Start: 0, End: 0}))
+	}
+	let p = looseProse[looseAt(pre, len(looseProse))]
+	let q = if cut { "" } else { looseProse[looseAt(post, len(looseProse))] }
+	t = p + "\n" + t + "\n" + q
+	let others = before || (after && !cut)
+	if before {
+		t = "{\"example\": true}\n" + t
+	}
+	if after && !cut {
+		t = t + "\n{\"other\": 1}"
+	}
+	if others {
+		kinds = kinds.Append(looseKind(Chose{Start: 0, End: 0, Index: 0, Of: 0}))
+	}
+	if others || p != "" || q != "" {
+		kinds = kinds.Append(looseKind(Surrounded{Start: 0, End: 0}))
+	}
+	looseNoise{text: t, kinds: looseSum(kinds)}
+}
+
+// looseSingleValue is t with the string after the key 'k': in single
+// quotes: an escaped " unescaped, a ' escaped, other escapes kept.
+func looseSingleValue(t string, k string) string {
+	let at = strings.Index(t, "'"+k+"':\"")
+	if at < 0 {
+		return t
+	}
+	let start = at + len(k) + 3
+	let mut s = t[:start] + "'"
+	let mut j = start + 1
+	for j < len(t) && t[j] != '"' {
+		if t[j] == '\\' && j+1 < len(t) && t[j+1] == '"' {
+			s = s + "\""
+			j = j + 2
+		} else if t[j] == '\\' && j+1 < len(t) {
+			s = s + t[j:j+2]
+			j = j + 2
+		} else if t[j] == '\'' {
+			s = s + "\\'"
+			j = j + 1
+		} else {
+			s = s + t[j:j+1]
+			j = j + 1
+		}
+	}
+	s + "'" + t[j+1:]
+}
+
+// looseKind is a fix's kind as one bit of a sum.
+func looseKind(f Fix) int {
+	match f {
+	case Surrounded:
+		1
+	case Fenced:
+		2
+	case TrailingComma:
+		4
+	case UnquotedKey:
+		8
+	case SingleQuoted:
+		16
+	case Comment:
+		32
+	case Closed:
+		64
+	case Chose:
+		128
+	}
+}
+
+// looseSum is the sum of the distinct kinds in kinds.
+func looseSum(kinds []int) int {
+	let mut sum = 0
+	for k in kinds {
+		if sum/k%2 == 0 {
+			sum = sum + k
+		}
+	}
+	sum
+}
+
+func looseKinds(fixes []Fix) int {
+	let mut kinds = []int{}
+	for f in fixes {
+		kinds = kinds.Append(looseKind(f))
+	}
+	looseSum(kinds)
+}
+
+// NoiseIsReported: v's text in prose, a fence, with a trailing comma, bare
+// or single-quoted keys, a comment, cut at its last brace, or after or
+// before another object, decodes to v, and Fixes names each kind of noise
+// and no other; a Chose names the value read.
+law NoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bool, single bool, comment bool, cut bool, before bool, after bool) {
+	let w = looseTricky(v)
+	let n = looseNoisy(w, pre, post, fence, comma, bare, single, comment, cut, before, after)
+	let r = DecodeLoose(looseCodec(), n.text) catch {
+	case _:
+		return false
+	}
+	let want = if before { 1 } else { 0 }
+	let of = 1 + (if before { 1 } else { 0 }) + (if after && !cut { 1 } else { 0 })
+	let mut index = true
+	for f in r.Fixes {
+		match f {
+		case Chose as c:
+			index = c.Index == want && c.Of == of
+		case _:
+		}
+	}
+	r.Value == w && looseKinds(r.Fixes) == n.kinds && index
+}
+
+// looseEdits are the bytes a mutation inserts: the syntax the repairs
+// read, and others.
+let looseEdits = []string{",", "}", "]", "'", "/", "*", "`", "\"", "a", ":", " ", "\n", "{", "\\", "//", "```", "/*"}
+
+// looseMutated is v's text with two edits: each inserts an edit, deletes
+// a byte or cuts the text, at a drawn place.
+func looseMutated(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) string {
+	looseEdit(looseEdit(Encode(looseCodec(), looseTricky(v)), at, op, ch), at2, op2, ch2)
+}
+
+func looseEdit(t string, at int, op int, ch int) string {
+	let pos = looseAt(at, len(t)+1)
+	let kind = looseAt(op, 3)
+	if kind == 0 {
+		return t[:pos] + looseEdits[looseAt(ch, len(looseEdits))] + t[pos:]
+	}
+	if kind == 1 && pos < len(t) {
+		return t[:pos] + t[pos+1:]
+	}
+	t[:pos]
+}
+
+// NoFixMeansStrict: a text DecodeLoose reads with no fix, Decode reads
+// as the same value; Loose never differs from strict in silence.
+law NoFixMeansStrict(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) {
+	let text = looseMutated(v, at, op, ch, at2, op2, ch2)
+	let r = DecodeLoose(looseCodec(), text) catch {
+	case _:
+		return true
+	}
+	if len(r.Fixes) > 0 {
+		return true
+	}
+	let s = Decode(looseCodec(), text) catch {
+	case _:
+		return false
+	}
+	s == r.Value
+}
+
+// RepairIsIdempotent: the text of a value DecodeLoose read is read back
+// as that value with no fix.
+law RepairIsIdempotent(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) {
+	let r = DecodeLoose(looseCodec(), looseMutated(v, at, op, ch, at2, op2, ch2)) catch {
+	case _:
+		return true
+	}
+	let again = DecodeLoose(looseCodec(), Encode(looseCodec(), r.Value)) catch {
+	case _:
+		return false
+	}
+	again.Value == r.Value && len(again.Fixes) == 0
+}
+
+// looseNames is whether each fix names its span of text: in the text,
+// and holding what the fix says it repaired.
+func looseNames(text string, fixes []Fix) bool {
+	for f in fixes {
+		let ok = match f {
+		case Surrounded as s:
+			looseIn(text, s.Start, s.End) && looseOpens(text[s.Start])
+		case Chose as c:
+			looseIn(text, c.Start, c.End) && looseOpens(text[c.Start]) && c.Index < c.Of
+		case Fenced as g:
+			looseIn(text, g.Start, g.End) && text[g.Start:g.Start+3] == "```"
+		case TrailingComma as c:
+			looseIn(text, c.Start, c.End) && text[c.Start:c.End] == ","
+		case UnquotedKey as k:
+			looseIn(text, k.Start, k.End) && text[k.Start:k.End] == k.Key
+		case SingleQuoted as q:
+			looseIn(text, q.Start, q.End) && text[q.Start] == '\''
+		case Comment as c:
+			looseIn(text, c.Start, c.End) && text[c.Start] == '/'
+		case Closed as c:
+			looseIn(text, c.Start, c.End) && c.End == len(text) && c.Depth > 0 && if c.String { text[c.Start] == '"' || text[c.Start] == '\'' } else { looseOpens(text[c.Start]) }
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func looseIn(text string, start int, end int) bool { 0 <= start && start < end && end <= len(text) }
+
+func looseOpens(c byte) bool { c == '{' || c == '[' }
+
+// FixesNameTheirText: each fix of a noisy or edited text names a span of
+// that text that holds what it repaired (a Closed string starts at its
+// quote, a Closed list or object at its bracket).
+law FixesNameTheirText(v up, pre int, fence bool, comma bool, bare bool, comment bool, cut bool, at int, op int, ch int, at2 int, op2 int, ch2 int) {
+	let a = looseNoisy(looseTricky(v), pre, pre, fence, comma, bare, !bare, comment, cut, false, true).text
+	let b = looseMutated(v, at, op, ch, at2, op2, ch2)
+	looseNamed(a) && looseNamed(b)
+}
+
+// looseNamed is whether the fixes DecodeLoose reports for text, read as
+// an up and as a Value (which takes any cut, a cut string too), name their
+// spans (a text it does not read has none).
+func looseNamed(text string) bool {
+	let r = DecodeLoose(looseCodec(), text) catch {
+	case _:
+		return looseNamedValue(text)
+	}
+	looseNames(text, r.Fixes) && looseNamedValue(text)
+}
+
+func looseNamedValue(text string) bool {
+	let r = DecodeLoose(Codec[Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return true
+	}
+	looseNames(text, r.Fixes)
+}
+
+// looseCutRead is whether text, a list of one string cut inside the
+// string, reads as a list of a prefix of full with a Closed fix that says
+// a string was cut.
+func looseCutRead(text string, full string) bool {
+	let r = DecodeLoose(Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return false
+	}
+	let mut cut = false
+	for f in r.Fixes {
+		match f {
+		case Closed as c:
+			cut = c.String && c.Depth == 1
+		case _:
+		}
+	}
+	len(r.Value) == 1 && strings.HasPrefix(full, r.Value[0]) && cut
+}
+
+// CutStringsClose: a list of one string of letters, quotes and
+// backslashes, cut anywhere inside the string, an escape's backslash too,
+// reads as a list of a prefix of the string, and Closed says so.
+law CutStringsClose(raw []byte) {
+	let mut s = "\"\\"
+	for b in raw {
+		s = s + looseLetters[int(b)%3]
+	}
+	let text = Encode(Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, []string{s})
+	let mut ok = true
+	for n in 2..len(text)-2 {
+		ok = ok && looseCutRead(text[:n], s)
+	}
+	ok
+}
+
+// looseLetters are the string bytes CutStringsClose draws: a letter and
+// the two that Encode escapes.
+let looseLetters = []string{"a", "\"", "\\"}
+
+// looseOpen is n list brackets, never closed.
+func looseOpen(n int) string { strings.Repeat("[", n) }
+
+// BoundsHoldWhenRepaired: a cut text nested MaxDepth deep is closed and
+// read, one level deeper fails Malformed; a text longer than MaxBytes
+// fails Malformed before any repair.
+law BoundsHoldWhenRepaired(k int) {
+	let depth = looseAt(k, 32) + 1
+	let r = DecodeLoose(Codec[Value]{MaxBytes: 0, MaxDepth: depth}, looseOpen(depth)) catch {
+	case _:
+		return false
+	}
+	let text = "ok: [1, 2,]"
+	let _ = DecodeLoose(Codec[Value]{MaxBytes: len(text), MaxDepth: 0}, text) catch {
+	case _:
+		return false
+	}
+	len(r.Fixes) > 0 && looseMalformed(Codec[Value]{MaxBytes: 0, MaxDepth: depth}, looseOpen(depth+1)) && looseMalformed(Codec[Value]{MaxBytes: len(text) - 1, MaxDepth: 0}, text)
+}
+
+// looseMalformed is whether DecodeLoose fails Malformed on text.
+func looseMalformed(c Codec[Value], text string) bool {
+	let _ = DecodeLoose(c, text) catch {
+	case Malformed:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+func looseSpace(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+
+func looseIdentStart(c byte) bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$' }
+
+func looseWord(c byte) bool { looseIdentStart(c) || (c >= '0' && c <= '9') }

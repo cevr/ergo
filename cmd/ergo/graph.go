@@ -187,7 +187,8 @@ func graphExport(dir string, args []string) error {
 }
 
 // graphRows is the rows of the program in dir, or of every package below
-// it for dir/....
+// it for dir/...; at a workspace root, with a node for each module and an
+// edge for each module another resolves locally.
 func graphRows(dir string) (*graphrows.Table, error) {
 	var as []sketchfront.Analysis
 	recursive := recursivePattern(dir)
@@ -202,9 +203,13 @@ func graphRows(dir string) (*graphrows.Table, error) {
 		return nil, err
 	}
 	if recursive {
-		as, err = sketchfront.CheckTree(dir)
+		var ws *sketchfront.Workspace
+		as, ws, err = sketchfront.CheckTree(dir)
 		if err != nil {
 			return nil, err
+		}
+		if ws != nil {
+			return sketchfront.GraphOfWorkspace(*ws, as), nil
 		}
 	} else {
 		a, err := sketchfront.CheckDir(dir)
@@ -276,8 +281,7 @@ func baseRows(dir, base string) (*graphrows.Table, []byte, error) {
 // gitArchive is the tar of base's tree, limited to the folders paths
 // (relative to the repository root top) when there are any.
 func gitArchive(top, base string, paths []string) ([]byte, error) {
-	args := append([]string{"archive", "--format=tar", base, "--"}, paths...)
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks", "archive", "--format=tar", base, "--"}, paths...)...)
 	cmd.Dir = top
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -366,7 +370,7 @@ func localReplaces(text string) []string {
 
 // gitOutput is git's standard output for args, run in dir.
 func gitOutput(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

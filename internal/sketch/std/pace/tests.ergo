@@ -1,0 +1,8 @@
+// Refinement (PROV-COMPOSE): Pacing's laws run under each named context
+// of a test file, so they hold for the wrappers stacked over the base
+// providers, up to three deep, as they do for the base providers alone.
+
+let everyOverCounting = context { Pacing: NewEvery(NewCounting(), 3) }
+let quietOverCounting = context { Pacing: NewQuiet(NewCounting()) }
+let everyOverQuietOverDefault = context { Pacing: NewEvery(NewQuiet(Default), 2) }
+let quietOverEveryOverEveryOverCounting = context { Pacing: NewQuiet(NewEvery(NewEvery(NewCounting(), 2), 5)) }

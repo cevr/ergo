@@ -2,6 +2,7 @@ package syntax
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -31,8 +32,8 @@ func FuzzParse(f *testing.F) {
 			f.Add(m.Src)
 		}
 	}
-	for _, c := range lexErrorCases {
-		f.Add(c.src)
+	for _, src := range lookaheadSeeds {
+		f.Add(src)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
 		if broken := checkStream(src, scan(src).toks); broken != "" {
@@ -58,4 +59,42 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("%d:%d, want %d:%d", e.Line, e.Column, line, column)
 		}
 	})
+}
+
+// lookaheadSeeds are sources that end in a lexical error after a parser
+// lookahead has started (#226). Their verdicts are compiler/syntax's
+// tests in lexerror.ergo (TestCompilerSyntaxTestsPass); here they seed
+// the fuzzer.
+var lookaheadSeeds = []string{
+	`func A(){match A{"`, `func A(){with A{"0`, "func A(){with A{`0", `func A(){match A{'`,
+	"func A(){match A{\xff", `func A(){match A{"\(b`, "func A(){match A{\"\\(b\n", `func A(){match A{"\(b)c`,
+	`type A{F["`, "type A{Items [\xff", `type A{F["\(x`, `type A{F[T]"`,
+	`func A(){for "`, `func A(){for x in "\(y`, "func A(xs []int){for i, x\u00a0in xs {\n}}",
+	"func A(xs []int){for i, x@ in xs {\n}}", `func A(){for i, x "`,
+	`func A(){let y = f[escaping func("`, `func A(){with context{A, "`,
+}
+
+// checkStream reports the first break of the token stream's invariant, or
+// "" when it holds: the stream ends with its one EOF, each token's span
+// lies in the source with pos <= end, and each token starts at or after the
+// end of the token before it. The parser's lookaheads rely on it: past the
+// last token peek returns the EOF, so a scan that stops at EOF stops, and
+// the source between any two tokens it reads is a valid slice.
+func checkStream(src string, toks []token) string {
+	if len(toks) == 0 || toks[len(toks)-1].tok != EOF {
+		return "the stream does not end with EOF"
+	}
+	prev := Pos(0)
+	for i, t := range toks {
+		switch {
+		case t.tok == EOF && i != len(toks)-1:
+			return fmt.Sprintf("EOF at token %d of %d", i, len(toks))
+		case t.pos < prev:
+			return fmt.Sprintf("token %d (%s) starts at %d, before the previous end %d", i, t.tok, t.pos, prev)
+		case t.end < t.pos || int(t.end) > len(src):
+			return fmt.Sprintf("token %d (%s) spans %d..%d in a %d-byte source", i, t.tok, t.pos, t.end, len(src))
+		}
+		prev = t.end
+	}
+	return ""
 }

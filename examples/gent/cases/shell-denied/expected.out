@@ -1,0 +1,5 @@
+> delete my notes
+< I will run it.
+→ shell {"command":"rm notes.txt"}
+x the person declined to run it
+< I was not allowed to run it.

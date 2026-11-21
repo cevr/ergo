@@ -3,7 +3,7 @@
 // and reports on it, prints it, or prints a part of it.
 //
 //	flattree stats FILE            values of each kind, depth, distinct keys
-//	flattree path FILE POINTER     the value at POINTER (RFC 6901), in jq's layout
+//	flattree path FILE POINTER     the value at POINTER (RFC 6901), indented
 //	flattree print FILE            FILE on one line
 //	flattree gen -seed S -n N      write the workload of N records for seed S
 //

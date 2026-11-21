@@ -3,6 +3,9 @@
 //
 // fluid-gallery gui PATH... is the headless leg: each page's specimens drawn on a std ui frame,
 // as the GUI host holds them, and whether the web's markup and the part tree agree.
+//
+// fluid-gallery ts prints the module for a TypeScript island on a gallery page (gallery.Island):
+// the module's looks as class names under the page's naming, and the page's one sheet.
 
 import fluidgallery/gallery
 import os
@@ -16,6 +19,10 @@ func main() fails Usage needs Console | Ambient {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	if len(args) == 0 {
 		return Usage{Text: "usage: fluid-gallery PATH..."}
+	}
+	if args[0] == "ts" {
+		Console.Println(gallery.Island())
+		return
 	}
 	if args[0] == "gui" {
 		for i in 1..len(args) {

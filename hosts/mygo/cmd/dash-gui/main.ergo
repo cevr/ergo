@@ -198,7 +198,7 @@ func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
 
 // frames draws n frames of the window, each one Frame input the driver
 // takes, and prints the notes each frame makes after it.
-func frames[D, F](d *desktop.Driver[dash.Dash, dash.Signal, D, F], w go.Ref[screen.Window], n int, notes sync.Ref[[]feed.Notice], out io.Host) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func frames[D, F](d mut desktop.Driver[dash.Dash, dash.Signal, D, F], w go.Ref[screen.Window], n int, notes sync.Ref[[]feed.Notice], out io.Host) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for _ in 0..n {
 		let _ = w.Render()
 		try desktop.Drain(d)

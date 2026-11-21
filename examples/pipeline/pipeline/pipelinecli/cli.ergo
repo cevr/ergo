@@ -10,6 +10,7 @@ import flag
 import io
 import prompt
 import rpc
+import slices
 import strings
 import term
 import pipeline/board
@@ -96,9 +97,34 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 }
 
 // Parse reads args as a command line of pipeline.Pipeline: a command and its
-// flags and arguments.
+// flags and arguments. It builds only the command args[0] names; the
+// list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	try flag.ParseCommand("pipeline", "pipeline.Pipeline on a command line", Commands(), args)
+	let first = if len(args) > 0 { args[0] } else { "" }
+	match first {
+	case "submit":
+		let c = commandSubmit()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline submit"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "cancel":
+		let c = commandCancel()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline cancel"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "retry":
+		let c = commandRetry()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline retry"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "board":
+		let c = commandBoard()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline board"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "run-of":
+		let c = commandRunOf()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline run-of"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case _:
+		try flag.ParseCommand("pipeline", "pipeline.Pipeline on a command line", Commands(), args)
+	}
 }
 
 // Print is a command line that Parse reads as r again: the command,

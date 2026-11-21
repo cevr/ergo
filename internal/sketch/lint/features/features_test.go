@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/lint/features"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/testinputs"

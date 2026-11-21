@@ -1,0 +1,90 @@
+// The parser's facts the printer reads from a parse: the spelling and
+// precedence of a token, and which nodes print on several lines. Spans,
+// tokens and comments come from compiler/syntax.
+
+import compiler/syntax
+import dense
+
+// NoPos is an absent position: a byte offset of the source, -1 when the
+// tree has no token there.
+let NoPos = -1
+
+func last(xs []int) int { xs[len(xs)-1] }
+
+// ---------------------------------------------------------------- tokens
+
+// tokens are the spellings of the token kinds of compiler/syntax, in their
+// order (Go's syntax.Token).
+let tokens = []string{
+	"ILLEGAL", "EOF", "COMMENT", "IDENT", "INT", "FLOAT", "DURATION", "STRING", "RUNE", "PATH",
+	"STRING_HEAD", "STRING_MID", "STRING_TAIL",
+	"+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "&^",
+	"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "&^=",
+	"&&", "||", "<-", "++", "--", "..",
+	"==", "<", ">", "=", "!",
+	"!=", "<=", ">=", ":=", "...",
+	"(", "[", "{", ",", ".", ")", "]", "}", ";", ":",
+	"",
+	"break", "case", "continue", "else", "for", "func", "if", "import", "return", "type",
+	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
+	"escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as",
+	"",
+	"",
+	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
+	"range", "select", "struct", "switch", "var",
+	"",
+	"~",
+}
+
+// tokenText is the spelling of token kind n.
+func tokenText(n uint8) string {
+	let i = int(n)
+	if i < len(tokens) && tokens[i] != "" {
+		return tokens[i]
+	}
+	"token(?)"
+}
+
+// precedence is a binary operator's precedence (Go's), 0 for another kind.
+func precedence(n uint8) int {
+	if n == syntax.Lor {
+		return 1
+	}
+	if n == syntax.Land {
+		return 2
+	}
+	if n == syntax.Eql || n == syntax.Neq || n == syntax.Lss || n == syntax.Leq || n == syntax.Gtr || n == syntax.Geq {
+		return 3
+	}
+	if n == syntax.Add || n == syntax.Sub || n == syntax.Or || n == syntax.Xor {
+		return 4
+	}
+	if n == syntax.Mul || n == syntax.Quo || n == syntax.Rem || n == syntax.Shl || n == syntax.Shr || n == syntax.And || n == syntax.AndNot {
+		return 5
+	}
+	0
+}
+
+// ---------------------------------------------------------------- line breaks
+
+// forcesBreak reports whether node id prints on several lines even when
+// its source is on one line: it holds a clause list (match, catch) or a
+// statement block with more than one statement.
+func forcesBreak(t syntax.Tree, id dense.ID[syntax.Node]) bool {
+	let k = syntax.KindOf(t, id)
+	if k == syntax.KSwitchStmt || k == syntax.KTypeSwitchStmt || k == syntax.KCatchExpr {
+		return true
+	}
+	if k == syntax.KBlockStmt && syntax.Len(syntax.BlockStmtOf(t, id).List) > 1 {
+		return true
+	}
+	if k == syntax.KIdent || k == syntax.KBasicLit || k == syntax.KTakesClause {
+		return false
+	}
+	for c in syntax.Children(t, id, []uint32{}) {
+		if forcesBreak(t, syntax.NodeAt(t, int(c))) {
+			return true
+		}
+	}
+	false
+}

@@ -262,7 +262,7 @@ func byRun(k known, text string, size float32, wide float32) []string {
 
 // learn asks the window's engine for every run of text at size it has
 // not measured yet, a space, and the size's line height.
-func learn(m *Metrics, w go.Ref[screen.Window], text string, size float32) needs go.Foreign {
+func learn(m mut Metrics, w go.Ref[screen.Window], text string, size float32) needs go.Foreign {
 	let (line, missing) = sync.Modify(m.known, func(k known) ((bool, []string), known) { (unknown(k, text, size), k) })
 	if !line && len(missing) == 0 {
 		return

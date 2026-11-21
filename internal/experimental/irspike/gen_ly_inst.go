@@ -15,7 +15,10 @@ import (
 // fail, run by std machines.Run, which tries the step through a field
 // whose row can (a copy for a known record of a generic std body). Each
 // copy is a Go function of its own beside its function; an IR body built
-// for one under its function's name does not build.
+// for one under its function's name does not build. Box's count and show
+// are functions of a generic record, Go methods, whose copies are plain
+// functions; show's takes the environment before its receiver
+// (MONO-HOOKS-MIN).
 func GenerateInstances(seed uint64) string {
 	g := &ggen{r: rand.New(rand.NewPCG(seed, seed^0x6c79696e73740a07))}
 	var b strings.Builder
@@ -34,8 +37,12 @@ func GenerateInstances(seed uint64) string {
 	b.WriteString("func stepOnce[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], e E) int fails F needs R {\n\tlet d = try m.Step(m.Initial, e)\n\tmatch d {\n\tcase Done[O]:\n\t\t1\n\tcase Enter[S], Stay[S], Emit[S, O], Tell[S, O], Ignore, Reject:\n\t\t0\n\t}\n}\n\n")
 	b.WriteString("type Bag { N int } implements Sized\n\nfunc Size(g Bag) int { g.N * 2 }\n\n")
 	b.WriteString("func sized(xs []int) int {\n\tsize(Bag{N: len(xs)})\n}\n\n")
+	b.WriteString("type Box[T] { items []T }\n\nfunc count[T](b Box[T]) int { len(b.items) }\n\n")
+	b.WriteString("func show[T](b Box[T], tag string) needs Console {\n\tConsole.Println(\"\\(tag) \\(b.count())\")\n}\n\n")
+	fmt.Fprintf(&b, "func boxes() needs Console {\n\tlet bx = Box[int]{items: []int{%d, %d}}\n\tbx.show(\"box\")\n\tConsole.Println(\"count \\(bx.count())\")\n}\n\n", g.n(9), g.n(9))
 	b.WriteString("func main() needs Console {\n")
 	b.WriteString("\tConsole.Println(\"once \\(stepOnce(Switch{}, Toggle))\")\n")
+	b.WriteString("\tboxes()\n")
 	for i := 0; i < 3; i++ {
 		var xs, ds []string
 		for j := 0; j < 1+g.n(6); j++ {

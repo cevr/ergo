@@ -223,6 +223,10 @@ fx_status fx_context_unbound(fx_context *, void *user_data, fx_unbound_callback 
  * kind names or abi_version is not FX_ABI_VERSION; FX_INVALID_ARGUMENT for
  * NULL or another kind. */
 fx_status fx_shape_area(fx_context *, const fx_shape_header *shape, int64_t *out_area);
+/* A value C reads as absent when NULL (the shape of OpenTUI's frame, NULL
+ * for an offscreen buffer): out_z is -1 for a NULL clip, else clip->z.
+ * FX_UNSUPPORTED_VERSION when clip's struct_size or abi_version is wrong. */
+fx_status fx_box_z(fx_context *, const fx_box *clip, int64_t *out_z);
 
 #ifdef __cplusplus
 }

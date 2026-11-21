@@ -274,7 +274,6 @@ func (w *refWalker) binder(id *syntax.Ident, b *localBinding) {
 	if w.binders != nil {
 		w.binders[id] = true
 	}
-	b.refused = w.c.isPreludeName(id.Name) // D-D3 refuses it; it still binds
 	w.bindAs(id.Name, b)
 }
 
@@ -642,7 +641,7 @@ func (w *refWalker) callee(fun syntax.Expr) {
 		x = unparen(ix.X)
 	}
 	switch x.(type) {
-	case *syntax.Ident, *syntax.FuncLit:
+	case *syntax.Ident, *syntax.FuncLit, *syntax.SelectorExpr:
 		w.callees[x] = true
 	}
 }
@@ -663,10 +662,16 @@ func (w *refWalker) callee(fun syntax.Expr) {
 // called, so its rows are value uses only through a frame that carries
 // them as a value (callSite).
 func (w *refWalker) selfCallee(fun syntax.Expr) {
-	sel := calledSelector(fun)
-	if sel == nil {
-		return
+	if sel := calledSelector(fun); sel != nil {
+		w.selfRef(fun, sel, true)
 	}
+}
+
+// selfRef records the edge of x.f, sel, to the package function on x's
+// type it can reach (selfCallee): fun is the callee when called, and sel
+// itself when x.f is a method value (types.md, Methods 2), whose rows are
+// value uses as a plain function name's are (valueUse).
+func (w *refWalker) selfRef(fun syntax.Expr, sel *syntax.SelectorExpr, called bool) {
 	first, ok := w.c.pkg.Scope.names[sel.Sel.Name].(*Func)
 	if !ok || first.owner == nil {
 		return
@@ -684,7 +689,11 @@ func (w *refWalker) selfCallee(fun syntax.Expr) {
 	}
 	t := w.staticType(sel.X)
 	if t == nil {
-		w.pending = append(w.pending, pendingSelf{sel: sel, site: w.callSite(), guard: w.guard})
+		site := [2]useSite{{ok: true, at: sel.Sel.Pos()}, {ok: true, at: sel.Sel.Pos()}}
+		if called {
+			site = w.callSite()
+		}
+		w.pending = append(w.pending, pendingSelf{sel: sel, site: site, guard: w.guard})
 		return
 	}
 	if p, ok := t.(*Pointer); ok {
@@ -707,7 +716,7 @@ func (w *refWalker) selfCallee(fun syntax.Expr) {
 		}
 		w.refs[f] = true
 		if f.inferErrors || f.inferUses {
-			w.valueUse(f, true, sel.Sel.Pos())
+			w.valueUse(f, called, sel.Sel.Pos())
 		}
 	}
 }
@@ -1012,6 +1021,11 @@ func (w *refWalker) expr(x syntax.Expr) {
 	case *syntax.SelectorExpr:
 		w.expr(x.X)
 		w.visit(x.Sel)
+		if !w.callees[x] {
+			// x.f not called: a method value of the function on x's type,
+			// when x's type has no field f (selfRef).
+			w.selfRef(x, x, false)
+		}
 	case *syntax.CompositeLit:
 		w.compositeLit(x, litType{})
 	case *syntax.FuncLit:

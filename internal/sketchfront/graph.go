@@ -2,9 +2,7 @@ package sketchfront
 
 import (
 	"errors"
-	"io/fs"
 	"path/filepath"
-	"strings"
 
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/graphrows"
@@ -21,7 +19,10 @@ func (a Analysis) Graph() *graphrows.Table { return GraphOf([]Analysis{a}) }
 // tasks. A package of a program's own module sits under that module (its
 // folder when there is no ergo.mod); one of a required module under
 // PATH@VERSION.
-func GraphOf(as []Analysis) *graphrows.Table {
+func GraphOf(as []Analysis) *graphrows.Table { return graphrows.Build(sourcePackages(as)) }
+
+// sourcePackages is the packages of as for the graph rows, GraphOf's.
+func sourcePackages(as []Analysis) []graphrows.SourcePackage {
 	var pkgs []graphrows.SourcePackage
 	seen := map[string]bool{}
 	for _, a := range as {
@@ -50,7 +51,7 @@ func GraphOf(as []Analysis) *graphrows.Table {
 			pkgs = append(pkgs, sp)
 		}
 	}
-	return graphrows.Build(pkgs)
+	return pkgs
 }
 
 // packagesOrRoot is Packages, or the one root package of a source text.
@@ -62,56 +63,44 @@ func (a Analysis) packagesOrRoot() []CheckedPackage {
 }
 
 // CheckTree checks every package below dir (`ergo graph export DIR/...`):
-// the packages of dir's module below dir (DiscoverPackages), or, when dir
-// is in no module, those of every module below it, each module with one
-// shared load (CheckPackages) or, when a module refuses one, a package at
-// a time through one CheckCache. Nested modules, testdata and hidden
-// folders are skipped as DiscoverPackages skips them.
-func CheckTree(dir string) ([]Analysis, error) {
+// the packages of dir's module below dir (DiscoverPackages), or, at a
+// workspace root, those of every member (DiscoverWorkspace, the one
+// admission rule), each module with one shared load (CheckPackages) or,
+// when a module refuses one, a package at a time through one CheckCache.
+// ws is the workspace at a workspace root, else nil.
+func CheckTree(dir string) (as []Analysis, ws *Workspace, err error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if abs, err = filepath.EvalSymlinks(abs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	l := newLoader(hostFS{}, gobind.Platform{}, abs, "")
-	l.localOnly = true
-	found, err := l.findModule(abs)
+	atRoot, err := IsWorkspaceRoot(nil, abs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	roots := []string{abs}
-	if !found {
-		roots = nil
-		err := filepath.WalkDir(abs, func(path string, e fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if e.IsDir() && path != abs {
-				name := e.Name()
-				if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" || name == "node_modules" {
-					return filepath.SkipDir
-				}
-			}
-			if !e.IsDir() && e.Name() == ModFile {
-				roots = append(roots, filepath.Dir(path))
-			}
-			return nil
-		})
+	if atRoot {
+		found, err := DiscoverWorkspace(nil, abs)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		ws, roots = &found, nil
+		for _, i := range found.Order() {
+			roots = append(roots, found.Members[i].Dir)
 		}
 	}
+	found := !atRoot
 	cache := NewCheckCache()
 	var out []Analysis
 	for _, root := range roots {
-		targets, err := DiscoverPackages(root)
+		targets, err := discoverModulePackages(nil, root, root)
 		if err != nil {
 			if !found {
-				continue // a module with no package of its own
+				continue // a module with no package of its own, or one that does not read
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		var dirs []string
 		for _, t := range targets {
@@ -123,15 +112,29 @@ func CheckTree(dir string) ([]Analysis, error) {
 			for _, d := range dirs {
 				a, err := cache.CheckDir(d)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				as = append(as, a)
 			}
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out = append(out, as...)
 	}
-	return out, nil
+	return out, ws, nil
+}
+
+// GraphOfWorkspace is GraphOf with the workspace's module rows: a module
+// node for every member, also one with no package, and a requires edge
+// for each of ws's edges.
+func GraphOfWorkspace(ws Workspace, as []Analysis) *graphrows.Table {
+	mods := make([]graphrows.ModuleRow, len(ws.Members))
+	for i, m := range ws.Members {
+		mods[i].Name = m.Name()
+	}
+	for _, e := range ws.Edges {
+		mods[e.From].Requires = append(mods[e.From].Requires, ws.Members[e.To].Name())
+	}
+	return graphrows.BuildWorkspace(mods, sourcePackages(as))
 }

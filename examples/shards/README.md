@@ -54,25 +54,6 @@ go run ./scripts/examples shards
 
 Cases: `single` (one disk, a touch, the summary's timer), `split` (a disk and a tape written at once), `refused` (a full disk; an offline tape with a taken disk, erased; then a write), `rules` (refused places and sizes, an unknown share kind, cancel).
 
-## effect-machine side by side
-
-The same write in effect-machine would use `.spawn(State.Writing, ({ self }) => self.spawn("runner", runnerMachine) …)` with a child id per child, the child's output sent to the parent by `sendParent` or a forwarded stream, `.task` for the write and the erase, `.timeout` for the write and the summary, `.reenter` for the touch, and `ActorHost` if a consumer must reach the current runner.
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| a child's output type | the parent's event type is not checked against the child's output map (MU5 request) | `toParent` must give the entry's signal type, through `send` | compiler |
-| several children of one machine | distinct string ids in the actor system | values kept by identity; no id | runner (MU5 `byKind` mutant) |
-| a late child answer | the program checks a generation by hand (`ActorHost`) | dropped by the entry's epoch | runner (MU5 model and test) |
-| stop order | not specified | last started first, before the next entry | runner (MU5 model) |
-| re-entry restarts a timer | `.reenter` vs `.on` | `Enter` vs `Stay`, written | compiler (the decision is a value) |
-| every state × signal decided | unhandled events dropped | total `match`, `(State, _): Ignore` written | compiler |
-| the services a work needs | `R` of the task's Effect | `Work[Signal, Targets \| Scheduler]`: the target is a capability the binary binds once (`cmd/shards`), not a value in every state | compiler (rows) |
-
-Where Ergo could not improve:
-
-- **The driver cannot reach a child.** The console talks to the parent machine only; children are owned by their entry (MQ10: no ambient registry). A screen that shows a write's progress would need the child's address handed out as a signal (the `ActorHost` pattern), which this program does not need.
-- Written type arguments and `Ignore` arms, as in pairing.
-
 ## Benchmark
 
 em-parity §3 lists "child fan-out" as pending for MU5. This program's split write is that shape (a parent, a child, N grandchildren, one answer each). The command for an end-to-end time of the cases is in the lane's `bench-pending.md` (not run).

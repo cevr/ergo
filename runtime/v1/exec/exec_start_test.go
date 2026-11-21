@@ -654,7 +654,11 @@ func TestRunningMatchesModel(t *testing.T) {
 // TestExecStreams is the acceptance check of CU4 on the host: a helper
 // program writes on command, read from a FIFO, and after each command the
 // sink holds exactly the bytes written so far, in order (every prefix): a
-// file sink's file and a ToCaller stream's lines. The release ends the
+// file sink's file and a ToCaller stream's lines. A standard error whose
+// sink is ToStdout writes to standard output's sink, its lines unmarked,
+// and a burst of lines written to the two streams in turn, with no wait
+// between them, arrives there in the order written (GENT-G5: one pipe or
+// file for both, as the shell's 2>&1). The release ends the
 // program's group: a program that ignores SIGTERM is killed after its
 // grace, one that does not exits on SIGTERM, and no process of its group is
 // left after Close (each wait is on an event: the next line, the file's
@@ -674,7 +678,11 @@ func TestExecStreams(t *testing.T) {
 			t.Fatal(err)
 		}
 		outFile, errFile := filepath.Join(dir, "out"), filepath.Join(dir, "err")
-		outKind, errKind := []int{execToFile, execToCaller}[r.IntN(2)], []int{execToFile, execToCaller}[r.IntN(2)]
+		outKind, errKind := []int{execToFile, execToCaller}[r.IntN(2)], []int{execToFile, execToCaller, execToStdout}[r.IntN(3)]
+		if i < 4 {
+			errKind = execToStdout // each of the first four cases, so both stdout sinks are drawn with it
+			outKind = []int{execToFile, execToCaller}[i%2]
+		}
 		ignore := r.IntN(2) == 0
 		trap := ""
 		grace := time.Hour // SIGTERM ends it: the wait is for its exit event
@@ -683,7 +691,8 @@ func TestExecStreams(t *testing.T) {
 			grace = time.Millisecond // SIGKILL follows: the outcome is the same at any speed
 		}
 		// The helper: its pid and a grandchild's go to pids; then each line
-		// of ctl is a command: "o TEXT" to stdout, "e TEXT" to stderr.
+		// of ctl is a command: "o TEXT" to stdout, "e TEXT" to stderr, "b N"
+		// N pairs of lines, oK to stdout then eK to stderr, with no wait.
 		script := fmt.Sprintf(`%secho $$ >> %[2]s
 sleep 600 </dev/null >/dev/null 2>&1 &
 echo $! >> %[2]s
@@ -691,6 +700,7 @@ while read -r cmd text; do
   case "$cmd" in
     o) printf '%%s\n' "$text" ;;
     e) printf '%%s\n' "$text" >&2 ;;
+    b) k=0; while [ $k -lt "$text" ]; do printf 'o%%s\n' $k; printf 'e%%s\n' $k >&2; k=$((k+1)); done ;;
   esac
 done < %[3]s
 sleep 600
@@ -719,10 +729,29 @@ sleep 600
 			if stderr {
 				cmd, b, kind, file = "e", &wroteErr, errKind, errFile
 			}
+			var texts []string // the lines the command writes, in order
+			if errKind == execToStdout && j == 1 {
+				n := 1 + r.IntN(300)
+				cmd, text, stderr = "b", strconv.Itoa(n), false
+				for k := range n {
+					texts = append(texts, fmt.Sprintf("o%d", k), fmt.Sprintf("e%d", k))
+				}
+			} else {
+				texts = []string{text}
+			}
+			if stderr && errKind == execToStdout {
+				// The line goes where standard output goes, unmarked.
+				b, kind, file, stderr = &wroteOut, outKind, outFile, false
+			}
+			if cmd == "b" {
+				b, kind, file = &wroteOut, outKind, outFile
+			}
 			if _, err := fmt.Fprintf(w, "%s %s\n", cmd, text); err != nil {
 				t.Fatal(err)
 			}
-			b.WriteString(text + "\n")
+			for _, x := range texts {
+				b.WriteString(x + "\n")
+			}
 			switch kind {
 			case execToFile:
 				want := b.String()
@@ -734,13 +763,15 @@ sleep 600
 					return string(data) == want
 				})
 			case execToCaller:
-				select {
-				case l := <-lines:
-					if l.Text != text || l.Stderr != stderr {
-						t.Fatalf("case %d: line %q (stderr %v), want the %d bytes just written (stderr %v)", i, l.Text[:min(len(l.Text), 20)], l.Stderr, len(text), stderr)
+				for _, x := range texts {
+					select {
+					case l := <-lines:
+						if l.Text != x || l.Stderr != stderr {
+							t.Fatalf("case %d: line %q (stderr %v), want the %d bytes written next %q (stderr %v)", i, l.Text[:min(len(l.Text), 20)], l.Stderr, len(x), x[:min(len(x), 20)], stderr)
+						}
+					case <-testwait.After(t):
+						t.Fatalf("case %d: the line written next never came", i)
 					}
-				case <-testwait.After(t):
-					t.Fatalf("case %d: the line just written never came", i)
 				}
 			}
 		}

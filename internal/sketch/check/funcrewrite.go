@@ -51,14 +51,17 @@ func (law *Law) TopRewrite() *FuncRewrite {
 //     only the parameters, constants, such calls and operators, and
 //     function literals of one expression over their own parameters and
 //     the law's, which call a function parameter;
-//  2. fewer calls: the right side makes fewer calls than the left, so
-//     rewriting ends and f(a, b) == f(b, a) is no rewrite; a call of a
-//     function parameter is no declared function's and is not counted;
+//  2. fewer rewritable calls: the pair (calls of Ergo bodies, calls) is
+//     smaller on the right, compared in order (LAWFFI LF2m), so rewriting
+//     ends and f(a, b) == f(b, a) is no rewrite; a Go body is a leaf; a
+//     call of a function parameter is no declared function's and is not
+//     counted;
 //  3. no guard: no parameter takes a where (no given in v1);
 //  4. pure: each function either side calls is an Ergo function with an
 //     empty footprint and an empty needs clause; else a Go body in the
-//     reviewed pure set; a function parameter's type fails nothing and
-//     needs nothing;
+//     reviewed pure set, or an effect-free body of the module's own Go
+//     (LAWFFI LF2m), which only the law's validated entry makes pure; a
+//     function parameter's type fails nothing and needs nothing;
 //  5. value class: the sides' type has key equality and holds no pointer,
 //     operation type, function, type parameter or Go type, with each of
 //     the law's own type parameters at int (a site's types are checked
@@ -218,9 +221,14 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 	if rw.Root == nil {
 		return nil, lhs, "its left side calls no declared function"
 	}
-	// 2. Fewer calls.
-	if rw.RhsCalls >= rw.LhsCalls {
-		return nil, rhs, fmt.Sprintf("its right side makes %d calls and its left side %d; a rewrite makes fewer calls, so rewriting ends", rw.RhsCalls, rw.LhsCalls)
+	// 2. Fewer rewritable calls (LAWFFI LF2m): the pair (calls of Ergo
+	// bodies, calls) is smaller on the right, compared in order. A Go
+	// body is a leaf the rewrite never unfolds, so { ref(s) } == { body(s) }
+	// is a rewrite, and so is { Unquote(Quote(s)) } == { s } over Go
+	// functions; each rewrite makes the pair smaller, so rewriting ends.
+	lhsErgo, rhsErgo := ergoCalls(info, lhsCalls), ergoCalls(info, rhsCalls)
+	if rhsErgo > lhsErgo || rhsErgo == lhsErgo && rw.RhsCalls >= rw.LhsCalls {
+		return nil, rhs, fmt.Sprintf("its right side makes %d calls, %d of Ergo bodies, and its left side %d, %d of Ergo bodies; a rewrite makes fewer calls of Ergo bodies, or as many and fewer calls, so rewriting ends", rw.RhsCalls, rhsErgo, rw.LhsCalls, lhsErgo)
 	}
 	// 3. No guard.
 	for i, w := range law.Where {
@@ -282,6 +290,19 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 	return rw, nil, ""
 }
 
+// ergoCalls counts the calls of calls whose function has an Ergo body:
+// not an extern, not a Go function, not a conversion or len.
+func ergoCalls(info *Info, calls []*syntax.CallExpr) int {
+	n := 0
+	for _, e := range calls {
+		c := info.Calls[e]
+		if c.Kind == CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Extern == nil && c.Func.Decl.Body != nil && !c.Func.Pkg.Host() {
+			n++
+		}
+	}
+	return n
+}
+
 // usesVar reports whether x names v.
 func usesVar(info *Info, x syntax.Expr, v *Var) bool {
 	found := false
@@ -318,6 +339,15 @@ func rewriteImpure(call *Call) string {
 		return fmt.Sprintf("%s needs %s, and a rewrite's functions are pure", f.Name, rowText(call.Needs))
 	}
 	if f.Decl != nil && f.Decl.Extern != nil || f.Pkg.Host() {
+		if _, own := ModuleBody(f); own && !pureStd(f) {
+			// A module's own Go body (LAWFFI LF2m) with an empty needs
+			// row: the checker bound it as effect-free (moduleDoor; one
+			// with effects declares go.Foreign, refused above). The
+			// lowering admits the rewrite only on the law's current
+			// validated entry, so the law makes the body pure, never a
+			// review.
+			return ""
+		}
 		if !pureStd(f) {
 			return fmt.Sprintf("%s is a Go function outside the reviewed pure set, and a rewrite's functions are pure", f.Name)
 		}

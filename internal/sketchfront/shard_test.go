@@ -51,15 +51,18 @@ func shardProgram(t *testing.T, dir, main string) (map[string][]byte, lower.Spli
 // split's rule for embedded assets). On the router example, whose root
 // reads its embedded help through functions, and the deps test programs:
 // the root is cut into shards, no Go package imports the root, and every
-// //go:embed and Go init is in the root. Mutant:
+// //go:embed and Go init is in the root. The router's root is under the
+// 64 KiB a build cuts from (its code is in its packages), so its case cuts
+// after every component (lower.SetEveryShardForTest). Mutant:
 // ft9-shard-root-reach-dropped.
 func TestShardsLeaveTheRootUnimported(t *testing.T) {
 	for _, c := range []struct {
 		dir, file string
 		modes     []bool // tests
+		every     bool   // cut after every component
 	}{
-		{filepath.Join("router", "cmd", "router"), "main.ergo", []bool{false, true}},
-		{filepath.Join("deps", "graph"), "graph.ergo", []bool{true}},
+		{filepath.Join("router", "cmd", "router"), "main.ergo", []bool{false}, true},
+		{filepath.Join("deps", "graph"), "graph.ergo", []bool{true}, false},
 	} {
 		dir, err := filepath.Abs(filepath.Join("..", "..", "examples", c.dir))
 		if err != nil {
@@ -74,7 +77,12 @@ func TestShardsLeaveTheRootUnimported(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, tests := range c.modes {
+			restore := func() {}
+			if c.every {
+				restore = lower.SetEveryShardForTest()
+			}
 			files, _, rep, err := lower.LowerIRShards(unit, tests)
+			restore()
 			if err != nil || rep.Reason != "" {
 				t.Fatalf("%s: %v %+v", c.dir, err, rep)
 			}
@@ -228,10 +236,11 @@ func TestBodyEditChangesOneShard(t *testing.T) {
 			if rep.Shards < 2 {
 				t.Fatalf("%s: the test program is cut into %d shards, want 2 or more", c.pkg, rep.Shards)
 			}
-			// The root's code: the root and its shards.
+			// The root's code: the root and its shards, and since FT6 the
+			// test build's root package below the harness and its shards.
 			root := 0
 			for d, data := range before {
-				if d == "." || strings.HasPrefix(d, "shard/root/") {
+				if d == "." || d == "ergoroot" || strings.HasPrefix(d, "shard/root/") || strings.HasPrefix(d, "shard/ergoroot/") {
 					root += len(data)
 					t.Logf("%s: %d bytes", d, len(data))
 				}

@@ -1,9 +1,9 @@
 // jsonparse reads JSON (RFC 8259) with a parser written in Ergo and
 // prints it again, or a part of it.
 //
-//	jsonparse fmt FILE            FILE in jq's layout
+//	jsonparse fmt FILE            FILE indented
 //	jsonparse min FILE            FILE on one line
-//	jsonparse get POINTER FILE    the value at POINTER (RFC 6901), in jq's layout
+//	jsonparse get POINTER FILE    the value at POINTER (RFC 6901), indented
 //	jsonparse check FILE          how many values FILE holds and how deep they nest
 //	jsonparse gen -seed S -n N    write the workload of N records for seed S
 //

@@ -2,14 +2,31 @@
 // model that plays a script, and a working directory that is a map of
 // files. Tests, laws and the cases use them; no network, no disk.
 
+import exec
 import gent/agent
 import strings
+import task
 import testing
 import time
 
 // World is a scripted world, as a script file holds it: the model's
-// replies and the working directory's files.
-type World { Replies []Entry, Files Map[string, string] }
+// replies, the working directory's files, and what each shell command
+// gives, keyed by its command line.
+type World { Replies []Entry, Files Map[string, string], Shell Map[string, Ran] }
+
+// Ran is what a scripted shell command gives: its exit status and its
+// output on each stream.
+type Ran { Status int, Stdout string, Stderr string }
+
+// Commands is the exec.Script of w's shell: each command line, run as
+// the shell tool runs it (sh -c), gives its Ran; any other is NotFound.
+func Commands(w World) exec.Script {
+	let mut results = Map[string, exec.Result]{}
+	for line, r in w.Shell {
+		results[exec.Key(exec.New("sh", []string{"-c", line}))] = exec.Result{Status: r.Status, Stdout: r.Stdout, Stderr: r.Stderr}
+	}
+	exec.Script{Results: results}
+}
 
 // Entry is one reply of a script: a reply in pieces, with its calls and
 // why it ended; a reply whose stream breaks after its pieces; or a
@@ -36,15 +53,46 @@ func NewScripted(first []string, cut bool, rest []Entry) Scripted {
 }
 
 // ReplayIsTheRun: a live session that asks texts of the script over the
-// tree, as an actor with its work and its timers on a virtual clock,
-// ends in the state that the fold of its recorded signals gives, with no
-// work, no clock and no model.
-law ReplayIsTheRun(s Scripted, t Tree, texts []string) {
+// tree and a shell that runs nothing, as an actor with its work and its
+// timers on a virtual clock, its asks answered by allow, ends in the
+// state that the fold of its recorded signals gives, with no work, no
+// clock, no model and no shell.
+law ReplayIsTheRun(s Scripted, t Tree, texts []string, allow bool) {
 	let c = testing.NewVirtualClock(0)
-	let (live, record) = with context { agent.Model: s, agent.Tools: t, Scheduler: c, time.Clock: c } {
-		agent.Headless(agent.Limits{MaxSteps: 4, MaxRetries: 2}, texts)
+	let (live, record) = with context { agent.Model: s, agent.Tools: t, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+		agent.Headless(agent.Open(agent.Limits{MaxSteps: 4, MaxRetries: 2}), texts, allow)
 	}
 	agent.Replay(record) == live
+}
+
+// JournalIgnoresElapsedTime: a session's journal does not depend on how
+// long its work took: two runs of one script, whose read is answered at
+// once in one and 5s later (a virtual clock) in the other, commit the
+// same signals. So nothing that only marks time (a spinner's turn) is a
+// signal of the agent.
+test JournalIgnoresElapsedTime {
+	assert slowRead(0s) == slowRead(5s)
+}
+
+// slowRead is the record of a session that asks the model of a script
+// that reads a.txt, whose read answers after d on a virtual clock.
+func slowRead(d duration) agent.Recorded {
+	let tools = testing.Script[agent.Tools]{}
+	tools.Read.Hold()
+	let read = agent.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"}
+	let world = Scripted{Replies: []Entry{Says{Pieces: []string{"Let me read."}, Calls: []agent.Call{read}, End: agent.ToolUse}, Says{Pieces: []string{"Done."}, Calls: []agent.Call{}, End: agent.Finished}}}
+	let c = testing.NewVirtualClock(0)
+	with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
+		let said = task.Go() { agent.Say(s, "read a.txt") }
+		if d > 0s {
+			Scheduler.Sleep(d)
+		}
+		tools.Read.Release(func(path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable { "hello" })
+		let _ = said.Wait()
+		s.Agent.Stop()
+		agent.RecordOf(s)
+	}
 }
 
 // entry is the entry that answers p, or the failure of a script that has

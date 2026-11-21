@@ -17,21 +17,13 @@ import (
 
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
-// Listener is the transport shared by server protocols. HTTP adds no
-// policy to it; Limits belongs to the serving call, not to the transport.
-type Listener struct {
-	ln net.Listener
-}
-
-func (l *Listener) bound() {}
-
-//ergo:wait none
-func (l *Listener) Addr() string { return l.ln.Addr().String() }
-
-//ergo:wait none
-func (l *Listener) Close() { _ = l.ln.Close() }
+// The listener is the net leaf's Listener, the transport shared by server
+// protocols (std http's Listener and std net's name one Go type). HTTP
+// adds no policy to it; Limits belongs to the serving call, not to the
+// transport.
 
 type HTTPListenFailed struct{ Addr, Reason string }
 
@@ -63,11 +55,11 @@ func (l HTTPLimits) valid() bool {
 
 type HTTPField struct{ Name, Value string }
 type httpIncoming struct {
-	Method, Path  string
-	Query, Header []HTTPField
-	Body          string
-	TooLarge      bool
-	ReadError     string
+	Method, Path, RawPath string
+	Query, Header         []HTTPField
+	Body                  string
+	TooLarge              bool
+	ReadError             string
 }
 type HTTPResponse struct {
 	Status int
@@ -189,27 +181,23 @@ func (x *Exchange) finish() bool {
 	return x.started
 }
 
-// ListenerOn is a Listener over ln, which Go code makes: an in-process
-// transport for a benchmark of Serve. Ergo source has only Listen.
-func ListenerOn(ln net.Listener) *Listener { return &Listener{ln: ln} }
-
 // HTTPListen binds TCP. Port zero selects an available port, reported by
 // Addr. The caller either hands the transport to Serve or closes it.
 //
 //ergo:host
 //ergo:wait none
-func HTTPListen(addr string) (*Listener, error) {
+func HTTPListen(addr string) (*ergonet.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, HTTPListenFailed{Addr: addr, Reason: err.Error()}
 	}
-	return &Listener{ln: ln}, nil
+	return ergonet.ListenerOn(ln), nil
 }
 
 type httpServer struct {
 	limits HTTPLimits
 	site   string
-	handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+	handle func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 	// requests is the parent of every request task (rt.Group): each runs
 	// on the net/http goroutine that read its request.
 	requests *rt.Group
@@ -230,6 +218,21 @@ type httpServer struct {
 	sleeper   v1.Sleeper
 	timerSite string
 	stopping  chan struct{}
+
+	// alarms is the Scheduler's AlarmClock (v1.Alarmer): with it, each
+	// connection keeps one deadline and at most one alarm (enterLocked),
+	// and no timer goroutine, task or sleep runs. nil for a Go Sleeper with no
+	// Alarms: the reference path above.
+	alarms *v1.AlarmClock
+
+	// conns are the connections the engine reads (serveConn), which a
+	// stop closes; nil when net/http reads every one (serveEngine).
+	conns map[*httpConn]struct{}
+
+	// peerW is the engine's watcher of its connections' peers, made at
+	// the first watch (peers); peerFailed: none can be made. Guarded by mu.
+	peerW      *peerWatcher
+	peerFailed bool
 }
 
 // phase is the read phase of one connection. Header, body and idle are
@@ -295,7 +298,20 @@ type httpConn struct {
 	expired phase    // the phase that expired, or phaseFree
 	sleep   *rt.Task // the phase sleep in flight, cut by the next change
 	request *rt.Task // the request task that a disconnect stops
-	gone    bool     // a read failed other than by a deadline: the peer left
+
+	// The alarm path (alarms): the current bounded phase's deadline on
+	// the AlarmClock (bounded), the armed alarm and the time it is armed
+	// for, and wake, made once, which every alarm runs.
+	deadline, armedAt time.Duration
+	bounded           bool
+	alarm             v1.Alarm
+	wakeFn            func()
+	gone              bool // a read failed other than by a deadline: the peer left
+
+	// handed: the engine gave c to net/http (engineListener.handOver),
+	// with replay, the bytes it had read, for net/http's first reads.
+	handed bool
+	replay []byte
 }
 
 // enter moves c to phase p: it cuts the sleep of the old phase and wakes
@@ -314,6 +330,40 @@ func (c *httpConn) enterLocked(p phase) {
 	c.phase = p
 	c.at.Store(uint32(p))
 	c.epoch++
+	if a := c.s.alarms; a != nil {
+		// The alarm path (HTTP-FAST-b2): a bounded phase sets c's one
+		// deadline, and arms an alarm only when none is armed or the
+		// armed one comes after the deadline; an unbounded phase clears
+		// the deadline and leaves the alarm armed. An alarm that comes
+		// early re-arms itself for the deadline (wake). So a phase change
+		// is one clock read, and a kept-alive request whose phases end
+		// before their bounds arms nothing. The close stops the alarm:
+		// net/http closes every connection when Serve stops, so no alarm
+		// outlives its connection.
+		if p == phaseClosed {
+			c.bounded = false
+			if c.alarm != nil {
+				c.alarm.Stop()
+				c.alarm = nil
+			}
+			return
+		}
+		d := c.s.limits.timeout(p)
+		if d <= 0 {
+			c.bounded = false
+			return
+		}
+		c.deadline, c.bounded = a.Deadline(d), true
+		if c.alarm == nil || c.armedAt > c.deadline {
+			if c.alarm != nil {
+				c.alarm.Stop()
+			}
+			c.armedAt = c.deadline
+			c.alarm = a.After(d, c.wakeFn)
+		}
+		a.Began(d)
+		return
+	}
 	if c.sleep != nil {
 		c.sleep.Interrupt()
 		c.sleep = nil
@@ -327,6 +377,11 @@ func (c *httpConn) enterLocked(p phase) {
 // Read ends the idle phase at the first byte of the next request, and
 // names an expiry in the error of every read after it.
 func (c *httpConn) Read(b []byte) (int, error) {
+	if len(c.replay) > 0 {
+		n := copy(b, c.replay)
+		c.replay = c.replay[n:]
+		return n, nil
+	}
 	n, err := c.Conn.Read(b)
 	if n > 0 && phase(c.at.Load()) == phaseIdle {
 		c.mu.Lock()
@@ -407,11 +462,47 @@ func (c *httpConn) CloseWrite() error {
 func (c *httpConn) expire(epoch uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epoch != epoch || c.expired != phaseFree || c.phase == phaseClosed {
+	if c.epoch != epoch {
+		return
+	}
+	c.expireLocked()
+}
+
+func (c *httpConn) expireLocked() {
+	if c.expired != phaseFree || c.phase == phaseClosed {
 		return
 	}
 	c.expired = c.phase
 	_ = c.Conn.SetReadDeadline(aLongTimeAgo)
+}
+
+// wake is the function of each of c's alarms. The armed alarm is done
+// once the clock reaches its time (an alarm stopped too late to keep its
+// function from running may wake c early, and changes nothing). The
+// current bounded phase expires when the clock has reached its deadline;
+// an earlier wake arms the alarm again for the deadline.
+func (c *httpConn) wake() {
+	a := c.s.alarms
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.phase == phaseClosed {
+		return
+	}
+	now := a.Now()
+	if c.alarm != nil && now >= c.armedAt {
+		c.alarm = nil
+	}
+	if !c.bounded {
+		return
+	}
+	if now >= c.deadline {
+		c.expireLocked()
+		return
+	}
+	if c.alarm == nil {
+		c.armedAt = c.deadline
+		c.alarm = a.After(c.deadline-now, c.wakeFn)
+	}
 }
 
 // timeouts bounds c's read phases, on a goroutine of c's own from the
@@ -473,8 +564,12 @@ func (s *httpServer) timeouts(c *httpConn) {
 	}
 }
 
-// watch starts c's timer goroutine, unless the server is stopping.
+// watch starts c's timer goroutine, unless the server is stopping. The
+// alarm path needs none: c's phases arm their alarms.
 func (s *httpServer) watch(c *httpConn) {
+	if s.alarms != nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
@@ -495,7 +590,18 @@ func (l httpListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &httpConn{Conn: nc, s: l.s, kick: make(chan struct{}, 1)}, nil
+	return l.s.newConn(nc), nil
+}
+
+// newConn wraps an accepted connection, for net/http or the engine.
+func (s *httpServer) newConn(nc net.Conn) *httpConn {
+	c := &httpConn{Conn: nc, s: s}
+	if s.alarms == nil {
+		c.kick = make(chan struct{}, 1)
+	} else {
+		c.wakeFn = c.wake
+	}
+	return c
 }
 
 // connKey finds a request's connection in its context.
@@ -510,6 +616,10 @@ func connState(nc net.Conn, st http.ConnState) {
 	}
 	switch st {
 	case http.StateNew:
+		if c.handed {
+			// The engine watched c and is in its header phase.
+			return
+		}
 		c.s.watch(c)
 		c.enter(phaseHeader)
 	case http.StateActive:
@@ -536,18 +646,30 @@ func connState(nc net.Conn, st http.ConnState) {
 //
 // Each connection's read phases are bounded by the Limits timeouts: the
 // header (from the accept, or from the first byte after idle, to the
-// whole header), the body, and the idle wait between requests. Each
-// connection has one phase timer, a goroutine whose sleeps are tasks under
-// t that sleep on sleeper, the program's Scheduler, so a test Scheduler
-// decides when a phase expires, as for timeout.After; Serve arms no host
-// timer of its own. A phase that ends first cuts its sleep, and the next
-// bounded phase sleeps its own bound on the same goroutine. An expired idle or header phase closes the connection; an
+// whole header), the body, and the idle wait between requests, on
+// sleeper, the program's Scheduler, so a test Scheduler decides when a
+// phase expires, as for timeout.After; Serve arms no host timer of its
+// own. A program's Scheduler has Alarms (v1.Alarmer), which Serve calls
+// once on t: each connection keeps one deadline on that AlarmClock, which
+// a bounded phase moves, and one alarm, armed only when the deadline
+// comes first (enterLocked, wake): no task, goroutine or sleep per phase.
+// A Go Sleeper with no Alarms (a test's) takes the reference path: each
+// connection has one phase timer, a goroutine whose sleeps are tasks
+// under t; a phase that ends first cuts its sleep, and the next bounded
+// phase sleeps its own bound on the same goroutine. Both expire the same
+// phases (TestHTTPPhasesExpireOnTheScheduler runs each). An expired idle or header phase closes the connection; an
 // expired body phase reaches the handler as a failed read, and its answer
 // is the connection's last. A stop drains the timers with the requests.
 //
 //ergo:host
 //ergo:wait child
-func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+	return httpServe(site, t, sleeper, l, limits, handle, serveEngine)
+}
+
+// httpServe is HTTPServe with its reader chosen: engine, Serve's own
+// (serveConn), or net/http's for every connection, the reference.
+func httpServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse, engine bool) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
 	}
@@ -555,6 +677,11 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits
 	t.Check()
 	s := &httpServer{limits: limits, site: string(site), handle: handle, requests: rt.NewGroup(t, string(site)+" (requests)"), failed: make(chan struct{}, 1),
 		timers: rt.NewGroup(t, string(site)+" (timeouts)"), sleeper: sleeper, timerSite: string(site) + " (timeout)", stopping: make(chan struct{})}
+	if a, ok := sleeper.(v1.Alarmer); ok {
+		// The Scheduler's Alarms runs here, on the serving task, once:
+		// a provider's Ergo code never runs on a connection's goroutine.
+		s.alarms = a.Alarms(t)
+	}
 	srv := &http.Server{
 		Handler:        s,
 		MaxHeaderBytes: limits.MaxHeaderBytes,
@@ -562,7 +689,18 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits
 		ConnContext:    func(ctx context.Context, nc net.Conn) context.Context { return context.WithValue(ctx, connKey{}, nc) },
 	}
 	served := make(chan error, 1)
-	go func() { served <- srv.Serve(httpListener{l.ln, s}) }()
+	var el *engineListener
+	if engine {
+		// The engine reads each connection; net/http serves the ones it
+		// hands over.
+		s.conns = map[*httpConn]struct{}{}
+		el = newEngineListener(l.GoListener(), s)
+		s.workers.Add(1)
+		go el.accept()
+		go func() { served <- srv.Serve(el) }()
+	} else {
+		go func() { served <- srv.Serve(httpListener{l.GoListener(), s}) }()
+	}
 	// shutdown stops the requests and the timers and joins them: every
 	// request task and every sleep has returned once its goroutine has
 	// (workers). It returns the defects of the requests and of the timers.
@@ -572,11 +710,24 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits
 		s.mu.Unlock()
 		close(s.stopping)
 		_ = srv.Close() // unblock even a partial header or body read
+		if el != nil {
+			_ = el.Close()
+			s.mu.Lock()
+			for c := range s.conns {
+				_ = c.Conn.Close()
+			}
+			s.mu.Unlock()
+		}
 		// Closing a connection cuts its sleep (enter), so the timers end
 		// with the connections.
 		s.requests.Interrupt()
 		var causes rt.Cause
 		s.workers.Wait()
+		s.mu.Lock()
+		if s.peerW != nil {
+			s.peerW.close() // every connection it watched has ended
+		}
+		s.mu.Unlock()
 		s.requests.End()
 		s.timers.End()
 		s.fmu.Lock()
@@ -616,9 +767,9 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.workers.Add(1)
 	s.mu.Unlock()
 	defer s.workers.Done()
-	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header)}
+	in := httpIncoming{Method: r.Method, Path: r.URL.Path, RawPath: r.URL.EscapedPath(), Header: httpFields(r.Header)}
 	if r.URL.RawQuery != "" {
-		in.Query = HTTPParseQuery(r.URL.RawQuery)
+		in.Query = httpParseQuery(r.URL.RawQuery)
 	}
 	ctx := r.Context()
 	conn, _ := ctx.Value(connKey{}).(*httpConn)
@@ -652,6 +803,16 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The client left before its handler started.
 		panic(http.ErrAbortHandler)
 	}
+	if !s.answer(w, &in, conn, watch) {
+		panic(http.ErrAbortHandler)
+	}
+}
+
+// answer runs the handler of in on its request task and writes its
+// answer on w, net/http's or the engine's. watch: a disconnect of conn
+// stops the request. false: the request ended in a stop or a defect, and
+// the connection ends with no more bytes (net/http's ErrAbortHandler).
+func (s *httpServer) answer(w http.ResponseWriter, in *httpIncoming, conn *httpConn, watch bool) bool {
 	x := &Exchange{w: w}
 	response, err := rt.RunIn(s.requests, s.site, func(ct *rt.Task) (HTTPResponse, error) {
 		if watch {
@@ -661,7 +822,14 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return v1.Guarded(ct, func(ct *rt.Task) (HTTPResponse, error) {
 			ct.Check()
-			return s.handle(ct, x, in.Method, in.Path, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
+			if ew, onEngine := w.(*engineResponse); watch && onEngine && engineLazyWatch {
+				// The engine watches the connection from the handler's
+				// first interruption point (a wait, Check or Stopped),
+				// the first point a stop can end it: a handler that
+				// answers without one needs no watch (HTTP-FAST-c3, c4).
+				defer rt.WhenPolled(ct, &ew.e.poll, ew.e.watchFn).End()
+			}
+			return s.handle(ct, x, in.Method, in.Path, in.RawPath, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
 		})
 	})
 	// The request task has ended: a writer it kept now fails, and a
@@ -672,12 +840,19 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !rt.OnlyInterruption(err) {
 			s.fail(err)
 		}
-		panic(http.ErrAbortHandler)
+		return false
 	}
-	if streamed {
-		return
+	if !streamed {
+		ew, onEngine := w.(*engineResponse)
+		fast := onEngine && engineFastWriter && ew.fastAnswer(response)
+		if onEngine && engineFastHook != nil {
+			engineFastHook(fast)
+		}
+		if !fast {
+			httpWriteAnswer(w, response)
+		}
 	}
-	httpWriteAnswer(w, response)
+	return true
 }
 
 // httpWriteAnswer writes a handler's buffered answer: Serve's, and a local
@@ -730,14 +905,31 @@ func (s *httpServer) fail(err error) {
 	}
 }
 
-// HTTPParseQuery is std http.ParseQuery and the Query of every request
-// Serve gives a handler: url.ParseQuery's pairs, a pair with a malformed
+// httpParseQuery is the Query of every request Serve gives a handler, as
+// std http's ParseQuery (Ergo) reads it: url.ParseQuery's pairs, a pair with a malformed
 // escape dropped as Request.URL.Query drops it.
-//
-//ergo:wait none
-func HTTPParseQuery(raw string) []HTTPField {
+func httpParseQuery(raw string) []HTTPField {
 	values, _ := url.ParseQuery(raw)
 	return httpFields(values)
+}
+
+// HTTPBadEscape is http.BadEscape: a raw path with a "%" that two hex
+// digits do not follow.
+type HTTPBadEscape struct{ Raw string }
+
+func (e HTTPBadEscape) Error() string { return "http.BadEscape: " + e.Raw }
+
+// HTTPDecodePath is std http.DecodePath: the path raw escapes, decoded
+// as Serve decodes a request's Path (url.PathUnescape: "%XX" is the byte,
+// "+" stays "+").
+//
+//ergo:wait none
+func HTTPDecodePath(raw string) (string, error) {
+	p, err := url.PathUnescape(raw)
+	if err != nil {
+		return "", HTTPBadEscape{Raw: raw}
+	}
+	return p, nil
 }
 
 // httpFields keeps repeated values in their host order; sorting names

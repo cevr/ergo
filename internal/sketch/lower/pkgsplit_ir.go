@@ -95,26 +95,42 @@ func (s *irSplit) foreign(p int, name string) {
 	s.uses[p][name] = true
 }
 
-// forwardedInsts are the instances that the forwarding functions
-// foreignDecls writes name in their signatures, each in the package it
-// writes the forwarder into: Go compiles them there too, so the shared
-// lists count those packages (MONO-SHARED, pkginst.go).
-func (s *irSplit) forwardedInsts(defs splitDefs, finder *splitInsts) []splitInst {
-	var out []splitInst
-	users := slices.Sorted(maps.Keys(s.uses))
-	for _, k := range users {
-		for _, name := range slices.Sorted(maps.Keys(s.uses[k])) {
-			fn, ok := defs.node[name].(*ast.FuncDecl)
-			if !ok || fn.Type.TypeParams != nil {
-				continue
-			}
-			ast.Inspect(fn.Type, func(n ast.Node) bool {
-				if x, ok := n.(ast.Expr); ok && finder.instance(x) {
-					out = append(out, splitInst{x: x, pkg: k})
+// forwardedNames are the package-scope names (keys of groupOf) that
+// foreignDecls spells in the declaration it writes for n in another
+// package: a plain function's parameter and result types, a let's type
+// (its getter's result). A generic function or type, and a type alias,
+// spell none.
+func forwardedNames(n ast.Node, groupOf map[string]int) []string {
+	var types []ast.Expr
+	switch n := n.(type) {
+	case *ast.FuncDecl:
+		if n.Type.TypeParams == nil {
+			for _, list := range []*ast.FieldList{n.Type.Params, n.Type.Results} {
+				if list != nil {
+					for _, f := range list.List {
+						types = append(types, f.Type) // not its names
+					}
 				}
-				return true
-			})
+			}
 		}
+	case *ast.ValueSpec:
+		if len(n.Values) == 0 && n.Type != nil {
+			types = append(types, n.Type)
+		}
+	}
+	var out []string
+	for _, x := range types {
+		ast.Inspect(x, func(m ast.Node) bool {
+			switch m := m.(type) {
+			case *ast.SelectorExpr:
+				return false // another Go package's name
+			case *ast.Ident: // a nested field's name too: one more export, never a missing one
+				if _, ok := groupOf[m.Name]; ok {
+					out = append(out, m.Name)
+				}
+			}
+			return true
+		})
 	}
 	return out
 }
@@ -198,7 +214,7 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 				// no value is set by ergoInit, which main runs inside the
 				// root task (a let whose value takes statements), after
 				// every package's Go initialization: a copy holds its zero
-				// value (Q13: fk-routes's people.All read as an empty list,
+				// value (Q13: address-routes's people.All read as an empty list,
 				// "person 3: not found"). The IR body reads it through a
 				// forwarding function instead (files), when the body runs.
 				if len(n.Values) == 0 {
@@ -268,21 +284,15 @@ func freshName(taken map[string]bool, prefix string) string {
 // files are the IR files of the split module: each package's bodies,
 // renamed as the split renames, in the package's folder. The root always
 // has one, so a module built through IR names its root's file.
-func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan, shared map[int][]string) ([]File, int, error) {
+func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan) ([]File, int, error) {
 	byPkg := map[int][]irFunc{1: nil}
-	for p := range shared {
-		byPkg[p] = nil // a package with shared instances gets an IR file for its list (pkginst.go)
-	}
 	for i := range s.ir.Funcs {
-		// A copy: the split may still fall back to the one-package IR.
-		data, err := json.Marshal(&s.ir.Funcs[i])
-		if err != nil {
-			return nil, 0, err
-		}
-		var fn irFunc
-		if err := json.Unmarshal(data, &fn); err != nil {
-			return nil, 0, err
-		}
+		// Renamed in place: the split no longer falls back to the
+		// one-package IR once it writes the IR files, and an error here
+		// fails the lowering (lowerIRSplit). A JSON round trip of each
+		// function copied it before GP-SPLIT-EDIT, half of the split's
+		// own work.
+		fn := &s.ir.Funcs[i]
 		p := pkgOf(i)
 		renamed := func(n *string) {
 			if r, ok := rename[*n]; ok {
@@ -308,8 +318,8 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			fn.Name += "." + method
 		}
 		fn.walk(own, renamed)
-		if err := pcalls(&fn, s.qual[p]); err != nil {
-			return nil, 0, err
+		if err := pcalls(fn, s.qual[p]); err != nil {
+			return nil, 0, err // after the rename: the lowering fails (SplitReport.err)
 		}
 		if get := s.getters[p]; len(get) > 0 {
 			fn.exprs(func(x *irExpr) {
@@ -318,7 +328,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 				}
 			})
 		}
-		byPkg[p] = append(byPkg[p], fn)
+		byPkg[p] = append(byPkg[p], *fn)
 	}
 	var out []File
 	withIR := 0
@@ -328,7 +338,7 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			withIR++
 		}
 		sort.Slice(funcs, func(a, b int) bool { return funcs[a].Name < funcs[b].Name })
-		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs, Shared: shared[p]})
+		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs})
 		if err != nil {
 			return nil, 0, err
 		}

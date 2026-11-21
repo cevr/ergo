@@ -192,9 +192,11 @@ type funcCtx struct {
 	resultNames map[string]string
 	// plain marks the callback parameters of a known variant, whose Go
 	// type is the plain func(…) R, and plainLits the pure literals a call
-	// passes to one (known.go).
+	// passes to one (known.go), plainMVs the known pure method values
+	// (pureMethodValue).
 	plain     map[*check.Var]bool
 	plainLits map[*syntax.FuncLit]bool
+	plainMVs  map[*syntax.SelectorExpr]bool
 	// inl is the inline site (plus one) of the code being written, which
 	// its directives name (inline.go, tagPath); inlDepth counts the sites
 	// around it; lits are the literals an inlined body's callback
@@ -206,7 +208,12 @@ type funcCtx struct {
 	// lowered, until its inlined call takes it (knownmatch.go).
 	pendingKnown *knownMatch
 	lits         map[*check.Var]*litSub
-	inlined      *operand
+	// argOf is an inlined body's operand for each parameter, as the caller
+	// wrote it (seen through the caller's own inlined parameters): a rule
+	// that needs the operand's syntax, a literal or a constant, reads it
+	// through the parameter (argSource; repeat.go).
+	argOf   map[*check.Var]syntax.Expr
+	inlined *operand
 	// hot marks an inlined body whose site is on a loop path (inline.go,
 	// onLoopPath): its own sites run once per iteration too.
 	hot bool
@@ -249,6 +256,9 @@ type funcCtx struct {
 	path []*growthAcct
 	// bounds are the facts in force at the code being written (bounds.go).
 	bounds []*boundFact
+	// factLocal reports a local of the IR builder's body (ir_bounds.go),
+	// which stable takes as it takes the emitter's locals; nil outside one.
+	factLocal func(*check.Var) bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -831,6 +841,9 @@ func (fc *funcCtx) lawResult(x syntax.Expr, val, err string) string {
 	cond := "!" + held
 	if err != "nil" {
 		cond = err + " == nil && " + cond
+	}
+	if fc.l.tests.law.Admits != nil {
+		return held // an admission's false only skips its case (lawnear.go)
 	}
 	fc.line("if " + cond + " { " + fc.l.helper("Refuted") + "(" + fc.resultSite(x) + ", " + strconv.Quote(fc.l.siteText(fc.l.tests.law.Decl)) + ") }")
 	return held

@@ -1,0 +1,271 @@
+// Composed providers (PROV-COMPOSE): a part of the program tweaks the
+// pacing in force, it does not only replace it. A wrapper is a generic
+// record over the provider it refines: the binder holds the outer
+// provider, as main does, and an inner with binds the wrapper for a
+// subtree. A wrapper changes when the collector runs, never a value
+// (Pacing's laws hold for every wrapper over every provider: the named
+// contexts of tests.ergo), and an inner with's wrapper is gone at the
+// with's end, so the parent keeps its own state.
+//
+// The convention for a lever's package, which pace keeps: its contract
+// (an operation type with laws), a reference provider (Default), a
+// counting provider (Counting), and wrappers as generic records whose
+// constructor takes the outer provider first (NewEvery, NewQuiet,
+// NewRaised). docs/spec/stdlib.md, Pacing 10.
+
+import atomic
+import sync
+import go runtime/debug
+
+// Every passes one edge in n to the provider it refines: the nth, the
+// 2nth, and so on; a hold and a release pass through. A loop whose units
+// are small paces every n of them. Every n of 1 is the provider it
+// refines. The count is shared by every copy of an Every, so two tasks
+// pacing through one Every count together.
+type Every[P Pacing] { inner P, n int64, seen atomic.Int64 } implements Pacing
+
+// NewEvery is Every n over inner; an n under 1 is 1.
+func NewEvery[P Pacing](inner P, n int) Every[P] {
+	Every[P]{inner: inner, n: if n < 1 { int64(1) } else { int64(n) }, seen: atomic.NewInt64(0)}
+}
+
+// Edge counts the edge and passes it on when it is the nth.
+func Edge[P Pacing](e Every[P]) {
+	if e.seen.Add(1)%e.n == 0 {
+		e.inner.Edge()
+	}
+}
+
+// Hold passes the hold on.
+func Hold[P Pacing](e Every[P]) { e.inner.Hold() }
+
+// Release passes the release on.
+func Release[P Pacing](e Every[P]) { e.inner.Release() }
+
+// Quiet passes no edge to the provider it refines, and every hold and
+// release: a stretch of the program that must not collect at its own
+// edges, inside a part that does.
+type Quiet[P Pacing] { inner P } implements Pacing
+
+// NewQuiet is Quiet over inner.
+func NewQuiet[P Pacing](inner P) Quiet[P] { Quiet[P]{inner: inner} }
+
+// Edge does nothing.
+func Edge[P Pacing](_ Quiet[P]) {}
+
+// Hold passes the hold on.
+func Hold[P Pacing](q Quiet[P]) { q.inner.Hold() }
+
+// Release passes the release on.
+func Release[P Pacing](q Quiet[P]) { q.inner.Release() }
+
+// Raises is the combine of the percents that raised stretches ask of Go's
+// collector, shared by every copy: Go has one GC percent for the
+// process, so raises on several tasks at once combine. While any is open
+// the percent in force is the largest open one; the lower that closes the
+// last one gives the base back, and only it.
+type Raises { open sync.Ref[[]int] }
+
+// NewRaises is a Raises with none open.
+func NewRaises() Raises { Raises{open: sync.NewRef([]int{})} }
+
+// Raise opens a raise to percent and is the percent now in force.
+func Raise(r Raises, percent int) int {
+	sync.Modify(r.open, func(open []int) (int, []int) {
+		let more = open.Append(percent)
+		(highest(more), more)
+	})
+}
+
+// Lower closes one open raise to percent: the percent now in force, or
+// None when it closed the last one and the base is back.
+func Lower(r Raises, percent int) Option[int] {
+	sync.Modify(r.open, func(open []int) (Option[int], []int) {
+		let rest = without(open, percent)
+		if len(rest) == 0 {
+			return (None, rest)
+		}
+		(Some[int]{Value: highest(rest)}, rest)
+	})
+}
+
+// Open is how many raises are open.
+func Open(r Raises) int { sync.Modify(r.open, func(open []int) (int, []int) { (len(open), open) }) }
+
+// highest is the largest of xs, which is not empty.
+func highest(xs []int) int {
+	let mut m = xs[0]
+	for x in xs {
+		if x > m {
+			m = x
+		}
+	}
+	m
+}
+
+// without is xs less one x, or xs when x is not in it.
+func without(xs []int, x int) []int {
+	for i, y in xs {
+		if y == x {
+			let (_, rest) = xs.TakeAt(i)
+			return rest
+		}
+	}
+	xs
+}
+
+// Raised runs each held stretch of the provider it refines with Go's
+// collector at least at percent: a burst that makes much short-lived
+// garbage collects less often inside it. The hold passes on, so a parent
+// that defers its edges still does. A raise is the process's GC percent,
+// so raises combine by Raises; the last release puts back the percent
+// that was in force when NewRaised made the provider. Over a provider
+// that turned the percent off (AtEdges), a held stretch collects at
+// percent, as Go's own pace with a limit.
+type Raised[P Pacing] { inner P, percent int, base int, raises Raises } implements Pacing
+
+// NewRaised is Raised over inner at percent.
+func NewRaised[P Pacing](inner P, percent int) Raised[P] needs go.Foreign {
+	let base = debug.SetGCPercent(100)
+	let _ = debug.SetGCPercent(base)
+	Raised[P]{inner: inner, percent: percent, base: base, raises: NewRaises()}
+}
+
+// Edge passes the edge on.
+func Edge[P Pacing](r Raised[P]) { r.inner.Edge() }
+
+// Hold passes the hold on and raises the percent.
+func Hold[P Pacing](r Raised[P]) needs go.Foreign {
+	r.inner.Hold()
+	let _ = debug.SetGCPercent(r.raises.Raise(r.percent))
+}
+
+// Release lowers the percent, back to the base at the last release, and
+// passes the release on.
+func Release[P Pacing](r Raised[P]) needs go.Foreign {
+	let percent = match r.raises.Lower(r.percent) {
+	case Some[int] as p:
+		p.Value
+	case None:
+		r.base
+	}
+	let _ = debug.SetGCPercent(percent)
+	r.inner.Release()
+}
+
+// EveryOneIsParent: Every of 1 passes every edge and every hold to the
+// provider it refines, as if the code called it directly.
+law EveryOneIsParent(n int, k int) {
+	let edges = within(n, 0, 64)
+	let holds = within(k, 0, 4)
+	let c = NewCounting()
+	with context { Pacing: NewEvery(c, 1) } {
+		for _ in 0..holds {
+			Pacing.Hold()
+		}
+		for _ in 0..edges {
+			Pacing.Edge()
+		}
+		for _ in 0..holds {
+			Pacing.Release()
+		}
+	}
+	let held = if holds > 0 { edges } else { 0 }
+	let owed = if holds > 0 && edges > 0 { int64(1) } else { int64(0) }
+	c.Edges() == int64(edges) && c.HeldEdges() == int64(held) && c.Deferred() == owed
+}
+
+// EveryPassesOneInN: of k edges under Every of n, the parent sees k/n:
+// the nth, the 2nth, and so on.
+law EveryPassesOneInN(n int, k int) {
+	let every = within(n, 1, 9)
+	let edges = within(k, 0, 200)
+	let c = NewCounting()
+	with context { Pacing: NewEvery(c, every) } {
+		for _ in 0..edges {
+			Pacing.Edge()
+		}
+	}
+	c.Edges() == int64(edges/every)
+}
+
+// EveryNests: Every of a over Every of b observes as Every of a*b, edge
+// for edge.
+law EveryNests(a int, b int, k int) {
+	let x = within(a, 1, 6)
+	let y = within(b, 1, 6)
+	let edges = within(k, 0, 200)
+	let nested = NewCounting()
+	let flat = NewCounting()
+	let outer = NewEvery(NewEvery(nested, y), x)
+	let one = NewEvery(flat, x*y)
+	let mut same = true
+	for _ in 0..edges {
+		with context { Pacing: outer } { Pacing.Edge() }
+		with context { Pacing: one } { Pacing.Edge() }
+		same = same && nested.Edges() == flat.Edges()
+	}
+	same
+}
+
+// QuietForwardsHolds: under Quiet no edge reaches the parent, and every
+// hold and release does: an edge marked on the parent itself while the
+// quiet holds are open is held, and one after the last release is not.
+law QuietForwardsHolds(n int, k int) {
+	let edges = within(n, 0, 64)
+	let holds = within(k, 0, 4)
+	let c = NewCounting()
+	with context { Pacing: NewQuiet(c) } {
+		for _ in 0..holds {
+			Pacing.Hold()
+		}
+		for _ in 0..edges {
+			Pacing.Edge()
+		}
+		c.Edge()
+		for _ in 0..holds {
+			Pacing.Release()
+		}
+	}
+	c.Edge()
+	let held = if holds > 0 { int64(1) } else { int64(0) }
+	c.Edges() == 2 && c.HeldEdges() == held && c.Deferred() == held
+}
+
+// RaisesFollowModel: against a model (a multiset of open percents), a
+// run of raises and lowers on a Raises answers the same at every step:
+// while any raise is open the percent in force is the largest open, and
+// the lower that closes the last one gives the base back, once.
+law RaisesFollowModel(ops []int) {
+	let r = NewRaises()
+	let mut open = []int{}
+	let mut same = true
+	for op in ops {
+		let percent = 100 * within(op/2, 1, 8)
+		if within(op, 0, 1) == 0 {
+			let got = r.Raise(percent)
+			open = open.Append(percent)
+			same = same && got == largest(open)
+		} else if len(open) > 0 {
+			let i = within(op/16, 0, len(open)-1)
+			let gone = open[i]
+			let (_, rest) = open.TakeAt(i)
+			open = rest
+			let got = r.Lower(gone)
+			same = same && got == (if len(open) == 0 { None } else { Some[int]{Value: largest(open)} })
+		}
+		same = same && r.Open() == len(open)
+	}
+	same
+}
+
+// largest is the largest of xs, which is not empty.
+func largest(xs []int) int {
+	let mut m = xs[0]
+	for x in xs {
+		if x > m {
+			m = x
+		}
+	}
+	m
+}

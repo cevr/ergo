@@ -69,11 +69,11 @@ func main() needs Console | go.Foreign {
 // (it has no row and no context can bind it; rows.md, Entry 4).
 func TestImportGoRows(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
-		{"foreign", "import go net/url\nfunc Escape(s string) string { url.QueryEscape(s) }\n",
+		{"foreign", "import go regexp\nfunc Escape(s string) string { regexp.QuoteMeta(s) }\n",
 			"2:32:S102 this call requires go.Foreign, which is not in the capability row of function Escape and no with provides it"},
 		{"error", "import go strconv\nfunc N(s string) int { try strconv.Atoi(s) }\n",
 			"2:24:S101 {go.Error} escapes function N, whose error row {} does not list it"},
-		{"test", "import go net/url\nfunc esc(s string) string needs go.Foreign { url.QueryEscape(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
+		{"test", "import go regexp\nfunc esc(s string) string needs go.Foreign { regexp.QuoteMeta(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
 			"3:19:S102 this call requires go.Foreign, which is not in the capability row of test Esc and no with provides it"},
 		// go.Foreign's interface is empty, so only this rule keeps a
 		// context (in a test, say) from providing it.
@@ -114,8 +114,8 @@ func TestImportGoUses(t *testing.T) {
 		{"major-version", "import go math/rand/v2\nfunc F() int needs go.Foreign { rand.IntN(3) }\n", ""},
 		{"pointer-receiver", "import go strings\nfunc F(b strings.Builder) int needs go.Foreign { b.Len() }\n",
 			"2:50:S109 the Go method strings.Builder.Len has a pointer receiver; call it on a go.Ref[strings.Builder] or a borrow, not on a copy (docs/spec/interop.md)"},
-		{"borrow-kept", "import go net/url\nfunc F(p *url.URL) go.Ref[url.URL] { p }\n",
-			"2:38:S108 cannot use *url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
+		{"borrow-kept", "import go net/url\nfunc F(p mut url.URL) go.Ref[url.URL] { p }\n",
+			"2:41:S108 cannot use mut url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
 		{"ops-into-go-interface", "import go fmt\ntype S { String() string }\nfunc F(s S) fmt.Stringer { s }\n",
 			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
 		// A sealed operation type the program declares is no std runtime

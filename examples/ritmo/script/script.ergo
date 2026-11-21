@@ -1,0 +1,147 @@
+// Package script is the game's transport on standard input and output:
+// one request a line, each answered on standard output. It reads
+// requests and prints replies and decides nothing (the Api is
+// topdown.Handle). It stands in for ritmo-browser's devices: a line of
+// keys is one tick's input, as ritmo's scripted keyboard is.
+//
+//	KEYS[*N]    N ticks (1 when *N is left out) holding KEYS: w a s d walk,
+//	            e interacts, . is no key
+//	look        the room, then the status
+//	save NAME   keep the world under NAME
+//	load NAME   go on from the world saved under NAME
+//	rewind N    go back N ticks
+//	quit        stop
+
+import io
+import ritmo/screen
+import ritmo/topdown
+import strconv
+import strings
+
+// Unknown is a line that is no request.
+type Unknown { Line string }
+
+// Parse is the requests of one line, in order.
+func Parse(line string) []topdown.Request fails Unknown {
+	let words = strings.Fields(line)
+	if len(words) == 2 && words[0] == "save" {
+		return []topdown.Request{topdown.Save{Slot: words[1]}}
+	}
+	if len(words) == 2 && words[0] == "load" {
+		return []topdown.Request{topdown.Load{Slot: words[1]}}
+	}
+	if len(words) == 2 && words[0] == "rewind" {
+		let n = strconv.Atoi(words[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return Unknown{Line: line}
+		}
+		return []topdown.Request{topdown.Rewind{Ticks: n}}
+	}
+	if len(words) == 1 && words[0] == "look" {
+		return []topdown.Request{topdown.Look}
+	}
+	if len(words) != 1 {
+		return Unknown{Line: line}
+	}
+	let (keys, times) = match strings.Cut(words[0], "*") {
+	case None:
+		(words[0], 1)
+	case Some[strings.Halves] as h:
+		let n = strconv.Atoi(h.Value.After) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return Unknown{Line: line}
+		}
+		(h.Value.Before, n)
+	}
+	if times < 1 || times > 10000 {
+		return Unknown{Line: line}
+	}
+	let c = try Bind(keys, line)
+	let mut out = []topdown.Request{}
+	for _ in 0..times {
+		out = out.Append(topdown.Step{C: c})
+	}
+	out
+}
+
+// Bind is the controls of keys held at once (ritmo's Keyboard.vector
+// bindings): w and s cancel, as a and d do.
+func Bind(keys string, line string) topdown.Controls fails Unknown {
+	let mut c = topdown.Idle
+	for k in keys {
+		if k == 'w' {
+			c = topdown.Controls{..c, DY: c.DY - 1}
+		} else if k == 's' {
+			c = topdown.Controls{..c, DY: c.DY + 1}
+		} else if k == 'a' {
+			c = topdown.Controls{..c, DX: c.DX - 1}
+		} else if k == 'd' {
+			c = topdown.Controls{..c, DX: c.DX + 1}
+		} else if k == 'e' {
+			c = topdown.Controls{..c, Interact: true}
+		} else if k != '.' {
+			return Unknown{Line: line}
+		}
+	}
+	topdown.Controls{..c, DX: sign(c.DX), DY: sign(c.DY)}
+}
+
+func sign(n int) int { if n < 0 { -1 } else if n > 0 { 1 } else { 0 } }
+
+// Run answers each line of standard input until its end or quit, from
+// a new game that keeps keep ticks to rewind, and is how many lines failed.
+func Run(keep int) int needs io.Stdin | io.Stdout | topdown.Saves {
+	let mut s = topdown.Begin(keep)
+	let mut failed = 0
+	io.Stdout.Println(screen.Status(s.Now()))
+	for line in io.Stdin.Lines() {
+		if strings.TrimSpace(line) == "quit" {
+			break
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		let requests = Parse(line) catch {
+		case Unknown as u:
+			io.Stdout.Println("? \"\(u.Line)\": want KEYS[*N], look, save NAME, load NAME, rewind N or quit")
+			failed = failed + 1
+			continue
+		}
+		let mut shown = false
+		for r in requests {
+			let reply = topdown.Handle(&s, r) catch {
+			case topdown.TooFar as t:
+				io.Stdout.Println("! cannot rewind \(t.Asked) ticks: \(t.Kept) kept")
+				failed = failed + 1
+				break
+			case topdown.Missing as m:
+				io.Stdout.Println("! nothing saved as \(m.Slot)")
+				failed = failed + 1
+				break
+			case topdown.Broken as b:
+				io.Stdout.Println("! cannot keep \(b.Slot): \(b.Why)")
+				failed = failed + 1
+				break
+			}
+			match reply {
+			case topdown.Stepped:
+				shown = true
+			case topdown.Saved as k:
+				io.Stdout.Println("saved \(k.Slot)")
+			case topdown.Restored as r2:
+				io.Stdout.Println("loaded \(r2.Slot)")
+				io.Stdout.Println(screen.Status(s.Now()))
+			case topdown.Rewound as rw:
+				io.Stdout.Println("rewound \(rw.Ticks)")
+				io.Stdout.Println(screen.Status(s.Now()))
+			case topdown.Seen:
+				io.Stdout.Println(strings.TrimSuffix(screen.Room(s.Now()), "\n"))
+				io.Stdout.Println(screen.Status(s.Now()))
+			}
+		}
+		if shown {
+			io.Stdout.Println(screen.Status(s.Now()))
+		}
+	}
+	failed
+}

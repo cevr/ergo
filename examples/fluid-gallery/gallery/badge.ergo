@@ -89,7 +89,7 @@ func badgePage() Doc {
 	Doc{
 		Title:    "Badge",
 		Lead:     "Compact label for status, category, or metadata. Supports solid and dot variants with Tailwind colors.",
-		Install:  "Editable source for Foldkit.",
+		Install:  "Editable source for Ergo.",
 		Sections: []Section{
 			Section{Title: "Solid", Lead: []Run{}, Stage: Stage("s0", false, wrapOf(genres, false)), Controls: false},
 			Section{Title: "Dot", Lead: []Run{}, Stage: Stage("s1", false, wrapOf(genres, true)), Controls: false},

@@ -333,6 +333,17 @@ type Snapshot {
 	Imports     []Import,
 }
 
+// SnapshotRoundTrips: the text EncodeSnapshot writes, in the Go SDK's
+// form that leaves empty lists, flags and texts out, DecodeSnapshot reads
+// back as the same snapshot, every kind of fact by its name.
+law SnapshotRoundTrips(s Snapshot) {
+	let back = DecodeSnapshot(EncodeSnapshot(s)) catch {
+	case SnapshotFailed:
+		return false
+	}
+	back == s
+}
+
 // SchemaName and SchemaVersion name the fact schema this package reads.
 let SchemaName = "ergo.lint.facts"
 

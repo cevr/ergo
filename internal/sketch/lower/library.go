@@ -215,7 +215,7 @@ func (l *lowerer) exports(b *strings.Builder) {
 		body := l.rootTask(locals, "("+resultGo+", error)", fields, func(env string) string {
 			call := fd.name + "(" + strings.Join(append(fd.envLead(env), args...), ", ") + ")"
 			s := ""
-			if fd.pure {
+			if fd.envFree {
 				s += "\t\t_ = " + env + "\n"
 			}
 			s += runInits(env)

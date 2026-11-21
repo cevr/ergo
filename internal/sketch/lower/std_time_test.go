@@ -14,7 +14,8 @@ import (
 // decides Before, After and Sub when wall and monotonic disagree; Unix and
 // Add carry nanoseconds into seconds; a host clock's two reads never fall;
 // the host's Since by its monotonic reading and, for a time with none, by
-// the wall (std-speed-1: kills a reversed subMono or Sub in Host.Elapsed).
+// the wall, between two reads' Sub (std-speed-1, NP4f-17: kills a reversed
+// monotonic difference or Sub in Host.Elapsed).
 func TestTimeRuns(t *testing.T) {
 	needsBuild(t)
 	runBehaviors(t, []behavior{{name: "time", src: stdTimeProgram, stdout: stdTimeOutput}})
@@ -96,11 +97,14 @@ func main() fails time.ParseError needs Console | Ambient {
 	let b = h.Now()
 	Console.Println("\(!b.Before(a)) \(b.Sub(a) >= 0s)")
 	// The host's Elapsed (std-speed-1): read after b, by the monotonic
-	// clock alone, it is no less than b.Sub(a); of a time with no
-	// monotonic reading it is the wall's, here over 45 years.
+	// clock alone, it is no less than b.Sub(a) and no more than a later
+	// read's Sub (NP4f-17: a reversed difference saturates to the largest
+	// duration); of a time with no monotonic reading it is the wall's,
+	// here over 45 years.
 	let since = with context { time.Clock: h } { time.Since(a) }
+	let later = h.Now().Sub(a)
 	let wall = with context { time.Clock: h } { time.Since(time.Unix(0, 0)) }
-	Console.Println("\(since >= b.Sub(a)) \(wall > 400000h)")
+	Console.Println("\(since >= b.Sub(a) && since <= later) \(wall > 400000h)")
 }
 `
 

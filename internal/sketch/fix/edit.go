@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -106,6 +106,100 @@ func (e *editor) clause(file string, d *syntax.TypeDecl, text string) {
 	e.add(file, edit{from: at, to: at, text: sep + text})
 }
 
+// mutOp writes `mut ` before the operation name of the operation type d
+// (MODES-4); one already marked, or written, is left as it is.
+func (e *editor) mutOp(file string, d *syntax.TypeDecl, name string) error {
+	spec, ok := d.Spec.(*syntax.InterfaceType)
+	if !ok {
+		return fmt.Errorf("%s is not an operation type", d.Name.Name)
+	}
+	for _, m := range spec.Methods {
+		if len(m.Names) == 0 || m.Names[0].Name != name {
+			continue
+		}
+		if m.Mut != nil {
+			return nil
+		}
+		at := int(m.Names[0].Pos())
+		for _, x := range e.edits[file] {
+			if x.from == at && x.to == at && x.text == "mut " {
+				return nil
+			}
+		}
+		e.add(file, edit{from: at, to: at, text: "mut "})
+		return nil
+	}
+	return fmt.Errorf("%s declares no operation %s here (an include declares it: mark it where it is declared)", d.Name.Name, name)
+}
+
+// ownMark writes own after the type parameter name of the declaration
+// decl, a function or a type, among files, whose name is at the offset at
+// (MODES-5): [T] becomes [T own], [T C] becomes [T own C], and a name
+// before others in a constrained group takes the group's constraint with
+// it, [A, B C] → [A own C, B C]. A marked group is left as it is. It
+// reports the file it edits, or an error.
+func (e *editor) ownMark(files []string, decl, name string, at int) (string, error) {
+	for _, file := range files {
+		src, f := e.read(file)
+		if f == nil {
+			continue
+		}
+		for _, d := range f.Decls {
+			var l *syntax.FieldList
+			switch d := d.(type) {
+			case *syntax.FuncDecl:
+				if d.Name.Name == decl {
+					l = d.TypeParams
+				}
+			case *syntax.TypeDecl:
+				if d.Name.Name == decl {
+					l = d.TypeParams
+				}
+			}
+			if l == nil {
+				continue
+			}
+			for _, field := range l.List {
+				for i, id := range field.Names {
+					if id.Name != name || int(id.Pos()) != at {
+						continue
+					}
+					if field.Own != nil {
+						return file, nil
+					}
+					end := int(id.End())
+					cons := ""
+					if field.Type != nil {
+						cons = " " + src[int(field.Type.Pos()):int(field.Type.End())]
+					}
+					text := " own"
+					if i < len(field.Names)-1 {
+						text += cons
+					} else if i > 0 {
+						// The last name of a group: the names before it
+						// end their own group, with its constraint, or
+						// with any when it has none (Generics 2).
+						before := cons
+						if before == "" {
+							before = " any"
+						}
+						prev := int(field.Names[i-1].End())
+						e.add(file, edit{from: prev, to: prev, text: before})
+					}
+					for _, x := range e.edits[file] {
+						if x.from == end && x.to == end && x.text == text {
+							return file, nil
+						}
+					}
+					e.add(file, edit{from: end, to: end, text: text})
+					return file, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("the declaration %s of the type parameter %s was not found under the fixed paths", decl, name)
+}
+
 // include writes the member `..text` first in the operation type d, and
 // removes d's own operations that op declares (sameOps checked that they
 // are the same operations).
@@ -162,7 +256,9 @@ func (e *editor) include(file string, d *syntax.TypeDecl, text string, op check.
 		if len(m.Names) == 0 || !names[m.Names[0].Name] {
 			continue
 		}
-		from := int(m.Names[0].Pos())
+		// From the member's mode word (`own Close()`, `mut Bump()`) on:
+		// the name alone would leave the word behind.
+		from := int(m.Pos())
 		if m.Doc != nil {
 			from = int(m.Doc.Pos())
 		}

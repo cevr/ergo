@@ -56,6 +56,47 @@ func Parse(line string) Command fails Unknown | Missing | NoWay {
 	}
 }
 
+// ParseInvertsText: a command's text, in any case, reads back to it.
+law ParseInvertsText(n int) {
+	let c = commandOf(n)
+	let a = Parse(Text(c)) catch {
+	case Unknown, Missing, NoWay:
+		return false
+	}
+	let b = Parse(strings.ToUpper(Text(c))) catch {
+	case Unknown, Missing, NoWay:
+		return false
+	}
+	a == c && b == c
+}
+
+// Items is the item names a script uses: the castle's three and one it
+// does not have.
+let Items = []string{"bread", "lamp", "key", "sword"}
+
+// commandOf is one command, by n: a move, a take, a drop, look,
+// inventory, help or a blank line.
+func commandOf(n int) Command {
+	let m = ((n % 17) + 17) % 17
+	if m < 6 {
+		return Go{Way: world.DirOf(m)}
+	}
+	if m < 10 {
+		return Take{Item: Items[m-6]}
+	}
+	if m < 14 {
+		return Drop{Item: Items[m-10]}
+	}
+	match m {
+	case 14:
+		Look
+	case 15:
+		Inventory
+	case _:
+		Help
+	}
+}
+
 func named(verb string, object string) string fails Missing {
 	if object == "" {
 		return Missing{Verb: verb}

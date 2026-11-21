@@ -66,16 +66,17 @@ type Queue[T any] struct {
 	size    atomic.Int64
 	senders []*sender[T] // the Pushes waiting for room, oldest first
 	closed  bool
-	// waiters holds the wake channel of each waiting Push and Pop; a
-	// change a waiter may wait for sends one token to each and empties
-	// the list (signal). Each channel has room for one token, and a
-	// waiter's channel is in the list at most once and empty when it
-	// enters, so the send never blocks. spare keeps the channels of ended
-	// waits for the next ones, so a wait allocates nothing once the queue
-	// has seen as many waiters at once (Go's channel makes a sudog per
-	// blocked receive, from a per-P cache, with no allocation either).
-	waiters []chan struct{}
-	spare   []chan struct{}
+	// waiters holds the park word of each waiting Push and Pop
+	// (rt.Waiter, WAITOR-WORD); a change a waiter may wait for wakes each
+	// and empties the list (signal), so a signal sends on no channel: it
+	// readies a parked waiter's goroutine as Go's channel readies a parked
+	// receiver's (runtime/chan.go). A wait has a word of its own, not its
+	// task's, because Go code may run two goroutines on one task. spare
+	// keeps the words of ended waits for the next ones, so a wait
+	// allocates nothing once the queue has seen as many waiters at once
+	// (Go's channels keep a sudog per blocked goroutine the same way).
+	waiters []*rt.Waiter
+	spare   []*rt.Waiter
 	// spareSender is the sender of the last Push that waited, kept for
 	// the next one, so a rendezvous (capacity 0) allocates no sender.
 	spareSender *sender[T]
@@ -270,6 +271,51 @@ func (q *Queue[T]) Offer(v T) error {
 	q.size.Store(int64(len(q.buf)))
 	q.signal()
 	return nil
+}
+
+// Slide is q.Slide(v): v enters at the back now, never waiting; when the
+// queue holds its capacity, the value at the front leaves it first and is
+// given back, Some(old), so its caller owns it and releases it when it is a
+// resource (resources R42), as Poll's caller does (Effect's sliding
+// strategy: the newest values stay). The queue never releases it: a
+// release is the element type's Ergo code, which may need capabilities the
+// queue does not hold. Eviction and
+// entry are one step under the queue's lock, so v enters exactly once and
+// no other producer can take the room between them: a sliding value is
+// never lost while an older one stays. A Push still waiting for room keeps
+// waiting: v does not wait, so it enters before them. It fails with Closed
+// on a closed queue, and a capacity of 0 is a defect: there is never room
+// to slide into. Prior art: Effect's Queue.sliding; Java's
+// ArrayBlockingQueue has no sliding offer and needs poll and offer under
+// one lock to build it.
+//
+//ergo:wait none
+func (q *Queue[T]) Slide(v T) (T, bool, error) {
+	return q.slide(v)
+}
+
+// slide is Slide, giving the value it dropped and whether it dropped one
+// (the tests read them).
+func (q *Queue[T]) slide(v T) (old T, dropped bool, err error) {
+	rt.PointRunning(rt.Op{Kind: rt.OpPush, On: q})
+	if q.capacity == 0 {
+		panic("queue.Slide: a queue of capacity 0 has no room to slide into")
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return old, false, Closed{}
+	}
+	if len(q.buf) >= q.capacity {
+		old, dropped = q.buf[0], true
+		var zero T
+		q.buf[0] = zero // the slot keeps no reference
+		q.buf = q.buf[1:]
+	}
+	q.buf = append(q.buf, v)
+	q.size.Store(int64(len(q.buf)))
+	q.signal()
+	return old, dropped, nil
 }
 
 // Cap is q.Cap(): the capacity New gave the queue. It never waits.
@@ -487,14 +533,18 @@ func (q *Queue[T]) wait(t *rt.Task, stop <-chan struct{}) bool {
 
 // waitOr is wait that also ends on the fire of dl (fired closes; a nil
 // fired never does), for PopBefore. It is the one place a queue's waiter
-// parks. In an auto clock's domain the waiter parks under q.mu, so the
-// next signal, which also runs under q.mu, unparks it before it wakes it
-// (rt idle.go): on q alone, with a nil ready, since the waiter has just
-// seen that it must wait and no change can come while q.mu is held; or on
-// q and dl, whose fire wakes it through rt.Waking (Deadline.fire), with a
-// ready that keeps it from parking on a fire that has come.
+// parks. The waiter parks on a word of its own (rt.Waiter, from spare): a
+// signal, the fire of dl (Deadline.fire) and a stop of t (rt's Interrupt)
+// each wake it, and it looks again; a wake that changed nothing only
+// makes its caller look again too. In an auto clock's domain the waiter
+// parks under q.mu, so the next signal, which also runs under q.mu,
+// unparks it before it wakes it (rt idle.go): on q alone, with a nil
+// ready, since the waiter has just seen that it must wait and no change
+// can come while q.mu is held; or on q and dl, whose fire wakes it
+// through rt.Waking, with a ready that keeps it from parking on a fire
+// that has come.
 func (q *Queue[T]) waitOr(t *rt.Task, stop <-chan struct{}, dl *Deadline, fired chan rt.Instant) bool {
-	ch := q.enlist()
+	w := q.enlist()
 	q.parked++
 	q.waits++
 	var p rt.Parked
@@ -506,47 +556,50 @@ func (q *Queue[T]) waitOr(t *rt.Task, stop <-chan struct{}, dl *Deadline, fired 
 		}
 		q.domain = append(q.domain, t)
 	}
+	if dl != nil {
+		dl.await(w, fired)
+	}
 	q.mu.Unlock()
 	rt.Block(t)
-	woke := true
-	select {
-	case <-ch:
-	case <-fired:
-	case <-stop:
-		woke = false
-	}
+	// A nil stop (a masked task) never ends the wait.
+	w.Park(t, stop != nil)
 	rt.Unblock(t)
+	if dl != nil {
+		dl.await(nil, nil)
+	}
 	q.mu.Lock()
-	q.delist(ch)
+	q.delist(w)
 	q.parked--
 	if t.InDomain() {
 		p.Unpark()
 		q.dropDomain(t)
 	}
-	return woke
+	return stop == nil || !t.Stopped()
 }
 
-// enlist is a wait's wake channel, from spare or new, in the waiters that
-// the next signal wakes. q.mu is held.
-func (q *Queue[T]) enlist() chan struct{} {
-	var ch chan struct{}
+// enlist is a wait's word, from spare or new, in the waiters that the
+// next signal wakes. q.mu is held.
+func (q *Queue[T]) enlist() *rt.Waiter {
+	var w *rt.Waiter
 	if n := len(q.spare); n > 0 {
-		ch = q.spare[n-1]
+		w = q.spare[n-1]
 		q.spare[n-1] = nil
 		q.spare = q.spare[:n-1]
 	} else {
-		ch = make(chan struct{}, 1)
+		w = new(rt.Waiter)
 	}
-	q.waiters = append(q.waiters, ch)
-	return ch
+	q.waiters = append(q.waiters, w)
+	return w
 }
 
-// delist ends the wait on ch: it leaves the waiters if no signal took it
-// out (a stop or a deadline ended the wait), its token is taken if a
-// signal left one, and it is kept in spare, empty. q.mu is held.
-func (q *Queue[T]) delist(ch chan struct{}) {
-	for i, w := range q.waiters {
-		if w == ch {
+// delist ends the wait on w: it leaves the waiters if no signal took it
+// out (a stop or a deadline ended the wait), so the list does not grow
+// with waits that ended, and it is kept in spare. A wake left on it
+// after its wait ended (a signal or a fire that raced the stop) only
+// makes the next wait that takes it look once more. q.mu is held.
+func (q *Queue[T]) delist(w *rt.Waiter) {
+	for i, x := range q.waiters {
+		if x == w {
 			last := len(q.waiters) - 1
 			copy(q.waiters[i:], q.waiters[i+1:])
 			q.waiters[last] = nil
@@ -554,11 +607,7 @@ func (q *Queue[T]) delist(ch chan struct{}) {
 			break
 		}
 	}
-	select {
-	case <-ch:
-	default:
-	}
-	q.spare = append(q.spare, ch)
+	q.spare = append(q.spare, w)
 }
 
 // signal wakes every waiter, which looks again. q.mu is held. A waiter of
@@ -569,8 +618,8 @@ func (q *Queue[T]) signal() {
 		for _, w := range q.domain {
 			rt.Waking(w, q).Done()
 		}
-		for i, ch := range q.waiters {
-			ch <- struct{}{}
+		for i, w := range q.waiters {
+			w.Wake()
 			q.waiters[i] = nil
 		}
 		q.waiters = q.waiters[:0]

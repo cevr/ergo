@@ -3,6 +3,8 @@
 // each tool call the work of Running's, and a retry's wait the timer of
 // Waiting's. So a recorded run of signals replays as a fold (Replay).
 
+import exec
+import journal
 import machines
 import strings
 
@@ -16,7 +18,7 @@ type Limits { MaxSteps int, MaxRetries int }
 // waits In before retry Try. Approving waits for the person to allow
 // Next, the request of Call, before Rest. Running runs Next. Ended is the
 // end of the session.
-type Phase = Idle{} | Asking{Draft string, Try int} | Waiting{Try int, In duration} | Approving{Next Request, Call Call, Rest []Use} | Running{Next Request, Call Call, Rest []Use} | Ended{}
+type Phase = Idle{} | Asking{Draft string, Try int} | Waiting{Try int, Ms int} | Approving{Next Request, Call Call, Rest []Use} | Running{Next Request, Call Call, Rest []Use} | Ended{}
 
 // State is the loop's state: its limits, the transcript, the phase, and
 // the asks of the model since the person's last message.
@@ -25,7 +27,7 @@ type State { Limits Limits, Log []Row, Phase Phase, Steps int }
 // Signal is what the loop takes. Submit, Approve, Decline, Interrupt and
 // Quit come from the person; a Delta, Replied and ModelFailed from
 // Asking's ask (its calls read: Uses); ToolDone from Running's call; Retry from Waiting's timer.
-type Signal = Submit{Text string} | Delta | Replied{Text string, Uses []Use} | ModelFailed{Failure ModelFailure} | Retry{} | Approve{} | Decline{} | ToolDone{Outcome Outcome} | Interrupt{} | Quit{}
+type Signal = Submit{Text string} | Delta | Replied{Text string, Uses []Use} | ModelFailed{Failure ModelFailure} | Retry{} | Approve{} | Decline{} | ToolDone{Outcome Outcome} | Interrupt{} | Resumed{} | Quit{}
 
 // Start is a fresh session under l. A limit below 1 is 1 for MaxSteps
 // and 0 for MaxRetries.
@@ -67,10 +69,12 @@ func Step(s State, e Signal) Decision[State, Never] {
 		next(State{..s, Log: s.Log.Append(Result{Id: p.Call.Id, Text: Told(why), Ok: false})}, p.Rest)
 	case (Running as r, ToolDone as d):
 		next(State{..s, Log: s.Log.Append(Result{Id: r.Call.Id, Text: Text(d.Outcome), Ok: Fine(d.Outcome)})}, r.Rest)
-	case (Idle, Interrupt):
+	case (Idle, Interrupt), (Idle, Resumed):
 		Ignore
 	case (_, Interrupt):
 		Enter[State]{Next: State{..closeTurn(s, "interrupted"), Phase: Idle}}
+	case (_, Resumed):
+		Enter[State]{Next: State{..closeTurn(s, "the session was cut here; resumed"), Phase: Idle}}
 	case (Idle, _), (Asking, _), (Waiting, _), (Approving, _), (Running, _):
 		Ignore
 	}
@@ -87,7 +91,7 @@ func failed(s State, a Asking, f ModelFailure) Decision[State, Never] {
 	match Class(f) {
 	case RetryAfter as r:
 		if a.Try < s.Limits.MaxRetries {
-			return Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; retrying in \(r.In)"}), Phase: Waiting{Try: a.Try + 1, In: r.In}}}
+			return Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; retrying in \(Wait(r.Ms))"}), Phase: Waiting{Try: a.Try + 1, Ms: r.Ms}}}
 		}
 		Enter[State]{Next: State{..s, Log: s.Log.Append(Failed{Say: Explain(f) + "; no retries left"}), Phase: Idle}}
 	case GiveUp:
@@ -171,11 +175,11 @@ func PromptOf(s State) Prompt { Prompt{Log: s.Log, Tools: Schemas()} }
 // delta and then the reply or the failure; Running runs its call. The
 // runner interrupts the work when its entry ends, and drops what it
 // sends after.
-func ask(s State) Option[machines.Work[Signal, Model | Tools]] {
+func ask(s State) Option[machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]] {
 	match s.Phase {
 	case Asking:
 		let p = PromptOf(s)
-		Some{machines.Work[Signal, Model | Tools]{Start: func(send entry func(e Signal)) needs Model | Tools {
+		Some{machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | Scheduler {
 			let t = Model.Stream(p, func(d Delta) fails SinkFailed { send(d) }) catch {
 			case SinkFailed:
 				return
@@ -188,7 +192,7 @@ func ask(s State) Option[machines.Work[Signal, Model | Tools]] {
 		}}}
 	case Running as r:
 		let req = r.Next
-		Some{machines.Work[Signal, Model | Tools]{Start: func(send entry func(e Signal)) needs Model | Tools { send(ToolDone{Outcome: Run(req)}) }}}
+		Some{machines.Work[Signal, Model | Tools | exec.Runner | Scheduler]{Start: func(send entry func(e Signal)) needs Model | Tools | exec.Runner | Scheduler { send(ToolDone{Outcome: Run(req)}) }}}
 	case Idle, Waiting, Approving, Ended:
 		None
 	}
@@ -198,7 +202,7 @@ func ask(s State) Option[machines.Work[Signal, Model | Tools]] {
 func timer(s State) Option[Timeout[Signal]] {
 	match s.Phase {
 	case Waiting as w:
-		Some{Timeout[Signal]{In: w.In, Signal: Retry}}
+		Some{Timeout[Signal]{In: Wait(w.Ms), Signal: Retry}}
 	case Idle, Asking, Approving, Running, Ended:
 		None
 	}
@@ -273,6 +277,163 @@ type Agent machine[State, Signal] {
 		}
 		true
 	},
+
+	// ShellRunsOnlyApproved: in every run, Running with a shell command is
+	// entered only by Approve, in Approving of that call and command. The
+	// run is steered: a reply's calls, then an answer and a result for
+	// each, then any signals.
+	law ShellRunsOnlyApproved(l Limits, uses []Use, answers []bool, signals []Signal) {
+		let mut s = Start(l)
+		for e in answered(uses, answers, signals) {
+			let after = machines.Next(s, Step(s, e))
+			if !approvedOrNoShell(s, e, after) {
+				return false
+			}
+			s = after
+		}
+		true
+	},
+
+	// DenyIsToldNotRun: a declined call is not run: Decline in Approving
+	// gives that call the result that the person declined it, and the
+	// next phase is not Running it.
+	law DenyIsToldNotRun(l Limits, uses []Use, answers []bool, signals []Signal) {
+		let mut s = Start(l)
+		for e in answered(uses, answers, signals) {
+			let after = machines.Next(s, Step(s, e))
+			match s.Phase {
+			case Approving as p:
+				if e == Decline && !toldNotRun(p.Call, after) {
+					return false
+				}
+			case Idle, Asking, Waiting, Running, Ended:
+			}
+			s = after
+		}
+		true
+	},
+}
+
+// toldNotRun reports whether after holds the declined result of c and
+// is not running it.
+func toldNotRun(c Call, after State) bool {
+	let why ToolFailure = Declined
+	let mut told = false
+	for row in after.Log {
+		match row {
+		case Result as res:
+			told = told || res.Id == c.Id && res.Text == Told(why) && !res.Ok
+		case User, Reply, Cut, Failed, Note:
+		}
+	}
+	match after.Phase {
+	case Running as r:
+		told && r.Call != c
+	case Idle, Asking, Waiting, Approving, Ended:
+		told
+	}
+}
+
+// Recover is what a session file's signals need before a session starts
+// on them again: none when the run they give waits for the person or has
+// ended; else Resumed, which closes the open turn as an interrupt does,
+// so no entry that runs a work (an ask, a tool) is entered again: a call
+// whose result is not in the file is told it was interrupted, and none
+// runs twice. It fails Diverged at the first signal the step does not
+// take, as journal.Start would.
+func Recover(l Limits, signals []Signal) []Signal fails journal.Diverged {
+	let mut s = Start(l)
+	for i, e in signals {
+		match Step(s, e) {
+		case Enter[State] as en:
+			s = en.Next
+		case Stay[State] as st:
+			s = st.Next
+		case Ignore, Reject:
+			return journal.Diverged{At: i}
+		}
+	}
+	match s.Phase {
+	case Idle, Ended:
+		[]Signal{}
+	case Asking, Waiting, Approving, Running:
+		[]Signal{Resumed}
+	}
+}
+
+// ResumeRunsNothingTwice: a run cut after any of its committed signals
+// and recovered starts in a state that runs no work (so no tool whose
+// result is in the file runs again, and no call that was under way runs
+// at all), with a well-formed transcript.
+law ResumeRunsNothingTwice(l Limits, uses []Use, done []Outcome, signals []Signal, k int) {
+	let kept = committed(l, steered(uses, done, signals))
+	let cut = kept[0 : ((k%(len(kept)+1))+len(kept)+1)%(len(kept)+1)]
+	let more = Recover(l, cut) catch {
+	case journal.Diverged:
+		return false
+	}
+	let mut s = Start(l)
+	for e in cut.Concat(more) {
+		s = machines.Next(s, Step(s, e))
+	}
+	(idle(s) || s.Phase == Ended) && wellFormed(s)
+}
+
+// committed is the signals of run that the machine takes, as an actor's
+// journal keeps them.
+func committed(l Limits, run []Signal) []Signal {
+	let mut s = Start(l)
+	let mut out = []Signal{}
+	for e in run {
+		match Step(s, e) {
+		case Enter[State] as en:
+			s = en.Next
+			out = out.Append(e)
+		case Stay[State] as st:
+			s = st.Next
+			out = out.Append(e)
+		case Ignore, Reject:
+		}
+	}
+	out
+}
+
+// answered is a run that asks, gets a reply that calls tools (uses), and
+// then for each of answers approves (true) or declines the call waiting,
+// with a result after it, and then takes any signals.
+func answered(uses []Use, answers []bool, signals []Signal) []Signal {
+	let mut run = []Signal{Submit{Text: "go"}, Replied{Text: "", Uses: uses}}
+	for yes in answers {
+		run = run.Append(if yes { Approve } else { Decline })
+		run = run.Append(ToolDone{Outcome: Output{Text: ""}})
+	}
+	run.Concat(signals)
+}
+
+// approvedOrNoShell reports whether the step from s by e to after runs
+// no shell command, or runs one the person approved: after is Running a
+// RunShell only when s was already running it, or s was Approving that
+// call and e is Approve.
+func approvedOrNoShell(s State, e Signal, after State) bool {
+	match after.Phase {
+	case Running as r:
+		match r.Next {
+		case RunShell:
+			if s.Phase == after.Phase {
+				return true
+			}
+			match s.Phase {
+			case Approving as p:
+				p.Call == r.Call && p.Next == r.Next && e == Approve
+			case Idle, Asking, Waiting, Running, Ended:
+				false
+			}
+		case ReadFile, ListDir:
+			true
+		}
+	case Idle, Asking, Waiting, Approving, Ended:
+		true
+	}
 }
 
 // steered is a run that asks, gets a reply that calls tools (uses), gets

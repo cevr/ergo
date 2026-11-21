@@ -1,0 +1,172 @@
+// Sessions (API-FIRST AF3): a script on standard input is the command
+// line's own language. Each line is an argument list, split as a shell
+// splits a simple command, and runs through the generated Run; no binary
+// keeps a second parser of its script.
+
+import strings
+
+// Unclosed is a line whose quote does not close.
+type Unclosed { Quote string }
+
+// Words is line as an argument list, split as a POSIX shell splits a
+// simple command, with no expansion: blanks (space and tab) separate
+// words; '…' keeps every byte inside it; "…" keeps every byte but a
+// backslash before ", \, $ or `, which escapes it; outside quotes a
+// backslash keeps the byte after it. A word may join quoted and bare
+// parts: -why="no longer needed" is the one word -why=no longer needed.
+func Words(line string) []string fails Unclosed {
+	let mut out = []string{}
+	let mut word = ""
+	let mut open = false
+	let mut i = 0
+	for i < len(line) {
+		let c = line[i]
+		if c == ' ' || c == '\t' {
+			if open {
+				out = out.Append(word)
+				word = ""
+				open = false
+			}
+			i = i + 1
+		} else if c == '\'' {
+			let end = strings.Index(line[i+1:], "'")
+			if end < 0 {
+				return Unclosed{Quote: "'"}
+			}
+			word = word + line[i+1:i+1+end]
+			open = true
+			i = i + 2 + end
+		} else if c == '"' {
+			open = true
+			i = i + 1
+			let mut closed = false
+			for i < len(line) && !closed {
+				let d = line[i]
+				if d == '"' {
+					closed = true
+					i = i + 1
+				} else if d == '\\' && i+1 < len(line) && escapable(line[i+1]) {
+					word = word + line[i+1:i+2]
+					i = i + 2
+				} else {
+					word = word + line[i:i+1]
+					i = i + 1
+				}
+			}
+			if !closed {
+				return Unclosed{Quote: "\""}
+			}
+		} else if c == '\\' && i+1 < len(line) {
+			word = word + line[i+1:i+2]
+			open = true
+			i = i + 2
+		} else {
+			word = word + line[i:i+1]
+			open = true
+			i = i + 1
+		}
+	}
+	if open {
+		out = out.Append(word)
+	}
+	out
+}
+
+// escapable is whether a backslash inside "…" escapes the byte c.
+func escapable(c byte) bool { c == '"' || c == '\\' || c == '$' || c == '`' }
+
+// Line is args as one line that Words reads back as args: a word of
+// letters, digits and -_=.,/:@+% stays as it is; any other word, an
+// empty one too, is in single quotes, each ' of it written '\''.
+func Line(args []string) string {
+	let mut words = []string{}
+	for a in args {
+		if a != "" && bare(a) {
+			words = words.Append(a)
+		} else {
+			words = words.Append("'" + strings.ReplaceAll(a, "'", "'\\''") + "'")
+		}
+	}
+	strings.Join(words, " ")
+}
+
+// bare is whether every byte of a is one Line writes unquoted.
+func bare(a string) bool {
+	for i in 0..len(a) {
+		let c = a[i]
+		let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+		if !letter && !strings.Contains("-_=.,/:@+%", a[i:i+1]) {
+			return false
+		}
+	}
+	true
+}
+
+// Step is one line of a session that ran: its number (1 is the first),
+// its text without the blanks around it, and what it gave.
+type Step { Line int, Text string, Output Output }
+
+// Session runs each line of lines through run, in order, as the argument
+// list Words reads, and is the steps that ran. A blank line, or one that
+// starts with #, runs nothing. The session stops after the first line
+// whose status is not 0, as `sh -e` does: a line that cannot be read (an
+// unclosed quote) is a usage error, status 2. A binary that wants a typed
+// failure to go on gives it status 0 in its policy.
+func Session[R](lines []string, run func(args []string) Output needs R) []Step needs R {
+	let mut out = []Step{}
+	for i, line in lines {
+		let text = strings.TrimSpace(line)
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		let args = Words(text) catch {
+		case Unclosed as u:
+			return out.Append(Step{Line: i + 1, Text: text, Output: Output{Out: "", Err: "the quote \(u.Quote) does not close\n", Code: 2}})
+		}
+		let o = run(args)
+		out = out.Append(Step{Line: i + 1, Text: text, Output: o})
+		if o.Code != 0 {
+			return out
+		}
+	}
+	out
+}
+
+// WordsReadLine: Words reads the Line of any argument list back as it.
+law WordsReadLine(args []string) {
+	let back = Words(Line(args)) catch {
+	case Unclosed:
+		return false
+	}
+	back == args
+}
+
+// echoed is a run for the laws: its output names the arguments, and an
+// argument list of three ends with status 1.
+func echoed(args []string) Output {
+	Output{Out: strings.Join(args, "|"), Err: "", Code: if len(args) == 3 { 1 } else { 0 }}
+}
+
+// SessionIsEachLine: a session of lines gives the outputs of the run on
+// each line's arguments, in order, with each line's number, skipping
+// blank lines and comments, up to and with the first that fails.
+law SessionIsEachLine(script [][]string) {
+	let mut lines = []string{}
+	for a in script {
+		lines = lines.Append(" " + Line(a))
+		lines = lines.Append("# " + Line(a))
+		lines = lines.Append("")
+	}
+	let mut want = []Step{}
+	for k, a in script {
+		if len(a) == 0 {
+			continue
+		}
+		let o = echoed(a)
+		want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o})
+		if o.Code != 0 {
+			break
+		}
+	}
+	Session(lines, echoed) == want
+}

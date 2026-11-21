@@ -69,11 +69,11 @@ func (b *irBuilder) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, 
 		}
 	}
 	for i, q := range body.Params[:len(list)] {
-		if i != cb && !b.operandFits(list[i], q.Type, subst) { // ir_operand.go
+		if i != cb && !b.operandFits(list[i], q.Type, subst, body.Package) { // ir_operand.go
 			irNo("std call with a converted operand")
 		}
 	}
-	if goValue(body) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
+	if goValue(body) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)

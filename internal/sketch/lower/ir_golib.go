@@ -23,8 +23,8 @@ import (
 // package function or an "mcall" of a Go method on its receiver, the
 // task's context first when the binding hides one, and the last operand
 // spread when Go's function is variadic. A fallible call is bound by
-// hostBind, which converts its error; a Go result passes as is (a basic
-// type, a Go type, or an Option of a go.Ref, whose pointer is the niche).
+// hostBind, which converts its error; hostResult converts a Go result (a
+// go.Ref checked for nil, an Option, a slice or Map copied).
 func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
 	switch {
 	case f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil, hostGeneric(f), // ir_gocall.go
@@ -38,7 +38,7 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 		irNo("Go context call from a pure function")
 	}
 	for _, r := range hostResults(f) { // ir_tuple.go
-		if !b.hostValue(r) && !isOptionType(r) && !freshSlice(f, r) {
+		if !b.hostValue(r) && !isOptionType(r) && !b.l.holdsValue(r) && !isGoRef(r) && !check.IsGoAny(r) {
 			irNo("Go call with a result of another type")
 		}
 	}
@@ -61,19 +61,6 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	return pre, &irExpr{K: "pcall", Pos: p, T: path, Name: goName, Op: spread, Args: args}
 }
 
-// freshSlice reports r, a result of f that is a slice of basic values
-// which Go made new (goFresh, a validated fresh row of internal/gofacts:
-// strings.Split): the value rule copies nothing, as goResult copies
-// nothing. (I-FLIP: LF2c moved the table freshGoResults into gofacts.)
-func freshSlice(f *check.Func, r check.Type) bool {
-	s, ok := r.(*check.Slice)
-	if !ok || !hostBasic(s.Elem) || f.Decl == nil || f.Decl.Extern == nil || f.Decl.Recv != nil {
-		return false
-	}
-	path, goName := f.Decl.Extern.Split()
-	return goFresh(f.Decl, path+"."+goName)
-}
-
 // hostBound is hostCall's form of a Go call that cannot fail and takes
 // the task's context (afterGoContext) or has a result goResult converts:
 // Go's results into fresh locals, then the task's interruption point,
@@ -82,7 +69,7 @@ func (b *irBuilder) hostBound(x *syntax.CallExpr, c *check.Call, f *check.Func, 
 	results := hostResults(f) // ir_tuple.go
 	conv := false
 	for _, r := range results {
-		conv = conv || b.optionResult(r)
+		conv = conv || b.optionResult(r) || isGoRef(r) || b.l.holdsValue(r)
 	}
 	if f.Sig.Fallible || !check.GoContext(f) && !conv {
 		return nil, nil, false
@@ -109,7 +96,7 @@ func (b *irBuilder) hostBound(x *syntax.CallExpr, c *check.Call, f *check.Func, 
 	vals := make([]*irExpr, len(ls))
 	for i, l := range ls {
 		var vpre []*irStmt
-		vpre, vals[i] = b.hostResult(results[i], l, x, p)
+		vpre, vals[i] = b.hostResult(hostTargetName(f), results[i], l, -1, x, p)
 		pre = append(pre, vpre...)
 	}
 	switch len(vals) {
@@ -142,10 +129,18 @@ func (b *irBuilder) rawGoType(t check.Type, site syntax.Node) string {
 
 // hostResult is the Ergo value of the Go result in the local r, of the
 // Ergo type t (goResult): an optionResult is None for Go's nil and Some of
-// the pointer otherwise; any other result is r itself.
-func (b *irBuilder) hostResult(t check.Type, r int, site syntax.Node, p irPos) ([]*irStmt, *irExpr) {
+// the pointer otherwise; a go.Ref is r, after the defect Go's nil raises
+// when the call did not fail (goNilCheck); any other result is r itself.
+// errL is the local of the call's error, -1 for a call that cannot fail.
+func (b *irBuilder) hostResult(name string, t check.Type, r, errL int, site syntax.Node, p irPos) ([]*irStmt, *irExpr) {
 	rv := &irExpr{K: "local", Pos: p, I: r}
+	if isGoRef(t) {
+		return []*irStmt{b.goNilCheck(name, t, r, errL, site, p)}, rv
+	}
 	if !b.optionResult(t) {
+		if b.l.holdsValue(t) {
+			return nil, b.goResultCopy(name, t, rv, site)
+		}
 		return nil, rv
 	}
 	if _, ref := check.GoRefElem(optionElem(t)); !ref {
@@ -159,6 +154,124 @@ func (b *irBuilder) hostResult(t check.Type, r int, site syntax.Node, p irPos) (
 		{K: "def", Pos: p, Local: v, X: b.machineNone(t, p, site)}, // ir_machine.go
 		{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "set", Pos: p, Local: v, X: someV}}},
 	}, &irExpr{K: "local", Pos: p, I: v}
+}
+
+// goBuiltin is the call x of go.New, go.Zero, go.Is or go.As (c.Kind
+// CallGoError), as the emitter's goErrorCall writes it (IR-GOCALLS):
+//   - go.New[T]() is Go's new(T), the address of a fresh zero T, and
+//     go.New(v) the address of a fresh copy of v (GBX1, GBX5b);
+//   - go.Zero[T]() is Go's zero T;
+//   - go.Is(e, target) is v1.GoIs;
+//   - go.As[T](a) on a go.Any is Go's type assertion, Some when a holds
+//     a T: a type switch with T's one case; on a go.Error it is
+//     v1.GoAs[T]'s (T, bool), Some when ok.
+//
+// None of them has an effect.
+func (b *irBuilder) goBuiltin(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	switch c.Name {
+	case "go.New":
+		elem, ok := check.GoRefElem(b.l.info.Types[x])
+		if !ok || len(x.Args) > 1 {
+			irNo("go.New form")
+		}
+		et := b.goType(elem, x)
+		var pre []*irStmt
+		init := &irExpr{K: "zero", Pos: p, T: et}
+		if len(x.Args) == 1 {
+			pre, init = b.value(x.Args[0])
+			init = b.assignedTo(x.Args[0], init, elem) // ir_union.go
+		}
+		n := b.temp("n", et, p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: n, X: init})
+		return pre, &irExpr{K: "addr", Pos: p, X: &irExpr{K: "local", Pos: p, I: n}}, false
+	case "go.Zero":
+		if c.Type == nil {
+			irNo("go.Zero form")
+		}
+		return nil, &irExpr{K: "zero", Pos: p, T: b.goType(c.Type, x)}, false
+	case "go.Is":
+		pre, args := b.operands(x.Args) // ir_fail.go
+		b.keepImport("var _ = " + b.l.rt() + ".GoIs")
+		return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoIs", Args: args}, false
+	case "go.As":
+	default:
+		irNo("go builtin %s", c.Name)
+	}
+	if len(x.Args) != 1 || c.Type == nil {
+		irNo("go.As form")
+	}
+	t := b.l.info.Types[x] // Option[T]
+	some, _ := optionVariants(t, x)
+	gt := b.goType(c.Type, x)
+	pre, arg := b.value(x.Args[0])
+	res := b.temp("as", b.goType(t, x), p)
+	pre = append(pre, &irStmt{K: "def", Pos: p, Local: res, X: b.machineNone(t, p, x)}) // ir_machine.go
+	someOf := func(v *irExpr) *irStmt {
+		lit := &irExpr{K: "lit", Pos: p, T: b.goType(some, x), Keys: []string{memberName("Value")}, Elems: []*irExpr{v}}
+		return &irStmt{K: "set", Pos: p, Local: res, X: b.variantInto(some, t, lit, x)} // ir_union.go
+	}
+	if check.IsGoAny(b.l.info.Types[x.Args[0]]) {
+		a := b.temp("a", "any", p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: a, X: arg})
+		local := &irExpr{K: "local", Pos: p, I: a}
+		sw := &irStmt{K: "tswitch", Pos: p, End: p, X: local, Cases: []*irCase{{Pos: p, Types: []string{gt}, Body: []*irStmt{
+			someOf(&irExpr{K: "assert", Pos: p, T: gt, X: local}),
+		}}}}
+		return append(pre, sw), &irExpr{K: "local", Pos: p, I: res}, false
+	}
+	b.keepImport("var _ = " + b.l.rt() + ".GoAs[int]")
+	v, ok := b.temp("v", gt, p), b.temp("ok", "bool", p)
+	call := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoAs", V: gt, Args: []*irExpr{arg}}
+	pre = append(pre,
+		&irStmt{K: "tdef", Pos: p, X: call, Ls: []int{v, ok}},
+		&irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "local", Pos: p, I: ok}, Then: []*irStmt{someOf(&irExpr{K: "local", Pos: p, I: v})}})
+	return pre, &irExpr{K: "local", Pos: p, I: res}, false
+}
+
+// hostTargetName is the Go target of f as goSig names it (gocall.go):
+// PATH.NAME of a package function, PATH.TYPE.NAME of a method.
+func hostTargetName(f *check.Func) string {
+	switch {
+	case f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil:
+		irNo("Go call with a result of another type")
+	case f.Decl.Recv != nil:
+		path, typ, m := f.Decl.Extern.SplitMethod()
+		return path + "." + typ + "." + m
+	}
+	path, goName := f.Decl.Extern.Split()
+	return path + "." + goName
+}
+
+// goResultCopy is rv, a Go result of t that holds a slice or a Map, as
+// goResult gives it (IR-GOCALLS-2): the value rule's deep copy, since Go
+// may still write it (V8), unless Go made it new (a validated fresh row,
+// goFresh: strings.Split) or only Go takes it (goShare, H4 and H5).
+func (b *irBuilder) goResultCopy(name string, t check.Type, rv *irExpr, site syntax.Node) *irExpr {
+	if !valueRule() || goFresh(site, name) {
+		return rv
+	}
+	if e, ok := site.(syntax.Expr); ok && b.l.valueFacts().goShare[e] {
+		return rv
+	}
+	return b.copyDeep(t, site, rv, true) // ir_copy.go
+}
+
+// goNilCheck is goResult's guard on a go.Ref result r of the Go call of
+// f, which is never nil (docs/spec/interop.md, go.Ref): when Go returned
+// nil and no error (errL, -1 for a call that cannot fail), the call is a
+// defect naming the Go target and the Ergo site, v1.GoNilDefect.
+func (b *irBuilder) goNilCheck(name string, t check.Type, r, errL int, site syntax.Node, p irPos) *irStmt {
+	var cond *irExpr = &irExpr{K: "bin", Pos: p, Op: "==", X: &irExpr{K: "local", Pos: p, I: r}, Y: &irExpr{K: "zero", Pos: p, T: b.goType(t, site)}}
+	if errL >= 0 {
+		noErr := &irExpr{K: "bin", Pos: p, Op: "==", X: &irExpr{K: "local", Pos: p, I: errL}, Y: &irExpr{K: "zero", Pos: p, T: "error"}}
+		cond = &irExpr{K: "bin", Pos: p, Op: "&&", X: noErr, Y: cond}
+	}
+	b.keepImport("var _ " + b.l.rt() + ".GoNilDefect")
+	defect := &irExpr{K: "addr", Pos: p, X: &irExpr{K: "lit", Pos: p, T: b.spelling(b.l.rt() + ".GoNilDefect"), Keys: []string{"Func", "At"}, Elems: []*irExpr{
+		irStringConst(p, "string", name),
+		irStringConst(p, "string", b.l.siteText(site)),
+	}}}
+	return &irStmt{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "panic", Pos: p, X: defect}}}
 }
 
 // ctxPoll is the interruption point after a Go call that took the task's
@@ -193,15 +306,34 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 		return nil, -1, -1, false
 	}
 	results := hostResults(f)
+	var tuple *check.Tuple
 	if len(results) > 1 {
-		irNo("fallible Go call with several results")
+		// (T, U, error): the value is the tuple of Go's results
+		// (IR-GOCALLS; the emitter's goCall binds them all, then the
+		// error).
+		t, ok := b.l.info.Types[call].(*check.Tuple)
+		if !ok || len(t.Types) != len(results) {
+			irNo("fallible Go call with several results")
+		}
+		tuple = t
 	}
 	pre, x := b.rawCall(call) // ir_call.go → hostCall → goTarget
 	p := b.pos(call, call.Pos())
 	e, v = b.temp("err", "error", p), -1
-	if len(results) == 0 {
+	var rs []int
+	switch {
+	case len(results) == 0:
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x})
-	} else {
+	case tuple != nil:
+		def := &irStmt{K: "tdef", Pos: p, X: x}
+		for _, r := range results {
+			l := b.temp("r", b.rawGoType(r, call), p)
+			rs = append(rs, l)
+			def.Ls = append(def.Ls, l)
+		}
+		def.Ls = append(def.Ls, e)
+		pre = append(pre, def)
+	default:
 		v = b.temp("v", b.rawGoType(results[0], call), p)
 		pre = append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x})
 	}
@@ -223,8 +355,18 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 		pre = append(pre, &irStmt{K: "set", Pos: p, Local: e, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: conv, Args: []*irExpr{errL}}})
 	}
 	if v >= 0 {
-		vpre, val := b.hostResult(results[0], v, call, p)
+		vpre, val := b.hostResult(hostTargetName(f), results[0], v, e, call, p)
 		pre, v = append(pre, vpre...), val.I
+	}
+	if tuple != nil {
+		vals := make([]*irExpr, len(rs))
+		for i, r := range rs {
+			var vpre []*irStmt
+			vpre, vals[i] = b.hostResult(hostTargetName(f), results[i], r, e, call, p)
+			pre = append(pre, vpre...)
+		}
+		v = b.temp("v", b.goType(tuple, call), p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: v, X: b.tupleLit(tuple, vals, call, p)}) // ir_tuple.go
 	}
 	return pre, v, e, true
 }
@@ -260,7 +402,11 @@ func (b *irBuilder) hostRet(call *syntax.CallExpr, p irPos) ([]*irStmt, bool) {
 // address: a pointer, or a value whose method has a value receiver.
 func (b *irBuilder) hostRecvOf(f *check.Func, recv syntax.Expr) {
 	t := b.l.info.Types[recv]
-	if !hostRecv(t) || b.l.holdsValue(t) {
+	// A receiver that holds a slice or Map (url.Values, http.Header) is
+	// an operand like any other: the value rule's copy, when it copies
+	// it, is operands' (valueCopy), as callArgs gives the emitter's
+	// (IR-GOCALLS-3).
+	if !hostRecv(t) {
 		irNo("Go method call on a receiver of another type")
 	}
 	if strings.HasPrefix(b.fc.goType(t), "*") {
@@ -299,6 +445,29 @@ func (b *irBuilder) goErrorArg(t check.Type, e *irExpr, p irPos) (*irExpr, bool)
 func basicSlice(t check.Type) bool {
 	s, ok := t.(*check.Slice)
 	return ok && hostBasic(s.Elem)
+}
+
+// goAnyArg reports a Go parameter of go.Any or a slice of go.Any (a
+// variadic `...any`: db.Exec's args, rows.Scan's dest): Go's own any, its
+// operand converted to it (variantInto, ir_union.go), a slice literal's
+// elements each (IR-GOCALLS).
+func goAnyArg(t check.Type) bool {
+	if s, ok := t.(*check.Slice); ok {
+		t = s.Elem
+	}
+	return check.IsGoAny(t)
+}
+
+// goPointerArg reports a Go parameter of Go's pointer to a Go type (`own
+// *Cookie`, Request.AddCookie's) or a go.Ref of one: its operand, a
+// go.Ref, is Go's *T as is, as the emitter's callArgs passes it
+// (IR-GOCALLS-4).
+func goPointerArg(t check.Type) bool {
+	if isGoRef(t) {
+		return true
+	}
+	p, ok := t.(*check.Pointer)
+	return ok && hostRecv(p)
 }
 
 // isGoErrorArg reports a parameter type goErrorArg converts.
@@ -400,7 +569,7 @@ func (b *irBuilder) monoName(f *check.Func) string {
 	}
 	at := reflect.ValueOf(b.fc.params).Pointer()
 	for key, sp := range b.l.monos {
-		if key.f == f && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
+		if key.decl == monoDecl(monoFunc{f}) && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
 			return sp.name
 		}
 	}

@@ -134,7 +134,7 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			if _, ok := fc.l.info.Values[n]; ok {
 				return false
 			}
-			if fc.methodOf(n) != nil {
+			if fc.methodOf(n) != nil || fc.l.info.MethodValues[n] != nil {
 				found = true
 			}
 		case syntax.Expr:
@@ -237,9 +237,9 @@ func (fc *funcCtx) assigned(x syntax.Expr) string {
 func (fc *funcCtx) convertAt(x syntax.Expr, val string) string {
 	conv, ok := fc.l.info.Implicit[x]
 	if !ok {
-		return val
+		return fc.rowWrite(x, val) // rowgap.go
 	}
-	return fc.convert(conv, val, x)
+	return fc.rowWrite(x, fc.convert(conv, val, x)) // rowgap.go
 }
 
 // elemAt applies the implicit conversion of element i of x, a value that a
@@ -296,6 +296,8 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		return val + ".(" + fc.goType(conv.To) + ")"
 	case check.ConvNarrow:
 		return fc.narrowFunc(conv, val, site)
+	case check.ConvWiden:
+		return fc.widen(conv, val, site)
 	case check.ConvMachine:
 		// A machine's value is a Machine of its plan's initial value and
 		// its step function (README Gap 46; machine.go). The plan value has
@@ -316,6 +318,13 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	return ""
 }
 
+// widen is val, a value of the declared union conv.From, as one of
+// conv.To, which holds each of its variants (ConvWiden; types.md,
+// Assignability 4; subunion.go).
+func (fc *funcCtx) widen(conv check.Conversion, val string, site syntax.Node) string {
+	return fc.unionInto(conv.From, conv.To, val, site)
+}
+
 // narrowFunc is val, a function value of conv.From, as one of conv.To
 // (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
 // whose parameters that are a row value of one error type, a Go error,
@@ -327,39 +336,34 @@ func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Nod
 	if !ok || !ok2 || len(from.Params) != len(to.Params) {
 		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
 	}
-	f := fc.scope.alloc("f")
-	inner := fc.envClosure(callerEnv, "e", site, func(env string) (params []string, results, body string) {
-		args := []string{env}
-		for i, p := range to.Params {
-			name := fc.scope.alloc("p")
-			params = append(params, name+" "+fc.goType(p.Type))
-			arg := name
-			if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-				if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-					arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
-				}
+	var asserts []int
+	for i, p := range to.Params {
+		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
+			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
+				asserts = append(asserts, i)
 			}
-			args = append(args, arg)
 		}
-		var result check.Type
-		if len(to.Results) == 1 {
-			result = to.Results[0]
-		}
-		return params, fc.valueResults(result), strings.Repeat("\t", fc.depth+1) + "return " + f + "(" + strings.Join(args, ", ") + ")\n"
-	})
-	return "func(" + f + " " + fc.goType(conv.From) + ") " + fc.goType(conv.To) + " { return " + inner + " }(" + val + ")"
+	}
+	return fc.rowFunc(from, to, fc.goType(conv.From), fc.goType(conv.To), asserts, val, site) // rowgap.go
 }
 
 // expr lowers x; in a statement header, a composite literal value is
-// parenthesized (header.go).
+// parenthesized (header.go). A declaration's place that x reads is read as
+// x's type holds it (rowRead, rowgap.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
 	if v, ok := fc.preset[x]; ok {
 		return operand{val: v} // evaluated once already (uigroup.go)
 	}
+	var o operand
 	if fc.l.info.TryCovers[x] != nil {
-		return fc.covered(x)
+		o = fc.covered(x)
+	} else {
+		o = fc.expr1(x)
 	}
-	return fc.expr1(x)
+	if o.val != "" {
+		o.val = fc.rowRead(x, o.val)
+	}
+	return o
 }
 
 // covered lowers x, the right operand that a try in operand position on
@@ -469,6 +473,31 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	return operand{}
 }
 
+// aliased is the TypeName that package pkg's exported type name stands
+// for: an alias of a named type (`type BoardRequest =
+// pipelineapi.BoardRequest`) stands for the aliased type's own; any other
+// type name for itself. nil when pkg exports no type of that name.
+func aliased(pkg *check.Package, name string) *check.TypeName {
+	for _, o := range pkg.Exported() {
+		tn, ok := o.(*check.TypeName)
+		if !ok || tn.Name != name {
+			continue
+		}
+		for {
+			n, ok := tn.Type.(*check.Named)
+			if !ok {
+				return tn
+			}
+			a, ok := n.Alias().(*check.Named)
+			if !ok || a.Obj == nil || a.Obj == tn {
+				return tn
+			}
+			tn = a.Obj
+		}
+	}
+	return nil
+}
+
 // bareRecord reads the TypeName use of a bare record value. Its checked
 // type holds any type arguments; those arguments are never value indices.
 func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
@@ -487,19 +516,12 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 		}
 		pn, ok := fc.l.info.Uses[id].(*check.PkgName)
 		named, isNamed := fc.typeOf(x).(*check.Named)
-		if !ok || !isNamed {
+		if !ok || !isNamed || aliased(pn.Pkg, head.Sel.Name) != named.Obj {
 			return "", false
 		}
-		if named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
-			// pkg.T where T is an alias of another package's record
-			// (pipelinerpc.BoardRequest = pipelineapi.BoardRequest): the
-			// selected name is a TypeName of pkg (I22).
-			if sel, isType := fc.l.info.Uses[head.Sel].(*check.TypeName); !isType || sel.Pkg != pn.Pkg {
-				return "", false
-			}
-		}
 		// A qualified expression records its package use and final type;
-		// the Named's object is the selected TypeName.
+		// the Named's object is the selected TypeName, or the one an alias
+		// of that name stands for (S109-ALIAS).
 		tn = named.Obj
 	default:
 		return "", false
@@ -596,6 +618,9 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 	}
 	if op := fc.methodOf(x); op != nil {
 		return fc.methodValue(x, op)
+	}
+	if f := fc.l.info.MethodValues[x]; f != nil {
+		return fc.methodValue196(x, f)
 	}
 	recv := fc.value(x.X)
 	if hostRecv(fc.typeOf(x.X)) {
@@ -756,6 +781,10 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if fc.l.info.Relends[x] {
+		// &x of a mut parameter passes its pointer on (Info.Relends).
+		return fc.value(x.X)
+	}
 	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
 		// A Close through the address of an owned local takes it: its
 		// entry ends here, as at a by-address receiver (place).
@@ -872,6 +901,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		vals := fc.elements(x.Elts, u.Elem)
 		return goType + "{" + strings.Join(vals, ", ") + "}"
 	case *check.Map:
+		fc.l.intMapConflict(u) // intmap.go: Go's map literal
 		var list []syntax.Expr
 		for _, e := range x.Elts {
 			kv, ok := e.(*syntax.KeyValueExpr)

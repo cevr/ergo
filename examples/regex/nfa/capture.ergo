@@ -9,6 +9,8 @@
 import machines
 import regex/syntax
 import slices
+import regex/backtrack
+import strings
 
 // Thread is an instruction that reads a byte, or Accept, and the history
 // of the path that reached it.
@@ -123,7 +125,7 @@ func newVisit(p Program) tagVisit { tagVisit{out: []Thread{}, marked: slices.Rep
 
 // add adds the thread at pc with history h, at offset at, and what it
 // reaches through Split (X first) and Save, each instruction once.
-func add(v *tagVisit, p Program, pc int, h syntax.History, at int) {
+func add(v mut tagVisit, p Program, pc int, h syntax.History, at int) {
 	if v.marked[pc] {
 		return
 	}
@@ -147,6 +149,96 @@ type Capturing { program Program }
 
 // NewCapturing is the Capturing of p.
 func NewCapturing(p syntax.Pattern) Capturing { Capturing{program: Build(p.Tree())} }
+
+// CapturesAgree: on every sampled checked pattern, the tagged machine and
+// the reference engine give the same captures, for Parse and for Find,
+// event for event: every occurrence, in order, absent groups with none.
+// The texts are words of the pattern (witnesses), so most of them match,
+// sampled and given texts, and witnesses inside other bytes for Find.
+// One compiled Capturing runs every text, and runs the first again last:
+// it keeps nothing from one text to the next.
+law CapturesAgree(seed int, text string) {
+	let tree = syntax.CaptureSample(seed)
+	let p = syntax.Check(tree) catch {
+	case err:
+		assert "refused source=\(syntax.Print(tree))" == syntax.DescribeCapture(err)
+		return false
+	}
+	let c = NewCapturing(p)
+	let w = syntax.Witness(tree, seed)
+	let texts = []string{w, syntax.Witness(tree, seed+1), text, "", syntax.SampleText(seed), "b" + w + "a", w + w, w}
+	for t in texts {
+		let description = "source=\(syntax.Print(tree)) text=\(t) "
+		let got = syntax.ShowParse(c.ParseCaptures(t))
+		let want = syntax.ShowParse(backtrack.ParseCaptures(p, t))
+		assert description+got == description+want
+		let found = syntax.ShowFound(c.FindCaptures(t))
+		let wantFound = syntax.ShowFound(backtrack.FindCaptures(p, t))
+		assert description+found == description+wantFound
+	}
+	// A second group of a name, after the sample or in an Alt beside it,
+	// has no capture of its own: Check refuses it, naming the name.
+	let clash = syntax.Clash(seed)
+	let clashDescription = "source=\(syntax.Print(clash.Tree)) refused="
+	assert clashDescription+duplicateOf(clash.Tree) == clashDescription+clash.Name
+	// A repeat of two groups side by side would give parallel slices:
+	// Check refuses it at the repeat, naming the groups (patterns.md,
+	// Shapes 4).
+	let sided = syntax.Parallel(seed)
+	let sidedDescription = "source=\(syntax.Print(sided.Tree)) refused="
+	assert sidedDescription+sideBySide(sided.Tree) == sidedDescription+strings.Join(sided.Names, ",")
+	// The same groups inside one group are that occurrence's record.
+	let wrappedDescription = "source=\(syntax.Print(sided.Wrapped)) refused="
+	assert wrappedDescription+sideBySide(sided.Wrapped) == wrappedDescription+"accepted"
+	true
+}
+
+// sideBySide is the names of the groups that Check refuses n for as side
+// by side under a repeat, or what else Check says of n.
+func sideBySide(n syntax.Node) string {
+	let _ = syntax.Check(n) catch {
+	case syntax.ParallelGroups as p:
+		return strings.Join(p.Names, ",")
+	case err:
+		return "other: " + syntax.DescribeCapture(err)
+	}
+	"accepted"
+}
+
+// duplicateOf is the name that Check refuses n for as a duplicate, or
+// what else Check says of n.
+func duplicateOf(n syntax.Node) string {
+	let _ = syntax.Check(n) catch {
+	case syntax.DuplicateName as d:
+		return d.Name
+	case err:
+		return "other: " + syntax.DescribeCapture(err)
+	}
+	"accepted"
+}
+
+// TagWorkIsBounded: the tagged machine moves at most one thread per
+// instruction for each byte, so its work is linear in the text even when
+// many paths reach one instruction, as in (?<A>a|a)* on a run of a.
+law TagWorkIsBounded(seed int) {
+	let n = int(uint64(seed) % 12)
+	let doubled = syntax.Star{Of: syntax.Group{Name: "A", Of: syntax.Alt{Left: syntax.Literal("a"), Right: syntax.Literal("a")}}}
+	for tree in []syntax.Node{doubled, syntax.CaptureSample(seed)} {
+		let p = syntax.Check(tree) catch {
+		case _:
+			return false
+		}
+		let c = NewCapturing(p)
+		let size = c.program.Len()
+		for t in []string{strings.Repeat("a", n), syntax.Witness(tree, seed)} {
+			let work = c.MeasureCaptures(t)
+			let description = "source=\(syntax.Print(tree)) text=\(t) size=\(size) "
+			assert description+"steps=\(work.Steps <= len(t)*size)" == description+"steps=true"
+			assert description+"events=\(work.Events <= (len(t)+1)*size)" == description+"events=true"
+		}
+	}
+	true
+}
 
 // runTags runs the tagged machine on text from start.
 func runTags(p Program, text string, start int, find bool) Tagged {

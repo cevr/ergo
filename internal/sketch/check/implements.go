@@ -57,7 +57,11 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 			}
 		}
 		if t == nil {
+			c.inConstraint++
+			c.deferBounds++
 			t = c.typExpr(x, ctx)
+			c.deferBounds--
+			c.inConstraint--
 		}
 		if isInvalid(t) {
 			continue
@@ -67,7 +71,7 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 			c.errorf(x, CodeType, "implements names operation types; %s is %s (types.md, Interface assignability 1)", t, typeNoun(t))
 			continue
 		}
-		if it := asInterface(op); it.Set != SetAll {
+		if it := asInterface(op); it.Set != SetAll || it.Terms != nil && len(it.Methods) == 0 {
 			c.errorf(x, CodeType, "implements names operation types; %s is a constraint (types.md, Interface assignability 1)", t)
 			continue
 		}
@@ -125,7 +129,9 @@ func syntaxText(x syntax.Expr) string {
 // lists is S108, as a twice-declared operation is.
 func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it *Interface, seen map[string]bool) {
 	for _, f := range spec.Includes {
+		c.inConstraint++
 		t := c.typExpr(f.Type, ctx)
+		c.inConstraint--
 		if isInvalid(t) {
 			continue
 		}
@@ -143,6 +149,15 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 			continue
 		}
 		it.includes = append(it.includes, n)
+		if inc.Terms != nil {
+			// ..Count gives the including type Count's type set; two
+			// sets would need their intersection, which no rule names.
+			if it.Terms != nil {
+				c.errorf(f.Type, CodeType, "an operation type has one type set; ..%s gives it a second (types.md, Generics 2)", t)
+			} else {
+				it.Terms = inc.Terms
+			}
+		}
 		for _, m := range inc.Methods {
 			if seen[m.Name] {
 				c.errorf(f.Type, CodeType, "method %s is declared twice: ..%s includes it", m.Name, t)
@@ -355,7 +370,14 @@ func (c *checker) undeclared(v, op Type, site string) string {
 	}
 	n, ok := e.(*Named)
 	if !ok {
-		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
+		// A predeclared or unnamed type declares nothing: the program
+		// defines a type over it that does (types.md, Interface
+		// assignability 1; CONSTRAINTS C2, decision 6).
+		kind := "is not a declared type"
+		if _, basic := e.(*Basic); basic {
+			kind = "is a predeclared type"
+		}
+		return fmt.Sprintf("%s %s and declares nothing; define a type over it that declares the constraint: type N %s implements %s (types.md, Interface assignability 1)", v, kind, v, c.opOver(opn, v, "N"))
 	}
 	o := n.origin()
 	switch {
@@ -373,6 +395,24 @@ func (c *checker) undeclared(v, op Type, site string) string {
 		return fmt.Sprintf("%s does not declare that it implements %s: write implements %s after its body in package %s, or wrap the value in a record that implements %s (types.md, Interface assignability 1)", v, op, op, o.Obj.Pkg.Name, op)
 	}
 	return fmt.Sprintf("%s does not declare that it implements %s: write implements %s after %s's body (types.md, Interface assignability 1)", v, op, op, o.Obj.Name)
+}
+
+// opOver is the operation type op as a type defined over v would write
+// it, each type argument identical to v written as name: Ranked[int] over
+// int is Ranked[N].
+func (c *checker) opOver(op *Named, v Type, name string) string {
+	if len(op.TArgs) == 0 {
+		return op.String()
+	}
+	args := make([]string, len(op.TArgs))
+	for i, a := range op.TArgs {
+		args[i] = a.String()
+		if c.identical(a, v) {
+			args[i] = name
+		}
+	}
+	head, _, _ := strings.Cut(op.String(), "[")
+	return head + "[" + strings.Join(args, ", ") + "]"
 }
 
 // declaredInstance is the instance of the operation type op's origin that
@@ -443,6 +483,9 @@ func (c *checker) checkImplementsClauses() {
 			if it == nil {
 				continue
 			}
+			if c.clauseBounds(n, op, n.implExprs[i]) {
+				continue
+			}
 			if op.origin() == c.closer() || isGoCloser(op) {
 				// The release contract is the release shape (resources
 				// R1): a Close of the type that takes no other argument
@@ -466,11 +509,40 @@ func (c *checker) checkImplementsClauses() {
 			// receiver to each conversion, which checks it at the instance
 			// (assignableTo, implementsCapturing).
 			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
-			if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != "" {
+			if why := c.implementsAt(&Pointer{Elem: self}, it, checkReceiver, &foreign, op); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}
 	}
+}
+
+// clauseBounds checks the bounds of the instance op that n's implements
+// clause x names, once every clause of the package is known (deferBounds):
+// Tag implements Ranked[Other] needs Other to satisfy Ranked's bound on T.
+// It reports S106 at the clause and whether it did.
+func (c *checker) clauseBounds(n, op *Named, x syntax.Expr) bool {
+	tp, why := c.boundsUnmet(op)
+	if tp == nil {
+		return false
+	}
+	c.errorf(x, CodeProvider, "%s implements %s, and %s's %s must satisfy %s: %s", n.Obj.Name, op, op.origin().Obj.Name, tp.Name, tp.Constraint, why)
+	return true
+}
+
+// boundsUnmet is the first parameter of op's origin whose argument in op
+// does not satisfy its bound, and why; nil when every one does.
+func (c *checker) boundsUnmet(op *Named) (*TypeParam, string) {
+	o := op.origin()
+	for i, tp := range o.TParams {
+		if i >= len(op.TArgs) || tp.Kind != KindType || tp.Constraint == nil {
+			continue
+		}
+		cons := c.subst(tp.Constraint, paramMap(o.TParams, op.TArgs))
+		if why := c.satisfies(op.TArgs[i], cons); why != "" {
+			return tp, why
+		}
+	}
+	return nil, ""
 }
 
 // operationIncludeBodies decides each body that has only `..X` members:
@@ -570,8 +642,20 @@ type LegacyPair struct {
 	// Include is set when Type is an operation type: its members `..Op`.
 	Include bool
 	// Site names the reader of the old rule: "conversion", "constraint",
-	// "law", "release".
+	// "law", "release", "mut".
 	Site string
+	// MutOp, with Site "mut", is the operation of the operation type Type
+	// that a function on mut T implements at a constraint, which the old
+	// rule admitted through [T lent C]: the fix writes mut before it
+	// (MODES-4). Op is nil then.
+	MutOp string
+	// Own, with Site "own", is a type parameter that a resource binds,
+	// which the old copy-site inference admitted: the fix writes own after
+	// it, [T own] (MODES-5). Decl names its declaration (a function or a
+	// type, Type nil), and At is its offset in the declaring file.
+	Own  string
+	Decl string
+	At   int
 }
 
 // legacyRecord, when set, records each pair the old rule admits (ergo
@@ -627,6 +711,74 @@ func (c *checker) recordLegacy(v Type, op Type, site string) {
 	legacyRecord(pair)
 }
 
+// recordMutOp records, for ergo fix, that the operation op of the
+// constraint t must be marked mut, and reports whether it did.
+func (c *checker) recordMutOp(t Type, op string) bool {
+	n, ok := t.(*Named)
+	if legacyRecord == nil || !ok {
+		return false
+	}
+	o := declaringOp(n.origin(), op, map[*Named]bool{})
+	if o == nil || o.Obj == nil || o.Obj.Decl == nil || o.Obj.Pkg == nil || isHostNamed(o) {
+		return false
+	}
+	legacyRecord(LegacyPair{Type: o.Obj, Pkg: o.Obj.Pkg.Path, Site: "mut", MutOp: op})
+	return true
+}
+
+// tpOwner is each type parameter's declaration while a recorder is set:
+// its package's path and its name (MODES-5).
+var tpOwner = map[*TypeParam][2]string{}
+
+// noteOwner records tp's declaration for ergo fix.
+func (c *checker) noteOwner(tp *TypeParam, decl string) {
+	if legacyRecord != nil && c.pkg != nil {
+		tpOwner[tp] = [2]string{c.pkg.Path, decl}
+	}
+}
+
+// recordOwnLegacy records, for ergo fix, a type parameter without the own
+// mark that a resource binds: the old copy-site inference admitted the
+// instance (a clean program had no other kind), and the fix writes the
+// mark. It reports whether it recorded, so the check goes on.
+func (c *checker) recordOwnLegacy(tp *TypeParam) bool {
+	o, ok := tpOwner[tp]
+	if legacyRecord == nil || !ok || o[0] == "" {
+		return false
+	}
+	legacyRecord(LegacyPair{Pkg: o[0], Site: "own", Own: tp.Name, Decl: o[1], At: int(tp.Pos)})
+	return true
+}
+
+// declaringOp is the operation type that declares the operation op among
+// n and the types its members `..I` include, so the fix marks it where it
+// is written; nil when none does.
+func declaringOp(n *Named, op string, seen map[*Named]bool) *Named {
+	if n == nil || seen[n] {
+		return nil
+	}
+	seen[n] = true
+	if n.Obj != nil && n.Obj.Decl != nil {
+		if spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType); ok {
+			for _, m := range spec.Methods {
+				if len(m.Names) > 0 && m.Names[0].Name == op {
+					return n
+				}
+			}
+		}
+	}
+	it := asInterface(n)
+	if it == nil {
+		return nil
+	}
+	for _, inc := range it.includes {
+		if d := declaringOp(inc.origin(), op, seen); d != nil {
+			return d
+		}
+	}
+	return nil
+}
+
 // sameOps reports whether every operation of op is an operation of k with
 // the same shape, rows and takes.
 func (c *checker) sameOps(k, op *Interface) bool {
@@ -636,7 +788,7 @@ func (c *checker) sameOps(k, op *Interface) bool {
 	for _, m := range op.Methods {
 		km := k.method(m.Name)
 		if km == nil || km.Sig == nil || m.Sig == nil || !c.sameShape(km.Sig, m.Sig) ||
-			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf ||
+			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf || km.Sig.MutSelf != m.Sig.MutSelf ||
 			!km.Sig.Errors.equal(c.types, m.Sig.Errors) || !km.Sig.Uses.equal(c.types, m.Sig.Uses) {
 			return false
 		}
@@ -714,6 +866,12 @@ func (c *checker) recordLegacyReleases() {
 
 // String prints a pair for ergo fix's report.
 func (p LegacyPair) String() string {
+	if p.Own != "" {
+		return fmt.Sprintf("%s.%s marks %s own (%s)", p.Pkg, p.Decl, p.Own, p.Site)
+	}
+	if p.MutOp != "" {
+		return fmt.Sprintf("%s.%s marks %s mut (%s)", p.Pkg, p.Type.Name, p.MutOp, p.Site)
+	}
 	op := "?"
 	if p.Op != nil {
 		op = p.Op.String()

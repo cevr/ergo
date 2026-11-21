@@ -1,0 +1,699 @@
+// Verify once, then run without the checks the program's text decides.
+//
+// Run's checked loop (Checked) tests on every instruction what a look at
+// the program could answer once: whether the stack holds enough values,
+// whether a target is inside the program, whether the stack must grow,
+// whether a return has a call to go back to. Verify answers these
+// questions once, and Exec, which takes only a Verified program, runs
+// with no underflow, target, growth or return check: its stack is
+// allocated once at the size Verify proved. The law ExecAgreesWithChecked
+// ties the two loops: on every program that Verify accepts, Exec gives
+// Checked's result or Checked's trap, for any fuel.
+
+import slices
+
+// Verified is a program that Verify accepted, with the room Exec
+// allocates for its values and its return points. Its fields are
+// unexported, so only Verify builds one.
+//
+// Verify reads the program as subroutines: the main one starts at 0, and
+// each target of a Call starts one. In each, every instruction that can
+// run finds one stack depth, counted from the subroutine's start, on
+// every path to it; every Ret finds one depth, so a call moves the stack
+// by a fixed amount; the subroutine pops at most a fixed number of the
+// values its caller left (its need), and the main subroutine's need is 0
+// and it has no Ret. Every target is an instruction or the program's
+// end. So no instruction pops below the bottom, and no Ret runs without a
+// call. A frame adds at most high values to the stack, so the stack holds
+// at most high values with no call, and (MaxFrames+1)*high with calls,
+// since a run that would open more than MaxFrames frames traps first.
+// The return points take MaxFrames more.
+type Verified { code []Instr, room int, calls bool }
+
+// Code is the program of v.
+func Code(v Verified) []Instr { v.code }
+
+// Reach is the most a depth may move from a subroutine's start, in
+// either direction; a program past it is refused, which bounds Verify's
+// rounds and the stack's room.
+let Reach = 64
+
+// summary is what Verify knows of a subroutine: whether a Ret was found,
+// the depth every Ret finds, and how many of its caller's values it pops.
+type summary { returns bool, delta int, need int }
+
+// verifier is Verify's state. entries are the subroutines' starts, main
+// first; fn is the subroutine that starts at each instruction (or the
+// end), or -1; at is the depth of each instruction in the subroutine
+// being walked, or Reach+1 for none yet; work is what is left to visit;
+// high is the most a frame holds; changed is whether a round learnt
+// something.
+type verifier { program []Instr, entries []int, fn []int, sums []summary, at []int, work []int, high int, calls bool, changed bool }
+
+// Verify is program as a Verified program, or None when Exec cannot run
+// it.
+func Verify(program []Instr) Option[Verified] {
+	let size = len(program)
+	let mut v = verifier{program: program, entries: []int{0}, fn: slices.Repeat([]int{-1}, size+1), sums: []summary{summary{returns: false, delta: 0, need: 0}}, at: []int{}, work: []int{}, high: 0, calls: false, changed: false}
+	for i in program {
+		match Target(i) {
+		case Some[int] as t:
+			if t.Value < 0 || t.Value > size {
+				return None
+			}
+			if i == (Call{To: t.Value}) {
+				v.calls = true
+				if v.fn[t.Value] == -1 {
+					v.fn[t.Value] = len(v.sums)
+					v.entries = v.entries.Append(t.Value)
+					v.sums = v.sums.Append(summary{returns: false, delta: 0, need: 0})
+				}
+			}
+		case None:
+		}
+	}
+	// A round walks every subroutine with what is known of the others. A
+	// round that learns something is followed by another; each round
+	// learns a Ret's depth or raises a need, and both are bounded.
+	let mut rounds = 0
+	v.changed = true
+	for v.changed {
+		if rounds > (Reach+2)*len(v.entries) {
+			return None
+		}
+		rounds += 1
+		v.changed = false
+		v.high = 0
+		for f in 0..len(v.entries) {
+			if !v.walk(f) {
+				return None
+			}
+		}
+	}
+	if v.sums[0].need > 0 {
+		return None
+	}
+	let bound = if v.calls { (MaxFrames+1)*v.high + MaxFrames } else { v.high }
+	let mut room = 1
+	for room <= bound {
+		room = room * 2
+	}
+	Some{Verified{code: program, room: room, calls: v.calls}}
+}
+
+// walk visits subroutine f from its start, and is false when the program
+// must be refused.
+func walk(v mut verifier, f int) bool {
+	let size = len(v.program)
+	v.at = slices.Repeat([]int{Reach + 1}, size)
+	v.work = []int{}
+	if !v.reach(v.entries[f], 0) {
+		return false
+	}
+	for len(v.work) > 0 {
+		let pc = v.work[len(v.work)-1]
+		v.work = v.work[0 : len(v.work)-1]
+		let d = v.at[pc]
+		let i = v.program[pc]
+		let need = match i {
+		case Push, Jump, Halt, Call, Ret:
+			0
+		case Pop, Dup, Not, JumpIf, JumpIfNot, Print:
+			1
+		case Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same:
+			2
+		}
+		if !v.demand(f, need-d) {
+			return false
+		}
+		let after = d + match i {
+		case Push, Dup, Over:
+			1
+		case Swap, Not, Jump, Halt, Call, Ret:
+			0
+		case Pop, Add, Sub, Mul, Div, Mod, Less, Same, JumpIf, JumpIfNot, Print:
+			-1
+		}
+		let next = match i {
+		case Halt:
+			true
+		case Ret:
+			f != 0 && v.returns(f, d)
+		case Call as c:
+			// A call needs what its callee needs, whether or not it
+			// returns, and goes on after the callee returns, by its fixed
+			// amount; a callee with no Ret found yet does not return, so
+			// far.
+			let s = v.sums[v.fn[c.To]]
+			v.demand(f, s.need-d) && (!s.returns || v.reach(pc+1, d+s.delta))
+		case Jump as j:
+			v.reach(j.To, after)
+		case JumpIf as j:
+			v.reach(j.To, after) && v.reach(pc+1, after)
+		case JumpIfNot as j:
+			v.reach(j.To, after) && v.reach(pc+1, after)
+		case Push, Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not, Print:
+			v.reach(pc+1, after)
+		}
+		if !next {
+			return false
+		}
+	}
+	true
+}
+
+// reach records that instruction pc runs with depth d, and is false when
+// pc is outside the program, d is past Reach, or another path reaches pc
+// with another depth. The program's end takes any depth: the run ends
+// there.
+func reach(v mut verifier, pc int, d int) bool {
+	let size = len(v.program)
+	if pc < 0 || pc > size || d > Reach || d < -Reach {
+		return false
+	}
+	if d > v.high {
+		v.high = d
+	}
+	if pc == size {
+		return true
+	}
+	if v.at[pc] == Reach+1 {
+		v.at[pc] = d
+		v.work = v.work.Append(pc)
+		return true
+	}
+	v.at[pc] == d
+}
+
+// demand raises subroutine f's need to n, and is false past Reach.
+func demand(v mut verifier, f int, n int) bool {
+	if n <= v.sums[f].need {
+		return true
+	}
+	if n > Reach {
+		return false
+	}
+	v.sums[f] = summary{..v.sums[f], need: n}
+	v.changed = true
+	true
+}
+
+// returns records that a Ret of subroutine f finds depth d, and is false
+// when another Ret of f found another depth.
+func returns(v mut verifier, f int, d int) bool {
+	let s = v.sums[f]
+	if s.returns {
+		return s.delta == d
+	}
+	v.sums[f] = summary{..s, returns: true, delta: d}
+	v.changed = true
+	true
+}
+
+// Exec runs v as Run runs its program, with the checks Verify answered
+// left out. Fuel is checked at each jump, call or return that goes back
+// only: between two of them the instructions run in rising order, at most
+// len(code) of them, so the loop goes on while more fuel than that is
+// left. When less is left, the run goes on from where it is on the
+// checked loop (resume), which traps at the exact instruction. The loop
+// only marks that (low) and leaves; resume is called after it, so no call
+// sits in the loop: with one there, Go spills the loop's state (sp, pc,
+// printed, the fuel) at the top of every round, the cost of a call that
+// runs once (stackvm bench: 395 instructions a round against 436).
+//
+// The values and the return points share one slice, mem, allocated once:
+// the values from its bottom up, the return points from its top down, as
+// a native call stack and its frames share one memory. It is indexed
+// under a mask of its length, a power of two: a no-op for a Verified
+// program's depths, there so that Go drops its bounds check
+// (examples/stackvm/README.md, Limits found: until a record invariant on
+// Verified can carry the depth to this loop). The one check left is the
+// call depth, MaxFrames, which a recursive program may pass at run time.
+// The loop counts the fuel left, not the steps, so one counter does both.
+//
+// A program with no call whose stack stays under 64 values runs on
+// execFlat, the same loop with a [64]int stack in the Go frame and no
+// Call or Ret: it keeps fewer values live, so Go keeps them in registers
+// (stackvm bench: 436 instructions a round there against 489 on
+// execCalls, measured with resume still in the loops).
+func Exec(v Verified, fuel int) Result fails Trap {
+	if !v.calls && v.room <= 64 {
+		return try execFlat(v.code, fuel)
+	}
+	try execCalls(v.code, v.room, fuel)
+}
+
+// execCalls is Exec's loop for any Verified program.
+func execCalls(code []Instr, room int, fuel int) Result fails Trap {
+	let end = len(code)
+	let mut mem = slices.Repeat([]int{0}, room)
+	if fuel <= end || len(mem) == 0 {
+		return try Checked(code, fuel)
+	}
+	let top = len(mem) - 1
+	let mut sp = 0
+	let mut fp = 0
+	let mut printed = []int{}
+	let mut low = false
+	let mut pc = 0
+	let mut left = fuel
+	for pc < end {
+		let at = pc
+		pc += 1
+		left -= 1
+		match code[at] {
+		case Push as p:
+			mem[sp&top] = p.N
+			sp += 1
+		case Pop:
+			sp -= 1
+		case Dup:
+			mem[sp&top] = mem[(sp-1)&top]
+			sp += 1
+		case Swap:
+			let x = mem[(sp-1)&top]
+			mem[(sp-1)&top] = mem[(sp-2)&top]
+			mem[(sp-2)&top] = x
+		case Over:
+			mem[sp&top] = mem[(sp-2)&top]
+			sp += 1
+		case Add:
+			mem[(sp-2)&top] = mem[(sp-2)&top] + mem[(sp-1)&top]
+			sp -= 1
+		case Sub:
+			mem[(sp-2)&top] = mem[(sp-2)&top] - mem[(sp-1)&top]
+			sp -= 1
+		case Mul:
+			mem[(sp-2)&top] = mem[(sp-2)&top] * mem[(sp-1)&top]
+			sp -= 1
+		case Div:
+			let b = mem[(sp-1)&top]
+			if b == 0 {
+				return Trap{PC: at, Why: DivideByZero}
+			}
+			mem[(sp-2)&top] = mem[(sp-2)&top] / b
+			sp -= 1
+		case Mod:
+			let b = mem[(sp-1)&top]
+			if b == 0 {
+				return Trap{PC: at, Why: DivideByZero}
+			}
+			mem[(sp-2)&top] = mem[(sp-2)&top] % b
+			sp -= 1
+		case Less:
+			mem[(sp-2)&top] = if mem[(sp-2)&top] < mem[(sp-1)&top] { 1 } else { 0 }
+			sp -= 1
+		case Same:
+			mem[(sp-2)&top] = if mem[(sp-2)&top] == mem[(sp-1)&top] { 1 } else { 0 }
+			sp -= 1
+		case Not:
+			mem[(sp-1)&top] = if mem[(sp-1)&top] == 0 { 1 } else { 0 }
+		case Jump as j:
+			pc = j.To
+			if pc <= at && left <= end {
+				low = true
+				break
+			}
+		case JumpIf as j:
+			sp -= 1
+			if mem[sp&top] != 0 {
+				pc = j.To
+				if pc <= at && left <= end {
+					low = true
+					break
+				}
+			}
+		case JumpIfNot as j:
+			sp -= 1
+			if mem[sp&top] == 0 {
+				pc = j.To
+				if pc <= at && left <= end {
+					low = true
+					break
+				}
+			}
+		case Call as c:
+			if fp == MaxFrames {
+				return Trap{PC: at, Why: TooDeep}
+			}
+			mem[(top-fp)&top] = pc
+			fp += 1
+			pc = c.To
+			if pc <= at && left <= end {
+				low = true
+				break
+			}
+		case Ret:
+			fp -= 1
+			pc = mem[(top-fp)&top]
+			if pc <= at && left <= end {
+				low = true
+				break
+			}
+		case Print:
+			sp -= 1
+			printed = printed.Append(mem[sp&top])
+		case Halt:
+			break
+		}
+	}
+	if low {
+		return try resume(code, fuel, paused{stack: held(mem, sp), frames: opened(mem, fp), printed: printed, pc: pc, steps: fuel - left})
+	}
+	Result{Printed: printed, Stack: held(mem, sp), Steps: fuel - left}
+}
+
+// held is the first n values of mem, bottom first.
+func held(mem []int, n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		out = out.Append(mem[i])
+	}
+	out
+}
+
+// opened is the n return points at the top of mem, the outermost first.
+func opened(mem []int, n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		out = out.Append(mem[len(mem)-1-i])
+	}
+	out
+}
+
+// execFlat is Exec's loop for a program with no call whose stack stays
+// under 64 values: its stack is a [64]int, indexed under the mask 63.
+func execFlat(code []Instr, fuel int) Result fails Trap {
+	let end = len(code)
+	if fuel <= end {
+		return try Checked(code, fuel)
+	}
+	let mut stack = [64]int{}
+	let mut sp = 0
+	let mut printed = []int{}
+	let mut low = false
+	let mut pc = 0
+	let mut steps = 0
+	for pc < end {
+		let at = pc
+		pc += 1
+		steps += 1
+		match code[at] {
+		case Push as p:
+			stack[sp&63] = p.N
+			sp += 1
+		case Pop:
+			sp -= 1
+		case Dup:
+			stack[sp&63] = stack[(sp-1)&63]
+			sp += 1
+		case Swap:
+			let top = stack[(sp-1)&63]
+			stack[(sp-1)&63] = stack[(sp-2)&63]
+			stack[(sp-2)&63] = top
+		case Over:
+			stack[sp&63] = stack[(sp-2)&63]
+			sp += 1
+		case Add:
+			stack[(sp-2)&63] = stack[(sp-2)&63] + stack[(sp-1)&63]
+			sp -= 1
+		case Sub:
+			stack[(sp-2)&63] = stack[(sp-2)&63] - stack[(sp-1)&63]
+			sp -= 1
+		case Mul:
+			stack[(sp-2)&63] = stack[(sp-2)&63] * stack[(sp-1)&63]
+			sp -= 1
+		case Div:
+			let b = stack[(sp-1)&63]
+			if b == 0 {
+				return Trap{PC: at, Why: DivideByZero}
+			}
+			stack[(sp-2)&63] = stack[(sp-2)&63] / b
+			sp -= 1
+		case Mod:
+			let b = stack[(sp-1)&63]
+			if b == 0 {
+				return Trap{PC: at, Why: DivideByZero}
+			}
+			stack[(sp-2)&63] = stack[(sp-2)&63] % b
+			sp -= 1
+		case Less:
+			stack[(sp-2)&63] = if stack[(sp-2)&63] < stack[(sp-1)&63] { 1 } else { 0 }
+			sp -= 1
+		case Same:
+			stack[(sp-2)&63] = if stack[(sp-2)&63] == stack[(sp-1)&63] { 1 } else { 0 }
+			sp -= 1
+		case Not:
+			stack[(sp-1)&63] = if stack[(sp-1)&63] == 0 { 1 } else { 0 }
+		case Jump as j:
+			pc = j.To
+			if pc <= at && fuel-steps <= end {
+				low = true
+				break
+			}
+		case JumpIf as j:
+			sp -= 1
+			if stack[sp&63] != 0 {
+				pc = j.To
+				if pc <= at && fuel-steps <= end {
+					low = true
+					break
+				}
+			}
+		case JumpIfNot as j:
+			sp -= 1
+			if stack[sp&63] == 0 {
+				pc = j.To
+				if pc <= at && fuel-steps <= end {
+					low = true
+					break
+				}
+			}
+		case Call, Ret:
+			Unreachable("Exec runs a program with a call on execCalls")
+		case Print:
+			sp -= 1
+			printed = printed.Append(stack[sp&63])
+		case Halt:
+			break
+		}
+	}
+	if low {
+		return try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed, pc: pc, steps: steps})
+	}
+	Result{Printed: printed, Stack: held(stack[0:64], sp), Steps: steps}
+}
+
+// Ended is how a run ended, for comparing two loops.
+type Ended = Halted{R Result} | Trapped{T Trap}
+
+// execEnded is how Exec's run of v with fuel ended.
+func execEnded(v Verified, fuel int) Ended {
+	let r = Exec(v, fuel) catch {
+	case Trap as t:
+		return Trapped{T: t}
+	}
+	Halted{R: r}
+}
+
+// checkedEnded is how Checked's run of program with fuel ended.
+func checkedEnded(program []Instr, fuel int) Ended {
+	let r = Checked(program, fuel) catch {
+	case Trap as t:
+		return Trapped{T: t}
+	}
+	Halted{R: r}
+}
+
+// ExecAgreesWithChecked: a program that Verify accepts ends on Exec as it
+// ends on Checked, with the same result or the same trap, for any fuel.
+// The programs are drawn well formed (Stacked), well formed with one
+// instruction replaced (Bent, which Verify often refuses), at random
+// (Program), as a loop (Countdown), as two paths that meet at another
+// depth (Joined), as a printing loop given just the fuel to halt, so that
+// it leaves Exec for the checked loop on its last backward jump
+// (Printing), as a stack of 60 to 67 values (Tower, across the depth
+// Verify allows), and with calls: well formed (Called), one instruction
+// replaced (Bent of Called), a recursion as deep as its argument, given
+// any fuel, just the fuel to halt, and one less, which runs out while it
+// unwinds by Rets alone, and 9000 deep, where its values and its return
+// points fill most of the room (Down), a subroutine whose two Rets
+// find two depths (Uneven) and a call that leaves its callee one value
+// short (Short), and a Ret with no call open (Unopened).
+law ExecAgreesWithChecked(seed int, fuel int) {
+	let f = if fuel < 0 { -(fuel + 1) % 48 } else { fuel % 48 }
+	let n = if seed < 0 { -(seed + 1) } else { seed }
+	let calls = Called(seed)
+	let mut bent = Called(seed)
+	let mut d = Seed(seed + 5)
+	bent[d.Next(len(bent))] = Program(seed+11, len(bent))[d.Next(len(bent))]
+	for p in [][]Instr{Stacked(seed, 16), Bent(seed, 16), Program(seed, 16), countdown(seed % 8), Joined(n % 2), calls, bent, Down(n % 4), Uneven(n % 2), Short(n)} {
+		if !agrees(p, f) {
+			return false
+		}
+	}
+	let k = 2 + n%6
+	let deep = 3 + n%40
+	agrees(Printing(k), 6*k+2) && agrees(Down(deep), 8*deep+7) && agrees(Down(deep), 8*deep+6) && agrees(Unopened(), 5) && (n%10 != 0 || agrees(Down(9000), 72007)) && (n%4 != 0 || agrees(Tower(60+n/4%8), 2*(60+n/4%8)+1))
+}
+
+// Called is Stacked(seed, 12) with each Not a call of a subroutine that
+// adds a number to the top, and each Swap a call of one that multiplies
+// the top by the value under it: each pops and leaves what the
+// instruction it replaces does, so Verify accepts every Called program.
+func Called(seed int) []Instr {
+	let mut out = []Instr{}
+	for i in Stacked(seed, 12) {
+		out = out.Append(match i {
+		case Not:
+			Call{To: 13}
+		case Swap:
+			Call{To: 16}
+		case JumpIfNot as j:
+			// Stacked's way out, to its end at any depth, stays the
+			// program's end.
+			JumpIfNot{To: if j.To == 12 { 19 } else { j.To }}
+		case Push, Pop, Dup, Over, Add, Sub, Mul, Div, Mod, Less, Same, Jump, JumpIf, Call, Ret, Print, Halt:
+			i
+		})
+	}
+	out.Concat([]Instr{Halt, Push{N: seed % 5}, Add, Ret, Over, Mul, Ret})
+}
+
+// Down prints the sum of k down to 0 by a recursion k calls deep, in
+// 8k+7 instructions: each frame keeps its number on the stack while it
+// calls the next.
+func Down(k int) []Instr {
+	[]Instr{Push{N: k}, Call{To: 4}, Print, Halt, Dup, JumpIfNot{To: 11}, Dup, Push{N: 1}, Sub, Call{To: 4}, Add, Ret}
+}
+
+// Uneven calls a subroutine that returns with its argument popped when it
+// is 0 and with a value pushed in its place otherwise: two Rets at two
+// depths, which Verify must refuse.
+func Uneven(a int) []Instr {
+	[]Instr{Push{N: a}, Call{To: 4}, Print, Halt, JumpIfNot{To: 7}, Push{N: 7}, Ret, Ret}
+}
+
+// Unopened returns from the main subroutine, which no call opened:
+// Verify must refuse it. Given 5 fuel, a loop that let it run would go
+// round once more and run out where the checked loop traps on NoFrame.
+func Unopened() []Instr {
+	[]Instr{Push{N: 0}, JumpIfNot{To: 3}, Halt, Ret}
+}
+
+// Short calls a subroutine that adds two values with one on the stack,
+// which Verify must refuse.
+func Short(a int) []Instr {
+	[]Instr{Push{N: a}, Call{To: 3}, Halt, Add, Ret}
+}
+
+// Joined jumps over a pop when a is 0, so its Print finds one value on
+// the path Verify walks first and none on the other: Verify must refuse
+// it, and when a is not 0 the run takes the path with none.
+func Joined(a int) []Instr {
+	[]Instr{Push{N: 9}, Push{N: a}, JumpIfNot{To: 4}, Pop, Print}
+}
+
+// Printing prints k down to 1 by a loop and halts after 6k+2
+// instructions.
+func Printing(k int) []Instr {
+	[]Instr{Push{N: k}, Dup, Print, Push{N: 1}, Sub, Dup, JumpIf{To: 1}, Pop}
+}
+
+// agrees is the check of ExecAgreesWithChecked for one program.
+func agrees(p []Instr, f int) bool {
+	match Verify(p) {
+	case Some[Verified] as v:
+		execEnded(v.Value, f) == checkedEnded(p, f)
+	case None:
+		true
+	}
+}
+
+// VerifyAcceptsStacked: every program Stacked and Called draw, and every
+// Down, is verified, so ExecAgreesWithChecked reaches Exec, with and
+// without calls, on every seed.
+law VerifyAcceptsStacked(seed int) {
+	Verify(Stacked(seed, 16)) != None && Verify(Called(seed)) != None && Verify(Down(seed%50)) != None
+}
+
+// Stacked is size instructions drawn from seed that Verify accepts: each
+// instruction pops only what the stack holds, a push finds fewer than 8
+// values (so the stack stays far under 63), and each jump goes back to an instruction that starts at the
+// depth the jump leaves, or forward to the end. Its loops need not end;
+// fuel ends them.
+func Stacked(seed int, size int) []Instr {
+	let mut d = Seed(seed)
+	let mut out = []Instr{}
+	let mut depths = []int{}
+	let mut depth = 0
+	for _ in 0..size {
+		depths = depths.Append(depth)
+		let k = d.Next(8)
+		let one = []Instr{Pop, Dup, Not, Print}
+		let two = []Instr{Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same}
+		let back = earlier(depths, if k == 5 { depth - 1 } else { depth }, d.Next(len(depths)))
+		let i = match k {
+		case 0, 1:
+			if depth < 8 { Push{N: d.Next(21) - 10} } else { Pop }
+		case 2:
+			if depth >= 2 { two[d.Next(len(two))] } else { Push{N: d.Next(5)} }
+		case 3:
+			if depth >= 1 { one[d.Next(len(one))] } else { Push{N: d.Next(5)} }
+		case 4:
+			if back >= 0 { Jump{To: back} } else { Push{N: 1} }
+		case 5:
+			if depth >= 1 && back >= 0 { if d.Next(2) == 0 { JumpIf{To: back} } else { JumpIfNot{To: back} } } else { Push{N: 0} }
+		case 6:
+			if depth >= 1 { JumpIfNot{To: size} } else { Push{N: 2} }
+		case _:
+			if d.Next(4) == 0 { Halt } else { Push{N: 3} }
+		}
+		out = out.Append(i)
+		depth = depth + match i {
+		case Push, Dup, Over:
+			1
+		case Swap, Not, Jump, Halt, Call, Ret:
+			0
+		case Pop, Add, Sub, Mul, Div, Mod, Less, Same, JumpIf, JumpIfNot, Print:
+			-1
+		}
+	}
+	out
+}
+
+// earlier is the last instruction at or before from whose depth is
+// depth, or -1.
+func earlier(depths []int, depth int, from int) int {
+	let mut i = from
+	for i >= 0 {
+		if depths[i] == depth {
+			return i
+		}
+		i -= 1
+	}
+	-1
+}
+
+// Bent is Stacked(seed, size) with one instruction replaced by one that
+// Program draws: a near miss, which Verify must refuse when it pops
+// below the bottom, meets another depth or jumps outside.
+func Bent(seed int, size int) []Instr {
+	let mut p = Stacked(seed, size)
+	let mut d = Seed(seed + 7)
+	p[d.Next(size)] = Program(seed+13, size)[d.Next(size)]
+	p
+}
+
+// Tower pushes 1 to n, adds them and prints the sum: the stack holds n
+// values at its top.
+func Tower(n int) []Instr {
+	let mut out = []Instr{}
+	for i in 0..n {
+		out = out.Append(Push{N: i + 1})
+	}
+	for _ in 1..n {
+		out = out.Append(Add)
+	}
+	out.Append(Print)
+}

@@ -1,0 +1,467 @@
+// Package dump writes the canonical dumps of compiler/syntax's scan and
+// parse of one source: the text the agreement tests compare with the Go
+// scanner's and parser's (internal/sketch/syntax), and the output of
+// cmd/scandump and cmd/parsedump. It is the root of the linked package
+// internal/linked/compiler, through compiler/api: Go calls Parse and Scan. Every function is pure.
+
+import compiler/syntax
+import dense
+import strconv
+import strings
+
+type dumper { b strings.Builder, p syntax.Parsed }
+
+func line(d mut dumper, depth int, text string) {
+	d.b.WriteString(strconv.Itoa(depth) + " " + text + "\n")
+}
+
+func itoa(n int) string { strconv.Itoa(n) }
+
+// tp is the offset of a token index, -1 for none.
+func tp(d mut dumper, j int) int { if j < 0 { -1 } else { syntax.TokPos(d.p, j) } }
+
+// zp is the offset of a token index, 0 for none: a position the Go
+// parser leaves unset.
+func zp(d mut dumper, j int) int { if j < 0 { 0 } else { syntax.TokPos(d.p, j) } }
+
+func at(d mut dumper, id dense.ID[syntax.Node]) string { itoa(syntax.NodePos(d.p, id)) + " " + itoa(syntax.NodeEnd(d.p, id)) }
+
+func b01(b bool) string { if b { "1" } else { "0" } }
+
+func opt(d mut dumper, depth int, o dense.Opt[syntax.Node]) {
+	match dense.Unpack(o) {
+	case Some{Value: s}:
+		node(d, depth, s)
+	case None:
+		line(d, depth, "nil")
+	}
+}
+
+func optPos(d mut dumper, o dense.Opt[syntax.Node]) int {
+	match dense.Unpack(o) {
+	case Some{Value: s}:
+		syntax.NodePos(d.p, s)
+	case None:
+		-1
+	}
+}
+
+func isSome(o dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(o) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+func list(d mut dumper, depth int, l syntax.List) {
+	line(d, depth, "list "+itoa(syntax.Len(l)))
+	for i in 0..syntax.Len(l) {
+		node(d, depth+1, syntax.Item(d.p.Tree, l, i))
+	}
+}
+
+// some lists the items of l of kind k (or, with not, of any other kind),
+// or with dots the Fields that are includes.
+func listWhere(d mut dumper, depth int, l syntax.List, pick int) {
+	let mut n = 0
+	for i in 0..syntax.Len(l) {
+		if picked(d, syntax.Item(d.p.Tree, l, i), pick) {
+			n = n + 1
+		}
+	}
+	line(d, depth, "list "+itoa(n))
+	for i in 0..syntax.Len(l) {
+		let id = syntax.Item(d.p.Tree, l, i)
+		if picked(d, id, pick) {
+			node(d, depth+1, id)
+		}
+	}
+}
+
+// picked: 0 includes, 1 operations, 2 laws, 3 machine entries, 4 machine
+// laws, 5 even items, 6 odd items (by position, see listParts).
+func picked(d mut dumper, id dense.ID[syntax.Node], pick int) bool {
+	let k = syntax.KindOf(d.p.Tree, id)
+	if pick == 0 || pick == 1 {
+		if k != syntax.KField {
+			return false
+		}
+		match syntax.ViewOf(d.p.Tree, id) {
+		case syntax.Field as f:
+			return (f.Dots >= 0) == (pick == 0)
+		case _:
+			return false
+		}
+	}
+	if pick == 2 || pick == 4 {
+		return k == syntax.KLawDecl
+	}
+	k == syntax.KMachineEntry
+}
+
+// typeTerms dumps the terms of an operation type's type-set member: the
+// members that are neither a field nor a law, each `~T` (a UnaryExpr of
+// op `~`) or a bare type, as the Go tree's TypeTerm{Tilde, Type}.
+func typeTerms(d mut dumper, depth int, l syntax.List) {
+	let mut n = 0
+	for i in 0..syntax.Len(l) {
+		if isTypeTerm(d, syntax.Item(d.p.Tree, l, i)) {
+			n = n + 1
+		}
+	}
+	line(d, depth, "list "+itoa(n))
+	for i in 0..syntax.Len(l) {
+		let id = syntax.Item(d.p.Tree, l, i)
+		if !isTypeTerm(d, id) {
+			continue
+		}
+		let mut tilde = -1
+		let mut ty = id
+		if syntax.KindOf(d.p.Tree, id) == syntax.KUnaryExpr {
+			let u = syntax.UnaryExprOf(d.p.Tree, id)
+			if syntax.TokKind(d.p, u.Op) == syntax.Tilde {
+				tilde = tp(d, u.Op)
+				ty = u.X
+			}
+		}
+		line(d, depth+1, "TypeTerm "+at(d, id)+" Tilde="+itoa(tilde))
+		node(d, depth+2, ty)
+	}
+}
+
+func isTypeTerm(d mut dumper, id dense.ID[syntax.Node]) bool {
+	let k = syntax.KindOf(d.p.Tree, id)
+	k != syntax.KField && k != syntax.KLawDecl
+}
+
+func listParts(d mut dumper, depth int, l syntax.List, odd int) {
+	let n = (syntax.Len(l) + 1 - odd) / 2
+	line(d, depth, "list "+itoa(n))
+	let mut i = odd
+	for i < syntax.Len(l) {
+		node(d, depth+1, syntax.Item(d.p.Tree, l, i))
+		i = i + 2
+	}
+}
+
+func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
+	let a = at(d, id)
+	let c = depth + 1
+	match syntax.ViewOf(d.p.Tree, id) {
+	case syntax.File as x:
+		line(d, depth, "File "+a+" EOF="+itoa(tp(d, x.EOF)))
+		list(d, c, x.Decls)
+	case syntax.ImportDecl as x:
+		line(d, depth, "ImportDecl "+a+" doc="+itoa(x.Doc)+" Import="+itoa(tp(d, x.Import)))
+		node(d, c, x.Spec)
+	case syntax.ImportSpec as x:
+		let kind = if x.NamePos < 0 { 0 } else if syntax.TokKind(d.p, x.NamePos) == syntax.Go { 3 } else { 1 }
+		line(d, depth, "ImportSpec "+a+" Kind="+itoa(kind)+" NamePos="+itoa(tp(d, x.NamePos)))
+		opt(d, c, x.Name)
+		node(d, c, x.Path)
+	case syntax.VarDecl as x:
+		line(d, depth, "VarDecl "+a+" doc="+itoa(x.Doc)+" Var="+itoa(tp(d, x.Var))+" Mut="+itoa(tp(d, x.Mut)))
+		opt(d, c, x.Extern)
+		node(d, c, x.Spec)
+	case syntax.VarSpec as x:
+		line(d, depth, "VarSpec "+a+" Assign="+itoa(tp(d, x.Assign)))
+		list(d, c, x.Names)
+		opt(d, c, x.Pattern)
+		opt(d, c, x.Type)
+		opt(d, c, x.Value)
+	case syntax.TypeDecl as x:
+		line(d, depth, "TypeDecl "+a+" doc="+itoa(x.Doc)+" Type="+itoa(tp(d, x.Type))+" WherePos="+itoa(zp(d, x.WherePos))+" DerivePos="+itoa(zp(d, x.DerivePos))+" ImplementsPos="+itoa(zp(d, x.ImplementsPos)))
+		opt(d, c, x.Extern)
+		node(d, c, x.Name)
+		opt(d, c, x.TypeParams)
+		opt(d, c, x.Spec)
+		opt(d, c, x.Where)
+		opt(d, c, x.Derive)
+		list(d, c, x.Implements)
+	case syntax.FuncDecl as x:
+		line(d, depth, "FuncDecl "+a+" doc="+itoa(x.Doc)+" Func="+itoa(tp(d, x.Func)))
+		opt(d, c, x.Extern)
+		opt(d, c, x.Recv)
+		node(d, c, x.Name)
+		opt(d, c, x.TypeParams)
+		node(d, c, x.Type)
+		opt(d, c, x.Body)
+	case syntax.ContextDecl as x:
+		line(d, depth, "ContextDecl "+a+" doc="+itoa(x.Doc)+" Let="+itoa(tp(d, x.Let))+" Context="+itoa(tp(d, x.Context)))
+		node(d, c, x.Name)
+		opt(d, c, x.Provides)
+		opt(d, c, x.Fails)
+		opt(d, c, x.Needs)
+		node(d, c, x.Body)
+	case syntax.TestDecl as x:
+		line(d, depth, "TestDecl "+a+" doc="+itoa(x.Doc)+" Test="+itoa(tp(d, x.Test)))
+		node(d, c, x.Name)
+		opt(d, c, x.Params)
+		node(d, c, x.Body)
+	case syntax.LawDecl as x:
+		line(d, depth, "LawDecl "+a+" doc="+itoa(x.Doc)+" Law="+itoa(tp(d, x.Law))+" Rewrite="+(if x.Equation { "2" } else { b01(x.Rewrite) })+" When="+itoa(tp(d, x.When))+" Eq="+itoa(tp(d, x.Eq)))
+		node(d, c, x.Name)
+		opt(d, c, x.Params)
+		opt(d, c, x.Body)
+		opt(d, c, x.Reach)
+	case syntax.LawReach as x:
+		let inv = if x.Invariant { syntax.TokText(d.p, x.Word) } else { "-" }
+		line(d, depth, "LawReach "+a+" Never="+itoa(tp(d, x.Never))+" Word="+itoa(tp(d, x.Word))+" Path="+b01(x.Path)+" Lbrack="+itoa(tp(d, x.Lbrack))+" Rbrack="+itoa(tp(d, x.Rbrack))+" Invariant="+inv)
+		list(d, c, x.Targets)
+		opt(d, c, x.Pred)
+	case syntax.ExternSpec as x:
+		line(d, depth, "ExternSpec "+a+" Extern="+itoa(tp(d, x.Extern))+" Go="+itoa(tp(d, x.Go)))
+		node(d, c, x.Target)
+	case syntax.ContextBody as x:
+		line(d, depth, "ContextBody "+a+" Lbrace="+itoa(tp(d, x.Lbrace))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		list(d, c, x.Entries)
+	case syntax.ContextEntry as x:
+		let kind = if x.Replace >= 0 { 2 } else if !isSome(x.Value) { 1 } else { 0 }
+		line(d, depth, "ContextEntry "+a+" doc="+itoa(x.Doc)+" Kind="+itoa(kind)+" Replace="+itoa(tp(d, x.Replace))+" Assign="+itoa(tp(d, x.Assign)))
+		node(d, c, x.Key)
+		list(d, c, x.Keys)
+		opt(d, c, x.Value)
+	case syntax.Field as x:
+		line(d, depth, "Field "+a+" doc="+itoa(x.Doc)+" Any="+itoa(optPos(d, x.Any))+" Lent="+itoa(optPos(d, x.Lent))+" Include="+b01(x.Dots >= 0)+" Dots="+itoa(tp(d, x.Dots))+" WherePos="+itoa(zp(d, x.WherePos))+" Pure="+b01(x.PurePos >= 0)+" PurePos="+itoa(tp(d, x.PurePos))+" Own="+itoa(tp(d, x.Own))+" Mut="+itoa(tp(d, x.Mut)))
+		list(d, c, x.Names)
+		opt(d, c, x.Type)
+		opt(d, c, x.Key)
+		opt(d, c, x.Where)
+	case syntax.FieldList as x:
+		line(d, depth, "FieldList "+a+" Opening="+itoa(tp(d, x.Opening))+" Closing="+itoa(tp(d, x.Closing)))
+		list(d, c, x.List)
+	case syntax.NeedsClause as x:
+		line(d, depth, "NeedsClause "+a+" Needs="+itoa(tp(d, x.Needs)))
+		list(d, c, x.Names)
+	case syntax.TakesClause as x:
+		line(d, depth, "TakesClause "+a+" Takes="+itoa(tp(d, x.Takes)))
+		list(d, c, x.Names)
+	case syntax.ProvidesClause as x:
+		line(d, depth, "ProvidesClause "+a+" Provides="+itoa(tp(d, x.Provides)))
+		list(d, c, x.Names)
+	case syntax.MachineEntry as x:
+		line(d, depth, "MachineEntry "+a+" doc="+itoa(x.Doc)+" NamePos="+itoa(tp(d, x.Name))+" Name="+syntax.TokText(d.p, x.Name)+" Colon="+itoa(tp(d, x.Name+1)))
+		node(d, c, x.Value)
+	case syntax.CatchArm as x:
+		line(d, depth, "CatchArm "+a+" Case="+itoa(tp(d, x.Case))+" Colon="+itoa(tp(d, x.Colon)))
+		list(d, c, x.Types)
+		list(d, c, x.Body)
+	case syntax.CaseClause as x:
+		line(d, depth, "CaseClause "+a+" Case="+itoa(tp(d, x.Case))+" Colon="+itoa(tp(d, x.Colon)))
+		list(d, c, x.List)
+		list(d, c, x.Body)
+	case syntax.VariantSpec as x:
+		line(d, depth, "VariantSpec "+a)
+		node(d, c, x.Name)
+		opt(d, c, x.TypeArgs)
+		node(d, c, x.Fields)
+	case syntax.Name as x:
+		line(d, depth, "Ident "+a+" Name="+syntax.TokText(d.p, x.Tok))
+	case syntax.BasicLit as x:
+		line(d, depth, "BasicLit "+a+" Kind="+itoa(int(syntax.TokKind(d.p, x.Tok)))+" Value="+strconv.Quote(syntax.TokText(d.p, x.Tok)))
+	case syntax.CompositeLit as x:
+		line(d, depth, "CompositeLit "+a+" Lbrace="+itoa(tp(d, x.Lbrace))+" DotDot="+itoa(tp(d, x.DotDot))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		opt(d, c, x.Type)
+		opt(d, c, x.Base)
+		list(d, c, x.Elts)
+	case syntax.KeyValueExpr as x:
+		line(d, depth, "KeyValueExpr "+a+" Colon="+itoa(tp(d, x.Colon)))
+		node(d, c, x.Key)
+		node(d, c, x.Value)
+	case syntax.FuncLit as x:
+		line(d, depth, "FuncLit "+a)
+		node(d, c, x.Type)
+		node(d, c, x.Body)
+	case syntax.ParenExpr as x:
+		line(d, depth, "ParenExpr "+a+" Lparen="+itoa(tp(d, x.Lparen))+" Rparen="+itoa(tp(d, x.Rparen)))
+		node(d, c, x.X)
+	case syntax.SelectorExpr as x:
+		line(d, depth, "SelectorExpr "+a)
+		node(d, c, x.X)
+		node(d, c, x.Sel)
+	case syntax.IndexExpr as x:
+		line(d, depth, "IndexExpr "+a+" Lbrack="+itoa(tp(d, x.Lbrack))+" Rbrack="+itoa(tp(d, x.Rbrack)))
+		node(d, c, x.X)
+		list(d, c, x.Indices)
+	case syntax.SliceExpr as x:
+		line(d, depth, "SliceExpr "+a+" Lbrack="+itoa(tp(d, x.Lbrack))+" Slice3="+b01(x.Slice3)+" Rbrack="+itoa(tp(d, x.Rbrack)))
+		node(d, c, x.X)
+		opt(d, c, x.Low)
+		opt(d, c, x.High)
+		opt(d, c, x.Max)
+	case syntax.CallExpr as x:
+		line(d, depth, "CallExpr "+a+" Lparen="+itoa(tp(d, x.Lparen))+" Rparen="+itoa(tp(d, x.Rparen))+" TrailingFunc="+b01(x.TrailingFunc))
+		node(d, c, x.Fun)
+		list(d, c, x.Args)
+		opt(d, c, x.Trailing)
+	case syntax.StarExpr as x:
+		line(d, depth, "StarExpr "+a+" Star="+itoa(tp(d, x.Star))+" Mut="+b01(syntax.TokKind(d.p, x.Star) == syntax.Mut))
+		node(d, c, x.X)
+	case syntax.UnaryExpr as x:
+		line(d, depth, "UnaryExpr "+a+" OpPos="+itoa(tp(d, x.Op))+" Op="+itoa(int(syntax.TokKind(d.p, x.Op))))
+		node(d, c, x.X)
+	case syntax.BinaryExpr as x:
+		line(d, depth, "BinaryExpr "+a+" OpPos="+itoa(tp(d, x.Op))+" Op="+itoa(int(syntax.TokKind(d.p, x.Op))))
+		node(d, c, x.X)
+		node(d, c, x.Y)
+	case syntax.TryExpr as x:
+		line(d, depth, "TryExpr "+a+" Try="+itoa(tp(d, x.Try)))
+		node(d, c, x.X)
+	case syntax.CatchExpr as x:
+		line(d, depth, "CatchExpr "+a+" Catch="+itoa(tp(d, x.Catch))+" Lbrace="+itoa(tp(d, x.Catch+1))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		node(d, c, x.X)
+		list(d, c, x.Arms)
+	case syntax.ContextLit as x:
+		line(d, depth, "ContextLit "+a+" Context="+itoa(tp(d, x.Context)))
+		opt(d, c, x.Provides)
+		opt(d, c, x.Fails)
+		opt(d, c, x.Needs)
+		node(d, c, x.Body)
+	case syntax.ArrayType as x:
+		let ln = if x.Len < 0 { "-" } else { syntax.TokText(d.p, x.Len) }
+		let lp = if x.Len < 0 { 0 } else { tp(d, x.Len) }
+		line(d, depth, "ArrayType "+a+" Lbrack="+itoa(tp(d, x.Lbrack))+" Len="+ln+" LenPos="+itoa(lp))
+		node(d, c, x.Elt)
+	case syntax.MapType as x:
+		line(d, depth, "MapType "+a+" Map="+itoa(syntax.NodePos(d.p, x.X))+" Lbrack="+itoa(tp(d, x.Lbrack))+" Rbrack="+itoa(tp(d, x.Rbrack)))
+		node(d, c, x.Key)
+		node(d, c, x.Value)
+		opt(d, c, x.Hashing)
+	case syntax.FuncType as x:
+		line(d, depth, "FuncType "+a+" Escaping="+itoa(tp(d, x.Escaping))+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func)))
+		node(d, c, x.Params)
+		opt(d, c, x.Results)
+		opt(d, c, x.Needs)
+		opt(d, c, x.Takes)
+	case syntax.StructType as x:
+		line(d, depth, "StructType "+a)
+		node(d, c, x.Fields)
+	case syntax.InterfaceType as x:
+		line(d, depth, "InterfaceType "+a+" Lbrace="+itoa(tp(d, x.Lbrace))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		if x.Lbrace < 0 {
+			line(d, c, "list 0")
+			line(d, c, "list 0")
+			line(d, c, "list 0")
+			list(d, c, x.Members)
+			line(d, c, "list 0")
+		} else {
+			listWhere(d, c, x.Members, 0)
+			listWhere(d, c, x.Members, 1)
+			listWhere(d, c, x.Members, 2)
+			line(d, c, "list 0")
+			typeTerms(d, c, x.Members)
+		}
+	case syntax.ErrorRow as x:
+		line(d, depth, "ErrorRow "+a+" Error="+itoa(tp(d, x.Error)))
+		list(d, c, x.Types)
+	case syntax.MachineType as x:
+		line(d, depth, "MachineType "+a+" Machine="+itoa(tp(d, x.Machine))+" Lbrack="+itoa(tp(d, x.Machine+1))+" Rbrack="+itoa(tp(d, x.Rbrack))+" Lbrace="+itoa(tp(d, x.Rbrack+1))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		node(d, c, x.State)
+		node(d, c, x.Signal)
+		listWhere(d, c, x.Members, 3)
+		listWhere(d, c, x.Members, 4)
+	case syntax.TupleExpr as x:
+		line(d, depth, "TupleExpr "+a+" Lparen="+itoa(tp(d, x.Lparen))+" Rparen="+itoa(tp(d, x.Rparen)))
+		list(d, c, x.Elts)
+	case syntax.AsPattern as x:
+		line(d, depth, "AsPattern "+a+" As="+itoa(tp(d, x.As)))
+		node(d, c, x.X)
+		node(d, c, x.Name)
+	case syntax.OrPattern as x:
+		let mut bars = ""
+		for i in 1..syntax.Len(x.Alts) {
+			let first = syntax.TokStartingAt(d.p, syntax.NodePos(d.p, syntax.Item(d.p.Tree, x.Alts, i)))
+			if i > 1 {
+				bars = bars + ","
+			}
+			bars = bars + itoa(tp(d, first-1))
+		}
+		line(d, depth, "OrPattern "+a+" Bars="+bars)
+		list(d, c, x.Alts)
+	case syntax.InterpolatedString as x:
+		line(d, depth, "InterpolatedString "+a)
+		listParts(d, c, x.Parts, 0)
+		listParts(d, c, x.Parts, 1)
+	case syntax.DeclStmt as x:
+		line(d, depth, "DeclStmt "+a)
+		node(d, c, x.Decl)
+	case syntax.ExprStmt as x:
+		line(d, depth, "ExprStmt "+a)
+		node(d, c, x.X)
+	case syntax.AssignStmt as x:
+		line(d, depth, "AssignStmt "+a+" TokPos="+itoa(tp(d, x.Tok))+" Tok="+itoa(int(syntax.TokKind(d.p, x.Tok))))
+		node(d, c, x.Lhs)
+		node(d, c, x.Rhs)
+	case syntax.ReturnStmt as x:
+		line(d, depth, "ReturnStmt "+a+" Return="+itoa(tp(d, x.Return)))
+		opt(d, c, x.Result)
+	case syntax.BranchStmt as x:
+		line(d, depth, "BranchStmt "+a+" TokPos="+itoa(tp(d, x.Tok))+" Tok="+itoa(int(syntax.TokKind(d.p, x.Tok))))
+	case syntax.BlockStmt as x:
+		line(d, depth, "BlockStmt "+a+" Lbrace="+itoa(tp(d, x.Lbrace))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		list(d, c, x.List)
+	case syntax.IfStmt as x:
+		line(d, depth, "IfStmt "+a+" If="+itoa(tp(d, x.If))+" ElsePos="+itoa(tp(d, x.ElsePos)))
+		node(d, c, x.Cond)
+		node(d, c, x.Body)
+		opt(d, c, x.Else)
+	case syntax.SwitchStmt as x:
+		line(d, depth, "SwitchStmt "+a+" Switch="+itoa(tp(d, x.Switch))+" Lbrace="+itoa(tp(d, x.Lbrace))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		node(d, c, x.Tag)
+		list(d, c, x.Clauses)
+	case syntax.TypeSwitchStmt as x:
+		line(d, depth, "TypeSwitchStmt "+a+" Switch="+itoa(tp(d, x.Switch))+" Lbrace="+itoa(tp(d, x.Lbrace))+" Rbrace="+itoa(tp(d, x.Rbrace)))
+		match syntax.ViewOf(d.p.Tree, x.Subject) {
+		case syntax.TupleExpr as tup:
+			line(d, c, "list "+itoa(syntax.Len(tup.Elts)))
+			for i in 0..syntax.Len(tup.Elts) {
+				guard(d, c+1, syntax.Item(d.p.Tree, tup.Elts, i))
+			}
+		case _:
+			line(d, c, "list 1")
+			guard(d, c+1, x.Subject)
+		}
+		list(d, c, x.Clauses)
+	case syntax.ForStmt as x:
+		line(d, depth, "ForStmt "+a+" For="+itoa(tp(d, x.For)))
+		opt(d, c, x.Cond)
+		node(d, c, x.Body)
+	case syntax.RangeStmt as x:
+		line(d, depth, "RangeStmt "+a+" For="+itoa(tp(d, x.For))+" Tok=49 Range="+itoa(tp(d, x.Range)))
+		opt(d, c, x.Key)
+		node(d, c, x.Value)
+		node(d, c, x.X)
+		node(d, c, x.Body)
+	case syntax.AssertStmt as x:
+		line(d, depth, "AssertStmt "+a+" Assert="+itoa(tp(d, x.Assert)))
+		node(d, c, x.X)
+	case syntax.SkipStmt as x:
+		line(d, depth, "SkipStmt "+a+" Skip="+itoa(tp(d, x.Skip))+" ReasonPos="+itoa(tp(d, x.Reason))+" Reason="+strconv.Quote(syntax.TokText(d.p, x.Reason)))
+	}
+}
+
+// guard is the TypeGuard the Go tree wraps each match subject in.
+func guard(d mut dumper, depth int, id dense.ID[syntax.Node]) {
+	line(d, depth, "TypeGuard "+at(d, id))
+	node(d, depth+1, id)
+}
+
+// Parse is the canonical dump of one parse of src: "G pos end n" per
+// comment group and a line per node ("depth Kind pos end fields"), or
+// the diagnostic "E code offset length line column msg". The decoder
+// property (internal/sketch/syntax, TestDecodeAgreesWithView) prints the
+// decoded Go tree in the same form.
+func Parse(src string) string {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return "E " + p.Code + " " + itoa(p.Offset) + " " + itoa(p.Length) + " " + itoa(p.Line) + " " + itoa(p.Column) + " " + strconv.Quote(p.Message) + "\n"
+	}
+	let mut d = dumper{b: strings.NewBuilder(), p: p}
+	for g in 0..syntax.NumGroups(p) {
+		line(&d, 0, "G "+itoa(syntax.GroupPos(p, g))+" "+itoa(syntax.GroupEnd(p, g))+" "+itoa(syntax.GroupLen(p, g)))
+	}
+	node(&d, 0, syntax.Root(p.Tree))
+	d.b.String()
+}

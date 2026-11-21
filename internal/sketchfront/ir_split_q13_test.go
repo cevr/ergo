@@ -24,18 +24,18 @@ import (
 //     declares it alone (mutant q13-map-type-unrespelled);
 //   - a package let of another package copied as `var X = q.X` where q
 //     declares X with no value, which ergoInit sets inside the root task
-//     after every package's Go initialization: fk-routes's people.All was
+//     after every package's Go initialization: address-routes's people.All was
 //     an empty list in the root, so its screen said "person 3: not found"
 //     (want "person 3: Carol Davis, Manager"). No `var X = q.X` reads such
 //     a variable (mutant q13-unset-let-copied); the IR body reads it
 //     through a forwarding function of its package when it runs, which
-//     fk-routes's cases check by running (mutant q13-getter-unused,
-//     examples:fk-routes).
+//     address-routes's cases check by running (mutant q13-getter-unused,
+//     examples:address-routes).
 //
 // The three must split, so neither check is vacuous. It checks the
 // lowered files in process.
 func TestIRSplitSpellsWhatItCopies(t *testing.T) {
-	for _, name := range []string{"draw-gui", "regex", "fk-routes"} {
+	for _, name := range []string{"draw-gui", "regex", "address-routes"} {
 		dir, err := filepath.Abs(filepath.Join("..", "..", "examples", name, "cmd", name))
 		if err != nil {
 			t.Fatal(err)

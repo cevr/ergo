@@ -1,0 +1,30 @@
+import compiler/syntax
+import strconv
+import strings
+
+// Scan is the dump of one scan of src: "T kind start end" per token,
+// "C start end" per comment, "N lines", then "E code offset length" or
+// "OK". internal/sketch/syntax's scanner tests read a failed scan from it.
+func Scan(src string) string {
+	let mut b = strings.NewBuilder()
+	let s = syntax.Scan(src)
+	let t = s.Toks
+	for i in 0..syntax.NumToks(t) {
+		let id = syntax.TokAt(t, i)
+		let k = syntax.Kind(t, id)
+		let start = syntax.Start(t, id)
+		b.WriteString("T " + strconv.Itoa(int(k)) + " " + strconv.Itoa(start) + " " + strconv.Itoa(syntax.End(src, k, start)) + "\n")
+	}
+	let c = s.Comments
+	for i in 0..syntax.NumComments(c) {
+		let id = syntax.CommentAt(c, i)
+		b.WriteString("C " + strconv.Itoa(syntax.CommentStart(c, id)) + " " + strconv.Itoa(syntax.CommentEnd(c, id)) + "\n")
+	}
+	b.WriteString("N " + strconv.Itoa(syntax.NumLines(syntax.LinesOf(src))) + "\n")
+	if s.Failed {
+		b.WriteString("E " + syntax.CodeSyntax + " " + strconv.Itoa(s.Offset) + " " + strconv.Itoa(s.Length) + "\n")
+	} else {
+		b.WriteString("OK\n")
+	}
+	b.String()
+}

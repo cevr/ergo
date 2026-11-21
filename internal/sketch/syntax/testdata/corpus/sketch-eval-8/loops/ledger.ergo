@@ -12,7 +12,7 @@ type Transfer {
 }
 
 // A *T parameter is a borrow: never nil, never stored, never returned.
-func move(from, to *Account, amount int64) fails Insufficient {
+func move(from, to mut Account, amount int64) fails Insufficient {
 	if from.Balance < amount {
 		return Insufficient{from.ID}
 	}
@@ -24,7 +24,7 @@ func move(from, to *Account, amount int64) fails Insufficient {
 
 // Two borrows into one slice need a proof that they do not overlap.
 // Without the From == To guard, the checker rejects the move call.
-func apply(accounts *[]Account, transfers []Transfer) int {
+func apply(accounts mut []Account, transfers []Transfer) int {
 	let mut rejected = 0
 	for t in transfers {
 		if t.From == t.To {

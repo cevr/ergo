@@ -39,6 +39,17 @@ import log
 import strings
 import testing
 import pace
+import math
+
+// mathEdges are f and the floats at and next to every bound of the
+// checked conversions: the drawn float alone almost never reaches one.
+func mathEdges(f float64) []float64 {
+	[]float64{f, 0.0, -0.0, 0.5, -0.5, -0.99, -1.0, -1.5, 127.5, 128.0, -128.5, -129.0, 255.5, 256.0,
+		32767.5, 32768.0, -32768.5, -32769.0, 65535.5, 65536.0, 2147483647.5, 2147483648.0,
+		-2147483648.5, -2147483649.0, 4294967295.5, 4294967296.0, 9223372036854774784.0,
+		9223372036854775808.0, -9223372036854775808.0, -9223372036854777856.0,
+		18446744073709549568.0, 18446744073709551616.0, math.Inf(1), math.Inf(-1), math.NaN()}
+}
 
 type apiEcho {} implements api.Transport[string, int]
 
@@ -89,6 +100,40 @@ test ApiKebabRoundTrips(words []string) {
 
 test ApiAgreesSeesTheLoss(c string, o int) {
 	assert api.Agrees(apiEcho, c, o) && !api.Agrees(apiDropping, c + "!", o)
+}
+
+test ApiWordsReadLine(args []string) {
+	let back = api.Words(api.Line(args)) catch {
+	case api.Unclosed:
+		assert false
+		return
+	}
+	assert back == args
+}
+
+func apiEchoed(args []string) api.Output {
+	api.Output{Out: strings.Join(args, "|"), Err: "", Code: if len(args) == 3 { 1 } else { 0 }}
+}
+
+test ApiSessionIsEachLine(script [][]string) {
+	let mut lines = []string{}
+	for a in script {
+		lines = lines.Append(" " + api.Line(a))
+		lines = lines.Append("# " + api.Line(a))
+		lines = lines.Append("")
+	}
+	let mut want = []api.Step{}
+	for k, a in script {
+		if len(a) == 0 {
+			continue
+		}
+		let o = apiEchoed(a)
+		want = want.Append(api.Step{Line: 3*k + 1, Text: api.Line(a), Output: o})
+		if o.Code != 0 {
+			break
+		}
+	}
+	assert api.Session(lines, apiEchoed) == want
 }
 
 test ApiCompletionNamesEachCommand(words []string, shell api.Shell) {
@@ -578,6 +623,8 @@ func paceKeeps(xs []int, s string) bool needs pace.Pacing {
 test PacePacingEdgeKeepsValues(xs []int, s string) {
 	assert with context { pace.Pacing: pace.Default } { paceKeeps(xs, s) }
 	assert with context { pace.Pacing: pace.NewCounting() } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewEvery(pace.NewQuiet(pace.Default), 2) } { paceKeeps(xs, s) }
+	assert with context { pace.Pacing: pace.NewQuiet(pace.NewEvery(pace.NewCounting(), 3)) } { paceKeeps(xs, s) }
 }
 
 test PaceDefaultReachesNothing(xs []int, n int) {
@@ -622,6 +669,8 @@ func paceHoldKeeps(xs []int, n int) bool needs pace.Pacing {
 test PacePacingHoldKeepsValues(xs []int, n int) {
 	assert with context { pace.Pacing: pace.Default } { paceHoldKeeps(xs, n) }
 	assert with context { pace.Pacing: pace.NewCounting() } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewEvery(pace.NewQuiet(pace.Default), 2) } { paceHoldKeeps(xs, n) }
+	assert with context { pace.Pacing: pace.NewQuiet(pace.NewEvery(pace.NewCounting(), 3)) } { paceHoldKeeps(xs, n) }
 }
 
 test PaceHoldsOweTheLastClose(ops []int) {
@@ -681,6 +730,109 @@ test PaceHeldDefersToTheLastRelease(n int, k int, stop bool) {
 	}
 	let owed = if edges > 0 { int64(1) } else { int64(0) }
 	assert c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed
+}
+
+func paceLargest(xs []int) int {
+	let mut m = xs[0]
+	for x in xs {
+		if x > m {
+			m = x
+		}
+	}
+	m
+}
+
+test PaceEveryOneIsParent(n int, k int) {
+	let edges = paceWithin(n, 0, 64)
+	let holds = paceWithin(k, 0, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: pace.NewEvery(c, 1) } {
+		for _ in 0..holds {
+			pace.Pacing.Hold()
+		}
+		for _ in 0..edges {
+			pace.Pacing.Edge()
+		}
+		for _ in 0..holds {
+			pace.Pacing.Release()
+		}
+	}
+	let held = if holds > 0 { edges } else { 0 }
+	let owed = if holds > 0 && edges > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == int64(edges) && c.HeldEdges() == int64(held) && c.Deferred() == owed
+}
+
+test PaceEveryPassesOneInN(n int, k int) {
+	let every = paceWithin(n, 1, 9)
+	let edges = paceWithin(k, 0, 200)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: pace.NewEvery(c, every) } {
+		for _ in 0..edges {
+			pace.Pacing.Edge()
+		}
+	}
+	assert c.Edges() == int64(edges/every)
+}
+
+test PaceEveryNests(a int, b int, k int) {
+	let x = paceWithin(a, 1, 6)
+	let y = paceWithin(b, 1, 6)
+	let edges = paceWithin(k, 0, 200)
+	let nested = pace.NewCounting()
+	let flat = pace.NewCounting()
+	let outer = pace.NewEvery(pace.NewEvery(nested, y), x)
+	let one = pace.NewEvery(flat, x*y)
+	let mut same = true
+	for _ in 0..edges {
+		with context { pace.Pacing: outer } { pace.Pacing.Edge() }
+		with context { pace.Pacing: one } { pace.Pacing.Edge() }
+		same = same && nested.Edges() == flat.Edges()
+	}
+	assert same
+}
+
+test PaceQuietForwardsHolds(n int, k int) {
+	let edges = paceWithin(n, 0, 64)
+	let holds = paceWithin(k, 0, 4)
+	let c = pace.NewCounting()
+	with context { pace.Pacing: pace.NewQuiet(c) } {
+		for _ in 0..holds {
+			pace.Pacing.Hold()
+		}
+		for _ in 0..edges {
+			pace.Pacing.Edge()
+		}
+		c.Edge()
+		for _ in 0..holds {
+			pace.Pacing.Release()
+		}
+	}
+	c.Edge()
+	let held = if holds > 0 { int64(1) } else { int64(0) }
+	assert c.Edges() == 2 && c.HeldEdges() == held && c.Deferred() == held
+}
+
+test PaceRaisesFollowModel(ops []int) {
+	let r = pace.NewRaises()
+	let mut open = []int{}
+	let mut same = true
+	for op in ops {
+		let percent = 100 * paceWithin(op/2, 1, 8)
+		if paceWithin(op, 0, 1) == 0 {
+			let got = r.Raise(percent)
+			open = open.Append(percent)
+			same = same && got == paceLargest(open)
+		} else if len(open) > 0 {
+			let i = paceWithin(op/16, 0, len(open)-1)
+			let gone = open[i]
+			let (_, rest) = open.TakeAt(i)
+			open = rest
+			let got = r.Lower(gone)
+			same = same && got == (if len(open) == 0 { None } else { Some[int]{Value: paceLargest(open)} })
+		}
+		same = same && r.Open() == len(open)
+	}
+	assert same
 }
 
 test TraceInnerSpanShadows(outer string, inner string) {
@@ -870,6 +1022,76 @@ test TestingWorldsAreFresh(text string) {
 		assert false
 	}
 }
+
+func lawInt64(f float64) bool {
+	let n = math.ToInt64(f) catch {
+	case math.OutOfRange:
+		return math.IsNaN(f) || f >= 9223372036854775808.0 || math.Trunc(f) < -9223372036854775808.0
+	}
+	float64(n) == math.Trunc(f) && n == int64(f)
+}
+
+test MathToInt64FailsOnlyOutside(f float64) {
+	for g in mathEdges(f) {
+		assert lawInt64(g)
+	}
+}
+
+func lawInt(f float64) bool {
+	let n = math.ToInt(f) catch {
+	case math.OutOfRange:
+		return math.IsNaN(f) || f >= 9223372036854775808.0 || math.Trunc(f) < -9223372036854775808.0
+	}
+	float64(n) == math.Trunc(f) && n == int(f)
+}
+
+test MathToIntFailsOnlyOutside(f float64) {
+	for g in mathEdges(f) {
+		assert lawInt(g)
+	}
+}
+
+func lawUint64(f float64) bool {
+	let n = math.ToUint64(f) catch {
+	case math.OutOfRange:
+		return math.IsNaN(f) || f >= 18446744073709551616.0 || math.Trunc(f) < 0.0
+	}
+	float64(n) == math.Trunc(f) && n == uint64(f)
+}
+
+test MathToUint64FailsOnlyOutside(f float64) {
+	for g in mathEdges(f) {
+		assert lawUint64(g)
+	}
+}
+
+func lawUint(f float64) bool {
+	let n = math.ToUint(f) catch {
+	case math.OutOfRange:
+		return math.IsNaN(f) || f >= 18446744073709551616.0 || math.Trunc(f) < 0.0
+	}
+	float64(n) == math.Trunc(f) && n == uint(f)
+}
+
+test MathToUintFailsOnlyOutside(f float64) {
+	for g in mathEdges(f) {
+		assert lawUint(g)
+	}
+}
+
+func lawUintptr(f float64) bool {
+	let n = math.ToUintptr(f) catch {
+	case math.OutOfRange:
+		return math.IsNaN(f) || f >= 18446744073709551616.0 || math.Trunc(f) < 0.0
+	}
+	float64(n) == math.Trunc(f) && n == uintptr(f)
+}
+
+test MathToUintptrFailsOnlyOutside(f float64) {
+	for g in mathEdges(f) {
+		assert lawUintptr(g)
+	}
+}
 `
 
 // stdLawsTestName is the probe test that restates the law of a ledger row.
@@ -886,6 +1108,13 @@ var stdLawsStatements = map[string]string{
 	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
 	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
 	"api CompletionNamesEachCommand":       `CompletionNamesEachCommand(words []string, shell Shell) { let mut commands = []Entry{} for w in words { commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"}) } let text = Completion("prog", shell, commands) let mut at = 0 for c in commands { let i = strings.Index(text[at:], c.Name) if i < 0 { return false } at = at + i + len(c.Name) } !strings.Contains(text, "\nmore") }`,
+	"math ToInt64FailsOnlyOutside":         `ToInt64FailsOnlyOutside(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0 } float64(n) == Trunc(f) && n == int64(f) }`,
+	"math ToIntFailsOnlyOutside":           `ToIntFailsOnlyOutside(f float64) { let n = ToInt(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0 } float64(n) == Trunc(f) && n == int(f) }`,
+	"math ToUint64FailsOnlyOutside":        `ToUint64FailsOnlyOutside(f float64) { let n = ToUint64(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint64(f) }`,
+	"math ToUintFailsOnlyOutside":          `ToUintFailsOnlyOutside(f float64) { let n = ToUint(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint(f) }`,
+	"math ToUintptrFailsOnlyOutside":       `ToUintptrFailsOnlyOutside(f float64) { let n = ToUintptr(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uintptr(f) }`,
+	"api WordsReadLine":                    `WordsReadLine(args []string) { let back = Words(Line(args)) catch { case Unclosed: return false } back == args }`,
+	"api SessionIsEachLine":                `SessionIsEachLine(script [][]string) { let mut lines = []string{} for a in script { lines = lines.Append(" " + Line(a)) lines = lines.Append("# " + Line(a)) lines = lines.Append("") } let mut want = []Step{} for k, a in script { if len(a) == 0 { continue } let o = echoed(a) want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o}) if o.Code != 0 { break } } Session(lines, echoed) == want }`,
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
@@ -910,7 +1139,7 @@ var stdLawsStatements = map[string]string{
 	"testing ReleaseAnswersOldestFirst":    `ReleaseAnswersOldestFirst(k string, j string, a int) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let first = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let second = task.Go() { probe.Get(j) } Scheduler.Sleep(1s) let held = s.Get.Held() let order = len(held) == 2 && held[0] == k && held[1] == j s.Get.Release(func(key string) int fails Absent { a }) s.Get.Release(func(key string) int fails Absent { a + 1 }) let one = first.Wait() catch { case Absent: a - 1 } let two = second.Wait() catch { case Absent: a - 1 } s.Get.Release(func(key string) int fails Absent { a + 2 }) let three = probe.Get(k) catch { case Absent: a - 1 } order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ScriptNamesTheHeldCall":       `ScriptNamesTheHeldCall(k string) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let report = Unanswered() let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered") let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0 s.Get.Release(func(key string) int fails Absent { 0 }) let _ = t.Wait() catch { case Absent: 0 } named && unread && Unanswered() == "" } }`,
 	"timeout AfterKeepsWhatTheBodyTook":    `AfterKeepsWhatTheBodyTook(c int, w int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = 40 let q = queue.New[int](((c % 3) + 3) % 3) let kept = queue.New[int](n) let producer = task.Go() { for i in 0..n { Scheduler.Sleep(1ms) q.Push(i) catch { case queue.Closed: } } q.End() } let consumer = task.Go() { let mut done = false for !done { let v = After(time.Times(1ms, 1+((w%3)+3)%3)) { try q.Pop() } catch { case Expired: -1 case queue.Closed: -2 } if v == -2 { done = true } else if v >= 0 { kept.Push(v) catch { case queue.Closed: } } } kept.End() } for _ in 0..n+2 { m.Advance(1ms) } producer.Wait() consumer.Wait() let mut next = 0 for v in kept.Values() { if v == next { next = next + 1 } } next == n } }`,
-	"timeout PopWithinWaitsUpToD":          `PopWithinWaitsUpToD(g int, w int) { let m = time.NewManual(0) let gap = ((g % 60) + 60) % 60 let d = ((w % 59) + 59) % 59 + 1 let start = m.Now() with context { Scheduler: m } { let q = queue.New[int](1) let got = queue.New[int](3) let producer = task.Go() { Scheduler.Sleep(time.Times(1ms, gap)) q.Push(7) catch { case queue.Closed: } } let consumer = task.Go() { let v = PopWithin(q, time.Times(1ms, d)) catch { case Expired: -1 case queue.Closed: -2 } got.Push(v) catch { case queue.Closed: } got.Push(time.Count(m.Elapsed(start), 1ms)) catch { case queue.Closed: } got.Push(m.Sleepers()) catch { case queue.Closed: } } m.Advance(120ms) producer.Wait() consumer.Wait() let v = got.Poll() let at = got.Poll() let asleep = got.Poll() let took = v == Some[int]{Value: 7} && at == Some[int]{Value: gap} && q.Len() == 0 && asleep == Some[int]{Value: 0} let expired = v == Some[int]{Value: -1} && at == Some[int]{Value: d} && q.Len() == 1 if gap < d { took } else if gap > d { expired } else { took || expired } } }`,
+	"timeout PopWithinWaitsUpToD":          `PopWithinWaitsUpToD(g int, w int) { let m = time.NewManual(0) let gap = ((g % 60) + 60) % 60 let d = ((w%59)+59)%59 + 1 let start = m.Now() with context { Scheduler: m } { let q = queue.New[int](1) let got = queue.New[int](3) let producer = task.Go() { Scheduler.Sleep(time.Times(1ms, gap)) q.Push(7) catch { case queue.Closed: } } let consumer = task.Go() { let v = PopWithin(q, time.Times(1ms, d)) catch { case Expired: -1 case queue.Closed: -2 } got.Push(v) catch { case queue.Closed: } got.Push(time.Count(m.Elapsed(start), 1ms)) catch { case queue.Closed: } got.Push(m.Sleepers()) catch { case queue.Closed: } } m.Advance(120ms) producer.Wait() consumer.Wait() let v = got.Poll() let at = got.Poll() let asleep = got.Poll() let took = v == Some[int]{Value: 7} && at == Some[int]{Value: gap} && q.Len() == 0 && asleep == Some[int]{Value: 0} let expired = v == Some[int]{Value: -1} && at == Some[int]{Value: d} && q.Len() == 1 if gap < d { took } else if gap > d { expired } else { took || expired } } }`,
 	"timeout PopWithinTakesWhatIsThere":    `PopWithinTakesWhatIsThere(v int) { with context { Scheduler: time.NewManual(0) } { let q = queue.New[int](1) try q.Push(v) q.End() let first = try PopWithin(q, 0ns) let then = PopWithin(q, 0ns) catch { case queue.Closed: -1 case Expired: -2 } first == v && then == -1 && q.Len() == 0 } }`,
 	"timeout PopBeforeKeepsTheDeadline":    `PopBeforeKeepsTheDeadline(gaps []int, w int) { let m = time.NewManual(0) let big = 2*(((w%30)+30)%30) + 1 let n = len(gaps) let start = m.Now() with context { Scheduler: m } { let q = queue.New[int](n + 1) let got = queue.New[int](n + 4) let producer = task.Go() { for i, g in gaps { Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10))) q.Push(i) catch { case queue.Closed: } } Scheduler.Sleep(time.Times(1ms, 2*big)) q.End() } let consumer = task.Go() { let dl = NewDeadline() dl.Arm(time.Times(1ms, big)) got.Push(if dl.Armed() { 1 } else { 0 }) catch { case queue.Closed: } let mut open = true for open { let v = PopBefore(q, dl) catch { case Expired: -1 case queue.Closed: -2 } if v >= 0 { got.Push(v) catch { case queue.Closed: } } else { open = false got.Push(v) catch { case queue.Closed: } got.Push(time.Count(m.Elapsed(start), 1ms)) catch { case queue.Closed: } got.Push(if dl.Armed() { 1 } else { 0 }) catch { case queue.Closed: } } } got.End() } m.Advance(time.Times(1ms, 20*n+4*big+2)) producer.Wait() consumer.Wait() let mut want = []int{1} let mut at = 0 for i, g in gaps { at = at + 2*(((g%10)+10)%10) if at < big { want = want.Append(i) } } let left = n - (len(want) - 1) want = want.Append(-1).Append(big).Append(0) let mut same = true let mut k = 0 for v in got.Values() { same = same && k < len(want) && v == want[k] k = k + 1 } same && k == len(want) && q.Len() == left } }`,
 	"timeout DeadlineFirstExpires":         `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
@@ -926,6 +1155,11 @@ var stdLawsStatements = map[string]string{
 	"pace Pacing.HoldKeepsValues":          `HoldKeepsValues(xs []int, n int) { let kept = xs.Append(n) Hold() Edge() Release() len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
 	"pace HoldsOweTheLastClose":            `HoldsOweTheLastClose(ops []int) { let h = NewHolds() let mut depth = 0 let mut owed = false let mut same = true for op in ops { let kind = within(op, 0, 2) if kind == 0 { h.Open() depth = depth + 1 } else if kind == 1 && depth > 0 { let collects = h.Close() depth = depth - 1 same = same && collects == (depth == 0 && owed) if depth == 0 { owed = false } } else if kind == 2 { same = same && h.Owe() == (depth > 0) owed = owed || depth > 0 } same = same && h.Depth() == int64(depth) } same }`,
 	"pace HeldDefersToTheLastRelease":      `HeldDefersToTheLastRelease(n int, k int, stop bool) { let edges = within(n, 0, 16) let depth = within(k, 1, 4) let c = NewCounting() with context { Pacing: c } { nest(depth, edges, stop) catch { case stopped: } Pacing.Edge() } let owed = if edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed }`,
+	"pace EveryOneIsParent":                `EveryOneIsParent(n int, k int) { let edges = within(n, 0, 64) let holds = within(k, 0, 4) let c = NewCounting() with context { Pacing: NewEvery(c, 1) } { for _ in 0..holds { Pacing.Hold() } for _ in 0..edges { Pacing.Edge() } for _ in 0..holds { Pacing.Release() } } let held = if holds > 0 { edges } else { 0 } let owed = if holds > 0 && edges > 0 { int64(1) } else { int64(0) } c.Edges() == int64(edges) && c.HeldEdges() == int64(held) && c.Deferred() == owed }`,
+	"pace EveryPassesOneInN":               `EveryPassesOneInN(n int, k int) { let every = within(n, 1, 9) let edges = within(k, 0, 200) let c = NewCounting() with context { Pacing: NewEvery(c, every) } { for _ in 0..edges { Pacing.Edge() } } c.Edges() == int64(edges/every) }`,
+	"pace EveryNests":                      `EveryNests(a int, b int, k int) { let x = within(a, 1, 6) let y = within(b, 1, 6) let edges = within(k, 0, 200) let nested = NewCounting() let flat = NewCounting() let outer = NewEvery(NewEvery(nested, y), x) let one = NewEvery(flat, x*y) let mut same = true for _ in 0..edges { with context { Pacing: outer } { Pacing.Edge() } with context { Pacing: one } { Pacing.Edge() } same = same && nested.Edges() == flat.Edges() } same }`,
+	"pace QuietForwardsHolds":              `QuietForwardsHolds(n int, k int) { let edges = within(n, 0, 64) let holds = within(k, 0, 4) let c = NewCounting() with context { Pacing: NewQuiet(c) } { for _ in 0..holds { Pacing.Hold() } for _ in 0..edges { Pacing.Edge() } c.Edge() for _ in 0..holds { Pacing.Release() } } c.Edge() let held = if holds > 0 { int64(1) } else { int64(0) } c.Edges() == 2 && c.HeldEdges() == held && c.Deferred() == held }`,
+	"pace RaisesFollowModel":               `RaisesFollowModel(ops []int) { let r = NewRaises() let mut open = []int{} let mut same = true for op in ops { let percent = 100 * within(op/2, 1, 8) if within(op, 0, 1) == 0 { let got = r.Raise(percent) open = open.Append(percent) same = same && got == largest(open) } else if len(open) > 0 { let i = within(op/16, 0, len(open)-1) let gone = open[i] let (_, rest) = open.TakeAt(i) open = rest let got = r.Lower(gone) same = same && got == (if len(open) == 0 { None } else { Some[int]{Value: largest(open)} }) } same = same && r.Open() == len(open) } same }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }

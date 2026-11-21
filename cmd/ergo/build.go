@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -50,7 +51,16 @@ func buildCommand(args []string) error {
 		return printEmitted(opts, build.ModeBuild)
 	}
 	if opts.phone != (gobind.Platform{}) {
+		if opts.release {
+			// The packager links a phone module; no profile reaches it.
+			return fmt.Errorf("--release builds an executable; %s is a phone platform, whose module its packager links", opts.phone)
+		}
 		return buildPhone(opts)
+	}
+	if opts.release {
+		if opts.profile, err = releaseProfile(opts.file); err != nil {
+			return err
+		}
 	}
 	output, err := buildSource(opts, outputPath)
 	if err != nil {
@@ -362,6 +372,8 @@ func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Level = opts.level
+	tc.PGO = opts.profile
 	tc.Strip = !opts.debug
 	if !opts.debug && (opts.command == "run" || opts.command == "test") {
 		tc.Profile = build.Dev
@@ -372,6 +384,63 @@ func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
 		tc.Tags = append(tc.Tags, "ergogotrace")
 	}
 	return tc
+}
+
+// releaseProfile is the CPU profile `ergo build --release` compiles with:
+// default.pgo in the source's folder (the folder named, or a file's), as
+// go build -pgo=auto takes default.pgo from the main package's folder.
+// `go run ./scripts/opcount -profile FILE NAME` writes one from the
+// program's own receipt workload. A missing file stops the build: a
+// release build that silently built without its profile would not be
+// the release it names.
+func releaseProfile(source string) (string, error) {
+	dir := source
+	if !isPackageFolder(source) {
+		dir = filepath.Dir(source)
+	}
+	path, err := filepath.Abs(filepath.Join(dir, "default.pgo"))
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return "", fmt.Errorf("--release builds with the program's CPU profile, %s, and there is none; write it from the program's workload with go run ./scripts/opcount -profile %s NAME", path, path)
+	}
+	return path, nil
+}
+
+// cutLevel splits --platform's OS/ARCH/LEVEL into OS/ARCH and LEVEL, the
+// spelling of an OCI platform's variant (linux/amd64/v3, linux/arm64/v8);
+// a spelling of two parts has no level.
+func cutLevel(spelled string) (platform, level string) {
+	if i := strings.LastIndexByte(spelled, '/'); i >= 0 && strings.Count(spelled, "/") == 2 {
+		return spelled[:i], spelled[i+1:]
+	}
+	return spelled, ""
+}
+
+// levelSpelling is a CPU level Go accepts (internal/buildcfg goamd64 and
+// ParseGoarm64): v1 to v4 on amd64; v8.0 to v8.9 or v9.0 to v9.5 on arm64,
+// each with ,lse and ,crypto at most once.
+var levelSpelling = map[string]*regexp.Regexp{
+	"amd64": regexp.MustCompile(`^v[1-4]$`),
+	"arm64": regexp.MustCompile(`^v(8\.[0-9]|9\.[0-5])(,lse|,crypto)?(,lse|,crypto)?$`),
+}
+
+// checkLevel refuses a level the platform's architecture has no such
+// level of, as an invalid invocation: Go would refuse it later, with a
+// message about an environment variable the user did not set.
+func checkLevel(goarch, level string) error {
+	if level == "" {
+		return nil
+	}
+	re := levelSpelling[goarch]
+	if re == nil {
+		return fmt.Errorf("--platform: %s has no CPU level; drop /%s", goarch, level)
+	}
+	if !re.MatchString(level) || strings.Count(level, ",lse") > 1 || strings.Count(level, ",crypto") > 1 {
+		return fmt.Errorf("--platform: %s is not a CPU level of %s (%s=%s, as Go spells it: %s)", level, goarch, build.LevelVariable(goarch), level, map[string]string{"amd64": "v1 to v4", "arm64": "v8.0 to v9.5, with ,lse or ,crypto"}[goarch])
+	}
+	return nil
 }
 
 // pinSource is the pin archive sets of ergo's cache (docs/spec/build.md,
@@ -447,7 +516,7 @@ func targetOf(spelled string, given bool, goos, goarch string) (gobind.Platform,
 	if given {
 		goos, goarch, ok := strings.Cut(spelled, "/")
 		if !ok || goos == "" || goarch == "" || strings.Contains(goarch, "/") {
-			return gobind.Platform{}, fmt.Errorf("--platform takes OS/ARCH, such as linux/arm64, not %q", spelled)
+			return gobind.Platform{}, fmt.Errorf("--platform takes OS/ARCH or OS/ARCH/LEVEL, such as linux/arm64 or linux/amd64/v3, not %q", spelled)
 		}
 		p = gobind.Platform{GOOS: goos, GOARCH: goarch}
 	}

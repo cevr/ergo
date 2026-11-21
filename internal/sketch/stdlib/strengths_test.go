@@ -386,7 +386,7 @@ func lowerProblems(at, cell string, benches *benchmarkIndex) []string {
 // and runtime/rt are in the std tests' closure; internal/sketch/lower and
 // internal/rpcgen are granted, and so are the leaves of runtime/v1 whose
 // bodies a row measures (binsize BS1).
-var benchmarkPackages = []string{"internal/rpcgen", "internal/sketch/lower", "runtime/rt", "runtime/v1", "runtime/v1/csv", "runtime/v1/digest", "runtime/v1/exec", "runtime/v1/http", "runtime/v1/rand"}
+var benchmarkPackages = []string{"internal/rpcgen", "internal/sketch/lower", "runtime/rt", "runtime/v1", "runtime/v1/csv", "runtime/v1/digest", "runtime/v1/exec", "runtime/v1/http", "runtime/v1/net", "runtime/v1/rand"}
 
 // benchmarkIndex finds the top-level func Benchmark… declarations of the
 // _test.go files of a package directory of benchmarkPackages, reading each

@@ -78,19 +78,55 @@ type Driver[S, E, D, F] {
 	lastSpot []spot[E],
 	lastCanv []spot[E],
 	lastSem  []ui.Id[E],
-	shownFoc Option[ui.Id[E]],
-	shownHov Option[ui.Id[E]],
-	shownAct Option[ui.Id[E]],
-	drawn    int,
+	// lastLook, lastUnder and lastInks are the last paint's looks,
+	// underlines and inks, which a kept draw takes again as its spots.
+	lastLook  []lookProbe,
+	lastUnder []Probe,
+	lastInks  []InkAt,
+	shownFoc  Option[ui.Id[E]],
+	shownHov  Option[ui.Id[E]],
+	shownAct  Option[ui.Id[E]],
+	drawn     int,
 	// looked is the looks the last paint painted, under the colour
 	// under the node painting now (None: unknown), shadowed whether it
 	// painted a shadow (look.ergo).
-	looked   []lookProbe,
+	looked []lookProbe,
+	// underlines is where the last paint drew an opaque underline
+	// (inkedLines), as probes.
+	underlines []Probe,
+	// slants is the italic runs the last paint asked the window to
+	// slant (inkedRun); the window counts what it slanted (Slanted).
+	slants int,
+	// inks is the ink each Text and Readout of the last paint was drawn
+	// in, by its text (Inks).
+	inks     []InkAt,
 	under    Option[uint32],
 	shadowed bool,
+	// covers is what the last paint's layers painted over what came
+	// before them (layer.ergo): no probe reads a pixel one covers.
+	covers []cover,
 	// semantics is the Semantic nodes the last paint put in the
 	// accessibility tree (semantics.ergo).
 	semantics []ui.Id[E],
+	// finger is the finger on the window, or the fling or return it left
+	// (touch.ergo, MB4); look is the touch constants; insets what the
+	// system covers, which the root lays out inside.
+	finger Option[fingered[E]],
+	look   ui.TouchLook,
+	insets ui.Insets,
+	// fingerAt is the window clock a finger script last set (FingerScroll).
+	fingerAt int64,
+	// edited is the number of the last Edited input taken (text.ergo, MB5).
+	edited int,
+	// tracks is each TrackNode's motion, which the window runs on its
+	// frames with no pass (track.ergo); trackShown the value each track
+	// had at its last draw, so the damage paint draws anew a track that
+	// moved since (spread).
+	tracks     Map[ui.Id[E], ui.TrackState],
+	trackShown Map[ui.Id[E], float64],
+	// trackAt is the window time a paint runs its tracks at, one for the
+	// whole paint (the full and the damage paints under Check alike).
+	trackAt int64,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -102,7 +138,7 @@ type spot[E] { id ui.Id[E], node ui.Node[E], box layout.Box, clip layout.Box }
 
 // New shows view of a's state in w. room is how many fetch results may
 // wait for the driver to take them.
-func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], s S), room int) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
+func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], s S), room int) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
 	let posted = queue.New[ui.Event[E]](room)
 	try start(w, a, view, posted, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
@@ -113,7 +149,7 @@ func New[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, 
 
 // start shows view of a's state in w; post gets each fetch's result, and
 // Pump and Settle take them from posted.
-func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], s S), posted queue.Queue[ui.Event[E]], post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
+func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], s S), posted queue.Queue[ui.Event[E]], post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch needs go.Foreign {
 	let (s, first) = ui.Start(a, view, post)
 	let mut session = s
 	let root = ui.SessionRoot(&session)
@@ -121,54 +157,69 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 	let mut tree = layout.New()
 	let top = layout.Add(&tree, plainStyle())
 	let mut d = Driver[S, E, D, F]{
-		w:         w,
-		actor:     a,
-		session:   session,
-		mirror:    ui.NewMirror[E](root),
-		nodes:     Map[ui.Id[E], held[E]]{},
-		root:      root,
-		posted:    posted,
-		metrics:   NewMetrics(),
-		spots:     []spot[E]{},
-		canvases:  []spot[E]{},
-		viewports: Map[ui.Id[E], ui.Viewport]{},
-		pressed:   None,
-		scrolled:  Map[ui.Id[E], float32]{},
-		names:     Map[ui.Id[E], int]{},
-		named:     0,
-		extents:   Map[ui.Id[E], float32]{},
-		boxes:     Map[ui.Id[E], layout.Box]{},
-		width:     float32(width),
-		height:    float32(height),
-		frames:    false,
-		painted:   0,
-		tree:      tree,
-		top:       top,
-		lids:      Map[ui.Id[E], layout.Id]{},
-		lkids:     Map[ui.Id[E], []ui.Id[E]]{},
-		lparent:   Map[ui.Id[E], ui.Id[E]]{},
-		lists:     Map[ui.Id[E], bool]{},
-		roomed:    Map[ui.Id[E], layout.Style]{},
-		rebuild:   false,
-		check:     false,
-		differ:    None,
-		work:      0,
-		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
-		soiled:    Map[ui.Id[E], bool]{},
-		drew:      Map[ui.Id[E], drawn]{},
-		keys:      Map[ui.Id[E], int]{},
-		keyed:     0,
-		lastSpot:  []spot[E]{},
-		lastCanv:  []spot[E]{},
-		lastSem:   []ui.Id[E]{},
-		shownFoc:  None,
-		shownHov:  None,
-		shownAct:  None,
-		drawn:     0,
-		looked:    []lookProbe{},
-		under:     None,
-		shadowed:  false,
-		semantics: []ui.Id[E]{},
+		w:          w,
+		actor:      a,
+		session:    session,
+		mirror:     ui.NewMirror[E](root),
+		nodes:      Map[ui.Id[E], held[E]]{},
+		root:       root,
+		posted:     posted,
+		metrics:    NewMetrics(),
+		spots:      []spot[E]{},
+		canvases:   []spot[E]{},
+		viewports:  Map[ui.Id[E], ui.Viewport]{},
+		pressed:    None,
+		scrolled:   Map[ui.Id[E], float32]{},
+		names:      Map[ui.Id[E], int]{},
+		named:      0,
+		extents:    Map[ui.Id[E], float32]{},
+		boxes:      Map[ui.Id[E], layout.Box]{},
+		width:      float32(width),
+		height:     float32(height),
+		frames:     false,
+		painted:    0,
+		tree:       tree,
+		top:        top,
+		lids:       Map[ui.Id[E], layout.Id]{},
+		lkids:      Map[ui.Id[E], []ui.Id[E]]{},
+		lparent:    Map[ui.Id[E], ui.Id[E]]{},
+		lists:      Map[ui.Id[E], bool]{},
+		roomed:     Map[ui.Id[E], layout.Style]{},
+		rebuild:    false,
+		check:      false,
+		differ:     None,
+		work:       0,
+		history:    ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
+		soiled:     Map[ui.Id[E], bool]{},
+		drew:       Map[ui.Id[E], drawn]{},
+		keys:       Map[ui.Id[E], int]{},
+		keyed:      0,
+		lastSpot:   []spot[E]{},
+		lastCanv:   []spot[E]{},
+		lastSem:    []ui.Id[E]{},
+		shownFoc:   None,
+		shownHov:   None,
+		shownAct:   None,
+		drawn:      0,
+		looked:     []lookProbe{},
+		under:      None,
+		shadowed:   false,
+		underlines: []Probe{},
+		slants:     0,
+		inks:       []InkAt{},
+		lastLook:   []lookProbe{},
+		lastUnder:  []Probe{},
+		lastInks:   []InkAt{},
+		covers:     []cover{},
+		semantics:  []ui.Id[E]{},
+		finger:     None,
+		look:       ui.AndroidTouch(),
+		insets:     ui.NoInsets,
+		fingerAt:   int64(0),
+		edited:     0,
+		tracks:     Map[ui.Id[E], ui.TrackState]{},
+		trackShown: Map[ui.Id[E], float64]{},
+		trackAt:    int64(0),
 	}
 	learn(&d.metrics, w, "", textSize)
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
@@ -177,7 +228,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 }
 
 // show applies one pass's ops, then lays out and paints the window.
-func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch needs go.Foreign {
+func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch needs go.Foreign {
 	try ui.Apply(&d.mirror, ops)
 	for op in ops {
 		match op {
@@ -186,6 +237,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 			place(d, x.Id, x.Parent, x.Before)
 			d.soiled[x.Parent] = true
 			scrollTo(d, x.Id, x.Node)
+			runTrack(d, x.Id, x.Node)
 		case ui.Move[E] as x:
 			unplace(d, x.Parent, x.Id)
 			place(d, x.Id, x.Parent, x.Before)
@@ -205,16 +257,17 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
 			case None:
 			}
+			runTrack(d, x.Id, x.Node)
 		case ui.Define:
 		}
 	}
 	if !d.rebuild {
 		keep(d, ops)
 	}
-	let animates = ui.SessionAnimates(&d.session)
+	let animates = ui.SessionAnimates(&d.session) || tracksMoving(d)
 	if animates != d.frames {
 		d.frames = animates
-		d.w.Frames(animates)
+		d.w.Frames(animates || fingerMoving(d))
 	}
 	paint(d)
 	// A stopped actor takes no viewport; the next step it is sent fails
@@ -230,7 +283,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 // Offset) when that is not the window's: a RowsKeeping list brought its
 // row into view. The paint keeps it inside the content, and report tells
 // the session where it went.
-func scrollTo[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) {
+func scrollTo[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) {
 	match node {
 	case ui.RowsNode as x:
 		let off = fmax(float32(float64(x.Offset)), 0)
@@ -246,10 +299,15 @@ func scrollTo[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) {
 // (its scroll offset and its height) when it changed: the next pass
 // writes the rows it shows, and that pass's show reports again until no
 // list's viewport moves.
-func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func report[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	for s in d.spots {
 		match s.node {
 		case ui.RowsNode:
+			// A list a scrim covers takes no report (the frame drops it,
+			// UG4): it is reported once the scrim goes.
+			if ui.SessionShielded(&d.session, s.id) {
+				continue
+			}
 			let v = ui.Viewport{Offset: ui.Length(float64(scrolledBy(d, s.id))), Height: ui.Length(float64(s.box.H))}
 			if d.viewports.Get(s.id) != (Some{Value: v}) {
 				d.viewports[s.id] = v
@@ -263,7 +321,7 @@ func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | 
 
 // Viewport is the viewport the window last reported for the list
 // labelled label, None before it showed one.
-func Viewport[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Viewport] {
+func Viewport[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Viewport] {
 	match Find(d, label) {
 	case Some[ui.Id[E]] as id:
 		d.viewports.Get(id.Value)
@@ -273,7 +331,7 @@ func Viewport[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Viewpor
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
 	match d.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -296,7 +354,7 @@ func place[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], befo
 }
 
 // unplace takes id out of parent's children.
-func unplace[S, E, D, F](d *Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
+func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 	match d.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -311,14 +369,18 @@ func unplace[S, E, D, F](d *Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 }
 
 // drop forgets id and its subtree, and takes it out of its parent.
-func drop[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+func drop[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	if !d.rebuild {
-		match d.lids.Get(id) {
-		case Some[layout.Id] as l:
-			layout.Remove(&d.tree, l.Value) catch {
-			case arena.Stale:
+		// A layer's box hangs from the window's, not from its parent's
+		// (UG4), so the layers under id go out on their own.
+		for l in layersFrom(d, id, []ui.Id[E]{}).Append(id) {
+			match d.lids.Get(l) {
+			case Some[layout.Id] as b:
+				layout.Remove(&d.tree, b.Value) catch {
+				case arena.Stale:
+				}
+			case None:
 			}
-		case None:
 		}
 	}
 	for p, h in d.nodes {
@@ -331,7 +393,7 @@ func drop[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	forget(d, id)
 }
 
-func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+func forget[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 	match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		for k in h.Value.kids {
@@ -340,6 +402,8 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	case None:
 	}
 	d.nodes = d.nodes.Delete(id)
+	d.tracks = d.tracks.Delete(id)
+	d.trackShown = d.trackShown.Delete(id)
 	d.scrolled = d.scrolled.Delete(id)
 	d.viewports = d.viewports.Delete(id)
 	d.names = d.names.Delete(id)
@@ -359,7 +423,7 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 }
 
 // kidsOf is id's children in the window's tree.
-func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
+func kidsOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 	match d.nodes.Get(id) {
 	case Some[held[E]] as h:
 		h.Value.kids
@@ -374,15 +438,39 @@ func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 // release with no press goes to the node under it; Tab moves the focus, Enter and space press the focused
 // node; typing goes to the focused Input; other keys go to the view's
 // OnKey. It fails ui.Closed when the window closed.
-func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	let mods = ui.Mods{Shift: input.Shift, Ctrl: input.Ctrl, Alt: input.Alt, Meta: input.Meta}
 	let x = float32(input.X)
 	let y = float32(input.Y)
 	if input.Kind == screen.Closed {
 		return ui.Closed
+	} else if input.Finger && (input.Kind == screen.Down || input.Kind == screen.Move || input.Kind == screen.Up) {
+		// A finger scrolls through std ui's touch machine (MB4).
+		try touched(d, input)
 	} else if input.Kind == screen.Down {
 		let hit = hitAt(d, x, y)
 		d.pressed = None
+		let back = match hit {
+		case Some[spot[E]] as s:
+			s.Value.id == d.root
+		case None:
+			true
+		}
+		if back {
+			// A Down over no node or over a scrim is a click on the
+			// window's background, as ui.ClickNowhere is: the pointer
+			// leaves every node, the focus every node, and the Down goes
+			// to the root, outside every layer, so the top layer with a
+			// dismiss signal sends it (UG4); its Up goes to the root too.
+			try nowhere(d)
+			d.pressed = Some{Value: d.root}
+			if ui.SessionFocus(&d.session) != None {
+				ui.FocusSession(&d.session, None)
+			}
+			try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: 0, Y: 0, Zone: None}, Over: None})
+			paint(d)
+			return
+		}
 		match hit {
 		case Some[spot[E]] as s:
 			d.pressed = Some{Value: s.Value.id}
@@ -393,16 +481,16 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			try pointed(d, s.Value, ui.Down, x, y)
 			paint(d)
 		case None:
-			try nowhere(d)
-			if ui.SessionFocus(&d.session) != None {
-				ui.FocusSession(&d.session, None)
-				paint(d)
-			}
 		}
 	} else if input.Kind == screen.Up {
 		match d.pressed {
 		case Some[ui.Id[E]] as p:
 			d.pressed = None
+			if p.Value == d.root {
+				try step(d, ui.Point[E]{Id: d.root, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: 0, Y: 0, Zone: None}, Over: None})
+				paint(d)
+				return
+			}
 			match spotOf(d, p.Value) {
 			case Some[spot[E]] as s:
 				try pointed(d, s.Value, ui.Up, x, y)
@@ -452,23 +540,52 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 		try key(d, ui.KeyPress{Name: input.Key, Mods: mods})
 	} else if input.Kind == screen.Text {
 		try typed(d, input.Text, mods)
+	} else if input.Kind == screen.Edited {
+		try edited(d, input.Edit, input.Text)
 	} else if input.Kind == screen.Resize {
 		d.width = float32(input.Width)
 		d.height = float32(input.Height)
 		paint(d)
 		try report(d)
 	} else if input.Kind == screen.Frame {
+		try touchFrame(d, duration(input.At))
 		try step(d, ui.Tick{At: duration(input.At)})
+		trackFrame(d)
 	}
 }
 
 // step steps the session with ev and shows its patch.
-func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func step[E comparable, S, D, F](d mut Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	let was = markOf(d)
 	let ops = try ui.Step(&d.session, ev)
 	if len(ops) > 0 {
 		try show(d, ops)
 	} else if markOf(d) != was {
+		paint(d)
+	}
+	match ev {
+	case ui.Published as p:
+		reread(d, p.Readout)
+	case _:
+	}
+}
+
+// reread paints the window again when a node reads readout id, which
+// the damage paint draws anew (soiled): a readout's box is its
+// reserve's, which its reading never changes.
+func reread[S, E, D, F](d mut Driver[S, E, D, F], id int) needs go.Foreign {
+	let mut any = false
+	for n, h in d.nodes {
+		match h.node {
+		case ui.ReadoutNode as x:
+			if x.Readout == id {
+				any = true
+				d.soiled[n] = true
+			}
+		case _:
+		}
+	}
+	if any {
 		paint(d)
 	}
 }
@@ -478,7 +595,7 @@ func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails ac
 type lookMark[E] { focus Option[ui.Id[E]], shown bool, hover Option[ui.Id[E]] }
 
 // markOf is d's lookMark now.
-func markOf[S, E, D, F](d *Driver[S, E, D, F]) lookMark[E] {
+func markOf[S, E, D, F](d mut Driver[S, E, D, F]) lookMark[E] {
 	let focus = ui.SessionFocus(&d.session)
 	let shown = match focus {
 	case Some[ui.Id[E]] as id:
@@ -492,31 +609,39 @@ func markOf[S, E, D, F](d *Driver[S, E, D, F]) lookMark[E] {
 // pointed sends a pointer event to a spot, at a place in its box: an
 // Area makes its signal, and any spot is where the pointer is, which the
 // frame's hover and pressed states follow (UG3).
-func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
+func pointed[E comparable, S, D, F](d mut Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
 }
 
 // nowhere tells the frame the pointer is over no node (a move to the
 // root, UG3).
-func nowhere[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func nowhere[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	if ui.SessionHovered(&d.session) != None {
-		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Phase: ui.Moved, X: 0, Y: 0, Zone: None}, Over: None})
+		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: 0, Y: 0, Zone: None}, Over: None})
 	}
 }
 
 // PointAway moves the window's pointer to its bottom right corner, over
 // no node, as a pointer leaving the window does.
-func PointAway[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+func PointAway[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
 	d.w.Hover(float64(d.width-1), float64(d.height-1))
 	try Drain(d)
 }
 
 // scroll moves the innermost Scroll under x, y by dy, within its content,
 // and sends the wheel to an Area under it.
-func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, dx float32, dy float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func scroll[E comparable, S, D, F](d mut Driver[S, E, D, F], x float32, y float32, dx float32, dy float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	let mut target Option[spot[E]] = None
 	let mut area Option[spot[E]] = None
 	for s in d.spots {
+		if s.id == d.root {
+			// A scrim, over every spot before it: the wheel over it
+			// scrolls nothing under it, as the frame takes no event of a
+			// node it covers (UG4).
+			target = None
+			area = None
+			continue
+		}
 		if inside(s, x, y) {
 			match s.node {
 			case ui.ScrollNode, ui.RowsNode:
@@ -550,10 +675,10 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 func fmin(a float32, b float32) float32 { if a < b { a } else { b } }
 
 // key handles a key press: Enter and space press the focused Pressable,
-// Check, Toggle or sending Semantic, Backspace deletes the last rune of
-// the focused Input, and the rest go to the session, where Tab and
-// Shift+Tab move the focus when no key function takes them (UC-TAB).
-func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+// Check, Toggle or sending Semantic, a key that edits the focused Input
+// (ui.KeyEdit) is an Edit of it, and the rest go to the session, where Tab
+// and Shift+Tab move the focus when no key function takes them (UC-TAB).
+func key[E comparable, S, D, F](d mut Driver[S, E, D, F], k ui.KeyPress) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	if k.Name == "Tab" {
 		try step(d, ui.KeyDown{Press: k})
 		paint(d)
@@ -563,11 +688,17 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails acto
 	case Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
-			if k.Name == "Backspace" {
-				if x.Value != "" {
-					try step(d, ui.Type[E]{Id: s.Value.id, Text: withoutLast(x.Value)})
+			// A key that edits the field or moves its caret is an Edit
+			// (ui.KeyEdit, OpenTUI gap 2); one that changes nothing is
+			// taken all the same, as a field takes Backspace at its start.
+			let was = ui.EditingOf(x)
+			match ui.KeyEdit(was, k, x.Lines) {
+			case Some[ui.Editing] as e:
+				if e.Value != was {
+					try step(d, ui.Edit[E]{Id: s.Value.id, Text: e.Value.Text, Caret: e.Value.Caret, Anchor: e.Value.Anchor})
 				}
 				return
+			case None:
 			}
 		case _:
 			if pressable(s.Value.node) && (k.Name == "Enter" || k.Name == " ") {
@@ -587,12 +718,14 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails acto
 
 // typed types text into the focused Input, else gives each rune to OnKey
 // as a key of that name.
-func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string, mods ui.Mods) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string, mods ui.Mods) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	match focused(d) {
 	case Some[spot[E]] as s:
 		match s.Value.node {
 		case ui.InputNode as x:
-			try step(d, ui.Type[E]{Id: s.Value.id, Text: x.Value + text})
+			// The text goes in at the caret, over the selection.
+			let e = ui.InsertText(ui.EditingOf(x), text)
+			try step(d, ui.Edit[E]{Id: s.Value.id, Text: e.Text, Caret: e.Caret, Anchor: e.Anchor})
 			return
 		case _:
 		}
@@ -604,7 +737,7 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string, mods ui.Mo
 }
 
 // focused is the spot of the focused node.
-func focused[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
+func focused[S, E, D, F](d mut Driver[S, E, D, F]) Option[spot[E]] {
 	match ui.SessionFocus(&d.session) {
 	case Some[ui.Id[E]] as f:
 		spotOf(d, f.Value)
@@ -614,7 +747,7 @@ func focused[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
 }
 
 // spotOf is id's spot, when it takes input.
-func spotOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
+func spotOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
 	for s in d.spots {
 		if s.id == id {
 			return Some{Value: s}
@@ -625,7 +758,7 @@ func spotOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
 
 // holder is the Area spot that holds the pointer: the one pressed, if it
 // is an Area and still shown.
-func holder[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
+func holder[S, E, D, F](d mut Driver[S, E, D, F]) Option[spot[E]] {
 	match d.pressed {
 	case Some[ui.Id[E]] as p:
 		match spotOf(d, p.Value) {
@@ -644,7 +777,7 @@ func holder[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
 
 // hitAt is the spot on top at x, y: the last painted whose visible box
 // holds the point, Scrolls left out.
-func hitAt[S, E, D, F](d *Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
+func hitAt[S, E, D, F](d mut Driver[S, E, D, F], x float32, y float32) Option[spot[E]] {
 	let mut hit Option[spot[E]] = None
 	for s in d.spots {
 		match s.node {
@@ -681,7 +814,7 @@ func pressable[E](n ui.Node[E]) bool {
 func focusable[E](n ui.Node[E]) bool { ui.Focusable(n) }
 
 // scrolledBy is how far id's Scroll is scrolled.
-func scrolledBy[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
+func scrolledBy[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) float32 {
 	match d.scrolled.Get(id) {
 	case Some[float32] as v:
 		v.Value
@@ -691,7 +824,7 @@ func scrolledBy[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
 }
 
 // Pump takes every fetch result posted so far, without waiting.
-func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	for {
 		match d.posted.Poll() {
 		case Some[ui.Event[E]] as ev:
@@ -704,7 +837,7 @@ func Pump[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui
 
 // Settle waits until no fetch is in flight and every posted result is
 // taken, as ui.Settle does.
-func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func Settle[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	for ui.InFlight(&d.session) > 0 || d.posted.Len() > 0 {
 		let ev = d.posted.Pop() catch {
 		case queue.Closed:
@@ -715,15 +848,15 @@ func Settle[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | 
 }
 
 // Screen is what the window shows, as the patches built it.
-func Screen[S, E, D, F](d *Driver[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&d.mirror) }
+func Screen[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Shape[E] { ui.ShownShapesIn(&d.session, ui.MirrorShape(&d.mirror)) }
 
 // StateOf is the actor's state.
-func StateOf[S, E, D, F](d *Driver[S, E, D, F]) S { d.actor.State() }
+func StateOf[S, E, D, F](d mut Driver[S, E, D, F]) S { d.actor.State() }
 
 // Reference makes d lay out a tree built anew from its nodes at every
 // paint, as the driver did before it kept one: the reference the kept
 // tree is held to. It repaints at once.
-func Reference[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func Reference[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 	d.rebuild = true
 	paint(d)
 }
@@ -731,19 +864,19 @@ func Reference[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 // Check makes d build the reference tree beside the kept one at every
 // paint and compare every node's box, and draw every node beside the
 // damage paint and compare the two lists and their spots (Differs).
-func Check[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+func Check[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
 	d.check = true
 	paint(d)
 }
 
 // Differs is the first box where the kept tree and the reference differed
 // at a paint since Check, None while they agree.
-func Differs[S, E, D, F](d *Driver[S, E, D, F]) Option[string] { d.differ }
+func Differs[S, E, D, F](d mut Driver[S, E, D, F]) Option[string] { d.differ }
 
 // LaidOut is how many boxes the last paint's layouts computed
 // (layout.Work): the boxes whose style or children changed since the
 // paint before and those around them, not the tree, unless it rebuilds.
-func LaidOut[S, E, D, F](d *Driver[S, E, D, F]) int {
+func LaidOut[S, E, D, F](d mut Driver[S, E, D, F]) int {
 	if d.rebuild {
 		return len(d.lids)
 	}
@@ -751,19 +884,19 @@ func LaidOut[S, E, D, F](d *Driver[S, E, D, F]) int {
 }
 
 // Painted is how many paint lists the driver has given the window.
-func Painted[S, E, D, F](d *Driver[S, E, D, F]) int { d.painted }
+func Painted[S, E, D, F](d mut Driver[S, E, D, F]) int { d.painted }
 
 // Drawn is how many nodes the last paint drew anew: the nodes a pass, a
 // scroll or the focus changed, those around them whose boxes moved, and
 // their ancestors; every node takes its last draw again otherwise. It is
 // every node under Reference, which draws the whole tree each paint.
-func Drawn[S, E, D, F](d *Driver[S, E, D, F]) int { d.drawn }
+func Drawn[S, E, D, F](d mut Driver[S, E, D, F]) int { d.drawn }
 
 // FocusId is the focused node, None for none.
-func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { ui.SessionFocus(&d.session) }
+func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] { ui.SessionFocus(&d.session) }
 
 // FocusNode is what the focused node shows, None for none.
-func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
+func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] {
 	match focused(d) {
 	case Some[spot[E]] as s:
 		Some{Value: s.Value.node}
@@ -775,14 +908,29 @@ func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
 // Probe is a place where a node's fill shows, and the fill's color
 // (0xRRGGBBAA): a look's fill below its top edge and the colour under it
 // outside its top-left corner (lookProbes), a checked Check's box, a
-// Toggle's track, a canvas's last opaque fill (canvasProbe).
+// Toggle's track, a canvas's last opaque fill (canvasProbe), an
+// opaque underline under a Text's run (inkedLines).
 type Probe { Label string, X int, Y int, Color uint32 }
+
+// InkAt is the ink a Text or a Readout was drawn in, by the text it
+// shows (a Readout's reading).
+type InkAt { Label string, Ink ui.Ink }
+
+// Inks are the inks the last paint drew each Text and Readout in.
+func Inks[S, E, D, F](d mut Driver[S, E, D, F]) []InkAt { d.inks }
+
+// Slants is how many italic runs the last paint asked the window to draw
+// slanted; the window's Slanted is how many it did.
+func Slants[S, E, D, F](d mut Driver[S, E, D, F]) int { d.slants }
 
 // Probes are the probes of the nodes on screen whose probe point no clip
 // cuts, in paint order.
-func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
+func Probes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
 	let mut out = lookProbes(d)
-	for s in d.spots {
+	for u in d.underlines {
+		out = out.Append(u)
+	}
+	for i, s in d.spots {
 		let b = s.box
 		let mut x = b.X + b.W/2
 		let mut y = b.Y + 3
@@ -808,7 +956,7 @@ func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
 		let cx = float32(int(x))
 		let cy = float32(int(y))
 		let c = s.clip
-		if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H {
+		if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H && !coveredSpot(d, i, int(x), int(y)) {
 			out = out.Append(Probe{Label: label, X: int(x), Y: int(y), Color: color})
 		}
 	}
@@ -834,7 +982,7 @@ func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
 }
 
 // Focus is the label of the focused node, None for none.
-func Focus[S, E, D, F](d *Driver[S, E, D, F]) Option[string] {
+func Focus[S, E, D, F](d mut Driver[S, E, D, F]) Option[string] {
 	match focused(d) {
 	case Some[spot[E]] as s:
 		labelOf(s.Value.node)
@@ -848,7 +996,7 @@ func Focus[S, E, D, F](d *Driver[S, E, D, F]) Option[string] {
 // which must be the main thread: call it from main, whose task runs on
 // it. The view and the window's events run on a task of their own; a
 // fetch's result reaches that task through the window, which it wakes.
-func Run[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f *ui.Frame[E], s S)) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
+func Run[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], s S)) fails ui.Closed | actor.Stopped | ui.BadPatch | go.Error needs go.Foreign {
 	let fetched = queue.New[ui.Event[E]](64)
 	let posted = queue.New[ui.Event[E]](64)
 	let forward = task.Go() {
@@ -885,7 +1033,7 @@ func forwardAll[E](w go.Ref[screen.Window], fetched queue.Queue[ui.Event[E]], po
 }
 
 // serve feeds the window's input to d until the window closes.
-func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func serve[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	for {
 		let next = d.w.Next() catch {
 		case go.Error:
@@ -904,7 +1052,7 @@ func serve[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | u
 }
 
 // layout's Box helpers.
-func boxOf(t *layout.Tree, id layout.Id) layout.Box {
+func boxOf(t mut layout.Tree, id layout.Id) layout.Box {
 	layout.BoxOf(t, id) catch {
 	case arena.Stale:
 		layout.Box{X: 0, Y: 0, W: 0, H: 0}

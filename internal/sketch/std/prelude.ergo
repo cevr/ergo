@@ -153,26 +153,26 @@ func noMatch(m NoMatch) fails NoMatch { m }
 // v2's jsontext.Encoder.
 // law-exempt: Writer has no read operation, so no law over its own operations can observe an event; std codec's Events records them and carries the laws (EventsReplay).
 type Writer {
-	Null(),
+	mut Null(),
 	// Number writes the spelling of a number a Reader's Number read, as it
 	// is; json.Value writes its numbers through it.
-	Number(text string),
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
+	mut Number(text string),
+	mut Bool(b bool),
+	mut Int(n int64),
+	mut Uint(n uint64),
+	mut Float(f float64),
+	mut String(s string),
 	// StringBytes writes the string whose UTF-8 bytes are b, as String
 	// does (GX10): a by-name pair's append form writes its text through
 	// it, so no string of the text is made. The writer reads b during the
 	// call only and keeps none of it.
-	StringBytes(b []byte),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
+	mut StringBytes(b []byte),
+	mut BeginList(n int),
+	mut EndList(),
+	mut BeginObject(n int),
+	mut Tag(name string),
+	mut Key(k string),
+	mut EndObject(),
 }
 
 // Reader gives the events of a wire form back, in the order
@@ -187,30 +187,30 @@ type Writer {
 type Reader {
 	// TakeNull consumes the next value only when it is null; otherwise it
 	// leaves the reader at that value. No path or list index changes on false.
-	TakeNull() bool,
+	mut TakeNull() bool,
 	// Peek is the kind of the next value, which it leaves; an untyped
 	// value (json.Value) reads by it.
-	Peek() WireKind,
+	mut Peek() WireKind,
 	// Number reads the next number's spelling, unparsed.
-	Number() string fails WireWrongKind,
-	Path() string,
-	Bool() bool fails WireWrongKind,
-	Int() int64 fails WireWrongKind,
-	Uint() uint64 fails WireWrongKind,
-	Float() float64 fails WireWrongKind,
-	String() string fails WireWrongKind,
+	mut Number() string fails WireWrongKind,
+	mut Path() string,
+	mut Bool() bool fails WireWrongKind,
+	mut Int() int64 fails WireWrongKind,
+	mut Uint() uint64 fails WireWrongKind,
+	mut Float() float64 fails WireWrongKind,
+	mut String() string fails WireWrongKind,
 	// StringBytes reads the next string as String does and gives into with
 	// its UTF-8 bytes added (GX12): an append-form pair's decode lends a
 	// buffer and gives its ParseX the bytes, so no string of the text is
 	// made. The reader keeps none of into.
-	StringBytes(into []byte) []byte fails WireWrongKind,
-	BeginList() fails WireWrongKind,
-	BeginObject() fails WireWrongKind,
-	Tag() string fails WireMissingField,
-	More() bool,
-	Key() string,
-	Skip(),
-	End(),
+	mut StringBytes(into []byte) []byte fails WireWrongKind,
+	mut BeginList() fails WireWrongKind,
+	mut BeginObject() fails WireWrongKind,
+	mut Tag() string fails WireMissingField,
+	mut More() bool,
+	mut Key() string,
+	mut Skip(),
+	mut End(),
 }
 
 // The shape failures of decode (types.md, Codecs 2). WireWrongKind is a value
@@ -243,9 +243,347 @@ type WireMembers {}
 
 // The rows of these functions make the shape failures error types of the
 // prelude, as unsatisfied does for Unsatisfied.
-func wireWrongKind(e WireWrongKind) fails WireWrongKind { e }
+func wireWrongKind(e WireWrongKind) fails WireWrongKind          { e }
 func wireMissingField(e WireMissingField) fails WireMissingField { e }
-func wireUnknownTag(e WireUnknownTag) fails WireUnknownTag { e }
+func wireUnknownTag(e WireUnknownTag) fails WireUnknownTag       { e }
+
+// ordered is the types that <, <=, > and >= order: the integer, float,
+// string and duration types and every type defined over one (types.md,
+// Generics 2). It is an ordinary type set: a body under it gets the
+// operators every term has, < and +, by the rule that serves a user's set.
+type ordered {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string | ~duration,
+}
+
+// number is the integer and float types and every type defined over one:
+// a body under it adds -, *, / and unary - to ordered's operators.
+type number {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64,
+}
+
+// Hashing is how a Map finds a key: a hash and an equality that agree
+// (types.md, Maps; CONSTRAINTS C5). Map[K, V, H] finds its keys through
+// H's Equal and Hash. Map[K, V] is Map[K, V, Structural[K]].
+//
+// NormalForm and NormalKey say how a Map stores its keys (types.md, Maps
+// 6; CONSTRAINTS C5d): when NormalForm() is true, Equal(a, b) is
+// NormalKey(a) == NormalKey(b), and the Map is Go's own map keyed by
+// NormalKey(k); when it is false, the Map is an open-addressing table that
+// calls Hash and Equal. A provider may write both; when it writes
+// neither, the checker writes them beside its Hash: NormalForm true and
+// NormalKey n(k) when its Equal is n(a) == n(b) and its Hash hash(n(k)),
+// else NormalForm false and NormalKey k.
+type Hashing[K comparable] {
+	Hash(k K) uint64,
+	Equal(a K, b K) bool,
+	NormalForm() bool,
+	NormalKey(k K) K,
+
+	// EqualIsReflexive: a key is equal to itself.
+	law EqualIsReflexive(a K) { Equal(a, a) },
+
+	// EqualIsSymmetric: a is equal to b exactly when b is equal to a.
+	law EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) },
+
+	// EqualIsTransitive: a equal to b, and b equal to c, gives a equal
+	// to c. b and c are found among the near variants of a and b.
+	law EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) },
+
+	// EqualKeysHashEqual: two equal keys have one hash, so a Map finds
+	// a key by any spelling Equal admits.
+	law EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) },
+
+	// NormalKeyIsEqual: under a normal form, a key is Equal to its
+	// normal key, so two keys with one normal key are Equal.
+	law NormalKeyIsEqual(a K) { !NormalForm() || Equal(a, NormalKey(a)) },
+
+	// EqualKeysNormalEqual: under a normal form, two Equal keys have one
+	// normal key, so the Map finds a key by any spelling Equal admits.
+	law EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() || NormalKey(a) == NormalKey(b) },
+}
+
+// Structural is the provider of every Map written with two type
+// arguments: the equality == and the generated hash of K's declared type.
+type Structural[K comparable] {} implements Hashing[K]
+
+// Hash is hash(k), the generated hash of k.
+func Hash[K comparable](_ Structural[K], k K) uint64 { hash(k) }
+
+// Equal is a == b.
+func Equal[K comparable](_ Structural[K], a K, b K) bool { a == b }
+
+// NormalForm is true: a key is its own normal form.
+func NormalForm[K comparable](_ Structural[K]) bool { true }
+
+// NormalKey is k.
+func NormalKey[K comparable](_ Structural[K], k K) K { k }
+
+// hashTable is a Map[K, V, H] whose provider H is not Structural[K]
+// (types.md, Maps): the type Map[K, V, H] is this record, and m.Get(k),
+// m.Put(k, v), m.Delete(k), m.Take(k), m.Clone(), len(m), m[k] = v and
+// `for k, v in m` are its functions. It is in Ergo alone, as a user could
+// write it, and holds its entries one of two ways, by H's NormalForm():
+//
+//   - true: norm, Go's own map keyed by H's NormalKey(k), each entry
+//     holding the key as first put and its value;
+//   - false: slots, one array of slots (MI-1's IntMap layout), each free
+//     (None) or holding a key as first put and its value. A key is at the
+//     first free slot from its home, Hash(k) & mask, on (linear probing),
+//     and the table is at most three quarters full. A Delete shifts the
+//     slots after it back, so no slot is a tombstone and a probe ends at
+//     the first free slot.
+//
+// Each function asks H once; in a copy for one provider (MONO1) the
+// answer is a constant and the other way is dead code. The zero value is
+// the empty Map, with H's zero value as its provider; maps.Using gives
+// another one.
+type hashTable[K comparable, H Hashing[K], V] {
+	by H,
+	norm Map[K, keyEntry[K, V]],
+	slots []Option[keyEntry[K, V]],
+	count int,
+}
+
+// keyEntry is one entry of a Map with a provider: the key as first put,
+// and its value.
+type keyEntry[K, V] {
+	key K,
+	val V,
+}
+
+// home is the slot a key of hash sum starts its probe at, in a table of
+// size slots (a power of two).
+func home(sum uint64, size int) int { int(sum & uint64(size - 1)) }
+
+// isFree reports a free slot.
+func isFree[T](s Option[T]) bool {
+	match s {
+		case Some: false
+		case None: true
+	}
+}
+
+// find is the slot of k in t and true, or the free slot where k's probe
+// ends and false. t has a free slot (grown), so the probe ends.
+func find[K comparable, H Hashing[K], V](t hashTable[K, H, V], k K) (int, bool) {
+	let mask = len(t.slots) - 1
+	let mut j = home(t.by.Hash(k), len(t.slots))
+	for {
+		match t.slots[j] {
+			case Some{Value}:
+				if t.by.Equal(Value.key, k) {
+					return (j, true)
+				}
+			case None:
+				return (j, false)
+		}
+		j = (j + 1) & mask
+	}
+}
+
+// grown is t with room for one more key: when one more would fill more
+// than three quarters of the slots, the keys move to twice the slots (8
+// at first), each to the first free slot from its home on.
+func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, V] {
+	if (t.count + 1) * 4 <= len(t.slots) * 3 {
+		return t
+	}
+	let mut size = 8
+	for size * 3 < (t.count + 1) * 4 {
+		size = size * 2
+	}
+	// Append, not MakeSlice: Append is a pure body and MakeSlice is not
+	// (stdlib.md, Pure bodies 5), so a copy of grown for a provider whose
+	// operations are pure stays pure and polls no task (C5d).
+	let mut slots = []Option[keyEntry[K, V]]{}
+	for len(slots) < size {
+		slots = slots.Append(None)
+	}
+	let mask = size - 1
+	for s in t.slots {
+		match s {
+			case Some{Value}:
+				let mut j = home(t.by.Hash(Value.key), size)
+				for !isFree(slots[j]) {
+					j = (j + 1) & mask
+				}
+				slots[j] = s
+			case None:
+		}
+	}
+	hashTable[K, H, V]{by: t.by, norm: t.norm, slots: slots, count: t.count}
+}
+
+// Get is the value of k in m, Some{v}, or None when m has no key Equal
+// to k.
+func Get[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) Option[V] {
+	if m.by.NormalForm() {
+		return match m.norm.Get(m.by.NormalKey(k)) {
+			case Some{Value}: Some[V]{Value: Value.val}
+			case None: None
+		}
+	}
+	if m.count == 0 {
+		return None
+	}
+	let (j, found) = find(m, k)
+	if !found {
+		return None
+	}
+	match m.slots[j] {
+		case Some{Value}: Some[V]{Value: Value.val}
+		case None: None
+	}
+}
+
+// Put is m with v at k. A key that m holds keeps the spelling it was
+// first put with; a new key is stored as written.
+func Put[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K, v V) hashTable[K, H, V] {
+	if m.by.NormalForm() {
+		let n = m.by.NormalKey(k)
+		let first = match m.norm.Get(n) {
+			case Some{Value}: Value.key
+			case None: k
+		}
+		let mut t = m
+		t.norm[n] = keyEntry[K, V]{key: first, val: v}
+		return t
+	}
+	let mut t = grown(m)
+	let (j, found) = find(t, k)
+	let first = match t.slots[j] {
+		case Some{Value}: Value.key
+		case None: k
+	}
+	t.slots[j] = Some[keyEntry[K, V]]{Value: keyEntry[K, V]{key: first, val: v}}
+	if !found {
+		t.count = t.count + 1
+	}
+	t
+}
+
+// Delete is m without the key Equal to k. Each later slot of the probe
+// run whose key's home does not lie after the freed slot (read
+// cyclically) moves back into it (backward shift), so no probe passes a
+// free slot.
+func Delete[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) hashTable[K, H, V] {
+	if m.by.NormalForm() {
+		let mut t = m
+		t.norm = t.norm.Delete(t.by.NormalKey(k))
+		return t
+	}
+	if m.count == 0 {
+		return m
+	}
+	let (at, found) = find(m, k)
+	if !found {
+		return m
+	}
+	let mut t = m
+	let mask = len(t.slots) - 1
+	let mut i = at
+	let mut j = (i + 1) & mask
+	for {
+		match t.slots[j] {
+			case None:
+				t.slots[i] = None
+				t.count = t.count - 1
+				return t
+			case Some{Value}:
+				let h = home(t.by.Hash(Value.key), len(t.slots))
+				if (j - h) & mask >= (j - i) & mask {
+					t.slots[i] = t.slots[j]
+					i = j
+				}
+		}
+		j = (j + 1) & mask
+	}
+}
+
+// Take is the value of k in m and m without k.
+func Take[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) (Option[V], hashTable[K, H, V]) {
+	(m.Get(k), m.Delete(k))
+}
+
+// Clone is a Map with the entries of m.
+func Clone[K comparable, H Hashing[K], V](m hashTable[K, H, V]) hashTable[K, H, V] { m }
+
+// Len is the number of keys in m: len(m).
+func Len[K comparable, H Hashing[K], V](m hashTable[K, H, V]) int {
+	if m.by.NormalForm() {
+		return len(m.norm)
+	}
+	m.count
+}
+
+// Using is m's entries put again, in the sorted order of their stored
+// keys, into an empty Map with the provider by: maps.Using builds a Map
+// with it. by may store its keys the other way than m's provider.
+func Using[K comparable, H Hashing[K], V](m hashTable[K, H, V], by H) hashTable[K, H, V] {
+	let mut t = hashTable[K, H, V]{by: by, norm: Map[K, keyEntry[K, V]]{}, slots: []Option[keyEntry[K, V]]{}, count: 0}
+	for k, v in m.Stored() {
+		t = t.Put(k, v)
+	}
+	t
+}
+
+// MakeMap is an empty Map[K, V, H] with the provider by, as MakeSlice is
+// an empty slice: the way to a Map whose provider has no default, a
+// record with fields such as a seeded hash (types.md, Maps 3). maps.Using
+// is it.
+func MakeMap[K comparable, V any, H Hashing[K]](by H) Map[K, V, H] {
+	hashTable[K, H, V]{by: by, norm: Map[K, keyEntry[K, V]]{}, slots: []Option[keyEntry[K, V]]{}, count: 0}
+}
+
+// Stored is the entries of m keyed by their stored spellings, a Map[K, V]:
+// `for k, v in m` reads it, in the sorted order of the stored keys.
+func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {
+	let mut out = Map[K, V]{}
+	if m.by.NormalForm() {
+		for _, e in m.norm {
+			out[e.key] = e.val
+		}
+		return out
+	}
+	for s in m.slots {
+		match s {
+			case Some{Value}: out[Value.key] = Value.val
+			case None:
+		}
+	}
+	out
+}
+
+// Equal is m == o: the same keys under H's Equal, each with an == value
+// (types.md, Maps 3). The checker writes a == b of two such Maps as it.
+func Equal[K comparable, H Hashing[K], V comparable](m hashTable[K, H, V], o hashTable[K, H, V]) bool {
+	if m.Len() != o.Len() {
+		return false
+	}
+	for k, v in m.Stored() {
+		let same = match o.Get(k) {
+			case Some{Value}: Value == v
+			case None: false
+		}
+		if !same {
+			return false
+		}
+	}
+	true
+}
+
+// StructuralFloatKeysHashEqual: Structural[float64]'s equal keys hash
+// equal; 0.0 and -0.0 are == and must have one hash.
+law StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }
+
+// StructuralIntKeysHashEqual: Structural[int]'s equal keys hash equal.
+// Two ints are == only when identical, so the run reports a skip.
+law StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }
+
+// StructuralStringKeysHashEqual: Structural[string]'s equal keys hash
+// equal. Two strings are == only when identical, so the run reports a
+// skip.
+law StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }
 
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
@@ -255,8 +593,10 @@ type Range[T ordered] { Start T, End T }
 // CallSite is a position in Ergo source: File as a defect names it, Line
 // and Column from 1, Column in bytes. A call may leave out its callee's
 // final CallSite parameter, and the compiler passes the call's own site
-// (types.md, Call sites).
-type CallSite { File string, Line int, Column int }
+// (types.md, Call sites). Id is the number the compiler gives that
+// position, from 1, distinct for distinct positions of one program; a
+// CallSite the program writes carries the Id it writes, 0 by convention.
+type CallSite { File string, Line int, Column int, Id int }
 
 // Context is a context as a value: the providers of the capability row R,
 // built where a context converts to it (`let w Context[Store | Log] =
@@ -313,7 +653,7 @@ law TakeIsGetAndDelete(m Map[int, int], k int) {
 // AppendIsLast: Append adds one element, at the end.
 law AppendIsLast(xs []int, x int) {
 	let ys = xs.Append(x)
-	len(ys) == len(xs) + 1 && ys[len(xs)] == x
+	len(ys) == len(xs)+1 && ys[len(xs)] == x
 }
 
 // TakeAtIsIndexAndRest: TakeAt is the element at i and xs without it, in
@@ -323,9 +663,9 @@ law TakeAtIsIndexAndRest(xs []int, i int) {
 		return true
 	}
 	let x, rest = xs.TakeAt(i)
-	let mut ok = x == xs[i] && len(rest) == len(xs) - 1
+	let mut ok = x == xs[i] && len(rest) == len(xs)-1
 	for k, y in rest {
-		ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k + 1])
+		ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k+1])
 	}
 	ok
 }
@@ -336,9 +676,9 @@ law SliceIsWindow(xs []int, i int, j int) {
 		return true
 	}
 	let w = xs.Slice(i, j)
-	let mut ok = len(w) == j - i
+	let mut ok = len(w) == j-i
 	for k, y in w {
-		ok = ok && y == xs[i + k]
+		ok = ok && y == xs[i+k]
 	}
 	ok
 }
@@ -393,7 +733,7 @@ extern go ergo.local/prototype/runtime/v1.AsWritten func AsWritten[T](v T) T
 // Seq[T](f). A Seq value lowers to the one Go shape of every Ergo function
 // value (spec D5); the for adapts it to Go's range over func at the loop,
 // and a std binding that returns Go's iter.Seq[T] adapts at the call.
-type Seq[T] func(yield func(v T) bool)
+type Seq[T own] func(yield func(v T) bool)
 
 // Decision is the result of a machine's step (docs/spec/runtime.md,
 // Machines and actors).
@@ -433,7 +773,8 @@ type Never {}
 // match on Infallible). It is how a branch that holds a Never fits where a
 // T is wanted.
 func Absurd[T](n Never) T {
-	match n {}
+	match n {
+	}
 }
 
 // Timeout is a state's timer: when an entry of the state lasts In, the
@@ -465,10 +806,10 @@ type Timeout[E] { In duration, Signal E }
 // fold runs no exit action.
 type Machine[S, E, O, F, R, W] {
 	Initial S,
-	Step func(s S, e E) Decision[S, O] fails F needs R,
-	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[func(send func(e E)) needs W],
-	Exit func(s S) Option[func() needs W],
+	Step    func(s S, e E) Decision[S, O] fails F needs R,
+	After   func(s S) Option[Timeout[E]],
+	Work    func(s S) Option[func(send func(e E)) needs W],
+	Exit    func(s S) Option[func() needs W],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -478,10 +819,10 @@ type Machine[S, E, O, F, R, W] {
 // from Start(input).
 type InputMachine[I, S, E, O, F, R, W] {
 	Start func(input I) S,
-	Step func(s S, e E) Decision[S, O] fails F needs R,
+	Step  func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
-	Work func(s S) Option[func(send func(e E)) needs W],
-	Exit func(s S) Option[func() needs W],
+	Work  func(s S) Option[func(send func(e E)) needs W],
+	Exit  func(s S) Option[func() needs W],
 }
 
 // Closer is the release contract (resources R1): a type that implements
@@ -504,13 +845,13 @@ type Closer {
 // left, a Task's result no Wait took); an Ergo record that keeps values
 // holds them in its fields, which its own release releases (R3).
 // law-exempt: drain takes the value and only the release calls it, so no law can call it or observe it; the keeping rules are the checker's (resources R13, R35).
-type Keeping[T] {
+type Keeping[T own] {
 	own drain() []T,
 }
 
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
-extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
+extern go ergo.local/prototype/runtime/v1.Task type Task[T own, E] {
 	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.

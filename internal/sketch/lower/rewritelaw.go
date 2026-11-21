@@ -116,6 +116,10 @@ func (l *lowerer) rewriteFunc(law *check.Law, name string, list []syntax.Stmt, r
 	head := "func " + name + "(" + strings.Join(parts, ", ") + ")" + fc.resultList(result, true)
 	fc.depth = 1
 	fc.entryPoll(l.info, d)
+	// The value rule decides the side's copies, as a law body's
+	// (tests.go lawDecl; KMEANS-LAW census: the rewrite check was the one
+	// body kind lowered unanalyzed).
+	l.analyzeValues(d, l.info)
 	if !params {
 		fc.body(list)
 	} else {
@@ -208,7 +212,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 				cargs = append(cargs, a)
 				cshown = append(cshown, l.litExpr(v.Type, a, law.Decl))
 			}
-			call := strconv.Quote(": provider = " + ctor.Name + "(")
+			call := strconv.Quote(": provider = " + l.pkg.Qualified(ctor.Pkg, ctor.Name) + "(")
 			if len(cshown) > 0 {
 				call += " + " + strings.Join(cshown, ` + ", " + `)
 			}

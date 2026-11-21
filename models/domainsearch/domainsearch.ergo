@@ -1,5 +1,5 @@
 // The package domainsearch is the design model of the search loop of the
-// fk-domains port (corpus-wave plan.md section 20), checked by
+// domain-search port (corpus-wave plan.md section 20), checked by
 // `ergo test models/domainsearch`: a breadth-first search of every state in
 // a small scope. It models what the order of events can break:
 //

@@ -104,7 +104,7 @@ func typing(id string, name string, n string, why string) []ui.Act {
 
 // asked is the screen's answer to r: the form filled, its button pressed,
 // the screen settled, and what it then holds as text, in Text's form.
-func asked[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], r Request) string {
+func asked[D, F](h mut ui.TestHost[screen.Screen, screen.Signal, D, F], r Request) string {
 	let acts = match r {
 	case pipelineapi.SubmitRequest as x:
 		typing(x.C.ID, x.C.Run, "\(x.C.Stages)", "").Append(ui.TapOn{Label: "submit"})

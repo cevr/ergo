@@ -1,0 +1,74 @@
+// The session file (--session): a journal/file journal of the agent's
+// signals, each line one signal's JSON. Starting again on the same file
+// replays it and goes on (agent.Resume).
+
+import exec
+import fs
+import gent/agent
+import journal
+import journal/file
+import json
+import os
+import strconv
+
+// SignalText is the codec of the session file's signals: their JSON.
+type SignalText {} implements journal.Codec[agent.Signal]
+
+// Encode is the JSON of e.
+func Encode(_ SignalText, e agent.Signal) string { json.Encode(json.Codec[agent.Signal]{MaxBytes: 0, MaxDepth: 0}, e) }
+
+// Decode is the signal whose JSON is text.
+func Decode(_ SignalText, text string) agent.Signal fails journal.Failed {
+	json.Decode(json.Codec[agent.Signal]{MaxBytes: 16 << 20, MaxDepth: 64}, text) catch {
+	case _:
+		return journal.Failed{Reason: "not a signal: " + strconv.Quote(text)}
+	}
+}
+
+// StateText is the codec of the session file's snapshots: their JSON.
+// The session takes none (every is 0), but a file another writer
+// snapshotted still reads.
+type StateText {} implements journal.Codec[agent.State]
+
+// Encode is the JSON of s.
+func Encode(_ StateText, s agent.State) string { json.Encode(json.Codec[agent.State]{MaxBytes: 0, MaxDepth: 0}, s) }
+
+// Decode is the state whose JSON is text.
+func Decode(_ StateText, text string) agent.State fails journal.Failed {
+	json.Decode(json.Codec[agent.State]{MaxBytes: 64 << 20, MaxDepth: 64}, text) catch {
+	case _:
+		return journal.Failed{Reason: "not a state: " + strconv.Quote(text)}
+	}
+}
+
+// openSession is a session under l: a new one in memory when path is
+// empty, else the one the file at path keeps (read and written with
+// host), resumed. A file the loop
+// no longer fits names the first signal it does not take.
+func openSession(host fs.Host, l agent.Limits, path string) agent.Session fails os.Exit needs agent.Model | agent.Tools | exec.Runner | Scheduler {
+	if path == "" {
+		return agent.Open(l)
+	}
+	let j = file.Open(host, path, StateText, SignalText) catch {
+	case journal.Failed as f:
+		return os.Exit{Code: 1, Message: "gent: " + f.Reason}
+	}
+	agent.Resume(l, j) catch {
+	case journal.Failed as f:
+		return os.Exit{Code: 1, Message: "gent: " + path + ": " + f.Reason}
+	case journal.Diverged as d:
+		return os.Exit{Code: 1, Message: "gent: " + path + ": signal \(d.At + 1) does not fit this loop: " + named(j, d.At)}
+	}
+}
+
+// named is the text of the signal at i in j, or what it is when j holds none there.
+func named(j file.Journal[agent.State, agent.Signal], i int) string {
+	let log = j.Load() catch {
+	case journal.Failed:
+		return "unreadable"
+	}
+	if i < 0 || i >= len(log.Signals) {
+		return "past the end"
+	}
+	SignalText.Encode(log.Signals[i])
+}

@@ -1,0 +1,30 @@
+// Package screen is the stopwatch's view (stage b): the time as MM:SS.cc,
+// then Reset and one button that is Start while the watch is stopped and
+// Stop while it runs. A button sends a click, which
+// carries no reading: the watch's work reads the clock (FK1-g5). A watch
+// waiting for its reading shows the buttons of the state it waits from.
+
+import stopwatch/watch
+import ui
+
+// Screen is the watch: its time and its two buttons.
+func Screen(f mut ui.Frame[watch.Signal], w watch.Watch) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, watch.Format(watch.ElapsedOf(w)))
+		ui.Row(f, ui.Plain()) {
+			button(f, "Reset", watch.Reset)
+			match w {
+			case watch.Stopped, watch.Starting:
+				button(f, "Start", watch.Start)
+			case watch.Running, watch.Stopping:
+				button(f, "Stop", watch.Stop)
+			}
+		}
+	}
+}
+
+func button(f mut ui.Frame[watch.Signal], label string, b watch.Button) {
+	ui.Pressable(f, label, watch.Clicked{Button: b}) {
+		ui.Text(f, label)
+	}
+}

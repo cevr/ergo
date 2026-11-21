@@ -1,5 +1,15 @@
+import machines
+
 // A move is a command to the walker.
 type Move = North{} | East{} | South{} | West{} | Wait{}
+
+law TideFollowsTurn(moves []Move) {
+	let mut g = Start()
+	for m in moves {
+		g = machines.Next(g, Step(g, m))
+	}
+	WalkOf(g).Tide == WalkOf(g).Turn/6
+}
 
 // BadMove is a letter of a move list that is not a move, at its 1-based
 // position.

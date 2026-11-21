@@ -4,7 +4,7 @@ An animated dashboard: twelve panels (four line charts over rings of 10,000 samp
 
 ```sh
 dash-gui gen [-seed S] [-n N]   # write a script of N steps
-dash-gui play [-seed S] [-pace edges|percent|default] [-hold N]  # play the script on standard input over the sensors of seed S; a run of at most N frames is held as one request
+dash-gui play [-seed S] [-pace edges|percent|default] [-hold N] [-every N]  # play the script on standard input over the sensors of seed S; a run of at most N frames is held as one request; with -every N one frame edge in N reaches the pacing (`pace.NewEvery`, a composed provider: stdlib.md Pacing 10)
 dash-gui scene [-seed S] [-frames N]  # move the view on ui.TestHost N frames, then play a scene script on it
 ```
 

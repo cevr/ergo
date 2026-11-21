@@ -3,6 +3,7 @@
 import strconv
 import strings
 import utf8
+import mdhtml/html
 
 // Entity is a reference as read: its length in the text and the text it
 // stands for.
@@ -10,6 +11,37 @@ type Entity { Len int, Text string }
 
 // entities is entityTable as a Map from a name to its text.
 let entities = loadEntities(entityTable)
+
+// EntitiesAreTheirText: &name; is its text, escaped; &#n; is the
+// character n, or U+FFFD for 0, a surrogate or past U+10FFFF.
+law EntitiesAreTheirText(pick int, n int) {
+	let name = entityNames[index(pick, len(entityNames))]
+	let text = match entities.Get(name) {
+	case Some as t:
+		t.Value
+	case None:
+		""
+	}
+	let v = index(n, 0x110010)
+	let r = if v == 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\uFFFD' } else { rune(v) }
+	let numeric = "<p>" + html.Escape(utf8.RuneText(r)) + "</p>\n"
+	md("&"+name+";") == "<p>"+html.Escape(text)+"</p>\n" && md("&#\(v);") == numeric
+}
+
+// entityNames is the names of the entity table, in its order.
+let entityNames = namesOf(entityTable)
+
+func namesOf(table string) []string {
+	let mut out = []string{}
+	for entry in strings.Split(table, ",") {
+		match strings.Cut(entry, ":") {
+		case Some as h:
+			out = out.Append(h.Value.Before)
+		case None:
+		}
+	}
+	out
+}
 
 func loadEntities(table string) Map[string, string] {
 	let mut m = Map[string, string]{}

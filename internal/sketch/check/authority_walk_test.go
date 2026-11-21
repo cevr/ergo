@@ -68,6 +68,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"index":    {why: "a cache of Methods"},
 		"byName":   {why: "Methods sorted"},
 		"Set":      {why: "a predeclared constraint's type set: basic types only"},
+		"Terms":    {why: "a type set's terms: an operation type with them is a constraint only, so no value, field or row holds one; a type argument it admits is mentioned where it is written"},
 		"includes": {why: "the ..I members: their operations are in Methods, which the walk reads"},
 	},
 	"Method": {
@@ -101,6 +102,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"NonEscaping": {why: "a lifetime mark of a parameter's function type"},
 		"Takes":       {why: "parameter indexes of a takes clause (#197)"},
 		"TakesSelf":   {why: "a bare takes of an operation (#197)"},
+		"MutSelf":     {why: "a mark that the operation writes its receiver (MODES-4)"},
 		"Entry":       {why: "a mark that the function is a machine's entry send"},
 	},
 	"Var": {
@@ -119,14 +121,16 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"undiagnosed": {why: "a diagnostic mark"},
 		"refused":     {why: "a diagnostic mark"},
 		"byValue":     {why: "the syntax of a let mut value, for a message"},
+		"freshRef":    {why: "a kind mark: a let of a fresh Go handle (gofresh.go)"},
 	},
 	"TypeParam": {
 		"Constraint": {sel: "Constraint"},
 		"Name":       {why: "a name"},
 		"Kind":       {why: "a kind"},
 		"Pos":        {why: "a position"},
-		"Lent":       {why: "a flag: the bracket writes lent"},
 		"Slot":       {why: "a lowering mark (CK-rowarg)"},
+		"Own":        {why: "an ownership mark (Generics 9)"},
+		"lang":       {why: "an ownership mark: a language type's parameter"},
 		"conflict":   {why: "a diagnostic mark"},
 		"id":         {why: "an identity"},
 	},

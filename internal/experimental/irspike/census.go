@@ -44,6 +44,14 @@ type Census struct {
 	// NotPrograms are corpus files that do not check or lower: not
 	// programs, so not part of the coverage (negative fixtures).
 	NotPrograms int
+	// Failed are the targets that did not load or lower, and the std
+	// census if it did not, each with its error.
+	Failed []string
+	// CodecReached counts, by reason and domain, the targets that reach
+	// each codec function that keeps its text body. Funcs holds each such
+	// function once (by its Go name); this counts it once per target, a
+	// number of lowerings, never of functions (PORT-WIRE-READERS step 0).
+	CodecReached map[string]map[Domain]int
 }
 
 type censusBuilder struct {
@@ -55,6 +63,19 @@ func (b *censusBuilder) add(d Domain, fs []lower.IRCensusFunc) {
 	for _, f := range fs {
 		key := f.Pkg + "." + f.Name
 		switch {
+		case f.Codec:
+			// One function, whichever target reaches it first; each
+			// target that reaches it counts in CodecReached.
+			key = "codec " + f.Name
+			for _, r := range f.Reasons {
+				if b.c.CodecReached == nil {
+					b.c.CodecReached = map[string]map[Domain]int{}
+				}
+				if b.c.CodecReached[r] == nil {
+					b.c.CodecReached[r] = map[Domain]int{}
+				}
+				b.c.CodecReached[r][d]++
+			}
 		case f.Std:
 			key = "std " + key
 		case f.File != "":
@@ -185,31 +206,27 @@ func TakeCensus(root string, progress io.Writer) (*Census, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, dir := range mains {
+	// A target that does not load or lower is reported in Failed and the
+	// census goes on, so one internal compiler error hides no other
+	// target's bodies.
+	target := func(d Domain, dir string, tests bool) {
 		u, err := Load(dir)
-		if err != nil {
-			return nil, fmt.Errorf("example %s: %w", dir, err)
+		if err == nil {
+			var c lower.IRCensus
+			if c, err = lower.CensusIR(u, tests); err == nil {
+				b.add(d, c.Funcs)
+				b.c.Targets[d]++
+				fmt.Fprintf(progress, "census %s %s\n", d, dir)
+				return
+			}
 		}
-		c, err := lower.CensusIR(u, false)
-		if err != nil {
-			return nil, fmt.Errorf("example %s: %w", dir, err)
-		}
-		b.add(Examples, c.Funcs)
-		b.c.Targets[Examples]++
-		fmt.Fprintf(progress, "census %s\n", dir)
+		b.c.Failed = append(b.c.Failed, fmt.Sprintf("%s %s: %v", d, dir, err))
+	}
+	for _, dir := range mains {
+		target(Examples, dir, false)
 	}
 	for _, dir := range tests {
-		u, err := Load(dir)
-		if err != nil {
-			return nil, fmt.Errorf("test target %s: %w", dir, err)
-		}
-		c, err := lower.CensusIR(u, true)
-		if err != nil {
-			return nil, fmt.Errorf("test target %s: %w", dir, err)
-		}
-		b.add(Tests, c.Funcs)
-		b.c.Targets[Tests]++
-		fmt.Fprintf(progress, "census test %s\n", dir)
+		target(Tests, dir, true)
 	}
 	funcs, err := StdFuncs()
 	if err != nil {
@@ -223,12 +240,12 @@ func TakeCensus(root string, progress io.Writer) (*Census, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := lower.CensusStd(u, funcs)
-	if err != nil {
-		return nil, fmt.Errorf("std census: %w", err)
+	if c, err := lower.CensusStd(u, funcs); err != nil {
+		b.c.Failed = append(b.c.Failed, fmt.Sprintf("%s census: %v", Std, err))
+	} else {
+		b.add(Std, c.Funcs)
+		b.c.Targets[Std] = len(funcs)
 	}
-	b.add(Std, c.Funcs)
-	b.c.Targets[Std] = len(funcs)
 	files, err := corpusFiles(root)
 	if err != nil {
 		return nil, err
@@ -314,6 +331,13 @@ func (c *Census) WriteTable(w io.Writer) {
 		fmt.Fprintf(w, "| %s | %d | %d | %d |\n", d, c.Targets[d], all[d], ir[d])
 	}
 	fmt.Fprintf(w, "\nCorpus files that are not programs (do not check or lower): %d\n\n", c.NotPrograms)
+	if len(c.Failed) > 0 {
+		fmt.Fprintf(w, "Targets that did not lower (their bodies are not in the table): %d\n\n", len(c.Failed))
+		for _, f := range c.Failed {
+			fmt.Fprintf(w, "- %s\n", f)
+		}
+		fmt.Fprintln(w)
+	}
 	fmt.Fprintf(w, "| reason | unit |")
 	for _, d := range Domains {
 		fmt.Fprintf(w, " %s all | %s first |", d, d)
@@ -327,6 +351,40 @@ func (c *Census) WriteTable(w io.Writer) {
 		fmt.Fprintf(w, "| %s | %s |", strings.ReplaceAll(r.Reason, "|", `\|`), r.Unit)
 		for _, d := range Domains {
 			fmt.Fprintf(w, " %d | %d |", r.All[d], r.First[d])
+		}
+		fmt.Fprintln(w)
+	}
+	if len(c.CodecReached) == 0 {
+		return
+	}
+	// The codec rows above count functions; this counts the lowerings
+	// that reach them, one per target (never a function count).
+	fmt.Fprintf(w, "\nCodec functions with a text body: functions (the rows above, by the domain that reaches each first) and targets reaching them.\n\n| reason | functions |")
+	for _, d := range Domains {
+		fmt.Fprintf(w, " %s targets reaching |", d)
+	}
+	fmt.Fprintf(w, "\n|---|---:|")
+	for range Domains {
+		fmt.Fprintf(w, "---:|")
+	}
+	fmt.Fprintln(w)
+	funcs := map[string]int{}
+	for _, f := range c.Funcs {
+		if strings.HasPrefix(f.Key, "codec ") {
+			for _, r := range f.Reasons {
+				funcs[r]++
+			}
+		}
+	}
+	reasons := make([]string, 0, len(c.CodecReached))
+	for r := range c.CodecReached {
+		reasons = append(reasons, r)
+	}
+	sort.Strings(reasons)
+	for _, r := range reasons {
+		fmt.Fprintf(w, "| %s | %d |", r, funcs[r])
+		for _, d := range Domains {
+			fmt.Fprintf(w, " %d |", c.CodecReached[r][d])
 		}
 		fmt.Fprintln(w)
 	}

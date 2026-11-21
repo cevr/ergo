@@ -178,9 +178,7 @@ func TestConstFoldAgrees(t *testing.T) {
 		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run TestConstFoldAgrees ./internal/experimental/irspike"
 		var outs [2]outcome
 		for i, mode := range []string{"", "off"} {
-			prev := lower.SetConstFoldLoweringForTest(mode)
-			rep, err := Emit(u, IR, filepath.Join(dir, "ir"+mode))
-			lower.SetConstFoldLoweringForTest(prev)
+			rep, err := EmitFold(u, filepath.Join(dir, "ir"+mode), mode)
 			if err != nil {
 				t.Fatal(err)
 			}

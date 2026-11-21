@@ -108,7 +108,7 @@ func main() needs Console {
 `,
 	`type Count { n int }
 
-func Add(c *Count, k int) { c.n = c.n + k }
+func Add(c mut Count, k int) { c.n = c.n + k }
 
 type Pair[T] { a T, b T }
 
@@ -147,17 +147,46 @@ var reachAdditions = []string{
 // reachLib is an imported package whose Used the import base calls, and
 // Used reads the let Greeting; its other declarations and let are
 // unreachable.
+//
+// Box is reached, and so, by its first parameter, is markBoxRead, which
+// no lowered body calls: the let it alone reads has an initializer and is
+// lowered only where a lowered body reads it, as a std package's let is
+// (STD-COPY-SAME; mutant lib-let-on-read-constant-only). The machine
+// nothing names computes no initial value (mutant bs5-lib-lets-all, now
+// that the lets are lowered on read).
 const reachLib = `func greet(s string) string { s }
 
 let Greeting = greet("lib")
 
-func Used() string { Greeting }
+type Box { N int }
+
+func boxed(b Box) string { Greeting }
+
+func Used() string { boxed(Box{N: 1}) }
 
 func markLibFn() string { "mark-lib-fn" }
 
 let markLibLet = markLibLen("mark-lib-let")
 
 func markLibLen(s string) int { len(s) }
+
+func markBoxRead(b Box) int { b.N + markBoxLet }
+
+let markBoxLet = markLibLen("mark-box-let")
+
+type MarkLibIdle { tag string }
+type MarkLibStop {}
+type MarkLibSt = MarkLibIdle | MarkLibStop
+type MarkLibGo {}
+type MarkLibHalt {}
+type MarkLibSig = MarkLibGo | MarkLibHalt
+
+func markLibStep(s MarkLibSt, e MarkLibSig) Decision[MarkLibSt, int] { Ignore }
+
+type MarkLibLoop machine[MarkLibSt, MarkLibSig] {
+	initial: MarkLibIdle{tag: "mark-lib-machine"},
+	step:    markLibStep,
+}
 `
 
 const reachImportBase = "import lib\n\nfunc main() needs Console {\n\tConsole.Println(lib.Used())\n}\n"

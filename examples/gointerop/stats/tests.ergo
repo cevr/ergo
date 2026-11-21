@@ -42,7 +42,7 @@ test GeoMeanAtMostMeanOnPositives(xs []int) {
 	for x in xs {
 		pos = pos.Append(1 + (if x < 0 { -(x + 1) } else { x })%400)
 	}
-	let s = try Summarize(Small(pos, 7))
+	let s = try Summarize(small(pos, 7))
 	match s.GeoMean {
 	case Some[float64] as g:
 		assert g.Value <= s.Mean*(1+1e-9)

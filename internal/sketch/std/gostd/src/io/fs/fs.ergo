@@ -56,18 +56,22 @@ extern go io/fs.FileInfoToDirEntry func FileInfoToDirEntry(info own FileInfo) Di
 extern go io/fs.FileMode type FileMode uint32
 
 // ergo:go func (FileMode).IsDir() bool
+// ergo:total
 extern go io/fs.FileMode.IsDir func (m FileMode) IsDir() bool needs go.Foreign
 
 // ergo:go func (FileMode).IsRegular() bool
+// ergo:total
 extern go io/fs.FileMode.IsRegular func (m FileMode) IsRegular() bool needs go.Foreign
 
 // ergo:go func (FileMode).Perm() FileMode
+// ergo:total
 extern go io/fs.FileMode.Perm func (m FileMode) Perm() FileMode needs go.Foreign
 
 // ergo:go func (FileMode).String() string
 extern go io/fs.FileMode.String func (m FileMode) String() string needs go.Foreign
 
 // ergo:go func (FileMode).Type() FileMode
+// ergo:total
 extern go io/fs.FileMode.Type func (m FileMode) Type() FileMode needs go.Foreign
 
 // ergo:go func FormatDirEntry(dir DirEntry) string

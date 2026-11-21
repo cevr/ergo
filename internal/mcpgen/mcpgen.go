@@ -1,6 +1,6 @@
 // Package mcpgen writes the Ergo source that puts an operation type on the
 // Model Context Protocol (`ergo gen mcp`; docs/spec/api.md, ergo gen mcp).
-// The output is ordinary Ergo over module mcp (modules/mcp), std rpc's
+// The output is ordinary Ergo over std mcp (moved from modules/mcp, MCP0), std rpc's
 // JSON and the contract's hub (`ergo gen api`), in the package <pkg>mcp
 // beside the contract's package, in one file, mcp.ergo:
 //
@@ -29,15 +29,15 @@ import (
 	"strings"
 	"sync"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
-// ModulePath is the import path of module mcp, which the generated
-// package imports; the contract's module requires it.
-const ModulePath = "github.com/cevr/ergo/modules/mcp"
+// ModulePath is the import path of std mcp, which the generated package
+// imports; it is std, so the contract's module requires nothing for it.
+const ModulePath = "mcp"
 
 // Files is the generated package: its folder, relative to the contract's
 // package folder, and its files by name.

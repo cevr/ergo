@@ -10,14 +10,14 @@ import (
 	"sync"
 
 	"ergo.local/prototype/internal/sketch/build"
-	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 )
 
 // The embedded std snapshot (compile-speed CS1). The compiler carries the
-// checked prelude and std (check.ExportStd) in its own binary, so its first
+// checked prelude and std (snapshot.ExportStd) in its own binary, so its first
 // check of a process parses no std file and checks no std declaration,
 // with every cache empty; a package's segment is decoded on its first
-// import (check/export.go). The snapshot is made from the checker's source
+// import (check/snapshot). The snapshot is made from the checker's source
 // by TestStdSnapshotIsCurrent -update-std-snapshot, which also writes
 // stdsnap_gen.go: the digest of the std sources it checked. An export is
 // deterministic (check Law ExportIsDeterministic), so the test compares the
@@ -78,7 +78,7 @@ func embeddedSnapshot(deps []build.Dependency) []byte {
 // did. A snapshot that does not decode is refused, never half installed.
 func installEmbedded() bool {
 	data := embeddedSnapshot(stdDependencies())
-	return data != nil && check.InstallStd(bytes.NewReader(data), int64(len(data))) == nil
+	return data != nil && snapshot.InstallStd(bytes.NewReader(data), int64(len(data))) == nil
 }
 
 // stdSourcesDigest is the digest of the std sources: every package's name

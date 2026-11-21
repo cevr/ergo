@@ -25,6 +25,49 @@ type Shape =
 	| Ellipse{Center Point, RX int, RY int}
 	| Line{From Point, To Point}
 
+// HitEqualsBruteForce: the grid finds the shape that testing every shape
+// finds, at any point and at points on and around each shape. A flat line
+// on top lies Tolerance - 2 below a cell's top edge, probed Tolerance above
+// it, in the cell above: random lines seldom lie so near an edge.
+law HitEqualsBruteForce(shapes []Shape, layers []int, at Point, near Point) {
+	let (pic, _) = Add(picture(shapes, layers), Layers-1, Line{From: Point{X: 0, Y: 2*Cell + Tolerance - 2}, To: Point{X: 300, Y: 2*Cell + Tolerance - 2}})
+	let off = Point{X: near.X % 9, Y: near.Y % 9}
+	let mut probes = []Point{Bound(at), Point{X: 150, Y: 2*Cell - 2}}
+	for p in Order(pic) {
+		let b = BoxOf(p.Shape)
+		probes = probes.Append(Bound(Point{X: b.Lo.X + off.X, Y: b.Lo.Y + off.Y}))
+		probes = probes.Append(Bound(Point{X: b.Hi.X - off.X, Y: b.Hi.Y + off.Y}))
+		match p.Shape {
+		case Line as l:
+			for q in 1..8 {
+				let x = l.From.X + (l.To.X-l.From.X)*q/8 + off.X - 4
+				let y = l.From.Y + (l.To.Y-l.From.Y)*q/8 + off.Y - 4
+				probes = probes.Append(Bound(Point{X: x, Y: y}))
+			}
+		case Stroke, Rect, Ellipse:
+		}
+	}
+	for p in probes {
+		if Top(pic, p) != TopOfAll(pic, p) {
+			return false
+		}
+	}
+	true
+}
+
+// LineCellsFollowTheLine: a 45-degree line, up to 40 cells long and
+// inside the world, is in a band of cells along it, at most three rows a
+// column it spans and three columns more, not in every cell of its box:
+// O(n) cells for n columns, not n².
+law LineCellsFollowTheLine(from Point, n int, down bool) {
+	let a = Point{X: ((from.X%4000)+4000)%4000 - 2000, Y: ((from.Y%4000)+4000)%4000 - 2000}
+	let span = (((n%40)+40)%40 + 1) * Cell
+	let dy = if down { span } else { -span }
+	let b = Point{X: a.X + span, Y: a.Y + dy}
+	let columns = (b.X-a.X)/Cell + 3
+	len(Reach(Line{From: a, To: b})) <= 3*columns
+}
+
 // Placed is a shape in a drawing: its id, which also orders shapes of one
 // layer, and its layer, 0 at the bottom.
 type Placed { Id int, Layer int, Shape Shape }

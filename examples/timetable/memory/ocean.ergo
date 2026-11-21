@@ -8,7 +8,7 @@ import time
 import timetable/timetable
 
 // Timetable is a timetable held in memory.
-type Timetable { line timetable.Line, services []timetable.Service }
+type Timetable { line timetable.Line, services []timetable.Service } implements timetable.Timetable
 
 // NewTimetable is the Ocean's timetable.
 func NewTimetable() Timetable {

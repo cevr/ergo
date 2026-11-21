@@ -46,7 +46,7 @@ func expire(fail bool) int fails timeout.Expired {
 	return 1
 }
 
-func bump(p *Square) {
+func bump(p mut Square) {
 	p.S = p.S + 1
 }
 

@@ -62,7 +62,11 @@ type Decl struct {
 	// (gofacts.Effects; np4f-plan GBX6), acting on its guard line: the
 	// binding writes no needs row and an `// ergo:effect none (vouched:
 	// <reason>)` line.
-	Effect  string
+	Effect string
+	// Total: every platform proves the function total, no call of it
+	// panics (Derive's totalFact, total.go): the binding's
+	// `// ergo:total` line (GOBIND-TOTAL).
+	Total   bool
 	Refused string
 	// Writes is the binder of the parameter that Go writes in place
 	// (v1.GoWrites; GBX2), or "". The Ergo signature returns that
@@ -108,8 +112,11 @@ type Qualifier func(*types.Package) string
 // Map maps one exported Go object of pkg by the table of
 // docs/spec/interop.md (Type mapping). For a method, obj is the method and
 // recv the named type whose method set holds it. q spells other packages.
-func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
-	m := &mapper{pkg: obj.Pkg(), q: q}
+// facts are the derived facts (Derive): a (*T, error) function binds its
+// pointer as go.Ref[T] only with their nonNilResult, else as
+// Option[go.Ref[T]].
+func Map(obj types.Object, recv *types.Named, q Qualifier, facts Facts) Decl {
+	m := &mapper{pkg: obj.Pkg(), q: q, facts: facts}
 	if recv != nil {
 		m.pkg = recv.Obj().Pkg()
 		m.refs = []string{m.pkg.Path() + "." + recv.Obj().Name()}
@@ -124,8 +131,9 @@ func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
 }
 
 type mapper struct {
-	pkg *types.Package
-	q   Qualifier
+	pkg   *types.Package
+	q     Qualifier
+	facts Facts
 	// refs are the named types the Ergo text spells, "path.Name", and
 	// ".Map" for a prelude type (Close); refPkgs their packages.
 	refs    []string
@@ -282,7 +290,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			// A reviewed variable no Go code of its package writes after
 			// init (GBX3): a read-only let, a pointer never nil, so a
 			// go.Ref. The table holds no interface variable.
-			t, err := (&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)
+			t, err := (&sigMapper{mapper: m, nonNil: true}).typ(o.Type(), atErrResult, false)
 			if err != nil {
 				d.Refused = err.Error()
 				return d
@@ -378,7 +386,8 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	// subject (context.Cause(ctx)), not as the call's cancellation.
 	sm := &sigMapper{mapper: m, subst: subst, sync: syncActs(target), method: recv != nil,
 		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
-		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
+		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type()),
+		nonNil:     m.facts[declTarget(f)][nonNilResult]}
 	params, results, fails, variadic, err := sm.signature(sig, false)
 	if err != nil {
 		return "", false, false, err
@@ -714,6 +723,29 @@ type sigMapper struct {
 	// ctx: the first parameter is context.Context, which the Ergo
 	// signature hides (IG10); the callers pass the task's context.
 	ctx bool
+	// nonNil: the pointer beside the last error is proven non-nil when
+	// the error is nil (Derive's nonNilResult, or a reviewed read-only
+	// variable), so it binds as go.Ref, not Option[go.Ref].
+	nonNil bool
+}
+
+// declTarget is the extern target of the Go declaration of f, by the type
+// that declares a method (a promoted method's facts are its declaring
+// type's), "" for a method of no named type.
+func declTarget(f *types.Func) string {
+	sig := f.Type().(*types.Signature)
+	if sig.Recv() == nil {
+		return f.Pkg().Path() + "." + f.Name()
+	}
+	t := sig.Recv().Type()
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return ""
+	}
+	return n.Obj().Pkg().Path() + "." + n.Obj().Name() + "." + f.Name()
 }
 
 // isContext reports Go's context.Context.
@@ -1000,8 +1032,9 @@ func (m *sigMapper) spell(obj *types.TypeName) string {
 }
 
 // pointer maps *S, S a named non-interface type: a borrow *S as a
-// parameter, go.Ref[S] as the one result beside an error (nil there is a
-// defect), Option[go.Ref[S]] as another result or a field (q32, q38).
+// parameter, go.Ref[S] as the one result beside an error where the
+// binder proves it non-nil when the error is (nonNil; GOBIND-NIL),
+// Option[go.Ref[S]] as any other result or a field (q32, q38).
 func (m *sigMapper) pointer(p *types.Pointer, at pos, cb bool) (string, error) {
 	n, ok := types.Unalias(p.Elem()).(*types.Named)
 	if !ok {
@@ -1024,7 +1057,9 @@ func (m *sigMapper) pointer(p *types.Pointer, at pos, cb bool) (string, error) {
 	case atParam:
 		return "*" + s, nil
 	case atErrResult:
-		return "go.Ref[" + s + "]", nil
+		if m.nonNil {
+			return "go.Ref[" + s + "]", nil
+		}
 	}
 	m.prelude("Option")
 	return "Option[go.Ref[" + s + "]]", nil

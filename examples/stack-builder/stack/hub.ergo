@@ -16,10 +16,164 @@ type Screen =
 	| Searching{Query string, Page int}
 	| Editing{Part Part, From From, Editor actor.Host[EditActor]}
 
+// HistoryRestores: an editor opened from a page or a search, and left
+// with Back or with an added unit, returns the hub to that page or search.
+law HistoryRestores(page int, i int, query string, fromSearch bool, add bool) {
+	let m = fixture()
+	let from Screen = if fromSearch { Searching{Query: query, Page: small(page) % 2} } else { Browsing{Page: small(page) % 2} }
+	let h = Hub{Library: m, Units: []Unit{}, Screen: from}
+	let parts = match from {
+	case Searching as q:
+		Find(m, q.Query)
+	case _:
+		m.Pages[small(page)%2]
+	}
+	match screenAfter(Step(h, Open{Index: small(i)})) {
+	case Some[Screen] as s:
+		let ending HubSignal = if add { UnitAdded{L: lineOf(i)} } else { EditorBack }
+		match screenAfter(Step(Hub{..h, Screen: s.Value}, ending)) {
+		case Some[Screen] as after:
+			sameScreen(after.Value, from)
+		case None:
+			false
+		}
+	case None:
+		small(i) >= len(parts)
+	}
+}
+
+func small(n int) int {
+	let c = n % 3
+	if c < 0 { -c } else { c }
+}
+
+// fixture is a library of two pages with a composite of two slots.
+func fixture() Library {
+	let a = Part{Name: "a", Size: 100, Slots: []Slot{}}
+	let b = Part{Name: "b", Size: 200, Slots: []Slot{}}
+	let composite = Part{Name: "ab", Size: 50, Slots: []Slot{Slot{Name: "x", Choices: []Part{a, b}}, Slot{Name: "y", Choices: []Part{b, a}}}}
+	Library{Pages: [][]Part{[]Part{a, b, composite}, []Part{composite, a}}}
+}
+
+func lineOf(n int) Unit { Unit{Part: "l\(small(n))", Size: small(n)*100 + 1, Count: small(n) + 1, Subs: []Unit{}} }
+
+func screenAfter(d Decision[Hub, Plan]) Option[Screen] {
+	match d {
+	case Enter[Hub] as x:
+		Some{x.Next.Screen}
+	case Stay[Hub] as x:
+		Some{x.Next.Screen}
+	case _:
+		None
+	}
+}
+
+func sameScreen(a Screen, b Screen) bool {
+	match (a, b) {
+	case (Browsing as x, Browsing as y):
+		x.Page == y.Page
+	case (Searching as x, Searching as y):
+		x.Query == y.Query && x.Page == y.Page
+	case (_, _):
+		false
+	}
+}
+
 // Hub is the hub's state: the library, the plan and the screen (a record
 // with a union field: the screen is a region of the state). A machine
 // takes a record state as a union of one variant.
 type Hub { Library Library, Units []Unit, Screen Screen }
+
+// BackChangesNothing: an editor that ends with Back leaves the plan as
+// it was; one that adds a unit adds exactly that unit.
+law BackChangesNothing(ns []int, n int, text string, add bool) {
+	let plan = basketOf(ns)
+	let h = Hub{Library: fixture(), Units: plan, Screen: Editing{Part: fixture().Pages[0][0], From: FromList{Page: 0}, Editor: actor.NewHost[EditActor]()}}
+	if add {
+		let after = basketAfter(Step(h, UnitAdded{L: lineOf(n)}))
+		len(after) == len(plan)+1 && Total(after) == Total(plan)+Total([]Unit{lineOf(n)})
+	} else {
+		let after = basketAfter(Step(h, EditorBack))
+		len(after) == len(plan) && Total(after) == Total(plan)
+	}
+}
+
+func basketOf(ns []int) []Unit {
+	let mut out = []Unit{}
+	for n in ns {
+		out = out.Append(lineOf(n))
+	}
+	out
+}
+
+func basketAfter(d Decision[Hub, Plan]) []Unit {
+	match d {
+	case Enter[Hub] as x:
+		x.Next.Units
+	case Stay[Hub] as x:
+		x.Next.Units
+	case _:
+		[]Unit{}
+	}
+}
+
+// EditorOpensOnlyFromAList: no hub signal on any screen leaves the hub in
+// an Editing screen it did not open from Browsing or Searching.
+law EditorOpensOnlyFromAList(n int, m int, text string) {
+	let s = screenAt(n, text)
+	let h = Hub{Library: fixture(), Units: []Unit{}, Screen: s}
+	let e HubSignal = match small(m) + small(m/3)*3 {
+	case 0:
+		Open{Index: 0}
+	case 1:
+		Close
+	case 2:
+		Next
+	case 3:
+		Search
+	case 4:
+		Type{Text: text}
+	case 5:
+		Deploy
+	case 6:
+		EditorBack
+	case 7:
+		UnitAdded{L: lineOf(m)}
+	case _:
+		Prev
+	}
+	match (s, screenAfter(Step(h, e))) {
+	case (Editing, _):
+		true
+	case (_, Some[Screen] as next):
+		match next.Value {
+		case Editing:
+			match e {
+			case Open:
+				true
+			case _:
+				false
+			}
+		case _:
+			true
+		}
+	case (_, None):
+		true
+	}
+}
+
+// screenAt is a hub screen picked by n.
+func screenAt(n int, text string) Screen {
+	let k = small(n)
+	match k {
+	case 0:
+		Browsing{Page: small(n) % 2}
+	case 1:
+		Searching{Query: text, Page: 1}
+	case _:
+		Editing{Part: fixture().Pages[0][2], From: if n%2 == 0 { FromList{Page: 1} } else { FromSearch{Query: text, Page: 0} }, Editor: actor.NewHost[EditActor]()}
+	}
+}
 
 type HubSignal =
 	| Next{}

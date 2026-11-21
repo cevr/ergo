@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // TestOwnSpellsTheOldModes (EXM1; audit CSX §7, q168) is a seeded

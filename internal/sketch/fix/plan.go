@@ -8,9 +8,9 @@ import (
 	"io"
 	"slices"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/linked/code"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // The clause loop is std code's Plan(Fixes) (SEMTOOLS SEM4b): the linked

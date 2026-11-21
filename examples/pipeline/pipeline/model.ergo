@@ -8,6 +8,7 @@ import actor
 import github.com/cevr/ergo/modules/domain
 import pipeline/board
 import pipeline/run
+import github.com/cevr/ergo/modules/domain/memory
 
 // DeskActor is the running context.
 type DeskActor = actor.Actor[Ledger, Signal, Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
@@ -64,6 +65,21 @@ func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | 
 // Board is the board after every record of the log: its follower takes
 // the records it has not seen first.
 func Board(m Model) board.View { m.board.Follow(m.log) }
+
+// BoardFollowsTheLog: the board, a follower of the log, is the fold of
+// the desk's entries.
+law BoardFollowsTheLog(acts []Act, flaky []int) {
+	match played(acts, 0, flaky, memory.New[Entry]()) {
+	case Some[Played] as p:
+		let mut v = board.Empty
+		for e in BookOf(p.Value.Desk).Log {
+			v = board.Apply(v, e.Run, e.Event)
+		}
+		p.Value.Board == v
+	case None:
+		false
+	}
+}
 
 func RunOf(m Model, id string) run.Run fails NoSuchRun {
 	match BookOf(m.desk.State().State).Runs.Get(id) {

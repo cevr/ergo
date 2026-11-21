@@ -1,4 +1,4 @@
-import jobs/jobs
+import jobsapp/jobs
 import time
 
 // Queue serves Jobs, capturing the store and clock selected by the binary.

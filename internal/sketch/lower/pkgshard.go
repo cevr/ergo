@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"go/ast"
 	"hash/fnv"
 	"path"
@@ -58,6 +59,16 @@ type shardOpts struct {
 // "Declaration shards").
 var devShards = &shardOpts{pkg: 64 << 10, min: 24 << 10, one: 4}
 
+// SetEveryShardForTest makes the shard lowerings (LowerShards,
+// LowerIRShards) cut every package after each component, the most names
+// that cross, so a test of the cut's laws reaches a package under the
+// 64 KiB a test build cuts from; the func it returns restores the cut.
+func SetEveryShardForTest() func() {
+	old := devShards
+	devShards = &shardOpts{pkg: 1, min: 1, one: 1}
+	return func() { devShards = old }
+}
+
 // shardDir is the folder of the shards of every package.
 const shardDir = "shard"
 
@@ -82,10 +93,10 @@ func (p *splitPlan) shard(groups []splitGroup, o *shardOpts, name func(g int) st
 		if total < o.pkg {
 			continue
 		}
-		stay := map[int]bool{}
-		if k == 1 {
-			stay = rootReach(groups, members)
-		}
+		// The root keeps its pinned groups; any package keeps its Go inits
+		// (a test build's root, below main, holds the program's init: FT6),
+		// and what reaches them.
+		stay := rootReach(groups, members, k == 1)
 		var free []int
 		for _, g := range members {
 			if !stay[g] {
@@ -137,9 +148,26 @@ func (p *splitPlan) shard(groups []splitGroup, o *shardOpts, name func(g int) st
 	return made
 }
 
-// rootReach is the root's groups that stay in the root: the pinned ones,
-// and every group of members that references one of them.
-func rootReach(groups []splitGroup, members []int) map[int]bool {
+// irBodyBytes is fn's body as a cut weighs it, in bytes of Go text: the
+// length of its IR encoding, two thirds of it. The cut's sizes (devShards)
+// are bytes of Go; the IR of a body takes 1.3 to 2.1 times the bytes of
+// the Go text the text path writes for it (measured on the test programs
+// of examples/deps: graph's root 1.32, resolve's root 1.46, graph's
+// harness 2.07), 1.5 taken.
+func irBodyBytes(fn *irFunc) int {
+	data, err := json.Marshal(fn)
+	if err != nil {
+		return 0
+	}
+	return len(data) * 2 / 3
+}
+
+// rootReach is the groups of a package's members that stay in it: its Go
+// inits, the pinned ones when it is the root, and every group of members
+// that references one of them. A shard is imported by its package, so an
+// init cut into one would run before the package's own (law
+// InitsKeepTheirOrder).
+func rootReach(groups []splitGroup, members []int, root bool) map[int]bool {
 	in := map[int]bool{}
 	for _, g := range members {
 		in[g] = true
@@ -155,7 +183,7 @@ func rootReach(groups []splitGroup, members []int) map[int]bool {
 	stay := map[int]bool{}
 	var work []int
 	for _, g := range members {
-		if groups[g].pin {
+		if groups[g].goInit || root && groups[g].pin {
 			stay[g] = true
 			work = append(work, g)
 		}

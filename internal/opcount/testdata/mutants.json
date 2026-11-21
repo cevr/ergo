@@ -134,7 +134,7 @@
       "from": "if st, err := os.Stat(p); err == nil && st.IsDir() {",
       "to": "if st, err := os.Stat(p); false && err == nil && st.IsDir() {",
       "rule": "A program whose workload is a package folder keeps its workload file in it (workload/workload), and opcount reads it there.",
-      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoExamplesHoldTheirLaws"]
+      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoLayoutIsClean"]
     },
     {
       "name": "hook-allocs-unreported",
@@ -144,7 +144,7 @@
       "to": "\"alloc %d\\nalloc_bytes %d\\ngc_cycles %d\\n\"",
       "rule": "The exit hook reports every counter scripts/opcount reads; a missing one is NoMetric in the receipt, never 0.",
       "killers": [],
-      "gap": "The hook runs only inside a program scripts/opcount builds and runs; its run is a tool check by hand (round-1 request: opcount on examples/lru and examples/onebrc), not a gate test."
+      "gap": "The hook runs only inside a program scripts/opcount builds and runs; its run is a tool check by hand (round-1 request: opcount on examples/lru and examples/station-stats), not a gate test."
     },
     {
       "name": "share-no-inherit",

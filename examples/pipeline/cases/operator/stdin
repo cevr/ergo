@@ -1,13 +1,14 @@
 # While build waits for its backoff, the operator cancels the queued
-# docs and retries build's stage now. Every refusal is typed.
-submit build 2
-submit docs 1
+# docs and retries build's stage now (-stage counts from 0). Every refusal
+# is typed, and the script goes on after it (the script's policy).
+submit -id=c3 -run=build -stages=2
+submit -id=c4 -run=docs -stages=1
 board
-cancel docs no longer needed
-retry build 2
-retry build 1
+cancel -id=c6 -run=docs -why="no longer needed"
+retry -id=c7 -run=build -stage=1
+retry -id=c8 -run=build -stage=0
 board
-cancel ghost x
-submit huge 12
-submit build 1
-show docs
+cancel -id=c10 -run=ghost -why=x
+submit -id=c11 -run=huge -stages=12
+submit -id=c12 -run=build -stages=1
+run-of -- docs

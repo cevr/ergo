@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestHTTPEncodeQueryIsGos holds the pure HTTPEncodeQuery to the
+// TestHTTPEncodeQueryIsGos holds the pure httpEncodeQuery to the
 // encoding it replaces, Go's url.QueryEscape of each name and value
 // joined by "=" and "&", over seeded fields of every byte value. Go's is
 // the reference: the encoding moved into a pure file (PureImports has no
@@ -34,8 +34,8 @@ func TestHTTPEncodeQueryIsGos(t *testing.T) {
 			fields = append(fields, f)
 			want = append(want, url.QueryEscape(f.Name)+"="+url.QueryEscape(f.Value))
 		}
-		if got := HTTPEncodeQuery(fields); got != strings.Join(want, "&") {
-			t.Fatalf("case %d: HTTPEncodeQuery(%q) = %q, Go's gives %q", seed, fields, got, strings.Join(want, "&"))
+		if got := httpEncodeQuery(fields); got != strings.Join(want, "&") {
+			t.Fatalf("case %d: httpEncodeQuery(%q) = %q, Go's gives %q", seed, fields, got, strings.Join(want, "&"))
 		}
 	}
 }

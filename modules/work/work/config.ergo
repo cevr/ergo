@@ -20,8 +20,17 @@ let ConfigFile = "work.toml"
 //     clone, which is the reason to clone). "rift-filtered" in the list is
 //     Rift's default list.
 //   - Copy allows a plain copy where no clone can share blocks.
+//   - Trash keeps what rm and gc -idle remove in the trash until a gc
+//     purges it (the default); false deletes each for good at once, by
+//     its record's id, after rm's refusals (the owner's rule on the
+//     workbox: no trash). TrashFrom is where Trash came from, by this
+//     precedence: the base's Git setting work.trash (`git config --local
+//     work.trash false` in the base; a global one counts too: both stay
+//     on the host, never in the tree, so one host's rule never reaches
+//     another through a commit), else
+//     work.toml's [work] trash, else the default, true.
 //   - Push is who may push from a workspace: "refuse" (the default)
-//     gives every remote of a new or adopted workspace a push URL that
+//     gives every remote of a workspace new makes a push URL that
 //     refuses every push, so work goes back only through ready;
 //     "origin" leaves the remotes as the clone has them, for a base
 //     whose owner pushes from workspaces.
@@ -39,6 +48,8 @@ type Config {
 	Storage   string,
 	LeaveOut  []string,
 	Copy      bool,
+	Trash     bool,
+	TrashFrom string,
 	Push      string,
 	Env       []string,
 	Lock      string,
@@ -68,7 +79,7 @@ type BadConfig { Line int, Why string }
 let RiftFiltered = []string{"node_modules", ".pnpm-store", "target", ".venv", "venv", ".tox", ".nox", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vite", ".parcel-cache", ".cache", "dist", "build", "coverage", ".yarn/cache"}
 
 // StarterConfig is the work.toml that init writes when there is none.
-let StarterConfig = "# work.toml: the workspaces of this repository (work, ergo work).\n# Every key has a default; see modules/work/README.md.\n[work]\n# storage = \"../.work/<base>\"\n# leave_out = []          # [\"rift-filtered\"] is Rift's default list\n# env = []\n\n# [deps]\n# lock = \"bun.lock\"\n# install = \"bun install --frozen-lockfile\"\n\n# [hooks]                  # run only after work trust\n# postcreate = []\n"
+let StarterConfig = "# work.toml: the workspaces of this repository (work, ergo work).\n# Every key has a default; see modules/work/README.md.\n[work]\n# storage = \"../.work/<base>\"\n# leave_out = []          # [\"rift-filtered\"] is Rift's default list\n# env = []\n# trash = true            # false: rm and gc -idle delete for good at once\n\n# [deps]\n# lock = \"bun.lock\"\n# install = \"bun install --frozen-lockfile\"\n\n# [hooks]                  # run only after work trust\n# postcreate = []\n"
 
 // ConfigStarterReads: the starter work.toml reads as the empty
 // configuration: every key it shows is a comment, so a fresh base runs
@@ -81,9 +92,35 @@ law ConfigStarterReads() {
 	c == EmptyConfig()
 }
 
+// The sources of Config.Trash, by precedence (TrashKey first).
+let TrashKey = "work.trash"
+let TrashByGit = "git config work.trash"
+let TrashByToml = "work.toml"
+let TrashByDefault = "default"
+
+// LocalTrash is c with the base's own Git setting work.trash (setting:
+// "" when unset) over its Trash: Git's boolean words, any case; another
+// value is a BadConfig, never read as either.
+func LocalTrash(c Config, setting string) Config fails BadConfig {
+	match strings.ToLower(strings.TrimSpace(setting)) {
+	case "":
+		c
+	case "true", "yes", "on", "1":
+		Config{..c, Trash: true, TrashFrom: TrashByGit}
+	case "false", "no", "off", "0":
+		Config{..c, Trash: false, TrashFrom: TrashByGit}
+	case _:
+		BadConfig{Line: 0, Why: "git config \(TrashKey) is true or false, not \"\(setting)\""}
+	}
+}
+
+// TrashNote is doctor's line on c's Trash: its value and its source,
+// "trash: false (git config work.trash)".
+func TrashNote(c Config) string { "trash: \(c.Trash) (\(c.TrashFrom))" }
+
 // EmptyConfig is the configuration of a base with no work.toml.
 func EmptyConfig() Config {
-	Config{Storage: "", LeaveOut: []string{}, Copy: false, Push: "refuse", Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}, Languages: []LanguageLine{}}
+	Config{Storage: "", LeaveOut: []string{}, Copy: false, Trash: true, TrashFrom: TrashByDefault, Push: "refuse", Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}, Languages: []LanguageLine{}}
 }
 
 type fileTable {
@@ -100,17 +137,21 @@ type languageTable {
 }
 
 type classTable {
-	Match  json.Optional[string] "match",
-	Kind   json.Optional[string] "kind",
-	Sets   json.Optional[[]string] "sets",
-	By     json.Optional[string] "by",
-	Driver json.Optional[string] "driver",
+	Match     json.Optional[string] "match",
+	Kind      json.Optional[string] "kind",
+	Sets      json.Optional[[]string] "sets",
+	By        json.Optional[string] "by",
+	Driver    json.Optional[string] "driver",
+	Candidate json.Optional[bool] "candidate",
+	Check     json.Optional[string] "check",
+	Version   json.Optional[string] "version",
 }
 
 type workTable {
 	Storage  json.Optional[string] "storage",
 	LeaveOut json.Optional[[]string] "leave_out",
 	Copy     json.Optional[bool] "copy",
+	Trash    json.Optional[bool] "trash",
 	Push     json.Optional[string] "push",
 	Env      json.Optional[[]string] "env",
 }
@@ -152,7 +193,13 @@ func ParseConfig(text string) Config fails BadConfig {
 		if push != "refuse" && push != "origin" {
 			return BadConfig{Line: 0, Why: "push is \"refuse\" or \"origin\", not \"\(push)\""}
 		}
-		c = Config{..c, Storage: orText(w.Value.Storage), LeaveOut: leave, Copy: orFalse(w.Value.Copy), Push: push, Env: or(w.Value.Env)}
+		let from = match w.Value.Trash {
+		case json.Present[bool]:
+			TrashByToml
+		case json.Absent:
+			TrashByDefault
+		}
+		c = Config{..c, Storage: orText(w.Value.Storage), LeaveOut: leave, Copy: orFalse(w.Value.Copy), Trash: orTrue(w.Value.Trash), TrashFrom: from, Push: push, Env: or(w.Value.Env)}
 	case json.Absent:
 	}
 	match f.Deps {
@@ -175,7 +222,7 @@ func ParseConfig(text string) Config fails BadConfig {
 	case json.Present[[]classTable] as list:
 		let mut lines = []ClassLine{}
 		for k in list.Value {
-			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver)}
+			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver), Candidate: orFalse(k.Candidate), Check: orText(k.Check), Version: orText(k.Version)}
 			if line.Match == "" {
 				return BadConfig{Line: 0, Why: "a [[class]] needs a match"}
 			}
@@ -184,6 +231,9 @@ func ParseConfig(text string) Config fails BadConfig {
 			}
 			if line.Kind == "driver" && line.Driver == "" {
 				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): a driver needs its command"}
+			}
+			if line.Kind != "driver" && (line.Candidate || line.Check != "" || line.Version != "") {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): candidate, check and version are a driver's"}
 			}
 			lines = lines.Append(line)
 		}
@@ -222,6 +272,15 @@ func orText(v json.Optional[string]) string {
 		p.Value
 	case json.Absent:
 		""
+	}
+}
+
+func orTrue(v json.Optional[bool]) bool {
+	match v {
+	case json.Present[bool] as p:
+		p.Value
+	case json.Absent:
+		true
 	}
 }
 
@@ -281,11 +340,24 @@ func Commands(c Config) []string {
 		if line.Driver != "" {
 			out = out.Append("class.\(line.Match).driver: \(line.Driver)")
 		}
+		if line.Check != "" {
+			out = out.Append("class.\(line.Match).check: \(line.Check)")
+		}
 	}
 	for l in c.Languages {
 		out = out.Append("language.\(l.Name).command: \(l.Command)")
 	}
 	out
+}
+
+// CandidateCommandsAreTrusted: a candidate line's driver and check are
+// both commands work trust allows, so a changed check asks again.
+law CandidateCommandsAreTrusted(n int, m int) {
+	let c = ParseConfig("[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv \(n)\"\ncandidate = true\ncheck = \"chk \(m)\"\n") catch {
+	case BadConfig:
+		return false
+	}
+	Commands(c) == []string{"class.*.go.driver: drv \(n)", "class.*.go.check: chk \(m)"}
 }
 
 // Digest is the digest of the commands a configuration runs: what work

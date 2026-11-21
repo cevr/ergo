@@ -1,0 +1,58 @@
+// The driver's one failure of the screen: Go's open error stops at the
+// few calls below, so every exported row is closed (docs/spec/interop.md,
+// Two levels 3).
+
+import go ergo.local/prototype/hosts/opentui/screen
+
+// ScreenFailed is a screen call that failed: the terminal could not be
+// opened or set up, the library refused a scene command or a frame, or
+// writing to the terminal failed. Why is the screen's message.
+type ScreenFailed { Why string }
+
+// open is screen.Open: the process's terminal as a live screen.
+func open() go.Ref[screen.Screen] fails ScreenFailed needs go.Foreign {
+	screen.Open() catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}
+
+// present lays out, paints and writes the next frame.
+func present(s go.Ref[screen.Screen]) fails ScreenFailed needs go.Foreign {
+	s.Present() catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}
+
+// reveal scrolls node n into view in each Scroller that holds it.
+func reveal(s go.Ref[screen.Screen], n int) fails ScreenFailed needs go.Foreign {
+	s.Reveal(n) catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}
+
+// scrollTo scrolls the Scroll or list n to row y (by: by y rows).
+func scrollTo(s go.Ref[screen.Screen], n int, y int, by bool) fails ScreenFailed needs go.Foreign {
+	s.ScrollTo(n, y, by) catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}
+
+// edit applies one edit to the field n and is its text after it.
+func edit(s go.Ref[screen.Screen], n int, op int, col int, text string) string fails ScreenFailed needs go.Foreign {
+	s.Edit(n, op, col, text) catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}
+
+// next waits for the screen's next input.
+func next(s go.Ref[screen.Screen]) screen.Input fails ScreenFailed needs go.Foreign {
+	s.Next() catch {
+	case go.Error as e:
+		return ScreenFailed{Why: e.Text}
+	}
+}

@@ -3,9 +3,42 @@
 // nothing of files, flags or configuration.
 
 import strings
+import slices
 
 // Bookmark is one saved web address with its title and tags.
 type Bookmark { URL string, Title string, Tags []string }
+
+// AddressesAreUnique: no two bookmarks of a shelf share an address, and
+// adding one again fails Duplicate.
+law AddressesAreUnique(paths []string) {
+	let marks = shelfOf(paths, []string{}, []string{})
+	let mut ok = true
+	for i, m in marks {
+		ok = ok && at(marks, m.URL) == i && refused(marks, m)
+	}
+	ok
+}
+
+// at is the place of the bookmark with url in marks, or -1.
+func at(marks []Bookmark, url string) int {
+	for i, m in marks {
+		if m.URL == url {
+			return i
+		}
+	}
+	-1
+}
+
+// refused is whether adding b to marks again fails Duplicate.
+func refused(marks []Bookmark, b Bookmark) bool {
+	let _ = Add(marks, b) catch {
+	case Duplicate:
+		return true
+	case NotAWebAddress, BadTag:
+		return false
+	}
+	false
+}
 
 // Duplicate is a bookmark whose address the shelf holds already.
 type Duplicate { URL string }
@@ -67,6 +100,22 @@ func List(marks []Bookmark, q Query) []Bookmark {
 	out
 }
 
+// ListKeepsTheQuery: List shows at most Limit bookmarks, each with the
+// tag asked for, newest first.
+law ListKeepsTheQuery(paths []string, tagged bool, limit int) {
+	let marks = shelfOf(paths, []string{}, []string{"a", "b"})
+	let q = Query{Tag: if tagged { Some{Value: "a"} } else { None }, Limit: limit}
+	let got = List(marks, q)
+	let mut ok = len(got) <= (if limit < 0 { 0 } else { limit })
+	for i, m in got {
+		ok = ok && (!tagged || slices.Contains(m.Tags, "a"))
+		if i > 0 {
+			ok = ok && at(marks, m.URL) < at(marks, got[i-1].URL)
+		}
+	}
+	ok
+}
+
 // Line is how List's caller shows one bookmark.
 func Line(m Bookmark) string {
 	let tags = if len(m.Tags) == 0 { "" } else { " [" + strings.Join(m.Tags, ", ") + "]" }
@@ -107,4 +156,41 @@ func Parse(text string) []Bookmark fails BadLine {
 		out = out.Append(Bookmark{URL: parts[0], Title: parts[1], Tags: tags})
 	}
 	out
+}
+
+// StoredReadsBack: what the store writes reads back as the same shelf.
+law StoredReadsBack(paths []string, titles []string, tags []string) {
+	let marks = shelfOf(paths, titles, tags)
+	let back = Parse(Format(marks)) catch {
+	case BadLine:
+		return false
+	}
+	same(back, marks)
+}
+
+// shelfOf is the bookmarks Add keeps of the generated ones, in order.
+func shelfOf(paths []string, titles []string, tags []string) []Bookmark {
+	let mut marks = []Bookmark{}
+	for i, p in paths {
+		let title = if i < len(titles) { titles[i] } else { "" }
+		let b = Bookmark{URL: "https://example.org/" + p, Title: title, Tags: tags}
+		marks = Add(marks, b) catch {
+		case Duplicate, NotAWebAddress, BadTag:
+			marks
+		}
+	}
+	marks
+}
+
+// same is whether a and b hold equal bookmarks in order.
+func same(a []Bookmark, b []Bookmark) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, m in a {
+		if m.URL != b[i].URL || m.Title != b[i].Title || !slices.Equal(m.Tags, b[i].Tags) {
+			return false
+		}
+	}
+	true
 }

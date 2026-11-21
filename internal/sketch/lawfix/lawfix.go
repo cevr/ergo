@@ -22,8 +22,8 @@ import (
 	"strings"
 	"unicode"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -156,6 +156,7 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 			res.Helpers = append(res.Helpers, fmt.Sprintf("%s beside %s in %s", declName(h.Decl), declName(h.User), dest.Name))
 		}
 	}
+	joinLeftoverTests(&res, files, moving, put)
 	for _, mv := range moves {
 		if mv.From != mv.To || len(mv.Helpers) > 0 {
 			res.Moves = append(res.Moves, *mv)
@@ -221,6 +222,57 @@ func Plan(pkg *check.Package, files []*syntax.File) (Result, error) {
 	return res, nil
 }
 
+// joinLeftoverTests moves the tests of each file of laws that the moves
+// leave holding only tests into the package's tests.ergo, when it has one
+// that keeps a declaration, after that file's last one: the file of laws
+// then holds nothing and goes, where renameLawsFiles would keep its laws
+// name, tests.ergo being taken. put moves a declaration after an anchor.
+func joinLeftoverTests(res *Result, files []*syntax.File, moving map[syntax.Decl]bool, put func(anchor, d syntax.Decl)) {
+	for _, f := range files {
+		if !lawsFileName(f.Name) {
+			continue
+		}
+		var tests []syntax.Decl
+		var names []string
+		only := true
+		for _, d := range f.Decls {
+			if _, imp := d.(*syntax.ImportDecl); imp || moving[d] {
+				continue
+			}
+			t, ok := d.(*syntax.TestDecl)
+			if !ok {
+				only = false
+				break
+			}
+			tests = append(tests, d)
+			names = append(names, t.Name.Name)
+		}
+		if !only || len(tests) == 0 {
+			continue
+		}
+		var anchor syntax.Decl
+		var to *syntax.File
+		for _, g := range files {
+			if g == f || g.Name != path.Join(path.Dir(f.Name), "tests.ergo") {
+				continue
+			}
+			for _, d := range g.Decls {
+				if _, imp := d.(*syntax.ImportDecl); !imp && !moving[d] {
+					anchor, to = d, g
+				}
+			}
+		}
+		if anchor == nil {
+			continue
+		}
+		for _, t := range tests {
+			put(anchor, t)
+			anchor = t
+		}
+		res.Helpers = append(res.Helpers, fmt.Sprintf("tests %s from %s to %s", strings.Join(names, ", "), f.Name, to.Name))
+	}
+}
+
 // lawsFileName reports a file named for laws: laws.ergo, tree_laws.ergo.
 func lawsFileName(name string) bool {
 	return strings.Contains(strings.ToLower(path.Base(name)), "law")
@@ -229,8 +281,9 @@ func lawsFileName(name string) bool {
 // renameLawsFiles names each file of laws that is left after the moves,
 // holding declarations the laws are about (or that nothing names), by
 // its concept: its first machine, else its first exported type, else its
-// first type, else its first exported function, else its first
-// declaration, in lower case. A name another file has keeps the file.
+// first type, else its first exported function, else its first named
+// declaration, in lower case; a file left with tests alone is a test
+// file, tests.ergo. A name another file has keeps the file.
 func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*fileEdit) {
 	taken := map[string]bool{}
 	for _, f := range files {
@@ -255,7 +308,7 @@ func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*
 			left = append(left, d)
 		}
 		concept := ""
-		for rank := 0; rank < 5 && concept == ""; rank++ {
+		for rank := 0; rank < 6 && concept == ""; rank++ {
 			for _, d := range left {
 				name, ok := "", false
 				switch d := d.(type) {
@@ -267,6 +320,8 @@ func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*
 					name = d.Name.Name
 					ok = rank == 3 && isUpper(name) || rank == 4
 				case *syntax.LawDecl:
+				case *syntax.TestDecl:
+					name, ok = "tests", rank == 5
 				default:
 					name, ok = declName(d), rank == 4
 				}
@@ -596,6 +651,10 @@ func declName(d syntax.Decl) string {
 		if len(names) > 0 {
 			return strings.Join(names, ", ")
 		}
+	case *syntax.TestDecl:
+		return d.Name.Name
+	case *syntax.LawDecl:
+		return d.Name.Name
 	}
-	return fmt.Sprintf("%T", d)
+	return ""
 }
