@@ -366,7 +366,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 		case _:
 			ui.Wheel{DX: 0, DY: y}
 		}
-		let p = ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+		let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
 		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			try tui.Play(d, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
 		})

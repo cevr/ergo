@@ -32,12 +32,14 @@ import (
 //
 // Mutants it kills (testdata/mutants.json): env-free-callee-read-dropped
 // (a caller of a reader loses its environment), env-free-fallible-keeps-env
-// (a failing body takes the environment again).
+// (a failing body takes the environment again), env-free-machine-step-env
+// (a machine plan's Step passes the environment to a failing step that
+// takes none: each seed's Counter, whose step advance calls one fi).
 
 var envFreeSeed = flag.Uint64("envfree.seed", 0, "run the env-free properties on this seed alone")
 
 // envFreePaths are the generator's branches; the fixed seeds reach each.
-var envFreePaths = []string{"fails-free", "fails-reads", "pure", "reads", "through-callee", "cycle-free", "try", "catch"}
+var envFreePaths = []string{"fails-free", "fails-reads", "pure", "reads", "through-callee", "cycle-free", "try", "catch", "machine-step-free", "machine-step-reads"}
 
 // envFreeFn is one generated function.
 type envFreeFn struct {
@@ -50,6 +52,7 @@ type envFreeFn struct {
 type envFreeProgram struct {
 	seed  uint64
 	fns   []envFreeFn
+	step  int // the function the machine's step calls
 	src   string
 	reads []bool // the model: fi reads the environment
 	pure  []bool // the reference's model: fi is pure
@@ -69,6 +72,7 @@ func envFreeGen(seed uint64) envFreeProgram {
 			f.calls = append(f.calls, r.IntN(n))
 		}
 	}
+	p.step = int(seed) % n // not r: each seed's functions stay what they were
 	p.model()
 	p.write()
 	return p
@@ -164,6 +168,16 @@ func (p *envFreeProgram) write() {
 		}
 		b.WriteString("\ts\n}\n")
 	}
+	// A machine whose step fails and is a method of its state record,
+	// calling f(step): it takes the environment iff f(step) reads it, and
+	// the plan's Step must pass it iff it does (std actor's exitStep;
+	// mutant env-free-machine-step-env).
+	j := p.step
+	try := ""
+	if p.fns[j].fails {
+		try = "try "
+	}
+	fmt.Fprintf(&b, "\ntype St { N int }\n\ntype Tick { K int }\n\nfunc first(i int) St { St{N: i} }\n\nfunc advance(c St, t Tick) Decision[St, int] fails Bad {\n\tif t.K < 0 {\n\t\treturn Bad{N: t.K}\n\t}\n\tlet v = %sf%d(t.K)\n\tStay[St]{Next: St{N: c.N + v}}\n}\n\ntype Counter machine[St, Tick] { initial: first, step: advance }\n", try, j)
 	b.WriteString("\nfunc main() needs Console {\n")
 	for i, f := range p.fns {
 		if f.fails {
@@ -197,6 +211,11 @@ func (p *envFreeProgram) reach(reached map[string]bool) {
 			return false
 		}
 		return walk(i)
+	}
+	if p.reads[p.step] {
+		reached["machine-step-reads"] = true
+	} else {
+		reached["machine-step-free"] = true
 	}
 	for i, f := range p.fns {
 		switch {

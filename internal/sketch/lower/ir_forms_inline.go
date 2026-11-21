@@ -29,7 +29,14 @@ package lower
 //     site's error and the same goto (a failure that is a local or a
 //     parameter of the callee, a try's error passed on or a failure held
 //     in a let, by its Go type: an error as it is, a failure type
-//     converted to error, INLINE-FAIL-LOCAL); a return of a fallible call's
+//     converted to error, INLINE-FAIL-LOCAL; a parameter used only as a
+//     failure whose argument is a variant literal of constants, locals
+//     and their fields stands for that literal, so the failure is built
+//     in place and jumps to its arm, when nothing between the call and
+//     the failure can write what the literal reads: no later argument
+//     and nothing in the body calls, stores or takes an address,
+//     INLINE-FAILARG; a call of a generic function's copy for its type
+//     arguments, mono.go, is copied too, ir_call.go); a return of a fallible call's
 //     value and error as they are (`return f(…)`, marked Pair) binds
 //     both to temporaries the site's value and error then take. A call
 //     that is itself returned (`return f(…)`, outside a function
@@ -63,6 +70,8 @@ package lower
 // INLINE-RETURN cases calls: a call in return position, and a fallible
 // body that returns a fallible call's pair. irFailLocalLowering "off"
 // keeps a fallible body whose failure is a local or a parameter a call.
+// irFailArgLowering "off" binds every failure argument at the copy's head
+// and keeps a try's check after a copy (failThrough).
 //
 // Prior art: OCaml's flambda and GHC inline by size on their own IR before
 // the backend; ReScript inlines small functions across modules before it
@@ -115,6 +124,23 @@ func IRFailLocalOn() bool { return irFailLocalLowering != "off" }
 func SetFailLocalLoweringForTest(mode string) string {
 	prev := irFailLocalLowering
 	irFailLocalLowering = mode
+	return prev
+}
+
+// irFailArgLowering is "off" for the reference (INLINE-FAILARG): a
+// parameter used only as a failure is bound to its argument at the
+// copy's head, as any other, and its failure is set from that local.
+var irFailArgLowering string
+
+// IRFailArgOn reports that failure parameters stand for their literal
+// arguments (the property's reach check).
+func IRFailArgOn() bool { return irFailArgLowering != "off" }
+
+// SetFailArgLoweringForTest sets irFailArgLowering ("" or "off") and
+// returns the previous mode.
+func SetFailArgLoweringForTest(mode string) string {
+	prev := irFailArgLowering
+	irFailArgLowering = mode
 	return prev
 }
 
@@ -262,8 +288,10 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		}
 		tsub[tp] = b.goArg(tp, c.TypeArgs[i], x)
 	}
+	// The body's name: a method's is its type's and its own; a
+	// monomorphic copy of a method is a plain function (ir.go body).
 	key := e.Name
-	if fd.method != nil {
+	if fd.method != nil && e.K == "mcall" {
 		key = fd.method.name + "." + e.Name
 	}
 	src := -1 // a call in a library body has no identity
@@ -491,6 +519,7 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	// The parameters: a local the body only reads stands for itself.
 	np := len(frame.params)
 	subst := map[int]*irExpr{}
+	failArgs := 0
 	var binds []*irStmt
 	for i, a := range args {
 		t := frame.params[i]
@@ -501,36 +530,25 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 			subst[i] = a
 			continue
 		}
+		// A parameter used only as a failure, whose argument is a variant
+		// literal of constants, locals and their fields, stands for that
+		// argument: the failure is built in place, so its arm takes it
+		// with no error value (failJumps). The argument is then evaluated
+		// where the copy fails, not at the call, so nothing run in between
+		// may write a slot it reads: the later arguments, bound at the
+		// copy's head, call nothing (irNoCalls), and the body calls
+		// nothing, stores nothing and takes no address (irFrameOnly), so
+		// it writes only its own renamed locals and the temporaries of
+		// parameters it writes (INLINE-FAILARG).
+		if irFailArgLowering != "off" && irFailOnly(callee.Body, i, t) && in.irPureFailArg(a) && irNoCalls(args[i+1:]) && irFrameOnly(callee.Body) {
+			subst[i] = a
+			failArgs++
+			continue
+		}
 		if frame.params[i] == "" {
 			return nil
 		}
 		subst[i] = nil // bound below, once the copy's locals are known
-	}
-	// A failure that is a local or a parameter of the callee (a try's
-	// error, a failure held in a let, a parameter: INLINE-FAIL-LOCAL)
-	// becomes the site's error by its Go type, which must be spelled.
-	failTypes := true
-	irWalk(callee.Body, false, func(s *irStmt, lit bool) {
-		if lit || s.K != "fail" || s.X == nil || s.X.K != "local" {
-			return
-		}
-		x := s.X.I
-		t := ""
-		switch {
-		case x == frame.env:
-		case x < np && subst[x] != nil:
-			t = in.slotType(subst[x].I)
-		case x < np:
-			t = frame.params[x]
-		case x-np < len(callee.Locals):
-			t = callee.Locals[x-np].Type
-		}
-		if t == "" {
-			failTypes = false
-		}
-	}, func(*irExpr, bool) {})
-	if !failTypes {
-		return nil
 	}
 	if !site.anon {
 		in.l.inlineSites = append(in.l.inlineSites, inlineSite{src: site.src, offset: site.offset, parent: p.parent})
@@ -542,6 +560,7 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	}
 	p.spent += site.size
 	in.count++
+	in.st.report.FailArgs += failArgs
 	if ret {
 		in.st.report.InlinedReturns++
 	}
@@ -931,6 +950,139 @@ func irReadOnly(body []*irStmt, i int, t string) bool {
 	return ok
 }
 
+// irFailOnly reports that body reads parameter i only as the whole failure
+// of a `fail`, outside any function literal, and never writes it.
+func irFailOnly(body []*irStmt, i int, t string) bool {
+	if !irReadOnly(body, i, t) {
+		return false
+	}
+	uses, fails := 0, 0
+	irWalk(body, false, func(s *irStmt, lit bool) {
+		if !lit && s.K == "fail" && s.X != nil && s.X.K == "local" && s.X.I == i {
+			fails++
+		}
+	}, func(e *irExpr, _ bool) {
+		if e.K == "local" && e.I == i {
+			uses++
+		}
+	})
+	return fails > 0 && uses == fails
+}
+
+// irPureFailArg reports that a is a variant literal whose evaluation
+// cannot panic, call or write: constants, zero values, the caller's
+// locals and fields of those of a spelled value type (no pointer to
+// dereference), literals of them, and operators that cannot panic.
+func (in *irInliner) irPureFailArg(a *irExpr) bool {
+	// A variant passed as an error parameter is converted at the call
+	// (an error row lowered as error): the conversion is pure too.
+	if a != nil && a.K == "toiface" && a.T == "error" {
+		a = a.X
+	}
+	if a == nil || a.K != "lit" {
+		return false
+	}
+	var pure func(e *irExpr) bool
+	pure = func(e *irExpr) bool {
+		switch e.K {
+		case "const", "zero":
+			return true
+		case "local":
+			return e.I != in.frameEnv()
+		case "lit":
+			for _, x := range e.Elems {
+				if !pure(x) {
+					return false
+				}
+			}
+			return true
+		case "field":
+			if e.X == nil || e.X.K != "local" {
+				return false
+			}
+			t := in.slotType(e.X.I)
+			return t != "" && !strings.HasPrefix(t, "*") && pure(e.X)
+		case "bin":
+			switch e.Op {
+			case "+", "-", "*", "&", "|", "^", "&^", "==", "!=", "<", "<=", ">", ">=":
+				return pure(e.X) && pure(e.Y)
+			}
+		case "un":
+			switch e.Op {
+			case "-", "!", "^", "+":
+				return pure(e.X)
+			}
+		}
+		return false
+	}
+	return pure(a)
+}
+
+// irCloneLit is a deep copy of an operand irPureFailArg admits (its
+// operators' operands and its literals' elements).
+func irCloneLit(e *irExpr) *irExpr {
+	if e == nil {
+		return nil
+	}
+	n := *e
+	n.X, n.Y = irCloneLit(e.X), irCloneLit(e.Y)
+	if e.Elems != nil {
+		n.Elems = make([]*irExpr, len(e.Elems))
+		for i, x := range e.Elems {
+			n.Elems[i] = irCloneLit(x)
+		}
+	}
+	n.Keys = append([]string(nil), e.Keys...)
+	n.FT = append([]string(nil), e.FT...)
+	return &n
+}
+
+// frameEnv is fn's environment slot, or -1.
+func (in *irInliner) frameEnv() int {
+	if in.frame == nil {
+		return -1
+	}
+	return in.frame.env
+}
+
+// irNoCalls reports that no expression of list calls a function, recovers
+// or builds a function literal: evaluating them writes nothing.
+func irNoCalls(list []*irExpr) bool {
+	ok := true
+	for _, a := range list {
+		irExprWalk(a, false, func(e *irExpr, _ bool) {
+			ok = ok && !irCallsOrWrites(e)
+		})
+	}
+	return ok
+}
+
+// irCallsOrWrites reports an expression that runs code or makes a write
+// possible: a call of any kind, recover, append (it can write a shared
+// backing array), a function literal or an address.
+func irCallsOrWrites(e *irExpr) bool {
+	switch e.K {
+	case "call", "pcall", "mcall", "vcall", "builtin", "recover", "append", "func", "addr":
+		return true
+	}
+	return false
+}
+
+// irFrameOnly reports that body writes nothing outside its own frame: no
+// call, no store, no defer, no function literal, no address.
+func irFrameOnly(body []*irStmt) bool {
+	ok := true
+	irWalk(body, false, func(s *irStmt, _ bool) {
+		switch s.K {
+		case "store", "defer":
+			ok = false
+		}
+	}, func(e *irExpr, _ bool) {
+		ok = ok && !irCallsOrWrites(e)
+	})
+	return ok
+}
+
 // irWalk calls fs on every statement of list and fe on every expression,
 // lit set inside a function literal.
 func irWalk(list []*irStmt, lit bool, fs func(*irStmt, bool), fe func(*irExpr, bool)) {
@@ -1033,7 +1185,9 @@ func (in *irInliner) copier(cp *irCopy) *irTreeCopy {
 	c.expr = func(e *irExpr) *irExpr {
 		if e.K == "local" {
 			if a := cp.subst[e.I]; a != nil {
-				n := *a
+				// A literal (a failure argument) is copied whole: each
+				// failure of the copy gets its own tree.
+				n := *irCloneLit(a)
 				n.Pos = cp.pos(e.Pos)
 				return &n
 			}
