@@ -1,0 +1,313 @@
+// Package report is the self-hosted driver's report (capstone S5, the
+// pure part): what `ergo check` and `ergo diagnostics` print from the
+// diagnostics of one checked source. It is ported from internal/report,
+// which stays the reference until the S5 swap. It knows nothing of a front
+// end: it is handed diagnostics with UTF-8 byte spans and projects them
+// onto the source text, as zero-based LSP ranges counted in UTF-16 code
+// units, and as the lines a terminal reads.
+
+import cmp
+import hex
+import maps
+import sha256
+import slices
+import strings
+import utf8
+
+// Target is Ergo's only compilation target.
+let Target = "go"
+
+// Span is a UTF-8 byte span into one source text, with the one-based line
+// and byte column of its start. The zero Span (NoSpan) means no location.
+// A real span has a line of at least 1, even when it is empty at the end
+// of the text.
+type Span { Offset int, Length int, Line int, Column int }
+
+// NoSpan is the zero Span: a diagnostic with no location, such as the
+// EF110 refusal.
+func NoSpan() Span { Span{Offset: 0, Length: 0, Line: 0, Column: 0} }
+
+func isNoSpan(s Span) bool { s.Offset == 0 && s.Length == 0 && s.Line == 0 && s.Column == 0 }
+
+// Diagnostic is one finding of the front end: a registered code, a message
+// and where it applies. File is the slash-separated path of the file the
+// span lies in, relative to the module root, for a program read from a
+// directory; it is empty for a program of one named file and for a
+// diagnostic with no location.
+type Diagnostic { Code string, File string, Message string, Span Span }
+
+// UnsupportedTarget is the EF110 diagnostic for any target but Target.
+// Every command that takes a target refuses another one with this text.
+func UnsupportedTarget(target string) Option[Diagnostic] {
+	if target == Target {
+		return None
+	}
+	Some[Diagnostic]{Value: Diagnostic{Code: "EF110", File: "", Message: "unsupported target " + target + "; the only target is " + Target, Span: NoSpan()}}
+}
+
+// UnsupportedPlatform is the EF110 diagnostic for a platform (GOOS/GOARCH)
+// outside platforms, the target's list, which it names. A platform is part
+// of the target, so it gets the target's refusal.
+func UnsupportedPlatform(platform string, platforms []string) Diagnostic {
+	Diagnostic{Code: "EF110", File: "", Message: "unsupported target " + Target + " on " + platform + "; the platforms are " + strings.Join(platforms, ", "), Span: NoSpan()}
+}
+
+// OnlyGoIsSupported: the refusal is exactly for targets other than Go.
+law OnlyGoIsSupported(target string) {
+	match UnsupportedTarget(target) {
+	case Some[Diagnostic] as d:
+		target != Target && d.Value.Code == "EF110" && isNoSpan(d.Value.Span)
+	case None:
+		target == Target
+	}
+}
+
+// Revision names a source text: the SHA-256 of its bytes, in lower-case
+// hex. FormatDigest is the same digest of a formatter's input or output.
+func Revision(source string) string { hex.Encode(sha256.Sum(source)) }
+
+// RevisionIsHex: a revision is 64 lower-case hex digits for every text.
+law RevisionIsHex(source string) {
+	let r = Revision(source)
+	len(r) == 64 && strings.TrimLeft(r, "0123456789abcdef") == ""
+}
+
+// statusNames are the evaluation statuses by rank, best first.
+let statusNames = []string{"none", "passed", "skipped", "incomplete", "refuted", "defect"}
+
+func statusRank(s string) int {
+	if s == "passed" {
+		return 1
+	}
+	if s == "skipped" {
+		return 2
+	}
+	if s == "incomplete" || s == "not run" {
+		return 3
+	}
+	if s == "refuted" {
+		return 4
+	}
+	5 // defect, and an unknown status: it is never read as a pass
+}
+
+// EvaluationStatus sums obligation statuses up, worst first: "defect",
+// "refuted", "incomplete" (also for "not run"), "skipped", "passed", and
+// "none" for no obligation. An unknown status counts as a defect.
+func EvaluationStatus(statuses []string) string {
+	let mut worst = 0
+	for s in statuses {
+		let r = statusRank(s)
+		if r > worst {
+			worst = r
+		}
+	}
+	statusNames[worst]
+}
+
+// OnlyPassesPass: a list sums up to "passed" only when every status in it
+// is "passed" and there is one.
+law OnlyPassesPass(statuses []string) {
+	let all = len(statuses) > 0 && slices.All(statuses, func(s string) bool { s == "passed" })
+	(EvaluationStatus(statuses) == "passed") == all
+}
+
+// Position is a zero-based LSP position: a line and a count of UTF-16
+// code units.
+type Position { Line int, Character int }
+
+// Range is an end-exclusive LSP range.
+type Range { Start Position, End Position }
+
+func origin() Position { Position{Line: 0, Character: 0} }
+
+// Index maps each UTF-8 byte offset of a text to its LSP position. An
+// offset inside a UTF-8 sequence, or between the CR and LF of a CRLF, has
+// none. LF, CRLF and a lone CR each end a line. An invalid byte counts as
+// one code unit, as U+FFFD.
+type Index { positions []Position, valid []bool }
+
+// NewIndex is the index of text.
+func NewIndex(text string) Index {
+	let n = len(text)
+	let mut positions = slices.Repeat([]Position{origin()}, n+1)
+	let mut valid = slices.Repeat([]bool{false}, n+1)
+	valid[0] = true
+	let mut line = 0
+	let mut character = 0
+	let mut i = 0
+	for {
+		if i >= n {
+			break
+		}
+		if text[i] == '\r' && i+1 < n && text[i+1] == '\n' {
+			i += 2
+			line += 1
+			character = 0
+		} else if text[i] == '\n' || text[i] == '\r' {
+			i += 1
+			line += 1
+			character = 0
+		} else {
+			let end = if i+4 < n { i + 4 } else { n }
+			let d = utf8.DecodeRuneInString(strings.Slice(text, i, end))
+			i += d.Size
+			character += if d.Rune > 0xFFFF { 2 } else { 1 }
+		}
+		positions[i] = Position{Line: line, Character: character}
+		valid[i] = true
+	}
+	Index{positions: positions, valid: valid}
+}
+
+// position is the LSP position of a byte offset. An offset between the CR
+// and LF of a CRLF, where a lexer span may end, is put at the end of the
+// line before the CR.
+func position(x Index, text string, offset int) Option[Position] {
+	if x.valid[offset] {
+		return Some[Position]{Value: x.positions[offset]}
+	}
+	if offset > 0 && offset < len(text) && text[offset-1] == '\r' && text[offset] == '\n' && x.valid[offset-1] {
+		return Some[Position]{Value: x.positions[offset-1]}
+	}
+	None
+}
+
+// RangeOf is the LSP range of a byte span of text (x is text's index), or
+// None when the span leaves the text or an end falls inside a UTF-8
+// sequence.
+func RangeOf(x Index, text string, span Span) Option[Range] {
+	if span.Offset < 0 || span.Length < 0 || span.Offset > len(text) || span.Length > len(text)-span.Offset {
+		return None
+	}
+	match position(x, text, span.Offset) {
+	case None:
+		None
+	case Some[Position] as start:
+		match position(x, text, span.Offset+span.Length) {
+		case None:
+			None
+		case Some[Position] as end:
+			Some[Range]{Value: Range{Start: start.Value, End: end.Value}}
+		}
+	}
+}
+
+func before(a Position, b Position) bool {
+	a.Line < b.Line || (a.Line == b.Line && a.Character <= b.Character)
+}
+
+// RangesRunForward: a range a span has starts at or before its end, and
+// the whole text's range starts at the origin.
+law RangesRunForward(text string, offset int, length int) {
+	let x = NewIndex(text)
+	let whole = match RangeOf(x, text, Span{Offset: 0, Length: len(text), Line: 1, Column: 1}) {
+	case Some[Range] as r:
+		r.Value.Start.Line == 0 && r.Value.Start.Character == 0
+	case None:
+		false
+	}
+	let span = match RangeOf(x, text, Span{Offset: offset, Length: length, Line: 1, Column: 1}) {
+	case Some[Range] as r:
+		before(r.Value.Start, r.Value.End)
+	case None:
+		true
+	}
+	whole && span
+}
+
+// Finding is one diagnostic as the report projects it: its UTF-8 span,
+// and the LSP range of that span when the span lies in its text (Located).
+// Every compiler finding is an error.
+type Finding { Code string, File string, Message string, Span Span, Located bool, Range Range }
+
+func noRange() Range { Range{Start: origin(), End: origin()} }
+
+// Project projects ds onto their texts: text for a diagnostic with no
+// File, files[File] for one with a File. Identical findings (code, file,
+// message, offset and length) are reported once. A finding is located when
+// its span is a real span in a text the snapshot holds; a finding with no
+// location comes last and has the document start as its range, so an
+// editor shows it instead of dropping it. The order is total: located
+// first, then by file, offset, length, code and message.
+func Project(text string, files Map[string, string], ds []Diagnostic) []Finding {
+	let mut seen = Map[string, bool]{}
+	let mut indexes = Map[string, Index]{}
+	let mut out = []Finding{}
+	for d in ds {
+		let key = "\(len(d.Code)):" + d.Code + "\(len(d.File)):" + d.File + "\(len(d.Message)):" + d.Message + " \(d.Span.Offset) \(d.Span.Length)"
+		if maps.GetOr(seen, key, false) {
+			continue
+		}
+		seen[key] = true
+		let mut span = d.Span
+		let mut source = text
+		if d.File != "" {
+			match files.Get(d.File) {
+			case Some[string] as t:
+				source = t.Value
+			case None:
+				source = ""
+				span = NoSpan() // a file the snapshot does not hold has no location here
+			}
+		}
+		let x = match indexes.Get(d.File) {
+		case Some[Index] as got:
+			got.Value
+		case None:
+			let made = NewIndex(source)
+			indexes[d.File] = made
+			made
+		}
+		let mut f = Finding{Code: d.Code, File: d.File, Message: d.Message, Span: d.Span, Located: false, Range: noRange()}
+		if !isNoSpan(span) {
+			match RangeOf(x, source, span) {
+			case Some[Range] as r:
+				f.Located = true
+				f.Range = r.Value
+			case None:
+			}
+		}
+		out = out.Append(f)
+	}
+	slices.SortStableFunc(out, compareFindings)
+}
+
+// compareFindings is the report's total order of findings.
+func compareFindings(a Finding, b Finding) int {
+	if a.Located != b.Located {
+		return if a.Located { -1 } else { 1 }
+	}
+	let byFile = cmp.Compare(a.File, b.File)
+	if byFile != 0 {
+		return byFile
+	}
+	if a.Span.Offset != b.Span.Offset {
+		return cmp.Compare(a.Span.Offset, b.Span.Offset)
+	}
+	if a.Span.Length != b.Span.Length {
+		return cmp.Compare(a.Span.Length, b.Span.Length)
+	}
+	let byCode = cmp.Compare(a.Code, b.Code)
+	if byCode != 0 {
+		return byCode
+	}
+	cmp.Compare(a.Message, b.Message)
+}
+
+// Lines is the report for a terminal, naming the source as source: one
+// line per finding at the one-based UTF-16 line and column of its range
+// (the document start for a finding with no location), naming its File in
+// place of source when it has one, and "source: no diagnostics" when there
+// is none.
+func Lines(source string, fs []Finding) string {
+	if len(fs) == 0 {
+		return source + ": no diagnostics\n"
+	}
+	let mut b = strings.NewBuilder()
+	for f in fs {
+		let name = if f.File != "" { f.File } else { source }
+		b.WriteString(name + ":\(f.Range.Start.Line + 1):\(f.Range.Start.Character + 1): error " + f.Code + ": " + f.Message + "\n")
+	}
+	b.String()
+}

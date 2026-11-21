@@ -29,7 +29,7 @@ seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedde
 seam	internal/sketchfront/load.go:isStdPath	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
 seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
 seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
-language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqualified	-
+language	internal/rpcgen/rpcgen.go:importName	a prelude name is written unqualified	-
 language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	-
 language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
@@ -91,6 +91,17 @@ language	internal/sketch/lower/literal.go:lowerer.ergoType	a prelude type is wri
 language	internal/sketch/lower/module.go:lowerer.hostFields	Console and Ambient at the entry	-
 language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
 language	internal/tsproj/project.go:emitter.schema	Option	-
+language	internal/sketch/check/entry.go:isPreludeMachine	Machine, by declaration (the prelude's own check reaches it)	-
+language	internal/sketch/check/entry.go:isPreludeMachineValue	Machine and InputMachine, by declaration	-
+language	internal/sketch/check/expr.go:checker.compositeLit	the predeclared Map's provider form: the prelude writes its table as the record	-
+language	internal/sketch/check/laws.go:Law.Title	a prelude law is named unqualified, as prelude names are written	-
+language	internal/sketch/check/mapprovider.go:providerParts	hashTable, the predeclared Map's provider form	-
+language	internal/sketch/check/mapprovider.go:checker.providerEqual	the prelude compares its Map records as records; a program's == of provider Maps is the table's Equal	-
+language	internal/sketch/check/mapshape.go:checker.derivedNormal	NormalForm, the operation of Hashing the checker derives	-
+language	internal/sketch/check/mapshape.go:checker.writeShapes	Hashing's NormalForm and NormalKey; the prelude's own providers write theirs	-
+language	internal/sketch/check/mapprovider.go:checker.isStructural	Structural, the predeclared Map's default provider	-
+language	internal/sketch/check/mapprovider.go:checker.preludeTypeObj	the prelude's Map types, from its scope in its own check	-
+language	internal/sketch/eval/cases.go:qualifiedLaw	a prelude law is named unqualified, as prelude names are written	-
 debt	internal/sketch/eval/machine.go:interp.machineLaw	a machine law is skipped when its state holds a std type	NP7
 debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	a std provider has no line directive and its own Info	NP8
 debt	internal/sketch/lower/calls.go:lowerer.hostImportNames	std time is imported by the runtime already	NP4c
@@ -103,7 +114,6 @@ debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
 debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
 debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
-debt	internal/rpcgen/hub.go:StdJSON	json's wire forms by name (moved from tsproj/project.go:stdJSON, one function for the hub's and tsproj's schemas)	NP7
 debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP

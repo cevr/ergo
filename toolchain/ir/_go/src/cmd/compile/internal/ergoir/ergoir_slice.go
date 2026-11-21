@@ -8,8 +8,9 @@
 // named type over one): X is the operand, Args the indices, two or three,
 // a missing low or high index null. Go's own slice expression, so gc
 // lowers it to OSLICE or OSLICESTR and checks its bounds at the
-// expression's position. An array is no operand: Go slices an
-// addressable array only.
+// expression's position. An array place (ergoPlace) is an operand too,
+// and the result is a slice of its element (OSLICEARR); Go slices an
+// addressable array only, so an array value that is no place is refused.
 
 package ergoir
 
@@ -29,8 +30,15 @@ func (c *ergoChecker) slice(x *ergoExpr) (syntax.Expr, types2.Type) {
 		c.errorf(x.Pos, "ergoir: slice with %d indices", n)
 		return nil, nil
 	}
-	switch types2.CoreType(xt).(type) {
+	rt := xt
+	switch ct := types2.CoreType(xt).(type) {
 	case *types2.Slice:
+	case *types2.Array:
+		if !ergoPlace(xs) {
+			c.errorf(x.Pos, "ergoir: slice of an array that is no place")
+			return nil, nil
+		}
+		rt = types2.NewSlice(ct.Elem())
 	default:
 		if !ergoIsString(xt) || n == 3 {
 			c.errorf(x.Pos, "ergoir: slice of %v", xt)
@@ -53,6 +61,6 @@ func (c *ergoChecker) slice(x *ergoExpr) (syntax.Expr, types2.Type) {
 		e.Index[i] = v
 	}
 	e.SetPos(c.pos(x.Pos))
-	ergoValue(e, xt, nil)
-	return e, xt
+	ergoValue(e, rt, nil)
+	return e, rt
 }

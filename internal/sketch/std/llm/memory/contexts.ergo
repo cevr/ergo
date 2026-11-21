@@ -37,6 +37,17 @@ func lawFallback() llm.Fallback {
 	llm.Fallback{Members: []llm.Model{Scripted{Replies: []Reply{}}, Scripted{Replies: []Reply{Fails{Failure: down}}}, lawScript()}}
 }
 
+// lawHeld is a Held over the script's first reply, open, so its member
+// laws run with no release (a closed one would wait for a test that
+// releases it: ReleasedArriveInOrder is that test).
+func lawHeld() Held {
+	let h = Hold(lawScript().Replies[0])
+	h.Open()
+	h
+}
+
+let lawHeldOpen = context { llm.Model: lawHeld() }
+
 let lawRetried = context { llm.Model: lawRetry() }
 
 let lawFallenBack = context { llm.Model: lawFallback() }

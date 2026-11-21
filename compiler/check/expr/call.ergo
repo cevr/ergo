@@ -270,6 +270,7 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 	let xt = match opReceiver(s, k, t, unparen(tr, se.X)) {
 	case Some[dense.ID[store.TKey]] as o:
 		note(k, t, se.X, o.Value)
+		t.Caps = t.Caps.Append(CapCall{Call: pnode(k, t.file, x), T: o.Value})
 		o.Value
 	case None:
 		match expr(s, k, t, se.X, Free) {

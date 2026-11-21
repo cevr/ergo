@@ -57,9 +57,12 @@ type IRReport struct {
 	Folds FoldCounts `json:"folds"`
 	// CodecText counts the codec functions that keep their text body,
 	// by "name\treason": a cell writer the IR builder refused
-	// (ir_wire.go), an encoder on the reference Writer and a decoder,
-	// which no IR builder takes yet (the text emitter's). In memory only.
+	// (ir_wire.go), an encoder on the reference Writer and a decoder of
+	// a form no IR builder takes yet (the text emitter's). In memory only.
 	CodecText map[string]int `json:"-"`
+	// CodecRead names the decoders the IR builds (ir_wire_read.go). In
+	// memory only.
+	CodecRead []string `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -116,6 +119,14 @@ type IRReport struct {
 	// irRets.failValue).
 	FailLocalErrors int `json:"-"`
 	FailLocalValues int `json:"-"`
+	// FailArgs counts the parameters used only as a failure that stand
+	// for their variant-literal argument in a copy, so the failure is
+	// built in place (INLINE-FAILARG, ir_forms_inline.go).
+	FailArgs int `json:"-"`
+	// FailThrough counts the failures built in place that a copy's try
+	// passes on as they are, not through its error local
+	// (INLINE-FAILARG, ir_forms_failjump.go failThrough).
+	FailThrough int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
@@ -510,6 +521,11 @@ type irState struct {
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
 	fallbacks  []IRCensusFunc
+	// opFuncs are the implementing functions of closed types' operations
+	// (ir_instance.go staticOpFunc), filled on first use.
+	opFuncs map[opFuncKey]*check.WitnessOp
+	// totals are the functions decided total so far (ir_sink.go).
+	totals map[*check.Func]bool
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -741,6 +757,11 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	// lawOwn is the local of the provider under test that a law of a
+	// generic operation type takes after its environment (the emitter's
+	// lawDecl `own`), which its operation calls call; 0 in any other body
+	// (a law's environment is its local 0, so own is never 0).
+	lawOwn int
 	// keep is the depth of AsWritten call trees, kept as written
 	// (ir_rewrite.go). lawArgs are a law's parameters bound to the site's
 	// operands while a side is lowered; lawDepth counts the sides being

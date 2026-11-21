@@ -21,8 +21,12 @@ import (
 // function type's parameter (named and unnamed) and result, a function
 // literal's parameters, an operation's parameters, a law's parameter, a
 // record field (refused in both spellings), `own` before the mode, and an
-// indirection `*out = v` in a body, which is no type and stays. A Go
-// binding keeps `*P`. Then: ergo fix(old) is byte-equal to the new
+// indirection `*out = v` in a body, which is no type and stays, also
+// in a function literal after a read `*out` (STD's `*v = *v + i`, which
+// MODES-2's respell turned into `mut v = …` at 3e00d6e3e). A Go binding
+// keeps `*P`, and so does a type argument `Box[*P]`: a type parameter
+// binds no borrow, so fix leaves it and prints its line (Kept); a
+// function type inside a type argument takes modes again. Then: ergo fix(old) is byte-equal to the new
 // spelling; a second fix writes nothing; format leaves the new spelling
 // as written; and both spellings check with the same checked facts
 // (every declared function's and variable's type, each operation's
@@ -35,7 +39,10 @@ import (
 // Mutants it kills that no other test does (ledgers: syntax, fix): the
 // parser drops mut's mark, so format writes *; own does not read before
 // mut; fix rewrites a Go binding's *T; fix misses a function type's
-// borrow; fix rewrites an indirection in a body.
+// borrow; fix rewrites an indirection in a body; fix rewrites a type
+// argument's *T (respell-typearg-rewritten); fix leaves a function type's
+// borrow inside a type argument (respell-typearg-functype-left); RunMut
+// prints no kept line (respell-kept-unreported).
 func TestMutSpellsTheBorrow(t *testing.T) {
 	var seeds []uint64
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -63,6 +70,37 @@ func TestMutSpellsTheBorrow(t *testing.T) {
 		if err != nil {
 			fail("fix: %v", err)
 		}
+		// The type arguments' lines: left by the fix, refused as *T in
+		// both spellings, and each printed by RunMut.
+		kept := map[int]bool{}
+		for i, l := range strings.Split(oldSrc, "\n") {
+			if strings.Contains(l, "Box[*P]") {
+				kept[i+1] = true
+			}
+		}
+		if len(kept) > 0 {
+			file := t.TempDir() + "/kept.ergo"
+			if err := os.WriteFile(file, []byte(oldSrc), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rep, err := fix.RunMut(fix.Options{Paths: []string{file}})
+			if err != nil {
+				fail("RunMut: %v", err)
+			}
+			var want []string
+			for l := range kept {
+				want = append(want, fmt.Sprintf("%s:%d", file, l))
+			}
+			sort.Strings(want)
+			got := append([]string(nil), rep.Kept...)
+			sort.Strings(got)
+			if strings.Join(got, " ") != strings.Join(want, " ") {
+				fail("RunMut keeps %v, want %v", got, want)
+			}
+			if !strings.Contains(rep.Text(), "binds a type parameter") {
+				fail("RunMut prints no kept line:\n%s", rep.Text())
+			}
+		}
 		if fixed != newSrc {
 			fail("fix(old) is not the new spelling:\n%s", fixed)
 		}
@@ -77,8 +115,10 @@ func TestMutSpellsTheBorrow(t *testing.T) {
 		}
 		oldFacts, oldDiags, oldStars := mutFacts(oldSrc)
 		newFacts, newDiags, newStars := mutFacts(newSrc)
-		if len(newStars) > 0 {
-			fail("the new spelling is refused as *T on lines %v", newStars)
+		for l := range newStars {
+			if !kept[l] {
+				fail("the new spelling is refused as *T on line %d", l)
+			}
 		}
 		oldLines, newLines := strings.Split(oldSrc, "\n"), strings.Split(newSrc, "\n")
 		refused := map[int]bool{}
@@ -92,7 +132,7 @@ func TestMutSpellsTheBorrow(t *testing.T) {
 			if changed && !refused[i+1] && !oldStars[i+1] {
 				fail("line %d writes *T and the old spelling is not refused there", i+1)
 			}
-			if !changed && oldStars[i+1] {
+			if !changed && oldStars[i+1] && !kept[i+1] {
 				fail("line %d is refused as *T, but fix rewrites nothing there", i+1)
 			}
 		}
@@ -114,7 +154,7 @@ func TestMutSpellsTheBorrow(t *testing.T) {
 	}
 	t.Logf("%d seeds reach: %v", len(seeds), kinds)
 	if len(seeds) > 1 {
-		for _, k := range []string{"decl", "group", "functype", "unnamed", "result", "lit", "op", "law", "field", "own", "deref", "binding", "plain", "borrow facts", "checks clean", "star refused"} {
+		for _, k := range []string{"decl", "group", "functype", "unnamed", "result", "lit", "op", "law", "field", "own", "deref", "dereflit", "typearg", "argfunc", "binding", "plain", "borrow facts", "checks clean", "star refused"} {
 			if kinds[k] == 0 {
 				t.Errorf("no seed reaches %s", k)
 			}
@@ -132,6 +172,7 @@ func mutProgram(r *rand.Rand) (string, string, map[string]bool) {
 	pair := func(s string) { o.WriteString(s); n.WriteString(strings.ReplaceAll(s, "*", "mut ")) }
 	both("type P { n int }\n\n")
 	both("type R { n int } implements Closer\n\nfunc Close(r own R) {}\n\n")
+	both("type Box[T] { v T }\n\n")
 	// typ draws a parameter type: a borrow, or plain data, or a function
 	// type that takes or returns one.
 	typ := func() string {
@@ -190,6 +231,16 @@ func mutProgram(r *rand.Rand) (string, string, map[string]bool) {
 		pair("func put(out *P, v P) {\n\t")
 		both("*out = v\n}\n\n")
 	}
+	if r.IntN(3) == 0 {
+		// A type argument: left in both spellings.
+		reached["typearg"] = true
+		both("func boxed(b Box[*P]) {}\n\n")
+	}
+	if r.IntN(3) == 0 {
+		// A function type inside a type argument takes modes again.
+		reached["argfunc"] = true
+		pair("func boxedFunc(b Box[func(*P) int]) {}\n\n")
+	}
 	both("type Ops {\n")
 	for i := range 1 + r.IntN(3) {
 		reached["op"] = true
@@ -214,6 +265,12 @@ func mutProgram(r *rand.Rand) (string, string, map[string]bool) {
 	both("func main() {\n")
 	for _, l := range lits {
 		pair(l)
+	}
+	if r.IntN(2) == 0 {
+		// A deref statement after a read of it, in a literal.
+		reached["dereflit"] = true
+		pair("\tlet d = func(out *P, v P) {\n")
+		both("\t\tlet w = *out\n\t\t*out = v\n\t\t_ = w\n\t}\n\t_ = d\n")
 	}
 	both("}\n")
 	return o.String(), n.String(), reached

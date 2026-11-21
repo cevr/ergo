@@ -226,6 +226,21 @@ func f() int8 {
 	{"D-A3: a conversion's literal takes int", `func f() uint64 {
 	return uint64(18446744073709551615)
 }`, 2, "the constant 18446744073709551615 overflows int, the type a conversion's literal takes; write it where uint64 is expected: let x uint64 = 18446744073709551615"},
+	// A conversion of a constant must fit its target, as gc's checker
+	// refuses int8(300): the IR decoder folds a constant conversion to the
+	// target's constant (toolchain/ir ergoConstConv) and relies on this
+	// refusal. A named target takes an int or float constant only through
+	// its base (in one step it is refused), so the base's conversion is the
+	// one that refuses, for a constant expression as for a literal.
+	// Mutants (check ledger): conv-overflow-admitted, conv-float-int-admitted.
+	{"3: a constant expression overflows a named type's base in a conversion", `type Small int8
+func f() Small {
+	return Small(int8(200 + 100))
+}`, 3, "the constant 300 overflows int8"},
+	{"3: a float constant expression truncates in a named type's base conversion", `type Count int64
+func f() Count {
+	return Count(int64(2.5 * 2.0 + 0.5))
+}`, 3, "the constant 11/2 truncates to an integer"},
 	{"4: two literals take their defaults", `func f() float64 {
 	let d = 1 + 2.5
 	return d

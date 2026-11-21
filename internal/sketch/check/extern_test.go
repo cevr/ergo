@@ -478,6 +478,31 @@ func main() {
 	use(Mine)
 }
 `,
+	// std cmp (CONSTRAINTS C3): an order a program writes.
+	"cmp.Order": `import cmp
+
+type Mine {} implements cmp.Order[int]
+
+func Compare(_ Mine, a int, b int) int { a - b }
+
+func use(o cmp.Order[int]) { _ = o.Compare(1, 2) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// The prelude's Map provider (CONSTRAINTS C5).
+	"prelude.Hashing": `type Mine {} implements Hashing[int]
+
+func Hash(_ Mine, k int) uint64 { uint64(k) }
+func Equal(_ Mine, a int, b int) bool { a == b }
+
+func use(h Hashing[int]) { _ = h.Equal(1, 2) }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std sync (sync-ref): NewRef's extern returns the Ref.
 	"sync.Ref": `import sync
 
@@ -1666,7 +1691,10 @@ var openStd = map[string]bool{
 	"term.Terminal":     true,
 	// Declared after the migration with no private operation: a program
 	// provides each one, and cmd/<name>/main.ergo binds it.
-	"ui.Location":       true,
+	"ui.Location": true,
+	// Constraints a program's own types implement (CONSTRAINTS C3, C5).
+	"cmp.Order":         true,
+	"prelude.Hashing":   true,
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,

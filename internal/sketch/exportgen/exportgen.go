@@ -90,6 +90,7 @@ var skipFields = map[string]string{
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
+	"check.checker.slotBounds":   "a memo per generic type (slotbound.go), rebuilt on use",
 	"check.cellSite.of":          "read only by checkCells, which ran before the export (cells.go, GB-RACE)",
 	// A module package's importer serves its check alone (check/snapshothook.go,
 	// ModuleImporter); the decoded wrapper imports nothing.
@@ -112,8 +113,9 @@ var skipFields = map[string]string{
 	"syntax.File.Expansion": "the file's package's derive record (check.Package.Derive)",
 	// A module's own Go bodies (check/extern.go moduleDoor): std binds no
 	// module Go package, and only a std package is exported.
-	"check.Package.goBodies": "std binds no module Go package (snapshot.ExportStd)",
-	"check.Package.goSource": "std binds no module Go package (snapshot.ExportStd; LAWFFI LF2m)",
+	"check.Package.goBodies":  "std binds no module Go package (snapshot.ExportStd)",
+	"check.Package.goSource":  "std binds no module Go package (snapshot.ExportStd; LAWFFI LF2m)",
+	"check.Package.withSpent": "a fresh check's with work; a decoded package reports none (Package.WithWork)",
 }
 
 // Generate returns the generated sources, by their path from root (the

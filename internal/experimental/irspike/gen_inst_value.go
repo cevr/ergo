@@ -10,7 +10,7 @@ import (
 // IR body in every seed.
 // counted reads s.Put.Calls(), a std call with a converted result (another
 // reason): it runs, but needs no IR body.
-var instValueFuncs = []string{"bound", "passed", "stored", "made", "single", "answer"}
+var instValueFuncs = []string{"bound", "passed", "stored", "made", "single", "answer", "viaStore"}
 
 // instValueLines are the functions main prints each of, before scripted.
 var instValueLines = []string{"bound", "passed", "stored", "made", "single"}
@@ -44,13 +44,15 @@ func GenerateInstValue(seed uint64) string {
 	fmt.Fprintf(&b, "func single(n int) int {\n\tlet w = wrap[int]\n\tlet ws = wrap[string]\n\tlen(w(n)) * %d + w(n)[1] + len(ws(\"s\")[0])\n}\n\n", k)
 	b.WriteString("func useStore(n int) int needs Store {\n\tStore.Put(n, n * 2)\n\tStore.Get(n) + Store.Get(n + 1)\n}\n\n")
 	// The Script's fields are read in functions of their own: answer gets
-	// an IR body; counted's Calls() is a std call with a converted result,
-	// another reason. scripted builds the Script (a record literal without
-	// every field) and converts it to Store's operations, two other
-	// reasons, and calls them.
+	// an IR body; counted's Calls() is a std call with a converted result.
+	// scripted builds the Script (a record literal without every field,
+	// another reason) and calls them.
 	fmt.Fprintf(&b, "func answer(s testing.Script[Store], n int) {\n\ts.Get.Answer(func(k int) int { k * %d + n })\n}\n\n", m)
 	b.WriteString("func counted(s testing.Script[Store]) int {\n\tlen(s.Put.Calls()) * 10 + len(s.Get.Calls())\n}\n\n")
-	b.WriteString("func scripted(n int) int {\n\tlet s = testing.Script[Store]{}\n\tanswer(s, n)\n\tlet got = with context { Store: s } { useStore(n) }\n\tgot * 100 + counted(s)\n}\n\n")
+	// viaStore converts the Script to Store's operations (G6: operations
+	// conversion of a script) and calls them through useStore.
+	b.WriteString("func viaStore(s testing.Script[Store], n int) int {\n\twith context { Store: s } { useStore(n) }\n}\n\n")
+	b.WriteString("func scripted(n int) int {\n\tlet s = testing.Script[Store]{}\n\tanswer(s, n)\n\tlet got = viaStore(s, n)\n\tgot * 100 + counted(s)\n}\n\n")
 	// scripted is last: the evaluator does not run a Script literal yet,
 	// so it stops there, after every instance value's line.
 	values := instValueLines
