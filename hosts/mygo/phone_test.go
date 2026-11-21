@@ -3,12 +3,14 @@
 package mygo
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
 	"image"
 	"image/png"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +32,11 @@ const androidImage = "system-images;android-36;google_apis;x86_64"
 // already) in a temporary ANDROID_AVD_HOME, boots it headless, installs and
 // starts the app, and checks that it runs and shows a frame: the middle of
 // the screen, where the example draws, holds more than one colour, and the
-// log holds no fatal line. The device is shut down and deleted at the end.
+// log holds no fatal line. Then (drive) the app on the phone's screen
+// plays each example's seeded script sent through `adb forward`, as
+// TestExamplesAnswerOverASocket plays it on the desktop, and answers with
+// what the example's own binary prints on ui.TestHost. The device is shut
+// down and deleted at the end.
 // Without -phone.run it skips: no test of a phone ran (NO TESTS IS RED;
 // the batch's phone legs pass the flag).
 //
@@ -52,12 +58,17 @@ func TestExamplesAgreeOnAPhone(t *testing.T) {
 		t.Fatal(err)
 	}
 	dev := bootEmulator(t)
+	bins, err := buildExamples()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range guiExamples {
+		var pkg, activity string
 		t.Run("android-emulator/"+name+"/launch", func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "app")
 			runGroup(t, phoneBounded(t, "go", "run", "./cmd/phone", "build", "-platform", "android/amd64", "-ergo", ergo, "-o", dir, "./cmd/"+name))
 			apk := findAPK(t, dir)
-			pkg, activity := dev.badging(t, apk)
+			pkg, activity = dev.badging(t, apk)
 			dev.adb(t, "logcat", "-c")
 			if out := dev.adb(t, "install", "-r", apk); !bytes.Contains(out, []byte("Success")) {
 				t.Fatalf("install %s: %s", apk, out)
@@ -76,6 +87,52 @@ func TestExamplesAgreeOnAPhone(t *testing.T) {
 			b := frame.Bounds()
 			t.Logf("%s: first frame %dx%d", name, b.Dx(), b.Dy())
 		})
+		// drive: the app on the phone's screen answers each seed's script,
+		// sent a line at a time through `adb forward` (desktop.Drive), with
+		// what the example's own binary prints on ui.TestHost.
+		t.Run("android-emulator/"+name+"/drive", func(t *testing.T) {
+			if pkg == "" {
+				t.Skip("the launch failed")
+			}
+			dev.adb(t, "shell", "setprop", "debug.ergo.drive", "127.0.0.1:"+phoneDrivePort)
+			t.Cleanup(func() { dev.run("shell", "setprop", "debug.ergo.drive", "''") })
+			port := strings.TrimSpace(string(dev.adb(t, "forward", "tcp:0", "tcp:"+phoneDrivePort)))
+			t.Cleanup(func() { dev.run("forward", "--remove", "tcp:"+port) })
+			for seed := 1; seed <= driveSeeds; seed++ {
+				script, want := seededScript(t, bins[name].testHost, name, seed)
+				dev.adb(t, "shell", "am", "force-stop", pkg)
+				dev.adb(t, "shell", "am", "start", "-W", "-n", pkg+"/"+activity)
+				c, r := dev.dialReady(t, port)
+				got, err := answers(c, r, script)
+				c.Close()
+				if err != nil || got != want {
+					t.Errorf("%s seed %d: ui.TestHost and the app on the emulator differ (%v), %s\nscript:\n%s", name, seed, err, firstDiff(want, got), script)
+				}
+			}
+		})
+	}
+}
+
+// phoneDrivePort is the port the app listens on, on the phone, for its
+// script (screen.DriveAddr reads it from the property debug.ergo.drive).
+const phoneDrivePort = "7801"
+
+// dialReady dials the app through adb's forward of port until it says
+// "ready": adb accepts at once and closes when nothing listens on the
+// phone yet, so each failed dial is one round trip to the device, until
+// the app listens. The test's deadline stops an app that never does.
+func (e *emulator) dialReady(t *testing.T, port string) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	for {
+		c, err := net.Dial("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			t.Fatalf("dial adb's forward: %v", err)
+		}
+		r := bufio.NewReader(c)
+		if l, err := r.ReadString('\n'); err == nil && l == "ready\n" {
+			return c, r
+		}
+		c.Close()
 	}
 }
 
