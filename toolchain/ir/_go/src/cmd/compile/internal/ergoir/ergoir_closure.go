@@ -181,6 +181,7 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 		params = append(params, pv)
 		name := syntax.NewName(pos, pv.Name())
 		c.info.Defs[name] = pv
+		c.defined[pv] = true // ergoReadBeforeDef
 		ft.ParamList = append(ft.ParamList, field(name, pv.Type()))
 	}
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig0.Results(), false)
@@ -230,6 +231,7 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 				ergoValue(name, r.Type(), nil) // as RenameResult types its name
 			}
 			c.info.Defs[name] = r
+			c.defined[r] = true // ergoReadBeforeDef
 		}
 		results = append(results, r)
 		ft.ResultList = append(ft.ResultList, field(name, r.Type()))
