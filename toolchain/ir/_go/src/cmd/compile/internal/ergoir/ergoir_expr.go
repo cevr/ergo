@@ -37,6 +37,9 @@ func (c *ergoChecker) expr(x *ergoExpr) (syntax.Expr, types2.Type) {
 		if v == nil {
 			return nil, nil
 		}
+		if _, seen := c.reads[x.I]; !seen && c.reads != nil {
+			c.reads[x.I] = x.Pos // ergoReadBeforeDef
+		}
 		return c.name(x.Pos, v, false), v.Type()
 	case "const":
 		t := c.typ(x.Pos, x.T)

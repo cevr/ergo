@@ -14,6 +14,8 @@
 package ergoir
 
 import (
+	"fmt"
+	"go/token"
 	"strings"
 
 	"cmd/compile/internal/syntax"
@@ -49,23 +51,40 @@ func (c *ergoChecker) literalType(p ergoPos, s string) (t types2.Type, ok bool) 
 	default:
 		results = []string{rest}
 	}
-	tuple := func(list []string) (*types2.Tuple, bool) {
+	tuple := func(list []string, named bool) (*types2.Tuple, bool) {
 		var vars []*types2.Var
 		for _, e := range list {
+			name := ""
+			if named {
+				name, e = ergoResultName(e)
+			}
 			et := c.typ(p, e)
 			if et == nil {
 				return nil, false
 			}
-			vars = append(vars, types2.NewParam(c.pos(p), c.pkg, "", et))
+			vars = append(vars, types2.NewParam(c.pos(p), c.pkg, name, et))
 		}
 		return types2.NewTuple(vars...), true
 	}
-	pt, ok1 := tuple(params)
-	rt, ok2 := tuple(results)
+	pt, ok1 := tuple(params, false)
+	rt, ok2 := tuple(results, true)
 	if !ok1 || !ok2 {
 		return nil, true
 	}
 	return types2.NewSignatureType(nil, nil, nil, pt, rt, false), true
+}
+
+// ergoResultName splits a result's spelling "name T" (a frame literal's
+// "(_ R, err error)", whose deferred End sets err: the "result" form a
+// function has) into its name and type; a spelling with no name is all
+// type.
+func ergoResultName(s string) (name, t string) {
+	s = strings.TrimSpace(s)
+	first, rest, ok := strings.Cut(s, " ")
+	if !ok || !token.IsIdentifier(first) && first != "_" {
+		return "", s
+	}
+	return first, strings.TrimSpace(rest)
 }
 
 // ergoSplitList splits "(A, B) rest" at the commas outside any bracket:
@@ -162,16 +181,15 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 		params = append(params, pv)
 		name := syntax.NewName(pos, pv.Name())
 		c.info.Defs[name] = pv
+		c.defined[pv] = true // ergoReadBeforeDef
 		ft.ParamList = append(ft.ParamList, field(name, pv.Type()))
-	}
-	for i := 0; i < sig0.Results().Len(); i++ {
-		ft.ResultList = append(ft.ResultList, field(nil, sig0.Results().At(i).Type()))
 	}
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig0.Results(), false)
 	// The body is a function of its own: its returns are the literal's,
 	// and no loop or label of the enclosing body is in its scope.
-	sigS, loopsS, loopLabelsS, labelsS, gotosS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos
-	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sig, nil, nil, nil, nil
+	sigS, loopsS, loopLabelsS, labelsS, gotosS, rangeFuncS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc
+	c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc = sig, nil, nil, nil, nil, false
+	defer func() { c.rangeFunc = rangeFuncS }()
 	before := c.nerr
 	body := &syntax.BlockStmt{List: c.stmts(x.Body), Rbrace: c.pos(x.End)}
 	body.SetPos(pos)
@@ -185,6 +203,41 @@ func (c *ergoChecker) funcLit(x *ergoExpr) (syntax.Expr, types2.Type) {
 	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sigS, loopsS, loopLabelsS, labelsS, gotosS
 	if failed {
 		return nil, nil
+	}
+	// The literal's results, named in one place for both uses:
+	//   - a result its type names (a frame literal's "(_ R, err error)",
+	//     G6) is declared, so "result" I names it in the body (resultExpr)
+	//     as in a function's;
+	//   - a return in a range over a func becomes, in rangefunc.Rewrite,
+	//     an assignment to the literal's results, which it names through
+	//     the signature's scope (types2.Signature.RenameResult) when they
+	//     have no name or the name _. A decoded signature has no scope, so
+	//     such a result is named here as RenameResult would: #rv1, #rv2, …
+	//     (REGEX-ICE).
+	// Other literals keep their results as their type spells them.
+	var results []*types2.Var
+	renamed := false
+	for i := 0; i < sig0.Results().Len(); i++ {
+		r := sig0.Results().At(i)
+		fresh := c.rangeFunc && (r.Name() == "" || r.Name() == "_")
+		if fresh {
+			r = types2.NewParam(pos, c.pkg, fmt.Sprintf("#rv%d", i+1), r.Type())
+			renamed = true
+		}
+		var name *syntax.Name
+		if r.Name() != "" {
+			name = syntax.NewName(pos, r.Name())
+			if fresh {
+				ergoValue(name, r.Type(), nil) // as RenameResult types its name
+			}
+			c.info.Defs[name] = r
+			c.defined[r] = true // ergoReadBeforeDef
+		}
+		results = append(results, r)
+		ft.ResultList = append(ft.ResultList, field(name, r.Type()))
+	}
+	if renamed {
+		sig = types2.NewSignatureType(nil, nil, nil, sig.Params(), types2.NewTuple(results...), false)
 	}
 	lit := &syntax.FuncLit{Type: ft, Body: body}
 	lit.SetPos(pos)

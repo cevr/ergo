@@ -92,7 +92,7 @@ type Grant struct {
 	id     string
 	width  int
 	memory int64
-	capped bool  // the command is capped at memory (Reservation)
+	capAt  int64 // the memory the command is capped at, 0 for none (Reservation)
 	slice  int64 // the budget in memory, the cap of all commands together
 	key    string
 	lane   string
@@ -188,7 +188,7 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 	}
 	// The charge and the cap are those the waiter was admitted with
 	// (Reserve), read from the peaks at its admission.
-	g.memory, g.capped = held.Memory, held.Capped
+	g.memory, g.capAt = held.Memory, held.Cap
 	b.logf("take %s %s %d %d", req.Lane, class(req.Crit, req.Width), os.Getpid(), g.memory)
 	return g, nil
 }

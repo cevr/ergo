@@ -149,8 +149,8 @@
       "name": "gent-e1-frame-too-tall",
       "origin": "wf10/gent-e1",
       "file": "examples/gent/screen/frame.ergo",
-      "from": "\tlet room = w.Rows - 2\n",
-      "to": "\tlet room = w.Rows - 1\n",
+      "from": "\tlet body = Shown(v, cols)\n\tlet room = w.Rows - 2\n",
+      "to": "\tlet body = Shown(v, cols)\n\tlet room = w.Rows - 1\n",
       "rule": "A frame has exactly the window's rows (law FrameFitsWindow).",
       "anchor": {
         "tests": [
@@ -245,8 +245,8 @@
       "name": "gent-e1-frame-shows-the-head",
       "origin": "wf10/gent-e1",
       "file": "examples/gent/screen/frame.ergo",
-      "from": "\tfor line in body[from:] {\n",
-      "to": "\tfor line in body[0 : len(body)-from] {\n",
+      "from": "\tfor line in body[from:to] {\n",
+      "to": "\tfor line in body[0 : to-from] {\n",
       "rule": "The transcript sticks to its end: its last line is on screen (law TailIsVisible; the frame still fits).",
       "anchor": {
         "tests": [
@@ -424,6 +424,198 @@
       "from": "return Output{Text: Head(text, ResultLimit()) + ",
       "to": "return Output{Text: text + ",
       "rule": "A tool's result the model is told holds at most 8,000 characters and the cut line (case big-output).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-home-goes-to-the-end",
+      "origin": "wf10/gent-home",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tcase term.Home:\n\t\tmoved(l, at, 0, n)\n",
+      "to": "\tcase term.Home:\n\t\tmoved(l, at, n, n)\n",
+      "rule": "Home moves the composer's cursor to the start of the line (law Composer.HomeThenTypeIsFirst).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-end-ignored",
+      "origin": "wf10/gent-home",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tcase term.End:\n\t\tmoved(l, at, n, n)\n",
+      "to": "\tcase term.End:\n\t\tIgnore\n",
+      "rule": "End moves the composer's cursor to the end of the line (law Composer.EndThenTypeIsLast).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "gent-right-runs-off-the-text",
+      "origin": "wf10/gent-home",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tlet next = if to < 0 { 0 } else if to > n { n } else { to }\n",
+      "to": "\tlet next = if to < 0 { 0 } else { to }\n",
+      "rule": "The cursor stays on the text whatever keys come (law Composer.CursorStaysOnTheText).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-wrap-drops-the-break",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/screen/frame.ergo",
+      "from": "\t\tout = out.Append(head)\n\t\trest = after\n",
+      "to": "\t\tout = out.Append(head)\n\t\trest = strings.Slice(after, 1, len(after))\n",
+      "rule": "Wrapping loses no character but the spaces at the breaks (law WrapLosesNothing).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-scroll-past-the-first-line",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/screen/frame.ergo",
+      "from": "\tlet top = if to < 0 { 0 } else if to > last { last } else { to }\n",
+      "to": "\tlet top = if to > last { last } else { to }\n",
+      "rule": "Paging keeps the top line in the body (law ScrollStaysInRange).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-output-pulls-a-scrolled-view",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/screen/frame.ergo",
+      "from": "\tif v.Scroll.Stuck {\n\t\treturn last\n\t}\n",
+      "to": "\tif v.Scroll.Stuck || v.Scroll.Top >= 0 {\n\t\treturn last\n\t}\n",
+      "rule": "New output does not move a view scrolled up (law ScrolledUpStays).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-backspace-at-the-start-deletes",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\tcase term.Backspace:\n\t\tif at == 0 {\n\t\t\treturn Ignore\n\t\t}\n",
+      "to": "\tcase term.Backspace:\n\t\tif at == 0 && n == 0 {\n\t\t\treturn Ignore\n\t\t} else if at == 0 {\n\t\t\treturn Stay[Line]{Next: Line{Text: runes(l.Text, 1, n), At: 0}}\n\t\t}\n",
+      "rule": "Backspace at the start of the composer changes nothing (law Composer.TypeThenBackspaceIsNoChange).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-changes-skip-a-shrunk-line",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/screen/frame.ergo",
+      "from": "\t\tif len(a) != len(b) || a[i] != line {\n",
+      "to": "\t\tif len(a) != len(b) || (a[i] != line && len(line) >= len(a[i])) {\n",
+      "rule": "The lines written to go from one frame to the next redraw it (law ChangedLinesRedrawTheFrame).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-resume-reenters-running",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/agent/loop.ergo",
+      "from": "\tcase Asking, Waiting, Approving, Running:\n\t\t[]Signal{Resumed}\n",
+      "to": "\tcase Asking, Waiting, Approving, Running:\n\t\t[]Signal{}\n",
+      "rule": "A resumed session runs no work twice: an open turn is closed first (law ResumeRunsNothingTwice; case resume).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4-paste-keeps-line-feeds",
+      "origin": "wf10/gent-e4",
+      "file": "examples/gent/screen/keys.ergo",
+      "from": "\t\ttyped(l.Text, at, strings.ReplaceAll(strings.ReplaceAll(p.Text, \"\\r\\n\", \" \"), \"\\n\", \" \"))\n",
+      "to": "\t\ttyped(l.Text, at, strings.ReplaceAll(p.Text, \"\\r\\n\", \" \") + \"!\")\n",
+      "rule": "A paste is the text typed (law Composer.PasteIsTyping).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4b-spin-off-the-clock",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/screen/frame.ergo",
+      "from": "int(int64(d) / int64(Turn))",
+      "to": "int(int64(d) / int64(100ms))",
+      "rule": "The spinner shows a mark per Turn of the time since the work began (law SpinIsTheClock).",
+      "anchor": {
+        "tests": [
+          "examples:gent"
+        ]
+      },
+      "killers": [
+        "examples:gent"
+      ]
+    },
+    {
+      "name": "harness-e4b-began-restarts-each-state",
+      "origin": "wf10/gent-e4b",
+      "file": "examples/gent/cmd/gent/chat.ergo",
+      "from": "if working(st) && !working(v.State) { now }",
+      "to": "if working(st) { now }",
+      "rule": "A new state of the same work keeps the work's start, so the spinner turns on (test SpinnerFollowsTheClock).",
       "anchor": {
         "tests": [
           "examples:gent"

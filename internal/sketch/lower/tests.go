@@ -196,6 +196,17 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+		if lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil {
+			l.reserveLawMono(r.Law) // mono.go
+		}
+		for _, adm := range r.Law.Admit {
+			if adm != nil {
+				l.lawFunc(adm) // its where's function (lawnear.go)
+				if lawGenericOwner(adm) != nil {
+					l.reserveLawMono(adm)
+				}
+			}
+		}
 		if r.Law.Rewrite != nil {
 			l.rewriteSide(r.Law, false)
 			l.rewriteSide(r.Law, true)
@@ -487,7 +498,7 @@ func lawFrame(info *check.Info, d *syntax.LawDecl, result check.Type) *frame {
 // error. A member law's bare operation calls read the capability of its
 // operation type from env, which the run binds to the provider under test.
 // A rewrite law lowers to its sides instead (rewriteDecl).
-func (l *lowerer) lawDecl(law *check.Law) {
+func (l *lowerer) lawDecl(law *check.Law, sp *specCopy) {
 	if law.Rewrite != nil {
 		l.rewriteDecl(law)
 		return
@@ -514,13 +525,22 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
 	tparams := ""
+	name := l.lawFunc(law)
 	if own := lawGenericOwner(law); own != nil {
-		// A law of a generic operation type is a Go generic function in
-		// the type's parameters (types.md, Generics 5), and takes the
-		// provider under test after the environment: its instance is no
-		// environment field, since the law's own type names T (Laws 10).
+		// A law of a generic operation type takes the provider under
+		// test after the environment: its instance is no environment
+		// field, since the law's own type names T (Laws 10). Its run
+		// calls its copy at the provider's instance (sp, mono.go
+		// lawMonoFor), each type parameter bound to its Go type; under
+		// the reference (genericLowering "stencil") it is a Go generic
+		// function in the type's parameters (types.md, Generics 5).
 		var names map[*check.TypeParam]string
-		tparams, names = l.typeParams(own.TParams, scope, d)
+		if sp != nil {
+			names, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
+			name = sp.name
+		} else {
+			tparams, names = l.typeParams(own.TParams, scope, d)
+		}
 		fc.params = names
 		args := make([]string, len(own.TParams))
 		for i, tp := range own.TParams {
@@ -529,6 +549,13 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		l.tests.lawOwn = scope.alloc("own")
 		parts = append(parts, l.tests.lawOwn+" "+fc.goType(own)+"["+strings.Join(args, ", ")+"]")
 		defer func() { l.tests.lawOwn = "" }()
+		// A parameter that operations constrain, Ranked's T in
+		// type Ranked[T Ranked[T]], takes its witness after the provider,
+		// as a generic function does (witness.go; CONSTRAINTS C2).
+		for _, tp := range lawWitnessParams(own) {
+			fc.witness[tp] = scope.alloc("w" + tp.Name)
+			parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		}
 	}
 	result := check.Type(check.Typ[check.Bool])
 	fc.frame = lawFrame(l.info, d, result)
@@ -542,7 +569,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.locals[v] = n
 		parts = append(parts, n+" "+fc.goType(v.Type))
 	}
-	head := "func " + l.lawFunc(law) + tparams + "(" + strings.Join(parts, ", ") + ")"
+	head := "func " + name + tparams + "(" + strings.Join(parts, ", ") + ")"
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(d.Body.List)
 	if needsFrame {
@@ -559,7 +586,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	l.analyzeValues(d, l.info)
 	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
 	// leaves its Go declaration without a body (ir_assert.go).
-	if l.ir != nil && l.ir.lawBody(fc, law, l.lawFunc(law), needsFrame) {
+	if l.ir != nil && l.ir.lawBody(fc, law, name, needsFrame) {
 		if sourced {
 			l.user.WriteString(l.directive(d))
 		}
@@ -837,9 +864,19 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
 	}) + ")\n}\n\n")
 	for _, r := range l.runLaws() {
-		if lawLowered(r) && r.Law.Decl.Reach == nil {
-			l.lawDecl(r.Law)
+		if !lawLowered(r) || r.Law.Decl.Reach != nil {
+			continue
 		}
+		copies := l.takes("mono-instance")
+		for _, adm := range r.Law.Admit {
+			if adm != nil && !(lawGenericOwner(adm) != nil && copies) {
+				l.lawDecl(adm, nil) // lawnear.go; a generic one's runs call its copies
+			}
+		}
+		if lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil && copies {
+			continue // its runs call its copies (mono.go lawMonoFor), drained after
+		}
+		l.lawDecl(r.Law, nil)
 	}
 	b.WriteString(l.testRunner())
 	b.WriteString(l.harness())
@@ -980,13 +1017,16 @@ func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, 
 		// argument as an Ergo literal of its type (literal.go), written
 		// only when it fails.
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
-		for k, v := range testplan.Test(t).Inputs {
+		plan := testplan.Test(t)
+		drawn := make([]string, len(plan.Inputs))
+		for k, v := range plan.Inputs {
 			base := v.Name
 			if base == "_" {
 				base = "arg"
 			}
 			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, t.Decl) + "\n")
+			drawn[k] = a
+			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k, drawn, v.Type, r, l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, t.Decl), t.Decl) + "\n")
 			args = append(args, a)
 			sep := ", "
 			if k == 0 {
@@ -1017,6 +1057,29 @@ func (t *testLowering) lawOwnOf(c *check.Call) string {
 // type that runs (its first slot), nil for any other law.
 func lawGenericOwner(law *check.Law) *check.Named {
 	return testplan.GenericOwner(law)
+}
+
+// lawWitnessParams are the type parameters of a generic owner that take a
+// witness in its law's function: those operations constrain, in order
+// (check.LawProvider.Witnesses holds one for each).
+func lawWitnessParams(own *check.Named) []*check.TypeParam {
+	var out []*check.TypeParam
+	for _, tp := range witnessParams(&check.Signature{TParams: own.TParams}) {
+		if !isWireParam(tp) {
+			out = append(out, tp)
+		}
+	}
+	return out
+}
+
+// lawWitnessArgs are the witnesses a run of law passes at its provider
+// p's instance, after the provider (lawDecl).
+func (fc *funcCtx) lawWitnessArgs(p check.LawProvider, site syntax.Node) []string {
+	out := make([]string, len(p.Witnesses))
+	for i := range p.Witnesses {
+		out[i] = fc.witnessValue(&p.Witnesses[i], site)
+	}
+	return out
 }
 
 func lawSlotParam(law *check.Law, i int) bool {
@@ -1185,6 +1248,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		}
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
+		var copyArgs []check.Type // the instance a generic law runs at (lawCallee)
 		generic := lawGenericOwner(law) != nil
 		for k, s := range law.Slots {
 			if s.Param < 0 && generic {
@@ -1192,12 +1256,9 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				// after the environment, at the instance the provider
 				// fixes (lawDecl).
 				args = append(args, provide(tg.b[k], "provider", "provider"))
-				tc := &typeCtx{l: l, site: law.Decl}
-				targs := make([]string, len(tg.b[k].Slot.TArgs))
-				for i, a := range tg.b[k].Slot.TArgs {
-					targs[i] = tc.goType(a)
-				}
-				callee += "[" + strings.Join(targs, ", ") + "]"
+				args = append(args, fc.lawWitnessArgs(tg.b[k], law.Decl)...)
+				callee = l.lawCallee(law, lawGenericOwner(law), tg.b[k].Slot.TArgs) // mono.go
+				copyArgs = tg.b[k].Slot.TArgs
 				continue
 			}
 			if s.Param < 0 {
@@ -1206,9 +1267,13 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			}
 		}
 		paramPlans := plan.Inputs
+		offset := 0
 		if len(paramPlans) > 0 && paramPlans[0].Param < 0 {
 			paramPlans = paramPlans[1:]
+			offset = 1
 		}
+		drawn := make([]string, len(plan.Inputs))
+		admitted, distinct := "", "" // a searched case's flags (lawnear.go)
 		for k, v := range law.Params {
 			input := paramPlans[k]
 			vt := input.Type
@@ -1225,7 +1290,27 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			if input.Where != nil {
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
-			b.WriteString("\t\t\t" + a + " := " + gen + "\n")
+			drawn[k+offset] = a
+			if adm := admissionOf(law, k); adm != nil {
+				// A where over earlier parameters: found by search
+				// (lawnear.go).
+				if admitted == "" {
+					admitted, distinct = inner.alloc("admitted"), inner.alloc("distinct")
+					b.WriteString("\t\t\t" + admitted + ", " + distinct + " := true, false\n")
+				}
+				// The admission runs at the law's instance: its copy
+				// there, as the law's (mono.go lawCallee).
+				admCallee := l.lawFunc(adm)
+				if own := lawGenericOwner(adm); own != nil && copyArgs != nil {
+					admCallee = l.lawCallee(adm, own, copyArgs)
+				}
+				l.nearDraw(b, adm, k, a, vt, gen, args, bind, admCallee, e, env, r, admitted, distinct, inner, drawn, offset, law)
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+				sep = ", "
+				continue
+			}
+			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k+offset, drawn, vt, r, gen, law.Decl) + "\n")
 			args = append(args, a)
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "
@@ -1238,6 +1323,11 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			s := inner.alloc("s")
 			prefix = "for _, " + s + " := range " + list + " { " + s + "(" + e + "." + l.envField(tg.b[0].Slot) + ") }; "
 		}
+		if admitted != "" {
+			// A case its wheres do not admit is not run (lawnear.go).
+			b.WriteString("\t\t\tif " + admitted + " { " + r + ".admitted++ }; if " + admitted + " && " + distinct + " { " + r + ".distinct++ }\n")
+			prefix = "if !" + admitted + " { return nil }; " + prefix
+		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
@@ -1245,6 +1335,10 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, cases))
 		if l.postRun(law, tg.b) {
 			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)")
+		}
+		if admitted != "" {
+			l.nearReport(b, law, tg.label, cases, r, ok)
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".distinct) + " + strconv.Quote(" with distinct admitted values)")
 		}
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + okLine + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
@@ -1543,6 +1637,8 @@ func $Record(label string, r *$Rand, why string) {
 	switch {
 	case r == nil:
 		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(why)
+	case r.skip != "" && r.failure == "":
+		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(r.skip)
 	case r.failure != "":
 		rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
 	case r.proved:
@@ -1742,6 +1838,11 @@ type $Rand struct {
 	// deepest is the longest drawn prefix of a rewrite or post law's
 	// run: the depth of the states its cases reached.
 	deepest int
+	// A run with a where over earlier parameters (lawnear.go): the
+	// admitted cases whose searched values differ from their sources,
+	// and the reason it is a skip when none did.
+	distinct int
+	skip     string
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,

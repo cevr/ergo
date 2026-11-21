@@ -543,7 +543,7 @@ func model(p prog, s []int, row int) outcome {
 	case pText as x:
 		done([]Shape[int]{leaf(TextNode{Value: "t\(s[x.slot] + row)", Style: Plain()})})
 	case pInput as x:
-		done([]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false})})
+		done([]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len("v\(s[x.slot] + row)"), Anchor: len("v\(s[x.slot] + row)")})})
 	case pCheck as x:
 		done([]Shape[int]{leaf(CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
@@ -717,23 +717,27 @@ func shuffled(xs []int, r mut rng) []int {
 // pp is a generated paint program: fills and strokes of paths, and
 // transforms and clips around programs of their own. Every number it
 // paints reads the state, so a new state repaints.
-type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
+type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppImage{k int} | ppSprite{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
 func genPaint(r mut rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
-		let kind = draw(r, 5)
-		if depth == 0 || kind < 3 {
-			match kind % 3 {
+		let kind = draw(r, 7)
+		if depth == 0 || kind < 5 {
+			match kind % 5 {
 			case 0:
 				out = out.Append(ppFill{k: k})
 			case 1:
 				out = out.Append(ppStroke{k: k})
+			case 2:
+				out = out.Append(ppImage{k: k})
+			case 3:
+				out = out.Append(ppSprite{k: k})
 			case _:
 				out = out.Append(ppRect{k: k})
 			}
-		} else if kind == 3 {
+		} else if kind == 5 {
 			out = out.Append(ppMove{k: k, kids: genPaint(r, depth-1)})
 		} else {
 			out = out.Append(ppClip{k: k, kids: genPaint(r, depth-1)})

@@ -9,7 +9,7 @@ import (
 // intMapFuncs are GenerateIntMap's functions whose Maps the IR lowers to
 // the runtime's IntMap (MI-2): each has an IR body in every seed, and
 // that body calls the table's methods.
-var intMapFuncs = []string{"steps", "small", "flags", "boxed", "copied"}
+var intMapFuncs = []string{"steps", "small", "flags", "boxed", "copied", "hoistedIn"}
 
 // intMapCallFuncs are GenerateIntMap's functions that pass an int-keyed
 // Map to a generic function: each has an IR body, with its Map Go's map.
@@ -110,10 +110,22 @@ func GenerateIntMap(seed uint64) string {
 	b.WriteString("\tlet mut c = gomaps.Clone(m)\n\tc[uint8(1)] = 999\n")
 	b.WriteString("\tlet mut s = len(c)\n\tfor k in 0..50 {\n\t\tmatch c.Get(uint8(k)) {\n\t\tcase Some[int] as v:\n\t\t\ts = s * 31 + v.Value\n\t\tcase None:\n\t\t\ts = s * 7 + 1\n\t\t}\n\t}\n")
 	b.WriteString("\ts\n}\n\n")
+	// hoistedIn stores to an int map's entry whose key and value each run
+	// statements (try of a fallible call): the key's statements are the
+	// store target's own, and run before the value's (FLIP F7 PORT-TEMP,
+	// irspike's mapkey; mutant mi2-store-target-dropped). hoisted catches
+	// a negative key's failure, which a seed reaches when one is drawn.
+	b.WriteString("type Neg { At int }\n\nfunc keyOf(k int) int fails Neg {\n\tif k < 0 {\n\t\treturn Neg{At: k}\n\t}\n\tk % 13\n}\n\n")
+	b.WriteString("func hoistedIn(xs []int) Map[int, int] fails Neg {\n\tlet mut m = Map[int, int]{}\n\tfor x in xs {\n\t\tm[try keyOf(x)] = try keyOf(x * 3) + x\n\t}\n\tm\n}\n\n")
+	b.WriteString("func hoisted(xs []int) int {\n\tlet m = hoistedIn(xs) catch {\n\tcase Neg as n:\n\t\treturn n.At\n\t}\n\tlet mut s = len(m)\n\tfor k in 0..13 {\n\t\ts = s * 31 + look(m, k)\n\t}\n\ts\n}\n\n")
+	hs := make([]string, 3+r.IntN(12))
+	for i := range hs {
+		hs[i] = fmt.Sprint(r.IntN(40) - 2)
+	}
 	xs := make([]string, 5+r.IntN(20))
 	for i := range xs {
 		xs[i] = fmt.Sprint(r.IntN(12))
 	}
-	fmt.Fprintf(&b, "func main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(steps()) \\(small()) \\(flags(%d)) \\(boxed()) \\(copied()) \\(walked(%d)) \\(seen([]int{%s})) \\(throughStd(%d)) \\(throughUser(%d)) \\(throughGo(%d))\")\n}\n", 50+r.IntN(400), 10+r.IntN(60), strings.Join(xs, ", "), 5+r.IntN(40), 5+r.IntN(40), 5+r.IntN(60))
+	fmt.Fprintf(&b, "func main() needs Console | go.Foreign {\n\tConsole.Println(\"\\(steps()) \\(small()) \\(flags(%d)) \\(boxed()) \\(copied()) \\(walked(%d)) \\(seen([]int{%s})) \\(throughStd(%d)) \\(throughUser(%d)) \\(throughGo(%d)) \\(hoisted([]int{%s}))\")\n}\n", 50+r.IntN(400), 10+r.IntN(60), strings.Join(xs, ", "), 5+r.IntN(40), 5+r.IntN(40), 5+r.IntN(60), strings.Join(hs, ", "))
 	return b.String()
 }

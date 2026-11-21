@@ -215,7 +215,7 @@ func frames(period float64, k int) []Step fails Bad {
 
 // pointer is a pointer event of phase at (x, y), over no zone.
 func pointer(phase ui.Phase, x float64, y float64) ui.PointerEvent {
-	ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+	ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
 }
 
 // pressAt presses the Area label at (x, y) and lets go there.
@@ -458,7 +458,8 @@ func Canvas(size string, ops []ui.PaintOp) []string {
 		case ui.StrokeOp as st:
 			strokes = strokes + 1
 			points = points + boxOf(st.Path).Points
-		case ui.PushTransform, ui.PushClip, ui.PopPaint:
+		case ui.PushTransform, ui.PushClip, ui.PopPaint, ui.ImageOp:
+			// the scenes draw no image, and a transform or clip is not a shape
 		}
 	}
 	let middle = if ndots == 0 { "none" } else { "(\(whole(sx / float64(ndots))), \(whole(sy / float64(ndots))))" }

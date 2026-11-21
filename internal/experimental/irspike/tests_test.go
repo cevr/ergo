@@ -23,8 +23,9 @@ func TestIRTestsMatchSource(t *testing.T) {
 // TestIRLawsMatchSource is IRG6's agreement property for law bodies: for
 // generated programs of laws (GenerateLaws), the test builds of both
 // paths report the same held and refuted laws, with the same sites, and
-// exit the same. Every law gets an IR body in every seed. It builds Go
-// for the reason needsBuild gives.
+// exit the same. Every law gets an IR body in every seed, a generic
+// operation type's copies too (mutant g6-generic-law-refused). It builds
+// Go for the reason needsBuild gives.
 func TestIRLawsMatchSource(t *testing.T) {
 	testBuildsAgree(t, "TestIRLawsMatchSource", GenerateLaws, "ergoLaw", lawBodies, "FAIL law", "ok law")
 }
