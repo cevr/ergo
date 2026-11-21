@@ -1,0 +1,384 @@
+import actor
+import atomic
+import sync
+import task
+import time
+
+// Readouts (LIVE): a text the host reads each time it paints, which the
+// program changes with no pass. A view places a Readout (ReadoutText) and
+// the pass commits it as any node; afterwards Publish, from a signal's
+// handler, a work, a fetch's task, a timer or an Area's pointer function,
+// stores a new text and wakes each session that showed the readout with
+// one Published event. The session runs no pass for it (no view, no
+// commit, no op): the host paints again the nodes that read the readout.
+// A clock, a meter, a progress count or a pointer's place changes many
+// times a second without making the view run.
+//
+// The box is the reserve's: a host lays a ReadoutNode out by its Reserve
+// text, so a reading longer or shorter than the reserve never moves its
+// siblings; a reading wider than the box is clipped to it.
+//
+// A Readout is a handle: every copy is the same readout. Its node names
+// it by a number NewReadout gives it, so a node still compares with ==,
+// and the session that placed it keeps the handle by that number. It is
+// ordinary std code over sync.Ref and atomic, so any package can build
+// the same thing; no compiler rule knows it.
+//
+// Prior art: rune's LiveText (a placeholder reserves the box, an equal
+// string wakes no host); Flutter's ValueNotifier with a
+// ValueListenableBuilder; the web's textContent written outside a
+// framework's render.
+
+// Readout is a text a host reads at paint. Its fields are unexported, so
+// only NewReadout makes one.
+type Readout { id int, text sync.Ref[string], watch sync.Ref[[]readoutWatch] }
+
+// readoutWatch is one session's wake: pending is whether a Published it
+// posted waits to be taken, so a burst of Publishes posts one.
+type readoutWatch { pending sync.Ref[bool], wake func() }
+
+// readoutIds numbers the readouts of the program, from 1.
+let readoutIds = atomic.NewInt64(0)
+
+// NewReadout is a readout that reads text until a Publish.
+func NewReadout(text string) Readout {
+	Readout{id: int(readoutIds.Add(1)), text: sync.NewRef(text), watch: sync.NewRef([]readoutWatch{})}
+}
+
+// Publish makes r read text. When the text is new it wakes each session
+// that showed r and has no Published of r waiting; an equal text wakes
+// none. It never waits for a host.
+func Publish(r Readout, text string) {
+	let changed = sync.Modify(r.text, func(old string) (bool, string) { (old != text, text) })
+	if !changed {
+		return
+	}
+	for w in r.watch.Get() {
+		if !sync.Modify(w.pending, func(b bool) (bool, bool) { (b, true) }) {
+			w.wake()
+		}
+	}
+}
+
+// Reading is the text r reads now.
+func Reading(r Readout) string { r.text.Get() }
+
+// ReadoutText shows the text r reads, in a box the size of reserve's
+// text. The node is the same across passes while r and reserve are, so a
+// pass that writes it again changes nothing.
+func ReadoutText[E](f mut Frame[E], r Readout, reserve string, at CallSite) {
+	ReadoutStyled(f, r, reserve, Plain(), at)
+}
+
+// ReadoutStyled is ReadoutText with a Style: its layout, and its look,
+// whose Ink draws the reading (look.ergo).
+func ReadoutStyled[E](f mut Frame[E], r Readout, reserve string, style Style, at CallSite) {
+	if f.nreadouts < len(f.readouts) {
+		f.readouts[f.nreadouts] = r
+	} else {
+		f.readouts = f.readouts.Append(r)
+	}
+	f.nreadouts = f.nreadouts + 1
+	let _ = put(f, ReadoutNode{Readout: r.id, Reserve: reserve, Style: style}, None, None, at)
+}
+
+// watched is a readout a session watches and the flag of its Published.
+type watched { readout Readout, pending sync.Ref[bool] }
+
+// watchReadouts makes the session wake for each readout its last pass
+// placed and it does not watch yet. A readout a later pass removes keeps
+// its wake: its Published then finds no node to paint.
+func watchReadouts[S, E, D, F](s mut Session[S, E, D, F]) {
+	for i in 0..s.frame.nreadouts {
+		let r = s.frame.readouts[i]
+		if has(s.readouts, r.id) {
+			continue
+		}
+		let pending = sync.NewRef(false)
+		let post = s.post
+		let id = r.id
+		r.watch.Update(func(ws []readoutWatch) []readoutWatch {
+			ws.Append(readoutWatch{pending: pending, wake: func() { post(Published{Readout: id}) }})
+		})
+		s.readouts[r.id] = watched{readout: r, pending: pending}
+	}
+}
+
+// taken clears the flag of readout id's Published, so the next Publish of
+// it posts again. The session clears it before the host reads the
+// readout, so a Publish after that is either read now or posts once more.
+func taken[S, E, D, F](s mut Session[S, E, D, F], id int) {
+	match s.readouts.Get(id) {
+	case Some[watched] as w:
+		w.Value.pending.Set(false)
+	case None:
+	}
+}
+
+// ReadingIn is the text the readout numbered id reads now, for a node of
+// s's tree; None for a number s never placed.
+func ReadingIn[S, E, D, F](s mut Session[S, E, D, F], id int) Option[string] {
+	match s.readouts.Get(id) {
+	case Some[watched] as w:
+		Some{Value: Reading(w.Value.readout)}
+	case None:
+		None
+	}
+}
+
+// ShownIn is what n, a node of s's tree, shows now: a ReadoutNode as the
+// TextNode of its reading, any other node as it is.
+func ShownIn[S, E, D, F](s mut Session[S, E, D, F], n Node[E]) Node[E] {
+	match n {
+	case ReadoutNode as x:
+		// The Text keeps the readout's Style as every host reads a node's
+		// style, through StyleOf, so the test host shows a readout's look
+		// by the one route a window paints it by.
+		let style = match StyleOf(n) {
+		case Some[Style] as st:
+			st.Value
+		case None:
+			Plain()
+		}
+		match ReadingIn(s, x.Readout) {
+		case Some[string] as t:
+			TextNode{Value: t.Value, Style: style}
+		case None:
+			TextNode{Value: x.Reserve, Style: style}
+		}
+	case _:
+		n
+	}
+}
+
+// ShownShapesIn is shapes of s's tree with each node ShownIn: the screen
+// as a host paints it at this moment.
+func ShownShapesIn[S, E, D, F](s mut Session[S, E, D, F], shapes []Shape[E]) []Shape[E] {
+	let mut out = []Shape[E]{}
+	for sh in shapes {
+		out = out.Append(Shape[E]{Node: ShownIn(s, sh.Node), Kids: ShownShapesIn[S, E, D, F](s, sh.Kids)})
+	}
+	out
+}
+
+// readWords is the texts the readout laws publish: equal, longer and
+// shorter than the reserve, and empty. (a law's helper)
+let readWords = []string{"00:00", "00:01", "12:34", "", "a reading far wider than its reserve", "9"}
+
+// readoutRows is the readouts' screen at layout s: a counter, a "next"
+// Pressable that moves to the next of four layouts, and a row "r<i>" per
+// readout, in order at an even layout and reversed at an odd one, with
+// readout 0 left out at layouts 2 and 3. shown writes row i's text: a
+// readout, or a Text of the same reading. (a law's helper)
+func readoutRows(f mut Frame[int], s int, n int, shown func(i int)) {
+	Column(f, Plain()) {
+		Text(f, "at \(s)")
+		Pressable(f, "next", (s+1)%4) {
+			Text(f, "next")
+		}
+		for j in 0..n {
+			let i = if s%2 == 0 { j } else { n - 1 - j }
+			if s >= 2 && i == 0 {
+				continue
+			}
+			Row(f, Plain()) {
+				Text(f, "r\(i)")
+				shown(i)
+			}
+		}
+	}
+}
+
+// readoutsOf is n readouts, each reading readWords[0]. (a law's helper)
+func readoutsOf(n int) []Readout {
+	let mut rs = []Readout{}
+	for _ in 0..n {
+		rs = rs.Append(NewReadout(readWords[0]))
+	}
+	rs
+}
+
+// texts is the text of every Text node of shapes, in order. (a law's
+// helper)
+func texts(shapes []Shape[int]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case TextNode as t:
+			out = out.Append(t.Value)
+		case _:
+		}
+		for t in texts(s.Kids) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// LiveCostsNoPass (LIVE, a counted guard): over screens of 1 to 4
+// readouts, drawn Publishes, from the test's task and from a task of
+// their own, run no pass (the step's counts stay as they were) and leave
+// no event behind once pumped; a new text posts exactly one event however
+// many Publishes come before the host takes it, and an equal text posts
+// none; after each, the screen shows every readout's latest text in its
+// row.
+law LiveCostsNoPass(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 4) + 1
+		let rs = readoutsOf(n)
+		let view = func(f mut Frame[int], s int) {
+			readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") })
+		}
+		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		let before = Counts(&h)
+		for _ in 0..(steps%16+16)%16+1 {
+			let i = draw(&r, n)
+			let mut word = readWords[draw(&r, len(readWords))]
+			let was = Reading(rs[i])
+			if draw(&r, 2) == 0 {
+				Publish(rs[i], word)
+			} else {
+				let first = word
+				let t = task.Go() {
+					Publish(rs[i], first)
+					true
+				}
+				let _ = t.Wait()
+			}
+			let woke = if word == was { 0 } else { 1 }
+			if Posted(&h) != woke {
+				return false
+			}
+			// A second text before the host takes the first posts no more.
+			if woke == 1 && draw(&r, 2) == 0 {
+				word = readWords[draw(&r, len(readWords))]
+				Publish(rs[i], word)
+				if Posted(&h) != 1 {
+					return false
+				}
+			}
+			Pump(&h) catch {
+			case _:
+				return false
+			}
+			if Posted(&h) != 0 || Counts(&h) != before || Reading(rs[i]) != word {
+				return false
+			}
+			let mut want = []string{"at 0", "next"}
+			for k in 0..n {
+				want = want.Append("r\(k)")
+				want = want.Append(Reading(rs[k]))
+			}
+			if texts(Screen(&h)) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// readState is the reference program's state: the layout and the index
+// in readWords of each row's text. (a law's helper)
+type readState { layout int, words []int }
+
+// readStep: a signal under 100 is a layout; 100 + 10i + w sets row i's
+// text to readWords[w]. (a law's helper)
+func readStep(s readState, e int) Decision[readState, int] {
+	if e < 100 {
+		return Enter[readState]{Next: readState{layout: e, words: s.words}}
+	}
+	let i = (e - 100) / 10
+	let mut words = s.words
+	words[i] = (e - 100) % 10
+	Enter[readState]{Next: readState{layout: s.layout, words: words}}
+}
+
+func readTimer(s readState) Option[Timeout[int]] { None }
+
+func readWork(s readState) Option[func(send func(e int))] { None }
+
+// LiveEqualsRerun (LIVE): two programs show n readout rows under drawn
+// steps: one with readouts, one with the same texts in its actor's state,
+// set by a signal, and the same layout signals for both (reordering and
+// removing rows). After every step the screens are equal: a readout shows
+// what a pass would have shown, whichever node now holds it, and a
+// readout removed and written again shows its latest text.
+law LiveEqualsRerun(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 4) + 1
+		let rs = readoutsOf(n)
+		let live = func(f mut Frame[int], s int) {
+			readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") })
+		}
+		let mut zero = []int{}
+		for _ in 0..n {
+			zero = zero.Append(0)
+		}
+		let rerun = func(f mut Frame[int], s readState) {
+			OnKey(f, func(k KeyPress) Option[int] {
+				for e in 100..100+10*n {
+					if k.Name == "\(e)" {
+						return Some{Value: e}
+					}
+				}
+				None
+			})
+			readoutRows(f, s.layout, n, func(i int) { Text(f, readWords[s.words[i]]) })
+		}
+		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+		let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork, Exit: func(at readState) Option[func()] { None }}, 1, func(o int) {})
+		let mut ha = NewTestHost(a, live, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut hb = NewTestHost(b, rerun, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}
+		for _ in 0..(steps%20+20)%20+1 {
+			if draw(&r, 3) == 0 {
+				Play(&ha, []Act{TapOn{Label: "next"}, SettleAll}) catch {
+				case _:
+					return false
+				}
+				Play(&hb, []Act{TapOn{Label: "next"}, SettleAll}) catch {
+				case _:
+					return false
+				}
+			} else {
+				let i = draw(&r, n)
+				let w = draw(&r, len(readWords))
+				Publish(rs[i], readWords[w])
+				Settle(&ha) catch {
+				case _:
+					return false
+				}
+				PressKey(&hb, KeyPress{Name: "\(100 + 10*i + w)", Mods: mods}) catch {
+				case _:
+					return false
+				}
+				Settle(&hb) catch {
+				case _:
+					return false
+				}
+			}
+			if Screen(&ha) != Screen(&hb) {
+				return false
+			}
+		}
+		true
+	}
+}

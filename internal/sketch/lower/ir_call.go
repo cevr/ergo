@@ -297,14 +297,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 					// before its receiver (callText).
 					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 				}
-				call := mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})
-				if irFailArgLowering != "off" {
-					// The copy's body is the instance's, built under the
-					// copy's name: the inliner copies it as any callee's
-					// (INLINE-FAILARG: a generic callee is copied too).
-					call = b.inlineMark(x, c, fd, call)
-				}
-				return pre, call, !fd.envFree
+				// The copy's own IR body is the inliner's to copy, as
+				// the text path's OPT4a writes the instance's body at
+				// its call (lru's Churn: Cache.Get; IR-GETMATCH).
+				return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
 			}
 		}
 		if known != "" && fd.method != nil {
@@ -325,8 +321,13 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		if sp := b.copyCall(x, c); sp != "" {
-			// The copy for the known record: one instance (ir_known.go).
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.envFree
+			// The copy for the known record or provider: one instance
+			// (ir_known.go), a provider's adapter at its parameter.
+			env := 1
+			if fd.envFree {
+				env = 0
+			}
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
 		}
 		if sp := b.instanceCopy(x, c); sp != "" {
 			// The copy for the instance (ir_instance.go): no type
@@ -372,6 +373,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		pre = append(pre, argPre...)
 		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
+		if c.Kind == check.CallLawOp && b.lawOwn > 0 {
+			// A law of a generic operation type calls the provider it
+			// takes, as a call on a value of the type does (calls.go).
+			own := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+			return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: own, Args: args}), true
+		}
 		capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
 		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
 	case check.CallGoError:

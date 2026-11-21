@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -431,17 +430,7 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 	}
 	parts := []string{"gate module/1", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
 		strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip)}
-	var env []string
-	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, sketchfront.StageReportVariable+"=") {
-			continue
-		}
-		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
-			env = append(env, kv)
-		}
-	}
-	slices.Sort(env)
-	parts = append(parts, env...)
+	parts = append(parts, lawcache.Environ(os.Environ(), sketchfront.StageReportVariable)...)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

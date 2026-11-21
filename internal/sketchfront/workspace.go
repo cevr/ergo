@@ -18,7 +18,7 @@ import (
 const WorkFile = "ergo.work"
 
 // workVersion is the newest ergo.work format this binary reads.
-const workVersion = 1
+const workVersion = 2
 
 // Workspace is the modules below a root (docs/spec/build.md, Workspace):
 // every folder with an ergo.mod that source admission reaches, and the
@@ -103,11 +103,11 @@ func DiscoverWorkspace(fsys FS, root string) (Workspace, error) {
 	}
 	ws := Workspace{Root: root}
 	if data, err := fsys.ReadFile(filepath.Join(root, WorkFile)); err == nil {
-		skip, err := parseWorkFile(string(data))
+		wf, err := parseWorkFile(string(data))
 		if err != nil {
 			return Workspace{}, err
 		}
-		for _, s := range skip {
+		for _, s := range wf.skips {
 			info, err := fsys.Stat(filepath.Join(root, filepath.FromSlash(s.dir)))
 			if err != nil || !info.IsDir() {
 				return Workspace{}, fmt.Errorf("%s:%d: skip %s names no folder below the workspace root", WorkFile, s.line, s.dir)
@@ -275,14 +275,78 @@ type workSkip struct {
 	line int
 }
 
+// WorkGen is a `gen` line of ergo.work (version 2; docs/spec/build.md,
+// Generators): a command that writes files of the tree, which `ergo task
+// gen` runs, and the paths it reads besides its Go build (its `reads`
+// lines).
+type WorkGen struct {
+	// Name is the generator's name, unique in the file.
+	Name string
+	// Command is the command's words: `go run PKG ARGS...` or
+	// `go test ARGS...` with one package.
+	Command []string
+	// Reads are the files and folders the command reads that its Go build
+	// does not hold, clean slash-separated paths below the root, in the
+	// order the file names them.
+	Reads []string
+	// Line is the gen line's line number.
+	Line int
+}
+
+// workFile is what an ergo.work holds.
+type workFile struct {
+	skips []workSkip
+	gens  []WorkGen
+}
+
+// ReadWorkFile reads the ergo.work at root: its generators, none when
+// root holds no ergo.work.
+func ReadWorkFile(root string) ([]WorkGen, error) {
+	data, err := hostFS{}.ReadFile(filepath.Join(root, WorkFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	wf, err := parseWorkFile(string(data))
+	if err != nil {
+		return nil, err
+	}
+	return wf.gens, nil
+}
+
+// genName reports whether s is a generator name: lower-case letters,
+// digits and '-', starting with a letter.
+func genName(s string) bool {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// cleanBelow reports whether p is a clean, slash-separated path below
+// the root: no "..", no "." element, not absolute.
+func cleanBelow(p string) bool {
+	return !strings.Contains(p, `\`) && filepath.IsLocal(filepath.FromSlash(p)) && pathClean(p) == p
+}
+
 // parseWorkFile reads an ergo.work (docs/spec/build.md, Workspace): blank
 // lines and // comments; first the line `version N`; then lines of a key
 // and its arguments. Version 1 knows one key, `skip DIR`, a folder below
-// the root, slash-separated. A key this version does not know, or a newer
-// version, is an error, never ignored: a later key changes what a run
-// does, so a binary that cannot read it must not run as if it were absent.
-func parseWorkFile(text string) ([]workSkip, error) {
-	var skips []workSkip
+// the root, slash-separated; version 2 adds `gen NAME COMMAND...` and
+// `reads NAME PATH...`. A key the file's version does not know, or a
+// newer version, is an error, never ignored: a later key changes what a
+// run does, so a binary that cannot read it must not run as if it were
+// absent.
+func parseWorkFile(text string) (workFile, error) {
+	var wf workFile
+	gens := map[string]int{}
 	version := 0
 	for i, raw := range strings.Split(text, "\n") {
 		line := i + 1
@@ -295,36 +359,61 @@ func parseWorkFile(text string) ([]workSkip, error) {
 		}
 		if version == 0 {
 			if words[0] != "version" || len(words) != 2 {
-				return nil, fmt.Errorf("%s:%d: the first line is version N", WorkFile, line)
+				return workFile{}, fmt.Errorf("%s:%d: the first line is version N", WorkFile, line)
 			}
 			v, err := strconv.Atoi(words[1])
 			if err != nil || v < 1 {
-				return nil, fmt.Errorf("%s:%d: version %s is not a format version (1, 2, ...)", WorkFile, line, words[1])
+				return workFile{}, fmt.Errorf("%s:%d: version %s is not a format version (1, 2, ...)", WorkFile, line, words[1])
 			}
 			if v > workVersion {
-				return nil, fmt.Errorf("%s:%d: version %d needs a newer ergo; this one reads version %d", WorkFile, line, v, workVersion)
+				return workFile{}, fmt.Errorf("%s:%d: version %d needs a newer ergo; this one reads version %d", WorkFile, line, v, workVersion)
 			}
 			version = v
 			continue
 		}
-		switch words[0] {
-		case "skip":
+		switch {
+		case words[0] == "skip":
 			if len(words) != 2 {
-				return nil, fmt.Errorf("%s:%d: skip takes one folder", WorkFile, line)
+				return workFile{}, fmt.Errorf("%s:%d: skip takes one folder", WorkFile, line)
 			}
 			dir := words[1]
-			if strings.Contains(dir, `\`) || !filepath.IsLocal(filepath.FromSlash(dir)) || pathClean(dir) != dir {
-				return nil, fmt.Errorf("%s:%d: skip %s is not a clean slash-separated folder below the workspace root", WorkFile, line, dir)
+			if !cleanBelow(dir) {
+				return workFile{}, fmt.Errorf("%s:%d: skip %s is not a clean slash-separated folder below the workspace root", WorkFile, line, dir)
 			}
-			skips = append(skips, workSkip{dir: dir, line: line})
+			wf.skips = append(wf.skips, workSkip{dir: dir, line: line})
+		case words[0] == "gen" && version >= 2:
+			if len(words) < 3 || !genName(words[1]) {
+				return workFile{}, fmt.Errorf("%s:%d: gen takes a name (a-z, 0-9, -) and a command", WorkFile, line)
+			}
+			if _, dup := gens[words[1]]; dup {
+				return workFile{}, fmt.Errorf("%s:%d: gen %s is named twice", WorkFile, line, words[1])
+			}
+			gens[words[1]] = len(wf.gens)
+			wf.gens = append(wf.gens, WorkGen{Name: words[1], Command: words[2:], Line: line})
+		case words[0] == "reads" && version >= 2:
+			if len(words) < 3 {
+				return workFile{}, fmt.Errorf("%s:%d: reads takes a gen name and paths", WorkFile, line)
+			}
+			i, ok := gens[words[1]]
+			if !ok {
+				return workFile{}, fmt.Errorf("%s:%d: reads %s names no gen above it", WorkFile, line, words[1])
+			}
+			for _, p := range words[2:] {
+				if !cleanBelow(p) {
+					return workFile{}, fmt.Errorf("%s:%d: reads %s is not a clean slash-separated path below the workspace root", WorkFile, line, p)
+				}
+				wf.gens[i].Reads = append(wf.gens[i].Reads, p)
+			}
+		case version == 1:
+			return workFile{}, fmt.Errorf("%s:%d: unknown key %s; version 1 knows skip", WorkFile, line, words[0])
 		default:
-			return nil, fmt.Errorf("%s:%d: unknown key %s; version %d knows skip", WorkFile, line, words[0], version)
+			return workFile{}, fmt.Errorf("%s:%d: unknown key %s; version %d knows skip, gen and reads", WorkFile, line, words[0], version)
 		}
 	}
 	if version == 0 {
-		return nil, fmt.Errorf("%s: the first line is version N", WorkFile)
+		return workFile{}, fmt.Errorf("%s: the first line is version N", WorkFile)
 	}
-	return skips, nil
+	return wf, nil
 }
 
 // pathClean is path.Clean of a slash-separated path.

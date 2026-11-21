@@ -36,7 +36,7 @@ package lower
 //     the failure can write what the literal reads: no later argument
 //     and nothing in the body calls, stores or takes an address,
 //     INLINE-FAILARG; a call of a generic function's copy for its type
-//     arguments, mono.go, is copied too); a return of a fallible call's
+//     arguments, mono.go, is copied too, ir_call.go); a return of a fallible call's
 //     value and error as they are (`return f(…)`, marked Pair) binds
 //     both to temporaries the site's value and error then take. A call
 //     that is itself returned (`return f(…)`, outside a function
@@ -71,7 +71,7 @@ package lower
 // body that returns a fallible call's pair. irFailLocalLowering "off"
 // keeps a fallible body whose failure is a local or a parameter a call.
 // irFailArgLowering "off" binds every failure argument at the copy's head
-// and leaves a call of a generic function's copy a call.
+// and keeps a try's check after a copy (failThrough).
 //
 // Prior art: OCaml's flambda and GHC inline by size on their own IR before
 // the backend; ReScript inlines small functions across modules before it
@@ -301,8 +301,10 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		}
 		tsub[tp] = t
 	}
+	// The body's name: a method's is its type's and its own; a
+	// monomorphic copy of a method is a plain function (ir.go body).
 	key := e.Name
-	if fd.method != nil {
+	if fd.method != nil && e.K == "mcall" {
 		key = fd.method.name + "." + e.Name
 	}
 	src := -1 // a call in a library body has no identity
