@@ -549,7 +549,7 @@ func TestGenTreesShareAStore(t *testing.T) {
 	store := lawcache.Memory(StoreIdentity)
 	node := Node{
 		Name: "n", Class: Vouched, Ident: "n",
-		Env:    func(context.Context) (string, error) { return "env", nil },
+		Env: func(context.Context) (string, error) { return "env", nil },
 		// What it reads is the tree's to say (as a Go build's closure is
 		// its go list's), so two trees' manifests differ.
 		Inputs: func(_ context.Context, root string) (Inputs, error) {

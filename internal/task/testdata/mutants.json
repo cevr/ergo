@@ -69,7 +69,7 @@
       "origin": "wf10 MONOREPO WT1b miss diagnosis",
       "file": "internal/task/gen.go",
       "from": "\t\t\tif fileSums[i] != last.fileSums[i] {\n",
-      "to": "\t\t\tif false {\n",
+      "to": "\t\t\tif fileSums[i] != last.fileSums[i] && false {\n",
       "rule": "A miss names the first input whose digest moved since the last run.",
       "killers": ["internal/task:TestGenMissSaysWhy"]
     },
