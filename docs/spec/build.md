@@ -416,6 +416,18 @@ would keep it current; `--list` names its writer.
   generators wrote that differs from the tree's. So it fails exactly when
   a fresh regeneration would change a generated file, as far as the
   `reads` lines are complete.
+- **`--list --affected BASE [--why]`** runs nothing: it prints the
+  generators a regeneration may run that BASE's would not (WT2a). Those
+  are a generator whose key over its last run in this tree differs
+  between the commit `BASE` and the working tree (a file it read changed,
+  or the names in a folder it listed), one whose output differs, one with
+  no last run, and every generator that runs after one of these. `BASE`
+  is read from Git (`git diff`, `git ls-tree`), with no checkout; files
+  Git ignores count as present on both sides. `--why` names each one's
+  first moved input. Like the round tier it is advisory: a lane learns
+  which regeneration its edit owes. The gate's `generated` step is
+  `ergo task gen --check` in every tier, and `--check --fresh` in the
+  full and merge tiers.
 - **`--fresh`** ignores hits in its first pass: every generator runs. When
   a generator was a hit and the fresh run writes an output that differs
   from the kept one, its `reads` lines are incomplete, and the run fails
