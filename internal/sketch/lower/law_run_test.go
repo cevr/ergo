@@ -610,9 +610,13 @@ func main() {}
 		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
-		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
+		// A law of an operation type whose parameter is bounded by
+		// operations runs at each provider's instance with its witness
+		// (CONSTRAINTS C2); Ranked has none here, so it names where it runs,
+		// which is no skip (types.md, Laws).
+		"law Ranked.Same runs where Ranked has a provider: none is in this package or its imports",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (8 tests, 9 skipped)",
+		"PASS (8 tests, 8 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
