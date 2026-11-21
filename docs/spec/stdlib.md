@@ -1388,6 +1388,21 @@ both against net/http's `DetectContentType`.
     drawn cuts; `WriteThenRead`, `ChunkingDoesNotMatter` and
     `CutIsNotAnEvent` hold the writer and the reader to each other.
 
+    **The view form (SSE-VIEW).** `FeedEach(r *EventReader, part string,
+    each func(e mut EventView))` reads a part into the reader in place and
+    lends each event to `each` as its blank line ends it: Feed's events,
+    with no event value, no joined data and no slice of events. An
+    `EventView` is read through `Event(e)`, `ID(e)`, `DataLines(e)`,
+    `DataLine(e, i)` and `Data(e)` (the joined data, the line itself
+    when there is one); its strings are spans of the parts fed, values a
+    caller may keep. The view itself is a borrow (`mut EventView`), so a
+    caller that keeps it past `each`'s return (in a slice, a field, a
+    returned value, an escaping frame) is S108 ([types.md](types.md#borrows)
+    1): the reader reuses its list of data lines from event to event.
+    `Feed` is `FeedEach` copying each view out. The law
+    `FeedEachMatchesModel` holds the views, read inside `each`, to the
+    model over `FeedMatchesModel`'s text and cuts.
+
     Speed (SSE-FLOOR): a line costs no copy of the text before it. The
     reader takes each line as a span of the part, reads it into the
     reader in place (a borrow, no record copy), keeps an event of one data
@@ -1745,7 +1760,8 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `http` | `WriteThenRead` | `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `ChunkingDoesNotMatter` | `ChunkingDoesNotMatter(events []ServerEvent, sizes []int) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let r, got = feedIn(text, sizes) got == typed(clean) && r.End() == None }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `CutIsNotAnEvent` | `CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) { let clean = writable(events) if len(clean) == 0 { return true } let before = WriteEvents(clean[0:len(clean)-1]) catch { case Unwritable: return false } let whole = WriteEvents(clean) catch { case Unwritable: return false } let last = len(whole) - len(before) let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) }) let body = strings.Slice(whole, 0, len(whole)-drop) let r, got = feedIn(body, sizes) got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}} }` | `TestStdHTTPLawsRun` | tested |
-| `http` | `FeedMatchesModel` | `FeedMatchesModel(seed int) { let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"} with context { Random: rand.Seeded(uint64(seed)) } { let mut text = if Random.IntN(4) == 0 { bom } else { "" } for _ in 0..Random.IntN(120) { text = text + pieces[Random.IntN(len(pieces))] } let mut sizes = []int{} for _ in 0..1+Random.IntN(8) { sizes = sizes.Append(Random.IntN(10)) } let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FeedEachMatchesModel` | `FeedEachMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let mut r = NewEventReader() let mut got = []ServerEvent{} let mut from = 0 for k in 0..len(text)+1 { if from >= len(text) { break } let s = 1 + sizes[k%len(sizes)] let to = if from+s > len(text) { len(text) } else { from + s } FeedEach(&r, strings.Slice(text, from, to), func(e mut EventView) { let mut data = []string{} for i in 0..DataLines(e) { data = data.Append(DataLine(e, i)) } got = got.Append(ServerEvent{Event: Event(e), Data: strings.Join(data, "\n"), ID: ID(e)}) }) from = to } let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FeedMatchesModel` | `FeedMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
 | `ansi` | `StripUndoesPaint` | `StripUndoesPaint(seed int, text string) { let t = Strip(text) let s = drawStyle(seed) let painted = with context { Colors: Always } { Paint(s, t) } Strip(painted) == t && Strip(t) == t }` | `TestStdAnsiLawsRun` | tested |
 | `ansi` | `NeverPaints` | `NeverPaints(seed int, text string) { let s = drawStyle(seed) with context { Colors: Never } { let mut b = strings.NewBuilder() WritePaint(&b, s, text) Paint(s, text) == text && b.String() == text } }` | `TestStdAnsiLawsRun` | tested |
 | `ansi` | `PaintIsSGRAndReset` | `PaintIsSGRAndReset(seed int, text string) { let s = drawStyle(seed) with context { Colors: Always } { let mut b = strings.NewBuilder() WritePaint(&b, s, text) let want = if s == Plain { text } else { SGR(s) + text + Reset } Paint(s, text) == want && b.String() == want } }` | `TestStdAnsiLawsRun` | tested |
@@ -2310,6 +2326,15 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `prelude` | `TakeIsGetAndDelete` | `TakeIsGetAndDelete(m Map[int, int], k int) { let v, rest = m.Take(k) sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k)) }` | `TestCollLaws` | tested |
 | `prelude` | `TakeAtIsIndexAndRest` | `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 \|\| i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs)-1 for k, y in rest { ok = ok && (k < i && y == xs[k] \|\| k >= i && y == xs[k+1]) } ok }` | `TestCollLaws` | tested |
 | `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
+| `prelude` | `Hashing.EqualIsReflexive` | `EqualIsReflexive(a K) { Equal(a, a) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.EqualIsSymmetric` | `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.EqualIsTransitive` | `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.EqualKeysHashEqual` | `EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) }` | `#162` | checked |
+| `prelude` | `Hashing.EqualKeysNormalEqual` | `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() \|\| NormalKey(a) == NormalKey(b) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.NormalKeyIsEqual` | `NormalKeyIsEqual(a K) { !NormalForm() \|\| Equal(a, NormalKey(a)) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `StructuralFloatKeysHashEqual` | `StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }` | `#162` | checked |
+| `prelude` | `StructuralIntKeysHashEqual` | `StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }` | `#162` | checked |
+| `prelude` | `StructuralStringKeysHashEqual` | `StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }` | `#162` | checked |
 | `queue` | `EndKeepsValues` | `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
 | `queue` | `LenCountsUntaken` | `LenCountsUntaken(xs []int) { let q = New[int](len(xs)) for x in xs { try q.Push(x) } let full = q.Len() == len(xs) let mut drained = true for x in xs { drained = drained && q.Poll() == Some[int]{Value: x} } full && drained && q.Len() == 0 }` | `TestQueuePollLaws` | tested |

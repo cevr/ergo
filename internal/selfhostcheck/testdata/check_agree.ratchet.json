@@ -4,11 +4,11 @@
   "goLines": 3089,
   "codes": {
     "S101": {
-      "missing": 12,
+      "missing": 8,
       "extra": 0
     },
     "S102": {
-      "missing": 5,
+      "missing": 2,
       "extra": 0
     },
     "S103": {
@@ -32,7 +32,7 @@
       "extra": 0
     },
     "S108": {
-      "missing": 162,
+      "missing": 156,
       "extra": 0
     },
     "S109": {
