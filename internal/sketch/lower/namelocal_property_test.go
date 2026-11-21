@@ -307,16 +307,19 @@ func TestFunctionNamesIgnoreUnrelatedPackages(t *testing.T) {
 		rootIR, rootText, rp := nameLocalFuncs(t, p, nameLocalRoot, fmt.Sprintf("namelocal%droot", seed))
 		reachIR, reachText, xp := nameLocalFuncs(t, p, nameLocalReach, fmt.Sprintf("namelocal%dreach", seed))
 		progs = append(progs, bp, np, rp, xp)
-		// A K's call of chk is inlined on the IR (its lines carry the
-		// site's tag), so rule 7 is checked on a fail-local copy.
-		inlinedK := false
-		for key, ir := range baseIR {
-			if strings.HasSuffix(key, " K") && strings.Contains(ir, "ergo-inline-") {
-				inlinedK = true
+		// Both K's calls of chk (the root's, key "… K", and lib's, whose
+		// Go name is lib's alias and K) are inlined on the IR (their lines
+		// carry the site's tag), so rule 7 is checked on fail-local copies.
+		for _, k := range []string{" K", "__K"} {
+			inlined := false
+			for key, ir := range baseIR {
+				if strings.HasSuffix(key, k) && strings.Contains(ir, "ergo-inline-") {
+					inlined = true
+				}
 			}
-		}
-		if !inlinedK {
-			t.Errorf("seed %d: lib's K does not inline chk on the IR, so no fail-local copy is compared", seed)
+			if !inlined {
+				t.Errorf("seed %d: the K whose IR key ends %q does not inline chk on the IR, so no fail-local copy is compared", seed, k)
+			}
 		}
 		for _, cmp := range []struct {
 			what       string
