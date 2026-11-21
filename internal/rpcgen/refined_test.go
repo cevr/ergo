@@ -8,7 +8,7 @@ import (
 )
 
 // TestRefinedIntConvertsThroughItsBase is the smallest repro of FD1-g1
-// (fk-domains, FD1a): the int walker of a refined int wrote int64(v),
+// (domain-search, FD1a): the int walker of a refined int wrote int64(v),
 // which the checker refuses ("cannot convert domains.Offset to int64 in
 // one step"), so a contract with a refined int parameter generated a
 // package that did not check. It catches rpcgen-refined-one-step, which
@@ -22,7 +22,14 @@ func TestRefinedIntConvertsThroughItsBase(t *testing.T) {
 	if err != nil || a.Root().Package == nil {
 		t.Fatalf("the contract does not check: %v %v", err, a.Diagnostics)
 	}
-	out, err := Generate(a.Root().Package, "mod/api", "API")
+	hub, err := GenerateAPI(a.Root().Package, "mod/api", "API")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, src := range hub.Files {
+		writeFile(t, filepath.Join(dir, "api", hub.Dir, name), src)
+	}
+	out, err := Generate(a.Root().Package, "mod/api", "API", "mod/api/"+hub.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}

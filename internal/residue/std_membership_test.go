@@ -75,7 +75,7 @@ func TestCompilerReadsNoStdMembership(t *testing.T) {
 var stdScanDirs = []string{
 	"internal/sketch/check", "internal/sketch/lower", "internal/sketch/eval",
 	"internal/sketch/lint", "internal/sketch/derive", "internal/sketch/build",
-	"internal/sketch/format", "internal/sketchfront", "internal/tsproj",
+	"internal/hostsyntax", "internal/sketchfront", "internal/tsproj",
 	"internal/rpcgen", "cmd/ergo",
 }
 
@@ -247,7 +247,7 @@ func fileImports(f *ast.File) map[string]string {
 }
 
 const (
-	stdImportPath = "ergo.local/prototype/internal/sketch/std"
+	stdImportPath = "ergo.local/prototype/internal/sketch/stdlib" // std's API (GS25)
 	v1ImportPath  = "ergo.local/prototype/runtime/v1"
 	// bodyContractFile reads the facts of the body an extern names, for
 	// an extern of any package (check.BodyOf): its reads of runtime/v1's
@@ -566,7 +566,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // stdPrivilegesBaseline are the debt rows of testdata/std-privileges.txt
 // as the rule landed. A row may leave; none may join, except once: the
 // batch-20 integration added the rows of units developed beside the rule
-// (B20-NP names who removes them), as batch 21's did (B21-NP) and the
+// (B20-NP names who removes them), as batch 21's did (B21-NP), batch 22's (B22-NP) and the
 // batch-19 combined integration's (B19-NP).
 var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/call.go:IsInForce",
@@ -574,19 +574,13 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/durable.go:TakesDurableMachine",
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
-	"internal/sketch/check/entry.go:IsStdEvery",
-	"internal/sketch/check/export_user.go:NewUserExport",
 	"internal/sketch/check/lintfacts.go:IsSchedulerSleep",
 	"internal/sketch/check/lintfacts.go:IsTimeoutPackage",
 	"internal/sketch/check/lintfacts.go:ProgramType",
 	"internal/sketch/check/lintfacts.go:RoleOf",
 	"internal/sketch/check/lintfacts.go:isStdObj",
 	"internal/sketch/check/lintfacts.go:stdRoles",
-	"internal/sketch/check/mappedtext.go:IsMappedText",
-	"internal/sketch/check/mappedtext.go:checker.textPlacement",
-	"internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn",
 	"internal/sketch/check/mappedtext.go:escWalk.textOwner",
-	"internal/sketch/check/mappedtext.go:isMapped",
 	"internal/sketch/check/mappedtext.go:ownWalk.textRootOf",
 	"internal/sketch/check/mappedtext.go:textTemporary",
 	"internal/sketch/check/never.go:IsNever",
@@ -599,7 +593,8 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/work.go:checker.workLit",
 	"internal/sketch/check/work.go:checker.workLitForm",
 	"internal/sketch/check/work.go:isWorkType",
-	"internal/sketch/eval/expr.go:interp.callOf",
+	// ORACLE O38 moved callOf's std check (takes) into planOf (FT1 merge).
+	"internal/sketch/eval/plan.go:interp.planOf",
 	"internal/sketch/eval/machine.go:interp.machineLaw",
 	"internal/sketch/eval/machinevalue.go:interp.machineOption",
 	"internal/sketch/eval/natives.go:nativeOf",
@@ -644,6 +639,7 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/ir_assert.go:irState.lawBody",
 	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
 	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
+	"internal/sketch/lower/ir_pkg.go:irBuilder.stdOpCall", // B22-NP (IRG4b r2, batch 22 integration)
 	"internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins",
 	"internal/sketch/lower/pkgsplit.go:stdImports",
 	"internal/sketch/lower/refown.go:funcCtx.inPlaceOf",
@@ -656,12 +652,9 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/release.go:funcCtx.stdOp",
 	"internal/sketch/lower/std.go:funcCtx.graphArg",
 	"internal/sketch/lower/std.go:funcCtx.stdCall",
-	"internal/sketch/lower/std.go:lowerer.runtimeType",
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",
-	"internal/sketch/lower/uigroup.go:funcCtx.uiGroup",
-	"internal/sketch/lower/uigroup.go:groupFrame",
 	"internal/sketch/lower/values.go:lowerer.ownedForm",
 	"internal/sketch/lower/wirefields.go:jsonWrapper",
 	"internal/sketchfront/inspect.go:InspectGo",
@@ -669,7 +662,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketchfront/rewrite.go:FreshStdLedger",
 	"internal/tsproj/http.go:httpFailureStatuses",
 	"internal/tsproj/http.go:httpTables",
-	"internal/tsproj/project.go:stdJSON",
 }
 
 // stringConsts are the lowering's package-level constants whose value is

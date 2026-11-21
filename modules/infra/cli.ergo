@@ -212,6 +212,16 @@ func Exec[O wire](d Deployment[O], args []string) Output needs wired[O] {
 		case Failed as f:
 			return refused(d.Name, "\(f.ID): \(f.Reason); the lock stays held by \(x.Holder): destroy again to resume", 1)
 		}
+		// The outputs name objects that are gone: a client must not find
+		// them (PX7).
+		let path = d.Outputs(x.Stage)
+		d.Writes.Remove(path) catch {
+		case fs.NotFound:
+		case fs.Denied:
+			return refused(d.Name, "the objects are deleted, and the outputs at \(path) could not be removed: denied", 1)
+		case fs.Failed as f:
+			return refused(d.Name, "the objects are deleted, and the outputs at \(path) could not be removed: \(f.Reason)", 1)
+		}
 		told(x.JSON, x.Stage, Steps(pass), "destroyed: "+count(len(Steps(pass))))
 	case StateOrder as s:
 		shown(d, s)

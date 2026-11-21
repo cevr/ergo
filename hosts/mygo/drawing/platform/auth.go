@@ -10,6 +10,12 @@ type AuthRequest = impl.AuthRequest
 
 type AuthResponse = impl.AuthResponse
 
+type ClientCertificate = impl.ClientCertificate
+
+type ClientCertificateRequest = impl.ClientCertificateRequest
+
+type ClientCertificateResponse = impl.ClientCertificateResponse
+
 type CertificateError = impl.CertificateError
 
 func ParseAuthChallenge(challenge string) (string, string) {

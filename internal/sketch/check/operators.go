@@ -116,12 +116,33 @@ func intBounds(k BasicKind) (constant.Value, constant.Value) {
 
 // ---------------------------------------------------------------- unary
 
+// relend reports whether &x passes on the borrow of x, a mut parameter
+// of type t, and records it (Info.Relends): the call writes &x for a
+// borrow it lends as for one it was lent, and gets x's mut T, never a
+// borrow of the parameter (types.md, Borrows 1).
+func (c *checker) relend(x *syntax.UnaryExpr, t Type) bool {
+	id, ok := unparen(x.X).(*syntax.Ident)
+	if !ok || !isPointer(t) {
+		return false
+	}
+	v, ok := c.pkg.Info.Uses[id].(*Var)
+	if !ok || !v.param {
+		return false
+	}
+	c.pkg.Info.Relends[x] = true
+	return true
+}
+
 func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 	switch x.Op {
 	case syntax.AND:
 		op := c.valueExpr(x.X, nil)
 		if op.invalid() {
 			return op
+		}
+		if c.relend(x, op.typ) {
+			// &x of a mut parameter passes its borrow on (Borrows 1).
+			return operand{mode: modeValue, typ: op.typ}
 		}
 		if !op.addressable {
 			c.errorf(x, CodeType, "cannot take the address of this expression; a borrow &x names a variable, field or element")
@@ -157,7 +178,7 @@ func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 			return bad(x)
 		}
 	case syntax.SUB, syntax.ADD:
-		if !isNumeric(t) && !isDuration(t) && typeSet(t) != SetNumber {
+		if !signable(t) && !everyTerm(t, signable) {
 			c.errorf(x, CodeType, "operator %s is not defined on %s", x.Op, t)
 			return bad(x)
 		}
@@ -255,6 +276,9 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 			if !Equatable(t) {
 				c.errorf(x, CodeType, "%s values cannot be compared with %s", t, x.Op)
 				return bad(x)
+			}
+			if IsProviderMap(t) && c.providerEqual(x, t) { // mapprovider.go
+				return operand{mode: modeValue, typ: Typ[Bool]}
 			}
 		default:
 			if !ordered(t) {
@@ -371,34 +395,52 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 	return false
 }
 
+// signable reports whether unary + and - apply to t: a numeric type or a
+// duration.
+func signable(t Type) bool { return isNumeric(t) || isDuration(t) }
+
+// Ordered reports ordered(t) to the lowering: a type parameter whose set
+// orders compiles Go's < per GC shape (lower's orderedParam).
+func Ordered(t Type) bool { return ordered(t) }
+
 // ordered reports whether <, <=, > and >= are defined on t: an ordered
-// basic type, or a type parameter constrained by ordered or number.
+// basic type, or a type parameter whose every type-set term is one
+// (types.md, Generics 2).
 func ordered(t Type) bool {
 	if _, ok := t.(*TypeParam); ok {
-		return typeSet(t) >= SetOrdered
+		return everyTerm(t, ordered)
 	}
 	b, ok := under(t).(*Basic)
 	return ok && b.Kind != Bool && b.Kind != Invalid && !isComplex(b)
 }
 
-// opDefined reports a binary arithmetic or logical operator t lacks
-// (S108). On a type parameter an operator is defined when every type of
-// its constraint's set defines it (types.md, Generics 2): + on ordered
-// and number, -, * and / on number only.
-func (c *checker) opDefined(x syntax.Node, op syntax.Token, t Type) bool {
-	ok := false
-	set := typeSet(t)
+// binaryOpOn reports whether the binary arithmetic or logical operator op
+// is defined on t, a type that is no type parameter.
+func binaryOpOn(op syntax.Token, t Type) bool {
 	switch op {
 	case syntax.ADD:
-		ok = isNumeric(t) || isString(t) || isDuration(t) || set >= SetOrdered
+		return isNumeric(t) || isString(t) || isDuration(t)
 	case syntax.SUB:
-		ok = isNumeric(t) || isDuration(t) || set == SetNumber
+		return isNumeric(t) || isDuration(t)
 	case syntax.MUL, syntax.QUO:
-		ok = isNumeric(t) || set == SetNumber
+		return isNumeric(t)
 	case syntax.REM, syntax.AND, syntax.OR, syntax.XOR, syntax.AND_NOT:
-		ok = isInteger(t)
+		return isInteger(t)
 	case syntax.LAND, syntax.LOR:
-		ok = isBoolean(t)
+		return isBoolean(t)
+	}
+	return false
+}
+
+// opDefined reports a binary arithmetic or logical operator t lacks
+// (S108). On a type parameter an operator is defined when every type of
+// its constraint's set defines it (types.md, Generics 2; Go's rule): +
+// under ordered and number, -, * and / under number only, by the same
+// computation for any user type set.
+func (c *checker) opDefined(x syntax.Node, op syntax.Token, t Type) bool {
+	ok := binaryOpOn(op, t)
+	if _, param := t.(*TypeParam); param {
+		ok = everyTerm(t, func(u Type) bool { return binaryOpOn(op, u) })
 	}
 	if !ok {
 		c.errorf(x, CodeType, "operator %s is not defined on %s", op, t)

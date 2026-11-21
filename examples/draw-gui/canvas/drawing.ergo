@@ -79,6 +79,28 @@ func Move(d Picture, ids []int, delta Point) Picture {
 	out
 }
 
+// MoveThenMoveBackRestores: shapes moved by a delta and back are the
+// shapes they were, and the grid holds each in the same cells.
+law MoveThenMoveBackRestores(shapes []Shape, layers []int, pick []int, want Point) {
+	let pic = picture(shapes, layers)
+	let mut ids = []int{}
+	for i in pick {
+		ids = ids.Append(1 + ((i%8)+8)%8)
+	}
+	let delta = Room(pic, ids, want)
+	let back = Move(Move(pic, ids, delta), ids, Point{X: -delta.X, Y: -delta.Y})
+	Order(back) == Order(pic) && cellSets(back.Grid) == cellSets(pic.Grid)
+}
+
+// cellSets is g's cells with each cell's ids in order.
+func cellSets(g Grid) Map[int, []int] {
+	let mut out = Map[int, []int]{}
+	for k, ids in g.Cells {
+		out = out.Put(k, slices.Sort(ids))
+	}
+	out
+}
+
 // above reports whether a is painted over b: a higher layer, or the same
 // layer and a later id.
 func above(a Placed, b Placed) bool { a.Layer > b.Layer || a.Layer == b.Layer && a.Id > b.Id }

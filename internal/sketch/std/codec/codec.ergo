@@ -16,6 +16,7 @@
 
 import strconv
 import sync
+import utf8
 
 // The events, one record each, as the Writer's operations name them.
 type BoolEvent { V bool }
@@ -35,11 +36,115 @@ type NumberEvent { Text string }
 // Event is one event of a wire form.
 type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent | NullEvent | NumberEvent
 
+// MissingFieldFails: an object with no keys decodes as no record with
+// fields: the decode fails WireMissingField.
+law MissingFieldFails() {
+	let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent}
+	let _ = decode[up](NewReplay(empty)) catch {
+	case WireMissingField:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// UnknownTagFails: a tag no variant has fails WireUnknownTag.
+law UnknownTagFails(name string) {
+	if name == "up" {
+		return true
+	}
+	if name == "down" {
+		return true
+	}
+	let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent}
+	let _ = decode[state](NewReplay(evs)) catch {
+	case WireUnknownTag:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
 // Events records the events written to it.
 type Events { log sync.Ref[[]Event] } implements Writer
 
 // NewEvents is an Events with no event yet.
 func NewEvents() Events { Events{log: sync.NewRef[[]Event]([]Event{})} }
+
+// BasicReplay: a basic value at the top, not inside a record, is one event,
+// and decode[T] of a basic T reads it back: every kind (string, bool, a
+// narrow integer, an unsigned one, a float). decode[T] here is the direct
+// call, not RoundTrip's witness.
+law BasicReplay(s string, b bool, i int8, u uint8, f float64) {
+	let e = NewEvents()
+	encode(s, e)
+	encode(b, e)
+	encode(i, e)
+	encode(u, e)
+	encode(f, e)
+	let r = NewReplay(Recorded(e))
+	let s2 = decode[string](r) catch {
+	case _:
+		return false
+	}
+	let b2 = decode[bool](r) catch {
+	case _:
+		return false
+	}
+	let i2 = decode[int8](r) catch {
+	case _:
+		return false
+	}
+	let u2 = decode[uint8](r) catch {
+	case _:
+		return false
+	}
+	let f2 = decode[float64](r) catch {
+	case _:
+		return false
+	}
+	s2 == s && b2 == b && i2 == i && u2 == u && f2 == f
+}
+
+// GenericReplay: a list of union values and its first value, encoded and
+// decoded inside a generic function, read back as they were.
+law GenericReplay(vs []state) {
+	let (back, first) = many(vs) catch {
+	case _:
+		return false
+	}
+	let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	back == vs && first == want
+}
+
+// many is vs through Events and back as one list, so the codec of []T and
+// Option[T] runs inside a generic function, on T's witness.
+func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] needs wired[T] {
+	let e = NewEvents()
+	encode(vs, e)
+	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
+	encode(first, e)
+	let r = NewReplay(Recorded(e))
+	(try decode[[]T](r), try decode[Option[T]](r))
+}
+
+// EncodeNests: the events of one value open and close as many times, and
+// never close more than they opened.
+law EncodeNests(v fleet) {
+	let e = NewEvents()
+	encode(v, e)
+	let mut open = 0
+	let mut ok = true
+	for ev in Recorded(e) {
+		open = open + depth(ev)
+		if open < 0 {
+			ok = false
+		}
+	}
+	ok && open == 0
+}
 
 // Recorded is the events written to e, in order.
 func Recorded(e Events) []Event { e.log.Get() }
@@ -54,12 +159,30 @@ func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
 func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
 func Float(e Events, f float64)   { record(e, FloatEvent{V: f}) }
 func String(e Events, s string)   { record(e, StringEvent{V: s}) }
+func StringBytes(e Events, b []byte) { record(e, StringEvent{V: utf8.String(b)}) }
 func BeginList(e Events, n int)   { record(e, BeginListEvent{N: n}) }
 func EndList(e Events)            { record(e, EndListEvent) }
 func BeginObject(e Events, n int) { record(e, BeginObjectEvent{N: n}) }
 func Tag(e Events, name string)   { record(e, TagEvent{Name: name}) }
 func Key(e Events, k string)      { record(e, KeyEvent{K: k}) }
 func EndObject(e Events)          { record(e, EndObjectEvent) }
+
+// StringBytesRecordsString: StringBytes records the String event of the
+// string its bytes spell.
+law StringBytesRecordsString(b []byte) {
+	let e = NewEvents()
+	e.StringBytes(b)
+	let got = Recorded(e)
+	if len(got) != 1 {
+		return false
+	}
+	match got[0] {
+	case StringEvent as x:
+		x.V == utf8.String(b)
+	case _:
+		false
+	}
+}
 
 // RoundTrip is v through Events and back: decode[T] of a Replay of the
 // events encode(v) wrote. Its row is wired[T], the row of decode[T].
@@ -68,6 +191,27 @@ func RoundTrip[T wire](v T) T fails wired[T] needs wired[T] {
 	encode(v, e)
 	decode[T](NewReplay(Recorded(e)))
 }
+
+// EventsReplay: what encode writes on Events, decode reads back from a
+// Replay of those events as the same value. RoundTrip is generic, so the
+// law runs the codec through its witness too.
+law EventsReplay(v fleet) {
+	let back = RoundTrip(v) catch {
+	case _:
+		return false
+	}
+	back == v
+}
+
+type up { Host string, Port int, Tags []string, Load float64 }
+
+type down {}
+
+type state = up | down
+
+type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
+
+type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths }
 
 // Replay reads back a list of events.
 type Replay { events []Event, at sync.Ref[int] } implements Reader
@@ -207,6 +351,22 @@ func Float(r Replay) float64 fails WireWrongKind {
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "float"}
 	}
+}
+
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r Replay, into []byte) []byte fails WireWrongKind { appendText(into, try r.String()) }
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
+
+// StringBytesReplaysString: a Replay's StringBytes adds the string event's
+// bytes to into (GX12).
+law StringBytesReplaysString(s string, pre []byte) {
+	let got = NewReplay([]Event{StringEvent{V: s}}).StringBytes(pre) catch {
+	case _:
+		return false
+	}
+	utf8.String(got) == utf8.String(pre)+s
 }
 
 func String(r Replay) string fails WireWrongKind {

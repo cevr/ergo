@@ -153,6 +153,8 @@ func headless(text string, name string, store edit.Store, clip ui.Clipboard, che
 				out.Println("? no node " + x.Label)
 			case ui.Mismatch as miss:
 				out.Println("? want " + miss.Want + ", got " + miss.Got)
+			case ui.Ambiguous as amb:
+				out.Println("? \(amb.Count) nodes at " + amb.At)
 			case ui.Closed, actor.Stopped:
 				return os.Exit{Code: 1, Message: "editor-gui: the app stopped"}
 			case ui.BadPatch as b:
@@ -174,7 +176,7 @@ func headless(text string, name string, store edit.Store, clip ui.Clipboard, che
 
 // play gives the window each step of acts, a key after the focus is
 // dropped.
-func play[D, F](d *desktop.Driver[window.Window, window.Signal, D, F], w go.Ref[screen.Window], acts []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func play[D, F](d mut desktop.Driver[window.Window, window.Signal, D, F], w go.Ref[screen.Window], acts []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for act in acts {
 		match act {
 		case ui.KeyIn:
@@ -188,7 +190,7 @@ func play[D, F](d *desktop.Driver[window.Window, window.Signal, D, F], w go.Ref[
 // unfocus clicks the window right of the text input, where no node takes
 // a press, so a key goes to the editor and not to a focused button or
 // field.
-func unfocus[D, F](d *desktop.Driver[window.Window, window.Signal, D, F], w go.Ref[screen.Window]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func unfocus[D, F](d mut desktop.Driver[window.Window, window.Signal, D, F], w go.Ref[screen.Window]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	if desktop.FocusId(d) == None {
 		return
 	}

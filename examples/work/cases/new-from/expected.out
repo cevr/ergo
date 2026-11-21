@@ -1,0 +1,1 @@
+{"name":"wf/a","id":"03cc77aa560ab229","path":".work/base/wf-a","branch":"wf/a","deps":{"_tag":"NoDeps"},"hooks":{"_tag":"HookFailed","hook":"postcreate","command":"git rev-parse --abbrev-ref HEAD >&2; git log -1 --format=%s >&2; cat a.txt >&2; git config remote.origin.pushurl >&2; exit 3","status":3,"stderr":"wf/a\none\none\nno-push:workspaces-never-push-origin\n"}}

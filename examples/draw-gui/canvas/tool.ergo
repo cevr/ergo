@@ -202,6 +202,22 @@ func Finish(tool Kind, points []Point) Option[Shape] {
 	}
 }
 
+// FinishStaysInWorld: every shape a tool makes between two world points
+// is inside the world.
+law FinishStaysInWorld(a Point, b Point) {
+	let world = Box{Lo: Point{X: -Limit, Y: -Limit}, Hi: Point{X: Limit, Y: Limit}}
+	for tool in []Kind{PenTool, RectTool, EllipseTool, LineTool} {
+		match Finish(tool, []Point{Bound(a), Bound(b)}) {
+		case Some[Shape] as s:
+			if !Contains(world, BoxOf(s.Value)) {
+				return false
+			}
+		case None:
+		}
+	}
+	true
+}
+
 func abs(v int) int { if v < 0 { -v } else { v } }
 
 func dragging(g Dragging, sig Signal) Decision[State, Output] {

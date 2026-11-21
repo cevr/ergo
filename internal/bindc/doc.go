@@ -262,7 +262,15 @@
 //     counts are results; buffers are slices (an empty slice passes NULL
 //     and length 0); a callback is the Go func type of its typedef (a nil
 //     func passes NULL, and a token key drops out); a status result becomes an error (nil on success, else
-//     the Status). Every typed function returns an error last, and a call
+//     the Status). A value of a record header (a struct with a size
+//     autofill field that pointer-free structs start with: OpenTUI's
+//     ot_buffer_draw_header) is the interface <H>Record, which H and each
+//     of those record kinds implement: C gets a filled copy of the whole
+//     record, the record's size in the header's size field, or NULL for a
+//     nil record. An optional value (an exception of class "optional":
+//     a value C reads as absent when NULL, as OpenTUI's frame for an owned
+//     buffer) is a *S: C gets a filled copy, or NULL for nil; the Ergo
+//     text writes Option[S]. Every typed function returns an error last, and a call
 //     before Load, on a nil or destroyed handle, or with a slice too long
 //     for its C length, returns an error and does not call C.
 //
@@ -312,7 +320,7 @@
 //
 // ErgoText emits the Ergo signatures of the Go package (<header>.ergo). The
 // text is provisional: it parses with internal/sketch/syntax and is in
-// canonical internal/sketch/format form, and the checker does not read it
+// canonical internal/hostsyntax form, and the checker does not read it
 // yet. It holds:
 //
 //   - a provenance header and `import go <import path>`, unquoted, because
@@ -322,7 +330,9 @@
 //     NotLoaded (a call before Load), Destroyed (a nil or destroyed handle)
 //     and TooLong (a slice too long for its C length);
 //   - one record per C struct that a typed signature reaches by value, with
-//     CamelCase fields, without autofill fields, and arrays as []T;
+//     CamelCase fields, without autofill fields, and arrays as []T; and
+//     for a record header an extern takes, the union <H>Record of its
+//     record kinds, the type of that parameter;
 //   - handles and scalar typedefs named through the import (opaque nominal);
 //   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
 //     typed function: it fails Status | CallError when the function returns

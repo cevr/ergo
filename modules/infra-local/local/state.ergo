@@ -1,0 +1,210 @@
+// infra's state store and lock in files on the machine (PX6): what a
+// stack's rows and its lock need to outlive the run that wrote them, so a
+// later run of the program (a plan, a destroy) finds them.
+//
+// Prior art: Terraform's local backend (terraform.tfstate beside the
+// configuration, and its .terraform.tfstate.lock.info).
+
+import github.com/cevr/ergo/modules/infra
+import filepath
+import fs
+import fstest
+import hex
+import strconv
+import strings
+
+// Rows is the state store of one kind in a ledger: an entry per row
+// (kind "row", by the hex of its id) holding its id, status, place and
+// props, the props as the text the store's show gives and its read takes
+// back. A row that cannot be read reads as no row (infra.State's reads do
+// not fail): the next apply ensures that object again.
+type Rows[P comparable] { ledger Ledger, show func(p P) string, read func(text string) Option[P] } implements infra.State[P]
+
+// RowsOn is the store in the folder root over files and writes, whose
+// props are written by show and read back by read. A Put makes the folder.
+func RowsOn[P comparable](files fs.Files, writes fs.Writes, root string, show own func(p P) string, read own func(text string) Option[P]) Rows[P] {
+	Rows[P]{ledger: NewLedger(root, files, writes), show: show, read: read}
+}
+
+// statusWord is the word a row's status is kept as.
+func statusWord(s infra.Status) string {
+	match s {
+	case infra.Creating:
+		"creating"
+	case infra.Live:
+		"live"
+	case infra.Deleting:
+		"deleting"
+	}
+}
+
+// statusOf is the status a word names.
+func statusOf(word string) Option[infra.Status] {
+	match word {
+	case "creating":
+		Some[infra.Status]{Value: infra.Creating}
+	case "live":
+		Some[infra.Status]{Value: infra.Live}
+	case "deleting":
+		Some[infra.Status]{Value: infra.Deleting}
+	case _:
+		None
+	}
+}
+
+// rowOf is the row an entry's fields hold, None when they hold none.
+func rowOf[P comparable](s Rows[P], fields []string) Option[infra.Row[P]] {
+	if len(fields) != 4 {
+		return None
+	}
+	let seq = strconv.Atoi(fields[2]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return None
+	}
+	match (statusOf(fields[1]), s.read(fields[3])) {
+	case (Some[infra.Status] as status, Some[P] as p):
+		Some[infra.Row[P]]{Value: infra.Row[P]{ID: fields[0], Status: status.Value, Props: p.Value, Seq: seq}}
+	case _:
+		None
+	}
+}
+
+func Get[P comparable](s Rows[P], id string) Option[infra.Row[P]] {
+	let fields = get(s.ledger, "row", id) catch {
+	case infra.Failed:
+		return None
+	}
+	match fields {
+	case Some[[]string] as f:
+		rowOf(s, f.Value)
+	case None:
+		None
+	}
+}
+
+func Put[P comparable](s Rows[P], row infra.Row[P]) fails infra.Failed {
+	try put(s.ledger, "row", row.ID, []string{row.ID, statusWord(row.Status), strconv.Itoa(row.Seq), s.show(row.Props)})
+}
+
+func Remove[P comparable](s Rows[P], id string) fails infra.Failed {
+	try drop(s.ledger, "row", id)
+}
+
+// List is every row in the ledger, in the order of its entries' names.
+func List[P comparable](s Rows[P]) []infra.Row[P] {
+	let names = s.ledger.files.ReadDir(s.ledger.Root) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return []infra.Row[P]{}
+	}
+	let mut out = []infra.Row[P]{}
+	for name in names {
+		if !strings.HasPrefix(name, "row-") {
+			continue
+		}
+		let id = hex.Decode(strings.TrimPrefix(name, "row-")) catch {
+		case hex.Malformed:
+			continue
+		}
+		match s.Get(id) {
+		case Some[infra.Row[P]] as r:
+			out = out.Append(r.Value)
+		case None:
+		}
+	}
+	out
+}
+
+// IntRows is the store of int props in a new fstest.Memory: the instance
+// at which ergo test runs infra.State's laws in this package, since a
+// generic provider fixes no instance (types.md, Laws 10).
+type IntRows { s Rows[int] } implements infra.State[int]
+
+// NewIntRows is an empty store of int props in a new fstest.Memory.
+func NewIntRows() IntRows {
+	let m = fstest.NewMemory()
+	IntRows{s: RowsOn[int](m, m, "/state/rows", func(p int) string { strconv.Itoa(p) }, func(text string) Option[int] {
+		let n = strconv.Atoi(text) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		Some[int]{Value: n}
+	})}
+}
+
+func Get(r IntRows, id string) Option[infra.Row[int]] { r.s.Get(id) }
+
+func Put(r IntRows, row infra.Row[int]) fails infra.Failed { try r.s.Put(row) }
+
+func Remove(r IntRows, id string) fails infra.Failed { try r.s.Remove(id) }
+
+func List(r IntRows) []infra.Row[int] { r.s.List() }
+
+// FileLock is the lock of a stack's stage in the file path, which holds
+// the holder's name while the lock is held. Two runs that take it at the
+// same instant can both see it free: std fs has no exclusive create, so
+// the lock keeps out a run that starts while another is on, not one that
+// starts with it (a follow-up names the gap).
+type FileLock { path string, files fs.Files, writes fs.Writes } implements infra.Lock
+
+// LockOn is the lock in the file path over files and writes; an Acquire
+// makes its folder.
+func LockOn(files fs.Files, writes fs.Writes, path string) FileLock {
+	FileLock{path: path, files: files, writes: writes}
+}
+
+// NewFileLock is a free lock in a new fstest.Memory: the instance at
+// which ergo test runs infra.Lock's laws.
+func NewFileLock() FileLock {
+	let m = fstest.NewMemory()
+	LockOn(m, m, "/lock")
+}
+
+func Holder(l FileLock) Option[string] {
+	let text = l.files.ReadFile(l.path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return None
+	}
+	Some[string]{Value: text}
+}
+
+// Acquire writes holder into the lock's file when the lock is free or
+// holder's. A file it cannot write is held by no one it can name: the
+// failure says so in Holder.
+func Acquire(l FileLock, holder string) fails infra.Held {
+	match l.Holder() {
+	case Some[string] as other:
+		if other.Value != holder {
+			return infra.Held{Holder: other.Value}
+		}
+	case None:
+	}
+	l.writes.MkdirAll(filepath.Dir(l.path)) catch {
+	case fs.Denied, fs.Failed:
+		return infra.Held{Holder: "(the lock's folder \(filepath.Dir(l.path)) cannot be made)"}
+	}
+	l.writes.WriteFile(l.path, holder) catch {
+	case fs.NotFound, fs.Denied:
+		return infra.Held{Holder: "(the lock's file \(l.path) cannot be written)"}
+	case fs.Failed as e:
+		return infra.Held{Holder: "(the lock's file \(l.path): \(e.Reason))"}
+	}
+}
+
+func Release(l FileLock, holder string) {
+	if l.Holder() == (Some[string]{Value: holder}) {
+		l.writes.Remove(l.path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+}
+
+func Break(l FileLock, holder string) fails infra.Held {
+	match l.Holder() {
+	case Some[string] as other:
+		if other.Value != holder {
+			return infra.Held{Holder: other.Value}
+		}
+		l.Release(holder)
+	case None:
+	}
+}

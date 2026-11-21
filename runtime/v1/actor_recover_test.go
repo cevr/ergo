@@ -187,7 +187,7 @@ func (d *durableHosts) start(t *rt.Task, sl Sleeper, initial dst) *Actor[dst, ds
 			c := MachineChild(Site("courier"), wt, sl, nil, h, marker,
 				func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil,
 				func(int) time.Duration { return ActorNoTimer() },
-				noWork[int], hasNoWork, runNoWork[int], func(d int) int { return d }, func(s, _ int) int { return s },
+				noWork[int], hasNoWork, runNoWork[int], nil, nil, func(d int) int { return d }, func(s, _ int) int { return s },
 				func(*rt.Task, int, func(dsig)) {}, 1)
 			d.mu.Lock()
 			d.kids = append(d.kids, c)
@@ -197,7 +197,7 @@ func (d *durableHosts) start(t *rt.Task, sl Sleeper, initial dst) *Actor[dst, ds
 	}
 	return MachineSupervise(Site("durable"), t, sl, nil, initial, fresh, 1000,
 		step, nil, func(dst) time.Duration { return ActorNoTimer() },
-		func(s dst) dst { return s }, func(dst) bool { return true }, work,
+		func(s dst) dst { return s }, func(dst) bool { return true }, work, nil, nil,
 		func(dec ddec) int { return dec.kind },
 		func(s dst, dec ddec) dst {
 			if dec.kind == decideEnter || dec.kind == decideStay {

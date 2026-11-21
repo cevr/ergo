@@ -603,8 +603,10 @@ func orderKeys(diags []Diagnostic, src string, key func(int) (int, int)) []strin
 	return out
 }
 
-// usePosition is the value use a class G S108 names (rows.go reportGroup).
-var usePosition = regexp.MustCompile(` at (\d+):(\d+) inside its own recursive group; `)
+// usePosition is the value use a class G S108 names (rows.go reportGroup),
+// or the declaration R22's repair names (resource.go,
+// resourceIntoCrossingText: "add ..Closer to T (L:C)" in a one-file package).
+var usePosition = regexp.MustCompile(`(?: at (\d+):(\d+) inside its own recursive group; |; add \.\.Closer to \w+ \((\d+):(\d+)\)$)`)
 
 // mapUsePosition maps the line:column of a class G value use in msg to its
 // declaration and offset, as the diagnostic's own position.
@@ -612,6 +614,10 @@ func mapUsePosition(msg, src string, key func(int) (int, int)) string {
 	m := usePosition.FindStringSubmatchIndex(msg)
 	if m == nil {
 		return msg
+	}
+	if m[2] < 0 {
+		// The R22 form: its groups are the second pair.
+		m = append(m[:2:2], m[6:]...)
 	}
 	line, _ := strconv.Atoi(msg[m[2]:m[3]])
 	col, _ := strconv.Atoi(msg[m[4]:m[5]])

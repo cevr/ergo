@@ -1,11 +1,12 @@
 // Package workload writes the JSON document the receipts parse: an array
-// of n records in jq's layout. Each record has numbers of every form,
+// of n records, indented. Each record has numbers of every form,
 // strings with escapes and text outside ASCII, a nested object and an
 // array, so the parser's every path runs. The seed draws the values, so
 // two seeds give two documents of one shape.
 
 import rand
 import strings
+import jsonparse/json
 
 let words = []string{"alpha", "beta", "gamma", "delta", "tab\\there", "quote \\\"q\\\"", "snow ☃", "\\u00e9t\\u00e9", "\\ud83d\\ude00 face", "path\\/to"}
 
@@ -14,6 +15,16 @@ func Document(seed int, n int) string {
 	with context { Random: rand.Seeded(uint64(seed)) } {
 		write(n)
 	}
+}
+
+// DocumentIsJSON: the workload of every seed is JSON, so the receipts
+// time the parse of a document and not a failure at its first string.
+law DocumentIsJSON(seed int) {
+	let _ = json.Parse(Document(seed, 20)) catch {
+	case json.Malformed:
+		return false
+	}
+	true
 }
 
 func word() string needs Random { words[Random.IntN(len(words))] }

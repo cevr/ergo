@@ -56,6 +56,11 @@ func TestIRUnionsMatchSource(t *testing.T) {
 		if len(missing) > 0 {
 			t.Fatalf("seed %d: no IR body for %v (fallback %v)\n%s\n%s", seed, missing, rep.Fallback, replay, text)
 		}
+		// FAIL-ELIDE-PAT: whole's total catch with record patterns
+		// panics with the unreachable defect at its tree's exit.
+		if lower.IRCatchDefectOn() && rep.CatchTreeDefects == 0 {
+			t.Errorf("seed %d: no total catch with patterns named no failure at its default\n%s", seed, replay)
+		}
 		irFile := filepath.Join(dir, "ir", lower.IRFileName)
 		irKinds(t, irFile, seen)
 		of, tag := unionForms(t, irFile, seen)

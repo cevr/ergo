@@ -1,0 +1,28 @@
+// Rift's copies taken over (SEMWS WG6a), on the memory providers: Rift's
+// registry is an exec.Script that answers work's one sqlite3 query with
+// the rows a law draws.
+
+import fstest
+import time
+import github.com/cevr/ergo/modules/work/work
+
+// RiftRegistryOnAMac: the smallest repro of adopt-rift missing Rift's
+// registry on a Mac (G5): with the default data folder, the registry is
+// Rift's own beside it when that is there, else the macOS one.
+test RiftRegistryOnAMac {
+	let disk = fstest.NewMemory()
+	let trees = NewCloner()
+	let lock = NewLock()
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: disk, Writes: disk, Runner: NewRunner(), Clock: time.NewManual(1000)}
+	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/u/.local/share/work", p, "/")
+	let none = work.RiftOptions{Registry: None}
+	let mac = "/u/Library/Application Support/rift/rift.sqlite"
+	let linux = "/u/.local/share/rift/rift.sqlite"
+	assert work.RiftRegistry(tool, none) == linux
+	try disk.MkdirAll("/u/Library/Application Support/rift")
+	try disk.WriteFile(mac, "SQLite format 3")
+	assert work.RiftRegistry(tool, none) == mac
+	try disk.MkdirAll("/u/.local/share/rift")
+	try disk.WriteFile(linux, "SQLite format 3")
+	assert work.RiftRegistry(tool, none) == linux
+}

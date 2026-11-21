@@ -1,0 +1,135 @@
+{
+  "about": "The stack machine's mutants: the verifier (vm.Verify) and the loop that runs only verified programs (vm.Exec). Killers are the examples suite (examples:stackvm: its tests and laws, ExecAgreesWithChecked above all, and its cases); each rule names the law or test that kills it.",
+  "mutants": [
+    {
+      "name": "svm-verify-need-dropped",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\tif !v.demand(f, need-d) {",
+      "to": "\t\tif !v.demand(f, need-d-1) {",
+      "rule": "ExecAgreesWithChecked and FuelBoundsSteps: Verify admits an instruction that finds one value fewer than it pops (Joined(0)'s Print at depth 0, or a Bent near miss), and Exec reads a value where Checked traps on Underflow.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-merge-depth-ignored",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\tv.at[pc] == d\n}",
+      "to": "\ttrue\n}",
+      "rule": "ExecAgreesWithChecked: Joined(0), whose two paths meet at its Print with depths 0 and 1, is admitted, and its jump path prints a value where Checked traps on Underflow.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-room-halved",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\tfor room <= bound {",
+      "to": "\tfor room <= bound/2 {",
+      "rule": "ExecAgreesWithChecked: Tower(60) gets a stack of 32 under a proved depth of 60, its pushes wrap onto the bottom, and its sum differs from Checked's. (for room < bound is an equivalent mutant: a depth of bound uses indices below bound.)",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-room-ignores-frames",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "(MaxFrames+1)*v.high + MaxFrames",
+      "to": "2*v.high + MaxFrames",
+      "rule": "ExecAgreesWithChecked: Down(9000), whose frames each keep a value, outgrows a room sized for two frames: its values run into its return points, and it ends otherwise than on Checked.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-callee-need-dropped",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tv.demand(f, s.need-d) && (!s.returns || v.reach(pc+1, d+s.delta))",
+      "to": "\t\t\t!s.returns || v.reach(pc+1, d+s.delta)",
+      "rule": "ExecAgreesWithChecked: Short, which calls an Add with one value on the stack, is admitted, and Exec adds a value where Checked traps on Underflow.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-ret-depth-ignored",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\treturn s.delta == d",
+      "to": "\t\treturn true",
+      "rule": "ExecAgreesWithChecked: Uneven(0), whose subroutine returns with one value less on one path, is admitted, and its Print reads a value where Checked traps on Underflow.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-verify-ret-in-main",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tf != 0 && v.returns(f, d)",
+      "to": "\t\t\tv.returns(f, d)",
+      "rule": "ExecAgreesWithChecked: Unopened, a Ret with no call open, is admitted; with 5 fuel Exec returns to 0 and runs out where Checked traps on NoFrame.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-mask-narrow",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tstack[sp&63] = p.N",
+      "to": "\t\t\tstack[sp&31] = p.N",
+      "rule": "ExecAgreesWithChecked: Tower(60) pushes past 32 values on execFlat, the push wraps onto the bottom, and the printed sum differs from Checked's.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-calls-mask-narrow",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tmem[(top-fp)&top] = pc",
+      "to": "\t\t\tmem[(top-fp)&(top/2)] = pc",
+      "rule": "ExecAgreesWithChecked: under half the mask Down(9000)'s return points start in the middle of the room and meet its values, so it ends otherwise than on Checked.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-resume-drops-printed",
+      "origin": "wf10 SVM-VERIFY",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\treturn try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: printed,",
+      "to": "\t\treturn try resume(code, fuel, paused{stack: held(stack[0:64], sp), frames: []int{}, printed: []int{},",
+      "rule": "ExecAgreesWithChecked: Printing(k), given exactly the fuel to halt, leaves execFlat at its last backward JumpIf and, with this mutant, halts in the checked loop without the values it printed.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-low-ignored",
+      "origin": "wf10 SVM-FLOOR-GAP",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tpc = mem[(top-fp)&top]\n\t\t\tif pc <= at && left <= end {\n\t\t\t\tlow = true\n",
+      "to": "\t\t\tpc = mem[(top-fp)&top]\n\t\t\tif pc <= at && left <= end {\n\t\t\t\tlow = false\n",
+      "rule": "ExecAgreesWithChecked: Down(k) with one step less than it needs runs low on fuel at a Ret; with this mutant execCalls leaves its loop unmarked and returns a Result there instead of going on to the OutOfFuel trap on the checked loop.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-ret-skips-fuel",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tpc = mem[(top-fp)&top]\n\t\t\tif pc <= at && left <= end {",
+      "to": "\t\t\tpc = mem[(top-fp)&top]\n\t\t\tif false {",
+      "rule": "ExecAgreesWithChecked: Down(k) unwinds by backward Rets only; with a fuel that runs out while it unwinds, Exec halts where Checked traps on OutOfFuel.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    },
+    {
+      "name": "svm-exec-call-depth-unchecked",
+      "origin": "wf10 SVM-CALLS",
+      "file": "examples/stackvm/vm/verify.ergo",
+      "from": "\t\t\tif fp == MaxFrames {",
+      "to": "\t\t\tif false {",
+      "rule": "TrapsAreTyped: Call{To: 0} calls itself until its fuel runs out, where Checked traps on TooDeep at the 10001st call.",
+      "anchor": {"tests": ["examples:stackvm"]},
+      "killers": ["examples:stackvm"]
+    }
+  ]
+}

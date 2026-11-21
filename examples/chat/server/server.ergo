@@ -19,14 +19,14 @@ type Conn {
 	// Read is the next line the client sent, or Hangup when the client
 	// is gone or the server hung up.
 	Read() string fails Hangup,
-	// Peer is the connection's sending side, which the room keeps for
-	// each member: a shared handle, not a resource.
-	Peer() Peer,
+	// End ends the connection from the server's side, as its Peer's
+	// Hangup does.
+	End(),
 
-	// HangupIsFinal: after the peer hangs up, Read hangs up, and hangs up
-	// again. Hangup lends the connection, so the law can read it after.
+	// HangupIsFinal: after End, Read hangs up, and hangs up again. End
+	// lends the connection, so the law can read it after.
 	law HangupIsFinal() {
-		Peer().Hangup()
+		End()
 		let _ = Read() catch {
 		case Hangup:
 			let _ = Read() catch {
@@ -67,12 +67,17 @@ type Hangup {}
 // under the name it asked for.
 type Envelope { Signal room.Signal, Peer Peer, Client int }
 
-// Serve runs the room for each connection accept gives, until accept is
-// ended and every client hangs up, and is the room's last state. Each
+// Serve runs the room for each connection accept gives, with its sending
+// side, until accept is ended and every client hangs up, and is the room's
+// last state. A connection and its Peer are made together (memory.Pipe):
+// a Conn is a declared root (it implements Closer), so a Peer read out of
+// its fields would be a second owner of the queues its release ends, and a
+// handle leaves a declared root only with the whole root (resources R17,
+// R39). Each
 // outcome of a signal, an event or a refusal, is also pushed to log, one
 // line per signal, so an observer can follow the room in order. A popped
 // connection is owned by the frame that runs its client.
-func Serve(accept queue.Queue[Conn], log queue.Queue[string]) room.State fails queue.Closed needs time.Clock {
+func Serve(accept queue.Queue[(Conn, Peer)], log queue.Queue[string]) room.State fails queue.Closed needs time.Clock {
 	let inbox = queue.New[Envelope](16)
 	let hub = task.Go() { host(inbox, log) }
 	try serveAll(accept, 0, inbox)
@@ -83,17 +88,17 @@ func Serve(accept queue.Queue[Conn], log queue.Queue[string]) room.State fails q
 // serveAll moves each accepted connection into a Set member's root. The
 // handler lends the connection for its run; the root releases it before
 // the Set's Wait returns. A failure stops and drains the other members.
-func serveAll(accept queue.Queue[Conn], i int, inbox queue.Queue[Envelope]) fails queue.Closed {
+func serveAll(accept queue.Queue[(Conn, Peer)], i int, inbox queue.Queue[Envelope]) fails queue.Closed {
 	let clients = tasks.NewSet[queue.Closed](tasks.FailFast)
 	let mut next = i
 	for {
-		let c = accept.Pop() catch {
+		let c, peer = accept.Pop() catch {
 		case queue.Closed:
 			break
 		}
 		let id = next
 		next = next + 1
-		tasks.Go(clients) { try client(c, id, inbox) } catch {
+		tasks.Go(clients) { try client(c, peer, id, inbox) } catch {
 		case tasks.Closed:
 			break // Wait below gives the failure that closed admission.
 		}
@@ -101,10 +106,10 @@ func serveAll(accept queue.Queue[Conn], i int, inbox queue.Queue[Envelope]) fail
 	try clients.Wait()
 }
 
-// client reads a name, then lines, from c and sends them to the room. A
-// line "/quit" leaves, "/shut" closes the room; a hang-up leaves.
-func client(c Conn, id int, inbox queue.Queue[Envelope]) fails queue.Closed {
-	let peer = c.Peer()
+// client reads a name, then lines, from c and sends them to the room with
+// peer, c's sending side. A line "/quit" leaves, "/shut" closes the room;
+// a hang-up leaves.
+func client(c Conn, peer Peer, id int, inbox queue.Queue[Envelope]) fails queue.Closed {
 	peer.Write("name?")
 	let name = c.Read() catch {
 	case Hangup:

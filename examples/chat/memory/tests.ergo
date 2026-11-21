@@ -21,14 +21,14 @@ let oneConn = context { server.Conn: Server{inbound: queue.New[string](1), outbo
 test LinesBeforeHangup(lines []string) {
 	// Room for every line: a Send to a full connection waits for a reader,
 	// and this test reads only after the hang-up.
-	let end, c = Pipe(len(lines) + 1)
+	let end, _, c = Pipe(len(lines) + 1)
 	for l in lines {
 		c.Send(l) catch {
 		case server.Hangup:
 			assert false
 		}
 	}
-	end.Peer().Hangup()
+	end.End()
 	// The lines sent before the hang-up are read first.
 	for l in lines {
 		assert try end.Read() == l

@@ -1,0 +1,170 @@
+// Package pubsub fans each published value out to every subscriber
+// (Effect's PubSub; docs/spec/stdlib.md, PubSub). It is Ergo over std
+// queue and sync, with no runtime body: each subscription is a bounded
+// queue.Queue, and Publish pushes the value into each one, so a subscriber
+// that does not read bounds the publisher (back-pressure, Effect's bounded
+// strategy). A subscriber that must not hold a publisher back reads into a
+// queue of its own with queue.Slide or Offer.
+//
+// A subscription is a resource: its owner's scope ends it, and an ended
+// subscription receives nothing more. It sees every value published after
+// Subscribe returned, in the order one publisher published them; two
+// publishers at once may interleave differently for two subscribers.
+//
+// Every copy of a PubSub is the same hub.
+
+import queue
+import sync
+import task
+
+// PubSub is a hub of values of T. Its fields are unexported, so only New
+// makes one.
+type PubSub[T] { state sync.Ref[hub[T]], capacity int }
+
+// hub is the subscribers by id, the next id and whether End ended it.
+type hub[T] { subs Map[int, queue.Queue[T]], next int, ended bool }
+
+// Subscription receives the values published after it joined. Its fields
+// are unexported, so only Subscribe makes one.
+type Subscription[T] { values queue.Queue[T], id int, state sync.Ref[hub[T]] } implements Closer
+
+// New is a hub whose subscriptions each hold up to capacity values no
+// subscriber has taken yet. A capacity below 1 is a defect: every Publish
+// would wait for a Take.
+func New[T](capacity int) PubSub[T] {
+	if capacity < 1 {
+		Unreachable("pubsub.New: the capacity is 1 or more")
+	}
+	PubSub[T]{state: sync.NewRef[hub[T]](hub[T]{subs: Map[int, queue.Queue[T]]{}, next: 0, ended: false}), capacity: capacity}
+}
+
+// Subscribe joins p: the subscription receives every value published
+// after it returns. On an ended hub it receives nothing, and its Take
+// fails Closed at once.
+func Subscribe[T](p PubSub[T]) Subscription[T] {
+	let q = queue.New[T](p.capacity)
+	let id = sync.Modify(p.state, func(h hub[T]) (int, hub[T]) {
+		if h.ended {
+			return (-1, h)
+		}
+		(h.next, hub[T]{subs: h.subs.Put(h.next, q), next: h.next + 1, ended: false})
+	})
+	if id < 0 {
+		q.End()
+	}
+	Subscription[T]{values: q, id: id, state: p.state}
+}
+
+// Publish gives v to every subscriber of p, waiting while a subscriber's
+// queue is full. It fails with Closed when p has ended. A subscription
+// that ends while Publish waits for it is skipped.
+func Publish[T](p PubSub[T], v T) fails queue.Closed {
+	let h = p.state.Get()
+	if h.ended {
+		return queue.Closed
+	}
+	for _, q in h.subs {
+		q.Push(v) catch {
+		case queue.Closed:
+			continue
+		}
+	}
+}
+
+// End ends p: a later Publish fails Closed, and each subscriber takes the
+// values already in its queue, then Closed. It never waits.
+func End[T](p PubSub[T]) {
+	let h = sync.Modify(p.state, func(h hub[T]) (hub[T], hub[T]) { (h, hub[T]{subs: Map[int, queue.Queue[T]]{}, next: h.next, ended: true}) })
+	for _, q in h.subs {
+		q.End()
+	}
+}
+
+// Subscribers is how many subscriptions of p are live now.
+func Subscribers[T](p PubSub[T]) int { len(p.state.Get().subs) }
+
+// Take gives the oldest value s has not taken, waiting while there is
+// none. It fails with Closed once the hub ended, or s was closed, and
+// every value s received is taken.
+func Take[T](s Subscription[T]) T fails queue.Closed { try s.values.Pop() }
+
+// Values is s's values as a Seq, each a Take; it ends when Take would fail
+// Closed.
+//
+// Unbounded: it ends only when the hub ends or the subscription closes.
+//
+// seq-exempt: it is the Values of the subscription's queue, whose law Queue.ValuesStops states its stop
+func Values[T](s Subscription[T]) Seq[T] { s.values.Values() }
+
+// Len is how many values s received and has not taken.
+func Len[T](s Subscription[T]) int { s.values.Len() }
+
+// Close ends s: it leaves its hub, so Publish stops waiting for it, and
+// its values not taken are dropped.
+func Close[T](s Subscription[T]) {
+	sync.Modify(s.state, func(h hub[T]) (bool, hub[T]) { (true, hub[T]{subs: h.subs.Delete(s.id), next: h.next, ended: h.ended}) })
+	s.values.End()
+}
+
+// EverySubscriberSeesEveryValueAfterItJoined: a subscriber gets exactly
+// the values published after it subscribed, in order; one that joined
+// before gets those too.
+law EverySubscriberSeesEveryValueAfterItJoined(before []int, after []int) {
+	let p = New[int](len(before) + len(after) + 1)
+	let early = Subscribe(p)
+	for x in before {
+		try Publish(p, x)
+	}
+	let late = Subscribe(p)
+	for x in after {
+		try Publish(p, x)
+	}
+	End(p)
+	let mut ok = true
+	for x in before {
+		ok = ok && try Take(early) == x
+	}
+	for x in after {
+		ok = ok && try Take(early) == x && try Take(late) == x
+	}
+	ok && Len(early) == 0 && Len(late) == 0
+}
+
+// SlowSubscriberBoundsThePublisher: a subscription never holds more than
+// the hub's capacity, so a publisher that runs ahead of a slow subscriber
+// waits for it; every value still arrives, in order.
+law SlowSubscriberBoundsThePublisher(c int, k int) {
+	let capacity = 1 + (c%3+3)%3
+	let n = capacity + 1 + (k%4+4)%4
+	let p = New[int](capacity)
+	let s = Subscribe(p)
+	let publisher = task.Go() {
+		for i in 0..n {
+			try Publish(p, i)
+		}
+	}
+	let mut ok = true
+	for i in 0..n {
+		ok = ok && Len(s) <= capacity
+		ok = ok && try Take(s) == i
+	}
+	try publisher.Wait()
+	ok
+}
+
+// ClosedSubscriberIsSkipped: after a subscription closes, Publish no
+// longer waits for it, even when its queue was full.
+law ClosedSubscriberIsSkipped(xs []int) {
+	let p = New[int](1)
+	let watching = Subscribe(p)
+	if true {
+		let gone = Subscribe(p)
+		try Publish(p, 0)
+	}
+	let mut ok = Subscribers(p) == 1 && try Take(watching) == 0
+	for x in xs {
+		try Publish(p, x)
+		ok = ok && try Take(watching) == x
+	}
+	ok
+}

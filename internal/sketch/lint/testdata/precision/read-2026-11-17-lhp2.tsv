@@ -1,0 +1,75 @@
+rule	example	commit	file	line	label	class	what
+silent-catch	backups	d0892e087a	backup/backups.ergo	54	F	designed	designed: a rejected command yields no events
+silent-catch	backups	d0892e087a	backup/draw.ergo	22	F	designed	designed: a rejected command yields no events (test driver)
+silent-catch	bookmarks	a3a103037f	shelf/laws.ergo	12	F	generator	generator: a law's input that Add refuses is skipped
+banned-words	calc	a482d01a37	ast/tests.ergo	57	T		shape names a variant's name; kindOf says what it is
+cognitive-complexity	cells	f2e9b453b6	grid/frame.ergo	84	T		Replay holds a CSI parser
+silent-catch	cells	f2e9b453b6	grid/frame.ergo	146	F	designed	designed: an empty CSI parameter is 0 by the standard
+silent-catch	chat	de233e3b80	room/laws.ergo	11	F	generator	generator: refused joins are skipped
+silent-catch	chat	de233e3b80	room/laws.ergo	13	F	generator	generator: refused joins are skipped
+silent-catch	chat	de233e3b80	room/laws.ergo	15	F	generator	generator: refused joins are skipped
+silent-catch	chat	de233e3b80	room/laws.ergo	101	F	designed	designed: the law checks a closed room refuses every signal
+silent-catch	confparse	5fc0d9bad8	toml/tests.ergo	79	F	generator	generator: random text that does not parse is skipped
+cognitive-complexity	csvreport	724a0a36d1	csv/read.ergo	18	T		Rows is a parser of several jobs
+cognitive-complexity	deploys	5cb7a92557	jsontext/parse.ergo	123	T		str holds the escape decoder
+silent-catch	deps	15d9994f1d	semver/tests.ergo	6	T		a bad version literal silently becomes -1.-1.-1 in tests
+known-value-widening	fetchpool	abc9e22ff2	domain/fetch.ergo	76	T		checked: the let checks with no type
+known-value-widening	fetchpool	abc9e22ff2	domain/fetch.ergo	112	T		checked: the let checks with no type
+unbounded-collect	fetchpool	abc9e22ff2	pool/pool.ergo	55	F	rule miss	rule miss: the Seq's source is closed (End) before the loop
+cognitive-complexity	fk-board	1bbf5a52df	board/laws.ergo	21	T		moved removes and inserts in one body
+cognitive-complexity	fk-diag	13f37ce15f	lab/laws.ergo	136	T		hostFollows draws, plays and checks in one body
+silent-catch	fk-diag	13f37ce15f	lab/view.ergo	87	F	designed	designed: Spent ends the budgeted work
+known-value-widening	forge	4607fa2acf	light/laws.ergo	37	T		checked: the let checks with no type
+known-value-widening	forge	4607fa2acf	light/laws.ergo	54	T		same form as the checked one
+known-value-widening	forge	4607fa2acf	light/laws.ergo	62	T		same form as the checked one
+silent-catch	gointerop	d1202f946d	stats/tests.ergo	14	F	observation	observation: the test reads the sentinel the arm yields
+banned-words	jobq	2a2ea14c7a	limit/laws.ergo	33	T		shape names a burst and an every; a rate says what it is
+silent-catch	jobs	128d23c039	jobs/queue.ergo	35	F	designed	designed: Stale retries the compare-and-swap
+silent-catch	jobs	128d23c039	jobs/queue.ergo	54	F	designed	designed: Stale retries the compare-and-swap
+silent-catch	jsonv	86e2be5d92	json/parse.ergo	416	F	designed	designed: U+FFFD replaces a bad code point
+cognitive-complexity	jsonv	86e2be5d92	schema/validate.ergo	35	T		validate holds a validator per kind
+silent-catch	jsonv	86e2be5d92	schema/validate.ergo	223	T		Malformed cannot happen on validated text and is hidden as 0.0
+silent-catch	jsonv	86e2be5d92	schema/validate.ergo	225	F	designed	designed: OutOfRange clamps, as the doc comment says
+silent-catch	kvstore	9309d50655	kv/checks.ergo	75	F	designed	designed: deleting a missing key in a check is no failure
+silent-catch	kvstore	9309d50655	kv/store.ergo	91	F	designed	designed: deleting a missing key in a check is no failure
+silent-catch	lease-sync	f4279a9467	domain/log.ergo	50	T		a Reused id cannot happen here and passes the law silently
+silent-catch	lease-sync	f4279a9467	domain/log.ergo	128	F	designed	designed: a refused Append yields the refused receipt
+silent-catch	lease-sync	f4279a9467	domain/log.ergo	142	F	designed	designed: a refused Append yields the refused receipt
+silent-catch	lease-sync	f4279a9467	lease/pool.ergo	107	F	designed	designed: a rerun skips refused commands
+silent-catch	lease-sync	f4279a9467	replica/client.ergo	222	F	designed	designed: a rerun skips refused commands
+silent-catch	lease-sync	f4279a9467	replica/client.ergo	303	F	designed	designed: a rerun skips refused commands
+cognitive-complexity	lease-sync	f4279a9467	replica/client.ergo	366	T		drive decodes ops and drives the client in one body
+silent-catch	limiter	388c4f8458	limits/limits.ergo	62	F	generator	generator: limited takes are skipped
+silent-catch	logstat	ba0ccb86fd	report/tests.ergo	22	F	designed	designed: fixture lines that do not parse are skipped
+silent-catch	lookup	cfe5f5a29f	hosts/hosts.ergo	33	F	designed	designed: an unknown name has the answer unknown
+silent-catch	lookup	cfe5f5a29f	hosts/hosts.ergo	35	F	designed	designed: an expired lookup has the answer timed-out
+silent-catch	okra-keys	8fac38b45d	keyfile/codec.ergo	158	F	designed	designed: U+FFFD replaces a bad code point
+silent-catch	okra-keys	8fac38b45d	keys/keys.ergo	94	F	designed	designed: -1 is no index
+cognitive-complexity	onebrc	03c051039c	weather/line.ergo	60	F	hot path	a hand-tuned hot path; its shape is the speed
+cyclomatic-complexity	onebrc	03c051039c	weather/line.ergo	60	F	hot path	a hand-tuned hot path
+cognitive-complexity	onebrc	03c051039c	weather/table.ergo	37	F	hot path	a hand-tuned SWAR hot loop; its shape is the speed
+cyclomatic-complexity	onebrc	03c051039c	weather/table.ergo	37	F	hot path	a hand-tuned SWAR hot loop
+silent-catch	particles	ec1745645c	world/laws.ergo	22	F	generator	generator: refused sizes are blank
+silent-catch	pipeline	530b1be7ff	board/laws.ergo	32	F	generator	generator: refused commands yield no events
+silent-catch	pipeline	530b1be7ff	run/laws.ergo	53	F	generator	generator: refused commands yield no events
+silent-catch	pipeline	530b1be7ff	run/laws.ergo	69	F	generator	generator: refused commands yield no events
+silent-catch	pipeline	530b1be7ff	notify/laws.ergo	14	F	generator	generator: refused commands yield no events
+silent-catch	quota	bae323aa07	quota/laws.ergo	9	T		a refused Open silently drops a volume from a constant sample
+silent-catch	quota	bae323aa07	quota/laws.ergo	13	T		a refused Open silently drops a volume from a constant sample
+silent-catch	quota	bae323aa07	quota/laws.ergo	17	T		a refused Open silently drops a volume from a constant sample
+silent-catch	quota	bae323aa07	quota/laws.ergo	55	F	generator	generator: refused moves are skipped
+banned-words	raytrace	c57342a5a3	geom/shape.ergo	6	F	domain	domain: Shape is the geometric primitive
+banned-words	raytrace	c57342a5a3	geom/tree.ergo	22	F	domain	domain: Shape is the geometric primitive
+banned-words	raytrace	c57342a5a3	geom/tree.ergo	102	F	domain	domain: shape is the index of a geometric primitive
+banned-words	raytrace	c57342a5a3	geom/tree.ergo	137	F	domain	domain: shape is the index of a geometric primitive
+halstead-difficulty	stackvm	77a4313228	vm/run.ergo	27	F	one match	a VM's dispatch loop
+silent-catch	stackvm	77a4313228	expr/tests.ergo	23	F	observation	observation: the test reads the sentinel the arm yields
+silent-catch	timetable	289538a525	timetable/departure.ergo	180	T		an unknown zone name silently becomes UTC in the laws
+silent-catch	timetable	289538a525	timetable/departure.ergo	240	F	designed	designed: the generated time is a time of day by construction
+cognitive-complexity	toktree	198c9655f7	token/token.ergo	50	T		Scan holds a scanner per token kind
+cyclomatic-complexity	toktree	198c9655f7	token/token.ergo	50	T		Scan holds a scanner per token kind
+cognitive-complexity	toktree	198c9655f7	tree/tree.ergo	64	F	just over	one tree build, just over the cap
+cognitive-complexity	tui	f4307106ef	keys/key.ergo	17	F	just over	one key decoder, just over the cap
+cyclomatic-complexity	vt	8f9f016d62	vt/state.ergo	50	F	one match	a byte classifier: one match
+cognitive-complexity	vt	8f9f016d62	vt/stream.ergo	70	F	hot path	a hot path with fast paths; its shape is the speed
+cognitive-complexity	vt	8f9f016d62	ghostty/table.ergo	76	T		ReadTable parses a line and fills the table in one body

@@ -1,7 +1,7 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -24,7 +24,7 @@ import (
 // origin, or nil inside the prelude itself, which sees only the universe.
 func (c *checker) preludeOrigin(name string) *Named {
 	tn, ok := c.universe.names[name].(*TypeName)
-	if !ok || tn.Pkg == nil || tn.Pkg.Path != std.PreludePath {
+	if !ok || tn.Pkg == nil || tn.Pkg.Path != stdlib.PreludePath {
 		return nil
 	}
 	n, _ := tn.Type.(*Named)
@@ -119,6 +119,10 @@ func (c *checker) loopDomain(s *syntax.RangeStmt, x operand) *Loop {
 	}
 	if t, ok := c.preludeElem(x.typ, "Seq"); ok {
 		return &Loop{Domain: LoopSeq, Elem: t}
+	}
+	if k, v, _, ok := c.mapParts(x.typ); ok && IsProviderMap(x.typ) {
+		c.mapSites = append(c.mapSites, mapSite{node: s}) // mapprovider.go
+		return &Loop{Domain: LoopMap, Elem: v, Pos: k}
 	}
 	switch u := under(x.typ).(type) {
 	case *Slice:

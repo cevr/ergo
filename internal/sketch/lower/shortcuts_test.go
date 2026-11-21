@@ -122,11 +122,81 @@ test Grow {
 	assert grow(3) == 6
 }
 `,
+	"own-call-pass": `type Bag { Items []int, N int }
+
+type Store { bags []Bag }
+
+func view(b Bag, w int) int {
+	len(b.Items) + b.N + w
+}
+
+func bump(s mut Store, i int) int {
+	s.bags[i].N = s.bags[i].N + 1
+	0
+}
+
+func peek(s mut Store) int {
+	view(s.bags[0], bump(s, 0))
+}
+
+func main() needs Console {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	Console.Println("\(peek(&s))")
+}
+
+test Peek {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	assert peek(&s) == 1
+}
+`,
+	"own-enter-field": `type Walk { rows []int, n []int }
+
+func tally(w mut Walk, v int) {
+	w.n = w.n.Append(v)
+}
+
+func count(rows []int, v int) int {
+	let mut w = Walk{rows: rows, n: []int{}}
+	tally(&w, v)
+	len(w.rows) + len(w.n)
+}
+
+func main() needs Console {
+	Console.Println("\(count([]int{1, 2}, 3))")
+}
+
+test Count {
+	assert count([]int{1, 2}, 3) == 3
+}
+`,
+	"own-borrow-return": `type Bag { Items []int, N int }
+
+type Store { bags []Bag }
+
+func items(s mut Store) []int {
+	s.bags[0].Items
+}
+
+func total(s mut Store) int {
+	let it = items(s)
+	len(it)
+}
+
+func main() needs Console {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	Console.Println("\(total(&s))")
+}
+
+test Total {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	assert total(&s) == 1
+}
+`,
 	"own-read": `type Block { Kind int, Lines []string }
 
 type Store { blocks []Block }
 
-func total(p *Store) int {
+func total(p mut Store) int {
 	let mut n = 0
 	for i in 0..len(p.blocks) {
 		let b = p.blocks[i]
@@ -148,7 +218,7 @@ test Total {
 `,
 	"own-reslice": `type Stack { xs []int }
 
-func pop(s *Stack) {
+func pop(s mut Stack) {
 	if len(s.xs) > 0 {
 		s.xs = s.xs[:len(s.xs)-1]
 	}
@@ -213,10 +283,144 @@ test Fill {
 	assert fill(3) == 3
 }
 `,
+	"own-return": `type Set { xs []int }
+
+func insertNew(s Set, x int) Set {
+	if len(s.xs) > 0 && s.xs[len(s.xs)-1] == x {
+		return s
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func fill(n int) int {
+	let mut a = Set{xs: []int{}}
+	for i in 0..n {
+		a = insertNew(a, i)
+	}
+	len(a.xs)
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 3
+}
+`,
+	"own-parts": `type Set { xs []int }
+
+type St { set Set, n int }
+
+func insert(s Set, x int) Set {
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func lit(s St, x int) St { St{set: insert(s.set, x), n: s.n + 1} }
+
+func fill(n int) int {
+	let mut s = St{set: Set{xs: []int{}}, n: 0}
+	for i in 0..n {
+		s = lit(s, i)
+	}
+	len(s.set.xs) + s.n
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 6
+}
+`,
+	"own-move": `type Set { xs []int }
+
+type St { set Set, n int }
+
+func insert(s Set, x int) Set {
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func upd(s St, x int) St { St{..s, set: insert(s.set, x)} }
+
+func fill(n int) int {
+	let mut s = St{set: Set{xs: []int{}}, n: 1}
+	for i in 0..n {
+		s = upd(s, i)
+	}
+	len(s.set.xs) + s.n
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 4
+}
+`,
+	"own-catch": `type Full { Cap int }
+
+type Set { xs []int }
+
+func InsertCapped(s Set, x int, cap int) Set fails Full {
+	if len(s.xs) >= cap {
+		return Full{Cap: cap}
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func fill(n int) int {
+	let mut a = Set{xs: []int{}}
+	for i in 0..n {
+		a = InsertCapped(a, i, 3) catch {
+		case Full:
+			a
+		}
+	}
+	len(a.xs)
+}
+
+func main() needs Console {
+	Console.Println("\(fill(5))")
+}
+`,
+	"own-update-self": `type Pos { x int, y int, path []int }
+
+func walk(n int) int {
+	let mut p = Pos{x: 0, y: 1, path: []int{}}
+	for _ in 0..n {
+		p = Pos{..p, x: p.y, y: p.x + p.y}
+	}
+	p.y
+}
+
+func main() needs Console {
+	Console.Println("\(walk(5))")
+}
+
+test Walk {
+	assert walk(5) == 8
+}
+`,
 	"own-lineage": `type Bag { Items []int, N int }
 
+func count(b Bag) int { b.N }
+
+// step reads b whole (count), so b is not owned by parts (own-parts):
+// the Append is the one-extender site's.
 func step(b Bag, x int) Bag {
-	Bag{Items: b.Items.Append(x), N: b.N + 1}
+	let n = count(b)
+	Bag{Items: b.Items.Append(x), N: n + 1}
 }
 
 func main() needs Console {
@@ -225,6 +429,32 @@ func main() needs Console {
 
 test Step {
 	assert len(step(step(Bag{Items: []int{}, N: 0}, 1), 2).Items) == 2
+}
+`,
+	"uni-slot": `type Tree = Leaf{N int} | Node{L Tree, R Tree}
+
+func pick(t Tree, d int) Tree {
+	if d > 0 {
+		return pick(t, d - 1)
+	}
+	t
+}
+
+func size(t Tree) int {
+	match pick(t, 2) {
+	case Leaf as l:
+		l.N
+	case Node:
+		2
+	}
+}
+
+func main() needs Console {
+	Console.Println("\(size(Leaf{N: 1}))")
+}
+
+test Size {
+	assert size(Leaf{N: 1}) == 1
 }
 `,
 }
@@ -236,7 +466,7 @@ type C { N int }
 
 func port(p Port) int { int(p) + 1 }
 
-func swap(a *C, b *C) {
+func swap(a mut C, b mut C) {
 	let n = a.N
 	a.N = b.N
 	b.N = n
@@ -265,7 +495,9 @@ test Port {
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered
 // shortcut twice: the run build takes the shortcut at some site, and the
 // test build (`ergo test`, LowerTests) takes it at none, so every proved
-// fact is checked where tests run (plan IR-G §2 item 4). It is also the
+// fact is checked where tests run (plan IR-G §2 item 4); a row marked
+// inTests (mono-instance) is taken by the test build too, at some site
+// (TestTestBuildCallsCopies holds the row to it). It is also the
 // receipt of the registry: the count of shortcuts and of the sites each
 // witness takes.
 //
@@ -302,7 +534,9 @@ func TestTestBuildsTakeNoShortcut(t *testing.T) {
 			switch {
 			case !tests && n == 0:
 				t.Errorf("%s: the run build of its witness takes it at no site\n%s", s.name, src)
-			case tests && n > 0:
+			case tests && s.inTests && n == 0:
+				t.Errorf("%s: the test build takes it at no site: it is marked inTests, so tests run what ships", s.name)
+			case tests && n > 0 && !s.inTests:
 				t.Errorf("%s: the test build takes it at %d sites: a test build lowers every site to its checking form", s.name, n)
 			case !tests:
 				t.Logf("%s (%s class): the run build takes %d sites", s.name, s.class, n)

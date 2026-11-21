@@ -77,9 +77,13 @@ type funcDecl struct {
 	extern   string
 	library  bool
 	emitted  bool
-	// pure is a function with no environment parameter, called with none
-	// (pure.go, D-S5-10).
-	pure bool
+	// pure is a pure function (pure.go, D-S5-10): no failure, no
+	// environment, the fact tabulation, memo, folding and facts read.
+	// envFree is a function with no environment parameter, called with
+	// none: one that nothing it runs reads the environment of, failing or
+	// not (pure.go, ENV-FREE-FALLIBLE). Every pure function is envFree.
+	pure    bool
+	envFree bool
 	// lowered is set when the Go body has been written, and readsEnv then
 	// says whether that body names its environment parameter: the fact a
 	// machine plan's Step reads to decide whether it takes one (machine.go).
@@ -91,6 +95,11 @@ type funcDecl struct {
 	// dropped is the Go name of the variant with no result once it is
 	// queued (forms.go, droppedName).
 	dropped string
+	// slot is the Go name of the slot variant once it is queued, and
+	// slotOK the callee's slot decision: 1 yes, 2 no (slot.go).
+	slot     string
+	slotOK   int8
+	emitSlot bool // emitBody writes the slot variant
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -530,11 +539,11 @@ func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
 	if it == nil {
 		ice(site, "the constraint %s of %s is not an interface", tp.Constraint, tp.Name)
 	}
-	switch it.Set {
-	case check.SetComparable:
+	if it.Set == check.SetComparable {
 		return "comparable"
-	case check.SetOrdered, check.SetNumber:
-		return l.typeSetDecl(it.Set)
+	}
+	if tn := typeSetOrigin(tp); tn != nil {
+		return l.typeSetConstraint(tn, site) // ir_typeset.go (CONSTRAINTS C1)
 	}
 	return "any"
 }
@@ -552,31 +561,9 @@ func sameGoConstraint(a, b *check.TypeParam) bool {
 	}
 	as, am := setOf(a)
 	bs, bm := setOf(b)
-	// wire takes its codec as a witness (wire.go).
-	return as == bs && !am && !bm && as != check.SetWire
-}
-
-// typeSetDecl is the Go name of the interface that lowers the predeclared
-// constraint s, ordered or number, emitted once. Its terms are the Go
-// types Ergo's set holds and the types defined over them (types.md,
-// Generics 2): duration is time.Duration, an int64 underneath. A Go type
-// set, never any, so Go admits the operators the checker admitted (<, +,
-// -, * and /) and stencils by GC shape as it does for cmp.Ordered.
-func (l *lowerer) typeSetDecl(s check.TypeSet) string {
-	if name, ok := l.sets[s]; ok {
-		return name
-	}
-	name := l.pkgName(pkgKey{"constraint", s}, "ergo"+strings.ToUpper(s.String()[:1])+s.String()[1:])
-	l.sets[s] = name
-	terms := "~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64"
-	what := "the integer and float types"
-	if s == check.SetOrdered {
-		terms += " | ~string"
-		what = "the integer, float, string and duration types"
-	}
-	l.gen.WriteString("// " + name + " is Ergo's " + s.String() + ": " + what + " and the types defined over them.\n")
-	l.gen.WriteString("type " + name + " interface {\n\t" + terms + "\n}\n\n")
-	return name
+	// wire takes its codec as a witness (wire.go). A type set is the same
+	// Go constraint only when it is the same declaration (ir_typeset.go).
+	return as == bs && !am && !bm && as != check.SetWire && typeSetOrigin(a) == typeSetOrigin(b)
 }
 
 // useType returns td after queueing a library declaration's emission: the
@@ -725,12 +712,13 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
 	fd.pure = l.isPure(f) || l.pureIntrinsic(f)
+	fd.envFree = fd.pure || l.isEnvFree(f)
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	}
 	if td, ptr := l.methodReceiver(f); td != nil {
 		fd.method, fd.ptr, fd.name = td, ptr, memberName(f.Name)
-		if fd.pure {
+		if fd.envFree {
 			fd.name = l.protocolFreeName(f, td, fd.name)
 		}
 		return fd
@@ -1004,8 +992,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 // known-callback variant (known.go): its callback parameters plain and no
 // entry poll; with sp, fd's copy for a known record (record.go); with
 // drop, fd's variant with no result (drop.go): each return evaluates its
-// value for its effects and returns nothing.
+// value for its effects and returns nothing. While fd.emitSlot is set it
+// writes fd's slot variant (slot.go): its result written through the slot
+// pointers, its tag returned.
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
+	slot := fd.emitSlot
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -1030,6 +1021,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	scope := newNamer(l.names)
 	site := syntax.Node(f.Decl.Name)
 	fc := newFuncCtx(l, scope, directives)
+	// A library body, lowered without //line directives, writes cover
+	// marks in a coverage build (GT7b).
+	fc.marks = !directives && l.coverMarks
 	fc.hot = l.hotFunc(f)
 	fc.owner = f.Name
 	if fd.method != nil {
@@ -1116,6 +1110,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		bodyName, methodName = fd.dropped, fd.dropped
 	}
+	if slot {
+		if known || sp != nil || drop || owned || fd.extern != "" || fd.method != nil || fd.slot == "" {
+			ice(site, "the slot variant of %s is not a plain function", f.Name)
+		}
+		bodyName = fd.slot
+	}
 
 	if fd.method != nil && sp == nil {
 		tps := map[*check.TypeParam]string{}
@@ -1160,14 +1160,14 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	// body binds none (pure.go, D-S5-10), so a read of it is a located ICE
 	// (envExpr).
 	var parts []string
-	if !fd.pure {
+	if !fd.envFree {
 		fc.env = scope.alloc("env")
 		parts = append(parts, fc.env+" *"+l.env())
 		args = append(args, fc.env)
 	}
 	fc.frame = newFrame(nil, fd.fallible, false)
 	if fd.extern == "" && f.Decl.Body != nil {
-		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
+		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl) && !copyIsPure(f, sp)
 	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
@@ -1180,6 +1180,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			// A copy for a known witness (witspec.go): no parameter; a
 			// use of the witness itself takes one built in the copy.
 			fc.static = map[*check.TypeParam]*check.Witness{tp: sp.wit}
+			continue
+		}
+		if sp != nil && sp.wits[tp] != nil {
+			// A copy for an instance whose witnesses are known (mono.go
+			// monoWitnesses): the same, for each of them.
+			if fc.static == nil {
+				fc.static = map[*check.TypeParam]*check.Witness{}
+			}
+			fc.static[tp] = sp.wits[tp]
 			continue
 		}
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
@@ -1199,6 +1208,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		}
 		args = append(args, paramNames[i])
+	}
+	if slot {
+		// The slot pointers, last (slot.go).
+		fc.frame.slot = fc.slotParams(f, &parts)
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
@@ -1248,6 +1261,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case slot:
+		results = " uint8"
+		if fd.fallible {
+			results = " (uint8, error)"
+		}
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1273,7 +1291,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{irInstanceCopy(sp), "copy for an instance"}, {drop, "variant with no result"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
+		}{{irInstanceCopy(sp), "copy for an instance"}, {drop && irDropBodyLowering == "off", "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
@@ -1319,7 +1337,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		fc.out.Reset()
 		fc.out.WriteString(body)
 	}
-	if !known && sp == nil && !drop {
+	if !known && sp == nil && !drop && !slot {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	body := fc.out.String()
@@ -1327,6 +1345,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		if w := fc.witness[sp.wit.Param]; namesIdent(body, w) {
 			fc.depth = 1
 			body = "\t" + w + " := " + fc.witnessValue(sp.wit, site) + "\n" + body
+		}
+	}
+	if sp != nil && sp.wits != nil {
+		// In witness parameter order, so the text is deterministic.
+		for _, tp := range slices.Backward(witnessParams(f.Sig)) {
+			if w := fc.witness[tp]; namesIdent(body, w) {
+				fc.depth = 1
+				body = "\t" + w + " := " + fc.witnessValue(sp.wits[tp], site) + "\n" + body
+			}
 		}
 	}
 	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
@@ -1532,18 +1559,62 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if ok && l.consts[v] {
 		ice(id, "the constant let %s needs statements", id.Name)
 	}
+	if name != "_" && fc.out.Len() == 0 && staticLiteral(l.info, x) && !strings.Contains(val, fc.env) {
+		// Constant data (LITERAL-LET): the Go variable's initializer is
+		// the literal, which gc lays out as static data, so the program
+		// does no work at start for it; a literal of constants cannot
+		// fail, and reads no other let, so its place in InitOrder does
+		// not matter.
+		l.stats.StaticLets++
+		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
+		return
+	}
 	if name != "_" {
 		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
 }
 
-// constLet reports whether the package let v, of spec, lowers to a Go
+// staticLiteral reports whether x is constant data: a constant, or a
+// composite literal of a slice, an array or a record (no record update)
+// whose elements are constant data. Such a let lowers to a Go variable
+// initialized by the literal (packageVar), not to code in initFunc.
+func staticLiteral(info *check.Info, x syntax.Expr) bool {
+	switch e := x.(type) {
+	case *syntax.ParenExpr:
+		return staticLiteral(info, e.X)
+	case *syntax.KeyValueExpr:
+		return staticLiteral(info, e.Value)
+	case *syntax.CompositeLit:
+		if e.Base != nil {
+			return false
+		}
+		t := info.Types[e]
+		if n, ok := t.(*check.Named); ok {
+			t = n.Underlying()
+		}
+		switch t.(type) {
+		case *check.Slice, *check.Array, *check.Struct:
+		default:
+			return false
+		}
+		for _, el := range e.Elts {
+			if !staticLiteral(info, el) {
+				return false
+			}
+		}
+		return true
+	}
+	_, constant := info.Values[x]
+	return constant
+}
+
+// constValueLet reports whether the package let v, of spec, lowers to a Go
 // constant (wf10 1BRC): a single name whose initializer the checker
 // evaluated to a constant, of type bool, string or an integer type. A Go
 // package variable is a load at every read, and Go folds no expression
 // over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
-// examples/onebrc's table, and a constant is an immediate. Every read is
+// examples/station-stats's table, and a constant is an immediate. Every read is
 // then v1.Let(name) (letRead), a call of an identity that gc inlines and
 // whose result is no Go constant expression, so Go evaluates every
 // expression over it as it evaluates one over the variable: an integer
@@ -1749,6 +1820,9 @@ func (l *lowerer) envType(b *strings.Builder) {
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
 	if l.holdsRows() {
 		b.WriteString("\t" + envWith + " *" + l.rt() + ".Scope\n") // inforce.go
+	}
+	if l.envFrom {
+		b.WriteString("\t" + envFrom + " *" + l.envName + "\n") // closures.go, envMemoText
 	}
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")

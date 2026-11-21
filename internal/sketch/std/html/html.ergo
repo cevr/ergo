@@ -1,0 +1,929 @@
+// Package html writes HTML documents from ordinary functions (#212; owner,
+// 2026-10-26: "Functions", not markup syntax). An element is a function
+// of one []Child, where Child is Attr | Node; a void element takes only
+// []Attr, so it cannot get children. Escaping is decided by type: Text
+// escapes its string when it is written, an attribute's value is escaped,
+// Href, Src and Action take a URL (never a string), and Raw takes a
+// Trusted, which only Trust builds, so a search for Trust finds every
+// place markup comes from a string. A Node is written into one
+// strings.Builder in one pass: an element holds its children and writes
+// them when it is written, so no intermediate string per node is built
+// (templ's render functions; Lustre's string tree).
+
+import build
+import strconv
+import strings
+
+// Node is a part of a document: markup, text, or a node that writes
+// itself (an element, a document, Each). Render or Write writes it. With
+// late None, it is text, written as it is (markup) or escaped (esc);
+// otherwise late writes it, reading the children it holds. A node a
+// build-time fold computes from constants is markup: its whole markup,
+// one string the program holds as a constant (CF1, build.InFold). html
+// calls build.InFold itself: a function of its own that returned its
+// answer would break std build's rule, and a fold would compute it. A
+// node a fold computes from constants and data the program has only when
+// it runs (a template's holes) is a template (CF2): its parts, in order,
+// markup and the attributes and nodes that hold the data, each written in
+// its place.
+type Node { text string, esc bool, late Option[Writer], parts []Child }
+
+// Writer writes a node's markup at the end of a buffer.
+type Writer { write func(b mut strings.Builder) }
+
+// Attr is an attribute of an element: its name, its value (escaped when
+// it is written), or a name alone (a boolean attribute such as hidden).
+type Attr { name string, value string, bare bool }
+
+// Child is what an element holds: its attributes and its children, in
+// one slice. The attributes are written in their order, whatever nodes
+// come between them.
+type Child = Attr | Node
+
+// Trusted is markup a program vouches for: only Trust builds one.
+type Trusted { s string }
+
+// Trust is s as markup, written as it is by Raw, Script and Style. Every
+// call of Trust is a place where a string becomes markup.
+func Trust(s string) Trusted { Trusted{s: s} }
+
+// markup is the node of markup m.
+func markup(m string) Node { Node{text: m, esc: false, late: None, parts: []Child{}} }
+
+// later is the node that w writes. In a fold a constructor builds its
+// template instead (compose).
+func later(w own func(b mut strings.Builder)) Node {
+	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: w}}, parts: []Child{}}
+}
+
+// Text is s as an element's text, escaped when it is written (TextIsInert).
+func Text(s string) Node {
+	if build.InFold() && build.Known(s) {
+		return markup(Escape(s))
+	}
+	Node{text: s, esc: true, late: None, parts: []Child{}}
+}
+
+// Int is n in decimal, as text.
+func Int(n int) Node { markup(strconv.Itoa(n)) }
+
+// Raw is t's markup, written as it is.
+func Raw(t Trusted) Node { markup(t.s) }
+
+// Each is the node f makes of each item, in order. f runs when the node
+// is written, so no list of nodes is built.
+func Each[T](items []T, f own func(item T) Node) Node {
+	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b mut strings.Builder) {
+		for x in items {
+			writeNode(b, f(x))
+		}
+	}}}, parts: []Child{}}
+}
+
+// When is n when show holds, and nothing otherwise.
+func When(show bool, n Node) Node {
+	if show {
+		return n
+	}
+	markup("")
+}
+
+// Doc is a document: the doctype, then root (Html).
+func Doc(root Node) Node {
+	if build.InFold() {
+		return compose("<!DOCTYPE html>", []Child{root}, "", "")
+	}
+	later(func(b mut strings.Builder) {
+		b.WriteString("<!DOCTYPE html>")
+		writeNode(b, root)
+	})
+}
+
+// Render is n's markup.
+func Render(n Node) string {
+	if isFixed(n) {
+		return n.text
+	}
+	let mut b = strings.NewBuilder()
+	writeNode(&b, n)
+	b.String()
+}
+
+// RenderParsesBack (WEB0): a generated tree, built with this package's
+// functions, renders to markup a reference parser reads back as the same
+// tree, as a document and as a fragment; every javascript: link the
+// generator draws is refused, and every attribute name it reads from
+// data stays one attribute.
+law RenderParsesBack(seed int) {
+	let mut r = trng{x: (seed%2147483648 + 2147483648) % 2147483648}
+	let mut unsafe = 0
+	let b = tkids(&r, 0, &unsafe)
+	let markup = Render(Div(b.kids))
+	let doc = Render(Doc(Body(b.kids)))
+	let want = []tnode{tel{tag: "div", attrs: []tattr{}, kids: b.model}}
+	let wantDoc = []tnode{tel{tag: "body", attrs: []tattr{}, kids: b.model}}
+	let got = tparse(markup)
+	let gotDoc = tparse(strings.TrimPrefix(doc, "<!DOCTYPE html>"))
+	let back = match got {
+	case Some[[]tnode] as t:
+		sameNodes(t.Value, want)
+	case None:
+		false
+	}
+	let backDoc = match gotDoc {
+	case Some[[]tnode] as t:
+		sameNodes(t.Value, wantDoc)
+	case None:
+		false
+	}
+	back && backDoc && strings.HasPrefix(doc, "<!DOCTYPE html>") && unsafe == 0
+}
+
+// tnode is the tree a parser reads: an element with its attributes and
+// children, a void element, a script with its raw body, or text. Two
+// texts are never next to each other and no text is empty. (a law's
+// helper)
+type tnode = tel{tag string, attrs []tattr, kids []tnode} | tvoid{tag string, attrs []tattr} | tscript{attrs []tattr, body string} | ttext{s string}
+
+// tattr is an attribute as a parser reads it. (a law's helper)
+type tattr { name string, value string, bare bool }
+
+// trng is the property's generator (a linear congruence). (a law's
+// helper)
+type trng { x int }
+
+// tdraw is the next draw of r below n. (a law's helper)
+func tdraw(r mut trng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+// pieces are the parts a generated string is made of. (a law's helper)
+func pieces() []string {
+	[]string{"a", "Zz", "<", ">", "&", "\"", "'", "&amp;", "&lt;", "</style>", "</script>", "<script>alert(1)</script>", "javascript:", " ", "=", "/>", "-->", "é", "\t", "{\"@type\":\"Post\"}"}
+}
+
+// tstring is a generated string of up to four pieces. (a law's helper)
+func tstring(r mut trng) string {
+	let mut b = strings.NewBuilder()
+	for _ in 0..tdraw(r, 5) {
+		let ps = pieces()
+		b.WriteString(ps[tdraw(r, len(ps))])
+	}
+	b.String()
+}
+
+// built is a generated tree beside the nodes that write it. (a law's
+// helper)
+type built { model []tnode, kids []Child }
+
+// addText puts text s at the end of m, joined to a text before it, and
+// none when s is empty. (a law's helper)
+func addText(m []tnode, s string) []tnode {
+	if s == "" {
+		return m
+	}
+	if len(m) > 0 {
+		match m[len(m)-1] {
+		case ttext as t:
+			let mut out = m[0 : len(m)-1]
+			out = out.Append(ttext{s: t.s + s})
+			return out
+		case tel, tvoid, tscript:
+		}
+	}
+	m.Append(ttext{s: s})
+}
+
+// tname is the name an attribute named from data s gets: s with each
+// byte other than a letter, a digit, -, _, . or : as -, or data- when s
+// is empty. (a law's helper)
+func tname(s string) string {
+	if s == "" {
+		return "data-"
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ':'
+		b.WriteByte(if ok { c } else { '-' })
+	}
+	b.String()
+}
+
+// tattrs draws up to three attributes, each with the tattr a parser
+// reads of it, and counts in unsafe each link written with a scheme a
+// link may not have. (a law's helper)
+func tattrs(r mut trng, unsafe mut int) ([]tattr, []Attr) {
+	let mut model = []tattr{}
+	let mut out = []Attr{}
+	for _ in 0..tdraw(r, 4) {
+		let v = tstring(r)
+		let n = tstring(r)
+		let k = tdraw(r, 7)
+		let (m, a) = if k == 0 {
+			(tattr{name: "class", value: v, bare: false}, Class(v))
+		} else if k == 1 {
+			(tattr{name: "id", value: v, bare: false}, Id(v))
+		} else if k == 2 {
+			(tattr{name: "title", value: v, bare: false}, TitleAttr(v))
+		} else if k == 3 {
+			(tattr{name: tname(n), value: v, bare: false}, Attribute(n, v))
+		} else if k == 4 {
+			(tattr{name: tname(n), value: "", bare: true}, Flag(n))
+		} else if k == 5 {
+			(tattr{name: tname("data-" + n), value: v, bare: false}, Data(n, v))
+		} else {
+			let u = ParseURL(v) catch {
+			case UnsafeURL:
+				LocalURL(v)
+			}
+			let sc = Scheme(URLText(u))
+			if !(sc == "" || sc == "http" || sc == "https" || sc == "mailto" || sc == "tel") {
+				*unsafe = *unsafe + 1
+			}
+			(tattr{name: "href", value: URLText(u), bare: false}, Href(u))
+		}
+		model = model.Append(m)
+		out = out.Append(a)
+	}
+	(model, out)
+}
+
+// tkids draws up to four children at depth d. (a law's helper)
+func tkids(r mut trng, d int, unsafe mut int) built {
+	let mut model = []tnode{}
+	let mut kids = []Child{}
+	for _ in 0..tdraw(r, 5) {
+		let k = if d > 3 { tdraw(r, 4) } else { tdraw(r, 8) }
+		if k == 0 {
+			let s = tstring(r)
+			model = addText(model, s)
+			kids = kids.Append(Text(s))
+		} else if k == 1 {
+			let n = tdraw(r, 2001) - 1000
+			model = addText(model, "\(n)")
+			kids = kids.Append(Int(n))
+		} else if k == 2 {
+			let show = tdraw(r, 2) == 0
+			let s = tstring(r)
+			if show {
+				model = addText(model, s)
+			}
+			kids = kids.Append(When(show, Text(s)))
+		} else if k == 3 {
+			let (m, as2) = tattrs(r, unsafe)
+			let tags = []string{"br", "img", "input", "hr", "meta"}
+			let t = tdraw(r, len(tags))
+			model = model.Append(tvoid{tag: tags[t], attrs: m})
+			kids = kids.Append([]Node{Br(as2), Img(as2), Input(as2), Hr(as2), Meta(as2)}[t])
+		} else if k == 4 {
+			let items = []string{tstring(r), tstring(r)}
+			for s in items {
+				model = addText(model, s)
+			}
+			kids = kids.Append(Each(items, Text))
+		} else if k == 5 {
+			let (m, as2) = tattrs(r, unsafe)
+			let body = []string{"{\"@context\":\"https://schema.org\"}", "let x = 1 < 2 && \"a\"", ""}[tdraw(r, 3)]
+			model = model.Append(tscript{attrs: m, body: body})
+			kids = kids.Append(Script(as2, Trust(body)))
+		} else {
+			let (m, as2) = tattrs(r, unsafe)
+			let inner = tkids(r, d+1, unsafe)
+			let tags = []string{"div", "p", "span", "li", "td", "title", "textarea", "a"}
+			let t = tdraw(r, len(tags))
+			let mut all = []Child{}
+			// attributes before, between and after the children: they are
+			// written in the start tag in their order.
+			let cut = if len(as2) == 0 { 0 } else { tdraw(r, len(as2)+1) }
+			for a in as2[0:cut] {
+				all = all.Append(a)
+			}
+			for c in inner.kids {
+				all = all.Append(c)
+			}
+			for a in as2[cut:len(as2)] {
+				all = all.Append(a)
+			}
+			let n = []Node{Div(all), P(all), Span(all), Li(all), Td(all), Title(all), Textarea(all), A(all)}[t]
+			model = model.Append(tel{tag: tags[t], attrs: m, kids: inner.model})
+			kids = kids.Append(n)
+		}
+	}
+	built{model: model, kids: kids}
+}
+
+// tparser is the reference parser's cursor; ok turns false at the first
+// byte it cannot read. (a law's helper)
+type tparser { s string, i int, ok bool }
+
+// tvoids are the void elements the generator writes. (a law's helper)
+func tvoids() []string { []string{"br", "img", "input", "hr", "meta"} }
+
+// ttext reads text up to the next < and decodes it. (a law's helper)
+func ptext(p mut tparser) string {
+	let start = p.i
+	for p.i < len(p.s) && p.s[p.i] != '<' {
+		p.i = p.i + 1
+	}
+	unescape(strings.Slice(p.s, start, p.i))
+}
+
+// pname reads a tag or attribute name. (a law's helper)
+func pname(p mut tparser) string {
+	let start = p.i
+	for p.i < len(p.s) && p.s[p.i] != ' ' && p.s[p.i] != '=' && p.s[p.i] != '>' && p.s[p.i] != '/' && p.s[p.i] != '"' && p.s[p.i] != '\'' && p.s[p.i] != '<' {
+		p.i = p.i + 1
+	}
+	if p.i == start {
+		p.ok = false
+	}
+	strings.Slice(p.s, start, p.i)
+}
+
+// pattrs reads attributes up to > or />. (a law's helper)
+func pattrs(p mut tparser) []tattr {
+	let mut out = []tattr{}
+	let mut more = true
+	for more && p.ok && p.i < len(p.s) && p.s[p.i] == ' ' {
+		p.i = p.i + 1
+		let n = pname(p)
+		if p.i < len(p.s) && p.s[p.i] == '=' {
+			if p.i+1 >= len(p.s) || p.s[p.i+1] != '"' {
+				p.ok = false
+				more = false
+			} else {
+				p.i = p.i + 2
+				let start = p.i
+				for p.i < len(p.s) && p.s[p.i] != '"' {
+					p.i = p.i + 1
+				}
+				let v = strings.Slice(p.s, start, p.i)
+				if p.i >= len(p.s) || !inert(v) {
+					p.ok = false
+				}
+				p.i = p.i + 1
+				out = out.Append(tattr{name: n, value: unescape(v), bare: false})
+			}
+		} else {
+			out = out.Append(tattr{name: n, value: "", bare: true})
+		}
+	}
+	out
+}
+
+// pkids reads nodes up to the end tag of close, or to the end of the
+// text when close is "". (a law's helper)
+func pkids(p mut tparser, close string) []tnode {
+	let mut out = []tnode{}
+	let mut done = false
+	for !done && p.ok {
+		if p.i >= len(p.s) {
+			if close != "" {
+				p.ok = false
+			}
+			done = true
+		} else if p.s[p.i] != '<' {
+			out = out.Append(ttext{s: ptext(p)})
+		} else if strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), "</") {
+			let end = "</" + close + ">"
+			if close != "" && strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), end) {
+				p.i = p.i + len(end)
+			} else {
+				p.ok = false
+			}
+			done = true
+		} else {
+			out = out.Append(pelement(p))
+		}
+	}
+	out
+}
+
+// pelement reads one element at <. (a law's helper)
+func pelement(p mut tparser) tnode {
+	p.i = p.i + 1
+	let tag = pname(p)
+	let as2 = pattrs(p)
+	let rest = strings.Slice(p.s, p.i, len(p.s))
+	if strings.HasPrefix(rest, "/>") {
+		p.i = p.i + 2
+		let mut known = false
+		for v in tvoids() {
+			if v == tag {
+				known = true
+			}
+		}
+		if !known {
+			p.ok = false
+		}
+		return tvoid{tag: tag, attrs: as2}
+	}
+	if !strings.HasPrefix(rest, ">") {
+		p.ok = false
+		return ttext{s: ""}
+	}
+	p.i = p.i + 1
+	for v in tvoids() {
+		if v == tag {
+			p.ok = false
+		}
+	}
+	if tag == "script" {
+		let start = p.i
+		for p.i < len(p.s) && !strings.HasPrefix(strings.Slice(p.s, p.i, len(p.s)), "</script>") {
+			p.i = p.i + 1
+		}
+		if p.i >= len(p.s) {
+			p.ok = false
+		}
+		let body = strings.Slice(p.s, start, p.i)
+		p.i = p.i + 9
+		return tscript{attrs: as2, body: body}
+	}
+	tel{tag: tag, attrs: as2, kids: pkids(p, tag)}
+}
+
+// tparse is the tree markup s holds, when the reference parser reads all
+// of it. (a law's helper)
+func tparse(s string) Option[[]tnode] {
+	let mut p = tparser{s: s, i: 0, ok: true}
+	let out = pkids(&p, "")
+	if p.ok { Some[[]tnode]{Value: out} } else { None }
+}
+
+// sameAttrs is whether a and b are one attribute list. (a law's helper)
+func sameAttrs(a []tattr, b []tattr) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x.name != b[i].name || x.value != b[i].value || x.bare != b[i].bare {
+			return false
+		}
+	}
+	true
+}
+
+// sameNodes is whether a and b are one tree. (a law's helper)
+func sameNodes(a []tnode, b []tnode) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		let ok = match x {
+		case tel as e:
+			match b[i] {
+			case tel as f:
+				e.tag == f.tag && sameAttrs(e.attrs, f.attrs) && sameNodes(e.kids, f.kids)
+			case tvoid, tscript, ttext:
+				false
+			}
+		case tvoid as e:
+			match b[i] {
+			case tvoid as f:
+				e.tag == f.tag && sameAttrs(e.attrs, f.attrs)
+			case tel, tscript, ttext:
+				false
+			}
+		case tscript as e:
+			match b[i] {
+			case tscript as f:
+				e.body == f.body && sameAttrs(e.attrs, f.attrs)
+			case tel, tvoid, ttext:
+				false
+			}
+		case ttext as e:
+			match b[i] {
+			case ttext as f:
+				e.s == f.s
+			case tel, tvoid, tscript:
+				false
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// Write writes n's markup at the end of b.
+func Write(b mut strings.Builder, n Node) { writeNode(b, n) }
+
+// Static is whether n is markup, known before it is written: Int, Raw, an
+// empty When, and a node a build-time fold computed from constants (an
+// element, a text, a document of them). A node built from data at run
+// time is written when it is written.
+func Static(n Node) bool { isFixed(n) }
+
+// isFixed is whether n is markup.
+func isFixed(n Node) bool {
+	if n.esc || len(n.parts) > 0 {
+		return false
+	}
+	match n.late {
+	case Some[Writer]:
+		false
+	case None:
+		true
+	}
+}
+
+// writeNode writes n at the end of b.
+func writeNode(b mut strings.Builder, n Node) {
+	match n.late {
+	case Some[Writer] as w:
+		w.Value.write(b)
+	case None:
+		if len(n.parts) > 0 {
+			writeParts(b, n.parts)
+		} else if n.esc {
+			escape(b, n.text)
+		} else {
+			b.WriteString(n.text)
+		}
+	}
+}
+
+// writeParts writes a template's parts in order: an attribute as in a
+// start tag, a node as itself.
+func writeParts(b mut strings.Builder, parts []Child) {
+	for p in parts {
+		match p {
+		case Attr as a:
+			attr(b, a)
+		case Node as n:
+			writeNode(b, n)
+		}
+	}
+}
+
+// attrs writes the attributes among kids, in order, each with a space
+// before it.
+func attrs(b mut strings.Builder, kids []Child) {
+	for k in kids {
+		match k {
+		case Attr as a:
+			attr(b, a)
+		case Node:
+		}
+	}
+}
+
+func attr(b mut strings.Builder, a Attr) {
+	b.WriteString(" ")
+	b.WriteString(a.name)
+	if !a.bare {
+		b.WriteString("=\"")
+		escape(b, a.value)
+		b.WriteString("\"")
+	}
+}
+
+// writeElement writes the element tag around kids: its attributes in
+// the start tag, then its child nodes, then the end tag.
+func writeElement(b mut strings.Builder, tag string, kids []Child) {
+	b.WriteString("<")
+	b.WriteString(tag)
+	attrs(b, kids)
+	b.WriteString(">")
+	writeKids(b, kids)
+	b.WriteString("</")
+	b.WriteString(tag)
+	b.WriteString(">")
+}
+
+// writeKids writes the child nodes among kids, in order.
+func writeKids(b mut strings.Builder, kids []Child) {
+	for k in kids {
+		match k {
+		case Node as n:
+			writeNode(b, n)
+		case Attr:
+		}
+	}
+}
+
+// element is the element tag around kids, written when it is written;
+// in a fold, its template: its markup, with the children only the run
+// knows in their places (laws StaticIsItsTree, TemplateIsItsTree).
+func element(tag string, kids []Child) Node {
+	if build.InFold() {
+		return compose("<"+tag, kids, ">", "</"+tag+">")
+	}
+	later(func(b mut strings.Builder) { writeElement(b, tag, kids) })
+}
+
+// void is the void element tag: a start tag closed by />, with no
+// children and no end tag.
+func void(tag string, attrList []Attr) Node {
+	if build.InFold() {
+		let mut kids = []Child{}
+		for a in attrList {
+			kids = kids.Append(a)
+		}
+		return compose("<"+tag, kids, "/>", "")
+	}
+	later(func(b mut strings.Builder) {
+		b.WriteString("<")
+		b.WriteString(tag)
+		for a in attrList {
+			attr(b, a)
+		}
+		b.WriteString("/>")
+	})
+}
+
+// rawText is a script or style element: its body is not text to a
+// parser, so it is markup a program trusts.
+func rawText(tag string, attrList []Attr, body Trusted) Node {
+	if build.InFold() {
+		let mut kids = []Child{}
+		for a in attrList {
+			kids = kids.Append(a)
+		}
+		return compose("<"+tag, kids, ">"+body.s+"</"+tag+">", "")
+	}
+	later(func(b mut strings.Builder) {
+		b.WriteString("<")
+		b.WriteString(tag)
+		for a in attrList {
+			attr(b, a)
+		}
+		b.WriteString(">")
+		b.WriteString(body.s)
+		b.WriteString("</")
+		b.WriteString(tag)
+		b.WriteString(">")
+	})
+}
+
+// Template is the node of markup open, then the attributes among kids,
+// then mid, then the nodes among kids, then close: an element is
+// Template(Trust("<p"), kids, Trust(">"), Trust("</p>")). It is built as a
+// build-time fold builds an element (CF2): one template whose parts are
+// markup and, in their places, the attributes and nodes a build does not
+// know (in a built program, all of them). Law TemplateIsItsTree holds its
+// markup equal to the element's.
+func Template(open Trusted, kids []Child, mid Trusted, close Trusted) Node {
+	compose(open.s, kids, mid.s, close.s)
+}
+
+// compose is Template of markup.
+func compose(open string, kids []Child, mid string, close string) Node {
+	let mut t = put(tmpl{parts: []Child{}, cur: ""}, open)
+	for k in kids {
+		match k {
+		case Attr as a:
+			t = putAttr(t, a)
+		case Node:
+		}
+	}
+	t = put(t, mid)
+	for k in kids {
+		match k {
+		case Node as n:
+			t = putNode(t, n)
+		case Attr:
+		}
+	}
+	done(put(t, close))
+}
+
+// tmpl is a template being built: its parts, then markup that is not a
+// part yet.
+type tmpl { parts []Child, cur string }
+
+// put is t with the markup s after it.
+func put(t tmpl, s string) tmpl { tmpl{parts: t.parts, cur: t.cur + s} }
+
+// flush is t's parts with its markup the last.
+func flush(t tmpl) []Child {
+	if t.cur == "" {
+		return t.parts
+	}
+	t.parts.Append(markup(t.cur))
+}
+
+// part is t with c after it, written in its place.
+func part(t tmpl, c Child) tmpl { tmpl{parts: flush(t).Append(c), cur: ""} }
+
+// done is t's node: its markup when it has no part.
+func done(t tmpl) Node {
+	if len(t.parts) == 0 {
+		return markup(t.cur)
+	}
+	Node{text: "", esc: false, late: None, parts: flush(t)}
+}
+
+// putAttr is t with the attribute a after it: its markup when the build
+// knows it, the attribute itself when the build knows neither its name
+// nor whether it is bare (a hole), and otherwise its value alone, escaped
+// between the markup around it.
+func putAttr(t tmpl, a Attr) tmpl {
+	if build.Known(a) {
+		let mut b = strings.NewBuilder()
+		attr(&b, a)
+		return put(t, b.String())
+	}
+	if build.Hole(a) || build.InFold() && !(build.Known(a.name) && build.Known(a.bare)) {
+		return part(t, a)
+	}
+	if a.bare {
+		return put(t, " "+a.name)
+	}
+	put(part(put(t, " "+a.name+"=\""), Node{text: a.value, esc: true, late: None, parts: []Child{}}), "\"")
+}
+
+// putNode is t with the node n after it: its markup when the build knows
+// it, a template's parts in their order, and otherwise n itself.
+func putNode(t tmpl, n Node) tmpl {
+	if build.Known(n) {
+		return put(t, Render(n))
+	}
+	if build.Hole(n) || len(n.parts) == 0 {
+		return part(t, n)
+	}
+	let mut out = t
+	for p in n.parts {
+		match p {
+		case Attr as a:
+			out = part(out, a)
+		case Node as m:
+			out = putNode(out, m)
+		}
+	}
+	out
+}
+
+// The elements. Each is the HTML element of its name, lower case.
+func Html(kids []Child) Node       { element("html", kids) }
+func Head(kids []Child) Node       { element("head", kids) }
+func Body(kids []Child) Node       { element("body", kids) }
+func Title(kids []Child) Node      { element("title", kids) }
+func Main(kids []Child) Node       { element("main", kids) }
+func Header(kids []Child) Node     { element("header", kids) }
+func Footer(kids []Child) Node     { element("footer", kids) }
+func Nav(kids []Child) Node        { element("nav", kids) }
+func Section(kids []Child) Node    { element("section", kids) }
+func Article(kids []Child) Node    { element("article", kids) }
+func Aside(kids []Child) Node      { element("aside", kids) }
+func Div(kids []Child) Node        { element("div", kids) }
+func Span(kids []Child) Node       { element("span", kids) }
+func P(kids []Child) Node          { element("p", kids) }
+func A(kids []Child) Node          { element("a", kids) }
+func H1(kids []Child) Node         { element("h1", kids) }
+func H2(kids []Child) Node         { element("h2", kids) }
+func H3(kids []Child) Node         { element("h3", kids) }
+func H4(kids []Child) Node         { element("h4", kids) }
+func H5(kids []Child) Node         { element("h5", kids) }
+func H6(kids []Child) Node         { element("h6", kids) }
+func Ul(kids []Child) Node         { element("ul", kids) }
+func Ol(kids []Child) Node         { element("ol", kids) }
+func Li(kids []Child) Node         { element("li", kids) }
+func Dl(kids []Child) Node         { element("dl", kids) }
+func Dt(kids []Child) Node         { element("dt", kids) }
+func Dd(kids []Child) Node         { element("dd", kids) }
+func Time(kids []Child) Node       { element("time", kids) }
+func Strong(kids []Child) Node     { element("strong", kids) }
+func Em(kids []Child) Node         { element("em", kids) }
+func Small(kids []Child) Node      { element("small", kids) }
+func Code(kids []Child) Node       { element("code", kids) }
+func Pre(kids []Child) Node        { element("pre", kids) }
+func Blockquote(kids []Child) Node { element("blockquote", kids) }
+func Figure(kids []Child) Node     { element("figure", kids) }
+func Figcaption(kids []Child) Node { element("figcaption", kids) }
+func Picture(kids []Child) Node    { element("picture", kids) }
+func Table(kids []Child) Node      { element("table", kids) }
+func Thead(kids []Child) Node      { element("thead", kids) }
+func Tbody(kids []Child) Node      { element("tbody", kids) }
+func Tr(kids []Child) Node         { element("tr", kids) }
+func Th(kids []Child) Node         { element("th", kids) }
+func Td(kids []Child) Node         { element("td", kids) }
+func Form(kids []Child) Node       { element("form", kids) }
+func Label(kids []Child) Node      { element("label", kids) }
+func Button(kids []Child) Node     { element("button", kids) }
+func Textarea(kids []Child) Node   { element("textarea", kids) }
+func Details(kids []Child) Node    { element("details", kids) }
+func Summary(kids []Child) Node    { element("summary", kids) }
+
+// The void elements: attributes only.
+func Meta(attrList []Attr) Node   { void("meta", attrList) }
+func Link(attrList []Attr) Node   { void("link", attrList) }
+func Br(attrList []Attr) Node     { void("br", attrList) }
+func Hr(attrList []Attr) Node     { void("hr", attrList) }
+func Img(attrList []Attr) Node    { void("img", attrList) }
+func Input(attrList []Attr) Node  { void("input", attrList) }
+func Source(attrList []Attr) Node { void("source", attrList) }
+func Wbr(attrList []Attr) Node    { void("wbr", attrList) }
+
+// Script and Style hold a body a parser does not read as text, so it is
+// Trusted markup: a script's JSON-LD or a stylesheet.
+func Script(attrList []Attr, body Trusted) Node { rawText("script", attrList, body) }
+func Style(attrList []Attr, body Trusted) Node  { rawText("style", attrList, body) }
+
+// name is s as an attribute name: each byte other than a letter, a digit,
+// -, _, . or : is written as -, and an empty name is data-, so a name a
+// program reads from data is one attribute and never ends the tag.
+func name(s string) string {
+	if s == "" {
+		return "data-"
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ':'
+		b.WriteByte(if ok { c } else { '-' })
+	}
+	b.String()
+}
+
+// Attribute is the attribute name (as name writes it) with value.
+func Attribute(n string, value string) Attr { Attr{name: name(n), value: value, bare: false} }
+
+// Flag is the boolean attribute n (as name writes it): a name alone.
+func Flag(n string) Attr { Attr{name: name(n), value: "", bare: true} }
+
+// Data is the attribute data-key; Aria is aria-key.
+func Data(key string, value string) Attr { Attr{name: name("data-" + key), value: value, bare: false} }
+func Aria(key string, value string) Attr { Attr{name: name("aria-" + key), value: value, bare: false} }
+
+// The attributes of a string value.
+func Class(v string) Attr       { Attr{name: "class", value: v, bare: false} }
+func Id(v string) Attr          { Attr{name: "id", value: v, bare: false} }
+func Lang(v string) Attr        { Attr{name: "lang", value: v, bare: false} }
+func Charset(v string) Attr     { Attr{name: "charset", value: v, bare: false} }
+func Name(v string) Attr        { Attr{name: "name", value: v, bare: false} }
+func Content(v string) Attr     { Attr{name: "content", value: v, bare: false} }
+func Rel(v string) Attr         { Attr{name: "rel", value: v, bare: false} }
+func Type(v string) Attr        { Attr{name: "type", value: v, bare: false} }
+func Value(v string) Attr       { Attr{name: "value", value: v, bare: false} }
+func For(v string) Attr         { Attr{name: "for", value: v, bare: false} }
+func Alt(v string) Attr         { Attr{name: "alt", value: v, bare: false} }
+func Method(v string) Attr      { Attr{name: "method", value: v, bare: false} }
+func Placeholder(v string) Attr { Attr{name: "placeholder", value: v, bare: false} }
+func Datetime(v string) Attr    { Attr{name: "datetime", value: v, bare: false} }
+func Role(v string) Attr        { Attr{name: "role", value: v, bare: false} }
+
+// TitleAttr and StyleAttr are the title and style attributes (Title and
+// Style are elements).
+func TitleAttr(v string) Attr { Attr{name: "title", value: v, bare: false} }
+func StyleAttr(v string) Attr { Attr{name: "style", value: v, bare: false} }
+
+// Href, Src and Action are the attributes of a link target: a URL, never
+// a string (ParseURL, LocalURL).
+func Href(u URL) Attr   { Attr{name: "href", value: u.s, bare: false} }
+func Src(u URL) Attr    { Attr{name: "src", value: u.s, bare: false} }
+func Action(u URL) Attr { Attr{name: "action", value: u.s, bare: false} }
+
+// RenderIsAppend (WEB0): a node's markup is its parts' markup in order:
+// a list of texts is their texts joined, an element is its start tag
+// with its attributes in order, its children's markup joined, then its
+// end tag, and a void element has no end tag.
+law RenderIsAppend(a string, c string, k string) {
+	let ta = Render(Text(a))
+	let tc = Render(Text(c))
+	let ek = Escape(k)
+	let list = Render(Each([]string{a, c}, Text))
+	let div = Render(Div([]Child{Text(a), Class(k), Text(c), Id(k)}))
+	let br = Render(Br([]Attr{Class(k)}))
+	let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))})))
+	list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>"
+}
+
+// StaticIsItsTree (CF1): a node's markup is one: frozen into one string,
+// as a build-time fold builds a node of constants (Raw of its render), written as a tree, or written with each
+// child node run at write time (each wrapped in an Each of one item). A
+// frozen node is static and an Each is not.
+law StaticIsItsTree(a string, c string, k string) {
+	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Br([]Attr{Id(k)}), Raw(Trust(c)), When(a == c, Text(k)), Script([]Attr{Type(k)}, Trust(c))}
+	let mut late = []Child{}
+	for x in kids {
+		match x {
+		case Attr as at:
+			late = late.Append(at)
+		case Node as n:
+			late = late.Append(Each([]int{0}, func(i int) Node { n }))
+		}
+	}
+	let tree = Div(kids)
+	let deferred = Div(late)
+	let frozen = Raw(Trust(Render(tree)))
+	Static(frozen) && !Static(deferred) && Render(frozen) == Render(tree) && Render(tree) == Render(deferred) && Render(Doc(frozen)) == Render(Doc(deferred)) && Render(Doc(tree)) == Render(Doc(deferred))
+}
+
+// TemplateIsItsTree (CF2): a template's markup is its element's: the
+// attributes in its start tag in order, its nodes and the nodes of a
+// template among them in order, a boolean attribute and a void element's;
+// a template with data is no markup, and a document of one is the
+// document of its element.
+law TemplateIsItsTree(a string, c string, k string) {
+	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Flag(c), Br([]Attr{Id(k), Flag(a)}), Raw(Trust(c)), When(a == c, Text(k))}
+	let inner = Template(Trust("<p"), []Child{Text(c), Id(a)}, Trust(">"), Trust("</p>"))
+	let t = Template(Trust("<div"), kids.Append(inner), Trust(">"), Trust("</div>"))
+	let tree = Div(kids.Append(P([]Child{Text(c), Id(a)})))
+	let br = Template(Trust("<br"), []Child{Id(k), Flag(a)}, Trust("/>"), Trust(""))
+	!Static(t) && Render(t) == Render(tree) && Render(br) == Render(Br([]Attr{Id(k), Flag(a)})) && Render(Doc(t)) == Render(Doc(tree)) && Render(Template(Trust("<!DOCTYPE html>"), []Child{tree}, Trust(""), Trust(""))) == Render(Doc(tree))
+}

@@ -24,8 +24,11 @@ const (
 	BytesParsed
 	// PackagesChecked counts the program's own packages checked, and
 	// DeclsChecked their top-level declarations; std's are in check.Work.
+	// PackagesReused counts the packages a check took from its cache
+	// (sketchfront.CheckCache) instead of checking them.
 	PackagesChecked
 	DeclsChecked
+	PackagesReused
 	// ModulesLowered counts the emitted Go modules lowered, GoBytesLowered
 	// their lowered Go bytes, and ModulesReused the emitted modules taken
 	// from the emission cache.
@@ -57,17 +60,50 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// ObligationsAffected counts the obligations `ergo test --affected`
+	// found affected or new against its BASE.
+	ObligationsAffected
+	// SharedFallbacks counts the `ergo test DIR/...` runs whose module test
+	// binary (TEST-one) did not build, so each package was tested alone.
+	SharedFallbacks
+	// BinariesIR and BinariesText count the executables a build placed
+	// (linked, reused from the store, or built by go build), by their
+	// module's lowering: with the IR bodies, as every ergo command builds,
+	// or the Go source text alone, the reference lowering (TEQb).
+	BinariesIR
+	BinariesText
+	// ObligationsEvaluated counts the tests and law runs check-time
+	// evaluation decided (skipped and not-run ones aside; the verdicts
+	// `ergo test` printed from the check-time evaluator, tier 1, TESTSPEED
+	// FT1), and EvalSteps the evaluator steps they used; ObligationsNative
+	// counts those a test binary ran, and ObligationsStored those a stored
+	// verdict answered with no run (test-speed FT0, FT2); PackagesRouted the
+	// packages a route note sent to the test binary with no evaluation.
+	ObligationsEvaluated
+	EvalSteps
+	ObligationsNative
+	ObligationsStored
+	PackagesRouted
+	// SharedTestModules counts the shared test modules a recursive `ergo
+	// test DIR/...` linked and ran (TEST-one), where each package's own
+	// test module is linked otherwise; the examples runner checks that its
+	// test leg linked the modules its key hashed (gate-speed GS32a′).
+	SharedTestModules
 	numCounters
 )
 
 // names are the counters' names in a report, in Counter order.
 var names = [numCounters]string{
 	"files_read", "bytes_read", "files_parsed", "bytes_parsed",
-	"packages_checked", "decls_checked",
+	"packages_checked", "decls_checked", "packages_reused",
 	"modules_lowered", "go_bytes_lowered", "modules_reused",
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
+	"obligations_affected",
+	"shared_fallbacks", "binaries_ir", "binaries_text",
+	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored", "packages_routed",
+	"shared_test_modules",
 }
 
 var counts [numCounters]atomic.Int64

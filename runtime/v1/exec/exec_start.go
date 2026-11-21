@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"iter"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"sync"
@@ -64,7 +63,13 @@ const (
 	execDiscard  = 1
 	execToFile   = 2
 	execToCaller = 3
+	execToStdout = 4 // standard error's only: where standard output goes (2>&1)
 )
+
+// execToItself is the failure of a standard output whose sink is ToStdout.
+func execToItself(name string) error {
+	return ExecFailed{Name: name, Reason: "stdout: ToStdout is a sink of standard error, and standard output cannot go to itself"}
+}
 
 // execChunkBuffer is how many chunks of the ToCaller streams wait for the
 // caller. A full buffer stops the readers, the pipe fills, and the program
@@ -429,7 +434,7 @@ func (r *Running) finish() {
 
 // hostProc is a program of the host in a process group of its own.
 type hostProc struct {
-	cmd   *exec.Cmd
+	child *execChild
 	group int
 	exit  execExit
 	done  chan struct{}
@@ -446,10 +451,10 @@ func (p *hostProc) signal(sig syscall.Signal) {
 }
 
 func (p *hostProc) reap() int {
-	_ = p.cmd.Wait()
+	status := p.child.reap()
 	execAwaitGroupEnd(p.group)
 	p.exit.close()
-	return execStatus(p.cmd.ProcessState)
+	return status
 }
 
 // ExecStart is the body of exec.Host's Start on the caller's task t: it
@@ -461,6 +466,21 @@ func (p *hostProc) reap() int {
 //ergo:host
 //ergo:wait caller
 func ExecStart(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+	return execStart(t, "", name, args, env, dir, stdin, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+}
+
+// ExecStartIn is ExecStart for a command of exec.NewTestHost's folder root,
+// in the folder's sandbox on Linux, as ExecRunIn is ExecRun's.
+//
+//ergo:host
+//ergo:wait caller
+func ExecStartIn(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
+	return execStart(t, root, name, args, env, dir, stdin, grace, outKind, outPath, outAppend, errKind, errPath, errAppend)
+}
+
+// execStart is ExecStart's body, in the sandbox of the folder root when
+// root is not "".
+func execStart(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
 	t.Check()
 	cmd, err := execCommand(name, args, env, dir, stdin)
 	if err != nil {
@@ -470,6 +490,7 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	var files []*os.File  // the sinks' files, the parent's copies
 	var writes []*os.File // the write ends of the ToCaller pipes, the parent's copies
 	var reads [2]*os.File // the read ends: stdout's, stderr's
+	var outW *os.File     // what standard output goes to; nil for the null device
 	fail := func(err error) (*Running, error) {
 		for _, f := range slices.Concat(files, writes, reads[:]) {
 			if f != nil {
@@ -509,10 +530,16 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 			reads[i] = pr
 			writes = append(writes, pw)
 			w = pw
+		case execToStdout:
+			if i == 0 {
+				return fail(execToItself(name))
+			}
+			w = outW // the very file standard output goes to: one pipe or file keeps the write order of the two
 		default:
 			panic("exec: unknown sink kind")
 		}
 		if i == 0 {
+			outW = w
 			if w != nil {
 				cmd.Stdout = w
 			}
@@ -526,16 +553,16 @@ func ExecStart(t *rt.Task, name string, args []string, env map[string]string, di
 	}
 	cmd.WaitDelay = execWaitDelay
 	v1.FlushStdout() // the child starts after what was printed (stdlib.md io 11)
-	err = cmd.Start()
+	child, err := execBegin(cmd, root)
 	for _, w := range writes {
 		_ = w.Close() // the program holds its own copies
 	}
 	writes = nil
 	if err != nil {
 		exit.close()
-		return fail(execErr(name, err))
+		return fail(execStartErr(name, err))
 	}
-	p := &hostProc{cmd: cmd, group: cmd.Process.Pid, exit: exit, done: make(chan struct{})}
+	p := &hostProc{child: child, group: child.pid, exit: exit, done: make(chan struct{})}
 	go func() { exit.await(p.group); close(p.done) }()
 	var out, errs io.ReadCloser
 	if reads[0] != nil {

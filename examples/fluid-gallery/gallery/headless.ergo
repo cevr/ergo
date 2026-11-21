@@ -1,0 +1,40 @@
+import ergo.dev/fluid/a11y
+import ergo.dev/fluid/gui
+import ergo.dev/fluid/part
+import ergo.dev/fluid/web
+import html
+import ui
+
+// Specimens is the part trees a page draws (its buttons; a badge page's chips), in page order,
+// as one box: what both hosts draw of the page.
+func Specimens(r Route) part.Node[int] {
+	let mut kids = []part.Node[int]{}
+	match r {
+	case ButtonDocs:
+		let _ = buttonPage(func(p Press) html.Node {
+			kids = kids.Append(pressNode(p))
+			html.Text("")
+		})
+	case BadgeDocs:
+		for outline in []bool{false, true} {
+			for c in palette() {
+				kids = kids.Append(chipNode(c.Hue, outline, c.Label))
+			}
+		}
+	}
+	part.Box{Sem: part.Plain(), Skin: part.Bare(), Inline: false, Keys: []part.Binding[int]{}, Kids: kids}
+}
+
+// Headless is a page's specimens drawn on a std ui frame (the GUI host's tree, with no window):
+// the access tree ui holds, then whether the web's markup and the part tree give the same one
+// (as far as ui carries it).
+func Headless(r Route) string {
+	let tree = Specimens(r)
+	let mut f = ui.NewFrame[int]()
+	let _ = ui.Render(&f, func(fr mut ui.Frame[int], t part.Node[int]) { gui.Draw(fr, t) }, tree)
+	let got = a11y.Print(a11y.OfUI(&f))
+	let markup = html.Render(web.Node(tree, func(_ int) web.Act { web.Inert }))
+	let fromWeb = a11y.Print(a11y.Narrow(a11y.OfHTML(markup)))
+	let fromPart = a11y.Print(a11y.Narrow(a11y.Of(tree)))
+	got + "web: " + (if fromWeb == got { "agrees" } else { "differs:\n" + fromWeb }) + "\npart: " + (if fromPart == got { "agrees" } else { "differs:\n" + fromPart })
+}

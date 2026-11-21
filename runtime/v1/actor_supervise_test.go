@@ -268,7 +268,7 @@ func supRun(t *testing.T, c supCase) supOutcome {
 	}
 	a := MachineSupervise(Site("supervised"), driver, releaser{make(chan sleep)}, nil, []int{}, fresh, c.limit, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
-		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], func(struct{}) bool { return true }, work,
+		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], func(struct{}) bool { return true }, work, nil, nil,
 		func(d rdec) int { return d.kind },
 		func(s []int, d rdec) []int {
 			if d.kind == decideStay {
@@ -312,7 +312,7 @@ func supRun(t *testing.T, c supCase) supOutcome {
 			t.Fatalf("batch %d: the hold: %v", bi, err)
 		}
 		<-entered
-		var chans []chan answer[[]int, rdec]
+		var slots []*replySlot[[]int, rdec]
 		for _, op := range append(slices.Clone(batch.ops), supOp{kind: stateRead}) {
 			if op.kind == sendSignal {
 				if err := a.Send(driver, op.e); err != nil {
@@ -320,11 +320,11 @@ func supRun(t *testing.T, c supCase) supOutcome {
 				}
 				continue
 			}
-			ch := make(chan answer[[]int, rdec], 1)
-			if err := a.inbox.Push(driver, envelope[[]int, int, rdec]{kind: op.kind, sig: op.e, reply: &replySlot[[]int, rdec]{ch: ch}}); err != nil {
+			slot := &replySlot[[]int, rdec]{task: rt.Root("reply")}
+			if err := a.inbox.Push(driver, envelope[[]int, int, rdec]{kind: op.kind, sig: op.e, reply: slot}); err != nil {
 				t.Fatalf("batch %d: push while the runner is held: %v", bi, err)
 			}
-			chans = append(chans, ch)
+			slots = append(slots, slot)
 		}
 		if batch.drain {
 			go func() {
@@ -344,14 +344,17 @@ func supRun(t *testing.T, c supCase) supOutcome {
 		close(hold)
 		// The batch's last read is answered after every envelope before
 		// it: then each of them must hold its one answer.
-		last := <-chans[len(chans)-1]
-		for i, ch := range chans[:len(chans)-1] {
-			select {
-			case x := <-ch:
-				out.answers = append(out.answers, supAnswer{d: x.d, s: x.s, err: text(x.err)})
-			default:
+		lastSlot := slots[len(slots)-1]
+		for !lastSlot.full.Load() {
+			lastSlot.task.Suspend()
+		}
+		last := lastSlot.take()
+		for i, slot := range slots[:len(slots)-1] {
+			if !slot.full.Load() {
 				t.Fatalf("seed case %+v: batch %d: envelope %d has no answer after the batch's last read", c, bi, i)
 			}
+			x := slot.take()
+			out.answers = append(out.answers, supAnswer{d: x.d, s: x.s, err: text(x.err)})
 		}
 		out.answers = append(out.answers, supAnswer{d: last.d, s: last.s, err: text(last.err)})
 		if batch.drain {

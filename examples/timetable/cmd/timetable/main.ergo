@@ -1,0 +1,258 @@
+// timetable reads the Ocean's timetable. `timetable departures STOP DATE`
+// lists the trains that call at a stop on a day of its own calendar,
+// `timetable week DATE` picks ISO weeks and shows each day's trains, and
+// `timetable trip SERVICE DATE` follows one trip from boarding to arrival.
+// Times are written on each station's wall clock, with how far they are
+// from now. This binary is the only place that chooses the providers: the
+// timetable in memory, std's IANA zones, the host's clock or, with -now, a
+// manual clock set to that instant, and standard output.
+
+import civil
+import flag
+import io
+import os
+import time
+import timetable/memory
+import timetable/timetable
+import tz
+import tz/iana
+
+// Cmd is a command of timetable.
+type DeparturesCmd { Stop string, Day string, Now string }
+type WeekCmd { Day string, Count int }
+type TripCmd { Number string, Day string, Now string, Delay duration, Cancel string }
+type Cmd = DeparturesCmd | WeekCmd | TripCmd
+
+let stopArg = flag.Arg("stop", "the station, as the timetable names it: Moncton")
+let dayArg = flag.Arg("date", "the day, as 2027-03-14")
+let serviceArg = flag.Arg("service", "the train's number: 14")
+let nowFlag = flag.String("now", "", "the `instant` to count from, as 2027-03-13T12:00:00-04:00 (default the host's clock)")
+let countFlag = flag.Int("n", 1, "how many weeks to show")
+let delayFlag = flag.Duration("delay", 0s, "a delay the train takes once it has left, as 25m")
+let cancelFlag = flag.String("cancel", "", "cancel the train before it leaves, for this `reason`")
+
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{
+		Name:     "departures",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "list the trains that call at a stop on a day",
+		Set:      flag.Set{Name: "timetable departures", Usage: "", Flags: []flag.Flag{nowFlag}, Args: []flag.ArgSpec{stopArg, dayArg}},
+		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+			DeparturesCmd{Stop: argOf(stopArg, v), Day: argOf(dayArg, v), Now: nowFlag.Get(v)}
+		},
+	},
+	flag.Command[Cmd]{
+		Name:     "week",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "show the trains of each day of the ISO weeks from a day",
+		Set:      flag.Set{Name: "timetable week", Usage: "", Flags: []flag.Flag{countFlag}, Args: []flag.ArgSpec{dayArg}},
+		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+			WeekCmd{Day: argOf(dayArg, v), Count: countFlag.Get(v)}
+		},
+	},
+	flag.Command[Cmd]{
+		Name:     "trip",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "follow one train from boarding to arrival",
+		Set:      flag.Set{Name: "timetable trip", Usage: "", Flags: []flag.Flag{nowFlag, delayFlag, cancelFlag}, Args: []flag.ArgSpec{serviceArg, dayArg}},
+		Build:    func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+			TripCmd{Number: argOf(serviceArg, v), Day: argOf(dayArg, v), Now: nowFlag.Get(v), Delay: delayFlag.Get(v), Cancel: cancelFlag.Get(v)}
+		},
+	},
+}
+
+// argOf is the value of a required argument, which Parse has checked.
+func argOf(a flag.ArgSpec, v flag.Values) string {
+	match a.Get(v) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+}
+
+let usage = "usage: timetable departures STOP DATE [-now INSTANT] | timetable week DATE [-n N] | timetable trip SERVICE DATE [-now INSTANT] [-delay D] [-cancel REASON]"
+
+// instantFormat is -now's form: RFC 3339 to the second.
+let instantFormat = civil.ZonedPattern("yyyy-MM-dd'T'HH:mm:ssXXX") catch {
+case civil.BadPattern:
+	Unreachable("-now's pattern is LDML")
+}
+
+// dayOf is the text as a date, or exit 2.
+func dayOf(text string) civil.Date fails os.Exit {
+	civil.ParseISODate(text) catch {
+	case civil.ParseError as e:
+		return os.Exit{Code: 2, Message: "timetable: bad date \"\(text)\" (\(e.Reason)): write 2027-03-14"}
+	}
+}
+
+// route is the Ocean with its zones loaded.
+func route(t memory.Timetable) timetable.Route fails os.Exit needs tz.Zones {
+	timetable.Load(memory.Line(t)) catch {
+	case tz.UnknownZone as u:
+		return os.Exit{Code: 1, Message: "timetable: no zone \(u.Name)"}
+	}
+}
+
+// departures lists the calls at c.Stop on c.Day, from the clock's now.
+func departures(t memory.Timetable, c DeparturesCmd) fails os.Exit needs io.Stdout | tz.Zones | time.Clock {
+	let r = try route(t)
+	let day = try dayOf(c.Day)
+	let all = timetable.Departures(r, memory.Services(t), c.Stop, day) catch {
+	case timetable.UnknownStop as u:
+		return os.Exit{Code: 1, Message: "timetable: the \(r.Name) does not call at \(u.Name)"}
+	}
+	let now = time.Clock.Now()
+	io.Stdout.Println("\(c.Stop), \(timetable.DayText(day))")
+	if len(all) == 0 {
+		io.Stdout.Println("  no trains")
+	}
+	for d in all {
+		io.Stdout.Println("  \(d.Number)  \(timetable.ClockText(d.At))  \(timetable.Until(now, d.At.At))\(timetable.LeavingText(d.Leaving))")
+	}
+}
+
+// week shows each day of c.Count ISO weeks from c.Day.
+func week(t memory.Timetable, c WeekCmd) fails os.Exit needs io.Stdout {
+	let day = try dayOf(c.Day)
+	if c.Count < 1 || c.Count > 52 {
+		return os.Exit{Code: 2, Message: "timetable: -n \(c.Count): show 1 to 52 weeks"}
+	}
+	for w in timetable.Weeks(day, c.Count) {
+		io.Stdout.Println("\(timetable.WeekText(civil.From(w)))  \(timetable.DayText(civil.From(w))) to \(timetable.DayText(civil.To(w)))")
+		for d in timetable.Days(w, memory.Services(t)) {
+			let trains = if len(d.Services) == 0 { "-" } else { join(d.Services) }
+			io.Stdout.Println("  \(timetable.DayText(d.Date))  \(trains)")
+		}
+	}
+}
+
+// join is the numbers with commas.
+func join(xs []string) string {
+	let mut out = ""
+	for i, x in xs {
+		out = if i == 0 { x } else { out + ", " + x }
+	}
+	out
+}
+
+// trip follows c.Number on c.Day: the clock's tick at each instant the
+// trip waits for, the delay once it has left, the cancellation before it
+// leaves.
+func trip(t memory.Timetable, c TripCmd) fails os.Exit needs io.Stdout | tz.Zones | time.Clock {
+	let r = try route(t)
+	let day = try dayOf(c.Day)
+	let s = timetable.ServiceNumbered(memory.Services(t), c.Number) catch {
+	case timetable.UnknownService as u:
+		return os.Exit{Code: 1, Message: "timetable: no train \(u.Number)"}
+	}
+	if !timetable.RunsOn(s, day) {
+		return os.Exit{Code: 1, Message: "timetable: train \(s.Number) does not leave \(r.Stations[0].Name) on \(timetable.DayText(day))"}
+	}
+	let now = time.Clock.Now()
+	let mut l = timetable.Plan(timetable.Calls(r, s, day))
+	let mut delayed = c.Delay == 0s
+	if c.Cancel != "" {
+		l = try say(r, now, l, timetable.Cancel{Reason: c.Cancel})
+	}
+	for {
+		let next = match timetable.Waits(l) {
+		case Some[time.Time] as w:
+			w.Value
+		case None:
+			break
+		}
+		l = try say(r, now, l, timetable.Tick{At: next})
+		if !delayed && timetable.Name(l) == "running" {
+			l = try say(r, now, l, timetable.Delay{By: c.Delay})
+			delayed = true
+		}
+	}
+	io.Stdout.Println("\(timetable.Name(l))")
+}
+
+// say steps l by c and prints its notice.
+func say(r timetable.Route, now time.Time, l timetable.Leg, c timetable.Cue) timetable.Leg fails os.Exit needs io.Stdout {
+	match timetable.Step(l, c) {
+	case Emit[timetable.Leg, timetable.Notice] as e:
+		io.Stdout.Println(notice(r, now, e.Output))
+		e.Next
+	case Tell[timetable.Leg, timetable.Notice] as t:
+		io.Stdout.Println(notice(r, now, t.Output))
+		t.Next
+	case Enter[timetable.Leg] as e:
+		e.Next
+	case Stay[timetable.Leg] as e:
+		e.Next
+	case Ignore:
+		l
+	case Reject:
+		return os.Exit{Code: 1, Message: "timetable: a \(timetable.Name(l)) train takes no such change"}
+	case Done[timetable.Notice]:
+		l
+	}
+}
+
+// notice is n as a line: what happened, where, on that station's clock.
+func notice(r timetable.Route, now time.Time, n timetable.Notice) string {
+	let first = r.Stations[0]
+	let last = r.Stations[len(r.Stations)-1]
+	let at = func(st timetable.Station, t time.Time) string {
+		"\(st.Name) \(timetable.ClockText(tz.Zoned{At: t, Zone: st.Zone})) (\(timetable.Until(now, t)))"
+	}
+	match n {
+	case timetable.BoardingOpen as b:
+		"boarding at " + at(first, b.At)
+	case timetable.LeftFirst as x:
+		"left " + at(first, x.At)
+	case timetable.Called as x:
+		"called at " + at(r.Stations[x.Stop], x.At)
+	case timetable.Reached as x:
+		"arrived at " + at(last, x.At)
+	case timetable.Late as x:
+		"running \(civil.DurationWords(x.By, civil.EnglishWords())) late"
+	case timetable.Withdrawn as x:
+		"cancelled: \(x.Reason)"
+	}
+}
+
+// run is timetable on args.
+func run(args []string) fails os.Exit needs io.Stdout | tz.Zones | time.Clock {
+	let c = flag.ParseCommand("timetable", "", commands, args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	let t = memory.NewTimetable()
+	match c {
+	case DeparturesCmd as d:
+		try withNow(d.Now, func() fails os.Exit needs io.Stdout | tz.Zones | time.Clock { try departures(t, d) })
+	case WeekCmd as w:
+		try week(t, w)
+	case TripCmd as x:
+		try withNow(x.Now, func() fails os.Exit needs io.Stdout | tz.Zones | time.Clock { try trip(t, x) })
+	}
+}
+
+// withNow runs f on the context's clock, or, when now is an instant, on a
+// manual clock set to it, which never moves.
+func withNow(now string, f func() fails os.Exit needs io.Stdout | tz.Zones | time.Clock) fails os.Exit needs io.Stdout | tz.Zones | time.Clock {
+	if now == "" {
+		try f()
+		return
+	}
+	let at = tz.ParseInstant(instantFormat, now) catch {
+	case civil.ParseError as e:
+		return os.Exit{Code: 2, Message: "timetable: bad -now \"\(now)\" (\(e.Reason)): write 2027-03-13T12:00:00-04:00"}
+	}
+	with context { time.Clock: time.NewManual(time.UnixSeconds(at)) } {
+		try f()
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), tz.Zones: iana.New(), time.Clock: time.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

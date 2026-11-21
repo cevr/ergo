@@ -1,0 +1,1075 @@
+// The language seam on memory providers (SEMWS WG3a). Lines is a tiny
+// reference language: a line "unit NAME…" starts a unit (NAME up to a
+// space or a parenthesis; its contract is that line), the text before
+// the first is a preamble, a line "# …" is a comment, a line "error …"
+// is a diagnostic, and a use of a name is the name as a word on a line
+// that is neither a header nor a comment. A run of lines "  m NAME …" in
+// a unit is its members. Serving is an exec.Runner that
+// answers a plugin's requests in process with work.Serve, so a Plugin
+// over it is the plugin protocol with no process: the contracts' laws run
+// through it (the context overPlugin), and PluginIsTransparent holds it to Lines itself.
+
+import exec
+import filepath
+import fs
+import fstest
+import github.com/cevr/ergo/modules/work/classes
+import maps
+import slices
+import strconv
+import strings
+import sync
+import time
+import utf8
+import github.com/cevr/ergo/modules/work/work
+
+// Lines is the reference language. fault names one fault work
+// plugin-test must refuse ("" for none): "drops" (units lose the last
+// byte), "comments" (comment lines read as part of a body), "dupes" (two
+// units of one name both answered), "positional" (a key carries the
+// unit's offset, so an edit before a unit changes its key) and "layer" (a
+// file of a layer has a diagnostic of its own, even unchanged).
+type Lines { fault string } implements work.Splitter, work.Indexer, work.Checker
+
+// NewLines is the reference language with no fault.
+func NewLines() Lines { Lines{fault: ""} }
+
+// linesOf is text cut after each newline (the last piece may have none).
+func linesOf(text string) []string {
+	let mut out = []string{}
+	let parts = strings.Split(text, "\n")
+	for i, part in parts {
+		if i < len(parts)-1 {
+			out = out.Append(part + "\n")
+		} else if part != "" {
+			out = out.Append(part)
+		}
+	}
+	out
+}
+
+// unitName is the name a header line declares.
+func unitName(line string) string {
+	let rest = strings.TrimPrefix(line, "unit ")
+	let mut end = len(rest)
+	for i in 0..len(rest) {
+		if rest[i] == ' ' || rest[i] == '(' || rest[i] == '\n' || rest[i] == '\r' || rest[i] == '\t' {
+			end = i
+			break
+		}
+	}
+	rest[0:end]
+}
+
+func Units(l Lines, file string, text string) []work.Unit fails work.Unreadable | work.Unanswered {
+	let mut units = []work.Unit{}
+	let mut seen = Map[string, bool]{}
+	let mut cur = ""
+	let mut key = ""
+	let mut kind = "preamble"
+	let mut at = 0
+	let mut start = 0
+	for i, line in linesOf(text) {
+		at = at + len(line)
+		if !strings.HasPrefix(line, "unit ") {
+			cur = cur + line
+			continue
+		}
+		if cur != "" {
+			units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: membersOf(kind, cur)})
+		}
+		start = at - len(line)
+		key = unitName(line)
+		if key == "" {
+			return work.Unreadable{File: file, Why: "a unit with no name at line \(i + 1)"}
+		}
+		if seen.Get(key) != None && l.fault != "dupes" {
+			return work.Unreadable{File: file, Why: "two units named \(key)"}
+		}
+		seen[key] = true
+		kind = "unit"
+		cur = line
+	}
+	if cur != "" {
+		units = units.Append(work.Unit{Key: l.keyed(key, start), Kind: kind, Text: cur, Exported: exported(key), Members: membersOf(kind, cur)})
+	}
+	if l.fault == "drops" && len(units) > 0 {
+		let last = units[len(units)-1]
+		units[len(units)-1] = work.Unit{..last, Text: last.Text[0 : len(last.Text)-1]}
+	}
+	units
+}
+
+// membersOf is a unit's members: its lines "  m NAME ...", each keyed by
+// NAME, when they are one run of lines with no name twice (else none). A
+// preamble has none.
+func membersOf(kind string, text string) []work.Unit {
+	if kind != "unit" {
+		return []work.Unit{}
+	}
+	let mut out = []work.Unit{}
+	let mut seen = Map[string, bool]{}
+	let mut ended = false
+	for line in linesOf(text) {
+		let words = strings.Fields(line)
+		if !strings.HasPrefix(line, "  m ") || len(words) < 2 {
+			ended = len(out) > 0
+			continue
+		}
+		let name = words[1]
+		if ended || seen.Get(name) != None {
+			return []work.Unit{}
+		}
+		seen[name] = true
+		out = out.Append(work.Unit{Key: name, Kind: "member", Text: line, Exported: false, Members: []work.Unit{}})
+	}
+	out
+}
+
+// keyed is a unit's key: its name, or with the fault "positional" its
+// name and the offset where it starts.
+func keyed(l Lines, name string, start int) string { if l.fault == "positional" { "\(name)@\(start)" } else { name } }
+
+func exported(key string) bool { key != "" && key[0] >= 'A' && key[0] <= 'Z' }
+
+// shape is a unit's contract (its header) and its body (the other lines
+// that are not blank, nor comments unless the fault is "comments").
+func shape(l Lines, u work.Unit) (string, []string) {
+	let mut header = ""
+	let mut body = []string{}
+	for i, line in linesOf(u.Text) {
+		let text = strings.TrimSpace(line)
+		if i == 0 && u.Kind == "unit" {
+			header = text
+		} else if text != "" && (l.fault == "comments" || !strings.HasPrefix(text, "#")) {
+			body = body.Append(text)
+		}
+	}
+	(header, body)
+}
+
+// declared is the units of each file of s that declare something: a unit,
+// or a preamble with a body. A file that does not parse declares nothing.
+func declared(l Lines, s work.Snapshot) Map[string, Map[string, work.Unit]] {
+	let mut out = Map[string, Map[string, work.Unit]]{}
+	for path, text in work.LayerFiles(s.Layer) {
+		let mut keyed = Map[string, work.Unit]{}
+		let units = NewLines().Units(path, text) catch {
+		case work.Unreadable, work.Unanswered:
+			[]work.Unit{}
+		}
+		for u in units {
+			let (_, body) = shape(l, u)
+			if u.Kind == "unit" || len(body) > 0 {
+				keyed[u.Key] = u
+			}
+		}
+		out[path] = keyed
+	}
+	out
+}
+
+func Changes(l Lines, base work.Snapshot, head work.Snapshot) []work.Change fails work.NotProvided | work.Unanswered {
+	let before = declared(l, base)
+	let after = declared(l, head)
+	let mut paths = slices.Collect(maps.Keys(before))
+	for p in maps.Keys(after) {
+		if !slices.Contains(paths, p) {
+			paths = paths.Append(p)
+		}
+	}
+	let mut out = []work.Change{}
+	for path in slices.Sort(paths) {
+		let b = maps.GetOr(before, path, Map[string, work.Unit]{})
+		let a = maps.GetOr(after, path, Map[string, work.Unit]{})
+		let mut keys = slices.Collect(maps.Keys(b))
+		for k in maps.Keys(a) {
+			if !slices.Contains(keys, k) {
+				keys = keys.Append(k)
+			}
+		}
+		for k in slices.Sort(keys) {
+			match (b.Get(k), a.Get(k)) {
+			case (None, Some[work.Unit]):
+				out = out.Append(work.Change{Key: k, File: path, Kind: "added"})
+			case (Some[work.Unit], None):
+				out = out.Append(work.Change{Key: k, File: path, Kind: "removed"})
+			case (Some[work.Unit] as was, Some[work.Unit] as now):
+				let (h1, b1) = shape(l, was.Value)
+				let (h2, b2) = shape(l, now.Value)
+				if h1 != h2 {
+					out = out.Append(work.Change{Key: k, File: path, Kind: "contract"})
+				} else if b1 != b2 {
+					out = out.Append(work.Change{Key: k, File: path, Kind: "body"})
+				}
+			case (None, None):
+			}
+		}
+	}
+	out
+}
+
+func Sites(l Lines, snap work.Snapshot, of string) []work.Site fails work.NotProvided | work.Unanswered {
+	if of == "" {
+		return []work.Site{}
+	}
+	let files = work.LayerFiles(snap.Layer)
+	let mut out = []work.Site{}
+	for path in slices.Sorted(maps.Keys(files)) {
+		for i, line in strings.Split(maps.GetOr(files, path, ""), "\n") {
+			let text = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "unit ") || strings.HasPrefix(text, "#") {
+				continue
+			}
+			let mut from = 0
+			for from+len(of) <= len(line) {
+				let at = strings.Index(line[from:], of)
+				if at < 0 {
+					break
+				}
+				let start = from + at
+				let end = start + len(of)
+				if (start == 0 || !word(line[start-1])) && (end == len(line) || !word(line[end])) {
+					out = out.Append(work.Site{File: path, Line: i + 1, Column: start + 1})
+				}
+				from = start + 1
+			}
+		}
+	}
+	out
+}
+
+func word(b byte) bool { (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' }
+
+func Comment(l Lines, text string) string fails work.NotProvided | work.Unanswered {
+	"# " + strings.ReplaceAll(strings.ReplaceAll(text, "\n", " "), "\r", " ") + "\n"
+}
+
+func Check(l Lines, base work.Snapshot, layer []work.FileEdit) []work.Diagnostic fails work.ToolMissing | work.NotProvided | work.Unanswered {
+	let files = work.LayerFiles(slices.Concat(base.Layer, layer))
+	let mut out = []work.Diagnostic{}
+	for path in slices.Sorted(maps.Keys(files)) {
+		let text = maps.GetOr(files, path, "")
+		let _ = NewLines().Units(path, text) catch {
+		case work.Unreadable as u:
+			out = out.Append(work.Diagnostic{File: path, Line: 1, Column: 1, Message: u.Why})
+			continue
+		case work.Unanswered:
+			continue
+		}
+		for i, line in strings.Split(text, "\n") {
+			if strings.HasPrefix(line, "error ") {
+				out = out.Append(work.Diagnostic{File: path, Line: i + 1, Column: 1, Message: strings.TrimPrefix(line, "error ")})
+			}
+		}
+		if l.fault == "layer" && slices.IndexFunc(layer, func(e work.FileEdit) bool { e.Path == path }) >= 0 {
+			out = out.Append(work.Diagnostic{File: path, Line: 1, Column: 1, Message: "edited"})
+		}
+	}
+	out
+}
+
+// Serving answers a plugin's requests in process: its standard output is
+// work.Serve of its standard input over the three providers, or nothing
+// with status when status is not 0 (a plugin that died) or when silent (a
+// plugin that ends well and answers nothing).
+// It counts its runs (Started): each is a start of the plugin.
+type Serving { s work.Splitter, i work.Indexer, c work.Checker, status int, silent bool, runs sync.Ref[int] } implements exec.Runner
+
+// NewServing serves the reference language.
+func NewServing() Serving { serving(NewLines()) }
+
+func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: false, runs: sync.NewRef(0)} }
+
+// Started is how many times the plugin ran.
+func Started(sv Serving) int { sv.runs.Get() }
+
+func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if StatesItsStatus(c) {
+		return exec.NotFound{Name: c.Name}
+	}
+	sv.runs.Set(sv.runs.Get() + 1)
+	if sv.status != 0 {
+		return exec.Result{Status: sv.status, Stdout: "", Stderr: "the plugin died\n"}
+	}
+	if sv.silent {
+		return exec.Result{Status: 0, Stdout: "", Stderr: ""}
+	}
+	exec.Result{Status: 0, Stdout: work.Serve(c.Stdin, sv.s, sv.i, sv.c), Stderr: ""}
+}
+
+func Start(sv Serving, c exec.Command, st exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): try sv.Run(c)}}.Start(c, st)
+}
+
+// overPlugin binds the three contracts to the reference language
+// through a Plugin, so each contract law runs through its protocol too.
+let overPlugin = context {
+	work.Splitter: work.PluginOf(NewServing(), "lines", "/"),
+	work.Indexer:  work.PluginOf(NewServing(), "lines", "/"),
+	work.Checker:  work.PluginOf(NewServing(), "lines", "/"),
+}
+
+// linesText is a Lines file with a unit for each name (a body line from
+// bodies under it, and now and then a comment or an error line).
+func linesText(names []string, bodies []string) string {
+	let mut out = ""
+	for i, n in names {
+		let mut name = n
+		for bad in []string{" ", "(", "\n", "\r", "\t"} {
+			name = strings.ReplaceAll(name, bad, "x")
+		}
+		out = out + "unit \(name)(a)\n"
+		if i < len(bodies) {
+			out = out + strings.ReplaceAll(bodies[i], "unit ", "u ") + "\n"
+		}
+		if i%3 == 1 {
+			out = out + "# note \(i)\n"
+		}
+		if i%4 == 2 {
+			out = out + "error line \(i)\n"
+		}
+	}
+	out
+}
+
+// PluginIsTransparent: a provider through a Plugin (the requests and the
+// answers as JSON lines, the way a child process gets and gives them)
+// answers every request as the provider in process does, failures and a
+// level-1 plugin's NotProvided included.
+law PluginIsTransparent(names []string, bodies []string, extra []work.FileEdit, of string, note string, level1 bool) {
+	let text = linesText(names, bodies)
+	let mut valid = utf8.ValidString(text) && utf8.ValidString(of) && utf8.ValidString(note)
+	for f in extra {
+		valid = valid && utf8.ValidString(f.Path) && utf8.ValidString(match f.Text {
+		case Some[string] as t:
+			t.Value
+		case None:
+			""
+		})
+	}
+	if !valid {
+		return true
+	}
+	let l = NewLines()
+	let mut runner = serving(l)
+	let mut i work.Indexer = l
+	let mut c work.Checker = l
+	if level1 {
+		runner = Serving{s: l, i: work.Absent, c: work.Absent, status: 0, silent: false, runs: sync.NewRef(0)}
+		i = work.Absent
+		c = work.Absent
+	}
+	let p = work.PluginOf(runner, "lines", "/")
+	let s = work.Snapshot{Root: "", Layer: extra.Append(work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text}})}
+	let head = work.Snapshot{Root: "", Layer: s.Layer.Append(work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text + "unit zz\n\(of)\n"}})}
+	let requests = []work.Request{work.UnitsOf{File: "a.lines", Text: text}, work.UnitsOf{File: "b.lines", Text: "unit \nunit a\n"}, work.ChangesOf{Base: s, Head: s}, work.ChangesOf{Base: s, Head: head}, work.SitesOf{Snap: head, Of: of}, work.CommentOf{Text: note}, work.CheckOf{Base: s, Layer: head.Layer}}
+	for r in requests {
+		if work.AnswerOf(r, l, i, c) != work.AnswerOf(r, p, p, p) {
+			return false
+		}
+	}
+	true
+}
+
+// PluginFailuresAreUnanswered: a plugin that died, or that ended well and
+// answered nothing, answers every request Unanswered, never an empty list
+// (no diagnostics, no changes), and units that lost a byte are Unanswered
+// before any caller merges by them.
+law PluginFailuresAreUnanswered(names []string, bodies []string) {
+	let text = linesText(names, bodies)
+	if !utf8.ValidString(text) {
+		return true
+	}
+	let s = work.Snapshot{Root: "", Layer: []work.FileEdit{work.FileEdit{Path: "a.lines", Text: Some[string]{Value: text}}}}
+	for broken in []Serving{Serving{..NewServing(), status: 1}, Serving{..NewServing(), silent: true}} {
+		let died = work.PluginOf(broken, "lines", "/")
+		for r in []work.Request{work.UnitsOf{File: "a.lines", Text: text}, work.ChangesOf{Base: s, Head: s}, work.SitesOf{Snap: s, Of: "a"}, work.CommentOf{Text: "n"}, work.CheckOf{Base: s, Layer: []work.FileEdit{}}} {
+			match work.AnswerOf(r, died, died, died) {
+			case work.Unanswered:
+			case work.UnitsAre, work.ChangesAre, work.SitesAre, work.CheckIs, work.CommentIs, work.Unreadable, work.NotProvided, work.ToolMissing:
+				return false
+			}
+		}
+	}
+	let dropping = work.PluginOf(serving(Lines{fault: "drops"}), "lines", "/")
+	let _ = dropping.Units("a.lines", text) catch {
+	case work.Unanswered:
+		return true
+	case work.Unreadable:
+		return true
+	}
+	text == ""
+}
+
+// pluginWorld is a Tool whose base holds files (committed) and whose
+// runner serves lines, for work plugin-test; config is its work.toml
+// ("" for none) and trusted whether work trust allowed it.
+func pluginWorld(lines Lines, files Map[string, string]) work.Tool { configuredWorld(lines, files, "", false) }
+
+func configuredWorld(lines Lines, files Map[string, string], config string, trusted bool) work.Tool {
+	let (tool, _) = configuredDisk(lines, files, config, trusted)
+	tool
+}
+
+// configuredDisk is configuredWorld and its disk.
+func configuredDisk(lines Lines, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
+	configuredWith(serving(lines), files, config, trusted)
+}
+
+// configuredWith is configuredDisk with the runner sv (a plugin's, or
+// any command's).
+func configuredWith(sv exec.Runner, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
+	configuredOn(sv, fstest.NewMemory(), files, config, trusted)
+}
+
+// configuredOn is configuredWith on the disk disk (one the runner sv
+// writes too).
+func configuredOn(sv exec.Runner, disk fstest.Memory, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
+	let trees = NewCloner()
+	let vcs = VcsOver(trees)
+	Repo(vcs, theBase, "main", files, "c0")
+	let home = work.Home(theBase, "")
+	disk.MkdirAll(theBase) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
+	disk.MkdirAll(home) catch {
+	case fs.Denied, fs.Failed:
+		Unreachable("a folder of a memory disk")
+	}
+	for path, text in files {
+		disk.MkdirAll(filepath.Dir(theBase + "/" + path)) catch {
+		case fs.Denied, fs.Failed:
+			Unreachable("a folder of a memory disk")
+		}
+		disk.WriteFile(theBase+"/"+path, text) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			Unreachable("a file of a memory disk")
+		}
+	}
+	if config != "" {
+		disk.WriteFile(theBase+"/"+work.ConfigFile, config) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			Unreachable("a file of a memory disk")
+		}
+		let c = work.ParseConfig(config) catch {
+		case work.BadConfig:
+			work.EmptyConfig()
+		}
+		if trusted {
+			disk.WriteFile(work.TrustFile(home), work.Digest(c)+"\n") catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				Unreachable("a file of a memory disk")
+			}
+		}
+	}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: NewLock(), Hooks: Recording(NewLock(), ""), Vcs: vcs, Files: disk, Writes: disk, Runner: sv, Clock: time.NewManual(1000)}
+	(work.NewTool(theBase, home, "/data", p, "/"), disk)
+}
+
+let pluginFiles = Map[string, string]{"a.lines": "unit A(x)\n  call b\n# a note\n", "b.lines": "unit b(y)\n  error none\n", "c.txt": "not read\n"}
+
+// refusal is the refusal of plugin-test on t's Lines files, or none.
+func refusal(t work.Tool) work.PluginRefused {
+	let none = work.PluginRefused{Command: "", Law: "", File: "", Why: "admitted, or another failure"}
+	let _ = t.PluginTest("lines", linesOnly) catch {
+	case work.PluginRefused as r:
+		return r
+	case _:
+		return none
+	}
+	none
+}
+
+let linesOnly = work.PluginTestOptions{Files: Some[string]{Value: "*.lines"}, Max: None, Seed: None}
+
+// plugin-test admits the reference language at level 2 with every law
+// it ran named, and refuses a plugin that drops a byte, or that reads a
+// comment as a change, with the law's name and the file.
+test PluginTestNamesTheLaw {
+	let ok = try pluginWorld(NewLines(), pluginFiles).PluginTest("lines", linesOnly)
+	assert ok == work.PluginAdmitted{Command: "lines", Level: 2, Files: 2, Unreadable: 0, Laws: []string{"UnitsAreTheFile", "KeysAreUnique", "EditStaysInItsUnit", "ChangesOfSameIsEmpty", "CommentEditIsNoChange", "CheckIsPure", "EmptyLayerIsTheBase"}}
+	let dropped = refusal(pluginWorld(Lines{fault: "drops"}, pluginFiles))
+	assert dropped == work.PluginRefused{Command: "lines", Law: "UnitsAreTheFile", File: "a.lines", Why: "the units' texts join to 27 bytes, the file has 28"}
+	let comments = refusal(pluginWorld(Lines{fault: "comments"}, pluginFiles))
+	assert comments == work.PluginRefused{Command: "lines", Law: "CommentEditIsNoChange", File: "a.lines", Why: "a comment added at its end is a change of A (body)"}
+}
+
+// A [language.NAME] runs its command only once work trust allowed it,
+// and reads only its files; one with no command is BadConfig.
+test LanguageRunsOnlyTrusted {
+	let config = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n"
+	let none = work.PluginTestOptions{Files: None, Max: None, Seed: None}
+	let asked = configuredWorld(NewLines(), pluginFiles, config, false).PluginTest("lines", none) catch {
+	case work.Untrusted as u:
+		assert u.Commands == []string{"language.lines.command: lines"}
+		work.PluginAdmitted{Command: "", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	case _:
+		work.PluginAdmitted{Command: "other", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	}
+	assert asked.Command == ""
+	let ran = try configuredWorld(NewLines(), pluginFiles, config, true).PluginTest("lines", none)
+	assert ran.Command == "lines" && ran.Files == 2
+	let bad = configuredWorld(NewLines(), pluginFiles, "[language.x]\nfiles = [\"*\"]\n", true).PluginTest("x", none) catch {
+	case work.BadConfig as b:
+		assert b.Why == "[language.x] needs a command and files"
+		work.PluginAdmitted{Command: "", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	case _:
+		work.PluginAdmitted{Command: "other", Level: 0, Files: 0, Unreadable: 0, Laws: []string{}}
+	}
+	assert bad.Command == ""
+}
+
+// plugin-test refuses the three other faults with the law each breaks:
+// two units of one name (KeysAreUnique), a key that moves with an edit
+// before its unit (EditStaysInItsUnit), a layer that writes the files as
+// they are yet changes the diagnostics (EmptyLayerIsTheBase).
+test PluginTestRefusesEachFault {
+	let dupes = Map[string, string]{"d.lines": "unit d(x)\n  one\nunit d(y)\n  two\n"}
+	assert refusal(pluginWorld(Lines{fault: "dupes"}, dupes)) == work.PluginRefused{Command: "lines", Law: "KeysAreUnique", File: "d.lines", Why: "two units have one key"}
+	let moved = refusal(pluginWorld(Lines{fault: "positional"}, Map[string, string]{"p.lines": "unit A(x) y\n  call\nunit c\n"}))
+	assert moved == work.PluginRefused{Command: "lines", Law: "EditStaysInItsUnit", File: "p.lines", Why: "a space added at byte 10, in unit A@0, changed another unit"}
+	assert refusal(pluginWorld(Lines{fault: "layer"}, pluginFiles)) == work.PluginRefused{Command: "lines", Law: "EmptyLayerIsTheBase", File: "", Why: "2 diagnostics, the first check had 0"}
+}
+
+// The units merge (work.MergeUnits) against a reference written apart
+// from it, on Lines files made from keyed values by two edit scripts:
+// each unit (or member) one side changed takes that side, two equal
+// changes are one, and the keys both sides changed apart are the
+// conflicts, named by their overlap.
+
+// scripted is units with the script made, each key folded into 0..5 so
+// that the two scripts meet on some.
+func scripted(units Map[int, int], script []classes.Edit) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k, v in units {
+		out[fold(k)] = v
+	}
+	for e in script {
+		match e {
+		case classes.Set as s:
+			out[fold(s.Key)] = s.Value
+		case classes.Drop as d:
+			out = out.Delete(fold(d.Key))
+		}
+	}
+	out
+}
+
+// fold is k's unit, 0 to 5. (0 - k for the least int is itself, so a
+// negation would give a negative unit there, which unitFile drops and a
+// second fold moves: two scripts on one base would disagree.)
+func fold(k int) int { ((k % 6) + 6) % 6 }
+
+// picked is the reference merge: the merged values and the keys that
+// clash.
+func picked(base Map[int, int], ours Map[int, int], theirs Map[int, int]) (Map[int, int], []int) {
+	let mut out = Map[int, int]{}
+	let mut clashes = []int{}
+	for key in 0..6 {
+		let (b, o, t) = (base.Get(key), ours.Get(key), theirs.Get(key))
+		let v = if o == b {
+			t
+		} else if t == b || o == t {
+			o
+		} else {
+			clashes = clashes.Append(key)
+			None
+		}
+		match v {
+		case Some[int] as x:
+			out[key] = x.Value
+		case None:
+		}
+	}
+	(out, clashes)
+}
+
+// unitFile is units as a Lines file: "unit kK" over "  vV" for each.
+func unitFile(units Map[int, int]) string {
+	let mut out = ""
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			out = out + "unit k\(key)\n  v\(v.Value)\n"
+		case None:
+		}
+	}
+	out
+}
+
+// memberFile is a preamble and one unit c whose members are the units
+// ("  m kK vV"), after a member a that no script touches, then a line
+// "  end".
+func memberFile(units Map[int, int]) string {
+	let mut out = "# a file\nunit c\n  m a v0\n"
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			out = out + "  m k\(key) v\(v.Value)\n"
+		case None:
+		}
+	}
+	out + "  end\n"
+}
+
+// valuesOf is the values a merged text holds: of its units, or of the
+// members of its unit c. None when it does not parse.
+func valuesOf(text string, members bool) Option[Map[int, int]] {
+	let units = NewLines().Units("f.lines", text) catch {
+	case work.Unreadable, work.Unanswered:
+		return None
+	}
+	let mut out = Map[int, int]{}
+	for u in units {
+		let pieces = if members && u.Key == "c" { u.Members } else if members { []work.Unit{} } else { []work.Unit{u} }
+		for p in pieces {
+			if !strings.HasPrefix(p.Key, "k") {
+				continue
+			}
+			let words = strings.Fields(p.Text)
+			let key = strconv.Atoi(p.Key[1:]) catch {
+			case _:
+				return None
+			}
+			let value = strconv.Atoi(strings.TrimPrefix(words[len(words)-1], "v")) catch {
+			case _:
+				return None
+			}
+			out[key] = value
+		}
+	}
+	Some[Map[int, int]]{Value: out}
+}
+
+// UnitsMergeIsTheReference: two scripts on a file of units merge unit by
+// unit to the reference, with ours' units in ours' order and theirs' in
+// theirs'; where it clashes, the conflicts are its keys, SameNewHandle for
+// a key both added and SameDeclaration for the others.
+law UnitsMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit) {
+	let base = scripted(units, []classes.Edit{})
+	let ours = scripted(base, ourEdits)
+	let theirs = scripted(base, theirEdits)
+	let got = work.MergeUnits(NewLines(), "f.lines", unitFile(base), unitFile(ours), unitFile(theirs)) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let (want, clashes) = picked(base, ours, theirs)
+	let mut names = []string{}
+	for k in clashes {
+		names = names.Append(if base.Get(k) == None { "SameNewHandle k\(k)" } else { "SameDeclaration k\(k)" })
+	}
+	if len(names) > 0 {
+		return slices.Sort(got.Conflicts) == slices.Sort(names)
+	}
+	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want} && keeps(got.Text, ours) && keeps(got.Text, theirs)
+}
+
+// keeps reports whether the units of text that side holds are in side's
+// order (unitFile's: by key).
+func keeps(text string, side Map[int, int]) bool {
+	let units = NewLines().Units("f.lines", text) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let mut last = -1
+	for u in units {
+		let key = strconv.Atoi(strings.TrimPrefix(u.Key, "k")) catch {
+		case _:
+			return false
+		}
+		if side.Get(key) != None {
+			if key < last {
+				return false
+			}
+			last = key
+		}
+	}
+	true
+}
+
+// MembersMergeIsTheReference: the same for the members of one unit both
+// sides changed (fresh: a unit both sides added, as two imports of one
+// module): they merge member by member, and the conflicts are
+// SameMember c.kK for the members both changed apart. When theirs also
+// changes the unit's last line (tail), the text around the members takes
+// it; for a fresh unit, two texts around them are SameNewHandle c.
+law MembersMergeIsTheReference(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit, fresh bool, tail bool) {
+	let base = if fresh { Map[int, int]{} } else { scripted(units, []classes.Edit{}) }
+	let ours = scripted(base, ourEdits)
+	let theirs = scripted(base, theirEdits)
+	let baseText = if fresh { "# a file\n" } else { memberFile(base) }
+	let theirText = if tail { strings.ReplaceAll(memberFile(theirs), "  end\n", "  done\n") } else { memberFile(theirs) }
+	let got = work.MergeUnits(NewLines(), "f.lines", baseText, memberFile(ours), theirText) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	if fresh && tail {
+		return got.Conflicts == []string{"SameNewHandle c"}
+	}
+	if tail && !strings.HasSuffix(got.Text, "  done\n") && len(got.Conflicts) == 0 {
+		return false
+	}
+	let (want, clashes) = picked(base, ours, theirs)
+	let mut names = []string{}
+	for k in clashes {
+		names = names.Append("SameMember c.k\(k)")
+	}
+	if len(names) > 0 {
+		return slices.Sort(got.Conflicts) == slices.Sort(names)
+	}
+	len(got.Conflicts) == 0 && valuesOf(got.Text, true) == Some[Map[int, int]]{Value: want}
+}
+
+// bodyFile is one unit c with no members: a line "  kK vV" for each of
+// the keys 0..5 (a key with no value is v0), each line after a line "  -"
+// so that no two changed lines are next to each other.
+func bodyFile(values Map[int, int]) string {
+	let mut out = "unit c\n"
+	for key in 0..6 {
+		out = out + "  -\n  k\(key) v\(maps.GetOr(values, key, 0))\n"
+	}
+	out
+}
+
+func bodyValues(text string) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for line in strings.Split(text, "\n") {
+		let words = strings.Fields(line)
+		if len(words) == 2 && strings.HasPrefix(words[0], "k") {
+			let key = strconv.Atoi(words[0][1:]) catch {
+			case _:
+				continue
+			}
+			let value = strconv.Atoi(strings.TrimPrefix(words[1], "v")) catch {
+			case _:
+				continue
+			}
+			if value != 0 {
+				out[key] = value
+			}
+		}
+	}
+	out
+}
+
+// BodyLinesMergeWithinTheUnit: a unit with no members whose lines both
+// sides changed apart, on lines that are not next to each other, merges
+// by lines within it, as Git would merge the file; changed apart on one
+// line it is SameDeclaration c.
+law BodyLinesMergeWithinTheUnit(values Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit) {
+	let mut base = Map[int, int]{}
+	for k, v in scripted(values, []classes.Edit{}) {
+		if v != 0 {
+			base[k] = v
+		}
+	}
+	let ours = without0(scripted(base, ourEdits))
+	let theirs = without0(scripted(base, theirEdits))
+	let got = work.MergeUnits(NewLines(), "f.lines", bodyFile(base), bodyFile(ours), bodyFile(theirs)) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let (want, clashes) = picked(base, ours, theirs)
+	if len(clashes) > 0 {
+		return got.Conflicts == []string{"SameDeclaration c"}
+	}
+	len(got.Conflicts) == 0 && bodyValues(got.Text) == want
+}
+
+func without0(m Map[int, int]) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for k, v in m {
+		if v != 0 {
+			out[k] = v
+		}
+	}
+	out
+}
+
+// Picky is Lines that cannot read a unit whose members are out of key
+// order: a language whose lists need a separator before each member but
+// the first, as TypeScript's import specifiers do.
+type Picky {} implements work.Splitter
+
+func Units(p Picky, file string, text string) []work.Unit fails work.Unreadable | work.Unanswered {
+	let units = try NewLines().Units(file, text)
+	for u in units {
+		let mut keys = []string{}
+		for m in u.Members {
+			keys = keys.Append(m.Key)
+		}
+		if keys != slices.Sorted(slices.Values(keys)) {
+			return work.Unreadable{File: file, Why: "the members of \(u.Key) are out of order"}
+		}
+	}
+	units
+}
+
+// The bug this row fixes: two members both sides put first in one list
+// merged to a text the language cannot read (TypeScript: "{ b a }" for
+// two imports of one module). The merge splits its result again; one
+// that does not parse is the line merge, with the conflict Unparsed.
+test AMergeThatDoesNotParseIsTheLineMerge {
+	let base = "unit c\n  m k3 v1\n  end\n"
+	let ours = "unit c\n  m k2 v1\n  m k3 v1\n  end\n"
+	let theirs = "unit c\n  m k1 v1\n  m k3 v1\n  end\n"
+	let lines = work.MergeUnits(NewLines(), "f.lines", base, ours, theirs) catch {
+	case work.Unreadable, work.Unanswered:
+		return
+	}
+	assert lines.Text == "unit c\n  m k2 v1\n  m k1 v1\n  m k3 v1\n  end\n"
+	let picky = try work.MergeUnits(Picky, "f.lines", base, ours, theirs)
+	assert picky == classes.Merged{Text: classes.Text(classes.MergeText(base, ours, theirs)), Conflicts: []string{"Unparsed the members of c are out of order"}, Regenerate: false}
+}
+
+// languageConfig is a work.toml whose [language.lines] takes the .lines
+// files.
+let languageConfig = "[language.lines]\ncommand = \"lines\"\nfiles = [\"*.lines\"]\n"
+
+// MergeByLanguageIsMergeUnits: merge-file auto, and the merge of three
+// trees, take a file of a [language.NAME] to the merge by its plugin's
+// units (class NAME): the text and the conflicts of work.MergeUnits on
+// the language itself. Until work trust the plugin never runs: merge-file
+// refuses, and the tree merges the file by lines.
+law MergeByLanguageIsMergeUnits(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit, trusted bool) {
+	let base = scripted(units, []classes.Edit{})
+	let (b, o, th) = (unitFile(base), unitFile(scripted(base, ourEdits)), unitFile(scripted(base, theirEdits)))
+	let want = work.MergeUnits(NewLines(), "f.lines", b, o, th) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let (tool, disk) = configuredDisk(NewLines(), Map[string, string]{"m/b.lines": b, "m/o.lines": o, "m/t.lines": th}, languageConfig, trusted)
+	let mut conflicts = []string{}
+	let mut refused = false
+	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
+	case work.MergeConflict as m:
+		conflicts = m.Units
+		refused = m.Why == "the language lines runs only after work trust"
+	case work.BadClass, work.BadConfig, fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let got = disk.ReadFile(theBase + "/m/o.lines") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let c = work.ParseConfig(languageConfig) catch {
+	case work.BadConfig:
+		return false
+	}
+	let tree = work.MergeTree(tool, c, theBase+"/out", Map[string, string]{"f.lines": b}, Map[string, string]{"f.lines": o}, Map[string, string]{"f.lines": th}) catch {
+	case _:
+		return false
+	}
+	let written = disk.ReadFile(theBase + "/out/f.lines") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	if !trusted {
+		let lines = classes.MergeText(b, o, th)
+		return refused && got == o && written == classes.Text(lines) && (len(tree.Conflicts) > 0) == (lines.Clashes > 0)
+	}
+	got == want.Text && conflicts == want.Conflicts && written == want.Text && (len(tree.Conflicts) > 0) == (len(want.Conflicts) > 0)
+}
+
+// RenamedUnitTakesTheOtherSidesChange: ours renames a unit in place (its
+// header), theirs changes a line of its body: the merge is clean and
+// holds the unit under its new name with theirs' change, and no unit of
+// the old name. When theirs instead adds a unit of the new name (taken),
+// ours' is no rename: the two new units are SameNewHandle.
+law RenamedUnitTakesTheOtherSidesChange(units Map[int, int], which int, value int, taken bool) {
+	let base = scripted(units, []classes.Edit{})
+	let keys = slices.Sorted(maps.Keys(base))
+	if len(keys) == 0 {
+		return true
+	}
+	let r = keys[fold(which)%len(keys)]
+	let file = func(m Map[int, int], name int) string {
+		let mut out = ""
+		for key in 0..6 {
+			match m.Get(key) {
+			case Some[int] as v:
+				out = out + (if key == name { "unit r\(key)" } else { "unit k\(key)" }) + "\n  -\n  v\(v.Value)\n"
+			case None:
+			}
+		}
+		out
+	}
+	let mut changed = Map[int, int]{}
+	for k, v in base {
+		changed[k] = if k == r { value } else { v }
+	}
+	let theirs = if taken { file(base, -1) + "unit r\(r)\n  -\n  w\n" } else { file(changed, -1) }
+	let got = work.MergeUnits(NewLines(), "f.lines", file(base, -1), file(base, r), theirs) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	if taken {
+		return got.Conflicts == []string{"SameNewHandle r\(r)"}
+	}
+	len(got.Conflicts) == 0 && got.Text == file(changed, r)
+}
+
+// UnitsCarryAMove: theirs only moves the units (reversed), ours edits
+// them: the merge is clean, holds ours' values, and writes the units the
+// base had in theirs' order.
+law UnitsCarryAMove(units Map[int, int], ourEdits []classes.Edit) {
+	let base = scripted(units, []classes.Edit{})
+	let ours = scripted(base, ourEdits)
+	let mut reversed = ""
+	for key in 0..6 {
+		match base.Get(5 - key) {
+		case Some[int] as v:
+			reversed = reversed + "unit k\(5 - key)\n  v\(v.Value)\n"
+		case None:
+		}
+	}
+	let got = work.MergeUnits(NewLines(), "f.lines", unitFile(base), unitFile(ours), reversed) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let merged = NewLines().Units("f.lines", got.Text) catch {
+	case work.Unreadable, work.Unanswered:
+		return false
+	}
+	let mut last = 6
+	for u in merged {
+		let key = strconv.Atoi(strings.TrimPrefix(u.Key, "k")) catch {
+		case _:
+			return false
+		}
+		if base.Get(key) != None {
+			if key > last {
+				return false
+			}
+			last = key
+		}
+	}
+	let (want, _) = picked(base, ours, base)
+	len(got.Conflicts) == 0 && valuesOf(got.Text, false) == Some[Map[int, int]]{Value: want}
+}
+
+// TreeMergeStartsThePluginTwice: the merge of three trees with n files of
+// a [language.NAME] that both sides changed (each its own edits) is each
+// file's merge by MergeUnits, and the plugin starts at most twice, however
+// many files: once for every file's three sides, once for every merge cut
+// again. merge-file starts it at most twice for one file.
+law TreeMergeStartsThePluginTwice(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit, n int) {
+	let files = ((n%4)+4)%4 + 1
+	let base = scripted(units, []classes.Edit{})
+	let mut b = Map[string, string]{}
+	let mut o = Map[string, string]{}
+	let mut th = Map[string, string]{}
+	for i in 0..files {
+		let p = "f\(i).lines"
+		let mut shifted = []classes.Edit{}
+		for e in theirEdits {
+			match e {
+			case classes.Set as s:
+				shifted = shifted.Append(classes.Set{Key: s.Key, Value: s.Value + i})
+			case classes.Drop as d:
+				shifted = shifted.Append(d)
+			}
+		}
+		b[p] = unitFile(base)
+		o[p] = unitFile(scripted(base, ourEdits))
+		th[p] = unitFile(scripted(base, shifted))
+	}
+	let one = unitFile(base)
+	let ours = unitFile(scripted(base, ourEdits))
+	let theirs = unitFile(scripted(base, theirEdits))
+	let sv = serving(NewLines())
+	let (tool, disk) = configuredWith(sv, Map[string, string]{"m/b.lines": one, "m/o.lines": ours, "m/t.lines": theirs}, languageConfig, true)
+	let c = work.ParseConfig(languageConfig) catch {
+	case work.BadConfig:
+		return false
+	}
+	let _ = work.MergeTree(tool, c, theBase+"/out", b, o, th) catch {
+	case _:
+		return false
+	}
+	let tree = sv.Started()
+	for p, text in th {
+		let want = work.MergeUnits(NewLines(), p, one, ours, text) catch {
+		case work.Unreadable, work.Unanswered:
+			return false
+		}
+		let got = disk.ReadFile(theBase + "/out/" + p) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if got != want.Text {
+			return false
+		}
+	}
+	tool.MergeFile("auto", theBase+"/m/b.lines", theBase+"/m/o.lines", theBase+"/m/t.lines", work.MergeFileOptions{Path: Some[string]{Value: "f.lines"}}) catch {
+	case _:
+	}
+	tree <= 2 && sv.Started()-tree <= 2
+}
+
+// FoldersAreTheirTrees: merge-folders merges the files under three
+// folders, in folders of their own too, as the merge of three trees of
+// them: each file of out, and the conflicts.
+law FoldersAreTheirTrees(units Map[int, int], ourEdits []classes.Edit, theirEdits []classes.Edit) {
+	let base = scripted(units, []classes.Edit{})
+	let b = Map[string, string]{"f.lines": unitFile(base), "d/e/g.lines": unitFile(base), "d/x.txt": "a\nb\n"}
+	let o = Map[string, string]{"f.lines": unitFile(scripted(base, ourEdits)), "d/e/g.lines": unitFile(base), "d/x.txt": "a\nb\n"}
+	let th = Map[string, string]{"f.lines": unitFile(base), "d/e/g.lines": unitFile(scripted(base, theirEdits)), "d/x.txt": "a\nc\n", "d/new.txt": "n\n"}
+	let (tool, disk) = configuredWith(serving(NewLines()), Map[string, string]{}, languageConfig, true)
+	let put = func(side string, tree Map[string, string]) bool {
+		for path, text in tree {
+			let file = theBase + "/in/" + side + "/" + path
+			disk.MkdirAll(filepath.Dir(file)) catch {
+			case fs.Denied, fs.Failed:
+				return false
+			}
+			disk.WriteFile(file, text) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return false
+			}
+		}
+		true
+	}
+	if !put("b", b) || !put("o", o) || !put("t", th) {
+		return false
+	}
+	let c = work.ParseConfig(languageConfig) catch {
+	case work.BadConfig:
+		return false
+	}
+	let want = work.MergeTree(tool, c, theBase+"/want", b, o, th) catch {
+	case _:
+		return false
+	}
+	let got = tool.MergeFolders(theBase+"/in/b", theBase+"/in/o", theBase+"/in/t", theBase+"/got") catch {
+	case _:
+		return false
+	}
+	for path in []string{"f.lines", "d/e/g.lines", "d/x.txt", "d/new.txt"} {
+		let w = disk.ReadFile(theBase + "/want/" + path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let g = disk.ReadFile(theBase + "/got/" + path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if g != w {
+			return false
+		}
+	}
+	got == want
+}
+
+// DoctorNamesTheMountOfMount: on a host with no /proc/mounts (macOS),
+// doctor names the base's file system from mount(8)'s list.
+test DoctorNamesTheMountOfMount {
+	let list = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n/dev/disk5s1 on /Volumes/x (msdos, local)\n"
+	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("mount", []string{})): exec.Result{Status: 0, Stdout: list, Stderr: ""}}}
+	let (tool, _) = configuredWith(runner, Map[string, string]{}, "", false)
+	let _ = try tool.Init()
+	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false})
+	assert report.FileSystem == "apfs"
+}

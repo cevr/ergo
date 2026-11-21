@@ -1,0 +1,76 @@
+// Latch is a one-shot gate (Effect's Latch, Go's close of a channel that
+// waiters receive from; docs/spec/stdlib.md, Sync and STM 1): Await waits
+// until the latch is open, Open opens it once for every waiter, now and
+// later. It is Ergo over std queue: Await is a Pop on a queue no one pushes
+// to, and Open ends that queue, so every Pop fails Closed at once.
+//
+// Every copy of a Latch is the same latch: its fields are a queue handle
+// and a Ref, which tasks share.
+
+import queue
+import task
+
+// Latch is closed until its first Open. Its fields are unexported, so only
+// NewLatch makes one.
+type Latch { gate queue.Queue[bool], open Ref[bool] }
+
+// NewLatch is a closed latch.
+func NewLatch() Latch { Latch{gate: queue.New[bool](0), open: NewRef[bool](false)} }
+
+// Open opens l, so every Await returns, those waiting now and those to
+// come. It is true for the call that opened l, and false when l was open
+// already. It never waits.
+func Open(l Latch) bool {
+	let first = Modify(l.open, func(v bool) (bool, bool) { (!v, true) })
+	if first {
+		l.gate.End()
+	}
+	first
+}
+
+// Await returns when l is open, at once when it is open already. It is an
+// interruption point: a stop of the task ends the wait.
+func Await(l Latch) {
+	let _ = l.gate.Pop() catch {
+	case queue.Closed:
+		return
+	}
+	Unreachable("sync: nothing is pushed into a latch")
+}
+
+// IsOpen is whether an Open of l has happened. It never waits.
+func IsOpen(l Latch) bool { l.open.Get() }
+
+// LatchOpensOnce: the first Open of a latch is true and every later one
+// false; a latch is closed until its first Open and open after it, and
+// Await returns at once on an open latch.
+law LatchOpensOnce(k int) {
+	let l = NewLatch()
+	let closed = !IsOpen(l)
+	let first = Open(l)
+	let mut later = true
+	for _ in 0..(k%3+3)%3+1 {
+		later = later && !Open(l)
+	}
+	Await(l)
+	closed && first && later && IsOpen(l)
+}
+
+// OpenReleasesWaiters: tasks that wait on a latch return only after an
+// Open, all of them after one Open, and a copy of the latch is the same
+// latch. Each waiter reads IsOpen when its Await returns: true, whether it
+// waited or came after the Open. n picks the copy that opens.
+law OpenReleasesWaiters(n int) {
+	let l = NewLatch()
+	let copy = l
+	let a = task.Go() {
+		Await(l)
+		IsOpen(l)
+	}
+	let b = task.Go() {
+		Await(copy)
+		IsOpen(copy)
+	}
+	let opened = if n%2 == 0 { Open(l) } else { Open(copy) }
+	opened && a.Wait() && b.Wait()
+}

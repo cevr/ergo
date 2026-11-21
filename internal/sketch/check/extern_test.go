@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -326,6 +326,7 @@ func Int(_ Mine, n int64)       {}
 func Uint(_ Mine, n uint64)     {}
 func Float(_ Mine, f float64)   {}
 func String(_ Mine, s string)   {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int)   {}
 func EndList(_ Mine)            {}
 func BeginObject(_ Mine, n int) {}
@@ -342,12 +343,107 @@ func setComma(_ Mine, due bool)  {}
 func html(_ Mine) bool           { false }
 func keyBody(_ Mine, k string)   {}
 func stringBody(_ Mine, s string) {}
+func bytesBody(_ Mine, b []byte) {}
 func intBody(_ Mine, n int64)    {}
 func uintBody(_ Mine, n uint64)  {}
 func boolBody(_ Mine, b bool)    {}
 func floatBody(_ Mine, f float64) {}
 
 func use(t json.Text) { t.EndList() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std explore (T2c): size is unexported, so only explore's hasher
+	// provides Hasher.
+	"explore.Hasher": `import explore
+
+type Mine {}
+
+func Null(_ Mine)                  {}
+func Number(_ Mine, text string)   {}
+func Bool(_ Mine, b bool)          {}
+func Int(_ Mine, n int64)          {}
+func Uint(_ Mine, n uint64)        {}
+func Float(_ Mine, f float64)      {}
+func String(_ Mine, s string)      {}
+func StringBytes(_ Mine, b []byte) {}
+func BeginList(_ Mine, n int)      {}
+func EndList(_ Mine)               {}
+func BeginObject(_ Mine, n int)    {}
+func Tag(_ Mine, name string)      {}
+func Key(_ Mine, k string)         {}
+func EndObject(_ Mine)             {}
+func Sum(_ Mine) explore.Hash      { explore.Hash{Hi: uint64(0), Lo: uint64(0)} }
+func size(_ Mine) int              { 0 }
+
+func use(h explore.Hasher) { _ = h.Sum() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std xml (XML-STD): Text is sealed by its private parts (raw, open,
+	// close, enter, finish), so its one provider, text, is a cell that
+	// encode writes by direct calls.
+	"xml.Text": `import xml
+
+type Mine {}
+
+func Null(_ Mine)                 {}
+func Number(_ Mine, text string)  {}
+func Bool(_ Mine, b bool)         {}
+func Int(_ Mine, n int64)         {}
+func Uint(_ Mine, n uint64)       {}
+func Float(_ Mine, f float64)     {}
+func String(_ Mine, s string)     {}
+func StringBytes(_ Mine, b []byte) {}
+func BeginList(_ Mine, n int)     {}
+func EndList(_ Mine)              {}
+func BeginObject(_ Mine, n int)   {}
+func Tag(_ Mine, name string)     {}
+func Key(_ Mine, k string)        {}
+func EndObject(_ Mine)            {}
+func Written(_ Mine) string       { "" }
+func raw(_ Mine, s string)        {}
+func open(_ Mine, name string)    {}
+func close(_ Mine)                {}
+func enter(_ Mine)                {}
+func finish(_ Mine, hint int) string { "" }
+
+func use(t xml.Text) { t.EndList() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std xml (XML-STD): Cursor is the prelude's Reader sealed (seal), so
+	// its one provider, reader, is a cell decode[T] may borrow.
+	"xml.Cursor": `import xml
+
+type Mine {}
+
+func TakeNull(_ Mine) bool              { false }
+func Peek(_ Mine) WireKind              { WireNull }
+func Number(_ Mine) string              { "" }
+func Path(_ Mine) string                { "" }
+func Bool(_ Mine) bool                  { false }
+func Int(_ Mine) int64                  { 0 }
+func Uint(_ Mine) uint64                { 0 }
+func Float(_ Mine) float64              { 0.0 }
+func String(_ Mine) string              { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
+func BeginList(_ Mine)                  {}
+func BeginObject(_ Mine)                {}
+func Tag(_ Mine) string                 { "" }
+func More(_ Mine) bool                  { false }
+func Key(_ Mine) string                 { "" }
+func Skip(_ Mine)                       {}
+func End(_ Mine)                        {}
+func seal(_ Mine)                       {}
+
+func use(c xml.Cursor) { c.End() }
 
 func main() {
 	use(Mine)
@@ -366,6 +462,7 @@ func Int(_ Mine) int64               { 0 }
 func Uint(_ Mine) uint64             { 0 }
 func Float(_ Mine) float64           { 0.0 }
 func String(_ Mine) string           { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
 func BeginList(_ Mine) bool          { false }
 func BeginObject(_ Mine) bool        { false }
 func Tag(_ Mine) string              { "" }
@@ -376,6 +473,31 @@ func Skip(_ Mine)                    {}
 func End(_ Mine)                     {}
 
 func use(c json.Cursor) { c.End() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std cmp (CONSTRAINTS C3): an order a program writes.
+	"cmp.Order": `import cmp
+
+type Mine {} implements cmp.Order[int]
+
+func Compare(_ Mine, a int, b int) int { a - b }
+
+func use(o cmp.Order[int]) { _ = o.Compare(1, 2) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// The prelude's Map provider (CONSTRAINTS C5).
+	"prelude.Hashing": `type Mine {} implements Hashing[int]
+
+func Hash(_ Mine, k int) uint64 { uint64(k) }
+func Equal(_ Mine, a int, b int) bool { a == b }
+
+func use(h Hashing[int]) { _ = h.Equal(1, 2) }
 
 func main() {
 	use(Mine)
@@ -514,6 +636,15 @@ func main() {
 	use(Mine)
 }
 `,
+	// HTTP-FAST-b: Scheduler.Alarms returns it; only the runtime makes one.
+	"prelude.AlarmClock": `type Mine {}
+
+func use(c AlarmClock) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
@@ -540,6 +671,20 @@ func IntN(_ Mine, n int) int { 0 }
 func Float64(_ Mine) float64 { 0.5 }
 
 func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std rand (std-spike D3): Secure is open, as Random is; a program
+	// provides its own (a fixed source for a test, a hardware one).
+	"rand.Secure": `import rand
+
+type Mine {} implements rand.Secure
+
+func Bytes(_ Mine, n int) string { "" }
+
+func use(s rand.Secure) { _ = s.Bytes(0) }
 
 func main() {
 	use(Mine)
@@ -608,6 +753,7 @@ func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
 func Float(_ Mine, f float64) {}
 func String(_ Mine, s string) {}
+func StringBytes(_ Mine, b []byte) {}
 func BeginList(_ Mine, n int) {}
 func EndList(_ Mine) {}
 func BeginObject(_ Mine, n int) {}
@@ -632,6 +778,7 @@ func Int(_ Mine) int64 fails WireWrongKind { 0 }
 func Uint(_ Mine) uint64 fails WireWrongKind { 0 }
 func Float(_ Mine) float64 fails WireWrongKind { 0.0 }
 func String(_ Mine) string fails WireWrongKind { "" }
+func StringBytes(_ Mine, into []byte) []byte fails WireWrongKind { into }
 func BeginList(_ Mine) fails WireWrongKind {}
 func BeginObject(_ Mine) fails WireWrongKind {}
 func Tag(_ Mine) string fails WireMissingField { "" }
@@ -655,6 +802,43 @@ func Now(_ Mine) time.Time { time.Unix(0, 0) }
 func Elapsed(_ Mine, t time.Time) duration { 0s }
 
 func use(c time.Clock) { _ = c.Now() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"log.Sink": `import log
+
+type Mine {} implements log.Sink
+
+func Enabled(_ Mine, l log.Level) bool { true }
+func Write(_ Mine, e log.Entry) {}
+
+func use(s log.Sink) { s.Write(log.Entry{Level: log.LevelInfo, Message: "x", Attrs: []log.Attr{}}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Zones": `import tz
+
+type Mine {} implements tz.Zones
+
+func Load(_ Mine, name string) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(z tz.Zones) { _ = z.Load("UTC") catch { case tz.UnknownZone: tz.UTC() } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"tz.Local": `import tz
+
+type Mine {} implements tz.Local
+
+func Zone(_ Mine) tz.Zone fails tz.UnknownZone { tz.UTC() }
+
+func use(l tz.Local) { _ = l.Zone() catch { case tz.UnknownZone: tz.UTC() } }
 
 func main() {
 	use(Mine)
@@ -812,6 +996,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std ansi (UC2): open; a program may decide colour its own way, as
+	// Always, Never and Detect's provider do.
+	"ansi.Colors": `import ansi
+
+type Mine {} implements ansi.Colors
+
+func On(_ Mine) bool { true }
+
+func use(_ ansi.Colors) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
@@ -916,17 +1114,62 @@ func main() {
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
-	// std http (G1, Rm): Listen's extern returns the Listener; Serve's
-	// transport hands each request's Exchange to the handler adapter.
-	"http.Listener": `import http
+	// std net (NET1): a Network's extern returns the Listener and the
+	// Conn, the runtime's; http's Listen binds the same Listener. A program
+	// provides a Network (openStd), never a Listener, a Conn or a PipeNet.
+	"net.Listener": `import net
 
 type Mine {} implements Closer
 
+func Accept(_ Mine) net.Conn fails net.Failed { net.Failed{Reason: ""} }
 func Addr(_ Mine) string { "" }
 func Close(_ Mine) {}
-func bound(_ Mine) {}
 
-func use(l http.Listener) { _ = l.Addr() }
+func use(l net.Listener) { _ = l.Addr() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"net.Conn": `import net
+
+type Mine {} implements Closer
+
+func Read(_ Mine) string fails net.Failed { "" }
+func Write(_ Mine, data string) fails net.Failed {}
+func LocalAddr(_ Mine) string { "" }
+func RemoteAddr(_ Mine) string { "" }
+func Close(_ Mine) {}
+
+func use(c net.Conn) { _ = c.LocalAddr() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"nettest.PipeNet": `import net
+import nettest
+
+type Mine {}
+
+func Listen(_ Mine, addr string) net.Listener fails net.ListenFailed { net.ListenFailed{Addr: addr, Reason: ""} }
+func Dial(_ Mine, addr string) net.Conn fails net.DialFailed { net.DialFailed{Addr: addr, Reason: ""} }
+
+func use(p nettest.PipeNet) { _ = p }
+
+func main() {
+	use(Mine)
+}
+`,
+	"net.Network": `import net
+import nettest
+
+type Mine {} implements net.Network
+
+func Listen(_ Mine, addr string) net.Listener fails net.ListenFailed { try nettest.NewPipe().Listen(addr) }
+func Dial(_ Mine, addr string) net.Conn fails net.DialFailed { try nettest.NewPipe().Dial(addr) }
+
+func use(n net.Network) { _ = n }
 
 func main() {
 	use(Mine)
@@ -1009,6 +1252,35 @@ func main() {
 func ambient(_ Mine) {}
 
 func use(_ Ambient) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// The test's ambient (TH1): sealed by its unexported operation, as
+	// the prelude's Ambient is.
+	"prelude.TestAmbient": `type Mine {}
+
+func folder(_ Mine) string { "/" }
+
+func use(_ TestAmbient) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// fstest.Confined (TH1): open, an ordinary operation type with laws.
+	"fstest.Confined": `import fs
+import fstest
+
+type Mine {} implements fstest.Confined
+
+func Folder(_ Mine) string { "/" }
+func ReadFile(_ Mine, path string) string fails fs.Denied { fs.Denied{Path: path} }
+func ReadDir(_ Mine, path string) []string fails fs.Denied { fs.Denied{Path: path} }
+func WriteFile(_ Mine, path string, text string) fails fs.Denied { fs.Denied{Path: path} }
+
+func use(_ fstest.Confined) {}
 
 func main() {
 	use(Mine)
@@ -1100,6 +1372,98 @@ func main() {
 	use(Mine)
 }
 `,
+	// std code's operation types (SEMTOOLS SEM2): a program provides each
+	// one; these rows delegate to std code's own providers.
+	"code.Reader": `import code
+
+type Mine { s code.Scan } implements code.Reader
+
+func Describe(m Mine) code.Summary { m.s.Describe() }
+func Symbols(m Mine, q code.SymbolQuery) code.SymbolPage { m.s.Symbols(q) }
+func Symbol(m Mine, a string) code.Decl fails code.NoSymbol | code.Ambiguous { try m.s.Symbol(a) }
+func References(m Mine, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous { try m.s.References(q) }
+func Calls(m Mine, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable { try m.s.Calls(q) }
+func Api(m Mine, q code.ApiQuery) code.ApiView fails code.NoPackage { try m.s.Api(q) }
+func Reach(m Mine, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous { try m.s.Reach(q) }
+func MachineOf(m Mine, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine { try m.s.MachineOf(a) }
+
+func use(r code.Reader) { _ = r.Describe() }
+
+func main() {
+	use(Mine{s: code.NewScan(0)})
+}
+`,
+	// std api's Transport (API-FIRST AF1): each generated transport package
+	// provides it (its Wire), so a program provides it too.
+	"api.Transport": `import api
+
+type Mine {} implements api.Transport[string, int]
+
+func Carry(_ Mine, c string, answer own func(c string) int) int { answer(c) }
+
+func use(t api.Transport[string, int]) { _ = t.Carry("x", func(c string) int { len(c) }) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"code.Files": `import code
+
+type Mine { d code.Disk } implements code.Files
+
+func Read(m Mine, path string) string fails code.Missing | code.IOFailed { try m.d.Read(path) }
+func Write(m Mine, path string, text string) fails code.IOFailed { try m.d.Write(path, text) }
+func Exchange(m Mine, a string, b string) fails code.Missing | code.IOFailed { try m.d.Exchange(a, b) }
+func Remove(m Mine, path string) fails code.IOFailed { try m.d.Remove(path) }
+func Exists(m Mine, path string) bool fails code.IOFailed { try m.d.Exists(path) }
+func Lock(m Mine) fails code.Busy | code.IOFailed { try m.d.Lock() }
+func Unlock(m Mine) fails code.IOFailed { try m.d.Unlock() }
+
+func use(f code.Files) { _ = f.Exists("a") catch { case code.IOFailed: false } }
+
+func main() {
+	use(Mine{d: code.NewDisk(0)})
+}
+`,
+	"code.Checker": `import code
+
+type Mine {} implements code.Checker
+
+func Check(_ Mine, sources []code.Source) code.Report fails code.CheckFailed { code.CheckFailed{Reason: "none"} }
+func Format(_ Mine, text string) string fails code.CheckFailed { text }
+
+func use(c code.Checker) { _ = c.Format("x") catch { case code.CheckFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"code.Planner": `import code
+
+type Mine { s code.Session } implements code.Planner
+
+func Plan(m Mine, c code.Change) code.Planned fails code.BadChange | code.NameTaken | code.OutsideWorkspace | code.Capture { try m.s.Plan(c) }
+func PlanOf(m Mine, id string) code.Planned fails code.NoPlan { try m.s.PlanOf(id) }
+
+func use(p code.Planner) { _ = p.PlanOf("x") catch { case code.NoPlan: return } }
+
+func main() {
+	use(Mine{s: code.NewSession(0)})
+}
+`,
+	"code.Writer": `import code
+
+type Mine { a code.Applier } implements code.Writer
+
+func Apply(m Mine, id string) code.Receipt fails code.NoPlan | code.NotReady | code.Stale | code.Busy | code.IOFailed { try m.a.Apply(id) }
+func Recover(m Mine) code.Recovered fails code.Busy | code.IOFailed { try m.a.Recover() }
+
+func use(w code.Writer) { _ = w.Recover() catch { case code.Busy, code.IOFailed: return } }
+
+func main() {
+	use(Mine{a: code.NewApplier(0)})
+}
+`,
 	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
 	// runtimeOnly, made only by the composer.
 	"ui.GroupArgs": `import ui
@@ -1123,37 +1487,193 @@ func main() {
 	use(Mine)
 }
 `,
+	// std pace (PACE1): open; a program provides it (pace.Default,
+	// pace.Percent).
+	// The store contracts of ST3 (stdlib.md, Stores): a program or a
+	// module provides each one over its own store and runs the same laws.
+	"jobs.Queue": `import jobs
+import time
+
+type Mine {} implements jobs.Queue[int]
+
+func EnqueueAt(_ Mine, job int, at time.Time) int fails jobs.Failed { return jobs.Failed{Reason: "x"} }
+func ReserveAt(_ Mine, now time.Time) Option[jobs.Lease[int]] fails jobs.Failed { None }
+func AckAt(_ Mine, t jobs.Ticket, now time.Time) fails jobs.Unknown | jobs.Failed { return jobs.Unknown{Ticket: t} }
+func FailAt(_ Mine, t jobs.Ticket, why string, now time.Time) fails jobs.Unknown | jobs.Failed { return jobs.Unknown{Ticket: t} }
+func DeadLetters(_ Mine) []jobs.Dead[int] fails jobs.Failed { []jobs.Dead[int]{} }
+func Count(_ Mine) jobs.Counts fails jobs.Failed { jobs.Counts{Waiting: 0, Leased: 0, Done: 0, Dead: 0} }
+
+func use(_ jobs.Queue[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"kv.Store": `import kv
+
+type Mine {} implements kv.Store
+
+func Get(_ Mine, key string) Option[string] fails kv.Failed { None }
+func Put(_ Mine, key string, value string) fails kv.Failed { return kv.Failed{Reason: "x"} }
+func Delete(_ Mine, key string) bool fails kv.Failed { false }
+func Scan(_ Mine, prefix string) Seq[kv.Entry] fails kv.Failed { return kv.Failed{Reason: "x"} }
+
+func use(_ kv.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"proof.Delivery": `import proof
+
+type Mine {} implements proof.Delivery
+
+func Send(_ Mine, dest string, purpose string, code string) fails proof.Undelivered { return proof.Undelivered{Reason: "x"} }
+
+func use(_ proof.Delivery) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"proof.Store": `import proof
+import time
+
+type Mine {} implements proof.Store
+
+func Issue(_ Mine, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed { return proof.Conflict }
+func Redeem(_ Mine, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed { return proof.Unknown }
+func Claim(_ Mine, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed { return proof.Spent }
+
+func use(_ proof.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ratelimit.Limiter": `import ratelimit
+import time
+
+type Mine {} implements ratelimit.Limiter
+
+func TakeAt(_ Mine, key string, cost int, now time.Time) ratelimit.Grant fails ratelimit.Limited | ratelimit.BadCost { return ratelimit.BadCost{Cost: cost, Limit: 0} }
+
+func use(_ ratelimit.Limiter) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"session.Store": `import session
+import time
+
+type Mine {} implements session.Store
+
+func Establish(_ Mine, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed { return session.Conflict }
+func Verify(_ Mine, d session.Digest, now time.Time) session.Verdict fails session.Failed { session.Invalid }
+func Rotate(_ Mine, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed { return session.Conflict }
+func Revoke(_ Mine, d session.Digest) bool fails session.Failed { false }
+func RevokeAll(_ Mine, subject string, revision int) fails session.Failed { return session.Failed{Reason: "x"} }
+
+func use(_ session.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"pace.Pacing": `import pace
+type Mine {} implements pace.Pacing
+func Edge(_ Mine) {}
+func Hold(_ Mine) {}
+func Release(_ Mine) {}
+func use(p pace.Pacing) { p.Edge() }
+func main() {
+	use(Mine)
+}
+`,
+	// std timeout: NewDeadline's extern makes the Deadline, and runtimeOnly seals it.
+	"timeout.Deadline": `import timeout
+
+type Mine {}
+
+func Arm(_ Mine, d duration) {}
+func Armed(_ Mine) bool { false }
+func Stop(_ Mine) {}
+
+func use(dl timeout.Deadline) { dl.Stop() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std testing (MX-P3 F6): the authority to read the heap's counters is AllocCounter's (its unexported field and NewAllocCounter's TestAmbient); the Allocs contract itself takes a program's counter, as time.Clock takes a Manual.
+	"testing.Allocs": `import testing
+
+type Mine {} implements testing.Allocs
+
+func PerRun(_ Mine, runs int, f func()) int { 0 }
+
+func use(a testing.Allocs) { _ = a.PerRun(1, func() {}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std llm (L1): a vendor's client is a program's provider of the model contract, as llm/memory's Scripted and llm/recorded are std's.
+	"llm.Model": `import llm
+
+type Mine {} implements llm.Model
+
+func Generate(_ Mine, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+}
+func Stream(_ Mine, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+}
+
+func use(_ llm.Model) {}
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
 // operation: a program value is refused at the use line by the sealedBy
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
-	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
-	"prelude.Keeping": "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
-	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
-	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
-	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
-	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
-	"json.Text":       "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"prelude.Ambient":     "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"prelude.TestAmbient": "folder is an unexported operation of prelude.TestAmbient, so only a type of package prelude implements it",
+	"prelude.Keeping":     "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
+	"http.Streaming":      "open is an unexported operation of http.Streaming, so only a type of package http implements it",
+	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
+	"http.BodyFile":       "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
+	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"xml.Text":            "raw is an unexported operation of xml.Text, so only a type of package xml implements it",
+	"explore.Hasher":      "size is an unexported operation of explore.Hasher, so only a type of package explore implements it",
 }
 
 // openStd records the operation types that did not use the old implicit
 // std seal at the migration base. Some already have private operations,
 // listed in unexportedStd. Every other entry now declares its seal.
 var openStd = map[string]bool{
+	"api.Transport":     true, // open: each generated transport package (ergo gen rpc, cli, mcp) provides it as its Wire, in the program's own module
 	"prelude.Closer":    true,
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
 	"time.Clock":        true,
 	"testing.Stage":     true,
 	"prelude.Random":    true,
+	"rand.Secure":       true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,
+	"net.Network":       true,
+	"fstest.Confined":   true,
 	"io.Stdout":         true,
 	"io.Stderr":         true,
 	"io.Stdin":          true,
@@ -1171,10 +1691,32 @@ var openStd = map[string]bool{
 	"term.Terminal":     true,
 	// Declared after the migration with no private operation: a program
 	// provides each one, and cmd/<name>/main.ergo binds it.
-	"ui.Location":       true,
+	"ui.Location": true,
+	// Constraints a program's own types implement (CONSTRAINTS C3, C5).
+	"cmp.Order":         true,
+	"prelude.Hashing":   true,
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,
+	"pace.Pacing":       true,
+	"ansi.Colors":       true,
+	"code.Reader":       true,
+	"code.Files":        true,
+	"code.Checker":      true,
+	"code.Planner":      true,
+	"code.Writer":       true,
+	"log.Sink":          true,
+	"tz.Zones":          true,
+	"tz.Local":          true,
+	"jobs.Queue":        true, // open: std's own providers are other packages (jobs/memory.Queue, jobs/file), and a database's queue is a module's
+	"kv.Store":          true, // open: examples/kvstore's memory.Table and file.Log implement it, beside std's kv/memory and kv/file
+	"proof.Delivery":    true, // open: the program sends the code (mail, SMS) by its own provider; std has only proof.Recorder, for tests
+	"proof.Store":       true, // open: std's own providers are other packages (proof/memory.Store, proof/file), and a database's is a module's
+	"ratelimit.Limiter": true, // open: std's provider is another package (ratelimit/memory), and a limiter shared across processes is a module's
+	"session.Store":     true, // open: std's own providers are other packages (session/memory.Store, session/file), and a database's is a module's
+	"testing.Allocs":    true,
+	"llm.Model":         true,
+	// The layout's text measure, which a host provides with its fonts.
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -1183,9 +1725,9 @@ var openStd = map[string]bool{
 // the checker.
 func stdOperationTypes(t *testing.T) []string {
 	t.Helper()
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, path := range std.Packages() {
-		files, ok := std.Package(path)
+	sources := map[string]map[string]string{stdlib.PreludePath: stdlib.Prelude()}
+	for _, path := range stdlib.Packages() {
+		files, ok := stdlib.Package(path)
 		if !ok {
 			t.Fatalf("std lists %s but does not serve it", path)
 		}
@@ -1448,7 +1990,7 @@ func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied |
 }
 
 func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
-	exec.Ended(s, try f.Run(c))
+	exec.Ended(try f.Run(c), s)
 }
 
 func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
@@ -1520,7 +2062,7 @@ func main() { with W { A.Use() } }
 		"pointer-close-value-provider": `type A { Use() }
 type P {} implements A, Closer
 func Use(_ P) {}
-func Close(_ *P) {}
+func Close(_ mut P) {}
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `,
@@ -1589,7 +2131,7 @@ func main() { with W { A.Use() } }
 		if len(pkgs) != 1 || !pkgs[0].Std() {
 			t.Fatalf("the prelude package: %v", pkgs)
 		}
-		for _, path := range std.Packages() {
+		for _, path := range stdlib.Packages() {
 			pkg, err := check.Std.Import(path)
 			if err != nil {
 				t.Fatalf("%s: %v", path, err)

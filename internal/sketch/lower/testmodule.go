@@ -46,7 +46,17 @@ func testPackageDir(k int) string { return "ergotest" + strconv.Itoa(k) }
 // are TestPackageFlag K. The units are the packages of one Ergo module, so
 // their Go requirements are one go.mod; units whose go.mod or go.sum differ
 // are an error. A unit's refusal is returned as LowerTests returns it.
-func LowerTestModule(units []Unit) ([]File, error) {
+func LowerTestModule(units []Unit) ([]File, error) { return lowerTestModule(units, false) }
+
+// LowerIRTestModule is LowerTestModule with the IR bodies: each unit's test
+// build is LowerIRTests's, unchanged, and its IR file lies in its folder
+// beside its main.go, the IR file of the Go package ergotestK. An IR body
+// names its function, which the move keeps (only main, the init functions
+// and the package clause change, none an Ergo function), and positions in
+// the Ergo sources, which the move never touches (TEQb).
+func LowerIRTestModule(units []Unit) ([]File, error) { return lowerTestModule(units, true) }
+
+func lowerTestModule(units []Unit, ir bool) ([]File, error) {
 	if len(units) == 0 {
 		return nil, fmt.Errorf("lower: a test module has no package")
 	}
@@ -55,16 +65,19 @@ func LowerTestModule(units []Unit) ([]File, error) {
 		if !bytes.Equal(goModFile(u.Go), goModFile(units[0].Go)) || u.Go.Sum != units[0].Go.Sum {
 			return nil, fmt.Errorf("lower: the packages of a test module require different Go modules")
 		}
-		code, assets, err := lowerAsMain(u)
+		dir := testPackageDir(k)
+		code, assets, irFile, err := lowerAsMain(u, ir, dir)
 		if err != nil {
 			return nil, err
 		}
-		dir := testPackageDir(k)
 		code, err = rehomeTest(code, dir)
 		if err != nil {
 			return nil, err
 		}
 		body = append(body, File{Path: dir + "/main.go", Data: code})
+		if irFile != nil {
+			body = append(body, File{Path: dir + "/" + IRFileName, Data: irFile})
+		}
 		for _, f := range assets {
 			body = append(body, File{Path: dir + "/" + f.Path, Data: f.Data})
 		}
@@ -80,14 +93,19 @@ func LowerTestModule(units []Unit) ([]File, error) {
 // no-answer defect names testing.Script[main.Photos] (TEST-one round 2).
 // Units are lowered one at a time, and the name is restored before the
 // next, whose lowering prints the package under its own name.
-func lowerAsMain(u Unit) ([]byte, []File, error) {
-	if u.Package == nil {
-		return lowerTestParts(u)
+// With ir it lowers as LowerIRTests does and returns the IR file too, its
+// source paths under dir (lowerIRTestParts).
+func lowerAsMain(u Unit, ir bool, dir string) ([]byte, []File, []byte, error) {
+	if u.Package != nil {
+		name := u.Package.Name
+		u.Package.Name = "main"
+		defer func() { u.Package.Name = name }()
 	}
-	name := u.Package.Name
-	u.Package.Name = "main"
-	defer func() { u.Package.Name = name }()
-	return lowerTestParts(u)
+	if ir {
+		return lowerIRTestParts(u, dir)
+	}
+	code, assets, err := lowerTestParts(u)
+	return code, assets, nil, err
 }
 
 // testDispatch is the test module's main.go: it runs the Main of the

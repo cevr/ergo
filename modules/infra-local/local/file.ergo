@@ -1,0 +1,114 @@
+// Files on the machine.
+
+import github.com/cevr/ergo/modules/infra
+import fs
+import json
+import fstest
+import strings
+
+// FileProps asks for a file Name in the folder Dir (a relative path below
+// the driver's base folder) holding Text, with the permissions Mode.
+type FileProps { Dir string, Name string, Text string, Mode fs.Mode }
+
+// File is a file that exists: its path and its size in bytes.
+type File { Path string, Size int }
+
+// Files is the driver of files below base.
+type Files { base string, ledger Ledger, files fs.Files, writes fs.Writes } implements infra.Driver[FileProps, File]
+
+// FilesOn is the driver of files below base, over files and writes, with
+// its ledger in the folder state.
+func FilesOn(files fs.Files, writes fs.Writes, base string, state string) Files {
+	Files{base: base, ledger: NewLedger(state, files, writes), files: files, writes: writes}
+}
+
+// NewFiles is the driver of files in a new fstest.Memory: base /work,
+// ledger /state. The driver laws run on it.
+func NewFiles() Files {
+	let m = fstest.NewMemory()
+	FilesOn(m, m, "/work", "/state")
+}
+
+func Attrs(f Files, id string, p FileProps) File {
+	File{Path: f.base + "/" + p.Dir + "/" + p.Name, Size: len(p.Text)}
+}
+
+// Apply writes the file whole, every time: a file whose text changed gets
+// the new text.
+func Apply(f Files, id string, p FileProps) File fails infra.Failed {
+	let dir = try under(id, f.base, p.Dir)
+	if strings.Contains(p.Name, "/") {
+		return infra.Failed{ID: id, Reason: "the file name \(p.Name) is a path"}
+	}
+	let path = try under(id, dir, p.Name)
+	f.writes.MkdirAll(dir) catch {
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot make \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	f.writes.WriteFileMode(path, p.Text, p.Mode) catch {
+	case fs.NotFound as e:
+		return infra.Failed{ID: id, Reason: "the folder of \(e.Path) is gone"}
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot write \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	try put(f.ledger, "file", id, []string{path})
+	File{Path: path, Size: len(p.Text)}
+}
+
+func Read(f Files, id string) Option[File] fails infra.Failed {
+	let path = match try get(f.ledger, "file", id) {
+	case None:
+		return None
+	case Some[[]string] as entry:
+		try onePath(id, entry.Value)
+	}
+	let info = f.files.Stat(path) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot read \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	if info.Dir {
+		return None
+	}
+	Some[File]{Value: File{Path: path, Size: info.Size}}
+}
+
+func Delete(f Files, id string) fails infra.Failed {
+	match try get(f.ledger, "file", id) {
+	case None:
+	case Some[[]string] as entry:
+		try remove(f.writes, id, try onePath(id, entry.Value))
+		try drop(f.ledger, "file", id)
+	}
+}
+
+// ChangedFileHoldsTheNewText: an Apply of a file whose text changed writes
+// the new text over the old.
+law ChangedFileHoldsTheNewText(first string, second string) {
+	let m = fstest.NewMemory()
+	let f = FilesOn(m, m, "/work", "/state")
+	try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: first, Mode: fs.Shared()})
+	let file = try f.Apply("conf", FileProps{Dir: "etc", Name: "app.conf", Text: second, Mode: fs.Shared()})
+	let text = try m.ReadFile(file.Path)
+	text == second
+}
+
+// FileRowsOn is the state store of FilePropss in the folder root over files and
+// writes, the props kept as JSON.
+func FileRowsOn(files fs.Files, writes fs.Writes, root string) Rows[FileProps] {
+	let codec = json.Codec[FileProps]{MaxBytes: 0, MaxDepth: 0}
+	RowsOn[FileProps](files, writes, root, func(p FileProps) string { json.Encode(codec, p) }, func(text string) Option[FileProps] {
+		let p = json.Decode(codec, text) catch {
+		case _:
+			return None
+		}
+		Some[FileProps]{Value: p}
+	})
+}

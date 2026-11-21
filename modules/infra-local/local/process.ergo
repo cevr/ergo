@@ -1,0 +1,245 @@
+// Programs that run detached on the machine.
+
+import github.com/cevr/ergo/modules/infra
+import exec
+import fs
+import json
+import fstest
+import hex
+import strconv
+import strings
+
+// ProcessProps asks for the program Program running with the arguments
+// Args (one a line, exec.Split), the environment entries Env (KEY=VALUE, one
+// a line) over the driver's, in the folder Dir (a relative path below the
+// driver's base folder; "" is the base), listening on Port. When Health is
+// not "", the program is up once a GET of Health on its URL answers 2xx.
+type ProcessProps { Program string, Args string, Env string, Dir string, Port int, Health string }
+
+// Process is a program that runs: the URL it serves on, and the ledger
+// entry that names it (its pidfile).
+type Process { URL string, Pidfile string }
+
+// Programs is the driver of detached programs. A program it starts
+// outlives the run that started it; a later run finds it by its ledger
+// entry. A changed ProcessProps ends the old program and starts a new one;
+// Delete ends the program's process group (SIGTERM, then SIGKILL after
+// grace).
+type Programs { base string, ledger Ledger, spawner exec.Spawner, ready func(url string) bool, grace duration } implements infra.Driver[ProcessProps, Process]
+
+// ProgramsOn is the driver of programs that spawner starts, whose health
+// check is ready, below base, with its ledger in the folder state over files and
+// writes.
+func ProgramsOn(files fs.Files, writes fs.Writes, spawner exec.Spawner, ready own func(url string) bool, base string, state string, grace duration) Programs {
+	Programs{base: base, ledger: NewLedger(state, files, writes), spawner: spawner, ready: ready, grace: grace}
+}
+
+// NewPrograms is the driver over a new fstest.Memory and a new
+// exec.Processes that knows the program "server", whose programs are up at
+// once. The driver laws run on it.
+func NewPrograms() Programs {
+	let m = fstest.NewMemory()
+	ProgramsOn(m, m, exec.NewProcesses([]string{"server"}), Up, "/work", "/state", 0s)
+}
+
+func Attrs(pr Programs, id string, p ProcessProps) Process {
+	Process{URL: urlOf(p.Port), Pidfile: entryPath(pr.ledger, "process", id)}
+}
+
+// Apply keeps a program that runs with the same props, and else ends the
+// old one, if any, and starts p's.
+func Apply(pr Programs, id string, p ProcessProps) Process fails infra.Failed {
+	let attrs = pr.Attrs(id, p)
+	let key = keyOf(p)
+	match try find(pr, id) {
+	case None:
+	case Some[Running] as old:
+		if old.Value.Key == key && pr.spawner.Alive(old.Value.Detached) {
+			return attrs
+		}
+		pr.spawner.Kill(old.Value.Detached, pr.grace)
+	}
+	let dir = if p.Dir == "" { pr.base } else { try under(id, pr.base, p.Dir) }
+	let env = try envOf(id, p.Env)
+	let c = exec.Command{Name: p.Program, Args: exec.Split(p.Args), Env: env, Dir: dir, Stdin: "", Grace: pr.grace}
+	let d = pr.spawner.Spawn(c, exec.Streams{Stdout: exec.Discard, Stderr: exec.Discard}) catch {
+	case exec.NotFound as e:
+		return infra.Failed{ID: id, Reason: "no program \(e.Name)"}
+	case exec.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot run \(e.Name)"}
+	case exec.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	try put(pr.ledger, "process", id, []string{strconv.Itoa(d.Pid), strconv.FormatInt(d.Start, 10), d.Name, key, strconv.Itoa(p.Port)})
+	if p.Health != "" && !pr.ready(attrs.URL+p.Health) {
+		pr.spawner.Kill(d, pr.grace)
+		try drop(pr.ledger, "process", id)
+		return infra.Failed{ID: id, Reason: "\(p.Program) did not answer at \(attrs.URL + p.Health)"}
+	}
+	attrs
+}
+
+// Read is the program id when it still runs: the same process, by its pid
+// and start time.
+func Read(pr Programs, id string) Option[Process] fails infra.Failed {
+	match try find(pr, id) {
+	case None:
+		None
+	case Some[Running] as r:
+		if !pr.spawner.Alive(r.Value.Detached) {
+			return None
+		}
+		Some[Process]{Value: Process{URL: urlOf(r.Value.Port), Pidfile: entryPath(pr.ledger, "process", id)}}
+	}
+}
+
+// Delete ends the program id's process group and removes its entry.
+func Delete(pr Programs, id string) fails infra.Failed {
+	match try find(pr, id) {
+	case None:
+	case Some[Running] as r:
+		pr.spawner.Kill(r.Value.Detached, pr.grace)
+		try drop(pr.ledger, "process", id)
+	}
+}
+
+// Running is a program's ledger entry: the detached program, the props it
+// was started with (their key), and its port.
+type Running { Detached exec.Detached, Key string, Port int }
+
+// Find is the ledger entry of the program id, None when there is none.
+func Find(pr Programs, id string) Option[Running] fails infra.Failed { try find(pr, id) }
+
+func find(pr Programs, id string) Option[Running] fails infra.Failed {
+	match try get(pr.ledger, "process", id) {
+	case None:
+		None
+	case Some[[]string] as entry:
+		let f = entry.Value
+		if len(f) != 5 {
+			return infra.Failed{ID: id, Reason: "the ledger's entry for \(id) is not a program"}
+		}
+		let pid = strconv.Atoi(f[0]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return infra.Failed{ID: id, Reason: "the ledger's pid for \(id) is not a number"}
+		}
+		let start = strconv.ParseInt(f[1], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return infra.Failed{ID: id, Reason: "the ledger's start time for \(id) is not a number"}
+		}
+		let port = strconv.Atoi(f[4]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return infra.Failed{ID: id, Reason: "the ledger's port for \(id) is not a number"}
+		}
+		Some[Running]{Value: Running{Detached: exec.Detached{Pid: pid, Start: start, Name: f[2]}, Key: f[3], Port: port}}
+	}
+}
+
+// urlOf is the URL of a program that listens on port on this machine.
+func urlOf(port int) string { "http://127.0.0.1:\(port)" }
+
+// keyOf is p as one text: two props with one key are the same props (each
+// field is hex, so no field's text runs into the next).
+func keyOf(p ProcessProps) string {
+	let mut parts = []string{}
+	for field in []string{p.Program, p.Args, p.Env, p.Dir, strconv.Itoa(p.Port), p.Health} {
+		parts = parts.Append(hex.Encode(field))
+	}
+	strings.Join(parts, " ")
+}
+
+// envOf is the entries of env, KEY=VALUE a line.
+func envOf(id string, env string) Map[string, string] fails infra.Failed {
+	let mut out = Map[string, string]{}
+	for line in exec.Split(env) {
+		match strings.Cut(line, "=") {
+		case None:
+			return infra.Failed{ID: id, Reason: "the environment line \(strconv.Quote(line)) is not KEY=VALUE"}
+		case Some[strings.Halves] as h:
+			out[h.Value.Before] = h.Value.After
+		}
+	}
+	out
+}
+
+// server is a ProcessProps of the program the memory spawner knows.
+func server(args string, port int) ProcessProps {
+	ProcessProps{Program: "server", Args: args, Env: "", Dir: "", Port: port, Health: "/healthz"}
+}
+
+// programs is a driver over a new memory spawner, which the caller keeps,
+// whose health check is ready.
+func programs(spawner exec.Processes, ready own func(url string) bool) Programs {
+	let m = fstest.NewMemory()
+	ProgramsOn(m, m, spawner, ready, "/work", "/state", 0s)
+}
+
+// DeleteEndsTheProgram: after a Delete, the program that Apply started no
+// longer runs.
+law DeleteEndsTheProgram(args string, port int) {
+	let spawner = exec.NewProcesses([]string{"server"})
+	let pr = programs(spawner, Up)
+	try pr.Apply("api", server(args, port))
+	let running = match try pr.Find("api") {
+	case None:
+		return false
+	case Some[Running] as r:
+		r.Value
+	}
+	try pr.Delete("api")
+	!spawner.Alive(running.Detached)
+}
+
+// SecondApplyKeepsTheProgram: an Apply of the props a program runs with
+// keeps that program, so a run that resumes starts nothing twice.
+law SecondApplyKeepsTheProgram(args string, port int) {
+	let pr = programs(exec.NewProcesses([]string{"server"}), Up)
+	try pr.Apply("api", server(args, port))
+	let first = try pr.Find("api")
+	try pr.Apply("api", server(args, port))
+	let again = try pr.Find("api")
+	first != None && again == first
+}
+
+// ChangedProgramRestarts: an Apply of changed props ends the old program
+// and starts the new one.
+law ChangedProgramRestarts(args string, port int) {
+	let spawner = exec.NewProcesses([]string{"server"})
+	let pr = programs(spawner, Up)
+	try pr.Apply("api", server(args, port))
+	let old = match try pr.Find("api") {
+	case None:
+		return false
+	case Some[Running] as r:
+		r.Value
+	}
+	let now = try pr.Apply("api", server(args, port+1))
+	let read = try pr.Read("api")
+	!spawner.Alive(old.Detached) && read == Some[Process]{Value: now}
+}
+
+// UnansweredLeavesNothing: a program that does not answer its health check
+// fails the Apply, and is ended and forgotten.
+law UnansweredLeavesNothing(args string, port int) {
+	let spawner = exec.NewProcesses([]string{"server"})
+	let pr = programs(spawner, Down)
+	pr.Apply("api", server(args, port)) catch {
+	case infra.Failed:
+		let left = try pr.Find("api")
+		return left == None && !spawner.Alive(exec.Detached{Pid: 1, Start: 1, Name: "server"})
+	}
+	false
+}
+
+// ProcessRowsOn is the state store of ProcessPropss in the folder root over files and
+// writes, the props kept as JSON.
+func ProcessRowsOn(files fs.Files, writes fs.Writes, root string) Rows[ProcessProps] {
+	let codec = json.Codec[ProcessProps]{MaxBytes: 0, MaxDepth: 0}
+	RowsOn[ProcessProps](files, writes, root, func(p ProcessProps) string { json.Encode(codec, p) }, func(text string) Option[ProcessProps] {
+		let p = json.Decode(codec, text) catch {
+		case _:
+			return None
+		}
+		Some[ProcessProps]{Value: p}
+	})
+}

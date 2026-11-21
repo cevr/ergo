@@ -12,23 +12,25 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 )
 
-// TestPathsRoundTrip (CS5b-2, compile-speed/cs5b.md §3, §7): every object
-// a user package's export segment names in an earlier user package has an
-// object path, the path names that object in the check it was taken from,
-// and it names the same declaration or type in a fresh check of the import
-// after an edit that leaves the import's interface alone (a new
-// unexported function in each imported package, probeFile). So a cached
-// importer's references resolve in whichever check of its import is
-// current.
+// TestPathsRoundTrip (CS5b-2, CS5b-4, compile-speed/cs5b.md §3, §7): every
+// object a user package's export segment names in an earlier user package
+// has an object path, and every syntax node a node path; the path names
+// that object or node in the check it was taken from, and the same
+// declaration, type or node in a fresh check of the import after an edit
+// that leaves the import's interface alone (a new unexported function in
+// each imported package, probeFile). So a cached importer's references
+// resolve in whichever check of its import is current, and every segment
+// decodes.
 //
-// The export is CHK1b's encoder (check.UserExport), each user segment
+// The export is CHK1b's encoder (snapshot.UserExport), each user segment
 // written right after its package's check, as CS5b-3 writes it.
 // ERGO_CENSUS_ONLY=<name> runs the examples whose name has it.
 //
 // Then each user segment is decoded against the fresh check of its
-// imports (check.UserExport.Decode), and its interface is the interface of
+// imports (snapshot.UserExport.Decode), and its interface is the interface of
 // the package it was written from.
 //
 // Mutants (sketchfront ledger): the walk does not follow an interface
@@ -36,26 +38,29 @@ import (
 // the resolver steps into the field after the one named
 // (cs5b2-resolve-field-off-by-one); a user segment names another user
 // segment's objects by id, which a fresh check of that package does not
-// hold (cs5b2-encode-ids-not-paths).
+// hold (cs5b2-encode-ids-not-paths); a user segment names another user
+// segment's syntax nodes by id (cs5b4-nodes-by-id); a node path resolves to
+// the node after the one named (cs5b4-resolve-index-off-by-one).
 func TestPathsRoundTrip(t *testing.T) {
 	programs := multiPackageExamples(t)
 	if testing.Short() {
 		var some []exampleDir
 		for _, p := range programs {
 			switch p.name {
-			case "adventure/cmd/adventure", "backups/cmd/backups", "bookmarks/cmd/bookmarks", "jobs/cmd/jobs":
+			case "adventure/cmd/adventure", "backups/cmd/backups", "bookmarks/cmd/bookmarks", "jobs/cmd/jobs", "cron/cmd/cron":
+				// cron's main names syntax nodes of cron/schedule (CS5b-4).
 				some = append(some, p)
 			}
 		}
 		programs = some
 	}
 	total := map[string]int{}
-	unexported, nodes, decoded, nodeSegments := 0, 0, 0, 0
+	nodes, decoded := 0, 0
 	for _, dir := range programs {
 		if only := os.Getenv("ERGO_CENSUS_ONLY"); only != "" && !strings.Contains(dir.name, only) {
 			continue
 		}
-		var u *check.UserExport
+		var u *snapshot.UserExport
 		var exportErr error
 		var order []string
 		var loader check.Importer
@@ -68,11 +73,12 @@ func TestPathsRoundTrip(t *testing.T) {
 			order = append(order, pkg.Path)
 			first[pkg.Path] = pkg
 			if u == nil {
-				if u, exportErr = check.NewUserExport(imp); exportErr != nil {
+				if u, exportErr = snapshot.NewUserExport(imp); exportErr != nil {
 					return
 				}
+				u.Record = true
 			}
-			exportErr = u.Add(pkg)
+			_, exportErr = u.Add(pkg)
 		}
 		a, err := CheckDir(dir.dir)
 		checkedHook = nil
@@ -83,15 +89,10 @@ func TestPathsRoundTrip(t *testing.T) {
 			t.Fatalf("%s does not check: %v", dir.name, a.Diagnostics[0])
 		}
 		if exportErr != nil {
-			// The cache misses on a package the codec cannot carry (a Go
-			// function value in a binding's state): no reference of it needs
-			// a path. Any other export error is a failure.
-			if !strings.Contains(exportErr.Error(), "a function value of type") {
-				t.Errorf("%s: %v", dir.name, exportErr)
-				continue
-			}
-			t.Logf("%s: not exported: %v", dir.name, exportErr)
-			unexported++
+			// Every program exports, one that imports Go packages too: the
+			// export names the program's Go bindings as it names its loader
+			// (B7e).
+			t.Errorf("%s: %v", dir.name, exportErr)
 			continue
 		}
 		// The fresh check, with the interface-neutral edit.
@@ -130,6 +131,16 @@ func TestPathsRoundTrip(t *testing.T) {
 		for _, r := range u.Refs {
 			if r.Obj == nil {
 				nodes++
+				if !r.HasPath {
+					report("%s -> %s: a syntax node with no node path", r.From, r.To)
+					continue
+				}
+				total["node "+reflect.TypeOf(r.Node).String()]++
+				if x, ok := snapshot.ResolveNodePath(first[r.To], r.Path); !ok || x != r.Node {
+					report("%s -> %s: %s resolves to %s in its own check", r.From, r.To, describeObj(r.Node), describeObj(x))
+				} else if y, ok := snapshot.ResolveNodePath(second[r.To], r.Path); !ok || describeObj(y) != describeObj(r.Node) {
+					report("%s -> %s: %s names %s in the fresh check", r.From, r.To, describeObj(r.Node), describeObj(y))
+				}
 				continue
 			}
 			v := reflect.ValueOf(r.Obj)
@@ -154,10 +165,6 @@ func TestPathsRoundTrip(t *testing.T) {
 		for _, path := range order {
 			pkg, err := u.Decode(path, func(p string) *check.Package { return second[p] }, loader)
 			if err != nil {
-				if strings.Contains(err.Error(), "CS5b-4") {
-					nodeSegments++
-					continue
-				}
 				report("%s: decoding against the fresh check: %v", path, err)
 				continue
 			}
@@ -175,7 +182,7 @@ func TestPathsRoundTrip(t *testing.T) {
 		rows = append(rows, fmt.Sprintf("  %-22s %6d", typ, n))
 	}
 	sort.Strings(rows)
-	t.Logf("references into earlier user segments, by type:\n%s\nsyntax nodes: %d; programs not exported: %d; segments decoded: %d; segments naming another package's nodes (CS5b-4): %d", strings.Join(rows, "\n"), nodes, unexported, decoded, nodeSegments)
+	t.Logf("references into earlier user segments, by type:\n%s\nsyntax nodes: %d; segments decoded: %d", strings.Join(rows, "\n"), nodes, decoded)
 }
 
 // describeObj names an object for comparison across checks: its type and

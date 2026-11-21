@@ -2,6 +2,22 @@
   "about": "editor-gui's application mutants (wf10 corpus wave GP2a, GP2b): edits of the example, each with the law or the test that kills it. A killer examples/editor-gui/PKG:law L is `ergo test examples/editor-gui/PKG --law L`; scripts/examples:editor-gui is the program's cases, killed when a case's output differs; cmd/ergo:TestEditorGuiAgreesWithControl is the seeded agreement property against the plain reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
+      "name": "editor-count-kept-on-back", "origin": "wf10 GP editor gap 14",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "lastRune(f.Query))\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
+      "to": "lastRune(f.Query))\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: f.Count}}",
+      "rule": "A query taken back counts its matches again.",
+      "killers": ["examples:editor-gui law edit.Editor.CountIsMatches"]
+    },
+    {
+      "name": "editor-count-of-the-old-query", "origin": "wf10 GP editor gap 14",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "let q = f.Query + t.Text\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
+      "to": "let q = f.Query + t.Text\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, f.Query)}}",
+      "rule": "A letter typed counts the matches of the new query.",
+      "killers": ["examples:editor-gui law edit.Editor.CountIsMatches"]
+    },
+    {
       "name": "editor-search-window-one-short", "origin": "wf10 GP2c",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "strings.Index(Slice(b, w, end+len(query)-1), query)",

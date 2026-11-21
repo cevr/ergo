@@ -964,6 +964,7 @@ type funcCtx struct {
 	locals   []*Var
 	fn       *Func
 	law      *Law // the law whose body this is (laws.go)
+	test     bool // a test's body, its function literals included (testambient.go)
 	reach    *reachNode
 }
 

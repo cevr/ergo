@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
 // durationsFile records measured per-test seconds for the sharded packages.
@@ -176,6 +178,20 @@ func sweepSupported() bool { return sweepOS == "linux" }
 // tier's sandbox, inside its scratch temporary directory.
 const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
 
+// sweepRunDeadlineVariable (internal/closure, runDeadlineVariable) is the
+// quiet window of each run of a sweep: the sweep stops a run only when all
+// its processes have used no CPU and written nothing for that long
+// (SWEEP-DEADLINE), so a run that still computes is never cut, however
+// long it takes. Thirty minutes stops only a hang. Before the CPU-progress
+// rule it was a whole-run bound, raised to 3 hours after the merge tiers at
+// fca9f4f96, 36b1f8335 and fba159c29 cut cmd/ergo's runs while they still
+// used CPU at load 50-120 (I19 rerun, verify r4). AGENTS.md: a deadline
+// only stops a hung test.
+const (
+	sweepRunDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
+	sweepRunDeadline         = 30 * time.Minute
+)
+
 // sweepStdDir is the one std store directory of the run's sweeps.
 func sweepStdDir() string {
 	return filepath.Join(os.TempDir(), "ergo-gate", "closure-std")
@@ -192,11 +208,15 @@ func sweepStdDir() string {
 // internal/sketch/lower, which took 2210 s under the batch-16b merge tier's
 // load, reach their own 20 minute deadline (gate16b-fix3). It is a safety
 // net for a sweep that hangs, as every go test step's timeout is.
+//
+// Each run's own deadline is sweepRunDeadline, and the step's timeout adds
+// it to hangDeadline of weight, so a run started late in the step still
+// has all of it.
 func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
-		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir()},
+		Argv:    []string{"go", "test", "-timeout=" + (hangDeadline(weight) + sweepRunDeadline).String(), "-run", "^" + sweepTest + "$", sweepPackage},
+		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir(), sweepRunDeadlineVariable + "=" + sweepRunDeadline.String()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,
@@ -293,18 +313,32 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// Building every test binary once lets vet, the shards and the CLI build
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: fullBuildStep, Argv: []string{"go", "test", testTimeout, "-run", "^$", "./..."}, Class: classHeavy})
-	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Class: classFast})
+	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}, Inputs: vetInputs(), Class: classFast})
 	// The CLI and the runtime it embeds also build for a 32-bit target,
 	// where int is 32 bits: a constant that overflows it fails here
 	// (batch-14 apply 5, runtime/v1/timetext.go). Its Weight is the step's
 	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
-	// 2026-11-10).
-	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
+	// 2026-11-10). The target is linux/386 on every host: darwin has no
+	// 386 port, and darwin/386 asks for a cgo-linked PIE (I19 macOS check
+	// at e08f49831).
+	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOOS=linux", "GOARCH=386"}, Weight: 16.1, Class: classHeavy})
 	// Every GOOS the toolchain lists vets, or names why it cannot
 	// (scripts/vetgoos; FU-freebsd). Full tier: it compiles std for 18
 	// systems, 600 s cold at 4 CPUs and 20 s for six warm (load 44 to 55,
 	// 2026-11-15), far past the fast tier's 2 s.
 	add(&Step{Name: "go vet every GOOS", Argv: []string{"go", "run", "./scripts/vetgoos"}, Weight: 600, Class: classHeavy})
+	// The round tier's backtest over the mutant runner's coverage store
+	// and the ledgers, and its replay to HEAD (backtest.go, CS-ROUND). The
+	// store lives on the workbox (Linux), not in the checkout: the step
+	// runs there, with the store's directory and its index's digest in its
+	// key, and fails on a missing store.
+	if runtime.GOOS == "linux" {
+		cache, err := covfile.CacheDir()
+		if err != nil {
+			return nil, err
+		}
+		add(&Step{Name: "coverage store backtest", Argv: []string{"go", "run", "./scripts/gate", "-backtest"}, Env: []string{covfile.CacheVariable + "=" + cache, "ERGO_COVER_INDEX=" + storeIndexDigest()}, Class: classHeavy})
+	}
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})
@@ -317,15 +351,20 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	sweepCosts, err := readSweepCosts(root)
+	if err != nil {
+		return nil, err
+	}
 	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"])
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(rt), "./runtime/rt"}, Weight: rt, Class: classHeavy})
-	// runtime/v1 in the explored build (explore_on.go, explore_laws.go):
+	// runtime/v1 and its rpc leaf in the explored build (explore_on.go,
+	// explore_laws.go, rpc explore_rpc_test.go):
 	// the whole package, so a new test cannot skip the controlled
 	// scheduler; its waits go through the scheduler (runtime.md, Explored
 	// schedules). The tagged run has no row of its own, so the step weighs
 	// runtime/v1's record.
 	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"])
-	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1"}, Weight: v1, Class: classHeavy})
+	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1", "./runtime/v1/rpc"}, Weight: v1, Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
@@ -371,15 +410,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		groups := shard(names, measured, n)
 		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
-			argv := append([]string{"go", "test", testTimeoutFor(weights[i])}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i], Class: classHeavy})
+			argv := append([]string{"go", "test", "-json", testTimeoutFor(weights[i])}, selection...)
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Observe: true, GoStore: slices.Contains(goStorePackages, relative), Weight: weights[i], Class: classHeavy})
 		}
 	}
 	others := 0.0
 	for _, pkg := range unsharded {
 		others += packageSeconds(durations[pkg])
 	}
-	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", "-json", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Observe: true, Weight: others, Class: classHeavy})
 	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
@@ -395,7 +434,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			if tests, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 				continue
 			}
-			sweep := sweepStep(dir, sweepWeight(durations, pkg))
+			sweep := sweepStep(dir, sweepWeight(durations, pkg, sweepCosts[dir]))
 			sweep.Name = "closure sweep ./" + dir
 			sweep.Needs = []string{"go test build"}
 			add(sweep)
@@ -432,6 +471,12 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(examplesRun)
+	add(examplesFullTierStep(examplesRun))
+	downstream, err := downstreamStep(root)
+	if err != nil {
+		return nil, err
+	}
+	add(downstream)
 	add(&Step{Name: "model baton", Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "test", "models/baton"}, Class: classHeavy})
 
 	examples, err := authoredExamples(root)
@@ -451,6 +496,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	for _, model := range models {
 		argv := append([]string{"./bin/ergo", "test", model}, modelFlags[model]...)
 		add(&Step{Name: "ergo test " + model, Needs: []string{buildCLIStep}, Argv: argv, Class: classHeavy, MemoryHeavy: true})
+	}
+
+	if step := compilerErgoTests(root); step != nil {
+		add(step)
 	}
 
 	return steps, nil
@@ -485,6 +534,18 @@ func designModels(root string) ([]string, error) {
 		}
 	}
 	return models, nil
+}
+
+// compilerErgoTests is the step that runs the Ergo tests of the compiler's
+// own Ergo packages (compiler/...) at check time, as ergo check runs them,
+// with no Go build (scripts/ergotests, ST-0): no Go bridge test brings
+// them into the gate. A test that skips fails it. A checkout with no
+// compiler/ has none.
+func compilerErgoTests(root string) *Step {
+	if info, err := os.Stat(filepath.Join(root, "compiler")); err != nil || !info.IsDir() {
+		return nil
+	}
+	return &Step{Name: "ergo tests compiler/...", Argv: []string{"go", "run", "./scripts/ergotests", "./compiler/..."}, Class: classHeavy}
 }
 
 // uncachedStep is the step as the merge tier runs it: without the hermetic
@@ -560,6 +621,24 @@ func provenanceAnalyzer(root string) []string {
 // (it imports only the standard library) and the Go toolchain. The check never
 // reads GitHub, so a stale snapshot passes; the command's fixture tests run
 // with the other Go packages.
+// vetInputs are go vet's: the content of the files the go command and its
+// analyzers read (Go and assembly sources, go.mod and go.sum, which pin
+// the module cache's dependencies), the name of every other file, and Go
+// (its version and settings). Go's own vet cache keys a package on its
+// dependencies' build IDs, and a package's build ID holds the files it
+// embeds, so an edit of one std .ergo file vets every package that
+// imports std again: 38–41 CPU-s of the fast tier's std edit at 4 CPUs
+// (gate-speed GS21). No analyzer reads an embedded file's content; the
+// embed patterns match by name, which Listed keys.
+func vetInputs() *Inputs {
+	return &Inputs{
+		Bases:  []string{"*.go", "*.s", "go.mod", "go.sum", "go.work"},
+		Listed: true,
+		Tools:  []string{"go"},
+		Env:    []string{"GOFLAGS", "GOEXPERIMENT"},
+	}
+}
+
 func wayfinderSnapshotInputs() *Inputs {
 	return &Inputs{
 		Paths:   []string{"docs/wayfinder/snapshot.json", "cmd/wayfinder/", "go.mod"},
@@ -580,7 +659,7 @@ func wayfinderSnapshotInputs() *Inputs {
 // a runner that links the checker (batch 9 D3) keys on the checker's
 // sources too, so a checker edit cannot replay a stale pass.
 func examplesStep(root string) (*Step, error) {
-	paths, exclude, err := examplesRunnerInputs(root)
+	paths, exclude, err := runnerInputs(root, examplesRunner)
 	if err != nil {
 		return nil, err
 	}
@@ -629,25 +708,72 @@ const (
 	fastExamplesWeight = 134.0
 )
 
+// examplesFullTierStep runs the module package folders the examples step
+// leaves out: those each module's full-tier file names (laws run against
+// the host in every case), in the full and merge tiers only. Its inputs
+// are the examples step's. Its -timeout is the runner's hang guard, not a
+// bound: such a package prints nothing until its laws end (git/checkout
+// took 27 s at load 52, over the default 30 s's margin).
+func examplesFullTierStep(examples *Step) *Step {
+	inputs := *examples.Inputs
+	return &Step{
+		Name:   "examples (full tier)",
+		Class:  classHeavy,
+		Needs:  slices.Clone(examples.Needs),
+		Argv:   []string{"go", "run", examplesRunner, "-full-tier", "-timeout", "10m"},
+		Inputs: &inputs,
+	}
+}
+
+// downstreamRunner is the package the downstream step runs.
+const downstreamRunner = "./scripts/downstream"
+
+// downstreamStep is the downstream check (docs/tooling.md, Downstream
+// check): each commit downstream/pins names, from the cache the
+// integrator's `go run ./scripts/downstream fetch` fills, checked, tested,
+// built and its cases run with bin/ergo. Full tier only: the fast tier
+// cannot promise the cache and stays offline. Its key holds the pins and
+// the moved paths (zero pins pass only while none moved), the runner's
+// closure and bin/ergo's bytes; the cache is not keyed, as each entry is
+// the pinned commit's tree.
+func downstreamStep(root string) (*Step, error) {
+	paths, exclude, err := runnerInputs(root, downstreamRunner)
+	if err != nil {
+		return nil, err
+	}
+	return &Step{
+		Name:  "downstream",
+		Class: classHeavy,
+		Needs: []string{buildCLIStep},
+		Argv:  []string{"go", "run", downstreamRunner},
+		Inputs: &Inputs{
+			Paths:   append([]string{"scripts/downstream/", "downstream/", "go.mod"}, paths...),
+			Exclude: append([]string{"scripts/downstream/*_test.go", "scripts/downstream/testdata/"}, exclude...),
+			Tools:   []string{"go", "sh"},
+			Built:   []string{"bin/ergo"},
+		},
+	}, nil
+}
+
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"
 
-// examplesRunnerInputs are the Go files of the module that the examples
-// runner links besides its own directory: for each package of the module
-// in `go list -deps` of the runner, its non-test Go files and the files it
-// embeds, as Inputs patterns. A checkout with no runner directory (a test
-// fixture module) has nothing to list: the step's own paths key it, and the
-// step, if it runs there, fails.
-func examplesRunnerInputs(root string) (paths, exclude []string, err error) {
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(examplesRunner, "./")))); os.IsNotExist(err) {
+// runnerInputs are the Go files of the module that a runner (the
+// examples runner, the downstream check) links besides its own directory:
+// for each package of the module in `go list -deps` of the runner, its
+// non-test Go files and the files it embeds, as Inputs patterns. A
+// checkout with no runner directory (a test fixture module) has nothing to
+// list: the step's own paths key it, and the step, if it runs there, fails.
+func runnerInputs(root, runner string) (paths, exclude []string, err error) {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(runner, "./")))); os.IsNotExist(err) {
 		return nil, nil, nil
 	}
-	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", examplesRunner)
+	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", runner)
 	command.Dir = root
 	command.Env = stepEnvironment()
 	output, err := runOutput(command)
 	if err != nil {
-		return nil, nil, fmt.Errorf("go list -deps %s: %w", examplesRunner, err)
+		return nil, nil, fmt.Errorf("go list -deps %s: %w", runner, err)
 	}
 	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -668,7 +794,7 @@ func examplesRunnerInputs(root string) (paths, exclude []string, err error) {
 			continue
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == strings.TrimPrefix(examplesRunner, "./") {
+		if rel == strings.TrimPrefix(runner, "./") {
 			continue
 		}
 		paths = append(paths, rel+"/*.go")
@@ -791,14 +917,16 @@ const sweepWeightFactor = 4
 // importPath, or 0 (unrecordedWeight) when durations.json has no row for
 // it. A host package's sweep weighs 0 too: the sweep does not run its tests
 // (internal/closure's unsweepable: they start bwrap), so their recorded
-// time, hundreds of seconds for scripts/gate, does not predict the step.
-func sweepWeight(durations map[string]map[string]float64, importPath string) float64 {
+// time, hundreds of seconds for scripts/gate, does not predict the step. A
+// package whose sweep was recorded (sweepCostFile) weighs at least what it
+// took (GS23).
+func sweepWeight(durations map[string]map[string]float64, importPath string, recorded sweepCost) float64 {
 	for _, host := range hostTestPackages {
 		if strings.HasSuffix(importPath, "/"+host) {
 			return 0
 		}
 	}
-	return sweepWeightFactor * packageSeconds(durations[importPath])
+	return max(sweepWeightFactor*packageSeconds(durations[importPath]), recorded.Sweep)
 }
 
 // packageSeconds is the recorded time of every test of a package's rows
@@ -862,33 +990,12 @@ func writeDurations(root string, limit limiter, packages []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		output := stdout.Bytes()
-		// Elapsed omits time a test spends waiting for its parallel
-		// subtests, so a test's weight is its wall time to finish, counted
-		// from its start or, for a parallel test, from when it resumes.
-		measured := map[string]float64{}
-		started := map[string]time.Time{}
-		decoder := json.NewDecoder(bytes.NewReader(output))
-		for decoder.More() {
-			var event struct {
-				Time   time.Time
-				Action string
-				Test   string
-			}
-			if err := decoder.Decode(&event); err != nil {
-				return err
-			}
-			if event.Test == "" || strings.Contains(event.Test, "/") {
-				continue
-			}
-			switch event.Action {
-			case "run", "cont":
-				started[event.Test] = event.Time
-			case "pass", "fail", "skip":
-				measured[event.Test] = math.Round(event.Time.Sub(started[event.Test]).Seconds()*100) / 100
-			}
+		measured, err := testWallSeconds(&stdout)
+		if err != nil {
+			return err
 		}
-		durations[module+"/"+strings.TrimPrefix(pkg, "./")] = measured
+		importPath := module + "/" + strings.TrimPrefix(pkg, "./")
+		durations[importPath] = measured[importPath]
 	}
 	data, err := json.MarshalIndent(durations, "", "  ")
 	if err != nil {

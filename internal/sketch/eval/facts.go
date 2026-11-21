@@ -50,6 +50,26 @@ type facts struct {
 		t, rt *check.Named
 		at    int
 	}
+	// plan is a call's callee plan (plan.go), and unreachable says the
+	// call is the prelude's Unreachable (ORACLE O34).
+	plan        *funcPlan
+	unreachable bool
+	// assertShown is an assert's comparison when its report shows the
+	// operands, read once (assertSeen) from the checked types, which no
+	// substitution changes (assert.go; TESTSPEED FT1).
+	assertShown *assertOperands
+	assertSeen  bool
+	// errSeen and errIs hold whether a returned value of the expression's
+	// type is an error value (retValue), read outside a generic body
+	// (ORACLE O34). Every frame that returns the expression has the fact
+	// owner of the body that holds it, so one answer serves them all.
+	errSeen, errIs bool
+	// fast and sfast are the node's compiled forms as an expression and
+	// as a statement of a list, and form and sform their states
+	// (compile.go).
+	fast        fastExpr
+	sfast       fastStmt
+	form, sform uint8
 }
 
 // fieldOf is the index of the field name in t, a record type, cached for
@@ -74,6 +94,11 @@ type nodeTable struct {
 	vals  []*facts
 	n     int
 	shift uint
+	// instance marks the table of one instance of a generic function
+	// (plan.go, instanceOf): every frame that reads it has the same type
+	// arguments, so its facts may keep what the types decide, forms
+	// included.
+	instance bool
 }
 
 func newNodeTable() *nodeTable {
@@ -173,11 +198,12 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 		}
 	case *syntax.CallExpr:
 		f.call = info.Calls[h]
+		f.unreachable = check.IsUnreachable(f.call)
 	}
 	f.releases, f.match = info.Releases[x], info.Matches[x]
 	f.op = opOf(x, f)
 	f.plain = f.ctx == nil && !f.covered && f.owned == nil && len(f.elems) == 0 &&
-		(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow)
+		(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)
 	t.put(k, f)
 	return f
 }

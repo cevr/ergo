@@ -13,8 +13,14 @@ import (
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache. The binary
 // also runs as the sweep's sandbox helper and as a child of the sandbox
-// tests (helperMain), which never return.
+// tests (helperMain), which never return. Its sandbox tests make user
+// namespaces (testinputs.MakesNamespaces), except in the run of
+// TestReuseTarget, the recorded run of TestRecordedRunReadsAsASweptRun,
+// which makes none.
 func TestMain(m *testing.M) {
 	helperMain()
+	if os.Getenv(reuseTargetVariable) == "" {
+		testinputs.MakesNamespaces()
+	}
 	os.Exit(testinputs.Main(m))
 }

@@ -28,16 +28,20 @@ const cliSeedVariable = "ERGO_CLI_SEED"
 // rows of zero to three records), the package ergo gen cli writes checks,
 // and its law ArgsRoundTrip holds over the Requests the law's generator
 // draws (100 cases a contract): Parse reads what Print writes as the same
-// Request. An odd contract has its rpc package too, so its cli package
-// names the rpc package's Request. For each operation, Run of the printed
+// Request. Every contract has its hub (ergo gen api), whose Request the cli
+// package names; an odd contract has its rpc package too, whose Request
+// is the same type. For each operation, Run of the printed
 // Request against a provider that answers a fixed value or failure is what
 // Run's rule says: the value's JSON with --json, its text when it is a
 // basic value, the failure's tagged JSON with status 1. Contract c0 always
 // has an operation with a positional int, a record with a bool and a nested
 // record, so a Print that writes a bool flag with no value, drops a nested
 // field or reads a negative int as a flag is refuted on every seed, and an
-// operation whose provider always fails. A
-// failing seed prints the Ergo source, the test binary's output and the
+// operation whose provider always fails. Each contract's cli Wire (and
+// rpc Wire, when it has one) holds api.Agrees (AF1): every Request and
+// every Outcome the hub's OutcomeOf gives comes through unchanged, so a
+// transport that drops a flag or maps one rejection to another is refuted
+// by Agrees as well as by ArgsRoundTrip. A failing seed prints the Ergo source, the test binary's output and the
 // replay command.
 //
 // It builds Go because the law runs on values the native test runner
@@ -83,18 +87,24 @@ func roundTrip(t *testing.T, seed uint64, cache string) {
 			t.Fatalf("seed %d: contract %s does not check: %v %v\n%s", seed, c.pkg(), err, a.Diagnostics, sources(files))
 		}
 		path := "loop/" + c.pkg()
-		rpcPath := ""
+		hub, err := rpcgen.GenerateAPI(a.Root().Package, path, "Svc")
+		if err != nil {
+			t.Fatalf("seed %d: ergo gen api %s: %v\n%s", seed, c.pkg(), err, sources(files))
+		}
+		for name, src := range hub.Files {
+			writeFile(t, filepath.Join(pkgDir, hub.Dir, name), src)
+		}
+		apiPath := path + "/" + hub.Dir
 		if c.withRPC {
-			out, err := rpcgen.Generate(a.Root().Package, path, "Svc")
+			out, err := rpcgen.Generate(a.Root().Package, path, "Svc", apiPath)
 			if err != nil {
 				t.Fatalf("seed %d: ergo gen rpc %s: %v\n%s", seed, c.pkg(), err, sources(files))
 			}
 			for name, src := range out.Files {
 				writeFile(t, filepath.Join(pkgDir, out.Dir, name), src)
 			}
-			rpcPath = path + "/" + out.Dir
 		}
-		out, err := cligen.Generate(a.Root().Package, path, "Svc", rpcPath)
+		out, err := cligen.Generate(a.Root().Package, path, "Svc", apiPath)
 		if err != nil {
 			t.Fatalf("seed %d: ergo gen cli %s: %v\n%s\n%s", seed, c.pkg(), err, sources(files), replay)
 		}
@@ -204,13 +214,25 @@ func runOnce(t *testing.T, exe string, args ...string) outcome {
 
 // ty is a type of a generated contract.
 type ty struct {
-	kind string // string int int64 bool named slice option record
-	// name is a defined type's or a record's name, in its contract's
-	// package.
+	kind string // string int int64 bool float64 named slice map option record union
+	// name is a defined type's, a record's or a union's name, in its
+	// contract's package.
 	name   string
-	elem   *ty // a defined type's basic, a slice's or an Option's element
+	elem   *ty // a defined type's basic, a slice's, a Map's or an Option's element
 	fields []field
+	// variants are a union's records (a choice's have no fields).
+	variants []*ty
 }
+
+// The unions every contract declares (AF2): Mode, a choice (variants with
+// no fields: a choice flag), and Shape, a union one of whose variants
+// holds Mode (a nested union: a JSON argument).
+var (
+	modeType  = &ty{kind: "union", name: "Mode", variants: []*ty{{kind: "record", name: "Fast"}, {kind: "record", name: "Slow"}, {kind: "record", name: "RunOnce"}}}
+	shapeType = &ty{kind: "union", name: "Shape", variants: []*ty{{kind: "record", name: "Dot"}, {kind: "record", name: "Box", fields: []field{{"Side", &ty{kind: "int"}}, {"Mode", modeType}}}}}
+	floatType = &ty{kind: "float64"}
+	mapType   = &ty{kind: "map", elem: &ty{kind: "int"}}
+)
 
 type field struct {
 	name string
@@ -220,10 +242,12 @@ type field struct {
 // src is the type in source; q qualifies a contract's own type ("c0.").
 func (t *ty) src(q string) string {
 	switch t.kind {
-	case "named", "record":
+	case "named", "record", "union":
 		return q + t.name
 	case "slice":
 		return "[]" + t.elem.src(q)
+	case "map":
+		return "Map[string, " + t.elem.src(q) + "]"
 	case "option":
 		return "Option[" + t.elem.src(q) + "]"
 	case "jsonopt":
@@ -235,7 +259,11 @@ func (t *ty) src(q string) string {
 // scalar reports a type with a text form: a basic or a type defined over
 // one.
 func (t *ty) scalar() bool {
-	return t.kind != "slice" && t.kind != "option" && t.kind != "record" && t.kind != "jsonopt"
+	switch t.kind {
+	case "string", "int", "int64", "bool", "named":
+		return true
+	}
+	return false
 }
 
 type op struct {
@@ -303,10 +331,19 @@ func (p *program) scalarType() *ty {
 	return p.basic()
 }
 
-// leaf is a field's type: a scalar, a slice or an Option of a basic, or a
-// record declared before (records lists them).
+// leaf is a field's type: a scalar, a slice or an Option of a basic, a
+// record declared before (records lists them), or (AF2) a choice, a
+// float, a Map or a nested union, which a record holding one takes as JSON.
 func (p *program) leaf(records []*ty) *ty {
-	switch k := p.r.IntN(8); {
+	switch k := p.r.IntN(12); {
+	case k == 8:
+		return modeType
+	case k == 9:
+		return floatType
+	case k == 10:
+		return mapType
+	case k == 11:
+		return shapeType
 	case k == 0:
 		return &ty{kind: "slice", elem: &ty{kind: []string{"string", "int", "bool"}[p.r.IntN(3)]}}
 	case k == 1:
@@ -356,6 +393,9 @@ func (p *program) contract(i int) *contract {
 		c.ops = append(c.ops, &op{name: "Fixed", params: []field{{"label", &ty{kind: "string"}}, {"opts", c.records[1]}, {"count", &ty{kind: "int"}}}, result: &ty{kind: "int"}})
 		// An operation whose provider always fails: Run's failure rule.
 		c.ops = append(c.ops, &op{name: "Refuse", params: []field{{"key", &ty{kind: "string"}}}, fails: []*ty{c.fails[0]}})
+		// The forms AF2 adds, every seed: a choice flag (-mode), and JSON
+		// arguments for a nested union, a float and a Map.
+		c.ops = append(c.ops, &op{name: "Pick", params: []field{{"mode", modeType}, {"shape", shapeType}, {"weight", floatType}, {"tags", mapType}}, result: &ty{kind: "int"}})
 		if p.optional {
 			// An operation whose only parameter is a record: its fields are
 			// the tool's arguments.
@@ -368,9 +408,12 @@ func (p *program) contract(i int) *contract {
 		p.r.Shuffle(len(names), func(a, b int) { names[a], names[b] = names[b], names[a] })
 		for j := p.r.IntN(4); j > 0; j-- {
 			var t *ty
-			if p.r.IntN(2) == 0 {
+			switch k := p.r.IntN(6); {
+			case k < 3:
 				t = c.records[p.r.IntN(len(c.records))]
-			} else {
+			case k == 3:
+				t = []*ty{modeType, shapeType, floatType, mapType}[p.r.IntN(4)]
+			default:
 				t = p.scalarType()
 			}
 			o.params = append(o.params, field{name: names[j], t: t})
@@ -427,6 +470,16 @@ func (p *program) lit(t *ty, q string, depth int) string {
 		return strconv.Quote(stringPool[p.r.IntN(len(stringPool))])
 	case "bool":
 		return []string{"true", "false"}[p.r.IntN(2)]
+	case "float64":
+		return []string{"0.0", "1.5", "-0.25", "1000000.0", "3.0e-7"}[p.r.IntN(5)]
+	case "map":
+		var es []string
+		for k := 0; k < p.r.IntN(3); k++ {
+			es = append(es, fmt.Sprintf("%q: %s", fmt.Sprintf("k%d", k), p.lit(t.elem, q, depth+1)))
+		}
+		return t.src(q) + "{" + strings.Join(es, ", ") + "}"
+	case "union":
+		return p.lit(t.variants[p.r.IntN(len(t.variants))], q, depth)
 	case "named":
 		return p.lit(t.elem, q, depth)
 	case "slice":
@@ -505,6 +558,13 @@ func (p *program) contractSource(c *contract) string {
 	for _, n := range p.named {
 		fmt.Fprintf(&b, "type %s %s\n", n.name, n.elem.kind)
 	}
+	for _, u := range []*ty{modeType, shapeType} {
+		var vs []string
+		for _, v := range u.variants {
+			vs = append(vs, v.name+"{"+declFields(v.fields)+"}")
+		}
+		fmt.Fprintf(&b, "type %s = %s\n", u.name, strings.Join(vs, " | "))
+	}
 	for _, r := range c.records {
 		fmt.Fprintf(&b, "type %s { %s }\n", r.name, declFields(r.fields))
 	}
@@ -515,7 +575,7 @@ func (p *program) contractSource(c *contract) string {
 	for _, o := range c.ops {
 		fmt.Fprintf(&b, "\t%s,\n", sig(o, ""))
 	}
-	b.WriteString("}\n\ntype Ref {}\n")
+	b.WriteString("}\n\ntype Ref {} implements Svc\n")
 	for _, o := range c.ops {
 		fmt.Fprintf(&b, "\nfunc %s {\n", sig(o, "r Ref"))
 		switch {
@@ -535,13 +595,14 @@ func (p *program) contractSource(c *contract) string {
 }
 
 // probeSource is the probe package: per contract, a law that runs the cli
-// package's RoundTrips, and per operation two tests of Run against Ref,
-// with --json and without.
+// package's RoundTrips, its law Agrees restated over its Wire (and the
+// rpc package's, for a contract that has one), and per
+// operation two tests of Run against Ref, with --json and without.
 func (p *program) probeSource() string {
 	var b strings.Builder
-	b.WriteString("// Package probe runs the generated cli packages' round trip and Run.\n\nimport rpc\n")
+	b.WriteString("// Package probe runs the generated cli packages' round trip and Run.\n\nimport api\nimport flag\nimport io\nimport rpc\nimport strings\nimport term\n")
 	for _, c := range p.contracts {
-		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg())
+		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%sapi\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg(), c.pkg(), c.pkg())
 		if c.withRPC {
 			fmt.Fprintf(&b, "import loop/%s/%srpc\n", c.pkg(), c.pkg())
 		}
@@ -550,10 +611,17 @@ func (p *program) probeSource() string {
 		cli := c.pkg() + "cli"
 		q := c.pkg() + "."
 		fmt.Fprintf(&b, "\nlaw C%dArgsRoundTrip(r %s.Request) { %s.RoundTrips(r) }\n", c.i, cli, cli)
-		variants := cli + "."
+		fmt.Fprintf(&b, "\nlaw C%dAgrees(r %s.Request, g %sapi.Given) { api.Agrees(%s.Wire, r, %sapi.OutcomeOf(r, g)) }\n", c.i, cli, c.pkg(), cli, c.pkg())
+		// TextIsThePolicy restated over Show (AF2): the probe cannot run
+		// the cli package's own law, and af2-json-through-text survives the
+		// Run tests, which use Defaults.
+		h := c.pkg() + "api"
+		fmt.Fprintf(&b, "\nlaw C%[1]dTextIsThePolicy(r %[2]s.Request, g %[3]s.Given, t string) {\n\tlet d = %[2]s.Defaults()\n\tlet p = %[2]s.Policy{..d, Text: func(reply %[3]s.Reply) Option[string] { Some[string]{Value: t} }}\n\tlet o = %[3]s.OutcomeOf(r, g)\n\tlet same = %[2]s.Show(o, true, p) == %[2]s.Show(o, true, d)\n\tmatch o {\n\tcase %[3]s.Done:\n\t\tsame && %[2]s.Show(o, false, p).Out == (if t == \"\" { \"\" } else { t + \"\\n\" })\n\tcase %[3]s.Rejected:\n\t\tsame && %[2]s.Show(o, false, p) == %[2]s.Show(o, false, d)\n\t}\n}\n", c.i, cli, h)
 		if c.withRPC {
-			variants = c.pkg() + "rpc."
+			h, w := c.pkg()+"api", c.pkg()+"rpc"
+			fmt.Fprintf(&b, "\nlaw C%dRpcAgrees(r %s.Request, g %s.Given) {\n\tlet o = %s.OutcomeOf(r, g)\n\t!%s.Fits(r, o) || api.Agrees(%s.Wire, r, o)\n}\n", c.i, h, h, h, w, w)
 		}
+		variants := c.pkg() + "api."
 		for _, o := range c.ops {
 			req := variants + o.name + "Request"
 			if len(o.args) > 0 {
@@ -582,22 +650,118 @@ func (p *program) probeSource() string {
 			}
 			fmt.Fprintf(&b, "\ntest C%d%sRuns {\n\tlet r %s.Request = %s\n\t%s", c.i, o.name, cli, req, want)
 			fmt.Fprintf(&b, "\tlet mut args = []string{\"--json\"}\n\tfor a in %s.Print(r) {\n\t\targs = args.Append(a)\n\t}\n", cli)
-			fmt.Fprintf(&b, "\tlet (j, t) = with context { %sSvc: %sRef } { (%s.Run(args), %s.Run(%s.Print(r))) }\n", q, q, cli, cli, cli)
+			fmt.Fprintf(&b, "\tlet (j, t) = with context { %sSvc: %sRef } { (%s.Run(args, %s.Defaults()), %s.Run(%s.Print(r), %s.Defaults())) }\n", q, q, cli, cli, cli, cli, cli)
 			fmt.Fprintf(&b, "\tassert j == json\n\tassert t == %s\n}\n", text)
 		}
 	}
+	b.WriteString(policyProbe)
 	return b.String()
 }
+
+// policyProbe is the probe's tests of c0's policy (AF2), each the
+// smallest repro of a rule a mutant breaks: a Code of 12 exits 12, a
+// usage error stays 2 under it, a choice flag refuses a word outside its
+// union, a JSON argument over std json's size bound is refused, --yes
+// answers a question without asking, and a question on a standard input
+// that is not a terminal ends with status 2.
+const policyProbe = `
+func twelve() c0cli.Policy {
+	let d = c0cli.Defaults()
+	c0cli.Policy{..d, Code: func(f c0api.Failure) int { 12 }}
+}
+
+func asking() c0cli.Policy {
+	let d = c0cli.Defaults()
+	c0cli.Policy{..d, Confirm: func(r c0cli.Request) Option[string] { Some[string]{Value: "sure?"} }}
+}
+
+func pick() []string {
+	c0cli.Print(c0api.PickRequest{Mode: c0.Slow, Shape: c0.Dot, Weight: 1.5, Tags: Map[string, int]{}})
+}
+
+test C0CodeIsThePolicy {
+	let o = with context { c0.Svc: c0.Ref } { c0cli.Run(c0cli.Print(c0api.RefuseRequest{Key: "k"}), twelve()) }
+	assert o.Code == 12
+}
+
+test C0UsageIsTwo {
+	let o = with context { c0.Svc: c0.Ref } { c0cli.Run([]string{"refuse"}, twelve()) }
+	assert o.Code == 2
+}
+
+test C0ChoiceRefusesOther {
+	let mut args = []string{}
+	for a in pick() {
+		args = args.Append(if a == "-mode=slow" { "-mode=other" } else { a })
+	}
+	let _ = c0cli.Parse(args) catch {
+	case flag.Invalid as e:
+		assert e.Name == "mode"
+		return
+	case _:
+		assert false
+		return
+	}
+	assert false
+}
+
+test C0JsonIsBounded {
+	let mut args = []string{}
+	for a in pick() {
+		args = args.Append(if strings.HasPrefix(a, "-shape-json=") { a + strings.Repeat(" ", 1100000) } else { a })
+	}
+	let _ = c0cli.Parse(args) catch {
+	case flag.Invalid as e:
+		assert e.Name == "shape-json"
+		return
+	case _:
+		assert false
+		return
+	}
+	assert false
+}
+
+test C0YesAnswersTheQuestion {
+	let mut args = []string{"--yes"}
+	for a in pick() {
+		args = args.Append(a)
+	}
+	let o = with context { c0.Svc: c0.Ref, term.Terminal: term.NewScript([]term.Key{}, term.Window{Cols: 80, Rows: 24}), io.Stderr: io.NewRecorder() } { c0cli.RunOnTerminal(args, asking()) }
+	assert o.Code == 0
+}
+
+// Pipe is standard input that is not a terminal.
+type Pipe {} implements term.Terminal
+
+func SetMode(p Pipe, m term.Mode) fails term.NotTerminal { return term.NotTerminal }
+
+func Restore(p Pipe) {}
+
+func ReadKey(p Pipe) term.Key fails io.ReadFailed { term.EndOfInput }
+
+func Size(p Pipe) term.Window fails term.NotTerminal { return term.NotTerminal }
+
+test C0PipeNeedsYes {
+	let o = with context { c0.Svc: c0.Ref, term.Terminal: Pipe, io.Stderr: io.NewRecorder() } { c0cli.RunOnTerminal(pick(), asking()) }
+	assert o.Code == 2
+}
+`
+
+// policyTests are policyProbe's tests, by the names the runner prints.
+var policyTests = []string{"C0CodeIsThePolicy", "C0UsageIsTwo", "C0ChoiceRefusesOther", "C0JsonIsBounded", "C0YesAnswersTheQuestion", "C0PipeNeedsYes"}
 
 // obligations are the probe's laws and tests, by the names the test
 // runner prints.
 func (p *program) obligations() []string {
 	var out []string
 	for _, c := range p.contracts {
-		out = append(out, fmt.Sprintf("law C%dArgsRoundTrip", c.i))
+		out = append(out, fmt.Sprintf("law C%dArgsRoundTrip", c.i), fmt.Sprintf("law C%dAgrees", c.i), fmt.Sprintf("law C%dTextIsThePolicy", c.i))
+		if c.withRPC {
+			out = append(out, fmt.Sprintf("law C%dRpcAgrees", c.i))
+		}
 		for _, o := range c.ops {
 			out = append(out, fmt.Sprintf("C%d%sRuns", c.i, o.name))
 		}
 	}
-	return out
+	return append(out, policyTests...)
 }

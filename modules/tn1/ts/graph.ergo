@@ -1,0 +1,481 @@
+// The project graph of TypeScript files, which record version 3's P and
+// F items and its N items' caller counts read (TN1-GRAPH-RECORD). A
+// package is a directory; an edge is a relative import or re-export that
+// names another file of the project (a bare specifier is a dependency,
+// not a project file, and is no edge); a use is a code token that names
+// what an import bound (`a`, or `ns.a` for `* as ns`). Every rule is
+// stated over tokens, as the record's are.
+
+import ergo.dev/tn1
+import maps
+import slices
+import strings
+
+// binding is one name an import statement binds: the local name, the
+// project file it comes from and its name there ("*" for a namespace,
+// "default" for a default import).
+type binding { Local string, From int, Name string }
+
+// use is one use of a name of another project file.
+type use { File int, Name string }
+
+// fileGraph is one file's part of the project graph.
+type fileGraph {
+	Package   string,
+	Imports   []int,
+	Bindings  []binding,
+	Uses      []use,
+	Decls     []string,
+	DeclCount int,
+	Exported  int,
+}
+
+// PackageOf is the package of a project path: its directory, or "." at
+// the root.
+func PackageOf(path string) string {
+	let at = strings.LastIndex(path, "/")
+	if at < 0 {
+		return "."
+	}
+	strings.Slice(path, 0, at)
+}
+
+// baseName is a path's last element without its extension.
+func baseName(path string) string {
+	let name = strings.Slice(path, strings.LastIndex(path, "/")+1, len(path))
+	let dot = strings.Index(name, ".")
+	if dot <= 0 {
+		return name
+	}
+	strings.Slice(name, 0, dot)
+}
+
+// clean resolves the . and .. elements of a slash-separated path.
+func clean(path string) string {
+	let mut out = []string{}
+	for e in strings.Split(path, "/") {
+		if e == "" || e == "." {
+			continue
+		}
+		if e == ".." && len(out) > 0 && out[len(out)-1] != ".." {
+			out = out[0 : len(out)-1]
+			continue
+		}
+		out = out.Append(e)
+	}
+	strings.Join(out, "/")
+}
+
+// resolve is the project file a specifier in the file at from names, or
+// -1: a relative specifier as written, with a TypeScript extension, with
+// `.js` read as `.ts`, or as a folder's index.
+func resolve(index Map[string, int], from string, spec string) int {
+	if !strings.HasPrefix(spec, "./") && !strings.HasPrefix(spec, "../") {
+		return -1
+	}
+	let mut dir = PackageOf(from)
+	if dir == "." {
+		dir = ""
+	}
+	let joined = clean(dir + "/" + spec)
+	let mut tries = []string{joined, joined + ".ts", joined + ".tsx", joined + "/index.ts", joined + "/index.tsx"}
+	if strings.HasSuffix(joined, ".js") {
+		let stem = strings.TrimSuffix(joined, ".js")
+		tries = tries.Append(stem + ".ts")
+		tries = tries.Append(stem + ".tsx")
+	}
+	for t in tries {
+		let i = maps.GetOr(index, t, -1)
+		if i >= 0 {
+			return i
+		}
+	}
+	-1
+}
+
+// specifier is the text of a string literal token, quotes cut.
+func specifier(src string, t Token) string {
+	if t.To-t.From < 2 {
+		return ""
+	}
+	strings.Slice(src, t.From+1, t.To-1)
+}
+
+func isLiteral(t Token) bool {
+	match t.Kind {
+	case Literal:
+		true
+	case Ident, Punct, LineComment, BlockComment:
+		false
+	}
+}
+
+// Clause is one import or re-export statement: the tokens from its first
+// to its specifier, and the specifier's index (-1 for none).
+type clause { From int, Spec int }
+
+// clauses is the file's import statements and `export … from` statements
+// at the top level.
+func clauses(code []Token) []clause {
+	let mut out = []clause{}
+	let mut i = 0
+	for i < len(code) {
+		let t = code[i]
+		let opens = (t.Text == "import" || t.Text == "export") && t.Depth == 0 && isIdent(t) && (i == 0 || code[i-1].Text != ".")
+		if !opens {
+			i += 1
+			continue
+		}
+		// `import "./x"`: the specifier at once; `import … from "./x"`
+		// and `export … from "./x"`: the literal after from.
+		// An export that declares (`export const`, `export function`) has
+		// no specifier: only `export {`, `export *` and `export type {`
+		// re-export.
+		let next = if i+1 < len(code) { code[i+1].Text } else { "" }
+		let after = if i+2 < len(code) { code[i+2].Text } else { "" }
+		let reexports = next == "{" || next == "*" || next == "type" && after == "{"
+		if t.Text == "export" && !reexports {
+			i += 1
+			continue
+		}
+		let mut j = i + 1
+		let mut spec = -1
+		if t.Text == "import" && j < len(code) && isLiteral(code[j]) {
+			spec = j
+		}
+		for spec < 0 && j < len(code) && code[j].Text != ";" && !(j > i+1 && code[j].NewLine && !isPunctOrWord(code[j-1])) {
+			if code[j].Text == "from" && j+1 < len(code) && isLiteral(code[j+1]) {
+				spec = j + 1
+			}
+			j += 1
+		}
+		if spec >= 0 {
+			out = out.Append(clause{From: i, Spec: spec})
+			i = spec
+		}
+		i += 1
+	}
+	out
+}
+
+// bindingsOf appends the names the clause binds, from the project file
+// target, and the re-exported names as uses of it.
+// added is what bindingsOf adds to.
+type added { Bindings []binding, Uses []use }
+
+func bindingsOf(code []Token, c clause, target int, into []binding, uses []use) added {
+	let mut bs = into
+	let mut us = uses
+	let reexport = code[c.From].Text == "export"
+	let mut braces = false
+	let mut j = c.From + 1
+	for j < c.Spec {
+		let t = code[j]
+		if t.Text == "{" {
+			braces = true
+		} else if t.Text == "}" {
+			braces = false
+		} else if t.Text == "*" && j+2 < c.Spec && code[j+1].Text == "as" && isIdent(code[j+2]) {
+			if !reexport {
+				bs = bs.Append(binding{Local: code[j+2].Text, From: target, Name: "*"})
+			}
+			j += 2
+		} else if isIdent(t) && t.Text != "type" && t.Text != "from" && t.Text != "as" && t.Text != "typeof" {
+			let renamed = j+2 < c.Spec && code[j+1].Text == "as" && isIdent(code[j+2])
+			let local = if renamed { code[j+2].Text } else { t.Text }
+			if reexport && braces {
+				us = us.Append(use{File: target, Name: t.Text})
+			} else if !reexport && braces {
+				bs = bs.Append(binding{Local: local, From: target, Name: t.Text})
+			} else if !reexport {
+				bs = bs.Append(binding{Local: t.Text, From: target, Name: "default"})
+			}
+			if renamed {
+				j += 2
+			}
+		}
+		j += 1
+	}
+	added{Bindings: bs, Uses: us}
+}
+
+// graphOf is one file's part of the graph: its imports, what they bind,
+// its uses of those names and its top-level declarations.
+func graphOf(paths Map[string, int], path string, src string) fileGraph {
+	let s = scanOf(src)
+	let code = s.Code
+	let mut g = fileGraph{Package: PackageOf(path), Imports: []int{}, Bindings: []binding{}, Uses: []use{}, Decls: []string{}, DeclCount: 0, Exported: 0}
+	let mut inClause = []bool{}
+	for _ in code {
+		inClause = inClause.Append(false)
+	}
+	for c in clauses(code) {
+		for k in c.From..c.Spec+1 {
+			inClause[k] = true
+		}
+		let target = resolve(paths, path, specifier(src, code[c.Spec]))
+		if target < 0 {
+			continue
+		}
+		g.Imports = g.Imports.Append(target)
+		let more = bindingsOf(code, c, target, g.Bindings, g.Uses)
+		g.Bindings = more.Bindings
+		g.Uses = more.Uses
+	}
+	g.Imports = slices.Dedupe(slices.Sort(g.Imports))
+	let mut local = Map[string, int]{}
+	for b in 0..len(g.Bindings) {
+		local[g.Bindings[b].Local] = b
+	}
+	for k in 0..len(code) {
+		let t = code[k]
+		if inClause[k] || !isIdent(t) || k > 0 && code[k-1].Text == "." {
+			continue
+		}
+		let b = maps.GetOr(local, t.Text, -1)
+		if b < 0 {
+			continue
+		}
+		let bound = g.Bindings[b]
+		if bound.Name != "*" {
+			g.Uses = g.Uses.Append(use{File: bound.From, Name: bound.Name})
+		} else if k+2 < len(code) && code[k+1].Text == "." && isIdent(code[k+2]) {
+			g.Uses = g.Uses.Append(use{File: bound.From, Name: code[k+2].Text})
+		}
+	}
+	let mut cursor = 0
+	for st in statementsOf(code) {
+		let from = index(code, cursor, st.From)
+		let to = index(code, from, st.To)
+		cursor = to
+		let mut name = ""
+		match nodeKind(code, from, to) {
+		case tn1.Function, tn1.Declared, tn1.Test:
+			name = nameOf(code, from, to)
+			if binds(s.Imp, name) {
+				name = ""
+			}
+			// A default export is imported as default, whatever its name.
+			if code[from].Text == "export" && from+1 < to && code[from+1].Text == "default" {
+				name = "default"
+			}
+			if name != "" {
+				g.DeclCount += 1
+				if code[from].Text == "export" {
+					g.Exported += 1
+				}
+			}
+		case tn1.Handler, tn1.Module:
+		}
+		g.Decls = g.Decls.Append(name)
+	}
+	g
+}
+
+// thousandths is part of whole in thousandths, 0 for an empty whole.
+func thousandths(part int, whole int) int {
+	if whole == 0 {
+		return 0
+	}
+	part * 1000 / whole
+}
+
+// depthOf is the longest import chain below package p, in packages; an
+// edge that closes a cycle adds nothing.
+func depthOf(p int, edges [][]int, memo mut []int, state mut []int) int {
+	if (*state)[p] == 2 {
+		return (*memo)[p]
+	}
+	if (*state)[p] == 1 {
+		return 0
+	}
+	(*state)[p] = 1
+	let mut best = 0
+	for q in edges[p] {
+		let d = 1 + depthOf(q, edges, memo, state)
+		if d > best {
+			best = d
+		}
+	}
+	(*state)[p] = 2
+	(*memo)[p] = best
+	best
+}
+
+// Project is the version 3 record of each file of a TypeScript project,
+// in the files' order. A file's Name is its path from the project's root,
+// slash-separated (its . and .. elements resolved). The P item is the file's package, the F item the file;
+// UpEdges and ChurnTogether are 0, as a project with no declared layering
+// and no history has them.
+func Project(files []tn1.Named) []tn1.Features {
+	let mut index = Map[string, int]{}
+	for i in 0..len(files) {
+		index[clean(files[i].Name)] = i
+	}
+	let mut graphs = []fileGraph{}
+	for f in files {
+		graphs = graphs.Append(graphOf(index, clean(f.Name), f.Text))
+	}
+	let n = len(files)
+	// Packages, in name order.
+	let mut names = []string{}
+	for g in graphs {
+		names = names.Append(g.Package)
+	}
+	let pkgs = slices.Dedupe(slices.Sort(names))
+	let mut pkgIndex = Map[string, int]{}
+	for p in 0..len(pkgs) {
+		pkgIndex[pkgs[p]] = p
+	}
+	let mut pkgOf = []int{}
+	for g in graphs {
+		pkgOf = pkgOf.Append(maps.GetOr(pkgIndex, g.Package, 0))
+	}
+	// File fan-in, package edges and uses into each file.
+	let mut fileFanIn = []int{}
+	let mut into = [][]use{}
+	for _ in 0..n {
+		fileFanIn = fileFanIn.Append(0)
+		into = into.Append([]use{})
+	}
+	let mut pkgOut = [][]int{}
+	let mut pkgIn = [][]int{}
+	for _ in pkgs {
+		pkgOut = pkgOut.Append([]int{})
+		pkgIn = pkgIn.Append([]int{})
+	}
+	for i in 0..n {
+		for t in graphs[i].Imports {
+			if t != i {
+				fileFanIn[t] += 1
+			}
+			if pkgOf[t] != pkgOf[i] {
+				pkgOut[pkgOf[i]] = pkgOut[pkgOf[i]].Append(pkgOf[t])
+				pkgIn[pkgOf[t]] = pkgIn[pkgOf[t]].Append(pkgOf[i])
+			}
+		}
+		for u in graphs[i].Uses {
+			// A use's File is where the name lives; Name the user's package.
+			into[u.File] = into[u.File].Append(use{File: pkgOf[i], Name: u.Name})
+		}
+	}
+	for p in 0..len(pkgs) {
+		pkgOut[p] = slices.Dedupe(slices.Sort(pkgOut[p]))
+		pkgIn[p] = slices.Dedupe(slices.Sort(pkgIn[p]))
+	}
+	let mut memo = []int{}
+	let mut state = []int{}
+	for _ in pkgs {
+		memo = memo.Append(0)
+		state = state.Append(0)
+	}
+	// Each file's F item.
+	let mut fileItems = []tn1.FileItem{}
+	for i in 0..n {
+		let g = graphs[i]
+		let mut inPkg = 0
+		let mut perPkg = []int{}
+		for _ in pkgs {
+			perPkg = perPkg.Append(0)
+		}
+		for u in g.Uses {
+			if pkgOf[u.File] == pkgOf[i] {
+				inPkg += 1
+			} else {
+				perPkg[pkgOf[u.File]] += 1
+			}
+		}
+		let out = len(g.Uses) - inPkg
+		let mut best = 0
+		for c in perPkg {
+			if c > best {
+				best = c
+			}
+		}
+		let mut selfImport = 0
+		for t in g.Imports {
+			if t == i {
+				selfImport = 1
+			}
+		}
+		fileItems = fileItems.Append(tn1.FileItem{
+			NameWords:             tn1.SketchOf(baseName(clean(files[i].Name))),
+			Decls:                 g.DeclCount,
+			UsesInPackage:         inPkg,
+			UsesOut:               out,
+			BestOtherPackageShare: thousandths(best, len(g.Uses)),
+			FanIn:                 fileFanIn[i],
+			FanOut:                len(g.Imports) - selfImport,
+			ChurnTogether:         0,
+		})
+	}
+	// Each package's P item.
+	let mut pkgWords = []uint64{}
+	for p in 0..len(pkgs) {
+		let mut ws = tn1.Words([]string{}, pkgs[p])
+		for i in 0..n {
+			if pkgOf[i] == p {
+				ws = tn1.Words(ws, baseName(clean(files[i].Name)))
+			}
+		}
+		pkgWords = pkgWords.Append(tn1.Sketch(ws))
+	}
+	let mut pkgItems = []tn1.PackageItem{}
+	for p in 0..len(pkgs) {
+		let mut item = tn1.PackageItem{NameWords: pkgWords[p], Files: 0, Decls: 0, Exported: 0, FanIn: len(pkgIn[p]), FanOut: len(pkgOut[p]), InternalUses: 0, ExternalUses: 0, UpEdges: 0, Depth: depthOf(p, pkgOut, &memo, &state), NeighbourWords: 0, ChurnTogether: 0}
+		for q in pkgOut[p] {
+			item.NeighbourWords = item.NeighbourWords | pkgWords[q]
+		}
+		for q in pkgIn[p] {
+			item.NeighbourWords = item.NeighbourWords | pkgWords[q]
+		}
+		for i in 0..n {
+			if pkgOf[i] == p {
+				item.Files += 1
+				item.Decls += graphs[i].DeclCount
+				item.Exported += graphs[i].Exported
+				item.InternalUses += fileItems[i].UsesInPackage
+				item.ExternalUses += fileItems[i].UsesOut
+			}
+		}
+		pkgItems = pkgItems.Append(item)
+	}
+	// Each file's record, its nodes given their callers.
+	let mut out = []tn1.Features{}
+	for i in 0..n {
+		let mut f = FromSource(files[i].Text)
+		f.Version = 3
+		f.Packages = []tn1.PackageItem{pkgItems[pkgOf[i]]}
+		f.Files = []tn1.FileItem{fileItems[i]}
+		let decls = graphs[i].Decls
+		for k in 0..len(decls) {
+			if decls[k] == "" || k+1 >= len(f.Nodes) {
+				continue
+			}
+			let mut perPkg = []int{}
+			for _ in pkgs {
+				perPkg = perPkg.Append(0)
+			}
+			for u in into[i] {
+				if u.Name != decls[k] {
+					continue
+				}
+				if u.File == pkgOf[i] {
+					f.Nodes[k+1].CallersInPackage += 1
+				} else {
+					f.Nodes[k+1].CallersOut += 1
+					perPkg[u.File] += 1
+				}
+			}
+			let mut top = 0
+			for c in perPkg {
+				if c > top {
+					top = c
+				}
+			}
+			f.Nodes[k+1].TopCallerPackageShare = thousandths(top, f.Nodes[k+1].CallersOut)
+		}
+		out = out.Append(f)
+	}
+	out
+}

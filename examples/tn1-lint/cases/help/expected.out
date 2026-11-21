@@ -1,0 +1,1 @@
+usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint project FILE... | tn1-lint chunks FILE | tn1-lint serve | tn1-lint --help

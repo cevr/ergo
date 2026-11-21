@@ -117,6 +117,7 @@ func TestCheckAndDiagnosticsReportLocatedSketchCodes(t *testing.T) {
 // TestAManifestSelectsNothing: an ergo.json beside a source is never read.
 // Whatever it names, check and run behave as without it.
 func TestAManifestSelectsNothing(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	root := smokeDir(t)
 	for _, manifest := range []string{`{"edition":"legacy"}`, `{"edition":"2026"}`, `{"edition":"bogus"}`, `{"edition":`, "not json"} {

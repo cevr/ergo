@@ -1,0 +1,538 @@
+// Package token holds the design's values: colours in both schemes, surfaces, text sizes,
+// radii and density. A look names a value only through Ref, a closed union, so a token that
+// does not exist does not type-check; a Theme gives every Ref a value in both schemes, so a
+// theme with a missing token does not compile.
+//
+// The values are the original's (MIT, see ../NOTICE): the neutral and hue scales the design
+// is drawn in, written as the colour CSS computes them, so the web host prints them exactly.
+
+import strconv
+import strings
+
+// Shade is one colour value: an sRGB colour with alpha (0xRRGGBBAA), an OKLCH colour, or a
+// mix of two tokens.
+type Shade = Rgba{V int} | Oklch{L float64, C float64, H float64} | Mix{A Ref, Percent float64, Toward Toward, Space Space}
+
+// Toward is what a mix moves its first colour toward: nothing (a fade to transparent), or a
+// second token.
+type Toward = Clear{} | Into{B Ref}
+
+// Space is the colour space a mix interpolates in.
+type Space = Oklab{} | Srgb{}
+
+// Color is a token's value: a pair, one per scheme, or one value for both.
+type Color = Pair{Light Shade, Dark Shade} | Fixed{V Shade}
+
+// Ref names a colour token. Hue names a badge and accent hue; the rest are the roles.
+type Ref = Page{} | Ink{} | Muted{} | Edge{} | EdgeFocus{} | Line{} | Selected{} | CodeFill{} | Track{} | Knob{} | Strong{} | StrongHover{} | StrongPress{} | OnStrong{} | Soft{} | SoftHover{} | SoftPress{} | Danger{} | DangerInk{} | DangerFill{} | DangerHover{} | DangerPress{} | Accent{} | Tint{H Hue} | TintFill{H Hue} | TintDot{H Hue}
+
+// Hue is a hue of the design's badge palette.
+type Hue = Gray{} | Red{} | Orange{} | Amber{} | Yellow{} | Lime{} | Green{} | Emerald{} | Teal{} | Cyan{} | Blue{} | Indigo{} | Violet{} | Purple{} | Fuchsia{} | Pink{} | Rose{} | AccentHue{}
+
+// Refs is every colour token, in a fixed order: the domain a law draws.
+func Refs() []Ref {
+	let mut out = []Ref{Page, Ink, Muted, Edge, EdgeFocus, Line, Selected, CodeFill, Track, Knob, Strong, StrongHover, StrongPress, OnStrong, Soft, SoftHover, SoftPress, Danger, DangerInk, DangerFill, DangerHover, DangerPress, Accent}
+	for h in Hues() {
+		out = out.Append(Tint{H: h})
+		out = out.Append(TintFill{H: h})
+		out = out.Append(TintDot{H: h})
+	}
+	out
+}
+
+// Hues is every hue, in palette order.
+func Hues() []Hue {
+	[]Hue{Gray, Red, Orange, Amber, Yellow, Lime, Green, Emerald, Teal, Cyan, Blue, Indigo, Violet, Purple, Fuchsia, Pink, Rose, AccentHue}
+}
+
+// Name is a token's custom property name, without the leading dashes.
+func Name(r Ref) string {
+	match r {
+	case Page:
+		"page"
+	case Ink:
+		"ink"
+	case Muted:
+		"muted"
+	case Edge:
+		"edge"
+	case EdgeFocus:
+		"edge-focus"
+	case Line:
+		"line"
+	case Selected:
+		"selected"
+	case CodeFill:
+		"code-fill"
+	case Track:
+		"track"
+	case Knob:
+		"knob"
+	case Strong:
+		"strong"
+	case StrongHover:
+		"strong-hover"
+	case StrongPress:
+		"strong-press"
+	case OnStrong:
+		"on-strong"
+	case SoftHover:
+		"soft-hover"
+	case SoftPress:
+		"soft-press"
+	case DangerHover:
+		"danger-hover"
+	case DangerPress:
+		"danger-press"
+	case Soft:
+		"soft"
+	case Danger:
+		"danger"
+	case DangerInk:
+		"danger-ink"
+	case DangerFill:
+		"danger-fill"
+	case Accent:
+		"accent"
+	case Tint as h:
+		"hue-" + HueName(h.H)
+	case TintFill as h:
+		"hue-fill-" + HueName(h.H)
+	case TintDot as h:
+		"hue-dot-" + HueName(h.H)
+	}
+}
+
+// HueName is a hue's name.
+func HueName(h Hue) string {
+	match h {
+	case Gray:
+		"gray"
+	case Red:
+		"red"
+	case Orange:
+		"orange"
+	case Amber:
+		"amber"
+	case Yellow:
+		"yellow"
+	case Lime:
+		"lime"
+	case Green:
+		"green"
+	case Emerald:
+		"emerald"
+	case Teal:
+		"teal"
+	case Cyan:
+		"cyan"
+	case Blue:
+		"blue"
+	case Indigo:
+		"indigo"
+	case Violet:
+		"violet"
+	case Purple:
+		"purple"
+	case Fuchsia:
+		"fuchsia"
+	case Pink:
+		"pink"
+	case Rose:
+		"rose"
+	case AccentHue:
+		"accent"
+	}
+}
+
+// hueValue is a hue's colour (the 500 step of its scale; gray is the 400 step).
+func hueValue(h Hue) int {
+	match h {
+	case Gray:
+		0xa3a3a3ff
+	case Red:
+		0xef4444ff
+	case Orange:
+		0xf97316ff
+	case Amber:
+		0xf59e0bff
+	case Yellow:
+		0xeab308ff
+	case Lime:
+		0x84cc16ff
+	case Green:
+		0x22c55eff
+	case Emerald:
+		0x10b981ff
+	case Teal:
+		0x14b8a6ff
+	case Cyan:
+		0x06b6d4ff
+	case Blue:
+		0x3b82f6ff
+	case Indigo:
+		0x6366f1ff
+	case Violet:
+		0x8b5cf6ff
+	case Purple:
+		0xa855f7ff
+	case Fuchsia:
+		0xd946efff
+	case Pink:
+		0xec4899ff
+	case Rose:
+		0xf43f5eff
+	case AccentHue:
+		0x6b97ffff
+	}
+}
+
+// The neutral scale.
+let n50 = 0xfafafaff
+let n100 = 0xf5f5f5ff
+let n200 = 0xe5e5e5ff
+let n400 = 0xa3a3a3ff
+let n500 = 0x737373ff
+let n600 = 0x525252ff
+let n900 = 0x171717ff
+
+// Theme is a value for every token. Its fields are total functions over closed unions, so a
+// theme cannot leave a token out.
+type Theme { Color func(r Ref) Color }
+
+// Default is the original's theme.
+let Default = Theme{Color: defaultColor}
+
+func defaultColor(r Ref) Color {
+	match r {
+	case Page:
+		Pair{Light: Rgba{V: n50}, Dark: Rgba{V: n900}}
+	case Ink:
+		Pair{Light: Rgba{V: n900}, Dark: Rgba{V: n100}}
+	case Muted:
+		Pair{Light: Rgba{V: n500}, Dark: Rgba{V: n400}}
+	case Edge:
+		Fixed{V: Mix{A: Ink, Percent: 7.2, Toward: Clear, Space: Oklab}}
+	case EdgeFocus:
+		Fixed{V: Mix{A: Ink, Percent: 40.0, Toward: Clear, Space: Oklab}}
+	case Line:
+		Fixed{V: Mix{A: Ink, Percent: 12.0, Toward: Clear, Space: Oklab}}
+	case CodeFill:
+		Pair{Light: Rgba{V: 0xebebedff}, Dark: Rgba{V: 0x262626ff}}
+	case Selected:
+		Pair{Light: Rgba{V: 0x00000012}, Dark: Rgba{V: 0xffffff1a}}
+	case Track:
+		Pair{Light: Rgba{V: n200}, Dark: Rgba{V: n600}}
+	case Knob:
+		Fixed{V: Rgba{V: 0xffffffff}}
+	case Strong:
+		Pair{Light: Rgba{V: n900}, Dark: Rgba{V: n100}}
+	case StrongHover:
+		Fixed{V: Mix{A: Strong, Percent: 90.0, Toward: Into{B: OnStrong}, Space: Oklab}}
+	case StrongPress:
+		Fixed{V: Mix{A: Strong, Percent: 80.0, Toward: Into{B: OnStrong}, Space: Oklab}}
+	case SoftHover:
+		Pair{Light: Rgba{V: 0x0000001f}, Dark: Rgba{V: 0xffffff4d}}
+	case SoftPress:
+		Pair{Light: Rgba{V: 0x00000029}, Dark: Rgba{V: 0xffffff59}}
+	case DangerHover:
+		Pair{Light: Mix{A: Danger, Percent: 20.0, Toward: Clear, Space: Oklab}, Dark: Mix{A: Danger, Percent: 25.0, Toward: Clear, Space: Oklab}}
+	case DangerPress:
+		Pair{Light: Mix{A: Danger, Percent: 25.0, Toward: Clear, Space: Oklab}, Dark: Mix{A: Danger, Percent: 30.0, Toward: Clear, Space: Oklab}}
+	case OnStrong:
+		Pair{Light: Rgba{V: n50}, Dark: Rgba{V: n900}}
+	case Soft:
+		Pair{Light: Rgba{V: 0x00000014}, Dark: Rgba{V: 0xffffff40}}
+	case Danger:
+		Fixed{V: Oklch{L: 63.7, C: 0.237, H: 25.331}}
+	case DangerInk:
+		Pair{Light: Oklch{L: 50.5, C: 0.213, H: 27.518}, Dark: Oklch{L: 70.4, C: 0.191, H: 22.216}}
+	case DangerFill:
+		Pair{Light: Mix{A: Danger, Percent: 15.0, Toward: Clear, Space: Oklab}, Dark: Mix{A: Danger, Percent: 20.0, Toward: Clear, Space: Oklab}}
+	case Accent:
+		Fixed{V: Rgba{V: 0x6b97ffff}}
+	case Tint as h:
+		Fixed{V: Rgba{V: hueValue(h.H)}}
+	case TintFill as h:
+		match h.H {
+		case Gray:
+			Pair{Light: Rgba{V: n200}, Dark: Rgba{V: 0x525252ff}}
+		case Red, Orange, Amber, Yellow, Lime, Green, Emerald, Teal, Cyan, Blue, Indigo, Violet, Purple, Fuchsia, Pink, Rose, AccentHue:
+			Fixed{V: Mix{A: Tint{H: h.H}, Percent: 15.0, Toward: Into{B: Page}, Space: Srgb}}
+		}
+	case TintDot as h:
+		match h.H {
+		case Gray:
+			Pair{Light: Rgba{V: n500}, Dark: Rgba{V: n400}}
+		case Red, Orange, Amber, Yellow, Lime, Green, Emerald, Teal, Cyan, Blue, Indigo, Violet, Purple, Fuchsia, Pink, Rose, AccentHue:
+			Fixed{V: Rgba{V: hueValue(h.H)}}
+		}
+	}
+}
+
+// Override is one token a theme replaces.
+type Override { Ref Ref, Color Color }
+
+// With is base with the tokens over names replaced; a token over does not name keeps base's
+// value (createTheme's partial record). A later override of the same token wins.
+func With(base Theme, over []Override) Theme {
+	Theme{Color: func(r Ref) Color {
+		let mut out = base.Color(r)
+		for o in over {
+			if o.Ref == r {
+				out = o.Color
+			}
+		}
+		out
+	}}
+}
+
+// Print is a shade as CSS: #rrggbb (or #rrggbbaa), oklch(L% C H), or a color-mix of the
+// tokens' custom properties.
+func Print(s Shade) string {
+	match s {
+	case Rgba as c:
+		hex(c.V)
+	case Oklch as c:
+		"oklch(\(num(c.L))% \(num(c.C)) \(num(c.H)))"
+	case Mix as m:
+		let space = match m.Space {
+		case Oklab:
+			"oklab"
+		case Srgb:
+			"srgb"
+		}
+		let toward = match m.Toward {
+		case Clear:
+			"transparent"
+		case Into as i:
+			Var(i.B)
+		}
+		"color-mix(in \(space), \(Var(m.A)) \(num(m.Percent))%, \(toward))"
+	}
+}
+
+// Value is a colour token's value in CSS: one shade, or light-dark() of the pair.
+func Value(c Color) string {
+	match c {
+	case Fixed as f:
+		Print(f.V)
+	case Pair as p:
+		"light-dark(\(Print(p.Light)), \(Print(p.Dark)))"
+	}
+}
+
+// Var is a token as a CSS value: its custom property.
+func Var(r Ref) string { "var(--f-" + Name(r) + ")" }
+
+// hex prints 0xRRGGBBAA as #rrggbb when opaque, else #rrggbbaa.
+func hex(v int) string {
+	let digits = "0123456789abcdef"
+	let mut b = strings.NewBuilder()
+	b.WriteString("#")
+	let count = if v%256 == 255 { 3 } else { 4 }
+	for i in 0..count {
+		let part = (v / pow256(3-i)) % 256
+		b.WriteByte(digits[part/16])
+		b.WriteByte(digits[part%16])
+	}
+	b.String()
+}
+
+func pow256(n int) int {
+	let mut out = 1
+	for _ in 0..n {
+		out = out * 256
+	}
+	out
+}
+
+// num prints a number with at most 4 decimals and no trailing zeros.
+func num(v float64) string { strconv.FormatFloat(v, 'f', -1) }
+
+// Sheet is the custom properties of every token of theme t, as the body of a rule.
+func Sheet(t Theme) string {
+	let mut b = strings.NewBuilder()
+	for r in Refs() {
+		b.WriteString("--f-")
+		b.WriteString(Name(r))
+		b.WriteString(":")
+		b.WriteString(Value(t.Color(r)))
+		b.WriteString(";")
+	}
+	b.String()
+}
+
+// Radius is a corner radius step.
+type Radius = Square{} | Small{} | Medium{} | Large{} | Round{}
+
+// Px is a radius in CSS pixels; Round is a pill (as large as CSS allows, so the box's shorter
+// side decides).
+func Px(r Radius) string {
+	match r {
+	case Square:
+		"0px"
+	case Small:
+		"6px"
+	case Medium:
+		"8px"
+	case Large:
+		"12px"
+	case Round:
+		"calc(infinity * 1px)"
+	}
+}
+
+// Inner is the radius of a box inset by one pixel in a box of radius r, so the two curves stay
+// parallel.
+func Inner(r Radius) string {
+	match r {
+	case Square:
+		"0px"
+	case Small:
+		"5px"
+	case Medium:
+		"7px"
+	case Large:
+		"11px"
+	case Round:
+		"calc(infinity * 1px)"
+	}
+}
+
+// Density is how much room a control takes.
+type Density = Comfortable{} | Compact{}
+
+// Step is a text size of the type ladder: Caption for badges and hints, Body for controls and
+// prose.
+type Step = Caption{} | Body{}
+
+// TextPx is a step's font size and line height, in pixels, at a density.
+func TextPx(s Step, d Density) (int, int) {
+	match s {
+	case Caption:
+		match d {
+		case Comfortable:
+			(12, 16)
+		case Compact:
+			(11, 16)
+		}
+	case Body:
+		match d {
+		case Comfortable:
+			(13, 20)
+		case Compact:
+			(12, 16)
+		}
+	}
+}
+
+// ControlPx is a control's height at a density.
+func ControlPx(d Density) int {
+	match d {
+	case Comfortable:
+		36
+	case Compact:
+		32
+	}
+}
+
+// CompactIsSmaller: at every step, a compact control and its text are no larger than a
+// comfortable one's, and the control is strictly smaller.
+law CompactIsSmaller(s Step) {
+	let (size, line) = TextPx(s, Comfortable)
+	let (csize, cline) = TextPx(s, Compact)
+	ControlPx(Compact) < ControlPx(Comfortable) && csize <= size && cline <= line
+}
+
+// Level is a surface's height above the page: the page itself, a raised control (a switch's
+// knob, a card), a floating layer (a menu, a popover), a modal.
+type Level = Flat{} | Raised{} | Floating{} | Modal{}
+
+// Shadow is one shadow layer: offsets, blur and spread in pixels, and its colour.
+type Shadow { Y int, Blur int, Spread int, Color int }
+
+// Shadows is a level's shadow layers, lowest first.
+func Shadows(l Level) []Shadow {
+	match l {
+	case Flat:
+		[]Shadow{}
+	case Raised:
+		[]Shadow{Shadow{Y: 1, Blur: 3, Spread: 0, Color: 0x0000001a}, Shadow{Y: 1, Blur: 2, Spread: -1, Color: 0x0000001a}}
+	case Floating:
+		[]Shadow{Shadow{Y: 4, Blur: 6, Spread: -1, Color: 0x0000001a}, Shadow{Y: 2, Blur: 4, Spread: -2, Color: 0x0000001a}}
+	case Modal:
+		[]Shadow{Shadow{Y: 20, Blur: 25, Spread: -5, Color: 0x0000001a}, Shadow{Y: 8, Blur: 10, Spread: -6, Color: 0x0000001a}}
+	}
+}
+
+// ShadowCSS is a level's shadow as a box-shadow value.
+func ShadowCSS(l Level) string {
+	let layers = Shadows(l)
+	if len(layers) == 0 {
+		return "none"
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(layers) {
+		let s = layers[i]
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("0 \(s.Y)px \(s.Blur)px \(s.Spread)px \(hex(s.Color))")
+	}
+	b.String()
+}
+
+// Levels is every level, lowest first.
+func Levels() []Level { []Level{Flat, Raised, Floating, Modal} }
+
+// reach is how far below a surface its shadow falls: the deepest layer's offset plus blur
+// plus spread. (a law's helper)
+func reach(l Level) int {
+	let mut out = 0
+	for s in Shadows(l) {
+		let r = s.Y + s.Blur + s.Spread
+		if r > out {
+			out = r
+		}
+	}
+	out
+}
+
+// SurfacesRise: each level's shadow reaches further below it than the level beneath's, so a
+// higher surface always reads as higher.
+law SurfacesRise(i int) {
+	let ls = Levels()
+	let k = ((i % (len(ls) - 1)) + (len(ls) - 1)) % (len(ls) - 1)
+	reach(ls[k]) < reach(ls[k+1])
+}
+
+// EveryTokenHasBothSchemes: a token given a pair has a different value in each scheme (a pair
+// with the same value twice is a dark value copied from light), and every Mix names tokens.
+law EveryTokenHasBothSchemes(r Ref) {
+	match Default.Color(r) {
+	case Pair as p:
+		Print(p.Light) != Print(p.Dark)
+	case Fixed:
+		true
+	}
+}
+
+// ThemeIsTotal: every token has a value in both schemes, under the default theme and under a
+// theme that overrides it, and a token the override does not name keeps the base's value.
+law ThemeIsTotal(r Ref, o Ref, dark bool) {
+	let over = With(Default, []Override{Override{Ref: o, Color: Fixed{V: Rgba{V: 0x000000ff}}}})
+	let base = Value(Default.Color(r))
+	let changed = Value(over.Color(r))
+	base != "" && changed != "" && (r == o || changed == base) && (r != o || changed == "#000000") && schemeValue(Default.Color(r), dark) != ""
+}
+
+// schemeValue is a colour's shade in one scheme. (a law's helper)
+func schemeValue(c Color, dark bool) string {
+	match c {
+	case Fixed as f:
+		Print(f.V)
+	case Pair as p:
+		if dark { Print(p.Dark) } else { Print(p.Light) }
+	}
+}

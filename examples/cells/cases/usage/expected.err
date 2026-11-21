@@ -1,0 +1,1 @@
+usage: cells counter|todo [-frames] [-cols C] [-rows R] < script | cells gen counter|todo [-seed S] [-n N] | cells live counter|todo

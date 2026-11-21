@@ -188,7 +188,7 @@ func (d *mtDriver) work(t *rt.Task, s mtNode, _ func(mtSig)) {
 	for i := range p.kids {
 		id := fmt.Sprintf("%s/%d.%d", s.id, s.entry, i)
 		c := MachineChild(Site("tree"), t, lineSleeper{d.line}, nil, nil, mtNode{id: id, depth: s.depth + 1},
-			d.step, d.fire, d.delay, func(s mtNode) mtNode { return s }, func(mtNode) bool { return true }, d.work,
+			d.step, d.fire, d.delay, func(s mtNode) mtNode { return s }, func(mtNode) bool { return true }, d.work, nil, nil,
 			func(x mtDec) int { return x.k }, mtNext,
 			func(_ *rt.Task, x mtDec, deliver func(mtSig)) {
 				if x.k == decideEmit || x.k == decideDone {

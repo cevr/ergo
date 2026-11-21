@@ -1,0 +1,112 @@
+// The coefficient's arithmetic: an unsigned 128-bit number as two uint64
+// halves, over bits' Add64, Sub64, Mul64 and Div64 (Go's math/bits, one
+// instruction each where the target has it).
+
+import bits
+
+// u128 is hi·2⁶⁴ + lo.
+type u128 { hi uint64, lo uint64 }
+
+func small(x uint64) u128 { u128{hi: 0, lo: x} }
+
+func isZero(a u128) bool { a.hi == 0 && a.lo == 0 }
+
+// cmp128 is -1, 0 or 1 as a is below, equal to or above b.
+func cmp128(a u128, b u128) int {
+	if a.hi != b.hi {
+		return if a.hi < b.hi { -1 } else { 1 }
+	}
+	if a.lo != b.lo {
+		return if a.lo < b.lo { -1 } else { 1 }
+	}
+	0
+}
+
+// add128 is a + b and whether it overflowed 128 bits.
+func add128(a u128, b u128) (u128, bool) {
+	let (lo, c) = bits.Add64(a.lo, b.lo, 0)
+	let (hi, out) = bits.Add64(a.hi, b.hi, c)
+	(u128{hi: hi, lo: lo}, out != 0)
+}
+
+// sub128 is a - b for a at least b.
+func sub128(a u128, b u128) u128 {
+	let (lo, borrow) = bits.Sub64(a.lo, b.lo, 0)
+	let (hi, _) = bits.Sub64(a.hi, b.hi, borrow)
+	u128{hi: hi, lo: lo}
+}
+
+// mul64 is a·m and whether it overflowed 128 bits.
+func mul64(a u128, m uint64) (u128, bool) {
+	let (h0, lo) = bits.Mul64(a.lo, m)
+	let (h1, l1) = bits.Mul64(a.hi, m)
+	let (hi, c) = bits.Add64(l1, h0, 0)
+	(u128{hi: hi, lo: lo}, h1 != 0 || c != 0)
+}
+
+// mul128 is a·b and whether it overflowed 128 bits.
+func mul128(a u128, b u128) (u128, bool) {
+	if a.hi == 0 && b.hi == 0 {
+		// Both fit 64 bits, the common case: one Mul64, no overflow.
+		let (h, l) = bits.Mul64(a.lo, b.lo)
+		return (u128{hi: h, lo: l}, false)
+	}
+	if a.hi != 0 && b.hi != 0 {
+		return (u128{hi: 0, lo: 0}, true)
+	}
+	let (h0, lo) = bits.Mul64(a.lo, b.lo)
+	let (c1h, c1) = bits.Mul64(a.hi, b.lo)
+	let (c2h, c2) = bits.Mul64(a.lo, b.hi)
+	let (s, k1) = bits.Add64(h0, c1, 0)
+	let (hi, k2) = bits.Add64(s, c2, 0)
+	(u128{hi: hi, lo: lo}, c1h != 0 || c2h != 0 || k1 != 0 || k2 != 0)
+}
+
+// divmod64 is a / y and a % y, for y above 0.
+func divmod64(a u128, y uint64) (u128, uint64) {
+	let qh = a.hi / y
+	let (ql, r) = bits.Div64(a.hi%y, a.lo, y)
+	(u128{hi: qh, lo: ql}, r)
+}
+
+// divmod128 is a / b and a % b, for b above 0: Div64 when b fits 64
+// bits, else one Div64 estimate of the quotient, which is under 2⁶⁴, on
+// b shifted to its top bit, corrected once (Hacker's Delight 9-5, as
+// Go's lukechampine.com/uint128 QuoRem).
+func divmod128(a u128, b u128) (u128, u128) {
+	if b.hi == 0 {
+		let (q, r) = divmod64(a, b.lo)
+		return (q, small(r))
+	}
+	let n = bits.LeadingZeros64(b.hi)
+	let top = if n == 0 { b.hi } else { b.hi<<uint(n) | b.lo>>uint(64-n) }
+	let (est, _) = bits.Div64(a.hi>>1, a.hi<<63|a.lo>>1, top)
+	let mut q = est >> uint(63-n)
+	if q != 0 {
+		q = q - 1
+	}
+	let (qb, _) = mul64(b, q)
+	let mut r = sub128(a, qb)
+	if cmp128(r, b) >= 0 {
+		q = q + 1
+		r = sub128(r, b)
+	}
+	(small(q), r)
+}
+
+// pow10 is 10ᵏ for k from 0 to 38, the powers a u128 holds.
+func pow10(k int) u128 {
+	let mut p = small(1)
+	let mut left = k
+	for left >= 19 {
+		let (next, _) = mul64(p, 10000000000000000000)
+		p = next
+		left = left - 19
+	}
+	let mut m = uint64(1)
+	for _ in 0..left {
+		m = m * 10
+	}
+	let (out, _) = mul64(p, m)
+	out
+}

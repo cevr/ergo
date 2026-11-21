@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // Argument text (196l; spec D8: a failure reports seed and arguments). A
@@ -61,68 +61,9 @@ func (l *lowerer) litKey(t check.Type) (key pkgKey, base string, ok bool) {
 	return pkgKey{}, "", false
 }
 
-// litByConstructor reports whether the text of a value of n is the call of
-// its constructor rather than its record: n is built by its constructor
-// (check/tests.go rule 3), and the constructor takes no argument, which
-// replays the value, or a field of n holds a value with no text, such as
-// an operation type's. Else the record shows the value, as `time.Time{sec:
-// 1, nsec: 0, mono: 0, hasMono: false}`, which only n's package may write:
-// the seed replays the case.
-func litByConstructor(n *check.Named) bool {
-	ctor := genConstructor(n)
-	if ctor == nil {
-		return false
-	}
-	if len(ctor.Sig.Params) == 0 {
-		return true
-	}
-	seen := map[*check.Named]bool{}
-	var text func(t check.Type) bool
-	text = func(t check.Type) bool {
-		switch u := t.(type) {
-		case *check.Basic:
-			return true
-		case *check.Slice:
-			return text(u.Elem)
-		case *check.Map:
-			return text(u.Key) && text(u.Elem)
-		case *check.Tuple:
-			for _, e := range u.Types {
-				if !text(e) {
-					return false
-				}
-			}
-			return true
-		case *check.Named:
-			// A value built by its own constructor has a text, its record
-			// or its call.
-			if seen[u] || (u != n && genConstructor(u) != nil) {
-				return true
-			}
-			seen[u] = true
-			switch under := u.Underlying().(type) {
-			case *check.Struct:
-				for _, f := range under.Fields {
-					if !text(f.Type) {
-						return false
-					}
-				}
-				return true
-			case *check.Union:
-				for _, v := range under.Variants {
-					if !text(v) {
-						return false
-					}
-				}
-				return true
-			case *check.Basic, *check.Slice, *check.Map, *check.Tuple:
-				return text(under)
-			}
-		}
-		return false
-	}
-	return !text(n)
-}
+// litByConstructor is testplan.ByConstructor: the evaluator shows a value
+// of n by the same rule.
+func litByConstructor(n *check.Named) bool { return testplan.ByConstructor(n) }
 
 // litTypes calls visit on t and on each type t's literal reaches, each
 // once, in a fixed order: the naming pass reserves their functions' names.
@@ -221,6 +162,7 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 		body.WriteString("\tfor _, " + e + " := range " + v + " {\n\t\t" + parts + " = append(" + parts + ", " + l.litExpr(u.Elem, e, site) + ")\n\t}\n")
 		body.WriteString("\treturn " + q(l.ergoType(t)+"{") + " + " + l.helper("strings") + ".Join(" + parts + ", \", \") + \"}\"\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: ranges over Go's map
 		less := "nil"
 		if b, basic := u.Key.(*check.Basic); basic && b.Kind != check.Bool && b.Kind != check.Complex64 && b.Kind != check.Complex128 {
 			kt := tc.goType(u.Key)
@@ -343,10 +285,7 @@ func (l *lowerer) ergoType(t check.Type) string {
 		}
 		return strings.Join(parts, " | ")
 	case *check.Named:
-		name := u.Obj.Name
-		if p := u.Obj.Pkg; p != nil && p != l.pkg && p.Path != std.PreludePath {
-			name = l.importName(p) + "." + name
-		}
+		name := l.pkg.Qualified(u.Obj.Pkg, u.Obj.Name)
 		if len(u.TArgs) > 0 {
 			args := u.TArgs
 			for len(args) > 0 {
@@ -368,32 +307,4 @@ func (l *lowerer) ergoType(t check.Type) string {
 		return name
 	}
 	return t.String()
-}
-
-// importName is the name the root package imports p under: the import's
-// own name, in the first of the root's files that gives one, else the
-// package's name. It reads the root's files, not the current one, so the
-// name does not depend on which declaration is being lowered (196b).
-func (l *lowerer) importName(p *check.Package) string {
-	for _, f := range l.srcs {
-		if f.pkg != l.pkg {
-			continue
-		}
-		for _, d := range f.file.Decls {
-			g, ok := d.(*syntax.ImportDecl)
-			if !ok {
-				continue
-			}
-			for _, s := range g.Specs {
-				if s.Path == nil || s.Name == nil {
-					continue
-				}
-				if path, err := strconv.Unquote(s.Path.Value); err != nil || path != p.Path {
-					continue
-				}
-				return s.Name.Name
-			}
-		}
-	}
-	return p.Name
 }

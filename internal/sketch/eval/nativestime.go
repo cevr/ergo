@@ -12,7 +12,9 @@ import (
 // the instant (sec, nsec); parse is Go's time.ParseInLocation(layout,
 // value, time.UTC) as a Reading with no monotonic part, an error the
 // ParseError with Go's message. Neither reads the host's zone.
-func registerNativestime() {
+func registerNativestime(t nativeTables) {
+	natives := t.std
+	t.reads["time.format"] = "int64 int64 string"
 	natives["time.format"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
@@ -23,6 +25,7 @@ func registerNativestime() {
 		}
 		return out, nil
 	}
+	t.reads["time.parse"] = "string string"
 	natives["time.parse"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab

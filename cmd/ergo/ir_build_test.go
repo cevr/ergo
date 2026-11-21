@@ -86,7 +86,9 @@ func TestBuildGoesThroughIR(t *testing.T) {
 		for _, path := range []string{"direct", "go build"} {
 			command := exec.Command(binary, "build", "-work", "-o", bins[path], p.target)
 			command.Dir = p.dir
-			command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg)
+			// GOFLAGS empty, as a user's build has it: the direct path
+			// refuses a set GOFLAGS, and the gate sets it for its steps.
+			command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "GOFLAGS=")
 			if path == "go build" {
 				command.Env = append(command.Env, build.GoBuildVariable+"=go")
 			}

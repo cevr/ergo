@@ -13,7 +13,8 @@ import (
 // not exist yet: every refused key in one package and across an import,
 // each next to a key the rule keeps. It kills cs11-map-borrow-allowed,
 // cs11-map-record-allowed, cs11-map-union-allowed, cs11-map-id-allowed,
-// cs11-map-import-unresolved and cs11-map-string-refused.
+// cs11-map-import-unresolved, cs11-map-string-refused,
+// s3a-map-dense-id-allowed and s3a-map-dense-opt-allowed.
 func TestCompilerMapKeyRule(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, src string) {
@@ -30,6 +31,7 @@ func TestCompilerMapKeyRule(t *testing.T) {
 	write("types/types.ergo", "// TypeID is a type's dense id.\ntype TypeID uint32\n\n// Type is an interned type.\ntype Type { ID TypeID, Name string }\n")
 	write("syntax/node.ergo", strings.Join([]string{
 		"import compiler/types",
+		"import dense",
 		"",
 		"type NodeID int",
 		"type Path string",
@@ -42,6 +44,9 @@ func TestCompilerMapKeyRule(t *testing.T) {
 		"\tbyBorrow Map[*Node, int],",
 		"\tbyID Map[NodeID, int],",
 		"\tbyType Map[types.TypeID, int],",
+		"\tbyDenseID Map[dense.ID[Node], int],",
+		"\tbyDenseOpt Map[dense.Opt[types.Type], int],",
+		"\tbyRun Map[dense.Run[int], int],",
 		"\tbyName Map[string, Node],",
 		"\tbyPath Map[Path, Node],",
 		"\tcounts Map[int, int],",
@@ -62,6 +67,8 @@ func TestCompilerMapKeyRule(t *testing.T) {
 		"Expr (a union)",
 		"Node (a record)",
 		"NodeID (a dense id)",
+		"dense.ID[Node] (a dense id)",
+		"dense.Opt[types.Type] (a dense id)",
 		"types.TypeID (a dense id)",
 	}
 	slices.Sort(got)

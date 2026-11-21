@@ -3,6 +3,8 @@ package check
 import (
 	"sort"
 	"strings"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Builders (tests.go rule 3, Capabilities; fu7a). A generator builds a
@@ -211,7 +213,7 @@ func newResult(f *Func) *Named {
 		return nil
 	}
 	r, ok := sig.Results[0].(*Named)
-	if !ok || r.Obj == nil || f.Name != "New"+r.Obj.Name {
+	if !ok || r.Obj == nil || f.Name != syntax.ConstructorName(r.Obj.Name) {
 		return nil
 	}
 	return r

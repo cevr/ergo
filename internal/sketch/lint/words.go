@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The naming and layout rules' readers. A naming rule is about spelling by
@@ -54,6 +56,12 @@ func bannedWord(name string, words []string) (string, bool) {
 	return "", false
 }
 
+// bareVerb reports a name that is one word, and that word one of verbs.
+func bareVerb(name string, verbs []string) bool {
+	words := nameWords(name)
+	return len(words) == 1 && slices.ContainsFunc(verbs, func(v string) bool { return strings.EqualFold(words[0], v) })
+}
+
 // kindSuffix is the kind word a file name ends with, as _kind or .kind
 // before .ergo, when suffixes lists it and the name has a concept before
 // it.
@@ -88,4 +96,23 @@ func entryFile(rel string) bool {
 // name it).
 func listedFunction(rel string, f *check.Func, list []string) bool {
 	return f != nil && slices.Contains(list, path.Dir(rel)+"."+f.Name)
+}
+
+// ownersOf is the folders the owners option lists for the capability t,
+// and whether it lists t.
+func ownersOf(owners map[string][]string, t check.Type) ([]string, bool) {
+	dirs, ok := owners[t.String()]
+	return dirs, ok
+}
+
+// ownedHere reports whether the file at rel is in one of the folders.
+func ownedHere(rel string, dirs []string) bool {
+	return slices.Contains(dirs, path.Dir(rel))
+}
+
+// exportedName reports a declared name other packages can use: it starts
+// with an upper-case letter (grammar.md, Visibility).
+func exportedName(id *syntax.Ident) bool {
+	r, _ := utf8.DecodeRuneInString(id.Name)
+	return unicode.IsUpper(r)
 }

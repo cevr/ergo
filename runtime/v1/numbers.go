@@ -10,6 +10,7 @@ package v1
 
 import (
 	"math"
+	"math/bits"
 	"strconv"
 )
 
@@ -123,7 +124,8 @@ func (e MathOutOfRange) Error() string {
 	return "math.OutOfRange{Value:" + strconv.FormatFloat(e.Value, 'g', -1, 64) + "}"
 }
 
-// The checked forms (std math.ToInt, ToInt8 … ToUintptr): each is f
+// The checked forms of the narrow widths (std math.ToInt8 … ToUint32;
+// the wider ones are Ergo, NP4f-16): each is f
 // toward zero when the result fits the type, and MathOutOfRange for NaN,
 // an infinity or a value out of range, where the conversion saturates.
 // Each guards one Go conversion with the open interval in which the
@@ -132,17 +134,6 @@ func (e MathOutOfRange) Error() string {
 // itself the least value, so the lower compare is >=. NaN fails both
 // compares. A pure body names no other top-level function, so each width
 // spells out its compares.
-
-// MathToInt is std math.ToInt, the checked form of int(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToInt(f float64) (int, error) {
-	if f >= -0x1p63 && f < 0x1p63 {
-		return int(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
 
 // MathToInt8 is std math.ToInt8, the checked form of int8(f).
 //
@@ -173,28 +164,6 @@ func MathToInt16(f float64) (int16, error) {
 func MathToInt32(f float64) (int32, error) {
 	if f > -2147483649 && f < 2147483648 {
 		return int32(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
-
-// MathToInt64 is std math.ToInt64, the checked form of int64(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToInt64(f float64) (int64, error) {
-	if f >= -0x1p63 && f < 0x1p63 {
-		return int64(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
-
-// MathToUint is std math.ToUint, the checked form of uint(f).
-//
-//ergo:pure
-//ergo:wait none
-func MathToUint(f float64) (uint, error) {
-	if f > -1 && f < 0x1p64 {
-		return uint(f), nil
 	}
 	return 0, MathOutOfRange{Value: f}
 }
@@ -232,24 +201,29 @@ func MathToUint32(f float64) (uint32, error) {
 	return 0, MathOutOfRange{Value: f}
 }
 
-// MathToUint64 is std math.ToUint64, the checked form of uint64(f).
+// BitsAdd64 is bits.Add64(x, y, carry): the sum and the carry out.
 //
 //ergo:pure
 //ergo:wait none
-func MathToUint64(f float64) (uint64, error) {
-	if f > -1 && f < 0x1p64 {
-		return uint64(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
+func BitsAdd64(x, y, carry uint64) (uint64, uint64) { return bits.Add64(x, y, carry) }
 
-// MathToUintptr is std math.ToUintptr, the checked form of uintptr(f).
+// BitsSub64 is bits.Sub64(x, y, borrow): the difference and the borrow
+// out.
 //
 //ergo:pure
 //ergo:wait none
-func MathToUintptr(f float64) (uintptr, error) {
-	if f > -1 && f < 0x1p64 {
-		return uintptr(f), nil
-	}
-	return 0, MathOutOfRange{Value: f}
-}
+func BitsSub64(x, y, borrow uint64) (uint64, uint64) { return bits.Sub64(x, y, borrow) }
+
+// BitsMul64 is bits.Mul64(x, y): the high and low halves of the product.
+//
+//ergo:pure
+//ergo:wait none
+func BitsMul64(x, y uint64) (uint64, uint64) { return bits.Mul64(x, y) }
+
+// BitsDiv64 is bits.Div64(hi, lo, y): the quotient and remainder of the
+// 128-bit (hi, lo) by y. Like Go's, it is a defect (a panic) when y is 0
+// or not above hi, the quotient would not fit 64 bits.
+//
+//ergo:pure
+//ergo:wait none
+func BitsDiv64(hi, lo, y uint64) (uint64, uint64) { return bits.Div64(hi, lo, y) }

@@ -1,0 +1,166 @@
+// Package suite scores a TN1 network against a labelled suite: the
+// records of the suite's files and the lines a person or a planted
+// comment says the rule must flag. The suite is the law of a network:
+// weights that fail it do not ship.
+
+import ergo.dev/tn1
+import strconv
+import strings
+
+// A bar: the least recall and precision a network must reach, in
+// thousandths. A hold-out uses other wording, so its bar is lower.
+type Train {}
+type Holdout {}
+type Bar = Train | Holdout
+
+// Least is the bar's minimum recall and precision, in thousandths.
+func Least(b Bar) int {
+	match b {
+	case Train:
+		950
+	case Holdout:
+		900
+	}
+}
+
+// Labelled is one line the rule must flag: the record's name and the
+// 1-based line.
+type Labelled { Record string, Line int }
+
+// Result is what a network did on a suite. A false finding on a line
+// that holds code (not a comment) fails the suite whatever the counts.
+type Result {
+	Files     int,
+	Lines     int,
+	Flagged   int,
+	Missed    int,
+	False     int,
+	OnCode    int,
+	Recall    int,
+	Precision int,
+	Notes     []string,
+}
+
+// BadLabel is a line of the expected file that does not parse.
+type BadLabel { Line int, Reason string }
+
+// ParseExpected reads a suite's expected.tsv: FILE, LINE and a kind per
+// line, tab-separated. FILE names a record by its source's name, without
+// .ergo.
+func ParseExpected(text string) []Labelled fails BadLabel {
+	let mut out = []Labelled{}
+	let rows = strings.Split(text, "\n")
+	for i in 0..len(rows) {
+		let fs = strings.Split(rows[i], "\t")
+		if len(fs) >= 3 {
+			let n = strconv.Atoi(fs[1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return BadLabel{Line: i + 1, Reason: "\(strconv.Quote(fs[1])) is not a line number"}
+			}
+			out = out.Append(Labelled{Record: strings.TrimSuffix(fs[0], ".ergo"), Line: n})
+		}
+	}
+	out
+}
+
+func labelled(want []Labelled, record string, line int) bool {
+	for l in want {
+		if l.Record == record && l.Line == line {
+			return true
+		}
+	}
+	false
+}
+
+func found(fs []tn1.Finding, line int) bool {
+	for f in fs {
+		if f.Line == line {
+			return true
+		}
+	}
+	false
+}
+
+func onComment(k tn1.LineKind) bool {
+	match k {
+	case tn1.CommentOnly, tn1.DocComment, tn1.Directive:
+		true
+	case tn1.Blank, tn1.Code:
+		false
+	}
+}
+
+// Score runs n on each record and counts against want.
+func Score(n tn1.Net, records []tn1.Named, want []Labelled) Result fails tn1.BadFile {
+	let mut r = Result{Files: len(records), Lines: 0, Flagged: 0, Missed: 0, False: 0, OnCode: 0, Recall: 0, Precision: 0, Notes: []string{}}
+	for rec in records {
+		let name = strings.TrimSuffix(rec.Name, ".record")
+		let features = tn1.ParseRecord(rec.Text) catch {
+		case tn1.Malformed as m:
+			return tn1.BadFile{Name: rec.Name, Line: m.Line, Reason: m.Reason}
+		}
+		r.Lines += len(features.Lines)
+		let got = tn1.Run(n, features)
+		for f in got {
+			if labelled(want, name, f.Line) {
+				r.Flagged += 1
+			} else {
+				r.False += 1
+				let l = features.Lines[f.Line-1]
+				if !onComment(l.Kind) {
+					r.OnCode += 1
+				}
+				r.Notes = r.Notes.Append("  false finding \(name):\(f.Line): \(l.CommentText)")
+			}
+		}
+		for w in want {
+			if w.Record == name && !found(got, w.Line) {
+				r.Missed += 1
+				let mut text = ""
+				if w.Line >= 1 && w.Line <= len(features.Lines) {
+					text = features.Lines[w.Line-1].CommentText
+				}
+				r.Notes = r.Notes.Append("  missed \(name):\(w.Line): \(text)")
+			}
+		}
+	}
+	if r.Flagged+r.Missed > 0 {
+		r.Recall = r.Flagged * 1000 / (r.Flagged + r.Missed)
+	}
+	r.Precision = 1000
+	if r.Flagged+r.False > 0 {
+		r.Precision = r.Flagged * 1000 / (r.Flagged + r.False)
+	}
+	r
+}
+
+// Passes reports whether a result meets the bar: at least the bar's
+// recall and precision, and no false finding on a code line. A suite
+// with no labelled line passes nothing.
+func Passes(r Result, b Bar) bool {
+	r.Flagged+r.Missed > 0 && r.Recall >= Least(b) && r.Precision >= Least(b) && r.OnCode == 0
+}
+
+// thousandths writes n/1000 with three decimals.
+func thousandths(n int) string {
+	let whole = n / 1000
+	let frac = n % 1000
+	"\(whole)." + strings.PadLeft(strconv.Itoa(frac), 3, '0')
+}
+
+// Report is the result as text, notes sorted by the order they were met.
+func Report(r Result, b Bar) string {
+	let mut out = strings.NewBuilder()
+	out.WriteString("\(r.Files) files, \(r.Lines) lines\n")
+	out.WriteString("flagged as expected \(r.Flagged), missed \(r.Missed), false findings \(r.False) (on code lines \(r.OnCode))\n")
+	out.WriteString("recall \(thousandths(r.Recall)) (bar \(thousandths(Least(b)))), precision \(thousandths(r.Precision)) (bar \(thousandths(Least(b))))\n")
+	for n in r.Notes {
+		out.WriteString(n + "\n")
+	}
+	if Passes(r, b) {
+		out.WriteString("PASS\n")
+	} else {
+		out.WriteString("FAIL\n")
+	}
+	out.String()
+}

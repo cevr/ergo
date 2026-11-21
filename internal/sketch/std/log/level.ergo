@@ -1,0 +1,41 @@
+// The levels of an entry (Effect LogLevel, Go log/slog's Level). A level is
+// a union, so a match over Level covers each one; its Rank is slog's
+// number (Debug -4, Info 0, Warn 4, Error 8), and a sink writes the
+// entries whose level ranks at or above the least level it is made with.
+type LevelDebug {}
+type LevelInfo {}
+type LevelWarn {}
+type LevelError {}
+type Level = LevelDebug | LevelInfo | LevelWarn | LevelError
+
+// Rank is slog's number of l: Debug -4, Info 0, Warn 4, Error 8.
+func Rank(l Level) int {
+	match l {
+	case LevelDebug:
+		-4
+	case LevelInfo:
+		0
+	case LevelWarn:
+		4
+	case LevelError:
+		8
+	}
+}
+
+// Name is the text of l in an entry, slog's: DEBUG, INFO, WARN, ERROR.
+func Name(l Level) string {
+	match l {
+	case LevelDebug:
+		"DEBUG"
+	case LevelInfo:
+		"INFO"
+	case LevelWarn:
+		"WARN"
+	case LevelError:
+		"ERROR"
+	}
+}
+
+// Admits reports that a sink made with the least level least writes an
+// entry of level l: l ranks at or above least.
+func Admits(least Level, l Level) bool { l.Rank() >= least.Rank() }

@@ -1,0 +1,785 @@
+import arena
+import actor
+import time
+
+// Hover and focus (UG3). The frame decides, for every host, which node
+// the pointer is over, which node the keyboard is on and whether that
+// focus shows (focus-visible), so a host paints a node's hover, focus and
+// pressed looks with no signal and no pass (LookStateIn), and both hosts
+// move the focus by one rule: Tab walks the tab stops in tree order, a
+// focus scope keeps it inside and gives it back when it ends, a roving
+// group is one tab stop whose arrows move inside it, and a view asks for
+// the focus with Focus.
+//
+// Prior art: WAI-ARIA Authoring Practices' roving tabindex and dialog
+// focus management; React Aria's FocusScope (contain, restoreFocus,
+// autoFocus) and useFocusVisible; CSS's :hover (the node under the
+// pointer and its ancestors), :focus-visible and :active; Elm and
+// Lustre leave focus to the browser and a Cmd (Browser.Dom.focus), as
+// Focus is data of a pass here.
+
+// LookState is which of a node's Looks a host paints (UG1's Looks):
+// Rest; Hover while the pointer is over it or over a node inside it;
+// FocusVisible while the keyboard is on it and the focus came from a key
+// (Tab, an arrow, a focus scope or a Focus request), not a press; Active
+// while a pointer pressed on it, or on a node inside it, is held down;
+// Disabled under a disabled Fieldset or for a disabled Semantic. The
+// first that holds of Disabled, Active, FocusVisible, Hover wins.
+type LookState = Rest | Hover | FocusVisible | Active | Disabled
+
+// Rest is a node no pointer or key is on.
+type Rest {}
+
+// Hover is a node the pointer is over, or over a node inside it.
+type Hover {}
+
+// HoverCostsNoPass (UG3, a counted guard): over screens of 2 to 7
+// Pressables, each with its own look per state, drawn pointer moves onto
+// them and off every node run no pass (the step's counts are none), and
+// after each the node the pointer is over shows its Hover look and every
+// other node its Rest look.
+law HoverCostsNoPass(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 6) + 2
+		let view = func(f mut Frame[int], s int) { hoverScreen(f, s, n) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut at = -1
+		for _ in 0..draw(&r, 8)+4 {
+			let j = draw(&r, n+1)
+			if j == n {
+				PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+				at = -1
+			} else {
+				Play(&h, []Act{PointOn{Label: "h\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 1, Y: 1, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+				at = j
+			}
+			if Counts(&h) != NoCounts() {
+				return false
+			}
+			for i in 0..n {
+				let ids = Locate(&h, WithLabel{Label: "h\(i)"})
+				if len(ids) != 1 {
+					return false
+				}
+				let want LookState = if i == at { Hover } else { Rest }
+				if LookStateAt(&h, ids[0]) != want || LookShownAt(&h, ids[0]) != LookNow(stateLooks(i), want) {
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
+// tinted is a look filled with the colour c. (a law's helper)
+func tinted(c uint32) Look {
+	let mut l = Bare()
+	l.Fill = Rgb(c)
+	l
+}
+
+// stateLooks is node i's Looks, a fill per state. (a law's helper)
+func stateLooks(i int) Looks {
+	let c = uint32(i)
+	Looks{Rest: tinted(0x100000 + c), Hover: tinted(0x200000 + c), Focus: tinted(0x300000 + c), Active: tinted(0x400000 + c), Disabled: tinted(0x500000 + c)}
+}
+
+// hoverScreen is n Pressables "h0" to "h<n-1>", each with its
+// stateLooks. (a law's helper)
+func hoverScreen(f mut Frame[int], s int, n int) {
+	Column(f, Plain()) {
+		for i in 0..n {
+			let mut st = PressStyle()
+			st.Look = LookFor(f, stateLooks(i))
+			PressableStyled(f, "h\(i)", s+i, st) {
+				Text(f, "t\(i)")
+			}
+		}
+	}
+}
+
+// FocusVisible is the node the keyboard is on, reached by a key.
+type FocusVisible {}
+
+// Active is a node pressed and held, or holding the node pressed.
+type Active {}
+
+// Disabled is a node that takes no press.
+type Disabled {}
+
+// opener is a focus scope the tree holds and the node the focus was on
+// when the scope came (Null for none), where the focus goes back to.
+type opener[E] { scope arena.Ref[node[E]], before arena.Ref[node[E]] }
+
+// How a container takes part in the focus (node.focusAs).
+let focusPlain = 0
+let focusTrap = 1
+let focusRove = 2
+
+// FocusScope is a container that holds the keyboard's focus, as a modal
+// dialog does: when it comes, the focus moves to its first focusable node
+// (and it remembers the node the focus was on); while the focus is inside
+// it, Tab and Shift+Tab go round its own tab stops only; when it leaves
+// the tree with the focus inside it, the focus goes back to the node it
+// remembered, if the tree still holds that node. A press outside it moves
+// the focus out, as a click outside a non-modal dialog does.
+func FocusScope[E, F, R](f mut Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
+	try focusBox(f, focusTrap, body, at)
+}
+
+// Roving is a container that is one tab stop (a roving tabindex): Tab
+// reaches only the node of it the focus was last on (its first focusable
+// node before any), and while the focus is inside it ArrowRight and
+// ArrowDown move the focus to its next focusable node, ArrowLeft and
+// ArrowUp to the one before, round at the ends, Home and End to its first
+// and last, when no key function takes the key.
+func Roving[E, F, R](f mut Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
+	try focusBox(f, focusRove, body, at)
+}
+
+// focusBox writes a Box (a plain style) that takes part in the focus as
+// kind says.
+func focusBox[E, F, R](f mut Frame[E], kind int, body func() fails F needs R, at CallSite) fails F needs R {
+	let m = markOf(f)
+	f.parent = put(f, BoxNode{Style: Plain()}, None, None, at)
+	f.specs[f.parent].focusAs = kind
+	body() catch {
+	case err:
+		cut(f, m)
+		return err
+	}
+	f.parent = m.parent
+}
+
+// Focus asks for the keyboard's focus on the node key names: the first
+// focusable node at or under the Zone or Semantic whose key it is. The
+// focus moves when the pass's request differs from the last pass's (a
+// new key, or a request after a pass with none), after the pass commits,
+// so a view that asks every pass for the same key does not hold the focus
+// there against Tab. The last call of a pass wins; write it outside a
+// Same, whose kept body does not run.
+func Focus[E](f mut Frame[E], key Key) { f.want = Some{Value: key} }
+
+// FocusGoesWhereAsked (UG3): a view that asks for the focus on the key
+// (s/2)%n: the first pass puts the focus on t0; a click on "next" moves
+// the focus to the group the new request names when the request changed,
+// shown, and leaves it on "next" when the request is the last pass's;
+// drawn Tabs between move it, and a pass asking again for the same key
+// does not take it back.
+law FocusGoesWhereAsked(seed int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 2
+		let view = func(f mut Frame[int], s int) { askScreen(f, s, n) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		if focusName(&h) != "t0" {
+			return false
+		}
+		let mut s = 0
+		let mut at = 1
+		for _ in 0..draw(&r, 10)+4 {
+			if draw(&r, 2) == 0 {
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: "next"}}}) catch {
+				case _:
+					return false
+				}
+				let was = (s / 2) % n
+				s = s + 1
+				let now = (s / 2) % n
+				at = if now != was { now + 1 } else { 0 }
+			} else {
+				let back = draw(&r, 2) == 0
+				Play(&h, []Act{keyIn("Tab", back)}) catch {
+				case _:
+					return false
+				}
+				at = if back { (at + n) % (n + 1) } else { (at + 1) % (n + 1) }
+			}
+			let want = if at == 0 { "next" } else { "t\(at - 1)" }
+			if focusName(&h) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// askScreen is "next", sending s+1, and n Semantic groups keyed 0 to
+// n-1, group i holding a Pressable "t<i>"; the pass asks for the focus
+// on key (s/2)%n. (a law's helper)
+func askScreen(f mut Frame[int], s int, n int) {
+	Focus(f, ByInt((s/2)%n))
+	Column(f, Plain()) {
+		Pressable(f, "next", s+1) {
+			Text(f, "x")
+		}
+		for i in 0..n {
+			let mut a = Named(Group, "z\(i)")
+			a.Key = ByInt(i)
+			Semantic(f, a, None, Plain()) {
+				Pressable(f, "t\(i)", s) {
+					Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// LookStateIn is the state whose look a host paints for the node id
+// (LookState).
+func LookStateIn[E](f mut Frame[E], id Id[E]) LookState {
+	if !arena.Has(f.nodes, id.ref) {
+		return Rest
+	}
+	let n = nodeAt(f, id.ref)
+	if n.off {
+		return Disabled
+	}
+	match n.node {
+	case SemanticNode[E] as s:
+		if s.Access.Disabled {
+			return Disabled
+		}
+	case _:
+	}
+	if arena.Has(f.nodes, f.down) && isUnder(f, id.ref, f.down) {
+		return Active
+	}
+	if f.visible && f.focus == id.ref {
+		return FocusVisible
+	}
+	if arena.Has(f.nodes, f.hover) && isUnder(f, id.ref, f.hover) {
+		return Hover
+	}
+	Rest
+}
+
+// LookNow is the look of the Looks ls a node in state st shows.
+func LookNow(ls Looks, st LookState) Look {
+	match st {
+	case Rest:
+		ls.Rest
+	case Hover:
+		ls.Hover
+	case FocusVisible:
+		ls.Focus
+	case Active:
+		ls.Active
+	case Disabled:
+		ls.Disabled
+	}
+}
+
+// Hovered is the node the pointer is over, None when it is over none.
+func Hovered[E](f mut Frame[E]) Option[Id[E]] {
+	if !arena.Has(f.nodes, f.hover) {
+		return None
+	}
+	Some{Value: Id[E]{ref: f.hover}}
+}
+
+// FocusShows is whether the focus came from a key (focus-visible).
+func FocusShows[E](f mut Frame[E]) bool { f.visible }
+
+// isUnder is whether x is r or a node under r.
+func isUnder[E](f mut Frame[E], r arena.Ref[node[E]], x arena.Ref[node[E]]) bool {
+	if r == x {
+		return true
+	}
+	for k in kidsOf(f, r) {
+		if isUnder[E](f, k, x) {
+			return true
+		}
+	}
+	false
+}
+
+// above is the nodes above r, from its parent up to the root, None when
+// the tree does not hold r (the root has none above it).
+func above[E](f mut Frame[E], r arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
+	if r == f.root {
+		return Some{Value: []arena.Ref[node[E]]{}}
+	}
+	if !arena.Has(f.nodes, r) {
+		return None
+	}
+	upTo(f, f.root, r)
+}
+
+// upTo is the nodes above x from its parent up to at, None when x is not
+// under at.
+func upTo[E](f mut Frame[E], at arena.Ref[node[E]], x arena.Ref[node[E]]) Option[[]arena.Ref[node[E]]] {
+	for k in kidsOf(f, at) {
+		if k == x {
+			return Some{Value: []arena.Ref[node[E]]{at}}
+		}
+		match upTo[E](f, k, x) {
+		case Some[[]arena.Ref[node[E]]] as p:
+			return Some{Value: p.Value.Append(at)}
+		case None:
+		}
+	}
+	None
+}
+
+// inTree is whether the tree holds r (a parked node is out of it).
+func inTree[E](f mut Frame[E], r arena.Ref[node[E]]) bool {
+	match above(f, r) {
+	case Some[[]arena.Ref[node[E]]]:
+		true
+	case None:
+		false
+	}
+}
+
+// focusAsOf is how the node r takes part in the focus.
+func focusAsOf[E](f mut Frame[E], r arena.Ref[node[E]]) int {
+	let mut k = focusPlain
+	change(f, r, func(n mut node[E]) { k = n.focusAs })
+	k
+}
+
+// nearest is the nearest container of kind kind above r (r's own
+// included), Null for none.
+func nearest[E](f mut Frame[E], r arena.Ref[node[E]], kind int) arena.Ref[node[E]] {
+	match above(f, r) {
+	case Some[[]arena.Ref[node[E]]] as up:
+		if r != f.root && focusAsOf(f, r) == kind {
+			return r
+		}
+		for x in up.Value {
+			if x != f.root && focusAsOf(f, x) == kind {
+				return x
+			}
+		}
+		arena.Null[node[E]]()
+	case None:
+		arena.Null[node[E]]()
+	}
+}
+
+// focusTo puts the focus on r, showing it when visible; a roving group
+// around r remembers r as its stop.
+func focusTo[E](f mut Frame[E], r arena.Ref[node[E]], visible bool) {
+	f.focus = r
+	f.visible = visible
+	if r == arena.Null[node[E]]() {
+		return
+	}
+	let g = nearest(f, r, focusRove)
+	if g != arena.Null[node[E]]() {
+		f.roved[g] = r
+	}
+}
+
+// tabStops is the tab stops under r, r's own included, in tree order,
+// onto out: each focusable node, but of a roving group only its stop.
+func tabStops[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let n = nodeAt(f, r)
+	if n.focusAs == focusRove && r != f.root {
+		match rovingStop(f, r) {
+		case Some[arena.Ref[node[E]]] as s:
+			return out.Append(s.Value)
+		case None:
+			return out
+		}
+	}
+	let mut all = out
+	if !n.off && Focusable(n.node) {
+		all = all.Append(r)
+	}
+	for k in n.kids {
+		all = tabStops[E](f, k, all)
+	}
+	all
+}
+
+// rovingStop is the tab stop of the roving group g: the node of it the
+// focus was last on while that node can take the focus, else its first
+// focusable node; None when none can.
+func rovingStop[E](f mut Frame[E], g arena.Ref[node[E]]) Option[arena.Ref[node[E]]] {
+	let items = focusables(f, g, []arena.Ref[node[E]]{})
+	if len(items) == 0 {
+		return None
+	}
+	match f.roved.Get(g) {
+	case Some[arena.Ref[node[E]]] as was:
+		for it in items {
+			if it == was.Value {
+				return Some{Value: it}
+			}
+		}
+	case None:
+	}
+	Some{Value: items[0]}
+}
+
+// tabRoot is where Tab goes round: the focus scope the focus is in, else
+// the whole tree.
+func tabRoot[E](f mut Frame[E]) arena.Ref[node[E]] {
+	let s = nearest(f, f.focus, focusTrap)
+	if s == arena.Null[node[E]]() { f.root } else { s }
+}
+
+// rove moves the focus inside the roving group it is in for the key k:
+// whether k was a move of a roving group.
+func rove[E](f mut Frame[E], k KeyPress) bool {
+	let m = k.Mods
+	if m.Ctrl || m.Alt || m.Meta || m.Shift {
+		return false
+	}
+	let g = nearest(f, f.focus, focusRove)
+	if g == arena.Null[node[E]]() {
+		return false
+	}
+	let items = focusables(f, g, []arena.Ref[node[E]]{})
+	let n = len(items)
+	if n == 0 {
+		return false
+	}
+	let mut at = 0
+	for i, it in items {
+		if it == f.focus {
+			at = i
+		}
+	}
+	let mut to = -1
+	if k.Name == "ArrowRight" || k.Name == "ArrowDown" {
+		to = (at + 1) % n
+	} else if k.Name == "ArrowLeft" || k.Name == "ArrowUp" {
+		to = (at + n - 1) % n
+	} else if k.Name == "Home" {
+		to = 0
+	} else if k.Name == "End" {
+		to = n - 1
+	}
+	if to < 0 {
+		return false
+	}
+	focusTo(f, items[to], true)
+	true
+}
+
+// hovered makes id the node the pointer is over (the root: none). The
+// Leave and Enter signals (crossed) follow the Areas that hold that node,
+// as the DOM's pointerleave and pointerenter do (OT-PHASES): each Area
+// that held the node it left and does not hold the new one gets its
+// Leave, the innermost first, then each Area that holds the new node and
+// did not hold the old one gets its Enter, the outermost first. So a move
+// onto a node inside the same Area crosses nothing, and entering an inner
+// Area does not leave the outer one. A finger does not hover (MB4): its
+// events leave the hover where it was.
+func hovered[E](f mut Frame[E], id Id[E], p PointerEvent) {
+	match p.Pointer.Kind {
+	case Finger:
+		return
+	case Mouse, Pen:
+	}
+	let to = if id.ref == f.root || !arena.Has(f.nodes, id.ref) { arena.Null[node[E]]() } else { id.ref }
+	if to == f.hover {
+		return
+	}
+	f.hover = to
+	let next = areasOver(f, to)
+	for a in f.over {
+		if arena.Has(f.nodes, a) && !holdsRef(next, a) {
+			cross(f, Id[E]{ref: a}, PointerEvent{Pointer: p.Pointer, Phase: PointerLeave, X: 0, Y: 0, Zone: None})
+		}
+	}
+	for j in 0..len(next) {
+		let a = next[len(next)-1-j]
+		if !holdsRef(f.over, a) {
+			cross(f, Id[E]{ref: a}, PointerEvent{Pointer: p.Pointer, Phase: PointerEnter, X: p.X, Y: p.Y, Zone: None})
+		}
+	}
+	f.over = next
+}
+
+// areasOver is the Areas that hold r (r itself when it is one, and those
+// above it), the innermost first; none when r is Null or not in the tree.
+func areasOver[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let mut out = []arena.Ref[node[E]]{}
+	if !arena.Has(f.nodes, r) {
+		return out
+	}
+	if isArea(f, Id[E]{ref: r}) {
+		out = out.Append(r)
+	}
+	match above(f, r) {
+	case Some[[]arena.Ref[node[E]]] as up:
+		for a in up.Value {
+			if isArea(f, Id[E]{ref: a}) {
+				out = out.Append(a)
+			}
+		}
+	case None:
+	}
+	out
+}
+
+// PointerCrossesAreas (OT-PHASES): over drawn trees of 2 to 6 nested
+// Areas, each holding a Text, drawn pointer moves onto an Area, onto the
+// Text inside it or off every node give the reference's crossings: the
+// Leave of each Area that held the old node and not the new one, the
+// innermost first, then the Enter of each Area that holds the new node
+// and did not hold the old one, the outermost first. A move onto the
+// Text of the Area it is over, or onto an inner Area, leaves no Area.
+law PointerCrossesAreas(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 5) + 2
+		let mut parent = []int{}
+		for i in 0..n {
+			parent = parent.Append(draw(&r, i+1) - 1)
+		}
+		let view = func(f mut Frame[int], s string) { nestScreen(f, parent) }
+		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut at = []int{}
+		let mut log = ""
+		for _ in 0..draw(&r, 12)+4 {
+			let j = draw(&r, 2*n+1)
+			if j == 2*n {
+				PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+			} else {
+				let label = if j < n { "a\(j)" } else { "t\(j - n)" }
+				Play(&h, []Act{PointOn{Label: label, Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let to = if j == 2*n { []int{} } else { nestChain(parent, j%n) }
+			for x in at {
+				if !nestHolds(to, x) {
+					log = log + "\(10*x + 2),"
+				}
+			}
+			for k in 0..len(to) {
+				let x = to[len(to)-1-k]
+				if !nestHolds(at, x) {
+					log = log + "\(10*x + 1),"
+				}
+			}
+			at = to
+			if StateOf(&h) != log {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// nestChain is Area i and the Areas above it, the innermost first. (a
+// law's helper)
+func nestChain(parent []int, i int) []int {
+	let mut out = []int{}
+	let mut x = i
+	for _ in 0..len(parent) {
+		if x < 0 {
+			break
+		}
+		out = out.Append(x)
+		x = parent[x]
+	}
+	out
+}
+
+// nestHolds is whether xs holds x. (a law's helper)
+func nestHolds(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// nestScreen is the Areas "a0" to "a<n-1>", Area i inside Area parent[i]
+// (at the top when it is -1) and holding a Text "t<i>" before its inner
+// Areas; Area i gives 10i+1 on the pointer's enter, 10i+2 on its leave,
+// and nothing else. (a law's helper)
+func nestScreen(f mut Frame[int], parent []int) {
+	Column(f, Plain()) {
+		for i in 0..len(parent) {
+			if parent[i] < 0 {
+				nestArea(f, parent, i)
+			}
+		}
+	}
+}
+
+// nestArea is Area i of nestScreen and the Areas inside it. (a law's
+// helper)
+func nestArea(f mut Frame[int], parent []int, i int) {
+	Area(f, "a\(i)", Plain(), func(p PointerEvent) Option[int] {
+		match p.Phase {
+		case PointerEnter:
+			Some{Value: 10*i + 1}
+		case PointerLeave:
+			Some{Value: 10*i + 2}
+		case _:
+			None
+		}
+	}) {
+		Text(f, "t\(i)")
+		for j in 0..len(parent) {
+			if parent[j] == i {
+				nestArea(f, parent, j)
+			}
+		}
+	}
+}
+
+// cross queues the signal of p on the Area id, if its function gives one.
+func cross[E](f mut Frame[E], id Id[E], p PointerEvent) {
+	match pointed(f, id, p) {
+	case Some[E] as e:
+		f.crossed = f.crossed.Append(e.Value)
+	case None:
+	}
+}
+
+// Crossed is the signals of the Leave and Enter the last event made, in
+// that order (a Session sends them before the event's own signal).
+func Crossed[E](f mut Frame[E]) []E { f.crossed }
+
+// focusCommit moves the focus after a commit: back from each focus
+// scope that left the tree with the focus inside it (the latest first),
+// into each focus scope that came, and to a Focus request that changed.
+func focusCommit[E](f mut Frame[E]) {
+	let scopes = trapsIn(f, f.root, []arena.Ref[node[E]]{})
+	let mut kept = []opener[E]{}
+	let mut gone = []opener[E]{}
+	for o in f.openers {
+		if holdsRef(scopes, o.scope) {
+			kept = kept.Append(o)
+		} else {
+			gone = gone.Append(o)
+		}
+	}
+	let mut i = len(gone) - 1
+	for i >= 0 {
+		if !inTree(f, f.focus) {
+			let b = gone[i].before
+			if b != arena.Null[node[E]]() && inTree(f, b) {
+				f.focus = b
+			} else {
+				f.focus = arena.Null[node[E]]()
+			}
+		}
+		i = i - 1
+	}
+	for s in scopes {
+		let mut known = false
+		for o in kept {
+			if o.scope == s {
+				known = true
+			}
+		}
+		if !known {
+			kept = kept.Append(opener[E]{scope: s, before: f.focus})
+			let first = tabStops(f, s, []arena.Ref[node[E]]{})
+			if len(first) > 0 {
+				focusTo(f, first[0], true)
+			}
+		}
+	}
+	f.openers = kept
+	if f.want != f.wanted {
+		f.wanted = f.want
+		match f.want {
+		case Some[Key] as k:
+			match keyTarget(f, f.root, k.Value) {
+			case Some[arena.Ref[node[E]]] as t:
+				focusTo(f, t.Value, true)
+			case None:
+			}
+		case None:
+		}
+	}
+}
+
+// holdsRef is whether rs holds r.
+func holdsRef[E](rs []arena.Ref[node[E]], r arena.Ref[node[E]]) bool {
+	for x in rs {
+		if x == r {
+			return true
+		}
+	}
+	false
+}
+
+// trapsIn is the focus scopes under r, in tree order, onto out.
+func trapsIn[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let mut all = out
+	if r != f.root && focusAsOf(f, r) == focusTrap {
+		all = all.Append(r)
+	}
+	for k in kidsOf(f, r) {
+		all = trapsIn[E](f, k, all)
+	}
+	all
+}
+
+// keyTarget is the first focusable node at or under the first node under
+// r, in tree order, that declares k (a Zone's or a Semantic's key).
+func keyTarget[E](f mut Frame[E], r arena.Ref[node[E]], k Key) Option[arena.Ref[node[E]]] {
+	if r != f.root && declares(nodeKind(f, r), k) {
+		let all = focusables(f, r, []arena.Ref[node[E]]{})
+		if len(all) > 0 {
+			return Some{Value: all[0]}
+		}
+		return None
+	}
+	for c in kidsOf(f, r) {
+		match keyTarget[E](f, c, k) {
+		case Some[arena.Ref[node[E]]] as t:
+			return Some{Value: t.Value}
+		case None:
+		}
+	}
+	None
+}
+
+// nodeKind is what the node r shows.
+func nodeKind[E](f mut Frame[E], r arena.Ref[node[E]]) Node[E] {
+	let mut out Node[E] = BoxNode{Style: Plain()}
+	change(f, r, func(n mut node[E]) { out = n.node })
+	out
+}
+
+// declares is whether n declares the key k.
+func declares[E](n Node[E], k Key) bool {
+	match n {
+	case ZoneNode as z:
+		z.Key == k
+	case SemanticNode[E] as s:
+		s.Access.Key == k
+	case _:
+		false
+	}
+}

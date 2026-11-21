@@ -64,21 +64,33 @@ import (
 // alias analysis it keeps conservative. Ergo has no count: the static rows
 // read the value rule's liveness, and the run-time row compares one token.
 
-// CopySite is one Append, Concat or other owned-form site of a lowering and
-// the form it takes (ergo build -report copies).
+// CopySite is one site of a lowering that copies a value or writes in place
+// instead: an Append, Concat or other owned-form site and the form it takes,
+// and every copy the value rule inserts (copyreport.go; ergo build -report
+// copies).
 type CopySite struct {
 	File   string `json:"file"`
 	Line   int    `json:"line"`
 	Column int    `json:"column"`
 	// Form is "in place", "one extender" (own-lineage) or "copy".
 	Form string `json:"form"`
+	// Kind is a copy's kind (copyreport.go, copyKind): "slice", "Map"
+	// or "deep"; "" for a site that copies nothing.
+	Kind string `json:"kind,omitempty"`
 	Why  string `json:"why"`
+	// Func is the Ergo function whose body holds the site (ergo inspect
+	// copies); "" at a package let.
+	Func string `json:"func,omitempty"`
 }
 
 // CopyReport receives the CopySites of a lowering (Unit.Copies), sorted by
-// position, one per source site.
+// position, each once: a site lowered twice (a function and its owned
+// form) reports each form it takes.
 type CopyReport struct {
 	Sites []CopySite
+	// Owned is each function of the root package with an owned parameter
+	// (V5), in source order.
+	Owned []OwnedFunc
 }
 
 // appenderConsumes marks, once V3 has decided, each in-place call of an
@@ -181,7 +193,7 @@ func (w *valueWalk) disjointRead(id *syntax.Ident, path syntax.Expr) bool {
 	}
 	cur := syntax.Expr(id)
 	for {
-		sel, ok := w.parent[cur].(*syntax.SelectorExpr)
+		sel, ok := w.parentOf(cur).(*syntax.SelectorExpr)
 		if !ok || syntax.Expr(sel.X) != cur || w.dotCall(cur) != nil {
 			break
 		}
@@ -222,13 +234,18 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 			// no other use runs after it (GP2b's Make).
 			continue
 		}
-		sel, ok := w.parent[o.id].(*syntax.SelectorExpr)
+		if w.baseMoved(o) {
+			// T{..d, f: …} returned: d's other fields move into the
+			// result (consume by parts, parts.go).
+			continue
+		}
+		sel, ok := w.parentOf(o.id).(*syntax.SelectorExpr)
 		if !ok || syntax.Node(sel.X) != syntax.Node(o.id) || w.dotCall(o.id) != nil || w.fieldPath(sel) == nil {
 			return false
 		}
 		cur := syntax.Expr(sel)
 		for {
-			up, ok := w.parent[cur].(*syntax.SelectorExpr)
+			up, ok := w.parentOf(cur).(*syntax.SelectorExpr)
 			if !ok || syntax.Expr(up.X) != cur || w.dotCall(cur) != nil {
 				break
 			}
@@ -260,10 +277,17 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 func (w *valueWalk) takenField(x syntax.Expr) (taken, bound bool) {
 	parent, child := w.unparenParent(x)
 	if call := w.dotCall(x); call != nil {
-		return w.appendSite(call), false
+		if w.consumedAt(call, x) != nil {
+			return true, w.partsTaken()
+		}
+		return w.appendSite(call), w.appendSite(call) && w.partsTaken()
 	}
 	if call, ok := parent.(*syntax.CallExpr); ok {
-		return w.appendSite(call) && w.recvOf(call) == child, false
+		if cx, ok := child.(syntax.Expr); ok && w.consumedAt(call, cx) != nil {
+			return true, w.partsTaken()
+		}
+		taken := w.appendSite(call) && w.recvOf(call) == child
+		return taken, taken && w.partsTaken()
 	}
 	for _, o := range w.owns {
 		if o.value == child && o.root.local && o.root.mut {
@@ -355,7 +379,7 @@ func (w *valueWalk) freshCall(x *syntax.CallExpr, c *check.Call) bool {
 // returned value, or in one arm's last value), or nil: once it runs the
 // frame ends, so a use outside it (in another arm) never runs after o.
 func (w *valueWalk) endingReturn(o *vocc) syntax.Node {
-	for n := w.parent[o.id]; n != nil; n = w.parent[n] {
+	for n := w.parentOf(o.id); n != nil; n = w.parentOf(n) {
 		if f := w.frameOf[n]; f != nil {
 			return nil
 		}
@@ -589,7 +613,7 @@ func (fc *funcCtx) handoverAppend(x *syntax.CallExpr, c *check.Call, vals []stri
 	case vf.inPlace[x] && valueRule():
 		fc.copySite(x, "in place", "a rebinding p = p.Append(x) of a let mut or a borrow root, or a dead unshared local (V3)")
 	default:
-		fc.copySite(x, "copy", "the source may be read again and is no field path that one site extends")
+		fc.copySiteKind(x, "copy", "slice", "the source may be read again and is no field path that one site extends")
 	}
 	return ""
 }
@@ -634,16 +658,21 @@ func (l *lowerer) lineageDecl() string {
 
 // copySite records the form of the site x in the copy report.
 func (fc *funcCtx) copySite(x *syntax.CallExpr, form, why string) {
+	fc.copySiteKind(x, form, "", why)
+}
+
+// copySiteKind records the site x with a copy's kind.
+func (fc *funcCtx) copySiteKind(x *syntax.CallExpr, form, kind, why string) {
 	file, line, col := fc.l.locate(x, x.Pos())
-	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: form, Why: why})
+	fc.l.stats.Copies = append(fc.l.stats.Copies, CopySite{File: file, Line: line, Column: col, Form: form, Kind: kind, Why: why, Func: fc.owner})
 }
 
 // copyReport is the copy report of stats: one site per position, sorted.
 func copyReport(sites []CopySite) []CopySite {
-	seen := map[[3]any]bool{}
+	seen := map[CopySite]bool{}
 	var out []CopySite
 	for _, s := range sites {
-		k := [3]any{s.File, s.Line, s.Column}
+		k := s
 		if seen[k] {
 			continue
 		}

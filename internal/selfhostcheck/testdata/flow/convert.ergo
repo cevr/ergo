@@ -1,0 +1,44 @@
+// A resource converted to an operation type with Close moves into the
+// interface value (R23), and a with owns a resource provider of an inline
+// context its block names (the with owns it); a package let has no owner
+// to hand off.
+
+type Res { id int } implements Closer, Closes, Store
+
+type Closes { ..Closer }
+
+type Store { Get() int }
+
+func Close(r Res) {}
+
+func Get(r Res) int { r.id }
+
+func open(n int) Res { Res{id: n} }
+
+func lend(r Res) {}
+
+func lendCloser(c Closes) {}
+
+let shared = Res{id: 0}
+
+func converted() {
+	let a = open(1)
+	lendCloser(a)
+	lend(a) //want: flow
+}
+
+func provided() {
+	let a = open(1)
+	with context { Store: a } {
+		let _ = Store.Get()
+	}
+	lend(a) //want: flow
+}
+
+func sharedProvider() {
+	with context { Store: shared } { //want: flow
+		let _ = Store.Get()
+	}
+}
+
+func main() {}

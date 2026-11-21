@@ -86,9 +86,20 @@ func ChangeOf[P comparable](prior Option[Row[P]], p P) Option[Change] {
 // Ensure is the object id with p, through the row's protocol when e's
 // run applies: write the row creating (with p), call the driver's Apply,
 // write the row live. A plan records the step and gives the driver's
-// Attrs; so does an apply of an object whose row is live with p.
+// Attrs; so does an apply of an object whose row is live with p. A plan
+// that ensures the object again records nothing more: the step it
+// recorded is the object's (an apply sees the row the first Ensure wrote).
 func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails Failed {
-	e.Pass.seen.Update(func(m Map[string, bool]) Map[string, bool] { m.Put(keyOf(e.Kind, id), true) })
+	let key = keyOf(e.Kind, id)
+	let again = e.Pass.seen.Get().Get(key) != None
+	e.Pass.seen.Update(func(m Map[string, bool]) Map[string, bool] { m.Put(key, true) })
+	match e.Pass.mode {
+	case Planning, Refreshing:
+		if again {
+			return e.Driver.Attrs(id, p)
+		}
+	case Applying:
+	}
 	let prior = e.State.Get(id)
 	let change = match ChangeOf(prior, p) {
 	case None:

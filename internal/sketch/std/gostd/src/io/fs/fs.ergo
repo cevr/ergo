@@ -57,14 +57,17 @@ extern go io/fs.FileMode type FileMode uint32
 
 // ergo:go func (FileMode).IsDir() bool
 // ergo:effect none (vouched: it reads only m's bits: a mask, a compare or their text)
+// ergo:total
 extern go io/fs.FileMode.IsDir func (m FileMode) IsDir() bool
 
 // ergo:go func (FileMode).IsRegular() bool
 // ergo:effect none (vouched: it reads only m's bits: a mask, a compare or their text)
+// ergo:total
 extern go io/fs.FileMode.IsRegular func (m FileMode) IsRegular() bool
 
 // ergo:go func (FileMode).Perm() FileMode
 // ergo:effect none (vouched: it reads only m's bits: a mask, a compare or their text)
+// ergo:total
 extern go io/fs.FileMode.Perm func (m FileMode) Perm() FileMode
 
 // ergo:go func (FileMode).String() string
@@ -73,6 +76,7 @@ extern go io/fs.FileMode.String func (m FileMode) String() string
 
 // ergo:go func (FileMode).Type() FileMode
 // ergo:effect none (vouched: it reads only m's bits: a mask, a compare or their text)
+// ergo:total
 extern go io/fs.FileMode.Type func (m FileMode) Type() FileMode
 
 // ergo:go func FormatDirEntry(dir DirEntry) string

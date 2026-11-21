@@ -132,9 +132,36 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 
 // runMainOrdered is RunMain with every Map visited in order; it says
 // whether a for over a Map ran.
+// RunEntry runs pkg's function name, which takes nothing, as RunMain runs
+// main; when it gives a string, Exit.Stdout ends with it. `ergo conform`
+// runs the entry it adds to a package this way (MODELCHECK T2). Map
+// iteration takes the ascending order only.
+func RunEntry(pkg *check.Package, name string, b Budget, p Process) (Exit, error) {
+	if b.Steps <= 0 || b.Depth <= 0 || b.States < 0 || b.Bytes < 0 {
+		return Exit{}, ErrBudget
+	}
+	defer raiseGC()()
+	if pkg == nil || pkg.Info == nil {
+		return Exit{}, errors.New("eval: no checked package")
+	}
+	if b.States == 0 {
+		b.States = defaultStates
+	}
+	if b.Bytes == 0 {
+		b.Bytes = defaultBytes
+	}
+	for _, f := range pkg.Funcs {
+		if f.Name == name && f.Decl != nil && f.Decl.Body != nil && len(f.Sig.Params) == 0 {
+			out, _, err := runMainOrdered(pkg, f, b, p, mapAscending)
+			return out, err
+		}
+	}
+	return Exit{}, fmt.Errorf("eval: the package has no function %s()", name)
+}
+
 func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, order mapOrder) (out Exit, ranged bool, err error) {
 	h := newHost(p)
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order, walk: walkOnly.Load()}
 	defer func() {
 		ranged = in.mapRanged
 		if r := recover(); r != nil {
@@ -167,11 +194,20 @@ func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, o
 		}
 		fr.caps = &capEnv{key: typeKey(rtype{t: n}), op: &hostCap{name: n.Obj.Name, h: h}, next: fr.caps}
 	}
+	var result Value
 	_, ab := in.rootTask(fr, "main", func() *abrupt {
-		_, ab := in.bodyValue(fr, main.Decl.Body.List)
+		v, ab := in.bodyValue(fr, main.Decl.Body.List)
+		result = v
 		return ab
 	})
+	if ab != nil && ab.kind == ctlReturn {
+		result = ab.val
+	}
 	if ab == nil || ab.kind == ctlReturn {
+		// An entry that gives a text (RunEntry) writes it to stdout.
+		if s, ok := result.(string); ok {
+			h.stdout.WriteString(s)
+		}
 		return out, false, nil
 	}
 	out.Site = in.site(ab.pkg, ab.decl, ab.at)
@@ -293,8 +329,8 @@ func (h *host) abs(p string) string {
 
 // hostNative registers a host extern: under Run there is no process, and
 // the call is a skip at its site.
-func hostNative(name string, f func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)) {
-	natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+func hostNative(t nativeTables, name string, f func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)) {
+	t.std[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.host == nil {
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 		}
@@ -305,22 +341,27 @@ func hostNative(name string, f func(in *interp, h *host, fr *frame, at syntax.No
 	}
 }
 
-func registerProcess() {
-	hostNative("io.hostPrint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+func registerProcess(t nativeTables) {
+	natives := t.std
+	t.reads["io.hostPrint"] = "string"
+	hostNative(t, "io.hostPrint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stdout.WriteString(args[0].(string))
 		return unit{}, nil
 	})
-	hostNative("io.hostEprint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["io.hostEprint"] = "string"
+	hostNative(t, "io.hostEprint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stderr.WriteString(args[0].(string))
 		return unit{}, nil
 	})
 	// The runner's streams are pipes and files, never a terminal.
 	for _, n := range []string{"io.hostIsTerminal", "io.hostStdinIsTerminal", "io.hostStderrIsTerminal"} {
-		hostNative(n, func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		t.reads[n] = ""
+		hostNative(t, n, func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			return false, nil
 		})
 	}
-	hostNative("io.hostReadAll", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["io.hostReadAll"] = ""
+	hostNative(t, "io.hostReadAll", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		rest := h.stdin[h.read:]
 		h.read = len(h.stdin)
 		if ab := in.build(fr, at, 1, 0, int64(len(rest))); ab != nil {
@@ -328,23 +369,29 @@ func registerProcess() {
 		}
 		return rest, nil
 	})
-	hostNative("io.hostLines", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["io.hostLines"] = ""
+	hostNative(t, "io.hostLines", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return &stdinLines{h: h}, nil
 	})
-	hostNative("os.hostArgs", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["os.hostArgs"] = ""
+	hostNative(t, "os.hostArgs", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return stringSlice(h.args), nil
 	})
-	hostNative("os.hostGetwd", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["os.hostGetwd"] = ""
+	hostNative(t, "os.hostGetwd", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.cwd, nil
 	})
-	hostNative("os.hostHasEnv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["os.hostHasEnv"] = "string"
+	hostNative(t, "os.hostHasEnv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		_, ok := h.env[args[0].(string)]
 		return ok, nil
 	})
-	hostNative("os.hostGetenv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["os.hostGetenv"] = "string"
+	hostNative(t, "os.hostGetenv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.env[args[0].(string)], nil
 	})
-	hostNative("config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["config.hostEnviron"] = "string"
+	hostNative(t, "config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		prefix := args[0].(string)
 		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
 		var names []string
@@ -366,16 +413,22 @@ func registerProcess() {
 	notTerminal := func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "NotTerminal", nil), "")
 	}
-	hostNative("term.hostEnterRaw", notTerminal)
-	hostNative("term.hostEnterNoEcho", notTerminal)
-	hostNative("term.hostSize", notTerminal)
-	hostNative("term.hostLeave", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["term.hostEnterRaw"] = ""
+	hostNative(t, "term.hostEnterRaw", notTerminal)
+	t.reads["term.hostEnterNoEcho"] = ""
+	hostNative(t, "term.hostEnterNoEcho", notTerminal)
+	t.reads["term.hostSize"] = ""
+	hostNative(t, "term.hostSize", notTerminal)
+	t.reads["term.hostLeave"] = ""
+	hostNative(t, "term.hostLeave", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return unit{}, nil
 	})
-	hostNative("time.hostNow", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["time.hostNow"] = ""
+	hostNative(t, "time.hostNow", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.clock.opCall(in, fr, at, "Read", nil)
 	})
-	hostNative("prelude.Sleep", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["prelude.Sleep"] = "T T"
+	hostNative(t, "prelude.Sleep", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.clock.opCall(in, fr, at, "Wait", args[1:])
 	})
 
@@ -400,7 +453,8 @@ func registerProcess() {
 		}
 		return nil
 	}
-	hostNative("fs.hostReadFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.hostReadFile"] = "string"
+	hostNative(t, "fs.hostReadFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		_, f, kind, reason := h.resolve(given)
 		switch {
@@ -414,7 +468,8 @@ func registerProcess() {
 		}
 		return f.data, nil
 	})
-	hostNative("fs.hostReadDir", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.hostReadDir"] = "string"
+	hostNative(t, "fs.hostReadDir", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		p, f, kind, reason := h.resolve(given)
 		switch {
@@ -425,7 +480,8 @@ func registerProcess() {
 		}
 		return stringSlice(h.children(p)), nil
 	})
-	hostNative("fs.hostStat", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.hostStat"] = "string"
+	hostNative(t, "fs.hostStat", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		_, f, kind, reason := h.resolve(given)
 		if kind != "" {
@@ -465,9 +521,12 @@ func registerProcess() {
 			return unit{}, nil
 		}
 	}
-	hostNative("fs.hostWriteFile", write(false, false))
-	hostNative("fs.hostWriteFileMode", write(false, true))
-	hostNative("fs.hostAppendFile", write(true, false))
+	t.reads["fs.hostWriteFile"] = "string string"
+	hostNative(t, "fs.hostWriteFile", write(false, false))
+	t.reads["fs.hostWriteFileMode"] = "string string int64"
+	hostNative(t, "fs.hostWriteFileMode", write(false, true))
+	t.reads["fs.hostAppendFile"] = "string string"
+	hostNative(t, "fs.hostAppendFile", write(true, false))
 	mkdir := func(exact bool) func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			given := args[0].(string)
@@ -491,9 +550,12 @@ func registerProcess() {
 			return unit{}, nil
 		}
 	}
-	hostNative("fs.hostMkdirAll", mkdir(false))
-	hostNative("fs.hostMkdirAllMode", mkdir(true))
-	hostNative("fs.hostChmod", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.hostMkdirAll"] = "string"
+	hostNative(t, "fs.hostMkdirAll", mkdir(false))
+	t.reads["fs.hostMkdirAllMode"] = "string int64"
+	hostNative(t, "fs.hostMkdirAllMode", mkdir(true))
+	t.reads["fs.hostChmod"] = "string int64"
+	hostNative(t, "fs.hostChmod", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		f := h.files[h.abs(given)]
 		if f == nil {
@@ -502,7 +564,8 @@ func registerProcess() {
 		f.perm = int(args[1].(int64)) & 0o777
 		return unit{}, nil
 	})
-	hostNative("fs.hostRemove", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.hostRemove"] = "string"
+	hostNative(t, "fs.hostRemove", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		p := h.abs(given)
 		f := h.files[p]
@@ -517,7 +580,8 @@ func registerProcess() {
 		delete(h.files, p)
 		return unit{}, nil
 	})
-	hostNative("fs.hostRename", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.hostRename"] = "string string"
+	hostNative(t, "fs.hostRename", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		from, to := args[0].(string), args[1].(string)
 		pf, pt := h.abs(from), h.abs(to)
 		f := h.files[pf]
@@ -537,7 +601,8 @@ func registerProcess() {
 	// OpenRoot's failures: a missing directory, a file. An opened root
 	// names its directory; its reads (Go's os.Root rules for its paths)
 	// are not run yet.
-	hostNative("fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["fs.OpenRoot"] = "string"
+	hostNative(t, "fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		p, f, kind, reason := h.resolve(given)
 		switch {

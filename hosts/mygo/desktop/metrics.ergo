@@ -64,15 +64,6 @@ func lineIn(k known, size float32) float32 {
 
 func fmax(a float32, b float32) float32 { if a > b { a } else { b } }
 
-// paragraphs are the runs of text's paragraphs, by line feed.
-func paragraphs(text string) [][]string {
-	let mut out = [][]string{}
-	for p in strings.Split(text, "\n") {
-		out = out.Append(strings.Fields(p))
-	}
-	out
-}
-
 // Widths is the widest paragraph set on one line, its runs one space
 // apart, and the widest run.
 func Widths(m Metrics, text string, size float32) layout.Intrinsic {
@@ -83,7 +74,8 @@ func widthsIn(k known, text string, size float32) layout.Intrinsic {
 	let space = widthIn(k, " ", size)
 	let mut most = float32(0)
 	let mut least = float32(0)
-	for words in paragraphs(text) {
+	for p in strings.Split(text, "\n") {
+		let words = strings.Fields(p)
 		let mut line = float32(0)
 		for i, w in words {
 			let n = widthIn(k, w, size)
@@ -95,9 +87,54 @@ func widthsIn(k known, text string, size float32) layout.Intrinsic {
 	layout.Intrinsic{Max: most, Min: least}
 }
 
-// Height is the lines of Lines, one line height each.
+// Height is the lines of Lines, one line height each: counted as linesIn
+// breaks them, with no line built (law CountIsLines).
 func Height(m Metrics, text string, size float32, width float32) float32 {
-	sync.Modify(m.known, func(k known) (float32, known) { (float32(len(linesIn(k, text, size, width))) * lineIn(k, size), k) })
+	sync.Modify(m.known, func(k known) (float32, known) { (float32(countIn(k, text, size, width)) * lineIn(k, size), k) })
+}
+
+// countIn is len(linesIn(k, text, size, wide)), breaking the lines as it
+// does without building them.
+func countIn(k known, text string, size float32, wide float32) int {
+	let space = widthIn(k, " ", size)
+	let mut n = 0
+	let mut any = false
+	for p in strings.Split(text, "\n") {
+		let mut at = float32(0)
+		let mut open = false
+		for w in strings.Fields(p) {
+			any = true
+			let r = widthIn(k, w, size)
+			if !open {
+				at = r
+				open = true
+			} else if at+space+r <= wide {
+				at = at + space + r
+			} else {
+				n = n + 1
+				at = r
+			}
+		}
+		n = n + 1
+	}
+	if any { n } else { 0 }
+}
+
+// CountIsLines: Height's count is the lines Lines breaks, for texts of
+// words of the widths drawn, in paragraphs, at any width.
+law CountIsLines(words []int, breaks []bool, widths []int, wide int) {
+	let mut text = ""
+	let mut runs = Map[run, float32]{run{text: " ", size: 13}: 3}
+	for i in 0..len(words) {
+		let w = "w" + strings.Repeat("x", ((words[i]%6)+6)%6)
+		let gap = if i < len(breaks) && breaks[i] { "\n" } else { " " }
+		text = if i == 0 { w } else { text + gap + w }
+		let v = if i < len(widths) { ((widths[i] % 40) + 40) % 40 } else { 10 }
+		runs = runs.Put(run{text: w, size: 13}, float32(v))
+	}
+	let k = known{runs: runs, lines: Map[float32, float32]{}}
+	let at = float32(((wide % 120) + 120) % 120)
+	countIn(k, text, 13, at) == len(linesIn(k, text, 13, at))
 }
 
 // Lines breaks each paragraph greedily: a run goes on the line when the
@@ -112,7 +149,15 @@ func linesIn(k known, text string, size float32, wide float32) []string {
 	let space = widthIn(k, " ", size)
 	let mut out = []string{}
 	let mut any = false
-	for words in paragraphs(text) {
+	for p in strings.Split(text, "\n") {
+		let words = strings.Fields(p)
+		if len(words) > 0 && spaced(p, words) && widthOf(k, words, space, size) <= wide {
+			// The paragraph fits on one line and is its runs one space
+			// apart: it is that line, with no line built run by run.
+			any = true
+			out = out.Append(p)
+			continue
+		}
 		let mut line = ""
 		let mut at = float32(0)
 		let mut open = false
@@ -140,9 +185,84 @@ func linesIn(k known, text string, size float32, wide float32) []string {
 	out
 }
 
+// spaced is whether p is words one space apart, with no other space: the
+// line Lines would build of them is p itself.
+func spaced(p string, words []string) bool {
+	let mut n = len(words) - 1
+	for w in words {
+		n = n + len(w)
+	}
+	n == len(p) && strings.Count(p, " ") == len(words)-1
+}
+
+// widthOf is the width of words on one line, summed as linesIn sums a
+// line's runs, so a paragraph widthOf says fits is one linesIn would not
+// break.
+func widthOf(k known, words []string, space float32, size float32) float32 {
+	let mut at = float32(0)
+	for i, w in words {
+		let n = widthIn(k, w, size)
+		at = if i == 0 { n } else { at + space + n }
+	}
+	at
+}
+
+// FitIsBroken: linesIn is the lines the greedy breaker builds run by run
+// (byRun), for paragraphs of runs of the widths drawn, one or more spaces
+// or a tab apart, at any width.
+law FitIsBroken(words []int, gaps []int, widths []int, wide int) {
+	let seps = []string{" ", " ", "  ", "\t", "\n"}
+	let mut text = ""
+	let mut runs = Map[run, float32]{run{text: " ", size: 13}: 3}
+	for i in 0..len(words) {
+		let w = "w" + strings.Repeat("x", ((words[i]%6)+6)%6)
+		let gap = if i < len(gaps) { seps[((gaps[i]%5)+5)%5] } else { " " }
+		text = if i == 0 { w } else { text + gap + w }
+		let v = if i < len(widths) { ((widths[i] % 40) + 40) % 40 } else { 10 }
+		runs = runs.Put(run{text: w, size: 13}, float32(v))
+	}
+	let k = known{runs: runs, lines: Map[float32, float32]{}}
+	let at = float32(((wide % 120) + 120) % 120)
+	slices.Equal(linesIn(k, text, 13, at), byRun(k, text, 13, at))
+}
+
+// byRun is linesIn building every line run by run, the reference for
+// FitIsBroken.
+func byRun(k known, text string, size float32, wide float32) []string {
+	let space = widthIn(k, " ", size)
+	let mut out = []string{}
+	let mut any = false
+	for p in strings.Split(text, "\n") {
+		let mut line = ""
+		let mut at = float32(0)
+		let mut open = false
+		for w in strings.Fields(p) {
+			any = true
+			let n = widthIn(k, w, size)
+			if !open {
+				line = w
+				at = n
+				open = true
+			} else if at+space+n <= wide {
+				line = line + " " + w
+				at = at + space + n
+			} else {
+				out = out.Append(line)
+				line = w
+				at = n
+			}
+		}
+		out = out.Append(line)
+	}
+	if !any {
+		return []string{}
+	}
+	out
+}
+
 // learn asks the window's engine for every run of text at size it has
 // not measured yet, a space, and the size's line height.
-func learn(m *Metrics, w go.Ref[screen.Window], text string, size float32) needs go.Foreign {
+func learn(m mut Metrics, w go.Ref[screen.Window], text string, size float32) needs go.Foreign {
 	let (line, missing) = sync.Modify(m.known, func(k known) ((bool, []string), known) { (unknown(k, text, size), k) })
 	if !line && len(missing) == 0 {
 		return
@@ -168,7 +288,8 @@ func learn(m *Metrics, w go.Ref[screen.Window], text string, size float32) needs
 // of text (and a space) it has not measured.
 func unknown(k known, text string, size float32) (bool, []string) {
 	let mut missing = []string{}
-	for words in paragraphs(text) {
+	for p in strings.Split(text, "\n") {
+		let words = strings.Fields(p)
 		for t in words.Append(" ") {
 			if k.runs.Get(run{text: t, size: size}) == None && !slices.Contains(missing, t) {
 				missing = missing.Append(t)

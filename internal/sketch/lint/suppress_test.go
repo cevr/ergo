@@ -171,7 +171,7 @@ func (c suppressionCase) registry(t *testing.T) *lint.Registry {
 	var rules []*lint.Rule
 	for _, tr := range testRules {
 		name := tr.name
-		rules = append(rules, &lint.Rule{Name: name, Code: tr.code, Default: tr.initial, Check: func(p *lint.Pass) {
+		rules = append(rules, &lint.Rule{Name: name, Code: tr.code, Instead: "look", Default: tr.initial, Check: func(p *lint.Pass) {
 			if name == "gamma" && c.failGamma == 1 {
 				panic("gamma fails")
 			}

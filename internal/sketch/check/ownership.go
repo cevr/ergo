@@ -133,6 +133,9 @@ type ownLocal struct {
 	root     *Var
 	lendEnd  *lendPoint // a binding lent from a subject temporary
 	loanOnly bool
+	// handle marks a binding lent from a declared root's handle (P3,
+	// handle.go): its type need not hold a resource.
+	handle bool
 	// t is the type of a temporary that is no expression of the tree: a
 	// field an update replaces (Info.Replaced).
 	t Type
@@ -149,20 +152,21 @@ func (w *ownWalk) typ(l ownLocal) Type {
 	return w.info.Types[l.temp]
 }
 
-// genericOnly reports a type that holds a resource only through a type
-// parameter: a refusal on such a value is a copy site (takes.go).
+// genericOnly reports a type that holds no resource as written: a
+// refusal on such a value is reported only through an own type parameter
+// it holds, naming the mark (ownSite); plain data is not refused.
 func (w *ownWalk) genericOnly(t Type) bool {
 	return t != nil && !w.c.holdsResource(t)
 }
 
-// refuse reports a refusal on slot i, or records it as a copy site when
-// the slot's value is a resource only through a type parameter.
+// refuse reports a refusal on slot i, naming the own mark when the slot's
+// value is a resource only through an own type parameter.
 func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args ...any) {
 	if !w.st.reached {
 		return
 	}
-	if t := w.typ(w.vars[i]); w.genericOnly(t) {
-		w.copySite(t, at, what, false)
+	if t := w.typ(w.vars[i]); !w.vars[i].handle && w.genericOnly(t) {
+		w.ownSite(t, at, what)
 		return
 	}
 	w.report(at, format, args...)
@@ -224,6 +228,10 @@ type ownWalk struct {
 	vars  []ownLocal
 	slot  map[*Var]int
 	depth int
+	// writeBack is the place an assignment being evaluated writes, such
+	// as b.xs in `b.xs = b.xs.Append(x)`: its own handle written back is
+	// no second owner (P3, handle.go).
+	writeBack string
 	// first is the frame's first slot; name its function's name; nested
 	// the text naming a nested frame ("" for a declaration).
 	first        int
@@ -246,7 +254,6 @@ type ownWalk struct {
 	fn      *Func
 	top     *syntax.BlockStmt // the declaration's body
 	promote map[int]bool
-	copies  map[*TypeParam]CopySite
 	// borrow maps a let-bound borrow `let p = &h` of an owned local to
 	// that local: a Close called through p takes h (R19).
 	borrow map[*Var]*Var
@@ -286,7 +293,7 @@ func (c *checker) checkOwnership() {
 					continue
 				}
 				w.fn = f
-				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
+				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", c.pkg.Info.Closes[d] != nil)
 			case *syntax.TestDecl:
 				w.frame(d.Body, nil, w.paramVars(nil, d.Params), d.Name.Name, "", false)
 			case *syntax.LawDecl:
@@ -516,7 +523,11 @@ func (w *ownWalk) owned(l ownLocal) {
 		return // a taken parameter whose type has no release: refused where it is made
 	}
 	if d == nil {
-		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and has no Close() operation, so nothing could release them (resources R1, R13); give it a Close() operation", t, bad)
+		repair, ok := w.c.closerRepair(bad)
+		if !ok {
+			repair = "use an operation type that includes Closer"
+		}
+		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and does not include Closer, so nothing could release them (resources R1, R13); %s", t, bad, repair)
 		return
 	}
 	if l.v != nil {
@@ -541,10 +552,10 @@ func (w *ownWalk) releases(first int) []Release {
 		if l.lent || l.loanOnly {
 			continue // its owner releases it
 		}
-		if t := w.typ(l); w.copies != nil && w.genericOnly(t) {
-			// A generic body that drops a T would release it through its
-			// instance; that release is not built (Gap 42), so the drop
-			// is a copy site: an instance with a resource is refused.
+		if t := w.typ(l); w.genericOnly(t) {
+			// A generic body that drops an own T would release it through
+			// its instance; that release is not built (Gap 42), so the
+			// drop is refused: hand the value off or return it.
 			var at syntax.Node = l.temp
 			name := "a value"
 			if l.v != nil {
@@ -554,7 +565,7 @@ func (w *ownWalk) releases(first int) []Release {
 				}
 			}
 			if at != nil {
-				w.copySite(t, at, name+" is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42)", false)
+				w.ownSite(t, at, name+" is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42)")
 			}
 		}
 		out = append(out, Release{Var: l.v, Temp: l.temp, Flag: s == ownMaybe, Fields: w.st.slots[i].fields, MaybeFields: w.st.slots[i].maybe})
@@ -830,8 +841,17 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 		return func() { w.acquireParts(parts, ownLocal{}, loans, s.Value) }
 	}
 	var out []ownLocal
+	handles := w.handleSource(s.X)
 	for _, v := range lp.Bindings {
-		if v == nil || !w.tracked(v.Type) {
+		if v == nil {
+			continue
+		}
+		if !w.tracked(v.Type) {
+			if handles && w.c.holdsHandle(v.Type) {
+				// An element of a declared root's handles is lent from
+				// that root (P3, handle.go).
+				out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), handle: true})
+			}
 			continue
 		}
 		root, _, _ := w.placeRoot(s.X)
@@ -995,12 +1015,19 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	}
 	var bound []*Var
 	loans := map[*Var][]resourceLoan{}
+	// handles are the names bound to a declared root's handle: a let of
+	// one lends it, as a for-in does (P3, handle.go).
+	handles := map[*Var]string{}
 	w.region(spec, func() {
 		pair := len(spec.Values) == len(spec.Names) && spec.Pattern == nil
 		for i, x := range spec.Values {
 			mode := mMove
 			if pair && spec.Names[i].Name == "_" {
 				mode = mDiscard
+			}
+			if v, _ := w.info.Defs[spec.Names[i]].(*Var); pair && v != nil && mode == mMove && w.handleSource(x) {
+				handles[v] = w.handleFrom(x)
+				mode = mLend
 			}
 			w.expr(x, mode, hand{at: x, how: "let moves it"})
 			if pair {
@@ -1021,6 +1048,10 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	_ = s
 	for _, id := range spec.Names {
 		if v, ok := w.info.Defs[id].(*Var); ok {
+			if from, ok := handles[v]; ok {
+				w.acquire(ownLocal{v: v, lent: true, from: from, handle: true})
+				continue
+			}
 			_, callable := under(v.Type).(*Signature)
 			if w.tracked(v.Type) || callable || len(loans[v]) > 0 {
 				bound = append(bound, v)
@@ -1113,8 +1144,18 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		mode := mLend
 		if i < len(s.Lhs) && w.tracked(w.info.Types[s.Lhs[i]]) || len(s.Lhs) > 1 {
 			mode = mMove
+		} else if i < len(s.Lhs) && w.c.holdsHandle(w.info.Types[s.Lhs[i]]) {
+			// A handle stored into a place moves there (P3, handle.go).
+			mode = mMove
+		}
+		saved := w.writeBack
+		if i < len(s.Lhs) && len(s.Lhs) == len(s.Rhs) {
+			if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); !direct {
+				w.writeBack = exprText(s.Lhs[i])
+			}
 		}
 		w.expr(x, mode, hand{at: x, how: "it is assigned"})
+		w.writeBack = saved
 		if i < len(s.Lhs) {
 			if _, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st.reached {
 				if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); direct {
@@ -1476,13 +1517,16 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			// of that parameter (R44).
 			if generic {
 				if w.st.reached {
-					w.copySite(w.info.Types[x.X], x, fmt.Sprintf("%s is a method value of %s on %s", exprText(x), op.Name, exprText(x.X)), false)
+					w.ownSite(w.info.Types[x.X], x, fmt.Sprintf("%s is a method value of %s on %s", exprText(x), op.Name, exprText(x.X)))
 				}
 			} else {
 				w.reportCode(x, CodeType, "%s is a method value of %s on %s, a resource; a function value owns no resource and holds no lend of one (resources R19, R33); call %s() instead", exprText(x), op.Name, exprText(x.X), exprText(x))
 				w.expr(x.X, mLend, hand{})
 				return
 			}
+		}
+		if mode == mMove {
+			w.handleMove(x, h) // a declared root's handle (P3)
 		}
 		if w.selector(x, mode, h) {
 			return
@@ -1493,13 +1537,13 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
 			if _, fn := w.info.Uses[id].(*Func); fn {
 				w.funcValue(id, w.info.Types[x]) // f[T] as a value
-				w.valueInstance(x)
 				lend(x.Indices...)
 				return
 			}
 		}
 		if mode == mMove {
 			w.checkLoanValue(x)
+			w.handleMove(x, h) // a declared root's handle (P3)
 			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
 		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)
@@ -1577,7 +1621,6 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			}
 			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
-			w.valueInstance(x)
 			return
 		}
 		if mode == mHold && w.tail.slot >= 0 && i >= w.tail.first && !h.yieldRoot {
@@ -1778,7 +1821,7 @@ func (w *ownWalk) placeMove(x syntax.Expr, what, format string) {
 		root = p.X
 	}
 	if w.genericOnly(t) {
-		w.copySite(t, x, fmt.Sprintf("%s %s is handed off", what, placeText(x)), false)
+		w.ownSite(t, x, fmt.Sprintf("%s %s is handed off", what, placeText(x)))
 		return
 	}
 	w.report(x, "%s cannot be handed off: "+format, placeText(x), exprText(root), exprText(root))
@@ -2396,7 +2439,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	if elem, ok := w.valuesSeq(x); ok && syntax.Expr(x) != w.ranged && elem != nil && w.tracked(elem) && w.st.reached {
 		text := calleeText(x) + "()"
 		if w.genericOnly(elem) {
-			w.copySite(elem, x, fmt.Sprintf("%s yields owned values of %s outside a for-in", text, elem), false)
+			w.ownSite(elem, x, fmt.Sprintf("%s yields owned values of %s outside a for-in", text, elem))
 		} else {
 			w.report(x, "%s yields the queue's values of %s, each owned by the code that iterates it, and only a for-in over the call releases them; a Seq has no owner, so it cannot be kept or passed on (resources R35, Q7); write for v in %s { … } here", text, elem, text)
 		}
@@ -2450,9 +2493,6 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	if call.Kind == CallFunc && call.Func != nil {
 		takes = takesOf(call.Func)
-		if len(call.TypeArgs) > 0 {
-			w.instance(x, call.Func, call.TypeArgs)
-		}
 	}
 	for _, i := range takes {
 		taken[i] = true

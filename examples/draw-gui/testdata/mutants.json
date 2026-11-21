@@ -2,6 +2,38 @@
   "about": "draw-gui's application mutants (wf10 corpus wave GP3a): edits of the example, each with the law or the test that kills it. A killer examples/draw-gui/PKG:law L is `ergo test examples/draw-gui/PKG --law L`; cmd/ergo:TestDrawGuiAgreesWithControl is the seeded agreement property against the plain reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
+      "name": "draw-line-indexes-its-box", "origin": "wf10 GP draw gap 3",
+      "file": "examples/draw-gui/canvas/grid.ergo",
+      "from": "segmentKeys(l.From, l.To, []int{}, Map[int, bool]{})",
+      "to": "segmentKeys(l.From, l.To, keys(Grow(BoxOf(s), Tolerance)), Map[int, bool]{})",
+      "rule": "A line is in the cells along it, not in every cell of its box.",
+      "killers": ["examples:draw-gui law canvas.LineCellsFollowTheLine"]
+    },
+    {
+      "name": "draw-segment-column-not-grown", "origin": "wf10 GP draw gap 3",
+      "file": "examples/draw-gui/canvas/grid.ergo",
+      "from": "let x0 = most(cx*Cell-Tolerance, lo)",
+      "to": "let x0 = most(cx*Cell, lo)",
+      "rule": "A column takes the part of the segment within Tolerance of it, on its left too.",
+      "killers": ["examples:draw-gui law canvas.HitEqualsBruteForce"]
+    },
+    {
+      "name": "draw-segment-rows-not-grown", "origin": "wf10 GP draw gap 3",
+      "file": "examples/draw-gui/canvas/grid.ergo",
+      "from": "for cy in cellOf(least(y0, y1)-1-Tolerance)..",
+      "to": "for cy in cellOf(least(y0, y1)-1)..",
+      "rule": "A segment's cells reach Tolerance above it.",
+      "killers": ["examples:draw-gui law canvas.HitEqualsBruteForce"]
+    },
+    {
+      "name": "draw-stroke-first-point-skipped", "origin": "wf10 GP draw gap 3",
+      "file": "examples/draw-gui/canvas/grid.ergo",
+      "from": "for i in 0..len(k.Points) {\n\t\t\tlet a = if i == 0",
+      "to": "for i in 1..len(k.Points) {\n\t\t\tlet a = if i == 0",
+      "rule": "A stroke of one point is in the cells around it.",
+      "killers": ["examples:draw-gui law canvas.HitEqualsBruteForce"]
+    },
+    {
       "name": "draw-simplify-drops-too-far", "origin": "wf10 GP3a",
       "file": "examples/draw-gui/canvas/simplify.ergo",
       "from": "{ Epsilon * Epsilon * len2 }",

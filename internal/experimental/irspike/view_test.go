@@ -33,6 +33,7 @@ var viewSites = []string{"Cols.walk", "Cols.pick", "Cols.code"}
 func TestIRViewsMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 16)
+	fusedViews(t, src, ir, first, count)
 	panics, short, stays, hoisted, rebound := 0, 0, 0, 0, 0
 	for seed := first; seed < first+count; seed++ {
 		dir := t.TempDir()

@@ -70,22 +70,29 @@ type Process {
 
 // Host is the host's Process provider. Its field gives this package the
 // construction authority (types.md, Zero values 6): no other package
-// writes os.Host{}, its zero value or a record update of it.
-type Host { live hostOnly } implements Process
-
-// hostOnly is the zero-size type of Host's field, so Host stays zero size.
-type hostOnly {}
+// writes os.Host{}, its zero value or a record update of it. root is ""
+// for the host's own (NewHost), and the case's folder for a test's
+// (NewTestHost, confined.ergo).
+type Host { root string } implements Process
 
 // NewHost is the host's Process provider. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs Ambient { Host{root: ""} }
 
 // Args is the host process's arguments after the program name.
-func Args(_ Host) []string { hostArgs() }
+func Args(h Host) []string {
+	if h.root != "" {
+		return []string{}
+	}
+	hostArgs()
+}
 
 // Getenv is the value of the environment variable key: None when key is
 // unset, Some("") when it is set to the empty string.
-func Getenv(_ Host, key string) Option[string] {
+func Getenv(h Host, key string) Option[string] {
+	if h.root != "" {
+		return confinedEnv(h, key)
+	}
 	if hostHasEnv(key) {
 		Some[string]{Value: hostGetenv(key)}
 	} else {
@@ -95,7 +102,12 @@ func Getenv(_ Host, key string) Option[string] {
 
 // Getwd is the host process's working directory, an absolute path (Go's
 // os.Getwd). It fails NoWorkdir when the host cannot name it.
-func Getwd(_ Host) string fails NoWorkdir { try hostGetwd() }
+func Getwd(h Host) string fails NoWorkdir {
+	if h.root != "" {
+		return h.root
+	}
+	try hostGetwd()
+}
 
 extern go ergo.local/prototype/runtime/v1.OSArgs func hostArgs() []string
 extern go ergo.local/prototype/runtime/v1.OSGetwd func hostGetwd() string fails NoWorkdir

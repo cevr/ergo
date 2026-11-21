@@ -1,1 +1,1 @@
-usage: dash-gui gen [-seed S] [-n N] | dash-gui play [-seed S] | dash-gui scene [-seed S] [-frames N]
+usage: dash-gui gen [-seed S] [-n N] | dash-gui play [-seed S] [-pace edges|percent|default] [-hold N] [-every N] | dash-gui scene [-seed S] [-frames N]

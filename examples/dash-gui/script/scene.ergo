@@ -64,12 +64,14 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 			ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
 			case ui.NoNode as x:
 				io.Stdout.Println("? no node " + x.Label)
+			case ui.Mismatch as miss:
+				io.Stdout.Println("? want " + miss.Want + ", got " + miss.Got)
+			case ui.Ambiguous as amb:
+				io.Stdout.Println("? " + amb.At + " finds \(amb.Count) nodes")
 			case actor.Stopped as s:
 				return s
 			case ui.BadPatch as b:
 				return b
-			case ui.Mismatch as x:
-				io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 			}
 		case "show":
 			for t in Texts(ui.Screen(&h)) {
@@ -89,7 +91,7 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 }
 
 // advance moves h's clock n frames, writing each frame's notes.
-func advance(h *ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
+func advance(h mut ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
 	for _ in 0..n {
 		try ui.Advance(h, Period)
 		for x in notes.Get() {
@@ -109,7 +111,7 @@ func Texts(shapes []ui.Shape[screen.Signal]) []string {
 			out = out.Append(t.Value)
 		case ui.PressableNode:
 			continue
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.ReadoutNode, ui.TransitionNode, ui.SemanticNode, ui.LayerNode, ui.TrackNode:
 		}
 		for t in Texts(s.Kids) {
 			out = out.Append(t)

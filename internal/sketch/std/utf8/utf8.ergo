@@ -5,6 +5,7 @@
 // AppendRune until their import go form counts within 1.02 of the body
 // (std-go-share.txt names why).
 
+import go unicode
 import go unicode/utf8
 
 // RuneCount is the number of runes in s. Each byte of an invalid sequence
@@ -28,6 +29,10 @@ func RuneText(r rune) string { r.RuneText() }
 // utf8.AppendRune; a rune that is not valid adds those of U+FFFD.
 extern go ergo.local/prototype/runtime/v1.UTF8AppendRune func AppendRune(p []byte, r rune) []byte
 
+// String is the text whose bytes are b, Go's string(b) (GX9, GX10): a
+// buffer an appender wrote, made text once.
+extern go ergo.local/prototype/runtime/v1.UTF8String func String(b []byte) string
+
 // ValidString reports whether s is all valid UTF-8.
 func ValidString(s string) bool { utf8.ValidString(s) }
 
@@ -38,6 +43,19 @@ func ValidRune(r rune) bool { utf8.ValidRune(r) }
 // RuneLen is the number of bytes of the UTF-8 text of r, or -1 when r is
 // not valid.
 func RuneLen(r rune) int { utf8.RuneLen(r) }
+
+// IsDigit reports whether r is a decimal digit (Unicode class Nd), as
+// Go's unicode.IsDigit: "٣" is a digit too.
+func IsDigit(r rune) bool { unicode.IsDigit(r) }
+
+// IsLetter reports whether r is a letter (Unicode category L), as Go's
+// unicode.IsLetter.
+func IsLetter(r rune) bool { unicode.IsLetter(r) }
+
+// IsSpace reports whether r is white space as Go's unicode.IsSpace
+// defines it: '\t', '\n', '\v', '\f', '\r', ' ', U+0085, U+00A0, and
+// the Unicode class Z beyond Latin-1.
+func IsSpace(r rune) bool { unicode.IsSpace(r) }
 
 // RuneCountAtMostLen: a rune takes at least one byte.
 law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }

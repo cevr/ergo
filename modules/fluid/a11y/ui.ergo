@@ -1,0 +1,265 @@
+import ergo.dev/fluid/part
+import ui
+
+// OfUI is the access tree of what a frame holds after a pass: each node as std ui reads it
+// (ui.Access: a Semantic node's declared role, name and states; a Text's value; a live
+// region's text), with layout containers spliced and adjacent text joined as Of does. ui carries
+// no keys, relations or reach, so OfUI's tree is compared with Narrow(Of(tree)).
+func OfUI[E](f mut ui.Frame[E]) Tree {
+	Tree{..box(part.Generic), Kids: joined(uiKids[E](f, ui.Root(f)))}
+}
+
+func uiKids[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
+	let mut out = []Tree{}
+	for k in ui.Kids(f, id) {
+		for t in uiNode[E](f, k) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// uiNode is what one ui node offers a reader.
+func uiNode[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
+	let kids = joined(uiKids[E](f, id))
+	match ui.NodeOf(f, id) {
+	case Some as n:
+		match n.Value {
+		case ui.TextNode as t:
+			if t.Value == "" { []Tree{} } else { []Tree{leaf(t.Value)} }
+		case ui.LiveNode as l:
+			[]Tree{Tree{..box(part.Status), Kids: joined([]Tree{leaf(l.Text)})}}
+		case ui.SemanticNode as s:
+			let a = s.Access
+			let role = roleOfUI(a.Role, a.Level)
+			let inner = kids
+			let t = Tree{..box(role), Name: if a.Name != "" { a.Name } else if FromContent(role) { textOf(inner) } else { "" }, States: statesOfUI(a), Kids: inner}
+			if spliced(t) { inner } else { []Tree{t} }
+		case ui.InputNode:
+			[]Tree{}
+		case _:
+			kids
+		}
+	case None:
+		[]Tree{}
+	}
+}
+
+// statesOfUI is the states a ui.Access carries, as part states.
+func statesOfUI(a ui.Access) []part.State {
+	let mut out = []part.State{}
+	if a.Disabled {
+		out = out.Append(part.Disabled)
+	}
+	if a.Busy {
+		out = out.Append(part.Busy)
+	}
+	if a.Invalid {
+		out = out.Append(part.Invalid)
+	}
+	match a.Checked {
+	case Some as c:
+		out = out.Append(part.Checked{Value: if c.Value { part.On } else { part.Off }})
+	case None:
+	}
+	match a.Selected {
+	case Some as c:
+		out = out.Append(part.Selected{Yes: c.Value})
+	case None:
+	}
+	match a.Expanded {
+	case Some as c:
+		out = out.Append(part.Expanded{Yes: c.Value})
+	case None:
+	}
+	match a.Pressed {
+	case Some as c:
+		out = out.Append(part.Pressed{Yes: c.Value})
+	case None:
+	}
+	out
+}
+
+// UIRole is the ui role of a part role, None for a role ui does not carry yet (UG2).
+func UIRole(r part.Role) Option[ui.Role] {
+	match r {
+	case part.Generic:
+		Some[ui.Role]{Value: ui.Generic}
+	case part.Button:
+		Some[ui.Role]{Value: ui.Button}
+	case part.Link:
+		Some[ui.Role]{Value: ui.Link}
+	case part.Checkbox:
+		Some[ui.Role]{Value: ui.Checkbox}
+	case part.Switch:
+		Some[ui.Role]{Value: ui.Switch}
+	case part.TextBox:
+		Some[ui.Role]{Value: ui.TextBox}
+	case part.Tab:
+		Some[ui.Role]{Value: ui.Tab}
+	case part.TabList:
+		Some[ui.Role]{Value: ui.TabList}
+	case part.TabPanel:
+		Some[ui.Role]{Value: ui.TabPanel}
+	case part.Dialog:
+		Some[ui.Role]{Value: ui.Dialog}
+	case part.Menu:
+		Some[ui.Role]{Value: ui.Menu}
+	case part.MenuItem:
+		Some[ui.Role]{Value: ui.MenuItem}
+	case part.Table:
+		Some[ui.Role]{Value: ui.Table}
+	case part.Row:
+		Some[ui.Role]{Value: ui.TableRow}
+	case part.GridCell:
+		Some[ui.Role]{Value: ui.TableCell}
+	case part.Group:
+		Some[ui.Role]{Value: ui.Group}
+	case part.Region:
+		Some[ui.Role]{Value: ui.Region}
+	case part.List:
+		Some[ui.Role]{Value: ui.List}
+	case part.Status:
+		Some[ui.Role]{Value: ui.Status}
+	case part.Alert:
+		Some[ui.Role]{Value: ui.Alert}
+	case part.Image:
+		Some[ui.Role]{Value: ui.Image}
+	case part.Heading:
+		Some[ui.Role]{Value: ui.Heading}
+	case _:
+		None
+	}
+}
+
+// roleOfUI is the part role of a ui role (and a heading's level).
+func roleOfUI(r ui.Role, level Option[int]) part.Role {
+	match r {
+	case ui.Button:
+		part.Button
+	case ui.Link:
+		part.Link
+	case ui.Checkbox:
+		part.Checkbox
+	case ui.Switch:
+		part.Switch
+	case ui.TextBox:
+		part.TextBox
+	case ui.Tab:
+		part.Tab
+	case ui.TabList:
+		part.TabList
+	case ui.TabPanel:
+		part.TabPanel
+	case ui.Dialog:
+		part.Dialog
+	case ui.Menu:
+		part.Menu
+	case ui.MenuItem:
+		part.MenuItem
+	case ui.Table:
+		part.Table
+	case ui.TableRow:
+		part.Row
+	case ui.TableCell:
+		part.GridCell
+	case ui.Group:
+		part.Group
+	case ui.Region:
+		part.Region
+	case ui.List:
+		part.List
+	case ui.Status:
+		part.Status
+	case ui.Alert:
+		part.Alert
+	case ui.Image:
+		part.Image
+	case ui.Heading:
+		match level {
+		case Some as l:
+			part.Heading{Level: l.Value}
+		case None:
+			part.Heading{Level: 2}
+		}
+	case ui.RadioGroup:
+		part.RadioGroup
+	case ui.Radio:
+		part.Radio
+	case ui.ListBox:
+		part.ListBox
+	case ui.ListOption:
+		part.Choice
+	case ui.Slider:
+		part.Slider
+	case ui.SpinButton:
+		part.SpinButton
+	case ui.SearchBox:
+		part.SearchBox
+	case ui.MenuItemCheckbox:
+		part.MenuItemCheckbox
+	case ui.ComboBox:
+		part.ComboBox
+	case ui.Grid:
+		part.Grid
+	case ui.GridCell:
+		part.GridCell
+	case ui.ColumnHeader:
+		part.ColumnHeader
+	case ui.RowHeader:
+		part.RowHeader
+	case ui.Navigation:
+		part.Navigation
+	case ui.ListItem:
+		part.ListItem
+	case ui.Separator:
+		part.Separator
+	case ui.Tooltip:
+		part.Tooltip
+	case ui.Static, ui.Generic, ui.Tree, ui.TreeItem:
+		part.Generic
+	}
+}
+
+// Narrow is t as far as std ui carries it: no keys, relations or reach, and only the states ui
+// has (disabled, busy, invalid, checked on or off, selected, expanded, pressed); a node left
+// stating nothing is spliced again.
+func Narrow(t Tree) Tree { Tree{..box(part.Generic), Kids: narrowKids(t.Kids)} }
+
+func narrowKids(ts []Tree) []Tree {
+	let mut out = []Tree{}
+	for t in ts {
+		if t.Text != "" {
+			out = out.Append(t)
+			continue
+		}
+		let kids = narrowKids(t.Kids)
+		let n = Tree{..box(t.Role), Name: t.Name, States: carried(t.States), Kids: kids}
+		if spliced(n) {
+			for k in kids {
+				out = out.Append(k)
+			}
+		} else {
+			out = out.Append(n)
+		}
+	}
+	joined(out)
+}
+
+func carried(states []part.State) []part.State {
+	let mut out = []part.State{}
+	for s in states {
+		match s {
+		case part.Disabled, part.Busy, part.Invalid, part.Selected, part.Expanded, part.Pressed:
+			out = out.Append(s)
+		case part.Checked as c:
+			match c.Value {
+			case part.Mixed:
+			case part.On, part.Off:
+				out = out.Append(s)
+			}
+		case part.Current, part.Modal, part.MultiSelectable, part.Value:
+		}
+	}
+	out
+}

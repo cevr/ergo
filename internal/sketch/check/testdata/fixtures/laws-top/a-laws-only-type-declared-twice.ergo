@@ -1,0 +1,5 @@
+type W { // want S108
+	law A() { true },
+}
+
+type W { law B() { true } } // want S108

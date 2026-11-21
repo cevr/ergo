@@ -97,7 +97,7 @@ func TestWaitIsAnInterruptionPoint(t *testing.T) {
 			root := Root("main")
 			s := NewScope(root)
 			h := Go(&s, "done", tc.body)
-			<-h.done
+			waitUntil(h.finished)
 			root.Interrupt()
 			v, err := h.Wait()
 			if v != 0 || !errors.Is(err, Interrupted) {

@@ -1,0 +1,11 @@
+@0 open
+  # File Uploads [Upload a file] Nothing here yet. Start an upload.
+@0 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+@4800 cancel 0
+  # File Uploads [Upload a file]
+  0 trail-map.png sent
+@5000 end
+  # File Uploads [Upload a file]
+  0 trail-map.png sent

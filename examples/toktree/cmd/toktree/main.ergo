@@ -1,0 +1,65 @@
+// toktree reads a file of source text, scans it into token columns
+// (package token), builds the flat tree of its bracket groups (package
+// tree), reads every token and every child list once, and prints the
+// counts and two sums:
+//
+//	toktree FILE
+//	tokens=N nodes=N groups=N depth=N pool=N toksum=N nodesum=N
+//
+// It is the counted workload of the self-hosted compiler's data layout
+// (wf10 self-layout plan §2.3; `go run ./scripts/opcount -control
+// toktree`). Its hand Go control, cmd/ergo/testdata/toktree/control,
+// prints the same line. This binary is the only place that chooses the
+// providers: the host's files and standard output.
+
+import fs
+import io
+import os
+import toktree/token
+import toktree/tree
+
+// Summary is the line toktree prints for src.
+func Summary(src string) string {
+	let t = token.Scan(src)
+	let mut tokSum = uint32(0)
+	for i in 0..token.Len(t) {
+		let id = token.At(t, i)
+		tokSum = tokSum*uint32(31) + uint32(token.Kind(t, id)) + uint32(token.Start(t, id))
+	}
+	let built = tree.Build(t)
+	let tr = built.Tree
+	let mut nodeSum = uint32(0)
+	let mut groups = 0
+	for i in 0..tree.Len(tr) {
+		let id = tree.At(tr, i)
+		if tree.Kind(tr, id) != tree.Leaf {
+			groups = groups + 1
+			for c in tree.Kids(tr, id) {
+				nodeSum = nodeSum*uint32(31) + uint32(tree.Kind(tr, c))
+			}
+		}
+	}
+	"tokens=\(token.Len(t)) nodes=\(tree.Len(tr)) groups=\(groups) depth=\(built.Depth) pool=\(tree.Pooled(tr)) toksum=\(tokSum) nodesum=\(nodeSum)"
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: toktree FILE"}
+	}
+	let file = args[0]
+	let src = fs.Files.ReadFile(file) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "toktree: no file \(file)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "toktree: cannot read \(file): permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "toktree: cannot read \(file): \(e.Reason)"}
+	}
+	io.Stdout.Println(Summary(src))
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

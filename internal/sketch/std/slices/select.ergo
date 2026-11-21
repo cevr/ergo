@@ -1,0 +1,128 @@
+// Selecting elements: FilterMap, Find, Any, All, Partition and Dedupe
+// (std-spike D1). Each takes its function's rows, as Transform does, and
+// its first failure ends the call with it.
+
+// FilterMap is f of each element of xs, first to last, keeping the values
+// of the Somes (Effect Array.filterMap, Gleam list.filter_map): one pass,
+// where Transform then Filter takes two and a slice between.
+func FilterMap[T, U, E, R](xs []T, f func(x T) Option[U] fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		match try f(x) {
+		case Some[U] as s:
+			out = out.Append(s.Value)
+		case None:
+		}
+	}
+	out
+}
+
+// FilterMapIsFilterThenMap: FilterMap with a function that keeps the even
+// elements, tripled, is Filter then Transform.
+law FilterMapIsFilterThenMap(xs []int) {
+	let even = func(x int) bool { x%2 == 0 }
+	let triple = func(x int) int { x * 3 }
+	let f = func(x int) Option[int] { if even(x) { Some[int]{Value: triple(x)} } else { None } }
+	Equal(FilterMap(xs, f), Transform(Filter(xs, even), triple))
+}
+
+// Find is Some of the first element of xs that accept takes, or None
+// (Effect Array.findFirst, Go's slices.IndexFunc then an index). accept
+// runs on the elements up to the one found, and no further.
+func Find[T, E, R](xs []T, accept func(x T) bool fails E needs R) Option[T] fails E needs R {
+	for x in xs {
+		if try accept(x) {
+			return Some[T]{Value: x}
+		}
+	}
+	None
+}
+
+// Any reports whether accept takes some element of xs, stopping at the
+// first (Effect Array.some, Go's slices.ContainsFunc).
+func Any[T, E, R](xs []T, accept func(x T) bool fails E needs R) bool fails E needs R {
+	for x in xs {
+		if try accept(x) {
+			return true
+		}
+	}
+	false
+}
+
+// All reports whether accept takes every element of xs, stopping at the
+// first it refuses (Effect Array.every); true for no elements.
+func All[T, E, R](xs []T, accept func(x T) bool fails E needs R) bool fails E needs R {
+	for x in xs {
+		if !try accept(x) {
+			return false
+		}
+	}
+	true
+}
+
+// FindAnyAllAgree: Find is the first element Filter keeps; Any is whether
+// it has one; All is whether Filter keeps them all.
+law FindAnyAllAgree(xs []int, k int) {
+	let m = (k%5+5)%5 + 1
+	let accept = func(x int) bool { x%m == 0 }
+	let kept = Filter(xs, accept)
+	let first Option[int] = if len(kept) == 0 { None } else { Some[int]{Value: kept[0]} }
+	Find(xs, accept) == first && Any(xs, accept) == (len(kept) > 0) && All(xs, accept) == (len(kept) == len(xs))
+}
+
+// Partition is the elements of xs that keep takes, then the rest, each in
+// order (Effect Array.partition, which puts the refused first; Gleam
+// list.partition, which puts the kept first, as here). keep runs once on
+// each element.
+func Partition[T, E, R](xs []T, keep func(x T) bool fails E needs R) ([]T, []T) fails E needs R {
+	let mut yes = []T{}
+	let mut no = []T{}
+	for x in xs {
+		if try keep(x) {
+			yes = yes.Append(x)
+		} else {
+			no = no.Append(x)
+		}
+	}
+	(yes, no)
+}
+
+// PartitionIsFilterTwice: Partition's halves are Filter by keep and by its
+// negation.
+law PartitionIsFilterTwice(xs []int) {
+	let keep = func(x int) bool { x%3 == 0 }
+	let (yes, no) = Partition(xs, keep)
+	Equal(yes, Filter(xs, keep)) && Equal(no, Filter(xs, func(x int) bool { !keep(x) }))
+}
+
+// Dedupe is xs with each element after its first equal one dropped, in
+// order (Effect Array.dedupe, Gleam list.unique). Go's slices.Compact
+// drops only neighbours; Dedupe(Sort(xs)) is Compact's use.
+func Dedupe[T comparable](xs []T) []T {
+	let mut seen = Map[T, bool]{}
+	let mut out = []T{}
+	for x in xs {
+		if seen.Get(x) == None {
+			seen[x] = true
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// DedupeKeepsFirst: Dedupe holds each element of xs once, at the place of
+// its first occurrence.
+law DedupeKeepsFirst(xs []int) {
+	let d = Dedupe(xs)
+	let mut ok = true
+	for x in xs {
+		ok = ok && Contains(d, x)
+	}
+	for i, x in d {
+		ok = ok && Index(d, x) == i
+		if i > 0 {
+			ok = ok && Index(xs, d[i-1]) < Index(xs, x)
+		}
+	}
+	ok
+}

@@ -1,0 +1,73 @@
+#!/usr/bin/env bun
+// A TypeScript source that reaches every field of the record as the
+// TypeScript host fills it: each line kind, the starts, imported names
+// left out of the code words, templates, regular expressions, handlers of
+// each shape, a test. Some comments restate their statement on purpose.
+
+import { Effect, Layer, Schema } from "effect"
+import * as Http from "@effect/platform/HttpClient"
+import type { Config } from "./config"
+
+/**
+ * Store keeps counts by key.
+ */
+export interface Store {
+  /** Get is the count of key. */
+  readonly get: (key: string) => Effect.Effect<number, Missing>
+  readonly put: (key: string, n: number) => Effect.Effect<void>
+}
+
+export class Missing extends Schema.TaggedError<Missing>()("Missing", { key: Schema.String }) {}
+
+// eslint-disable-next-line no-console
+const debug = (line: string) => console.log(`debug: ${line} // not a comment`)
+
+/** total is the sum of the counts of keys. */
+export const total = (store: Store, keys: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    let total = 0
+    for (const key of keys) {
+      // get the count of the key
+      const count = yield* store.get(key).pipe(Effect.catchTag("Missing", () => Effect.succeed(0)))
+      // add count to total
+      total += count
+    }
+    return total
+  })
+
+export function parseAll(texts: Array<string>, config: Config): Array<number> {
+  const out: Array<number> = []
+  for (const text of texts) {
+    if (/^\s*\/\//.test(text)) continue
+    try {
+      // The texts come from users, so a bad one is reported, not skipped.
+      out.push(Number.parseInt(text, config.radix ?? 10) / 1)
+    } catch (error) {
+      throw error
+    }
+  }
+  return out
+}
+
+function describe2(n: number): string {
+  try {
+    return n === 0 ? "none" : `${n}`
+  } catch {
+    return ""
+  } finally {
+    debug("described")
+  }
+}
+
+const live = Layer.succeed(Http.HttpClient, {} as never)
+
+switch (process.argv.length) {
+  case 0:
+    break
+  default:
+    debug(describe2(1))
+}
+
+test("total of no keys", () => {
+  expect(describe2(0)).toBe("none")
+})

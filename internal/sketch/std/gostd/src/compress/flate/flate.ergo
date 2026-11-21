@@ -25,6 +25,7 @@ extern go compress/flate.HuffmanOnly let HuffmanOnly int
 extern go compress/flate.InternalError type InternalError string
 
 // ergo:go func (InternalError).Error() string
+// ergo:total
 extern go compress/flate.InternalError.Error func (e InternalError) Error() string needs go.Foreign
 
 // ergo:go func NewReader(r io.Reader) io.ReadCloser

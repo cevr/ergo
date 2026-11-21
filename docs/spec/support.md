@@ -101,6 +101,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `call:ProviderOp` | a call of kind `ProviderOp` | Checked; runs |  |
 | `call:With` | a call of kind `With` | Checked; runs |  |
 | `conv:Machine` | an implicit `Machine` conversion | Checked; runs |  |
+| `conv:Narrow` | an implicit `Narrow` conversion | Checked; runs |  |
 | `conv:Operations` | an implicit `Operations` conversion | Checked; runs |  |
 | `conv:Row` | an implicit `Row` conversion | Checked; runs |  |
 | `conv:Variant` | an implicit `Variant` conversion | Checked; runs |  |

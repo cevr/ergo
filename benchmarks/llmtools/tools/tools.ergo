@@ -1,0 +1,18 @@
+// Package tools is the tool set toolbench parses calls of (wf10 L7): a
+// search a model calls with a query, and a count by text. ergo gen api
+// and ergo gen llm write toolsapi and toolsllm from it.
+
+// Query is what a search asks for: the text, the most hits, and the tags a
+// hit must have.
+type Query { Text string, Limit int, Tags []string }
+
+// Hit is one search result.
+type Hit { Title string }
+
+// Search is the tool set.
+type Search {
+	// Find is the hits of q.
+	Find(q Query) []Hit,
+	// Count is how many documents hold the word.
+	Count(word string) int,
+}

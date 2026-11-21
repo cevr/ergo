@@ -1,0 +1,1289 @@
+// Trace conformance (MODELCHECK T2; docs/spec/stdlib.md, Testing). A
+// passing model says the design is right; Conform says a log of the
+// running code is a behaviour of that design.
+//
+// A trace is JSON Lines, one observation per line, every key optional and
+// unknown keys ignored: `{"signal": "Save", "args": {"who": "a"},
+// "state": {"memory": 1}}`. signal names a signal's variant, args some of
+// its fields, state some fields of the state after the step. A field left
+// out is "any". Observations are read with the model's own codecs: a
+// candidate state's wire form, with the observed fields laid over it, is
+// decoded as the state type; a value of the wrong kind is a TraceError that
+// names the field, never a silent non-match, and so is a field the type
+// does not have. The candidate fits when the decoded state is the
+// candidate itself (by key: floats by their bits).
+//
+// Conform keeps the set of model states consistent with the observations
+// so far (deduplicated by the search's key). Before each observation it
+// closes the set under up to Hidden unobserved steps; an observation's
+// step goes from each candidate by each signal the observation allows to
+// a state that fits it; with Stutter, an observation that names no signal
+// may also leave the state as it is. The verdicts: Conforms (a matching
+// behaviour, as a Run), Mismatch (the first line no candidate can explain,
+// with what the model allowed there), Broken (every behaviour that
+// explains the trace so far breaks a named property at some state of its
+// run: a logged one, a hidden step's, or one a partial line left open), OverLimit (more
+// than Limit candidates: no verdict, never a pass) and TraceError.
+//
+// What one trace proves: that this trace is a behaviour of the model,
+// nothing about other runs. Hidden steps and partial states weaken it, so
+// the report says how many hidden steps were taken, the peak count of
+// candidates, and what the trace never observed: signals it never took and
+// state fields it never named.
+//
+// Prior art: everystate's trace validation (untyped JSON against TLA+
+// values, its exit codes 0, 20, 21 bad trace, 22 limit reached are kept
+// by `ergo conform`, which gives Broken 23); TLC's
+// trace validation (Kuppe et al., 2024) checks a log as a constrained
+// behaviour of the spec; Quint's `run` replays a trace step by step.
+
+import dense
+import json
+import strconv
+import strings
+
+// Obs is one observation of a trace: its line, the signal's variant name
+// (None when the line names none), its fields and the observed state.
+type Obs { Line int, Signal Option[string], Args Option[json.Value], State Option[json.Value] }
+
+// Options: Hidden, the unobserved steps allowed before each observation;
+// Stutter, whether an observation with no signal may leave the state
+// unchanged; Limit, the most candidates kept (100,000 when it is not
+// positive).
+type Options { Hidden int, Stutter bool, Limit int }
+
+// Invariant is a named property of the model's states that a conforming
+// trace is checked against.
+type Invariant[S] { Name string, Holds func(s S) bool }
+
+// Report is what Conform saw: the observations matched, the peak count of
+// candidates, the hidden steps the matching behaviour took, the signals
+// (by variant name) the trace never took and the state's fields it never
+// observed.
+type Report { Lines int, Peak int, Hidden int, Unseen []string, Unobserved []string }
+
+// Conformance is Conform's verdict.
+type Conformance = Conforms{Run Run, Report Report} | Mismatch{Line int, Observed string, Before []string, Allowed []string, Nearest string, Differ []string, Report Report} | Broken{Line int, Invariant string, Run Run, Report Report} | OverLimit{Line int, Candidates int, Report Report} | TraceError{Line int, Why string}
+
+// ReadTrace reads a JSON Lines trace. A blank line is skipped; a line that
+// is not a JSON object, or whose signal is not a string, or whose args is
+// not an object, is a TraceError.
+func ReadTrace(text string) []Obs fails TraceError {
+	let mut out = []Obs{}
+	let lines = strings.Split(text, "\n")
+	for i in 0..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		let v = json.Decode[json.Value](json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, line) catch {
+		case json.Malformed as m:
+			return TraceError{Line: i + 1, Why: "not JSON: " + m.Reason}
+		case _:
+			return TraceError{Line: i + 1, Why: "not JSON"}
+		}
+		let mut ob = Obs{Line: i + 1, Signal: None, Args: None, State: None}
+		match v {
+		case json.Object as o:
+			for m in o.Members {
+				if m.Key == "signal" {
+					match m.Value {
+					case json.Str as s:
+						ob.Signal = Some[string]{Value: s.Value}
+					case _:
+						return TraceError{Line: i + 1, Why: "signal is not a string"}
+					}
+				} else if m.Key == "args" {
+					match m.Value {
+					case json.Object:
+						ob.Args = Some[json.Value]{Value: m.Value}
+					case _:
+						return TraceError{Line: i + 1, Why: "args is not an object"}
+					}
+				} else if m.Key == "state" {
+					ob.State = Some[json.Value]{Value: m.Value}
+				}
+			}
+		case _:
+			return TraceError{Line: i + 1, Why: "a line is a JSON object"}
+		}
+		out = out.Append(ob)
+	}
+	out
+}
+
+// Fit is how an observed value compares with a value of the model: Fits,
+// Differs, or Bad when the observation is not a value of the type (Why
+// names the field).
+type Fit = Fits{} | Differs{} | Bad{Why string}
+
+// valueOf is v's wire form as an untyped JSON value.
+func valueOf[T wire](v T) json.Value needs wired[T] {
+	let text = json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v)
+	json.Decode[json.Value](json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		Unreachable("the codec read back what it wrote")
+	}
+}
+
+// FitOf compares the observation obs with v: obs laid over v's wire form,
+// decoded as T, must be v again. A member of obs that the decoded value
+// does not write is a field T does not have.
+func FitOf[T wire](v T, obs json.Value) Fit needs wired[T] { fitOn(v, valueOf(v), obs) }
+
+// quick is fitValue's answer, from the wire forms alone: Same (every
+// observed member equals v's), Other (a member differs, every one of a
+// kind that decodes exactly), OtherTag (a union tag differs: overlay's
+// None), or Unsure (only the typed decode can tell; it may be Bad).
+type quick = Same{} | Other{} | OtherTag{} | Unsure{}
+
+// fitValue compares obs with base, v's wire form, without decoding. base
+// is a value the codec wrote, so a member equal to base's reads back as
+// v's. A member base lacks, a value of another kind, and two different
+// numbers or strings (a codec may read two texts as one value) are Unsure.
+// A differing tag anywhere wins, as overlay's None does; then Unsure, since
+// the decode may find the observation Bad; then Other.
+func fitValue(base json.Value, obs json.Value) quick {
+	match obs {
+	case json.Object as o:
+		match base {
+		case json.Object as b:
+			let mut unsure = false
+			let mut other = false
+			for m in o.Members {
+				let mut found = false
+				for n in b.Members {
+					if n.Key == m.Key {
+						found = true
+						if m.Key == "_tag" {
+							if n.Value != m.Value {
+								return OtherTag
+							}
+						} else {
+							match fitValue(n.Value, m.Value) {
+							case OtherTag:
+								return OtherTag
+							case Unsure:
+								unsure = true
+							case Other:
+								other = true
+							case Same:
+							}
+						}
+					}
+				}
+				if !found {
+					if m.Key == "_tag" {
+						return OtherTag
+					}
+					unsure = true
+				}
+			}
+			if unsure { Unsure } else if other { Other } else { Same }
+		case _:
+			Unsure
+		}
+	case json.Boolean as x:
+		match base {
+		case json.Boolean as y:
+			if x.Value == y.Value { Same } else { Other }
+		case _:
+			Unsure
+		}
+	case json.Array as x:
+		// overlay replaces an array whole, so each element must equal
+		// base's to be Same (a partial element is no overlay), and only a
+		// differing bool, which decodes exactly, makes it Other.
+		match base {
+		case json.Array as y:
+			if len(x.Items) != len(y.Items) {
+				return Unsure
+			}
+			let mut other = false
+			for i in 0..len(x.Items) {
+				if x.Items[i] != y.Items[i] {
+					match x.Items[i] {
+					case json.Boolean:
+						match y.Items[i] {
+						case json.Boolean:
+							other = true
+						case _:
+							return Unsure
+						}
+					case _:
+						return Unsure
+					}
+				}
+			}
+			if other { Other } else { Same }
+		case _:
+			Unsure
+		}
+	case _:
+		if obs == base { Same } else { Unsure }
+	}
+}
+
+// fitOn is FitOf with v's wire form base already made.
+func fitOn[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
+	match fitValue(base, obs) {
+	case Same:
+		return Fits
+	case Other, OtherTag:
+		return Differs
+	case Unsure:
+	}
+	fitDecode(v, base, obs)
+}
+
+// fitDecode is FitOf without fitValue's fast path: obs laid over base,
+// decoded as T, then compared by key. It is the fast path's reference
+// (law FitFastAgreesWithDecode), and what an Unsure answer falls to.
+func fitDecode[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
+	match overlay(base, obs) {
+	case None:
+		return Differs
+	case Some[json.Value] as m:
+		let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, m.Value)
+		let u = json.Decode[T](json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+		case WireWrongKind as w:
+			return Bad{Why: "at " + w.Path + ": want " + w.Want}
+		case _:
+			return Bad{Why: "the observation is not a value of its type"}
+		}
+		let missing = absentIn(obs, valueOf(u), "")
+		if missing != "" {
+			return Bad{Why: "no field " + missing}
+		}
+		let (ku, _) = KeyOf(u)
+		let (kv, _) = KeyOf(v)
+		if ku == kv { Fits } else { Differs }
+	}
+}
+
+// overlay is base with obs laid over it: an object's members replace or
+// join base's, one level at a time; any other value replaces base. A
+// union's tag that differs is None: the value is of another variant.
+func overlay(base json.Value, obs json.Value) Option[json.Value] {
+	match obs {
+	case json.Object as o:
+		match base {
+		case json.Object as b:
+			let mut ms = b.Members
+			for m in o.Members {
+				let mut found = false
+				for i in 0..len(ms) {
+					if ms[i].Key == m.Key {
+						found = true
+						if m.Key == "_tag" {
+							if ms[i].Value != m.Value {
+								return None
+							}
+						} else {
+							match overlay(ms[i].Value, m.Value) {
+							case None:
+								return None
+							case Some[json.Value] as w:
+								ms[i] = json.Member{Key: m.Key, Value: w.Value}
+							}
+						}
+					}
+				}
+				if !found {
+					if m.Key == "_tag" {
+						return None
+					}
+					ms = ms.Append(m)
+				}
+			}
+			Some[json.Value]{Value: json.Object{Members: ms}}
+		case _:
+			Some[json.Value]{Value: obs}
+		}
+	case _:
+		Some[json.Value]{Value: obs}
+	}
+}
+
+// absentIn is the path of the first member of an object in obs that the
+// same object of got does not have, or "".
+func absentIn(obs json.Value, got json.Value, at string) string {
+	match obs {
+	case json.Object as o:
+		match got {
+		case json.Object as g:
+			for m in o.Members {
+				let mut hit = false
+				for n in g.Members {
+					if n.Key == m.Key {
+						hit = true
+						let deeper = absentIn(m.Value, n.Value, at+"."+m.Key)
+						if deeper != "" {
+							return deeper
+						}
+					}
+				}
+				if !hit {
+					return at + "." + m.Key
+				}
+			}
+			""
+		case _:
+			""
+		}
+	case _:
+		""
+	}
+}
+
+// tagOf is the variant name a value's wire form carries, or "".
+func tagOf(v json.Value) string {
+	match v {
+	case json.Object as o:
+		for m in o.Members {
+			if m.Key == "_tag" {
+				match m.Value {
+				case json.Str as s:
+					return s.Value
+				case _:
+				}
+			}
+		}
+		""
+	case _:
+		""
+	}
+}
+
+// keysOf are the member names of an object value, its tag left out.
+func keysOf(v json.Value) []string {
+	let mut out = []string{}
+	match v {
+	case json.Object as o:
+		for m in o.Members {
+			if m.Key != "_tag" {
+				out = out.Append(m.Key)
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// signalObs is an observation's signal as a value to fit: its args with
+// its name as the tag.
+func signalObs(name string, args Option[json.Value]) json.Value {
+	let mut ms = []json.Member{json.Member{Key: "_tag", Value: json.Str{Value: name}}}
+	match args {
+	case Some[json.Value] as a:
+		match a.Value {
+		case json.Object as o:
+			for m in o.Members {
+				ms = ms.Append(m)
+			}
+		case _:
+		}
+	case None:
+	}
+	json.Object{Members: ms}
+}
+
+// project is v's wire form cut to the members obs names, as text.
+func project(v json.Value, obs json.Value) string {
+	match obs {
+	case json.Object as o:
+		match v {
+		case json.Object as b:
+			let mut ms = []json.Member{}
+			for m in o.Members {
+				for n in b.Members {
+					if n.Key == m.Key {
+						ms = ms.Append(n)
+					}
+				}
+			}
+			json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Object{Members: ms})
+		case _:
+			json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+		}
+	case _:
+		json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+	}
+}
+
+// differ are the members of obs whose value v's wire form does not have.
+func differ(v json.Value, obs json.Value) []string {
+	let mut out = []string{}
+	match obs {
+	case json.Object as o:
+		match v {
+		case json.Object as b:
+			for m in o.Members {
+				let mut same = false
+				for n in b.Members {
+					if n.Key == m.Key && n.Value == m.Value {
+						same = true
+					}
+				}
+				if !same {
+					out = out.Append(m.Key)
+				}
+			}
+		case _:
+		}
+	case _:
+		if v != obs {
+			out = out.Append("(the state)")
+		}
+	}
+	out
+}
+
+// candidates is a set of model states with the run that reached each: a
+// node of a trail, as Result keeps one (parent -1: a start, sig its index).
+type candidates[S] { states []S, nodes []int, keys dense.Keys }
+
+func noCandidates[S]() candidates[S] { candidates[S]{states: []S{}, nodes: []int{}, keys: dense.NewKeys()} }
+
+// trail is the runs of every candidate seen: parent node and signal.
+type trail { parent []int32, sig []int32 }
+
+func addNode(t mut trail, parent int, sig int) int {
+	t.parent = t.parent.Append(int32(parent))
+	t.sig = t.sig.Append(int32(sig))
+	len(t.parent) - 1
+}
+
+func runOf(t trail, node int) Run {
+	RunTo(Result{Found: node, Stats: Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}, parent: t.parent, sig: t.sig}, node)
+}
+
+// broke is, for each node of a trail and each law, the line at which the
+// node's run first reached a state the law rejects, or -1: a run that
+// broke a law stays broken, whatever states it reaches after (an always
+// law is about every state of the run, hidden steps' included).
+type broke { laws int, at []int }
+
+// reach records node, reached by a step from parent (-1: a start) to s
+// before or at line: parent's breaks, and line for each law s breaks first.
+func reach[S](b mut broke, parent int, s S, line int, laws []Invariant[S]) {
+	for l in 0..b.laws {
+		let mut at = if parent >= 0 { b.at[parent*b.laws+l] } else { -1 }
+		if at < 0 && !laws[l].Holds(s) {
+			at = line
+		}
+		b.at = b.at.Append(at)
+	}
+}
+
+// candidateKey is s's key, told apart by the laws its run broke: two runs
+// to one state are one candidate only when they broke the same laws, so a
+// run that kept every law is never dropped for one that did not.
+func candidateKey[S wire](s S, node int, b broke) Hash needs wired[S] {
+	let (k, _) = KeyOf(s)
+	let mut h = newHasher()
+	let mut any = false
+	for l in 0..b.laws {
+		if b.at[node*b.laws+l] >= 0 {
+			if !any {
+				absorb(&h, k.Hi)
+				absorb(&h, k.Lo)
+				any = true
+			}
+			absorb(&h, uint64(l+1))
+		}
+	}
+	if any { Hash{Hi: h.hi, Lo: h.lo} } else { k }
+}
+
+// put adds s, reached as node, unless the set has it; it reports whether
+// it did.
+func put[S wire](c mut candidates[S], s S, node int, b broke) bool needs wired[S] {
+	let k = candidateKey(s, node, b)
+	if !dense.AddKey(&c.keys, k.Hi, k.Lo) {
+		return false
+	}
+	c.states = c.states.Append(s)
+	c.nodes = c.nodes.Append(node)
+	true
+}
+
+// Conform decides whether trace is a behaviour of g (see the package
+// comment above). The signals of g are those an observation may name.
+func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invariant[S]) Conformance needs wired[S] | wired[E] {
+	let limit = if o.Limit > 0 { o.Limit } else { 100000 }
+	let mut tr = trail{parent: []int32{}, sig: []int32{}}
+	let mut c = noCandidates[S]()
+	let mut rep = Report{Lines: 0, Peak: 0, Hidden: 0, Unseen: []string{}, Unobserved: []string{}}
+	// The signals' wire forms, and which ones the trace took.
+	let mut sigs = []json.Value{}
+	let mut tags = []string{}
+	let mut taken = []bool{}
+	for e in g.Signals {
+		sigs = sigs.Append(valueOf(e))
+		tags = tags.Append(tagOf(sigs[len(sigs)-1]))
+		taken = taken.Append(false)
+	}
+	// The state's fields, and which ones the trace observed.
+	let mut fields = []string{}
+	let mut seen = []bool{}
+	// The laws each run broke, and where: a start that breaks one breaks
+	// it before the first line.
+	let mut bk = broke{laws: len(laws), at: []int{}}
+	let first = if len(trace) > 0 { trace[0].Line } else { 0 }
+	for i in 0..len(g.Starts) {
+		let node = addNode(&tr, -1, i)
+		reach(&bk, -1, g.Starts[i], first, laws)
+		if put(&c, g.Starts[i], node, bk) && len(fields) == 0 {
+			for k in keysOf(valueOf(g.Starts[i])) {
+				fields = fields.Append(k)
+				seen = seen.Append(false)
+			}
+		}
+	}
+	if len(c.states) == 0 {
+		return Mismatch{Line: 0, Observed: "", Before: []string{}, Allowed: []string{}, Nearest: "the model has no start", Differ: []string{}, Report: finish(rep, g, taken, fields, seen)}
+	}
+	if len(c.states) > limit {
+		return OverLimit{Line: 0, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+	}
+	// hiddenAt is the number of hidden steps in each node's run.
+	let mut hiddenAt = []int{}
+	for _ in 0..len(tr.parent) {
+		hiddenAt = hiddenAt.Append(0)
+	}
+	for ob in trace {
+		// Close the candidates under up to Hidden unobserved steps.
+		let mut layer = 0
+		let mut from = 0
+		for layer < o.Hidden {
+			let to = len(c.states)
+			for i in from..to {
+				let s = c.states[i]
+				for e in 0..len(g.Signals) {
+					match g.Step(s, g.Signals[e]) {
+					case None:
+					case Some[S] as t:
+						let node = addNode(&tr, c.nodes[i], e)
+						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]] + 1)
+						// A hidden step's state is a state of the run: the
+						// laws are checked on it too (batch-mc1 T2 M1).
+						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
+						if put(&c, t.Value, node, bk) && len(c.states) > limit {
+							rep.Peak = len(c.states)
+							return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+						}
+					}
+				}
+			}
+			from = to
+			layer = layer + 1
+		}
+		rep.Peak = larger(rep.Peak, len(c.states))
+		// The signals the observation allows.
+		let mut allowed = []int{}
+		match ob.Signal {
+		case None:
+			for e in 0..len(g.Signals) {
+				allowed = allowed.Append(e)
+			}
+		case Some[string] as name:
+			let want = signalObs(name.Value, ob.Args)
+			let mut named = false
+			for e in 0..len(g.Signals) {
+				if tags[e] == name.Value {
+					named = true
+				} else if tags[e] != "" {
+					// Another variant: overlay's tag rule makes it Differs.
+					continue
+				}
+				match fitOn(g.Signals[e], sigs[e], want) {
+				case Fits:
+					allowed = allowed.Append(e)
+				case Differs:
+				case Bad as b:
+					return TraceError{Line: ob.Line, Why: "signal " + name.Value + " " + b.Why}
+				}
+			}
+			if !named {
+				return TraceError{Line: ob.Line, Why: "the model has no signal " + name.Value}
+			}
+		}
+		// The observed fields.
+		match ob.State {
+		case Some[json.Value] as st:
+			for k in keysOf(st.Value) {
+				for i in 0..len(fields) {
+					if fields[i] == k {
+						seen[i] = true
+					}
+				}
+			}
+		case None:
+		}
+		let whole = wholeOf(ob.State)
+		let mut next = noCandidates[S]()
+		let mut steps = []string{}
+		let mut nearest = ""
+		let mut nearDiffer = []string{}
+		for i in 0..len(c.states) {
+			let s = c.states[i]
+			if o.Stutter && isNone(ob.Signal) {
+				match fitWhole(s, ob.State, whole) {
+				case Fits:
+					put(&next, s, c.nodes[i], bk)
+				case Differs:
+				case Bad as b:
+					return TraceError{Line: ob.Line, Why: "state " + b.Why}
+				}
+			}
+			for e in allowed {
+				match g.Step(s, g.Signals[e]) {
+				case None:
+				case Some[S] as t:
+					match fitWhole(t.Value, ob.State, whole) {
+					case Fits:
+						taken[e] = true
+						let node = addNode(&tr, c.nodes[i], e)
+						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]])
+						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
+						put(&next, t.Value, node, bk)
+					case Differs:
+						if len(next.states) == 0 {
+							steps = steps.Append(tagOrText(sigs[e]))
+							match ob.State {
+							case Some[json.Value] as st:
+								let d = differ(valueOf(t.Value), st.Value)
+								if nearest == "" || len(d) < len(nearDiffer) {
+									nearest = project(valueOf(t.Value), st.Value)
+									nearDiffer = d
+								}
+							case None:
+							}
+						}
+					case Bad as b:
+						return TraceError{Line: ob.Line, Why: "state " + b.Why}
+					}
+				}
+			}
+		}
+		if len(next.states) == 0 {
+			let mut before = []string{}
+			let obsText = observed(ob)
+			for s in c.states {
+				match ob.State {
+				case Some[json.Value] as st:
+					before = before.Append(project(valueOf(s), st.Value))
+				case None:
+					before = before.Append(json.Encode(json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, s))
+				}
+			}
+			return Mismatch{Line: ob.Line, Observed: obsText, Before: before, Allowed: steps, Nearest: nearest, Differ: nearDiffer, Report: finish(rep, g, taken, fields, seen)}
+		}
+		c = next
+		rep.Peak = larger(rep.Peak, len(c.states))
+		if len(c.states) > limit {
+			rep.Peak = len(c.states)
+			return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
+		}
+		rep.Lines = rep.Lines + 1
+		// A law every candidate's run broke, at a logged state, a hidden
+		// one or one the trace left out, is broken by every behaviour that
+		// explains the trace so far; the line is the latest at which one of
+		// them broke it.
+		for l in 0..len(laws) {
+			let mut all = true
+			let mut line = 0
+			for n in c.nodes {
+				let at = bk.at[n*bk.laws+l]
+				if at < 0 {
+					all = false
+				} else if at > line {
+					line = at
+				}
+			}
+			if all {
+				rep.Hidden = hiddenAt[c.nodes[0]]
+				return Broken{Line: line, Invariant: laws[l].Name, Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
+			}
+		}
+	}
+	rep.Hidden = hiddenAt[c.nodes[0]]
+	Conforms{Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
+}
+
+func isNone(x Option[string]) bool {
+	match x {
+	case None:
+		true
+	case Some[string]:
+		false
+	}
+}
+
+// wholeOf is an observed state's compact text, or "" when the line logs
+// no state.
+func wholeOf(obs Option[json.Value]) string {
+	match obs {
+	case None:
+		""
+	case Some[json.Value] as v:
+		json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)
+	}
+}
+
+// fitWhole is fitState with the observation's text whole (wholeOf) at
+// hand: a line that logs the state whole, as the codec writes it, has
+// the text of s exactly when s fits, so equal texts fit with no valueOf
+// (a text decodes to one value, and Decode(Encode(x)) is x); any other
+// line goes to fitState. Law ConformAgreesWithReference holds it.
+func fitWhole[S wire](s S, obs Option[json.Value], whole string) Fit needs wired[S] {
+	if whole != "" && json.Encode(json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, s) == whole {
+		return Fits
+	}
+	fitState(s, obs)
+}
+
+// fitState fits a state to an observation's state, which may be absent.
+func fitState[S wire](s S, obs Option[json.Value]) Fit needs wired[S] {
+	match obs {
+	case None:
+		Fits
+	case Some[json.Value] as v:
+		FitOf(s, v.Value)
+	}
+}
+
+func tagOrText(v json.Value) string {
+	let t = tagOf(v)
+	if t != "" { t } else { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }
+}
+
+// observed is the observation as the trace wrote it, its known keys only.
+func observed(ob Obs) string {
+	let mut ms = []json.Member{}
+	match ob.Signal {
+	case Some[string] as s:
+		ms = ms.Append(json.Member{Key: "signal", Value: json.Str{Value: s.Value}})
+	case None:
+	}
+	match ob.Args {
+	case Some[json.Value] as a:
+		ms = ms.Append(json.Member{Key: "args", Value: a.Value})
+	case None:
+	}
+	match ob.State {
+	case Some[json.Value] as st:
+		ms = ms.Append(json.Member{Key: "state", Value: st.Value})
+	case None:
+	}
+	json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Object{Members: ms})
+}
+
+// finish fills in what the trace never observed.
+func finish[S, E wire](rep Report, g Graph[S, E], taken []bool, fields []string, seen []bool) Report needs wired[E] {
+	let mut r = rep
+	let mut unseen = []string{}
+	for e in 0..len(g.Signals) {
+		if !taken[e] {
+			let name = tagOrText(valueOf(g.Signals[e]))
+			let mut dup = false
+			for u in unseen {
+				if u == name {
+					dup = true
+				}
+			}
+			// A variant counts as taken when any of its listed values was.
+			for f in 0..len(g.Signals) {
+				if taken[f] && tagOrText(valueOf(g.Signals[f])) == name {
+					dup = true
+				}
+			}
+			if !dup {
+				unseen = unseen.Append(name)
+			}
+		}
+	}
+	let mut unobserved = []string{}
+	for i in 0..len(fields) {
+		if !seen[i] {
+			unobserved = unobserved.Append(fields[i])
+		}
+	}
+	r.Unseen = unseen
+	r.Unobserved = unobserved
+	r
+}
+
+// The laws of Conform (MODELCHECK T2), over generated machines: a step
+// table of up to 12 states and 4 signals (refTable), whose states are
+// records of three fields and whose signals are Go{K} and Tick, so a trace
+// can leave out a signal's name, its field, and any of the state's fields.
+
+// CState is a generated machine's state: state n is {A: n%4, B: n/4, C:
+// n%3 == 0}, so no two states of a table share their fields.
+type CState { A int, B int, C bool }
+
+// CSig is a generated machine's signal: signal e < k-1 is Go{K: e}, the
+// last is Tick.
+type CSig = Go{K int} | Tick{}
+
+func cState(n int) CState { CState{A: n % 4, B: n / 4, C: n%3 == 0} }
+
+func cIndex(s CState) int { s.B*4 + s.A }
+
+func cSig(e int, k int) CSig { if e == k-1 { Tick } else { Go{K: e} } }
+
+// cGraph is the graph of the table from state 0.
+func cGraph(table []int, k int) Graph[CState, CSig] {
+	let mut sigs = []CSig{}
+	for e in 0..k {
+		sigs = sigs.Append(cSig(e, k))
+	}
+	Graph[CState, CSig]{Starts: []CState{cState(0)}, Signals: sigs, Step: func(s CState, e CSig) Option[CState] {
+		let i = match e {
+		case Go as g:
+			g.K
+		case Tick:
+			k - 1
+		}
+		let t = table[cIndex(s)*k+i]
+		if t < 0 { None } else { Some[CState]{Value: cState(t)} }
+	}}
+}
+
+// CObs is a generated observation: Variant -1 (no signal), 0 (Go) or 1
+// (Tick); Arg -1 (left out) or Go's K; Mask the state's fields it names
+// (bit 0 a, bit 1 b, bit 2 c) and their values.
+type CObs { Variant int, Arg int, Mask int, A int, B int, C bool }
+
+// cText is the trace of obs as JSON Lines.
+func cText(obs []CObs) string {
+	let mut out = ""
+	for o in obs {
+		let mut parts = []string{}
+		if o.Variant == 0 {
+			parts = parts.Append("\"signal\": \"Go\"")
+			if o.Arg >= 0 {
+				parts = parts.Append("\"args\": {\"k\": " + strconv.Itoa(o.Arg) + "}")
+			}
+		} else if o.Variant == 1 {
+			parts = parts.Append("\"signal\": \"Tick\"")
+		}
+		let mut fs = []string{}
+		if o.Mask&1 != 0 {
+			fs = fs.Append("\"a\": " + strconv.Itoa(o.A))
+		}
+		if o.Mask&2 != 0 {
+			fs = fs.Append("\"b\": " + strconv.Itoa(o.B))
+		}
+		if o.Mask&4 != 0 {
+			fs = fs.Append("\"c\": " + strconv.FormatBool(o.C))
+		}
+		if len(fs) > 0 {
+			parts = parts.Append("\"state\": {" + strings.Join(fs, ", ") + "}")
+		}
+		out = out + "{" + strings.Join(parts, ", ") + "}\n"
+	}
+	out
+}
+
+// cMatches is the reference's match of one observed step: from s by
+// signal e (or a stutter, e = -1) to t.
+func cMatches(o CObs, e int, k int, t int) bool {
+	let sigOk = if e < 0 {
+		o.Variant == -1
+	} else if e == k-1 {
+		o.Variant == -1 || o.Variant == 1
+	} else {
+		o.Variant == -1 || (o.Variant == 0 && (o.Arg < 0 || o.Arg == e))
+	}
+	let st = cState(t)
+	sigOk && (o.Mask&1 == 0 || o.A == st.A) && (o.Mask&2 == 0 || o.B == st.B) && (o.Mask&4 == 0 || o.C == st.C)
+}
+
+// cExplains is the naive reference: whether some run from s explains
+// obs[i:], taking up to left hidden steps before obs[i] (hidden before
+// each observation) and, with stutter, letting a line with no signal keep
+// the state. It enumerates the runs one by one, with no set of states.
+func cExplains(table []int, k int, obs []CObs, i int, s int, left int, hidden int, stutter bool) bool {
+	if i == len(obs) {
+		return true
+	}
+	if stutter && cMatches(obs[i], -1, k, s) && cExplains(table, k, obs, i+1, s, hidden, hidden, stutter) {
+		return true
+	}
+	for e in 0..k {
+		let t = table[s*k+e]
+		if t < 0 {
+			continue
+		}
+		if cMatches(obs[i], e, k, t) && cExplains(table, k, obs, i+1, t, hidden, hidden, stutter) {
+			return true
+		}
+		if left > 0 && cExplains(table, k, obs, i, t, left-1, hidden, stutter) {
+			return true
+		}
+	}
+	false
+}
+
+// cWalk is a run of the table from state 0 of up to n steps, as the
+// states and signals it took.
+type cRun { States []int, Signals []int }
+
+func cWalk(table []int, k int, seed uint64, n int) cRun {
+	let mut r = cRun{States: []int{0}, Signals: []int{}}
+	let mut s = 0
+	let mut x = seed
+	for _ in 0..n {
+		let mut moves = []int{}
+		for e in 0..k {
+			if table[s*k+e] >= 0 {
+				moves = moves.Append(e)
+			}
+		}
+		if len(moves) == 0 {
+			return r
+		}
+		x = x + golden
+		let e = moves[int(splitmix(x)%uint64(len(moves)))]
+		s = table[s*k+e]
+		r.Signals = r.Signals.Append(e)
+		r.States = r.States.Append(s)
+	}
+	r
+}
+
+// cProject is the run's trace with parts left out by the bits of mask:
+// per step, whether it names its signal, its field, and which state
+// fields; and up to drop whole steps dropped (each step i with bit i of
+// gone set, at most drop of them).
+func cProject(run cRun, k int, mask uint64, gone uint64, drop int) []CObs {
+	let mut out = []CObs{}
+	let mut dropped = 0
+	for i in 0..len(run.Signals) {
+		if dropped < drop && (gone>>uint64(i))&uint64(1) == uint64(1) {
+			dropped = dropped + 1
+			continue
+		}
+		let bits = int((mask >> uint64(5*(i%12))) & uint64(31))
+		let e = run.Signals[i]
+		let st = cState(run.States[i+1])
+		let variant = if bits&1 == 0 { -1 } else if e == k-1 { 1 } else { 0 }
+		let arg = if variant == 0 && bits&2 != 0 { e } else { -1 }
+		out = out.Append(CObs{Variant: variant, Arg: arg, Mask: bits >> 2, A: st.A, B: st.B, C: st.C})
+	}
+	out
+}
+
+func cVerdict(table []int, k int, obs []CObs, hidden int, stutter bool, limit int) Conformance {
+	let tr = ReadTrace(cText(obs)) catch {
+	case TraceError as t:
+		return t
+	}
+	Conform(cGraph(table, k), tr, Options{Hidden: hidden, Stutter: stutter, Limit: limit}, []Invariant[CState]{})
+}
+
+// ProjectionsConform (T2 law 1): a real run of a generated machine, with
+// any of its signals' names, fields and state fields left out and up to h
+// whole steps dropped, conforms with Hidden >= h; its matching behaviour
+// replays from the start through the graph.
+law ProjectionsConform(seed uint64, size uint8, signals uint8, length uint8, mask uint64, gone uint64, h uint8, extra uint8) {
+	let n = 1 + int(size%uint8(12))
+	let k = 1 + int(signals%uint8(4))
+	let table = refTable(seed, n, k)
+	let run = cWalk(table, k, seed^mask, int(length%uint8(7)))
+	let drop = int(h % uint8(3))
+	let obs = cProject(run, k, mask, gone, drop)
+	match cVerdict(table, k, obs, drop+int(extra%uint8(2)), extra%uint8(4) >= uint8(2), 0) {
+	case Conforms as c:
+		let g = cGraph(table, k)
+		cIndex(ReplayRun(g, c.Run)) < n && c.Report.Lines == len(obs)
+	case _:
+		false
+	}
+}
+
+// ConformAgreesWithReference (T2 law 2): a projected run with one part
+// changed (a state field, a signal's variant or field, or none) conforms
+// exactly when the naive reference (cExplains) finds a run that explains
+// it, under the same Hidden and Stutter; a trace that does not conform is
+// a Mismatch, never a TraceError.
+law ConformAgreesWithReference(seed uint64, size uint8, signals uint8, length uint8, mask uint64, which uint8, h uint8, stutter bool) {
+	let n = 1 + int(size%uint8(12))
+	let k = 1 + int(signals%uint8(4))
+	let table = refTable(seed, n, k)
+	let run = cWalk(table, k, seed^mask, 1+int(length%uint8(5)))
+	let mut obs = cProject(run, k, mask, uint64(0), 0)
+	let hidden = int(h % uint8(3))
+	if len(obs) > 0 {
+		let i = int(which) % len(obs)
+		let w = (int(which) / 7) % 5
+		if w == 0 {
+			obs[i].A = (obs[i].A + 1) % 4
+			obs[i].Mask = obs[i].Mask | 1
+		} else if w == 1 {
+			obs[i].C = !obs[i].C
+			obs[i].Mask = obs[i].Mask | 4
+		} else if w == 2 && k > 1 {
+			obs[i].Variant = if obs[i].Variant == 1 { 0 } else { 1 }
+			obs[i].Arg = -1
+		} else if w == 3 && k > 2 {
+			obs[i].Variant = 0
+			obs[i].Arg = (obs[i].Arg + 1 + int(which)%(k-2)) % (k - 1)
+		}
+	}
+	let want = cExplains(table, k, obs, 0, 0, hidden, hidden, stutter)
+	match cVerdict(table, k, obs, hidden, stutter, 0) {
+	case Conforms:
+		want
+	case Mismatch:
+		!want
+	case _:
+		false
+	}
+}
+
+// cExplainsClean is cExplains over the runs that never visit a state of
+// bad (bit n: state n), its start, its hidden steps and its stutters
+// included.
+func cExplainsClean(table []int, k int, obs []CObs, i int, s int, left int, hidden int, stutter bool, bad uint64) bool {
+	if (bad>>uint64(s))&uint64(1) == uint64(1) {
+		return false
+	}
+	if i == len(obs) {
+		return true
+	}
+	if stutter && cMatches(obs[i], -1, k, s) && cExplainsClean(table, k, obs, i+1, s, hidden, hidden, stutter, bad) {
+		return true
+	}
+	for e in 0..k {
+		let t = table[s*k+e]
+		if t < 0 {
+			continue
+		}
+		if cMatches(obs[i], e, k, t) && cExplainsClean(table, k, obs, i+1, t, hidden, hidden, stutter, bad) {
+			return true
+		}
+		if left > 0 && cExplainsClean(table, k, obs, i, t, left-1, hidden, stutter, bad) {
+			return true
+		}
+	}
+	false
+}
+
+// cleanRunKept is the smallest case of two runs that meet: 0 -Go0-> 1 (a
+// bad state) -Tick-> 3 and 0 -Go1-> 2 -Tick-> 3. The trace "{}", then
+// "Tick" is explained by the second, which keeps the law, so it conforms;
+// a candidate set that keeps one run per state, the broken one found
+// first, would say Broken.
+func cleanRunKept() bool {
+	let table = []int{1, 2, -1, -1, -1, 3, -1, -1, 3, -1, -1, -1}
+	let inv = Invariant[CState]{Name: "Good", Holds: func(s CState) bool { cIndex(s) != 1 }}
+	let tr = ReadTrace("{}\n{\"signal\": \"Tick\"}\n") catch {
+	case TraceError:
+		return false
+	}
+	match Conform(cGraph(table, 3), tr, Options{Hidden: 0, Stutter: false, Limit: 0}, []Invariant[CState]{inv}) {
+	case Conforms:
+		true
+	case _:
+		false
+	}
+}
+
+// ConformBreaksWithReference (batch-mc1 T2 M1): with a generated law
+// (the states of bad are rejected), Conform's verdict is the naive
+// reference's, line by line: at the first prefix of the trace no run
+// explains, Mismatch; at the first that only runs through a bad state
+// explain (a logged state, a hidden one or a stutter's), Broken; else
+// Conforms. A broken run stays broken when it leaves the bad states, and
+// a run that broke the law is never kept in place of one that did not
+// (cleanRunKept, which generated tables seldom reach).
+law ConformBreaksWithReference(seed uint64, size uint8, signals uint8, length uint8, mask uint64, gone uint64, h uint8, stutter bool, bad uint16) {
+	if !cleanRunKept() {
+		return false
+	}
+	let n = 1 + int(size%uint8(12))
+	let k = 1 + int(signals%uint8(4))
+	let table = refTable(seed, n, k)
+	let run = cWalk(table, k, seed^mask, 1+int(length%uint8(6)))
+	let hidden = int(h % uint8(3))
+	let obs = cProject(run, k, mask, gone, hidden)
+	let b = uint64(bad)
+	let inv = Invariant[CState]{Name: "Good", Holds: func(s CState) bool { (b>>uint64(cIndex(s)))&uint64(1) == uint64(0) }}
+	let tr = ReadTrace(cText(obs)) catch {
+	case TraceError:
+		return false
+	}
+	let got = Conform(cGraph(table, k), tr, Options{Hidden: hidden, Stutter: stutter, Limit: 0}, []Invariant[CState]{inv})
+	for i in 1..len(obs)+1 {
+		let prefix = obs[0:i]
+		if !cExplains(table, k, prefix, 0, 0, hidden, hidden, stutter) {
+			match got {
+			case Mismatch as m:
+				return m.Line == i
+			case _:
+				return false
+			}
+		}
+		if !cExplainsClean(table, k, prefix, 0, 0, hidden, hidden, stutter, b) {
+			match got {
+			case Broken as x:
+				return x.Line <= i && x.Invariant == "Good"
+			case _:
+				return false
+			}
+		}
+	}
+	match got {
+	case Conforms:
+		true
+	case _:
+		false
+	}
+}
+
+// TraceErrorsNameTheLine: after `at` lines a run of Ticks explains, a
+// line that is not of the model's types is a TraceError at that line,
+// never a mismatch: a field of the wrong kind, a field the state does not
+// have, a signal the model does not have, a signal's field of the wrong
+// kind, and a line that is not JSON.
+law TraceErrorsNameTheLine(at uint8, kind uint8) {
+	let n = int(at % uint8(4))
+	let bad = []string{
+		"{\"signal\": \"Tick\", \"state\": {\"a\": \"zero\"}}",
+		"{\"signal\": \"Tick\", \"state\": {\"d\": 0}}",
+		"{\"signal\": \"Tock\"}",
+		"{\"signal\": \"Go\", \"args\": {\"k\": true}}",
+		"{\"signal\": \"Tick\"",
+	}
+	let mut text = ""
+	for _ in 0..n {
+		text = text + "{\"signal\": \"Tick\", \"state\": {\"a\": 0}}\n"
+	}
+	text = text + bad[int(kind%uint8(5))] + "\n"
+	// Two signals, Go{K: 0} and Tick; every step stays at state 0.
+	let table = []int{0, 0}
+	let tr = ReadTrace(text) catch {
+	case TraceError as t:
+		return t.Line == n+1 && kind%uint8(5) == uint8(4)
+	}
+	match Conform(cGraph(table, 2), tr, Options{Hidden: 0, Stutter: false, Limit: 0}, []Invariant[CState]{}) {
+	case TraceError as t:
+		t.Line == n+1
+	case _:
+		false
+	}
+}
+
+// LimitNeverConforms (T2 law 3): with a limit of candidates, a verdict is
+// OverLimit exactly when the candidates outgrew it, so Conforms never
+// stands on more candidates than the limit.
+law LimitNeverConforms(seed uint64, size uint8, signals uint8, length uint8, mask uint64, h uint8, limit uint8) {
+	let n = 1 + int(size%uint8(12))
+	let k = 1 + int(signals%uint8(4))
+	let table = refTable(seed, n, k)
+	let run = cWalk(table, k, seed^mask, int(length%uint8(5)))
+	let obs = cProject(run, k, mask, uint64(0), 0)
+	let l = 1 + int(limit%uint8(3))
+	match cVerdict(table, k, obs, int(h%uint8(3)), false, l) {
+	case Conforms as c:
+		c.Report.Peak <= l
+	case OverLimit as o:
+		o.Candidates > l
+	case Mismatch:
+		false
+	case _:
+		false
+	}
+}
+
+// FMode and FRec are FitFastAgreesWithDecode's values: a record with a
+// nested union, a bool, a number and an array of bools, the kinds
+// fitValue answers for.
+type FMode = Idle{} | Busy{K int}
+
+type FRec { Mode FMode, On bool, N int, Flags []bool }
+
+func fMode(x uint64) FMode { if x%3 == 0 { Idle } else { Busy{K: int(x / 3 % 2)} } }
+
+func fRec(x uint64) FRec {
+	FRec{Mode: fMode(x), On: x/6%2 == 1, N: int(x / 12 % 3), Flags: []bool{x/36%2 == 1, x/72%2 == 1}}
+}
+
+// fProject is w's wire form with the members (and the nested object's
+// members) mask leaves out dropped; the next mask bit gives the first kept
+// member a value of the wrong kind, and the one after adds a member the
+// type does not have.
+func fProject(w json.Value, mask uint64) json.Value {
+	match w {
+	case json.Object as o:
+		let mut bits = mask
+		let mut ms = []json.Member{}
+		for m in o.Members {
+			let keep = bits%2 == 1
+			bits = bits / 2
+			let mut value = m.Value
+			match m.Value {
+			case json.Object as inner:
+				let mut sub = []json.Member{}
+				for n in inner.Members {
+					if bits%2 == 1 {
+						sub = sub.Append(n)
+					}
+					bits = bits / 2
+				}
+				value = json.Object{Members: sub}
+			case _:
+			}
+			if keep {
+				ms = ms.Append(json.Member{Key: m.Key, Value: value})
+			}
+		}
+		if bits%2 == 1 && len(ms) > 0 {
+			ms[0] = json.Member{Key: ms[0].Key, Value: json.Str{Value: "x"}}
+		}
+		bits = bits / 2
+		if bits%2 == 1 {
+			ms = ms.Append(json.Member{Key: "Extra", Value: json.Boolean{Value: true}})
+		}
+		json.Object{Members: ms}
+	case _:
+		w
+	}
+}
+
+func fitName(f Fit) string {
+	match f {
+	case Fits:
+		"fits"
+	case Differs:
+		"differs"
+	case Bad as b:
+		"bad: " + b.Why
+	}
+}
+
+// fitAgrees is FitFastAgreesWithDecode for one case.
+func fitAgrees(a uint64, b uint64, mask uint64) bool {
+	let v = fRec(a)
+	let obs = fProject(valueOf(fRec(b)), mask)
+	fitName(FitOf(v, obs)) == fitName(fitDecode(v, valueOf(v), obs))
+}
+
+// FitFastAgreesWithDecode (MODELCHECK T2b): FitOf, which answers from the
+// wire forms when it can, says what the decode alone (fitDecode) says, for
+// an observation of another value with members left out, a member of the
+// wrong kind, or one the type does not have. The case where a differing
+// nested tag alone decides (Idle observed as Busy with its k left out,
+// mask 3), which generated masks seldom reach, is always run.
+law FitFastAgreesWithDecode(a uint64, b uint64, mask uint64) {
+	if !(fitAgrees(0, 1, 3) && fitAgrees(1, 0, 3)) {
+		return false
+	}
+	let v = fRec(a)
+	let obs = fProject(valueOf(fRec(b)), mask)
+	fitName(FitOf(v, obs)) == fitName(fitDecode(v, valueOf(v), obs))
+}

@@ -24,6 +24,9 @@ const (
 	destReturn
 	// destAssign assigns the value to the Go variable name.
 	destAssign
+	// destTuple assigns the elements of a tuple value to the Go variables
+	// names, "" for an element no name binds (tupleLet).
+	destTuple
 )
 
 // dest is where a body's last value goes. A with block's tails assign its
@@ -35,7 +38,8 @@ type dest struct {
 	name  string
 	err   string
 	site  string     // chosen result's position in a law's control expression
-	typ   check.Type // the type of name's value, for destAssign
+	typ   check.Type // the type of name's value, for destAssign and destTuple
+	names []string   // destTuple's variables
 }
 
 // assignedTo is x's value put into a Go variable of the checked type to: x
@@ -91,6 +95,10 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 		}
 		if _, tail := fc.l.info.Tails[s]; !tail {
 			fc.discard(s.X)
+			return false
+		}
+		if d.kind == destTuple {
+			fc.tupleYield(s.X, d)
 			return false
 		}
 		fc.lentYield(d.name, s.X)
@@ -293,7 +301,7 @@ func (d dest) needsDefault(allTerminate bool) bool {
 	switch d.kind {
 	case destReturn:
 		return true
-	case destAssign:
+	case destAssign, destTuple:
 		return !allTerminate
 	}
 	return false

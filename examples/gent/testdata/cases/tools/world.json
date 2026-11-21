@@ -1,0 +1,40 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [
+    "Let me look."
+   ],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "list",
+     "arguments": "{\"dir\":\".\"}"
+    },
+    {
+     "id": "c2",
+     "name": "read",
+     "arguments": "{\"path\":\"notes.txt\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "The notes say to water the plants."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {
+  "notes.txt": "water the plants\n",
+  "src/main.go": "package main\n"
+ },
+ "shell": {}
+}

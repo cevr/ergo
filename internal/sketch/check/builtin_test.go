@@ -12,7 +12,7 @@ import (
 // builtin is TestBuiltinsAgree's prelude (lower), which runs it.
 func TestBuiltinBindingShapes(t *testing.T) {
 	for _, row := range []struct{ src, want string }{
-		{"extern go append func push[T](xs []T, x []T) []T\n", "the extern push binds Go's builtin append, whose shape is func [T](xs []T, x T) []T"},
+		{"extern go append func push[T](xs []T, x [][]T) []T\n", "the extern push binds Go's builtin append, whose shape is func [T](xs []T, x T) []T, or [T](xs []T, ys []T) []T"},
 		{"extern go copy func into[T](dst []T, src []T) int\n", "the extern into binds Go's builtin copy, whose shape is func [T](dst *[]T, src []T) int"},
 		{"extern go delete func drop[K comparable, V](m Map[K, V], k V) Map[K, V]\n", "the extern drop binds Go's builtin delete, whose shape is func [K comparable, V](m Map[K, V], k K) Map[K, V]"},
 		{"extern go min func least(a bool, b bool) bool\n", "the extern least binds Go's builtin min, whose shape is func (a T, b T) T, T an ordered basic type"},

@@ -1,0 +1,515 @@
+// Route tables (SSR WEB-T1's table form, with ROUTE-QUERY's query part):
+// a site's routes as a constant list of rows, one per variant of its
+// route union, each with a pattern. HrefOf and ParseOf read a route from
+// and to its place by the union's derived codec, so a route map is data a
+// tool can read without running a body (the TypeScript projection reads
+// the same rows), and Routes' law HrefParses holds over the table form as
+// over a hand-written map.
+//
+// A pattern is a path and an optional query part:
+//
+//	"/"                     the variant with no fields
+//	"/posts/:slug"          static segments, and :key for one segment
+//	"/search?q&limit&type"  then the keys the query carries
+//
+// A key is a field's wire key (types.md, Codecs: the key the derived
+// codec writes, the one JSON, the query and TypeScript use). A path key's
+// value is one segment, escaped as ui.Escape does, so a '/' inside it
+// stays inside it. A query key follows http.DecodeQuery's rule: a scalar
+// field takes one value, a slice field every value of its key in order,
+// a json.Optional field may be absent, and a value is read as its field's
+// type, so "limit=x" is no place of a route whose limit is an int. A
+// query key the pattern does not list is not read, and Href writes none.
+// A route type is comparable (Routes), so a route has no slice field: a
+// repeated key reads into a slice, which HrefOf and ParseOf take, for a
+// route kept outside Routes.
+
+import codec
+import html
+import http
+import json
+import strconv
+import strings
+import sync
+import ui
+import utf8
+
+// Row is one row of a route table: the union variant (its wire tag, the
+// type's name) and the pattern of its place.
+type Row { Variant string, Pattern string }
+
+// pattern is a row's pattern read: its path segments ("" for none, so
+// "/" is one empty segment) and its query keys.
+type pattern { segments []string, query []string }
+
+func patternOf(p string) pattern {
+	let q = strings.Index(p, "?")
+	let path = if q < 0 { p } else { p[0:q] }
+	let mut keys = []string{}
+	if q >= 0 {
+		for k in strings.Split(p[q+1:len(p)], "&") {
+			if k != "" {
+				keys = keys.Append(k)
+			}
+		}
+	}
+	pattern{segments: strings.Split(strings.TrimPrefix(path, "/"), "/"), query: keys}
+}
+
+// field is one key of a route value and its values: one for a scalar,
+// each element for a list.
+type field { key string, values []string }
+
+// fieldsOf is the tag and the fields of v's wire form, or None when v is
+// not a tagged object of scalars and lists of scalars.
+func fieldsOf(events []codec.Event) Option[(string, []field)] {
+	let mut tag = ""
+	let mut out = []field{}
+	let mut i = 0
+	match events[0] {
+	case codec.BeginObjectEvent:
+		i = 1
+	case _:
+		return None
+	}
+	for i < len(events) {
+		match events[i] {
+		case codec.TagEvent as t:
+			tag = t.Name
+			i = i + 1
+		case codec.KeyEvent as k:
+			i = i + 1
+			let mut values = []string{}
+			match events[i] {
+			case codec.BeginListEvent:
+				i = i + 1
+				let mut open = true
+				for open {
+					match events[i] {
+					case codec.EndListEvent:
+						open = false
+					case _:
+						match scalarText(events[i]) {
+						case Some as s:
+							values = values.Append(s.Value)
+						case None:
+							return None
+						}
+					}
+					i = i + 1
+				}
+			case _:
+				match scalarText(events[i]) {
+				case Some as s:
+					values = values.Append(s.Value)
+				case None:
+					return None
+				}
+				i = i + 1
+			}
+			out = out.Append(field{key: k.K, values: values})
+		case codec.EndObjectEvent:
+			return Some{(tag, out)}
+		case _:
+			return None
+		}
+	}
+	None
+}
+
+// scalarText is a scalar event's text in a place, None for another event.
+func scalarText(e codec.Event) Option[string] {
+	match e {
+	case codec.StringEvent as s:
+		Some{s.V}
+	case codec.BoolEvent as x:
+		Some{if x.V { "true" } else { "false" }}
+	case codec.IntEvent as n:
+		Some{strconv.FormatInt(n.V, 10)}
+	case codec.UintEvent as n:
+		Some{utf8.String(strconv.AppendUint([]byte{}, n.V, 10))}
+	case codec.FloatEvent as x:
+		Some{strconv.FormatFloat(x.V, 'g', -1)}
+	case codec.NumberEvent as x:
+		Some{x.Text}
+	case _:
+		None
+	}
+}
+
+// valuesOf is the values of key in fields, none when it is absent.
+func valuesOf(fields []field, key string) []string {
+	for f in fields {
+		if f.key == key {
+			return f.values
+		}
+	}
+	[]string{}
+}
+
+// HrefOf is r's place by the row of table for its variant: each :key of
+// the path is the key's value, escaped, and the query is each listed key
+// with each of its values, in the pattern's order (an absent
+// json.Optional writes none). A variant with no row, or a field with no
+// place form, is "/", which HrefParses refutes.
+func HrefOf[R wire](table []Row, r R) ui.URL needs wired[R] {
+	let e = codec.NewEvents()
+	encode(r, e)
+	let none = ui.URL{Path: "/", Query: "", Fragment: ""}
+	match fieldsOf(codec.Recorded(e)) {
+	case None:
+		none
+	case Some as got:
+		let (tag, fields) = got.Value
+		for row in table {
+			if row.Variant != tag {
+				continue
+			}
+			let p = patternOf(row.Pattern)
+			let mut path = strings.NewBuilder()
+			for s in p.segments {
+				path.WriteString("/")
+				if strings.HasPrefix(s, ":") {
+					let vs = valuesOf(fields, strings.TrimPrefix(s, ":"))
+					if len(vs) == 1 {
+						path.WriteString(ui.Escape(vs[0]))
+					}
+				} else {
+					path.WriteString(s)
+				}
+			}
+			let mut query = []http.Field{}
+			for k in p.query {
+				for v in valuesOf(fields, k) {
+					query = query.Append(http.Field{Name: k, Value: v})
+				}
+			}
+			return ui.URL{Path: path.String(), Query: http.EncodeQuery(query), Fragment: ""}
+		}
+		none
+	}
+}
+
+// ParseOf is the route whose place u is: the first row whose path
+// matches u's (a static segment equal, a :key any one segment, unescaped)
+// and whose fields, the path's keys and the listed keys of u's query,
+// decode as a value of its variant. None when no row does.
+func ParseOf[R wire](table []Row, u ui.URL) Option[R] needs wired[R] {
+	let got = strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	let query = http.ParseQuery(u.Query)
+	for row in table {
+		let p = patternOf(row.Pattern)
+		if len(p.segments) != len(got) || !strings.HasPrefix(u.Path, "/") {
+			continue
+		}
+		let mut groups = []field{}
+		let mut matched = true
+		for i, s in p.segments {
+			if strings.HasPrefix(s, ":") {
+				groups = groups.Append(field{key: strings.TrimPrefix(s, ":"), values: []string{ui.Unescape(got[i])}})
+			} else if s != got[i] {
+				matched = false
+			}
+		}
+		if !matched {
+			continue
+		}
+		for k in p.query {
+			let mut values = []string{}
+			for f in query {
+				if f.Name == k {
+					values = values.Append(f.Value)
+				}
+			}
+			if len(values) > 0 {
+				groups = groups.Append(field{key: k, values: values})
+			}
+		}
+		let r = routeReaderOf(row.Variant, groups)
+		let v = decode[R](r) catch {
+		case _:
+			continue
+		}
+		return Some{v}
+	}
+	None
+}
+
+// routeReader gives a route's fields to decode as a tagged object: its
+// tag is the row's variant, its keys the fields, each once, and a key's
+// value its one value, or the list of its values when the field asks for
+// a list (http's query reader, with a tag). Its states: 0 before the
+// object, 1 between keys, 2 at a key's value, 3 in a key's list, 4 after
+// the object.
+type routeReader { tag string, groups []field, state sync.Ref[int], at sync.Ref[int], item sync.Ref[int] } implements Reader
+
+func routeReaderOf(tag string, groups []field) routeReader {
+	routeReader{tag: tag, groups: groups, state: sync.NewRef[int](0), at: sync.NewRef[int](0), item: sync.NewRef[int](0)}
+}
+
+func Path(r routeReader) string {
+	let s = r.state.Get()
+	if s == 2 {
+		return r.groups[r.at.Get()].key
+	}
+	if s == 3 {
+		return r.groups[r.at.Get()].key + "[" + strconv.Itoa(r.item.Get()) + "]"
+	}
+	""
+}
+
+// value takes the next scalar value: the key's one value, or the list's
+// next. want names the kind for a WireWrongKind. A scalar field given
+// twice fails, never first or last wins.
+func value(r routeReader, want string) string fails WireWrongKind {
+	let s = r.state.Get()
+	if s == 2 {
+		let g = r.groups[r.at.Get()]
+		if len(g.values) != 1 {
+			return WireWrongKind{Path: g.key, Want: "one value"}
+		}
+		r.state.Set(1)
+		r.at.Set(r.at.Get() + 1)
+		return g.values[0]
+	}
+	if s == 3 {
+		let i = r.item.Get()
+		r.item.Set(i + 1)
+		return r.groups[r.at.Get()].values[i]
+	}
+	WireWrongKind{Path: Path(r), Want: want}
+}
+
+func TakeNull(r routeReader) bool { false }
+
+func Peek(r routeReader) WireKind {
+	let s = r.state.Get()
+	if s == 0 {
+		return WireObject
+	}
+	if s == 2 {
+		return if len(r.groups[r.at.Get()].values) == 1 { WireString } else { WireList }
+	}
+	if s == 3 && r.item.Get() < len(r.groups[r.at.Get()].values) {
+		return WireString
+	}
+	WireEnd
+}
+
+func Number(r routeReader) string fails WireWrongKind {
+	let path = Path(r)
+	let v = try value(r, "a number")
+	let _ = strconv.ParseFloat(v) catch {
+	case _:
+		return WireWrongKind{Path: path, Want: "a number"}
+	}
+	v
+}
+
+func String(r routeReader) string fails WireWrongKind { try value(r, "a string") }
+
+func StringBytes(r routeReader, into []byte) []byte fails WireWrongKind {
+	let s = try String(r)
+	let mut out = into
+	for i in 0..len(s) {
+		out = out.Append(s[i])
+	}
+	out
+}
+
+func Bool(r routeReader) bool fails WireWrongKind {
+	let path = Path(r)
+	let v = try value(r, "a boolean")
+	if v == "true" {
+		return true
+	}
+	if v == "false" {
+		return false
+	}
+	WireWrongKind{Path: path, Want: "a boolean"}
+}
+
+func Int(r routeReader) int64 fails WireWrongKind {
+	let path = Path(r)
+	let v = try value(r, "an integer")
+	strconv.ParseInt(v, 10, 64) catch {
+	case _:
+		return WireWrongKind{Path: path, Want: "an integer"}
+	}
+}
+
+func Uint(r routeReader) uint64 fails WireWrongKind {
+	let path = Path(r)
+	let v = try value(r, "an unsigned integer")
+	match parseUint(v) {
+	case Some as n:
+		n.Value
+	case None:
+		WireWrongKind{Path: path, Want: "an unsigned integer"}
+	}
+}
+
+// parseUint reads decimal digits into a uint64, None for anything else
+// or a value over its range.
+func parseUint(s string) Option[uint64] {
+	if s == "" {
+		return None
+	}
+	let mut n uint64 = 0
+	for i in 0..len(s) {
+		let c = s[i]
+		if c < '0' || c > '9' {
+			return None
+		}
+		let d = uint64(c - '0')
+		if n > (18446744073709551615-d)/10 {
+			return None
+		}
+		n = n*10 + d
+	}
+	Some{n}
+}
+
+func Float(r routeReader) float64 fails WireWrongKind {
+	let path = Path(r)
+	let v = try value(r, "a number")
+	strconv.ParseFloat(v) catch {
+	case _:
+		return WireWrongKind{Path: path, Want: "a number"}
+	}
+}
+
+func BeginList(r routeReader) fails WireWrongKind {
+	if r.state.Get() != 2 {
+		return WireWrongKind{Path: Path(r), Want: "a list"}
+	}
+	r.state.Set(3)
+	r.item.Set(0)
+}
+
+func BeginObject(r routeReader) fails WireWrongKind {
+	if r.state.Get() != 0 {
+		return WireWrongKind{Path: Path(r), Want: "an object"}
+	}
+	r.state.Set(1)
+}
+
+func Tag(r routeReader) string fails WireMissingField { r.tag }
+
+func More(r routeReader) bool {
+	let s = r.state.Get()
+	if s == 1 {
+		return r.at.Get() < len(r.groups)
+	}
+	s == 3 && r.item.Get() < len(r.groups[r.at.Get()].values)
+}
+
+func Key(r routeReader) string {
+	r.state.Set(2)
+	r.groups[r.at.Get()].key
+}
+
+// Skip passes over an unknown key's values.
+func Skip(r routeReader) {
+	r.state.Set(1)
+	r.at.Set(r.at.Get() + 1)
+}
+
+func End(r routeReader) {
+	if r.state.Get() == 3 {
+		r.state.Set(1)
+		r.at.Set(r.at.Get() + 1)
+		return
+	}
+	r.state.Set(4)
+}
+
+// The table form's laws (ROUTE-QUERY): a site of three routes, the front
+// page, a post by its slug, and a search whose state is its query (the
+// text, an optional limit, an order), given as a route table.
+
+type lawFront {}
+type lawPost { Slug string }
+type lawSearch { Q string, Limit json.Optional[int], Desc bool }
+type lawPlace = lawFront | lawPost | lawSearch
+
+// lawTable is the laws' route table.
+let lawTable = []Row{
+	Row{Variant: "lawFront", Pattern: "/"},
+	Row{Variant: "lawPost", Pattern: "/posts/:slug"},
+	Row{Variant: "lawSearch", Pattern: "/search?q&limit&desc"},
+}
+
+// lawTableMap is the route map of lawTable.
+type lawTableMap {} implements Routes[lawPlace]
+
+func Href(_ lawTableMap, r lawPlace) ui.URL { HrefOf(lawTable, r) }
+
+func Parse(_ lawTableMap, u ui.URL) Option[lawPlace] { ParseOf[lawPlace](lawTable, u) }
+
+// lawPlaceText is what the laws' loader loads: the route, spelled out.
+func lawPlaceText(r lawPlace) string fails lawGone {
+	match r {
+	case lawFront:
+		"front"
+	case lawPost as p:
+		"post " + p.Slug
+	case lawSearch as s:
+		let limit = match s.Limit {
+		case json.Present[int] as n:
+			strconv.Itoa(n.Value)
+		case json.Absent:
+			"none"
+		}
+		"search " + s.Q + " limit " + limit + " desc " + strconv.FormatBool(s.Desc)
+	}
+}
+
+func lawTableSite() Site[lawPlace, string, lawGone] {
+	Site[lawPlace, string, lawGone]{
+		Routes: lawTableMap,
+		Load:   lawPlaceText,
+		View:   func(p string) html.Node { html.P([]html.Child{html.Text(p)}) },
+		Status: func(f) Reply {
+			match f {
+			case lawGone as g:
+				Reply{Status: 410, Page: html.P([]html.Child{html.Text("gone " + strconv.Itoa(g.N))})}
+			}
+		},
+		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []Asset{},
+	}
+}
+
+// lawServed is whether GET of the link r prints, its path and its query
+// as a browser sends them, is r's page with status 200.
+func lawServed(r lawPlace) bool {
+	let u = ui.ParseURL(ui.Href(HrefOf(lawTable, r)))
+	let req = http.Request{..Request("GET", u.Path), Query: http.ParseQuery(u.Query)}
+	let res = Fetch(lawTableSite(), req)
+	let want = lawPlaceText(r) catch {
+	case _:
+		return false
+	}
+	res.Status == 200 && res.Body == html.Render(html.P([]html.Child{html.Text(want)}))
+}
+
+// TableRouteIsServed: GET of the link a table route prints is that
+// route's page, so a route's query state reaches its loader, and a slug
+// that holds a '/', a '?', a '#' or an escape stays one segment.
+law TableRouteIsServed(r lawPlace, slug string) {
+	lawServed(r) && lawServed(lawPost{Slug: slug + "/?#%41"})
+}
+
+// QueryIsTyped: a query value is read as its field's type, so a limit
+// that is not an integer is no place of the search, nor is a limit given
+// twice (no first or last wins); an absent limit is json.Absent, and a
+// key the pattern does not list is not read.
+law QueryIsTyped(q string, n int, junk string) {
+	let base = "/search?q=" + ui.Escape(q)
+	let wrong = ParseOf[lawPlace](lawTable, ui.ParseURL(base+"&desc=true&limit=x"+ui.Escape(junk)))
+	let absent = ParseOf[lawPlace](lawTable, ui.ParseURL(base+"&desc=true&page="+strconv.Itoa(n)))
+	let given = ParseOf[lawPlace](lawTable, ui.ParseURL(base+"&desc=false&limit="+strconv.Itoa(n)))
+	let twice = ParseOf[lawPlace](lawTable, ui.ParseURL(base+"&desc=true&limit="+strconv.Itoa(n)+"&limit="+strconv.Itoa(n)))
+	wrong == None && twice == None && absent == Some[lawPlace]{Value: lawSearch{Q: q, Limit: json.Absent, Desc: true}} && given == Some[lawPlace]{Value: lawSearch{Q: q, Limit: json.Present[int]{Value: n}, Desc: false}}
+}

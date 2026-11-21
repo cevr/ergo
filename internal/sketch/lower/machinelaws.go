@@ -169,21 +169,41 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 		ice(site, "the prelude's Decision is not a union")
 	}
 	nv := inner.alloc("nv")
-	step.WriteString("\t\t\tswitch " + nv + " := any(" + dv + ").(type) {\n")
-	for _, v := range du.Variants {
+	// A flat Decision (genericunion.go) switches on its tag and narrows
+	// each case; the interface form type-switches.
+	dfu := l.flatUnionOf(decision)
+	if dfu != nil {
+		step.WriteString("\t\t\t" + dfu.head(tc, dv) + "\n")
+	} else {
+		step.WriteString("\t\t\tswitch " + nv + " := any(" + dv + ").(type) {\n")
+	}
+	for k, v := range du.Variants {
 		vn, _ := v.(*check.Named)
+		head, bind := "\t\t\tcase "+tc.goType(v)+":\n", ""
+		if dfu != nil {
+			head, bind = "\t\t\tcase "+strconv.Itoa(k)+":\n", "\t\t\t\t"+nv+" := "+dfu.flatNarrow(tc, dv, k)+"\n"
+		}
 		switch {
 		case isPreludeType(v, "Enter"), isPreludeType(v, "Stay"), isPreludeType(v, "Emit"), isPreludeType(v, "Tell"):
 			next := l.typeDecl(vn.Obj, site).fieldName["Next"]
-			step.WriteString("\t\t\tcase " + tc.goType(v) + ":\n\t\t\t\treturn " + nv + "." + next + ", true\n")
+			step.WriteString(head + bind + "\t\t\t\treturn " + nv + "." + next + ", true\n")
 		case isPreludeType(v, "Done"):
-			step.WriteString("\t\t\tcase " + tc.goType(v) + ":\n\t\t\t\t_ = " + nv + "\n\t\t\t\treturn " + s + ", false\n")
+			step.WriteString(head + bind + "\t\t\t\t_ = " + nv + "\n\t\t\t\treturn " + s + ", false\n")
 		}
 	}
 	step.WriteString("\t\t\t}\n\t\t\treturn " + s + ", true\n\t\t}")
 
 	var targets, names []string
+	sfu := l.flatUnionOf(md.state)
 	for _, t := range law.Targets {
+		if sfu != nil {
+			// A flat state (flatunion.go): its tag.
+			if k := sfu.tagOf(t); k >= 0 {
+				targets = append(targets, "func("+s+" "+state+") bool { return "+sfu.test(s, k)+" }")
+				names = append(names, t.Obj.Name)
+				continue
+			}
+		}
 		targets = append(targets, "func("+s+" "+state+") bool { _, ok := any("+s+").("+tc.goType(t)+"); return ok }")
 		names = append(names, t.Obj.Name)
 	}
@@ -437,6 +457,7 @@ func (l *lowerer) keyFunc(t check.Type, site syntax.Node) string {
 		line("\t" + l.keyStmt(u.Elem, k, e, site))
 		line("}")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: ranges over Go's map
 		k2, a, b := scope.alloc("k"), scope.alloc("a"), scope.alloc("b")
 		line(l.helper("explore") + ".Map(" + k + ", " + v + ", func(" + k2 + " *" + l.helper("explore") + ".Key, " + a + " " + tc.goType(u.Key) + ", " + b + " " + tc.goType(u.Elem) + ") {")
 		line("\t" + l.keyStmt(u.Key, k2, a, site))

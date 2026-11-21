@@ -1,0 +1,8 @@
+// The draws of tz's laws: a zone of std's IANA copy, an instant from 1900
+// to 2100, and the next change of a zone. Only the laws call them, so a
+// program that imports tz and not tz/iana links no zone data.
+
+
+extern go ergo.local/prototype/runtime/v1.TzLawNames func ianaNames() []string
+
+extern go ergo.local/prototype/runtime/v1.TzLawZone func ianaZone(name string) string

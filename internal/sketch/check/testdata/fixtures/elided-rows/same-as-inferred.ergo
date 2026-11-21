@@ -1,0 +1,16 @@
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func make[C, E](name string, f own func() C fails E) Command[C, E] { Command[C, E]{Name: name, Build: f} }
+
+func run() int {
+	let c Command[int] = make("one", one)
+	let back = make(c.Name, c.Build)
+	let again Command[int] = back
+	again.Build()
+}

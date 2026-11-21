@@ -8,14 +8,14 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree and scope: the result is kept under -work, by
-// default a private directory removed at the end): every
+// coverage (once per tree: the result is kept under -work, by default a
+// private directory removed at the end): every
 // top-level test of the check, lower and std packages and every default
-// example program whose binary, or the tool it runs, compiles a package of
-// a selected mutant (scope.go), each in its own process, logging each test
-// as it ends and a receipt of the work, with coverage of check and
+// example program, each in its own process, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
-// main packages included). Then, for each mutant, it applies the edit,
+// main packages included); a suite whose segment the coverage store holds
+// at its unchanged key is not measured again (coverstore.go). Then, for
+// each mutant, it applies the edit,
 // builds what the covering tests need, and runs only the tests that cover
 // the mutated lines, the ledger's known killers first and then the
 // cheapest, until the first one fails. Each child runs as the leader of its
@@ -70,18 +70,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
 	var selectRE, memory, jsonOut string
-	var write bool
+	var write, fresh, measureOnly, compileOnly, resume bool
+	flags.BoolVar(&compileOnly, "compiles", false, "apply each selected row and compile it, and run no test: list the rows that do not compile (invalid)")
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
+	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key, and measure every suite's coverage (the reference)")
+	flags.BoolVar(&measureOnly, "measure", false, "measure the coverage of the ledgers' suites into the coverage store and judge nothing (run on main's head after a landing)")
 	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
 	flags.BoolVar(&write, "write", false, "record the killers found (and the gaps of mutants judged for the first time) in the ledgers")
 	flags.IntVar(&cfg.Workers, "workers", 2, "mutants judged at once, each in its own copy")
+	flags.IntVar(&cfg.Tests, "tests", 2, "tests of one mutant run at once, until the first kill (workers × tests children run at once, each under -memory)")
+	flags.BoolVar(&resume, "resume", true, "keep a journal of the tree's verdicts under the user cache directory, and take the verdicts an earlier, unfinished run of the same tree wrote there")
 	flags.IntVar(&cfg.Procs, "procs", 2, "GOMAXPROCS and go -p of each child")
 	flags.StringVar(&memory, "memory", "4GiB", "RLIMIT_DATA of each child (KiB, MiB, GiB, or 0 for none)")
 	flags.StringVar(&cfg.Coverage, "coverage", "", "read the coverage from `FILE` instead of measuring it")
 	flags.DurationVar(&cfg.CoverDeadline, "cover-deadline", time.Hour, "deadline of each child of the coverage pass")
 	flags.StringVar(&jsonOut, "json", "", "write one JSON result per mutant to `FILE`")
+	var alpha bool
+	var alphaOut, failLogs string
+	flags.BoolVar(&alpha, "alpha", false, "judge every killer of each row the packages' tests can kill (the kill matrix, testdata/kills.json) and print one row per test of the packages: class, seconds, unique and total kills, change coupling, failures, ranked as a deletion list (CS-ALPHA)")
+	flags.StringVar(&alphaOut, "o", "", "-alpha: write the table to `FILE`")
+	flags.StringVar(&failLogs, "fail-logs", "", "-alpha: count each test's failures in the go test logs under `DIR`")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/mutants [flags] PACKAGE...   (PACKAGE: check, lower, a package dir or a ledger file)")
 		flags.PrintDefaults()
@@ -109,6 +119,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "mutants: -memory: %v\n", err)
 		return 2
 	}
+	// reused are the verdicts the store holds (reuse.go), set before any
+	// row is judged.
+	var reused []Result
 	var sel *regexp.Regexp
 	if selectRE != "" {
 		if sel, err = regexp.Compile(selectRE); err != nil {
@@ -127,19 +140,116 @@ func run(args []string, stdout, stderr io.Writer) int {
 		jobs = append(jobs, Job{Path: path, Ledger: l, Select: sel})
 		addScope(&cfg, scopeOf(cfg.Root, path))
 	}
+	// Every .ergo row is formatted and checked before and after its edit,
+	// in the run and in -compiles (FK7a, FK12a; source.go).
+	cfg.Sources = ergoSources
+	if resume {
+		if dir, err := os.UserCacheDir(); err == nil {
+			cfg.JournalDir = filepath.Join(dir, "ergo-mutants", "journal")
+		}
+	}
+	if jsonOut != "" {
+		// Each verdict is written as it lands: a run killed before its end
+		// leaves the verdicts it reached.
+		cfg.Progress = func(results []Result) {
+			if err := writeResults(jsonOut, inLedgerOrder(jobs, append(slices.Clone(reused), results...))); err != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", err)
+			}
+		}
+	}
+	if alpha {
+		if !fresh {
+			if store, err := openCoverStore(); err == nil {
+				cfg.CoverStore = store.Dir
+			}
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		if err := runAlpha(ctx, cfg, jobs, alphaOut, failLogs, stdout); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		return 0
+	}
+	if compileOnly {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		start := time.Now()
+		results, err := CompileRows(ctx, cfg, jobs)
+		if results == nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		code := report(stdout, jobs, results, &coverage{})
+		fmt.Fprintf(stdout, "time: %s\n", time.Since(start).Round(time.Second))
+		if jsonOut != "" {
+			if werr := writeResults(jsonOut, results); werr != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", werr)
+				return 2
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		return code
+	}
 	if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, jobs); err != nil {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
 	}
-	cfg.Sources = ergoSources
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	defer cancel()
-	start := time.Now()
-	results, cov, runErr := Run(ctx, cfg, jobs)
-	if results == nil {
-		fmt.Fprintf(stderr, "mutants: %v\n", runErr)
-		return 2
+	if !fresh {
+		if store, err := openCoverStore(); err != nil {
+			fmt.Fprintf(stderr, "mutants: no coverage segment reused: %v\n", err)
+		} else {
+			cfg.CoverStore = store.Dir
+		}
 	}
+	if measureOnly {
+		if cfg.CoverStore == "" {
+			fmt.Fprintln(stderr, "mutants: -measure fills the coverage store, which -fresh turns off")
+			return 2
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		c, err := Measure(ctx, cfg, jobs)
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		fmt.Fprintf(stdout, "coverage: %d tests of %d suites, stored at %s\n", len(c.Tests), len(cfg.Suites), cfg.CoverStore)
+		return 0
+	}
+	start := time.Now()
+	// The rows whose killed verdict the store holds at their key are not
+	// judged again (reuse.go); -fresh and -all judge every row.
+	judge := jobs
+	pass := &reusePass{root: cfg.Root, log: stderr}
+	if !fresh && !cfg.All {
+		if pass.store, err = openReuseStore(); err != nil {
+			fmt.Fprintf(stderr, "mutants: no verdict reused: %v\n", err)
+		} else {
+			reused, judge = pass.begin(jobs)
+		}
+	}
+	results, cov, runErr := []Result(nil), &coverage{}, error(nil)
+	if len(judge) > 0 {
+		if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, judge); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		results, cov, runErr = Run(ctx, cfg, judge)
+		if results == nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", runErr)
+			return 2
+		}
+		if runErr == nil {
+			pass.end(judge, results)
+		}
+	}
+	results = inLedgerOrder(jobs, append(reused, results...))
 	code := report(stdout, jobs, results, cov)
 	fmt.Fprintf(stdout, "time: %s\n", time.Since(start).Round(time.Second))
 	if jsonOut != "" {
@@ -253,7 +363,7 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		// The lowering's tests run the CLI the runner built (main_test.go,
 		// cliVariable), not one each test process builds.
 		{Name: "lower", Package: "./internal/sketch/lower", Env: []string{"ERGO_TEST_CLI={bin:ergo}"}},
-		{Name: "std", Package: "./internal/sketch/std"},
+		{Name: "std", Package: "./internal/sketch/stdlib"},
 		{Name: "api", Package: "./internal/sketch/api"},
 		{Name: "ergo", Package: "./cmd/ergo"},
 		// The case budget is off: a slow case under the runner's load is not
@@ -324,7 +434,14 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			// The ledger's env reaches every run of its own suite (the
 			// coverage pass and the mutant pass), and enters the tree key
 			// with it.
-			suites = append(suites, Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)})
+			own := Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)}
+			// A package of a module nested in the checkout (hosts/mygo) is
+			// built and run in its own module, as namedSuite builds a
+			// killer there (MUT-MODULES).
+			if mod := nestedModule(absRoot, rel); mod != "" {
+				own.Module, own.Package = mod, "./"+strings.TrimPrefix(strings.TrimPrefix(rel, mod), "/")
+			}
+			suites = append(suites, own)
 		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
@@ -333,7 +450,21 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	// hang without the explored worker). No row is left to run by hand.
 	// An id whose suite or test does not exist is an error, not a killer
 	// left out: before, v1:, sched: and rt-explore: killers were skipped
-	// and their rows judged without them (MUT-names). Only the selected rows bring suites: a run of one row builds and runs the killers that row names.
+	// and their rows judged without them (MUT-names). Only the selected
+	// rows bring suites: a run of one row builds and runs the killers that
+	// row names, not every killer of its ledger.
+	// A -run selection judges its rows by the killers they name: each
+	// suite runs only those tests, not every test of its package (TM:
+	// one irspike row started a pass over its 531 tests, for hours), and a
+	// suite none of them names is not built.
+	selection := !slices.ContainsFunc(jobs, func(j Job) bool { return j.Select == nil })
+	if selection {
+		for i := range suites {
+			if suites[i].Only == nil {
+				suites[i].Only = []string{}
+			}
+		}
+	}
 	var unresolved []error
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
@@ -343,6 +474,19 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			for _, id := range killerIDs(m) {
 				name, test := splitID(id)
 				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
+				if i < 0 && name == commandSuite {
+					s, need, err := commandsOf(jobs)
+					if err != nil {
+						return nil, nil, nil, err
+					}
+					for _, t := range need {
+						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
+							tools = append(tools, t)
+						}
+					}
+					suites = append(suites, s)
+					i = len(suites) - 1
+				}
 				if i < 0 {
 					s, need, ok := namedSuite(absRoot, name)
 					if !ok {
@@ -358,9 +502,13 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 					suites = append(suites, s)
 					i = len(suites) - 1
 				}
-				if !hasTest(absRoot, &suites[i], test) {
+				found, family := hasTest(absRoot, &suites[i], test)
+				if !found {
 					unresolved = append(unresolved, fmt.Errorf("%s: mutant %q: %q names no test of suite %s", j.Path, m.Name, id, name))
 					continue
+				}
+				if family && !slices.Contains(suites[i].Families, test) {
+					suites[i].Families = append(suites[i].Families, test)
 				}
 				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
 					suites[i].Only = append(suites[i].Only, test)
@@ -374,7 +522,70 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	if len(unresolved) > 0 {
 		return nil, nil, nil, errors.Join(unresolved...)
 	}
+	if selection {
+		suites = slices.DeleteFunc(suites, func(s Suite) bool { return len(s.Only) == 0 })
+	}
 	return cover, tools, suites, nil
+}
+
+// commandsOf is the suite of the jobs' ledgers' commands, with the tools
+// their words name (one of ergoSuites' tools). Two ledgers may share a
+// command's name only with the same words.
+func commandsOf(jobs []Job) (Suite, []Tool, error) {
+	s := Suite{Name: commandSuite, Commands: map[string][]string{}, Only: []string{}}
+	for _, j := range jobs {
+		for name, words := range j.Ledger.Commands {
+			if had, ok := s.Commands[name]; ok && !slices.Equal(had, words) {
+				return Suite{}, nil, fmt.Errorf("%s: command %q differs from another ledger's", j.Path, name)
+			}
+			s.Commands[name] = words
+		}
+	}
+	_, known, _ := ergoSuites()
+	var need []Tool
+	for _, name := range toolsOf(&s) {
+		i := slices.IndexFunc(known, func(t Tool) bool { return t.Name == name })
+		if i < 0 {
+			return Suite{}, nil, fmt.Errorf("a command names the tool %q, which is none of %v", name, toolNames(known))
+		}
+		need = append(need, known[i])
+	}
+	return s, need, nil
+}
+
+// ergoTestsTool runs the Ergo tests of a package at check time
+// (scripts/ergotests, ST-0).
+var ergoTestsTool = Tool{Name: "ergotests", Package: "./scripts/ergotests", Flags: []string{"-buildvcs=false"}}
+
+// ergoTool is the ergo CLI, as ergoSuites builds it.
+var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}}
+
+// ergoPackage says whether dir is an Ergo package with no Go test of its
+// own (compiler/syntax): a killer DIR:Name there is the Ergo test Name,
+// run by ergotests (ST-0). A directory with Go tests stays a Go suite.
+func ergoPackage(root, dir string) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
+	return len(files) > 0 && !goFiles(root, dir, true)
+}
+
+// ergoTest says whether dir declares the Ergo test named test, or for
+// law:L the law L, top-level or a member law (LAW-KILLER).
+func ergoTest(root, dir, test string) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
+	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
+	if law, ok := strings.CutPrefix(test, "law:"); ok {
+		_, member, _ := strings.Cut(law, ".")
+		if member == "" {
+			member = law
+		}
+		decl = regexp.MustCompile(`(?m)^\s*law ` + regexp.QuoteMeta(member) + `\b`)
+	}
+	for _, f := range files {
+		if data, err := os.ReadFile(f); err == nil && decl.Match(data) {
+			return true
+		}
+	}
+	return false
 }
 
 // goFiles says whether the module directory dir holds a Go file: a test
@@ -414,6 +625,10 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
 		return Suite{}, nil, false
 	}
+	if !tagged && ergoPackage(root, dir) {
+		// ergo decides a law check time leaves undecided (LAW-KILLER).
+		return Suite{Name: name, Command: []string{"{bin:ergotests}", "-ergo", "{bin:ergo}", "-killer", "{test}", "{root}/" + dir}}, []Tool{ergoTestsTool, ergoTool}, true
+	}
 	if mod := nestedModule(root, dir); mod != "" {
 		return Suite{Name: name, Module: mod, Package: "./" + strings.TrimPrefix(strings.TrimPrefix(dir, mod), "/"), Tags: tags}, nil, true
 	}
@@ -437,27 +652,40 @@ func nestedModule(root, dir string) string {
 // root: a top-level func of a _test.go file in a Go suite's directory, or
 // an example program of the examples suite. A Go suite's runner lists its
 // binary's tests and keeps only those Only names, so a name that matches
-// none ran nothing.
-func hasTest(root string, s *Suite, test string) bool {
+// none ran nothing. family is set when test is no func but the family of
+// its parts, TestPart0 … (Suite.Families).
+func hasTest(root string, s *Suite, test string) (found, family bool) {
 	switch {
+	case s.Commands != nil:
+		_, ok := s.Commands[test]
+		return ok, false
 	case s.Package != "":
+		// A nested module's suite names its package in its module.
 		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package), "*_test.go"))
+		one := regexp.MustCompile(`(?m)^func ` + regexp.QuoteMeta(test) + `\(`)
+		part := regexp.MustCompile(`(?m)^func ` + regexp.QuoteMeta(test) + `Part[0-9]+\(`)
 		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err == nil && regexp.MustCompile(`(?m)^func `+regexp.QuoteMeta(test)+`\(`).Match(data) {
-				return true
+			if data, err := os.ReadFile(f); err == nil && one.Match(data) {
+				return true, false
 			}
 		}
-		return false
+		for _, f := range files {
+			if data, err := os.ReadFile(f); err == nil && part.Match(data) {
+				return true, true
+			}
+		}
+		return false, false
+	case len(s.Command) > 0 && s.Command[0] == "{bin:ergotests}":
+		return ergoTest(root, s.Name, test), false
 	case s.Name == "examples":
 		dir := filepath.Join(root, "examples", test)
 		if mod, ok := strings.CutPrefix(test, "modules/"); ok {
 			dir, test = filepath.Join(root, "modules", mod), mod // a module of modules/ (MK0)
 		}
 		info, err := os.Stat(dir)
-		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir()
+		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir(), false
 	}
-	return test != ""
+	return test != "", false
 }
 
 // defaultExamples lists the example programs tagged default.
@@ -486,7 +714,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	counts := map[string]int{}
-	var newSurvivors, gaps, closed, moved, only, owners []string
+	var newSurvivors, gaps, closed, moved, only, owners, unjudged, hung []string
+	invalid, ran, most, stopped := 0, 0, 0, 0
 	for _, r := range results {
 		if r.Status == "" {
 			continue // not judged: the run was interrupted
@@ -498,7 +727,10 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		if r.Killer != "" {
 			line += fmt.Sprintf("  by %s (%s)", r.Killer, r.Reason)
 		}
-		fmt.Fprintf(w, "%s  [%d run, %d covering, %.0f s]\n", line, len(r.Ran), r.Covering, r.Seconds)
+		fmt.Fprintf(w, "%s  [%d run, %d stopped, %d covering, %.0f s]\n", line, len(r.Ran), len(r.Stopped), r.Covering, r.Seconds)
+		ran += len(r.Ran)
+		most = max(most, len(r.Ran))
+		stopped += len(r.Stopped)
 		switch r.Status {
 		case Survived, Uncovered:
 			if m.Gap == "" {
@@ -518,6 +750,13 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			}
 		case Stale, Invalid:
 			owners = append(owners, fmt.Sprintf("%s (%s, origin %s): %s", r.Name, r.Status, m.Origin, firstLine(r.Detail)))
+			if r.Status == Invalid {
+				invalid++
+			}
+		case Unjudged:
+			unjudged = append(unjudged, fmt.Sprintf("%s (%s): %s", r.Name, where, r.Detail))
+		case Hung:
+			hung = append(hung, fmt.Sprintf("%s (%s, origin %s): %s", r.Name, where, m.Origin, firstLine(r.Detail)))
 		}
 	}
 	var keys []string
@@ -526,12 +765,13 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	}
 	slices.Sort(keys)
 	fmt.Fprintf(w, "mutants: %d judged: %s\n", len(results), strings.Join(keys, ", "))
+	fmt.Fprintf(w, "receipt: %d tests run on mutants (at most %d on one), %d stopped by a first kill\n", ran, most, stopped)
 	section(w, "NEW SURVIVORS (no test kills them and the ledger records no gap)", newSurvivors)
 	section(w, "known gaps (survivors the ledger records)", gaps)
 	section(w, "gaps closed (now killed: clear the gap)", closed)
 	section(w, "killer moved", moved)
 	section(w, "killed only by", only)
-	section(w, "report to the origin (stale: the edit no longer applies; invalid: the mutated tree does not build)", owners)
+	section(w, "report to the origin (stale: the edit no longer applies; invalid: the mutated tree does not build, or the mutated file does not compile; an invalid row fails the run)", owners)
 	var broken []string
 	for _, t := range cov.Tests {
 		if t.Failed {
@@ -539,7 +779,9 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	section(w, "tests that fail on the unmutated tree (they kill nothing)", broken)
-	if len(newSurvivors) > 0 {
+	section(w, "NOT JUDGED (a test that covers them fails on the unmutated tree: fix it, then run again)", unjudged)
+	section(w, "HUNG (no test killed them, and a test ran into its timeout: a deadline only stops a hung test, it kills nothing; fix the row or the test; a hung row fails the run)", hung)
+	if len(newSurvivors) > 0 || len(unjudged) > 0 || len(hung) > 0 || invalid > 0 {
 		return 1
 	}
 	return 0
@@ -578,7 +820,7 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 				killers := slices.Clone(r.Killers)
 				for _, k := range m.Killers {
 					suite, name := splitID(k)
-					if cov.test(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
+					if cov.Lookup(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
 						killers = append(killers, k)
 					}
 				}
@@ -592,17 +834,27 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 	}
 }
 
+// writeResults writes the judged results to path, whole or not at all:
+// it is rewritten after each verdict, and a run may die at any point.
 func writeResults(path string, results []Result) error {
-	f, err := os.Create(path)
+	f, err := os.CreateTemp(filepath.Dir(path), ".results-*")
 	if err != nil {
 		return err
 	}
 	encoder := json.NewEncoder(f)
 	for _, r := range results {
+		if r.Status == "" {
+			continue // not judged yet
+		}
 		if err := encoder.Encode(r); err != nil {
 			f.Close()
+			os.Remove(f.Name())
 			return err
 		}
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

@@ -1,0 +1,320 @@
+// Package cron is cron expressions (docs/spec/stdlib.md, cron; std-spike
+// D4): Parse reads the five fields of Vixie cron and its macros, Format
+// writes them back, Matches says whether a wall time fires, and Next and
+// Previous find the instants an expression fires in a time zone, over std
+// civil and tz. It was examples/cron's schedule package. Effect's Cron is
+// the reference for the intent: Cron.parse, Cron.match, Cron.next and
+// Cron.sequence; not taken: parseUnsafe (Parse has typed failures) and
+// Either results (a fails row). Go's std has no cron
+// (github.com/robfig/cron is the common package).
+
+import strconv
+import strings
+import rand
+
+// Field is the values one field of an expression matches. Star is whether
+// the field is * or */s, one part with no list: the day of the month and
+// the day of the week must both match when one of them is a Star, and
+// either may match when neither is (Vixie cron). Only Parse makes one.
+type Field { bits uint64, star bool }
+
+// Expr is a cron expression: minute, hour, day of the month, month and
+// day of the week.
+type Expr { Minute Field, Hour Field, Dom Field, Month Field, Dow Field }
+
+// bounds is the values a field can take, and the names of its values
+// when it has names (months and weekdays).
+type bounds { name string, min int, max int, names []string }
+
+// The failures of Parse. Each names the field and the text it refuses.
+
+// FieldCount is an expression of other than five fields.
+type FieldCount { Got int }
+
+// BadValue is a value that is neither a number nor a name of its field.
+type BadValue { Field string, Text string }
+
+// OutOfRange is a number outside its field's bounds.
+type OutOfRange { Field string, Value int, Min int, Max int }
+
+// BadStep is a step that is not a whole number above zero.
+type BadStep { Field string, Text string }
+
+// BadRange is a range whose end comes before its start.
+type BadRange { Field string, From int, To int }
+
+// fieldBounds are the five fields' bounds, in order.
+func fieldBounds() []bounds {
+	[]bounds{
+		bounds{name: "minute", min: 0, max: 59, names: []string{}},
+		bounds{name: "hour", min: 0, max: 23, names: []string{}},
+		bounds{name: "day of month", min: 1, max: 31, names: []string{}},
+		bounds{name: "month", min: 1, max: 12, names: []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}},
+		bounds{name: "day of week", min: 0, max: 6, names: []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}},
+	}
+}
+
+// Parse reads text as an expression: five fields separated by spaces, or
+// one of the macros @yearly (@annually), @monthly, @weekly, @daily
+// (@midnight) and @hourly. A field is a list of parts separated by
+// commas; a part is *, a value, or a range a-b, each with an optional
+// step /s. A value is a number or, in the month and weekday fields, a
+// name of three letters in any case. The weekday 7 is Sunday, as 0 is.
+func Parse(text string) Expr fails FieldCount | BadValue | OutOfRange | BadStep | BadRange {
+	let words = strings.Fields(macro(strings.TrimSpace(text)))
+	if len(words) != 5 {
+		return FieldCount{Got: len(words)}
+	}
+	let b = fieldBounds()
+	Expr{
+		Minute: try field(b[0], words[0]),
+		Hour:   try field(b[1], words[1]),
+		Dom:    try field(b[2], words[2]),
+		Month:  try field(b[3], words[3]),
+		Dow:    try field(b[4], words[4]),
+	}
+}
+
+// macro is the five fields that a macro stands for, or text.
+func macro(text string) string {
+	match strings.ToLower(text) {
+	case "@yearly", "@annually":
+		"0 0 1 1 *"
+	case "@monthly":
+		"0 0 1 * *"
+	case "@weekly":
+		"0 0 * * 0"
+	case "@daily", "@midnight":
+		"0 0 * * *"
+	case "@hourly":
+		"0 * * * *"
+	case _:
+		text
+	}
+}
+
+// field reads one field's text within b.
+func field(b bounds, text string) Field fails BadValue | OutOfRange | BadStep | BadRange {
+	let mut bits uint64 = 0
+	for part in strings.Split(text, ",") {
+		let mut base = part
+		let mut step = 1
+		match strings.Cut(part, "/") {
+		case Some[strings.Halves] as h:
+			base = h.Value.Before
+			step = strconv.Atoi(h.Value.After) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return BadStep{Field: b.name, Text: part}
+			}
+			if step < 1 {
+				return BadStep{Field: b.name, Text: part}
+			}
+		case None:
+		}
+		let mut from = b.min
+		let mut to = b.max
+		if base != "*" {
+			match strings.Cut(base, "-") {
+			case Some[strings.Halves] as r:
+				from = try value(b, r.Value.Before)
+				to = try value(b, r.Value.After)
+			case None:
+				from = try value(b, base)
+				to = if step > 1 { b.max } else { from }
+			}
+		}
+		if to < from {
+			return BadRange{Field: b.name, From: from, To: to}
+		}
+		for v in from..to+1 {
+			if (v-from)%step == 0 {
+				bits = bits | bit(if b.name == "day of week" && v == 7 { 0 } else { v })
+			}
+		}
+	}
+	Field{bits: bits, star: !strings.Contains(text, ",") && strings.HasPrefix(text, "*")}
+}
+
+// value reads one value of b: a number, or a name of b's values.
+func value(b bounds, text string) int fails BadValue | OutOfRange {
+	for i, name in b.names {
+		if strings.EqualFold(text, name) {
+			return b.min + i
+		}
+	}
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadValue{Field: b.name, Text: text}
+	}
+	let max = if b.name == "day of week" { 7 } else { b.max }
+	if n < b.min || n > max {
+		return OutOfRange{Field: b.name, Value: n, Min: b.min, Max: max}
+	}
+	n
+}
+
+// bit is the bit of the value v.
+func bit(v int) uint64 { uint64(1) << uint64(v) }
+
+// Has reports whether f matches v.
+func Has(f Field, v int) bool { v >= 0 && v < 64 && f.bits&bit(v) != 0 }
+
+// IsStar reports whether f was written as * or */s.
+func IsStar(f Field) bool { f.star }
+
+// Format is the text of e: each field as * when it was written from *
+// and matches all its values, as */s when it was written from * with a
+// step, and otherwise as a list of values and ranges. Parse reads it back
+// to e (law FormatParseRoundTrips).
+func Format(e Expr) string {
+	let fields = []Field{e.Minute, e.Hour, e.Dom, e.Month, e.Dow}
+	let b = fieldBounds()
+	let mut out = []string{}
+	for i, f in fields {
+		out = out.Append(formatField(b[i], f))
+	}
+	strings.Join(out, " ")
+}
+
+// formatField is the text of f within b.
+func formatField(b bounds, f Field) string {
+	let mut values = []int{}
+	for v in b.min..b.max+1 {
+		if Has(f, v) {
+			values = values.Append(v)
+		}
+	}
+	if f.star {
+		if len(values) == b.max-b.min+1 {
+			return "*"
+		}
+		if len(values) >= 2 {
+			return "*/\(values[1] - values[0])"
+		}
+		return "*/\(b.max - b.min + 1)"
+	}
+	let mut parts = []string{}
+	let mut i = 0
+	for i < len(values) {
+		let mut j = i
+		for j+1 < len(values) && values[j+1] == values[j]+1 {
+			j = j + 1
+		}
+		parts = parts.Append(if j > i { "\(values[i])-\(values[j])" } else { "\(values[i])" })
+		i = j + 1
+	}
+	strings.Join(parts, ",")
+}
+
+// FormatParseRoundTrips: the text of a drawn expression parses back to it.
+law FormatParseRoundTrips(seed uint64) {
+	let e = drawnExpr(seed)
+	let back = Parse(Format(e)) catch {
+	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+		return false
+	}
+	back == e
+}
+
+// drawnExpr is an expression drawn from seed: each field *, a value, a
+// range, a step of * or of a range, or a list of two parts. Two fields in
+// three are *, so that most expressions fire within a day or two.
+func drawnExpr(seed uint64) Expr {
+	let text = with context { Random: rand.Seeded(seed) } {
+		let mut fields = []string{}
+		fields = fields.Append(drawField(0, 59, []string{}))
+		fields = fields.Append(drawField(0, 23, []string{}))
+		fields = fields.Append(drawField(1, 31, []string{}))
+		fields = fields.Append(drawField(1, 12, []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"}))
+		fields = fields.Append(drawField(0, 7, []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}))
+		strings.Join(fields, " ")
+	}
+	Parse(text) catch {
+	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+		Unreachable("a drawn field is within its bounds")
+	}
+}
+
+// drawField is one field from lo to hi, with the names of its values.
+func drawField(lo int, hi int, names []string) string needs Random {
+	let span = hi - lo + 1
+	match Random.IntN(9) {
+	case 0:
+		drawValue(lo, hi, names)
+	case 1:
+		let a = lo + Random.IntN(span)
+		let z = a + Random.IntN(hi-a+1)
+		"\(a)-\(z)"
+	case 2:
+		"*/\(1 + Random.IntN(span))"
+	case 3:
+		let a = lo + Random.IntN(span)
+		let z = a + Random.IntN(hi-a+1)
+		"\(a)-\(z)/\(1 + Random.IntN(span))"
+	case 4:
+		drawValue(lo, hi, names) + "," + drawValue(lo, hi, names)
+	case 5:
+		"*/\(1 + Random.IntN(span))," + drawValue(lo, hi, names)
+	case _:
+		"*"
+	}
+}
+
+// drawValue is one value from lo to hi, as a number or, one time in four,
+// as its name in upper case.
+func drawValue(lo int, hi int, names []string) string needs Random {
+	let i = Random.IntN(hi - lo + 1)
+	if i < len(names) && Random.IntN(4) == 0 {
+		return strings.ToUpper(names[i])
+	}
+	strconv.Itoa(lo + i)
+}
+
+// MacrosAreTheirFields: each macro, in any case, is the five fields Vixie
+// cron gives it: @yearly and @annually at 00:00 on 1 January, @monthly on
+// the 1st, @weekly on Sunday, @daily and @midnight each day, and @hourly
+// at minute 0.
+law MacrosAreTheirFields() {
+	let pairs = [][]string{
+		[]string{"@yearly", "0 0 1 1 *"},
+		[]string{"@ANNUALLY", "0 0 1 1 *"},
+		[]string{"@monthly", "0 0 1 * *"},
+		[]string{"@Weekly", "0 0 * * 0"},
+		[]string{"@daily", "0 0 * * *"},
+		[]string{"@midnight", "0 0 * * *"},
+		[]string{"@hourly", "0 * * * *"},
+	}
+	let mut ok = true
+	for p in pairs {
+		let m = try Parse(p[0])
+		let f = try Parse(p[1])
+		ok = ok && m == f
+	}
+	ok
+}
+
+// StepsCountFromTheStart: a step counts from its part's first value, so
+// a-b/s holds a, a+s, … up to b, and a/s the same up to the field's last
+// value: 3-59/15 is 3, 18, 33 and 48, not the multiples of 15.
+law StepsCountFromTheStart(seed uint64) {
+	let from = int(seed % 60)
+	let step = 1 + int(seed/60%59)
+	let to = from + int(seed/3540%uint64(60-from))
+	let ranged = try Parse("\(from)-\(to)/\(step) * * * *")
+	let open = try Parse("\(from)/\(step) * * * *")
+	let mut ok = true
+	for v in 0..60 {
+		let on = v >= from && (v-from)%step == 0
+		ok = ok && Has(ranged.Minute, v) == (on && v <= to) && Has(open.Minute, v) == (on && (step > 1 || v == from))
+	}
+	ok
+}
+
+// WeekdaySevenIsSunday: 7 in the day-of-week field is Sunday, as 0 is,
+// and a name of any case is its number.
+law WeekdaySevenIsSunday() {
+	let a = try Parse("0 0 * * 7")
+	let b = try Parse("0 0 * * 0")
+	let c = try Parse("0 0 * jAn sUN")
+	a == b && Has(c.Month, 1) && Has(c.Dow, 0) && !Has(c.Dow, 7)
+}

@@ -1,13 +1,14 @@
 // Package registry is the domain of the demo: ports looked up by service
-// name from a slow source, through a Memo so a repeated name is not
-// looked up again.
+// name from a slow source, through std's cache, so a repeated name is
+// not looked up again.
 
-import lru/memo
+import cache
+import time
 
 // Unknown is a name the registry does not list.
 type Unknown { Name string }
 
-// Registry is the source of ports. A Memo may stand in front of it only
+// Registry is the source of ports. A cache may stand in front of it only
 // because a port does not change between two lookups: the law Stable
 // states that, and every provider must keep it.
 type Registry {
@@ -40,9 +41,10 @@ type Registry {
 	},
 }
 
-// Lookup is the port of name, from the Memo when it remembers one.
-func Lookup(m *memo.Memo[string, int], name string) int fails Unknown needs Registry {
-	try m.Get(name, func(s string) int fails Unknown needs Registry { try Registry.Port(s) })
+// Lookup is the port of name, from the cache when it holds one, else
+// from the Registry, which the cache then keeps.
+func Lookup(c cache.Cache[string, int], name string) int fails Unknown needs Registry | time.Clock {
+	try cache.Get(c, name, func(s string) int fails Unknown needs Registry { try Registry.Port(s) })
 }
 
 // Line is the text of one lookup: the name and its port.

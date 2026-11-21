@@ -21,12 +21,34 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
-		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {
+		// Go's append, at either shape, runs (interp.go callWitnessed).
+		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == "append" || p.in.goBody(fn) {
 			return ""
 		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
 	}
 	return p.body(p.in.newFrame(fn.Pkg, fn.Decl), fn.Decl, fn.Decl.Body, nil, nil)
+}
+
+// witnesses is why a function some witness of inst names cannot run, or "".
+func (p *preflight) witnesses(fr *frame, inst *check.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	for _, w := range inst.Witnesses {
+		for _, op := range w.Ops {
+			if op.Func == nil {
+				continue
+			}
+			if why := p.function(fr, op.Func); why != "" {
+				return why
+			}
+			if why := p.witnesses(fr, op.Inst); why != "" {
+				return why
+			}
+		}
+	}
+	return ""
 }
 
 func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own *check.Conversion, ops map[*check.Var]check.Conversion) string {
@@ -60,10 +82,11 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:
+			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:
 			case check.CallFunc:
-				if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
-					why = "a generic call with unresolved operation witnesses"
+				// Each witnessed operation's function runs where the
+				// callee calls the operation (witness.go).
+				if why = p.witnesses(fr, fr.info.Instances[x]); why != "" {
 					break
 				}
 				if c.Site != nil {
@@ -119,6 +142,10 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				why = p.function(fr, fn)
 			case check.CallProviderOp, check.CallWith:
 				// The provider is the nearest with's, known at the run.
+			case check.CallGoError:
+				if c.Name != "go.New" && c.Name != "go.Zero" {
+					why = c.Name + " of a Go error chain"
+				}
 			default:
 				why = fmt.Sprintf("an unsupported call (kind %d)", c.Kind)
 			}
@@ -172,7 +199,19 @@ func (p *preflight) generator(fr *frame, t check.Type, provider *check.LawProvid
 		case *check.Union:
 			children = under.Variants
 		case *check.Interface:
-			return "an operation-type builder without an interpreter adapter"
+			// Drawn by its builder, as the Go build draws it (genBuilt).
+			b := p.in.root.Builder(u)
+			if b == nil {
+				return "an operation type with no builder"
+			}
+			if b.Conv.Kind != 0 && b.Conv.Kind != check.ConvOperations {
+				return "an operation-type builder whose value needs a conversion other than into the type"
+			}
+			if why := p.function(fr, b.Func); why != "" {
+				return why
+			}
+			_, params := b.Instance(u)
+			children = params
 		default:
 			children = []check.Type{under}
 		}

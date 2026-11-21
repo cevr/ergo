@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -35,12 +36,14 @@ const (
 	MaxEditTextBytes         = 64 << 10
 )
 
-var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+// identifierPattern is a rule or tag identifier; it is compiled on first use,
+// so no process pays for it at start (TestStartBuildsNoTables).
+var identifierPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`) })
 
 const maxIdentifierBytes = 64
 
 func validIdentifier(name string) bool {
-	return len(name) <= maxIdentifierBytes && identifierPattern.MatchString(name)
+	return len(name) <= maxIdentifierBytes && identifierPattern().MatchString(name)
 }
 
 // ReservedNamespaces cannot be claimed by a rule pack: built-in rules use

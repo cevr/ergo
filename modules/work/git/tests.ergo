@@ -1,0 +1,215 @@
+// git on the host, in a folder of each case's own (TestAmbient): git
+// runs for real, confined to the folder, with GIT_CEILING_DIRECTORIES
+// above it. Under onShell the folder is empty, and each work.Vcs law
+// holds by its failure case; the tests make the repositories they read
+// and hold each law's fact there. The laws on a real checkout (onHost)
+// are in package checkout, which only the gate's full tier runs (the
+// module's full-tier file): every case starts git to make its checkout.
+
+import exec
+import maps
+import os
+import slices
+import github.com/cevr/ergo/modules/work/work
+
+let onShell = context needs TestAmbient {
+	work.Vcs:    New(exec.NewTestHost()),
+	exec.Runner: exec.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+// StateScript makes the working folder a checkout of branch main with one
+// commit (a.txt and a .gitignore), then a change to a.txt that is not
+// staged, a new file s.txt that is staged, an untracked new.txt and an
+// ignored file: every kind of state a snapshot must leave.
+let StateScript = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'one\\n' > a.txt && printf 'ignored\\n' > .gitignore && git add a.txt .gitignore && git commit -q -m one && printf 'two\\n' >> a.txt && printf 'staged\\n' > s.txt && git add s.txt && printf 'new\\n' > new.txt && printf 'x\\n' > ignored"
+
+// A command runs in the case's folder, with HOME and TMPDIR there too, so
+// git's global configuration and its temporary files stay in it.
+test CommandsRunInTheFolder {
+	with onShell {
+		let folder = try os.Process.Getwd()
+		let r = try exec.Runner.Run(exec.New("sh", []string{"-c", "printf '%s|%s|%s' \"$PWD\" \"$HOME\" \"$TMPDIR\""}))
+		assert r.Stdout == "\(folder)|\(folder)|\(folder)"
+		assert os.Process.Getenv("HOME") == Some[string]{Value: folder}
+	}
+}
+
+// A program that computes a path of its own outside the folder (here its
+// parent, which exec's path check never sees) cannot write it: on Linux
+// the command runs in the folder's sandbox, where the folder is the only
+// writable path (rows.md, Test's ambient 5; TH1b). Other hosts have the
+// path check only, so the script writes outside only on Linux.
+test AProgramWritesOnlyInTheFolder {
+	with onShell {
+		let script = "[ \"$(uname)\" = Linux ] && echo x > \"$(dirname \"$PWD\")/escape\" 2>/dev/null && echo escaped; echo y > kept && echo kept"
+		let r = try exec.Runner.Run(exec.New("sh", []string{"-c", script}))
+		assert r.Stdout == "kept\n"
+	}
+}
+
+// run runs a git command in the folder and gives its status.
+func run(args []string) int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(exec.New("git", args)).Status
+}
+
+// status is git's porcelain status of the checkout at root: the index
+// and the working files, untracked ones each named.
+func status(root string) string fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(exec.New("git", []string{"-C", root, "status", "--porcelain=v1", "--untracked-files=all"})).Stdout
+}
+
+// ListedIsTheSnapshotInARepository: Listed names a snapshot's files with
+// none read: the tracked and the untracked files, not an ignored one nor
+// a tracked file deleted from the folder.
+test ListedIsTheSnapshotInARepository {
+	with onShell {
+		let script = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'ignored\\n' > .gitignore && printf 'a\\n' > a.txt && printf 'd\\n' > d.txt && git add -A && git commit -q -m one && rm d.txt && printf 'new\\n' > new.txt && printf 'x\\n' > ignored"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", script})).Status == 0
+		let listed = try work.Vcs.Listed(".")
+		assert listed == []string{".gitignore", "a.txt", "new.txt"}
+		assert listed == slices.Sorted(maps.Keys(try work.Vcs.Read(".", try work.Vcs.Snapshot("."))))
+	}
+}
+
+test OwnBranchHoldsItsHeadInARepository {
+	with onShell {
+		assert try run([]string{"init", "-q", "-b", "main", "repo"}) == 0
+		assert try run([]string{"-C", "repo", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "first"}) == 0
+		assert try work.Vcs.Branch("repo") == "main"
+		let head = try work.Vcs.Head("repo")
+		assert try work.Vcs.Holds("repo", head)
+		assert try work.Vcs.Clean("repo")
+	}
+}
+
+// SnapshotLeavesTheIndex: a snapshot of a checkout with a staged file, a
+// change not staged, an untracked file and an ignored one leaves git's
+// status as it was (it builds its tree in an index of its own), and the
+// tree holds every file that is not ignored, as the working folder has
+// them. (SnapshotChangesNoBranch compares the head, the branch and
+// whether the checkout is clean, which a snapshot through the user's
+// index leaves as they were.)
+test SnapshotLeavesTheIndex {
+	with onShell {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", StateScript})).Status == 0
+		let before = try status(".")
+		assert before == " M a.txt\nA  s.txt\n?? new.txt\n"
+		let tree = try work.Vcs.Snapshot(".")
+		assert try status(".") == before
+		let files = try work.Vcs.Read(".", tree)
+		assert files == Map[string, string]{".gitignore": "ignored\n", "a.txt": "one\ntwo\n", "new.txt": "new\n", "s.txt": "staged\n"}
+	}
+}
+
+// SnapshotReadsABadIndexAfresh: Snapshot keeps an index of its own
+// between snapshots and reads HEAD into it with -m; an index it cannot read
+// (here garbage) is read afresh, and the snapshot is the same tree.
+test SnapshotReadsABadIndexAfresh {
+	with onShell {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", StateScript})).Status == 0
+		let tree = try work.Vcs.Snapshot(".")
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "printf 'garbage' > .git/" + SnapshotIndex})).Status == 0
+		assert try work.Vcs.Snapshot(".") == tree
+	}
+}
+
+// NonFastForwardIsRefused: a push of a branch onto a parent's branch that
+// moved on (side, not checked out) is NotFastForward, and side stays
+// where it moved. The parent is named by its absolute path: exec confines
+// each argument as a path from the folder, so the relative path from the
+// child (../parent) would be Denied.
+test NonFastForwardIsRefused {
+	with onShell {
+		assert try run([]string{"init", "-q", "-b", "main", "parent"}) == 0
+		assert try run([]string{"-C", "parent", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one"}) == 0
+		assert try run([]string{"clone", "-q", "parent", "child"}) == 0
+		assert try run([]string{"-C", "parent", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two"}) == 0
+		assert try run([]string{"-C", "parent", "update-ref", "refs/heads/side", "HEAD"}) == 0
+		assert try run([]string{"-C", "child", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "three"}) == 0
+		let moved = try work.Vcs.Ref("parent", "refs/heads/side")
+		let pushed = []work.Pushed{work.Pushed{From: "refs/heads/main", To: "refs/heads/side", Force: false}}
+		work.Vcs.Push("child", try os.Process.Getwd()+"/parent", pushed) catch {
+		case work.NotFastForward as n:
+			assert n.Ref == "refs/heads/side"
+			assert try work.Vcs.Ref("parent", "refs/heads/side") == moved
+			return
+		case work.VcsFailed:
+			assert false
+			return
+		}
+		assert false
+	}
+}
+
+// StaleSetIsMoved: of two writers that read a ref as missing, the first
+// set wins and the second is Moved, naming what the ref holds; the ref
+// keeps the first value (CompareAndSetIsAtomic's race, on git).
+test StaleSetIsMoved {
+	with onShell {
+		assert try run([]string{"init", "-q", "-b", "main", "."}) == 0
+		assert try run([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one"}) == 0
+		let one = try work.Vcs.Head(".")
+		assert try run([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two"}) == 0
+		let two = try work.Vcs.Head(".")
+		let ref = "refs/work/law"
+		assert try work.Vcs.Ref(".", ref) == ""
+		try work.Vcs.SetRef(".", ref, "", one)
+		work.Vcs.SetRef(".", ref, "", two) catch {
+		case work.Moved as m:
+			assert m.Want == "" && m.Have == one
+			assert try work.Vcs.Ref(".", ref) == one
+			return
+		case work.VcsFailed:
+			assert false
+			return
+		}
+		assert false
+	}
+}
+
+// LocalsRemotesAndGuards: the smallest repro of the git commands the
+// held check and the archive run (M1, B1, G3, B4 of the verifier's round
+// 1), which the memory Vcs cannot show: Locals names every branch and
+// each stash entry, the newest refs/stash/0; Remote finds a commit a
+// remote-tracking ref holds and not one only a local branch holds; a
+// push by commit writes it under refs/work/archive; GuardPushes gives
+// every remote, not origin only, the refusing push URL, and Unguard
+// drops it and no push URL of the owner's.
+test LocalsRemotesAndGuards {
+	with onShell {
+		let script = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'one\\n' > a.txt && git add a.txt && git commit -q -m one && git switch -q -c side && printf 's\\n' > s.txt && git add s.txt && git commit -q -m side && git switch -q main && printf 'x\\n' >> a.txt && git stash -q && printf 'y\\n' >> a.txt && git stash -q && git remote add origin /nonexistent/loop-probe-x && git remote add fork /nonexistent/loop-probe-y && git update-ref refs/remotes/origin/main main && git init -q --bare archive.git"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", script})).Status == 0
+		let main = try work.Vcs.Ref(".", "refs/heads/main")
+		let side = try work.Vcs.Ref(".", "refs/heads/side")
+		let newest = try exec.Runner.Run(exec.New("git", []string{"rev-parse", "refs/stash@{0}"})).Stdout
+		let locals = try work.Vcs.Locals(".")
+		assert len(locals) == 4
+		assert locals[0] == work.Local{Ref: "refs/heads/main", Commit: main} && locals[1] == work.Local{Ref: "refs/heads/side", Commit: side}
+		assert locals[2].Ref == "refs/stash/0" && locals[2].Commit+"\n" == newest && locals[3].Ref == "refs/stash/1"
+		assert try work.Vcs.Remote(".", main, false)
+		assert !try work.Vcs.Remote(".", side, false)
+		// origin/side is stale: no HEAD names it, so gc -idle does not
+		// trust it; origin/HEAD names origin/main (M2).
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git update-ref refs/remotes/origin/side side && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main"})).Status == 0
+		assert try work.Vcs.Remote(".", side, false)
+		assert !try work.Vcs.Remote(".", side, true)
+		assert try work.Vcs.Remote(".", main, true)
+		let to = "refs/work/archive/a/1/heads/side"
+		try work.Vcs.Push(".", try os.Process.Getwd()+"/archive.git", []work.Pushed{work.Pushed{From: side, To: to, Force: false}})
+		assert try work.Vcs.Ref("archive.git", to) == side
+		try work.Vcs.GuardPushes(".")
+		for remote in []string{"origin", "fork"} {
+			let url = try exec.Runner.Run(exec.New("git", []string{"config", "remote.\(remote).pushurl"})).Stdout
+			assert url == Guard+"\n"
+		}
+		// doctor -unguard (the Mac's fork): Unguard drops work's guard
+		// and keeps a push URL the owner set.
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git remote add mine /nonexistent/loop-probe-z && git config remote.mine.pushurl /nonexistent/loop-probe-own"})).Status == 0
+		assert try work.Vcs.Guarded(".") == []string{"fork", "origin"}
+		try work.Vcs.Unguard(".")
+		assert try work.Vcs.Guarded(".") == []string{}
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git config remote.origin.pushurl"})).Status == 1
+		assert try exec.Runner.Run(exec.New("git", []string{"config", "remote.mine.pushurl"})).Stdout == "/nonexistent/loop-probe-own\n"
+	}
+}

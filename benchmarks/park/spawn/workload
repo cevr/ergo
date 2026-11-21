@@ -1,0 +1,7 @@
+# scripts/opcount: `park bench spawn N` runs N spawns and joins (task.Go,
+# then Wait); the cost of one is the slope between the two sizes (PARK1).
+unit join
+sizes 100000 1100000
+args bench spawn {n}
+control benchmarks/park/testdata/control
+binary park

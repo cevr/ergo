@@ -9,14 +9,17 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ergo.local/prototype/internal/proclimit"
@@ -35,8 +38,11 @@ type Config struct {
 	Tools  []Tool
 	Suites []Suite
 	// Workers is the number of mutants judged at once, each in its own
-	// copy; Procs is each child's GOMAXPROCS and go -p.
+	// copy; Tests is the number of one mutant's tests run at once, until
+	// the first kill (judge.go); Procs is each child's GOMAXPROCS and go
+	// -p. At most Workers × Tests children run at once, each under Memory.
 	Workers int
+	Tests   int
 	Procs   int
 	// Memory is each child's RLIMIT_DATA (internal/proclimit): a mutant
 	// that makes a program grow without end kills that test, never the
@@ -47,6 +53,11 @@ type Config struct {
 	All bool
 	// Coverage, when set, is a coverage file to read instead of measuring.
 	Coverage string
+	// CoverStore, when set, is the directory of the coverage store
+	// (coverstore.go): each suite's segment is taken from it where the
+	// suite's key holds, and the measured ones are stored. Empty: every
+	// suite is measured.
+	CoverStore string
 	// CoverDeadline bounds each child of the coverage pass, which has no
 	// earlier run to derive a deadline from.
 	CoverDeadline time.Duration
@@ -54,6 +65,15 @@ type Config struct {
 	// Sources check a mutant of a source file that go build does not
 	// compile (an .ergo row) before any test runs.
 	Sources []SourceCheck
+	// TestFloor is the least deadline of a test of the mutant pass
+	// (default testFloor).
+	TestFloor time.Duration
+	// JournalDir, when set, keeps each tree's journal (journal.go): a run
+	// killed before its end resumes there. Empty: nothing is kept.
+	JournalDir string
+	// Progress, when set, gets the results so far after each verdict
+	// (blank where a row is not judged yet).
+	Progress func([]Result)
 }
 
 // SourceCheck validates the mutants of one kind of source file. A mutated
@@ -107,7 +127,40 @@ type Suite struct {
 	// checkout's packages, which another module cannot cover, so only its
 	// named tests judge a mutant (killerIDs).
 	Module string
+	// Commands, set for the suite named command alone, are the ledgers'
+	// commands by name (Ledger.Commands): its tests, which run only where
+	// a row names them.
+	Commands map[string][]string
+	// Families are the Named tests of a Go suite that are no test but a
+	// family split into parts, TestXPart0, TestXPart1 … (a test split to
+	// fit the gate's step limit): the runner runs a family as every one of
+	// its parts in one process, so a failing part kills, and a row names
+	// the family, never a part number.
+	Families []string
 }
+
+// measured says whether the coverage pass runs the listed test n of the
+// Go suite s: every test, or with Only those it names, a family in Only
+// as its parts (Families).
+func measured(s *Suite, n string) bool {
+	if !strings.HasPrefix(n, "Test") {
+		return false
+	}
+	if s.Only == nil || slices.Contains(s.Only, n) {
+		return true
+	}
+	return slices.ContainsFunc(s.Families, func(f string) bool {
+		return slices.Contains(s.Only, f) && regexp.MustCompile(partsPattern(f)).MatchString(n)
+	})
+}
+
+// partsPattern matches the parts of the test family name and nothing else.
+func partsPattern(name string) string {
+	return "^" + regexp.QuoteMeta(name) + "Part[0-9]+$"
+}
+
+// commandSuite is the name of the suite of the ledgers' commands.
+const commandSuite = "command"
 
 // Deadlines of the mutant pass, derived from the coverage pass: a child may
 // take deadlineFactor times as long as the same test or build took there,
@@ -127,7 +180,10 @@ const (
 	Survived  = "survived"
 	Uncovered = "uncovered" // no test runs its lines, and the ledger names none
 	Stale     = "stale"     // its edit does not apply: report it to its origin
-	Invalid   = "invalid"   // the mutated tree does not build: report it to its origin
+	Invalid   = "invalid"   // the mutated tree does not build or the mutated file does not compile: report it to its origin
+	Unjudged  = "unjudged"  // a test that covers it or the ledger names fails on the unmutated tree
+	Hung      = "hung"      // no test killed it, and some test ran into its timeout: fix the row or the test
+	Compiles  = "compiles"  // -compiles only: the mutated file compiles, and no test ran
 )
 
 // Result is the verdict on one mutant.
@@ -137,12 +193,24 @@ type Result struct {
 	Status   string   `json:"status"`
 	Line     int      `json:"line,omitempty"`
 	Killer   string   `json:"killer,omitempty"`
-	Reason   string   `json:"reason,omitempty"` // fail, deadline or memory
+	Reason   string   `json:"reason,omitempty"` // fail or memory (a timeout is no kill: Hung)
 	Killers  []string `json:"killers,omitempty"`
 	Covering int      `json:"covering"`
-	Ran      []string `json:"ran,omitempty"`
-	Seconds  float64  `json:"seconds"`
-	Detail   string   `json:"detail,omitempty"`
+	// Ran are the tests that ran to their end on the mutant (the receipt
+	// of its work), Stopped those the first kill stopped, Hung those of
+	// Ran that failed only by their timeout.
+	Ran     []string `json:"ran,omitempty"`
+	Stopped []string `json:"stopped,omitempty"`
+	Hung    []string `json:"hung,omitempty"`
+	// NotStarted are the tests whose binary ended before the test started
+	// (startLine): no kill, and the row is invalid unless another test
+	// killed it.
+	NotStarted []string `json:"not_started,omitempty"`
+	Seconds    float64  `json:"seconds"`
+	Detail     string   `json:"detail,omitempty"`
+	// checked is set once phase A applied the row and its source checks
+	// passed: phase B does not check it again.
+	checked bool
 }
 
 // Job is one ledger to run.
@@ -167,24 +235,58 @@ func Run(ctx context.Context, cfg Config, jobs []Job) ([]Result, *coverage, erro
 	if err := e.load(ledgers); err != nil {
 		return nil, nil, err
 	}
-	if err := e.prepareCoverage(ctx, jobs); err != nil {
-		return nil, nil, err
-	}
 	results, err := e.judgeAll(ctx, jobs)
-	return results, e.cov, err
+	return results, e.known(), err
+}
+
+// Measure prepares the coverage of the jobs' suites as Run does (taking
+// and filling the coverage store, Config.CoverStore) and judges nothing.
+func Measure(ctx context.Context, cfg Config, jobs []Job) (*coverage, error) {
+	e, err := covered(ctx, cfg, jobs)
+	if err != nil {
+		return nil, err
+	}
+	return e.cov, nil
+}
+
+// covered is the engine of the jobs with its coverage prepared.
+func covered(ctx context.Context, cfg Config, jobs []Job) (*engine, error) {
+	e, err := newEngine(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var ledgers []string
+	for _, j := range jobs {
+		ledgers = append(ledgers, j.Path)
+	}
+	if err := e.load(ledgers); err != nil {
+		return nil, err
+	}
+	if err := e.prepareCoverage(ctx); err != nil {
+		return nil, err
+	}
+	return e, nil
 }
 
 type engine struct {
-	cfg    Config
-	module string
-	files  []treeFile
-	key    string
-	cov    *coverage
-	logMu  sync.Mutex
+	cfg         Config
+	compileOnly bool // CompileRows: each row is applied and compiled, no test runs
+	module      string
+	goRoot      string // the module's toolchain, whose bin is first on every child's PATH
+	files       []treeFile
+	key         string
+	cov         *coverage
+	logMu       sync.Mutex
 	// plain are the coverage pass's test binaries built without coverage,
 	// by suite name, built the first time one is needed (plainBinary).
 	plainMu sync.Mutex
 	plain   map[string]*plainBuild
+	// base are the named tests' runs on the unmutated tree (phase A,
+	// judge.go), builds the first time each build took on this run.
+	base    map[string]*covTest
+	buildMu sync.Mutex
+	builds  map[string]float64
+	workers []*worker
 }
 
 type plainBuild struct {
@@ -205,6 +307,9 @@ func newEngine(cfg Config) (*engine, error) {
 	if cfg.Procs < 1 {
 		cfg.Procs = 1
 	}
+	if cfg.Tests < 1 {
+		cfg.Tests = 1
+	}
 	if cfg.CoverDeadline <= 0 {
 		cfg.CoverDeadline = time.Hour
 	}
@@ -221,6 +326,12 @@ func newEngine(cfg Config) (*engine, error) {
 	if inside(cfg.Work, cfg.Root) {
 		return nil, fmt.Errorf("work directory %s is inside the checkout %s", cfg.Work, cfg.Root)
 	}
+	// The copies are made under the work directory, each emptied first
+	// (copyTree) and restored by removing what the checkout lacks
+	// (restoreUnder): a checkout inside it could be one of them.
+	if inside(cfg.Root, cfg.Work) {
+		return nil, fmt.Errorf("the checkout %s is inside the work directory %s", cfg.Root, cfg.Work)
+	}
 	mod, err := os.ReadFile(filepath.Join(cfg.Root, "go.mod"))
 	if err != nil {
 		return nil, err
@@ -233,6 +344,19 @@ func newEngine(cfg Config) (*engine, error) {
 	}
 	if e.module == "" {
 		return nil, errors.New("go.mod names no module")
+	}
+	// The toolchain go test would put first on PATH (env): the one that
+	// built this runner (go run and go test build it with the module's).
+	// The go first on PATH may be another, which GOTOOLCHAIN=local keeps
+	// from switching (the host's go1.26.5 refused the module's go 1.27).
+	if root := toolchainRoot(); root != "" {
+		e.goRoot = root
+	} else {
+		cmd := exec.Command("go", "env", "GOROOT")
+		cmd.Dir, cmd.Env = cfg.Root, goEnviron()
+		if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+			e.goRoot = strings.TrimSpace(string(out))
+		}
 	}
 	return e, os.MkdirAll(cfg.Work, 0o755)
 }
@@ -303,7 +427,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %s %q %q %q %q %q", s.Name, s.Module, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named)
+		fmt.Fprintf(h, " suite %s %s %s %q %q %q %q %q %q %q", s.Name, s.Module, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named, s.Commands, s.Families)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -345,7 +469,20 @@ func (e *engine) copyTree(dst string) error {
 // rules run git ls-files) then see the checkout's file list in the copy and
 // can kill a mutant; without it they fail on every tree. The commit also
 // keeps go build's VCS stamp working. The user's Git configuration is left
-// out: a signing or hook setting must not reach the copy.
+// out: a signing or hook setting must not reach the copy. The copy's own
+// configuration turns Git's automatic maintenance off (noMaintenance), so
+// no git a test runs in it starts a repack: one ran 13 and 40 minutes on a
+// nearly full disk (wf10, 2026-11-19).
+// noMaintenance turns Git's automatic gc and maintenance off through the
+// environment, for the gits the runner and its children run. The runner's
+// own gits elsewhere (log, status, rev-parse, ls-files) are reads that
+// start no maintenance.
+var noMaintenance = []string{
+	"GIT_CONFIG_COUNT=2",
+	"GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0",
+	"GIT_CONFIG_KEY_1=maintenance.auto", "GIT_CONFIG_VALUE_1=false",
+}
+
 func commitCopy(dst string, files []treeFile) error {
 	var names bytes.Buffer
 	for _, f := range files {
@@ -354,6 +491,8 @@ func commitCopy(dst string, files []treeFile) error {
 	}
 	steps := [][]string{
 		{"init", "-q"},
+		{"config", "gc.auto", "0"},
+		{"config", "maintenance.auto", "false"},
 		{"add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"},
 		{"-c", "user.name=mutants", "-c", "user.email=mutants@invalid", "commit", "-q", "--no-verify", "-m", "mutants copy"},
 	}
@@ -361,6 +500,7 @@ func commitCopy(dst string, files []treeFile) error {
 		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		cmd.Dir = dst
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(cmd.Env, noMaintenance...)
 		if args[0] == "add" {
 			cmd.Stdin = bytes.NewReader(names.Bytes())
 		}
@@ -391,37 +531,131 @@ func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 }
 
 // env is the environment of every child: the runner's own, with the
-// thread share, and extra.
+// thread share, and extra. GOFLAGS is empty: a go command's default -p is
+// GOMAXPROCS, and a set GOFLAGS makes ergo build refuse its direct path,
+// which failed the cmd/ergo tests that require it on the unmutated tree
+// (FT11b: TestDirectBuildStartsNoGoCommand, TestBuildGoesThroughIR). The
+// module's toolchain is first on PATH, as go test puts it: a test binary
+// run directly found the host's go first, and cmd/ergo's
+// TestLRUCountsAsHandGo failed on the unmutated tree ("Go go1.27.0 has no
+// port of the IR compiler patch"), so opt9-fail-around-noresult was
+// unjudged (GT-BOUND).
 func (e *engine) env(extra ...string) []string {
 	var out []string
 	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
+		name, value, _ := strings.Cut(kv, "=")
 		switch name {
-		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable:
+		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable, embedObserveVariable:
+			continue
+		case "PATH":
+			if e.goRoot != "" {
+				kv = "PATH=" + filepath.Join(e.goRoot, "bin") + string(os.PathListSeparator) + value
+			}
+		case "GOROOT":
+			// The go first on PATH finds its own root. A GOROOT of another
+			// toolchain fails every build ("compile: version go1.27.4 does
+			// not match go tool version go1.27.0").
 			continue
 		}
 		out = append(out, kv)
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
-	out = append(out, "GOMAXPROCS="+procs, "GOFLAGS=-p="+procs, "GOWORK=off")
+	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")
+	out = append(out, noMaintenance...)
 	return append(out, extra...)
 }
 
-// outcome is how a child ended. Reason is empty when it exited 0.
+// outcome is how a child ended. Reason is empty when it exited 0. Timeout
+// is set when its failure is only a timeout: the runner's deadline, or go
+// test's own -test.timeout panic.
 type outcome struct {
 	reason  string // fail, deadline, memory
 	seconds float64
 	tail    string
+	timeout bool
+	// started is set when the child printed the start line it was run
+	// with (execStarted), or had none to print.
+	started bool
+}
+
+// timeoutPanic is how a go test binary says that its -test.timeout ran
+// out (testing.(*M).startAlarm).
+const timeoutPanic = "panic: test timed out after "
+
+// toolchainRoot is the root of the toolchain that built this runner (go
+// run and go test build it with the module's), or "" when its go is gone.
+func toolchainRoot() string {
+	//lint:ignore SA1019 the build-time root is the toolchain wanted here
+	root := runtime.GOROOT()
+	if _, err := os.Stat(filepath.Join(root, "bin", "go")); root == "" || err != nil {
+		return ""
+	}
+	return root
+}
+
+// goCommand is the go of toolchainRoot, else the go first on PATH.
+func goCommand() string {
+	if root := toolchainRoot(); root != "" {
+		return filepath.Join(root, "bin", "go")
+	}
+	return "go"
+}
+
+// goEnviron is this process's environment without GOROOT, for the go
+// commands the runner starts itself: goCommand finds its own root, and an
+// inherited GOROOT of another toolchain would make it refuse to run (as
+// env drops it for every child).
+func goEnviron() []string {
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "GOROOT=") })
+}
+
+// lookPathIn finds a bare command name on the PATH of env, the child's,
+// where exec.Command looks on this process's: the toolchain the runner puts
+// first on a child's PATH (env) runs its go, not the host's go, which
+// GOTOOLCHAIN=local keeps from switching (go1.26.5 refused the module's go
+// 1.27). A name with a separator, or one not found there, is left as is.
+func lookPathIn(name string, env []string) string {
+	if strings.ContainsRune(name, filepath.Separator) {
+		return name
+	}
+	for _, kv := range env {
+		value, ok := strings.CutPrefix(kv, "PATH=")
+		if !ok {
+			continue
+		}
+		for _, dir := range filepath.SplitList(value) {
+			path := filepath.Join(dir, name)
+			if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return path
+			}
+		}
+	}
+	return name
 }
 
 // exec runs argv in dir as the leader of its own process group, under the
 // memory limit and the deadline, and stops the whole group when it ends.
 func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadline time.Duration) outcome {
+	return e.execStarted(ctx, dir, argv, env, deadline, "")
+}
+
+// execTokenVariable carries, to every process a child of exec starts, the
+// token of that child: the processes it leaves in groups of their own are
+// found by it when it ends (reapAfter).
+const execTokenVariable = "ERGO_MUTANTS_EXEC"
+
+var execTokens atomic.Uint64
+
+// execStarted is exec of a child that prints startLine when the test it
+// runs starts ("" for none): outcome.started says whether it did.
+func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string, deadline time.Duration, startLine string) outcome {
 	start := time.Now()
-	out := &tail{}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	out := &tail{needles: []string{timeoutPanic, startLine}}
+	cmd := exec.Command(lookPathIn(argv[0], env), argv[1:]...)
 	cmd.Dir = dir
-	cmd.Env = env
+	// The token marks every process the child starts, for reapAfter.
+	token := strconv.FormatUint(execTokens.Add(1), 10)
+	cmd.Env = append(slices.Clip(env), execTokenVariable+"="+token)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	// Read every byte before tail truncates the display. The shared writer
@@ -432,9 +666,14 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 	// below ends it.
 	cmd.WaitDelay = time.Second
 	ownGroup(cmd)
+	subreaper()
+	unlock := starting()
 	if err := proclimit.Start(cmd, e.cfg.Memory); err != nil {
+		unlock()
 		return outcome{reason: "fail", tail: err.Error()}
 	}
+	track(cmd.Process.Pid)
+	unlock()
 	var mu sync.Mutex
 	exited, timedOut := false, false
 	stop := func(deadline bool) {
@@ -458,16 +697,35 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 	close(done)
 	timer.Stop()
 	mu.Lock()
-	// The leader is gone; stop what it left in its group.
+	// The leader is gone; stop what it left in its group, and what it
+	// left in groups of their own (reap_linux.go, GT-REAP).
 	stopGroup(cmd.Process)
 	exited = true
 	mu.Unlock()
+	untrack(cmd.Process.Pid)
+	reapAfter(token)
 	o := outcome{seconds: time.Since(start).Seconds(), tail: out.String()}
 	o.reason = childReason(err, timedOut, e.cfg.Memory, watch.Stderr())
+	o.timeout = o.reason == "deadline" || o.reason == "fail" && out.saw(0)
+	o.started = startLine == "" || out.saw(1)
 	if ctx.Err() != nil && o.reason != "" {
-		o.reason = "interrupted"
+		o.reason, o.timeout = "interrupted", false
 	}
 	return o
+}
+
+// startLine is what a test binary run with -test.v prints when the
+// top-level test starts: a Go test that fails without it never ran (a
+// usage error, a binary that died in its init, no test of that name), so
+// its failure kills nothing (GT-NOTESTS). A command suite prints none.
+func startLine(s *Suite, test string) string {
+	if s.Package == "" {
+		return ""
+	}
+	if slices.Contains(s.Families, test) {
+		return "=== RUN   " + test + "Part" // any part
+	}
+	return "=== RUN   " + test + "\n"
 }
 
 // tail keeps the first and the last bytes a child wrote: a crash names its
@@ -477,6 +735,20 @@ type tail struct {
 	head    []byte
 	buf     []byte
 	dropped bool
+	// needles are texts to watch for wherever the display truncates (an
+	// empty one is not watched): seen[i] is set once needles[i] was
+	// written; carry is the end of the last write, for a line cut between
+	// two writes.
+	needles []string
+	seen    []bool
+	carry   []byte
+}
+
+// saw says whether needles[i] was written.
+func (t *tail) saw(i int) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return i < len(t.seen) && t.seen[i]
 }
 
 const tailSize = 16 << 10
@@ -499,6 +771,23 @@ func (t *tail) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(p)
+	if t.seen == nil {
+		t.seen = make([]bool, len(t.needles))
+		for i, n := range t.needles {
+			t.seen[i] = n == "" // nothing to watch for
+		}
+	}
+	if slices.Contains(t.seen, false) {
+		scan := append(t.carry, p...)
+		longest := 0
+		for i, n := range t.needles {
+			longest = max(longest, len(n))
+			if n != "" && !t.seen[i] {
+				t.seen[i] = bytes.Contains(scan, []byte(n))
+			}
+		}
+		t.carry = append(t.carry[:0], scan[max(0, len(scan)-longest):]...)
+	}
 	if room := tailSize/4 - len(t.head); room > 0 {
 		k := min(room, len(p))
 		t.head = append(t.head, p[:k]...)
@@ -538,7 +827,11 @@ func expand(s, bin, root, test string) string {
 // toolsOf returns the tools a suite runs.
 func toolsOf(s *Suite) []string {
 	var out []string
-	for _, w := range append(slices.Clone(s.Env), s.Command...) {
+	words := append(slices.Clone(s.Env), s.Command...)
+	for _, name := range slices.Sorted(maps.Keys(s.Commands)) {
+		words = append(words, s.Commands[name]...)
+	}
+	for _, w := range words {
 		for _, m := range toolWord.FindAllStringSubmatch(w, -1) {
 			if !slices.Contains(out, m[1]) {
 				out = append(out, m[1])
@@ -566,6 +859,15 @@ func (e *engine) tool(name string) *Tool {
 	return nil
 }
 
+// coverMode is the counter mode of every coverage build of the coverage
+// pass: the test binaries, the tools, and the programs a test builds
+// (internal/sketch/build's coverage build, lower's dispatcher), whose
+// counters share the test's GOCOVERDIR, and go tool covdata refuses two
+// modes in one directory. It is atomic because a coverage build writes its
+// counters itself when a signal ends it (runtime/coverage.WriteCountersDir
+// needs atomic counters; GATE2 GT7b).
+const coverMode = "atomic"
+
 // buildTool builds a tool into bin; with cover, with coverage of the
 // covered packages and of the tool's own package (a binary whose main
 // package is not covered writes no counters).
@@ -576,7 +878,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 	}
 	argv := []string{"go", "build"}
 	if cover {
-		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
+		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
 	}
 	argv = append(append(argv, t.Flags...), "-o", filepath.Join(bin, name), t.Package)
 	return e.exec(ctx, root, argv, e.env(), deadline), nil
@@ -585,7 +887,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
 	argv := []string{"go", "test", "-c"}
 	if cover && len(e.cfg.Cover) > 0 && s.Module == "" {
-		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
+		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(e.cfg.Cover, ","))
 	}
 	if s.Tags != "" {
 		argv = append(argv, "-tags="+s.Tags)
@@ -600,17 +902,36 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 // TestReapEndedLeavesTheHelperAndRunningChildren) fails at once without
 // it, so it judged nothing (MUT-names r2). Its own timeout also names the
 // stuck test before the runner stops the run.
+// ergoCacheVariable is the ergo CLI's emission cache root (build.RootVariable).
+const ergoCacheVariable = "ERGO_CACHE"
+
 func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) ([]string, string, []string) {
 	var env []string
 	for _, kv := range s.Env {
 		env = append(env, expand(kv, bin, root, test))
 	}
+	// A test of the checkout's module gets an emission cache of its own
+	// from internal/testinputs; one of a nested module (hosts/mygo) has no
+	// such harness, and the ergo it starts refuses the user's cache under
+	// a Go test. The runner gives each such test a cache under its work
+	// directory, unless the ledger's env names one (MUT-MODULES).
+	if s.Module != "" && s.Package != "" && !slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, ergoCacheVariable+"=") }) {
+		env = append(env, ergoCacheVariable+"="+filepath.Join(bin, "ergo-cache", filepath.FromSlash(s.Name), test))
+	}
 	if s.Package != "" {
-		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.timeout=" + (deadline * 9 / 10).String()},
+		run := "^" + regexp.QuoteMeta(test) + "$"
+		if slices.Contains(s.Families, test) {
+			run = partsPattern(test)
+		}
+		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=" + run, "-test.count=1", "-test.v", "-test.timeout=" + (deadline * 9 / 10).String()},
 			filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
-	for _, w := range s.Command {
+	words := s.Command
+	if s.Commands != nil {
+		words = s.Commands[test]
+	}
+	for _, w := range words {
 		argv = append(argv, expand(w, bin, root, test))
 	}
 	return argv, root, env
@@ -638,30 +959,21 @@ func killerIDs(m *Mutant) []string {
 	return out
 }
 
-// prepareCoverage reads the coverage file, the cached one of this tree and
-// of the scope the selected mutants of jobs need (coverScope), or measures
-// it. It logs a receipt of the coverage work either way.
-func (e *engine) prepareCoverage(ctx context.Context, jobs []Job) error {
+// prepareCoverage reads the coverage file, the cached one of this tree, or
+// measures it.
+func (e *engine) prepareCoverage(ctx context.Context) error {
 	path := e.cfg.Coverage
-	if path != "" {
-		e.logf("coverage receipt: read %s, no test run", path)
-	} else {
-		scope, err := e.scope(jobs)
-		if err != nil {
-			return err
-		}
-		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+"-"+scope.key()+".json.gz")
+	if path == "" {
+		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+".json.gz")
 		if _, err := os.Stat(path); err != nil {
-			e.logf("coverage: measuring (tree %s) into %s", e.key, path)
-			c, err := e.measure(ctx, scope)
+			e.logf("coverage: tree %s into %s", e.key, path)
+			c, err := e.coverageOfTree(ctx)
 			if err != nil {
 				return err
 			}
 			if err := saveCoverage(path, c); err != nil {
 				return err
 			}
-		} else {
-			e.logf("coverage receipt: reused %s, no test run", path)
 		}
 	}
 	c, err := loadCoverage(path)
@@ -676,12 +988,10 @@ func (e *engine) prepareCoverage(ctx context.Context, jobs []Job) error {
 	return nil
 }
 
-// measure runs every test the scope measures once, each in its own process
-// with its own coverage directory, in a fresh copy of the checkout. It
-// builds only the suites and tools those tests run, logs each test as it
-// ends (a stall shows as the missing next line), and ends with a receipt
-// of the work: tests and suites measured of all, builds, child seconds.
-func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, error) {
+// measure runs every test of suites once, each in its own process with its
+// own coverage directory, in a fresh copy of the checkout. It builds the
+// tools those suites run.
+func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error) {
 	root := filepath.Join(e.cfg.Work, "cover", "src")
 	bin := filepath.Join(e.cfg.Work, "cover", "bin")
 	if err := e.copyTree(root); err != nil {
@@ -690,28 +1000,17 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		return nil, err
 	}
+	need := map[string]bool{}
+	for i := range suites {
+		for _, name := range toolsOf(&suites[i]) {
+			need[name] = true
+		}
+	}
 	c := &coverage{Key: e.key, Builds: map[string]float64{}}
-	// The anchor tests of a suite the scope does not measure whole.
-	alone := map[string][]string{}
-	for id := range scope.anchors {
-		suite, name := splitID(id)
-		if !scope.suites[suite] {
-			alone[suite] = append(alone[suite], name)
-		}
-	}
-	measured := func(s *Suite) bool { return scope.suites[s.Name] || len(alone[s.Name]) > 0 }
-	var needed []string
-	for i := range e.cfg.Suites {
-		if measured(&e.cfg.Suites[i]) {
-			needed = append(needed, toolsOf(&e.cfg.Suites[i])...)
-		}
-	}
-	builds := 0
 	for _, t := range e.cfg.Tools {
-		if !slices.Contains(needed, t.Name) {
+		if !need[t.Name] {
 			continue
 		}
-		builds++
 		o, err := e.buildTool(ctx, root, bin, t.Name, true, e.cfg.CoverDeadline)
 		if err == nil && o.reason != "" {
 			err = fmt.Errorf("build %s with coverage: %s\n%s", t.Name, o.reason, o.tail)
@@ -721,27 +1020,29 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 		}
 		c.Builds[t.Name] = o.seconds
 	}
-	all := 0
-	for i := range e.cfg.Suites {
-		s := &e.cfg.Suites[i]
-		if !measured(s) {
-			continue
-		}
+	for i := range suites {
+		s := &suites[i]
 		var names []string
 		if s.Package != "" {
-			builds++
 			o := e.buildSuite(ctx, root, bin, s, true, e.cfg.CoverDeadline)
 			if o.reason != "" {
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
 			}
 			c.Builds[s.Name] = o.seconds
-			list, err := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".").Output()
+			// In the package's directory, as go test runs the binary: a
+			// test file's init may read testdata (lower's loose JSON
+			// cases), and from the root it panics before it lists.
+			lister := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".")
+			lister.Dir = filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package))
+			var stderr strings.Builder
+			lister.Stderr = &stderr
+			list, err := lister.Output()
 			if err != nil {
-				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
+				return nil, fmt.Errorf("list the tests of %s: %w\n%s", s.Name, err, firstLine(stderr.String()))
 			}
 			listed := strings.Fields(string(list))
 			for _, n := range listed {
-				if strings.HasPrefix(n, "Test") && (s.Only == nil || slices.Contains(s.Only, n)) {
+				if measured(s, n) {
 					names = append(names, n)
 				}
 			}
@@ -749,7 +1050,8 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 			// never run: a stale killer is refused, not silently dropped.
 			var missing []string
 			for _, n := range s.Named {
-				if !slices.Contains(listed, n) {
+				parts := regexp.MustCompile(partsPattern(n))
+				if !slices.Contains(listed, n) && !(slices.Contains(s.Families, n) && slices.ContainsFunc(listed, parts.MatchString)) {
 					missing = append(missing, s.Name+":"+n)
 				}
 			}
@@ -770,18 +1072,13 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 				}
 			}
 		}
-		all += len(names)
 		for _, n := range names {
-			if scope.suites[s.Name] || slices.Contains(alone[s.Name], n) {
-				c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
-			}
+			c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
 		}
 	}
-	e.logf("coverage: %d tests to measure; not measured: the suites %v, whose binaries compile no package of the selected mutants", len(c.Tests), scope.skipped)
-	k := &collector{module: e.module, blocks: map[blockKey][]int{}}
+	k := &collector{module: e.module, blocks: map[blockKey][]int{}, ergo: newErgoMapper(filepath.Join(e.cfg.Work, "cover", "ergo-go"), root)}
 	var mu sync.Mutex
 	var firstErr error
-	done, seconds := 0, 0.0
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < e.cfg.Workers; w++ {
@@ -790,14 +1087,13 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 			defer wg.Done()
 			for i := range next {
 				err := e.measureOne(ctx, root, bin, c.Tests[i], i, k, &mu)
-				mu.Lock()
-				if err != nil && firstErr == nil {
-					firstErr = err
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
 				}
-				done++
-				seconds += c.Tests[i].Seconds
-				e.logf("coverage: %d/%d %s %.1fs", done, len(c.Tests), c.Tests[i].ID, c.Tests[i].Seconds)
-				mu.Unlock()
 			}
 		}()
 	}
@@ -809,7 +1105,6 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 	}
 	close(next)
 	wg.Wait()
-	e.logf("coverage receipt: %d tests measured, of %d in the suites it listed; %d of %d suites; %d builds; %.0f s of tests", done, all, len(e.cfg.Suites)-len(scope.skipped), len(e.cfg.Suites), builds, seconds)
 	if firstErr == nil {
 		firstErr = ctx.Err()
 	}
@@ -829,13 +1124,33 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
 	argv, cwd, env := e.argv(s, root, bin, name, e.cfg.CoverDeadline)
-	if s.Package != "" && s.Module == "" {
-		// A nested module's suite is built without coverage (Suite.Module).
+	if s.Package != "" && s.Module == "" && len(e.cfg.Cover) > 0 {
+		// A nested module's suite is built without coverage (Suite.Module),
+		// and so is every suite when no package is covered (a ledger of
+		// .ergo rows only: its tests are selected by what they read).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
-	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir)...), e.cfg.CoverDeadline)
+	testLog := ""
+	if s.Package != "" {
+		// The files the test opens (reads.go).
+		testLog = testLogName(dir)
+		argv = append(argv, "-test.testlogfile="+testLog)
+		defer os.Remove(testLog)
+	}
+	o := e.execStarted(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir, embedObserveVariable+"="+root)...), e.cfg.CoverDeadline, startLine(s, name))
+	if testLog != "" {
+		if f, err := os.Open(testLog); err == nil {
+			mu.Lock()
+			err = k.reads(i, f, cwd, root)
+			mu.Unlock()
+			f.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
 	t.Seconds = o.seconds
-	if o.reason != "" && s.Package != "" && s.Module == "" {
+	if o.reason != "" && s.Package != "" {
 		// A test may fail only because its binary is built with coverage:
 		// internal/closure's tests run their own binary in a sandbox where
 		// all but fresh scratch is read-only, and a coverage-built binary
@@ -855,7 +1170,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 			o = plain
 		}
 	}
-	if o.reason != "" {
+	if o = neverRan(o); o.reason != "" {
 		t.Failed = true
 		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
 		e.logf("coverage: %s fails on the unmutated tree (%s): it kills nothing", t.ID, o.reason)
@@ -907,7 +1222,7 @@ func (e *engine) plainRun(ctx context.Context, root string, s *Suite, test strin
 		return outcome{}, b.err
 	}
 	argv, cwd, env := e.argv(s, root, bin, test, e.cfg.CoverDeadline)
-	return e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline), nil
+	return e.execStarted(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline, startLine(s, test)), nil
 }
 
 // headerLine reports whether the line of text at byte offset at is a case
@@ -923,237 +1238,4 @@ func headerLine(text string, at int) bool {
 func lastLines(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
-}
-
-// judgeAll runs the mutants on Workers copies of the checkout.
-func (e *engine) judgeAll(ctx context.Context, jobs []Job) ([]Result, error) {
-	type item struct {
-		at     int
-		ledger string
-		m      *Mutant
-	}
-	var items []item
-	for _, j := range jobs {
-		for _, m := range j.Ledger.Mutants {
-			if j.Select == nil || j.Select.MatchString(m.Name) {
-				items = append(items, item{len(items), j.Path, m})
-			}
-		}
-	}
-	results := make([]Result, len(items))
-	next := make(chan item)
-	var wg sync.WaitGroup
-	errs := make([]error, e.cfg.Workers)
-	for w := 0; w < e.cfg.Workers; w++ {
-		dir := filepath.Join(e.cfg.Work, "w"+strconv.Itoa(w))
-		wk := &worker{e: e, root: filepath.Join(dir, "src"), bin: filepath.Join(dir, "bin"), touched: map[string]bool{}}
-		if err := e.copyTree(wk.root); err != nil {
-			return nil, err
-		}
-		if err := os.MkdirAll(wk.bin, 0o755); err != nil {
-			return nil, err
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for it := range next {
-				r := wk.judge(ctx, it.m)
-				r.Ledger = it.ledger
-				results[it.at] = r
-				e.logf("%s: %s %s %s (%.0f s, %d run of %d covering)", it.m.Name, r.Status, r.Killer, r.Reason, r.Seconds, len(r.Ran), r.Covering)
-			}
-			errs[w] = errors.Join(wk.err, e.verifyCopy(wk.root, wk.touched))
-		}()
-	}
-	for _, it := range items {
-		if ctx.Err() != nil {
-			break
-		}
-		next <- it
-	}
-	close(next)
-	wg.Wait()
-	return results, errors.Join(append(errs, ctx.Err())...)
-}
-
-type worker struct {
-	e       *engine
-	root    string
-	bin     string
-	touched map[string]bool
-	err     error
-	// unmutated holds each source file's state before any mutant (they
-	// are restored after each one), and sourceTools the source checks'
-	// tools built from the unmutated copy.
-	unmutated   map[string]sourceState
-	sourceTools map[string]bool
-}
-
-// judge applies one mutant, runs its covering tests and the tests its ledger
-// row names (known killers first, then cheapest first) until the first
-// kill, and restores the file.
-func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
-	start := time.Now()
-	r.Name = m.Name
-	defer func() { r.Seconds = time.Since(start).Seconds() }()
-	path := filepath.Join(w.root, filepath.FromSlash(m.File))
-	original, err := os.ReadFile(path)
-	if err != nil {
-		r.Status, r.Detail = Stale, err.Error()
-		return r
-	}
-	if n := strings.Count(string(original), m.From); n != 1 {
-		r.Status, r.Detail = Stale, fmt.Sprintf("its from occurs %d times in %s", n, m.File)
-		return r
-	}
-	at := strings.Index(string(original), m.From)
-	r.Line = 1 + strings.Count(string(original[:at]), "\n")
-	file, lo, hi := m.File, r.Line, r.Line+strings.Count(m.From, "\n")
-	header := headerLine(string(original), at)
-	// The tests the ledger names, its killers and its anchor's tests, run
-	// whether or not the coverage pass saw them reach the lines: a test in
-	// another package can kill through a program it builds, which the
-	// coverage pass does not see.
-	extra := killerIDs(m)
-	if a := m.Anchor; a != nil {
-		if a.Text != "" {
-			if a.File != "" {
-				file = a.File
-			}
-			text := original
-			if file != m.File {
-				if text, err = os.ReadFile(filepath.Join(w.root, filepath.FromSlash(file))); err != nil {
-					r.Status, r.Detail = Stale, "anchor: "+err.Error()
-					return r
-				}
-			}
-			if n := strings.Count(string(text), a.Text); n != 1 {
-				r.Status, r.Detail = Stale, fmt.Sprintf("its anchor text occurs %d times in %s", n, file)
-				return r
-			}
-			at := strings.Index(string(text), a.Text)
-			lo = 1 + strings.Count(string(text[:at]), "\n")
-			hi = lo + strings.Count(a.Text, "\n")
-		}
-	}
-	var covering map[string]bool
-	if strings.HasSuffix(m.File, ".go") {
-		covering = w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
-	} else {
-		// The cover tool sees Go blocks only, so no block holds a line of
-		// another file (std's .ergo sources, a ledger): such a mutant is
-		// judged by the tests its row names, with no coverage filter.
-		covering = w.e.cov.named(append(slices.Clone(m.Killers), extra...))
-	}
-	r.Covering = len(covering)
-	if len(covering) == 0 {
-		r.Status = Uncovered
-		return r
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		w.err = errors.Join(w.err, err)
-		r.Status, r.Detail = Invalid, err.Error()
-		return r
-	}
-	source := w.e.sourceCheck(m.File)
-	if m.Refused != "" {
-		source = nil
-	}
-	var before sourceState
-	if source != nil {
-		if before, err = w.source(ctx, source, path, false); err != nil {
-			r.Status, r.Detail = Invalid, err.Error()
-			return r
-		}
-	}
-	w.touched[m.File] = true
-	if err := os.WriteFile(path, []byte(strings.Replace(string(original), m.From, m.To, 1)), info.Mode().Perm()); err != nil {
-		w.err = errors.Join(w.err, err)
-		r.Status, r.Detail = Invalid, err.Error()
-		return r
-	}
-	defer func() {
-		if err := os.WriteFile(path, original, info.Mode().Perm()); err != nil {
-			w.err = errors.Join(w.err, fmt.Errorf("restore %s: %w", m.File, err))
-		}
-	}()
-	if source != nil {
-		after, err := w.source(ctx, source, path, true)
-		if err != nil {
-			r.Status, r.Detail = Invalid, err.Error()
-			return r
-		}
-		if why := before.refusal(after); why != "" {
-			r.Status, r.Detail = Invalid, why
-			return r
-		}
-	}
-	built := map[string]bool{}
-	for _, id := range w.e.cov.order(covering, killerIDs(m)) {
-		if ctx.Err() != nil {
-			r.Status, r.Detail = Invalid, "interrupted"
-			return r
-		}
-		suiteName, name := splitID(id)
-		s := w.e.suite(suiteName)
-		if s == nil {
-			continue
-		}
-		if detail := w.build(ctx, s, built); detail != "" {
-			r.Status, r.Detail, r.Killers, r.Killer = Invalid, detail, nil, ""
-			return r
-		}
-		deadline := max(testFloor, time.Duration(deadlineFactor*w.e.cov.test(id).Seconds*float64(time.Second)))
-		argv, cwd, env := w.e.argv(s, w.root, w.bin, name, deadline)
-		o := w.e.exec(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline)
-		r.Ran = append(r.Ran, id)
-		if o.reason == "interrupted" {
-			r.Status, r.Detail = Invalid, "interrupted"
-			return r
-		}
-		if o.reason != "" {
-			r.Killers = append(r.Killers, id)
-			if r.Killer == "" {
-				r.Killer, r.Reason, r.Detail = id, o.reason, lastLines(o.tail, 30)
-			}
-			if !w.e.cfg.All {
-				break
-			}
-		}
-	}
-	r.Status = Survived
-	if r.Killer != "" {
-		r.Status = Killed
-	}
-	return r
-}
-
-// build builds what a suite needs in the mutated copy, once per mutant. It
-// returns why the mutated tree does not build, or "".
-func (w *worker) build(ctx context.Context, s *Suite, built map[string]bool) string {
-	for _, t := range toolsOf(s) {
-		if built["tool:"+t] {
-			continue
-		}
-		o, err := w.e.buildTool(ctx, w.root, w.bin, t, false, w.buildDeadline(t))
-		if err != nil {
-			return err.Error()
-		}
-		if o.reason != "" {
-			return "build " + t + ": " + o.reason + "\n" + lastLines(o.tail, 20)
-		}
-		built["tool:"+t] = true
-	}
-	if s.Package != "" && !built["suite:"+s.Name] {
-		if o := w.e.buildSuite(ctx, w.root, w.bin, s, false, w.buildDeadline(s.Name)); o.reason != "" {
-			return "build " + s.Name + ": " + o.reason + "\n" + lastLines(o.tail, 20)
-		}
-		built["suite:"+s.Name] = true
-	}
-	return ""
-}
-
-func (w *worker) buildDeadline(name string) time.Duration {
-	return max(buildFloor, time.Duration(deadlineFactor*w.e.cov.Builds[name]*float64(time.Second)))
 }

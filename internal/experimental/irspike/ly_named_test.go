@@ -13,10 +13,11 @@ import "testing"
 func TestIRAgreesOnRouterMemory(t *testing.T) { agreeOnNamed(t, "router/memory test") }
 
 // TestIRAgreesOnShards is TestIRAgreesOnExamples on examples/shards/cmd/shards
-// alone, named by its folder. It kills ly-fix-go-row-body-built: std actor's
-// ExitOf has a Go row, which the IR would spell error.
+// alone, named by its folder: std actor's ExitOf, whose F is a Go row
+// (rowslot.go), takes an IR body there (ROWSLOT-IR), as TestIRReprosMatchSource's
+// rowslot row does in small.
 //
-// It builds Go because the row's spelling fails only the Go build of the
+// It builds Go because a row's spelling fails only the Go build of the
 // IR file.
 func TestIRAgreesOnShards(t *testing.T) { agreeOnNamed(t, "shards/cmd/shards") }
 

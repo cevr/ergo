@@ -33,15 +33,18 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
+	"ergo.local/prototype/internal/ergoversion"
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/std/gostd"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
@@ -147,8 +150,13 @@ type program struct {
 type loader struct {
 	fsys     FS
 	platform gobind.Platform
-	root     string // the module root, or the root package's folder
-	module   string // the module name; empty with no ergo.mod
+	// experiments are the Go experiments of the target (goExperiments):
+	// with platform, they choose the module Go files go build compiles
+	// (buildsFor). The check cache sees a flip through the digest of
+	// those files (goBodies); the warm key holds them (WarmKey).
+	experiments []string
+	root        string // the module root, or the root package's folder
+	module      string // the module name; empty with no ergo.mod
 	// trust are the required modules whose Go the root's ergo.mod trusts.
 	trust []string
 	pkgs  map[string]*loadedPackage
@@ -168,6 +176,12 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// goBodies are the module Go packages read (GoPackage), by import
+	// path: a digest of the names and bytes of the files go build
+	// compiles for the target, "" when there are none. The check cache
+	// keeps them with a checked package, so an edit of a body checks it
+	// again.
+	goBodies map[string]string
 	// modCache is Go's module cache folder, "" when none is known;
 	// modules is the build list, read on the first import of another
 	// module; deps the required modules read, by path (modules.go).
@@ -182,12 +196,16 @@ type loader struct {
 	segments map[*loadedPackage]string
 	// opts are the checker modes of every local package (clauses.go).
 	opts check.Options
+	// cache, when set, holds earlier checks to take packages from, and fps
+	// the fingerprints of the packages checked or taken so far (CheckCache).
+	cache *CheckCache
+	fps   map[string]fingerprint.Package
 }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
 // reads required modules from the module cache folder modCache.
 func newLoader(fsys FS, platform gobind.Platform, dir, modCache string) *loader {
-	return &loader{fsys: fsys, platform: platform, root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
+	return &loader{fsys: fsys, platform: platform, experiments: goExperiments(), root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
 		state: map[*loadedPackage]int{}, texts: map[string]string{}, deps: map[string]*depModule{}}
 }
 
@@ -272,22 +290,35 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 // checkDirIn checks the package in dir with required modules read from the
 // module cache folder modCache.
 func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) (Analysis, error) {
-	return checkDirFull(fsys, dir, platform, modCache, check.Options{})
+	return checkDirFull(fsys, dir, platform, modCache, check.Options{}, nil)
 }
 
 // checkDirWith checks the package in dir in the checker modes opts
 // (clauses.go).
 func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Options) (Analysis, error) {
-	return checkDirFull(fsys, dir, platform, moduleCache(), opts)
+	return checkDirFull(fsys, dir, platform, moduleCache(), opts, nil)
 }
 
-func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string, opts check.Options) (Analysis, error) {
+func hostPlatform() gobind.Platform {
+	return gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+}
+
+// checkDirCached checks the program at dir, taking packages from cache when
+// it is not nil (CheckCache). It checks in the default modes only: the
+// cache's key does not hold check.Options.
+func checkDirCached(fsys FS, dir string, platform gobind.Platform, cache *CheckCache) (Analysis, error) {
+	return checkDirFull(fsys, dir, platform, moduleCache(), check.Options{}, cache)
+}
+
+func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string, opts check.Options, cache *CheckCache) (Analysis, error) {
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
 	l := newLoader(fsys, platform, dir, modCache)
 	l.opts = opts
+	l.cache = cache
+	l.fps = map[string]fingerprint.Package{}
 	work.loads.Add(1)
 	found, err := l.findModule(dir)
 	if err != nil {
@@ -310,6 +341,9 @@ func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string
 		}
 		if err := l.visit(root, nil); err != nil {
 			return Analysis{}, err
+		}
+		if d := l.dependencyPin(); d != nil {
+			l.diags = []report.Diagnostic{*d}
 		}
 		if len(l.diags) == 0 {
 			l.segments = l.moduleSegments()
@@ -354,13 +388,18 @@ func (l *loader) findModule(dir string) (bool, error) {
 			l.root = d
 			text := string(data)
 			l.texts[ModFile] = text
-			module, trust, diagnostic := parseModule(text)
+			mf, diagnostic := parseModule(text)
+			if diagnostic == nil {
+				// A refused ergo line is read as a malformed ergo.mod: the
+				// module is not read at all.
+				diagnostic = pinProblem(binaryVersion(), ModFile, text, mf)
+			}
 			if diagnostic != nil {
 				diagnostic.File = ModFile
 				l.diags = append(l.diags, *diagnostic)
 				return true, nil
 			}
-			l.module, l.trust = module, trust
+			l.module, l.trust = mf.module, mf.trust
 			l.readGoModule()
 			return true, nil
 		case err == nil:
@@ -376,16 +415,29 @@ func (l *loader) findModule(dir string) (bool, error) {
 	}
 }
 
-// parseModule reads an ergo.mod: blank lines, one line `module NAME`, and
-// lines `trust go MODULE`, each naming a required module whose Go code
-// (import go, extern go) the module's programs admit (grammar.md, Source
-// files 1, Trusted Go). It returns the module name and the trusted
-// module paths in their order.
-func parseModule(text string) (string, []string, *report.Diagnostic) {
-	const shape = "ergo.mod holds the line module NAME and lines trust go MODULE, and nothing else"
+// modFile is what an ergo.mod says.
+type modFile struct {
+	// module is the module name; trust the trusted module paths in their
+	// order.
+	module string
+	trust  []string
+	// ergo is the version of the `ergo VERSION` line, "" with none, and
+	// ergoAt its line and ergoCol the column of VERSION.
+	ergo            string
+	ergoAt, ergoCol int
+}
+
+// parseModule reads an ergo.mod: blank lines, one line `module NAME`, at
+// most one line `ergo VERSION`, the lowest ergo that may build the module
+// (grammar.md, Source files 1, Which ergo), and lines `trust go MODULE`,
+// each naming a required module whose Go code (import go, extern go) the
+// module's programs admit (grammar.md, Source files 1, Trusted Go).
+func parseModule(text string) (modFile, *report.Diagnostic) {
+	const shape = "ergo.mod holds the line module NAME, at most one line ergo VERSION and lines trust go MODULE, and nothing else"
 	lines := lineStarts(text)
 	module, at := "", -1
 	var trust []string
+	var mf modFile
 	for i, start := range lines {
 		end := len(text)
 		if i+1 < len(lines) {
@@ -402,25 +454,69 @@ func parseModule(text string) (string, []string, *report.Diagnostic) {
 		case len(fields) == 3 && fields[0] == "trust" && fields[1] == "go":
 			col := strings.LastIndex(line, fields[2]) + 1
 			if slices.Contains(trust, fields[2]) {
-				return "", nil, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("ergo.mod trusts the Go of module %s twice", fields[2]))
+				return modFile{}, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("ergo.mod trusts the Go of module %s twice", fields[2]))
 			}
 			if reason := modulePathProblem(fields[2]); reason != "" {
-				return "", nil, modDiagnostic(text, lines, i+1, col, reason)
+				return modFile{}, modDiagnostic(text, lines, i+1, col, reason)
 			}
 			trust = append(trust, fields[2])
 			continue
+		case len(fields) == 2 && fields[0] == "ergo":
+			col := strings.LastIndex(line, fields[1]) + 1
+			if mf.ergo != "" {
+				return modFile{}, modDiagnostic(text, lines, i+1, 1, fmt.Sprintf("ergo.mod names the ergo it needs twice (line %d and line %d); keep one ergo line", mf.ergoAt, i+1))
+			}
+			if reason := ergoversion.Valid(fields[1]); reason != "" || strings.Contains(fields[1], "+") {
+				if reason == "" {
+					reason = "it carries build metadata, which names no version of its own"
+				}
+				return modFile{}, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("the ergo line's %s is not a version of ergo: %s; write a tag (v1.2.3) or a pseudo-version (v0.0.0-20261117152120-c501620891c0), as ergo version prints it", fields[1], reason))
+			}
+			mf.ergo, mf.ergoAt, mf.ergoCol = fields[1], i+1, col
+			continue
 		default:
-			return "", nil, modDiagnostic(text, lines, i+1, 1, shape)
+			return modFile{}, modDiagnostic(text, lines, i+1, 1, shape)
 		}
 		col := strings.Index(line, module) + 1
 		if reason := modulePathProblem(module); reason != "" {
-			return "", nil, modDiagnostic(text, lines, i+1, col, reason)
+			return modFile{}, modDiagnostic(text, lines, i+1, col, reason)
 		}
 	}
 	if at < 0 {
-		return "", nil, modDiagnostic(text, lines, 1, 1, "ergo.mod names no module: it holds the line module NAME")
+		return modFile{}, modDiagnostic(text, lines, 1, 1, "ergo.mod names no module: it holds the line module NAME")
 	}
-	return module, trust, nil
+	mf.module, mf.trust = module, trust
+	return mf, nil
+}
+
+// binaryVersion is the version of this ergo; a test sets it.
+var binaryVersion = ergoversion.Current
+
+// develNotice says once per process that a devel ergo does not compare
+// ergo lines.
+var develNotice = sync.OnceFunc(func() {
+	fmt.Fprintf(os.Stderr, "ergo: this ergo is a %s build, which has no version, so it does not compare the ergo lines of ergo.mod files\n", ergoversion.Devel)
+})
+
+// pinProblem is the diagnostic that refuses a module whose ergo line asks
+// for an ergo newer than binary, in the file file whose text is text, or
+// nil when binary may build it: binary is at least the line by semantic
+// version order (Go's go line and Gleam's gleam key are minimums too). A
+// devel binary accepts every line and says so once on stderr.
+func pinProblem(binary, file, text string, mf modFile) *report.Diagnostic {
+	if mf.ergo == "" {
+		return nil
+	}
+	if binary == ergoversion.Devel {
+		develNotice()
+		return nil
+	}
+	if compareVersions(binary, mf.ergo) >= 0 {
+		return nil
+	}
+	d := modDiagnostic(text, lineStarts(text), mf.ergoAt, mf.ergoCol, fmt.Sprintf("%s needs ergo %s or newer, and this ergo is %s; install it: %s", file, mf.ergo, binary, ergoversion.InstallCommand(mf.ergo)))
+	d.File = file
+	return d
 }
 
 func modDiagnostic(text string, lines []int, line, col int, message string) *report.Diagnostic {
@@ -445,7 +541,7 @@ func modulePathProblem(module string) string {
 		return fmt.Sprintf("the module path %s is not an import path: its elements are not empty", module)
 	}
 	first, _, _ := strings.Cut(module, "/")
-	if _, isStd := std.Package(first); isStd || first == std.PreludePath {
+	if _, isStd := stdlib.Package(first); isStd || first == stdlib.PreludePath {
 		return fmt.Sprintf("the module path %s starts with the std package %s, which a std import always names; choose another module name", module, first)
 	}
 	return ""
@@ -491,8 +587,8 @@ func (l *loader) nestedModule(dir string, mod *depModule) string {
 		}
 		rel := l.relIn(mod, d)
 		if data, err := l.fsys.ReadFile(file); err == nil {
-			if module, _, problem := parseModule(string(data)); problem == nil {
-				return fmt.Sprintf("the folder %s is module %s (%s/%s); import its packages by that module's path, which %s requires", rel, module, rel, ModFile, GoModFile)
+			if mf, problem := parseModule(string(data)); problem == nil {
+				return fmt.Sprintf("the folder %s is module %s (%s/%s); import its packages by that module's path, which %s requires", rel, mf.module, rel, ModFile, GoModFile)
 			}
 		}
 		return fmt.Sprintf("the folder %s holds its own %s, so it is not in module %s", rel, ModFile, name)
@@ -539,15 +635,24 @@ func (l *loader) read(path, dir string, mod *depModule) (*loadedPackage, error) 
 	p := &loadedPackage{path: path, dir: dir, mod: mod}
 	l.pkgs[path] = p
 	seen := map[string]bool{}
+	// The files are read first, then parsed together, each on a task of
+	// its own (syntax.ParseFiles); the results are taken in name order.
+	files := make([]loadedFile, len(names))
+	texts := make([]string, len(names))
 	for i, name := range names {
 		abs := filepath.Join(dir, name)
 		data, err := l.fsys.ReadFile(abs)
 		if err != nil {
 			return nil, err
 		}
-		f := loadedFile{rel: l.relIn(mod, abs), abs: abs, text: string(data)}
+		files[i] = loadedFile{rel: l.relIn(mod, abs), abs: abs, text: string(data)}
+		texts[i] = files[i].text
+	}
+	parsedAll, errsAll := syntax.ParseFiles(texts)
+	for i, name := range names {
+		f := files[i]
 		l.texts[f.rel] = f.text
-		parsed, err := syntax.Parse(f.text)
+		parsed, err := parsedAll[i], errsAll[i]
 		stage.Add(stage.FilesParsed, 1)
 		stage.Add(stage.BytesParsed, int64(len(f.text)))
 		if err != nil {
@@ -757,6 +862,28 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 	if main {
 		path = "main" // the root package is the program's main package
 	}
+	var ckey string
+	cacheable := false
+	if l.cache != nil && !segment {
+		ckey, cacheable = l.cache.key(l, p, path)
+	}
+	if cacheable {
+		if pkg, ok := l.cache.reuse(l, p, ckey); ok {
+			p.pkg = pkg
+			// The decoded package holds its own syntax trees: the
+			// lowering and the evaluator read those.
+			for k, f := range pkg.Files() {
+				p.files[k].syntax = f
+			}
+			stage.Add(stage.PackagesReused, 1)
+			l.fingerprintAfter(p, path, pkg.Files())
+			l.cache.store(l, p, ckey, pkg)
+			if hook := checkedHook; hook != nil {
+				hook(l, path, pkg) // the census sees a reused package too
+			}
+			return false
+		}
+	}
 	pkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)
 	stage.Add(stage.PackagesChecked, 1)
 	for _, f := range files {
@@ -769,6 +896,12 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 	ds[p] = found
 	if len(found) > 0 {
 		p.broken = true
+	}
+	if l.cache != nil {
+		l.fingerprintAfter(p, path, files)
+		if cacheable && !p.broken {
+			l.cache.store(l, p, ckey, pkg)
+		}
 	}
 	return segment
 }
@@ -876,7 +1009,7 @@ func (l *loader) testOf(p *loadedPackage) *check.Package {
 // first, so no module package shadows it. The loader and the law ledger's
 // pruning (ledgerSource) find a package by its path through it.
 func shippedImport(path string) (*check.Package, bool, error) {
-	if _, isStd := std.Package(path); !isStd {
+	if _, isStd := stdlib.Package(path); !isStd {
 		return nil, false, nil
 	}
 	p, err := check.Std.Import(path)
@@ -886,8 +1019,8 @@ func shippedImport(path string) (*check.Package, bool, error) {
 // isStdPath reports whether path names std, which every module imports
 // and no module may shadow.
 func isStdPath(path string) bool {
-	_, ok := std.Package(path)
-	return ok || path == std.PreludePath
+	_, ok := stdlib.Package(path)
+	return ok || path == stdlib.PreludePath
 }
 
 // TrustsGo is the loader's check.GoTrust for the packages it checks with
@@ -926,10 +1059,16 @@ func (a Analysis) Text() string {
 	if a.program == nil {
 		return a.source
 	}
+	return ProgramText(a.program.texts)
+}
+
+// ProgramText is the text of a program read from a folder whose files
+// (Files) are texts: its revision is report.Revision of it.
+func ProgramText(texts map[string]string) string {
 	var b strings.Builder
-	for _, name := range sortedNames(a.program.texts) {
-		fmt.Fprintf(&b, "%d:%s%d:", len(name), name, len(a.program.texts[name]))
-		b.WriteString(a.program.texts[name])
+	for _, name := range sortedNames(texts) {
+		fmt.Fprintf(&b, "%d:%s%d:", len(name), name, len(texts[name]))
+		b.WriteString(texts[name])
 	}
 	return b.String()
 }
@@ -942,6 +1081,21 @@ func (a Analysis) Files() map[string]string {
 		return nil
 	}
 	return a.program.texts
+}
+
+// RootPackage is the checked root package of a program read from a folder: its
+// absolute folder, its package and its parsed files (each with its Name
+// and Src). ok is false for a program of one file, and for a root that was
+// not checked (a file that does not parse, or a broken import).
+func (a Analysis) RootPackage() (dir string, pkg *check.Package, files []*syntax.File, ok bool) {
+	if a.program == nil || a.program.root == nil || a.program.root.pkg == nil {
+		return "", nil, nil, false
+	}
+	r := a.program.root
+	for _, f := range r.files {
+		files = append(files, f.syntax)
+	}
+	return r.dir, r.pkg, files, true
 }
 
 func sortedNames(m map[string]string) []string {

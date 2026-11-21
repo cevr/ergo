@@ -34,7 +34,7 @@ func Hash4(text string, p int) int {
 }
 
 // insert puts position q in its chain, when its four bytes are in text.
-func insert(c *Chain, text string, q int) {
+func insert(c mut Chain, text string, q int) {
 	if q+MinMatch <= len(text) {
 		let h = Hash4(text, q)
 		c.prev[q&WindowMask] = c.head[h]
@@ -70,7 +70,7 @@ func Word(text string, p int) uint64 {
 }
 
 // longest is the longest match for p within the block that ends at end.
-func longest(c *Chain, text string, p int, end int) Match {
+func longest(c mut Chain, text string, p int, end int) Match {
 	let mut best = Match{From: 0, Len: 0}
 	let mut cand = int(c.head[Hash4(text, p)])
 	let mut tries = 0
@@ -110,7 +110,7 @@ func Pack(text string) string {
 }
 
 // packBlock writes the sequences of the block from..end.
-func packBlock(out *strings.Builder, c *Chain, text string, from int, end int) {
+func packBlock(out mut strings.Builder, c mut Chain, text string, from int, end int) {
 	let mut anchor = from
 	let mut p = from
 	for p+MinMatch <= end {
@@ -137,7 +137,7 @@ func packBlock(out *strings.Builder, c *Chain, text string, from int, end int) {
 
 // writeSequence writes the literals anchor..p and a copy of n bytes from
 // offset back.
-func writeSequence(out *strings.Builder, text string, anchor int, p int, offset int, n int) {
+func writeSequence(out mut strings.Builder, text string, anchor int, p int, offset int, n int) {
 	let l = p - anchor
 	let m = n - MinMatch
 	out.WriteByte(byte(lo(l, 15)<<4 | lo(m, 15)))
@@ -153,7 +153,7 @@ func writeSequence(out *strings.Builder, text string, anchor int, p int, offset 
 }
 
 // writeLiterals writes the last literals of a block, anchor..end.
-func writeLiterals(out *strings.Builder, text string, anchor int, end int) {
+func writeLiterals(out mut strings.Builder, text string, anchor int, end int) {
 	let l = end - anchor
 	out.WriteByte(byte(lo(l, 15) << 4))
 	if l >= 15 {
@@ -164,7 +164,7 @@ func writeLiterals(out *strings.Builder, text string, anchor int, end int) {
 
 // writeExt writes the rest of a length past its nibble: 255s, then the
 // remainder.
-func writeExt(out *strings.Builder, rest int) {
+func writeExt(out mut strings.Builder, rest int) {
 	let mut r = rest
 	for r >= 255 {
 		out.WriteByte(255)
@@ -175,7 +175,7 @@ func writeExt(out *strings.Builder, rest int) {
 
 // writeUvarint writes n in seven-bit groups, low first, the high bit set
 // on all but the last.
-func writeUvarint(out *strings.Builder, n int) {
+func writeUvarint(out mut strings.Builder, n int) {
 	let mut v = n
 	for v >= 128 {
 		out.WriteByte(byte(v&127 | 128))

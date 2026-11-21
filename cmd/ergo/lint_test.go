@@ -64,14 +64,16 @@ func main() {
 
 // TestLintCommandReadsModuleConfiguration is LINT0's command acceptance
 // (red at base: lint was a removed command). In process, over a module
-// whose ergo.lint.json the command reads beside ergo.mod: the recommended
-// rules report, a reasoned directive suppresses, --strict fails policy on
+// whose ergo.lint.json the command reads beside ergo.mod: the justifier
+// rules it extends report, a reasoned directive suppresses, --strict fails policy on
 // a warning, the configuration turns a rule off, ergo diagnostics merges
 // the same advice, and a bad preset or configuration is exit 2.
 func TestLintCommandReadsModuleConfiguration(t *testing.T) {
 	dir := physicalTempDir(t)
 	smokeWrite(t, dir, "ergo.mod", "module app\n")
 	main := smokeWrite(t, dir, "cmd/app/main.ergo", lintFixture)
+	// The justifier rules are opt-in since their read sample (LHP).
+	smokeWrite(t, dir, "ergo.lint.json", `{"version": 1, "extends": ["justifiers"]}`)
 	type report struct {
 		PolicyPassed bool `json:"policyPassed"`
 		LintComplete bool `json:"lintComplete"`
@@ -112,7 +114,7 @@ func TestLintCommandReadsModuleConfiguration(t *testing.T) {
 	if r, code := run("diagnostics", "--json", main); code != 0 || codes(r) != "L102@10 L101@16" || r.Diagnostics[0].Origin != "lint" || r.Diagnostics[0].Rule != "foreign-error-public" {
 		t.Fatalf("ergo diagnostics: exit %d %+v", code, r)
 	}
-	smokeWrite(t, dir, "ergo.lint.json", `{"version": 1, "rules": {"silent-catch": "off", "foreign-error-public": "error"}}`)
+	smokeWrite(t, dir, "ergo.lint.json", `{"version": 1, "extends": ["justifiers"], "rules": {"silent-catch": "off", "foreign-error-public": "error"}}`)
 	r, code = run("lint", "--json", main)
 	if code != 1 || codes(r) != "L102@10" || r.Diagnostics[0].Severity != "error" || r.Suppressions[0].Status != "not-evaluated" {
 		t.Fatalf("ergo lint with a configuration: exit %d %+v", code, r)

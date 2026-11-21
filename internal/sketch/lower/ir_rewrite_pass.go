@@ -74,9 +74,9 @@ func (b *irBuilder) callFacts(x *syntax.CallExpr, e *irExpr, stmt bool) {
 	e.CF = f
 }
 
-// localType records local i's Go type, for a hole that is not a call's
+// setLocalType records local i's Go type, for a hole that is not a call's
 // operand (rwMatch.hole).
-func (b *irBuilder) localType(i int, typ string) {
+func (b *irBuilder) setLocalType(i int, typ string) {
 	if b.localTypes == nil {
 		b.localTypes = map[int]string{}
 	}
@@ -104,17 +104,35 @@ type rwMatch struct {
 	keep bool
 	// check is set when a call of the site is a checked side's.
 	check bool
+	// bind is a generic law's type parameters at the site, ops each
+	// parameter's operand in the site's source (ir_fusion.go).
+	bind rwBinding
+	ops  map[*check.Var]syntax.Expr
 }
 
-// rwMark is a body's locals before a site's temporaries.
-type rwMark struct{ locals, next int }
+// rwMark is a body's locals before a site's temporaries, and the number
+// of declarations each open loop's pre-header holds (ir_memo.go).
+type rwMark struct {
+	locals, next int
+	memos        []int
+}
 
-func (b *irBuilder) mark() rwMark { return rwMark{len(b.fn.Locals), b.next} }
+func (b *irBuilder) mark() rwMark {
+	memos := make([]int, len(b.memos))
+	for i, m := range b.memos {
+		memos[i] = len(m.decls)
+	}
+	return rwMark{len(b.fn.Locals), b.next, memos}
+}
 
-// unmark drops the locals declared since m: a site that was not applied
-// declares none.
+// unmark drops the locals declared since m, and the pre-header
+// declarations of the calls memoized since: a site that was not applied
+// declares none, and no later local reuses the index of one it declared.
 func (b *irBuilder) unmark(m rwMark) {
 	b.fn.Locals, b.next = b.fn.Locals[:m.locals], m.next
+	for i, n := range m.memos[:min(len(m.memos), len(b.memos))] {
+		b.memos[i].decls = b.memos[i].decls[:n]
+	}
 }
 
 // patterns are the scope's laws as patterns, by the head of their left
@@ -125,6 +143,9 @@ func (b *irBuilder) patterns() map[string][]*rwPattern {
 	}
 	b.rwPatterns = map[string][]*rwPattern{}
 	for _, law := range b.l.scopeLaws() {
+		if law.TopRewrite().OverFuncs {
+			continue // decided at the call, from its source (ir_fusion.go fuseAt)
+		}
 		if p := b.pattern(law); p != nil {
 			h := rwHead(p.left)
 			b.rwPatterns[h] = append(b.rwPatterns[h], p)
@@ -153,11 +174,11 @@ func (b *irBuilder) pattern(law *check.Law) (p *rwPattern) {
 	p = &rwPattern{law: law}
 	vals := map[*check.Var]*irExpr{}
 	for i, v := range law.Params {
-		h := &irExpr{K: "hole", I: i, T: b.goType(v.Type, law.FuncRewrite.Lhs)}
+		h := &irExpr{K: "hole", I: i, T: b.goType(v.Type, law.TopRewrite().Lhs)}
 		p.holes = append(p.holes, h)
 		vals[v] = h
 	}
-	pre, left := b.lawSide(law, law.FuncRewrite.Lhs, vals, true)
+	pre, left := b.lawSide(law, law.TopRewrite().Lhs, vals, true)
 	if len(pre) > 0 || left == nil || left.CF == nil {
 		return nil
 	}
@@ -211,7 +232,7 @@ func (b *irBuilder) match(m *rwMatch, p, e *irExpr, typed bool) bool {
 // local or constant.
 func (b *irBuilder) hole(m *rwMatch, p, e *irExpr, typed bool) bool {
 	if prev := m.vals[p.I]; prev != nil {
-		return prev.K == e.K && (e.K == "local" && prev.I == e.I || e.K == "const" && prev.T == e.T && prev.V == e.V)
+		return prev.K == e.K && (e.K == "local" && prev.I == e.I || e.K == "const" && prev.T == e.T && prev.V == e.V && prev.Op == e.Op)
 	}
 	known := typed || e.K == "const" && e.T == p.T || e.K == "local" && b.localTypes[e.I] == p.T
 	if !known {

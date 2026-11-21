@@ -1,0 +1,386 @@
+import hex
+import json
+import maps
+import sha256
+import slices
+import strings
+import toml
+
+// ConfigFile is the name of the one checked-in configuration, at the
+// root of a base. Every key has a default, so a repository with no
+// work.toml works.
+let ConfigFile = "work.toml"
+
+// Config is what work.toml says:
+//
+//   - Storage is the folder of the base's workspaces, relative to the
+//     base ("<base>" is the base's folder name); "" is ../.work/<base>.
+//   - LeaveOut is the folders a new workspace leaves out of its clone
+//     (none by default: installed packages and build output arrive by the
+//     clone, which is the reason to clone). "rift-filtered" in the list is
+//     Rift's default list.
+//   - Copy allows a plain copy where no clone can share blocks.
+//   - Trash keeps what rm and gc -idle remove in the trash until a gc
+//     purges it (the default); false deletes each for good at once, by
+//     its record's id, after rm's refusals (the owner's rule on the
+//     workbox: no trash). TrashFrom is where Trash came from, by this
+//     precedence: the base's Git setting work.trash (`git config --local
+//     work.trash false` in the base; a global one counts too: both stay
+//     on the host, never in the tree, so one host's rule never reaches
+//     another through a commit), else
+//     work.toml's [work] trash, else the default, true.
+//   - Push is who may push from a workspace: "refuse" (the default)
+//     gives every remote of a workspace new makes a push URL that
+//     refuses every push, so work goes back only through ready;
+//     "origin" leaves the remotes as the clone has them, for a base
+//     whose owner pushes from workspaces.
+//   - Env is the shell lines env prints for a workspace ({workspace} is
+//     its folder).
+//   - Lock and Install are [deps]: the lock file and the command that
+//     installs from it, run only when the lock changed since the last
+//     install.
+//   - Hooks are the four hooks of Rift, each a list of shell commands.
+//   - Classes are the [[class]] lines: how a file merges, by its path
+//     (merge.ergo), the lock presets after them.
+//   - Languages are the [language.NAME] tables: the plugin command of a
+//     language and the files it reads (language.ergo, plugin.ergo).
+type Config {
+	Storage   string,
+	LeaveOut  []string,
+	Copy      bool,
+	Trash     bool,
+	TrashFrom string,
+	Push      string,
+	Env       []string,
+	Lock      string,
+	Install   string,
+	Hooks     HookCommands,
+	Classes   []ClassLine,
+	Languages []LanguageLine,
+}
+
+// LanguageLine is one [language.NAME] table: the command of its plugin
+// (run by work only once work trust allowed it) and the patterns of the
+// files it reads, as a [[class]] matches.
+type LanguageLine { Name string, Command string, Files []string }
+
+// HookCommands are the commands of each hook, run by sh in order:
+// precreate in the parent before the clone, postcreate in the new
+// workspace, preremove in the workspace before it goes, postremove in the
+// parent after it went.
+type HookCommands { Precreate []string, Postcreate []string, Preremove []string, Postremove []string }
+
+// BadConfig is a work.toml that does not read: the line (0 when the file
+// as a whole is wrong) and why.
+type BadConfig { Line int, Why string }
+
+// RiftFiltered is Rift's default list of folders a copy leaves out
+// (rift 0.0.13, filter.rs): `leave_out = ["rift-filtered"]` names it.
+let RiftFiltered = []string{"node_modules", ".pnpm-store", "target", ".venv", "venv", ".tox", ".nox", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vite", ".parcel-cache", ".cache", "dist", "build", "coverage", ".yarn/cache"}
+
+// StarterConfig is the work.toml that init writes when there is none.
+let StarterConfig = "# work.toml: the workspaces of this repository (work, ergo work).\n# Every key has a default; see modules/work/README.md.\n[work]\n# storage = \"../.work/<base>\"\n# leave_out = []          # [\"rift-filtered\"] is Rift's default list\n# env = []\n# trash = true            # false: rm and gc -idle delete for good at once\n\n# [deps]\n# lock = \"bun.lock\"\n# install = \"bun install --frozen-lockfile\"\n\n# [hooks]                  # run only after work trust\n# postcreate = []\n"
+
+// ConfigStarterReads: the starter work.toml reads as the empty
+// configuration: every key it shows is a comment, so a fresh base runs
+// no command and copies everything.
+law ConfigStarterReads() {
+	let c = ParseConfig(StarterConfig) catch {
+	case BadConfig:
+		return false
+	}
+	c == EmptyConfig()
+}
+
+// The sources of Config.Trash, by precedence (TrashKey first).
+let TrashKey = "work.trash"
+let TrashByGit = "git config work.trash"
+let TrashByToml = "work.toml"
+let TrashByDefault = "default"
+
+// LocalTrash is c with the base's own Git setting work.trash (setting:
+// "" when unset) over its Trash: Git's boolean words, any case; another
+// value is a BadConfig, never read as either.
+func LocalTrash(c Config, setting string) Config fails BadConfig {
+	match strings.ToLower(strings.TrimSpace(setting)) {
+	case "":
+		c
+	case "true", "yes", "on", "1":
+		Config{..c, Trash: true, TrashFrom: TrashByGit}
+	case "false", "no", "off", "0":
+		Config{..c, Trash: false, TrashFrom: TrashByGit}
+	case _:
+		BadConfig{Line: 0, Why: "git config \(TrashKey) is true or false, not \"\(setting)\""}
+	}
+}
+
+// TrashNote is doctor's line on c's Trash: its value and its source,
+// "trash: false (git config work.trash)".
+func TrashNote(c Config) string { "trash: \(c.Trash) (\(c.TrashFrom))" }
+
+// EmptyConfig is the configuration of a base with no work.toml.
+func EmptyConfig() Config {
+	Config{Storage: "", LeaveOut: []string{}, Copy: false, Trash: true, TrashFrom: TrashByDefault, Push: "refuse", Env: []string{}, Lock: "", Install: "", Hooks: HookCommands{Precreate: []string{}, Postcreate: []string{}, Preremove: []string{}, Postremove: []string{}}, Classes: []ClassLine{}, Languages: []LanguageLine{}}
+}
+
+type fileTable {
+	Work     json.Optional[workTable] "work",
+	Deps     json.Optional[depsTable] "deps",
+	Hooks    json.Optional[hooksTable] "hooks",
+	Class    json.Optional[[]classTable] "class",
+	Language json.Optional[Map[string, languageTable]] "language",
+}
+
+type languageTable {
+	Command json.Optional[string] "command",
+	Files   json.Optional[[]string] "files",
+}
+
+type classTable {
+	Match     json.Optional[string] "match",
+	Kind      json.Optional[string] "kind",
+	Sets      json.Optional[[]string] "sets",
+	By        json.Optional[string] "by",
+	Driver    json.Optional[string] "driver",
+	Candidate json.Optional[bool] "candidate",
+	Check     json.Optional[string] "check",
+	Version   json.Optional[string] "version",
+}
+
+type workTable {
+	Storage  json.Optional[string] "storage",
+	LeaveOut json.Optional[[]string] "leave_out",
+	Copy     json.Optional[bool] "copy",
+	Trash    json.Optional[bool] "trash",
+	Push     json.Optional[string] "push",
+	Env      json.Optional[[]string] "env",
+}
+
+type depsTable {
+	Lock    json.Optional[string] "lock",
+	Install json.Optional[string] "install",
+}
+
+type hooksTable {
+	Precreate  json.Optional[[]string] "precreate",
+	Postcreate json.Optional[[]string] "postcreate",
+	Preremove  json.Optional[[]string] "preremove",
+	Postremove json.Optional[[]string] "postremove",
+}
+
+// ParseConfig reads the text of work.toml (TOML 1.0). A table or key it
+// does not know is skipped ([land] belongs to a later unit); a
+// [language.NAME] with no command or no files, a value of the wrong type, a folder that leaves the root, an
+// [deps] with a lock and no install, and a [[class]] with no match, a kind
+// it does not know or a driver with no command are BadConfig.
+func ParseConfig(text string) Config fails BadConfig {
+	let f = toml.Decode(json.Codec[fileTable]{MaxBytes: 1 << 20, MaxDepth: 32}, text) catch {
+	case toml.Malformed as m:
+		return BadConfig{Line: m.Line, Why: m.Reason}
+	case _:
+		return BadConfig{Line: 0, Why: "a value of \(ConfigFile) has the wrong type"}
+	}
+	let mut c = EmptyConfig()
+	match f.Work {
+	case json.Present[workTable] as w:
+		let leave = try folders(or(w.Value.LeaveOut))
+		let push = match w.Value.Push {
+		case json.Present[string] as p:
+			p.Value
+		case json.Absent:
+			"refuse"
+		}
+		if push != "refuse" && push != "origin" {
+			return BadConfig{Line: 0, Why: "push is \"refuse\" or \"origin\", not \"\(push)\""}
+		}
+		let from = match w.Value.Trash {
+		case json.Present[bool]:
+			TrashByToml
+		case json.Absent:
+			TrashByDefault
+		}
+		c = Config{..c, Storage: orText(w.Value.Storage), LeaveOut: leave, Copy: orFalse(w.Value.Copy), Trash: orTrue(w.Value.Trash), TrashFrom: from, Push: push, Env: or(w.Value.Env)}
+	case json.Absent:
+	}
+	match f.Deps {
+	case json.Present[depsTable] as d:
+		c = Config{..c, Lock: orText(d.Value.Lock), Install: orText(d.Value.Install)}
+		if (c.Lock == "") != (c.Install == "") {
+			return BadConfig{Line: 0, Why: "[deps] needs both lock and install"}
+		}
+		if c.Lock != "" {
+			let _ = try folder(c.Lock)
+		}
+	case json.Absent:
+	}
+	match f.Hooks {
+	case json.Present[hooksTable] as h:
+		c = Config{..c, Hooks: HookCommands{Precreate: or(h.Value.Precreate), Postcreate: or(h.Value.Postcreate), Preremove: or(h.Value.Preremove), Postremove: or(h.Value.Postremove)}}
+	case json.Absent:
+	}
+	match f.Class {
+	case json.Present[[]classTable] as list:
+		let mut lines = []ClassLine{}
+		for k in list.Value {
+			let line = ClassLine{Match: orText(k.Match), Kind: orText(k.Kind), Sets: or(k.Sets), By: orText(k.By), Driver: orText(k.Driver), Candidate: orFalse(k.Candidate), Check: orText(k.Check), Version: orText(k.Version)}
+			if line.Match == "" {
+				return BadConfig{Line: 0, Why: "a [[class]] needs a match"}
+			}
+			if !slices.Contains(ClassKinds, line.Kind) {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): kind \(line.Kind) is not one of \(strings.Join(ClassKinds, ", "))"}
+			}
+			if line.Kind == "driver" && line.Driver == "" {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): a driver needs its command"}
+			}
+			if line.Kind != "driver" && (line.Candidate || line.Check != "" || line.Version != "") {
+				return BadConfig{Line: 0, Why: "[[class]] \(line.Match): candidate, check and version are a driver's"}
+			}
+			lines = lines.Append(line)
+		}
+		c = Config{..c, Classes: lines}
+	case json.Absent:
+	}
+	match f.Language {
+	case json.Present[Map[string, languageTable]] as m:
+		let mut langs = []LanguageLine{}
+		for name in slices.Sorted(maps.Keys(m.Value)) {
+			let l = maps.GetOr(m.Value, name, languageTable{Command: json.Absent, Files: json.Absent})
+			let line = LanguageLine{Name: name, Command: orText(l.Command), Files: or(l.Files)}
+			if line.Command == "" || len(line.Files) == 0 {
+				return BadConfig{Line: 0, Why: "[language.\(name)] needs a command and files"}
+			}
+			langs = langs.Append(line)
+		}
+		c = Config{..c, Languages: langs}
+	case json.Absent:
+	}
+	c
+}
+
+func or(v json.Optional[[]string]) []string {
+	match v {
+	case json.Present[[]string] as p:
+		p.Value
+	case json.Absent:
+		[]string{}
+	}
+}
+
+func orText(v json.Optional[string]) string {
+	match v {
+	case json.Present[string] as p:
+		p.Value
+	case json.Absent:
+		""
+	}
+}
+
+func orTrue(v json.Optional[bool]) bool {
+	match v {
+	case json.Present[bool] as p:
+		p.Value
+	case json.Absent:
+		true
+	}
+}
+
+func orFalse(v json.Optional[bool]) bool {
+	match v {
+	case json.Present[bool] as p:
+		p.Value
+	case json.Absent:
+		false
+	}
+}
+
+// folders is the leave_out list, "rift-filtered" expanded, each a folder
+// inside the root.
+func folders(list []string) []string fails BadConfig {
+	let mut out = []string{}
+	for f in list {
+		if f == "rift-filtered" {
+			for r in RiftFiltered {
+				out = out.Append(r)
+			}
+			continue
+		}
+		out = out.Append(try folder(f))
+	}
+	out
+}
+
+// folder is a path value: one word, relative, inside the root.
+func folder(value string) string fails BadConfig {
+	if value == "" || len(strings.Fields(value)) != 1 {
+		return BadConfig{Line: 0, Why: "a folder is one word: \(value)"}
+	}
+	if strings.HasPrefix(value, "/") || value == ".." || strings.HasPrefix(value, "../") || strings.Contains(value, "/../") || strings.HasSuffix(value, "/..") {
+		return BadConfig{Line: 0, Why: "\(value) is not a folder inside the repository"}
+	}
+	value
+}
+
+// Commands is every command work.toml makes the tool run, in a fixed
+// order: the install of [deps], then each hook's commands, then each
+// class line's command (a derived file's by, a driver).
+func Commands(c Config) []string {
+	let mut out = []string{}
+	if c.Install != "" {
+		out = out.Append("deps.install: " + c.Install)
+	}
+	for h in HookNames() {
+		for command in HookList(c.Hooks, h) {
+			out = out.Append("hooks.\(h): \(command)")
+		}
+	}
+	for line in c.Classes {
+		if line.By != "" {
+			out = out.Append("class.\(line.Match).by: \(line.By)")
+		}
+		if line.Driver != "" {
+			out = out.Append("class.\(line.Match).driver: \(line.Driver)")
+		}
+		if line.Check != "" {
+			out = out.Append("class.\(line.Match).check: \(line.Check)")
+		}
+	}
+	for l in c.Languages {
+		out = out.Append("language.\(l.Name).command: \(l.Command)")
+	}
+	out
+}
+
+// CandidateCommandsAreTrusted: a candidate line's driver and check are
+// both commands work trust allows, so a changed check asks again.
+law CandidateCommandsAreTrusted(n int, m int) {
+	let c = ParseConfig("[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv \(n)\"\ncandidate = true\ncheck = \"chk \(m)\"\n") catch {
+	case BadConfig:
+		return false
+	}
+	Commands(c) == []string{"class.*.go.driver: drv \(n)", "class.*.go.check: chk \(m)"}
+}
+
+// Digest is the digest of the commands a configuration runs: what work
+// trust allows. A config that runs nothing needs no trust; a changed
+// command asks again.
+func Digest(c Config) string { hex.Encode(sha256.Sum(strings.Join(Commands(c), "\n"))) }
+
+// HookNames is the four hooks, in the order a create and a remove run
+// them.
+func HookNames() []string { []string{"precreate", "postcreate", "preremove", "postremove"} }
+
+// HookList is the commands of the hook named name.
+func HookList(h HookCommands, name string) []string {
+	match name {
+	case "precreate":
+		h.Precreate
+	case "postcreate":
+		h.Postcreate
+	case "preremove":
+		h.Preremove
+	case "postremove":
+		h.Postremove
+	case _:
+		[]string{}
+	}
+}

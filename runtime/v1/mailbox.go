@@ -17,13 +17,16 @@ import (
 //   - The values sit in a ring that grows by doubling up to the capacity,
 //     so a Push allocates nothing once the ring has grown, and an idle
 //     actor holds no buffer (Queue's slice moves forward and reallocates).
-//   - The runner parks on wake, one channel of capacity 1 made with the
-//     mailbox, and a Push that finds it parked sends one token without
-//     waiting; a token left after another wake-up only makes the runner
-//     look again. Queue makes a channel at each park and closes it.
-//   - A Push that must wait makes one sender with its own wake channel;
-//     that is the only allocation, and only under backpressure.
-//   - The task's Done channel is read only before a wait.
+//   - The runner parks on its task's park word (rt park.go; PARK3), and a
+//     Push that finds it parked resumes it; a stop resumes it too (rt's
+//     Interrupt). A wake-up meant for another wait of the task only makes
+//     the runner look again. Queue makes a channel at each park and
+//     closes it.
+//   - A Push that must wait takes a sender and parks on its own task's
+//     word. The mailbox keeps one spare sender and the senders' slice
+//     keeps its room, so a steady rendezvous (one Push waiting at a time)
+//     allocates nothing; each further Push waiting at once makes one.
+//   - No wait selects on the task's Done channel.
 //
 // ref, when set, is the reference: every operation is the Queue's
 // (SetActorReferenceForTest), so the model-based tests run both.
@@ -35,12 +38,14 @@ type mailbox[T any] struct {
 	ring     []T // len is a power of two or 0; it grows up to the capacity
 	head, n  int
 	senders  []*mailSender[T] // the Pushes waiting for room, oldest first
+	spare    *mailSender[T]   // a sender no Push holds, for the next wait
 	closed   bool
-	// waiting is true while the runner is parked on wake.
+	// waiting is true while a Pop is parked; waiter is its task, which
+	// notify resumes.
 	waiting bool
-	wake    chan struct{}
-	// taker is the runner's task once bound (bindTaker): its stop puts a
-	// token in wake.
+	waiter  *rt.Task
+	// taker is the runner's task once bound (bindTaker): its stop resumes
+	// it (Wake), besides rt's own resume at the stop.
 	taker *rt.Task
 	// parked counts the operations parked: the runner and the senders.
 	parked int
@@ -60,19 +65,19 @@ type mailSender[T any] struct {
 	v        T
 	accepted bool
 	rejected bool
-	wake     chan struct{}
-	// task is the Push's task when it waits in a clock's domain.
-	task *rt.Task
+	task     *rt.Task // the Push's task, parked on its word
+	// domain says the Push waits in a clock's domain.
+	domain bool
 }
 
 // signal wakes s; in a clock's domain its task is unparked first (rt
 // idle.go), so no window shows it parked while it can run. The mailbox's
-// mu is held.
+// mu is held, and accepted or rejected is set.
 func (s *mailSender[T]) signal() {
-	if s.task != nil {
+	if s.domain {
 		rt.Waking(s.task, s).Done()
 	}
-	s.wake <- struct{}{}
+	s.task.Resume()
 }
 
 // newMailbox is the inbox of an actor with the given capacity (not
@@ -90,7 +95,7 @@ func (m *mailbox[T]) init(capacity int, reference bool) {
 		m.ref = New[T](capacity)
 		return
 	}
-	m.capacity, m.wake = capacity, make(chan struct{}, 1)
+	m.capacity = capacity
 }
 
 // Push is Queue.Push.
@@ -116,39 +121,42 @@ func (m *mailbox[T]) Push(t *rt.Task, v T) error {
 
 // pushWait waits for room for v, with m.mu held, and releases it.
 func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
-	s := &mailSender[T]{v: v, wake: make(chan struct{}, 1)}
+	s := m.spare
+	if s != nil {
+		m.spare = nil
+		s.v, s.task = v, t
+	} else {
+		s = &mailSender[T]{v: v, task: t}
+	}
 	m.senders = append(m.senders, s)
 	m.notify() // at capacity 0 the runner takes v straight from s
 	stop := t.Done()
-	inDomain := t.InDomain()
-	if inDomain {
-		s.task = t
-	}
+	s.domain = t.InDomain()
 	for !s.accepted && !s.rejected {
-		m.parked++
-		var p rt.Parked
-		if inDomain {
-			p = rt.Park(t, s, stop, nil)
-		}
-		m.mu.Unlock()
-		rt.Block(t)
-		woke := true
-		select {
-		case <-s.wake:
-		case <-stop:
-			woke = false
-		}
-		rt.Unblock(t)
-		m.mu.Lock()
-		p.Unpark()
-		m.parked--
-		if !woke && !s.accepted && !s.rejected {
+		if t.Stopped() {
 			m.dropSender(s)
 			m.mu.Unlock()
 			panic(rt.Interrupted)
 		}
+		m.parked++
+		var p rt.Parked
+		if s.domain {
+			p = rt.Park(t, s, stop, nil)
+		}
+		m.mu.Unlock()
+		rt.Block(t)
+		t.Suspend()
+		rt.Unblock(t)
+		m.mu.Lock()
+		p.Unpark()
+		m.parked--
 	}
 	rejected := s.rejected
+	// Nobody holds s now: the runner or Close took it out of senders and
+	// signaled it under m.mu. It waits, emptied, for the next Push that
+	// must wait.
+	*s = mailSender[T]{}
+	m.spare = s
 	m.mu.Unlock()
 	if rejected {
 		return Closed{}
@@ -182,7 +190,7 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 			m.mu.Unlock()
 			return Closed{}
 		}
-		m.waiting = true
+		m.waiting, m.waiter = true, t
 		m.parked++
 		// In a clock's domain the runner parks under m.mu, so notify, which
 		// runs under m.mu too, unparks it before it wakes it; its stop
@@ -191,32 +199,21 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 		if t.InDomain() {
 			m.domainTaker = t
 			p = rt.Park(t, m, t.Done(), nil)
+		} else if t != m.taker {
+			t.Waits() // as Done did; the taker's wait never read Done
 		}
 		m.mu.Unlock()
-		woke := true
-		if t == m.taker {
-			// The taker's stop puts a token in wake (bindTaker), so one
-			// plain receive waits for a value, a close and a stop.
-			rt.Block(t)
-			<-m.wake
-			rt.Unblock(t)
-			woke = !t.Stopped()
-		} else {
-			stop := t.Done()
-			rt.Block(t)
-			select {
-			case <-m.wake:
-			case <-stop:
-				woke = false
-			}
-			rt.Unblock(t)
-		}
+		// A value, a close and a stop each resume t's word (notify, rt's
+		// Interrupt); another wake-up of t only makes it look again.
+		rt.Block(t)
+		t.Suspend()
+		rt.Unblock(t)
 		m.mu.Lock()
 		p.Unpark()
 		m.domainTaker = nil
-		m.waiting = false
+		m.waiting, m.waiter = false, nil
 		m.parked--
-		if !woke {
+		if t.Stopped() {
 			m.mu.Unlock()
 			return rt.Interrupted
 		}
@@ -251,14 +248,9 @@ func (m *mailbox[T]) unbindTaker() {
 	}
 }
 
-// Wake (rt.StopWaker) puts a wake token without waiting: the runner looks again. It
-// takes no lock (it runs under the stopping task's lock).
-func (m *mailbox[T]) Wake() {
-	select {
-	case m.wake <- struct{}{}:
-	default:
-	}
-}
+// Wake (rt.StopWaker) resumes the taker without waiting: the runner looks
+// again. It takes no lock (it runs under the stopping task's lock).
+func (m *mailbox[T]) Wake() { m.taker.Resume() }
 
 // Poll is Queue.Poll.
 func (m *mailbox[T]) Poll() (T, bool) {
@@ -336,10 +328,7 @@ func (m *mailbox[T]) notify() {
 		if m.domainTaker != nil {
 			rt.Waking(m.domainTaker, m).Done()
 		}
-		select {
-		case m.wake <- struct{}{}:
-		default: // a token is there already
-		}
+		m.waiter.Resume()
 	}
 }
 
@@ -401,7 +390,13 @@ func (m *mailbox[T]) frontInto(dst *T) bool {
 func (m *mailbox[T]) popSender() *mailSender[T] {
 	s := m.senders[0]
 	m.senders[0] = nil
-	m.senders = m.senders[1:]
+	if len(m.senders) == 1 {
+		// The last waiter: keep the slice's room, so a steady rendezvous
+		// does not grow it again (PARK3).
+		m.senders = m.senders[:0]
+	} else {
+		m.senders = m.senders[1:]
+	}
 	return s
 }
 

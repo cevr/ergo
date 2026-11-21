@@ -83,9 +83,19 @@ func (c *checker) wireNeedsRow(t Type) *Row {
 // package declares ParseX(b B) X and Wire(x X) B for a wire B, so X
 // encodes as Wire(x) and decodes through ParseX. Coherence: the pair is
 // looked up in X's own package only, as construction authority is.
+//
+// The append form (GX10, GX11) is ParseX(b []byte) X with Wire(x X, into
+// []byte) []byte: Wire appends the UTF-8 bytes of x's text to into and
+// returns it, so an encode lends Wire the buffer it writes the string
+// event from (the prelude Writer's StringBytes), and no string of the
+// text is made; a decode reads the string and gives ParseX its bytes. Its
+// Base is string, the wire event; both halves take []byte, as Go's
+// TextAppender and TextUnmarshaler do, so the parser derives its
+// round-trip law with no conversion (syntax/pair.go).
 type WirePair struct {
 	Parse, Wire *Func
 	Base        Type // B
+	Append      bool // Wire is the append form
 }
 
 // wirePair is t's by-name pair, or nil. A refined type has none: its
@@ -104,14 +114,33 @@ func (c *checker) wirePair(t Type) *WirePair {
 	if ps == nil || ws == nil || len(ps.TParams) > 0 || len(ws.TParams) > 0 {
 		return nil
 	}
-	if len(ps.Params) != 1 || len(ps.Results) != 1 || len(ws.Params) != 1 || len(ws.Results) != 1 {
+	if len(ps.Params) != 1 || len(ps.Results) != 1 || len(ws.Results) != 1 || len(ws.Params) < 1 || len(ws.Params) > 2 {
 		return nil
 	}
-	base := ws.Results[0]
-	if !c.identical(ps.Results[0], t) || !c.identical(ws.Params[0].Type, t) || !c.identical(ps.Params[0].Type, base) || !ws.Errors.Empty() {
+	base, appends := ws.Results[0], len(ws.Params) == 2
+	read := base // the type ParseX reads
+	if appends {
+		// Wire(x X, into []byte) []byte and ParseX(b []byte) X: the text
+		// of a string base.
+		if !isByteSlice(ws.Params[1].Type) || !isByteSlice(base) {
+			return nil
+		}
+		base = Typ[String]
+	}
+	if !c.identical(ps.Results[0], t) || !c.identical(ws.Params[0].Type, t) || !c.identical(ps.Params[0].Type, read) || !ws.Errors.Empty() {
 		return nil
 	}
-	return &WirePair{Parse: parse, Wire: wire, Base: base}
+	return &WirePair{Parse: parse, Wire: wire, Base: base, Append: appends}
+}
+
+// isByteSlice reports []byte.
+func isByteSlice(t Type) bool {
+	s, ok := t.(*Slice)
+	if !ok {
+		return false
+	}
+	b, ok := s.Elem.(*Basic)
+	return ok && b.Kind == Uint8
 }
 
 // WirePairOf is the by-name pair the check found for t, or nil; the
@@ -172,6 +201,8 @@ func builtinKind(b *Builtin) CallKind {
 		return CallDecode
 	case "embedded":
 		return CallEmbed
+	case "hash":
+		return CallHash
 	}
 	return CallLen
 }
@@ -469,6 +500,11 @@ func (c *checker) wireRow(t Type) *Row {
 		if p := c.wirePair(t); p != nil {
 			row = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))
 			return
+		}
+		if f := c.wireReadFunc(t); f != nil {
+			// X's own read (types.md, Codecs 11): its row joins the
+			// decode's, and X's ordinary form below reads other readers.
+			row = row.union(c.types, c.types.resolve(c.funcSig(f).Errors))
 		}
 		switch u := under(t).(type) {
 		case *Struct:

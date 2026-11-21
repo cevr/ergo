@@ -1,0 +1,23 @@
+// The host file system of a test (TestAmbient; docs/spec/rows.md,
+// Test's ambient): NewTestHost is a Host confined to the case's folder. A
+// relative path is relative to the folder; an absolute path must lie in
+// it. A path that leads out of the folder, by "..", by an absolute path
+// elsewhere or through a symbolic link that points out, is refused with
+// Denied of the path as written, before anything is read or written.
+
+// NewTestHost is the Host of the case's folder: Files and Writes on the
+// real disk, for a test. It needs the test's ambient, which only the test
+// runner provides, to a context that states it:
+// `context needs TestAmbient { fs.Files: fs.NewTestHost() }`.
+func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
+
+// at is path as the host's body gets it: itself for the host's own Host,
+// and resolved in the folder, or Denied, for a test's.
+func at(h Host, path string) string fails Denied {
+	if h.root == "" {
+		return path
+	}
+	try confine(h.root, path)
+}
+
+extern go ergo.local/prototype/runtime/v1.FSConfine func confine(root string, path string) string fails Denied

@@ -14,7 +14,9 @@ import (
 func TestUnknownOptionIsUsageForEveryCommand(t *testing.T) {
 	var invocations [][]string
 	for _, c := range commands {
-		if c.fate == available {
+		// work takes no option of its own: it hands every argument to the
+		// work binary on PATH (work.go, WS0), which answers its own usage.
+		if c.fate == available && c.name != "work" {
 			invocations = append(invocations, strings.Fields(c.name))
 		}
 	}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // The std callback property of ESC1 (lang audit B, F1). A std function
@@ -147,7 +147,7 @@ var clauseTemplates = []clauseTemplate{
 	{keys: []string{"http.Net.SendInto.put"}, imports: []string{"http"}, resource: true, body: `
 	R
 	let h = http.InMemory(func(q http.Request) http.Response needs http.Streaming { http.Response{Status: 200, Header: []http.Field{}, Body: "ab"} })
-	let req = http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	let req = http.Request{Method: "GET", Path: "/", RawPath: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 	let status = with context { http.Net: h } {
 		let resp = http.Net.SendInto(req, http.AnySuccess, func(part string) fails http.SinkFailed {
 			CB
@@ -180,6 +180,7 @@ var clauseTemplates = []clauseTemplate{
 // hand a callback to, or that this property does not reach, each with the
 // reason.
 var clauseUnreached = map[string]string{
+	"api.Transport.Carry.answer":   "Transport is an operation type with no std provider: Carry has no body to call, and its providers are the generated transports' Wires in the program's own module (cmd/ergo's gen tests and each example's Agrees law run them)",
 	"actor.recovering.recover":     "recovering is unexported; StartDurable and SuperviseDurable call it with std literals over their escaping recover",
 	"actor.recovering.start":       "recovering is unexported; its start is a std literal over StartMachine or launch",
 	"http.sendInto.accepts":        "sendInto is unexported; accepts is Client.SendInto's literal over Accepts, with no capture",
@@ -192,6 +193,12 @@ var clauseUnreached = map[string]string{
 	"http.fetchLocalInto.handle":   "fetchLocalInto is unexported; its handle is Local.SendURLInto's answerer over InMemoryNetwork's own handle, which needs http.Streaming",
 	"http.serve.l":                 "serve is unexported; a listener is Serve's own parameter, not a callback",
 	"exec.waitFor.p":               "waitFor is unexported; a Running is WaitFor's own parameter, not a callback, and a live one needs Ambient",
+	"actor.changesOf.changed":      "changesOf is unexported; Changes passes std's own changedOf, which captures nothing",
+	"actor.changesOf.overflowed":   "changesOf is unexported; Changes passes std's own overflowedOf, which captures nothing",
+	"time.timeAsleep.t":            "timeAsleep is unexported; t is Asleep's own task parameter, not a callback",
+	"testing.At.f":                 "At lowers to nothing outside a test build (lower hook.go; RT-HOOK), and a clause program is a run build, so f never runs there; its test-build runs are runtime/v1 hook_test.go's",
+	"testing.Allocs.PerRun.f":      "an Allocs is made only under a test's ambient (FK2 F6), and a clause program is a run build, so PerRun never runs there",
+	"testing.allocsPerRun.f":       "allocsPerRun is unexported; PerRun passes its own f through, and an Allocs is made only under a test's ambient (FK2 F6)",
 	"http.serve.handle":            "serve is unexported; its handle is Serve's literal over Serve's escaping handle, and a server runs until stopped, which this property does not do",
 	"http.IntoFile.fetch":          "IntoFile needs an fs.HostRoot, which needs Ambient; the generated main holds Console only",
 	"http.Network.SendURLInto.put": "Network's std provider (NewNet's Remote) needs Ambient and a live origin; http.Net.SendInto.put's template covers the in-memory provider's shape",
@@ -210,6 +217,8 @@ var clauseUnreached = map[string]string{
 	"actor.start.work":             "a std literal over a Machine field's work",
 	"actor.start.kind":             "a std literal with no capture",
 	"actor.start.next":             "a std literal with no capture",
+	"actor.start.hasExit":          "a std literal over the Machine's Exit field (FK9-g1)",
+	"actor.start.leave":            "a std literal over the Machine's Exit field (FK9-g1)",
 	"actor.child.step":             "a Machine field, escaping by its position",
 	"actor.child.fire":             "a std literal over the Machine's fields",
 	"actor.child.delay":            "a std literal over the Machine's fields",
@@ -218,6 +227,8 @@ var clauseUnreached = map[string]string{
 	"actor.child.work":             "a std literal over a Machine field's work",
 	"actor.child.kind":             "a std literal with no capture",
 	"actor.child.next":             "a std literal with no capture",
+	"actor.child.hasExit":          "a std literal over the Machine's Exit field (FK9-g1)",
+	"actor.child.leave":            "a std literal over the Machine's Exit field (FK9-g1)",
 	"actor.child.out":              "Child's toParent reaches it; Child runs only in a machine's work with its send (S108 elsewhere), and toParent is escaping in Child's own signature",
 }
 
@@ -373,7 +384,7 @@ func clauseAdmitted(t *testing.T) ([]clauseCase, []uint64) {
 		}
 	}
 	clauseOf := map[string]string{}
-	for _, c := range std.ArgClauses {
+	for _, c := range stdlib.ArgClauses {
 		key := c.Func + "." + c.Param
 		clauseOf[key] = c.Clause
 		if !covered[key] && clauseUnreached[key] == "" {

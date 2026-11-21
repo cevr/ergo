@@ -1,0 +1,665 @@
+// Package graph holds Graph, a directed graph over dense node ids, and the
+// algorithms any program needs over one: what a node reaches, a shortest
+// path, the strongly connected components and the cycles they close, an
+// order that respects every edge, the longest chains, the edges another
+// path already covers, and each node's fan (CI-SELECT §12; std codegraph
+// is written over it). A node is an id 0..Size-1; what a node or an edge
+// stands for lives in the caller's own rows, indexed by the same ids
+// (SELFLAYOUT: dense rows and side columns, not a Map keyed by a node).
+//
+// The edges are stored by source in one flat list (compressed rows):
+// Targets[Starts[n]:Starts[n+1]] are the successors of n, in the order Of
+// was given them. A Graph is a value; nothing changes it after Of.
+//
+// Every law states its function against a reference that is slow and
+// obviously right: the transitive closure and the distances of a small
+// generated graph, computed by matrix (closure, distances).
+//
+// Prior art: Go's x/tools graph helpers and gonum/graph/topo (Tarjan, a
+// sort that reports cycles); Elixir's :digraph_utils (components, a
+// topological sort, reachable); Bazel query's somepath and rdeps.
+
+import slices
+
+// Edge is one edge, from one node id to another.
+type Edge { From int, To int }
+
+// Graph is a directed graph over the ids 0..Size-1.
+type Graph {
+	Size    int,
+	Starts  []int,
+	Targets []int,
+}
+
+// Of is the graph of size nodes and the edges, each kept once per time it
+// is given (a repeated edge stays repeated); an edge with an end outside
+// 0..size-1 is left out.
+func Of(size int, edges []Edge) Graph {
+	let n = if size < 0 { 0 } else { size }
+	let mut counts = filled(n + 1, 0)
+	for e in edges {
+		if inside(n, e) {
+			counts[e.From + 1] = counts[e.From + 1] + 1
+		}
+	}
+	for i in 1..n+1 {
+		counts[i] = counts[i] + counts[i - 1]
+	}
+	let starts = counts
+	let mut next = filled(n, 0)
+	for i in 0..n {
+		next[i] = starts[i]
+	}
+	let mut targets = filled(counts[n], 0)
+	for e in edges {
+		if inside(n, e) {
+			targets[next[e.From]] = e.To
+			next[e.From] = next[e.From] + 1
+		}
+	}
+	Graph{Size: n, Starts: starts, Targets: targets}
+}
+
+// inside reports whether both ends of e are ids of a graph of n nodes.
+func inside(n int, e Edge) bool { e.From >= 0 && e.From < n && e.To >= 0 && e.To < n }
+
+// filled is n copies of v.
+func filled(n int, v int) []int {
+	let mut out = []int{}
+	for _ in 0..n {
+		out = out.Append(v)
+	}
+	out
+}
+
+// Succ is the successors of n, in the order Of was given them; none for
+// an id outside the graph.
+func Succ(g Graph, n int) []int {
+	if n < 0 || n >= g.Size {
+		return []int{}
+	}
+	g.Targets[g.Starts[n]:g.Starts[n + 1]]
+}
+
+// Edges is every edge of g, by source, each source's in the order Of was
+// given them.
+func Edges(g Graph) []Edge {
+	let mut out = []Edge{}
+	for n in 0..g.Size {
+		for m in Succ(g, n) {
+			out = out.Append(Edge{From: n, To: m})
+		}
+	}
+	out
+}
+
+// Reverse is g with every edge turned around.
+func Reverse(g Graph) Graph {
+	let mut rev = []Edge{}
+	for e in Edges(g) {
+		rev = rev.Append(Edge{From: e.To, To: e.From})
+	}
+	Of(g.Size, rev)
+}
+
+// Reach is, by id, whether a node of from reaches it by zero or more
+// edges: each node of from reaches itself.
+func Reach(g Graph, from []int) []bool {
+	let mut seen = []bool{}
+	for _ in 0..g.Size {
+		seen = seen.Append(false)
+	}
+	let mut stack = []int{}
+	for n in from {
+		if n >= 0 && n < g.Size && !seen[n] {
+			seen[n] = true
+			stack = stack.Append(n)
+		}
+	}
+	for len(stack) > 0 {
+		let n = stack[len(stack) - 1]
+		stack = stack[0:len(stack) - 1]
+		for m in Succ(g, n) {
+			if !seen[m] {
+				seen[m] = true
+				stack = stack.Append(m)
+			}
+		}
+	}
+	seen
+}
+
+// ReachIsTheClosure: Reach from one node holds exactly the node and what
+// the closure says it reaches.
+law ReachIsTheClosure(seed int, size int) { reachIsTheClosure(seed, size) }
+
+func reachIsTheClosure(seed int, size int) bool {
+	let g = drawn(seed, size)
+	let c = closure(g)
+	for a in 0..g.Size {
+		let r = Reach(g, []int{a})
+		for b in 0..g.Size {
+			if r[b] != (a == b || c[a][b]) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Path is a shortest path from a to b, the ids it visits with a first and
+// b last, or None when a does not reach b. A path from a node to itself
+// is that node alone. Of two shortest paths it takes the one whose steps
+// come first in Succ's order.
+func Path(g Graph, a int, b int) Option[[]int] {
+	if a < 0 || a >= g.Size || b < 0 || b >= g.Size {
+		return None
+	}
+	if a == b {
+		return Some[[]int]{Value: []int{a}}
+	}
+	let mut parent = filled(g.Size, -1)
+	parent[a] = a
+	let mut queue = []int{a}
+	let mut head = 0
+	for head < len(queue) {
+		let n = queue[head]
+		head = head + 1
+		for m in Succ(g, n) {
+			if parent[m] < 0 {
+				parent[m] = n
+				if m == b {
+					return Some[[]int]{Value: walkBack(parent, a, b)}
+				}
+				queue = queue.Append(m)
+			}
+		}
+	}
+	None
+}
+
+// walkBack is the path from a to b that parent records, a first.
+func walkBack(parent []int, a int, b int) []int {
+	let mut back = []int{b}
+	let mut n = b
+	for n != a {
+		n = parent[n]
+		back = back.Append(n)
+	}
+	slices.Reverse(back)
+}
+
+// PathIsAShortestPath: Path is Some exactly when the closure says a
+// reaches b (or a is b); each step is an edge; it starts at a and ends at
+// b; and it has the fewest steps the distances allow.
+law PathIsAShortestPath(seed int, size int) { pathIsAShortestPath(seed, size) }
+
+func pathIsAShortestPath(seed int, size int) bool {
+	let g = drawn(seed, size)
+	let c = closure(g)
+	let d = distances(g)
+	for a in 0..g.Size {
+		for b in 0..g.Size {
+			match Path(g, a, b) {
+			case Some[[]int] as p:
+				if !(a == b || c[a][b]) || !isPath(g, p.Value) || p.Value[0] != a || p.Value[len(p.Value) - 1] != b {
+					return false
+				}
+				if a != b && len(p.Value) - 1 != d[a][b] {
+					return false
+				}
+			case None:
+				if a == b || c[a][b] {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// isPath reports whether each step of p is an edge of g.
+func isPath(g Graph, p []int) bool {
+	for i in 1..len(p) {
+		if !slices.Contains(Succ(g, p[i - 1]), p[i]) {
+			return false
+		}
+	}
+	len(p) > 0
+}
+
+// Components is the strongly connected components of g: each a list of
+// the ids that reach one another, in ascending order; the components in
+// an order where a component comes after every component it reaches
+// (Kosaraju's: a first pass orders the nodes by when a walk leaves them,
+// a second walks the reversed graph in the reverse of that order).
+func Components(g Graph) [][]int {
+	let mut done = []bool{}
+	for _ in 0..g.Size {
+		done = done.Append(false)
+	}
+	// The first pass: a walk with an explicit stack of (node, next
+	// successor index); a node is finished when its successors are.
+	let mut finished = []int{}
+	for s in 0..g.Size {
+		if done[s] {
+			continue
+		}
+		done[s] = true
+		let mut nodes = []int{s}
+		let mut at = []int{0}
+		for len(nodes) > 0 {
+			let top = len(nodes) - 1
+			let n = nodes[top]
+			let succ = Succ(g, n)
+			if at[top] < len(succ) {
+				let m = succ[at[top]]
+				at[top] = at[top] + 1
+				if !done[m] {
+					done[m] = true
+					nodes = nodes.Append(m)
+					at = at.Append(0)
+				}
+			} else {
+				finished = finished.Append(n)
+				nodes = nodes[0:top]
+				at = at[0:top]
+			}
+		}
+	}
+	let rev = Reverse(g)
+	let mut comp = filled(g.Size, -1)
+	let mut out = [][]int{}
+	let mut i = len(finished) - 1
+	for i >= 0 {
+		let s = finished[i]
+		i = i - 1
+		if comp[s] >= 0 {
+			continue
+		}
+		let id = len(out)
+		comp[s] = id
+		let mut members = []int{}
+		let mut stack = []int{s}
+		for len(stack) > 0 {
+			let n = stack[len(stack) - 1]
+			stack = stack[0:len(stack) - 1]
+			members = members.Append(n)
+			for m in Succ(rev, n) {
+				if comp[m] < 0 {
+					comp[m] = id
+					stack = stack.Append(m)
+				}
+			}
+		}
+		out = out.Append(slices.Sort(members))
+	}
+	slices.Reverse(out)
+}
+
+// Cycle is a strongly connected component that closes a cycle (two or
+// more nodes, or one with an edge to itself), and one shortest closed
+// path through its least id: Path starts and ends at Nodes[0].
+type Cycle { Nodes []int, Path []int }
+
+// Cycles is each component of g that closes a cycle, in Components'
+// order, with a closed path.
+func Cycles(g Graph) []Cycle {
+	let mut out = []Cycle{}
+	for c in Components(g) {
+		let first = c[0]
+		if len(c) == 1 && !slices.Contains(Succ(g, first), first) {
+			continue
+		}
+		out = out.Append(Cycle{Nodes: c, Path: closedPath(g, c)})
+	}
+	out
+}
+
+// closedPath is a shortest path from c's least id back to itself through
+// the nodes of c.
+func closedPath(g Graph, c []int) []int {
+	let first = c[0]
+	let mut best = []int{}
+	for m in Succ(g, first) {
+		if !slices.Contains(c, m) {
+			continue
+		}
+		if m == first {
+			return []int{first, first}
+		}
+		match Path(g, m, first) {
+		case Some[[]int] as p:
+			if len(best) == 0 || len(p.Value) + 1 < len(best) {
+				best = slices.Concat([]int{first}, p.Value)
+			}
+		case None:
+		}
+	}
+	best
+}
+
+// EveryCycleIsAClosedPath: the nodes of a cycle reach one another and no
+// other node does both ways with them; its path is a closed path of
+// edges through its nodes; and a node is in a cycle exactly when the
+// closure says it reaches itself.
+law EveryCycleIsAClosedPath(seed int, size int) { everyCycleIsAClosedPath(seed, size) }
+
+func everyCycleIsAClosedPath(seed int, size int) bool {
+	let g = drawn(seed, size)
+	let c = closure(g)
+	let mut inCycle = filled(g.Size, 0)
+	for cy in Cycles(g) {
+		let p = cy.Path
+		if len(p) < 2 || p[0] != cy.Nodes[0] || p[len(p) - 1] != cy.Nodes[0] || !isPath(g, p) {
+			return false
+		}
+		for n in p {
+			if !slices.Contains(cy.Nodes, n) {
+				return false
+			}
+		}
+		for a in cy.Nodes {
+			inCycle[a] = inCycle[a] + 1
+			for b in 0..g.Size {
+				if slices.Contains(cy.Nodes, b) != (c[a][b] && c[b][a]) {
+					return false
+				}
+			}
+		}
+	}
+	for a in 0..g.Size {
+		if (inCycle[a] == 1) != c[a][a] || inCycle[a] > 1 {
+			return false
+		}
+	}
+	true
+}
+
+// Order is the ids of g in an order where every edge goes from an earlier
+// id to a later one (Kahn's: of the nodes no remaining edge enters, the
+// least id first), or None when g has a cycle.
+func Order(g Graph) Option[[]int] {
+	let mut indeg = filled(g.Size, 0)
+	for e in Edges(g) {
+		indeg[e.To] = indeg[e.To] + 1
+	}
+	let mut out = []int{}
+	let mut ready = []int{}
+	for n in 0..g.Size {
+		if indeg[n] == 0 {
+			ready = ready.Append(n)
+		}
+	}
+	for len(ready) > 0 {
+		let mut least = 0
+		for i in 1..len(ready) {
+			if ready[i] < ready[least] {
+				least = i
+			}
+		}
+		let n = ready[least]
+		ready = slices.Concat(ready[0:least], ready[least + 1:len(ready)])
+		out = out.Append(n)
+		for m in Succ(g, n) {
+			indeg[m] = indeg[m] - 1
+			if indeg[m] == 0 {
+				ready = ready.Append(m)
+			}
+		}
+	}
+	if len(out) < g.Size { None } else { Some[[]int]{Value: out} }
+}
+
+// NoCycleGivesAnOrder: Cycles is empty exactly when Order is Some, and
+// then the order holds every id once and puts each edge's source before
+// its target.
+law NoCycleGivesAnOrder(seed int, size int) { noCycleGivesAnOrder(seed, size) }
+
+func noCycleGivesAnOrder(seed int, size int) bool {
+	let g = drawn(seed, size)
+	match Order(g) {
+	case Some[[]int] as o:
+		if len(Cycles(g)) != 0 || len(o.Value) != g.Size {
+			return false
+		}
+		let mut place = filled(g.Size, -1)
+		for i, n in o.Value {
+			if n < 0 || n >= g.Size || place[n] >= 0 {
+				return false
+			}
+			place[n] = i
+		}
+		for e in Edges(g) {
+			if place[e.From] >= place[e.To] {
+				return false
+			}
+		}
+		true
+	case None:
+		len(Cycles(g)) > 0
+	}
+}
+
+// Chains is, for each node no edge enters, one longest path that starts
+// there, when it visits at least min nodes; in id order of their start.
+// Of two longest next steps it takes the least id. A graph with a cycle
+// has no chains: a longest path is only defined without one.
+func Chains(g Graph, min int) [][]int {
+	let order = match Order(g) {
+	case Some[[]int] as o:
+		o.Value
+	case None:
+		return [][]int{}
+	}
+	// longest[n]: the nodes of a longest path from n; next[n] its second.
+	let mut longest = filled(g.Size, 1)
+	let mut next = filled(g.Size, -1)
+	let mut i = len(order) - 1
+	for i >= 0 {
+		let n = order[i]
+		i = i - 1
+		for m in Succ(g, n) {
+			if longest[m] + 1 > longest[n] || longest[m] + 1 == longest[n] && m < next[n] {
+				longest[n] = longest[m] + 1
+				next[n] = m
+			}
+		}
+	}
+	let mut indeg = filled(g.Size, 0)
+	for e in Edges(g) {
+		indeg[e.To] = indeg[e.To] + 1
+	}
+	let mut out = [][]int{}
+	for s in 0..g.Size {
+		if indeg[s] != 0 || longest[s] < min {
+			continue
+		}
+		let mut chain = []int{s}
+		let mut n = s
+		for next[n] >= 0 {
+			n = next[n]
+			chain = chain.Append(n)
+		}
+		out = out.Append(chain)
+	}
+	out
+}
+
+// ChainIsAPath: every chain is a path of edges from a node no edge
+// enters, visits at least min nodes, and no path from its start is
+// longer (the distances bound it).
+law ChainIsAPath(seed int, size int, min int) { chainIsAPath(seed, size, min) }
+
+func chainIsAPath(seed int, size int, min int) bool {
+	let g = drawn(seed, size)
+	let atLeast = (min % 5 + 5) % 5
+	let d = distances(g)
+	let rev = Reverse(g)
+	for ch in Chains(g, atLeast) {
+		if !isPath(g, ch) || len(ch) < atLeast || len(Succ(rev, ch[0])) != 0 {
+			return false
+		}
+		for b in 0..g.Size {
+			if d[ch[0]][b] >= len(ch) && d[ch[0]][b] < g.Size + 1 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Reduce is each edge u -> v (u not v) such that u still reaches v when
+// that one edge is gone: the direct edges another path already covers,
+// in Edges' order. Of a repeated edge, each copy is covered by another.
+func Reduce(g Graph) []Edge {
+	let mut out = []Edge{}
+	let all = Edges(g)
+	for i, e in all {
+		if e.From == e.To {
+			continue
+		}
+		let without = slices.Concat(all[0:i], all[i + 1:len(all)])
+		if Reach(Of(g.Size, without), []int{e.From})[e.To] {
+			out = out.Append(e)
+		}
+	}
+	out
+}
+
+// ReduceKeepsReach: g without one of its edges reaches what g reaches
+// (the closures agree) exactly when Reduce names that edge; an edge from
+// a node to itself Reduce never names.
+law ReduceKeepsReach(seed int, size int) { reduceKeepsReach(seed, size) }
+
+func reduceKeepsReach(seed int, size int) bool {
+	let g = drawn(seed, size)
+	let c = closure(g)
+	let reduced = Reduce(g)
+	let all = Edges(g)
+	for i, e in all {
+		let k = closure(Of(g.Size, slices.Concat(all[0:i], all[i + 1:len(all)])))
+		let mut same = true
+		for a in 0..g.Size {
+			for b in 0..g.Size {
+				same = same && k[a][b] == c[a][b]
+			}
+		}
+		if same != slices.Contains(reduced, e) && e.From != e.To || e.From == e.To && slices.Contains(reduced, e) {
+			return false
+		}
+	}
+	for r in reduced {
+		if !slices.Contains(all, r) {
+			return false
+		}
+	}
+	true
+}
+
+// Fan is, by id, how many edges enter and leave each node.
+type Fan { In []int, Out []int }
+
+// FanOf is the fan of every node of g.
+func FanOf(g Graph) Fan {
+	let mut indeg = filled(g.Size, 0)
+	let mut out = filled(g.Size, 0)
+	for e in Edges(g) {
+		indeg[e.To] = indeg[e.To] + 1
+		out[e.From] = out[e.From] + 1
+	}
+	Fan{In: indeg, Out: out}
+}
+
+// FanSumsToEdges: the fan in of every node sums to the number of edges,
+// as the fan out does, and a node's fan out is the length of its Succ.
+law FanSumsToEdges(seed int, size int) { fanSumsToEdges(seed, size) }
+
+func fanSumsToEdges(seed int, size int) bool {
+	let g = drawn(seed, size)
+	let f = FanOf(g)
+	let mut ins = 0
+	let mut outs = 0
+	for n in 0..g.Size {
+		ins = ins + f.In[n]
+		outs = outs + f.Out[n]
+		if f.Out[n] != len(Succ(g, n)) {
+			return false
+		}
+	}
+	ins == len(Edges(g)) && outs == len(Edges(g)) && len(f.In) == g.Size
+}
+
+// drawn is a graph of 0 to 8 nodes and up to 3 edges per node, drawn from
+// seed and size by a linear congruential generator, for the laws.
+func drawn(seed int, size int) Graph {
+	let n = (size % 9 + 9) % 9
+	let mut x = (seed % 2147483648 + 2147483648) % 2147483648
+	let mut edges = []Edge{}
+	if n == 0 {
+		return Of(0, edges)
+	}
+	x = (x * 1103515245 + 12345) % 2147483648
+	let m = (x / 16) % (3 * n + 1)
+	for _ in 0..m {
+		x = (x * 1103515245 + 12345) % 2147483648
+		let a = (x / 16) % n
+		x = (x * 1103515245 + 12345) % 2147483648
+		let b = (x / 16) % n
+		edges = edges.Append(Edge{From: a, To: b})
+	}
+	Of(n, edges)
+}
+
+// closure is the transitive closure of g by matrix (Warshall's): c[a][b]
+// when a path of one or more edges leads from a to b.
+func closure(g Graph) [][]bool {
+	let mut c = [][]bool{}
+	for a in 0..g.Size {
+		let mut row = []bool{}
+		for _ in 0..g.Size {
+			row = row.Append(false)
+		}
+		for b in Succ(g, a) {
+			row[b] = true
+		}
+		c = c.Append(row)
+	}
+	for k in 0..g.Size {
+		for a in 0..g.Size {
+			if c[a][k] {
+				for b in 0..g.Size {
+					if c[k][b] {
+						c[a][b] = true
+					}
+				}
+			}
+		}
+	}
+	c
+}
+
+// distances is the fewest edges of a path from a to b (Floyd-Warshall),
+// or Size+1 when there is none; a node's distance to itself is that of a
+// shortest cycle through it.
+func distances(g Graph) [][]int {
+	let none = g.Size + 1
+	let mut d = [][]int{}
+	for a in 0..g.Size {
+		let mut row = filled(g.Size, none)
+		for b in Succ(g, a) {
+			row[b] = 1
+		}
+		d = d.Append(row)
+	}
+	for k in 0..g.Size {
+		for a in 0..g.Size {
+			for b in 0..g.Size {
+				if d[a][k] + d[k][b] < d[a][b] {
+					d[a][b] = d[a][k] + d[k][b]
+				}
+			}
+		}
+	}
+	d
+}

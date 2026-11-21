@@ -157,6 +157,85 @@ type Fixture struct {
 	GoPackages int `json:"goPackages"`
 	// Forbid are facts: regular expressions no linked symbol may match.
 	Forbid []string `json:"forbid"`
+	// Packages, when set, are the only Go packages whose code the fixture
+	// may link (Receipt.Text's packages, without the linker's own type:,
+	// go: and assembly entries): a package outside the list fails the
+	// budget by name, so a runtime import that pulls a package into every
+	// program (runtime/debug's fmt and reflect, runtime/metrics; SIZE-HELLO)
+	// is a red receipt, not a slow creep of the ceiling.
+	Packages []string `json:"packages,omitempty"`
+	// Base is the ceilings the fixture had before its first recorded raise,
+	// and Raises are the raises since, each naming its bytes: no ceiling may
+	// be above Base plus the raises (Checked), so a ceiling goes up only
+	// with a raise that says which symbols the bytes are (SIZE-HELLO).
+	// Lowering a ceiling needs no entry.
+	Base   Ceilings `json:"base"`
+	Raises []Raise  `json:"raises,omitempty"`
+}
+
+// Ceilings are the three ceilings of a fixture, or the amounts a raise
+// adds to them.
+type Ceilings struct {
+	ErgoOnly         int64 `json:"ergoOnly"`
+	ErgoOnlyStripped int64 `json:"ergoOnlyStripped"`
+	GoPackages       int   `json:"goPackages"`
+}
+
+// Raise is one raise of a fixture's ceilings: the unit that made it, the
+// amounts it adds, and what they are, by the guarantee that owns them.
+type Raise struct {
+	Unit string `json:"unit"`
+	Ceilings
+	// From and To name the two measured builds whose difference the raise
+	// is (commits).
+	From string `json:"from"`
+	To   string `json:"to"`
+	// Owners attribute the symbol bytes (go tool nm -size) between From
+	// and To; the file bytes are those code bytes and their DWARF, line
+	// tables and section rounding.
+	Owners []Owner `json:"owners"`
+	// Packages are the Go packages (go list -deps) To has and From has
+	// not, at least as many as the raise's GoPackages, each with its owner.
+	Packages []string `json:"packages,omitempty"`
+}
+
+// Owner is the share of a raise one guarantee or feature owns: its symbol
+// bytes and its largest symbols, each with its byte change.
+type Owner struct {
+	Owner   string   `json:"owner"`
+	Bytes   int64    `json:"bytes"`
+	Symbols []string `json:"symbols"`
+}
+
+// ledger reports the first way f's ceilings are not accounted for: a
+// ceiling above Base plus the raises, or a raise that names no bytes.
+func (f Fixture) ledger() error {
+	top := f.Base
+	for i, r := range f.Raises {
+		if r.Unit == "" || r.From == "" || r.To == "" || len(r.Owners) == 0 {
+			return fmt.Errorf("raise %d names no unit, builds or owners", i+1)
+		}
+		if len(r.Packages) < r.GoPackages {
+			return fmt.Errorf("raise %d (%s) adds %d Go packages but names %d", i+1, r.Unit, r.GoPackages, len(r.Packages))
+		}
+		for _, o := range r.Owners {
+			if o.Owner == "" || o.Bytes == 0 || len(o.Symbols) == 0 {
+				return fmt.Errorf("raise %d (%s): an owner names no bytes or symbols", i+1, r.Unit)
+			}
+		}
+		top.ErgoOnly += r.ErgoOnly
+		top.ErgoOnlyStripped += r.ErgoOnlyStripped
+		top.GoPackages += r.GoPackages
+	}
+	switch {
+	case f.ErgoOnly > top.ErgoOnly:
+		return fmt.Errorf("ceiling ergoOnly %d is above base and raises, %d: a raise must name its bytes", f.ErgoOnly, top.ErgoOnly)
+	case f.ErgoOnlyStripped > top.ErgoOnlyStripped:
+		return fmt.Errorf("ceiling ergoOnlyStripped %d is above base and raises, %d: a raise must name its bytes", f.ErgoOnlyStripped, top.ErgoOnlyStripped)
+	case f.GoPackages > top.GoPackages:
+		return fmt.Errorf("ceiling goPackages %d is above base and raises, %d: a raise must name its packages", f.GoPackages, top.GoPackages)
+	}
+	return nil
 }
 
 // Budget is budgets.json: a reason and the budget of each fixture.
@@ -174,7 +253,17 @@ func Checked() (Budget, error) {
 	if err := json.Unmarshal(budgetFile, &b); err != nil {
 		return Budget{}, fmt.Errorf("budgets.json: %w", err)
 	}
-	return b, nil
+	return b, b.ledgers()
+}
+
+// ledgers checks each fixture's ledger (Fixture.ledger).
+func (b Budget) ledgers() error {
+	for _, name := range slices.Sorted(maps.Keys(b.Fixtures)) {
+		if err := b.Fixtures[name].ledger(); err != nil {
+			return fmt.Errorf("budgets.json: %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // Check returns each way the receipts leave the budget: a ceiling passed,
@@ -199,6 +288,13 @@ func (b Budget) Check(receipts []Receipt) []string {
 		if r.GoPackages > f.GoPackages {
 			problems = append(problems, fmt.Sprintf("%s: %d Go packages linked, over the ceiling %d", r.Fixture, r.GoPackages, f.GoPackages))
 		}
+		if len(f.Packages) > 0 {
+			for _, pkg := range slices.Sorted(maps.Keys(r.Text)) {
+				if linkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {
+					problems = append(problems, fmt.Sprintf("%s: links package %s (%d text bytes), which its budget's packages do not name", r.Fixture, pkg, r.Text[pkg]))
+				}
+			}
+		}
 		for _, pattern := range f.Forbid {
 			re, err := regexp.Compile(pattern)
 			if err != nil {
@@ -222,6 +318,13 @@ func (b Budget) Check(receipts []Receipt) []string {
 		}
 	}
 	return problems
+}
+
+// linkedPackage reports whether pkg, a key of Receipt.Text, is a Go
+// package and not one of the linker's own entries: type: and go: symbols,
+// assembly with no package ("(asm)") and the blank symbol.
+func linkedPackage(pkg string) bool {
+	return pkg != "(asm)" && pkg != "_" && !strings.HasPrefix(pkg, "type:") && !strings.HasPrefix(pkg, "go:")
 }
 
 // differences lists the n packages whose text grew most over the control.

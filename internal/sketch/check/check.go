@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/derive"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -108,7 +108,22 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.derive = derived
 	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
+	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
+	rewrite := len(c.mapSites) > 0 && !opts.mapsRewritten
+	shapes := !opts.shapesWritten && c.writeShapes() // mapshape.go
+	if rewrite || shapes {
+		if rewrite {
+			rewriteMapSites(c.mapSites, met)
+			opts.mapsRewritten = true
+		}
+		// The forms of Maps with a provider are now calls of the table's
+		// functions (mapprovider.go), and each provider with a normal
+		// form has its derived function (mapshape.go): check the
+		// rewritten package.
+		opts.shapesWritten = true
+		return check(path, files, imp, under, opts)
+	}
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
 		c.diags = append(c.diags, d)
@@ -151,11 +166,26 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
-	opts   Options
-	derive *derive.Package // the package's derive record (derive.go)
+	opts Options
+	// inConstraint counts the constraint positions being resolved (a
+	// bracket constraint, an implements clause, an include, a type-set
+	// term): only there may a type with a type set be written (typExpr).
+	inConstraint int
+	// deferBounds counts the positions where an instance's bounds wait
+	// (instantiateExprs): an implements clause, whose bound may be met by
+	// the clause itself (`type Level int implements Ranked[Level]`;
+	// checkImplementsClauses checks it, S106 at the clause), and a bracket
+	// constraint, whose bound may name a parameter whose constraint is not
+	// set yet (`[T Ranked[T]]`; checked once all are set, boundsUnmet).
+	deferBounds int
+	derive      *derive.Package // the package's derive record (derive.go)
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool
+	// placeLaws reports S115 (lawplace.go, lawPlacementReported).
+	placeLaws bool
+	// closeOp is the release contract's operation name (closeName).
+	closeOp string
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	cover    tryCover // tries in operand position (cover.go)
@@ -216,6 +246,14 @@ type checker struct {
 	// pureArgs are the arguments of pure parameters (durable.go), which
 	// checkPureArgs judges once the footprints are known.
 	pureArgs []pureArg
+	// dropped are the calls whose result a statement discards, which
+	// checkDroppedResults judges once the footprints are known.
+	dropped []droppedCall
+	// raises memoizes raisesByName.
+	raises map[*Func]bool
+	// unassigned are the never-reassigned let mut locals, which
+	// checkDroppedResults reports once the dropped calls are judged.
+	unassigned []unassignedLocal
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
@@ -274,10 +312,13 @@ type checker struct {
 	// which reads a literal's kind as the walk does: an operation count for the
 	// linear-growth tests (round 17 M2).
 	walkOps int
-	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
-	// type id; resSteps counts the walk's visits (resource.go).
-	resMemo  [2]map[int32]bool
-	resSteps int
+	// resMemo caches holdsResource, mayHoldResource and mayHoldAny (the
+	// walk's modes) by interned type id; resSteps counts the walk's visits
+	// (resource.go).
+	resMemo [3]map[int32]bool
+	// handleMemo caches holdsHandle by interned type id (handle.go).
+	handleMemo map[int32]bool
+	resSteps   int
 	// ownSteps counts the ownership pass's work: nodes visited and state
 	// slots copied or joined (ownership.go), for the growth guard.
 	ownSteps int
@@ -296,6 +337,10 @@ type checker struct {
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
+	// cellSteps counts holdsCell's walk steps, the cost the tests bound;
+	// cellBudget, set only by a test, stops the walk past that many steps
+	// (cellWalk; CK-MAPGROW).
+	cellSteps, cellBudget int
 	// encodeLend is set while encode's writer operand, or decode's reader
 	// operand, is converted to the Writer or the Reader: neither keeps
 	// it, so a value that holds a cell may cross to it there (types.md,
@@ -311,6 +356,9 @@ type checker struct {
 	// resourceSites are the map keys and taken parameters A1's late pass
 	// decides (resource.go); the seen sets keep one site per syntax node.
 	resourceSites []resourceSite
+	// ownMarkSites are the type arguments the late own-mark check decides
+	// (resource.go, checkOwnMarks; types.md, Generics 9).
+	ownMarkSites []ownMarkSite
 	// ownershipSites are the places a value meets an operation type
 	// without Close (R22): a type argument bound by one, and a conversion
 	// in a generic body; ownershipSeen keeps one site per node and type
@@ -492,9 +540,14 @@ type checker struct {
 	// Info.Defs does not list them.
 	variants  map[*syntax.VariantSpec]*TypeName
 	synthetic map[*syntax.Ident]bool
+	// slotBounds caches slotBound by generic type (slotbound.go).
+	slotBounds map[*Named][]string
 	// pkgPatterns holds the package-level lets that bind several names
 	// from one value (a pattern, or `let q, r = e`), each checked once.
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
+	// mapSites are the syntax forms of a Map with a provider that check
+	// rewrites to the table's functions and checks again (mapprovider.go).
+	mapSites []mapSite
 	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
 	mapInstances map[*syntax.MapType]*syntax.IndexExpr
 	// refining is set while checkRefinements reports; refusedWheres are
@@ -551,6 +604,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	pkg := &Package{Path: path, Scope: newScope(universe), Contexts: map[string]*Context{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
+		placeLaws:      lawPlacementReported,
 		imp:            imp,
 		universe:       universe,
 		seen:           map[string]bool{},
@@ -702,7 +756,7 @@ type universeState struct {
 var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
-// comparable, ordered and number, true,
+// lent, comparable and the codec one, true,
 // false and len, the one built-in function (#196, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
@@ -720,7 +774,8 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetLent, SetWire, SetComparable, SetOrdered, SetNumber} {
+		// ordered and number are the prelude's type sets (prelude.ergo).
+		for _, set := range []TypeSet{SetWire, SetComparable} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -729,7 +784,7 @@ func universe() *Scope {
 		s.insert("error", errName)
 		s.insert("true", &Const{Name: "true", Type: Typ[Bool], Val: true})
 		s.insert("false", &Const{Name: "false", Type: Typ[Bool], Val: false})
-		for _, name := range []string{"len", "with", "encode", "decode", "embedded", WiredName} {
+		for _, name := range []string{"len", "hash", "with", "encode", "decode", "embedded", WiredName} {
 			s.insert(name, &Builtin{Name: name})
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are
@@ -755,7 +810,8 @@ func universe() *Scope {
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		refT := &TypeParam{Name: "T", id: newID()}
+		// A language type: its T admits a resource with no mark (Generics 9).
+		refT := &TypeParam{Name: "T", lang: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
@@ -798,23 +854,21 @@ func prelude() preludeResult {
 	preludeOnce.Do(func() {
 		u := universe()
 		var files []*syntax.File
-		for _, name := range sortedKeys(std.Prelude()) {
-			f, err := syntax.Parse(std.Prelude()[name])
+		for _, name := range sortedKeys(stdlib.Prelude()) {
+			f, err := syntax.Parse(stdlib.Prelude()[name])
 			if err != nil {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
 			f.Name = name // the embedded name, which the lowering reports (Files)
+			if name == collFileName {
+				collFile = f // the language's operations (collop.go)
+			}
 			files = append(files, f)
 		}
-		// The slice and Map operations, the language's own file (collop.go).
-		f, err := syntax.Parse(collSource())
-		if err != nil {
-			panic("check: the slice and Map operations do not parse: " + err.Error())
+		if collFile == nil {
+			panic("check: the prelude has no " + collFileName)
 		}
-		f.Name = collFileName
-		collFile = f
-		files = append(files, f)
-		c := newChecker(std.PreludePath, nil, u)
+		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
 		pkg := c.run(files)
@@ -826,7 +880,11 @@ func prelude() preludeResult {
 		}
 		ops := map[string]*Func{}
 		for name, o := range pkg.Scope.names {
-			if !isExported(name) {
+			if tn, isType := o.(*TypeName); !isExported(name) && (!isType || !typeSetOnly(tn.Type)) {
+				// The prelude's type sets, ordered and number, are in
+				// scope with their lowercase names, as comparable is: a
+				// constraint is spelled like the universe's names. The
+				// rule reads the declaration's shape, never its name.
 				continue
 			}
 			// An operation is reached by x.f(…), not a name in scope: a
@@ -856,17 +914,20 @@ func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 // sync.Once, which a nested import of another path does not hold. The std
 // has no import cycle (a cycle would wait on its own Once; TestStdImportsAreAcyclic).
 //
-// With an installed snapshot (InstallStd), a package's first import decodes
-// it from the snapshot instead (export.go).
+// With an installed snapshot (InstallBase; snapshot.InstallStd), a
+// package's first import decodes it from the snapshot instead.
 type stdImporter struct {
 	mu      sync.Mutex
 	entries map[string]*stdEntry
 	work    Work // guarded by mu
-	snap    *snapshot
+	snap    SnapshotSource
 	// order lists the std packages in the order they became available
 	// (checked or decoded), so each follows its imports (ExportStd).
 	order []string
 	ready map[string]bool
+	// sources reads a package's files; nil reads the embedded std
+	// (stdlib.Package). A test gives a library of its own.
+	sources func(path string) (map[string]string, bool)
 }
 
 // stdEntry is one std package, checked once.
@@ -894,7 +955,7 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 	s.mu.Unlock()
 	e.once.Do(func() {
 		if snap != nil {
-			if pkg, ok := snap.load(path, s.decoded); ok {
+			if pkg, ok := snap.Load(path, s.decoded); ok {
 				e.pkg = pkg
 				return
 			}
@@ -915,9 +976,12 @@ func (s *stdImporter) available(path string) {
 	s.mu.Unlock()
 }
 
-// decoded counts a package segment decoded from the snapshot; snapshot.load
+// decoded counts a package segment decoded from the snapshot; its Load
 // calls it under the snapshot's lock, for each segment in import order.
-func (s *stdImporter) decoded(path string) {
+// The snapshot does not carry the std mark: a std segment's package is
+// std, as load marks a std package it checks, and a module segment's is
+// not.
+func (s *stdImporter) decoded(path string, pkg *Package) {
 	s.mu.Lock()
 	module := strings.Contains(path, "\x00") // ModuleSegment
 	if module {
@@ -927,8 +991,29 @@ func (s *stdImporter) decoded(path string) {
 	}
 	s.mu.Unlock()
 	if !module {
+		pkg.std = true
 		s.available(path)
 	}
+}
+
+// installPrelude makes the prelude a decoded snapshot's base holds this
+// process's prelude, marked std as the checked one is (prelude).
+func installPrelude(r preludeResult) {
+	preludeOnce.Do(func() {
+		r.pkg.std = true
+		preludeOnce.r = r
+	})
+}
+
+// importAll imports every package the embedded std holds, in path order,
+// so a snapshot of std has them all (StdSnapshotNow).
+func (s *stdImporter) importAll() error {
+	for _, path := range stdlib.Packages() {
+		if _, err := s.Import(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Work counts the std work an importer did (CHK1, CHK1b): the std package
@@ -956,7 +1041,7 @@ func (s *stdImporter) done() Work {
 	defer s.mu.Unlock()
 	w := s.work
 	if s.snap != nil {
-		w.StdSnapshotBytesRead = s.snap.read.Load()
+		w.StdSnapshotBytesRead = s.snap.BytesRead()
 	}
 	return w
 }
@@ -971,14 +1056,24 @@ func (s *stdImporter) count(files, packages int64) {
 
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
-	sources, ok := std.Package(path)
+	read := s.sources
+	if read == nil {
+		read = stdlib.Package
+	}
+	sources, ok := read(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
 	s.count(int64(len(sources)), 1)
 	var files []*syntax.File
-	for _, name := range sortedKeys(sources) {
-		f, err := syntax.Parse(sources[name])
+	names := sortedKeys(sources)
+	texts := make([]string, len(names))
+	for i, name := range names {
+		texts[i] = sources[name]
+	}
+	parsed, errs := syntax.ParseFiles(texts)
+	for i, name := range names {
+		f, err := parsed[i], errs[i]
 		if err != nil {
 			return nil, fmt.Errorf("std package %q does not parse: %v", path, err)
 		}
@@ -992,7 +1087,15 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
-		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
+		// The importer says why, with the first diagnostic and its file, so
+		// the import does not read as an unknown package (TM: actor's
+		// "unknown package tasks" hid tasks' S101).
+		d := c.sorted()[0]
+		at := ""
+		if d.File >= 0 && d.File < len(files) {
+			at = files[d.File].Name + ":"
+		}
+		err = &ImportError{Path: path, Reason: fmt.Sprintf("%s%s", at, d), Broken: true}
 	}
 	return pkg, err
 }
@@ -1019,7 +1122,7 @@ func (s *stdImporter) testOf(path string) *Package {
 	if !ok {
 		return nil
 	}
-	if _, isStd := std.Package(base); !isStd {
+	if _, isStd := stdlib.Package(base); !isStd {
 		return nil
 	}
 	under, err := s.Import(base)

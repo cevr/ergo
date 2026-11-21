@@ -6,8 +6,10 @@
 // A handler that needs to send its body in parts uses Stream, through the
 // Streaming capability Serve binds per request.
 
+import net
 import strings
 import sync
+import utf8
 
 extern go ergo.local/prototype/runtime/v1/http.HTTPListenFailed type ListenFailed { Addr string, Reason string }
 extern go ergo.local/prototype/runtime/v1/http.HTTPInvalidLimits type InvalidLimits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
@@ -21,16 +23,12 @@ extern go ergo.local/prototype/runtime/v1/http.HTTPInvalidLimits type InvalidLim
 // request's first byte), and ReadBodyTimeout the body.
 extern go ergo.local/prototype/runtime/v1/http.HTTPLimits type Limits { MaxBodyBytes int, MaxHeaderBytes int, IdleTimeout duration, ReadHeaderTimeout duration, ReadBodyTimeout duration }
 
-// Listener is transport-only, shared by server protocols. Close releases a
-// bound listener that the program does not hand to Serve.
-// law-exempt: only Listen creates a bound transport; socket lifetime is checked by the loopback server property.
-extern go ergo.local/prototype/runtime/v1/http.Listener type Listener {
-	..Closer,
-	Addr() string,
-	bound(),
-}
-
-extern go ergo.local/prototype/runtime/v1/http.HTTPListen func Listen(addr string) Listener fails ListenFailed needs Ambient
+// Listen binds addr on the host's TCP for Serve. The listener is std net's
+// net.Listener, the transport shared by server protocols; Close releases
+// one that the program does not hand to Serve. Serve serves any
+// net.Listener: one from Listen or net.Host, or a nettest.Pipe's, which a
+// test dials in memory.
+extern go ergo.local/prototype/runtime/v1/http.HTTPListen func Listen(addr string) net.Listener fails ListenFailed needs Ambient
 
 // Field is one header or query pair. Repeated names keep all their values.
 extern go ergo.local/prototype/runtime/v1/http.HTTPField type Field { Name string, Value string }
@@ -38,7 +36,11 @@ type Buffered { Text string }
 type BodyTooLarge { Limit int }
 type BodyReadFailed { Reason string }
 type Body = Buffered | BodyTooLarge | BodyReadFailed
-type Request { Method string, Path string, Query []Field, Header []Field, Body Body }
+// Request is one HTTP request. Path is the decoded path and RawPath the
+// escaped one, as it came ("/a%2Fb" for the Path "/a/b"), so a route may
+// split RawPath on "/" and decode each segment with DecodePath. A client
+// sends RawPath when it is an encoding of Path, and Path escaped otherwise.
+type Request { Method string, Path string, RawPath string, Query []Field, Header []Field, Body Body }
 extern go ergo.local/prototype/runtime/v1/http.HTTPResponse type Response { Status int, Header []Field, Body string }
 
 // Header returns the first value of name, ignoring ASCII case. A missing
@@ -59,6 +61,14 @@ func Query(fields []Field, name string) Option[string] {
 	None
 }
 
+// DecodePath is the path raw escapes, decoded as Serve decodes a
+// request's Path from its RawPath: "%XX" is the byte, and "+" stays "+".
+// A "%" that two hex digits do not follow is BadEscape.
+extern go ergo.local/prototype/runtime/v1/http.HTTPDecodePath func DecodePath(raw string) string fails BadEscape
+
+// BadEscape is a path DecodePath cannot decode.
+extern go ergo.local/prototype/runtime/v1/http.HTTPBadEscape type BadEscape { Raw string }
+
 // Serve owns l until the calling task stops. Every handle invocation runs
 // on a child task; a disconnect after a buffered read stops that child.
 // A failed read still reaches the handler (a peer may have half-closed).
@@ -74,8 +84,8 @@ func Query(fields []Field, name string) Option[string] {
 // or header phase that expires closes the connection; a body phase that
 // expires reaches handle as BodyReadFailed, and its answer is the
 // connection's last.
-func Serve[R](l Listener, limits Limits, handle own func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler {
-	return serve(l, limits, func(x Exchange, method string, path string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
+func Serve[R](l net.Listener, limits Limits, handle own func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler {
+	return serve(l, limits, func(x Exchange, method string, path string, rawPath string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
 		let body Body = if tooLarge {
 			BodyTooLarge{Limit: limits.MaxBodyBytes}
 		} else if readError != "" {
@@ -84,13 +94,13 @@ func Serve[R](l Listener, limits Limits, handle own func(Request) Response needs
 			Buffered{Text: text}
 		}
 		with context { Streaming: live{x: x} } {
-			handle(Request{Method: method, Path: path, Query: query, Header: header, Body: body})
+			handle(Request{Method: method, Path: path, RawPath: rawPath, Query: query, Header: header, Body: body})
 		}
 	})
 }
 
 // The transport's scalar arguments become a closed body value above.
-extern go ergo.local/prototype/runtime/v1/http.HTTPServe func serve[R](l Listener, limits Limits, handle own func(Exchange, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1/http.HTTPServe func serve[R](l net.Listener, limits Limits, handle own func(Exchange, string, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R | Scheduler
 
 // WriteFailed is a streamed write that did not reach the client: the
 // connection refused it (the client went away), or its stream had ended.
@@ -104,6 +114,24 @@ type BodyWriter { put func(text string) fails WriteFailed }
 // flushes it to the client before Write returns.
 func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
 
+// WriteAfterStreamFails: a BodyWriter kept past the function Stream ran
+// fails WriteFailed, and the answer does not change.
+law WriteAfterStreamFails(text string) {
+	let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{})
+	let response = with context { Streaming: NewRecorder() } {
+		Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed {
+			kept.Set([]BodyWriter{w})
+		})
+	}
+	for w in kept.Get() {
+		w.Write(text) catch {
+		case WriteFailed:
+			return response.Body == ""
+		}
+	}
+	false
+}
+
 // Streaming is the response side of the request a handler answers: Serve
 // binds one per request, and NewRecorder makes one for a test. Its
 // operations are this package's; a program streams through Stream.
@@ -111,6 +139,17 @@ func Write(w BodyWriter, text string) fails WriteFailed { try w.put(text) }
 type Streaming {
 	open(status int, header []Field) BodyWriter,
 	close() string,
+	reply(status int, header []Field, body []byte) string,
+}
+
+// SendBytes answers the request with status, header and body, of body's
+// length. Under Serve it writes body to the connection where it is, with
+// no string of it, and the result's Body is empty; under a Recorder the
+// Body is body's text. A response that has started (a Stream or a
+// SendBytes before) is a defect. json.EncodeWith lends a value's text as
+// bytes, so a JSON body is written once, into a pooled buffer (GX9).
+func SendBytes(status int, header []Field, body []byte) Response needs Streaming {
+	Response{Status: status, Header: header, Body: Streaming.reply(status, header, body)}
 }
 
 // Stream answers the request with status and header, then a body that
@@ -130,6 +169,25 @@ func Stream[R](status int, header []Field, write func(w BodyWriter) fails WriteF
 	Response{Status: status, Header: header, Body: Streaming.close()}
 }
 
+// StreamIsItsWrites: Stream answers with its status and header, and its
+// body is every part write wrote, in order (under a Recorder, which keeps
+// what Serve's provider sends).
+law StreamIsItsWrites(status int, parts []string) {
+	let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}}
+	let response = with context { Streaming: NewRecorder() } {
+		Stream(status, header, func(w BodyWriter) fails WriteFailed {
+			for p in parts {
+				try w.Write(p)
+			}
+		})
+	}
+	let mut want = ""
+	for p in parts {
+		want = want + p
+	}
+	response == Response{Status: status, Header: header, Body: want}
+}
+
 // Exchange is the response side of one served request on the host. Only
 // Serve has one.
 // law-exempt: only the transport makes one; the runtime/v1 stream tests hold its writes, its end and its hang-up.
@@ -138,6 +196,9 @@ extern go ergo.local/prototype/runtime/v1/http.Exchange type Exchange {
 	Begin(status int, header []Field),
 	Write(text string) fails WriteFailed,
 	End(),
+	// Send writes status, header and body as the whole response, with its
+	// length.
+	Send(status int, header []Field, body []byte),
 }
 
 // live is Serve's Streaming provider for one request.
@@ -150,6 +211,11 @@ func open(l live, status int, header []Field) BodyWriter {
 
 func close(l live) string {
 	l.x.End()
+	""
+}
+
+func reply(l live, status int, header []Field, body []byte) string {
+	l.x.Send(status, header, body)
 	""
 }
 
@@ -178,4 +244,12 @@ func open(r Recorder, status int, header []Field) BodyWriter {
 func close(r Recorder) string {
 	r.state.Set(2)
 	r.text.Get()
+}
+
+func reply(r Recorder, status int, header []Field, body []byte) string {
+	if r.state.Get() != 0 {
+		Unreachable("http.SendBytes: the response has already started")
+	}
+	r.state.Set(2)
+	utf8.String(body)
 }

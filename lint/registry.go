@@ -401,14 +401,17 @@ func (c *Configuration) Identity() string {
 // metadata only; no pack code runs. Builtin and Code describe a built-in
 // rule, which the host lists beside the pack rules.
 type RuleInfo struct {
-	Rule            string       `json:"rule"`
-	Builtin         bool         `json:"builtin,omitempty"`
-	Code            string       `json:"code,omitempty"`
-	Pack            string       `json:"pack,omitempty"`
-	PackVersion     string       `json:"packVersion,omitempty"`
-	PackIdentity    string       `json:"packIdentity,omitempty"`
-	Version         string       `json:"version,omitempty"`
-	Description     string       `json:"description"`
+	Rule         string `json:"rule"`
+	Builtin      bool   `json:"builtin,omitempty"`
+	Code         string `json:"code,omitempty"`
+	Pack         string `json:"pack,omitempty"`
+	PackVersion  string `json:"packVersion,omitempty"`
+	PackIdentity string `json:"packIdentity,omitempty"`
+	Version      string `json:"version,omitempty"`
+	Description  string `json:"description"`
+	// Instead is a built-in rule's remedy, what to write in place of
+	// what it reports; omitted for a pack rule.
+	Instead         string       `json:"instead,omitempty"`
 	DefaultSeverity Severity     `json:"defaultSeverity"`
 	Severity        Severity     `json:"severity"`
 	Requires        []Family     `json:"requires,omitempty"`
@@ -418,6 +421,11 @@ type RuleInfo struct {
 	Options         []OptionSpec `json:"options,omitempty"`
 	// Environment names the host variables the rule's pack receives.
 	Environment []string `json:"environment,omitempty"`
+	// Precision is a built-in rule's published precision (the lower of its
+	// corpus and its held-out read sample, capped at 0.95), and Sample
+	// says what it was measured on; both omitted for a rule with none.
+	Precision *float64 `json:"precision,omitempty"`
+	Sample    string   `json:"sample,omitempty"`
 }
 
 // Inspect lists every rule with its effective severity.

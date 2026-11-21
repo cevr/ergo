@@ -1,0 +1,16 @@
+// The program of TestIRNotOfConstant (#42): main's if, whatever the IR
+// makes of flag() (a call, or its inlined false), which
+// the test rewrites to !false, the shape of an assert of a constant
+// (`assert 1 == 2` is `if !false { fail }`), as the builder writes it.
+
+func flag() bool {
+	false
+}
+
+func main() needs Console {
+	if flag() {
+		Console.Println("then")
+	} else {
+		Console.Println("else")
+	}
+}

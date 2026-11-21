@@ -1,0 +1,738 @@
+// Package host is the terminal cell host of ui programs (T1): it steps a
+// view over an actor as ui.Run and ui.TestHost do, lays the tree out in
+// points with std ui/layout, draws it into a grid of cells from what each
+// node means (look.ergo), and writes the difference from the grid the
+// terminal shows as one frame (package grid). Its keys come from std
+// term; a script's taps go to cells and through its hit test.
+//
+// A patch is applied whole: every op of a pass changes the host's tree
+// before anything is drawn, and the pass is one frame inside the
+// synchronized-update marks, so no draw and no read of input falls
+// between two ops of one patch (PatchIsOneFrame).
+//
+// Like the MyGo desktop driver, it is not a ui.Host provider: it steps the
+// Session itself, so a script is synchronous (ui.TestHost's choice, H4).
+
+import actor
+import arena
+import ergo.local/prototype/examples/cells/grid
+import queue
+import strings
+import time
+import ui
+import ui/layout
+
+// Host is one view over one actor on a terminal of Cols by Rows cells.
+type Host[S, E, D, F] {
+	actor     actor.Actor[S, E, D, F],
+	session   ui.Session[S, E, D, F],
+	mirror    ui.Mirror[E],
+	nodes     Map[ui.Id[E], held[E]],
+	root      ui.Id[E],
+	posted    queue.Queue[ui.Event[E]],
+	cols      int,
+	rows      int,
+	screen    grid.Grid,
+	frames    []string,
+	patches   int,
+	redraws   int,
+	written   int,
+	spots     []spot[E],
+	drawn     Map[ui.Id[E], drawnAt],
+	focus     Option[ui.Id[E]],
+	scrolled  Map[ui.Id[E], int],
+	extents   Map[ui.Id[E], int],
+	viewports Map[ui.Id[E], ui.Viewport],
+	history   ui.MemoryHistory,
+}
+
+// held is a node of the host's tree and its children, in order.
+type held[E] { node ui.Node[E], kids []ui.Id[E] }
+
+// spot is a node that takes input or scrolls: its laid-out box in points
+// (its Scrolls' offsets taken off) and the cells its Scrolls leave
+// visible, in paint order. The hit test projects the box itself (Span).
+type spot[E] { id ui.Id[E], node ui.Node[E], box layout.Box, clip Rect }
+
+// drawnAt is where a node was drawn: its cells, the part of them visible,
+// and the cell its name begins in with the text drawn there (C < 0 when
+// its name was not drawn), and the row a Semantic node's marks are on.
+type drawnAt { at Rect, vis Rect, nameC int, nameR int, name string, markR int }
+
+// New shows view of a's state on a terminal of cols by rows cells. room is
+// how many fetch results may wait for the host to take them.
+func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int, room int, view own func(f mut ui.Frame[E], s S) needs R) Host[S, E, D, F] fails ui.BadPatch needs R {
+	let posted = queue.New[ui.Event[E]](room)
+	let (s, first) = ui.Start(a, view, func(ev ui.Event[E]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let root = ui.SessionRoot(&session)
+	let mut h = Host[S, E, D, F]{
+		actor:     a,
+		session:   session,
+		mirror:    ui.NewMirror[E](root),
+		nodes:     Map[ui.Id[E], held[E]]{},
+		root:      root,
+		posted:    posted,
+		cols:      cols,
+		rows:      rows,
+		screen:    grid.New(0, 0),
+		frames:    []string{},
+		patches:   0,
+		redraws:   0,
+		written:   0,
+		spots:     []spot[E]{},
+		drawn:     Map[ui.Id[E], drawnAt]{},
+		focus:     None,
+		scrolled:  Map[ui.Id[E], int]{},
+		extents:   Map[ui.Id[E], int]{},
+		viewports: Map[ui.Id[E], ui.Viewport]{},
+		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
+	}
+	h.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
+	try show(&h, first)
+	h
+}
+
+// show applies one pass's ops, every one, then draws the pass as one
+// frame.
+func show[E comparable, S, D, F](h mut Host[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch {
+	try ui.Apply(&h.mirror, ops)
+	for op in ops {
+		apply(h, op)
+	}
+	h.patches = h.patches + 1
+	draw(h)
+	report(h) catch {
+	case actor.Stopped:
+	case ui.BadPatch as b:
+		return b
+	}
+}
+
+// apply changes the host's tree by one op.
+func apply[E comparable, S, D, F](h mut Host[S, E, D, F], op ui.Op[E]) {
+	match op {
+	case ui.Insert[E] as x:
+		h.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
+		place(h, x.Id, x.Parent, x.Before)
+	case ui.Move[E] as x:
+		unplace(h, x.Parent, x.Id)
+		place(h, x.Id, x.Parent, x.Before)
+	case ui.Remove[E] as x:
+		dropNode(h, x.Id)
+	case ui.Set[E] as x:
+		match h.nodes.Get(x.Id) {
+		case Some[held[E]] as n:
+			h.nodes[x.Id] = held[E]{node: x.Node, kids: n.Value.kids}
+		case None:
+		}
+	case ui.Define:
+		// A look's definition: this host draws no looks.
+	}
+}
+
+// report tells the session the viewport of each list when it changed,
+// as the desktop driver does: the next pass writes the rows it shows.
+func report[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch {
+	for s in h.spots {
+		match s.node {
+		case ui.RowsNode:
+			let v = ui.Viewport{Offset: ui.Length(float64(float32(scrolledBy(h, s.id)) * CellH)), Height: ui.Length(float64(s.box.H))}
+			if h.viewports.Get(s.id) != (Some{Value: v}) {
+				h.viewports[s.id] = v
+				try step(h, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})
+				return
+			}
+		case _:
+		}
+	}
+}
+
+// place puts id among parent's children, in front of before or last.
+func place[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+	match h.nodes.Get(parent) {
+	case Some[held[E]] as p:
+		let mut kids = []ui.Id[E]{}
+		let mut done = false
+		for k in p.Value.kids {
+			if !done && before == (Some{Value: k}) {
+				kids = kids.Append(id)
+				done = true
+			}
+			if k != id {
+				kids = kids.Append(k)
+			}
+		}
+		if !done {
+			kids = kids.Append(id)
+		}
+		h.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
+	case None:
+	}
+}
+
+// unplace takes id out of parent's children.
+func unplace[S, E, D, F](h mut Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
+	match h.nodes.Get(parent) {
+	case Some[held[E]] as p:
+		let mut kids = []ui.Id[E]{}
+		for k in p.Value.kids {
+			if k != id {
+				kids = kids.Append(k)
+			}
+		}
+		h.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
+	case None:
+	}
+}
+
+// dropNode forgets id and its subtree, and takes it out of its parent.
+func dropNode[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E]) {
+	for p, n in h.nodes {
+		for k in n.kids {
+			if k == id {
+				unplace(h, p, id)
+			}
+		}
+	}
+	forget(h, id)
+}
+
+func forget[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E]) {
+	match h.nodes.Get(id) {
+	case Some[held[E]] as n:
+		for k in n.Value.kids {
+			forget[S, E, D, F](h, k)
+		}
+	case None:
+	}
+	h.nodes = h.nodes.Delete(id)
+	h.scrolled = h.scrolled.Delete(id)
+	h.viewports = h.viewports.Delete(id)
+	if h.focus == (Some{Value: id}) {
+		h.focus = None
+	}
+}
+
+// kidsOf is id's children in the host's tree.
+func kidsOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
+	match h.nodes.Get(id) {
+	case Some[held[E]] as n:
+		n.Value.kids
+	case None:
+		[]ui.Id[E]{}
+	}
+}
+
+// holdsText is whether a Text is below id.
+func holdsText[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
+	for k in kidsOf(h, id) {
+		match h.nodes.Get(k) {
+		case Some[held[E]] as n:
+			match n.Value.node {
+			case ui.TextNode:
+				return true
+			case _:
+			}
+		case None:
+		}
+		if holdsText[S, E, D, F](h, k) {
+			return true
+		}
+	}
+	false
+}
+
+// step steps the session with ev and shows its patch.
+func step[E comparable, S, D, F](h mut Host[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch {
+	let ops = try ui.Step(&h.session, ev)
+	if len(ops) > 0 {
+		try show(h, ops)
+	}
+}
+
+// redraw draws the screen again for a change the host made itself (the
+// focus moved, a Scroll scrolled): a frame with no patch.
+func redraw[S, E, D, F](h mut Host[S, E, D, F]) {
+	h.redraws = h.redraws + 1
+	draw(h)
+}
+
+// draw lays the tree out, draws it into a new grid, and keeps the frame
+// from the grid the terminal shows to it, when it changes a cell.
+func draw[S, E, D, F](h mut Host[S, E, D, F]) {
+	let width = float32(h.cols) * CellW
+	let height = float32(h.rows) * CellH
+	let mut t = layout.New()
+	let mut rs = plainStyle()
+	rs.Width = layout.Px{Value: width}
+	rs.Height = layout.Px{Value: height}
+	let top = layout.Add(&t, rs)
+	let ids = build(h, &t, h.root, top, Map[ui.Id[E], layout.Id]{})
+	with context { layout.Measure: Cells } {
+		layout.Layout(&t, top, width, height) catch {
+		case arena.Stale:
+		}
+		if roomForLists(h, &t, ids, height) {
+			layout.Layout(&t, top, width, height) catch {
+			case arena.Stale:
+			}
+		}
+	}
+	let mut g = grid.New(h.cols, h.rows)
+	h.spots = []spot[E]{}
+	h.drawn = Map[ui.Id[E], drawnAt]{}
+	let full = Rect{C: 0, R: 0, W: h.cols, H: h.rows}
+	for k in kidsOf(h, h.root) {
+		drawNode(h, &g, &t, ids, k, 0, full)
+	}
+	let f = grid.Frame(h.screen, g)
+	h.written = f.Cells
+	if f.Cells > 0 || h.screen.Cols != g.Cols || h.screen.Rows != g.Rows {
+		h.frames = h.frames.Append(f.Text)
+	}
+	h.screen = g
+}
+
+// PatchWritesItsChange: a frame writes the cells its patch changed and no
+// other (the counted guard of a pass's cost in cells written): a press that
+// changes one digit of one Text writes one cell, on any generated view.
+law PatchWritesItsChange(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		writesTheChange(seed)
+	}
+}
+
+func writesTheChange(seed int) bool needs Scheduler {
+	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
+	case ui.BadPatch:
+		return false
+	}
+	for s in h.spots {
+		match s.node {
+		case ui.PressableNode[int] as p:
+			if p.Label != "more" && !strings.HasPrefix(p.Label, "del") {
+				let before = Grid(&h)
+				step(&h, ui.Press[int]{Id: s.id}) catch {
+				case _:
+					return false
+				}
+				return Written(&h) == grid.Changed(before, Grid(&h)) && Written(&h) == 1
+			}
+		case _:
+		}
+	}
+	true
+}
+
+// roomForLists gives each list that laid out no taller than 0 the
+// screen's room below its top, as the desktop driver does.
+func roomForLists[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, ids Map[ui.Id[E], layout.Id], height float32) bool {
+	let mut changed = false
+	for k, n in h.nodes {
+		match n.node {
+		case ui.RowsNode as x:
+			match ids.Get(k) {
+			case Some[layout.Id] as l:
+				let b = boxOf(t, l.Value)
+				if b.H <= 0 {
+					let mut s = styleOf(n.node, false)
+					s.Height = layout.Px{Value: fmax(height-b.Y, dips(x.RowHeight))}
+					s.Shrink = 0
+					layout.SetStyle(t, l.Value, s) catch {
+					case arena.Stale:
+					}
+					changed = true
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	changed
+}
+
+// build adds id's children under into, and their subtrees. A list's row
+// is out of the flow, at its index's place below the list's top.
+func build[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, id ui.Id[E], into layout.Id, ids own Map[ui.Id[E], layout.Id]) Map[ui.Id[E], layout.Id] {
+	let mut out = ids
+	let list = match h.nodes.Get(id) {
+	case Some[held[E]] as p:
+		match p.Value.node {
+		case ui.RowsNode as x:
+			Some{Value: x}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+	for i, k in kidsOf(h, id) {
+		match h.nodes.Get(k) {
+		case Some[held[E]] as n:
+			let mut st = styleOf(n.Value.node, holdsText(h, k))
+			match list {
+			case Some[ui.RowsNode] as l:
+				let rh = dips(l.Value.RowHeight)
+				st.Position = layout.Absolute{Left: 0, Top: float32(l.Value.First+i) * rh}
+				st.Width = layout.Percent{Value: 100}
+				st.Height = layout.Px{Value: rh}
+			case None:
+			}
+			let node = layout.Add(t, st)
+			layout.Append(t, into, node) catch {
+			case arena.Stale:
+			}
+			out[k] = node
+			// a leaf's children are not laid out, nor drawn
+			match st.Content {
+			case layout.Boxes:
+				out = build[S, E, D, F](h, t, k, node, out)
+			case layout.Text:
+			}
+		case None:
+		}
+	}
+	out
+}
+
+func boxOf(t mut layout.Tree, id layout.Id) layout.Box {
+	layout.BoxOf(t, id) catch {
+	case arena.Stale:
+		layout.Box{X: 0, Y: 0, W: 0, H: 0}
+	}
+}
+
+// write puts text's runes from column c of row r in pen, in the cells of
+// vis; it is how many runes it put.
+func write(g mut grid.Grid, text string, c int, r int, vis Rect, pen grid.Pen) int {
+	let mut n = 0
+	for i, one in grid.Runes(text) {
+		if holds(vis, c+i, r) {
+			grid.Put(g, c+i, r, grid.Cell{Text: one, Pen: pen})
+			n = n + 1
+		}
+	}
+	n
+}
+
+// named writes id's name at column c, row r and keeps where it began, when
+// its first cell shows.
+func named(g mut grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) drawnAt {
+	let _ = write(g, name, c, r, d.vis, pen)
+	if name != "" && holds(d.vis, c, r) {
+		return drawnAt{..d, nameC: c, nameR: r, name: name}
+	}
+	d
+}
+
+// drawNode draws id, lifted by dy rows (its Scrolls' offsets), within the
+// cells clip.
+func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.Tree, ids Map[ui.Id[E], layout.Id], id own ui.Id[E], dy int, clip Rect) {
+	let n = match h.nodes.Get(id) {
+	case Some[held[E]] as x:
+		x.Value.node
+	case None:
+		return
+	}
+	let laid = match ids.Get(id) {
+	case Some[layout.Id] as l:
+		boxOf(t, l.Value)
+	case None:
+		return
+	}
+	let b = layout.Box{X: laid.X, Y: laid.Y - float32(dy)*CellH, W: laid.W, H: laid.H}
+	let at = Span(b)
+	let vis = cut(clip, at)
+	let mut d = drawnAt{at: at, vis: vis, nameC: -1, nameR: -1, name: "", markR: at.R}
+	let s = spot[E]{id: id, node: n, box: b, clip: clip}
+	let off = ui.AccessOf(&h.mirror, id).Disabled
+	let pen = if off { grid.Faint } else { grid.Normal }
+	let m = TheMarks
+	match n {
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode:
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.ScrollNode:
+		h.spots = h.spots.Append(s)
+		let mut reach = 0
+		for k in kidsOf(h, id) {
+			match ids.Get(k) {
+			case Some[layout.Id] as l:
+				let kb = Span(boxOf(t, l.Value))
+				let r = kb.R + kb.H - Span(laid).R
+				if r > reach {
+					reach = r
+				}
+			case None:
+			}
+		}
+		h.extents[id] = reach
+		drawKids(h, g, t, ids, id, dy+scrolledBy(h, id), vis)
+	case ui.RowsNode as x:
+		h.spots = h.spots.Append(s)
+		let content = Span(layout.Box{X: 0, Y: 0, W: 0, H: float32(x.Count) * dips(x.RowHeight)}).H
+		h.extents[id] = content
+		let most = if content > at.H { content - at.H } else { 0 }
+		if scrolledBy(h, id) > most {
+			h.scrolled[id] = most
+		}
+		drawKids(h, g, t, ids, id, dy+scrolledBy(h, id), vis)
+	case ui.CanvasNode as x:
+		d = named(g, x.Label, at.C, at.R, d, grid.Faint)
+	case ui.AreaNode:
+		h.spots = h.spots.Append(s)
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.TextNode as x:
+		let st = styleOf(n, false)
+		let c = Span(layout.Box{X: b.X + st.Padding[3], Y: b.Y + st.Padding[0], W: 0, H: 0})
+		for i, line in Lines(x.Value, b.W-st.Padding[1]-st.Padding[3]) {
+			if i == 0 {
+				d = named(g, line, c.C, c.R, d, pen)
+			} else {
+				let _ = write(g, line, c.C, c.R+i, vis, pen)
+			}
+		}
+	case ui.PressableNode[E] as x:
+		h.spots = h.spots.Append(s)
+		let mid = at.R + (at.H-1)/2
+		let _ = write(g, m.Open, at.C, mid, vis, pen)
+		let _ = write(g, m.Close, at.C+at.W-1, mid, vis, pen)
+		if holdsText(h, id) {
+			drawKids(h, g, t, ids, id, dy, clip)
+		} else {
+			d = named(g, x.Label, at.C+1, mid, d, pen)
+		}
+	case ui.CheckNode[E] as x:
+		h.spots = h.spots.Append(s)
+		let _ = write(g, if x.Checked { m.Checked } else { m.Unchecked }, at.C, at.R, vis, pen)
+		d = named(g, x.Label, at.C+markW, at.R, d, pen)
+	case ui.ToggleNode as x:
+		h.spots = h.spots.Append(s)
+		let _ = write(g, if x.On { m.On } else { m.Off }, at.C, at.R, vis, pen)
+		d = named(g, x.Label, at.C+markW, at.R, d, pen)
+	case ui.InputNode as x:
+		h.spots = h.spots.Append(s)
+		let _ = write(g, m.Open, at.C, at.R, vis, pen)
+		let _ = write(g, m.Close, at.C+at.W-1, at.R, vis, pen)
+		let inner = cut(vis, Rect{C: at.C + 1, R: at.R, W: at.W - 2, H: 1})
+		if x.Value == "" {
+			d = named(g, x.Placeholder, at.C+1, at.R, drawnAt{..d, vis: inner, nameC: -1, nameR: -1, name: ""}, grid.Faint)
+			d = drawnAt{..d, vis: vis}
+		} else {
+			let _ = write(g, x.Value, at.C+1, at.R, inner, pen)
+		}
+	case ui.ZoneNode:
+		// a spot the hit test does not target: the Area's Point.Over
+		h.spots = h.spots.Append(s)
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.TransitionNode:
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.LayerNode[E], ui.TrackNode:
+		// a layer lays out in the flow and a track shows its target: the
+		// grid has no stacking and no motion (Omissions: Motion)
+		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.LiveNode as x:
+		d = named(g, x.Text, at.C, at.R, d, pen)
+	case ui.ReadoutNode as x:
+		// what the readout reads now, in the reserve's box; its reserve
+		// before the first reading
+		let reading = match ui.ReadingIn(&h.session, x.Readout) {
+		case Some[string] as r:
+			r.Value
+		case None:
+			x.Reserve
+		}
+		d = named(g, reading, at.C, at.R, d, pen)
+	case ui.SemanticNode[E] as x:
+		if focusable(n) {
+			h.spots = h.spots.Append(s)
+		}
+		let mid = at.R + (at.H-1)/2
+		let spen = semanticPen(x.Access, off)
+		let pre = Before(x.Access)
+		let post = After(x.Access)
+		let _ = write(g, pre, at.C, mid, vis, spen)
+		let _ = write(g, post, at.C+at.W-cellsOf(post), mid, vis, spen)
+		d.markR = mid
+		if holdsText(h, id) {
+			drawKids(h, g, t, ids, id, dy, clip)
+		} else {
+			d = named(g, x.Access.Name, at.C+cellsOf(pre), mid, d, spen)
+		}
+	}
+	if h.focus == (Some{Value: id}) {
+		inverse(g, vis)
+	}
+	h.drawn[id] = d
+}
+
+// drawKids draws id's children in order.
+func drawKids[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy int, clip Rect) {
+	for k in kidsOf(h, id) {
+		drawNode(h, g, t, ids, k, dy, clip)
+	}
+}
+
+// inverse shows the cells of vis in reverse video: the focused control.
+func inverse(g mut grid.Grid, vis Rect) {
+	for r in vis.R..vis.R+vis.H {
+		for c in vis.C..vis.C+vis.W {
+			let cell = grid.At(*g, c, r)
+			grid.Put(g, c, r, grid.Cell{Text: cell.Text, Pen: grid.Inverse})
+		}
+	}
+}
+
+// scrolledBy is how many rows id's Scroll is scrolled.
+func scrolledBy[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) int {
+	match h.scrolled.Get(id) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		0
+	}
+}
+
+// HitAt is the node on top at column c, row r: the last drawn spot whose
+// Span holds the cell, inside the cells its Scrolls leave visible;
+// Scrolls and lists left out.
+func HitAt[S, E, D, F](h mut Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
+	let mut hit Option[ui.Id[E]] = None
+	for s in h.spots {
+		if targeted(s.node) && holds(Span(s.box), c, r) && holds(s.clip, c, r) {
+			hit = Some{Value: s.id}
+		}
+	}
+	hit
+}
+
+// HitMatchesDraw: on a generated view, with gaps and padding that put
+// edges anywhere between grid lines, the cell a control is drawn in is
+// the cell that hits it, before and after rows are added; and a tap on a
+// zone's cell reaches its Area with that zone under the pointer.
+law HitMatchesDraw(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		hitsWhereDrawn(seed)
+	}
+}
+
+func hitsWhereDrawn(seed int) bool needs Scheduler {
+	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
+	let mut h = New(a, 140, 40, 4, SampleView) catch {
+	case ui.BadPatch:
+		return false
+	}
+	for round in 0..3 {
+		for s in h.spots {
+			if focusable(s.node) {
+				match CellOf(&h, s.id) {
+				case Some[(int, int)] as at:
+					let (c, r) = at.Value
+					if HitAt(&h, c, r) != (Some{Value: s.id}) {
+						return false
+					}
+				case None:
+				}
+			}
+		}
+		// a tap on a zone's cell reaches its Area with the zone under it
+		// (Point.Over): the generated Area sends 2 for a Down over a zone;
+		// a tap on a Semantic node that declares a press sends it (2),
+		// unless the node is disabled
+		for z in sendersIn(h.spots) {
+			match CellOf(&h, z) {
+			case Some[(int, int)] as at:
+				let (c, r) = at.Value
+				let taps = StateOf(&h).Taps
+				let sends = !ui.AccessOf(&h.mirror, z).Disabled
+				Tap(&h, c, r) catch {
+				case _:
+					return false
+				}
+				Settle(&h) catch {
+				case _:
+					return false
+				}
+				if StateOf(&h).Taps != if sends { taps + 1 } else { taps } {
+					return false
+				}
+			case None:
+			}
+		}
+		if round < 2 {
+			Play(&h, []ui.Act{ui.TapOn{Label: "more"}}) catch {
+			case _:
+				return false
+			}
+		}
+	}
+	true
+}
+
+// sendersIn is the zones and the Semantic nodes among spots, in paint
+// order: in the generated view, each sends 2 when tapped.
+func sendersIn[E](spots []spot[E]) []ui.Id[E] {
+	let mut out = []ui.Id[E]{}
+	for s in spots {
+		match s.node {
+		case ui.ZoneNode, ui.SemanticNode[E]:
+			out = out.Append(s.id)
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		}
+	}
+	out
+}
+
+// spotOf is id's spot, when it takes input.
+func spotOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
+	for s in h.spots {
+		if s.id == id {
+			return Some{Value: s}
+		}
+	}
+	None
+}
+
+// Screen is what the host shows, as the patches built it.
+func Screen[S, E, D, F](h mut Host[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&h.mirror) }
+
+// Grid is the grid the terminal shows.
+func Grid[S, E, D, F](h mut Host[S, E, D, F]) grid.Grid { h.screen }
+
+// Screenshot is the terminal's screen as text, a line a row.
+func Screenshot[S, E, D, F](h mut Host[S, E, D, F]) string { grid.Text(h.screen) }
+
+// StateOf is the actor's state.
+func StateOf[S, E, D, F](h mut Host[S, E, D, F]) S { h.actor.State() }
+
+// Take is the frames drawn since the last Take, in order: what the
+// terminal is to read next.
+func Take[S, E, D, F](h mut Host[S, E, D, F]) []string {
+	let out = h.frames
+	h.frames = []string{}
+	out
+}
+
+// Written is how many cells the last frame wrote.
+func Written[S, E, D, F](h mut Host[S, E, D, F]) int { h.written }
+
+// Patches is how many patches the host has shown; Redraws how many frames
+// it drew of its own (a focus or a scroll).
+func Patches[S, E, D, F](h mut Host[S, E, D, F]) int { h.patches }
+
+func Redraws[S, E, D, F](h mut Host[S, E, D, F]) int { h.redraws }
+
+// Resize sets the terminal's size and draws again.
+func Resize[E comparable, S, D, F](h mut Host[S, E, D, F], cols int, rows int) fails actor.Stopped | ui.BadPatch {
+	h.cols = cols
+	h.rows = rows
+	redraw(h)
+	try report(h)
+}

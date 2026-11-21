@@ -15,9 +15,10 @@ import (
 // widest is generic (no Go leaf) and larger; first is generic and within
 // it; outer is small and calls widest, so widest's site in outer's
 // inlined body is on the loop path of outer's site; apply1 substitutes
-// its literal, whose body calls widest. step is a machine's step, a boxed
-// leaf larger than goSizeBudget, called through the field of its known
-// record by once (off a loop) and by std's From (in its loop). sumTo,
+// its literal, whose body calls widest. step is a machine's step, larger
+// than goSizeBudget and no Go leaf (it calls grow: a leaf whose Decision
+// is a struct, MSB1, is Go's to inline), called through the field of its
+// known record by once (off a loop) and by std's From (in its loop). sumTo,
 // deeper, coldTo and down keep their Go functions (a loop or a
 // recursion) and call widest outside any loop of theirs: sumTo is called
 // in main's loop, deeper only by sumTo (declared before it, so it is
@@ -162,9 +163,11 @@ func step(s St, e Sig) Decision[St, int] {
 		if e.d == 0 {
 			return Stay[St]{Next: Count{n: c.n}}
 		}
-		Stay[St]{Next: Count{n: c.n + e.d * 2 + 1}}
+		Stay[St]{Next: Count{n: grow(c.n, e.d)}}
 	}
 }
+
+func grow(n int, d int) int { n + d * 2 + 1 }
 
 type M machine[St, Sig] {
 	initial: Count{n: 0},

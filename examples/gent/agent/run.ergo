@@ -1,0 +1,119 @@
+// A run of the loop: live, as an actor whose committed signals a journal
+// keeps, and replayed, as a fold of those signals.
+
+import actor
+import exec
+import journal
+import machines
+import journal/memory
+import strings
+
+// Recorded is a run as data: the limits it started under and the signals
+// it committed, in order.
+type Recorded { Limits Limits, Signals []Signal }
+
+// Replay is the state a recorded run ends in: a fold of its signals with
+// the pure step. It runs no work, reads no clock and asks no model.
+func Replay(r Recorded) State {
+	let o = machines.Run(machines.Start(Agent{}, r.Limits), r.Signals) catch {
+	case machines.Rejected:
+		// Step never rejects.
+		return Start(r.Limits)
+	}
+	machines.LastState(o)
+}
+
+// Session is a live session: the agent's actor and the journal of the
+// signals it committed.
+type Session { Agent actor.Actor[State, Signal, Decision[State, Never]], Journal journal.Journal[State, Signal], Limits Limits }
+
+// Open starts a live session under l. The actor's work asks the Model
+// and runs the Tools and the shell (exec.Runner) in the context; its
+// timer waits on the Scheduler.
+func Open(l Limits) Session needs Model | Tools | exec.Runner | Scheduler {
+	let j = memory.New[State, Signal]()
+	let a = journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {}) catch {
+	case journal.Failed, journal.Diverged:
+		Unreachable("a new memory journal holds no signal")
+	}
+	Session{Agent: a, Journal: j, Limits: l}
+}
+
+// Resume starts a session under l on the journal j, which may hold the
+// signals of an earlier session: the signals Recover names are kept
+// first, so the session starts in a state that runs no work. It fails
+// Diverged when a signal of j does not fit the step (a file of another
+// version of the loop), and Failed when j cannot be read or written.
+func Resume(l Limits, j journal.Journal[State, Signal]) Session fails journal.Failed | journal.Diverged needs Model | Tools | exec.Runner | Scheduler {
+	let log = try j.Load()
+	for e in try Recover(l, log.Signals) {
+		try j.Append(e)
+	}
+	let a = try journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {})
+	Session{Agent: a, Journal: j, Limits: l}
+}
+
+// RecordOf is what s committed so far.
+func RecordOf(s Session) Recorded {
+	let log = s.Journal.Load() catch {
+	case journal.Failed:
+		return Recorded{Limits: s.Limits, Signals: []Signal{}}
+	}
+	Recorded{Limits: s.Limits, Signals: log.Signals}
+}
+
+// Say sends text to s and waits until the turn it starts waits for the
+// person: the state it is in then, Idle at its end or Approving. A text
+// of spaces starts no turn.
+func Say(s Session, text string) State { tell(s, Submit{Text: text}) }
+
+// tell sends e to s and waits until the state has changed and waits for
+// the person, or has ended.
+func tell(s Session, e Signal) State {
+	let before = s.Agent.State()
+	let now = actor.SendAndWait(s.Agent, e, func(now State) bool { now != before && settled(now) }) catch {
+	case actor.Stopped:
+		return s.Agent.State()
+	}
+	now
+}
+
+// settled reports whether s waits for the person, or has ended.
+func settled(s State) bool {
+	match s.Phase {
+	case Idle, Approving, Ended:
+		true
+	case Asking, Waiting, Running:
+		false
+	}
+}
+
+// approving reports whether s waits for the person to allow a call.
+func approving(s State) bool {
+	match s.Phase {
+	case Approving:
+		true
+	case Idle, Asking, Waiting, Running, Ended:
+		false
+	}
+}
+
+// Headless asks each of texts in turn in the session s, with no
+// terminal, and stops it: its last state and its record. A text of spaces is
+// skipped. No person is there to answer a call the gate asks about, so
+// each is approved when allow says so up front (--allow-shell) and
+// declined otherwise: the machine still asks, and the record holds the
+// answer.
+func Headless(s Session, texts []string, allow bool) (State, Recorded) needs Model | Tools | exec.Runner | Scheduler {
+	let answer Signal = if allow { Approve } else { Decline }
+	for text in texts {
+		if strings.TrimSpace(text) != "" {
+			let mut now = Say(s, text)
+			for approving(now) {
+				now = tell(s, answer)
+			}
+		}
+	}
+	s.Agent.Stop()
+	(s.Agent.State(), RecordOf(s))
+}

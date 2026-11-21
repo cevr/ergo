@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"ergo.local/prototype/runtime/rt"
@@ -97,5 +98,34 @@ func TestFSRootClosesAtScopeEnd(t *testing.T) {
 				t.Error("Stat succeeded after scope end")
 			}
 		})
+	}
+}
+
+// TestFSRootReadFileIsTheFile: Root's ReadFile is the file's bytes, at
+// sizes on both sides of os's 512-byte first read and of the half of it
+// under which ReadFile copies (HTTP-FAST-c9), so both of its ways of
+// making the text are read. Mutants: c9-readfile-short (the text over
+// the slice), c9-copy-short (the copy).
+func TestFSRootReadFileIsTheFile(t *testing.T) {
+	dir := t.TempDir()
+	task := rt.Root("root read")
+	s := NewScope(task)
+	defer s.End(nil)
+	root, err := FSOpenRoot(&s, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{0, 1, 254, 255, 256, 511, 512, 513, 4096, 65536} {
+		want := make([]byte, n)
+		for i := range want {
+			want[i] = byte(i*7 + n)
+		}
+		name := "f" + strconv.Itoa(n)
+		if err := os.WriteFile(filepath.Join(dir, name), want, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := root.ReadFile(task, name); err != nil || got != string(want) {
+			t.Errorf("ReadFile of %d bytes = %d bytes, %v; want the file", n, len(got), err)
+		}
 	}
 }

@@ -51,6 +51,9 @@ type frame struct {
 	// inline marks the frame of an inlined body (inline.go): a return
 	// assigns its site's variables and jumps past its block.
 	inline *inlineRet
+	// slot marks the body of a slot variant (slot.go): a return writes
+	// its variant through the slot pointers and returns the tag.
+	slot *scalarLocal
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -104,18 +107,29 @@ type loopCtx struct {
 	// next labels the back-edge poll that ends each iteration of a polling
 	// loop: a continue jumps to it (loopBody). Empty until a continue needs it.
 	next string
+	// polled: every iteration that reaches the back edge has polled
+	// through a callee, so the loop takes no back-edge poll and its
+	// continue is Go's (pollplace.go).
+	polled bool
 }
 
 // funcCtx writes one Go function body.
 type funcCtx struct {
+	// tupleInto is the tuple let whose arm tail is the call being lowered
+	// (tuplelet.go): an inlined body of that call writes its names.
+	tupleInto *tupleInto
 	typeCtx
 	// inGroup is the component call whose own call is being written
 	// inside its group (uigroup.go), so that call is not a group again.
 	inGroup *syntax.CallExpr
-	scope   *namer
-	out     *strings.Builder
-	depth   int
-	locals  map[*check.Var]string
+	// preset holds the Go locals a component call's computed arguments
+	// were evaluated into before its group (uigroup.go): its own call
+	// reads them, so each argument is evaluated once.
+	preset map[syntax.Expr]string
+	scope  *namer
+	out    *strings.Builder
+	depth  int
+	locals map[*check.Var]string
 	// cells are the immutable locals a let binds by a provider cell
 	// conversion, with it (cells.go).
 	cells map[*check.Var]check.Conversion
@@ -132,7 +146,10 @@ type funcCtx struct {
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	goCompare  []readsCompare       // the test build's compares of reads operands, written after their Go call (gofacts.go)
 	directives bool
-	loops      []*loopCtx
+	// marks writes a cover mark where a body with directives writes its
+	// //line directive (Unit.CoverMarks): a std body of a coverage build.
+	marks bool
+	loops []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
 	// fallible value propagates (196r: try covers the expression to its
 	// right).
@@ -175,9 +192,11 @@ type funcCtx struct {
 	resultNames map[string]string
 	// plain marks the callback parameters of a known variant, whose Go
 	// type is the plain func(…) R, and plainLits the pure literals a call
-	// passes to one (known.go).
+	// passes to one (known.go), plainMVs the known pure method values
+	// (pureMethodValue).
 	plain     map[*check.Var]bool
 	plainLits map[*syntax.FuncLit]bool
+	plainMVs  map[*syntax.SelectorExpr]bool
 	// inl is the inline site (plus one) of the code being written, which
 	// its directives name (inline.go, tagPath); inlDepth counts the sites
 	// around it; lits are the literals an inlined body's callback
@@ -189,7 +208,12 @@ type funcCtx struct {
 	// lowered, until its inlined call takes it (knownmatch.go).
 	pendingKnown *knownMatch
 	lits         map[*check.Var]*litSub
-	inlined      *operand
+	// argOf is an inlined body's operand for each parameter, as the caller
+	// wrote it (seen through the caller's own inlined parameters): a rule
+	// that needs the operand's syntax, a literal or a constant, reads it
+	// through the parameter (argSource; repeat.go).
+	argOf   map[*check.Var]syntax.Expr
+	inlined *operand
 	// hot marks an inlined body whose site is on a loop path (inline.go,
 	// onLoopPath): its own sites run once per iteration too.
 	hot bool
@@ -205,6 +229,14 @@ type funcCtx struct {
 	scalars   map[*check.Var]*scalarLocal
 	// joinAt is the join local each inlined call writes (scalar.go).
 	joinAt map[*syntax.CallExpr]*scalarLocal
+	// slotAt is the caller-frame slot each call may write instead of
+	// returning a box, and slotTemps the match subjects so written
+	// (slot.go).
+	slotAt    map[*syntax.CallExpr]*slotSite
+	slotTemps []*scalarLocal
+	// heapVars are the bindings of a Map entry (getmatch.go): their parts
+	// are boxes already on the heap (scalar.go, settled).
+	heapVars map[*check.Var]bool
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
@@ -224,6 +256,9 @@ type funcCtx struct {
 	path []*growthAcct
 	// bounds are the facts in force at the code being written (bounds.go).
 	bounds []*boundFact
+	// factLocal reports a local of the IR builder's body (ir_bounds.go),
+	// which stable takes as it takes the emitter's locals; nil outside one.
+	factLocal func(*check.Var) bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -234,7 +269,7 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, marks: fc.marks, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.
@@ -250,6 +285,10 @@ func (fc *funcCtx) at(n syntax.Node) {
 		_, src, line, column := fc.l.at(n, n.Pos())
 		fc.writeDir(Directive(fc.tagPath(src), line, column))
 		fc.lastPos, fc.lastNode = n.Pos(), n
+	} else if fc.marks && n != nil && n.Pos().IsValid() {
+		if path, line, column, ok := fc.l.find(n, n.Pos()); ok {
+			fc.out.WriteString(CoverMark(path, line, column))
+		}
 	}
 }
 
@@ -309,6 +348,12 @@ func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 			terminates = false
 			continue
 		}
+		if n := fc.chainSwitch(list, i); n > 0 {
+			// A run of comparisons of one value, as one switch (chainswitch.go).
+			i += n - 1
+			terminates = false
+			continue
+		}
 		s := list[i]
 		terminates = fc.stmt(s)
 		if !terminates {
@@ -364,6 +409,8 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		return fc.rangeStmt(s)
 	case *syntax.AssertStmt:
 		fc.assert(s) // the test build only (tests.go)
+	case *syntax.SkipStmt:
+		fc.skip(s) // the test build only (tests.go)
 	default:
 		unreachable(s, ruleParser, "a statement of the kind %T", s)
 	}
@@ -415,7 +462,13 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
-			if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
+			if !d.Mut.IsValid() && fc.l.localConst(v) {
+				// A constant read only where Go's fold cannot fail
+				// (forms.go, localConst), written as its checked value: the
+				// initializer's text may read a package let through v1.Let.
+				fc.l.stats.Consts++
+				fc.line("const " + fc.declare(v) + " " + goType + " = " + fc.constant(v.Type, fc.l.info.Values[spec.Values[0]], spec.Values[0]))
+			} else if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
 				// The cell's adapter, by its own Go type (cellLocal).
 				name := fc.declare(v)
 				fc.line(name + " := " + val)
@@ -458,7 +511,15 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 		op = strings.TrimSuffix(text, "=")
 	}
 	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
-		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		// A call may write the local's slots itself (slot.go).
+		v, _ := fc.l.info.Uses[unparen(s.Lhs[0]).(*syntax.Ident)].(*check.Var)
+		call := joinCall(s.Rhs[0])
+		site := fc.slotOffer(call, sl, fc.slotGathered(v))
+		before := fc.l.stats.Inlined
+		val := fc.assigned(s.Rhs[0])
+		if !fc.slotTaken(call, site, val) {
+			fc.scatterKept(sl, val, fc.settled(s.Rhs[0], before)) // scalar.go
+		}
 		return
 	}
 	if fc.mapStore(s) {
@@ -471,6 +532,9 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	product := op == "*" && floatLowering != "fuse" && isFloatType(fc.typeOf(s.Lhs[0]))
 	target := fc.target(s.Lhs[0], rhsEmits || product)
 	if op == "" {
+		if fc.updateSelf(s, target) {
+			return
+		}
 		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
 		if fc.reassignOwned(s.Lhs[0], target, val) {
@@ -557,24 +621,37 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 
 // joinResult is val, the Go text of an assignment's value, as the call
 // itself when the value's only statement, written since mark, binds val to
-// that call: `v := f(x)` then `p.f = v` becomes `p.f = f(x)`. Only in a
-// body with no //line directives (a std body), where the call needs no
-// line of its own; the value is the same, and the body small enough for
-// Go to inline (an appender on a provider's buffer).
+// that call: `v := f(x)` then `p.f = v` becomes `p.f = f(x)`. The value is
+// the same, and the body small enough for Go to inline (an appender on a
+// provider's buffer). In a body with //line directives the call's line is
+// framed by its own directive and the one of the rest of the statement
+// (identify); the joined call keeps its position as an inline /*line*/
+// directive, and the statement's directive stays before the assignment,
+// so a std body and its copy in a user module lower alike
+// (join-under-directive).
 func (fc *funcCtx) joinResult(mark int, val string) string {
-	if fc.directives || !strings.HasPrefix(val, "v") {
+	if !strings.HasPrefix(val, "v") {
 		return val
 	}
 	all := fc.out.String()
 	emitted := all[mark:]
+	keep, at := "", ""
+	if fc.directives {
+		lines := strings.SplitAfter(emitted, "\n")
+		if len(lines) != 4 || lines[3] != "" || !strings.HasPrefix(lines[0], "//line ") || !strings.HasPrefix(lines[2], "//line ") {
+			return val
+		}
+		at = "/*line " + strings.TrimSuffix(strings.TrimPrefix(lines[0], "//line "), "\n") + "*/"
+		emitted, keep = lines[1], lines[2]
+	}
 	prefix := strings.Repeat("\t", fc.depth) + val + " := "
 	call, ok := strings.CutPrefix(emitted, prefix)
 	if !ok || !strings.HasSuffix(call, "\n") || strings.Count(call, "\n") != 1 {
 		return val
 	}
 	fc.out.Reset()
-	fc.out.WriteString(all[:mark])
-	return strings.TrimSuffix(call, "\n")
+	fc.out.WriteString(all[:mark] + keep)
+	return at + strings.TrimSuffix(call, "\n")
 }
 
 // fixedName reports a name no assignment can change (a parameter or a
@@ -698,6 +775,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		fc.fail(fc.value(x))
 		return
 	}
+	if f.slot != nil && fc.acquiring == nil {
+		fc.slotReturn(f.slot, x) // slot.go
+		return
+	}
 	if fc.fallibleExpr(x) {
 		o := fc.expr(x)
 		switch {
@@ -725,6 +806,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	}
 	if f.inline != nil && f.inline.known != nil && fc.acquiring == nil && !f.law {
 		fc.knownReturn(f.inline.known, x) // knownmatch.go
+		return
+	}
+	if f.inline != nil && f.inline.tuple != nil && fc.acquiring == nil && !f.law && !f.fallible {
+		fc.tupleReturn(f.inline.tuple, x, f.result) // tuplelet.go
 		return
 	}
 	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
@@ -756,6 +841,9 @@ func (fc *funcCtx) lawResult(x syntax.Expr, val, err string) string {
 	cond := "!" + held
 	if err != "nil" {
 		cond = err + " == nil && " + cond
+	}
+	if fc.l.tests.law.Admits != nil {
+		return held // an admission's false only skips its case (lawnear.go)
 	}
 	fc.line("if " + cond + " { " + fc.l.helper("Refuted") + "(" + fc.resultSite(x) + ", " + strconv.Quote(fc.l.siteText(fc.l.tests.law.Decl)) + ") }")
 	return held
@@ -829,6 +917,10 @@ func (fc *funcCtx) fail(err string) {
 		fc.line("goto " + in.label)
 		return
 	}
+	if f.slot != nil {
+		fc.line("return 0, " + err) // no slot written (slot.go)
+		return
+	}
 	if f.result != nil {
 		fc.line("return " + fc.zero(f.result) + ", " + err)
 		return
@@ -859,6 +951,9 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 		fc.unreachableStmt(call)
 		return
 	}
+	if call, ok := x.(*syntax.CallExpr); ok && fc.dropHook(call) {
+		return // a named point outside the test build (hook.go)
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := fc.l.info.Calls[call]; c != nil && c.Kind != check.CallWith && c.Kind != check.CallConversion && c.Kind != check.CallLen && c.Kind != check.CallGoError && !(fc.tries > 0 && fc.fallibleExpr(call)) {
 			if text := fc.callStmt(call); text != "" {
@@ -888,7 +983,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	fc.killWritten(s.Body)
 	mark := fc.factMark()
 	defer fc.factReset(mark)
-	loop := &loopCtx{}
+	loop := &loopCtx{polled: fc.iterationPolls(s.Body)} // pollplace.go
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
 	fc.out = &strings.Builder{}
@@ -964,7 +1059,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 			fc.line("}")
 		}()
 	}
-	loop := &loopCtx{}
+	loop := &loopCtx{polled: fc.iterationPolls(s.Body)} // pollplace.go
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
 	fc.out = &strings.Builder{}
@@ -1068,7 +1163,7 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 	} else {
 		terminates = false
 	}
-	if fc.frame.polls && !terminates {
+	if fc.frame.polls && !terminates && !loop.polled {
 		fc.depth++
 		fc.at(s)
 		fc.poll(s)
@@ -1160,7 +1255,7 @@ func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 	}
 	fc.releaseAt(s) // what the iterations' scopes still own (R6)
 	loop := fc.loops[len(fc.loops)-1]
-	if s.Tok == syntax.CONTINUE && fc.frame.polls {
+	if s.Tok == syntax.CONTINUE && fc.frame.polls && !loop.polled {
 		// The back-edge poll ends the iteration (loopBody), so a continue
 		// jumps to it rather than past it.
 		if loop.next == "" {
@@ -1283,7 +1378,7 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		saved := fc.pendingKnown
 		fc.pendingKnown = km
-		subject = fc.headerValue(s.Subjects[0].X)
+		subject = fc.matchSubject(s.Subjects[0], km) // slot.go
 		fc.pendingKnown = saved
 	}
 	if km != nil && km.taken {
@@ -1323,8 +1418,10 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 			terminates = terminates && t
 		}
 		if ended {
-			// The empty statement: the label may end a case clause.
-			fc.line(end + ": ;")
+			// A statement for the label, which may end a case clause: `_ =
+			// 0` on a line of its own, which gofmt keeps as written (FT5).
+			fc.line(end + ":")
+			fc.line("_ = 0")
 		}
 		return terminates
 	}

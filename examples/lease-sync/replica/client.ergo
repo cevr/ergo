@@ -1,0 +1,504 @@
+import lease-sync/domain
+import lease-sync/lease
+import slices
+import time
+
+// Status is what a view may show: Loading has no state to read, so a view
+// cannot show a base that lacks the client's own confirmed commands.
+type Loading {}
+type Ready[S] { View S, Base S }
+type Status[S] = Loading | Ready[S]
+
+// Conn is what the push and pull loops last saw. A transport failure is a
+// Conn, never a refusal: Offline is retried; NeedsAuth waits for the
+// program; Broken (an IDConflict) waits for an explicit reset.
+type Conn = Connecting{} | Live{} | Offline{Attempt int} | NeedsAuth{} | Broken{Why string}
+
+// Refusal is one of the client's commands the authority refused, with the
+// typed reason. It stays until the program dismisses it.
+type Refusal[C, F] { Envelope domain.Envelope[C], Why F }
+
+// State is a replica's whole state: a value a machine holds and a journal
+// keeps. Pending is the outbox: the commands the authority has not
+// confirmed, in order. The rest is the library's: the confirmed base, the
+// cursor (the last log position read), the floor (the cursor when Pending
+// was last pruned: until the cursor is back at it the base lacks
+// confirmed commands that Pending no longer holds, so the status is
+// Loading), the next command number, who the client is, and the time the
+// loops last stamped (the At of a command made now).
+type State[S, C, F] {
+	Status  Status[S],
+	Pending []domain.Envelope[C],
+	Refused []Refusal[C, F],
+	Conn    Conn,
+	base    S,
+	cursor  int,
+	floor   int,
+	next    int,
+	id      ClientID,
+	by      string,
+	now     time.Time,
+}
+
+// Outbox is the most commands a client keeps unconfirmed: a Submit past
+// it is Reject, which the view shows.
+let Outbox = 64
+
+// The signals of a replica. Hello names the client (the loops send it
+// first; a client that has an id keeps it). Submit is a press: the command
+// joins the outbox and shows at once. Pulled is a frame the pull loop read
+// at At. Link is what the loops saw of the connection. Dismiss drops a
+// refusal the view showed. DropCache forgets the base and the cursor (a
+// new schema, an unreadable cache) and keeps the outbox, the next number
+// and the floor.
+type Hello { ID ClientID, By string, At time.Time }
+type Submit[C] { Cmd C }
+type Pulled[S, E, F] { Frame Frame[S, E, F], At time.Time }
+type Link { Conn Conn, At time.Time }
+type Dismiss { ID domain.CommandID }
+type DropCache {}
+type Signal[S, C, E, F] = Hello | Submit[C] | Pulled[S, E, F] | Link | Dismiss | DropCache
+
+// Fresh is a client that has read nothing, made nothing and has no id.
+func Fresh[S, C, F](initial S) State[S, C, F] {
+	State[S, C, F]{
+		Status:  Ready[S]{View: initial, Base: initial},
+		Pending: []domain.Envelope[C]{},
+		Refused: []Refusal[C, F]{},
+		Conn:    Connecting,
+		base:    initial,
+		cursor:  0,
+		floor:   0,
+		next:    1,
+		id:      ClientID(""),
+		by:      "",
+		now:     time.Unix(0, 0),
+	}
+}
+
+// Inner is the library's part of a state, for the loops and for tests:
+// the base, the cursor (a pull loop reads from it), the floor, the next
+// command number and the client's id.
+type Inner[S] { Base S, Cursor int, Floor int, Next int, ID ClientID }
+
+// Peek is st's Inner.
+func Peek[S, C, F](st State[S, C, F]) Inner[S] {
+	Inner[S]{Base: st.base, Cursor: st.cursor, Floor: st.floor, Next: st.next, ID: st.id}
+}
+
+// Step is the replica's pure step for the source src. A program declares
+// its machine with a step that calls it (a generic function cannot start a
+// machine from a record of functions yet).
+func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Signal[S, C, E, F]) Decision[State[S, C, F], None] {
+	match sig {
+	case Hello as h:
+		if st.id != ClientID("") {
+			return stay(State[S, C, F]{..st, now: h.At})
+		}
+		stay(State[S, C, F]{..st, id: h.ID, by: h.By, now: h.At})
+	case Submit[C] as s:
+		if st.id == ClientID("") || len(st.Pending) >= Outbox {
+			return Reject
+		}
+		let env = domain.Envelope[C]{ID: IDOf(st.id, st.next), By: st.by, At: st.now, Command: s.Cmd}
+		stay(settle(src, State[S, C, F]{..st, Pending: st.Pending.Append(env), next: st.next + 1}))
+	case Pulled[S, E, F] as p:
+		match p.Frame {
+		case Delta[E, F] as d:
+			if d.From > st.cursor || st.cursor >= d.From+len(d.Records) {
+				return Ignore
+			}
+			stay(settle(src, delta(src, State[S, C, F]{..st, now: p.At}, d)))
+		case Snapshot[S, F] as s:
+			if s.At <= st.cursor {
+				return Ignore
+			}
+			let mut refused = st.Refused
+			for t in s.Refused {
+				refused = tell(st.Pending, refused, t.ID, t.Why)
+			}
+			stay(settle(src, State[S, C, F]{..st,
+				base:    s.State,
+				cursor:  s.At,
+				floor:   if st.floor > s.At { st.floor } else { s.At },
+				Pending: above(st.Pending, s.LastSeq, st.id),
+				Refused: refused,
+				now:     p.At,
+			}))
+		}
+	case Link as l:
+		stay(State[S, C, F]{..st, Conn: l.Conn, now: l.At})
+	case Dismiss as d:
+		let mut kept = []Refusal[C, F]{}
+		for r in st.Refused {
+			if r.Envelope.ID != d.ID {
+				kept = kept.Append(r)
+			}
+		}
+		if len(kept) == len(st.Refused) {
+			return Ignore
+		}
+		stay(State[S, C, F]{..st, Refused: kept})
+	case DropCache:
+		stay(settle(src, State[S, C, F]{..st, base: src.Initial, cursor: 0}))
+	}
+}
+
+func stay[S, C, F](st own State[S, C, F]) Decision[State[S, C, F], None] { Stay[State[S, C, F]]{Next: st} }
+
+// delta is st after the records of d past its cursor: each Did event
+// moves the base, each Refused of a pending command of the client joins
+// Refused, and the commands the records confirm leave Pending.
+func delta[S wire, C, E, F, R](src Source[S, C, E, R], st own State[S, C, F], d Delta[E, F]) State[S, C, F] {
+	let mut base = st.base
+	let mut cursor = st.cursor
+	let mut known = 0
+	let mut refused = st.Refused
+	for r in d.Records {
+		if r.Position <= cursor {
+			continue
+		}
+		for f in r.Events {
+			match f {
+			case Did[E] as x:
+				base = src.Evolve(base, x.Event)
+			case Refused[F] as x:
+				refused = tell(st.Pending, refused, r.ID, x.Why)
+			}
+		}
+		let seq = SeqOf(r.ID, st.id)
+		if seq > known {
+			known = seq
+		}
+		cursor = r.Position
+	}
+	State[S, C, F]{..st,
+		base:    base,
+		cursor:  cursor,
+		floor:   if st.floor > cursor { st.floor } else { cursor },
+		Pending: above(st.Pending, known, st.id),
+		Refused: refused,
+	}
+}
+
+// tell is refused with the refusal of the pending command id, when the
+// client still waits for it: a refusal the client was told, or dismissed,
+// is never told twice.
+func tell[C, F](pending []domain.Envelope[C], refused own []Refusal[C, F], id domain.CommandID, why own F) []Refusal[C, F] {
+	for m in pending {
+		if m.ID == id {
+			return refused.Append(Refusal[C, F]{Envelope: m, Why: why})
+		}
+	}
+	refused
+}
+
+// above is the commands of pending whose number is past seq.
+func above[C](pending []domain.Envelope[C], seq int, id ClientID) []domain.Envelope[C] {
+	let mut out = []domain.Envelope[C]{}
+	for m in pending {
+		if SeqOf(m.ID, id) > seq {
+			out = out.Append(m)
+		}
+	}
+	out
+}
+
+// settle is st with its status: Ready with the view, the base plus a rerun
+// of Pending, once the cursor is at the floor; else Loading.
+func settle[S wire, C, E, F, R](src Source[S, C, E, R], st own State[S, C, F]) State[S, C, F] {
+	if st.cursor < st.floor {
+		return State[S, C, F]{..st, Status: Loading}
+	}
+	State[S, C, F]{..st, Status: Ready[S]{View: Rerun(src, st.base, st.Pending), Base: st.base}}
+}
+
+// Rerun is s after the commands, each decided on the state the one before
+// it left; a refused prediction changes nothing (the authority decides).
+func Rerun[S wire, C, E, R](src Source[S, C, E, R], s S, cs []domain.Envelope[C]) S {
+	let mut out = s
+	for c in cs {
+		let events = src.Decide(out, c) catch {
+		case _:
+			continue
+		}
+		for e in events {
+			out = src.Evolve(out, e)
+		}
+	}
+	out
+}
+
+// The laws of Step. They run on the lease pool (package lease) against
+// book, a pure authority written apart from the library, so a law compares
+// the step with an independent reference: the model models/replica's
+// push, replay and rerun. drive plays a generated schedule of one client
+// "a" and another sender "b": presses, deliveries in any order, b's
+// commands, deltas from any position, snapshots, a dropped cache, links
+// and dismissals.
+
+let leases = Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
+
+type book { Records []domain.Recorded[Fact[lease.Event, lease.Refusal]], State lease.Pool }
+
+// lastSeq is the highest number of origin's commands among the records
+// of b up to the position upto.
+func lastSeq(b book, upto int, origin ClientID) int {
+	let mut out = 0
+	for r in b.Records {
+		let s = SeqOf(r.ID, origin)
+		if r.Position <= upto && s > out {
+			out = s
+		}
+	}
+	out
+}
+
+// decided is b after the authority takes m of origin: an id that is not
+// origin's next is not taken; else decide on the state, and the record is
+// the events or the refusal.
+func decided(b book, origin ClientID, m domain.Envelope[lease.Cmd]) book {
+	if SeqOf(m.ID, origin) != lastSeq(b, len(b.Records), origin)+1 {
+		return b
+	}
+	let at = len(b.Records) + 1
+	let events = lease.Decide(b.State, m) catch {
+	case lease.Refusal as why:
+		let refused = []Fact[lease.Event, lease.Refusal]{Refused[lease.Refusal]{Why: why}}
+		return book{..b, Records: b.Records.Append(domain.Recorded[Fact[lease.Event, lease.Refusal]]{Position: at, ID: m.ID, Events: refused})}
+	}
+	let mut facts = []Fact[lease.Event, lease.Refusal]{}
+	let mut s = b.State
+	for e in events {
+		facts = facts.Append(Did[lease.Event]{Event: e})
+		s = lease.Evolve(s, e)
+	}
+	book{Records: b.Records.Append(domain.Recorded[Fact[lease.Event, lease.Refusal]]{Position: at, ID: m.ID, Events: facts}), State: s}
+}
+
+// replayTo is the pool after the records of b up to upto.
+func replayTo(b book, upto int) lease.Pool {
+	let mut s = lease.Empty(2)
+	for r in b.Records {
+		if r.Position > upto {
+			continue
+		}
+		for f in r.Events {
+			match f {
+			case Did[lease.Event] as d:
+				s = lease.Evolve(s, d.Event)
+			case Refused[lease.Refusal]:
+			}
+		}
+	}
+	s
+}
+
+// rerunRef is s after the commands, each decided on the state the one
+// before it left.
+func rerunRef(s lease.Pool, cs []domain.Envelope[lease.Cmd]) lease.Pool {
+	let mut out = s
+	for c in cs {
+		let events = lease.Decide(out, c) catch {
+		case _:
+			continue
+		}
+		for e in events {
+			out = lease.Evolve(out, e)
+		}
+	}
+	out
+}
+
+// snapshotOf is the snapshot of b for the client by that has read up to
+// from: the state, by's last number, and by's refusals after from.
+func snapshotOf(b book, by ClientID, from int) Frame[lease.Pool, lease.Event, lease.Refusal] {
+	let mut told = []Told[lease.Refusal]{}
+	for r in b.Records {
+		if r.Position <= from || SeqOf(r.ID, by) == 0 {
+			continue
+		}
+		for f in r.Events {
+			match f {
+			case Refused[lease.Refusal] as x:
+				told = told.Append(Told[lease.Refusal]{ID: r.ID, Why: x.Why})
+			case Did[lease.Event]:
+			}
+		}
+	}
+	Snapshot[lease.Pool, lease.Refusal]{At: len(b.Records), State: b.State, LastSeq: lastSeq(b, len(b.Records), by), Refused: told}
+}
+
+// deltaOf is the records of b after from.
+func deltaOf(b book, from int) Frame[lease.Pool, lease.Event, lease.Refusal] {
+	let mut out = []domain.Recorded[Fact[lease.Event, lease.Refusal]]{}
+	for r in b.Records {
+		if r.Position > from {
+			out = out.Append(r)
+		}
+	}
+	Delta[lease.Event, lease.Refusal]{From: from, Records: out}
+}
+
+// move is one signal of a drive: the state before and after it, the
+// authority's log then, every command the client made so far, and the
+// refusals it dismissed.
+type move {
+	Before    State[lease.Pool, lease.Cmd, lease.Refusal],
+	Sig       Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal],
+	After     State[lease.Pool, lease.Cmd, lease.Refusal],
+	Log       book,
+	Issued    []domain.Envelope[lease.Cmd],
+	Dismissed []domain.CommandID,
+}
+
+func after(st State[lease.Pool, lease.Cmd, lease.Refusal], sig Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]) State[lease.Pool, lease.Cmd, lease.Refusal] {
+	match Step(leases, st, sig) {
+	case Stay[State[lease.Pool, lease.Cmd, lease.Refusal]] as s:
+		s.Next
+	case _:
+		st
+	}
+}
+
+// drive plays ops: each op's low three bits pick the action and the rest
+// its argument.
+func drive(ops []int) []move {
+	let a = ClientID("a")
+	let at = time.Unix(0, 0)
+	let mut st = after(Fresh[lease.Pool, lease.Cmd, lease.Refusal](lease.Empty(2)), Hello{ID: a, By: "ua", At: at})
+	let mut b = book{Records: []domain.Recorded[Fact[lease.Event, lease.Refusal]]{}, State: lease.Empty(2)}
+	let mut others = 0
+	let mut issued = []domain.Envelope[lease.Cmd]{}
+	let mut dismissed = []domain.CommandID{}
+	let mut out = []move{}
+	for op in ops {
+		let k = (op%8 + 8) % 8
+		let x = ((op/8)%97 + 97) % 97
+		let name = "n\(x % 3)"
+		if k == 2 {
+			if len(st.Pending) > 0 {
+				b = decided(b, a, st.Pending[x%len(st.Pending)])
+			}
+			continue
+		}
+		if k == 3 {
+			others = others + 1
+			let cmd = if x%2 == 0 { lease.Take{Name: name} } else { lease.Give{Name: name} }
+			b = decided(b, ClientID("b"), domain.Envelope[lease.Cmd]{ID: IDOf(ClientID("b"), others), By: "ub", At: at, Command: cmd})
+			continue
+		}
+		let sig = if k == 0 {
+			Submit[lease.Cmd]{Cmd: lease.Take{Name: name}}
+		} else if k == 1 {
+			Submit[lease.Cmd]{Cmd: lease.Give{Name: name}}
+		} else if k == 4 {
+			Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: deltaOf(b, x%(len(b.Records)+1)), At: at}
+		} else if k == 5 {
+			Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: snapshotOf(b, a, Peek(st).Cursor), At: at}
+		} else if k == 6 {
+			DropCache
+		} else if x%2 == 1 && len(st.Refused) > 0 {
+			Dismiss{ID: st.Refused[0].Envelope.ID}
+		} else if x%3 == 0 {
+			Link{Conn: Offline{Attempt: x}, At: at}
+		} else {
+			Link{Conn: Live, At: at}
+		}
+		let next = after(st, sig)
+		if len(next.Pending) > 0 && Peek(next).Next > Peek(st).Next {
+			issued = issued.Append(next.Pending[len(next.Pending)-1])
+		}
+		match sig {
+		case Dismiss as d:
+			dismissed = dismissed.Append(d.ID)
+		case _:
+		}
+		out = out.Append(move{Before: st, Sig: sig, After: next, Log: b, Issued: issued, Dismissed: dismissed})
+		st = next
+	}
+	out
+}
+
+// ViewIsCommittedPlusPending (C6, with C1, C8 and C9): after any signals
+// the outbox is exactly the client's commands that the log up to its
+// floor does not hold, in order (no command is lost or kept twice); the
+// base is the replay of the log prefix it has read; and a client is Ready,
+// with the view the base plus a rerun of the outbox, exactly when its
+// cursor is at its floor (models/replica, mutant 7).
+law ViewIsCommittedPlusPending(ops []int) {
+	for m in drive(ops) {
+		let inner = Peek(m.After)
+		let tail = above(m.Issued, lastSeq(m.Log, inner.Floor, inner.ID), inner.ID)
+		if m.After.Pending != tail || inner.Base != replayTo(m.Log, inner.Cursor) {
+			return false
+		}
+		match m.After.Status {
+		case Ready[lease.Pool] as r:
+			if inner.Cursor < inner.Floor || r.Base != inner.Base || r.View != rerunRef(inner.Base, tail) {
+				return false
+			}
+		case Loading:
+			if inner.Cursor >= inner.Floor {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// ReadyIsStable (C7): a Ready client stays Ready under every signal but
+// DropCache: no frame moves its cursor back below its floor.
+law ReadyIsStable(ops []int) {
+	for m in drive(ops) {
+		let dropped = match m.Sig {
+		case DropCache:
+			true
+		case _:
+			false
+		}
+		if !dropped && isReady(m.Before) && !isReady(m.After) {
+			return false
+		}
+	}
+	true
+}
+
+func isReady(st State[lease.Pool, lease.Cmd, lease.Refusal]) bool {
+	match st.Status {
+	case Ready[lease.Pool]:
+		true
+	case Loading:
+		false
+	}
+}
+
+// RefusalIsTold (C10; models/replica RefusalIsTold): each refused command
+// of the client in the log prefix it has read, a snapshot's skipped range
+// included, is in Refused with its reason, or the client dismissed it.
+law RefusalIsTold(ops []int) {
+	for m in drive(ops) {
+		let inner = Peek(m.After)
+		for r in m.Log.Records {
+			if r.Position > inner.Cursor || SeqOf(r.ID, inner.ID) == 0 || slices.Contains(m.Dismissed, r.ID) {
+				continue
+			}
+			for f in r.Events {
+				match f {
+				case Refused[lease.Refusal] as x:
+					let mut found = false
+					for t in m.After.Refused {
+						if t.Envelope.ID == r.ID && t.Why == x.Why {
+							found = true
+						}
+					}
+					if !found {
+						return false
+					}
+				case Did[lease.Event]:
+				}
+			}
+		}
+	}
+	true
+}

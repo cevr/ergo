@@ -54,7 +54,7 @@ func RecordRefutations(a Analysis, req BuildRequest, refs []ShadowRefutation) (i
 	laws := map[string]*check.Law{}
 	for _, p := range a.modulePackages() {
 		for _, law := range p.Laws {
-			if law.FuncRewrite != nil {
+			if law.TopRewrite() != nil {
 				laws[lower.FuncLawEntry(law, names, "", keys).Key()] = law
 				// The test build reads no ledger, so its shadow names a
 				// binary's main package `main` (LedgerNames' default);

@@ -1,0 +1,48 @@
+// The time as the watch shows it.
+
+import strconv
+import strings
+import time
+
+// Format is d as MM:SS.cc: whole minutes (two digits at least, not
+// wrapped at an hour), seconds of the minute and hundredths of the second,
+// each rounded down.
+func Format(d duration) string {
+	let ms = time.Count(d, 1ms)
+	let minutes = ms / 60000
+	let seconds = ms % 60000 / 1000
+	let cents = ms % 1000 / 10
+	"\(two(minutes)):\(two(seconds)).\(two(cents))"
+}
+
+// FormatReadsBack: Format of any time of a day reads back as two-digit
+// seconds and hundredths and at least two digits of whole minutes, and
+// their sum is the time rounded down to a hundredth: minutes past an hour
+// are not wrapped.
+law FormatReadsBack(ms int where 0 <= ms && ms <= 86400000) {
+	let text = Format(time.Times(1ms, ms))
+	let colon = strings.Split(text, ":")
+	if len(colon) != 2 {
+		return false
+	}
+	let dot = strings.Split(colon[1], ".")
+	if len(dot) != 2 || len(colon[0]) < 2 || len(dot[0]) != 2 || len(dot[1]) != 2 {
+		return false
+	}
+	let m = strconv.Atoi(colon[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	let s = strconv.Atoi(dot[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	let c = strconv.Atoi(dot[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return false
+	}
+	s < 60 && m*60000+s*1000+c*10 == ms-ms%10
+}
+
+// two is n in decimal with a leading zero below 10.
+func two(n int) string { strings.PadLeft("\(n)", 2, '0') }

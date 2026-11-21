@@ -1,0 +1,180 @@
+// Package charts holds plusthree's benchmark scenarios (crates/plusthree-bench,
+// design §10) as Ergo machines, so their cost per event can be set beside
+// plusthree's published counts and a hand-written Go switch.
+//
+// Ergo machines are flat: a state is a union value and a step is an
+// ordinary function. Hierarchy (S3) is a state whose payload is the
+// sub-state, and parallel regions (S4) are a record of one union per
+// region; neither has its own entry, so a step that changes them opens one
+// new entry of the whole machine, as XState's exit and entry of the
+// regions' leaves do here (no entry action or timer in S3 and S4).
+
+// S1: a flat toggle. Press flips Inactive and Active.
+type Light = Inactive{} | Active{}
+
+type Press {}
+
+func toggle(s Light, e Press) Decision[Light, int] {
+	match s {
+	case Inactive:
+		Enter[Light]{Next: Active}
+	case Active:
+		Enter[Light]{Next: Inactive}
+	}
+}
+
+type S1 machine[Light, Press] { initial: Inactive, step: toggle }
+
+// S2: one state with a count and a limit. Inc is a targetless transition
+// guarded by count < limit that adds one to the count.
+type Counter { Count int, Limit int }
+
+type Inc {}
+
+func count(s Counter, e Inc) Decision[Counter, int] {
+	if s.Count < s.Limit {
+		return Stay[Counter]{Next: Counter{..s, Count: s.Count + 1}}
+	}
+	Ignore
+}
+
+// Limit is plusthree's S2 limit, 2^53 - 1: the guard never fails in a run
+// but cannot be folded away.
+func Limit() int { 9007199254740991 }
+
+type S2 machine[Counter, Inc] { initial: Counter{Count: 0, Limit: Limit()}, step: count }
+
+// S3: a.a1.a1x and b.b1.b1x, three levels each; Jump crosses the tree.
+type Tree = A{Mid MidA} | B{Mid MidB}
+
+type MidA { Leaf LeafA }
+
+type MidB { Leaf LeafB }
+
+type LeafA = A1x{}
+
+type LeafB = B1x{}
+
+type Jump {}
+
+func jump(s Tree, e Jump) Decision[Tree, int] {
+	match s {
+	case A:
+		Enter[Tree]{Next: B{Mid: MidB{Leaf: B1x}}}
+	case B:
+		Enter[Tree]{Next: A{Mid: MidA{Leaf: A1x}}}
+	}
+}
+
+type S3 machine[Tree, Jump] { initial: A{Mid: MidA{Leaf: A1x}}, step: jump }
+
+// S4: a parallel root with regions r1 (Ra, Rb) and r2 (Rc, Rd); Flip is
+// taken by both regions at once.
+type Region1 = Ra{} | Rb{}
+
+type Region2 = Rc{} | Rd{}
+
+type Both { R1 Region1, R2 Region2 }
+
+type Flip {}
+
+func flip1(r Region1) Region1 {
+	match r {
+	case Ra:
+		Rb
+	case Rb:
+		Ra
+	}
+}
+
+func flip2(r Region2) Region2 {
+	match r {
+	case Rc:
+		Rd
+	case Rd:
+		Rc
+	}
+}
+
+func flip(s Both, e Flip) Decision[Both, int] {
+	Enter[Both]{Next: Both{R1: flip1(s.R1), R2: flip2(s.R2)}}
+}
+
+type S4 machine[Both, Flip] { initial: Both{R1: Ra, R2: Rc}, step: flip }
+
+// S7: PA and PB, each with a timer of one second to the other. The runner
+// owns the timer: an Enter opens a new entry, whose timer it arms; the
+// timer of the entry that ended is dropped.
+type Phase = PA{} | PB{}
+
+type Due {}
+
+func swap(s Phase, e Due) Decision[Phase, int] {
+	match s {
+	case PA:
+		Enter[Phase]{Next: PB}
+	case PB:
+		Enter[Phase]{Next: PA}
+	}
+}
+
+func second(s Phase) Option[Timeout[Due]] {
+	Some[Timeout[Due]]{Value: Timeout[Due]{In: 1s, Signal: Due}}
+}
+
+type S7 machine[Phase, Due] { initial: PA, step: swap, after: second }
+
+// The probes: 0 in the first state of S1, S3 and S7, else 1; S2's count;
+// S4's bit 0 when r1 is in Rb and bit 1 when r2 is in Rd.
+func LightProbe(s Light) int {
+	match s {
+	case Inactive:
+		0
+	case Active:
+		1
+	}
+}
+
+func TreeProbe(s Tree) int {
+	match s {
+	case A:
+		0
+	case B:
+		1
+	}
+}
+
+func BothProbe(s Both) int {
+	let a = match s.R1 {
+	case Ra:
+		0
+	case Rb:
+		1
+	}
+	let b = match s.R2 {
+	case Rc:
+		0
+	case Rd:
+		2
+	}
+	a + b
+}
+
+func PhaseProbe(s Phase) int {
+	match s {
+	case PA:
+		0
+	case PB:
+		1
+	}
+}
+
+// Step functions, for the direct loop: the step and machines.Next, with no
+// runner.
+func Toggle(s Light, e Press) Decision[Light, int] { toggle(s, e) }
+
+func Count(s Counter, e Inc) Decision[Counter, int] { count(s, e) }
+
+func JumpStep(s Tree, e Jump) Decision[Tree, int] { jump(s, e) }
+
+func FlipStep(s Both, e Flip) Decision[Both, int] { flip(s, e) }

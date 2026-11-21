@@ -42,12 +42,14 @@ extern go unicode/utf8.RuneCountInString func RuneCountInString(s string) int
 extern go unicode/utf8.RuneError let RuneError rune
 
 // ergo:go func RuneLen(r rune) int
+// ergo:total
 extern go unicode/utf8.RuneLen func RuneLen(r rune) int
 
 // ergo:go const RuneSelf untyped int
 extern go unicode/utf8.RuneSelf let RuneSelf int
 
 // ergo:go func RuneStart(b byte) bool
+// ergo:total
 extern go unicode/utf8.RuneStart func RuneStart(b byte) bool
 
 // ergo:go const UTFMax untyped int
@@ -58,6 +60,7 @@ extern go unicode/utf8.UTFMax let UTFMax int
 extern go unicode/utf8.Valid func Valid(p []byte) bool
 
 // ergo:go func ValidRune(r rune) bool
+// ergo:total
 extern go unicode/utf8.ValidRune func ValidRune(r rune) bool
 
 // ergo:go func ValidString(s string) bool

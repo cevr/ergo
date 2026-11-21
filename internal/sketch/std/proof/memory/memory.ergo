@@ -1,0 +1,157 @@
+// Package memory is a proof.Store that keeps its proofs in the process's
+// memory (docs/spec/stdlib.md, proof). Every copy of a Store is the same
+// store: the state is in a sync.Ref, so each operation is one atomic
+// proof.Apply, and of two redeems of one proof one wins. Its proofs end
+// with the process; proof/file keeps them in a log.
+//
+// Effect: yielded/auth's in-memory proof store. Go control: a map of
+// hashed codes under a mutex.
+
+import proof
+import rand
+import sync
+import task
+import time
+import totp
+
+// Store is a memory store. New makes one.
+type Store { state sync.Ref[proof.State] } implements proof.Store
+
+// New is an empty store.
+func New() Store { Store{state: sync.NewRef(proof.Empty())} }
+
+// fresh is the context proof.Store's laws run Store under (types.md,
+// Laws 10): each case starts from an empty store.
+let fresh = context { proof.Store: New() }
+
+// apply runs op as one step of the Ref.
+func apply(s Store, op proof.Op) proof.Outcome {
+	sync.Modify(s.state, func(st proof.State) (proof.Outcome, proof.State) {
+		let (o, next, _) = proof.Apply(st, op)
+		(o, next)
+	})
+}
+
+// Issue keeps a proof under id.
+func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed {
+	match apply(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
+	case proof.Refused:
+		return proof.Conflict
+	case _:
+	}
+}
+
+// Redeem spends the proof under id.
+func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
+	match apply(s, proof.RedeemOp{ID: id, Digest: d, Now: now}) {
+	case proof.Redeemed:
+	case proof.Missing:
+		return proof.Unknown
+	case proof.Late:
+		return proof.Expired
+	case proof.Used:
+		return proof.Spent
+	case proof.Exhausted:
+		return proof.TooManyAttempts
+	case proof.Mismatch as m:
+		return proof.Wrong{Left: m.Left}
+	case proof.Kept, proof.Refused:
+		Unreachable("a redeem is not kept or refused")
+	}
+}
+
+// Claim marks key used until until.
+func Claim(s Store, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed {
+	match apply(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
+	case proof.Used:
+		return proof.Spent
+	case _:
+	}
+}
+
+// SentCodeRedeems: a code SendCode sends reaches the Delivery once, with
+// its destination and purpose, and redeems the challenge once; the store
+// holds no code, so the code given as an ID finds nothing.
+law SentCodeRedeems(seed uint64, dest string) {
+	let s = New()
+	let r = proof.NewRecorder()
+	with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } {
+		let c = proof.SendCode(s, r, dest, "confirm", 10m, 3) catch {
+		case proof.Conflict, proof.Failed, proof.Undelivered:
+			return false
+		}
+		let out = r.Outbox()
+		if len(out) != 1 || out[0].Dest != dest || out[0].Purpose != "confirm" || len(out[0].Code) != 6 {
+			return false
+		}
+		proof.RedeemCode(s, proof.Challenge{ID: out[0].Code}, "confirm", out[0].Code) catch {
+		case proof.Unknown:
+		case proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+			return false
+		}
+		proof.RedeemCode(s, c, "confirm", out[0].Code) catch {
+		case proof.Unknown, proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+			return false
+		}
+		proof.RedeemCode(s, c, "confirm", out[0].Code) catch {
+		case proof.Spent:
+			return true
+		case proof.Unknown, proof.Expired, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+			return false
+		}
+		false
+	}
+}
+
+// StepIsUsedOnce: a TOTP code verifies once in its period: VerifyCode of
+// it again is Spent, also from the next period while the window still
+// accepts it; a code of another subject is not.
+law StepIsUsedOnce(secret string, sec int64) {
+	let s = New()
+	let p = totp.Default()
+	let m = time.NewManual(((sec%1000000000)+1000000000)%1000000000)
+	with context { time.Clock: m } {
+		let code = totp.Code(p, secret, m.Now())
+		proof.VerifyCode(s, p, "a", secret, code) catch {
+		case proof.Wrong, proof.Spent, proof.Failed:
+			return false
+		}
+		proof.VerifyCode(s, p, "b", secret, code) catch {
+		case proof.Wrong, proof.Spent, proof.Failed:
+			return false
+		}
+		m.Advance(30s)
+		proof.VerifyCode(s, p, "a", secret, code) catch {
+		case proof.Spent:
+			return true
+		case proof.Wrong, proof.Failed:
+			return false
+		}
+		false
+	}
+}
+
+// RedeemHasOneWinner: two tasks that redeem one proof at once with its
+// code: one redeems it, the other is Spent. ergo test --explore runs it
+// under every schedule of the two tasks.
+law RedeemHasOneWinner(id string, code string) {
+	let s = New()
+	let now = time.Unix(0, 0)
+	let d = proof.DigestOf("p", code)
+	s.Issue(id, d, now.Add(1m), 3) catch {
+	case proof.Conflict, proof.Failed:
+		return false
+	}
+	let ta = task.Go() { redeems(s, id, d, now) }
+	let tb = task.Go() { redeems(s, id, d, now) }
+	ta.Wait() != tb.Wait()
+}
+
+// redeems is whether a redeem of id with d won.
+func redeems(s Store, id string, d proof.Digest, now time.Time) bool {
+	s.Redeem(id, d, now) catch {
+	case proof.Unknown, proof.Expired, proof.Spent, proof.TooManyAttempts, proof.Wrong, proof.Failed:
+		return false
+	}
+	true
+}

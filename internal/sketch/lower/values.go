@@ -2,6 +2,7 @@ package lower
 
 import (
 	"slices"
+	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -63,7 +64,8 @@ import (
 //     with no failure row whose result shares no storage but p's (a pure
 //     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
 //     rooted at a let mut or a borrow, passes p with no copy and takes
-//     the result with none;
+//     the result with none; so does p = T{..p, …} with its base, and a
+//     literal's base is apart from a field it sets (update.go);
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -159,6 +161,7 @@ var valueLowering string
 // frame reads) and "own-live" (a parameter read after its bind is owned),
 // and for owned Refs (V6) "hand-nonliteral" (a function value takes the
 // held value over), "store-unfresh" (every site is proved fresh),
+// "site-alone-always" (every site is proved alone, its footprint unread),
 // "share-blind" (every pure call keeps nothing) and "return-blind" (two
 // parts of one returned value count as two returns), and for hand-over
 // (V7) "hand-shared" (an Ergo body's result is taken as sharing only the
@@ -180,11 +183,13 @@ func entryRule() bool { return copyLowering != "whole" }
 // valueFacts are the decisions of the analysis, keyed by syntax node.
 type valueFacts struct {
 	clone    map[syntax.Expr]bool       // values copied where they are lowered
+	why      map[syntax.Expr]string     // the reason of each clone, for the copy report (copyAt)
 	inPlace  map[*syntax.CallExpr]bool  // Append, Delete and Put calls that write their source
 	roots    map[syntax.Node]*valueWalk // analyzed bodies
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
+	self     map[syntax.Expr]bool       // bases of an update stored back into its own let mut (parts.go, selfBases)
 	from     map[fromKey]int8           // freshFrom: 1 deciding, 2 fresh, 3 not fresh
 	fromAll  map[*check.Func]int8       // freshAll (handover.go): 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
@@ -192,7 +197,7 @@ type valueFacts struct {
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
 	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
-	moved    map[syntax.Expr]bool          // reads whose source is overwritten next, so they take its value with no copy: a take or a reslice (V7, moves.go), and the bind of an entry move-out (V9, moveout.go)
+	moved    map[syntax.Expr]bool          // reads of a place its next write overwrites whole: a take or a reslice (V7, moves.go)
 	lineage  map[*syntax.CallExpr]bool     // one-extender Append sites (handover.go, own-lineage)
 	byName   map[*check.Func]bool          // functions the program names as a value (handover.go, passedByName)
 	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
@@ -202,10 +207,18 @@ type valueFacts struct {
 	// The entry move-out (V9, moveout.go): the Map types the program
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
+	moveOut     map[syntax.Expr]bool // the binds of an entry move-out, and the entry its arm form takes (V9, moveout.go)
 	moveRead    map[*syntax.CallExpr]bool
-	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
+	copied      map[*check.Var]bool                  // the bindings of a matched Get whose entry is copied
+	borrows     *borrowWrites[borrowSum]             // what a function writes through a borrow parameter (storeread.go, own-read-pass)
+	fieldWrites *borrowWrites[fieldSum]              // the fields it writes through one (storefield.go, own-enter-field)
+	borrowRet   map[*check.Func]map[syntax.Expr]bool // the parts of borrows a function returns shared (borrowret.go)
 	// A collect's source whose read in the loop is its last, unshared (lastread.go).
 	lastRead map[*syntax.Ident]bool
+	// Slice literals that seed a let mut the body grows in place (seedcap.go).
+	seeds map[*syntax.CompositeLit]bool
+	// The fields of a parameter its function's body uses (fieldflow.go).
+	touches map[touchKey]touched
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -224,11 +237,13 @@ func (l *lowerer) valueFacts() *valueFacts {
 	if l.vals == nil {
 		l.vals = &valueFacts{
 			clone:    map[syntax.Expr]bool{},
+			why:      map[syntax.Expr]string{},
 			inPlace:  map[*syntax.CallExpr]bool{},
 			roots:    map[syntax.Node]*valueWalk{},
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
+			self:     map[syntax.Expr]bool{},
 			from:     map[fromKey]int8{},
 			fromAll:  map[*check.Func]int8{},
 			consumes: map[*syntax.CallExpr]bool{},
@@ -240,10 +255,13 @@ func (l *lowerer) valueFacts() *valueFacts {
 			lineage:  map[*syntax.CallExpr]bool{},
 			field:    map[*syntax.CallExpr]bool{},
 			deep:     map[syntax.Expr]bool{},
+			moveOut:  map[syntax.Expr]bool{},
 			reads:    map[syntax.Expr]readsGuard{},
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
 			lastRead: map[*syntax.Ident]bool{},
+			seeds:    map[*syntax.CompositeLit]bool{},
+			touches:  map[touchKey]touched{},
 		}
 	}
 	return l.vals
@@ -257,12 +275,13 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 	if w, ok := vf.roots[root]; ok {
 		return w
 	}
-	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
-	w.handed = map[*syntax.CallExpr]bool{}
-	vf.roots[root] = w
 	if !valueRule() || isNilNode(root) {
+		w := newValueWalk(l, info, vf, nil)
+		vf.roots[root] = w
 		return w
 	}
+	w := newValueWalk(l, info, vf, root)
+	vf.roots[root] = w
 	w.root = &vframe{node: root, tails: map[syntax.Expr]bool{}}
 	if d, ok := root.(*syntax.FuncDecl); ok && d.Body != nil {
 		tailsOf(d.Body.List, w.root.tails)
@@ -272,6 +291,49 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 	w.decide()
 	w.done = true
 	return w
+}
+
+// vnode is a node's place in the walk: its order numbers on entry and
+// exit, and its parent (nil for the root).
+type vnode struct {
+	pre, post int
+	parent    syntax.Node
+}
+
+func (w *valueWalk) preOf(n syntax.Node) int            { return w.nodes[n].pre }
+func (w *valueWalk) postOf(n syntax.Node) int           { return w.nodes[n].post }
+func (w *valueWalk) parentOf(n syntax.Node) syntax.Node { return w.nodes[n].parent }
+
+// setParent records n's parent before n is visited; the visit keeps it.
+func (w *valueWalk) setParent(n, parent syntax.Node) { w.nodes[n] = vnode{parent: parent} }
+
+func (w *valueWalk) setPre(n syntax.Node, pre int) {
+	v := w.nodes[n]
+	v.pre = pre
+	w.nodes[n] = v
+}
+
+func (w *valueWalk) setPost(n syntax.Node, post int) {
+	v := w.nodes[n]
+	v.post = post
+	w.nodes[n] = v
+}
+
+// newValueWalk is an empty walk whose node map holds the nodes of root
+// (nil: none) without growing: the walk puts every node in it, and a
+// map that grows copies itself (SL9b: these maps are most of
+// the lowering's bytes).
+func newValueWalk(l *lowerer, info *check.Info, vf *valueFacts, root syntax.Node) *valueWalk {
+	n := 0
+	if root != nil {
+		syntax.Inspect(root, func(m syntax.Node) bool {
+			if m != nil {
+				n++
+			}
+			return true
+		})
+	}
+	return &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, nodes: make(map[syntax.Node]vnode, n), frameOf: map[syntax.Node]*vframe{}, handed: map[*syntax.CallExpr]bool{}}
 }
 
 func isNilNode(n syntax.Node) bool {
@@ -361,20 +423,22 @@ type vocc struct {
 type owning struct {
 	value syntax.Expr
 	root  *vvar
-	whole bool // the target is the root itself, x = e
+	whole bool   // the target is the root itself, x = e
+	field string // the target is a field of the root, x.f = e (storefield.go)
 }
 
 type valueWalk struct {
-	l        *lowerer
-	info     *check.Info
-	vf       *valueFacts
-	root     *vframe
-	vars     map[*check.Var]*vvar
-	order    []*vvar
-	count    int
-	pre      map[syntax.Node]int
-	post     map[syntax.Node]int
-	parent   map[syntax.Node]syntax.Node
+	l     *lowerer
+	info  *check.Info
+	vf    *valueFacts
+	root  *vframe
+	vars  map[*check.Var]*vvar
+	order []*vvar
+	count int
+	// nodes holds each node's pre and post order numbers and its parent
+	// in one map (preOf, postOf, parentOf): three maps keyed by every node
+	// were most of the lowering's bytes (SL9b).
+	nodes    map[syntax.Node]vnode
 	frameOf  map[syntax.Node]*vframe
 	frames   []*vframe
 	owns     []owning
@@ -382,6 +446,7 @@ type valueWalk struct {
 	ergo     []*syntax.CallExpr        // calls of functions with an Ergo body (V5)
 	goReads  []*syntax.CallExpr        // calls of import go functions (readonly.go)
 	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
+	selves   map[syntax.Expr]bool      // arm values a catch stores back into their own place (catchSelf)
 	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
 	owner    *check.Var                // freshFrom's parameter, read as an unshared local (V7)
 	owners   map[*check.Var]bool       // freshAll's parameters, each read as an unshared local (handover.go)
@@ -393,19 +458,24 @@ type valueWalk struct {
 	sites    []*refSite                // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool  // their literals
 	cells    []syntax.Expr             // values that move into a provider cell (cells.go)
+	// kids is the walk's stack of children (appendChildren).
+	kids []syntax.Node
 }
 
-// children are n's direct children, in Inspect's order.
-func children(n syntax.Node) []syntax.Node {
-	var out []syntax.Node
+// appendChildren appends n's direct children to buf, in Inspect's order.
+// A recursive walk keeps one buffer as a stack: a visit appends its
+// children, reads them by index (a deeper visit may move the array), and
+// cuts the buffer back to where it started, so no visit allocates a slice
+// of its own (SL9b: a slice per visit was 17 % of the lowering's objects).
+func appendChildren(buf []syntax.Node, n syntax.Node) []syntax.Node {
 	syntax.Inspect(n, func(c syntax.Node) bool {
 		if c == n {
 			return true
 		}
-		out = append(out, c)
+		buf = append(buf, c)
 		return false
 	})
-	return out
+	return buf
 }
 
 func (w *valueWalk) varOf(v *check.Var) *vvar {
@@ -421,7 +491,7 @@ func (w *valueWalk) varOf(v *check.Var) *vvar {
 
 // walk visits n with the frame and loops that hold it.
 func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
-	w.pre[n] = w.count
+	w.setPre(n, w.count)
 	w.count++
 	frame := w.root
 	if len(w.frames) > 0 {
@@ -441,7 +511,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	case *syntax.Ident:
 		if v, ok := w.info.Uses[n].(*check.Var); ok {
 			vv := w.varOf(v)
-			vv.occs = append(vv.occs, &vocc{id: n, frame: frame, loops: loops, pre: w.pre[n]})
+			vv.occs = append(vv.occs, &vocc{id: n, frame: frame, loops: loops, pre: w.preOf(n)})
 		}
 	case *syntax.DeclStmt:
 		for _, spec := range n.Decl.Specs {
@@ -484,7 +554,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		if n.Tok == syntax.ASSIGN && len(n.Lhs) == 1 && len(n.Rhs) == 1 {
 			if id := pathRoot(n.Lhs[0]); id != nil {
 				if v, ok := w.info.Uses[id].(*check.Var); ok {
-					w.owns = append(w.owns, owning{value: n.Rhs[0], root: w.varOf(v), whole: unparen(n.Lhs[0]) == syntax.Expr(id)})
+					o := owning{value: n.Rhs[0], root: w.varOf(v), whole: unparen(n.Lhs[0]) == syntax.Expr(id)}
+					if sel, ok := unparen(n.Lhs[0]).(*syntax.SelectorExpr); ok && unparen(sel.X) == syntax.Expr(id) {
+						o.field = sel.Sel.Name
+					}
+					w.owns = append(w.owns, o)
 				}
 			}
 		}
@@ -536,8 +610,12 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	case *syntax.ForStmt:
 		inner = append(append([]syntax.Node{}, loops...), n)
 	}
-	for _, c := range children(n) {
-		w.parent[c] = n
+	start := len(w.kids)
+	w.kids = appendChildren(w.kids, n)
+	end := len(w.kids)
+	for i := start; i < end; i++ {
+		c := w.kids[i]
+		w.setParent(c, n)
 		cl := inner
 		if r, ok := n.(*syntax.RangeStmt); ok && c != syntax.Node(r.X) {
 			cl = append(append([]syntax.Node{}, loops...), n)
@@ -547,7 +625,8 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		}
 		w.walk(c, cl)
 	}
-	w.post[n] = w.count
+	w.kids = w.kids[:start]
+	w.setPost(n, w.count)
 	w.count++
 }
 
@@ -619,7 +698,7 @@ func (w *valueWalk) opens(n syntax.Node) (frame, escaping bool) {
 		}
 		return true, true
 	case *syntax.BlockStmt:
-		call, ok := w.parent[n].(*syntax.CallExpr)
+		call, ok := w.parentOf(n).(*syntax.CallExpr)
 		if !ok || call.Trailing != n {
 			return false, false
 		}
@@ -636,7 +715,7 @@ func (w *valueWalk) opens(n syntax.Node) (frame, escaping bool) {
 func (w *valueWalk) unparenParent(n syntax.Node) (parent, child syntax.Node) {
 	child = n
 	for {
-		p := w.parent[child]
+		p := w.parentOf(child)
 		if _, ok := p.(*syntax.ParenExpr); ok {
 			child = p
 			continue
@@ -788,7 +867,7 @@ func (w *valueWalk) decide() {
 		chain := w.chainOf(call)
 		recv := w.recvOf(chain[len(chain)-1])
 		id := pathRoot(s.Lhs[0])
-		if id == nil || !samePlace(s.Lhs[0], recv) {
+		if id == nil || !samePlace(s.Lhs[0], recv) && !w.sameElem(s.Lhs[0], recv) {
 			continue
 		}
 		if v, ok := w.info.Uses[id].(*check.Var); ok && w.varOf(v).root() {
@@ -833,6 +912,7 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	w.selfBases()
 	for _, vv := range w.order {
 		for _, o := range vv.occs {
 			w.classify(vv, o)
@@ -863,20 +943,24 @@ func (w *valueWalk) decide() {
 				case o.kind == occRead && o.call != nil && valueMutant != "in-flight-blind" && w.inFlight(vv, o):
 					// The callee would see a write a later operand makes.
 					if w.l.holdsValue(w.typeOf(o.path)) {
-						vf.clone[o.path] = true
+						w.copyAt(o.path, whyInFlight)
 					}
 				case o.kind == occRead && o.deps:
 					if w.needsCopy(vv, o) {
 						w.l.stats.ArgsShared++
 					}
 				case o.kind == occEscape || o.kind == occReturn:
-					if vf.handed[o.path] || w.reslices(o.path, vv) || !w.needsCopy(vv, o) {
+					if vf.handed[o.path] || w.reslices(o.path, vv) || w.catchSelf(o.path) || !w.needsCopy(vv, o) {
+						break
+					}
+					if w.sharedReturn(vv, o) {
+						// Its callers copy it (borrowret.go).
 						break
 					}
 					if o.entry && !w.inFlight(vv, o) {
 						// The entry the matched Get gives (V9), which
 						// its arm's bindings then hold unshared.
-						vf.clone[o.call] = true
+						w.copyAt(o.call, whyEntry)
 						for _, v := range w.matchBinds(o.call) {
 							vf.copied[v] = true
 						}
@@ -885,21 +969,24 @@ func (w *valueWalk) decide() {
 					if o.result && !w.inFlight(vv, o) && w.l.copyCovers(w.typeOf(o.call)) {
 						// A pure call's result, not its argument, is
 						// copied (alias.go).
-						vf.clone[o.call] = true
+						w.copyAt(o.call, whyResult)
 						w.l.stats.ArgsShared++
 						w.l.stats.ResultCopies++
 						break
 					}
-					vf.clone[o.path] = true
+					w.copyAt(o.path, whyEscape)
 				}
 			}
 		}
+		// The parts of an owned parameter that a let keeps (V5).
+		w.ownedKept()
 	}
-	// A generic result through a borrow (alias.go, borrowResult).
+	// A generic result through a borrow (alias.go, borrowResult), or a
+	// part of a borrow returned shared (borrowret.go), when kept.
 	if valueMutant != "never-copy" && valueMutant != "borrow-blind" {
 		for _, call := range w.ergo {
-			if w.borrowResult(call) && !w.readOnlyUse(call) {
-				vf.clone[call] = true
+			if w.borrowResult(call) && !w.readOnlyUse(call) && !w.keptCall(call) {
+				w.copyAt(call, whyBorrow)
 				w.l.stats.BorrowCopies++
 			}
 		}
@@ -909,7 +996,11 @@ func (w *valueWalk) decide() {
 		if vf.inPlace[call] {
 			continue
 		}
-		if id, ok := unparen(w.recvOf(call)).(*syntax.Ident); ok {
+		if recv := w.recvOf(call); recv != nil && vf.moveOut[recv] {
+			// The entry a move-out's arm form takes (moveout.go, V9).
+			vf.inPlace[call] = true
+			delete(vf.lineage, call)
+		} else if id, ok := unparen(w.recvOf(call)).(*syntax.Ident); ok {
 			if v, ok := w.info.Uses[id].(*check.Var); ok && w.freshIdent(w.varOf(v), id, false) {
 				vf.inPlace[call] = true
 			}
@@ -942,7 +1033,7 @@ func (w *valueWalk) decide() {
 			}
 		}
 		for _, o := range w.owns {
-			if !o.root.root() || takes[o.value] || vf.moved[o.value] {
+			if !o.root.root() || takes[o.value] || vf.moved[o.value] || vf.moveOut[o.value] {
 				continue
 			}
 			if call, ok := unparen(o.value).(*syntax.CallExpr); ok && vf.inPlace[call] {
@@ -952,7 +1043,7 @@ func (w *valueWalk) decide() {
 				// are shared, freshened as a whole.
 				for _, call := range w.chainOf(call) {
 					if !vf.inPlace[call] {
-						w.freshen(call)
+						w.freshen(call, whyChain)
 						break
 					}
 					if c := w.info.Calls[call]; c != nil && preludeAppend(c.Func) {
@@ -960,13 +1051,20 @@ func (w *valueWalk) decide() {
 						if c.Recv == nil && len(args) > 0 {
 							args = args[1:]
 						}
+						// An operand enters the slice only as an element:
+						// one whose element type holds no Map or slice keeps
+						// nothing an operand holds (an appender's []byte
+						// operand is read, its bytes copied; GX10).
+						if s, ok := underEqual(w.typeOf(call)).(*check.Slice); ok && !w.l.holdsValue(s.Elem) {
+							continue
+						}
 						for _, a := range args {
 							if w.spreads(call, a) && !w.l.holdsValue(elemOf(w.typeOf(a))) {
 								// Only its elements enter the root, and they
 								// hold no Map or slice (handover.go).
 								continue
 							}
-							w.freshen(a)
+							w.freshen(a, whyElement)
 						}
 					}
 				}
@@ -975,21 +1073,35 @@ func (w *valueWalk) decide() {
 			if o.whole && w.slicesOf(o.value, o.root) || w.reslices(o.value, o.root) {
 				continue
 			}
-			w.freshen(o.value)
+			w.moveOver(o.value)
+			if w.catchJoin(o.value) {
+				continue
+			}
+			if lit, ok := unparen(o.value).(*syntax.CompositeLit); ok && o.root.init != nil && unparen(o.root.init) == syntax.Expr(lit) {
+				// A let mut's literal: a field may enter shared (storefield.go).
+				w.freshenLit(lit, o.root)
+				continue
+			}
+			if o.field != "" && w.sharedField(o.root, o.field, o.value) {
+				// A path of a parameter assigned to a field nothing
+				// writes (storefield.go).
+				continue
+			}
+			w.freshen(o.value, whyEnters)
 		}
 		// A value Put stores in a Map whose entries are written in place
 		// is unshared, as Append's element is (V9).
 		for _, call := range w.calls {
 			c := w.info.Calls[call]
 			if ops := callOperands(call, c); preludeMapWrite(c.Func) && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
-				w.freshen(ops[2])
+				w.freshen(ops[2], whyPut)
 			}
 		}
 		// An argument of an owned parameter enters the callee's root: it
 		// is copied unless fresh, or handed over by a rebinding (V5).
 		for _, arg := range w.args {
 			if !vf.consumed[arg] && valueMutant != "consume-live" {
-				w.freshen(arg)
+				w.freshen(arg, whyOwnedArg)
 			}
 		}
 	}
@@ -1027,10 +1139,11 @@ func (w *valueWalk) decide() {
 		case w.l.entryShared(w.typeOf(a)):
 			// Two Maps may share an entry, which Go may write (V8): Go
 			// is given a deep copy, fresh or not.
-			vf.clone[a], vf.deep[a] = true, true
+			w.copyAt(a, whyGoDeep)
+			vf.deep[a] = true
 			w.goOperandReport(a, "copy", "a deep copy: two Maps may share an entry, which Go may write")
 		case hostCopyAlways:
-			vf.clone[a] = true
+			w.copyAt(a, whyGoArg)
 			w.goOperandReport(a, "copy", "the reference lowering copies every Go operand")
 		default:
 			// A reads fact (LF1): Go neither writes, keeps nor returns a
@@ -1046,7 +1159,7 @@ func (w *valueWalk) decide() {
 				w.goOperandReport(a, "no copy", "Go only reads the operand")
 				continue
 			}
-			w.freshen(a)
+			w.freshen(a, whyGoArg)
 			if guard && vf.clone[a] {
 				w.readsGuardAt(a)
 			}
@@ -1067,6 +1180,7 @@ func (w *valueWalk) decide() {
 	w.consumes()
 	w.settleLineage()
 	w.lastReads() // lastread.go: once every copy is decided
+	w.seedLits()  // seedcap.go
 }
 
 // takeRest is the let that binds the rest of the Take call, let v, rest =
@@ -1075,7 +1189,7 @@ func (w *valueWalk) takeRest(call *syntax.CallExpr) (*syntax.DeclStmt, *syntax.I
 	_, child := w.unparenParent(call)
 	// The let's statement, above its spec and declaration nodes.
 	var d *syntax.DeclStmt
-	for p := w.parent[child]; p != nil && d == nil; p = w.parent[p] {
+	for p := w.parentOf(child); p != nil && d == nil; p = w.parentOf(p) {
 		switch p := p.(type) {
 		case *syntax.DeclStmt:
 			d = p
@@ -1102,7 +1216,7 @@ func (w *valueWalk) takeRebound(call *syntax.CallExpr) bool {
 	if d == nil {
 		return false
 	}
-	block, ok := w.parent[d].(*syntax.BlockStmt)
+	block, ok := w.parentOf(d).(*syntax.BlockStmt)
 	if !ok {
 		return false
 	}
@@ -1272,12 +1386,24 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 	if t, ok := parent.(*syntax.TryExpr); ok && t.X == child {
 		parent, child = w.unparenParent(t)
 	}
+	caught := false
+	if c, ok := parent.(*syntax.CatchExpr); ok && c.X == child {
+		if !w.catchTaken() {
+			return false
+		}
+		parent, child = w.unparenParent(c)
+		caught = true
+	}
 	s, ok := parent.(*syntax.AssignStmt)
 	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
 		return false
 	}
 	lid, aid := pathRoot(s.Lhs[0]), pathRoot(arg)
-	if lid == nil || aid == nil || !samePlace(s.Lhs[0], arg) {
+	// A reslice of the place, p = f(…, p[a:b], …), hands over the array p
+	// alone holds, as p = p[a:b] keeps it (moves.go): p's old value is dead
+	// from the call on (LWR-INLINE-OWNED: buf = AppendX(…, buf[:0])).
+	place := cutPlace(arg)
+	if lid == nil || aid == nil || !samePlace(s.Lhs[0], place) {
 		return false
 	}
 	v, ok := w.info.Uses[aid].(*check.Var)
@@ -1301,11 +1427,111 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 			}
 			return false
 		}
-		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] && !w.plainReadIn(vv, o, call) {
+		if caught && o.pre > w.postOf(call) && o.pre < w.postOf(s) {
+			// An arm runs only when f failed, and f fails before it takes
+			// its owned parameter (ownedBind, consumedOcc, fieldOwned:
+			// failsAfter), so an arm reads p's old value unwritten.
+			continue
+		}
+		if o.id != lid && o.id != aid && o.pre > w.preOf(s) && o.pre < w.postOf(s) && !w.plainReadIn(vv, o, call) {
 			return false
 		}
 	}
 	return true
+}
+
+// catchTaken is own-catch's admission (REUSE RU2): a rebinding
+// p = f(…, p, …) catch { … } hands p over to f's owned parameter as
+// p = try f(…) does. An owned parameter is taken only where f cannot fail
+// after the taking, so on the failure route p is as it was, and an arm
+// may read it or yield it; and the catch's value stored back into p
+// copies none of its arms that yield p itself (catchJoin).
+func (w *valueWalk) catchTaken() bool {
+	if !w.l.takes("own-catch") {
+		return false
+	}
+	w.l.took("own-catch")
+	return true
+}
+
+// catchJoin freshens the value of p = f(…) catch { arms } as it enters
+// p: the call's result, and each arm's value but one that is the place p
+// itself, which the store puts back where it was. It reports false where
+// the value is no such catch, or own-catch is not taken.
+func (w *valueWalk) catchJoin(value syntax.Expr) bool {
+	c, place := w.catchStore(value)
+	if c == nil || !w.catchTaken() {
+		return false
+	}
+	w.freshen(c.X, whyEnters)
+	for _, tail := range catchTails(c) {
+		if samePlace(place, tail) {
+			continue
+		}
+		w.freshen(tail, whyEnters)
+	}
+	return true
+}
+
+// catchStore is the catch that value is, when it is the whole right side
+// of a plain assignment p = … catch { … }, and the place p; or nil.
+func (w *valueWalk) catchStore(value syntax.Expr) (*syntax.CatchExpr, syntax.Expr) {
+	c, ok := unparen(value).(*syntax.CatchExpr)
+	if !ok {
+		return nil, nil
+	}
+	parent, child := w.unparenParent(c)
+	s, ok := parent.(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
+		return nil, nil
+	}
+	return c, s.Lhs[0]
+}
+
+// catchTails is the values c's arms yield, in source order.
+func catchTails(c *syntax.CatchExpr) []syntax.Expr {
+	var out []syntax.Expr
+	for _, arm := range c.Arms {
+		tails := map[syntax.Expr]bool{}
+		tailsOf(arm.Body, tails)
+		var each []syntax.Expr
+		for tail := range tails {
+			each = append(each, tail)
+		}
+		sort.Slice(each, func(i, j int) bool { return each[i].Pos() < each[j].Pos() })
+		out = append(out, each...)
+	}
+	return out
+}
+
+// catchSelf reports an arm's value that is the place its catch is stored
+// back into, p = f(…) catch { case E: p }: the store puts p back where
+// it was, so the read escapes nowhere (own-catch).
+func (w *valueWalk) catchSelf(e syntax.Expr) bool {
+	if w.selves == nil {
+		w.selves = map[syntax.Expr]bool{}
+		for _, o := range w.owns {
+			if c, place := w.catchStore(o.value); c != nil {
+				for _, tail := range catchTails(c) {
+					if samePlace(place, tail) {
+						w.selves[unparen(tail)] = true
+					}
+				}
+			}
+		}
+	}
+	return w.selves[e] && w.catchTaken()
+}
+
+// cutPlace is the place x slices (any depth of slicing), or x.
+func cutPlace(x syntax.Expr) syntax.Expr {
+	for {
+		s, ok := unparen(x).(*syntax.SliceExpr)
+		if !ok {
+			return x
+		}
+		x = s.X
+	}
 }
 
 // plainReadIn reports whether the use o of vv is an operand read inside
@@ -1317,7 +1543,7 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 // assignment, a borrow, a method that takes the part by borrow) is no
 // plain read.
 func (w *valueWalk) plainReadIn(vv *vvar, o *vocc, call *syntax.CallExpr) bool {
-	if sharingLowering == "params" || o.pre <= w.pre[call] || o.pre >= w.post[call] {
+	if sharingLowering == "params" || o.pre <= w.preOf(call) || o.pre >= w.postOf(call) {
 		return false
 	}
 	saved := *o
@@ -1432,7 +1658,7 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 		if o.frame != frame {
 			return nil
 		}
-		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+		if o.id != lid && o.id != aid && o.pre > w.preOf(s) && o.pre < w.postOf(s) {
 			return nil
 		}
 	}
@@ -1442,7 +1668,12 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 // ownedParams are the owned parameters of f (V5), in order: a parameter
 // whose value holds a slice or Map and that f's body takes into a let mut
 // local once, at a bind in the body's own frame and outside any loop, and
-// otherwise only reads, before the bind, in uses that keep nothing. After
+// otherwise only reads, in the body's own frame, in uses that keep
+// nothing or as the value of a let or let mut (`let s = m.S`), before the
+// bind or after it in a statement that ends before the first use of the
+// local (beforeWrites), so the parameter and the local hold one value at
+// each use. A let that keeps a part is decided as a kept read of the
+// local (ownedKept): copied when a write through it can follow. After
 // the bind no failure can leave f: no call that can fail at its site, and
 // no returned value of an error type, so a caller never sees a value f
 // wrote and then failed on. f lowers as a Go function, not a method.
@@ -1477,7 +1708,7 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 	saved := l.info
 	l.info = info
 	defer func() { l.info = saved }()
-	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
+	w := newValueWalk(l, info, vf, d)
 	w.root = &vframe{node: d, tails: map[syntax.Expr]bool{}}
 	tailsOf(d.Body.List, w.root.tails)
 	w.walk(d, nil)
@@ -1546,32 +1777,54 @@ func (w *valueWalk) consumes() {
 	}
 }
 
-// consumedUse is the one use of the parameter vv of f that a call
-// consumes (types.md, Bindings 2, consumed arguments), or nil: vv is read
-// once, in the body's own frame and outside any loop, as an operand of a
-// call, itself or a field path of it, at a position the call consumes
+// consumedUse is the use of the parameter vv of f that a call consumes
+// (types.md, Bindings 2, consumed arguments), or nil: vv is read once, or
+// once in each arm of a match or an if (exclusive: one run of the
+// statement runs one of them; GP2b's apply passes b on in each arm), in
+// the body's own frame and outside any loop, as an operand of a call,
+// itself or a field path of it, at a position the call consumes
 // (consumedAt); and f cannot fail after that read. Such a parameter is
 // owned (V5): its callers pass it unshared, so the call it reaches takes
-// it over.
+// it over. The use given is the first.
 func (w *valueWalk) consumedUse(f *check.Func, vv *vvar) syntax.Expr {
-	if vv.ptr || vv.local || len(vv.occs) != 1 {
+	if vv.ptr || vv.local || len(vv.occs) == 0 {
 		return nil
 	}
-	o := vv.occs[0]
+	var first syntax.Expr
+	for i, o := range vv.occs {
+		for _, prev := range vv.occs[:i] {
+			if !w.exclusive(prev.id, o.id) {
+				return nil
+			}
+		}
+		use := w.consumedOcc(f, o)
+		if use == nil {
+			return nil
+		}
+		if first == nil {
+			first = use
+		}
+	}
+	return first
+}
+
+// consumedOcc is the operand a call consumes at the use o of a parameter
+// of f (consumedUse), or nil.
+func (w *valueWalk) consumedOcc(f *check.Func, o *vocc) syntax.Expr {
 	if o.frame != w.root || len(o.loops) > 0 {
 		return nil
 	}
 	x := syntax.Expr(o.id)
 	var use syntax.Expr
 	for use == nil {
-		switch p := w.parent[x].(type) {
+		switch p := w.parentOf(x).(type) {
 		case *syntax.ParenExpr:
 			x = p
 		case *syntax.SelectorExpr:
 			if p.X != x {
 				return nil
 			}
-			if call, ok := w.parent[p].(*syntax.CallExpr); ok && call.Fun == syntax.Expr(p) {
+			if call, ok := w.parentOf(p).(*syntax.CallExpr); ok && call.Fun == syntax.Expr(p) {
 				// A dot call: x is its receiver.
 				use = w.consumedAt(call, x)
 				if use == nil {
@@ -1649,6 +1902,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 	}
 	var bind *vocc
 	var value syntax.Expr
+	var into *vvar
 	for _, o := range w.owns {
 		id, ok := unparen(o.value).(*syntax.Ident)
 		if !ok || w.info.Uses[id] != check.Object(vv.v) {
@@ -1662,7 +1916,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 				bind = oc
 			}
 		}
-		value = o.value
+		value, into = o.value, o.root
 	}
 	if bind == nil || bind.frame != w.root || len(bind.loops) > 0 {
 		return nil
@@ -1671,11 +1925,17 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		if o == bind {
 			continue
 		}
-		if o.frame != w.root || o.pre > bind.pre && valueMutant != "own-live" {
+		if w.returnsBefore(o, bind) {
+			continue
+		}
+		if o.frame != w.root && !w.joinedBefore(o.frame) {
+			return nil
+		}
+		if o.pre > bind.pre && valueMutant != "own-live" && (o.frame != w.root || !w.beforeWrites(o, bind, into)) {
 			return nil
 		}
 		w.classify(vv, o)
-		if o.kind != occRead {
+		if o.kind != occRead && !w.letValue(o) {
 			return nil
 		}
 	}
@@ -1683,6 +1943,155 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		return nil
 	}
 	return value
+}
+
+// joinedBefore reports whether the frame f, nested in the root, has ended
+// once the call that opened it returns: f and each frame between it and
+// the root is a function literal or trailing block that is an operand of
+// a call (openingCall), and either cannot outlive that call (opens: not
+// escaping) or is passed to a std function whose runtime/v1 body joins
+// the children it starts (joinsChildren: tasks.Transform). Then nothing
+// runs f after that call returns, so what f captures is no longer read:
+// a task's captures end at its join. An occurrence in f that comes before
+// a bind (ownedBind) is then a use that ends before the bind, as one in
+// the root frame is: bindIn's let mut out = s after tasks.Transform's
+// callback read s.
+func (w *valueWalk) joinedBefore(f *vframe) bool {
+	for ; f != nil && f != w.root; f = f.parent {
+		call := w.openingCall(f.node)
+		if call == nil || f.escaping && !w.joinsChildren(call) {
+			return false
+		}
+	}
+	return f == w.root
+}
+
+// openingCall is the call whose operand, callee or trailing block the
+// frame node n is, or nil: a let-bound literal may run at any later call.
+func (w *valueWalk) openingCall(n syntax.Node) *syntax.CallExpr {
+	if b, ok := n.(*syntax.BlockStmt); ok {
+		if call, ok := w.parentOf(b).(*syntax.CallExpr); ok && call.Trailing == b {
+			return call
+		}
+		return nil
+	}
+	parent, child := w.unparenParent(n)
+	call, ok := parent.(*syntax.CallExpr)
+	if !ok {
+		return nil
+	}
+	if call.Fun == child {
+		return call
+	}
+	for _, a := range call.Args {
+		if a == child {
+			return call
+		}
+	}
+	return nil
+}
+
+// joinsChildren reports a call of an extern whose runtime body (its body
+// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds):
+// the caller is the parent of the tasks the body starts, and the body
+// joins them before it returns, running its function operands only on
+// itself and on them. So an escaping literal it is given runs no more once
+// the call returns.
+func (w *valueWalk) joinsChildren(call *syntax.CallExpr) bool {
+	c := w.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc {
+		return false
+	}
+	name := check.BodyOf(c.Func).Runtime
+	if name == "" {
+		return false
+	}
+	body, err := runtimeBody(name)
+	return err == nil && body.Wait == "child"
+}
+
+// letValue reports the use o as the whole value of a one-name let or let
+// mut: a part of the parameter that a local keeps.
+func (w *valueWalk) letValue(o *vocc) bool {
+	parent, child := w.unparenParent(o.path)
+	spec, ok := parent.(*syntax.VarSpec)
+	return ok && spec.Pattern == nil && len(spec.Names) == 1 && len(spec.Values) == 1 && syntax.Node(spec.Values[0]) == child
+}
+
+// beforeWrites reports the use o, after the bind of an owned parameter to
+// the let mut into, as one whose statement ends before the first use of
+// into: up to there the parameter and the local hold one value, which no
+// write has changed. o is outside any loop, in a statement of the body's
+// own block. The declared name of into precedes bind, and so does no
+// use.
+func (w *valueWalk) beforeWrites(o, bind *vocc, into *vvar) bool {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Body == nil || len(o.loops) > 0 {
+		return false
+	}
+	stmt := syntax.Node(o.id)
+	for w.parentOf(stmt) != syntax.Node(d.Body) {
+		if stmt = w.parentOf(stmt); stmt == nil {
+			return false
+		}
+	}
+	for _, u := range into.occs {
+		if u.pre > bind.pre && u.pre < w.postOf(stmt) {
+			return false
+		}
+	}
+	return true
+}
+
+// ownedKept decides the copies of the parts of the body's owned
+// parameters that a let keeps (ownedBind): the parameter and the local
+// its bind takes it into hold one value, so such a let reads the local's
+// value and is copied as a kept read of the local is (V2), when a write
+// through the local can follow it.
+func (w *valueWalk) ownedKept() {
+	for _, b := range w.ownedBinds() {
+		for _, o := range b.param.occs {
+			if o.path == b.bind || o.kind != occEscape || !w.letValue(o) || w.vf.moved[o.path] {
+				continue
+			}
+			if w.needsCopy(b.into, o) {
+				w.vf.clone[o.path] = true
+			}
+		}
+	}
+}
+
+// ownedBound is an owned parameter of the body (param) that its bind
+// (bind, the let mut's value) takes into the let mut into.
+type ownedBound struct {
+	param, into *vvar
+	bind        syntax.Expr
+}
+
+// ownedBinds are the body's owned parameters that a let mut takes whole
+// (ownedBind).
+func (w *valueWalk) ownedBinds() []ownedBound {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return nil
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok {
+		return nil
+	}
+	var out []ownedBound
+	for _, p := range w.l.ownedParams(f) {
+		vv := w.vars[p.v]
+		if p.consumed || p.bind == nil || vv == nil {
+			continue
+		}
+		for _, o := range w.owns {
+			if o.value == p.bind {
+				out = append(out, ownedBound{vv, o.root, p.bind})
+			}
+		}
+	}
+	return out
 }
 
 // failsAfter reports whether f's body can fail after the point at: a call
@@ -1695,7 +2104,7 @@ func (w *valueWalk) failsAfter(f *check.Func, at int) bool {
 		result = f.Sig.Results[0]
 	}
 	returned := func(x syntax.Expr) {
-		if w.pre[x] <= at {
+		if w.preOf(x) <= at {
 			return
 		}
 		switch t := w.typeOf(x); t.(type) {
@@ -1712,7 +2121,7 @@ func (w *valueWalk) failsAfter(f *check.Func, at int) bool {
 	syntax.Inspect(w.root.node, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.CallExpr:
-			if c := w.info.Calls[n]; c != nil && w.pre[n] > at && failsHere(c) {
+			if c := w.info.Calls[n]; c != nil && w.preOf(n) > at && failsHere(c) {
 				fails = true
 			}
 		case *syntax.ReturnStmt:
@@ -1763,14 +2172,14 @@ func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body strin
 	if recv != "" {
 		first = 1
 		if owned[0] {
-			recv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)
+			recv = fc.reportCopy(site, fc.cloneValue(f.Sig.Params[0].Type, recv, site), whyWrapper)
 		}
 	}
 	lead := len(args) - (len(f.Sig.Params) - first)
 	var ops []string
 	for i, a := range args {
 		if j := i - lead + first; i >= lead && owned[j] {
-			a = fc.cloneValue(f.Sig.Params[j].Type, a, site)
+			a = fc.reportCopy(site, fc.cloneValue(f.Sig.Params[j].Type, a, site), whyWrapper)
 		}
 		ops = append(ops, a)
 	}
@@ -1808,6 +2217,49 @@ func samePlace(a, b syntax.Expr) bool {
 	return false
 }
 
+// sameElem reports a and b as one element place of a slice, p[k] (or a
+// field path under one, p[k].f), whose index is the same value at both:
+// a literal, or a path of fields from an immutable variable
+// (LWR-ELEM-APPEND, REUSE RU8). An element holds its array alone, as a
+// root does (V1: what enters a root is fresh or copied), so
+// gs[j] = gs[j].Append(x) extends it in place.
+func (w *valueWalk) sameElem(a, b syntax.Expr) bool {
+	if !entryRule() {
+		return false
+	}
+	a, b = unparen(a), unparen(b)
+	switch x := a.(type) {
+	case *syntax.SelectorExpr:
+		y, ok := b.(*syntax.SelectorExpr)
+		return ok && x.Sel.Name == y.Sel.Name && (samePlace(x.X, y.X) || w.sameElem(x.X, y.X))
+	case *syntax.IndexExpr:
+		y, ok := b.(*syntax.IndexExpr)
+		if !ok || len(x.Indices) != 1 || len(y.Indices) != 1 || !w.stableKey(x.Indices[0]) || !sameKey(w.info, x.Indices[0], y.Indices[0]) {
+			return false
+		}
+		switch underEqual(w.typeOf(x.X)).(type) {
+		case *check.Slice, *check.Array:
+		default:
+			return false
+		}
+		return samePlace(x.X, y.X) || w.sameElem(x.X, y.X)
+	}
+	return false
+}
+
+// stableKey reports a key that names the same value wherever the body
+// reads it: a literal, or a path of fields from an immutable variable.
+func (w *valueWalk) stableKey(k syntax.Expr) bool {
+	switch k := unparen(k).(type) {
+	case *syntax.BasicLit:
+		return true
+	case *syntax.Ident, *syntax.SelectorExpr:
+		kv, ok := w.info.Uses[pathRoot(k)].(*check.Var)
+		return ok && fieldPath(k) && !w.varOf(kv).mut && !w.varOf(kv).ptr
+	}
+	return false
+}
+
 // slicesOf reports x = x[a:b] (any depth of slicing), which keeps x's own
 // array: the old value is overwritten, so nothing else shares it.
 func (w *valueWalk) slicesOf(e syntax.Expr, root *vvar) bool {
@@ -1832,7 +2284,7 @@ func (w *valueWalk) slicesOf(e syntax.Expr, root *vvar) bool {
 func (w *valueWalk) classify(vv *vvar, o *vocc) {
 	cur := syntax.Node(o.id)
 	for {
-		p := w.parent[cur]
+		p := w.parentOf(cur)
 		switch p := p.(type) {
 		case *syntax.ParenExpr:
 			cur = p
@@ -1876,20 +2328,20 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 	case *syntax.AssignStmt:
 		for _, l := range p.Lhs {
 			if l == child {
-				o.kind, o.at = occWrite, w.post[p]
+				o.kind, o.at = occWrite, w.postOf(p)
 				return
 			}
 		}
 	case *syntax.UnaryExpr:
 		if p.Op == syntax.AND {
-			o.kind, o.at = occWrite, w.post[w.enclosingCall(p)]
+			o.kind, o.at = occWrite, w.postOf(w.enclosingCall(p))
 			return
 		}
 	case *syntax.CallExpr:
 		c := w.info.Calls[p]
 		if c != nil && c.Kind == check.CallFunc && c.Recv == child && c.Func.Ptr {
 			if _, isPtr := w.typeOf(o.path).(*check.Pointer); !isPtr {
-				o.kind, o.at = occWrite, w.post[p]
+				o.kind, o.at = occWrite, w.postOf(p)
 				return
 			}
 		}
@@ -1942,6 +2394,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 		switch {
 		case c.Kind == check.CallLen:
 			o.kind = occRead
+		case c.Kind == check.CallFunc && (check.GoBuiltin(c.Func) == "len" || check.GoBuiltin(c.Func) == "cap"):
+			// A binding of Go's len or cap reads only the slice header
+			// (SL2b: a copy would change cap's answer).
+			o.kind = occRead
 		case c.Kind == check.CallFunc && preludeGet(c.Func):
 			// The entry rule (V8): no write through the root reaches the
 			// entry Get keeps, so the receiver is a read, copied only
@@ -1963,7 +2419,9 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 				o.call, o.entry = p, true
 			}
 		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)):
-			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
+			// A bulk append's ys is read like its source: its elements
+			// are copied into the result (SL2).
+			if (w.recvOf(p) == child || check.AppendSpreads(c.Func)) && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
 		case c.Kind == check.CallFunc && c.Func != nil && basicResult(w.typeOf(p)) && w.l.isPure(c.Func):
@@ -2178,7 +2636,7 @@ func copyCoversSeen(t check.Type, seen map[check.Type]bool) bool {
 // dotCall is the call whose receiver is x, a dot call x.f(…) or an
 // operation call, or nil.
 func (w *valueWalk) dotCall(x syntax.Node) *syntax.CallExpr {
-	sel, ok := w.parent[x].(*syntax.SelectorExpr)
+	sel, ok := w.parentOf(x).(*syntax.SelectorExpr)
 	if !ok || syntax.Node(sel.X) != x {
 		return nil
 	}
@@ -2213,7 +2671,7 @@ func basicResult(t check.Type) bool {
 
 // enclosingCall is the nearest call that holds n, or n.
 func (w *valueWalk) enclosingCall(n syntax.Node) syntax.Node {
-	for p := w.parent[n]; p != nil; p = w.parent[p] {
+	for p := w.parentOf(n); p != nil; p = w.parentOf(p) {
 		if _, ok := p.(*syntax.CallExpr); ok {
 			return p
 		}
@@ -2223,7 +2681,7 @@ func (w *valueWalk) enclosingCall(n syntax.Node) syntax.Node {
 
 // frameOfReturn is the frame a return statement leaves.
 func (w *valueWalk) frameOfReturn(n syntax.Node) *vframe {
-	for p := n; p != nil; p = w.parent[p] {
+	for p := n; p != nil; p = w.parentOf(p) {
 		if f := w.frameOf[p]; f != nil {
 			return f
 		}
@@ -2246,7 +2704,7 @@ func (w *valueWalk) frameOfTail(x syntax.Expr) *vframe {
 // writes c). A read of c that keeps nothing past the call still must not
 // share c with the callee then: the callee would see the write.
 func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
-	end := w.post[o.call]
+	end := w.postOf(o.call)
 	for _, wr := range vv.writes {
 		if wr.pre > o.pre && wr.pre < end {
 			return true
@@ -2256,11 +2714,13 @@ func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
 	// written through by that call (V8: a Get's receiver is read, not
 	// copied, so this case must copy it; a scalar entry's Get and a pure
 	// call's operand under the reference too).
+	// Such a call that writes no storage o's value reaches is apart
+	// (keeps.go, own-call-pass).
 	if vv.ptr {
 		for _, oc := range vv.occs {
 			if oc != o && oc.pre > o.pre && oc.pre < end && oc.path == syntax.Expr(oc.id) {
-				if _, isCall := w.parent[oc.id].(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
-					return true
+				if _, isCall := w.parentOf(oc.id).(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
+					return !w.passedApart(vv, o, o.pre+1, end)
 				}
 			}
 		}
@@ -2298,11 +2758,59 @@ func (w *valueWalk) later(vv *vvar, o, wr *vocc) bool {
 	if valueMutant == "elide-escape" {
 		return false
 	}
-	if wr.at > o.pre {
+	if wr.at > o.pre && !(valueOwned() && w.exclusive(o.id, wr.id)) {
 		return true
 	}
 	for _, l := range o.loops {
 		if !containsNode(vv.loops, l) && containsNode(wr.loops, l) {
+			return true
+		}
+	}
+	return false
+}
+
+// exclusive reports whether a and b lie in two arms of one match or of
+// one if: in one run of the statement at most one of them runs, so
+// neither follows the other (wf10 OWN1 arms; pinata's Change, whose
+// Denied arm binds `let mut opened = all` beside the other arm's
+// `let mut next = all`). A loop around the statement runs both, in two
+// passes; the callers check loops apart (freshPath, later).
+func (w *valueWalk) exclusive(a, b syntax.Node) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	// up maps each ancestor of a to its child on the path from a.
+	up := map[syntax.Node]syntax.Node{}
+	for c, p := a, w.parentOf(a); p != nil; c, p = p, w.parentOf(p) {
+		up[p] = c
+	}
+	for cb, p := b, w.parentOf(b); p != nil; cb, p = p, w.parentOf(p) {
+		ca, ok := up[p]
+		if !ok {
+			continue
+		}
+		if ca == cb {
+			return false
+		}
+		switch s := p.(type) {
+		case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+			_, ka := ca.(*syntax.CaseClause)
+			_, kb := cb.(*syntax.CaseClause)
+			return ka && kb
+		case *syntax.IfStmt:
+			arm := func(n syntax.Node) bool { return n == syntax.Node(s.Body) || s.Else != nil && n == syntax.Node(s.Else) }
+			return arm(ca) && arm(cb)
+		}
+		return false
+	}
+	return false
+}
+
+// loopedSince reports whether the use o is in a loop that is not one of
+// outer, the loops its binding is made in.
+func (w *valueWalk) loopedSince(o *vocc, outer []syntax.Node) bool {
+	for _, l := range o.loops {
+		if !containsNode(outer, l) {
 			return true
 		}
 	}
@@ -2331,20 +2839,42 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 	if w.snapshotted(vv, o.frame) {
 		return false
 	}
-	for _, wr := range vv.writes {
-		if wr.frame != vv.frame {
-			return true // a write in another frame can run at any time
-		}
+	if o.kind == occReturn && o.frame == vv.frame {
+		// The binding's last use (KEPT-MOVE): no write can run after the
+		// return ends its frame. A write in that frame came before it, and
+		// a frame that writes a let mut of an enclosing frame is never
+		// escaping (the checker refuses the write in one that may outlive
+		// its call, types.md Function values 3), so it ran inside the
+		// frame, which has returned. The value moves: kidsOf's
+		// `change(f, r, func(n) { kids = n.kids }); kids` returns kids
+		// with no copy. A return from another frame (a literal's) may
+		// run while a write is still to come, and copies below.
+		return returnLowering == "copy" && w.writtenElsewhere(vv)
+	}
+	if w.writtenElsewhere(vv) {
+		return true // a write in another frame can run at any time
 	}
 	if o.frame != vv.frame {
 		return len(vv.writes) > 0
 	}
-	if o.kind == occReturn {
-		return false
-	}
 	for _, wr := range vv.writes {
 		if w.later(vv, o, wr) {
-			return !w.keptRead(vv, o)
+			return !w.keptRead(vv, o) && !w.apartRead(vv, o)
+		}
+	}
+	return false
+}
+
+// returnLowering "copy" selects the reference of the return rule
+// (KEPT-MOVE, needsCopy): a return of a root that another frame writes
+// copies. Empty in every build; a build may set it with -X.
+var returnLowering string
+
+// writtenElsewhere reports whether a frame nested in vv's writes it.
+func (w *valueWalk) writtenElsewhere(vv *vvar) bool {
+	for _, wr := range vv.writes {
+		if wr.frame != vv.frame {
+			return true
 		}
 	}
 	return false
@@ -2368,33 +2898,33 @@ func (w *valueWalk) snapshotted(vv *vvar, f *vframe) bool {
 
 // freshen makes the value e, which enters a root, unshared: nothing when
 // it is fresh, its parts when it is a literal, else a copy.
-func (w *valueWalk) freshen(e syntax.Expr) {
+func (w *valueWalk) freshen(e syntax.Expr, why string) {
 	if e == nil || !w.l.holdsValue(w.typeOf(e)) || w.fresh(e) {
 		return
 	}
 	switch x := e.(type) {
 	case *syntax.ParenExpr:
-		w.freshen(x.X)
+		w.freshen(x.X, why)
 		return
 	case *syntax.CompositeLit:
 		if x.Base != nil {
-			w.freshen(x.Base)
+			w.freshen(x.Base, why)
 		}
 		for _, el := range x.Elts {
 			if kv, ok := el.(*syntax.KeyValueExpr); ok {
-				w.freshen(kv.Value)
+				w.freshen(kv.Value, why)
 			} else {
-				w.freshen(el)
+				w.freshen(el, why)
 			}
 		}
 		return
 	case *syntax.TupleExpr:
 		for _, el := range x.Elts {
-			w.freshen(el)
+			w.freshen(el, why)
 		}
 		return
 	}
-	w.vf.clone[e] = true
+	w.copyAt(e, why)
 }
 
 // fresh reports whether no other live binding reaches a Map or slice of
@@ -2403,7 +2933,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	if e == nil {
 		return true
 	}
-	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] || w.vf.moved[e] {
+	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] || w.vf.moved[e] || w.vf.moveOut[e] {
 		return true
 	}
 	if call, ok := e.(*syntax.CallExpr); ok && w.handed[call] {
@@ -2413,6 +2943,9 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	case *syntax.ParenExpr:
 		return w.fresh(x.X)
 	case *syntax.Ident:
+		if w.vf.self[x] {
+			return true
+		}
 		if v, ok := w.info.Uses[x].(*check.Var); ok {
 			return w.copiedOnce(v) || w.freshIdent(w.varOf(v), x, false)
 		}
@@ -2600,8 +3133,10 @@ func (w *valueWalk) namedFunc(op syntax.Expr) *check.Func {
 
 // funcNamed is the function x names, f or pkg.f, or nil. The checker
 // records no Uses entry for a qualified name's selector, so pkg.f is the
-// one function of that name in the imported package; a name that several
-// functions share (196m rule 3) names none here.
+// function of that name in the imported package. It is the only one: two
+// functions share a name only when their first parameters are distinct
+// types of the package (196m rule 3), and the checker refuses a reference
+// to such a name other than as x.f(…) (S108, overloadedText).
 func funcNamed(info *check.Info, x syntax.Expr) *check.Func {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
@@ -2619,16 +3154,11 @@ func funcNamed(info *check.Info, x syntax.Expr) *check.Func {
 		if !ok || pn.Pkg == nil {
 			return nil
 		}
-		var found *check.Func
 		for _, f := range pn.Pkg.Funcs {
 			if f.Name == x.Sel.Name {
-				if found != nil {
-					return nil
-				}
-				found = f
+				return f
 			}
 		}
-		return found
 	}
 	return nil
 }
@@ -2762,25 +3292,36 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		if kill != nil && (o == kill || o.pre >= w.post[killStmt] || valueMutant == "kill-between-blind" && o.pre > use.pre) {
 			continue
 		}
+		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) || w.baseDisjoint(o.id, use.id, unshared) || w.baseDisjoint(use.id, o.id, unshared) {
+			// An update's base and a path under a field it names (parts.go),
+			// or under a field it sets when the value is unshared (update.go).
+			continue
+		}
 		if o.frame != frame {
 			return false
+		}
+		if valueOwned() && w.exclusive(o.id, use.id) && !w.loopedSince(use, loops) {
+			// A use in another arm of the match or if runs instead of
+			// this one, never after it nor before it, unless a loop the
+			// binding is outside runs the statement twice.
+			continue
 		}
 		// An earlier use in a returned value that does not hold use ends
 		// the frame when it runs, so use does not run after it.
 		if other := w.returnNode(o, o.id); other != nil && o.pre < use.pre {
-			if !(w.pre[other] <= use.pre && use.pre < w.post[other]) || valueMutant == "return-blind" {
+			if !(w.preOf(other) <= use.pre && use.pre < w.postOf(other)) || valueMutant == "return-blind" {
 				continue
 			}
 		}
 		if o.pre < use.pre && valueOwned() {
-			if end := w.endingReturn(o); end != nil && !(w.pre[end] <= use.pre && use.pre < w.post[end]) {
+			if end := w.endingReturn(o); end != nil && !(w.preOf(end) <= use.pre && use.pre < w.postOf(end)) {
 				// So does one anywhere in a return statement or a last
 				// value that does not hold use (handover.go).
 				continue
 			}
 		}
 		if returning {
-			inRet := w.pre[ret] <= o.pre && o.pre < w.post[ret]
+			inRet := w.preOf(ret) <= o.pre && o.pre < w.postOf(ret)
 			if !inRet && o.pre > use.pre || valueMutant == "return-blind" && inRet {
 				continue
 			}
@@ -2788,7 +3329,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 				return false
 			}
 		} else if o.pre > use.pre && !(o.kind == occRead && stored) {
-			if end := w.endingReturn(use); valueOwned() && end != nil && (o.pre < w.pre[end] || o.pre >= w.post[end]) {
+			if end := w.endingReturn(use); valueOwned() && end != nil && (o.pre < w.preOf(end) || o.pre >= w.postOf(end)) {
 				// The use's return statement ends the frame: o, outside
 				// it, never runs after the use (handover.go).
 				continue
@@ -2798,7 +3339,9 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		if o.kind == occEscape || o.kind == occReturn {
 			// A copied read shares nothing; nor does a handed one (V7),
 			// whose storage only the binding's new value holds.
-			if !w.vf.clone[o.path] && !w.vf.handed[o.path] {
+			// So does a pure call's whose result is copied (alias.go,
+			// moveOver).
+			if !w.vf.clone[o.path] && !w.vf.handed[o.path] && !(o.result && o.call != nil && w.vf.clone[o.call]) {
 				return false
 			}
 		}
@@ -3019,10 +3562,38 @@ func (w *valueWalk) resultsFresh() bool {
 	return ok
 }
 
+// copyElemSource is the type of src in x, a call of an extern bound to
+// Go's copy(dst, src), when src's elements hold a slice or Map, else nil.
+// Go's copy stores each element in dst's array, so an element's slice or
+// Map would be shared by dst and src, and a write through one would reach
+// the other (a []Box copied into a fresh array shared each Box's S with
+// the source, and `d[0].S[0] = 99` wrote the source's; found by NB-CUT's
+// TestCutAgrees). The value walk reads src as a read of a pure call whose
+// int result shares nothing with it, so the copy is here, where the
+// builtin is lowered, the text's and the IR's alike. A source whose
+// elements hold no slice or Map (the []int push) copies nothing.
+// TestGoCopyKeepsValues is its property.
+func copyElemSource(l *lowerer, x *syntax.CallExpr, c *check.Call, typeOf func(syntax.Expr) check.Type) check.Type {
+	if c == nil || c.Func == nil || check.GoBuiltin(c.Func) != "copy" {
+		return nil
+	}
+	ops := callOperands(x, c)
+	if len(ops) != 2 {
+		return nil
+	}
+	t := typeOf(ops[1])
+	if !l.holdsValue(elemOf(t)) {
+		return nil
+	}
+	return t
+}
+
 // valueSource lowers the source operand of a call of the prelude's Append,
 // Delete or Put that must not write it (V3): Append takes the source
 // clipped to its length, so Go's append makes a new array, and Delete and
 // Put take a copy of the Map. vals are the call's lowered operands, the source first.
+// Go's copy(dst, src) takes a copy of src when its elements hold a slice
+// or Map (copyElemSource).
 func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string) []string {
 	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || fc.l.valueFacts().lineage[x] || valueMutant == "in-place" {
 		return vals
@@ -3031,7 +3602,11 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 	case preludeAppend(c.Func):
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
 	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
-		vals[0] = fc.l.goPkg("maps") + ".Clone(" + vals[0] + ")"
+		vals[0] = fc.reportCopy(x, fc.l.goPkg("maps")+".Clone("+vals[0]+")", whyMapWrite)
+	case len(vals) == 2:
+		if t := copyElemSource(fc.l, x, c, fc.typeOf); t != nil {
+			vals[1] = fc.reportCopy(x, fc.cloneValue(t, vals[1], x), whyCopyElem)
+		}
 	}
 	return vals
 }
@@ -3061,6 +3636,10 @@ func (tc *typeCtx) cloneOf(t check.Type, val string, site syntax.Node, deep bool
 	switch u := underEqual(t).(type) {
 	case *check.Map:
 		if !deep && !tc.l.entryWritten(t) || !tc.l.holdsValue(u.Elem) || valueMutant == "shallow" {
+			if _, plain := t.(*check.Map); plain && tc.l.intMap(u) { // intmap.go: the table's own copy
+				return val + ".Clone()"
+			}
+			tc.l.intMapConflict(u) // a defined Map type: maps.Clone
 			return tc.l.goPkg("maps") + ".Clone(" + val + ")"
 		}
 	case *check.Slice:
@@ -3161,6 +3740,7 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node, deep bool) (string, 
 		body.WriteString("\tfor " + i + ", " + e + " := range " + v + " {\n")
 		body.WriteString("\t\t" + c + "[" + i + "] = " + tc.cloneOf(u.Elem, e, site, deep) + "\n\t}\n\treturn " + c + "\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: a deep copy over Go's map
 		k, e := scope.alloc("k"), scope.alloc("e")
 		body.WriteString("\t" + c + " := make(" + goType + ", len(" + v + "))\n")
 		body.WriteString("\tfor " + k + ", " + e + " := range " + v + " {\n")

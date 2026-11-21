@@ -7,3 +7,4 @@ sizes 2000000 16000000
 input self gen 7 {n}
 args replay
 control cmd/ergo/testdata/vt/control
+floor examples/vt/testdata/floor

@@ -1,0 +1,16 @@
+// law-top probe: a top-level law beside test (plan.md 11:45Z).
+type Money { cents int }
+
+func add(a Money, b Money) Money {
+	Money{cents: a.cents + b.cents}
+}
+
+law AddCommutes(a Money, b Money) {
+	add(a, b) == add(b, a)
+}
+
+test Adds {
+	assert add(Money{cents: 1}, Money{cents: 2}) == Money{cents: 3}
+}
+
+func main() {}

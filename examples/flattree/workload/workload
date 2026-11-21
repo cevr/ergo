@@ -1,0 +1,9 @@
+# scripts/opcount: `flattree stats` reads the JSON document of N records
+# that `flattree gen -seed 1 -n N` writes into the flat tree and reports on
+# it; the cost of one record is the slope between the two sizes. The
+# control is the hand Go program of the same layout.
+unit record
+sizes 20000 160000
+input self gen -seed 1 -n {n}
+args stats {input}
+control cmd/ergo/testdata/flattree/control

@@ -5,6 +5,9 @@
 // standard input and prints what the example's own binary prints.
 //
 //	todo-gui                 open the window
+//	todo-gui -headless -script f [-tree] [-png p]  play the JSON act list in f (ui.ParseActs);
+//				-tree prints the screen after it, a JSON line a node (ui.TreeLine),
+//				and -png writes its picture to p
 //	todo-gui -headless < s   play the script s through the window's input
 
 import actor
@@ -12,6 +15,7 @@ import ergo.local/prototype/examples/todogui/script
 import ergo.local/prototype/examples/todogui/todo
 import ergo.local/prototype/examples/todogui/view
 import ergo.local/prototype/hosts/mygo/desktop
+import fs
 import go ergo.local/prototype/hosts/mygo/screen
 import io
 import os
@@ -21,7 +25,7 @@ import ui
 func main() fails os.Exit needs Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	if len(args) > 0 && args[0] == "-headless" {
-		try headless()
+		try headless(args)
 		return
 	}
 	with context { Scheduler: NewLiveScheduler() } {
@@ -45,7 +49,31 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 // screen: a tap is a press and a release at the node's place, a typed text
 // is a tap on the field, Backspaces and the text. It prints the list after
 // each step.
-func headless() fails os.Exit needs Ambient | go.Foreign {
+func headless(args []string) fails os.Exit needs Ambient | go.Foreign {
+	let mut tree = false
+	let mut file = ""
+	let mut picture = ""
+	for i, a in args {
+		if a == "-tree" {
+			tree = true
+		} else if a == "-script" && i+1 < len(args) {
+			file = args[i+1]
+		} else if a == "-png" && i+1 < len(args) {
+			picture = args[i+1]
+		}
+	}
+	if file != "" {
+		let json = fs.NewHost().ReadFile(file) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return os.Exit{Code: 1, Message: "todo-gui: cannot read \(file)"}
+		}
+		let acts = ui.ParseActs(json) catch {
+		case ui.BadScript as b:
+			return os.Exit{Code: 2, Message: "todo-gui: \(file): \(b.Why)"}
+		}
+		try play(acts, tree, picture)
+		return
+	}
 	let text = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "todo-gui: cannot read the script"}
@@ -54,6 +82,13 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 	case script.BadLine as b:
 		return os.Exit{Code: 2, Message: "todo-gui: line \(b.Line) is no step: \(b.Text)"}
 	}
+	try play(steps, false, "")
+}
+
+// play plays acts through a window with no screen and prints the state
+// after each, then, with tree, the screen as JSON lines, and, with a
+// picture path, the screen as a PNG there.
+func play(acts []ui.Act, tree bool, picture string) fails os.Exit needs Ambient | go.Foreign {
 	let out = io.NewHost()
 	with context { Scheduler: time.NewManual(0) } {
 		let w = screen.Headless(420, 520) catch {
@@ -65,13 +100,15 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
 		}
-		for i, act in steps {
+		for i, act in acts {
 			desktop.Play(&d, []ui.Act{act}) catch {
 			case ui.NoNode as n:
 				out.Println("\(i + 1): no node \(n.Label)")
 				continue
 			case ui.Mismatch as m:
 				out.Println("\(i + 1): want \(m.Want), got \(m.Got)")
+			case ui.Ambiguous as x:
+				out.Println("\(i + 1): \(x.Count) nodes at \(x.At)")
 				continue
 			case ui.Closed, actor.Stopped:
 				return os.Exit{Code: 1, Message: "todo-gui: the window closed"}
@@ -79,6 +116,17 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 				return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
 			}
 			out.Println("\(i + 1): \(todo.Summary(desktop.StateOf(&d)))")
+		}
+		if tree {
+			for l in desktop.TreeLines(&d) {
+				out.Println(l)
+			}
+		}
+		if picture != "" {
+			w.WritePNG(picture) catch {
+			case go.Error as e:
+				return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
+			}
 		}
 	}
 }

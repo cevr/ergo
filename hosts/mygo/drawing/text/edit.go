@@ -8,4 +8,8 @@ import (
 
 type Rect = impl.Rect
 
+func IsCombiningMark(r rune) bool {
+	return impl.IsCombiningMark(r)
+}
+
 type Boundaries = impl.Boundaries

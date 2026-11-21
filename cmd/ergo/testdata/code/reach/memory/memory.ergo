@@ -1,0 +1,14 @@
+import reachfix/store
+
+// Fixed holds one key, "a".
+type Fixed {} implements store.Store
+
+func Get(_ Fixed, key string) string fails store.Missing {
+	if key != "a" {
+		return store.Missing{Key: key}
+	}
+	"1"
+}
+
+// Serving binds the store to Fixed: a context its importers name.
+let Serving = context { store.Store: Fixed }

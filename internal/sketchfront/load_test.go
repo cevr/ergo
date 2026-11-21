@@ -143,10 +143,10 @@ func TestLoaderModuleFile(t *testing.T) {
 		{"module log\n", "", "starts with the std package log"},
 		{"module strings/x\n", "", "starts with the std package strings"},
 		{"module prelude\n", "", "starts with the std package prelude"},
-		{"module app\nmodule b\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
-		{"go 1.22\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"module app\nmodule b\n", "", "the line module NAME, at most one line ergo VERSION and lines trust go MODULE, and nothing else"},
+		{"go 1.22\n", "", "the line module NAME, at most one line ergo VERSION and lines trust go MODULE, and nothing else"},
 		{"trust go example.com/x\nmodule app\ntrust go example.com/y\n", "app", ""},
-		{"module app\ntrust example.com/x\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"module app\ntrust example.com/x\n", "", "the line module NAME, at most one line ergo VERSION and lines trust go MODULE, and nothing else"},
 		{"module app\ntrust go example.com/x\ntrust go example.com/x\n", "", "trusts the Go of module example.com/x twice"},
 		{"module app\ntrust go a//b\n", "", "is not an import path"},
 		{"module 1app\n", "", "is not an import path"},
@@ -155,7 +155,8 @@ func TestLoaderModuleFile(t *testing.T) {
 		// Trusted Go (NP4e, respelled `trust go MODULE` by the 2026-11-14 ruling).
 		{"module app\ntrust go log\n", "", "starts with the std package log"},
 	} {
-		module, _, d := parseModule(c.text)
+		mf, d := parseModule(c.text)
+		module := mf.module
 		switch {
 		case c.problem == "" && (d != nil || module != c.module):
 			t.Errorf("%q: module %q diagnostic %+v, want %q", c.text, module, d, c.module)

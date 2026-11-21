@@ -1,0 +1,20 @@
+@0 compute
+  # Compute Engine | Engine is off. | [Start engine] | [Compute next square, disabled] | No result yet.; 0 out
+@100 start
+  # Compute Engine | Booting engine... | [Stop engine] | [Compute next square, disabled] | No result yet.; 0 out
+@600 compute
+  # Compute Engine | Engine ready: engine-1 | [Stop engine] | [Compute next square] | Square result: 1; 1 out
+@700 compute
+  # Compute Engine | Engine ready: engine-1 | [Stop engine] | [Compute next square] | Square result: 4; 1 out
+@800 compute
+  # Compute Engine | Engine ready: engine-1 | [Stop engine] | [Compute next square] | Square result: 9; 1 out
+@900 stop
+  # Compute Engine | Engine is off. | [Start engine] | [Compute next square, disabled] | No result yet.; 0 out
+@1000 fault
+  # Compute Engine | Engine is off. | [Start engine] | [Compute next square, disabled] | No result yet.; 0 out
+@1100 start
+  # Compute Engine | Booting engine... | [Stop engine] | [Compute next square, disabled] | No result yet.; 0 out
+@1600 compute
+  # Compute Engine | Engine failed: crypto unavailable | [Start engine] | [Compute next square, disabled] | No result yet.; 0 out
+@1600 end
+  # Compute Engine | Engine failed: crypto unavailable | [Start engine] | [Compute next square, disabled] | No result yet.; 0 out

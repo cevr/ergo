@@ -1,0 +1,763 @@
+import actor
+import time
+
+// Choices (a radio group; FK10-g2's list box): one value picked among
+// options, as ARIA's radiogroup and listbox are. A choice is a Semantic of
+// the group's role, named by its label, whose Value is the picked option,
+// holding a Semantic per option, named by the option and stating whether
+// it is the picked one; a press on an option, or a key, sends the signal
+// of the option it picks. The options are distinct: each is a row of the
+// group, keyed by itself.
+
+// Radios shows options as radio buttons in a group named label, the one
+// equal to selected checked (none when no option is). A press on a radio
+// sends on(its option); ArrowDown and ArrowRight pick the option after the
+// selected one and ArrowUp and ArrowLeft the one before, wrapping round,
+// as ARIA's radio group does; Home and End pick the first and the last.
+func Radios[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+	choose(f, RadioGroup, label, options, selected, on, at)
+}
+
+// Select shows options as a list box named label, the one equal to
+// selected selected. A press on an option sends on(its option); ArrowDown
+// picks the option after the selected one and ArrowUp the one before,
+// stopping at the ends, as ARIA's list box does; Home and End pick the
+// first and the last.
+func Select[E](f mut Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+	choose(f, ListBox, label, options, selected, on, at)
+}
+
+// choose writes a choice of role group (RadioGroup or ListBox) and takes
+// its keys while the focus is in it (OnFocusKey, UC-FOCUS): a press on an
+// option puts it there, so of two choices on a screen the arrows move the
+// one last pressed.
+func choose[E](f mut Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
+	let radio = group == RadioGroup
+	let mut g = Named(group, label)
+	g.Value = Some{Value: selected}
+	Semantic(f, g, None, Plain(), func() {
+		OnFocusKey(f, func(k KeyPress) Option[E] {
+			match picked(options, selected, k.Name, radio) {
+			case Some[string] as v:
+				Some{Value: on(v.Value)}
+			case None:
+				None
+			}
+		})
+		Each(f, options, func(o string) Key { ByText(o) }) func(o string) {
+			let mut a = Named(ListOption, o)
+			if radio {
+				a.Role = Radio
+				a.Checked = Some{Value: o == selected}
+			} else {
+				a.Selected = Some{Value: o == selected}
+			}
+			Semantic(f, a, Some{Value: on(o)}, Plain()) {
+				Text(f, o)
+			}
+		}
+	}, at)
+}
+
+// picked is the option the key named key picks in options from selected,
+// None for a key that picks none or for no options. With no option
+// selected, an arrow picks the first. wrap is a radio group's: the arrows
+// go round, and Right and Left are arrows too.
+func picked(options []string, selected string, key string, wrap bool) Option[string] {
+	let n = len(options)
+	if n == 0 {
+		return None
+	}
+	let mut at = -1
+	for i, o in options {
+		if o == selected {
+			at = i
+		}
+	}
+	let next = key == "ArrowDown" || (wrap && key == "ArrowRight")
+	let back = key == "ArrowUp" || (wrap && key == "ArrowLeft")
+	if key == "Home" {
+		return Some{Value: options[0]}
+	}
+	if key == "End" {
+		return Some{Value: options[n-1]}
+	}
+	if !next && !back {
+		return None
+	}
+	if at < 0 {
+		return Some{Value: options[0]}
+	}
+	if next {
+		if at+1 < n {
+			return Some{Value: options[at+1]}
+		}
+		if wrap {
+			return Some{Value: options[0]}
+		}
+		return Some{Value: options[n-1]}
+	}
+	if at > 0 {
+		return Some{Value: options[at-1]}
+	}
+	if wrap {
+		return Some{Value: options[n-1]}
+	}
+	Some{Value: options[0]}
+}
+
+// choiceOptions is the options "o0" to "o<n-1>". (a law's helper)
+func choiceOptions(n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("o\(i)")
+	}
+	out
+}
+
+// choiceIndex is the index of v in options, -1 for none. (a law's helper)
+func choiceIndex(options []string, v string) int {
+	for i, o in options {
+		if o == v {
+			return i
+		}
+	}
+	-1
+}
+
+// choiceShown is whether the test host shows a choice of n options named
+// "pick" as picking the option at index sel: the group's Value is that
+// option and exactly that option is checked (a radio) or selected (an
+// option), each found by its role and name and by its label.
+// (a law's helper)
+func choiceShown[S, D, F](h mut TestHost[S, int, D, F], n int, sel int, radio bool) bool {
+	let options = choiceOptions(n)
+	let group = if radio { RadioGroup } else { ListBox }
+	let item = if radio { Radio } else { ListOption }
+	let gs = Locate(h, WithRole{Role: group, Name: "pick"})
+	if len(gs) != 1 || AccessAt(h, gs[0]).Value != (Some{Value: options[sel]}) {
+		return false
+	}
+	if len(Locate(h, WithRole{Role: item, Name: ""})) != n {
+		return false
+	}
+	for i, o in options {
+		let ids = Locate(h, WithRole{Role: item, Name: o})
+		if len(ids) != 1 || Locate(h, WithLabel{Label: o}) != ids {
+			return false
+		}
+		let a = AccessAt(h, ids[0])
+		let on = Some{Value: i == sel}
+		if radio && (a.Checked != on || a.Selected != None) {
+			return false
+		}
+		if !radio && (a.Selected != on || a.Checked != None) {
+			return false
+		}
+	}
+	true
+}
+
+// choiceKey presses the key named name on h. (a law's helper)
+func choiceKey[S, D, F](h mut TestHost[S, int, D, F], name string) bool {
+	PressKey(h, KeyPress{Name: name, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+	case actor.Stopped:
+		return false
+	case BadPatch:
+		return false
+	}
+	true
+}
+
+// choiceWalk presses key steps times on h, and is whether each press
+// moves the state by by. (a law's helper)
+func choiceWalk[D, F](h mut TestHost[int, int, D, F], key string, steps int, by int) bool {
+	for _ in 0..steps {
+		let was = StateOf(h)
+		if !choiceKey(h, key) || StateOf(h) != was+by {
+			return false
+		}
+	}
+	true
+}
+
+// ChoiceIsAnnouncedAndReachable (FK10-g2, the radio group): over radio
+// groups and list boxes of 3 to 6 options, from a drawn selection: the
+// group announces its selection (its Value) and exactly the selected
+// option says so (Checked for a radio, Selected for an option), found by
+// role and name and by label; once a press on the selected option puts
+// the focus in the choice, Home and End reach the ends; ArrowDown
+// walks from the first option to the last and ArrowUp back, one option
+// per press; past the last option a radio group wraps to the first and a
+// list box stays, and before the first a radio group wraps to the last
+// (a radio group's ArrowRight and ArrowLeft too); the arrows reach a
+// drawn target; another key sends nothing; and a press on an option picks
+// it.
+law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let k = (n%4+4)%4 + 3
+		let options = choiceOptions(k)
+		let start = (from%k + k) % k
+		let target = (to%k + k) % k
+		let view = func(f mut Frame[int], s int) {
+			let on = func(v string) int { choiceIndex(options, v) }
+			if radio {
+				Radios(f, "pick", options, options[s], on)
+			} else {
+				Select(f, "pick", options, options[s], on)
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		if !choiceShown(&h, k, start, radio) {
+			return false
+		}
+		// The keys reach the choice once the focus is in it: a press on its
+		// selected option (UC-FOCUS).
+		Play(&h, []Act{ClickOn{At: WithLabel{Label: options[start]}}}) catch {
+		case _:
+			return false
+		}
+		if StateOf(&h) != start || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
+			return false
+		}
+		if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) {
+			return false
+		}
+		let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" })
+		if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 {
+			return false
+		}
+		if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) {
+			return false
+		}
+		let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" })
+		if StateOf(&h) != if radio { k - 1 } else { 0 } {
+			return false
+		}
+		let here = StateOf(&h)
+		let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) }
+		let _ = choiceKey(&h, "x")
+		if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) {
+			return false
+		}
+		let other = (target + 1) % k
+		Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch {
+		case _:
+			return false
+		}
+		StateOf(&h) == other && choiceShown(&h, k, other, radio)
+	}
+}
+
+// namedOptions is the options "<p>0" to "<p><n-1>". (a law's helper)
+func namedOptions(p string, n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("\(p)\(i)")
+	}
+	out
+}
+
+// twoChoices is a screen of two choices, "first" over oa and "second"
+// over ob, each a radio group (ra, rb) or a list box, and a button
+// "elsewhere"; the state is the first's selection times 10 plus the
+// second's. (a law's helper)
+func twoChoices(f mut Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+	let a = s / 10
+	let b = s % 10
+	Column(f, Plain()) {
+		let onA = func(v string) int { choiceIndex(oa, v)*10 + b }
+		let onB = func(v string) int { a*10 + choiceIndex(ob, v) }
+		if ra {
+			Radios(f, "first", oa, oa[a], onA)
+		} else {
+			Select(f, "first", oa, oa[a], onA)
+		}
+		if rb {
+			Radios(f, "second", ob, ob[b], onB)
+		} else {
+			Select(f, "second", ob, ob[b], onB)
+		}
+		Pressable(f, "elsewhere", s) {
+			Text(f, "away")
+		}
+	}
+}
+
+// choiceKeys is the keys ChoicesTakeKeysWhenFocused presses. (a law's helper)
+func choiceKeys() []string {
+	[]string{"ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End", "x"}
+}
+
+// modelPick is the model's index after key on a choice of n options at
+// index at: Home and End go to the ends; ArrowDown (and a radio group's
+// ArrowRight) goes one on, ArrowUp (and ArrowLeft) one back, round for a
+// radio group (wrap) and stopping at the ends for a list box; another key
+// stays. (a law's helper)
+func modelPick(n int, at int, key string, wrap bool) int {
+	if key == "Home" {
+		return 0
+	}
+	if key == "End" {
+		return n - 1
+	}
+	if key == "ArrowDown" || (key == "ArrowRight" && wrap) {
+		return if at+1 < n { at + 1 } else if wrap { 0 } else { n - 1 }
+	}
+	if key == "ArrowUp" || (key == "ArrowLeft" && wrap) {
+		return if at > 0 { at - 1 } else if wrap { n - 1 } else { 0 }
+	}
+	at
+}
+
+// ChoicesTakeKeysWhenFocused (UC-FOCUS): two choices on one screen, each
+// a radio group or a list box as drawn, and a button. Over drawn presses
+// of an option of either choice or of the button, and drawn keys, a key
+// moves only the choice the focus is in, as the model's modelPick does: the one whose
+// option was pressed last, and none before any press or after a press on
+// the button. The other choice keeps its selection. Each run opens with a
+// key before any press (it moves nothing), a press on the second choice's
+// selected option, and a key.
+law ChoicesTakeKeysWhenFocused(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let oa = namedOptions("a", draw(&r, 4)+3)
+		let ob = namedOptions("b", draw(&r, 4)+3)
+		let ra = draw(&r, 2) == 0
+		let rb = draw(&r, 2) == 0
+		let mut a = draw(&r, len(oa))
+		let mut b = draw(&r, len(ob))
+		let view = func(f mut Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let start = a*10 + b
+		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(app, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		// focus: 0 none, 1 the first choice, 2 the second.
+		let mut focus = 0
+		let keys = choiceKeys()
+		let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))}
+		for _ in 0..(steps%8+8)%8+6 {
+			acts = acts.Append(draw(&r, 3+len(keys)))
+		}
+		for i, act in acts {
+			if act == 0 || act == 1 {
+				let opts = if act == 0 { oa } else { ob }
+				// The run's first press is on the second choice's selected option.
+				let j = if i == 1 { b } else { draw(&r, len(opts)) }
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch {
+				case _:
+					return false
+				}
+				if act == 0 {
+					a = j
+					focus = 1
+				} else {
+					b = j
+					focus = 2
+				}
+			} else if act == 2 {
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch {
+				case _:
+					return false
+				}
+				focus = 0
+			} else {
+				let key = keys[act-3]
+				if !choiceKey(&h, key) {
+					return false
+				}
+				if focus == 1 {
+					a = modelPick(len(oa), a, key, ra)
+				} else if focus == 2 {
+					b = modelPick(len(ob), b, key, rb)
+				}
+			}
+			if StateOf(&h) != a*10+b {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// prog is a generated view. pSwap writes a Text or a Check at one
+// forwarded call site, as a helper with a CallSite parameter can. pBound
+// is a group with a catch right after it (a Boundary, a Box or an Each,
+// by form), whose arms write a Text for Pending, and for Missing a Text
+// only when its value is even (so a group may leave nothing); pRead,
+// drawn only under a pBound, is a read that fails with Pending or Missing by
+// the state (H8a), so a failure leaves nested containers, Each rows and
+// inner boundaries. pSame is a Same (UC-4) keyed by the state its kids read, with an OnKey and a Toggle of its
+// own and one in a Box under it; with memo false it is the Box a Same is, run every pass.
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
+
+// rng is the laws' generator (a linear congruence).
+type rng { x int }
+
+func draw(r mut rng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} }
+
+let slots = 6
+
+func genProg(r mut rng, depth int, bounded bool) prog {
+	let kind = draw(r, 12)
+	if kind == 9 && bounded {
+		return pRead{slot: draw(r, slots)}
+	}
+	if depth == 0 || kind < 4 {
+		match kind % 4 {
+		case 0:
+			pText{slot: draw(r, slots)}
+		case 1:
+			pInput{slot: draw(r, slots)}
+		case 2:
+			pCheck{slot: draw(r, slots)}
+		case _:
+			pSwap{slot: draw(r, slots)}
+		}
+	} else {
+		let inner = bounded || kind == 8 || kind == 9
+		let mut kids = []prog{}
+		for _ in 0..draw(r, 4) {
+			kids = kids.Append(genProg(r, depth-1, inner))
+		}
+		match kind {
+		case 4:
+			pBox{slot: draw(r, slots), kids: kids}
+		case 5:
+			pRow{kids: kids}
+		case 6:
+			pPress{slot: draw(r, slots), kids: kids}
+		case 7:
+			pEach{slot: draw(r, slots), kids: kids}
+		case 10:
+			pFieldset{slot: draw(r, slots), kids: kids}
+		case 11:
+			pSame{kids: kids, memo: true}
+		case _:
+			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
+		}
+	}
+}
+
+func genState(r mut rng) []int {
+	let mut s = []int{}
+	for _ in 0..slots {
+		s = s.Append(draw(r, 64))
+	}
+	s
+}
+
+// items are the keys an Each shows for state value v: 0 to 5 turned by v,
+// some left out, so a change of v moves, adds and removes rows.
+func items(v int) []int {
+	let mut out = []int{}
+	for i in 0..6 {
+		let k = (i + v) % 6
+		if (k+v/6)%3 != 0 {
+			out = out.Append(k)
+		}
+	}
+	out
+}
+
+func gapped(v int) Style {
+	let mut st = Plain()
+	st.Gap = Length(float64(v % 3))
+	st
+}
+
+// described is the description of a pFieldset at state value v: a text
+// for an even v, none for an odd one.
+func described(v int) string {
+	if v%2 == 0 {
+		return "d\(v)"
+	}
+	""
+}
+
+// reads marks the state slots p reads.
+func reads(p prog, used []bool) []bool {
+	let mut out = used
+	let mut kids = []prog{}
+	match p {
+	case pText as x:
+		out[x.slot] = true
+	case pInput as x:
+		out[x.slot] = true
+	case pCheck as x:
+		out[x.slot] = true
+	case pSwap as x:
+		out[x.slot] = true
+	case pRead as x:
+		out[x.slot] = true
+	case pBox as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pRow as x:
+		kids = x.kids
+	case pPress as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pEach as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pBound as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pFieldset as x:
+		out[x.slot] = true
+		kids = x.kids
+	case pSame as x:
+		kids = x.kids
+	}
+	for c in kids {
+		out = reads(c, out)
+	}
+	out
+}
+
+// outcome is what a program means at a state: its shapes, or the failure
+// that leaves it (0 none, 1 Pending, 2 Missing with value v).
+type outcome { shapes []Shape[int], fail int, v int }
+
+func done(shapes []Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
+
+// model is what p means at state s: a failure in a container's body or an
+// Each row leaves the whole container or Each, and a pBound shows its
+// arm's Text in place of a body that failed.
+func model(p prog, s []int, row int) outcome {
+	match p {
+	case pText as x:
+		done([]Shape[int]{leaf(TextNode{Value: "t\(s[x.slot] + row)", Style: Plain()})})
+	case pInput as x:
+		done([]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len("v\(s[x.slot] + row)"), Anchor: len("v\(s[x.slot] + row)")})})
+	case pCheck as x:
+		done([]Shape[int]{leaf(CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
+	case pSwap as x:
+		let v = s[x.slot] + row
+		if v%2 == 0 {
+			return done([]Shape[int]{leaf(TextNode{Value: "even \(v)", Style: Plain()})})
+		}
+		done([]Shape[int]{leaf(CheckNode{Label: "odd", Checked: v%3 == 0, On: v})})
+	case pBox as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: BoxNode{Style: gapped(s[x.slot])}, Kids: o.shapes}})
+	case pRow as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: RowNode{Style: Plain()}, Kids: o.shapes}, leaf(TextNode{Value: "after", Style: Plain()})})
+	case pPress as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: PressStyle()}, Kids: o.shapes}})
+	case pFieldset as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
+	case pSame as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		let mut kids = []Shape[int]{leaf(ToggleNode{Label: "same", On: false}), Shape[int]{Node: BoxNode{Style: Plain()}, Kids: []Shape[int]{leaf(ToggleNode{Label: "inner", On: false})}}}
+		for k in o.shapes {
+			kids = kids.Append(k)
+		}
+		done([]Shape[int]{Shape[int]{Node: BoxNode{Style: Plain()}, Kids: kids}})
+	case pEach as x:
+		let mut out = []Shape[int]{}
+		for k in items(s[x.slot]) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail != 0 {
+				return o
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		done(out.Append(leaf(TextNode{Value: "after", Style: Plain()})))
+	case pBound as x:
+		let mut out = []Shape[int]{}
+		for k in boundRows(x, s, row) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail == 1 {
+				return done([]Shape[int]{leaf(TextNode{Value: "pending", Style: Plain()})})
+			}
+			if o.fail == 2 && o.v%2 == 0 {
+				return done([]Shape[int]{leaf(TextNode{Value: "missing \(o.v)", Style: Plain()})})
+			}
+			if o.fail == 2 {
+				return done([]Shape[int]{})
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		if x.form == 1 {
+			return done([]Shape[int]{Shape[int]{Node: BoxNode{Style: Plain()}, Kids: out}})
+		}
+		done(out)
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 0 {
+			return done([]Shape[int]{})
+		}
+		outcome{shapes: []Shape[int]{}, fail: v % 3, v: v}
+	}
+}
+
+func outcomes(ps []prog, s []int, row int) outcome {
+	let mut out = []Shape[int]{}
+	for p in ps {
+		let o = model(p, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		for x in o.shapes {
+			out = out.Append(x)
+		}
+	}
+	done(out)
+}
+
+// stops is whether some pBound of ps fails at s: then the frame may park
+// what it held; otherwise it holds only the tree.
+func stopsAt(ps []prog, s []int, row int) bool {
+	for p in ps {
+		if stopIn(p, s, row) {
+			return true
+		}
+	}
+	false
+}
+
+func stopIn(p prog, s []int, row int) bool {
+	match p {
+	case pBox as x:
+		stopsAt(x.kids, s, row)
+	case pRow as x:
+		stopsAt(x.kids, s, row)
+	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pFieldset as x:
+		stopsAt(x.kids, s, row)
+	case pSame as x:
+		stopsAt(x.kids, s, row)
+	case pEach as x:
+		for k in items(s[x.slot]) {
+			if stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case pBound as x:
+		for k in boundRows(x, s, row) {
+			if outcomes(x.kids, s, k).fail != 0 || stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+// boundRows is the rows a pBound runs its kids in: the Each's items for
+// form 2, and the enclosing row otherwise.
+func boundRows(x pBound, s []int, row int) []int {
+	if x.form == 2 {
+		return items(s[x.slot])
+	}
+	[]int{row}
+}
+
+func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
+
+func genRoot(r mut rng) []prog {
+	let mut ps = []prog{}
+	for _ in 0..draw(r, 4)+1 {
+		ps = ps.Append(genProg(r, 3, false))
+	}
+	ps
+}
+
+func shuffled(xs []int, r mut rng) []int {
+	let mut out = xs
+	for i in 0..len(out) {
+		let j = i + draw(r, len(out)-i)
+		let x = out[i]
+		out[i] = out[j]
+		out[j] = x
+	}
+	out
+}
+
+// pp is a generated paint program: fills and strokes of paths, and
+// transforms and clips around programs of their own. Every number it
+// paints reads the state, so a new state repaints.
+type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppImage{k int} | ppSprite{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
+
+func genPaint(r mut rng, depth int) []pp {
+	let mut out = []pp{}
+	for _ in 0..draw(r, 4) {
+		let k = draw(r, 50)
+		let kind = draw(r, 7)
+		if depth == 0 || kind < 5 {
+			match kind % 5 {
+			case 0:
+				out = out.Append(ppFill{k: k})
+			case 1:
+				out = out.Append(ppStroke{k: k})
+			case 2:
+				out = out.Append(ppImage{k: k})
+			case 3:
+				out = out.Append(ppSprite{k: k})
+			case _:
+				out = out.Append(ppRect{k: k})
+			}
+		} else if kind == 5 {
+			out = out.Append(ppMove{k: k, kids: genPaint(r, depth-1)})
+		} else {
+			out = out.Append(ppClip{k: k, kids: genPaint(r, depth-1)})
+		}
+	}
+	out
+}
+
+// pick is a subset of the keys 0 to 5 in a drawn order; all of them when
+// keepAll. A quarter of the other picks are empty, so a pass leaves every
+// row out and the column that held their cells holds none.
+func pick(r mut rng, keepAll bool) []int {
+	let mut keys = []int{}
+	if !keepAll && draw(r, 4) == 0 {
+		return keys
+	}
+	for k in 0..6 {
+		if keepAll || draw(r, 3) != 0 {
+			keys = keys.Append(k)
+		}
+	}
+	shuffled(keys, r)
+}

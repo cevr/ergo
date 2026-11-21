@@ -47,7 +47,7 @@ func Load(path string) json.Value fails Failed needs Documents {
 	}
 }
 
-// Fmt is the document at path in jq's layout.
+// Fmt is the document at path, indented.
 func Fmt(path string) Outcome needs Documents {
 	let v = Load(path) catch {
 	case Failed as f:
@@ -65,7 +65,7 @@ func Min(path string) Outcome needs Documents {
 	Outcome{Out: json.Compact(v) + "\n", Err: "", Status: 0}
 }
 
-// Get is the value at ptr in the document at path, in jq's layout.
+// Get is the value at ptr in the document at path, indented.
 func Get(ptr string, path string) Outcome needs Documents {
 	let v = Load(path) catch {
 	case Failed as f:

@@ -1,0 +1,797 @@
+// Looks (UG1): what a node's box paints under its children. A Look is a
+// resolved, complete value: every field is set, nothing is optional,
+// nothing is inherited from a parent and std merges nothing (a caller that
+// builds looks from parts merges them before the pass). A node holds a
+// LookId, a handle to the five looks of its interaction states (Looks),
+// which the frame interns once (LookFor) and sends to the host once
+// (Define), so the tree, the diff, Same and a patch carry one word per
+// node, and a host switches a node's state (UG3's hover) by an index with
+// no pass. The table grows with the distinct looks, not with the nodes, as
+// an atomic style sheet grows with its distinct declarations.
+//
+// The desktop host chose a fill and a radius per node kind before looks;
+// those are now the default looks std writes (DefaultLooks), so every
+// host paints the same look from the tree.
+//
+// Prior art: CSS's background-color, border, border-radius, box-shadow
+// and opacity; StyleX's atomic classes (a declaration once, however many
+// components use it) and its last-applied-wins merge, done before the
+// host; Elm UI's Background.color, Border.rounded and Border.shadow, values
+// where CSS has text; Flutter's BoxDecoration.
+
+import actor
+import strings
+import time
+import json
+
+// Look is how a node's box looks in one state. Fill paints the box inside
+// its corners (a transparent Fill paints nothing); Border is a line along
+// the inside of the box's edge (Width 0: none); Corners round the box, its
+// fill, its border and its shadows; each of Shadows paints under the box
+// (or, Inset, inside it), the first lowest, a transparent one nothing;
+// Opacity, from 0 to 1, multiplies the alpha of all that the node and its
+// subtree paint; Ink is how the node's own text is drawn.
+type Look { Fill Color, Border Border, Corners Corners, Shadows [4]Shadow, Opacity float64, Ink Ink }
+
+// Ink is how a node draws its own text (OpenTUI gap 1): in Color (a
+// transparent Color is the host's own text colour), bold, italic,
+// underlined. Only a node that draws text of its own uses it, a Text or a
+// Readout (TextStyled and ReadoutStyled give one a look); it is not inherited, as no part of a Look is, so a Text
+// inside a Box drawn in red is in the host's colour unless its own look
+// says otherwise. Like the rest of a Look it is per interaction state, so
+// a focused or hovered text can change ink with no pass.
+//
+// Prior art: CSS's color, font-weight, font-style and text-decoration on
+// the element itself (here never inherited, as StyleX's atomic classes
+// are applied); OpenTUI's fg and its BOLD, ITALIC and UNDERLINE
+// attributes; Elm UI's Font.color, Font.bold, Font.italic, Font.underline.
+type Ink { Color Color, Bold bool, Italic bool, Underline bool }
+
+// PlainInk is the host's own text: its colour, regular, not underlined.
+func PlainInk() Ink { Ink{Color: Clear(), Bold: false, Italic: false, Underline: false} }
+
+// inkText is what a screenshot prints for an ink other than PlainInk.
+func inkText(k Ink) string {
+	if k == PlainInk() {
+		return ""
+	}
+	let mut out = " ink"
+	if k.Color.A != 0 {
+		out = out + " \(colorText(k.Color))"
+	}
+	if k.Bold {
+		out = out + " bold"
+	}
+	if k.Italic {
+		out = out + " italic"
+	}
+	if k.Underline {
+		out = out + " underline"
+	}
+	out
+}
+
+// drawInk is a drawn ink. (a law's helper)
+func drawInk(r mut rng) Ink {
+	Ink{Color: drawLookColor(r), Bold: draw(r, 2) == 0, Italic: draw(r, 2) == 0, Underline: draw(r, 2) == 0}
+}
+
+// InkShowsInTheScreenshot (OpenTUI gap 1): over drawn inks k, a Text
+// given Inked(k) holds that look in the test host, and its screenshot
+// line names k's colour (when it is not transparent) and each of bold,
+// italic and underline that k has, and nothing when k is PlainInk; a
+// Readout given Inked(k) holds and shows it the same; a Text inside a Box
+// whose look has ink k shows no ink: ink is not inherited.
+law InkShowsInTheScreenshot(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let k = if draw(&r, 4) == 0 { PlainInk() } else { drawInk(&r) }
+		let rd = NewReadout("r")
+		let view = func(f mut Frame[int], s int) {
+			let mut inked = Plain()
+			inked.Look = LookFor(f, Steady(Inked(k)))
+			Column(f, Plain()) {
+				TextStyled(f, "a", inked)
+				ReadoutStyled(f, rd, "rr", inked)
+				Box(f, inked) {
+					Text(f, "b")
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let screen = Screen(&h)
+		if len(screen) != 1 || len(screen[0].Kids) != 3 || len(screen[0].Kids[2].Kids) != 1 {
+			return false
+		}
+		let mut parts = ""
+		if k.Color.A != 0 {
+			parts = parts + " " + colorText(k.Color)
+		}
+		if k.Bold {
+			parts = parts + " bold"
+		}
+		if k.Italic {
+			parts = parts + " italic"
+		}
+		if k.Underline {
+			parts = parts + " underline"
+		}
+		let want = if k == PlainInk() { "" } else { " { ink" + parts + " }" }
+		let lines = strings.Split(Screenshot(&h), "\n")
+		len(lines) == 6 && lines[1] == "  text \"a\""+want && lines[2] == "  text \"r\""+want && lines[4] == "    text \"b\"" && LooksOf(&h, screen[0].Kids[0].Node) == Steady(Inked(k)) && LooksOf(&h, screen[0].Kids[1].Node) == Steady(Inked(k))
+	}
+}
+
+// Border is a line Width wide along the inside of a box's edge.
+type Border { Width Length, Color Color }
+
+// Corners are the radii of a box's four corners.
+type Corners { TopLeft Length, TopRight Length, BottomRight Length, BottomLeft Length }
+
+// Shadow is a box shadow, as CSS's box-shadow is: the box offset by X and
+// Y, grown by Spread, blurred by Blur (CSS's blur radius), in Color; it
+// shows outside the box, or, Inset, inside it.
+type Shadow { X Length, Y Length, Blur Length, Spread Length, Color Color, Inset bool }
+
+// Looks are a node's looks in each interaction state: at rest, under the
+// pointer, holding the keyboard focus, pressed, and disabled. A host
+// paints the one its state selects (UG1 hosts paint Rest, and Disabled
+// for a node a disabled Fieldset holds).
+type Looks { Rest Look, Hover Look, Focus Look, Active Look, Disabled Look }
+
+// LookId is a handle to Looks a frame interned: the same Looks give the
+// same LookId for the frame's life.
+type LookId { n int }
+
+// Clear is the transparent colour: a Fill, Border or Shadow of it paints
+// nothing.
+func Clear() Color { Color{R: 0, G: 0, B: 0, A: 0} }
+
+// Rgb is the opaque colour 0xRRGGBB.
+func Rgb(hex uint32) Color {
+	Color{R: uint8((hex >> 16) & 255), G: uint8((hex >> 8) & 255), B: uint8(hex & 255), A: 255}
+}
+
+// Round is the same radius at every corner.
+func Round(r Length) Corners { Corners{TopLeft: r, TopRight: r, BottomRight: r, BottomLeft: r} }
+
+// QueryRoundTrips: QueryOf reads back the query WithQuery writes, through
+// Href and ParseURL, for drawn records whose texts hold any byte; a
+// record field has no query form and fails QueryShape naming its key, and
+// so does a value that is not a record, with no key.
+law QueryRoundTrips(seed int, a string, b string, tags []string) {
+	let mut r = seeded(seed)
+	let mut note json.Optional[string] = json.Absent
+	if draw(&r, 2) == 0 {
+		note = json.Present{Value: b + a}
+	}
+	let mut ts = tags
+	if len(ts) == 0 {
+		ts = []string{a}
+	}
+	let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts}
+	let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch {
+	case QueryShape:
+		return false
+	}
+	let back = QueryOf[queryRecord](ParseURL(Href(u))) catch {
+	case _:
+		return false
+	}
+	let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch {
+	case QueryShape as q:
+		q.Key
+	}
+	let scalar = EncodeQuery(draw(&r, 9)) catch {
+	case QueryShape as q:
+		"none" + q.Key
+	}
+	back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none"
+}
+
+// queryRecord is QueryRoundTrips' record: a field of each scalar kind, a
+// key that needs escaping (a space and an '&'), an optional field and a list.
+type queryRecord {
+	Name  string,
+	Sort  string "sort by&",
+	Page  int,
+	Big   uint64,
+	Ratio float64,
+	On    bool,
+	Note  json.Optional[string],
+	Tags  []string,
+}
+
+// queryNested has a field with no query form.
+type queryNested { Name string, Inner queryRecord }
+
+// NoShadow is the shadow that paints nothing.
+func NoShadow() Shadow { Shadow{X: 0, Y: 0, Blur: 0, Spread: 0, Color: Clear(), Inset: false} }
+
+// Bare is the look that paints nothing: no fill, no border, square
+// corners, no shadow, opaque, its text in the host's own ink.
+func Bare() Look {
+	Look{Fill: Clear(), Border: Border{Width: 0, Color: Clear()}, Corners: Round(0), Shadows: [4]Shadow{NoShadow(), NoShadow(), NoShadow(), NoShadow()}, Opacity: 1.0, Ink: PlainInk()}
+}
+
+// Inked is Bare with its text in ink k: the look of a Text that changes
+// only how its text is drawn.
+func Inked(k Ink) Look {
+	let mut l = Bare()
+	l.Ink = k
+	l
+}
+
+// Steady is l in every state.
+func Steady(l Look) Looks { Looks{Rest: l, Hover: l, Focus: l, Active: l, Disabled: l} }
+
+// PressLook is the default look of a Pressable and a Submit: a light gray
+// fill with corners of 6, the desktop host's button before looks.
+func PressLook() Look {
+	let mut l = Bare()
+	l.Fill = Rgb(0xe6e9ed)
+	l.Corners = Round(6)
+	l
+}
+
+// The looks every frame and every host hold from the start, by LookId:
+// 0 is Bare's, 1 is PressLook's.
+func defaultTable() []Looks { []Looks{Steady(Bare()), Steady(PressLook())} }
+
+// defaultIds is defaultTable's LookIds by Looks.
+func defaultIds() Map[Looks, int] {
+	let mut out = Map[Looks, int]{}
+	for i, ls in defaultTable() {
+		out[ls] = i
+	}
+	out
+}
+
+// BareId is the LookId of Bare in every state: Plain's.
+func BareId() LookId { LookId{n: 0} }
+
+// PressId is the LookId of PressLook in every state: a Pressable's.
+func PressId() LookId { LookId{n: 1} }
+
+// DefaultLooks is the LookId std writes for a node's kind when the view
+// gives none: PressId for a Pressable, BareId for the rest.
+func DefaultLooks[E](n Node[E]) LookId {
+	match n {
+	case PressableNode[E]:
+		PressId()
+	case _:
+		BareId()
+	}
+}
+
+// PressStyle is the Style of a Pressable that was given none: Plain with
+// PressId.
+func PressStyle() Style {
+	let mut s = Plain()
+	s.Look = PressId()
+	s
+}
+
+// LookFor is the handle of ls in f: the one f gave ls before, else a new
+// one, which the next Commit sends to the host before the ops that use it
+// (Define). Write the handle in a node's Style (Style.Look).
+func LookFor[E](f mut Frame[E], ls Looks) LookId {
+	match f.lookIds.Get(ls) {
+	case Some[int] as n:
+		LookId{n: n.Value}
+	case None:
+		let n = len(f.lookList)
+		f.lookList = f.lookList.Append(ls)
+		f.lookIds[ls] = n
+		LookId{n: n}
+	}
+}
+
+// LookCount is how many Looks f has interned, the defaults included.
+func LookCount[E](f mut Frame[E]) int { len(f.lookList) }
+
+// defines are the Define ops of the looks f interned since its last
+// Commit, in LookId order, and marks them sent.
+func defines[E](f mut Frame[E]) []Op[E] {
+	let mut out = []Op[E]{}
+	for f.lookSent < len(f.lookList) {
+		out = out.Append(Define{Id: LookId{n: f.lookSent}, Looks: f.lookList[f.lookSent]})
+		f.lookSent = f.lookSent + 1
+	}
+	out
+}
+
+// PressableStyled is a Pressable with a style of its own: its layout and
+// its looks, in place of PressStyle.
+func PressableStyled[E, F, R](f mut Frame[E], label string, on E, style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, PressableNode{Label: label, On: on, Style: style}, body, at)
+}
+
+// StyleOf is a node's Style, None for a node kind that has none (a
+// control a host draws, a canvas, a list).
+func StyleOf[E](n Node[E]) Option[Style] {
+	match n {
+	case BoxNode as x:
+		Some{Value: x.Style}
+	case RowNode as x:
+		Some{Value: x.Style}
+	case ColumnNode as x:
+		Some{Value: x.Style}
+	case ScrollNode as x:
+		Some{Value: x.Style}
+	case TextNode as x:
+		Some{Value: x.Style}
+	case ReadoutNode as x:
+		Some{Value: x.Style}
+	case PressableNode[E] as x:
+		Some{Value: x.Style}
+	case AreaNode as x:
+		Some{Value: x.Style}
+	case ZoneNode as x:
+		Some{Value: x.Style}
+	case SemanticNode[E] as x:
+		Some{Value: x.Style}
+	case _:
+		None
+	}
+}
+
+// LookIdOf is the handle of a node's looks: its Style's, BareId for a node
+// with no Style.
+func LookIdOf[E](n Node[E]) LookId {
+	match StyleOf(n) {
+	case Some[Style] as s:
+		s.Value.Look
+	case None:
+		BareId()
+	}
+}
+
+// LooksIn is the Looks a table holds for id, Bare's for an id it does not
+// hold.
+func LooksIn(table []Looks, id LookId) Looks {
+	if id.n >= 0 && id.n < len(table) {
+		return table[id.n]
+	}
+	Steady(Bare())
+}
+
+// colorText is in paint.ergo.
+
+func lookText(l Look) string {
+	let mut out = ""
+	for sh in l.Shadows {
+		if sh.Color.A == 0 {
+			continue
+		}
+		let inset = if sh.Inset { " inset" } else { "" }
+		out = out + " shadow \(sh.X) \(sh.Y) \(sh.Blur) \(sh.Spread) \(colorText(sh.Color))\(inset)"
+	}
+	if l.Fill.A != 0 {
+		out = out + " fill \(colorText(l.Fill))"
+	}
+	if l.Border.Width != 0 && l.Border.Color.A != 0 {
+		out = out + " border \(l.Border.Width) \(colorText(l.Border.Color))"
+	}
+	let c = l.Corners
+	if c != Round(0) {
+		if c == Round(c.TopLeft) {
+			out = out + " round \(c.TopLeft)"
+		} else {
+			out = out + " round \(c.TopLeft) \(c.TopRight) \(c.BottomRight) \(c.BottomLeft)"
+		}
+	}
+	if l.Opacity != 1.0 {
+		out = out + " opacity \(l.Opacity)"
+	}
+	out + inkText(l.Ink)
+}
+
+// looksText is what a screenshot prints after a node for its looks:
+// nothing when they are its kind's default; else the rest look, and each
+// other state's look that differs from it.
+func looksText[E](n Node[E], table []Looks) string {
+	let id = LookIdOf(n)
+	if id == DefaultLooks(n) {
+		return ""
+	}
+	let ls = LooksIn(table, id)
+	let mut out = " {" + lookText(ls.Rest) + " }"
+	let states = []string{"hover", "focus", "active", "disabled"}
+	let others = []Look{ls.Hover, ls.Focus, ls.Active, ls.Disabled}
+	for i, l in others {
+		if l != ls.Rest {
+			out = out + " \(states[i]) {" + lookText(l) + " }"
+		}
+	}
+	out
+}
+
+// drawLookColor is a drawn colour, its alpha one of four. (a law's helper)
+func drawLookColor(r mut rng) Color {
+	let alphas = []uint8{255, 255, 128, 0}
+	Color{R: uint8(draw(r, 256)), G: uint8(draw(r, 256)), B: uint8(draw(r, 256)), A: alphas[draw(r, 4)]}
+}
+
+// drawLength is a drawn length from 0 to n-1. (a law's helper)
+func drawLength(r mut rng, n int) Length { Length(float64(draw(r, n))) }
+
+// drawLook is a drawn look. (a law's helper)
+func drawLook(r mut rng) Look {
+	let mut l = Bare()
+	l.Fill = drawLookColor(r)
+	l.Border = Border{Width: drawLength(r, 4), Color: drawLookColor(r)}
+	if draw(r, 2) == 0 {
+		l.Corners = Round(drawLength(r, 12))
+	} else {
+		l.Corners = Corners{TopLeft: drawLength(r, 12), TopRight: drawLength(r, 12), BottomRight: drawLength(r, 12), BottomLeft: drawLength(r, 12)}
+	}
+	for i in 0..draw(r, 4) {
+		l.Shadows[i] = Shadow{X: drawLength(r, 5) - 2, Y: drawLength(r, 5), Blur: drawLength(r, 9), Spread: drawLength(r, 3), Color: drawLookColor(r), Inset: draw(r, 4) == 0}
+	}
+	let opacities = []float64{1.0, 1.0, 0.5, 0.25}
+	l.Opacity = opacities[draw(r, 4)]
+	l
+}
+
+// drawLooks is drawn Looks: each state other than Rest is Rest's look or
+// one of its own. (a law's helper)
+func drawLooks(r mut rng) Looks {
+	let rest = drawLook(r)
+	let other = func() Look {
+		if draw(r, 2) == 0 {
+			return rest
+		}
+		drawLook(r)
+	}
+	Looks{Rest: rest, Hover: other(), Focus: other(), Active: other(), Disabled: other()}
+}
+
+// changeLook is l with one part made different: its fill, border,
+// corners, shadows or opacity, by part mod 5. (a law's helper)
+func changeLook(l Look, part int) Look {
+	let mut out = l
+	match (part%5 + 5) % 5 {
+	case 0:
+		out.Fill = Color{R: l.Fill.R, G: l.Fill.G, B: l.Fill.B, A: if l.Fill.A == 255 { 0 } else { 255 }}
+	case 1:
+		out.Border = Border{Width: l.Border.Width + 1, Color: Color{R: l.Border.Color.R, G: l.Border.Color.G, B: l.Border.Color.B, A: 255}}
+	case 2:
+		out.Corners = Corners{TopLeft: l.Corners.TopLeft, TopRight: l.Corners.TopRight, BottomRight: l.Corners.BottomRight + 1, BottomLeft: l.Corners.BottomLeft}
+	case 3:
+		out.Shadows[3] = Shadow{X: 0, Y: 1, Blur: 2, Spread: 0, Color: Rgb(0x102030), Inset: l.Shadows[3].Inset == false}
+	case _:
+		out.Opacity = if l.Opacity == 1.0 { 0.75 } else { 1.0 }
+	}
+	out
+}
+
+// changeLooks is ls with the look of one state, state mod 5, changed by
+// part. (a law's helper)
+func changeLooks(ls Looks, state int, part int) Looks {
+	let mut out = ls
+	match (state%5 + 5) % 5 {
+	case 0:
+		out.Rest = changeLook(ls.Rest, part)
+	case 1:
+		out.Hover = changeLook(ls.Hover, part)
+	case 2:
+		out.Focus = changeLook(ls.Focus, part)
+	case 3:
+		out.Active = changeLook(ls.Active, part)
+	case _:
+		out.Disabled = changeLook(ls.Disabled, part)
+	}
+	out
+}
+
+// lookedView writes looks[i] on the i-th of the containers that take a
+// Style, in a Column, each holding a Text, then a Pressable given no style
+// that sends 1. (a law's helper)
+func lookedView(f mut Frame[int], looks []Looks) {
+	let st = func(i int) Style {
+		let mut s = Plain()
+		s.Look = LookFor(f, looks[i])
+		s
+	}
+	Column(f, Plain()) {
+		Box(f, st(0)) {
+			Text(f, "a")
+		}
+		Row(f, st(1)) {
+			Text(f, "b")
+		}
+		Column(f, st(2)) {
+			Text(f, "c")
+		}
+		Scroll(f, st(3)) {
+			Text(f, "d")
+		}
+		Area(f, "area", st(4), func(p PointerEvent) Option[int] { None }) {
+			Text(f, "e")
+		}
+		Zone(f, ByInt(5), st(5)) {
+			Text(f, "f")
+		}
+		Semantic(f, Named(Region, "sem"), None, st(6)) {
+			Text(f, "g")
+		}
+		PressableStyled(f, "styled", 2, st(7)) {
+			Text(f, "h")
+		}
+		Pressable(f, "go", 1) {
+			Text(f, "i")
+		}
+	}
+}
+
+// PaintIsWhatWasGiven (UG1): over drawn Looks on every container that
+// takes a Style, the test host holds, for each node, the Looks its view
+// gave (LooksOf), and a Pressable given no style holds PressLook; when
+// one part (fill, border, corners, shadows or opacity) of one state's look
+// of one node changes, the host holds the new Looks, the others stay, and
+// the screenshot's text changes: it shows every part of every state.
+law PaintIsWhatWasGiven(seed int, state int, part int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let mut before = []Looks{}
+		for _ in 0..8 {
+			before = before.Append(drawLooks(&r))
+		}
+		let k = draw(&r, 8)
+		let changed = changeLooks(before[k], state, part)
+		let mut after = []Looks{}
+		for i, ls in before {
+			after = after.Append(if i == k { changed } else { ls })
+		}
+		let view = func(f mut Frame[int], s int) {
+			if s == 0 {
+				lookedView(f, before)
+			} else {
+				lookedView(f, after)
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let shot = Screenshot(&h)
+		for step in 0..2 {
+			let want = if step == 0 { before } else { after }
+			let screen = Screen(&h)
+			if len(screen) != 1 || len(screen[0].Kids) != 9 {
+				return false
+			}
+			for i, ls in want {
+				if LooksOf(&h, screen[0].Kids[i].Node) != ls {
+					return false
+				}
+			}
+			if LooksOf(&h, screen[0].Kids[8].Node) != Steady(PressLook()) {
+				return false
+			}
+			if step == 0 {
+				let ids = Locate(&h, WithLabel{Label: "go"})
+				if len(ids) != 1 {
+					return false
+				}
+				Tap(&h, ids[0]) catch {
+				case _:
+					return false
+				}
+				Settle(&h) catch {
+				case _:
+					return false
+				}
+			}
+		}
+		Screenshot(&h) != shot
+	}
+}
+
+// nested writes a drawn tree under a node of looks ls: depth levels, each
+// a Box, Row, Column, Area or Pressable given ls, holding a child of the
+// same kind written with no look of its own, and a Text. (a law's helper)
+func nested(f mut Frame[int], ls Looks, kinds []int, depth int) {
+	if depth >= len(kinds) {
+		Text(f, "leaf")
+		return
+	}
+	let mut painted = Plain()
+	painted.Look = LookFor(f, ls)
+	let kid = func() {
+		match kinds[depth] {
+		case 0:
+			Box(f, Plain()) {
+				nested(f, ls, kinds, depth+1)
+			}
+		case 1:
+			Row(f, Plain()) {
+				nested(f, ls, kinds, depth+1)
+			}
+		case 2:
+			Area(f, "a\(depth)", Plain(), func(p PointerEvent) Option[int] { None }) {
+				nested(f, ls, kinds, depth+1)
+			}
+		case _:
+			Pressable(f, "p\(depth)", depth) {
+				nested(f, ls, kinds, depth+1)
+			}
+		}
+	}
+	match kinds[depth] {
+	case 0:
+		Box(f, painted) {
+			kid()
+		}
+	case 1:
+		Row(f, painted) {
+			kid()
+		}
+	case 2:
+		Area(f, "A\(depth)", painted, func(p PointerEvent) Option[int] { None }) {
+			kid()
+		}
+	case _:
+		PressableStyled(f, "P\(depth)", depth, painted) {
+			kid()
+		}
+	}
+}
+
+// unpainted is whether every node of shapes whose depth is odd (written
+// with no look of its own) holds its kind's default looks. (a law's
+// helper)
+func unpainted[S, D, F](h mut TestHost[S, int, D, F], shapes []Shape[int], odd bool) bool {
+	for s in shapes {
+		if odd && LooksOf(h, s.Node) != LooksIn(defaultTable(), DefaultLooks(s.Node)) {
+			return false
+		}
+		if !unpainted[S, D, F](h, s.Kids, !odd) {
+			return false
+		}
+	}
+	true
+}
+
+// PaintIsNotInherited (UG1): a node written with no look of its own under
+// a painted parent holds its kind's default looks (Bare, or PressLook for
+// a Pressable), at every depth of drawn nestings of Boxes, Rows, Areas and
+// Pressables: std copies no look from a parent, and a host paints only
+// what the node holds.
+law PaintIsNotInherited(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let ls = drawLooks(&r)
+		let mut kinds = []int{}
+		for _ in 0..draw(&r, 4)+1 {
+			kinds = kinds.Append(draw(&r, 4))
+		}
+		let view = func(f mut Frame[int], s int) { nested(f, ls, kinds, 0) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let screen = Screen(&h)
+		len(screen) == 1 && LooksOf(&h, screen[0].Node) == ls && unpainted(&h, screen, false)
+	}
+}
+
+// PaintTableGrowsWithDistinctPaints (UG1, a counted guard): a tree of n
+// Boxes over k distinct Looks, in any order, gives a frame and a host
+// table of k looks beyond the defaults, at n and at 2n: the table grows
+// with the distinct looks, never with the nodes.
+law PaintTableGrowsWithDistinctPaints(seed int, count int) {
+	let mut r = seeded(seed)
+	let k = draw(&r, 5) + 1
+	let n = (count%20+20)%20 + k
+	let mut pool = []Looks{}
+	for i in 0..k {
+		let mut l = drawLook(&r)
+		l.Border = Border{Width: Length(float64(i + 1)), Color: Rgb(0x000000)}
+		pool = pool.Append(Steady(l))
+	}
+	let mut ok = true
+	for size in []int{n, 2 * n} {
+		let mut picks = []int{}
+		for i in 0..size {
+			picks = picks.Append(if i < k { i } else { draw(&r, k) })
+		}
+		let view = func(f mut Frame[int], xs []int) {
+			Column(f, Plain()) {
+				for x in xs {
+					let mut s = Plain()
+					s.Look = LookFor(f, pool[x])
+					Box(f, s) {
+						Text(f, "x")
+					}
+				}
+			}
+		}
+		let mut f = NewFrame[int]()
+		let mut m = NewMirror[int](Root(&f))
+		Apply(&m, Render(&f, view, picks)) catch {
+		case BadPatch:
+			return false
+		}
+		Apply(&m, Render(&f, view, picks)) catch {
+		case BadPatch:
+			return false
+		}
+		ok = ok && LookCount(&f) == len(defaultTable())+k && MirrorLookCount(&m) == LookCount(&f)
+	}
+	ok
+}
+
+// lookRejected is whether patch fails with BadPatch on m and leaves its
+// screen as shown and its table at the defaults. (a law's helper)
+func lookRejected(m mut Mirror[int], patch []Op[int], shown []Shape[int]) bool {
+	Apply(m, patch) catch {
+	case BadPatch:
+		return SameShapes(MirrorShape(m), shown) && MirrorLookCount(m) == len(defaultTable())
+	}
+	false
+}
+
+// MirrorRejectsUnheldLooks (UG1): a mirror fails with BadPatch, and keeps
+// its screen and its table, on a patch whose node names a look no Define
+// gave it, and on a Define of a LookId that is not the next; the same
+// patch with its Define first fits.
+law MirrorRejectsUnheldLooks(seed int) {
+	let mut r = seeded(seed)
+	let mut l = drawLook(&r)
+	l.Border = Border{Width: 1, Color: Rgb(0x000000)}
+	let view = func(f mut Frame[int], s int) {
+		let mut st = Plain()
+		if s == 1 {
+			st.Look = LookFor(f, Steady(l))
+		}
+		Column(f, Plain()) {
+			Box(f, st) {
+				Text(f, "x")
+			}
+		}
+	}
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	Apply(&m, Render(&f, view, 0)) catch {
+	case BadPatch:
+		return false
+	}
+	let shown = MirrorShape(&m)
+	let mut defines = []Op[int]{}
+	let mut uses = []Op[int]{}
+	for op in Render(&f, view, 1) {
+		match op {
+		case Define:
+			defines = defines.Append(op)
+		case _:
+			uses = uses.Append(op)
+		}
+	}
+	if len(defines) != 1 || len(uses) == 0 {
+		return false
+	}
+	let twice = []Op[int]{defines[0], defines[0]}
+	let mut fits = []Op[int]{defines[0]}
+	for op in uses {
+		fits = fits.Append(op)
+	}
+	if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) {
+		return false
+	}
+	Apply(&m, fits) catch {
+	case BadPatch:
+		return false
+	}
+	MirrorLookCount(&m) == len(defaultTable())+1
+}

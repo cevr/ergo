@@ -1,0 +1,382 @@
+import ergo.dev/fluid/part
+
+// The rule tables: total functions of part.Role, after WAI-ARIA 1.2 (as @ui-sdk/core's
+// kernel/roles.ts lists them).
+
+// FromContent reports whether a role takes its name from its content when none is stated.
+func FromContent(r part.Role) bool {
+	match r {
+	case part.Button, part.Link, part.Checkbox, part.Radio, part.Switch, part.Tab, part.MenuItem, part.MenuItemCheckbox, part.Choice, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader, part.ListItem, part.Tooltip, part.Heading:
+		true
+	case _:
+		false
+	}
+}
+
+// Named reports whether a node of the role must have a name: the controls, and the containers
+// a reader announces by name.
+func Named(r part.Role) bool {
+	match r {
+	case part.Button, part.Link, part.Checkbox, part.Radio, part.Switch, part.Slider, part.SpinButton, part.TextBox, part.SearchBox, part.Tab, part.MenuItem, part.MenuItemCheckbox, part.Choice, part.ComboBox, part.Dialog, part.Image, part.Heading:
+		true
+	case _:
+		false
+	}
+}
+
+// Requires is the states a node of the role must state.
+func Requires(r part.Role) []part.State {
+	match r {
+	case part.Tab, part.Choice:
+		[]part.State{part.Selected{Yes: false}}
+	case part.Checkbox, part.Radio, part.Switch, part.MenuItemCheckbox:
+		[]part.State{part.Checked{Value: part.Off}}
+	case part.Slider, part.SpinButton:
+		[]part.State{part.Value{Now: 0, Min: 0, Max: 1, Text: ""}}
+	case part.ComboBox:
+		[]part.State{part.Expanded{Yes: false}}
+	case _:
+		[]part.State{}
+	}
+}
+
+// Supports reports whether a node of the role may state s.
+func Supports(r part.Role, s part.State) bool {
+	match s {
+	case part.Busy, part.Current:
+		true
+	case part.Disabled:
+		widget(r) || composite(r) || inGrid(r) || isRole(r, part.Group) || isRole(r, part.TabPanel)
+	case part.Invalid:
+		match r {
+		case part.TextBox, part.SearchBox, part.ComboBox, part.Checkbox, part.RadioGroup, part.ListBox, part.Grid, part.Slider, part.SpinButton, part.Switch, part.GridCell:
+			true
+		case _:
+			false
+		}
+	case part.Checked:
+		match r {
+		case part.Checkbox, part.Radio, part.Switch, part.MenuItemCheckbox, part.Choice:
+			true
+		case _:
+			false
+		}
+	case part.Selected:
+		match r {
+		case part.Tab, part.Choice, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader:
+			true
+		case _:
+			false
+		}
+	case part.Expanded:
+		match r {
+		case part.Button, part.Link, part.ComboBox, part.Tab, part.MenuItem, part.MenuItemCheckbox, part.Row, part.GridCell, part.Group, part.ListBox:
+			true
+		case _:
+			false
+		}
+	case part.Pressed:
+		isRole(r, part.Button)
+	case part.Modal:
+		isRole(r, part.Dialog)
+	case part.MultiSelectable:
+		match r {
+		case part.ListBox, part.Grid, part.TabList:
+			true
+		case _:
+			false
+		}
+	case part.Value:
+		match r {
+		case part.Slider, part.SpinButton, part.Separator:
+			true
+		case _:
+			false
+		}
+	}
+}
+
+// Keyed reports whether a node of the role must have a keyboard map (or be a native control,
+// which has the browser's).
+func Keyed(r part.Role) bool {
+	match r {
+	case part.ComboBox, part.Grid, part.ListBox, part.Menu, part.RadioGroup, part.Slider, part.SpinButton, part.TabList:
+		true
+	case _:
+		false
+	}
+}
+
+// Focusable reports whether a node of the role takes focus by some reach.
+func Focusable(r part.Role) bool { widget(r) || isRole(r, part.GridCell) }
+
+// Composite reports whether a node of the role is one tab stop with arrows inside.
+func Composite(r part.Role) bool { composite(r) }
+
+func widget(r part.Role) bool {
+	match r {
+	case part.Button, part.Link, part.Checkbox, part.Radio, part.Switch, part.Slider, part.SpinButton, part.TextBox, part.SearchBox, part.Tab, part.MenuItem, part.MenuItemCheckbox, part.Choice, part.ComboBox:
+		true
+	case _:
+		false
+	}
+}
+
+func composite(r part.Role) bool {
+	match r {
+	case part.TabList, part.RadioGroup, part.Menu, part.ListBox, part.Grid, part.Toolbar:
+		true
+	case _:
+		false
+	}
+}
+
+func inGrid(r part.Role) bool {
+	match r {
+	case part.Row, part.GridCell, part.ColumnHeader, part.RowHeader:
+		true
+	case _:
+		false
+	}
+}
+
+func isRole(r part.Role, want part.Role) bool { RoleName(r) == RoleName(want) }
+
+// Problem is a node that breaks a rule, by its key ("" when it has none) and its role.
+type Problem = Unnamed{Key string} | Missing{Key string, State string} | Unsupported{Key string, State string} | NoKeys{Key string} | NoReach{Key string} | NamedGeneric{Key string} | Dangling{Key string, To string} | TabStops{Key string, Count int} | NoPopupState{Key string}
+
+// Check is every problem of the tree, in tree order.
+func Check(t Tree) []Problem {
+	let keys = keysOf(t)
+	let mut out = []Problem{}
+	checkTo(t, keys, func(p Problem) { out = out.Append(p) })
+	out
+}
+
+func checkTo(t Tree, keys Map[string, bool], f func(p Problem)) {
+	if t.Text == "" {
+		let r = t.Role
+		let k = t.Key
+		if Named(r) && t.Name == "" {
+			f(Unnamed{Key: k})
+		}
+		for s in Requires(r) {
+			if !has(t.States, s) {
+				f(Missing{Key: k, State: StateName(s)})
+			}
+		}
+		for s in t.States {
+			if !Supports(r, s) {
+				f(Unsupported{Key: k, State: StateName(s)})
+			}
+		}
+		if Keyed(r) && !t.Keyed && !t.Native {
+			f(NoKeys{Key: k})
+		}
+		if Focusable(r) && !reaches(t.Reach) {
+			f(NoReach{Key: k})
+		}
+		if isRole(r, part.Generic) && t.Name != "" {
+			f(NamedGeneric{Key: k})
+		}
+		for rel in t.Rels {
+			let to = relKey(rel)
+			if to != "" && keys.Get(to) == None {
+				f(Dangling{Key: k, To: to})
+			}
+			match rel {
+			case part.HasPopup:
+				if !has(t.States, part.Expanded{Yes: false}) {
+					f(NoPopupState{Key: k})
+				}
+			case _:
+			}
+		}
+		if composite(r) {
+			let n = stops(t.Kids)
+			if n != 1 {
+				f(TabStops{Key: k, Count: n})
+			}
+		}
+	}
+	for c in t.Kids {
+		checkTo(c, keys, f)
+	}
+}
+
+func reaches(r part.Reach) bool {
+	match r {
+	case part.Out:
+		false
+	case _:
+		true
+	}
+}
+
+// stops is how many tab stops trees hold.
+func stops(ts []Tree) int {
+	let mut n = 0
+	for t in ts {
+		if t.TabStop {
+			n = n + 1
+		}
+		n = n + stops(t.Kids)
+	}
+	n
+}
+
+func keysOf(t Tree) Map[string, bool] {
+	keysTo(t, Map[string, bool]{})
+}
+
+func keysTo(t Tree, seen Map[string, bool]) Map[string, bool] {
+	let mut out = seen
+	if t.Key != "" {
+		out[t.Key] = true
+	}
+	for c in t.Kids {
+		out = keysTo(c, out)
+	}
+	out
+}
+
+// count is how many problems of the kind ps hold. (the laws' helper)
+func count(ps []Problem, kind string) int {
+	let mut n = 0
+	for p in ps {
+		if kindOf(p) == kind {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func kindOf(p Problem) string {
+	match p {
+	case Unnamed:
+		"unnamed"
+	case Missing:
+		"missing"
+	case Unsupported:
+		"unsupported"
+	case NoKeys:
+		"nokeys"
+	case NoReach:
+		"noreach"
+	case NamedGeneric:
+		"namedgeneric"
+	case Dangling:
+		"dangling"
+	case TabStops:
+		"tabstops"
+	case NoPopupState:
+		"nopopup"
+	}
+}
+
+// fit is a node of role r that every rule but the one a law draws is satisfied by: its required
+// states, a name, a reach and a keyboard map when its role takes them. (the laws' helper)
+func fit(r part.Role) Tree {
+	let reach = if Focusable(r) { part.Stop } else { part.Out }
+	let mut kids = []Tree{}
+	if composite(r) {
+		kids = kids.Append(Tree{..box(part.Generic), Key: "stop", Reach: part.Stop, TabStop: true, Focusable: true})
+	}
+	Tree{..box(r), Name: if isRole(r, part.Generic) { "" } else { "n" }, States: Requires(r), Reach: reach, TabStop: Focusable(r), Focusable: Focusable(r), Keyed: Keyed(r), Kids: kids}
+}
+
+// RolesHaveRequiredStates: a node with its role's required states has none missing, and one
+// without any of them is missing that one; a required state is one the role supports.
+law RolesHaveRequiredStates(r part.Role, i int) {
+	let need = Requires(r)
+	let mut ok = count(Check(fit(r)), "missing") == 0
+	for s in need {
+		ok = ok && Supports(r, s)
+	}
+	if len(need) > 0 {
+		let drop = ((i % len(need)) + len(need)) % len(need)
+		let mut fewer = []part.State{}
+		for j in 0..len(need) {
+			if j != drop {
+				fewer = fewer.Append(need[j])
+			}
+		}
+		ok = ok && count(Check(Tree{..fit(r), States: fewer}), "missing") == 1
+	}
+	ok && (!isRole(r, part.Tab) || len(need) == 1) && (!isRole(r, part.Checkbox) || len(need) == 1)
+}
+
+// StatesAreSupportedByRole: a node stating s is flagged exactly when its role does not take s;
+// aria-selected is a tab's and an option's, never a button's.
+law StatesAreSupportedByRole(r part.Role, s part.State) {
+	let t = Tree{..fit(r), States: if has(Requires(r), s) { Requires(r) } else { Requires(r).Append(s) }}
+	(count(Check(t), "unsupported") == 1) == !Supports(r, s) && Supports(part.Tab, part.Selected{Yes: true}) && !Supports(part.Button, part.Selected{Yes: true}) && !Supports(part.Generic, part.Checked{Value: part.On})
+}
+
+// KeyedRolesHaveKeys: a node of a keyed role with no keyboard map is flagged unless it is a
+// native control; a tab list is keyed.
+law KeyedRolesHaveKeys(r part.Role, keyed bool, native bool) {
+	let t = Tree{..fit(r), Keyed: keyed, Native: native}
+	(count(Check(t), "nokeys") == 1) == (Keyed(r) && !keyed && !native) && Keyed(part.TabList) && Keyed(part.Slider)
+}
+
+// FocusKindIsStated: a node of a focusable role states how it takes focus; one that reaches no
+// way is flagged.
+law FocusKindIsStated(r part.Role, reach part.Reach) {
+	let t = Tree{..fit(r), Reach: reach}
+	(count(Check(t), "noreach") == 1) == (Focusable(r) && !reaches(reach)) && Focusable(part.Button) && Focusable(part.Tab)
+}
+
+// NamelessRolesHaveNoName: a generic node with a name is flagged (a reader ignores it); no
+// other role is.
+law NamelessRolesHaveNoName(r part.Role, name string) {
+	let t = Tree{..fit(r), Name: if name == "" && !isRole(r, part.Generic) { "n" } else { name }}
+	(count(Check(t), "namedgeneric") == 1) == (isRole(r, part.Generic) && name != "")
+}
+
+// RelationsResolve: a relation is flagged exactly when it names a key the tree does not hold.
+law RelationsResolve(keys []string, to string, which int) {
+	let mut kids = []Tree{}
+	for k in keys {
+		kids = kids.Append(Tree{..box(part.Group), Key: k})
+	}
+	let rels = []part.Rel{part.Controls{Key: to}, part.LabelledBy{Key: to}, part.DescribedBy{Key: to}, part.ActiveDescendant{Key: to}}
+	let rel = rels[((which%4)+4)%4]
+	let mut held = false
+	for k in keys {
+		held = held || k == to
+	}
+	let t = Tree{..box(part.Group), Rels: []part.Rel{rel}, Kids: kids}
+	(count(Check(t), "dangling") == 1) == (to != "" && !held) && (to != "" || count(Check(t), "dangling") == 0)
+}
+
+// OneTabStopPerComposite: a composite with other than one tab stop inside is flagged; a group
+// is not a composite.
+law OneTabStopPerComposite(r part.Role, n int) {
+	let k = ((n % 4) + 4) % 4
+	let mut kids = []Tree{}
+	for i in 0..k {
+		kids = kids.Append(Tree{..box(part.Generic), Key: "s\(i)", Reach: part.Stop, TabStop: true, Focusable: true})
+	}
+	let t = Tree{..fit(r), Kids: kids}
+	(count(Check(t), "tabstops") == 1) == (composite(r) && k != 1) && composite(part.TabList) && !composite(part.Group)
+}
+
+// ModalHidesTheRest: while a modal layer is shown, the access tree is the layer: nothing outside
+// it is a tab stop or offered to a reader.
+law ModalHidesTheRest(outside int, modal bool) {
+	let n = ((outside % 5) + 5) % 5
+	let mut kids = []part.Node[int]{}
+	for i in 0..n {
+		kids = kids.Append(press("out \(i)"))
+	}
+	kids = kids.Append(part.Layer{Z: 1, Modal: modal, Dismiss: None, Kids: []part.Node[int]{press("in")}})
+	let root part.Node[int] = part.Box{Sem: part.Plain(), Skin: part.Bare(), Inline: false, Keys: []part.Binding[int]{}, Kids: kids}
+	let t = Of(root)
+	stops(t.Kids) == (if modal { 1 } else { n + 1 }) && (!modal || textOf(t.Kids) == "in")
+}
+
+// press is an enabled button. (a law's helper)
+func press(label string) part.Node[int] {
+	part.Press{Sem: part.Of(part.Button), Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: Some[int]{Value: 1}, Kids: []part.Node[int]{part.Text{Value: label, Skin: part.Bare()}}}
+}

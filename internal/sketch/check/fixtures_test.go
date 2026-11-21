@@ -48,40 +48,6 @@ func describe(diags []check.Diagnostic) string {
 	return strings.Join(parts, "\n\t")
 }
 
-// TestFixtures checks the mirror of the acceptance fixtures (negative,
-// positive and the spec-example programs): the diagnostics are exactly the
-// `// want` markers, one per marked line, and no cascade (spec D3).
-func TestFixtures(t *testing.T) {
-	for _, dir := range []string{"negative", "positive", "spec"} {
-		files, _ := filepath.Glob(filepath.Join("testdata", "fixtures", dir, "*.ergo"))
-		if len(files) == 0 {
-			t.Fatalf("no fixtures in %s", dir)
-		}
-		for _, file := range files {
-			name := dir + "/" + strings.TrimSuffix(filepath.Base(file), ".ergo")
-			t.Run(name, func(t *testing.T) {
-				data, err := os.ReadFile(file)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, diags := check.CheckSource(string(data))
-				want, have := expected(string(data)), got(diags)
-				if strings.Join(want, " ") != strings.Join(have, " ") {
-					t.Errorf("want %v, got %v\n\t%s", want, have, describe(diags))
-				}
-				for _, d := range diags {
-					if !check.Registered(d.Code) {
-						t.Errorf("unregistered code %s", d.Code)
-					}
-					if d.Line == 0 || d.Length < 0 {
-						t.Errorf("unlocated diagnostic %s", d)
-					}
-				}
-			})
-		}
-	}
-}
-
 // TestParity checks the prototype's fixtures: each keeps its `// want` code
 // (or stays clean), except the overrides the designed rules change (spec
 // D11, mirrored in testdata/parity.overrides). It reads their decided

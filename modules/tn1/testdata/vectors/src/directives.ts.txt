@@ -1,0 +1,18 @@
+/*!
+ * @license MIT
+ */
+/* @license Apache-2.0 */
+// SPDX-License-Identifier: MIT
+// nosemgrep: javascript.lang.security.detect-eval
+export const run = (code: string) => eval(code);
+/* v8 ignore next */
+export const skipped = 1;
+/* c8 ignore start */
+export const alsoSkipped = 2;
+// oxfmt-ignore
+export const matrix = [1, 0, 0, 1];
+// biome-ignore lint/suspicious/noExplicitAny: probe
+export const anyValue: any = 0;
+// this comment names nosemgrep and a licence in passing
+export const once = /* @__INLINE__ */ (n: number) => n;
+//# sourceMappingURL=directives.js.map

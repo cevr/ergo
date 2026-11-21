@@ -11,9 +11,10 @@ import (
 // inPlaceChain): the site may extend that array in place later, past the
 // result's length, where the chain would have written. The promised fact
 // is the outer Append's clipped source. Mutant: inPlaceChain takes a
-// lineage receiver (mapcopy-chain-lineage).
+// lineage receiver (mapcopy-chain-lineage). The parameter is read whole
+// (size), so it is not owned by parts (own-parts, parts.go).
 func TestChainSkipsLineage(t *testing.T) {
-	src := "type State { Log []int }\n\nfunc f(s State, a int) State {\n\tState{Log: s.Log.Append(a).Append(a + 1)}\n}\n\n" +
+	src := "type State { Log []int }\n\nfunc size(s State) int { len(s.Log) }\n\nfunc f(s State, a int) State {\n\tState{Log: s.Log.Append(a + size(s)).Append(a + 1)}\n}\n\n" +
 		"func main() needs Console {\n\tConsole.Println(\"\\(len(f(State{Log: []int{}}, 1).Log))\")\n}\n"
 	body := goFuncBody(t, mustLower(t, "chainlineage", src).mainGo(), "f")
 	if !strings.Contains(body, "LineageAppend[") {
@@ -29,9 +30,10 @@ func TestChainSkipsLineage(t *testing.T) {
 // (settleNamedTails), so its result is fresh; a function only called
 // keeps the one-extender site (own-lineage), its promised form. Mutants:
 // mapcopy-named-lineage-off (TestCopyCountsMatchModel also kills it),
-// mapcopy-named-lineage-callee.
+// mapcopy-named-lineage-callee. keep reads s whole (size), so s is
+// not owned by parts (own-parts, parts.go).
 func TestNamedTailsSettle(t *testing.T) {
-	src := "import maps\n\ntype State { Log []int }\n\nfunc keep(s State) []int { s.Log.Append(1) }\n\n" +
+	src := "import maps\n\ntype State { Log []int }\n\nfunc size(s State) int { len(s.Log) }\n\nfunc keep(s State) []int { s.Log.Append(size(s)) }\n\n" +
 		"func cb(o Option[[]int]) []int {\n\tmatch o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}\n}\n\n" +
 		"func main() needs Console {\n\tlet mut m = Map[string, []int]{\"a\": []int{1}}\n\tm = maps.Update(m, \"a\", cb)\n\tConsole.Println(\"\\(len(m)) \\(len(keep(State{Log: []int{}})))\")\n}\n"
 	mainGo := mustLower(t, "namedtails", src).mainGo()
@@ -50,7 +52,7 @@ func TestNamedTailsSettle(t *testing.T) {
 // function's own package (mapcopy-named-lineage-own-package).
 func TestNamedTailsSettleAcrossPackages(t *testing.T) {
 	lib := checkPackage(t, "cbs", []pkgSource{
-		{"/ergo-test/cbs/a.ergo", "type State { Log []int }\n\nfunc Keep(s State) []int { s.Log.Append(1) }\n\n" +
+		{"/ergo-test/cbs/a.ergo", "type State { Log []int }\n\nfunc size(s State) int { len(s.Log) }\n\nfunc Keep(s State) []int { s.Log.Append(size(s)) }\n\n" +
 			"func Start(o Option[[]int]) []int {\n\tmatch o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}\n}\n"},
 	}, nil)
 	root := checkPackage(t, "main", []pkgSource{

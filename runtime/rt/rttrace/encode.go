@@ -69,6 +69,10 @@ func (l Line) appendJSON(b []byte) []byte {
 		b = append(b, `,"machine":`...)
 		b = appendString(b, l.Machine)
 	}
+	if l.Step != "" {
+		b = append(b, `,"step":`...)
+		b = appendString(b, l.Step)
+	}
 	return append(b, "}\n"...)
 }
 

@@ -1,0 +1,30 @@
+> a take build
+a connecting: [build:a]
+  pending take build
+> b take build
+b connecting: [build:b]
+  pending take build
+> a push
+a connecting: [build:a]
+  pending take build
+> b push
+b connecting: [build:b]
+  pending take build
+> b pull
+b connecting: [build:a]
+  refused take build: build is held by a
+> a pull
+a connecting: [build:a]
+> b give build
+b connecting: [build:a]
+  pending give build
+  refused take build: build is held by a
+> b push
+b connecting: [build:a]
+  pending give build
+  refused take build: build is held by a
+> b pull
+b connecting: [build:a]
+  refused take build: build is held by a
+  refused give build: build is not yours
+authority: [build:a]

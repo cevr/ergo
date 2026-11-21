@@ -30,6 +30,10 @@ type mModel struct {
 type mLaw struct {
 	name, kind string
 	targets    []string // variant names: Sk, F or Minus
+	// pred writes the law as an invariant law (X2) over a predicate that
+	// tests for the one target: never as `always not<T>`, reaches as
+	// `sometimes is<T>`.
+	pred bool
 }
 
 func (m *mModel) states() int {
@@ -151,10 +155,12 @@ func genMachine(r *rand.Rand, i int) *mModel {
 	pick := func() string { return variant(r.Intn(m.states())) }
 	init := variant(m.initial)
 	m.laws = append(m.laws,
-		mLaw{"Reaches", "reaches", []string{pick()}},
-		mLaw{"Never", "never", []string{pick()}},
-		mLaw{"InitReach", "reaches", []string{init}},
-		mLaw{"InitNever", "never", []string{init}})
+		mLaw{"Reaches", "reaches", []string{pick()}, false},
+		mLaw{"Never", "never", []string{pick()}, false},
+		mLaw{"InitReach", "reaches", []string{init}, false},
+		mLaw{"InitNever", "never", []string{init}, false},
+		mLaw{"Always", "never", []string{pick()}, true},
+		mLaw{"Sometimes", "reaches", []string{pick()}, true})
 	walk := []string{init}
 	for s := m.initial; len(walk) < 2+r.Intn(3); {
 		n, ok := m.edge(s, r.Intn(m.signals))
@@ -163,16 +169,25 @@ func genMachine(r *rand.Rand, i int) *mModel {
 		}
 		walk, s = append(walk, variant(n)), n
 	}
-	m.laws = append(m.laws, mLaw{"Walk", "path", walk})
+	m.laws = append(m.laws, mLaw{"Walk", "path", walk, false})
 	var random []string
 	for k := 0; k < 1+r.Intn(4); k++ {
 		random = append(random, pick())
 	}
-	m.laws = append(m.laws, mLaw{"Path", "path", random})
+	m.laws = append(m.laws, mLaw{"Path", "path", random, false})
 	if m.float {
-		m.laws = append(m.laws, mLaw{"MinusReach", "reaches", []string{"Minus"}})
+		m.laws = append(m.laws, mLaw{"MinusReach", "reaches", []string{"Minus"}, false})
 	}
 	return m
+}
+
+// predName is the name of the predicate of the invariant law l of the
+// machine name: notMxT for always, isMxT for sometimes.
+func predName(name string, l mLaw) string {
+	if l.kind == "never" {
+		return "not" + name + l.targets[0]
+	}
+	return "is" + name + l.targets[0]
 }
 
 func (m *mModel) source() string {
@@ -238,16 +253,30 @@ func (m *mModel) source() string {
 		fmt.Fprintf(&b, "\tcase %sMinus:\n\t\tIgnore\n", m.name)
 	}
 	b.WriteString("\t}\n}\n\n")
+	for _, l := range m.laws {
+		if l.pred {
+			// not<T> for always, is<T> for sometimes: a test for the target.
+			in, out := "true", "false"
+			if l.kind == "never" {
+				in, out = out, in
+			}
+			fmt.Fprintf(&b, "func %s(s %s) bool {\n\tmatch s {\n\tcase %s%s:\n\t\t%s\n\tcase _:\n\t\t%s\n\t}\n}\n\n", predName(m.name, l), st, m.name, l.targets[0], in, out)
+		}
+	}
 	fmt.Fprintf(&b, "type %s machine[%s, %s] {\n\tinitial: %sS%d,\n\tstep:    %s,\n\n", m.name, st, sg, m.name, m.initial, step)
 	for _, l := range m.laws {
 		names := make([]string, len(l.targets))
 		for k, t := range l.targets {
 			names[k] = m.name + t
 		}
-		switch l.kind {
-		case "reaches":
+		switch {
+		case l.pred && l.kind == "never":
+			fmt.Fprintf(&b, "\tlaw %s always %s,\n", l.name, predName(m.name, l))
+		case l.pred:
+			fmt.Fprintf(&b, "\tlaw %s sometimes %s,\n", l.name, predName(m.name, l))
+		case l.kind == "reaches":
 			fmt.Fprintf(&b, "\tlaw %s reaches %s,\n", l.name, names[0])
-		case "never":
+		case l.kind == "never":
 			fmt.Fprintf(&b, "\tlaw %s never reaches %s,\n", l.name, names[0])
 		default:
 			fmt.Fprintf(&b, "\tlaw %s path [%s],\n", l.name, strings.Join(names, ", "))
@@ -263,8 +292,8 @@ func (m *mModel) source() string {
 // When the signals can be listed, a law is proved exactly when the model
 // says it holds, and refuted otherwise; a whole search reports the
 // model's states, edges (Done is no edge) and depth, and its step calls
-// are the model's states times the signals plus, for each state, the run
-// the explorer replays to rebuild it. When the signals cannot be listed,
+// are the model's states times the signals: the search holds its
+// frontier, so it steps each edge once (MX-VTLAWS). When the signals cannot be listed,
 // a law runs over generated runs: a verdict never contradicts the model,
 // and a law whose target is the initial state is decided by the run's
 // first state. A run cut short by the step budget reports the law it was
@@ -273,7 +302,7 @@ func (m *mModel) source() string {
 //
 // Mutants it kills (testdata/mutants.json): machine-done-is-edge,
 // machine-initial-unchecked, machine-key-negative-zero,
-// machine-fuel-stop-complete, machine-replay-unmetered.
+// machine-fuel-stop-complete, vtlaws-search-replays.
 func TestMachineLawsAgreeWithModel(t *testing.T) {
 	n := 60
 	if testing.Short() {
@@ -330,12 +359,15 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 						fail("%s: %s %s (%s), the model says holds=%v", label, res.Status, res.Evidence, res.Reason, holds)
 					}
 					reach["listed "+string(res.Status)]++
+					if l.pred {
+						reach["invariant "+string(res.Status)]++
+					}
 					if res.Machine.Complete && l.kind != "path" {
 						var edges int
 						var steps int64
 						maxDepth := 0
 						for s, d := range depth {
-							steps += int64(m.signals + d)
+							steps += int64(m.signals)
 							maxDepth = max(maxDepth, d)
 							for e := 0; e < m.signals; e++ {
 								if _, ok := m.edge(s, e); ok {
@@ -367,10 +399,16 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 			fail("%d results, %d laws", len(rep.Results), k)
 		}
 		// A cut budget: each law that needs more than it is incomplete,
-		// and each other law has the whole run's verdict.
+		// and each other law has the whole run's verdict. The budget is
+		// each case's (TP-BUILT-FAST): a law of n cases may spend n times
+		// it, so its need is its steps over n, rounded up.
+		perCase := func(res Result) int64 {
+			n := int64(max(1, res.TotalCases))
+			return (res.Steps + n - 1) / n
+		}
 		most := int64(0)
 		for _, res := range rep.Results {
-			most = max(most, res.Steps)
+			most = max(most, perCase(res))
 		}
 		if most > 1 {
 			b := DefaultBudget()
@@ -382,8 +420,13 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 			for i, res := range cut.Results {
 				whole := rep.Results[i]
 				switch {
-				case whole.Steps > b.Steps && res.Status != Incomplete,
-					whole.Steps <= b.Steps && res.Status != whole.Status:
+				case res.Status == NotRun && res.Reason == "the evaluation budget ran out":
+					// A budget below the machines' initial values cuts the
+					// package's initializer, and then no law runs (eval.go,
+					// initFail). Seed 48 drew one after the invariant laws
+					// joined the generator.
+				case perCase(whole) > b.Steps && res.Status != Incomplete,
+					perCase(whole) <= b.Steps && res.Status != whole.Status:
 					fail("budget %d: %s is %s (%s), the whole run's %s in %d steps", b.Steps, res.Name, res.Status, res.Reason, whole.Status, whole.Steps)
 				}
 			}
@@ -391,7 +434,7 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 		}
 	}
 	if n > 1 {
-		for _, want := range []string{"listed passed", "listed refuted", "whole search", "runs passed", "runs refuted", "minus", "cut"} {
+		for _, want := range []string{"listed passed", "listed refuted", "invariant passed", "invariant refuted", "whole search", "runs passed", "runs refuted", "minus", "cut"} {
 			if reach[want] == 0 {
 				t.Errorf("no seed reached %q: %v", want, reach)
 			}

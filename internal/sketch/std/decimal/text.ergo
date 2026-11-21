@@ -1,0 +1,89 @@
+// Text: Parse and Text, a Decimal as plain digits with a point.
+
+import strings
+
+// Malformed is the failure of Parse on text that is no decimal: At is the
+// first byte that breaks the form.
+type Malformed { Text string, At int }
+
+// Parse is the Decimal s writes: an optional "-", digits, and an optional
+// "." with digits after it, the scale their count ("12.50" is 1250 at
+// scale 2). Signs other than "-", exponents, spaces and separators are
+// Malformed; a coefficient over 128 bits or more than MaxScale digits
+// after the point is Overflow.
+func Parse(s string) Decimal fails Malformed | Overflow {
+	let neg = len(s) > 0 && s[0] == '-'
+	let mut i = if neg { 1 } else { 0 }
+	let mut c = small(0)
+	let mut digits = 0
+	let mut scale = -1
+	for i < len(s) {
+		let b = s[i]
+		if b == '.' && scale < 0 && digits > 0 {
+			scale = 0
+		} else if b < '0' || b > '9' {
+			return Malformed{Text: s, At: i}
+		} else {
+			let (times, over) = mul64(c, 10)
+			let (next, carry) = add128(times, small(uint64(b-'0')))
+			if over || carry {
+				return Overflow
+			}
+			c = next
+			digits = digits + 1
+			if scale >= 0 {
+				scale = scale + 1
+			}
+		}
+		i = i + 1
+	}
+	if digits == 0 || scale == 0 {
+		return Malformed{Text: s, At: len(s)}
+	}
+	if scale > MaxScale() {
+		return Overflow
+	}
+	build(neg, c, if scale < 0 { 0 } else { scale })
+}
+
+// coefText is c's decimal digits, no sign, no leading zeros but for 0.
+func coefText(c u128) string {
+	if c.hi == 0 {
+		return "\(c.lo)"
+	}
+	let (q, r) = divmod64(c, 10000000000000000000)
+	let low = "\(r)"
+	coefText(q) + strings.Repeat("0", 19-len(low)) + low
+}
+
+// Text is d as Parse reads it: "-" when negative, the digits, and a point
+// with Scale(d) digits after it, so Text keeps trailing zeros ("12.50")
+// and Parse(Text(d)) == d.
+func Text(d Decimal) string {
+	let digits = coefText(d.coef)
+	let sign = if d.neg { "-" } else { "" }
+	if d.scale == 0 {
+		return sign + digits
+	}
+	let padded = if len(digits) <= d.scale { strings.Repeat("0", d.scale-len(digits)+1) + digits } else { digits }
+	let point = len(padded) - d.scale
+	sign + padded[0:point] + "." + padded[point:len(padded)]
+}
+
+// TextRoundTrips: Parse reads back Text's text of d, the same coefficient
+// and scale, and Text of that is the same text.
+law TextRoundTrips(x int64, i int, y int64) {
+	let d = dec(x, i)
+	let wide = try Mul(dec(y%1000000, 0), try New(10000000000, 0))
+	let e = try Add(try Mul(wide, wide), d)
+	for v in []Decimal{d, e} {
+		let back = Parse(Text(v)) catch {
+		case Malformed, Overflow:
+			return false
+		}
+		if back != v || Text(back) != Text(v) {
+			return false
+		}
+	}
+	true
+}

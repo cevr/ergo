@@ -48,6 +48,52 @@ func UIArgsSame[A comparable](m *GroupArgs, slot int, a A) bool {
 //ergo:wait none
 func UIArgsSet[A comparable](m *GroupArgs, slot int, a A) { m.slots[slot] = a }
 
+// UIArgsPutAny is ui.argsPutBy: a in a new slot, and the slot, for
+// arguments Go's == cannot compare (NS2c): the group compares them with
+// the equality the compiler generates (UIArgsAt) and puts a copy of its
+// own here, so no later write through the program's value reaches it.
+//
+//ergo:wait none
+func UIArgsPutAny[A any](m *GroupArgs, a A) int {
+	if n := len(m.free); n > 0 {
+		slot := m.free[n-1]
+		m.free = m.free[:n-1]
+		m.slots[slot] = a
+		return slot
+	}
+	m.slots = append(m.slots, a)
+	return len(m.slots) - 1
+}
+
+// UIArgsSetAny is ui.argsSetBy: slot holds a from now on.
+//
+//ergo:wait none
+func UIArgsSetAny[A any](m *GroupArgs, slot int, a A) { m.slots[slot] = a }
+
+// UIArgsHas is ui.argsHas: slot holds a value of type A.
+//
+//ergo:wait none
+func UIArgsHas[A any](m *GroupArgs, slot int) bool {
+	if slot < 0 || slot >= len(m.slots) {
+		return false
+	}
+	_, ok := m.slots[slot].(A)
+	return ok
+}
+
+// UIArgsAt is ui.argsAt: the value of type A slot holds (UIArgsHas), or
+// A's zero value.
+//
+//ergo:wait none
+func UIArgsAt[A any](m *GroupArgs, slot int) A {
+	var zero A
+	if slot < 0 || slot >= len(m.slots) {
+		return zero
+	}
+	a, _ := m.slots[slot].(A)
+	return a
+}
+
 // UIArgsFree is ui.argsFree: slot is given back and holds nothing.
 //
 //ergo:wait none

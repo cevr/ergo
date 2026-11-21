@@ -1,0 +1,19 @@
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 0 [+] [Remove]} [+ Add Counter]
+> inc 1
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 1 [+] [Remove]} [+ Add Counter]
+> press +
+? 2 nodes: role button "+"
+> given 3
+Counters counter-0{[-] 3 [+] [Remove]} [+ Add Counter]
+> press -
+Counters counter-0{[-] 2 [+] [Remove]} [+ Add Counter]
+> given 0 0
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 0 [+] [Remove]} [+ Add Counter]
+> add
+Counters counter-0{[-] 0 [+] [Remove]} counter-1{[-] 0 [+] [Remove]} counter-2{[-] 0 [+] [Remove]} [+ Add Counter]
+> given 5 10
+Counters counter-0{[-] 5 [+] [Remove]} counter-1{[-] 10 [+] [Remove]} [+ Add Counter]
+> press first Remove
+Counters counter-1{[-] 10 [+] [Remove]} [+ Add Counter]
+> press +
+Counters counter-1{[-] 11 [+] [Remove]} [+ Add Counter]

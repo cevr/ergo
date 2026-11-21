@@ -1,0 +1,224 @@
+// Rift's copies taken over (SEMWS WG6a): adopt-rift registers each Rift
+// copy of the base as a workspace, moving no file, and doctor -rift lists
+// the copies left. Rift keeps its registry in SQLite (table rift: id,
+// parent_id, path) and a marker .rift (the copy's id) at each copy's
+// root; work reads the registry with sqlite3 -readonly and never writes
+// it.
+
+import exec
+import filepath
+import json
+import slices
+import strings
+
+// RiftCopy is one row of Rift's registry: its id, its parent's id ("" for
+// a root) and its folder.
+type RiftCopy { Id string "id", Parent string "parent_id", Path string "path" }
+
+// RiftUnread is a Rift registry work could not read, or one in which the
+// base is no Rift root.
+type RiftUnread { Registry string, Why string }
+
+// RiftOptions name Rift's registry (-registry; Rift's own when absent:
+// $XDG_DATA_HOME/rift/rift.sqlite, or on macOS ~/Library/Application
+// Support/rift/rift.sqlite).
+type RiftOptions { Registry Option[string] }
+
+// RiftSkip is a Rift copy adopt-rift left, and why.
+type RiftSkip { Path string, Why string }
+
+// RiftAdopted is what adopt-rift did: the workspaces it registered, each
+// parent before its children, and the copies it left.
+type RiftAdopted { Adopted []Workspace, Skipped []RiftSkip }
+
+// RiftRegistry is the registry the options name, or Rift's own: beside
+// work's data folder, or, when that file is not there and the data
+// folder is the default under the home folder (~/.local/share/work),
+// where Rift keeps it on macOS (~/Library/Application Support/rift).
+func RiftRegistry(t Tool, o RiftOptions) string {
+	match o.Registry {
+	case Some[string] as r:
+		return r.Value
+	case None:
+	}
+	let own = filepath.Join([]string{filepath.Dir(t.data), "rift", "rift.sqlite"})
+	let suffix = "/.local/share/work"
+	if !strings.HasSuffix(t.data, suffix) || exists(t, own) {
+		return own
+	}
+	let mac = filepath.Join([]string{strings.TrimSuffix(t.data, suffix), "Library", "Application Support", "rift", "rift.sqlite"})
+	if exists(t, mac) { mac } else { own }
+}
+
+// RiftQuery is the one query work runs on Rift's registry.
+let RiftQuery = "select id, coalesce(parent_id, '') as parent_id, path from rift order by created_at, id"
+
+// RiftCopies is every row of the registry at file.
+func RiftCopies(t Tool, file string) []RiftCopy fails RiftUnread {
+	if !exists(t, file) {
+		return RiftUnread{Registry: file, Why: "no such file"}
+	}
+	let r = t.runner.Run(exec.New("sqlite3", []string{"-readonly", "-json", file, RiftQuery})) catch {
+	case exec.NotFound:
+		return RiftUnread{Registry: file, Why: "sqlite3 is not on PATH"}
+	case exec.Denied:
+		return RiftUnread{Registry: file, Why: "sqlite3 may not run"}
+	case exec.Failed as f:
+		return RiftUnread{Registry: file, Why: f.Reason}
+	}
+	if r.Status != 0 {
+		return RiftUnread{Registry: file, Why: strings.TrimSpace(r.Stderr)}
+	}
+	if strings.TrimSpace(r.Stdout) == "" {
+		return []RiftCopy{}
+	}
+	json.Decode(json.Codec[[]RiftCopy]{MaxBytes: 1 << 26, MaxDepth: 8}, r.Stdout) catch {
+	case _:
+		return RiftUnread{Registry: file, Why: "sqlite3's answer does not read as the rift table"}
+	}
+}
+
+func exists(t Tool, file string) bool {
+	let _ = t.files.Stat(file) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// RiftBelow is the copies made from the Rift root at base, directly or
+// on another copy, each parent before its children; none when base is no
+// root of the registry.
+func RiftBelow(rows []RiftCopy, base string) []RiftCopy {
+	let mut out = []RiftCopy{}
+	for r in rows {
+		if r.Path == base && r.Parent == "" {
+			out = slices.Concat(out, madeFrom(rows, r.Id, len(rows)))
+		}
+	}
+	out
+}
+
+// madeFrom is the copies made from the copy id, each before the ones made
+// from it; depth bounds a registry whose parents form a loop.
+func madeFrom(rows []RiftCopy, id string, depth int) []RiftCopy {
+	if depth <= 0 {
+		return []RiftCopy{}
+	}
+	let mut out = []RiftCopy{}
+	for r in rows {
+		if r.Parent == id && r.Id != id {
+			out = out.Append(r)
+			out = slices.Concat(out, madeFrom(rows, r.Id, depth-1))
+		}
+	}
+	out
+}
+
+// RiftMarker is the marker file at a Rift copy's root.
+let RiftMarker = ".rift"
+
+// livePath is the live workspace at path.
+func livePath(all []Workspace, path string) Option[Workspace] {
+	for w in all {
+		match w.State {
+		case Trashed:
+			continue
+		case Creating, Active, Landing, Landed, Abandoned:
+		}
+		if w.Path == path {
+			return Some[Workspace]{Value: w}
+		}
+	}
+	None
+}
+
+// AdoptRift registers each Rift copy of the base as a workspace, as
+// adopt does: the name is the copy's folder name, the parent is the
+// folder of the copy it was made from (the base for a copy of the root),
+// and no file of its tree is written or moved. A copy is left when a live
+// workspace has its folder already (a second run adopts nothing), its
+// folder or its marker is gone or names another id, its name cannot name
+// a workspace or is taken, or its parent was left.
+func AdoptRift(t Tool, o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Unkept | VcsFailed | Locked {
+	try initialized(t)
+	let file = RiftRegistry(t, o)
+	let rows = try RiftCopies(t, file)
+	let mut root = false
+	for r in rows {
+		root = root || (r.Path == t.base && r.Parent == "")
+	}
+	if !root {
+		return RiftUnread{Registry: file, Why: "the base \(t.base) is no Rift root there"}
+	}
+	let mut paths = Map[string, string]{}
+	for r in rows {
+		paths[r.Id] = r.Path
+	}
+	let mut adopted = []Workspace{}
+	let mut skipped = []RiftSkip{}
+	for c in RiftBelow(rows, t.base) {
+		let parent = match paths.Get(c.Parent) {
+		case Some[string] as p:
+			p.Value
+		case None:
+			t.base
+		}
+		let all = try t.registry.All()
+		let why = riftLeft(t, all, c, parent)
+		if why != "" {
+			skipped = skipped.Append(RiftSkip{Path: c.Path, Why: why})
+			continue
+		}
+		let name = filepath.Base(c.Path)
+		let w = Workspace{Name: name, Id: idOf(t, name, c.Path), Path: c.Path, Parent: parent, Branch: try t.vcs.Branch(c.Path), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(c.Path), Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+		try put(t, w)
+		adopted = adopted.Append(w)
+	}
+	RiftAdopted{Adopted: adopted, Skipped: skipped}
+}
+
+// riftLeft is why adopt-rift leaves the copy c, or "" when it adopts it.
+func riftLeft(t Tool, all []Workspace, c RiftCopy, parent string) string {
+	if livePath(all, c.Path) != None {
+		return "a workspace already"
+	}
+	if parent != t.base && livePath(all, parent) == None {
+		return "its parent \(parent) is no workspace"
+	}
+	if !t.copier.Has(c.Path) {
+		return "its folder is gone"
+	}
+	let marker = t.files.ReadFile(filepath.Join([]string{c.Path, RiftMarker})) catch {
+	case _:
+		return "it has no \(RiftMarker) marker"
+	}
+	if strings.TrimSpace(marker) != c.Id {
+		return "its \(RiftMarker) marker names another copy"
+	}
+	let name = filepath.Base(c.Path)
+	CheckName(name) catch {
+	case BadName as b:
+		return "its name cannot name a workspace: \(b.Why)"
+	}
+	for w in all {
+		if w.Name == name {
+			return "the name \(name) is taken"
+		}
+	}
+	""
+}
+
+// RiftLeft is the folders of the base's Rift copies no live workspace
+// holds: what doctor -rift lists, none once adopt-rift took them all.
+func RiftLeft(t Tool, o RiftOptions) []string fails RiftUnread | Unkept {
+	let rows = try RiftCopies(t, RiftRegistry(t, o))
+	let all = try t.registry.All()
+	let mut out = []string{}
+	for c in RiftBelow(rows, t.base) {
+		if livePath(all, c.Path) == None {
+			out = out.Append(c.Path)
+		}
+	}
+	out
+}

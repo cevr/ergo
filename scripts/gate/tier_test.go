@@ -143,6 +143,7 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // host package has a step (classHeavy), nor a package whose every test
 // builds Go (fullTierOnly).
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
+	t.Run("fixture", fullTierPackageHasNoFastStep)
 	root := checkoutRoot(t)
 	steps, err := fastSteps(root)
 	if err != nil {
@@ -351,7 +352,9 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// the lint rules (internal/sketch/lint and the example rule package
 	// examples/lintpack/policy read the checker's result) and
 	// scripts/bootstrap, whose closure covers the checker's sources (GS29).
-	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
+	// internal/opcount's build through sketchfront lives in its own package
+	// (internal/opcount/hooked), so the checker does not reach opcount.
+	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/stdlib", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
@@ -457,4 +460,39 @@ func platformTestNames(t *testing.T, dir string) []string {
 		}
 	}
 	return names
+}
+
+// fullTierPackageHasNoFastStep: planOf gives no fast step to a package
+// whose every test starts with needsBuild, even with no recorded time
+// (which makes every test fast), and gives it one in the round tier; a
+// package with a test that builds nothing gets its step. The checkout
+// alone cannot hold this: its one such package, internal/selfhostcheck,
+// is also all-large by its recorded times, so the fast tier dropped it
+// either way and b18-full-tier-package-stepped survived (batch 23).
+func fullTierPackageHasNoFastStep(t *testing.T) {
+	root := t.TempDir()
+	for dir, body := range map[string]string{
+		"builds": "func TestA(t *testing.T) {\n\tneedsBuild(t)\n}\n",
+		"plain":  "func TestB(t *testing.T) {}\n",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, "x_test.go"), []byte("package x\n\nimport \"testing\"\n\n"+body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		dir   string
+		round bool
+		step  bool
+	}{{"builds", false, false}, {"builds", true, true}, {"plain", false, true}} {
+		pl, err := planOf(root, testPackage{importPath: "m/" + c.dir, dir: c.dir}, c.dir, nil, c.round)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (pl != nil) != c.step {
+			t.Errorf("%s (round %v): a step %v, want %v", c.dir, c.round, pl != nil, c.step)
+		}
+	}
 }

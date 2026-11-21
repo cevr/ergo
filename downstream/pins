@@ -1,0 +1,6 @@
+# The repositories ergo must not break, each at one commit (docs/tooling.md,
+# Downstream check). One line each: NAME URL COMMIT, COMMIT a full hash,
+# never a branch. `go run ./scripts/downstream fetch` brings them into the
+# cache; `go run ./scripts/downstream` checks them with bin/ergo.
+# A change that breaks one ports it on that repository's ergo-next branch
+# and moves its line here in the same ergo commit (models/downstream).

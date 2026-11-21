@@ -1,0 +1,39 @@
+// lease-server is the authority of one lease pool (capacity 2) over std
+// rpc, Effect RPC's HTTP protocol, at /rpc: Push and Pull, with each pull
+// that has nothing new held up to 25s (the long poll). Its arguments are
+// the address to listen on, then the client ids it serves; with none, it
+// serves every client. It prints its address, then serves until it is
+// stopped. The log lives in this process (replica/server). This binary is
+// the only place that chooses the authority's clock and scheduler.
+
+import http
+import lease-sync/lease
+import lease-sync/replica
+import leaserpc lease-sync/replica/rpc
+import lease-sync/replica/server
+import os
+import rpc
+import slices
+import time
+
+// Usage: no address.
+type Usage { Text string }
+
+let source = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
+
+let limits = http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 60s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
+
+func main() fails Usage | http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) < 1 {
+		return Usage{Text: "usage: lease-server ADDRESS [CLIENT...]"}
+	}
+	let clients = args[1:]
+	let allow = func(by replica.ClientID) bool { len(clients) == 0 || slices.Contains(clients, string(by)) }
+	let a = server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 64)
+	let l = try http.Listen(args[0])
+	Console.Println("listening \(l.Addr())")
+	with context { time.Clock: time.NewHost(), Scheduler: NewLiveScheduler() } {
+		try rpc.Serve(l, limits, "/rpc", leaserpc.Serve(a, allow, 25s))
+	}
+}

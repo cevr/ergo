@@ -8,21 +8,46 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // cyclomatic is McCabe's number as ESLint's complexity rule counts it: 1,
 // plus each if (an else-if is an if; a plain else adds nothing), each
-// loop, each match case, each catch arm and each && and ||.
+// loop, each case of a match on literals, each catch arm and each && and
+// ||. A match over a union (a TypeSwitchStmt: complete by the checker)
+// is one dispatch: it adds 1, and its arms add only the most any one arm
+// adds, as if each arm were a function of its own (LHP2: a machine's
+// Step, a transition table and a VM's dispatch were 12 of the 22 misses
+// of the 2026-11-17 read sample).
 func cyclomatic(body *syntax.BlockStmt) float64 {
-	n := 1.0
-	syntax.Inspect(body, func(node syntax.Node) bool {
+	return float64(1 + decisions(body))
+}
+
+// decisions counts cyclomatic's decisions in n.
+func decisions(n syntax.Node) int {
+	count := 0
+	syntax.Inspect(n, func(node syntax.Node) bool {
 		switch node := node.(type) {
+		case *syntax.TypeSwitchStmt:
+			count++
+			for _, g := range node.Subjects {
+				count += decisions(g.X)
+			}
+			best := 0
+			for _, c := range node.Clauses {
+				arm := 0
+				for _, s := range c.Body {
+					arm += decisions(s)
+				}
+				best = max(best, arm)
+			}
+			count += best
+			return false
 		case *syntax.IfStmt, *syntax.ForStmt, *syntax.RangeStmt, *syntax.CaseClause, *syntax.CatchArm:
-			n++
+			count++
 		case *syntax.BinaryExpr:
 			if node.Op == syntax.LAND || node.Op == syntax.LOR {
-				n++
+				count++
 			}
 		}
 		return true
 	})
-	return n
+	return count
 }
 
 // cognitive is SonarSource's cognitive complexity (G. Ann Campbell, 2018)
@@ -31,7 +56,8 @@ func cyclomatic(body *syntax.BlockStmt) float64 {
 // boolean operators (a && b && c is 1, a && b || c is 2). The bodies of
 // if, else, match, loops, catch and function literals nest one level
 // deeper. Ergo has no labels and no goto, so break and continue add
-// nothing.
+// nothing. A match over a union adds 1 plus its nesting, and of its arms
+// only the most any one arm adds (as cyclomatic).
 func cognitive(body *syntax.BlockStmt) float64 {
 	total := 0
 	var stmts func(list []syntax.Stmt, nesting int)
@@ -72,13 +98,19 @@ func cognitive(body *syntax.BlockStmt) float64 {
 				}
 				return false
 			case *syntax.TypeSwitchStmt:
+				// A match over a union is one dispatch: its arms add
+				// only the most any one arm adds (cyclomatic, LHP2).
 				total += 1 + nesting
 				for _, g := range x.Subjects {
 					node(g.X, nesting)
 				}
+				outer, best := total, 0
 				for _, c := range x.Clauses {
+					total = 0
 					stmts(c.Body, nesting+1)
+					best = max(best, total)
 				}
+				total = outer + best
 				return false
 			case *syntax.ForStmt:
 				total += 1 + nesting

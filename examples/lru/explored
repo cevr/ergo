@@ -1,0 +1,5 @@
+# The explore leg searches these tests' schedules (scripts/examples, explored.go).
+# Three tasks Get one name through std's cache while its lookup holds: every
+# order of one preemption asks the registry once (std testdata/mutants.json:
+# "c1-waiter-loads-too").
+cmd/lru ThreeTasksShareOneLookup --explore dfs --preempt 1

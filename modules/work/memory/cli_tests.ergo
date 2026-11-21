@@ -1,0 +1,105 @@
+// The refusals of new and the answers of its hooks, as the command line
+// prints them: the text is what a person reads, so each is a row.
+
+import fs
+import github.com/cevr/ergo/modules/work/work
+import github.com/cevr/ergo/modules/work/work/workcli
+
+// CopyRefusedSaysTheBytes: where no Cloner shares blocks, new without
+// -copy refuses, names the bytes a copy would take and why each Cloner
+// could not, and registers nothing.
+test CopyRefusedSaysTheBytes {
+	let w = world(false)
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
+	assert o.Code == 1
+	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":601,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
+	let listed = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		assert false
+		return
+	}
+	assert len(listed) == 0
+}
+
+// NotSameVolumeNamesBoth: a workspaces folder on another file system than
+// its base is refused with both folders, not copied.
+test NotSameVolumeNamesBoth {
+	let w = world(true)
+	Mount(w.trees, "/w/.work", "other")
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
+	assert o.Code == 1
+	assert o.Err == "NotSameVolume: {\"_tag\":\"NotSameVolume\",\"from\":\"/w/base\",\"to\":\"/w/.work/base/a\"}\n"
+}
+
+// UntrustedHookSaysTheDigest: new in a base whose work.toml changed
+// after init runs no hook; its answer names the commands refused and the
+// digest work trust would allow.
+test UntrustedHookSaysTheDigest {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"a\"]\n", "")
+	w.disk.WriteFile(theBase+"/"+work.ConfigFile, "[hooks]\npostcreate = [\"bun install\"]\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
+	assert o.Code == 0
+	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"Untrusted\",\"digest\":\"e16cec248c0fea3998d553128b37ee8bee97cac8fba0d999f25b9bd4de5e336e\",\"commands\":[\"hooks.postcreate: bun install\"]}}\n"
+}
+
+// IdMismatchNamesBothIds: rm -expect of an id that is not the
+// workspace's names the id expected and the id found, and removes
+// nothing.
+test IdMismatchNamesBothIds {
+	let w = world(true)
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		assert false
+		return
+	}
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"rm", "-expect", "0123456789abcdef", "a"}, workcli.Defaults()) }
+	assert o.Code == 1
+	assert o.Err == "IdMismatch: {\"_tag\":\"IdMismatch\",\"name\":\"a\",\"expected\":\"0123456789abcdef\",\"found\":\"7013c0fa874ff412\"}\n"
+}
+
+// HasDescendantsNamesThePaths: rm of a workspace another is made on
+// names the other's folder.
+test HasDescendantsNamesThePaths {
+	let w = world(true)
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		assert false
+		return
+	}
+	let _ = w.tool.New("b", on("a")) catch {
+	case _:
+		assert false
+		return
+	}
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"rm", "-abandon", "a"}, workcli.Defaults()) }
+	assert o.Code == 1
+	assert o.Err == "HasDescendants: {\"_tag\":\"HasDescendants\",\"name\":\"a\",\"paths\":[\"/w/.work/base/b\"]}\n"
+}
+
+// LockedNamesTheRegistry: a mutation while another process holds the
+// registry's lock names the registry and changes nothing.
+test LockedNamesTheRegistry {
+	let w = world(true)
+	let other = Sharing(w.lock, 5)
+	let _ = other.Hold("") catch {
+	case work.Unkept:
+		assert false
+		return
+	}
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
+	assert o.Code == 1
+	assert o.Err == "Locked: {\"_tag\":\"Locked\",\"path\":\"/w/.work/base/.registry\"}\n"
+}
+
+// FailedHookIsInCreated: a failed postcreate is in new's answer (the
+// hook, the command, its status and stderr), with the workspace's path.
+test FailedHookIsInCreated {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npostcreate = [\"make\"]\n", "make")
+	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
+	assert o.Code == 0
+	assert o.Out == "{\"name\":\"a\",\"id\":\"7013c0fa874ff412\",\"path\":\"/w/.work/base/a\",\"branch\":\"a\",\"deps\":{\"_tag\":\"NoDeps\"},\"hooks\":{\"_tag\":\"HookFailed\",\"hook\":\"postcreate\",\"command\":\"make\",\"status\":1,\"stderr\":\"failed\\n\"}}\n"
+}

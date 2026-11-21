@@ -25,18 +25,56 @@ import cmp
 
 // WithCapacity is an empty slice with room for n elements. It makes no
 // element; a negative n is a defect, as Go's make panics.
-func WithCapacity[T](n int) []T { MakeSlice[T](n) }
+func WithCapacity[T own](n int) []T { MakeSlice[T](n) }
 
 // Take gives up xs and returns its element at i and the remaining slice,
 // in order. With resource elements, the element and remainder have
 // separate owners. Plain-data xs is unchanged. An index outside
 // 0..len(xs) is a defect, as Go's index is: the caller's frame keeps xs
 // until TakeAt returns (check.HoldsTaken), so that defect releases it.
-func Take[T](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
+func Take[T own](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
 
 // Sort is a copy of xs in ascending order. A float NaN sorts first, as in
 // Go.
 extern go ergo.local/prototype/runtime/v1.SlicesSort func Sort[T ordered](xs []T) []T
+
+// SortOrders: Sort's result is in ascending order.
+law SortOrders(xs []int) { isSorted(Sort(xs)) }
+
+// isSorted reports whether xs is in ascending order.
+func isSorted(xs []int) bool {
+	for i in 1..len(xs) {
+		if xs[i-1] > xs[i] {
+			return false
+		}
+	}
+	true
+}
+
+// SortPermutes: Sort's result holds the elements of xs, each as often.
+law SortPermutes(xs []int) {
+	let sorted = Sort(xs)
+	let mut same = len(sorted) == len(xs)
+	for x in xs {
+		same = same && count(sorted, x) == count(xs, x)
+	}
+	same
+}
+
+// count is how often x is in xs.
+func count(xs []int, x int) int {
+	len(Filter(xs, func(y int) bool { y == x }))
+}
+
+// SortIsIdempotent: sorting a sorted slice changes nothing.
+law SortIsIdempotent(xs []int) { Equal(Sort(Sort(xs)), Sort(xs)) }
+
+// SortLeavesItsArgument: Sort returns a new slice; xs is unchanged.
+law SortLeavesItsArgument(xs []int) {
+	let before = Transform(xs, func(x int) int { x })
+	let sorted = Sort(xs)
+	len(sorted) == len(xs) && Equal(xs, before)
+}
 
 // SortFunc is a copy of xs sorted by compare, which returns a negative
 // number when a is before b, a positive number when a is after b, and zero
@@ -48,7 +86,162 @@ extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T
 // xs.
 extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
 
+// SortBy is a copy of xs sorted by the order by: a before b where
+// by.Compare(a, b) < 0 (#211; CONSTRAINTS C3). It is Go's
+// slices.SortFunc(xs, cmp) with the compare a provider of cmp.Order, so a
+// call names its order, slices.SortBy(entries, ByPriority), and a copy of
+// SortBy for the provider calls its Compare directly. The order of equal
+// elements is not kept. It is a median-of-three quicksort with an
+// insertion sort under 13 elements. An order that breaks cmp.Order's laws
+// gives some order of the same elements: it never loses one, never reads
+// outside xs and always ends.
+func SortBy[T any, O cmp.Order[T]](xs []T, by O) []T {
+	let mut out = Clone(xs)
+	if len(out) < 2 {
+		return out
+	}
+	// The ranges still to sort, as lo, hi pairs below top: the larger part
+	// of each split waits here, so it holds at most 2·log2(len(xs))
+	// entries. A pop moves top and keeps the storage, so the stack
+	// allocates only when it grows past its deepest point so far.
+	let mut todo = []int{0, len(out)}
+	let mut top = 2
+	for top > 0 {
+		let mut hi = todo[top-1]
+		let mut lo = todo[top-2]
+		top = top - 2
+		for hi-lo > 12 {
+			let m = lo + (hi-lo)/2
+			let last = hi - 1
+			if by.Compare(out[m], out[lo]) < 0 {
+				let t = out[m]
+				out[m] = out[lo]
+				out[lo] = t
+			}
+			if by.Compare(out[last], out[lo]) < 0 {
+				let t = out[last]
+				out[last] = out[lo]
+				out[lo] = t
+			}
+			if by.Compare(out[last], out[m]) < 0 {
+				let t = out[last]
+				out[last] = out[m]
+				out[m] = t
+			}
+			let p = out[m]
+			let mut i = lo
+			let mut j = last
+			for i <= j {
+				for i < last && by.Compare(out[i], p) < 0 {
+					i = i + 1
+				}
+				for j > lo && by.Compare(p, out[j]) < 0 {
+					j = j - 1
+				}
+				if i <= j {
+					let t = out[i]
+					out[i] = out[j]
+					out[j] = t
+					i = i + 1
+					j = j - 1
+				}
+			}
+			// lo..j+1 and i..hi are each shorter than lo..hi: sort the
+			// shorter now and keep the longer for later.
+			let mut wlo = lo
+			let mut whi = j + 1
+			if j+1-lo < hi-i {
+				wlo = i
+				whi = hi
+				hi = j + 1
+			} else {
+				lo = i
+			}
+			if top == len(todo) {
+				todo = todo.Append(wlo).Append(whi)
+			} else {
+				todo[top] = wlo
+				todo[top+1] = whi
+			}
+			top = top + 2
+		}
+		for i in lo+1..hi {
+			let mut j = i
+			for j > lo && by.Compare(out[j], out[j-1]) < 0 {
+				let t = out[j]
+				out[j] = out[j-1]
+				out[j-1] = t
+				j = j - 1
+			}
+		}
+	}
+	out
+}
+
+// IsSortedBy reports whether xs is in order by by: no element is before
+// the one ahead of it.
+func IsSortedBy[T any, O cmp.Order[T]](xs []T, by O) bool {
+	for i in 1..len(xs) {
+		if by.Compare(xs[i], xs[i-1]) < 0 {
+			return false
+		}
+	}
+	true
+}
+
+// SortByIsSorted: SortBy's result is sorted by its order.
+law SortByIsSorted(xs []int) { IsSortedBy(SortBy(xs, cmp.Natural[int]), cmp.Natural[int]) }
+
+// SortByIsAPermutation: SortBy's result holds the elements of xs, each as
+// often, under any order, a backward one too.
+law SortByIsAPermutation(xs []int) {
+	let sorted = SortBy(xs, cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]})
+	let mut same = len(sorted) == len(xs)
+	for x in xs {
+		same = same && count(sorted, x) == count(xs, x)
+	}
+	same
+}
+
+// SortByOfNaturalIsSort: SortBy by Natural is Sort.
+law SortByOfNaturalIsSort(xs []int) { Equal(SortBy(xs, cmp.Natural[int]), Sort(xs)) }
+
+// SortStableKeepsTies: of two elements whose keys are equal,
+// SortStableFunc keeps first the one that is first in xs. The key is
+// x % 3, so ties are common.
+law SortStableKeepsTies(xs []int) {
+	let mut tags = []tagged{}
+	for i, x in xs {
+		tags = tags.Append(tagged{Key: x % 3, At: i})
+	}
+	let sorted = SortStableFunc(tags, byKey)
+	let mut ok = len(sorted) == len(xs)
+	for i in 1..len(sorted) {
+		let a = sorted[i-1]
+		let b = sorted[i]
+		ok = ok && (a.Key < b.Key || a.Key == b.Key && a.At < b.At)
+	}
+	ok
+}
+
+// tagged is an element and its index in the slice it came from: the
+// stability law sorts by Key and reads At.
+type tagged { Key int, At int }
+
+// byKey orders two tagged values by Key alone.
+func byKey(a tagged, b tagged) int {
+	if a.Key < b.Key {
+		-1
+	} else if a.Key > b.Key {
+		1
+	} else {
+		0
+	}
+}
+
 // Contains reports whether x is in xs.
+//
+// Scans: xs, element by element until it finds x.
 func Contains[T comparable](xs []T, x T) bool {
 	for y in xs {
 		if y == x {
@@ -58,7 +251,16 @@ func Contains[T comparable](xs []T, x T) bool {
 	false
 }
 
+// ContainsIffIndex: x is in xs exactly when Index finds it, and the
+// element at that index is x.
+law ContainsIffIndex(xs []int, x int) {
+	let i = Index(xs, x)
+	Contains(xs, x) == (i >= 0) && (i < 0 || xs[i] == x)
+}
+
 // Index is the index of the first x in xs, or -1.
+//
+// Scans: xs, element by element until it finds x.
 func Index[T comparable](xs []T, x T) int {
 	for i, y in xs {
 		if y == x {
@@ -84,6 +286,9 @@ func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E ne
 // consumed arguments).
 extern go ergo.local/prototype/runtime/v1.SlicesReverse func Reverse[T](xs []T) []T
 
+// ReverseTwiceIsSame: Reverse(Reverse(xs)) is xs.
+law ReverseTwiceIsSame(xs []int) { Equal(Reverse(Reverse(xs)), xs) }
+
 // Max is the largest element of xs, or None when xs is empty. A float NaN
 // in xs makes it NaN, as in Go.
 func Max[T ordered](xs []T) Option[T] {
@@ -92,6 +297,16 @@ func Max[T ordered](xs []T) Option[T] {
 	} else {
 		Some[T]{Value: largest(xs)}
 	}
+}
+
+// MaxIsLastSorted: Max is the last element of Sort(xs), or None for an
+// empty xs.
+law MaxIsLastSorted(xs []int) {
+	let s = Sort(xs)
+	if len(s) == 0 {
+		return Max(xs) == None && Min(xs) == None
+	}
+	Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]}
 }
 
 // Min is the smallest element of xs, or None when xs is empty.
@@ -114,6 +329,15 @@ func Last[T](xs []T) Option[T] {
 	}
 }
 
+// LastIsFinalElement: Last is the element at len(xs)-1, or None for an
+// empty xs.
+law LastIsFinalElement(xs []int) {
+	if len(xs) == 0 {
+		return Last(xs) == None
+	}
+	Last(xs) == Some[int]{Value: xs[len(xs)-1]}
+}
+
 // Ascending is a slice in ascending order. Its field is unexported, so
 // only this package builds one (types.md, Zero values 6): Ascend is the
 // one way in, and a value of the type is sorted by construction. Its zero
@@ -123,13 +347,56 @@ type Ascending[T ordered] { xs []T }
 // Ascend is a sorted copy of xs, as Sort is; xs is unchanged.
 func Ascend[T ordered](xs []T) Ascending[T] { Ascending[T]{xs: Sort(xs)} }
 
+// AscendOrders: the items of Ascend(xs) are in ascending order.
+law AscendOrders(xs []int) { isSorted(Items(Ascend(xs))) }
+
+// AscendPermutes: the items of Ascend(xs) are the elements of xs, each as
+// often.
+law AscendPermutes(xs []int) {
+	let items = Items(Ascend(xs))
+	let mut same = len(items) == len(xs)
+	for x in xs {
+		same = same && count(items, x) == count(xs, x)
+	}
+	same
+}
+
+// AscendLeavesItsArgument: Ascend copies; xs is unchanged.
+law AscendLeavesItsArgument(xs []int) {
+	let before = Transform(xs, func(x int) int { x })
+	let a = Ascend(xs)
+	len(Items(a)) == len(xs) && Equal(xs, before)
+}
+
 // Items is the elements of a in ascending order, in a new slice: a change
 // to it does not change a, so a stays sorted. Go's slices.Clone, a pure
 // body, so Items reaches no host and Ascending is no host provider.
 func Items[T ordered](a Ascending[T]) []T { Clone(a.xs) }
 
+// ItemsIsACopy: a change to the slice Items returns does not change the
+// Ascending, so it stays sorted: its items are still Sort(xs).
+law ItemsIsACopy(xs []int) {
+	let a = Ascend(xs)
+	let mut changed = Items(a)
+	for i in 0..len(changed) {
+		changed[i] = len(changed) - i
+	}
+	Equal(Items(a), Sort(xs))
+}
+
 // Len is the number of elements of a, len(Items(a)) with no copy.
 func Len[T ordered](a Ascending[T]) int { len(a.xs) }
+
+// LenAndAtReadItems: Len and At read an Ascending as Items does.
+law LenAndAtReadItems(xs []int) {
+	let a = Ascend(xs)
+	let items = Items(a)
+	let mut ok = Len(a) == len(items)
+	for i, v in items {
+		ok = ok && At(a, i) == v
+	}
+	ok
+}
 
 // At is the element at index i of a, Items(a)[i] with no copy. An i
 // outside 0..Len(a)-1 is a defect, as an index out of range is.
@@ -139,11 +406,90 @@ func At[T ordered](a Ascending[T], i int) T { a.xs[i] }
 // Array.copy). A write to the copy, or an Append to it, never reaches xs.
 func Clone[T](xs []T) []T { xs.Clone() }
 
+// CloneCopies: Clone is equal to xs, and a write to a clone leaves xs as
+// it was.
+law CloneCopies(xs []int) {
+	let c = Clone(xs)
+	let mut d = Clone(xs)
+	for i in 0..len(d) {
+		d[i] = d[i] + 1
+	}
+	Equal(c, xs) && (len(xs) == 0 || !Equal(d, xs))
+}
+
 // Concat is the elements of a, then those of b, in a new array of at least
 // len(a) + len(b): Go's slices.Concat(a, b) (Effect's Array.appendAll).
 // An Append to the result never writes a or b, and an Append to a never
 // writes the result. Ergo has no variadic parameter, so it takes two.
 func Concat[T](a []T, b []T) []T { a.Concat(b) }
+
+// ConcatJoins: Concat(a, b) is the elements of a, then those of b.
+law ConcatJoins(a []int, b []int) {
+	let c = Concat(a, b)
+	len(c) == len(a)+len(b) && Equal(Slice(c, 0, len(a)), a) && Equal(Slice(c, len(a), len(c)), b)
+}
+
+// ConcatIsIsolated: an Append to a slice with room after its elements does
+// not change a Concat made from it.
+law ConcatIsIsolated(a []int, b []int, x int) {
+	let mut roomy = WithCapacity[int](len(a) + len(b) + 1)
+	for v in a {
+		roomy = roomy.Append(v)
+	}
+	let c = Concat(roomy, b)
+	let before = Clone(c)
+	let grown = roomy.Append(x)
+	Equal(c, before) && len(grown) == len(a)+1 && Equal(Slice(c, len(a), len(c)), b)
+}
+
+// AppendAll is xs with the elements of ys added at the end: Go's
+// append(xs, ys...), one bulk copy (Effect's Array.appendAll). Like
+// xs.Append(x), it leaves xs unchanged: the lowering appends in place only
+// for xs = AppendAll(xs, ys) on one place or a dead xs, and appends to a
+// clipped xs elsewhere. An empty ys does no work. It is an extern of Go's
+// builtin, which any module can declare the same way (check/builtin.go).
+extern go append func AppendAll[T](xs []T, ys []T) []T
+
+// Insert is xs with the elements of ys before index i, in a new array:
+// Go's slices.Insert(xs, i, ys...) (Effect's Array.insertAt, for one
+// element). It never writes xs or ys, as Concat does not. An i outside
+// 0..len(xs) is a defect, as Go's panics.
+extern go ergo.local/prototype/runtime/v1.SlicesInsert func Insert[T](xs []T, i int, ys []T) []T
+
+// Delete is xs without the elements from index i up to j, j excluded, in
+// a new array: Go's slices.Delete(xs, i, j) (Effect's Array.remove, for
+// one element). It never writes xs. A bound outside 0..len(xs), or an i
+// after j, is a defect.
+extern go ergo.local/prototype/runtime/v1.SlicesDelete func Delete[T](xs []T, i int, j int) []T
+
+// InsertPlaces: Insert(xs, i, ys) is xs up to i, then ys, then the rest
+// of xs; an Append to a slice with room after it, before or after, never
+// changes the other.
+law InsertPlaces(xs []int, ys []int, i int, x int) {
+	let n = len(xs) + 1
+	let k = (i%n + n) % n
+	let mut roomy = WithCapacity[int](len(xs) + len(ys) + 1)
+	for v in xs {
+		roomy = roomy.Append(v)
+	}
+	let r = Insert(roomy, k, ys)
+	let before = Clone(r)
+	let grown = roomy.Append(x)
+	len(r) == len(xs)+len(ys) && Equal(Slice(r, 0, k), Slice(xs, 0, k)) && Equal(Slice(r, k, k+len(ys)), ys) && Equal(Slice(r, k+len(ys), len(r)), Slice(xs, k, len(xs))) && Equal(r, before) && Equal(Slice(grown, 0, len(xs)), xs)
+}
+
+// DeleteUndoesInsert: Delete(xs, i, j) is xs without xs[i:j], xs is left
+// as it was, and inserting those elements back at i gives xs again.
+law DeleteUndoesInsert(xs []int, i int, j int) {
+	let n = len(xs) + 1
+	let a = (i%n + n) % n
+	let b = (j%n + n) % n
+	let lo = if a < b { a } else { b }
+	let hi = if a < b { b } else { a }
+	let before = Clone(xs)
+	let d = Delete(xs, lo, hi)
+	len(d) == len(xs)-(hi-lo) && Equal(xs, before) && Equal(Slice(d, 0, lo), Slice(xs, 0, lo)) && Equal(Insert(d, lo, Slice(before, lo, hi)), before)
+}
 
 // Repeat is the elements of xs, n times over, in a new array: Go's
 // slices.Repeat. Effect's Array.replicate(x, n) is Repeat([]T{x}, n). A
@@ -151,12 +497,34 @@ func Concat[T](a []T, b []T) []T { a.Concat(b) }
 // panics.
 func Repeat[T](xs []T, n int) []T { xs.Repeat(n) }
 
+// RepeatRepeats: Repeat(xs, n) is xs n times over.
+law RepeatRepeats(xs []int, n int) {
+	let k = (n%8 + 8) % 8
+	let r = Repeat(xs, k)
+	let mut ok = len(r) == len(xs)*k
+	for i, v in r {
+		ok = ok && v == xs[i%len(xs)]
+	}
+	ok
+}
+
 // Slice is the elements of xs from index i up to j, j excluded: Go's full
 // slice expression xs[i:j:j] (Effect's Array.slice), which shares xs's
 // array but has no room after j, so an Append to it makes a new array and
 // never writes xs[j]. A bound outside 0..len(xs), or an i after j, is a
 // defect, as for strings.Slice.
 func Slice[T](xs []T, i int, j int) []T { xs.Slice(i, j) }
+
+// SliceHasNoRoom: an Append to Slice(xs, 0, j) never writes xs.
+law SliceHasNoRoom(xs []int, i int, x int) {
+	if len(xs) == 0 {
+		return true
+	}
+	let j = (i%len(xs) + len(xs)) % len(xs)
+	let before = Clone(xs)
+	let grown = Slice(xs, 0, j).Append(x)
+	Equal(xs, before) && Equal(Slice(grown, 0, j), Slice(xs, 0, j)) && grown[j] == x
+}
 
 // BinarySearch is Some of the index of x in Items(a), or None when a has
 // no x. Of several x, the first. It takes an Ascending, not a []T, so an
@@ -167,6 +535,19 @@ func BinarySearch[T ordered](a Ascending[T], x T) Option[int] {
 		None
 	} else {
 		Some[int]{Value: i}
+	}
+}
+
+// BinarySearchFindsTheFirst: in an Ascending, BinarySearch finds the first
+// x, or None when there is no x.
+law BinarySearchFindsTheFirst(xs []int, x int) {
+	let a = Ascend(xs)
+	let s = Items(a)
+	match BinarySearch(a, x) {
+	case Some[int] as found:
+		s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x)
+	case None:
+		!Contains(s, x)
 	}
 }
 
@@ -193,6 +574,9 @@ func Collect[T](s Seq[T]) []T {
 	out
 }
 
+// CollectInvertsValues: Collect(Values(xs)) is xs.
+law CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }
+
 // Sorted is the values of s in ascending order, in a new slice:
 // Sort(Collect(s)) with one slice, not two, since Sort sorts the fresh
 // slice Collect returns in place.
@@ -211,6 +595,25 @@ func Values[T](xs []T) Seq[T] {
 	})
 }
 
+// ValuesStops: Values is a Seq that stops (stdlib.md, Std laws 5): for
+// each k from 1 to len(xs)+1, a yield that returns false at its k-th call
+// is called min(k, len(xs)) times.
+law ValuesStops(xs []int) {
+	let s = Values(xs)
+	let n = len(xs)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
 // Transform is f of each element of xs, in order: Effect's Array.map.
 // Map is the prelude's type, which no package redeclares (#196), so the
 // name is the one types.md, Generics, uses. f runs once per element, first
@@ -222,6 +625,23 @@ func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E ne
 	}
 	out
 }
+
+// TransformIdentity: Transform with the identity is xs.
+law TransformIdentity(xs []int) { Equal(Transform(xs, func(x int) int { x }), xs) }
+
+// TransformComposes: Transform(Transform(xs, f), g) is Transform(xs, g
+// after f).
+law TransformComposes(xs []int) {
+	let f = func(x int) int { x * 3 }
+	let g = func(x int) int { x - 7 }
+	Equal(Transform(Transform(xs, f), g), Transform(xs, func(x int) int { g(f(x)) }))
+}
+
+// TransformFuses: two Transforms are one, of the composed function.
+law TransformFuses[T, U, V comparable](xs []T, f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == { Transform(xs, func(x T) V { g(f(x)) }) }
+
+// TransformThenFilter: a Filter of a Transform is one loop.
+law TransformThenFilter[T, U comparable](xs []T, f func(x T) U, p func(x U) bool) { Filter(Transform(xs, f), p) } == { TransformFilter(xs, f, p) }
 
 // Filter is the elements of xs that keep accepts, in order (Effect
 // Array.filter).
@@ -235,6 +655,63 @@ func Filter[T, E, R](xs []T, keep func(x T) bool fails E needs R) []T fails E ne
 	out
 }
 
+// FilterIsIdempotent: filtering twice by one predicate is filtering once.
+law FilterIsIdempotent(xs []int) {
+	let even = func(x int) bool { x%2 == 0 }
+	Equal(Filter(Filter(xs, even), even), Filter(xs, even))
+}
+
+// FilterKeepsTheAccepted: Filter keeps each element that keep accepts, in
+// order, and drops each one it refuses.
+law FilterKeepsTheAccepted(xs []int) {
+	let even = func(x int) bool { x%2 == 0 }
+	let kept = Filter(xs, even)
+	let mut i = 0
+	for x in xs {
+		if even(x) {
+			if i >= len(kept) || kept[i] != x {
+				return false
+			}
+			i = i + 1
+		}
+	}
+	i == len(kept)
+}
+
+// FilterFuses: two Filters are one, of both predicates.
+law FilterFuses[T comparable](xs []T, p func(x T) bool, q func(x T) bool) { Filter(Filter(xs, p), q) } == { Filter(xs, func(x T) bool { p(x) && q(x) }) }
+
+// FilterThenTransform: a Transform of a Filter is one loop.
+law FilterThenTransform[T, U comparable](xs []T, p func(x T) bool, f func(x T) U) { Transform(Filter(xs, p), f) } == { FilterTransform(xs, p, f) }
+
+// TransformFilter is the values f gives the elements of xs that keep
+// accepts, in order: Filter(Transform(xs, f), keep) in one loop, which
+// the fusion law TransformThenFilter places. f runs once per element,
+// keep once per value of f.
+func TransformFilter[T, U, E, R](xs []T, f func(x T) U fails E needs R, keep func(x U) bool fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		let y = try f(x)
+		if try keep(y) {
+			out = out.Append(y)
+		}
+	}
+	out
+}
+
+// FilterTransform is f of the elements of xs that keep accepts, in
+// order: Transform(Filter(xs, keep), f) in one loop, which the fusion law
+// FilterThenTransform places.
+func FilterTransform[T, U, E, R](xs []T, keep func(x T) bool fails E needs R, f func(x T) U fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		if try keep(x) {
+			out = out.Append(try f(x))
+		}
+	}
+	out
+}
+
 // Fold is f applied to init and each element of xs, first to last (Effect
 // Array.reduce, Gleam list.fold): Fold([a, b], z, f) is f(f(z, a), b).
 func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fails E needs R {
@@ -243,6 +720,15 @@ func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fa
 		acc = try f(acc, x)
 	}
 	acc
+}
+
+// FoldSumMatchesLoop: Fold with + is the sum a loop computes.
+law FoldSumMatchesLoop(xs []int) {
+	let mut sum = 0
+	for x in xs {
+		sum = sum + x
+	}
+	Fold(xs, 0, func(acc int, x int) int { acc + x }) == sum
 }
 
 // largest is Go's slices.Max of a non-empty xs: cmp.Max of each element

@@ -34,9 +34,18 @@ func GenerateRefOwned(seed uint64) string {
 	b.WriteString("func put2[V](t tab[V], k int, v V) tab[V] {\n\tlet mut u = t\n\tu.m = u.m.Put(k, v)\n\tu.n += 1\n\tu\n}\n\n")
 	b.WriteString("func fill[V](r sync.Ref[tab[V]], n int, v V) {\n\tfor i in 0..n {\n\t\tr.Update(func(t tab[V]) tab[V] {\n\t\t\tput2(t, i, v)\n\t\t})\n\t}\n}\n\n")
 	fmt.Fprintf(&b, "func generic(n int) int {\n\tlet r = sync.NewRef[tab[int]](tab[int]{m: Map[int, int]{}, n: 0})\n\tfill(r, n, %d)\n\tlet snap = r.Get()\n\tfill(r, n + %d, 9)\n\tlet held = r.Get()\n\tlen(snap.m) * 100 + len(held.m) + held.n * 1000\n}\n\n", g.n(9), 1+g.n(3))
+	// The in-place form (IR-OWN-MODIFY, json's Stream): each literal binds
+	// the held scan to one let mut s first and returns s or (x, s) last,
+	// so s is the cell's value, written through a pointer; snap reads it
+	// with Get, so the Update after it must copy the slice and the Map
+	// before it writes, and the Update's whole store of s keeps snap's.
+	b.WriteString("type scan { buf []int, pos int, seen Map[int, int] }\n\n")
+	fmt.Fprintf(&b, "func stream(n int) int {\n\tlet r = sync.NewRef[scan](scan{buf: []int{}, pos: 0, seen: Map[int, int]{}})\n\tlet mut total = 0\n\tfor i in 0..n {\n\t\tlet got = sync.Modify(r, func(v scan) (int, scan) {\n\t\t\tlet mut s = v\n\t\t\ts.buf = s.buf.Append(i * %d)\n\t\t\tif i %% 2 == 0 {\n\t\t\t\ts.pos += 1\n\t\t\t} else {\n\t\t\t\ts.seen = s.seen.Put(i, s.pos)\n\t\t\t}\n\t\t\t(s.pos + len(s.buf), s)\n\t\t})\n\t\ttotal += got\n\t}\n", 1+g.n(5))
+	fmt.Fprintf(&b, "\tlet snap = r.Get()\n\tr.Update(func(v scan) scan {\n\t\tlet mut s = v\n\t\ts.buf = s.buf.Append(%d)\n\t\ts.seen = s.seen.Put(%d, 1)\n\t\tif len(s.buf) > %d {\n\t\t\ts = scan{buf: []int{}, pos: s.pos + 1, seen: s.seen}\n\t\t}\n\t\ts\n\t})\n", 10+g.n(9), 100+g.n(9), 2+g.n(4))
+	b.WriteString("\tlet held = r.Get()\n\ttotal + len(snap.buf) * 1000 + len(held.buf) * 10 + len(snap.seen) * 100000 + len(held.seen) * 10000000 + held.pos * 7\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for k := 0; k < 4; k++ {
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(tally(%d)) \\(keep(%d)) \\(generic(%d))\")\n", k, 1+g.n(6), 1+g.n(6), 1+g.n(6))
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(tally(%d)) \\(keep(%d)) \\(generic(%d)) \\(stream(%d))\")\n", k, 1+g.n(6), 1+g.n(6), 1+g.n(6), g.n(7))
 	}
 	b.WriteString("}\n")
 	return b.String()

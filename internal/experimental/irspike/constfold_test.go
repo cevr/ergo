@@ -2,121 +2,205 @@ package irspike
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/toolchain"
 )
 
-// TestIRConstFoldsMatchSource is PATCH-MIN M6's property over constant
-// folding before gc (GenerateConstFold): each program prints the same,
-// exits the same and fails with the same defect line under the source
-// lowering and the IR; in the IR, every folds* function holds no
-// operation or conversion whose operands are all constants (the fold the
-// derivative's reader did is now the builder's), and the stays* functions
-// keep theirs (a division by zero and an int8 overflow are the run's). A
-// failing seed prints the Ergo source, both outcomes and its replay
-// command.
-//
-// It builds Go because a fold that rounds, truncates or fits differently
-// from Go shows only in the compiled program's output.
-func TestIRConstFoldsMatchSource(t *testing.T) {
-	src, ir := needsBuild(t)
-	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
-	folded := 0
-	for seed := first; seed < first+count; seed++ {
-		text := GenerateConstFold(uint64(seed))
-		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run TestIRConstFoldsMatchSource ./internal/experimental/irspike"
-		dir := t.TempDir()
-		file := filepath.Join(dir, "p.ergo")
-		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		u, err := Load(file)
-		if err != nil {
-			t.Fatalf("the program does not check: %v\n%s", err, text)
-		}
-		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
-		a, b := run(t, sb), run(t, ib)
-		if a != b {
-			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
-		}
-		folded += rep.ConstFolds
-		left := constOps(t, filepath.Join(dir, "ir", lower.IRFileName))
-		for name, n := range left {
-			if strings.HasPrefix(name, "folds") && n > 0 && lower.ConstFoldOn() {
-				t.Errorf("seed %d: %s keeps %d operations of constants\n%s\n%s", seed, name, n, replay, text)
-			}
-		}
-		for _, line := range strings.Split(text, "\n") {
-			if name, ok := strings.CutPrefix(line, "func folds"); ok {
-				name = "folds" + name[:strings.Index(name, "(")]
-				if _, built := left[name]; !built {
-					t.Errorf("seed %d: %s has no IR body (fallback %v)\n%s", seed, name, rep.Fallback, replay)
-				}
-			}
-		}
-		for _, name := range []string{"staysWrap", "staysDiv"} {
-			if left[name] == 0 {
-				t.Errorf("seed %d: %s has no IR body or folded what Go keeps (operations of constants %v)\n%s", seed, name, left, replay)
-			}
-		}
+// constFoldUnit writes GenerateConstFold(seed) into dir and loads it.
+func constFoldUnit(t *testing.T, seed uint64, dir string) (lower.Unit, string, bool) {
+	t.Helper()
+	text, defect := GenerateConstFold(seed)
+	file := filepath.Join(dir, "p.ergo")
+	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if lower.ConstFoldOn() && folded == 0 {
-		t.Errorf("no constant folded")
+	u, err := Load(file)
+	if err != nil {
+		t.Fatalf("seed %d: the generated program does not check: %v\n%s", seed, err, text)
 	}
+	return u, text, defect
 }
 
-// constOps counts, per IR function, the bin, un and conv nodes whose
-// operands are all constants.
-func constOps(t *testing.T, file string) map[string]int {
+// lowerFold is u's IR lowering with the fold set to mode ("" or "off").
+func lowerFold(t *testing.T, u lower.Unit, mode string) ([]lower.File, lower.IRReport) {
 	t.Helper()
-	data, err := os.ReadFile(file)
+	prev := lower.SetConstFoldLoweringForTest(mode)
+	defer lower.SetConstFoldLoweringForTest(prev)
+	files, rep, err := lower.LowerIR(u)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m struct {
+	return files, rep
+}
+
+// foldIRText is the IR file's text among files.
+// foldIRBody is the JSON of the IR body of the function name, if any.
+func foldIRBody(t *testing.T, files []lower.File, name string) (string, bool) {
+	var ir struct {
 		Funcs []struct {
-			Name string
-			Body any
-		}
+			Name string          `json:"name"`
+			Body json.RawMessage `json:"body"`
+		} `json:"funcs"`
 	}
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal([]byte(foldIRText(files)), &ir); err != nil {
 		t.Fatal(err)
 	}
-	isConst := func(v any) bool {
-		c, _ := v.(map[string]any)
-		return c != nil && c["k"] == "const"
-	}
-	out := map[string]int{}
-	for _, f := range m.Funcs {
-		out[f.Name] += 0
-		var walk func(any)
-		walk = func(v any) {
-			switch v := v.(type) {
-			case map[string]any:
-				switch v["k"] {
-				case "bin":
-					if isConst(v["x"]) && isConst(v["y"]) {
-						out[f.Name]++
-					}
-				case "un", "conv":
-					if isConst(v["x"]) {
-						out[f.Name]++
-					}
-				}
-				for _, x := range v {
-					walk(x)
-				}
-			case []any:
-				for _, x := range v {
-					walk(x)
-				}
-			}
+	for _, f := range ir.Funcs {
+		if f.Name == name {
+			return string(f.Body), true
 		}
-		walk(f.Body)
 	}
-	return out
+	return "", false
+}
+
+func foldIRText(files []lower.File) string {
+	for _, f := range files {
+		if filepath.Base(f.Path) == lower.IRFileName {
+			return string(f.Data)
+		}
+	}
+	return ""
+}
+
+// TestConstFoldCounts is the fold's guard and budget, in process (CF1).
+// On a build whose Go and whose compiler's Go are the pinned release, a
+// generated program folds its static pages (each staticN body takes IR,
+// the call folded into it), and spin(2000000), over the fold's budget,
+// stays a call in the IR. A build by another Go release or an unknown one,
+// a compiler on another release, and the reference (the fold off) fold
+// nothing. With a budget of a few steps, every candidate that needs more
+// stays as written: fewer folds, more over the budget. lits and recs, whose
+// list and record literals hold impure calls, take IR bodies (the spill).
+// fromLets, which reads package lets, folds (LAZY-LET: the fold runs each
+// let's initializer on its first read, under the let's bound, and pays
+// none of it: heavy costs more than the fold's budget); with no steps for
+// a let, it stays a call.
+func TestConstFoldCounts(t *testing.T) {
+	defer lower.SetConstFoldBuildGoForTest(toolchain.Version)()
+	defer lower.SetConstFoldCompilerGoForTest(toolchain.Version)()
+	u, text, _ := constFoldUnit(t, 1, t.TempDir())
+	files, rep := lowerFold(t, u, "")
+	if rep.Folds.Folded == 0 || rep.Folds.OverBudget == 0 {
+		t.Errorf("folds %+v: want folded calls and spin over the budget\n%s", rep.Folds, text)
+	}
+	for _, fn := range []string{"static0", "lits", "recs"} {
+		if !slices.Contains(rep.IR, fn) {
+			t.Errorf("%s takes no IR body (fallback %v)", fn, rep.Fallback)
+		}
+	}
+	// A folded html subtree is its markup: each staticN body calls no
+	// function, and one holds a tag as a string (JSON writes < as \u003c).
+	tags := false
+	for i := 0; ; i++ {
+		body, ok := foldIRBody(t, files, fmt.Sprintf("static%d", i))
+		if !ok {
+			break
+		}
+		if strings.Contains(body, `"k":"call"`) {
+			t.Errorf("static%d is not one constant of markup: a folded element is not its markup\n%s", i, body)
+		}
+		tags = tags || strings.Contains(body, `\u003c`)
+	}
+	if !tags {
+		t.Errorf("no static page holds a tag: a folded element is not its markup")
+	}
+	if strings.Contains(foldIRText(files), `"name":"fromLets"`) {
+		t.Errorf("fromLets is still called: a fold that reads package lets did not bind them\n%s", text)
+	}
+	prevLet := eval.SetFoldLetStepsForTest(0)
+	unbound, _ := lowerFold(t, u, "")
+	eval.SetFoldLetStepsForTest(prevLet)
+	if !strings.Contains(foldIRText(unbound), `"name":"fromLets"`) {
+		t.Errorf("with no steps for a let, fromLets folded: a let's initializer ran past its bound")
+	}
+	// main takes IR once its html calls fold, and calls spin there.
+	if !slices.Contains(rep.IR, "main_1") || !strings.Contains(foldIRText(files), `"name":"spin"`) {
+		t.Errorf("the folded IR keeps no call of spin (IR bodies %v): the call over the budget was not kept", rep.IR)
+	}
+	for _, v := range []string{"go1.26.0", ""} {
+		restore := lower.SetConstFoldBuildGoForTest(v)
+		_, other := lowerFold(t, u, "")
+		restore()
+		if other.Folds != (lower.FoldCounts{}) {
+			t.Errorf("built by %q: folds %+v, want none", v, other.Folds)
+		}
+	}
+	restore := lower.SetConstFoldCompilerGoForTest("go1.26.0")
+	_, other := lowerFold(t, u, "")
+	restore()
+	if other.Folds != (lower.FoldCounts{}) {
+		t.Errorf("a compiler on go1.26.0: folds %+v, want none", other.Folds)
+	}
+	if _, off := lowerFold(t, u, "off"); off.Folds != (lower.FoldCounts{}) {
+		t.Errorf("the reference folds: %+v", off.Folds)
+	}
+	prev := lower.SetConstFoldBudgetForTest(20)
+	_, small := lowerFold(t, u, "")
+	lower.SetConstFoldBudgetForTest(prev)
+	if small.Folds.Folded >= rep.Folds.Folded || small.Folds.OverBudget <= rep.Folds.OverBudget {
+		t.Errorf("a budget of 20 steps: folds %+v, at the default %+v", small.Folds, rep.Folds)
+	}
+}
+
+// TestConstFoldAgrees is CF1's law: a program whose calls of constants
+// fold at build time prints what the program built as written prints (the
+// fold off, the reference), exits the same and fails with the same
+// message, for generated std html pages and the program's own pure
+// functions of records, lists, union variants, floats and strings; even
+// seeds end in a defect a call of constants raises, which stays a call.
+// Both print what the source path (the Go text) prints, so the impure
+// calls inside list and record literals run in the source's order, and a
+// node built from run-time data is not static (no call of an extern, such
+// as html's inFold, is folded to the evaluator's answer). Every seed
+// folds. A failing seed prints the Ergo source, both outcomes
+// and its replay command. It builds Go for the reason needsBuild gives:
+// the question is what the built program prints.
+func TestConstFoldAgrees(t *testing.T) {
+	src, ir := needsBuild(t)
+	release, err := os.ReadFile(filepath.Join(ir.GOROOT, "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _, _ := strings.Cut(string(release), "\n")
+	defer lower.SetConstFoldBuildGoForTest(strings.Fields(v + " ")[0])()
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 6)
+	for seed := first; seed < first+count; seed++ {
+		dir := t.TempDir()
+		u, text, defect := constFoldUnit(t, seed, dir)
+		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run TestConstFoldAgrees ./internal/experimental/irspike"
+		var outs [2]outcome
+		for i, mode := range []string{"", "off"} {
+			rep, err := EmitFold(u, filepath.Join(dir, "ir"+mode), mode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "" && rep.Folds.Folded == 0 {
+				t.Fatalf("seed %d: nothing folds (folds %+v)\n%s\n%s", seed, rep.Folds, replay, text)
+			}
+			bin := filepath.Join(dir, "ir"+mode+".bin")
+			if _, err := Build(ir, IR, filepath.Join(dir, "ir"+mode), bin, BuildOptions{}); err != nil {
+				t.Fatalf("seed %d: %v\n%s", seed, err, text)
+			}
+			outs[i] = run(t, bin)
+		}
+		if _, err := Emit(u, Source, filepath.Join(dir, "source")); err != nil {
+			t.Fatal(err)
+		}
+		sbin := filepath.Join(dir, "source.bin")
+		if _, err := Build(src, Source, filepath.Join(dir, "source"), sbin, BuildOptions{}); err != nil {
+			t.Fatalf("seed %d: %v\n%s", seed, err, text)
+		}
+		source := run(t, sbin)
+		if outs[0] != outs[1] || outs[1] != source || (outs[0].exit != 0) != defect {
+			t.Fatalf("seed %d: the fold, the reference and the source path differ, or the program did not end as written\nfold:      %+v\nreference: %+v\nsource:    %+v\n%s\n%s", seed, outs[0], outs[1], source, replay, text)
+		}
+	}
 }

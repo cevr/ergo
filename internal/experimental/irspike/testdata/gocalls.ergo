@@ -1,0 +1,196 @@
+// IR-GOCALLS: Go calls that kept their source body take IR bodies, and
+// each prints what the source body prints (IR-ONLY; PORT E-SQL, OT):
+//   - show: a variadic Go function over go.Any (fmt.Sprint's `a ...any`),
+//     each value converted to Go's any;
+//   - pattern and host: a fallible Go call with a go.Ref result
+//     (regexp.Compile, url.Parse), checked against Go's nil;
+//   - stored: go.New, a Go method with a go.Any parameter and one with two
+//     results (sync.Map's Store and Load), go.As on a go.Any;
+//   - split: a fallible Go call with two results (net.SplitHostPort);
+//   - zone: a Go method with two results and no error (time.Time.Zone);
+//   - classify: go.Is and go.As on a go.Error, go.Zero;
+//   - kept (IR-GOCALLS-2): a Go result that holds a slice is copied, as
+//     the source body copies it: bytes.Buffer.Bytes shares the buffer, so
+//     without the copy the later write shows through (mutant
+//     irgc2-result-copy-dropped);
+//   - eof (IR-GOCALLS-2): Go package variables, io.EOF and os.Args;
+//   - params (IR-GOCALLS-3): a Go method on a Map receiver (url.Values.Get),
+//     len of a Go named Map, and a Go struct's fields through its go.Ref;
+//   - cookie (IR-GOCALLS-3): a Go struct's Map field read, then written by
+//     Go (Header.Set on the field itself, which only Go takes): the read
+//     is goResult's copy, so it prints 0 (mutant irgc3-field-copy-dropped).
+//   - limited (IR-GOCALLS-5): an io.ReadCloser given to io.LimitReader's
+//     io.Reader, Go's conversion of one Go interface to another (mutant
+//     irgc5-widen-dropped, whose IR the decoder refuses).
+
+import go fmt
+import go regexp
+import go sync
+import go time
+import go errors
+import go io/fs
+import go net
+import go net/url
+import go bytes
+import go io
+import go os
+import go net/http
+import go strings
+
+func show(n int) string needs go.Foreign {
+	fmt.Sprint([]go.Any{"n=", n, " ", true, " ", 2.5})
+}
+
+func pattern(s string) bool fails go.Error needs go.Foreign {
+	let re = try regexp.Compile("a+b")
+	re.MatchString(s)
+}
+
+func host(raw string) string fails go.Error needs go.Foreign {
+	let u = try url.Parse(raw)
+	"\(u.Hostname()):\(u.Port())"
+}
+
+func stored() int needs go.Foreign {
+	let m = go.New[sync.Map]()
+	m.Store("k", 7)
+	let (v, ok) = m.Load("k")
+	if !ok {
+		return -1
+	}
+	match go.As[int](v) {
+	case Some{Value: n}:
+		n
+	case None:
+		0
+	}
+}
+
+func split(hp string) string fails go.Error needs go.Foreign {
+	let (h, p) = try net.SplitHostPort(hp)
+	"\(h)|\(p)"
+}
+
+func zone() string needs go.Foreign {
+	let (name, off) = time.Unix(0, 0).UTC().Zone()
+	"\(name) \(off)"
+}
+
+func classify(text string) int needs go.Foreign {
+	errors.New(text) catch {
+	case go.Error as e:
+		let z = go.Zero[fs.PathError]()
+		let _ = go.New(z)
+		if !go.Is(e, e) {
+			return -1
+		}
+		match go.As[go.Ref[fs.PathError]](e) {
+		case Some{Value: _}:
+			return 2
+		case None:
+			return 1
+		}
+	}
+	0
+}
+
+func kept() string fails go.Error needs go.Foreign {
+	let b = go.New[bytes.Buffer]()
+	try b.WriteString("ab")
+	let x = b.Bytes()
+	b.Reset()
+	try b.WriteString("cd")
+	"\(len(x)) \(x[0]) \(x[1])"
+}
+
+func params(raw string) string fails go.Error needs go.Foreign {
+	let u = try url.Parse(raw)
+	let q = u.Query()
+	let host = match u.User {
+	case Some{Value: _}:
+		"user"
+	case None:
+		u.Host
+	}
+	"\(q.Get("a")) \(len(q)) \(host) \(u.Path)"
+}
+
+func cookie() int fails go.Error needs go.Foreign {
+	let body = match strings.NewReader("") {
+	case Some{Value: b}:
+		b
+	case None:
+		return -2
+	}
+	let r = try http.NewRequest("GET", "http://h.example/", body)
+	let h = r.Header
+	r.Header.Set("Cookie", "a=1")
+	len(h)
+}
+
+func limited(rc own io.ReadCloser) string fails go.Error needs go.Foreign {
+	let l = io.LimitReader(rc, 2)
+	let b = try io.ReadAll(l)
+	"\(len(b))"
+}
+
+func eof() string needs go.Foreign {
+	let n = if go.Is(io.EOF, io.EOF) {
+		1
+	} else {
+		0
+	}
+	"\(n) \(len(os.Args) > 0)"
+}
+
+func main() needs Console | go.Foreign {
+	let k = kept() catch {
+	case _:
+		"bad"
+	}
+	Console.Println("kept \(k)")
+	Console.Println("eof \(eof())")
+	let q = params("http://h.example/p?a=1&b=2") catch {
+	case _:
+		"bad"
+	}
+	Console.Println("params \(q)")
+	let c = cookie() catch {
+	case _:
+		-2
+	}
+	Console.Println("cookie \(c)")
+	let lim = match strings.NewReader("abc") {
+	case Some{Value: s}:
+		limited(io.NopCloser(s)) catch {
+		case _:
+			"bad"
+		}
+	case None:
+		"none"
+	}
+	Console.Println("limited \(lim)")
+	Console.Println(show(3))
+	let p = pattern("xaab") catch {
+	case _:
+		false
+	}
+	Console.Println("pattern \(p)")
+	let h = host("http://example.com:8080/x") catch {
+	case _:
+		"bad"
+	}
+	Console.Println("host \(h)")
+	Console.Println("stored \(stored())")
+	let s = split("a.b:9") catch {
+	case _:
+		"bad"
+	}
+	let t = split("nocolon") catch {
+	case _:
+		"failed"
+	}
+	Console.Println("split \(s) \(t)")
+	Console.Println("zone \(zone())")
+	Console.Println("classify \(classify("x"))")
+}

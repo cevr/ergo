@@ -1,0 +1,89 @@
+> start /
+  address: / (0 behind)
+  page: # Dinosaur Explorer
+  controls: search "", diet All Diets, period All Periods
+  sorting: unsorted
+  count: Showing 22 of 22 dinosaurs
+  rows: Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8,400 kg); Triceratops (Cretaceous, Herbivore, 9 m, 6,000 kg); Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Brachiosaurus (Jurassic, Herbivore, 26 m, 56,000 kg); Stegosaurus (Jurassic, Herbivore, 9 m, 3,500 kg); Ankylosaurus (Cretaceous, Herbivore, 6.5 m, 6,000 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7,000 kg); Allosaurus (Jurassic, Carnivore, 9.7 m, 2,300 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12,000 kg); Parasaurolophus (Cretaceous, Herbivore, 9.5 m, 2,500 kg); Compsognathus (Jurassic, Carnivore, 1 m, 3 kg); Pachycephalosaurus (Cretaceous, Herbivore, 4.5 m, 450 kg); Dilophosaurus (Jurassic, Carnivore, 7 m, 400 kg); Iguanodon (Cretaceous, Herbivore, 10 m, 3,500 kg); Gallimimus (Cretaceous, Omnivore, 6 m, 440 kg); Therizinosaurus (Cretaceous, Herbivore, 10 m, 5,000 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1,300 kg); Oviraptor (Cretaceous, Omnivore, 1.6 m, 33 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1,700 kg); Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg)
+> search Tyranno
+  asks: replace /?search=Tyranno
+  address: /?search=Tyranno (0 behind)
+  controls: search "Tyranno", diet All Diets, period All Periods
+  count: Showing 1 of 22 dinosaurs
+  rows: Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8,400 kg)
+> search zzzNoMatch
+  asks: replace /?search=zzzNoMatch
+  address: /?search=zzzNoMatch (0 behind)
+  controls: search "zzzNoMatch", diet All Diets, period All Periods
+  count: Showing 0 of 22 dinosaurs
+  rows: No dinosaurs match your filters.
+  sorting: gone
+> search
+  asks: replace /
+  address: / (0 behind)
+  controls: search "", diet All Diets, period All Periods
+  sorting: unsorted
+  count: Showing 22 of 22 dinosaurs
+  rows: Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8,400 kg); Triceratops (Cretaceous, Herbivore, 9 m, 6,000 kg); Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Brachiosaurus (Jurassic, Herbivore, 26 m, 56,000 kg); Stegosaurus (Jurassic, Herbivore, 9 m, 3,500 kg); Ankylosaurus (Cretaceous, Herbivore, 6.5 m, 6,000 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7,000 kg); Allosaurus (Jurassic, Carnivore, 9.7 m, 2,300 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12,000 kg); Parasaurolophus (Cretaceous, Herbivore, 9.5 m, 2,500 kg); Compsognathus (Jurassic, Carnivore, 1 m, 3 kg); Pachycephalosaurus (Cretaceous, Herbivore, 4.5 m, 450 kg); Dilophosaurus (Jurassic, Carnivore, 7 m, 400 kg); Iguanodon (Cretaceous, Herbivore, 10 m, 3,500 kg); Gallimimus (Cretaceous, Omnivore, 6 m, 440 kg); Therizinosaurus (Cretaceous, Herbivore, 10 m, 5,000 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1,300 kg); Oviraptor (Cretaceous, Omnivore, 1.6 m, 33 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1,700 kg); Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg)
+> press diet
+  controls: search "", diet All Diets (open), period All Periods
+  list: Diet: >All Diets*, Carnivore, Herbivore, Omnivore
+> key ArrowDown
+  list: Diet: All Diets*, >Carnivore, Herbivore, Omnivore
+> key ArrowDown
+  list: Diet: All Diets*, Carnivore, >Herbivore, Omnivore
+> key Enter
+  asks: replace /?diet=Herbivore, focus Diet
+  address: /?diet=Herbivore (0 behind)
+  controls: search "", diet Herbivore, period All Periods
+  count: Showing 10 of 22 dinosaurs
+  rows: Triceratops (Cretaceous, Herbivore, 9 m, 6,000 kg); Brachiosaurus (Jurassic, Herbivore, 26 m, 56,000 kg); Stegosaurus (Jurassic, Herbivore, 9 m, 3,500 kg); Ankylosaurus (Cretaceous, Herbivore, 6.5 m, 6,000 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12,000 kg); Parasaurolophus (Cretaceous, Herbivore, 9.5 m, 2,500 kg); Pachycephalosaurus (Cretaceous, Herbivore, 4.5 m, 450 kg); Iguanodon (Cretaceous, Herbivore, 10 m, 3,500 kg); Therizinosaurus (Cretaceous, Herbivore, 10 m, 5,000 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg)
+  list: gone
+> press diet
+  controls: search "", diet Herbivore (open), period All Periods
+  list: Diet: All Diets, Carnivore, >Herbivore*, Omnivore
+> key End
+  list: Diet: All Diets, Carnivore, Herbivore*, >Omnivore
+> key ArrowUp
+  list: Diet: All Diets, Carnivore, >Herbivore*, Omnivore
+> key Home
+  list: Diet: >All Diets, Carnivore, Herbivore*, Omnivore
+> key Escape
+  asks: focus Diet
+  controls: search "", diet Herbivore, period All Periods
+  list: gone
+> press period
+  controls: search "", diet Herbivore, period All Periods (open)
+  list: Period: >All Periods*, Triassic, Jurassic, Cretaceous
+> press period
+  controls: search "", diet Herbivore, period All Periods
+  list: gone
+> period Jurassic
+  asks: replace /?diet=Herbivore&period=Jurassic, focus Period
+  address: /?diet=Herbivore&period=Jurassic (0 behind)
+  controls: search "", diet Herbivore, period Jurassic
+  count: Showing 3 of 22 dinosaurs
+  rows: Brachiosaurus (Jurassic, Herbivore, 26 m, 56,000 kg); Stegosaurus (Jurassic, Herbivore, 9 m, 3,500 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12,000 kg)
+> visit /oops
+  address: /oops (1 behind)
+  page: # 404 — Page Not Found | The path "/oops" was not found. | <← Back to Dinosaur Explorer>
+  controls: gone
+  sorting: gone
+  count: gone
+  rows: gone
+> link ← Back to Dinosaur Explorer
+  asks: push /
+  address: / (2 behind)
+  page: # Dinosaur Explorer
+  controls: search "", diet All Diets, period All Periods
+  sorting: unsorted
+  count: Showing 22 of 22 dinosaurs
+  rows: Tyrannosaurus Rex (Cretaceous, Carnivore, 12.3 m, 8,400 kg); Triceratops (Cretaceous, Herbivore, 9 m, 6,000 kg); Velociraptor (Cretaceous, Carnivore, 2 m, 15 kg); Brachiosaurus (Jurassic, Herbivore, 26 m, 56,000 kg); Stegosaurus (Jurassic, Herbivore, 9 m, 3,500 kg); Ankylosaurus (Cretaceous, Herbivore, 6.5 m, 6,000 kg); Spinosaurus (Cretaceous, Carnivore, 15 m, 7,000 kg); Allosaurus (Jurassic, Carnivore, 9.7 m, 2,300 kg); Diplodocus (Jurassic, Herbivore, 25 m, 12,000 kg); Parasaurolophus (Cretaceous, Herbivore, 9.5 m, 2,500 kg); Compsognathus (Jurassic, Carnivore, 1 m, 3 kg); Pachycephalosaurus (Cretaceous, Herbivore, 4.5 m, 450 kg); Dilophosaurus (Jurassic, Carnivore, 7 m, 400 kg); Iguanodon (Cretaceous, Herbivore, 10 m, 3,500 kg); Gallimimus (Cretaceous, Omnivore, 6 m, 440 kg); Therizinosaurus (Cretaceous, Herbivore, 10 m, 5,000 kg); Carnotaurus (Cretaceous, Carnivore, 7.5 m, 1,300 kg); Oviraptor (Cretaceous, Omnivore, 1.6 m, 33 kg); Baryonyx (Cretaceous, Carnivore, 10 m, 1,700 kg); Coelophysis (Triassic, Carnivore, 3 m, 20 kg); Plateosaurus (Triassic, Herbivore, 8 m, 700 kg); Herrerasaurus (Triassic, Carnivore, 6 m, 350 kg)
+> back
+  address: /oops (1 behind)
+  page: # 404 — Page Not Found | The path "/oops" was not found. | <← Back to Dinosaur Explorer>
+  controls: gone
+  sorting: gone
+  count: gone
+  rows: gone
+> stop

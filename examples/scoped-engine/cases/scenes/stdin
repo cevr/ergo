@@ -1,0 +1,20 @@
+# upstream's six scene tests, in order on one screen; a boot takes 500ms
+# scene 1: the engine is off, Start engine, no Stop, Compute disabled, no
+# result (a compute on the disabled button clicks nothing)
+@0 compute
+# scene 2: Start engine boots, shows Stop and no Start
+@100 start
+# scenes 3 and 5: once booted (upstream's ManagedResource.acquire), the
+# engine is ready with its id, Stop, and Compute enabled
+@600 compute
+# scene 4: the third compute shows 9 (upstream's model starts at 2)
+@700 compute
+@800 compute
+# scene 5: Stop turns it off
+@900 stop
+# scene 6: a failed boot (upstream's failAcquire) shows the reason and
+# Start engine
+@1000 fault
+@1100 start
+@1600 compute
+@1600 end

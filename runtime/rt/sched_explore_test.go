@@ -319,7 +319,7 @@ func runSchedCase(p schedProgram, seed uint64, replay []string) (schedRun, strin
 	}
 	start := time.Unix(0, 0)
 	res := Explore(start, st, func(t *Task) (err error) {
-		clock = t.member.Load().v
+		clock = t.member.Load().d.clocks[0]
 		s := NewScope(t)
 		defer s.End(&err)
 		scopeOf[t] = &s

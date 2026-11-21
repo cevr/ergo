@@ -85,7 +85,7 @@ func Unix(sec int64, nsec int64) Time {
 // NewTime is Time's constructor, the one a generator builds a Time with
 // (runtime.md, Tests 6): the instant sec seconds and nsec nanoseconds after
 // January 1, 1970 UTC, as Unix gives it, kept in the years 1 to 9999 that
-// Format and Parse write and read. A sec in those years is kept, so a
+// Go's layouts write with four digits. A sec in those years is kept, so a
 // small sec is an instant near 1970; a sec outside them wraps by their
 // span, and nsec wraps into 0..999,999,999 within the second. So a law or
 // a property that takes a Time draws instants mostly near 1970, the edges
@@ -139,12 +139,58 @@ func Add(t Time, d duration) Time {
 
 // Sub is the duration t - u. A result past the range of a duration is the
 // largest or smallest duration, as in Go.
+//
+// It is Go's Time.Sub, step for step (NP4f-17). With two monotonic
+// readings it is their difference, saturated where it overflows. Without,
+// it works on Go's internal seconds (Unix seconds plus unixToInternal,
+// which wrap as Go's do): the difference d is right exactly when u + d,
+// with Add's saturating seconds, is t again; otherwise t - u is past the
+// range, on t's side of u.
 func Sub(t Time, u Time) duration {
 	if t.hasMono && u.hasMono {
-		subMono(t.mono, u.mono)
-	} else {
-		subWall(t.sec, t.nsec, u.sec, u.nsec)
+		let m = t.mono - u.mono
+		if m < 0 && t.mono > u.mono {
+			return duration(maxDuration)
+		}
+		if m > 0 && t.mono < u.mono {
+			return duration(minDuration)
+		}
+		return duration(m)
 	}
+	let ts = t.sec + unixToInternal
+	let us = u.sec + unixToInternal
+	let d = (ts - us) * 1000000000 + (t.nsec - u.nsec)
+	let mut dsec = d / 1000000000
+	let mut n = u.nsec + d % 1000000000
+	if n >= 1000000000 {
+		dsec = dsec + 1
+		n = n - 1000000000
+	} else if n < 0 {
+		dsec = dsec - 1
+		n = n + 1000000000
+	}
+	let mut s = us + dsec
+	if (s > us) != (dsec > 0) {
+		s = if dsec > 0 { maxDuration } else { -maxDuration }
+	}
+	if s == ts && n == t.nsec {
+		return duration(d)
+	}
+	if ts < us || ts == us && t.nsec < u.nsec {
+		return duration(minDuration)
+	}
+	duration(maxDuration)
+}
+
+// unixToInternal is Go's offset of its internal seconds (from January 1,
+// year 1) to Unix seconds.
+let unixToInternal int64 = 62135596800
+// SubAddInverse: t.Add(d).Sub(t) is d, for a d that keeps t.Add(d) in
+// range.
+law SubAddInverse(sec int64, nsec int64, n int64) {
+	let t = Unix(anyYear(sec), nsec)
+	let d = duration(within(n, -4000000000000000000, 4000000000000000000))
+	t.Add(d).Sub(t) == d
 }
 
 // Before reports whether t is before u.
@@ -168,13 +214,203 @@ func Equal(t Time, u Time) bool {
 	}
 }
 
-// Format is t's text in UTC by layout, as Go's t.UTC().Format(layout).
+// Compare is -1 when t is before u, +1 when it is after, and 0 when they
+// are the same instant, as Go's t.Compare(u): by the monotonic readings
+// when both have one.
+func Compare(t Time, u Time) int {
+	if Before(t, u) {
+		-1
+	} else if Before(u, t) {
+		1
+	} else {
+		0
+	}
+}
+
+// CompareOrders: Compare is antisymmetric, negative exactly when t is
+// before u, and zero exactly when they are the same instant.
+law CompareOrders(a int64, b int64) {
+	let t = Unix(within(a, -2, 2), 0)
+	let u = Unix(within(b, -2, 2), 0)
+	Compare(t, u) == -Compare(u, t) && (Compare(t, u) < 0) == t.Before(u) && (Compare(t, u) == 0) == t.Equal(u)
+}
+
+// Min is the earlier of t and u; t when they are the same instant.
+func Min(t Time, u Time) Time {
+	if Before(u, t) {
+		u
+	} else {
+		t
+	}
+}
+
+// Max is the later of t and u; t when they are the same instant.
+func Max(t Time, u Time) Time {
+	if After(u, t) {
+		u
+	} else {
+		t
+	}
+}
+
+// UnixMilli is the instant ms milliseconds after January 1, 1970 UTC, as
+// Go's time.UnixMilli.
+func UnixMilli(ms int64) Time { Unix(ms/1000, ms%1000*1000000) }
+
+// Milliseconds is t in Unix milliseconds, as Go's t.UnixMilli(): rounded
+// down, so an instant half a millisecond before 1970 is -1.
+func Milliseconds(t Time) int64 { t.sec*1000 + t.nsec/1000000 }
+
+// UnixMilliInverts: Milliseconds reads back the milliseconds UnixMilli
+// takes, and Milliseconds of an instant is the last whole millisecond at
+// or before it, on both sides of 1970.
+law UnixMilliInverts(ms int64, sec int64, nsec int64) {
+	let t = Unix(within(sec, -9000000000000000, 9000000000000000), within(nsec, 0, 999999999))
+	let floor = UnixMilli(Milliseconds(t))
+	Milliseconds(UnixMilli(ms)) == ms && !floor.After(t) && t.Sub(floor) < 1ms
+}
+
+// Truncate is t rounded down to a multiple of d since the zero time
+// (January 1 of year 1), with no monotonic reading, as Go's t.Truncate(d).
+// A d of zero or less is t with no monotonic reading.
+func Truncate(t Time, d duration) Time {
+	let r = truncate(t.sec, t.nsec, d)
+	Time{sec: r.Sec, nsec: r.Nsec, mono: 0, hasMono: false}
+}
+
+// Round is t rounded to the nearest multiple of d since the zero time,
+// halfway values up, with no monotonic reading, as Go's t.Round(d). A d of
+// zero or less is t with no monotonic reading.
+func Round(t Time, d duration) Time {
+	let r = round(t.sec, t.nsec, d)
+	Time{sec: r.Sec, nsec: r.Nsec, mono: 0, hasMono: false}
+}
+
+// TruncateIsFloor: Truncate is the last multiple of d at or before t, so
+// truncating again keeps it, and t a whole d later truncates a whole d
+// later.
+law TruncateIsFloor(sec int64, nsec int64, n int64) {
+	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let d = duration(within(n, 1, 864000000000000000))
+	let f = Truncate(t, d)
+	!f.After(t) && t.Sub(f) < d && Truncate(f, d) == f && Truncate(t.Add(d), d).Equal(f.Add(d))
+}
+
+// RoundIsNearest: Round is the multiple of d nearest t, the later one at
+// halfway.
+law RoundIsNearest(sec int64, nsec int64, n int64) {
+	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let d = duration(within(n, 1, 864000000000000000))
+	let f = Truncate(t, d)
+	let near = if t.Sub(f)+t.Sub(f) < d { f } else { f.Add(d) }
+	Round(t, d).Equal(near)
+}
+
+// Interval is the instants from Start up to End, End not included (half
+// open, as Go's slices and Temporal's ranges are). Only NewInterval builds
+// one, so Start is never after End; an Interval whose ends are the same
+// instant is empty.
+type Interval { start Time, end Time }
+
+// Reversed is the failure of NewInterval: End is before Start.
+type Reversed { Start Time, End Time }
+
+// NewInterval is the interval from start up to end.
+func NewInterval(start Time, end Time) Interval fails Reversed {
+	if Before(end, start) {
+		return Reversed{Start: start, End: end}
+	}
+	Interval{start: start, end: end}
+}
+
+// Start is the first instant of i.
+func Start(i Interval) Time { i.start }
+
+// End is the instant after the last of i: the first that i does not hold.
+func End(i Interval) Time { i.end }
+
+// Length is End(i) - Start(i).
+func Length(i Interval) duration { Sub(i.end, i.start) }
+
+// Contains reports whether t is in i: not before Start and before End.
+func Contains(i Interval, t Time) bool { !Before(t, i.start) && Before(t, i.end) }
+
+// Overlaps reports whether a and b hold an instant in common. Intervals
+// that only touch (one ends where the other starts) do not overlap, and an
+// empty interval overlaps none.
+func Overlaps(a Interval, b Interval) bool { Before(Max(a.start, b.start), Min(a.end, b.end)) }
+
+// Intersect is the instants a and b both hold, or None when they do not
+// overlap.
+func Intersect(a Interval, b Interval) Option[Interval] {
+	if !Overlaps(a, b) {
+		return None
+	}
+	Some[Interval]{Value: Interval{start: Max(a.start, b.start), end: Min(a.end, b.end)}}
+}
+
+// IntervalContainsStart: NewInterval fails exactly when end is before
+// start; an interval holds its start unless it is empty, never its end,
+// and its length is the distance between them.
+law IntervalContainsStart(sec int64, n int64) {
+	let start = Unix(anyYear(sec), 0)
+	let end = start.Add(duration(within(n, -1000000000000000, 1000000000000000)))
+	let i = NewInterval(start, end) catch {
+	case Reversed:
+		return end.Before(start)
+	}
+	!end.Before(start) && i.Contains(start) == start.Before(end) && !i.Contains(end) && i.Length() == end.Sub(start)
+}
+
+// OverlapsIffIntersect: two intervals overlap exactly when they have a
+// non-empty intersection, which both contain.
+law OverlapsIffIntersect(a int64, b int64, c int64, d int64) {
+	let x = Unix(within(a, 0, 100), 0)
+	let y = x.Add(duration(within(b, 0, 100) * 1000000000))
+	let u = Unix(within(c, 0, 100), 0)
+	let v = u.Add(duration(within(d, 0, 100) * 1000000000))
+	let p = NewInterval(x, y) catch {
+	case Reversed:
+		return false
+	}
+	let q = NewInterval(u, v) catch {
+	case Reversed:
+		return false
+	}
+	match Intersect(p, q) {
+	case Some[Interval] as r:
+		Overlaps(p, q) && r.Value.Length() > 0ns && p.Contains(r.Value.Start()) && q.Contains(r.Value.Start())
+	case None:
+		!Overlaps(p, q)
+	}
+}
+
+// Format is t's text in UTC by layout, as Go's t.UTC().Format(layout). In
+// the years 0 to 9999 the text is Go's. Outside them the layout's year
+// (2006) is ISO 8601's expanded year, a sign and at least six digits
+// (+010000, -000001), where Go writes 10000 and -0001, which Go's Parse
+// refuses; Parse reads it back (law FormatParseRoundTrip).
 func Format(t Time, layout Layout) string { format(t.sec, t.nsec, LayoutText(layout)) }
+
+// FormatParseRoundTrip: Parse reads back the instant Format writes in
+// RFC3339Nano, for every Unix second and every nanosecond: a year past
+// 9999 or before 0 is the ISO 8601 expanded year Format writes.
+law FormatParseRoundTrip(sec int64, nsec int64) {
+	let t = Unix(sec, within(nsec, 0, 999999999))
+	let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch {
+	case ParseError:
+		return false
+	}
+	back.Equal(t) && back == t
+}
 
 // Parse is the instant value writes in layout, as Go's time.Parse, with no
 // monotonic reading. A value with a zone offset is that instant; Format
 // writes it in UTC. A zone abbreviation (MST) is read against UTC, never
-// the host's zone, so Parse reads no host state.
+// the host's zone, so Parse reads no host state. A year outside 0 to 9999
+// is read in the expanded form Format writes, and only in it: a year 0 to
+// 9999 in the expanded form (+002027) is a ParseError, so each instant has
+// one text.
 func Parse(layout Layout, value string) Time fails ParseError {
 	let r = try parse(LayoutText(layout), value)
 	Time{sec: r.Sec, nsec: r.Nsec, mono: 0, hasMono: false}
@@ -182,5 +418,5 @@ func Parse(layout Layout, value string) Time fails ParseError {
 
 extern go ergo.local/prototype/runtime/v1.TimeFormat func format(sec int64, nsec int64, layout string) string
 extern go ergo.local/prototype/runtime/v1.TimeParse func parse(layout string, value string) Reading fails ParseError
-extern go ergo.local/prototype/runtime/v1.TimeSub func subWall(sec int64, nsec int64, usec int64, unsec int64) duration
-extern go ergo.local/prototype/runtime/v1.TimeSubMono func subMono(a int64, b int64) duration
+extern go ergo.local/prototype/runtime/v1.TimeTruncate func truncate(sec int64, nsec int64, d duration) Reading
+extern go ergo.local/prototype/runtime/v1.TimeRound func round(sec int64, nsec int64, d duration) Reading

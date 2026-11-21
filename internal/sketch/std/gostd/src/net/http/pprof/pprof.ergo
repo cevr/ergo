@@ -7,6 +7,7 @@ import go net/http
 extern go net/http/pprof.Cmdline func Cmdline(w own http.ResponseWriter, r own *http.Request) needs go.Foreign
 
 // ergo:go func Handler(name string) http.Handler
+// ergo:total
 extern go net/http/pprof.Handler func Handler(name string) http.Handler needs go.Foreign
 
 // ergo:go func Index(w http.ResponseWriter, r *http.Request)

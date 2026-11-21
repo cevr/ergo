@@ -3,7 +3,7 @@
   "mutants": [
     {"name":"gs30-key-check-stores","origin":"wf10 GS30","file":"scripts/examples/main.go","from":"\t\tenv = append(slices.Clip(env), lawCacheOff)\n","to":"\t\t_ = lawCacheOff\n","rule":"Every check the runner makes, the key's included, runs with the law-verdict store off.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
     {"name":"gs30-check-leg-own","origin":"wf10 GS30","file":"scripts/examples/evaluation.go","from":"\to, err := r.tool(r.cfg.testTimeout, \"check\", target)\n","to":"\to, err := r.live.execute([]string{r.cfg.ergo, \"check\", target}, r.cfg.root, append(r.toolEnv[:len(r.toolEnv):len(r.toolEnv)], lawCacheOff), \"\", r.cfg.testTimeout, 0)\n","rule":"A missed program's check leg takes the key's check result; it does not check again.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
-    {"name":"gs27-coverage-unchecked","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\t\t\tif why := coveredPackages(p, targets, o.stdout); why != \"\" {\n","to":"\t\t\tif why := coveredPackages(p, targets, o.stdout); false {\n\t\t\t\t_ = why\n","rule":"A pattern's key holds only when it names every target, and no other package.","killers":["scripts/examples:TestPatternReachingAnotherPackageIsNotCached"]},
+    {"name":"gs27-coverage-unchecked","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\t\t\t\twhy = coveredPackages(p, targets, lines)\n","to":"\t\t\t\t_ = coveredPackages(p, targets, lines)\n","rule":"A pattern's key holds only when it names every target, and no other package.","killers":["scripts/examples:TestPatternReachingAnotherPackageIsNotCached"]},
     {"name":"gs27-coverage-subset","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\tif !slices.Equal(slices.Compact(want), got) {\n","to":"\tif len(got) == 0 {\n","rule":"The packages a pattern names are exactly the program's targets.","killers":["scripts/examples:TestPatternKeyCoversEveryTarget"]},
     {"name":"gs27-stream-kept-whole","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\tif len(out) == 0 {\n\t\treturn stdout\n\t}\n\treturn bytes.Join(out, []byte(\"\\n\"))\n","to":"\tif len(out) != 1 {\n\t\treturn stdout\n\t}\n\treturn bytes.Join(out, []byte(\"\\n\"))\n","rule":"Each envelope of a pattern's check loses its producer.","killers":["scripts/examples:TestPatternCheckKeyDropsEveryProducer"]},
     {
@@ -229,26 +229,17 @@
       }
     },
     {
-      "name": "gcoom-examples-text-only",
-      "origin": "wf10 FU-gcoom r2",
-      "file": "scripts/examples/main.go",
-      "from": "proclimit.CauseOf(o.stderr) != proclimit.NoCause",
-      "to": "bytes.Contains(o.stderr, []byte(proclimit.OutOfMemory))",
-      "rule": "A capped example's span-queue allocation fault is memory, not a crash.",
-      "killers": ["scripts/examples:TestCappedFaultIsMemory"]
-    },
-    {
       "name": "examples-ignore-evaluation",
       "origin": "wf10 EV6 round 2",
       "file": "scripts/examples/main.go",
-      "from": "if evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
-      "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
+      "from": "if evaluation != nil && err == nil && o.OverCap() == \"\" && !o.TimedOut {",
+      "to": "if false && evaluation != nil && err == nil && o.OverCap() == \"\" && !o.TimedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["scripts/examples:TestCheckVerdictsMatchNative"]
     },
     {"name":"ert-explore-leg-case-timeout","origin":"wf10 EXPLORE-rt","file":"scripts/examples/explored.go","from":"\t\to, err := r.tool(r.cfg.testTimeout, append(","to":"\t\to, err := r.tool(r.cfg.timeout, append(","rule":"An explore search ends by itself; only -test-timeout, the safety net for a hung one, stops it, never a case's -timeout (batch 18: a healthy search failed 30 s at load 50).","killers":["scripts/examples:TestExploreLegOutlastsTheCaseTimeout"]},
     {"name":"ert-case-timeout-fixed","origin":"wf10 EXPLORE-rt r2","file":"scripts/examples/main.go","from":"flags.DurationVar(&cfg.timeout, \"timeout\", hangNet,","to":"flags.DurationVar(&cfg.timeout, \"timeout\", 30*time.Second,","rule":"A case is stopped only when it hangs: -timeout's default is the test legs' safety net, never a time limit that fails a slow case under load (AGENTS.md, Tests).","killers":["scripts/examples:TestCaseStopsOnlyAHang"]},
-    {"name":"ert-budget-wall-time","origin":"wf10 EXPLORE-rt r3 (owner q1)","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.cpu > r.cfg.budget","to":"r.cfg.budget > 0 && o.elapsed > r.cfg.budget","rule":"The default budget charges a case's CPU time, never its wall time: the host's load does not fail a healthy case (owner, 2026-11-12).","killers":["scripts/examples:TestBudgetAndSelection"]},
+    {"name":"ert-budget-wall-time","origin":"wf10 EXPLORE-rt r3 (owner q1)","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.CPU > r.cfg.budget","to":"r.cfg.budget > 0 && o.Elapsed > r.cfg.budget","rule":"The default budget charges a case's CPU time, never its wall time: the host's load does not fail a healthy case (owner, 2026-11-12).","killers":["scripts/examples:TestBudgetAndSelection"]},
     {
       "name": "fk0-each-table-is-title", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
       "from": "each: m[1] == \".each\"", "to": "each: false",
@@ -298,18 +289,9 @@
       "rule": "A line for a test upstream does not have is refused.",
       "killers": ["scripts/examples:TestOriginFollowsUpstream"]
     },
-    {
-      "name": "fk0-origin-folder-unchecked", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
-      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)\n", "to": "",
-      "rule": "A program of packages with an origin folder has its tests.txt checked.",
-      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
-    },
-    {
-      "name": "fk0-origin-folder-unchecked-single", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
-      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
-      "rule": "A program of one folder with an origin folder has its tests.txt checked.",
-      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
-    },
+    {"name":"ex-neutral-ports-unchecked","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\treturn programs, append(problems, checkPorts(root)...)\n","to":"\treturn programs, problems\n","rule":"A port's provenance under conformance/upstream/<source>/ports/<name>/ has its tests.txt checked, and names a program.","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-origin-admitted-single","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"main.ergo\"","to":"\t\tcase file == \"main.ergo\"","rule":"A program of one folder holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-origin-admitted-module","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"go.mod\"","to":"\t\tcase file == \"go.mod\"","rule":"A program of packages holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
     { "name": "gs1-key-ergo", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "{{\"runner\", self}, {\"ergo\", cfg.ergo}}", "to": "{{\"runner\", self}}", "rule": "A program's cache key holds the compiler's bytes: another bin/ergo at the same path reruns it.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
     { "name": "gs1-key-env", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tfor _, kv := range env {\n", "to": "\tfor _, kv := range env[:0] {\n", "rule": "A program's cache key holds the environment the compiler and the programs read.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
     { "name": "gs1-volatile-keyed", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "var volatileEnv = []string{\"INVOCATION_ID\", ", "to": "var volatileEnv = []string{", "rule": "A variable that changes on every invocation and that no verdict reads (systemd's INVOCATION_ID) is not keyed: with it every program missed.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
@@ -372,15 +354,6 @@
       "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     },
     {
-      "name": "one-module-ignores-skips",
-      "origin": "wf10 TEST-one",
-      "file": "scripts/examples/main.go",
-      "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
-      "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
-      "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
-      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
-    },
-    {
       "name": "one-module-any-packages",
       "origin": "wf10 TEST-one",
       "file": "scripts/examples/main.go",
@@ -425,7 +398,7 @@
       "to": "case file == \"no \"+opcount.WorkloadFile && !entry.IsDir():",
       "rule": "A program of packages may hold a workload file (scripts/opcount).",
       "killers": [
-        "scripts/examples:TestRepoExamplesHoldTheirLaws",
+        "scripts/examples:TestRepoLayoutIsClean",
         "scripts/examples:TestModuleProgramWorkload"
       ]
     },
@@ -437,6 +410,24 @@
       "to": "_ = w",
       "rule": "A workload file that does not read is a layout error naming its line.",
       "killers": ["scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "examples-workload-package-unchecked",
+      "origin": "wf10 TOK-BISECT",
+      "file": "scripts/examples/main.go",
+      "from": "\t\t\tif !ok {\n\t\t\t\tproblem(\"%s: a workload package holds its workload file, for scripts/opcount\", at)",
+      "to": "\t\t\tif false && !ok {\n\t\t\t\tproblem(\"%s: a workload package holds its workload file, for scripts/opcount\", at)",
+      "rule": "A workload package without its workload file is a layout error, so scripts/opcount counts every program that has a workload.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "examples-workload-package-file-unexpected",
+      "origin": "wf10 TOK-BISECT",
+      "file": "scripts/examples/main.go",
+      "from": "map[string]bool{spec: true}",
+      "to": "map[string]bool{spec: false}",
+      "rule": "A workload package may hold its workload file beside its .ergo files.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoLayoutIsClean"]
     },
     {
       "name": "md2-mod-cold-skipped",
@@ -458,7 +449,7 @@
     },
     {"name":"dk1-doc-drift","origin":"wf10 DK1","file":"docs/domain.md","from":"\t\t[]Event{Retried{Stage: k.Stage}}","to":"\t\t[]Event{Retried{Stage: f.Stage}}","rule":"Every code block of docs/domain.md is the current text of the examples/ declarations its marker names.","killers":["scripts/examples:TestDomainDocQuotesResolve"]},
     {"name":"px2-gen-check-skipped","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","to":"","rule":"A program of packages with generated files runs ergo gen KIND --check on each contract, and a stale file fails it.","killers":["scripts/examples:TestModuleProgramGenCheck"]},
-    {"name":"px2-cmd-folder-unchecked","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\t\tif info, err := os.Stat(filepath.Join(dir, entry.Name(), \"main.ergo\")); err != nil || !info.Mode().IsRegular() {","to":"\t\tif info, err := os.Stat(filepath.Join(dir, entry.Name(), \"main.ergo\")); false && (err != nil || !info.Mode().IsRegular()) {","rule":"Every folder of a program's cmd is a binary with its main.ergo.","killers":["scripts/examples:TestModuleProgramLayout"]},
+    {"name":"px2-cmd-folder-unchecked","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\t\tif info, err := os.Stat(filepath.Join(dir, name, \"main.ergo\")); err != nil || !info.Mode().IsRegular() {","to":"\t\tif info, err := os.Stat(filepath.Join(dir, name, \"main.ergo\")); false && (err != nil || !info.Mode().IsRegular()) {","rule":"Every folder of a program's cmd is a binary with its main.ergo.","killers":["scripts/examples:TestModuleProgramLayout"]},
     {"name":"mk0-module-tests-skipped","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n\tr.testProgram(p)\n","to":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","rule":"A module of modules/ runs ergo test on every package folder, so a failing law fails it.","killers":["scripts/examples:TestModulesLeg"]},
     {"name":"mk0-default-run-skips-modules","origin":"wf10 MK0","file":"scripts/examples/main.go","from":"\t\tselected = append(selected, modules...)\n","to":"","rule":"A run of the tags (the gate's examples step) runs every module of modules/ too.","killers":["scripts/examples:TestModulesLeg"]},
     {"name":"mk0-module-binary-admitted","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\t\tcase entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","to":"\t\tcase false && entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","rule":"A module is a library: a cmd/ or cases/ folder in it is a layout error.","killers":["scripts/examples:TestModulesLeg"]},
@@ -494,12 +485,58 @@
     },
     { "name": "gs8-driver-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "\t\tfmt.Fprintf(h, \"driver %s\\n\", driver)\n", "to": "\t\t_ = driver\n", "rule": "Under early cutoff the key holds the driver's sources: an edit of cmd/ergo reruns every program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
     { "name": "gs8-test-emission-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "[]string{\"check\", target}, []string{\"test\", \"--emitted\", target})", "to": "[]string{\"check\", target})", "rule": "Under early cutoff the key holds the Go each test target emits: a compiler that emits another test binary reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
-    { "name": "gs8-build-emission-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "p.sources...), {\"build\", \"--emitted\", p.main}}", "to": "p.sources...)}", "rule": "Under early cutoff the key holds the Go the program's main emits: a compiler that emits another main reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    {"name":"gs8-build-emission-unkeyed","origin":"wf10 GS8; re-anchored by I-FLIP (EVIDENCE-REPORT's buildArgs)","file":"scripts/examples/cache.go","from":"calls = append(calls, r.buildArgs(\"--emitted\", p.main))\n\t\tfor _, target","to":"_ = p.main\n\t\tfor _, target","rule":"Under early cutoff the key holds the Go the program's main emits: a compiler that emits another main reruns the program.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
     { "name": "gs20-key-results-dropped", "origin": "wf10 GS20", "file": "scripts/examples/cache.go", "from": "\t\tr.keyed[keyedCall(args)] = o\n", "to": "\t\t_ = o\n", "rule": "A missed program's fmt and check legs take the results its key's calls made; they do not run again.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
     { "name": "gs8-check-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "[]string{\"check\", target}, []string{\"test\", \"--emitted\", target})", "to": "[]string{\"test\", \"--emitted\", target})", "rule": "Under early cutoff the key holds each check leg's result: a compiler that checks otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
-    { "name": "gs8-fmt-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "calls := [][]string{append([]string{\"fmt\", \"--check\"}, p.sources...), ", "to": "calls := [][]string{", "rule": "Under early cutoff the key holds the fmt leg's result: a compiler that formats otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-fmt-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "calls := [][]string{append([]string{\"fmt\", \"--check\"}, p.sources...)}", "to": "calls := [][]string{}", "rule": "Under early cutoff the key holds the fmt leg's result: a compiler that formats otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
     { "name": "gs8-bytes-keyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "\tearly := err == nil\n", "to": "\tearly := false\n", "rule": "In a checkout with a driver, a compiler of other bytes that emits the same Go replays (early cutoff): a lower edit does not rerun every example.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
     { "name": "gs8-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\t\tstdout = withoutProducer(stdout)\n", "to": "\t\t\t_ = withoutProducer\n", "rule": "A check leg is keyed without its envelope's producer, the compiler's own digest, which no leg reads: a compiler of other bytes with the same results replays.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
-    { "name": "gs8-snapshot-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\tdelete(snapshot, \"producer\")\n", "to": "\t\tdelete(snapshot, \"\")\n", "rule": "A check leg is keyed without its snapshot's producer either: ergo check names the compiler's digest in both places.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] }
+    { "name": "gs8-snapshot-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\tdelete(snapshot, \"producer\")\n", "to": "\t\tdelete(snapshot, \"\")\n", "rule": "A check leg is keyed without its snapshot's producer either: ergo check names the compiler's digest in both places.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    {
+      "name": "ex-other-binary-unbuilt",
+      "origin": "wf10/sync RP3 (orchestrator: one example holds several binaries)",
+      "file": "scripts/examples/main.go",
+      "from": "\tfor _, other := range p.others {\n",
+      "to": "\tfor _, other := range p.others[:0] {\n",
+      "rule": "The build leg builds every binary of a program, cmd/OTHER beside cmd/NAME.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "ex-other-binary-without-main",
+      "origin": "wf10/sync RP3",
+      "file": "scripts/examples/main.go",
+      "from": "\t\t\tproblems = append(problems, fmt.Sprintf(\"no cmd/%s/main.ergo\", name))\n\t\t\tcontinue\n",
+      "to": "\t\t\tcontinue\n",
+      "rule": "Each folder of cmd is a binary with its main.ergo; another one is a layout problem.",
+      "killers": ["scripts/examples:TestModuleProgramLayout"]
+    },
+    {"name":"wg6-full-tier-in-default-run","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":" && !slices.Contains(p.heavy, target) {","to":" {","rule":"A package folder the module's full-tier file names is left out of every run but -full-tier.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"wg6-full-tier-runs-the-rest","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":"\tif r.cfg.fullTier {\n\t\tfor _, target := range p.heavy {","to":"\tif false {\n\t\tfor _, target := range p.heavy {","rule":"-full-tier tests the full-tier folders and nothing else.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"wg6-full-tier-names-nothing","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":"\t\tif !slices.ContainsFunc(p.sources, func(s string) bool { return filepath.Dir(s) == folder }) {","to":"\t\tif false {","rule":"A full-tier line that names no package folder is a layout error, so no folder leaves the fast tier untested by mistake.","killers":["scripts/examples:TestModulesLeg"]},
+    {
+      "name": "examples-workload-folder-is-file",
+      "origin": "wf10 SL1",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile && !entry.IsDir():",
+      "to": "case file == opcount.WorkloadFile:",
+      "rule": "A package folder named workload is a package, not opcount's workload file (examples/vt).",
+      "killers": ["scripts/examples:TestModuleProgramWorkloadPackage"]
+    },
+    {"name":"gtcb-budget-ignored","origin":"wf10 GATE2 GT-CPUBUDGET","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.CPU > r.cfg.budget","to":"r.cfg.budget > 0 && o.CPU < 0","rule":"A case of a default program that uses more CPU time than -budget fails.","killers":["scripts/examples:TestBudgetAndSelection"]},
+    {"name":"gs32a-path-ignored","origin":"wf10 GS32a′","file":"scripts/examples/main.go","from":"\t\tif why := linkedPerPackage(report); why != \"\" {\n","to":"\t\tif why := linkedPerPackage(report); false {\n","rule":"A keyed program whose test leg linked the shared test module, which its key does not hash, fails and is not kept.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs32a-warm-variable-kept","origin":"wf10 GS32a′","file":"scripts/examples/main.go","from":"name == emissionCacheVariable || name == warmVariable || name == stageReportVariable","to":"name == emissionCacheVariable || name == stageReportVariable","rule":"No compiler call gets the caller's ERGO_BUILD, which would make ergo test DIR/... link the shared test module.","killers":["scripts/examples:TestToolEnvironmentKeepsTheKeyedTestPath"]},
+    {"name":"gs31b-key-calls-three","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"calls = append(calls, []string{\"test\", \"--emitted\", \"--json\", pattern})","to":"calls = append(calls, []string{\"check\", pattern}, []string{\"test\", \"--emitted\", \"--json\", pattern}, []string{\"build\", \"--emitted\", p.main})","rule":"A program of packages is keyed by one compiler call beside fmt.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs31b-check-not-keyed","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\t\t\tr.keyed[keyedCall([]string{\"check\", pattern})] = check\n","to":"\t\t\t\t_ = check\n","rule":"The check leg of a program of packages takes the key call's envelopes.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs31b-build-digest-unkeyed","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\tfields[\"check\"] = stripped\n","to":"\t\tfields[\"check\"] = stripped\n\t\tdelete(fields, \"build\")\n","rule":"Each digest of the key call's line is keyed: another main misses.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs31b-test-digest-unkeyed","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\tfields[\"check\"] = stripped\n","to":"\t\tfields[\"check\"] = stripped\n\t\tdelete(fields, \"test\")\n","rule":"Each digest of the key call's line is keyed: another test module misses.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs31b-producer-keyed","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\tfields[\"check\"] = stripped\n","to":"\t\tfields[\"check\"], _ = l.Check, stripped\n","rule":"The key call's check envelopes are keyed less their producers: other compiler bytes replay.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs31b-main-build-unchecked","origin":"wf10 GS31b","file":"scripts/examples/cache.go","from":"\t\tbuilt = built || l.Package == main && l.Build != \"\"\n","to":"\t\tbuilt = true\n","rule":"A key whose main package has no build digest is refused (fail closed).","killers":["scripts/examples:TestPatternKeyCoversEveryTarget"]},
+    {"name":"gs31b-json-lawcache-on","origin":"wf10 GS31b","file":"scripts/examples/main.go","from":"(args[0] == \"check\" || args[0] == \"test\" && slices.Contains(args, \"--json\"))","to":"args[0] == \"check\"","rule":"The key call checks with the law-verdict store off, as every check does.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
+    {"name":"gs31a-hang-not-failed","origin":"wf10 GS31a","file":"internal/cases/exec.go","from":"\t\t\to.TimedOut = true\n","to":"\n","rule":"A case or leg that hangs past its safety net is stopped, fails, and the failure names the hang.","killers":["scripts/examples:TestCaseProcessGroupIsStopped"]},
+    {"name":"gs31a-folders-unshared","origin":"wf10 GS31a","file":"scripts/examples/main.go","from":"\tp.checked = loadPackageFolders(p.dir, entries)\n","to":"\tp.checked = nil\n","rule":"A program of packages is read with one load of its package folders; the asset scan and the law rule share it.","killers":["scripts/examples:TestModuleProgramLoadsItsPackagesOnce"]},
+    {"name":"examples-layout-modules-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\treturn programs, modules, append(problems, moduleProblems...)\n","to":"\t_ = moduleProblems\n\treturn programs, modules, problems\n","rule":"A layout error of a module stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-programs-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\tprograms, problems = loadExamples(root, record)\n","to":"\tprograms, _ = loadExamples(root, record)\n","rule":"A layout error of a program or a port stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-go-unclaimed","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/modules.go","from":"\t\tcase goModule == \"\" || !claimed[importPath]:\n","to":"\t\tcase goModule == \"\":\n","rule":"A module holds only the Go packages its own extern go declarations bind (interop.md, Trusted Go 3).","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-ledger-anywhere","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/main.go","from":"\t\tcase assets[filepath.Join(dir, name)] && entry.Type().IsRegular():\n","to":"\t\tcase (assets[filepath.Join(dir, name)] || name == \"ergo.laws\") && entry.Type().IsRegular():\n","rule":"A module's law ledger sits beside ergo.mod (facts.md 3), never in a package folder.","killers":["scripts/examples:TestRepoLayoutIsClean"]}
   ]
 }

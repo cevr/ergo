@@ -112,6 +112,9 @@ var declared = map[string][]allowance{
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
+	"scripts/gs25-move-std-api": {
+		{".", subtree, "TestCheckoutKeepsStdALeaf walks every Go file of the checkout for importers of internal/sketch/std (GS25)"},
+	},
 	"internal/testinputs/guard": {
 		{".", subtree, "the guard lists every directory and reads every test file, so a test package added anywhere reruns it"},
 	},
@@ -121,6 +124,7 @@ var declared = map[string][]allowance{
 		glob("internal/sketch/syntax/testdata/corpus/*/*.ergo", "the corpus globs check every sketch-eval source"),
 		glob("internal/sketch/syntax/testdata/corpus/*/*/*.ergo", "the corpus globs check every sketch-eval source one directory down"),
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
+		glob("examples/*/*/*/*.ergo", "TestCheckOnePass checks every example source of a package folder one directory further down"),
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
@@ -128,8 +132,13 @@ var declared = map[string][]allowance{
 		"examples/lintpack/policy.json", "examples/lintpack/provider.lint.json", "examples/lintpack/failure.lint.json", "examples/lintpack/bin/policy-lint",
 		"examples/lintpack/testdata/provider_boundary.ergo", "examples/lintpack/testdata/provider_boundary.lint.json",
 		"examples/lintpack/testdata/forbidden_failure.ergo", "examples/lintpack/testdata/forbidden_failure.lint.json"),
+	"internal/sketch/lint/features": {
+		{"examples", subtree, "TestRecordSurvivesWhitespace draws corpus files by seed from every example (filepath.WalkDir)"},
+		{"modules/tn1/testdata/vectors", subtree, "TestVectorRecordsRegenerate reads the conformance vectors' sources and records, which the Ergo module tn1 checks its engine against"},
+	},
 	"internal/sketch/lint": {
 		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
+		{"modules", subtree, "TestLayoutPresetOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"internal/sketch/lower": declare(
 		[]allowance{
@@ -145,7 +154,7 @@ var declared = map[string][]allowance{
 	// each std package and its copy), so lower's files, its test files
 	// among them, are in the package's closure: TestStdLawLedger's read of
 	// them (runnerPackages) needs no grant.
-	"internal/sketch/std": declare(
+	"internal/sketch/stdlib": declare(
 		[]allowance{
 			{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"},
 			// The CLI's compiled closure holds the directories of
@@ -157,12 +166,19 @@ var declared = map[string][]allowance{
 			{"cmd/ergo", program, "TestDenseAgreesWithModel builds the ergo CLI once per process and builds its model program with it (DN1)"},
 		},
 		[]allowance{{"docs/receipts/std-count.md", file, "TestStdStrengthsTable holds the counted: cells of the strengths table to the std count receipt's packages (std-better SB0)"}},
-		glob("runtime/v1/csv/*_test.go", "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"),
-		glob("runtime/v1/digest/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"),
-		glob("runtime/v1/exec/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"),
-		glob("runtime/v1/http/*_test.go", "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"),
-		glob("runtime/v1/rand/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"),
+		[]allowance{{"runtime/v1/csv/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"}},
+		[]allowance{{"runtime/v1/digest/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"}},
+		[]allowance{{"runtime/v1/exec/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"}},
+		[]allowance{{"runtime/v1/http/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"}},
+		[]allowance{{"runtime/v1/net/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf net for the benchmark its table names"}},
+		[]allowance{{"runtime/v1/rand/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"}},
 	),
+	"internal/sketch/eval": {
+		{"cmd/ergo", program, "TestEvalAgreesWithLowering builds the ergo CLI and builds each generated program with it"},
+		{"runtime/v1/testdata/toml-test/corpus.json", file, "the toml native's tests hold the evaluator to the public toml-test corpus that runtime/v1's tests use (nativestoml_test.go)"},
+		{"examples", subtree, "TestEvalAgreesOnExamples walks every example program and its cases (filepath.WalkDir) and runs each case in the evaluator"},
+		{"modules", subtree, "TestEvalAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+	},
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
 	},
@@ -186,7 +202,7 @@ var declared = map[string][]allowance{
 			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
 		},
 	),
-	"internal/sketch/format": declare(
+	"internal/hostsyntax": declare(
 		[]allowance{{"internal/sketch/syntax/testdata/corpus", subtree, "the formatter round-trips the parser's corpus: sketchtest.Corpus walks it (filepath.WalkDir)"}},
 		glob("internal/sketch/syntax/testdata/decided/*.ergo", "the formatter round-trips the decided-syntax fixtures"),
 		glob("internal/sketch/syntax/testdata/edge/*.ergo", "the formatter round-trips the edge fixtures"),
@@ -196,14 +212,13 @@ var declared = map[string][]allowance{
 	),
 	"internal/selfhostcheck": declare(
 		[]allowance{
-			{"examples", subtree, "TestSelfhostBridgeAgrees parses every examples/**/*.ergo through the Go adapter and the Ergo decoder (filepath.WalkDir)"},
-			{"internal/sketch/syntax/testdata/corpus", subtree, "the bridge property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
-			{"internal/sketch/format/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatAgrees's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
+			{"examples", subtree, "TestSelfhostFormatLaws formats every examples/**/*.ergo on both sides (sourceInputs walks it with filepath.WalkDir)"},
+			{"internal/sketch/syntax/testdata/corpus", subtree, "the format property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
+			{"internal/hostsyntax/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatLaws's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
 		},
-		glob("docs/spec/*.md", "the bridge property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
-		glob("docs/research/ef-migrate/*.ergo", "the bridge property's inputs include the migrated examples (sketchtest.Repository)"),
-		exactly("the driver's go build asks whether the repository module, which replaces ergo.local/prototype, also holds the driver's and the pilot's packages (Go's ambiguous-import check): it looks these paths up, and they do not exist",
-			"selfhostprobe", "selfhost/hostsyntax"),
+		glob("docs/spec/*.md", "the format property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
+		glob("docs/research/ef-migrate/*.ergo", "the format property's inputs include the migrated examples (sketchtest.Repository)"),
+		[]allowance{{"compiler", subtree, "the format property's inputs include every compiler/**/*.ergo (sourceInputs walks it)"}},
 	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
@@ -212,6 +227,11 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
 		{"examples", subtree, "the package-folder test runs scripts/examples, which loads every program folder of examples/ whatever the selection (loadExamples) and walks the selected one, so a changed example reruns it"},
+		{"compiler", subtree, "TestLinkedGoIsFresh regenerates the linked package compiler from the module compiler/ (linked.Generate reads the module's folders) and compares the checked-in files, so an edit of the module reruns it"},
+		{"internal/linked/compiler", listing, "TestLinkedGoIsFresh lists the generated folder to find a file the generator does not write"},
+		{"internal/linked/code/ergo", subtree, "TestLinkedGoIsFresh regenerates the linked package code from its Ergo module (linked.Generate reads the module's folders) and compares the checked-in files, so an edit of the module reruns it"},
+		{"modules", subtree, "the package-folder test's scripts/examples run loads examples that import the bundled modules (ergo.dev/domain, infra, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		{"conformance/upstream", subtree, "the package-folder test's scripts/examples run walks each vendored upstream folder that an example's origin/source names (checkOrigin, FKsrc)"},
 	},
 	"internal/experimental/irspike": {
 		{"examples", subtree, "TestIRCoverage and TestIRAgreesOnExamples walk every example program (ExampleTargets, filepath.WalkDir) and lower, build and run each, with its cases"},
@@ -222,12 +242,14 @@ var declared = map[string][]allowance{
 		{"internal/sketch/testdata/probes", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
 		{"benchmarks", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
 		{"ergo.mod", file, "loading a program folder looks up the module file in each folder above it, up to the repository root"},
+		{"modules", subtree, "TestIRCoverage and TestIRAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"internal/sketchfront": {
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
+		{"modules", subtree, "TestPathsRoundTrip checks every example program, and since B7e every one exports, so the examples that import the bundled modules (ergo.dev/domain, xml; their ergo.mod replaces them with modules/) are checked through, and the loader reads each module's sources"},
 		{"internal/sketch/check/testdata/corpus", subtree, "TestStdSnapshotAgrees checks the checker's corpus with std from source and from each snapshot (stdCorpus globs its archives)"},
 	},
 	"internal/testinputs": declare(
@@ -261,11 +283,18 @@ var declared = map[string][]allowance{
 	},
 	"internal/sketch/facts": {
 		{"examples", subtree, "TestTablesAgreeWithScanOnExamples checks every example program (examples/*/cmd/*), and the loader reads each package it imports, so a changed example reruns it"},
+		{"modules", subtree, "TestTablesAgreeWithScanOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
-	"scripts/examples": {
-		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
-		{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
-	},
+	"scripts/examples": declare(
+		[]allowance{
+			{"conformance/upstream", subtree, "checkOrigin walks each vendored upstream folder that an example's origin/source names, for its test titles (FKsrc)"},
+			{"examples", subtree, "TestRepoLayoutIsClean loads every program folder of the repository's examples/ and every module of modules/ (loadLayout lists them and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+			{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
+			{"modules", subtree, "TestRepoLayoutIsClean: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		},
+		exactly("an example's workload names its input generator and its hand-Go control by path, and reading the workload (internal/opcount) looks each up",
+			"cmd/ergo/testdata/station-stats/control", "cmd/ergo/testdata/station-stats/gen", "cmd/ergo/testdata/vt/control"),
+	),
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
 	},
@@ -743,6 +772,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sweepCosts, err := readSweepCosts(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	roots := []string{root}
 	protect, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -799,8 +832,16 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		used     map[string]bool
 		identity string
 		took     string
+		measured sweepCost
 		err      error
+		// reused are the entries of the package's recorded runs, when the
+		// sweep compares them with its own (reuseCompare).
+		reused []entry
+		// reusedOnly says the sweep did not run the package's tests: it
+		// has no cost to record.
+		reusedOnly bool
 	}
+	reuseBase, reuseMode := os.Getenv(reuseVariable), os.Getenv(reuseModeVariable)
 	results := make([]result, len(targets))
 	sem := make(chan struct{}, jobs)
 	var wg sync.WaitGroup
@@ -808,9 +849,34 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Each package's line as soon as it ends (under -v, go test
+			// prints a t.Log at once), so a sweep stopped before its end
+			// still shows the verdicts it reached: a stopped 6-hour
+			// whole-tree compare had printed none (HEAVY-COST-2 sweep4).
+			defer func() {
+				t.Logf("%s: done: %s", dir, verdictLine(results[i].took, results[i].err, len(results[i].outside)))
+			}()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], std, sem)
-			results[i].took = took
+			reuseNote := ""
+			if reuseBase != "" {
+				reused, why := reusePackage(reuseBase, roots, dir, filepath.Join(root, filepath.FromSlash(dir)))
+				switch {
+				case why != "":
+					reuseNote = "; reuse refused: " + why
+				case reuseMode == reuseCompare:
+					results[i].reused = reused
+					reuseNote = "; recorded runs reused, compared with a sweep"
+				default:
+					results[i].took, results[i].reusedOnly = "reused its recorded runs", true
+					results[i].used = map[string]bool{}
+					results[i].outside = closures[dir].check(reused, results[i].used)
+					results[i].identity = identityCounts(reused)
+					return
+				}
+			}
+			defer func() { results[i].took += reuseNote }()
+			entries, took, measured, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], sweepCosts[dir], std, sem)
+			results[i].took, results[i].measured = took, measured
 			if err != nil {
 				results[i].err = err
 				return
@@ -818,13 +884,35 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 			results[i].used = map[string]bool{}
 			results[i].outside = closures[dir].check(entries, results[i].used)
 			results[i].identity = identityCounts(entries)
+			if results[i].reused != nil {
+				if d := sameVerdict(closures[dir], dir, entries, results[i].reused); d != "" {
+					results[i].err = fmt.Errorf("the verdict on its recorded runs differs from the sweep's: %s", d)
+				}
+			}
 		}()
 	}
 	wg.Wait()
+	// The real costs of the packages that swept to the end, for the gate's
+	// record (sweepCostFile); a sweep stopped by a deadline has no cost to
+	// record.
+	if out := os.Getenv(sweepCostOutVariable); out != "" {
+		measured := map[string]sweepCost{}
+		for i, dir := range targets {
+			if results[i].err == nil && !results[i].reusedOnly {
+				measured[dir] = results[i].measured
+			}
+		}
+		data, err := json.Marshal(measured)
+		if err == nil {
+			err = os.WriteFile(out, data, 0o644)
+		}
+		if err != nil {
+			t.Errorf("%s=%s: %v", sweepCostOutVariable, out, err)
+		}
+	}
 
 	for i, dir := range targets {
 		r := results[i]
-		t.Logf("%s: %s", dir, r.took)
 		if r.err != nil {
 			t.Errorf("%s: %v", dir, r.err)
 			continue
@@ -854,6 +942,19 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		}
 		t.Errorf("%s: %d recorded inputs lie outside its closure:\n%s", dir, len(r.outside), summary(r.outside))
 	}
+}
+
+// verdictLine is a swept package's line when it ends: how its runs went
+// (took), then failed with err, or how many recorded inputs lie outside
+// its closure.
+func verdictLine(took string, err error, outside int) string {
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%s; failed: %v", took, err)
+	case outside > 0:
+		return fmt.Sprintf("%s; %d recorded inputs outside its closure", took, outside)
+	}
+	return took + "; every recorded input lies in its closure"
 }
 
 // unsweepable are the test packages the sweep does not run, by package
@@ -1042,29 +1143,40 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // every run. The log and the output of a package run whole go to stem.log
 // and stem.out, of a run of a split package to stem.<i>.log and
 // stem.<i>.out. took says how long the build and each run took once it
-// held its slot.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
+// held its slot. recorded is the package's last recorded sweep
+// (sweepCostFile), which bounds the build and the runs; measured is what
+// this sweep took.
+func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, recorded sweepCost, std string, sem chan struct{}) (entries []entry, took string, measured sweepCost, err error) {
 	sem <- struct{}{}
 	start := time.Now()
-	err = buildTestBinary(root, dir, binary)
-	took = "build " + time.Since(start).Round(100*time.Millisecond).String()
+	err = buildTestBinary(root, dir, binary, recorded.Run)
+	build := time.Since(start)
+	took = "build " + build.Round(100*time.Millisecond).String()
 	<-sem
 	if err != nil {
-		return nil, took, err
+		return nil, took, measured, err
 	}
 	pkgDir := filepath.Join(root, filepath.FromSlash(dir))
 	names, err := scanTests(pkgDir)
 	if err != nil {
-		return nil, took, err
+		return nil, took, measured, err
 	}
 	plan, err := sweepPlan(dir, names, costs)
 	if err != nil {
-		return nil, took, err
+		return nil, took, measured, err
 	}
-	plan = withDeadlineCosts(plan, cpu)
+	plan = withDeadlineCosts(plan, cpu, recorded)
 	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, std, sem, nil)
-	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
-	return entries, took, err
+	shown := make([]string, len(durations))
+	for i, d := range durations {
+		shown[i] = d.Round(100 * time.Millisecond).String()
+	}
+	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(shown, " "))
+	measured = measuredSweep(build, durations, time.Since(start))
+	if recorded.Sweep > 0 {
+		took += fmt.Sprintf("; recorded sweep %.0fs, slowest run %.0fs (%s)", recorded.Sweep, recorded.Run, sweepCostFile)
+	}
+	return entries, took, measured, err
 }
 
 // runPlan runs the planned runs of one package's test binary, each in its
@@ -1085,7 +1197,7 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 // (TestSharedCacheKeepsEachPackagesInputs). A std store (std, when not
 // empty; fillStdStore) seeds the cache with the standard library's
 // compiles, which read nothing in the working tree.
-func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []string, error) {
+func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []time.Duration, error) {
 	cache, err := newSharedCache()
 	if err != nil {
 		return nil, nil, err
@@ -1098,7 +1210,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 	}
 	runs := make([][]entry, len(plan))
 	errs := make([]error, len(plan))
-	durations := make([]string, len(plan))
+	durations := make([]time.Duration, len(plan))
 	var wg sync.WaitGroup
 	// The heaviest run takes the first slot, so the longest run starts
 	// first and the package's last run to end is a light one.
@@ -1113,7 +1225,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 			}
 			start := time.Now()
 			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, run.deadlineCost, extra, binary, run.args...)
-			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
+			durations[i] = time.Since(start)
 			errs[i] = runFailure(i, len(plan), run, errs[i])
 		})
 	}
@@ -1130,10 +1242,10 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 }
 
 // buildTestBinary builds the test binary of the package in dir. The build
-// has a run's bound (runDeadline), so a build that does not end fails with
-// its package named.
-func buildTestBinary(root, dir, binary string) error {
-	bound, err := runDeadline(0)
+// has a run's bound (runDeadline of cost, the package's slowest recorded
+// sweep run), so a build that does not end fails with its package named.
+func buildTestBinary(root, dir, binary string, cost float64) error {
+	bound, err := runDeadline(cost)
 	if err != nil {
 		return err
 	}
@@ -1216,12 +1328,18 @@ func runObserved(protect, pkg, pkgDir, stem, cache string, cost float64, extra [
 	defer s.remove()
 	log := filepath.Join(s.log, "test.log")
 	identityFile := filepath.Join(s.log, "identity.json")
-	// The binary's own deadline ends inside the run's (runTestTimeout).
+	// The run is stopped when it makes no progress for its quiet window,
+	// or at its end (runWithin). The binary's own deadline ends inside the
+	// run's end (runTestTimeout); with no end, it has none.
 	deadline, err := runDeadline(cost)
 	if err != nil {
 		return fail(err)
 	}
-	args = append([]string{"-test.paniconexit0", "-test.timeout=" + runTestTimeout(deadline).String(), "-test.testlogfile=" + log}, args...)
+	timeout := time.Duration(0)
+	if end := runEnd(); !end.IsZero() {
+		timeout = runTestTimeout(time.Until(end))
+	}
+	args = append([]string{"-test.paniconexit0", "-test.timeout=" + timeout.String(), "-test.testlogfile=" + log}, args...)
 	// The observer of the test binary (testinputs.Main) records the
 	// identity of each access at access time (testinputs.IdentityVariable).
 	// A package the observer cannot observe gets no identity file to write.

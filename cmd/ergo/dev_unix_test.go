@@ -185,8 +185,14 @@ func TestDevAnswersAWarmCheck(t *testing.T) {
 // answer, and the client answers in process (models/dev,
 // NoRequestLost).
 func TestDevClientAnswersInProcessWhenTheConnectionEnds(t *testing.T) {
+	// The gate's TMPDIR can make this path longer than a socket's may be;
+	// bind it as the daemon does.
 	socket := filepath.Join(t.TempDir(), "s.sock")
-	listener, err := net.Listen("unix", socket)
+	var listener net.Listener
+	err := viaShortPath(socket, func(p string) (err error) {
+		listener, err = net.Listen("unix", p)
+		return err
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,9 +5,9 @@ import go io
 
 // ergo:go type Curve interface
 extern go crypto/ecdh.Curve type Curve {
-	GenerateKey(rand own io.Reader) go.Ref[PrivateKey] fails go.Error needs go.Foreign,
-	NewPrivateKey(key []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign,
-	NewPublicKey(key []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign,
+	GenerateKey(rand own io.Reader) Option[go.Ref[PrivateKey]] fails go.Error needs go.Foreign,
+	NewPrivateKey(key []byte) Option[go.Ref[PrivateKey]] fails go.Error needs go.Foreign,
+	NewPublicKey(key []byte) Option[go.Ref[PublicKey]] fails go.Error needs go.Foreign,
 }
 
 // ergo:go type KeyExchanger interface

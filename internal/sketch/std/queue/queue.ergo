@@ -7,8 +7,11 @@
 // empty one. A closed queue is a normal end of the protocol, not a stop.
 extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
 
+// Full is the failure of Offer on a queue with no room now.
+extern go ergo.local/prototype/runtime/v1.Full type Full {}
+
 // Queue is a queue of T with a fixed capacity.
-extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
+extern go ergo.local/prototype/runtime/v1.Queue type Queue[T own] {
 	runtimeOnly(),
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
@@ -35,6 +38,26 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	// capacity 0 it takes the value of a waiting Push, which then
 	// succeeds.
 	Poll() Option[T],
+	// Offer adds v at the back now, or not at all: it never waits. It fails
+	// with Full when the queue holds its capacity, or when earlier Pushes
+	// still wait for room, and with Closed when the queue is closed. A
+	// producer that must not wait catches Full and drops v (Effect's
+	// dropping strategy: the oldest values stay), or calls Slide. On a
+	// queue of capacity 0 it always fails Full. It takes v, as Push does.
+	Offer(v own T) fails Closed | Full,
+	// Slide adds v at the back now, never waiting: when the queue holds its
+	// capacity, the value at the front leaves it and Slide gives it back,
+	// so the queue keeps the newest values (Effect's sliding strategy) and
+	// the caller owns the evicted one: a resource must be bound, and its
+	// scope releases it (resources R42), as for Poll. The eviction and
+	// the entry are one step of the queue, so v enters exactly once and no
+	// other producer takes the room between them. A Push still waiting for
+	// room keeps waiting. It fails with Closed on a closed queue; a capacity
+	// of 0 is a defect: there is never room to slide into. It takes v, as
+	// Push does.
+	Slide(v own T) Option[T] fails Closed,
+	// Cap is the capacity New gave the queue.
+	Cap() int,
 	// Len is how many values are in the queue that nothing has taken yet,
 	// from 0 to the capacity. The value of a Push that still waits for
 	// room is not counted. It never waits.
@@ -178,4 +201,46 @@ law DrainReleasesLeft(n int) {
 // New makes an open, empty queue that holds up to capacity values no Pop
 // has taken yet; 0 makes each Push wait for its Pop. A negative capacity
 // is a defect.
-extern go ergo.local/prototype/runtime/v1.New func New[T](capacity int) Queue[T]
+extern go ergo.local/prototype/runtime/v1.New func New[T own](capacity int) Queue[T]
+
+// SlidingKeepsTheNewest: Slide into a queue of capacity c never waits and
+// leaves the last c values sent, in order.
+law SlidingKeepsTheNewest(xs []int, c int) {
+	let capacity = 1 + (c%4+4)%4
+	let q = New[int](capacity)
+	for x in xs {
+		try q.Slide(x)
+	}
+	q.End()
+	let from = if len(xs) > capacity { len(xs) - capacity } else { 0 }
+	let mut ok = q.Len() == len(xs)-from
+	for i in from..len(xs) {
+		ok = ok && try q.Pop() == xs[i]
+	}
+	ok
+}
+
+// DroppingKeepsTheOldest: Offer into a queue of capacity c keeps the first
+// c values and fails Full on each later one; Pop then gives the kept
+// values in order.
+law DroppingKeepsTheOldest(xs []int, c int) {
+	let capacity = 1 + (c%4+4)%4
+	let q = New[int](capacity)
+	let mut kept = []int{}
+	let mut ok = true
+	for x in xs {
+		q.Offer(x) catch {
+		case Full:
+			ok = ok && len(kept) == capacity
+			continue
+		case Closed:
+			return false
+		}
+		kept = kept.Append(x)
+	}
+	q.End()
+	for k in kept {
+		ok = ok && try q.Pop() == k
+	}
+	ok && q.Len() == 0 && len(kept) <= capacity
+}

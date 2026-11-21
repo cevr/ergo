@@ -1,0 +1,167 @@
+// The model: the contract a language model keeps, and what its failures
+// mean for the loop.
+
+import strings
+import sync
+
+// Prompt is what the model is asked: the transcript so far and the tools
+// it may call.
+type Prompt { Log []Row, Tools []Schema }
+
+// Delta is a piece of a reply's text, as it streams in.
+type Delta { Text string }
+
+// End is why a reply ended: the model was done, it called tools, it hit
+// its length, or the vendor blocked it.
+type End = Finished{} | ToolUse{} | Length{} | Blocked{}
+
+// Turn is a whole reply: its text, its tool calls in order, and why it
+// ended.
+type Turn { Text string, Calls []Call, End End }
+
+// The failures of an ask.
+
+// RateLimited: the vendor asks to wait AfterMs milliseconds before the
+// next ask (0 when it did not say). It is a count, not a duration: a
+// duration has no JSON form yet (gap GENT-G3), and a recorded run holds
+// this failure.
+type RateLimited { AfterMs int }
+
+// Overloaded: the vendor is busy now.
+type Overloaded {}
+
+// Unauthorized: the key was refused.
+type Unauthorized {}
+
+// Refused: the vendor refused the ask, and why.
+type Refused { Reason string }
+
+// Truncated: the reply stopped before its end; Text is what came.
+type Truncated { Text string }
+
+// Transport: the connection failed, and how.
+type Transport { Reason string }
+
+// Malformed: the vendor's answer could not be read.
+type Malformed { Reason string }
+
+// ModelFailure is every way an ask can fail.
+type ModelFailure = RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | Malformed
+
+// SinkFailed is a stream's sink that could not take a delta.
+type SinkFailed {}
+
+// Model is the contract of a language model.
+type Model {
+	// Complete is the whole reply to p.
+	Complete(p Prompt) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | Malformed,
+	// Stream is Complete, with each piece of the reply's text given to
+	// put as it comes.
+	Stream(p Prompt, put func(d Delta) fails SinkFailed) Turn fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | Malformed | SinkFailed,
+
+	// StreamJoinsToComplete: the pieces Stream gives join to the text of
+	// its Turn, which is Complete's Turn; a stream that fails fails as
+	// Complete does, and a Truncated stream holds the pieces that came. It
+	// holds for p and for the first ask of p's tools.
+	law StreamJoinsToComplete(p Prompt) { joins(p) && joins(Prompt{Log: []Row{}, Tools: p.Tools}) },
+
+	// TruncatedIsNotATurn: a reply with no end fails Truncated; Complete
+	// never gives a Turn for a prompt whose stream was cut. It holds for p
+	// and for the first ask of p's tools.
+	law TruncatedIsNotATurn(p Prompt) { truncated(p) && truncated(Prompt{Log: []Row{}, Tools: p.Tools}) },
+}
+
+// joins is StreamJoinsToComplete for one prompt.
+func joins(p Prompt) bool needs Model {
+	let got = sync.NewRef[string]("")
+	let streamed = Model.Stream(p, func(d Delta) fails SinkFailed { got.Update(func(s string) string { s + d.Text }) }) catch {
+	case SinkFailed:
+		return false
+	case Truncated as t:
+		return t.Text == got.Get() && completeFails(p, Truncated{Text: got.Get()})
+	case f:
+		let failure ModelFailure = f
+		return completeFails(p, failure)
+	}
+	let whole = Model.Complete(p) catch {
+	case _:
+		return false
+	}
+	streamed == whole && whole.Text == got.Get()
+}
+
+// truncated is TruncatedIsNotATurn for one prompt.
+func truncated(p Prompt) bool needs Model {
+	let _ = Model.Stream(p, func(d Delta) fails SinkFailed {}) catch {
+	case Truncated:
+		let _ = Model.Complete(p) catch {
+		case Truncated:
+			return true
+		case _:
+			return false
+		}
+		return false
+	case _:
+		return true
+	}
+	true
+}
+
+// completeFails reports whether Complete(p) fails with want.
+func completeFails(p Prompt, want ModelFailure) bool needs Model {
+	let _ = Model.Complete(p) catch {
+	case f:
+		let got ModelFailure = f
+		return got == want
+	}
+	false
+}
+
+// Fate is what the loop does after a failed ask: ask again Ms
+// milliseconds from now, or give up (the transcript says why: Explain).
+// A wait is an int of milliseconds, not a duration, so a state that
+// waits has a JSON form and a session file can keep it (gap GENT-G3).
+type Fate = RetryAfter{Ms int} | GiveUp{}
+
+// Wait is ms milliseconds as a duration.
+func Wait(ms int) duration { duration(int64(ms) * 1000000) }
+
+// Class is the fate of a failure. The match names every failure, so a
+// new one stops the build until its fate is written.
+func Class(f ModelFailure) Fate {
+	match f {
+	case RateLimited as r:
+		// The vendor's wait, at most an hour; 2s when it named none.
+		let ms = if r.AfterMs <= 0 { 2000 } else if r.AfterMs > 3600000 { 3600000 } else { r.AfterMs }
+		RetryAfter{Ms: ms}
+	case Overloaded:
+		RetryAfter{Ms: 1000}
+	case Transport:
+		RetryAfter{Ms: 1000}
+	case Unauthorized, Refused, Truncated, Malformed:
+		GiveUp
+	}
+}
+
+// Explain is how a failure reads in the transcript.
+func Explain(f ModelFailure) string {
+	match f {
+	case RateLimited:
+		"rate limited"
+	case Overloaded:
+		"the model is overloaded"
+	case Transport as t:
+		"the connection failed: " + t.Reason
+	case Unauthorized:
+		"the model refused the key"
+	case Refused as r:
+		"the model refused: " + r.Reason
+	case Truncated:
+		"the reply was cut off"
+	case Malformed as m:
+		"the reply could not be read: " + m.Reason
+	}
+}
+
+// Joined is the text of pieces, in order.
+func Joined(pieces []string) string { strings.Join(pieces, "") }

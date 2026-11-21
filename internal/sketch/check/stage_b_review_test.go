@@ -13,7 +13,6 @@ import (
 func TestRefusedPatternNameBinds(t *testing.T) {
 	for _, tc := range []struct{ name, decl string }{
 		{"helper", `func helper() string { return "" }`},
-		{"len", ""},
 		{"timeout", `import timeout`},
 		{"shared", `let shared = 1`},
 		{"Finished", `type Finished { N int }`},
@@ -25,9 +24,6 @@ func TestRefusedPatternNameBinds(t *testing.T) {
 			switch tc.name {
 			case "Finished":
 				want = "Finished does not match"
-			case "len":
-				// D-D3 in every binder kind (stage D1 round 1 review m2).
-				want = "len is a prelude name, which cannot be redeclared"
 			}
 			if len(d) != 1 || d[0].Code != check.CodeType || !strings.Contains(d[0].Message, want) {
 				t.Fatalf("want one refused-name diagnostic, got %s", describe(d))

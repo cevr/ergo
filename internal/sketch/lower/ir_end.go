@@ -84,11 +84,20 @@ func irBreaks(list []*irStmt, label string) bool {
 	return false
 }
 
-// irUseLocals puts `_ = x` after the declaration of each local x of body
-// that no expression reads. Every body's end passes here: an IR form still
-// in it is erased first (ir_forms_erase.go).
+// irUseLocals drops body's unreachable statements (irReachable), then puts
+// `_ = x` after the declaration of each local x of body that no expression
+// reads. Every body's end passes here: an IR form still in it is erased
+// first (ir_forms_erase.go).
 func irUseLocals(body []*irStmt) []*irStmt {
-	body = eraseForms(body, nil)
+	body = irReachable(eraseForms(body, nil))
+	// A label left off can leave statements after a terminating one
+	// unreachable, and dropping them can leave another label unnamed.
+	for dropped := true; dropped; {
+		body, dropped = irLabelsNamed(body)
+		if dropped {
+			body = irReachable(body)
+		}
+	}
 	read := map[int]bool{}
 	var stmts func(list []*irStmt)
 	var expr func(e *irExpr)
@@ -139,11 +148,26 @@ func irUseLocals(body []*irStmt) []*irStmt {
 			switch s.K {
 			case "def", "var":
 				declared = []int{s.Local}
-			case "def2":
+			case "def2", "mapget":
 				declared = []int{s.Local}
 				if s.Val != nil {
 					declared = append(declared, *s.Val)
 				}
+			case "tdef":
+				for _, l := range s.Ls {
+					if l >= 0 {
+						declared = append(declared, l)
+					}
+				}
+			case "range":
+				// A range variable is read in the body, or there.
+				var use []*irStmt
+				for _, l := range []*int{s.Key, s.Val} {
+					if l != nil && !read[*l] {
+						use = append(use, &irStmt{K: "discard", Pos: s.Pos, X: &irExpr{K: "local", Pos: s.Pos, I: *l}})
+					}
+				}
+				s.Body = append(use, s.Body...)
 			}
 			for _, l := range declared {
 				if !read[l] {
@@ -156,6 +180,66 @@ func irUseLocals(body []*irStmt) []*irStmt {
 	return mark(body)
 }
 
+// irLabelsNamed is body with the labels no break, continue or goto names
+// left off (a function literal's labels are its own): irReachable drops a
+// goto after a statement that terminates, as an inlined body's jump to
+// its end (inl…) or a failure's to its arm (fj…), and the label it named
+// would be one Go refuses, defined and not used, in the body's Go text.
+// dropped reports a label left off.
+func irLabelsNamed(body []*irStmt) (_ []*irStmt, dropped bool) {
+	named := map[string]bool{}
+	var walk func(list []*irStmt, f func(*irStmt))
+	walk = func(list []*irStmt, f func(*irStmt)) {
+		for _, s := range list {
+			f(s)
+			walk(s.Then, f)
+			walk(s.Else, f)
+			walk(s.Body, f)
+			for _, c := range s.Cases {
+				walk(c.Body, f)
+			}
+		}
+	}
+	walk(body, func(s *irStmt) {
+		if s.K == "break" || s.K == "continue" || s.K == "goto" {
+			named[s.Label] = true
+		}
+	})
+	walk(body, func(s *irStmt) {
+		if s.Label != "" && s.K != "break" && s.K != "continue" && s.K != "goto" && !named[s.Label] {
+			s.Label, dropped = "", true
+		}
+		irLiterals(s, func(e *irExpr) {
+			var d bool
+			e.Body, d = irLabelsNamed(e.Body)
+			dropped = dropped || d
+		})
+	})
+	return body, dropped
+}
+
+// irReachable is list without the statements after one that terminates,
+// up to a labeled one, which a goto reaches: they never run, the Go text
+// of the body would be unreachable code to go vet, and the decoder would
+// compile them all the same (a return after an endless loop).
+func irReachable(list []*irStmt) []*irStmt {
+	out := list[:0]
+	dead := false
+	for _, s := range list {
+		if dead && (s.Label == "" || s.K == "break" || s.K == "continue" || s.K == "goto") {
+			continue
+		}
+		s.Then, s.Else, s.Body = irReachable(s.Then), irReachable(s.Else), irReachable(s.Body)
+		irLiterals(s, func(e *irExpr) { e.Body = irReachable(e.Body) })
+		for _, c := range s.Cases {
+			c.Body = irReachable(c.Body)
+		}
+		out = append(out, s)
+		dead = irTerminates(s)
+	}
+	return out
+}
+
 // irScopesIncrease makes the scope positions of body increase, in the
 // decoder's order: an if opens at Pos, its then block ends at End and its
 // else block runs ElsePos..ElseEnd; a switch opens at Pos, each clause at
@@ -163,9 +247,59 @@ func irUseLocals(body []*irStmt) []*irStmt {
 // closes at End; a loop or a block runs Pos..End. A position before the
 // last one met, in the same file, becomes that one. A function literal's
 // body is a function of its own (its own scope marks).
-func irScopesIncrease(body []*irStmt) []*irStmt {
+func irScopesIncrease(body []*irStmt, start irPos) []*irStmt {
+	return irScopesIncreaseTagged(body, nil, start)
+}
+
+// irScopesIncreaseTagged is irScopesIncrease where the files tagged are an
+// inlined body's (ir_forms_inline.go): Go orders positions of two files by
+// their names, and a tagged name sorts after its caller's, so each scope
+// position in a tagged file takes the last one before it (start before
+// any, or a literal's own position in its body).
+func irScopesIncreaseTagged(body []*irStmt, tagged map[int]bool, start irPos) []*irStmt {
 	var last irPos
+	// place gives a node the lowering made with no position of its own
+	// (an else, a type switch's default, a statement or an operand it
+	// synthesized) the last scope position met, or start, the function's
+	// or the literal's: Go's compile stops at an unknown scope position
+	// and files an error at no place (JOBS-ICE). Every body passes here
+	// (irPlaced refuses what is still unplaced).
+	place := func(p *irPos) {
+		if p[1] > 0 {
+			return
+		}
+		if last[1] > 0 {
+			*p = last
+		} else {
+			*p = start
+		}
+	}
+	var operands func(e *irExpr, at irPos)
+	operands = func(e *irExpr, at irPos) {
+		if e == nil {
+			return
+		}
+		if e.Pos[1] <= 0 {
+			e.Pos = at
+		}
+		operands(e.X, e.Pos)
+		operands(e.Y, e.Pos)
+		for _, a := range e.Args {
+			operands(a, e.Pos)
+		}
+		for _, a := range e.Elems {
+			operands(a, e.Pos)
+		}
+	}
 	at := func(p *irPos) {
+		place(p)
+		if tagged[p[0]] {
+			if last == (irPos{}) {
+				*p = start
+			} else {
+				*p = last
+			}
+		}
 		if p[0] == last[0] && (p[1] < last[1] || p[1] == last[1] && p[2] < last[2]) {
 			*p = last
 		}
@@ -174,11 +308,19 @@ func irScopesIncrease(body []*irStmt) []*irStmt {
 	var stmts func(list []*irStmt)
 	stmts = func(list []*irStmt) {
 		for _, s := range list {
+			place(&s.Pos)
+			operands(s.X, s.Pos)
+			operands(s.Y, s.Pos)
+			for _, c := range s.Cases {
+				for _, v := range c.Vals {
+					operands(v, s.Pos) // the clause is placed below (at)
+				}
+			}
 			irLiterals(s, func(e *irExpr) {
-				saved := last
-				last = irPos{}
+				saved, savedStart := last, start
+				last, start = irPos{}, e.Pos
 				stmts(e.Body)
-				last = saved
+				last, start = saved, savedStart
 			})
 			switch s.K {
 			case "if":

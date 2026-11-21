@@ -1,0 +1,157 @@
+// The generator builds values and byte strings from Random, for the laws:
+// every variant, texts with a CR, an LF and a CRLF in them, bulk strings
+// of any bytes, empty and nested aggregates. Samples binds Random to
+// rand.Seeded(seed), so a law that takes a seed replays from it.
+
+import rand
+import strings
+
+// Texts are the texts the generator draws simple strings, errors and bulk
+// strings from.
+let Texts = []string{"", "OK", "a", "ERR bad", "a b", "line\nnext", "cr\rhere", "x\r\ny", "\r\n", "$3", "*1", "é", "☃"}
+
+// Integers are the integers the generator draws.
+let Integers = []int64{0, 1, -1, 42, -1000, 9223372036854775807, -9223372036854775807 - 1}
+
+func draw(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+
+// GenBytes is n random bytes, as a string of bytes.
+func GenBytes(n int) string needs Random {
+	let mut bs = []byte{}
+	for _ in 0..n {
+		bs = bs.Append(byte(Random.IntN(256)))
+	}
+	strings.FromBytes(bs)
+}
+
+// GenValue is a value of depth at most depth.
+func GenValue(depth int) Value needs Random {
+	let n = if depth <= 0 { Random.IntN(7) } else { Random.IntN(10) }
+	match n {
+	case 0:
+		Simple{Text: draw(Texts)}
+	case 1:
+		Fault{Text: draw(Texts)}
+	case 2:
+		Integer{N: Integers[Random.IntN(len(Integers))]}
+	case 3:
+		Bulk{Data: draw(Texts)}
+	case 4:
+		Bulk{Data: GenBytes(Random.IntN(12))}
+	case 5:
+		Null
+	case 6:
+		Boolean{Truth: Random.IntN(2) == 0}
+	case 7:
+		Array{Items: genItems(depth)}
+	case 8:
+		Set{Items: genItems(depth)}
+	case _:
+		let mut pairs = []Pair{}
+		for _ in 0..Random.IntN(4) {
+			pairs = pairs.Append(Pair{Key: GenValue(depth - 1), Value: GenValue(depth - 1)})
+		}
+		Dict{Pairs: pairs}
+	}
+}
+
+func genItems(depth int) []Value needs Random {
+	let mut items = []Value{}
+	for _ in 0..Random.IntN(4) {
+		items = items.Append(GenValue(depth - 1))
+	}
+	items
+}
+
+// Samples is ten values of depth at most 3 from seed.
+func Samples(seed int) []Value {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = []Value{}
+		for _ in 0..10 {
+			out = out.Append(GenValue(3))
+		}
+		out
+	}
+}
+
+// SplitAnywhereParsesTheSame: a stream of values cut into two chunks at
+// any byte reads as the same values: before the last byte of a value
+// arrives the reader says Incomplete, and it never reads a value twice or
+// loses one. A bulk string that a parser ends early, or a CRLF it looks
+// for past its chunk, breaks it.
+law SplitAnywhereParsesTheSame(seed int) {
+	let vs = Samples(seed)
+	let mut stream = []byte{}
+	for v in vs {
+		stream = Append(stream, v, Resp3)
+	}
+	for k in 0..len(stream)+1 {
+		let mut r = NewReader()
+		let mut got = []Value{}
+		Feed(&r, stream[:k])
+		got = drain(&r, got) catch {
+		case Malformed:
+			return false
+		}
+		Feed(&r, stream[k:])
+		got = drain(&r, got) catch {
+		case Malformed:
+			return false
+		}
+		if len(got) != len(vs) || Buffered(r) != 0 {
+			return false
+		}
+		for i, v in vs {
+			if !Equal(got[i], Clean(v)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// drain is got with every value r holds, until r is Incomplete.
+func drain(r mut Reader, got []Value) []Value fails Malformed {
+	let mut out = got
+	for {
+		let v = try Next(r) catch {
+		case Incomplete:
+			return out
+		}
+		out = out.Append(v)
+	}
+}
+
+// Alphabet is the bytes the generator draws noise from: RESP's type bytes,
+// digits, signs, CR and LF, a letter, and a byte that is no type.
+let Alphabet = "+-:$*_#%~0123456789\r\n-tfa!"
+
+// Noise is twenty byte strings from seed that are mostly not RESP: bytes
+// drawn from Alphabet, and encodings of samples with a byte changed, a byte
+// dropped or the end cut.
+func Noise(seed int) []string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = []string{}
+		for _ in 0..10 {
+			let mut bs = []byte{}
+			for _ in 0..Random.IntN(24) {
+				bs = bs.Append(Alphabet[Random.IntN(len(Alphabet))])
+			}
+			out = out.Append(strings.FromBytes(bs))
+		}
+		for _ in 0..10 {
+			let enc = strings.FromBytes(Encode(GenValue(3), Resp3))
+			let i = Random.IntN(len(enc))
+			let cut = match Random.IntN(3) {
+			case 0:
+				enc[:i] + strings.FromBytes([]byte{Alphabet[Random.IntN(len(Alphabet))]}) + enc[i+1:]
+			case 1:
+				enc[:i] + enc[i+1:]
+			case _:
+				enc[:i]
+			}
+			out = out.Append(cut)
+		}
+		out
+	}
+}

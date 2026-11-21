@@ -19,7 +19,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/toolchain"
@@ -141,11 +141,11 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	before := cases.format()
-	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases)
+	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
 	if err != nil {
 		return 0, err
 	}
-	if hasMain(unit.Package) {
+	if HasMain(unit.Package) {
 		// RewriteChecks runs nothing when neither the root nor an import
 		// has a rewrite law: an import's provider is checked at the
 		// root's sites. A library has no run build, so no site of its
@@ -172,6 +172,10 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		}
 		next[e.Key()] = e
 	}
+	// An entry whose key this run recomputed into another form is never
+	// read again (LEDGER-SUPERSEDE): it goes, and an entry of another
+	// build stays.
+	changed += lower.DropSuperseded(next, fresh, buildTags(a))
 	// The corpus keeps a law's cases while its package declares it in
 	// the rewrite's scope, by the ledger's pruning rule.
 	for k := range cases {
@@ -215,7 +219,7 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 		if e.Provider == "" {
 			// A top-level law's entry (LF6b): the law, in the
 			// rewrite's scope still.
-			return l.Owner == nil && l.Machine == nil && l.Name == law && l.FuncRewrite != nil
+			return l.Owner == nil && l.Machine == nil && l.Name == law && l.TopRewrite() != nil
 		}
 		return l.Owner != nil && l.Owner.Name+"."+l.Name == law
 	})) {
@@ -293,8 +297,8 @@ const StdLedgerHeader = "# std law ledger (runtime.md, Tests 10). Written by go 
 // which the caller runs: the compiler does not link their guards.
 func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 	entries := map[string]lower.LedgerEntry{}
-	for _, path := range std.Packages() {
-		texts, _ := std.Package(path)
+	for _, path := range stdlib.Packages() {
+		texts, _ := stdlib.Package(path)
 		names := make([]string, 0, len(texts))
 		for n := range texts {
 			names = append(names, n)
@@ -323,7 +327,7 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 		}
 		// A top-level rewrite law's licence run is the evaluator's, so
 		// it needs no Go tool (licenceEntries).
-		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil)
+		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil, build.Toolchain{})
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
@@ -378,8 +382,10 @@ func GuardFactEntries() []lower.LedgerEntry {
 	return out
 }
 
-// hasMain reports whether pkg declares main, the run build's entry.
-func hasMain(pkg *check.Package) bool {
+// HasMain reports whether pkg declares main, the run build's entry. Only
+// such a package's ledger takes a build (UpdateLedger's RewriteChecks), so
+// only its writer needs a toolchain.
+func HasMain(pkg *check.Package) bool {
 	for _, f := range pkg.Funcs {
 		if f.Name == "main" {
 			return true

@@ -1,0 +1,414 @@
+// Wall time to instants: Resolve, the Resolved union and its choices, and
+// the transitions of a zone.
+
+import civil
+import time
+
+// Resolved is what a wall time is in a zone: one instant; a Gap, a wall
+// time the zone skips (02:30 on the day clocks go forward); or an Overlap,
+// a wall time the zone shows twice (01:30 on the day they go back).
+type Resolved = Unique | Gap | Overlap
+
+// Unique is a wall time the zone shows once, at At.
+type Unique { At time.Time }
+
+// Gap is a wall time the zone skips. Start is the instant of the change.
+// Before is the wall time read with the offset after the change, so it is
+// before Start; After is read with the offset before the change, so it is
+// after Start. Neither shows the wall time: the zone shows Before's wall
+// time one gap earlier and After's one gap later.
+type Gap { Before time.Time, After time.Time, Start time.Time }
+
+// Overlap is a wall time the zone shows twice: at Earlier, in the offset
+// before the change, and at Later, in the offset after it.
+type Overlap { Earlier time.Time, Later time.Time }
+
+// Resolve is the instants at which z shows the wall time dt. Every offset
+// of z is between z's least and most, so an instant that shows dt is
+// within them of dt read as UTC; Resolve walks z's changes in that window
+// one at a time (changeAfter), and each stretch between two changes holds
+// dt at most once. It keeps the first and last instant found, not a list,
+// so it allocates nothing but its result.
+func Resolve(z Zone, dt civil.DateTime) Resolved {
+	let (u, ns) = wallSeconds(dt)
+	let (found, first, last) = showings(z, u)
+	if found == 1 {
+		return Unique{At: time.Unix(first, ns)}
+	}
+	if found > 1 {
+		return Overlap{Earlier: time.Unix(first, ns), Later: time.Unix(last, ns)}
+	}
+	let (before, after, b) = gapOf(z, u)
+	Gap{Before: time.Unix(u - after, ns), After: time.Unix(u - before, ns), Start: time.Unix(b, 0)}
+}
+
+// CompatibleShift is Compatible(Resolve(z, dt)), and how far it moves dt
+// forward: the gap's length when z skips dt, else 0s (law
+// CompatibleShiftIsCompatible). It makes no Resolved, so a scheduler that
+// asks it for each firing allocates nothing.
+func CompatibleShift(z Zone, dt civil.DateTime) (time.Time, duration) {
+	let (u, ns) = wallSeconds(dt)
+	let (found, first, _) = showings(z, u)
+	if found > 0 {
+		return (time.Unix(first, ns), 0s)
+	}
+	let (before, after, _) = gapOf(z, u)
+	(time.Unix(u - before, ns), duration((after - before) * 1000000000))
+}
+
+// wallSeconds is dt read as UTC: its seconds from 1970 and its
+// nanoseconds.
+func wallSeconds(dt civil.DateTime) (int64, int64) {
+	let inDay = int64(civil.SinceMidnight(dt.Time))
+	(civil.UnixDays(dt.Date) * 86400 + inDay / 1000000000, inDay % 1000000000)
+}
+
+// showings is how many instants z shows the wall second u at, and the
+// first and last of them.
+func showings(z Zone, u int64) (int, int64, int64) {
+	let lo = u - z.most - 1
+	let hi = u - z.least + 1
+	let mut found = 0
+	let mut first = int64(0)
+	let mut last = int64(0)
+	let mut from = lo
+	let mut more = true
+	for more {
+		let b = changeAfter(z, from, hi, true)
+		more = b > from
+		let to = if more { b } else { hi + 1 }
+		let t = u - int64(lookup(z, from).Seconds)
+		if t >= from && t < to {
+			if found == 0 {
+				first = t
+			}
+			last = t
+			found += 1
+		}
+		from = b
+	}
+	(found, first, last)
+}
+
+// gapOf is the offsets before and after the change whose gap holds the
+// wall second u, which z never shows, and the change's instant.
+func gapOf(z Zone, u int64) (int64, int64, int64) {
+	let lo = u - z.most - 1
+	let hi = u - z.least + 1
+	let mut b = changeAfter(z, lo, hi, true)
+	for b > lo {
+		let before = int64(lookup(z, b - 1).Seconds)
+		let after = int64(lookup(z, b).Seconds)
+		if after > before && u >= b + before && u < b + after {
+			return (before, after, b)
+		}
+		let next = changeAfter(z, b, hi, true)
+		b = if next > b { next } else { lo }
+	}
+	Unreachable("a wall time no stretch of the zone shows is in a gap")
+}
+
+// Compatible is the instant a scheduler takes for r, as ECMA-262 and
+// Temporal's default choose: Unique's instant, a Gap's After (the wall
+// time moved forward by the gap) and an Overlap's Earlier.
+func Compatible(r Resolved) time.Time {
+	match r {
+	case Unique as u:
+		u.At
+	case Gap as g:
+		g.After
+	case Overlap as o:
+		o.Earlier
+	}
+}
+
+// StartOfDay is the first instant of the date d in z. It is midnight
+// unless z skips midnight on d, as a zone that changes its clocks at
+// midnight does; then it is the instant of the change. When z skips all of
+// d, it is the instant d would have begun at, whose wall time is on a
+// later day.
+func StartOfDay(z Zone, d civil.Date) time.Time {
+	match Resolve(z, civil.DateTime{Date: d, Time: civil.Midnight()}) {
+	case Unique as u:
+		u.At
+	case Gap as g:
+		g.Start
+	case Overlap as o:
+		o.Earlier
+	}
+}
+
+// ResolveInvertsCivil: the wall time a zone shows at t resolves to t: a
+// Unique at t, or an Overlap that holds t.
+law ResolveInvertsCivil(i int64, s int64, ns int64) {
+	let z = anyZone(i)
+	let t = anyInstant(s, ns)
+	let ok = match Resolve(z, Civil(z, t)) {
+	case Unique as u:
+		u.At == t
+	case Overlap as o:
+		o.Earlier == t || o.Later == t
+	case Gap:
+		false
+	}
+	ok
+}
+
+// within is n moved into lo..hi by whole spans (n itself when it is in
+// range), so a law covers every n.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = (n - lo) % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+// anyZone is the zone i names of std's IANA copy.
+func anyZone(i int64) Zone {
+	let names = ianaNames()
+	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	FromTZif(name, ianaZone(name)) catch {
+	case BadData:
+		Unreachable("std's IANA copy holds only zones Go's reader reads")
+	}
+}
+
+// anyInstant is the instant s names from 1900 to 2100, with nanoseconds.
+func anyInstant(s int64, ns int64) time.Time { time.Unix(within(s, -2208988800, 4102444800), within(ns, 0, 999999999)) }
+
+// GapIsNeverShown: a wall time inside the gap of a forward change is a
+// Gap at that change; Before and After show wall times one gap before and
+// after it, and Compatible takes After.
+law GapIsNeverShown(i int64, s int64, k int64) {
+	let z = anyZone(i)
+	let c = match nextChange(z, anyInstant(s, 0), true) {
+	case None:
+		return true
+	case Some[Transition] as v:
+		v.Value
+	}
+	let gap = int64(c.After.Seconds - c.Before.Seconds)
+	let at = time.UnixSeconds(c.At)
+	let wall = civil.DateTimeOf(time.Unix(at + int64(c.Before.Seconds) + within(k, 0, gap - 1), 0))
+	let length = duration(gap * 1000000000)
+	let ok = match Resolve(z, wall) {
+	case Gap as g:
+		g.Start == c.At && civil.Sub(Civil(z, g.After), wall) == length && civil.Sub(wall, Civil(z, g.Before)) == length && Compatible(Gap{Before: g.Before, After: g.After, Start: g.Start}) == g.After && time.Before(g.Before, g.Start) && !time.Before(g.After, g.Start)
+	case Unique, Overlap:
+		false
+	}
+	ok
+}
+
+// nextChange is the first change of z's offset in seconds, growing when
+// forward and shrinking otherwise, in the two years after t.
+func nextChange(z Zone, t time.Time, forward bool) Option[Transition] {
+	for c in Transitions(z, t, time.Unix(time.UnixSeconds(t) + 2 * 366 * 86400, 0)) {
+		if forward && c.After.Seconds > c.Before.Seconds || !forward && c.After.Seconds < c.Before.Seconds {
+			return Some{c}
+		}
+	}
+	None
+}
+
+// CompatibleShiftIsCompatible: CompatibleShift is Compatible of Resolve,
+// and its shift is the gap's length for a wall time the zone skips and 0s
+// otherwise, at wall times from an hour before a drawn change, forward or
+// back, to two hours after it.
+law CompatibleShiftIsCompatible(i int64, s int64, k int64) {
+	let z = anyZone(i)
+	let c = match nextChange(z, anyInstant(s, 0), k % 2 == 0) {
+	case None:
+		return true
+	case Some[Transition] as v:
+		v.Value
+	}
+	let wall = civil.DateTimeOf(time.Unix(time.UnixSeconds(c.At) + int64(c.Before.Seconds) - 3600 + within(k, 0, 3 * 3600), 0))
+	let r = Resolve(z, wall)
+	let (t, shift) = CompatibleShift(z, wall)
+	let want = match r {
+	case Gap as g:
+		time.Sub(g.After, g.Before)
+	case Unique, Overlap:
+		0s
+	}
+	t == Compatible(r) && shift == want
+}
+
+// OverlapIsOrdered: a wall time inside the overlap of a backward change is
+// an Overlap whose Earlier and Later both show it, the change's length
+// apart, and Compatible takes Earlier.
+law OverlapIsOrdered(i int64, s int64, k int64) {
+	let z = anyZone(i)
+	let c = match nextChange(z, anyInstant(s, 0), false) {
+	case None:
+		return true
+	case Some[Transition] as v:
+		v.Value
+	}
+	let back = int64(c.Before.Seconds - c.After.Seconds)
+	let at = time.UnixSeconds(c.At)
+	let wall = civil.DateTimeOf(time.Unix(at + int64(c.After.Seconds) + within(k, 0, back - 1), 0))
+	let ok = match Resolve(z, wall) {
+	case Overlap as o:
+		time.Before(o.Earlier, o.Later) && Civil(z, o.Earlier) == wall && Civil(z, o.Later) == wall && time.Sub(o.Later, o.Earlier) == duration(back * 1000000000) && Compatible(Overlap{Earlier: o.Earlier, Later: o.Later}) == o.Earlier
+	case Unique, Gap:
+		false
+	}
+	ok
+}
+
+// StartOfDayIsFirst: the start of a date a zone shows is on that date, and
+// the second before it is on an earlier one.
+law StartOfDayIsFirst(i int64, s int64) {
+	let z = anyZone(i)
+	let d = Civil(z, anyInstant(s, 0)).Date
+	let start = StartOfDay(z, d)
+	Civil(z, start).Date == d && civil.Before(Civil(z, time.Unix(time.UnixSeconds(start) - 1, 0)).Date, d)
+}
+
+// TransitionsChange: each transition is a change, at its instant, from the
+// offset of the second before, in order, inside the range.
+law TransitionsChange(i int64, s int64, k int64) {
+	let z = anyZone(i)
+	let from = anyInstant(s, 0)
+	let to = time.Unix(time.UnixSeconds(from) + within(k, 0, 3 * 366 * 86400), 0)
+	let mut last = time.UnixSeconds(from) - 1
+	for c in Transitions(z, from, to) {
+		let at = time.UnixSeconds(c.At)
+		if at <= last || at > time.UnixSeconds(to) || c.Before == c.After || c.Before != OffsetAt(z, time.Unix(at - 1, 0)) || c.After != OffsetAt(z, c.At) {
+			return false
+		}
+		last = at
+	}
+	true
+}
+
+// ZoneTransitionsStops: Transitions is a Seq that stops (stdlib.md, Std
+// laws 5): a yield that returns false at its k-th call is called min(k,
+// count) times.
+law ZoneTransitionsStops(i int64, s int64, stop int64) {
+	let z = anyZone(i)
+	let from = anyInstant(s, 0)
+	let to = time.Unix(time.UnixSeconds(from) + 10 * 366 * 86400, 0)
+	let mut n = 0
+	for _ in Transitions(z, from, to) {
+		n += 1
+	}
+	let at = int(within(stop, 1, 25))
+	let mut calls = 0
+	Transitions(z, from, to)(func(c Transition) bool {
+		calls = calls + 1
+		calls < at
+	})
+	calls == (if at < n { at } else { n })
+}
+
+// Transition is a change of a zone's offset: from Before to After at the
+// instant At.
+type Transition { At time.Time, Before Offset, After Offset }
+
+// Transitions is each change of z's offset at an instant from from to
+// to, both included, in order. A change of the abbreviation or of
+// daylight saving time alone is a change. A zone's rule changes it every
+// year, so the sequence reads the rule a year at a time, and the range
+// bounds it.
+func Transitions(z Zone, from time.Time, to time.Time) Seq[Transition] {
+	func(yield func(Transition) bool) {
+		let lo = time.UnixSeconds(from)
+		let hi = time.UnixSeconds(to)
+		if lo > hi {
+			return
+		}
+		let n = len(z.at)
+		// The table's changes, and the rule's in the year of its last.
+		let tableTo = if n == 0 { lo } else if z.at[n - 1] + 366 * 86400 < hi { z.at[n - 1] + 366 * 86400 } else { hi }
+		let mut a = if lo == -9223372036854775808 { lo } else { lo - 1 }
+		if tableTo > a {
+			for b in changes(z, a, tableTo, false) {
+				if !yield(Transition{At: time.Unix(b, 0), Before: lookup(z, b - 1), After: lookup(z, b)}) {
+					return
+				}
+			}
+			a = tableTo
+		}
+		match z.rule {
+		case noRule, always:
+		case seasonal:
+			for a < hi {
+				let b = if hi - a > 366 * 86400 { a + 366 * 86400 } else { hi }
+				for c in changes(z, a, b, false) {
+					if !yield(Transition{At: time.Unix(c, 0), Before: lookup(z, c - 1), After: lookup(z, c)}) {
+						return
+					}
+				}
+				a = b
+			}
+		}
+	}
+}
+
+// changes is each Unix second b with lo < b <= hi at which lookup(z, b)
+// differs from lookup(z, b - 1), in its seconds alone when secondsOnly,
+// ascending.
+func changes(z Zone, lo int64, hi int64, secondsOnly bool) []int64 {
+	let mut out = []int64{}
+	let mut b = changeAfter(z, lo, hi, secondsOnly)
+	let mut from = lo
+	for b > from {
+		out = out.Append(b)
+		from = b
+		b = changeAfter(z, b, hi, secondsOnly)
+	}
+	out
+}
+
+// changeAfter is the first Unix second b with x < b <= hi at which
+// lookup(z, b) differs from lookup(z, b - 1), in its seconds alone when
+// secondsOnly; x itself when there is none. It reads the candidates in
+// order (candidateAfter) and allocates nothing.
+func changeAfter(z Zone, x int64, hi int64, secondsOnly bool) int64 {
+	let mut c = candidateAfter(z, x, hi)
+	let mut from = x
+	for c > from {
+		let a = lookup(z, c - 1)
+		let d = lookup(z, c)
+		if a.Seconds != d.Seconds || !secondsOnly && a != d {
+			return c
+		}
+		from = c
+		c = candidateAfter(z, c, hi)
+	}
+	x
+}
+
+// candidateAfter is the least candidate b with x < b <= hi, or x when
+// there is none. The candidates are the table's instants and, after its
+// last, the rule's: the start of each UTC year and its two changes.
+func candidateAfter(z Zone, x int64, hi int64) int64 {
+	let n = len(z.at)
+	let mut best = x
+	if n > 0 {
+		let i = if x < z.at[0] { 0 } else { lastAtOrBefore(z.at, x) + 1 }
+		if i < n && z.at[i] <= hi {
+			best = z.at[i]
+		}
+	}
+	let low = if n > 0 && z.at[n - 1] > x { z.at[n - 1] } else { x }
+	if hi > low {
+		match z.rule {
+		case noRule:
+		case always, seasonal:
+			let y0, _ = yearAndDay(floorDiv(low, 86400))
+			let y1, _ = yearAndDay(floorDiv(hi, 86400))
+			for y in y0..y1 + 1 {
+				for k in 0..ruleBoundCount(z.rule) {
+					let b = ruleBound(z.rule, y, k)
+					if b > low && b <= hi && (best == x || b < best) {
+						best = b
+					}
+				}
+			}
+		}
+	}
+	best
+}

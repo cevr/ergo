@@ -1,0 +1,213 @@
+// Package work is the domain of `ergo work`: copy-on-write workspaces of
+// one base checkout. A workspace is a folder that holds a full clone of
+// its parent (the tracked files, the Git folder and every untracked build
+// product), with a name, a branch and a lifecycle. The package declares
+// the contracts it calls (Cloner, Registry, Vcs) with their laws; the
+// providers live in packages named after what they use (btrfs, reflink,
+// clonefile, copy, journal, git, memory), and the binary chooses them.
+
+import machines
+
+// State is where a workspace is in its lifecycle. A crash between the
+// clone and the registry's record of it leaves Creating, which gc
+// removes, unless the clone carries its marker: gc activates that one,
+// whose folder may already hold work (Collect). The state carries no data: the record (Workspace) does, so the
+// machine's states can be listed and ergo test decides its laws on the
+// whole graph.
+type State = Creating{} | Active{} | Landing{} | Landed{} | Abandoned{} | Trashed{}
+
+// LandedIsFinal: no signal moves a landed workspace but Remove, and the
+// trash takes none.
+law LandedIsFinal(e Signal) {
+	let landed = match e {
+	case Remove:
+		StateName(After(Landed, e)) == "trashed"
+	case Cloned, Land, Refused, Committed, Abandon, Restore:
+		StateName(After(Landed, e)) == "landed"
+	}
+	landed && StateName(After(Trashed, e)) == "trashed"
+}
+
+// OnlyActiveLands: a land starts from an active workspace only, and a
+// workspace lands (enters Landed) only from Landing.
+law OnlyActiveLands(s State, e Signal) {
+	let next = StateName(After(s, e))
+	let from = StateName(s)
+	(next != "landing" || from == "active" || from == "landing") && (next != "landed" || from == "landing" || from == "landed")
+}
+
+// StateNamesRoundTrip: every state's name reads back as the state.
+law StateNamesRoundTrip(s State) {
+	match StateNamed(StateName(s)) {
+	case Some[State] as back:
+		StateName(back.Value) == StateName(s)
+	case None:
+		false
+	}
+}
+
+// Signal is what happens to a workspace: its clone ended, a land started,
+// was refused or committed, it was abandoned, removed to the trash, or
+// restored from abandonment.
+type Signal = Cloned{} | Land{} | Refused{} | Committed{} | Abandon{} | Remove{} | Restore{}
+
+// Step is the lifecycle. A clone that ended makes the workspace active;
+// only an active workspace lands; a land ends committed (landed) or
+// refused (active again); an active workspace is abandoned or removed; an
+// abandoned one is restored or removed; a landed one is only removed; a
+// workspace whose clone never ended is only removed; the trash takes no
+// signal. The match names every pair, so a new state or signal stops the
+// build until its row is written.
+func Step(s State, e Signal) Decision[State, State] {
+	match (s, e) {
+	case (Creating, Cloned):
+		Enter[State]{Next: Active}
+	case (Creating, Remove):
+		Enter[State]{Next: Trashed}
+	case (Creating, Land), (Creating, Refused), (Creating, Committed), (Creating, Abandon), (Creating, Restore):
+		Reject
+	case (Active, Land):
+		Enter[State]{Next: Landing}
+	case (Active, Abandon):
+		Enter[State]{Next: Abandoned}
+	case (Active, Remove):
+		Enter[State]{Next: Trashed}
+	case (Active, Cloned), (Active, Refused), (Active, Committed), (Active, Restore):
+		Reject
+	case (Landing, Committed):
+		Enter[State]{Next: Landed}
+	case (Landing, Refused):
+		Enter[State]{Next: Active}
+	case (Landing, Cloned), (Landing, Land), (Landing, Abandon), (Landing, Remove), (Landing, Restore):
+		Reject
+	case (Landed, Remove):
+		Enter[State]{Next: Trashed}
+	case (Landed, Cloned), (Landed, Land), (Landed, Refused), (Landed, Committed), (Landed, Abandon), (Landed, Restore):
+		Reject
+	case (Abandoned, Restore):
+		Enter[State]{Next: Active}
+	case (Abandoned, Remove):
+		Enter[State]{Next: Trashed}
+	case (Abandoned, Cloned), (Abandoned, Land), (Abandoned, Refused), (Abandoned, Committed), (Abandoned, Abandon):
+		Reject
+	case (Trashed, Cloned), (Trashed, Land), (Trashed, Refused), (Trashed, Committed), (Trashed, Abandon), (Trashed, Remove), (Trashed, Restore):
+		Reject
+	}
+}
+
+// Lifecycle is the lifecycle of one workspace as a machine.
+type Lifecycle machine[State, Signal] {
+	initial: Creating,
+	step:    Step,
+
+	// EveryWorkspaceCanBeRemoved: from every state a workspace can reach,
+	// one Remove trashes it, or it is landing (a land ends first) or
+	// already in the trash. So no workspace is stranded.
+	law EveryWorkspaceCanBeRemoved always removable,
+
+	// SomeWorkspaceLands: some run of signals lands a workspace; its
+	// shortest run prints as a test.
+	law SomeWorkspaceLands sometimes isLanded,
+}
+
+// removable reports whether s is trashed or landing, or Remove trashes it.
+func removable(s State) bool {
+	match s {
+	case Trashed, Landing:
+		true
+	case Creating, Active, Landed, Abandoned:
+		match After(s, Remove) {
+		case Trashed:
+			true
+		case Creating, Active, Landing, Landed, Abandoned:
+			false
+		}
+	}
+}
+
+// isLanded reports whether s is Landed.
+func isLanded(s State) bool {
+	match s {
+	case Landed:
+		true
+	case Creating, Active, Landing, Abandoned, Trashed:
+		false
+	}
+}
+
+// After is s after e: the next state, or s when e changes nothing.
+func After(s State, e Signal) State { machines.Next(s, Step(s, e)) }
+
+// StateName is the external name of s, as list and the registry print it.
+func StateName(s State) string {
+	match s {
+	case Creating:
+		"creating"
+	case Active:
+		"active"
+	case Landing:
+		"landing"
+	case Landed:
+		"landed"
+	case Abandoned:
+		"abandoned"
+	case Trashed:
+		"trashed"
+	}
+}
+
+// StateNamed is the state of an external name.
+func StateNamed(name string) Option[State] {
+	for s in States() {
+		if StateName(s) == name {
+			return Some[State]{Value: s}
+		}
+	}
+	None
+}
+
+// States is every state, in lifecycle order.
+func States() []State { []State{Creating, Active, Landing, Landed, Abandoned, Trashed} }
+
+// Workspace is the registry's record of one workspace: its name, the
+// folder that holds its clone, its parent (the base checkout, or another
+// workspace for a stack), its id (the marker .git/work-id of its clone
+// holds it), its branch, the Cloner that made its tree
+// ("adopted" for a clone made by another tool), its state, the Unix
+// second it entered that state, its base (the parent's commit it started
+// at or last synced with) and its latest snapshot (the tree ready last
+// handed to the parent, "" before the first ready), and the digest of
+// the lock file of its last install ("" before one), the token of the new
+// that made it ("" for none: a retry of new with the token answers this
+// workspace), for a trashed one whose move is not confirmed, the
+// folder it moves from (an intent: "" once the folder is in the trash),
+// whether it is pinned (work pin: gc -idle never takes it), and, for a
+// trashed one, the Unix second before which gc does not purge it (0 for
+// none: gc -idle's trash is kept a day).
+type Workspace {
+	Name   string,
+	Id     string,
+	Path   string,
+	Parent string,
+	Branch string,
+	Cloner string,
+	State  State,
+	Since  int64,
+	Base   string,
+	Latest string,
+	Deps   string,
+	Token  string,
+	Moving string,
+	Pinned bool,
+	Until  int64,
+}
+
+// Tomb is the record of a purged workspace: its id and the Unix second
+// it was purged. A retry of rm with that id answers AlreadyRemoved while
+// the registry keeps the tomb (TombWindow).
+type Tomb { Id string, Since int64 }
+
+// Usage is the bytes a tree takes: Exclusive only it holds, Shared it
+// holds with another tree (a clone and its parent share the blocks
+// neither wrote). Total is their sum.
+type Usage { Total int, Exclusive int, Shared int }

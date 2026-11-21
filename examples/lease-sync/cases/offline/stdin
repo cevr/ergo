@@ -1,0 +1,13 @@
+a offline
+a take build
+a take deploy
+a push
+a pull
+b take build
+b push
+b pull
+a online
+a push
+a pull
+b pull
+state

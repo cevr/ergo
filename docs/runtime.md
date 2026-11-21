@@ -76,7 +76,7 @@ At the Go runtime interface, `FromGo(func(context.Context) (A,error))` construct
 
 `OrFail(recipe)` explicitly adapts the returned error to GoError. Its payload contains both the native error and partial value. A panic remains a defect; observed context cancellation remains interruption. Resource-owning APIs use `AcquireRelease`, whose acquisition error is currently classified as IoError in this prototype; more general domain acquisition policies remain future work. APIs needing an abort hook register `OnCancel` before admission to blocking work.
 
-Automatic source imports now consume Go export data for primitive package functions. Foreign/Host is the explicit capability for these deferred calls. See [interop](interop.md) and [imports example](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/imports.ef). Imported methods follow Go's method sets (see [interop](interop.md) and [host types example](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/host-types.ef)); native fields, method values and persistent signature caches remain unsupported.
+Automatic source imports now consume Go export data for primitive package functions. Foreign/Host is the explicit capability for these deferred calls. See [interop](spec/interop.md) and [imports example](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/imports.ef). Imported methods follow Go's method sets (see [interop](spec/interop.md) and [host types example](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/host-types.ef)); native fields, method values and persistent signature caches remain unsupported.
 
 ## HTTP server
 

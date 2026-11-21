@@ -20,7 +20,6 @@
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
-#                        TESTSKIP prints one law's skip line and passes; on
 #                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
 #                        stdout and ERR bytes to stderr and passes; on
 #                        TESTLEDGER appends an entry to the ergo.laws beside
@@ -50,32 +49,48 @@
 #                        bytes.
 tools=${FAKE_ERGO_TOOLS:-$(dirname "$0")}
 [ -n "${FAKE_ERGO_ONE:-}" ] || { printf '%s\n' "$*" >> "$tools/calls.log"; printf '%s\n' "${ERGO_CACHE-unset}" >> "$tools/cache.log"; }
-[ -n "${FAKE_ERGO_ONE:-}" ] || [ "$1" != check ] || printf '%s\n' "${ERGO_LAWCACHE-unset}" >> "$tools/lawcache.log"
+[ -n "${FAKE_ERGO_ONE:-}" ] || { [ "$1" != check ] && [ "$3" != --json ]; } || printf '%s\n' "${ERGO_LAWCACHE-unset}" >> "$tools/lawcache.log"
+# ERGO_STAGE_REPORT, when set, names where the call writes its stage report:
+# shared_test_modules is FAKE_ERGO_SHARED_TEST, else 0 (a recursive test
+# that linked each package's own test module).
+[ -n "${FAKE_ERGO_ONE:-}" ] || [ -z "${ERGO_STAGE_REPORT:-}" ] || printf '{"shared_test_modules": %s}\n' "${FAKE_ERGO_SHARED_TEST:-0}" > "$ERGO_STAGE_REPORT"
 tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
 }
-#   check DIR/..., test --emitted DIR/...
-#                        a pattern over a program of packages (GS27): for
-#                        each folder below DIR that holds .ergo files, test
-#                        --emitted prints "package MODULE/REL" (MODULE from
-#                        DIR/ergo.mod) and its emitted line, and check its
-#                        envelope; FAKE_ERGO_PATTERN_EXTRA names one more
-#                        package line, a package the program does not hold.
+#   check DIR/..., test --emitted --json DIR/...
+#                        a pattern over a program of packages (GS27,
+#                        GS31b): for each folder below DIR that holds .ergo
+#                        files, check prints its envelope, and test
+#                        --emitted --json a line {"package":"MODULE/REL"
+#                        (MODULE from DIR/ergo.mod), "check": its envelope,
+#                        "test" and, for a folder holding main.ergo,
+#                        "build": its emitted digests, "platform"}; a
+#                        package whose check fails has {"checked":false}
+#                        and no digests, and the call exits 1.
+#                        FAKE_ERGO_PATTERN_EXTRA names one more package, one
+#                        the program does not hold.
 packages() {
   find "$1" -name '*.ergo' -exec dirname {} \; | sort -u
 }
-if [ "$2" = --emitted ] && [ "$1" = test ] && [ "${3%/...}" != "$3" ]; then
-  dir=${3%/...}
+if [ "$1" = test ] && [ "$2" = --emitted ] && [ "$3" = --json ] && [ "${4%/...}" != "$4" ]; then
+  dir=${4%/...}
   module=$(sed -n 's/^module //p' "$dir/ergo.mod")
+  worst=0
   for p in $(packages "$dir"); do
     rel=${p#"$dir"}; rel=${rel#/}
-    if [ -n "$rel" ]; then echo "package $module/$rel"; else echo "package $module"; fi
-    sum=$(cat "$p"/*.ergo | cksum)
-    echo "emitted test ${sum% *}-$FAKE_ERGO_EMIT_TEST fake/fake"
+    if [ -n "$rel" ]; then path="$module/$rel"; else path=$module; fi
+    if envelope=$(FAKE_ERGO_ONE=1 "$0" check "$p" 2>/dev/null); then
+      sum=$(cat "$p"/*.ergo | cksum)
+      digests=',"test":"'"${sum% *}-$FAKE_ERGO_EMIT_TEST"'"'
+      [ -f "$p/main.ergo" ] && digests=$digests',"build":"'"${sum% *}-$FAKE_ERGO_EMIT_BUILD"'"'
+    else
+      envelope='{"checked":false}'; digests=; worst=1
+    fi
+    printf '%s\n' '{"package":"'"$path"'","check":'"$envelope$digests"',"platform":"fake/fake"}'
   done
-  if [ -n "$FAKE_ERGO_PATTERN_EXTRA" ]; then echo "package $module/$FAKE_ERGO_PATTERN_EXTRA"; echo "emitted test 0- fake/fake"; fi
-  exit 0
+  if [ -n "$FAKE_ERGO_PATTERN_EXTRA" ]; then printf '%s\n' '{"package":"'"$module/$FAKE_ERGO_PATTERN_EXTRA"'","check":{"checked":true},"test":"0-","platform":"fake/fake"}'; fi
+  exit "$worst"
 fi
 if [ "$1" = check ] && [ "${2%/...}" != "$2" ]; then
   if [ -n "$FAKE_ERGO_CHECKFAIL" ]; then echo "fake ergo: check refused" >&2; exit 1; fi
@@ -119,8 +134,6 @@ check)
     sed -n -e 's,^# CHECKJSON ,,p' -e 's,^// CHECKJSON ,,p' "$2"
   elif grep -q '^# TESTSIZE ' "$2"; then
     printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"none","obligations":[]}}'
-  elif grep -q TESTSKIP "$2"; then
-    printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"skipped","obligations":[{"name":"law Store.Keeps for Box","status":"skipped","reason":"fixture"}]}}'
   else
     printf '%s\n' '{"checked":true,"producer":{"digest":"'"${FAKE_ERGO_PRODUCER:-}"'"},"snapshot":{"producer":"'"${FAKE_ERGO_PRODUCER:-}"'","revision":"r"},"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
   fi
@@ -163,7 +176,6 @@ test)
   if grep -q TESTPENDING "$2"; then echo "ergo test: not available yet; lowering adds it (#196)" >&2; exit 1; fi
   if grep -q TESTFAIL "$2"; then echo "FAIL Fixture: assert failed at main.ergo:1:1: false"; echo "FAIL (1 of 1 tests)"; exit 1; fi
   if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi
-  if grep -q TESTSKIP "$2"; then echo "skip law Store.Keeps for Box: its values have no generator: why"; echo "PASS (0 tests, 1 skipped)"; exit 0; fi
   if grep -q '^# TESTSIZE ' "$2"; then
     set -- $(sed -n 's/^# TESTSIZE //p' "$2")
     # No head -c 0: darwin's head refuses a zero count with a line on stderr.

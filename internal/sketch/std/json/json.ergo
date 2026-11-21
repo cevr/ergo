@@ -2,11 +2,14 @@
 // (docs/spec/stdlib.md, json; types.md, Codecs; S-json). Text is a Writer
 // that writes the text, Reader reads a text Open has validated whole, and
 // Codec[T] puts them together: Encode(c, v) is v's text, Decode(c, text)
-// is the T a text writes. Decoding is two phases, as Effect's
+// is the T a text writes. Decoding gives what two phases give, as Effect's
 // Schema.parseJson and Go's encoding/json: Open checks the whole text
 // against the limits and the JSON grammar and fails Malformed (phase 1),
 // then decode[T] builds a T and fails only on its shape (phase 2), so no T
-// is built from a text that is not JSON.
+// comes from a text that is not JSON. Decode reads the text once
+// (JSON-VALUE-DECODE): its Cursor checks the grammar of what each read
+// takes, and settleText, after the value or the failure, gives Open's own
+// Malformed for a text that is not JSON (DecodeIsOpenThenDecode).
 //
 // The form (owner q81): a record is an object whose keys are its field
 // names with the first letter lowered, a union value an object whose
@@ -34,6 +37,10 @@
 
 import strings
 
+import utf8
+import io
+import strconv
+
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
 // offset where the text breaks the rule, Reason the rule.
@@ -55,29 +62,36 @@ extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset 
 type Text {
 	..Writer,
 	// Written is the text written so far.
-	Written() string,
+	mut Written() string,
 
 	// raw appends text as it is; the comma state is unchanged.
-	raw(text string),
+	mut raw(text string),
 	// sep writes a comma when one is due.
-	sep(),
+	mut sep(),
 	// commaDue reports that the next value or key needs a comma.
-	commaDue() bool,
+	mut commaDue() bool,
 	// setComma sets whether the next value or key needs a comma.
-	setComma(due bool),
+	mut setComma(due bool),
 	// quote writes s as a JSON string; plainBody a plain s between quotes;
 	// the bodies write a value's text. None writes a comma or sets the
 	// state.
-	quote(s string),
-	plainBody(s string),
-	stringBody(s string),
-	intBody(n int64),
-	uintBody(n uint64),
-	boolBody(b bool),
-	floatBody(f float64),
+	mut quote(s string),
+	mut plainBody(s string),
+	mut stringBody(s string),
+	mut bytesBody(b []byte),
+	mut intBody(n int64),
+	mut uintBody(n uint64),
+	mut boolBody(b bool),
+	mut floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish(hint int) string,
+	mut finish(hint int) string,
+	// bytes is the buffer written so far, read from the Text's value (no
+	// pointer to the cell, so the value rule lends it with no copy); drop
+	// gives it back to the pool (EncodeWith only: nothing may use the Text
+	// after).
+	bytes() []byte,
+	mut drop(hint int),
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -94,6 +108,42 @@ type Text {
 	law SetCommaSinksFloat(p bool, f float64) { setComma(p); floatBody(f) } == { floatBody(f); setComma(p) },
 }
 
+// FastAgreesWithWriter: the text an encode on a Text a let binds by a cell
+// of text writes (the compiler's direct path on text's own functions,
+// rewritten by the proved laws, lower/wiredirect.go) is the text the
+// Writer operations write, in a Text and in an HTML Text, inside events
+// too: a value first in a list and one after another value, so the comma
+// before a value and the one after it are right.
+law FastAgreesWithWriter(v fleet) {
+	let t Text = text{comma: false, html: false, out: []byte{}}
+	t.BeginList(3)
+	encode(v, t)
+	t.Int(2)
+	encode(v, t)
+	t.EndList()
+	let w = NewText()
+	w.BeginList(3)
+	encode(v, w)
+	w.Int(2)
+	encode(v, w)
+	w.EndList()
+	let h Text = text{comma: false, html: true, out: []byte{}}
+	encode(v, h)
+	let g = NewHTMLText()
+	encode(v, g)
+	t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v)
+}
+
+// viaWriter is v's text written through the Writer operations of a Text:
+// the reference path, since NewText's result is a Text whose provider the
+// compiler does not know where encode is called, so its encode calls the
+// Writer interface.
+func viaWriter[T wire](v T) string needs wired[T] {
+	let t = NewText()
+	encode(v, t)
+	t.Written()
+}
+
 // text is Text's provider: comma, whether the next value or key needs a
 // comma (true after a value, false after a key and after an opening
 // bracket: one flag is the whole state, since a key ends every object
@@ -107,25 +157,26 @@ extern go append func appendString(out []byte, s string) []byte
 
 // The value appenders: out with a value's JSON text added.
 extern go ergo.local/prototype/runtime/v1.JSONAppendQuoted func appendQuoted(out []byte, s string, html bool) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendQuotedBytes func appendQuotedBytes(out []byte, b []byte, html bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendInt func appendInt(out []byte, n int64) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendUint func appendUint(out []byte, n uint64) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendBool func appendBool(out []byte, b bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out []byte, f float64) []byte
 
-func raw(t *text, s string) { t.out = appendString(t.out, s) }
+func raw(t mut text, s string) { t.out = appendString(t.out, s) }
 
-func sep(t *text) {
+func sep(t mut text) {
 	if t.comma {
 		t.raw(",")
 	}
 }
 
-func commaDue(t *text) bool { t.comma }
+func commaDue(t mut text) bool { t.comma }
 
 // commaText is the text sep writes when due says whether a comma is due.
 func commaText(due bool) string { if due { "," } else { "" } }
 
-func setComma(t *text, due bool) { t.comma = due }
+func setComma(t mut text, due bool) { t.comma = due }
 
 // plain reports that s is its own JSON string text: every byte is printable
 // ASCII and none of '"', '\', <, > and &, so neither escaping changes it.
@@ -143,7 +194,7 @@ func plain(s string) bool {
 
 // quote writes s quoted. A plain s is written as it is between quotes, so
 // a constant key or tag is constant text after the unfold (PlainIsRaw).
-func quote(t *text, s string) {
+func quote(t mut text, s string) {
 	if plain(s) {
 		t.plainBody(s)
 	} else {
@@ -152,107 +203,136 @@ func quote(t *text, s string) {
 }
 
 // plainBody writes s between quotes: one store of the buffer.
-func plainBody(t *text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
+func plainBody(t mut text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
 
 // inQuotes is s between quotes.
 func inQuotes(s string) string { "\"" + s + "\"" }
 
-func stringBody(t *text, s string) { t.out = appendQuoted(t.out, s, t.html) }
+func stringBody(t mut text, s string) { t.out = appendQuoted(t.out, s, t.html) }
 
-func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }
+func bytesBody(t mut text, b []byte) { t.out = appendQuotedBytes(t.out, b, t.html) }
 
-func uintBody(t *text, n uint64) { t.out = appendUint(t.out, n) }
+func intBody(t mut text, n int64) { t.out = appendInt(t.out, n) }
 
-func boolBody(t *text, b bool) { t.out = appendBool(t.out, b) }
+func uintBody(t mut text, n uint64) { t.out = appendUint(t.out, n) }
 
-func floatBody(t *text, f float64) { t.out = appendFloat(t.out, f) }
+func boolBody(t mut text, b bool) { t.out = appendBool(t.out, b) }
 
-func Bool(t *text, b bool) {
+func floatBody(t mut text, f float64) { t.out = appendFloat(t.out, f) }
+
+func Bool(t mut text, b bool) {
 	t.sep()
 	t.boolBody(b)
 	t.setComma(true)
 }
 
-func Int(t *text, n int64) {
+func Int(t mut text, n int64) {
 	t.sep()
 	t.intBody(n)
 	t.setComma(true)
 }
 
-func Uint(t *text, n uint64) {
+func Uint(t mut text, n uint64) {
 	t.sep()
 	t.uintBody(n)
 	t.setComma(true)
 }
 
-func Float(t *text, f float64) {
+func Float(t mut text, f float64) {
 	t.sep()
 	t.floatBody(f)
 	t.setComma(true)
 }
 
-func String(t *text, s string) {
+func String(t mut text, s string) {
 	t.sep()
 	t.stringBody(s)
 	t.setComma(true)
 }
 
-func Null(t *text) {
+func StringBytes(t mut text, b []byte) {
+	t.sep()
+	t.bytesBody(b)
+	t.setComma(true)
+}
+
+// StringBytesIsString: StringBytes writes what String writes for the
+// string its bytes spell, after a value (so the comma before it is right)
+// and before one (so the one after it is), in a Text and an HTML Text;
+// the drawn bytes end in < and &, which only an HTML Text escapes.
+law StringBytesIsString(drawn []byte, html bool) {
+	let b = utf8.AppendRune(utf8.AppendRune(drawn, '<'), '&')
+	let t Text = text{comma: false, html: html, out: []byte{}}
+	t.Int(1)
+	t.StringBytes(b)
+	t.Int(2)
+	let u Text = text{comma: false, html: html, out: []byte{}}
+	u.Int(1)
+	u.String(utf8.String(b))
+	u.Int(2)
+	t.Written() == u.Written()
+}
+
+func Null(t mut text) {
 	t.sep()
 	t.raw("null")
 	t.setComma(true)
 }
 
-func Number(t *text, text string) {
+func Number(t mut text, text string) {
 	t.sep()
 	t.raw(text)
 	t.setComma(true)
 }
 
-func BeginList(t *text, n int) {
+func BeginList(t mut text, n int) {
 	t.sep()
 	t.raw("[")
 	t.setComma(false)
 }
 
-func EndList(t *text) {
+func EndList(t mut text) {
 	t.raw("]")
 	t.setComma(true)
 }
 
-func BeginObject(t *text, n int) {
+func BeginObject(t mut text, n int) {
 	t.sep()
 	t.raw("{")
 	t.setComma(false)
 }
 
-func EndObject(t *text) {
+func EndObject(t mut text) {
 	t.raw("}")
 	t.setComma(true)
 }
 
 // Tag writes a union's tag as the member "_tag" (owner q81).
-func Tag(t *text, name string) {
+func Tag(t mut text, name string) {
 	t.sep()
 	t.raw("\"_tag\":")
 	t.quote(name)
 	t.setComma(true)
 }
 
-func Key(t *text, k string) {
+func Key(t mut text, k string) {
 	t.sep()
 	t.quote(k)
 	t.raw(":")
 	t.setComma(false)
 }
 
-func Written(t *text) string { t.out.Text() }
+func Written(t mut text) string { t.out.Text() }
 
-func finish(t *text, hint int) string {
+func finish(t mut text, hint int) string {
 	let s = strings.FromBytes(t.out)
 	t.out = strings.Give(t.out, hint)
 	s
 }
+
+func bytes(t text) []byte { t.out }
+
+func drop(t mut text, hint int) { t.out = strings.Give(t.out, hint) }
 
 // NewText is a Text with nothing written.
 func NewText() Text { text{comma: false, html: false, out: []byte{}} }
@@ -261,6 +341,16 @@ func NewText() Text { text{comma: false, html: false, out: []byte{}} }
 // > and & as \u003c, \u003e and \u0026, as Go's encoding/json does by
 // default, so the text is safe inside HTML.
 func NewHTMLText() Text { text{comma: false, html: true, out: []byte{}} }
+
+// HTMLEscaped: an HTML Text writes <, > and & as \u003c, \u003e and
+// \u0026, as encoding/json's default does; a Text writes them as they are.
+law HTMLEscaped() {
+	let h = NewHTMLText()
+	h.String("<&>")
+	let t = NewText()
+	t.String("<&>")
+	h.Written() == "\"\\u003c\\u0026\\u003e\"" && t.Written() == "\"<&>\""
+}
 
 // Cursor reads a validated text for Reader: each read takes the next value
 // of the innermost open list or object; Wrong says when it was not of the
@@ -278,6 +368,9 @@ extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 	Uint() uint64,
 	Float() float64,
 	String() string,
+	// StringBytes is into with the next string's bytes added, as String
+	// reads them (GX12).
+	StringBytes(into []byte) []byte,
 	BeginList() bool,
 	BeginObject() bool,
 	Tag() string,
@@ -293,6 +386,17 @@ extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 // open validates text and gives a Cursor at its start (phase 1).
 extern go ergo.local/prototype/runtime/v1.JSONOpen func open(text string, maxBytes int, maxDepth int) Cursor fails Malformed
 
+// openChecked checks only maxBytes and gives a Cursor whose reads check
+// the grammar of what they take, for Decode's one pass; settleText then fails
+// as open fails for the text, or not at all when the text is JSON.
+extern go ergo.local/prototype/runtime/v1.JSONOpenChecked func openChecked(text string, maxBytes int, maxDepth int) Cursor fails Malformed
+
+extern go ergo.local/prototype/runtime/v1.JSONSettle func settleText(c Cursor) fails Malformed
+
+// isNumber reports that text is one JSON number and nothing else, no white
+// space around it (ParseNum's fast path; JVD-DIRECT).
+extern go ergo.local/prototype/runtime/v1.JSONIsNumber func isNumber(text string) bool
+
 // Reader reads a JSON text for decode[T](r).
 type Reader { c Cursor } implements Reader
 
@@ -303,6 +407,31 @@ type Reader { c Cursor } implements Reader
 // Malformed.
 func Open(text string, maxBytes int, maxDepth int) Reader fails Malformed {
 	Reader{c: try open(text, maxBytes, maxDepth)}
+}
+
+// DepthLimits: a text nested exactly MaxDepth deep opens, and one level
+// deeper fails Malformed.
+law DepthLimits(k int) {
+	let n = if k < 0 { -(k + 1) } else { k }
+	let depth = n%64 + 1
+	let _ = Open(nest(depth), 0, depth) catch {
+	case _:
+		return false
+	}
+	let _ = Open(nest(depth+1), 0, depth) catch {
+	case Malformed:
+		return true
+	}
+	false
+}
+
+// nest is n lists, each inside the one before.
+func nest(n int) string {
+	let mut s = ""
+	for _ in 0..n {
+		s = "[" + s + "]"
+	}
+	s
 }
 
 func Path(r Reader) string { r.c.Path() }
@@ -368,6 +497,39 @@ func String(r Reader) string fails WireWrongKind {
 	v
 }
 
+func StringBytes(r Reader, into []byte) []byte fails WireWrongKind {
+	let v = r.c.StringBytes(into)
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a string"}
+	}
+	v
+}
+
+// StringBytesReadsString: StringBytes adds to into the bytes String reads
+// from the same text, escapes and all (GX12).
+law StringBytesReadsString(s string, pre []byte) {
+	let t Text = text{comma: false, html: false, out: []byte{}}
+	t.String(s)
+	let doc = t.Written()
+	let a = Open(doc, 0, 0) catch {
+	case _:
+		return false
+	}
+	let b = Open(doc, 0, 0) catch {
+	case _:
+		return false
+	}
+	let got = a.StringBytes(pre) catch {
+	case _:
+		return false
+	}
+	let want = b.String() catch {
+	case _:
+		return false
+	}
+	utf8.String(got) == utf8.String(pre)+want
+}
+
 func BeginList(r Reader) fails WireWrongKind {
 	if !r.c.BeginList() {
 		return WireWrongKind{Path: r.c.Path(), Want: "an array"}
@@ -403,6 +565,104 @@ func End(r Reader) { r.c.End() }
 // not positive). Encode has no limit: it writes the value it is given.
 type Codec[T wire] { MaxBytes int, MaxDepth int }
 
+// ElementsAgreeOnPieces: a list of pieces, mostly not JSON, and each piece
+// as two elements of a list, read element by element as Decode reads them
+// into a slice, under any byte and nesting limit.
+law ElementsAgreeOnPieces(parts []int, cuts []int, bytes int, depth int) { elementsOnPieces(parts, cuts, bytes, depth) }
+
+func elementsOnPieces(parts []int, cuts []int, bytes int, depth int) bool {
+	let mut text = "["
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !elementsAgree("["+piece+","+piece+"]", cuts, 0, 0) {
+			return false
+		}
+		text = text + piece
+	}
+	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (len(text) + 2) }
+	elementsAgree(text, cuts, maxBytes, nat(depth)%4)
+}
+
+// ElementsRoundTrip: the elements of an encoded list, read one at a time,
+// are the list.
+law ElementsRoundTrip(vs []up, cuts []int) { elementsRoundTrip(vs, cuts) }
+
+func elementsRoundTrip(vs []up, cuts []int) bool {
+	let c = Codec[[]up]{MaxBytes: 0, MaxDepth: 0}
+	let text = Encode(c, vs)
+	eachUp(c, text, cuts, false) == "ok "+text && wholeUps(c, text) == "ok "+text
+}
+
+// ValuesRoundTrip: values written one after another, newline-delimited
+// or by any white space, read back from a sequence stream as written.
+law ValuesRoundTrip(vs []up, seps []int, cuts []int) { valuesRoundTrip(vs, seps, cuts) }
+
+func valuesRoundTrip(vs []up, seps []int, cuts []int) bool {
+	let c = Codec[[]up]{MaxBytes: 0, MaxDepth: 0}
+	eachUp(c, separated(vs, seps), cuts, true) == "ok "+Encode(c, vs)
+}
+
+// ValuesStopAtBreak: a sequence cut short gives the values written whole
+// before the cut and then fails Malformed at the cut, or, cut between
+// values, gives those values and ends.
+law ValuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) { valuesStopAtBreak(vs, seps, cut, cuts) }
+
+func valuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) bool {
+	let one = Codec[up]{MaxBytes: 0, MaxDepth: 0}
+	let c = Codec[[]up]{MaxBytes: 0, MaxDepth: 0}
+	let text = separated(vs, seps)
+	let k = nat(cut) % (len(text) + 1)
+	let mut whole = []up{}
+	let mut start = 0
+	let mut inside = -1
+	for i in 0..len(vs) {
+		let n = len(Encode(one, vs[i]))
+		if start+n <= k {
+			whole = whole.Append(vs[i])
+		} else if start < k {
+			inside = start
+		}
+		start = start + n + len(between[sepAt(seps, i)])
+	}
+	let e = NewElements[up](NewSequenceStream(chunks(text[:k], cuts), 0, 0))
+	let mut got = []up{}
+	for {
+		let next = e.Next() catch {
+		case Malformed as m:
+			return inside >= 0 && m.Offset >= inside && m.Offset <= k && Encode(c, got) == Encode(c, whole)
+		case _:
+			return false
+		}
+		match next {
+		case Some[up] as v:
+			got = got.Append(v.Value)
+		case None:
+			break
+		}
+	}
+	inside < 0 && Encode(c, got) == Encode(c, whole)
+}
+
+// StreamAgreesOnPieces: a text made of pieces, mostly not JSON, reads
+// through a Stream cut anywhere as Decode reads it whole: the same break
+// at the same offset, under any byte and nesting limit. So does each
+// piece alone as the element of a fleet's lists, where a scalar piece
+// reads as a value or fails with a path inside a list.
+law StreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) { agreesOnPieces(parts, cuts, bytes, depth) }
+
+func agreesOnPieces(parts []int, cuts []int, bytes int, depth int) bool {
+	let mut text = ""
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !agrees("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", cuts, 0, 0) {
+			return false
+		}
+		text = text + piece
+	}
+	let maxBytes = if bytes%3 == 0 { 0 } else { nat(bytes) % (len(text) + 2) }
+	agrees(text, cuts, maxBytes, nat(depth)%4)
+}
+
 // Encode is v's JSON text.
 // (Its Text's buffer is borrowed, strings.Borrow and Give, as
 // encoding/json keeps its encodeState: no other code sees it. The hint
@@ -414,9 +674,545 @@ func Encode[T wire](c Codec[T], v T) string needs wired[T] {
 	t.finish(hint)
 }
 
+// LineSeparatorsEscaped: a string's U+2028 and U+2029 are written as
+// \u2028 and \u2029, as encoding/json writes them, so the text is also a
+// JavaScript string.
+law LineSeparatorsEscaped() {
+	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\u2028b\u2029") == "\"a\\u2028b\\u2029\""
+}
+
+// InvalidBytesEscaped: a byte of invalid UTF-8 is written as the lone
+// surrogate \udcXX of the byte, which a Cursor reads back as the byte.
+law InvalidBytesEscaped() {
+	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\xffb") == "\"a\\udcffb\""
+}
+
+// TruncatedFails: no text shorter than an encoding, cut from its end, is
+// a value: Decode fails Malformed (phase 1) and builds no fleet.
+law TruncatedFails(v fleet, cut int) {
+	let text = Encode(codec(), v)
+	let n = if cut < 0 { -(cut + 1) } else { cut }
+	let short = text[:n%len(text)]
+	let _ = Decode(codec(), short) catch {
+	case Malformed:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// StreamRoundTrips: the text Encode writes reads back through a Stream,
+// cut anywhere, as the value Decode reads.
+law StreamRoundTrips(v fleet, cuts []int) { streamRoundTrips(v, cuts) }
+
+// StreamFindsTagAnywhere: a union's "_tag" written after the record's
+// members, past chunk edges, is found as Decode finds it.
+law StreamFindsTagAnywhere(v up, cuts []int) { tagAnywhere(v, cuts) }
+
+// EncodeWith lends use v's JSON text as bytes, where Encode wrote them,
+// and returns what use returns: no string of the text is made (GX9;
+// http.SuccessJSON writes the bytes to the connection). The buffer goes
+// back to Encode's pool when use returns, so use keeps no part of it.
+// (It borrows with T's hint, as Encode does.)
+func EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) U needs R | wired[T] {
+	let hint = strings.Hint[text, T]()
+	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
+	encode(v, t)
+	let u = use(t.bytes())
+	t.drop(hint)
+	u
+}
+
 // Decode is the T that text writes: Malformed when the text breaks
-// Open's rules, else the failures of decode[T] on its shape.
+// Open's rules, else the failures of decode[T] on its shape. It reads the
+// text once: a failed decode settles first, so a break of the text, not
+// the shape failure it caused, is the failure (DecodeIsOpenThenDecode).
 func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
+	let r = Reader{c: try openChecked(text, c.MaxBytes, c.MaxDepth)}
+	let v = decode[T](r) catch {
+	case err:
+		try settleText(r.c)
+		return err
+	}
+	try settleText(r.c)
+	v
+}
+
+// ElementsEqualWholeDecode: a text spelled from a doc, as it is or as the
+// one element of a list, with one piece spliced in or not, reads element
+// by element through a Stream cut anywhere as Decode reads it into a
+// slice: the same elements, or the same failure at the end.
+law ElementsEqualWholeDecode(d doc, space int, splice int, at int, cuts []int, depth int) { elementsSpliced(d, space, splice, at, cuts, depth) }
+
+func wholeValues(c Codec[[]Value], text string) string {
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func eachValue(c Codec[[]Value], text string, cuts []int) string {
+	let e = NewElements[Value](NewStream(chunks(text, cuts), c.MaxBytes, c.MaxDepth))
+	let mut got = []Value{}
+	for {
+		let next = e.Next() catch {
+		case Malformed as m:
+			return said(m)
+		case io.ReadFailed:
+			return "read failed"
+		case WireWrongKind as w:
+			return "kind " + w.Path + " " + w.Want
+		case WireMissingField as w:
+			return "missing " + w.Path + " " + w.Field
+		case WireUnknownTag as w:
+			return "tag " + w.Path + " " + w.Tag
+		}
+		match next {
+		case Some[Value] as v:
+			got = got.Append(v.Value)
+		case None:
+			break
+		}
+	}
+	"ok " + Encode(c, got)
+}
+
+func wholeUps(c Codec[[]up], text string) string {
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	}
+	"ok " + Encode(c, v)
+}
+
+// eachUp reads text's elements as ups, from an array, or from a sequence
+// when seq.
+func eachUp(c Codec[[]up], text string, cuts []int, seq bool) string {
+	let src = chunks(text, cuts)
+	let r = if seq { NewSequenceStream(src, c.MaxBytes, c.MaxDepth) } else { NewStream(src, c.MaxBytes, c.MaxDepth) }
+	let e = NewElements[up](r)
+	let mut got = []up{}
+	for {
+		let next = e.Next() catch {
+		case Malformed as m:
+			return said(m)
+		case io.ReadFailed:
+			return "read failed"
+		case WireWrongKind as w:
+			return "kind " + w.Path + " " + w.Want
+		case WireMissingField as w:
+			return "missing " + w.Path + " " + w.Field
+		}
+		match next {
+		case Some[up] as v:
+			got = got.Append(v.Value)
+		case None:
+			break
+		}
+	}
+	"ok " + Encode(c, got)
+}
+
+// elementsAgree: the text read whole into a slice and element by element
+// gives one outcome, as Values and as ups, under the same limits.
+func elementsAgree(text string, cuts []int, maxBytes int, maxDepth int) bool {
+	let cv = Codec[[]Value]{MaxBytes: maxBytes, MaxDepth: maxDepth}
+	let cu = Codec[[]up]{MaxBytes: maxBytes, MaxDepth: maxDepth}
+	wholeValues(cv, text) == eachValue(cv, text, cuts) && wholeUps(cu, text) == eachUp(cu, text, cuts, false)
+}
+
+func elementsSpliced(d doc, space int, splice int, at int, cuts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let sp = spaces[nat(space)%len(spaces)]
+	let mut text = spell(d, sp)
+	if nat(space)%2 == 1 {
+		text = "[" + sp + text + sp + "," + text + "]"
+	}
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	elementsAgree(text, cuts, 0, nat(depth)%6)
+}
+
+// separated is vs encoded one after another, each followed by a
+// separator drawn from seps, as a sequence stream reads them.
+func separated(vs []up, seps []int) string {
+	let c = Codec[up]{MaxBytes: 0, MaxDepth: 0}
+	let mut text = ""
+	for i in 0..len(vs) {
+		text = text + Encode(c, vs[i]) + between[sepAt(seps, i)]
+	}
+	text
+}
+
+let between = []string{"\n", " ", "\r\n", "\n\n", "\t"}
+
+// sepAt is the index in between of the separator after value i.
+func sepAt(seps []int, i int) int {
+	let k = if i < len(seps) { nat(seps[i]) } else { i }
+	k % len(between)
+}
+
+func holdsOneWindow(v up, n int, size int) bool {
+	let chunk = nat(size)%64 + 1
+	let count = nat(n)%40 + 1
+	let text = separated([]up{v}, []int{})
+	let mut all = ""
+	for _ in 0..count {
+		all = all + text
+	}
+	let r = NewSequenceStream(io.Chunked(all, chunk), 0, 0)
+	let e = NewElements[up](r)
+	let mut read = 0
+	for {
+		let next = e.Next() catch {
+		case _:
+			return false
+		}
+		match next {
+		case Some[up]:
+			read = read + 1
+		case None:
+			break
+		}
+	}
+	read == count && Window(r) <= chunk+len(text)
+}
+
+func c[T wire]() Codec[T] { Codec[T]{MaxBytes: 0, MaxDepth: 0} }
+
+type up { Host string, Port int, Tags []string, Load float64 }
+
+type down {}
+
+type state = up | down
+
+type widths { A int8, B int16, C int32, D int64, E uint8, F uint16, G uint32, H uint64, I int, J uint, K float32, L bool }
+
+type fleet { Name string, States []state, Spare Option[up], Meta Map[string, int], Sizes widths, Pairs Map[string, (string, int64)], Nested [][]float64 }
+
+func codec() Codec[fleet] { Codec[fleet]{MaxBytes: 0, MaxDepth: 0} }
+
+func nat(n int) int { if n < 0 { -(n + 1) } else { n } }
+
+// chunks is text as a Source cut every few bytes, by steps drawn from
+// cuts, so most tokens of a short text cross a chunk edge.
+func chunks(text string, cuts []int) io.Memory {
+	let mut at = 0
+	let mut offsets = []int{}
+	for c in cuts {
+		at = at + nat(c)%8 + 1
+		offsets = offsets.Append(at)
+	}
+	io.CutAt(text, offsets)
+}
+
+func said(m Malformed) string { "malformed " + strconv.Itoa(m.Offset) + " " + m.Reason }
+
+// wholeValue and streamValue are a text's outcome as a Value, read whole
+// and read through a Stream over the text cut at cuts.
+func wholeValue(c Codec[Value], text string) string {
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func streamValue(c Codec[Value], text string, cuts []int) string {
+	let v = DecodeStream(c, chunks(text, cuts)) catch {
+	case Malformed as m:
+		return said(m)
+	case io.ReadFailed:
+		return "read failed"
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+// wholeFleet and streamFleet are the same for a fleet, whose decode reads
+// records, unions by their "_tag", Options, Maps, tuples and every number.
+func wholeFleet(c Codec[fleet], text string) string {
+	let v = Decode(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func streamFleet(c Codec[fleet], text string, cuts []int) string {
+	let v = DecodeStream(c, chunks(text, cuts)) catch {
+	case Malformed as m:
+		return said(m)
+	case io.ReadFailed:
+		return "read failed"
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+// agrees: the text read whole and through a Stream gives one outcome, as
+// a Value and as a fleet, under the same limits.
+func agrees(text string, cuts []int, maxBytes int, maxDepth int) bool {
+	let cv = Codec[Value]{MaxBytes: maxBytes, MaxDepth: maxDepth}
+	let cf = Codec[fleet]{MaxBytes: maxBytes, MaxDepth: maxDepth}
+	wholeValue(cv, text) == streamValue(cv, text, cuts) && wholeFleet(cf, text) == streamFleet(cf, text, cuts)
+}
+
+// pieces are the parts a broken text is made of: every token, the
+// tokens cut short, escapes good and bad, bytes no value starts with, and
+// starts of a fleet, so a shape failure has a path inside lists.
+let pieces = []string{"{\"states\":[", "{\"nested\":[[1,", "{\"name\":\"n\",\"states\":[{\"host\":\"h\",\"_tag\":\"up\"},", "{", "}", "[", "]", ",", ":", " ", "\n", "\"a\"", "\"_tag\"", "\"up\"", "\"host\"", "\"NaN\"", "\"\\u00e9\\n\"", "\"\\ud83d\\ude00\"", "\"\\udcff\\ud800\"", "\"\\x\"", "\"\\u12\"", "\"\\u12g4\"", "\"\x01\"", "\"", "\\", "1", "-", "0", "01", "0.", "1e", "1.5e+3", "-0.0E-2", "18446744073709551616", "tru", "true", "false", "null", "nul", "é", "\xff"}
+
+func agreesSpliced(d doc, space int, splice int, at int, cuts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	agrees(text, cuts, 0, nat(depth)%6)
+}
+
+func streamRoundTrips(v fleet, cuts []int) bool {
+	let text = Encode(codec(), v)
+	let want = wholeFleet(codec(), text)
+	want == streamFleet(codec(), text, cuts) && want == "ok "+text
+}
+
+func tagAnywhere(v up, cuts []int) bool {
+	let record = Encode(Codec[up]{MaxBytes: 0, MaxDepth: 0}, v)
+	let text = record[:len(record)-1] + ",\"_tag\":\"up\"}"
+	let c = Codec[state]{MaxBytes: 0, MaxDepth: 0}
+	let whole = Decode(c, text) catch {
+	case _:
+		return false
+	}
+	let streamed = DecodeStream(c, chunks(text, cuts)) catch {
+	case _:
+		return false
+	}
+	let want state = v
+	Encode(c, whole) == Encode(c, want) && Encode(c, streamed) == Encode(c, want)
+}
+
+// doc draws the JSON text the law decodes: nesting, long numbers,
+// exponents and strings of any text. spell writes it with or without
+// insignificant white space, strings in the encoder's escaping.
+type docNull {}
+
+type docBool { V bool }
+
+type docInt { V int64 }
+
+type docDigits { Lead int, Frac int, Exp int, Long bool }
+
+type docStr { V string }
+
+type docArr { Items []doc }
+
+type docObj { Keys []string, Vals []doc }
+
+type doc = docNull | docBool | docInt | docDigits | docStr | docArr | docObj
+
+// magnitude is n's digits without a sign; the least int has no positive
+// twin, so the sign is cut from the text, not from the number.
+func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), "-") }
+
+// digits spells a number with a fraction, an exponent and, when Long, more
+// digits than any machine number holds.
+func digits(n docDigits) string {
+	let mut s = strconv.Itoa(n.Lead)
+	if n.Long && n.Lead != 0 {
+		s = s + "12345678901234567890123456789"
+	}
+	if n.Frac != 0 {
+		s = s + ".0" + magnitude(n.Frac)
+	}
+	if n.Exp > 0 {
+		s = s + "e+" + strconv.Itoa(n.Exp)
+	}
+	if n.Exp < 0 {
+		s = s + "E" + strconv.Itoa(n.Exp)
+	}
+	s
+}
+
+func quoted(s string) string { Encode(c[string](), s) }
+
+func spell(d doc, sp string) string {
+	match d {
+	case docNull:
+		"null"
+	case docBool as b:
+		if b.V { "true" } else { "false" }
+	case docInt as n:
+		strconv.FormatInt(n.V, 10)
+	case docDigits as n:
+		digits(n)
+	case docStr as s:
+		quoted(s.V)
+	case docArr as a:
+		let mut out = "[" + sp
+		for i in 0..len(a.Items) {
+			if i > 0 { out = out + sp + "," + sp }
+			out = out + spell(a.Items[i], sp)
+		}
+		out + sp + "]"
+	case docObj as o:
+		let mut out = "{" + sp
+		let n = if len(o.Keys) < len(o.Vals) { len(o.Keys) } else { len(o.Vals) }
+		for i in 0..n {
+			if i > 0 { out = out + sp + "," + sp }
+			out = out + quoted(o.Keys[i]) + sp + ":" + sp + spell(o.Vals[i], sp)
+		}
+		out + sp + "}"
+	}
+}
+
+func valueRoundTrips(d doc) bool {
+	let v = Decode(c[Value](), spell(d, " \n\t\r")) catch {
+	case _:
+		return false
+	}
+	Encode(c[Value](), v) == spell(d, "")
+}
+
+law NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }
+
+type nestedField { Value Optional[Nullable[int]] }
+
+func nestedOf(v Option[Option[int]]) Optional[Nullable[int]] {
+	match v {
+	case None:
+		Absent
+	case Some[Option[int]] as p:
+		Present{Value: nullableOf(p.Value)}
+	}
+}
+
+func nestedRoundTrips(v Option[Option[int]]) bool {
+	let field = nestedField{Value: nestedOf(v)}
+	let back = Decode(c[nestedField](), Encode(c[nestedField](), field)) catch {
+	case _:
+		return false
+	}
+	back == field
+}
+
+// RoundTrips: the text Encode writes, Decode reads back as the same value.
+law RoundTrips(v fleet) {
+	let back = Decode(codec(), Encode(codec(), v)) catch {
+	case _:
+		return false
+	}
+	back == v
+}
+
+// StreamAgreesWithDecode: a text spelled from a doc, with or without white
+// space, and with one piece spliced in or not, reads through a Stream cut
+// anywhere as Decode reads it whole, under any nesting limit.
+law StreamAgreesWithDecode(d doc, space int, splice int, at int, cuts []int, depth int) { agreesSpliced(d, space, splice, at, cuts, depth) }
+
+// decodeOpened is Decode in two phases, Open's whole check and then
+// decode[T]: the reference Decode's one pass keeps.
+func decodeOpened[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
 	let r = try Open(text, c.MaxBytes, c.MaxDepth)
 	try decode[T](r)
+}
+
+// DecodeIsOpenThenDecode: Decode, which checks the grammar as it reads,
+// gives what Open and then decode[T] give: the same value, the same shape
+// failure, or Open's Malformed at its offset with its reason, as a Value
+// and as a fleet, on texts spelled from docs, with a piece spliced in, and
+// made of pieces (mostly not JSON), under nesting limits.
+law DecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, depth int) { decodesAsOpened(d, space, splice, at, parts, depth) }
+
+func decodesAsOpened(d doc, space int, splice int, at int, parts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	let mut broken = ""
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !asOpened("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", 0) {
+			return false
+		}
+		broken = broken + piece
+	}
+	asOpened(text, nat(depth)%6) && asOpened(broken, nat(depth)%4)
+}
+
+// asOpened: text decodes in one pass as in two, as a Value and as a fleet.
+func asOpened(text string, maxDepth int) bool {
+	let cv = Codec[Value]{MaxBytes: 0, MaxDepth: maxDepth}
+	let cf = Codec[fleet]{MaxBytes: 0, MaxDepth: maxDepth}
+	wholeValue(cv, text) == openedValue(cv, text) && wholeFleet(cf, text) == openedFleet(cf, text)
+}
+
+// openedValue and openedFleet are wholeValue and wholeFleet in two phases.
+func openedValue(c Codec[Value], text string) string {
+	let v = decodeOpened(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
+}
+
+func openedFleet(c Codec[fleet], text string) string {
+	let v = decodeOpened(c, text) catch {
+	case Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + Encode(c, v)
 }

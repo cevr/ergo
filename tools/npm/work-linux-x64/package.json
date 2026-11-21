@@ -1,0 +1,14 @@
+{
+  "name": "@cvr/work-linux-x64",
+  "version": "0.1.0",
+  "description": "The work binary for Linux x64 (a static Go binary; see @cvr/work).",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cevr/ergo.git",
+    "directory": "tools/npm/work-linux-x64"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/work"],
+  "preferUnplugged": true
+}

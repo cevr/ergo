@@ -14,7 +14,8 @@ import (
 // decides Before, After and Sub when wall and monotonic disagree; Unix and
 // Add carry nanoseconds into seconds; a host clock's two reads never fall;
 // the host's Since by its monotonic reading and, for a time with none, by
-// the wall (std-speed-1: kills a reversed subMono or Sub in Host.Elapsed).
+// the wall, between two reads' Sub (std-speed-1, NP4f-17: kills a reversed
+// monotonic difference or Sub in Host.Elapsed).
 func TestTimeRuns(t *testing.T) {
 	needsBuild(t)
 	runBehaviors(t, []behavior{{name: "time", src: stdTimeProgram, stdout: stdTimeOutput}})
@@ -96,11 +97,14 @@ func main() fails time.ParseError needs Console | Ambient {
 	let b = h.Now()
 	Console.Println("\(!b.Before(a)) \(b.Sub(a) >= 0s)")
 	// The host's Elapsed (std-speed-1): read after b, by the monotonic
-	// clock alone, it is no less than b.Sub(a); of a time with no
-	// monotonic reading it is the wall's, here over 45 years.
+	// clock alone, it is no less than b.Sub(a) and no more than a later
+	// read's Sub (NP4f-17: a reversed difference saturates to the largest
+	// duration); of a time with no monotonic reading it is the wall's,
+	// here over 45 years.
 	let since = with context { time.Clock: h } { time.Since(a) }
+	let later = h.Now().Sub(a)
 	let wall = with context { time.Clock: h } { time.Since(time.Unix(0, 0)) }
-	Console.Println("\(since >= b.Sub(a)) \(wall > 400000h)")
+	Console.Println("\(since >= b.Sub(a) && since <= later) \(wall > 400000h)")
 }
 `
 
@@ -126,6 +130,7 @@ const stdTimeOutput = "1.5s\n" +
 // holds it: Now's monotonic part is Read's Mono, so Sub of two Nows is the
 // difference of the two Reads.
 const stdTimeLawsProbe = `import queue
+import utf8
 import task
 import time
 
@@ -141,14 +146,90 @@ func within(n int64, lo int64, hi int64) int64 {
 
 func anyYear(n int64) int64 { within(n, -62135596800, 253402300799) }
 
+test TimeWireIsFormat(sec int64, nsec int64, near bool, pre []byte) {
+	let s = if near { anyYear(sec) } else { sec }
+	let t = time.Unix(s, within(nsec, 0, 999999999))
+	assert utf8.String(time.Wire(t, pre)) == utf8.String(pre) + t.Format(time.RFC3339Nano)
+}
+
+test TimeTimeRoundTrips(x time.Time) {
+	let back = time.ParseTime(time.Wire(x, []byte{})) catch {
+	case _:
+		assert false
+		return
+	}
+	assert back == x
+}
+
 test TimeFormatParseRoundTrip(sec int64, nsec int64) {
-	let t = time.Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let t = time.Unix(sec, within(nsec, 0, 999999999))
 	let back = time.Parse(time.RFC3339Nano, t.Format(time.RFC3339Nano)) catch {
 	case time.ParseError:
 		assert false
 		t
 	}
 	assert back.Equal(t) && back == t
+}
+
+test TimeUnixMilliInverts(ms int64, sec int64, nsec int64) {
+	let t = time.Unix(within(sec, -9000000000000000, 9000000000000000), within(nsec, 0, 999999999))
+	let floor = time.UnixMilli(time.Milliseconds(t))
+	assert time.Milliseconds(time.UnixMilli(ms)) == ms && !floor.After(t) && t.Sub(floor) < 1ms
+}
+
+test TimeTruncateIsFloor(sec int64, nsec int64, n int64) {
+	let t = time.Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let d = duration(within(n, 1, 864000000000000000))
+	let f = time.Truncate(t, d)
+	assert !f.After(t) && t.Sub(f) < d && time.Truncate(f, d) == f && time.Truncate(t.Add(d), d).Equal(f.Add(d))
+}
+
+test TimeRoundIsNearest(sec int64, nsec int64, n int64) {
+	let t = time.Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let d = duration(within(n, 1, 864000000000000000))
+	let f = time.Truncate(t, d)
+	let near = if t.Sub(f)+t.Sub(f) < d { f } else { f.Add(d) }
+	assert time.Round(t, d).Equal(near)
+}
+
+test TimeIntervalContainsStart(sec int64, n int64) {
+	let start = time.Unix(anyYear(sec), 0)
+	let end = start.Add(duration(within(n, -1000000000000000, 1000000000000000)))
+	let i = time.NewInterval(start, end) catch {
+	case time.Reversed:
+		assert end.Before(start)
+		return
+	}
+	assert !end.Before(start) && i.Contains(start) == start.Before(end) && !i.Contains(end) && i.Length() == end.Sub(start)
+}
+
+test TimeCompareOrders(a int64, b int64) {
+	let t = time.Unix(within(a, -2, 2), 0)
+	let u = time.Unix(within(b, -2, 2), 0)
+	assert time.Compare(t, u) == -time.Compare(u, t) && (time.Compare(t, u) < 0) == t.Before(u) && (time.Compare(t, u) == 0) == t.Equal(u)
+}
+
+test TimeOverlapsIffIntersect(a int64, b int64, c int64, d int64) {
+	let x = time.Unix(within(a, 0, 100), 0)
+	let y = x.Add(duration(within(b, 0, 100) * 1000000000))
+	let u = time.Unix(within(c, 0, 100), 0)
+	let v = u.Add(duration(within(d, 0, 100) * 1000000000))
+	let p = time.NewInterval(x, y) catch {
+	case time.Reversed:
+		assert false
+		return
+	}
+	let q = time.NewInterval(u, v) catch {
+	case time.Reversed:
+		assert false
+		return
+	}
+	match time.Intersect(p, q) {
+	case Some[time.Interval] as r:
+		assert time.Overlaps(p, q) && r.Value.Length() > 0ns && p.Contains(r.Value.Start()) && q.Contains(r.Value.Start())
+	case None:
+		assert !time.Overlaps(p, q)
+	}
 }
 
 test TimeSubAddInverse(sec int64, nsec int64, n int64) {
@@ -232,13 +313,21 @@ test TaskSleepAdvancesNow(n int64) {
 // the law's source text as the ledger writes it, by ledger key;
 // lawledger.Run holds it equal to the ledger (fu-ledger-runner).
 var stdTimeLawStatements = map[string]string{
+	"time WireIsFormat":              `WireIsFormat(sec int64, nsec int64, near bool, pre []byte) { let s = if near { anyYear(sec) } else { sec } let t = Time{sec: s, nsec: within(nsec, 0, 999999999), mono: 0, hasMono: false} utf8.String(t.Wire(pre)) == utf8.String(pre)+t.Format(RFC3339Nano) }`,
+	"time TimeRoundTrips":            `TimeRoundTrips(x Time) { try ParseTime(x.Wire([]byte{})) == x }`,
 	"task SleepAdvancesNow":          `SleepAdvancesNow(n int64) { let m = time.NewManual(0) let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775) let woke = queue.New[duration](1) let t = with context { Scheduler: m, time.Clock: m } { Go() { let before = time.Clock.Now() Scheduler.Sleep(d) try woke.Push(time.Clock.Now().Sub(before)) } } for m.Sleepers() == 0 && woke.Len() == 0 { } m.Advance(d) try t.Wait() try woke.Pop() >= d }`,
-	"time FormatParseRoundTrip":      `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }`,
+	"time FormatParseRoundTrip":      `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(sec, within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }`,
 	"time DateRoundTrip":             `DateRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let c = t.Calendar() Date(c.Year, c.Month, c.Day, c.Hour, c.Minute, c.Second, c.Nanosecond) == t }`,
 	"time WeekdayStep":               `WeekdayStep(sec int64) { let t = Unix(anyYear(sec), 0) WeekdayNumber(t.Add(24h).Calendar().Weekday) == (WeekdayNumber(t.Calendar().Weekday)+1)%7 }`,
 	"time DateNormalises":            `DateNormalises(year int64, month int64, day int64, hour int64) { let y = int(within(year, 1, 9999)) let m = anyMonth(month) let d = within(day, -400, 400) let h = within(hour, -100, 100) Date(y, m, int(d), int(h), 0, 0, 0).Equal(Date(y, m, 1, 0, 0, 0, 0).Add(duration(((d-1)*24 + h) * 3600000000000))) }`,
 	"time YearDayCounts":             `YearDayCounts(sec int64) { let t = Unix(anyYear(sec), 0) let c = t.Calendar() let first = Date(c.Year, January, 1, 0, 0, 0, 0) c.YearDay == Count(Date(c.Year, c.Month, c.Day, 0, 0, 0, 0).Sub(first), 24h)+1 }`,
 	"time MonthOfInvertsNumber":      `MonthOfInvertsNumber(n int) { match MonthOf(n) { case Some[Month] as m: MonthNumber(m.Value) == n case None: n < 1 || n > 12 } }`,
+	"time UnixMilliInverts":          `UnixMilliInverts(ms int64, sec int64, nsec int64) { let t = Unix(within(sec, -9000000000000000, 9000000000000000), within(nsec, 0, 999999999)) let floor = UnixMilli(Milliseconds(t)) Milliseconds(UnixMilli(ms)) == ms && !floor.After(t) && t.Sub(floor) < 1ms }`,
+	"time TruncateIsFloor":           `TruncateIsFloor(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let d = duration(within(n, 1, 864000000000000000)) let f = Truncate(t, d) !f.After(t) && t.Sub(f) < d && Truncate(f, d) == f && Truncate(t.Add(d), d).Equal(f.Add(d)) }`,
+	"time RoundIsNearest":            `RoundIsNearest(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let d = duration(within(n, 1, 864000000000000000)) let f = Truncate(t, d) let near = if t.Sub(f)+t.Sub(f) < d { f } else { f.Add(d) } Round(t, d).Equal(near) }`,
+	"time CompareOrders":             `CompareOrders(a int64, b int64) { let t = Unix(within(a, -2, 2), 0) let u = Unix(within(b, -2, 2), 0) Compare(t, u) == -Compare(u, t) && (Compare(t, u) < 0) == t.Before(u) && (Compare(t, u) == 0) == t.Equal(u) }`,
+	"time IntervalContainsStart":     `IntervalContainsStart(sec int64, n int64) { let start = Unix(anyYear(sec), 0) let end = start.Add(duration(within(n, -1000000000000000, 1000000000000000))) let i = NewInterval(start, end) catch { case Reversed: return end.Before(start) } !end.Before(start) && i.Contains(start) == start.Before(end) && !i.Contains(end) && i.Length() == end.Sub(start) }`,
+	"time OverlapsIffIntersect":      `OverlapsIffIntersect(a int64, b int64, c int64, d int64) { let x = Unix(within(a, 0, 100), 0) let y = x.Add(duration(within(b, 0, 100) * 1000000000)) let u = Unix(within(c, 0, 100), 0) let v = u.Add(duration(within(d, 0, 100) * 1000000000)) let p = NewInterval(x, y) catch { case Reversed: return false } let q = NewInterval(u, v) catch { case Reversed: return false } match Intersect(p, q) { case Some[Interval] as r: Overlaps(p, q) && r.Value.Length() > 0ns && p.Contains(r.Value.Start()) && q.Contains(r.Value.Start()) case None: !Overlaps(p, q) } }`,
 	"time SubAddInverse":             `SubAddInverse(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), nsec) let d = duration(within(n, -4000000000000000000, 4000000000000000000)) t.Add(d).Sub(t) == d }`,
 	"time Timeline.AdvanceMovesRead": `AdvanceMovesRead(n int64) { let d = duration(within(n, 0, 1099511627775)) let before = Read() Advance(d) Read().Mono-before.Mono == int64(d) }`,
 }

@@ -52,12 +52,13 @@ func Peek(f Fixed, key string) Option[limits.Level] {
 }
 `,
 	"cmd/bench/main.ergo": `import http
+import net
 import rpc
 import bench/limits
 import bench/limits/limitsrpc
 import bench/memory
 
-func serve(l http.Listener) fails http.InvalidLimits needs Scheduler {
+func serve(l net.Listener) fails http.InvalidLimits needs Scheduler {
 	with context { limits.Limiter: memory.Fixed } {
 		try rpc.Serve(l, http.Limits{MaxBodyBytes: 16777216, MaxHeaderBytes: 1048576, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, "/rpc", limitsrpc.Handle)
 	}
@@ -240,7 +241,14 @@ func BenchmarkRpcUnary(b *testing.B) {
 	if err != nil || a.Root().Package == nil {
 		b.Fatalf("the contract does not check: %v %v", err, a.Diagnostics)
 	}
-	out, err := Generate(a.Root().Package, "bench/limits", "Limiter")
+	hub, err := GenerateAPI(a.Root().Package, "bench/limits", "Limiter")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for name, src := range hub.Files {
+		writeFile(b, filepath.Join(dir, "limits", hub.Dir, name), src)
+	}
+	out, err := Generate(a.Root().Package, "bench/limits", "Limiter", "bench/limits/"+hub.Dir)
 	if err != nil {
 		b.Fatal(err)
 	}

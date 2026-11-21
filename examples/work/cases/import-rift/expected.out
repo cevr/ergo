@@ -1,0 +1,9 @@
+# work.toml imported from .rift.toml (work import-rift).
+[work]
+# Rift's default copy leaves these folders out; work's copies everything.
+# Delete this line to clone installed packages and build output too.
+leave_out = ["rift-filtered"]
+
+[hooks]
+postcreate = ["bun install --frozen-lockfile"]
+preremove = ["echo \"bye\""]

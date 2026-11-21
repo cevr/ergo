@@ -2,12 +2,56 @@
   "about": "vt's application mutants (DOD track DT1 to DT3). A mutant of the program is judged by the example's laws and cases (scripts/examples vt); a mutant of the hand-Go control (cmd/ergo/testdata/vt/control, DT3) by TestVTAgreesWithControl, which plays the program and the control on 200 seeds. The rule of each names the law, the case or the test that kills it.",
   "mutants": [
     {
+      "name": "vtgap-csi-run-off",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\t\t\tif p.fast && b == 0x1b {\n",
+      "to": "\t\t\tif false && p.fast && b == 0x1b {\n",
+      "rule": "A whole CSI in the ground state is taken in one loop, with no step of the machine (the events are the same: FastPathMatchesStep). Killed by test vt.FastPathsTakeNoSteps, the work counter.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vtgap-csi-run-last-param",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\tp.acc = acc\n\tp.parse = Parse{At: Ground, Counts: completed(k)}\n",
+      "to": "\tp.acc = 0\n\tp.parse = Parse{At: Ground, Counts: completed(k)}\n",
+      "rule": "The CSI fast path completes the parameter being read, as the dispatch does. Killed by law vt.FastPathMatchesStep.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vtgap-csi-run-keeps-too-many",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\tif params >= MaxParams {\n\t\tp.Tally.Dropped += 1\n\t\treturn j + 1\n\t}\n",
+      "to": "",
+      "rule": "The CSI fast path drops a sequence with more than MaxParams parameters, as the dispatch does. Killed by law vt.FastPathMatchesStep.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "vtgap-csi-run-no-clamp",
+      "origin": "wf10/VT-GAP",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\t\t\tacc = if v > MaxParam { MaxParam } else { v }\n\t\t\tdigits = true\n",
+      "to": "\t\t\tacc = v\n\t\t\tdigits = true\n",
+      "rule": "The CSI fast path clamps a parameter to MaxParam, as the collector does. Killed by law vt.FastPathMatchesStep.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
       "name": "dt1-csi-param-colon",
       "origin": "wf10/dod/DT1",
       "file": "examples/vt/vt/state.ergo",
       "from": "\t\tcase Digit, Colon, Semi:\n\t\t\tto(CsiParam, ParamByte)",
       "to": "\t\tcase Digit, Semi:\n\t\t\tto(CsiParam, ParamByte)\n\t\tcase Colon:\n\t\t\tto(CsiIgnore, NoAct)",
-      "rule": "In csi_param a colon is a parameter byte (Ghostty's change to vt100.net, which sends it to csi_ignore), for SGR sub-parameters. Killed by law ghostty.StepMatchesTable.",
+      "rule": "In csi_param a colon is a parameter byte (a change to vt100.net, which sends it to csi_ignore), for SGR sub-parameters. Killed by law reference.StepMatchesTable.",
       "killers": [
         "examples:vt"
       ]
@@ -18,7 +62,7 @@
       "file": "examples/vt/vt/state.ergo",
       "from": "\t\tcase 0x18, 0x1a:\n\t\t\tCanSub",
       "to": "\t\tcase 0x18:\n\t\t\tCanSub",
-      "rule": "SUB (0x1a) cancels a sequence from any state, as CAN does. Killed by law ghostty.StepMatchesTable.",
+      "rule": "SUB (0x1a) cancels a sequence from any state, as CAN does. Killed by law reference.StepMatchesTable.",
       "killers": [
         "examples:vt"
       ]
@@ -40,7 +84,7 @@
       "file": "examples/vt/vt/machine.ergo",
       "from": "let MaxParams = 24",
       "to": "let MaxParams = 23",
-      "rule": "The parser keeps Ghostty's 24 parameters (Kakoune sends 17 in one SGR). Killed by law Parser.ParamsReachTheLimit, and by the cases.",
+      "rule": "The parser keeps 24 parameters (an editor may send 17 in one SGR). Killed by law Parser.ParamsReachTheLimit, and by the cases.",
       "killers": [
         "examples:vt"
       ]
@@ -51,7 +95,7 @@
       "file": "examples/vt/vt/machine.ergo",
       "from": "Inter: if k.Inter < MaxIntermediates { k.Inter + 1 } else { k.Inter }",
       "to": "Inter: if k.Inter < 3 { k.Inter + 1 } else { k.Inter }",
-      "rule": "The parser keeps 4 intermediates, as Ghostty does. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/events-sequences.",
+      "rule": "The parser keeps 4 intermediates. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/events-sequences.",
       "killers": [
         "examples:vt"
       ]
@@ -106,7 +150,7 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "\t\t\tp.acc = if v > MaxParam { MaxParam } else { v }",
       "to": "\t\t\tp.acc = v",
-      "rule": "A parameter saturates at 65535, as Ghostty's u16 does. Killed by case vt/events-sequences (CSI 99999 C).",
+      "rule": "A parameter saturates at 65535, a u16. Killed by case vt/events-sequences (CSI 99999 C).",
       "killers": [
         "examples:vt"
       ]
@@ -128,7 +172,7 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "if b != 'm' && p.colons != 0 {",
       "to": "if false && p.colons != 0 {",
-      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped, as in Ghostty. Killed by case vt/events-sequences (CSI 4:3 H).",
+      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped. Killed by case vt/events-sequences (CSI 4:3 H).",
       "killers": [
         "examples:vt"
       ]
@@ -205,7 +249,7 @@
       "file": "examples/vt/screen/screen.ergo",
       "from": "if ri >= len(s.flags) {",
       "to": "if ri >= 0 {",
-      "rule": "Once the ring is full, a line feed makes no cell: the oldest page is used again (Ghostty's leak, as a counted growth guard). Killed by law screen.ScrollbackIsBounded.",
+      "rule": "Once the ring is full, a line feed makes no cell: the oldest page is used again (a leak there shows as a counted growth guard). Killed by law screen.ScrollbackIsBounded.",
       "killers": [
         "examples:vt"
       ]
@@ -397,24 +441,48 @@
         "cmd/ergo:TestVTAgreesWithControl"
       ]
     },
+    {"name":"vk1-flush-keeps-events","origin":"wf10/dod/VK1","file":"examples/vt/vt/play.ergo","from":"\tApply(s, p.out, &u)\n\tp.Clear()\n","to":"\tApply(s, p.out, &u)\n","rule":"Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.","killers":["examples:vt"]},
+    {"name":"vk1-clear-keeps-first","origin":"wf10/dod/VK1","file":"examples/vt/vt/stream.ergo","from":"func Clear(p mut Stream) { p.out = p.out[0:0] }","to":"func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }","rule":"Clear forgets every event kept, not all but the first. Killed by the replay cases.","killers":["examples:vt"]},
     {
-      "name": "vk1-flush-keeps-events",
-      "origin": "wf10/dod/VK1",
-      "file": "examples/vt/vt/play.ergo",
-      "from": "\tApply(s, p.out, u)\n\tp.Clear()\n",
-      "to": "\tApply(s, p.out, u)\n",
-      "rule": "Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.",
+      "name": "pacevt2-print-run-off",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\tfor e < k && s.cells[at+e].style == old {\n",
+      "to": "\t\t\tfor e < k && e == j {\n",
+      "rule": "Print recounts a run of cells of one old style once, not once per cell (the counts are the same: ScreenMatchesPlain). Killed by test screen.StyleRunsRecountOnce, the work counter.",
       "killers": [
         "examples:vt"
       ]
     },
     {
-      "name": "vk1-clear-keeps-first",
-      "origin": "wf10/dod/VK1",
-      "file": "examples/vt/vt/stream.ergo",
-      "from": "func Clear(p *Stream) { p.out = p.out[0:0] }",
-      "to": "func Clear(p *Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }",
-      "rule": "Clear forgets every event kept, not all but the first. Killed by the replay cases.",
+      "name": "pacevt2-clear-run-off",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\tfor j < end && s.cells[j].style == st {\n",
+      "to": "\t\t\tfor j < end && j == i {\n",
+      "rule": "clearRow releases a run of cells of one style once, not once per cell (the counts are the same: ScreenMatchesPlain). Killed by test screen.StyleRunsRecountOnce, the work counter.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "pacevt2-print-retains-one",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\tretainN(&s.styles, id, taken)\n",
+      "to": "\t\t\tretainN(&s.styles, id, 1)\n",
+      "rule": "Print retains the pen's style once for each cell that took it. Killed by the screen's laws (a style freed while cells hold it).",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "pacevt2-clear-releases-one",
+      "origin": "wf10/PACE-VT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\t\t\treleaseN(&s.styles, st, j-i)\n",
+      "to": "\t\t\t\treleaseN(&s.styles, st, 1)\n",
+      "rule": "clearRow releases a style once for each cell of the run. Killed by the screen's laws (a style kept after its cells are cleared).",
       "killers": [
         "examples:vt"
       ]

@@ -318,7 +318,7 @@ func (c *dfCase) write(f *dfFile) {
 	f.add("\t}")
 	if c.place != dfBody {
 		f.add("\tscope.OnExit() {")
-		n := f.add("\t\tR%d()", k)
+		n := f.add("\t\tlet _ = R%d()", k)
 		c.releaseCall = fmt.Sprintf("%s calls R%d at %s", fn, k, f.at(n, fmt.Sprintf("R%d(", k)))
 		f.add("\t}")
 	}
@@ -406,7 +406,7 @@ func (c *dfCase) writeLevel(f *dfFile, j int) {
 			f.add("\tlet s%d = task.Go() { try FS%d() }", i, k)
 			f.catch(fmt.Sprintf("c%d", i), fmt.Sprintf("s%d.Wait()", i), "Fault", "7", nil)
 			f.add("\tif c%d != 7 {", i)
-			f.add("\t\tBAD%d()", k)
+			f.add("\t\tlet _ = BAD%d()", k)
 			f.add("\t}")
 		case "blocked":
 			f.add("\tlet n%d = queue.New[int](0)", i)
@@ -860,6 +860,10 @@ func TestRuntime199DefectOwner(t *testing.T) {
 		{"report", "mainStatus"}: true,
 		// LogFailures writes a member's exit as main's exit report does.
 		{"report", "end"}: true,
+		// FuseOr drops the fused loop's fresh defect and runs the left
+		// side, which raises the staged form's own; a carried exit passes
+		// through (fuse.go). The defect that leaves reaches capture.
+		{"recover without capture", "FuseOr.func"}: true,
 	}
 	seen := map[use]bool{}
 	for _, u := range uses {

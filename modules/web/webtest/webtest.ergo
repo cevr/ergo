@@ -1,0 +1,23 @@
+// Package webtest asks a web.Site as a browser would, with no server and
+// no socket: each call is web.Fetch of one request (Remix 3: "No special
+// test harness or mocking required"; Gleam wisp's simulate). The site's
+// capabilities are the caller's: a test binds them in a context around
+// the calls, as cmd/<name>/main.ergo binds them around a host.
+
+import github.com/cevr/ergo/modules/web
+import http
+
+// Get is site's answer to a GET of path.
+func Get[R comparable, P, F, N](site web.Site[R, P, F, N], path string) http.Response needs N {
+	web.Fetch(site, web.Request("GET", path))
+}
+
+// Head is site's answer to a HEAD of path.
+func Head[R comparable, P, F, N](site web.Site[R, P, F, N], path string) http.Response needs N {
+	web.Fetch(site, web.Request("HEAD", path))
+}
+
+// Post is site's answer to a POST of path with an empty form.
+func Post[R comparable, P, F, N](site web.Site[R, P, F, N], path string) http.Response needs N {
+	web.Fetch(site, web.Request("POST", path))
+}

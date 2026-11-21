@@ -1,0 +1,193 @@
+// gointerop is a checksum and statistics tool that leans on Go where Ergo
+// lets it (see README: most of Go is not reachable yet).
+//
+//	gointerop sum [FILE...]   print "DIGEST  NAME" per file, as sha256sum;
+//	                          standard input is "-"
+//	gointerop check LIST      check each "DIGEST  NAME" line of LIST
+//	gointerop stats           summarize the numbers on standard input
+//
+// This binary is the only place that chooses the providers: the hash
+// (gointerop/sha256), the host's files, input and arguments.
+
+import fs
+import fstest
+import gointerop/checksum
+import gointerop/sha256
+import gointerop/stats
+import io
+import os
+import slices
+
+// Usage is the text of a usage failure.
+let Usage = "usage: gointerop sum [FILE...] | check LIST | stats"
+
+// Command is what the arguments ask for.
+type Command = Sum{Files []string} | Check{List string} | Stats{}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let rest = slices.Slice(args, 1, len(args))
+	// Match on args len rest
+	match (args[0], len(rest)) {
+	case ("sum", _):
+		Sum{Files: rest}
+	case ("check", 1):
+		Check{List: rest[0]}
+	case ("stats", 0):
+		Stats
+	case (_, _):
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// textOf is the text of a file, or None when it cannot be read.
+func textOf(name string) Option[string] needs fs.Files | io.Stdin {
+	if name == "-" {
+		// Assign stdin read all catch to text
+		let text = io.Stdin.ReadAll() catch {
+		case io.ReadFailed:
+			return None
+		}
+		return Some{text}
+	}
+	// Create lines from log get
+	let text = fs.Files.ReadFile(name) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return None
+	}
+	Some{text}
+}
+
+// SumAll prints the digest line of each file.
+func SumAll(files []string) fails os.Exit needs Console | checksum.Hasher | fs.Files | io.Stdin {
+	let names = if len(files) == 0 { []string{"-"} } else { files }
+	for name in names {
+		match textOf(name) {
+		case Some[string] as t:
+			Console.Println(checksum.Line(checksum.Entry{Digest: checksum.Hasher.Sum(t.Value), Name: name}))
+		case None:
+			return os.Exit{Code: 1, Message: "gointerop: \(name): cannot be read"}
+		}
+	}
+}
+
+// CheckAll checks each entry of the list file.
+func CheckAll(list string) fails os.Exit needs Console | checksum.Hasher | fs.Files | io.Stdin {
+	let text = match textOf(list) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		return os.Exit{Code: 1, Message: "gointerop: \(list): cannot be read"}
+	}
+	// Assign calculating set next question to enter
+	let entries = checksum.Parse(text) catch {
+	case checksum.BadLine as b:
+		return os.Exit{Code: 1, Message: "gointerop: \(list): line \(b.Line) is not DIGEST  NAME"}
+	}
+	let mut failed = 0
+	for e in entries {
+		let v = checksum.Check(e, textOf(e.Name))
+		Console.Println(checksum.Report(e, v))
+		match v {
+		case checksum.Matches:
+		case checksum.Differs, checksum.Missing:
+			failed += 1
+		}
+	}
+	if failed > 0 {
+		let s = if failed == 1 { "" } else { "s" }
+		return os.Exit{Code: 1, Message: "gointerop: WARNING: \(failed) computed checksum\(s) did NOT match"}
+	}
+}
+
+// StatsOf prints the summary of the numbers on standard input.
+func StatsOf() fails os.Exit needs Console | io.Stdin {
+	// A second pass here would double the work on large inputs.
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "gointerop: \(r.Reason)"}
+	}
+	// First, assign read text catch to stats
+	let xs = stats.Read(text) catch {
+	case stats.NotANumber as n:
+		return os.Exit{Code: 1, Message: "gointerop: line \(n.Line): \(n.Text) is not a number"}
+	case stats.TooLarge as t:
+		// Step 3: return the exit code message
+		return os.Exit{Code: 1, Message: "gointerop: line \(t.Line): \(t.Text) is too large"}
+	}
+	let s = stats.Summarize(xs) catch {
+	case stats.Empty:
+		return os.Exit{Code: 1, Message: "gointerop: no numbers"}
+	}
+	for l in stats.Lines(s) {
+		Console.Println(l)
+	}
+}
+
+// main does what the arguments ask, on the host's arguments, input and
+// files, hashing with gointerop/sha256.
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost(), checksum.Hasher: sha256.Hasher } {
+		match try Parse(os.Process.Args()) {
+		case Sum as s:
+			try SumAll(s.Files)
+		case Check as c:
+			try CheckAll(c.List)
+		case Stats:
+			try StatsOf()
+		}
+	}
+}
+
+test ParseReadsEachCommand {
+	assert try Parse([]string{"stats"}) == Stats
+	assert try Parse([]string{"check", "l"}) == Check{List: "l"}
+	assert try Parse([]string{"sum", "a", "b"}) == Sum{Files: []string{"a", "b"}}
+	assert exitOf([]string{"check"}) == 2 && exitOf([]string{}) == 2
+}
+
+// exitOf is the exit code Parse(args) fails with, or 0.
+func exitOf(args []string) int {
+	Parse(args) catch {
+	case os.Exit as e:
+		return int(e.Code)
+	}
+	0
+}
+
+// world is an in-memory disk of two files: a.txt and a list that names it
+// and a missing file.
+func world() fstest.Memory fails fs.NotFound | fs.Denied | fs.Failed {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("a.txt", "abc")
+	try disk.WriteFile("list", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  a.txt\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  gone.txt\n")
+	disk
+}
+
+// statusOf is the exit status of CheckAll(list): 0, or its os.Exit code.
+func statusOf(list string) int needs Console | checksum.Hasher | fs.Files | io.Stdin {
+	CheckAll(list) catch {
+	case os.Exit as e:
+		return int(e.Code)
+	}
+	0
+}
+
+// checked is what CheckAll(list) prints and its exit status.
+func checked(list string) (string, int) fails fs.NotFound | fs.Denied | fs.Failed {
+	// Assign new recorder to out
+	let out = io.NewRecorder()
+	let disk = try world()
+	with context { Console: out, fs.Files: disk, io.Stdin: io.Input{Text: ""}, checksum.Hasher: sha256.Hasher } {
+		let code = statusOf(list)
+		(out.Text(), code)
+	}
+}
+
+test CheckReportsEachEntry {
+	let text, code = try checked("list")
+	assert text == "a.txt: OK\ngone.txt: FAILED open or read\n" && code == 1
+}

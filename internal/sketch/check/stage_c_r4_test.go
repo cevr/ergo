@@ -50,13 +50,15 @@ func checkWith(t *testing.T, imp check.Importer, src string) []check.Diagnostic 
 // a try, a catch or a with has its result discarded, in every body kind;
 // an empty body is the spelling of an arm with no work. Round 4 review M1:
 // the call's resolved kind decides, so a generic, a parenthesised and a
-// qualified conversion are conversions like int8(n).
+// qualified conversion are conversions like int8(n). i and s may raise a
+// defect by name, so their dropped results are not discard.go's S110 (a
+// pure call that does nothing else; M2-APPEND).
 func TestOneStatementPositionRule(t *testing.T) {
 	imp := newUnitsImporter(t)
 	const units = "import units\nfunc c(x units.Celsius) units.Celsius { x }\n"
 	const decls = "let W = context {}\ntype E {}\ntype F {}\ntype N[T] int\n" +
 		"func g() int fails E { 1 }\nfunc two() int fails E | F { 2 }\n" +
-		"func i() int { 1 }\nfunc s() string { \"s\" }\nfunc each(f func()) { f() }\n"
+		"func i() int { if one { 1 } else { Unreachable(\"i\") } }\nfunc s() string { if one { \"s\" } else { Unreachable(\"s\") } }\nfunc each(f func()) { f() }\nlet one = true\n"
 	// X is the tail under test; every other tail is a call.
 	bodies := []struct {
 		name, src string

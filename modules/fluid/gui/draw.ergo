@@ -1,0 +1,371 @@
+// Package gui is the window's side of the library: Draw writes a part tree on a std ui frame,
+// and Paint resolves a look's style, in a state and a scheme, to the complete paint a GUI host
+// draws (spec §2.2, §4.1). Draw projects what ui has today: structure, text, presses, fields and
+// keys. Box looks wait for ui.Paint (UG1), glyphs for path fills (UG6), layers for ui.Layer (UG4)
+// and the roles past ui's for UG2; until then a glyph draws nothing and a role ui lacks draws as
+// a generic box (a11y.UIRole says which).
+
+import ergo.dev/fluid/a11y
+import ergo.dev/fluid/part
+import ui
+import html
+
+// Draw writes n on f. A press is a ui Semantic node that sends its signal (none while disabled);
+// a box that states something a reader is told is a Semantic node too, else a plain Box; a
+// box's keyboard map is an OnKey over its bindings (ui answers a key with the first map a pass
+// wrote: focus scopes come with UG3); while a modal layer is shown, the branches beside it are
+// not drawn (as they are inert on the web).
+func Draw[E](f mut ui.Frame[E], n part.Node[E]) {
+	match n {
+	case part.Box as b:
+		if b.Sem.Hidden {
+			return
+		}
+		if len(b.Keys) > 0 {
+			let keys = b.Keys
+			ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })
+		}
+		if states(b.Sem) {
+			ui.Semantic(f, accessOf(b.Sem, b.Sem.Role, false), None, ui.Plain()) {
+				drawKids[E](f, b.Kids)
+			}
+		} else {
+			ui.Box(f, ui.Plain()) {
+				drawKids[E](f, b.Kids)
+			}
+		}
+	case part.Text as t:
+		if t.Value != "" {
+			ui.Text(f, t.Value)
+		}
+	case part.Glyph:
+	case part.Press as p:
+		if p.Sem.Hidden {
+			return
+		}
+		let off = disabled(p.Sem.States)
+		let on = if off { None } else { p.On }
+		let enabled = match on {
+		case Some:
+			true
+		case None:
+			false
+		}
+		let role = match p.Sem.Role {
+		case part.Generic:
+			part.Button
+		case _:
+			p.Sem.Role
+		}
+		ui.Semantic(f, accessOf(p.Sem, role, !enabled), on, ui.Plain()) {
+			drawKids[E](f, p.Kids)
+		}
+	case part.Field as x:
+		if x.Sem.Hidden {
+			return
+		}
+		let on = x.On
+		ui.Semantic(f, ui.Access{..accessOf(x.Sem, part.TextBox, false), Value: Some[string]{Value: x.Value}}, None, ui.Plain()) {
+			ui.Input(f, x.Value, x.Hint, func(text string) E { on(text) })
+		}
+	case part.Scale as s:
+		if s.Sem.Hidden {
+			return
+		}
+		ui.Semantic(f, accessOf(s.Sem, part.Slider, false), None, ui.Plain()) {}
+	case part.Layer as l:
+		drawKids[E](f, l.Kids)
+	case part.Keyed as k:
+		ui.Zone(f, ui.TextKey{Value: k.Key}, ui.Plain()) {
+			Draw[E](f, k.Node)
+		}
+	case part.Live as l:
+		if l.Assertive {
+			ui.Semantic(f, accessOf(part.Plain(), part.Alert, false), None, ui.Plain()) {
+				ui.Text(f, l.Text)
+			}
+		} else {
+			ui.Announce(f, l.Text)
+		}
+	case part.Host as h:
+		h.Gui(f)
+	}
+}
+
+// PressSendsItsSignal: pressing the i-th button of the window sends the i-th press's signal, and
+// nothing for a press that sends none or is stated disabled; a key the keyed box binds sends its
+// binding's signal (the first of that name), and a key it does not bind sends nothing.
+law PressSendsItsSignal(sends []int, keys []int) {
+	let mut row = []part.Node[int]{}
+	let mut want = []Option[int]{}
+	for i in 0..len(sends) {
+		let v = sends[i]
+		let none = v%3 == 0
+		let off = v%5 == 0
+		let on Option[int] = if none { None } else { Some[int]{Value: v} }
+		row = row.Append(part.Press{Sem: part.Sem{..part.Of(part.Button), Name: "p\(i)", States: if off { []part.State{part.Disabled} } else { []part.State{} }}, Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: on, Kids: []part.Node[int]{}})
+		want = want.Append(if off { None } else { on })
+	}
+	let names = []string{"ArrowLeft", "ArrowRight", "Home", "End", "Enter"}
+	let mut bindings = []part.Binding[int]{}
+	for i in 0..len(keys) {
+		bindings = bindings.Append(part.Binding[int]{Key: names[((keys[i]%5)+5)%5], On: keys[i]})
+	}
+	let tree part.Node[int] = part.Box{Sem: part.Of(part.Toolbar), Skin: part.Bare(), Inline: false, Keys: bindings, Kids: row}
+	let mut f = frameOf(tree)
+	let ids = presses(&f, ui.Root(&f))
+	let mut ok = len(ids) == len(sends)
+	for i in 0..len(ids) {
+		ok = ok && i < len(want) && ui.Handle(&f, ui.Press[int]{Id: ids[i]}).Signal == want[i]
+	}
+	for n in names {
+		let mut first Option[int] = None
+		for b in bindings {
+			if b.Key == n && first == None {
+				first = Some[int]{Value: b.On}
+			}
+		}
+		ok = ok && ui.Handle(&f, ui.KeyDown{Press: ui.KeyPress{Name: n, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}).Signal == first
+	}
+	ok && ui.Handle(&f, ui.KeyDown{Press: ui.KeyPress{Name: "x", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}).Signal == None
+}
+
+// frameOf is a frame after one pass that draws n. (the laws' helper)
+func frameOf(n part.Node[int]) ui.Frame[int] {
+	let mut f = ui.NewFrame[int]()
+	let _ = ui.Render(&f, func(fr mut ui.Frame[int], t part.Node[int]) { Draw(fr, t) }, n)
+	f
+}
+
+// presses is the ids of the frame's presses (Semantic nodes that are buttons), in tree order.
+// (the laws' helper)
+func presses(f mut ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
+	let mut out = []ui.Id[int]{}
+	for k in ui.Kids(f, id) {
+		match ui.NodeOf(f, k) {
+		case Some as n:
+			match n.Value {
+			case ui.SemanticNode as s:
+				match s.Access.Role {
+				case ui.Button:
+					out = out.Append(k)
+				case _:
+				}
+			case _:
+			}
+		case None:
+		}
+		for x in presses(f, k) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// AccessOfGuiIsAccessOfPart: the access tree std ui holds after drawing a part tree is the
+// tree's own (a11y.Of), as far as ui carries it (a11y.Narrow), for trees drawn from a seed
+// over the roles ui carries: every node kind but Scale (UG2), names, states (those ui lacks are
+// narrowed away), keyboard maps, hidden and modal branches, keyed nodes, host leaves and live
+// regions. A failing seed prints both trees (Case).
+law AccessOfGuiIsAccessOfPart(seed []int) {
+	let (gui, want) = Case(seed)
+	gui == want
+}
+
+// Case is what a seed of AccessOfGuiIsAccessOfPart draws: the print of the frame's access tree
+// and of the narrowed part tree's.
+func Case(seed []int) (string, string) {
+	let mut g = Gen{xs: seed, at: 0}
+	let tree = drawNode(&g, 0)
+	let mut f = frameOf(tree)
+	(a11y.Print(a11y.OfUI(&f)), a11y.Print(a11y.Narrow(a11y.Of(tree))))
+}
+
+// Gen draws from a seed. (the property's helper)
+type Gen { xs []int, at int }
+
+func draw(g mut Gen, n int) int {
+	let v = if len(g.xs) == 0 { g.at * 7919 } else { g.xs[g.at%len(g.xs)] + g.at*7919 }
+	g.at = g.at + 1
+	((v % n) + n) % n
+}
+
+func pick[T](g mut Gen, xs []T) T { xs[draw(g, len(xs))] }
+
+let words = []string{"a", "b c", "<x>", "&amp", "it's", "é", ""}
+
+// carriedRoles is every part role ui carries.
+func carriedRoles() []part.Role {
+	let mut out = []part.Role{}
+	for r in a11y.Roles() {
+		match a11y.UIRole(r) {
+		case Some:
+			out = out.Append(r)
+		case None:
+		}
+	}
+	out
+}
+
+let pressRoles = []part.Role{part.Button, part.Tab, part.MenuItem, part.Switch, part.Checkbox, part.Link, part.Generic}
+
+let allStates = []part.State{part.Disabled, part.Busy, part.Invalid, part.Checked{Value: part.On}, part.Checked{Value: part.Mixed}, part.Selected{Yes: true}, part.Expanded{Yes: false}, part.Pressed{Yes: true}, part.Current{Kind: "page"}}
+
+func drawStates(g mut Gen) []part.State {
+	let mut out = []part.State{}
+	for _ in 0..draw(g, 3) {
+		let s = pick(g, allStates)
+		let mut seen = false
+		for x in out {
+			seen = seen || a11y.StateName(x) == a11y.StateName(s)
+		}
+		if !seen {
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+func drawSem(g mut Gen, role part.Role) part.Sem {
+	part.Sem{
+		Role:   role,
+		Name:   if draw(g, 3) == 0 { pick(g, words) } else { "" },
+		Key:    if draw(g, 3) == 0 { part.Join(part.Root("k"), "\(g.at)") } else { "" },
+		States: drawStates(g),
+		Rels:   if draw(g, 4) == 0 { []part.Rel{part.Controls{Key: "k1"}} } else { []part.Rel{} },
+		Reach:  pick(g, []part.Reach{part.Out, part.Native, part.Stop, part.Roving{Here: true}}),
+		Focus:  false,
+		Hidden: draw(g, 8) == 0,
+	}
+}
+
+func genKids(g mut Gen, depth int) []part.Node[int] {
+	let mut out = []part.Node[int]{}
+	for _ in 0..draw(g, if depth >= 3 { 1 } else { 4 }) {
+		out = out.Append(drawNode(g, depth+1))
+	}
+	out
+}
+
+// drawNode is a node of the tree a seed draws.
+func drawNode(g mut Gen, depth int) part.Node[int] {
+	match draw(g, if depth >= 3 { 4 } else { 12 }) {
+	case 0:
+		part.Text{Value: pick(g, words), Skin: part.Bare()}
+	case 1:
+		part.Glyph{Paths: "<path d=\"M5 12h14\"></path>", Stroked: true, Skin: part.Bare()}
+	case 2:
+		part.Live{Text: pick(g, words), Assertive: draw(g, 2) == 0}
+	case 3:
+		let w = pick(g, words)
+		part.Host{Web: "<b>" + html.Escape(w) + "</b>", Gui: func(f mut ui.Frame[int]) { ui.Text(f, w) }}
+	case 4:
+		part.Box{Sem: part.Plain(), Skin: part.Bare(), Inline: draw(g, 2) == 0, Keys: []part.Binding[int]{}, Kids: genKids(g, depth)}
+	case 5, 6:
+		let keys = if draw(g, 3) == 0 { []part.Binding[int]{part.Binding[int]{Key: "ArrowRight", On: 1}} } else { []part.Binding[int]{} }
+		part.Box{Sem: drawSem(g, pick(g, carriedRoles())), Skin: part.Bare(), Inline: false, Keys: keys, Kids: genKids(g, depth)}
+	case 7:
+		let on Option[int] = if draw(g, 3) == 0 { None } else { Some[int]{Value: draw(g, 4)} }
+		part.Press{Sem: drawSem(g, pick(g, pressRoles)), Skin: part.Control{Root: part.Bare(), Plate: part.Bare(), Content: part.Bare()}, On: on, Kids: genKids(g, depth)}
+	case 8:
+		part.Field{Sem: drawSem(g, part.Generic), Skin: part.Bare(), Name: "f", Value: pick(g, words), Hint: pick(g, words), Lines: draw(g, 3), On: func(s string) int { len(s) }}
+	case 9:
+		part.Layer{Z: draw(g, 3), Modal: draw(g, 3) == 0, Dismiss: None, Kids: genKids(g, depth)}
+	case 10:
+		part.Keyed{Key: "k\(g.at)", Node: drawNode(g, depth+1)}
+	case _:
+		part.Box{Sem: part.Of(part.Heading{Level: 1 + draw(g, 6)}), Skin: part.Bare(), Inline: false, Keys: []part.Binding[int]{}, Kids: genKids(g, depth)}
+	}
+}
+
+// drawKids draws kids; while one branch shows a modal layer, only the branches that hold one.
+func drawKids[E](f mut ui.Frame[E], kids []part.Node[E]) {
+	let shown = part.Shown[E](kids)
+	for i in 0..len(kids) {
+		if shown[i] {
+			Draw[E](f, kids[i])
+		}
+	}
+}
+
+// Bound is the signal bindings send for key k: the first binding of its name, if any.
+func Bound[E](bindings []part.Binding[E], k ui.KeyPress) Option[E] {
+	for b in bindings {
+		if b.Key == k.Name {
+			return Some[E]{Value: b.On}
+		}
+	}
+	None
+}
+
+// states reports whether a box states something ui can tell a reader: a role ui carries other
+// than generic, a name, or a state.
+func states(s part.Sem) bool {
+	let generic = match s.Role {
+	case part.Generic:
+		true
+	case _:
+		false
+	}
+	!generic || s.Name != "" || len(s.States) > 0
+}
+
+func disabled(ss []part.State) bool {
+	for s in ss {
+		match s {
+		case part.Disabled:
+			return true
+		case _:
+		}
+	}
+	false
+}
+
+// accessOf is a node's semantics as ui.Access: its role (generic for a role ui lacks), name and
+// the states ui carries; off adds Disabled.
+func accessOf(s part.Sem, role part.Role, off bool) ui.Access {
+	let mut a = ui.Access{..ui.Named(ui.Generic, s.Name), Disabled: off}
+	match a11y.UIRole(role) {
+	case Some as r:
+		a.Role = r.Value
+	case None:
+	}
+	match role {
+	case part.Heading as h:
+		a.Level = Some[int]{Value: h.Level}
+	case _:
+	}
+	for st in s.States {
+		match st {
+		case part.Disabled:
+			a.Disabled = true
+		case part.Busy:
+			a.Busy = true
+		case part.Invalid:
+			a.Invalid = true
+		case part.Checked as c:
+			match c.Value {
+			case part.On:
+				a.Checked = Some[bool]{Value: true}
+			case part.Off:
+				a.Checked = Some[bool]{Value: false}
+			case part.Mixed:
+			}
+		case part.Selected as x:
+			a.Selected = Some[bool]{Value: x.Yes}
+		case part.Expanded as x:
+			a.Expanded = Some[bool]{Value: x.Yes}
+		case part.Pressed as x:
+			a.Pressed = Some[bool]{Value: x.Yes}
+		case part.Current, part.Modal, part.MultiSelectable, part.Value:
+		}
+	}
+	for r in s.Rels {
+		match r {
+		case part.HasPopup:
+			a.HasPopup = true
+		case _:
+		}
+	}
+	a
+}

@@ -1,0 +1,7 @@
+// Reflexive: every int equals itself.
+law Reflexive(n int) { n == n }
+
+// Symmetric is the second law.
+law Symmetric(a int, b int) {
+	(a == b) == (b == a)
+}

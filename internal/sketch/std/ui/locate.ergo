@@ -1,4 +1,6 @@
+import actor
 import strings
+import time
 
 // Role is what a node is to an assistive technology and to a locator
 // (H4r): it comes from the node's kind alone, as an accessibility tree
@@ -6,7 +8,11 @@ import strings
 // Switch, an Input a TextBox, a Text Static, a Fieldset a Group, an Area
 // a Region, a Canvas an Image, a list of Rows a List, a live region
 // (Announce) a Status, and a Box, Row, Column, Scroll or Zone Generic.
-type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic
+// The other roles are the kit's (NS4): a Semantic node declares one,
+// with the ARIA states its control has. Radios and Select declare the
+// choice roles (choice.ergo): RadioGroup and Radio, ListBox and
+// ListOption.
+type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell | RadioGroup | Radio | ListBox | ListOption | Slider | SpinButton | SearchBox | MenuItemCheckbox | ComboBox | Grid | GridCell | ColumnHeader | RowHeader | Navigation | ListItem | Separator | Tooltip
 
 // Button is the role of a Pressable (and a Submit).
 type Button {}
@@ -41,27 +47,426 @@ type Status {}
 // Generic is the role of a layout container: Box, Row, Column, Scroll.
 type Generic {}
 
+// Tab is a tab of a tab list.
+type Tab {}
+
+// TabList is the list of a set of tabs.
+type TabList {}
+
+// TabPanel is the panel a tab shows.
+type TabPanel {}
+
+// Dialog is a dialog.
+type Dialog {}
+
+// Menu is a menu.
+type Menu {}
+
+// MenuItem is an item of a menu.
+type MenuItem {}
+
+// Tree is a tree view.
+type Tree {}
+
+// TreeItem is an item of a tree view.
+type TreeItem {}
+
+// Heading is a heading (its Level).
+type Heading {}
+
+// Alert is an urgent live region, as ARIA's "alert".
+type Alert {}
+
+// Link is a link.
+type Link {}
+
+// Table is a table.
+type Table {}
+
+// TableRow is a row of a table (named TableRow: Row is a container).
+type TableRow {}
+
+// TableCell is a cell of a table.
+type TableCell {}
+
+// RadioGroup is a group of radio buttons, one of them checked (Radios).
+type RadioGroup {}
+
+// Radio is a radio button of a RadioGroup: Checked says whether it is the
+// group's value.
+type Radio {}
+
+// ListBox is a list of options, one of them selected (Select): its Value
+// is the selected option's name, as a screen reader announces it.
+type ListBox {}
+
+// ListOption is an option of a ListBox (ARIA's "option"): Selected says
+// whether it is the list's value.
+type ListOption {}
+
+// Slider is a value in a range the user moves (its Range) (UG2).
+type Slider {}
+
+// SpinButton is a value in a range the user steps (its Range) (UG2).
+type SpinButton {}
+
+// SearchBox is a text box for a search (UG2).
+type SearchBox {}
+
+// MenuItemCheckbox is an item of a menu that is checked or not (UG2).
+type MenuItemCheckbox {}
+
+// ComboBox is a text box or button with a popup of options (UG2).
+type ComboBox {}
+
+// Grid is a table whose cells the keyboard moves through (UG2).
+type Grid {}
+
+// GridCell is a cell of a Grid (UG2).
+type GridCell {}
+
+// ColumnHeader is the header cell of a column (UG2).
+type ColumnHeader {}
+
+// RowHeader is the header cell of a row (UG2).
+type RowHeader {}
+
+// Navigation is a landmark of links that navigate (UG2).
+type Navigation {}
+
+// ListItem is an item of a List (UG2).
+type ListItem {}
+
+// Separator is a line between groups of content (UG2).
+type Separator {}
+
+// Tooltip is a popup that describes the node that shows it (UG2).
+type Tooltip {}
+
 // Access is a node as a locator and an assistive technology read it: its
 // role; its accessible name (the label its primitive was given, a Text's
 // value, an Input's placeholder; empty for a container); whether it is a
 // control (Button, Checkbox, Switch, TextBox) under a disabled Fieldset;
 // the description of the nearest Fieldset above it, or its own, that has
-// one; a Checkbox's or Switch's state; and a TextBox's value.
-type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string] }
+// one; a Checkbox's or Switch's state; and a TextBox's value. A Semantic
+// node declares the rest (NS4, after WAI-ARIA's states): whether it is
+// selected (a tab, a tree item), expanded (a menu, a tree item; None for
+// a node that does not expand) or pressed (a toggle button), invalid,
+// busy, whether it opens a popup, and a heading's level. UG2 adds, after
+// WAI-ARIA: Mixed (a checkbox neither checked nor unchecked,
+// aria-checked="mixed"), Current (which current item it is, as "page" or
+// "step", aria-current), Modal (a dialog that blocks the rest), and
+// MultiSelectable (a list or grid whose user chooses several), Range (a
+// slider's or spin button's value in its range); Key, the node's own key,
+// which other nodes' relations name, NoKey for none; and Rels, its
+// relations (relate.ergo).
+type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int], Mixed bool, Current Option[string], Modal bool, MultiSelectable bool, Range Option[Range], Key Key, Rels []Rel }
+
+// Named is the Access of a node of role named name, with no state (FK2-g1):
+// a container's declaration, written as one call; a view sets the states
+// its control has on the copy it gets.
+func Named(role Role, name string) Access {
+	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+}
 
 // Locator finds nodes on a screen, as Testing Library's queries do: by
 // role and name (an empty Name matches any), by the label a primitive
 // was given (a Pressable's, Check's, Toggle's, Area's, Canvas's or
 // list's), by an Input's placeholder, by a Text's value, or by a Zone's
-// key (H5g). Names match exactly.
-type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key}
+// key (H5g). Names match exactly. First{At} finds the first node At
+// finds, in tree order, or none: an act on a locator that finds more than
+// one node fails Ambiguous (NS7), and First says which one is meant.
+// Within{In, At} finds the nodes At finds that are under a node In finds,
+// in tree order (FK11-g6): a scene names a column by its heading's
+// region, then a card within it.
+type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string} | WithZone{Key Key} | First{At Locator} | Within{In Locator, At Locator}
+
+// LocatorAgreesWithAccessTree (H4r): on the mirror a host builds from the
+// patches of generated programs (with Fieldsets that disable and
+// describe what is under them) and one node of each other kind, each
+// role finds exactly the nodes of the model's accessibility tree with
+// that role, in tree order, each read as the model reads it; a drawn
+// node's role and name, label, placeholder and text find what the model
+// says; and the matchers agree with the model on the first match.
+law LocatorAgreesWithAccessTree(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for _ in 0..3 {
+		let s = genState(&r)
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
+			for p in ps {
+				render(g, p, st, 0) catch {
+				case Missing:
+					Unreachable("ui laws: a read is drawn only under a boundary")
+				case Pending:
+					Unreachable("ui laws: a read is drawn only under a boundary")
+				}
+			}
+			extras(g, st[0])
+		}, s)
+		Apply(&m, ops) catch {
+		case BadPatch:
+			return false
+		}
+		let mut shapes = models(ps, s, 0)
+		for x in extraShapes(s[0]) {
+			shapes = shapes.Append(x)
+		}
+		let want = accessModel(shapes, false, "")
+		let mut locs = []Locator{}
+		for role in extraRoles() {
+			locs = locs.Append(WithRole{Role: role, Name: ""})
+		}
+		let w = want[draw(&r, len(want))]
+		locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name})
+		locs = locs.Append(WithLabel{Label: w.a.Name})
+		locs = locs.Append(WithPlaceholder{Text: w.a.Name})
+		locs = locs.Append(WithText{Text: w.a.Name})
+		locs = locs.Append(WithLabel{Label: extraLabel(s[0]).Text})
+		locs = locs.Append(WithPlaceholder{Text: "ph\(s[0] % 2)"})
+		for loc in locs {
+			let mut model = []seen{}
+			for x in want {
+				if wants(loc, x) {
+					model = model.Append(x)
+				}
+			}
+			let got = LocateIn(&m, loc)
+			if len(got) != len(model) {
+				return false
+			}
+			for i, id in got {
+				if AccessOf(&m, id) != model[i].a {
+					return false
+				}
+			}
+			if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) {
+				return false
+			}
+			if len(model) > 0 {
+				let x = model[0]
+				let checked = x.a.Checked == (Some{Value: true})
+				let unchecked = x.a.Checked == (Some{Value: false})
+				if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked || matches(&m, loc, ToBeInvalid) != x.a.Invalid {
+					return false
+				}
+				if !matches(&m, loc, ToHaveDescription{Text: x.a.Description}) || matches(&m, loc, ToHaveDescription{Text: x.a.Description + "!"}) {
+					return false
+				}
+				if !matches(&m, loc, ToContainText{Text: x.text}) || !matches(&m, loc, ToContainText{Text: ""}) || matches(&m, loc, ToContainText{Text: x.text + "!"}) {
+					return false
+				}
+				match x.a.Value {
+				case Some[string] as v:
+					if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) {
+						return false
+					}
+				case None:
+					if matches(&m, loc, ToHaveValue{Value: ""}) {
+						return false
+					}
+				}
+			}
+		}
+	}
+	true
+}
+
+// seen is one node of a model screen as a locator reads it: its node,
+// its access and its text content.
+type seen { node Node[int], a Access, text string }
+
+// accessModel is shapes in tree order as an accessibility tree reads
+// them, written from the shapes alone: a node's role and name from its
+// kind and label, disabled for a control under a disabled Fieldset, the
+// description of the nearest Fieldset (itself included) that has one.
+func accessModel(shapes []Shape[int], off bool, desc string) []seen {
+	let mut out = []seen{}
+	for sh in shapes {
+		let mut o = off
+		let mut d = desc
+		match sh.Node {
+		case FieldsetNode as x:
+			o = off || x.Disabled
+			if x.Description != "" {
+				d = x.Description
+			}
+		case _:
+		}
+		out = out.Append(seen{node: sh.Node, a: readAs(sh.Node, o, d), text: textOf(sh)})
+		for x in accessModel(sh.Kids, o, d) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func readAs(n Node[int], off bool, desc string) Access {
+	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	match n {
+	case PressableNode[int] as x:
+		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case CheckNode[int] as x:
+		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case ToggleNode as x:
+		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case InputNode as x:
+		// A label names the field, a placeholder only an unlabelled one;
+		// its own description wins over the Fieldset's.
+		let mut name = x.Label
+		if name == "" {
+			name = x.Placeholder
+		}
+		let mut d = desc
+		if x.Description != "" {
+			d = x.Description
+		}
+		Access{Role: TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case TextNode as x:
+		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case FieldsetNode:
+		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case AreaNode as x:
+		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case CanvasNode as x:
+		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case SemanticNode[int] as x:
+		let mut a = x.Access
+		a.Disabled = x.Access.Disabled || off
+		if x.Access.Description == "" {
+			a.Description = desc
+		}
+		a
+	case RowsNode as x:
+		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case _:
+		base
+	}
+}
+
+func textOf(sh Shape[int]) string {
+	let mut out = ""
+	match sh.Node {
+	case TextNode as t:
+		out = t.Value
+	case _:
+	}
+	for k in sh.Kids {
+		out = out + textOf(k)
+	}
+	out
+}
+
+// wants is whether the model says loc finds x: a role and a name (any
+// name for an empty one); a label, the name of a node whose primitive
+// takes one; a placeholder, a TextBox's name; a text, a Static's name.
+func wants(loc Locator, x seen) bool {
+	match loc {
+	case WithRole as l:
+		x.a.Role == l.Role && (l.Name == "" || x.a.Name == l.Name)
+	case WithLabel as l:
+		let labelled = x.a.Role == Button || x.a.Role == Checkbox || x.a.Role == Switch || x.a.Role == Region || x.a.Role == Image || x.a.Role == List
+		match x.node {
+		case InputNode as i:
+			i.Label != "" && i.Label == l.Label
+		case SemanticNode[int] as s:
+			s.Access.Name == l.Label
+		case _:
+			labelled && x.a.Name == l.Label
+		}
+	case WithPlaceholder as l:
+		match x.node {
+		case InputNode as i:
+			i.Placeholder == l.Text
+		case _:
+			false
+		}
+	case WithText as l:
+		x.a.Role == Static && x.a.Name == l.Text
+	case WithZone:
+		// The generated programs write no zone.
+		false
+	case First as l:
+		// LocateIn takes the first of what l.At finds.
+		wants(l.At, x)
+	case Within:
+		// The generated programs write no Within.
+		false
+	}
+}
+
+func matches(m mut Mirror[int], loc Locator, is Matcher) bool {
+	ExpectIn(m, loc, is) catch {
+	case Mismatch:
+		return false
+	}
+	true
+}
+
+// extras writes, after a generated program, one node of each kind the
+// generator does not draw: a Toggle, an Area, a Canvas, a list and a
+// labelled Input (FK3-g5, FK5-g3), with labels, a description and an
+// invalid state read from the state, inside a disabled Fieldset for an
+// odd state value.
+func extras(f mut Frame[int], v int) {
+	Fieldset(f, v%2 == 1, "x\(v)") {
+		let on = NewFlag(f, true)
+		Toggle(f, on, "tg\(v % 3)")
+		LabelledInput(f, extraLabel(v), "val", "ph\(v % 2)", func(t string) int { len(t) })
+		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) Option[int] { None }) {
+			Text(f, "in area")
+		}
+		Canvas(f, "c\(v % 4)", 4, 4) func(p mut Paint) {}
+		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
+		Semantic(f, extraSem(v), None, Plain()) {
+			Text(f, "in sem")
+		}
+	}
+}
+
+// extraLabel is the label of extras' Input: none, with or without a
+// description of its own, invalid or not, as v draws it.
+func extraLabel(v int) FieldLabel {
+	let mut l = FieldLabel{Text: "lab\(v % 3)", Description: "", Invalid: v%3 == 0}
+	if v%4 == 0 {
+		l.Text = ""
+	}
+	if v%5 < 2 {
+		l.Description = "own\(v % 2)"
+	}
+	l
+}
+
+// extraRoles is every role (UG2).
+func extraRoles() []Role {
+	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption, Slider, SpinButton, SearchBox, MenuItemCheckbox, ComboBox, Grid, GridCell, ColumnHeader, RowHeader, Navigation, ListItem, Separator, Tooltip}
+}
+
+// extraSem is extras' Semantic: a role, name, state, key and relation v
+// draws (UG2).
+func extraSem(v int) Access {
+	let roles = extraRoles()
+	let mut a = Named(roles[v%len(roles)], "sem\(v % 3)")
+	a.Selected = Some{Value: v%2 == 0}
+	a.Key = ByInt(v % 3)
+	a.Rels = []Rel{Controls{To: ByInt(v % 2)}}
+	a
+}
+
+func extraShapes(v int) []Shape[int] {
+	let l = extraLabel(v)
+	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid, Hints: PlainHints, Lines: 1, Caret: len("val"), Anchor: len("val")}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), Shape[int]{Node: SemanticNode{Access: extraSem(v), On: None, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in sem", Style: Plain()})}}}
+	[]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
+}
 
 // Matcher is what a scene expects of a locator's nodes, after
 // Playwright's and Testing Library's matchers: that some node matches,
 // that none does, how many do, and of the first match: enabled or
 // disabled, checked or not, its value, the text it contains (the values
 // of the Texts in its subtree, in order) and its description.
-type Matcher = ToExist | ToBeAbsent | ToHaveCount{Count int} | ToBeEnabled | ToBeDisabled | ToBeChecked | ToBeUnchecked | ToHaveValue{Value string} | ToContainText{Text string} | ToHaveDescription{Text string}
+type Matcher = ToExist | ToBeAbsent | ToHaveCount{Count int} | ToBeEnabled | ToBeDisabled | ToBeChecked | ToBeUnchecked | ToHaveValue{Value string} | ToContainText{Text string} | ToHaveDescription{Text string} | ToBeSelected | ToBeExpanded | ToBeCollapsed | ToBeInvalid
 
 // ToExist expects a match.
 type ToExist {}
@@ -83,34 +488,85 @@ type ToBeChecked {}
 // off Switch.
 type ToBeUnchecked {}
 
+// ToBeSelected expects the first match to be selected.
+type ToBeSelected {}
+
+// ToBeExpanded expects the first match to be expanded.
+type ToBeExpanded {}
+
+// ToBeCollapsed expects the first match to expand and not be expanded.
+type ToBeCollapsed {}
+
+// ToBeInvalid expects the first match to be invalid.
+type ToBeInvalid {}
+
 // Mismatch is the failure of a scene's expectation: what the locator and
 // the matcher said, and what the screen held.
 type Mismatch { Want string, Got string }
 
 // LocateIn is the nodes of m that loc finds, in tree order. The root is
 // the host's, not the view's, and is never found.
-func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
-	locateUnder(m, m.root, loc, false, "", []Id[E]{})
-}
-
-func locateUnder[E](m *Mirror[E], id Id[E], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
-	let mut out = acc
-	match m.nodes.Get(id) {
-	case Some[mirrored[E]] as n:
-		for k in n.Value.kids {
-			match m.nodes.Get(k) {
-			case Some[mirrored[E]] as c:
-				let (o, d) = within(c.Value.node, off, desc)
-				if finds(loc, c.Value.node, access(c.Value.node, o, d)) {
-					out = out.Append(k)
-				}
-				out = locateUnder[E](m, k, loc, o, d, out)
-			case None:
+func LocateIn[E](m mut Mirror[E], loc Locator) []Id[E] {
+	match loc {
+	case First as x:
+		let all = LocateIn[E](m, x.At)
+		if len(all) == 0 {
+			return all
+		}
+		return []Id[E]{all[0]}
+	case Within as x:
+		let mut outer = Map[Id[E], bool]{}
+		for o in LocateIn[E](m, x.In) {
+			outer[o] = true
+		}
+		let mut out = []Id[E]{}
+		for id in LocateIn[E](m, x.At) {
+			if under(m, id, outer) {
+				out = out.Append(id)
 			}
 		}
-	case None:
+		return out
+	case _:
 	}
-	out
+	match entryOf(m, m.root) {
+	case Some[mirrored[E]] as r:
+		locateFrom(m, r.Value.first, loc, false, "", []Id[E]{})
+	case None:
+		[]Id[E]{}
+	}
+}
+
+// under is whether a node above id, below the root, is in outer.
+func under[E](m mut Mirror[E], id Id[E], outer Map[Id[E], bool]) bool {
+	let mut at = entry(m, refOf(m, id)).parent
+	for at != m.root {
+		if outer.Get(at) != None {
+			return true
+		}
+		at = entry(m, refOf(m, at)).parent
+	}
+	false
+}
+
+// locateFrom walks the siblings from at and their subtrees, in tree
+// order, reading each node once (MirrorReads).
+func locateFrom[E](m mut Mirror[E], at Option[Id[E]], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
+	let mut out = acc
+	let mut c = at
+	for {
+		match c {
+		case Some[Id[E]] as x:
+			let e = entry(m, refOf(m, x.Value))
+			let (o, d) = within(e.node, off, desc)
+			if finds(loc, e.node, access(e.node, o, d)) {
+				out = out.Append(x.Value)
+			}
+			out = locateFrom[E](m, e.first, loc, o, d, out)
+			c = e.next
+		case None:
+			return out
+		}
+	}
 }
 
 // within is the disabled state and description a node passes to the
@@ -130,13 +586,13 @@ func within[E](n Node[E], off bool, desc string) (bool, string) {
 
 // AccessOf is the node id names on m as a locator reads it; a Generic
 // with no name for an Id m does not hold.
-func AccessOf[E](m *Mirror[E], id Id[E]) Access {
+func AccessOf[E](m mut Mirror[E], id Id[E]) Access {
 	let mut off = false
 	let mut desc = ""
 	let mut path = []Node[E]{}
 	let mut at = id
 	for at != m.root {
-		match m.nodes.Get(at) {
+		match entryOf(m, at) {
 		case Some[mirrored[E]] as n:
 			path = path.Append(n.Value.node)
 			at = n.Value.parent
@@ -158,7 +614,7 @@ func AccessOf[E](m *Mirror[E], id Id[E]) Access {
 // access is n as a locator reads it, under a disabled Fieldset when off,
 // with the description desc.
 func access[E](n Node[E], off bool, desc string) Access {
-	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	match n {
 	case PressableNode[E] as x:
 		a.Role = Button
@@ -176,9 +632,13 @@ func access[E](n Node[E], off bool, desc string) Access {
 		a.Checked = Some{Value: x.On}
 	case InputNode as x:
 		a.Role = TextBox
-		a.Name = x.Placeholder
+		a.Name = fieldName(x)
 		a.Disabled = off
 		a.Value = Some{Value: x.Value}
+		if x.Description != "" {
+			a.Description = x.Description
+		}
+		a.Invalid = x.Invalid
 	case TextNode as x:
 		a.Role = Static
 		a.Name = x.Value
@@ -196,9 +656,32 @@ func access[E](n Node[E], off bool, desc string) Access {
 	case LiveNode as x:
 		a.Role = Status
 		a.Name = x.Text
+	case SemanticNode[E] as x:
+		a = declared(x.Access, off, desc)
 	case _:
 	}
 	a
+}
+
+// fieldName is an Input's accessible name: its label, or its placeholder
+// when it has none.
+func fieldName(x InputNode) string {
+	if x.Label != "" {
+		return x.Label
+	}
+	x.Placeholder
+}
+
+// declared is what a Semantic node declared, disabled also under a
+// disabled Fieldset, and with the Fieldset's description when it has
+// none of its own.
+func declared(a Access, off bool, desc string) Access {
+	let mut d = a
+	d.Disabled = a.Disabled || off
+	if a.Description == "" {
+		d.Description = desc
+	}
+	d
 }
 
 // finds is whether loc finds a node n, read as a.
@@ -220,6 +703,10 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 			c.Label == x.Label
 		case RowsNode as l:
 			l.Label == x.Label
+		case SemanticNode[E] as s:
+			s.Access.Name == x.Label
+		case InputNode as i:
+			i.Label != "" && i.Label == x.Label
 		case _:
 			false
 		}
@@ -244,13 +731,19 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 		case _:
 			false
 		}
+	case First as x:
+		// LocateIn takes the first; a node it finds is one At finds.
+		finds[E](x.At, n, a)
+	case Within as x:
+		// LocateIn keeps those under In; a node it finds is one At finds.
+		finds[E](x.At, n, a)
 	}
 }
 
 // TextIn is the values of the Texts in the subtree of id on m (id's own
 // included), in tree order, run together: a node's text content.
-func TextIn[E](m *Mirror[E], id Id[E]) string {
-	match m.nodes.Get(id) {
+func TextIn[E](m mut Mirror[E], id Id[E]) string {
+	match entryOf(m, id) {
 	case Some[mirrored[E]] as n:
 		let mut out = ""
 		match n.Value.node {
@@ -258,7 +751,7 @@ func TextIn[E](m *Mirror[E], id Id[E]) string {
 			out = t.Value
 		case _:
 		}
-		for k in n.Value.kids {
+		for k in childIds(m, n.Value) {
 			out = out + TextIn[E](m, k)
 		}
 		out
@@ -269,7 +762,7 @@ func TextIn[E](m *Mirror[E], id Id[E]) string {
 
 // ExpectIn checks is against what loc finds on m, failing Mismatch with
 // both sides.
-func ExpectIn[E](m *Mirror[E], loc Locator, is Matcher) fails Mismatch {
+func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	let ids = LocateIn(m, loc)
 	let want = locatorText(loc) + " " + matcherText(is)
 	match is {
@@ -324,6 +817,18 @@ func ExpectIn[E](m *Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	case ToHaveDescription as d:
 		ok = a.Description == d.Text
 		got = "description \"\(a.Description)\""
+	case ToBeSelected:
+		ok = a.Selected == (Some{Value: true})
+		got = "not selected"
+	case ToBeExpanded:
+		ok = a.Expanded == (Some{Value: true})
+		got = "not expanded"
+	case ToBeCollapsed:
+		ok = a.Expanded == (Some{Value: false})
+		got = "not collapsed"
+	case ToBeInvalid:
+		ok = a.Invalid
+		got = "valid"
 	case _:
 	}
 	if !ok {
@@ -343,6 +848,10 @@ func locatorText(loc Locator) string {
 		"text \"\(x.Text)\""
 	case WithZone as x:
 		"zone \(keyText(x.Key))"
+	case First as x:
+		"first \(locatorText(x.At))"
+	case Within as x:
+		"\(locatorText(x.At)) within \(locatorText(x.In))"
 	}
 }
 
@@ -357,6 +866,11 @@ func keyText(k Key) string {
 		"none"
 	}
 }
+
+// RoleName is a role's WAI-ARIA name ("tab", "menuitemcheckbox"; a
+// Static is "static", a TableRow "row", a ListOption "option"), as a
+// host's accessibility tree names it (UG2).
+func RoleName(r Role) string { roleText(r) }
 
 func roleText(r Role) string {
 	match r {
@@ -382,6 +896,68 @@ func roleText(r Role) string {
 		"status"
 	case Generic:
 		"generic"
+	case Tab:
+		"tab"
+	case TabList:
+		"tablist"
+	case TabPanel:
+		"tabpanel"
+	case Dialog:
+		"dialog"
+	case Menu:
+		"menu"
+	case MenuItem:
+		"menuitem"
+	case Tree:
+		"tree"
+	case TreeItem:
+		"treeitem"
+	case Heading:
+		"heading"
+	case Alert:
+		"alert"
+	case Link:
+		"link"
+	case Table:
+		"table"
+	case TableRow:
+		"row"
+	case TableCell:
+		"cell"
+	case RadioGroup:
+		"radiogroup"
+	case Radio:
+		"radio"
+	case ListBox:
+		"listbox"
+	case ListOption:
+		"option"
+	case Slider:
+		"slider"
+	case SpinButton:
+		"spinbutton"
+	case SearchBox:
+		"searchbox"
+	case MenuItemCheckbox:
+		"menuitemcheckbox"
+	case ComboBox:
+		"combobox"
+	case Grid:
+		"grid"
+	case GridCell:
+		"gridcell"
+	case ColumnHeader:
+		"columnheader"
+	case RowHeader:
+		"rowheader"
+	case Navigation:
+		"navigation"
+	case ListItem:
+		"listitem"
+	case Separator:
+		"separator"
+	case Tooltip:
+		"tooltip"
 	}
 }
 
@@ -407,5 +983,267 @@ func matcherText(is Matcher) string {
 		"to contain text \"\(t.Text)\""
 	case ToHaveDescription as d:
 		"to have description \"\(d.Text)\""
+	case ToBeSelected:
+		"to be selected"
+	case ToBeExpanded:
+		"to be expanded"
+	case ToBeCollapsed:
+		"to be collapsed"
+	case ToBeInvalid:
+		"to be invalid"
+	}
+}
+
+// semRoles is every role a Semantic may declare. (a law's helper)
+func semRoles() []Role {
+	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption, Slider, SpinButton, SearchBox, MenuItemCheckbox, ComboBox, Grid, GridCell, ColumnHeader, RowHeader, Navigation, ListItem, Separator, Tooltip}
+}
+
+// semMaybe is a drawn Option[bool]. (a law's helper)
+func semMaybe(r mut rng) Option[bool] {
+	let k = draw(r, 3)
+	if k == 0 {
+		return None
+	}
+	Some{Value: k == 1}
+}
+
+// semDecls is n drawn declarations, named "n0" to "n<n-1>", from seed.
+// (a law's helper)
+func semDecls(seed int, n int) []Access {
+	let mut r = seeded(seed)
+	let roles = semRoles()
+	let mut out = []Access{}
+	for i in 0..n {
+		let mut level Option[int] = None
+		if draw(&r, 2) == 0 {
+			level = Some{Value: draw(&r, 6) + 1}
+		}
+		let mut value Option[string] = None
+		if draw(&r, 2) == 0 {
+			value = Some{Value: "v\(draw(&r, 9))"}
+		}
+		let mut desc = ""
+		if draw(&r, 2) == 0 {
+			desc = "d\(draw(&r, 9))"
+		}
+		let mut d = Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		d.Mixed = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Current = Some{Value: "page"}
+		}
+		d.Modal = draw(&r, 4) == 0
+		d.MultiSelectable = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Range = Some{Value: Range{Now: float64(draw(&r, 10)), Min: 0, Max: 10}}
+		}
+		if draw(&r, 2) == 0 {
+			d.Key = ByInt(i)
+		}
+		for _ in 0..draw(&r, 3) {
+			d.Rels = d.Rels.Append(drawRel(&r, n))
+		}
+		out = out.Append(d)
+	}
+	out
+}
+
+// semHolds is whether the node named name holds is. (a law's helper)
+func semHolds[D, F](h mut TestHost[int, int, D, F], name string, is Matcher) bool {
+	Expect(h, WithLabel{Label: name}, is) catch {
+	case Mismatch:
+		return false
+	}
+	true
+}
+
+// semStep enters the drawn screen e. (a law's helper)
+func semStep(s int, e int) Decision[int, int] {
+	Enter[int]{Next: e}
+}
+
+// semTimer is the law's timer: none. (a law's helper)
+func semTimer(s int) Option[Timeout[int]] {
+	None
+}
+
+// semWork is the law's work: none. (a law's helper)
+func semWork(s int) Option[func(send func(e int))] {
+	None
+}
+
+// AccessIsWhatWasDeclared (NS4): over drawn declarations of every role
+// and state, some under a disabled Fieldset with a description, the test
+// host's AccessAt of each Semantic node is what it declared, disabled
+// also under the Fieldset and with the Fieldset's description when it has
+// none, and the matchers ToBeSelected, ToBeExpanded, ToBeCollapsed and
+// ToBeInvalid say what it declared; a press on an enabled one sends its signal and on a disabled one
+// nothing; and after the press the screen's new declarations (Set ops of
+// the same nodes) read back as declared again.
+law AccessIsWhatWasDeclared(seed int, count int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = (count%6+6)%6 + 2
+		let view = func(f mut Frame[int], s int) {
+			let ds = semDecls(seed+s*7919, n)
+			Column(f, Plain()) {
+				for i, d in ds {
+					if i%2 == 0 {
+						Semantic(f, d, Some{Value: i + 1}, Plain()) {
+							Text(f, "t\(i)")
+						}
+					} else {
+						Fieldset(f, true, "fs") {
+							Semantic(f, d, Some{Value: i + 1}, Plain()) {
+								Text(f, "t\(i)")
+							}
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for s in 0..2 {
+			let ds = semDecls(seed+StateOf(&h)*7919, n)
+			for i, d in ds {
+				let ids = Locate(&h, WithLabel{Label: d.Name})
+				if len(ids) != 1 {
+					return false
+				}
+				let mut want = d
+				if i%2 == 1 {
+					want.Disabled = true
+					if d.Description == "" {
+						want.Description = "fs"
+					}
+				}
+				if AccessAt(&h, ids[0]) != want {
+					return false
+				}
+				// The matchers of the new states read the same record.
+				if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid {
+					return false
+				}
+			}
+			if s == 0 {
+				// A press on the first: the signal when it is enabled.
+				let first = Locate(&h, WithLabel{Label: "n0"})
+				Tap(&h, first[0]) catch {
+				case _:
+					return false
+				}
+				Settle(&h) catch {
+				case _:
+					return false
+				}
+				if ds[0].Disabled != (StateOf(&h) == 0) {
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
+// withinLabel is the card label of slot j: two of the four labels, so
+// cards of one column and of two columns share them. (a law's helper)
+func withinLabel(j int) string {
+	"card \(j % 2)"
+}
+
+// WithinFindsUnder (FK11-g6): over drawn boards of 1 to 4 columns, each a
+// Region named "col i" holding a Heading and 0 to 4 cards (half of them in
+// a Box, a level below), whose labels repeat within and across columns,
+// Within{In: the column, At: a button} finds exactly that column's cards
+// in tree order, Within a name no column has finds none, no column is
+// within a column, a nested Within
+// finds what the inner one does, and a ClickOn of First within a column
+// presses that column's first card of that label.
+law WithinFindsUnder(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let mut board = [][]int{}
+		for _ in 0..draw(&r, 4)+1 {
+			let mut col = []int{}
+			for _ in 0..draw(&r, 5) {
+				col = col.Append(draw(&r, 8))
+			}
+			board = board.Append(col)
+		}
+		let none Option[int] = None
+		let decl = func(role Role, name string, level Option[int]) Access {
+			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		}
+		let view = func(f mut Frame[int], s int) {
+			Column(f, Plain()) {
+				for i, col in board {
+					Semantic(f, decl(Region, "col \(i)", None), none, Plain()) {
+						Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) {
+							Text(f, "col \(i)")
+						}
+						for j, c in col {
+							if c%2 == 0 {
+								Pressable(f, withinLabel(c/2), 100*i+j) {
+									Text(f, "x")
+								}
+							} else {
+								Box(f, Plain()) {
+									Pressable(f, withinLabel(c/2), 100*i+j) {
+										Text(f, "x")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for i, col in board {
+			let column = WithRole{Role: Region, Name: "col \(i)"}
+			let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}})
+			if len(found) != len(col) {
+				return false
+			}
+			for j, c in col {
+				if AccessAt(&h, found[j]).Name != withinLabel(c/2) {
+					return false
+				}
+			}
+			let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}})
+			if nested != found {
+				return false
+			}
+			for j, c in col {
+				let label = withinLabel(c / 2)
+				let mut first = j
+				for k in 0..j {
+					if withinLabel(col[k]/2) == label && first == j {
+						first = k
+					}
+				}
+				if first == j {
+					Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch {
+					case _:
+						return false
+					}
+					if StateOf(&h) != 100*i+j {
+						return false
+					}
+				}
+			}
+		}
+		// A column is not within itself, nor within another: none nests.
+		let regions = WithRole{Role: Region, Name: ""}
+		len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0
 	}
 }

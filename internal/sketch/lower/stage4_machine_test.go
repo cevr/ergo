@@ -264,8 +264,8 @@ func TestMachinePlanValues(t *testing.T) {
 	var driver strings.Builder
 	// The driver's Scheduler is its own Go provider, so a step with a
 	// needs row runs with the environment the driver builds.
-	driver.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"reflect\"\n\t\"testing\"\n\t\"time\"\n\n\trt \"ergo.local/prototype/runtime/rt\"\n)\n\n")
-	driver.WriteString("type driverScheduler struct{ sleeps *int }\n\nfunc (d driverScheduler) Sleep(*rt.Task, time.Duration) { *d.sleeps++ }\n\n")
+	driver.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"reflect\"\n\t\"testing\"\n\t\"time\"\n\n\trt \"ergo.local/prototype/runtime/rt\"\n\tergo \"ergo.local/prototype/runtime/v1\"\n)\n\n")
+	driver.WriteString("type driverScheduler struct{ sleeps *int }\n\nfunc (d driverScheduler) Sleep(*rt.Task, time.Duration) { *d.sleeps++ }\n\nfunc (driverScheduler) Alarms(*rt.Task) *ergo.AlarmClock { return ergo.HostAlarms() }\n\n")
 	driver.WriteString("func TestPlans(t *testing.T) {\n\tsleeps := 0\n\t_, err := rt.Run(rt.Root(\"plans\"), func(task *rt.Task) (struct{}, error) {\n\t\tenv := &Env{task: task, Scheduler: driverScheduler{&sleeps}}\n\t\tergoInit(env)\n")
 	driver.WriteString("\t\tvar g G\n\t\tif _, ok := g.Initial().(Hole); !ok {\n\t\t\tt.Errorf(\"G starts at %T\", g.Initial())\n\t\t}\n\t\tif full, ok := g.Step(g.Initial(), Put{}).(Enter[Slot[int]]); !ok || full.Next != (Full[int]{V: 7}) {\n\t\t\tt.Errorf(\"G.Step(Hole, Put) is %v\", g.Step(g.Initial(), Put{}))\n\t\t}\n")
 	driver.WriteString("\t\tif u, ok := (Unused{}).Initial().(Full[int]); !ok || u.V != 1 {\n\t\t\tt.Errorf(\"Unused starts at %v\", (Unused{}).Initial())\n\t\t}\n")

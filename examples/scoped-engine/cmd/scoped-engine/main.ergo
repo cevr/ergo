@@ -1,0 +1,43 @@
+// scoped-engine is a scoped-resource program (stage
+// b: the view on std ui's test host): a compute engine that exists only
+// while the screen says so. It runs a script of timed presses on a manual
+// clock, clicks each press's button on the screen, and shows the screen
+// after each one, with the engines out. Package engine is the panel, a
+// machine whose Booting entry owns the engine's lease; package screen is
+// the view; package memory is the pool of engines; package script reads
+// the script and plays it. This binary is the only place that chooses the
+// clock (a time.Manual, so a script of minutes takes no wall time) and
+// the pool of engines on it. With
+// -stats it also prints the work of each press.
+
+import scopedengine/engine
+import scopedengine/memory
+import scopedengine/script
+import flag
+import io
+import os
+import time
+
+let statsFlag = flag.Bool("stats", false, "print the work of each press (ui.Counts)")
+
+let set = flag.Set{Name: "scoped-engine", Usage: "", Flags: []flag.Flag{statsFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: scoped-engine [-stats] < script"
+
+func main() fails os.Exit needs Console | Ambient {
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	let clock = time.NewManual(0)
+	let pool = memory.OnClock(clock, script.BootTakes())
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock, engine.Engines: pool } { script.Run(clock, pool, statsFlag.Get(v)) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "scoped-engine: the script did not run"}
+	}
+}

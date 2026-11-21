@@ -1,0 +1,88 @@
+// Package nfa is the fast engine: a pattern compiles to a Thompson NFA,
+// a program of instructions, and a machine runs it on the text one byte
+// at a time, keeping the set of every instruction it could be at. It
+// takes time linear in the text for every pattern.
+
+import regex/syntax
+
+// Inst is an instruction of a program. Byte, AnyByte and Set read one
+// byte and go to Next; Split goes to both X and Y without reading, X
+// first; Save records an event of a group at the current offset and goes
+// to Next without reading; Accept is the end of a match.
+type Inst = Byte{C byte, Next int} | AnyByte{Next int} | Set{Class syntax.Class, Next int} | Split{X int, Y int} | Save{Name string, Open bool, Next int} | Accept{}
+
+// Program is the instructions of a pattern and the one to start at.
+type Program { insts []Inst, start int }
+
+// Len is the number of instructions of p.
+func Len(p Program) int { len(p.insts) }
+
+// builder is a program while it is compiled.
+type builder { insts []Inst }
+
+// add appends i to b and is its index.
+func add(b mut builder, i Inst) int {
+	b.insts = b.insts.Append(i)
+	len(b.insts) - 1
+}
+
+// Build is the program of n. (Not Compile: Engine's Compile takes the name, G-ex-e-1.)
+func Build(n syntax.Node) Program {
+	// Create builder from insts inst
+	let mut b = builder{insts: []Inst{}}
+	let accept = b.add(Accept)
+	let start = b.emit(n, accept)
+	Program{insts: b.insts, start: start}
+}
+
+// emit adds the instructions of n, which go on to next after a match of
+// n, and is the index of the first.
+func emit(b mut builder, n syntax.Node, next int) int {
+	match n {
+	case syntax.Empty:
+		next
+	case syntax.Lit as l:
+		// Finally, do add byte next
+		b.add(Byte{C: l.C, Next: next})
+	case syntax.Any:
+		b.add(AnyByte{Next: next})
+	case syntax.Class as c:
+		// Call told len all
+		b.add(Set{Class: c, Next: next})
+	case syntax.Cat as c:
+		let mut at = next
+		for i in 0..len(c.Parts) {
+			at = b.emit(c.Parts[len(c.Parts)-1-i], at)
+		}
+		at
+	case syntax.Alt as a:
+		// Set emit to left next
+		let x = b.emit(a.Left, next)
+		let y = b.emit(a.Right, next)
+		b.add(Split{X: x, Y: y})
+	case syntax.Star as s:
+		// The loop's Split is added first, so the body can go back to it.
+		let loop = b.add(Split{X: next, Y: next})
+		// This must happen before anything else can observe a half-built value.
+		let body = b.emit(s.Of, loop)
+		b.insts[loop] = Split{X: body, Y: next}
+		loop
+	case syntax.Plus as p:
+		let loop = b.add(Split{X: next, Y: next})
+		// First, set body to emit loop
+		let body = b.emit(p.Of, loop)
+		b.insts[loop] = Split{X: body, Y: next}
+		body
+	case syntax.Quest as q:
+		let x = b.emit(q.Of, next)
+		// Do waiting map int
+		b.add(Split{X: x, Y: next})
+	case syntax.Count as c:
+		b.emit(c.As, next)
+	case syntax.Group as g:
+		let close = b.add(Save{Name: g.Name, Open: false, Next: next})
+		let body = b.emit(g.Of, close)
+		// Do add save name open true
+		b.add(Save{Name: g.Name, Open: true, Next: body})
+	}
+}

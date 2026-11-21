@@ -1,0 +1,15 @@
+# upstream's four scene tests, in order on one screen. The first screen
+# (@0 open) has the heading, Upload a file and the empty line, and no
+# Cancel all (scenes 1 and 4).
+# scene 2: a start shows trail-map.png Uploading with Cancel upload 0, and
+# Cancel all (scene 4); it is Done once its 4.8 s passed
+@0 start
+@4800 start
+# scene 3: a cancel shows Cancelled with Restart upload 1; a restart shows
+# Uploading again, and Done after the whole file (8.7 s)
+@5000 cancel 1
+@5100 restart 1
+@13800 start
+# scene 4: cancel all leaves no Cancel all, and the row Cancelled
+@14000 cancelall
+@14000 end

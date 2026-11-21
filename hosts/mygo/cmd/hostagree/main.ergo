@@ -5,7 +5,7 @@
 // WithTestHost writes the scripts.
 //
 // Standard input: the app's name on the first line (counter, shelf, form,
-// load, pad, list or sketch), then one step a line:
+// load, pad, list, sketch, looks, roles, states or layers), then one step a line:
 //
 //	tap LABEL         press and release the node labelled LABEL
 //	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
@@ -19,11 +19,15 @@
 //	settle            settle the loads
 //	work              print "work N": the boxes the driver's last paint
 //	                  laid out (desktop.LaidOut)
+//	drawn             print "drawn N": the nodes the driver's last paint
+//	                  drew anew (desktop.Drawn)
 //
 // The driver checks its kept layout against the tree built anew at every
-// paint (desktop.Check); a box where they differ is a differing step.
+// paint, and its damage paint against the full one (desktop.Check); a box
+// or a paint where they differ is a differing step.
 //
-// Output: "ok N" or "differ N: …" per step (or "work N"), then "end".
+// Output: "ok N" or "differ N: …" per step (or "work N", "drawn N"),
+// then "end".
 
 import io
 import slices
@@ -54,6 +58,14 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
 		case "sketch":
 			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
+		case "looks":
+			agree(looksMachine(), looksView, func(a looksApp, b looksApp) bool { a == b }, steps)
+		case "roles":
+			agree(rolesMachine(), rolesView, func(a int, b int) bool { a == b }, steps)
+		case "states":
+			agree(statesMachine(), statesView, func(a statesApp, b statesApp) bool { a == b }, steps)
+		case "layers":
+			agree(layersMachine(), layersView, func(a layersApp, b layersApp) bool { a == b }, steps)
 		case _:
 			Console.Println("differ 0: no app \(lines[0])")
 		}

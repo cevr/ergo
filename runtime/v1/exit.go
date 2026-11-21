@@ -98,15 +98,25 @@ func capture(t *rt.Task, p any) error {
 // the recover, while the panicking frame is still on the stack. With t
 // bound, it is the classify of rt.Release, which adds t's chain.
 func classify(t *rt.Task, p any) (defect any, carried error) {
-	switch e := p.(type) {
-	case *exit:
-		return nil, e.err
-	case error:
-		if e == rt.Interrupted {
-			return nil, rt.Interrupted
-		}
+	if err, ok := carriedExit(p); ok {
+		return nil, err
 	}
 	return defectOf(t, p), nil
+}
+
+// carriedExit reports whether p, a recovered panic, carries an exit (a
+// carried exit or an interruption), and which: classify's sort without the
+// fresh defect's record, so a frame that only sorts (FuseOr) takes no stack.
+func carriedExit(p any) (error, bool) {
+	switch e := p.(type) {
+	case *exit:
+		return e.err, true
+	case error:
+		if e == rt.Interrupted {
+			return rt.Interrupted, true
+		}
+	}
+	return nil, false
 }
 
 // join combines two exits, a's reasons first; nothing is dropped.

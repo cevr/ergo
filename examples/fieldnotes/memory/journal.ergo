@@ -1,0 +1,41 @@
+// Package memory holds a journal in memory: the provider cmd/fieldnotes
+// binds once the content is read, and the one the site's laws run over.
+
+import fieldnotes/journal
+import slices
+
+// Journal is a set of entries, newest first, one per slug.
+type Journal { entries []journal.Entry } implements journal.Journal
+
+// NewJournal is entries as a journal: in List's order, and with only the
+// first entry of a slug.
+func NewJournal(entries []journal.Entry) Journal {
+	let mut kept = []journal.Entry{}
+	let mut slugs = []string{}
+	for e in entries {
+		if !slices.Contains(slugs, e.Slug) {
+			slugs = slugs.Append(e.Slug)
+			kept = kept.Append(e)
+		}
+	}
+	Journal{entries: slices.SortFunc(kept, func(a journal.Entry, b journal.Entry) int {
+		if journal.Before(a, b) {
+			return -1
+		}
+		if journal.Before(b, a) {
+			return 1
+		}
+		0
+	})}
+}
+
+func List(j Journal) []journal.Entry { j.entries }
+
+func Read(j Journal, slug string) journal.Entry fails journal.Missing {
+	for e in j.entries {
+		if e.Slug == slug {
+			return e
+		}
+	}
+	journal.Missing{Slug: slug}
+}

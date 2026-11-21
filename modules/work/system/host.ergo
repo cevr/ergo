@@ -1,0 +1,81 @@
+// What each host Cloner's test checks on the host it runs on: that the
+// Cloner clones a real tree where the file system can, sharing its
+// blocks, and says Unsupported where it cannot, never copying silently
+// (the verifier's T1 of round 1: the Cloner laws drew random paths, so on
+// any host they held by their failure cases).
+
+import exec
+import strings
+import github.com/cevr/ergo/modules/work/work
+
+// PlantScript makes the tree src in the working folder (a btrfs
+// subvolume when $1 is sub): a file of 1 MiB, larger than any inline
+// extent, so a copy of it holds blocks of its own, and a nested file; and
+// writes both to disk.
+let PlantScript = "set -eu\nif [ \"$1\" = sub ]; then btrfs subvolume create src >/dev/null; else mkdir src; fi\nhead -c 1048576 /dev/urandom > src/big\nmkdir src/d\nprintf 'nested\\n' > src/d/f\nsync\n"
+
+// FileSystemScript prints the type of the file system of the folder $1
+// (the working folder when there is none): stat -f on Linux, the mount
+// of its device on macOS.
+let FileSystemScript = "set -eu\ncd \"${1:-.}\"\nif [ \"$(uname)\" = Darwin ]; then d=$(stat -f %Sd .); mount | sed -n \"s|^/dev/$d on .* (\\([a-z0-9]*\\),.*|\\1|p\"; else stat -f -c %T .; fi\n"
+
+// FileSystem is the type of the file system the working folder is on
+// (btrfs, xfs, apfs, ext2/ext3, tmpfs, ...), "" when it cannot tell.
+func FileSystem() string needs exec.Runner {
+	let r = exec.Runner.Run(exec.New("sh", []string{"-c", FileSystemScript})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return ""
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+// HostClone plants src (a subvolume when subvolume) in the working
+// folder, clones it to dst by the Cloner and is what it found: "" when dst holds
+// src's files and, when measured, Usage says it holds no block of its own
+// after the clone is on disk; "unsupported: WHY" when it answers
+// Unsupported; else what went wrong.
+func HostClone(subvolume bool, measured bool) string needs work.Cloner | exec.Runner {
+	let plant = exec.Runner.Run(exec.New("sh", []string{"-c", PlantScript, "plant", if subvolume { "sub" } else { "dir" }})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return "sh could not plant the tree"
+	}
+	if plant.Status != 0 {
+		return "planting: \(strings.TrimSpace(plant.Stderr))"
+	}
+	work.Cloner.Clone("src", "dst") catch {
+	case work.Unsupported as u:
+		return "unsupported: \(u.Why)"
+	case work.NotSameVolume:
+		return "NotSameVolume"
+	case work.Exists:
+		return "Exists"
+	case work.Missing:
+		return "Missing"
+	case work.NoSpace:
+		return "NoSpace"
+	case work.CloneFailed as f:
+		return "CloneFailed: \(f.Reason)"
+	}
+	let same = exec.Runner.Run(exec.New("sh", []string{"-c", "sync && diff -r src dst >&2"})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return "sh could not compare the trees"
+	}
+	if same.Status != 0 {
+		return "the clone differs: \(strings.TrimSpace(same.Stderr))"
+	}
+	if !measured {
+		return ""
+	}
+	let u = work.Cloner.Usage("dst") catch {
+	case work.Unsupported as e:
+		return "Usage unsupported: \(e.Why)"
+	case work.Missing:
+		return "Usage: Missing"
+	case work.CloneFailed as f:
+		return "Usage: \(f.Reason)"
+	}
+	if u.Exclusive != 0 || u.Total < 1048576 {
+		return "the clone holds \(u.Exclusive) bytes of its own of \(u.Total)"
+	}
+	""
+}

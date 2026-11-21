@@ -3,7 +3,7 @@ package check
 import (
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // ambientEntryText is the S106 of a context entry for the prelude's
@@ -19,7 +19,14 @@ const ambientEntryText = "no context binds Ambient: its one provider is the prog
 // isAmbient reports whether t is the prelude's Ambient.
 func isAmbient(t Type) bool {
 	n, ok := t.(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "Ambient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == std.PreludePath
+	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "Ambient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == stdlib.PreludePath
+}
+
+// isTestAmbient reports whether t is the prelude's TestAmbient, the test's
+// ambient (testambient.go): the authority the test runner provides.
+func isTestAmbient(t Type) bool {
+	n, ok := t.(*Named)
+	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "TestAmbient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == stdlib.PreludePath
 }
 
 // Construction authority and member visibility across packages
@@ -499,7 +506,7 @@ func sealedStd(t Type) *Named {
 	if _, runtime := GoTypeOf(n); !runtime || !Sealed(n) {
 		return nil
 	}
-	return n
+	return t.(*Named)
 }
 
 // implementers are the types of owner that may implement it: each a
@@ -568,7 +575,7 @@ func authorityText(obj *TypeName) string {
 		}
 		if n, ok := fn.Sig.Results[0].(*Named); ok && n.origin().Obj == obj {
 			// A prelude function is in scope with no package name.
-			if obj.Pkg.Path == std.PreludePath {
+			if obj.Pkg.Path == stdlib.PreludePath {
 				ways = append(ways, fn.Name)
 			} else {
 				ways = append(ways, obj.Pkg.Name+"."+fn.Name)

@@ -1,0 +1,9 @@
+# scripts/opcount: mdhtml converts the CommonMark document of N sections
+# that `mdhtml -seed 1 -gen N` writes to HTML; the cost of one section is
+# the slope between the two sizes. The control is the hand Go converter of
+# the same design.
+unit section
+sizes 2000 16000
+input self -seed 1 -gen {n}
+args {input}
+control cmd/ergo/testdata/mdhtml/control

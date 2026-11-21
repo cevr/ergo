@@ -1,0 +1,11 @@
+# scripts/opcount: `llmbench bench replay N` reads one recorded exchange
+# (eight text deltas) from its JSON line N times with recorded.Read and
+# asks its request of a recorded.Replay by Generate (wf10 L3); the cost of
+# one exchange is the slope between the two sizes. The control is hand
+# Go: encoding/json into a struct, the request's SHA-256 digest compared,
+# the deltas' text joined. The floor is one pass over the line's bytes.
+unit exchange
+sizes 20000 120000
+args bench replay {n}
+control benchmarks/llm/testdata/control
+floor benchmarks/llm/testdata/floor

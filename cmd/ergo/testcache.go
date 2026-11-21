@@ -2,20 +2,21 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The test result cache (g-b2), go test's cache of a passing result: the
@@ -44,7 +45,7 @@ import (
 // testCacheable reports whether a run of opts is cached: not with --count
 // 1, --receipt or --explore.
 func testCacheable(opts fileOptions) bool {
-	return !opts.uncached && opts.receipt == "" && !opts.explore && opts.search.mode == ""
+	return !opts.uncached && !opts.trace && opts.receipt == "" && !opts.explore && opts.search.mode == ""
 }
 
 // ledgerPart is the law ledger at path as a key part: a full run writes it,
@@ -56,10 +57,13 @@ func ledgerPart(path string) string {
 	return "no ledger"
 }
 
-func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit uint64, ledger string) string {
-	if !testCacheable(opts) {
-		return ""
-	}
+// toolchainIdentity is the Go toolchain that links tc's builds, as a key
+// part: the go command's resolved path, size and time, the managed GOROOT,
+// the platform, GOFLAGS, the tags and the link mode; "" when the go
+// command cannot be found. A stored test result and a law verdict a test
+// binary wrote (FT2) are both keyed by it, so another Go never replays
+// either.
+func toolchainIdentity(tc build.Toolchain) string {
 	goPath, err := exec.LookPath(tc.Go)
 	if err != nil {
 		return ""
@@ -71,70 +75,88 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 	if err != nil {
 		return ""
 	}
-	h := sha256.New()
-	write := func(s string) { fmt.Fprintf(h, "%d:%s\x00", len(s), s) }
-	write("ergo-test-result-1")
-	write(goPath)
-	write(strconv.FormatInt(info.Size(), 10))
-	write(strconv.FormatInt(info.ModTime().UnixNano(), 10))
-	write(tc.Root)
-	write(tc.GOOS + "/" + tc.GOARCH)
-	write(tc.GOFLAGS)
-	write(strings.Join(tc.Tags, ","))
-	write(strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip))
+	parts := []string{goPath, strconv.FormatInt(info.Size(), 10), strconv.FormatInt(info.ModTime().UnixNano(), 10), tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip) + " " + string(tc.Profile)}
+	var b strings.Builder
+	for _, p := range parts {
+		fmt.Fprintf(&b, "%d:%s\x00", len(p), p)
+	}
+	return b.String()
+}
+
+// pinnedToolchain is the toolchain key part of a law verdict a test binary
+// linked by the pinned managed release (internal/toolchain) for platform
+// wrote: the release, the platform and GOFLAGS; "" when ERGO_GO chooses
+// another Go. It starts no process and installs nothing, so ergo check
+// and the evaluator can name it too, and read the verdicts such a binary
+// wrote: a native run under the pin is exactly what the key names (FT2
+// r3). The release's patch is a constant of this ergo, which the store's
+// compiler identity already keys.
+func pinnedToolchain(platform gobind.Platform) string {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return ""
+	}
+	if t, _ := toolchain.Status(os.Getenv, root); t.Mode != "managed" {
+		return ""
+	}
+	return "pinned " + toolchain.Version + " " + platform.GOOS + "/" + platform.GOARCH + " GOFLAGS=" + os.Getenv("GOFLAGS")
+}
+
+// nativeToolchain is the toolchain key part of the law verdicts tc's test
+// binary writes: the pin's when the build runs the pinned release, else
+// the go command's identity (toolchainIdentity), which no evaluator reads.
+func nativeToolchain(opts fileOptions, tc build.Toolchain) string {
+	if p := pinnedToolchain(opts.platform); p != "" {
+		return p
+	}
+	return toolchainIdentity(tc)
+}
+
+func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit uint64, ledger string) string {
+	if !testCacheable(opts) {
+		return ""
+	}
 	// A full run writes the law ledger; a run that finds another ledger
-	// than the stored run left is no hit.
-	write(ledgerPart(ledger))
-	write(strconv.FormatUint(limit, 10))
-	write(strconv.Itoa(len(args)))
-	for _, a := range args {
-		write(a)
-	}
-	var env []string
-	for _, kv := range os.Environ() {
-		// Where the stage report goes changes no verdict.
-		if strings.HasPrefix(kv, sketchfront.StageReportVariable+"=") {
-			continue
-		}
-		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
-			env = append(env, kv)
-		}
-	}
-	slices.Sort(env)
-	write(strconv.Itoa(len(env)))
-	for _, kv := range env {
-		write(kv)
-	}
-	return hex.EncodeToString(h.Sum(nil))
+	// than the stored run left is no hit. Where the stage report goes
+	// changes no verdict.
+	return lawcache.TestResultKey(toolchainIdentity(tc), ledgerPart(ledger), limit, args, os.Environ(), sketchfront.StageReportVariable)
 }
 
 // testResult is the output of a passing run.
 type testResult struct {
 	stdout, stderr bytes.Buffer
+	// obligations is the number of tests and law runs the binary ran.
+	obligations int
 }
 
 // stored is a testResult as the cache keeps it.
 type stored struct {
 	Stdout []byte `json:"stdout"`
 	Stderr []byte `json:"stderr"`
+	// Obligations is the number of obligations the stored run decided; a
+	// replay counts them as stored (stage.ObligationsStored).
+	Obligations int `json:"obligations,omitempty"`
 }
 
 func (r *testResult) encode() []byte {
-	data, _ := json.Marshal(stored{Stdout: r.stdout.Bytes(), Stderr: r.stderr.Bytes()})
+	data, _ := json.Marshal(stored{Stdout: r.stdout.Bytes(), Stderr: r.stderr.Bytes(), Obligations: r.obligations})
 	return data
 }
 
 // cachedNote is the line on stderr that says a run was replayed.
 const cachedNote = "ergo: cached pass replayed; --count 1 runs it again"
 
-// replayTestResult writes a stored passing run's output, then the note.
-func replayTestResult(data []byte, stdout, stderr io.Writer) error {
+// replayTestResult writes a stored passing run's output, then the note,
+// and judges its skips against the expected-skips of the module of path
+// as they are now (skipsExit): the file is no input of the stored key.
+func replayTestResult(data []byte, path string, stdout, stderr io.Writer) error {
 	var s stored
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("test result cache: %w", err)
 	}
+	stage.Add(stage.ObligationsStored, int64(s.Obligations))
 	stdout.Write(s.Stdout)
 	stderr.Write(s.Stderr)
 	fmt.Fprintln(stderr, cachedNote)
-	return nil
+	return skipsExit(s.Stdout, path)
 }

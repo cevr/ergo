@@ -1,0 +1,121 @@
+// Logging (Effect Logger, Go log/slog). A program logs through the Sink in
+// its context: `log.Info("started")` writes to that Sink, and the entry
+// carries the annotations in force (`with log.Annotate("region", "eu")
+// { … }`), so a task's log lines name the request it serves with no
+// logger passed down.
+// The sink decides where an entry goes and which levels it writes:
+// NewJSONLines writes slog's JSON lines to standard error, NewRecorder
+// keeps the entries for a test. The entry point binds one:
+// `with context { log.Sink: log.NewJSONLines(io.NewErrors(), time.NewHost(), log.LevelInfo) } { … }`.
+
+// Attr is one key and its text in an entry: an annotation in force, or an
+// attribute the call names.
+type Attr { Key string, Text string }
+
+// Entry is one log entry: its level, its message, and its attributes, the
+// annotations in force outermost first and then the call's own.
+type Entry { Level Level, Message string, Attrs []Attr }
+
+// Sink writes log entries.
+type Sink {
+	// Enabled reports that the sink writes entries of level l. Log asks it
+	// before it builds an entry, so a level the sink drops costs one call.
+	Enabled(l Level) bool,
+	// Write writes e. Log calls it only for a level Enabled admits.
+	Write(e Entry),
+
+	// EnabledIsMonotone: a sink that writes a level writes every level
+	// that ranks above it (slog's Leveler: a least level).
+	law EnabledIsMonotone(a int, b int) {
+		let lo = levelAt(a)
+		let hi = levelAt(b)
+		!Enabled(lo) || !Admits(lo, hi) || Enabled(hi)
+	},
+}
+
+// levelAt is the level a law draws from n: each of the four for n mod 4.
+func levelAt(n int) Level {
+	let k = ((n % 4) + 4) % 4
+	if k == 0 {
+		LevelDebug
+	} else if k == 1 {
+		LevelInfo
+	} else if k == 2 {
+		LevelWarn
+	} else {
+		LevelError
+	}
+}
+
+// Log writes an entry of level and message, with the annotations in force
+// and then attrs, to the Sink in the context, when the Sink is enabled for
+// level; otherwise it builds nothing.
+func Log(level Level, message string, attrs []Attr) needs Sink {
+	if Sink.Enabled(level) {
+		let mut all = Annotations()
+		for a in attrs {
+			all = all.Append(a)
+		}
+		Sink.Write(Entry{Level: level, Message: message, Attrs: all})
+	}
+}
+
+// Debug logs message at LevelDebug.
+func Debug(message string) needs Sink { Log(LevelDebug, message, []Attr{}) }
+
+// Info logs message at LevelInfo.
+func Info(message string) needs Sink { Log(LevelInfo, message, []Attr{}) }
+
+// Warn logs message at LevelWarn.
+func Warn(message string) needs Sink { Log(LevelWarn, message, []Attr{}) }
+
+// Error logs message at LevelError.
+func Error(message string) needs Sink { Log(LevelError, message, []Attr{}) }
+
+// Annotations are the annotations in force for the running task, outermost
+// first; of two of one key, the inner one alone, in the place of the inner.
+func Annotations() []Attr {
+	let pairs = contextPairs()
+	let mut out = []Attr{}
+	for i in 0..len(pairs)/2 {
+		out = out.Append(Attr{Key: pairs[2*i], Text: pairs[2*i+1]})
+	}
+	out
+}
+
+// AnnotationsNest: annotations of distinct keys nest outermost first, an
+// inner annotation of a key replaces the outer one in its block, and the
+// end of a block restores the list before it.
+law AnnotationsNest(a string, b string, c string) {
+	let before = Annotations()
+	let inner = with Annotate("outer", a) {
+		with Annotate("inner", b) {
+			with Annotate("outer", c) {
+				Annotations()
+			}
+		}
+	}
+	let after = Annotations()
+	inner == []Attr{Attr{Key: "inner", Text: b}, Attr{Key: "outer", Text: c}} && after == before
+}
+
+// LevelFilters: a sink made with a least level writes an entry exactly
+// when its level ranks at or above it, with the message and the
+// annotations in force.
+law LevelFilters(least int, at int, message string, text string) {
+	let r = NewRecorder(levelAt(least))
+	with context { Sink: r } {
+		with Annotate("k", text) {
+			Log(levelAt(at), message, []Attr{})
+		}
+	}
+	let mut want = []Entry{}
+	if Admits(levelAt(least), levelAt(at)) {
+		want = want.Append(Entry{Level: levelAt(at), Message: message, Attrs: []Attr{Attr{Key: "k", Text: text}}})
+	}
+	r.Entries() == want
+}
+
+// The context values of this package in force for the running task, as
+// key, text, key, text, … outermost first (runtime/v1, context.go).
+extern go ergo.local/prototype/runtime/v1.ContextPairs func contextPairs() []string

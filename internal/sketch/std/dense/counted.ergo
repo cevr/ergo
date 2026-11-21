@@ -1,3 +1,5 @@
+import maps
+
 // Counted is a set of values in use, each with an id and a count of its
 // holders (Ghostty's RefCountedSet: a terminal's styles, each held by the
 // cells that show it). Add gives a value its id, the one it holds already
@@ -15,7 +17,7 @@ func NewCounted[T comparable]() Counted[T] {
 // Add is the id of v: its id when v is in the set, else a free id, or a
 // new one, with no holder yet. A value added and never used stays in the
 // set until a Use and a Release of its id.
-func Add[T comparable](c *Counted[T], v T) ID[T] {
+func Add[T comparable](c mut Counted[T], v T) ID[T] {
 	match c.ids.Get(v) {
 	case Some[ID[T]] as id:
 		return id.Value
@@ -36,20 +38,102 @@ func Add[T comparable](c *Counted[T], v T) ID[T] {
 }
 
 // Use counts one more holder of id. An id past the end is a defect.
-func Use[T comparable](c *Counted[T], id ID[T]) { c.counts[int(id.n)] = c.counts[int(id.n)] + 1 }
+func Use[T comparable](c mut Counted[T], id ID[T]) { UseN(c, id, 1) }
+
+// UseN counts n more holders of id at once: a run of cells taking one
+// value is one UseN, not n Uses. An id past the end is a defect.
+func UseN[T comparable](c mut Counted[T], id ID[T], n int) {
+	c.counts[int(id.n)] = c.counts[int(id.n)] + uint32(n)
+}
 
 // Release counts one holder of id less; at 0 the value leaves the set and
 // id is free. A Release of an id with no holder is a defect.
-func Release[T comparable](c *Counted[T], id ID[T]) {
+func Release[T comparable](c mut Counted[T], id ID[T]) { ReleaseN(c, id, 1) }
+
+// ReleaseN counts n holders of id less at once, as n Releases do. A
+// ReleaseN of more holders than id has is a defect.
+func ReleaseN[T comparable](c mut Counted[T], id ID[T], n int) {
 	let i = int(id.n)
-	if c.counts[i] == 0 {
+	if int(c.counts[i]) < n {
 		Unreachable("dense: Release of an id that no holder holds")
 	}
-	c.counts[i] = c.counts[i] - 1
+	c.counts[i] = c.counts[i] - uint32(n)
 	if c.counts[i] == 0 {
 		c.ids = c.ids.Delete(c.rows[i])
 		c.free = c.free.Append(id)
 	}
+}
+
+// ReleaseThenReuse: a run of up to 63 Add, Use, UseN, Release and
+// ReleaseN over 8 values, drawn from a seed, agrees with a model of each
+// live value's id and count: a live value keeps its id, a new value never
+// takes a live id, an
+// id is reused only after its count fell to 0, and Member, Uses and Live
+// agree, and Find finds exactly the live values.
+law ReleaseThenReuse(seed int, count int) {
+	let n = (count%64 + 64) % 64
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
+	let mut c = NewCounted[int]()
+	let mut live = Map[int, ID[int]]{}
+	let mut held = Map[int, int]{}
+	let mut freed = Map[ID[int], bool]{}
+	for _ in 0..n {
+		x = (x*1103515245 + 12345) % 2147483648
+		let v = (x / 16) % 8
+		let op = (x / 1024) % 3
+		match live.Get(v) {
+		case Some[ID[int]] as id:
+			if c.Add(v) != id.Value {
+				return false
+			}
+			let has = maps.GetOr(held, v, 0)
+			let k = (x / 65536) % 4
+			if op == 1 && k == 0 {
+				c.Use(id.Value)
+				held[v] = has + 1
+			} else if op == 1 {
+				c.UseN(id.Value, k)
+				held[v] = has + k
+			} else if op == 2 && has > 0 && k == 0 {
+				c.Release(id.Value)
+				held[v] = has - 1
+			} else if op == 2 && has > 0 {
+				let m = 1 + k%has
+				c.ReleaseN(id.Value, m)
+				held[v] = has - m
+			}
+			if op == 2 && has > 0 && maps.GetOr(held, v, 0) == 0 {
+				live = live.Delete(v)
+				held = held.Delete(v)
+				freed[id.Value] = true
+			}
+		case None:
+			let reuse = len(freed) > 0
+			let id = c.Add(v)
+			for _, other in live {
+				if other == id {
+					return false
+				}
+			}
+			if reuse != maps.GetOr(freed, id, false) {
+				return false
+			}
+			freed = freed.Delete(id)
+			live[v] = id
+		}
+		if Live(c) != len(live) {
+			return false
+		}
+		for w, id in live {
+			if Member(c, id) != w || Uses(c, id) != maps.GetOr(held, w, 0) || Find(c, w) != (Some[ID[int]]{Value: id}) {
+				return false
+			}
+		}
+		if live.Get(v) == None && Find(c, v) != None {
+			return false
+		}
+	}
+	true
 }
 
 // Member is the value id names. An id past the end is a defect; a freed

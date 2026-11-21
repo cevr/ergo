@@ -43,6 +43,16 @@ func NewScope(t *Task) Scope {
 	return Scope{task: t}
 }
 
+// Begin makes s, a zero Scope, an empty scope owned by task t, in place:
+// NewScope with no copy of the Scope, for a scope that lives in a larger
+// value already allocated (an exit action's frame, v1 OnExit).
+func (s *Scope) Begin(t *Task) {
+	s.task = t
+	if t.trace != nil {
+		s.depth = t.traceDepth()
+	}
+}
+
 // Task is the task that owns s.
 func (s *Scope) Task() *Task { return s.task }
 

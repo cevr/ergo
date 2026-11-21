@@ -2,8 +2,88 @@
 // hundredths.
 type Share = Disk{Device string, Size int} | Tape{Label string, Size int}
 
+// WriteAlwaysAnswers: every signal ends a write with its answer, and
+// the write's timer gives up after WriteWait.
+law WriteAlwaysAnswers(i int, disk string, size int, m int) {
+	let s = sending((i, Disk{Device: disk, Size: size}))
+	let k = if m < 0 { -m } else { m }
+	let e WriteSignal = match k % 3 {
+	case 0:
+		Acked{R: Ref{ID: disk, Size: size}}
+	case 1:
+		let r WriteSignal = Refused{Why: disk}
+		r
+	case _:
+		NoAnswer
+	}
+	let timed = match writeTimer(s) {
+	case Some[Timeout[WriteSignal]] as t:
+		t.Value.In == WriteWait()
+	case None:
+		false
+	}
+	match writeStep(s, e) {
+	case Done[Answer] as d:
+		timed && match d.Output {
+		case Taken as t:
+			t.Index == i && k%3 == 0
+		case Lost as x:
+			x.Index == i && k%3 != 0
+		}
+	case _:
+		false
+	}
+}
+
+// sending is the write of the share at index i.
+func sending(at (int, Share)) Storing {
+	let i, t = at
+	Sending{Index: i, Share: t}
+}
+
+func writeStep(s Storing, e WriteSignal) Decision[Storing, Answer] {
+	match (s, e) {
+	case (Sending as a, Acked as ok):
+		Done[Answer]{Output: Taken{Index: a.Index, Share: a.Share, R: ok.R}}
+	case (Sending as a, Refused as r):
+		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: r.Why}}
+	case (Sending as a, NoAnswer):
+		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: "no answer"}}
+	}
+}
+
+func writeTimer(s Storing) Option[Timeout[WriteSignal]] {
+	match s {
+	case Sending:
+		Some{Timeout[WriteSignal]{In: WriteWait(), Signal: NoAnswer}}
+	}
+}
+
 // Ref is an acknowledged write: the target's reference and the size taken.
 type Ref { ID string, Size int }
+
+// TakenWritesAreErased: when some share is lost, every write
+// that was taken goes to RollingBack, which erases them.
+law TakenWritesAreErased(partSizes []int, ids []string, why string) {
+	let mut refs = []Ref{}
+	for id in ids {
+		refs = refs.Append(Ref{ID: id, Size: 1})
+	}
+	let reason = "lost: \(why)"
+	match moved(Step(Writing{Parts: partsOf(partSizes), Shares: []Share{}}, SharesLost{Refs: refs, Why: reason})) {
+	case Some[Job] as s:
+		match s.Value {
+		case RollingBack as v:
+			len(refs) > 0 && len(v.Refs) == len(refs)
+		case Staging as b:
+			len(refs) == 0 && b.Note == reason
+		case _:
+			false
+		}
+	case None:
+		false
+	}
+}
 
 // Refused is a write the target lost.
 type Refused { Why string }
@@ -28,6 +108,14 @@ type Targets {
 		Erase(Ref{ID: id, Size: size}) == size
 	},
 }
+
+// refusing is a target that refuses every write: the Targets laws run
+// against it.
+type refusing {} implements Targets
+
+func Write(_ refusing, t Share) Ref fails Refused { Refused{Why: "no"} }
+
+func Erase(_ refusing, r Ref) int { r.Size }
 
 // SizeOf is a share's size.
 func SizeOf(t Share) int {

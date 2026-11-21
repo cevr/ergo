@@ -1,0 +1,1504 @@
+// The layout of each node kind: gofmt's for every construct Go has
+// (format/doc in the Go formatter's package comment, which this file
+// translates node by node). A node is a row of compiler/syntax's tree,
+// read by its kind's reader; a token is its index in the token columns.
+
+import cmp
+import compiler/syntax
+import dense
+import slices
+
+// ---------------------------------------------------------------- tree reads
+
+func kind(p mut Printer, x dense.ID[syntax.Node]) uint8 { syntax.KindOf(p.P.Tree, x) }
+
+// tp is the offset of token j, NoPos for none (-1).
+func tp(p mut Printer, j int) int { if j < 0 { NoPos } else { syntax.TokPos(p.P, j) } }
+
+func text(p mut Printer, j int) string { syntax.TokText(p.P, j) }
+
+func start(p mut Printer, x dense.ID[syntax.Node]) int { syntax.NodePos(p.P, x) }
+
+func stop(p mut Printer, x dense.ID[syntax.Node]) int { syntax.NodeEnd(p.P, x) }
+
+func nth(p mut Printer, l syntax.List, i int) dense.ID[syntax.Node] { syntax.Item(p.P.Tree, l, i) }
+
+// ids are the nodes of a list.
+func ids(p mut Printer, l syntax.List) []dense.ID[syntax.Node] {
+	let n = syntax.Len(l)
+	let mut out = slices.WithCapacity[dense.ID[syntax.Node]](n)
+	for i in 0..n {
+		out = out.Append(syntax.Item(p.P.Tree, l, i))
+	}
+	out
+}
+
+// some reports an optional node that is there; the is that node.
+func some(o dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(o) {
+	case Some[dense.ID[syntax.Node]]:
+		true
+	case None:
+		false
+	}
+}
+
+func the(o dense.Opt[syntax.Node]) dense.ID[syntax.Node] {
+	match dense.Unpack(o) {
+	case Some[dense.ID[syntax.Node]] as s:
+		s.Value
+	case None:
+		Unreachable("an optional node read where the parser always sets one")
+	}
+}
+
+// starts are the first bytes of the nodes xs.
+func starts(p mut Printer, xs []dense.ID[syntax.Node]) []int {
+	let mut out = slices.WithCapacity[int](len(xs))
+	for x in xs {
+		out = out.Append(p.start(x))
+	}
+	out
+}
+
+// ---------------------------------------------------------------- file and declarations
+
+func printFile(p mut Printer) {
+	let f = syntax.FileOf(p.P.Tree, syntax.Root(p.P.Tree))
+	for i in 0..syntax.Len(f.Decls) {
+		if i > 0 {
+			p.newline()
+		}
+		p.decl(p.nth(f.Decls, i))
+	}
+}
+
+func ident(p mut Printer, x dense.ID[syntax.Node]) {
+	let n = syntax.NameOf(p.P.Tree, x)
+	p.token(p.tp(n.Tok), p.text(n.Tok))
+}
+
+func decl(p mut Printer, d dense.ID[syntax.Node]) {
+	let k = p.kind(d)
+	if k == syntax.KImportDecl {
+		p.importDecl(d)
+	} else if k == syntax.KVarDecl {
+		p.letDecl(d)
+	} else if k == syntax.KTypeDecl {
+		p.typeDecl(d)
+	} else if k == syntax.KFuncDecl {
+		let x = syntax.FuncDeclOf(p.P.Tree, d)
+		p.externSpec(x.Extern)
+		p.token(p.tp(x.Func), "func")
+		p.space()
+		if some(x.Recv) {
+			p.fieldList(the(x.Recv), "(", ")")
+			p.space()
+		}
+		p.ident(x.Name)
+		if some(x.TypeParams) {
+			p.fieldList(the(x.TypeParams), "[", "]")
+		}
+		p.signature(x.Type)
+		if some(x.Body) {
+			let body = the(x.Body)
+			if p.blockOneLine(body) {
+				p.L.sep() // consecutive one-line functions align their bodies (gofmt)
+			} else {
+				p.space()
+			}
+			p.block(body, true)
+		}
+	} else if k == syntax.KContextDecl {
+		let x = syntax.ContextDeclOf(p.P.Tree, d)
+		p.tok(p.tp(x.Let), "let")
+		p.space()
+		p.ident(x.Name)
+		p.space()
+		p.synth("=")
+		p.space()
+		p.printContext(p.tp(x.Context), x.Provides, x.Fails, x.Needs, x.Body)
+	} else if k == syntax.KTestDecl {
+		let x = syntax.TestDeclOf(p.P.Tree, d)
+		p.token(p.tp(x.Test), "test")
+		p.space()
+		p.ident(x.Name)
+		if some(x.Params) {
+			p.fieldList(the(x.Params), "(", ")")
+		}
+		p.space()
+		p.block(x.Body, true)
+	} else if k == syntax.KLawDecl {
+		// A top-level law prints as a top-level test does (law-top).
+		let x = syntax.LawDeclOf(p.P.Tree, d)
+		p.token(p.tp(x.Law), "law")
+		p.space()
+		p.ident(x.Name)
+		if some(x.TypeParams) {
+			p.fieldList(the(x.TypeParams), "[", "]")
+		}
+		p.fieldList(the(x.Params), "(", ")")
+		p.space()
+		if x.Rewrite {
+			// The rewrite form (types.md, Laws 14; LF6a): its Body holds the
+			// two blocks, printed as written with == between them.
+			let stmts = p.ids(syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List)
+			let n = len(stmts)
+			p.block(stmts[n-2], true)
+			p.space()
+			p.token(p.tp(x.Eq), "==")
+			p.space()
+			p.block(stmts[n-1], true)
+			return
+		}
+		p.block(the(x.Body), true)
+	}
+}
+
+// typeDecl prints `[extern go target] type Name[params] spec [where …]
+// [implements …]`; a derived type prints as written, `derive Bundle(…)`,
+// with no spec.
+func typeDecl(p mut Printer, d dense.ID[syntax.Node]) {
+	let x = syntax.TypeDeclOf(p.P.Tree, d)
+	p.externSpec(x.Extern)
+	p.token(p.tp(x.Type), "type")
+	p.space()
+	p.ident(x.Name)
+	if some(x.TypeParams) {
+		p.fieldList(the(x.TypeParams), "[", "]")
+	}
+	p.space()
+	if some(x.Derive) {
+		// As written: the bundle it derives is not printed.
+		p.token(p.tp(x.DerivePos), "derive")
+		p.space()
+		p.expr(the(x.Derive))
+	} else {
+		let spec = the(x.Spec)
+		if p.kind(spec) == syntax.KInterfaceType && syntax.InterfaceTypeOf(p.P.Tree, spec).Lbrace < 0 {
+			p.unionType(spec)
+		} else {
+			p.expr(spec)
+		}
+	}
+	if some(x.Where) {
+		p.space()
+		p.token(p.tp(x.WherePos), "where")
+		p.space()
+		p.expr(the(x.Where))
+	}
+	let implements = p.ids(x.Implements)
+	if len(implements) > 0 {
+		p.space()
+		p.token(p.tp(x.ImplementsPos), "implements")
+		for i, t in implements {
+			if i > 0 {
+				p.synth(",")
+			}
+			p.space()
+			p.typ(t)
+		}
+	}
+}
+
+// closeBody ends a multi-line body: comments before the closer at the
+// body's indentation, then the closer on its own line.
+func closeBody(p mut Printer, closePos int, close string) {
+	p.newline()
+	p.flushComments(closePos)
+	p.indent(-1)
+	p.newlineNoBlank()
+	p.token(closePos, close)
+}
+
+// importDecl prints `import [go] [alias] path`.
+func importDecl(p mut Printer, d dense.ID[syntax.Node]) {
+	let x = syntax.ImportDeclOf(p.P.Tree, d)
+	p.token(p.tp(x.Import), "import")
+	let spec = syntax.ImportSpecOf(p.P.Tree, x.Spec)
+	p.space()
+	if spec.NamePos >= 0 && syntax.TokKind(p.P, spec.NamePos) == syntax.Go {
+		p.token(p.tp(spec.NamePos), "go")
+		p.space()
+	}
+	if some(spec.Name) {
+		p.ident(the(spec.Name))
+		p.space()
+	}
+	p.basicLit(spec.Path)
+}
+
+// externSpec prints `extern go target `, the head of an extern declaration,
+// when the declaration has one.
+func externSpec(p mut Printer, o dense.Opt[syntax.Node]) {
+	if !some(o) {
+		return
+	}
+	let x = syntax.ExternSpecOf(p.P.Tree, the(o))
+	p.token(p.tp(x.Extern), "extern")
+	p.space()
+	p.token(p.tp(x.Go), "go")
+	p.space()
+	p.basicLit(x.Target)
+	p.space()
+}
+
+// letDecl prints `[extern go target] let [mut] patterns [Type] [= value]`.
+func letDecl(p mut Printer, d dense.ID[syntax.Node]) {
+	let x = syntax.VarDeclOf(p.P.Tree, d)
+	p.externSpec(x.Extern)
+	p.token(p.tp(x.Var), "let")
+	p.space()
+	if x.Mut >= 0 {
+		p.token(p.tp(x.Mut), "mut")
+		p.space()
+	}
+	let spec = syntax.VarSpecOf(p.P.Tree, x.Spec)
+	if some(spec.Pattern) {
+		p.expr(the(spec.Pattern))
+	} else {
+		p.identList(p.ids(spec.Names), true)
+	}
+	if some(spec.Type) {
+		p.space()
+		p.typ(the(spec.Type))
+	}
+	if some(spec.Value) {
+		p.space()
+		p.token(p.tp(spec.Assign), "=")
+		p.assignRHS(the(spec.Value))
+	}
+}
+
+// identList prints grouped names; a line break after a comma follows the
+// source. With indented, the names after the break take one continuation
+// level; without it they take the level the enclosing list or block gives,
+// as go/printer's identList(…, indent).
+func identList(p mut Printer, list []dense.ID[syntax.Node], indented bool) {
+	let mut broken = false
+	for i, x in list {
+		if i > 0 {
+			p.synth(",")
+			if p.gap(p.start(x), true) && !broken && indented {
+				broken = true
+				p.indent(1)
+			}
+		}
+		p.ident(x)
+	}
+	if broken {
+		p.indent(-1)
+	}
+}
+
+// assignRHS prints the right side of an assignment or let after its
+// operator; a line break after the operator follows the source.
+func assignRHS(p mut Printer, value dense.ID[syntax.Node]) {
+	let broken = p.gap(p.start(value), true)
+	if broken {
+		p.indent(1)
+	}
+	p.expr1(value, 1)
+	if broken {
+		p.indent(-1)
+	}
+}
+
+// ---------------------------------------------------------------- lists
+
+// list prints len(itemStarts) comma-separated items between an opener and
+// a closer. The line breaks after the opener, between items and before the
+// closer follow the source; with any of them, the items indent one level
+// and a closer on its own line follows a comma.
+func list(p mut Printer, openPos int, open string, itemStarts []int, item func(i int), closePos int, close string) {
+	p.tok(openPos, open)
+	if len(itemStarts) == 0 {
+		p.tok(closePos, close)
+		return
+	}
+	// The items indent at the list's first line break, not before it, as
+	// go/printer's exprList and parameters do.
+	let mut indented = false
+	let saved = p.ListIndented
+	for i in 0..len(itemStarts) {
+		if i == 0 {
+			if p.gap(itemStarts[0], false) {
+				p.L.NoBlank = true
+				p.indent(1)
+				indented = true
+			}
+		} else {
+			p.synth(",")
+			if p.gap(itemStarts[i], true) && !indented {
+				p.indent(1)
+				indented = true
+			}
+		}
+		p.ListIndented = indented
+		item(i)
+	}
+	p.ListIndented = saved
+	if closePos >= 0 && p.breakBefore(closePos) {
+		if !indented {
+			p.indent(1)
+		}
+		p.synth(",")
+		p.closeBody(closePos, close)
+		return
+	}
+	if indented {
+		p.indent(-1)
+	}
+	p.tok(closePos, close)
+}
+
+// exprList prints an unbracketed expression list; a line break after a
+// comma follows the source and indents the rest one level.
+func exprList(p mut Printer, xs []dense.ID[syntax.Node], depth int) {
+	let mut broken = false
+	for i, x in xs {
+		if i > 0 {
+			p.synth(",")
+			if p.gap(p.start(x), true) && !broken {
+				broken = true
+				p.indent(1)
+			}
+		}
+		p.expr1(x, depth)
+	}
+	if broken {
+		p.indent(-1)
+	}
+}
+
+// ---------------------------------------------------------------- signatures and fields
+
+// fieldList prints a parameter or type parameter list.
+func fieldList(p mut Printer, l dense.ID[syntax.Node], open string, close string) {
+	let fl = syntax.FieldListOf(p.P.Tree, l)
+	let fields = p.ids(fl.List)
+	p.list(p.tp(fl.Opening), open, p.starts(fields), func(i int) {
+		let f = syntax.FieldOf(p.P.Tree, fields[i])
+		let names = p.ids(f.Names)
+		p.identList(names, !p.ListIndented)
+		if some(f.Any) {
+			p.space()
+			p.token(p.start(the(f.Any)), "any")
+		}
+		if some(f.Lent) {
+			p.space()
+			p.token(p.start(the(f.Lent)), "lent")
+		}
+		if f.PurePos >= 0 {
+			p.space()
+			p.token(p.tp(f.PurePos), "pure")
+		}
+		let own = f.Own >= 0
+		if own {
+			if len(names) > 0 {
+				p.space()
+			}
+			p.token(p.tp(f.Own), "own")
+		}
+		if some(f.Type) {
+			if len(names) > 0 || own {
+				p.space()
+			}
+			p.typ(the(f.Type))
+		}
+		if some(f.Where) {
+			p.space()
+			p.token(p.tp(f.WherePos), "where")
+			p.space()
+			p.expr(the(f.Where))
+		}
+	}, p.tp(fl.Closing), close)
+}
+
+// signature prints `(params) [Result] [fails …] [needs …] [takes …]`.
+func signature(p mut Printer, ft dense.ID[syntax.Node]) {
+	let x = syntax.FuncTypeOf(p.P.Tree, ft)
+	p.fieldList(x.Params, "(", ")")
+	if some(x.Results) {
+		for f in p.ids(syntax.FieldListOf(p.P.Tree, the(x.Results)).List) {
+			p.space()
+			p.typ(the(syntax.FieldOf(p.P.Tree, f).Type))
+		}
+	}
+	if some(x.Needs) {
+		p.space()
+		p.needsClause(the(x.Needs))
+	}
+	if some(x.Takes) {
+		let tk = syntax.TakesClauseOf(p.P.Tree, the(x.Takes))
+		p.space()
+		p.token(p.tp(tk.Takes), "takes")
+		let names = p.ids(tk.Names)
+		if len(names) > 0 {
+			p.space()
+			p.identList(names, true)
+		}
+	}
+}
+
+func needsClause(p mut Printer, u dense.ID[syntax.Node]) {
+	let x = syntax.NeedsClauseOf(p.P.Tree, u)
+	p.token(p.tp(x.Needs), "needs")
+	p.row(p.ids(x.Names))
+}
+
+// row prints the names of an error row or a capability row, ` A | B`: both
+// rows are unions and are spelled alike (196n).
+func row(p mut Printer, names []dense.ID[syntax.Node]) {
+	for i, x in names {
+		p.space()
+		if i > 0 {
+			p.synth("|")
+			p.space()
+		}
+		p.typ(x)
+	}
+}
+
+// ---------------------------------------------------------------- types
+
+func typ(p mut Printer, x dense.ID[syntax.Node]) { p.expr1(x, 1) }
+
+// members prints `{ m, m }` on one line when the source has the braces on
+// one line and no member prints on several; otherwise one member per line
+// with a trailing comma, field types aligned in a column (gofmt's struct
+// rule). tight drops the blanks inside one-line braces (a union variant).
+func members(p mut Printer, lbrace int, rbrace int, nodes []dense.ID[syntax.Node], print func(i int, aligned bool), tight bool) {
+	let mut oneLine = p.ln(lbrace) == p.ln(rbrace)
+	for m in nodes {
+		oneLine = oneLine && !forcesBreak(p.P.Tree, m)
+	}
+	if oneLine {
+		p.token(lbrace, "{")
+		for i in 0..len(nodes) {
+			if i > 0 {
+				p.synth(",")
+				p.space()
+			} else if !tight {
+				p.space()
+			}
+			print(i, false)
+		}
+		if len(nodes) > 0 && !tight {
+			p.space()
+		}
+		p.token(rbrace, "}")
+		return
+	}
+	p.openBody(lbrace)
+	for i in 0..len(nodes) {
+		p.bodyLine(i)
+		print(i, true)
+		p.synth(",")
+	}
+	p.closeBody(rbrace, "}")
+}
+
+// fieldMember prints one field of a record or variant body.
+func fieldMember(p mut Printer, id dense.ID[syntax.Node], aligned bool) {
+	let f = syntax.FieldOf(p.P.Tree, id)
+	if f.Dots >= 0 {
+		p.token(p.tp(f.Dots), "..")
+		p.typ(the(f.Type))
+		return
+	}
+	p.identList(p.ids(f.Names), false)
+	if aligned {
+		p.L.sep()
+	} else {
+		p.space()
+	}
+	p.typ(the(f.Type))
+	if some(f.Key) {
+		let key = the(f.Key)
+		p.space()
+		p.token(p.start(key), p.text(syntax.BasicLitOf(p.P.Tree, key).Tok))
+	}
+}
+
+func fieldMembers(p mut Printer, list dense.ID[syntax.Node], tight bool) {
+	let fl = syntax.FieldListOf(p.P.Tree, list)
+	let fields = p.ids(fl.List)
+	p.members(p.tp(fl.Opening), p.tp(fl.Closing), fields, func(i int, aligned bool) {
+		p.fieldMember(fields[i], aligned)
+	}, tight)
+}
+
+// operationType prints the includes, operations, laws and type set of an
+// operation type in source order: they may interleave. The terms of the
+// type-set member (`~int | ~int64`) are one member, at its first term, on
+// one line.
+func operationType(p mut Printer, t dense.ID[syntax.Node]) {
+	let x = syntax.InterfaceTypeOf(p.P.Tree, t)
+	let mut nodes = []dense.ID[syntax.Node]{}
+	let mut terms = []dense.ID[syntax.Node]{}
+	for m in p.ids(x.Members) {
+		if p.kind(m) != syntax.KField && p.kind(m) != syntax.KLawDecl {
+			if len(terms) == 0 {
+				nodes = nodes.Append(m)
+			}
+			terms = terms.Append(m)
+		} else {
+			nodes = nodes.Append(m)
+		}
+	}
+	p.members(p.tp(x.Lbrace), p.tp(x.Rbrace), nodes, func(i int, aligned bool) {
+		let m = nodes[i]
+		if p.kind(m) == syntax.KLawDecl {
+			p.memberLaw(m)
+			return
+		}
+		if p.kind(m) != syntax.KField {
+			p.typeTerms(terms)
+			return
+		}
+		let f = syntax.FieldOf(p.P.Tree, m)
+		if f.Dots >= 0 {
+			p.fieldMember(m, aligned)
+			return
+		}
+		if f.Own >= 0 {
+			p.token(p.tp(f.Own), "own")
+			p.space()
+		}
+		if f.Mut >= 0 {
+			p.token(p.tp(f.Mut), "mut")
+			p.space()
+		}
+		p.ident(p.nth(f.Names, 0))
+		p.signature(the(f.Type))
+	}, false)
+}
+
+// typeTerms prints the terms of a type-set member joined by `|`: `~T` (a
+// UnaryExpr of op `~`) or a bare type.
+func typeTerms(p mut Printer, terms []dense.ID[syntax.Node]) {
+	for i, m in terms {
+		if i > 0 {
+			p.space()
+			p.synth("|")
+			p.space()
+		}
+		if p.kind(m) == syntax.KUnaryExpr {
+			let u = syntax.UnaryExprOf(p.P.Tree, m)
+			p.token(p.tp(u.Op), "~")
+			p.typ(u.X)
+		} else {
+			p.typ(m)
+		}
+	}
+}
+
+// lawBody prints a law's block. A law is usually one equation after its
+// setup, so a body written on one line stays on one line with its
+// statements separated by `;` when nothing in it breaks.
+func lawBody(p mut Printer, b dense.ID[syntax.Node]) {
+	let x = syntax.BlockStmtOf(p.P.Tree, b)
+	let stmts = p.ids(x.List)
+	let mut oneLine = p.ln(p.tp(x.Lbrace)) == p.ln(p.tp(x.Rbrace))
+	for s in stmts {
+		oneLine = oneLine && !forcesBreak(p.P.Tree, s)
+	}
+	if !oneLine || len(stmts) < 2 {
+		p.block(b, true)
+		return
+	}
+	p.token(p.tp(x.Lbrace), "{")
+	for i, s in stmts {
+		if i > 0 {
+			p.synth(";")
+		}
+		p.space()
+		p.stmt(s)
+	}
+	p.space()
+	p.token(p.tp(x.Rbrace), "}")
+}
+
+// unionType prints `= A | B{…}`: on one line when the variants are on one line
+// in the source, else one variant per line, each after a leading `|`
+// (#196, D4).
+func unionType(p mut Printer, t dense.ID[syntax.Node]) {
+	p.synth("=")
+	let variants = p.ids(syntax.InterfaceTypeOf(p.P.Tree, t).Members)
+	let first = variants[0]
+	let mut multi = false
+	for v in variants {
+		multi = multi || p.ln(p.start(v)) != p.ln(p.start(first)) || p.ln(p.stop(v)) != p.ln(p.start(v))
+	}
+	if !multi {
+		for i, v in variants {
+			p.space()
+			if i > 0 {
+				p.synth("|")
+				p.space()
+			}
+			p.variant(v)
+		}
+		return
+	}
+	p.indent(1)
+	for v in variants {
+		p.newlineNoBlank()
+		p.synth("|")
+		p.space()
+		p.variant(v)
+	}
+	p.indent(-1)
+}
+
+func variant(p mut Printer, x dense.ID[syntax.Node]) {
+	if p.kind(x) != syntax.KVariantSpec {
+		p.typ(x)
+		return
+	}
+	let v = syntax.VariantSpecOf(p.P.Tree, x)
+	p.ident(v.Name)
+	if some(v.TypeArgs) {
+		p.fieldList(the(v.TypeArgs), "[", "]")
+	}
+	p.fieldMembers(v.Fields, true)
+}
+
+func machineType(p mut Printer, t dense.ID[syntax.Node]) {
+	let x = syntax.MachineTypeOf(p.P.Tree, t)
+	p.token(p.tp(x.Machine), "machine")
+	let params = []dense.ID[syntax.Node]{x.State, x.Signal}
+	p.list(p.tp(x.Machine+1), "[", p.starts(params), func(i int) { p.typ(params[i]) }, p.tp(x.Rbrack), "]")
+	p.space()
+	// The entries, then the laws.
+	let mut entries = []dense.ID[syntax.Node]{}
+	let mut laws = []dense.ID[syntax.Node]{}
+	for m in p.ids(x.Members) {
+		if p.kind(m) == syntax.KMachineEntry {
+			entries = entries.Append(m)
+		} else if p.kind(m) == syntax.KLawDecl {
+			laws = laws.Append(m)
+		}
+	}
+	let ne = len(entries)
+	let mut nodes = entries
+	for l in laws {
+		nodes = nodes.Append(l)
+	}
+	p.members(p.tp(x.Rbrack+1), p.tp(x.Rbrace), nodes, func(i int, aligned bool) {
+		if i >= ne {
+			p.memberLaw(nodes[i])
+			return
+		}
+		let e = syntax.MachineEntryOf(p.P.Tree, nodes[i])
+		p.token(p.tp(e.Name), p.text(e.Name))
+		p.tok(p.tp(e.Name+1), ":")
+		if aligned {
+			p.L.sep()
+		} else {
+			p.space()
+		}
+		p.expr(e.Value)
+	}, false)
+}
+
+// memberLaw prints a law of an operation type or a machine: `law Name(params)
+// { body }`, or a machine's reachability law (MU6).
+func memberLaw(p mut Printer, l dense.ID[syntax.Node]) {
+	let x = syntax.LawDeclOf(p.P.Tree, l)
+	p.token(p.tp(x.Law), "law")
+	p.space()
+	p.ident(x.Name)
+	if some(x.Reach) {
+		let r = syntax.LawReachOf(p.P.Tree, the(x.Reach))
+		p.space()
+		if r.Never >= 0 {
+			p.token(p.tp(r.Never), "never")
+			p.space()
+		}
+		if some(r.Pred) {
+			p.token(p.tp(r.Word), if r.Invariant { p.text(r.Word) } else { "" })
+			p.space()
+			p.ident(the(r.Pred))
+			return
+		}
+		let targets = p.ids(r.Targets)
+		if !r.Path {
+			p.token(p.tp(r.Word), "reaches")
+			p.space()
+			p.ident(targets[0])
+			return
+		}
+		p.token(p.tp(r.Word), "path")
+		p.space()
+		p.token(p.tp(r.Lbrack), "[")
+		for i, id in targets {
+			if i > 0 {
+				p.synth(",")
+				p.space()
+			}
+			p.ident(id)
+		}
+		p.token(p.tp(r.Rbrack), "]")
+		return
+	}
+	p.fieldList(the(x.Params), "(", ")")
+	p.space()
+	if x.Rewrite {
+		// The rewrite form (types.md, Laws 14): its Body is synthetic, the
+		// guard (when written) then the left and right blocks.
+		let stmts = p.ids(syntax.BlockStmtOf(p.P.Tree, the(x.Body)).List)
+		let n = len(stmts)
+		if x.When >= 0 {
+			p.token(p.tp(x.When), "when")
+			p.space()
+			p.expr(syntax.ExprStmtOf(p.P.Tree, stmts[0]).X)
+			p.space()
+		}
+		p.lawBody(stmts[n-2])
+		p.space()
+		p.token(p.tp(x.Eq), "==")
+		p.space()
+		p.lawBody(stmts[n-1])
+		return
+	}
+	p.lawBody(the(x.Body))
+}
+
+// printContext prints `context [provides …] [fails …] [needs …] { entries }`,
+// a context declaration's or literal's.
+func printContext(p mut Printer, contextPos int, prov dense.Opt[syntax.Node], failRow dense.Opt[syntax.Node], need dense.Opt[syntax.Node], body dense.ID[syntax.Node]) {
+	p.token(contextPos, "context")
+	if some(prov) {
+		let pr = syntax.ProvidesClauseOf(p.P.Tree, the(prov))
+		p.space()
+		p.token(p.tp(pr.Provides), "provides")
+		p.row(p.ids(pr.Names))
+	}
+	if some(failRow) {
+		p.space()
+		p.typ(the(failRow))
+	}
+	if some(need) {
+		p.space()
+		p.needsClause(the(need))
+	}
+	p.space()
+	let b = syntax.ContextBodyOf(p.P.Tree, body)
+	let entries = p.ids(b.Entries)
+	p.members(p.tp(b.Lbrace), p.tp(b.Rbrace), entries, func(i int, aligned bool) {
+		let e = syntax.ContextEntryOf(p.P.Tree, entries[i])
+		if e.Replace >= 0 {
+			p.token(p.tp(e.Replace), "replace")
+			p.space()
+		}
+		p.typ(e.Key)
+		for key in p.ids(e.Keys) {
+			p.synth(",")
+			p.space()
+			p.typ(key)
+		}
+		if e.Replace < 0 && !some(e.Value) {
+			return // an embedded context
+		}
+		p.tok(p.tp(e.Assign), ":")
+		if aligned {
+			p.L.sep()
+		} else {
+			p.space()
+		}
+		p.expr(the(e.Value))
+	}, false)
+}
+
+// oneLine reports whether a braced body stays on one line: the source has
+// it on one line with at most one element (an explicit `;` between two
+// elements becomes a line break), and nothing inside it prints on several
+// lines.
+func oneLine(p mut Printer, lbrace int, rbrace int, contents []dense.ID[syntax.Node]) bool {
+	if p.ln(lbrace) != p.ln(rbrace) || len(contents) > 1 {
+		return false
+	}
+	for x in contents {
+		if forcesBreak(p.P.Tree, x) {
+			return false
+		}
+	}
+	true
+}
+
+func openBody(p mut Printer, lbrace int) {
+	p.token(lbrace, "{")
+	p.indent(1)
+	p.L.NoBlank = true
+}
+
+func bodyLine(p mut Printer, i int) {
+	if i == 0 {
+		p.newlineNoBlank()
+	} else {
+		p.newline()
+	}
+}
+
+// ---------------------------------------------------------------- statements
+
+// block prints a braced statement list. With oneLineOK, a block the source
+// has on one line with at most one statement stays on one line (gofmt's
+// function-body rule).
+func block(p mut Printer, b dense.ID[syntax.Node], oneLineOK bool) {
+	let x = syntax.BlockStmtOf(p.P.Tree, b)
+	let stmts = p.ids(x.List)
+	let lbrace = p.tp(x.Lbrace)
+	let rbrace = p.tp(x.Rbrace)
+	if oneLineOK && p.oneLine(lbrace, rbrace, stmts) {
+		p.token(lbrace, "{")
+		if len(stmts) == 1 {
+			p.space()
+			p.stmt(stmts[0])
+			p.space()
+		}
+		p.token(rbrace, "}")
+		return
+	}
+	p.openBody(lbrace)
+	p.stmtList(stmts)
+	p.closeBody(rbrace, "}")
+}
+
+// blockOneLine reports whether a function-body-like block prints on one line.
+func blockOneLine(p mut Printer, b dense.ID[syntax.Node]) bool {
+	let x = syntax.BlockStmtOf(p.P.Tree, b)
+	p.oneLine(p.tp(x.Lbrace), p.tp(x.Rbrace), p.ids(x.List))
+}
+
+// indexDepth is the depth of an index element: gofmt's depth+1, except for
+// a union of types, which keeps its blanks as a failure row does.
+func indexDepth(p mut Printer, x dense.ID[syntax.Node], depth int) int {
+	if p.kind(x) == syntax.KBinaryExpr && syntax.TokKind(p.P, syntax.BinaryExprOf(p.P.Tree, x).Op) == syntax.Or {
+		return 1
+	}
+	depth + 1
+}
+
+func stmtList(p mut Printer, stmts []dense.ID[syntax.Node]) {
+	for i, x in stmts {
+		p.bodyLine(i)
+		p.stmt(x)
+	}
+}
+
+// sameLine reports whether the source has x on one line: an if or for
+// written on one line keeps its one-statement blocks on that line.
+func sameLine(p mut Printer, x dense.ID[syntax.Node]) bool { p.ln(p.start(x)) == p.ln(p.stop(x)) }
+
+func stmt(p mut Printer, x dense.ID[syntax.Node]) {
+	let k = p.kind(x)
+	if k == syntax.KExprStmt {
+		p.expr(syntax.ExprStmtOf(p.P.Tree, x).X)
+	} else if k == syntax.KDeclStmt {
+		p.letDecl(syntax.DeclStmtOf(p.P.Tree, x).Decl)
+	} else if k == syntax.KAssignStmt {
+		let s = syntax.AssignStmtOf(p.P.Tree, x)
+		p.expr1(s.Lhs, 1)
+		p.space()
+		p.token(p.tp(s.Tok), tokenText(syntax.TokKind(p.P, s.Tok)))
+		p.assignRHS(s.Rhs)
+	} else if k == syntax.KReturnStmt {
+		let s = syntax.ReturnStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Return), "return")
+		if some(s.Result) {
+			p.space()
+			p.expr1(the(s.Result), 1)
+		}
+	} else if k == syntax.KBranchStmt {
+		let s = syntax.BranchStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Tok), tokenText(syntax.TokKind(p.P, s.Tok)))
+	} else if k == syntax.KAssertStmt {
+		let s = syntax.AssertStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Assert), "assert")
+		p.space()
+		p.expr(s.X)
+	} else if k == syntax.KSkipStmt {
+		let s = syntax.SkipStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Skip), "skip")
+		p.space()
+		p.tokenEnd(p.tp(s.Reason), p.text(s.Reason), syntax.TokEnd(p.P, s.Reason))
+	} else if k == syntax.KBlockStmt {
+		p.block(x, false)
+	} else if k == syntax.KIfStmt {
+		p.ifStmt(x, p.sameLine(x))
+	} else if k == syntax.KSwitchStmt {
+		let s = syntax.SwitchStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Switch), "match")
+		p.space()
+		p.expr(s.Tag)
+		p.space()
+		p.clauses(p.tp(s.Lbrace), p.ids(s.Clauses), p.tp(s.Rbrace))
+	} else if k == syntax.KTypeSwitchStmt {
+		let s = syntax.TypeSwitchStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Switch), "match")
+		p.space()
+		let subjects = if p.kind(s.Subject) == syntax.KTupleExpr { p.ids(syntax.TupleExprOf(p.P.Tree, s.Subject).Elts) } else { []dense.ID[syntax.Node]{s.Subject} }
+		if len(subjects) == 1 {
+			p.expr(subjects[0])
+		} else {
+			p.synth("(")
+			for i, g in subjects {
+				if i > 0 {
+					p.synth(",")
+					p.space()
+				}
+				p.expr(g)
+			}
+			p.synth(")")
+		}
+		p.space()
+		p.clauses(p.tp(s.Lbrace), p.ids(s.Clauses), p.tp(s.Rbrace))
+	} else if k == syntax.KForStmt {
+		let s = syntax.ForStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.For), "for")
+		if some(s.Cond) {
+			p.space()
+			p.expr(the(s.Cond))
+		}
+		p.space()
+		p.block(s.Body, p.sameLine(x))
+	} else if k == syntax.KRangeStmt {
+		let s = syntax.RangeStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.For), "for")
+		p.space()
+		if some(s.Key) {
+			p.expr(the(s.Key))
+			p.synth(",")
+			p.space()
+		}
+		p.expr(s.Value)
+		p.space()
+		p.token(p.tp(s.Range), "in")
+		p.space()
+		p.expr(s.X)
+		p.space()
+		p.block(s.Body, p.sameLine(x))
+	}
+}
+
+func ifStmt(p mut Printer, x dense.ID[syntax.Node], oneLineOK bool) {
+	let s = syntax.IfStmtOf(p.P.Tree, x)
+	p.token(p.tp(s.If), "if")
+	p.space()
+	p.expr(s.Cond)
+	p.space()
+	p.block(s.Body, oneLineOK)
+	if some(s.Else) {
+		p.space()
+		p.token(p.tp(s.ElsePos), "else")
+		p.space()
+		let e = the(s.Else)
+		if p.kind(e) == syntax.KIfStmt {
+			p.ifStmt(e, oneLineOK)
+		} else {
+			p.block(e, oneLineOK)
+		}
+	}
+}
+
+// arm is a clause of a match or a catch: its `case`, its patterns as
+// written, its colon and its body.
+type arm { Case int, Patterns syntax.List, Colon int, Body syntax.List }
+
+func armOf(p mut Printer, x dense.ID[syntax.Node]) arm {
+	if p.kind(x) == syntax.KCaseClause {
+		let c = syntax.CaseClauseOf(p.P.Tree, x)
+		return arm{Case: c.Case, Patterns: c.List, Colon: c.Colon, Body: c.Body}
+	}
+	let c = syntax.CatchArmOf(p.P.Tree, x)
+	arm{Case: c.Case, Patterns: c.Types, Colon: c.Colon, Body: c.Body}
+}
+
+// clauses prints the clause list of a match or catch: each case at the
+// statement's indentation, its body one level in.
+func clauses(p mut Printer, lbrace int, arms []dense.ID[syntax.Node], rbrace int) {
+	let base = p.L.Indent
+	p.token(lbrace, "{")
+	p.L.NoBlank = true
+	for i, x in arms {
+		let a = p.armOf(x)
+		let casePos = p.tp(a.Case)
+		if i > 0 {
+			p.newline()
+			p.flushClauseComments(casePos)
+			p.L.Indent = base
+			p.newline()
+		} else {
+			p.newlineNoBlank()
+		}
+		p.caseHead(casePos, p.ids(a.Patterns), p.tp(a.Colon))
+		p.L.Indent = base + 1
+		p.stmtList(p.ids(a.Body))
+	}
+	if len(arms) > 0 {
+		p.newline()
+		p.flushClauseComments(rbrace)
+	}
+	p.L.Indent = base
+	p.newline()
+	p.flushComments(rbrace)
+	p.newlineNoBlank()
+	p.token(rbrace, "}")
+}
+
+// caseHead prints `case P, Q:`, or `case _:` for an empty list.
+func caseHead(p mut Printer, casePos int, patterns []dense.ID[syntax.Node], colon int) {
+	p.token(casePos, "case")
+	p.space()
+	if len(patterns) == 0 {
+		p.synth("_")
+	} else {
+		p.exprList(patterns, 1)
+	}
+	p.token(colon, ":")
+}
+
+// ---------------------------------------------------------------- expressions
+
+func expr(p mut Printer, x dense.ID[syntax.Node]) { p.expr1(x, 1) }
+
+func basicLit(p mut Printer, x dense.ID[syntax.Node]) {
+	let j = syntax.BasicLitOf(p.P.Tree, x).Tok
+	p.tokenEnd(p.tp(j), p.text(j), syntax.TokEnd(p.P, j))
+}
+
+func expr1(p mut Printer, x dense.ID[syntax.Node], depth int) {
+	let k = p.kind(x)
+	if k == syntax.KIdent {
+		p.ident(x)
+	} else if k == syntax.KBasicLit {
+		p.basicLit(x)
+	} else if k == syntax.KInterpolatedString {
+		// The parts alternate: a text segment, then an expression.
+		let parts = syntax.InterpolatedStringOf(p.P.Tree, x).Parts
+		for i in 0..syntax.Len(parts) {
+			if i%2 == 0 {
+				p.basicLit(p.nth(parts, i))
+			} else {
+				p.expr(p.nth(parts, i))
+			}
+		}
+	} else if k == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.P.Tree, x)
+		if syntax.TokKind(p.P, b.Op) == syntax.DotDot {
+			// `a..b` is written without blanks, its bounds as operands
+			// of a nested binary expression (Rust's rustfmt: `0..n`).
+			p.binaryOperand(b.X, depth+1)
+			p.token(p.tp(b.Op), "..")
+			p.binaryOperand(b.Y, depth+1)
+			return
+		}
+		// A line break after an operator indents the rest of the binary
+		// expression once (gofmt).
+		let indented = p.binaryBreaks(x)
+		if indented {
+			p.indent(1)
+		}
+		p.binary(x, depth)
+		if indented {
+			p.indent(-1)
+		}
+	} else if k == syntax.KUnaryExpr {
+		let u = syntax.UnaryExprOf(p.P.Tree, x)
+		p.token(p.tp(u.Op), tokenText(syntax.TokKind(p.P, u.Op)))
+		p.expr1(u.X, depth)
+	} else if k == syntax.KStarExpr {
+		let s = syntax.StarExprOf(p.P.Tree, x)
+		if syntax.TokKind(p.P, s.Star) == syntax.Mut {
+			p.token(p.tp(s.Star), "mut")
+			p.space()
+		} else {
+			p.token(p.tp(s.Star), "*")
+		}
+		p.expr1(s.X, 1)
+	} else if k == syntax.KParenExpr {
+		let e = syntax.ParenExprOf(p.P.Tree, x)
+		p.token(p.tp(e.Lparen), "(")
+		let broken = p.gap(p.start(e.X), false)
+		if broken {
+			p.L.NoBlank = true
+			p.indent(1)
+		}
+		p.expr1(e.X, cmp.Max(depth-1, 1))
+		if broken {
+			p.indent(-1)
+		}
+		let rparen = p.tp(e.Rparen)
+		p.gap(rparen, false)
+		p.token(rparen, ")")
+	} else if k == syntax.KSelectorExpr {
+		let s = syntax.SelectorExprOf(p.P.Tree, x)
+		p.expr1(s.X, depth)
+		if p.kind(s.X) == syntax.KBasicLit {
+			let lk = syntax.TokKind(p.P, syntax.BasicLitOf(p.P.Tree, s.X).Tok)
+			if lk == syntax.Int || lk == syntax.Float {
+				// `0 .A` printed as `0.A` would scan as the number `0.`; a
+				// blank keeps the tokens apart (go/printer's mayCombine).
+				p.space()
+			}
+		}
+		p.synth(".")
+		if p.breakBefore(p.start(s.Sel)) {
+			p.indent(1)
+			p.newline()
+			p.ident(s.Sel)
+			p.indent(-1)
+		} else {
+			p.ident(s.Sel)
+		}
+	} else if k == syntax.KIndexExpr {
+		let e = syntax.IndexExprOf(p.P.Tree, x)
+		p.expr1(e.X, depth)
+		let indices = p.ids(e.Indices)
+		p.list(p.tp(e.Lbrack), "[", p.starts(indices), func(i int) { p.expr1(indices[i], p.indexDepth(indices[i], depth)) }, p.tp(e.Rbrack), "]")
+	} else if k == syntax.KSliceExpr {
+		let e = syntax.SliceExprOf(p.P.Tree, x)
+		p.expr1(e.X, depth)
+		p.token(p.tp(e.Lbrack), "[")
+		p.slice(x, depth)
+		p.token(p.tp(e.Rbrack), "]")
+	} else if k == syntax.KCallExpr {
+		p.call(x, depth)
+	} else if k == syntax.KCompositeLit {
+		let c = syntax.CompositeLitOf(p.P.Tree, x)
+		if some(c.Type) {
+			p.expr1(the(c.Type), depth)
+		}
+		let elts = p.ids(c.Elts)
+		if !some(c.Base) {
+			p.list(p.tp(c.Lbrace), "{", p.starts(elts), func(i int) { p.element(elts[i]) }, p.tp(c.Rbrace), "}")
+			return
+		}
+		// A record update: `..base` is the first item of the list, so it
+		// shares the line rules of the fields after it.
+		let dotdot = p.tp(c.DotDot)
+		let mut itemStarts = []int{dotdot}
+		for e in elts {
+			itemStarts = itemStarts.Append(p.start(e))
+		}
+		p.list(p.tp(c.Lbrace), "{", itemStarts, func(i int) {
+			if i == 0 {
+				p.token(dotdot, "..")
+				p.expr(the(c.Base))
+				return
+			}
+			p.element(elts[i-1])
+		}, p.tp(c.Rbrace), "}")
+	} else if k == syntax.KKeyValueExpr {
+		p.element(x)
+	} else if k == syntax.KOrPattern {
+		let alts = p.ids(syntax.OrPatternOf(p.P.Tree, x).Alts)
+		for i, a in alts {
+			if i > 0 {
+				// The bar is the token before the alternative.
+				let at = p.start(a)
+				let bar = syntax.TokAtOrAfter(p.P, at) - 1
+				p.space()
+				p.token(p.tp(bar), "|")
+				p.space()
+			}
+			p.expr1(a, depth)
+		}
+	} else if k == syntax.KAsPattern {
+		let a = syntax.AsPatternOf(p.P.Tree, x)
+		p.expr1(a.X, depth)
+		p.space()
+		p.token(p.tp(a.As), "as")
+		p.space()
+		p.ident(a.Name)
+	} else if k == syntax.KFuncLit {
+		let f = syntax.FuncLitOf(p.P.Tree, x)
+		p.funcType(f.Type)
+		p.space()
+		p.block(f.Body, true)
+	} else if k == syntax.KTryExpr {
+		let t = syntax.TryExprOf(p.P.Tree, x)
+		p.token(p.tp(t.Try), "try")
+		p.space()
+		p.expr1(t.X, depth)
+	} else if k == syntax.KCatchExpr {
+		let c = syntax.CatchExprOf(p.P.Tree, x)
+		p.expr1(c.X, depth)
+		p.space()
+		p.token(p.tp(c.Catch), "catch")
+		p.space()
+		p.clauses(p.tp(c.Catch+1), p.ids(c.Arms), p.tp(c.Rbrace))
+	} else if k == syntax.KContextLit {
+		let c = syntax.ContextLitOf(p.P.Tree, x)
+		p.printContext(p.tp(c.Context), c.Provides, c.Fails, c.Needs, c.Body)
+	} else if k == syntax.KIfStmt {
+		p.ifStmt(x, p.sameLine(x))
+	} else if k == syntax.KSwitchStmt || k == syntax.KTypeSwitchStmt {
+		p.stmt(x)
+	} else if k == syntax.KArrayType {
+		let a = syntax.ArrayTypeOf(p.P.Tree, x)
+		p.token(p.tp(a.Lbrack), "[")
+		if a.Len >= 0 {
+			p.token(p.tp(a.Len), p.text(a.Len))
+		}
+		p.synth("]")
+		p.typ(a.Elt)
+	} else if k == syntax.KMapType {
+		let m = syntax.MapTypeOf(p.P.Tree, x)
+		p.token(p.start(m.X), "Map")
+		let mut params = []dense.ID[syntax.Node]{m.Key, m.Value}
+		if some(m.Hashing) {
+			params = params.Append(the(m.Hashing)) // `Map[K, V, H]` (CONSTRAINTS C5)
+		}
+		p.list(p.tp(m.Lbrack), "[", p.starts(params), func(i int) { p.typ(params[i]) }, p.tp(m.Rbrack), "]")
+	} else if k == syntax.KFuncType {
+		p.funcType(x)
+	} else if k == syntax.KStructType {
+		p.fieldMembers(syntax.StructTypeOf(p.P.Tree, x).Fields, false)
+	} else if k == syntax.KInterfaceType {
+		if syntax.InterfaceTypeOf(p.P.Tree, x).Lbrace < 0 {
+			p.unionType(x)
+			return
+		}
+		p.operationType(x)
+	} else if k == syntax.KMachineType {
+		p.machineType(x)
+	} else if k == syntax.KErrorRow {
+		let e = syntax.ErrorRowOf(p.P.Tree, x)
+		p.token(p.tp(e.Error), "fails")
+		p.row(p.ids(e.Types))
+	} else if k == syntax.KTupleExpr {
+		let t = syntax.TupleExprOf(p.P.Tree, x)
+		let elts = p.ids(t.Elts)
+		if t.Lparen < 0 {
+			p.exprList(elts, depth)
+			return
+		}
+		p.list(p.tp(t.Lparen), "(", p.starts(elts), func(i int) { p.expr(elts[i]) }, p.tp(t.Rparen), ")")
+	}
+}
+
+func call(p mut Printer, x dense.ID[syntax.Node], depth int) {
+	let c = syntax.CallExprOf(p.P.Tree, x)
+	let fun = c.Fun
+	let all = p.ids(c.Args)
+	if c.Lparen < 0 && p.kind(fun) == syntax.KIdent && p.text(syntax.NameOf(p.P.Tree, fun).Tok) == "with" {
+		// `with E, F { body }`, the call shape of the with form; one
+		// argument prints without parentheses (#196, D4).
+		p.token(p.start(fun), "with")
+		p.space()
+		p.exprList(all, 1)
+		p.space()
+		p.block(the(c.Trailing), true)
+		return
+	}
+	p.expr1(fun, depth)
+	// The trailing function literal goes back after the `)` (grammar.md,
+	// Expressions 9).
+	let args = if c.TrailingFunc { slices.Slice(all, 0, len(all)-1) } else { all }
+	let argDepth = if len(args) > 1 { depth + 1 } else { depth }
+	p.list(p.tp(c.Lparen), "(", p.starts(args), func(i int) { p.expr1(args[i], argDepth) }, p.tp(c.Rparen), ")")
+	if c.TrailingFunc {
+		p.space()
+		p.expr1(all[len(all)-1], depth)
+	}
+	if some(c.Trailing) {
+		p.space()
+		p.block(the(c.Trailing), true)
+	}
+}
+
+func funcType(p mut Printer, t dense.ID[syntax.Node]) {
+	let f = syntax.FuncTypeOf(p.P.Tree, t)
+	if f.Escaping >= 0 {
+		p.token(p.tp(f.Escaping), "escaping")
+		p.space()
+	}
+	if f.Entry >= 0 {
+		p.token(p.tp(f.Entry), "entry")
+		p.space()
+	}
+	if f.Func >= 0 {
+		p.token(p.tp(f.Func), "func")
+	}
+	p.signature(t)
+}
+
+// element prints a composite literal element. A keyed element that starts
+// its line aligns its value with the keyed elements of the lines around it.
+func element(p mut Printer, x dense.ID[syntax.Node]) {
+	if p.kind(x) != syntax.KKeyValueExpr {
+		p.expr(x)
+		return
+	}
+	let kv = syntax.KeyValueExprOf(p.P.Tree, x)
+	let startsLine = !p.L.Started || p.L.PendingNL > 0
+	p.expr(kv.Key)
+	p.token(p.tp(kv.Colon), ":")
+	if p.gap(p.start(kv.Value), false) {
+		p.indent(1)
+		p.expr(kv.Value)
+		p.indent(-1)
+		return
+	}
+	if startsLine {
+		p.L.sep()
+	} else {
+		p.space()
+	}
+	p.expr(kv.Value)
+}
+
+// slice prints the indices of a slice expression with gofmt's blanks: around
+// the colons when more than one index is present and one is binary.
+func slice(p mut Printer, x dense.ID[syntax.Node], depth int) {
+	let s = syntax.SliceExprOf(p.P.Tree, x)
+	let mut indices = []dense.Opt[syntax.Node]{s.Low, s.High}
+	if s.Slice3 {
+		indices = indices.Append(s.Max)
+	}
+	let mut blanks = false
+	if depth <= 1 {
+		let mut count = 0
+		let mut binary = false
+		for e in indices {
+			if some(e) {
+				count += 1
+				binary = binary || p.kind(the(e)) == syntax.KBinaryExpr
+			}
+		}
+		blanks = count > 1 && binary
+	}
+	for i, e in indices {
+		if i > 0 {
+			if some(indices[i-1]) && blanks {
+				p.space()
+			}
+			p.synth(":")
+			if some(e) && blanks {
+				p.space()
+			}
+		}
+		if some(e) {
+			p.expr1(the(e), depth+1)
+		}
+	}
+}
+
+// ---------------------------------------------------------------- binary expressions (go/printer's spacing)
+
+// opOf is the operator kind of a binary expression.
+func opOf(p mut Printer, x dense.ID[syntax.Node]) uint8 { syntax.TokKind(p.P, syntax.BinaryExprOf(p.P.Tree, x).Op) }
+
+// binary prints x with gofmt's blanks: an operator of a precedence at or
+// above the expression's cutoff is written without blanks (x*y + z).
+func binary(p mut Printer, x dense.ID[syntax.Node], depth int) {
+	let b = syntax.BinaryExprOf(p.P.Tree, x)
+	let op = syntax.TokKind(p.P, b.Op)
+	let prec = precedence(op)
+	let blank = prec < p.cutoff(x, depth)
+	p.binaryOperand(b.X, depth+p.diffPrec(b.X, prec))
+	if blank {
+		p.space()
+	}
+	p.token(p.tp(b.Op), tokenText(op))
+	p.gap(p.start(b.Y), blank)
+	p.binaryOperand(b.Y, depth+1)
+}
+
+func binaryOperand(p mut Printer, x dense.ID[syntax.Node], depth int) {
+	if p.kind(x) == syntax.KBinaryExpr && p.opOf(x) != syntax.DotDot {
+		p.binary(x, depth)
+		return
+	}
+	p.expr1(x, depth)
+}
+
+// binaryBreaks reports whether the source breaks a line after an operator
+// of the binary expression x or its binary operands.
+func binaryBreaks(p mut Printer, x dense.ID[syntax.Node]) bool {
+	let b = syntax.BinaryExprOf(p.P.Tree, x)
+	if p.ln(p.start(b.Y)) > p.ln(p.tp(b.Op)) {
+		return true
+	}
+	if p.kind(b.X) == syntax.KBinaryExpr && p.binaryBreaks(b.X) {
+		return true
+	}
+	p.kind(b.Y) == syntax.KBinaryExpr && p.binaryBreaks(b.Y)
+}
+
+func cutoff(p mut Printer, e dense.ID[syntax.Node], depth int) int {
+	let w = p.walkBinary(e)
+	if w.MaxProblem > 0 {
+		return w.MaxProblem + 1
+	}
+	if w.Has4 && w.Has5 {
+		return if depth == 1 { 5 } else { 4 }
+	}
+	if depth == 1 { 6 } else { 4 }
+}
+
+func diffPrec(p mut Printer, x dense.ID[syntax.Node], prec int) int {
+	if p.kind(x) != syntax.KBinaryExpr || prec != precedence(p.opOf(x)) {
+		return 1
+	}
+	0
+}
+
+// walkBinary is go/printer's walkBinary, memoised per node: cutoff asks it
+// for every operator of a chain, which would be quadratic in the chain's
+// length.
+func walkBinary(p mut Printer, e dense.ID[syntax.Node]) Walk {
+	let i = dense.Index(e)
+	if len(p.WalkedSet) == 0 {
+		let n = syntax.NumNodes(p.P.Tree)
+		p.Walked = slices.Repeat([]Walk{Walk{Has4: false, Has5: false, MaxProblem: 0}}, n)
+		p.WalkedSet = slices.Repeat([]bool{false}, n)
+	}
+	if p.WalkedSet[i] {
+		return p.Walked[i]
+	}
+	p.Walks += 1
+	let b = syntax.BinaryExprOf(p.P.Tree, e)
+	let op = syntax.TokKind(p.P, b.Op)
+	let prec = precedence(op)
+	let mut has4 = prec == 4
+	let mut has5 = prec == 5
+	let mut maxProblem = 0
+	let l = b.X
+	if p.kind(l) == syntax.KBinaryExpr && precedence(p.opOf(l)) >= prec {
+		let w = p.walkBinary(l)
+		has4 = has4 || w.Has4
+		has5 = has5 || w.Has5
+		maxProblem = cmp.Max(maxProblem, w.MaxProblem)
+	}
+	let r = b.Y
+	let rk = p.kind(r)
+	if rk == syntax.KBinaryExpr {
+		if precedence(p.opOf(r)) > prec {
+			let w = p.walkBinary(r)
+			has4 = has4 || w.Has4
+			has5 = has5 || w.Has5
+			maxProblem = cmp.Max(maxProblem, w.MaxProblem)
+		}
+	} else if rk == syntax.KStarExpr {
+		if op == syntax.Quo {
+			maxProblem = 5
+		}
+	} else if rk == syntax.KUnaryExpr {
+		match tokenText(op) + tokenText(syntax.TokKind(p.P, syntax.UnaryExprOf(p.P.Tree, r).Op)) {
+		case "/*", "&&", "&^":
+			maxProblem = 5
+		case "++", "--":
+			maxProblem = cmp.Max(maxProblem, 4)
+		case _:
+		}
+	}
+	let w = Walk{Has4: has4, Has5: has5, MaxProblem: maxProblem}
+	p.Walked[i] = w
+	p.WalkedSet[i] = true
+	w
+}

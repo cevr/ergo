@@ -278,13 +278,13 @@ func (c *checker) providerClose(p Type) *Close {
 	if p == nil {
 		return nil
 	}
-	if _, f := c.methodOf(p, "Close"); f != nil {
+	if _, f := c.methodOf(p, c.closeName()); f != nil {
 		if f.Decl == nil || f.Pkg == nil || f.Pkg.Info == nil || f.Pkg.Info.Closes[f.Decl] == nil {
 			return nil
 		}
 		return &Close{Receiver: p, Func: f}
 	}
-	return c.closeOperation(p, nil, "Close")
+	return c.closeOperation(p, nil, c.closeName())
 }
 
 // closeWitnessed is the S109 of a provider whose generic Close has a type
@@ -562,7 +562,7 @@ func (c *checker) seedSig(t *Signature) Type {
 		return nil
 	}
 	return &Signature{Params: params, Results: results, Fallible: t.Fallible, Errors: errs, Uses: uses,
-		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf}
+		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf, MutSelf: t.MutSelf}
 }
 
 // sameAcross reports that a, a type of one check, and b, of another,

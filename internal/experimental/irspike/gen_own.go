@@ -8,9 +8,10 @@ import (
 
 // ownFuncs are the functions GenerateOwn writes besides the owN: give
 // returns the value it owns (v1.ReturnStatic), keep owns its taken
-// parameter, guarded owns two in a frame with an error row, and Res's
+// parameter, guarded owns two in a frame with an error row, tried leaves
+// its frame through a try while it owns two (TryReleases), and Res's
 // checked Close runs masked (v1.Release).
-var ownFuncs = []string{"give", "Res.keep", "guarded", "Res.Close"}
+var ownFuncs = []string{"give", "Res.keep", "guarded", "tried", "Res.Close"}
 
 // GenerateOwn is a program of owned values in static frames (FLIP F7
 // wave 2): a resource Res whose Close prints its id, and functions
@@ -94,6 +95,28 @@ func guarded(k int, bad bool) Res fails Oops needs Console {
 
 func guardedAt(k int, bad bool) int needs Console {
 	let x = guarded(k, bad) catch {
+	case Oops as o:
+		return o.code
+	}
+	use(x)
+}
+
+// tried is a static frame whose try leaves it while it owns values
+// (OWNED-LOCAL-2, Info.TryReleases): the failure edge releases what the
+// frame holds then, t before r, through the frame's deferred release, as
+// the source path's does; a success hands r on and releases t. With bad,
+// t's Close fails beside the propagated Oops.
+func tried(k int, bad bool) Res fails Oops needs Console {
+	let r = open(70 + k, false)
+	let t = open(80 + k, bad)
+	let x = try risky(k - 1)
+	let u = use(t)
+	Console.Println("tried \(x + u)")
+	r
+}
+
+func triedAt(k int, bad bool) int needs Console {
+	let x = tried(k, bad) catch {
 	case Oops as o:
 		return o.code
 	}
@@ -190,6 +213,11 @@ func give(id int, k int) Res needs Console {
 	b.WriteString("\t}\n")
 	b.WriteString("\tConsole.Println(\"\\(caught(0)) \\(caught(1))\")\n")
 	b.WriteString("\tfor k in 0..4 {\n\t\tConsole.Println(\"guarded \\(guardedAt(k, false))\")\n\t}\n")
+	b.WriteString("\tfor k in 0..3 {\n\t\tConsole.Println(\"tried \\(triedAt(k, false))\")\n\t}\n")
+	if seed%3 == 0 {
+		// A try's failure whose release fails too.
+		b.WriteString("\tConsole.Println(\"tried bad \\(triedAt(2, true))\")\n")
+	}
 	last := r.IntN(nf)
 	if seed%2 == 0 {
 		// A failure whose release fails too.

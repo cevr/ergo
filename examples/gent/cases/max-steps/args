@@ -1,0 +1,6 @@
+--script
+world.json
+--max-steps
+2
+-p
+list it forever

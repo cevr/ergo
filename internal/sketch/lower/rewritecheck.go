@@ -66,42 +66,14 @@ func RewriteChecksCached(u Unit, run func(files []File, laws []string) (string, 
 	var laws []*check.Law
 	var insts []RewriteInstance
 	for range rewriteCheckRounds {
-		ev.asked, ev.askedInsts = nil, nil
-		probe := u
-		probe.Rewrite = ev
-		if _, err := probeLower(probe); err != nil {
+		if err := ev.ask(u, len(laws) == 0); err != nil {
 			return nil, err
-		}
-		if u.AllLaws && len(laws) == 0 {
-			// Every law of the unit, whether a site asks for it or not.
-			seen := map[*check.Law]bool{}
-			for _, law := range ev.asked {
-				seen[law] = true
-			}
-			for _, rules := range newRewriter(u.Package, nil).rules {
-				for _, r := range rules {
-					if !seen[r.law] {
-						seen[r.law] = true
-						ev.asked = append(ev.asked, r.law)
-					}
-				}
-			}
-			sort.Slice(ev.asked, func(i, j int) bool { return ev.asked[i].Title(u.Package) < ev.asked[j].Title(u.Package) })
 		}
 		if len(ev.asked)+len(ev.askedInsts) == 0 {
 			break
 		}
 		laws, insts = append(laws, ev.asked...), append(insts, ev.askedInsts...)
-		t := u
-		t.Rewrite, t.Instances, t.Posts = nil, insts, nil
-		t.ImportLaws = importLawRuns(u, laws)
-		for _, law := range laws {
-			if law.Rewrite == nil {
-				// A post law's fact holds after its operation from every
-				// state, so its check starts from a drawn one.
-				t.Posts = append(t.Posts, law)
-			}
-		}
+		t := checkUnit(u, laws, insts)
 		var titles []string
 		keys := map[string]string{}
 		var out string
@@ -276,7 +248,7 @@ func hasFuncRewrites(u Unit) bool {
 	}
 	for _, p := range pkgs {
 		for _, law := range p.Laws {
-			if law.FuncRewrite != nil {
+			if law.TopRewrite() != nil {
 				return true
 			}
 		}
@@ -286,6 +258,69 @@ func hasFuncRewrites(u Unit) bool {
 
 // importLawRuns are the law runs of u's imported units whose law is one
 // of laws: the runs the root's check build adds to its own.
+// ask is one probe of the rewrite checks: the laws and site instances u's
+// rewrites ask for under ev, and, in the first round of an AllLaws unit,
+// every law of the unit whether a site asks for it or not.
+func (ev *checkedEvidence) ask(u Unit, first bool) error {
+	ev.asked, ev.askedInsts = nil, nil
+	probe := u
+	probe.Rewrite = ev
+	if _, err := probeLower(probe); err != nil {
+		return err
+	}
+	if u.AllLaws && first {
+		seen := map[*check.Law]bool{}
+		for _, law := range ev.asked {
+			seen[law] = true
+		}
+		for _, rules := range newRewriter(u.Package, nil).rules {
+			for _, r := range rules {
+				if !seen[r.law] {
+					seen[r.law] = true
+					ev.asked = append(ev.asked, r.law)
+				}
+			}
+		}
+		sort.Slice(ev.asked, func(i, j int) bool { return ev.asked[i].Title(u.Package) < ev.asked[j].Title(u.Package) })
+	}
+	return nil
+}
+
+// checkUnit is the check build's unit of the laws and site instances
+// asked so far: no rewrites, the instances, the post laws among the laws
+// (a law with no rewrite: its fact holds after its operation from every
+// state, so its check starts from a drawn one) and the imported
+// packages' runs of the laws.
+func checkUnit(u Unit, laws []*check.Law, insts []RewriteInstance) Unit {
+	t := u
+	t.Rewrite, t.Instances, t.Posts = nil, insts, nil
+	t.ImportLaws = importLawRuns(u, laws)
+	for _, law := range laws {
+		if law.Rewrite == nil {
+			t.Posts = append(t.Posts, law)
+		}
+	}
+	return t
+}
+
+// RewriteCheckUnit is the unit of the first check build RewriteChecksCached
+// lowers for u, false when its probe asks for no law: what a check build
+// hands a test entry point (LAW-RUNS-PARITY).
+func RewriteCheckUnit(u Unit) (Unit, bool, error) {
+	ev := &checkedEvidence{pkg: u.Package, ok: map[string]string{}, verdict: map[string]string{}, how: map[string]string{}, ran: map[*check.Law]bool{}, insts: map[string]bool{}}
+	if !HasRewriteLaws(u) {
+		return Unit{}, false, nil
+	}
+	ev.optimistic = true
+	if err := ev.ask(u, true); err != nil {
+		return Unit{}, false, err
+	}
+	if len(ev.asked)+len(ev.askedInsts) == 0 {
+		return Unit{}, false, nil
+	}
+	return checkUnit(u, ev.asked, ev.askedInsts), true, nil
+}
+
 func importLawRuns(u Unit, laws []*check.Law) []check.LawRun {
 	var out []check.LawRun
 	for _, imp := range u.Imports {

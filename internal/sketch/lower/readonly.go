@@ -19,8 +19,8 @@ import (
 //     used read-only (len(x.xs)) (round 5);
 //   - a for loop over x whose body makes no call, takes no address and
 //     assigns only locals that hold no Map or slice (readingLoop);
-//   - an operand of a call or method call whose result is basic
-//     (total(x), x.Sum(); readingCall).
+//   - an operand of a call or method call whose result keeps nothing of
+//     it (total(x), x.Sum(), syntax.KindOf(tree(k, t), id); readingCall).
 //
 // Nothing runs between the call and the read: the index, the other
 // operand of a comparison or a reading call, and a loop's body make no
@@ -94,6 +94,46 @@ func (w *valueWalk) readOnlyUse(x syntax.Expr) bool {
 	return false
 }
 
+// reachless reports a type whose values reach no storage a callee could
+// write: scalars, and slices, Maps, arrays, structs and tuples of them.
+// A pointer, a function, an interface, a union or a type parameter may
+// reach a root, and so may any kind this does not name. seen holds the
+// types under way: a recursive type reaches what its other parts reach.
+func reachless(t check.Type, seen map[check.Type]bool) bool {
+	if t == nil || seen[t] {
+		return true
+	}
+	seen[t] = true
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	switch u := t.(type) {
+	case *check.Basic:
+		return true
+	case *check.Slice:
+		return reachless(u.Elem, seen)
+	case *check.Array:
+		return reachless(u.Elem, seen)
+	case *check.Map:
+		return reachless(u.Key, seen) && reachless(u.Elem, seen)
+	case *check.Tuple:
+		for _, e := range u.Types {
+			if !reachless(e, seen) {
+				return false
+			}
+		}
+		return true
+	case *check.Struct:
+		for _, f := range u.Fields {
+			if !reachless(f.Type, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // callFree reports an expression or a block that makes no call but len
 // and conversions, so no write runs while it is evaluated.
 func (w *valueWalk) callFree(x syntax.Node) bool {
@@ -111,25 +151,41 @@ func (w *valueWalk) callFree(x syntax.Node) bool {
 }
 
 // readingCall reports a call that only reads its operand child
-// (sum(part(*r)), nums(*r).Sum()): a function whose result holds no Map
-// or slice, so it keeps nothing of its operands, and whose other operands
-// make no call and are basic values, so nothing writes the root between
-// the result's call and this one, nor in it. Only a pointer or a callback
-// operand reaches the root (total3(part(*r), r) writes r.s first, then
-// reads the slice); a value parameter is never written through, as an
-// Ergo body copies where it writes and a Go call copies its operands
-// (gocall.go). So the callee need not be pure (round 5: a purity check
-// here was an equivalent mutant, sort.Ints(part(*r)) and an Ergo wrapper
-// of it agree without it).
+// (sum(part(*r)), nums(*r).Sum()): a function whose result keeps nothing
+// of the operand, and whose other operands make no call and reach no
+// root, so nothing writes the root between the result's call and this
+// one, nor in it.
+//
+// The result keeps nothing when it is basic or does not depend on the
+// operand by the result-alias summary (syntax.BlockStmtOf(tree(k, t), b),
+// a struct of indices; syntax.Children(tree(k, t), x, []uint32{}), whose
+// result is its out; OWN1 BORROW-RET, lane C's typer).
+//
+// Only a pointer or a callback operand reaches the root (total3(part(*r),
+// r) writes r.s first, then reads the slice; a struct holds no borrow,
+// and a function literal stored in one escapes, so it cannot write a
+// frame it captures, S108); a value parameter is never written
+// through, as an Ergo body copies where it writes and a Go call copies its
+// operands (gocall.go). So another operand may be any value whose type
+// holds no pointer, function, interface or type parameter (reachless:
+// dense.ID[Node], a []uint32 literal), and the callee need not be pure
+// (round 5: a purity check here was an equivalent mutant, sort.Ints(part(*r))
+// and an Ergo wrapper of it agree without it).
 func (w *valueWalk) readingCall(p *syntax.CallExpr, c *check.Call, child syntax.Node) bool {
-	if c.Kind != check.CallFunc || c.Func == nil || !basicResult(w.typeOf(p)) {
+	if c.Kind != check.CallFunc || c.Func == nil {
 		return false
+	}
+	if !basicResult(w.typeOf(p)) {
+		j := operandIndex(p, c, child)
+		if deps := w.l.resultDeps(c.Func); j < 0 || j >= len(deps) || deps[j] {
+			return false
+		}
 	}
 	found := false
 	for _, op := range callOperands(p, c) {
 		if syntax.Node(op) == child {
 			found = true
-		} else if !w.callFree(op) || !basicResult(w.typeOf(op)) {
+		} else if !w.callFree(op) || !reachless(w.typeOf(op), map[check.Type]bool{}) {
 			return false
 		}
 	}

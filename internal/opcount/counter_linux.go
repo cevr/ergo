@@ -50,12 +50,17 @@ const (
 // processes the thread starts, and enabled in each at its exec (as `perf
 // stat` counts a command), so the caller's own threads are never counted.
 func openCounter() (int, error) {
-	attr := perfEventAttr{
+	return openThreadCounter(perfEventAttr{
 		Type:       perfTypeHardware,
 		Config:     perfCountHWInstr,
 		ReadFormat: perfFormatEnabled | perfFormatRunning,
 		Flags:      perfFlagDisabled | perfFlagInherit | perfFlagExclKernel | perfFlagExclHV | perfFlagEnableExec,
-	}
+	})
+}
+
+// openThreadCounter opens the counter attr describes on the calling
+// thread.
+func openThreadCounter(attr perfEventAttr) (int, error) {
 	attr.Size = uint32(unsafe.Sizeof(attr))
 	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr)), 0, ^uintptr(0), ^uintptr(0), perfFlagFDCloexec, 0)
 	if errno != 0 {
@@ -158,7 +163,7 @@ func Count(cmd *exec.Cmd, limit uint64) (Run, error) {
 		if ru, ok := state.SysUsage().(*syscall.Rusage); ok {
 			r.UserCPU = time.Duration(ru.Utime.Nano())
 			r.SysCPU = time.Duration(ru.Stime.Nano())
-			r.MaxRSSKiB = ru.Maxrss
+			r.MaxRSSKiB = int64(ru.Maxrss) // int32 on 386
 		}
 	} else if waitErr != nil {
 		r.Incomplete = waitErr.Error()

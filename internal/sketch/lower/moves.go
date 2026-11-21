@@ -57,7 +57,17 @@ func (w *valueWalk) decideMoves() {
 			if o.kind != occEscape {
 				continue
 			}
-			if w.takeOf(vv, o) || w.reslices(o.path, vv) {
+			if w.takeOf(vv, o) || w.reslices(o.path, vv) || w.lateTake(vv, o, nil) {
+				w.vf.moved[o.path] = true
+				w.l.stats.Moves++
+			}
+		}
+	}
+	// A late take of a field of an owned parameter, which its bind takes
+	// into a let mut whole (ownedBind, fieldflow.go).
+	for _, b := range w.ownedBinds() {
+		for _, o := range b.param.occs {
+			if o.kind == occEscape && o.path != b.bind && w.lateTake(b.into, o, b.param) {
 				w.vf.moved[o.path] = true
 				w.l.stats.Moves++
 			}
@@ -90,19 +100,19 @@ func (w *valueWalk) takeOf(vv *vvar, o *vocc) bool {
 	if !w.placeOf(o.path, vv.v) {
 		return false
 	}
-	spec, ok := w.parent[o.path].(*syntax.VarSpec)
+	spec, ok := w.parentOf(o.path).(*syntax.VarSpec)
 	if !ok || spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 || spec.Values[0] != o.path {
 		return false
 	}
-	decl, ok := w.parent[spec].(*syntax.VarDecl)
+	decl, ok := w.parentOf(spec).(*syntax.VarDecl)
 	if !ok || len(decl.Specs) != 1 {
 		return false
 	}
-	stmt, ok := w.parent[decl].(*syntax.DeclStmt)
+	stmt, ok := w.parentOf(decl).(*syntax.DeclStmt)
 	if !ok {
 		return false
 	}
-	block, ok := w.parent[stmt].(*syntax.BlockStmt)
+	block, ok := w.parentOf(stmt).(*syntax.BlockStmt)
 	if !ok {
 		return false
 	}
@@ -139,6 +149,94 @@ func (w *valueWalk) plainFresh(e syntax.Expr, v *check.Var) bool {
 		return ok
 	})
 	return ok
+}
+
+// moveOver (wf10 ST X1) lets a bind take a dead, unshared local of a Map
+// or slice type whole, `let mut next = all`, when the only uses that keep
+// it from moving are earlier pure calls that keep a part of it in their
+// result (`let s = shelfOf(all, k)`, alias.go): their results are copied
+// instead (vf.clone[o.call], as V2 copies a result), so they share nothing
+// with the local, and the bind moves it. A store's sync.Modify that reads
+// one entry and writes one key back then copies the entry, not the whole
+// Map (pinata's payments: 83% of the bytes a request allocated). Each such
+// result is a part of the local, not the whole: its type reaches no Map or
+// slice of the local's own type and hides no part (a function value). And
+// each call runs at most once per bind: it is in no loop the bind is
+// outside.
+//
+// The reference is valueLowering "copy" (valueOwned), which copies the
+// local at the bind; TestValueRuleAgrees holds both to the value model.
+func (w *valueWalk) moveOver(e syntax.Expr) {
+	if !valueOwned() || w.fresh(e) {
+		return
+	}
+	id, ok := unparen(e).(*syntax.Ident)
+	if !ok {
+		return
+	}
+	v, ok := w.info.Uses[id].(*check.Var)
+	if !ok {
+		return
+	}
+	vv := w.varOf(v)
+	if !vv.local || vv.ptr || !vv.mut && !vv.handed {
+		return
+	}
+	var own string
+	switch u := underEqual(w.typeOf(id)).(type) {
+	case *check.Map, *check.Slice:
+		own = w.l.typeKey(u)
+	default:
+		return
+	}
+	var use *vocc
+	for _, o := range vv.occs {
+		if o.id == id {
+			use = o
+		}
+	}
+	if use == nil {
+		return
+	}
+	var calls []*syntax.CallExpr
+	for _, o := range vv.occs {
+		if o == use || o.kind != occEscape && o.kind != occReturn || w.vf.clone[o.path] || w.vf.handed[o.path] {
+			continue
+		}
+		if o.pre > use.pre || w.exclusive(o.id, use.id) {
+			// freshPath decides whether a later use stops the move (one
+			// in another arm, or past a return, does not).
+			continue
+		}
+		if o.kind != occEscape || !o.result || o.call == nil || o.frame != use.frame || w.inFlight(vv, o) {
+			return
+		}
+		for _, l := range o.loops {
+			if !containsNode(use.loops, l) {
+				return
+			}
+		}
+		set := map[string]bool{}
+		if w.l.reaches(w.typeOf(o.call), set, map[check.Type]bool{}) || set[own] {
+			return
+		}
+		calls = append(calls, o.call)
+	}
+	var marked []*syntax.CallExpr
+	for _, c := range calls {
+		if !w.vf.clone[c] {
+			w.vf.clone[c] = true
+			marked = append(marked, c)
+		}
+	}
+	if !w.fresh(e) {
+		// Something else stops the move: the results stay uncopied.
+		for _, c := range marked {
+			delete(w.vf.clone, c)
+		}
+		return
+	}
+	w.l.stats.ResultCopies += len(marked)
 }
 
 // resliceOf reports the read e of the root vv as the value of

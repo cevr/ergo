@@ -6,7 +6,9 @@
 // prelude's Ambient, which only the entry provides. So code that makes a
 // Host shows Ambient in its row: main lists it and binds
 // `context { fs.Files: fs.NewHost() }`. A test cannot get Ambient and
-// binds Memory instead (memory.ergo), a tree of files in memory. The
+// binds fstest.Memory instead, a tree of files in memory, or the disk in
+// a folder of its case's own through NewTestHost, under the test's
+// ambient (confined.ergo). The
 // externs are unexported, so a program reads or writes the disk only
 // through a Host it was given or made under Ambient. No handle is exposed,
 // so no file stays open after a call returns, except an explicit HostRoot.
@@ -20,6 +22,10 @@ extern go ergo.local/prototype/runtime/v1.Denied type Denied { Path string }
 // Failed is any other failure of an operation at Path. Reason is the
 // host's text for it, without the path, such as "is a directory".
 extern go ergo.local/prototype/runtime/v1.Failed type Failed { Path string, Reason string }
+
+// CrossDevice is the failure of a hard link between two file systems:
+// Link never copies instead (G6).
+extern go ergo.local/prototype/runtime/v1.CrossDevice type CrossDevice { From string, To string }
 
 // Info describes the file at a path: its last element, its size in bytes,
 // whether it is a directory, and its permission bits as Perm gives them
@@ -297,19 +303,18 @@ extern go ergo.local/prototype/runtime/v1.FSOpenRoot func OpenRoot(dir string) H
 
 // Host is the host's Files and Writes provider. Its field gives this
 // package the construction authority (types.md, Zero values 6): no other
-// package writes fs.Host{}, its zero value or a record update of it.
-type Host { live hostOnly } implements Files, Writes
-
-// hostOnly is the zero-size type of Host's field, so Host stays zero size.
-type hostOnly {}
+// package writes fs.Host{}, its zero value or a record update of it. root
+// is "" for the host's own (NewHost), and the case's folder for a test's
+// (NewTestHost, confined.ergo).
+type Host { root string } implements Files, Writes
 
 // NewHost is the host's Files and Writes provider. It needs Ambient: only
 // code whose row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs Ambient { Host{root: ""} }
 
 // ReadFile is the whole text of the file at path.
-func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {
-	try hostReadFile(path)
+func ReadFile(h Host, path string) string fails NotFound | Denied | Failed {
+	try hostReadFile(try at(h, path))
 }
 
 // Text is the text of a Mapped: a borrow of it (types.md, Borrows 8). It
@@ -320,8 +325,10 @@ func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {
 // the call. Every use of a text is a use of its Mapped, so no text is read
 // after its Mapped is closed. A slice of a text is a text of the same
 // Mapped. Clone copies one into a string that may outlive it; no
-// conversion makes a string of a Text or a Text of a string.
-type Text string
+// conversion makes a string of a Text or a Text of a string. Its Go type
+// is the runtime's mapped text, and the borrow rule reads that, not this
+// package's name: a copy of fs is the same.
+extern go ergo.local/prototype/runtime/v1.MappedText type Text string
 
 // Mapped is a file's text, read through a read-only mapping of the file
 // instead of a copy (MapFile), or a text held in memory (MapText). Close
@@ -342,8 +349,8 @@ extern go ergo.local/prototype/runtime/v1.Mapped type Mapped {
 // truncates while it is mapped makes a read past its new end a defect that
 // names the file, never a crash of the process. It is a function of Host
 // alone, not an operation of Files.
-func MapFile(_ Host, path string) Mapped fails NotFound | Denied | Failed {
-	try hostMapFile(path)
+func MapFile(h Host, path string) Mapped fails NotFound | Denied | Failed {
+	try hostMapFile(try at(h, path))
 }
 
 // MapText is a Mapped whose text is text, held in memory: a provider in
@@ -361,58 +368,117 @@ law MapTextIsText(s string) {
 }
 
 // ReadDir is the names of the entries of the directory at path, sorted.
-func ReadDir(_ Host, path string) []string fails NotFound | Denied | Failed {
-	try hostReadDir(path)
+func ReadDir(h Host, path string) []string fails NotFound | Denied | Failed {
+	try hostReadDir(try at(h, path))
 }
 
 // Stat describes the file at path, after symbolic links.
-func Stat(_ Host, path string) Info fails NotFound | Denied | Failed {
-	try hostStat(path)
+func Stat(h Host, path string) Info fails NotFound | Denied | Failed {
+	try hostStat(try at(h, path))
 }
 
 // WriteFile makes the file at path hold text, by a new file in its
 // directory renamed over it.
-func WriteFile(_ Host, path string, text string) fails NotFound | Denied | Failed {
-	try hostWriteFile(path, text)
+func WriteFile(h Host, path string, text string) fails NotFound | Denied | Failed {
+	try hostWriteFile(try at(h, path), text)
 }
 
 // MkdirAll makes the directory path and each missing parent.
-func MkdirAll(_ Host, path string) fails Denied | Failed {
-	try hostMkdirAll(path)
+func MkdirAll(h Host, path string) fails Denied | Failed {
+	try hostMkdirAll(try at(h, path))
 }
 
 // WriteFileMode makes the file at path hold text with exactly mode, by a
 // new file made with mode in its directory and renamed over it.
-func WriteFileMode(_ Host, path string, text string, mode Mode) fails NotFound | Denied | Failed {
-	try hostWriteFileMode(path, text, Perm(mode))
+func WriteFileMode(h Host, path string, text string, mode Mode) fails NotFound | Denied | Failed {
+	try hostWriteFileMode(try at(h, path), text, Perm(mode))
 }
 
 // MkdirAllMode makes the directory path and each missing parent, each
 // with exactly mode.
-func MkdirAllMode(_ Host, path string, mode Mode) fails Denied | Failed {
-	try hostMkdirAllMode(path, Perm(mode))
+func MkdirAllMode(h Host, path string, mode Mode) fails Denied | Failed {
+	try hostMkdirAllMode(try at(h, path), Perm(mode))
 }
 
 // AppendFile adds text at the end of the file at path in one write.
-func AppendFile(_ Host, path string, text string) fails NotFound | Denied | Failed {
-	try hostAppendFile(path, text)
+func AppendFile(h Host, path string, text string) fails NotFound | Denied | Failed {
+	try hostAppendFile(try at(h, path), text)
 }
 
 // Chmod gives the file at path exactly mode.
-func Chmod(_ Host, path string, mode Mode) fails NotFound | Denied | Failed {
-	try hostChmod(path, Perm(mode))
+func Chmod(h Host, path string, mode Mode) fails NotFound | Denied | Failed {
+	try hostChmod(try at(h, path), Perm(mode))
 }
 
 // Rename moves the file at from to to.
-func Rename(_ Host, from string, to string) fails NotFound | Denied | Failed {
-	try hostRename(from, to)
+func Rename(h Host, from string, to string) fails NotFound | Denied | Failed {
+	try hostRename(try at(h, from), try at(h, to))
 }
 
 // Remove removes the file, or the empty directory, at path.
-func Remove(_ Host, path string) fails NotFound | Denied | Failed {
-	try hostRemove(path)
+func Remove(h Host, path string) fails NotFound | Denied | Failed {
+	try hostRemove(try at(h, path))
 }
 
+// Exchange makes the files at a and b trade places in one host call, so
+// a reader of either path sees the old file or the new one and never no
+// file. Both must be there: a missing one is NotFound, naming it, and
+// nothing moves. A host or a file system with no atomic exchange is
+// Failed "no atomic exchange on this host": Exchange is never done by
+// renames a reader could see half done. Linux has one (renameat2 with
+// RENAME_EXCHANGE), and macOS (renamex_np with RENAME_SWAP). It is a function of Host alone, not an operation of Writes, as
+// LockFile is.
+func Exchange(h Host, a string, b string) fails NotFound | Denied | Failed {
+	try hostExchange(try at(h, a), try at(h, b))
+}
+
+// Link makes to a second name of the file at from, a hard link (G6): both
+// names are one file, so a write through either is read through the
+// other, and SameFile(from, to) holds. A file at to is Failed "file
+// exists": Link never replaces one, so a caller links at a new name beside
+// to and renames it over to. Two file systems are CrossDevice, never a
+// copy. It is a function of Host alone, not an operation of Writes, as
+// Exchange is.
+func Link(h Host, from string, to string) fails NotFound | Denied | Failed | CrossDevice {
+	try hostLink(try at(h, from), try at(h, to))
+}
+
+// SameFile reports whether the paths a and b name one file, after
+// symbolic links, by the host's identity of a file (the device and the
+// inode on Unix), not by name or bytes (G6): a hard link and its source
+// are one file; a copy is not. A path with no file is NotFound, naming it.
+func SameFile(h Host, a string, b string) bool fails NotFound | Denied | Failed {
+	try hostSameFile(try at(h, a), try at(h, b))
+}
+
+// FileLock is an exclusive kernel lock on a file, which LockFile took and
+// UnlockFile gives back. Its field gives this package the construction
+// authority: no other package makes one.
+type FileLock { fd int }
+
+// LockFile takes an exclusive kernel lock (flock) on the file at path,
+// made when it is missing, or None when another open of the file holds
+// it for all of wait (0 tries once). Two LockFile calls exclude each
+// other whether they are in one process or two, and the host releases
+// the lock of a process that ends, however it ends, so a dead holder
+// never strands it. The lock is advisory: it excludes only LockFile. The
+// wait is a host wait, as a slow read's is: a stop of the caller ends it
+// at most wait later. It is a function of Host alone: a memory disk has
+// one process, whose own lock counts. A test's Host locks in its folder.
+func LockFile(h Host, path string, wait duration) Option[FileLock] fails NotFound | Denied | Failed {
+	let fd = try hostLockFile(try at(h, path), wait)
+	if fd < 0 {
+		return None
+	}
+	Some[FileLock]{Value: FileLock{fd: fd}}
+}
+
+// UnlockFile gives back the lock l. A second UnlockFile of l does
+// nothing.
+func UnlockFile(_ Host, l FileLock) { hostUnlockFile(l.fd) }
+
+extern go ergo.local/prototype/runtime/v1.FSLockFile func hostLockFile(path string, wait duration) int fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSUnlockFile func hostUnlockFile(fd int)
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) Mapped fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
@@ -425,3 +491,6 @@ extern go ergo.local/prototype/runtime/v1.FSAppendFile func hostAppendFile(path 
 extern go ergo.local/prototype/runtime/v1.FSChmod func hostChmod(path string, perm int) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSRename func hostRename(from string, to string) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSRemove func hostRemove(path string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSExchange func hostExchange(a string, b string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSLink func hostLink(from string, to string) fails NotFound | Denied | Failed | CrossDevice
+extern go ergo.local/prototype/runtime/v1.FSSameFile func hostSameFile(a string, b string) bool fails NotFound | Denied | Failed

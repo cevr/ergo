@@ -1,0 +1,7 @@
+// The work.Hooks law on the host, in a folder of each case's own
+// (TestAmbient): each hook runs sh for real, in the folder.
+
+import exec
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient { work.Hooks: NewHooks(exec.NewTestHost()) }

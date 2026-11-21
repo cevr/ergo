@@ -1,0 +1,6 @@
+> list it forever
+→ list {"dir":"."}
+= a.txt
+→ list {"dir":"."}
+= a.txt
+# stopped after 2 steps

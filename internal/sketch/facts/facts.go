@@ -148,12 +148,28 @@ type Table struct {
 	// function, an operation type's operation implemented by a package
 	// function at a conversion (Site is NoSym).
 	Variants, Calls, Ops []Edge
+	// Needs are function → capability, each operation type of the
+	// function's needs row as the checker derived it (Site is NoSym).
+	// Brings and Discharges are caller → capability, one per call site
+	// and capability the call charges (Site is the call's site, as in
+	// Calls): Discharges when a with around the call discharges it,
+	// Brings otherwise (rows.go). Provided are provider → capability, one
+	// per discharge and provider of the innermost with that discharges it
+	// (Site is the call's site).
+	Needs, Brings, Discharges, Provided []Edge
+	// Fails are function → failure, each element of the function's error
+	// row as the checker derived it (Site is NoSym). Raises and Caught are
+	// caller → failure, one per call site and failure the call raises:
+	// Caught when a catch around the call handles it, Raises otherwise.
+	Fails, Raises, Caught []Edge
 	// Machines are the package's machine declarations, in source order.
 	Machines []MachineGraph
 }
 
 // MachineGraph is one machine's graph (internal/sketch/machinegraph),
-// with its maps in order.
+// with its maps in order: Timers, Work and Exit (the states' exit
+// actions, FK9-g1) in the states' order, each Work and Exit place naming
+// its state in What.
 type MachineGraph struct {
 	Sym     uint32
 	States  []string
@@ -162,16 +178,28 @@ type MachineGraph struct {
 	Arms    []Arm
 	Timers  []Timer
 	Work    []Place
+	Exit    []Place
 	Unsure  []string
 }
 
-// Arm is one arm of a machine's step.
+// Arm is one arm of a machine's step. Alts holds each pattern of a case
+// of several tuple patterns (machinegraph.Arm.Alts): the arm takes a pair
+// one of them takes, not every pair of its States and Signals.
 type Arm struct {
 	At      Place
 	States  []string
 	Signals []string
 	Partial bool
 	Edges   []Transition
+	Alts    []Alt
+}
+
+// Alt is one pattern of an arm: the state and signal variants it takes
+// (nil for any), and whether it tests more than the variants.
+type Alt struct {
+	States  []string
+	Signals []string
+	Partial bool
 }
 
 // Transition is one decision an arm can give.

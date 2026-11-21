@@ -1,7 +1,6 @@
 package rt
 
 import (
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -54,8 +53,10 @@ type mapping struct {
 
 var (
 	mappingsMu sync.Mutex
-	mappings   = map[uint64]mapping{}
-	mappingID  uint64
+	// mappings is made by the first MapRegister, so a program that maps
+	// no file links no map of mappings (SIZE-HELLO).
+	mappings  map[uint64]mapping
+	mappingID uint64
 	// mappingsLive counts the live mappings; Run reads it without the
 	// lock.
 	mappingsLive atomic.Int64
@@ -67,12 +68,16 @@ var (
 // MapUnregister takes.
 func MapRegister(base, size uintptr, path string) uint64 {
 	mappingsMu.Lock()
+	if mappings == nil {
+		mappings = map[uint64]mapping{}
+	}
 	mappingID++
 	id := mappingID
 	mappings[id] = mapping{base: base, size: size, path: path}
 	mappingsMu.Unlock()
+	faultValueOf.Store(&mappedFaultValue)
 	mappingsLive.Add(1)
-	debug.SetPanicOnFault(true)
+	panicOnFault(true)
 	return id
 }
 
@@ -83,12 +88,16 @@ func MapRegister(base, size uintptr, path string) uint64 {
 // fault off bytes into the pages. MapUnregister forgets it.
 func GuardRegister(base, size uintptr, fault func(off uintptr, cause error) any) uint64 {
 	mappingsMu.Lock()
+	if mappings == nil {
+		mappings = map[uint64]mapping{}
+	}
 	mappingID++
 	id := mappingID
 	mappings[id] = mapping{base: base, size: size, fault: fault}
 	mappingsMu.Unlock()
+	faultValueOf.Store(&mappedFaultValue) // I-FLIP: LF2b x SIZE-HELLO
 	mappingsLive.Add(1)
-	debug.SetPanicOnFault(true)
+	panicOnFault(true)
 	return id
 }
 
@@ -111,13 +120,31 @@ func faultsPanic() (restore bool, set bool) {
 	if mappingsLive.Load() == 0 {
 		return false, false
 	}
-	return debug.SetPanicOnFault(true), true
+	return panicOnFault(true), true
 }
 
 // FaultValue is p, a recovered panic value, or the MappedFault it stands
 // for: a runtime error with the faulting address (SetPanicOnFault's
-// Addr) that lies inside a live mapping.
+// Addr) that lies inside a live mapping. It reaches the classifier only
+// through faultValueOf, which the first MapRegister sets: a program that
+// never maps a file never links the classifier, the iteration over the
+// mappings or MappedFault's text (SIZE-HELLO), and a fault in it is the
+// runtime's own value, as when no mapping is live.
 func FaultValue(p any) any {
+	if f := faultValueOf.Load(); f != nil {
+		return (*f)(p)
+	}
+	return p
+}
+
+// faultValueOf is the mapped-fault classifier once a file was mapped.
+var faultValueOf atomic.Pointer[func(any) any]
+
+// mappedFaultValue is the classifier as a value faultValueOf can point to.
+var mappedFaultValue = mappedFault
+
+// mappedFault is FaultValue's classifier.
+func mappedFault(p any) any {
 	e, ok := p.(interface {
 		error
 		Addr() uintptr

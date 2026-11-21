@@ -1,13 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/proclimit"
 )
 
 // TestDashGuiAgreesWithControl is the agreement property of
@@ -27,7 +33,9 @@ import (
 // feed.Frame's tasks-free path), whose text nodes must be the reference's
 // frames, with button presses read as pauses, resumes and policy swaps. A
 // failing seed prints its replay command and the first line that
-// differs.
+// differs. The Ergo program plays each script under the three pacing
+// providers of std pace (-pace edges, percent, default): a provider that
+// changes what a program prints is caught here (PACE1's seeded property).
 //
 // It builds Go because the programs under test are the linked binaries:
 // the Ergo program runs its sources as tasks and reads its standard
@@ -40,6 +48,7 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 	needsBuild(t)
 	ergoBin, work := buildCorpusProgram(t, "dash-gui")
 	control := buildCorpusControl(t, work, "dash-gui")
+	dashPacesTheCollector(t, ergoBin)
 	seeds := 150
 	first := uint64(1)
 	if s := os.Getenv("DASH_SEED"); s != "" {
@@ -55,11 +64,24 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 		script := dashScript(r)
 		want := corpusOutput(dashReference(bank, script), "", 0)
 		args := []string{"play", "-seed", strconv.Itoa(bank)}
-		for _, bin := range []string{ergoBin, control} {
-			got := runGUICorpus(t, bin, t.TempDir(), args, script)
+		// The Ergo program plays each script under every pacing provider
+		// (std pace, PACE1): when Go collects never changes what it prints.
+		// Under edges, a seed in three also holds the pacing over each run
+		// of at most 100 or 200 frames (-hold, PACE2): a held stretch
+		// changes nothing either, and the edges reach the pacing through
+		// pace.NewEvery of 1 to 4 (-every, PROV-COMPOSE): a composed
+		// provider changes nothing.
+		runs := [][]string{
+			{ergoBin, "-pace", "edges", "-hold", strconv.Itoa(int(seed%3) * 100), "-every", strconv.Itoa(int(seed%4) + 1)},
+			{ergoBin, "-pace", "percent"},
+			{ergoBin, "-pace", "default"},
+			{control},
+		}
+		for _, run := range runs {
+			got := runGUICorpus(t, run[0], t.TempDir(), append(append([]string(nil), args...), run[1:]...), script)
 			if got != want {
-				t.Fatalf("seed %d: %s printed other text than the reference\n%s\nreplay: DASH_SEED=%d go test -count=1 -run '^TestDashGuiAgreesWithControl$' ./cmd/ergo",
-					seed, filepath.Base(bin), firstDiff(got, want), seed)
+				t.Fatalf("seed %d: %s %s printed other text than the reference\n%s\nreplay: DASH_SEED=%d go test -count=1 -run '^TestDashGuiAgreesWithControl$' ./cmd/ergo",
+					seed, filepath.Base(run[0]), strings.Join(run[1:], " "), firstDiff(got, want), seed)
 			}
 		}
 		// Every fifth seed also plays a scene on the view (ui.TestHost):
@@ -75,6 +97,80 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 				t.Fatalf("seed %d: the scene printed other text than the reference\n%s\nreplay: DASH_SEED=%d go test -count=1 -run '^TestDashGuiAgreesWithControl$' ./cmd/ergo",
 					seed, firstDiff(got, want), seed)
 			}
+		}
+	}
+}
+
+// dashPacesTheCollector holds dash-gui's pacing to what each provider
+// promises (std pace, PACE1), read from Go's own collector trace
+// (GODEBUG=gctrace=1) over 4,000 frames, whose rings keep about 16 MB
+// live while each frame allocates about 90 KB: under -pace edges every
+// cycle is an edge's runtime.GC ("(forced)") and there is at least one;
+// under -pace default no cycle is forced and Go's pacer runs at least
+// one. With -hold 4000 the whole run is one held stretch (PACE2): no
+// edge inside it collects, and its release collects once, so exactly one
+// cycle is forced (Go's memory limit may still run its own). It kills the
+// mutants no output can see: an AtEdges that never collects, a
+// NewAtEdges that leaves the percent on, a main that binds Default for
+// every -pace, an AtEdges whose edges ignore a hold, a release that
+// drops the owed collection, and a NewAtEdges that sets no memory limit
+// (GC-EDGE: no cycle under -pace edges starts with the heap past it).
+// dashPaceLimitMB is dash-gui's PaceLimit in MB (main.ergo).
+const dashPaceLimitMB = 256
+
+// gcHeapAtStart reads the heap a cycle started at from a gctrace line
+// ("4->5->1 MB": at start, at end, marked live).
+var gcHeapAtStart = regexp.MustCompile(` (\d+)->\d+->\d+ MB`)
+
+func dashPacesTheCollector(t *testing.T, bin string) {
+	t.Helper()
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GOGC=") && !strings.HasPrefix(kv, "GOMEMLIMIT=") && !strings.HasPrefix(kv, "GODEBUG=") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "GODEBUG=gctrace=1")
+	for _, c := range []struct {
+		pace, hold    string
+		forced, paced bool
+	}{{"edges", "0", true, false}, {"default", "0", false, true}, {"edges", "4000", true, true}} {
+		command := exec.Command(bin, "play", "-seed", "3", "-pace", c.pace, "-hold", c.hold)
+		command.Dir, command.Env = t.TempDir(), env
+		command.Stdin = strings.NewReader("run 4000\nshow\n")
+		var stderr bytes.Buffer
+		command.Stdout, command.Stderr = io.Discard, &stderr
+		if err := proclimit.Run(command, 1<<30); err != nil {
+			t.Fatalf("dash-gui play -pace %s: %v\n%s", c.pace, err, stderr.Bytes())
+		}
+		forced, paced, peak := 0, 0, 0
+		for _, line := range strings.Split(stderr.String(), "\n") {
+			if m := gcHeapAtStart.FindStringSubmatch(line); m != nil && strings.HasPrefix(line, "gc ") {
+				mb, _ := strconv.Atoi(m[1])
+				peak = max(peak, mb)
+			}
+			switch {
+			case !strings.HasPrefix(line, "gc "):
+			case strings.HasSuffix(line, " (forced)"):
+				forced++
+			default:
+				paced++
+			}
+		}
+		// The memory bound (GC-EDGE): under -pace edges no cycle starts
+		// with the heap past the limit (dash-gui's PaceLimit, 256 MB), with
+		// a sixteenth for the bytes allocated while a cycle starts. Held
+		// whole, the run allocates about 360 MB with no edge collecting,
+		// so only Go's memory limit keeps the heap under it.
+		if c.pace == "edges" && peak > dashPaceLimitMB+dashPaceLimitMB/16 {
+			t.Errorf("dash-gui play -pace %s -hold %s: a cycle started at a %d MB heap; the memory bound is %d MB\n%s", c.pace, c.hold, peak, dashPaceLimitMB, stderr.Bytes())
+		}
+		held := c.hold != "0"
+		switch {
+		case held && forced != 1:
+			t.Errorf("dash-gui play -pace %s -hold %s: %d forced collections; want the release's one\n%s", c.pace, c.hold, forced, stderr.Bytes())
+		case !held && ((forced > 0) != c.forced || (paced > 0) != c.paced):
+			t.Errorf("dash-gui play -pace %s: %d forced and %d paced collections; want forced %v, paced %v\n%s", c.pace, forced, paced, c.forced, c.paced, stderr.Bytes())
 		}
 	}
 }

@@ -1,0 +1,178 @@
+// A scene script (ui.Act) played on the cells: each step is input at the
+// cell where the host shows the node it names, so a script that ui.Play
+// runs on ui.TestHost runs here through the grid, the hit test and the
+// focus, unchanged.
+
+import actor
+import term
+import ui
+import utf8
+
+// Find is the first node of the host's tree, in tree order, whose label is
+// label (labelOf).
+func Find[S, E, D, F](h mut Host[S, E, D, F], label string) Option[ui.Id[E]] { findIn(h, h.root, label) }
+
+func findIn[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+	for k in kidsOf(h, id) {
+		match h.nodes.Get(k) {
+		case Some[held[E]] as n:
+			if labelOf(n.Value.node) == (Some{Value: label}) {
+				return Some{Value: k}
+			}
+		case None:
+		}
+		match findIn[S, E, D, F](h, k, label) {
+		case Some[ui.Id[E]] as found:
+			return found
+		case None:
+		}
+	}
+	None
+}
+
+// CellOf is where a tap on id lands: the cell its name begins in, or else
+// the first visible cell of its box; None when no cell of it shows.
+func CellOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) Option[(int, int)] {
+	match h.drawn.Get(id) {
+	case Some[drawnAt] as d:
+		if d.Value.nameC >= 0 {
+			return Some{Value: (d.Value.nameC, d.Value.nameR)}
+		}
+		if d.Value.vis.W > 0 && d.Value.vis.H > 0 {
+			return Some{Value: (d.Value.vis.C, d.Value.vis.R)}
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// tapOn taps id where it shows, after scrolling it into view.
+func tapOn[E comparable, S, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string) fails ui.NoNode | actor.Stopped | ui.BadPatch {
+	reveal(h, id)
+	match CellOf(h, id) {
+	case Some[(int, int)] as at:
+		let (c, r) = at.Value
+		try Tap(h, c, r)
+	case None:
+		return ui.NoNode{Label: label}
+	}
+}
+
+// fill taps the field id, deletes its text with Backspace and types text.
+func fill[E comparable, S, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string, text string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch {
+	try tapOn(h, id, label)
+	for _ in 0..utf8.RuneCount(valueOf(h, id)) {
+		try Feed(h, term.Backspace)
+	}
+	try typed(h, text)
+}
+
+// Play runs a script on the host, in order. TapOn taps the cell the
+// node's name begins in; TypeInto taps the field, deletes its text and
+// types; KeyIn types a character or presses the named key; PointOn sends
+// the pointer to the Area; ScrollOn scrolls the list to the step's offset
+// in whole rows; SettleAll settles; ClickOn and FillIn act on the node
+// the locator finds, ExpectOn checks its matcher on the host's tree,
+// and NavigateTo and GoBack move the host's history. AdvanceBy does
+// nothing: a terminal's frames come from its input, not a clock. A label
+// or locator that names more than one node fails ui.Ambiguous, as on
+// ui.TestHost (NS7).
+func Play[E comparable, S, D, F](h mut Host[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch {
+	for act in script {
+		match act {
+		case ui.TapOn as x:
+			try tapOn(h, try found(h, x.Label), x.Label)
+		case ui.TypeInto as x:
+			try fill(h, try found(h, x.Label), x.Label, x.Text)
+		case ui.KeyIn as x:
+			let n = x.Press.Name
+			if n == "Enter" {
+				try Feed(h, term.Return)
+			} else if n == "Tab" {
+				try Feed(h, term.Tab)
+			} else if n == "Backspace" {
+				try Feed(h, term.Backspace)
+			} else if utf8.RuneCount(n) == 1 {
+				try Feed(h, term.Char{Text: n})
+			} else {
+				try step(h, ui.KeyDown{Press: x.Press})
+			}
+		case ui.PointOn as x:
+			let id = try found(h, x.Label)
+			reveal(h, id)
+			let over = match spotOf(h, id) {
+			case Some[spot[E]] as s:
+				zoneOver(h, s.Value, x.Pointer.X, x.Pointer.Y)
+			case None:
+				None
+			}
+			try step(h, ui.Point[E]{Id: id, Pointer: x.Pointer, Over: over})
+		case ui.ScrollOn as x:
+			let id = try found(h, x.Label)
+			h.scrolled[id] = cellOf(float32(float64(x.Offset)), CellH)
+			redraw(h)
+			try report(h)
+		case ui.SettleAll:
+			try Settle(h)
+		case ui.AdvanceBy:
+		case ui.ClickOn as x:
+			try tapOn(h, try located(h, x.At), "a located node")
+		case ui.FillIn as x:
+			try fill(h, try located(h, x.At), "a located node", x.Text)
+		case ui.ExpectOn as x:
+			try ui.ExpectIn(&h.mirror, x.At, x.Is)
+		case ui.NavigateTo as x:
+			let u = ui.ParseURL(x.Href)
+			ui.Push(h.history, u)
+			try step(h, ui.URLChanged{URL: u})
+		case ui.GoBack:
+			if ui.Back(h.history) {
+				try step(h, ui.URLChanged{URL: ui.Current(h.history)})
+			}
+		}
+	}
+}
+
+// found is the one node whose label is label: a match inside a match is
+// the same target, as ui.TestHost counts them.
+func found[S, E, D, F](h mut Host[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = labelledIn(h, h.root, label, []ui.Id[E]{})
+	if len(ids) == 0 {
+		return ui.NoNode{Label: label}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// labelledIn is acc and the nodes under id whose label is label, in tree
+// order, none searched below a match.
+func labelledIn[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E], label string, acc own []ui.Id[E]) []ui.Id[E] {
+	let mut out = acc
+	for k in kidsOf(h, id) {
+		match h.nodes.Get(k) {
+		case Some[held[E]] as n:
+			if labelOf(n.Value.node) == (Some{Value: label}) {
+				out = out.Append(k)
+				continue
+			}
+		case None:
+		}
+		out = labelledIn[S, E, D, F](h, k, label, out)
+	}
+	out
+}
+
+// located is the one node of the host's tree loc finds.
+func located[E comparable, S, D, F](h mut Host[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = ui.LocateIn(&h.mirror, loc)
+	if len(ids) == 0 {
+		return ui.NoNode{Label: "a locator"}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "a locator", Count: len(ids)}
+	}
+	ids[0]
+}

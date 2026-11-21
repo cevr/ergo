@@ -1,0 +1,378 @@
+// Package replicatest is the scripted network of the replica: two clients
+// and one authority, with every message in a queue a test owns. A command
+// a client sends is a copy in flight that the script delivers, delivers
+// again, drops or delivers out of order; a frame is made by the authority
+// from the client's cursor (or an older position) and the script delivers
+// it late, twice, or never; a client drops its cache; a link goes down.
+// One schedule is a list of ops, so a failing case prints the ops that
+// replay it.
+//
+// The laws of this file are the model-based test of the protocol
+// (models/replica): the invariants are checked on the implementation after
+// every op, and the progress law drains the network after any faults.
+
+import lease-sync/domain
+import lease-sync/lease
+import lease-sync/replica
+import lease-sync/replica/server
+import slices
+import time
+
+type Client = replica.State[lease.Pool, lease.Cmd, lease.Refusal]
+type Sig = replica.Signal[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
+type Frame = replica.Frame[lease.Pool, lease.Event, lease.Refusal]
+type Authority = server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal]
+
+let source = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
+
+// Peer is one client and what the script holds for it: the commands in
+// flight to the authority, the frames in flight to it, its link, and the
+// ghost Issued (every command it made, in order) that the checks read.
+type Peer {
+	State  Client,
+	Sent   []domain.Envelope[lease.Cmd],
+	Frames []Frame,
+	Up     bool,
+	Issued []domain.Envelope[lease.Cmd],
+}
+
+// Net is the authority and two peers.
+type Net { Auth Authority, A Peer, B Peer }
+
+let at = time.Unix(0, 0)
+
+func step(st Client, sig Sig) Client {
+	match replica.Step(source, st, sig) {
+	case Stay[Client] as s:
+		s.Next
+	case _:
+		st
+	}
+}
+
+func peer(id string) Peer {
+	let st = step(replica.Fresh[lease.Pool, lease.Cmd, lease.Refusal](lease.Empty(2)), replica.Hello{ID: replica.ClientID(id), By: "user-\(id)", At: at})
+	Peer{State: st, Sent: []domain.Envelope[lease.Cmd]{}, Frames: []Frame{}, Up: true, Issued: []domain.Envelope[lease.Cmd]{}}
+}
+
+// Start is a net with an empty log; the authority answers a pull from
+// more than tail records back with a snapshot.
+func Start(tail int) Net {
+	Net{Auth: server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, tail), A: peer("a"), B: peer("b")}
+}
+
+func get(n Net, b bool) Peer { if b { n.B } else { n.A } }
+
+func set(n Net, b bool, p Peer) Net { if b { Net{..n, B: p} } else { Net{..n, A: p} } }
+
+// deliver gives the authority m. A client learns outcomes from frames
+// only, so the answer is dropped, as a lost answer is.
+func deliver(a Authority, m domain.Envelope[lease.Cmd]) {
+	let _ = server.Push(a, m, at) catch {
+	case replica.OutOfOrder, replica.IDConflict:
+		return
+	}
+}
+
+// Apply is n after the op: its low four bits pick the action, the next
+// bit the peer, and the rest its argument.
+func Apply(n Net, op int) Net {
+	let k = (op%16 + 16) % 16
+	let who = ((op/16)%2+2)%2 == 1
+	let x = ((op/32)%997 + 997) % 997
+	let p = get(n, who)
+	let name = "n\(x % 3)"
+	if k <= 1 {
+		let cmd = if k == 0 { lease.Take{Name: name} } else { lease.Give{Name: name} }
+		let st = step(p.State, replica.Submit[lease.Cmd]{Cmd: cmd})
+		if len(st.Pending) == len(p.State.Pending) {
+			return n
+		}
+		let made = st.Pending[len(st.Pending)-1]
+		return set(n, who, Peer{..p, State: st, Issued: p.Issued.Append(made)})
+	}
+	if k <= 3 {
+		// The push loop sends a pending command: the first, or any.
+		if !p.Up || len(p.State.Pending) == 0 {
+			return n
+		}
+		let m = if k == 2 { p.State.Pending[0] } else { p.State.Pending[x%len(p.State.Pending)] }
+		return set(n, who, Peer{..p, Sent: p.Sent.Append(m)})
+	}
+	if k <= 6 {
+		// The network delivers a sent copy: and forgets it, keeps it for a
+		// duplicate, or delivers the last one before the first.
+		if len(p.Sent) == 0 {
+			return n
+		}
+		let i = if k == 6 { len(p.Sent) - 1 } else { x % len(p.Sent) }
+		deliver(n.Auth, p.Sent[i])
+		let sent = if k == 5 { p.Sent } else { slices.Delete(p.Sent, i, i+1) }
+		return set(n, who, Peer{..p, Sent: sent})
+	}
+	if k == 7 {
+		if len(p.Sent) == 0 {
+			return n
+		}
+		return set(n, who, Peer{..p, Sent: slices.Delete(p.Sent, x%len(p.Sent), x%len(p.Sent)+1)})
+	}
+	if k <= 9 {
+		// The pull loop asks from the cursor, or from an older position
+		// (an old request answered late).
+		if !p.Up {
+			return n
+		}
+		let cursor = replica.Peek(p.State).Cursor
+		let from = if k == 8 { cursor } else { x % (cursor + 1) }
+		let f = server.Pull(n.Auth, replica.ClientID(if who { "b" } else { "a" }), from)
+		return set(n, who, Peer{..p, Frames: p.Frames.Append(f)})
+	}
+	if k <= 11 {
+		// A frame arrives: the oldest, or any; it may arrive again.
+		if len(p.Frames) == 0 {
+			return n
+		}
+		let i = if k == 10 { 0 } else { x % len(p.Frames) }
+		let st = step(p.State, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: p.Frames[i], At: at})
+		let frames = if x%5 == 0 { p.Frames } else { slices.Delete(p.Frames, i, i+1) }
+		return set(n, who, Peer{..p, State: st, Frames: frames})
+	}
+	if k == 12 {
+		return set(n, who, Peer{..p, State: step(p.State, replica.DropCache)})
+	}
+	if k == 13 {
+		let conn = if p.Up { replica.Offline{Attempt: 1} } else { replica.Live }
+		return set(n, who, Peer{..p, Up: !p.Up, State: step(p.State, replica.Link{Conn: conn, At: at})})
+	}
+	if k == 14 && len(p.State.Refused) > 0 {
+		return set(n, who, Peer{..p, State: step(p.State, replica.Dismiss{ID: p.State.Refused[0].Envelope.ID})})
+	}
+	n
+}
+
+// Drain is n after the faults end: each link is up, and each peer, in
+// turn, sends its pending commands in order and reads the log until it
+// has nothing pending and its cursor is at the log's end. It stops after
+// rounds turns; Quiet says whether it got there.
+func Drain(n Net, rounds int) Net {
+	let mut out = n
+	for _ in 0..rounds {
+		if Quiet(out) {
+			return out
+		}
+		for who in []bool{false, true} {
+			let p = get(out, who)
+			let mut st = if p.Up { p.State } else { step(p.State, replica.Link{Conn: replica.Live, At: at}) }
+			for m in st.Pending {
+				deliver(out.Auth, m)
+			}
+			let id = replica.Peek(st).ID
+			st = step(st, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: server.Pull(out.Auth, id, replica.Peek(st).Cursor), At: at})
+			out = set(out, who, Peer{..p, State: st, Up: true, Sent: []domain.Envelope[lease.Cmd]{}, Frames: []Frame{}})
+		}
+	}
+	out
+}
+
+// Quiet is whether no peer has a pending command and each has read the
+// whole log.
+func Quiet(n Net) bool {
+	let end = len(server.Records(n.Auth))
+	len(n.A.State.Pending) == 0 && len(n.B.State.Pending) == 0 && replica.Peek(n.A.State).Cursor == end && replica.Peek(n.B.State).Cursor == end
+}
+
+func seqOf(id domain.CommandID) int {
+	let o = server.Origin(id)
+	replica.SeqOf(id, o)
+}
+
+// holds is whether a peer keeps the model's invariants against the
+// authority's real log: its base is the replay of the log prefix it has
+// read (BaseIsPrefixReplay); its outbox is its issued commands that the
+// log up to its floor does not hold, in order (NoLostMutation with the
+// floor); a Ready view is that base plus a rerun of the outbox
+// (ViewCommittedPlusPending); each refused command in the prefix it has
+// read is in Refused (RefusalIsTold); and each of its issued commands is
+// in the log at most once, at its number (ReceiptsContiguous).
+func holds(n Net, p Peer) bool {
+	let records = server.Records(n.Auth)
+	let inner = replica.Peek(p.State)
+	let mut prefix = []domain.Recorded[replica.Fact[lease.Event, lease.Refusal]]{}
+	let mut floorSeq = 0
+	let mut mine = 0
+	for r in records {
+		let s = replica.SeqOf(r.ID, inner.ID)
+		if s > 0 {
+			mine = mine + 1
+			if s != mine {
+				return false
+			}
+		}
+		if r.Position <= inner.Cursor {
+			prefix = prefix.Append(r)
+		}
+		if r.Position <= inner.Floor && s > floorSeq {
+			floorSeq = s
+		}
+	}
+	if inner.Base != server.Replay(source, prefix) {
+		return false
+	}
+	let mut tail = []domain.Envelope[lease.Cmd]{}
+	for m in p.Issued {
+		if replica.SeqOf(m.ID, inner.ID) > floorSeq {
+			tail = tail.Append(m)
+		}
+	}
+	if p.State.Pending != tail {
+		return false
+	}
+	match p.State.Status {
+	case replica.Ready[lease.Pool] as r:
+		if inner.Cursor < inner.Floor || r.View != replica.Rerun(source, inner.Base, tail) {
+			return false
+		}
+	case replica.Loading:
+		if inner.Cursor >= inner.Floor {
+			return false
+		}
+	}
+	true
+}
+
+// told is whether every refusal of p's commands in the prefix it has
+// read is in its Refused list or was dismissed.
+func told(n Net, p Peer, dismissed []domain.CommandID) bool {
+	let inner = replica.Peek(p.State)
+	for r in server.Records(n.Auth) {
+		if r.Position > inner.Cursor || replica.SeqOf(r.ID, inner.ID) == 0 {
+			continue
+		}
+		for f in r.Events {
+			match f {
+			case replica.Refused[lease.Refusal]:
+				let mut found = false
+				for x in p.State.Refused {
+					if x.Envelope.ID == r.ID {
+						found = true
+					}
+				}
+				for d in dismissed {
+					if d == r.ID {
+						found = true
+					}
+				}
+				if !found {
+					return false
+				}
+			case replica.Did[lease.Event]:
+			}
+		}
+	}
+	true
+}
+
+// ProtocolHolds: after each op of any schedule of the scripted network
+// (presses, sends, deliveries, duplicates, drops, reorders, pulls from the
+// cursor or an older position, frames late or twice, a dropped cache, a
+// link down), each client keeps the model's invariants against the
+// authority's log. The tail of 2 records makes the authority answer most
+// late pulls with a snapshot.
+law ProtocolHolds(ops []int) {
+	let mut n = Start(2)
+	let mut dismissed = []domain.CommandID{}
+	for op in ops {
+		let before = n
+		n = Apply(n, op)
+		for who in []bool{false, true} {
+			let p = get(n, who)
+			for r in get(before, who).State.Refused {
+				let mut kept = false
+				for x in p.State.Refused {
+					if x.Envelope.ID == r.Envelope.ID {
+						kept = true
+					}
+				}
+				if !kept {
+					dismissed = dismissed.Append(r.Envelope.ID)
+				}
+			}
+			if !holds(n, p) || !told(n, p, dismissed) {
+				return false
+			}
+			// ReadyIsStable: only a dropped cache makes a Ready client
+			// Loading; a late frame, an old snapshot included, never does.
+			if ready(get(before, who).State) && !ready(p.State) && (op%16+16)%16 != 12 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// SettledIsServerState (C3, C4, C5 and progress): after any faults, a
+// drain makes the net quiet; then each client is Ready, its view equals
+// the authority's state, and each command a client made has its one
+// record in the log.
+law SettledIsServerState(ops []int) {
+	let mut n = Start(2)
+	for op in ops {
+		n = Apply(n, op)
+	}
+	n = Drain(n, 4)
+	if !Quiet(n) {
+		return false
+	}
+	let records = server.Records(n.Auth)
+	for who in []bool{false, true} {
+		let p = get(n, who)
+		match p.State.Status {
+		case replica.Ready[lease.Pool] as r:
+			if r.View != server.State(n.Auth) {
+				return false
+			}
+		case replica.Loading:
+			return false
+		}
+		for m in p.Issued {
+			let mut count = 0
+			for r in records {
+				if r.ID == m.ID {
+					count = count + 1
+				}
+			}
+			if count != 1 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func ready(st Client) bool {
+	match st.Status {
+	case replica.Ready[lease.Pool]:
+		true
+	case replica.Loading:
+		false
+	}
+}
+
+// OldFrameIsIgnored (C2, model m5 and m6): a frame the authority made
+// earlier, a delta or a snapshot, that arrives after the client read past
+// it changes nothing: the client stays Ready with the same state. The
+// client has a command pending when the old frame is made, so the drain
+// moves the log past it; with tail, the frame is a delta or a snapshot.
+law OldFrameIsIgnored(ops []int, from int, tail bool) {
+	let mut n = Start(if tail { 4 } else { 0 })
+	for op in ops {
+		n = Apply(n, op)
+	}
+	n = Apply(n, 0)
+	let cursor = replica.Peek(n.A.State).Cursor
+	let old = server.Pull(n.Auth, replica.ClientID("a"), (from%(cursor+1)+cursor+1)%(cursor+1))
+	n = Drain(n, 4)
+	let st = n.A.State
+	let late = step(st, replica.Pulled[lease.Pool, lease.Event, lease.Refusal]{Frame: old, At: at})
+	Quiet(n) && late == st
+}

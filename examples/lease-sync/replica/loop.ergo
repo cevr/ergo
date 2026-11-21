@@ -1,0 +1,96 @@
+import lease-sync/domain
+import schedule
+import tasks
+import time
+
+// The loops of a replica, apart from the machine that runs them: Send is
+// one round of the push loop and Fetch one turn of the pull loop. Each
+// ends in the signal the client steps with, so a failure of the provider
+// is the client's connection, never its data.
+
+// Trouble is a failure of the provider as the loops see it.
+type Trouble = Unavailable | Unauthorized | OutOfOrder | IDConflict
+
+// ConnOf is the connection a trouble shows, after attempt tries:
+// Unavailable is Offline and retried; Unauthorized needs a sign-in, which
+// no retry gives; IDConflict breaks the replica (its outbox was lost or
+// forked); OutOfOrder is a round to start again from the first pending
+// command, so the link is still up.
+func ConnOf(t Trouble, attempt int) Conn {
+	match t {
+	case Unavailable:
+		Offline{Attempt: attempt}
+	case Unauthorized:
+		NeedsAuth
+	case IDConflict as x:
+		Broken{Why: "the command \(x.ID) was taken with another command"}
+	case OutOfOrder:
+		Live
+	}
+}
+
+// Send is one round of the push loop: it sends pending in order through
+// a, each command again on Unavailable as retry decides, the same
+// envelope every time, so a resend is the same id and the authority
+// answers it with its first receipt. It stops at the first trouble no
+// retry ends and is the connection that shows (Live when every command
+// was sent).
+func Send[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], pending []domain.Envelope[C], retry schedule.Schedule) Conn needs Scheduler | time.Clock {
+	for m in pending {
+		let mut tries = 0
+		let conn = tasks.Retry(retry, func() Conn fails Unavailable {
+			tries = tries + 1
+			a.Push(m) catch {
+			case Unavailable as u:
+				return u
+			case Unauthorized:
+				return ConnOf(Unauthorized, tries)
+			case OutOfOrder as o:
+				return ConnOf(o, tries)
+			case IDConflict as x:
+				return ConnOf(x, tries)
+			}
+			Live
+		}) catch {
+		case Unavailable as u:
+			return ConnOf(u, tries)
+		}
+		if conn != Live {
+			return conn
+		}
+	}
+	Live
+}
+
+// Fetch is one turn of the pull loop: the frame a reads for by from the
+// position from, at the clock's time, or the connection a trouble shows
+// once retry gives up on Unavailable.
+func Fetch[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], by ClientID, from int, retry schedule.Schedule) Signal[S, C, E, F] needs Scheduler | time.Clock {
+	let mut tries = 0
+	let frame = tasks.Retry(retry, func() Frame[S, E, F] fails Unavailable | Unauthorized {
+		tries = tries + 1
+		try a.Pull(by, from)
+	}) catch {
+	case Unavailable as u:
+		return Link{Conn: ConnOf(u, tries), At: time.Clock.Now()}
+	case Unauthorized:
+		return Link{Conn: ConnOf(Unauthorized, tries), At: time.Clock.Now()}
+	}
+	Pulled[S, E, F]{Frame: frame, At: time.Clock.Now()}
+}
+
+// Follow is the pull loop: from the position from, it fetches and gives
+// each signal to apply, which steps the client and is the cursor to pull
+// from next, or None to stop. With a long-polling provider an idle log
+// costs one call per wait, not a loop of empty frames.
+func Follow[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], by ClientID, from int, retry schedule.Schedule, apply func(sig Signal[S, C, E, F]) Option[int]) needs Scheduler | time.Clock {
+	let mut cursor = from
+	for {
+		match apply(Fetch(a, by, cursor, retry)) {
+		case Some[int] as next:
+			cursor = next.Value
+		case None:
+			return
+		}
+	}
+}

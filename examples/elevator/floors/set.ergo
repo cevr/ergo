@@ -1,0 +1,170 @@
+// Package floors holds Set, the floors a car is called to: a sorted set
+// of floors written in the value style. Each operation takes a Set and
+// gives one back, and a caller's Set is never changed by a call. The
+// compiler writes a Set in place when the caller's Set has no other
+// holder (types.md, Bindings 2): `ergo inspect copies` shows, for each
+// call, whether it hands its Set over or copies it, and why.
+
+import slices
+
+// Set is a sorted set of floors, each once.
+type Set { xs []int }
+
+// Full is an InsertCapped of a new floor into a Set of Cap floors.
+type Full { Cap int }
+
+// New is the empty Set.
+func New() Set { Set{xs: []int{}} }
+
+// Len is the number of floors in s.
+func Len(s Set) int { len(s.xs) }
+
+// Floors is the floors of s, in ascending order.
+func Floors(s Set) []int { s.xs }
+
+// at is the index where f is in s, or where it would go.
+func at(s Set, f int) int {
+	for i, x in s.xs {
+		if x >= f {
+			return i
+		}
+	}
+	len(s.xs)
+}
+
+// Has reports whether f is in s.
+func Has(s Set, f int) bool {
+	let i = at(s, f)
+	i < len(s.xs) && s.xs[i] == f
+}
+
+// Insert is s with f.
+func Insert(s Set, f int) Set {
+	let i = at(s, f)
+	if i < len(s.xs) && s.xs[i] == f {
+		return s
+	}
+	let mut t = s
+	t.xs = t.xs.Append(f)
+	for k in 0..(len(t.xs) - 1 - i) {
+		let j = len(t.xs) - 1 - k
+		t.xs[j] = t.xs[j-1]
+	}
+	t.xs[i] = f
+	t
+}
+
+// Remove is s without f.
+func Remove(s Set, f int) Set {
+	let i = at(s, f)
+	if i >= len(s.xs) || s.xs[i] != f {
+		return s
+	}
+	let mut t = s
+	for j in i..(len(t.xs) - 1) {
+		t.xs[j] = t.xs[j+1]
+	}
+	t.xs = t.xs[0 : len(t.xs)-1]
+	t
+}
+
+// InsertCapped is s with f, when s holds f already or fewer than cap
+// floors; else it fails Full and s is as it was.
+func InsertCapped(s Set, f int, cap int) Set fails Full {
+	if Has(s, f) {
+		return s
+	}
+	if len(s.xs) >= cap {
+		return Full{Cap: cap}
+	}
+	Insert(s, f)
+}
+
+// Above is the least floor of s above f.
+func Above(s Set, f int) Option[int] {
+	for x in s.xs {
+		if x > f {
+			return Some[int]{Value: x}
+		}
+	}
+	None
+}
+
+// Below is the greatest floor of s below f.
+func Below(s Set, f int) Option[int] {
+	let i = at(s, f)
+	if i > 0 {
+		return Some[int]{Value: s.xs[i-1]}
+	}
+	None
+}
+
+// SetOf is the Set of the floors fs.
+func SetOf(fs []int) Set {
+	let mut s = New()
+	for f in fs {
+		s = Insert(s, f)
+	}
+	s
+}
+
+// sorted reports whether xs ascends strictly.
+func sorted(xs []int) bool {
+	for i, x in xs {
+		if i > 0 && xs[i-1] >= x {
+			return false
+		}
+	}
+	true
+}
+
+// InsertKeepsOrder: a Set ascends strictly after an Insert, and holds the
+// floor inserted.
+law InsertKeepsOrder(fs []int, f int) {
+	let s = Insert(SetOf(fs), f)
+	sorted(Floors(s)) && Has(s, f)
+}
+
+// InsertTwiceIsOnce: a second Insert of a floor changes nothing.
+law InsertTwiceIsOnce(fs []int, f int) {
+	let s = Insert(SetOf(fs), f)
+	slices.Equal(Floors(Insert(s, f)), Floors(s))
+}
+
+// RemoveUndoesInsert: removing a floor just inserted gives the Set back,
+// when it did not hold the floor; and the Set a caller keeps is unchanged.
+law RemoveUndoesInsert(fs []int, f int) {
+	let s = Remove(SetOf(fs), f)
+	let before = slices.Clone(Floors(s))
+	let t = Remove(Insert(s, f), f)
+	slices.Equal(Floors(t), Floors(s)) && slices.Equal(Floors(s), before) && !Has(t, f)
+}
+
+// CappedHoldsTheCap: InsertCapped fails exactly when the floor is new and
+// the Set is full, and then gives nothing back.
+law CappedHoldsTheCap(fs []int, f int, c int) {
+	let cap = 1 + (if c < 0 { -(c + 1) } else { c })%8
+	let s = SetOf(fs)
+	let t = InsertCapped(s, f, cap) catch {
+	case Full:
+		return !Has(s, f) && Len(s) >= cap
+	}
+	Has(t, f) && (Has(s, f) || Len(s) < cap) && Len(t) <= Len(s)+1
+}
+
+// AboveAndBelowAreNeighbours: Above and Below are the floors of s next to
+// f, on each side.
+law AboveAndBelowAreNeighbours(fs []int, f int) {
+	let s = SetOf(fs)
+	let mut up Option[int] = None
+	let mut down Option[int] = None
+	for x in Floors(s) {
+		if x > f && up == None {
+			up = Some[int]{Value: x}
+		}
+		if x < f {
+			down = Some[int]{Value: x}
+		}
+	}
+	Above(s, f) == up && Below(s, f) == down
+}

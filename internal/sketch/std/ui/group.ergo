@@ -9,7 +9,8 @@ import arena
 // because a view is pure apart from its writes through the frame (UI 1):
 // equal arguments write equal nodes. A call that read a cell, a load, a
 // key or a frame callback is not kept, since what it writes depends on
-// more than its arguments; it runs every pass. Prior art: Compose skips a
+// more than its arguments; it runs every pass, as does one in which a
+// Same kept its subtree without running. Prior art: Compose skips a
 // composable whose arguments are stable and equal, inferred by its
 // compiler; Elm's Html.Lazy and React's memo leave it to the author.
 
@@ -28,6 +29,14 @@ extern go ergo.local/prototype/runtime/v1.UIArgsSame func argsSame[A comparable]
 
 extern go ergo.local/prototype/runtime/v1.UIArgsSet func argsSet[A comparable](m GroupArgs, slot int, a A)
 
+extern go ergo.local/prototype/runtime/v1.UIArgsPutAny func argsPutBy[A](m GroupArgs, a A) int
+
+extern go ergo.local/prototype/runtime/v1.UIArgsSetAny func argsSetBy[A](m GroupArgs, slot int, a A)
+
+extern go ergo.local/prototype/runtime/v1.UIArgsHas func argsHas[A](m GroupArgs, slot int) bool
+
+extern go ergo.local/prototype/runtime/v1.UIArgsAt func argsAt[A](m GroupArgs, slot int) A
+
 extern go ergo.local/prototype/runtime/v1.UIArgsFree func argsFree(m GroupArgs, slot int)
 
 extern go ergo.local/prototype/runtime/v1.UIArgsHeld func argsHeld(m GroupArgs) int
@@ -36,233 +45,250 @@ extern go ergo.local/prototype/runtime/v1.UIArgsHeld func argsHeld(m GroupArgs) 
 // identity there.
 type groupKey[E] { owner arena.Ref[node[E]], id ident }
 
-// keptGroup is a group of the last pass that a pass may write again: its
-// arguments' slot, the specs it wrote (parent -1 for one under the group's
-// parent, else an index among these specs) with the node each became, and
-// the keys of the groups inside it.
-type keptGroup[E] { slot int, specs []spec[E], inner []groupKey[E] }
+// keptGroup is a group a pass may write again: its key, its arguments'
+// slot, the nodes it wrote under the group's parent (tops), the keys of
+// the groups inside it, the last pass that kept it, and whether it is
+// held (an entry not held is free for another group). What is below a
+// top is in the tree already, so a group written again writes its tops
+// alone and Commit skips what is below them, as it skips a skipped
+// Same's subtree. The kept groups stay where they are from pass to pass:
+// a pass writes the entries of the groups that ran and frees those it
+// did not keep, so a pass that keeps every group writes no entry.
+// inner holds the groups inside it by their places in keptList: a group
+// inside a held group is stamped whenever that group is, so it stays held
+// in its place, and stamping it is no lookup by key (NS2c: a list holder
+// of 200 kept rows stamps 200 groups a pass).
+// alone is whether every top took the first count of its identity and
+// all share one row site (each), so writeAgain may defer their counts.
+// allOff is whether every top is disabled, offSelf whether each top is
+// disabled exactly when it is a disabled Fieldset: so the tops keep their
+// disabled state under a parent that is disabled (up) when allOff, and
+// under one that is not when offSelf (offAgrees).
+// gen is the pass that wrote the entry; within is the entry of the
+// outermost group that held this one when that group was kept, in that
+// group's gen withinGen, or -1: a group inside a group written again is
+// kept through it (keptThrough), not stamped.
+type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int, sames int }
+
+// pendingCounts is a kept group written again whose tops' counts the pass
+// has not taken: under parent spec parent (-1 the top), kept group entry,
+// its first spec start, and whether a later write took them (done).
+type pendingCounts { parent int, entry int, start int, done bool }
+
+// keptTop is one top node of a kept group: what it shows, its identity,
+// its node and its disabled state.
+type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool }
 
 // groupRec is one group of a pass: its parent spec, identity and slot, the
 // specs it wrote [start, end), the enclosing group (-1 none), whether it
-// may be kept, and the index in keptList of the kept group it wrote
-// again (-1 none).
-type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again int }
+// may be kept, the index in keptList of the kept group it wrote again
+// (-1 none) or of the entry its key found (-1 none), and whether its slot
+// is new in this pass; sames is the Sames inside it (Frame.sames).
+type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again int, entry int, fresh bool, sames int }
 
-// group writes body's nodes as one group (the compiler's form of a
-// component call, never written by a program): the nodes of the last
-// pass's group when it is kept with arguments equal to args, else body's.
-func group[E comparable, A comparable](f *Frame[E], args A, body func(), at CallSite) {
-	let id = groupIdent(f, at)
-	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
-	let outer = f.group
-	let r = len(f.groups)
-	let mut slot = -1
-	// The kept groups are a list the map indexes: a Map whose values hold
-	// slices is copied whole when read (measured: 93% of a pass).
-	match f.kept.Get(key) {
-	case Some[int] as i:
-		slot = f.keptList[i.Value].slot
-		if argsSame(f.args, slot, args) && writeAgain(f, i.Value) {
-			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: f.nspecs - len(f.keptList[i.Value].specs), end: f.nspecs, outer: outer, pure: true, again: i.Value})
-			return
-		}
-		argsSet(f.args, slot, args)
-	case None:
-		slot = argsPut(f.args, args)
+// pendingUnder is whether a kept group under parent spec p (-1 the top)
+// has not taken its tops' counts yet.
+func pendingUnder[E](f mut Frame[E], p int) bool {
+	if p < 0 {
+		return f.rootPending
 	}
-	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: f.nspecs, end: f.nspecs, outer: outer, pure: true, again: -1})
-	let cells = f.ncells
-	let loads = f.nloads
-	let keys = f.nkeys
-	let anims = f.nanims
-	let cuts = f.cuts
-	f.group = r
-	f.groupRuns = f.groupRuns + 1
-	body()
-	f.group = outer
-	f.groups[r].end = f.nspecs
-	// A boundary inside that stopped (a cut) wrote what a Pending or
-	// another failure left, which equal arguments do not decide: such a
-	// call is not kept (H8a), as one that read a cell is not.
-	f.groups[r].pure = f.ncells == cells && f.nloads == loads && f.nkeys == keys && f.nanims == anims && f.cuts == cuts
+	f.specs[p].pending
 }
 
-// groupIdent is the identity of a group under the current parent, counted
-// apart from the nodes' (identify): a node keeps the identity it has when
-// the call is no group, so cells and matching see the same nodes under
-// either lowering.
-func groupIdent[E](f *Frame[E], at CallSite) ident {
-	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
-	let n = count(f.groupSeen, s)
-	f.groupSeen[s] = n + 1
-	if f.ngroupLog < len(f.groupLog) {
-		f.groupLog[f.ngroupLog] = s
-	} else {
-		f.groupLog = f.groupLog.Append(s)
-	}
-	f.ngroupLog = f.ngroupLog + 1
-	ident{site: at, each: f.each, key: f.key, n: n}
-}
-
-// writeAgain writes the specs of kept group i under the current parent, as its call would:
-// each spec under the group's parent takes the next count of its identity
-// there, which must be the count it had, else nothing is written and the
-// call runs. It is true when it wrote them.
-func writeAgain[E](f *Frame[E], i int) bool {
-	let mut counts = Map[slotOf, int]{}
-	for s in f.keptList[i].specs {
-		if s.parent < 0 {
-			let at = slotOf{parent: f.parent, b: base{site: s.id.site, each: s.id.each, key: s.id.key}}
-			let n = count(counts, at)
-			if count(f.seen, at)+n != s.id.n {
-				return false
+// takePending takes the counts of the tops of each kept group under p
+// that has not taken them: a write under p is about to ask for one. They
+// are not logged: a cut gives them back by its pending groups (giveBack).
+func takePending[E](f mut Frame[E], p int) {
+	for b in 0..f.npending {
+		if f.pending[b].parent == p && !f.pending[b].done {
+			let e = f.pending[b].entry
+			for k in 0..len(f.keptList[e].tops) {
+				let id = f.keptList[e].tops[k].id
+				count(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}, 1)
 			}
-			counts[at] = n + 1
+			f.pending[b].done = true
 		}
 	}
-	for at, n in counts {
-		for _ in 0..n {
-			bump(f, at)
+	if p < 0 {
+		f.rootPending = false
+	} else {
+		f.specs[p].pending = false
+	}
+}
+
+// giveBack drops the pending groups a cut to spec index start takes back,
+// giving back the counts of those that took theirs.
+func giveBack[E](f mut Frame[E], start int) {
+	for f.npending > 0 && f.pending[f.npending-1].start >= start {
+		f.npending = f.npending - 1
+		let g = f.pending[f.npending]
+		if g.done {
+			let e = g.entry
+			for k in 0..len(f.keptList[e].tops) {
+				let id = f.keptList[e].tops[k].id
+				count(f, slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}, -1)
+			}
 		}
 	}
-	let first = f.nspecs
-	for s in f.keptList[i].specs {
-		let mut parent = f.parent
-		if s.parent >= 0 {
-			parent = first + s.parent
-		}
-		let _ = link(f, spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: arena.Null[node[E]](), onText: s.onText, onPoint: s.onPoint, binds: s.binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1})
-	}
-	true
 }
 
 // keepGroups makes the pass's groups the kept groups of the next pass,
-// after Commit set each spec's node: a pure group is kept with the specs
-// it wrote; a group written again also keeps the groups inside it. The
-// slot of a group no longer kept is freed.
-func keepGroups[E](f *Frame[E]) {
-	let mut next = Map[groupKey[E], int]{}
-	let mut list = []keptGroup[E]{}
-	let mut keys = []groupKey[E]{}
-	let mut inner = [][]groupKey[E]{}
-	for g in f.groups {
-		let mut o = f.root
-		if g.parent >= 0 {
-			o = f.specs[g.parent].ref
+// after Commit set each spec's node. A group written again is kept as it
+// was, with the groups inside it; a pure group that ran is kept with the
+// top nodes it wrote, in its entry when its key had one; every entry the
+// pass did not keep is freed, with its slot, as is the new slot of a group
+// not kept. The groups are taken from the last to the first, so the
+// groups inside a group are known when it is kept.
+func keepGroups[E](f mut Frame[E]) {
+	f.keptPasses = f.keptPasses + 1
+	let stamp = f.keptPasses
+	// stamped counts the held entries this pass keeps: when it is every
+	// held entry, none is freed and the entries are not walked.
+	let mut stamped = 0
+	let mut inner = [][]int{}
+	if f.nested {
+		for _ in 0..f.ngroups {
+			inner = inner.Append([]int{})
 		}
-		keys = keys.Append(groupKey[E]{owner: o, id: g.id})
-		inner = inner.Append([]groupKey[E]{})
 	}
-	for i, g in f.groups {
-		let mut add = []groupKey[E]{keys[i]}
+	for back in 0..f.ngroups {
+		let r = f.ngroups - 1 - back
+		let g = f.groups[r]
 		if g.again >= 0 {
-			for x in f.keptList[g.again].inner {
-				add = add.Append(x)
-				match f.kept.Get(x) {
-				case Some[int] as old:
-					next[x] = len(list)
-					list = list.Append(f.keptList[old.Value])
-				case None:
+			// The groups inside it are kept through it: counted, not
+			// stamped (a list holder of 800 rows holds 800).
+			stamped = stamped + restamp(f, g.again, stamp) + len(f.keptList[g.again].inner)
+			let mut up = g.outer
+			for up >= 0 {
+				inner[up] = inner[up].Append(g.again)
+				for x in f.keptList[g.again].inner {
+					inner[up] = inner[up].Append(x)
 				}
+				up = f.groups[up].outer
 			}
-			inner[i] = f.keptList[g.again].inner
-		}
-		let mut up = g.outer
-		for up >= 0 {
-			for x in add {
-				inner[up] = inner[up].Append(x)
+		} else if g.pure {
+			let mut o = f.root
+			if g.parent >= 0 {
+				o = f.specs[g.parent].ref
 			}
-			up = f.groups[up].outer
-		}
-	}
-	for i, g in f.groups {
-		if g.pure {
-			let mut specs = []spec[E]{}
+			let key = groupKey[E]{owner: o, id: g.id}
+			let mut tops = []keptTop[E]{}
+			let mut alone = true
+			let mut each = nowhere
+			let mut allOff = true
+			let mut offSelf = true
 			for j in g.start..g.end {
-				let mut c = f.specs[j]
-				if c.parent < g.start {
-					c.parent = -1
-				} else {
-					c.parent = c.parent - g.start
+				if f.specs[j].parent == g.parent {
+					for k in 0..nodesOf(f, f.specs[j]) {
+						let mut c = f.specs[j]
+						if c.block >= 0 {
+							c = blockTop(f, j, k)
+						}
+						if len(tops) == 0 {
+							each = c.id.each
+						}
+						if c.id.n != 0 || c.id.each != each {
+							alone = false
+						}
+						allOff = allOff && c.off
+						offSelf = offSelf && c.off == disables(c.node)
+						tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, onKey: c.onKey, off: c.off})
+					}
 				}
-				specs = specs.Append(c)
 			}
-			next[keys[i]] = len(list)
-			list = list.Append(keptGroup[E]{slot: g.slot, specs: specs, inner: inner[i]})
-		}
-	}
-	// Each slot the last pass's groups or this pass's held and no kept
-	// group holds now is freed, once.
-	let mut live = Map[int, bool]{}
-	for k in list {
-		live[k.slot] = true
-	}
-	for old in f.keptList {
-		if !isLive(live, old.slot) {
-			argsFree(f.args, old.slot)
-			live[old.slot] = true
-		}
-	}
-	for g in f.groups {
-		if !isLive(live, g.slot) {
+			let mut nest = []int{}
+			if f.nested {
+				nest = inner[r]
+			}
+			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each, allOff: allOff, offSelf: offSelf, gen: stamp, within: -1, withinGen: 0, sames: g.sames}
+			let mut at = g.entry
+			if g.entry >= 0 {
+				stamped = stamped + restamp(f, g.entry, stamp)
+				f.keptList[g.entry] = k
+			} else if f.nfree > 0 {
+				f.nfree = f.nfree - 1
+				at = f.free[f.nfree]
+				f.keptList[at] = k
+				f.kept[key] = at
+			} else {
+				at = len(f.keptList)
+				f.kept[key] = at
+				f.keptList = f.keptList.Append(k)
+			}
+			if g.entry < 0 {
+				f.nheld = f.nheld + 1
+				stamped = stamped + 1
+			}
+			for x in nest {
+				f.keptList[x].within = at
+				f.keptList[x].withinGen = stamp
+			}
+			let mut up = g.outer
+			for up >= 0 {
+				inner[up] = inner[up].Append(at)
+				up = f.groups[up].outer
+			}
+		} else if g.fresh {
 			argsFree(f.args, g.slot)
-			live[g.slot] = true
 		}
 	}
-	f.kept = next
-	f.keptList = list
-}
-
-// cutGroups takes this pass's groups back to the first n, and the group
-// identity counts to the first logged ones (a cut, boundary.ergo): a group
-// written since goes, and the slot of one that no kept group holds is
-// freed.
-func cutGroups[E](f *Frame[E], n int, logged int) {
-	for i in logged..f.ngroupLog {
-		let s = f.groupLog[i]
-		let c = count(f.groupSeen, s)
-		if c <= 1 {
-			f.groupSeen = f.groupSeen.Delete(s)
-		} else {
-			f.groupSeen[s] = c - 1
-		}
-	}
-	f.ngroupLog = logged
-	if len(f.groups) <= n {
+	f.swept = 0
+	if stamped == f.nheld {
 		return
 	}
-	let mut held = Map[int, bool]{}
-	for k in f.keptList {
-		held[k.slot] = true
-	}
-	let mut left = []groupRec[E]{}
-	for i, g in f.groups {
-		if i < n {
-			left = left.Append(g)
-		} else if !isLive(held, g.slot) {
-			argsFree(f.args, g.slot)
-			held[g.slot] = true
+	f.swept = len(f.keptList)
+	for i in 0..len(f.keptList) {
+		if f.keptList[i].held && f.keptList[i].stamp != stamp && !keptThrough(f, i, stamp) {
+			argsFree(f.args, f.keptList[i].slot)
+			f.kept = f.kept.Delete(f.keptList[i].key)
+			f.keptList[i].held = false
+			f.nheld = f.nheld - 1
+			if f.nfree < len(f.free) {
+				f.free[f.nfree] = i
+			} else {
+				f.free = f.free.Append(i)
+			}
+			f.nfree = f.nfree + 1
 		}
 	}
-	f.groups = left
 }
 
-// isLive reports slot marked in live (a set of ints; also the parents
-// prior has indexed).
-func isLive(live Map[int, bool], slot int) bool {
-	match live.Get(slot) {
-	case Some[bool]:
-		true
-	case None:
-		false
+// keptThrough is whether kept group i is inside a group the pass kept:
+// the group within names still holds it (it is in the gen that took it)
+// and was kept by the pass, itself or through its own outer group.
+func keptThrough[E](f mut Frame[E], i int, stamp int) bool {
+	let w = f.keptList[i].within
+	if w < 0 || !f.keptList[w].held || f.keptList[w].gen != f.keptList[i].withinGen {
+		return false
 	}
+	f.keptList[w].stamp == stamp || keptThrough[E](f, w, stamp)
 }
+
+// restamp marks kept group i kept by the pass stamp: 1 when it was not
+// yet, 0 when the pass marked it already.
+func restamp[E](f mut Frame[E], i int, stamp int) int {
+	if f.keptList[i].stamp == stamp {
+		return 0
+	}
+	f.keptList[i].stamp = stamp
+	1
+}
+
+// Swept is how many kept entries the last Commit of f walked to free the
+// ones the pass did not keep: none when it kept every held entry. A
+// growth guard counts it, never times.
+func Swept[E](f mut Frame[E]) int { f.swept }
 
 // GroupRuns is how many component calls the last pass of f ran: a call
 // written again from the last pass does not count. A growth guard counts
 // it (one changed row of many runs one row's component), never times.
-func GroupRuns[E](f *Frame[E]) int { f.groupRuns }
+func GroupRuns[E](f mut Frame[E]) int { f.groupRuns }
+
+// Compared is how many nodes the last Commit of f compared with the node
+// they were, or made: a kept group's nodes written again are kept whole
+// and not counted. A growth guard counts it.
+func Compared[E](f mut Frame[E]) int { f.compared }
 
 // GroupsKept is how many groups f keeps for its next pass, and so how many
 // argument slots it holds: the memo's size.
-func GroupsKept[E](f *Frame[E]) int { argsHeld(f.args) }
+func GroupsKept[E](f mut Frame[E]) int { argsHeld(f.args) }

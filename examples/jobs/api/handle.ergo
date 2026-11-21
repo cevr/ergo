@@ -1,7 +1,7 @@
 import fs
 import http
-import jobs/api/endpoint
-import jobs/jobs
+import jobsapp/api/endpoint
+import jobsapp/jobs
 import json
 import strconv
 import strings
@@ -28,7 +28,7 @@ type WrongMethod { Allow string }
 //	409 a cancel or a delete the job's state does not allow
 //	413 a body over MaxBody
 //	422 JSON of the wrong shape, or an empty name
-func Handle(r http.Request) http.Response needs Jobs {
+func Handle(r http.Request) http.Response needs Jobs | http.Streaming {
 	answer(r) catch {
 	case http.NotFound:
 		Refuse(404, "no route "+r.Method+" "+r.Path)
@@ -57,7 +57,7 @@ func Failure(f contractFailure) http.Response {
 }
 
 // answer is the response to r, or the refusal that stops it.
-func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | http.BodyTooLarge | http.BodyReadFailed | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs Jobs {
+func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | http.BodyTooLarge | http.BodyReadFailed | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs Jobs | http.Streaming {
 	match http.Match(Routes, r.Method, r.Path) {
 	case http.NotFound as n:
 		return n
@@ -66,16 +66,19 @@ func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | ht
 	case http.Found as f:
 		match f.Route.Value {
 		case endpoint.ListJobs:
-			http.Success(f.Route, ListingText(Jobs.ListJobs()))
+			// A listing's and a view's text go straight to the
+			// connection (http.SuccessJSON); a created view keeps
+			// Success, since its Location header follows the body.
+			http.SuccessJSON(f.Route, json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, Jobs.ListJobs())
 		case endpoint.SubmitJob:
 			let d = try DraftOf(try textOf(r.Body))
 			let j = try Jobs.SubmitJob(d)
 			let created = http.Success(f.Route, ViewText(j))
 			http.Response{..created, Header: created.Header.Append(http.Field{Name: "Location", Value: "/jobs/\(j.Id)"})}
 		case endpoint.ShowJob:
-			http.Success(f.Route, ViewText(try Jobs.ShowJob(try idOf(f))))
+			http.SuccessJSON(f.Route, viewCodec, try Jobs.ShowJob(try idOf(f)))
 		case endpoint.CancelJob:
-			http.Success(f.Route, ViewText(try Jobs.CancelJob(try idOf(f))))
+			http.SuccessJSON(f.Route, viewCodec, try Jobs.CancelJob(try idOf(f)))
 		case endpoint.DeleteJob:
 			try Jobs.DeleteJob(try idOf(f))
 			http.Success(f.Route, "")
@@ -125,10 +128,10 @@ func Refuse(status int, message string) http.Response { Respond(status, ProblemT
 // WithSite answers a path under /jobs with Handle, and any other path
 // with a file of site: "/" is "/index.html". http.Files reads through the
 // root, so no request path reaches outside it.
-func WithSite(site fs.Root, r http.Request) http.Response needs Jobs {
+func WithSite(site fs.Root, r http.Request) http.Response needs Jobs | http.Streaming {
 	if r.Path == "/jobs" || strings.HasPrefix(r.Path, "/jobs/") {
 		return Handle(r)
 	}
-	let page = if r.Path == "/" { http.Request{..r, Path: "/index.html"} } else { r }
+	let page = if r.Path == "/" { http.Request{..r, Path: "/index.html", RawPath: "/index.html"} } else { r }
 	http.Files(site, "/", page)
 }

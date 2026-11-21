@@ -12,10 +12,31 @@ import (
 // function the left side is about: the first declared function the left
 // side calls, outermost first. LhsCalls and RhsCalls count each side's
 // calls (functions, conversions and len).
+//
+// A rewrite over function parameters (owner q234, "Extend laws"; FUSION)
+// has type parameters of its own, a parameter of a function type, or a
+// function literal on its right side: `law TransformFuses[T, U, V](xs []T,
+// f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == {
+// Transform(xs, func(x T) V { g(f(x)) }) }`. Such a law takes
+// Law.FuncsRewrite, not Law.FuncRewrite: its sites are matched from the
+// call's source (lower's ir_fusion.go), not by the pass's IR patterns.
+// Law.TopRewrite reads either.
 type FuncRewrite struct {
 	Lhs, Rhs           syntax.Expr
 	Root               *Func
 	LhsCalls, RhsCalls int
+	// OverFuncs reports a rewrite over function parameters.
+	OverFuncs bool
+}
+
+// TopRewrite is law's rewrite: over values (FuncRewrite) or over function
+// parameters (FuncsRewrite); nil when the law is no rewrite in scope. The
+// licence run, the ledger and the build read every rewrite through it.
+func (law *Law) TopRewrite() *FuncRewrite {
+	if law.FuncRewrite != nil {
+		return law.FuncRewrite
+	}
+	return law.FuncsRewrite
 }
 
 // checkFuncRewrites checks the scope of every top-level rewrite law of the
@@ -27,15 +48,24 @@ type FuncRewrite struct {
 //  1. shape: the left side is a call tree of declared functions,
 //     conversions and len over the parameters and constants, with try and
 //     parentheses, and every parameter occurs in it; the right side uses
-//     only the parameters, constants, such calls and operators;
-//  2. fewer calls: the right side makes fewer calls than the left, so
-//     rewriting ends and f(a, b) == f(b, a) is no rewrite;
+//     only the parameters, constants, such calls and operators, and
+//     function literals of one expression over their own parameters and
+//     the law's, which call a function parameter;
+//  2. fewer rewritable calls: the pair (calls of Ergo bodies, calls) is
+//     smaller on the right, compared in order (LAWFFI LF2m), so rewriting
+//     ends and f(a, b) == f(b, a) is no rewrite; a Go body is a leaf; a
+//     call of a function parameter is no declared function's and is not
+//     counted;
 //  3. no guard: no parameter takes a where (no given in v1);
 //  4. pure: each function either side calls is an Ergo function with an
 //     empty footprint and an empty needs clause; else a Go body in the
-//     reviewed pure set;
+//     reviewed pure set, or an effect-free body of the module's own Go
+//     (LAWFFI LF2m), which only the law's validated entry makes pure; a
+//     function parameter's type fails nothing and needs nothing;
 //  5. value class: the sides' type has key equality and holds no pointer,
-//     operation type, function, type parameter or Go type;
+//     operation type, function, type parameter or Go type, with each of
+//     the law's own type parameters at int (a site's types are checked
+//     where it is matched);
 //  6. failures: the right side fails nothing the left side does not;
 //  7. no orphan: the law is declared in the package of its root function.
 //
@@ -47,7 +77,9 @@ func (c *checker) checkFuncRewrites() {
 			continue
 		}
 		c.cur = law.file
-		if rw, at, why := c.funcRewrite(law); rw != nil {
+		if rw, at, why := c.funcRewrite(law); rw != nil && rw.OverFuncs {
+			law.FuncsRewrite = rw
+		} else if rw != nil {
 			law.FuncRewrite = rw
 		} else {
 			c.errorf(at, CodeType, "law %s is no rewrite: %s; write { lhs == rhs } for a property", law.Name, why)
@@ -64,6 +96,8 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 	for _, v := range law.Params {
 		param[v] = true
 	}
+	local := map[*Var]bool{} // the parameters of a right side's literals
+	literal := false
 	var calls []*syntax.CallExpr
 	var side func(x syntax.Expr, left bool) (syntax.Node, string)
 	side = func(x syntax.Expr, left bool) (syntax.Node, string) {
@@ -75,7 +109,7 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 		case *syntax.BasicLit:
 			return nil, ""
 		case *syntax.Ident:
-			if v, ok := info.Uses[e].(*Var); ok && param[v] {
+			if v, ok := info.Uses[e].(*Var); ok && (param[v] || local[v]) {
 				return nil, ""
 			}
 			return e, fmt.Sprintf("its sides use only the parameters, constants and calls of functions, and %s is none of them", e.Name)
@@ -92,10 +126,51 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 				return bad, why
 			}
 			return side(e.Y, left)
+		case *syntax.FuncLit:
+			// A function literal on the right side (owner q234): one
+			// expression over its own parameters and the law's, which a
+			// fused loop runs per element.
+			if left {
+				return e, "its left side is a call tree, and a function literal is not a call"
+			}
+			literal = true
+			body := e.Body
+			if body == nil || len(body.List) != 1 {
+				return e, "a function literal of its right side is one expression"
+			}
+			s, ok := body.List[0].(*syntax.ExprStmt)
+			if !ok {
+				return e, "a function literal of its right side is one expression"
+			}
+			if e.Type != nil && e.Type.Params != nil {
+				for _, f := range e.Type.Params.List {
+					for _, id := range f.Names {
+						if v, ok := info.Defs[id].(*Var); ok {
+							local[v] = true
+						}
+					}
+				}
+			}
+			return side(s.X, left)
 		case *syntax.CallExpr:
 			call := info.Calls[e]
 			if call == nil || call.Kind == CallFunc && call.Func == nil {
 				return e, "a call of its sides has no function"
+			}
+			if call.Kind == CallFuncValue && !left {
+				// A call of a function parameter, in a literal of the
+				// right side: no declared function, so no call the
+				// rewrite counts.
+				id, ok := unparen(e.Fun).(*syntax.Ident)
+				if v, isVar := info.Uses[id].(*Var); !ok || !isVar || !param[v] {
+					return e, "its right side calls a function value only when it is a parameter of the law"
+				}
+				for _, a := range e.Args {
+					if bad, why := side(a, left); bad != nil {
+						return bad, why
+					}
+				}
+				return nil, ""
 			}
 			switch call.Kind {
 			case CallFunc, CallConversion, CallLen:
@@ -131,7 +206,12 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 			return nil, v.id, fmt.Sprintf("parameter %s does not occur in its left side, which binds every parameter", v.Name)
 		}
 	}
-	rw := &FuncRewrite{Lhs: lhs, Rhs: rhs, LhsCalls: len(lhsCalls), RhsCalls: len(rhsCalls)}
+	rw := &FuncRewrite{Lhs: lhs, Rhs: rhs, LhsCalls: len(lhsCalls), RhsCalls: len(rhsCalls), OverFuncs: len(law.TParams) > 0 || len(local) > 0 || literal}
+	for _, v := range law.Params {
+		if _, ok := under(v.Type).(*Signature); ok {
+			rw.OverFuncs = true
+		}
+	}
 	for _, e := range lhsCalls {
 		if call := info.Calls[e]; call.Kind == CallFunc {
 			rw.Root = call.Func
@@ -141,9 +221,14 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 	if rw.Root == nil {
 		return nil, lhs, "its left side calls no declared function"
 	}
-	// 2. Fewer calls.
-	if rw.RhsCalls >= rw.LhsCalls {
-		return nil, rhs, fmt.Sprintf("its right side makes %d calls and its left side %d; a rewrite makes fewer calls, so rewriting ends", rw.RhsCalls, rw.LhsCalls)
+	// 2. Fewer rewritable calls (LAWFFI LF2m): the pair (calls of Ergo
+	// bodies, calls) is smaller on the right, compared in order. A Go
+	// body is a leaf the rewrite never unfolds, so { ref(s) } == { body(s) }
+	// is a rewrite, and so is { Unquote(Quote(s)) } == { s } over Go
+	// functions; each rewrite makes the pair smaller, so rewriting ends.
+	lhsErgo, rhsErgo := ergoCalls(info, lhsCalls), ergoCalls(info, rhsCalls)
+	if rhsErgo > lhsErgo || rhsErgo == lhsErgo && rw.RhsCalls >= rw.LhsCalls {
+		return nil, rhs, fmt.Sprintf("its right side makes %d calls, %d of Ergo bodies, and its left side %d, %d of Ergo bodies; a rewrite makes fewer calls of Ergo bodies, or as many and fewer calls, so rewriting ends", rw.RhsCalls, rhsErgo, rw.LhsCalls, lhsErgo)
 	}
 	// 3. No guard.
 	for i, w := range law.Where {
@@ -151,9 +236,19 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 			return nil, law.Params[i].id, fmt.Sprintf("parameter %s takes a where, and a rewrite over functions has no guard in v1: a law true only under a guard stays a property", law.Params[i].Name)
 		}
 	}
-	// 4. Pure.
+	// 4. Pure: a function parameter's type fails nothing and needs nothing
+	// (owner q234), so a site's function is pure and a fused loop may run
+	// it in another order.
+	for _, v := range law.Params {
+		if sig, ok := under(v.Type).(*Signature); ok && (sig.Errors != nil && !sig.Errors.Empty() || sig.Uses != nil && !sig.Uses.Empty()) {
+			return nil, v.id, fmt.Sprintf("parameter %s is a function that fails or needs, and a rewrite's functions are pure: write its type with no fails and no needs", v.Name)
+		}
+	}
 	for _, e := range calls {
 		if call := info.Calls[e]; call.Kind == CallFunc {
+			if rw.OverFuncs && pureOverArgs(info, call, e) {
+				continue
+			}
 			if why := rewriteImpure(call); why != "" {
 				return nil, e, why
 			}
@@ -161,6 +256,16 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 	}
 	// 5. Value class.
 	if t := info.Types[unwrapTry(lhs)]; t != nil {
+		// A law's own type parameter is the type a site gives it: the
+		// class is the law's at value types (int here), and the site's
+		// types are checked where it is matched.
+		if len(law.TParams) > 0 {
+			m := map[*TypeParam]Type{}
+			for _, tp := range law.TParams {
+				m[tp] = Typ[Int]
+			}
+			t = c.subst(t, m)
+		}
 		if why := rewriteValueWhy(t, map[Type]bool{}); why != "" {
 			return nil, lhs, fmt.Sprintf("its sides are values of %s, which %s; a rewrite is of values with key equality", t, why)
 		}
@@ -183,6 +288,19 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 		return nil, law.Decl.Name, fmt.Sprintf("its root function %s is declared in package %s; state the law there, beside it (no orphan rewrite)", rw.Root.Name, rw.Root.Pkg.Path)
 	}
 	return rw, nil, ""
+}
+
+// ergoCalls counts the calls of calls whose function has an Ergo body:
+// not an extern, not a Go function, not a conversion or len.
+func ergoCalls(info *Info, calls []*syntax.CallExpr) int {
+	n := 0
+	for _, e := range calls {
+		c := info.Calls[e]
+		if c.Kind == CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Extern == nil && c.Func.Decl.Body != nil && !c.Func.Pkg.Host() {
+			n++
+		}
+	}
+	return n
 }
 
 // usesVar reports whether x names v.
@@ -221,6 +339,15 @@ func rewriteImpure(call *Call) string {
 		return fmt.Sprintf("%s needs %s, and a rewrite's functions are pure", f.Name, rowText(call.Needs))
 	}
 	if f.Decl != nil && f.Decl.Extern != nil || f.Pkg.Host() {
+		if _, own := ModuleBody(f); own && !pureStd(f) {
+			// A module's own Go body (LAWFFI LF2m) with an empty needs
+			// row: the checker bound it as effect-free (moduleDoor; one
+			// with effects declares go.Foreign, refused above). The
+			// lowering admits the rewrite only on the law's current
+			// validated entry, so the law makes the body pure, never a
+			// review.
+			return ""
+		}
 		if !pureStd(f) {
 			return fmt.Sprintf("%s is a Go function outside the reviewed pure set, and a rewrite's functions are pure", f.Name)
 		}
@@ -234,6 +361,32 @@ func rewriteImpure(call *Call) string {
 		return impureCall("function", f, fp) + ", and a rewrite's functions are pure"
 	}
 	return ""
+}
+
+// pureOverArgs reports an Ergo function whose only unknown code is its
+// function parameters (Footprint.Params, rows.md Footprints 3), called in
+// a rewrite over functions with an argument at each of them whose type
+// fails nothing and needs nothing: a call with such arguments is pure, as
+// the footprint of a call with known arguments joins theirs (owner q234).
+func pureOverArgs(info *Info, call *Call, e *syntax.CallExpr) bool {
+	f := call.Func
+	if call.Needs != nil && !call.Needs.Empty() || f.Pkg == nil || f.Pkg.Info == nil || f.Decl == nil || f.Decl.Extern != nil || f.Pkg.Host() {
+		return false
+	}
+	fp, ok := f.Pkg.Info.Footprints[f.Decl]
+	if !ok || len(fp.Caps) > 0 || fp.Tasks || fp.OpaqueRest {
+		return false
+	}
+	for _, i := range fp.Params {
+		if i >= len(e.Args) {
+			return false
+		}
+		sig, ok := under(info.Types[e.Args[i]]).(*Signature)
+		if !ok || sig.Errors != nil && !sig.Errors.Empty() || sig.Uses != nil && !sig.Uses.Empty() {
+			return false
+		}
+	}
+	return true
 }
 
 // rewriteValueWhy is why t is not of the value class a rewrite compares

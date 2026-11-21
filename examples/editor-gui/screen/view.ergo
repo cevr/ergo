@@ -17,11 +17,11 @@ let PageWidth = ui.Length(640.0)
 // input the host commits typed text to, the find's replacement field, the
 // lines around the caret, and the page: the caret and the selection where
 // the text layout puts them, and a press that puts the caret under it.
-func Viewer(store edit.Store, clip ui.Clipboard) func(f *ui.Frame[Signal], w Window) {
-	func(f *ui.Frame[Signal], w Window) { view(f, w, store, clip) }
+func Viewer(store edit.Store, clip ui.Clipboard) func(f mut ui.Frame[Signal], w Window) {
+	func(f mut ui.Frame[Signal], w Window) { view(f, w, store, clip) }
 }
 
-func view(f *ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard) {
+func view(f mut ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[Signal] { Keyed(k) })
 	match w.Writing {
 	case Some[string] as t:
@@ -57,7 +57,7 @@ func view(f *ui.Frame[Signal], w Window, store edit.Store, clip ui.Clipboard) {
 		let (from, to) = Shown(d)
 		let l = ui.LayoutText(Mono, piece.Slice(d.Buf, from, to), Font, PageWidth)
 		ui.Area(f, "page", ui.Plain(), func(p ui.PointerEvent) Option[Signal] { Pressed(p, l, from) }) {
-			ui.Canvas(f, "paint", PageWidth, ui.Length(float64(len(l.Lines)))*l.LineHeight) func(p *ui.Paint) {
+			ui.Canvas(f, "paint", PageWidth, ui.Length(float64(len(l.Lines)))*l.LineHeight) func(p mut ui.Paint) {
 				Page(p, l, w.Ed, from, to)
 			}
 		}
@@ -71,7 +71,7 @@ func Pressed(p ui.PointerEvent, l ui.TextLayout, from int) Option[Signal] {
 	match p.Phase {
 	case ui.Down:
 		Some{Value: Do{Signal: edit.Goto{At: from + ui.OffsetAt(Mono, l, ui.Length(p.X), ui.Length(p.Y))}}}
-	case ui.Moved, ui.Up, ui.Wheel:
+	case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 		None
 	}
 }
@@ -134,7 +134,7 @@ let CaretColor = ui.Color{R: 0, G: 0, B: 0, A: 255}
 // [from, to), laid out in l: the selection's boxes from the layout
 // (ui.SelectionRects), clipped to the shown bytes, and the caret as a bar
 // one unit wide where the layout puts it (ui.CaretAt).
-func Page(p *ui.Paint, l ui.TextLayout, s edit.State, from int, to int) {
+func Page(p mut ui.Paint, l ui.TextLayout, s edit.State, from int, to int) {
 	let d = edit.DocOf(s)
 	match s {
 	case edit.Selecting as x:

@@ -212,21 +212,25 @@ func genCheckProgram(r *rand.Rand) checkProgram {
 // in a folder.
 func (p checkProgram) sources() (helpers, tests string) {
 	var h strings.Builder
-	h.WriteString("extern go strings.ToUpper func upper(s string) string\n\n")
+	// A Go function check time has no native for (goNatives lists
+	// strings.ToUpper, which then runs; MODELCHECK E1 made the table load
+	// for a program's extern too): its test is skipped.
+	h.WriteString("extern go strings.ToTitle func upper(s string) string\n\n")
 	h.WriteString("type Bad { Code int }\n\n")
 	h.WriteString("func boom(n int) int fails Bad {\n\tif n > 0 {\n\t\treturn Bad{Code: n}\n\t}\n\tn\n}\n\n")
 	h.WriteString("func half(x int) int { x / x }\n\n")
-	h.WriteString("func twice(n int) int { n + n }\n\n")
 	// Unused and calling Go: it skips nothing.
 	h.WriteString("func shout() string { upper(\"q\") }\n\n")
 	if p.staticBad {
 		h.WriteString("func wrong() int { \"s\" }\n\n")
 	}
 	var b strings.Builder
+	// Twice is the laws' subject, so it stands in their file (S115).
+	b.WriteString("func Twice(n int) int { n + n }\n\n")
 	for _, o := range p.tests {
 		body := []string{
-			"assert twice(2) == 4",
-			"assert twice(2) == 5",
+			"assert Twice(2) == 4",
+			"assert Twice(2) == 5",
 			"let x = try boom(1)\n\tassert x == 0",
 			"assert half(0) == 1",
 			"assert upper(\"a\") == \"A\"",
@@ -235,7 +239,7 @@ func (p checkProgram) sources() (helpers, tests string) {
 	}
 	for _, o := range p.laws {
 		op := []string{"==", "!="}[o.kind]
-		fmt.Fprintf(&b, "law %s(n int) { twice(n) - n %s n }\n\n", strings.TrimPrefix(o.name, "law "), op)
+		fmt.Fprintf(&b, "law %s(n int) { Twice(n) - n %s n }\n\n", strings.TrimPrefix(o.name, "law "), op)
 	}
 	return h.String(), b.String()
 }

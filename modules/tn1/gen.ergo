@@ -1,0 +1,154 @@
+// Weights generators. Each writes a weights file from its arguments
+// alone (no clock, no unseeded randomness, no map order), so a checked-in
+// weights file is the output of its generator and a diff of either reads.
+
+import strings
+
+// trits is the text of a row of n trits, all 0.
+func zeros(n int) string { strings.Repeat("0", n) }
+
+// rowWith is a row of n trits, 0 except t at each of at.
+func rowWith(n int, at []int, t byte) string {
+	let mut b = strings.Bytes(zeros(n))
+	for i in at {
+		b[i] = t
+	}
+	strings.FromBytes(b)
+}
+
+func span(from int, to int) []int {
+	let mut out = []int{}
+	for i in from..to {
+		out = out.Append(i)
+	}
+	out
+}
+
+// The planes of a line's features with no conv filter (F = 0).
+let planeCode = 1
+let planeComment = 2
+let planeDoc = 3
+let planeDirective = 4
+let planeCommentWords = 18
+let planeCodeWords = 82
+
+// NarrationControl is the exact narration rule written as weights, the
+// way codehygiene's compile.py writes a rule: a comment-only line under a
+// line that is not a comment, over a code line, is flagged when its
+// comment and the code line under it share at least two word bits and at
+// least half of the comment's bits. A doc comment is a line kind of its
+// own, so the syntax tree's attachment sets it aside. It is the control
+// of input version 2 for the narration suites, not a written network: no
+// weight in it was chosen by reading a suite.
+func NarrationControl() string { narrationControl(false) }
+
+// NarrationControlStop is NarrationControl reading `words stop`: function
+// words are not words of the comment, so prose narration ("Now we loop
+// over the values and add each one to the sum") is measured by its content
+// words (NARR-TS's stop variant).
+func NarrationControlStop() string { narrationControl(true) }
+
+func narrationControl(stop bool) string {
+	let n = Planes
+	let mut b = strings.NewBuilder()
+	if stop {
+		b.WriteString("# narration control, stop words left out (gen.ergo, NarrationControlStop)\n")
+		b.WriteString("tn1 2 1 0 1 66\nwords stop\nembed\n")
+	} else {
+		b.WriteString("# narration control: the exact overlap rule as weights (gen.ergo, NarrationControl)\n")
+		b.WriteString("tn1 2 1 0 1 66\nembed\n")
+	}
+	for _ in 0..256 {
+		b.WriteString("0\n")
+	}
+	let notAfterComment = rowWith(n, []int{planeComment, planeDoc, planeDirective}, '-')
+	// Units 0 to 63: bit w is a word of the comment and of the code line
+	// under it, and the gate holds (sum 4 over bias 3).
+	for w in 0..64 {
+		b.WriteString("# shared bit \(w)\nhidden 3\n")
+		b.WriteString(notAfterComment + "\n")
+		b.WriteString(rowWith(n, []int{planeComment, planeCommentWords + w}, '+') + "\n")
+		b.WriteString(rowWith(n, []int{planeCode, planeCodeWords + w}, '+') + "\n")
+		b.WriteString(zeros(n) + "\n")
+	}
+	// Unit 64: the gate alone, worth the +1 of 2s - c + 1.
+	b.WriteString("# gate: a comment line after no comment, over a code line\nhidden 1\n")
+	b.WriteString(notAfterComment + "\n")
+	b.WriteString(rowWith(n, []int{planeComment}, '+') + "\n")
+	b.WriteString(rowWith(n, []int{planeCode}, '+') + "\n")
+	b.WriteString(zeros(n) + "\n")
+	// Unit 65: a comment of fewer than 3 bits: 3 - c, against two shared
+	// bits being half of a two-bit comment by accident of one.
+	let mut short = strings.Bytes(rowWith(n, span(planeCommentWords, planeCommentWords+64), '-'))
+	short[planeComment] = '+'
+	b.WriteString("# short comment\nhidden -2\n")
+	b.WriteString(zeros(n) + "\n")
+	b.WriteString(strings.FromBytes(short) + "\n")
+	b.WriteString(zeros(n) + "\n")
+	b.WriteString(zeros(n) + "\n")
+	// score = 2s + 2·gate - 2·short - c - 1, so a gated line is flagged
+	// when 2s >= c and s >= 2.
+	b.WriteString("out 2 -1\n")
+	b.WriteString(strings.Repeat("+", 65) + "-\n")
+	b.WriteString("skip 1\n")
+	b.WriteString(rowWith(n, span(planeCommentWords, planeCommentWords+64), '-') + "\n")
+	b.String()
+}
+
+// Mix is splitmix64's step: the next state and its output.
+type Mix { State uint64, Out uint64 }
+
+func mix(state uint64) Mix {
+	let s = state + 0x9E3779B97F4A7C15
+	let mut z = s
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
+	Mix{State: s, Out: z ^ (z >> 31)}
+}
+
+// randomRow is a row of n trits, each nonzero with chance 1 in every.
+func randomRow(state mut uint64, n int, every int) string {
+	let mut b = []byte{}
+	for _ in 0..n {
+		let m = mix(*state)
+		*state = m.State
+		let r = int(m.Out % uint64(every*2))
+		if r == 0 {
+			b = b.Append('+')
+		} else if r == 1 {
+			b = b.Append('-')
+		} else {
+			b = b.Append('0')
+		}
+	}
+	strings.FromBytes(b)
+}
+
+// Seeded is a seeded network of the given shape that reaches every part
+// of the engine: dense embeddings and filters, sparse hidden rows, every
+// line offset. Its findings mean nothing; it is a conformance vector.
+func Seeded(seed int, d int, f int, k int, h int) string {
+	let n = f + Planes
+	let mut state = uint64(seed)
+	let mut b = strings.NewBuilder()
+	b.WriteString("# seeded network, seed \(seed), D=\(d) F=\(f) K=\(k) H=\(h) (gen.ergo, Seeded)\n")
+	b.WriteString("tn1 2 \(d) \(f) \(k) \(h)\nembed\n")
+	for _ in 0..256 {
+		b.WriteString(randomRow(&state, d, 1) + "\n")
+	}
+	for i in 0..f {
+		b.WriteString("conv \(i%3 + 2)\n")
+		for _ in 0..k {
+			b.WriteString(randomRow(&state, d, 1) + "\n")
+		}
+	}
+	for j in 0..h {
+		b.WriteString("hidden \(j % 3)\n")
+		for _ in 0..4 {
+			b.WriteString(randomRow(&state, n, 6) + "\n")
+		}
+	}
+	b.WriteString("out 1 -1\n" + randomRow(&state, h, 1) + "\n")
+	b.WriteString("skip 1\n" + randomRow(&state, n, 8) + "\n")
+	b.String()
+}

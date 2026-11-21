@@ -1,0 +1,29 @@
+start /
+# Scene: the Browse route renders the heading and the search box; the
+# count shows every dinosaur.
+# Scene: typing in the search box updates its value.
+search Tyranno
+# Scene: a search with no match shows the empty state.
+search zzzNoMatch
+search
+# The diet list box by keyboard: open it, move down twice, pick with
+# Enter; the focus goes back to its button and the address is replaced.
+press diet
+key ArrowDown
+key ArrowDown
+key Enter
+# Open again: the selected item is the active one; End, Home, then
+# Escape shuts it with no choice.
+press diet
+key End
+key ArrowUp
+key Home
+key Escape
+# The period list box by pointer; pressing its button again shuts it.
+press period
+press period
+period Jurassic
+# Scene: NotFound shows a friendly 404 and a back link, which goes home.
+visit /oops
+link ← Back to Dinosaur Explorer
+back

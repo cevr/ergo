@@ -1,5 +1,6 @@
 import flattree/dense
 import flattree/tree
+import slices
 import strconv
 import strings
 
@@ -33,9 +34,174 @@ func Parse(src string) Tree fails tree.Malformed {
 	r.t
 }
 
+// FlatEqualsTree: for the samples of seed, both printed forms read flat
+// are the value tree reads, with its stats.
+law FlatEqualsTree(seed int) {
+	for v in tree.Samples(seed) {
+		for form in []string{tree.Compact(v), tree.Indent(v)} {
+			let t = Parse(form) catch {
+			case tree.Malformed:
+				return false
+			}
+			let want = tree.Parse(form) catch {
+			case tree.Malformed:
+				return false
+			}
+			if !tree.Equal(ToTree(t, Root(t)), want) || tree.Text(StatsOf(t)) != tree.Text(tree.StatsOf(want)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// FailsWhereTheTreeFails: a sample's text with the byte at at replaced
+// by c reads flat as it reads into a tree: the same failure at the same
+// place, or the same value.
+law FailsWhereTheTreeFails(seed int, at int, c byte) {
+	for v in tree.Samples(seed) {
+		let text = tree.Compact(v)
+		let k = if at < 0 { -at % (len(text) + 1) } else { at % (len(text) + 1) }
+		let mut b = strings.NewBuilder()
+		b.WriteString(strings.Slice(text, 0, k))
+		b.WriteByte(c)
+		b.WriteString(strings.Slice(text, if k < len(text) { k + 1 } else { k }, len(text)))
+		let broken = b.String()
+		let want = tree.Parse(broken) catch {
+		case tree.Malformed as m:
+			let _ = Parse(broken) catch {
+			case tree.Malformed as f:
+				if f != m {
+					return false
+				}
+				continue
+			}
+			return false
+		}
+		let t = Parse(broken) catch {
+		case tree.Malformed:
+			return false
+		}
+		if !tree.Equal(ToTree(t, Root(t)), want) {
+			return false
+		}
+	}
+	true
+}
+
+// PrintRoundTrips: a flat tree printed in either form reads back as the
+// same tree.
+law PrintRoundTrips(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Compact(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		let value = ToTree(t, Root(t))
+		for form in []string{Compact(t, Root(t)), Indent(t, Root(t))} {
+			let back = Parse(form) catch {
+			case tree.Malformed:
+				return false
+			}
+			if !tree.Equal(ToTree(back, Root(back)), value) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// PointersReachTheTreesPlaces: each place of a sample, got flat by its
+// pointer, prints as the place.
+law PointersReachTheTreesPlaces(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Compact(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		for p in tree.Places(v) {
+			let id = Get(t, p.Pointer) catch {
+			case tree.BadPointer, tree.NoValue:
+				return false
+			}
+			if Compact(t, id) != tree.Compact(p.At) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// ChildrenStayInside: every item and member of a container is a value
+// put before it, so its id is less than the container's, and the
+// containers' runs together cover their pools once, in order.
+law ChildrenStayInside(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Indent(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		let mut items = 0
+		let mut members = 0
+		for i in 0..Size(t) {
+			let id = dense.IDAt(t.ids, i)
+			match ViewOf(t, id) {
+			case Array as a:
+				items += len(a.Items)
+				for x in a.Items {
+					if dense.Index(x) >= i {
+						return false
+					}
+				}
+			case Object as o:
+				members += len(o.Members)
+				for m in o.Members {
+					if dense.Index(m.Value) >= i {
+						return false
+					}
+				}
+			case Null, Bool, Number, Str:
+			}
+		}
+		if items != dense.Items(t.items) || members != dense.Items(t.members) || dense.Index(Root(t)) != Size(t)-1 {
+			return false
+		}
+	}
+	true
+}
+
+// KeysAreInterned: two members of a document have one key id exactly
+// when their keys are one text.
+law KeysAreInterned(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Compact(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		let mut all = []Member{}
+		for i in 0..Size(t) {
+			match ViewOf(t, dense.IDAt(t.ids, i)) {
+			case Object as o:
+				for m in o.Members {
+					all = all.Append(m)
+				}
+			case Null, Bool, Array, Number, Str:
+			}
+		}
+		for x in all {
+			for y in all {
+				if (x.Key == y.Key) != (KeyText(t, x.Key) == KeyText(t, y.Key)) {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
 func ok(r reader) bool { dense.Len(r.problems) == 0 }
 
-func problem(r *reader, at int, reason string) {
+func problem(r mut reader, at int, reason string) {
 	let _ = dense.Put(&r.problems, tree.Locate(r.t.src, at, reason))
 }
 
@@ -46,7 +212,7 @@ func found(r reader) string {
 	strconv.Quote(strings.Slice(r.t.src, r.pos, r.pos+1))
 }
 
-func skip(r *reader) {
+func skip(r mut reader) {
 	let src = r.t.src
 	for r.pos < len(src) {
 		let c = src[r.pos]
@@ -58,7 +224,7 @@ func skip(r *reader) {
 }
 
 // push leaves id as the value read last.
-func push(r *reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
+func push(r mut reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
 
 // last is the id of the value read last; value leaves one when it reads
 // one, and a caller asks only then.
@@ -71,7 +237,7 @@ func last(r reader) dense.ID[Node] {
 	}
 }
 
-func value(r *reader) {
+func value(r mut reader) {
 	let src = r.t.src
 	if r.pos >= len(src) {
 		problem(r, r.pos, "expected a value, found the end")
@@ -97,7 +263,7 @@ func value(r *reader) {
 	}
 }
 
-func word(r *reader, w string, kind uint8) {
+func word(r mut reader, w string, kind uint8) {
 	let src = r.t.src
 	for k in 0..len(w) {
 		if r.pos >= len(src) || src[r.pos] != w[k] {
@@ -110,7 +276,7 @@ func word(r *reader, w string, kind uint8) {
 }
 
 // numeral reads a number with tree's machine and keeps its span.
-func numeral(r *reader) {
+func numeral(r mut reader) {
 	let start = r.pos
 	let (n, broken) = tree.Scan(strings.Slice(r.t.src, start, len(r.t.src)))
 	match broken {
@@ -125,7 +291,7 @@ func numeral(r *reader) {
 // text reads a string literal: a span of the source when it has no
 // escape and only ASCII, else tree's decoding, interned. It is the row
 // the string would have and whether it read one.
-func text(r *reader) Option[cell] {
+func text(r mut reader) Option[cell] {
 	let src = r.t.src
 	let start = r.pos + 1
 	let mut i = start
@@ -150,7 +316,7 @@ func text(r *reader) Option[cell] {
 	Some[cell]{Value: cell{kind: kText, a: uint32(dense.Index(k)), b: 0}}
 }
 
-func str(r *reader) {
+func str(r mut reader) {
 	match text(r) {
 	case Some[cell] as row:
 		push(r, put(&r.t, row.Value))
@@ -159,7 +325,7 @@ func str(r *reader) {
 }
 
 // key reads a member's key and is its interned id.
-func key(r *reader) Option[dense.ID[Key]] {
+func key(r mut reader) Option[dense.ID[Key]] {
 	match text(r) {
 	case Some[cell] as row:
 		if row.Value.kind == kText {
@@ -173,7 +339,7 @@ func key(r *reader) Option[dense.ID[Key]] {
 }
 
 // enter opens a container: one level deeper, at most tree.MaxDepth.
-func enter(r *reader) bool {
+func enter(r mut reader) bool {
 	r.depth += 1
 	if r.depth > tree.MaxDepth {
 		problem(r, r.pos, "nesting deeper than \(tree.MaxDepth)")
@@ -184,12 +350,15 @@ func enter(r *reader) bool {
 	true
 }
 
-func array(r *reader) {
+func array(r mut reader) {
 	if !enter(r) {
 		return
 	}
 	let src = r.t.src
-	let mut items = []dense.ID[Node]{}
+	// Room for a typical container's children: gathering them grows no
+	// slice. (dense.Stack with marks, a scratch stack shared by every
+	// container as the control has, comes with std dense.)
+	let mut items = slices.WithCapacity[dense.ID[Node]](8)
 	if r.pos < len(src) && src[r.pos] == ']' {
 		r.pos += 1
 		r.depth -= 1
@@ -222,12 +391,13 @@ func array(r *reader) {
 	}
 }
 
-func object(r *reader) {
+func object(r mut reader) {
 	if !enter(r) {
 		return
 	}
 	let src = r.t.src
-	let mut members = []Member{}
+	// Room for a typical object's members, as array's items.
+	let mut members = slices.WithCapacity[Member](8)
 	if r.pos < len(src) && src[r.pos] == '}' {
 		r.pos += 1
 		r.depth -= 1

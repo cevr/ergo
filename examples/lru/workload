@@ -3,3 +3,5 @@
 unit op
 sizes 200000 1200000
 args bench {n}
+control cmd/ergo/testdata/lruhand
+floor examples/lru/testdata/floor

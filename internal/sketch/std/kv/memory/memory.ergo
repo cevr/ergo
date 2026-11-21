@@ -1,0 +1,96 @@
+// Package memory is a kv.Store that keeps its entries in the process's
+// memory (docs/spec/stdlib.md, kv). Every copy of a Store is the same
+// store: the entries are in a sync.Ref, so tasks that use it at once see
+// one map, and each operation is one atomic step of it. Its entries end
+// with the process; kv/file keeps them in a file.
+//
+// Effect: KeyValueStore.layerMemory. Go control: a map under a mutex.
+
+import json
+import kv
+import slices
+import strings
+import sync
+
+// Store is the memory store. New makes one.
+type Store { entries sync.Ref[Map[string, string]] } implements kv.Store
+
+// New is an empty store.
+func New() Store { Store{entries: sync.NewRef(Map[string, string]{})} }
+
+// Get is the value key holds. It reads the map inside the Ref's step, so
+// the Ref never hands the map out and a later put changes it in place.
+func Get(s Store, key string) Option[string] fails kv.Failed {
+	sync.Modify(s.entries, func(m Map[string, string]) (Option[string], Map[string, string]) { (m.Get(key), m) })
+}
+
+// Put makes key hold value.
+func Put(s Store, key string, value string) fails kv.Failed {
+	s.entries.Update(func(m Map[string, string]) Map[string, string] {
+		let mut kept = m
+		kept[key] = value
+		kept
+	})
+}
+
+// Delete makes key hold no value, and is whether it held one.
+func Delete(s Store, key string) bool fails kv.Failed {
+	sync.Modify(s.entries, func(m Map[string, string]) (bool, Map[string, string]) {
+		if m.Get(key) == None {
+			return (false, m)
+		}
+		(true, m.Delete(key))
+	})
+}
+
+// Scan is the entries under prefix, by key. Each run of the Seq copies
+// the entries under prefix in one step of the Ref and sorts them, so it
+// yields one state of the store while other tasks change it.
+// seq-exempt: it is this provider's kv.Store.Scan, whose member law Store.ScanStops states its stop
+func Scan(s Store, prefix string) Seq[kv.Entry] fails kv.Failed {
+	let entries = s.entries
+	func(yield func(e kv.Entry) bool) {
+		let found = sync.Modify(entries, func(m Map[string, string]) ([]kv.Entry, Map[string, string]) { (under(m, prefix), m) })
+		for e in found {
+			if !yield(e) {
+				return
+			}
+		}
+	}
+}
+
+// under is the entries of m whose key starts with prefix, by key in byte
+// order: the order Scan yields them in.
+func under(m Map[string, string], prefix string) []kv.Entry {
+	let mut found = []kv.Entry{}
+	for k, v in m {
+		if strings.HasPrefix(k, prefix) {
+			found = found.Append(kv.Entry{Key: k, Value: v})
+		}
+	}
+	slices.SortFunc(found, func(a kv.Entry, b kv.Entry) int { strings.Compare(a.Key, b.Key) })
+}
+
+// note is a record of several wire kinds, for OfRoundTrips: the law of
+// kv.Of over a memory store.
+type note { Title string, Tags []string, N int }
+
+// OfRoundTrips: a value put through kv.Of is the value Get gives back, a
+// delete removes it, and a text that is not a note's JSON fails Get.
+law OfRoundTrips(key string, title string, tags []string, n int) {
+	let s = New()
+	let notes = kv.Of[note](s)
+	let x = note{Title: title, Tags: tags, N: n}
+	try notes.Put(key, x)
+	if try notes.Get(key) != (Some[note]{Value: x}) || !try notes.Delete(key) || try notes.Get(key) != None {
+		return false
+	}
+	try s.Put(key, "{")
+	let _ = notes.Get(key) catch {
+	case json.Malformed:
+		return true
+	case kv.Failed, WireMissingField, WireWrongKind:
+		return false
+	}
+	false
+}

@@ -269,6 +269,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if sp == nil && !known {
 			mono = fc.monoAt(x, c, c.Func, c.TypeArgs)
 		}
+		// A call whose result its caller only matches writes the caller's
+		// slots (slot.go).
+		var slot *slotSite
+		if !known && !dropped && sp == nil && mono == nil { // a plain instance copy has no slot variant
+			slot = fc.slotAdmit(x, c, fd)
+		}
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -289,6 +295,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			name := fd.name
 			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
 				// The owned body, a method too (V5).
+				fc.ownedCallSite(x, c)
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
 			}
 			if known {
@@ -310,6 +317,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
 				// The body that takes its owned arguments as they are
 				// passed: this call passes them unshared (values.go, V5).
+				fc.ownedCallSite(x, c)
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
 			}
 			if known {
@@ -318,12 +326,16 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if dropped {
 				name = fc.l.droppedName(c.Func, fd)
 			}
+			if slot != nil {
+				name = fc.l.slotName(c.Func, fd)
+				vals = append(vals, slotArgs(slot.sl)...)
+			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 			if sp != nil && !known {
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
-			} else if !known && !dropped && fd.pure {
+			} else if !known && !dropped && slot == nil && fd.pure {
 				if v, ok := fc.tabAt(c, vals); ok {
 					return v, true, false // the function's table (tabulate.go)
 				}
@@ -335,10 +347,13 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
 		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
-		if sp != nil && sp.wit != nil && !known {
-			lead = nil // the copy for a known witness takes none (witspec.go)
+		if sp != nil && sp.wit != nil && !known || mono != nil && mono.wits != nil {
+			// The copy for a known witness takes none (witspec.go), nor
+			// does a copy for an instance whose witnesses are known
+			// (mono.go monoWitnesses).
+			lead = nil
 		}
-		if !fd.pure {
+		if !fd.envFree {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
@@ -464,6 +479,13 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 			return "append(" + vals[0] + ", " + vals[1] + "...)"
 		}
 	}
+	if check.AppendSpreads(c.Func) {
+		// One bulk append (SL2): Go's append(xs, ys...).
+		if builtinLowering == "call" {
+			return fc.l.builtinHelper("appendAll", x) + "(" + vals[0] + ", " + vals[1] + ")"
+		}
+		return "append(" + vals[0] + ", " + vals[1] + "...)"
+	}
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
 	}
@@ -503,6 +525,9 @@ var builtinHelpers = map[string]string{
 	"delete":       "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
 	"min":          "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
 	"max":          "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
+
+	// appendAll is the reference of the spread binding (check.AppendSpreads).
+	"appendAll": "[T any](xs []T, ys []T) []T { return append(xs, ys...) }",
 }
 
 // builtinHelper is the name of the reference's Go function for b, written
@@ -761,7 +786,6 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 		l.hostImports = map[string]bool{}
 	}
 	l.hostImports[path] = true
-	l.hostText = true // a Go package's panic value may need fmt's text
 	return l.pkgName(pkgKey{"import", path}, hostBase(path))
 }
 
@@ -778,6 +802,24 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 			if path, _ := f.Decl.Extern.Split(); path != "time" && !seen[path] {
 				seen[path] = true
 				paths = append(paths, path)
+			}
+		}
+	}
+	// The Go interface parameter of a Go function the program calls (an
+	// `own io.Reader` of a binding it imports): the IR spells a Go
+	// value's conversion to it (opsConv, ir_with.go; IR-GOCALLS-4) and
+	// another Go interface's (goWiden, ir_govar.go; IR-GOCALLS-5), though
+	// the program may not import its package.
+	for _, p := range pkgs {
+		for _, c := range p.Info.Calls {
+			if c == nil || c.Func == nil || c.Func.Sig == nil || c.Func.Pkg == nil || !c.Func.Pkg.Host() {
+				continue
+			}
+			for _, q := range c.Func.Sig.Params {
+				if n, ok := q.Type.(*check.Named); ok && goInterface(n) && n.Obj.Pkg.Path != "time" && !seen[n.Obj.Pkg.Path] {
+					seen[n.Obj.Pkg.Path] = true
+					paths = append(paths, n.Obj.Pkg.Path)
+				}
 			}
 		}
 	}
@@ -875,7 +917,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 	file, line, column := fc.l.locate(x, x.Pos())
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -947,15 +989,72 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			}
 		}
 	}
+	return fc.declaredValue(f, fd, sig, site, inst, "")
+}
+
+// methodValue196 lowers x.f, the function f on x's type taken as a value
+// (types.md, Methods 2; check.Info.MethodValues): x is evaluated here,
+// once, and the closure funcValue writes passes it as f's first argument,
+// as Go's method value binds its receiver. The checker admits only an
+// Ergo function whose first parameter takes x by value.
+func (fc *funcCtx) methodValue196(x *syntax.SelectorExpr, f *check.Func) string {
+	sig, ok := fc.typeOf(x).(*check.Signature)
+	if !ok {
+		ice(x, "the method value %s has no function type", x.Sel.Name)
+	}
+	recv := fc.value(x.X)
+	if _, ptr := fc.typeOf(x.X).(*check.Pointer); ptr {
+		recv = "*" + recv // a borrow's value, copied as a call's argument is
+	}
+	recv = fc.spill(recv)
+	fd := fc.l.useFunc(f, x)
+	if fc.plainMVs[x] {
+		return fc.plainMethodValue(fd, sig, x, recv)
+	}
+	return fc.declaredValue(f, fd, sig, x, fc.l.info.Instances[x], recv)
+}
+
+// plainMethodValue is the known pure method value x (pureMethodValue,
+// knownSite) as a plain Go closure, func(params) R, over recv, the
+// receiver's copy: a direct call of the function, which takes no
+// environment and cannot fail, as a known pure literal's body is.
+func (fc *funcCtx) plainMethodValue(fd *funcDecl, sig *check.Signature, x *syntax.SelectorExpr, recv string) string {
+	return fc.envClosure(plainEnv, "", x, func(string) (params []string, results, body string) {
+		args := []string{recv}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		head := fd.name
+		if fd.method != nil {
+			head, args = args[0]+"."+fd.name, args[1:]
+		}
+		call := head + "(" + strings.Join(args, ", ") + ")"
+		ind := strings.Repeat("\t", fc.depth+1)
+		if len(sig.Results) == 1 {
+			return params, " " + fc.goType(sig.Results[0]), ind + "return " + call + "\n"
+		}
+		return params, "", ind + call + "\n"
+	})
+}
+
+// declaredValue is the closure of the uniform shape that calls the
+// declared function f (funcValue), with recv, when not "", as its first
+// argument before the value's parameters (methodValue196).
+func (fc *funcCtx) declaredValue(f *check.Func, fd *funcDecl, sig *check.Signature, site syntax.Node, inst *check.Instance, recv string) string {
 	// The value has the one Go shape of every function value; for a pure
 	// function the closure discards its environment (pure.go).
 	envParam := "env"
-	if fd.pure {
+	if fd.envFree {
 		envParam = "_"
 	}
 	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
 		lead := fd.envLead(env)
 		var args []string
+		if recv != "" {
+			args = append(args, recv)
+		}
 		for _, p := range sig.Params {
 			name := fc.scope.alloc("p")
 			params = append(params, name+" "+fc.goType(p.Type))
@@ -963,7 +1062,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 		}
 		// An instance's witnesses, from its operations (witness.go): a
 		// struct value passed on each call of the value.
-		lead = append(lead, fc.witnessArgs(f, inst, site)...)
+		wits := fc.witnessArgs(f, inst, site)
 		var head string
 		switch {
 		case fd.method != nil:
@@ -972,11 +1071,14 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
 			if mono := fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
 				head = mono.name // the instance's plain copy (mono.go)
+				if fc.monoWitnesses(mono, inst); mono.wits != nil {
+					wits = nil // its witnesses are known: it takes none
+				}
 			}
 		default:
 			head = fd.name
 		}
-		args = append(lead, args...)
+		args = append(append(lead, wits...), args...)
 		call := head + "(" + strings.Join(args, ", ") + ")"
 		var result check.Type
 		if len(sig.Results) == 1 {
@@ -1136,6 +1238,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	fc.depth++
 	outer := fc.envExpr(arg)
 	fc.line(env + " := *" + outer)
+	if ta := w.Contexts[0].TestAmbient; ta != nil {
+		fc.testAmbient(env, ta)
+	}
 	if lit {
 		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
@@ -1173,6 +1278,25 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	}
 	fc.depth--
 	fc.line("}")
+}
+
+// testAmbient gives the build of a context that needs TestAmbient
+// (rows.md, Test's ambient) its case's folder: a fresh one made here, which the
+// runner's provider of TestAmbient in env names, and removed when the
+// Go function that holds the with returns, which for a with in a test is
+// the end of the test's case (the checker admits it only in a test).
+func (fc *funcCtx) testAmbient(env string, ta *check.Named) {
+	dir := fc.temp("dir")
+	fc.line(testAmbientOpen(fc.l, env, dir, ta))
+}
+
+// testAmbientOpen is the Go statements that make the folder dir, remove
+// it at the end of the enclosing Go function, and put the runner's
+// provider of the test's ambient ta into the environment env.
+func testAmbientOpen(l *lowerer, env, dir string, ta *check.Named) string {
+	rt := l.rt()
+	return dir + " := " + rt + ".TestFolderOpen(); defer " + rt + ".TestFolderRemove(" + dir + "); " +
+		env + "." + l.envField(ta) + " = " + l.helper("TestAmbient") + "{dir: " + dir + "}"
 }
 
 // scopeCall writes a call of the with scope's method name on recv through
@@ -1235,7 +1359,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil {
+	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
 		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
 	}
 }
@@ -1257,6 +1381,7 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	// the declaration table, and it reads its own package's Info.
 	std := l.stdContext(w)
 	fc := newFuncCtx(l, newNamer(l.names), !std)
+	fc.marks = std && l.coverMarks
 	fc.owner = w.Name
 	if std {
 		saved := l.info
@@ -1366,9 +1491,9 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	defer fc.l.leave(fc.l.enter(e.Provider, nil))
 	if pkg != nil && pkg.Std() {
 		fc.l.info = pkg.Info // leave restores it
-		saved := fc.directives
-		fc.directives = false
-		defer func() { fc.directives = saved }()
+		saved, savedMarks := fc.directives, fc.marks
+		fc.directives, fc.marks = false, fc.l.coverMarks
+		defer func() { fc.directives, fc.marks = saved, savedMarks }()
 	}
 	fc.at(e.Provider)
 	saved := fc.env
@@ -1597,7 +1722,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
 			pre, e := "", ""
-			if fd.pure {
+			if fd.envFree {
 				// A pure table function takes no environment (pure.go).
 				params[0] = "_ *" + l.taskPkg() + ".Task"
 			} else {

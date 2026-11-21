@@ -1,0 +1,32 @@
+@0 open
+  # File Uploads [Upload a file] Nothing here yet. Start an upload.
+@0 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+@4800 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sent
+  1 field-notes.txt sending [Cancel upload 1]
+@5000 cancel 1
+  # File Uploads [Upload a file]
+  0 trail-map.png sent
+  1 field-notes.txt cancelled [Restart upload 1]
+@5100 restart 1
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sent
+  1 field-notes.txt sending [Cancel upload 1]
+@13800 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sent
+  1 field-notes.txt sent
+  2 harbor-sounds.ogg sending [Cancel upload 2]
+@14000 cancelall
+  # File Uploads [Upload a file]
+  0 trail-map.png sent
+  1 field-notes.txt sent
+  2 harbor-sounds.ogg cancelled [Restart upload 2]
+@14000 end
+  # File Uploads [Upload a file]
+  0 trail-map.png sent
+  1 field-notes.txt sent
+  2 harbor-sounds.ogg cancelled [Restart upload 2]

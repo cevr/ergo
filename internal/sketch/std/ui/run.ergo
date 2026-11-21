@@ -1,4 +1,9 @@
 import actor
+import pace
+import scope
+import sync
+import time
+import queue
 
 // Event is what reaches the loop: a press of a node, a text typed into an
 // Input node, the result of a load's fetch (Arrived), which a fetch's task
@@ -9,8 +14,147 @@ import actor
 // change of place the program did not make (URLChanged: the user went
 // back, or to an address), or a state the actor committed that no event
 // of the loop's sent (Committed: a reply its work sent, a timer), which the
-// session's watcher posts, at most one at a time before the next pass.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
+// session's watcher posts, at most one at a time before the next pass, or
+// a new text of a Readout the session showed (Published), which Publish
+// posts, at most one per readout before the host takes it. An Edit is a
+// text field's text with its caret and selection (Caret, Anchor), as a
+// host sends for each edit or move of the caret in it (OpenTUI gap 2); a
+// Type is an Edit with both at the end of the text.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Edit{Id Id[E], Text string, Caret int, Anchor int} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
+
+// PressGivesSignal: a press of a Pressable or a Check sends its On, a
+// text into an Input sends the Input's signal, and any other node sends
+// nothing, after every commit of a run; under a disabled Fieldset no
+// node sends anything (H4r).
+law PressGivesSignal(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let mut ok = true
+	for _ in 0..3 {
+		let _ = pass(&f, ps, genState(&r))
+		for k in Kids(&f, Root(&f)) {
+			ok = ok && signalsAgree(&f, k, false)
+		}
+	}
+	ok
+}
+
+// sent is the signal o holds, or -1 for None (the laws' signals are not
+// negative).
+func sent(o Option[int]) int {
+	match o {
+	case Some[int] as v:
+		v.Value
+	case None:
+		-1
+	}
+}
+
+func signalsAgree(f mut Frame[int], id Id[int], off bool) bool {
+	let mut ok = true
+	let mut under = off
+	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
+	let typed = sent(Handle(f, Type[int]{Id: id, Text: "abc"}).Signal)
+	match NodeOf(f, id) {
+	case Some[Node[int]] as n:
+		match n.Value {
+		case FieldsetNode as d:
+			under = off || d.Disabled
+			ok = pressed == -1 && typed == -1
+		case PressableNode[int] as p:
+			ok = pressed == p.On && typed == -1
+		case CheckNode[int] as c:
+			ok = pressed == c.On && typed == -1
+		case InputNode as i:
+			ok = i.Value == "v\(typed - 3)" && pressed == -1
+		case _:
+			ok = pressed == -1 && typed == -1
+		}
+		if off {
+			ok = pressed == -1 && typed == -1
+		}
+	case None:
+		return false
+	}
+	for k in Kids(f, id) {
+		ok = ok && signalsAgree(f, k, under)
+	}
+	ok
+}
+
+law WatcherShowsWorkReplies(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watchReplies(n)
+	}
+}
+
+func watchReplies(n int) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let posted = queue.New[Event[int]](8)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let (s, first) = Start(a, replyView, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	for i in 1..last+1 {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let mut shown = false
+		for !shown {
+			let ev = posted.Pop() catch {
+			case queue.Closed:
+				return false
+			}
+			match ev {
+			case Committed:
+			case _:
+				return false
+			}
+			let ops = Step(&session, ev) catch {
+			case actor.Stopped:
+				return false
+			}
+			shown = writesText(ops, "at \(i)")
+		}
+	}
+	true
+}
+
+// writesText is whether ops write a text node of value v.
+func writesText(ops []Op[int], v string) bool {
+	for op in ops {
+		let mut node Option[Node[int]] = None
+		match op {
+		case Insert[int] as x:
+			node = Some{Value: x.Node}
+		case Set[int] as x:
+			node = Some{Value: x.Node}
+		case _:
+		}
+		match node {
+		case Some[Node[int]] as x:
+			match x.Value {
+			case TextNode as t:
+				if t.Value == v {
+					return true
+				}
+			case _:
+			}
+		case None:
+		}
+	}
+	false
+}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
@@ -25,12 +169,16 @@ type Closed {}
 // the zone's box in the Area's box; after a Down on an Area, every pointer
 // event goes to that Area, in its box's coordinates, wherever the pointer
 // is, until an Up (capture); and while an Area holds the pointer near an
-// edge of a Scroll, the host scrolls it by EdgeScroll each frame. A
-// LiveNode is its live region: the host says each text a pass newly shows
-// in it. TestHost does the same (PointAt, PointOver, Captured, Announced).
+// edge of a Scroll, the host scrolls it by EdgeScroll (EdgeBand, EdgeStep)
+// each frame. A LiveNode is its live region: the host says each text a
+// pass newly shows in it. TestHost does the same (PointAt, PointOver,
+// Captured, Announced, and Advance scrolls the list inside the Area that
+// holds the pointer).
 // law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event, its pointer rules) need a running host and its screen; they run against each provider, not here.
 type Host[E] {
-	// Show applies one pass's changes.
+	// Show applies one pass's changes. After a Published it is given no
+	// change: the host paints again each node that reads the readout
+	// (ReadoutNode, Shown), with no layout.
 	Show(ops []Op[E]),
 	// Next waits for the next event, input or posted, in the order they
 	// came; it fails Closed when the host closed.
@@ -48,22 +196,216 @@ type Host[E] {
 // one Session: its signal goes to a, and the pass after it is shown. A
 // load's fetch runs as a task of Run's caller and posts its result to h;
 // a fetch whose load ended is stopped. Run fails with h's Closed, or with
-// Stopped when a has ended.
-func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R {
+// Stopped when a has ended. Each event handled is one unit of the loop's
+// work: Run marks its end with pace.Pacing.Edge(), as a user's loop does,
+// so the pacing main binds (pace.NewAtEdges, say) may collect there. A
+// drag is one stretch: from a pointer's Down to its Up (the host's
+// capture) Run holds the pacing, so no collection lands mid-gesture, and
+// the Up's release runs the one the gesture's edges were due; a Run that
+// ends mid-drag releases as it returns.
+func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R) fails Closed | actor.Stopped needs R | pace.Pacing {
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)
 	let mut frames = Animating(&session.frame)
 	h.Frames(frames)
+	let mut held = false
+	scope.OnExit() {
+		if held {
+			pace.Pacing.Release()
+		}
+	}
 	for {
 		let ev = try h.Next()
 		let ops = try Step(&session, ev)
-		if len(ops) > 0 {
+		if len(ops) > 0 || isPublished(ev) {
 			h.Show(ops)
 		}
 		if Animating(&session.frame) != frames {
 			frames = !frames
 			h.Frames(frames)
 		}
+		if pointerHeld(held, ev) != held {
+			held = !held
+			if held {
+				pace.Pacing.Hold()
+			} else {
+				pace.Pacing.Release()
+			}
+		}
+		pace.Pacing.Edge()
+	}
+}
+
+// pointerHeld is whether a pointer is down after ev, when held says whether
+// one was before: a Down grips, an Up lets go, any other event keeps it.
+func pointerHeld[E](held bool, ev Event[E]) bool {
+	match ev {
+	case Point[E] as p:
+		match p.Pointer.Phase {
+		case Down:
+			true
+		case Up:
+			false
+		case _:
+			held
+		}
+	case _:
+		held
+	}
+}
+
+// RunPacesEachEvent: Run marks one edge of the pacing in force for each
+// event it handles, and none before the first.
+law RunPacesEachEvent(n int) {
+	let k = (n%16 + 16) % 16
+	let c = pace.NewCounting()
+	let h = scriptedHost{left: sync.NewRef(k)}
+	with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+		Run(h, a, shelfView) catch {
+		case Closed:
+		case actor.Stopped:
+			return false
+		}
+	}
+	c.Edges() == int64(k)
+}
+
+// scriptedHost is the Host of RunPacesEachEvent: left more Committed
+// events, then Closed. It shows nothing and drops what is posted.
+type scriptedHost { left sync.Ref[int] } implements Host[int]
+
+func Show(_ scriptedHost, ops []Op[int]) {}
+
+func Next(h scriptedHost) Event[int] fails Closed {
+	if sync.Modify(h.left, func(n int) (int, int) { (n, n - 1) }) <= 0 {
+		return Closed
+	}
+	Committed
+}
+
+func Post(_ scriptedHost, ev Event[int]) {}
+
+func Frames(_ scriptedHost, on bool) {}
+
+// RunHoldsADrag: from a pointer's Down to its Up, Run's edges are held,
+// and the one collection they owed runs once, at the Up or, when the host
+// closes mid-drag, as Run returns; the edges before and after are not
+// held.
+law RunHoldsADrag(b int, m int, t int, ends bool) {
+	let before = (b%4 + 4) % 4
+	let moves = (m%6 + 6) % 6
+	let mut codes = []int{}
+	for _ in 0..before {
+		codes = codes.Append(0)
+	}
+	codes = codes.Append(1)
+	for _ in 0..moves {
+		codes = codes.Append(2)
+	}
+	if !ends {
+		codes = codes.Append(3)
+		for _ in 0..(t%4+4)%4 {
+			codes = codes.Append(0)
+		}
+	}
+	let c = pace.NewCounting()
+	let h = dragHost{target: sync.NewRef[Option[Id[int]]](None), codes: sync.NewRef(codes)}
+	with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+		Run(h, a, shelfView) catch {
+		case Closed:
+		case actor.Stopped:
+			return false
+		}
+	}
+	c.Edges() == int64(len(codes)) && c.HeldEdges() == int64(moves+1) && c.Deferred() == 1
+}
+
+// dragHost is the Host of RunHoldsADrag: it plays codes (0 a Committed,
+// 1 a Down, 2 a Moved, 3 an Up, each on the first node it was shown),
+// then Closed.
+type dragHost { target sync.Ref[Option[Id[int]]], codes sync.Ref[[]int] } implements Host[int]
+
+func Show(h dragHost, ops []Op[int]) {
+	let mut found Option[Id[int]] = None
+	for op in ops {
+		if found == None {
+			found = opId(op)
+		}
+	}
+	let first = found
+	h.target.Update(func(t Option[Id[int]]) Option[Id[int]] {
+		match t {
+		case Some[Id[int]]:
+			t
+		case None:
+			first
+		}
+	})
+}
+
+// opId is the node an op changes; a Define changes a look, no node.
+func opId(op Op[int]) Option[Id[int]] {
+	match op {
+	case Insert[int] as i:
+		Some{Value: i.Id}
+	case Move[int] as m:
+		Some{Value: m.Id}
+	case Remove[int] as r:
+		Some{Value: r.Id}
+	case Set[int] as s:
+		Some{Value: s.Id}
+	case Define:
+		None
+	}
+}
+
+func Next(h dragHost) Event[int] fails Closed {
+	let code = sync.Modify(h.codes, func(cs []int) (int, []int) {
+		if len(cs) == 0 {
+			(-1, cs)
+		} else {
+			(cs[0], cs[1:])
+		}
+	})
+	if code < 0 {
+		return Closed
+	}
+	if code == 0 {
+		return Committed
+	}
+	let id = match h.target.Get() {
+	case Some[Id[int]] as s:
+		s.Value
+	case None:
+		return Closed
+	}
+	Point{Id: id, Pointer: PointerEvent{Pointer: MousePointer, Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
+}
+
+// phaseOf is the pointer phase of a dragHost code.
+func phaseOf(code int) Phase {
+	if code == 1 {
+		return Down
+	}
+	if code == 2 {
+		return Moved
+	}
+	Up
+}
+
+func Post(_ dragHost, ev Event[int]) {}
+
+func Frames(_ dragHost, on bool) {}
+
+// isPublished is whether ev is a readout's new text.
+func isPublished[E](ev Event[E]) bool {
+	match ev {
+	case Published:
+		true
+	case _:
+		false
 	}
 }

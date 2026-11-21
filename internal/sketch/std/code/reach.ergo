@@ -1,0 +1,218 @@
+import maps
+
+// Reach (SEMTOOLS SEM2b, SEM2c): who has a capability, a failure or a
+// provider, by which chain of calls it arrives, and where a with or a
+// catch discharges it, from the tables' rows: each function's needs and
+// fails rows as the checker derived them (Need, Failing), what each call
+// charges its caller (Call.Brings, Call.Raises), what a with or a catch
+// around it discharges (Call.Discharged, Call.Caught; a call whose
+// failure a catch takes only some values of raises it too), and the provider a
+// with binds each discharged capability to (Call.Bound).
+
+// Need is one capability of a function's derived needs row; a function
+// has one Need per capability of its row.
+type Need { Of string, Capability string }
+
+// Failing is one failure of a function's derived fails row; a function
+// has one Failing per failure of its row.
+type Failing { Of string, Failure string }
+
+// Binding is a capability a with around a call discharges and a provider
+// the innermost such with's entry binds it to.
+type Binding { Capability string, Provider string }
+
+// ReachQuery asks who has what is at the address Of (an operation type, a
+// failure type or a provider), a page of functions at a time.
+type ReachQuery {
+	Of     string,
+	Offset Option[int],
+	Limit  Option[int],
+}
+
+// Reached is a function that has what was asked about, with one shortest
+// chain of calls that brings it there: the first call is in Function,
+// each next call is in the declaration the one before calls, every call
+// brings it (a capability) or raises it (a failure), and the last calls a
+// declaration that brings it no further (an operation, a function value,
+// a function whose row is written, a function that fails itself). The
+// chain is empty when no call of Function brings it, and always for a
+// provider, which no call brings.
+type Reached { Function string, Chain []Call }
+
+// ReachPage is a page of the functions that have Of, in table order, and
+// every call where a with or a catch discharges it, in table order. Kind
+// is what Of is: "capability" (the functions whose needs row holds it;
+// the calls a with discharges it at), "failure" (the functions whose
+// fails row holds it; the calls a catch handles it at) or "provider" (the
+// functions with a call a with binds a capability to it at; those calls).
+type ReachPage {
+	Revision   string,
+	Complete   bool,
+	Of         string,
+	Kind       string,
+	Reached    []Reached,
+	Discharges []Call,
+	Total      int,
+	Next       int,
+}
+
+// subjectOf is the handle of what is at q's address: the declaration
+// Symbol finds there; or, for a name the tables do not declare (a
+// predeclared one, Console), the address itself when a row, a charge or
+// a binding names it.
+func subjectOf(q ReachQuery, t Tables) string fails NoSymbol | Ambiguous needs Reader {
+	let d = Reader.Symbol(q.Of) catch {
+	case NoSymbol as n:
+		for x in rowElemsOf(t) {
+			if x.Capability == q.Of {
+				return q.Of
+			}
+		}
+		for c in edgesOf(t) {
+			if carries(c, q.Of) || stops(c, q.Of) {
+				return q.Of
+			}
+		}
+		return n
+	case Ambiguous as a:
+		return a
+	}
+	d.Handle
+}
+
+// rowElemsOf is every row element of the tables, in table order: each
+// package's needs, then its fails (a Failing as a Need of its failure).
+func rowElemsOf(t Tables) []Need {
+	let mut out = []Need{}
+	for p in t.Packages {
+		for n in p.Needs {
+			out = out.Append(n)
+		}
+		for f in p.Fails {
+			out = out.Append(Need{Of: f.Of, Capability: f.Failure})
+		}
+	}
+	out
+}
+
+// carries is whether the call c brings x (a capability) or raises it (a
+// failure).
+func carries(c Call, x string) bool { has(c.Brings, x) || has(c.Raises, x) }
+
+// stops is whether a with discharges x at c, a catch handles it there, or
+// a with binds a capability to it there (x a provider).
+func stops(c Call, x string) bool {
+	if has(c.Discharged, x) || has(c.Caught, x) {
+		return true
+	}
+	for b in c.Bound {
+		if b.Provider == x {
+			return true
+		}
+	}
+	false
+}
+
+// kindOf is what x is in t: a provider when a with binds a capability to
+// it, a failure when a fails row, a raise or a catch names it, a
+// capability otherwise.
+func kindOf(t Tables, x string) string {
+	let mut failure = false
+	for c in edgesOf(t) {
+		for b in c.Bound {
+			if b.Provider == x {
+				return "provider"
+			}
+		}
+		failure = failure || has(c.Raises, x) || has(c.Caught, x)
+	}
+	for p in t.Packages {
+		for f in p.Fails {
+			failure = failure || f.Failure == x
+		}
+	}
+	if failure { "failure" } else { "capability" }
+}
+
+// chainOf is a shortest chain that brings x to f, by steps over out: each
+// declaration's calls that bring it, in table order. Each declaration is
+// followed once, so a cycle ends. When no chain ends at a declaration that
+// brings it no further, the chain is the first, by steps, that ends at a
+// call back to a declaration already reached: a cycle, where a failure
+// starts (a function that recurses and fails itself) or a capability
+// comes through a call the tables do not hold.
+func chainOf(out Map[string, []Call], f string) []Call {
+	let mut paths = Map[string, []Call]{}
+	let mut seen = Map[string, bool]{}
+	seen[f] = true
+	paths[f] = []Call{}
+	let mut frontier = []string{f}
+	let mut back = []Call{}
+	let mut found = false
+	for len(frontier) > 0 {
+		let mut next = []string{}
+		for h in frontier {
+			let calls = maps.GetOr(out, h, []Call{})
+			let mut fresh = false
+			for c in calls {
+				let path = maps.GetOr(paths, h, []Call{}).Append(c)
+				if len(maps.GetOr(out, c.To, []Call{})) == 0 {
+					return path
+				}
+				if !maps.GetOr(seen, c.To, false) {
+					seen[c.To] = true
+					paths[c.To] = path
+					next = next.Append(c.To)
+					fresh = true
+				}
+			}
+			if !fresh && len(calls) > 0 && !found {
+				back = maps.GetOr(paths, h, []Call{}).Append(calls[0])
+				found = true
+			}
+		}
+		frontier = next
+	}
+	back
+}
+
+// reachPage is the page of q's window over the functions that have x,
+// each with its chain over out, and the discharges.
+func reachPage(t Tables, q ReachQuery, x string, kind string, functions []string, out Map[string, []Call], discharges []Call) ReachPage {
+	let (start, end, next) = window(len(functions), q.Offset, q.Limit)
+	let mut reached = []Reached{}
+	for f in functions[start:end] {
+		reached = reached.Append(Reached{Function: f, Chain: chainOf(out, f)})
+	}
+	ReachPage{Revision: t.Revision, Complete: summaryOf(t).Complete, Of: x, Kind: kind, Reached: reached, Discharges: discharges, Total: len(functions), Next: next}
+}
+
+// reachByScan is Scan's answer, the reference: every row read for the
+// question. The functions are those whose rows hold x, then the callers
+// of the calls a with binds to x, each once.
+func reachByScan(t Tables, q ReachQuery, x string) ReachPage {
+	let mut functions = []string{}
+	for n in rowElemsOf(t) {
+		if n.Capability == x && !has(functions, n.Of) {
+			functions = functions.Append(n.Of)
+		}
+	}
+	let mut out = Map[string, []Call]{}
+	let mut discharges = []Call{}
+	for c in edgesOf(t) {
+		if carries(c, x) {
+			out[c.From] = maps.GetOr(out, c.From, []Call{}).Append(c)
+		}
+		if stops(c, x) {
+			discharges = discharges.Append(c)
+		}
+	}
+	for c in edgesOf(t) {
+		for b in c.Bound {
+			if b.Provider == x && !has(functions, c.From) {
+				functions = functions.Append(c.From)
+			}
+		}
+	}
+	reachPage(t, q, x, kindOf(t, x), functions, out, discharges)
+}

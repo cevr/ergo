@@ -1,0 +1,8 @@
+# scripts/opcount: the ask probe against the Go runtime's floor
+# (testdata/floor: two gopark/goready pairs per request and reply), so the
+# ratio to the floor is counted, not guessed (PARK2).
+unit ask
+sizes 100000 1100000
+args bench ask {n}
+control benchmarks/park/testdata/floor
+binary park

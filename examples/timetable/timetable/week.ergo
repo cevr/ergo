@@ -1,0 +1,72 @@
+// The week picker: a traveller picks a week by its ISO number, Monday to
+// Sunday, and sees each day's trains.
+
+import civil
+import time
+
+// Monday is the day an ISO week starts on.
+let Monday = civil.Weeks{First: time.Monday}
+
+// WeekOf is the ISO week that holds d, Monday to Sunday.
+func WeekOf(d civil.Date) civil.Span {
+	civil.NewSpan(civil.StartOf(d, Monday), civil.EndOf(d, Monday)) catch {
+	case civil.Reversed:
+		Unreachable("a week starts on or before its end")
+	}
+}
+
+// Weeks is the ISO weeks from the one that holds from, n of them, each
+// whole: a picker's rows.
+func Weeks(from civil.Date, n int) Seq[civil.Span] {
+	let first = civil.StartOf(from, Monday)
+	let last = civil.EndOf(civil.AddWeeks(from, n-1), Monday)
+	let all = civil.NewSpan(first, last) catch {
+	case civil.Reversed:
+		Unreachable("n is at least 1")
+	}
+	civil.Split(all, Monday)
+}
+
+// Day is a date of a week and the services that leave the first stop on
+// it.
+type Day { Date civil.Date, Services []string }
+
+// Days is each day of w with the services of all that run on it.
+func Days(w civil.Span, all []Service) []Day {
+	let mut out = []Day{}
+	for d in civil.Dates(w) {
+		let mut numbers = []string{}
+		for s in all {
+			if RunsOn(s, d) {
+				numbers = numbers.Append(s.Number)
+			}
+		}
+		out = out.Append(Day{Date: d, Services: numbers})
+	}
+	out
+}
+
+// AWeekIsSevenDays: the week of a date holds it, starts on a Monday,
+// holds seven days of one ISO week, away from the calendar's ends.
+law AWeekIsSevenDays(n int64) {
+	let d = civil.FromUnixDays(within(n, -719000, 2932000))
+	let w = WeekOf(d)
+	civil.Contains(w, d) && civil.Weekday(civil.From(w)) == time.Monday && civil.Len(w) == 7 && civil.ISOWeek(civil.From(w)) == civil.ISOWeek(d) && civil.ISOWeek(civil.To(w)) == civil.ISOWeek(d)
+}
+
+// WeeksFollowOneAnother: the picker's rows are whole weeks, each the week
+// after the one before, the first holding from.
+law WeeksFollowOneAnother(n int64, k int64) {
+	let from = civil.FromUnixDays(within(n, 0, 47482))
+	let count = int(within(k, 1, 60))
+	let mut prev = civil.AddDays(civil.StartOf(from, Monday), -1)
+	let mut seen = 0
+	for w in Weeks(from, count) {
+		if civil.From(w) != civil.AddDays(prev, 1) || WeekOf(civil.From(w)) != w {
+			return false
+		}
+		prev = civil.To(w)
+		seen += 1
+	}
+	seen == count && civil.Contains(WeekOf(from), from)
+}

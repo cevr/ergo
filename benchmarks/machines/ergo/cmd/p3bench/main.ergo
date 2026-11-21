@@ -1,0 +1,264 @@
+// p3bench runs one of plusthree's benchmark scenarios for N events and
+// prints the scenario's probe. An Ergo program cannot read the Go runtime's
+// allocation count yet (runtime.ReadMemStats takes a borrow it may keep,
+// and a local Go package is not bindable, #202), so the heap bytes per
+// event are measured from outside: the peak resident size with GOGC=off
+// at two N.
+//
+//	p3bench SCENARIO MODE N
+//
+// SCENARIO is s1, s2, s3, s4 or s7. MODE is fold (machines.From over a
+// reused slice of 1024 signals, the run a program writes), step (a loop
+// of the step function and machines.Next, no runner) or, for s7, timed
+// (machines.RunTimed on a testing.VirtualClock: N timer fires, no outside
+// signal) or, for s1 and s7, actor (the live runner, actor.StartMachine:
+// s1 asks each signal, s7 moves a time.Manual one second per timer). N is
+// a multiple of 1024. The instructions per event are the
+// difference of two runs' counts (perf stat -e instructions:u) divided by
+// the difference of their N; see ../../README.md.
+
+import actor
+import machines
+import os
+import p3bench/charts
+import strconv
+import testing
+import time
+
+let Chunk = 1024
+
+func presses() []charts.Press {
+	let mut out = []charts.Press{}
+	for _ in 0..Chunk {
+		out = out.Append(charts.Press)
+	}
+	out
+}
+
+func incs() []charts.Inc {
+	let mut out = []charts.Inc{}
+	for _ in 0..Chunk {
+		out = out.Append(charts.Inc)
+	}
+	out
+}
+
+func jumps() []charts.Jump {
+	let mut out = []charts.Jump{}
+	for _ in 0..Chunk {
+		out = out.Append(charts.Jump)
+	}
+	out
+}
+
+func flips() []charts.Flip {
+	let mut out = []charts.Flip{}
+	for _ in 0..Chunk {
+		out = out.Append(charts.Flip)
+	}
+	out
+}
+
+func foldS1(n int, sig []charts.Press) int {
+	let m = charts.S1{}
+	let mut s = machines.Initial(m)
+	for _ in 0..n/Chunk {
+		let r = machines.From(m, s, sig) catch {
+		case machines.Rejected:
+			Unreachable("s1 rejects no signal")
+		}
+		match r {
+		case machines.Running[charts.Light, int] as run:
+			s = run.State
+		case machines.Finished[charts.Light, int]:
+			Unreachable("s1 never ends")
+		}
+	}
+	charts.LightProbe(s)
+}
+
+func foldS2(n int, sig []charts.Inc) int {
+	let m = charts.S2{}
+	let mut s = machines.Initial(m)
+	for _ in 0..n/Chunk {
+		let r = machines.From(m, s, sig) catch {
+		case machines.Rejected:
+			Unreachable("s2 rejects no signal")
+		}
+		match r {
+		case machines.Running[charts.Counter, int] as run:
+			s = run.State
+		case machines.Finished[charts.Counter, int]:
+			Unreachable("s2 never ends")
+		}
+	}
+	s.Count
+}
+
+func foldS3(n int, sig []charts.Jump) int {
+	let m = charts.S3{}
+	let mut s = machines.Initial(m)
+	for _ in 0..n/Chunk {
+		let r = machines.From(m, s, sig) catch {
+		case machines.Rejected:
+			Unreachable("s3 rejects no signal")
+		}
+		match r {
+		case machines.Running[charts.Tree, int] as run:
+			s = run.State
+		case machines.Finished[charts.Tree, int]:
+			Unreachable("s3 never ends")
+		}
+	}
+	charts.TreeProbe(s)
+}
+
+func foldS4(n int, sig []charts.Flip) int {
+	let m = charts.S4{}
+	let mut s = machines.Initial(m)
+	for _ in 0..n/Chunk {
+		let r = machines.From(m, s, sig) catch {
+		case machines.Rejected:
+			Unreachable("s4 rejects no signal")
+		}
+		match r {
+		case machines.Running[charts.Both, int] as run:
+			s = run.State
+		case machines.Finished[charts.Both, int]:
+			Unreachable("s4 never ends")
+		}
+	}
+	charts.BothProbe(s)
+}
+
+func stepS1(n int, sig []charts.Press) int {
+	let mut s = machines.Initial(charts.S1{})
+	for i in 0..n {
+		s = machines.Next(s, charts.Toggle(s, sig[i%Chunk]))
+	}
+	charts.LightProbe(s)
+}
+
+func stepS2(n int, sig []charts.Inc) int {
+	let mut s = machines.Initial(charts.S2{})
+	for i in 0..n {
+		s = machines.Next(s, charts.Count(s, sig[i%Chunk]))
+	}
+	s.Count
+}
+
+func stepS3(n int, sig []charts.Jump) int {
+	let mut s = machines.Initial(charts.S3{})
+	for i in 0..n {
+		s = machines.Next(s, charts.JumpStep(s, sig[i%Chunk]))
+	}
+	charts.TreeProbe(s)
+}
+
+func stepS4(n int, sig []charts.Flip) int {
+	let mut s = machines.Initial(charts.S4{})
+	for i in 0..n {
+		s = machines.Next(s, charts.FlipStep(s, sig[i%Chunk]))
+	}
+	charts.BothProbe(s)
+}
+
+// timedS7 fires n timers: the run has no outside signal and ends at n
+// seconds, and each entry's timer of one second enters the other phase.
+func timedS7(n int) int needs time.Clock | Scheduler {
+	let end = duration(int64(n) * 1000000000)
+	let r = machines.RunTimed(charts.S7{}, []machines.Timed[charts.Due]{}, end) catch {
+	case machines.Rejected:
+		Unreachable("s7 rejects no signal")
+	}
+	match r {
+	case machines.Running[charts.Phase, int] as run:
+		charts.PhaseProbe(run.State)
+	case machines.Finished[charts.Phase, int]:
+		Unreachable("s7 never ends")
+	}
+}
+
+// actorS1 asks the live runner (actor.StartMachine) for each of n signals.
+func actorS1(n int) int needs Scheduler {
+	let a = actor.StartMachine(charts.S1{}, 16, func(o int) {})
+	for _ in 0..n {
+		let _ = a.Ask(charts.Press) catch {
+		case actor.Stopped:
+			Unreachable("s1 runs until it is stopped")
+		}
+	}
+	let s = a.State()
+	a.Stop()
+	charts.LightProbe(s)
+}
+
+// actorS7 runs S7 on the live runner and moves a manual clock one second
+// n times: each move fires the entry's timer.
+func actorS7(n int, clock time.Manual) int needs Scheduler {
+	let a = actor.StartMachine(charts.S7{}, 16, func(o int) {})
+	for _ in 0..n {
+		clock.Advance(1s)
+	}
+	let s = a.State()
+	a.Stop()
+	charts.PhaseProbe(s)
+}
+
+// onManual runs an actor mode on a time.Manual made for it alone. A
+// time.Manual made beside the testing.VirtualClock of the timed mode,
+// unused, makes machines.RunTimed on the VirtualClock end in a Go deadlock
+// ("all goroutines are asleep") at any N past 0 (measured; see README).
+func onManual(n int, timers bool) int {
+	let manual = time.NewManual(0)
+	if timers {
+		return with context { time.Clock: manual, Scheduler: manual } { actorS7(n, manual) }
+	}
+	with context { Scheduler: manual } { actorS1(n) }
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 3 {
+		return os.Exit{Code: 2, Message: "usage: p3bench s1|s2|s3|s4|s7 fold|step|timed|actor N"}
+	}
+	let n = strconv.Atoi(args[2]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "p3bench: N is not a number"}
+	}
+	if n < 0 || n%Chunk != 0 {
+		return os.Exit{Code: 2, Message: "p3bench: N is not a multiple of 1024"}
+	}
+	let p = presses()
+	let i = incs()
+	let j = jumps()
+	let f = flips()
+	let c = testing.NewVirtualClock(0)
+	let probe = match (args[0], args[1]) {
+	case ("s1", "fold"):
+		foldS1(n, p)
+	case ("s2", "fold"):
+		foldS2(n, i)
+	case ("s3", "fold"):
+		foldS3(n, j)
+	case ("s4", "fold"):
+		foldS4(n, f)
+	case ("s1", "step"):
+		stepS1(n, p)
+	case ("s2", "step"):
+		stepS2(n, i)
+	case ("s3", "step"):
+		stepS3(n, j)
+	case ("s4", "step"):
+		stepS4(n, f)
+	case ("s7", "timed"):
+		with context { time.Clock: c, Scheduler: c } { timedS7(n) }
+	case ("s1", "actor"):
+		onManual(n, false)
+	case ("s7", "actor"):
+		onManual(n, true)
+	case (_, _):
+		return os.Exit{Code: 2, Message: "p3bench: no scenario \(args[0]) \(args[1])"}
+	}
+	Console.Println("\(args[0]) \(args[1]) n=\(n) probe=\(probe)")
+}

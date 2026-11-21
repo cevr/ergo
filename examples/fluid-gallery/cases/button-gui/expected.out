@@ -1,0 +1,38 @@
+GUI /docs/button
+generic
+  button "Primary"
+    "Primary"
+  button "Primary"
+    "Primary"
+  button "Secondary"
+    "Secondary"
+  button "Secondary"
+    "Secondary"
+  button "Tertiary"
+    "Tertiary"
+  button "Tertiary"
+    "Tertiary"
+  button "Ghost"
+    "Ghost"
+  button "Ghost"
+    "Ghost"
+  button "Delete"
+    "Delete"
+  button "Delete"
+    "Delete"
+  button "Get started"
+    "Get started"
+  button "Create"
+    "Create"
+  button "Next"
+    "Next"
+  button "Search"
+    "Search"
+  button "Click me"
+    "Click me"
+  button "Saving" busy=true disabled=true
+    "Saving"
+  button "Disabled" disabled=true
+    "Disabled"
+web: agrees
+part: agrees

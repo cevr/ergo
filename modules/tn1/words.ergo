@@ -1,0 +1,268 @@
+// The record's word rule and its text form, for a host written in Ergo
+// (ergo.dev/tn1/ts). internal/sketch/lint/features states the same in
+// Go for Ergo's own parser; the vectors' records hold the two equal.
+
+import strconv
+import strings
+
+func letter(c byte) bool { c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+
+func lowerByte(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 32
+	}
+	c
+}
+
+// Words appends the words of s: runs of ASCII letters, split where a
+// lower-case letter meets an upper-case one, lowercased, three letters or
+// more.
+func Words(dst []string, s string) []string {
+	let mut out = dst
+	let mut start = -1
+	for i in 0..len(s)+1 {
+		let end = i == len(s) || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
+		if end && start >= 0 {
+			if i-start >= 3 {
+				let mut w = []byte{}
+				for k in start..i {
+					w = w.Append(lowerByte(s[k]))
+				}
+				out = out.Append(strings.FromBytes(w))
+			}
+			start = -1
+		}
+		if i < len(s) && letter(s[i]) && start < 0 {
+			start = i
+		}
+	}
+	out
+}
+
+// SketchOf is Sketch(Words([]string{}, s)), hashing each word's bytes as
+// it reads them: no word is made.
+func SketchOf(s string) uint64 {
+	let mut sk = uint64(0)
+	let mut start = -1
+	for i in 0..len(s)+1 {
+		let end = i == len(s) || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
+		if end && start >= 0 {
+			if i-start >= 3 {
+				let mut h = uint32(2166136261)
+				for k in start..i {
+					h = (h ^ uint32(lowerByte(s[k]))) * 16777619
+				}
+				sk = sk | uint64(1)<<uint64(h%64)
+			}
+			start = -1
+		}
+		if i < len(s) && letter(s[i]) && start < 0 {
+			start = i
+		}
+	}
+	sk
+}
+
+// StopWords are the function words a net that reads `words stop` leaves
+// out of a comment's sketch (NARR-TS's list): prose narration ("Now we
+// loop over the values and add each one") shares only its content words
+// with the code under it.
+let StopWords = []string{
+	"the", "and", "for", "with", "into", "over", "from", "then", "that", "this", "these", "those",
+	"now", "first", "next", "after", "before", "each", "one", "all", "its", "our", "are", "was",
+	"will", "can", "get", "set", "let", "here", "there", "what", "which", "when", "just", "also",
+}
+
+func stopWord(w string) bool {
+	for s in StopWords {
+		if s == w {
+			return true
+		}
+	}
+	false
+}
+
+// ContentSketchOf is the sketch of the words of s that are not StopWords.
+func ContentSketchOf(s string) uint64 {
+	let mut sk = uint64(0)
+	for w in Words([]string{}, s) {
+		if !stopWord(w) {
+			sk = sk | WordBit(w)
+		}
+	}
+	sk
+}
+
+// WordBit is a word's bit in a sketch: FNV-1a, 32 bits, modulo 64.
+func WordBit(w string) uint64 {
+	let mut h = uint32(2166136261)
+	for i in 0..len(w) {
+		h = (h ^ uint32(w[i])) * 16777619
+	}
+	uint64(1) << uint64(h%64)
+}
+
+// Sketch is the set of the words' bits.
+func Sketch(words []string) uint64 {
+	let mut s = uint64(0)
+	for w in words {
+		s = s | WordBit(w)
+	}
+	s
+}
+
+let digits = "0123456789abcdef"
+
+// hexOf is v in lower-case hexadecimal, at least width digits.
+func hexOf(v uint64, width int) string {
+	// n is the digits: v's own, at least width, at least one.
+	let mut n = 1
+	let mut x = v >> 4
+	for x != 0 {
+		n += 1
+		x = x >> 4
+	}
+	if n < width {
+		n = width
+	}
+	let mut b = strings.Bytes(strings.Repeat("0", n))
+	x = v
+	let mut i = n - 1
+	for x != 0 {
+		b[i] = digits[int(x&15)]
+		x = x >> 4
+		i -= 1
+	}
+	strings.FromBytes(b)
+}
+
+func lineKindName(k LineKind) string {
+	match k {
+	case Blank:
+		"blank"
+	case Code:
+		"code"
+	case CommentOnly:
+		"comment"
+	case DocComment:
+		"doc"
+	case Directive:
+		"directive"
+	}
+}
+
+func nodeKindName(k NodeKind) string {
+	match k {
+	case Function:
+		"function"
+	case Declared:
+		"type"
+	case Handler:
+		"handler"
+	case Test:
+		"test"
+	case Module:
+		"module"
+	}
+}
+
+func shapeName(s HandlerShape) string {
+	match s {
+	case Empty:
+		"empty"
+	case YieldsLiteral:
+		"literal"
+	case Rethrows:
+		"rethrows"
+	case Records:
+		"records"
+	case Translates:
+		"translates"
+	}
+}
+
+// EncodeRecord is the record's text form, as ParseRecord reads it.
+func EncodeRecord(f Features) string {
+	let mut b = strings.NewBuilder()
+	// A line is about 50 bytes and its comment, a node about 80: one
+	// growth for most records.
+	let mut size = 64 + 80*len(f.Nodes)
+	for l in f.Lines {
+		size += 50 + len(l.CommentText)
+	}
+	b.Grow(size)
+	if f.Version == 3 {
+		b.WriteString(RecordHeader3 + f.Language + "\n")
+	} else {
+		b.WriteString(RecordHeader + f.Language + "\n")
+	}
+	for p in f.Packages {
+		b.WriteString("P \(hexOf(p.NameWords, 16)) \(p.Files) \(p.Decls) \(p.Exported) \(p.FanIn) \(p.FanOut) \(p.InternalUses) \(p.ExternalUses) \(p.UpEdges) \(p.Depth) \(hexOf(p.NeighbourWords, 16)) \(p.ChurnTogether)\n")
+	}
+	for x in f.Files {
+		b.WriteString("F \(hexOf(x.NameWords, 16)) \(x.Decls) \(x.UsesInPackage) \(x.UsesOut) \(x.BestOtherPackageShare) \(x.FanIn) \(x.FanOut) \(x.ChurnTogether)\n")
+	}
+	for l in f.Lines {
+		// Piece by piece into the one builder: an interpolated line
+		// would be a string of its own per line.
+		b.WriteString("L ")
+		b.WriteString(lineKindName(l.Kind))
+		b.WriteByte(' ')
+		b.WriteString(strconv.Itoa(l.Depth))
+		b.WriteByte(' ')
+		b.WriteString(hexOf(uint64(l.Starts), 1))
+		b.WriteByte(' ')
+		b.WriteString(hexOf(l.CommentWords, 16))
+		b.WriteByte(' ')
+		b.WriteString(hexOf(l.CodeWords, 16))
+		b.WriteByte(' ')
+		b.WriteString(l.CommentText)
+		b.WriteByte('\n')
+	}
+	for n in f.Nodes {
+		let mut shapes = "-"
+		if len(n.Handlers) > 0 {
+			let mut names = []string{}
+			for h in n.Handlers {
+				names = names.Append(shapeName(h))
+			}
+			shapes = strings.Join(names, ",")
+		}
+		b.WriteString("N \(nodeKindName(n.Kind)) \(n.Offset) \(n.Length) \(n.Line) \(n.Column) \(hexOf(n.NameWords, 16)) \(n.Params) \(n.Statements) \(n.MaxDepth) \(shapes) \(hexOf(n.Shape, 16))")
+		if f.Version == 3 {
+			b.WriteString(" \(n.CallersInPackage) \(n.CallersOut) \(n.TopCallerPackageShare)")
+		}
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// RecordRoundTrips: a record read from its text form writes the same
+// text (the encoder and ParseRecord agree on every field).
+law RecordRoundTrips(text string, depth int, words uint64) {
+	let src = "L comment \(depth & 7) 1f \(hexOf(words, 16)) \(hexOf(words>>3, 16)) // \(strings.ReplaceAll(text, "\n", " "))"
+	let r = ParseRecord(RecordHeader + "ts\n" + src + "\n") catch {
+	case Malformed:
+		return false
+	}
+	EncodeRecord(r) == RecordHeader+"ts\n"+src+"\n"
+}
+
+// RecordRoundTrips3: a version 3 record (its P, F and wider N items) reads
+// back and writes the same text.
+law RecordRoundTrips3(a int, b int, c int, words uint64) {
+	let x = a & 1023
+	let y = b & 1023
+	let z = c & 1023
+	let s = (x + y + z) % 1001
+	let p = "P \(hexOf(words, 16)) \(x) \(y) \(z) \(x) \(y) \(z) \(x) \(y) \(z) \(hexOf(words>>7, 16)) \(x)"
+	let f = "F \(hexOf(words>>1, 16)) \(z) \(y) \(x) \(s) \(z) \(y) \(x)"
+	let l = "L code \(x & 7) 1 \(hexOf(words, 16)) \(hexOf(words>>5, 16)) "
+	let n = "N function 0 \(y) 1 1 \(hexOf(words>>2, 16)) \(x & 7) \(y) \(z & 15) - \(hexOf(words>>9, 16)) \(x) \(y) \(s)"
+	let text = RecordHeader3 + "ts\n" + p + "\n" + f + "\n" + l + "\n" + n + "\n"
+	let r = ParseRecord(text) catch {
+	case Malformed:
+		return false
+	}
+	r.Version == 3 && EncodeRecord(r) == text
+}

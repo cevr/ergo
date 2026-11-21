@@ -35,7 +35,9 @@ import (
 //
 // The program runs under the new lowering, under the rule before the
 // size test (inlineCostLowering "budget"), with every inlined failure at
-// its call's join (failLowering "join") and under the reference
+// its call's join (failLowering "join"), with each growth guard copied
+// at its inlined site (coldLowering "copy": pushOn, whose guard the rule
+// writes as a call out of line, coldhead.go) and under the reference
 // (inlineLowering "call"); stdout must equal the model's, a Go fold of the
 // same statements, and the exit code and standard error (the typed
 // failure, or the defect with its Ergo frames) must be the same under
@@ -52,30 +54,54 @@ var inlinePaths = []string{
 	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill", "keep",
 	"own-rebind", "own-kept", "update-named-rebind", "update-named-kept", "named-cb", "impure-cb",
 	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit", "end-named", "loop",
+	"cold-grow", "cold-room",
 }
 
 const inlinePrelude = `import maps
 import scope
+import slices
+
+// Stack's pushOn begins with a growth guard: inlined, the guard calls
+// pushOn out of line (coldhead.go, BUN5-cold).
+type Stack { words []int, top int }
+
+func zerosN(n int) []int { slices.Repeat([]int{0}, n) }
+
+func pushOn(s mut Stack, w int) {
+	if s.top >= len(s.words) {
+		s.words = slices.Concat(s.words, zerosN(len(s.words) + 1))
+	}
+	s.words[s.top] = w
+	s.top = s.top + 1
+}
+
+func sdigest(s mut Stack) int {
+	let mut d = s.top
+	for i in 0..s.top {
+		d = (d * 31 + s.words[i]) % 1000003
+	}
+	d
+}
 
 type Box[T] { items []T, n int }
 
 type Missing { At int }
 
-func at[T](b *Box[T], i int) T fails Missing {
+func at[T](b mut Box[T], i int) T fails Missing {
 	if i < 0 || i >= len(b.items) {
 		return Missing{At: i}
 	}
 	b.items[i]
 }
 
-func update[T](b *Box[T], i int, f func(v *T)) fails Missing {
+func update[T](b mut Box[T], i int, f func(v mut T)) fails Missing {
 	if i < 0 || i >= len(b.items) {
 		return Missing{At: i}
 	}
 	f(&b.items[i])
 }
 
-func pick(b *Box[int], i int) int {
+func pick(b mut Box[int], i int) int {
 	at(b, i) catch {
 	case Missing:
 		-1
@@ -87,11 +113,11 @@ func pick(b *Box[int], i int) int {
 // failure label only when it failed; bumpVia's other failing return keeps
 // that label); bumpSlow has a loop, so it stays a call. safeAt declares a failure it never returns (its site has no
 // failure label to place).
-func atVia(b *Box[int], i int) int fails Missing {
+func atVia(b mut Box[int], i int) int fails Missing {
 	at(b, i)
 }
 
-func bumpSlow(b *Box[int], i int) fails Missing {
+func bumpSlow(b mut Box[int], i int) fails Missing {
 	for x in b.items {
 		if x == -12345 {
 			return Missing{At: x}
@@ -103,30 +129,30 @@ func bumpSlow(b *Box[int], i int) fails Missing {
 	b.items[i] = b.items[i] + 1
 }
 
-func bumpVia(b *Box[int], i int) fails Missing {
+func bumpVia(b mut Box[int], i int) fails Missing {
 	if i == -77 {
 		return Missing{At: i}
 	}
 	bumpSlow(b, i)
 }
 
-func safeAt(b *Box[int], i int) int fails Missing {
+func safeAt(b mut Box[int], i int) int fails Missing {
 	clampAt(b, i)
 }
 
-func bump(b *Box[int], i int, d int) {
-	update(b, i, func(v *int) { *v = *v * 3 % 1009 + d }) catch {
+func bump(b mut Box[int], i int, d int) {
+	update(b, i, func(v mut int) { *v = *v * 3 % 1009 + d }) catch {
 	case Missing:
 		b.n = b.n + 1
 	}
 }
 
-func twice(b *Box[int], i int) int {
+func twice(b mut Box[int], i int) int {
 	let x = pick(b, i)
 	x + pick(b, i + 1)
 }
 
-func clampAt(b *Box[int], i int) int {
+func clampAt(b mut Box[int], i int) int {
 	if i < 0 {
 		return 0
 	}
@@ -136,7 +162,7 @@ func clampAt(b *Box[int], i int) int {
 	b.items[i]
 }
 
-func clampOr[T](b *Box[T], i int, d T) T {
+func clampOr[T](b mut Box[T], i int, d T) T {
 	if i < 0 {
 		return d
 	}
@@ -159,7 +185,7 @@ func sumOf[T](b Box[T], w func(x T) int) int {
 	w(b.items[0]) + b.n
 }
 
-func total(b *Box[int]) int {
+func total(b mut Box[int]) int {
 	let mut s = 0
 	for x in b.items {
 		s = s + x
@@ -167,31 +193,31 @@ func total(b *Box[int]) int {
 	s
 }
 
-func mustAt(b *Box[int], i int) int {
+func mustAt(b mut Box[int], i int) int {
 	at(b, i) catch {
 	case Missing:
 		Unreachable("no item \(i)")
 	}
 }
 
-func raw[T](b *Box[T], i int) T { b.items[i] }
+func raw[T](b mut Box[T], i int) T { b.items[i] }
 
-func deep(b *Box[int], i int, unreachable bool) int {
+func deep(b mut Box[int], i int, unreachable bool) int {
 	if unreachable {
 		return mustAt(b, i) + 1
 	}
 	raw(b, i) + 1
 }
 
-func poke(b *Box[int], i int, k int) {
-	update(b, i, func(v *int) {
+func poke(b mut Box[int], i int, k int) {
+	update(b, i, func(v mut int) {
 		*v = 100 / k
 	}) catch {
 	case Missing:
 	}
 }
 
-func swapIn[T](b *Box[T], i int, v T) T {
+func swapIn[T](b mut Box[T], i int, v T) T {
 	let old = b.items[i]
 	b.items[i] = v
 	old
@@ -199,7 +225,7 @@ func swapIn[T](b *Box[T], i int, v T) T {
 
 func diff[T number](x T, y T) T { x - y }
 
-func keep[T](v T, p *T, w T) T {
+func keep[T](v T, p mut T, w T) T {
 	*p = w
 	v
 }
@@ -225,7 +251,7 @@ func weigh[T](t Ptok, d T) int {
 	}
 }
 
-func probeAt[T](p Probe, b *Box[T]) int {
+func probeAt[T](p Probe, b mut Box[T]) int {
 	match p {
 	case Hit as h:
 		h.At + b.n
@@ -234,13 +260,13 @@ func probeAt[T](p Probe, b *Box[T]) int {
 	}
 }
 
-func guarded(b *Box[int]) {
+func guarded(b mut Box[int]) {
 	scope.OnExit() {
 		let _ = deep(b, 9, false)
 	}
 }
 
-func digest(b *Box[int]) int {
+func digest(b mut Box[int]) int {
 	let mut d = b.n
 	for x in b.items {
 		d = (d * 31 + x) % 1000003
@@ -276,7 +302,7 @@ func viaTriple(x int) int {
 
 func crash(x int) int { 100 / (x - x) }
 
-func apply(b *Box[int], i int, f func(x int) int) int {
+func apply(b mut Box[int], i int, f func(x int) int) int {
 	if i < 0 || i >= len(b.items) {
 		return -1
 	}
@@ -303,6 +329,40 @@ type inlineGen struct {
 	mm      map[int]int
 	reached map[string]bool
 	names   int
+	// words and room model the program's Stack st: its pushed words and
+	// the length of its column.
+	words []int
+	room  int
+}
+
+// coldPush writes a push on st (pushOn, whose growth guard is a cold
+// head) from its own stream, and runs it on the model.
+func (g *inlineGen) coldPush(r *rand.Rand) {
+	k := r.IntN(50)
+	if r.IntN(2) == 0 {
+		g.line(fmt.Sprintf("pushOn(&st, %d)", k))
+	} else {
+		// An operand the body binds to a local: the out-of-line call
+		// passes the local.
+		g.line(fmt.Sprintf("pushOn(&st, b.n + %d)", k))
+		k += g.n
+	}
+	if len(g.words) >= g.room {
+		g.room += g.room + 1
+		g.reached["cold-grow"] = true
+	} else {
+		g.reached["cold-room"] = true
+	}
+	g.words = append(g.words, k)
+}
+
+// sdigest is the model of the program's sdigest.
+func (g *inlineGen) sdigest() int {
+	d := len(g.words)
+	for _, x := range g.words {
+		d = (d*31 + x) % 1000003
+	}
+	return d
 }
 
 // dmap is the model of the program's dmap.
@@ -604,15 +664,27 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 	// iteration), where the size test inlines the larger bodies (OPT8),
 	// and keeps the statements each fixed seed writes.
 	loops := rand.New(rand.NewPCG(seed, 0x4c4f4f50))
+	// A third stream writes the pushes on st, so the other statements
+	// stay those each fixed seed wrote before them.
+	cold := rand.New(rand.NewPCG(seed, 0x434f4c44))
+	g.line("let mut st = Stack{words: []int{}, top: 0}")
 	for range 24 {
+		if cold.IntN(2) == 0 {
+			push := func() { g.coldPush(cold) }
+			if cold.IntN(2) == 0 {
+				g.onLoop(push)
+			} else {
+				push()
+			}
+		}
 		if loops.IntN(3) == 0 {
 			g.onLoop(g.stmt)
 		} else {
 			g.stmt()
 		}
 	}
-	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm))\")")
-	g.out("%d %d", g.digest(), dmap(g.mm))
+	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm)) \\(sdigest(&st))\")")
+	g.out("%d %d %d", g.digest(), dmap(g.mm), g.sdigest())
 	end := func() {
 		g.ending(seed)
 	}
@@ -707,7 +779,9 @@ func TestInlineAgrees(t *testing.T) {
 	// OPT8's size test ("budget", inlineCostLowering), every inlined
 	// failure at its call's join ("join", failLowering; OPT9) and no
 	// inlining ("ref", inlineLowering "call").
-	modes := []string{"", "budget", "join", "ref"}
+	// A fifth, "cold", inlines growth guards as written (coldLowering
+	// "copy", BUN5-cold).
+	modes := []string{"", "budget", "join", "cold", "ref"}
 	stats := map[string]*knownStats{}
 	for _, m := range modes {
 		stats[m] = &knownStats{}
@@ -716,15 +790,19 @@ func TestInlineAgrees(t *testing.T) {
 		src, want := inlineProgram(seed, reached)
 		runs = append(runs, run{seed, src, want})
 		for _, m := range modes {
-			saved, savedFail := inlineCostLowering, failLowering
+			saved, savedFail, savedCold := inlineCostLowering, failLowering, coldLowering
 			if m == "budget" {
 				inlineCostLowering = "budget"
 			}
 			if m == "join" {
 				failLowering = "join"
 			}
+			if m == "cold" {
+				coldLowering = "copy"
+			}
 			p, s := lowerInlineMode(t, fmt.Sprintf("in%d%s", seed, m), src, m == "ref")
-			inlineCostLowering, failLowering = saved, savedFail
+			inlineCostLowering, failLowering, coldLowering = saved, savedFail, savedCold
+			stats[m].ColdCalls += s.ColdCalls
 			stats[m].Inlined += s.Inlined
 			stats[m].Substituted += s.Substituted
 			stats[m].FailsAround += s.FailsAround

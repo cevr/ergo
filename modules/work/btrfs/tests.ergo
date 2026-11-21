@@ -1,0 +1,26 @@
+// The work.Cloner laws on the host, in a folder of each case's own
+// (TestAmbient). The laws draw their paths, so on most of them a clone is
+// Missing or Unsupported and they hold by their failure cases; the test
+// below clones a real subvolume.
+
+import exec
+import strings
+import github.com/cevr/ergo/modules/work/system
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost()), exec.Runner: exec.NewTestHost() }
+
+// SnapshotsARealSubvolume: on btrfs, a snapshot of a subvolume holding
+// a planted tree is that tree and holds no block of its own; on any other
+// file system the snapshot is Unsupported, never a copy.
+test SnapshotsARealSubvolume {
+	with onHost {
+		let here = system.FileSystem() == "btrfs"
+		let got = system.HostClone(here, here)
+		if here {
+			assert got == ""
+		} else {
+			assert strings.HasPrefix(got, "unsupported:")
+		}
+	}
+}

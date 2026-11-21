@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -15,7 +16,8 @@ import (
 // encoded fleets, and on a union whose "_tag" comes last; Elements reads
 // an array element by element as Decode reads it into a slice, a sequence
 // stream's values back as written and stops at a break, and holds one
-// window however long the text. The std mutants sj1-* and sj2-*
+// window however long the text; and Decode, which reads the text once,
+// gives what Open and then decode[T] give (DecodeIsOpenThenDecode). The std mutants sj1-* and sj2-*
 // (internal/sketch/std/testdata/mutants.json) are its kills.
 const jsonStreamProbe = `import io
 import json
@@ -207,6 +209,230 @@ test JsonStreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) {
 	assert agreesOnPieces(parts, cuts, bytes, depth)
 }
 
+// openedValue and openedFleet are Decode in two phases, Open then
+// decode[T]: what Decode's one pass (JSON-VALUE-DECODE) must give.
+func openedValue(c json.Codec[json.Value], text string) string {
+	let r = json.Open(text, c.MaxBytes, c.MaxDepth) catch {
+	case json.Malformed as m:
+		return said(m)
+	}
+	let v = decode[json.Value](r) catch {
+	case json.Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(c, v)
+}
+
+func openedFleet(c json.Codec[fleet], text string) string {
+	let r = json.Open(text, c.MaxBytes, c.MaxDepth) catch {
+	case json.Malformed as m:
+		return said(m)
+	}
+	let v = decode[fleet](r) catch {
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(c, v)
+}
+
+func asOpened(text string, maxDepth int) bool {
+	let cv = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: maxDepth}
+	let cf = json.Codec[fleet]{MaxBytes: 0, MaxDepth: maxDepth}
+	wholeValue(cv, text) == openedValue(cv, text) && wholeFleet(cf, text) == openedFleet(cf, text)
+}
+
+func decodesAsOpened(d doc, space int, splice int, at int, parts []int, depth int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	let mut broken = ""
+	for p in parts {
+		let piece = pieces[nat(p)%len(pieces)]
+		if !asOpened("{\"states\":["+piece+"],\"nested\":[["+piece+"]]}", 0) {
+			return false
+		}
+		broken = broken + piece
+	}
+	asOpened(text, nat(depth)%6) && asOpened(broken, nat(depth)%4)
+}
+
+// JsonDirectReadAgreesWithReader holds the direct reader lowering
+// (lower/wirereader.go) to the Reader interface path, its reference: a
+// decode from a json.Reader or a json.Stream, which reads by the record's
+// own functions, gives what the same decode gives from a value of the
+// prelude's Reader, which reads through the interface, as a Value and as
+// a fleet, on spelled docs with a piece spliced in (shape failures and,
+// through a Stream, breaks) and on encoded fleets, the Stream cut every
+// few bytes.
+func directValue(r json.Reader) string {
+	let v = decode[json.Value](r) catch {
+	case json.Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+}
+
+func refValue(r Reader) string {
+	let v = decode[json.Value](r) catch {
+	case json.Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+}
+
+func directFleet(r json.Reader) string {
+	let v = decode[fleet](r) catch {
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(codec(), v)
+}
+
+func refFleet(r Reader) string {
+	let v = decode[fleet](r) catch {
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(codec(), v)
+}
+
+func streamDirectValue(r json.Stream) string {
+	let v = decode[json.Value](r) catch {
+	case json.Malformed as m:
+		return said(m)
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+}
+
+func streamDirectFleet(r json.Stream) string {
+	let v = decode[fleet](r) catch {
+	case WireWrongKind as e:
+		return "kind " + e.Path + " " + e.Want
+	case WireMissingField as e:
+		return "missing " + e.Path + " " + e.Field
+	case WireUnknownTag as e:
+		return "tag " + e.Path + " " + e.Tag
+	}
+	"ok " + json.Encode(codec(), v)
+}
+
+func readsAlike(text string, cuts []int) bool {
+	let a = json.Open(text, 0, 0) catch {
+	case json.Malformed:
+		return streamDirectValue(json.NewStream(chunks(text, cuts), 0, 0)) == refValue(json.NewStream(chunks(text, cuts), 0, 0)) && streamDirectFleet(json.NewStream(chunks(text, cuts), 0, 0)) == refFleet(json.NewStream(chunks(text, cuts), 0, 0))
+	}
+	let b = json.Open(text, 0, 0) catch {
+	case json.Malformed:
+		return false
+	}
+	let c = json.Open(text, 0, 0) catch {
+	case json.Malformed:
+		return false
+	}
+	let d = json.Open(text, 0, 0) catch {
+	case json.Malformed:
+		return false
+	}
+	directValue(a) == refValue(b) && directFleet(c) == refFleet(d) && streamDirectValue(json.NewStream(chunks(text, cuts), 0, 0)) == refValue(json.NewStream(chunks(text, cuts), 0, 0)) && streamDirectFleet(json.NewStream(chunks(text, cuts), 0, 0)) == refFleet(json.NewStream(chunks(text, cuts), 0, 0))
+}
+
+func directAgrees(d doc, space int, splice int, at int, v fleet, cuts []int) bool {
+	let spaces = []string{"", " ", "\n\t", " \r\n "}
+	let mut text = spell(d, spaces[nat(space)%len(spaces)])
+	if splice >= 0 {
+		let k = nat(at) % (len(text) + 1)
+		text = text[:k] + pieces[splice%len(pieces)] + text[k:]
+	}
+	readsAlike(text, cuts) && readsAlike(json.Encode(codec(), v), cuts)
+}
+
+test JsonDirectReadAgreesWithReader(d doc, space int, splice int, at int, v fleet, cuts []int) {
+	assert directAgrees(d, space, splice, at, v, cuts)
+}
+
+// parseNumOpened is ParseNum without its fast path: the text read by
+// Open, the reference the fast path keeps.
+func parseNumOpened(text string) json.Num fails json.Malformed {
+	let r = json.Open(text, 0, 0) catch { case json.Malformed as m: return m }
+	let s = r.Number() catch { case _: return json.Malformed{Offset: 0, Reason: "not a number"} }
+	try json.ParseNum(s)
+}
+
+// numPieces are what a number text is made of: every part of the
+// grammar, white space and bytes no number has.
+let numPieces = []string{"-", "+", "0", "1", "9", "00", "12", ".", ".5", "e", "E", "e+", "e-", " ", "\n", "x", "\"1\""}
+
+func numText(parts []int) string {
+	let mut text = ""
+	for p in parts {
+		let k = if p < 0 { -(p + 1) } else { p }
+		text = text + numPieces[k%len(numPieces)]
+	}
+	text
+}
+
+func numSaid(text string, fast bool) string {
+	if fast {
+		let n = json.ParseNum(text) catch {
+		case json.Malformed as m:
+			return "malformed " + strconv.Itoa(m.Offset) + " " + m.Reason
+		}
+		return "ok " + n.Wire()
+	}
+	let n = parseNumOpened(text) catch {
+	case json.Malformed as m:
+		return "malformed " + strconv.Itoa(m.Offset) + " " + m.Reason
+	}
+	"ok " + n.Wire()
+}
+
+test JsonParseNumIsOpened(parts []int) {
+	assert numSaid(numText(parts), true) == numSaid(numText(parts), false)
+}
+
+test JsonDecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, depth int) {
+	assert decodesAsOpened(d, space, splice, at, parts, depth)
+}
+
 func streamRoundTrips(v fleet, cuts []int) bool {
 	let text = json.Encode(codec(), v)
 	let want = wholeFleet(codec(), text)
@@ -235,6 +461,30 @@ func tagAnywhere(v up, cuts []int) bool {
 
 test JsonStreamFindsTagAnywhere(v up, cuts []int) {
 	assert tagAnywhere(v, cuts)
+}
+
+func skipKeepsPlace(vs []up, cuts []int) bool {
+	let mut text = "["
+	for v in vs {
+		text = text + json.Encode(json.Codec[up]{MaxBytes: 0, MaxDepth: 0}, v) + ","
+	}
+	let r = json.NewStream(chunks(text+"true]", cuts), 0, 0)
+	r.BeginList() catch {
+	case _:
+		return false
+	}
+	for _ in vs {
+		r.Skip()
+	}
+	let _ = r.Int() catch {
+	case WireWrongKind as w:
+		return w.Path == "[" + strconv.Itoa(len(vs)) + "]"
+	}
+	false
+}
+
+test JsonStreamSkipKeepsPlace(vs []up, cuts []int) {
+	assert skipKeepsPlace(vs, cuts)
 }
 
 
@@ -502,10 +752,17 @@ func TestJSONStreamAgrees(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("json stream laws: exit %d\n%s\n%s", code, out, errout)
 	}
+	// JsonDirectReadAgreesWithReader holds a lowering, not a std law: the
+	// prelude's Reader, its reference path, cannot be named inside std
+	// json, whose own Reader shadows it (JVD-DIRECT).
+	extra := "JsonDirectReadAgreesWithReader"
+	if !regexp.MustCompile(`(?m)^ok ` + extra + `( \(\d+ cases\))?$`).MatchString(out) {
+		t.Errorf("no ok line for %s:\n%s", extra, out)
+	}
 	lawledger.Run(t, lawsPassed(t, jsonStreamLawStatements, func(key string) string {
 		_, law, _ := strings.Cut(key, " ")
 		return "Json" + law
-	}, jsonStreamProbe, out))
+	}, jsonStreamProbe, out, extra))
 }
 
 var jsonStreamLawStatements = map[string]string{
@@ -513,10 +770,13 @@ var jsonStreamLawStatements = map[string]string{
 	"json ElementsEqualWholeDecode": `ElementsEqualWholeDecode(d doc, space int, splice int, at int, cuts []int, depth int) { elementsSpliced(d, space, splice, at, cuts, depth) }`,
 	"json ElementsHoldOneWindow":    `ElementsHoldOneWindow(v up, n int, size int) { holdsOneWindow(v, n, size) }`,
 	"json ElementsRoundTrip":        `ElementsRoundTrip(vs []up, cuts []int) { elementsRoundTrip(vs, cuts) }`,
+	"json ParseNumIsOpened":         `ParseNumIsOpened(parts []int) { numSaid(numText(parts), true) == numSaid(numText(parts), false) }`,
+	"json DecodeIsOpenThenDecode":   `DecodeIsOpenThenDecode(d doc, space int, splice int, at int, parts []int, depth int) { decodesAsOpened(d, space, splice, at, parts, depth) }`,
 	"json StreamAgreesOnPieces":     `StreamAgreesOnPieces(parts []int, cuts []int, bytes int, depth int) { agreesOnPieces(parts, cuts, bytes, depth) }`,
 	"json StreamAgreesWithDecode":   `StreamAgreesWithDecode(d doc, space int, splice int, at int, cuts []int, depth int) { agreesSpliced(d, space, splice, at, cuts, depth) }`,
 	"json StreamFindsTagAnywhere":   `StreamFindsTagAnywhere(v up, cuts []int) { tagAnywhere(v, cuts) }`,
 	"json StreamRoundTrips":         `StreamRoundTrips(v fleet, cuts []int) { streamRoundTrips(v, cuts) }`,
+	"json StreamSkipKeepsPlace":     `StreamSkipKeepsPlace(vs []up, cuts []int) { skipKeepsPlace(vs, cuts) }`,
 	"json ValuesRoundTrip":          `ValuesRoundTrip(vs []up, seps []int, cuts []int) { valuesRoundTrip(vs, seps, cuts) }`,
 	"json ValuesStopAtBreak":        `ValuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) { valuesStopAtBreak(vs, seps, cut, cuts) }`,
 }

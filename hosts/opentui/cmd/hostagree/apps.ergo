@@ -1,0 +1,191 @@
+// The small apps of the agreement, as hosts/mygo's hostagree has them: a
+// counter with keys, a keyed list with deletes, a form of fields and
+// checks, and a load whose key changes (the pointer pad and the virtual
+// list are in pointer.ergo; the sketch comes with canvases, OT5).
+
+import ui
+
+func none[S, E](s S) Option[Timeout[E]] { None }
+
+func idle[S, E](s S) Option[func(send func(e E))] { None }
+
+// counter: a signal adds to the count; 0 resets it.
+func counterStep(s int, e int) Decision[int, int] {
+	if e == 0 {
+		return Enter[int]{Next: 0}
+	}
+	Enter[int]{Next: s + e}
+}
+
+func counterMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int]}
+}
+
+func counterView(f mut ui.Frame[int], s int) {
+	let mut col = ui.Plain()
+	col.Gap = 8
+	col.Padding = ui.All(16)
+	ui.Column(f, col) {
+		ui.Text(f, "count \(s)")
+		let mut row = ui.Plain()
+		row.Gap = 8
+		ui.Row(f, row) {
+			ui.Pressable(f, "dec", -1) {
+				ui.Text(f, "−")
+			}
+			ui.Pressable(f, "inc", 1) {
+				ui.Text(f, "+")
+			}
+			ui.Pressable(f, "reset", 0) {
+				ui.Text(f, "Reset")
+			}
+		}
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			match k.Name {
+			case "+":
+				Some{Value: 1}
+			case "-":
+				Some{Value: -1}
+			case "x":
+				Some{Value: 0}
+			case _:
+				None
+			}
+		})
+	}
+}
+
+// shelf: rows by key; signal 0 adds one at the end, -1 one at the start
+// (an Insert before a row), k removes row k.
+type shelf { rows []int, next int }
+
+func shelfStep(s shelf, e int) Decision[shelf, int] {
+	if e == 0 {
+		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+	}
+	if e == -1 {
+		let mut rows = []int{s.next}
+		for k in s.rows {
+			rows = rows.Append(k)
+		}
+		return Enter[shelf]{Next: shelf{rows: rows, next: s.next + 1}}
+	}
+	let mut rows = []int{}
+	for k in s.rows {
+		if k != e {
+			rows = rows.Append(k)
+		}
+	}
+	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+}
+
+func sameShelf(a shelf, b shelf) bool {
+	if a.next != b.next || len(a.rows) != len(b.rows) {
+		return false
+	}
+	for i, k in a.rows {
+		if b.rows[i] != k {
+			return false
+		}
+	}
+	true
+}
+
+func shelfMachine() Machine[shelf, int, int] {
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int]}
+}
+
+// shelfView: row k's delete button is labelled "del k"; the list is 64
+// DIPs high (4 cells), so a tap on a row past it scrolls it into view.
+func shelfView(f mut ui.Frame[int], s shelf) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "\(len(s.rows)) rows")
+		ui.Pressable(f, "add", 0) {
+			ui.Text(f, "Add")
+		}
+		ui.Pressable(f, "first", -1) {
+			ui.Text(f, "First")
+		}
+		let mut list = ui.Plain()
+		list.Height = ui.Fixed{Value: 64}
+		ui.Scroll(f, list) {
+			ui.Each(f, s.rows, func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+				let mut row = ui.Plain()
+				row.Gap = 8
+				row.Align = ui.AlignCenter
+				ui.Row(f, row) {
+					ui.Text(f, "row \(k)")
+					ui.Pressable(f, "del \(k)", k) {
+						ui.Text(f, "×")
+					}
+				}
+			}
+		}
+	}
+}
+
+// form: a name field, a done check, a send button, and the view's own
+// note field and bold toggle (cells of the frame, not of the app).
+type form { name string, done bool, sent int }
+
+type formEvent = Named{Text string} | Flipped{} | Sent{}
+
+func formStep(s form, e formEvent) Decision[form, int] {
+	match e {
+	case Named as n:
+		Enter[form]{Next: form{name: n.Text, done: s.done, sent: s.sent}}
+	case Flipped:
+		Enter[form]{Next: form{name: s.name, done: !s.done, sent: s.sent}}
+	case Sent:
+		Enter[form]{Next: form{name: s.name, done: s.done, sent: s.sent + 1}}
+	}
+}
+
+func formMachine() Machine[form, formEvent, int] {
+	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent]}
+}
+
+func formView(f mut ui.Frame[formEvent], s form) {
+	let mut col = ui.Plain()
+	col.Gap = 6
+	col.Padding = ui.All(12)
+	ui.Column(f, col) {
+		ui.Input(f, s.name, "name", func(t string) formEvent { Named{Text: t} })
+		ui.Check(f, "done", s.done, Flipped)
+		let bold = ui.NewFlag(f, false)
+		ui.Toggle(f, bold, "bold")
+		let note = ui.NewDraft(f, "")
+		ui.Field(f, note, "note")
+		ui.Pressable(f, "send", Sent) {
+			ui.Text(f, "Send \(s.sent)")
+		}
+		ui.Text(f, if bold.On { "HELLO \(s.name)" } else { "hello \(s.name)" })
+		ui.Text(f, "note: \(note.Value)")
+	}
+}
+
+// load: "next" moves the key; the view loads the key's value, which comes
+// back as a negative signal.
+type chosen { key int, ready int }
+
+func chosenStep(s chosen, e int) Decision[chosen, int] {
+	if e >= 0 {
+		return Enter[chosen]{Next: chosen{key: s.key + 1, ready: -1}}
+	}
+	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+}
+
+func loadMachine() Machine[chosen, int, int] {
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int]}
+}
+
+func loadView(f mut ui.Frame[int], s chosen) {
+	ui.Column(f, ui.Plain()) {
+		ui.Pressable(f, "next", 1) {
+			ui.Text(f, "Next")
+		}
+		let key = s.key
+		ui.Load(f, ui.ByInt(key), func() int { -1 - (key*10 + 7) })
+		ui.Text(f, "key \(s.key) ready \(s.ready)")
+	}
+}

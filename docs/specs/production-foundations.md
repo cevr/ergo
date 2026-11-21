@@ -12,7 +12,7 @@ This first complete foundation spec addresses the load-bearing gaps surfaced by 
 
 `.ef` source is authoritative. Public effect contracts remain explicit and locally checked; unsupported representations are diagnosed. Go is the only executable target (2026-10-26). The compiler's semantic model owns CLI/MCP facts. Use the already established public seams: admitted `.ef` source, compiler Result/runtime exported APIs, compiled CLI and real stdio MCP. Build meaningful red/green acceptance cases at these seams, never a second analyzer or implementation-shaped snapshots.
 
-Use isolated Rifts from the integration branch, no package install without lock changes, no push, and conventional compiling/gated commits. Implementer agents use the prescribed implementation model and TDD skill; integration/review use the prescribed review model. Root serializes ticket claims and resolutions on the GitHub [map](https://github.com/cevr/ergo/issues/1). Do not close HITL decision tickets without owner feedback.
+Use isolated lanes (workspaces of `work`) from the integration branch, no package install without lock changes, no push, and conventional compiling/gated commits. Implementer agents use the prescribed implementation model and TDD skill; integration/review use the prescribed review model. Root serializes ticket claims and resolutions on the GitHub [map](https://github.com/cevr/ergo/issues/1). Do not close HITL decision tickets without owner feedback.
 
 ## Closed data and exhaustive interpretation
 

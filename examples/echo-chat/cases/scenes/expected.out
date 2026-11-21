@@ -1,0 +1,29 @@
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> stall
+# WebSocket Chat Echo server demo {Disconnected} No messages yet Send a message to get started! [Connect to Chat]
+> connect
+# WebSocket Chat Echo server demo {Connecting...} No messages yet Send a message to get started! Connecting...
+> wait 5000
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection timeout} [Try Again]
+> refuse Connection refused
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection timeout} [Try Again]
+> connect
+# WebSocket Chat Echo server demo {Error} No messages yet Send a message to get started! {Connection Error Connection refused} [Try Again]
+> connect
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <> [Send, disabled]
+> type hi
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <hi> [Send]
+> type hi there
+# WebSocket Chat Echo server demo {Connected} No messages yet Send a message to get started! <hi there> [Send]
+> submit
+# WebSocket Chat Echo server demo {Connected} sent{hi there 00:00:05} received{hi there 00:00:05} <> [Send, disabled]
+> type General Kenobi
+# WebSocket Chat Echo server demo {Connected} sent{hi there 00:00:05} received{hi there 00:00:05} <General Kenobi> [Send]
+> submit
+# WebSocket Chat Echo server demo {Connected} sent{hi there 00:00:05} received{hi there 00:00:05} sent{General Kenobi 00:00:05} received{General Kenobi 00:00:05} <> [Send, disabled]
+> push hello from echo
+# WebSocket Chat Echo server demo {Connected} sent{hi there 00:00:05} received{hi there 00:00:05} sent{General Kenobi 00:00:05} received{General Kenobi 00:00:05} received{hello from echo 00:00:05} <> [Send, disabled]
+> held
+  lines held: 1; dialed: 1
+> stop
+  lines held: 1; dialed: 1

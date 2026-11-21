@@ -1,0 +1,6 @@
+# The class of each Go test the name patterns of scripts/mutants/alpha.go
+# place wrong, for -alpha's deletion list (CI-SELECT CS-ALPHA). One line
+# each: DIR:TestName class # why. Classes: law, model, property,
+# agreement, example, row. A test on the deletion list that is a property
+# or a law by its body, not its name, comes here before its package's
+# CS-DELETE unit deletes by the list.

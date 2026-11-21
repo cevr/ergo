@@ -1,0 +1,312 @@
+import strings
+
+// Hunks is a three-way merge of lines: the merged lines, and how many
+// places both sides changed apart (those hold Git's markers).
+type Hunks { Lines []string, Clashes int }
+
+// MergeText is the three-way merge of texts by lines, as Git's (diff3):
+// the lines the base shares with both sides stay, and between two such
+// lines the side that changed the base's lines wins; two equal changes
+// agree, two different changes are a clash with both sides between
+// markers.
+func MergeText(base string, ours string, theirs string) Hunks {
+	let b = strings.Split(base, "\n")
+	let o = strings.Split(ours, "\n")
+	let t = strings.Split(theirs, "\n")
+	let mo = slid(matches(b, o), o)
+	let mt = slid(matches(b, t), t)
+	let mut out = []string{}
+	let mut clashes = 0
+	let mut i = 0
+	let mut j = 0
+	let mut k = 0
+	for {
+		// The next base line both sides kept, at or after i.
+		let mut next = i
+		for next < len(b) && (mo[next] < j || mt[next] < k) {
+			next = next + 1
+		}
+		if next == i && next < len(b) && mo[next] == j && mt[next] == k {
+			out = out.Append(b[i])
+			i = i + 1
+			j = j + 1
+			k = k + 1
+			continue
+		}
+		let (oe, te) = if next < len(b) { (mo[next], mt[next]) } else { (len(o), len(t)) }
+		let bs = part(b, i, next)
+		let os = part(o, j, oe)
+		let ts = part(t, k, te)
+		if sameLines(os, bs) {
+			out = slicesAppend(out, ts)
+		} else if sameLines(ts, bs) || sameLines(os, ts) {
+			out = slicesAppend(out, os)
+		} else {
+			clashes = clashes + 1
+			out = out.Append("<<<<<<< ours")
+			out = slicesAppend(out, os)
+			out = out.Append("=======")
+			out = slicesAppend(out, ts)
+			out = out.Append(">>>>>>> theirs")
+		}
+		if next >= len(b) {
+			return Hunks{Lines: out, Clashes: clashes}
+		}
+		i = next
+		j = oe
+		k = te
+	}
+}
+
+// Text is the merged lines as a text.
+func Text(h Hunks) string { strings.Join(h.Lines, "\n") }
+
+func sameLines(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func part(lines []string, from int, to int) []string {
+	let mut out = []string{}
+	for i in from..to {
+		out = out.Append(lines[i])
+	}
+	out
+}
+
+func slicesAppend(a []string, b []string) []string {
+	let mut out = a
+	for x in b {
+		out = out.Append(x)
+	}
+	out
+}
+
+// matches is, for each line of a, the line of b that a longest common
+// subsequence of a and b pairs it with, or -1. The common start and end
+// are paired first, so the table is only the changed middle.
+func matches(a []string, b []string) []int {
+	let mut m = []int{}
+	for _ in a {
+		m = m.Append(-1)
+	}
+	let mut lo = 0
+	for lo < len(a) && lo < len(b) && a[lo] == b[lo] {
+		m[lo] = lo
+		lo = lo + 1
+	}
+	let mut ha = len(a)
+	let mut hb = len(b)
+	for ha > lo && hb > lo && a[ha-1] == b[hb-1] {
+		ha = ha - 1
+		hb = hb - 1
+		m[ha] = hb
+	}
+	let n = ha - lo
+	let w = hb - lo
+	if n == 0 || w == 0 {
+		return m
+	}
+	// table[x*(w+1)+y] is the length of a longest common subsequence of
+	// a[lo+x:ha] and b[lo+y:hb].
+	let mut table = []int{}
+	for _ in 0..(n+1)*(w+1) {
+		table = table.Append(0)
+	}
+	let mut x = n - 1
+	for x >= 0 {
+		let mut y = w - 1
+		for y >= 0 {
+			table[x*(w+1)+y] = if a[lo+x] == b[lo+y] {
+				table[(x+1)*(w+1)+y+1] + 1
+			} else if table[(x+1)*(w+1)+y] >= table[x*(w+1)+y+1] {
+				table[(x+1)*(w+1)+y]
+			} else {
+				table[x*(w+1)+y+1]
+			}
+			y = y - 1
+		}
+		x = x - 1
+	}
+	let mut p = 0
+	let mut q = 0
+	for p < n && q < w {
+		if a[lo+p] == b[lo+q] {
+			m[lo+p] = lo + q
+			p = p + 1
+			q = q + 1
+		} else if table[(p+1)*(w+1)+q] >= table[p*(w+1)+q+1] {
+			p = p + 1
+		} else {
+			q = q + 1
+		}
+	}
+	m
+}
+
+// slid is the pairing m of base lines to the lines of side with each run
+// of side lines no base line pairs (an insertion) moved as Git's diff
+// (xdiff's change compaction) moves it: up as far as it goes, joining
+// the runs it meets, then down as far as it goes. A run moves up while the
+// line before it is its last line (the base line paired with the one
+// before is paired with the last instead), and down while the line after
+// it is its first. An insertion has many places when the lines around it
+// repeat (a block that ends as the one before it does), and both sides of
+// a merge must pick the same, or one block both sides added is written
+// twice; up joins the pieces of one block the pairing cut apart, and down
+// keeps it off a change of the other side right above it.
+func slid(m []int, side []string) []int {
+	let mut out = m
+	let mut owner = []int{}
+	for _ in side {
+		owner = owner.Append(-1)
+	}
+	for i, j in out {
+		if j >= 0 {
+			owner[j] = i
+		}
+	}
+	let mut s = 0
+	for s < len(side) {
+		// The run of unpaired lines that starts at s.
+		let mut e = s
+		for e < len(side) && owner[e] < 0 {
+			e = e + 1
+		}
+		if s == e {
+			s = s + 1
+			continue
+		}
+		let mut moved = true
+		for moved {
+			moved = false
+			for s > 0 && owner[s-1] >= 0 && side[s-1] == side[e-1] {
+				let i = owner[s-1]
+				out[i] = e - 1
+				owner[e-1] = i
+				owner[s-1] = -1
+				s = s - 1
+				e = e - 1
+				moved = true
+			}
+			for s > 0 && owner[s-1] < 0 {
+				s = s - 1
+			}
+		}
+		moved = true
+		for moved {
+			moved = false
+			for e < len(side) && owner[e] >= 0 && side[e] == side[s] {
+				let i = owner[e]
+				out[i] = s
+				owner[s] = i
+				owner[e] = -1
+				s = s + 1
+				e = e + 1
+				moved = true
+			}
+			for e < len(side) && owner[e] < 0 {
+				e = e + 1
+			}
+		}
+		s = e
+	}
+	out
+}
+
+// plain is units as one "k<key> <value>" line each, in key order.
+func plain(units Map[int, int]) string {
+	let mut lines = []string{}
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			lines = lines.Append("k\(key) \(v.Value)")
+		case None:
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// TextIsDiff3: a line merge of two scripts is clean, and is both scripts
+// applied, when no run of lines between two lines all three keep holds a
+// change of each side.
+law TextIsDiff3(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let theirs = applied(base, theirEdits)
+	let mut near = false
+	let mut oRun = false
+	let mut tRun = false
+	let mut both = applied(base, []Edit{})
+	for k in 0..6 {
+		let oc = valueAt(ours, k) != valueAt(base, k)
+		let tc = valueAt(theirs, k) != valueAt(base, k)
+		if !oc && !tc && base.Get(k) != None {
+			oRun = false
+			tRun = false
+		}
+		oRun = oRun || oc
+		tRun = tRun || tc
+		near = near || (oRun && tRun)
+		let side = if oc { ours } else { theirs }
+		if oc || tc {
+			match side.Get(k) {
+			case Some[int] as v:
+				both[k] = v.Value
+			case None:
+				both = both.Delete(k)
+			}
+		}
+	}
+	let got = MergeText(plain(base), plain(ours), plain(theirs))
+	near || (got.Clashes == 0 && Text(got) == plain(both))
+}
+
+// OneBlockBothAddedIsOnce: both sides add one block ("f(" and ")")
+// after the line a, before r lines ")" that end as the block does, and
+// theirs also changes the last line (extra): the merge is clean, the
+// block once, and the text theirs'. Paired without the slide, theirs' ")"
+// lines pair other base lines than ours' (the changed last line ends
+// their common end early), and the block clashes or is written twice.
+law OneBlockBothAddedIsOnce(n int, extra bool) {
+	let r = ((n%3)+3)%3 + 1
+	let mut base = []string{"a"}
+	for _ in 0..r {
+		base = base.Append(")")
+	}
+	base = base.Append("b")
+	base = base.Append("c")
+	let ours = slicesAppend(slicesAppend([]string{"a"}, []string{"f(", ")"}), part(base, 1, len(base)))
+	let mut theirs = slicesAppend([]string{}, ours)
+	if extra {
+		theirs[len(theirs)-1] = "c2"
+	}
+	let got = MergeText(strings.Join(base, "\n"), strings.Join(ours, "\n"), strings.Join(theirs, "\n"))
+	got.Clashes == 0 && Text(got) == strings.Join(theirs, "\n")
+}
+
+// InsertionAfterAChangeStaysApart: theirs changes the first line, ours
+// adds a block that ends as the line after the first does (a blank line):
+// the block has two places, right after the first line or after the
+// blank. Git's is the later one, apart from theirs' change, and the merge
+// is clean; at the earlier one it touches theirs' change and clashes.
+law InsertionAfterAChangeStaysApart(n int, lines int) {
+	let mut block = []string{}
+	for i in 0..(((lines%3)+3)%3 + 1) {
+		block = block.Append("b\(n) \(i)")
+	}
+	block = block.Append("")
+	let base = []string{"x", "", "y"}
+	let ours = slicesAppend(slicesAppend([]string{"x", ""}, block), []string{"y"})
+	let theirs = []string{"x2", "", "y"}
+	let want = slicesAppend(slicesAppend([]string{"x2", ""}, block), []string{"y"})
+	let got = MergeText(strings.Join(base, "\n"), strings.Join(ours, "\n"), strings.Join(theirs, "\n"))
+	got.Clashes == 0 && Text(got) == strings.Join(want, "\n")
+}

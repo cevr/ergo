@@ -80,7 +80,7 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 	want := map[string]string{
 		"edition":      "removed in v1; there is one language and no editions (#205)",
 		"lint receipt": "removed in v1; cost receipts return with rule packs (#203)",
-		"graph":        "removed in v1; semantic tooling returns on the new front end (#203)",
+		"explain":      "removed in v1; semantic tooling returns on the new front end (#203)",
 		"lsp":          "unavailable until ported to the new front end (#203)",
 		"mcp":          "unavailable until ported to the new front end (#203)",
 	}
@@ -101,7 +101,10 @@ func TestHelpListsOnlyTheKeptCommands(t *testing.T) {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
 		}
 	}
-	for _, word := range []string{"edition", "query", "graph", "explain", "lsp", "mcp", "ergo type"} {
+	// graph left the table with f7837e0b0 and came back as a kept command
+	// with GRAPH-TABLE 4f5f6cbc8 (ergo graph export and its queries,
+	// docs/tooling.md, Graph rows), so help names it.
+	for _, word := range []string{"edition", "query", "explain", "lsp", "mcp", "ergo type"} {
 		if regexp.MustCompile(`\b` + word + `\b`).MatchString(generalHelp()) {
 			t.Fatalf("help names %q", word)
 		}

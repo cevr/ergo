@@ -10,7 +10,9 @@ import (
 
 // lawContextRuns writes the runs of the law of lr under each named context
 // that binds its owner (LawRun.Contexts; types.md, Laws 10): a skip line
-// for one that does not run, else testCases cases, each of which copies
+// for one that does not run, else its cases by the one rule (one case
+// for a law with no parameters, every value when they can all be listed,
+// testCases cases otherwise), each of which copies
 // the runner's environment, builds the context into the copy with its
 // builder, as a with of it does, draws the law's parameters and calls the
 // law's function, the provider being the one the context bound, and, when
@@ -22,7 +24,7 @@ import (
 // runner's task, which lawRuns reads (taskOf).
 func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, task, seed, failed string) {
 	law := lr.Law
-	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
+	fmtPkg := l.helper("fmt")
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, lc := range lr.Contexts {
 		label := "law " + l.lawTitle(law) + " under " + lc.Context.Name
@@ -40,65 +42,103 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 			b.WriteString("\t}\n")
 			continue
 		}
-		inner := newNamer(scope)
-		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
-		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		// A run whose verdict ergo test found in its store (--cached;
 		// lawcache) prints it, marked, and does not run.
 		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
-		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(label) + ")\n")
-		b.WriteString("\t\t" + r + ".env = " + env + "\n")
-		b.WriteString("\t\t" + ok + " := true\n")
-		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
-		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
-		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", " + r + ", func() (func() string, func() error) {\n")
-		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
-		sep := ": "
-		cap, isNamed := lc.With.Discharged[0].(*check.Named)
-		if !isNamed {
-			ice(law.Decl, "a law run under %s whose owner is no capability", lc.Context.Name)
-		}
+		l.skippable(b, func() { l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, at) })
+		b.WriteString("\t}\n")
+	}
+}
+
+// lawContextRun writes the run of law under the named context lc,
+// reported as label (lawContextRuns).
+func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.LawContext, label string, scope *namer, env, task, seed, failed, at string) {
+	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
+	cap, isNamed := lc.With.Discharged[0].(*check.Named)
+	if !isNamed {
+		ice(law.Decl, "a law run under %s whose owner is no capability", lc.Context.Name)
+	}
+	// body is a case's function body: it copies the runner's
+	// environment, opens the case's folder for a context that needs
+	// TestAmbient, builds the context and calls the law with vals. When
+	// the build acquires a provider with a Close, the case owns it
+	// (lawCaseScope) and releases it before the folder is removed.
+	body := func(inner *namer, vals []string) string {
+		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
 		if lawGenericOwner(law) != nil {
 			// The law of a generic operation type takes its provider after
 			// the environment, at the instance the context binds (lawDecl).
 			args = append(args, e+"."+l.envField(cap))
-			tc := &typeCtx{l: l, site: law.Decl}
-			targs := make([]string, len(cap.TArgs))
-			for k, a := range cap.TArgs {
-				targs[k] = tc.goType(a)
+			if len(lc.Witnesses) > 0 {
+				wfc := newFuncCtx(l, newNamer(scope), false)
+				wfc.site = law.Decl
+				for k := range lc.Witnesses {
+					args = append(args, wfc.witnessValue(&lc.Witnesses[k], law.Decl))
+				}
 			}
-			callee += "[" + strings.Join(targs, ", ") + "]"
+			callee = l.lawCallee(law, lawGenericOwner(law), cap.TArgs) // mono.go
 		}
-		for k, v := range law.Params {
-			vt := v.Type
-			if lc.Params != nil {
-				vt = lc.Params[k]
-			}
-			base := v.Name
-			if base == "_" {
-				base = "arg"
-			}
-			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
-			args = append(args, a)
-			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
-			sep = ", "
+		args = append(args, vals...)
+		folder := ""
+		if ta := lc.Context.TestAmbient; ta != nil {
+			// The case's own folder, removed when the case returns
+			// (rows.md, Test's ambient).
+			folder = testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
 		}
 		build := l.contextBuilder(lc.With, law.Decl)
-		head, open := "func() error { ", e+" := *"+env+"; "+build+"(&"+e+"); "
+		call := held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		if ownsResources(lc.With) {
-			head, open = l.lawCaseScope(inner, e, env, task, build)
+			head, open := l.lawCaseScope(inner, e, env, task, build, folder)
+			return "return " + head + open + call + " }()"
 		}
-		body := open + held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, " + head + body + " }\n\t\t\t})\n")
-		b.WriteString("\t\t}\n")
-		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
-		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
-		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
-		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
+		return e + " := *" + env + "; " + folder + build + "(&" + e + "); " + call
 	}
+	// The one rule (types.md, Laws 10): the context builds its provider,
+	// so a run's values are the law's parameters alone. A law with none
+	// has one case, and one whose parameters can all be listed takes
+	// every value; only the others draw testCases cases.
+	vals := make([]listedValue, len(law.Params))
+	for k, v := range law.Params {
+		vals[k] = listedValue{v.Name, v.Type}
+		if lc.Params != nil {
+			vals[k].t = lc.Params[k]
+		}
+	}
+	if l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, l.replayLine(law, `""`), body) {
+		return
+	}
+	inner := newNamer(scope)
+	r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
+	b.WriteString("\t{\n")
+	b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(label) + ")\n")
+	b.WriteString("\t\t" + r + ".env = " + env + "\n")
+	b.WriteString("\t\t" + ok + " := true\n")
+	b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+	b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
+	b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + task + ", " + strconv.Quote(label) + ", " + at + ", " + r + ", func() (func() string, func() error) {\n")
+	shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
+	sep := ": "
+	var args []string
+	for k, v := range law.Params {
+		vt := vals[k].t
+		base := v.Name
+		if base == "_" {
+			base = "arg"
+		}
+		a := inner.alloc(base)
+		b.WriteString("\t\t\t" + a + " := " + l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+		args = append(args, a)
+		shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+		sep = ", "
+	}
+	b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body(inner, args) + " }\n\t\t\t})\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
+	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
+	b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
+	b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
 }
 
 // lawCaseScope is the head and opening of a law case whose context build
@@ -108,11 +148,13 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 // scope fs ends when the case ends, on every path, after the law's last
 // operation; last built first, each once. A release's defect is the
 // case's exit, so it fails the case ($Prop). e is the case's environment,
-// a copy of env; build is the context's owning builder.
-func (l *lowerer) lawCaseScope(inner *namer, e, env, task, build string) (head, open string) {
+// a copy of env; folder opens the case's folder in e (testAmbientOpen) or
+// is empty, and its removal, deferred first, runs after the releases;
+// build is the context's owning builder.
+func (l *lowerer) lawCaseScope(inner *namer, e, env, task, build, folder string) (head, open string) {
 	fs, ws, exit := inner.alloc("fs"), inner.alloc("ws"), inner.alloc("exit")
 	head = "func() (" + exit + " error) { "
-	open = e + " := *" + env + "; " + fs + " := " + l.rt() + ".NewScope(" + task + "); defer " + fs + ".End(&" + exit + "); " +
+	open = e + " := *" + env + "; " + folder + fs + " := " + l.rt() + ".NewScope(" + task + "); defer " + fs + ".End(&" + exit + "); " +
 		ws + " := " + fs + ".OpenWith(); " + build + "(&" + e + ", " + env + ", " + ws + "); "
 	return head, open
 }

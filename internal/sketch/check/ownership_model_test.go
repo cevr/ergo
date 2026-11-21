@@ -63,6 +63,7 @@ func TestOwnershipFlowModel(t *testing.T) {
 		ofGenericRoutes(t, seed)
 		ofYieldProjections(t, seed)
 		ofYieldLifetimes(t, seed)
+		ofDeclaredHandles(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
 		body := g.program(12)
 		src, first := ofPrint(body, g.bare)

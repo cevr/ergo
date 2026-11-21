@@ -1,6 +1,16 @@
 package v1
 
-import "errors"
+import (
+	"errors"
+
+	"ergo.local/prototype/runtime/rt"
+)
+
+// GoHanded runs before an Ergo function value is handed to Go as an
+// escaping callback or as a method of a Go interface value: Go may call it
+// from a goroutine of its own, so from then on Ergo code may run on more
+// than one goroutine (rt.Alone, rt.Spread), and a Ref locks.
+func GoHanded() { rt.Spread() }
 
 // GoSyncCallbacks are the Go functions and methods of the standard library
 // that call each of their function parameters only during the call, on

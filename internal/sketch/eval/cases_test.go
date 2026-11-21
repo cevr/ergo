@@ -98,23 +98,40 @@ func (m caseImports) Import(path string) (*check.Package, error) {
 // imported law (Laws 10, EXC1); package a also imports a package, sorted first, with a
 // function of the same short name. Mutant imported-provider-wrong dispatches
 // the binding to that package's Read. Local-only laws cannot observe that
-// package identity mistake.
+// package identity mistake. Package c runs contract's law over a provider
+// whose field only contracttest builds: mutant evlaw-builder-of-law-package
+// asks the law's package for the builder and skips it.
 func TestCaseProviderIdentity(t *testing.T) {
 	for seed := 0; seed < 8; seed++ {
 		imp := caseImports{}
-		makePkg := func(path, src string) *check.Package {
+		makeTest := func(path, src string, under *check.Package) *check.Package {
 			f, err := syntax.Parse(src)
 			if err != nil {
 				t.Fatal(err)
 			}
-			p, ds := check.Check(path, []*syntax.File{f}, imp)
+			p, ds := check.CheckTest(path, []*syntax.File{f}, imp, under)
 			if len(ds) > 0 {
 				t.Fatal(ds)
 			}
 			imp[path] = p
 			return p
 		}
-		makePkg("contract", `type Reader { Read() int, law Holds() { Read() == 0 } }`)
+		makePkg := func(path, src string) *check.Package { return makeTest(path, src, nil) }
+		contract := makePkg("contract", `type Reader { Read() int, law Holds() { Read() == 0 } }
+type Inner { Get() int }
+type Cell { Got() int, law Kept() { Got() != 0 } }`)
+		// contracttest's builder of contract.Inner is seen by the package
+		// that imports it, not by contract, whose law runs there: Box's
+		// field is drawn by it (MX-EVLAW, mutant evlaw-builder-of-law-package).
+		makeTest("contracttest", fmt.Sprintf(`import contract
+type Held { N int } implements contract.Inner
+func NewHeld() Held { Held{N: %d} }
+func Get(h Held) int { h.N }`, seed%2), contract)
+		c := makePkg("c", `import contract
+import contracttest
+type Box { r contract.Inner } implements contract.Cell
+func Got(b Box) int { b.r.Get() }
+func h() contracttest.Held { contracttest.NewHeld() }`)
 		makePkg("alt", `type Q {}
 func Read(q Q) int { 1 }`)
 		a := makePkg("a", fmt.Sprintf(`import alt
@@ -128,7 +145,7 @@ type P {} implements contract.Reader
 func Read(p P) int { 1 }`)
 		seen := map[string]Status{}
 		var all []Result
-		for _, p := range []*check.Package{a, b} {
+		for _, p := range []*check.Package{a, b, c} {
 			r, err := Run(p, DefaultBudget())
 			if err != nil {
 				t.Fatal(err)
@@ -138,7 +155,11 @@ func Read(p P) int { 1 }`)
 			}
 			all = append(all, r.Results...)
 		}
-		if seen["a: law contract.Reader.Holds for P"] != Passed || seen["b: law contract.Reader.Holds for P"] != Refuted {
+		kept := Passed
+		if seed%2 == 0 {
+			kept = Refuted
+		}
+		if seen["a: law contract.Reader.Holds for P"] != Passed || seen["b: law contract.Reader.Holds for P"] != Refuted || seen["c: law contract.Cell.Kept for Box"] != kept {
 			t.Fatalf("seed %d: bindings %+v", seed, all)
 		}
 	}
@@ -167,9 +188,11 @@ func TestCaseBudgetStopsGeneration(t *testing.T) {
 		if report.Results[0].Status != Passed || report.Steps < streamWork {
 			t.Fatalf("seed %d: stream work %d, report %+v", seed, streamWork, report)
 		}
-		b.Steps = streamWork / 2
+		// The budget is each case's (TP-BUILT-FAST): 100 cases of a
+		// half share each cannot pay the stream's work.
+		b.Steps = streamWork / 2 / 100
 		report, err = Run(pkg, b)
-		if err != nil || report.Results[0].Status != Incomplete || report.Steps > b.Steps {
+		if err != nil || report.Results[0].Status != Incomplete || report.Steps > b.Steps*100 {
 			t.Fatalf("seed %d: bounded generation %+v %v", seed, report, err)
 		}
 	}

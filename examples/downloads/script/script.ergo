@@ -149,13 +149,27 @@ func watch(m ManagerActor, at int, cancel bool, clock time.Manual, now duration)
 		return Shown{Lines: []string{"  ?? the file's entry ended"}, Now: t}
 	}
 	let mut begun = false
-	for v in actor.Select(f.Changes(), ViewOf) {
+	// Every state, as Select would give its views: each view once per
+	// change. Changes holds 64 at most and says how many it dropped.
+	let mut last Option[View] = None
+	for c in actor.Changes(f, 64) {
 		if !begun {
 			begun = true
 			f.Send(fetch.Begin) catch {
 			case actor.Stopped:
 			}
 		}
+		let v = match c {
+		case actor.Changed[fetch.File] as x:
+			ViewOf(x.State)
+		case actor.Overflowed as o:
+			lines = lines.Append("  ?? \(o.Missed) states dropped")
+			continue
+		}
+		if last == (Some{Value: v}) {
+			continue
+		}
+		last = Some{Value: v}
 		if v.Wait == 0s {
 			lines = lines.Append("  @\(ms(t)) \(v.Got) bytes")
 			continue
@@ -226,8 +240,8 @@ func reported[F](e actor.Exit[fetch.Manager, fetch.Report, F], at int) string {
 		"stopped"
 	case actor.Failed[F]:
 		"failed"
-	case actor.Defected:
-		"defected"
+	case actor.Defected as d:
+		"defected: \(d.Reason)"
 	}
 }
 

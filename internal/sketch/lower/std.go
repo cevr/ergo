@@ -27,7 +27,8 @@ import (
 // The body contract; check.GoTypeOf) is that Go type: a record is the
 // struct, and a sealed operation type is a pointer to the type, whose
 // methods are its operations. A defined basic type (os.Code) is the Go
-// defined type. The checker holds the declaration to the Go type's shape
+// defined type, or the alias it names (fs.Text, v1.MappedText, a string
+// the borrow rule keeps). The checker holds the declaration to the Go type's shape
 // (check/body.go runtimeTypeRefusal), so the lowering reads the
 // declaration and never a std name. Every other type of every package is
 // a declaration of the program.
@@ -49,12 +50,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + ref(goName)
 		}
 		return ref(goName)
-	}
-	// A mapped text is the Go string of its Mapped (v1.Mapped.Text): the
-	// checker's borrow rule (types.md, Borrows 8) is what keeps it, so its
-	// Go form is the plain string every string operation reads.
-	if obj.Pkg.Std() && obj.Pkg.Path == "fs" && obj.Name == "Text" {
-		return "string"
 	}
 	return ""
 }
@@ -258,6 +253,11 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	} else if body.Owned != "" && fc.l.checkedOwnedForm(f) {
 		fc.copySite(x, "copy", "the first operand may be read again")
 	}
+	if name == "SlicesRepeat" {
+		if text, ok := fc.repeatFill(x, args); ok {
+			return text, true, false
+		}
+	}
 	vals := fc.callArgs(args, x)
 	// An appender's operand is clipped where it is not written in place
 	// (V3), as the prelude's Append's is: two appends to one buffer never
@@ -418,6 +418,10 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 	// receiver passes the value it points to.
 	if p, ok := t.(*check.Pointer); ok {
 		if tp, ok := p.Elem.(*check.TypeParam); ok {
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness writes through the pointer.
+				return fc.witnessCall(tp, op, vals, env, site)
+			}
 			return fc.witnessCall(tp, op, append([]string{"*(" + vals[0] + ")"}, vals[1:]...), env, site)
 		}
 	}
@@ -510,6 +514,21 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 			ice(site, "a std body returns (%s, bool) for the Ergo type %s", body.Results[0], result)
 		}
 		ind := strings.Repeat("\t", fc.depth)
+		if goFallible(body) {
+			// (T, bool, error) is the Option and the failure (queue's
+			// Slide): None with the error, else Some when ok, else None.
+			v, ok, err := fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
+			return "func() (" + fc.goType(result) + ", error) {\n" +
+				ind + "\t" + v + ", " + ok + ", " + err + " := " + call(env) + "\n" +
+				ind + "\tif " + err + " != nil {\n" +
+				ind + "\t\treturn " + fc.optionNone(result, site) + ", " + err + "\n" +
+				ind + "\t}\n" +
+				ind + "\tif " + ok + " {\n" +
+				ind + "\t\treturn " + fc.optionSome(result, v, site) + ", nil\n" +
+				ind + "\t}\n" +
+				ind + "\treturn " + fc.optionNone(result, site) + ", nil\n" +
+				ind + "}()"
+		}
 		return "func() " + fc.goType(result) + " {\n" + fc.optionReturn(result, ind+"\t", call(env), site) + ind + "}()"
 	}
 	if !defersCall(body) {
@@ -544,10 +563,15 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 	})
 }
 
-// commaOk reports a std body whose Go form is (T, bool): the Go form of an
-// Option[T] result (stdResult).
+// commaOk reports a std body whose Go form is (T, bool), or (T, bool,
+// error) for a fallible one: the Go form of an Option[T] result
+// (stdResult).
 func commaOk(body v1.Body) bool {
-	return len(body.Results) == 2 && body.Results[1] == "bool"
+	n := len(body.Results)
+	if n == 3 && body.Results[2] == "error" {
+		n = 2
+	}
+	return n == 2 && len(body.Results) >= 2 && body.Results[1] == "bool"
 }
 
 // goFallible reports whether a std body's Go form returns an error: its
@@ -699,10 +723,23 @@ func (fc *funcCtx) argSig(arg syntax.Expr, x *syntax.CallExpr) *check.Signature 
 // Go function literal, which reads no variable when it is evaluated: an
 // adapter that calls the value later calls the value as it was here.
 func (fc *funcCtx) bindFunc(fv string) string {
-	if strings.HasPrefix(fv, "func(") {
+	if strings.HasPrefix(stripLineDirective(fv), "func(") {
 		return fv
 	}
 	return fc.spill(fv)
+}
+
+// stripLineDirective is the Go text x without the /*line*/ directive a
+// sourced body writes before an expression (a literal's position): code
+// that reads the expression's form reads it alike in a body with
+// directives and in one with none (STD-COPY-ZERO).
+func stripLineDirective(x string) string {
+	if rest, ok := strings.CutPrefix(x, "/*line "); ok {
+		if _, after, ok := strings.Cut(rest, "*/"); ok {
+			return strings.TrimLeft(after, " ")
+		}
+	}
+	return x
 }
 
 // adaptPlainFunc adapts fv, an Ergo function value of the uniform shape

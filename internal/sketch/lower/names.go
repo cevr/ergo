@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"go/token"
+	"sync"
 )
 
 // A namer allocates Go identifiers in one Go scope. Every Ergo entity gets
@@ -37,8 +38,9 @@ type namerWork struct {
 // goReserved holds what a Go identifier in a package or a function may not
 // be, or may not shadow because lowered code uses it: Go's keywords, its
 // predeclared identifiers, the entry points main and init, and the blank
-// identifier.
-var goReserved = func() map[string]bool {
+// identifier. It is built on first use, so no process pays for it at start
+// (TestStartBuildsNoTables).
+var goReserved = sync.OnceValue(func() map[string]bool {
 	m := map[string]bool{"main": true, "init": true, "_": true}
 	for tok := token.BREAK; tok <= token.VAR; tok++ {
 		if tok.IsKeyword() {
@@ -54,7 +56,7 @@ var goReserved = func() map[string]bool {
 		m[name] = true
 	}
 	return m
-}()
+})
 
 func newNamer(parent *namer) *namer {
 	n := &namer{parent: parent, used: map[string]bool{}, next: map[string]int{}}
@@ -67,7 +69,7 @@ func newNamer(parent *namer) *namer {
 }
 
 func (n *namer) taken(name string) bool {
-	if goReserved[name] {
+	if goReserved()[name] {
 		return true
 	}
 	for s := n; s != nil; s = s.parent {

@@ -20,7 +20,7 @@
     {
       "name": "px1-board-two-columns", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/board/board.ergo",
-      "from": "Failing: without(v.Failing, id),",
+      "from": "Failing: slices.Filter(v.Failing, other),",
       "to": "Failing: v.Failing,",
       "rule": "A run that moves leaves its old column: BoardIsFoldOfEvents.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
@@ -108,9 +108,9 @@
     {
       "name": "px2-server-maps-rejection", "origin": "wf10/domain PX2",
       "file": "examples/pipeline/pipeline/pipelinerpc/server.ergo",
-      "from": "\t\tlet v = pipeline.Pipeline.Submit(r.C) catch {\n\t\tcase run.WrongState as e:\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"WrongState\", rpc.Encode(e))}\n",
-      "to": "\t\tlet v = pipeline.Pipeline.Submit(r.C) catch {\n\t\tcase run.WrongState as e:\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", rpc.Encode(run.Closed{Status: e.Status}))}\n",
-      "rule": "The wire answers each rejection as itself: SurfacesAgree (the wire against the model).",
+      "from": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"WrongState\", rpc.Encode(e))}\n",
+      "to": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", \"{\\\"status\\\":\" + rpc.Encode(e.Status) + \"}\")}\n",
+      "rule": "The wire answers each rejection as itself: pipelinerpc's law Agrees (AF1; it was SurfacesAgree's wire arm).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {
@@ -118,15 +118,7 @@
       "file": "examples/pipeline/pipeline/pipelinecli/cli.ergo",
       "from": "\t\tout = out.Append(\"-stage=\\(x.C.Stage)\")\n",
       "to": "",
-      "rule": "The command line carries every field of a request: SurfacesAgree (the command line against the model) and ArgsRoundTrip.",
-      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
-    },
-    {
-      "name": "px2-client-reorders", "origin": "wf10/domain PX2",
-      "file": "examples/pipeline/surfaces/laws.ergo",
-      "from": "\t\t\tlet r = rs[i]\n",
-      "to": "\t\t\tlet r = rs[if i%2 == 0 && i+1 < len(rs) { i + 1 } else if i%2 == 1 { i - 1 } else { i }]\n",
-      "rule": "The wire sends the requests in their order: SurfacesAgree (the wire against the model).",
+      "rule": "The command line carries every field of a request: pipelinecli's laws Agrees (AF1; it was SurfacesAgree's line arm) and ArgsRoundTrip.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {
@@ -223,6 +215,22 @@
       "from": "\t\tcase Waiting as w:\n\t\t\tif w.Job.Run == e.Run { Idle{Book: left} } else { within(d, left) }\n",
       "to": "\t\tcase Waiting:\n\t\t\twithin(d, left)\n",
       "rule": "A cancel of the waiting run leaves the desk idle: RecoverAgrees.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px6-stack-reuses-id", "origin": "wf10/domain PX6",
+      "file": "examples/pipeline/deploy/stack.ergo",
+      "from": "Ensure(\"address\", local.FileProps{",
+      "to": "Ensure(\"readme\", local.FileProps{",
+      "rule": "Two objects of one kind need two ids: the second overwrites the first row, so the plan after an apply is not empty: StackConverges.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px6-server-port-not-given", "origin": "wf10/domain PX6",
+      "file": "examples/pipeline/deploy/stack.ergo",
+      "from": "Args: \"-addr\\n\" + Address(w),",
+      "to": "Args: \"-addr\\n127.0.0.1:0\",",
+      "rule": "The server is told the port its outputs name: ServerListensOnTheOutputsPort (and, on the host, cmd/ergo TestPipelineInfraDeploysTheServer: the health check fails).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]

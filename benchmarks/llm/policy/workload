@@ -1,0 +1,11 @@
+# scripts/opcount: `llmbench bench policy N` asks N times by Generate
+# through Metered{Retry{Fallback{Scripted}}} (wf10 L2), each a one-delta
+# reply that succeeds at once; the cost of one ask is the slope between
+# the two sizes. The control is hand Go: a script function, a fallback
+# loop, a retry loop with a switch on the error's class, and a usage sum.
+# The floor is the inner call and one compare per wrapper.
+unit ask
+sizes 200000 1200000
+args bench policy {n}
+control benchmarks/llm/testdata/control
+floor benchmarks/llm/testdata/floor

@@ -1,0 +1,57 @@
+// The timetable's text: each format is built once from LDML letters, and
+// a time is written on the wall clock of its stop with the zone's
+// abbreviation, so a traveller reads each time as the station clock shows
+// it.
+
+import civil
+import time
+import tz
+
+// clock is a call's time: "Sun 14 Mar 03:00 ADT".
+let clock = civil.ZonedPattern("EEE d MMM HH:mm zzz") catch {
+case civil.BadPattern:
+	Unreachable("the clock's pattern is LDML")
+}
+
+// day is a date: "Sun 14 Mar 2027".
+let day = civil.DatePattern("EEE d MMM yyyy") catch {
+case civil.BadPattern:
+	Unreachable("the day's pattern is LDML")
+}
+
+// week is an ISO week: "2027-W10".
+let week = civil.DatePattern("YYYY-'W'ww") catch {
+case civil.BadPattern:
+	Unreachable("the week's pattern is LDML")
+}
+
+// hhmm is a wall time of day: "02:30".
+let hhmm = civil.Pattern("HH:mm") catch {
+case civil.BadPattern:
+	Unreachable("the time's pattern is LDML")
+}
+
+// ClockText is z on its zone's wall clock.
+func ClockText(z tz.Zoned) string { tz.FormatZoned(z, clock) }
+
+// DayText is d with its weekday.
+func DayText(d civil.Date) string { civil.FormatDate(d, day) }
+
+// WeekText is the ISO week of d.
+func WeekText(d civil.Date) string { civil.FormatDate(d, week) }
+
+// Until is how far t is from now in words: "in 3 hours", "2 days ago".
+func Until(now time.Time, t time.Time) string { civil.Phrase(civil.Distance(now, t), civil.EnglishWords()) }
+
+// LeavingText is how a departure's first wall time resolved, for a line
+// of the timetable: nothing when the clock showed it once.
+func LeavingText(l Leaving) string {
+	match l {
+	case OnTime:
+		""
+	case Skipped as s:
+		" (the clock skipped \(civil.FormatDateTime(civil.DateTime{Date: civil.MinDate(), Time: s.Wall}, hhmm)); leaves as the clock springs forward)"
+	case Twice:
+		" (the clock shows this time twice; leaves the first time)"
+	}
+}

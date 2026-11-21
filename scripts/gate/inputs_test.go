@@ -156,21 +156,34 @@ func TestSeedModulesVerifiesGoSum(t *testing.T) {
 }
 
 // TestSeedModulesRefusesUnverifiedRequirements: a go.mod that requires a
-// module, in a line or a block, with no go.sum beside it fails closed; a
-// go.mod without requirements needs none.
+// module, in a line or a block, with no go.sum beside it fails closed,
+// also when a replace names another module for it or covers only another
+// requirement; a go.mod without requirements, or whose every requirement a
+// local directory replaces (examples/catalog, examples/pipeline: I19
+// verify r3 M1), needs none.
+//
+// Mutant: gate-seed-any-replace-local (every replace counts as local).
 func TestSeedModulesRefusesUnverifiedRequirements(t *testing.T) {
 	for _, goMod := range []string{
 		"module example.com/a\n\ngo 1.21\n\nrequire golang.org/x/sync v0.24.0\n",
 		"module example.com/a\n\ngo 1.21\n\nrequire (\n\tgolang.org/x/sync v0.24.0\n)\n",
+		"module example.com/a\n\ngo 1.21\n\nrequire golang.org/x/sync v0.24.0\n\nreplace golang.org/x/sync => example.com/fork v0.1.0\n",
+		"module example.com/a\n\ngo 1.21\n\nrequire (\n\tgolang.org/x/sync v0.24.0\n\texample.com/b v0.0.0\n)\n\nreplace example.com/b => ../b\n",
 	} {
 		source, head := moduleCommit(t, map[string]string{"nested/go.mod": goMod, "go.sum": syncGoSum})
 		if _, err := seedModules(source, head, t.TempDir(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "nested/go.mod requires modules and has no go.sum") {
 			t.Errorf("%q without a go.sum: %v; want refused", goMod, err)
 		}
 	}
-	source, head := moduleCommit(t, map[string]string{"nested/go.mod": "module example.com/a\n\ngo 1.21\n"})
-	if _, err := seedModules(source, head, t.TempDir(), t.TempDir()); err != nil {
-		t.Errorf("a go.mod without requirements: %v", err)
+	for _, goMod := range []string{
+		"module example.com/a\n\ngo 1.21\n",
+		"module example.com/a\n\ngo 1.27\n\nrequire github.com/cevr/ergo/modules/web v0.0.0\n\nreplace github.com/cevr/ergo/modules/web => ../../modules/web\n",
+		"module example.com/a\n\ngo 1.27\n\nrequire (\n\texample.com/b v0.0.0 // indirect\n\t\"example.com/c\" v0.0.0\n)\n\nreplace (\n\texample.com/b v0.0.0 => ./b\n\texample.com/c => /abs/c\n)\n",
+	} {
+		source, head := moduleCommit(t, map[string]string{"nested/go.mod": goMod})
+		if _, err := seedModules(source, head, t.TempDir(), t.TempDir()); err != nil {
+			t.Errorf("%q, with nothing to download: %v", goMod, err)
+		}
 	}
 }
 

@@ -1,0 +1,1 @@
+usage: tn1 gen control | tn1 gen control-stop | tn1 gen seeded SEED D F K H | tn1 id WEIGHTS | tn1 run WEIGHTS RECORD | tn1 vectors DIR | tn1 score WEIGHTS RECORDS EXPECTED [train|holdout]

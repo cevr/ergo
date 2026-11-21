@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // wireKeyReference is types.md Codecs 2 by words: the name's leading

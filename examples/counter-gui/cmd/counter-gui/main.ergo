@@ -77,6 +77,9 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 			case ui.NoNode as n:
 				io.Stdout.Println("\(i + 1): no node \(n.Label)")
 				continue
+			case ui.Ambiguous as amb:
+				io.Stdout.Println("\(i + 1): \(amb.At) finds \(amb.Count) nodes")
+				continue
 			case ui.Mismatch as m:
 				io.Stdout.Println("\(i + 1): want \(m.Want), got \(m.Got)")
 				continue

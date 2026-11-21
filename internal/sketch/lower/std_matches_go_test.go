@@ -33,6 +33,11 @@ func TestStdMatchesGo(t *testing.T) {
 	cases = append(cases, stdGo5Cases(r, n)...)
 	cases = append(cases, stdGo7Cases(r, n)...)
 	cases = append(cases, stdGo9Cases(r, n)...)
+	cases = append(cases, stdGo15Cases(r, n)...)
+	cases = append(cases, stdGo16Cases(r, n)...)
+	cases = append(cases, stdGo17Cases(r, n)...)
+	cases = append(cases, stdGoURLCases(r, n)...)
+	cases = append(cases, stdGoSQ5Cases(r, n)...)
 	compareBodies(t, "TestStdMatchesGo", seed, cases)
 }
 
@@ -115,6 +120,12 @@ func stdGoMathCases(r *rand.Rand, n int) []bodyCase {
 			np4fFloatEdges, n, r, np4fGenFloat, np4fFloatArg, func(f float64) string { return np4fFloatText(ref(f)) })
 		return np4fFl(c)
 	}
+	trigEdges := append(append([]float64{}, np4fFloatEdges...), math.Pi, -math.Pi, math.Pi/2, math.Pi/4, 3*math.Pi/2, 2*math.Pi,
+		1e22, -1e22, 1<<29*math.Pi, 1e300, 0.999999, -1.0000001, 1e-8, 10, 100, 1e15, 8, 27, -64)
+	trig := func(name string, ref func(float64) float64) bodyCase {
+		return np4fFl(bodyRows("math."+name, imp, "x float64", `strconv.FormatFloat(math.`+name+`(x), 'x', -1)`,
+			trigEdges, n, r, np4fGenFloat, np4fFloatArg, func(f float64) string { return np4fFloatText(ref(f)) }))
+	}
 	type two struct{ x, y float64 }
 	genTwo := func(r *rand.Rand) two { return two{np4fGenFloat(r), np4fGenFloat(r)} }
 	var twoEdges []two
@@ -138,6 +149,14 @@ func stdGoMathCases(r *rand.Rand, n int) []bodyCase {
 	cases := []bodyCase{
 		one("Abs", math.Abs), one("Ceil", math.Ceil), one("Floor", math.Floor), one("Trunc", math.Trunc),
 		one("Round", math.Round), one("Sqrt", math.Sqrt), one("Log", math.Log), one("Exp", math.Exp),
+		// SQ1 (MathIsGo): the trig functions on the edges of argument
+		// reduction (multiples of Pi, huge arguments) and of their domains.
+		trig("Sin", math.Sin), trig("Cos", math.Cos), trig("Tan", math.Tan), trig("Asin", math.Asin), trig("Acos", math.Acos),
+		trig("Atan", math.Atan), trig("Cbrt", math.Cbrt), trig("Log2", math.Log2), trig("Log10", math.Log10),
+		np4fFl(bodyRows("math.Atan2", imp, "y float64, x float64", `strconv.FormatFloat(math.Atan2(y, x), 'x', -1)`,
+			twoEdges, n, r, genTwo, twoArg, func(v two) string { return np4fFloatText(math.Atan2(v.x, v.y)) })),
+		np4fFl(bodyRows("math.Hypot", imp, "p float64, q float64", `strconv.FormatFloat(math.Hypot(p, q), 'x', -1)`,
+			twoEdges, n, r, genTwo, twoArg, func(v two) string { return np4fFloatText(math.Hypot(v.x, v.y)) })),
 		np4fFl(bodyRows("math.Pow", imp, "x float64, y float64", `strconv.FormatFloat(math.Pow(x, y), 'x', -1)`,
 			twoEdges, n, r, genTwo, twoArg, func(v two) string { return np4fFloatText(math.Pow(v.x, v.y)) })),
 		np4fFl(bodyRows("math.Mod", imp, "x float64, y float64", `strconv.FormatFloat(math.Mod(x, y), 'x', -1)`,

@@ -18,6 +18,7 @@ import (
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/testwait"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The process smokes drive the package's test CLI in a private workspace,
@@ -361,4 +362,19 @@ func firstLines(b []byte) string {
 		return string(b[:400]) + "…"
 	}
 	return string(b)
+}
+
+// withoutBuildNote is stderr without the note of the one-time IR compiler
+// build (toolchain.BuildNote): the first build in a cache writes it before
+// the program starts, and each test process has a cache of its own
+// (testinputs), so which test or which command of a test makes that build
+// depends on the order they run in. It is no message of the command.
+func withoutBuildNote(stderr string) string {
+	var kept []string
+	for _, line := range strings.SplitAfter(stderr, "\n") {
+		if !strings.HasPrefix(line, toolchain.BuildNote) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "")
 }

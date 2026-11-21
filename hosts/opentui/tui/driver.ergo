@@ -1,0 +1,882 @@
+// Package tui runs a ui view over an actor on an OpenTUI terminal screen
+// (Go package screen, over OpenTUI's native core). Each pass's ops drive
+// OpenTUI's retained scene: an Insert creates a scene node and moves it
+// under its parent, a Move moves it, a Remove destroys its subtree, a Set
+// sets its text, style and look. OpenTUI lays the scene out (Yoga),
+// paints and diffs the frames; the driver keeps the tree, the keyboard
+// focus and the routing of keys and the mouse.
+//
+// A Driver steps the same ui.Session that ui.Run and ui.TestHost step, so
+// for the same events it shows the same tree as TestHost; its events come
+// from the terminal (or, headless, from the bytes a test feeds the
+// screen), in cells, and it finds the node under the mouse by the scene's
+// hit test. Run drives one on a live terminal; a test drives one on a
+// headless screen with Play.
+//
+// The Driver is not a ui.Host provider: its operations call Go, so their
+// row holds go.Foreign, which an operation type's method cannot hold
+// (README Gap 17); ui.Run's loop is written here once more.
+
+import actor
+import go ergo.local/prototype/hosts/opentui/screen
+import queue
+import scope
+import task
+import term
+import ui
+
+// Options are the host's choices: the cell (how many DIPs one cell is),
+// and whether Ctrl+C is a key the view takes (KeepInterrupt) instead of
+// closing the host.
+type Options { Cell Cell, KeepInterrupt bool }
+
+// DefaultOptions is the 8 by 16 cell, Ctrl+C closing.
+func DefaultOptions() Options { Options{Cell: DefaultCell(), KeepInterrupt: false} }
+
+// Driver is one view over one actor on one screen.
+type Driver[S, E, D, F] {
+	s       go.Ref[screen.Screen],
+	actor   actor.Actor[S, E, D, F],
+	session ui.Session[S, E, D, F],
+	mirror  ui.Mirror[E],
+	nodes   Map[ui.Id[E], held[E]],
+	parents Map[ui.Id[E], ui.Id[E]],
+	root    ui.Id[E],
+	posted  queue.Queue[ui.Event[E]],
+	// The scene: each node's number, the node of each number (a
+	// Pressable's label text is its Pressable's), each childless
+	// Pressable's label, and the look each number was last given.
+	nums    Map[ui.Id[E], int],
+	ids     Map[int, ui.Id[E]],
+	labels  Map[ui.Id[E], int],
+	looks   Map[int, look],
+	next    int,
+	focus   Option[ui.Id[E]],
+	pressed Option[ui.Id[E]],
+	options Options,
+	history ui.MemoryHistory,
+	// The lists: each Rows node's content height (cells), each written
+	// row's top in its list (cells), and the viewport last reported for
+	// each list; the Area that holds the pointer.
+	lists     Map[ui.Id[E], float64],
+	tops      Map[ui.Id[E], float64],
+	viewports Map[ui.Id[E], ui.Viewport],
+	captured  Option[ui.Id[E]],
+}
+
+// held is a node of the tree and its children, in order.
+type held[E] { node ui.Node[E], kids []ui.Id[E] }
+
+// look is a scene node's colors (0xRRGGBBAA, an alpha of 0 the terminal's
+// own) and attributes.
+type look { fg uint32, bg uint32, attr int }
+
+// New shows view of a's state on s with the default options. room is how
+// many fetch results may wait for the driver to take them.
+func New[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), room int) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	try NewWith(s, a, view, room, DefaultOptions())
+}
+
+// NewWith is New with the host's options.
+func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), room int, o Options) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	let posted = queue.New[ui.Event[E]](room)
+	try start(s, a, view, posted, o, func(ev ui.Event[E]) {
+		posted.Push(ev) catch {
+		// ergo-lint-disable-next-line silent-catch -- a result that comes after the driver ended has no one to show it to
+		case queue.Closed:
+		}
+	})
+}
+
+func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), posted queue.Queue[ui.Event[E]], o Options, post own func(ev ui.Event[E])) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	let (first, ops) = ui.Start(a, view, post)
+	let mut session = first
+	let root = ui.SessionRoot(&session)
+	let mut d = Driver[S, E, D, F]{
+		s:         s,
+		actor:     a,
+		session:   session,
+		mirror:    ui.NewMirror[E](root),
+		nodes:     Map[ui.Id[E], held[E]]{},
+		parents:   Map[ui.Id[E], ui.Id[E]]{},
+		root:      root,
+		posted:    posted,
+		nums:      Map[ui.Id[E], int]{},
+		ids:       Map[int, ui.Id[E]]{},
+		labels:    Map[ui.Id[E], int]{},
+		looks:     Map[int, look]{},
+		next:      0,
+		focus:     None,
+		pressed:   None,
+		options:   o,
+		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
+		lists:     Map[ui.Id[E], float64]{},
+		tops:      Map[ui.Id[E], float64]{},
+		viewports: Map[ui.Id[E], ui.Viewport]{},
+		captured:  None,
+	}
+	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
+	d.nums[root] = 0
+	try show(&d, ops)
+	d
+}
+
+// show applies one pass's ops to the scene, then paints the screen.
+func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	try ui.Apply(&d.mirror, ops)
+	for op in ops {
+		match op {
+		case ui.Insert[E] as x:
+			d.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
+			d.parents[x.Id] = x.Parent
+			place(d, x.Id, x.Parent, x.Before)
+			create(d, x.Id)
+			attach(d, x.Id, x.Parent)
+		case ui.Move[E] as x:
+			let old = parentOf(d, x.Id)
+			unplace(d, old, x.Id)
+			place(d, x.Id, x.Parent, x.Before)
+			d.parents[x.Id] = x.Parent
+			relabel(d, old)
+			attach(d, x.Id, x.Parent)
+		case ui.Remove[E] as x:
+			if d.nodes.Get(x.Id) != None {
+				d.s.Destroy(numOf(d, x.Id))
+				let p = parentOf(d, x.Id)
+				unplace(d, p, x.Id)
+				forget(d, x.Id)
+				relabel(d, p)
+			}
+		case ui.Set[E] as x:
+			reset(d, x.Id, x.Node)
+		}
+	}
+	placeRows(d)
+	// A focused node that left or is now disabled loses the focus.
+	match d.focus {
+	case Some[ui.Id[E]] as f:
+		if d.nodes.Get(f.Value) == None || disabled(d, f.Value) {
+			setFocus(d, None)
+		}
+	case None:
+	}
+	try repaint(d)
+}
+
+// create makes id's scene node, with its text, style and look; a
+// Pressable gets its label until a child comes.
+func create[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+	let n = fresh(d)
+	d.nums[id] = n
+	d.ids[n] = id
+	let node = nodeOf(d, id)
+	d.s.Create(n, kindOf(node))
+	d.looks[n] = if kindOf(node) == screen.Text { look{fg: white, bg: 0, attr: 0} } else { look{fg: 0, bg: 0, attr: 0} }
+	match textOf(node) {
+	case Some[string] as t:
+		if t.Value != "" {
+			d.s.SetText(n, t.Value)
+		}
+	case None:
+	}
+	match placeholderOf(node) {
+	case Some[string] as p:
+		if p.Value != "" {
+			d.s.SetPlaceholder(n, p.Value)
+		}
+	case None:
+	}
+	restyle(d, n, None, node)
+	match node {
+	case ui.RowsNode as x:
+		content(d, id, x.Count, x.RowHeight)
+	case _:
+	}
+	relook(d, id)
+	relabel(d, id)
+}
+
+// attach moves id's scene node to its place among parent's children.
+func attach[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E]) needs go.Foreign {
+	relabel(d, parent)
+	let mut at = 0
+	for i, k in kidsOf(d, parent) {
+		if k == id {
+			at = i
+		}
+	}
+	d.s.Move(numOf(d, id), numOf(d, parent), at)
+	relookTree(d, id)
+}
+
+// reset shows a Set: a node whose scene kind changed is made anew with
+// its subtree; otherwise its text, style and look change where they
+// differ.
+func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) needs go.Foreign {
+	let old = match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		h.Value
+	case None:
+		return
+	}
+	d.nodes[id] = held[E]{node: node, kids: old.kids}
+	let n = numOf(d, id)
+	if kindOf(old.node) != kindOf(node) {
+		d.s.Destroy(n)
+		unnumber(d, id)
+		rebuild(d, id)
+		attach(d, id, parentOf(d, id))
+		return
+	}
+	let was = textOf(old.node)
+	let now = textOf(node)
+	if was != now {
+		match now {
+		case Some[string] as t:
+			d.s.SetText(n, t.Value)
+		case None:
+		}
+	}
+	match placeholderOf(node) {
+	case Some[string] as p:
+		if placeholderOf(old.node) != (Some{Value: p.Value}) {
+			d.s.SetPlaceholder(n, p.Value)
+		}
+	case None:
+	}
+	restyle(d, n, Some{Value: old.node}, node)
+	match node {
+	case ui.RowsNode as x:
+		content(d, id, x.Count, x.RowHeight)
+	case _:
+	}
+	relabel(d, id)
+	match labelText(node) {
+	case Some[string] as t:
+		if labelText(old.node) != (Some{Value: t.Value}) {
+			match d.labels.Get(id) {
+			case Some[int] as l:
+				d.s.SetText(l.Value, t.Value)
+			case None:
+			}
+		}
+	case None:
+	}
+	relookTree(d, id)
+}
+
+// rebuild makes the scene nodes of id's subtree anew.
+func rebuild[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+	create(d, id)
+	for k in kidsOf(d, id) {
+		rebuild[S, E, D, F](d, k)
+		attach(d, k, id)
+	}
+}
+
+// relabel gives a Pressable with no children its label text, and takes
+// it away when a child comes or the node is no Pressable.
+func relabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+	let want = match labelText(nodeOf(d, id)) {
+	case Some[string] as t:
+		if len(kidsOf(d, id)) == 0 { Some{Value: t.Value} } else { None }
+	case None:
+		None
+	}
+	match (want, d.labels.Get(id)) {
+	case (Some[string] as t, None):
+		let n = fresh(d)
+		d.s.Create(n, screen.Text)
+		d.s.SetText(n, t.Value)
+		d.looks[n] = look{fg: white, bg: 0, attr: 0}
+		d.labels[id] = n
+		d.ids[n] = id
+		d.s.Move(n, numOf(d, id), 0)
+		relookTree(d, id)
+	case (None, Some[int] as l):
+		d.s.Destroy(l.Value)
+		d.labels = d.labels.Delete(id)
+		d.ids = d.ids.Delete(l.Value)
+		d.looks = d.looks.Delete(l.Value)
+	case _:
+	}
+}
+
+func fresh[S, E, D, F](d mut Driver[S, E, D, F]) int {
+	d.next = d.next + 1
+	d.next
+}
+
+// numOf is id's scene number; the root's is 0.
+func numOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) int {
+	match d.nums.Get(id) {
+	case Some[int] as n:
+		n.Value
+	case None:
+		0
+	}
+}
+
+func nodeOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Node[E] {
+	match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		h.Value.node
+	case None:
+		ui.BoxNode{Style: ui.Plain()}
+	}
+}
+
+func parentOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Id[E] {
+	match d.parents.Get(id) {
+	case Some[ui.Id[E]] as p:
+		p.Value
+	case None:
+		d.root
+	}
+}
+
+// kidsOf is id's children.
+func kidsOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
+	match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		h.Value.kids
+	case None:
+		[]ui.Id[E]{}
+	}
+}
+
+// place puts id among parent's children, in front of before or last.
+func place[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+	match d.nodes.Get(parent) {
+	case Some[held[E]] as p:
+		let mut kids = []ui.Id[E]{}
+		let mut done = false
+		for k in p.Value.kids {
+			if !done && before == (Some{Value: k}) {
+				kids = kids.Append(id)
+				done = true
+			}
+			if k != id {
+				kids = kids.Append(k)
+			}
+		}
+		if !done {
+			kids = kids.Append(id)
+		}
+		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
+	case None:
+	}
+}
+
+// unplace takes id out of parent's children.
+func unplace[S, E, D, F](d mut Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
+	match d.nodes.Get(parent) {
+	case Some[held[E]] as p:
+		let mut kids = []ui.Id[E]{}
+		for k in p.Value.kids {
+			if k != id {
+				kids = kids.Append(k)
+			}
+		}
+		d.nodes[parent] = held[E]{node: p.Value.node, kids: kids}
+	case None:
+	}
+}
+
+// forget forgets id's subtree (the scene destroyed it).
+func forget[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
+	for k in kidsOf(d, id) {
+		forget[S, E, D, F](d, k)
+	}
+	unnumber(d, id)
+	d.nodes = d.nodes.Delete(id)
+	d.parents = d.parents.Delete(id)
+	d.viewports = d.viewports.Delete(id)
+	if d.captured == (Some{Value: id}) {
+		d.captured = None
+	}
+	if d.focus == (Some{Value: id}) {
+		d.focus = None
+	}
+	if d.pressed == (Some{Value: id}) {
+		d.pressed = None
+	}
+}
+
+// unnumber forgets the scene numbers of id's subtree.
+func unnumber[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
+	for k in kidsOf(d, id) {
+		unnumber[S, E, D, F](d, k)
+	}
+	let n = numOf(d, id)
+	d.ids = d.ids.Delete(n)
+	d.looks = d.looks.Delete(n)
+	d.nums = d.nums.Delete(id)
+	d.lists = d.lists.Delete(id)
+	d.tops = d.tops.Delete(id)
+	match d.labels.Get(id) {
+	case Some[int] as l:
+		d.ids = d.ids.Delete(l.Value)
+		d.looks = d.looks.Delete(l.Value)
+	case None:
+	}
+	d.labels = d.labels.Delete(id)
+}
+
+// Feed takes one input of the screen: a key (routed by the focus), a
+// mouse press and release (a press of the node under them), a paste (the
+// focused field's text), a resize (laid out again). It fails ui.Closed at
+// the end of the input or on Ctrl+C.
+func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	if input.Kind == screen.Closed {
+		return ui.Closed
+	} else if input.Kind == screen.Key {
+		try key(d, input)
+	} else if input.Kind == screen.Mouse {
+		try mouse(d, input)
+	} else if input.Kind == screen.Paste {
+		try typed(d, oneLine(input.Text))
+	} else if input.Kind == screen.Resize {
+		try repaint(d)
+	}
+}
+
+// modsOf is the ui modifiers of OpenTUI's modifier bits (Kitty's layout).
+func modsOf(bits int) ui.Mods {
+	ui.Mods{Shift: bits%2 == 1, Alt: (bits/2)%2 == 1, Ctrl: (bits/4)%2 == 1, Meta: (bits/8)%2 == 1 || (bits/32)%2 == 1}
+}
+
+// key routes a key: Ctrl+C closes; Tab and Shift+Tab move the focus (a
+// field reached has its caret at the end); a focused Input takes its
+// editing keys (EditOf); Enter and space press a focused Pressable, Check
+// or Toggle; the rest go to OnKey.
+func key[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let mods = modsOf(input.Mods)
+	let chord = mods.Ctrl || mods.Alt || mods.Meta
+	let name = KeyName(input.Code, if chord { "" } else { input.Text })
+	if name == "c" && mods.Ctrl && !d.options.KeepInterrupt {
+		return ui.Closed
+	}
+	if name == "Tab" {
+		let order = Focusables(d)
+		let mut at = -1
+		for i, id in order {
+			if d.focus == (Some{Value: id}) {
+				at = i
+			}
+		}
+		let next = Cycle(len(order), at, mods.Shift)
+		setFocus(d, if next < 0 { None } else { Some{Value: order[next]} })
+		if next >= 0 {
+			match fieldValue(d, order[next]) {
+			case Some[string] as v:
+				try edited(d, order[next], v.Value, screen.EditEnd, 0, "")
+				return
+			case None:
+			}
+		}
+		try present(d.s)
+		return
+	}
+	let press = ui.KeyPress{Name: name, Mods: mods}
+	match focusedNode(d) {
+	case Some[ui.Node[E]] as n:
+		let id = match d.focus {
+		case Some[ui.Id[E]] as f:
+			f.Value
+		case None:
+			d.root
+		}
+		match n.Value {
+		case ui.InputNode as x:
+			match EditOf(name, mods) {
+			case Some[int] as op:
+				try edited(d, id, x.Value, op.Value, 0, if op.Value == screen.EditInsert { name } else { "" })
+				return
+			case None:
+			}
+		case _:
+			if pressable(n.Value) && !chord && (name == "Enter" || name == " ") {
+				try step(d, ui.Press[E]{Id: id})
+				return
+			}
+		}
+	case None:
+	}
+	try step(d, ui.KeyDown{Press: press})
+}
+
+// printable is whether a key name is a character a field takes: one
+// rune, not a functional key's name.
+func printable(name string) bool { len(runesOf(name)) == 1 && name != "\t" && name != "\r" }
+
+// typed inserts text at the focused Input's caret, else gives each rune to OnKey.
+func typed[E comparable, S, D, F](d mut Driver[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	match (d.focus, focusedNode(d)) {
+	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+		match n.Value {
+		case ui.InputNode as x:
+			try edited(d, id.Value, x.Value, screen.EditInsert, 0, text)
+			return
+		case _:
+		}
+	case _:
+	}
+	for r in runesOf(text) {
+		try step(d, ui.KeyDown{Press: ui.KeyPress{Name: r, Mods: modsOf(0)}})
+	}
+}
+
+// mouse handles the mouse: a press focuses the node under it that takes
+// the focus (none under it clears the focus) and puts a field's caret at
+// the cell it went down on, and a release on the node the press went down
+// on presses it. An Area takes the pointer's presses, moves and releases
+// (Point), and holds it from a press to a release (capture); the wheel
+// goes to the Area and scrolls the list under it (wheel).
+func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	if input.Action == screen.Scroll {
+		try wheel(d, input)
+	} else if input.Action == screen.Move || input.Action == screen.Drag {
+		try moved(d, input)
+	} else if input.Action == screen.Down {
+		let hit = targetAt(d, input.X, input.Y)
+		d.pressed = hit
+		match hit {
+		case Some[ui.Id[E]] as id:
+			let usable = focusable(nodeOf(d, id.Value)) && !disabled(d, id.Value)
+			if usable && d.focus != hit {
+				setFocus(d, hit)
+				try present(d.s)
+			}
+			match fieldValue(d, id.Value) {
+			case Some[string] as v:
+				if usable {
+					try edited(d, id.Value, v.Value, screen.EditAt, input.X-d.s.BoxOf(numOf(d, id.Value)).X, "")
+				}
+			case None:
+			}
+		case None:
+			if d.focus != None {
+				setFocus(d, None)
+				try present(d.s)
+			}
+		}
+		match Captured(d) {
+		case Some[ui.Id[E]] as a:
+			try point(d, a.Value, input, ui.Down)
+		case None:
+			match hit {
+			case Some[ui.Id[E]] as id:
+				if isArea(nodeOf(d, id.Value)) {
+					d.captured = hit
+					try point(d, id.Value, input, ui.Down)
+				}
+			case None:
+			}
+		}
+	} else if input.Action == screen.Up {
+		match Captured(d) {
+		case Some[ui.Id[E]] as a:
+			d.captured = None
+			try point(d, a.Value, input, ui.Up)
+		case None:
+			match targetAt(d, input.X, input.Y) {
+			case Some[ui.Id[E]] as id:
+				if isArea(nodeOf(d, id.Value)) {
+					try point(d, id.Value, input, ui.Up)
+				}
+			case None:
+			}
+		}
+		let was = d.pressed
+		d.pressed = None
+		match was {
+		case Some[ui.Id[E]] as id:
+			if targetAt(d, input.X, input.Y) == was && pressable(nodeOf(d, id.Value)) && !disabled(d, id.Value) {
+				try step(d, ui.Press[E]{Id: id.Value})
+			}
+		case None:
+		}
+	}
+}
+
+// targetAt is the node that takes the mouse at column x, row y: the
+// scene's hit there, or the first of its ancestors that takes input (a
+// Pressable, a Check, a Toggle, an Input or an Area).
+func targetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) Option[ui.Id[E]] needs go.Foreign {
+	let n = d.s.HitTest(x, y)
+	let mut at = match d.ids.Get(n) {
+	case Some[ui.Id[E]] as id:
+		id.Value
+	case None:
+		return None
+	}
+	for at != d.root {
+		if takesInput(nodeOf(d, at)) {
+			return Some{Value: at}
+		}
+		at = parentOf(d, at)
+	}
+	None
+}
+
+// step steps the session with ev and shows its patch.
+func step[E comparable, S, D, F](d mut Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let ops = try ui.Step(&d.session, ev)
+	if len(ops) > 0 {
+		try show(d, ops)
+		try speak(d, ops)
+	}
+}
+
+// setFocus moves the focus to f, on the scene too, and gives the nodes
+// it leaves and reaches their look.
+func setFocus[S, E, D, F](d mut Driver[S, E, D, F], f Option[ui.Id[E]]) needs go.Foreign {
+	let old = d.focus
+	d.focus = f
+	match old {
+	case Some[ui.Id[E]] as o:
+		relookTree(d, o.Value)
+	case None:
+	}
+	match f {
+	case Some[ui.Id[E]] as id:
+		relookTree(d, id.Value)
+		d.s.Focus(numOf(d, id.Value))
+	case None:
+		d.s.Focus(0)
+	}
+}
+
+// focusedNode is what the focused node shows.
+func focusedNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] {
+	match d.focus {
+	case Some[ui.Id[E]] as f:
+		match d.nodes.Get(f.Value) {
+		case Some[held[E]] as h:
+			Some{Value: h.Value.node}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// Focusables are the nodes Tab visits, in tree order: a Pressable, a
+// Check, a Toggle or an Input not under a disabled Fieldset.
+func Focusables[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
+
+func focusablesIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
+	let mut out = into
+	for k in kidsOf(d, id) {
+		let n = nodeOf(d, k)
+		if focusable(n) && !disabled(d, k) {
+			out = out.Append(k)
+		}
+		out = focusablesIn[S, E, D, F](d, k, out)
+	}
+	out
+}
+
+// disabled is whether id is under a disabled Fieldset.
+func disabled[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) bool {
+	let mut at = id
+	for at != d.root {
+		at = parentOf(d, at)
+		match nodeOf(d, at) {
+		case ui.FieldsetNode as x:
+			if x.Disabled {
+				return true
+			}
+		case _:
+		}
+	}
+	false
+}
+
+// pressable is whether a press of the node sends its signal.
+func pressable[E](n ui.Node[E]) bool {
+	match n {
+	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
+		true
+	case _:
+		false
+	}
+}
+
+// focusable is whether the node takes the keyboard focus.
+func focusable[E](n ui.Node[E]) bool {
+	match n {
+	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
+		true
+	case _:
+		false
+	}
+}
+
+// takesInput is whether the node takes the mouse.
+func takesInput[E](n ui.Node[E]) bool {
+	match n {
+	case ui.AreaNode:
+		true
+	case _:
+		focusable(n)
+	}
+}
+
+// Pump takes every fetch result posted so far, without waiting.
+func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	for {
+		match d.posted.Poll() {
+		case Some[ui.Event[E]] as ev:
+			try step(d, ev.Value)
+		case None:
+			return
+		}
+	}
+}
+
+// Settle waits until no fetch is in flight and every posted result is
+// taken, as ui.Settle does.
+func Settle[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	for ui.InFlight(&d.session) > 0 || d.posted.Len() > 0 {
+		let ev = d.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try step(d, ev)
+	}
+}
+
+// Screen is the driver's tree, as its ops built it: what it drives the
+// scene by.
+func Screen[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Shape[E] { shapesOf(d, d.root) }
+
+func shapesOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Shape[E] {
+	let mut out = []ui.Shape[E]{}
+	for k in kidsOf(d, id) {
+		out = out.Append(ui.Shape[E]{Node: nodeOf(d, k), Kids: shapesOf[S, E, D, F](d, k)})
+	}
+	out
+}
+
+// SceneNodes is how many scene nodes the driver holds: one a node of its
+// tree (the root aside, which the scene has of its own) and one a
+// Pressable's label. The screen's Count is this many when no op was lost.
+func SceneNodes[S, E, D, F](d mut Driver[S, E, D, F]) int { len(d.nums) - 1 + len(d.labels) }
+
+// StateOf is the actor's state.
+func StateOf[S, E, D, F](d mut Driver[S, E, D, F]) S { d.actor.State() }
+
+// FocusId is the focused node, None for none.
+func FocusId[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
+
+// FocusNode is what the focused node shows, None for none.
+func FocusNode[S, E, D, F](d mut Driver[S, E, D, F]) Option[ui.Node[E]] { focusedNode(d) }
+
+// Number is the scene number of the node labelled label, None when none
+// is: what screen.BoxOf and screen.HitTest name it by.
+func Number[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[int] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		d.nums.Get(id.Value)
+	case None:
+		None
+	}
+}
+
+// Run shows view of a's state on the live screen s until the input ends
+// or Ctrl+C, as ui.Run does on a ui.Host. A fetch's result reaches the
+// loop through the screen, which it wakes.
+func Run[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S)) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	try RunWith(s, a, view, DefaultOptions())
+}
+
+// RunWith is Run with the host's options.
+func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let fetched = queue.New[ui.Event[E]](64)
+	let posted = queue.New[ui.Event[E]](64)
+	let forward = task.Go() {
+		forwardAll(s, fetched, posted)
+		0
+	}
+	let mut d = try start(s, a, view, posted, o, func(ev ui.Event[E]) {
+		fetched.Push(ev) catch {
+		// ergo-lint-disable-next-line silent-catch -- a result that comes after the driver ended has no one to show it to
+		case queue.Closed:
+		}
+	})
+	serve(&d) catch {
+	case actor.Stopped as e:
+		fetched.End()
+		let _ = forward.Wait()
+		return e
+	case ui.BadPatch as e:
+		fetched.End()
+		let _ = forward.Wait()
+		return e
+	case ScreenFailed as e:
+		fetched.End()
+		let _ = forward.Wait()
+		return e
+	}
+	fetched.End()
+	let _ = forward.Wait()
+}
+
+// RunTerminal shows view of a's state on the process's terminal, in raw
+// mode (term.Raw), until the input ends or Ctrl+C. However it ends, the
+// screen quits (the alternate screen left, the cursor shown) and then the
+// terminal's mode is restored.
+func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed | term.NotTerminal needs term.Terminal | go.Foreign {
+	try term.Raw() {
+		let s = try open()
+		scope.OnExit() {
+			s.Quit() catch {
+			// ergo-lint-disable-next-line silent-catch -- the terminal is going away; Quit restores it as far as it can, and nothing is left to tell
+			case go.Error:
+			}
+		}
+		try RunWith(s, a, view, o)
+	}
+}
+
+// forwardAll moves each fetch result to posted and wakes the screen's
+// Next, until fetched ends.
+func forwardAll[E](s go.Ref[screen.Screen], fetched queue.Queue[ui.Event[E]], posted queue.Queue[ui.Event[E]]) needs go.Foreign {
+	for ev in fetched.Values() {
+		posted.Push(ev) catch {
+		case queue.Closed:
+			return
+		}
+		s.Wake()
+	}
+}
+
+// serve feeds the screen's input to d until the input ends or Ctrl+C.
+func serve[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	for {
+		let next = try next(d.s)
+		Feed(d, next) catch {
+		case ui.Closed:
+			return
+		case actor.Stopped as e:
+			return e
+		case ui.BadPatch as e:
+			return e
+		case ScreenFailed as e:
+			return e
+		}
+		try Pump(d)
+	}
+}
+
+// oneLine is text with its line breaks as spaces.
+func oneLine(text string) string {
+	let mut out = ""
+	for r in runesOf(text) {
+		out = out + (if r == "\n" || r == "\r" { " " } else { r })
+	}
+	out
+}

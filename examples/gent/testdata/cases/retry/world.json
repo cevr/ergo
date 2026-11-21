@@ -1,0 +1,23 @@
+{
+ "replies": [
+  {
+   "_tag": "Fails",
+   "failure": {
+    "_tag": "RateLimited",
+    "afterMs": 5
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "Back again."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {}
+}

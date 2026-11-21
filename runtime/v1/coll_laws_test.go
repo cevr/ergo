@@ -73,7 +73,7 @@ func TestCollLaws(t *testing.T) {
 				}
 			}
 		}},
-		"prelude TakeAtIsIndexAndRest": {Statement: `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 || i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs) - 1 for k, y in rest { ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k + 1]) } ok }`, Check: func(t *testing.T) {
+		"prelude TakeAtIsIndexAndRest": {Statement: `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 || i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs)-1 for k, y in rest { ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k+1]) } ok }`, Check: func(t *testing.T) {
 			for n, xs := range xss {
 				for i := range xs {
 					x, rest := SlicesTake(xs, i)
@@ -87,7 +87,7 @@ func TestCollLaws(t *testing.T) {
 				}
 			}
 		}},
-		"prelude SliceIsWindow": {Statement: `SliceIsWindow(xs []int, i int, j int) { if i < 0 || j > len(xs) || i > j { return true } let w = xs.Slice(i, j) let mut ok = len(w) == j - i for k, y in w { ok = ok && y == xs[i + k] } ok }`, Check: func(t *testing.T) {
+		"prelude SliceIsWindow": {Statement: `SliceIsWindow(xs []int, i int, j int) { if i < 0 || j > len(xs) || i > j { return true } let w = xs.Slice(i, j) let mut ok = len(w) == j-i for k, y in w { ok = ok && y == xs[i+k] } ok }`, Check: func(t *testing.T) {
 			for n, xs := range xss {
 				for i := 0; i <= len(xs); i++ {
 					for j := i; j <= len(xs); j++ {
@@ -111,7 +111,7 @@ func TestCollLaws(t *testing.T) {
 				}
 			}
 		}},
-		"prelude AppendIsLast": {Statement: `AppendIsLast(xs []int, x int) { let ys = xs.Append(x) len(ys) == len(xs) + 1 && ys[len(xs)] == x }`, Check: func(t *testing.T) {
+		"prelude AppendIsLast": {Statement: `AppendIsLast(xs []int, x int) { let ys = xs.Append(x) len(ys) == len(xs)+1 && ys[len(xs)] == x }`, Check: func(t *testing.T) {
 			for i, c := range ms {
 				xs := make([]int, r.IntN(5), 8)
 				ys := Append(xs, c.v)

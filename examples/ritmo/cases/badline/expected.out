@@ -1,0 +1,6 @@
+tick 0 at 640.000,260.000 facing Down Idle collected 0/5, nothing in reach
+? "hop": want KEYS[*N], look, save NAME, load NAME, rewind N or quit
+? "rewind x": want KEYS[*N], look, save NAME, load NAME, rewind N or quit
+tick 3 at 653.998,260.000 facing Right Walking collected 0/5, nothing in reach
+! cannot rewind 5000 ticks: 3 kept
+? "w*0": want KEYS[*N], look, save NAME, load NAME, rewind N or quit

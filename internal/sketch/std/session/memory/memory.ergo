@@ -1,0 +1,163 @@
+// Package memory is a session.Store that keeps its sessions in the
+// process's memory (docs/spec/stdlib.md, session). Every copy of a Store
+// is the same store: the state is in a sync.Ref, so each operation is one
+// atomic session.Apply, and of two rotations of one session one wins.
+// Its sessions end with the process; session/file keeps them in a log.
+//
+// Effect: yielded/auth's in-memory StatefulSessionPersistence. Go
+// control: a map of token digests under a mutex.
+
+import rand
+import session
+import sync
+import task
+import time
+
+// Store is the memory store of policy p. New makes one.
+type Store { policy session.Policy, state sync.Ref[session.State] } implements session.Store
+
+// New is an empty store with policy p.
+func New(p session.Policy) Store { Store{policy: p, state: sync.NewRef(session.Empty())} }
+
+// apply runs op as one step of the Ref.
+// fresh is the context session.Store's laws run Store under (types.md,
+// Laws 10): each case starts from an empty store of the policy this
+// file's laws use.
+let fresh = context { session.Store: newForLaws() }
+
+// newForLaws is an empty store of a valid policy, which NewPolicy does
+// not refuse.
+func newForLaws() Store {
+	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
+	case session.BadPolicy as b:
+		Unreachable(b.Reason)
+	}
+	New(p)
+}
+
+func apply(s Store, op session.Op) session.Outcome {
+	let p = s.policy
+	sync.Modify(s.state, func(st session.State) (session.Outcome, session.State) {
+		let (o, next, _) = session.Apply(p, st, op)
+		(o, next)
+	})
+}
+
+// Establish keeps a new session under d.
+func Establish(s Store, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed {
+	match apply(s, session.EstablishOp{Digest: d, Subject: subject, Revision: revision, Now: now}) {
+	case session.Refused:
+		return session.Conflict
+	case _:
+	}
+}
+
+// Verify is the verdict on the session under d at now.
+func Verify(s Store, d session.Digest, now time.Time) session.Verdict fails session.Failed {
+	let p = s.policy
+	sync.Modify(s.state, func(st session.State) (session.Verdict, session.State) { (session.VerifyIn(p, st, d, now), st) })
+}
+
+// Rotate moves the live session under old to new.
+func Rotate(s Store, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed {
+	match apply(s, session.RotateOp{Old: old, New: new, Now: now}) {
+	case session.Moved as m:
+		m.Record
+	case _:
+		session.Conflict
+	}
+}
+
+// Revoke ends the session under d.
+func Revoke(s Store, d session.Digest) bool fails session.Failed {
+	match apply(s, session.RevokeOp{Digest: d}) {
+	case session.Ended as e:
+		e.Held
+	case _:
+		false
+	}
+}
+
+// RevokeAll ends the sessions of subject below revision.
+func RevokeAll(s Store, subject string, revision int) fails session.Failed {
+	let _ = apply(s, session.RevokeAllOp{Subject: subject, Revision: revision})
+}
+
+// RotateHasOneWinner: two tasks that rotate one session at once, each to
+// its own new digest: one gets the record, the other a Conflict, and only
+// the winner's digest verifies. ergo test --explore runs it under every
+// schedule of the two tasks.
+law RotateHasOneWinner(key string) {
+	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
+	case session.BadPolicy:
+		return false
+	}
+	let s = New(p)
+	let now = time.Unix(0, 0)
+	let old = session.DigestOf(session.TokenOf(key))
+	let a = session.DigestOf(session.TokenOf(key + "a"))
+	let b = session.DigestOf(session.TokenOf(key + "b"))
+	s.Establish(old, "subject", 0, now) catch {
+	case session.Conflict, session.Failed:
+		return false
+	}
+	let ta = task.Go() { wins(s, old, a, now) }
+	let tb = task.Go() { wins(s, old, b, now) }
+	let wa = ta.Wait()
+	let wb = tb.Wait()
+	let va = s.Verify(a, now) catch {
+	case session.Failed:
+		session.Invalid
+	}
+	let vb = s.Verify(b, now) catch {
+	case session.Failed:
+		session.Invalid
+	}
+	wa != wb && (va != session.Invalid) == wa && (vb != session.Invalid) == wb
+}
+
+// StartChecksValid: a session Start began checks Valid with its token,
+// and Invalid with the token's digest as a token: the store keeps the
+// digest, and finds the session by the digest of the token it is given.
+// After End, the token checks Invalid.
+law StartChecksValid(seed uint64, subject string) {
+	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
+	case session.BadPolicy:
+		return false
+	}
+	let s = New(p)
+	with context { rand.Secure: rand.NewSeededSecure(seed), time.Clock: time.NewManual(0) } {
+		let t = session.Start(s, subject, 0) catch {
+		case session.Conflict, session.Failed:
+			return false
+		}
+		let now = time.Clock.Now()
+		let want = session.Valid{Record: session.Record{Subject: subject, Revision: 0, Created: now, Renewed: now}}
+		let checked = session.Check(s, t) catch {
+		case session.Failed:
+			return false
+		}
+		let byDigest = session.Check(s, session.TokenOf(session.DigestText(session.DigestOf(t)))) catch {
+		case session.Failed:
+			return false
+		}
+		let ended = session.End(s, t) catch {
+		case session.Failed:
+			return false
+		}
+		let after = session.Check(s, t) catch {
+		case session.Failed:
+			return false
+		}
+		checked == want && byDigest == session.Invalid && ended && after == session.Invalid
+	}
+}
+
+// wins is whether a rotation of old to new won.
+func wins(s Store, old session.Digest, new session.Digest, now time.Time) bool {
+	let _ = s.Rotate(old, new, now) catch {
+	case session.Conflict, session.Failed:
+		return false
+	}
+	true
+}

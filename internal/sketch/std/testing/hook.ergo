@@ -1,0 +1,17 @@
+// Named points (RT-HOOK). A library marks a place where another task's
+// event decides what it reads with Point(name); a test arms it with
+// At(name, f), and the next task to reach the point runs f there, on its
+// own task, before it goes on. So a law lands an event (an actor's commit,
+// a server's answer) at that exact place on every run, where otherwise it
+// would race for it. Only a test build has points: in a run build a Point
+// or an At lowers to nothing (its arguments are evaluated when they are
+// not literals), so a program holds no hook code. Go's testing/synctest
+// and Loom-style schedulers are the prior art (runtime/v1 hook.go).
+
+// At arms the point name: the next task that reaches Point(name) runs f on
+// its own task, once, before it goes on. Points are the process's.
+extern go ergo.local/prototype/runtime/v1.HookAt func At(name string, f own func())
+
+// Point is the named point name: the calling task runs what a test armed
+// there with At, and goes on. A point no test armed does nothing.
+extern go ergo.local/prototype/runtime/v1.HookPoint func Point(name string)

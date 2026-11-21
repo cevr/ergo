@@ -1,0 +1,216 @@
+// A frame: what the host writes to a terminal to turn the grid it showed
+// into the next one. It writes only the cells that changed, a run of
+// changed cells in a row after one cursor move, each pen change once, and
+// it is one synchronized update: the terminal shows none of it until all
+// of it has come (the synchronized-output mode, DEC private mode 2026,
+// which most current terminals keep; a terminal without
+// it ignores the marks and draws as the bytes come).
+
+import strconv
+import strings
+
+// Begin and End are the marks of a synchronized update: CSI ? 2026 h and
+// CSI ? 2026 l.
+let Begin = "\x1b[?2026h"
+
+let End = "\x1b[?2026l"
+
+// Written is one frame: its text, and how many cells it writes.
+type Written { Text string, Cells int }
+
+// sgr is the select-graphic-rendition sequence of a pen, from the default
+// rendition.
+func sgr(p Pen) string {
+	match p {
+	case Normal:
+		"\x1b[0m"
+	case Faint:
+		"\x1b[0;2m"
+	case Strong:
+		"\x1b[0;1m"
+	case Inverse:
+		"\x1b[0;7m"
+	}
+}
+
+// moveTo is the cursor move to column c, row r (CUP counts from 1).
+func moveTo(c int, r int) string { "\x1b[" + strconv.Itoa(r+1) + ";" + strconv.Itoa(c+1) + "H" }
+
+// Frame is the frame that turns old into next on a terminal that shows
+// old: the cells of next that differ from old, row by row. When the sizes
+// differ, the frame erases the screen first and old counts as blank.
+func Frame(old Grid, next Grid) Written {
+	let mut out = strings.NewBuilder()
+	strings.WriteString(&out, Begin)
+	strings.WriteString(&out, sgr(Normal))
+	let mut was = old
+	if old.Cols != next.Cols || old.Rows != next.Rows {
+		strings.WriteString(&out, "\x1b[2J")
+		was = New(next.Cols, next.Rows)
+	}
+	let mut pen Pen = Normal
+	let mut cells = 0
+	for r in 0..next.Rows {
+		// at is the column the cursor is at in this row, -1 before the
+		// row's first run.
+		let mut at = -1
+		for c in 0..next.Cols {
+			let cell = At(next, c, r)
+			if cell == At(was, c, r) {
+				continue
+			}
+			if at != c {
+				strings.WriteString(&out, moveTo(c, r))
+			}
+			if cell.Pen != pen {
+				strings.WriteString(&out, sgr(cell.Pen))
+				pen = cell.Pen
+			}
+			strings.WriteString(&out, cell.Text)
+			cells = cells + 1
+			at = c + 1
+		}
+	}
+	strings.WriteString(&out, sgr(Normal))
+	strings.WriteString(&out, End)
+	Written{Text: strings.String(out), Cells: cells}
+}
+
+// Replay is g after a terminal that shows g reads text: the reference
+// reader of the sequences a frame writes (cursor moves, pens, the erase
+// of the screen, the update marks), and of printed runes, each one
+// column. A sequence it does not know does nothing. Package vt's parser
+// is the independent reader (examples/vt).
+func Replay(g Grid, text string) Grid {
+	let mut out = g
+	let mut col = 0
+	let mut row = 0
+	let mut pen Pen = Normal
+	let rs = Runes(text)
+	let mut i = 0
+	for i < len(rs) {
+		if rs[i] != "\x1b" {
+			Put(&out, col, row, Cell{Text: rs[i], Pen: pen})
+			col = col + 1
+			i = i + 1
+			continue
+		}
+		if i+1 >= len(rs) || rs[i+1] != "[" {
+			i = i + 1
+			continue
+		}
+		// a CSI: parameters up to the final byte
+		let mut j = i + 2
+		let mut params = ""
+		for j < len(rs) && !final(rs[j]) {
+			params = params + rs[j]
+			j = j + 1
+		}
+		if j >= len(rs) {
+			return out
+		}
+		let f = rs[j]
+		if f == "H" {
+			let ps = numbers(params)
+			row = (if len(ps) > 0 && ps[0] > 0 { ps[0] } else { 1 }) - 1
+			col = (if len(ps) > 1 && ps[1] > 0 { ps[1] } else { 1 }) - 1
+		} else if f == "m" {
+			for p in numbers(params) {
+				if p == 0 {
+					pen = Normal
+				} else if p == 1 {
+					pen = Strong
+				} else if p == 2 {
+					pen = Faint
+				} else if p == 7 {
+					pen = Inverse
+				}
+			}
+		} else if f == "J" && params == "2" {
+			out = New(out.Cols, out.Rows)
+		}
+		i = j + 1
+	}
+	out
+}
+
+// final is whether s ends a CSI sequence: a byte from @ to ~.
+func final(s string) bool { s >= "@" && s <= "~" && len(s) == 1 }
+
+// numbers are a CSI's parameters; an empty one is 0, and a "?" before
+// them is dropped.
+func numbers(params string) []int {
+	let mut out = []int{}
+	for p in strings.Split(strings.TrimPrefix(params, "?"), ";") {
+		let n = strconv.Atoi(p) catch {
+		case _:
+			0
+		}
+		out = out.Append(n)
+	}
+	out
+}
+
+// rng is a small generator for the laws' grids.
+type rng { s int }
+
+func next(r mut rng, n int) int {
+	r.s = (r.s*1103515245 + 12345) % 2147483648
+	if r.s < 0 {
+		r.s = -r.s
+	}
+	(r.s / 65536) % n
+}
+
+// pens and texts are what a drawn cell holds.
+let pens = []Pen{Normal, Faint, Strong, Inverse}
+
+let texts = []string{" ", "a", "b", "z", "[", "]", "▾", "·", "é", "x"}
+
+// drawn is a grid of cols by rows whose cells change with odds of one in
+// odds from base (a blank grid, or one drawn the same way).
+func drawn(r mut rng, base Grid, odds int) Grid {
+	let mut g = base
+	for i in 0..len(g.Cells) {
+		if next(r, odds) == 0 {
+			g.Cells[i] = Cell{Text: texts[next(r, len(texts))], Pen: pens[next(r, len(pens))]}
+		}
+	}
+	g
+}
+
+// pair is two grids of one size of seed, of 1 to 12 columns and 1 to 6
+// rows, the second a change of the first; every sixth seed the second is
+// of another size.
+func pair(seed int) (Grid, Grid) {
+	let mut r = rng{s: seed % 2147483648}
+	let cols = next(&r, 12) + 1
+	let rows = next(&r, 6) + 1
+	let a = drawn(&r, New(cols, rows), 2)
+	if next(&r, 6) == 0 {
+		return (a, drawn(&r, New(next(&r, 12)+1, next(&r, 6)+1), 2))
+	}
+	(a, drawn(&r, a, next(&r, 4)+1))
+}
+
+// DiffReplaysToGrid: a terminal that shows a grid and reads the frame to
+// the next shows the next; one resized to the next's size first, too.
+law DiffReplaysToGrid(seed int) {
+	let (a, b) = pair(seed)
+	Replay(Resized(a, b.Cols, b.Rows), Frame(a, b).Text) == b
+}
+
+// FrameWritesTheChanges: a frame writes each cell that changed once, and
+// no other (the counted guard of a patch's cost in cells written).
+law FrameWritesTheChanges(seed int) {
+	let (a, b) = pair(seed)
+	Frame(a, b).Cells == Changed(a, b)
+}
+
+// FrameIsOneUpdate: a frame is one synchronized update, its marks at its
+// two ends and nowhere else.
+law FrameIsOneUpdate(seed int) {
+	let (a, b) = pair(seed)
+	let t = Frame(a, b).Text
+	strings.HasPrefix(t, Begin) && strings.HasSuffix(t, End) && strings.Count(t, Begin) == 1 && strings.Count(t, End) == 1
+}

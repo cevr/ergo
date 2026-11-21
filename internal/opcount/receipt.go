@@ -30,7 +30,14 @@ type Host struct {
 	Arch      string `json:"arch"`
 	CPUs      int    `json:"cpus"`
 	GoVersion string `json:"go_version"`
-	Counter   string `json:"counter"` // "user instructions" or why there is none
+	// Level is the CPU level the programs were built for (GOAMD64,
+	// GOARM64: build.Toolchain.TargetLevel), v1 or v8.0 by default.
+	Level   string `json:"level,omitempty"`
+	Counter string `json:"counter"` // "user instructions" or why there is none
+	// SamplePeriod is the user instructions between two samples of the
+	// parts (Period): with perf_event_max_sample_rate it sets how many
+	// samples a run takes, so how far a part may lie from its share.
+	SamplePeriod uint64 `json:"sample_period,omitempty"`
 }
 
 // Case is one program (or one target of a command comparison) at its
@@ -62,13 +69,17 @@ type Bodies struct {
 
 // Kind is the kind of a counter: exact (one value per build or run, held
 // exactly), counted (a hardware count, tight under load, judged over
-// pairs) or timed (time and memory, judged over pairs, never held).
+// pairs), sampled (a counted total split by samples taken every Period
+// instructions: no time in it, so load moves it no more than a count, but
+// with the spread of the samples) or timed (time and memory, judged over
+// pairs, never held).
 type Kind string
 
 // The kinds.
 const (
 	Exact   Kind = "exact"
 	Counted Kind = "counted"
+	Sampled Kind = "sampled"
 	Timed   Kind = "timed"
 )
 

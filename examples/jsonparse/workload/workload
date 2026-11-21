@@ -1,0 +1,9 @@
+# scripts/opcount: `jsonparse check` parses the JSON document of N records
+# that `jsonparse gen -seed 1 -n N` writes and counts its values; the cost
+# of one record is the slope between the two sizes. The control is the
+# hand Go parser of the same design.
+unit record
+sizes 20000 160000
+input self gen -seed 1 -n {n}
+args check {input}
+control cmd/ergo/testdata/jsonparse/control

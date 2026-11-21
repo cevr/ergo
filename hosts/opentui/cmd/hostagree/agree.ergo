@@ -1,0 +1,625 @@
+import actor
+import go ergo.local/prototype/hosts/opentui/screen
+import ergo.local/prototype/hosts/opentui/tui
+import strconv
+import strings
+import time
+import ui
+import utf8
+
+// result is how a step ended on one host: done, or the label it found no
+// node for, or how it failed.
+type result = Done{} | Missing{Label string} | Broke{Why string}
+
+// agree plays steps on both hosts and prints whether they agree after
+// each. The screen is 60 by 40 cells (480 by 640 DIPs, the window of
+// hosts/mygo's hostagree).
+func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+	let s = screen.Headless(60, 40) catch {
+	case go.Error as e:
+		Console.Println("differ 0: no screen: \(e.Text)")
+		return
+	}
+	let ta = actor.StartMachine(m, 1, func(o int) {})
+	let da = actor.StartMachine(m, 1, func(o int) {})
+	let mut h = ui.NewTestHost(ta, view, time.NewManual(0), 16) catch {
+	case ui.BadPatch as b:
+		Console.Println("differ 0: test host: \(b.Why)")
+		return
+	}
+	let mut d = tui.New(s, da, view, 16) catch {
+	case ui.BadPatch as b:
+		Console.Println("differ 0: driver: \(b.Why)")
+		return
+	case tui.ScreenFailed as e:
+		Console.Println("differ 0: driver: \(e.Why)")
+		return
+	}
+	match compare(&h, &d, s, same) {
+	case Some[string] as why:
+		Console.Println("differ 0: \(why.Value)")
+	case None:
+		Console.Println("ok 0")
+	}
+	for i, line in steps {
+		let n = i + 1
+		if line == "screen" {
+			// For a person replaying a seed: the screen's rows.
+			for r in s.Rows() {
+				Console.Println("| \(r)")
+			}
+			continue
+		}
+		// "cost STEP" plays STEP and prints the library calls it made.
+		let costed = strings.HasPrefix(line, "cost ")
+		let before = s.Calls()
+		let (a, b) = run(&h, &d, s, strings.TrimPrefix(line, "cost "))
+		if costed {
+			Console.Println("cost \(s.Calls() - before)")
+		}
+		if a != b {
+			Console.Println("differ \(n): \(line): test host \(said(a)), terminal \(said(b))")
+			continue
+		}
+		match compare(&h, &d, s, same) {
+		case Some[string] as why:
+			Console.Println("differ \(n): \(line): \(why.Value)")
+		case None:
+			Console.Println("ok \(n)")
+		}
+	}
+	s.Quit() catch {
+	// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
+	case go.Error:
+	}
+	Console.Println("end")
+}
+
+func said(r result) string {
+	match r {
+	case Done:
+		"done"
+	case Missing as m:
+		"no node \(m.Label)"
+	case Broke as b:
+		"failed \(b.Why)"
+	}
+}
+
+// compare is why the hosts differ now, None when they agree: the tree,
+// the app state, whether an Area holds the pointer, each list's rows in
+// their places, and each text's place on the screen. First TestHost takes
+// the viewport the terminal reported for each list (follow).
+func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	follow(h, d, tui.Screen(d))
+	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
+		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
+	}
+	if !same(ui.StateOf(h), tui.StateOf(d)) {
+		return Some{Value: "states differ"}
+	}
+	if s.Count() != tui.SceneNodes(d) {
+		return Some{Value: "the scene holds \(s.Count()) nodes, the driver \(tui.SceneNodes(d))"}
+	}
+	let held = ui.Captured(h) != None
+	if held != (tui.Captured(d) != None) {
+		return Some{Value: "an Area holds the pointer on TestHost: \(held); on the terminal: \(!held)"}
+	}
+	match kept(d, tui.Screen(d)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
+	let rows = s.Rows()
+	match placed(d, s, tui.Screen(d), rows) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
+	shown(d, s, tui.Screen(d), rows)
+}
+
+// kept is why a list does not show the offset its pass chose, None when
+// each does: a list's node carries the offset the pass used (RowsKeeping
+// moves it to bring a row into view), and the viewport the terminal
+// reported after the step has that offset, or the list's last offset when
+// the pass's is past it (the scene keeps a scroll inside the content).
+func kept[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			match tui.Viewport(d, x.Label) {
+			case Some[ui.Viewport] as v:
+				let (off, want) = (float64(v.Value.Offset), float64(x.Offset))
+				let most = maxOffset(shapes, x.Label, float64(v.Value.Height))
+				if off != want && !(want > most && off == most) {
+					return Some{Value: "list \(x.Label): the pass chose offset \(want), the terminal shows \(off)"}
+				}
+			case None:
+			}
+		case _:
+			match kept[E, S, D, F](d, sh.Kids) {
+			case Some[string] as why:
+				return Some{Value: why.Value}
+			case None:
+			}
+		}
+	}
+	None
+}
+
+// cellH is the DIPs of a cell's height (the driver's default Cell).
+let cellH = 16.0
+
+// placed is why a list is not where it shows, None when each is: the
+// viewport the terminal reported is the list's box height and an offset
+// inside its content, and each row it wrote (a button, by label) is at
+// the list's top plus its index's rows, less the offset, one row high, at
+// the list's left edge, and its label is on the screen's row there when
+// that row is in the list's box.
+func placed[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			let (v, lb) = match (tui.Viewport(d, x.Label), tui.Number(d, x.Label)) {
+			case (Some[ui.Viewport] as v, Some[int] as n):
+				(v.Value, s.BoxOf(n.Value))
+			case _:
+				return Some{Value: "list \(x.Label) has no viewport or node"}
+			}
+			let rh = float64(x.RowHeight) / cellH
+			let off = float64(v.Offset) / cellH
+			let most = float64(x.Count)*rh - float64(lb.Height)
+			if float64(v.Height) != float64(lb.Height)*cellH || off < 0 || (off > 0 && off > most) {
+				return Some{Value: "list \(x.Label): viewport \(off)+\(float64(v.Height) / cellH) rows in a box \(lb.Height) high over \(x.Count) rows"}
+			}
+			for i, k in sh.Kids {
+				match k.Node {
+				case ui.PressableNode[E] as p:
+					match tui.Number(d, p.Label) {
+					case Some[int] as n:
+						let b = s.BoxOf(n.Value)
+						let want = float64(lb.Y) + float64(x.First+i)*rh - off
+						// As wide as the list, less the bar's column.
+						if float64(b.Y) != want || float64(b.Height) != rh || b.X != lb.X || b.Width < lb.Width-1 || b.Width > lb.Width {
+							return Some{Value: "\(p.Label) shows at \(b.X),\(b.Y) \(b.Width)x\(b.Height); want row \(want), \(rh) high, at the list's left edge \(lb.X) (the list at \(lb.X),\(lb.Y) \(lb.Width)x\(lb.Height), offset \(off))"}
+						}
+						if b.Y >= lb.Y && b.Y < lb.Y+lb.Height && b.Y < len(rows) && !strings.Contains(rows[b.Y], p.Label) {
+							return Some{Value: "\(p.Label) is not on the screen's row \(b.Y): \"\(rows[b.Y])\""}
+						}
+					case None:
+						return Some{Value: "\(p.Label) has no node"}
+					}
+				case _:
+				}
+			}
+		case _:
+			match placed[E, S, D, F](d, s, sh.Kids, rows) {
+			case Some[string] as why:
+				return why
+			case None:
+			}
+		}
+	}
+	None
+}
+
+// follow scrolls each list of TestHost to the viewport the terminal
+// reported for it: the terminal decides a list's height and where a
+// person scrolled it, and TestHost, which has no screen, takes it as a
+// host's report (ui.ScrollTo). Then both write the same rows.
+func follow[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], shapes []ui.Shape[E]) {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			match (tui.Viewport(d, x.Label), ui.Find(h, x.Label)) {
+			case (Some[ui.Viewport] as v, Some[ui.Id[E]] as id):
+				ui.ScrollTo(h, id.Value, v.Value.Offset, v.Value.Height) catch {
+				// ergo-lint-disable-next-line silent-catch -- a TestHost that cannot take the viewport differs from the terminal in the trees compare reads next
+				case actor.Stopped, ui.BadPatch:
+				}
+			case _:
+			}
+		case _:
+			follow[E, S, D, F](h, d, sh.Kids)
+		}
+	}
+}
+
+// maxOffset is how far the list labelled label scrolls in a viewport
+// height high (DIPs): its content less the height, at least 0; -1 for no
+// such list.
+func maxOffset[E](shapes []ui.Shape[E], label string, height float64) float64 {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			if x.Label == label {
+				let most = float64(x.Count)*float64(x.RowHeight) - height
+				return if most > 0 { most } else { 0 }
+			}
+		case _:
+		}
+		let m = maxOffset[E](sh.Kids, label, height)
+		if m >= 0 {
+			return m
+		}
+	}
+	-1
+}
+
+// shot is the driver's tree as text, one node a line by its kind and
+// label: what a differing step prints beside TestHost's screenshot.
+func shot[E](shapes []ui.Shape[E], indent string) string {
+	let mut out = ""
+	for sh in shapes {
+		let what = match sh.Node {
+		case ui.RowsNode as x:
+			"rows \"\(x.Label)\" \(x.Count) from \(x.First)"
+		case ui.PressableNode[E] as x:
+			"button \"\(x.Label)\""
+		case ui.TextNode as x:
+			"text \"\(x.Value)\""
+		case ui.InputNode as x:
+			"field \"\(x.Placeholder)\" = \"\(x.Value)\""
+		case _:
+			"node"
+		}
+		out = out + indent + what + "\n" + shot[E](sh.Kids, indent+"  ")
+	}
+	out
+}
+
+// shown is why a text is not where the scene says it is, None when each
+// is: every word of a text (the first node of that value, outside a
+// Scroll or a list, whose rows can scroll away) is on the screen's rows
+// that its box covers.
+func shown[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
+	for sh in shapes {
+		match sh.Node {
+		case ui.ScrollNode, ui.RowsNode:
+			continue
+		case ui.TextNode as x:
+			match tui.Number(d, x.Value) {
+			case Some[int] as n:
+				let b = s.BoxOf(n.Value)
+				let mut lines = ""
+				for y in b.Y..(b.Y + b.Height) {
+					if y >= 0 && y < len(rows) {
+						lines = lines + rows[y] + "\n"
+					}
+				}
+				for word in strings.Fields(x.Value) {
+					if !strings.Contains(lines, word) {
+						return Some{Value: "text \"\(x.Value)\" is not on rows \(b.Y) to \(b.Y + b.Height - 1) of its box \(b.X),\(b.Y) \(b.Width)x\(b.Height):\n\(lines)"}
+					}
+				}
+			case None:
+			}
+		case _:
+		}
+		match shown[E, S, D, F](d, s, sh.Kids, rows) {
+		case Some[string] as why:
+			return why
+		case None:
+		}
+	}
+	None
+}
+
+// run does one step on each host.
+func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], line string) (result, result) needs go.Foreign {
+	let (verb, rest) = match strings.Cut(line, " ") {
+	case Some[strings.Halves] as c:
+		(c.Value.Before, c.Value.After)
+	case None:
+		(line, "")
+	}
+	match verb {
+	case "tap":
+		both(h, d, ui.TapOn{Label: rest})
+	case "type":
+		match strings.Cut(rest, "\t") {
+		case Some[strings.Halves] as c:
+			both(h, d, ui.TypeInto{Label: c.Value.Before, Text: c.Value.After})
+		case None:
+			(Broke{Why: "type needs a tab"}, Broke{Why: "type needs a tab"})
+		}
+	case "key":
+		let act = ui.KeyIn{Press: ui.KeyPress{Name: rest, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+		// A character typed with a field focused goes into the field on the
+		// terminal, at its caret (here moved to the end with Ctrl+E first:
+		// TestFieldFollowsTheLineEditor holds the caret); TestHost, which
+		// has no focus, appends it there too.
+		match (tui.FocusId(d), tui.FocusNode(d)) {
+		case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+			match n.Value {
+			case ui.InputNode as x:
+				if utf8.RuneCount(rest) == 1 && rest != " " {
+					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+						try tui.Send(d, "\x05")
+						try tui.Play(d, []ui.Act{act})
+					})
+					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+						try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+rest)
+					})
+					return (a, b)
+				}
+			case _:
+			}
+		case _:
+		}
+		both(h, d, act)
+	case "point":
+		let f = strings.Fields(rest)
+		if len(f) != 4 {
+			return (Broke{Why: "point LABEL PHASE X Y"}, Broke{Why: "point LABEL PHASE X Y"})
+		}
+		let x = float64(atoi(f[2]))
+		let y = float64(atoi(f[3]))
+		let phase = match f[1] {
+		case "down":
+			ui.Down
+		case "up":
+			ui.Up
+		case "move":
+			ui.Moved
+		case _:
+			ui.Wheel{DX: 0, DY: y}
+		}
+		let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
+		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try tui.Play(d, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
+		})
+		let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			match zoneAt(h, d, f[0], x, y) {
+			case Some[zoned[E]] as z:
+				try ui.PointOver(h, z.Value.area, z.Value.zone, z.Value.box, p)
+			case None:
+				try ui.Play(h, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
+			}
+		})
+		(a, b)
+	case "scroll":
+		let f = strings.Fields(rest)
+		if len(f) != 2 {
+			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
+		}
+		let to = float64(atoi(f[1]))
+		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try tui.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
+		})
+		(found(h, f[0]), landed(d, f[0], b, to))
+	case "wheel":
+		// K turns of the wheel at the list's centre (down for K > 0): the
+		// list moves WheelRows rows a turn, as far as its content goes.
+		let f = strings.Fields(rest)
+		if len(f) != 2 {
+			return (Broke{Why: "wheel LABEL K"}, Broke{Why: "wheel LABEL K"})
+		}
+		let k = atoi(f[1])
+		let (old, box) = match (tui.Viewport(d, f[0]), tui.Number(d, f[0])) {
+		case (Some[ui.Viewport] as v, Some[int] as n):
+			(float64(v.Value.Offset), s.BoxOf(n.Value))
+		case _:
+			return (found(h, f[0]), Missing{Label: f[0]})
+		}
+		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			for _ in 0..(if k < 0 { -k } else { k }) {
+				try tui.Send(d, tui.Mouse(if k < 0 { 64 } else { 65 }, box.X+box.Width/2, box.Y+box.Height/2, true))
+			}
+		})
+		let to = old + float64(k*tui.WheelRows)*cellH
+		(found(h, f[0]), landed(d, f[0], b, if to < 0 { 0 } else { to }))
+	case "settle":
+		both(h, d, ui.SettleAll)
+	case "focus":
+		focusPress(h, d, s, atoi(rest))
+	case _:
+		(Broke{Why: "no step \(verb)"}, Broke{Why: "no step \(verb)"})
+	}
+}
+
+// zoned is a Zone under a pointer on TestHost: the Area, the Zone, and
+// the Zone's box in the Area's box (DIPs).
+type zoned[E] { area ui.Id[E], zone ui.Id[E], box ui.Rect }
+
+// zoneAt is TestHost's hit test of a pointer at x, y (DIPs) in the Area
+// labelled label: the pad's Zone (key 7) when the pointer is in the box
+// the terminal laid it out in, None otherwise. The terminal finds the
+// Zone by its own hit test, through the scene; here it is the box.
+func zoneAt[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], label string, x float64, y float64) Option[zoned[E]] needs go.Foreign {
+	let (area, zone, mine) = match (ui.Find(h, label), ui.Locate(h, ui.WithZone{Key: ui.ByInt(7)}), tui.Find(d, label), tui.Locate(d, ui.WithZone{Key: ui.ByInt(7)})) {
+	case (Some[ui.Id[E]] as a, zs, Some[ui.Id[E]] as da, dz):
+		if len(zs) == 0 || len(dz) == 0 {
+			return None
+		}
+		(a.Value, zs[0], (tui.Box(d, da.Value), tui.Box(d, dz[0])))
+	case _:
+		return None
+	}
+	let (ab, zb) = mine
+	let r = ui.Rect{X: ui.Length(float64(zb.X-ab.X) * 8), Y: ui.Length(float64(zb.Y-ab.Y) * cellH), W: ui.Length(float64(zb.Width) * 8), H: ui.Length(float64(zb.Height) * cellH)}
+	if x >= float64(r.X) && x < float64(r.X+r.W) && y >= float64(r.Y) && y < float64(r.Y+r.H) {
+		return Some{Value: zoned[E]{area: area, zone: zone, box: r}}
+	}
+	None
+}
+
+// found is whether TestHost holds a node labelled label.
+func found[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], label string) result {
+	match ui.Find(h, label) {
+	case Some[ui.Id[E]]:
+		Done
+	case None:
+		Missing{Label: label}
+	}
+}
+
+// landed is b, unless the list labelled label is not where a step that
+// scrolled it to offset to left it: at to, or as far as its content goes.
+func landed[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], label string, b result, to float64) result {
+	match (b, tui.Viewport(d, label)) {
+	case (Done, Some[ui.Viewport] as v):
+		let most = maxOffset(tui.Screen(d), label, float64(v.Value.Height))
+		let want = if to < most { to } else { most }
+		if float64(v.Value.Offset) != want {
+			return Broke{Why: "scrolled to \(float64(v.Value.Offset)), want \(want)"}
+		}
+		b
+	case _:
+		b
+	}
+}
+
+func atoi(s string) int {
+	strconv.Atoi(s) catch {
+	// ergo-lint-disable-next-line silent-catch -- a count that is no number is no Tab
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}
+
+// both plays one act on each host.
+func both[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
+	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		try ui.Play(h, []ui.Act{act})
+	})
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		try tui.Play(d, []ui.Act{act})
+	})
+	(a, b)
+}
+
+func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign) result needs go.Foreign {
+	f() catch {
+	case ui.NoNode as n:
+		return Missing{Label: n.Label}
+	case ui.Mismatch as m:
+		return Broke{Why: "want \(m.Want), got \(m.Got)"}
+	case actor.Stopped:
+		return Broke{Why: "stopped"}
+	case ui.BadPatch as b:
+		return Broke{Why: b.Why}
+	case ui.Closed:
+		return Broke{Why: "closed"}
+	case tui.ScreenFailed as e:
+		return Broke{Why: e.Why}
+	}
+	Done
+}
+
+// focusOrder is the label of each node Tab visits in shapes, in tree
+// order: a Pressable, a Check, a Toggle or an Input, none under a
+// disabled Fieldset.
+func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string] {
+	let mut out = into
+	for sh in shapes {
+		match sh.Node {
+		case ui.FieldsetNode as x:
+			if x.Disabled {
+				continue
+			}
+		case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
+			out = out.Append(labelOfNode(sh.Node))
+		case _:
+		}
+		out = focusOrder[E](sh.Kids, out)
+	}
+	out
+}
+
+// twin is TestHost's node of the terminal's node n (id on the terminal):
+// the first with n's label. An Id is the host's (an arena's place), so a
+// row a list wrote in other passes on the two hosts has another Id.
+func twin[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], n ui.Node[E], id ui.Id[E]) ui.Id[E] {
+	match labelOfNode(n) {
+	case Some[string] as l:
+		match ui.Find(h, l.Value) {
+		case Some[ui.Id[E]] as t:
+			t.Value
+		case None:
+			id
+		}
+	case None:
+		id
+	}
+}
+
+// labelOfNode is the label of a node that takes the focus.
+func labelOfNode[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.PressableNode[E] as x:
+		Some{Value: x.Label}
+	case ui.CheckNode[E] as x:
+		Some{Value: x.Label}
+	case ui.ToggleNode as x:
+		Some{Value: x.Label}
+	case ui.InputNode as x:
+		Some{Value: x.Placeholder}
+	case _:
+		None
+	}
+}
+
+func named(l Option[string]) string {
+	match l {
+	case Some[string] as s:
+		"\"\(s.Value)\""
+	case None:
+		"none"
+	}
+}
+
+// focusPress clears the focus with a click on the screen's last cell
+// (empty in every app), moves it with Tab k times and presses the focused
+// node with Enter (types "z" into a field); TestHost presses (or types
+// into) the node the terminal focused. The focus order is the tree's:
+// after k Tabs the focus is on the (k-1 mod n)-th of the n focusable
+// nodes.
+func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], k int) (result, result) needs go.Foreign {
+	let mut keys = tui.Click(s.Cols()-1, s.Lines()-1)
+	for _ in 0..k {
+		keys = keys + "\t"
+	}
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		try tui.Send(d, keys)
+	})
+	// The order is TestHost's tree's, not the driver's.
+	let order = focusOrder(ui.Screen(h), []Option[string]{})
+	let mut want Option[string] = None
+	if k > 0 && len(order) > 0 {
+		want = order[(k-1)%len(order)]
+	}
+	let got = match tui.FocusNode(d) {
+	case Some[ui.Node[E]] as n:
+		labelOfNode(n.Value)
+	case None:
+		None
+	}
+	if (k > 0 && len(order) > 0 && got != want) || ((k == 0 || len(order) == 0) && tui.FocusId(d) != None) {
+		return (Done, Broke{Why: "after \(k) Tabs the focus is on \(named(got)), not on \(named(want)), the node it reaches in tree order (of \(len(order)))"})
+	}
+	match (tui.FocusId(d), tui.FocusNode(d)) {
+	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+		match n.Value {
+		case ui.InputNode as x:
+			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+				try tui.Send(d, "z")
+			})
+			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+				try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+"z")
+			})
+			return (a, b2)
+		case _:
+			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+				try tui.Send(d, "\r")
+			})
+			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+				try ui.Tap(h, twin(h, n.Value, id.Value))
+			})
+			return (a, b2)
+		}
+	case _:
+	}
+	(Done, b)
+}

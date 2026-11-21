@@ -30,6 +30,24 @@ type CheckedPackage struct {
 	Module  string
 	Trusted bool
 	Go      []string
+	// Partial is the checker's package also when it has diagnostics: its
+	// Info holds what the checker resolved (the fact tables of ergo code
+	// read it, with complete false). Nil when the package was not checked
+	// (it does not parse, or it imports a broken package).
+	Partial *check.Package
+	// Imports are the import paths of the local packages it imports, in
+	// the order it first imports them.
+	Imports []string
+}
+
+// ModuleRoot is the folder of the module of a program read from a
+// folder, the folder every file's Rel is relative to; "" for one source
+// text or a program with no module.
+func (a Analysis) ModuleRoot() string {
+	if a.program == nil || a.program.module == "" {
+		return ""
+	}
+	return a.program.modRoot
 }
 
 // CheckedFile is one source file of a CheckedPackage.
@@ -84,7 +102,7 @@ func (a Analysis) Packages() []CheckedPackage {
 	}
 	var out []CheckedPackage
 	for _, p := range append(append([]*loadedPackage{}, a.program.imports...), a.program.root) {
-		c := CheckedPackage{Path: p.path, Dir: p.dir, Go: p.goUses}
+		c := CheckedPackage{Path: p.path, Dir: p.dir, Go: p.goUses, Partial: p.pkg}
 		if p.mod != nil {
 			c.Module, c.Trusted = p.mod.name, slices.Contains(a.program.trust, p.mod.path)
 		}
@@ -93,6 +111,9 @@ func (a Analysis) Packages() []CheckedPackage {
 		}
 		for _, f := range p.files {
 			c.Files = append(c.Files, CheckedFile{Rel: f.rel, Syntax: f.syntax})
+		}
+		for _, imp := range p.imports {
+			c.Imports = append(c.Imports, imp.path)
 		}
 		out = append(out, c)
 	}

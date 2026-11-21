@@ -7,7 +7,7 @@
       "text": ": S001 by the parser `internal/sketch/syntax` ([#195](https://github.com/cevr/ergo/issues/195)), and the other codes by the checker `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)), which `ergo check` and `ergo diagnostics` run. The checker's code table (`internal/sketch/check/codes.go`) mirrors this page; a test keeps the table, the emitted codes and the rows below in step. `ergo build` and `ergo run` run the checker first, then lower the checked program from the checker's output (`internal/sketch/lower`, check-v1); a form the lowering does not lower yet is refused at build with S109 naming the ticket or stage that owns it, at its position, and nothing is written (`internal/sketchfront`). The checker's fixtures are in `internal/sketch/check/testdata/fixtures`; the prototype's fixtures (first line `// want CODE`) keep their outcome except the changes [the parity table](../../internal/sketch/check/testdata/parity.overrides) lists. The main compiler maps each rule to a code in its EF registry ([#79](https://github.com/cevr/ergo/issues/79); README Gap 18).",
       "witnesses": [
         "cmd/ergo:TestCheckAndDiagnosticsReportLocatedSketchCodes",
-        "internal/sketch/check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
@@ -21,7 +21,7 @@
       "file": "grammar.md",
       "heading": "Grammar",
       "status": "implemented",
-      "text": ": the parser `internal/sketch/syntax` and the formatter `internal/sketch/format` implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196), and nothing else. The source is the appendix \"Decided Go-shaped sketch\" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).",
+      "text": ": the parser `compiler/syntax` and the formatter `compiler/format` (both linked into `ergo`) implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196), and nothing else. The source is the appendix \"Decided Go-shaped sketch\" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).",
       "witnesses": [
         "internal/sketch/syntax:TestGrammarFixtures",
         "internal/sketch/syntax:TestGrammarStatesTheSketch",
@@ -116,6 +116,17 @@
       "witnesses": [
         "internal/sketch/check:TestInsertedOpsAgree"
       ]
+    },
+    {
+      "file": "code.md",
+      "heading": "Code: questions about a workspace's code",
+      "status": "partly implemented",
+      "text": ": the fact tables (SEMTOOLS SEM0), `Reader` (`Describe`, `Symbols`, `Symbol`, `References`), its providers `Index` and `Scan`, and `ergo code` (SEM1); `Planner`, `Writer` and the `Checker` and `Files` seams with their memory providers `Model` and `Disk` (SEM4a); `Rename` with the proof `Alpha` and the refusals `NameTaken`, `OutsideWorkspace` and `Capture`, over `Model` (SEM5's core); `Calls` and `Api`, a plan's contract impact, `ergo code calls|api`, and `ergo inspect api` as a view of `Api` (SEM2a); `Reach` and `MachineOf`, `ergo code reach|machine-of`, and `ergo inspect machine` as a view of `MachineOf` (SEM2b); `Reach` of a failure and of a provider, and `ergo inspect machine --json` (SEM2c, SEM2d, SEM2e). The server on `ergo dev`, MCP and HTTP (SEM3), the product `Checker` and `Files`, `ergo code plan|apply` and `ergo fix` on plans (SEM4b, after README Gap 17; with them rename covers parameters, locals, variants, laws and tests), patterns (SEM6) and rewrites (SEM7) are designed (`semtools/plan.md` of the wf10 run).",
+      "witnesses": [
+        "cmd/ergo:TestCodeAnswersAgreeWithTheTables",
+        "internal/sketch/lower:TestStdCodeLawsRun",
+        "internal/sketch/facts:TestTablesAgreeWithScan"
+      ]
     }
   ],
   "constructs": [
@@ -132,7 +143,7 @@
     {
       "construct": "Formatting, `ergo-2026/formatter-2`",
       "status": "implemented",
-      "cell": "Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`)",
+      "cell": "Implemented ([#195](https://github.com/cevr/ergo/issues/195), `compiler/format`)",
       "section": "[formatting](../specs/formatting.md#2026-edition)",
       "witnesses": [
         "cmd/ergo:TestFmtUsesTheOneFormatter"
@@ -144,7 +155,7 @@
       "cell": "Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part",
       "section": "[types](types.md), [rows](rows.md), [diagnostics](diagnostics.md)",
       "witnesses": [
-        "internal/sketch/check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
@@ -153,7 +164,7 @@
       "cell": "Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7)",
       "section": "[grammar](grammar.md#declarations)",
       "witnesses": [
-        "internal/sketch/check:TestFixtures",
+        "cmd/ergo:TestCheckerFixtures",
         "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
       ]
     },
@@ -432,7 +443,7 @@
       "cell": "Checked; runs",
       "section": "[grammar](grammar.md#expressions)",
       "witnesses": [
-        "internal/sketch/format:TestTrailingFuncAgrees",
+        "internal/hostsyntax:TestTrailingFuncAgrees",
         "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
       ]
     },

@@ -1,0 +1,244 @@
+// Package car is one elevator car as a machine. Its states carry the
+// floors it is called to, a floors.Set, and each step makes the next state
+// from the last in the record-update style (`Moving{..m, At: next}`), so a
+// state is a value: a state kept before a step is the state it was.
+
+import elevator/floors
+import machines
+import slices
+
+// Top is the highest floor; the lowest is 0.
+let Top = 9
+
+// Cap is the most calls a car keeps at once.
+let Cap = 6
+
+// Signal is what the car reads: a call to a floor, a tick of time, or the
+// end of the run.
+type Signal = Call{Floor int} | Tick{} | Halt{}
+
+// State is the car: idle at a floor, moving one floor a tick toward its
+// calls, or open at a floor it was called to. Each holds the floors it is
+// still called to, and the number of calls it has served.
+type State = Idle{At int, Calls floors.Set, Served int} | Moving{At int, Up bool, Calls floors.Set, Served int} | Open{At int, Up bool, Calls floors.Set, Served int}
+
+// Stopped is how a run ends: where the car stood and the calls it served.
+type Stopped { At int, Served int }
+
+// NoFloor is a call to a floor the building does not have.
+type NoFloor { Floor int }
+
+// Car is the car as a machine: idle at the ground floor with no calls.
+type Car machine[State, Signal] {
+	initial: Idle{At: 0, Calls: floors.New(), Served: 0},
+	step:    Step,
+}
+
+// Step is the machine's transition. A call adds its floor to the calls
+// (or opens the doors, when the car is idle there); a full set of calls
+// fails floors.Full and a floor out of the building fails NoFloor, and
+// either changes nothing. A tick moves the car: an idle car with calls
+// starts toward the nearest, a moving car goes one floor and opens at a
+// floor it is called to, and an open car closes and goes on, or idles. Halt
+// is Done with where the car stands.
+func Step(s State, sig Signal) Decision[State, Stopped] fails floors.Full | NoFloor {
+	match (s, sig) {
+	case (_, Halt):
+		Done[Stopped]{Output: Stopped{At: AtOf(s), Served: ServedOf(s)}}
+	case (_, Call as c):
+		if c.Floor < 0 || c.Floor > Top {
+			return NoFloor{Floor: c.Floor}
+		}
+		try called(s, c.Floor)
+	case (Idle as i, Tick):
+		started(i)
+	case (Moving as m, Tick):
+		moved(m)
+	case (Open as o, Tick):
+		closed(o)
+	}
+}
+
+// called is s with a call to f.
+func called(s State, f int) Decision[State, Stopped] fails floors.Full {
+	match s {
+	case Idle as i:
+		if f == i.At {
+			return Enter[State]{Next: Open{At: i.At, Up: true, Calls: i.Calls, Served: i.Served + 1}}
+		}
+		Stay[State]{Next: Idle{..i, Calls: try floors.InsertCapped(i.Calls, f, Cap)}}
+	case Moving as m:
+		Stay[State]{Next: Moving{..m, Calls: try floors.InsertCapped(m.Calls, f, Cap)}}
+	case Open as o:
+		if f == o.At {
+			return Ignore
+		}
+		Stay[State]{Next: Open{..o, Calls: try floors.InsertCapped(o.Calls, f, Cap)}}
+	}
+}
+
+// started is an idle car's tick: it starts toward its nearest call.
+func started(i Idle) Decision[State, Stopped] {
+	if floors.Len(i.Calls) == 0 {
+		return Ignore
+	}
+	Enter[State]{Next: Moving{At: i.At, Up: Toward(i.Calls, i.At, true), Calls: i.Calls, Served: i.Served}}
+}
+
+// moved is a moving car's tick: one floor on, and open there when it is
+// called to it.
+func moved(m Moving) Decision[State, Stopped] {
+	let next = if m.Up { m.At + 1 } else { m.At - 1 }
+	if floors.Has(m.Calls, next) {
+		return Enter[State]{Next: Open{At: next, Up: m.Up, Calls: floors.Remove(m.Calls, next), Served: m.Served + 1}}
+	}
+	Stay[State]{Next: Moving{..m, At: next}}
+}
+
+// closed is an open car's tick: it goes on to its calls, or idles.
+func closed(o Open) Decision[State, Stopped] {
+	if floors.Len(o.Calls) == 0 {
+		return Enter[State]{Next: Idle{At: o.At, Calls: o.Calls, Served: o.Served}}
+	}
+	Enter[State]{Next: Moving{At: o.At, Up: Toward(o.Calls, o.At, o.Up), Calls: o.Calls, Served: o.Served}}
+}
+
+// Toward is the way to the next call from at: on the way the car goes
+// (up when up) while a call lies ahead, else the other way.
+func Toward(calls floors.Set, at int, up bool) bool {
+	let ahead = if up { floors.Above(calls, at) } else { floors.Below(calls, at) }
+	match ahead {
+	case Some[int]:
+		up
+	case None:
+		!up
+	}
+}
+
+// AtOf is the floor s stands at.
+func AtOf(s State) int {
+	match s {
+	case Idle as i:
+		i.At
+	case Moving as m:
+		m.At
+	case Open as o:
+		o.At
+	}
+}
+
+// ServedOf is the calls s has served.
+func ServedOf(s State) int {
+	match s {
+	case Idle as i:
+		i.Served
+	case Moving as m:
+		m.Served
+	case Open as o:
+		o.Served
+	}
+}
+
+// CallsOf is the floors s is called to.
+func CallsOf(s State) floors.Set {
+	match s {
+	case Idle as i:
+		i.Calls
+	case Moving as m:
+		m.Calls
+	case Open as o:
+		o.Calls
+	}
+}
+
+// Run steps the car from its initial state through sigs and gives each
+// state it reaches, a refused signal leaving the state as it was.
+func Run(sigs []Signal) []State {
+	let mut s = machines.Initial(Car{})
+	let mut seen = []State{s}
+	for sig in sigs {
+		let d = Step(s, sig) catch {
+		case floors.Full, NoFloor:
+			Reject
+		}
+		match d {
+		case Done[Stopped]:
+			return seen
+		case Enter[State], Stay[State], Emit[State, Stopped], Tell[State, Stopped], Ignore, Reject:
+		}
+		s = machines.Next(s, d)
+		seen = seen.Append(s)
+	}
+	seen
+}
+
+// SignalsOf is a run of signals from generated ints: a call to n%10 for
+// an even n, else a tick.
+func SignalsOf(ns []int) []Signal {
+	let mut out = []Signal{}
+	for n in ns {
+		let m = if n < 0 { -(n + 1) } else { n }
+		if m%2 == 0 {
+			out = out.Append(Call{Floor: m / 2 % 10})
+		} else {
+			out = out.Append(Tick)
+		}
+	}
+	out
+}
+
+// Ticks is n ticks.
+func Ticks(n int) []Signal {
+	let mut out = []Signal{}
+	for _ in 0..n {
+		out = out.Append(Tick)
+	}
+	out
+}
+
+// EveryCallIsServed: after any run, a car given enough ticks serves every
+// call it kept and idles with none left.
+law EveryCallIsServed(ns []int) {
+	let sigs = SignalsOf(ns)
+	let seen = Run(slices.Concat(sigs, Ticks(4*(Top+1)*(Cap+1))))
+	let last = seen[len(seen)-1]
+	match last {
+	case Idle as i:
+		floors.Len(i.Calls) == 0
+	case Moving, Open:
+		false
+	}
+}
+
+// CallsStayInTheBuilding: a car never holds more than Cap calls, never
+// leaves the building, and is no longer called to a floor it opens at.
+law CallsStayInTheBuilding(ns []int) {
+	let seen = Run(SignalsOf(ns))
+	for i, s in seen {
+		let calls = CallsOf(s)
+		if floors.Len(calls) > Cap || AtOf(s) < 0 || AtOf(s) > Top {
+			return false
+		}
+		match s {
+		case Open as o:
+			if i > 0 && floors.Has(o.Calls, o.At) {
+				return false
+			}
+		case Idle, Moving:
+		}
+	}
+	true
+}
+
+// StepKeepsTheOldState: a step never changes the state it is given, so a
+// state kept before a step is the state it was.
+law StepKeepsTheOldState(ns []int, f int) {
+	let seen = Run(SignalsOf(ns))
+	let s = seen[len(seen)-1]
+	let before = slices.Clone(floors.Floors(CallsOf(s)))
+	let _ = Step(s, Call{Floor: (if f < 0 { -(f + 1) } else { f }) % 10}) catch {
+	case floors.Full, NoFloor:
+		Reject
+	}
+	slices.Equal(floors.Floors(CallsOf(s)), before)
+}

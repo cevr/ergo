@@ -1,0 +1,64 @@
+// ownshrink (TestHandoverGrowsLinearly; SL3): the tree builder of the
+// self-layout prototype toktree-ergo-naive without std dense. A scratch
+// stack of node ids is cut back to a mark at each close, stack =
+// stack[0:mark], and appended to after. At main e02194103 each cut was
+// copied (slices.Clone of the whole stack below the mark): quadratic in
+// the input, 19.78 GB allocated on 4.5 MB in the prototype. Run: ownshrink
+// N builds the tree of N groups `a(b)`.
+
+import os
+import strconv
+
+type Tree { kids []int, pool []int }
+
+func add(tr mut Tree, kids []int) int {
+	tr.kids = tr.kids.Append(len(tr.pool))
+	for k in kids {
+		tr.pool = tr.pool.Append(k)
+	}
+	len(tr.kids) - 1
+}
+
+func Build(src []byte) int {
+	let mut tr = Tree{kids: []int{}, pool: []int{}}
+	let mut stack = []int{}
+	let mut marks = []int{}
+	let none = []int{}
+	for c in src {
+		if c == 40 {
+			marks = marks.Append(len(stack))
+			continue
+		}
+		if c == 41 && len(marks) > 0 {
+			let mark = marks[len(marks)-1]
+			marks = marks[0:len(marks)-1]
+			let id = add(&tr, stack[mark:len(stack)])
+			stack = stack[0:mark]
+			stack = stack.Append(id)
+			continue
+		}
+		stack = stack.Append(add(&tr, none))
+	}
+	add(&tr, stack)
+}
+
+func main() fails os.Exit needs Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: ownshrink N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N"}
+	}
+	let mut src = []byte{}
+	for _ in 0..n {
+		src = src.Append(byte(97))
+		src = src.Append(byte(40))
+		src = src.Append(byte(98))
+		src = src.Append(byte(41))
+	}
+	if Build(src) != 3 * n {
+		return os.Exit{Code: 1, Message: "lost nodes"}
+	}
+}

@@ -20,6 +20,13 @@ func (g *CommentGroup) Deprecated() (string, bool) { return g.paragraph("Depreca
 // to its end, as slices.Collect does, can wait for ever.
 func (g *CommentGroup) Unbounded() (string, bool) { return g.paragraph("Unbounded:") }
 
+// Scans is the paragraph of the doc comment that starts "Scans:", and
+// whether there is one: the function walks the parameter the paragraph
+// names first, element by element, so a call of it on every turn of a
+// loop over the same collection does n² work. Any package can write it,
+// as for a Go binding whose body Ergo cannot read (std slices.Contains).
+func (g *CommentGroup) Scans() (string, bool) { return g.paragraph("Scans:") }
+
 // paragraph returns the first paragraph whose first line starts with word,
 // its lines joined by spaces.
 func (g *CommentGroup) paragraph(word string) (string, bool) {

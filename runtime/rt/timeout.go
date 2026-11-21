@@ -11,7 +11,10 @@ import "time"
 //   - The deadline passes first: the child is stopped and drained, and the exit
 //     is the child's defects followed by Expired. The abandoned child's typed
 //     failure and the interruption After caused are normalized (laws R3, R8),
-//     so a lone Expired stays a catchable typed failure.
+//     so a lone Expired stays a catchable typed failure. A child that has
+//     its value when the drain ends (it ended at the deadline's instant,
+//     or ran on past the stop) gives that value instead: a value the body
+//     took is never dropped (RT-AFTERDROP).
 //   - t is stopped first or while the body runs: the child is stopped and
 //     drained, and the exit is the child's defects with an interruption.
 //
@@ -65,7 +68,19 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		}
 	}()
 	timer = s.NewTimer(Span(d))
-	h = spawn(t, span, false, false, body)
+	// kept is the value the body returned, read only after the join: the
+	// child's Run turns a return after its stop into an interruption.
+	var (
+		kept     T
+		returned bool
+	)
+	h = spawn(t, span, false, false, true, func(ct *Task) (T, error) {
+		v, err := body(ct)
+		if err == nil {
+			kept, returned = v, true
+		}
+		return v, err
+	})
 	stop := t.Done()
 	m := raceParked(t, h, timer, stop)
 	Block(t)
@@ -92,7 +107,16 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 			h.task.childEvent(TraceObserve, t, false)
 		}
 		c.Add(defectsOf(h.err))
-		c.AddFailure(Expired{})
+		if returned {
+			// The body returned its value before the stop ended it (at
+			// the deadline's instant, or running on past the stop). The
+			// task's exit is an interruption all the same (exitOf), but
+			// the value is the result, never dropped: a value it popped
+			// from a queue is gone from the queue (RT-AFTERDROP).
+			v = kept
+		} else {
+			c.AddFailure(Expired{})
+		}
 	case <-stop:
 		Unblock(t)
 		m.unpark()

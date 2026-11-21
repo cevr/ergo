@@ -1,0 +1,44 @@
+// The health check of a program that Programs starts: a function from a
+// URL to whether the program answers there. A law or a test passes Up or
+// Down; main passes an HTTP's Ready.
+
+import http
+
+// Up is the health check that every program passes.
+func Up(url string) bool { true }
+
+// Down is the health check that no program passes.
+func Down(url string) bool { false }
+
+// HTTP is the host's health check: Ready sends a GET to url, tries times
+// at most with every between two tries, and holds at the first 2xx answer.
+type HTTP { net http.Remote, pause LiveScheduler, tries int, every duration }
+
+// NewHTTP is the host's health check of tries GETs, every apart. A GET goes
+// to any origin, and follows no redirect.
+func NewHTTP(tries int, every duration) HTTP fails http.InvalidClient | http.InvalidLimits needs Ambient {
+	let limits = http.Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 5s, ReadHeaderTimeout: 5s, ReadBodyTimeout: 5s}
+	let net = try http.NewNet(http.AnyOrigin, limits, http.NoRedirects)
+	HTTP{net: net, pause: NewLiveScheduler(), tries: tries, every: every}
+}
+
+func Ready(h HTTP, url string) bool {
+	for i in 0..h.tries {
+		if i > 0 {
+			h.pause.Sleep(h.every)
+		}
+		if answers(h, url) {
+			return true
+		}
+	}
+	false
+}
+
+// answers is whether one GET of url gets a 2xx answer.
+func answers(h HTTP, url string) bool {
+	let r = h.net.SendURL(http.URLRequest{URL: url, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{}, Body: ""}) catch {
+	case http.RequestFailed, http.OriginRefused, http.RedirectLimit:
+		return false
+	}
+	r.Status >= 200 && r.Status < 300
+}

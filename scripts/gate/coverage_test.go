@@ -60,14 +60,19 @@ var stepPrograms = map[string]string{
 // (corpusGcEnvironment); it is a selection too. GOARCH=386 makes the full
 // tier's vet of cmd/ergo check the 32-bit build (an int constant that
 // overflows there); it changes the build like CGO_ENABLED, and Step.Env keys
-// it, so a 386 pass never replays as the host's.
+// it, so a 386 pass never replays as the host's. GOOS=linux goes with it:
+// on a Darwin host GOARCH=386 alone names darwin/386, which Go does not
+// support, and Step.Env keys GOOS the same way.
+//
+// ERGO_CLOSURE_RUN_DEADLINE (sweepRunDeadlineVariable) is the bound of
+// each sweep run, a constant that stops only a hang; Step.Env keys it.
 //
 // ERGO_CLOSURE_STD_DIR (sweepStdVariable) names the one std store the
 // closure sweeps of a run share, and ERGO_EXAMPLES_CACHE
 // (examplesCacheVariable) the examples runner's verdict cache, which keys
 // each program's pass on its inputs (GS1): each is a place the gate
 // chooses, not a selection of what runs or a Go cache or flag.
-var stepEnvironmentNames = []string{"CGO_ENABLED", "GOARCH", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP", "ERGO_CLOSURE_STD_DIR", "ERGO_EXAMPLES_CACHE", "ERGO_TEST_CORPUS_GC"}
+var stepEnvironmentNames = []string{"CGO_ENABLED", "GOOS", "GOARCH", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP", "ERGO_CLOSURE_STD_DIR", "ERGO_CLOSURE_RUN_DEADLINE", "ERGO_EXAMPLES_CACHE", "ERGO_TEST_CORPUS_GC"}
 
 // timeoutDuration is the DURATION operand of timeout, written literally.
 var timeoutDuration = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)

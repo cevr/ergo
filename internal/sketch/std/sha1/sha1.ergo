@@ -1,0 +1,11 @@
+// Package sha1 hashes text with SHA-1 (RFC 3174; docs/spec/stdlib.md,
+// keyed digests; std-spike D3), for formats that name it: Git object ids,
+// WebSocket handshakes, TOTP's default HMAC. SHA-1 has known collisions:
+// it is no signature or integrity check, and new formats take sha256. It
+// is Go's crypto/sha1 over Ergo's strings, which hold bytes.
+
+// Sum is the SHA-1 digest of the bytes of s: 20 raw bytes, as Go's Sum.
+extern go ergo.local/prototype/runtime/v1/digest.Sha1Sum func Sum(s string) string
+
+// SumIs20Bytes: every digest is 20 bytes.
+law SumIs20Bytes(s string) { len(Sum(s)) == 20 }

@@ -1,0 +1,283 @@
+// work plugin-test (SEMWS §2.13, WG3a): the laws of the three contracts
+// as the admission test of a plugin, run against the child process on
+// the base's own files and on edits made from them. A plugin that fails
+// a law is refused with the law's name, the file and why.
+
+import filepath
+import maps
+import slices
+import strings
+import utf8
+
+// PluginTestOptions: -files lists the patterns of the files to read
+// (comma-separated, as a [[class]] matches; the language's files when the
+// command is a [language.NAME], else every file), -max the most files
+// read (200), -seed picks the edits.
+type PluginTestOptions { Files Option[string], Max Option[int], Seed Option[int] }
+
+// PluginAdmitted is a plugin that held every law it was asked: its
+// level (1: a Splitter; 2: an Indexer or a Checker too), the files it
+// read, those it could not parse, and the laws that ran.
+type PluginAdmitted { Command string, Level int, Files int, Unreadable int, Laws []string }
+
+// PluginRefused is a plugin that broke a law (or gave no answer, law
+// "Answers"): its name, the file and why.
+type PluginRefused { Command string, Law string, File string, Why string }
+
+// PluginTest runs the admission test of the plugin command (or of the
+// [language.NAME] that command names, whose command runs only once work
+// trust allowed it).
+func PluginTest(t Tool, command string, o PluginTestOptions) PluginAdmitted fails NoBase | BadConfig | Untrusted | VcsFailed | PluginRefused {
+	let c = try config(t)
+	let mut run = command
+	let mut patterns = []string{}
+	for l in c.Languages {
+		if l.Name == command {
+			if !trusted(t, c) {
+				return untrusted(c)
+			}
+			run = l.Command
+			patterns = l.Files
+		}
+	}
+	match o.Files {
+	case Some[string] as f:
+		patterns = []string{}
+		for p in strings.Split(f.Value, ",") {
+			if strings.TrimSpace(p) != "" {
+				patterns = patterns.Append(strings.TrimSpace(p))
+			}
+		}
+	case None:
+	}
+	let files = try sample(t, patterns, match o.Max {
+	case Some[int] as m:
+		m.Value
+	case None:
+		200
+	})
+	let seed = match o.Seed {
+	case Some[int] as s:
+		s.Value
+	case None:
+		1
+	}
+	let p = PluginOf(t.runner, run, t.base)
+	let mut laws = []string{"UnitsAreTheFile", "KeysAreUnique", "EditStaysInItsUnit"}
+	let mut unreadable = 0
+	let paths = slices.Sorted(maps.Keys(files))
+	for from in 0..(len(paths)+Batch-1)/Batch {
+		let end = if (from+1)*Batch > len(paths) { len(paths) } else { (from + 1) * Batch }
+		unreadable = unreadable + try splits(p, files, paths[from*Batch:end], seed+from*Batch)
+	}
+	let snap = Snapshot{Root: t.base, Layer: layerOf(files)}
+	let probe = try asked(p, "", []Request{CommentOf{Text: "work plugin-test"}, CheckOf{Base: snap, Layer: []FileEdit{}}})
+	let mut level = 1
+	match probe[0] {
+	case CommentIs as note:
+		level = 2
+		laws = slices.Concat(laws, try indexes(p, snap, files, note.Text))
+	case NotProvided:
+	case UnitsAre, ChangesAre, SitesAre, CheckIs, Unreadable, ToolMissing, Unanswered:
+		return refused(p, "Answers", "", "it answered \(tagOf(probe[0])) to Comment")
+	}
+	match probe[1] {
+	case CheckIs as first:
+		level = 2
+		laws = slices.Concat(laws, try checks(p, snap, files, first.Diagnostics))
+	case NotProvided, ToolMissing:
+	case UnitsAre, ChangesAre, SitesAre, CommentIs, Unreadable, Unanswered:
+		return refused(p, "Answers", "", "it answered \(tagOf(probe[1])) to Check")
+	}
+	PluginAdmitted{Command: run, Level: level, Files: len(files), Unreadable: unreadable, Laws: laws}
+}
+
+// sample is the base's files that match one of patterns (every file
+// when there are none), at most max of them, spread over the sorted list.
+// It lists the working files by name (Vcs.Listed: no file is hashed) and
+// reads only those it keeps; a file it cannot read, or that is not UTF-8
+// (the protocol's JSON cannot carry it), is left.
+func sample(t Tool, patterns []string, max int) Map[string, string] fails VcsFailed {
+	let mut paths = []string{}
+	for path in try t.vcs.Listed(t.base) {
+		if len(patterns) == 0 || slices.IndexFunc(patterns, func(p string) bool { Matches(p, path) }) >= 0 {
+			paths = paths.Append(path)
+		}
+	}
+	let mut out = Map[string, string]{}
+	let n = len(paths)
+	let keep = if max <= 0 || max > n { n } else { max }
+	for k in 0..keep {
+		let path = paths[k*n/keep]
+		let text = t.files.ReadFile(filepath.Join([]string{t.base, path})) catch {
+		case _:
+			continue
+		}
+		if utf8.ValidString(text) {
+			out[path] = text
+		}
+	}
+	out
+}
+
+func layerOf(files Map[string, string]) []FileEdit {
+	let mut out = []FileEdit{}
+	for path in slices.Sorted(maps.Keys(files)) {
+		out = out.Append(FileEdit{Path: path, Text: Some[string]{Value: maps.GetOr(files, path, "")}})
+	}
+	out
+}
+
+// refused is the refusal of p by law at file.
+func refused(p Plugin, rule string, file string, why string) PluginRefused { PluginRefused{Command: p.command, Law: rule, File: file, Why: why} }
+
+// asked is the answers of p to requests, refused by law Answers when it
+// gave none or answered one with Unanswered.
+func asked(p Plugin, file string, requests []Request) []Answer fails PluginRefused {
+	let answers = Ask(p, requests) catch {
+	case Unanswered as u:
+		return refused(p, "Answers", file, u.Why)
+	}
+	for a in answers {
+		match a {
+		case Unanswered as u:
+			return refused(p, "Answers", file, u.Why)
+		case UnitsAre, ChangesAre, SitesAre, CheckIs, CommentIs, Unreadable, NotProvided, ToolMissing:
+		}
+	}
+	answers
+}
+
+// Batch is how many files plugin-test asks a plugin about in one run.
+let Batch = 256
+
+// splits holds the Splitter's laws on the files at paths, in two runs of
+// the plugin: the units of each file, then of each edited file. It is the
+// number of files the plugin cannot parse (Unreadable, which is no
+// refusal); the file of number i takes the edit of seed+i.
+func splits(p Plugin, files Map[string, string], paths []string, seed int) int fails PluginRefused {
+	let mut asks = []Request{}
+	for path in paths {
+		asks = asks.Append(UnitsOf{File: path, Text: maps.GetOr(files, path, "")})
+	}
+	let firsts = try asked(p, paths[0], asks)
+	let mut unreadable = 0
+	let mut edited = []Request{}
+	let mut befores = [][]Unit{}
+	let mut at = []int{}
+	let mut edits = []Edit{}
+	for i, path in paths {
+		let text = maps.GetOr(files, path, "")
+		let first = firsts[i]
+		let before = match first {
+		case UnitsAre as u:
+			u.Units
+		case Unreadable:
+			unreadable = unreadable + 1
+			continue
+		case ChangesAre, SitesAre, CheckIs, CommentIs, NotProvided, ToolMissing, Unanswered:
+			return refused(p, "Answers", path, "it answered \(tagOf(first)) to Units")
+		}
+		if !JoinsToTheFile(text, before) {
+			return refused(p, "UnitsAreTheFile", path, "the units' texts join to \(joined(before)) bytes, the file has \(len(text))")
+		}
+		if !KeysUnique(before) {
+			return refused(p, "KeysAreUnique", path, "two units have one key")
+		}
+		let e = spaceEdit(before, seed+i)
+		if Inside(before, e) >= 0 {
+			edited = edited.Append(UnitsOf{File: path, Text: Apply(text, e)})
+			befores = befores.Append(before)
+			at = at.Append(i)
+			edits = edits.Append(e)
+		}
+	}
+	if len(edited) == 0 {
+		return unreadable
+	}
+	let afters = try asked(p, paths[at[0]], edited)
+	for k, a in afters {
+		let before = befores[k]
+		let inside = Inside(before, edits[k])
+		match a {
+		case UnitsAre as u:
+			if !StaysInItsUnit(before, u.Units, inside) {
+				return refused(p, "EditStaysInItsUnit", paths[at[k]], "a space added at byte \(edits[k].At), in unit \(before[inside].Key), changed another unit")
+			}
+		case Unreadable, ChangesAre, SitesAre, CheckIs, CommentIs, NotProvided, ToolMissing, Unanswered:
+		}
+	}
+	unreadable
+}
+
+func joined(units []Unit) int {
+	let mut n = 0
+	for u in units {
+		n = n + len(u.Text)
+	}
+	n
+}
+
+// spaceEdit is the edit that adds a space after a space inside a unit
+// (picked by seed): a change no language reads as another unit.
+func spaceEdit(units []Unit, seed int) Edit {
+	let mut start = 0
+	let mut spots = []int{}
+	for u in units {
+		for k in 1..len(u.Text)-1 {
+			if u.Text[k] == ' ' {
+				spots = spots.Append(start + k + 1)
+			}
+		}
+		start = start + len(u.Text)
+	}
+	if len(spots) == 0 {
+		return Edit{At: 0, Cut: 0, Insert: ""}
+	}
+	Edit{At: spots[((seed%len(spots))+len(spots))%len(spots)], Cut: 0, Insert: " "}
+}
+
+// indexes holds the Indexer's laws on the snapshot of the files read.
+func indexes(p Plugin, snap Snapshot, files Map[string, string], comment string) []string fails PluginRefused {
+	let paths = slices.Sorted(maps.Keys(files))
+	let head = Commented(snap, 0, comment)
+	let file = if len(paths) == 0 { "" } else { paths[0] }
+	let answers = try asked(p, "", []Request{ChangesOf{Base: snap, Head: snap}, ChangesOf{Base: snap, Head: head}})
+	let same = answers[0]
+	match same {
+	case ChangesAre as c:
+		if len(c.Changes) != 0 {
+			return refused(p, "ChangesOfSameIsEmpty", c.Changes[0].File, "the snapshot changed against itself: \(c.Changes[0].Key) (\(c.Changes[0].Kind))")
+		}
+	case UnitsAre, SitesAre, CheckIs, CommentIs, Unreadable, NotProvided, ToolMissing, Unanswered:
+		return refused(p, "Answers", "", "it answered \(tagOf(same)) to Changes")
+	}
+	let commented = answers[1]
+	match commented {
+	case ChangesAre as c:
+		if len(c.Changes) != 0 {
+			return refused(p, "CommentEditIsNoChange", file, "a comment added at its end is a change of \(c.Changes[0].Key) (\(c.Changes[0].Kind))")
+		}
+	case UnitsAre, SitesAre, CheckIs, CommentIs, Unreadable, NotProvided, ToolMissing, Unanswered:
+		return refused(p, "Answers", "", "it answered \(tagOf(commented)) to Changes")
+	}
+	[]string{"ChangesOfSameIsEmpty", "CommentEditIsNoChange"}
+}
+
+// checks holds the Checker's laws: the same check again, and a layer
+// that writes the files as they are, give the first diagnostics.
+func checks(p Plugin, snap Snapshot, files Map[string, string], first []Diagnostic) []string fails PluginRefused {
+	let answers = try asked(p, "", []Request{CheckOf{Base: snap, Layer: []FileEdit{}}, CheckOf{Base: snap, Layer: layerOf(files)}})
+	for i, rule in []string{"CheckIsPure", "EmptyLayerIsTheBase"} {
+		let a = answers[i]
+		match a {
+		case CheckIs as c:
+			if c.Diagnostics != first {
+				return refused(p, rule, "", "\(len(c.Diagnostics)) diagnostics, the first check had \(len(first))")
+			}
+		case UnitsAre, ChangesAre, SitesAre, CommentIs, Unreadable, NotProvided, ToolMissing, Unanswered:
+			return refused(p, "Answers", "", "it answered \(tagOf(a)) to Check")
+		}
+	}
+	[]string{"CheckIsPure", "EmptyLayerIsTheBase"}
+}

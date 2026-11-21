@@ -1,0 +1,4 @@
+> write a file
+→ write {"path":"x.txt","text":"hi"}
+x no tool named write
+< I have no such tool.

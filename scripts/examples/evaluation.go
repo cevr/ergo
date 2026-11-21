@@ -23,11 +23,11 @@ import (
 // with the store off too.
 func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation {
 	o, err := r.tool(r.cfg.testTimeout, "check", target)
-	if err != nil || !o.passed() {
+	if err != nil || !o.Passed() {
 		r.toolFailed(p, leg, o, err)
 		return nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(o.stdout))
+	dec := json.NewDecoder(bytes.NewReader(o.Stdout))
 	e, why := checkedEvaluation(dec)
 	if why == "" && dec.More() {
 		why = "no valid evaluation envelope"
@@ -48,10 +48,10 @@ func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation 
 // package alone, which reports it as before.
 func (r *runner) checkModule(p *program, order []string) map[string]*report.Evaluation {
 	o, err := r.tool(r.cfg.timeout*time.Duration(len(order)), "check", filepath.Join(p.dir, "..."))
-	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
+	if err != nil || o.OverCap() != "" || o.TimedOut || !o.Passed() {
 		return nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(o.stdout))
+	dec := json.NewDecoder(bytes.NewReader(o.Stdout))
 	out := map[string]*report.Evaluation{}
 	for _, pkg := range order {
 		e, why := checkedEvaluation(dec)
@@ -109,6 +109,11 @@ func nativeEvaluations(stdout []byte) map[string]nativeEvaluation {
 		default:
 			continue
 		}
+		// The marks of a verdict the evaluator decided or the store kept
+		// (test-speed FT1, FT2) say where it came from, not what it is.
+		for _, mark := range []string{" (evaluated)", " (cached)"} {
+			line = strings.TrimSuffix(line, mark)
+		}
 		name, details, _ := strings.Cut(line, " (")
 		name, _, _ = strings.Cut(name, ":")
 		if details != "" && v.status == "passed" {
@@ -137,6 +142,14 @@ func (r *runner) compareEvaluation(p *program, leg string, e *report.Evaluation,
 		switch o.Status {
 		case "skipped", "incomplete", "not run":
 			fmt.Fprintf(r.out, "skip %s: %s: %s: %s (%s); native test still runs\n", p.name, leg, o.Name, o.Status, o.Reason)
+		case "native":
+			// A law over a Go-backed provider (types.md, Laws 10): the check
+			// runs no Go, so the native run must have run it and passed.
+			if n, ok := native[o.Name]; !ok || n.status != "passed" {
+				fail(o.Name, fmt.Sprintf("check native (%s), but the native run did not pass it (native %s; present %t)", o.Reason, n.status, ok))
+			} else {
+				fmt.Fprintf(r.out, "native %s: %s: %s runs only natively, and `%s` passed it (%s)\n", p.name, leg, o.Name, o.Replay, n.evidence)
+			}
 		case "passed":
 			n, ok := native[o.Name]
 			if !ok || n.status != "passed" || n.evidence != o.Evidence || (o.Machine == nil && n.cases != o.Cases) {

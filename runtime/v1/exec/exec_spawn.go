@@ -25,7 +25,8 @@ type ExecDetached struct {
 // starts name with args as ExecStart does (env over the host's
 // environment, dir, stdin), in a new session and process group (setsid),
 // with its standard output and standard error going to the sinks outKind
-// and errKind, which are Inherit, Discard or ToFile: a ToCaller sink is
+// and errKind, which are Inherit, Discard or ToFile, or ToStdout for
+// errKind (standard error goes where standard output goes): a ToCaller sink is
 // Failed, as no caller outlives the program to read it. It returns once
 // the program has started. A stop of t does not end the program, and
 // neither does the end of this process: the program is reparented. While
@@ -75,6 +76,13 @@ func ExecSpawn(t *rt.Task, name string, args []string, env map[string]string, di
 		case execToCaller:
 			closeAll()
 			return ExecDetached{}, ExecFailed{Name: name, Reason: s.label + ": a detached program has no caller to read it (ToCaller)"}
+		case execToStdout:
+			if i == 0 {
+				closeAll()
+				return ExecDetached{}, execToItself(name)
+			}
+			cmd.Stderr = cmd.Stdout // nil (the null device) or standard output's file
+			continue
 		default:
 			panic("exec: unknown sink kind")
 		}
@@ -135,12 +143,17 @@ func ExecKill(t *rt.Task, pid int, start int64, grace time.Duration) {
 		return
 	}
 	group := pid // Spawn's setsid made the program its group's leader
+	// The program counts as well as its group: on Darwin a group whose
+	// processes are exiting can answer ESRCH before the program is a
+	// zombie, which a wait on the group alone took for its end (I19 macOS
+	// check: TestExecSpawnOutlivesItsStarter, alive after Kill).
+	left := func() bool { return syscall.Kill(-group, 0) == nil || execRunning(pid, start) }
 	if grace > 0 {
 		execSignalGroup(group, syscall.SIGTERM)
 		deadline := time.NewTimer(grace)
 		defer deadline.Stop()
 	wait:
-		for pause := execSpawnPoll; syscall.Kill(-group, 0) == nil; pause = min(2*pause, execSpawnPollMax) {
+		for pause := execSpawnPoll; left(); pause = min(2*pause, execSpawnPollMax) {
 			select {
 			case <-deadline.C:
 				break wait
@@ -151,5 +164,12 @@ func ExecKill(t *rt.Task, pid int, start int64, grace time.Duration) {
 		}
 	}
 	execKillGroup(group)
+	if execRunning(pid, start) {
+		_ = execKill(pid, syscall.SIGKILL) // the program itself, whatever its group answered
+	}
 	execAwaitGroupEnd(group)
+	deadline := time.Now().Add(execReapWait)
+	for pause := execSpawnPoll; execRunning(pid, start) && time.Now().Before(deadline); pause = min(2*pause, execSpawnPollMax) {
+		time.Sleep(pause)
+	}
 }

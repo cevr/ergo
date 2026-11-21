@@ -1,0 +1,522 @@
+import maps
+import slices
+import strings
+
+// Rename is planned here (SEMTOOLS SEM5). The declaration at Of, and
+// every site that names it, takes the name To:
+//
+//   - an operation takes with it the function of every type that
+//     provides its operation type, and such a function takes its
+//     operation and the other providers' functions with it (the family);
+//   - each edit replaces exactly the name's bytes at a site the tables
+//     give, so a qualifier or an import alias before it, and a comment
+//     that names the old name, keep their bytes;
+//   - a family member, or a site of one, outside the workspace (std, a
+//     dependency) is OutsideWorkspace; a name the family member's scope
+//     declares already is NameTaken;
+//   - the result is checked, and its tables must equal the tables before
+//     under the name map (each old handle to its new one, columns moved
+//     by the edits on their line). A row that differs is a use that now
+//     resolves elsewhere, or a word that now names the symbol: Capture.
+//     So the proof of a rename is Alpha.
+
+// NameTaken is a rename to a name the scope of Handle (its package, or
+// its type for a member) declares already, as By.
+type NameTaken { Handle string, To string, By string }
+
+// OutsideWorkspace is a rename that would change Handle, a declaration
+// or a site outside the workspace: in std or in a dependency.
+type OutsideWorkspace { Handle string }
+
+// Capture is a rename whose result resolves differently: Rows are the
+// table rows that differ under the name map, before (-) and after (+).
+type Capture { Handle string, To string, Rows []string }
+
+// renamed is sources after r, with base their check.
+func renamed(sources []Source, base Report, r Rename, checker Checker) []Source fails BadChange | NameTaken | OutsideWorkspace | Capture {
+	let d = try declOf(base, r.Of)
+	if !isName(r.To) {
+		return BadChange{Reason: quoted(r.To) + " is not a name"}
+	}
+	let all = declsByHandle(base)
+	let family = familyOf(base, d)
+	for m in family {
+		if !has(base.Workspace, m.Package) {
+			return OutsideWorkspace{Handle: m.Handle}
+		}
+	}
+	let mut moved = Map[string, string]{}
+	for m in family {
+		let to = handleTo(m.Handle, r.To)
+		if to != m.Handle {
+			match all.Get(to) {
+			case Some[Decl] as x:
+				return NameTaken{Handle: m.Handle, To: r.To, By: x.Value.Handle}
+			case None:
+			}
+		}
+		moved[m.Handle] = to
+	}
+	let mut edits = []Edit{}
+	let mut shifts = Map[string, []int]{}
+	for p in base.Tables.Packages {
+		for s in p.Sites {
+			match moved.Get(s.Symbol) {
+			case Some[string]:
+				if !has(base.Workspace, s.Package) {
+					return OutsideWorkspace{Handle: s.Symbol}
+				}
+				let at = try offsetOf(sources, s.File, s.Line, s.Column)
+				let text = textOf(sources, s.File)
+				if at + len(d.Name) > len(text) || strings.Slice(text, at, at + len(d.Name)) != d.Name {
+					return BadChange{Reason: "the site \(s.File):\(s.Line):\(s.Column) does not hold \(d.Name)"}
+				}
+				edits = edits.Append(Edit{File: s.File, Start: at, End: at + len(d.Name), Text: r.To})
+				let key = "\(s.File):\(s.Line)"
+				shifts[key] = maps.GetOr(shifts, key, []int{}).Append(s.Column)
+			case None:
+			}
+		}
+	}
+	let after = try edited(sources, edits)
+	let now = try checkWith(checker, after)
+	let rows = differing(rowsOf(base, moved, r.To, shifts, len(r.To) - len(d.Name)), rowsOf(now, Map[string, string]{}, "", Map[string, []int]{}, 0))
+	if len(rows) > 0 {
+		return Capture{Handle: d.Handle, To: r.To, Rows: rows}
+	}
+	after
+}
+
+// renameVerdict is Blocked by the diagnostics the rename adds, counted
+// by code (a message names the old or the new name), else Ready{Alpha}.
+func renameVerdict(base Report, after Report) Verdict {
+	let mut left = Map[string, int]{}
+	for d in base.Diagnostics {
+		left[d.Code] = maps.GetOr(left, d.Code, 0) + 1
+	}
+	let mut added = []Diagnostic{}
+	for d in after.Diagnostics {
+		let n = maps.GetOr(left, d.Code, 0)
+		if n > 0 {
+			left[d.Code] = n - 1
+		} else {
+			added = added.Append(d)
+		}
+	}
+	if len(added) > 0 { Blocked{Diagnostics: added} } else { Ready{Proof: Alpha} }
+}
+
+// declOf is the declaration at address a in report.
+func declOf(report Report, a string) Decl fails BadChange {
+	with context { Reader: IndexOf(report.Tables) } { Reader.Symbol(a) } catch {
+	case NoSymbol:
+		return BadChange{Reason: "\(a) names no declaration"}
+	case Ambiguous as m:
+		return BadChange{Reason: "\(a) names several declarations: " + strings.Join(m.Candidates, ", ")}
+	}
+}
+
+// declsByHandle is report's declarations by handle.
+func declsByHandle(report Report) Map[string, Decl] {
+	let mut out = Map[string, Decl]{}
+	for p in report.Tables.Packages {
+		for d in p.Decls {
+			out[d.Handle] = d
+		}
+	}
+	out
+}
+
+// scopeOf is the handle a declaration is declared in: its package, or
+// its type for a member.
+func scopeOf(handle string) string {
+	let at = strings.LastIndex(handle, ".")
+	if at < 0 { "" } else { strings.Slice(handle, 0, at) }
+}
+
+// handleTo is handle with its name to: in its scope, and keeping the
+// "#test" or "#law" a test's or a law's handle ends with.
+func handleTo(handle string, to string) string {
+	let at = strings.LastIndex(handle, "#")
+	let suffix = if at < 0 { "" } else { strings.Slice(handle, at, len(handle)) }
+	scopeOf(handle) + "." + to + suffix
+}
+
+// exportedTo is whether d, renamed to, is exported: a parameter or a
+// local never is and a test always is, so they keep theirs; other
+// declarations are as their name is.
+func exportedTo(d Decl, to string) bool {
+	if d.Kind == "param" || d.Kind == "local" || d.Kind == "test" { d.Exported } else { exportedName(to) }
+}
+
+// familyOf is d and the declarations a rename of d renames with it: for
+// an operation, or a function that a Provides edge binds to one, the
+// operation and the function of each type that provides its type.
+func familyOf(report Report, d Decl) []Decl {
+	let all = declsByHandle(report)
+	let mut ops = []string{}
+	if d.Kind == "operation" {
+		ops = []string{d.Handle}
+	} else if d.Kind == "func" {
+		for b in report.Binds {
+			let op = b.Op + "." + d.Name
+			if providerOf(all, b.By, d.Name) == d.Handle && maps.GetOr(all, op, d).Kind == "operation" && !has(ops, op) {
+				ops = ops.Append(op)
+			}
+		}
+	}
+	let mut out = []Decl{d}
+	for op in ops {
+		let mut members = []string{op}
+		for b in report.Binds {
+			if b.Op == scopeOf(op) {
+				members = members.Append(providerOf(all, b.By, d.Name))
+			}
+		}
+		for h in members {
+			match all.Get(h) {
+			case Some[Decl] as x:
+				if slices.IndexFunc(out, func(y Decl) bool { y.Handle == h }) < 0 {
+					out = out.Append(x.Value)
+				}
+			case None:
+			}
+		}
+	}
+	out
+}
+
+// providerOf is the handle of the function of the type by named name: by
+// and the name when a declaration has that handle (a function whose name
+// its package declares more than once takes its first parameter's type
+// in its handle, as the model's members do), else the package's function
+// of that name, which is by's then, since by provides an operation of
+// that name; "" when there is neither.
+func providerOf(all Map[string, Decl], by string, name string) string {
+	let member = by + "." + name
+	match all.Get(member) {
+	case Some[Decl]:
+		return member
+	case None:
+	}
+	let top = scopeOf(by) + "." + name
+	match all.Get(top) {
+	case Some[Decl] as x:
+		if x.Value.Kind == "func" { top } else { "" }
+	case None:
+		""
+	}
+}
+
+// offsetOf is the offset in file of a 1-based line and column.
+func offsetOf(sources []Source, file string, line int, column int) int fails BadChange {
+	let text = textOf(sources, file)
+	let mut at = 0
+	for _ in 1..line {
+		let nl = strings.Index(strings.Slice(text, at, len(text)), "\n")
+		if nl < 0 {
+			return BadChange{Reason: "\(file) has no line \(line)"}
+		}
+		at = at + nl + 1
+	}
+	at + column - 1
+}
+
+// isName is whether s is a name: a letter, then letters, digits or _.
+func isName(s string) bool {
+	let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	if s == "" || !strings.Contains(letters, strings.Slice(s, 0, 1)) {
+		return false
+	}
+	for i in 1..len(s) {
+		if !strings.Contains(letters + "0123456789_", strings.Slice(s, i, i + 1)) {
+			return false
+		}
+	}
+	true
+}
+
+// rowsOf is report's rows as text, under the name map moved (a handle,
+// or a handle under it, to its new handle), the new name to of the
+// moved declarations, and columns moved by delta for each edit (by
+// shifts, the edited columns of each file:line) before them.
+func rowsOf(report Report, moved Map[string, string], to string, shifts Map[string, []int], delta int) []string {
+	let mapped = func(h string) string {
+		match moved.Get(h) {
+		case Some[string] as n:
+			return n.Value
+		case None:
+		}
+		for k, v in moved {
+			if strings.HasPrefix(h, k + ".") {
+				return v + strings.Slice(h, len(k), len(h))
+			}
+		}
+		h
+	}
+	let shifted = func(file string, line int, column int) int {
+		let mut c = column
+		for x in maps.GetOr(shifts, "\(file):\(line)", []int{}) {
+			if x < column {
+				c = c + delta
+			}
+		}
+		c
+	}
+	let mut out = []string{}
+	for p in report.Tables.Packages {
+		for d in p.Decls {
+			let renamedHere = moved.Get(d.Handle) != None
+			let name = if renamedHere { to } else { d.Name }
+			let exported = if renamedHere { exportedTo(d, to) } else { d.Exported }
+			out = out.Append("decl \(mapped(d.Handle)) \(d.Kind) \(name) \(d.Package) \(exported) \(d.File):\(d.Line):\(shifted(d.File, d.Line, d.Column))")
+		}
+		for s in p.Sites {
+			out = out.Append("site \(mapped(s.Symbol)) \(s.Kind) \(s.Package) \(s.File):\(s.Line):\(shifted(s.File, s.Line, s.Column)) in \(mapped(s.In))")
+		}
+	}
+	for b in report.Binds {
+		out = out.Append("bind \(mapped(b.Op)) \(mapped(b.By))")
+	}
+	slices.Sort(out)
+}
+
+// differing is the rows of a not in b (-) and of b not in a (+), counted,
+// at most 8.
+func differing(a []string, b []string) []string {
+	let mut count = Map[string, int]{}
+	for x in a {
+		count[x] = maps.GetOr(count, x, 0) + 1
+	}
+	for x in b {
+		count[x] = maps.GetOr(count, x, 0) - 1
+	}
+	let mut out = []string{}
+	for x in slices.Sorted(maps.Keys(count)) {
+		let n = maps.GetOr(count, x, 0)
+		if n > 0 && len(out) < 8 {
+			out = out.Append("- " + x)
+		} else if n < 0 && len(out) < 8 {
+			out = out.Append("+ " + x)
+		}
+	}
+	out
+}
+
+// renameOutcome is a plan of c over sources with the Model checker, as
+// a word (bad, taken, outside, capture, alpha, ready, blocked), and the
+// plan when there is one.
+func renameOutcome(sources []Source, c Change) (string, Planned) {
+	let none = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}, Impact: []ApiChange{}}
+	let p = Plan(Open(sources, Model, NewStore()), c) catch {
+	case BadChange:
+		return ("bad", none)
+	case NameTaken:
+		return ("taken", none)
+	case OutsideWorkspace:
+		return ("outside", none)
+	case Capture:
+		return ("capture", none)
+	}
+	match p.Verdict {
+	case Ready as r:
+		(if r.Proof == Alpha { "alpha" } else { "ready" }, p)
+	case Blocked:
+		("blocked", p)
+	}
+}
+
+// appliedTo is sources with the texts p writes.
+func appliedTo(sources []Source, p Planned) []Source {
+	let mut out = []Source{}
+	for s in sources {
+		let mut text = s.Text
+		for f in p.Files {
+			if f.File == s.File {
+				text = f.Text
+			}
+		}
+		out = out.Append(Source{File: s.File, Text: text})
+	}
+	out
+}
+
+// RenameNames are the new names the rename laws draw: new ones, the name
+// of a local, a word that names nothing, names that types, packages and
+// members declare, one that is not exported, and two that are no names.
+let RenameNames = []string{"Fresh", "Novel", "Tmp", "Zap", "Path", "Size", "Run", "Read", "Write", "Disk", "Load", "lower", "9x", ""}
+
+// RenameIsAlpha: for a symbol of Program(seed) and a new name, the
+// plan's outcome is the reference's: a rename in the tree itself, then
+// a check. The reference refuses a non-name (bad), a family member in
+// the dependency (outside), a name the scope declares (taken); else its
+// check's tables, with the columns left out, equal the first under the
+// name map exactly when the plan is Ready{Alpha}, and then the plan
+// writes the reference's text; else the plan is refused Capture.
+law RenameIsAlpha(seed int, pick int, to int) { renameIsAlpha(seed, pick, to) }
+
+// render is the text of p's files.
+func render(p prog) []Source {
+	let mut out = []Source{}
+	for f in p.Files {
+		let mut text = "// \(f.Path)\n"
+		for im in f.Imports {
+			text = text + "import " + im + "\n"
+		}
+		for d in f.Decls {
+			text = text + "\n" + headOf(p, d.Symbol) + "\n"
+			for line in d.Lines {
+				let mut ws = []string{}
+				for t in line {
+					ws = ws.Append(tokText(p, t))
+				}
+				text = text + "\t" + strings.Join(ws, " ") + "\n"
+			}
+		}
+		out = out.Append(Source{File: f.Path, Text: text})
+	}
+	out
+}
+
+// nameOf is a symbol's name in p.
+func nameOf(p prog, id string) string { maps.GetOr(p.Names, id, "") }
+
+// headOf is the line that declares a symbol.
+func headOf(p prog, id string) string {
+	match p.Owners.Get(id) {
+	case Some[string] as o:
+		"func " + nameOf(p, o.Value) + "." + nameOf(p, id)
+	case None:
+		maps.GetOr(p.Kinds, id, "") + " " + nameOf(p, id)
+	}
+}
+
+// tokText is a word as p writes it.
+func tokText(p prog, t tok) string {
+	match t {
+	case tword as w:
+		w.Text
+	case tuse as u:
+		nameOf(p, u.Symbol)
+	case tqual as q:
+		q.Prefix + "." + nameOf(p, q.Symbol)
+	case tmember as m:
+		nameOf(p, maps.GetOr(p.Owners, m.Symbol, "")) + "." + nameOf(p, m.Symbol)
+	case tkey as k:
+		nameOf(p, maps.GetOr(p.Owners, k.Symbol, "")) + "{" + nameOf(p, k.Symbol) + "}"
+	}
+}
+
+func renameIsAlpha(seed int, pick int, to int) bool {
+	let p = Program(seed)
+	let ids = slices.Sorted(maps.Keys(p.Names))
+	let id = ids[slot(pick, len(ids))]
+	let name = RenameNames[slot(to, len(RenameNames))]
+	let sources = render(p)
+	let (want, texts) = referenceRename(p, id, name)
+	let (got, plan) = renameOutcome(sources, Rename{Of: id, To: name})
+	got == want && (want != "alpha" || appliedTo(sources, plan) == texts)
+}
+
+// referenceRename is the outcome of renaming id to to in p's own tree
+// (bad, outside, taken, capture, blocked or alpha), with the renamed
+// text.
+func referenceRename(p prog, id string, to string) (string, []Source) {
+	if !isName(to) {
+		return ("bad", []Source{})
+	}
+	let family = familyIn(p, id)
+	for f in family {
+		if strings.HasPrefix(f, "dep/") {
+			return ("outside", []Source{})
+		}
+	}
+	for f in family {
+		for x in maps.Keys(p.Names) {
+			if x != f && p.Owners.Get(x) == p.Owners.Get(f) && packageOfID(x) == packageOfID(f) && nameOf(p, x) == to {
+				return ("taken", []Source{})
+			}
+		}
+	}
+	let mut names = maps.Clone(p.Names)
+	for f in family {
+		names[f] = to
+	}
+	let q = prog{Files: p.Files, Names: names, Kinds: p.Kinds, Owners: p.Owners, Binds: p.Binds}
+	let texts = render(q)
+	let before = modelCheck(render(p))
+	let after = modelCheck(texts)
+	let mut moved = Map[string, string]{}
+	for x in maps.Keys(p.Names) {
+		moved[handleIn(p, x)] = handleIn(q, x)
+	}
+	if referenceRows(before, moved) != referenceRows(after, Map[string, string]{}) {
+		return ("capture", texts)
+	}
+	(if len(after.Diagnostics) == 0 { "alpha" } else { "blocked" }, texts)
+}
+
+// familyIn is the ids a rename of id renames in p: id, and for an
+// operation or a function bound to one, the operation and every
+// provider's function.
+func familyIn(p prog, id string) []string {
+	let mut ops = []string{}
+	if maps.GetOr(p.Kinds, id, "") == "operation" {
+		ops = []string{id}
+	}
+	match p.Owners.Get(id) {
+	case Some[string] as o:
+		for b in p.Binds {
+			let op = b.Op + "." + nameOf(p, id)
+			if b.By == o.Value && maps.GetOr(p.Kinds, op, "") == "operation" {
+				ops = ops.Append(op)
+			}
+		}
+	case None:
+	}
+	let mut out = []string{id}
+	for op in ops {
+		if !has(out, op) {
+			out = out.Append(op)
+		}
+		for b in p.Binds {
+			let m = b.By + "." + nameOf(p, id)
+			if b.Op == maps.GetOr(p.Owners, op, "") && !has(out, m) && maps.GetOr(p.Kinds, m, "") != "" {
+				out = out.Append(m)
+			}
+		}
+	}
+	out
+}
+
+// packageOfID is the package of a symbol id.
+func packageOfID(id string) string { strings.Slice(id, 0, strings.Index(id, ".")) }
+
+// handleIn is the handle of id under p's names.
+func handleIn(p prog, id string) string {
+	match p.Owners.Get(id) {
+	case Some[string] as o:
+		packageOfID(id) + "." + nameOf(p, o.Value) + "." + nameOf(p, id)
+	case None:
+		packageOfID(id) + "." + nameOf(p, id)
+	}
+}
+
+// referenceRows is a report's declarations, sites and edges, mapped by
+// moved, without columns, sorted.
+func referenceRows(r Report, moved Map[string, string]) []string {
+	let m = func(h string) string { maps.GetOr(moved, h, h) }
+	let mut out = []string{}
+	for p in r.Tables.Packages {
+		for d in p.Decls {
+			out = out.Append("d \(m(d.Handle)) \(d.Kind) \(d.File) \(d.Line)")
+		}
+		for s in p.Sites {
+			out = out.Append("s \(m(s.Symbol)) \(s.Kind) \(s.File) \(s.Line) \(m(s.In))")
+		}
+	}
+	for b in r.Binds {
+		out = out.Append("b \(m(b.Op)) \(m(b.By))")
+	}
+	slices.Sort(out)
+}

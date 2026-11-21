@@ -1,0 +1,495 @@
+// The registry protocol of work (SEMWS plan §2.12) on the memory world:
+// the laws of a retried removal, of a removal after the name was taken
+// again, of the token, of a purge by id and of the clone with no lock;
+// and the parts the scheduler property (schedule.ergo) runs: each call
+// in its steps. The property interleaves two or three callers, stops any
+// of them after any step, and holds the model's invariants
+// (models/registry) on what is left; it is the law of every other rule
+// of the protocol (a refused parent, a refused id, a stopped writer).
+
+import github.com/cevr/ergo/modules/work/work
+import slices
+import sync
+import strings
+
+// toolOf is a Tool over w's trees, registry, Git and disk, for the holder
+// lock (a process of its own) with the Cloners cloners.
+func toolOf(w World, lock Lock, cloners []work.Cloner) work.Tool {
+	let p = work.Providers{Cloners: cloners, Copier: Beside(w.trees, false), Registry: w.registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
+	work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
+}
+
+func on(name string) work.NewOptions { work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: name}, Token: None} }
+
+func some(text string) Option[string] { Some[string]{Value: text} }
+
+// Watching is a Cloner that records whether the registry's lock was held
+// at any clone: the copy runs with no lock but its reservation's.
+type Watching { c Cloner, lock Lock, locked sync.Ref[bool] } implements work.Cloner
+
+func Name(w Watching) string { w.c.Name() }
+
+func Shares(w Watching) bool { w.c.Shares() }
+
+func KeepsInodes(w Watching) bool { w.c.KeepsInodes() }
+
+func Clone(w Watching, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
+	if w.lock.table.Get().Get("") != None {
+		w.locked.Set(true)
+	}
+	try w.c.Clone(from, to)
+}
+
+func Has(w Watching, root string) bool { w.c.Has(root) }
+
+func Move(w Watching, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try w.c.Move(from, to) }
+
+func Discard(w Watching, root string) fails work.Missing | work.CloneFailed { try w.c.Discard(root) }
+
+func Usage(w Watching, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try w.c.Usage(root) }
+
+// NoCopyUnderTheLock: new clones with the registry's lock free, for a
+// workspace of the base and one made on it.
+law NoCopyUnderTheLock(stack bool) {
+	let w = world(true)
+	let watch = Watching{c: w.trees, lock: w.lock, locked: sync.NewRef(false)}
+	let t = toolOf(w, w.lock, []work.Cloner{watch})
+	let _ = t.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	if stack {
+		let _ = t.New("b", on("a")) catch {
+		case _:
+			return false
+		}
+	}
+	!watch.locked.Get() && w.lock.Holds() == 0
+}
+
+// Call is one caller of the scheduler property: a new (of y or z, on the
+// base or on x, with a token or not), an rm of x (expecting x's first id
+// or not), a gc, or a replace of x (rm, then a new of the name).
+type Call =
+	| NewCall{Name int, OnX bool, Token bool}
+	| RmCall{Expect bool}
+	| GcCall{}
+	| ReplaceCall{}
+
+// SchedulesKeepTheInvariants: the steps of two or three callers are
+// interleaved by choices drawn from seed until every caller ends: each
+// picks a caller that may step (the one holding the registry's lock if
+// one does), and, when dies, one choice in eight stops that caller
+// instead (a process that dies holds no lock). Then a gc of another
+// process recovers. No new failed in a way the protocol never fails (a
+// Git failure on a parent an rm took, a failed clone), and each new's
+// claim found its parent live. Then no
+// intent and no reservation is left; the trees under the storage are
+// exactly the live records' folders (no orphan, no record without its
+// tree); every live record's parent is the base or a live record (no
+// workspace left the registry under a child); and an rm that expected
+// x's first id trashed only that id. With no caller stopped, the records
+// are those of the same calls run one by one in the order their deciding
+// steps ran, unless a replace's new of x (a trashed name is free, G8)
+// meets another call of x (reuses): an rm that decides while that new
+// still clones answers Busy, and a new on x that looked at the first x
+// is refused at its claim, where run one by one each acts on the second
+// x, so the order of decisions alone does not fix the records then.
+law SchedulesKeepTheInvariants(calls []Call, seed int, dies bool) {
+	if len(calls) < 2 {
+		return true
+	}
+	let mut mine = []Call{}
+	for c in calls {
+		if len(mine) < 3 {
+			mine = mine.Append(c)
+		}
+	}
+	// Eight schedules of the same calls, each from its own seed.
+	for k in []int{0, 1, 2, 3, 4, 5, 6, 7} {
+		if !scheduleHolds(mine, seed*8+k, dies) {
+			return false
+		}
+	}
+	true
+}
+
+// callerOf is the Caller of call c by the holder numbered owner of w;
+// first is x's first id, which an rm that expects an id expects.
+func callerOf(w World, c Call, owner int, first string) Caller {
+	let lock = Sharing(w.lock, owner)
+	let t = toolOf(w, lock, []work.Cloner{w.trees})
+	let answers = sync.NewRef([]work.Removed{})
+	let wrong = sync.NewRef([]string{})
+	let mut expects = false
+	let (steps, parts, decides) = match c {
+	case NewCall as n:
+		let name = if small(n.Name, 2) == 0 { "y" } else { "z" }
+		let base = if n.OnX { on("x") } else { fresh(false) }
+		let o = if n.Token { work.NewOptions{..base, Token: some("t-" + name)} } else { base }
+		(newSteps(t, name, o, wrong), []int{0}, []int{2})
+	case RmCall as r:
+		expects = r.Expect
+		(rmSteps(t, "x", if r.Expect { some(first) } else { None }, answers), []int{0}, []int{1})
+	case GcCall:
+		(gcSteps(t), []int{0}, []int{0})
+	case ReplaceCall:
+		(slices.Concat(rmSteps(t, "x", None, answers), newSteps(t, "x", fresh(false), wrong)), []int{0, 4}, []int{1, 6})
+	}
+	Caller{steps: steps, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, wrong: wrong, expects: expects}
+}
+
+// scheduled is a world with x made, and the callers of calls; and x's id.
+func scheduled(calls []Call) (World, string, []Caller) {
+	let w = world(true)
+	let x = w.tool.New("x", fresh(false)) catch {
+	case _:
+		nothing()
+	}
+	let mut callers = []Caller{}
+	for i, c in calls {
+		callers = callers.Append(callerOf(w, c, i+2, x.Id))
+	}
+	(w, x.Id, callers)
+}
+
+// scheduleHolds runs one schedule of mine drawn from seed and holds the
+// invariants on it.
+func scheduleHolds(mine []Call, seed int, dies bool) bool {
+	let (w, first, callers) = scheduled(mine)
+	let mut clock = 0
+	let mut stopped = false
+	let mut s = small(seed, 2147483647)
+	for {
+		let live = slices.Filter(callers, func(c Caller) bool { running(c) })
+		if len(live) == 0 {
+			break
+		}
+		s = (s*1103515245 + 12345) % 2147483648
+		let ch = s / 65536
+		let holding = slices.Filter(live, func(c Caller) bool { c.lock.Held("") })
+		let c = if len(holding) > 0 { holding[0] } else { live[small(ch, len(live))] }
+		if dies && small(ch/3, 8) == 0 {
+			Die(c.lock)
+			c.dead.Set(true)
+			stopped = true
+			continue
+		}
+		step(c, clock)
+		clock = clock + 1
+		w.clock.Advance(1s)
+	}
+	let all = recovered(w) catch {
+	case _:
+		return false
+	}
+	let mut expected = true
+	for c in callers {
+		if c.expects {
+			for r in c.answers.Get() {
+				if !r.Already && r.Id != first {
+					expected = false
+				}
+			}
+		}
+	}
+	for c in callers {
+		if len(c.wrong.Get()) > 0 {
+			expected = false
+		}
+	}
+	let held = expected && invariants(w, all)
+	if stopped || !held || reuses(mine) {
+		return held
+	}
+	sameRecords(all, serially(mine, callers))
+}
+
+// recovered is the records after a gc of another process.
+func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
+	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
+	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false})
+	try t.List()
+}
+
+// invariants are the model's, on the records all of w after recovery.
+func invariants(w World, all []work.Workspace) bool {
+	let home = work.Home(theBase, "") + "/"
+	let mut paths = []string{}
+	for x in all {
+		if x.Moving != "" {
+			return false
+		}
+		match x.State {
+		case work.Creating, work.Trashed:
+			return false
+		case work.Active, work.Landing, work.Landed, work.Abandoned:
+		}
+		if x.Parent != theBase && slices.IndexFunc(all, func(p work.Workspace) bool { p.Path == x.Parent }) < 0 {
+			return false
+		}
+		paths = paths.Append(x.Path)
+	}
+	slices.Filter(Roots(w.trees), func(r string) bool { strings.HasPrefix(r, home) }) == slices.Sort(paths) && w.lock.Holds() == 0
+}
+
+// sameRecords reports whether two record lists name the same workspaces, in
+// order, with the same states, folders and parents (ids are made from the
+// time, so they differ).
+func sameRecords(a []work.Workspace, b []work.Workspace) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		let y = b[i]
+		if x.Name != y.Name || work.StateName(x.State) != work.StateName(y.State) || x.Path != y.Path || x.Parent != y.Parent {
+			return false
+		}
+	}
+	true
+}
+
+// serially is the records of the same calls run one by one, each part
+// whole, in the order their deciding steps ran, then the same recovery.
+func serially(calls []Call, ran []Caller) []work.Workspace {
+	let (w, _, callers) = scheduled(calls)
+	let mut order = []Stamp{}
+	for i, c in ran {
+		for j, s in c.stamps.Get() {
+			if s >= 0 {
+				order = order.Append(Stamp{At: s, Caller: i, Part: j})
+			}
+		}
+	}
+	for o in slices.SortFunc(order, func(a Stamp, b Stamp) int { a.At - b.At }) {
+		let c = callers[o.Caller]
+		let end = if o.Part+1 < len(c.parts) { c.parts[o.Part+1] } else { len(c.steps) }
+		for running(c) && c.pc.Get() < end {
+			step(c, 0)
+			w.clock.Advance(1s)
+		}
+	}
+	recovered(w) catch {
+	case _:
+		[]work.Workspace{}
+	}
+}
+
+// reuses reports whether a replace makes x again while another call of
+// x runs: an rm, a second replace, or a new on x (whose Look may find the
+// first x and its claim the second, and refuse: NoWorkspace).
+func reuses(calls []Call) bool {
+	let replaces = len(slices.Filter(calls, func(c Call) bool {
+		match c {
+		case ReplaceCall:
+			true
+		case NewCall, RmCall, GcCall:
+			false
+		}
+	}))
+	let rms = len(slices.Filter(calls, func(c Call) bool {
+		match c {
+		case RmCall:
+			true
+		case NewCall as n:
+			n.OnX
+		case ReplaceCall, GcCall:
+			false
+		}
+	}))
+	replaces > 0 && replaces+rms >= 2
+}
+
+// Caller is a call's steps as the scheduler runs them: each returns
+// whether the call goes on. A call has one part (a replace has two: its
+// rm and its new); parts are where each starts, and decides the step of
+// each whose lock orders it (its linear point). stamps are the times its
+// deciding steps ran (-1 for one it never reached), answers the Removed
+// its rm answered, wrong the failures its new must never give (newSteps),
+// and expects whether that rm expected x's first id.
+type Caller {
+	steps   []func() bool,
+	parts   []int,
+	decides []int,
+	lock    Lock,
+	pc      sync.Ref[int],
+	dead    sync.Ref[bool],
+	stamps  sync.Ref[[]int],
+	answers sync.Ref[[]work.Removed],
+	wrong   sync.Ref[[]string],
+	expects bool,
+}
+
+// Stamp is when part Part of caller Caller decided.
+type Stamp { At int, Caller int, Part int }
+
+// running is whether c has steps left and is not stopped.
+func running(c Caller) bool { !c.dead.Get() && c.pc.Get() < len(c.steps) }
+
+// step runs c's next step at the time stamp.
+func step(c Caller, stamp int) {
+	let i = c.pc.Get()
+	if slices.Contains(c.decides, i) {
+		c.stamps.Set(c.stamps.Get().Append(stamp))
+	}
+	let goes = c.steps[i]()
+	c.pc.Set(if goes { i + 1 } else { len(c.steps) })
+	if !goes {
+		// A call that ended early decides nothing later.
+		let mut left = []int{}
+		for d in c.decides {
+			if d > i {
+				left = left.Append(d)
+			}
+		}
+		for _ in left {
+			c.stamps.Set(c.stamps.Get().Append(-1))
+		}
+	}
+}
+
+// newSteps are the steps of a new by t: the look and the start (no
+// lock), the claim (the lock), the clone (none) and the activation (the
+// lock). wrong keeps each failure the protocol never gives: Git's on a
+// parent an rm took (it is NoWorkspace), and any failed clone (a claimed
+// parent cannot be taken while its child is made).
+func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]string]) []func() bool {
+	let made = sync.NewRef(work.Making{Name: "", Id: "", Path: "", Parent: "", ParentId: "", Branch: "", Start: "", Token: "", Config: work.EmptyConfig(), Copy: false, Cloner: ""})
+	[]func() bool{
+		func() bool {
+			match (t.Look(name, o) catch {
+			case _:
+				return false
+			}) {
+			case work.Making as m:
+				made.Set(m)
+				true
+			case work.Created:
+				false
+			}
+		},
+		func() bool {
+			made.Set(t.Begin(made.Get(), o) catch {
+			case work.VcsFailed as e:
+				wrong.Set(wrong.Get().Append("Begin: VcsFailed: " + e.Reason))
+				return false
+			case _:
+				return false
+			})
+			true
+		},
+		func() bool {
+			match (t.Claim(made.Get(), o.On) catch {
+			case _:
+				return false
+			}) {
+			case work.Making as m:
+				made.Set(m)
+				// The claim is the new's linear point: its parent is, at
+				// that moment, the base or the live workspace Look found.
+				if m.ParentId != "" {
+					let all = t.List() catch {
+					case _:
+						[]work.Workspace{}
+					}
+					if slices.IndexFunc(all, func(x work.Workspace) bool { x.Path == m.Parent && x.Id == m.ParentId && work.StateName(x.State) == "active" }) < 0 {
+						wrong.Set(wrong.Get().Append("Claim of " + m.Name + " on a parent that is gone"))
+					}
+				}
+				true
+			case work.Created:
+				false
+			}
+		},
+		func() bool {
+			made.Set(t.Fill(made.Get()) catch {
+			case _:
+				wrong.Set(wrong.Get().Append("Fill of " + made.Get().Name + " failed"))
+				return false
+			})
+			true
+		},
+		func() bool {
+			let _ = t.Activate(made.Get()) catch {
+			case _:
+				return false
+			}
+			true
+		},
+	}
+}
+
+// rmSteps are the steps of an rm by t: the check, then, under one hold of
+// the lock, the intent, the move and the settle. answers keeps each
+// Removed it answered.
+func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[]work.Removed]) []func() bool {
+	let intent = sync.NewRef(work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0})
+	[]func() bool{
+		func() bool {
+			let _ = t.Check(work.EmptyConfig(), name, expect, true) catch {
+			case _:
+				return false
+			}
+			true
+		},
+		func() bool {
+			match (t.Intend(name, expect, true, 0) catch {
+			case _:
+				return false
+			}) {
+			case work.Workspace as i:
+				intent.Set(i)
+				true
+			case work.Removed as r:
+				answers.Set(answers.Get().Append(r))
+				false
+			}
+		},
+		func() bool {
+			t.MoveOut(intent.Get()) catch {
+			case _:
+				return false
+			}
+			true
+		},
+		func() bool {
+			let r = t.Settle(intent.Get()) catch {
+			case _:
+				return false
+			}
+			answers.Set(answers.Get().Append(r))
+			true
+		},
+	}
+}
+
+// gcSteps are the steps of a gc by t: the collect (under the lock), the
+// discards (with none), the purge (under the lock).
+func gcSteps(t work.Tool) []func() bool {
+	let due = sync.NewRef([]work.Workspace{})
+	[]func() bool{
+		func() bool {
+			due.Set(t.Collect(None, 0s) catch {
+			case _:
+				return false
+			})
+			true
+		},
+		func() bool {
+			for x in due.Get() {
+				t.DiscardOf(x) catch {
+				case _:
+					return false
+				}
+			}
+			true
+		},
+		func() bool {
+			let _ = t.Purge(due.Get()) catch {
+			case _:
+				return false
+			}
+			true
+		},
+	}
+}

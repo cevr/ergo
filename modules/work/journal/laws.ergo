@@ -1,0 +1,43 @@
+import github.com/cevr/ergo/modules/work/memory
+import github.com/cevr/ergo/modules/work/work
+import strings
+
+// TornWriteIsDropped: a line a crash cut short (any prefix of a put with
+// no newline) is not a record, and the records before it stay.
+law TornWriteIsDropped(kept work.Workspace, torn work.Workspace, cut int) {
+	let line = PutLine(torn)
+	let n = ((cut % len(line)) + len(line)) % len(line)
+	let text = PutLine(kept) + strings.Slice(line, 0, n)
+	let records = Replay(text) catch {
+	case work.Unkept:
+		return false
+	}
+	records == []work.Workspace{kept}
+}
+
+// ReplayIsTheMemoryRegistry: the journal's records after any puts and
+// drops are the memory registry's.
+law ReplayIsTheMemoryRegistry(puts []work.Workspace, drops []int) {
+	let r = NewRegistry()
+	let mut want = []work.Workspace{}
+	for i, w in puts {
+		r.Put(w) catch {
+		case work.Unkept:
+			return false
+		}
+		want = memory.Kept(want, w)
+		if i < len(drops) && drops[i]%2 == 0 && len(want) > 0 {
+			let name = want[((drops[i]%len(want))+len(want))%len(want)].Name
+			r.Drop(name) catch {
+			case work.Unkept:
+				return false
+			}
+			want = memory.Dropped(want, name)
+		}
+	}
+	let got = r.All() catch {
+	case work.Unkept:
+		return false
+	}
+	got == want
+}

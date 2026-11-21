@@ -1,6 +1,7 @@
 package check
 
 import (
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"slices"
 	"strconv"
@@ -459,6 +460,9 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if spec.Work != nil {
 		c.checkMachineWork(tn, spec.Work, state, signal)
 	}
+	if spec.Exit != nil {
+		c.checkMachineExit(tn, spec.Exit, state)
+	}
 }
 
 // machineStart is the function a machine declaration's initial names, when
@@ -630,18 +634,47 @@ func (c *checker) machineAfterEvery(sig *Signature, signal Type) bool {
 		return false
 	}
 	ev, ok := o.TArgs[0].(*Named)
-	return ok && IsStdEvery(ev) && len(ev.TArgs) == 1 && c.identical(ev.TArgs[0], signal)
+	return ok && IsEvery(ev) && len(ev.TArgs) == 1 && c.identical(ev.TArgs[0], signal)
 }
 
-// IsStdEvery reports whether t is an instance of std machines.Every
-// (FKG1), which lives beside machines.Work.
-func IsStdEvery(t Type) bool {
+// IsEvery reports whether t is an Every timer (FKG1): an instance of a
+// record of one type parameter E whose fields are In duration and Signal
+// func(at T) E, where T's package declares the Clock its runner reads
+// (EveryClock). std machines.Every is one. The rule reads the record's
+// shape, never the package that declares it, so a copy of machines, or a
+// user package, declares one the same way (STD-COPY-SAME: std has no
+// privileges).
+func IsEvery(t Type) bool {
 	n, ok := t.(*Named)
-	if !ok || n.origin() == nil {
+	if !ok || len(n.TArgs) != 1 {
 		return false
 	}
-	tn := n.origin().Obj
-	return tn != nil && tn.Name == "Every" && tn.Pkg != nil && tn.Pkg.std && tn.Pkg.Path == "machines"
+	o := n.origin()
+	if o == nil || len(o.TParams) != 1 {
+		return false
+	}
+	st, ok := o.Underlying().(*Struct)
+	if !ok || len(st.Fields) != 2 {
+		return false
+	}
+	in, _ := st.field("In")
+	signal, _ := st.field("Signal")
+	if in == nil || signal == nil || !isDuration(in.Type) {
+		return false
+	}
+	fn, ok := signal.Type.(*Signature)
+	if !ok || len(fn.TParams) > 0 || len(fn.Params) != 1 || len(fn.Results) != 1 || !fn.Errors.Empty() || !fn.Uses.Empty() {
+		return false
+	}
+	if e, ok := fn.Results[0].(*TypeParam); !ok || e != o.TParams[0] {
+		return false
+	}
+	at, ok := fn.Params[0].Type.(*Named)
+	if !ok || at.Obj == nil || at.Obj.Pkg == nil {
+		return false
+	}
+	_, ok = at.Obj.Pkg.Scope.names["Clock"].(*TypeName)
+	return ok
 }
 
 // EveryClock is std time.Clock, the capability that an Every timer's
@@ -706,14 +739,20 @@ func (c *checker) machineAfter(t Type) *Func {
 // Machine.
 func isPreludeMachine(t Type) bool {
 	n, ok := t.(*Named)
-	m := preludeType("Machine")
-	return ok && m != nil && n.origin() == m
+	if !ok {
+		return false
+	}
+	// By its declaration, not preludeType: the prelude's own check
+	// unifies its generic types here, before prelude() returns (a
+	// re-entrant prelude() waits on itself).
+	o := n.origin().Obj
+	return o != nil && o.Name == "Machine" && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
 }
 
 // machineValue is the prelude Machine[S, E, O, F, R, W] that a value of
 // the machine declaration t converts to (README Gap 46), with the
 // machine's step: O is the step's output, F its error row and R its
-// capability row; W is its work's capability row.
+// capability row; W is its work's and its exit action's capability row.
 // It is nil when t is not a machine declaration, or when its step is not
 // a function of the checked shape (checkMachine reports that).
 func (c *checker) machineValue(t Type) (*Named, *Func) {
@@ -761,6 +800,11 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	if _, wr := c.machineWork(t); wr != nil {
 		works = wr
 	}
+	// The exit action's row is W too (FK9-g1): the runner runs it, a fold
+	// does not.
+	if _, xr := c.machineExit(t); xr != nil {
+		works = works.union(c.types, xr)
+	}
 	if after := c.machineAfter(t); after != nil && c.machineAfterEvery(after.Sig, m.Signal) {
 		// An Every timer's runner reads time.Clock when it fires (FKG1):
 		// the runner's row W carries it, and a fold, which fires no
@@ -787,7 +831,11 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 // converts to.
 func isPreludeMachineValue(t Type) bool {
 	n, ok := t.(*Named)
-	return ok && (isPreludeMachine(t) || preludeType("InputMachine") != nil && n.origin() == preludeType("InputMachine"))
+	if !ok {
+		return false
+	}
+	o := n.origin().Obj // by declaration, as isPreludeMachine
+	return o != nil && (o.Name == "Machine" || o.Name == "InputMachine") && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
 }
 
 // checkEntry checks main (rows.md, Capability rows 4; README Gaps 4 and 5):

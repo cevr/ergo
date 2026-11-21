@@ -36,6 +36,19 @@ func checkFor(src string) (*checker, []Diagnostic) {
 	return c, c.sorted()
 }
 
+// CellSteps checks src as one package with holdsCell's walk stopped past
+// budget steps, and returns the steps it took with the diagnostics.
+func CellSteps(src string, budget int) (int, []Diagnostic) {
+	file, err := syntax.Parse(src)
+	if err != nil {
+		return 0, []Diagnostic{{Code: CodeSyntax, Message: err.Error()}}
+	}
+	c := newChecker("main", Std, prelude().scope)
+	c.cellBudget = budget
+	c.run([]*syntax.File{file})
+	return c.cellSteps, c.sorted()
+}
+
 // TotalitySteps checks src as one package and returns the solver steps of
 // each type switch, in check order, with the diagnostics. Steps are
 // deterministic, so a test bounds them where a wall-clock bound would

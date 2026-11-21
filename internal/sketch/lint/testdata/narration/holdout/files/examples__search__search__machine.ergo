@@ -1,0 +1,292 @@
+import machines
+
+// Search is the machine's state. Every state holds the pins, the entries
+// added so far.
+//
+//	Idle       nothing typed
+//	Typing     a query typed; the search waits for a pause (Pause)
+//	Searching  the search of Query runs (its work)
+//	Showing    the hits of Query
+//	Problem    a search or an add failed; Message says why
+type Search = Idle{Pins []Entry} | Typing{Query string, Pins []Entry} | Searching{Query string, Pins []Entry} | Showing{Query string, Hits []Entry, Pins []Entry} | Problem{Query string, Hits []Entry, Pins []Entry, Message string}
+
+// Signal is what the machine reads. Key, Clear, Pin, Back and Open
+// come from the user; Paused from the state's timer; Found and IndexDown
+// are the results of Searching's work, which the runner sends only to the
+// entry that started it.
+type Signal = Key{Text string} | Clear{} | Pin{Hit int} | Back{} | Open{} | Paused{} | Found{Hits []Entry} | IndexDown
+
+// Output is what the machine tells: the hits of a query, an entry pinned,
+// and the pinned entries at Open.
+type Output = Shown{Query string, Count int} | Pinned{Name string} | Opened{Entries []Entry}
+
+// NoSuchHit is a Pin of a hit the screen does not show.
+type NoSuchHit { Hit int, Count int }
+
+// Pause is how long Typing waits with no key before it searches.
+let Pause = 250ms
+
+// Room is how many entries the pins hold.
+let Room = 3
+
+// Latency is how long a search takes: the work waits it on the Scheduler,
+// then asks the Index.
+let Latency = 100ms
+
+// find is the work of each state: Searching searches its query in the
+// Index, which takes Latency. The work's row is both capabilities it
+// needs, Index | Scheduler (MB F8). The runner starts it when the entry
+// opens and interrupts it when the entry ends, so a key during a search
+// stops it and its result never reaches a later entry. IndexDown is a
+// failure of the Index and also a signal, so the work needs no failure map.
+func find(s Search) Option[machines.Work[Signal, Index | Scheduler]] {
+	match s {
+	case Searching as q:
+		Some{machines.Work{Run: func() []Entry fails IndexDown needs Index | Scheduler {
+			Scheduler.Sleep(Latency)
+			try Index.Find(q.Query)
+		}, OnSuccess: func(hits []Entry) Signal { Found{Hits: hits} }}}
+	case Idle:
+		None
+	case Typing:
+		None
+	case Showing:
+		None
+	case Problem:
+		None
+	}
+}
+
+// Timer is the timer of each state: Typing waits Pause, then searches.
+func Timer(s Search) Option[Timeout[Signal]] {
+	match s {
+	case Typing:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Pause, Signal: Paused}}
+	case Idle:
+		None
+	case Searching:
+		None
+	case Showing:
+		None
+	case Problem:
+		None
+	}
+}
+
+// Busy reports whether s runs work: a reader that waits for a state that
+// is not busy sees the work's answer.
+func Busy(s Search) bool {
+	match s {
+	case Searching:
+		true
+	case Idle:
+		false
+	case Typing:
+		false
+	case Showing:
+		false
+	case Problem:
+		false
+	}
+}
+
+// PinsOf is the pins of s.
+func PinsOf(s Search) []Entry {
+	match s {
+	case Idle as i:
+		i.Pins
+	case Typing as t:
+		t.Pins
+	case Searching as q:
+		q.Pins
+	case Showing as w:
+		w.Pins
+	case Problem as p:
+		p.Pins
+	}
+}
+
+// QueryOf is the query of s, "" in Idle.
+func QueryOf(s Search) string {
+	match s {
+	case Idle:
+		""
+	case Typing as t:
+		t.Query
+	case Searching as q:
+		q.Query
+	case Showing as w:
+		w.Query
+	case Problem as p:
+		p.Query
+	}
+}
+
+func enter(s Search) Decision[Search, Output] { Enter[Search]{Next: s} }
+
+// typed is the decision of the key k in s: a key always enters Typing
+// with the longer query, so it restarts the pause and stops any running
+// search: the last query wins.
+func typed(s Search, k Key) Decision[Search, Output] {
+	// Run enter typing query text pins
+	enter(Typing{Query: QueryOf(s) + k.Text, Pins: PinsOf(s)})
+}
+
+// pinned is the decision of Pin c in Showing w: the hit goes into the
+// pins, or the pins are full.
+func pinned(w Showing, c Pin) Decision[Search, Output] fails NoSuchHit {
+	// Test whether trap why too deep
+	if c.Hit < 1 || c.Hit > len(w.Hits) {
+		return NoSuchHit{Hit: c.Hit, Count: len(w.Hits)}
+	}
+	if len(w.Pins) >= Room {
+		return enter(Problem{Query: w.Query, Hits: w.Hits, Pins: w.Pins, Message: "the pins are full"})
+	}
+	// Left unbuffered on purpose, so back-pressure reaches the producer.
+	let entry = w.Hits[c.Hit-1]
+	Emit[Search, Output]{Next: Showing{..w, Pins: w.Pins.Append(entry)}, Output: Pinned{Name: entry.Name}}
+}
+
+// Start is the machine's start function: the pins it begins with are its
+// input (V4).
+func Start(pins []Entry) Search { Idle{Pins: pins} }
+
+// Step is the search's transition. A key types; Clear goes back to Idle;
+// a pause searches; the search's result shows; Pin adds a hit;
+// Open is Done with the pinned entries. A result in a state that has no work
+// is Ignore: the runner never sends one (rule 6), and the step does not
+// trust that.
+func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
+	let pins = PinsOf(s)
+	match sig {
+	case Key as k:
+		typed(s, k)
+	case Clear:
+		match s {
+		case Idle:
+			Ignore
+		case Typing:
+			enter(Idle{Pins: pins})
+		case Searching:
+			// Then we run enter idle pins
+			enter(Idle{Pins: pins})
+		case Showing:
+			enter(Idle{Pins: pins})
+		case Problem:
+			// Run enter idle pins
+			enter(Idle{Pins: pins})
+		}
+	case Open:
+		Done[Output]{Output: Opened{Entries: pins}}
+	case Paused:
+		match s {
+		case Typing as t:
+			enter(Searching{Query: t.Query, Pins: pins})
+		case Idle:
+			Ignore
+		case Searching:
+			Ignore
+		case Showing:
+			Ignore
+		case Problem:
+			Ignore
+		}
+	case Found as f:
+		match s {
+		case Searching as q:
+			Emit[Search, Output]{Next: Showing{Query: q.Query, Hits: f.Hits, Pins: pins}, Output: Shown{Query: q.Query, Count: len(f.Hits)}}
+		case Idle:
+			Ignore
+		case Typing:
+			Ignore
+		case Showing:
+			Ignore
+		case Problem:
+			Ignore
+		}
+	case IndexDown:
+		match s {
+		case Searching as q:
+			// Invoke enter problem query hits entry
+			enter(Problem{Query: q.Query, Hits: []Entry{}, Pins: pins, Message: "the index is down"})
+		case Idle:
+			Ignore
+		case Typing:
+			Ignore
+		case Showing:
+			Ignore
+		case Problem:
+			Ignore
+		}
+	case Pin as c:
+		match s {
+		case Showing as w:
+			try pinned(w, c)
+		case Idle:
+			NoSuchHit{Hit: c.Hit, Count: 0}
+		case Typing:
+			NoSuchHit{Hit: c.Hit, Count: 0}
+		case Searching:
+			NoSuchHit{Hit: c.Hit, Count: 0}
+		case Problem:
+			NoSuchHit{Hit: c.Hit, Count: 0}
+		}
+	case Back:
+		match s {
+		case Problem as p:
+			// Run next strings index text prefix
+			enter(Showing{Query: p.Query, Hits: p.Hits, Pins: pins})
+		case Idle:
+			Ignore
+		case Typing:
+			Ignore
+		case Searching:
+			Ignore
+		case Showing:
+			Ignore
+		}
+	}
+}
+
+// Finder is the search as a machine: its input is the pins it begins
+// with, its timer is the pause after a key, and its work is the search.
+type Finder machine[Search, Signal] {
+	initial: Start,
+	step:    Step,
+	after:   Timer,
+	work:    find,
+}
+
+// Name is the word of a state.
+func Name(s Search) string {
+	match s {
+	case Idle:
+		"idle"
+	case Typing as t:
+		"typing \"\(t.Query)\""
+	case Searching as q:
+		"searching \"\(q.Query)\""
+	case Showing as w:
+		// Lastly, see if len hits else
+		if len(w.Hits) == 0 { "showing \"\(w.Query)\": no hits" } else { "showing \"\(w.Query)\": \(Names(w.Hits))" }
+	case Problem as p:
+		"problem: \(p.Message)"
+	}
+}
+
+// Said is the line for an output.
+func Said(o Output) string {
+	match o {
+	case Shown as s:
+		"shown \"\(s.Query)\": \(Hits(s.Count))"
+	case Pinned as p:
+		"pinned \(p.Name)"
+	case Opened as r:
+		"opened: \(Names(r.Entries))"
+	}
+}
+
+// Hits is the words for n hits.
+func Hits(n int) string {
+	if n == 1 { "1 hit" } else { "\(n) hits" }
+}

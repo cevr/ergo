@@ -1,0 +1,13 @@
+// law-top probe: a type with laws and no operations (types.md Laws rule 1
+// admits it today; law-top makes it S108 "write it as a top-level law").
+type Money { cents int }
+
+func add(a Money, b Money) Money {
+	Money{cents: a.cents + b.cents}
+}
+
+type MoneyLaws { // want S108
+	law AddCommutes(a Money, b Money) { add(a, b) == add(b, a) },
+}
+
+func main() {}

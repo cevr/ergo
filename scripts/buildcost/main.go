@@ -13,6 +13,8 @@
 //	go run ./scripts/buildcost reuse [-work DIR] [-sizes 10,50] [-examples deps]
 //	go run ./scripts/buildcost pins -sets DIR [-work DIR] [-sizes 10] [-examples deps]
 //	go run ./scripts/buildcost dev [-work DIR] [-sizes 10,50] [-examples deps]
+//	go run ./scripts/buildcost tests [-work DIR] [-kinds property,diagnostics,built] [-rounds 5] [-kills] [-o FILE] [-data FILE] [-sets DIR]
+//	go run ./scripts/buildcost test [-work DIR] [-ergo PATH] [-packages example/pkg,...]
 //
 // The scenarios, for each generated program gN (internal/testinputs/
 // genprogram) and each named example: first build (Go's std archives are
@@ -28,6 +30,11 @@
 // (reuse.go). `pins` counts a cold build with and without the pin archive
 // sets of DIR (pins.go). `dev` counts a warm check answered by `ergo dev`
 // (dev.go).
+// `test` is the test cost receipt (test-speed FT0, testcost.go).
+// `tests` is the TPROBE meter (tests.go): one Go test family
+// per kind of test against its Ergo forms, a hand Go control and a floor,
+// cold, warm and after an edit, with a verdict per kind; `-kills` writes
+// the kill matrix that decides equal coverage.
 //
 // Each run has its own Ergo cache under -work (XDG_CACHE_HOME), so a
 // scenario's predecessor is the one listed before it. -work defaults to a
@@ -58,6 +65,12 @@ func main() {
 	if len(os.Args) > 2 && os.Args[1] == "count" {
 		runner{}.leastOf(strings.Join(os.Args[2:], " "), os.Args[2:])
 		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "tests" {
+		os.Exit(probeMain(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "test" {
+		os.Exit(testCost(os.Args[2:]))
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "empty" || os.Args[1] == "start" || os.Args[1] == "reuse" || os.Args[1] == "pins" || os.Args[1] == "dev") {
 		os.Exit(run(os.Args[2:], os.Args[1]))
@@ -123,6 +136,45 @@ var shown = []string{
 type runner struct {
 	work, ergo string
 	keep       bool
+	// remove is set when the runner made work and removes it at the end.
+	remove bool
+}
+
+// setUp makes the runner: work (a fresh directory under /tmp/opencode
+// when empty) and ergo (go build ./cmd/ergo into work when empty and
+// needsErgo: reuse counts in process and runs no ergo).
+func setUp(work, ergo string, keep, needsErgo bool) (runner, int) {
+	r := runner{work: work, ergo: ergo, keep: keep}
+	if r.work == "" {
+		if err := os.MkdirAll("/tmp/opencode", 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return r, 1
+		}
+		dir, err := os.MkdirTemp("/tmp/opencode", "buildcost-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return r, 1
+		}
+		r.work, r.remove = dir, !keep
+	}
+	if r.ergo == "" && needsErgo {
+		r.ergo = filepath.Join(r.work, "bin", "ergo")
+		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
+		build.Stdout, build.Stderr = os.Stderr, os.Stderr
+		if err := build.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, "buildcost: go build ./cmd/ergo:", err)
+			r.cleanUp()
+			return r, 1
+		}
+	}
+	return r, 0
+}
+
+// cleanUp removes the work directory the runner made.
+func (r runner) cleanUp() {
+	if r.remove {
+		os.RemoveAll(r.work)
+	}
 }
 
 func run(args []string, mode string) int {
@@ -138,31 +190,11 @@ func run(args []string, mode string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	r := runner{work: *work, ergo: *ergo, keep: *keep}
-	if r.work == "" {
-		if err := os.MkdirAll("/tmp/opencode", 0o755); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		dir, err := os.MkdirTemp("/tmp/opencode", "buildcost-")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		r.work = dir
-		if !r.keep {
-			defer os.RemoveAll(dir)
-		}
+	r, code := setUp(*work, *ergo, *keep, mode != "reuse")
+	if code != 0 {
+		return code
 	}
-	if r.ergo == "" && mode != "reuse" {
-		r.ergo = filepath.Join(r.work, "bin", "ergo")
-		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
-		build.Stdout, build.Stderr = os.Stderr, os.Stderr
-		if err := build.Run(); err != nil {
-			fmt.Fprintln(os.Stderr, "buildcost: go build ./cmd/ergo:", err)
-			return 1
-		}
-	}
+	defer r.cleanUp()
 	load, _ := os.ReadFile("/proc/loadavg")
 	fmt.Printf("# buildcost %s/%s GOMAXPROCS=%d load %s", runtime.GOOS, runtime.GOARCH, runtime.GOMAXPROCS(0), firstField(string(load)))
 	fmt.Printf("# counted: %v\n", instructionsCounted())

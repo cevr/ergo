@@ -1,0 +1,29 @@
+import machines
+import time
+
+type S = Idle{} | Busy{}
+
+type Sig = Go{} | Tick{At time.Time}
+
+func step(s S, e Sig) Decision[S, Never] {
+	match e {
+	case Go:
+		Enter[S]{Next: Busy}
+	case Tick:
+		Enter[S]{Next: Idle}
+	}
+}
+
+func tickAt(at time.Time) Sig { Tick{At: at} }
+
+func every(s S) Option[machines.Every[Sig]] { Some{machines.Every[Sig]{In: 1ms, Signal: tickAt}} }
+
+type M machine[S, Sig] { initial: Idle, step: step, after: every }
+
+law FoldNeedsNoClock(n int) {
+	let o = machines.Run(M{}, []Sig{Go}) catch {
+	case machines.Rejected:
+		return false
+	}
+	machines.LastState(o) == Busy
+}

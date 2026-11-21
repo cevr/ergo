@@ -29,16 +29,23 @@ import (
 // layeredProgram is a module of width leaf packages l0 to l<width-1>, a
 // package mid over all of them, and the root package app over mid and
 // the leaves. Each leaf's Work is too large for Ergo's inliner and Go's,
-// so its body is no importer's. nonce goes into every leaf, so no leaf is
-// in Go's build cache; k is the literal a body edit changes.
+// so its body is no importer's. nonce goes into every leaf's Work, which
+// the program calls, so no leaf is in Go's build cache (a leaf's unused
+// Nonce is not lowered, so it alone keeps no leaf out of the cache); k is
+// the literal a body edit changes.
 func layeredProgram(width int, nonce string, k int) map[string]string {
 	files := map[string]string{"ergo.mod": "module layered\n"}
 	var imports, calls []string
+	var mark uint32
+	for _, c := range nonce {
+		mark = mark*31 + uint32(c)
+	}
 	for i := range width {
 		name := fmt.Sprintf("l%d", i)
 		var b strings.Builder
 		fmt.Fprintf(&b, "func Nonce() string { %q }\n\n", nonce)
 		b.WriteString("func Work(n int) int {\n\tlet mut t = 0\n\tfor j in 0..n {\n")
+		fmt.Fprintf(&b, "\t\tif t == %d {\n\t\t\tt = t + 1\n\t\t}\n", mark)
 		lit := 3 + i
 		if i == 0 {
 			lit = k
@@ -180,11 +187,21 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 func main() {
 	tool, args := os.Args[1], os.Args[2:]
+	socket := os.Getenv("SPLIT_SOCKET")
+	if len(socket) > 100 { // too long for a socket: dial it through its folder's descriptor, as the test binds it
+		dir, err := os.Open(filepath.Dir(socket))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(3)
+		}
+		socket = fmt.Sprintf("/proc/self/fd/%d/%s", dir.Fd(), filepath.Base(socket))
+	}
 	pkg := ""
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == "-p" {
@@ -192,7 +209,7 @@ func main() {
 		}
 	}
 	if strings.HasSuffix(tool, "compile") && pkg != "" && strings.Contains(" "+os.Getenv("SPLIT_HOLD")+" ", " "+pkg+" ") {
-		conn, err := net.Dial("unix", os.Getenv("SPLIT_SOCKET"))
+		conn, err := net.Dial("unix", socket)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
@@ -233,8 +250,20 @@ func TestColdCompilesInParallel(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("the wrapper does not build: %v\n%s", err, out)
 	}
+	// The gate's TMPDIR can make this path longer than a socket's may be
+	// (108 bytes on Linux); then both ends name it through a descriptor of
+	// its folder, /proc/self/fd/N/s, as cmd/ergo's dev daemon does.
 	socket := filepath.Join(tmp, "s")
-	ln, err := net.Listen("unix", socket)
+	bind := socket
+	if len(socket) > 100 {
+		dir, err := os.Open(tmp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer dir.Close()
+		bind = fmt.Sprintf("/proc/self/fd/%d/s", dir.Fd())
+	}
+	ln, err := net.Listen("unix", bind)
 	if err != nil {
 		t.Fatal(err)
 	}

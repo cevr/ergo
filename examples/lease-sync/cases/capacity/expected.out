@@ -1,0 +1,25 @@
+> a take build
+a connecting: [build:a]
+  pending take build
+> a take deploy
+a connecting: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> b take docs
+b connecting: [docs:b]
+  pending take docs
+> b push
+b connecting: [docs:b]
+  pending take docs
+> a push
+a connecting: [build:a deploy:a]
+  pending take build
+  pending take deploy
+> a pull
+a connecting: [build:a docs:b]
+  refused take deploy: all 2 leases are held
+> b pull
+b connecting: [build:a docs:b]
+> a dismiss
+a connecting: [build:a docs:b]
+authority: [build:a docs:b]

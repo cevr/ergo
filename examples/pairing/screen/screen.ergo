@@ -281,8 +281,8 @@ func Ending[F](e actor.Exit[pair.Flow, pair.Result, F]) string {
 		Told(f.Output)
 	case actor.Halted[pair.Flow] as h:
 		"left at: \(Show(h.State))"
-	case actor.Defected:
-		"defect"
+	case actor.Defected as d:
+		"defect: \(d.Reason)"
 	}
 }
 

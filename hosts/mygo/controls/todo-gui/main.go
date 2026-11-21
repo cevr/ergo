@@ -146,6 +146,26 @@ func (l *list) view(c *ui.Context) {
 
 func newList() *list { return &list{next: 1, show: "all"} }
 
+// labelled is how many nodes of the view have label: the field, the
+// buttons and the list, and each shown item's check and delete button.
+func (l *list) labelled(label string) int {
+	k := 0
+	for _, fixed := range []string{"new item", "add", "items", "all", "open", "done", "clear"} {
+		if label == fixed {
+			k++
+		}
+	}
+	for _, it := range l.shown() {
+		if label == it.text {
+			k++
+		}
+		if label == "del "+it.text {
+			k++
+		}
+	}
+	return k
+}
+
 // headless plays the script on in through ui.Tester, clicking by label,
 // and writes the list after each step to out.
 func headless(in io.Reader, out io.Writer) error {
@@ -161,7 +181,21 @@ func headless(in io.Reader, out io.Writer) error {
 		n++
 		line := strings.TrimSuffix(strings.TrimLeft(raw, " \t"), "\r")
 		verb, rest, _ := strings.Cut(line, " ")
+		label := strings.SplitN(rest, "\t", 2)[0]
+		if c := l.matching(label); c > 1 && (verb == "tap" || verb == "type") {
+			// ui.TestHost's acts are strict (NS7): a label that names
+			// more than one node acts on none.
+			fmt.Fprintf(out, "%d: %d nodes at label %q\n", n, c, label)
+			continue
+		}
 		var err error
+		// A label more than one node has names none of them, as
+		// ui.TestHost's strict labels (NS7) refuse it.
+		target := strings.SplitN(rest, "\t", 2)[0]
+		if k := l.labelled(target); (verb == "tap" || verb == "type") && k > 1 {
+			fmt.Fprintf(out, "%d: label \"%s\" finds %d nodes\n", n, target, k)
+			continue
+		}
 		switch verb {
 		case "tap":
 			reveal(tt, l, rest)
@@ -189,6 +223,18 @@ func headless(in io.Reader, out io.Writer) error {
 		fmt.Fprintf(out, "%d: %s\n", n, l.summary())
 	}
 	return sc.Err()
+}
+
+// matching is how many shown rows a script names by label: a row's text
+// names its row, and "del " and its text the row's delete button.
+func (l *list) matching(label string) int {
+	c := 0
+	for _, it := range l.shown() {
+		if label == it.text || label == "del "+it.text {
+			c++
+		}
+	}
+	return c
 }
 
 // reveal scrolls the item list until the first row labelled label shows,

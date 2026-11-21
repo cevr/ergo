@@ -18,3 +18,9 @@ type Offscreen = impl.Offscreen
 func NewOffscreen(w, h int) (*Offscreen, error) {
 	return impl.NewOffscreen(w, h)
 }
+
+type Frames = impl.Frames
+
+func NewFrames(w, h int) (*Frames, error) {
+	return impl.NewFrames(w, h)
+}

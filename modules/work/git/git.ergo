@@ -1,0 +1,483 @@
+// Package git is a work.Vcs by the git command. A call that only reads
+// passes --no-optional-locks, so a status in a workspace never takes the
+// index lock another process is using. A snapshot builds its tree in an
+// index file of its own (GIT_INDEX_FILE), as git stash create does, so
+// the user's index, branch and files stay as they are.
+
+import exec
+import filepath
+import slices
+import github.com/cevr/ergo/modules/work/work
+import strconv
+import strings
+
+// Vcs runs git through a Runner.
+type Vcs { run exec.Runner } implements work.Vcs
+
+// New is the Vcs over a Runner.
+func New(run exec.Runner) Vcs { Vcs{run: run} }
+
+// Guard is the push URL Start gives a checkout's origin, as lane-rift.sh
+// does: a push to origin fails, so a workspace hands its work only to its
+// parent.
+let Guard = "no-push:workspaces-never-push-origin"
+
+// SnapshotIndex is the index file a snapshot builds its tree in, inside
+// the checkout's Git folder.
+let SnapshotIndex = "work-index"
+
+// git runs git in the checkout at root with args, and the environment
+// entries env (key, value, key, value, ...).
+func git(v Vcs, root string, args []string, env []string) exec.Result fails work.VcsFailed {
+	let mut all = []string{"-C", root}
+	for a in args {
+		all = all.Append(a)
+	}
+	let mut c = exec.New("git", all)
+	for i in 0..len(env)/2 {
+		c = c.WithEnv(env[2*i], env[2*i+1])
+	}
+	v.run.Run(c) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+}
+
+// reads runs a git call that only reads: with --no-optional-locks.
+func reads(v Vcs, root string, args []string) exec.Result fails work.VcsFailed {
+	let mut all = []string{"--no-optional-locks"}
+	for a in args {
+		all = all.Append(a)
+	}
+	try git(v, root, all, []string{})
+}
+
+// answer is the trimmed standard output of a reading git call that ended
+// with status 0.
+func answer(v Vcs, root string, args []string) string fails work.VcsFailed { try ok(try reads(v, root, args), root, args) }
+
+// ok is the trimmed standard output of r, which must have ended with
+// status 0.
+func ok(r exec.Result, root string, args []string) string fails work.VcsFailed {
+	if r.Status != 0 {
+		return work.VcsFailed{Reason: "git \(strings.Join(args, " ")) in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+// writes runs a git call that writes and is its output.
+func writes(v Vcs, root string, args []string) string fails work.VcsFailed { try ok(try git(v, root, args, []string{}), root, args) }
+
+// other is path as a git call in root names it: as it is when absolute,
+// else relative to root (both are relative to this process's folder).
+func other(root string, path string) string fails work.VcsFailed {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	filepath.Rel(root, path) catch {
+	case filepath.NotRelative:
+		return work.VcsFailed{Reason: "\(path) has no path from \(root)"}
+	}
+}
+
+func Head(v Vcs, root string) string fails work.VcsFailed { try answer(v, root, []string{"rev-parse", "--verify", "HEAD"}) }
+
+func Branch(v Vcs, root string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"symbolic-ref", "--quiet", "--short", "HEAD"})
+	if r.Status != 0 {
+		return ""
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func Clean(v Vcs, root string) bool fails work.VcsFailed {
+	try answer(v, root, []string{"status", "--porcelain", "--untracked-files=normal"}) == ""
+}
+
+// Holds asks the parent for the branches that contain commit; a commit
+// the parent has never seen is held by none.
+func Holds(v Vcs, parent string, commit string) bool fails work.VcsFailed {
+	let known = try reads(v, parent, []string{"cat-file", "-e", commit + "^{commit}"})
+	if known.Status != 0 {
+		return false
+	}
+	try answer(v, parent, []string{"branch", "--contains", commit, "--format=%(refname)"}) != ""
+}
+
+// Snapshot writes the tree of the working files through an index of its
+// own (SnapshotIndex), which it keeps: it starts from HEAD read into that
+// index with -m, so an entry whose content HEAD still has keeps the stat
+// data the last snapshot gave it, and add hashes only the files changed
+// since (a first snapshot hashes them all).
+func Snapshot(v Vcs, root string) string fails work.VcsFailed {
+	let dir = try answer(v, root, []string{"rev-parse", "--absolute-git-dir"})
+	let env = []string{"GIT_INDEX_FILE", filepath.Join([]string{dir, SnapshotIndex})}
+	let head = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", "HEAD"})
+	let start = if head.Status == 0 { []string{"read-tree", "-m", "HEAD"} } else { []string{"read-tree", "--empty"} }
+	let started = try git(v, root, start, env)
+	if started.Status != 0 && head.Status == 0 {
+		// An index of its own that -m cannot read is read afresh.
+		let fresh = []string{"read-tree", "HEAD"}
+		let _ = try ok(try git(v, root, fresh, env), root, fresh)
+	} else {
+		let _ = try ok(started, root, start)
+	}
+	let add = []string{"add", "--all", "--", "."}
+	let _ = try ok(try git(v, root, add, env), root, add)
+	let tree = []string{"write-tree"}
+	try ok(try git(v, root, tree, env), root, tree)
+}
+
+// Listed is two listings, with no file hashed: the tracked and the
+// untracked files that are not ignored, less the tracked ones deleted
+// from the working folder (a snapshot holds neither a deleted file nor a
+// submodule's folder, which is no file).
+func Listed(v Vcs, root string) []string fails work.VcsFailed {
+	let all = try rawOk(try reads(v, root, []string{"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--full-name"}), root)
+	let gone = try rawOk(try reads(v, root, []string{"ls-files", "-z", "--deleted", "--full-name"}), root)
+	let links = try rawOk(try reads(v, root, []string{"ls-files", "-z", "--stage", "--full-name"}), root)
+	let mut skip = Map[string, bool]{}
+	for path in strings.Split(gone, "\x00") {
+		skip[path] = true
+	}
+	for entry in strings.Split(links, "\x00") {
+		if strings.HasPrefix(entry, "160000 ") {
+			match strings.Cut(entry, "\t") {
+			case Some[strings.Halves] as h:
+				skip[h.Value.After] = true
+			case None:
+			}
+		}
+	}
+	let mut seen = Map[string, bool]{}
+	let mut out = []string{}
+	for path in strings.Split(all, "\x00") {
+		if path == "" || skip.Get(path) != None || seen.Get(path) != None {
+			continue
+		}
+		seen[path] = true
+		out = out.Append(path)
+	}
+	slices.Sort(out)
+}
+
+// Read is the files of tree: two git calls whatever the tree's size, a
+// listing (-z, so no path is quoted) and one cat-file --batch that
+// writes every blob, so reading a large repository costs no process per
+// file.
+func Read(v Vcs, root string, tree string) Map[string, string] fails work.VcsFailed {
+	let listing = try rawOk(try reads(v, root, []string{"ls-tree", "-r", "-z", "--full-tree", tree}), root)
+	let mut paths = []string{}
+	let mut ids = []string{}
+	for entry in strings.Split(listing, "\x00") {
+		if entry == "" {
+			continue
+		}
+		let (meta, path) = match strings.Cut(entry, "\t") {
+		case Some[strings.Halves] as h:
+			(h.Value.Before, h.Value.After)
+		case None:
+			return work.VcsFailed{Reason: "git ls-tree: \(entry)"}
+		}
+		let words = strings.Fields(meta)
+		if len(words) != 3 || words[1] != "blob" {
+			continue
+		}
+		paths = paths.Append(path)
+		ids = ids.Append(words[2])
+	}
+	let mut files = Map[string, string]{}
+	if len(ids) == 0 {
+		return files
+	}
+	let c = exec.New("git", []string{"-C", root, "--no-optional-locks", "cat-file", "--batch"}).WithStdin(strings.Join(ids, "\n") + "\n")
+	let r = v.run.Run(c) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+	let out = try rawOk(r, root)
+	let mut at = 0
+	for i, path in paths {
+		let end = strings.Index(out[at:], "\n")
+		if end < 0 {
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): the answer for \(path) is cut short"}
+		}
+		let words = strings.Fields(out[at : at+end])
+		if len(words) != 3 || words[0] != ids[i] || words[1] != "blob" {
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): \(out[at : at+end]) for \(path)"}
+		}
+		let size = strconv.Atoi(words[2]) catch {
+		case _:
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): a size \(words[2])"}
+		}
+		let start = at + end + 1
+		if start+size+1 > len(out) {
+			return work.VcsFailed{Reason: "git cat-file --batch in \(root): the answer for \(path) is cut short"}
+		}
+		files[path] = out[start : start+size]
+		at = start + size + 1
+	}
+	files
+}
+
+// rawOk is the untrimmed standard output of r, which must have ended
+// with status 0.
+func rawOk(r exec.Result, root string) string fails work.VcsFailed {
+	if r.Status != 0 {
+		return work.VcsFailed{Reason: "git cat-file in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+	r.Stdout
+}
+
+func Keep(v Vcs, root string, tree string) string fails work.VcsFailed {
+	try writes(v, root, []string{"commit-tree", tree, "-p", "HEAD", "-m", "ergo work snapshot"})
+}
+
+func Ref(v Vcs, root string, ref string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", ref})
+	if r.Status != 0 {
+		return ""
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func SetRef(v Vcs, root string, ref string, old string, value string) fails work.Moved | work.VcsFailed {
+	let r = try git(v, root, []string{"update-ref", ref, value, old}, []string{})
+	if r.Status != 0 {
+		let have = try Ref(v, root, ref)
+		if have != old {
+			return work.Moved{Ref: ref, Want: old, Have: have}
+		}
+		return work.VcsFailed{Reason: "git update-ref \(ref) in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+}
+
+func Resolve(v Vcs, root string, rev string) string fails work.NoRevision | work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", rev + "^{commit}"})
+	if r.Status != 0 {
+		return work.NoRevision{Rev: rev}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+func Contains(v Vcs, root string, commit string, ancestor string) bool fails work.VcsFailed {
+	let r = try reads(v, root, []string{"merge-base", "--is-ancestor", ancestor, commit})
+	match r.Status {
+	case 0:
+		true
+	case 1:
+		false
+	case _:
+		work.VcsFailed{Reason: "git merge-base in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+}
+
+// Start at the checkout's own head writes the two refs (git
+// update-ref, git symbolic-ref): a switch would refresh and rewrite the
+// whole index, in a clone made file by file a read of every tracked file,
+// to change two refs. At another commit it switches.
+func Start(v Vcs, root string, branch string, commit string) fails work.VcsFailed {
+	if try Head(v, root) == commit {
+		let _ = try writes(v, root, []string{"update-ref", "refs/heads/" + branch, commit})
+		let _ = try writes(v, root, []string{"symbolic-ref", "HEAD", "refs/heads/" + branch})
+	} else {
+		let _ = try writes(v, root, []string{"switch", "--quiet", "--no-track", "-C", branch, commit})
+	}
+}
+
+// GuardPushes gives each remote of the checkout the push URL Guard.
+func GuardPushes(v Vcs, root string) fails work.VcsFailed {
+	for name in exec.Split(try answer(v, root, []string{"remote"})) {
+		let _ = try writes(v, root, []string{"config", "remote.\(name).pushurl", Guard})
+	}
+}
+
+// Guarded reads each remote's push URLs (git config --get-all) and names
+// the remotes one of whose is Guard.
+func Guarded(v Vcs, root string) []string fails work.VcsFailed {
+	let mut out = []string{}
+	let remotes = exec.Split(try answer(v, root, []string{"remote"}))
+	for name in remotes {
+		let urls = answer(v, root, []string{"config", "--get-all", "remote.\(name).pushurl"}) catch {
+		case work.VcsFailed:
+			""
+		}
+		if slices.Contains(exec.Split(urls), Guard) {
+			out = out.Append(name)
+		}
+	}
+	out
+}
+
+// Unguard unsets, in each remote that has it, the push URL Guard only
+// (git config --unset-all with a value pattern), so a push URL the owner
+// set stays.
+func Unguard(v Vcs, root string) fails work.VcsFailed {
+	for name in try Guarded(v, root) {
+		let _ = try writes(v, root, []string{"config", "--unset-all", "remote.\(name).pushurl", "^" + Guard + "$"})
+	}
+}
+
+// Locals reads the branches by for-each-ref and the stash entries by
+// git stash list, the newest first.
+func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
+	let mut out = []work.Local{}
+	for line in exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"})) {
+		let f = strings.Fields(line)
+		if len(f) == 2 {
+			out = out.Append(work.Local{Ref: f[0], Commit: f[1]})
+		}
+	}
+	for i, commit in exec.Split(try answer(v, root, []string{"stash", "list", "--format=%H"})) {
+		out = out.Append(work.Local{Ref: "refs/stash/\(i)", Commit: commit})
+	}
+	out
+}
+
+func Tracked(v Vcs, root string, path string) bool fails work.VcsFailed {
+	(try reads(v, root, []string{"ls-files", "--error-unmatch", "--", path})).Status == 0
+}
+
+// ExcludeScript appends the line $1 to the checkout's info/exclude (where
+// git rev-parse --git-path puts it) unless the file has that line.
+let ExcludeScript = "set -eu\nf=$(git rev-parse --git-path info/exclude)\nmkdir -p \"$(dirname \"$f\")\"\ngrep -qxF -- \"$1\" \"$f\" 2>/dev/null || printf '%s\\n' \"$1\" >> \"$f\"\n"
+
+func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
+	let r = v.run.Run(exec.New("sh", []string{"-c", ExcludeScript, "work-exclude", pattern}).WithDir(root)) catch {
+	case exec.NotFound, exec.Denied:
+		return work.VcsFailed{Reason: "sh could not start"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "sh: \(f.Reason)"}
+	}
+	if r.Status != 0 {
+		return work.VcsFailed{Reason: "\(root): info/exclude: \(strings.TrimSpace(r.Stderr))"}
+	}
+}
+
+// Remote reads the remote-tracking refs that contain commit, and with
+// onDefault the refs each refs/remotes/R/HEAD names (%(symref)).
+func Remote(v Vcs, root string, commit string, onDefault bool) bool fails work.VcsFailed {
+	let holding = exec.Split(try answer(v, root, []string{"for-each-ref", "--contains", commit, "--format=%(refname)", "refs/remotes"}))
+	if !onDefault {
+		return len(holding) > 0
+	}
+	let defaults = exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(symref)", "refs/remotes"}))
+	slices.IndexFunc(holding, func(r string) bool { r != "" && slices.Contains(defaults, r) }) >= 0
+}
+
+func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotFastForward | work.VcsFailed {
+	let mut args = []string{"push", "--atomic", "--porcelain", try other(root, parent)}
+	for p in refs {
+		let force = if p.Force { "+" } else { "" }
+		args = args.Append(force + p.From + ":" + p.To)
+	}
+	let r = try git(v, root, args, []string{})
+	if r.Status != 0 {
+		for p in refs {
+			if strings.Contains(r.Stdout, ":"+p.To+"\t[rejected]") || strings.Contains(r.Stdout, p.To+"\t[rejected]") {
+				return work.NotFastForward{Ref: p.To, Parent: parent}
+			}
+		}
+		return work.VcsFailed{Reason: "git push in \(root): \(strings.TrimSpace(r.Stdout + r.Stderr))"}
+	}
+}
+
+func Merge(v Vcs, root string, parent string, branch string) string fails work.Conflicted | work.VcsFailed {
+	let _ = try writes(v, root, []string{"fetch", "--quiet", "--no-tags", try other(root, parent), "refs/heads/" + branch})
+	let theirs = try answer(v, root, []string{"rev-parse", "--verify", "FETCH_HEAD^{commit}"})
+	let r = try git(v, root, []string{"merge", "--quiet", "--no-edit", theirs}, []string{})
+	if r.Status != 0 {
+		let files = exec.Split(try answer(v, root, []string{"diff", "--name-only", "--diff-filter=U"}))
+		if len(files) > 0 {
+			return work.Conflicted{Files: files}
+		}
+		return work.VcsFailed{Reason: "git merge in \(root): \(strings.TrimSpace(r.Stdout + r.Stderr))"}
+	}
+	theirs
+}
+
+func Configure(v Vcs, root string, key string, value string) fails work.VcsFailed {
+	let _ = try writes(v, root, []string{"config", key, value})
+}
+
+// TreeOf is git rev-parse C^{tree}.
+func TreeOf(v Vcs, root string, commit string) string fails work.NoRevision | work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", commit + "^{tree}"})
+	if r.Status != 0 {
+		return work.NoRevision{Rev: commit}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+// Note is git notes --ref work show: status 1 with no note is "". The
+// text is as SetNote gave it (no whitespace cleaned).
+func Note(v Vcs, root string, commit string) string fails work.VcsFailed {
+	let args = []string{"notes", "--ref", "work", "show", commit}
+	let r = try reads(v, root, args)
+	if r.Status != 0 {
+		if strings.Contains(r.Stderr, "no note found") {
+			return ""
+		}
+		return try ok(r, root, args)
+	}
+	r.Stdout
+}
+
+// SetNote is git notes --ref work add -f with the text on standard
+// input, as it is (--no-stripspace).
+func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFailed {
+	let args = []string{"-C", root, "notes", "--ref", "work", "add", "-f", "--no-stripspace", "-F", "-", commit}
+	let r = v.run.Run(exec.New("git", args).WithStdin(text)) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+	let _ = try ok(r, root, args)
+}
+
+// Setting is git config --get: status 1 is a key no file sets. The value
+// is as Configure set it, its own spaces kept (Git quotes a value that
+// ends in one): only the newline git config ends its answer with goes.
+func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"config", "--get", key})
+	if r.Status == 1 {
+		return ""
+	}
+	let _ = try ok(r, root, []string{"config", "--get", key})
+	strings.TrimSuffix(r.Stdout, "\n")
+}
+
+// StatDirty counts the entries git diff-files reports (a stat that
+// differs from the index's; diff-files refreshes nothing) less those whose
+// content changed (git diff, which compares content and, with
+// --no-optional-locks, writes no index).
+func StatDirty(v Vcs, root string) int fails work.VcsFailed {
+	let stat = lines(try answer(v, root, []string{"diff-files", "--name-only"}))
+	let changed = lines(try answer(v, root, []string{"diff", "--name-only"}))
+	stat - changed
+}
+
+func lines(text string) int {
+	let t = strings.TrimSpace(text)
+	if t == "" { 0 } else { len(strings.Split(t, "\n")) }
+}
+
+// Refresh is git update-index --refresh: status 1 only says that some
+// file's content changed, which a refresh leaves to git status.
+func Refresh(v Vcs, root string) fails work.VcsFailed {
+	let r = try git(v, root, []string{"update-index", "-q", "--refresh"}, []string{})
+	if r.Status != 0 && r.Status != 1 {
+		return work.VcsFailed{Reason: "git update-index --refresh in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+}

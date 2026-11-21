@@ -1,0 +1,45 @@
+// The conformance vectors: what every TN1 engine must give. A vector is a
+// record (a file's features, made by a host), a network, and the findings
+// of the network on the record. This engine is the reference: Expected
+// writes the vectors' findings, and every other engine (the hand-written
+// JavaScript one of oxlint-plugin-effect) must reproduce each line.
+//
+// The text Expected writes, one item per line, tab-separated:
+//
+//	id NET MODEL-ID                            each network, by name
+//	finding RECORD NET LINE SCORE PERMILLE     each finding, records and
+//	                                           networks in name order
+
+import strings
+
+// Named is a named text: a record or a weights file, by its file name.
+type Named { Name string, Text string }
+
+// BadFile is a record or a network that does not parse.
+type BadFile { Name string, Line int, Reason string }
+
+// Expected is the findings of every network on every record.
+func Expected(records []Named, nets []Named) string fails BadFile {
+	let mut parsed = []Net{}
+	let mut b = strings.NewBuilder()
+	for n in nets {
+		let net = ParseNet(n.Text) catch {
+		case Malformed as m:
+			return BadFile{Name: n.Name, Line: m.Line, Reason: m.Reason}
+		}
+		parsed = parsed.Append(net)
+		b.WriteString("id\t\(n.Name)\t\(ID(net))\n")
+	}
+	for r in records {
+		let features = ParseRecord(r.Text) catch {
+		case Malformed as m:
+			return BadFile{Name: r.Name, Line: m.Line, Reason: m.Reason}
+		}
+		for i in 0..len(nets) {
+			for f in Run(parsed[i], features) {
+				b.WriteString("finding\t\(r.Name)\t\(nets[i].Name)\t\(f.Line)\t\(f.Score)\t\(f.Permille)\n")
+			}
+		}
+	}
+	b.String()
+}

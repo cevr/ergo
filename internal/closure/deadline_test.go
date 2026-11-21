@@ -223,12 +223,10 @@ func TestRunTestDeadlineFitsTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runDeadline(0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The sweep stops a run that works at its end (runEnd); the run is
+	// started after this, so its end is no earlier.
+	stop := runEnd()
 	stem := filepath.Join(t.TempDir(), "internal_p")
-	start := time.Now()
 	if _, err := runTests(f.root, []string{f.root}, "internal/p", f.pkg, stem, []string{deadlineTargetVariable + "=1"}, self, "-test.run=^TestRunDeadlineTarget$"); err != nil {
 		t.Fatal(err)
 	}
@@ -236,12 +234,20 @@ func TestRunTestDeadlineFitsTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if stop.IsZero() {
+		// No deadline of this binary: the run has no end, and its tests no
+		// deadline.
+		if !strings.HasPrefix(string(out), "deadline none") {
+			t.Errorf("a run with no end gave its tests a deadline:\n%s", out)
+		}
+		return
+	}
 	var nanos int64
 	if _, err := fmt.Sscanf(string(out), "deadline %d", &nanos); err != nil {
 		t.Fatalf("the target printed no deadline (%v):\n%s", err, out)
 	}
-	if stop := start.Add(run); time.Unix(0, nanos).After(stop) {
-		t.Errorf("the run's test deadline %v is after the sweep stops the run (%v after it began)", time.Unix(0, nanos).Sub(start).Round(time.Second), run)
+	if time.Unix(0, nanos).After(stop) {
+		t.Errorf("the run's test deadline %v is after the sweep stops the run (%v)", time.Unix(0, nanos), stop)
 	}
 }
 

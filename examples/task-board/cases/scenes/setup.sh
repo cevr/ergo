@@ -1,0 +1,1 @@
+printf '{"columns":[{"id":"todo","name":"To Do","cards":[{"id":"1","title":"Write tests","description":"","sortKey":"a0"},{"id":"2","title":"Fix bug","description":"","sortKey":"a1"}]},{"id":"in-progress","name":"In Progress","cards":[{"id":"3","title":"Review PR","description":"","sortKey":"a0"}]},{"id":"done","name":"Done","cards":[]}]}\n' > board.json

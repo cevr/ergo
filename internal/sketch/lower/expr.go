@@ -134,7 +134,7 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			if _, ok := fc.l.info.Values[n]; ok {
 				return false
 			}
-			if fc.methodOf(n) != nil {
+			if fc.methodOf(n) != nil || fc.l.info.MethodValues[n] != nil {
 				found = true
 			}
 		case syntax.Expr:
@@ -217,7 +217,9 @@ func (fc *funcCtx) value(x syntax.Expr) string {
 		if fc.tries == 0 {
 			ice(x, "an untried fallible expression in a value position")
 		}
-		fc.propagate(o.err)
+		// The first call under a try asked for its failures
+		// its label is placed here, as try places it (triedCall).
+		fc.propagateFailed(o)
 	}
 	return o.val
 }
@@ -235,9 +237,9 @@ func (fc *funcCtx) assigned(x syntax.Expr) string {
 func (fc *funcCtx) convertAt(x syntax.Expr, val string) string {
 	conv, ok := fc.l.info.Implicit[x]
 	if !ok {
-		return val
+		return fc.rowWrite(x, val) // rowgap.go
 	}
-	return fc.convert(conv, val, x)
+	return fc.rowWrite(x, fc.convert(conv, val, x)) // rowgap.go
 }
 
 // elemAt applies the implicit conversion of element i of x, a value that a
@@ -276,7 +278,26 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
 		// implement its sealed interface (D-C3).
+		if fu := fc.l.flatUnionOf(conv.To); fu != nil {
+			// A flat union with some error variants (MSB3): a type switch
+			// on the Go error builds the variant it holds.
+			self := fc.goType(conv.To)
+			e, v := fc.scope.alloc("e"), fc.scope.alloc("v")
+			var b strings.Builder
+			b.WriteString("func(" + e + " error) " + self + " {\nswitch " + v + " := " + e + ".(type) {\n")
+			for k, vt := range fu.variants {
+				if fc.l.errorType(vt) {
+					b.WriteString("case " + fc.goType(vt) + ":\nreturn " + fu.flatValue(&fc.typeCtx, self, k, v) + "\n")
+				}
+			}
+			b.WriteString("}\npanic(" + e + ")\n}(" + val + ")")
+			return b.String()
+		}
 		return val + ".(" + fc.goType(conv.To) + ")"
+	case check.ConvNarrow:
+		return fc.narrowFunc(conv, val, site)
+	case check.ConvWiden:
+		return fc.widen(conv, val, site)
 	case check.ConvMachine:
 		// A machine's value is a Machine of its plan's initial value and
 		// its step function (README Gap 46; machine.go). The plan value has
@@ -291,19 +312,58 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			// plan value is not read; it has zero size and no effect.
 			first = "Start: " + fc.machineStart(start, site)
 		}
-		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + "}"
+		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + ", Exit: " + fc.machineExit(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""
 }
 
-// expr lowers x; in a statement header, a composite literal value is
-// parenthesized (header.go).
-func (fc *funcCtx) expr(x syntax.Expr) operand {
-	if fc.l.info.TryCovers[x] != nil {
-		return fc.covered(x)
+// widen is val, a value of the declared union conv.From, as one of
+// conv.To, which holds each of its variants (ConvWiden; types.md,
+// Assignability 4; subunion.go).
+func (fc *funcCtx) widen(conv check.Conversion, val string, site syntax.Node) string {
+	return fc.unionInto(conv.From, conv.To, val, site)
+}
+
+// narrowFunc is val, a function value of conv.From, as one of conv.To
+// (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
+// whose parameters that are a row value of one error type, a Go error,
+// are asserted to that type, the value's parameter, before val runs. val
+// is evaluated once, where the conversion is.
+func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Node) string {
+	from, ok := underlyingOf(conv.From).(*check.Signature)
+	to, ok2 := underlyingOf(conv.To).(*check.Signature)
+	if !ok || !ok2 || len(from.Params) != len(to.Params) {
+		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
 	}
-	return fc.expr1(x)
+	var asserts []int
+	for i, p := range to.Params {
+		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
+			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
+				asserts = append(asserts, i)
+			}
+		}
+	}
+	return fc.rowFunc(from, to, fc.goType(conv.From), fc.goType(conv.To), asserts, val, site) // rowgap.go
+}
+
+// expr lowers x; in a statement header, a composite literal value is
+// parenthesized (header.go). A declaration's place that x reads is read as
+// x's type holds it (rowRead, rowgap.go).
+func (fc *funcCtx) expr(x syntax.Expr) operand {
+	if v, ok := fc.preset[x]; ok {
+		return operand{val: v} // evaluated once already (uigroup.go)
+	}
+	var o operand
+	if fc.l.info.TryCovers[x] != nil {
+		o = fc.covered(x)
+	} else {
+		o = fc.expr1(x)
+	}
+	if o.val != "" {
+		o.val = fc.rowRead(x, o.val)
+	}
+	return o
 }
 
 // covered lowers x, the right operand that a try in operand position on
@@ -334,9 +394,9 @@ func (fc *funcCtx) expr1(x syntax.Expr) operand {
 		if g, ok := fc.l.vals.reads[x]; ok {
 			o.val = fc.readsCopy(x, o.val, g)
 		} else if fc.l.vals.deep[x] {
-			o.val = fc.cloneDeep(fc.typeOf(x), o.val, x)
+			o.val = fc.reportCopy(x, fc.cloneDeep(fc.typeOf(x), o.val, x), fc.valueWhy(x))
 		} else {
-			o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+			o.val = fc.reportCopy(x, fc.cloneValue(fc.typeOf(x), o.val, x), fc.valueWhy(x))
 		}
 	}
 	o.val = fc.guardHeader(o.val)
@@ -413,6 +473,31 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	return operand{}
 }
 
+// aliased is the TypeName that package pkg's exported type name stands
+// for: an alias of a named type (`type BoardRequest =
+// pipelineapi.BoardRequest`) stands for the aliased type's own; any other
+// type name for itself. nil when pkg exports no type of that name.
+func aliased(pkg *check.Package, name string) *check.TypeName {
+	for _, o := range pkg.Exported() {
+		tn, ok := o.(*check.TypeName)
+		if !ok || tn.Name != name {
+			continue
+		}
+		for {
+			n, ok := tn.Type.(*check.Named)
+			if !ok {
+				return tn
+			}
+			a, ok := n.Alias().(*check.Named)
+			if !ok || a.Obj == nil || a.Obj == tn {
+				return tn
+			}
+			tn = a.Obj
+		}
+	}
+	return nil
+}
+
 // bareRecord reads the TypeName use of a bare record value. Its checked
 // type holds any type arguments; those arguments are never value indices.
 func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
@@ -431,17 +516,23 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 		}
 		pn, ok := fc.l.info.Uses[id].(*check.PkgName)
 		named, isNamed := fc.typeOf(x).(*check.Named)
-		if !ok || !isNamed || named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
+		if !ok || !isNamed || aliased(pn.Pkg, head.Sel.Name) != named.Obj {
 			return "", false
 		}
 		// A qualified expression records its package use and final type;
-		// the Named's object is the selected TypeName.
+		// the Named's object is the selected TypeName, or the one an alias
+		// of that name stands for (S109-ALIAS).
 		tn = named.Obj
 	default:
 		return "", false
 	}
 	if tn == nil {
 		return "", false
+	}
+	if n, ok := fc.typeOf(x).(*check.Named); ok && n.Obj != tn {
+		// An alias (type BoardRequest = api.BoardRequest) names the
+		// record its type is: read that record's declaration (I22).
+		tn = n.Obj
 	}
 	td := fc.l.typeDecl(tn, x)
 	if td.kind != kindRecord || len(td.fields) != 0 {
@@ -527,6 +618,9 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 	}
 	if op := fc.methodOf(x); op != nil {
 		return fc.methodValue(x, op)
+	}
+	if f := fc.l.info.MethodValues[x]; f != nil {
+		return fc.methodValue196(x, f)
 	}
 	recv := fc.value(x.X)
 	if hostRecv(fc.typeOf(x.X)) {
@@ -687,6 +781,10 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if fc.l.info.Relends[x] {
+		// &x of a mut parameter passes its pointer on (Info.Relends).
+		return fc.value(x.X)
+	}
 	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
 		// A Close through the address of an owned local takes it: its
 		// entry ends here, as at a by-address receiver (place).
@@ -803,6 +901,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		vals := fc.elements(x.Elts, u.Elem)
 		return goType + "{" + strings.Join(vals, ", ") + "}"
 	case *check.Map:
+		fc.l.intMapConflict(u) // intmap.go: Go's map literal
 		var list []syntax.Expr
 		for _, e := range x.Elts {
 			kv, ok := e.(*syntax.KeyValueExpr)
@@ -874,6 +973,96 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 		fc.line(u + "." + keys[i] + " = " + vals[i])
 	}
 	return u
+}
+
+// updateSelf is own-update-self's admission (LWR-SPREAD-SELF): it lowers
+// `r = T{..r, F: v, G: w}`, an update of a let mut r stored back into r,
+// to the field values, evaluated in source order, then one store per
+// named field:
+//
+//	v1 := v
+//	v2 := w
+//	r.F = v1
+//	r.G = v2
+//
+// with no copy of r into a temporary and none back. A Go record is a
+// value, so storing into r's fields writes nothing another binding holds,
+// and every value is evaluated before the first store, so a value that
+// reads a named field (`r = T{..r, n: r.n + 1, xs: r.xs.Append(r.n)}`)
+// reads the old one, as the update does. It reports false, writing
+// nothing, for an update that owns or hands over resources (R43), copies
+// its base or result (the value rule), spreads another type or converts.
+func (fc *funcCtx) updateSelf(s *syntax.AssignStmt, target string) bool {
+	lit, ok := unparen(s.Rhs[0]).(*syntax.CompositeLit)
+	if !ok || lit.Base == nil {
+		return false
+	}
+	lhs, ok := unparen(s.Lhs[0]).(*syntax.Ident)
+	base, ok2 := unparen(lit.Base).(*syntax.Ident)
+	if !ok || !ok2 {
+		return false
+	}
+	v, ok := fc.l.info.Uses[lhs].(*check.Var)
+	if !ok || !v.Mut() || fc.l.info.Uses[base] != check.Object(v) || !isGoPath(target) {
+		return false
+	}
+	n, ok := v.Type.(*check.Named)
+	if !ok || fc.typeOf(lit) != v.Type {
+		return false
+	}
+	td := fc.l.typeDecl(n.Obj, lit)
+	if td.kind != kindRecord || td.goError {
+		return false
+	}
+	info := fc.l.info
+	if _, ok := info.Spreads[lit]; ok {
+		return false
+	}
+	if _, ok := info.Implicit[lit]; ok {
+		return false
+	}
+	if len(info.Replaced[lit]) > 0 || info.PartHands[lit.Base] || info.PartHands[base] || info.OwnedVars[v] != nil || info.OwnedTemps[lit] != nil || info.OwnedTemps[base] != nil || info.Handoffs[base] != nil {
+		return false
+	}
+	if fc.l.vals != nil && (fc.l.vals.clone[lit] || fc.l.vals.clone[lit.Base] || fc.l.vals.clone[base]) {
+		return false
+	}
+	var keys []string
+	var values []syntax.Expr
+	for _, e := range lit.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			return false
+		}
+		id, ok := kv.Key.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		name, ok := td.fieldName[id.Name]
+		if !ok {
+			return false
+		}
+		keys = append(keys, name)
+		values = append(values, kv.Value)
+	}
+	if !fc.l.takes("own-update-self") {
+		return false
+	}
+	fc.l.took("own-update-self")
+	vals := fc.operands(values, true)
+	if len(vals) > 1 {
+		// Every value before the first store: a later value may read a
+		// field an earlier store names.
+		for i := range vals {
+			if !isGoPath(vals[i]) || strings.Contains(vals[i], ".") || vals[i] == target {
+				vals[i] = fc.spill(vals[i])
+			}
+		}
+	}
+	for i := range keys {
+		fc.line(target + "." + keys[i] + " = " + vals[i])
+	}
+	return true
 }
 
 // spread lowers a spread `T{..s, F: v}` whose base s has another record
@@ -1155,7 +1344,7 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 		fc.tries--
 		return o
 	}
-	o := fc.asked(x.X)
+	o := fc.askedFor(x.X, triedCall(x.X))
 	fc.tries--
 	if o.err != "" {
 		fc.propagateFailed(o)
@@ -1165,11 +1354,74 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 
 // asked lowers x as the operand of a catch or a try that places its
 // inlined failing returns (failJump, inline.go).
-func (fc *funcCtx) asked(x syntax.Expr) operand {
+func (fc *funcCtx) asked(x syntax.Expr) operand { return fc.askedFor(x, unparen(x)) }
+
+// askedFor lowers x, asking for the failures of call (failJump).
+func (fc *funcCtx) askedFor(x syntax.Expr, call syntax.Expr) operand {
 	saved := fc.failJump
-	fc.failJump = unparen(x)
+	fc.failJump = call
 	defer func() { fc.failJump = saved }()
 	return fc.expr(x)
+}
+
+// underTry lowers, until the returned func runs, under the try that
+// starts a shape looked through (tried): it covers the shape's x, and asks
+// for the failures of the call x evaluates first, as fc.try asks.
+func (fc *funcCtx) underTry(x syntax.Expr) func() {
+	fc.tries++
+	saved := fc.failJump
+	fc.failJump = triedCall(x)
+	return func() {
+		fc.failJump = saved
+		fc.tries--
+	}
+}
+
+// underTriedAssert is f, under the try that starts the assert's condition
+// x when one does (underTry).
+func (fc *funcCtx) underTriedAssert(x syntax.Expr, f func() (string, string)) (string, string) {
+	if t := tried(x); t != x {
+		defer fc.underTry(t)()
+	}
+	return f()
+}
+
+// triedCall is the expression whose failures a try over x asks for: the call
+// x evaluates first, through the left operand of a binary expression, a
+// selector, an index and a method call's receiver, past parentheses; or
+// x itself when that is no call. A try never groups (grammar.md,
+// Expressions 1), so try r(4).N * 2 is a try over the product, and its
+// first call is r(4), whose failures (try r(4)).N * 2 asks for too: the
+// two lower to one Go text, as parentheses round a try carry no meaning
+// (q105; batch-19 B7h). value places the label of the first call where
+// its value is read.
+func triedCall(x syntax.Expr) syntax.Expr {
+	x = unparen(x)
+	if c := firstCall(x); c != nil {
+		return c
+	}
+	return x
+}
+
+// firstCall is the call x evaluates first along its leftmost operands, or
+// nil.
+func firstCall(x syntax.Expr) *syntax.CallExpr {
+	switch y := unparen(x).(type) {
+	case *syntax.BinaryExpr:
+		return firstCall(y.X)
+	case *syntax.SelectorExpr:
+		return firstCall(y.X)
+	case *syntax.IndexExpr:
+		return firstCall(y.X)
+	case *syntax.CallExpr:
+		if sel, ok := unparen(y.Fun).(*syntax.SelectorExpr); ok {
+			if c := firstCall(sel.X); c != nil {
+				return c
+			}
+		}
+		return y
+	}
+	return nil
 }
 
 // placeFail places the label of o's inlined failing returns (failJump),

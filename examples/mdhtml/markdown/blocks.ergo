@@ -5,6 +5,7 @@
 
 import slices
 import strings
+import mdhtml/html
 
 // Kind is what a block is.
 type Kind = Document | Quote | ListBlock | Item | Para | Heading | Rule | Code | RawHtml
@@ -83,7 +84,7 @@ type parser {
 
 let noList = listData{ordered: false, bullet: 0, start: 0, delim: 0, padding: 0, markerOffset: 0, tight: true}
 
-func add(p *parser, k Kind, line int) int {
+func add(p mut parser, k Kind, line int) int {
 	p.blocks = p.blocks.Append(block{
 		kind:      k, parent: -1, first: -1, last: -1, prev: -1, next: -1, open: true,
 		startLine: line, endLine: 0, list: noList, level: 0, fenced: false, fenceChar: 0,
@@ -93,7 +94,7 @@ func add(p *parser, k Kind, line int) int {
 	len(p.blocks) - 1
 }
 
-func appendChild(p *parser, parent int, child int) {
+func appendChild(p mut parser, parent int, child int) {
 	let prev = p.blocks[parent].last
 	p.blocks[child].parent = parent
 	p.blocks[child].prev = prev
@@ -105,7 +106,7 @@ func appendChild(p *parser, parent int, child int) {
 	p.blocks[parent].last = child
 }
 
-func unlink(p *parser, id int) {
+func unlink(p mut parser, id int) {
 	let b = p.blocks[id]
 	if b.prev >= 0 {
 		p.blocks[b.prev].next = b.next
@@ -165,7 +166,7 @@ func SplitLines(src string) []string {
 	lines
 }
 
-func findNextNonspace(p *parser) {
+func findNextNonspace(p mut parser) {
 	let mut i = p.offset
 	let mut cols = p.column
 	for i < len(p.line) {
@@ -187,7 +188,7 @@ func findNextNonspace(p *parser) {
 	p.indented = p.indent >= 4
 }
 
-func advanceNextNonspace(p *parser) {
+func advanceNextNonspace(p mut parser) {
 	p.offset = p.nextNonspace
 	p.column = p.nextNonspaceColumn
 	p.partiallyConsumedTab = false
@@ -195,7 +196,7 @@ func advanceNextNonspace(p *parser) {
 
 // advanceOffset moves count bytes, or count columns when columns is set
 // (a tab may then be consumed in part).
-func advanceOffset(p *parser, count int, columns bool) {
+func advanceOffset(p mut parser, count int, columns bool) {
 	let mut left = count
 	for left > 0 && p.offset < len(p.line) {
 		if p.line[p.offset] == '\t' {
@@ -224,16 +225,16 @@ func advanceOffset(p *parser, count int, columns bool) {
 }
 
 // at is the byte at i of the line, or -1 past its end.
-func at(p *parser, i int) int {
+func at(p mut parser, i int) int {
 	if i < len(p.line) { int(p.line[i]) } else { -1 }
 }
 
 func spaceOrTab(c int) bool { c == 32 || c == 9 }
 
-func rest(p *parser) string { strings.Slice(p.line, p.nextNonspace, len(p.line)) }
+func rest(p mut parser) string { strings.Slice(p.line, p.nextNonspace, len(p.line)) }
 
 // addLine adds the rest of the line to the tip.
-func addLine(p *parser) {
+func addLine(p mut parser) {
 	let mut text = ""
 	if p.partiallyConsumedTab {
 		p.offset += 1
@@ -260,7 +261,7 @@ func acceptsLines(k Kind) bool { k == Para || k == Code || k == RawHtml }
 
 // addChild adds a block of kind k at the tip, closing the tips that
 // cannot hold it.
-func addChild(p *parser, k Kind) int {
+func addChild(p mut parser, k Kind) int {
 	for !canContain(p.blocks[p.tip].kind, k) {
 		finalize(p, p.tip, p.lineNumber-1)
 	}
@@ -270,7 +271,7 @@ func addChild(p *parser, k Kind) int {
 	id
 }
 
-func closeUnmatched(p *parser) {
+func closeUnmatched(p mut parser) {
 	if !p.allClosed {
 		for p.oldtip != p.lastMatched {
 			let parent = p.blocks[p.oldtip].parent
@@ -283,7 +284,7 @@ func closeUnmatched(p *parser) {
 
 // continues says whether the open block id goes on at this line: 0 it
 // does, 1 it does not, 2 the line is used up (a closing fence).
-func continues(p *parser, id int) int {
+func continues(p mut parser, id int) int {
 	let b = p.blocks[id]
 	match b.kind {
 	case Document, ListBlock:
@@ -358,7 +359,7 @@ func closingFence(s string, c byte) int {
 	n
 }
 
-func incorporate(p *parser, ln string) {
+func incorporate(p mut parser, ln string) {
 	let mut container = 0
 	p.oldtip = p.tip
 	p.offset = 0
@@ -434,7 +435,7 @@ func maybeSpecial(c int) bool {
 
 // start tries block start s (0 to 7, in CommonMark's order) at the line:
 // 0 no start, 1 a container started, 2 a leaf started.
-func start(p *parser, s int, container int) int {
+func start(p mut parser, s int, container int) int {
 	let r = rest(p)
 	if s == 0 {
 		if !p.indented && at(p, p.nextNonspace) == '>' {
@@ -653,7 +654,7 @@ func listsMatch(a listData, b listData) bool {
 
 // listMarker reads a list item's marker at the line, and moves past it
 // and the spaces of its content's indent.
-func listMarker(p *parser, container int) Option[listData] {
+func listMarker(p mut parser, container int) Option[listData] {
 	if p.indent >= 4 {
 		return None
 	}
@@ -726,7 +727,7 @@ func blankFrom(s string, i int) bool {
 }
 
 // text is the block's lines, each ended by a line feed.
-func text(p *parser, id int) string {
+func text(p mut parser, id int) string {
 	let lines = p.blocks[id].lines
 	if len(lines) == 0 {
 		return ""
@@ -734,7 +735,7 @@ func text(p *parser, id int) string {
 	strings.Join(lines, "\n") + "\n"
 }
 
-func finalize(p *parser, id int, line int) {
+func finalize(p mut parser, id int, line int) {
 	let above = p.blocks[id].parent
 	p.blocks[id].open = false
 	p.blocks[id].endLine = line
@@ -809,7 +810,7 @@ type Definitions { Rest string, Read bool }
 
 // readDefinitions reads the link reference definitions that content
 // starts with; the first definition of a label wins.
-func readDefinitions(p *parser, content string) Definitions {
+func readDefinitions(p mut parser, content string) Definitions {
 	let mut s = content
 	let mut read = false
 	let mut more = true
@@ -830,7 +831,7 @@ func readDefinitions(p *parser, content string) Definitions {
 
 // endsBlank says whether a blank line follows the block before its next
 // sibling.
-func endsBlank(p *parser, id int) bool {
+func endsBlank(p mut parser, id int) bool {
 	let b = p.blocks[id]
 	b.next >= 0 && b.endLine != p.blocks[b.next].startLine-1
 }
@@ -857,4 +858,22 @@ func trimSpace(s string) string {
 		j -= 1
 	}
 	strings.Slice(s, i, j)
+}
+
+// CodeSpanKeepsText: text between backticks is code as it is, escaped.
+law CodeSpanKeepsText(s string) {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if c != '`' && c != '\n' && c != '\r' && c != 0 {
+			b.WriteByte(c)
+		}
+	}
+	let t = trimSpace(b.String())
+	if t == "" {
+		return true
+	}
+	let code = "<p><code>" + html.Escape(t) + "</code></p>\n"
+	// One space at each end goes; a space at one end only stays.
+	md("`"+t+"`") == code && md("` "+t+" `") == code && md("` "+t+"`") == "<p><code> "+html.Escape(t)+"</code></p>\n"
 }

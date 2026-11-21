@@ -92,6 +92,37 @@ var i1Loops = []i1Loop{
 type i1Variant struct {
 	name                          string
 	cont, brk, fail, site, nested bool
+	// callee: the innermost body calls a function (FLIP P1, pollplace.go).
+	// spin and spun are recursive, so they poll at their entry; flat is
+	// impure but not recursive, so it does not. With "first" (spin as the
+	// first statement) and "and-left" (spun on the left of &&) every
+	// iteration polls through the callee and the loop takes no back-edge
+	// poll (i1CalleePolls); with "cond" (spin under an if), "after" (spin
+	// after the continue), "flat" and "and-right" (spun on the right of
+	// &&) the loop keeps it.
+	callee string
+}
+
+// i1CalleePolls reports a callee variant whose innermost loop takes no
+// back-edge poll: spin first or spun on the left of &&, or flat or helper
+// first when its Go frame checks at its entry (an impure frame that is
+// not recursive polls at entry when it is opaque and not closed, a fact
+// of the whole program, so the oracle reads it from the Go).
+func i1CalleePolls(callee string, f *ast.File) bool {
+	switch callee {
+	case "first", "and-left":
+		return true
+	case "flat", "helper":
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == callee && fd.Body != nil {
+				// helper's first Check may be its Tick site's, not an entry's.
+				list := fd.Body.List
+				site := len(list) > 1 && stmtCall(list[1], "Tick") != nil
+				return len(list) > 0 && isOwnCheck(list[0], i1EnvParam(fd.Type)) && !site
+			}
+		}
+	}
+	return false
 }
 
 var i1Variants = []i1Variant{
@@ -100,6 +131,13 @@ var i1Variants = []i1Variant{
 	{name: "break", brk: true},
 	{name: "failure", fail: true},
 	{name: "site", site: true, cont: true},
+	{name: "callee-poll", callee: "first", cont: true},
+	{name: "callee-poll-cond", callee: "cond", cont: true},
+	{name: "callee-poll-after", callee: "after", cont: true},
+	{name: "callee-flat", callee: "flat", cont: true},
+	{name: "callee-helper", callee: "helper", cont: true},
+	{name: "callee-and-left", callee: "and-left", cont: true},
+	{name: "callee-and-right", callee: "and-right", cont: true},
 }
 
 const i1Defs = `import task
@@ -146,6 +184,22 @@ func started() {
 	let t = task.Go() { 1 }
 	t.Stop()
 }
+func spin(n int) {
+	let _ = hostTrim("")
+	if n > 0 {
+		spin(n - 1)
+	}
+}
+func spun(n int) bool {
+	let _ = hostTrim("")
+	if n > 0 {
+		return spun(n - 1)
+	}
+	true
+}
+func flat() {
+	let _ = hostTrim("")
+}
 `
 
 // i1LoopShapes is the loop-shape axis every loop generator shares: each
@@ -188,6 +242,22 @@ func i1Body(prefix string, loops []i1Loop, v i1Variant, site string) string {
 	if v.site {
 		inner = site + inner
 	}
+	switch v.callee {
+	case "first":
+		inner = "spin(1)\n" + inner
+	case "cond":
+		inner = fmt.Sprintf("if x%d == 1 {\nspin(1)\n}\n", last) + inner
+	case "after":
+		inner += "spin(1)\n"
+	case "flat":
+		inner = "flat()\n" + inner
+	case "helper":
+		inner = "helper()\n" + inner
+	case "and-left":
+		inner = fmt.Sprintf("let _ = spun(1) && x%d == 1\n", last) + inner
+	case "and-right":
+		inner = fmt.Sprintf("let _ = x%d == 1 && spun(1)\n", last) + inner
+	}
 	for d := last; d >= 0; d-- {
 		pre, head, open := loops[d].parts(d)
 		inner = pre + head + "\n" + open + inner + "}\n"
@@ -207,6 +277,7 @@ type i1Case struct {
 	markerScope bool            // that frame owns a scope, which it opens first
 	markers     int             // source frames declaring entryMarker, when markerEntry is set
 	testBuild   bool            // lowered as the test build (LowerTests), whose frame it is
+	callee      string          // the variant's spin call (i1Variant.callee)
 }
 
 // i1Lower lowers a generated program: its test build when its frame exists
@@ -262,8 +333,8 @@ func i1Cases() []i1Case {
 			}
 			impure := cl.impure || seq
 			for _, v := range i1Variants {
-				if v.site && cl.site == "" {
-					continue
+				if v.site && cl.site == "" || v.callee != "" && !impure || v.callee == "helper" && !cl.needs {
+					continue // spin would make a pure clause's frame impure; helper needs Probe
 				}
 				body := i1Body(cl.prefix, shape, v, cl.site)
 				row, try := "", ""
@@ -276,7 +347,7 @@ func i1Cases() []i1Case {
 				ps := strings.Join(params, ", ")
 				name := fmt.Sprintf("%s/%s/%s", cl.name, strings.Join(names, "+"), v.name)
 				add := func(class, src string, want map[string]bool, testBuild bool) {
-					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site, testBuild: testBuild})
+					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site, testBuild: testBuild, callee: v.callee})
 				}
 				for _, frame := range i1FrameKinds {
 					if !frame.params && (!cl.provider || seq || v.fail || ps != "" || row != "") {
@@ -339,7 +410,7 @@ func i1NestCases() []i1Case {
 				continue
 			}
 			for _, v := range i1Variants {
-				if v.fail || (v.site && cl.site == "") {
+				if v.fail || (v.site && cl.site == "") || v.callee != "" {
 					continue
 				}
 				l := i1Loops[k%len(i1Loops)]
@@ -406,6 +477,7 @@ var i1Split = newSplit(split[i1Case]{
 				o := i1Lower(t, c)
 				i1CheckFacts(t, o)
 				i1CheckPolls(t, o, c)
+				i1CheckIRPolls(t, o, c)
 			})
 		}
 	},
@@ -499,7 +571,7 @@ func TestRuntime199I1PropertyDomain(t *testing.T) {
 			names, _ := i1ShapeParams(shape)
 			for _, v := range i1Variants {
 				for _, p := range i1LawPlacements {
-					if name := "law/" + build + "/" + p.name + "/" + strings.Join(names, "+") + "/" + v.name; !v.site && !lawNames[name] {
+					if name := "law/" + build + "/" + p.name + "/" + strings.Join(names, "+") + "/" + v.name; !v.site && v.callee != "helper" && !lawNames[name] {
 						t.Errorf("no law case %s", name)
 					}
 				}
@@ -540,8 +612,8 @@ func i1BlockCases() []i1Case {
 			}
 			impure := cl.impure || seq
 			for _, v := range i1Variants {
-				if v.site && cl.site == "" {
-					continue
+				if v.site && cl.site == "" || v.callee != "" && !impure || v.callee == "helper" && !cl.needs {
+					continue // spin would make a pure clause's frame impure; helper needs Probe
 				}
 				body := i1Body(cl.prefix, shape, v, cl.site)
 				row := ""
@@ -553,7 +625,7 @@ func i1BlockCases() []i1Case {
 				}
 				ps := strings.Join(params, ", ")
 				name := fmt.Sprintf("%s/%s/%s", cl.name, strings.Join(names, "+"), v.name)
-				out = append(out, i1Case{name: "with-body/" + name, src: i1Defs + "func subject(" + ps + ") int" + row + " {\nwith Local {\n" + body + "sum\n}\n}\nfunc main() {}\n", want: map[string]bool{"decl": impure}, site: v.site})
+				out = append(out, i1Case{name: "with-body/" + name, src: i1Defs + "func subject(" + ps + ") int" + row + " {\nwith Local {\n" + body + "sum\n}\n}\nfunc main() {}\n", want: map[string]bool{"decl": impure}, site: v.site, callee: v.callee})
 			}
 		}
 	}
@@ -599,13 +671,13 @@ var i1LawPlacements = []struct {
 // i1LawLoops is one build's law cases: the shared loop-shape axis
 // (i1LoopShapes: one loop, and two nested loops) × every variant a law
 // admits × every placement (i1LawPlacements). A law has no capability, so
-// the site variant, which calls one, has no law case.
+// the site variant and the helper callee, which call one, have no law case.
 func i1LawLoops(build string, testBuild bool) []i1Case {
 	var out []i1Case
 	for _, shape := range i1LoopShapes() {
 		names, ps := i1ShapeParams(shape)
 		for _, v := range i1Variants {
-			if v.site {
+			if v.site || v.callee == "helper" {
 				continue
 			}
 			body := i1Body("", shape, v, "")
@@ -1026,12 +1098,15 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		// jumps past itself, never past the Check. It never heads the body,
 		// where it would separate the delivered element from the statement
 		// that receives it (spec, stage 5a O1).
-		polls, continues := 0, 0
+		polls, continues, nested := 0, 0, 0
 		var gotos []string
 		inner := map[string]bool{}
 		ast.Inspect(body, func(m ast.Node) bool {
 			switch m := m.(type) {
-			case *ast.FuncLit, *ast.ForStmt, *ast.RangeStmt:
+			case *ast.FuncLit:
+				return false
+			case *ast.ForStmt, *ast.RangeStmt:
+				nested++
 				return false
 			case *ast.LabeledStmt:
 				inner[m.Label.Name] = true
@@ -1055,6 +1130,24 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 			if l, ok := end.(*ast.LabeledStmt); ok {
 				end, label = l.Stmt, l.Label.Name
 			}
+		}
+		// FLIP P1 (pollplace.go): the innermost loop whose body first calls
+		// spin polls through spin's entry Check on every iteration, so it
+		// has no back-edge poll and its continue is Go's; under the
+		// reference lowering, or with spin under an if, it keeps the poll.
+		if want && i1CalleePolls(c.callee, f) && nested == 0 && pollLowering != "every" {
+			if polls > 0 || label != "" {
+				t.Errorf("a %s frame's loop whose every iteration calls spin keeps a back-edge poll (%d checks, label %q)\nGo:\n%s", class, polls, label, stripDirectives(code))
+			}
+			if !i1CallsSpin(body) {
+				t.Errorf("a %s frame's loop body does not call spin\nGo:\n%s", class, stripDirectives(code))
+			}
+			for _, g := range gotos {
+				if !inner[g] {
+					t.Errorf("a %s frame's loop with no back-edge poll jumps to %s, outside its body\nGo:\n%s", class, g, stripDirectives(code))
+				}
+			}
+			return true
 		}
 		switch {
 		case want && (end == nil || !isOwnCheck(end, env)):
@@ -1084,6 +1177,150 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 	if c.site && marks == 0 {
 		t.Errorf("no capability call Mark in the Go")
 	}
+}
+
+var i1Callees = map[string]bool{"spin": true, "spun": true, "flat": true, "helper": true}
+
+// i1CheckIRPolls lowers a callee case through the IR (the build's path)
+// and reads its bodies: where the emitter's loop takes no back-edge poll
+// (i1CalleePolls), the IR's loop that calls the callee has none either,
+// and the frame holding it has an IR body, so its continue is Go's and no
+// "continue in a polling loop" gate sends it back to the emitter (FLIP P1).
+func i1CheckIRPolls(t *testing.T, o *lowered, c i1Case) {
+	t.Helper()
+	if c.callee == "" || o.pkg == nil {
+		return
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", o.mainGo(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !i1CalleePolls(c.callee, f) || pollLowering == "every" {
+		return
+	}
+	var tl *testLowering
+	if c.testBuild {
+		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+	}
+	u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: c.src}}}
+	_, _, mod, _, err := lowerIRModule(u, tl, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, fn := range mod.out.Funcs {
+		i1IRLoops(fn.Body, func(loop *irStmt) {
+			if !i1IRCalls(loop.Body) {
+				return
+			}
+			found++
+			for _, s := range loop.Body {
+				if s.K == "expr" && s.X != nil && s.X.K == "mcall" && s.X.Name == "Check" {
+					t.Errorf("the IR of %s keeps a back-edge poll in a loop whose every iteration calls %s", fn.Name, c.callee)
+				}
+			}
+		})
+	}
+	// The IR may refuse the frame for another reason (an extern, a map
+	// loop); with one source loop, a "continue in a polling loop" is this
+	// loop's. (An outer loop holding a polled inner loop's continue keeps
+	// its gate: containsContinue counts a nested continue.)
+	loops := 0
+	syntax.Inspect(o.file, func(n syntax.Node) bool {
+		switch n.(type) {
+		case *syntax.ForStmt, *syntax.RangeStmt:
+			loops++
+		}
+		return true
+	})
+	if found == 0 && loops == 1 && mod.Fallback["continue in a polling loop"] > 0 {
+		t.Errorf("the IR sends the frame whose loop calls %s back to the emitter: continue in a polling loop", c.callee)
+	}
+}
+
+// i1IRLoops calls yield with each innermost loop of an IR body, closures'
+// bodies included.
+func i1IRLoops(body []*irStmt, yield func(*irStmt)) bool {
+	has := false
+	var expr func(x *irExpr)
+	expr = func(x *irExpr) {
+		if x == nil {
+			return
+		}
+		i1IRLoops(x.Body, yield)
+		expr(x.X)
+		expr(x.Y)
+		for _, a := range x.Args {
+			expr(a)
+		}
+		for _, e := range x.Elems {
+			expr(e)
+		}
+	}
+	for _, s := range body {
+		expr(s.X)
+		expr(s.Y)
+		inner := i1IRLoops(s.Then, yield)
+		inner = i1IRLoops(s.Else, yield) || inner
+		inner = i1IRLoops(s.Body, yield) || inner
+		for _, cs := range s.Cases {
+			inner = i1IRLoops(cs.Body, yield) || inner
+		}
+		if s.K == "while" || s.K == "range" {
+			if !inner {
+				yield(s)
+			}
+			has = true
+		}
+		has = has || inner
+	}
+	return has
+}
+
+// i1IRCalls reports a call of an i1Callees function in an IR body,
+// outside closures.
+func i1IRCalls(body []*irStmt) bool {
+	var expr func(x *irExpr) bool
+	expr = func(x *irExpr) bool {
+		if x == nil {
+			return false
+		}
+		if x.K == "call" && i1Callees[x.Name] {
+			return true
+		}
+		if expr(x.X) || expr(x.Y) {
+			return true
+		}
+		for _, a := range x.Args {
+			if expr(a) {
+				return true
+			}
+		}
+		for _, e := range x.Elems {
+			if expr(e) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, s := range body {
+		if expr(s.X) || expr(s.Y) || i1IRCalls(s.Then) || i1IRCalls(s.Else) || i1IRCalls(s.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+// i1CallsSpin reports a call of the variant's callee in the loop body.
+func i1CallsSpin(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && i1Callees[types.ExprString(call.Fun)] {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 func i1HasEntryMarker(body *ast.BlockStmt) bool {

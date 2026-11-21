@@ -1,25 +1,59 @@
 import hex
 import json
+import slices
 import strconv
 import strings
 import sync
+import url
+import utf8
 
 // QueryRepeated is a query that gives Key more than one value where the
 // record's field takes one (a scalar field). A slice field takes them all.
 type QueryRepeated { Key string }
 
 // ParseQuery is the fields of a raw query string ("a=1&b=%20x"), as Serve
-// gives them in Request.Query: Go's url.ParseQuery, with "+" a space and
-// %XX an escape; the fields are in key order, and the values of one key
-// in the order they came. A pair with a malformed escape is dropped, as
-// Go's Request.URL.Query drops it.
-extern go ergo.local/prototype/runtime/v1/http.HTTPParseQuery func ParseQuery(raw string) []Field
+// gives them in Request.Query: std url's ParseQuery, which reads as Go's
+// url.ParseQuery does, with "+" a space and %XX an escape; the fields are
+// in key order, and the values of one key in the order they came. A pair
+// with a malformed escape is dropped, as Go's Request.URL.Query drops it.
+func ParseQuery(raw string) []Field {
+	let mut fields = []Field{}
+	for p in url.ParseQuery(raw) {
+		fields = fields.Append(Field{Name: p.Name, Value: p.Value})
+	}
+	slices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })
+}
 
 // EncodeQuery is the raw query of fields ("a=1&b=+x"), in their order,
-// each name and value escaped as Go's url.QueryEscape does: the query a
-// Client sends for a Request's Query, for a URLRequest's URL. ParseQuery
-// reads it back as the same fields, in key order.
-extern go ergo.local/prototype/runtime/v1/http.HTTPEncodeQuery func EncodeQuery(fields []Field) string
+// each name and value escaped as Go's url.QueryEscape does (std url's
+// QueryEscape): the query a Client sends for a Request's Query, for a
+// URLRequest's URL. ParseQuery reads it back as the same fields, in key
+// order.
+func EncodeQuery(fields []Field) string {
+	let mut b = strings.NewBuilder()
+	for i, f in fields {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(url.QueryEscape(f.Name))
+		b.WriteByte('=')
+		b.WriteString(url.QueryEscape(f.Value))
+	}
+	b.String()
+}
+
+// DecodeForm reads a T from a form body (application/x-www-form-urlencoded,
+// as an HTML form posts it): the body's pairs, read by std url's
+// ParseQuery in the order the form gives them, decoded by DecodeQuery's
+// rule, so a form and a query of the same pairs give the same T or the
+// same refusal, the first refused key included.
+func DecodeForm[T wire](body string) T fails QueryRepeated | wired[T] needs wired[T] {
+	let mut fields = []Field{}
+	for p in url.ParseQuery(body) {
+		fields = fields.Append(Field{Name: p.Name, Value: p.Value})
+	}
+	try DecodeQuery[T](fields)
+}
 
 // DecodeQuery reads a T from query fields through the derived codec
 // (types.md, Codecs), as json.Decode reads one from a text, so a query
@@ -134,6 +168,25 @@ func Number(r queryReader) string fails WireWrongKind {
 }
 
 func String(r queryReader) string fails WireWrongKind { try value(r, "a string") }
+
+// StringBytes is into with the bytes of the string String reads (GX12).
+func StringBytes(r queryReader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+
+// QueryStringBytesReadsString: the query reader's StringBytes adds to into
+// the bytes String reads of the same key's value (GX12b).
+law QueryStringBytesReadsString(s string, pre []byte) {
+	let a = queryReaderOf([]Field{Field{Name: "k", Value: s}})
+	let b = queryReaderOf([]Field{Field{Name: "k", Value: s}})
+	try a.BeginObject()
+	try b.BeginObject()
+	let _ = a.Key()
+	let _ = b.Key()
+	let got = try a.StringBytes(pre)
+	utf8.String(got) == utf8.String(pre)+try b.String()
+}
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
 
 func Bool(r queryReader) bool fails WireWrongKind {
 	let path = Path(r)
@@ -372,4 +425,55 @@ law QueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 		return false
 	}
 	want == "ok" && got == record
+}
+
+// queryVerdict is DecodeQuery over queryProbe as a value: "ok" and the
+// record, or the refusal and its key.
+func queryVerdict(fields []Field) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	let got = DecodeQuery[queryProbe](fields) catch {
+	case QueryRepeated as q:
+		return ("repeated " + q.Key, none)
+	case WireWrongKind as w:
+		return ("wrong " + w.Path, none)
+	case WireMissingField as f:
+		return ("missing " + f.Field, none)
+	case WireUnknownTag:
+		return ("tag", none)
+	}
+	("ok", got)
+}
+
+// formVerdict is DecodeForm over queryProbe as a value, as queryVerdict.
+func formVerdict(body string) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	let got = DecodeForm[queryProbe](body) catch {
+	case QueryRepeated as q:
+		return ("repeated " + q.Key, none)
+	case WireWrongKind as w:
+		return ("wrong " + w.Path, none)
+	case WireMissingField as f:
+		return ("missing " + f.Field, none)
+	case WireUnknownTag:
+		return ("tag", none)
+	}
+	("ok", got)
+}
+
+// FormIsQuery (STD-SURVEY SM2): a form body that EncodeQuery writes from
+// fields decodes as DecodeQuery decodes the fields themselves: the same
+// record or the same refusal, whatever the keys' order, how often each
+// comes (counts) and what bytes the text values hold (texts).
+law FormIsQuery(counts []int, texts []string) {
+	let keys = []string{"tags", "page", "other key", "name", "on", "size", "load", "note"}
+	let mut fields = []Field{}
+	for j, key in keys {
+		let times = if j < len(counts) { ((counts[j] % 3) + 3) % 3 } else { 1 }
+		for t in 0..times {
+			let text = if len(texts) == 0 { "" } else { texts[(j+t)%len(texts)] }
+			let value = if key == "on" { "true" } else if key == "page" || key == "size" || key == "load" { strconv.Itoa(10*j + t) } else { text }
+			fields = fields.Append(Field{Name: key, Value: value})
+		}
+	}
+	formVerdict(EncodeQuery(fields)) == queryVerdict(fields)
 }

@@ -1,0 +1,328 @@
+// reuse SHAPE N: N operations of one shape on one user collection, then
+// its size (REUSE plan §1; TestHandoverGrowsLinearly). Each shape is the
+// caller's a = f(a, …) in a loop over a user type Set { xs []int }, whose
+// Insert hands its argument over when the caller's value is unshared.
+// Shapes g1 to u1 are the plan's table; fv calls Insert through a function
+// value; st and uc are two shapes the examples and std found (ST: a job
+// list settled in place after an operation's result; UC: a Map of records
+// that hold a slice, read through a pointer).
+import os
+import strconv
+
+type Full { Cap int }
+
+type Set { xs []int }
+
+func NewSet() Set { Set{xs: []int{}} }
+
+// Insert owns s: g1, in place today.
+func Insert(s Set, x int) Set {
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+// InsertCapped fails Full before any write: f2 and f3.
+func InsertCapped(s Set, x int, cap int) Set fails Full {
+	if len(s.xs) >= cap {
+		return Full{Cap: cap}
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+// InsertNew returns s whole on an early path: g4.
+func InsertNew(s Set, x int) Set {
+	if len(s.xs) > 0 && s.xs[len(s.xs)-1] == x {
+		return s
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+type St { set Set, n int }
+
+// lit moves a part into a literal: r1.
+func lit(s St, x int) St { St{set: Insert(s.set, x), n: s.n + 1} }
+
+// upd moves a part into a record update: r2.
+func upd(s St, x int) St { St{..s, set: Insert(s.set, x)} }
+
+type Raw { xs []int, n int }
+
+// updRaw extends a field with the prelude's Append in an update: r3.
+func updRaw(s Raw, x int) Raw { Raw{..s, xs: s.xs.Append(x)} }
+
+type Ed = Idle{set Set} | Busy{set Set, n int}
+
+// step consumes a union's payload: u1.
+func step(e Ed, x int) Ed {
+	match e {
+	case Idle as i:
+		Busy{set: Insert(i.set, x), n: 1}
+	case Busy as b:
+		Busy{..b, set: Insert(b.set, x)}
+	}
+}
+
+func size(e Ed) int {
+	match e {
+	case Idle as i:
+		len(i.set.xs)
+	case Busy as b:
+		len(b.set.xs)
+	}
+}
+
+func g1(n int) int {
+	let mut a = NewSet()
+	for i in 0..n { a = Insert(a, i) }
+	len(a.xs)
+}
+
+func f2(n int) int {
+	let mut a = NewSet()
+	for i in 0..n {
+		a = InsertCapped(a, i, 100000000) catch {
+		case Full:
+			NewSet()
+		}
+	}
+	len(a.xs)
+}
+
+func f3(n int) int {
+	let mut a = NewSet()
+	for i in 0..n {
+		a = InsertCapped(a, i, 100000000) catch {
+		case Full:
+			a
+		}
+	}
+	len(a.xs)
+}
+
+func g4(n int) int {
+	let mut a = NewSet()
+	for i in 0..n { a = InsertNew(a, i) }
+	len(a.xs)
+}
+
+func r1(n int) int {
+	let mut s = St{set: NewSet(), n: 0}
+	for i in 0..n { s = lit(s, i) }
+	len(s.set.xs)
+}
+
+func r2(n int) int {
+	let mut s = St{set: NewSet(), n: 0}
+	for i in 0..n { s = upd(s, i) }
+	len(s.set.xs)
+}
+
+func r3(n int) int {
+	let mut s = Raw{xs: []int{}, n: 0}
+	for i in 0..n { s = updRaw(s, i) }
+	len(s.xs)
+}
+
+func u1(n int) int {
+	let mut e Ed = Idle{set: NewSet()}
+	for i in 0..n { e = step(e, i) }
+	size(e)
+}
+
+// apply calls f through a function value: the wrapper copies (plan §2,
+// Indirect calls).
+func apply(f func(Set, int) Set, s Set, x int) Set { f(s, x) }
+
+func fv(n int) int {
+	let mut a = NewSet()
+	for i in 0..n { a = apply(Insert, a, i) }
+	len(a.xs)
+}
+
+// ST (examples/jobs, batch-22 gx9 item 1): a list of jobs read from an
+// operation and settled in place; the operation's result may share the
+// provider's array, so it is copied before the first write.
+type Job { id int, state int }
+
+type Store {
+	All() []Job,
+}
+
+type Shelf { jobs []Job } implements Store
+
+func All(s Shelf) []Job { s.jobs }
+
+func settled() []Job needs Store {
+	let mut all = Store.All()
+	for i in 0..len(all) {
+		all[i] = Job{..all[i], state: 1}
+	}
+	all
+}
+
+func st(n int) int {
+	let mut s = Shelf{jobs: []Job{}}
+	for i in 0..n { s.jobs = s.jobs.Append(Job{id: i, state: 0}) }
+	with context { Store: s } {
+		len(settled())
+	}
+}
+
+// UC (std ui's old mirror, corpus-wave UC g8): a Map of records that hold
+// a slice, read with Get through a pointer.
+type Node { kids []int }
+
+type Mirror { nodes Map[int, Node] }
+
+func kidsOf(m mut Mirror, id int) int {
+	match m.nodes.Get(id) {
+	case Some[Node] as v:
+		len(v.Value.kids)
+	case None:
+		0
+	}
+}
+
+func uc(n int) int {
+	let mut m = Mirror{nodes: Map[int, Node]{}}
+	for i in 0..n { m.nodes[i] = Node{kids: []int{i}} }
+	let mut total = 0
+	for i in 0..n { total = total + kidsOf(&m, i) }
+	total
+}
+
+// X1b (OWN1 st-x1 round 1, follow-ups): a plain Get of a let mut Map that
+// is written later; main e02194103 copied the whole Map before the Get
+// (ergoCloneMap_1(next)[key]) where the element read is enough.
+func x1(n int) int {
+	let mut m = Map[int, Node]{}
+	for i in 0..n {
+		match m.Get(i - 1) {
+		case Some[Node] as v:
+			let mut k = v.Value
+			k.kids[0] = k.kids[0] + i
+			m[i] = k
+		case None:
+			m[i] = Node{kids: []int{i}}
+		}
+	}
+	len(m)
+}
+
+// KC (OWN1 arms round 1, keepCard's Bump): an entry of a Map behind a
+// borrow, replaced by a function that takes its inner Map into a let mut
+// and returns an update of the entry. The base ..s is a parameter the
+// body does not own, so the result is not proved fresh: the inner Map was
+// copied at the bind and the result again at the store (RU0). RU1 removed
+// the second; RU8's arm form of the entry move-out hands v.Value over.
+type Card { items Map[int, int], name string }
+
+func keepCard(s Card, k int) Card {
+	let mut items = s.items
+	items[k] = k
+	Card{..s, items: items}
+}
+
+type Pins { cards Map[int, Card] }
+
+func bump(p mut Pins, key int, k int) {
+	match p.cards.Get(key) {
+	case Some[Card] as v:
+		p.cards[key] = keepCard(v.Value, k)
+	case None:
+		p.cards[key] = Card{items: Map[int, int]{k: k}, name: "c"}
+	}
+}
+
+func kc(n int) int {
+	let mut p = Pins{cards: Map[int, Card]{}}
+	for i in 0..n { bump(&p, 0, i) }
+	match p.cards.Get(0) {
+	case Some[Card] as v:
+		len(v.Value.items)
+	case None:
+		0
+	}
+}
+
+// GM and GS (LWR-ELEM-APPEND, std-spike D1's naive GroupBy): n values
+// into 16 groups, each grown by an Append stored back: in a Map's entry
+// (the move-out's arm form) and in an element of a [][]int. Before RU8
+// each Append copied its group, so n values did O(n²/16) work.
+func gm(n int) int {
+	let mut m = Map[int, []int]{}
+	for i in 0..n {
+		let key = i % 16
+		match m.Get(key) {
+		case Some[[]int] as g:
+			m[key] = g.Value.Append(i)
+		case None:
+			m[key] = []int{i}
+		}
+	}
+	match m.Get(0) {
+	case Some[[]int] as g:
+		len(g.Value)
+	case None:
+		0
+	}
+}
+
+func gs(n int) int {
+	let mut groups = [][]int{}
+	for _ in 0..16 {
+		groups = groups.Append([]int{})
+	}
+	for i in 0..n {
+		let j = i % 16
+		groups[j] = groups[j].Append(i)
+	}
+	len(groups[0])
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: "usage: reuse SHAPE N"}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let shape = args[0]
+	let mut out = -1
+	if shape == "g1" { out = g1(n) }
+	if shape == "f2" { out = f2(n) }
+	if shape == "f3" { out = f3(n) }
+	if shape == "g4" { out = g4(n) }
+	if shape == "r1" { out = r1(n) }
+	if shape == "r2" { out = r2(n) }
+	if shape == "r3" { out = r3(n) }
+	if shape == "u1" { out = u1(n) }
+	if shape == "fv" { out = fv(n) }
+	if shape == "st" { out = st(n) }
+	if shape == "uc" {
+		out = uc(n)
+	}
+	if shape == "x1" {
+		out = x1(n)
+	}
+	if shape == "kc" {
+		out = kc(n)
+	}
+	if shape == "gm" {
+		out = gm(n)
+	}
+	if shape == "gs" {
+		out = gs(n)
+	}
+	if out < 0 {
+		return os.Exit{Code: 2, Message: "unknown shape " + shape}
+	}
+	Console.Println("\(shape) \(out)")
+}

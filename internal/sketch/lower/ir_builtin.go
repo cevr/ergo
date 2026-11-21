@@ -31,6 +31,11 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
 	}
+	if check.AppendSpreads(f) {
+		// The decoder admits append's string shape only (ergoir_builtin.go),
+		// so a bulk append (SL2) keeps its function's Go body.
+		irNo("bulk append (SL2) on the IR")
+	}
 	pre, args := b.operands(list) // ir_fail.go
 	if check.AppendsString(f) {
 		// Go's append(xs, s...): the bytes of s at the end of xs. Its
@@ -50,17 +55,28 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 			args[i] = &irExpr{K: "deref", Pos: args[i].Pos, X: args[i]}
 		}
 	}
+	if pre, e, effect, ok := b.intMapBuiltin(x, name, list, pre, args, p, stmt); ok { // ir_intmap.go
+		return pre, e, effect
+	}
 	switch name {
 	case "append":
 		if len(args) != 2 {
 			irNo("append form")
+		}
+		if len(f.Sig.Params) == 2 {
+			if _, ok := underEqual(f.Sig.Params[1].Type).(*check.Slice); ok {
+				// slices.AppendAll is Go's append(xs, ys...), which the IR
+				// kind "append" (one element) and "builtin" append (a
+				// string's bytes) do not spell (toolchain/ir builtinExpr). (I22)
+				irNo("append of a slice's elements")
+			}
 		}
 		return pre, &irExpr{K: "append", Pos: p, Args: args}, false
 	case "len":
 		if len(args) != 1 {
 			irNo("len form")
 		}
-		return pre, &irExpr{K: "len", Pos: p, X: args[0]}, false
+		return pre, b.foldConst(x, &irExpr{K: "len", Pos: p, X: args[0]}), false // ir_opfold.go: a constant's len
 	case "cap", "min", "max":
 		return pre, &irExpr{K: "builtin", Pos: p, Name: name, Args: args}, false
 	case "copy":

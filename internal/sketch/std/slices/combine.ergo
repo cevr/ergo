@@ -1,0 +1,50 @@
+// Combining slices: FlatMap and Zip (std-spike D1).
+
+// FlatMap is f of each element of xs, first to last, joined in one new
+// slice (Effect Array.flatMap, Gleam list.flat_map). Its first failure
+// ends it.
+func FlatMap[T, U, E, R](xs []T, f func(x T) []U fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		for y in try f(x) {
+			out = out.Append(y)
+		}
+	}
+	out
+}
+
+// FlatMapIsConcatOfTransform: FlatMap is the Transform's slices joined in
+// order.
+law FlatMapIsConcatOfTransform(xs []int) {
+	let f = func(x int) []int { Repeat([]int{x}, (x%3+3)%3) }
+	let mut joined = []int{}
+	for ys in Transform(xs, f) {
+		joined = Concat(joined, ys)
+	}
+	Equal(FlatMap(xs, f), joined)
+}
+
+// Zip is the pairs of a and b at the same index, as many as the shorter
+// has (Effect Array.zip, Gleam list.zip's strict form refuses a length
+// mismatch; Effect and Python's zip stop at the shorter, as here).
+func Zip[A, B](a []A, b []B) [](A, B) {
+	let n = if len(a) < len(b) { len(a) } else { len(b) }
+	let mut out = WithCapacity[(A, B)](n)
+	for i in 0..n {
+		out = out.Append((a[i], b[i]))
+	}
+	out
+}
+
+// ZipLen: Zip holds as many pairs as the shorter slice, pair i being
+// a[i] and b[i].
+law ZipLen(a []int, b []string) {
+	let z = Zip(a, b)
+	let n = if len(a) < len(b) { len(a) } else { len(b) }
+	let mut ok = len(z) == n
+	for i, p in z {
+		let (x, y) = p
+		ok = ok && x == a[i] && y == b[i]
+	}
+	ok
+}

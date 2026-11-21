@@ -1,0 +1,449 @@
+// exprdump types one package's expressions with compiler/check/expr and
+// prints one line per typed expression, or with -calls one per inferred
+// generic call, unsorted:
+//
+//	exprdump [-std DIR] EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]...          "FILE START END TYPE"
+//	exprdump [-std DIR] -calls EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]...   "FILE OFFSET T1 ; T2 …"
+//	exprdump [-std DIR] -corpus MANIFEST
+//
+// -std DIR loads the Ergo packages the run's packages import and do not
+// hold, transitively, as typedump does (compiler/check/load); only their
+// interfaces are computed, against the tables of the package that
+// imports them.
+//
+// Each group after a "--" is an imported package (its path is its
+// FOREIGN's @pkg line): it is bound and loaded on its own, and the package
+// binds against its frozen store and types the import's functions and
+// record fields from its signatures (S3d2); its types are XRefs into the
+// import's interface (types.Iface), computed in import order (S3d12).
+//
+// START and END are the expression's byte offsets (END the byte after
+// it); OFFSET is the callee name's. Types print as the Go checker's
+// Type.String (compiler/check/types Text), no value as "no value". EXT and
+// FOREIGN are typedump's: the Go side writes them, for the prelude's, the
+// universe's and the Go imports' types.
+//
+// With -corpus, each package's "O FILE OFFSET LENGTH CODE MESSAGE" lines
+// are compiler/check/diag's own-mark diagnostics (MODES-OWN-CHECK).
+//
+// It is the Ergo side of S3d's expression agreement
+// (internal/selfhostcheck's TestCompilerExprAgreesWithChecker) and of the
+// own-mark agreement (TestCompilerOwnMarksAgreeWithChecker).
+
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/expr
+import compiler/check/facts
+import compiler/check/infer
+import compiler/check/load
+import compiler/check/rows
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "exprdump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "exprdump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "exprdump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
+	if len(g) < 2 {
+		return os.Exit{Code: 2, Message: "exprdump: a package needs EXT FOREIGN FILE..."}
+	}
+	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
+	let paths = g[2:len(g)]
+	let mut files = []bind.File{}
+	for path in paths {
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	}
+	load.UnitOf(tab, files, paths)
+}
+
+// write prints one typed package's lines: its expressions' types, or
+// with calls its inferred calls; each line after prefix.
+func write(b mut strings.Builder, u load.Unit, d load.Typed, calls bool, prefix string) {
+	let mut s = d.S
+	let none = infer.NoValue(&s)
+	if calls {
+		for c in d.T.Insts {
+			let (f, row) = bind.RowOf(d.K.Ps, c.At)
+			let p = u.Files[f].Parsed
+			let mut ts = []string{}
+			for a in c.Args {
+				ts = ts.Append(typeText(s, d.K, u, none, a, c.Fn))
+			}
+			b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
+		}
+	} else {
+		for e in d.T.Entries {
+			let (f, row) = bind.RowOf(d.K.Ps, e.At)
+			let p = u.Files[f].Parsed
+			let id = syntax.NodeAt(p.Tree, row)
+			b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(typeText(s, d.K, u, none, e.T, e.Fn))\n")
+		}
+	}
+}
+
+// typeText is the Go checker's text of ty, a type of the function fn of
+// the package k; "no value" for none. A function, not a closure over k:
+// a closure would own the package and copy it, its imports with it, per
+// call.
+// A package let's value is of no function (fn -1).
+func typeText(s store.Store, k expr.Pkg, u load.Unit, none dense.ID[store.TKey], ty dense.ID[store.TKey], fn int) string {
+	if ty == none { "no value" } else { types.Text(s, types.Names{Params: if fn >= 0 { k.Fns[fn].Params } else { []string{} }, Foreign: k.Foreign, Pkg: u.Tab.PkgName, Deps: k.Ifaces}, ty) }
+}
+
+// writeOutside prints the values of a record literal of an import
+// outside the run, which the typer types with no expected type.
+func writeOutside(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	for at in d.T.Outside {
+		let (f, row) = bind.RowOf(d.K.Ps, at)
+		let p = u.Files[f].Parsed
+		let id = syntax.NodeAt(p.Tree, row)
+		b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
+	}
+}
+
+// writeRefinements prints each refined type declaration's refinement
+// (compiler/check/facts), "FILE OFFSET NAME it|len LO..HI…" after prefix,
+// or "FILE OFFSET NAME -" where it has none; OFFSET is the name's.
+func writeRefinements(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	let mut s = d.S
+	for r in facts.Refinements(&s, d.K) {
+		let p = d.K.Parsed[r.File]
+		let text = match r.R {
+		case Some{Value: f}:
+			facts.Text(f)
+		case None:
+			"-"
+		}
+		b.WriteString("\(prefix)\(u.Files[r.File].Name) \(syntax.NodePos(p, r.Name)) \(types.NameText(p, r.Name)) \(text)\n")
+	}
+}
+
+// writeLets prints the type of each package let's name the typer gives
+// one, "FILE START END TYPE" after prefix (CHECK-VALUE-TYPES).
+func writeLets(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	let mut s = d.S
+	let none = infer.NoValue(&s)
+	for f in 0..len(u.Files) {
+		let p = u.Files[f].Parsed
+		if p.Failed {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, syntax.Root(p.Tree)).Decls
+		for i in 0..syntax.Len(decls) {
+			let dc = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, dc) != syntax.KVarDecl {
+				continue
+			}
+			let spec = syntax.VarDeclOf(p.Tree, dc).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KVarSpec {
+				continue
+			}
+			let names = syntax.VarSpecOf(p.Tree, spec).Names
+			for j in 0..syntax.Len(names) {
+				let id = syntax.Item(p.Tree, names, j)
+				match expr.DefType(d.T, bind.PNodeOf(d.K.Ps, f, id)) {
+				case Some[dense.ID[store.TKey]] as ty:
+					b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(typeText(s, d.K, u, none, ty.Value, -1))\n")
+				case None:
+				}
+			}
+		}
+	}
+}
+
+// writeFlow prints the ownership flow's diagnostics of one typed package,
+// "FILE OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's
+// order (OWN-WALK). The flow reads each file's source, read again here
+// from the unit's paths: load.Unit keeps the parsed files only, and one
+// package's sources are held at a time.
+func writeFlow(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) fails os.Exit needs fs.Files {
+	let mut srcs = []string{}
+	for path in u.Paths {
+		srcs = srcs.Append(try read(path))
+	}
+	for g in diag.Flow(d.S, d.K, d.T, srcs) {
+		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+	}
+}
+
+// writeRows prints the row pass's S101 and S102 of one typed package,
+// "FILE OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's
+// order (S3-ROWS).
+func writeRows(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	for g in rows.Rows(d.S, d.K, d.T) {
+		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+	}
+}
+
+// writeOwn prints the own-mark diagnostics of one typed package, "FILE
+// OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's order.
+func writeOwn(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	for g in diag.OwnMarks(d.S, d.K, d.T) {
+		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
+	}
+}
+
+// writeDiags prints the typer's diagnostics, "D FILE START END" after
+// prefix, one per line (S3d5).
+func writeDiags(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	for g in expr.Diags(d.T) {
+		let (f, row) = bind.RowOf(d.K.Ps, g.At)
+		let p = u.Files[f].Parsed
+		let id = syntax.NodeAt(p.Tree, row)
+		b.WriteString("\(prefix)\(u.Files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
+	}
+}
+
+// writeCauses prints, for each call the typer left untyped, "FILE START
+// END CAUSE" after prefix: why, followed down to the first untyped part
+// that is no untyped call itself. A syntax kind prints as #N (compiler/
+// syntax tree.ergo's K… numbers). The agreement test logs its reach
+// misses by these causes; nothing pins them.
+func writeCauses(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
+	let mut typed = Map[int, bool]{}
+	for e in d.T.Entries {
+		typed[dense.Index(e.At)] = true
+	}
+	for f, file in u.Files {
+		let p = file.Parsed
+		if p.Failed {
+			continue
+		}
+		let c = Causes{typed: typed, s: d.S, k: d.K, p: p, f: f}
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let x = syntax.NodeAt(p.Tree, i)
+			if syntax.KindOf(p.Tree, x) == syntax.KCallExpr && !isTyped(c, x) {
+				b.WriteString("\(prefix)\(file.Name) \(syntax.NodePos(p, x)) \(syntax.NodeEnd(p, x)) \(callCause(c, x, 0))\n")
+			}
+		}
+	}
+}
+
+// Causes is what a cause reads: the typed expressions (by node), the
+// package and the file.
+type Causes { typed Map[int, bool], s store.Store, k expr.Pkg, p syntax.Parsed, f int }
+
+func isTyped(c Causes, x dense.ID[syntax.Node]) bool {
+	match c.typed.Get(dense.Index(bind.PNodeOf(c.k.Ps, c.f, x))) {
+	case Some[bool]:
+		true
+	case None:
+		false
+	}
+}
+
+// isPackage is whether x names an import or Go's go (pkg.F), which has no
+// type.
+func isPackage(c Causes, x dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(c.p.Tree, x) != syntax.KIdent {
+		return false
+	}
+	let text = types.NameText(c.p, x)
+	if text == "go" {
+		return true
+	}
+	match store.Lookup(c.s, text) {
+	case Some[dense.ID[store.Decl]] as d:
+		store.KindName(int(store.DeclOf(c.s, d.Value).Kind)) == "pkg"
+	case None:
+		false
+	}
+}
+
+// declaresFunc is whether the package or one of its deps (the prelude
+// among them) declares a function named name.
+func declaresFunc(c Causes, name string) bool {
+	let mut stores = []store.Store{c.s}
+	for d in c.k.Deps {
+		stores = stores.Append(d.S)
+	}
+	for s in stores {
+		match store.Lookup(s, name) {
+		case Some[dense.ID[store.Decl]] as d:
+			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "func" {
+				return true
+			}
+		case None:
+		}
+	}
+	false
+}
+
+// callCause is why the untyped call x is untyped: its receiver's or
+// callee's cause when that is untyped, else that the callee is typed (the
+// call's own rule refused it) or that no function of the name is on the
+// receiver's type.
+func callCause(c Causes, x dense.ID[syntax.Node], depth int) string {
+	let fun = syntax.CallExprOf(c.p.Tree, x).Fun
+	if syntax.KindOf(c.p.Tree, fun) == syntax.KSelectorExpr {
+		let rx = syntax.SelectorExprOf(c.p.Tree, fun).X
+		if !isTyped(c, rx) && !isPackage(c, rx) {
+			return "receiver " + partCause(c, rx, depth+1)
+		}
+		return if isTyped(c, fun) {
+			"callee typed, call untyped: " + argCause(c, x, depth)
+		} else if isPackage(c, rx) {
+			"package member untyped"
+		} else if declaresFunc(c, types.NameText(c.p, syntax.SelectorExprOf(c.p.Tree, fun).Sel)) {
+			"receiver typed, a function of the name refused the call: " + argCause(c, x, depth)
+		} else {
+			"receiver typed, no function of the name"
+		}
+	}
+	if isTyped(c, fun) { "callee typed, call untyped: " + argCause(c, x, depth) } else { "callee " + partCause(c, fun, depth+1) }
+}
+
+// argCause is which argument of the untyped call x is untyped, the first
+// that is no constant literal: an untyped name by what binds it, another
+// argument by its form; "arguments typed" when each is (the inference or
+// the result refused the call).
+func argCause(c Causes, x dense.ID[syntax.Node], depth int) string {
+	let tr = c.p.Tree
+	let args = syntax.CallExprOf(tr, x).Args
+	for i in 0..syntax.Len(args) {
+		let a = syntax.Item(tr, args, i)
+		let kind = syntax.KindOf(tr, a)
+		if isTyped(c, a) || kind == syntax.KBasicLit {
+			continue
+		}
+		return if kind == syntax.KIdent { "argument " + partCause(c, a, depth+1) } else { "argument #\(kind)" }
+	}
+	"arguments typed"
+}
+
+// partCause is why the untyped expression x is untyped: an untyped call's
+// own cause, an untyped operand's, or x's form: a local by the kind of
+// the node that binds it.
+func partCause(c Causes, x dense.ID[syntax.Node], depth int) string {
+	let tr = c.p.Tree
+	let kind = syntax.KindOf(tr, x)
+	if depth > 8 {
+		return "#\(kind) (deep)"
+	}
+	if kind == syntax.KCallExpr {
+		return callCause(c, x, depth)
+	}
+	if kind == syntax.KParenExpr || kind == syntax.KSelectorExpr || kind == syntax.KIndexExpr {
+		let inner = if kind == syntax.KParenExpr { syntax.ParenExprOf(tr, x).X } else if kind == syntax.KSelectorExpr { syntax.SelectorExprOf(tr, x).X } else { syntax.IndexExprOf(tr, x).X }
+		return if isTyped(c, inner) || isPackage(c, inner) { "#\(kind) of a typed operand" } else { partCause(c, inner, depth+1) }
+	}
+	if kind == syntax.KIdent {
+		return match bind.ResolutionOf(c.k.U, c.k.Ps, bind.PNodeOf(c.k.Ps, c.f, x)) {
+		case bind.Declared as dc:
+			match dense.Unpack(bind.ParentOf(c.k.Ps, dc.At)) {
+			case Some{Value: up}:
+				let (uf, row) = bind.RowOf(c.k.Ps, up)
+				let q = c.k.Parsed[uf]
+				"local bound by #\(syntax.KindOf(q.Tree, syntax.NodeAt(q.Tree, row)))"
+			case None:
+				"declaration with no parent"
+			}
+		case bind.Outside:
+			"outside name"
+		case bind.Imported:
+			"imported name"
+		case _:
+			"name not a use"
+		}
+	}
+	"#\(kind)"
+}
+
+func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut b = strings.NewBuilder()
+	let mut std = ""
+	let mut argv = argv0
+	if len(argv) > 1 && argv[0] == "-std" {
+		std = argv[1]
+		argv = argv[2:len(argv)]
+	}
+	if len(argv) == 2 && argv[0] == "-corpus" {
+		// One package per line of the manifest, "PATH EXT FOREIGN
+		// FILE...": its import path (a checked root's @pkg path is main),
+		// its tables and files. Each package's lines are "E …" (types),
+		// "C …" (calls), "D …" (diagnostics), "O …" (own marks), "U …"
+		// (untyped calls by cause, writeCauses), "W …" (the ownership
+		// flow), "L …" (package lets), "X …" (values outside the run) and
+		// "R …" (refined types, compiler/check/facts) after its "@pkg I"
+		// line.
+		let mut units = []load.Unit{}
+		for line in strings.Split(try read(argv[1]), "\n") {
+			let g = strings.Fields(line)
+			if len(g) > 0 {
+				let mut u = try unitOf(g[1:len(g)])
+				u.Path = g[0]
+				units = units.Append(u)
+			}
+		}
+		// Each package is written as it is typed (compiler/check/load), so
+		// the run holds one package's typing at a time.
+		let p = load.LoadAll(units, load.Outside(units, std), 4)
+		for i in 0..len(p.Loaded) {
+			let u = units[p.Units[i]]
+			let d = load.TypeAt(p, i)
+			b.WriteString("@pkg \(i)\n")
+			write(&b, u, d, false, "E ")
+			write(&b, u, d, true, "C ")
+			writeDiags(&b, u, d, "D ")
+			writeOwn(&b, u, d, "O ")
+			writeCauses(&b, u, d, "U ")
+			try writeFlow(&b, u, d, "W ")
+			writeRows(&b, u, d, "R ")
+			writeLets(&b, u, d, "L ")
+			writeOutside(&b, u, d, "X ")
+			writeRefinements(&b, u, d, "R ")
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
+	let calls = len(argv) > 0 && argv[0] == "-calls"
+	let args = if calls { argv[1:len(argv)] } else { argv }
+	if len(args) < 2 {
+		return os.Exit{Code: 2, Message: "usage: exprdump [-std DIR] [-calls] EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]... | exprdump [-std DIR] -corpus MANIFEST"}
+	}
+	let mut groups = [][]string{[]string{}}
+	for a in args {
+		if a == "--" {
+			groups = groups.Append([]string{})
+		} else {
+			groups[len(groups)-1] = groups[len(groups)-1].Append(a)
+		}
+	}
+	let mut units = []load.Unit{}
+	for g in groups {
+		units = units.Append(try unitOf(g))
+	}
+	let p = load.LoadAll(units, load.Outside(units, std), 4)
+	let d = load.TypeAt(p, 0)
+	write(&b, units[p.Units[0]], d, calls, "")
+	if !calls {
+		writeDiags(&b, units[p.Units[0]], d, "D ")
+		writeLets(&b, units[p.Units[0]], d, "L ")
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

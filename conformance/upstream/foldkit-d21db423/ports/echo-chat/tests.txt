@@ -1,0 +1,22 @@
+# echo-chat: the upstream tests of websocket-chat at d21db423 and what restates each.
+# No story or scene is an Ergo test: a law or a case kills every mutant a test of it would (README.md, "Upstream tests").
+src/story.test.ts: ClickedConnect moves into Connecting -> `talk` law `ReconnectIsAFreshEntry`; case `tour`
+src/story.test.ts: ConnectedChatSocket moves into Connected -> `talk` law `ConversationKeepsOrder` (it opens the line first); case `tour`
+src/story.test.ts: DisconnectedChatSocket returns to Disconnected and clears messages -> `talk` law `DisconnectReleasesTheConnection`; case `tour` (hangup)
+src/story.test.ts: FailedConnectChatSocket captures the error message -> `talk` law `DisconnectReleasesTheConnection`; case `tour` (refuse)
+src/story.test.ts: releasing the socket preserves a connection error -> `talk` law `ReconnectIsAFreshEntry` (news of a line leaves Broken as it is); case `tour` (break)
+src/story.test.ts: FailedSendMessage reports an unavailable socket -> `talk` law `DisconnectReleasesTheConnection`; case `tour` (vanish)
+src/story.test.ts: UpdatedMessageInput stores the new input value -> case `tour`
+src/story.test.ts: an empty input is ignored -> `talk` law `SendOnlyWhenOnline`; case `tour`
+src/story.test.ts: whitespace-only input is ignored -> `talk` law `SendOnlyWhenOnline`; case `tour`
+src/story.test.ts: connected client fires SendMessage and clears the input -> `talk` laws `SendOnlyWhenOnline` and `ConversationKeepsOrder`; case `tour`
+src/story.test.ts: disconnected client ignores SubmittedMessage -> `talk` law `SendOnlyWhenOnline`; case `tour` (its first lines)
+src/story.test.ts: ReceivedMessage queues TimestampReceivedMessage that appends to the list -> `talk` law `ConversationKeepsOrder`; case `tour` (push)
+src/scene.test.ts: initial view shows the heading, status, and a Connect button -> case `scenes` (its first screen); case `tour`
+src/scene.test.ts: connecting state renders the Connecting message -> case `scenes` (stall, connect)
+src/scene.test.ts: connected state shows the message input and Send button -> case `scenes` (Send disabled, then enabled once typed in); case `tour` (blank and spaces only)
+src/scene.test.ts: error state renders the error and a Try Again button -> case `scenes` (refuse); case `tour`
+src/scene.test.ts: messages render in the conversation list -> case `scenes` (two sends and their echoes); case `tour`
+src/scene.test.ts: a successful acquisition connects the chat and the user can send a message -> case `scenes` (connect, type, submit); case `tour`
+src/scene.test.ts: a failed socket acquisition shows the connection error -> case `scenes` (stall, then the 5 s timeout); case `tour` (timeout at 5,000 ms, not 4,999)
+src/scene.test.ts: a message arriving on the socket Subscription lands in the conversation -> case `scenes` (push); case `tour`

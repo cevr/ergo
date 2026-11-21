@@ -1,0 +1,28 @@
+// CK-FAILPARAM (MQ2 follow-up func-of-failure-param): serve's fails E makes
+// Classed's E an error row, so Classed[Boom].Of takes a row value of Boom;
+// a function of Boom goes in narrowed (ConvNarrow), a literal and a named
+// function alike, and runs on the failure serve caught.
+type Boom { Run int }
+
+type Fate { Keep bool, Text string }
+
+type Classed[E] { Of func(e E) Fate }
+
+func serve[E](c Classed[E], h func() int fails E) string {
+	let v = h() catch {
+	case err:
+		return c.Of(err).Text
+	}
+	"\(v)"
+}
+
+func named(e Boom) Fate {
+	Fate{Keep: false, Text: "named \(e.Run)"}
+}
+
+func main() needs Console {
+	let c = Classed[Boom]{Of: func(e Boom) Fate { Fate{Keep: true, Text: "literal \(e.Run)"} }}
+	Console.Println(serve(c, func() int fails Boom { Boom{Run: 1} }))
+	Console.Println(serve(Classed[Boom]{Of: named}, func() int fails Boom { Boom{Run: 2} }))
+	Console.Println(serve(c, func() int fails Boom { 3 }))
+}

@@ -1,0 +1,162 @@
+// fieldnotes builds a field journal into a static web site: an index, a
+// page per entry and a feed, from one note a file (entries/SLUG.txt).
+// `fieldnotes build OUT` writes the tree under OUT for a host that
+// serves files; `fieldnotes print` prints each file of it. Package
+// journal is the domain, content the note format, memory the journal in
+// memory, and site the routes, pages and views. This binary is the only
+// place that chooses the providers: the host's files, standard output and
+// arguments, and a memory journal of what it read.
+
+import fieldnotes/content
+import fieldnotes/journal
+import fieldnotes/memory
+import fieldnotes/site
+import flag
+import fs
+import fstest
+import github.com/cevr/ergo/modules/web
+import github.com/cevr/ergo/modules/web/static
+import io
+import os
+import strings
+
+// Cmd is a command line of fieldnotes.
+type Build { Src string, Origin string, Out string }
+type Print { Src string, Origin string }
+type Cmd = Build | Print
+
+let srcFlag = flag.String("src", "entries", "read the notes from `folder`")
+
+let originFlag = flag.String("origin", "https://example.org", "make the feed's links absolute with `url`")
+
+let outArg = flag.Arg("folder", "the folder to write the site into")
+
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{
+		Name:     "build",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "write the site under a folder, and print each file written",
+		Set:      flag.Set{Name: "fieldnotes build", Usage: "", Flags: []flag.Flag{srcFlag, originFlag}, Args: []flag.ArgSpec{outArg}},
+		Build:    buildCmd,
+	},
+	flag.Command[Cmd]{
+		Name:     "print",
+		Commands: []flag.Command[Cmd]{},
+		Usage:    "print each file of the site",
+		Set:      flag.Set{Name: "fieldnotes print", Usage: "", Flags: []flag.Flag{srcFlag, originFlag}, Args: []flag.ArgSpec{}},
+		Build:    func(v flag.Values) Cmd { Print{Src: srcFlag.Get(v), Origin: originFlag.Get(v)} },
+	},
+}
+
+func buildCmd(v flag.Values) Cmd {
+	let out = match outArg.Get(v) {
+	case Some[string] as o:
+		o.Value
+	case None:
+		""
+	}
+	Build{Src: srcFlag.Get(v), Origin: originFlag.Get(v), Out: out}
+}
+
+let usage = "usage: fieldnotes build [-src folder] [-origin url] folder | fieldnotes print [-src folder] [-origin url]"
+
+func exit(message string) os.Exit { os.Exit{Code: 1, Message: "fieldnotes: " + message} }
+
+// entries is the notes of the folder src, as a journal.
+func entries(src string) memory.Journal fails os.Exit needs fs.Files {
+	let read = content.ReadFolder(src) catch {
+	case content.BadNote as b:
+		return exit("\(b.File):\(b.No): \(b.Reason)")
+	case fs.NotFound:
+		return exit(src + ": no such folder")
+	case fs.Denied:
+		return exit(src + ": permission denied")
+	case fs.Failed as f:
+		return exit(src + ": " + f.Reason)
+	}
+	memory.NewJournal(read)
+}
+
+// tree is the files of s, written under out when out is not empty.
+func tree(s web.Site[site.Route, site.Page, journal.Missing, journal.Journal], out string) []static.File fails journal.Missing | static.BadPath | fs.NotFound | fs.Denied | fs.Failed needs journal.Journal | fs.Writes {
+	if out == "" {
+		return try static.Pages(s, site.Listed())
+	}
+	try static.Build(s, site.Listed(), out)
+}
+
+// built is the site's files, written under out when out is not empty.
+// Each failure names what to fix, with no case _.
+func built(origin string, out string) []static.File fails os.Exit needs journal.Journal | fs.Writes {
+	let files = tree(site.New(origin), out) catch {
+	case journal.Missing as m:
+		return exit("an entry points to " + m.Slug + ", which is no entry")
+	case static.BadPath as b:
+		return exit(b.Place + " has no file: " + b.Reason)
+	case fs.NotFound as n:
+		return exit(n.Path + ": no such folder")
+	case fs.Denied as d:
+		return exit(d.Path + ": permission denied")
+	case fs.Failed as f:
+		return exit(f.Path + ": " + f.Reason)
+	}
+	files
+}
+
+// run is fieldnotes on args.
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
+	let c = flag.ParseCommand("fieldnotes", "", commands, args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	match c {
+	case Build as b:
+		if b.Out == "" {
+			return exit("build needs a folder to write into\n" + usage)
+		}
+		with context { journal.Journal: try entries(b.Src) } {
+			for f in try built(b.Origin, b.Out) {
+				io.Stdout.Println("wrote " + b.Out + "/" + f.Path)
+			}
+		}
+	case Print as p:
+		with context { journal.Journal: try entries(p.Src) } {
+			for f in try built(p.Origin, "") {
+				io.Stdout.Println("== " + f.Path)
+				io.Stdout.Print(if strings.HasSuffix(f.Body, "\n") { f.Body } else { f.Body + "\n" })
+			}
+		}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The test runs a build over an fstest.Memory, with no host: what the
+// command prints, and that each file it wrote holds what print prints.
+
+test BuildWritesWhatPrintPrints {
+	let disk = fstest.NewMemory()
+	try disk.MkdirAll("entries")
+	try disk.WriteFile("entries/marsh.txt", "title: Marsh & <reeds>\nday: 2026-10-03\nrelated: frost\n\nHerons, two.\n")
+	try disk.WriteFile("entries/frost.txt", "title: First frost\nday: 2026-11-01\n\nIce on the pond.\n")
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk, fs.Writes: disk } {
+		try run([]string{"build", "site"})
+	}
+	assert out.Text() == "wrote site/index.html\nwrote site/feed.xml\nwrote site/entries/frost/index.html\nwrote site/entries/marsh/index.html\nwrote site/notes.5655a480eb7a.css\nwrote site/404.html\n"
+	let printed = io.NewRecorder()
+	with context { io.Stdout: printed, fs.Files: disk, fs.Writes: disk } {
+		try run([]string{"print"})
+	}
+	let mut want = ""
+	for path in []string{"index.html", "feed.xml", "entries/frost/index.html", "entries/marsh/index.html", "notes.5655a480eb7a.css", "404.html"} {
+		let body = try disk.ReadFile("site/" + path)
+		want = want + "== " + path + "\n" + (if strings.HasSuffix(body, "\n") { body } else { body + "\n" })
+	}
+	assert printed.Text() == want
+}

@@ -2,10 +2,13 @@
 // Handle takes a Request record and gives a Response record, with no
 // socket. Every failure of the domain and of the body is caught by name
 // and given its status code, so a request can never escape without one.
-// Ergo's std has no http package yet (#51): package http1 reads and
-// writes these records as HTTP/1.1 text.
+// Std http's server is Go's net/http, which this program keeps out of
+// its binary (G-ex-c-7): package http1 reads and writes these records as
+// HTTP/1.1 text.
 
 import strings
+import deploys/deploys
+import json
 
 // Header is one header field. Name is compared without case.
 type Header { Name string, Value string }
@@ -13,6 +16,36 @@ type Header { Name string, Value string }
 // Request is an HTTP request: its method, its path (no query), its
 // headers in order, and its body.
 type Request { Method string, Path string, Headers []Header, Body string }
+
+// EveryRequestHasAStatus: for any Store, whatever the method, path and
+// body, Handle answers with one of Statuses and a JSON body: no request
+// reaches a status the API does not document, and none makes it fail.
+law EveryRequestHasAStatus(store deploys.Store, method string, path string, body string) {
+	everyRequestHasAStatusHolds(store, method, path, body)
+}
+
+// Statuses is every status Handle gives.
+let Statuses = []int{200, 201, 400, 404, 405, 409, 415, 422}
+
+// everyRequestHasAStatusHolds checks EveryRequestHasAStatus.
+func everyRequestHasAStatusHolds(store deploys.Store, method string, path string, body string) bool {
+	let r = with context { deploys.Store: store } { Handle(Request{Method: method, Path: path, Headers: []Header{}, Body: body}) }
+	let _ = json.Decode(json.Codec[json.Value]{MaxBytes: 1 << 20, MaxDepth: 32}, r.Body) catch {
+	case _:
+		return false
+	}
+	known(r.Status)
+}
+
+// known reports whether status is one of Statuses.
+func known(status int) bool {
+	for s in Statuses {
+		if s == status {
+			return true
+		}
+	}
+	false
+}
 
 // Response is an HTTP response.
 type Response { Status int, Headers []Header, Body string }

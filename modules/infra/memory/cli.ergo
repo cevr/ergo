@@ -55,7 +55,7 @@ test CommandLineSession {
 	assert infra.Exec(d, []string{"unlock", "ci"}).Code == 1
 	assert infra.Exec(d, []string{"destroy"}).Code == 2 && Objects(w.cloud) == 2
 	assert infra.Exec(d, []string{"destroy", "-yes"}) == said("delete file/f0\ndelete dir/d0\ndestroyed: 2 changes\n")
-	assert Objects(w.cloud) == 0
+	assert Objects(w.cloud) == 0 && readBack(disk) == None
 	assert infra.Exec(d, []string{"state"}) == said("no objects\nlock: free\n")
 	assert infra.Exec(d, []string{"deploy"}).Code == 2
 }

@@ -1,0 +1,20 @@
+# New scenes (upstream has none): the screen's links and what each
+# navigation's badges say.
+# a cold load into the gallery: the log's first entry is a cold load that
+# enters the gallery, and the catalog hangs after 600 ms
+@0 open /gallery
+@600 link Dawn Over the Harbor
+# the painting's own links: Next and Previous stay on the route
+@1000 link Next →
+@1400 link ← Previous
+# back to the gallery: a fresh entry loads the catalog again
+@1800 link ← Back to Gallery
+# a painting the gallery does not have, and its link back
+@2400 open /gallery/7
+@2800 link ← Back to Gallery
+# a path the site does not have, and its link home
+@3400 open /missing
+@3500 link ← Go Home
+# the browser's Back returns to the page before, which is entered again
+@3600 back
+@3700 end

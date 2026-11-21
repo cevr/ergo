@@ -1,0 +1,108 @@
+import strings
+
+// URL is a link target that cannot run a script: Href, Src and Action
+// take one, never a string. ParseURL and LocalURL build it.
+type URL { s string }
+
+// UnsafeURL is a URL whose scheme is not one a link may use: javascript:,
+// data:, vbscript: or any scheme other than http, https, mailto and tel.
+type UnsafeURL { URL string, Scheme string }
+
+// ParseURL is s as a link target: a URL with no scheme (a path, a query,
+// a fragment, a path relative to the page), or one whose scheme is http,
+// https, mailto or tel. The scheme is read as a browser reads it: tabs
+// and line breaks anywhere and C0 controls and spaces at the start do
+// not count, and case does not matter, so "Java\tScript:" is
+// javascript:. Any other scheme fails UnsafeURL. The URL is written as s
+// is.
+func ParseURL(s string) URL fails UnsafeURL {
+	let sc = Scheme(s)
+	if sc == "" || sc == "http" || sc == "https" || sc == "mailto" || sc == "tel" {
+		return URL{s: s}
+	}
+	UnsafeURL{URL: s, Scheme: sc}
+}
+
+// LocalURL is path as a link on the same site. Tabs and line breaks,
+// which a browser drops from a URL, are dropped; a / is put before a
+// path that has none; and /. is put before one that a browser would read
+// as another host's address (// or /\ at the start), so the link never
+// leaves the site and never has a scheme.
+func LocalURL(path string) URL {
+	let mut b = strings.NewBuilder()
+	if !strings.HasPrefix(path, "/") {
+		b.WriteString("/")
+	}
+	for i in 0..len(path) {
+		let c = path[i]
+		if c != '\t' && c != '\n' && c != '\r' {
+			b.WriteByte(c)
+		}
+	}
+	let p = b.String()
+	if len(p) > 1 && (p[1] == '/' || p[1] == '\\') {
+		return URL{s: "/." + p}
+	}
+	URL{s: p}
+}
+
+// URLText is the text of u.
+func URLText(u URL) string { u.s }
+
+// Scheme is the lower-case scheme of s as the URL standard's parser
+// reads it (leading C0 controls and spaces stripped, tabs and line breaks
+// removed), or "" when s has none: a letter, then letters, digits, +, -
+// or ., then a colon.
+func Scheme(s string) string {
+	let mut b = strings.NewBuilder()
+	let mut started = false
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == '\t' || c == '\n' || c == '\r' {
+			continue
+		}
+		if !started && c <= ' ' {
+			continue
+		}
+		started = true
+		if c == ':' {
+			return b.String()
+		}
+		let lower = if c >= 'A' && c <= 'Z' { c + 32 } else { c }
+		let letter = lower >= 'a' && lower <= 'z'
+		let more = b.Len() > 0 && ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.')
+		if !letter && !more {
+			return ""
+		}
+		b.WriteByte(lower)
+	}
+	""
+}
+
+// LinksRefuseScripts (WEB0): javascript:, data: and vbscript: links fail
+// UnsafeURL however a browser would still read them (any case, tabs and
+// line breaks inside, controls and spaces before), and a link with no
+// scheme, or an http, https, mailto or tel one, is kept as written.
+// LocalURL never makes a scheme or another host's address, whatever its
+// path holds.
+law LinksRefuseScripts(pick int, s string) {
+	let k = ((pick % 6) + 6) % 6
+	let bad = []string{"javascript:", "JaVaScRiPt:", " \t java\tscript:", "jav\nascript:", "data:text/html,", "VBScript:"}[k]
+	let good = []string{"/", "https://", "http://", "mailto:", "tel:", "#"}[k]
+	let kept = ParseURL(good + "x" + s) catch {
+	case UnsafeURL:
+		return false
+	}
+	let local = URLText(LocalURL(s))
+	let near = URLText(LocalURL(strings.Slice("\t//\\/", k%3, 5) + s))
+	refused(bad+s) && URLText(kept) == good+"x"+s && Scheme(local) == "" && strings.HasPrefix(local, "/") && !strings.HasPrefix(local, "//") && !strings.HasPrefix(local, "/\\") && !strings.HasPrefix(near, "//") && !strings.HasPrefix(near, "/\\")
+}
+
+// refused is whether ParseURL refuses s. (a law's helper)
+func refused(s string) bool {
+	let _ = ParseURL(s) catch {
+	case UnsafeURL:
+		return true
+	}
+	false
+}

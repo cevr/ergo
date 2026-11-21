@@ -4,7 +4,7 @@ import (
 	"slices"
 
 	"ergo.local/prototype/internal/gofacts"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/toolchain"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -23,7 +23,7 @@ import (
 // std's shipped ledger. go run ./scripts/stdlaws sets it to the shipped
 // ledger with a fresh run's guard lines before it checks std, so a stale
 // shipped ledger never stops the run that refreshes it.
-var FactLedger = std.Ledger
+var FactLedger = stdlib.Ledger
 
 // SyncActs reports whether the sync row of target acts: v1.GoSyncCallbacks
 // has it with a reason, and its guard line is current and validated; else

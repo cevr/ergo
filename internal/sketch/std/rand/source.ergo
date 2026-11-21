@@ -12,6 +12,9 @@ extern go ergo.local/prototype/runtime/v1/rand.Stream type Stream {
 	IntN(n int) int,
 	// Float64 is in [0, 1).
 	Float64() float64,
+	// Bytes is the next n bytes, eight from each 64-bit draw, low byte
+	// first. An n under zero is a defect.
+	Bytes(n int) string,
 
 	// IntNInRange: a draw of IntN(n) is in 0..n-1, for each n above zero.
 	law IntNInRange(n int) {
@@ -35,6 +38,25 @@ type PCG { src Stream } implements Random
 // Seeded is the PCG provider of seed.
 func Seeded(seed uint64) PCG { PCG{src: newStream(seed)} }
 
+// SeedReplays: two providers of one seed draw one stream, call for call.
+law SeedReplays(seed uint64, n int) {
+	let a = Seeded(seed)
+	let b = Seeded(seed)
+	let k = within(n, 1, 1000000)
+	a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64()
+}
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
 // Uint64 is the next 64 bits of p's stream.
 func Uint64(p PCG) uint64 { p.src.Uint64() }
 
@@ -46,6 +68,10 @@ func IntN(p PCG, n int) int { p.src.IntN(n) }
 func Float64(p PCG) float64 { p.src.Float64() }
 
 extern go ergo.local/prototype/runtime/v1/rand.NewStream func newStream(seed uint64) Stream
+
+// seededStream is the context Stream's laws run under (types.md, Laws
+// 10), the stream Seeded(1) draws from.
+let seededStream = context { Stream: newStream(1) }
 
 // Host is the host's Random provider: Go's global math/rand/v2 functions,
 // seeded by the runtime (ChaCha8 per thread), with no stream to replay.

@@ -1,0 +1,100 @@
+import ergo.dev/fluid/look
+import ergo.dev/fluid/part
+import ergo.dev/fluid/token
+import ergo.dev/fluid/web
+import html
+
+// ChipParts is a chip's skins.
+type ChipParts { Root part.Skin, Dot part.Skin, Label part.Skin }
+
+// chipIndex is a chip's place in the table: hue, then outlined.
+func chipIndex(h token.Hue, outline bool) int {
+	let mut i = 0
+	for x in token.Hues() {
+		if x == h {
+			return i*2 + (if outline { 1 } else { 0 })
+		}
+		i = i + 1
+	}
+	0
+}
+
+func chipTable() []ChipParts {
+	let mut out = []ChipParts{}
+	for h in token.Hues() {
+		for outline in []bool{false, true} {
+			let c = look.ChipLook(h, outline, token.Comfortable)
+			out = out.Append(ChipParts{Root: web.SkinIn(names, c.Root), Dot: web.SkinIn(names, c.Dot), Label: web.SkinIn(names, c.Label)})
+		}
+	}
+	out
+}
+
+let chipParts = chipTable()
+
+// badgeLooks is every look the badge specimens draw.
+func badgeLooks() []look.Look {
+	let mut out = []look.Look{}
+	for h in token.Hues() {
+		for outline in []bool{false, true} {
+			let c = look.ChipLook(h, outline, token.Comfortable)
+			out = out.Append(c.Root)
+			out = out.Append(c.Dot)
+			out = out.Append(c.Label)
+		}
+	}
+	out
+}
+
+// chipNode is a chip as a part: an inline box, its dot when outlined, and its label.
+func chipNode(h token.Hue, outline bool, label string) part.Node[int] {
+	let c = chipParts[chipIndex(h, outline)]
+	let mut kids = []part.Node[int]{}
+	if outline {
+		kids = kids.Append(part.Box{Sem: part.Hidden(), Skin: c.Dot, Inline: true, Keys: []part.Binding[int]{}, Kids: []part.Node[int]{}})
+	}
+	kids = kids.Append(part.Text{Value: label, Skin: c.Label})
+	part.Box{Sem: part.Plain(), Skin: c.Root, Inline: true, Keys: []part.Binding[int]{}, Kids: kids}
+}
+
+// chipOf is a chip's HTML.
+func chipOf(h token.Hue, outline bool, label string) html.Node { web.Node(chipNode(h, outline, label), func(_ int) web.Act { web.Inert }) }
+
+// Tagged is a chip of a specimen: its hue and label.
+type Tagged { Hue token.Hue, Label string }
+
+// wrapOf is a wrapping row of chips.
+func wrapOf(chips []Tagged, outline bool) html.Node {
+	let mut kids = []html.Child{html.Class(rows.Wrap)}
+	for c in chips {
+		kids = kids.Append(chipOf(c.Hue, outline, c.Label))
+	}
+	html.Div(kids)
+}
+
+// palette is every hue with its name, as the colours specimen shows them.
+func palette() []Tagged {
+	[]Tagged{
+		Tagged{Hue: token.AccentHue, Label: "Accent"}, Tagged{Hue: token.Gray, Label: "Gray"}, Tagged{Hue: token.Red, Label: "Red"}, Tagged{Hue: token.Orange, Label: "Orange"},
+		Tagged{Hue: token.Amber, Label: "Amber"}, Tagged{Hue: token.Yellow, Label: "Yellow"}, Tagged{Hue: token.Lime, Label: "Lime"}, Tagged{Hue: token.Green, Label: "Green"},
+		Tagged{Hue: token.Emerald, Label: "Emerald"}, Tagged{Hue: token.Teal, Label: "Teal"}, Tagged{Hue: token.Cyan, Label: "Cyan"}, Tagged{Hue: token.Blue, Label: "Blue"},
+		Tagged{Hue: token.Indigo, Label: "Indigo"}, Tagged{Hue: token.Violet, Label: "Violet"}, Tagged{Hue: token.Purple, Label: "Purple"}, Tagged{Hue: token.Fuchsia, Label: "Fuchsia"},
+		Tagged{Hue: token.Pink, Label: "Pink"}, Tagged{Hue: token.Rose, Label: "Rose"},
+	}
+}
+
+// badgePage is the badge's docs page: filled chips, outlined chips, and the palette.
+func badgePage() Doc {
+	let genres = []Tagged{Tagged{Hue: token.Violet, Label: "Fiction"}, Tagged{Hue: token.Amber, Label: "Science"}, Tagged{Hue: token.Green, Label: "Philosophy"}, Tagged{Hue: token.Blue, Label: "History"}, Tagged{Hue: token.Rose, Label: "Poetry"}}
+	Doc{
+		Title:    "Badge",
+		Lead:     "Compact label for status, category, or metadata. Supports solid and dot variants with Tailwind colors.",
+		Install:  "Editable source for Ergo.",
+		Sections: []Section{
+			Section{Title: "Solid", Lead: []Run{}, Stage: Stage("s0", false, wrapOf(genres, false)), Controls: false},
+			Section{Title: "Dot", Lead: []Run{}, Stage: Stage("s1", false, wrapOf(genres, true)), Controls: false},
+			Section{Title: "Colors", Lead: []Run{}, Stage: Stage("s2", false, html.Div([]html.Child{html.Class(rows.Column12), wrapOf(palette(), false), wrapOf(palette(), true)})), Controls: false},
+		},
+		Api: []Prop{Prop{Name: "children", Type: "readonly (Html | string)[]"}, Prop{Name: "color?", Type: "Color"}, Prop{Name: "variant?", Type: "'solid' | 'dot'"}, Prop{Name: "size?", Type: "Size"}, Prop{Name: "radius?", Type: "'rounded' | 'pill' | 'sharp'"}, Prop{Name: "className?", Type: "string"}, Prop{Name: "attributes?", Type: "readonly Attribute<Message>[]"}},
+	}
+}

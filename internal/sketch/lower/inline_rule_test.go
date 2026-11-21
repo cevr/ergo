@@ -15,7 +15,7 @@ import (
 func TestInlineRule(t *testing.T) {
 	const src = `type Box[T] { items []T }
 
-func small[T](b *Box[T], i int, d T) T {
+func small[T](b mut Box[T], i int, d T) T {
 	if i < 0 {
 		return d
 	}
@@ -29,9 +29,9 @@ func leaf(x int) int {
 	x
 }
 
-func near(b *Box[int]) int { small(b, 0, 0) + 1 }
+func near(b mut Box[int]) int { small(b, 0, 0) + 1 }
 
-func looped[T number](b *Box[T]) T {
+func looped[T number](b mut Box[T]) T {
 	let mut s = b.items[0]
 	for x in b.items {
 		s = s + x
@@ -59,7 +59,7 @@ type Ops { h func(x int) int }
 
 func mixed(o Ops, f func(x int) int, x int) int { o.h(f(x)) }
 
-func big[T number](b *Box[T]) T {
+func big[T number](b mut Box[T]) T {
 	let a = b.items[0] + b.items[1] + b.items[2] + b.items[0] * b.items[1] * b.items[2]
 	let c = a + b.items[0] - b.items[1] + b.items[2] - a * a + b.items[0] * a - b.items[1] * a
 	let d = c + a * b.items[0] - c * b.items[1] + a * c * b.items[2] - a - c + b.items[0]

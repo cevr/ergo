@@ -48,13 +48,42 @@ type Budget struct {
 	// Bytes bounds the bytes the evaluation allocates for values (ergo
 	// check --eval-bytes); 0 is its default, 64 MiB. It is a conservative
 	// allocation count, charged before each allocation: every string byte
-	// and valueBytes per collection slot it builds, never freed. It is
-	// not a measure of the process's memory.
+	// and, per collection slot it builds, its element type's size in the
+	// Go target (slotsize.go; valueBytes when the store's type is not
+	// known), never freed. It measures what the built program would
+	// allocate, not the process's memory.
 	Bytes int64
 	// Verdicts, when set, is the store of law verdicts (lawcache): a law
 	// run whose verdict it holds is not run, and a run that held is
 	// stored in it.
 	Verdicts Verdicts
+	// Tests, when set, is the store of test verdicts (TESTSPEED FT2): a
+	// test whose verdict it holds is not run, and a test that passed is
+	// stored in it.
+	Tests TestVerdicts
+}
+
+// TestVerdicts is a store of the verdicts of tests that passed, keyed by
+// every input of the run (the reach digest of the test, the seed): Cached
+// gives a passed test's verdict, Held stores one. A test the store does
+// not key gives none and stores nothing.
+type TestVerdicts interface {
+	Cached(t *check.Test) (Verdict, bool)
+	Held(t *check.Test, v Verdict)
+}
+
+// formOf is the case form of a passed run of evidence (a stored verdict
+// keeps its evidence, not its form).
+func formOf(evidence string) caseForm {
+	switch evidence {
+	case "evaluated":
+		return formSingle
+	case "proved":
+		return formListed
+	case "tested":
+		return formDrawn
+	}
+	return formNone
 }
 
 // Verdicts is a store of the verdicts of law runs that held, keyed by
@@ -90,8 +119,10 @@ const defaultStates = 1_000_000
 // defaultBytes is the default byte budget, 64 MiB.
 const defaultBytes = 64 << 20
 
-// valueBytes is what one collection slot costs of the byte budget: a Go
-// interface value, two words.
+// valueBytes is what one collection slot costs of the byte budget when
+// its store's element type is not known (a native's result), and the size
+// of a value whose layout the evaluator does not read: a Go interface
+// value, two words.
 const valueBytes = 16
 
 // Status is one obligation's verdict.
@@ -107,6 +138,11 @@ const (
 	Defect Status = "defect"
 	// Skipped: the obligation cannot run at check time; Reason says why.
 	Skipped Status = "skipped"
+	// Native: a law binding whose provider calls Go (README Gap 17). The
+	// evaluator runs no Go; the test binary's law case builds the
+	// provider and runs it (types.md, Laws 10; owner q277). Reason names
+	// the provider, and the result's replay is the command that runs it.
+	Native Status = "native"
 	// Incomplete: the budget ran out inside the obligation.
 	Incomplete Status = "incomplete"
 	// NotRun: an earlier defect or an exhausted budget stopped the run
@@ -157,6 +193,28 @@ type Result struct {
 	// verdict, from an earlier evaluation or test build of the same
 	// inputs.
 	Cached bool
+	// Drawn is a refuted drawn case's arguments as drawn, when shrinking
+	// (shrink.go) found a smaller case that fails the same way: Arguments
+	// are then the smaller case's, as the native runner's FAIL line shows
+	// them before "shrunk from:" (TESTSPEED FT1).
+	Drawn []Argument
+	// Message is a refuted or defective result's report as the native
+	// runner prints it after "): " on its FAIL line: "assert failed at
+	// main.ergo:9:2: x < 3: left 4, right 3", "law refuted at …: the law is
+	// false" with its declaration's line, "a defect, which stops the run".
+	// It is empty when the evaluator cannot write the native text (a typed
+	// failure that escaped, an assert under a try whose operands the native
+	// runner shows): that verdict's line is the native runner's to write
+	// (TESTSPEED FT1).
+	Message string
+	// escaped says a refutation is a typed failure that escaped the body,
+	// not a failed assert or a false law: a shrink keeps a candidate only
+	// when it fails the same way.
+	escaped bool
+	// form is how its cases are made (verdict.go).
+	form caseForm
+	// title is a law's name in its replay command (--law), check.Law.Title.
+	title string
 }
 
 type Argument struct{ Name, Value string }
@@ -228,10 +286,14 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	return rep, nil
 }
 
+// obligationEnded, when set, sees each obligation's result as Run adds it:
+// a receipt reads each one's instructions and wall time between calls.
+var obligationEnded func(Result)
+
 // runOrdered is Run with every Map visited in order; it says whether a
 // for over a Map ran.
 func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, ranged bool, err error) {
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order, walk: walkOnly.Load()}
 	rep.Limit, rep.BytesLimit = b.Steps, b.Bytes
 	defer func() {
 		if r := recover(); r != nil {
@@ -259,6 +321,9 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			res = Result{Name: res.Name, Status: NotRun, Reason: stopped, Site: res.Site}
 		}
 		rep.Results = append(rep.Results, res)
+		if h := obligationEnded; h != nil {
+			h(res) // a receipt's per-obligation work (export_test.go)
+		}
 		// An incomplete obligation used its own budget (begin): the next
 		// one has the whole budget again. An exhausted initializer stops
 		// every one (initFail).
@@ -274,12 +339,28 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())})
 			continue
 		}
+		if b.Tests != nil {
+			if v, ok := b.Tests.Cached(t); ok {
+				add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos()), Status: Passed, Evidence: v.Evidence, Seed: b.Seed, Cases: v.Cases, TotalCases: v.TotalCases, Cached: true, form: formOf(v.Evidence)})
+				continue
+			}
+		}
 		in.begin()
-		add(in.runTest(pkg, t))
+		// A test that ranged over a Map is a verdict only if the other
+		// order agrees (Run), so it is never stored from one order.
+		before := in.mapRanged
+		in.mapRanged = false
+		out := in.runTest(pkg, t)
+		ranged := in.mapRanged
+		in.mapRanged = before || ranged
+		if b.Tests != nil && !ranged && out.Status == Passed && formOf(out.Evidence) != formNone {
+			b.Tests.Held(t, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases})
+		}
+		add(out)
 	}
 	for _, run := range pkg.LawRuns {
 		for _, target := range lawTargets(pkg, run) {
-			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos())}
+			res := Result{Name: target.name, Site: in.site(run.Law.Pkg, run.Law.Decl, run.Law.Decl.Pos()), title: run.Law.Title(pkg)}
 			if stopped != "" || initFail != nil {
 				add(res)
 				continue
@@ -290,6 +371,9 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 				if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
 					res.Status, res.Evidence, res.Seed, res.Cached = Passed, v.Evidence, b.Seed, true
 					res.Cases, res.TotalCases, res.Reason, res.Machine = v.Cases, v.TotalCases, v.Reason, v.Machine
+					if v.Machine == nil {
+						res.form = formOf(v.Evidence)
+					}
 					add(res)
 					continue
 				}
@@ -406,9 +490,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	res.Steps = in.steps - start
 	if ab == nil {
 		if law && val != nil && !truth(val) {
-			res.Status, res.Reason = Refuted, "the law is false"
-			res.Site = in.site(pkg, decl, fr.resultPos)
-			return res
+			return in.lawFalse(res, pkg, decl, fr.resultPos)
 		}
 		res.Status = Passed
 		return res
@@ -417,19 +499,21 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	switch ab.kind {
 	case ctlReturn:
 		if law && !truth(ab.val) {
-			res.Status, res.Reason = Refuted, "the law is false"
-			res.Site = in.site(pkg, decl, fr.resultPos)
-			return res
+			return in.lawFalse(res, pkg, decl, fr.resultPos)
 		}
 		res.Status = Passed
 		res.Site = in.site(pkg, decl, decl.Pos())
 	case ctlAssert:
 		res.Status, res.Reason = Refuted, "assert failed"
+		if a, ok := ab.val.(*shownAssert); ok && !a.unshown {
+			res.Message = in.assertMessage(fr, res.Site, a)
+		}
 	case ctlFail, ctlEscape:
 		res.Status, res.Reason = Refuted, "a failure escaped: "+describe(ab.val)
 		res.Site = in.site(pkg, decl, decl.Pos())
+		res.escaped = true
 	case ctlDefect:
-		res.Status, res.Reason = Defect, ab.msg
+		res.Status, res.Reason, res.Message = Defect, ab.msg, defectMessage
 	case ctlExhausted:
 		res.Status, res.Reason = Incomplete, ab.msg
 	case ctlUnsupported:
@@ -437,7 +521,7 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 	case ctlInterrupt:
 		// Nothing stops the root task; an interruption that reaches it
 		// came from a task it waited for.
-		res.Status, res.Reason = Defect, "interrupted"
+		res.Status, res.Reason, res.Message = Defect, "interrupted", defectMessage
 	default:
 		ice("the control %d left the body", ab.kind)
 	}

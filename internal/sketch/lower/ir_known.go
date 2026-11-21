@@ -27,20 +27,46 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// irInstanceCopy reports a copy the IR does not build (LY-FIX): any copy
-// but one for a known record, so a monomorphic instance (mono.go), a copy
-// for a known provider (provider.go) or for a known witness (witspec.go).
-// Each is one more Go function beside f's, named sp.name; an IR body built
-// for it would take f's name and f's Go declaration, a second body for f
-// at the instance's types (a461a6b13's "Fold is not declared in the Go
-// source"). The emitter writes their bodies.
-func irInstanceCopy(sp *specCopy) bool { return sp != nil && sp.rec == nil }
+// irInstanceCopy reports a copy the IR does not build (LY-FIX): a copy for
+// a known provider (provider.go) when provCopyIR is "off", or for a known
+// witness (witspec.go) when witnessCopyIR is "off". Each is one more Go
+// function beside f's, named sp.name; an IR body built for it takes the
+// copy's name (copyName), never f's (a461a6b13's "Fold is not declared in
+// the Go source"). A monomorphic copy (mono.go) is built: its body takes
+// the copy's name (monoName), and the IR calls it (callParts;
+// MONO-HOOKS-MIN). A copy for a known witness takes the IR (G4,
+// ir_witness.go), and so does a copy for a known provider (PORT-INSTCOPY):
+// its parameter's Go type is the adapter's pointer, which the Go head
+// declares (decls.go), so each operation call on it is a static call of
+// the adapter's method (opCall), a call that passes it on goes to the
+// callee's copy for the same adapter (copyCall, provArg), and any other
+// read is Go's interface value (provRead).
+func irInstanceCopy(sp *specCopy) bool {
+	return sp != nil && sp.rec == nil && (sp.prov != nil && provCopyIR == "off" || sp.wit != nil && witnessCopyIR == "off")
+}
 
-// copyName is the Go name of the copy for a known record that the body of
-// f being built is, or "" when it is f itself.
+// provCopyIR selects PORT-INSTCOPY: "" (on) or "off" (the reference: a
+// copy for a known provider keeps the emitter's body, and an IR call
+// passes the interface to the function itself), set by
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.provCopyIR=off.
+var provCopyIR = ""
+
+// copyName is the Go name of the copy for a known record or a known
+// witness that the body of f being built is, or "" when it is f itself.
 func (b *irBuilder) copyName(f *check.Func) string {
 	for _, rec := range b.fc.recs {
 		if sp := b.l.specs[specKey{f: f, tn: rec.tn}]; sp != nil {
+			return sp.name
+		}
+	}
+	for _, st := range b.fc.static {
+		tn, ptr := witArg(st.Arg)
+		if sp := b.l.specs[witKey(f, tn, ptr)]; sp != nil && tn != nil {
+			return sp.name
+		}
+	}
+	for _, prov := range b.fc.provs {
+		if sp := b.l.specs[specKey{f: f, prov: prov.key}]; sp != nil {
 			return sp.name
 		}
 	}
@@ -48,15 +74,43 @@ func (b *irBuilder) copyName(f *check.Func) string {
 }
 
 // copyCall is the Go name of the copy the call x of c goes to, when its
-// record argument is known (record.go specAt, which queues the copy's
-// body), else "".
+// record argument or its provider is known (record.go specAt, which
+// queues the copy's body), else "". A copy for a known provider takes the
+// adapter's pointer at its parameter (provArg).
 func (b *irBuilder) copyCall(x *syntax.CallExpr, c *check.Call) string {
-	if sp := b.fc.specAt(x, c); sp != nil && !irInstanceCopy(sp) {
-		// A copy for a known provider takes the provider's adapter,
-		// which the IR does not build: the IR calls the function itself.
+	if sp := b.fc.specAt(x, c); sp != nil && (sp.rec != nil || sp.prov != nil && provCopyIR != "off") {
 		return sp.name
 	}
 	return ""
+}
+
+// provArg is the call's arguments irArgs with the one at the parameter of
+// the copy for a known provider (sp.param; at counts the environment
+// before it) taken as the adapter's pointer: the operations conversion's
+// literal before its conversion to the interface (opsConv), or the copy's
+// own parameter before provRead's. Else irArgs.
+func (b *irBuilder) provArg(x *syntax.CallExpr, c *check.Call, irArgs []*irExpr, at int) []*irExpr {
+	sp := b.fc.specAt(x, c)
+	if sp == nil || sp.prov == nil || provCopyIR == "off" {
+		return irArgs
+	}
+	i := at + sp.param
+	if i >= len(irArgs) || irArgs[i].K != "toiface" {
+		irNo("argument for a known provider's copy")
+	}
+	irArgs[i] = irArgs[i].X
+	return irArgs
+}
+
+// provRead is the read e of the variable v: when v is the parameter of a
+// copy for a known provider (its Go type the adapter's pointer), Go's
+// interface value of v's operation type, which the decoder does not
+// insert; else e. opCall and provArg take the pointer back.
+func (b *irBuilder) provRead(v *check.Var, e *irExpr, x syntax.Expr) *irExpr {
+	if b.fc.provs[v] == nil || provCopyIR == "off" {
+		return e
+	}
+	return &irExpr{K: "toiface", Pos: e.Pos, T: b.goType(v.Type, x), X: e}
 }
 
 // knownField is c, the call x, as a call of the declared function a field

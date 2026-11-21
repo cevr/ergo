@@ -268,12 +268,16 @@ func TestHermeticCheckResolvesExecutableByIdentity(t *testing.T) {
 
 // hermeticConfigurations are the build configurations the check type-checks
 // a hermetic package in: the platforms the gate runs on (Linux on amd64, the
-// workbox; macOS on arm64) and Linux on arm64, where testinputs observes too.
-// Every file of a module package in the binary must be built in one of them.
+// workbox; macOS on arm64) and Linux on arm64, where testinputs observes too;
+// and FreeBSD on amd64, which builds the files for every other system
+// (`!linux && !darwin`, such as replay's stat_other.go, which the all-GOOS
+// vet needs). Every file of a module package in the binary must be built in
+// one of them.
 var hermeticConfigurations = []struct{ goos, goarch string }{
 	{"linux", "amd64"},
 	{"linux", "arm64"},
 	{"darwin", "arm64"},
+	{"freebsd", "amd64"},
 }
 
 // hermeticBuilds lists pkg's test binary in each of hermeticConfigurations,

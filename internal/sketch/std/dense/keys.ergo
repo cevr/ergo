@@ -1,0 +1,115 @@
+// Keys is a set of 128-bit keys (two uint64 words each), open addressed
+// with linear probing over two columns of words: the visited set of a
+// state search (std explore), where Go would keep a map[[16]byte]struct{}
+// and a hand-optimized checker an array of fingerprints (TLC's FPSet).
+// The slot count is a power of two, at least 16, and at most three
+// quarters full, so a probe ends. A key whose words are both zero is
+// stored as (0, 1), the one pair the empty slot uses; a set of 128-bit
+// hashes loses nothing it would not lose to a collision.
+type Keys { hi []uint64, lo []uint64, used int }
+
+// NewKeys is a set of no keys.
+func NewKeys() Keys { Keys{hi: []uint64{}, lo: []uint64{}, used: 0} }
+
+// KeyCount is the number of keys in s.
+func KeyCount(s Keys) int { s.used }
+
+// keySlot is the first slot of the key (hi, lo) in a table of mask+1
+// slots: the low word's high bits, since std explore's keys are mixed.
+func keySlot(lo uint64, mask int) int { int(lo>>uint64(32)) & mask }
+
+// HasKey reports whether the key (hi, lo) is in s.
+func HasKey(s Keys, hi uint64, lo uint64) bool {
+	if len(s.lo) == 0 {
+		return false
+	}
+	let l = if hi == uint64(0) && lo == uint64(0) { uint64(1) } else { lo }
+	let mask = len(s.lo) - 1
+	let mut at = keySlot(l, mask)
+	for s.hi[at] != uint64(0) || s.lo[at] != uint64(0) {
+		if s.hi[at] == hi && s.lo[at] == l {
+			return true
+		}
+		at = (at + 1) & mask
+	}
+	false
+}
+
+// AddKey puts the key (hi, lo) in s and reports whether it was new.
+func AddKey(s mut Keys, hi uint64, lo uint64) bool {
+	let l = if hi == uint64(0) && lo == uint64(0) { uint64(1) } else { lo }
+	if (s.used+1)*4 > len(s.lo)*3 {
+		growKeys(s)
+	}
+	let mask = len(s.lo) - 1
+	let mut at = keySlot(l, mask)
+	for s.hi[at] != uint64(0) || s.lo[at] != uint64(0) {
+		if s.hi[at] == hi && s.lo[at] == l {
+			return false
+		}
+		at = (at + 1) & mask
+	}
+	s.hi[at] = hi
+	s.lo[at] = l
+	s.used = s.used + 1
+	true
+}
+
+// growKeys doubles the slots, at least 16, and places every key again.
+func growKeys(s mut Keys) {
+	let n = if len(s.lo) < 8 { 16 } else { len(s.lo) * 2 }
+	let mut hi = []uint64{}
+	let mut lo = []uint64{}
+	for _ in 0..n {
+		hi = hi.Append(uint64(0))
+		lo = lo.Append(uint64(0))
+	}
+	let mask = n - 1
+	for i in 0..len(s.lo) {
+		if s.hi[i] != uint64(0) || s.lo[i] != uint64(0) {
+			let mut at = keySlot(s.lo[i], mask)
+			for hi[at] != uint64(0) || lo[at] != uint64(0) {
+				at = (at + 1) & mask
+			}
+			hi[at] = s.hi[i]
+			lo[at] = s.lo[i]
+		}
+	}
+	s.hi = hi
+	s.lo = lo
+}
+
+// KeysAgreeWithAList: after adding keys, each added key is in the set, the
+// count is the number of distinct keys, and a key not added is not
+// (KeysAgreeWithAList checks the set against a plain list, through
+// growth: 40 keys pass the first three resizes). Keys share their low
+// word often, so probes collide.
+law KeysAgreeWithAList(seed uint64, n uint8) {
+	let mut s = NewKeys()
+	let mut his = []uint64{}
+	let mut los = []uint64{}
+	let mut x = seed
+	for _ in 0..int(n % uint8(40)) {
+		x = x * uint64(6364136223846793005) + uint64(1442695040888963407)
+		let hi = x >> uint64(60)
+		let lo = (x >> uint64(56)) << uint64(32)
+		let mut fresh = true
+		for j in 0..len(his) {
+			if his[j] == hi && los[j] == lo {
+				fresh = false
+			}
+		}
+		if AddKey(&s, hi, lo) != fresh {
+			return false
+		}
+		if fresh {
+			his = his.Append(hi)
+			los = los.Append(lo)
+		}
+	}
+	let mut ok = KeyCount(s) == len(his)
+	for j in 0..len(his) {
+		ok = ok && HasKey(s, his[j], los[j])
+	}
+	ok && (len(his) == 0 || !HasKey(s, his[0] + uint64(16), los[0]))
+}

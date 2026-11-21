@@ -1,0 +1,165 @@
+// The zoned format: a format whose fields may name the zone a wall time is
+// read in (its offset, name and abbreviation). civil holds no zone, so it
+// writes the zone fields from text tz gives it (ZoneParts) and reads them
+// back as text (ZonedText); tz.FormatZoned and tz.ParseZoned are the
+// functions a program calls.
+
+// ZonedFormat is a checked format of a wall time and its zone.
+type ZonedFormat { fields []Field, names Names }
+
+// ZonedFields is the zoned format of fields with names.
+func ZonedFields(fields []Field, names Names) ZonedFormat fails BadPattern {
+	let _ = try checkFields(fields, indexes(len(fields)), names, true, true, "")
+	ZonedFormat{fields: fields, names: names}
+}
+
+// ZonedPattern is the zoned format of the LDML pattern text: Pattern's
+// letters and the zone's: XX (-0700, Z for zero), XXX (-07:00, Z for
+// zero), xx (-0700), xxx (-07:00), Z to ZZZ (-0700), ZZZZZ (-07:00, Z
+// for zero), z to zzz (the abbreviation), VV (the zone's name). Refused
+// with a hint: X and x alone (they drop the minutes), XXXX, XXXXX, xxxx,
+// xxxxx, ZZZZ, zzzz, O and v (localized forms civil does not hold).
+func ZonedPattern(text string) ZonedFormat fails BadPattern {
+	let (fields, at) = try patternFields(text, true)
+	let _ = try checkFields(fields, at, English(), true, true, text)
+	ZonedFormat{fields: fields, names: English()}
+}
+
+// ZonedLayout is the zoned format of Go's reference layout text:
+// FromLayout's elements and the zone's: -0700, -07:00, Z0700, Z07:00 and
+// MST. Refused with a hint: -07 and Z07 (they drop the minutes) and the
+// forms with seconds (-07:00:00, -070000, Z07:00:00, Z070000), whose
+// seconds the offset writes when it has them.
+func ZonedLayout(text string) ZonedFormat fails BadPattern {
+	let (fields, at) = try layoutFields(text, true)
+	let _ = try checkFields(fields, at, English(), true, true, text)
+	ZonedFormat{fields: fields, names: English()}
+}
+
+// ZonedFormatFields is the fields of f, in order.
+func ZonedFormatFields(f ZonedFormat) []Field { f.fields }
+
+// ZoneParts is the text of a zone's fields: the offset in seconds east of
+// UTC, less than a day either way; the abbreviation; the zone's name.
+type ZoneParts { Offset int, Abbreviation string, Zone string }
+
+// noZone is the ZoneParts of a format with no zone field.
+func noZone() ZoneParts { ZoneParts{Offset: 0, Abbreviation: "", Zone: ""} }
+
+// FormatWithZone is the text of dt in f, with z for its zone fields.
+func FormatWithZone(dt DateTime, z ZoneParts, f ZonedFormat) string { bytesText(render(buffer(32), dt.Date, dt.Time, z, f.fields, f.names)) }
+
+// AppendWithZone appends the text of dt in f, with z for its zone fields,
+// to into.
+func AppendWithZone(dt DateTime, z ZoneParts, f ZonedFormat, into []byte) []byte {
+	let mut out = into
+	out = render(out, dt.Date, dt.Time, z, f.fields, f.names)
+	out
+}
+
+// ZonedText is what a zoned text says: its wall time, and the offset,
+// abbreviation and zone name it holds, each None when f has no such
+// field.
+type ZonedText { Wall DateTime, Offset Option[int], Abbreviation Option[string], Zone Option[string] }
+
+// ParseWithZone reads the text s in f, as strict as ParseDateTime: an
+// offset is ±hh:mm or ±hhmm with :ss or ss only when not zero, +00:00 and
+// never -00:00 for zero, Z when f writes Z for zero; a name or
+// abbreviation is a run of letters, digits and /_+-:. Whether they agree
+// with a zone is tz's question.
+func ParseWithZone(f ZonedFormat, s string) ZonedText fails ParseError {
+	let r = try read(f.fields, f.names, s)
+	let d = try dateOf(r, s)
+	let t = try timeOf(r, s)
+	ZonedText{
+		Wall:         DateTime{Date: d, Time: t},
+		Offset:       if r.hasOffset { Some[int]{Value: r.offset} } else { None },
+		Abbreviation: if r.abbreviation != "" { Some[string]{Value: r.abbreviation} } else { None },
+		Zone:         if r.zone != "" { Some[string]{Value: r.zone} } else { None },
+	}
+}
+
+// appendOffset appends s seconds as an offset: sign, hours and minutes,
+// with a colon between them when colon, then seconds when s is not whole
+// minutes; Z for zero when z. s is taken less than a day either way.
+func appendOffset(into []byte, s int, colon bool, z bool) []byte {
+	let mut out = into
+	if z && s == 0 {
+		out = appendString(out, "Z")
+		return out
+	}
+	let a = (if s < 0 { -s } else { s }) % 86400
+	let sep = if colon { ":" } else { "" }
+	out = appendString(out, if s < 0 { "-" } else { "+" })
+	out = appendString(out, pair(int64(a/3600)))
+	out = appendString(out, sep)
+	out = appendString(out, pair(int64(a%3600/60)))
+	if a%60 != 0 {
+		out = appendString(out, sep)
+		out = appendString(out, pair(int64(a%60)))
+	}
+	out
+}
+
+// readOffset reads an offset at s[i] as appendOffset writes it, and is its
+// seconds and the index after it.
+func readOffset(s string, i int, colon bool, z bool) (int, int) fails ParseError {
+	if z && i < len(s) && s[i] == 'Z' {
+		return (0, i + 1)
+	}
+	if i >= len(s) || s[i] != '+' && s[i] != '-' {
+		return wantField(s, i, "offset")
+	}
+	let (h, j) = try readNumber(s, i+1, 2, ZeroPad, "offset")
+	let mut k = j
+	if colon {
+		if !startsAt(s, k, ":") {
+			return wantField(s, i, "offset")
+		}
+		k = k + 1
+	}
+	let (m, e) = try readNumber(s, k, 2, ZeroPad, "offset")
+	let mut sec = 0
+	let mut end = e
+	if colon && startsAt(s, end, ":") && isDigit(s, end+1) {
+		let (x, after) = try readNumber(s, end+1, 2, ZeroPad, "offset")
+		sec = x
+		end = after
+		if sec == 0 {
+			return ParseError{Text: s, At: i, Reason: "an offset of whole minutes has no seconds"}
+		}
+	} else if !colon && isDigit(s, end) {
+		let (x, after) = try readNumber(s, end, 2, ZeroPad, "offset")
+		sec = x
+		end = after
+		if sec == 0 {
+			return ParseError{Text: s, At: i, Reason: "an offset of whole minutes has no seconds"}
+		}
+	}
+	if h > 23 || m > 59 || sec > 59 {
+		return ParseError{Text: s, At: i, Reason: "the offset is out of range"}
+	}
+	let v = h*3600 + m*60 + sec
+	if v == 0 && (z || s[i] == '-') {
+		return ParseError{Text: s, At: i, Reason: if z { "a zero offset is Z" } else { "a zero offset is +00:00" }}
+	}
+	(if s[i] == '-' { -v } else { v }, end)
+}
+
+// nameEnd is the index after the run of name bytes at s[i].
+func nameEnd(s string, i int) int {
+	let mut j = i
+	for j < len(s) && nameByte(s[j]) {
+		j = j + 1
+	}
+	j
+}
+
+// agreeText is v, or a ParseError when an earlier field read old, another
+// text of the same thing.
+func agreeText(old string, v string, s string, at int, what string) string fails ParseError {
+	if old != "" && old != v {
+		return ParseError{Text: s, At: at, Reason: "the \(what) disagrees with an earlier field"}
+	}
+	v
+}

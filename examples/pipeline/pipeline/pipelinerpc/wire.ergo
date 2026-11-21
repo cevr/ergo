@@ -6,11 +6,23 @@
 
 import rpc
 import pipeline/pipeline
+import pipeline/pipeline/pipelineapi
 import pipeline/run
 
-// Request is one call of pipeline.Pipeline: a variant per operation, whose fields
-// are the operation's parameters, so its payload is the variant's JSON.
-type Request = SubmitRequest{C pipeline.SubmitRun} | CancelRequest{C pipeline.CancelRun} | RetryRequest{C pipeline.RetryRun} | BoardRequest{} | RunOfRequest{Id string}
+// Request is one call of pipeline.Pipeline: the hub's Request, a variant per
+// operation whose fields are the operation's parameters, so its payload is
+// the variant's JSON. Each variant is named here too.
+type Request = pipelineapi.Request
+
+type SubmitRequest = pipelineapi.SubmitRequest
+
+type CancelRequest = pipelineapi.CancelRequest
+
+type RetryRequest = pipelineapi.RetryRequest
+
+type BoardRequest = pipelineapi.BoardRequest
+
+type RunOfRequest = pipelineapi.RunOfRequest
 
 func exactSubmitRequest(v SubmitRequest) fails rpc.Unrepresentable {
 	exactPipelineSubmitRun(v.C) catch {

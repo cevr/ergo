@@ -143,14 +143,62 @@ func readCPUCosts(root, module string) (map[string]map[string]float64, error) {
 	return costs, nil
 }
 
+// sweepCostFile records what the sweep of each package really took, by
+// package directory: the wall of its slowest run and of its whole sweep,
+// the build of its test binary included (scripts/gate, `-record-durations
+// -sweeps`, which runs the sweeps with sweepCostOutVariable set). A run
+// starts with an empty Go build cache (runPlan), so a test that builds Go
+// takes far more in the sweep than in the warm go test that durations.json
+// and test-cpu.json record: internal/sketchfront recorded 2 s and swept in
+// 16 to 30 minutes, past its runs' 30 minute floor under load (batch 18,
+// GS23).
+const sweepCostFile = "scripts/gate/sweep-cost.json"
+
+// sweepCostOutVariable names a file the sweep writes each swept package's
+// real costs to (sweepCost rows by directory, JSON).
+const sweepCostOutVariable = "ERGO_CLOSURE_COST_OUT"
+
+// sweepCost is one package's recorded sweep: seconds of wall.
+type sweepCost struct {
+	Run   float64 `json:"run"`
+	Sweep float64 `json:"sweep"`
+}
+
+// readSweepCosts reads sweepCostFile under root; no file is no table.
+func readSweepCosts(root string) (map[string]sweepCost, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(sweepCostFile)))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]sweepCost{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var costs map[string]sweepCost
+	if err := json.Unmarshal(data, &costs); err != nil {
+		return nil, fmt.Errorf("%s: %w", sweepCostFile, err)
+	}
+	return costs, nil
+}
+
+// measuredSweep is the sweepCost of one package's sweep: its slowest run
+// and the whole of it, build included, rounded up to the second.
+func measuredSweep(build time.Duration, runs []time.Duration, whole time.Duration) sweepCost {
+	slowest := build
+	for _, d := range runs {
+		slowest = max(slowest, d)
+	}
+	return sweepCost{Run: math.Ceil(slowest.Seconds()), Sweep: math.Ceil(whole.Seconds())}
+}
+
 // withDeadlineCosts sets each run's deadlineCost: the CPU seconds cpu
 // records for its tests, or its recorded wall (cost) when that is more,
-// as when the package has no CPU rows. A run that holds a test with no
+// as when the package has no CPU rows, or the package's slowest swept run
+// (sweepCostFile, recorded) when that is more still. A run that holds a test with no
 // recorded time has no cost to scale (unmeasuredCost): the median it
 // weighs in the plan says nothing about a test that builds every example
 // (TestDirectMatchesGoBuild outran its run's 30 minute floor in the batch
 // 20 sweep, CS1), so only the step's own hang deadline bounds it.
-func withDeadlineCosts(plan []sweepRun, cpu map[string]float64) []sweepRun {
+func withDeadlineCosts(plan []sweepRun, cpu map[string]float64, recorded sweepCost) []sweepRun {
 	for i := range plan {
 		if len(plan[i].unmeasured) > 0 {
 			plan[i].deadlineCost = unmeasuredCost
@@ -160,7 +208,7 @@ func withDeadlineCosts(plan []sweepRun, cpu map[string]float64) []sweepRun {
 		for _, name := range plan[i].tests {
 			sum += cpu[name]
 		}
-		plan[i].deadlineCost = max(sum, plan[i].cost)
+		plan[i].deadlineCost = max(sum, plan[i].cost, recorded.Run)
 	}
 	return plan
 }
@@ -632,7 +680,7 @@ func TestRunFailureNamesTheSlowestTests(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("%d runs; want one under a budget above the total", len(plan))
 	}
-	stopped := runTimeout{pkg: "internal/x", output: "/tmp/x.out", deadline: 20 * time.Minute, left: []string{"x.test (pid 1)"}}
+	stopped := runTimeout{pkg: "internal/x", output: "/tmp/x.out", quiet: 20 * time.Minute, outcome: watchQuiet, left: []string{"x.test (pid 1)"}}
 	err := runFailure(0, 1, plan[0], stopped)
 	if !errors.As(err, new(runTimeout)) {
 		t.Fatalf("the deadline error is not kept: %v", err)

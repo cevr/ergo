@@ -20,7 +20,7 @@ import (
 // generated cases (EV3 draws them; this row said skipped before). Mutants eval-bypassed (Evaluate reports without running
 // the obligations) and skip-as-pass are caught here and nowhere else.
 func TestEvaluateRefutesFalseExample(t *testing.T) {
-	src := "func twice(n int) int { n + n }\n\ntest ExampleRefuted {\n\tassert twice(2) == 5\n}\n\nlaw Refuted(n int) { twice(n) - n != n }\n"
+	src := "func Twice(n int) int { n + n }\n\ntest ExampleRefuted {\n\tassert Twice(2) == 5\n}\n\nlaw Refuted(n int) { Twice(n) - n != n }\n"
 	a := Check(src)
 	if len(a.Diagnostics) != 0 {
 		t.Fatalf("the program does not check: %v", a.Diagnostics)
@@ -42,6 +42,72 @@ func TestEvaluateRefutesFalseExample(t *testing.T) {
 	}
 	if !rep.Refuted() {
 		t.Errorf("the report does not count the refutation: %+v", rep)
+	}
+}
+
+// TestCheckReplaysAMachineLawAsTheTestBuildDoes is the smallest repro of
+// MODELCHECK T3 trial 2's two replay commands for one law: check's JSON
+// said `--seed 1 --law L` where the test build prints `--law L --states
+// N`. A refuted invariant names the states its search held; a goal no run
+// reaches names the budget. Mutant it kills that nothing else does:
+// mc-check-machine-replay-seeded.
+func TestCheckReplaysAMachineLawAsTheTestBuildDoes(t *testing.T) {
+	src := `type Counter { N int }
+
+type Op = Inc{} | Reset{}
+
+func step(s Counter, e Op) Decision[Counter, string] {
+	let mut w = s
+	match e {
+	case Inc:
+		if w.N >= 3 {
+			return Ignore
+		}
+		w.N = w.N + 1
+	case Reset:
+		w.N = 0
+	}
+	return Enter{w}
+}
+
+func small(s Counter) bool { s.N < 2 }
+
+func five(s Counter) bool { s.N == 5 }
+
+type Count machine[Counter, Op] {
+	initial: Counter{N: 0},
+	step:    step,
+	law Small always small,
+	law Five sometimes five,
+}
+`
+	a := Check(src)
+	if len(a.Diagnostics) != 0 {
+		t.Fatalf("the program does not check: %v", a.Diagnostics)
+	}
+	e, err := a.Evaluation(eval.DefaultBudget(), "m.ergo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"law Count.Small": "", "law Count.Five": "ergo test m.ergo --law Count.Five --states 1000000"}
+	for _, o := range e.Obligations {
+		w, ok := want[o.Name]
+		if !ok {
+			continue
+		}
+		delete(want, o.Name)
+		if o.Status != "refuted" || o.Machine == nil || o.Machine.Runs != 0 {
+			t.Fatalf("%s: want a graph search's refutation, got %+v", o.Name, o)
+		}
+		if w == "" {
+			w = "ergo test m.ergo --law Count.Small --states " + strconv.Itoa(o.Machine.States)
+		}
+		if o.Replay != w {
+			t.Errorf("%s: replay %q, want %q", o.Name, o.Replay, w)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("no obligation for %v in %+v", want, e.Obligations)
 	}
 }
 
@@ -87,7 +153,9 @@ func genRunnerProgram(r *rand.Rand) runnerProgram {
 
 func (p runnerProgram) source() string {
 	var b strings.Builder
-	b.WriteString("extern go strings.ToUpper func upper(s string) string\n\n")
+	// A Go function check time has no native for (strings.ToUpper is a
+	// listed native, which runs): its test is skipped.
+	b.WriteString("extern go strings.ToTitle func upper(s string) string\n\n")
 	b.WriteString("type Bad { Code int }\n\n")
 	b.WriteString("func boom(n int) int fails Bad {\n\tif n > 0 {\n\t\treturn Bad{Code: n}\n\t}\n\tn\n}\n\n")
 	b.WriteString("func pad(n int) string {\n\tlet mut s = \"\"\n\tlet mut i = 0\n\tfor i < n {\n\t\ts = s + \"x\"\n\t\ti = i + 1\n\t}\n\ts\n}\n\n")
@@ -260,9 +328,16 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 				need = append(need, padBytes(o.work))
 			}
 		} else {
+			// The step budget is each case's (TP-BUILT-FAST): an
+			// obligation of n cases needs its steps over n, rounded up.
 			for _, o := range full.Obligations {
-				need = append(need, o.Steps)
+				n := int64(max(1, o.TotalCases))
+				need = append(need, (o.Steps+n-1)/n)
 			}
+			// The initializers run under a step bound of their own
+			// (runtime.md, Tests 9; LITERAL-LET), far past any cut here,
+			// so a steps cut never stops them.
+			init = 0
 		}
 		most := init
 		for i := range need {
@@ -285,7 +360,10 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 			fail("%v", err)
 		}
 		cs, _ := statusesOf(cut)
-		ok := len(cs) == len(want) && slices.Contains(cs, "incomplete")
+		// The cut shows: a record is incomplete, or a refuted one whose
+		// shrink the cut stopped stays refuted (kept).
+		kept := false
+		ok := len(cs) == len(want)
 		// The initializer did not finish: the first record is incomplete
 		// and the rest not run. It must not when it needs more; pad's
 		// bytes are a least count, so a bytes cut may stop it anyway.
@@ -298,8 +376,19 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 		}
 		for i := 0; ok && init <= limit && !(axis == "bytes" && initStopped) && i < len(cs); i++ {
 			switch {
+			case need[i] > limit && want[i] == "refuted" && cs[i] == "refuted":
+				// The cut fell in its shrink, after the drawn case
+				// refuted it: a counterexample is a refutation whatever
+				// the shrink's budget (EVAL-SHRINK-REFUTED, 765), so it
+				// stays refuted, with its replay, and never passes.
+				kept = true
+				ok = cut.Obligations[i].Replay != ""
 			case need[i] > limit:
 				ok = cs[i] == "incomplete"
+			case want[i] == "skipped" && cs[i] == "incomplete":
+				// A skipped test runs its pad before it reaches the Go
+				// call that skips it, and its record carries no steps:
+				// the cut may stop it in the pad.
 			case cs[i] == "incomplete" && axis == "bytes":
 				// pad's bytes are a least count: the cut may stop it.
 			default:
@@ -309,12 +398,13 @@ func TestCheckEvalRunnerModel(t *testing.T) {
 				break // a stopped defect lets the records after it run
 			}
 		}
+		ok = ok && (slices.Contains(cs, "incomplete") || kept)
 		if !ok || cut.Status != modelSummary(cs) || cut.Status == "passed" {
-			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d", axis, b, cs, cut.Status, want, limit)
+			fail("a %s cut (%+v): runner %v (%s), want the full run's %v with an incomplete record for each obligation that needs more than %d (initializer needs %d, obligations %v)", axis, b, cs, cut.Status, want, limit, init, need)
 		}
 		for _, o := range cut.Obligations {
-			if o.Steps > cut.StepsLimit {
-				fail("a %s cut: %s used %d of %d steps", axis, o.Name, o.Steps, cut.StepsLimit)
+			if o.Steps > cut.StepsLimit*int64(max(1, o.TotalCases)) {
+				fail("a %s cut: %s used %d of %d steps for each of %d cases", axis, o.Name, o.Steps, cut.StepsLimit, o.TotalCases)
 			}
 		}
 	}

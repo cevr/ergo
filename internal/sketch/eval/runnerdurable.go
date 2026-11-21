@@ -107,7 +107,9 @@ func holdsHosts(v Value, held map[*hostV]bool, seen map[any]bool) {
 	}
 }
 
-func registerRunnerdurable() {
+func registerRunnerdurable(t nativeTables) {
+	natives := t.std
+	t.reads["actor.recovering"] = "func/0 func/1"
 	natives["actor.recovering"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if in.cur == nil {
 			return nil, fr.unsupported(at, "a durable actor outside a run's tasks")
@@ -128,6 +130,7 @@ func registerRunnerdurable() {
 		}
 		return a, ab
 	}
+	t.reads["actor.keep"] = "func/3 T T T"
 	natives["actor.keep"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		_, ab := in.callValue(fr, at, args[0], args[1:])
 		if ab != nil && (ab.kind == ctlFail || ab.kind == ctlEscape) {

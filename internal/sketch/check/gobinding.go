@@ -117,7 +117,7 @@ func (c *checker) importGo(fi *fileInfo, spec *syntax.ImportSpec, path string) {
 		c.errorf(spec, CodeType, "%s is imported twice", name)
 		return
 	}
-	if spec.Name != nil && !c.preludeName(spec.Name) {
+	if spec.Name != nil && !c.refusedBinder(spec.Name) {
 		c.aliases = append(c.aliases, importAlias{fi, spec, path})
 	}
 	if name == "_" {
@@ -167,7 +167,8 @@ func (c *checker) unknownMember(x *syntax.SelectorExpr, pn *PkgName) {
 // hostSelector is x.Sel on a value of the host type n, or on a go.Ref[n]
 // (handle) or a borrow of one. A field is read-only (owner q34): the
 // operand is not addressable, and a read through a handle or a borrow
-// charges go.Foreign, since Go code may write that memory. A method is
+// charges go.Foreign, since Go code may write that memory, unless the
+// handle is a fresh one (gofresh.go). A method is
 // Go's: one in the method set of *T only needs a handle or a borrow, as Go
 // takes no address of a copy. A method is reached only by a call (called):
 // as a value it is S108 with the literal to pass, as for any call-only
@@ -176,7 +177,7 @@ func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, h
 	shared := handle || isPointer(base.typ)
 	if s := asStruct(n); s != nil {
 		if f, _ := s.field(x.Sel.Name); f != nil {
-			if shared {
+			if shared && !c.freshOperand(x.X) {
 				c.charge(x, goForeign())
 			}
 			return operand{mode: modeValue, typ: f.Type}
@@ -237,8 +238,8 @@ type hostPkg struct {
 	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
 	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
-	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
+	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
 }
@@ -265,6 +266,7 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 		s.pkgs[path] = nil
 		return nil, false
 	}
+	// A pointer, the form the export codec carries (B7e).
 	c := newChecker(path, &goImp{s}, prelude().scope)
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true

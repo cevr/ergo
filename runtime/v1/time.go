@@ -77,11 +77,17 @@ func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 }
 
 // Read is the timeline's time; Mono is the virtual time since the start.
+// It takes no lock and builds no time.Time: the clock's Unix nanoseconds,
+// split by floor division.
 //
 //ergo:wait none
 func (l *Timeline) Read() Reading {
-	n := time.Unix(0, int64(l.v.Now()))
-	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(l.start))}
+	ns := int64(l.v.Now())
+	sec, nsec := ns/1e9, ns%1e9
+	if nsec < 0 {
+		sec, nsec = sec-1, nsec+1e9
+	}
+	return Reading{Sec: sec, Nsec: nsec, Mono: ns - l.start.UnixNano()}
 }
 
 // Wait suspends the caller's task t until Advance moves the time to d past
@@ -120,7 +126,104 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 	}
 }
 
-// Sleepers is the number of sleepers waiting.
+// Sleepers is the number of deadlines armed on the timeline: the tasks in
+// Wait and the alarms of its AlarmClock.
 //
 //ergo:wait none
 func (l *Timeline) Sleepers() int { return l.v.Pending() }
+
+// TimeAsleep is time.Asleep: whether the task of tk, or a task started
+// below it, sleeps on l. A task that ended sleeps on nothing (FK4-g2).
+//
+//ergo:wait none
+func TimeAsleep[T any](l *Timeline, tk *Task[T]) bool {
+	if tk == nil {
+		return false
+	}
+	return l.v.Asleep(tk.h.Task())
+}
+
+// Alarms is the timeline's AlarmClock (a Manual's or a VirtualClock's
+// Scheduler.Alarms): an alarm's deadline is armed on the timeline like a
+// sleep's, so Advance, or an idle domain of an auto clock, fires it.
+//
+//ergo:wait none
+func (l *Timeline) Alarms() *AlarmClock {
+	return NewAlarmClock(func() time.Duration { return time.Duration(l.v.Now()) },
+		func(d time.Duration, f func()) Alarm { return l.v.AfterFunc(rt.Span(d), f) })
+}
+
+// AlarmClock is the prelude's AlarmClock, the result of Scheduler.Alarms:
+// the program's Scheduler as the runtime's waits that run no Ergo code use
+// it. Now reads the clock; After arms a function to run once a span
+// passes, with no task and no sleep, and its Alarm cancels it. http.Serve
+// keeps one deadline per connection and arms an alarm only when the
+// deadline comes before the armed one (HTTP-FAST-b2). Only the runtime
+// makes one (runtimeOnly): the host's, a timeline's, or a Go Sleeper's
+// of a test (NewAlarmClock), so a provider written in Ergo gives the
+// AlarmClock of the provider it sleeps on.
+type AlarmClock struct {
+	now    func() time.Duration
+	arm    func(d time.Duration, f func()) Alarm
+	report func(d time.Duration) // Reporting's, nil otherwise
+}
+
+// Alarm is one armed deadline of an AlarmClock. Stop disarms it and
+// reports whether it was still armed: false once its function has
+// started, which then runs to its end.
+type Alarm interface {
+	Stop() bool
+}
+
+// NewAlarmClock is the AlarmClock whose Now is now and whose After is
+// arm. now's readings only compare and subtract: any fixed origin.
+func NewAlarmClock(now func() time.Duration, arm func(d time.Duration, f func()) Alarm) *AlarmClock {
+	return &AlarmClock{now: now, arm: arm}
+}
+
+// Reporting is c whose Began calls report: a test's clock learns that a
+// bounded wait began and its alarm, if any, is armed, which an alarm
+// alone no longer shows when the wait arms none.
+func (c *AlarmClock) Reporting(report func(d time.Duration)) *AlarmClock {
+	r := *c
+	r.report = report
+	return &r
+}
+
+// Now is the clock's time.
+func (c *AlarmClock) Now() time.Duration { return c.now() }
+
+// Deadline is the time d from now on the clock.
+func (c *AlarmClock) Deadline(d time.Duration) time.Duration { return c.now() + d }
+
+// Began tells a Reporting clock that a wait of span d began, once its
+// alarm is armed; on any other clock it does nothing.
+func (c *AlarmClock) Began(d time.Duration) {
+	if c.report != nil {
+		c.report(d)
+	}
+}
+
+// After arms f to run on a goroutine of its own once d has passed on the
+// clock. A d of zero or less starts it at once.
+func (c *AlarmClock) After(d time.Duration, f func()) Alarm { return c.arm(d, f) }
+
+// hostAlarms is the host's AlarmClock: the monotonic clock, and
+// time.AfterFunc.
+var hostAlarms = NewAlarmClock(func() time.Duration { return time.Since(hostStart) },
+	func(d time.Duration, f func()) Alarm { return time.AfterFunc(d, f) })
+
+// HostAlarms is LiveScheduler's Alarms: the host's timers, as
+// time.AfterFunc arms them.
+//
+//ergo:host
+//ergo:wait none
+func HostAlarms() *AlarmClock { return hostAlarms }
+
+// Alarmer is a Sleeper that gives its AlarmClock: every Scheduler table
+// of a program, since Alarms is an operation of Scheduler. t is the
+// calling task. A Go Sleeper of a test that has no Alarms keeps a
+// runtime wait on its own path: a task that sleeps (http.Serve's phases).
+type Alarmer interface {
+	Alarms(t *rt.Task) *AlarmClock
+}

@@ -1,12 +1,18 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
+	"ergo.local/prototype/internal/linked/code"
+	ckpkg "ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/lint"
 )
@@ -18,7 +24,13 @@ const fixHelp = fixUsage + `
 Rewrites source into the spelling the language requires. It never runs
 during check, build or test: they leave sources as they are.
 
-First it writes the declared implementations (internal/sketch/fix):
+First it respells the old modes: takes and escaping become own, and the
+borrow *T written outside a Go binding becomes mut T (with --go, in the
+Go string literals too), under each PATH and in the --std DIR. The
+respell reads no checked fact, so it rewrites a file that does not
+check, std's too.
+
+Then it writes the declared implementations (internal/sketch/fix):
 ` + "`implements I`" + ` on each type that the old method-set rule used as the
 operation type I, and ` + "`..I`" + ` in each operation type used as I. A PATH is a
 file or a folder; a folder is walked, each module package by package and
@@ -35,7 +47,7 @@ are missing (q137: every function writes its clauses). It only adds clause
 elements and the imports they need; it never removes an element and never
 adds a catch. It prints one line per widened signature, public contracts
 first. Other diagnostics are printed, and the exit status is then 1.
-
+` + fixLawsHelp + `
   --dry-run  write nothing
   --check    write nothing; exit 1 when a signature would change
   --json     print the clause results as JSON
@@ -86,13 +98,42 @@ func fixCommand(args []string) error {
 			paths = append(paths, a)
 		}
 	}
-	if len(paths) == 0 || check && dry {
+	if len(paths) == 0 && stdRoot == "" || check && dry {
 		return usageError{message: fixUsage}
 	}
 	write := !check && !dry
-	impl, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write, Go: goLits})
+	// The respells come first: they are syntactic, so they read a file
+	// that does not check, and every checked pass below reads the new
+	// spelling (RESPELL-SYNTAX). A std folder, or a package, written in
+	// the old spelling checks only once it is respelled.
+	stdRespelled, err := respell(respellRoots(fixFolders(paths), stdRoot), stdRoot, write, goLits, asJSON)
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	refused := func(err error) error {
+		msg := "ergo fix: " + err.Error()
+		if stdRespelled {
+			// This ergo embeds the std it was built from, which still
+			// spells the old modes: the checked passes need an ergo
+			// built from the respelled std.
+			msg += "\nergo fix: the respell of " + stdRoot + " is written; build ergo from it, then run ergo fix again for the checked passes"
+		}
+		return exitStatusError{code: 1, message: msg}
+	}
+	if len(paths) == 0 {
+		// --std DIR alone: the respell above and the law pass over the
+		// standard library.
+		text, err := fixLaws(nil, stdRoot, write)
+		if err != nil {
+			return refused(err)
+		}
+		fmt.Fprint(os.Stdout, text)
+		return nil
+	}
+	lawPaths, paths := paths, fixFolders(paths)
+	impl, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write, Go: goLits})
+	if err != nil {
+		return refused(err)
 	}
 	if len(impl.Written) > 0 || len(impl.Unwritten) > 0 {
 		out := os.Stdout
@@ -101,19 +142,51 @@ func fixCommand(args []string) error {
 		}
 		fmt.Fprint(out, impl.Text())
 	}
-	// The keep mode's old spellings (takes, escaping) become own (EXM1).
-	// Syntactic: it reads every file under the paths, bindings included,
-	// so the clause pass below checks the new spelling.
-	modes, err := fix.RunModes(fix.Options{Paths: paths, Write: write, Go: goLits})
+	// A body marked [T own] above holds its T to a resource's rules, so a
+	// generic callee it binds T to needs the mark too (MODES-5): the pass
+	// again over the rewritten files, until it writes no mark.
+	for round := 0; write && round < 8 && impl.WroteOwn(); round++ {
+		if stdRoot != "" {
+			ckpkg.ResetStdForTest() // std is checked again from the rewritten sources
+		}
+		if impl, err = fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: true, Go: goLits}); err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if len(impl.Written) > 0 || len(impl.Unwritten) > 0 {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr
+			}
+			fmt.Fprint(out, impl.Text())
+		}
+	}
+	// A sub-union re-listed and rebuilt arm by arm becomes the union
+	// listed and widened (DECL-VALUES §6 unit 2; types.md, Unions 1),
+	// kept per package only when its check verdict is unchanged.
+	flat, err := fix.RunUnionFlat(fix.Options{Paths: paths, Write: write})
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
 	}
-	if text := modes.Text(); text != "" {
+	if text := flat.Text(); text != "" {
 		out := os.Stdout
 		if asJSON {
 			out = os.Stderr // stdout holds only the JSON
 		}
 		fmt.Fprint(out, text)
+	}
+	// The law pass (LAWLOC); --check skips it while S115 is off.
+	if !check {
+		text, err := fixLaws(lawPaths, stdRoot, write)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if text != "" {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr // stdout holds only the JSON
+			}
+			fmt.Fprint(out, text)
+		}
 	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
 	for _, path := range paths {
@@ -166,6 +239,8 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "fix: diagnostics remain", handled: true}
 	case check && (len(rep.Changed) > 0 || len(impl.Written) > 0):
 		return exitStatusError{code: 1, message: "fix: signatures would change", handled: true}
+	case check && len(flat.Changes) > 0:
+		return exitStatusError{code: 1, message: "fix: unions would be listed", handled: true}
 	case check && len(rep.Linted) > 0:
 		return exitStatusError{code: 1, message: "fix: lint fixes would apply", handled: true}
 	}
@@ -214,8 +289,14 @@ func displayPath(path string) string {
 	return path
 }
 
-// writeFixed writes each changed file once, by rename, after checking
-// that it still holds the text the fix read.
+// writeFixed writes the files whose text changes from before to after
+// (keyed by path) as one plan, by std code's apply protocol
+// (code.Rewrite, SEMTOOLS SEM4c): each is exchanged with its new text in
+// one host call, under the workspace's lock, after a check that every
+// file still holds the text the fix read; a file changed meanwhile is
+// refused Stale and no file is written. Each file keeps its mode. The
+// workspace folder is the folder that holds every path; the lock and the
+// journal are in fixState's folder, so the user's folder gains nothing.
 func writeFixed(before, after map[string]string) error {
 	var paths []string
 	for p, text := range after {
@@ -223,38 +304,117 @@ func writeFixed(before, after map[string]string) error {
 			paths = append(paths, p)
 		}
 	}
+	if len(paths) == 0 {
+		return nil
+	}
 	slices.Sort(paths)
-	for _, p := range paths {
-		info, err := os.Stat(p)
-		if err != nil {
-			return err
-		}
-		now, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(now, []byte(before[p])) {
-			return fmt.Errorf("fix: %s changed while it was fixed; nothing written to it", p)
-		}
-		temp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".ergo-fix-*")
-		if err != nil {
-			return err
-		}
-		_, werr := temp.WriteString(after[p])
-		cerr := temp.Close()
-		if werr == nil {
-			werr = cerr
-		}
-		if werr == nil {
-			werr = os.Chmod(temp.Name(), info.Mode().Perm())
-		}
-		if werr == nil {
-			werr = os.Rename(temp.Name(), p)
-		}
-		if werr != nil {
-			_ = os.Remove(temp.Name())
-			return werr
+	root := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		for root != filepath.Dir(root) && !strings.HasPrefix(p, root+string(filepath.Separator)) {
+			root = filepath.Dir(root)
 		}
 	}
+	was, now := []codeSource{}, []codeSource{}
+	for _, p := range paths {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		was = append(was, codeSource{File: filepath.ToSlash(rel), Text: before[p]})
+		now = append(now, codeSource{File: filepath.ToSlash(rel), Text: after[p]})
+	}
+	b, err := json.Marshal(was)
+	if err != nil {
+		return err
+	}
+	a, err := json.Marshal(now)
+	if err != nil {
+		return err
+	}
+	state, err := fixState(root)
+	if err != nil {
+		return err
+	}
+	out, err := code.Rewrite(context.Background(), root, state, string(b), string(a))
+	if err != nil {
+		return fmt.Errorf("fix: %w", err)
+	}
+	if len(out) < 3 || out[0] != "0" {
+		return fmt.Errorf("%s", strings.TrimSpace(strings.Join(out[min(len(out), 2):], "")))
+	}
 	return nil
+}
+
+// fixState is the folder of ergo fix's lock and journal for the workspace
+// folder root: in the user's cache folder, named by root's path, so two
+// fixes of one folder take one lock, a fix that died is undone by the
+// next one, and root gains no file.
+func fixState(root string) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("fix: no cache folder for the apply lock: %w", err)
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(cache, "ergo", "fix", hex.EncodeToString(sum[:8])), nil
+}
+
+// respellRoots is the folders and files the respells walk: the paths, and
+// the std folder when no path holds it already.
+func respellRoots(paths []string, stdRoot string) []string {
+	roots := slices.Clone(paths)
+	if stdRoot == "" {
+		return roots
+	}
+	std, err := filepath.Abs(stdRoot)
+	if err != nil {
+		return append(roots, stdRoot)
+	}
+	for _, p := range paths {
+		if abs, err := filepath.Abs(p); err == nil && (std == abs || strings.HasPrefix(std, abs+string(filepath.Separator))) {
+			return roots
+		}
+	}
+	return append(roots, stdRoot)
+}
+
+// respell applies the syntactic respells to roots: the keep mode's old
+// spellings (takes, escaping) become own (EXM1), and the borrow *T outside
+// a Go binding becomes mut T (MODES-1; q169), bindings included and, with
+// goLits, the Ergo programs in Go strings. It reads no checked fact, so a
+// file that does not check is respelled too. stdWritten reports a file
+// under stdRoot that it rewrote.
+func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWritten bool, err error) {
+	out := os.Stdout
+	if asJSON {
+		out = os.Stderr // stdout holds only the JSON
+	}
+	modes, err := fix.RunModes(fix.Options{Paths: roots, Write: write, Go: goLits})
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprint(out, modes.Text())
+	muts, err := fix.RunMut(fix.Options{Paths: roots, Write: write, Go: goLits})
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprint(out, muts.Text())
+	if !write || stdRoot == "" {
+		return false, nil
+	}
+	std, err := filepath.Abs(stdRoot)
+	if err != nil {
+		return false, nil
+	}
+	for _, files := range []map[string]string{modes.Files, muts.Files} {
+		for file := range files {
+			if abs, err := filepath.Abs(file); err == nil && strings.HasPrefix(abs, std+string(filepath.Separator)) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }

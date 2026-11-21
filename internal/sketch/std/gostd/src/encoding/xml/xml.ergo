@@ -193,6 +193,7 @@ extern go encoding/xml.Unmarshal func Unmarshal(data []byte, v go.Any) fails go.
 extern go encoding/xml.UnmarshalError type UnmarshalError string
 
 // ergo:go func (UnmarshalError).Error() string
+// ergo:total
 extern go encoding/xml.UnmarshalError.Error func (e UnmarshalError) Error() string needs go.Foreign
 
 // ergo:go type Unmarshaler interface

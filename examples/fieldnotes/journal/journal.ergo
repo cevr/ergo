@@ -1,0 +1,97 @@
+// Package journal is the domain of fieldnotes: an entry of a field
+// journal, the slug that names it, and Journal, the contract the site
+// reads entries through, with its laws. It is pure.
+
+import slices
+import strings
+
+// Entry is one note of the journal: its slug (the name in its link), its
+// title, its day (YYYY-MM-DD), its paragraphs and the slugs of the
+// entries it points to.
+type Entry { Slug string, Title string, Day string, Body []string, Related []string }
+
+// Missing is a slug the journal has no entry for.
+type Missing { Slug string }
+
+// Journal is the entries the site shows: List is every entry, newest
+// first, and Read is the entry of a slug.
+type Journal {
+	List() []Entry,
+	Read(slug string) Entry fails Missing,
+
+	// ListedEntriesRead: each listed entry is what Read gives for its
+	// slug, so an index and an entry page never disagree.
+	law ListedEntriesRead() {
+		for e in List() {
+			let got = Read(e.Slug) catch {
+			case Missing:
+				return false
+			}
+			if !Same(got, e) {
+				return false
+			}
+		}
+		true
+	},
+
+	// ListIsNewestFirst: List is ordered by day, newest first, then by
+	// slug, and names each slug once.
+	law ListIsNewestFirst() {
+		let entries = List()
+		for i in 1..len(entries) {
+			if !Before(entries[i-1], entries[i]) {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// Same is whether a and b are one entry, field by field.
+func Same(a Entry, b Entry) bool {
+	a.Slug == b.Slug && a.Title == b.Title && a.Day == b.Day && slices.Equal(a.Body, b.Body) && slices.Equal(a.Related, b.Related)
+}
+
+// Before is whether a comes before b in a list: a newer day, or the same
+// day and a smaller slug.
+func Before(a Entry, b Entry) bool {
+	a.Day > b.Day || (a.Day == b.Day && a.Slug < b.Slug)
+}
+
+// Slug is text as a slug: its ASCII letters in lower case and its digits,
+// each other run of bytes one -, with no - at either end. A text with
+// none of them is "note". A slug is its own slug (law SlugIsItsOwn).
+func Slug(text string) string {
+	let mut b = strings.NewBuilder()
+	let mut dash = false
+	for i in 0..len(text) {
+		let c = text[i]
+		let lower = if c >= 'A' && c <= 'Z' { c + ('a' - 'A') } else { c }
+		if (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			dash = false
+			b.WriteByte(lower)
+		} else {
+			dash = true
+		}
+	}
+	if b.Len() == 0 {
+		return "note"
+	}
+	b.String()
+}
+
+// SlugIsItsOwn: a slug is its own slug and its upper case's, and holds
+// only a-z, 0-9 and -, so it is one path segment and one file name, and
+// a title's case does not change its link. The text always has letters.
+law SlugIsItsOwn(text string) {
+	let s = Slug(text + " Field Note")
+	let mut plain = true
+	for i in 0..len(s) {
+		let c = s[i]
+		plain = plain && ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')
+	}
+	plain && Slug(s) == s && Slug(strings.ToUpper(s)) == s
+}

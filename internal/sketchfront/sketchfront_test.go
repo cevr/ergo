@@ -16,7 +16,7 @@ import (
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // utf16Column counts the UTF-16 code units of text, independently of the
@@ -414,7 +414,7 @@ func TestStdDependenciesSummariseEveryBundledPackage(t *testing.T) {
 			t.Fatalf("dependency %s has an empty summary", d.Name)
 		}
 	}
-	if want := append([]string{std.PreludePath}, std.Packages()...); !slices.Equal(names, want) {
+	if want := append([]string{stdlib.PreludePath}, stdlib.Packages()...); !slices.Equal(names, want) {
 		t.Fatalf("dependencies %v, want %v", names, want)
 	}
 	base := map[string]string{"a.ergo": "type A {}\n", "b.ergo": "type B {}\n"}

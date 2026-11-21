@@ -28,7 +28,7 @@ func Pans() []canvas.Point {
 
 // View shows s: the toolbar, the status line, the picture, and one line
 // a shape on the screen, in paint order (canvas.Frame's lines).
-func View(f *ui.Frame[canvas.Signal], s canvas.State) {
+func View(f mut ui.Frame[canvas.Signal], s canvas.State) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[canvas.Signal] {
 		match k.Name {
 		case "Escape":
@@ -70,7 +70,7 @@ func View(f *ui.Frame[canvas.Signal], s canvas.State) {
 		}
 		ui.Text(f, lines[0])
 		ui.Area(f, "picture", ui.Plain(), func(p ui.PointerEvent) Option[canvas.Signal] { Pointed(p) }) {
-			ui.Canvas(f, "paint", ui.Length(float64(canvas.Screen.X)), ui.Length(float64(canvas.Screen.Y))) func(p *ui.Paint) {
+			ui.Canvas(f, "paint", ui.Length(float64(canvas.Screen.X)), ui.Length(float64(canvas.Screen.Y))) func(p mut ui.Paint) {
 				Draw(p, s)
 			}
 		}
@@ -81,17 +81,20 @@ func View(f *ui.Frame[canvas.Signal], s canvas.State) {
 }
 
 // Pointed is the tool's signal of a pointer event at a screen point: a
-// press, a move, a release. A wheel is no signal.
+// press, a drag, a release. A hover (a move with no press) and a wheel are
+// no signal (FK12-g1).
 func Pointed(p ui.PointerEvent) Option[canvas.Signal] {
 	let at = canvas.Point{X: int(p.X), Y: int(p.Y)}
 	match p.Phase {
 	case ui.Down:
 		Some{Value: canvas.Down{At: at}}
-	case ui.Moved:
+	case ui.Drag:
 		Some{Value: canvas.Drag{At: at}}
+	case ui.Moved:
+		None
 	case ui.Up:
 		Some{Value: canvas.Up{At: at}}
-	case ui.Wheel:
+	case ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 		None
 	}
 }

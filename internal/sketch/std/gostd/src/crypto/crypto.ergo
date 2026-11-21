@@ -41,6 +41,7 @@ extern go crypto.Hash type Hash uint
 extern go crypto.Hash.Available func (h Hash) Available() bool needs go.Foreign
 
 // ergo:go func (Hash).HashFunc() Hash
+// ergo:total
 extern go crypto.Hash.HashFunc func (h Hash) HashFunc() Hash needs go.Foreign
 
 // ergo:go func (Hash).New() hash.Hash

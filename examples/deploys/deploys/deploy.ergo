@@ -5,6 +5,7 @@
 // status codes.
 
 import machines
+import slices
 
 // Unit is one image of a deploy: the Image, how many replicas, and the
 // memory of one replica in MiB.
@@ -72,18 +73,33 @@ func Total(units []Unit) int {
 	sum
 }
 
+// TotalIsTheSumOfUnits: a total is additive over the units.
+law TotalIsTheSumOfUnits(a []Unit, b []Unit) {
+	Total(slices.Concat(a, b)) == Total(a)+Total(b)
+}
+
 // Create adds the deploy d describes to the Store, with the next ID, and
-// is the deploy. An invalid draft adds nothing.
+// is the deploy. An invalid draft adds nothing. Two creates at once may
+// read one count and name one ID: the Store adds one and says Taken to
+// the other, which takes the next ID after the count it then reads. Each
+// Taken follows another create's add, so the retries end.
 func Create(d Draft) Deploy fails Invalid needs Store {
 	try Validate(d)
-	let o = Deploy{ID: "dep-\(Store.Count() + 1)", Service: d.Service, Units: d.Units, Total: Total(d.Units), Status: Pending}
-	Store.Add(o) catch {
-	case Taken as t:
-		// Count only grows and IDs follow it, so an ID is never taken
-		// twice: a store that says so breaks its laws.
-		return Invalid{Field: "id", Reason: "the store already holds \(t.ID)"}
+	let mut taken = ""
+	for {
+		let o = Deploy{ID: "dep-\(Store.Count() + 1)", Service: d.Service, Units: d.Units, Total: Total(d.Units), Status: Pending}
+		if o.ID == taken {
+			// The count did not pass an ID the Store holds: a store
+			// that says so breaks its laws (AllInAddOrder).
+			return Invalid{Field: "id", Reason: "the store already holds \(taken)"}
+		}
+		Store.Add(o) catch {
+		case Taken as t:
+			taken = t.ID
+			continue
+		}
+		return o
 	}
-	o
 }
 
 // Apply moves the deploy id by the event e, as its lifecycle allows, and

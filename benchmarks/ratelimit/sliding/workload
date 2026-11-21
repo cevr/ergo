@@ -1,0 +1,10 @@
+# scripts/opcount: `ratelimitbench bench sliding N` makes N takes of one
+# token from sliding windows of 10 tokens per 10ms, over 64 keys, 10µs
+# apart (ST1); the cost of one take is the slope between the two sizes.
+# The floor keeps each key's grants in a ring; the control and the program
+# in a slice that drops its head.
+unit take
+sizes 200000 1200000
+args bench sliding {n}
+control benchmarks/ratelimit/testdata/control
+floor benchmarks/ratelimit/testdata/floor

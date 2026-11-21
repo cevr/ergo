@@ -10,4 +10,5 @@ extern go compress/bzip2.NewReader func NewReader(r own io.Reader) io.Reader nee
 extern go compress/bzip2.StructuralError type StructuralError string
 
 // ergo:go func (StructuralError).Error() string
+// ergo:total
 extern go compress/bzip2.StructuralError.Error func (s StructuralError) Error() string needs go.Foreign

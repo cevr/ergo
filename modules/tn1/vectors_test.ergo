@@ -1,0 +1,44 @@
+// The conformance vectors, checked against this engine. A change to the
+// engine that changes any finding, score, probability or model id breaks
+// this test; then either the change is a bug, or it is a new input version
+// and the vectors are written again (tn1 vectors, examples/tn1) and every
+// other engine follows.
+
+import embed
+import strings
+
+let Vectors = embedded[embed.FS]("testdata/vectors")
+
+// texts is the files of the vectors' folder dir ending in suffix.
+func texts(dir string, suffix string) []Named {
+	let names = Vectors.ReadDir("testdata/vectors/" + dir) catch {
+	case _:
+		return []Named{}
+	}
+	let mut out = []Named{}
+	for name in names {
+		if strings.HasSuffix(name, suffix) {
+			let text = Vectors.ReadFile("testdata/vectors/" + dir + "/" + name) catch {
+			case _:
+				return []Named{}
+			}
+			out = out.Append(Named{Name: name, Text: text})
+		}
+	}
+	out
+}
+
+test VectorsAreReproduced {
+	let records = texts("records", ".record")
+	let nets = texts("nets", ".tn1")
+	assert len(records) > 0 && len(nets) > 0
+	let want = Vectors.ReadFile("testdata/vectors/expected.tsv") catch {
+	case _:
+		""
+	}
+	let got = Expected(records, nets) catch {
+	case BadFile as b:
+		"\(b.Name):\(b.Line): \(b.Reason)"
+	}
+	assert got == want
+}

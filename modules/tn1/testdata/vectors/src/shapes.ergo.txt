@@ -1,0 +1,72 @@
+// A source that reaches every field of the record: each line kind, the
+// starts, nesting, handlers of each shape, a test and a law. Its comments
+// above statements restate the statements on purpose.
+
+import strconv
+import strings
+
+// Store keeps counts by key.
+type Store {
+	// Get is the count of key.
+	Get(key string) int fails Missing,
+	// Put sets the count of key.
+	Put(key string, n int),
+
+	// GetAfterPut: a count put under a key is the count that key gets.
+	law GetAfterPut(key string, n int) {
+		Put(key, n)
+		try Get(key) == n
+	},
+}
+
+type Missing { Key string }
+
+// Total is the sum of the counts of keys.
+func Total(s Store, keys []string) int {
+	let mut total = 0
+	for key in keys {
+		// get the count of the key
+		let n = s.Get(key) catch {
+		case Missing:
+			0
+		}
+		// add count to total
+		total += n
+	}
+	total
+}
+
+/* parseAll reads each text as a count,
+   and gives up at the first one that is not. */
+func parseAll(texts []string) []int fails strconv.Malformed {
+	let mut out = []int{}
+	for t in texts {
+		if strings.HasPrefix(t, "//") {
+			continue
+		}
+		// The texts come from users, so a bad one is reported, not skipped.
+		let n = strconv.Atoi(t) catch {
+		case strconv.Malformed as e:
+			return e
+		case strconv.OutOfRange:
+			-1
+		}
+		out = out.Append(n)
+	}
+	out
+}
+
+func describe(n int) string {
+	// ergo-lint-disable-next-line banned-words -- the word is the test's subject
+	let label = strconv.Itoa(n) // the count as text
+	match n {
+	case 0:
+		"none"
+	case _:
+		label
+	}
+}
+
+test TotalOfNoKeys {
+	assert describe(0) == "none"
+}

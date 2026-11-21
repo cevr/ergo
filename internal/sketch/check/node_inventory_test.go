@@ -154,7 +154,7 @@ var nodeTable = map[string]nodeEntry{
 	"TypeSwitchStmt": {"type match", ""}, "TypeGuard": {"type match", ""}, "AsPattern": {"as pattern", ""}, "OrPattern": {"or pattern", ""},
 	"CatchExpr": {"catch arm", ""}, "CatchArm": {"catch arm", ""}, "TryExpr": {"fails and needs", ""},
 	"ErrorRow": {"fails and needs", ""}, "NeedsClause": {"fails and needs", ""}, "TakesClause": {"fails and needs", ""},
-	"TypeDecl": {"record type", ""}, "StructType": {"record type", ""}, "InterfaceType": {"operation type", ""},
+	"TypeDecl": {"record type", ""}, "StructType": {"record type", ""}, "InterfaceType": {"operation type", ""}, "TypeTerm": {"operation type", ""},
 	"MapType": {"Map type", ""}, "FuncLit": {"function literal", ""}, "ExternSpec": {"extern", ""},
 	"InterpolatedString": {"interpolation", ""},
 	"MachineType":        {"machine", ""}, "MachineEntry": {"machine", ""},
@@ -164,7 +164,7 @@ var nodeTable = map[string]nodeEntry{
 	// record in the package scope (196 fifth round).
 	"TupleExpr":   {"tuple value", ""},
 	"VariantSpec": {"variant in place", ""},
-	"LawDecl":     {"law", ""}, "LawReach": {"machine", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""},
+	"LawDecl":     {"law", ""}, "LawReach": {"machine", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""}, "SkipStmt": {"skip", ""},
 	// The forms that left the language (#196) left the syntax package in
 	// lower-v1 stage 5 (D10), so no type names notBuiltFamily today.
 }

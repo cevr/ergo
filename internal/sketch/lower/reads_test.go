@@ -76,7 +76,7 @@ func rev2() string {
 	"\(r)|\(src[0])|\(dst[0])"
 }
 
-func main() needs Console {
+func main() needs Console | go.Foreign {
 	Console.Println("\(bump([]int{1, 2}))")
 	Console.Println("\(rev())")
 	Console.Println(rev2())
@@ -99,10 +99,27 @@ func init() {
 	check.FactLedger = func() string { return shipped() + "\n" + line + "\n" }
 }
 
+// plantReadsFixPure makes readsfix's pure row act for the rest of t: since
+// LF2d a package of v1.PureImports is pure only on its guard line in the
+// std ledger, current and validated (check.PureActs), so t plants that
+// line beside the shipped ones, as it plants the reads lines (LF-TESTFOREIGN).
+func plantReadsFixPure(t *testing.T) {
+	t.Helper()
+	saved := check.FactLedger
+	t.Cleanup(func() { check.FactLedger = saved })
+	line := "fact " + gofacts.PureKey("readsfix") + " validated by guard with " + toolchain.Version + " " + gofacts.PureDigest("readsfix", v1.PureImportsExcept["readsfix"], toolchain.Version) + "\n"
+	ledger := saved() + line
+	check.FactLedger = func() string { return ledger }
+	if !check.PureActs("readsfix") {
+		t.Fatalf("readsfix's planted pure line does not act: %q", line)
+	}
+}
+
 // readsFixImporter gives readsfix's binding, with the planted reads line,
 // beside Go's standard library.
 func readsFixImporter(t *testing.T) hresImporter {
 	t.Helper()
+	plantReadsFixPure(t)
 	fs := token.NewFileSet()
 	f, err := parser.ParseFile(fs, "readsfix.go", readsFixGo, 0)
 	if err != nil {

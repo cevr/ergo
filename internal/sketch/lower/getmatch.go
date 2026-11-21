@@ -92,8 +92,9 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	// A try that starts the subject covers the receiver and the key
 	// (tried): (try m).Get(k) and try m.Get(k) lower alike.
 	inTry := subject != s.Subjects[0].X
+	restore := func() {}
 	if inTry {
-		fc.tries++
+		restore = fc.underTry(subject)
 	}
 	// The value rule may copy the receiver so that the Option it returns
 	// does not share the Map (values.go, Escapes). The read takes one
@@ -110,10 +111,9 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 		elemCopy = some.as != nil || some.value != nil
 	}
 	vals := fc.callArgs(list, call)
-	if inTry {
-		fc.tries--
-	}
+	restore()
 	v, okName := fc.temp("v"), fc.temp("ok")
+	fc.l.intMapConflict(fc.typeOf(list[0])) // intmap.go: Go's comma-ok read
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")
 	if elemCopy {
 		m, ok := underEqual(fc.typeOf(list[0])).(*check.Map)
@@ -131,7 +131,7 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	} else if fc.l.valueFacts().clone[call] && entryRule() {
 		// The entry of a Map whose entries are written in place, kept
 		// past a write that may reach it: a copy (V9, moveout.go).
-		fc.line(v + " = " + fc.cloneValue(elemOf(fc.typeOf(list[0])), v, call))
+		fc.line(v + " = " + fc.reportCopy(call, fc.cloneValue(elemOf(fc.typeOf(list[0])), v, call), whyGetEntry))
 	}
 	return true, fc.getArmsLower(some, none, v, okName, d)
 }
@@ -143,6 +143,14 @@ func (fc *funcCtx) getArmsLower(some, none getArm, v, okName string, d dest) boo
 	arm := func(a getArm) bool {
 		fc.depth++
 		defer func() { fc.depth-- }()
+		for _, v := range []*check.Var{a.as, a.value} {
+			if v != nil {
+				if fc.heapVars == nil {
+					fc.heapVars = map[*check.Var]bool{}
+				}
+				fc.heapVars[v] = true // a Map's entry (scalar.go, settled)
+			}
+		}
 		if a.as != nil {
 			name := fc.declare(a.as)
 			fields := ""

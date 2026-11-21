@@ -66,6 +66,39 @@
       "killers": [
         "internal/sizes:TestRegistryFactsForbidTheRegistryOnly"
       ]
+    },
+    {
+      "name": "size-hello-packages-off",
+      "origin": "wf10 SIZE-HELLO",
+      "file": "internal/sizes/sizes.go",
+      "from": "if linkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {",
+      "to": "if false && linkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {",
+      "rule": "A fixture that names its packages fails the budget when it links a Go package outside the list (SIZE-HELLO).",
+      "killers": [
+        "internal/sizes:TestBudgetPackagesNameTheLinkedPackages"
+      ]
+    },
+    {
+      "name": "size-hello-ledger-off",
+      "origin": "wf10 SIZE-HELLO",
+      "file": "internal/sizes/sizes.go",
+      "from": "case f.ErgoOnly > top.ErgoOnly:",
+      "to": "case false && f.ErgoOnly > top.ErgoOnly:",
+      "rule": "A ceiling above its base and recorded raises is refused: a raise names its bytes (SIZE-HELLO).",
+      "killers": [
+        "internal/sizes:TestBudgetRaiseNamesItsBytes"
+      ]
+    },
+    {
+      "name": "size-hello-owner-unnamed",
+      "origin": "wf10 SIZE-HELLO",
+      "file": "internal/sizes/sizes.go",
+      "from": "if o.Owner == \"\" || o.Bytes == 0 || len(o.Symbols) == 0 {",
+      "to": "if o.Owner == \"\" || o.Bytes == 0 {",
+      "rule": "A raise's owner names its symbols, not only a byte count (SIZE-HELLO).",
+      "killers": [
+        "internal/sizes:TestBudgetRaiseNamesItsBytes"
+      ]
     }
   ]
 }

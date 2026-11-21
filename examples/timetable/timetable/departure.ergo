@@ -1,0 +1,251 @@
+// Departures: when each service leaves the first stop on a date, and when
+// it calls at a stop, on that stop's wall clock.
+
+import civil
+import time
+import tz
+import tz/iana
+
+// Leaving is how a service's wall time at the first stop became an
+// instant on one date: the clock showed it once (OnTime), the clock
+// skipped it (Skipped: the train leaves when the clock springs forward),
+// or the clock showed it twice (Twice: the train leaves the first time).
+type OnTime {}
+type Skipped { Wall civil.TimeOfDay }
+type Twice {}
+type Leaving = OnTime | Skipped | Twice
+
+// Departure is a service's call at a stop: the service, the stop, the
+// instant on the stop's wall clock, and how the first stop's wall time
+// resolved.
+type Departure { Number string, Stop string, At tz.Zoned, Leaving Leaving }
+
+// Leaves is the instant s leaves the first stop of l on d, a date of that
+// stop's calendar, and how its wall time resolved. A railway does not run
+// a train at a time the clock skips: a wall time in a spring-forward gap
+// leaves at the gap's start, the first instant of the new time (03:00
+// for 02:30), not tz.Compatible's choice (03:30). A wall time shown twice
+// leaves the first time, as Compatible does.
+func Leaves(l Route, s Service, d civil.Date) (time.Time, Leaving) {
+	let wall = civil.DateTime{Date: d, Time: s.Leaves}
+	match tz.Resolve(l.Stations[0].Zone, wall) {
+	case tz.Unique as u:
+		(u.At, OnTime)
+	case tz.Gap as g:
+		(g.Start, Skipped{Wall: s.Leaves})
+	case tz.Overlap as o:
+		(o.Earlier, Twice)
+	}
+}
+
+// Calls is the instants each stop of l sees s leave on d, first to last.
+func Calls(l Route, s Service, d civil.Date) []time.Time {
+	let (start, _) = Leaves(l, s, d)
+	let mut out = []time.Time{}
+	for stop in l.Stations {
+		out = out.Append(time.Add(start, stop.After))
+	}
+	out
+}
+
+// Departures is every call at the stop named at on day, a date of that
+// stop's own calendar, in time order: the services that left the first
+// stop on day or on the two days before, which reach the stop on day.
+func Departures(l Route, services []Service, at string, day civil.Date) []Departure fails UnknownStop {
+	let stop = try StopNamed(l, at)
+	let mut out = []Departure{}
+	for back in 0..3 {
+		let d = civil.AddDays(day, back-2)
+		for s in services {
+			if !RunsOn(s, d) {
+				continue
+			}
+			let (start, how) = Leaves(l, s, d)
+			let z = tz.Zoned{At: time.Add(start, stop.After), Zone: stop.Zone}
+			if tz.Wall(z).Date == day {
+				out = insert(out, Departure{Number: s.Number, Stop: stop.Name, At: z, Leaving: how})
+			}
+		}
+	}
+	out
+}
+
+// insert is out with d in time order, after the calls at the same
+// instant.
+func insert(out []Departure, d Departure) []Departure {
+	let mut xs = out.Append(d)
+	let mut i = len(xs) - 1
+	for i > 0 && time.Before(d.At.At, xs[i-1].At.At) {
+		xs[i] = xs[i-1]
+		xs[i-1] = d
+		i -= 1
+	}
+	xs
+}
+
+// LeavesOnItsDay: a service leaves the first stop at an instant whose
+// wall date there is the date asked, and at the wall time asked unless the
+// clock skipped it; then it leaves at the first instant after the gap, so
+// the instant before it shows a wall time before the one asked. A wall
+// time shown twice leaves the first time: an hour before, the clock
+// showed an earlier time.
+law LeavesOnItsDay(i int64, n int64, k int64) {
+	let l = lawLine(i)
+	let s = lawService(k)
+	let d = lawDay(n)
+	let asked = civil.DateTime{Date: d, Time: s.Leaves}
+	let (at, how) = Leaves(l, s, d)
+	let zone = l.Stations[0].Zone
+	let wall = tz.Civil(zone, at)
+	match how {
+	case OnTime:
+		wall == asked
+	case Twice:
+		wall == asked && civil.Sub(asked, tz.Civil(zone, time.Add(at, -1h))) > 0s
+	case Skipped:
+		let before = tz.Civil(zone, time.Add(at, -1s))
+		civil.Sub(asked, before) > 0s && civil.Sub(wall, asked) > 0s && civil.Sub(wall, asked) <= 2h
+	}
+}
+
+// CallsKeepTheRunningTimes: a trip's calls are the line's running times
+// after it leaves, whatever the zones of the stops.
+law CallsKeepTheRunningTimes(i int64, n int64, k int64) {
+	let l = lawLine(i)
+	let s = lawService(k)
+	let d = lawDay(n)
+	let calls = Calls(l, s, d)
+	for j, stop in l.Stations {
+		if time.Sub(calls[j], calls[0]) != stop.After {
+			return false
+		}
+	}
+	len(calls) == len(l.Stations)
+}
+
+// DeparturesAreOnTheDay: every departure listed for a stop and a day is on
+// that day of the stop's own calendar, in time order.
+law DeparturesAreOnTheDay(i int64, n int64, k int64, j int64) {
+	let l = lawLine(i)
+	let services = []Service{lawService(k), lawService(k/7 + 1)}
+	let stop = l.Stations[int(within(j, 0, int64(len(l.Stations)-1)))]
+	let day = lawDay(n)
+	let all = Departures(l, services, stop.Name, day) catch {
+	case UnknownStop:
+		return false
+	}
+	for x, dep in all {
+		if tz.Wall(dep.At).Date != day || x > 0 && time.Before(dep.At.At, all[x-1].At.At) {
+			return false
+		}
+	}
+	true
+}
+
+// EveryCallIsListed: each call of a trip is among the departures of its
+// stop on the day the stop's clock shows then.
+law EveryCallIsListed(i int64, n int64, k int64, j int64) {
+	let l = lawLine(i)
+	let s = lawService(k)
+	let d = lawDay(n)
+	if !RunsOn(s, d) {
+		return true
+	}
+	let x = if j%2 == 0 { len(l.Stations) - 1 } else { int(within(j, 0, int64(len(l.Stations)-1))) }
+	let stop = l.Stations[x]
+	let at = Calls(l, s, d)[x]
+	let day = tz.Civil(stop.Zone, at).Date
+	let all = Departures(l, []Service{s}, stop.Name, day) catch {
+	case UnknownStop:
+		return false
+	}
+	for dep in all {
+		if dep.Number == s.Number && time.Equal(dep.At.At, at) {
+			return true
+		}
+	}
+	false
+}
+
+// within is n moved into lo..hi by whole spans, so a law covers every n.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = (n - lo) % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+// lawZone is the zone named name of std's IANA copy, for the laws.
+func lawZone(name string) tz.Zone {
+	iana.New().Load(name) catch {
+	case tz.UnknownZone:
+		tz.UTC()
+	}
+}
+
+// lawLine is one of three lines that cross zones: east to west over three
+// zones with spring-forward gaps at 02:00, west to east, and one across a
+// sea between zones an hour apart.
+func lawLine(i int64) Route {
+	match within(i, 0, 2) {
+	case 0:
+		Route{Name: "Ocean", Stations: []Station{
+			Station{Name: "Halifax", Zone: lawZone("America/Halifax"), After: 0s},
+			Station{Name: "Moncton", Zone: lawZone("America/Moncton"), After: 4h + 5m},
+			Station{Name: "Rimouski", Zone: lawZone("America/Toronto"), After: 12h},
+			Station{Name: "Montreal", Zone: lawZone("America/Toronto"), After: 20h + 30m},
+		}}
+	case 1:
+		Route{Name: "Prairie", Stations: []Station{
+			Station{Name: "Winnipeg", Zone: lawZone("America/Winnipeg"), After: 0s},
+			Station{Name: "Sioux Lookout", Zone: lawZone("America/Winnipeg"), After: 6h},
+			Station{Name: "Toronto", Zone: lawZone("America/Toronto"), After: 30h},
+		}}
+	case _:
+		Route{Name: "Channel", Stations: []Station{
+			Station{Name: "London", Zone: lawZone("Europe/London"), After: 0s},
+			Station{Name: "Paris", Zone: lawZone("Europe/Paris"), After: 2h + 16m},
+		}}
+	}
+}
+
+// lawDay is a date from 1970 to 2099, a Sunday the clocks change on in
+// three draws of four: North America's in March and in November (since
+// 2007), the European Union's in March.
+func lawDay(n int64) civil.Date {
+	let year = int(within(n/4, 2007, 2099))
+	let on = func(month time.Month, day int) civil.Date {
+		civil.NewDate(year, month, day) catch {
+		case civil.NoSuchDate:
+			Unreachable("the law's dates are dates")
+		}
+	}
+	match within(n, 0, 3) {
+	case 0:
+		civil.FromUnixDays(within(n/4, 0, 47481))
+	case 1:
+		civil.Next(on(time.March, 7), time.Sunday)
+	case 2:
+		civil.Next(on(time.October, 31), time.Sunday)
+	case _:
+		civil.Previous(on(time.April, 1), time.Sunday)
+	}
+}
+
+// lawService is a service that leaves at a wall time on the quarter hour,
+// between midnight and 04:00 (where clocks change) on even k, on the days
+// k's bits name (Sunday at least).
+func lawService(k int64) Service {
+	let m = if k%2 == 0 { within(k/2, 0, 15) } else { within(k/2, 0, 95) }
+	let t = civil.NewTimeOfDay(int(m/4), int(m%4)*15, 0, 0) catch {
+	case civil.NoSuchTime:
+		civil.Midnight()
+	}
+	let all = []time.Weekday{time.Sunday, time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday, time.Saturday}
+	let mut days = []time.Weekday{time.Sunday}
+	for b in 1..7 {
+		if (k>>b)&1 == 1 {
+			days = days.Append(all[b])
+		}
+	}
+	Service{Number: "\(m)", Leaves: t, Days: days}
+}

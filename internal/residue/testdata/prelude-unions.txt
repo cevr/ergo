@@ -1,0 +1,53 @@
+# The compiler's mentions of the prelude's Option, Some and None
+# (TestLoweringNamesNoPreludeUnion; ADT-NOPRIV, design A, approved
+# 2026-11-20). A line is
+# `dir/file.go:function<TAB>count<TAB>verdict<TAB>unit<TAB>reason`:
+# count is the function's string literals "Option", "Some", "None" or
+# "Timeout", and the field names Value, In and Signal a field accessor
+# reads (TestLoweringNamesNoPreludeUnion's preludeFieldNames);
+# verdict is `by name` (a decision keyed on the name), `language` (the
+# compiler builds the type there) or `debt` (another inventory holds the
+# row as debt); unit is the ADT-NOPRIV unit that removes it. The list only
+# shrinks, and the rule is done when it is empty. Seeded from the
+# findings' census (§1): a site of the census with no literal of its own
+# (extern.go's adapters, provider.go, nicheAdmitted, gocall.go's callers,
+# moveout.go) reaches the name through the helper that holds the row.
+check/cells.go:optionParams	2	by name	SHAPE-BOUNDARY	Option and Some, as go.Ref, may hold a confined Go value (their code sends nothing to a task): by the two-variant shape
+check/decl.go:checker.resolveNamed	2	by name	GEN9-GENERAL	Option/Some admit an unmarked resource by name (MODES-5 cbd123139); removed by GEN9-GENERAL (MODES): a rule read from the declaration, so a user generic union admits it too
+check/entry.go:checker.machineAfterShape	2	language	ADT-LANG	a machine's After is func(S) Option[Timeout[…]]: read the prelude Machine record's declared field type (Option and Timeout)
+check/entry.go:checker.machineAfterEvery	1	language	ADT-LANG	a machine's After (every) is func(S) Option[…]: read the declared field type
+check/entry.go:IsEvery	2	by name	ADT-LANG	an Every timer (FKG1) is known by its field names In and Signal: read it from the declared After field
+check/entry.go:EveryClock	1	by name	ADT-LANG	an Every timer's Signal field read by name
+check/exit.go:checker.machineExitRow	1	language	ADT-LANG	a machine's Exit is func(S) Option[func()]: read the declared field type
+check/extern.go:optionElem	1	by name	SHAPE-BOUNDARY	a Go result (T, bool), a nilable pointer or (…, error) adapts to Option: any union of the two-variant shape (q271)
+check/goany.go:checker.goAnyAs	1	language	ADT-LANG	the any-cast returns Option[T]: the type go.As's prelude declaration names
+check/goerror.go:checker.goErrorCall	1	language	ADT-LANG	go.As[T] returns Option[T]: the type its prelude declaration names
+check/work.go:checker.machineWorkRow	1	language	ADT-LANG	a machine's Work is func(S) Option[…]: read the declared field type
+eval/machinevalue.go:interp.everyTimeout	4	language	ADT-LANG	the evaluator reads an Every timer's In and Signal by name
+eval/machinevalue.go:interp.machineOption	2	debt	ADT-LANG	the evaluator builds a machine field's Some or None; std-privileges.txt's debt row (B20-NP)
+eval/machinevalue.go:optionOf	2	language	ADT-LANG	the evaluator builds Some or None for Get and machine fields: build the type the declaration names
+eval/machinevalue.go:sigParam	1	language	ADT-LANG	the evaluator reads a timer's Signal field by name
+lower/decls.go:lowerer.intrinsic	1	by name	SHAPE-BOUNDARY	Take's result (Option[V], Map) binds the runtime body's (T, bool): by shape
+lower/decls.go:optionVariants	2	by name	SHAPE-BOUNDARY	a std body's or a Go function's (T, bool) or nil result becomes Some or None (optionReturn)
+lower/flatunion.go:flatUnion.flatNarrow	1	by name	SHAPE-BOUNDARY	the pointer form's payload variant built with Some's field Value: the payload field's declared name
+lower/flatunion.go:flatUnion.flatValue	1	by name	SHAPE-BOUNDARY	the pointer form reads Some's field Value: the payload field's declared name
+lower/flatunion.go:funcCtx.optionSome	1	by name	SHAPE-BOUNDARY	Some built with its field Value (optionReturn's some): the payload field's declared name
+lower/flatunion.go:lowerer.flatUnionSet	1	by name	OPTION-SHAPE	Option's own flat form (optionShape, optionCycle): the general rule gives the same bytes
+lower/flatunion.go:lowerer.layoutOf	1	by name	OPTION-SHAPE	Option's own layout beside the general one
+lower/flatunion.go:lowerer.lowerAgain	1	by name	OPTION-SHAPE	counts Option bails apart from union bails (a statistic)
+lower/flatunion.go:lowerer.nicheElem	1	by name	SHAPE-BOUNDARY	Option[go.Ref[S]] is the Go pointer *S: any union of the two-variant shape
+lower/genericunion.go:lowerer.genericUnions	1	by name	OPTION-SHAPE	every generic union but Option goes through the general rule
+lower/getmatch.go:funcCtx.getArmsLower	2	by name	KNOWN-VARIANT	match m.Get(k) builds no Option, and writes Some's field Value: the known-variant jump gives it
+lower/getmatch.go:getPattern	4	by name	KNOWN-VARIANT	the arms of a comma-ok Get match: Some, None, Option and Some's field Value (was std-names.txt's abi row)
+lower/getmatch.go:preludeGet	1	by name	KNOWN-VARIANT	the Get whose result is Option (CollGet and Option)
+lower/gocall.go:isOptionType	1	by name	SHAPE-BOUNDARY	Option at a Go import boundary (was std-names.txt's abi row): any union of the shape (q271)
+lower/ir_get.go:irBuilder.getArm	2	by name	KNOWN-VARIANT	the IR's comma-ok Get builds Some's record and its field Value: the known-variant jump gives it
+lower/ir_golib.go:irBuilder.goBuiltin	1	language	ADT-LANG	go.As builds Some with its field Value: build the declared result's payload variant
+lower/ir_golib.go:irBuilder.hostResult	1	by name	SHAPE-BOUNDARY	a nilable Go result becomes Some with its field Value: the payload field's declared name
+lower/ir_golib.go:irBuilder.nicheNarrow	1	by name	SHAPE-BOUNDARY	the pointer form narrowed to Some{Value: p}: the payload field's declared name
+lower/ir_golib.go:irBuilder.nicheValue	1	by name	SHAPE-BOUNDARY	the pointer form reads Some's field Value: the payload field's declared name
+lower/ir_machine.go:irBuilder.machineAfter	4	language	ADT-LANG	a machine's After reads Some's Value and Timeout's In by name: read the declared field types
+lower/ir_machine.go:irBuilder.machineOption	3	language	ADT-LANG	a machine's Work and Exit read and write Some's Value by name: read the declared field types
+lower/machine.go:funcCtx.everyTimers	2	language	ADT-LANG	an Every timer's In and Signal by name: read the declared field types
+lower/script.go:funcCtx.scriptOperations	1	by name	SHAPE-BOUNDARY	a script operation's Option result read through Some's field Value: the payload field's declared name
+lower/std.go:funcCtx.stdResult	1	by name	SHAPE-BOUNDARY	a std body's (T, bool) result becomes Option: by shape

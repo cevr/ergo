@@ -12,7 +12,7 @@ import (
 // with patterns, a loop-carried union local (the scalar form), a returned
 // call's converted value, a row conversion, named scalars' text, and an if
 // or a match as an operator's operand.
-var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "part", "walk", "leafOf", "lift", "label", "mix"} // points takes a P first: P's method
+var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "whole", "part", "walk", "leafOf", "lift", "label", "mix"} // points takes a P first: P's method
 
 // pick is a random subset of arms in their order, with every arm whose
 // text starts with "!" kept (its "!" dropped): dropping an arm never makes
@@ -98,6 +98,10 @@ func (g *ugen) trees() {
 		"case E1{Code: 6} as e:\n\te.Code * 10",
 		[]string{"!case err:\n\tmatch err {\n\tcase E1 as e:\n\t\te.Code + 500\n\tcase E2:\n\t\t-1\n\t}", "!case _:\n\t-1", "!case err:\n\tlet bad Bad = err\n\tmatch bad {\n\tcase E1 as e:\n\t\te.Code + 700\n\tcase E2:\n\t\t-2\n\t}"}[g.n(3)],
 	})))
+	// A total catch with record patterns and no catch-all: the tree's
+	// exit is the default the checker proves unreached, which names no
+	// failure (FAIL-ELIDE-PAT). Fixed text: it takes no random draw.
+	g.b.WriteString("func whole(n int) int {\n\trisky(n) catch {\n\tcase E1{Code: 0}:\n\t\t-9\n\tcase E1 as e:\n\t\te.Code + 900\n\tcase E2{Why: \"w1\"}:\n\t\t-4\n\tcase E2:\n\t\t-3\n\t}\n}\n\n")
 	fmt.Fprintf(&g.b, "func part(n int) int fails E1 | E2 {\n\tlet v = try risky(n) catch {\n%s\t}\n\tv + 1\n}\n\n", block("\t", g.pick([]string{
 		"!case E1{Code: " + fmt.Sprint(3*g.n(3)) + "}:\n\t1000",
 		"!case E2{Why: \"w1\"}, E2{Why: \"w2\"}:\n\t2000",
@@ -138,7 +142,12 @@ func (g *ugen) treeMain() {
 	fmt.Fprintf(&g.b, "\tConsole.Println(\"stops \\(stops([]P{%s}))\")\n", strings.Join(ps, ", "))
 	for n := 0; n < 10; n++ {
 		fmt.Fprintf(&g.b, "\tlet p%d = part(%d) catch {\n\tcase E1 as e:\n\t\te.Code - 50\n\tcase E2 as e:\n\t\tlen(e.Why) - 60\n\t}\n", n, n)
-		fmt.Fprintf(&g.b, "\tConsole.Println(\"catch %d \\(caught(%d)) \\(p%d)\")\n", n, n, n)
+		fmt.Fprintf(&g.b, "\tConsole.Println(\"catch %d \\(caught(%d)) \\(p%d) \\(whole(%d))\")\n", n, n, n, n)
+		// A statement catch whose one arm, `case _:`, does nothing
+		// swallows the failure (modules/work's
+		// TreeMergeStartsThePluginTwice). In main, where no call is
+		// folded at compile time; fixed text, no random draw.
+		fmt.Fprintf(&g.b, "\trisky(%d) catch {\n\tcase _:\n\t}\n", n)
 	}
 	for d := 0; d < 4; d++ {
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"walk %d \\(walk(build(%d), %d))\")\n", d, d, g.n(7))

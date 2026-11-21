@@ -1,0 +1,143 @@
+  # Get the Release Notes
+  Name<>
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> submit
+  # Get the Release Notes
+  Name<>
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<>
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> name A
+  # Get the Release Notes
+  Name<A> (Name must be at least 2 characters)
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> name Alice
+  # Get the Release Notes
+  Name<Alice>
+  Email<>
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email not-an-email
+  # Get the Release Notes
+  Name<Alice>
+  Email<not-an-email> (Please enter a valid email address)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email
+  # Get the Release Notes
+  Name<Alice>
+  Email<> (Email is required)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> email Test@Example.com
+  # Get the Release Notes
+  Name<Alice>
+  Email<Test@Example.com> (Checking...)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Alice>
+  Email<Test@Example.com> (This email is already on the list)
+  Anything you'd like to share with us?<>
+  [Subscribe, disabled]
+> note Hello there.
+  # Get the Release Notes
+  Name<Alice>
+  Email<Test@Example.com> (This email is already on the list)
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe, disabled]
+> enter
+  # Get the Release Notes
+  Name<Alice>
+  Email<Test@Example.com> (This email is already on the list)
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe, disabled]
+> email alice@example.com
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com> (Checking...)
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe, disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe]
+> submit
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribing..., disabled]
+> name Bob
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribing..., disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe]
+  status{Welcome to the release notes, Alice! The next notes arrive with the next release.}
+> submit
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribing..., disabled]
+> wait 300
+  # Get the Release Notes
+  Name<Alice>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe]
+  status{Welcome to the release notes, Alice! The next notes arrive with the next release.}
+> name
+  # Get the Release Notes
+  Name<>
+  Email<alice@example.com>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe]
+  status{Welcome to the release notes, Alice! The next notes arrive with the next release.}
+> email bob@mail.invalid
+  # Get the Release Notes
+  Name<>
+  Email<bob@mail.invalid> (Checking...)
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe, disabled]
+  status{Welcome to the release notes, Alice! The next notes arrive with the next release.}
+> wait 300
+  # Get the Release Notes
+  Name<>
+  Email<bob@mail.invalid>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe]
+  status{Welcome to the release notes, Alice! The next notes arrive with the next release.}
+> submit
+  # Get the Release Notes
+  Name<>
+  Email<bob@mail.invalid>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribing..., disabled]
+> wait 300
+  # Get the Release Notes
+  Name<>
+  Email<bob@mail.invalid>
+  Anything you'd like to share with us?<Hello there.>
+  [Subscribe]
+  alert{Sorry, the list could not take the subscription. Please try again.}

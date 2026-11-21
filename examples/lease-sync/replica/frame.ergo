@@ -1,0 +1,88 @@
+// Package replica is a sync engine's client and its contract with the
+// authority (the design is the model models/replica). One authority per
+// source keeps a log: per command, its events or a typed refusal. A client
+// sends commands and reads the log by frames. Its view is its confirmed
+// base plus a rerun of its pending commands with the source's Decide, the
+// same function the authority runs. The client is a value (State) and a
+// pure step (Step); a program runs it as a machine.
+//
+// The package lives in examples/lease-sync until a second program needs
+// it; then it moves to a module over the module domain (wf10 RP2).
+
+import lease-sync/domain
+import strconv
+import strings
+
+// ClientID names one replica: the origin of its command ids. One user
+// with two devices is one By and two ClientIDs.
+type ClientID string
+
+// Source is an aggregate as the replica runs it: its first state, its
+// Decide (no needs row: a client runs it to predict and again at each
+// rebase; the authority runs it to decide), its total Evolve, and the
+// name of the version of Evolve and of the codecs. A frame of another
+// schema is never applied: the program drops the cache (DropCache).
+//
+// A client holds the state, so the state must have a codec (`S wire`):
+// a state with a part that has none (a server handle such as a sync.Ref,
+// a function) is refused at the Source with a diagnostic that names the
+// part, so nothing private can be synced to a client (wf10 RPX1; the case
+// cmd/ergo/testdata/diagnostics/source-not-wire).
+type Source[S wire, C, E, R] {
+	Initial S,
+	Decide  func(s S, c domain.Envelope[C]) []E fails R,
+	Evolve  func(s S, e E) S,
+	Schema  string,
+}
+
+// Did and Refused are what the authority's log records for one command:
+// one Did per event of an accepted command, or one Refused with the typed
+// reason. A refusal takes its place in the log, so a client's ids have no
+// hole, a resend gets the same answer, and a client that lost the answer
+// reads the reason in a later frame.
+type Did[E] { Event E }
+type Refused[F] { Why F }
+type Fact[E, F] = Did[E] | Refused[F]
+
+// Told is the refusal of one command of the caller: its id and why.
+type Told[F] { ID domain.CommandID, Why F }
+
+// Delta is the log's records after the position From. Snapshot is the
+// source's state at the position At, the caller's last command id in the
+// log up to At (LastSeq), and the refusals of the caller's commands in
+// the range the snapshot skips: without LastSeq a client cannot tell which
+// pending commands the state holds, and without Refused it drops a refused
+// command untold (models/replica, mutants 4 and 13).
+type Delta[E, F] { From int, Records []domain.Recorded[Fact[E, F]] }
+type Snapshot[S, F] { At int, State S, LastSeq int, Refused []Told[F] }
+type Frame[S, E, F] = Delta[E, F] | Snapshot[S, F]
+
+// The transport's failures. They never mix with a refusal: a client
+// retries them and shows them as its connection (Conn), never as data.
+// OutOfOrder: the id is past the client's next one; the client sends again
+// from Expected. IDConflict: the id was taken with another command (the
+// client's outbox was lost or forked).
+type Unavailable { Reason string }
+type Unauthorized {}
+type OutOfOrder { Expected int }
+type IDConflict { ID domain.CommandID }
+
+// IDOf is the id of the client's command number seq (1, 2, 3, …).
+func IDOf(origin ClientID, seq int) domain.CommandID { domain.CommandID("\(seq)@\(origin)") }
+
+// SeqOf is the number of the command id among origin's, or 0 when the id
+// is not one of origin's.
+func SeqOf(id domain.CommandID, origin ClientID) int {
+	let tail = "@\(origin)"
+	if !strings.HasSuffix(string(id), tail) {
+		return 0
+	}
+	let seq = strconv.Atoi(strings.TrimSuffix(string(id), tail)) catch {
+	case _:
+		return 0
+	}
+	if IDOf(origin, seq) != id || seq < 1 {
+		return 0
+	}
+	seq
+}

@@ -14,6 +14,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
 	ergohttp "ergo.local/prototype/runtime/v1/http"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
 // liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
@@ -24,7 +25,7 @@ func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { v1.Sleep(t, d) }
 // startHTTP serves handle on a loopback listener with the std http server
 // (the http leaf's HTTPServe), as std rpc's Answer is served, until the
 // test ends.
-func startHTTP(t *testing.T, handle func(*rt.Task, *ergohttp.Exchange, string, string, []ergohttp.HTTPField, []ergohttp.HTTPField, string, bool, string) ergohttp.HTTPResponse) *ergohttp.Listener {
+func startHTTP(t *testing.T, handle func(*rt.Task, *ergohttp.Exchange, string, string, string, []ergohttp.HTTPField, []ergohttp.HTTPField, string, bool, string) ergohttp.HTTPResponse) *ergonet.Listener {
 	t.Helper()
 	l, err := ergohttp.HTTPListen("127.0.0.1:0")
 	if err != nil {
@@ -77,7 +78,7 @@ func startRPC(t *testing.T) *rpcHarness {
 	t.Helper()
 	h := &rpcHarness{started: make(chan struct{}, 1), release: make(chan struct{})}
 	handle := rpcHandle(h)
-	l := startHTTP(t, func(ct *rt.Task, x *ergohttp.Exchange, _, _ string, _, header []ergohttp.HTTPField, body string, _ bool, _ string) ergohttp.HTTPResponse {
+	l := startHTTP(t, func(ct *rt.Task, x *ergohttp.Exchange, _, _, _ string, _, header []ergohttp.HTTPField, body string, _ bool, _ string) ergohttp.HTTPResponse {
 		framed := false
 		for _, f := range header {
 			if strings.EqualFold(f.Name, "Content-Type") && strings.HasPrefix(f.Value, rpcNDJSON) {
@@ -284,6 +285,39 @@ func TestRPCCallsStopWithTheCaller(t *testing.T) {
 		}
 	case <-testwait.After(t):
 		t.Fatal("the stopped caller's loopback call did not end")
+	}
+}
+
+// TestRPCLoopbackWaitIsSeen is rpc.md rule 6's "handle runs on a task
+// below the caller" under a VirtualClock: the request's wait for its calls
+// is a wait the clock sees, so a call held on the clock (a long poll held
+// on timeout.After, here a sleep of an hour) moves the time and ends, and
+// RPCExits returns at the instant the call ended. It catches
+// rpc-wait-unseen: without the park the clock never moves and the call
+// never ends, which the deadline reports. It waits on events.
+func TestRPCLoopbackWaitIsSeen(t *testing.T) {
+	caller := rt.Root("rpc loopback caller")
+	line := v1.NewVirtualTimeline(caller, 0, 0)
+	handle := func(ct *rt.Task, tag, payload string) (string, error) {
+		line.Wait(ct, time.Hour)
+		return payload, nil
+	}
+	envs, err := RPCParse(RPCRequest("0", "Hold", `{"a":1}`), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan string, 1)
+	go func() { ended <- RPCExits(v1.Site("rpc clock test"), caller, envs, handle) }()
+	select {
+	case out := <-ended:
+		if want := `[{"_tag":"Exit","requestId":0,"exit":{"_tag":"Success","value":{"a":1}}}]`; out != want {
+			t.Errorf("RPCExits = %s, want %s", out, want)
+		}
+		if mono := time.Duration(line.Read().Mono); mono != time.Hour {
+			t.Errorf("the call ended %v after the start, want the hour it slept", mono)
+		}
+	case <-testwait.After(t):
+		t.Fatal("a Loopback call held on the VirtualClock never ended: the request's wait for it is not one the clock sees")
 	}
 }
 

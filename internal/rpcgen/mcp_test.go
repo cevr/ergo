@@ -22,11 +22,11 @@ const mcpSeedVariable = "ERGO_MCP_SEED"
 // contracts TestCliArgsRoundTrip generates, with json.Optional fields as
 // well (contract c0 always has one, in a record nested in the operation
 // Flat, whose only parameter is a record, so its fields are the tool's
-// arguments), the package ergo gen mcp writes over the contract's rpc
+// arguments), the package ergo gen mcp writes over the contract's hub
 // package checks, and its two laws hold over the Requests the laws'
 // generator draws (100 cases a contract): Call reads what Arguments
 // writes as the same Request (ArgumentsRoundTrip), and those arguments
-// fit the JSON schema the tool lists, by module mcp's Conforms
+// fit the JSON schema the tool lists, by std mcp's Conforms
 // (ArgumentsFitTheSchema). For each operation, Answer of a Request against
 // a provider that answers a fixed value or failure is the value's JSON,
 // or a ToolError with the failure's tagged JSON. A schema that marks an
@@ -48,22 +48,18 @@ func TestMcpArgumentsRoundTrip(t *testing.T) {
 		}
 		seeds = []uint64{n}
 	}
-	module, err := filepath.Abs(filepath.Join("..", "..", "modules", "mcp"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	cache := t.TempDir()
 	for _, seed := range seeds {
-		t.Run(fmt.Sprint(seed), func(t *testing.T) { mcpRoundTrip(t, seed, cache, module) })
+		t.Run(fmt.Sprint(seed), func(t *testing.T) { mcpRoundTrip(t, seed, cache) })
 	}
 }
 
-func mcpRoundTrip(t *testing.T, seed uint64, cache, module string) {
+func mcpRoundTrip(t *testing.T, seed uint64, cache string) {
 	p := newProgramOf(seed, true)
 	dir := t.TempDir()
 	files := p.files()
 	files["probe/probe.ergo"] = p.mcpProbeSource()
-	files["go.mod"] = fmt.Sprintf("module loop\n\ngo 1.27\n\nrequire %s v0.0.0\n\nreplace %s => %s\n", mcpgen.ModulePath, mcpgen.ModulePath, module)
+	files["go.mod"] = "module loop\n\ngo 1.27\n"
 	for name, src := range files {
 		writeFile(t, filepath.Join(dir, name), src)
 	}
@@ -75,9 +71,9 @@ func mcpRoundTrip(t *testing.T, seed uint64, cache, module string) {
 			t.Fatalf("seed %d: contract %s does not check: %v %v\n%s", seed, c.pkg(), err, a.Diagnostics, sources(files))
 		}
 		path := "loop/" + c.pkg()
-		glue, err := rpcgen.Generate(a.Root().Package, path, "Svc")
+		glue, err := rpcgen.GenerateAPI(a.Root().Package, path, "Svc")
 		if err != nil {
-			t.Fatalf("seed %d: ergo gen rpc %s: %v\n%s", seed, c.pkg(), err, sources(files))
+			t.Fatalf("seed %d: ergo gen api %s: %v\n%s", seed, c.pkg(), err, sources(files))
 		}
 		for name, src := range glue.Files {
 			writeFile(t, filepath.Join(pkgDir, glue.Dir, name), src)
@@ -118,7 +114,7 @@ func mcpRoundTrip(t *testing.T, seed uint64, cache, module string) {
 	o := runOnce(t, exe)
 	var missing []string
 	for _, c := range p.contracts {
-		for _, law := range []string{"ArgumentsRoundTrip", "ArgumentsFitTheSchema"} {
+		for _, law := range []string{"ArgumentsRoundTrip", "ArgumentsFitTheSchema", "Agrees"} {
 			name := fmt.Sprintf("law C%d%s", c.i, law)
 			if !hasLine(o.stdout, "ok "+name) {
 				missing = append(missing, name)
@@ -136,7 +132,7 @@ func mcpRoundTrip(t *testing.T, seed uint64, cache, module string) {
 }
 
 // mcpProbeSource is the probe package: per contract, the generated mcp
-// package's two laws.
+// package's three laws (Agrees restated over its Wire).
 func (p *program) mcpProbeSource() string {
 	var b strings.Builder
 	b.WriteString("// Package probe runs the generated mcp packages' laws.\n\n")
@@ -144,17 +140,18 @@ func (p *program) mcpProbeSource() string {
 		fmt.Fprintf(&b, "import loop/%s/%smcp\n", c.pkg(), c.pkg())
 	}
 	for _, c := range p.contracts {
-		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%srpc\n", c.pkg(), c.pkg(), c.pkg())
+		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%sapi\n", c.pkg(), c.pkg(), c.pkg())
 	}
-	b.WriteString("import json\nimport rpc\nimport github.com/cevr/ergo/modules/mcp\n")
+	b.WriteString("import api\nimport json\nimport rpc\nimport " + mcpgen.ModulePath + "\n")
 	for _, c := range p.contracts {
 		m := c.pkg() + "mcp"
 		q := c.pkg() + "."
 		fmt.Fprintf(&b, "\nlaw C%dArgumentsRoundTrip(r %s.Request) { %s.RoundTrips(r) }\n", c.i, m, m)
 		fmt.Fprintf(&b, "\nlaw C%dArgumentsFitTheSchema(r %s.Request) { %s.FitsSchema(r) }\n", c.i, m, m)
+		fmt.Fprintf(&b, "\nlaw C%dAgrees(r %s.Request, g %sapi.Given) { api.Agrees(%s.Wire, r, %sapi.OutcomeOf(r, g)) }\n", c.i, m, c.pkg(), m, c.pkg())
 		fmt.Fprintf(&b, "\n// C%dText is Answer's value as JSON text, or \"error: \" and a ToolError's message.\nfunc C%dText(r %s.Request) string needs %sSvc {\n\tlet v = %s.Answer(r) catch {\n\tcase mcp.ToolError as e:\n\t\treturn \"error: \" + e.Message\n\t}\n\tjson.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)\n}\n", c.i, c.i, m, q, m)
 		for _, o := range c.ops {
-			req := c.pkg() + "rpc." + o.name + "Request"
+			req := c.pkg() + "api." + o.name + "Request"
 			if len(o.args) > 0 {
 				req += "{" + strings.Join(o.args, ", ") + "}"
 			}

@@ -1,0 +1,1 @@
+web-failure-without-status/site.ergo:31:4: S103 this match is not total: no case handles locked; name every variant or add case _ (rows.md, Totality 2)

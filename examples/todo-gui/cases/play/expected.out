@@ -17,7 +17,7 @@
 17: no node del eggs
 column
   row
-    input "" (new item)
+    input "" (what needs doing) label "new item" "Add puts it on the list"
     button "add"
       text "Add"
   scroll

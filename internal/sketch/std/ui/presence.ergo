@@ -1,0 +1,760 @@
+// Enter and exit transitions by keyed identity (H5e, stdlib.md UI 23). A
+// row of a Presence enters (its progress T goes from 0 to 1), stays, and
+// when the list no longer has its key, exits (T goes from where it was to
+// 0) while the pass keeps the subtree it last wrote, as React's
+// AnimatePresence keeps an exiting child, and is then removed. Progress
+// moves on the host's frames: a pass a Tick caused moves it, a pass any
+// other event caused leaves it where the last frame put it, and a row
+// that starts moving starts at the next frame. While a row moves the view
+// asks for frames (Animating), and once every row is still it asks for
+// none, so a settled screen costs nothing. A row's move to a new place and
+// a shared element between two views need the boxes, which are the
+// host's (H2L): they wait for it.
+
+import actor
+import time
+
+// Motion is where a row of a Presence is: entering, present or exiting.
+type Motion = Entering | Present | Exiting
+
+// Entering is a row on its way in.
+type Entering {}
+
+// Present is a row that is in and still.
+type Present {}
+
+// Exiting is a row on its way out, which the list no longer has.
+type Exiting {}
+
+// Progress is a row's motion and its progress T in [0, 1]: 1 is fully in
+// (a present row's), 0 fully out.
+type Progress { Motion Motion, T float64 }
+
+// presenceItem is a row a Presence shows: its key, its motion as an int
+// (0 entering, 1 present, 2 exiting), whether its motion has started (at
+// a frame's time start, from progress from), and the key its row last ran
+// under (the exit keeps that run).
+type presenceItem { key Key, motion int, started bool, start duration, from float64, ran int }
+
+// Presence writes a row for each x of xs, keyed by key, each under a
+// TransitionNode that carries its progress, plus a row for each key the
+// list lost that is still exiting, after the row that came before it in
+// the last pass. A row that was in the first pass of the Presence starts
+// present; one that comes later enters. A row that comes back while it
+// exits enters from where it was, and one that leaves while it enters
+// exits from where it was. row gets the row's progress; an exiting row
+// does not run (its last subtree stays), and when the pass cannot keep
+// that subtree (a cell under it changed, its group stopped) it is removed
+// at once.
+func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duration, row func(x T, p Progress) fails F needs R, at CallSite) fails F needs R {
+	let (where, c) = remember(f, PresenceCell{Items: []presenceItem{}, Fresh: true}, at)
+	let mut old = []presenceItem{}
+	let mut fresh = false
+	match c {
+	case PresenceCell as p:
+		old = p.Items
+		fresh = p.Fresh
+	case _:
+		Unreachable("ui: a presence cell holds its rows")
+	}
+	let cellIndex = f.ncells - 1
+	let _ = where
+	let mut keys = []Key{}
+	for x in xs {
+		keys = keys.Append(key(x))
+	}
+	let plan = presencePlan(old, keys, fresh, f.tickAt, f.now, dur)
+	let m = markOf(f)
+	let outerEach = f.each
+	let outerKey = f.key
+	let mut kept = []presenceItem{}
+	let mut moving = false
+	for step in plan {
+		let it = step.item
+		f.each = at
+		f.key = it.key
+		let p = Progress{Motion: motionOf(it.motion), T: step.t}
+		if step.x >= 0 {
+			f.parent = put(f, TransitionNode{Key: it.key, Motion: p.Motion, T: p.T}, None, None, at)
+			let run = f.passes
+			keptRun(f, IntKey{Value: run}, func() fails F needs R { try row(xs[step.x], p) }, at) catch {
+			case err:
+				cut(f, m)
+				f.each = outerEach
+				f.key = outerKey
+				return err
+			}
+			f.parent = m.parent
+			kept = kept.Append(presenceItem{..it, ran: run})
+		} else {
+			let mk = markOf(f)
+			f.parent = put(f, TransitionNode{Key: it.key, Motion: p.Motion, T: p.T}, None, None, at)
+			if keepExit(f, IntKey{Value: it.ran}, at) {
+				f.parent = m.parent
+				kept = kept.Append(it)
+			} else {
+				cut(f, mk)
+				f.parent = m.parent
+				continue
+			}
+		}
+		if it.motion != 1 {
+			moving = true
+		}
+	}
+	f.each = outerEach
+	f.key = outerKey
+	f.cells[cellIndex].cell = PresenceCell{Items: kept, Fresh: false}
+	if moving {
+		f.moving = true
+	}
+}
+
+// presenceStep is one row of a pass's plan: its item after this pass, its
+// progress, and the index of its value in xs (-1 for an exiting row).
+type presenceStep { item presenceItem, t float64, x int }
+
+// presencePlan is the rows a pass writes, in order, from the last pass's
+// items old and this pass's keys: each key of the list in its order, and
+// each exiting row of old after the last row before it in old that the
+// list still has (or first). tick is the time of the frame that caused the
+// pass, None for a pass of another event, and now the last frame's time.
+func presencePlan(old []presenceItem, keys []Key, fresh bool, tick Option[duration], now duration, dur duration) []presenceStep {
+	let mut at = Map[Key, int]{}
+	for i, k in keys {
+		if !has(at, k) {
+			at[k] = i
+		}
+	}
+	let mut was = Map[Key, presenceItem]{}
+	for it in old {
+		was[it.key] = it
+	}
+	// The exits after each list index (-1: before the first row).
+	let mut after = Map[int, []presenceItem]{}
+	let mut last = -1
+	for it in old {
+		match at.Get(it.key) {
+		case Some[int] as i:
+			last = i.Value
+		case None:
+			let mut e = it
+			if it.motion != 2 {
+				e = presenceItem{key: it.key, motion: 2, started: false, start: now, from: progressOf(it, now, dur), ran: it.ran}
+			}
+			let mut xs = []presenceItem{}
+			match after.Get(last) {
+			case Some[[]presenceItem] as l:
+				xs = l.Value
+			case None:
+			}
+			after[last] = xs.Append(e)
+		}
+	}
+	let mut out = []presenceStep{}
+	for e in exitsAt(after, -1) {
+		match stepAt(e, tick, now, dur) {
+		case Some[presenceStep] as s:
+			out = out.Append(s.Value)
+		case None:
+		}
+	}
+	let mut seen = Map[Key, bool]{}
+	for i, k in keys {
+		if has(seen, k) {
+			continue
+		}
+		seen[k] = true
+		let mut it = presenceItem{key: k, motion: 1, started: true, start: now, from: 1.0, ran: -1}
+		match was.Get(k) {
+		case Some[presenceItem] as w:
+			it = w.Value
+			if w.Value.motion == 2 {
+				it = presenceItem{key: k, motion: 0, started: false, start: now, from: progressOf(w.Value, now, dur), ran: w.Value.ran}
+			}
+		case None:
+			if !fresh {
+				it = presenceItem{key: k, motion: 0, started: false, start: now, from: 0.0, ran: -1}
+			}
+		}
+		match stepAt(it, tick, now, dur) {
+		case Some[presenceStep] as s:
+			out = out.Append(presenceStep{item: s.Value.item, t: s.Value.t, x: i})
+		case None:
+		}
+		for e in exitsAt(after, i) {
+			match stepAt(e, tick, now, dur) {
+			case Some[presenceStep] as s:
+				out = out.Append(s.Value)
+			case None:
+			}
+		}
+	}
+	out
+}
+
+func exitsAt(after Map[int, []presenceItem], i int) []presenceItem {
+	match after.Get(i) {
+	case Some[[]presenceItem] as l:
+		l.Value
+	case None:
+		[]presenceItem{}
+	}
+}
+
+// stepAt is it at this pass: a motion not yet started starts at the
+// frame of a tick pass; a started one moves to the progress at the tick
+// (or, in a pass of another event, at the last frame, now), an entering
+// row that reaches 1 is present, and an exiting row that
+// reaches 0 is gone (None). An exiting row's step has x -1.
+func stepAt(it presenceItem, tick Option[duration], now duration, dur duration) Option[presenceStep] {
+	let mut n = it
+	let mut time = now
+	match tick {
+	case Some[duration] as t:
+		time = t.Value
+		if !n.started && n.motion != 1 {
+			n.started = true
+			n.start = t.Value
+		}
+	case None:
+	}
+	let p = progressOf(n, time, dur)
+	if n.motion == 0 && p >= 1.0 {
+		n = presenceItem{..n, motion: 1, from: 1.0}
+	}
+	if n.motion == 2 && p <= 0.0 {
+		return None
+	}
+	Some{Value: presenceStep{item: n, t: shownProgress(n, p), x: -1}}
+}
+
+// shownProgress is the T a row shows: 1 for a present row, p otherwise.
+func shownProgress(it presenceItem, p float64) float64 {
+	if it.motion == 1 {
+		return 1.0
+	}
+	p
+}
+
+// progressOf is it's progress at time now: from, moved toward 1 (in) or
+// 0 (out) by the share of dur since its start, inside [0, 1]; a present
+// row's is 1, and a motion not started stays at from.
+func progressOf(it presenceItem, now duration, dur duration) float64 {
+	if it.motion == 1 {
+		return 1.0
+	}
+	if !it.started {
+		return it.from
+	}
+	let mut share = 1.0
+	if int64(dur) > int64(0) {
+		share = float64(int64(now-it.start)) / float64(int64(dur))
+	}
+	let mut p = it.from
+	if it.motion == 0 {
+		p = it.from + share
+	} else {
+		p = it.from - share
+	}
+	if p < 0.0 {
+		return 0.0
+	}
+	if p > 1.0 {
+		return 1.0
+	}
+	p
+}
+
+func motionText(m Motion) string {
+	match m {
+	case Entering:
+		"entering"
+	case Present:
+		"present"
+	case Exiting:
+		"exiting"
+	}
+}
+
+func motionOf(m int) Motion {
+	if m == 0 {
+		return Entering
+	}
+	if m == 1 {
+		return Present
+	}
+	Exiting
+}
+
+// keptRun runs body as a Box whose run is recorded under key, so a later
+// pass can keep its subtree (keepExit), as a Same does; it never skips.
+func keptRun[E, F, R](f mut Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
+	let m = markOf(f)
+	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
+	f.specs[i].memo = i
+	f.parent = i
+	body() catch {
+	case err:
+		cut(f, m)
+		return err
+	}
+	f.specs[i].same = Some{Value: memoRun[E]{key: key, keys: since(f.keys, m.nkeys, f.nkeys), urls: since(f.urls, m.nurls, f.nurls), anims: since(f.anims, m.nanims, f.nanims)}}
+	f.parent = m.parent
+}
+
+// keepExit keeps the subtree the Box at this place last wrote under key,
+// and is whether it could: false (writing nothing) when that subtree is
+// gone or a cell under it changed.
+func keepExit[E](f mut Frame[E], key Key, at CallSite) bool {
+	let m = markOf(f)
+	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
+	match skippable(f, i, key) {
+	case Some[memoRun[E]] as run:
+		f.specs[i].skip = true
+		replay(f, run.Value)
+		true
+	case None:
+		cut(f, m)
+		false
+	}
+}
+
+// presenceListStep is the law apps' step: a signal i shows list i. (a law's helper)
+func presenceListStep(s int, e int) Decision[int, int] {
+	Enter[int]{Next: e}
+}
+
+// presenceTimer is the law apps' timer: none. (a law's helper)
+func presenceTimer(s int) Option[Timeout[int]] {
+	None
+}
+
+// presenceWork is the law apps' work: none. (a law's helper)
+func presenceWork(s int) Option[func(send func(e int))] {
+	None
+}
+
+// presenceLists is drawn lists of keys from 0..6, the first one fresh. (a law's helper)
+func presenceLists(seed int) [][]int {
+	let mut x = seed
+	let mut out = [][]int{}
+	for _ in 0..8 {
+		let mut xs = []int{}
+		for k in 0..6 {
+			x = (x*1103515245 + 12345) % 2147483648
+			if x < 0 {
+				x = -x
+			}
+			if x%3 != 0 {
+				xs = xs.Append(k)
+			}
+		}
+		// a reorder: odd lists run backward
+		if len(out)%2 == 1 {
+			let mut back = []int{}
+			for i in 0..len(xs) {
+				back = back.Append(xs[len(xs)-1-i])
+			}
+			xs = back
+		}
+		out = out.Append(xs)
+	}
+	out
+}
+
+// presenceKeys is the shown TransitionNodes of shapes, in order: their key's int, motion and T. (a law's helper)
+func presenceKeys(shapes []Shape[int]) [](int, Motion, float64) {
+	let mut out = [](int, Motion, float64){}
+	for s in shapes {
+		match s.Node {
+		case TransitionNode as t:
+			match t.Key {
+			case IntKey as k:
+				out = out.Append((k.Value, t.Motion, t.T))
+			case _:
+				out = out.Append((-1, t.Motion, t.T))
+			}
+		case _:
+			for x in presenceKeys(s.Kids) {
+				out = out.Append(x)
+			}
+		}
+	}
+	out
+}
+
+// presenceStripped is shapes with each TransitionNode replaced by its children. (a law's helper)
+func presenceStripped(shapes []Shape[int]) []Shape[int] {
+	let mut out = []Shape[int]{}
+	for s in shapes {
+		match s.Node {
+		case TransitionNode:
+			for k in presenceStripped(s.Kids) {
+				out = out.Append(k)
+			}
+		case _:
+			out = out.Append(Shape[int]{Node: s.Node, Kids: presenceStripped(s.Kids)})
+		}
+	}
+	out
+}
+
+// TransitionEndsAtLayout (H5e): over drawn lists of keyed rows (keys
+// added, removed and reordered) and drawn waits, once the host has run
+// frames past every transition, the view asks for no frame, every row is
+// Present at T 1, no exiting row is left, and the screen, with each
+// TransitionNode replaced by its children, is the screen of the same list
+// written with Each and a Box per row: a transition ends at the layout
+// with no transition.
+law TransitionEndsAtLayout(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let lists = presenceLists(seed)
+		let view = func(f mut Frame[int], s int) {
+			OnKey(f, func(k KeyPress) Option[int] {
+				for i in 0..8 {
+					if k.Name == "\(i)" {
+						return Some{Value: i}
+					}
+				}
+				None
+			})
+			Column(f, Plain()) {
+				Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) {
+					Text(f, "row \(r)")
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		FrameEvery(&h, 10ms)
+		let mut x = seed
+		for _ in 0..(steps%10+10)%10+1 {
+			x = (x*1103515245 + 12345) % 2147483648
+			if x < 0 {
+				x = -x
+			}
+			PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+			Advance(&h, duration(int64(x%15)*int64(10ms))) catch {
+			case _:
+				return false
+			}
+		}
+		Advance(&h, 2s) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		for k in presenceKeys(Screen(&h)) {
+			let (_, motion, t) = k
+			if motion != Present || t != 1.0 {
+				return false
+			}
+		}
+		let mut g = NewFrame[int]()
+		let want = Render(&g, func(f mut Frame[int], xs []int) {
+			Column(f, Plain()) {
+				Each(f, xs, func(r int) Key { ByInt(r) }) func(r int) {
+					Box(f, Plain()) {
+						Text(f, "row \(r)")
+					}
+				}
+			}
+		}, lists[s])
+		let _ = want
+		!WantsFrames(&h) && SameShapes(presenceStripped(Screen(&h)), FrameShape(&g))
+	}
+}
+
+// PresenceKeepsTheList (H5e): over drawn list changes, each followed by
+// one frame or none, the rows that are not exiting are the list, in its
+// order; a row the list gained (not on the screen before) enters at T 0;
+// a row the list lost is Exiting, right after the row that was before it
+// (one still at T 0, which never came in, goes at once);
+// a Present row is at T 1 and every T is in [0, 1]; and the view asks for
+// frames exactly while a row is not Present.
+law PresenceKeepsTheList(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let lists = presenceLists(seed)
+		let view = func(f mut Frame[int], s int) {
+			OnKey(f, func(k KeyPress) Option[int] {
+				for i in 0..8 {
+					if k.Name == "\(i)" {
+						return Some{Value: i}
+					}
+				}
+				None
+			})
+			Presence(f, lists[s], func(r int) Key { ByInt(r) }, 50ms) func(r int, p Progress) {
+				Text(f, "row \(r)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		FrameEvery(&h, 10ms)
+		let mut x = seed + 7
+		for _ in 0..(steps%14+14)%14+1 {
+			let before = presenceKeys(Screen(&h))
+			x = (x*1103515245 + 12345) % 2147483648
+			if x < 0 {
+				x = -x
+			}
+			let i = x % 8
+			PressKey(&h, KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+			let after = presenceKeys(Screen(&h))
+			let list = lists[StateOf(&h)]
+			// The rows not exiting are the list.
+			let mut staying = []int{}
+			let mut moving = false
+			for k in after {
+				let (key, motion, t) = k
+				if t < 0.0 || t > 1.0 || (motion == Present && t != 1.0) {
+					return false
+				}
+				if motion != Exiting {
+					staying = staying.Append(key)
+				}
+				if motion != Present {
+					moving = true
+				}
+				let mut shown = false
+				for b in before {
+					let (bk, _, _) = b
+					shown = shown || bk == key
+				}
+				let mut listed = false
+				for y in list {
+					listed = listed || y == key
+				}
+				if !shown && (motion != Entering || t != 0.0) {
+					return false
+				}
+				if !listed && motion != Exiting {
+					return false
+				}
+			}
+			if staying != list || WantsFrames(&h) != moving {
+				return false
+			}
+			// A lost row comes right after the row before it, or first.
+			for j, b in before {
+				let (bk, _, _) = b
+				let mut listed = false
+				for y in list {
+					listed = listed || y == bk
+				}
+				if listed {
+					continue
+				}
+				let mut at = -1
+				for q, k in after {
+					let (key, _, _) = k
+					if key == bk {
+						at = q
+					}
+				}
+				if at < 0 {
+					// gone at once only when it was exiting already, or
+					// had not come in at all (T 0)
+					let (_, bm, bt) = b
+					if bm != Exiting && bt != 0.0 {
+						return false
+					}
+					continue
+				}
+				if j > 0 && at > 0 {
+					let (prev, _, _) = before[j-1]
+					let (got, _, _) = after[at-1]
+					let mut prevListed = false
+					for y in list {
+						prevListed = prevListed || y == prev
+					}
+					if prevListed && got != prev {
+						return false
+					}
+				}
+			}
+			if x%2 == 0 {
+				Advance(&h, 10ms) catch {
+				case _:
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
+// ExitTakesItsDuration (H5e): a row removed after n frames of its entry
+// exits from the T it reached, n/10 of the way in with a duration of ten
+// frames, losing a tenth each frame, and is gone at the frame its T
+// reaches 0; it is still on the screen in the pass of its removal, and a
+// row the first pass had starts Present.
+law ExitTakesItsDuration(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let k = (n%10+10)%10 + 1
+		let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}}
+		let view = func(f mut Frame[int], s int) {
+			OnKey(f, func(kp KeyPress) Option[int] {
+				for i in 0..3 {
+					if kp.Name == "\(i)" {
+						return Some{Value: i}
+					}
+				}
+				None
+			})
+			Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) {
+				Text(f, "row \(r)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		FrameEvery(&h, 10ms)
+		let first = presenceKeys(Screen(&h))
+		if len(first) != 1 || !near(first[0], rowAt(0, Present, 1.0)) {
+			return false
+		}
+		PressKey(&h, KeyPress{Name: "1", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+		case _:
+			return false
+		}
+		// The entry starts at the first frame after the press: k+1 frames
+		// bring it k tenths in.
+		for _ in 0..k+1 {
+			Advance(&h, 10ms) catch {
+			case _:
+				return false
+			}
+		}
+		let reached = presenceKeys(Screen(&h))
+		let mut t = 1.0
+		if k < 10 {
+			t = float64(k) / 10.0
+		}
+		let mut want = rowAt(1, Present, 1.0)
+		if k < 10 {
+			want = rowAt(1, Entering, t)
+		}
+		if len(reached) != 2 || !near(reached[1], want) {
+			return false
+		}
+		PressKey(&h, KeyPress{Name: "2", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+		case _:
+			return false
+		}
+		let removed = presenceKeys(Screen(&h))
+		if len(removed) != 2 || !near(removed[1], rowAt(1, Exiting, t)) {
+			return false
+		}
+		// The exit starts at the next frame and loses a tenth per frame.
+		for j in 1..k+2 {
+			Advance(&h, 10ms) catch {
+			case _:
+				return false
+			}
+			let shown = presenceKeys(Screen(&h))
+			let left = t - float64(j-1)/10.0
+			if left <= 0.000001 {
+				if len(shown) != 1 {
+					return false
+				}
+			} else if len(shown) != 2 || !near(shown[1], rowAt(1, Exiting, left)) {
+				return false
+			}
+		}
+		len(presenceKeys(Screen(&h))) == 1 && !WantsFrames(&h)
+	}
+}
+
+// near is whether two shown rows are equal, their T within a millionth. (a law's helper)
+func near(a (int, Motion, float64), b (int, Motion, float64)) bool {
+	let (ak, am, at) = a
+	let (bk, bm, bt) = b
+	ak == bk && am == bm && at-bt < 0.000001 && bt-at < 0.000001
+}
+
+// NoTickWhenRowsSettle (H5e): over drawn list changes, once every row of a
+// Presence is still (Present, no exit left), the view asks for no frame
+// and a wait of any length runs none: Advance leaves Frames as it was. A
+// settled screen costs nothing.
+law NoTickWhenRowsSettle(seed int, wait int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let lists = presenceLists(seed)
+		let view = func(f mut Frame[int], s int) {
+			OnKey(f, func(k KeyPress) Option[int] {
+				for i in 0..8 {
+					if k.Name == "\(i)" {
+						return Some{Value: i}
+					}
+				}
+				None
+			})
+			Presence(f, lists[s], func(r int) Key { ByInt(r) }, 30ms) func(r int, p Progress) {
+				Text(f, "row \(r)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		FrameEvery(&h, 10ms)
+		let mut x = seed + 3
+		for _ in 0..4 {
+			x = (x*1103515245 + 12345) % 2147483648
+			if x < 0 {
+				x = -x
+			}
+			PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+			Advance(&h, 1s) catch {
+			case _:
+				return false
+			}
+			for k in presenceKeys(Screen(&h)) {
+				let (_, motion, _) = k
+				if motion != Present {
+					return false
+				}
+			}
+			if WantsFrames(&h) {
+				return false
+			}
+			let before = h.Frames()
+			Advance(&h, duration(int64((wait%50+50)%50+1)*int64(10ms))) catch {
+			case _:
+				return false
+			}
+			if h.Frames() != before {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// rowAt is a shown row. (a law's helper)
+func rowAt(k int, m Motion, t float64) (int, Motion, float64) {
+	(k, m, t)
+}

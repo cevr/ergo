@@ -54,11 +54,13 @@ func F(c bool) int8 { H(if c { 1 } else { 2 }) }`, ""},
 	n
 }`, ""},
 		{"void-tail-escapes", `func F(c bool) fails E { if c { G() } }`, ""},
-		{"void-discards-arm", `func N() int { 1 }
-func S() string { "s" }
+		{"void-discards-arm", `func N() int { if one { 1 } else { Unreachable("N") } }
+func S() string { if one { "s" } else { Unreachable("S") } }
+let one = true
 func F(c bool) { if c { N() } else { S() } }`, ""},
-		{"void-value-arm", `func N() int { 1 }
-func F(c bool) { if c { 1 } else { N() } }`, "S110:7"},
+		{"void-value-arm", `func N() int { if one { 1 } else { Unreachable("N") } }
+let one = true
+func F(c bool) { if c { 1 } else { N() } }`, "S110:8"},
 		{"catch-arm-if", `func F(c bool) int {
 	G() catch {
 	case E as e:

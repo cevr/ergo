@@ -1,0 +1,500 @@
+// Package web is the browser's side of the library: the atoms of a look, their classes, and
+// the one sheet that holds every atom once (spec §4.1). A look resolves to atoms, one per
+// (condition, property, value); an atom's class is a function of the atom alone, so a
+// component's classes are known in its own package and two components that set the same
+// declaration share its class; the sheet is the union of the atoms of the looks it is built
+// from, in rank order, so it grows with the distinct declarations and not with the components.
+
+import ergo.dev/fluid/look
+import ergo.dev/fluid/token
+import html
+import slices
+import strings
+
+// Cond is when an atom holds: a state of its own box, a state of its group (an ancestor
+// marked as a group), or a viewport at least Min pixels wide.
+type Cond = Self{S look.State} | Of{S look.State} | Wide{Min int}
+
+// Atom is one declaration under one condition.
+type Atom { Cond Cond, Decl look.Decl }
+
+// GroupClass is the class that marks a box as a group for its descendants' looks.
+let GroupClass = "fg"
+
+// rank orders the conditions: the states in look.States' order (a box's own state before its
+// group's, at each state), then the viewport conditions, narrowest first. A later rank wins.
+func rank(c Cond) int {
+	match c {
+	case Self as s:
+		2 * stateIndex(s.S)
+	case Of as g:
+		2*stateIndex(g.S) + 1
+	case Wide as w:
+		100 + w.Min
+	}
+}
+
+func stateIndex(s look.State) int {
+	match s {
+	case look.Rest:
+		0
+	case look.Hover:
+		1
+	case look.FocusWithin:
+		2
+	case look.FocusVisible:
+		3
+	case look.Active:
+		4
+	case look.Disabled:
+		5
+	}
+}
+
+// pseudo is the selector of a state.
+func pseudo(s look.State) string {
+	match s {
+	case look.Rest:
+		""
+	case look.Hover:
+		":hover"
+	case look.FocusWithin:
+		":focus-within"
+	case look.FocusVisible:
+		":focus-visible"
+	case look.Active:
+		":active"
+	case look.Disabled:
+		":disabled"
+	}
+}
+
+// key is an atom's identity: its condition, its property and its value.
+func key(a Atom) string {
+	let cond = match a.Cond {
+	case Self as s:
+		"s" + pseudo(s.S)
+	case Of as g:
+		"g" + pseudo(g.S)
+	case Wide as w:
+		"w\(w.Min)"
+	}
+	cond + "|" + look.Key(a.Decl) + ":" + look.Value(a.Decl)
+}
+
+// Class is an atom's class: f and the FNV-1a hash of its key in base 36.
+func Class(a Atom) string { "f" + base36(fnv(key(a))) }
+
+func fnv(s string) int {
+	let mut h = 2166136261
+	for i in 0..len(s) {
+		h = h ^ int(s[i])
+		h = (h * 16777619) % 4294967296
+	}
+	h
+}
+
+func base36(n int) string {
+	let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+	if n == 0 {
+		return "0"
+	}
+	let mut out = []byte{}
+	let mut v = n
+	for v > 0 {
+		out = out.Append(digits[v%36])
+		v = v / 36
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(out) {
+		b.WriteByte(out[len(out)-1-i])
+	}
+	b.String()
+}
+
+// Atoms is a look's atoms: its rest style's declarations, each state's overlay under its own
+// or its group's state, and each wider viewport's overlay; in rank order, then by key.
+func Atoms(l look.Look) []Atom {
+	let mut out = []Atom{}
+	for d in look.Decls(l.Rest) {
+		out = out.Append(Atom{Cond: Self{S: look.Rest}, Decl: d})
+	}
+	for s in look.States() {
+		match s {
+		case look.Rest:
+		case look.Hover, look.FocusWithin, look.FocusVisible, look.Active, look.Disabled:
+			let mut cond Cond = Self{S: s}
+			match l.From {
+			case look.Own:
+			case look.Group:
+				cond = Of{S: s}
+			}
+			for d in look.Decls(look.Overlay(l, s)) {
+				out = out.Append(Atom{Cond: cond, Decl: d})
+			}
+		}
+	}
+	for w in look.WideOf(l) {
+		for d in look.Decls(w.Style) {
+			out = out.Append(Atom{Cond: Wide{Min: w.Min}, Decl: d})
+		}
+	}
+	inRank(out)
+}
+
+// inRank is atoms in rank order, then by key, each once.
+func inRank(atoms []Atom) []Atom {
+	let sorted = slices.SortFunc(atoms, func(a Atom, b Atom) int {
+		let ra = rank(a.Cond)
+		let rb = rank(b.Cond)
+		if ra != rb {
+			return ra - rb
+		}
+		strings.Compare(key(a), key(b))
+	})
+	let mut out = []Atom{}
+	for a in sorted {
+		if len(out) == 0 || key(out[len(out)-1]) != key(a) {
+			out = out.Append(a)
+		}
+	}
+	out
+}
+
+// Classes is the class attribute of a box with look l: its atoms' classes, and the group
+// class when the box is a group.
+func Classes(l look.Look) string { Named(Long(), l) }
+
+// Rule is an atom's rule in the sheet.
+func Rule(a Atom) string { ruleAs(a, Class(a)) }
+
+// ruleAs is an atom's rule under class c.
+func ruleAs(a Atom, c string) string {
+	let body = "{" + look.Key(a.Decl) + ":" + look.Value(a.Decl) + "}"
+	match a.Cond {
+	case Self as s:
+		match s.S {
+		case look.Rest:
+			"." + c + body
+		case look.Hover, look.FocusWithin, look.FocusVisible, look.Active, look.Disabled:
+			"." + c + ":where(" + pseudo(s.S) + ")" + body
+		}
+	case Of as g:
+		":where(." + GroupClass + pseudo(g.S) + ") ." + c + body
+	case Wide as w:
+		"@media (min-width:\(w.Min)px){." + c + body + "}"
+	}
+}
+
+// base is what every page of the library starts from: no box model surprises, no default
+// margins, controls that take their font and colour from their box (the reset Tailwind's
+// preflight makes, which the original's pages run on).
+let base = "*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}" +
+	"html{color-scheme:light dark;-webkit-text-size-adjust:100%;line-height:1.5;font-family:Inter,system-ui,sans-serif}" +
+	"body{background-color:var(--f-page);color:var(--f-ink);font-size:16px;line-height:24px;-webkit-font-smoothing:antialiased}" +
+	"button,input{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;background-color:transparent;border-radius:0;opacity:1;appearance:button}" +
+	"svg{display:block;vertical-align:middle}"
+
+// Sheet is the sheet of theme t and looks: the reset, the tokens as custom properties, then
+// the rule of every distinct atom of the looks, in rank order.
+func Sheet(t token.Theme, looks []look.Look) string { SheetNamed(t, Long(), looks) }
+
+// Union is the distinct atoms of looks, in rank order: the sheet's rules.
+func Union(looks []look.Look) []Atom {
+	let mut all = []Atom{}
+	for l in looks {
+		for a in Atoms(l) {
+			all = all.Append(a)
+		}
+	}
+	inRank(all)
+}
+
+// Style is the sheet as a style element, for a page's head.
+func Style(t token.Theme, looks []look.Look) html.Node { html.Style([]html.Attr{}, html.Trust(Sheet(t, looks))) }
+
+// Names is a program's short class names: each atom of the looks it was made from is named by
+// its index in their union (shortName: a, b, …), so a page's class attributes are a few bytes
+// each.
+// Make it once, from every look the program draws; an atom it does not name keeps its long
+// class (Class).
+type Names { of Map[string, string] }
+
+// Long is no short names: every atom keeps its long class.
+func Long() Names { Names{of: Map[string, string]{}} }
+
+// NamesOf is the short names of the atoms of looks.
+func NamesOf(looks []look.Look) Names {
+	let mut of = Map[string, string]{}
+	let all = Union(looks)
+	for i in 0..len(all) {
+		of[key(all[i])] = shortName(i)
+	}
+	Names{of: of}
+}
+
+// shortName is the i-th short name: one of 51 first letters, then digits in base 64.
+func shortName(i int) string {
+	let first = "abcdeghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	let rest = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+	let mut b = strings.NewBuilder()
+	b.WriteByte(first[i%51])
+	let mut v = i / 51
+	for v > 0 {
+		b.WriteByte(rest[(v-1)%64])
+		v = (v - 1) / 64
+	}
+	b.String()
+}
+
+// nameOf is an atom's class under names n.
+func nameOf(n Names, a Atom) string {
+	match n.of.Get(key(a)) {
+	case Some as s:
+		s.Value
+	case None:
+		Class(a)
+	}
+}
+
+// Named is the class attribute of a box with look l under names n.
+func Named(n Names, l look.Look) string {
+	let mut b = strings.NewBuilder()
+	if l.Marks {
+		b.WriteString(GroupClass)
+	}
+	for a in Atoms(l) {
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(nameOf(n, a))
+	}
+	b.String()
+}
+
+// SheetNamed is Sheet with the atoms' classes under names n.
+func SheetNamed(t token.Theme, n Names, looks []look.Look) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(base)
+	b.WriteString(":root{")
+	b.WriteString(token.Sheet(t))
+	b.WriteString("}")
+	for a in Union(looks) {
+		b.WriteString(ruleAs(a, nameOf(n, a)))
+	}
+	b.String()
+}
+
+// NamesAreDistinct: two atoms never share a short name, and the sheet under the names has a
+// rule for every class a look's box prints under them.
+law NamesAreDistinct(a []look.Decl, b []look.Decl, group bool) {
+	let looks = []look.Look{lookOf(a, b, group, b), lookOf(b, a, !group, a)}
+	let n = NamesOf(looks)
+	let mut seen = Map[string, string]{}
+	let mut ok = true
+	for x in Union(looks) {
+		let c = nameOf(n, x)
+		match seen.Get(c) {
+		case Some as k:
+			ok = ok && k.Value == key(x)
+		case None:
+		}
+		seen[c] = key(x)
+	}
+	let sheet = SheetNamed(token.Default, n, looks)
+	for l in looks {
+		for x in Atoms(l) {
+			ok = ok && strings.Contains(sheet, ruleAs(x, nameOf(n, x))) && strings.Contains(" "+Named(n, l)+" ", " "+nameOf(n, x)+" ")
+		}
+	}
+	ok
+}
+
+// lookOf is a look built from generated declarations: a rest style, a hover overlay that
+// follows the box or its group, and an overlay at a wide viewport. (a law's helper)
+func lookOf(rest []look.Decl, hover []look.Decl, group bool, wide []look.Decl) look.Look {
+	let l = look.Plain(rest)
+	look.Look{..l, Hover: look.Of(hover), From: if group { look.Group } else { look.Own }, Wide: []look.Above{look.Above{Min: 640, Style: look.Of(wide)}}}
+}
+
+// keys is the keys of atoms. (a law's helper)
+func keys(atoms []Atom) Map[string, bool] {
+	let mut out = Map[string, bool]{}
+	for a in atoms {
+		out[key(a)] = true
+	}
+	out
+}
+
+// rulesOf is a sheet without its reset and token block: the rules of its atoms. (a law's
+// helper)
+func rulesOf(sheet string) string {
+	let at = strings.Index(sheet, ":root{")
+	if at < 0 {
+		return sheet
+	}
+	let rest = strings.Slice(sheet, at, len(sheet))
+	let end = strings.Index(rest, "}")
+	strings.Slice(rest, end+1, len(rest))
+}
+
+// SheetCoversEveryLook: every class a look's box prints has its rule in the sheet built from
+// the looks, for generated looks and for every look of the module.
+law SheetCoversEveryLook(a []look.Decl, b []look.Decl, group bool, wide []look.Decl) {
+	let looks = []look.Look{lookOf(a, b, group, wide), lookOf(b, a, !group, wide)}
+	covers(looks) && covers(Looks())
+}
+
+// covers reports whether the sheet of looks has a rule for every atom of every look. (a law's
+// helper)
+func covers(looks []look.Look) bool {
+	let sheet = Sheet(token.Default, looks)
+	for l in looks {
+		for a in Atoms(l) {
+			if !strings.Contains(sheet, Rule(a)) || !strings.Contains(" "+Classes(l)+" ", " "+Class(a)+" ") {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// SheetNamesOnlyTokens: every custom property the sheet's rules read is a token the sheet
+// defines, for the module's looks and generated ones.
+law SheetNamesOnlyTokens(a []look.Decl, b []look.Decl) {
+	namesTokens(Sheet(token.Default, []look.Look{lookOf(a, b, false, b)})) && namesTokens(Sheet(token.Default, Looks()))
+}
+
+// namesTokens reports whether each var(--f-…) of sheet names a property its root block
+// defines. (a law's helper)
+func namesTokens(sheet string) bool {
+	let mut rest = sheet
+	for {
+		let at = strings.Index(rest, "var(--f-")
+		if at < 0 {
+			return true
+		}
+		let from = strings.Slice(rest, at+4, len(rest))
+		let end = strings.Index(from, ")")
+		let name = strings.Slice(from, 0, end)
+		if !strings.Contains(sheet, name+":") {
+			return false
+		}
+		rest = strings.Slice(from, end, len(from))
+	}
+}
+
+// OneAtomPerKey: a box's classes hold at most one atom per condition and property, also for
+// a look laid over another (the merge decides, never the browser's cascade).
+law OneAtomPerKey(a []look.Decl, b []look.Decl, c []look.Decl, group bool) {
+	let l = look.Over(lookOf(a, b, group, c), lookOf(c, a, group, b))
+	let mut seen = Map[string, bool]{}
+	let mut ok = true
+	for x in Atoms(l) {
+		let k = condKey(x.Cond) + "|" + look.Key(x.Decl)
+		ok = ok && seen.Get(k) == None
+		seen[k] = true
+	}
+	ok
+}
+
+// condKey is a condition's identity. (a law's helper)
+func condKey(c Cond) string {
+	match c {
+	case Self as s:
+		"s" + pseudo(s.S)
+	case Of as g:
+		"g" + pseudo(g.S)
+	case Wide as w:
+		"w\(w.Min)"
+	}
+}
+
+// SheetOrderIsRankOrder: the sheet prints its rules in rank order, so a state's rule comes
+// after the rest rule it overrides and a wide viewport's after both.
+law SheetOrderIsRankOrder(a []look.Decl, b []look.Decl, group bool) {
+	let atoms = Union([]look.Look{lookOf(a, b, group, b), lookOf(b, a, !group, a)})
+	let sheet = Sheet(token.Default, []look.Look{lookOf(a, b, group, b), lookOf(b, a, !group, a)})
+	let mut ok = true
+	let mut at = 0
+	for i in 0..len(atoms) {
+		if i > 0 {
+			ok = ok && rank(atoms[i-1].Cond) <= rank(atoms[i].Cond)
+		}
+		let rule = Rule(atoms[i])
+		let found = strings.Index(strings.Slice(sheet, at, len(sheet)), rule)
+		ok = ok && found >= 0
+		if found >= 0 {
+			at = at + found + len(rule)
+		}
+	}
+	ok
+}
+
+// SheetIsOneRulePerDistinctDecl: the sheet of looks has one rule per distinct atom of the
+// looks: as many rules as distinct atoms, each printed once.
+law SheetIsOneRulePerDistinctDecl(a []look.Decl, b []look.Decl, group bool) {
+	let looks = []look.Look{lookOf(a, b, group, b), lookOf(b, a, group, a), lookOf(a, a, group, a)}
+	let mut all = []Atom{}
+	for l in looks {
+		for x in Atoms(l) {
+			all = all.Append(x)
+		}
+	}
+	let rules = rulesOf(Sheet(token.Default, looks))
+	let mut printed = 0
+	for x in Union(looks) {
+		let r = Rule(x)
+		if strings.Contains(rules, r) {
+			printed = printed + len(r)
+		}
+	}
+	len(Union(looks)) == len(keys(all)) && printed == len(rules)
+}
+
+// SheetGrowsSlowerThanDeclarations: with the module's components in package order, doubling
+// the components grows the sheet's rules by less than it grows the declarations a sheet of one
+// class per look would print. Both sides are counted here; nothing is pinned.
+law SheetGrowsSlowerThanDeclarations() {
+	let cs = Components()
+	let n = len(cs) / 2
+	let mut half = []look.Look{}
+	let mut all = []look.Look{}
+	for i in 0..len(cs) {
+		for l in cs[i] {
+			if i < n {
+				half = half.Append(l)
+			}
+			all = all.Append(l)
+		}
+	}
+	let rn = len(Union(half))
+	let r2 = len(Union(all))
+	let dn = declarations(half)
+	let d2 = declarations(all)
+	rn > 0 && dn > 0 && r2*dn < d2*rn
+}
+
+// declarations is how many declarations the looks set across their states and viewports.
+// (a law's helper)
+func declarations(looks []look.Look) int {
+	let mut n = 0
+	for l in looks {
+		n = n + len(Atoms(l))
+	}
+	n
+}
+
+// ThemeChangesNoAtom: a theme changes the token block and no rule: a sheet under another
+// theme has the same rules, and the atoms do not read the theme.
+law ThemeChangesNoAtom(o token.Ref, a []look.Decl, b []look.Decl) {
+	let theme = token.With(token.Default, []token.Override{token.Override{Ref: o, Color: token.Fixed{V: token.Rgba{V: 0x123456ff}}}})
+	let looks = []look.Look{lookOf(a, b, false, a)}
+	rulesOf(Sheet(theme, looks)) == rulesOf(Sheet(token.Default, looks)) && rulesOf(Sheet(theme, Looks())) == rulesOf(Sheet(token.Default, Looks()))
+}
+
+// BuiltSheetIsSheet: the style element a page's head holds is the sheet, byte for byte.
+law BuiltSheetIsSheet(a []look.Decl, b []look.Decl) {
+	let looks = []look.Look{lookOf(a, b, true, b)}
+	html.Render(Style(token.Default, looks)) == "<style>"+Sheet(token.Default, looks)+"</style>"
+}

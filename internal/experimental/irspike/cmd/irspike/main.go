@@ -9,6 +9,7 @@
 //	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
 //	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
 //	irspike genunion SEED                 the union program of SEED (TestIRUnionsMatchSource)
+//	irspike gengeneric SEED               the generic-union program of SEED (TestIRGenericUnionsMatchSource)
 //	irspike gentuple SEED                 the tuple program of SEED (TestIRTuplesMatchSource)
 //	irspike genplace SEED                 the place program of SEED (TestIRPlacesMatchSource)
 //
@@ -60,6 +61,9 @@ func main() {
 				data, _ := json.Marshal(c.Funcs)
 				err = os.WriteFile(os.Args[3], data, 0o644)
 			}
+			if err == nil && len(c.Failed) > 0 {
+				err = fmt.Errorf("%d targets did not lower (listed in the table)", len(c.Failed))
+			}
 		}
 	case "gen":
 		var seed uint64
@@ -76,6 +80,14 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateFail(seed))
+		}
+	case "geninline":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike geninline SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateInline(seed))
 		}
 	case "exitforms":
 		if len(os.Args) != 3 {
@@ -95,6 +107,14 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateUnion(seed))
+		}
+	case "gengeneric":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gengeneric SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateGeneric(seed))
 		}
 	case "genstd":
 		var seed uint64

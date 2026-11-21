@@ -1,0 +1,1029 @@
+import hex
+import maps
+import sha256
+import slices
+import strings
+import sync
+
+// Source is one file of a workspace: its path and its text.
+type Source { File string, Text string }
+
+// Edit replaces the bytes Start..End of File with Text.
+type Edit { File string, Start int, End int, Text string }
+
+// Diagnostic is one finding of a check, with the edits that fix it (none
+// when it has no fix). A fix may be several edits: ergo fix's clause fix
+// inserts its clause, an own mark per parameter, parentheses round a lone
+// function result, and imports at the head of its file.
+type Diagnostic {
+	Code    string,
+	Message string,
+	File    string,
+	Line    int,
+	Column  int,
+	Fix     []Edit,
+}
+
+// Extent is the bytes Start..End of File that the declaration Handle
+// spans, from its first byte to the newline of its last line.
+type Extent { Handle string, File string, Start int, End int }
+
+// Report is what a check of some sources gives: their fact tables, the
+// extent of each declaration, the diagnostics, Code (a digest of the
+// lowered program with positions left out), the Provides edges, and the
+// packages of the workspace (the others, std and dependencies, are read
+// only).
+type Report {
+	Tables      Tables,
+	Extents     []Extent,
+	Diagnostics []Diagnostic,
+	Code        string,
+	Binds       []Bind,
+	Workspace   []string,
+}
+
+// Bind is a Provides edge: the type By provides the operation type Op,
+// so each operation of Op binds to the function of By with its name.
+type Bind { Op string, By string }
+
+// CheckFailed is a check or a format that could not run at all.
+type CheckFailed { Reason string }
+
+// Checker is the seam to the compiler: it checks sources (an overlay of
+// the workspace) and formats a declaration's text. The product provider
+// wraps the Go checker and formatter (SEMTOOLS SEM4b, after README Gap
+// 17); Model is the memory provider the laws run over.
+type Checker {
+	Check(sources []Source) Report fails CheckFailed,
+	Format(text string) string fails CheckFailed,
+
+	// FormatIsIdempotent: formatted text formats to itself.
+	law FormatIsIdempotent(text string) { formatIsIdempotent(text) },
+	// CheckIsDeterministic: equal sources give equal reports.
+	law CheckIsDeterministic(seed int) { checkIsDeterministic(seed) },
+}
+
+func formatIsIdempotent(text string) bool needs Checker {
+	let once = Checker.Format(text) catch {
+	case CheckFailed:
+		return true
+	}
+	let twice = Checker.Format(once) catch {
+	case CheckFailed:
+		return false
+	}
+	once == twice
+}
+
+func checkIsDeterministic(seed int) bool needs Checker {
+	let sources = Sample(seed)
+	let a = Checker.Check(sources) catch {
+	case CheckFailed:
+		return true
+	}
+	let b = Checker.Check(sources) catch {
+	case CheckFailed:
+		return false
+	}
+	a == b
+}
+
+// Change is what a plan computes edits for. An address names a
+// declaration as Reader.Symbol takes it.
+//
+//   - Replace: the whole declaration at Of becomes Text, formatted.
+//   - Insert: Text, formatted, becomes a declaration after the one at
+//     After.
+//   - Delete: the declaration at Of goes; refused while a site outside it
+//     names it.
+//   - Fixes: the fixes of the diagnostics whose code is in Rules (every
+//     code when Rules is empty), applied and checked again until none is
+//     left; fixes that overlap are refused, and so are fixes that come
+//     back to sources an earlier round had, or that run MaxFixRounds
+//     rounds. A fix that only adds (ergo fix's clauses: rows only grow)
+//     ends by itself.
+//   - Script: Steps in order, each on the sources the one before made.
+//   - Rename: the declaration at Of, and every site that names it, takes
+//     the name To (rename.ergo).
+type Change = Replace{Of string, Text string}
+	| Insert{After string, Text string}
+	| Delete{Of string}
+	| Fixes{Rules []string}
+	| Script{Steps []Change}
+	| Rename{Of string, To string}
+
+// MaxFixRounds is the most rounds of checks a Fixes plan takes.
+let MaxFixRounds = 1024
+
+// Proof is what a plan claims about behaviour: Alpha, a rename whose
+// tables equal the first under the name map;
+// SameCode, the lowered program is unchanged; Checked, the result checks
+// and nothing is claimed.
+type Proof = Alpha{} | SameCode{} | Checked{}
+
+// Verdict is Ready with its proof, or Blocked by the diagnostics the
+// change adds.
+type Verdict = Ready{Proof Proof} | Blocked{Diagnostics []Diagnostic}
+
+// FileRead is a file and the revision of its text that a plan read.
+type FileRead { File string, Revision string }
+
+// FileChange is a file a plan changes: the revision it read, the
+// revision it writes, and the text it writes.
+type FileChange { File string, Old string, New string, Text string }
+
+// Planned is a plan: its id, the change it is for, every file it read
+// (each must be at its revision when Apply writes), the files it changes,
+// the patch (a line diff per changed file), the verdict, and the contract
+// impact: each public contract of the workspace the change alters, as
+// `ergo inspect api --diff` gives it, its package path before its name.
+type Planned {
+	ID      string,
+	Change  string,
+	Reads   []FileRead,
+	Files   []FileChange,
+	Patch   string,
+	Verdict Verdict,
+	Impact  []ApiChange,
+}
+
+// BadChange is a change that cannot be planned: an address that names
+// nothing or several declarations, a Delete with references left, edits
+// that overlap, fixes with no fixed point, a check that did not run.
+type BadChange { Reason string }
+
+// NoPlan is an id that names no plan the store holds.
+type NoPlan { ID string }
+
+// Planner computes plans. It writes no source file: a plan is stored by
+// its id, and only Writer.Apply writes one.
+type Planner {
+	Plan(c Change) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture,
+	PlanOf(id string) Planned fails NoPlan,
+
+	// PlanIsDeterministic: the same change at the same revision is the
+	// same plan, or the same refusal.
+	law PlanIsDeterministic(pick int, word int) { planIsDeterministic(pick, word) },
+	// PlanOfIsThePlan: a plan's id gives the plan back.
+	law PlanOfIsThePlan(pick int, word int) { planOfIsThePlan(pick, word) },
+}
+
+func planIsDeterministic(pick int, word int) bool needs Planner {
+	let c = SampleChange(pick, word)
+	attempted(c) == attempted(c)
+}
+
+// attempt is a plan, or the refusal of one as text.
+type attempt = made{Plan Planned} | refused{Reason string}
+
+func attempted(c Change) attempt needs Planner {
+	let p = Planner.Plan(c) catch {
+	case BadChange as x:
+		return refused{Reason: "BadChange " + x.Reason}
+	case NameTaken as x:
+		return refused{Reason: "NameTaken \(x.Handle) \(x.To) \(x.By)"}
+	case OutsideWorkspace as x:
+		return refused{Reason: "OutsideWorkspace " + x.Handle}
+	case Capture as x:
+		return refused{Reason: "Capture \(x.Handle) \(x.To) " + strings.Join(x.Rows, "; ")}
+	}
+	made{Plan: p}
+}
+
+func planOfIsThePlan(pick int, word int) bool needs Planner {
+	let p = Planner.Plan(SampleChange(pick, word)) catch {
+	case _:
+		return true
+	}
+	let back = Planner.PlanOf(p.ID) catch {
+	case NoPlan:
+		return false
+	}
+	back == p
+}
+
+// Store holds the plans of a workspace by id, the latest MaxPlans.
+type Store { plans sync.Ref[[]Planned] }
+
+// MaxPlans is how many plans a store keeps.
+let MaxPlans = 64
+
+// NewStore is an empty store.
+func NewStore() Store { Store{plans: sync.NewRef([]Planned{})} }
+
+func keep(s Store, p Planned) {
+	s.plans.Update(func(ps []Planned) []Planned {
+		let mut out = []Planned{}
+		for q in ps {
+			if q.ID != p.ID {
+				out = out.Append(q)
+			}
+		}
+		out = out.Append(p)
+		if len(out) > MaxPlans { slices.Slice(out, len(out) - MaxPlans, len(out)) } else { out }
+	})
+}
+
+func lookup(s Store, id string) Planned fails NoPlan {
+	for p in s.plans.Get() {
+		if p.ID == id {
+			return p
+		}
+	}
+	NoPlan{ID: id}
+}
+
+// Session is the Planner over a workspace's sources, a Checker and the
+// store its plans go to (the store a Writer reads).
+type Session {
+	sources []Source,
+	checker Checker,
+	store   Store,
+} implements Planner
+
+// Open is the session over sources, checked by checker, storing in store.
+func Open(sources []Source, checker Checker, store Store) Session {
+	Session{sources: sources, checker: checker, store: store}
+}
+
+// NewSession is the session over Sample(seed) and the Model checker.
+func NewSession(seed int) Session { Open(Sample(seed), Model, NewStore()) }
+
+func Plan(s Session, c Change) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture {
+	let p = try planChange(s.sources, c, s.checker)
+	keep(s.store, p)
+	p
+}
+
+func PlanOf(s Session, id string) Planned fails NoPlan { lookup(s.store, id) }
+
+// revision is the revision of a text: the first 16 hex digits of its
+// SHA-256.
+func revision(text string) string { strings.Slice(hex.Encode(sha256.Sum(text)), 0, 16) }
+
+// revisionOf is the revision of a set of sources, names and texts.
+func revisionOf(sources []Source) string {
+	let mut all = ""
+	for s in sources {
+		all = all + s.File + "\n\(len(s.Text))\n" + s.Text
+	}
+	revision(all)
+}
+
+func checkWith(checker Checker, sources []Source) Report fails BadChange {
+	checker.Check(sources) catch {
+	case CheckFailed as f:
+		return BadChange{Reason: "the check did not run: " + f.Reason}
+	}
+}
+
+func formatWith(checker Checker, text string) string fails BadChange {
+	checker.Format(text) catch {
+	case CheckFailed as f:
+		return BadChange{Reason: "the text does not format: " + f.Reason}
+	}
+}
+
+// planChange is a plan of c over sources: the edits, the overlay check,
+// the verdict, the patch and the id. It writes nothing.
+func planChange(sources []Source, c Change, checker Checker) Planned fails BadChange | NameTaken | OutsideWorkspace | Capture {
+	let base = try checkWith(checker, sources)
+	let after = try changed(sources, base, c, checker)
+	let report = try checkWith(checker, after)
+	let mut reads = []FileRead{}
+	let mut files = []FileChange{}
+	let mut patch = ""
+	for i, s in sources {
+		reads = reads.Append(FileRead{File: s.File, Revision: revision(s.Text)})
+		let t = after[i].Text
+		if t != s.Text {
+			files = files.Append(FileChange{File: s.File, Old: revision(s.Text), New: revision(t), Text: t})
+			patch = patch + diff(s.File, s.Text, t)
+		}
+	}
+	let what = describe(c)
+	let mut key = what
+	for r in reads {
+		key = key + "\n" + r.File + " " + r.Revision
+	}
+	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Impact: impactOf(base.Tables, report.Tables, base.Workspace), Verdict: match c {
+	case Rename:
+		renameVerdict(base, report)
+	case _:
+		verdictOf(base, report)
+	}}
+}
+
+// Rewritten is the plan that writes after over before, as a caller that
+// made and checked after itself gives it (ergo fix: its clause, mode and
+// lint passes): what is its change's text; it reads each file of before
+// at its revision, changes each file whose text after differs, and is
+// Ready with the proof Checked and no impact. Before and after name the
+// same files in the same order, else BadChange.
+func Rewritten(what string, before []Source, after []Source) Planned fails BadChange {
+	if len(before) != len(after) {
+		return BadChange{Reason: "a rewrite names \(len(before)) files before and \(len(after)) after"}
+	}
+	let mut reads = []FileRead{}
+	let mut files = []FileChange{}
+	let mut patch = ""
+	let mut key = what
+	for i, s in before {
+		if after[i].File != s.File {
+			return BadChange{Reason: "a rewrite names \(s.File) before and \(after[i].File) after"}
+		}
+		reads = reads.Append(FileRead{File: s.File, Revision: revision(s.Text)})
+		key = key + "\n" + s.File + " " + revision(s.Text)
+		let t = after[i].Text
+		if t != s.Text {
+			files = files.Append(FileChange{File: s.File, Old: revision(s.Text), New: revision(t), Text: t})
+			patch = patch + diff(s.File, s.Text, t)
+		}
+	}
+	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Verdict: Ready{Proof: Checked}, Impact: []ApiChange{}}
+}
+
+// verdictOf: Blocked by each diagnostic the overlay adds (by code and
+// message, counted); else Checked when the base has diagnostics, SameCode
+// when the lowered code is unchanged, Checked otherwise.
+func verdictOf(base Report, after Report) Verdict {
+	let mut left = Map[string, int]{}
+	for d in base.Diagnostics {
+		let k = d.Code + " " + d.Message
+		left[k] = maps.GetOr(left, k, 0) + 1
+	}
+	let mut added = []Diagnostic{}
+	for d in after.Diagnostics {
+		let k = d.Code + " " + d.Message
+		let n = maps.GetOr(left, k, 0)
+		if n > 0 {
+			left[k] = n - 1
+		} else {
+			added = added.Append(d)
+		}
+	}
+	if len(added) > 0 {
+		return Blocked{Diagnostics: added}
+	}
+	if len(base.Diagnostics) > 0 {
+		return Ready{Proof: Checked}
+	}
+	if after.Code == base.Code { Ready{Proof: SameCode} } else { Ready{Proof: Checked} }
+}
+
+// changed is sources after c, with report their check.
+func changed(sources []Source, report Report, c Change, checker Checker) []Source fails BadChange | NameTaken | OutsideWorkspace | Capture {
+	match c {
+	case Replace as r:
+		let e = try extentAt(report, r.Of)
+		let text = try formatWith(checker, r.Text)
+		try edited(sources, []Edit{Edit{File: e.File, Start: e.Start, End: e.End, Text: text}})
+	case Insert as r:
+		let e = try extentAt(report, r.After)
+		let text = try formatWith(checker, r.Text)
+		try edited(sources, []Edit{Edit{File: e.File, Start: e.End, End: e.End, Text: "\n" + text}})
+	case Delete as r:
+		let e = try extentAt(report, r.Of)
+		let mut left = 0
+		for p in report.Tables.Packages {
+			for s in p.Sites {
+				if s.Symbol == e.Handle && s.Kind != "def" && s.In != e.Handle {
+					left = left + 1
+				}
+			}
+		}
+		if left > 0 {
+			return BadChange{Reason: "\(e.Handle) has \(left) references left"}
+		}
+		try edited(sources, []Edit{deletion(sources, e)})
+	case Fixes as f:
+		let mut cur = sources
+		let mut seen = []string{}
+		for round in 0..MaxFixRounds {
+			let r = if round == 0 { report } else { try checkWith(checker, cur) }
+			let at = revisionOf(cur)
+			if has(seen, at) {
+				return BadChange{Reason: "the fixes reach no fixed point: round \(round) gives the sources of an earlier one"}
+			}
+			seen = seen.Append(at)
+			let mut edits = []Edit{}
+			for d in r.Diagnostics {
+				if len(f.Rules) == 0 || has(f.Rules, d.Code) {
+					for e in d.Fix {
+						edits = edits.Append(e)
+					}
+				}
+			}
+			if len(edits) == 0 {
+				return cur
+			}
+			cur = try edited(cur, edits)
+		}
+		BadChange{Reason: "the fixes reach no fixed point in \(MaxFixRounds) rounds"}
+	case Script as s:
+		let mut cur = sources
+		for i, step in s.Steps {
+			let r = if i == 0 { report } else { try checkWith(checker, cur) }
+			cur = try changed(cur, r, step, checker)
+		}
+		cur
+	case Rename as r:
+		try renamed(sources, report, r, checker)
+	}
+}
+
+// deletion is the edit that deletes the declaration at e with one blank
+// line beside it, so a canonical file stays canonical.
+func deletion(sources []Source, e Extent) Edit {
+	let mut text = ""
+	for s in sources {
+		if s.File == e.File {
+			text = s.Text
+		}
+	}
+	if e.End < len(text) && strings.Slice(text, e.End, e.End + 1) == "\n" {
+		return Edit{File: e.File, Start: e.Start, End: e.End + 1, Text: ""}
+	}
+	if e.Start >= 2 && strings.Slice(text, e.Start - 2, e.Start) == "\n\n" {
+		return Edit{File: e.File, Start: e.Start - 1, End: e.End, Text: ""}
+	}
+	Edit{File: e.File, Start: e.Start, End: e.End, Text: ""}
+}
+
+// extentAt is the extent of the declaration at address a in report.
+func extentAt(report Report, a string) Extent fails BadChange {
+	let d = try declOf(report, a)
+	for e in report.Extents {
+		if e.Handle == d.Handle {
+			return e
+		}
+	}
+	BadChange{Reason: "\(d.Handle) has no extent the check gave"}
+}
+
+// edited is sources with edits applied. Edits that are equal are one
+// edit (two fixes that need one import, or one closing parenthesis,
+// make it once). Insertions at one place go in the order of edits. Two
+// other edits of one file that overlap, or an insertion at the start of
+// a replaced range, are refused, never merged.
+func edited(sources []Source, edits []Edit) []Source fails BadChange {
+	let mut out = []Source{}
+	let mut done = 0
+	for s in sources {
+		let mut mine = []Edit{}
+		for e in edits {
+			if e.File == s.File {
+				mine = mine.Append(e)
+			}
+		}
+		done = done + len(mine)
+		if len(mine) == 0 {
+			out = out.Append(s)
+			continue
+		}
+		let mut unique = []Edit{}
+		for e in mine {
+			if !slices.Contains(unique, e) {
+				unique = unique.Append(e)
+			}
+		}
+		let sorted = slices.SortStableFunc(unique, func(a Edit, b Edit) int { a.Start - b.Start })
+		for i in 1..len(sorted) {
+			let a = sorted[i - 1]
+			let b = sorted[i]
+			let inserts = a.Start == a.End && b.Start == b.End
+			if b.Start < a.End || b.Start == a.Start && !inserts {
+				return BadChange{Reason: "edits overlap in \(s.File): \(a.Start)..\(a.End) and \(b.Start)..\(b.End)"}
+			}
+		}
+		let mut text = s.Text
+		let mut k = len(sorted) - 1
+		for k >= 0 {
+			let e = sorted[k]
+			if e.Start < 0 || e.End > len(text) || e.Start > e.End {
+				return BadChange{Reason: "an edit of \(s.File) lies outside it: \(e.Start)..\(e.End)"}
+			}
+			text = strings.Slice(text, 0, e.Start) + e.Text + strings.Slice(text, e.End, len(text))
+			k = k - 1
+		}
+		out = out.Append(Source{File: s.File, Text: text})
+	}
+	if done != len(edits) {
+		return BadChange{Reason: "an edit names a file the workspace does not have"}
+	}
+	out
+}
+
+// diff is the patch of one file: the lines between the common head and
+// the common tail, as one unified hunk.
+func diff(file string, old string, new string) string {
+	let a = strings.Split(old, "\n")
+	let b = strings.Split(new, "\n")
+	let mut head = 0
+	for head < len(a) && head < len(b) && a[head] == b[head] {
+		head = head + 1
+	}
+	let mut tail = 0
+	for tail < len(a) - head && tail < len(b) - head && a[len(a) - 1 - tail] == b[len(b) - 1 - tail] {
+		tail = tail + 1
+	}
+	let mut out = "--- a/\(file)\n+++ b/\(file)\n@@ -\(head + 1),\(len(a) - head - tail) +\(head + 1),\(len(b) - head - tail) @@\n"
+	for i in head..len(a) - tail {
+		out = out + "-" + a[i] + "\n"
+	}
+	for i in head..len(b) - tail {
+		out = out + "+" + b[i] + "\n"
+	}
+	out
+}
+
+// describe is a change as text: the plan id's key and Planned.Change.
+func describe(c Change) string {
+	match c {
+	case Replace as r:
+		"replace \(r.Of) " + quoted(r.Text)
+	case Insert as r:
+		"insert after \(r.After) " + quoted(r.Text)
+	case Delete as r:
+		"delete \(r.Of)"
+	case Fixes as f:
+		"fixes [" + strings.Join(f.Rules, " ") + "]"
+	case Script as s:
+		let mut parts = []string{}
+		for step in s.Steps {
+			parts = parts.Append(describe(step))
+		}
+		"script (" + strings.Join(parts, "; ") + ")"
+	case Rename as r:
+		"rename \(r.Of) to " + quoted(r.To)
+	}
+}
+
+// SampleChange is a change that pick and word draw over Sample's names:
+// a Replace, an Insert, a Delete or a Rename of a handle, Fixes, or a
+// Script of two.
+func SampleChange(pick int, word int) Change {
+	let names = []string{"Run", "Parse", "Token", "Load", "Emit", "Walk"}
+	let words = []string{"Run", "Token", "p1.Load", "keep", "?gone", "!loud"}
+	let name = names[slot(pick / 7, len(names))]
+	let h = "gen/p\(slot(pick / 59, 3)).\(name)"
+	let w = words[slot(word, len(words))]
+	let sig = if slot(word / 6, 3) == 0 { "\tsig s string\n" } else { "" }
+	let body = "func \(name)\n   use \(w)   \n" + sig
+	match slot(pick, 7) {
+	case 0:
+		Replace{Of: h, Text: body}
+	case 1:
+		Insert{After: h, Text: "func Extra\(slot(word, 9))\n\tuse \(w)\n" + sig}
+	case 2:
+		Delete{Of: h}
+	case 3:
+		Fixes{Rules: if slot(word, 2) == 0 { []string{} } else { []string{"M1"} }}
+	case 4:
+		Script{Steps: []Change{Fixes{Rules: []string{"M1"}}, Replace{Of: h, Text: body}}}
+	case 5:
+		Rename{Of: h, To: if slot(word, 2) == 0 { "Fresh\(slot(word, 5))" } else { names[slot(word / 2, len(names))] }}
+	case _:
+		Replace{Of: name, Text: body}
+	}
+}
+
+// quoted is text in double quotes, its backslashes, quotes and newlines
+// escaped, so ParseChange reads it back.
+func quoted(text string) string {
+	"\"" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(text, "\\", "\\\\"), "\"", "\\\""), "\n", "\\n") + "\""
+}
+
+// ParseChange is the change whose text describe gives (Planned.Change),
+// so a command line takes a change as that text:
+//
+//	replace ADDRESS "TEXT"
+//	insert after ADDRESS "TEXT"
+//	delete ADDRESS
+//	fixes [RULE RULE …]
+//	script (CHANGE; CHANGE; …)
+//	rename ADDRESS to "NAME"
+//
+// A quoted text writes a backslash, a quote and a newline as \\, \" and
+// \n.
+func ParseChange(text string) Change fails BadChange {
+	let (c, rest) = try changeAt(text)
+	if rest != "" {
+		return BadChange{Reason: "the change has text after its end: " + quoted(rest)}
+	}
+	c
+}
+
+// changeAt is the change at the start of s and the text after it.
+func changeAt(s string) (Change, string) fails BadChange {
+	if strings.HasPrefix(s, "replace ") {
+		let (of, rest) = try wordAt(strings.TrimPrefix(s, "replace "))
+		let (text, more) = try quotedAt(rest)
+		return (Replace{Of: of, Text: text}, more)
+	}
+	if strings.HasPrefix(s, "insert after ") {
+		let (after, rest) = try wordAt(strings.TrimPrefix(s, "insert after "))
+		let (text, more) = try quotedAt(rest)
+		return (Insert{After: after, Text: text}, more)
+	}
+	if strings.HasPrefix(s, "delete ") {
+		let (of, rest) = try wordAt(strings.TrimPrefix(s, "delete "))
+		return (Delete{Of: of}, rest)
+	}
+	if strings.HasPrefix(s, "rename ") {
+		let (of, rest) = try wordAt(strings.TrimPrefix(s, "rename "))
+		if !strings.HasPrefix(rest, "to ") {
+			return BadChange{Reason: "a rename is written rename ADDRESS to \"NAME\""}
+		}
+		let (to, more) = try quotedAt(strings.TrimPrefix(rest, "to "))
+		return (Rename{Of: of, To: to}, more)
+	}
+	if strings.HasPrefix(s, "fixes [") {
+		let rest = strings.TrimPrefix(s, "fixes [")
+		let end = strings.Index(rest, "]")
+		if end < 0 {
+			return BadChange{Reason: "a fixes list has no ]"}
+		}
+		let inner = strings.Slice(rest, 0, end)
+		let rules = if inner == "" { []string{} } else { strings.Split(inner, " ") }
+		return (Fixes{Rules: rules}, strings.Slice(rest, end + 1, len(rest)))
+	}
+	if strings.HasPrefix(s, "script (") {
+		let mut rest = strings.TrimPrefix(s, "script (")
+		let mut steps = []Change{}
+		if strings.HasPrefix(rest, ")") {
+			return (Script{Steps: steps}, strings.TrimPrefix(rest, ")"))
+		}
+		for {
+			let (step, more) = try changeAt(rest)
+			steps = steps.Append(step)
+			if strings.HasPrefix(more, "; ") {
+				rest = strings.TrimPrefix(more, "; ")
+			} else if strings.HasPrefix(more, ")") {
+				return (Script{Steps: steps}, strings.TrimPrefix(more, ")"))
+			} else {
+				return BadChange{Reason: "a script's steps are separated by ; and end with )"}
+			}
+		}
+	}
+	BadChange{Reason: "a change starts with replace, insert after, delete, fixes, script or rename: " + quoted(s)}
+}
+
+// wordAt is the address at the start of s, which ends at a space, a ;,
+// a ) or the end, and the text after it and its one space.
+func wordAt(s string) (string, string) fails BadChange {
+	let mut i = 0
+	for i < len(s) {
+		let c = strings.Slice(s, i, i + 1)
+		if c == " " || c == ";" || c == ")" {
+			break
+		}
+		i = i + 1
+	}
+	if i == 0 {
+		return BadChange{Reason: "an address is missing"}
+	}
+	let rest = strings.Slice(s, i, len(s))
+	(strings.Slice(s, 0, i), strings.TrimPrefix(rest, " "))
+}
+
+// quotedAt is the quoted text at the start of s, unescaped, and the text
+// after its closing quote.
+func quotedAt(s string) (string, string) fails BadChange {
+	if !strings.HasPrefix(s, "\"") {
+		return BadChange{Reason: "a text is written in double quotes"}
+	}
+	let mut out = ""
+	let mut i = 1
+	for i < len(s) {
+		let c = strings.Slice(s, i, i + 1)
+		if c == "\"" {
+			return (out, strings.Slice(s, i + 1, len(s)))
+		}
+		if c == "\\" && i + 1 < len(s) {
+			let e = strings.Slice(s, i + 1, i + 2)
+			out = out + if e == "n" { "\n" } else { e }
+			i = i + 2
+			continue
+		}
+		out = out + c
+		i = i + 1
+	}
+	BadChange{Reason: "a quoted text has no closing quote"}
+}
+
+// DescribeParsesBack: the text of a change parses back to the change,
+// for a drawn change, a replace of any text, and a script of both.
+law DescribeParsesBack(pick int, word int, text string) { describeParsesBack(pick, word, text) }
+
+func describeParsesBack(pick int, word int, text string) bool {
+	let drawn = SampleChange(pick, word)
+	let mut ok = true
+	for c in []Change{drawn, Replace{Of: "p.F", Text: text}, Script{Steps: []Change{drawn, Insert{After: "p.F", Text: text}}}} {
+		let back = ParseChange(describe(c)) catch {
+		case BadChange:
+			return false
+		}
+		ok = ok && back == c
+	}
+	ok
+}
+
+// StoreOf is a store that holds plans, the latest MaxPlans: the store of
+// a writer that reads plans kept elsewhere (`ergo code apply` reads them
+// from the workspace's plan folder).
+func StoreOf(plans []Planned) Store {
+	let s = NewStore()
+	for p in plans {
+		keep(s, p)
+	}
+	s
+}
+
+// PlanText is a plan as text: its id, its change, its verdict (with the
+// diagnostics that block it), its contract impact, and its patch.
+func PlanText(p Planned) string {
+	let mut b = "plan \(p.ID)\nchange \(p.Change)\n"
+	match p.Verdict {
+	case Ready as r:
+		b = b + "verdict ready, proof " + match r.Proof {
+		case Alpha:
+			"alpha"
+		case SameCode:
+			"same code"
+		case Checked:
+			"checked"
+		} + "\n"
+	case Blocked as x:
+		b = b + "verdict blocked\n"
+		for d in x.Diagnostics {
+			b = b + "  \(d.File):\(d.Line):\(d.Column): \(d.Code) \(d.Message)\n"
+		}
+	}
+	if len(p.Impact) > 0 {
+		b = b + "impact\n" + ApiDiffText(p.Impact)
+	}
+	if len(p.Files) == 0 {
+		b = b + "no file changes\n"
+	}
+	b + p.Patch
+}
+
+// Trial is a plan of a drawn change over Sample(seed), with the store it
+// was kept in; Ok is false when the change was refused.
+type Trial {
+	Ok      bool,
+	Sources []Source,
+	Store   Store,
+	Plan    Planned,
+}
+
+// trialOf plans c over sources with the Model checker.
+func trialOf(sources []Source, c Change) Trial {
+	let store = NewStore()
+	let empty = Planned{ID: "", Change: "", Reads: []FileRead{}, Files: []FileChange{}, Patch: "", Verdict: Ready{Proof: Checked}, Impact: []ApiChange{}}
+	let p = Plan(Open(sources, Model, store), c) catch {
+	case _:
+		return Trial{Ok: false, Sources: sources, Store: store, Plan: empty}
+	}
+	Trial{Ok: true, Sources: sources, Store: store, Plan: p}
+}
+
+// textOf is the text of file in sources, "" when there is none.
+func textOf(sources []Source, file string) string {
+	for s in sources {
+		if s.File == file {
+			return s.Text
+		}
+	}
+	""
+}
+
+// PlanWritesNothing: a plan leaves the sources it read, and a disk that
+// holds them, as they were; its reads are their revisions.
+law PlanWritesNothing(seed int, pick int, word int) { planWritesNothing(seed, pick, word) }
+
+func planWritesNothing(seed int, pick int, word int) bool {
+	let sources = Sample(seed)
+	let disk = DiskOf(sources)
+	let before = Contents(disk)
+	let t = trialOf(sources, SampleChange(pick, word))
+	let mut ok = Contents(disk) == before && revisionOf(t.Sources) == revisionOf(sources)
+	if t.Ok {
+		for i, r in t.Plan.Reads {
+			ok = ok && r.File == sources[i].File && r.Revision == revision(sources[i].Text)
+		}
+	}
+	ok
+}
+
+// OverlapIsRefused: two fixes that overlap (an M2, which rewrites its
+// line, and an M1 on that line) are refused, never merged.
+law OverlapIsRefused(seed int) { overlapIsRefused(seed) }
+
+func overlapIsRefused(seed int) bool {
+	let sources = Sample(seed).Append(Source{File: "gen/p0/z.ergo", Text: "func Zed\n\tshout !a ?b\n"})
+	let t = trialOf(sources, Fixes{Rules: []string{}})
+	!t.Ok
+}
+
+// FixesCycleIsRefused: fixes that give back the sources of an earlier
+// round (a fix that turns "a" into "b" and a fix that turns it back) are
+// refused as soon as the round repeats, not after MaxFixRounds checks.
+law FixesCycleIsRefused(seed int) { fixesCycleIsRefused(seed) }
+
+func fixesCycleIsRefused(seed int) bool {
+	let sources = []Source{Source{File: "gen/p0/a.ergo", Text: "a\(seed)\n"}}
+	let _ = Plan(Open(sources, flip, NewStore()), Fixes{Rules: []string{}}) catch {
+	case BadChange as b:
+		return strings.Contains(b.Reason, "round 2 gives the sources of an earlier one")
+	case _:
+		return false
+	}
+	false
+}
+
+// flip is a Checker whose one fix turns a first file that starts with
+// "a" into "b", and back: fixes with no fixed point (law
+// FixesCycleIsRefused). Its tables are the Model's.
+type flip {} implements Checker
+
+func Check(_ flip, sources []Source) Report fails CheckFailed {
+	let r = try Model.Check(sources)
+	let s = sources[0]
+	let to = if strings.HasPrefix(s.Text, "a") { "b" } else { "a" }
+	let d = Diagnostic{Code: "F1", Message: "flip", File: s.File, Line: 1, Column: 1, Fix: []Edit{Edit{File: s.File, Start: 0, End: 1, Text: to}}}
+	Report{Tables: r.Tables, Extents: r.Extents, Diagnostics: []Diagnostic{d}, Code: r.Code, Binds: r.Binds, Workspace: r.Workspace}
+}
+
+func Format(_ flip, text string) string fails CheckFailed { try Model.Format(text) }
+
+// EqualEditsOnce: of the edits of a round's fixes, equal ones are made
+// once, and insertions at one place go in the order the fixes list them
+// (two clause fixes that need one import; a fails clause before a needs
+// clause at one offset).
+law EqualEditsOnce(text string, at int) { equalEditsOnce(text, at) }
+
+func equalEditsOnce(text string, at int) bool {
+	let k = slot(at, len(text) + 1)
+	let x = Edit{File: "f.ergo", Start: k, End: k, Text: "x"}
+	let y = Edit{File: "f.ergo", Start: k, End: k, Text: "yy"}
+	let out = edited([]Source{Source{File: "f.ergo", Text: text}}, []Edit{x, y, x}) catch {
+	case BadChange:
+		return false
+	}
+	len(out) == 1 && out[0].Text == strings.Slice(text, 0, k) + "xyy" + strings.Slice(text, k, len(text))
+}
+
+// OverlayDiagnosticBlocks: a change whose overlay has a diagnostic the
+// base has not is Blocked by it, and Apply refuses it NotReady.
+law OverlayDiagnosticBlocks(seed int, pick int) { overlayDiagnosticBlocks(seed, pick) }
+
+func overlayDiagnosticBlocks(seed int, pick int) bool {
+	let sources = Sample(seed)
+	let report = Model.Check(sources) catch {
+	case CheckFailed:
+		return false
+	}
+	let e = report.Extents[slot(pick, len(report.Extents))]
+	let name = strings.TrimPrefix(e.Handle, packageOf(e.File) + ".")
+	let t = trialOf(sources, Replace{Of: e.Handle, Text: "func \(name)\n\tuse ?undeclared\(seed)\n"})
+	if !t.Ok {
+		return false
+	}
+	match t.Plan.Verdict {
+	case Ready:
+		false
+	case Blocked as b:
+		let _ = ApplierOf(DiskOf(sources), t.Store).Apply(t.Plan.ID) catch {
+		case NotReady:
+			return len(b.Diagnostics) == 1 && b.Diagnostics[0].Code == "M1"
+		case NoPlan:
+			return false
+		case Stale:
+			return false
+		case Busy:
+			return false
+		case IOFailed:
+			return false
+		}
+		false
+	}
+}
+
+// CanonicalStaysCanonical: a file that was formatted before a plan is
+// formatted after it.
+law CanonicalStaysCanonical(seed int, pick int, word int) { canonicalStaysCanonical(seed, pick, word) }
+
+func canonicalStaysCanonical(seed int, pick int, word int) bool {
+	let sources = formatted(Sample(seed))
+	let t = trialOf(sources, SampleChange(pick, word))
+	let mut ok = true
+	for f in t.Plan.Files {
+		ok = ok && modelFormat(f.Text) == f.Text
+	}
+	ok
+}
+
+// formatted is sources, each formatted.
+func formatted(sources []Source) []Source {
+	let mut out = []Source{}
+	for s in sources {
+		out = out.Append(Source{File: s.File, Text: modelFormat(s.Text)})
+	}
+	out
+}
+
+// UntouchedKeepsBytes: a Replace, Insert or Delete leaves every other
+// declaration's bytes as they were, formatted or not.
+law UntouchedKeepsBytes(seed int, pick int, word int) { untouchedKeepsBytes(seed, pick, word) }
+
+func untouchedKeepsBytes(seed int, pick int, word int) bool {
+	let sources = Sample(seed)
+	let c = SampleChange(pick, word)
+	let target = match c {
+	case Replace as r:
+		r.Of
+	case Delete as d:
+		d.Of
+	case Insert:
+		""
+	case Fixes:
+		return true
+	case Script:
+		return true
+	case Rename:
+		return true
+	}
+	let t = trialOf(sources, c)
+	if !t.Ok {
+		return true
+	}
+	let mut after = sources
+	for f in t.Plan.Files {
+		let mut next = []Source{}
+		for s in after {
+			next = next.Append(if s.File == f.File { Source{File: s.File, Text: f.Text} } else { s })
+		}
+		after = next
+	}
+	let before = Model.Check(sources) catch {
+	case CheckFailed:
+		return false
+	}
+	let now = Model.Check(after) catch {
+	case CheckFailed:
+		return false
+	}
+	let mut texts = Map[string, string]{}
+	for e in now.Extents {
+		texts[e.Handle] = strings.Slice(textOf(after, e.File), e.Start, e.End)
+	}
+	let resolved = with context { Reader: IndexOf(before.Tables) } { Reader.Symbol(target) } catch {
+	case NoSymbol:
+		Decl{Handle: "", Kind: "", Name: "", Package: "", Exported: false, File: "", Line: 0, Column: 0}
+	case Ambiguous:
+		Decl{Handle: "", Kind: "", Name: "", Package: "", Exported: false, File: "", Line: 0, Column: 0}
+	}
+	let mut ok = true
+	for e in before.Extents {
+		if e.Handle != resolved.Handle {
+			ok = ok && texts.Get(e.Handle) == Some[string]{Value: strings.Slice(textOf(sources, e.File), e.Start, e.End)}
+		}
+	}
+	ok
+}
+
+// ReformatIsSameCode: on a workspace that checks, replacing a declaration
+// with its own text, spaced differently, is Ready with SameCode.
+law ReformatIsSameCode(seed int, pick int) { reformatIsSameCode(seed, pick) }
+
+func reformatIsSameCode(seed int, pick int) bool {
+	let sources = Clean(seed)
+	let report = Model.Check(sources) catch {
+	case CheckFailed:
+		return false
+	}
+	if len(report.Diagnostics) > 0 {
+		return false
+	}
+	let e = report.Extents[slot(pick, len(report.Extents))]
+	let own = strings.Slice(textOf(sources, e.File), e.Start, e.End)
+	let t = trialOf(sources, Replace{Of: e.Handle, Text: strings.ReplaceAll(own, "\t", "    ") + "\n\n"})
+	t.Ok && t.Plan.Verdict == Ready{Proof: SameCode}
+}
+
+// Clean is Sample(seed) without the lines that make a diagnostic.
+func Clean(seed int) []Source {
+	let mut out = []Source{}
+	for s in Sample(seed) {
+		let mut kept = []string{}
+		for line in strings.Split(s.Text, "\n") {
+			if !strings.Contains(line, "?") && !strings.Contains(line, "!") && !strings.Contains(line, "Nothing") {
+				kept = kept.Append(line)
+			}
+		}
+		out = out.Append(Source{File: s.File, Text: strings.Join(kept, "\n")})
+	}
+	out
+}

@@ -36,13 +36,21 @@ internal/sketch/lower/checked_lowered_test.go	a needs row, both
 
 # a comma that ends a list element after a one-name row (grammar.md, Declarations rule 9:
 # parameters and type arguments keep their commas)
-internal/sketch/format/rows_test.go	needs ROW, Put()
+internal/hostsyntax/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
+# FUSION's one-loop helpers: two function parameters, each with a one-name row
+docs/spec/stdlib.md	f func(x T) U fails E needs R, keep func(x U) bool
+docs/spec/stdlib.md	keep func(x T) bool fails E needs R, f func(x T) U
+internal/sketch/std/slices/slices.ergo	f func(x T) U fails E needs R, keep func(x U) bool
+internal/sketch/std/slices/slices.ergo	keep func(x T) bool fails E needs R, f func(x T) U
+internal/sketch/eval/licencefuncs_test.go	f func(x T) U fails E needs R, keep func(x U) bool
+internal/sketch/eval/licencefuncs_test.go	keep func(x T) bool fails E needs R, f func(x T) U
 # std ui's view, block and fetch parameters carry the view's row (H8b, stdlib.md UI 19),
 # and the lower mutant ledger quotes them
 internal/sketch/std/ui/boundary.ergo	needs R, at CallSite
 internal/sketch/std/ui/frame.ergo	needs R, at CallSite
-internal/sketch/std/ui/crash.ergo	needs Q, crashes Crashes[E, F]
+internal/sketch/std/ui/look.ergo	needs R, at CallSite
+internal/sketch/std/ui/crash.ergo	needs Q, crashes Crashes[S, E, F]
 internal/sketch/std/ui/frame.ergo	needs R, s S
 internal/sketch/std/ui/input.ergo	needs R, at CallSite
 internal/sketch/std/ui/rows.ergo	needs R, at CallSite
@@ -51,6 +59,9 @@ internal/sketch/std/ui/session.ergo	needs R, post own
 internal/sketch/std/ui/state.ergo	needs R, at CallSite
 internal/sketch/std/ui/testhost.ergo	needs R, clock time.Manual
 internal/sketch/std/ui/zone.ergo	needs R, at CallSite
+internal/sketch/std/ui/presence.ergo	needs R, at CallSite
+internal/sketch/std/ui/focus.ergo	needs R, at CallSite
+internal/sketch/std/ui/layer.ergo	needs R, at CallSite
 internal/sketch/lower/testdata/mutants.json	needs R, s S
 internal/sketch/lower/testdata/mutants.json	needs R, clock time.Manual
 internal/sketch/lower/testdata/mutants.json	needs R, at CallSite
@@ -64,8 +75,8 @@ internal/sketch/std/rpc/rpc.ergo	fails Failed needs R, emit func(line string)
 internal/sketch/std/machines/machines.ergo	run own func() T fails F needs R, onSuccess own func(t T) E needs R, onFailure
 internal/sketch/std/machines/machines.ergo	run func() T fails F needs R, onSuccess func(t T) E needs R)
 internal/sketch/std/actor/actor.ergo	recover func() S fails G needs R, start func(s S) A needs Q)
-internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int
-internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int
+internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int
+internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int
 
 # the old spelling, named where it is refused: grammar.md rule 9, its diagnostics entry,
 # the parser comment on the parameter case, this check's own doc comment and its host
@@ -73,7 +84,7 @@ internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, 
 docs/spec/grammar.md	so `func(func() needs A, B)` takes two parameters
 docs/spec/grammar.md	A parenthesised row, `needs (A, B)` or
 docs/spec/diagnostics.md	(`needs A, B`, `needs (A | B)`; 196n)
-internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
+compiler/syntax/parse_type.ergo	`f func() needs A, B`: the entries
 internal/residue/row_residue_test.go	writes `needs A, B` or
 internal/residue/row_residue_test.go	// `provides A, B` is prose
 internal/residue/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"}

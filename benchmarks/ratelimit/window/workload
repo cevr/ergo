@@ -1,0 +1,8 @@
+# scripts/opcount: `ratelimitbench bench window N` makes N takes of one
+# token from fixed windows of 10 tokens per 10ms, over 64 keys, 10µs apart
+# (ST1); the cost of one take is the slope between the two sizes.
+unit take
+sizes 200000 1200000
+args bench window {n}
+control benchmarks/ratelimit/testdata/control
+floor benchmarks/ratelimit/testdata/floor

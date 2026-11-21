@@ -111,7 +111,7 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	if code != 0 || countIn(t, counter) != 1 {
 		t.Fatalf("second run exit %d, ran %d times; want a replay:\n%s", code, countIn(t, counter), out)
 	}
-	// The replay before the scope prints the identity line, then the record.
+	// The replay before the steps prints the identity line, then the record.
 	file, err := os.Create(filepath.Join(t.TempDir(), "log"))
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestWholeGateRecordsOverAStaleBuild(t *testing.T) {
 
 // TestWholeGateRecordNamesItsTier: the tier is a fact of the whole-gate
 // key. A full-tier record replays for a full-tier run, by the run itself
-// and by the replay before the scope (replayWholeGate, which keys every
+// and by the replay before the steps (replayWholeGate, which keys every
 // host program as main does), and for no run of another tier; each run
 // says its tier. The replay before the scope builds bin/ergo again
 // (replayBuild), so the binary matches the tree after it: mutant
@@ -255,11 +255,11 @@ func TestWholeGateRecordNamesItsTier(t *testing.T) {
 		return replayed, string(log)
 	}
 	if replayed, log := replayAs("fast"); replayed {
-		t.Fatalf("the replay before the scope replayed the full tier's record for the fast tier:\n%s", log)
+		t.Fatalf("the replay before the steps replayed the full tier's record for the fast tier:\n%s", log)
 	}
 	write(t, root, "bin/ergo", "stale\n")
 	if replayed, log := replayAs(fullTier); !replayed || !strings.Contains(log, "gate: tier: full\n") || countIn(t, counter) != 1 {
-		t.Fatalf("the replay before the scope did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
+		t.Fatalf("the replay before the steps did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
 	}
 	if got, err := os.ReadFile(filepath.Join(root, "bin/ergo")); err != nil || string(got) != "fresh\n" {
 		t.Fatalf("after the replay before the scope bin/ergo holds %q (%v), want the build's output", got, err)
@@ -437,6 +437,7 @@ var declaredSources = map[string]string{
 	"enterScope command":                                      "systemd-run, as exec.LookPath resolved it",
 	"execute argv[0]":                                         "a step's program, or the nsenter the sandbox wraps it in: TestHostProgramsDeclared checks every step",
 	"rebuildOutputs step.Argv[0]":                             "the program of a step that writes the gate's outputs (build bin/ergo): TestHostProgramsDeclared checks every step",
+	"writeSweepCosts argv[0]":                                 "a closure sweep step's program, recorded alone: TestHostProgramsDeclared checks every step",
 	"startSandbox hold":                                       "cat, as exec.LookPath resolved it",
 	"startSandbox bwrap":                                      "bwrap, as exec.LookPath resolved it",
 	"TestSandboxPlanOfThisHost argv[0]":                       "a probe script wrapped by the sandbox: its nsenter",
@@ -444,6 +445,7 @@ var declaredSources = map[string]string{
 	"TestMergeTierSandboxRegression step.Argv[0]":             "a regression row's step launched outside the gate as a witness",
 	"TestBudgetRecordDurationsScope binary":                   "the gate built by the test from this package",
 	"testBinaryPackages goCommand":                            "the real go of TestMain (realTools)",
+	"TestErgoCompilesOnEveryPlatform goCommand":               "the real go of TestMain (realTools)",
 	"TestGroupProcessZombieLeaderOfRealPS python":             "python3, as exec.LookPath resolved it",
 	"TestMain tool":                                           "go or git, to find the real tools",
 	"probe realTools[\"go\"]":                                 "the real go of TestMain (realTools)",
@@ -454,6 +456,8 @@ var declaredSources = map[string]string{
 	"TestSandboxArgvBindsAdmittedRoots argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"TestSandboxModuleZipIsConstructed argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"moduleHost goTool":                                       "the real go of TestMain (realTools)",
+	"moduleGo moduleGoCommand":                                "go on PATH (the host program go), or in a test the real go of TestMain (realTools)",
+	"TestStepsBuildWithTheModuleGo value":                     "the go first on a step's PATH, which the test checks is go.mod's release",
 	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
 	"TestGateStopsItsStepsOnSignal argv[0]":                   "this test binary, run as the helper gate under the RSS watch (TestGateStopHelper)",
 	"runOracleHelper os.Args[0]":                              "this test binary, re-run as a step of the output-oracle helper gate (TestBudgetScopeHelper)",

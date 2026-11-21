@@ -1,0 +1,6 @@
+type new item	jam
+tap add
+type new item	tea
+tap add
+tap jam
+tap open

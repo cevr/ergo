@@ -145,7 +145,7 @@ func TestQueuePollRuns(t *testing.T) {
 		t.FailNow()
 	}
 	got := progs["queuepoll"].mainGo()
-	if !regexp.MustCompile(`if (v\w*), (ok\w*) := \(?\w+\)?\.Poll\(\); ok\w* \{\n.*return (?:\(Option\[int\]\{\}\)\.of0\()?Some\[int\]\{Value: v\w*\}\)?\n.*\}\n.*return (?:\(Option\[int\]\{\}\)\.of1\()?None\{\}\)?\n`).MatchString(got) {
+	if !regexp.MustCompile(`if (v\w*), (ok\w*) := \(?\w+\)?\.Poll\(\); ok\w* \{\n.*return (?:\(Option\[int\]\{\}\)\.of0\()?Some\[int\]\{Value: v\w*\}\)?\n.*\}\n.*return (?:\(Option\[int\]\{\}\)\.of1\(None\{\}\)|\(Option\[int\]\{tag: 1\}\)|None\{\})\n`).MatchString(got) {
 		t.Errorf("no comma-ok call of the Go Poll in the emitted Go:\n%s", got)
 	}
 	if !strings.Contains(got, ".Len()") {

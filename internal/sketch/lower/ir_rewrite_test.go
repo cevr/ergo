@@ -12,7 +12,11 @@ import (
 // Go is built). The law DecEnc is `Dec(Enc(s)) == s`; F's body is the
 // site, H's site has an operand that is a call (Read), G's site is inside
 // AsWritten; PickDrops's right side drops its operand b, so P's Read is
-// still evaluated, once, though no side reads it.
+// still evaluated, once, though no side reads it. Pick and Id read their
+// operand (a[:len(a)]): a call that only moves its operands is computed
+// at build time by CF2's template (ir_template.go), which runs before the
+// rewrite pass, so P and M would hold no site (the red of 0b9985881's
+// merge; M's IdId then hid lf6p-right-side-not-walked).
 //
 //   - Run build, the laws validated by a named run: F and H call no Enc;
 //     H calls Read once; P calls no Pick and Read once. G calls Enc, and
@@ -58,7 +62,7 @@ func K(t string) string { Keep(Dec(Enc(t))) }
 
 func H(t string) string { Dec(Enc(Read(t))) }
 
-func Pick(a string, b string) string { a }
+func Pick(a string, b string) string { a[:len(a)] }
 
 law PickDrops(a string, b string) { Pick(Enc(a), b) } == { Enc(a) }
 
@@ -78,7 +82,7 @@ law HalfDbl(x float64) { Half(Dbl(x)) } == { x }
 
 func R(x float64) float64 { Half(Dbl(x)) }
 
-func Id(s string) string { s }
+func Id(s string) string { s[:len(s)] }
 
 law IdId(s string) { Id(Id(Id(s))) } == { Dec(Enc(s)) }
 
@@ -103,7 +107,7 @@ func Loop(t string) int {
 }
 
 func St(t string) int {
-	Dec(Enc(t))
+	let _ = Dec(Enc(t))
 	1
 }
 
@@ -214,7 +218,10 @@ func main() {
 	// A call in statement position is no site (LF6w): the IR reader takes
 	// only a call as an expression statement (toolchain/ir, "an
 	// expression statement is a call"), and St's right side is the local t.
-	if count(on["St"], "Enc") != 1 || count(on["St"], "Dec") != 1 {
+	// Dec's value is dropped, so IR-DROP may call its variant with no
+	// result, DecDropped (ir_forms_drop.go): still Dec as written. (I-FLIP:
+	// LF6w x IR-DROP.)
+	if count(on["St"], "Enc") != 1 || count(on["St"], "Dec")+count(on["St"], "DecDropped") != 1 {
 		t.Errorf("run build: St calls %v; want Dec(Enc(t)) as written: a statement's call is no site", on["St"])
 	}
 	saved := rewriteLowering

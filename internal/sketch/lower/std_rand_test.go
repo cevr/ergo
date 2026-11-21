@@ -169,6 +169,11 @@ test RandSeedReplays(seed uint64, n int) {
 	assert a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64()
 }
 
+test RandSeededSecureReplays(seed uint64, n int) {
+	let k = (n%64 + 64) % 64
+	assert rand.NewSeededSecure(seed).Bytes(k) == rand.NewSeededSecure(seed).Bytes(k)
+}
+
 test RandPermPermutes(seed uint64) {
 	for size in 0..201 {
 		let p = with context { Random: rand.Seeded(seed) } { rand.Perm(size) }
@@ -195,9 +200,10 @@ test RandShufflePermutes(seed uint64, xs []int) {
 // the law's source text as the ledger writes it, by ledger key;
 // lawledger.Run holds it equal to the ledger (fu-ledger-runner).
 var stdRandLawStatements = map[string]string{
-	"rand PermPermutes":    `PermPermutes(seed uint64, n int) { let size = within(n, 0, 200) let p = with context { Random: Seeded(seed) } { Perm(size) } isPermutation(p, size) }`,
-	"rand SeedReplays":     `SeedReplays(seed uint64, n int) { let a = Seeded(seed) let b = Seeded(seed) let k = within(n, 1, 1000000) a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64() }`,
-	"rand ShufflePermutes": `ShufflePermutes(seed uint64, xs []int) { let mut kept = []int{} for x in xs { kept = kept.Append(x) } let before = tally(xs) let s = with context { Random: Seeded(seed) } { Shuffle(xs) } let after = tally(s) let mut same = len(s) == len(xs) && len(after) == len(before) for i, x in xs { same = same && after.Get(x) == before.Get(x) && kept[i] == x } same }`,
+	"rand PermPermutes":        `PermPermutes(seed uint64, n int) { let size = within(n, 0, 200) let p = with context { Random: Seeded(seed) } { Perm(size) } isPermutation(p, size) }`,
+	"rand SeedReplays":         `SeedReplays(seed uint64, n int) { let a = Seeded(seed) let b = Seeded(seed) let k = within(n, 1, 1000000) a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64() }`,
+	"rand SeededSecureReplays": `SeededSecureReplays(seed uint64, n int) { let k = (n%64 + 64) % 64 NewSeededSecure(seed).Bytes(k) == NewSeededSecure(seed).Bytes(k) }`,
+	"rand ShufflePermutes":     `ShufflePermutes(seed uint64, xs []int) { let mut kept = []int{} for x in xs { kept = kept.Append(x) } let before = tally(xs) let s = with context { Random: Seeded(seed) } { Shuffle(xs) } let after = tally(s) let mut same = len(s) == len(xs) && len(after) == len(before) for i, x in xs { same = same && after.Get(x) == before.Get(x) && kept[i] == x } same }`,
 }
 
 // TestStdRandLawsRun runs the rand probe's tests with --seed 1;

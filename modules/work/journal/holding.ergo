@@ -1,0 +1,59 @@
+import filepath
+import fs
+import fstest
+import strings
+import github.com/cevr/ergo/modules/work/work
+
+// BaseHolding is the base whose registry holds a live workspace at the
+// folder dir, of the bases init registered (work.BasesFile in data), or
+// "" when none does: inside an adopted copy, which has a Git folder of
+// its own and lies anywhere, the base is the one that adopted it, not
+// the copy. A base or a registry that does not read is passed over.
+func BaseHolding(files fs.Files, data string, dir string) string {
+	let text = files.ReadFile(work.BasesFile(data)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ""
+	}
+	let folder = filepath.Clean(dir)
+	for base in strings.Split(text, "\n") {
+		if base == "" || filepath.Clean(base) == folder {
+			continue
+		}
+		let journal = files.ReadFile(work.RegistryFile(work.Home(base, work.StorageOf(files, base)))) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		let records = Replay(journal) catch {
+		case work.Unkept:
+			continue
+		}
+		for w in records {
+			match w.State {
+			case work.Trashed:
+			case work.Creating, work.Active, work.Landing, work.Landed, work.Abandoned:
+				if filepath.Clean(w.Path) == folder {
+					return base
+				}
+			}
+		}
+	}
+	""
+}
+
+// AnAdoptedCopyFindsItsBase: the smallest repro of work, run in an
+// adopted copy with no WORK_BASE, taking the copy for its base (G6): the
+// registry of the base that adopted it names it, and a trashed record or
+// another base's does not.
+test AnAdoptedCopyFindsItsBase {
+	let disk = fstest.NewMemory()
+	let copy = work.Workspace{Name: "top", Id: "1", Path: "/rifts/top", Parent: "/r/base", Branch: "top", Cloner: "adopted", State: work.Active, Since: 1, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+	try disk.MkdirAll("/d")
+	try disk.MkdirAll("/r/.work/base")
+	try disk.MkdirAll("/r/.work/other")
+	try disk.WriteFile("/d/bases", "/r/other\n/r/base\n")
+	try disk.WriteFile("/r/.work/other/.registry", PutLine(work.Workspace{..copy, Path: "/rifts/gone", State: work.Trashed}))
+	try disk.WriteFile("/r/.work/base/.registry", PutLine(copy))
+	assert BaseHolding(disk, "/d", "/rifts/top/") == "/r/base"
+	assert BaseHolding(disk, "/d", "/rifts/gone") == ""
+	assert BaseHolding(disk, "/d", "/r/base") == ""
+}

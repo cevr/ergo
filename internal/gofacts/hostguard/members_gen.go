@@ -3,12 +3,17 @@
 package hostguard
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"hash/crc32"
 	"math"
 	"math/bits"
+	"net/netip"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,10 +25,22 @@ import (
 
 // members are the guarded members of v1.PureImports (pure.go).
 var members = map[string]any{
+	"crypto/hmac.Equal":                   hmac.Equal,
+	"crypto/hmac.New":                     hmac.New,
+	"crypto/sha1.New":                     sha1.New,
+	"crypto/sha1.Sum":                     sha1.Sum,
 	"crypto/sha256.New":                   sha256.New,
 	"crypto/sha256.New224":                sha256.New224,
 	"crypto/sha256.Sum224":                sha256.Sum224,
 	"crypto/sha256.Sum256":                sha256.Sum256,
+	"crypto/sha512.New":                   sha512.New,
+	"crypto/sha512.New384":                sha512.New384,
+	"crypto/sha512.New512_224":            sha512.New512_224,
+	"crypto/sha512.New512_256":            sha512.New512_256,
+	"crypto/sha512.Sum384":                sha512.Sum384,
+	"crypto/sha512.Sum512":                sha512.Sum512,
+	"crypto/sha512.Sum512_224":            sha512.Sum512_224,
+	"crypto/sha512.Sum512_256":            sha512.Sum512_256,
 	"encoding/base64.NewDecoder":          base64.NewDecoder,
 	"encoding/base64.NewEncoder":          base64.NewEncoder,
 	"encoding/base64.NewEncoding":         base64.NewEncoding,
@@ -161,6 +178,32 @@ var members = map[string]any{
 	"math/bits.TrailingZeros32":           bits.TrailingZeros32,
 	"math/bits.TrailingZeros64":           bits.TrailingZeros64,
 	"math/bits.TrailingZeros8":            bits.TrailingZeros8,
+	"net/netip.AddrFrom16":                netip.AddrFrom16,
+	"net/netip.AddrFrom4":                 netip.AddrFrom4,
+	"net/netip.AddrFromSlice":             netip.AddrFromSlice,
+	"net/netip.AddrPortFrom":              netip.AddrPortFrom,
+	"net/netip.IPv4Unspecified":           netip.IPv4Unspecified,
+	"net/netip.IPv6LinkLocalAllNodes":     netip.IPv6LinkLocalAllNodes,
+	"net/netip.IPv6LinkLocalAllRouters":   netip.IPv6LinkLocalAllRouters,
+	"net/netip.IPv6Loopback":              netip.IPv6Loopback,
+	"net/netip.IPv6Unspecified":           netip.IPv6Unspecified,
+	"net/netip.MustParseAddr":             netip.MustParseAddr,
+	"net/netip.MustParseAddrPort":         netip.MustParseAddrPort,
+	"net/netip.MustParsePrefix":           netip.MustParsePrefix,
+	"net/netip.ParseAddr":                 netip.ParseAddr,
+	"net/netip.ParseAddrPort":             netip.ParseAddrPort,
+	"net/netip.ParsePrefix":               netip.ParsePrefix,
+	"net/netip.PrefixFrom":                netip.PrefixFrom,
+	"net/url.JoinPath":                    url.JoinPath,
+	"net/url.Parse":                       url.Parse,
+	"net/url.ParseQuery":                  url.ParseQuery,
+	"net/url.ParseRequestURI":             url.ParseRequestURI,
+	"net/url.PathEscape":                  url.PathEscape,
+	"net/url.PathUnescape":                url.PathUnescape,
+	"net/url.QueryEscape":                 url.QueryEscape,
+	"net/url.QueryUnescape":               url.QueryUnescape,
+	"net/url.User":                        url.User,
+	"net/url.UserPassword":                url.UserPassword,
 	"path/filepath.Base":                  filepath.Base,
 	"path/filepath.Clean":                 filepath.Clean,
 	"path/filepath.Dir":                   filepath.Dir,

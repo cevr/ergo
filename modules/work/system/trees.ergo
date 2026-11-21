@@ -1,0 +1,221 @@
+// Package system holds what every host Cloner shares: the tree
+// operations by the system's own commands (test, mkdir, mv, rm, du, btrfs
+// filesystem du), run through std exec, so no Go is written and a test
+// replays the commands with exec.Script. Each Cloner (btrfs, reflink,
+// clonefile, copy) adds its clone call.
+
+import exec
+import filepath
+import github.com/cevr/ergo/modules/work/work
+import strconv
+import strings
+
+// Trees runs the tree commands through a Runner.
+type Trees { run exec.Runner }
+
+// New is the Trees of a Runner.
+func New(run exec.Runner) Trees { Trees{run: run} }
+
+// Run runs name with args and is its result; a command that could not
+// start is CloneFailed, named by who.
+func Run(t Trees, who string, name string, args []string) exec.Result fails work.CloneFailed {
+	t.run.Run(exec.New(name, args)) catch {
+	case exec.NotFound:
+		return work.CloneFailed{Cloner: who, Reason: "\(name) is not on PATH"}
+	case exec.Denied:
+		return work.CloneFailed{Cloner: who, Reason: "\(name) may not run"}
+	case exec.Failed as f:
+		return work.CloneFailed{Cloner: who, Reason: "\(name): \(f.Reason)"}
+	}
+}
+
+// Has reports whether a folder, or a file (a leave_out entry, Rift's
+// marker .rift), is at root.
+func Has(t Trees, root string) bool { at(t, "-e", root) }
+
+// folder reports whether a folder is at root.
+func folder(t Trees, root string) bool { at(t, "-d", root) }
+
+func at(t Trees, flag string, root string) bool {
+	let r = Run(t, "system", "test", []string{flag, root}) catch {
+	case work.CloneFailed:
+		return false
+	}
+	r.Status == 0
+}
+
+// Prepare checks a clone's source and target and makes the target's
+// parent folder: from must be a folder, to must be free.
+func Prepare(t Trees, who string, from string, to string) fails work.Exists | work.Missing | work.CloneFailed {
+	if !folder(t, from) {
+		return work.Missing{Path: from}
+	}
+	let r = try Run(t, who, "test", []string{"-e", to})
+	if r.Status == 0 {
+		return work.Exists{Path: to}
+	}
+	try MakeParent(t, who, to)
+}
+
+// MakeParent makes the folder that holds path.
+func MakeParent(t Trees, who string, path string) fails work.CloneFailed {
+	let r = try Run(t, who, "mkdir", []string{"-p", filepath.Dir(path)})
+	if r.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+}
+
+// Failure fails with the clone failure of a command's standard error: a link
+// across file systems is NotSameVolume, a full file system NoSpace, an
+// existing target Exists, and an unsupported call Unsupported when the
+// error says so in one of unsupported's phrases; else CloneFailed.
+func Failure(who string, from string, to string, stderr string, unsupported []string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.CloneFailed {
+	let text = strings.TrimSpace(stderr)
+	let lower = strings.ToLower(text)
+	if strings.Contains(lower, "cross-device") {
+		return work.NotSameVolume{From: from, To: to}
+	}
+	if strings.Contains(lower, "no space left") {
+		return work.NoSpace{Path: to}
+	}
+	for phrase in unsupported {
+		if strings.Contains(lower, phrase) {
+			return work.Unsupported{Cloner: who, Why: FirstLine(text)}
+		}
+	}
+	if strings.Contains(lower, "file exists") {
+		return work.Exists{Path: to}
+	}
+	return work.CloneFailed{Cloner: who, Reason: text}
+}
+
+// FirstLine is the first line of a command's error and how many lines
+// follow it: cp names every file it could not clone, one a line, so the
+// whole text of a tree's refusal is as long as the tree (the verifier's
+// B5).
+func FirstLine(text string) string {
+	let lines = strings.Split(text, "\n")
+	if len(lines) <= 1 {
+		return text
+	}
+	"\(lines[0]) (and \(len(lines) - 1) more lines)"
+}
+
+// UnsupportedSaysOneLine: a refusal cp gave for each of three files is
+// one line and a count (B5's repro).
+test UnsupportedSaysOneLine {
+	let mut e = ""
+	Failure("reflink", "/a", "/b", "cp: failed to clone '/b/x': Operation not supported\ncp: failed to clone '/b/y': Operation not supported\ncp: failed to clone '/b/z': Operation not supported\n", []string{"not supported"}) catch {
+	case work.Unsupported as u:
+		e = u.Why
+	case _:
+	}
+	assert e == "cp: failed to clone '/b/x': Operation not supported (and 2 more lines)"
+}
+
+// FileSystemOf is the type of the file system the folder dir is on, ""
+// when it cannot tell (FileSystemScript).
+func FileSystemOf(t Trees, dir string) string {
+	let r = t.run.Run(exec.New("sh", []string{"-c", FileSystemScript, "work-fs", dir})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return ""
+	}
+	if r.Status != 0 { "" } else { strings.TrimSpace(r.Stdout) }
+}
+
+// Leave deletes what a failed clone left at to, so a failure leaves
+// nothing.
+func Leave(t Trees, to string) {
+	let _ = Run(t, "system", "rm", []string{"-rf", "--", to}) catch {
+	case work.CloneFailed:
+		exec.Result{Status: 1, Stdout: "", Stderr: ""}
+	}
+}
+
+// Move renames from to to, making to's parent folder.
+func Move(t Trees, who string, from string, to string) fails work.Exists | work.Missing | work.CloneFailed {
+	if !Has(t, from) {
+		return work.Missing{Path: from}
+	}
+	if from == to {
+		return
+	}
+	let r = try Run(t, who, "test", []string{"-e", to})
+	if r.Status == 0 {
+		return work.Exists{Path: to}
+	}
+	try MakeParent(t, who, to)
+	let moved = try Run(t, who, "mv", []string{"--", from, to})
+	if moved.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(moved.Stderr)}
+	}
+}
+
+// Discard deletes the tree at root (a btrfs subvolume too: its owner may
+// remove it as a folder).
+func Discard(t Trees, who string, root string) fails work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = try Run(t, who, "rm", []string{"-rf", "--", root})
+	if r.Status != 0 || Has(t, root) {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+}
+
+// SharedUsage is the usage of root by btrfs filesystem du: its total, the
+// bytes no other tree references, and the rest shared.
+func SharedUsage(t Trees, who string, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = Run(t, who, "btrfs", []string{"filesystem", "du", "-s", "--raw", root}) catch {
+	case work.CloneFailed as f:
+		return work.Unsupported{Cloner: who, Why: f.Reason}
+	}
+	if r.Status != 0 {
+		return work.Unsupported{Cloner: who, Why: strings.TrimSpace(r.Stderr)}
+	}
+	try ParseBtrfsDu(who, r.Stdout)
+}
+
+// ParseBtrfsDu reads the table of `btrfs filesystem du -s --raw`: a head
+// line, then Total, Exclusive, Set shared and the file name.
+func ParseBtrfsDu(who string, out string) work.Usage fails work.CloneFailed {
+	let lines = strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		return work.CloneFailed{Cloner: who, Reason: "btrfs filesystem du printed no usage"}
+	}
+	let fields = strings.Fields(lines[1])
+	if len(fields) < 3 {
+		return work.CloneFailed{Cloner: who, Reason: "btrfs filesystem du: \(lines[1])"}
+	}
+	let total = try count(who, fields[0])
+	let exclusive = try count(who, fields[1])
+	work.Usage{Total: total, Exclusive: exclusive, Shared: total - exclusive}
+}
+
+// CopyUsage is the usage of a tree that shares nothing: du's total, all
+// of it exclusive.
+func CopyUsage(t Trees, who string, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = try Run(t, who, "du", []string{"-sk", root})
+	if r.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+	let fields = strings.Fields(r.Stdout)
+	if len(fields) == 0 {
+		return work.CloneFailed{Cloner: who, Reason: "du printed no usage"}
+	}
+	let bytes = try count(who, fields[0]) * 1024
+	work.Usage{Total: bytes, Exclusive: bytes, Shared: 0}
+}
+
+func count(who string, text string) int fails work.CloneFailed {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return work.CloneFailed{Cloner: who, Reason: "\(text) is not a byte count"}
+	}
+}

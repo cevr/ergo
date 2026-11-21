@@ -349,17 +349,34 @@ func selectionVerdicts(t *testing.T, root string, env []string, dir string, name
 
 // The fast tier narrows a selection package's tests by the selector: a
 // skipped test joins the names its shards skip, another package keeps its
-// steps, and the step carries the selector's note.
+// steps, and the step carries the selector's note. A package whose every
+// fast test the selector skips has no step, and a line says so (GS24; it
+// catches gs24-drop-never and gs24-drop-unsaid).
 func TestFastTierSkipsWhatTheSelectorSkips(t *testing.T) {
 	root := checkoutRoot(t)
 	skipped := "TestNoSuchTestTheSelectorSkips"
-	steps, err := fastStepsSelected(root, func(p testPackage, env, names []string) selection {
+	none := "internal/gobind"
+	steps, dropped, err := fastStepsSelected(root, "", func(p testPackage, env, names []string) selection {
+		if p.dir == none {
+			return selection{skip: names, note: "selected none of " + p.dir}
+		}
 		return selection{skip: []string{skipped}, note: "selected for " + p.dir}
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(dropped) != 1 || !strings.HasPrefix(dropped[0], "go test ./"+none+" (fast): selected none of "+none+"; no step") {
+		t.Errorf("dropped %q; want the one line of %s", dropped, none)
+	}
+	for _, step := range steps {
+		if strings.HasPrefix(step.Name, "go test ./"+none+" ") {
+			t.Errorf("%s: a step, though the selector skipped every test", step.Name)
+		}
+	}
 	for _, dir := range selectPackages {
+		if dir == none {
+			continue
+		}
 		var shards []*Step
 		for _, step := range steps {
 			if strings.HasPrefix(step.Name, "go test ./"+dir+" ") {

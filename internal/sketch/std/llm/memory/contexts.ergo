@@ -1,0 +1,57 @@
+// The contexts llm.Model's laws run under for llm's policy providers.
+// llm.Fallback, llm.Metered and llm.Retry hold their inner Model as a
+// field, and the only builder of a Model in package llm is NewMetered, over
+// a Model, so a law run there has no base case to draw. Retry also holds a
+// Schedule, whose variants no generator builds. Each context here binds a
+// policy over a script whose replies reach every branch: text and a whole
+// call, a reply that fails after its first delta, a failed ask and a reply
+// cut short. llm.Model's member laws (StreamFoldsToGenerate,
+// StreamReturnsItsFold, TruncatedIsNotATurn, CallsAreWhole) run under each,
+// at check time and in this package's test build (types.md, Laws 10).
+
+import llm
+import schedule
+import testing
+
+// lawScript is the script each context plays: the n-th ask of a
+// conversation gets reply n, and an ask past the last reply fails
+// InvalidResponse.
+func lawScript() Scripted {
+	let broke llm.Failure = llm.Transport{Reason: "reset"}
+	let busy llm.Failure = llm.Overloaded
+	NewScripted([]string{"the ", "answer"}, []string{"find"}, false, []Reply{Breaks{Deltas: []llm.Delta{llm.Text{Text: "par"}}, Failure: broke}, Fails{Failure: busy}, Cuts{Deltas: []llm.Delta{llm.Text{Text: "cut"}}}})
+}
+
+// lawRetry is Retry over the script, on one virtual clock for its time and
+// its sleeps, by a schedule that is timed and ends: at most three asks
+// again, each a second after the last, within two and a half seconds.
+func lawRetry() llm.Retry {
+	let c = testing.NewVirtualClock(0)
+	llm.Retry{Inner: lawScript(), Schedule: schedule.And(schedule.Recurs(3), schedule.UpTo(schedule.Spaced(1s), 2500ms)), Clock: c, Sleep: c}
+}
+
+// lawFallback is Fallback whose first member fails every ask, so each ask
+// falls to the script.
+func lawFallback() llm.Fallback {
+	let down llm.Failure = llm.Overloaded
+	llm.Fallback{Members: []llm.Model{Scripted{Replies: []Reply{}}, Scripted{Replies: []Reply{Fails{Failure: down}}}, lawScript()}}
+}
+
+// lawHeld is a Held over the script's first reply, open, so its member
+// laws run with no release (a closed one would wait for a test that
+// releases it: ReleasedArriveInOrder is that test).
+func lawHeld() Held {
+	let h = Hold(lawScript().Replies[0])
+	h.Open()
+	h
+}
+
+let lawHeldOpen = context { llm.Model: lawHeld() }
+
+let lawRetried = context { llm.Model: lawRetry() }
+
+let lawFallenBack = context { llm.Model: lawFallback() }
+
+let lawMetered = context { llm.Model: llm.NewMetered(lawScript()) }
+
+let lawStacked = context { llm.Model: llm.NewMetered(llm.Retry{Inner: lawFallback(), Schedule: schedule.Recurs(1), Clock: testing.NewVirtualClock(0), Sleep: testing.NewVirtualClock(0)}) }

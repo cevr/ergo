@@ -11,14 +11,14 @@ runtime/v1/actor.go	Actor.open	handshake: the runner waits until the entry's wor
 runtime/v1/actor.go	Actor.openFirst	handshake: the runner waits until the first entry's work filled its recovered hosts, reached its first wait (rt.WhenWaiting) or ended, as Actor.open does
 runtime/v1/gocall.go	Call	handshake: a Go caller's Call waits for the cancel watcher it started (context.AfterFunc), which only interrupts the task and returns; Call runs on a Go goroutine, not a task
 runtime/v1/actor.go	Actor.arm	handshake: the runner waits until the timer child armed its sleep (rt.WhenWaiting) or ended
+runtime/v1/net/net.go	deadline.set	handshake: a deadline's timer fired, and its function only closes cancel, which the wait receives
+runtime/v1/net/net.go	waitOn	follow-up NET-PARK: a task's wait on an in-memory pipe (nettest.Pipe) does not park yet, so a manual clock's Advance waits for it; the pipe's write and close are to wake it (rt.Wake)
 
 # a send that never waits
-runtime/v1/actor.go	replySlot.give	no wait: the reply channel has room for its one answer; the asker is unparked first
-runtime/v1/mailbox.go	mailSender.signal	no wait: wake has room for its one token; the sender is unparked first
 runtime/v1/http/http.go	httpServer.timeouts	no task: a connection's timer goroutine waits for its next phase outside every task; only its sleeps are tasks, and they sleep on the Scheduler
 runtime/v1/http/http_client.go	httpDoVia	no wait: got has room for the exchange's one result; the receive is host: the response of a host exchange, or of a local one, whose in-memory server goroutines answer with no clock
 runtime/v1/http/http_local.go	httpLocal.answer	no wait: out has room for the handler's one answer
-runtime/v1/http/http.go	HTTPServe	no wait: served has room for Serve's one result
+runtime/v1/http/http.go	httpServe	no wait: served has room for Serve's one result
 runtime/v1/rpc/rpc.go	RPCCall	no wait: got has room for the post's one result
 
 # a goroutine of no task: no clock's domain holds it (batch 16d: the host
@@ -26,30 +26,38 @@ runtime/v1/rpc/rpc.go	RPCCall	no wait: got has room for the post's one result
 runtime/v1/exec/exec_spawn.go	ExecSpawn	no task: the reaper goroutine of a detached program waits for its exit
 runtime/v1/exec/exec_start.go	newRunning	no task: the goroutine that closes chunks once the pipe readers end
 runtime/v1/exec/exec_start.go	Running.send	no task: a pipe reader goroutine hands a chunk to the reading task, or drops it once finish begins
-runtime/v1/exec/exec_start.go	hostProc.reap	no task: the reaper goroutine waits for the process's exit
 runtime/v1/exec/exec_start.go	ExecReplay	no task: the replay goroutine feeds the recorded chunks
 runtime/v1/http/http_client.go	httpStreamRead	no task: the response reader goroutine hands an event to the reading task
+runtime/v1/exec/exec.go	execChild.reap	no task: hostProc.reap's reaper goroutine, and execRun's reap once the program has ended
 runtime/v1/gocall.go	Call	no task: the Go caller waits, after the root task's run, for the context watcher that interrupted it to end (batch 16b's IG11 fix meets MK1)
 runtime/v1/http/http_local.go	httpLocalServe	no task: net/http's connection goroutine of the local server hands its request to the exchange's caller and waits for the answer
 runtime/v1/http/http_local.go	httpPipeListener.Accept	no task: the local server's accept goroutine waits for the next pipe
 runtime/v1/http/http_local.go	httpLocalTransportFor	no task: the transport's dial goroutine hands the server end of a pipe to the accept goroutine
+runtime/v1/http/http_engine.go	engineListener.Accept	no task: net/http's accept goroutine waits for a connection the engine hands over, or the listener's error
+runtime/v1/http/http_engine.go	engineListener.accept	no task: the engine's accept goroutine hands an accept error to net/http's accept goroutine
+runtime/v1/http/http_engine.go	engineListener.handOver	no task: a connection goroutine hands its connection to net/http's accept goroutine
+runtime/v1/http/http_engine.go	engineConn.startBackgroundRead	no task: the background read goroutine hands its count to the connection goroutine
+runtime/v1/http/http_engine.go	engineConn.abortBackgroundRead	no task: the connection goroutine, between requests, waits for its background read, which a past read deadline ends
+runtime/v1/net/net.go	onStop	no task: the stop watcher goroutine of a blocking host call waits for the task's stop or the call's end
 
 # the host: the clock cannot see a process or an input (rt idle.go), so a
 # wait on one keeps an Advance waiting until the host answers
-runtime/v1/exec/exec.go	ExecRun	host: the program's exit and output, and a reader's end
+runtime/v1/exec/exec.go	execRun	host: the program's exit and output, and a reader's end
 runtime/v1/host.go	lineReader.take	host: a line of standard input, or the reader's stop
 runtime/v1/exec/exec_start.go	Running.next	host: the next chunk of the program's output
 runtime/v1/exec/exec_start.go	Running.Wait	host: the program's exit
 runtime/v1/exec/exec_start.go	Running.end	host: the program's exit within its grace
 runtime/v1/exec/exec_start.go	Running.finish	host: the pipe readers' end within the wait delay
 runtime/v1/http/http_client.go	httpRefusedStatus	host: the next event of a refused response's body
-runtime/v1/rpc/rpc.go	rpcCalls	host: the end of a call that a network request started
-runtime/v1/rpc/rpc.go	rpcRun.stopAll	host: the end of each call left, which a network request started
 runtime/v1/rpc/rpc.go	rpcRun.end	host: the handle of a call that ended; it has ended, so the wait returns
 runtime/v1/rpc/rpc.go	rpcRun.start	handshake: a call task waits until its spawner set its handle, then hands its end to the serve loop
 runtime/v1/host.go	lineReader.readAll	host: the next read of standard input, or the reader's stop
+runtime/v1/term.go	lineReader.peek	host: the next read of standard input, a resize signal, or the task's stop (UC1: a key read in raw mode)
 runtime/v1/exec/exec_spawn.go	ExecKill	host: the detached group's end within the grace, which no event reports
 runtime/v1/http/http_client.go	httpStreamVia	host: the next event of a streamed response (a local one's comes from the in-memory server's goroutines, which need no clock)
+runtime/v1/exec/exec_sandbox_linux.go	execHelperFor	host: another command of the same case waits for its helper's start (TH1c)
+runtime/v1/exec/exec_sandbox_linux.go	execSandboxEnd	host: the case's end waits for its helper's start, then for its exit (TH1c)
+runtime/v1/exec/exec_sandbox_linux.go	execHelper.start	host: the exit of a helper that could not build the test folder's sandbox (TH1c)
 
 # a wait that parks inside runtime/rt
 runtime/v1/task.go	Task.Wait	parks in rt: rt.Handle.Wait parks the owner on the handle (rt handle.go)

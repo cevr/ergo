@@ -1,0 +1,471 @@
+// The text front ends of a format: Unicode LDML pattern letters (date-fns
+// 2 and later, Luxon, Java, Swift) and Go's reference layout. Both give
+// the Field values of format.ergo and the same checks.
+
+
+// Pattern is the date and time format of the LDML pattern text, with
+// English names. Letters: y (year), yyyy (four digits), M MM (month), MMM
+// MMMM (its name), d dd (day), D DDD (day of the year), E EEE EEEE
+// (weekday name), YYYY and w ww (ISO week year and week), H HH (hour
+// 0-23), h hh (hour 1-12), a (AM or PM), m mm, s ss, S to SSSSSSSSS
+// (fraction). Text in single quotes is literal ('' is a quote); any other
+// byte that is not an ASCII letter is literal. Refused by name, each with
+// a hint: yy (a two-digit year needs a pivot: build it with Fields), YYYY
+// without w (the ISO week year; write yyyy), D beside M (the day of the
+// year; write d), and the offset and zone letters (a zone's format is
+// tz's).
+func Pattern(text string) DateTimeFormat fails BadPattern {
+	let (fields, at) = try patternFields(text, false)
+	let _ = try checkFields(fields, at, English(), true, false, text)
+	DateTimeFormat{fields: fields, names: English()}
+}
+
+// DatePattern is the date format of the LDML pattern text: Pattern's
+// letters without the time of day's.
+func DatePattern(text string) DateFormat fails BadPattern {
+	let (fields, at) = try patternFields(text, false)
+	let _ = try checkFields(fields, at, English(), false, false, text)
+	DateFormat{fields: fields, names: English()}
+}
+
+// FromLayout is the date and time format of Go's reference layout text,
+// read as Go's time package reads a layout: 2006, 01, 1, Jan, January,
+// 02, 2, _2, 002, __2, Mon, Monday, 15, 03, 3, 04, 4, 05, 5, PM, .000 or
+// ,000 and .999 (any count), and literal text between. Refused, each with
+// a hint: 06 (a two-digit year needs a pivot), pm, ,999, and the zone
+// elements (MST, -0700, Z07:00 and their kin: a zone's format is tz's).
+func FromLayout(text string) DateTimeFormat fails BadPattern {
+	let (fields, at) = try layoutFields(text, false)
+	let _ = try checkFields(fields, at, English(), true, false, text)
+	DateTimeFormat{fields: fields, names: English()}
+}
+
+// DateLayout is the date format of Go's reference layout text.
+func DateLayout(text string) DateFormat fails BadPattern {
+	let (fields, at) = try layoutFields(text, false)
+	let _ = try checkFields(fields, at, English(), false, false, text)
+	DateFormat{fields: fields, names: English()}
+}
+
+// token is one run of a pattern: a letter repeated count times at at, or
+// a literal text (letter 0).
+type token { letter byte, count int, at int, text string }
+
+// tokens splits an LDML pattern into letter runs and literal text.
+func tokens(text string) []token fails BadPattern {
+	let mut out = []token{}
+	let mut i = 0
+	for i < len(text) {
+		let c = text[i]
+		if c == '\'' {
+			if i + 1 < len(text) && text[i + 1] == '\'' {
+				out = out.Append(token{letter: 0, count: 0, at: i, text: "'"})
+				i = i + 2
+				continue
+			}
+			let mut j = i + 1
+			let mut lit = ""
+			let mut closed = false
+			for j < len(text) && !closed {
+				if text[j] == '\'' {
+					if j + 1 < len(text) && text[j + 1] == '\'' {
+						lit = lit + "'"
+						j = j + 2
+					} else {
+						closed = true
+						j = j + 1
+					}
+				} else {
+					lit = lit + text[j:j + 1]
+					j = j + 1
+				}
+			}
+			if !closed {
+				return BadPattern{Text: text, At: i, Hint: "a quote that does not close"}
+			}
+			if len(lit) > 0 {
+				out = out.Append(token{letter: 0, count: 0, at: i, text: lit})
+			}
+			i = j
+		} else if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+			let mut j = i
+			for j < len(text) && text[j] == c {
+				j = j + 1
+			}
+			out = out.Append(token{letter: c, count: j - i, at: i, text: ""})
+			i = j
+		} else {
+			out = out.Append(token{letter: 0, count: 0, at: i, text: text[i:i + 1]})
+			i = i + 1
+		}
+	}
+	out
+}
+
+// patternFields is the fields of an LDML pattern and where each began;
+// adjacent literal text is one Literal.
+func patternFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
+	let ts = try tokens(text)
+	let mut week = false
+	let mut month = false
+	for t in ts {
+		week = week || t.letter == 'w'
+		month = month || t.letter == 'M'
+	}
+	let mut fields = []Field{}
+	let mut at = []int{}
+	let mut lit = ""
+	let mut litAt = 0
+	for t in ts {
+		if t.letter == 0 {
+			if len(lit) == 0 {
+				litAt = t.at
+			}
+			lit = lit + t.text
+			continue
+		}
+		if len(lit) > 0 {
+			fields = fields.Append(Literal{Text: lit})
+			at = at.Append(litAt)
+			lit = ""
+		}
+		fields = fields.Append(try letterField(text, t, week, month, zoned))
+		at = at.Append(t.at)
+	}
+	if len(lit) > 0 {
+		fields = fields.Append(Literal{Text: lit})
+		at = at.Append(litAt)
+	}
+	(fields, at)
+}
+
+// letterField is the field of one letter run of an LDML pattern.
+func letterField(text string, t token, week bool, month bool, zoned bool) Field fails BadPattern {
+	let n = t.count
+	let c = t.letter
+	if c == 'y' {
+		if n == 1 {
+			return YearNumber{Digits: AllDigits}
+		}
+		if n == 4 {
+			return YearNumber{Digits: FourDigits}
+		}
+		if n == 2 {
+			return badAt(text, t.at, "yy is a two-digit year, which needs a pivot: build it with Fields and YearNumber{Digits: TwoDigits{Pivot: …}}")
+		}
+		return badAt(text, t.at, "write y or yyyy for the year")
+	}
+	if c == 'Y' {
+		if !week {
+			return badAt(text, t.at, "YYYY is the ISO week year; write yyyy")
+		}
+		if n != 4 {
+			return badAt(text, t.at, "write YYYY for the ISO week year")
+		}
+		return ISOWeekYear
+	}
+	if c == 'M' {
+		if n == 1 {
+			return MonthNumber{Pad: NoPad}
+		}
+		if n == 2 {
+			return MonthNumber{Pad: ZeroPad}
+		}
+		if n == 3 {
+			return MonthName{Width: Short}
+		}
+		if n == 4 {
+			return MonthName{Width: Full}
+		}
+		return badAt(text, t.at, "write M, MM, MMM or MMMM for the month")
+	}
+	if c == 'd' {
+		if n <= 2 {
+			return DayOfMonth{Pad: pad(n)}
+		}
+		return badAt(text, t.at, "write d or dd for the day of the month")
+	}
+	if c == 'D' {
+		if month {
+			return badAt(text, t.at, "D is the day of the year; write d")
+		}
+		if n == 1 {
+			return DayOfYear{Pad: NoPad}
+		}
+		if n == 3 {
+			return DayOfYear{Pad: ZeroPad}
+		}
+		return badAt(text, t.at, "write D or DDD for the day of the year")
+	}
+	if c == 'E' {
+		if n <= 3 {
+			return WeekdayName{Width: Short}
+		}
+		if n == 4 {
+			return WeekdayName{Width: Full}
+		}
+		return badAt(text, t.at, "write E or EEEE for the weekday")
+	}
+	if c == 'w' {
+		if n <= 2 {
+			return ISOWeekNumber{Pad: pad(n)}
+		}
+		return badAt(text, t.at, "write w or ww for the ISO week")
+	}
+	if c == 'H' {
+		if n <= 2 {
+			return Hour24{Pad: pad(n)}
+		}
+		return badAt(text, t.at, "write H or HH for the hour")
+	}
+	if c == 'h' {
+		if n <= 2 {
+			return Hour12{Pad: pad(n)}
+		}
+		return badAt(text, t.at, "write h or hh for the hour of a 12-hour clock")
+	}
+	if c == 'm' {
+		if n <= 2 {
+			return MinuteNumber{Pad: pad(n)}
+		}
+		return badAt(text, t.at, "write m or mm for the minute")
+	}
+	if c == 's' {
+		if n <= 2 {
+			return SecondNumber{Pad: pad(n)}
+		}
+		return badAt(text, t.at, "write s or ss for the second")
+	}
+	if c == 'S' {
+		if n <= 9 {
+			return Fraction{Digits: n, Trim: false}
+		}
+		return badAt(text, t.at, "a fraction has at most 9 digits")
+	}
+	if c == 'a' {
+		if n == 1 {
+			return Meridiem
+		}
+		return badAt(text, t.at, "write a for AM or PM")
+	}
+	if c == 'X' || c == 'x' || c == 'Z' || c == 'z' || c == 'O' || c == 'V' || c == 'v' {
+		if !zoned {
+			return badAt(text, t.at, "an offset or a zone name needs a zone; build a ZonedFormat with ZonedPattern for tz.FormatZoned")
+		}
+		return try zoneLetter(text, t)
+	}
+	badAt(text, t.at, "\(text[t.at:t.at + 1]) is not a pattern letter of civil; quote literal text: 'at'")
+}
+
+// zoneLetter is the field of one zone letter run of a zoned LDML pattern.
+func zoneLetter(text string, t token) Field fails BadPattern {
+	let n = t.count
+	let c = t.letter
+	if c == 'X' && (n == 2 || n == 3) {
+		return OffsetField{Colon: n == 3, Z: true}
+	}
+	if c == 'x' && (n == 2 || n == 3) {
+		return OffsetField{Colon: n == 3, Z: false}
+	}
+	if c == 'Z' && n <= 3 {
+		return OffsetField{Colon: false, Z: false}
+	}
+	if c == 'Z' && n == 5 {
+		return OffsetField{Colon: true, Z: true}
+	}
+	if c == 'z' && n <= 3 {
+		return ZoneAbbreviation
+	}
+	if c == 'V' && n == 2 {
+		return ZoneID
+	}
+	if (c == 'X' || c == 'x') && n == 1 {
+		return badAt(text, t.at, "\(text[t.at:t.at + 1]) alone drops the offset's minutes; write \(text[t.at:t.at + 1])\(text[t.at:t.at + 1]) or \(text[t.at:t.at + 1])\(text[t.at:t.at + 1])\(text[t.at:t.at + 1])")
+	}
+	badAt(text, t.at, "write XX, XXX, xx, xxx, Z or ZZZZZ for the offset, z for the abbreviation and VV for the zone's name; localized zone forms are not civil's")
+}
+
+// badAt is the failure of text at at with hint.
+func badAt(text string, at int, hint string) BadPattern { BadPattern{Text: text, At: at, Hint: hint} }
+
+// pad is NoPad for one letter and ZeroPad for two.
+func pad(n int) Pad { if n == 1 { NoPad } else { ZeroPad } }
+
+// layoutFields is the fields of a Go layout and where each began, found as
+// Go's nextStdChunk finds them; the bytes between are one Literal.
+func layoutFields(text string, zoned bool) ([]Field, []int) fails BadPattern {
+	let mut fields = []Field{}
+	let mut at = []int{}
+	let mut i = 0
+	let mut litAt = 0
+	for i < len(text) {
+		let (n, f) = try layoutElement(text, i, zoned)
+		if n == 0 {
+			i = i + 1
+			continue
+		}
+		if i > litAt {
+			fields = fields.Append(Literal{Text: text[litAt:i]})
+			at = at.Append(litAt)
+		}
+		match f {
+		case Some[Field] as x:
+			fields = fields.Append(x.Value)
+			at = at.Append(i)
+		case None:
+		}
+		match layoutLead(text, i) {
+		case Some[Field] as x:
+			fields = fields.Append(x.Value)
+			at = at.Append(i + 1)
+		case None:
+		}
+		i = i + n
+		litAt = i
+	}
+	if len(text) > litAt {
+		fields = fields.Append(Literal{Text: text[litAt:]})
+		at = at.Append(litAt)
+	}
+	(fields, at)
+}
+
+// layoutLead is the field a Go element at i writes after its own first
+// one: the fraction of ".000" or ",000", whose separator is a Literal.
+func layoutLead(text string, i int) Option[Field] {
+	if (text[i] == '.' || text[i] == ',') && i + 1 < len(text) && text[i + 1] == '0' {
+		let mut j = i + 1
+		for j < len(text) && text[j] == '0' {
+			j = j + 1
+		}
+		return Some[Field]{Value: Fraction{Digits: j - i - 1, Trim: false}}
+	}
+	None
+}
+
+func has(text string, i int, s string) bool { startsAt(text, i, s) }
+
+func lowerAt(text string, i int) bool { i < len(text) && text[i] >= 'a' && text[i] <= 'z' }
+
+// layoutElement is the Go layout element at text[i]: its length (0 when
+// none starts there) and its field (for ".000", the separator's Literal;
+// layoutLead gives the fraction).
+func layoutElement(text string, i int, zoned bool) (int, Option[Field]) fails BadPattern {
+	let c = text[i]
+	if c == 'J' && has(text, i, "Jan") {
+		if has(text, i, "January") {
+			return (7, Some[Field]{Value: MonthName{Width: Full}})
+		}
+		if !lowerAt(text, i + 3) {
+			return (3, Some[Field]{Value: MonthName{Width: Short}})
+		}
+	}
+	if c == 'M' {
+		if has(text, i, "Mon") {
+			if has(text, i, "Monday") {
+				return (6, Some[Field]{Value: WeekdayName{Width: Full}})
+			}
+			if !lowerAt(text, i + 3) {
+				return (3, Some[Field]{Value: WeekdayName{Width: Short}})
+			}
+		}
+		if has(text, i, "MST") {
+			if !zoned {
+				return badAt(text, i, "MST is a zone abbreviation, which needs a zone; build a ZonedFormat with ZonedLayout for tz.FormatZoned")
+			}
+			return (3, Some[Field]{Value: ZoneAbbreviation})
+		}
+	}
+	if c == '0' && i + 1 < len(text) {
+		let d = text[i + 1]
+		if d == '1' {
+			return (2, Some[Field]{Value: MonthNumber{Pad: ZeroPad}})
+		}
+		if d == '2' {
+			return (2, Some[Field]{Value: DayOfMonth{Pad: ZeroPad}})
+		}
+		if d == '3' {
+			return (2, Some[Field]{Value: Hour12{Pad: ZeroPad}})
+		}
+		if d == '4' {
+			return (2, Some[Field]{Value: MinuteNumber{Pad: ZeroPad}})
+		}
+		if d == '5' {
+			return (2, Some[Field]{Value: SecondNumber{Pad: ZeroPad}})
+		}
+		if d == '6' {
+			return badAt(text, i, "06 is a two-digit year, which needs a pivot: build it with Fields and YearNumber{Digits: TwoDigits{Pivot: …}}")
+		}
+		if has(text, i, "002") {
+			return (3, Some[Field]{Value: DayOfYear{Pad: ZeroPad}})
+		}
+	}
+	if c == '1' {
+		if has(text, i, "15") {
+			return (2, Some[Field]{Value: Hour24{Pad: ZeroPad}})
+		}
+		return (1, Some[Field]{Value: MonthNumber{Pad: NoPad}})
+	}
+	if c == '2' {
+		if has(text, i, "2006") {
+			return (4, Some[Field]{Value: YearNumber{Digits: FourDigits}})
+		}
+		return (1, Some[Field]{Value: DayOfMonth{Pad: NoPad}})
+	}
+	if c == '_' {
+		if has(text, i, "_2") && !has(text, i, "_2006") {
+			return (2, Some[Field]{Value: DayOfMonth{Pad: SpacePad}})
+		}
+		if has(text, i, "__2") {
+			return (3, Some[Field]{Value: DayOfYear{Pad: SpacePad}})
+		}
+	}
+	if c == '3' {
+		return (1, Some[Field]{Value: Hour12{Pad: NoPad}})
+	}
+	if c == '4' {
+		return (1, Some[Field]{Value: MinuteNumber{Pad: NoPad}})
+	}
+	if c == '5' {
+		return (1, Some[Field]{Value: SecondNumber{Pad: NoPad}})
+	}
+	if c == 'P' && has(text, i, "PM") {
+		return (2, Some[Field]{Value: Meridiem})
+	}
+	if c == 'p' && has(text, i, "pm") {
+		return badAt(text, i, "pm writes am or pm; write PM, or pass Names with lower-case AM and PM to Fields")
+	}
+	if c == '-' && has(text, i, "-07") || c == 'Z' && has(text, i, "Z07") {
+		if !zoned {
+			return badAt(text, i, "an offset needs a zone; build a ZonedFormat with ZonedLayout for tz.FormatZoned")
+		}
+		let z = c == 'Z'
+		if has(text, i + 1, "07:00:00") || has(text, i + 1, "070000") {
+			return badAt(text, i, "the offset writes its seconds when it has them; write \(text[i:i + 1])07:00 or \(text[i:i + 1])0700")
+		}
+		if has(text, i + 1, "07:00") {
+			return (6, Some[Field]{Value: OffsetField{Colon: true, Z: z}})
+		}
+		if has(text, i + 1, "0700") {
+			return (5, Some[Field]{Value: OffsetField{Colon: false, Z: z}})
+		}
+		return badAt(text, i, "\(text[i:i + 3]) drops the offset's minutes; write \(text[i:i + 1])07:00 or \(text[i:i + 1])0700")
+	}
+	if (c == '.' || c == ',') && i + 1 < len(text) && (text[i + 1] == '0' || text[i + 1] == '9') {
+		let ch = text[i + 1]
+		let mut j = i + 1
+		for j < len(text) && text[j] == ch {
+			j = j + 1
+		}
+		if !(j < len(text) && text[j] >= '0' && text[j] <= '9') {
+			if ch == '0' {
+				return (j - i, Some[Field]{Value: Literal{Text: text[i:i + 1]}})
+			}
+			if c == ',' {
+				return badAt(text, i, ",999 is a trimmed fraction after a comma; civil trims after a dot: write .999")
+			}
+			return (j - i, Some[Field]{Value: Fraction{Digits: j - i - 1, Trim: true}})
+		}
+	}
+	(0, None)
+}

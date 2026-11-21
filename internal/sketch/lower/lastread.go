@@ -47,11 +47,11 @@ func (w *valueWalk) lastReads() {
 		if !ok || len(as.Rhs) != 1 || as.Rhs[0] != child {
 			continue
 		}
-		block, ok := w.parent[as].(*syntax.BlockStmt)
+		block, ok := w.parentOf(as).(*syntax.BlockStmt)
 		if !ok || len(block.List) != 1 {
 			continue
 		}
-		loop, ok := w.parent[block].(*syntax.RangeStmt)
+		loop, ok := w.parentOf(block).(*syntax.RangeStmt)
 		if !ok || loop.Body != block {
 			continue
 		}
@@ -110,7 +110,7 @@ func (w *valueWalk) freshAfter(vv *vvar, id *syntax.Ident, loop syntax.Node, pat
 		if o == use || path != nil && w.disjointRead(o.id, path) {
 			continue
 		}
-		if o.frame != vv.frame || o.pre >= w.pre[loop] {
+		if o.frame != vv.frame || o.pre >= w.preOf(loop) {
 			return false // captured, or read in the loop or after it
 		}
 		if (o.kind == occEscape || o.kind == occReturn) && !w.vf.clone[o.path] && !w.vf.handed[o.path] {

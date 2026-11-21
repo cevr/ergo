@@ -64,6 +64,8 @@ type funcRewrites struct {
 	// shipped ledger's evidence by package.
 	laws    []*check.Law
 	shipped map[*check.Package]*shippedEvidence
+	// fallible are the fallible laws unfoldAt places (ir_unfold.go).
+	fallible []*check.Law
 	// canarySites are the canary's site indexes by position: a lowering
 	// that runs again from the start (lowerAgain) meets a site again.
 	canarySites map[string]int
@@ -116,7 +118,7 @@ func (l *lowerer) scopeLaws() []*check.Law {
 			}
 			seen[p] = true
 			for _, law := range p.Laws {
-				if rw := law.FuncRewrite; rw != nil && !lawFallible(law) {
+				if rw := law.TopRewrite(); rw != nil && !lawFallible(law) {
 					r.laws = append(r.laws, law)
 				}
 			}
@@ -129,7 +131,7 @@ func (l *lowerer) scopeLaws() []*check.Law {
 // that cannot fail at its site only.
 func lawFallible(law *check.Law) bool {
 	found := false
-	for _, side := range []syntax.Expr{law.FuncRewrite.Lhs, law.FuncRewrite.Rhs} {
+	for _, side := range []syntax.Expr{law.TopRewrite().Lhs, law.TopRewrite().Rhs} {
 		syntax.Inspect(side, func(n syntax.Node) bool {
 			if _, ok := n.(*syntax.TryExpr); ok {
 				found = true
@@ -181,30 +183,26 @@ func (b *irBuilder) rewriteAt(m rwMatch, at *rwAt) (pre []*irStmt, e *irExpr, ok
 	}
 	site := b.siteText(x)
 	off := rewriteLowering == "reference" || r.mode == "off" && !r.test
+	defer b.withBinding(m.bind)() // a generic law's sides at the site's types (ir_fusion.go)
+	over := m.law.TopRewrite().OverFuncs
 	if r.test {
 		if off || m.keep {
 			return nil, nil, false
 		}
 		return b.shadow(x, m, site, at)
 	}
-	v := b.l.funcVerdictOf(m.law)
-	why := ""
-	switch {
-	case m.keep:
-		why = "not applied: AsWritten"
-	case off:
-		why = "not applied: -rewrites=off"
-	case !v.OK:
-		why = v.Why
-	case r.mode == "proved" && v.Verdict != "proved":
-		why = "not applied: -rewrites=proved, and law " + v.Key + " is " + v.Verdict
-	}
+	v, why := b.rwDecide(m)
 	var rv *irExpr
 	if why == "" {
 		mark := b.mark()
 		var temps map[*check.Var]*irExpr
 		pre, temps = b.bindOperands(m)
-		rpre, right := b.lawSide(m.law, m.law.FuncRewrite.Rhs, temps, false)
+		rpre, right := b.lawSide(m.law, m.law.TopRewrite().Rhs, temps, false)
+		if over {
+			// The fused order may meet a later stage's defect first: on a
+			// defect, the left side runs again (v1.FuseOr).
+			right, rpre = b.fuseOr(m, x, b.goType(b.lawType(m.law), x), temps, rpre, right), nil
+		}
 		pre, rv = append(pre, rpre...), right
 		if r.every > 0 {
 			cpre, cv := b.canary(x, m, site, v.Key, temps, rv)
@@ -221,6 +219,26 @@ func (b *irBuilder) rewriteAt(m rwMatch, at *rwAt) (pre []*irStmt, e *irExpr, ok
 	}
 	b.rwLevel(v.Verdict)
 	return pre, rv, true
+}
+
+// rwDecide is the run build's word on the site m: the law's verdict, and
+// why the site keeps its left side, "" to apply the law.
+func (b *irBuilder) rwDecide(m rwMatch) (funcVerdict, string) {
+	r := b.l.canon.funcRw
+	v := b.l.funcVerdictOf(m.law)
+	switch {
+	case m.keep:
+		return v, "not applied: AsWritten"
+	case rewriteLowering == "reference" || r.mode == "off":
+		return v, "not applied: -rewrites=off"
+	case !v.OK:
+		return v, v.Why
+	case r.mode == "proved" && v.Verdict != "proved":
+		return v, "not applied: -rewrites=proved, and law " + v.Key + " is " + v.Verdict
+	case m.law.TopRewrite().OverFuncs:
+		return v, b.sitePure(m)
+	}
+	return v, ""
 }
 
 // rwNoSlot is a site's row where its operands or its right side need
@@ -251,8 +269,8 @@ func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals m
 	}
 	rt := b.temp("right", gt, p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: rt, X: right}}
-	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals, true)
-	str := func(s string) *irExpr { return &irExpr{K: "const", Pos: p, T: "string", V: irString(s)} }
+	lpre, left := b.lawSide(m.law, m.law.TopRewrite().Lhs, vals, true)
+	str := func(s string) *irExpr { return irStringConst(p, "string", s) }
 	b.keepImport("var _ = " + b.l.rtRef("Tick"))
 	var check *irStmt
 	if goEqualIsKey(t) {
@@ -377,6 +395,20 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 		b.lawArgs[v] = e
 	}
 	b.l.info, b.fc.directives = law.Pkg.Info, false
+	// A side's own binders (a function literal's parameter, in a law over
+	// function parameters) are the side's: each lowering of it declares
+	// them again (two sites, or both sides under FuseOr).
+	known := map[*check.Var]bool{}
+	for v := range b.locals {
+		known[v] = true
+	}
+	defer func() {
+		for v := range b.locals {
+			if !known[v] {
+				delete(b.locals, v)
+			}
+		}
+	}()
 	b.lawDepth++
 	if keep {
 		b.lawKeep++
@@ -396,7 +428,7 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 
 // lawType is the type of law's sides.
 func (b *irBuilder) lawType(law *check.Law) check.Type {
-	t := law.Pkg.Info.Types[law.FuncRewrite.Lhs]
+	t := law.Pkg.Info.Types[law.TopRewrite().Lhs]
 	if t == nil {
 		irNo("rewrite law side without a type")
 	}
@@ -412,11 +444,11 @@ func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string, place *rwAt
 	p := b.pos(x, x.Pos())
 	gt := b.goType(b.lawType(m.law), x)
 	pre, vals := b.bindOperands(m)
-	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals, true)
+	lpre, left := b.lawSide(m.law, m.law.TopRewrite().Lhs, vals, true)
 	pre = append(pre, lpre...)
 	lt := b.temp("left", gt, p)
 	pre = append(pre, &irStmt{K: "def", Pos: p, Local: lt, X: left})
-	rpre, right := b.lawSide(m.law, m.law.FuncRewrite.Rhs, vals, true)
+	rpre, right := b.lawSide(m.law, m.law.TopRewrite().Rhs, vals, true)
 	pre = append(pre, rpre...)
 	key := LedgerNames(nil).funcLaw(m.law)
 	if b.l.isSourced(m.law.Pkg) {
@@ -424,7 +456,7 @@ func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string, place *rwAt
 			key = e.names.funcLaw(m.law)
 		}
 	}
-	str := func(s string) *irExpr { return &irExpr{K: "const", Pos: p, T: "string", V: irString(s)} }
+	str := func(s string) *irExpr { return irStringConst(p, "string", s) }
 	// Shadow is the runtime leaf runtime/v1/shadow's (it links fmt and
 	// reflect, which no run build needs), kept as an instance (stdCall).
 	if b.namesTypeParam(gt) {
@@ -442,7 +474,7 @@ func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string, place *rwAt
 		enc = enc && caseEncodable(v.Type)
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: v1.PackageOf("Shadow"), Name: "Shadow", V: gt, Args: []*irExpr{
-		{K: "local", Pos: p, I: lt}, right, str(key), str(at), str(b.l.nodeText(m.law.FuncRewrite.Lhs)),
+		{K: "local", Pos: p, I: lt}, right, str(key), str(at), str(b.l.nodeText(m.law.TopRewrite().Lhs)),
 		str(strings.Join(names, ",")), {K: "const", Pos: p, T: "bool", V: strconv.FormatBool(enc)}, args,
 	}}
 	return pre, call, true

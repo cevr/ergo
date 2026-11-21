@@ -48,6 +48,11 @@ type Binding struct {
 	// records are the C structs a typed signature reaches by value: the
 	// Ergo text declares a record for each.
 	records map[string]bool
+	// kinds maps a record header to its record kinds (recordKinds).
+	kinds map[string][]string
+	// unions are the record headers an extern of the Ergo text takes: the
+	// Ergo text declares the union of their kinds.
+	unions map[string]bool
 }
 
 // BoundFunc is one function of the binding.
@@ -360,6 +365,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		return nil, contractError(planErrs)
 	}
 	b.Fields = k.classifyFields()
+	b.kinds = b.recordKinds()
 	if err := b.checkNames(); err != nil {
 		return nil, err
 	}
@@ -398,10 +404,14 @@ func (b *Binding) ergoNames() error {
 	for _, x := range b.Codes {
 		claim(strings.TrimPrefix(b.CodeGoName(x), "Status"), "status code "+x.Name)
 	}
+	b.unions = map[string]bool{}
 	b.records = b.recordStructs()
 	for _, d := range b.Model.Types {
 		if b.records[d.Name] {
 			claim(b.GoTypes[d.Name], "struct "+d.Name)
+		}
+		if b.unions[d.Name] {
+			claim(b.RecordType(d.Name), "the record kinds of "+d.Name)
 		}
 	}
 	for _, f := range b.Funcs {
@@ -448,7 +458,15 @@ func (b *Binding) recordStructs() map[string]bool {
 			continue
 		}
 		for _, p := range f.Sig.Params {
-			mark(f.C.Params[p.C].Type)
+			t := f.C.Params[p.C].Type
+			mark(t)
+			if p.Class == ClassValue && t.LenExpr == "" && b.kinds[t.Elem.Name] != nil {
+				// A record parameter: the union of its kinds.
+				b.unions[t.Elem.Name] = true
+				for _, kind := range b.kinds[t.Elem.Name] {
+					mark(Type{Kind: TypeNamed, Name: kind})
+				}
+			}
 		}
 		for _, r := range f.Sig.Results {
 			if r.C < 0 {
@@ -459,6 +477,67 @@ func (b *Binding) recordStructs() map[string]bool {
 		}
 	}
 	return out
+}
+
+// recordKinds maps each record header to its record kinds. A record
+// header is a struct H with a size autofill field that a typed function
+// takes as a value (`const H *`) and that begins another struct: C reads
+// the record the header names, its size field the record's size, of
+// which the header is the first field (OpenTUI's ot_buffer_draw and its
+// ot_buffer_draw_* records). Its kinds are H itself, then every
+// pointer-free struct whose first field is an H, in header order. The
+// typed parameter takes any kind (the interface <H>Record), and a kind's
+// fill puts its own size in its header's size field.
+func (b *Binding) recordKinds() map[string][]string {
+	out := map[string][]string{}
+	for _, f := range b.Funcs {
+		if f.RawOnly != "" {
+			continue
+		}
+		for _, q := range f.Positions {
+			if q.Class != ClassValue || q.Param < 0 {
+				continue
+			}
+			if t := f.C.Params[q.Param].Type; t.LenExpr == "" {
+				out[t.Elem.Name] = nil
+			}
+		}
+	}
+	for h := range out {
+		if b.sizeField(h) < 0 {
+			// Without a size field C cannot tell the records apart: a
+			// struct that starts with H is H with more fields (fx_visit).
+			delete(out, h)
+			continue
+		}
+		kinds := []string{h}
+		for _, d := range b.Model.Types {
+			if d.Kind == DeclStruct && d.Name != h && len(d.Fields) > 0 && d.Fields[0].Type.Kind == TypeNamed &&
+				d.Fields[0].Type.Name == h && b.k.pointerFree(d.Name) {
+				kinds = append(kinds, d.Name)
+			}
+		}
+		if len(kinds) == 1 {
+			delete(out, h)
+		} else {
+			out[h] = kinds
+		}
+	}
+	return out
+}
+
+// RecordType is the Go interface of the record kinds of the header h.
+func (b *Binding) RecordType(h string) string { return b.GoTypes[h] + "Record" }
+
+// sizeField is the index of the field of struct h that autofill sets to
+// its size, or -1.
+func (b *Binding) sizeField(h string) int {
+	for i, f := range b.k.types[h].Fields {
+		if b.Autofill[f.Name] == "size" {
+			return i
+		}
+	}
+	return -1
 }
 
 func elemOr(t Type) *Type {
@@ -556,6 +635,9 @@ func (b *Binding) checkNames() error {
 			continue
 		}
 		add(b.GoTypes[d.Name], d.Name)
+		if b.kinds[d.Name] != nil {
+			add(b.RecordType(d.Name), "the record kinds of "+d.Name)
+		}
 	}
 	for _, f := range b.Funcs {
 		add(f.GoName, f.C.Name)

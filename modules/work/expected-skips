@@ -1,0 +1,48 @@
+# deleted by LAW-UNFED: memory's contexts feed all nine (overTool, overPlugin; overClient feeds workapi's Client).
+# work.Tool is the Api over providers the binary chooses; package work
+# sees no provider of its contracts. The Api's law runs in package memory
+# under overTool (a Tool over the memory providers) and overClient.
+skip law Api.NewIsListedOnce for Tool: its values have no generator: Lock is an operation type with no builder: neither main nor maintest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Api: … }, and the law runs under it
+# The host Cloners (btrfs, reflink, clonefile, copy) run system commands
+# through an exec.Runner, which no generator builds. Their laws run under
+# each package's onHost context instead, over exec.NewTestHost in a folder
+# of each case's own (TestAmbient), and in package memory against the
+# model. clonefile's laws run cp -c for real only on macOS with APFS;
+# elsewhere a clone is Unsupported and they hold by their failure cases.
+skip law work.Cloner.CloneMakesTheTree for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+skip law work.Cloner.DiscardDiscards for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+skip law work.Cloner.FailedCloneLeavesNothing for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+skip law work.Cloner.FreshCloneSharesItsBlocks for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+skip law work.Cloner.MoveMoves for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+skip law work.Cloner.SecondCloneIsExists for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+# git.Vcs runs git through an exec.Runner, as the Cloners do; its laws
+# run against memory.Vcs and under git/checkout's onHost (a real checkout,
+# the full tier only) and git's onShell, and git's tests hold each law's fact on a repository
+# they make in the case's folder.
+skip law work.Vcs.OwnBranchHoldsItsHead for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.CompareAndSetIsAtomic for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.SnapshotChangesNoBranch for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.ListedIsTheSnapshot for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+skip law work.Vcs.SettingIsWhatConfigureSet for Vcs: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewVcs() Vcs with no rows would build one for each case
+# sh.Hooks runs sh through an exec.Runner, as the Cloners do; the law runs
+# under sh's onHost context (sh for real in each case's folder), and
+# against memory.Hooks (whose "exit N" is sh's).
+skip law work.Hooks.ExitIsAFailure for Hooks: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewHooks() Hooks with no rows would build one for each case
+# journal.Lock takes the host's file locks through an fs.Host, which no
+# generator builds. The law runs under journal's onHost context (fs.LockFile
+# in each case's folder) and against memory's shared locks;
+# runtime/v1 TestFSLockFileExcludes holds the lock's exclusion, and
+# scripts/workrace races two processes on it.
+skip law work.Lock.HoldExcludes for Lock: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost; a func NewLock() Lock with no rows would build one for each case
+# work.Plugin is a language plugin over an exec.Runner, which no
+# generator builds. The contracts' laws run through it in package memory,
+# under the context overPlugin (a Plugin over memory.Serving: its
+# protocol with no process), and PluginIsTransparent holds it to the provider in process.
+skip law Splitter.UnitsAreTheFile for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Splitter: … }, and the law runs under it
+skip law Splitter.KeysAreUnique for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Splitter: … }, and the law runs under it
+skip law Splitter.EditStaysInItsUnit for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Splitter: … }, and the law runs under it
+skip law Indexer.ChangesOfSameIsEmpty for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Indexer: … }, and the law runs under it
+skip law Indexer.CommentEditIsNoChange for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Indexer: … }, and the law runs under it
+skip law Indexer.SitesAreInTheSnapshot for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Indexer: … }, and the law runs under it
+skip law Checker.CheckIsPure for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Checker: … }, and the law runs under it
+skip law Checker.EmptyLayerIsTheBase for Plugin: its values have no generator: exec.Runner is an operation type with no builder: neither exec nor exectest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Checker: … }, and the law runs under it

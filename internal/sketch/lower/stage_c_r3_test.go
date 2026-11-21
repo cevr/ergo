@@ -74,8 +74,8 @@ func g(b bool) int fails E { if b { return E }; 7 }
 func each(f func()) { f() }
 func i() int needs Console { Console.Println("i"); 1 }
 func s() string needs Console { Console.Println("s"); "s" }
-func pi() int { 1 }
-func ps() string { "s" }
+func pi() int { let one = true; if one { 1 } else { Unreachable("never") } }
+func ps() string { let one = true; if one { "s" } else { Unreachable("never") } }
 func f(b bool) needs Console {
 	with W { if b { i() } else { s() } }
 	with W { Console.Println("in with") }

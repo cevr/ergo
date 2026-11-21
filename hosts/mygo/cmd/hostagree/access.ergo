@@ -1,0 +1,198 @@
+// The window's accessibility tree agrees with std ui (UG2): each Semantic
+// node the window painted is in MyGo's tree with the role, states, level,
+// range, current item, popup, description and relations ui reads, by
+// MyGo's own names (screen's AccessText), against this file's table of
+// what each ui role is in MyGo.
+
+import go ergo.local/prototype/hosts/mygo/screen
+import ergo.local/prototype/hosts/mygo/desktop
+import ui
+
+// mygoRole is the role MyGo's tree gives a node of the ui role r, by the
+// names AccessText writes.
+func mygoRole(r ui.Role) string {
+	match r {
+	case ui.Button:
+		"button"
+	case ui.Checkbox:
+		"checkbox"
+	case ui.Switch:
+		"switch"
+	case ui.TextBox, ui.SearchBox:
+		"textfield"
+	case ui.Static:
+		"text"
+	case ui.Group, ui.Generic:
+		"group"
+	case ui.Region:
+		"region"
+	case ui.Image:
+		"image"
+	case ui.List, ui.ListBox:
+		"list"
+	case ui.ListItem, ui.ListOption:
+		"listitem"
+	case ui.Status:
+		"status"
+	case ui.Tab:
+		"tab"
+	case ui.TabList:
+		"tablist"
+	case ui.TabPanel:
+		"tabpanel"
+	case ui.Dialog:
+		"dialog"
+	case ui.Menu:
+		"menu"
+	case ui.MenuItem:
+		"menuitem"
+	case ui.MenuItemCheckbox:
+		"menuitemcheckbox"
+	case ui.Tree:
+		"tree"
+	case ui.TreeItem:
+		"treeitem"
+	case ui.Heading:
+		"heading"
+	case ui.Alert:
+		"alert"
+	case ui.Link:
+		"link"
+	case ui.Table:
+		"table"
+	case ui.TableRow:
+		"row"
+	case ui.TableCell, ui.GridCell:
+		"cell"
+	case ui.ColumnHeader:
+		"columnheader"
+	case ui.RowHeader:
+		"rowheader"
+	case ui.Grid:
+		"grid"
+	case ui.RadioGroup:
+		"radiogroup"
+	case ui.Radio:
+		"radio"
+	case ui.Slider:
+		"slider"
+	case ui.SpinButton:
+		"stepper"
+	case ui.ComboBox:
+		"combobox"
+	case ui.Navigation:
+		"navigation"
+	case ui.Separator:
+		"separator"
+	case ui.Tooltip:
+		"tooltip"
+	}
+}
+
+// popupName is the popup role's name as MyGo's tree says it.
+func popupName(r ui.Role) string {
+	match r {
+	case ui.Menu:
+		"menu"
+	case ui.ListBox:
+		"listbox"
+	case ui.Tree:
+		"tree"
+	case ui.Grid:
+		"grid"
+	case ui.Dialog:
+		"dialog"
+	case _:
+		""
+	}
+}
+
+// wantAccess is the line AccessText should give for the Semantic node id.
+func wantAccess[S, E, D, F](d mut desktop.Driver[S, E, D, F], id ui.Id[E]) string {
+	let a = desktop.AccessAt(d, id)
+	let mut out = "\(mygoRole(a.Role)) \"\(a.Name)\""
+	let states = []bool{a.Disabled, a.Checked == (Some{Value: true}), a.Mixed, a.Selected == (Some{Value: true}), a.Expanded == (Some{Value: true}), a.Busy, a.Invalid, a.MultiSelectable, a.Role == ui.SearchBox}
+	let names = []string{"disabled", "checked", "mixed", "selected", "expanded", "busy", "invalid", "multiselectable", "search"}
+	for i, on in states {
+		if on {
+			out = out + " " + names[i]
+		}
+	}
+	match a.Level {
+	case Some[int] as l:
+		if l.Value != 0 {
+			out = out + " level \(l.Value)"
+		}
+	case None:
+	}
+	match a.Range {
+	case Some[ui.Range] as r:
+		if r.Value.Now != 0 || r.Value.Min != 0 || r.Value.Max != 0 {
+			out = out + " range \(int(r.Value.Now)) \(int(r.Value.Min)) \(int(r.Value.Max))"
+		}
+	case None:
+	}
+	match a.Current {
+	case Some[string] as c:
+		out = out + " current \(c.Value)"
+	case None:
+	}
+	let mut popup = if a.HasPopup { "menu" } else { "" }
+	for r in a.Rels {
+		match r {
+		case ui.OpensPopup as p:
+			popup = popupName(p.Role)
+		case _:
+		}
+	}
+	if popup != "" {
+		out = out + " popup \(popup)"
+	}
+	if a.Description != "" {
+		out = out + " description \"\(a.Description)\""
+	}
+	let rels = desktop.RelationsAt(d, id)
+	for kind in []string{"controls", "describedby"} {
+		for rel in rels {
+			let k = match rel.Rel {
+			case ui.Controls:
+				"controls"
+			case ui.DescribedBy:
+				"describedby"
+			case _:
+				""
+			}
+			match rel.To {
+			case Some[ui.Id[E]] as to:
+				if k == kind {
+					match desktop.AccessName(d, to.Value) {
+					case Some[int] as n:
+						out = out + " \(kind) \(n.Value)"
+					case None:
+						out = out + " \(kind) unnamed"
+					}
+				}
+			case None:
+			}
+		}
+	}
+	out
+}
+
+// accessDiffers is why the window's accessibility tree differs from what
+// ui reads of the Semantic nodes the window painted, None when it agrees.
+func accessDiffers[S, E, D, F](d mut desktop.Driver[S, E, D, F], w go.Ref[screen.Window]) Option[string] needs go.Foreign {
+	for id in desktop.Semantics(d) {
+		let want = wantAccess(d, id)
+		let got = match desktop.AccessName(d, id) {
+		case Some[int] as n:
+			w.AccessText(n.Value)
+		case None:
+			""
+		}
+		if got != want {
+			return Some{Value: "access of \(desktop.AccessAt(d, id).Name) is \(got), want \(want)"}
+		}
+	}
+	None
+}

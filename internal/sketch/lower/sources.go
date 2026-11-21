@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -166,43 +166,85 @@ type stdFile struct {
 // call's site) goes through it. A node that no file holds, of the program
 // or of std, is a compiler defect (G1, batch 11).
 func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, column int) {
-	if _, ok := l.sourceOf(n); ok {
-		_, path, line, column = l.at(n, pos)
-		return path, line, column
-	}
-	sf, ok := l.stdFileOf(n)
+	path, line, column, ok := l.find(n, pos)
 	if !ok {
 		ice(n, "a location of a node that no source file holds")
 	}
-	line, column = sf.file.Position(pos)
-	return sf.path, line, column
+	return path, line, column
 }
 
-// stdFileOf is the embedded std file that holds n, of a std package the
-// program reaches (locate).
+// find is locate's location, or false for a node no file holds.
+func (l *lowerer) find(n syntax.Node, pos syntax.Pos) (path string, line, column int, ok bool) {
+	if _, ok := l.sourceOf(n); ok {
+		_, path, line, column = l.at(n, pos)
+		return path, line, column, true
+	}
+	sf, ok := l.stdFileOf(n)
+	if !ok || n == nil {
+		return "", 0, 0, false
+	}
+	line, column = sf.file.Position(pos)
+	return sf.path, line, column, true
+}
+
+// stdFileOf is the embedded file of a reached std package that holds n.
+// Offsets count from the start of each file, so a declaration whose span
+// holds n's is only a candidate: the node is looked for inside it by
+// identity. Only the candidates are walked, and an answer is kept in
+// stdSrc, so a lowering builds no map of every std node (SL9b: that map
+// was 13 % of the lowering's bytes).
 func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
-	if l.stdSrc == nil {
-		l.stdSrc = map[syntax.Node]stdFile{}
+	if isNilNode(n) {
+		return stdFile{}, false
+	}
+	if sf, ok := l.stdSrc[n]; ok {
+		return sf, true
+	}
+	// The first pass walks the declarations whose span holds n's; a node
+	// whose span is not its declaration's (a synthesized one) is found by
+	// the second, which walks every declaration.
+	for _, bySpan := range []bool{true, false} {
 		for _, p := range l.libraries() {
 			if !p.Std() {
 				continue
 			}
 			for _, f := range p.Files() {
-				sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
-				if p.Path == std.PreludePath {
-					sf.path = "std/" + f.Name
-				}
-				syntax.Inspect(f, func(m syntax.Node) bool {
-					if m != nil {
-						l.stdSrc[m] = sf
+				for _, d := range f.Decls {
+					if bySpan && (d.Pos() > n.Pos() || n.End() > d.End()) || !holds(d, n) {
+						continue
 					}
-					return true
-				})
+					sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
+					if p.Path == stdlib.PreludePath {
+						sf.path = "std/" + f.Name
+					}
+					if l.stdSrc == nil {
+						l.stdSrc = map[syntax.Node]stdFile{}
+					}
+					l.stdSrc[n] = sf
+					return sf, true
+				}
 			}
+			admissionNodes(p, func(law, n syntax.Node) {
+				if sf, ok := l.stdSrc[law]; ok {
+					l.stdSrc[n] = sf
+				}
+			})
 		}
 	}
-	sf, ok := l.stdSrc[n]
-	return sf, ok && n != nil
+	return stdFile{}, false
+}
+
+// holds reports whether the tree of root has the node n.
+func holds(root, n syntax.Node) bool {
+	found := false
+	syntax.Inspect(root, func(m syntax.Node) bool {
+		if found || m == nil {
+			return false
+		}
+		found = m == n
+		return !found
+	})
+	return found
 }
 
 // eachDecl runs f on each top-level declaration of p's files, in file
@@ -262,7 +304,7 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 // the compiler ships (std's ergo.laws), as their sources do: the evidence
 // for the laws of the providers they declare (evidenceFor). A test swaps it
 // for a fixture's ledger.
-var shippedLedger = std.Ledger
+var shippedLedger = stdlib.Ledger
 
 // stdLetPkgs are the reached std packages that declare a top-level let,
 // in initialization order (importOrder). A std package imports no user
@@ -350,21 +392,99 @@ func (l *lowerer) nameStdLet(s stdLet) {
 // as flag's lawText, is neither declared nor initialized in a program
 // whose build runs no such law. The first read of each std let queues its
 // declaration; initOrder keeps Go's order whatever the order of reads.
+//
+// A sourced library's let is lowered the same way (libLetOnRead): a let no
+// lowered body reads is not declared, in a std package and in its copy in
+// a user module alike (SM-CODECOPY for a constant let; STD-COPY-SAME for
+// one with an initializer to run, such as flag's lawText in a copy of
+// flag, which reach.go's first-parameter edge reached through a law's
+// helper that no body calls).
 func (l *lowerer) reachStdLet(v *check.Var) {
 	s, ok := l.stdLetOf[v]
-	if !ok || l.stdLetQueued[s.decl] {
+	lib := false
+	if !ok {
+		s, ok = l.libLetOf[v]
+		lib = true
+	}
+	if !ok || l.stdLetQueued[s.decl] || lib && !l.libLetOnRead(s.pkg, s.decl) {
 		return
 	}
 	if l.stdLetQueued == nil {
 		l.stdLetQueued = map[*syntax.VarDecl]bool{}
 	}
 	l.stdLetQueued[s.decl] = true
+	if lib {
+		l.pending = append(l.pending, func() {
+			l.eachDecl(s.pkg, func(d syntax.Decl) {
+				if d == s.decl {
+					l.packageLet(s.decl)
+				}
+			})
+		})
+		return
+	}
 	l.pending = append(l.pending, func() {
 		l.inStdPkg(s.pkg, func() {
 			l.stdLetInits++
 			l.packageLet(s.decl)
 		})
 	})
+}
+
+// constantLet reports a let of p whose every name has a constant
+// initializer: lowered, it is a Go constant or variable with its value and
+// no code in initFunc.
+func (l *lowerer) constantLet(p *check.Package, d *syntax.VarDecl) bool {
+	for _, spec := range d.Specs {
+		if spec.Pattern != nil || len(spec.Values) == 0 || len(spec.Names) != len(spec.Values) {
+			return false
+		}
+		for i, x := range spec.Values {
+			if _, ok := p.Info.Values[x]; !ok {
+				return false
+			}
+			if _, ok := p.Info.Defs[spec.Names[i]].(*check.Var); !ok {
+				return false
+			}
+		}
+	}
+	return len(d.Specs) > 0
+}
+
+// libLetLowering selects how a sourced library's let with an initializer
+// is lowered in a build with an entry: "" (the default), where a lowered
+// body reads it, as a std package's let is (reachStdLet); or "reach", the
+// reference, with its package whenever reach.go reaches its declaration.
+// A test build and a library-shaped lowering (no reach set) lower every
+// let of a sourced library under both.
+var libLetLowering string
+
+// libLetOnRead reports whether the let d of the sourced library p is
+// lowered where a body reads it (reachStdLet) rather than with its package
+// (module.go): a constant let always, one with an initializer under
+// libLetLowering "" in a build that reach cuts.
+func (l *lowerer) libLetOnRead(p *check.Package, d *syntax.VarDecl) bool {
+	return l.constantLet(p, d) || l.reached != nil && libLetLowering != "reach"
+}
+
+// noteLibLet records the let d of the sourced library p for reachStdLet:
+// each variable it binds, by name or by pattern.
+func (l *lowerer) noteLibLet(p *check.Package, d *syntax.VarDecl) {
+	if l.libLetOf == nil {
+		l.libLetOf = map[*check.Var]stdLet{}
+	}
+	for _, spec := range d.Specs {
+		for _, id := range spec.Names {
+			if v, ok := p.Info.Defs[id].(*check.Var); ok {
+				l.libLetOf[v] = stdLet{p, d}
+			}
+		}
+		if spec.Pattern != nil {
+			for _, v := range patternVars(p.Info.Patterns[spec.Pattern], nil) {
+				l.libLetOf[v] = stdLet{p, d}
+			}
+		}
+	}
 }
 
 // importOrder orders todo for initialization: each package after every

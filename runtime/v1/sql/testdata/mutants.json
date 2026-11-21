@@ -1,0 +1,10 @@
+{
+  "about": "The mutant ledger of runtime/v1/sql: edits of std sql's host body that its own tests must kill. Run it with go run ./scripts/mutants ./runtime/v1/sql (docs/tooling.md, \"Mutant ledger\"). Seeded by wf10 STORES TX1.",
+  "mutants": [
+    {"name":"sql-begin-ignores-the-stop","origin":"wf10 STORES TX1","file":"runtime/v1/sql/sql.go","from":"\ttx, err := p.db.BeginTx(rt.GoContext(t), nil)\n","to":"\ttx, err := p.db.BeginTx(context.Background(), nil)\n","rule":"stdlib.md, sql 2: a stop of the task that began a transaction rolls it back.","killers":["runtime/v1/sql:TestHostSendsTheTransaction"]},
+    {"name":"sql-rollback-panics-when-done","origin":"wf10 STORES TX1","file":"runtime/v1/sql/sql.go","from":"\t\t_ = tx.Rollback()\n","to":"\t\tif err := tx.Rollback(); err != nil {\n\t\t\tpanic(err)\n\t\t}\n","rule":"stdlib.md, sql 2: Conn.Rollback never fails; a transaction that has ended is ErrTxDone, ignored.","killers":["runtime/v1/sql:TestHostSendsTheTransaction"]},
+    {"name":"sql-stamp-loses-nanos","origin":"wf10 STORES TX1","file":"runtime/v1/sql/sql.go","from":"\t\t\tout[i] = time.Unix(a.Sec, a.Nsec).UTC()\n","to":"\t\t\tout[i] = time.Unix(a.Sec, 0).UTC()\n","rule":"stdlib.md, sql 1: a Stamp reaches the driver as its time, to the nanosecond.","killers":["runtime/v1/sql:TestHostReadsValuesAndErrors"]},
+    {"name":"sql-error-drops-constraint","origin":"wf10 STORES TX1","file":"runtime/v1/sql/sql.go","from":"\t\t\t\t\tout.Constraint = f.String()\n","to":"\t\t\t\t\tout.Constraint = \"\"\n","rule":"stdlib.md, sql 5: a unique violation names its constraint.","killers":["runtime/v1/sql:TestHostReadsValuesAndErrors"]},
+    {"name":"sql-closed-not-read","origin":"wf10 STORES TX1","file":"runtime/v1/sql/sql.go","from":" || err.Error() == \"sql: database is closed\" {","to":" {","rule":"stdlib.md, sql 5: a statement on a pool, connection or transaction that has ended is Closed.","killers":["runtime/v1/sql:TestHostReadsValuesAndErrors"]}
+  ]
+}

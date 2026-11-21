@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -29,7 +29,7 @@ type stdOpType struct {
 
 func (o stdOpType) ref(args []string) string {
 	q := o.name
-	if o.path != std.PreludePath {
+	if o.path != stdlib.PreludePath {
 		q = o.pkg + "." + o.name
 	}
 	if len(args) > 0 {
@@ -43,9 +43,9 @@ var identRe = regexp.MustCompile(`\.?\b[A-Za-z_][A-Za-z0-9_]*\b`)
 // stdOpTypes reads every operation type (an interface type with no union)
 // that the prelude and the std packages declare.
 func stdOpTypes(t *testing.T) []stdOpType {
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, p := range std.Packages() {
-		if files, ok := std.Package(p); ok {
+	sources := map[string]map[string]string{stdlib.PreludePath: stdlib.Prelude()}
+	for _, p := range stdlib.Packages() {
+		if files, ok := stdlib.Package(p); ok {
 			sources[p] = files
 		}
 	}
@@ -97,7 +97,7 @@ func stdOpTypes(t *testing.T) []stdOpType {
 				}
 				unexported := false
 				qualify := func(text string) string {
-					if p == std.PreludePath {
+					if p == stdlib.PreludePath {
 						return text
 					}
 					return identRe.ReplaceAllStringFunc(text, func(id string) string {
@@ -169,11 +169,19 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 	body := "\n" + decl + "\nfunc Conv" + s.tparams + "(s " + mode + s.ref(s.tpnames) + ") " + target + " { s }\n"
 	var b strings.Builder
 	seen := map[string]bool{}
-	for _, list := range [][]string{s.imports, imports} {
+	// s's own imports are the ones its type names, so they are matched
+	// without the target: a Go target io.Writer names Go's io, not std io
+	// (json.Cursor->writer imported std io beside `import go io`).
+	own := decl + s.tparams + s.ref(s.tpnames)
+	for k, list := range [][]string{s.imports, imports} {
+		names := body
+		if k == 0 {
+			names = own
+		}
 		for _, i := range list {
 			for _, p := range strings.Fields(strings.TrimPrefix(i, "import")) {
 				// Only the packages the program names: an unused import is S110.
-				if !seen[p] && regexp.MustCompile(`\b`+path.Base(p)+`\.`).MatchString(body) {
+				if !seen[p] && regexp.MustCompile(`\b`+path.Base(p)+`\.`).MatchString(names) {
 					seen[p] = true
 					b.WriteString("import " + p + "\n")
 				}
@@ -203,7 +211,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	var cases []sealedCase
 	sealedSeen := 0
 	for _, s := range all {
-		if s.path == std.PreludePath && s.name != "Task" && len(s.members) == 0 {
+		if s.path == stdlib.PreludePath && s.name != "Task" && len(s.members) == 0 {
 			continue
 		}
 		probe := lowerSource("probe", strings.Replace(sealedSource(stdOpType{path: s.path, pkg: s.pkg, name: s.name, tparams: s.tparams, tpnames: s.tpnames, imports: s.imports}, nil, "", "int"), " int { s }", " int { 0 }", 1)+"func main() {}\n", false)
@@ -268,7 +276,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 				args = s.tpnames
 			}
 			var imp []string
-			if o.path != std.PreludePath {
+			if o.path != stdlib.PreludePath {
 				imp = []string{"import " + o.path}
 			}
 			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "->" + o.pkg + "." + o.name, src: sealedSource(s, imp, "", o.ref(args))})

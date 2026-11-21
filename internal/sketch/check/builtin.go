@@ -14,6 +14,7 @@ import "fmt"
 // (types.md, Bindings 1).
 //
 //	append  [T](xs []T, x T) []T   (xs []byte, s string) []byte
+//	        [T](xs []T, ys []T) []T, Go's append(xs, ys...)
 //	len     [T](xs []T) int        cap [T](xs []T) int
 //	copy    [T](dst *[]T, src []T) int
 //	clear   [T](xs *[]T)
@@ -72,6 +73,17 @@ func AppendsString(f *Func) bool {
 	return isBytes(s.Params[0].Type) && ok && b.Kind == String && isBytes(s.Results[0])
 }
 
+// AppendSpreads reports an extern of Go's append whose second parameter is
+// a slice, [T](xs []T, ys []T) []T: the call is append(xs, ys...), one bulk
+// append (SL2), where [T](xs []T, x T) []T appends one element.
+func AppendSpreads(f *Func) bool {
+	if GoBuiltin(f) != "append" || f.Sig == nil || len(f.Sig.Params) != 2 {
+		return false
+	}
+	_, ok := f.Sig.Params[1].Type.(*Slice)
+	return ok
+}
+
 // builtinRefusal is the refusal of an extern of the Go builtin b whose
 // signature is not b's shape, or "".
 func builtinRefusal(f *Func, b string) string {
@@ -108,8 +120,8 @@ func builtinRefusal(f *Func, b string) string {
 		if AppendsString(f) {
 			return ""
 		}
-		if !one || len(s.Params) != 2 || len(s.Results) != 1 || elem(s.Params[0].Type) != t || s.Params[1].Type != t || elem(s.Results[0]) != t {
-			return bad("[T](xs []T, x T) []T")
+		if !one || len(s.Params) != 2 || len(s.Results) != 1 || elem(s.Params[0].Type) != t || (s.Params[1].Type != t && elem(s.Params[1].Type) != t) || elem(s.Results[0]) != t {
+			return bad("[T](xs []T, x T) []T, or [T](xs []T, ys []T) []T")
 		}
 	case "len", "cap":
 		if !one || len(s.Params) != 1 || len(s.Results) != 1 || elem(s.Params[0].Type) != t || !isInt(s.Results[0]) {

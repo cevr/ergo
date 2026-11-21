@@ -1,0 +1,8 @@
+next
+30 2 * * *
+-tz
+America/New_York
+-from
+2026-03-07 12:00
+-n
+3

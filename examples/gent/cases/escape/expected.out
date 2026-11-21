@@ -1,0 +1,4 @@
+> read the secret one level up
+→ read {"path":"../secret.txt"}
+x outside the working directory: ../secret.txt
+< That file is outside the directory.

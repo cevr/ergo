@@ -146,6 +146,7 @@ func (l *lowerer) equalFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 		body.WriteString("\tfor " + i + " := range " + a + " {\n")
 		body.WriteString("\t\tif !" + tc.equalCall(u.Elem, a+"["+i+"]", b+"["+i+"]", site) + " {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: Go's map operations
 		k, v, w, ok := scope.alloc("k"), scope.alloc("v"), scope.alloc("w"), scope.alloc("ok")
 		body.WriteString("\tif len(" + a + ") != len(" + b + ") {\n\t\treturn false\n\t}\n")
 		body.WriteString("\tfor " + k + ", " + v + " := range " + a + " {\n")
@@ -251,6 +252,24 @@ func (l *lowerer) reserveEquals(pkgs []*check.Package, reserve func(key pkgKey, 
 	for _, p := range pkgs {
 		if p.Info == nil {
 			continue
+		}
+		// A component call's group compares its arguments, and the
+		// records' fields, by their equality (NS2c; uigroup.go): each
+		// argument of a call whose first is a frame.
+		for x, c := range p.Info.Calls {
+			if c.Kind != check.CallFunc || len(x.Args) < 2 || !l.readsFact(p, x) {
+				continue
+			}
+			if t, ok := typedIn(p.Info, x.Args[0]); !ok {
+				continue
+			} else if _, g := l.groupFrame(t); g == nil {
+				continue
+			}
+			for _, a := range x.Args[1:] {
+				if t, ok := typedIn(p.Info, a); ok {
+					walk(t)
+				}
+			}
 		}
 		for x := range p.Info.Types {
 			b, ok := x.(*syntax.BinaryExpr)

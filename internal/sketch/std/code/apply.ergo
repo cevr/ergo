@@ -1,0 +1,756 @@
+import maps
+import strings
+import sync
+
+// Missing is a path that holds no file.
+type Missing { Path string }
+
+// IOFailed is a file operation that failed, or a provider that stopped
+// (the process died, in the memory provider's terms).
+type IOFailed { Reason string }
+
+// Busy is a workspace whose apply lock another applier holds.
+type Busy {}
+
+// Files is the seam Apply writes through: a workspace's files, an atomic
+// exchange of two paths, and the workspace's apply lock. The product
+// provider (SEMTOOLS SEM4b, after README Gap 17) exchanges with Linux's
+// renameat2(RENAME_EXCHANGE) or macOS's renamex_np(RENAME_SWAP) and syncs
+// each write; Disk is the memory provider, which can fail or stop at any
+// call.
+type Files {
+	Read(path string) string fails Missing | IOFailed,
+	Write(path string, text string) fails IOFailed,
+	Exchange(a string, b string) fails Missing | IOFailed,
+	Remove(path string) fails IOFailed,
+	Exists(path string) bool fails IOFailed,
+	Lock() fails Busy | IOFailed,
+	Unlock() fails IOFailed,
+
+	// ExchangeSwaps: after Exchange(a, b), a holds what b held and b what
+	// a held.
+	law ExchangeSwaps(x string, y string) { exchangeSwaps(x, y) },
+	// WriteThenRead: a path reads back what was written to it.
+	law WriteThenRead(x string) { writeThenRead(x) },
+}
+
+func exchangeSwaps(x string, y string) bool needs Files {
+	let ok = probeFiles(func() bool fails Missing | IOFailed | Busy needs Files {
+		try Files.Write("law/a", x)
+		try Files.Write("law/b", y)
+		try Files.Exchange("law/a", "law/b")
+		let a = try Files.Read("law/a")
+		let b = try Files.Read("law/b")
+		a == y && b == x
+	})
+	ok
+}
+
+func writeThenRead(x string) bool needs Files {
+	probeFiles(func() bool fails Missing | IOFailed | Busy needs Files {
+		try Files.Write("law/c", x)
+		let back = try Files.Read("law/c")
+		try Files.Remove("law/c")
+		let gone = !try Files.Exists("law/c")
+		back == x && gone
+	})
+}
+
+// probeFiles is f's answer; a failure is false.
+func probeFiles(f func() bool fails Missing | IOFailed | Busy needs Files) bool needs Files {
+	f() catch {
+	case Missing:
+		false
+	case IOFailed:
+		false
+	case Busy:
+		false
+	}
+}
+
+// diskState is what every handle of one memory disk shares: the files,
+// the handle that holds the lock (0 for none) and the next handle's id.
+type diskState {
+	files  Map[string, string],
+	holder int,
+	next   int,
+}
+
+// Disk is the memory Files: a handle on a memory disk that the handles
+// Reopen and Faulty make share. A handle counts its calls; at StopAt it
+// stops (its lock is let go, as a dead process's is) and every later call
+// fails; at FailAt that one call fails; before call OutsideAt, the file
+// Outside gets an outside write ("OUT " before what it held), as an
+// editor that does not use the Api might write it.
+type Disk {
+	state     sync.Ref[diskState],
+	id        int,
+	calls     sync.Ref[int],
+	alive     sync.Ref[bool],
+	StopAt    int,
+	FailAt    int,
+	OutsideAt int,
+	Outside   string,
+} implements Files
+
+// DiskOf is a memory disk that holds sources, and a handle on it with no
+// fault.
+func DiskOf(sources []Source) Disk {
+	let mut files = Map[string, string]{}
+	for s in sources {
+		files[s.File] = s.Text
+	}
+	handle(sync.NewRef(diskState{files: files, holder: 0, next: 1}), 0, 0, 0, "")
+}
+
+// NewDisk is DiskOf(Sample(seed)).
+func NewDisk(seed int) Disk { DiskOf(Sample(seed)) }
+
+// Reopen is a new handle on d's disk with no fault: the next process.
+func Reopen(d Disk) Disk { handle(d.state, 0, 0, 0, "") }
+
+// Faulty is a new handle on d's disk that stops at call stopAt, fails at
+// call failAt and lets an outside write of outside in before call
+// outsideAt (0 for none of each).
+func Faulty(d Disk, stopAt int, failAt int, outsideAt int, outside string) Disk {
+	handle(d.state, stopAt, failAt, outsideAt, outside)
+}
+
+func handle(state sync.Ref[diskState], stopAt int, failAt int, outsideAt int, outside string) Disk {
+	let st = state.Get()
+	state.Set(diskState{files: st.files, holder: st.holder, next: st.next + 1})
+	Disk{state: state, id: st.next, calls: sync.NewRef(0), alive: sync.NewRef(true), StopAt: stopAt, FailAt: failAt, OutsideAt: outsideAt, Outside: outside}
+}
+
+// Contents is every file of d's disk.
+func Contents(d Disk) Map[string, string] { d.state.Get().files }
+
+// Calls is how many calls d has had.
+func Calls(d Disk) int { d.calls.Get() }
+
+// Holder is the id of the handle that holds d's disk's lock, 0 for none.
+func Holder(d Disk) int { d.state.Get().holder }
+
+// OutsideText is what the outside write leaves in a file that held text.
+func OutsideText(text string) string { "OUT " + text }
+
+// tick counts a call of d: the outside write, then a stop or a failure.
+func tick(d Disk) fails IOFailed {
+	d.calls.Update(func(n int) int { n + 1 })
+	let n = d.calls.Get()
+	if n == d.OutsideAt {
+		let st = d.state.Get()
+		let mut files = st.files
+		files[d.Outside] = OutsideText(maps.GetOr(files, d.Outside, ""))
+		d.state.Set(diskState{files: files, holder: st.holder, next: st.next})
+	}
+	if !d.alive.Get() {
+		return IOFailed{Reason: "the handle stopped"}
+	}
+	if n == d.StopAt {
+		d.alive.Set(false)
+		let st = d.state.Get()
+		if st.holder == d.id {
+			d.state.Set(diskState{files: st.files, holder: 0, next: st.next})
+		}
+		return IOFailed{Reason: "the handle stopped"}
+	}
+	if n == d.FailAt {
+		return IOFailed{Reason: "the call failed"}
+	}
+}
+
+func setFile(d Disk, path string, text Option[string]) {
+	let st = d.state.Get()
+	let mut files = st.files
+	match text {
+	case Some[string] as t:
+		files[path] = t.Value
+	case None:
+		files = files.Delete(path)
+	}
+	d.state.Set(diskState{files: files, holder: st.holder, next: st.next})
+}
+
+func Read(d Disk, path string) string fails Missing | IOFailed {
+	try tick(d)
+	match d.state.Get().files.Get(path) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		Missing{Path: path}
+	}
+}
+
+func Write(d Disk, path string, text string) fails IOFailed {
+	try tick(d)
+	setFile(d, path, Some[string]{Value: text})
+}
+
+func Exchange(d Disk, a string, b string) fails Missing | IOFailed {
+	try tick(d)
+	let files = d.state.Get().files
+	let x = try present(files, a)
+	let y = try present(files, b)
+	setFile(d, a, Some[string]{Value: y})
+	setFile(d, b, Some[string]{Value: x})
+}
+
+func present(files Map[string, string], path string) string fails Missing {
+	match files.Get(path) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		Missing{Path: path}
+	}
+}
+
+func Remove(d Disk, path string) fails IOFailed {
+	try tick(d)
+	setFile(d, path, None)
+}
+
+func Exists(d Disk, path string) bool fails IOFailed {
+	try tick(d)
+	match d.state.Get().files.Get(path) {
+	case Some[string]:
+		true
+	case None:
+		false
+	}
+}
+
+func Lock(d Disk) fails Busy | IOFailed {
+	try tick(d)
+	let st = d.state.Get()
+	if st.holder != 0 && st.holder != d.id {
+		return Busy
+	}
+	d.state.Set(diskState{files: st.files, holder: d.id, next: st.next})
+}
+
+func Unlock(d Disk) fails IOFailed {
+	try tick(d)
+	let st = d.state.Get()
+	if st.holder == d.id {
+		d.state.Set(diskState{files: st.files, holder: 0, next: st.next})
+	}
+}
+
+// NotReady is a plan whose verdict is Blocked: Apply writes only a Ready
+// plan.
+type NotReady { ID string, Diagnostics []Diagnostic }
+
+// Stale is a plan that read a file whose revision has changed, or a file
+// that an outside write changed while Apply wrote: Apply changed nothing
+// (it put back what it had exchanged).
+type Stale { ID string, Files []string }
+
+// Receipt is an applied plan and the revision of each file it wrote.
+type Receipt { ID string, Files []FileRead }
+
+// Recovered is what a recovery found: "none" (no journal), "back" (an
+// apply that had not committed, undone), or "forward" (an apply that had
+// committed, finished).
+type Recovered { Outcome string }
+
+// Writer applies plans. Apply is the only operation of package code that
+// writes a source file.
+//
+// The protocol is the model models/apply (proved there): take the lock
+// and recover any journal a dead applier left; read each file the plan
+// read and refuse Stale unless each is at its revision; write the journal
+// (intent) and a temporary file per changed file; for each, EXCHANGE the
+// temporary file and the path in one call and VERIFY that what came out
+// is the revision the plan read, else restore and refuse Stale; write the
+// journal (committed); remove the temporary files and the journal. The
+// restore reads only the disk and the journal, so a restore that stops
+// half way starts again.
+type Writer {
+	Apply(id string) Receipt fails NoPlan | NotReady | Stale | Busy | IOFailed,
+	Recover() Recovered fails Busy | IOFailed,
+
+	// UnknownPlanIsNoPlan: an id the store does not hold is NoPlan, and
+	// nothing is written.
+	law UnknownPlanIsNoPlan(id string) { unknownPlanIsNoPlan(id) },
+}
+
+func unknownPlanIsNoPlan(id string) bool needs Writer {
+	let _ = Writer.Apply(id) catch {
+	case NoPlan:
+		return true
+	case NotReady:
+		return false
+	case Stale:
+		return false
+	case Busy:
+		return false
+	case IOFailed:
+		return false
+	}
+	false
+}
+
+// Applier is the Writer over files and the store a Session plans into.
+type Applier {
+	files Files,
+	store Store,
+} implements Writer
+
+// ApplierOf is the writer of the plans in store, through files.
+func ApplierOf(files Files, store Store) Applier { Applier{files: files, store: store} }
+
+// NewApplier is the writer of an empty store over NewDisk(seed).
+func NewApplier(seed int) Applier { ApplierOf(NewDisk(seed), NewStore()) }
+
+// JournalPath is where Apply keeps its journal, from the workspace root.
+let JournalPath = ".ergo/apply.journal"
+
+// tempOf is the temporary file of a path, in the path's own folder.
+func tempOf(path string) string { path + ".ergo-apply~" }
+
+func Apply(a Applier, id string) Receipt fails NoPlan | NotReady | Stale | Busy | IOFailed {
+	let p = try lookup(a.store, id)
+	match p.Verdict {
+	case Blocked as b:
+		return NotReady{ID: id, Diagnostics: b.Diagnostics}
+	case Ready:
+	}
+	try a.files.Lock()
+	let r = applyLocked(a.files, p) catch {
+	case Stale as s:
+		release(a.files)
+		return s
+	case IOFailed as e:
+		// A failed call: put back what the journal says, when the files
+		// still answer; a stopped applier leaves it to the next one.
+		let _ = restoreLocked(a.files) catch {
+		case IOFailed:
+			Recovered{Outcome: "none"}
+		}
+		release(a.files)
+		return e
+	}
+	release(a.files)
+	r
+}
+
+func Recover(a Applier) Recovered fails Busy | IOFailed {
+	try a.files.Lock()
+	let r = restoreLocked(a.files) catch {
+	case IOFailed as e:
+		release(a.files)
+		return e
+	}
+	release(a.files)
+	r
+}
+
+// release lets the lock go, trying twice; a handle that stopped lets it
+// go as it stops, as the operating system lets a dead process's lock go.
+func release(files Files) {
+	files.Unlock() catch {
+	case IOFailed:
+		files.Unlock() catch {
+		case IOFailed:
+		}
+	}
+}
+
+func applyLocked(files Files, p Planned) Receipt fails Stale | IOFailed {
+	try restoreLocked(files)
+	let mut stale = []string{}
+	for r in p.Reads {
+		let text = files.Read(r.File) catch {
+		case Missing:
+			stale = stale.Append(r.File)
+			continue
+		case IOFailed as e:
+			return e
+		}
+		if revision(text) != r.Revision {
+			stale = stale.Append(r.File)
+		}
+	}
+	if len(stale) > 0 {
+		return Stale{ID: p.ID, Files: stale}
+	}
+	let mut wrote = []FileRead{}
+	for f in p.Files {
+		wrote = wrote.Append(FileRead{File: f.File, Revision: f.New})
+	}
+	if len(p.Files) == 0 {
+		return Receipt{ID: p.ID, Files: wrote}
+	}
+	try files.Write(JournalPath, journalText("intent", p))
+	for f in p.Files {
+		try files.Write(tempOf(f.File), f.Text)
+	}
+	for f in p.Files {
+		try exchanged(files, tempOf(f.File), f.File)
+		let out = try readOr(files, tempOf(f.File))
+		if revision(out) != f.Old {
+			try restoreLocked(files)
+			return Stale{ID: p.ID, Files: []string{f.File}}
+		}
+	}
+	try files.Write(JournalPath, journalText("committed", p))
+	for f in p.Files {
+		try files.Remove(tempOf(f.File))
+	}
+	try files.Remove(JournalPath)
+	Receipt{ID: p.ID, Files: wrote}
+}
+
+// exchanged is files.Exchange, a missing path an IO failure.
+func exchanged(files Files, a string, b string) fails IOFailed {
+	files.Exchange(a, b) catch {
+	case Missing as m:
+		return IOFailed{Reason: "\(m.Path) is missing"}
+	case IOFailed as e:
+		return e
+	}
+}
+
+// readOr is files.Read, a missing path an IO failure.
+func readOr(files Files, path string) string fails IOFailed {
+	files.Read(path) catch {
+	case Missing as m:
+		return IOFailed{Reason: "\(m.Path) is missing"}
+	case IOFailed as e:
+		return e
+	}
+}
+
+// journalText is the journal of p in state ("intent" or "committed"): the
+// state, the plan id, and per changed file its path and the revisions it
+// read and writes.
+func journalText(state string, p Planned) string {
+	let mut out = state + "\n" + p.ID + "\n"
+	for f in p.Files {
+		out = out + f.File + "\t" + f.Old + "\t" + f.New + "\n"
+	}
+	out
+}
+
+// journalEntry is one changed file of a journal.
+type journalEntry { File string, Old string, New string }
+
+func journalEntries(text string) []journalEntry {
+	let mut out = []journalEntry{}
+	for i, line in strings.Split(text, "\n") {
+		let parts = strings.Split(line, "\t")
+		if i >= 2 && len(parts) == 3 {
+			out = out.Append(journalEntry{File: parts[0], Old: parts[1], New: parts[2]})
+		}
+	}
+	out
+}
+
+// restoreLocked is recovery: it reads only the journal and the disk. No
+// journal: nothing to do. Committed: remove the temporary files and the
+// journal. Intent: for the first file with a temporary file: it holds the
+// new text: remove it; it holds the old text: when the path holds the new
+// text exchange them back, else remove it; it holds other text (an
+// outside write that the exchange took): exchange it back. With no
+// temporary file left, remove the journal. Each round makes progress, so
+// at most a few rounds a file settle it.
+func restoreLocked(files Files) Recovered fails IOFailed {
+	if !try files.Exists(JournalPath) {
+		return Recovered{Outcome: "none"}
+	}
+	let text = try readOr(files, JournalPath)
+	let entries = journalEntries(text)
+	if strings.HasPrefix(text, "committed\n") {
+		for e in entries {
+			if try files.Exists(tempOf(e.File)) {
+				try files.Remove(tempOf(e.File))
+			}
+		}
+		try files.Remove(JournalPath)
+		return Recovered{Outcome: "forward"}
+	}
+	for _ in 0..4 * len(entries) + 4 {
+		let mut busy = false
+		for e in entries {
+			let temp = tempOf(e.File)
+			if !try files.Exists(temp) {
+				continue
+			}
+			busy = true
+			let held = revision(try readOr(files, temp))
+			if held == e.New {
+				try files.Remove(temp)
+			} else if held == e.Old {
+				let at = files.Read(e.File) catch {
+				case Missing:
+					""
+				case IOFailed as x:
+					return x
+				}
+				if revision(at) == e.New {
+					try exchanged(files, temp, e.File)
+				} else {
+					try files.Remove(temp)
+				}
+			} else {
+				try exchanged(files, temp, e.File)
+			}
+			break
+		}
+		if !busy {
+			try files.Remove(JournalPath)
+			return Recovered{Outcome: "back"}
+		}
+	}
+	IOFailed{Reason: "the restore did not settle"}
+}
+
+// readyTrial is a Ready plan that changes at least one file, drawn from
+// seed, pick and word, or a trial whose Ok is false.
+func readyTrial(seed int, pick int, word int) Trial {
+	let t = trialOf(Sample(seed), SampleChange(pick, word))
+	Trial{Ok: t.Ok && isReady(t.Plan.Verdict) && len(t.Plan.Files) > 0, Sources: t.Sources, Store: t.Store, Plan: t.Plan}
+}
+
+// clean is whether d's disk holds no temporary file and no journal, and
+// no handle holds its lock.
+func clean(d Disk) bool {
+	let mut ok = Holder(d) == 0
+	for path in maps.Keys(Contents(d)) {
+		ok = ok && path != JournalPath && !strings.HasSuffix(path, ".ergo-apply~")
+	}
+	ok
+}
+
+// AppliedIsPlanned: after Apply, each file the plan changes holds the
+// plan's text, the receipt names their new revisions, every other file
+// is as it was, and nothing of the apply is left.
+law AppliedIsPlanned(seed int, pick int, word int) { appliedIsPlanned(seed, pick, word) }
+
+// isReady is whether a verdict is Ready.
+func isReady(v Verdict) bool {
+	match v {
+	case Ready:
+		true
+	case Blocked:
+		false
+	}
+}
+
+func appliedIsPlanned(seed int, pick int, word int) bool {
+	let t = readyTrial(seed, pick, word)
+	if !t.Ok {
+		return true
+	}
+	let disk = DiskOf(t.Sources)
+	let r = ApplierOf(disk, t.Store).Apply(t.Plan.ID) catch {
+	case NoPlan:
+		return false
+	case NotReady:
+		return false
+	case Stale:
+		return false
+	case Busy:
+		return false
+	case IOFailed:
+		return false
+	}
+	let files = Contents(disk)
+	let mut ok = clean(disk) && r.ID == t.Plan.ID && len(r.Files) == len(t.Plan.Files)
+	for i, f in t.Plan.Files {
+		ok = ok && files.Get(f.File) == Some[string]{Value: f.Text} && r.Files[i] == FileRead{File: f.File, Revision: f.New}
+	}
+	for s in t.Sources {
+		if textOf(changedTexts(t.Plan), s.File) == "" {
+			ok = ok && files.Get(s.File) == Some[string]{Value: s.Text}
+		}
+	}
+	ok
+}
+
+// changedTexts is the files a plan changes, with their new texts.
+func changedTexts(p Planned) []Source {
+	let mut out = []Source{}
+	for f in p.Files {
+		out = out.Append(Source{File: f.File, Text: f.Text})
+	}
+	out
+}
+
+// StaleChangesNothing: when a file the plan read, changed or not, is
+// written by someone else before Apply, Apply refuses Stale and the disk
+// holds only that outside write.
+law StaleChangesNothing(seed int, pick int, word int, which int) { staleChangesNothing(seed, pick, word, which) }
+
+func staleChangesNothing(seed int, pick int, word int, which int) bool {
+	let t = readyTrial(seed, pick, word)
+	if !t.Ok {
+		return true
+	}
+	let disk = DiskOf(t.Sources)
+	let file = t.Sources[slot(which, len(t.Sources))].File
+	let h = Faulty(disk, 0, 0, 1, file)
+	let _ = ApplierOf(h, t.Store).Apply(t.Plan.ID) catch {
+	case Stale as s:
+		let files = Contents(disk)
+		let mut ok = clean(disk) && s.Files == []string{file}
+		for src in t.Sources {
+			let want = if src.File == file { OutsideText(src.Text) } else { src.Text }
+			ok = ok && files.Get(src.File) == Some[string]{Value: want}
+		}
+		return ok
+	case NoPlan:
+		return false
+	case NotReady:
+		return false
+	case Busy:
+		return false
+	case IOFailed:
+		return false
+	}
+	false
+}
+
+// SecondApplyIsStale: a plan applied once is Stale the second time.
+law SecondApplyIsStale(seed int, pick int, word int) { secondApplyIsStale(seed, pick, word) }
+
+func secondApplyIsStale(seed int, pick int, word int) bool {
+	let t = readyTrial(seed, pick, word)
+	if !t.Ok {
+		return true
+	}
+	let w = ApplierOf(DiskOf(t.Sources), t.Store)
+	let _ = w.Apply(t.Plan.ID) catch {
+	case _:
+		return false
+	}
+	let _ = w.Apply(t.Plan.ID) catch {
+	case Stale:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+// PlanOfAppliedIsEmpty: a Replace, Fixes or Script planned again on the
+// files it wrote changes nothing: a codemod is idempotent.
+law PlanOfAppliedIsEmpty(seed int, pick int, word int) { planOfAppliedIsEmpty(seed, pick, word) }
+
+func planOfAppliedIsEmpty(seed int, pick int, word int) bool {
+	let c = SampleChange(pick, word)
+	match c {
+	case Insert:
+		return true
+	case Delete:
+		return true
+	case Rename:
+		return true
+	case _:
+	}
+	let t = readyTrial(seed, pick, word)
+	if !t.Ok {
+		return true
+	}
+	let disk = DiskOf(t.Sources)
+	let _ = ApplierOf(disk, t.Store).Apply(t.Plan.ID) catch {
+	case _:
+		return false
+	}
+	let files = Contents(disk)
+	let mut now = []Source{}
+	for s in t.Sources {
+		now = now.Append(Source{File: s.File, Text: maps.GetOr(files, s.File, "")})
+	}
+	let again = trialOf(now, c)
+	again.Ok && len(again.Plan.Files) == 0
+}
+
+// ApplyIsSafe is the model models/apply run on the product: a plan that
+// changes two files is applied by a handle that stops (mode even) or
+// fails once (mode odd) at call at, while an outside write may hit one of
+// the files before any call; a stopped applier is followed by a new one
+// that recovers. Then: an outside write is kept (NoLostEdit); the other
+// files the plan changes are all new or all old, new when Apply
+// answered, old when it refused (AllOrNothing); the files it only read
+// are as they were; and no temporary file, journal or lock is left
+// (Clean).
+law ApplyIsSafe(seed int, mode int, at int, out int) { applyIsSafe(seed, mode, at, out) }
+
+func applyIsSafe(seed int, mode int, at int, out int) bool {
+	let sources = Sample(seed)
+	let report = Model.Check(sources) catch {
+	case CheckFailed:
+		return false
+	}
+	// The first declaration of the first two files.
+	let mut picked = []Extent{}
+	for e in report.Extents {
+		if len(picked) == 0 || (len(picked) == 1 && picked[0].File != e.File) {
+			picked = picked.Append(e)
+		}
+	}
+	if len(picked) < 2 {
+		return true
+	}
+	let mut steps = []Change{}
+	for e in picked {
+		let name = strings.TrimPrefix(e.Handle, packageOf(e.File) + ".")
+		steps = steps.Append(Replace{Of: e.Handle, Text: "func \(name)\n\tkeep \(seed)\n"})
+	}
+	let t = trialOf(sources, Script{Steps: steps})
+	if !t.Ok || !isReady(t.Plan.Verdict) || len(t.Plan.Files) != 2 {
+		return false
+	}
+	let disk = DiskOf(sources)
+	let outFile = t.Plan.Files[slot(out, 2)].File
+	let outAt = slot(out / 2, 32)
+	let n = 1 + slot(at, 32)
+	let stops = slot(mode, 2) == 0
+	let h = Faulty(disk, if stops { n } else { 0 }, if stops { 0 } else { n }, outAt, outFile)
+	let mut outcome = "applied"
+	let _ = ApplierOf(h, t.Store).Apply(t.Plan.ID) catch {
+	case Stale:
+		outcome = "stale"
+		Receipt{ID: "", Files: []FileRead{}}
+	case IOFailed:
+		outcome = "failed"
+		Receipt{ID: "", Files: []FileRead{}}
+	case _:
+		return false
+	}
+	if stops && outcome == "failed" {
+		let _ = ApplierOf(Reopen(disk), t.Store).Recover() catch {
+		case _:
+			return false
+		}
+	}
+	let wrote = outAt > 0 && h.Calls() >= outAt
+	let files = Contents(disk)
+	let mut news = 0
+	let mut olds = 0
+	for f in t.Plan.Files {
+		let old = textOf(sources, f.File)
+		let now = maps.GetOr(files, f.File, "")
+		if wrote && f.File == outFile {
+			continue
+		}
+		if now == f.Text {
+			news = news + 1
+		} else if now == old {
+			olds = olds + 1
+		} else {
+			return false
+		}
+	}
+	let kept = !wrote || strings.HasPrefix(maps.GetOr(files, outFile, ""), "OUT ")
+	let whole = if outcome == "applied" { olds == 0 } else if outcome == "stale" { news == 0 } else { news == 0 || olds == 0 }
+	let mut untouched = true
+	for s in sources {
+		if textOf(changedTexts(t.Plan), s.File) == "" {
+			untouched = untouched && files.Get(s.File) == Some[string]{Value: s.Text}
+		}
+	}
+	kept && whole && untouched && clean(disk)
+}

@@ -1,0 +1,1 @@
+law len(xs []int) { len(xs) <= len(xs) + 1 }

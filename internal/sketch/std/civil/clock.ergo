@@ -1,0 +1,119 @@
+// Times of day and dates with a time of day, with no zone. An instant is
+// read and written in UTC; a zone's wall clock is package tz's.
+
+import time
+
+// TimeOfDay is a time of day: nanoseconds from midnight, 0 to
+// 86,399,999,999,999. There is no leap second: 23:59:60 is not a
+// TimeOfDay. Only this package builds one, with NewTimeOfDay.
+type TimeOfDay { ns int64 }
+
+// NoSuchTime is the failure of NewTimeOfDay: a field is out of its range.
+type NoSuchTime { Hour int, Minute int, Second int, Nanosecond int }
+
+// DateTime is a date and a time of day, with no zone. Every pair is a
+// valid DateTime, so its fields are exported.
+type DateTime { Date Date, Time TimeOfDay }
+
+// dayNanos is the count of nanoseconds in a day.
+func dayNanos() int64 { 86400000000000 }
+
+// Midnight is 00:00, the first TimeOfDay.
+func Midnight() TimeOfDay { TimeOfDay{ns: 0} }
+
+// NewTimeOfDay is hour:minute:second.nanosecond, or NoSuchTime when the
+// hour is not 0 to 23, the minute or second not 0 to 59, or the
+// nanosecond not 0 to 999,999,999.
+func NewTimeOfDay(hour int, minute int, second int, nanosecond int) TimeOfDay fails NoSuchTime {
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || nanosecond < 0 || nanosecond > 999999999 {
+		return NoSuchTime{Hour: hour, Minute: minute, Second: second, Nanosecond: nanosecond}
+	}
+	TimeOfDay{ns: ((int64(hour)*60+int64(minute))*60+int64(second))*1000000000 + int64(nanosecond)}
+}
+
+// Hour is the hour of t, 0 to 23; Minute, Second and Nanosecond its other
+// fields.
+func Hour(t TimeOfDay) int { int(t.ns / 3600000000000) }
+
+func Minute(t TimeOfDay) int { int(t.ns / 60000000000 % 60) }
+
+func Second(t TimeOfDay) int { int(t.ns / 1000000000 % 60) }
+
+func Nanosecond(t TimeOfDay) int { int(t.ns % 1000000000) }
+
+// SinceMidnight is the duration from midnight to t.
+func SinceMidnight(t TimeOfDay) duration { duration(t.ns) }
+
+// DateTimeOf is the date and time of day of t in UTC. An instant before
+// year 1 is MinDate at midnight; one after year 9999 is the last
+// nanosecond of MaxDate.
+func DateTimeOf(t time.Time) DateTime {
+	let days = floorDiv(time.UnixSeconds(t), 86400)
+	if days < minDay() {
+		return DateTime{Date: MinDate(), Time: Midnight()}
+	}
+	if days > maxDay() {
+		return DateTime{Date: MaxDate(), Time: TimeOfDay{ns: dayNanos() - 1}}
+	}
+	DateTime{Date: Date{day: int32(days)}, Time: TimeOfDay{ns: (time.UnixSeconds(t)-days*86400)*1000000000 + time.Nanosecond(t)}}
+}
+
+// Instant is the instant dt reads in UTC.
+func Instant(dt DateTime) time.Time { time.Unix(int64(dt.Date.day)*86400+dt.Time.ns/1000000000, dt.Time.ns%1000000000) }
+
+// AddDuration is dt moved by d on a clock with no zone, so every day is 24
+// hours, saturated at the first and last nanosecond of the calendar.
+func AddDuration(dt DateTime, d duration) DateTime { DateTimeOf(time.Add(Instant(dt), d)) }
+
+// Sub is the duration from b to a, saturated at the range of a duration.
+func Sub(a DateTime, b DateTime) duration { time.Sub(Instant(a), Instant(b)) }
+
+// TimeOfDayRoundTrips: NewTimeOfDay fails exactly when a field is out of
+// range, and the fields read back.
+law TimeOfDayRoundTrips(h int64, m int64, s int64, n int64) {
+	let hour = int(within(h, -1, 24))
+	let minute = int(within(m, -1, 60))
+	let second = int(within(s, -1, 60))
+	let nano = int(within(n, -1, 1000000000))
+	let valid = hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 && second >= 0 && second <= 59 && nano >= 0 && nano <= 999999999
+	let t = NewTimeOfDay(hour, minute, second, nano) catch {
+	case NoSuchTime:
+		return !valid
+	}
+	valid && Hour(t) == hour && Minute(t) == minute && Second(t) == second && Nanosecond(t) == nano
+}
+
+// InstantInvertsDateTimeOf: the instant of an instant's date and time of
+// day is the instant, and moving a DateTime by a duration and back keeps
+// it away from the calendar's ends.
+law InstantInvertsDateTimeOf(sec int64, nsec int64, k int64) {
+	let t = time.NewTime(sec, nsec)
+	let dt = DateTimeOf(t)
+	let d = duration(within(k, -100000000000000000, 100000000000000000))
+	let there = AddDuration(dt, d)
+	Instant(dt).Equal(t) && (there.Date == MinDate() || there.Date == MaxDate() || Sub(there, dt) == d && AddDuration(there, -d) == dt)
+}
+
+// DurationParts is a duration in days of 24 hours, hours, minutes, seconds
+// and nanoseconds, each with the duration's sign.
+type DurationParts { Days int, Hours int, Minutes int, Seconds int, Nanoseconds int }
+
+// Parts is d in parts, as Effect's Duration.parts, for a text of one's
+// own ("2 h 5 min"): Hours is below 24, Minutes and Seconds below 60 and
+// Nanoseconds below 10^9 in size, and a negative d has no part above zero
+// (Go's division toward zero), so the parts add up to d.
+func Parts(d duration) DurationParts {
+	let n = int64(d)
+	DurationParts{Days: int(n / 86400000000000), Hours: int(n / 3600000000000 % 24), Minutes: int(n / 60000000000 % 60), Seconds: int(n / 1000000000 % 60), Nanoseconds: int(n % 1000000000)}
+}
+
+// PartsAddUp: the parts add up to d, each in its range and none of the
+// other sign.
+law PartsAddUp(d duration) {
+	let p = Parts(d)
+	let n = int64(d)
+	let sum = int64(p.Days) * 86400000000000 + int64(p.Hours) * 3600000000000 + int64(p.Minutes) * 60000000000 + int64(p.Seconds) * 1000000000 + int64(p.Nanoseconds)
+	let small = p.Hours > -24 && p.Hours < 24 && p.Minutes > -60 && p.Minutes < 60 && p.Seconds > -60 && p.Seconds < 60 && p.Nanoseconds > -1000000000 && p.Nanoseconds < 1000000000
+	let signed = if n < 0 { p.Days <= 0 && p.Hours <= 0 && p.Minutes <= 0 && p.Seconds <= 0 && p.Nanoseconds <= 0 } else { p.Days >= 0 && p.Hours >= 0 && p.Minutes >= 0 && p.Seconds >= 0 && p.Nanoseconds >= 0 }
+	sum == n && small && signed
+}

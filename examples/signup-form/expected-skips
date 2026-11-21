@@ -1,0 +1,4 @@
+# memory.Slow holds the wait main gives it (a sleep on the script's
+# clock), and a generated clock never moves; its Taken is List's after the
+# wait, and the law runs for List.
+skip law subscribe.Subscribers.TakenIgnoresCase for Slow: its values have no generator: func() is a function type; bind one in a named context of a test file, let Name = context { subscribe.Subscribers: … }, and the law runs under it

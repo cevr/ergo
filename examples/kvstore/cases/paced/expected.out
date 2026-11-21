@@ -1,0 +1,17 @@
+no keys
+ok
+ok
+ok
+Go and Ergo
+missing nosuch
+lang
+name
+deleted name
+missing name
+lang="Go and Ergo"
+compacted
+lang="Go and Ergo"
+? unknown command fly; commands: put get del keys dump compact
+? usage: get KEY
+? usage: put KEY VALUE
+? usage: keys

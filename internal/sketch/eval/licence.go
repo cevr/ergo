@@ -72,12 +72,15 @@ type ambient struct {
 	dir  string
 	env  []string
 	zone *time.Location
+	// index is the state's place in ambients: a module body's driver
+	// of the same state runs it (gobodies.go).
+	index int
 }
 
 // ambients are the two states each side runs under.
 var ambients = [2]ambient{
 	{dir: "/", zone: time.UTC},
-	{dir: "/nonexistent/ergo-licence", env: []string{"ERGO_LICENCE=second"}, zone: time.FixedZone("UTC+05:45", 5*3600+45*60)},
+	{dir: "/nonexistent/ergo-licence", env: []string{"ERGO_LICENCE=second"}, zone: time.FixedZone("UTC+05:45", 5*3600+45*60), index: 1},
 }
 
 // Licence is the outcome of a licence run.
@@ -142,7 +145,10 @@ func (l Licence) Line() string {
 // LicenceRun runs the licence run of law, a top-level law of pkg in the
 // rewrite's scope, under b (its Steps and Bytes bound the whole run). An
 // error is an internal error of the evaluator.
-func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string) (Licence, error) {
+//
+// goBodies runs the module's own Go bodies the law reaches (LAWFFI LF2m;
+// gobodies.go); nil runs none, and a law that reaches one is skipped.
+func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string, goBodies GoBodies) (Licence, error) {
 	if b.Steps <= 0 || b.Depth <= 0 || b.Bytes < 0 {
 		return Licence{}, ErrBudget
 	}
@@ -152,17 +158,17 @@ func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string) (
 	if b.States == 0 {
 		b.States = defaultStates
 	}
-	if pkg == nil || pkg.Info == nil || law == nil || law.FuncRewrite == nil {
+	if pkg == nil || pkg.Info == nil || law == nil || law.TopRewrite() == nil {
 		return Licence{}, fmt.Errorf("eval: law %v is no rewrite in scope", law)
 	}
 	defer raiseGC()()
-	l, ranged, err := licenceOrdered(pkg, law, b, corpus, mapAscending)
+	l, ranged, err := licenceOrdered(pkg, law, b, corpus, mapAscending, goBodies)
 	if err != nil || !ranged {
 		return l, err
 	}
 	// A for over a Map ran: only an outcome the other order also gives
 	// is a verdict (maporder.go).
-	other, _, err := licenceOrdered(pkg, law, b, corpus, mapDescending)
+	other, _, err := licenceOrdered(pkg, law, b, corpus, mapDescending, goBodies)
 	if err != nil {
 		return l, err
 	}
@@ -179,8 +185,8 @@ type licenceClass struct {
 	value func(in *interp, fr *frame) Value
 }
 
-func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []string, order mapOrder) (l Licence, ranged bool, err error) {
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
+func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []string, order mapOrder, goBodies GoBodies) (l Licence, ranged bool, err error) {
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order, goBodies: goBodies}
 	l.Name = lawName(law)
 	defer func() {
 		if r := recover(); r != nil {
@@ -206,31 +212,54 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []strin
 
 // licence runs law's cases into l (LicenceRun).
 func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
-	rw := law.FuncRewrite
+	rw := law.TopRewrite()
 	fr := in.newFrame(law.Pkg, law.Decl)
-	p := testplan.Law(law, nil)
-	if p.Reason != "" {
-		l.Verdict, l.Reason = "skipped", p.Reason
-		return
+	// types are the parameters' types as the run reads them, and families
+	// the pure functions a function parameter takes (licencefuncs.go).
+	n := len(law.Params)
+	types := make([]check.Type, n)
+	families := make([][]licenceClass, n)
+	for i, v := range law.Params {
+		types[i] = lawParamType(law, v.Type)
+		if _, isFunc := v.Type.(*check.Signature); isFunc {
+			if families[i] = funcFamily(law, v.Type); families[i] == nil {
+				l.Verdict, l.Reason = "skipped", "the run has no family of pure functions for "+v.Name+" "+v.Type.String()
+				return
+			}
+		}
 	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
+	if !rw.OverFuncs {
+		// A law over function parameters has no plan: testplan generates
+		// no function, and its Unrun says so.
+		p := testplan.Law(law, nil)
+		if p.Reason != "" {
+			l.Verdict, l.Reason = "skipped", p.Reason
+			return
+		}
+	}
 	if why := pre.body(fr, fr.decl, law.Decl.Body, nil, map[*check.Var]check.Conversion{}); why != "" {
 		l.Verdict, l.Reason = "skipped", why
 		return
 	}
-	for _, input := range p.Inputs {
-		if why := pre.generator(fr, input.Type, nil, map[check.Type]bool{}); why != "" {
+	for i := range law.Params {
+		if families[i] != nil {
+			continue
+		}
+		if why := pre.generator(fr, types[i], nil, map[check.Type]bool{}); why != "" {
 			l.Verdict, l.Reason = "skipped", why
 			return
 		}
 	}
-	n := len(law.Params)
 	tables := make([][]licenceClass, n)
 	var noClasses []string
 	for i, v := range law.Params {
-		tables[i] = classesOf(v.Type)
+		tables[i] = families[i]
 		if tables[i] == nil {
-			noClasses = append(noClasses, v.Type.String())
+			tables[i] = classesOf(types[i])
+		}
+		if tables[i] == nil {
+			noClasses = append(noClasses, types[i].String())
 		}
 		label := func(c licenceClass) licenceClass {
 			if n > 1 {
@@ -311,7 +340,9 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	// current is the case being run, for the corpus line of a refuted one.
 	var current []Value
 	defer func() {
-		if l.Verdict == "refuted" && current != nil {
+		// A function argument has no corpus text: the refutation names its
+		// family member instead.
+		if l.Verdict == "refuted" && current != nil && !rw.OverFuncs {
 			l.Case = in.encodeCase(fr, law, current)
 		}
 	}()
@@ -336,19 +367,25 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 		r.SetSize(min(k*licenceSizes/(licenceDraws+1), licenceSizes-1))
 		vals := make([]Value, n)
 		current = vals
-		for i, v := range law.Params {
+		for i := range law.Params {
 			if given != nil {
 				vals[i] = given[i]
 			} else if at != nil && at[i] >= 0 {
 				vals[i] = tables[i][at[i]].value(in, fr)
+			} else if families[i] != nil {
+				vals[i] = families[i][r.Intn(len(families[i]))].value(in, fr)
 			} else {
-				vals[i] = in.generate(fr, r, v.Type, testplan.Depth, nil)
+				vals[i] = in.generate(fr, r, types[i], testplan.Depth, nil)
 			}
 		}
 		args := func() []Argument {
 			out := make([]Argument, n)
 			for i, v := range law.Params {
-				out[i] = Argument{Name: v.Name, Value: in.argument(fr, v.Type, vals[i])}
+				if f, isFamily := vals[i].(*nativeFunc); isFamily && families[i] != nil {
+					out[i] = Argument{Name: v.Name, Value: f.name}
+					continue
+				}
+				out[i] = Argument{Name: v.Name, Value: in.argument(fr, types[i], vals[i])}
 			}
 			return out
 		}
@@ -378,6 +415,11 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 			outcome[i] = outs[0]
 		}
 		in.ambient = ambients[0]
+		if rw.OverFuncs {
+			// The build places the right side under v1.FuseOr: its defect
+			// runs the left side again (licencefuncs.go).
+			outcome[1] = fusedOutcome(outcome[0], outcome[1])
+		}
 		if outcome[0] != outcome[1] {
 			in.licenceStop(l, Refuted, fmt.Sprintf("the law is false: %s gave %s, and %s gives %s", in.exprText(law, rw.Lhs), outcome[0], in.exprText(law, rw.Rhs), outcome[1]), in.site(law.Pkg, law.Decl, law.Decl.Pos()), args())
 			return false
@@ -389,6 +431,9 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	// fuzzer keeps a crasher): a line whose values no longer fit the
 	// parameters is passed over.
 	for _, line := range corpus {
+		if rw.OverFuncs {
+			break // no corpus line holds a function
+		}
 		vals, ok := in.safeDecode(fr, law, line)
 		if !ok {
 			continue

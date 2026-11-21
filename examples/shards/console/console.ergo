@@ -134,8 +134,8 @@ func Ending[F](e actor.Exit[shards.Job, shards.Result, F]) string {
 		Told(f.Output)
 	case actor.Halted[shards.Job] as h:
 		"left at: \(Show(h.State))"
-	case actor.Defected:
-		"defect"
+	case actor.Defected as d:
+		"defect: \(d.Reason)"
 	}
 }
 

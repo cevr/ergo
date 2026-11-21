@@ -42,6 +42,43 @@ func (b *irBuilder) tupleType(t *check.Tuple, site syntax.Node) string {
 	return "struct{" + strings.Join(parts, "; ") + "}"
 }
 
+// structSpelling writes to out the IR spelling of the unnamed struct type
+// that starts at s[i:] in the Go type spelling s, and returns its length
+// in s. The emitter spells a tuple struct{ F0 T0; F1 T1 } (types.go); the
+// IR spells it as tupleType does, struct{F0 T0; F1 T1}, each field's type
+// spelled as every type is. So a tuple stands wherever a type is spelled,
+// at any depth: a type argument (Option[(int, int)]), an element, a
+// pointer's target, a field, a tuple's own element (PORT-TUPLE-ARG).
+func (b *irBuilder) structSpelling(s string, i int, out *strings.Builder) int {
+	open := i + len("struct{")
+	depth, end := 1, -1
+	for j := open; j < len(s) && end < 0; j++ {
+		switch s[j] {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth--; depth == 0 {
+				end = j
+			}
+		}
+	}
+	if end < 0 {
+		irNo("Go type spelling %s", s)
+	}
+	var fields []string
+	if body := strings.TrimSpace(s[open:end]); body != "" {
+		for _, part := range irSplitTop(body, ';') { // ir_gotext_expr.go
+			name, ft, ok := strings.Cut(strings.TrimSpace(part), " ")
+			if !ok || name == "" || strings.ContainsAny(name, ".[]*") || strings.TrimSpace(ft) == "" {
+				irNo("Go type spelling %s", s)
+			}
+			fields = append(fields, name+" "+b.spelling(strings.TrimSpace(ft)))
+		}
+	}
+	out.WriteString("struct{" + strings.Join(fields, "; ") + "}")
+	return end + 1 - i
+}
+
 // tupleLit is the tuple value of type t whose elements are vals.
 func (b *irBuilder) tupleLit(t *check.Tuple, vals []*irExpr, site syntax.Node, p irPos) *irExpr {
 	lit := &irExpr{K: "lit", Pos: p, T: b.tupleType(t, site)}
@@ -96,6 +133,7 @@ func hostResults(f *check.Func) []check.Type {
 // that needs go.Foreign is an effect, which runs before its expression
 // (SP4).
 func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
+	b.l.intMapCall(x, c.Recv, f, true)             // intmap.go: the Go boundary sees Go's map
 	if pre, v, ok := b.hostBound(x, c, f, p); ok { // ir_golib.go: the task's context, an Option result
 		return pre, v, false
 	}
@@ -104,10 +142,8 @@ func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	effect := len(rowElems(f.Sig.Uses)) > 0 // the foreign tier
 	if f.Sig.Fallible {
 		// Go's results are the value and the error, which the fail
-		// forms bind and convert to go.Error (ir_fail.go bind).
-		if len(results) > 1 {
-			irNo("call of a Go package function")
-		}
+		// forms bind and convert to go.Error (ir_fail.go bind; several
+		// values into a tuple, hostBind).
 		if !failsHere(c) {
 			irNo("fallible call with an empty row at its site")
 		}

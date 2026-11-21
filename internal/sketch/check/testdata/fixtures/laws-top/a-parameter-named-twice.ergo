@@ -1,0 +1,1 @@
+law Twice(n int, n int) { true } // want S108

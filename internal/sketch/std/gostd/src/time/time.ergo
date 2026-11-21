@@ -32,27 +32,34 @@ extern go time.December let December Month
 // ergo:refused Duration: time.Duration is Ergo's duration
 
 // ergo:go func (Duration).Abs() Duration
+// ergo:total
 extern go time.Duration.Abs func DurationAbs(d duration) duration needs go.Foreign
 
 // ergo:go func (Duration).Hours() float64
+// ergo:total
 extern go time.Duration.Hours func DurationHours(d duration) float64 needs go.Foreign
 
 // ergo:go func (Duration).Microseconds() int64
+// ergo:total
 extern go time.Duration.Microseconds func DurationMicroseconds(d duration) int64 needs go.Foreign
 
 // ergo:go func (Duration).Milliseconds() int64
+// ergo:total
 extern go time.Duration.Milliseconds func DurationMilliseconds(d duration) int64 needs go.Foreign
 
 // ergo:go func (Duration).Minutes() float64
+// ergo:total
 extern go time.Duration.Minutes func DurationMinutes(d duration) float64 needs go.Foreign
 
 // ergo:go func (Duration).Nanoseconds() int64
+// ergo:total
 extern go time.Duration.Nanoseconds func DurationNanoseconds(d duration) int64 needs go.Foreign
 
 // ergo:go func (Duration).Round(m Duration) Duration
 extern go time.Duration.Round func DurationRound(d duration, m duration) duration needs go.Foreign
 
 // ergo:go func (Duration).Seconds() float64
+// ergo:total
 extern go time.Duration.Seconds func DurationSeconds(d duration) float64 needs go.Foreign
 
 // ergo:go func (Duration).String() string

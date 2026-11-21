@@ -1,0 +1,310 @@
+// Members of the package's imports (S3d2): a function or a record field
+// another package of the program declares, typed from that package's own
+// store and signatures, then ported into this package's pool.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// Dep is an imported package as typing reads it: its import path, its
+// bound store (whose interface the importer's binding read, frozen) and
+// what Load made of it, its functions' signatures and its records' fields
+// in its own pool.
+type Dep { Path string, S store.Store, K Pkg }
+
+// WithDeps is k reading deps, the program's imported packages, by path:
+// an import the list does not hold has no members to type.
+func WithDeps(k Pkg, deps []Dep) Pkg {
+	let mut out = k
+	out.Deps = deps
+	out
+}
+
+// depOf is the index in k.Deps of the package at path, -1 when none is.
+func depOf(k Pkg, path string) int {
+	for i, d in k.Deps {
+		if d.Path == path {
+			return i
+		}
+	}
+	-1
+}
+
+// foreignAt is the index in k's foreign table of the type name declares
+// in the package at path (the prelude, the universe or a Go import), -1
+// when the table does not hold it.
+func foreignAt(k Pkg, path string, name string) int {
+	for i, f in k.Foreign {
+		if f.Path == path && f.Name == name {
+			return i
+		}
+	}
+	-1
+}
+
+// imported is the type of s's pool that names the type name of the
+// package at path, with args: for an Ergo import of k's, an instance
+// whose origin is k's reference into its interface (types.ImportRef);
+// for the prelude, k's foreign type of the name (the prelude's types are
+// the foreign table's, as the Go side writes them). None when k can name
+// no such type.
+func imported(s mut store.Store, k Pkg, path string, name string, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	match types.ImportRef(*s, k.Ifaces, path, name) {
+	case Some[store.XRef] as ref:
+		return some(store.TInstance(s, ref.Value, args))
+	case None:
+	}
+	if len(args) > 0 {
+		let f = foreignAt(k, path, name)
+		return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args)) } else { None }
+	}
+	let f = foreignAt(k, path, name)
+	if f >= 0 { some(store.TForeign(s, f)) } else { None }
+}
+
+// refName is the package path and type name the XRef o of the
+// dependency d's pool names: one of d's own declarations (Import 0), or
+// a type of one of d's Ergo imports.
+func refName(d Dep, o store.XRef) Option[(string, string)] {
+	if int(o.Import) == 0 {
+		return Some[(string, string)]{Value: (d.Path, store.DeclText(d.S, int(o.Decl)))}
+	}
+	let i = int(o.Import) - 1
+	if i >= len(d.K.Ifaces) || int(o.Decl) >= len(d.K.Ifaces[i].Decls) {
+		return None
+	}
+	Some[(string, string)]{Value: (d.K.Ifaces[i].Path, d.K.Ifaces[i].Decls[int(o.Decl)].Name)}
+}
+
+// port is the type dt of the dependency d's pool as a type of s's pool:
+// a type d declares, or reads from one of its Ergo imports, is k's
+// reference into that package's interface (imported); one d reads from
+// its foreign table is k's foreign type of the same package and name. It
+// is none when k cannot name such a type, or dt holds a form a signature
+// of k's own cannot (a wired or row value): the member is then left
+// untyped.
+func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let ds = d.S
+	let kind = store.KindOfType(ds, dt)
+	if kind == store.KBasic {
+		return some(store.TBasic(s, store.ArgOf(ds, dt)))
+	}
+	if kind == store.KParam {
+		return some(store.TParam(s, store.ArgOf(ds, dt)))
+	}
+	if kind == store.KNamed {
+		return imported(s, k, d.Path, store.TypeNameText(ds, store.ArgOf(ds, dt)), []dense.ID[store.TKey]{})
+	}
+	if kind == store.KForeign {
+		let df = d.K.Foreign[store.ArgOf(ds, dt)]
+		let f = foreignAt(k, df.Path, df.Name)
+		return if f >= 0 && df.Path != "-" { some(store.TForeign(s, f)) } else { None }
+	}
+	if kind == store.KArray {
+		let ops = store.OperandsOf(ds, dt)
+		return match port(s, k, d, ops[1]) {
+		case Some[dense.ID[store.TKey]] as e:
+			some(store.TArray(s, store.ArrayLen(ds, dt), e.Value))
+		case None:
+			None
+		}
+	}
+	let mut ops = []dense.ID[store.TKey]{}
+	for o in store.OperandsOf(ds, dt) {
+		match port(s, k, d, o) {
+		case Some[dense.ID[store.TKey]] as p:
+			ops = ops.Append(p.Value)
+		case None:
+			return None
+		}
+	}
+	if kind == store.KSlice {
+		return some(store.TSlice(s, ops[0]))
+	}
+	if kind == store.KMap {
+		return some(store.TMap(s, ops[0], ops[1]))
+	}
+	if kind == store.KPointer {
+		return some(store.TPointer(s, ops[0]))
+	}
+	if kind == store.KTuple {
+		return some(store.TTuple(s, ops))
+	}
+	if kind == store.KRow {
+		return some(store.TRow(s, ops))
+	}
+	if kind == store.KOwn {
+		return some(store.TOwn(s, ops[0]))
+	}
+	if kind == store.KEntry {
+		return some(store.TEntry(s, ops[0]))
+	}
+	if kind == store.KSig {
+		let n = len(ops)
+		return some(store.TSig(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1]))
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(ds, dt)
+		if int(o.Import) == store.ForeignBit {
+			let df = d.K.Foreign[int(o.Decl)]
+			let f = if df.Path == "-" { -1 } else { foreignAt(k, df.Path, df.Name) }
+			return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, ops)) } else { None }
+		}
+		return match refName(d, o) {
+		case Some[(string, string)] as r:
+			let (path, name) = r.Value
+			imported(s, k, path, name, ops)
+		case None:
+			None
+		}
+	}
+	None
+}
+
+// importedFn is the function the selector's name sel names in an import,
+// its signature ported into s's pool; none when sel names no function of
+// a package k.Deps holds, or its signature does not port.
+func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Node]) Option[Fn] {
+	let sel = match dense.Unpack(name) {
+	case Some[dense.ID[syntax.Node]] as n:
+		n.Value
+	case None:
+		return None
+	}
+	if len(k.Deps) == 0 {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
+	case bind.Imported as im:
+		let i = int(im.Ref.Import) - 1
+		let paths = store.ImportPaths(*s)
+		if i < 0 || i >= len(paths) {
+			return None
+		}
+		let di = depOf(k, paths[i])
+		if di < 0 {
+			return None
+		}
+		let d = k.Deps[di]
+		let decl = store.DeclOf(d.S, store.DeclAt(d.S, int(im.Ref.Decl)))
+		t.steps = t.steps + 1
+		let at = bind.PNodeOf(d.K.Ps, int(decl.File), syntax.NodeAt(d.K.Parsed[int(decl.File)].Tree, int(decl.Node)))
+		let f = FnAt(d.K, at)
+		let fn = if f >= 0 {
+			d.K.Fns[f]
+		} else if store.KindName(int(decl.Kind)) == "func" {
+			// A refined type's parse function (config.ParsePort).
+			match parseFn(d.K, at) {
+			case Some[Fn] as pf:
+				pf.Value
+			case None:
+				return None
+			}
+		} else {
+			return None
+		}
+		match port(s, k, d, fn.Sig) {
+		case Some[dense.ID[store.TKey]] as sig:
+			let mut out = fn
+			out.Sig = sig.Value
+			Some[Fn]{Value: out}
+		case None:
+			None
+		}
+	case _:
+		None
+	}
+}
+
+// fieldNames is the field names, in order, of the record ty instantiates:
+// of the package or of an import; none when ty is no record either knows.
+func fieldNames(s store.Store, k Pkg, ty dense.ID[store.TKey]) Option[[]string] {
+	let (r, _) = recordOf(s, k, ty)
+	if r >= 0 {
+		return Some{Value: namesOf(k.Recs[r].Fields)}
+	}
+	let kind = store.KindOfType(s, ty)
+	let f = if kind == store.KInstance && int(store.OriginOfType(s, ty).Import) == store.ForeignBit { int(store.OriginOfType(s, ty).Decl) } else { -1 }
+	if f < 0 || f >= len(k.Foreign) {
+		return None
+	}
+	let di = depOf(k, k.Foreign[f].Path)
+	if di < 0 {
+		return None
+	}
+	let d = k.Deps[di]
+	let dr = recOf(d.S, d.K, k.Foreign[f].Name)
+	if dr < 0 {
+		return None
+	}
+	Some{Value: namesOf(d.K.Recs[dr].Fields)}
+}
+
+func namesOf(fs []Field) []string {
+	let mut out = []string{}
+	for f in fs {
+		out = out.Append(f.Name)
+	}
+	out
+}
+
+// importedRec is the import path, name and type arguments of the type
+// ty an import declares (an XRef into its interface, generic or not; or
+// a prelude type of the foreign table); an empty name for any other type.
+func importedRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) (string, string, []dense.ID[store.TKey]) {
+	let kind = store.KindOfType(s, ty)
+	let o = store.OriginOfType(s, ty)
+	if kind == store.KForeign && store.ArgOf(s, ty) < len(k.Foreign) {
+		let f = k.Foreign[store.ArgOf(s, ty)]
+		(f.Path, f.Name, []dense.ID[store.TKey]{})
+	} else if kind == store.KInstance && int(o.Import) == store.ForeignBit && int(o.Decl) < len(k.Foreign) {
+		let f = k.Foreign[int(o.Decl)]
+		(f.Path, f.Name, store.OperandsOf(s, ty))
+	} else if kind == store.KInstance && int(o.Import) > 0 && int(o.Import) <= len(k.Ifaces) {
+		let dep = k.Ifaces[int(o.Import)-1]
+		(dep.Path, dep.Decls[int(o.Decl)].Name, store.OperandsOf(s, ty))
+	} else {
+		("", "", []dense.ID[store.TKey]{})
+	}
+}
+
+// outsideRec is whether ty is a type of an import k holds only as its
+// interface (a package outside the run, whose fields it cannot read).
+func outsideRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) bool {
+	let (path, rec, _) = importedRec(s, k, ty)
+	rec != "" && depOf(k, path) < 0
+}
+
+// importedField is the type of field name (the at-th field when at is
+// not negative) of the record type ty an import declares (importedRec)
+// ported into s's pool with ty's type arguments in place; none when no
+// package of k.Deps declares it.
+func importedField(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string, at int) Option[dense.ID[store.TKey]] {
+	let (path, rec, targs) = importedRec(*s, k, ty)
+	if rec == "" {
+		return None
+	}
+	let di = depOf(k, path)
+	if di < 0 {
+		return None
+	}
+	let d = k.Deps[di]
+	let r = recOf(d.S, d.K, rec)
+	if r < 0 || len(targs) != len(d.K.Recs[r].Params) {
+		return None
+	}
+	for j, fd in d.K.Recs[r].Fields {
+		if at < 0 && fd.Name == name || j == at {
+			return match port(s, k, d, fd.T) {
+			case Some[dense.ID[store.TKey]] as p:
+				let u = store.TSubst(s, p.Value, targs)
+				some(u)
+			case None:
+				None
+			}
+		}
+	}
+	None
+}

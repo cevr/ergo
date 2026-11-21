@@ -1,0 +1,69 @@
+@0 open http://localhost/
+  address: http://localhost/ (0 behind)
+  page: <Home> | <Gallery> | <Studio> | # Route Transitions | Every navigation in this app is described by the route before and the route after, and the log narrates what each one said. The cold load that brought you here is already in it.
+  log: #1 Cold load → Home [Cold load] [Entered Home]
+@100 link Gallery
+  asks: push /gallery, load the catalog
+  address: /gallery (1 behind)
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | Hanging the paintings…
+  log: #2 Home → Gallery [Entered Gallery] [Exited Home]
+@300 link Studio
+  asks: push /studio
+  address: /studio (2 behind)
+  page: <Home> | <Gallery> | <Studio> | # Studio | Write something, then leave. Leaving this route saves whatever is here. | ?? | Nothing saved yet.
+  log: #3 Gallery → Studio [Entered Studio] [Exited Gallery]
+@400 link Gallery
+  asks: push /gallery
+  address: /gallery (3 behind)
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | Hanging the paintings…
+  log: #4 Studio → Gallery [Entered Gallery] [Exited Studio]
+@700 catalog loaded
+  page: <Home> | <Gallery> | <Studio> | # Gallery | The catalog loads when a navigation enters this route, whether by navigation or by cold load. | <Dawn Over the Harbor> | Mara Ellsworth | <Static in Bloom> | Jun Okabe | <Winter Circuit> | Ada Lindqvist | <Ferric Meadow> | Tomás Reyes | <Ultraviolet Tide> | Nadia Boulos | <Ember Study No. 4> | Hal Whitaker
+@1000 link Winter Circuit
+  asks: push /gallery/3, load painting 3
+  address: /gallery/3 (4 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #5 Gallery → Painting 3 [Entered Painting] [Exited Gallery]
+@1200 open /gallery/4
+  asks: load painting 4
+  address: /gallery/4 (5 behind)
+  log: #6 Painting 3 → Painting 4 [Stayed on Painting: 3 → 4]
+@1400 painting 3 loaded
+@1600 painting 4 loaded
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | # Ferric Meadow | Tomás Reyes | <← Previous> | 4 of 6 | <Next →>
+@1700 open /gallery/4
+  address: /gallery/4 (6 behind)
+  log: #7 Painting 4 → Painting 4 [Stayed on Painting: 4 → 4]
+@1750 link Next →
+  asks: push /gallery/5, load painting 5
+  address: /gallery/5 (7 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #8 Painting 4 → Painting 5 [Stayed on Painting: 4 → 5]
+@1800 link Studio
+  asks: push /studio
+  address: /studio (8 behind)
+  page: <Home> | <Gallery> | <Studio> | # Studio | Write something, then leave. Leaving this route saves whatever is here. | ?? | Nothing saved yet.
+  log: #9 Painting 5 → Studio [Entered Studio] [Exited Painting]
+@1900 type "half-finished thought"
+  page: <Home> | <Gallery> | <Studio> | # Studio | Write something, then leave. Leaving this route saves whatever is here. | ?half-finished thought? | Nothing saved yet.
+@2000 open /gallery/9
+  asks: load painting 9
+  address: /gallery/9 (9 behind)
+  page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
+  log: #10 Studio → Painting 9 [Entered Painting] [Exited Studio]
+@2150 painting 5 loaded
+@2400 painting 9 loaded
+  page: <Home> | <Gallery> | <Studio> | # Painting Not Found | No painting with id 9 hangs in this gallery. | <← Back to Gallery>
+@2500 back
+  address: /studio (8 behind)
+  page: <Home> | <Gallery> | <Studio> | # Studio | Write something, then leave. Leaving this route saves whatever is here. | ?half-finished thought? | # Last saved draft | half-finished thought
+  log: #11 Painting 9 → Studio [Entered Studio] [Exited Painting]
+@2600 type ""
+  page: <Home> | <Gallery> | <Studio> | # Studio | Write something, then leave. Leaving this route saves whatever is here. | ?? | # Last saved draft | half-finished thought
+@2700 open /nowhere
+  address: /nowhere (9 behind)
+  page: <Home> | <Gallery> | <Studio> | # 404 - Page Not Found | The path "/nowhere" was not found. | <← Go Home>
+  log: #12 Studio → Not found [Entered NotFound] [Exited Studio]
+@2800 away https://example.com/
+  asks: leave for https://example.com/
+@3000 end

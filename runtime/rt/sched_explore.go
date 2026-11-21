@@ -543,14 +543,14 @@ func schedTick(v *Virtual) {
 	if e == nil {
 		return
 	}
-	if e.v != v {
+	if e.v.mu != v.mu { // a clock of the run's domain shares its lock
 		e.v.mu.Lock()
 		defer e.v.mu.Unlock()
 	}
 	if e.free || e.running == nil {
 		return
 	}
-	if m := e.running.t.member.Load(); m == nil || m.v != v {
+	if m := e.running.t.member.Load(); m == nil || m.d != v.d {
 		return
 	}
 	e.res.Events = append(e.res.Events, SchedEvent{Tick: true, Now: v.now, Pending: Pending{Handle: e.handle(v)}})

@@ -21,8 +21,8 @@ import (
 // which holds one line per rewrite law, provider and site instance whose
 // run ergo test checked:
 //
-//	law <pkg>.<Type>.<Law> for <pkg>.<Provider> [at (c, …)] <verdict> [by <run>] [with <key>,…] h1:<digest>
-//	law <pkg>.<Law> <verdict> [by <run>] [with <key>,…] h1:<digest>
+//	law <pkg>.<Type>.<Law> for <pkg>.<Provider> [at (c, …)] [under <build>] <verdict> [by <run>] [with <key>,…] h1:<digest>
+//	law <pkg>.<Law> [under <build>] <verdict> [by <run>] [with <key>,…] h1:<digest>
 //	fact go <import path>.<Func> <fact> <param> <verdict> [by <run>] [with <key>,…] h1:<digest>
 //
 // <pkg> is a package's module-wide name (LedgerNames): its import path,
@@ -30,7 +30,11 @@ import (
 // verdict is proved, validated, tested, skipped or refuted (LAWFFI r2 §1;
 // LFL); by names the run that gave it (native: the law-check build; eval:
 // the check-time evaluator; guard: a fact's guard run, LF2), and with the
-// shown foreign keys of the Go code the entry reaches (foreignkey.go). A
+// shown foreign keys of the Go code the entry reaches (foreignkey.go).
+// under names the build configuration (goexperiment.simd) when the Go code
+// the entry reaches is another in the stock build (LAW-BUILD-KEY): it is a
+// key part, so the stock build's entry and a GOEXPERIMENT=simd build's
+// stand side by side and each build reads its own. A
 // law with no provider is a top-level law (LF6a); a fact line is a Go
 // function's vouched fact and its guard (LF2), which this file reads and
 // keeps but does not write. The digest (LawDigest) covers every input of
@@ -64,7 +68,10 @@ type LedgerEntry struct {
 	Fact          string
 	// Instance is the site's constants, `(c, …)`; "" for a site with none.
 	Instance string
-	Verdict  string
+	// Build is the build configuration the entry's Go code depends on
+	// (ForeignKey.Build), a key part; "" when every build reaches the same.
+	Build   string
+	Verdict string
 	// By is the run that gave the verdict (native, eval, guard); "" for
 	// none, which no level above tested may lack.
 	By string
@@ -74,22 +81,25 @@ type LedgerEntry struct {
 	Digest string
 }
 
-// Key names the entry: its law, its provider and its instance, or its
-// fact.
+// Key names the entry: its law, its provider, its instance and its
+// build, or its fact.
 func (e LedgerEntry) Key() string {
 	if e.Fact != "" {
 		return "fact " + e.Fact
 	}
-	return ledgerKey(e.Law, e.Provider, e.Instance)
+	return ledgerKey(e.Law, e.Provider, e.Instance, e.Build)
 }
 
-func ledgerKey(law, prov, inst string) string {
+func ledgerKey(law, prov, inst, build string) string {
 	k := law
 	if prov != "" {
 		k += " for " + prov
 	}
 	if inst != "" {
 		k += " at " + inst
+	}
+	if build != "" {
+		k += " under " + build
 	}
 	return k
 }
@@ -185,6 +195,12 @@ func parseEntry(line string) (LedgerEntry, bool) {
 				return LedgerEntry{}, false
 			}
 			e.Instance, r = insts, tail
+		}
+		if b, ok := strings.CutPrefix(r, "under "); ok {
+			e.Build, r, ok = strings.Cut(b, " ")
+			if !ok {
+				return LedgerEntry{}, false
+			}
 		}
 		rest = r
 	}
@@ -299,8 +315,9 @@ func instanceText(in RewriteInstance) string {
 // changes no token of one, moves one, or touches a declaration the law
 // does not reach leaves it as it was. keys adds the foreign key of each Go
 // package whose function an `extern go` the walk reached names
-// (foreignkey.go): with is their shown forms, the line's with field.
-func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string, keys ForeignKeys) (digest, with string) {
+// (foreignkey.go): with is their shown forms, the line's with field, and
+// build the build configuration they depend on, the line's under field.
+func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string, keys ForeignKeys) (digest, with, build string) {
 	d := newDigester()
 	d.typ(law.Owner)
 	d.typ(prov.Obj)
@@ -327,16 +344,17 @@ func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *c
 	}
 	fmt.Fprintf(h, "c%d:%s", len(closed), closed)
 	fmt.Fprintf(h, "i%d:%s", len(inst), inst)
-	with = d.foreignKeys(h, keys)
-	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil)), with
+	with, build = d.foreignKeys(h, keys)
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil)), with, build
 }
 
 // foreignKeys writes the key of each Go package the walk reached into h,
 // in path order, and returns their shown forms, sorted and joined by
-// commas; nothing for nil keys.
-func (d *digester) foreignKeys(h io.Writer, keys ForeignKeys) string {
+// commas, and the build configuration any of them depends on; nothing for
+// nil keys.
+func (d *digester) foreignKeys(h io.Writer, keys ForeignKeys) (with, build string) {
 	if keys == nil || len(d.foreign) == 0 {
-		return ""
+		return "", ""
 	}
 	targets := make([]string, 0, len(d.foreign))
 	for p := range d.foreign {
@@ -347,6 +365,7 @@ func (d *digester) foreignKeys(h io.Writer, keys ForeignKeys) string {
 	groups := map[string]hash.Hash{}
 	for _, p := range targets {
 		k := keys(p)
+		build = UnionBuild(build, k.Build)
 		s := p + " " + k.Key
 		fmt.Fprintf(h, "f%d:%s", len(s), s)
 		if k.Group == "" {
@@ -366,7 +385,7 @@ func (d *digester) foreignKeys(h io.Writer, keys ForeignKeys) string {
 		out = append(out, s)
 	}
 	sort.Strings(out)
-	return strings.Join(out, ",")
+	return strings.Join(out, ","), build
 }
 
 func newDigester() *digester {
@@ -381,9 +400,25 @@ func newDigester() *digester {
 // construction is closed, and, so that an edit of how a case is drawn
 // makes it stale too, the generator of every type the walk reached: its
 // constructor and, for an operation type, its builder in pkg (check's
-// builders.go), which no name in the law reaches.
+// builders.go), which no name in the law reaches; and the functions each
+// implicit conversion and each generic call's witness the walk meets put
+// in a value (derived: a codec's reader).
 func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
+	_, digest := targetDigest(pkg, law, binding)
+	return digest
+}
+
+// targetDigest is TargetDigest and the walk that made it.
+func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
+	d, slots := targetWalk(law, binding)
+	return d, d.sum(pkg, slots)
+}
+
+// targetWalk is TargetDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []string) {
 	d := newDigester()
+	d.derived = true
 	switch {
 	case law.Owner != nil:
 		d.typ(law.Owner)
@@ -411,7 +446,7 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 		}
 		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
 	}
-	return d.sum(pkg, slots)
+	return d, slots
 }
 
 // ContextDigest is the digest of every input of the verdict of the run of
@@ -424,7 +459,21 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 // tokens of each (no position). An edit of any of them makes a new
 // digest.
 func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) string {
+	_, digest := contextDigest(pkg, law, lc)
+	return digest
+}
+
+// contextDigest is ContextDigest and the walk that made it.
+func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
+	d, slots := contextWalk(law, lc)
+	return d, d.sum(pkg, slots)
+}
+
+// contextWalk is ContextDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func contextWalk(law *check.Law, lc check.LawContext) (*digester, []string) {
 	d := newDigester()
+	d.derived = true
 	d.typ(law.Owner)
 	d.context(lc.Context)
 	var slots []string
@@ -453,7 +502,7 @@ func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) stri
 		}
 	}
 	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
-	return d.sum(pkg, slots)
+	return d, slots
 }
 
 // context adds the declaration of the named context c, and of each
@@ -550,6 +599,43 @@ func (t RunTarget) Digest(pkg *check.Package) string {
 	return TargetDigest(pkg, t.Law, t.Binding)
 }
 
+// DigestWith is Digest with the foreign key of each Go package whose
+// function an `extern go` the walk reached names, as LawDigest takes them:
+// the store's key of a run's verdict (lawcache) changes when the Go code
+// behind it does, a module's own body included, and with the file go
+// build compiles for the target (U1 SIMD-SCAN: a vector kernel's verdict
+// is not its stock twin's). It is Digest when keys is nil or the walk
+// reached no `extern go`.
+func (t RunTarget) DigestWith(pkg *check.Package, keys ForeignKeys) string {
+	var d *digester
+	var digest string
+	if t.Context != nil {
+		d, digest = contextDigest(pkg, t.Law, *t.Context)
+	} else {
+		d, digest = targetDigest(pkg, t.Law, t.Binding)
+	}
+	return d.withForeign(digest, keys)
+}
+
+// TestDigestWith is TestDigest with the foreign keys DigestWith takes.
+func TestDigestWith(pkg *check.Package, t *check.Test, keys ForeignKeys) string {
+	d := newDigester()
+	d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
+	return d.withForeign(d.sum(pkg, nil), keys)
+}
+
+// withForeign is digest and the foreign keys of the Go packages the walk
+// reached, or digest alone when there are none or keys is nil.
+func (d *digester) withForeign(digest string, keys ForeignKeys) string {
+	if keys == nil || len(d.foreign) == 0 {
+		return digest
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:%s", len(digest), digest)
+	_, _ = d.foreignKeys(h, keys)
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
 // RunTargets are the targets of pkg's law runs, in run order. Two runs
 // with one label are no target: a line names one run.
 func RunTargets(pkg *check.Package) []RunTarget {
@@ -640,6 +726,83 @@ type digester struct {
 	indexed map[*check.Package]bool
 	// foreign are the `extern go` targets the walk reached.
 	foreign map[string]bool
+	// nodes are the declarations the walk added, in walk order (reach.go).
+	nodes []ReachedDecl
+	// inputs are the declarations decl added, in the order the walk met
+	// them: the graph rows' Input edges (RunTarget.Inputs).
+	inputs []Input
+	// derived makes the walk follow the code a value reaches with no name
+	// in the source: each implicit conversion's operation functions and
+	// each generic call's witnesses (a codec's decode[R](r) reaches its
+	// reader's functions only so). A verdict's key needs them
+	// (TargetDigest, ContextDigest: LAWCACHE-CODEC); the ledger's
+	// LawDigest does not follow them yet.
+	derived bool
+}
+
+// Input is one declaration whose tokens a verdict's digest covers: its
+// package and its top-level declaration node. The graph rows' Input
+// edges are these (internal/sketch/graphrows), so a digest changes when,
+// and only when, the tokens of one of them change.
+type Input struct {
+	Pkg  *check.Package
+	Decl syntax.Node
+}
+
+// Inputs is t's digest (Digest) and the declarations it covers.
+func (t RunTarget) Inputs(pkg *check.Package) (string, []Input) {
+	var d *digester
+	var digest string
+	if t.Context != nil {
+		d, digest = contextDigest(pkg, t.Law, *t.Context)
+	} else {
+		d, digest = targetDigest(pkg, t.Law, t.Binding)
+	}
+	return digest, d.inputs
+}
+
+// TestInputs is the digest of a test block's inputs, by TargetDigest's
+// rule (the test's declaration, every function, type and package let it
+// reaches, and the generators of the types reached), and the
+// declarations it covers. No store keys a test's verdict by it yet; the
+// graph's Task rows do (CI-SELECT §12.3).
+func TestInputs(pkg *check.Package, test *check.Test) (string, []Input) {
+	d := newDigester()
+	if test != nil && test.Decl != nil && pkg != nil {
+		d.decl("test "+pkg.Path+"."+test.Name, pkg, test.Decl)
+	}
+	return d.sum(pkg, nil), d.inputs
+}
+
+// conversion adds the functions an implicit conversion's table puts in
+// the value, and their instances' witnesses.
+func (d *digester) conversion(c check.Conversion) {
+	for _, f := range tableFuncs(c) {
+		d.fn(f)
+	}
+	names := make([]string, 0, len(c.Instances))
+	for n := range c.Instances {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		d.instance(c.Instances[n])
+	}
+}
+
+// instance adds the functions the witnesses of a generic function's
+// instance supply, at any depth.
+func (d *digester) instance(in *check.Instance) {
+	if in == nil || d.seen[in] {
+		return
+	}
+	d.seen[in] = true
+	for _, w := range in.Witnesses {
+		for _, op := range w.Ops {
+			d.fn(op.Func)
+			d.instance(op.Inst)
+		}
+	}
 }
 
 // letDecl is a package let's declaration and its package.
@@ -688,7 +851,10 @@ func (d *digester) let(v *check.Var) {
 
 // decl adds the declaration n of p under key and walks it.
 func (d *digester) decl(key string, p *check.Package, n syntax.Node) {
-	d.decls[key+"\n"+syntax.TokenText(declText(p, n))] = true
+	text := syntax.TokenText(declText(p, n))
+	d.decls[key+"\n"+text] = true
+	d.nodes = append(d.nodes, ReachedDecl{Key: key, Text: text, Pkg: p, Node: n})
+	d.inputs = append(d.inputs, Input{Pkg: p, Decl: n})
 	d.walk(p, n)
 }
 
@@ -728,6 +894,15 @@ func (d *digester) walk(p *check.Package, n syntax.Node) {
 	}
 	d.index(p)
 	syntax.Inspect(n, func(n syntax.Node) bool {
+		if e, ok := n.(syntax.Expr); ok && d.derived {
+			if c, ok := p.Info.Implicit[e]; ok {
+				d.conversion(c)
+			}
+			for _, c := range p.Info.ImplicitElems[e] {
+				d.conversion(c)
+			}
+			d.instance(p.Info.Instances[e])
+		}
 		switch n := n.(type) {
 		case *syntax.CallExpr:
 			if c := p.Info.Calls[n]; c != nil && c.Func != nil {
@@ -800,6 +975,7 @@ type RewriteSite struct {
 	Law      string `json:"law"`
 	Provider string `json:"provider"`
 	Instance string `json:"instance"`
+	Build    string `json:"build,omitempty"`
 	Verdict  string `json:"verdict"`
 	By       string `json:"by,omitempty"`
 	With     string `json:"with,omitempty"`
@@ -853,7 +1029,7 @@ type LedgerEvidence struct {
 	entries map[string]LedgerEntry
 	keys    ForeignKeys
 	rules   map[string]rwRule
-	digests map[string][2]string
+	digests map[string][3]string
 	sites   map[string]*RewriteSite
 	order   []string
 	read    map[string]bool
@@ -872,7 +1048,7 @@ type LedgerEvidence struct {
 // whose packages names names, with the foreign keys of the Go code the
 // program links.
 func NewLedgerEvidence(pkg *check.Package, names LedgerNames, entries map[string]LedgerEntry, keys ForeignKeys) *LedgerEvidence {
-	e := &LedgerEvidence{names: names, entries: entries, keys: keys, rules: map[string]rwRule{}, digests: map[string][2]string{}, sites: map[string]*RewriteSite{}, read: map[string]bool{}, refused: map[string]bool{}, notes: map[string]string{}}
+	e := &LedgerEvidence{names: names, entries: entries, keys: keys, rules: map[string]rwRule{}, digests: map[string][3]string{}, sites: map[string]*RewriteSite{}, read: map[string]bool{}, refused: map[string]bool{}, notes: map[string]string{}}
 	for prov, rules := range newRewriter(pkg, nil).rules {
 		for _, r := range rules {
 			e.rules[names.law(r.law)+" for "+names.provider(prov)] = r
@@ -888,9 +1064,9 @@ func (e *LedgerEvidence) HasRules() bool { return len(e.rules) > 0 }
 // Admit: see LedgerEvidence.
 func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInstance) (bool, string) {
 	lawName, provName, inst := e.names.law(law), e.names.provider(prov), instanceText(in)
-	key := ledgerKey(lawName, provName, inst)
+	digest, with, build := e.digest(ledgerKey(lawName, provName, inst, ""), law, prov, inst)
+	key := ledgerKey(lawName, provName, inst, build)
 	entry, found := e.entries[key]
-	digest, with := e.digest(key, law, prov, inst)
 	state := "current"
 	switch {
 	case !found:
@@ -905,13 +1081,13 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 	file, line, col := e.file, e.line, e.col
 	site := fmt.Sprintf("%s:%d:%d %s", file, line, col, key)
 	if s := e.sites[site]; s == nil {
-		note := "ergo.laws: " + key + " is " + state + "; run ergo test"
+		note := "ergo.laws: " + key + " is " + state + stdUntypedWhy() + "; run ergo test"
 		if state == "stale" && entry.With != with {
-			note = "ergo.laws: " + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
+			note = "ergo.laws: " + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + stdUntypedWhy() + "; run ergo test"
 		}
 		e.sites[site] = &RewriteSite{
 			File: file, Line: line, Column: col,
-			Law: lawName, Provider: provName, Instance: inst, Verdict: entry.Verdict, By: entry.By, With: with, State: state,
+			Law: lawName, Provider: provName, Instance: inst, Build: build, Verdict: entry.Verdict, By: entry.By, With: with, State: state,
 		}
 		e.notes[site] = note
 		e.order = append(e.order, site)
@@ -948,14 +1124,14 @@ func orNone(with string) string {
 	return with
 }
 
-func (e *LedgerEvidence) digest(key string, law *check.Law, prov *check.Named, inst string) (string, string) {
+func (e *LedgerEvidence) digest(key string, law *check.Law, prov *check.Named, inst string) (string, string, string) {
 	if d, ok := e.digests[key]; ok {
-		return d[0], d[1]
+		return d[0], d[1], d[2]
 	}
 	r := e.rule(law, prov)
-	d, with := LawDigest(law, prov, r.conv, r.ctor, inst, e.keys)
-	e.digests[key] = [2]string{d, with}
-	return d, with
+	d, with, build := LawDigest(law, prov, r.conv, r.ctor, inst, e.keys)
+	e.digests[key] = [3]string{d, with, build}
+	return d, with, build
 }
 
 // rule is the rule of law for prov: the root's, or, for a provider of
@@ -1107,8 +1283,8 @@ func LedgerEntries(u Unit, names LedgerNames, ev RewriteEvidence, keys ForeignKe
 				by = ""
 			}
 			for _, inst := range insts {
-				d, with := LawDigest(r.law, prov, r.conv, r.ctor, inst, keys)
-				out = append(out, LedgerEntry{Law: names.law(r.law), Provider: names.provider(prov), Instance: inst, Verdict: verdict, By: by, With: with, Digest: d})
+				d, with, build := LawDigest(r.law, prov, r.conv, r.ctor, inst, keys)
+				out = append(out, LedgerEntry{Law: names.law(r.law), Provider: names.provider(prov), Instance: inst, Build: build, Verdict: verdict, By: by, With: with, Digest: d})
 			}
 		}
 	}

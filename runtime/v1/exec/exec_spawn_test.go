@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -71,6 +72,12 @@ func TestExecSpawnOutlivesItsStarter(t *testing.T) {
 	if ExecAlive(pid, start+1) {
 		t.Errorf("a Detached with another start time names the program %d", pid)
 	}
+	// The program leads a process group of its own, the one Kill signals
+	// (mutant spawn-no-setsid: since Kill also signals the program itself,
+	// only this check sees a program left in its starter's group).
+	if group, err := syscall.Getpgid(pid); err != nil || group != pid {
+		t.Errorf("the spawned program %d is in process group %d (%v), want its own", pid, group, err)
+	}
 	ExecKill(rt.Root("spawn kill"), pid, start, 50*time.Millisecond)
 	if ExecAlive(pid, start) {
 		t.Fatalf("the program %d, which ignores SIGTERM, is alive after Kill", pid)
@@ -93,6 +100,39 @@ func TestExecSpawnRefusesToCaller(t *testing.T) {
 	want := ExecFailed{Name: "true", Reason: "stdout: a detached program has no caller to read it (ToCaller)"}
 	if err != want {
 		t.Fatalf("ExecSpawn with a ToCaller sink failed %#v, want %#v", err, want)
+	}
+}
+
+// TestExecSpawnToStdout: a spawned program whose standard error is
+// ToStdout writes it to standard output's file, in the order written (a
+// burst of lines to the two streams in turn, with no wait); a standard
+// output of ToStdout is Failed and starts nothing. Mutants
+// g5-spawn-tostdout-ignored (standard error goes to the null device) and
+// g5-spawn-stdout-to-itself (the refusal dropped).
+func TestExecSpawnToStdout(t *testing.T) {
+	task := rt.Root("spawn tostdout")
+	out := filepath.Join(t.TempDir(), "out")
+	script := `k=0; while [ $k -lt 200 ]; do echo o$k; echo e$k >&2; k=$((k+1)); done`
+	var want strings.Builder
+	for k := range 200 {
+		fmt.Fprintf(&want, "o%d\ne%d\n", k, k)
+	}
+	d, err := ExecSpawn(task, "sh", []string{"-c", script}, nil, "", "", execToFile, out, false, execToStdout, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The program ends by itself; it is this test's to end if it does not.
+	t.Cleanup(func() { ExecKill(rt.Root("spawn tostdout kill"), d.Pid, d.Start, 0) })
+	testwait.Until(t, func() bool {
+		data, _ := os.ReadFile(out)
+		if len(data) > want.Len() || !strings.HasPrefix(want.String(), string(data)) {
+			t.Fatalf("%s holds %d bytes that are not a prefix of the %d written in order", out, len(data), want.Len())
+		}
+		return string(data) == want.String()
+	})
+	_, err = ExecSpawn(task, "true", nil, nil, "", "", execToStdout, "", false, execDiscard, "", false)
+	if err != execToItself("true") {
+		t.Fatalf("ExecSpawn with a standard output of ToStdout failed %#v, want %#v", err, execToItself("true"))
 	}
 }
 
@@ -150,7 +190,14 @@ func TestExecSpawnStopped(t *testing.T) {
 // dropped from the wait). The test waits on Kill's return; the test's
 // deadline only names a hung Kill.
 func TestExecKillStopped(t *testing.T) {
-	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; sleep 120`}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
+	// The program says it ignores SIGTERM through a FIFO, and Kill starts
+	// only after: a SIGTERM before the trap ended the program, so the
+	// mutant passed (I19 r10, a mutant run).
+	ready := filepath.Join(t.TempDir(), "ready")
+	if err := syscall.Mkfifo(ready, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; echo ready > "$0"; sleep 120`, ready}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +206,19 @@ func TestExecKillStopped(t *testing.T) {
 			_ = syscall.Kill(-d.Pid, syscall.SIGKILL)
 		}
 	})
+	said := make(chan error, 1)
+	go func() {
+		_, err := os.ReadFile(ready) // opens when the program opens its end
+		said <- err
+	}()
+	select {
+	case err := <-said:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-testwait.After(t):
+		t.Fatal("the program never said it ignores SIGTERM")
+	}
 	stopped := rt.Root("stopped killer")
 	stopped.Interrupt()
 	done := make(chan struct{})

@@ -45,6 +45,33 @@ var formSeed = flag.Uint64("forms.seed", 0, "run TestFormsAgree on this seed alo
 var formPaths = []string{
 	"must", "must-write", "orFirst-ok", "orFirst-missing", "viaLet", "bumped", "mixed", "soft-ok",
 	"soft-missing", "later", "consts", "loop", "map", "end-normal", "end-fail", "end-unreachable", "end-zero", "end-gone", "pick2", "dropped",
+	"scan-scanClasses-edge", "scan-scanClasses-bare", "scan-scanMask-edge", "scan-scanMask-bare", "scan-scanWide-edge", "scan-scanWide-bare",
+	"scan-scanRoom-edge", "scan-scanRoom-bare", "scan-scanZero-edge", "scan-scanZero-bare",
+	"local-lClasses-edge", "local-lClasses-bare", "local-lMask-edge", "local-lMask-bare", "local-lWide-edge", "local-lWide-bare",
+	"local-lRoom-edge", "local-lRoom-bare", "local-lZero-edge", "local-lZero-bare",
+}
+
+// scanLets are the lets of S2b's scanner places (constFold's place
+// rules). scanned reads each in a place where no Go fold can fail; a
+// program adds, for some, an edge use where a fold could fail (scanEdges),
+// and that let must then stay v1.Let.
+var scanLets = []string{"scanClasses", "scanMask", "scanWide", "scanRoom", "scanZero"}
+
+// scanEdges are the edge uses: a constant index out of range, a constant
+// shifted by a count past its width, a conversion that overflows, a
+// product of constants that overflows, a division by zero. The first and
+// the last are defects, so they sit in a branch that never runs; Go would
+// still refuse their fold at build time.
+var scanEdges = map[string]struct {
+	never bool
+	src   string
+	out   string
+}{
+	"scanClasses": {true, "let eClasses = scanClasses[9]\n\t\tConsole.Println(\"\\(eClasses)\")", ""},
+	"scanMask":    {false, "Console.Println(\"\\(scanMask << scanShift) \\(uint64(b.items[0].c) >> scanShift)\")", "0 0"},
+	"scanWide":    {false, "let eWide = uint8(scanWide)\n\tConsole.Println(\"\\(eWide)\")", "44"},
+	"scanRoom":    {false, "let eRoom = scanRoom * scanRoom * scanRoom * scanRoom * scanRoom * scanRoom * scanRoom * scanRoom * scanRoom * scanRoom * scanRoom\n\tConsole.Println(\"\\(eRoom)\")", "0"},
+	"scanZero":    {true, "let eZero = b.items[0].a % scanZero\n\t\tConsole.Println(\"\\(eZero)\")", ""},
 }
 
 const formPrelude = `type Rec { a int, b string, c int, d int, e int }
@@ -58,64 +85,88 @@ let label = "lim"
 let zero = 0
 let big = 9223372036854775807
 
-func at[T](b *Box[T], i int) T fails Missing {
+let scanClasses = "\x00\x09\x0a\x04\x00\x10"
+let scanMask uint64 = 0xff00
+let scanLow uint64 = 0x000f
+let scanLimit = uint32(0xffffffff)
+let scanWide = 300
+let scanRoom = 64
+let scanZero = 0
+let scanShift = 70
+
+// scanned reads the scan lets where no Go fold over them can fail: a
+// constant string indexed by a variable, a constant shifted by a
+// variable, a bitwise operator over constants, conversions that fit, a
+// divisor other than zero, a sum with a variable, an interpolated value.
+func scanned(i int, k uint64, n int) string {
+	let c = scanClasses[i]
+	let bit = (scanMask >> k) & uint64(1)
+	let both = (scanMask | scanLow) == uint64(0xff0f)
+	let fits = n >= int(scanLimit)
+	let narrow = int64(n) < int64(scanWide)
+	let slot = n % scanRoom
+	let z = n + scanZero
+	"\(c) \(bit) \(both) \(fits) \(narrow) \(slot) \(z) \(scanRoom)"
+}
+
+func at[T](b mut Box[T], i int) T fails Missing {
 	if i < 0 || i >= len(b.items) {
 		return Missing{At: i}
 	}
 	b.items[i]
 }
 
-func must[T](b *Box[T], i int) T {
+func must[T](b mut Box[T], i int) T {
 	at(b, i) catch {
 	case Missing:
 		Unreachable("no item \(i)")
 	}
 }
 
-func orFirst[T](b *Box[T], i int) T {
+func orFirst[T](b mut Box[T], i int) T {
 	at(b, i) catch {
 	case Missing:
 		return b.items[0]
 	}
 }
 
-func viaLet[T](b *Box[T], i int) T {
+func viaLet[T](b mut Box[T], i int) T {
 	let r = must(b, i)
 	r
 }
 
-func bumped[T](b *Box[T], i int, f func(r *T)) T {
+func bumped[T](b mut Box[T], i int, f func(r mut T)) T {
 	let r = must(b, i)
 	f(&b.items[i])
 	r
 }
 
-func mixed(b *Box[Rec], i int, k int) Rec {
+func mixed(b mut Box[Rec], i int, k int) Rec {
 	let mut r = must(b, i)
 	r.c = r.c + k
 	r
 }
 
-func soft[T](b *Box[T], i int, d T) T {
+func soft[T](b mut Box[T], i int, d T) T {
 	at(b, i) catch {
 	case Missing:
 		d
 	}
 }
 
-func later(b *Box[Rec], i int) func() int {
+func later(b mut Box[Rec], i int) func() int {
 	let r = must(b, i)
 	func() int { r.a + r.c }
 }
 
-func keyed[T](b *Box[T], i int) int {
+func keyed[T](b mut Box[T], i int) int {
 	let a = i * 3 + b.n
 	let r = Rec{a: a, b: "k", c: 1, d: 0, e: 0}
 	b.n = r.a - a
 	a
 }
 
-func counted[T](b *Box[T], i int) int {
+func counted[T](b mut Box[T], i int) int {
 	let n = i * 5 + b.n
 	b.n = b.n * 1
 	n
@@ -123,7 +174,7 @@ func counted[T](b *Box[T], i int) int {
 
 type Gone {}
 
-func pick2(b *Box[Rec], i int) int fails Missing | Gone {
+func pick2(b mut Box[Rec], i int) int fails Missing | Gone {
 	if i == 5 {
 		return Gone
 	}
@@ -131,13 +182,13 @@ func pick2(b *Box[Rec], i int) int fails Missing | Gone {
 	r.a
 }
 
-func loud(b *Box[Rec], i int) int fails Missing needs Console {
+func loud(b mut Box[Rec], i int) int fails Missing needs Console {
 	Console.Println("loud")
 	let r = try at(b, i)
 	r.a
 }
 
-func quiet(b *Box[Rec]) int needs Console {
+func quiet(b mut Box[Rec]) int needs Console {
 	loud(b, 0) catch {
 	case Missing:
 		-1
@@ -146,14 +197,14 @@ func quiet(b *Box[Rec]) int needs Console {
 
 type Index { by Map[int, int], alt Map[int, int], hits int }
 
-func drop(x *Index, k int) {
+func drop(x mut Index, k int) {
 	x.by = x.by.Delete(k)
 	x.hits = x.hits + 1
 }
 
 func show(r Rec) string { "\(r.a) \(r.b) \(r.c) \(r.d) \(r.e)" }
 
-func stash(b *Box[Rec], i int, k int) Rec {
+func stash(b mut Box[Rec], i int, k int) Rec {
 	let r = must(b, i)
 	for j in 0..k {
 		b.items[i].e = b.items[i].e + j
@@ -164,7 +215,7 @@ func stash(b *Box[Rec], i int, k int) Rec {
 	b.items[i]
 }
 
-func noisy(b *Box[Rec], i int) int needs Console {
+func noisy(b mut Box[Rec], i int) int needs Console {
 	Console.Println("noisy \(i)")
 	for j in 0..2 {
 		b.items[i].d = b.items[i].d + j + 1
@@ -183,7 +234,7 @@ func tally(xs []int, k int) int {
 
 type Hook { f func() int }
 
-func hooked(b *Box[Rec], h *Hook, i int) Rec {
+func hooked(b mut Box[Rec], h mut Hook, i int) Rec {
 	let r = must(b, i)
 	h.f = func() int { r.a }
 	r
@@ -195,13 +246,13 @@ type Shape = Sq | Ci
 
 func sq(n int) Sq { Sq{a: n, w: n} }
 
-func shapeVar[T](b *Box[T], n int) Shape {
+func shapeVar[T](b mut Box[T], n int) Shape {
 	let mut s = Sq{a: n, w: 1}
 	s.w = s.w + n
 	s
 }
 
-func shapeDef[T](b *Box[T], n int) Shape {
+func shapeDef[T](b mut Box[T], n int) Shape {
 	let s = sq(n)
 	if s.a > 100 {
 		return Ci{a: s.w}
@@ -298,7 +349,7 @@ func (g *formGen) stmt() {
 		// The callback writes the record the let read: the let keeps the
 		// value it had.
 		i, v, k := g.valid(), g.name("r"), g.r.IntN(9)+1
-		g.line(fmt.Sprintf("let %s = bumped(&b, %d, func(r *Rec) { r.d = r.d + %d })", v, i, k))
+		g.line(fmt.Sprintf("let %s = bumped(&b, %d, func(r mut Rec) { r.d = r.d + %d })", v, i, k))
 		g.line(fmt.Sprintf("Console.Println(show(%s) + \" \" + show(b.items[%d]))", v, i))
 		old := g.items[i]
 		g.items[i].d += k
@@ -452,8 +503,75 @@ func (g *formGen) digest() string {
 	return strings.Join(parts, ";")
 }
 
+// scanConsts reads the scan lets in their safe places (scanned) and adds
+// the edge use of every other one, alternating by seed so the fixed seeds
+// reach each let with and without its edge. It returns the lets with an
+// edge use.
+func (g *formGen) scanConsts(seed uint64) map[string]bool {
+	i, k, n := g.r.IntN(6), uint64(g.r.IntN(16)), g.r.IntN(1000)-500
+	g.line(fmt.Sprintf("Console.Println(scanned(%d, uint64(%d), %d))", i, k, n))
+	classes := "\x00\x09\x0a\x04\x00\x10"
+	g.out("%d %d %v %v %v %d %d 64", classes[i], (uint64(0xff00)>>k)&1, true, false, n < 300, n%64, n)
+	edges := map[string]bool{}
+	var never []string
+	for j, name := range scanLets {
+		if (seed+uint64(j))%2 != 0 {
+			g.reached["scan-"+name+"-bare"] = true
+			continue
+		}
+		g.reached["scan-"+name+"-edge"] = true
+		edges[name] = true
+		e := scanEdges[name]
+		if e.never {
+			never = append(never, e.src)
+			continue
+		}
+		g.line(e.src)
+		g.out("%s", e.out)
+	}
+	// The same lets as locals of main (localConst), read in the same safe
+	// places by variable operands, with the edge use of the other half.
+	g.line("let lClasses = \"\\x00\\x09\\x0a\\x04\\x00\\x10\"\n\tlet lMask uint64 = 0xff00\n\tlet lWide = 300\n\tlet lRoom = 64\n\tlet lZero = 0\n\tlet lShift = 70")
+	g.line(fmt.Sprintf("let mut li = %d\n\tlet mut lk = uint64(%d)\n\tlet mut ln = %d\n\tli = li + 0\n\tlk = lk + 0\n\tln = ln + 0", i, k, n))
+	g.line("Console.Println(\"\\(lClasses[li]) \\((lMask >> lk) & uint64(1)) \\(int64(ln) < int64(lWide)) \\(ln % lRoom) \\(ln + lZero) \\(ln < lShift)\")")
+	g.out("%d %d %v %d %d %v", classes[i], (uint64(0xff00)>>k)&1, n < 300, n%64, n, n < 70)
+	for j, name := range localLets {
+		if (seed+uint64(j)+1)%2 != 0 {
+			g.reached["local-"+name+"-bare"] = true
+			continue
+		}
+		g.reached["local-"+name+"-edge"] = true
+		edges[name] = true
+		e := scanEdges[localOf[name]]
+		src := strings.NewReplacer("scanClasses", "lClasses", "scanMask", "lMask", "scanShift", "lShift", "scanWide", "lWide", "scanRoom", "lRoom", "scanZero", "lZero", "eClasses", "leClasses", "eWide", "leWide", "eRoom", "leRoom", "eZero", "leZero").Replace(e.src)
+		if e.never {
+			never = append(never, src)
+			continue
+		}
+		g.line(src)
+		g.out("%s", e.out)
+	}
+	if len(never) > 0 {
+		g.line("if b.n > 1000000 {\n\t\t" + strings.Join(never, "\n\t\t") + "\n\t}")
+	}
+	return edges
+}
+
+// localLets are scanLets' twins as locals of main (localConst), by the
+// package let whose edge use each borrows.
+var localLets = []string{"lClasses", "lMask", "lWide", "lRoom", "lZero"}
+
+var localOf = map[string]string{"lClasses": "scanClasses", "lMask": "scanMask", "lWide": "scanWide", "lRoom": "scanRoom", "lZero": "scanZero"}
+
 // formProgram is the program and the model's stdout.
 func formProgram(seed uint64, reached map[string]bool) (src, want string) {
+	src, want, _ = formProgramEdges(seed, reached)
+	return src, want
+}
+
+// formProgramEdges is formProgram with the scan lets that have an edge
+// use (scanConsts).
+func formProgramEdges(seed uint64, reached map[string]bool) (src, want string, edges map[string]bool) {
 	g := &formGen{r: rand.New(rand.NewPCG(seed, 0x464f524d)), reached: reached}
 	g.items = []formRec{{3, "x", 1, 4, 1}, {5, "y", 9, 2, 6}}
 	g.line("let mut b = Box[Rec]{items: []Rec{Rec{a: 3, b: \"x\", c: 1, d: 4, e: 1}, Rec{a: 5, b: \"y\", c: 9, d: 2, e: 6}}, n: 0}")
@@ -478,6 +596,7 @@ func formProgram(seed uint64, reached map[string]bool) (src, want string) {
 	g.out("%s", g.digest())
 	g.line("Console.Println(\"\\(quiet(&b))\")")
 	g.out("loud\n%d", g.items[0].a)
+	edges = g.scanConsts(seed)
 	switch seed % 5 { // each ending in any five consecutive seeds
 	case 4:
 		// A partial catch of one arm over a row of two: the other variant
@@ -498,8 +617,8 @@ func formProgram(seed uint64, reached map[string]bool) (src, want string) {
 		g.line("Console.Println(show(must(&b, 9)))")
 		g.reached["end-unreachable"] = true
 	}
-	digest := "\nfunc digest(b *Box[Rec]) string {\n\tlet mut parts = []string{}\n\tfor r in b.items {\n\t\tparts = parts.Append(show(r))\n\t}\n\tstrings.Join(parts, \";\")\n}\n"
-	return "import strings\n\n" + formPrelude + digest + "func main() fails Missing | Gone needs Console {\n" + g.b.String() + "}\n", g.want.String()
+	digest := "\nfunc digest(b mut Box[Rec]) string {\n\tlet mut parts = []string{}\n\tfor r in b.items {\n\t\tparts = parts.Append(show(r))\n\t}\n\tstrings.Join(parts, \";\")\n}\n"
+	return "import strings\n\n" + formPrelude + digest + "func main() fails Missing | Gone needs Console {\n" + g.b.String() + "}\n", g.want.String(), edges
 }
 
 // lowerFormMode lowers src under the new lowering, or under the reference
@@ -599,4 +718,41 @@ func TestFormsAgree(t *testing.T) {
 	if refStats.Aliased != 0 || refStats.Renamed != 0 || refStats.Consts != 0 || refStats.MapStores != 0 || refStats.SoleFailures != 0 || refStats.Dropped != 0 {
 		t.Errorf("the reference lowering used a form: %+v", refStats)
 	}
+}
+
+// TestConstFoldPlaces is the in-process half of the property for the
+// scan lets (scanConsts): under the new lowering a scan let is read as
+// its bare Go constant exactly when the program has no edge use of it,
+// and every program's Go type-checks (typecheckGo), so no fold of an edge
+// use (scanClasses[9], scanMask << scanShift, uint8(scanWide), a product
+// of scanRoom that overflows, % scanZero) reaches Go. TestFormsAgree runs
+// the same programs and compares their output with the model.
+//
+// Mutants (lower ledger): const-fold-index-constant (a constant index is
+// a place), const-fold-fits-any (every conversion fits) and
+// const-fold-divisor-any (a zero divisor is a place) make an edge use's
+// fold reach Go, which go/types refuses.
+func TestConstFoldPlaces(t *testing.T) {
+	seeds := []uint64{1, 2, 3, 4, 5, 6}
+	if *formSeed != 0 {
+		seeds = []uint64{*formSeed}
+	}
+	var programs []*lowered
+	for _, seed := range seeds {
+		src, _, edges := formProgramEdges(seed, map[string]bool{})
+		p, _ := lowerFormMode(t, fmt.Sprintf("cf%d", seed), src, false)
+		code := p.mainGo()
+		for _, name := range append([]string{"scanLow"}, scanLets...) {
+			if read := regexp.MustCompile(`\.Let\(` + name + `\)`).MatchString(code); read != edges[name] {
+				t.Errorf("seed %d: %s read through v1.Let: %v, with an edge use: %v\nReplay: go test -run '^TestConstFoldPlaces$' ./internal/sketch/lower -args -forms.seed=%d", seed, name, read, edges[name], seed)
+			}
+		}
+		for _, name := range localLets {
+			if isConst := regexp.MustCompile(`(?m)^\s*const ` + name + ` `).MatchString(code); isConst == edges[name] {
+				t.Errorf("seed %d: local %s a Go const: %v, with an edge use: %v\nReplay: go test -run '^TestConstFoldPlaces$' ./internal/sketch/lower -args -forms.seed=%d", seed, name, isConst, edges[name], seed)
+			}
+		}
+		programs = append(programs, p)
+	}
+	typecheckGo(t, programs)
 }

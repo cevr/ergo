@@ -150,6 +150,7 @@ const stdSlicesOutput = "npm/c:9 github/a:5 npm/a:5 npm/b:5 github/d:1\n" +
 const stdSlicesLawsProbe = `import slices
 import maps
 import cmp
+import math
 
 type tagged { Key int, At int }
 
@@ -418,6 +419,68 @@ test CmpLessIsCompareBelowZero(a string, b string) {
 	assert !cmp.Less(a, a)
 }
 
+func isOrder[T any, O cmp.Order[T]](o O, a T, b T, c T) bool {
+	let reflexive = o.Compare(a, a) == 0
+	let antisymmetric = (o.Compare(a, b) < 0) == (o.Compare(b, a) > 0) && (o.Compare(a, b) == 0) == (o.Compare(b, a) == 0)
+	let transitive = !(o.Compare(a, b) <= 0 && o.Compare(b, c) <= 0) || o.Compare(a, c) <= 0
+	reflexive && antisymmetric && transitive
+}
+
+test CmpNaturalIntIsAnOrder(a int, b int, c int) { assert isOrder(cmp.Natural[int], a, b, c) }
+
+test CmpNaturalStringIsAnOrder(a string, b string, c string) { assert isOrder(cmp.Natural[string], a, b, c) }
+
+test CmpNaturalFloatIsAnOrder(a float64, b float64, c float64) {
+	assert isOrder(cmp.Natural[float64], a, b, c)
+	let nan = math.Sqrt(-1.0)
+	assert isOrder(cmp.Natural[float64], nan, a, b) && isOrder(cmp.Natural[float64], a, nan, nan)
+}
+
+test CmpOrderReflexive(a int, s string, f float64) {
+	assert cmp.Natural[int].Compare(a, a) == 0 && cmp.Natural[string].Compare(s, s) == 0 && cmp.Natural[float64].Compare(f, f) == 0
+	assert cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}.Compare(a, a) == 0
+}
+
+test CmpOrderAntisymmetric(a int, b int, s string, t string) {
+	assert isOrder(cmp.Natural[int], a, b, a) && isOrder(cmp.Natural[string], s, t, s)
+	assert isOrder(cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}, a, b, a)
+}
+
+test CmpOrderTransitive(a int, b int, c int) {
+	assert isOrder(cmp.Natural[int], a, b, c) && isOrder(cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}, a, b, c)
+}
+
+test CmpReverseOfNaturalIsAnOrder(a int, b int, c int) { assert isOrder(cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}, a, b, c) }
+
+test CmpReverseTwiceIsTheOrder(a int, b int) {
+	assert cmp.Reverse[int, cmp.Reverse[int, cmp.Natural[int]]]{Of: cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}}.Compare(a, b) == cmp.Compare(a, b)
+	assert cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}.Compare(a, b) == cmp.Compare(b, a)
+}
+
+test CmpThenIsAssociative(a int, b int, c int) { assert cmp.Then(cmp.Then(a, b), c) == cmp.Then(a, cmp.Then(b, c)) }
+
+test CmpThenOfZeroIsNext(b int) { assert cmp.Then(0, b) == b }
+
+test CmpThenWithZeroIsFirst(a int) {
+	assert cmp.Then(a, 0) == a
+	assert a == 0 || cmp.Then(a, a + 1) == a
+}
+
+test SlicesSortByIsSorted(xs []int) {
+	assert slices.IsSortedBy(slices.SortBy(xs, cmp.Natural[int]), cmp.Natural[int])
+	assert isSorted(slices.SortBy(xs, cmp.Natural[int]))
+}
+
+test SlicesSortByIsAPermutation(xs []int) {
+	let sorted = slices.SortBy(xs, cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]})
+	assert len(sorted) == len(xs)
+	for x in xs {
+		assert count(sorted, x) == count(xs, x)
+	}
+}
+
+test SlicesSortByOfNaturalIsSort(xs []int) { assert slices.Equal(slices.SortBy(xs, cmp.Natural[int]), slices.Sort(xs)) }
+
 test SlicesCloneCopies(xs []int) {
 	let c = slices.Clone(xs)
 	let mut d = slices.Clone(xs)
@@ -460,6 +523,30 @@ test SlicesSliceHasNoRoom(xs []int, i int, x int) {
 	let before = slices.Clone(xs)
 	let grown = slices.Slice(xs, 0, j).Append(x)
 	assert slices.Equal(xs, before) && slices.Equal(slices.Slice(grown, 0, j), slices.Slice(xs, 0, j)) && grown[j] == x
+}
+
+test SlicesInsertPlaces(xs []int, ys []int, i int, x int) {
+	let n = len(xs) + 1
+	let k = (i%n + n) % n
+	let mut roomy = slices.WithCapacity[int](len(xs) + len(ys) + 1)
+	for v in xs {
+		roomy = roomy.Append(v)
+	}
+	let r = slices.Insert(roomy, k, ys)
+	let before = slices.Clone(r)
+	let grown = roomy.Append(x)
+	assert len(r) == len(xs)+len(ys) && slices.Equal(slices.Slice(r, 0, k), slices.Slice(xs, 0, k)) && slices.Equal(slices.Slice(r, k, k+len(ys)), ys) && slices.Equal(slices.Slice(r, k+len(ys), len(r)), slices.Slice(xs, k, len(xs))) && slices.Equal(r, before) && slices.Equal(slices.Slice(grown, 0, len(xs)), xs)
+}
+
+test SlicesDeleteUndoesInsert(xs []int, i int, j int) {
+	let n = len(xs) + 1
+	let a = (i%n + n) % n
+	let b = (j%n + n) % n
+	let lo = if a < b { a } else { b }
+	let hi = if a < b { b } else { a }
+	let before = slices.Clone(xs)
+	let d = slices.Delete(xs, lo, hi)
+	assert len(d) == len(xs)-(hi-lo) && slices.Equal(xs, before) && slices.Equal(slices.Slice(d, 0, lo), slices.Slice(xs, 0, lo)) && slices.Equal(slices.Insert(d, lo, slices.Slice(before, lo, hi)), before)
 }
 
 test SlicesLenAndAtReadItems(xs []int) {
@@ -524,6 +611,20 @@ var stdSlicesLawStatements = map[string]string{
 	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
 	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
 	"cmp MaxMinSplit":                  `MaxMinSplit(a int, b int) { Max(a, b) == Max(b, a) && Min(a, b) == Min(b, a) && Max(a, b)+Min(a, b) == a+b && Min(a, b) <= Max(a, b) }`,
+	"cmp NaturalFloatIsAnOrder":        `NaturalFloatIsAnOrder(a float64, b float64, c float64) { isOrder(Natural[float64], a, b, c) }`,
+	"cmp NaturalIntIsAnOrder":          `NaturalIntIsAnOrder(a int, b int, c int) { isOrder(Natural[int], a, b, c) }`,
+	"cmp NaturalStringIsAnOrder":       `NaturalStringIsAnOrder(a string, b string, c string) { isOrder(Natural[string], a, b, c) }`,
+	"cmp Order.Antisymmetric":          `Antisymmetric(a T, b T) { (Compare(a, b) < 0) == (Compare(b, a) > 0) && (Compare(a, b) == 0) == (Compare(b, a) == 0) }`,
+	"cmp Order.Reflexive":              `Reflexive(a T) { Compare(a, a) == 0 }`,
+	"cmp Order.Transitive":             `Transitive(a T, b T, c T) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
+	"cmp ReverseOfNaturalIsAnOrder":    `ReverseOfNaturalIsAnOrder(a int, b int, c int) { isOrder(Reverse[int, Natural[int]]{Of: Natural[int]}, a, b, c) }`,
+	"cmp ReverseTwiceIsTheOrder":       `ReverseTwiceIsTheOrder(a int, b int) { Reverse[int, Reverse[int, Natural[int]]]{Of: Reverse[int, Natural[int]]{Of: Natural[int]}}.Compare(a, b) == Compare(a, b) }`,
+	"cmp ThenIsAssociative":            `ThenIsAssociative(a int, b int, c int) { Then(Then(a, b), c) == Then(a, Then(b, c)) }`,
+	"cmp ThenOfZeroIsNext":             `ThenOfZeroIsNext(b int) { Then(0, b) == b }`,
+	"cmp ThenWithZeroIsFirst":          `ThenWithZeroIsFirst(a int) { Then(a, 0) == a }`,
+	"slices SortByIsAPermutation":      `SortByIsAPermutation(xs []int) { let sorted = SortBy(xs, cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}) let mut same = len(sorted) == len(xs) for x in xs { same = same && count(sorted, x) == count(xs, x) } same }`,
+	"slices SortByIsSorted":            `SortByIsSorted(xs []int) { IsSortedBy(SortBy(xs, cmp.Natural[int]), cmp.Natural[int]) }`,
+	"slices SortByOfNaturalIsSort":     `SortByOfNaturalIsSort(xs []int) { Equal(SortBy(xs, cmp.Natural[int]), Sort(xs)) }`,
 	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
 	"maps KeysStops":                   `KeysStops(m Map[string, int]) { let s = Keys(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(key string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"maps ValuesStops":                 `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
@@ -554,6 +655,8 @@ var stdSlicesLawStatements = map[string]string{
 	"slices ConcatIsIsolated":          `ConcatIsIsolated(a []int, b []int, x int) { let mut roomy = WithCapacity[int](len(a) + len(b) + 1) for v in a { roomy = roomy.Append(v) } let c = Concat(roomy, b) let before = Clone(c) let grown = roomy.Append(x) Equal(c, before) && len(grown) == len(a)+1 && Equal(Slice(c, len(a), len(c)), b) }`,
 	"slices RepeatRepeats":             `RepeatRepeats(xs []int, n int) { let k = (n%8 + 8) % 8 let r = Repeat(xs, k) let mut ok = len(r) == len(xs)*k for i, v in r { ok = ok && v == xs[i%len(xs)] } ok }`,
 	"slices SliceHasNoRoom":            `SliceHasNoRoom(xs []int, i int, x int) { if len(xs) == 0 { return true } let j = (i%len(xs) + len(xs)) % len(xs) let before = Clone(xs) let grown = Slice(xs, 0, j).Append(x) Equal(xs, before) && Equal(Slice(grown, 0, j), Slice(xs, 0, j)) && grown[j] == x }`,
+	"slices InsertPlaces":              `InsertPlaces(xs []int, ys []int, i int, x int) { let n = len(xs) + 1 let k = (i%n + n) % n let mut roomy = WithCapacity[int](len(xs) + len(ys) + 1) for v in xs { roomy = roomy.Append(v) } let r = Insert(roomy, k, ys) let before = Clone(r) let grown = roomy.Append(x) len(r) == len(xs)+len(ys) && Equal(Slice(r, 0, k), Slice(xs, 0, k)) && Equal(Slice(r, k, k+len(ys)), ys) && Equal(Slice(r, k+len(ys), len(r)), Slice(xs, k, len(xs))) && Equal(r, before) && Equal(Slice(grown, 0, len(xs)), xs) }`,
+	"slices DeleteUndoesInsert":        `DeleteUndoesInsert(xs []int, i int, j int) { let n = len(xs) + 1 let a = (i%n + n) % n let b = (j%n + n) % n let lo = if a < b { a } else { b } let hi = if a < b { b } else { a } let before = Clone(xs) let d = Delete(xs, lo, hi) len(d) == len(xs)-(hi-lo) && Equal(xs, before) && Equal(Slice(d, 0, lo), Slice(xs, 0, lo)) && Equal(Insert(d, lo, Slice(before, lo, hi)), before) }`,
 	"slices LenAndAtReadItems":         `LenAndAtReadItems(xs []int) { let a = Ascend(xs) let items = Items(a) let mut ok = Len(a) == len(items) for i, v in items { ok = ok && At(a, i) == v } ok }`,
 	"maps CloneIsIndependent":          `CloneIsIndependent(m Map[string, int], k string) { let size = len(m) let had = m.Get(k) let mut c = Clone(m) let mut same = len(c) == size for key, v in m { same = same && c.Get(key) == Some[int]{Value: v} } c[k] = 7 same && len(m) == size && m.Get(k) == had }`,
 	"maps UpdateSeesTheOldValue":       `UpdateSeesTheOldValue(m Map[string, int], k string, v int) { let before = m.Get(k) let mut seen Option[int] = Some[int]{Value: v + 1} let out = Update(Clone(m), k, func(old Option[int]) int { seen = old v }) let grew = if before == None { 1 } else { 0 } seen == before && out.Get(k) == Some[int]{Value: v} && len(out) == len(m)+grew }`,

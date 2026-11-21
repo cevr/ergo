@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -51,7 +51,7 @@ func TestCheckWorkGrowsWithImports(t *testing.T) {
 	closure := stdClosure(t, "time")
 	files := int64(0)
 	for _, p := range closure {
-		srcs, _ := std.Package(p)
+		srcs, _ := stdlib.Package(p)
 		files += int64(len(srcs))
 	}
 	want := Work{StdFilesParsed: files, StdPackagesChecked: int64(len(closure))}
@@ -72,7 +72,7 @@ func stdClosure(t *testing.T, root string) []string {
 		if slices.Contains(out, p) {
 			return
 		}
-		srcs, ok := std.Package(p)
+		srcs, ok := stdlib.Package(p)
 		if !ok {
 			return // a Go import
 		}

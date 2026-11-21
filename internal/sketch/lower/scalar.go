@@ -71,6 +71,12 @@ type scalarLocal struct {
 	union    string
 	variants []string
 	inline   bool // a join local whose call was inlined
+	declared bool // its tag and slots are declared (scalarDeclare)
+	// boxed marks a local some read of which gathers its value: box is
+	// then the Go name of the box its value was scattered from, nil when
+	// a later write made the value (scatterKept, gather; slot.go).
+	boxed bool
+	box   string
 }
 
 // scalarVars are the locals of f's body that take the scalar form, and
@@ -87,9 +93,22 @@ func (l *lowerer) scalarVars(f *check.Func) map[*check.Var]bool {
 	if l.scalarMemo == nil {
 		l.scalarMemo = map[*syntax.BlockStmt]map[*check.Var]bool{}
 	}
-	out := scalarCandidates(body, f.Pkg.Info, paramVars(f))
+	if l.slotGather == nil {
+		l.slotGather = map[*check.Var]uint8{}
+	}
+	out := scalarCandidates(body, f.Pkg.Info, paramVars(f), l.slotGather)
 	l.scalarMemo[body] = out
 	return out
+}
+
+// slotGathered reports a scalar local some read of which gathers its
+// union value in the body being written: a read that is neither a match's
+// subject nor a return's value, or a return outside a slot variant
+// (slot.go), whose box is the one the caller takes. Such a local keeps
+// the box its value came in (scatterKept), and no call writes its slots.
+func (fc *funcCtx) slotGathered(v *check.Var) bool {
+	g := fc.l.slotGather[v]
+	return g&1 != 0 || g&2 != 0 && fc.frame.slot == nil
 }
 
 // joinCall is the call a join local's value is: x under parentheses and
@@ -103,8 +122,10 @@ func joinCall(x syntax.Expr) *syntax.CallExpr {
 	return c
 }
 
-// scalarCandidates is the rule above, but for the local's type.
-func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.Var) map[*check.Var]bool {
+// scalarCandidates is the rule above, but for the local's type. It marks
+// in gathered each local read other than as a match's subject or a
+// return's value (1), and each returned (2) (slotGathered).
+func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.Var, gathered map[*check.Var]uint8) map[*check.Var]bool {
 	decls := map[*check.Var]syntax.Node{}
 	join := map[*check.Var]bool{}
 	param := map[*check.Var]bool{}
@@ -169,11 +190,25 @@ func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.
 			cheap[id] = true
 		}
 	}
+	// whole are the reads that take the value whole without a union value
+	// of their own in a slot variant: a match's subject, a return's value.
+	whole := map[*syntax.Ident]bool{}
+	returned := map[*syntax.Ident]bool{}
+	if k := len(body.List); k > 0 {
+		if s, ok := body.List[k-1].(*syntax.ExprStmt); ok {
+			if id, ok := unparen(s.X).(*syntax.Ident); ok {
+				returned[id] = true // the body's tail
+			}
+		}
+	}
 	syntax.Inspect(body, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.TypeSwitchStmt:
 			if len(n.Subjects) == 1 {
 				mark(n.Subjects[0].X)
+				if id, ok := unparen(n.Subjects[0].X).(*syntax.Ident); ok {
+					whole[id] = true
+				}
 			}
 		case *syntax.CallExpr:
 			for _, a := range n.Args {
@@ -182,14 +217,23 @@ func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.
 		case *syntax.AssignStmt:
 			for _, x := range n.Lhs {
 				mark(x)
+				if id, ok := unparen(x).(*syntax.Ident); ok {
+					whole[id] = true // written, not read
+				}
 			}
 		case *syntax.VarDecl:
 			for _, spec := range n.Specs {
 				for _, id := range spec.Names {
 					cheap[id] = true // the name it declares
+					whole[id] = true
 				}
 			}
 		case *syntax.ReturnStmt:
+			if len(n.Results) == 1 {
+				if id, ok := unparen(n.Results[0]).(*syntax.Ident); ok {
+					returned[id] = true
+				}
+			}
 			syntax.Inspect(n, func(m syntax.Node) bool {
 				if id, ok := m.(*syntax.Ident); ok {
 					cheap[id] = true
@@ -203,6 +247,13 @@ func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.
 		switch n := n.(type) {
 		case *syntax.Ident:
 			v := use(n)
+			switch {
+			case v == nil || whole[n]:
+			case returned[n]:
+				gathered[v] |= 2
+			default:
+				gathered[v] |= 1
+			}
 			if v == nil || cheap[n] {
 				return true
 			}
@@ -292,7 +343,13 @@ func (fc *funcCtx) scalarOf(v *check.Var) *scalarLocal {
 	}
 	// The function has Go types (goGeneric is false), so each type
 	// parameter t mentions has a Go type here.
-	t := fc.boundType(v.Type)
+	return fc.unionShape(fc.boundType(v.Type))
+}
+
+// unionShape is a scalar local of the type t, not yet declared: a union
+// of the Go interface form whose variants have distinct Go types; nil for
+// any other t.
+func (fc *funcCtx) unionShape(t check.Type) *scalarLocal {
 	n, ok := t.(*check.Named)
 	if !ok || fc.l.flatUnionOf(t) != nil {
 		return nil
@@ -318,24 +375,40 @@ func (fc *funcCtx) scalarOf(v *check.Var) *scalarLocal {
 // joinReturn); when it is not, the union value is made anyway, and the
 // local keeps it as a plain one.
 func (fc *funcCtx) scalarLet(v *check.Var, sl *scalarLocal, x syntax.Expr, mut bool) {
+	gathered := fc.slotGathered(v)
+	sl.boxed = gathered && slotLowering != "off"
 	if call := joinCall(x); call != nil && !mut {
 		if fc.joinAt == nil {
 			fc.joinAt = map[*syntax.CallExpr]*scalarLocal{}
 		}
 		sl.name = v.Name
 		fc.joinAt[call] = sl
+		// Not inlined, the call may write the caller-frame slots instead
+		// (slot.go), unless a read of the local gathers it.
+		site := fc.slotOffer(call, sl, gathered)
 		val := fc.assigned(x)
 		delete(fc.joinAt, call)
-		if !sl.inline {
+		if !fc.slotTaken(call, site, val) && !sl.inline {
 			name := fc.declare(v)
 			fc.line("var " + name + " " + sl.union + " = " + val)
 			fc.line("_ = " + name)
 			return
 		}
+	} else if call := joinCall(x); call != nil {
+		// A loop-carried local's first value: the call writes its slots
+		// when it takes the slot variant (slot.go), else it is scattered.
+		fc.scalarDeclare(sl, v.Name)
+		site := fc.slotOffer(call, sl, gathered)
+		before := fc.l.stats.Inlined
+		val := fc.assigned(x)
+		if !fc.slotTaken(call, site, val) {
+			fc.scatterKept(sl, val, fc.settled(x, before))
+		}
 	} else {
+		before := fc.l.stats.Inlined
 		val := fc.assigned(x)
 		fc.scalarDeclare(sl, v.Name)
-		fc.scatter(sl, val)
+		fc.scatterKept(sl, val, fc.settled(x, before))
 	}
 	if fc.scalars == nil {
 		fc.scalars = map[*check.Var]*scalarLocal{}
@@ -345,8 +418,66 @@ func (fc *funcCtx) scalarLet(v *check.Var, sl *scalarLocal, x syntax.Expr, mut b
 }
 
 // scatter writes the union value val into the scalar local sl.
-func (fc *funcCtx) scatter(sl *scalarLocal, val string) {
+func (fc *funcCtx) scatter(sl *scalarLocal, val string) { fc.scatterKept(sl, val, false) }
+
+// settled reports a union value x that is a box already on the heap
+// whatever its local does: a plain local or parameter, a part of a Map
+// entry (heapVars), or the result of a call that was not inlined (before
+// is the inlined count when x's lowering began). Keeping such a box
+// (scatterKept) sends nothing to the heap that was not there. Go's escape
+// analysis does not tell a variable's values apart, so a part of a value
+// built here (a machine step's decision's Next) could have stayed on the
+// stack, and once it flows into the kept box that a gather returns it
+// would not (TestMachineFlatRunAllocates).
+func (fc *funcCtx) settled(x syntax.Expr, before int) bool {
+	if slotLowering == "off" {
+		return false
+	}
+	x = unparen(x)
+	if t, ok := x.(*syntax.TryExpr); ok {
+		x = unparen(t.X)
+	}
+	if _, ok := fc.l.info.Implicit[x]; ok {
+		return false
+	}
+	switch x := x.(type) {
+	case *syntax.SelectorExpr, *syntax.IndexExpr:
+		// A part of a Map's entry (heapVars): a part of a value built
+		// here could have stayed on the stack (a machine step's decision).
+		root := syntax.Expr(x)
+		for {
+			if s, ok := root.(*syntax.SelectorExpr); ok {
+				root = unparen(s.X)
+			} else if ix, ok := root.(*syntax.IndexExpr); ok {
+				root = unparen(ix.X)
+			} else {
+				break
+			}
+		}
+		id, ok := root.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		v, _ := fc.l.info.Uses[id].(*check.Var)
+		return v != nil && fc.heapVars[v]
+	case *syntax.Ident:
+		return fc.scalarIdent(x) == nil
+	case *syntax.CallExpr:
+		return fc.l.stats.Inlined == before
+	}
+	return false
+}
+
+// scatterKept writes the union value val into the scalar local sl, and
+// with keep holds val itself in the local's box (gather): the box it came
+// in is not made again.
+func (fc *funcCtx) scatterKept(sl *scalarLocal, val string, keep bool) {
 	x := fc.temp("x")
+	if keep && sl.box != "" {
+		b := fc.temp("b")
+		fc.line(b + " := " + sl.union + "(" + val + ")")
+		val = b
+	}
 	fc.line("switch " + x + " := " + sl.union + "(" + val + ").(type) {")
 	for k, g := range sl.variants {
 		fc.line("case " + g + ":")
@@ -356,25 +487,43 @@ func (fc *funcCtx) scatter(sl *scalarLocal, val string) {
 	fc.line("\t_ = " + x)
 	fc.line("\tpanic(\"ergo: defect: a value of " + sl.union + " that is none of its variants\")")
 	fc.line("}")
+	if keep && sl.box != "" {
+		fc.line(sl.box + " = " + val)
+	}
 }
 
 // scalarWrite is the Go statement that puts val, a value of variant k,
-// into the scalar local sl.
+// into the scalar local sl; its box is no longer the value.
 func (fc *funcCtx) scalarWrite(sl *scalarLocal, k int, val string) string {
-	return sl.name + ", " + sl.slots[k] + " = " + strconv.Itoa(k) + ", " + val
+	lhs, rhs := sl.name+", "+sl.slots[k], strconv.Itoa(k)+", "+val
+	if sl.box != "" {
+		lhs, rhs = lhs+", "+sl.box, rhs+", nil"
+	}
+	return lhs + " = " + rhs
 }
 
 // gather is the union value of the scalar local sl, in a Go local of its
-// own: the slot of its tag.
+// own: the box it was scattered from while it holds that value, else the
+// slot of its tag.
 func (fc *funcCtx) gather(sl *scalarLocal) string {
 	g := fc.temp("g")
 	fc.line("var " + g + " " + sl.union)
+	if sl.box != "" {
+		fc.line("if " + sl.box + " != nil {")
+		fc.line("\t" + g + " = " + sl.box)
+		fc.line("} else {")
+		fc.depth++
+	}
 	fc.line("switch " + sl.name + " {")
 	for k := range sl.variants {
 		fc.line("case " + strconv.Itoa(k) + ":")
 		fc.line("\t" + g + " = " + sl.slots[k])
 	}
 	fc.line("}")
+	if sl.box != "" {
+		fc.depth--
+		fc.line("}")
+	}
 	return g
 }
 
@@ -385,7 +534,9 @@ func (fc *funcCtx) joinSite(x *syntax.CallExpr) *scalarLocal {
 	if sl != nil && !sl.inline {
 		sl.inline = true
 		fc.l.stats.Joins++
-		fc.scalarDeclare(sl, sl.name)
+		if !sl.declared {
+			fc.scalarDeclare(sl, sl.name)
+		}
 	}
 	return sl
 }
@@ -393,9 +544,15 @@ func (fc *funcCtx) joinSite(x *syntax.CallExpr) *scalarLocal {
 // scalarDeclare declares the tag and slots of sl, named after name.
 func (fc *funcCtx) scalarDeclare(sl *scalarLocal, name string) {
 	fc.l.stats.Scalars++
+	sl.declared = true
 	sl.name = fc.temp(name)
 	fc.line("var " + sl.name + " uint8")
 	fc.line("_ = " + sl.name)
+	if sl.boxed {
+		sl.box = fc.temp(name + "Box")
+		fc.line("var " + sl.box + " " + sl.union)
+		fc.line("_ = " + sl.box)
+	}
 	for _, g := range sl.variants {
 		s := fc.temp(name)
 		sl.slots = append(sl.slots, s)
@@ -474,6 +631,11 @@ func (fc *funcCtx) scalarTags(subject string, types []string) *tagSwitch {
 	for _, s := range fc.scalars {
 		if s.name == subject {
 			sl = s
+		}
+	}
+	for _, s := range fc.slotTemps {
+		if s.name == subject {
+			sl = s // a match subject a slot variant wrote (slot.go)
 		}
 	}
 	if sl == nil {

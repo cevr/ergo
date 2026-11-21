@@ -58,7 +58,8 @@ func TestSeededRandModel(t *testing.T) {
 
 // TestRandLaws runs the member laws over the Go bodies: IntNInRange for
 // each n in 1..1,000 and 1,000 seeded larger n, on a Stream and on the
-// host; Float64InUnit 10,000 times on each.
+// host; Float64InUnit 10,000 times on each; Secure.BytesHasLength for each
+// k in 0..63 on a Stream and on crypto/rand.
 func TestRandLaws(t *testing.T) {
 	gen := rand.New(rand.NewPCG(5, 6))
 	ns := make([]int, 0, 2000)
@@ -87,6 +88,18 @@ func TestRandLaws(t *testing.T) {
 				}
 				if f := RandHostFloat64(); f < 0 || f >= 1 {
 					t.Fatalf("Float64InUnit: host Float64() = %v", f)
+				}
+			}
+		}},
+		// rand.Secure's law, on SeededSecure's Stream.Bytes and the host's
+		// crypto/rand, for each n the law's k reaches.
+		"rand Secure.BytesHasLength": {Statement: `BytesHasLength(n int) { let k = (n%64 + 64) % 64 len(Bytes(k)) == k }`, Check: func(t *testing.T) {
+			for k := range 64 {
+				if b := src.Bytes(k); len(b) != k {
+					t.Fatalf("Secure.BytesHasLength: Stream.Bytes(%d) has %d bytes", k, len(b))
+				}
+				if b := RandSecureBytes(k); len(b) != k {
+					t.Fatalf("Secure.BytesHasLength: RandSecureBytes(%d) has %d bytes", k, len(b))
 				}
 			}
 		}},

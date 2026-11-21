@@ -171,6 +171,11 @@ type testPackage struct {
 	name     string // the package of the test files, preferring the internal one
 	testMain string // the file declaring TestMain, if any
 	observed bool   // that TestMain calls testinputs on every platform
+	// makesNamespaces names the first test file that makes user
+	// namespaces (namespaceMarkers), and declaresNamespaces says TestMain
+	// calls testinputs.MakesNamespaces.
+	makesNamespaces    string
+	declaresNamespaces bool
 }
 
 func inspect(t *testing.T, dir string) testPackage {
@@ -196,9 +201,48 @@ func inspect(t *testing.T, dir string) testPackage {
 		if testMain(file) != nil {
 			pkg.testMain = name
 			pkg.observed = everyPlatform(name, file) && observes(file)
+			pkg.declaresNamespaces = testMainCalls(file, "MakesNamespaces")
+		}
+		if pkg.makesNamespaces == "" {
+			source, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, marker := range namespaceMarkers {
+				if strings.Contains(string(source), marker) {
+					pkg.makesNamespaces = name + " (" + marker + ")"
+					break
+				}
+			}
 		}
 	}
 	return pkg
+}
+
+// namespaceMarkers are the texts of a test file that makes user
+// namespaces: a clone flag, a SysProcAttr field, or a program that makes
+// them. Each is spelled in two parts, so this file holds none of them.
+var namespaceMarkers = []string{"CLONE_" + "NEWUSER", "Unshare" + "flags", `"un` + `share"`, `"bw` + `rap"`}
+
+// TestNamespaceTestsDeclareIt: an observed package whose tests make user
+// namespaces declares it in its TestMain (testinputs.MakesNamespaces), so
+// that a merge tier's run of it does not record itself in the closure
+// sweep's view, where those tests would fail or skip (HEAVY-COST-2: the
+// sandbox tests of scripts/gate failed so, and internal/closure's
+// skipped). Mutant: bindc's TestMain without the call
+// (heavy-cost2-namespaces-undeclared).
+func TestNamespaceTestsDeclareIt(t *testing.T) {
+	root := moduleRoot(t)
+	for _, dir := range testDirectories(t, root) {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg := inspect(t, dir)
+		if pkg.observed && pkg.makesNamespaces != "" && !pkg.declaresNamespaces {
+			t.Errorf("%s: its tests make user namespaces (%s), but its TestMain in %s does not call testinputs.MakesNamespaces", filepath.ToSlash(rel), pkg.makesNamespaces, pkg.testMain)
+		}
+	}
 }
 
 func testMain(file *ast.File) *ast.FuncDecl {
@@ -214,7 +258,11 @@ func testMain(file *ast.File) *ast.FuncDecl {
 // testinputs.MainFunc. It accepts a call anywhere in the body, a dead or
 // conditional branch included: the guard catches a package that forgot
 // observation, not one written to evade it.
-func observes(file *ast.File) bool {
+func observes(file *ast.File) bool { return testMainCalls(file, "Main", "MainFunc") }
+
+// testMainCalls reports whether the file's TestMain calls one of the
+// named functions of testinputs, anywhere in its body.
+func testMainCalls(file *ast.File, names ...string) bool {
 	local := ""
 	for _, spec := range file.Imports {
 		if path, err := strconv.Unquote(spec.Path.Value); err == nil && path == testinputsPath {
@@ -235,7 +283,7 @@ func observes(file *ast.File) bool {
 			return !found
 		}
 		if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if x, ok := selector.X.(*ast.Ident); ok && x.Name == local && (selector.Sel.Name == "Main" || selector.Sel.Name == "MainFunc") {
+			if x, ok := selector.X.(*ast.Ident); ok && x.Name == local && slices.Contains(names, selector.Sel.Name) {
 				found = true
 			}
 		}

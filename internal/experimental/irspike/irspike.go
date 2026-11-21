@@ -55,6 +55,18 @@ func (p Path) String() string {
 type Toolchain struct {
 	GOROOT  string
 	GOCACHE string
+	// Stock says the compile, without -ergoir, compiles as the stock one
+	// does and prints the stock -V=full line: ergo's patched compile
+	// (toolchain.Patched; scripts/irport checks each port). Its builds
+	// then share GOCACHE with the source path's, as ergo's own builds do,
+	// so a test process compiles the standard library for the IR path
+	// only when no process before it did (HEAVY-COST). A derivative that
+	// is not Stock (ERGO_IRSPIKE_GOROOT_IR) builds in a cache keyed by
+	// its content (compileID).
+	Stock bool
+	// IRFiles, when set, is the directory of the IR files' copies that
+	// the -ergoir flag names (stableIR); empty is beside the cache.
+	IRFiles string
 }
 
 // Toolchains are the two installations the spike compares, from
@@ -73,8 +85,9 @@ func Toolchains() (src, ir Toolchain, ok bool) {
 // Toolchains is not configured: the release ERGO_GO selects, the stock
 // compile of the reference, with Go's own build cache; and the same
 // release with ergo's patched compile from ergo's cache
-// (sketchfront.PatchedRelease), its build cache beside it. So the IR tests
-// need no variable, and a gate step runs them.
+// (sketchfront.PatchedRelease), which shares Go's build cache (Stock) and
+// keeps its IR files beside it. So the IR tests need no variable, and a
+// gate step runs them.
 func ErgoToolchains() (src, ir Toolchain, err error) {
 	root, err := build.DefaultRoot()
 	if err != nil {
@@ -97,8 +110,9 @@ func ErgoToolchains() (src, ir Toolchain, err error) {
 	if err != nil {
 		return src, ir, fmt.Errorf("go env GOCACHE: %w", err)
 	}
-	return Toolchain{GOROOT: source, GOCACHE: strings.TrimSpace(string(out))},
-		Toolchain{GOROOT: patched.Root, GOCACHE: filepath.Join(filepath.Dir(patched.Root), "gocache")}, nil
+	cache := strings.TrimSpace(string(out))
+	return Toolchain{GOROOT: source, GOCACHE: cache},
+		Toolchain{GOROOT: patched.Root, GOCACHE: cache, Stock: true, IRFiles: filepath.Join(filepath.Dir(patched.Root), "ir")}, nil
 }
 
 // Load checks the program at path (a .ergo file or a package folder) and
@@ -128,16 +142,26 @@ func Load(path string) (lower.Unit, error) {
 }
 
 // Emit lowers u by path p and writes the Go module into dir, which must
-// not exist yet.
+// not exist yet. The IR path lowers with the build-time fold off (CF1),
+// so a call of constants stays a call and the program runs the body it
+// compares (vacuous.go); EmitFold lowers it with the fold.
 func Emit(u lower.Unit, p Path, dir string) (lower.IRReport, error) {
-	var files []lower.File
-	var rep lower.IRReport
-	var err error
 	if p == IR {
-		files, rep, err = lower.LowerIR(u)
-	} else {
-		files, err = lower.Lower(u)
+		return EmitFold(u, dir, "off")
 	}
+	files, err := lower.Lower(u)
+	if err != nil {
+		return lower.IRReport{}, err
+	}
+	return lower.IRReport{}, writeModule(dir, files)
+}
+
+// EmitFold is Emit's IR path with the fold set to mode: "" folds, "off"
+// keeps every call (lower.SetConstFoldLoweringForTest).
+func EmitFold(u lower.Unit, dir, mode string) (lower.IRReport, error) {
+	prev := lower.SetConstFoldLoweringForTest(mode)
+	files, rep, err := lower.LowerIR(u)
+	lower.SetConstFoldLoweringForTest(prev)
 	if err != nil {
 		return rep, err
 	}
@@ -185,13 +209,13 @@ func compileID(goroot string) (string, error) {
 // stableIR is a copy of the IR file named by its content hash, beside the
 // build cache: the -ergoir flag, which the go command keys the compile
 // on, then names the IR's content, wherever the module was written.
-func stableIR(cache, file string) (string, error) {
+func stableIR(dir, file string) (string, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
-	name := filepath.Join(cache+"-ir", hex.EncodeToString(sum[:])+".json")
+	name := filepath.Join(dir, hex.EncodeToString(sum[:])+".json")
 	if _, err := os.Stat(name); err == nil {
 		return name, nil
 	}
@@ -216,12 +240,13 @@ type BuildOptions struct {
 // Command is the go build of the module in dir to out by path p: the
 // flags of ergo's own build action (receipt.GoBuildFlags), and for IR the
 // -ergoir flag on the program's root package. IR and Text build with the
-// derivative, whose cache is keyed by its content.
+// derivative, in its cache: GOCACHE when it is Stock, else one keyed by
+// its content.
 func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, error) {
 	cache := tc.GOCACHE
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	gcflags := o.GCFlags
-	if p != Source {
+	if p != Source && !tc.Stock {
 		id, err := compileID(tc.GOROOT)
 		if err != nil {
 			return nil, err
@@ -229,7 +254,11 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 		cache += "-" + id
 	}
 	if p == IR {
-		irFile, err := stableIR(cache, filepath.Join(dir, lower.IRFileName))
+		files := tc.IRFiles
+		if files == "" {
+			files = cache + "-ir"
+		}
+		irFile, err := stableIR(files, filepath.Join(dir, lower.IRFileName))
 		if err != nil {
 			return nil, err
 		}

@@ -96,7 +96,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	// The edges v1 may take into them, and what each must hand rt.
 	allowed := map[string]string{
 		"runOn -> Run":           "guarded",
-		"Go -> Go":               "guarded",
+		"Go -> Start":            "guarded", // PARK1: v1.Go starts its Task in place (rt.Start)
+		"GoWith -> Start":        "guarded", // GP-SPAWN2: v1.GoWith starts its taskWith in place, as Go does
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
 		// The static exit form (STATIC-EXIT, exits.go): the frame's end and
@@ -122,8 +123,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
 		"machineStart -> Go": "guarded",
 		// A child actor's runner (MU5), shielded: its owner entry stops it.
-		"machineStart -> GoShielded": "guarded",
-		"Actor[S, E, D].arm -> Go":   "guarded",
+		"machineStart -> GoShielded":      "guarded",
+		"Actor[S, E, D].arm -> RestartOn": "guarded", // PARK: the actor's timer child on its carrier
 		// An entry's work child (MU4).
 		"Actor[S, E, D].startWork -> GoShielded": "guarded",
 		// A source of Feed (MU10), a child of the runner.
@@ -204,7 +205,7 @@ func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, 
 				}
 				handed := false
 				for _, a := range n.Args {
-					handed = handed || v1Func(a) == want
+					handed = handed || v1Func(a) == want || want == "guarded" && bodyRunsGuarded(v1, a, v1Func)
 				}
 				if !handed {
 					t.Errorf("v1 %s hands rt %s no body run by %s", owner, funcKey(f), want)
@@ -232,10 +233,53 @@ func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, 
 	})
 }
 
+// bodyRunsGuarded reports an operand a that is an rt.Body (PARK1: rt.Start
+// and rt.RestartOn take a value with a Run method, not a function) whose
+// Run method, declared in v1, calls guarded: the body still runs under
+// the defect owner. (I-FLIP: PARK x the defect-owner scan.)
+func bodyRunsGuarded(v1 *typedSource, a ast.Expr, v1Func func(ast.Expr) string) bool {
+	t := v1.info.TypeOf(a)
+	if t == nil {
+		return false
+	}
+	obj, _, _ := types.LookupFieldOrMethod(t, true, v1.pkg, "Run")
+	run, ok := obj.(*types.Func)
+	if !ok {
+		return false
+	}
+	run = run.Origin()
+	for _, f := range v1.files {
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Body == nil {
+				continue
+			}
+			if def, _ := v1.info.Defs[fd.Name].(*types.Func); def == nil || def.Origin() != run {
+				continue
+			}
+			found := false
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok && v1Func(c.Fun) == "guarded" {
+					found = true
+				}
+				return !found
+			})
+			return found
+		}
+	}
+	return false
+}
+
 // recoverFlows checks that each recover in decl hands its value to capture
 // in the same function: directly, or through the variable it is assigned.
 func recoverFlows(t *testing.T, src *typedSource, owner string, decl ast.Decl) {
 	t.Helper()
+	if owner == "FuseOr" {
+		// FuseOr drops a fresh defect of the fused loop and runs the left
+		// side, whose own defect reaches capture; it re-raises a carried
+		// exit as it came (runtime/v1 fuse.go, TestFuseOrPassesACarriedExit).
+		return
+	}
 	isCall := func(e ast.Expr, name string) bool {
 		c, ok := ast.Unparen(e).(*ast.CallExpr)
 		if !ok {

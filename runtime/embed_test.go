@@ -14,9 +14,9 @@ import (
 )
 
 // TestPackagesMatchTheirDirectories: each runtime package's list of files is
-// every non-test file of its directory except runtime/v1/files.go and its
-// generated table files_gen.go, and runtime/testgen/classes.go (a licence
-// run's class tables, which the check-time evaluator reads), which
+// every non-test Go file, .s assembly file and .bin asset of its directory except runtime/v1/files.go, its
+// generated table files_gen.go and modulebody.go (a module body's effect
+// reading over files.go's Bodies, LAWFFI LF2m), which
 // serve only the compiler; each embedded file has the bytes on disk; and
 // every runtime package a file imports is in the package's declared
 // imports, so Files never leaves an import of an emitted module unmet.
@@ -30,7 +30,7 @@ func TestPackagesMatchTheirDirectories(t *testing.T) {
 		var onDisk []string
 		for _, e := range entries {
 			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" || path+"/"+name == "runtime/testgen/classes.go" {
+			if e.IsDir() || !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".bin") && !strings.HasSuffix(name, ".s") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" || path+"/"+name == "runtime/v1/modulebody.go" {
 				continue
 			}
 			onDisk = append(onDisk, name)
@@ -46,6 +46,9 @@ func TestPackagesMatchTheirDirectories(t *testing.T) {
 			embedded, err := sources.ReadFile(dir + "/" + name)
 			if err != nil || !bytes.Equal(disk, embedded) {
 				t.Errorf("%s/%s: the embedded bytes differ from the file (%v)", path, name, err)
+			}
+			if !strings.HasSuffix(name, ".go") {
+				continue // an asset a file of the package embeds (runtime/tzdata/zones.bin), or an assembly file (runtime/v1/exchange_darwin.s, the renamex_np trampoline)
 			}
 			file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), disk, parser.ImportsOnly)
 			if err != nil {

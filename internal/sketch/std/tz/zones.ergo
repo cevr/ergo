@@ -1,0 +1,114 @@
+// The zone database: a capability.
+
+import time
+
+// UnknownZone is the failure of a Zones provider's Load: the database has
+// no zone Name.
+type UnknownZone { Name string }
+
+// Zones is a zone database, by IANA name. It is a capability: a function
+// that loads a zone has tz.Zones in its row, and its context chooses
+// the database, so no program reads zones it did not choose. Std's provider is
+// tz/iana's, std's own copy of the IANA database; following the host's
+// zone files is an explicit choice of another provider.
+type Zones {
+	Load(name string) Zone fails UnknownZone,
+
+	// LoadIsStable: two loads of one name agree: both fail with the same
+	// failure, or both give zones of that name with the same offset at t.
+	law LoadIsStable(name string, t time.Time) {
+		let a = Load(name) catch {
+		case UnknownZone as e:
+			let _ = Load(name) catch {
+			case UnknownZone as again:
+				return again == e
+			}
+			return false
+		}
+		let b = Load(name) catch {
+		case UnknownZone:
+			return false
+		}
+		Name(a) == name && Name(b) == name && OffsetAt(a, t) == OffsetAt(b, t)
+	},
+}
+
+// Local is the zone a program's host calls its own: a capability, so a
+// program that shows local time has tz.Local in its row and its context
+// chooses where the zone comes from: tz/host's Local reads the host (TZ,
+// then /etc/localtime), and tz/host's Named is one name, for a test or a
+// program that keeps its zone in its own configuration. Each loads the
+// name through the database it was built with, so the host chooses the
+// name and the program the rules.
+type Local {
+	Zone() Zone fails UnknownZone,
+
+	// LocalIsStable: two reads agree: both fail with the same failure, or
+	// both give zones of one name with the same offset at t.
+	law LocalIsStable(t time.Time) {
+		let a = Zone() catch {
+		case UnknownZone as e:
+			let _ = Zone() catch {
+			case UnknownZone as again:
+				return again == e
+			}
+			return false
+		}
+		let b = Zone() catch {
+		case UnknownZone:
+			return false
+		}
+		Name(a) == Name(b) && OffsetAt(a, t) == OffsetAt(b, t)
+	},
+}
+
+// FromTZ is the zone of the value of TZ, read as the host's Local reads
+// it: set is whether TZ is set, value its value, and name and data what
+// the host calls its own zone when TZ is unset (a zone name, or a TZif
+// file's bytes). Unset, it is the host's zone (UTC when the host names
+// none, as Go's); empty or ":", UTC; else the name after a leading ":",
+// loaded from zones. A name zones does not hold
+// is UnknownZone, never UTC: a POSIX rule (EST5EDT4) or a path
+// (/usr/share/zoneinfo/Asia/Tokyo) is not a name. Go's time.Local gives
+// UTC for each, silently.
+func FromTZ(zones Zones, set bool, value string, name string, data string) Zone fails UnknownZone {
+	if !set {
+		if name != "" {
+			return try zones.Load(name)
+		}
+		if data != "" {
+			return FromTZif("Local", data) catch {
+			case BadData:
+				return UnknownZone{Name: "Local"}
+			}
+		}
+		return UTC()
+	}
+	let v = if len(value) > 0 && value[0] == ':' { value[1:] } else { value }
+	if v == "" {
+		return UTC()
+	}
+	try zones.Load(v)
+}
+
+// FromTZReadsTheName: TZ unset is the host's zone, empty or ":" is UTC, a
+// leading ":" is dropped, and a value the database does not hold is
+// UnknownZone with that name, never UTC.
+law FromTZReadsTheName(i int64, colon bool, other bool) {
+	let names = ianaNames()
+	let name = names[int(within(i, 0, int64(len(names) - 1)))]
+	let value = (if colon { ":" } else { "" }) + (if other { "EST5EDT4/" } else { "" }) + name
+	let z = FromTZ(lawZones, true, value, "", "") catch {
+	case UnknownZone as u:
+		return other && u.Name == "EST5EDT4/" + name
+	}
+	let empty = FromTZ(lawZones, true, if colon { ":" } else { "" }, "Asia/Tokyo", "") catch {
+	case UnknownZone:
+		return false
+	}
+	let host = FromTZ(lawZones, false, "", name, "") catch {
+	case UnknownZone:
+		return false
+	}
+	!other && Name(z) == name && Name(empty) == Name(UTC()) && Name(host) == name
+}

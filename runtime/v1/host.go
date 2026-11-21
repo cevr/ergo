@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"ergo.local/prototype/runtime/rt"
@@ -177,6 +178,16 @@ type Failed struct {
 // Error is the failure's text, as NotFound's is.
 func (e Failed) Error() string { return "fs.Failed{Path:" + e.Path + " Reason:" + e.Reason + "}" }
 
+// CrossDevice is fs.CrossDevice: a hard link from From to To cannot be
+// made, because the two paths are on different file systems (EXDEV).
+type CrossDevice struct {
+	From string
+	To   string
+}
+
+// Error is the failure's text, as NotFound's is.
+func (e CrossDevice) Error() string { return "fs.CrossDevice{From:" + e.From + " To:" + e.To + "}" }
+
 // Info is fs.Info: the last element of a path, its size in bytes,
 // whether it is a directory, and its permission bits.
 type Info struct {
@@ -226,6 +237,13 @@ func FSReadFile(path string) (string, error) {
 	}
 	return string(data), nil
 }
+
+// MappedText is the Go type of std fs's Text, a borrow of a Mapped's text:
+// an alias of string, so every string operation reads it as one. fs
+// declares Text by naming it (extern go …/runtime/v1.MappedText), so the
+// checker's borrow rule and the lowering read that declaration, not the
+// package's path: a copy of fs lowers and checks as fs (STD-COPY-SAME).
+type MappedText = string
 
 // Mapped is fs.Mapped: the text of a file read through a read-only shared
 // mapping of it (FSMapFile), or a text held in memory (FSMapText). Close
@@ -421,7 +439,14 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
 		data, err := root.ReadFile(path)
-		text = string(data)
+		// The text is data itself, not a copy (HTTP-FAST-c9): the slice
+		// ReadFile made is held by nothing else and is never written again.
+		// A read under half the slice's room (a small file in os's
+		// 512-byte minimum) is copied, so its text keeps only its bytes.
+		text = unsafe.String(unsafe.SliceData(data), len(data))
+		if len(data) < cap(data)/2 {
+			text = string(data)
+		}
 		return err
 	})
 	return text, err
@@ -742,6 +767,79 @@ func FSRename(from string, to string) error {
 	return fsErr(from, err)
 }
 
+// FSExchange is the body of fs.Host's Exchange: the files at a and b
+// trade places in one host call, so a reader of either path sees the old
+// file or the new one and never no file (Linux's renameat2 with
+// RENAME_EXCHANGE). Both must be there: a missing one is NotFound,
+// naming it, and nothing moves. A host or a file system that has no
+// atomic exchange is Failed "no atomic exchange on this host", never a
+// sequence of renames that a reader could see half done (SEMTOOLS SEM4b;
+// code.md, Apply).
+//
+//ergo:host
+//ergo:wait none
+func FSExchange(a string, b string) error {
+	err := exchangePaths(a, b)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errNoExchange):
+		return Failed{Path: a, Reason: errNoExchange.Error()}
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(a); lerr != nil {
+			return NotFound{Path: a}
+		}
+		return NotFound{Path: b}
+	}
+	return fsErr(a, err)
+}
+
+// FSLink is the body of fs.Host's Link (G6): a hard link at to of the
+// file at from (os.Link), so both names are one file. A file at to is
+// Failed ("file exists"): Link never replaces one. Two file systems are
+// CrossDevice, never a copy.
+//
+//ergo:host
+//ergo:wait none
+func FSLink(from string, to string) error {
+	err := os.Link(from, to)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, syscall.EXDEV):
+		return CrossDevice{From: from, To: to}
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(from); lerr != nil {
+			return NotFound{Path: from}
+		}
+		return NotFound{Path: to}
+	}
+	return fsErr(to, err)
+}
+
+// FSSameFile is the body of fs.Host's SameFile (G6): whether the paths a
+// and b name one file, after symbolic links, by the host's identity of a
+// file (os.SameFile: the device and the inode on Unix), not by name or
+// bytes. A path with no file is NotFound, naming it.
+//
+//ergo:host
+//ergo:wait none
+func FSSameFile(a string, b string) (bool, error) {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false, fsErr(a, err)
+	}
+	fb, err := os.Stat(b)
+	if err != nil {
+		return false, fsErr(b, err)
+	}
+	return os.SameFile(fa, fb), nil
+}
+
+// errNoExchange is exchangePaths's failure on a host or a file system with
+// no atomic exchange.
+var errNoExchange = errors.New("no atomic exchange on this host")
+
 // FSRemove is the body of fs.Host's Remove: os.Remove, which removes a
 // file, a symbolic link (not what it names) or an empty directory.
 //
@@ -752,6 +850,83 @@ func FSRemove(path string) error {
 		return fsErr(path, err)
 	}
 	return nil
+}
+
+// fileLocks are the descriptors of the locks FSLockFile holds, by a
+// number it gives each lock and never gives again (a descriptor's number
+// is reused once it is closed). So FSUnlockFile closes only a descriptor
+// this process locked, once: a second unlock of a lock, or one of a
+// number no lock gave, closes nothing.
+var fileLocks = struct {
+	sync.Mutex
+	next int
+	held map[int]int
+}{held: map[int]int{}}
+
+// FSLockFile is the body of fs.Host's LockFile: an exclusive kernel lock
+// (flock) on the file at path, made with mode 0666 less the umask when it
+// is missing, and the lock's number. It tries at once, then again after
+// pauses of 1 ms doubling to 32 ms, until wait has passed; a lock still
+// held by another open of the file is -1 with no error (None). The lock
+// is on the open file description, so two LockFile calls of one process
+// exclude each other as two processes do, and the kernel releases it
+// when the process ends, however it ends. The descriptor is
+// close-on-exec, so a program the holder starts does not keep the lock.
+//
+//ergo:host
+//ergo:wait none
+func FSLockFile(path string, wait time.Duration) (int, error) {
+	fd, err := flockFile(path, wait)
+	if fd < 0 {
+		return -1, err
+	}
+	fileLocks.Lock()
+	defer fileLocks.Unlock()
+	fileLocks.next++
+	fileLocks.held[fileLocks.next] = fd
+	return fileLocks.next, nil
+}
+
+// flockFile is FSLockFile's descriptor, or -1.
+func flockFile(path string, wait time.Duration) (int, error) {
+	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_CREAT|syscall.O_CLOEXEC, 0o666)
+	if err != nil {
+		return -1, fsErr(path, &fs.PathError{Op: "open", Path: path, Err: err})
+	}
+	deadline := time.Now().Add(wait)
+	pause := time.Millisecond
+	for {
+		err = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return fd, nil
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EINTR {
+			_ = syscall.Close(fd)
+			return -1, fsErr(path, &fs.PathError{Op: "flock", Path: path, Err: err})
+		}
+		left := time.Until(deadline)
+		if left <= 0 {
+			_ = syscall.Close(fd)
+			return -1, nil
+		}
+		time.Sleep(min(pause, left))
+		pause = min(pause*2, 32*time.Millisecond)
+	}
+}
+
+// FSUnlockFile is the body of fs.Host's UnlockFile: it closes the
+// descriptor of the lock FSLockFile numbered n, which releases the lock.
+//
+//ergo:host
+//ergo:wait none
+func FSUnlockFile(n int) {
+	fileLocks.Lock()
+	fd, held := fileLocks.held[n]
+	delete(fileLocks.held, n)
+	fileLocks.Unlock()
+	if held {
+		_ = syscall.Close(fd)
+	}
 }
 
 // The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a
@@ -1032,10 +1207,10 @@ func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	defer l.mu.Unlock()
 	var all strings.Builder
 	if f, ok := l.r.(*os.File); ok {
-		if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+		if size := regularSize(f); size > 0 {
 			// A hint: the offset may be past 0, so this may be more than
 			// the rest, never less unless the file grows.
-			all.Grow(len(l.buf) + int(info.Size()) + 1)
+			all.Grow(len(l.buf) + int(size) + 1)
 		}
 	}
 	growWrite(&all, l.buf)

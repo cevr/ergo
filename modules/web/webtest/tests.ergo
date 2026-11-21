@@ -1,0 +1,121 @@
+// The fixture site (SSR WEB1): three routes (a home page, a note by its
+// slug, an about page), a loader that reads each note from a file
+// (needs fs.Files), a failure with its status, and a 404 page, asked
+// through Get, Head and Post.
+
+import fs
+import fstest
+import github.com/cevr/ergo/modules/web
+import html
+import http
+import strings
+import ui
+
+type home {}
+type note { Slug string }
+type about {}
+type route = home | note | about
+
+// missing is the one failure: a slug with no note.
+type missing { Slug string }
+
+type routes {} implements web.Routes[route]
+
+func Href(_ routes, r route) ui.URL {
+	match r {
+	case home:
+		ui.URL{Path: "/", Query: "", Fragment: ""}
+	case note as n:
+		ui.URL{Path: ui.PathOf([]string{"notes", n.Slug}), Query: "", Fragment: ""}
+	case about:
+		ui.URL{Path: "/about", Query: "", Fragment: ""}
+	}
+}
+
+// Parse reads "/notes" as the note of the empty slug, which is where
+// Href puts it: Segments skips the empty segment.
+func Parse(_ routes, u ui.URL) Option[route] {
+	let s = ui.Segments(u)
+	if len(s) == 0 {
+		return Some[route]{Value: home}
+	}
+	if len(s) == 1 && s[0] == "about" {
+		return Some[route]{Value: about}
+	}
+	if len(s) == 1 && s[0] == "notes" {
+		return Some[route]{Value: note{Slug: ""}}
+	}
+	if len(s) == 2 && s[0] == "notes" {
+		return Some[route]{Value: note{Slug: s[1]}}
+	}
+	None
+}
+
+func load(r route) string fails missing needs fs.Files {
+	match r {
+	case home:
+		"home"
+	case note as n:
+		fs.Files.ReadFile("note-" + strings.ReplaceAll(n.Slug, "/", ":")) catch {
+		case _:
+			return missing{Slug: n.Slug}
+		}
+	case about:
+		"about"
+	}
+}
+
+func view(text string) html.Node {
+	html.Doc(html.Body([]html.Child{html.A([]html.Child{html.Href(web.To(routes, note{Slug: "a b/c"})), html.Text(text)})}))
+}
+
+func site() web.Site[route, string, missing, fs.Files] {
+	web.Site[route, string, missing, fs.Files]{
+		Routes: routes,
+		Load:   load,
+		View:   view,
+		Status: func(f) web.Reply {
+			match f {
+			case missing as m:
+				web.Reply{Status: 404, Page: html.P([]html.Child{html.Text("no note " + m.Slug)})}
+			}
+		},
+		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("nothing at " + path)}) },
+		Assets:   []web.Asset{},
+	}
+}
+
+test FixtureSiteAnswers {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("note-a b:c", "first")
+	with context { fs.Files: disk } {
+		let page = "<!DOCTYPE html><body><a href=\"/notes/a%20b%2Fc\">"
+		let first = Get(site(), "/notes/a%20b%2Fc")
+		assert first.Status == 200
+		assert first.Body == page+"first</a></body>"
+		assert Get(site(), "/about").Body == page+"about</a></body>"
+		let head = Head(site(), "/about")
+		assert head.Status == 200 && head.Body == ""
+		let gone = Get(site(), "/notes/zz")
+		assert gone.Status == 404 && gone.Body == "<p>no note zz</p>"
+		let lost = Get(site(), "/notes/a/extra")
+		assert lost.Status == 404 && lost.Body == "<p>nothing at /notes/a/extra</p>"
+		let post = Post(site(), "/")
+		assert post.Status == 405 && http.Header(post.Header, "Allow") == Some{"GET, HEAD"}
+	}
+}
+
+test LinksAreTheAnchorsHrefs {
+	let body = "<abbr title=\"t\">x</abbr><link href=\"/style.css\"/><a class=\"c\" href=\"/a?b=1&amp;c=&#34;&lt;&#39;\">y</a><a id=\"n\">z</a>"
+	assert Links(body) == []string{"/a?b=1&c=\"<'"}
+}
+
+test UnresolvedIsEachLocalLinkThatIsNotAPage {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("note-a b:c", "first")
+	with context { fs.Files: disk } {
+		assert len(Unresolved(site(), Get(site(), "/about").Body)) == 0
+		let body = "<a href=\"/notes/zz\">a</a><a href=\"//elsewhere/x\">b</a><a href=\"https://elsewhere/\">c</a><a href=\"/about?x=1#top\">d</a><a href=\"/nowhere\">e</a>"
+		assert Unresolved(site(), body) == []string{"/notes/zz", "/nowhere"}
+	}
+}

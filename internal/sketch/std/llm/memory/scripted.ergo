@@ -1,0 +1,168 @@
+// Package memory holds llm.Model providers kept in memory: Scripted plays
+// a script of replies as data, with no network and no clock. Tests, laws
+// and examples bind it where a program binds a vendor.
+//
+// Prior art: Effect's test language model (arrays of response parts),
+// the Vercel AI SDK's MockLanguageModelV4, TanStack AI's fakeText and
+// BAML's from_chunks: a reply is given as its stream parts.
+
+import llm
+import strings
+
+// Reply is one reply of a script: the deltas of a whole reply, with why
+// it stopped and what it used; the deltas of a reply whose stream breaks
+// before its terminal event; the deltas of a reply that then fails (a
+// Truncated holds the deltas' text); or a failed ask.
+type Reply = Says{Deltas []llm.Delta, Stop llm.Stop, Usage llm.Usage} | Cuts{Deltas []llm.Delta} | Breaks{Deltas []llm.Delta, Failure llm.Failure} | Fails{Failure llm.Failure}
+
+// Scripted is a Model that plays Replies: the reply to a request is the
+// one numbered by the Assistant messages of its transcript, so the first
+// ask of a conversation gets the first reply and the ask after the
+// model's n-th reply gets reply n+1. It is a value with no state, so
+// Generate and Stream of one request agree, and a replayed transcript is
+// answered as it was. A request past the script fails InvalidResponse.
+//
+// A Says whose deltas leave a call open, or give two calls one id, is a
+// reply no vendor may send: both Generate and Stream fail it
+// InvalidResponse, so the contract's laws hold for every script.
+type Scripted { Replies []Reply } implements llm.Model
+
+// NewScripted is the script whose first reply streams the text pieces
+// first and the calls named by tools (each with its arguments in two
+// pieces, and an id made from its name, so a name drawn twice gives the
+// reply two calls with one id), cut before its end when cut, and whose
+// later replies are rest. Law runs draw scripts by it (the generator calls a package's
+// New<T>): a first reply then streams text and whole calls, which
+// generated deltas seldom hold.
+func NewScripted(first []string, tools []string, cut bool, rest []Reply) Scripted {
+	let mut ds = []llm.Delta{}
+	for p in first {
+		ds = ds.Append(llm.Text{Text: p})
+	}
+	for i, name in tools {
+		ds = ds.Append(llm.CallStart{Index: i, Id: "call-" + name, Name: name}).Append(llm.CallArgs{Index: i, Text: "{\"n\":"}).Append(llm.CallArgs{Index: i, Text: "\(i)}"}).Append(llm.CallEnd{Index: i})
+	}
+	let stop llm.Stop = if len(tools) > 0 { llm.ToolUse } else { llm.Ended }
+	let mut head Reply = Says{Deltas: ds, Stop: stop, Usage: llm.Usage{Input: len(first), Output: len(ds), CacheRead: 0, CacheWrite: 0}}
+	if cut {
+		head = Cuts{Deltas: ds}
+	}
+	Scripted{Replies: []Reply{head}.Concat(rest)}
+}
+
+// CutIsTruncated: a reply cut before its end is never a turn: Stream and
+// Generate fail Truncated with the text of the deltas that came.
+law CutIsTruncated(first []string, tools []string) {
+	let s = NewScripted(first, tools, true, []Reply{})
+	let r = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+	let want = llm.Truncated{Text: strings.Join(first, "")}
+	let _ = s.Generate(r) catch {
+	case llm.Truncated as t:
+		let _ = s.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		case llm.Truncated as u:
+			return t == want && u == want
+		case _:
+			return false
+		}
+		return false
+	case _:
+		return false
+	}
+	false
+}
+
+// entry is the reply that answers r, or the failure of a script that has
+// run out.
+func entry(s Scripted, r llm.Request) Reply {
+	let mut n = 0
+	for m in r.Messages {
+		match m {
+		case llm.Assistant:
+			n = n + 1
+		case llm.User, llm.Result:
+		}
+	}
+	if n >= len(s.Replies) {
+		let out llm.Failure = llm.InvalidResponse{Reason: "the script has no reply \(n + 1)"}
+		return Fails{Failure: out}
+	}
+	s.Replies[n]
+}
+
+func Generate(s Scripted, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try generated(entry(s, r))
+}
+
+func Stream(s Scripted, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	try streamed(entry(s, r), put)
+}
+
+// generated is the turn or the failure a reply gives.
+func generated(x Reply) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	match x {
+	case Says as y:
+		try turn(y)
+	case Cuts as y:
+		llm.Truncated{Text: llm.Fold(y.Deltas).Text}
+	case Breaks as y:
+		try llm.Raise(broken(y))
+	case Fails as y:
+		try llm.Raise(y.Failure)
+	}
+}
+
+// streamed is generated, with the reply's deltas given to put first.
+func streamed(x Reply, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	match x {
+	case Says as y:
+		for d in y.Deltas {
+			try put(d)
+		}
+	case Cuts as y:
+		for d in y.Deltas {
+			try put(d)
+		}
+	case Breaks as y:
+		for d in y.Deltas {
+			try put(d)
+		}
+	case Fails as y:
+		// A truncated reply came as far as its text.
+		match y.Failure {
+		case llm.Truncated as t:
+			if t.Text != "" {
+				try put(llm.Text{Text: t.Text})
+			}
+		case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		}
+	}
+	try generated(x)
+}
+
+// broken is the failure a Breaks gives: a Truncated holds the text its
+// deltas gave, as the contract asks.
+func broken(x Breaks) llm.Failure {
+	match x.Failure {
+	case llm.Truncated:
+		llm.Truncated{Text: llm.Fold(x.Deltas).Text}
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		x.Failure
+	}
+}
+
+// turn is the turn a Says gives, or InvalidResponse when its deltas leave
+// a call open or give two calls one id.
+func turn(x Says) llm.Turn fails llm.InvalidResponse {
+	let d = llm.Fold(x.Deltas)
+	if len(d.Open) > 0 {
+		return llm.InvalidResponse{Reason: "the reply ended with call \(len(d.Calls)) open"}
+	}
+	for i, a in d.Calls {
+		for b in d.Calls[i+1:] {
+			if a.Id == b.Id {
+				return llm.InvalidResponse{Reason: "two calls have the id " + a.Id}
+			}
+		}
+	}
+	llm.Turn{Text: d.Text, Calls: d.Calls, Stop: x.Stop, Usage: x.Usage}
+}

@@ -24,6 +24,8 @@
 // and Go's own compiler (cmd/compile's ssa.ID); Effect has no such module.
 // The package is Ergo source with no Go body (STD-NOPRIV).
 
+import slices
+
 // ID is the id of a row of a store of K: four bytes, no pointer. IDs
 // compare with ==, in the order the rows were put.
 type ID[K] { n uint32 }
@@ -85,7 +87,7 @@ func Has[T](t Table[T], id ID[T]) bool { int(id.n) < len(t.rows) }
 
 // Put appends v and returns its id. Every id that named a row before
 // still names the same row.
-func Put[T](t *Table[T], v T) ID[T] {
+func Put[T](t mut Table[T], v T) ID[T] {
 	let id = next[T](len(t.rows))
 	t.rows = t.rows.Append(v)
 	id
@@ -104,7 +106,7 @@ func Get[T](t Table[T], id ID[T]) Option[T] {
 }
 
 // Set replaces the row id names. An id past the end is a defect.
-func Set[T](t *Table[T], id ID[T], v T) { t.rows[int(id.n)] = v }
+func Set[T](t mut Table[T], id ID[T], v T) { t.rows[int(id.n)] = v }
 
 // Entry is a row and its id, as Each gives them.
 type Entry[T] { ID ID[T], Row T }
@@ -157,7 +159,7 @@ type Count[K] { n uint32 }
 func NewCount[K]() Count[K] { Count[K]{n: uint32(0)} }
 
 // Next is the id of the next row.
-func Next[K](c *Count[K]) ID[K] {
+func Next[K](c mut Count[K]) ID[K] {
 	let id = next[K](int(c.n))
 	c.n = c.n + 1
 	id
@@ -166,14 +168,25 @@ func Next[K](c *Count[K]) ID[K] {
 // Total is the count of ids Next made.
 func Total[K](c Count[K]) int { int(c.n) }
 
+// IDAt is the id Next made at position i, 0 <= i < Total(c).
+func IDAt[K](c Count[K], i int) ID[K] {
+	if i < 0 || i >= int(c.n) {
+		Unreachable("dense: IDAt of a position outside the count")
+	}
+	ID[K]{n: uint32(i)}
+}
+
 // Col is a column of V for the rows of K: one field of hand columns.
 type Col[K, V] { xs []V }
 
 // NewCol is an empty column.
 func NewCol[K, V]() Col[K, V] { Col[K, V]{xs: []V{}} }
 
+// ColWithCap is an empty column with room for n values.
+func ColWithCap[K, V](n int) Col[K, V] { Col[K, V]{xs: slices.WithCapacity[V](n)} }
+
 // Push appends the value of the next row.
-func Push[K, V](c *Col[K, V], v V) { c.xs = c.xs.Append(v) }
+func Push[K, V](c mut Col[K, V], v V) { c.xs = c.xs.Append(v) }
 
 // In reports whether the column holds a value for id.
 func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < len(c.xs) }
@@ -182,7 +195,7 @@ func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < len(c.xs) }
 func Of[K, V](c Col[K, V], id ID[K]) V { c.xs[int(id.n)] }
 
 // SetOf replaces the value of id. An id past the end is a defect.
-func SetOf[K, V](c *Col[K, V], id ID[K], v V) { c.xs[int(id.n)] = v }
+func SetOf[K, V](c mut Col[K, V], id ID[K], v V) { c.xs[int(id.n)] = v }
 
 // Side holds data that few rows of K have, with a default for the rest:
 // where Go keeps a map keyed by a pointer. It is as long as the largest
@@ -198,7 +211,7 @@ func SideOf[K, V](s Side[K, V], id ID[K]) V {
 }
 
 // SideSet sets the value of id.
-func SideSet[K, V](s *Side[K, V], id ID[K], v V) {
+func SideSet[K, V](s mut Side[K, V], id ID[K], v V) {
 	let i = int(id.n)
 	for len(s.xs) <= i {
 		s.xs = s.xs.Append(s.zero)
@@ -216,9 +229,12 @@ type Pool[E] { items []E }
 // NewPool is an empty pool.
 func NewPool[E]() Pool[E] { Pool[E]{items: []E{}} }
 
+// PoolWithCap is an empty pool with room for n items.
+func PoolWithCap[E](n int) Pool[E] { Pool[E]{items: slices.WithCapacity[E](n)} }
+
 // PutList appends xs as one list and returns its run. No earlier list
 // changes.
-func PutList[E](p *Pool[E], xs []E) Run[E] {
+func PutList[E](p mut Pool[E], xs []E) Run[E] {
 	let start = len(p.items)
 	if start+len(xs) >= int(none) {
 		Unreachable(full)

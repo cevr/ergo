@@ -1,0 +1,7 @@
+# The platform packages' binaries are built at publish (scripts/npm.sh).
+work-*/bin/
+tn1-lint-*/bin/
+# A wrapper with a shared launcher takes it at build (tools/npm/packages).
+tn1-lint/bin/
+tn1-lint/install.js
+*.tgz

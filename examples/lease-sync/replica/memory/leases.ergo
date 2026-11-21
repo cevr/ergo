@@ -1,0 +1,35 @@
+// Package memory is the in-process provider of replica.Authority: a lease
+// pool's authority (replica/server) in the same process. Push and Pull
+// call it directly; nothing is lost and nothing waits. The Authority laws
+// run here.
+
+import lease-sync/domain
+import lease-sync/lease
+import lease-sync/replica
+import lease-sync/replica/server
+import time
+
+// Leases is the authority of a lease pool of capacity 2, with a delta
+// tail of 8 records, stamped by a clock no one moves.
+type Leases {
+	s     server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal],
+	clock time.Manual,
+} implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
+
+let source = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
+
+// NewLeases is an authority with an empty log.
+func NewLeases() Leases {
+	Leases{s: server.Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](source, server.Facts, 8), clock: time.NewManual(0)}
+}
+
+func Push(l Leases, m domain.Envelope[lease.Cmd]) domain.Receipt fails replica.Unavailable | replica.Unauthorized | replica.OutOfOrder | replica.IDConflict {
+	try server.Push(l.s, m, l.clock.Now())
+}
+
+func Pull(l Leases, by replica.ClientID, from int) replica.Frame[lease.Pool, lease.Event, lease.Refusal] fails replica.Unavailable | replica.Unauthorized {
+	server.Pull(l.s, by, from)
+}
+
+// Server is the authority behind l, for a test that reads its log.
+func Server(l Leases) server.Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal] { l.s }

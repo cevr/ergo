@@ -174,7 +174,7 @@ func genReach(r *rand.Rand) reachProgram {
 	b.WriteString("\nfunc main() needs go.Foreign {\n")
 	p.direct["main"] = nil
 	for i := 0; i < n; i++ {
-		fmt.Fprintf(&b, "\tf%d()\n", i)
+		fmt.Fprintf(&b, "\tlet _ = f%d()\n", i)
 		p.edges["main"] = append(p.edges["main"], fmt.Sprintf("f%d", i))
 	}
 	b.WriteString("}\n")

@@ -1,0 +1,873 @@
+// Merge classes by path (SEMWS WG2): work.toml's [[class]] lines, the
+// lock presets, the Git driver `work`, derive, and the merge of three
+// trees into a folder.
+
+import exec
+import github.com/cevr/ergo/modules/work/classes
+import filepath
+import fs
+import hex
+import sha256
+import slices
+import strings
+
+// ClassLine is one [[class]] of work.toml: the paths it takes (Match, a
+// glob: `**/` is any folders, `*` any run within a name, and a pattern
+// with no slash is a name at any depth, as in .gitattributes), its Kind,
+// the key paths a json file merges as sets, the command that makes a
+// derived file again (By, run in the merged tree), and a driver's command
+// (%O, %A, %B and %P are the base, ours, theirs and the path; it writes
+// its merge into %A). A driver line that is a Candidate is tried only
+// where Git's line merge conflicts, its result kept only when its Check
+// (a command on %A that ends with status 0 and prints nothing, as
+// `gofmt -l %A` does for a file that parses and is formatted) holds; a
+// Version pins its tool (`TOOL --version` prints it), and a tool missing
+// or of another version leaves the merge to lines (MergeCandidate).
+type ClassLine { Match string, Kind string, Sets []string, By string, Driver string, Candidate bool, Check string, Version string }
+
+// ClassKinds are the kinds a class line can name.
+let ClassKinds = []string{"json", "derived", "rows", "measured", "lines", "driver"}
+
+// Preset is a lock file and the command its package manager makes it
+// with, from the manifests alone (no install, no script).
+type Preset { Lock string, By string }
+
+// Presets are the package managers' locks, in the order a base with more
+// than one picks them.
+let Presets = []Preset{
+	Preset{Lock: "bun.lock", By: "bun install --lockfile-only"},
+	Preset{Lock: "package-lock.json", By: "npm install --package-lock-only --ignore-scripts"},
+	Preset{Lock: "pnpm-lock.yaml", By: "pnpm install --lockfile-only"},
+	Preset{Lock: "yarn.lock", By: "yarn install --mode update-lockfile"},
+}
+
+// PresetLines is lines with the presets of the locks present (the lock
+// files at the base's root): each lock no line takes is derived by its
+// package manager, and with a lock, package.json is json where no line
+// takes it.
+func PresetLines(lines []ClassLine, present []string) []ClassLine {
+	let mut out = slices.Clone(lines)
+	let mut any = false
+	for p in Presets {
+		if !slices.Contains(present, p.Lock) {
+			continue
+		}
+		any = true
+		if ClassOf(out, p.Lock) == None {
+			out = out.Append(ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""})
+		}
+	}
+	if any && ClassOf(out, "package.json") == None {
+		out = out.Append(ClassLine{Match: "package.json", Kind: "json", Sets: []string{}, By: "", Driver: "", Candidate: false, Check: "", Version: ""})
+	}
+	out
+}
+
+// PresetPicksTheLockThatExists: in a base whose root holds one lock
+// file, that lock is derived by its package manager's command, and
+// package.json merges as json.
+law PresetPicksTheLockThatExists(which int) {
+	let p = Presets[((which%len(Presets))+len(Presets))%len(Presets)]
+	let lines = PresetLines([]ClassLine{}, []string{p.Lock, "README.md"})
+	let lock = ClassOf(lines, p.Lock)
+	let manifest = ClassOf(lines, "packages/app/package.json")
+	lock == Some[ClassLine]{Value: ClassLine{Match: p.Lock, Kind: "derived", Sets: []string{}, By: p.By, Driver: "", Candidate: false, Check: "", Version: ""}} && manifest != None && kindOf(manifest) == "json" && ClassOf(lines, "README.md") == None
+}
+
+func kindOf(line Option[ClassLine]) string {
+	match line {
+	case Some[ClassLine] as l:
+		l.Value.Kind
+	case None:
+		""
+	}
+}
+
+// ClassOf is the first line that takes path (relative to the base).
+func ClassOf(lines []ClassLine, path string) Option[ClassLine] {
+	for l in lines {
+		if Matches(l.Match, path) {
+			return Some[ClassLine]{Value: l}
+		}
+	}
+	None
+}
+
+// Matches reports whether the glob pattern takes path.
+func Matches(pattern string, path string) bool {
+	let pat = if strings.Contains(pattern, "/") { strings.TrimPrefix(pattern, "/") } else { "**/" + pattern }
+	matchParts(strings.Split(pat, "/"), strings.Split(path, "/"))
+}
+
+func matchParts(pat []string, parts []string) bool {
+	if len(pat) == 0 {
+		return len(parts) == 0
+	}
+	if pat[0] == "**" {
+		for i in 0..len(parts)+1 {
+			if matchParts(slices.Clone(pat[1:]), slices.Clone(parts[i:])) {
+				return true
+			}
+		}
+		return false
+	}
+	len(parts) > 0 && matchName(pat[0], parts[0]) && matchParts(slices.Clone(pat[1:]), slices.Clone(parts[1:]))
+}
+
+// matchName matches one name against a pattern with `*` (any run of
+// characters) and `?` (one).
+func matchName(pat string, name string) bool {
+	if pat == "" {
+		return name == ""
+	}
+	if pat[0] == '*' {
+		for i in 0..len(name)+1 {
+			if matchName(strings.Slice(pat, 1, len(pat)), strings.Slice(name, i, len(name))) {
+				return true
+			}
+		}
+		return false
+	}
+	len(name) > 0 && (pat[0] == '?' || pat[0] == name[0]) && matchName(strings.Slice(pat, 1, len(pat)), strings.Slice(name, 1, len(name)))
+}
+
+// GlobTakesAnyDepth: a pattern with no slash, or one that starts with
+// `**/`, takes the name at any depth; one with a slash takes that path
+// only; `*` stays within a name.
+law GlobTakesAnyDepth(depth int) {
+	let d = ((depth % 4) + 4) % 4
+	let mut folders = []string{}
+	for i in 0..d {
+		folders = folders.Append("p\(i)")
+	}
+	let path = strings.Join(folders.Append("package.json"), "/")
+	Matches("package.json", path) && Matches("**/package.json", path) && Matches("*.json", path) && Matches("package.json", path) && (d == 0) == Matches("/package.json", path) && !Matches("p0/*", path+"x/y") && Matches("**", path)
+}
+
+// lineClass is the merge class of a line that is not a driver.
+func lineClass(line ClassLine) Option[classes.Class] {
+	match line.Kind {
+	case "json":
+		Some[classes.Class]{Value: classes.Json{Sets: line.Sets}}
+	case _:
+		classes.ClassNamed(line.Kind)
+	}
+}
+
+// presentLocks is the lock files at the root of base.
+func presentLocks(t Tool, base string) []string {
+	let mut out = []string{}
+	for p in Presets {
+		let _ = t.files.Stat(filepath.Join([]string{base, p.Lock})) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		out = out.Append(p.Lock)
+	}
+	out
+}
+
+// quoted is s as one word of sh.
+func quoted(s string) string { "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+// MergeByPath is merge-file's class auto: the class of path by the class
+// lines; a driver line runs its command, whose merge in ours is a
+// candidate (status 0), else a conflict; a path no line takes but a
+// [language.NAME]'s files do merges by that language's units (class
+// NAME); any other path merges by lines, as Git's own driver does.
+func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	match ClassOf(c.Classes, path) {
+	case Some[ClassLine] as l:
+		let line = l.Value
+		if line.Kind == "driver" && line.Candidate {
+			return try MergeCandidate(t, c, line, path, base, ours, theirs)
+		}
+		if line.Kind == "driver" {
+			if !trusted(t, c) {
+				return MergeConflict{Path: path, Class: "driver", Units: []string{}, Why: "the driver of \(line.Match) runs only after work trust"}
+			}
+			let r = t.runner.Run(exec.New("sh", []string{"-c", withFiles(line.Driver, path, base, ours, theirs)}).WithDir(t.here)) catch {
+			case exec.NotFound, exec.Denied:
+				return MergeConflict{Path: path, Class: "driver", Units: []string{}, Why: "sh could not start"}
+			case exec.Failed as f:
+				return MergeConflict{Path: path, Class: "driver", Units: []string{}, Why: f.Reason}
+			}
+			if r.Status != 0 {
+				return MergeConflict{Path: path, Class: "driver", Units: []string{}, Why: "the driver ended with status \(r.Status): \(strings.TrimSpace(r.Stderr))"}
+			}
+			return FileMerged{Path: path, Class: "driver", Regenerate: false}
+		}
+		match lineClass(line) {
+		case Some[classes.Class] as k:
+			try mergeWith(t, k.Value, line.Kind, line.By, path, base, ours, theirs)
+		case None:
+			try mergeLines(t, path, base, ours, theirs)
+		}
+	case None:
+		match LanguageOf(c, path) {
+		case Some[LanguageLine] as l:
+			try mergeByUnits(t, c, l.Value, path, base, ours, theirs)
+		case None:
+			try mergeLines(t, path, base, ours, theirs)
+		}
+	}
+}
+
+// withFiles is a driver's or a check's command with %O, %A, %B and %P
+// replaced by the base, ours, theirs and the path, each one word of sh.
+func withFiles(command string, path string, base string, ours string, theirs string) string {
+	strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(command, "%O", quoted(base)), "%A", quoted(ours)), "%B", quoted(theirs)), "%P", quoted(path))
+}
+
+// MergeCandidate merges path by a candidate driver line, never worse
+// than Git: where Git's line merge is clean it is the merge and the
+// driver never runs. Where it conflicts, the driver's merge in ours is
+// taken (class "candidate") when work trust allows the line, its tool
+// answers its pinned version, it ends with status 0, its text holds no
+// conflict marker and the line's check holds on it. The driver's own
+// conflict (another status) keeps its text, conflicted. Anything else
+// (no trust, the tool missing or of another version, a hidden conflict,
+// a failed check) withdraws the candidate: ours is Git's line merge,
+// conflicted, and the conflict says why.
+func MergeCandidate(t Tool, c Config, line ClassLine, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	let h = classes.MergeText(b, a, other)
+	if h.Clashes == 0 {
+		try t.writes.WriteFile(ours, classes.Text(h))
+		return FileMerged{Path: path, Class: "text", Regenerate: false}
+	}
+	let run = try candidate(t, c, line, path, base, ours, theirs)
+	match run {
+	case CandidateTaken:
+		FileMerged{Path: path, Class: "candidate", Regenerate: false}
+	case CandidateConflicted as own:
+		MergeConflict{Path: path, Class: "candidate", Units: []string{}, Why: own.Why}
+	case CandidateWithdrawn as w:
+		try t.writes.WriteFile(ours, classes.Text(h))
+		MergeConflict{Path: path, Class: "candidate", Units: []string{}, Why: "\(w.Why): the candidate is withdrawn, the file is Git's line merge"}
+	}
+}
+
+// CandidateRun is what a candidate driver's run gave: its merge taken,
+// its own conflict, or a candidate withdrawn and why.
+type CandidateTaken {}
+type CandidateConflicted { Why string }
+type CandidateWithdrawn { Why string }
+type CandidateRun = CandidateTaken | CandidateConflicted | CandidateWithdrawn
+
+// candidate runs line's driver on the three files, its version probe
+// first and its check after.
+func candidate(t Tool, c Config, line ClassLine, path string, base string, ours string, theirs string) CandidateRun fails fs.NotFound | fs.Denied | fs.Failed {
+	if !trusted(t, c) {
+		return CandidateWithdrawn{Why: "the driver of \(line.Match) runs only after work trust"}
+	}
+	let words = strings.Fields(line.Driver)
+	let tool = if len(words) > 0 { words[0] } else { "" }
+	if line.Version != "" {
+		let v = t.runner.Run(exec.New("sh", []string{"-c", tool + " --version"}).WithDir(t.here)) catch {
+		case exec.NotFound, exec.Denied, exec.Failed:
+			return CandidateWithdrawn{Why: "sh could not start"}
+		}
+		if v.Status != 0 || !strings.Contains(v.Stdout, line.Version) {
+			return CandidateWithdrawn{Why: "\(tool) is not version \(line.Version) (status \(v.Status): \(strings.TrimSpace(v.Stdout)))"}
+		}
+	}
+	let r = t.runner.Run(exec.New("sh", []string{"-c", withFiles(line.Driver, path, base, ours, theirs)}).WithDir(t.here)) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return CandidateWithdrawn{Why: "sh could not start"}
+	}
+	if r.Status == 127 {
+		return CandidateWithdrawn{Why: "the driver's tool \(tool) is missing (status 127)"}
+	}
+	if r.Status != 0 {
+		return CandidateConflicted{Why: "the driver ended with status \(r.Status): \(strings.TrimSpace(r.Stderr))"}
+	}
+	let text = try t.files.ReadFile(ours)
+	if strings.HasPrefix(text, "<<<<<<<") || strings.Contains(text, "\n<<<<<<<") {
+		return CandidateWithdrawn{Why: "the driver ended with status 0 and left a conflict marker"}
+	}
+	if line.Check != "" {
+		let k = t.runner.Run(exec.New("sh", []string{"-c", withFiles(line.Check, path, base, ours, theirs)}).WithDir(t.here)) catch {
+		case exec.NotFound, exec.Denied, exec.Failed:
+			return CandidateWithdrawn{Why: "sh could not start"}
+		}
+		if k.Status != 0 || strings.TrimSpace(k.Stdout) != "" {
+			return CandidateWithdrawn{Why: "its check \(line.Check) failed (status \(k.Status): \(strings.TrimSpace(k.Stdout + k.Stderr)))"}
+		}
+	}
+	CandidateTaken
+}
+
+// LanguageOf is the first [language.NAME] whose files take path.
+func LanguageOf(c Config, path string) Option[LanguageLine] {
+	for l in c.Languages {
+		if slices.IndexFunc(l.Files, func(p string) bool { Matches(p, path) }) >= 0 {
+			return Some[LanguageLine]{Value: l}
+		}
+	}
+	None
+}
+
+// mergeByUnits merges the three files by the units of the language l's
+// plugin (run in the base, only once work trust allowed it) and writes
+// ours. A side the plugin cannot read, or a plugin that gives no answer,
+// leaves the merge to lines, as Git's.
+func mergeByUnits(t Tool, c Config, l LanguageLine, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	if !trusted(t, c) {
+		return MergeConflict{Path: path, Class: l.Name, Units: []string{}, Why: "the language \(l.Name) runs only after work trust"}
+	}
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	// One run for the three sides, one for the merge cut again.
+	let p = Knowing(PluginOf(t.runner, l.Command, t.base), []Request{UnitsOf{File: path, Text: b}, UnitsOf{File: path, Text: a}, UnitsOf{File: path, Text: other}})
+	let merged = MergeUnits(p, path, b, a, other) catch {
+	case Unreadable, Unanswered:
+		return try mergeLines(t, path, base, ours, theirs)
+	}
+	try t.writes.WriteFile(ours, merged.Text)
+	if len(merged.Conflicts) > 0 {
+		return MergeConflict{Path: path, Class: l.Name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
+	}
+	FileMerged{Path: path, Class: l.Name, Regenerate: false}
+}
+
+// mergeWith merges the three files by the class c and writes ours. A
+// merge the class says must be made again (a derived file both sides
+// changed, a number both sides measured apart) is a conflict here: Git
+// runs merge-file as its driver and nothing regenerates after it, so a
+// clean answer would keep ours silently. The file keeps the class's
+// merge, which reads (ours whole for a derived file), and the conflict
+// names by, the command that makes it again ("" when no line names one).
+// A tree merge (MergeTree) regenerates instead.
+func mergeWith(t Tool, c classes.Class, name string, by string, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	let merged = classes.Merge(c, b, a, other) catch {
+	case classes.Unreadable as u:
+		try t.writes.WriteFile(ours, classes.Text(classes.MergeText(b, a, other)))
+		return MergeConflict{Path: path, Class: name, Units: []string{}, Why: "the \(u.Side) side does not read as \(name) at byte \(u.At): \(u.Why)"}
+	}
+	try t.writes.WriteFile(ours, merged.Text)
+	if len(merged.Conflicts) > 0 {
+		return MergeConflict{Path: path, Class: name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
+	}
+	if merged.Regenerate {
+		let then = if by == "" { "make it again" } else { "run \(by)" }
+		return MergeConflict{Path: path, Class: name, Units: []string{}, Why: "both sides changed \(path), a \(name) file: \(then), then git add"}
+	}
+	FileMerged{Path: path, Class: name, Regenerate: false}
+}
+
+// mergeLines is Git's line merge of the three files into ours.
+func mergeLines(t Tool, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+	let b = try t.files.ReadFile(base)
+	let a = try t.files.ReadFile(ours)
+	let other = try t.files.ReadFile(theirs)
+	let h = classes.MergeText(b, a, other)
+	try t.writes.WriteFile(ours, classes.Text(h))
+	if h.Clashes > 0 {
+		return MergeConflict{Path: path, Class: "text", Units: []string{}, Why: "\(h.Clashes) places both sides changed apart"}
+	}
+	FileMerged{Path: path, Class: "text", Regenerate: false}
+}
+
+// DeriveOptions name the workspace (-name); when absent it is the one the
+// working folder is in, or the base when the folder is the base's.
+type DeriveOptions { Name Option[string] }
+
+// Derived is what derive ran: each derived line's command, once, in the
+// order of the lines.
+type Derived { Folder string, Ran []string }
+
+// DeriveFailed is a derive command that did not end with status 0: what
+// land reports as Blocked.
+type DeriveFailed { Command string, Status int, Stderr string }
+
+// Derive makes the derived files again in the workspace, by each derived
+// line's command, after a merge: the lock from the merged manifests,
+// starting from the lander's lock (merge-file keeps ours for a derived
+// file).
+func Derive(t Tool, o DeriveOptions) Derived fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DeriveFailed {
+	try initialized(t)
+	let c = try config(t)
+	try deriveIn(t, c, try deriveFolder(t, o.Name))
+}
+
+// deriveFolder is the workspace named, or the one the working folder is
+// in, or the base when the working folder is the base's.
+func deriveFolder(t Tool, name Option[string]) string fails NotHere | NoWorkspace | Unkept {
+	let w = chosen(t, name) catch {
+	case NotHere as n:
+		if name == None && (t.here == t.base || strings.HasPrefix(t.here, t.base+"/")) {
+			return t.base
+		}
+		return n
+	case NoWorkspace as e:
+		return e
+	case Unkept as e:
+		return e
+	}
+	w.Path
+}
+
+// deriveIn runs each derived line's command in folder.
+func deriveIn(t Tool, c Config, folder string) Derived fails Untrusted | DeriveFailed {
+	let mut ran = []string{}
+	for line in c.Classes {
+		if line.Kind != "derived" || line.By == "" || slices.Contains(ran, line.By) {
+			continue
+		}
+		if !trusted(t, c) {
+			return untrusted(c)
+		}
+		let r = t.runner.Run(exec.New("sh", []string{"-c", line.By}).WithDir(folder)) catch {
+		case exec.NotFound, exec.Denied:
+			return DeriveFailed{Command: line.By, Status: 127, Stderr: "sh could not start"}
+		case exec.Failed as f:
+			return DeriveFailed{Command: line.By, Status: 1, Stderr: f.Reason}
+		}
+		if r.Status != 0 {
+			return DeriveFailed{Command: line.By, Status: r.Status, Stderr: r.Stderr}
+		}
+		ran = ran.Append(line.By)
+	}
+	Derived{Folder: folder, Ran: ran}
+}
+
+// TreeMerged is a merge of three trees: the paths that conflict (their
+// text holds Git's markers), and what derive ran after.
+type TreeMerged { Conflicts []string, Ran []string }
+
+// MergeTree merges three trees (path to text) by the class of each path
+// into folder, then, when nothing conflicts, makes the derived files
+// again there (land's order: the manifests first, then the lock from
+// them). A path one side deleted and the other left is gone; deleted and
+// changed is a conflict that keeps the changed text.
+func MergeTree(t Tool, c Config, folder string, base Map[string, string], ours Map[string, string], theirs Map[string, string]) TreeMerged fails Untrusted | DeriveFailed | fs.Denied | fs.Failed {
+	let mut paths = []string{}
+	for p in slices.Concat(slices.Concat(keysOf(base), keysOf(ours)), keysOf(theirs)) {
+		if !slices.Contains(paths, p) {
+			paths = paths.Append(p)
+		}
+	}
+	let byUnits = unitMerges(t, c, paths, base, ours, theirs)
+	let mut conflicts = []string{}
+	for p in slices.Sort(paths) {
+		let (b, o, th) = (base.Get(p), ours.Get(p), theirs.Get(p))
+		let text = match (o, th) {
+		case (Some[string] as x, Some[string] as y):
+			let line = ClassOf(c.Classes, p)
+			let k = match line {
+			case Some[ClassLine] as l:
+				lineClass(l.Value)
+			case None:
+				None
+			}
+			let units = match (k, LanguageOf(c, p)) {
+			case (None, Some[LanguageLine] as l):
+				Some[LanguageLine]{Value: l.Value}
+			case _:
+				None
+			}
+			match (k, units) {
+			case (Some[classes.Class] as cls, _):
+				let m = classes.Merge(cls.Value, textOf(b), x.Value, y.Value) catch {
+				case classes.Unreadable:
+					conflicts = conflicts.Append(p)
+					classes.Merged{Text: classes.Text(classes.MergeText(textOf(b), x.Value, y.Value)), Conflicts: []string{}, Regenerate: false}
+				}
+				if len(m.Conflicts) > 0 && !slices.Contains(conflicts, p) {
+					conflicts = conflicts.Append(p)
+				}
+				m.Text
+			case (None, Some[LanguageLine]):
+				let m = match byUnits.Get(p) {
+				case Some[classes.Merged] as u:
+					u.Value
+				case None:
+					let h = classes.MergeText(textOf(b), x.Value, y.Value)
+					classes.Merged{Text: classes.Text(h), Conflicts: if h.Clashes > 0 { []string{"lines"} } else { []string{} }, Regenerate: false}
+				}
+				if len(m.Conflicts) > 0 {
+					conflicts = conflicts.Append(p)
+				}
+				m.Text
+			case (None, None):
+				let h = classes.MergeText(textOf(b), x.Value, y.Value)
+				if h.Clashes > 0 {
+					conflicts = conflicts.Append(p)
+				}
+				classes.Text(h)
+			}
+		case (Some[string] as x, None):
+			if b == o {
+				continue
+			}
+			if b != None {
+				conflicts = conflicts.Append(p)
+			}
+			x.Value
+		case (None, Some[string] as y):
+			if b == th {
+				continue
+			}
+			if b != None {
+				conflicts = conflicts.Append(p)
+			}
+			y.Value
+		case (None, None):
+			continue
+		}
+		let file = filepath.Join([]string{folder, p})
+		t.writes.MkdirAll(filepath.Dir(file)) catch {
+		case fs.Denied as d:
+			return d
+		case fs.Failed as f:
+			return f
+		}
+		t.writes.WriteFile(file, text) catch {
+		case fs.NotFound:
+			return fs.Failed{Path: file, Reason: "the folder is not there"}
+		case fs.Denied as d:
+			return d
+		case fs.Failed as f:
+			return f
+		}
+	}
+	if len(conflicts) > 0 {
+		return TreeMerged{Conflicts: conflicts, Ran: []string{}}
+	}
+	TreeMerged{Conflicts: []string{}, Ran: (try deriveIn(t, c, folder)).Ran}
+}
+
+// unitMerges is the merge by units of each path both trees hold that no
+// class line takes and a trusted [language.NAME] does: one plugin run for
+// every such path's three sides and one for every merge cut again, for
+// each language, where a file at a time starts the plugin twice a file.
+// A path whose sides the plugin cannot read, or that it gives no answer
+// for, is absent: the caller merges it by lines.
+func unitMerges(t Tool, c Config, paths []string, base Map[string, string], ours Map[string, string], theirs Map[string, string]) Map[string, classes.Merged] {
+	let mut out = Map[string, classes.Merged]{}
+	if !trusted(t, c) {
+		return out
+	}
+	for l in c.Languages {
+		let mut mine = []string{}
+		let mut sides = []Request{}
+		for p in paths {
+			let k = match ClassOf(c.Classes, p) {
+			case Some[ClassLine] as line:
+				lineClass(line.Value)
+			case None:
+				None
+			}
+			match (k, LanguageOf(c, p), ours.Get(p), theirs.Get(p)) {
+			case (None, Some[LanguageLine] as of, Some[string] as x, Some[string] as y):
+				if of.Value.Name != l.Name {
+					continue
+				}
+				mine = mine.Append(p)
+				for text in []string{textOf(base.Get(p)), x.Value, y.Value} {
+					sides = sides.Append(UnitsOf{File: p, Text: text})
+				}
+			case _:
+			}
+		}
+		if len(mine) == 0 {
+			continue
+		}
+		let plugin = Knowing(PluginOf(t.runner, l.Command, t.base), sides)
+		let mut drafts = Map[string, draft]{}
+		let mut again = []Request{}
+		for p in mine {
+			let d = drafted(plugin, p, textOf(base.Get(p)), textOf(ours.Get(p)), textOf(theirs.Get(p))) catch {
+			case Unreadable, Unanswered:
+				continue
+			}
+			drafts[p] = d
+			if d.Check {
+				again = again.Append(UnitsOf{File: p, Text: d.Merged.Text})
+			}
+		}
+		let cut = Knowing(plugin, again)
+		for p, d in drafts {
+			out[p] = checked(cut, p, textOf(base.Get(p)), textOf(ours.Get(p)), textOf(theirs.Get(p)), d) catch {
+			case Unreadable, Unanswered:
+				continue
+			}
+		}
+	}
+	out
+}
+
+// MergeFolders merges the trees of the folders base, ours and theirs into
+// out (MergeTree).
+func MergeFolders(t Tool, base string, ours string, theirs string, out string) TreeMerged fails BadConfig | Untrusted | DeriveFailed | fs.NotFound | fs.Denied | fs.Failed {
+	let c = try config(t)
+	try MergeTree(t, c, out, try folderTree(t, base), try folderTree(t, ours), try folderTree(t, theirs))
+}
+
+// folderTree is each file under root, by its path from root, to its text.
+func folderTree(t Tool, root string) Map[string, string] fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut out = Map[string, string]{}
+	let mut todo = []string{""}
+	for len(todo) > 0 {
+		let rel = todo[len(todo)-1]
+		todo = todo[0 : len(todo)-1]
+		for name in try t.files.ReadDir(if rel == "" { root } else { root + "/" + rel }) {
+			let path = if rel == "" { name } else { rel + "/" + name }
+			if (try t.files.Stat(root + "/" + path)).Dir {
+				todo = todo.Append(path)
+			} else {
+				out[path] = try t.files.ReadFile(root + "/" + path)
+			}
+		}
+	}
+	out
+}
+
+func keysOf(m Map[string, string]) []string {
+	let mut out = []string{}
+	for k, _ in m {
+		out = out.Append(k)
+	}
+	out
+}
+
+func textOf(v Option[string]) string {
+	match v {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+}
+
+// AttributesFile is the attributes file of a base's Git folder, where
+// init names the files of each class line for the driver: nothing is
+// written into the tree.
+func AttributesFile(base string) string { filepath.Join([]string{base, ".git", "info", "attributes"}) }
+
+// attributesBegin and attributesEnd mark the lines init owns.
+let attributesBegin = "# work: merge classes (work init writes the lines up to the end mark)"
+let attributesEnd = "# work: end"
+
+// Attributes is the attributes file's text with init's lines for the
+// class lines, in place of the ones an earlier init wrote; the other
+// lines stay.
+func Attributes(old string, lines []ClassLine) string {
+	let mut kept = []string{}
+	let mut inside = false
+	for l in strings.Split(old, "\n") {
+		if l == attributesBegin {
+			inside = true
+			continue
+		}
+		if inside {
+			if l == attributesEnd {
+				inside = false
+			}
+			continue
+		}
+		if l != "" {
+			kept = kept.Append(l)
+		}
+	}
+	if len(lines) > 0 {
+		kept = kept.Append(attributesBegin)
+		for c in lines {
+			kept = kept.Append(c.Match + " merge=work")
+		}
+		kept = kept.Append(attributesEnd)
+	}
+	if len(kept) == 0 { "" } else { strings.Join(kept, "\n") + "\n" }
+}
+
+// AttributesKeepOtherLines: init's lines replace those an earlier init
+// wrote, and every other line of the file stays.
+law AttributesKeepOtherLines(n int, m int) {
+	let mk = func(k int) []ClassLine {
+		let mut out = []ClassLine{}
+		for i in 0..(((k % 3) + 3) % 3) {
+			out = out.Append(ClassLine{Match: "f\(i).json", Kind: "json", Sets: []string{}, By: "", Driver: "", Candidate: false, Check: "", Version: ""})
+		}
+		out
+	}
+	let once = Attributes("*.png binary\n", mk(n))
+	let twice = Attributes(once, mk(m))
+	twice == Attributes("*.png binary\n", mk(m)) && strings.HasPrefix(twice, "*.png binary\n")
+}
+
+// DriverSettings are the Git configuration lines of work's merge
+// drivers: `work` (class auto, by work.toml's [[class]] lines, the
+// attributes init writes) and `ergo-CLASS` for each class (the names a
+// repository's tracked .gitattributes gives its files), each sending
+// merge-file's answer to stderr so that git merge-tree's output stays
+// Git's; and rerere.enabled, so a resolution made once is used again.
+// Git uses a driver only when the checkout's own configuration names it:
+// every checkout work makes or fixes gets these lines.
+func DriverSettings() [][]string {
+	let mut out = [][]string{[]string{"merge.work.name", "work merge-file (work.toml's [[class]] lines)"}, []string{"merge.work.driver", "work merge-file -path %P auto %O %A %B >&2"}}
+	for c in classes.ClassNames {
+		out = out.Append([]string{"merge.ergo-\(c).name", "work merge-file \(c)"})
+		out = out.Append([]string{"merge.ergo-\(c).driver", "work merge-file -path %P \(c) %O %A %B >&2"})
+	}
+	out.Append([]string{"rerere.enabled", "true"})
+}
+
+// DriversKey is the configuration key whose value is the digest of the
+// DriverSettings a checkout holds: a clone of a registered base has it
+// and writes nothing (one read, where the settings are thirteen writes,
+// each a git process).
+let DriversKey = "work.drivers"
+
+// DriversDigest is the digest of DriverSettings.
+func DriversDigest() string {
+	let mut lines = []string{}
+	for kv in DriverSettings() {
+		lines = lines.Append(kv[0] + "=" + kv[1])
+	}
+	hex.Encode(sha256.Sum(strings.Join(lines, "\n")))
+}
+
+// RegisterDrivers writes DriverSettings into the configuration of the
+// checkout at root, then DriversKey, unless DriversKey holds their digest
+// already.
+func RegisterDrivers(t Tool, root string) fails VcsFailed {
+	let digest = DriversDigest()
+	if try t.vcs.Setting(root, DriversKey) == digest {
+		return
+	}
+	for kv in DriverSettings() {
+		try t.vcs.Configure(root, kv[0], kv[1])
+	}
+	try t.vcs.Configure(root, DriversKey, digest)
+}
+
+// gitDrivers are the merge drivers Git has built in: no configuration
+// names them.
+let gitDrivers = []string{"text", "binary", "union"}
+
+// MergeLine is a line of an attributes file that gives its files a merge
+// driver: the pattern and the driver's name.
+type MergeLine { Pattern string, Driver string }
+
+// MergeLines is the lines of an attributes file's text that name a merge
+// driver Git does not have built in (merge=NAME); comments, macro lines
+// ([attr]) and the other attributes are skipped.
+func MergeLines(text string) []MergeLine {
+	let mut out = []MergeLine{}
+	for raw in strings.Split(text, "\n") {
+		let f = strings.Fields(raw)
+		if len(f) < 2 || strings.HasPrefix(f[0], "#") || strings.HasPrefix(f[0], "[attr]") {
+			continue
+		}
+		for a in f[1:] {
+			if strings.HasPrefix(a, "merge=") {
+				let name = strings.TrimPrefix(a, "merge=")
+				if name != "" && !slices.Contains(gitDrivers, name) {
+					out = out.Append(MergeLine{Pattern: f[0], Driver: name})
+				}
+			}
+		}
+	}
+	out
+}
+
+// MergeLinesNameTheirDrivers: a line names its file's driver whatever the
+// attributes around it; a built-in driver, a comment and a line with no
+// merge attribute name none.
+law MergeLinesNameTheirDrivers(name string, before bool) {
+	let n = "d" + strings.Join(strings.Fields(name), "")
+	let other = if before { "text eol=lf " } else { "" }
+	let text = "# a.json merge=no\n*.png binary\nx.go merge=union\n[attr]m merge=no\n" + "a/*.json " + other + "merge=" + n + " -diff\n\n"
+	MergeLines(text) == []MergeLine{MergeLine{Pattern: "a/*.json", Driver: n}}
+}
+
+// attributesOf is the text of the attributes files of the checkout at
+// root: the tracked .gitattributes at its root and its Git folder's own
+// info/attributes ("" for a file that is not there).
+func attributesOf(t Tool, root string) string fails fs.Denied | fs.Failed {
+	let mut text = ""
+	for file in []string{filepath.Join([]string{root, ".gitattributes"}), AttributesFile(root)} {
+		let s = t.files.ReadFile(file) catch {
+		case fs.NotFound:
+			""
+		case fs.Denied as d:
+			return d
+		case fs.Failed as f:
+			return f
+		}
+		text = text + s + "\n"
+	}
+	text
+}
+
+// Unregistered is each merge driver the attributes of the checkout at
+// root name that its configuration does not: Git merges those files as
+// text, silently.
+func Unregistered(t Tool, root string) []string fails VcsFailed | fs.Denied | fs.Failed {
+	let mut out = []string{}
+	for l in MergeLines(try attributesOf(t, root)) {
+		if !slices.Contains(out, l.Driver) && try t.vcs.Setting(root, "merge.\(l.Driver).driver") == "" {
+			out = out.Append(l.Driver)
+		}
+	}
+	out
+}
+
+// Unmatched is each pattern of a merge line of the checkout at root that
+// takes none of its files (Listed): a class line for a path that moved,
+// which merges nothing.
+func Unmatched(t Tool, root string) []string fails VcsFailed | fs.Denied | fs.Failed {
+	let lines = MergeLines(try attributesOf(t, root))
+	if len(lines) == 0 {
+		return []string{}
+	}
+	let files = try t.vcs.Listed(root)
+	let mut out = []string{}
+	for l in lines {
+		if !slices.Contains(out, l.Pattern) && slices.IndexFunc(files, func(p string) bool { Matches(l.Pattern, p) }) < 0 {
+			out = out.Append(l.Pattern)
+		}
+	}
+	out
+}
+
+// registerDriver registers work's merge drivers in the base's Git config
+// and writes the attributes of the class lines.
+func registerDriver(t Tool, c Config) fails fs.Denied | fs.Failed {
+	// With no class line, a base whose Git cannot answer still inits, as
+	// its refresh does; doctor names a driver it lacks later.
+	RegisterDrivers(t, t.base) catch {
+	case VcsFailed as e:
+		if len(c.Classes) > 0 {
+			return fs.Failed{Path: t.base, Reason: e.Reason}
+		}
+	}
+	if len(c.Classes) == 0 {
+		return
+	}
+	let file = AttributesFile(t.base)
+	let old = t.files.ReadFile(file) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied as d:
+		return d
+	case fs.Failed as f:
+		return f
+	}
+	try t.writes.MkdirAll(filepath.Dir(file))
+	t.writes.WriteFile(file, Attributes(old, c.Classes)) catch {
+	case fs.NotFound:
+		return fs.Failed{Path: file, Reason: "the Git folder is not there"}
+	case fs.Denied as d:
+		return d
+	case fs.Failed as f:
+		return f
+	}
+}

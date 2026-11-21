@@ -1,0 +1,291 @@
+import maps
+import slices
+import strings
+
+// VcsFailed is a version-control call that could not run or answer.
+type VcsFailed { Reason string }
+
+// Moved is a compare-and-set that lost: the ref holds Have, not the Want
+// the writer read.
+type Moved { Ref string, Want string, Have string }
+
+// NoRevision is a revision the checkout does not know.
+type NoRevision { Rev string }
+
+// NotFastForward is a push whose ref in the parent holds a commit the
+// pushed one does not contain: the parent's branch moved; sync first.
+type NotFastForward { Ref string, Parent string }
+
+// Conflicted is a merge that changed the same files on both sides.
+type Conflicted { Files []string }
+
+// Local is a local ref of a checkout and its commit: a branch
+// (refs/heads/NAME) or a stash entry (refs/stash/N, the newest 0).
+type Local { Ref string, Commit string }
+
+// Pushed is one ref a push writes in the parent: From in the checkout (a
+// ref, or HEAD) to the parent's ref To; only a Force push may replace a
+// commit To holds that From does not contain.
+type Pushed { From string, To string, Force bool }
+
+// Vcs is what work needs of version control, for the checkout at root:
+// its commit and branch, whether it holds changes, snapshots of its
+// working files, refs with compare-and-set, a branch started at a commit,
+// a push of refs into the parent's repository and a merge of the parent's
+// branch. Every law runs on the checkout ".": the one the provider was
+// built over.
+type Vcs {
+	// Head is the commit at the HEAD of the checkout at root.
+	Head(root string) string fails VcsFailed,
+	// Branch is the checkout's branch, or "" when its HEAD is detached.
+	Branch(root string) string fails VcsFailed,
+	// Clean reports whether the checkout has no uncommitted change and no
+	// untracked file (an ignored file is no change).
+	Clean(root string) bool fails VcsFailed,
+	// Holds reports whether a branch of the checkout at parent contains
+	// commit.
+	Holds(parent string, commit string) bool fails VcsFailed,
+	// Snapshot is the tree of the working files: every tracked and
+	// untracked file that is not ignored, as it is now. It writes the tree
+	// to the object store and changes no file, no branch and no index.
+	Snapshot(root string) string fails VcsFailed,
+	// Read is each file of a snapshot tree and its text.
+	Read(root string, tree string) Map[string, string] fails VcsFailed,
+	// Listed is the paths of the working files a snapshot would hold
+	// (tracked and untracked, not ignored), with no file read or hashed.
+	Listed(root string) []string fails VcsFailed,
+	// Keep is a commit of tree on top of HEAD that no branch holds.
+	Keep(root string, tree string) string fails VcsFailed,
+	// Ref is what ref holds, or "" when the checkout has no such ref.
+	Ref(root string, ref string) string fails VcsFailed,
+	// SetRef sets ref to value when it holds old ("" for no ref), at once:
+	// a writer that read an older value is Moved.
+	SetRef(root string, ref string, old string, value string) fails Moved | VcsFailed,
+	// Resolve is the commit of a revision: a commit, a branch, a tag or a
+	// full ref.
+	Resolve(root string, rev string) string fails NoRevision | VcsFailed,
+	// Contains reports whether commit is ancestor or ancestor's
+	// descendant.
+	Contains(root string, commit string, ancestor string) bool fails VcsFailed,
+	// Start makes branch at commit and switches the checkout to it,
+	// carrying its uncommitted and untracked files. At the checkout's own
+	// head it writes two refs and leaves the index as it is.
+	Start(root string, branch string, commit string) fails VcsFailed,
+	// GuardPushes stops every push from the checkout to each of its remotes.
+	GuardPushes(root string) fails VcsFailed,
+	// Guarded is the remotes whose push URL is the guard GuardPushes
+	// writes (another push URL is not work's).
+	Guarded(root string) []string fails VcsFailed,
+	// Unguard drops the push URL GuardPushes wrote from each remote that
+	// has it, and no other push URL.
+	Unguard(root string) fails VcsFailed,
+	// Locals is each local branch and each stash entry of the checkout.
+	Locals(root string) []Local fails VcsFailed,
+	// Tracked reports whether the checkout's index holds path.
+	Tracked(root string, path string) bool fails VcsFailed,
+	// Exclude adds the pattern to the checkout's own ignore list
+	// (.git/info/exclude, never committed) unless it is there already.
+	Exclude(root string, pattern string) fails VcsFailed,
+	// Remote reports whether a remote-tracking ref of the checkout
+	// (refs/remotes/...) contains commit; with onDefault, only the ref a
+	// remote's HEAD names (its default branch): another may be stale, its
+	// branch deleted on the remote since the last fetch.
+	Remote(root string, commit string, onDefault bool) bool fails VcsFailed,
+	// Configure sets key to value in the checkout's own configuration.
+	Configure(root string, key string, value string) fails VcsFailed,
+	// Setting is the value of key in the checkout's configuration, ""
+	// when no file of it sets key.
+	Setting(root string, key string) string fails VcsFailed,
+	// StatDirty is the number of tracked files whose stat the index does
+	// not match: the next Git command reads each again.
+	StatDirty(root string) int fails VcsFailed,
+	// Refresh makes the index's stat of each tracked file the file's own,
+	// changing no file and no branch.
+	Refresh(root string) fails VcsFailed,
+	// Push writes refs of the checkout into the repository at parent, all
+	// or none.
+	Push(root string, parent string, refs []Pushed) fails NotFastForward | VcsFailed,
+	// Merge brings the parent's branch into the checkout's branch (a
+	// fast-forward when it can) and is the parent's commit it merged.
+	Merge(root string, parent string, branch string) string fails Conflicted | VcsFailed,
+	// TreeOf is the tree of a commit (what Read takes).
+	TreeOf(root string, commit string) string fails NoRevision | VcsFailed,
+	// Note is the note of commit under refs/notes/work, "" when it has
+	// none: the lane record ready wrote for that tip.
+	Note(root string, commit string) string fails VcsFailed,
+	// SetNote makes text the note of commit under refs/notes/work, in
+	// place of any it had. ready writes it in the parent, where the tip
+	// went: two lanes never push one notes ref past each other.
+	SetNote(root string, commit string, text string) fails VcsFailed,
+
+	// NoteIsWhatSetNoteWrote: a note set on the head reads back as its
+	// text, and a second set replaces it.
+	law NoteIsWhatSetNoteWrote(first string, second string) {
+		let clean = func(s string) string { "n" + strings.ReplaceAll(strings.ReplaceAll(s, "\x00", " "), "\r", " ") }
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		SetNote(".", head, clean(first)) catch {
+		case VcsFailed:
+			return true
+		}
+		let once = try Note(".", head)
+		try SetNote(".", head, clean(second))
+		once == clean(first) && (try Note(".", head)) == clean(second)
+	},
+
+	// OwnBranchHoldsItsHead: a checkout on a branch holds its own head,
+	// so a workspace cloned from a base and not changed since is kept in
+	// it.
+	law OwnBranchHoldsItsHead() {
+		let branch = Branch(".") catch {
+		case VcsFailed:
+			return true
+		}
+		if branch == "" {
+			return true
+		}
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		Holds(".", head) catch {
+		case VcsFailed:
+			false
+		}
+	},
+
+	// ListedIsTheSnapshot: the paths Listed names are the files of a
+	// snapshot taken now.
+	law ListedIsTheSnapshot() {
+		let listed = Listed(".") catch {
+		case VcsFailed:
+			return true
+		}
+		let tree = Snapshot(".") catch {
+		case VcsFailed:
+			return true
+		}
+		slices.Sort(listed) == slices.Sorted(maps.Keys(try Read(".", tree)))
+	},
+
+	// SnapshotChangesNoBranch: a snapshot (and a commit of it) leaves the
+	// head, the branch and what is uncommitted as they were.
+	law SnapshotChangesNoBranch() {
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		let before = Outline{Head: head, Branch: try Branch("."), Clean: try Clean(".")}
+		let tree = try Snapshot(".")
+		let _ = try Keep(".", tree)
+		before == Outline{Head: try Head("."), Branch: try Branch("."), Clean: try Clean(".")}
+	},
+
+	// SettingIsWhatConfigureSet: a key Configure set reads back as its
+	// value (doctor's check of the merge drivers rests on it), its own
+	// spaces kept: half the cases start the value with a space and half
+	// end it with one, as Git keeps (and quotes) them.
+	law SettingIsWhatConfigureSet(value string, lead bool, trail bool) {
+		let v = (if lead { " " } else { "" }) + "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ") + (if trail { " " } else { "" })
+		Configure(".", "work.law", v) catch {
+		case VcsFailed:
+			return true
+		}
+		(try Setting(".", "work.law")) == v
+	},
+
+	// CompareAndSetIsAtomic: two writers, each setting a ref from the
+	// value it last read, agree with one register: a set succeeds exactly
+	// when the ref still holds what its writer read, and the ref ends
+	// holding the last set that succeeded.
+	law CompareAndSetIsAtomic(steps []Write) {
+		let ref = "refs/work/law"
+		let head = Head(".") catch {
+		case VcsFailed:
+			return true
+		}
+		let values = []string{head, try Keep(".", try Snapshot("."))}
+		let mut register = try Ref(".", ref)
+		let mut first = register
+		let mut second = register
+		for s in steps {
+			let one = s.Writer%2 == 0
+			if s.Read {
+				let now = try Ref(".", ref)
+				if one {
+					first = now
+				} else {
+					second = now
+				}
+				continue
+			}
+			let read = if one { first } else { second }
+			let value = values[((s.Value%2)+2)%2]
+			let mut won = true
+			SetRef(".", ref, read, value) catch {
+			case Moved:
+				won = false
+			case VcsFailed:
+				return false
+			}
+			if won != (register == read) {
+				return false
+			}
+			if won {
+				register = value
+				if one {
+					first = value
+				} else {
+					second = value
+				}
+			}
+		}
+		(try Ref(".", ref)) == register
+	},
+}
+
+// Outline is what a snapshot must not change: the head, the branch and
+// whether the checkout is clean.
+type Outline { Head string, Branch string, Clean bool }
+
+// Write is one step of a writer of CompareAndSetIsAtomic: Writer reads the
+// ref, or sets it to one of two values from what it last read.
+type Write { Writer int, Read bool, Value int }
+
+// Kept reports whether the work of the checkout at root is safe: every
+// local branch and stash entry is held (Unheld is empty), and it is clean
+// with its head held, or its snapshot is the one ready last handed to the
+// parent (latest, which the parent's ref snapshotRef still names). A
+// workspace whose work is not kept is removed only when it is abandoned.
+// onDefault is Held's.
+func Kept(root string, parent string, latest string, snapshotRef string, onDefault bool) bool fails VcsFailed needs Vcs {
+	if len(try Unheld(root, parent, onDefault)) > 0 {
+		return false
+	}
+	if try Vcs.Clean(root) && try Held(root, parent, try Vcs.Head(root), onDefault) {
+		return true
+	}
+	latest != "" && try Vcs.Snapshot(root) == latest && try Vcs.Ref(parent, snapshotRef) != ""
+}
+
+// Held reports whether commit of the checkout at root is safe without it:
+// a branch of parent contains it, or a remote-tracking ref of root does
+// (it is on a remote already); with onDefault, only a remote's default
+// branch counts (gc -idle, as workrift prune: rm by hand trusts any).
+func Held(root string, parent string, commit string, onDefault bool) bool fails VcsFailed needs Vcs {
+	try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit, onDefault)
+}
+
+// Unheld is each local branch and stash entry of the checkout at root
+// whose commit is not Held: the work that only this checkout has.
+func Unheld(root string, parent string, onDefault bool) []Local fails VcsFailed needs Vcs {
+	let mut out = []Local{}
+	for l in try Vcs.Locals(root) {
+		if !try Held(root, parent, l.Commit, onDefault) {
+			out = out.Append(l)
+		}
+	}
+	out
+}

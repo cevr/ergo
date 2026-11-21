@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,5 +40,112 @@ func TestFixCheckWritesNothing(t *testing.T) {
 	}
 	if err := command([]string{"fix", path, "--check", "--json"}); err != nil {
 		t.Fatalf("fix --check after fix: %v", err)
+	}
+}
+
+// TestFixLeavesTheFolderAsItWas runs ergo fix on a program in a folder of
+// its own, its file private (0o600): the fix writes the clause, the file
+// keeps its mode, and the folder holds the same names as before: the
+// apply lock and journal are in the user's cache folder (SEM4c round 2).
+// Mutants (cmd/ergo ledger): sem4c-fix-state-in-folder (the lock in the
+// folder's .ergo), sem4c-exchange-drops-mode (Exchange without keepMode).
+func TestFixLeavesTheFolderAsItWas(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.ergo")
+	const src = "type Bad {}\n\nfunc leaf() int fails Bad {\n\t1\n}\n\nfunc helper() int {\n\ttry leaf()\n}\n\nfunc main() {}\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	names := func() []string {
+		var out []string
+		err := filepath.WalkDir(dir, func(p string, _ os.DirEntry, err error) error {
+			out = append(out, p)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	was := names()
+	if err := command([]string{"fix", path, "--json"}); err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if got, _ := os.ReadFile(path); !strings.Contains(string(got), "func helper() int fails Bad {") {
+		t.Fatalf("fix wrote:\n%s", got)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("after fix the file's mode is %v, want 0600", info.Mode().Perm())
+	}
+	if now := names(); strings.Join(now, "\n") != strings.Join(was, "\n") {
+		t.Errorf("after fix the folder holds\n%s\nwant\n%s", strings.Join(now, "\n"), strings.Join(was, "\n"))
+	}
+}
+
+// TestFixWriteRefusesAChangedFile calls ergo fix's write (code.Rewrite,
+// SEM4c) with the text a fix read, after another writer changed one of
+// the two files: the write is refused stale and neither file changes.
+// Mutant (cmd/ergo ledger sem4c-fix-write-reads-disk): a write that takes
+// the text on disk as the text the fix read writes over the change.
+func TestFixWriteRefusesAChangedFile(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.ergo"), filepath.Join(dir, "p", "b.ergo")
+	if err := os.MkdirAll(filepath.Dir(b), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{a, b} {
+		if err := os.WriteFile(p, []byte("read\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(b, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]string{a: "read\n", b: "read\n"}
+	after := map[string]string{a: "fixed\n", b: "fixed\n"}
+	err := writeFixed(before, after)
+	if err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("writeFixed over a changed file = %v, want a stale refusal", err)
+	}
+	for p, want := range map[string]string{a: "read\n", b: "changed\n"} {
+		if got, _ := os.ReadFile(p); string(got) != want {
+			t.Errorf("after a refused write %s holds %q, want %q", p, got, want)
+		}
+	}
+}
+
+// TestFixRespellsAStdThatDoesNotCheck runs ergo fix --std on a std folder
+// of one package whose borrow is written *T, the old spelling, so it does
+// not check: the respell is syntactic and needs no check, so the borrow
+// is written mut T (RESPELL-SYNTAX; before it, ergo fix --std refused a
+// std that did not check and a script respelled std). The checked passes
+// after it may still refuse this partial std: only the respell is read.
+// Mutant (cmd/ergo ledger fix-respell-skips-std): the respell walks only
+// the PATHs, so --std alone respells nothing.
+func TestFixRespellsAStdThatDoesNotCheck(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	std := t.TempDir()
+	path := filepath.Join(std, "ansi", "ansi.ergo")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const src = "// Package ansi is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b *Box) {\n\tb.N = b.N + 1\n}\n"
+	const want = "// Package ansi is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b mut Box) {\n\tb.N = b.N + 1\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := command([]string{"fix", "--std", std})
+	if got, _ := os.ReadFile(path); string(got) != want {
+		t.Fatalf("ergo fix --std (err %v) left:\n%s\nwant:\n%s", err, got, want)
 	}
 }

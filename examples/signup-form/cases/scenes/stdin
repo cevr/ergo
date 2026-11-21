@@ -1,0 +1,30 @@
+# upstream's nine scene tests, in order on one screen. The first screen
+# has the heading, the three fields and a disabled Subscribe (scene 1).
+# scene 2: a short name is described by its error
+name A
+# scene 3: a malformed address is described by its error
+email not-an-email
+# scene 4: with a valid name, a well-formed address is Checking... and the
+# button stays disabled; once the list answers, the button is enabled
+name Alice
+email alice@example.com
+wait 300
+# scene 5: an address on the list is described as taken
+email test@example.com
+wait 300
+# scene 6: valid name and email enable the button
+email alice@example.com
+wait 300
+# scene 7: a submit shows Subscribing..., disabled, then the welcome status
+# and Subscribe again
+submit
+wait 300
+# scene 8: a refused submit (Enter in the form) shows the alert
+email bob@mail.invalid
+wait 300
+enter
+wait 300
+# scene 9: Enter on a form that is not ready is refused: the button stays
+# disabled
+name A
+enter

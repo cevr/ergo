@@ -1,0 +1,560 @@
+// Package jobs is a queue of jobs that workers lease, finish or fail
+// (docs/spec/stdlib.md, jobs). A job is enqueued for a time; a worker
+// reserves the earliest job that is ready, which leases it for the
+// policy's Lease; the worker acks it when it is done, or fails it, and a
+// failed job runs again when the policy's Retry schedule says, or becomes
+// a dead letter when the schedule stops. A lease that ends with neither is
+// a failure at its end, so a job is delivered at least once and never
+// lost: every job is waiting, leased, done or dead.
+//
+// Queue is the contract. Its rules are one pure function, Apply, over a
+// State: the providers live in packages named after where they keep the
+// state, jobs/memory in the process and jobs/file in a log of the host
+// that replays the operations. The time is an argument of each
+// operation, as in ratelimit: an operation carries no capability
+// (types.md, Capabilities 4).
+//
+// Effect: PersistedQueue (effect/unstable/persistence), whose offer, take
+// with a lease and its at-least-once redelivery and attempt count are the
+// model here, with Schedule for the retries. Go: a ring of ready jobs and
+// a map of leases under a mutex.
+
+import schedule
+import slices
+import time
+
+// Failed is a queue that could not keep or read its jobs: Reason is the
+// provider's text, such as the host's error.
+type Failed { Reason string }
+
+// BadPolicy is a policy a queue refuses: a lease of zero or less.
+type BadPolicy { Reason string }
+
+// Ticket names one lease: the job's ID and the attempt it leases, from 1.
+type Ticket { ID int, Attempt int }
+
+// Unknown is an ack or a fail of a ticket that holds no lease now: the
+// job is done or dead, its lease ended, or the ticket is of another
+// attempt or of no job.
+type Unknown { Ticket Ticket }
+
+// Lease is a reserved job: its ticket, the job, and the time its lease
+// ends.
+type Lease[J] { Ticket Ticket, Job J, Until time.Time }
+
+// Dead is a job the queue gave up: the schedule stopped after Attempts
+// attempts, the last failing with Why.
+type Dead[J] { ID int, Job J, Attempts int, Why string }
+
+// Counts is how many jobs are in each state. Waiting holds the jobs not
+// ready yet and the ready ones not leased.
+type Counts { Waiting int, Leased int, Done int, Dead int }
+
+// Policy is how a queue retries and leases. Retry decides after each
+// failed attempt n, n from 1, with the time since the job's first attempt
+// began: Continue{After} makes the job ready After later, Stop makes it
+// dead. Lease is how long a reserved job stays leased.
+type Policy { Retry schedule.Schedule, Lease duration }
+
+// Check is p when a queue can keep it, or BadPolicy.
+func Check(p Policy) Policy fails BadPolicy {
+	if p.Lease <= 0ns {
+		return BadPolicy{Reason: "the lease is not above zero"}
+	}
+	p
+}
+
+// Queue is a queue of jobs of type J.
+type Queue[J] {
+	// EnqueueAt adds job, ready at at, and is its ID.
+	EnqueueAt(job J, at time.Time) int fails Failed,
+	// ReserveAt leases the ready job with the earliest ready time, the
+	// lowest ID first among equal times, until now plus the lease; None
+	// when no job is ready at now. A lease that ended at or before now
+	// counts first as a failure at its end.
+	ReserveAt(now time.Time) Option[Lease[J]] fails Failed,
+	// AckAt ends the lease of t as done.
+	AckAt(t Ticket, now time.Time) fails Unknown | Failed,
+	// FailAt ends the lease of t as a failure: the job is ready again when
+	// the policy's schedule says, or dead.
+	FailAt(t Ticket, why string, now time.Time) fails Unknown | Failed,
+	// Dead is the dead letters, in the order they died.
+	DeadLetters() []Dead[J] fails Failed,
+	// Count is how many jobs are in each state.
+	Count() Counts fails Failed,
+
+	// EnqueueAddsOneWaiting: an enqueue adds one waiting job and changes
+	// no other count.
+	law EnqueueAddsOneWaiting(job J, sec int64) {
+		let before = try Count()
+		let _ = try EnqueueAt(job, time.Unix(sec, 0))
+		let after = try Count()
+		after == Counts{Waiting: before.Waiting + 1, Leased: before.Leased, Done: before.Done, Dead: before.Dead}
+	},
+
+	// OneLeasePerJob: a reserved job is leased once: the lease names the
+	// job, the job moves from waiting to leased, and an ack of the lease
+	// moves it to done, after which the ticket is unknown.
+	law OneLeasePerJob(job J, sec int64) {
+		let now = time.Unix(sec, 0)
+		let id = try EnqueueAt(job, now)
+		let before = try Count()
+		match try ReserveAt(now) {
+		case Some[Lease[J]] as l:
+			if l.Value.Ticket.ID != id {
+				return true
+			}
+			let held = try Count()
+			if held.Leased != before.Leased + 1 || held.Waiting != before.Waiting - 1 {
+				return false
+			}
+			try AckAt(l.Value.Ticket, now)
+			let done = try Count()
+			if done.Done != held.Done + 1 || done.Leased != held.Leased - 1 {
+				return false
+			}
+			AckAt(l.Value.Ticket, now) catch {
+			case Unknown:
+				return true
+			case Failed:
+				return false
+			}
+			false
+		case None:
+			false
+		}
+	},
+
+	// NoTicketIsUnknown: an ack or a fail of a ticket of no job is Unknown.
+	law NoTicketIsUnknown(sec int64) {
+		let t = Ticket{ID: -1, Attempt: 1}
+		let now = time.Unix(sec, 0)
+		AckAt(t, now) catch {
+		case Failed:
+			return false
+		case Unknown as u:
+			if u.Ticket != t {
+				return false
+			}
+			FailAt(t, "no job", now) catch {
+			case Unknown:
+				return true
+			case Failed:
+				return false
+			}
+			return false
+		}
+		false
+	},
+}
+
+// Op is one operation of a queue, as a value: the log of jobs/file keeps
+// them, and Apply runs them.
+type Op[J] = Enqueue[J]{Job J, At time.Time} | Reserve{Now time.Time} | Ack{Ticket Ticket, Now time.Time} | Fail{Ticket Ticket, Why string, Now time.Time}
+
+// Outcome is what Apply of an Op gave: an Enqueue's ID, a Reserve's lease
+// or None, a settled Ack or Fail, or an Unknown ticket.
+type Outcome[J] = Enqueued{ID int} | Reserved[J]{Lease Option[Lease[J]]} | Settled{} | NotLeased{Ticket Ticket}
+
+// State is a queue's jobs. Empty makes one; Apply changes it.
+type State[J] {
+	next    int,
+	entries Map[int, entry[J]],
+	ready   []slot,
+	head    int,
+	leases  []slot,
+	lhead   int,
+	done    int,
+	dead    []Dead[J],
+}
+
+// entry is one job that is waiting or leased: its attempts so far, when
+// the first began, and, while leased, the end of the lease.
+type entry[J] { job J, attempts int, first time.Time, leased bool, until time.Time }
+
+// slot is a job's place in a time order: ready holds each waiting job at
+// its ready time; leases holds each lease at its end, with its attempt,
+// and is left behind by an ack or a fail (a stale slot is skipped).
+type slot { at time.Time, id int, attempt int }
+
+// Empty is a queue with no job.
+func Empty[J]() State[J] {
+	State[J]{next: 1, entries: Map[int, entry[J]]{}, ready: []slot{}, head: 0, leases: []slot{}, lhead: 0, done: 0, dead: []Dead[J]{}}
+}
+
+// CountOf is how many jobs of s are in each state.
+func CountOf[J](s State[J]) Counts {
+	let waiting = len(s.ready) - s.head
+	Counts{Waiting: waiting, Leased: len(s.entries) - waiting, Done: s.done, Dead: len(s.dead)}
+}
+
+// DeadOf is the dead letters of s.
+func DeadOf[J](s State[J]) []Dead[J] { s.dead }
+
+// Apply runs op on s with policy p: the outcome, the state after it, and
+// whether the state changed (a Reserve that found no job and ended no
+// lease, and an Unknown ticket, change nothing).
+func Apply[J](p Policy, s own State[J], op Op[J]) (Outcome[J], State[J], bool) {
+	let mut st = s
+	match op {
+	case Enqueue[J] as e:
+		let id = st.next
+		st.next = id + 1
+		st.entries[id] = entry[J]{job: e.Job, attempts: 0, first: e.At, leased: false, until: e.At}
+		st.ready = place(st.ready, st.head, slot{at: e.At, id: id, attempt: 0})
+		(Enqueued{ID: id}, st, true)
+	case Reserve as r:
+		let (expired, after) = expire(p, st, r.Now)
+		reserve(p, after, r.Now, expired)
+	case Ack as a:
+		if !isHeld(st, a.Ticket, a.Now) {
+			return (NotLeased{Ticket: a.Ticket}, st, false)
+		}
+		st.entries = st.entries.Delete(a.Ticket.ID)
+		st.done = st.done + 1
+		(Settled, st, true)
+	case Fail as f:
+		if !isHeld(st, f.Ticket, f.Now) {
+			return (NotLeased{Ticket: f.Ticket}, st, false)
+		}
+		(Settled, failed(p, st, f.Ticket.ID, f.Why, f.Now), true)
+	}
+}
+
+// step is one step of a NoneLost script: wait Wait milliseconds, then
+// enqueue a job, reserve, or ack or fail the Pick-th lease handed out.
+type step = enqueueStep{Wait int} | reserveStep{Wait int} | ackStep{Pick int, Wait int} | failStep{Pick int, Wait int}
+
+// msOf is a step's wait, 0 to 19 milliseconds.
+func msOf(n int) duration { time.Times(1ms, ((n%20)+20)%20) }
+
+// NoneLost: over a generated script of enqueues, reserves, acks and fails
+// at growing times, with a lease of 10ms and two retries, every job
+// enqueued is waiting, leased, done or dead after each step; no job holds
+// two leases that are both live; and the job a lease gives is the job
+// enqueued under its ID.
+law NoneLost(steps []step) {
+	let p = Policy{Retry: schedule.Recurs(2), Lease: 10ms}
+	let mut s = Empty[int]()
+	let mut now = time.Unix(0, 0)
+	let mut enqueued = 0
+	let mut tickets = []Ticket{}
+	for st in steps {
+		let op Op[int] = match st {
+		case enqueueStep as e:
+			now = now.Add(msOf(e.Wait))
+			Enqueue[int]{Job: enqueued * 7, At: now}
+		case reserveStep as r:
+			now = now.Add(msOf(r.Wait))
+			Reserve{Now: now}
+		case ackStep as a:
+			now = now.Add(msOf(a.Wait))
+			let t = if len(tickets) == 0 { Ticket{ID: 0, Attempt: 0} } else { tickets[((a.Pick%len(tickets))+len(tickets))%len(tickets)] }
+			Ack{Ticket: t, Now: now}
+		case failStep as f:
+			now = now.Add(msOf(f.Wait))
+			let t = if len(tickets) == 0 { Ticket{ID: 0, Attempt: 0} } else { tickets[((f.Pick%len(tickets))+len(tickets))%len(tickets)] }
+			Fail{Ticket: t, Why: "failed", Now: now}
+		}
+		let (o, next, _) = Apply(p, s, op)
+		s = next
+		match o {
+		case Enqueued as e:
+			if e.ID != enqueued + 1 {
+				return false
+			}
+			enqueued = enqueued + 1
+		case Reserved[int] as r:
+			match r.Lease {
+			case Some[Lease[int]] as l:
+				if l.Value.Job != (l.Value.Ticket.ID - 1) * 7 {
+					return false
+				}
+				for t in tickets {
+					if t.ID == l.Value.Ticket.ID && t.Attempt >= l.Value.Ticket.Attempt {
+						return false
+					}
+				}
+				tickets = tickets.Append(l.Value.Ticket)
+			case None:
+			}
+		case Settled, NotLeased:
+		}
+		let c = CountOf(s)
+		if c.Waiting + c.Leased + c.Done + c.Dead != enqueued || c.Waiting < 0 || c.Leased < 0 {
+			return false
+		}
+	}
+	true
+}
+
+// AttemptsFollowTheSchedule: a job that fails each attempt 1ms after its
+// lease starts is ready again exactly when the policy's schedule says,
+// measured from the failure with the time since the first attempt began,
+// not one nanosecond before; when the schedule stops it is dead, with its
+// attempts and the last failure's reason. The schedule backs off from base
+// milliseconds, retries at most retries times, and stops past limit
+// milliseconds from the first attempt.
+law AttemptsFollowTheSchedule(base int, retries int, limit int) {
+	let n = ((retries%5)+5)%5
+	let backoff = schedule.Exponential(time.Times(1ms, 1+((base%10)+10)%10), 2.0, 50ms)
+	let p = Policy{Retry: schedule.UpTo(schedule.And(backoff, schedule.Recurs(n)), time.Times(1ms, ((limit%80)+80)%80)), Lease: 1s}
+	let start = time.Unix(1000, 0)
+	let (_, s0, _) = Apply(p, Empty[string](), Enqueue[string]{Job: "job", At: start})
+	let mut s = s0
+	let mut at = start
+	for attempt in 1..n+2 {
+		let (o, s1, _) = Apply(p, s, Reserve{Now: at})
+		s = s1
+		let t = match o {
+		case Reserved[string] as r:
+			match r.Lease {
+			case Some[Lease[string]] as l:
+				l.Value.Ticket
+			case None:
+				return false
+			}
+		case _:
+			return false
+		}
+		if t.Attempt != attempt {
+			return false
+		}
+		let failedAt = at.Add(1ms)
+		let (_, s2, _) = Apply(p, s, Fail{Ticket: t, Why: "try \(attempt)", Now: failedAt})
+		s = s2
+		match schedule.Decide(p.Retry, attempt, failedAt.Sub(start)) {
+		case schedule.Continue as c:
+			at = failedAt.Add(c.After)
+			let (early, s3, _) = Apply(p, s, Reserve{Now: at.Add(-1ns)})
+			s = s3
+			if early != (Reserved[string]{Lease: None}) {
+				return false
+			}
+		case schedule.Stop:
+			let dead = DeadOf(s)
+			return len(dead) == 1 && dead[0].Attempts == attempt && dead[0].Why == "try \(attempt)" && CountOf(s) == Counts{Waiting: 0, Leased: 0, Done: 0, Dead: 1}
+		}
+	}
+	false
+}
+
+// LeaseEndIsAFailure: a lease ends the policy's Lease after the reserve,
+// and an ack at its end is Unknown. A lease neither acked nor failed by
+// its end counts as a failed attempt at its end: a reserve then leases
+// the job again with the next attempt, and the old ticket is Unknown.
+law LeaseEndIsAFailure(sec int64, ms int) {
+	let p = Policy{Retry: schedule.Forever(), Lease: time.Times(1ms, 1+((ms%100)+100)%100)}
+	let now = time.Unix(sec%1000000, 0)
+	let (_, s0, _) = Apply(p, Empty[int](), Enqueue[int]{Job: 1, At: now})
+	let (o1, s1, _) = Apply(p, s0, Reserve{Now: now})
+	let first = match o1 {
+	case Reserved[int] as r:
+		match r.Lease {
+		case Some[Lease[int]] as l:
+			l.Value
+		case None:
+			return false
+		}
+	case _:
+		return false
+	}
+	let (late, _, _) = Apply(p, s1, Ack{Ticket: first.Ticket, Now: first.Until})
+	if first.Until != now.Add(p.Lease) || late != (NotLeased{Ticket: first.Ticket}) {
+		return false
+	}
+	let (o2, s2, _) = Apply(p, s1, Reserve{Now: first.Until})
+	let (o3, _, _) = Apply(p, s2, Ack{Ticket: first.Ticket, Now: first.Until})
+	match o2 {
+	case Reserved[int] as r:
+		match r.Lease {
+		case Some[Lease[int]] as l:
+			l.Value.Ticket == Ticket{ID: first.Ticket.ID, Attempt: 2} && o3 == NotLeased{Ticket: first.Ticket}
+		case None:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// EarliestFirst: reserves lease the ready jobs by ready time, and by ID
+// among jobs ready at one time: job i is ready offsets[i] mod 5
+// milliseconds after the start, and all are reserved 10ms after it.
+law EarliestFirst(offsets []int) {
+	let p = Policy{Retry: schedule.Forever(), Lease: 1s}
+	let start = time.Unix(0, 0)
+	let mut s = Empty[int]()
+	for i, o in offsets {
+		let (_, next, _) = Apply(p, s, Enqueue[int]{Job: i, At: start.Add(time.Times(1ms, ((o%5)+5)%5))})
+		s = next
+	}
+	let mut prevAt = start
+	let mut prevID = 0
+	for _ in offsets {
+		let (o, next, _) = Apply(p, s, Reserve{Now: start.Add(10ms)})
+		s = next
+		let l = match o {
+		case Reserved[int] as r:
+			match r.Lease {
+			case Some[Lease[int]] as found:
+				found.Value
+			case None:
+				return false
+			}
+		case _:
+			return false
+		}
+		let at = start.Add(time.Times(1ms, ((offsets[l.Job]%5)+5)%5))
+		let c = at.Compare(prevAt)
+		if c < 0 || (c == 0 && l.Ticket.ID < prevID) || l.Ticket.ID != l.Job + 1 {
+			return false
+		}
+		prevAt = at
+		prevID = l.Ticket.ID
+	}
+	true
+}
+
+// isHeld is whether t leases a job at now (held).
+func isHeld[J](s State[J], t Ticket, now time.Time) bool {
+	match held(s, t, now) {
+	case Some[entry[J]]:
+		true
+	case None:
+		false
+	}
+}
+
+// reserve is Apply's Reserve at now on s, whose ended leases expire has
+// failed (expired: whether any was): the earliest ready job leased, or
+// None and s.
+func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Outcome[J], State[J], bool) {
+	let mut st = s
+	if st.head >= len(st.ready) || st.ready[st.head].at.After(now) {
+		return (Reserved[J]{Lease: None}, st, expired)
+	}
+	let at = st.ready[st.head]
+	st.head = st.head + 1
+	st = compact(st)
+	let e = match st.entries.Get(at.id) {
+	case Some[entry[J]] as found:
+		found.Value
+	case None:
+		Unreachable("a ready slot names a waiting job")
+	}
+	let attempt = e.attempts + 1
+	let until = now.Add(p.Lease)
+	let first = if e.attempts == 0 { now } else { e.first }
+	st.entries[at.id] = entry[J]{job: e.job, attempts: attempt, first: first, leased: true, until: until}
+	st.leases = place(st.leases, st.lhead, slot{at: until, id: at.id, attempt: attempt})
+	let t = Ticket{ID: at.id, Attempt: attempt}
+	(Reserved[J]{Lease: Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}}, st, true)
+}
+
+// held is the entry that t leases at now: leased, of t's attempt, and
+// its lease not ended.
+func held[J](s State[J], t Ticket, now time.Time) Option[entry[J]] {
+	match s.entries.Get(t.ID) {
+	case Some[entry[J]] as e:
+		if e.Value.leased && e.Value.attempts == t.Attempt && now.Before(e.Value.until) {
+			return e
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// failed is s after the attempt of job id, which s holds, failed at now
+// with why: ready again After the schedule says, or dead. It reads the
+// entry from s itself, so its operands share nothing and Apply's result
+// stays unshared (a jobs/memory step then writes its State in place).
+func failed[J](p Policy, s own State[J], id int, why string, now time.Time) State[J] {
+	let mut st = s
+	let e = match st.entries.Get(id) {
+	case Some[entry[J]] as found:
+		found.Value
+	case None:
+		Unreachable("a failed job is held")
+	}
+	match schedule.Decide(p.Retry, e.attempts, now.Sub(e.first)) {
+	case schedule.Continue as c:
+		let at = now.Add(c.After)
+		st.entries[id] = entry[J]{job: e.job, attempts: e.attempts, first: e.first, leased: false, until: at}
+		st.ready = place(st.ready, st.head, slot{at: at, id: id, attempt: 0})
+	case schedule.Stop:
+		st.entries = st.entries.Delete(id)
+		st.dead = st.dead.Append(Dead[J]{ID: id, Job: e.job, Attempts: e.attempts, Why: why})
+	}
+	st
+}
+
+// expire fails each lease that ended at or before now, at its end, in
+// the order they ended; it is whether any did.
+func expire[J](p Policy, s own State[J], now time.Time) (bool, State[J]) {
+	let mut st = s
+	let mut any = false
+	for st.lhead < len(st.leases) && !st.leases[st.lhead].at.After(now) {
+		let l = st.leases[st.lhead]
+		st.lhead = st.lhead + 1
+		match st.entries.Get(l.id) {
+		case Some[entry[J]] as e:
+			if e.Value.leased && e.Value.attempts == l.attempt {
+				st = failed(p, st, l.id, "the lease ended", l.at)
+				any = true
+			}
+		case None:
+		}
+	}
+	(any, compact(st))
+}
+
+// compact drops the slots before each head once they are half of their
+// slice, so a long run keeps its slices short.
+func compact[J](s own State[J]) State[J] {
+	let mut st = s
+	if st.head > 32 && st.head*2 > len(st.ready) {
+		st.ready = slices.Clone(slices.Slice(st.ready, st.head, len(st.ready)))
+		st.head = 0
+	}
+	if st.lhead > 32 && st.lhead*2 > len(st.leases) {
+		st.leases = slices.Clone(slices.Slice(st.leases, st.lhead, len(st.leases)))
+		st.lhead = 0
+	}
+	st
+}
+
+// place puts x into xs, whose slots from head on are in (at, id) order,
+// after every slot not later than it: at the end when it is the latest,
+// as an enqueue at the time now usually is.
+func place(xs []slot, head int, x slot) []slot {
+	let mut out = xs
+	let mut lo = head
+	let mut hi = len(out)
+	out = out.Append(x)
+	if hi == lo || !later(out[hi-1], x) {
+		return out
+	}
+	for lo < hi {
+		let mid = lo + (hi-lo)/2
+		if later(out[mid], x) {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	let mut j = len(out) - 1
+	for j > lo {
+		out[j] = out[j-1]
+		j = j - 1
+	}
+	out[lo] = x
+	out
+}
+
+// later is whether a comes after b in (at, id) order.
+func later(a slot, b slot) bool {
+	let c = a.at.Compare(b.at)
+	c > 0 || (c == 0 && a.id > b.id)
+}

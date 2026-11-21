@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/testwait"
-	"ergo.local/prototype/internal/toolchain"
 )
 
 // sketchWaitSource prints "ready" and then sleeps for a day: only the
@@ -45,21 +44,6 @@ func TestRunForwardsSignalsToTheProgram(t *testing.T) {
 			t.Errorf("%v: code=%d stdout=%q stderr=%q; want exit %d, the program ended by the forwarded signal", signal, code, stdout, stderr, want)
 		}
 	}
-}
-
-// withoutBuildNote is stderr without the note of the one-time IR compiler
-// build (toolchain.BuildNote): the first build in a cache writes it before
-// the program starts, and each test process has a cache of its own
-// (testinputs), so which test makes that build depends on the order the
-// tests run in. It is no message about the signal.
-func withoutBuildNote(stderr string) string {
-	var kept []string
-	for _, line := range strings.SplitAfter(stderr, "\n") {
-		if !strings.HasPrefix(line, toolchain.BuildNote) {
-			kept = append(kept, line)
-		}
-	}
-	return strings.Join(kept, "")
 }
 
 // TestRunPassesTheProgramsExitStatusThrough: a positive exit status passes

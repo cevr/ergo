@@ -16,11 +16,12 @@ import (
 // The graph against the generator's model: generated machines (a step
 // that matches on its state and signal with arms of any variant pairs,
 // whose values are Decision literals, if/else and helpers; an after
-// function per state) are written as Ergo source and checked, and the
-// graph read from them must be the model's: the arms in order with their
-// variants, each arm's edges (kind, target, line), the timers, and the
-// pairs Reachable lists with their arms. ERGO_GRAPH_SEED replays a seed; a
-// failure prints the source.
+// function and an exit action per state) are written as Ergo source and
+// checked, and the graph read from them must be the model's: the arms in
+// order with their variants, each arm's edges (kind, target, line), the
+// timers and the exit actions (FK9-g1). (The pairs a run can reach are std
+// code's MachineOf, held by the law IndexIsScan.) ERGO_GRAPH_SEED replays a
+// seed; a failure prints the source.
 
 // garm is one generated arm: its state and signal (-1 for any), the
 // further tuple patterns of its case, and its edges as the model expects
@@ -51,6 +52,7 @@ type gmachine struct {
 	timers     map[int]int // state -> timer signal
 	src        string
 	timerLines map[int]int
+	exitLines  map[int]int // state -> the line of its exit action (FK9-g1)
 }
 
 func sv(i int) string { return "S" + strconv.Itoa(i) }
@@ -58,7 +60,7 @@ func ev(i int) string { return "E" + strconv.Itoa(i) }
 
 // gen writes a machine and its model.
 func gen(r *rand.Rand) *gmachine {
-	m := &gmachine{ns: r.Intn(4) + 1, ne: r.Intn(3) + 1, timers: map[int]int{}, timerLines: map[int]int{}}
+	m := &gmachine{ns: r.Intn(4) + 1, ne: r.Intn(3) + 1, timers: map[int]int{}, timerLines: map[int]int{}, exitLines: map[int]int{}}
 	var b strings.Builder
 	line := 1
 	w := func(format string, args ...any) {
@@ -227,7 +229,19 @@ func gen(r *rand.Rand) *gmachine {
 		}
 	}
 	w("\t}\n}\n")
-	w("type M machine[State, Signal] {\n\tinitial: S0{N: 0},\n\tstep: step,\n\tafter: after,\n}\n")
+	// An exit action per state, or none (FK9-g1).
+	w("func leave(s State) Option[func()] {\n\tmatch s {\n")
+	for i := range m.ns {
+		w("\tcase %s:\n", sv(i))
+		if r.Intn(2) == 0 {
+			m.exitLines[i] = line
+			w("\t\tSome[func()]{Value: func() {}}\n")
+		} else {
+			w("\t\tNone\n")
+		}
+	}
+	w("\t}\n}\n")
+	w("type M machine[State, Signal] {\n\tinitial: S0{N: 0},\n\tstep: step,\n\tafter: after,\n\texit: leave,\n}\n")
 	w("func main() {}\n")
 	m.src = b.String()
 	return m
@@ -235,7 +249,7 @@ func gen(r *rand.Rand) *gmachine {
 
 // want is the model's graph.
 func (m *gmachine) want() *Graph {
-	g := &Graph{Machine: "M", Initial: "S0", Timers: map[string]Timer{}, Work: map[string]Site{}}
+	g := &Graph{Machine: "M", Initial: "S0", Timers: map[string]Timer{}, Work: map[string]Site{}, Exit: map[string]Site{}}
 	for i := range m.ns {
 		g.States = append(g.States, Variant{Name: sv(i)})
 	}
@@ -272,55 +286,10 @@ func (m *gmachine) want() *Graph {
 	for i, k := range m.timers {
 		g.Timers[sv(i)] = Timer{Signal: ev(k), Site: Site{"gen.ergo", m.timerLines[i]}}
 	}
+	for i, l := range m.exitLines {
+		g.Exit[sv(i)] = Site{"gen.ergo", l}
+	}
 	return g
-}
-
-// reachable is the model's coverage: a breadth-first walk of its edges.
-func (m *gmachine) reachable() []Pair {
-	reached := map[int]bool{0: true}
-	queue := []int{0}
-	armOf := func(i, j int) int {
-		for k, a := range m.arms {
-			if a.takes(i, j) {
-				return k
-			}
-		}
-		return -1
-	}
-	for len(queue) > 0 {
-		i := queue[0]
-		queue = queue[1:]
-		for j := range m.ne {
-			for _, e := range m.arms[armOf(i, j)].edges {
-				var next []int
-				switch {
-				case e.To == Any:
-					for k := range m.ns {
-						next = append(next, k)
-					}
-				case e.To != "":
-					k, _ := strconv.Atoi(strings.TrimPrefix(e.To, "S"))
-					next = append(next, k)
-				}
-				for _, k := range next {
-					if !reached[k] {
-						reached[k] = true
-						queue = append(queue, k)
-					}
-				}
-			}
-		}
-	}
-	var out []Pair
-	for i := range m.ns {
-		if !reached[i] {
-			continue
-		}
-		for j := range m.ne {
-			out = append(out, Pair{State: sv(i), Signal: ev(j), Arms: []Site{{"gen.ergo", m.arms[armOf(i, j)].line}}})
-		}
-	}
-	return out
 }
 
 // read checks src and reads its machine's graph.
@@ -360,12 +329,7 @@ func TestGraphMatchesTheModel(t *testing.T) {
 		}
 		want := m.want()
 		if diff := compare(g, want); diff != "" {
-			t.Fatalf("seed %d, case %d: %s\ngot:\n%s\nwant:\n%s\nsource:\n%s", seed, n, diff, g.Text(), want.Text(), m.src)
-		}
-		if got, want := g.Reachable(), m.reachable(); !slices.EqualFunc(got, want, func(a, b Pair) bool {
-			return a.State == b.State && a.Signal == b.Signal && slices.Equal(a.Arms, b.Arms)
-		}) {
-			t.Fatalf("seed %d, case %d: reachable\n got %v\nwant %v\nsource:\n%s", seed, n, got, want, m.src)
+			t.Fatalf("seed %d, case %d: %s\ngot:\n%+v\nwant:\n%+v\nsource:\n%s", seed, n, diff, *g, *want, m.src)
 		}
 		seen["nested match"] = seen["nested match"] || strings.Contains(m.src, "match e {")
 		for _, a := range g.Arms {
@@ -416,6 +380,14 @@ func compare(g, want *Graph) string {
 	for k, v := range want.Timers {
 		if g.Timers[k] != v {
 			return "timer of " + k
+		}
+	}
+	if len(g.Exit) != len(want.Exit) {
+		return "exit actions"
+	}
+	for k, v := range want.Exit {
+		if g.Exit[k] != v {
+			return "exit action of " + k
 		}
 	}
 	return ""

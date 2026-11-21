@@ -8,7 +8,9 @@ import (
 	"maps"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,14 +25,25 @@ import (
 // name an IR body spells is declared in its own package, the one scope
 // the patched compile resolves it in, which for some program means a
 // name that another package declares (the split's alias or forwarding
-// function). It checks the lowered files in process; the CLI builds a
+// function). A generic name of another package has no such declaration
+// (Q5, option b): the IR spells it PATH.Name, a call of it is a pcall, and
+// for some program PATH is a package of the split that declares Name and
+// that the body's package imports, where the patched compile resolves it.
+// stopwatch names a renamed generic of std/machines (armed_1). A
+// package let of another package is copied into the package (sudoku's
+// Units): Ergo has no mutable package state. runtime-faults and address-routes wait
+// for FLIP red #9 (an IR file naming a generic instance twice).
+// It checks the lowered files in process; the CLI builds a
 // split IR program with the patched compile in cmd/ergo's
 // TestDirectBuildStartsNoGoCommand. Mutants: every IR body in the root's
 // file (cs-ir-file-shared); no declaration of another package's name
-// (cs-ir-foreign-undeclared).
+// (cs-ir-foreign-undeclared); a generic name spelled before the split's
+// rename (m5-generic-unrenamed), not imported (m5-generic-unimported), or
+// called by a plain call (m5-generic-plain-call); a package let of another
+// package refused (q5b-foreign-let-refused).
 func TestIRFilePerPackage(t *testing.T) {
-	twoPackages, foreign := false, false
-	for _, name := range []string{"particles", "okra-keys", "forge", "todo-shell"} {
+	twoPackages, foreign, generic := false, false, false
+	for _, name := range []string{"particles", "forge", "todo-shell", "calc", "sudoku", "stopwatch"} {
 		dir, err := filepath.Abs(filepath.Join("..", "..", "examples", name, "cmd", name))
 		if err != nil {
 			t.Fatal(err)
@@ -48,6 +61,7 @@ func TestIRFilePerPackage(t *testing.T) {
 			t.Fatalf("%s: the IR split fails: %v %+v", name, err, rep)
 		}
 		decls, bodiless, irs := map[string]map[string]bool{}, map[string]map[string]bool{}, map[string][]irNames{}
+		imports := map[string]map[string]bool{}
 		for _, f := range files {
 			dir := path.Dir(f.Path)
 			switch {
@@ -55,9 +69,31 @@ func TestIRFilePerPackage(t *testing.T) {
 				irs[dir] = readIRNames(t, f.Data)
 			case strings.HasSuffix(f.Path, ".go"):
 				if decls[dir] == nil {
-					decls[dir], bodiless[dir] = map[string]bool{}, map[string]bool{}
+					decls[dir], bodiless[dir], imports[dir] = map[string]bool{}, map[string]bool{}, map[string]bool{}
 				}
-				goDecls(t, f, decls[dir], bodiless[dir])
+				goDecls(t, f, decls[dir], bodiless[dir], imports[dir])
+			}
+		}
+		for dir, fns := range irs {
+			for _, fn := range fns {
+				for _, c := range fn.plain {
+					t.Errorf("%s: the IR body %s in %s calls %s, another package's function, by a plain call", name, fn.name, dir, c)
+				}
+				for _, q := range fn.quals {
+					p, n, _ := cutLast(q, ".")
+					for other := range decls {
+						if other == "." || !strings.HasSuffix(p, "/"+other) {
+							continue
+						}
+						generic = true
+						if !decls[other][n] {
+							t.Errorf("%s: the IR body %s in %s names %s, which %s does not declare", name, fn.name, dir, q, other)
+						}
+						if !imports[dir][p] {
+							t.Errorf("%s: the IR body %s in %s names %s, which %s does not import", name, fn.name, dir, q, dir)
+						}
+					}
+				}
 			}
 		}
 		withIR := 0
@@ -96,17 +132,32 @@ func TestIRFilePerPackage(t *testing.T) {
 		}
 		twoPackages = twoPackages || withIR >= 2
 	}
-	if !twoPackages || !foreign {
-		t.Fatalf("no program has IR bodies in two packages (%v) or an IR name of another package (%v): the property is vacuous", twoPackages, foreign)
+	if !twoPackages || !foreign || !generic {
+		t.Fatalf("no program has IR bodies in two packages (%v), an IR name of another package (%v) or a generic name of a package of the split (%v): the property is vacuous", twoPackages, foreign, generic)
 	}
 }
 
-// irNames are an IR function's name and the package-scope names its body
-// spells: the functions it calls and the named part of its types.
-type irNames struct {
-	name  string
-	names []string
+// cutLast is s around the last sep.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
 }
+
+// irNames are an IR function's name and the package-scope names its body
+// spells: the functions it calls and the named part of its types; quals
+// the qualified names it spells (PATH.Name, a pcall's or a type's), and
+// plain the qualified names it calls by a plain call.
+type irNames struct {
+	name         string
+	names        []string
+	quals, plain []string
+}
+
+// qualName is a qualified name in a type spelling: an import path with a
+// slash, then .Name.
+var qualName = regexp.MustCompile(`[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+\.[A-Za-z_][A-Za-z0-9_]*`)
 
 // readIRNames reads an IR file's functions and their names.
 func readIRNames(t *testing.T, data []byte) []irNames {
@@ -123,14 +174,27 @@ func readIRNames(t *testing.T, data []byte) []irNames {
 		typ := func(v any) {
 			if s, ok := v.(string); ok && s != "" {
 				r.names = append(r.names, strings.TrimLeft(s, "[]*"))
+				r.quals = append(r.quals, qualName.FindAllString(s, -1)...)
 			}
 		}
 		var walk func(v any)
 		walk = func(v any) {
 			switch v := v.(type) {
 			case map[string]any:
-				if v["k"] == "call" {
-					r.names = append(r.names, v["name"].(string))
+				switch v["k"] {
+				case "call":
+					n := v["name"].(string)
+					r.names = append(r.names, n)
+					if strings.Contains(n, "/") {
+						r.plain = append(r.plain, n)
+					}
+				case "pcall":
+					r.quals = append(r.quals, v["t"].(string)+"."+v["name"].(string))
+					typ(v["v"]) // its type arguments
+					for _, x := range v {
+						walk(x)
+					}
+					return // t is its path, not a type
 				}
 				typ(v["t"])
 				typ(v["type"])
@@ -156,12 +220,17 @@ func readIRNames(t *testing.T, data []byte) []irNames {
 }
 
 // goDecls adds a Go file's package-scope names to decls and its functions
-// without a body to bodiless, a method as T.M.
-func goDecls(t *testing.T, f lower.File, decls, bodiless map[string]bool) {
+// without a body to bodiless, a method as T.M, and its import paths to
+// imports.
+func goDecls(t *testing.T, f lower.File, decls, bodiless, imports map[string]bool) {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), f.Path, f.Data, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("%s does not parse: %v", f.Path, err)
+	}
+	for _, s := range file.Imports {
+		p, _ := strconv.Unquote(s.Path.Value)
+		imports[p] = true
 	}
 	for _, d := range file.Decls {
 		switch d := d.(type) {

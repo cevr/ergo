@@ -259,17 +259,18 @@ const sysPidfdOpen = 434
 const reaperBound = 30 * time.Second
 
 // runWithin starts cmd, the run's reaper, which leads a process group of
-// its own (sandboxCommand), and waits for it at most deadline. At the
-// deadline it asks the reaper to end the run (SIGTERM) and waits for it at
-// most reaperBound. The reaper collects every process of the run, those
-// that left the group included. Then runWithin stops every process left
-// in the group, and reaps the leader. It reports whether the deadline
-// ended the run and, if it did, the processes the run had then (runTree).
-// The leader is not reaped before the group is stopped: until then its
-// process id, which is the group's, cannot name another process.
-func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []string, err error) {
+// its own (sandboxCommand), and waits for it while it makes progress
+// (watch): until it has made none for quiet, or until end. Then it asks
+// the reaper to end the run (SIGTERM) and waits for it at most
+// reaperBound. The reaper collects every process of the run, those that
+// left the group included. Then runWithin stops every process left in the
+// group, and reaps the leader. It reports how the run ended and, if the
+// watch ended it, the processes the run had then (runTree). The leader is
+// not reaped before the group is stopped: until then its process id, which
+// is the group's, cannot name another process.
+func runWithin(cmd *exec.Cmd, quiet time.Duration, end time.Time, progress func() int64) (outcome watchOutcome, left []string, err error) {
 	if err := cmd.Start(); err != nil {
-		return false, nil, err
+		return watchExited, nil, err
 	}
 	pid := cmd.Process.Pid
 	stop := func() {
@@ -281,10 +282,18 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []str
 	if errno != 0 {
 		stop()
 		cmd.Wait()
-		return false, nil, fmt.Errorf("pidfd_open on the run: %w", errno)
+		return watchExited, nil, fmt.Errorf("pidfd_open on the run: %w", errno)
 	}
-	exited, pollErr := readableWithin(int(pidfd), deadline)
-	if pollErr == nil && !exited {
+	// Progress is the caller's (the run's output) or the CPU the run uses
+	// (treeCPU): a change of either one is progress. The CPU sits in the
+	// high bits, so a growth of one never cancels a change of the other.
+	w := watch{
+		quiet: quiet, end: end, now: time.Now,
+		progress: func() int64 { return progress() + treeCPU(pid)<<40 },
+		wait:     func(d time.Duration) (bool, error) { return readableWithin(int(pidfd), d) },
+	}
+	outcome, pollErr := w.run()
+	if pollErr == nil && outcome != watchExited {
 		left = runTree(pid)
 		syscall.Kill(pid, syscall.SIGTERM)
 		readableWithin(int(pidfd), reaperBound)
@@ -293,9 +302,9 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []str
 	stop()
 	waitErr := cmd.Wait()
 	if pollErr != nil {
-		return false, nil, pollErr
+		return watchExited, nil, pollErr
 	}
-	return !exited, left, waitErr
+	return outcome, left, waitErr
 }
 
 // runTree describes the run's reaper, pid, and each of its descendants,
@@ -304,34 +313,7 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []str
 // of the run that lost its parent is among its descendants. It reads /proc
 // once; a process that ends meanwhile is left out.
 func runTree(pid int) []string {
-	type proc struct {
-		ppid        int
-		name, state string
-	}
-	procs := map[int]proc{}
-	children := map[int][]int{}
-	entries, _ := os.ReadDir("/proc")
-	for _, entry := range entries {
-		id, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
-		}
-		stat, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
-		if err != nil {
-			continue
-		}
-		open, end := strings.IndexByte(string(stat), '('), strings.LastIndexByte(string(stat), ')')
-		if open < 0 || end < open {
-			continue
-		}
-		fields := strings.Fields(string(stat[end+1:]))
-		if len(fields) < 2 {
-			continue
-		}
-		ppid, _ := strconv.Atoi(fields[1])
-		procs[id] = proc{ppid: ppid, name: string(stat[open+1 : end]), state: fields[0]}
-		children[ppid] = append(children[ppid], id)
-	}
+	procs, children := processTable()
 	var lines []string
 	queue := []int{pid}
 	for len(queue) > 0 && len(lines) < 64 {
@@ -355,6 +337,72 @@ func runTree(pid int) []string {
 		lines = []string{"none listed (the run's reaper had ended)"}
 	}
 	return lines
+}
+
+// procStat is a line of /proc/<pid>/stat: its parent, name, state, and the
+// CPU it and its reaped children have used, in clock ticks.
+type procStat struct {
+	ppid        int
+	name, state string
+	ticks       int64
+}
+
+// processTable reads every process's stat once, by id, and the children
+// of each id. A process that ends meanwhile is left out.
+func processTable() (map[int]procStat, map[int][]int) {
+	procs := map[int]procStat{}
+	children := map[int][]int{}
+	entries, _ := os.ReadDir("/proc")
+	for _, entry := range entries {
+		id, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		open, end := strings.IndexByte(string(stat), '('), strings.LastIndexByte(string(stat), ')')
+		if open < 0 || end < open {
+			continue
+		}
+		fields := strings.Fields(string(stat[end+1:]))
+		if len(fields) < 2 {
+			continue
+		}
+		ppid, _ := strconv.Atoi(fields[1])
+		p := procStat{ppid: ppid, name: string(stat[open+1 : end]), state: fields[0]}
+		// utime, stime, cutime and cstime: fields 14 to 17 of stat, the
+		// first after the name being field 3.
+		for i := 11; i <= 14 && i < len(fields); i++ {
+			n, _ := strconv.ParseInt(fields[i], 10, 64)
+			p.ticks += n
+		}
+		procs[id] = p
+		children[ppid] = append(children[ppid], id)
+	}
+	return procs, children
+}
+
+// treeCPU is the CPU, in clock ticks, that the run's reaper, pid, and its
+// descendants have used, their reaped children's included. The reaper is a
+// child subreaper, so every process of the run is among them; a process
+// that ends moves its time to the one that reaps it. It grows while any
+// process of the run computes, also one that writes nothing: the sweep
+// keeps such a run (watch), where output alone would call it quiet.
+func treeCPU(pid int) int64 {
+	procs, children := processTable()
+	var ticks int64
+	queue := []int{pid}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if p, ok := procs[id]; ok {
+			ticks += p.ticks
+			queue = append(queue, children[id]...)
+		}
+	}
+	return ticks
 }
 
 // openProcess returns a pidfd of process pid, or ok false when no process

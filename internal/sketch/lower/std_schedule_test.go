@@ -284,11 +284,13 @@ func TestScheduleAgreesWithModel(t *testing.T) {
 // Retry and Repeat, whose runner is TestStdScheduleLawsRun, as Ergo tests
 // over the exported API: within, draw, gen and lawSchedule are the
 // packages' own helpers, restated.
-const stdScheduleLawsProbe = `import schedule
+const stdScheduleLawsProbe = `import cron
+import schedule
 import sync
 import tasks
 import testing
 import time
+import tz
 
 func within(n int64, lo int64, hi int64) int64 {
 	let span = hi - lo + 1
@@ -362,6 +364,12 @@ test ScheduleUpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64
 	}
 }
 
+test ScheduleUntimedIgnoresElapsed(seed uint64, runs int64, a int64, b int64) {
+	let s = gen(seed, 3)
+	let r = int(within(runs, 1, 20))
+	assert schedule.Timed(s) || schedule.Decide(s, r, duration(within(a, 0, 20000000000))) == schedule.Decide(s, r, duration(within(b, 0, 20000000000)))
+}
+
 test ScheduleExponentialUnderCap(base int64, cap int64, factor int64, runs int64) {
 	let c = duration(within(cap, 0, 1000000000000))
 	let s = schedule.Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c)
@@ -382,6 +390,19 @@ test ScheduleJitterInBounds(seed uint64, every int64, runs int64) {
 	case schedule.Continue as c:
 		let got = float64(int64(c.After))
 		assert got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0
+	case schedule.Stop:
+		assert false
+	}
+}
+
+test ScheduleCronWaitsForAFiring(sec int64, wait int64, runs int) {
+	let e = try cron.Parse("0 9 * * mon-fri")
+	let start = time.Unix(within(sec, 0, 4102444800), 0)
+	let elapsed = duration(within(wait, 0, 864000) * 1000000000)
+	match schedule.Decide(schedule.Cron(e, tz.UTC(), start), runs, elapsed) {
+	case schedule.Continue as c:
+		let at = time.Add(time.Add(start, elapsed), c.After)
+		assert c.After > 0s && c.After <= 72h && cron.Matches(e, tz.Civil(tz.UTC(), at)) && time.UnixSeconds(at)%60 == 0
 	case schedule.Stop:
 		assert false
 	}
@@ -480,13 +501,15 @@ test TasksRepeatFollowsDecide(work int, k int, limit int) {
 // stdScheduleLawStatements is the statement of each law the probe
 // restates, as the ledger writes it, by ledger key.
 var stdScheduleLawStatements = map[string]string{
-	"schedule RecursStopsAfter":     `RecursStopsAfter(n int64, at int64) { let k = int(within(n, 0, 64)) let e = duration(within(at, 0, 1000000000000)) let s = Recurs(k) let mut ok = Decide(s, k+1, e) == Stop for runs in 1..k+1 { ok = ok && Decide(s, runs, e) == Continue{After: 0s} } ok }`,
-	"schedule UpToNeverPassesLimit": `UpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) { let l = duration(within(limit, 0, 10000000000)) let e = duration(within(at, 0, 20000000000)) match Decide(UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) { case Continue as c: e+c.After <= l case Stop: true } }`,
-	"schedule ExponentialUnderCap":  `ExponentialUnderCap(base int64, cap int64, factor int64, runs int64) { let c = duration(within(cap, 0, 1000000000000)) let s = Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c) let r = int(within(runs, 1, 200)) match (Decide(s, r, 0s), Decide(s, r+1, 0s)) { case (Continue as x, Continue as y): x.After <= c && x.After <= y.After case _: false } }`,
-	"schedule JitterInBounds":       `JitterInBounds(seed uint64, every int64, runs int64) { let d = duration(within(every, 0, 1099511627776)) let low = float64(draw(seed, 0, 30)) / 10.0 let high = low + float64(draw(seed, 1, 30))/10.0 match Decide(Jitter(Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) { case Continue as c: let got = float64(int64(c.After)) got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0 case Stop: false } }`,
-	"schedule AndIsMaxOrIsMin":      `AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) { let x = gen(a, 2) let y = gen(b, 2) let r = int(within(runs, 1, 20)) let e = duration(within(at, 0, 20000000000)) let both = Decide(And(x, y), r, e) let either = Decide(Or(x, y), r, e) match (Decide(x, r, e), Decide(y, r, e)) { case (Continue as p, Continue as q): let long = if p.After >= q.After { p.After } else { q.After } let short = if p.After <= q.After { p.After } else { q.After } both == Continue{After: long} && either == Continue{After: short} case (Continue as p, Stop): both == Stop && either == p case (Stop, Continue as q): both == Stop && either == q case (Stop, Stop): both == Stop && either == Stop } }`,
-	"tasks RetryFollowsDecide":      `RetryFollowsDecide(failing int, work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let n = (failing%10 + 10) % 10 let mut runs = 0 let mut at = 0s let mut want = 0 for want == 0 { runs = runs + 1 at = at + w if runs > n { want = runs } else { match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: want = 0 - runs } } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Retry(s, func() int fails lawFailed needs Scheduler { Scheduler.Sleep(w) let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) if i <= n { return lawFailed{Run: i} } i }) catch { case lawFailed as f: 0 - f.Run } got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
-	"tasks RepeatFollowsDecide":     `RepeatFollowsDecide(work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let mut runs = 0 let mut at = 0s let mut more = true for more { runs = runs + 1 at = at + w match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: more = false } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Repeat(s, func() int needs Scheduler { Scheduler.Sleep(w) sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) }) got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
+	"schedule CronWaitsForAFiring":   `CronWaitsForAFiring(sec int64, wait int64, runs int) { let e = try cron.Parse("0 9 * * mon-fri") let start = time.Unix(within(sec, 0, 4102444800), 0) let elapsed = duration(within(wait, 0, 864000) * 1000000000) match Decide(Cron(e, tz.UTC(), start), runs, elapsed) { case Continue as c: let at = time.Add(time.Add(start, elapsed), c.After) c.After > 0s && c.After <= 72h && cron.Matches(e, tz.Civil(tz.UTC(), at)) && time.UnixSeconds(at)%60 == 0 case Stop: false } }`,
+	"schedule RecursStopsAfter":      `RecursStopsAfter(n int64, at int64) { let k = int(within(n, 0, 64)) let e = duration(within(at, 0, 1000000000000)) let s = Recurs(k) let mut ok = Decide(s, k+1, e) == Stop for runs in 1..k+1 { ok = ok && Decide(s, runs, e) == Continue{After: 0s} } ok }`,
+	"schedule UntimedIgnoresElapsed": `UntimedIgnoresElapsed(seed uint64, runs int64, a int64, b int64) { let s = gen(seed, 3) let r = int(within(runs, 1, 20)) Timed(s) || Decide(s, r, duration(within(a, 0, 20000000000))) == Decide(s, r, duration(within(b, 0, 20000000000))) }`,
+	"schedule UpToNeverPassesLimit":  `UpToNeverPassesLimit(seed uint64, limit int64, runs int64, at int64) { let l = duration(within(limit, 0, 10000000000)) let e = duration(within(at, 0, 20000000000)) match Decide(UpTo(gen(seed, 3), l), int(within(runs, 1, 20)), e) { case Continue as c: e+c.After <= l case Stop: true } }`,
+	"schedule ExponentialUnderCap":   `ExponentialUnderCap(base int64, cap int64, factor int64, runs int64) { let c = duration(within(cap, 0, 1000000000000)) let s = Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c) let r = int(within(runs, 1, 200)) match (Decide(s, r, 0s), Decide(s, r+1, 0s)) { case (Continue as x, Continue as y): x.After <= c && x.After <= y.After case _: false } }`,
+	"schedule JitterInBounds":        `JitterInBounds(seed uint64, every int64, runs int64) { let d = duration(within(every, 0, 1099511627776)) let low = float64(draw(seed, 0, 30)) / 10.0 let high = low + float64(draw(seed, 1, 30))/10.0 match Decide(Jitter(Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) { case Continue as c: let got = float64(int64(c.After)) got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0 case Stop: false } }`,
+	"schedule AndIsMaxOrIsMin":       `AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) { let x = gen(a, 2) let y = gen(b, 2) let r = int(within(runs, 1, 20)) let e = duration(within(at, 0, 20000000000)) let both = Decide(And(x, y), r, e) let either = Decide(Or(x, y), r, e) match (Decide(x, r, e), Decide(y, r, e)) { case (Continue as p, Continue as q): let long = if p.After >= q.After { p.After } else { q.After } let short = if p.After <= q.After { p.After } else { q.After } both == Continue{After: long} && either == Continue{After: short} case (Continue as p, Stop): both == Stop && either == p case (Stop, Continue as q): both == Stop && either == q case (Stop, Stop): both == Stop && either == Stop } }`,
+	"tasks RetryFollowsDecide":       `RetryFollowsDecide(failing int, work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let n = (failing%10 + 10) % 10 let mut runs = 0 let mut at = 0s let mut want = 0 for want == 0 { runs = runs + 1 at = at + w if runs > n { want = runs } else { match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: want = 0 - runs } } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Retry(s, func() int fails lawFailed needs Scheduler { Scheduler.Sleep(w) let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) if i <= n { return lawFailed{Run: i} } i }) catch { case lawFailed as f: 0 - f.Run } got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
+	"tasks RepeatFollowsDecide":      `RepeatFollowsDecide(work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let mut runs = 0 let mut at = 0s let mut more = true for more { runs = runs + 1 at = at + w match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: more = false } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Repeat(s, func() int needs Scheduler { Scheduler.Sleep(w) sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) }) got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
 }
 
 // TestStdScheduleLawsRun runs the probe's tests with --seed 1;

@@ -364,7 +364,7 @@ var flatRunPaths = []string{
 	"literal", "emit", "done", "union call", "bare", "flat reject", "let variant", "let union", "return", "if", "fail",
 	"simple match", "tree match", "wildcard", "needs", "fails",
 	"empty signal", "payload signal", "error holds a signal",
-	"flat signals", "flat signals, no match tree", "tag test", "error text of a flat signal", "signals too large",
+	"flat signals", "flat signals, no match tree", "tag test", "error text of a flat signal", "signals past the register bound",
 }
 
 // lowerMachineMode lowers src with the copies for a known record, their
@@ -440,37 +440,35 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 			if strings.Contains(c.ref.mainGo(), "func FromM(") {
 				report("seed %d, %s: the reference lowering writes a copy\n%s", seed, name, src)
 			}
-			// The signal union is flat exactly where flatunion.go's rule
-			// admits it: the struct fits 32 bytes (a tag and the int slot
-			// the int variants share; an int and two strings fit in no
-			// form; R3b does not lift the bound, since the machine's step
-			// is a function value that takes the signal: carry.go). The
-			// other two lowerings never make it flat.
+			// The signal union is flat at any size (MSB3, carry.go's
+			// stateFlat): a variant of an int and two strings takes it past
+			// the register bound (32 bytes), which bounds it no more, since
+			// the machine's step is a function value that takes each signal.
+			// The other two lowerings never make it flat.
 			strs := 0
 			for _, line := range lines(src) {
 				if strings.HasPrefix(line, "type Sig = ") {
 					strs += strings.Count(line, "{ v int, t string, u string }")
 				}
 			}
-			wantFlat := strs == 0
-			if got := strings.Contains(c.flat.mainGo(), "type Sig struct"); got != wantFlat {
-				report("seed %d, %s: the signal union is flat %v, want %v\n%s", seed, name, got, wantFlat, src)
+			if !strings.Contains(c.flat.mainGo(), "type Sig struct") {
+				report("seed %d, %s: the signal union is an interface, want flat\n%s", seed, name, src)
 			}
 			if strings.Contains(c.old.mainGo(), "type Sig struct") || strings.Contains(c.ref.mainGo(), "type Sig struct") {
 				report("seed %d, %s: an interface lowering makes the signal union flat\n%s", seed, name, src)
 			}
-			if wantFlat && match == "flat" && strings.Contains(src, "match (s, e)") && strings.Contains(src, " E1{") {
+			if match == "flat" && strings.Contains(src, "match (s, e)") && strings.Contains(src, " E1{") {
 				reached["tag test"] = true // a match on two subjects with no tree tests the tag (flatTest)
 			}
 			switch {
-			case wantFlat && strings.Contains(src, "type Boom { e Sig }"):
+			case strings.Contains(src, "type Boom { e Sig }"):
 				reached["error text of a flat signal"] = true
-			case wantFlat && match == "flat":
+			case match == "flat":
 				reached["flat signals, no match tree"] = true
-			case wantFlat:
+			case strs == 0:
 				reached["flat signals"] = true
 			default:
-				reached["signals too large"] = true
+				reached["signals past the register bound"] = true
 			}
 			cases = append(cases, c)
 		}

@@ -1,20 +1,24 @@
-// lru looks ports up through an LRU memo, and benchmarks the cache.
+// lru looks ports up through std's cache, and benchmarks its own LRU.
 //
 //	lru [lookup [CAPACITY]]  read service names from standard input, one per
-//	                         line, and look each up; then print the memo's counts
+//	                         line, and look each up; then print the cache's counts
 //	lru bench N              run N cache operations and print a checksum
 //
 // This binary is the only place that chooses the providers: the port
 // table and the host's standard input.
 
 import io
-import lru/cache
+import cache
+import own lru/cache
 import lru/registry
-import lru/memo
 import lru/memory
 import os
+import queue
 import strconv
 import strings
+import sync
+import task
+import time
 
 // Ports is the demo's port list.
 let Ports = "web 8080\npostgres 5432\ndns 53\nssh 22\nsmtp 25\n"
@@ -54,12 +58,12 @@ func count(text string) int fails os.Exit {
 	n
 }
 
-// LookupAll looks each name of text up through a Memo of capacity entries,
-// and prints the counts at the end.
-func LookupAll(text string, capacity int, table memory.Table) fails os.Exit needs Console {
-	let mut m = memo.New[string, int](capacity) catch {
-	case cache.BadCapacity as b:
-		return os.Exit{Code: 2, Message: "lru: capacity \(b.Capacity)"}
+// LookupAll looks each name of text up through std's cache of capacity
+// entries, and prints the counts at the end.
+func LookupAll(text string, capacity int, table memory.Table) fails os.Exit needs Console | time.Clock {
+	let m = cache.New[string, int](cache.Config{Capacity: capacity, Life: 0s, Idle: 0s}) catch {
+	case cache.BadConfig as b:
+		return os.Exit{Code: 2, Message: "lru: \(b.Reason)"}
 	}
 	with context { registry.Registry: table } {
 		for line in strings.Split(text, "\n") {
@@ -67,17 +71,17 @@ func LookupAll(text string, capacity int, table memory.Table) fails os.Exit need
 			if name == "" {
 				continue
 			}
-			let hits = m.CountsOf().Hits
-			let port = registry.Lookup(&m, name) catch {
+			let hits = cache.StatsOf(m).Hits
+			let port = registry.Lookup(m, name) catch {
 			case registry.Unknown as u:
 				Console.Println("\(u.Name) is not in the registry")
 				continue
 			}
-			let from = if m.CountsOf().Hits > hits { "cache" } else { "registry" }
+			let from = if cache.StatsOf(m).Hits > hits { "cache" } else { "registry" }
 			Console.Println("\(registry.Line(name, port)) (\(from))")
 		}
 	}
-	let c = m.CountsOf()
+	let c = cache.StatsOf(m)
 	Console.Println("hits \(c.Hits), misses \(c.Misses), held \(c.Size), lookups \(table.Lookups())")
 }
 
@@ -86,8 +90,8 @@ func LookupAll(text string, capacity int, table memory.Table) fails os.Exit need
 // the Gets found. cmd/ergo/testdata/lruhand is the same loop in
 // hand-written Go, and cmd/ergo's TestLRUCountsAsHandGo counts both.
 func Churn(ops int) int {
-	let mut c = cache.New[int, int](1024) catch {
-	case cache.BadCapacity:
+	let mut c = own.New[int, int](1024) catch {
+	case own.BadCapacity:
 		return -1
 	}
 	let mut x = 1
@@ -106,7 +110,7 @@ func Churn(ops int) int {
 }
 
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), time.Clock: time.NewHost() } {
 		match try Parse(os.Process.Args()) {
 		case Lookup as q:
 			let table = memory.Parse(Ports) catch {
@@ -151,8 +155,38 @@ test BenchIsDeterministic {
 test LookupAllCountsHits {
 	let out = io.NewRecorder()
 	let table = try memory.Parse(Ports)
-	with context { Console: out } {
+	with context { Console: out, time.Clock: time.NewManual(0) } {
 		try LookupAll("web\ndns\nweb\nftp\n", 1, table)
 	}
 	assert out.Text() == "web :8080 (registry)\ndns :53 (registry)\nweb :8080 (registry)\nftp is not in the registry\nhits 0, misses 4, held 1, lookups 4\n"
+}
+
+// Three tasks look one name up at once through std's cache: the registry
+// is asked once, and each task gets the port. The lookup holds until the
+// test pushes to gate, so a task that comes while it runs waits for it;
+// `ergo test --explore` searches the orders (explored; testdata/mutants.json:
+// "a waiting Get runs the lookup too").
+test ThreeTasksShareOneLookup {
+	let c = try cache.New[string, int](cache.Config{Capacity: 2, Life: 0s, Idle: 0s})
+	let calls = sync.NewRef[int](0)
+	let gate = queue.New[int](0)
+	let ports = with context { time.Clock: time.NewManual(0) } {
+		let a = task.Go() { cache.Get(c, "web", func(s string) int { gated(calls, gate) }) }
+		let b = task.Go() { cache.Get(c, "web", func(s string) int { gated(calls, gate) }) }
+		let d = task.Go() { cache.Get(c, "web", func(s string) int { gated(calls, gate) }) }
+		try gate.Push(1)
+		gate.End()
+		a.Wait() + b.Wait() + d.Wait()
+	}
+	assert ports == 3*8080 && calls.Get() == 1
+}
+
+// gated is the port of web, after one pop of gate; it counts its calls.
+func gated(calls sync.Ref[int], gate queue.Queue[int]) int {
+	calls.Update(func(n int) int { n + 1 })
+	let _ = gate.Pop() catch {
+	case queue.Closed:
+		0
+	}
+	8080
 }

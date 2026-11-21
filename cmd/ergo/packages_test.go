@@ -17,6 +17,7 @@ import (
 // root (Q10). The fixtures are cmd/ergo/testdata/packages, copied into a
 // private workspace, since a run writes dist/.
 func TestErgoPackages(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	workspace := smokeWorkspace(t, "cmd/ergo/testdata/packages")
 	fixtures := filepath.Join(workspace, "cmd", "ergo", "testdata", "packages")

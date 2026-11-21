@@ -78,10 +78,10 @@ func Facts(in Input, families []sdk.Family) *sdk.Snapshot {
 	return s
 }
 
-// programUnit reports a checked package of the program's own: not std's,
-// not a host binding's.
+// programUnit reports a checked package of the run: std is linted as
+// any module is when it is the run's root (STD HAS NO PRIVILEGES).
 func programUnit(unit Unit) bool {
-	return unit.Package != nil && unit.Package.Info != nil && !unit.Package.Std() && !unit.Package.Host()
+	return unit.Package != nil && unit.Package.Info != nil
 }
 
 // extractor fills one snapshot.

@@ -65,7 +65,10 @@ func TestPureHoistMemoizes(t *testing.T) {
 // memoized), ffi-hoist-variant-argument (a let mut operand counts as
 // invariant), ffi-hoist-inner-binding (a name bound inside the loop counts
 // as invariant), ffi-hoist-no-reset (the flag outlives an entry of the
-// loop).
+// loop), jobsice-memo-leak (a fused match that falls back keeps the
+// declarations of the calls its callee's body memoized),
+// jobsice-range-binds-invariant (a range's index and element count as
+// invariant).
 //
 // It builds Go because the claim is about what the IR bodies do when they
 // run, which only the patched compile's machine code shows.

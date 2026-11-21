@@ -1,0 +1,106 @@
+import gent/agent
+import maps
+import slices
+import strings
+
+// Tree is a Tools over a map of files: each key is a file's path, each
+// value its text. A directory is any path that a file's path goes
+// through. A key that does not name a path inside the tree ("../x",
+// "/x", "") is not a file of it.
+type Tree { Files Map[string, string] } implements agent.Tools
+
+// NewTree is the tree of files with every other one, in the order of
+// their paths, moved into the directory sub/. Law runs draw trees by it
+// (the generator calls a package's New<T>), so the trees they draw hold
+// directories, which generated paths seldom name.
+func NewTree(files Map[string, string]) Tree {
+	let mut out = Map[string, string]{}
+	for i, key in slices.Sorted(maps.Keys(files)) {
+		out[if i%2 == 1 { "sub/" + key } else { key }] = maps.GetOr(files, key, "")
+	}
+	Tree{Files: out}
+}
+
+// Clean is path as names from the tree's root: "." and empty names are
+// dropped and ".." goes up one name. A path from the root ("/x"), or one
+// that goes up out of the tree, fails Escapes.
+func Clean(path string) []string fails agent.Escapes {
+	if strings.HasPrefix(path, "/") {
+		return agent.Escapes{Path: path}
+	}
+	let mut names = []string{}
+	for name in strings.Split(path, "/") {
+		if name == "" || name == "." {
+			continue
+		}
+		if name == ".." {
+			if len(names) == 0 {
+				return agent.Escapes{Path: path}
+			}
+			names = names[0 : len(names)-1]
+			continue
+		}
+		names = names.Append(name)
+	}
+	names
+}
+
+// files is the tree's files by their clean paths.
+func files(t Tree) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for key, text in t.Files {
+		let names = Clean(key) catch {
+		case agent.Escapes:
+			continue
+		}
+		if len(names) > 0 {
+			out[strings.Join(names, "/")] = text
+		}
+	}
+	out
+}
+
+func Read(t Tree, path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable {
+	let names = try Clean(path)
+	match files(t).Get(strings.Join(names, "/")) {
+	case Some[string] as text:
+		text.Value
+	case None:
+		if len(children(t, names)) > 0 {
+			return agent.Unreadable{Reason: path + " is a directory"}
+		}
+		agent.NotFound{Path: path}
+	}
+}
+
+func List(t Tree, dir string) []string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable {
+	let names = try Clean(dir)
+	let shown = children(t, names)
+	if len(shown) == 0 && len(names) > 0 {
+		match files(t).Get(strings.Join(names, "/")) {
+		case Some[string]:
+			return agent.Unreadable{Reason: dir + " is not a directory"}
+		case None:
+			return agent.NotFound{Path: dir}
+		}
+	}
+	shown
+}
+
+// children is the names in the directory names, in order: a file's name,
+// or a directory's with "/" after it.
+func children(t Tree, names []string) []string {
+	let mut seen = Map[string, bool]{}
+	for key, _ in files(t) {
+		let at = strings.Split(key, "/")
+		if len(at) <= len(names) || !slices.Equal(at[0:len(names)], names) {
+			continue
+		}
+		if len(at) > len(names)+1 {
+			seen[at[len(names)]+"/"] = true
+		} else {
+			seen[at[len(names)]] = true
+		}
+	}
+	slices.Sorted(maps.Keys(seen))
+}

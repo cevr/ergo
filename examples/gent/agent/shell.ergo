@@ -1,0 +1,98 @@
+// The shell tool, and the bound on every tool's result: a command runs
+// by sh -c in the working directory with an empty standard input, its
+// output is read while it runs and stopped at the bound, and a command
+// that runs past its deadline is stopped (its process group: exec's
+// Grace rule).
+
+import exec
+import strings
+import timeout
+import utf8
+
+// ResultLimit is the most characters of a tool's result the model is
+// told; a line after them says how many more were cut.
+func ResultLimit() int { 8000 }
+
+// ShellDeadline is how long a command may run before it is stopped.
+func ShellDeadline() duration { 60s }
+
+// Shell is the outcome of command: its standard output and standard
+// error as they came, bounded, and its exit status when it is not 0. A
+// command that cannot start is Unreadable, which the model is told.
+func Shell(command string) Outcome needs exec.Runner | Scheduler {
+	let c = exec.New("sh", []string{"-c", command}).WithStdin("").WithGrace(2s)
+	let p = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
+	case exec.NotFound as n:
+		return Broke{Why: Unreadable{Reason: "no program " + n.Name}}
+	case exec.Denied as d:
+		return Broke{Why: Unreadable{Reason: "may not run " + d.Name}}
+	case exec.Failed as f:
+		return Broke{Why: Unreadable{Reason: f.Reason}}
+	}
+	let mut text = ""
+	let mut count = 0
+	for ch in p.Chunks() {
+		text = text + ch.Text
+		count = count + utf8.RuneCount(ch.Text)
+		if count > ResultLimit() {
+			let code = p.Stop()
+			return Output{Text: Head(text, ResultLimit()) + "\n[cut at \(ResultLimit()) characters: the command was stopped, status \(code)]"}
+		}
+	}
+	let status = exec.WaitFor(p, ShellDeadline()) catch {
+	case timeout.Expired:
+		let code = p.Stop()
+		return Output{Text: Bounded(text) + "\n[stopped after \(ShellDeadline()): status \(code)]"}
+	}
+	if status == 0 {
+		return Output{Text: Bounded(text)}
+	}
+	Output{Text: Bounded(text) + "\n[exit status \(status)]"}
+}
+
+// Bounded is text as the model is told it: at most ResultLimit
+// characters of it, then a line that counts the rest.
+func Bounded(text string) string { Bound(text, ResultLimit()) }
+
+// Bound is the first max characters of text, then, when text is longer,
+// a line that says how many characters were cut. It cuts between
+// characters, never inside one.
+func Bound(text string, max int) string {
+	let head = Head(text, max)
+	if len(head) == len(text) {
+		return text
+	}
+	head + "\n[cut: \(utf8.RuneCount(text.Slice(len(head), len(text)))) more characters]"
+}
+
+// Head is the first max characters of text, or all of it.
+func Head(text string, max int) string {
+	let mut at = 0
+	let mut kept = 0
+	for kept < max && at < len(text) {
+		at = at + utf8.DecodeRuneInString(text.Slice(at, len(text))).Size
+		kept = kept + 1
+	}
+	text.Slice(0, at)
+}
+
+// ResultsAreBounded: a bounded text is text itself when it is short
+// enough; else its first max characters, a prefix of text cut between
+// characters, and a cut line whose count is the characters left out.
+law ResultsAreBounded(text string, n int) {
+	if !utf8.ValidString(text) {
+		return true
+	}
+	let max = ((n % 24) + 24) % 24
+	let got = Bound(text, max)
+	let total = utf8.RuneCount(text)
+	if total <= max {
+		return got == text
+	}
+	let line = "\n[cut: \(total - max) more characters]"
+	if !strings.HasSuffix(got, line) {
+		return false
+	}
+	let head = got.Slice(0, len(got)-len(line))
+	strings.HasPrefix(text, head) && utf8.ValidString(head) && utf8.RuneCount(head) == max
+}

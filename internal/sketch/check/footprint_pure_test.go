@@ -12,8 +12,10 @@ import (
 // calls strings.TrimSpace has the footprint of one that calls nothing, an
 // Ergo std function over pure externs (strings.Cut) is pure too, and a
 // capability the function calls stays in its footprint. A std extern whose
-// body is not marked (slices.WithCapacity) and a user extern of the same Go
-// function stay opaque: purity is a reviewed fact of std only.
+// body is not marked (slices.SortFunc, which calls back its compare) and a
+// user extern of the same Go function stay opaque: purity is a reviewed
+// fact of std only. slices.WithCapacity's body is marked (FUSION: it makes
+// slices.Transform pure over a pure function).
 func TestFootprintsPureStd(t *testing.T) {
 	src := `import strings
 import strconv
@@ -38,6 +40,7 @@ func loops(s string, n int) string {
 	loops(strings.TrimSpace(s), n - 1)
 }
 func makes() []int { slices.WithCapacity[int](4) }
+func sortsBy(xs []int) []int { slices.SortFunc(xs, func(a int, b int) int { a - b }) }
 func userTrim(s string) string { hostTrim(s) }
 ` + preludeCollectionFuncs
 	file, err := syntax.Parse(src)
@@ -66,7 +69,8 @@ func userTrim(s string) string { hostTrim(s) }
 		"parses":   "pure",
 		"reads":    "Env",
 		"loops":    "pure",
-		"makes":    "opaque",
+		"makes":    "pure", // SL2b: slices.WithCapacity is pure (data.go)
+		"sortsBy":  "opaque",
 		"userTrim": "opaque",
 		// lw-pure-prelude: the prelude's Append, Get, Delete and Put are
 		// marked pure in runtime/v1 (data.go).

@@ -38,11 +38,14 @@ type patBind struct {
 
 // simpleTypeMatch reports a match a Go type switch lowers: one subject of
 // an interface type, and arms of type tests, wildcards and a single `T as
-// x`.
+// x`. A test of a sub-union (`case A as a`, types.md Unions 1) is no
+// variant's case: the match takes the pattern lowering, which tests it
+// (typeTest).
 func (fc *funcCtx) simpleTypeMatch(s *syntax.TypeSwitchStmt) bool {
 	if len(s.Subjects) != 1 || !fc.isSum(fc.typeOf(s.Subjects[0].X)) {
 		return false
 	}
+	subject := fc.typeOf(s.Subjects[0].X)
 	for _, cl := range s.Clauses {
 		for _, item := range cl.List {
 			p := fc.l.info.Patterns[item]
@@ -50,9 +53,16 @@ func (fc *funcCtx) simpleTypeMatch(s *syntax.TypeSwitchStmt) bool {
 				return false
 			}
 			switch p.Kind {
-			case check.PatWildcard, check.PatTypeTest:
+			case check.PatWildcard:
+			case check.PatTypeTest:
+				if fc.subUnionTest(p.Type, subject) {
+					return false
+				}
 			case check.PatAs:
 				if len(cl.List) != 1 || len(p.Elems) != 1 || p.Elems[0].Kind != check.PatTypeTest || p.Var == nil {
+					return false
+				}
+				if fc.subUnionTest(p.Elems[0].Type, subject) {
 					return false
 				}
 			default:
@@ -61,6 +71,13 @@ func (fc *funcCtx) simpleTypeMatch(s *syntax.TypeSwitchStmt) bool {
 		}
 	}
 	return true
+}
+
+// subUnionTest reports a type test of want on a value of subject that
+// names a declared union other than the subject's own: a sub-union, whose
+// variants are some of the subject's (types.md, Unions 1).
+func (fc *funcCtx) subUnionTest(want, subject check.Type) bool {
+	return declaredUnion(want) && fc.goType(want) != fc.goType(subject)
 }
 
 // patternMatch lowers any other match, its arms yielding to d.
@@ -276,6 +293,11 @@ func (fc *funcCtx) pattern(p *check.Pattern, val string, t check.Type, site synt
 // typeTest appends the test that val, of type t, holds the type want, and
 // returns val narrowed to want. A test of t itself always holds.
 func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]string) string {
+	if fc.subUnionTest(want, t) && (fc.l.flatUnionOf(t) != nil || fc.l.flatUnionOf(want) != nil) {
+		// A sub-union's test, `case A as a` (subunion.go).
+		*tests = append(*tests, fc.subUnionTests(want, t, val, fc.site))
+		return fc.unionInto(t, want, val, fc.site)
+	}
 	if fu := fc.l.flatUnionOf(t); fu != nil && fc.goType(want) != fc.goType(t) {
 		// A flat union tests its tag (flatunion.go).
 		k := fu.tagOf(want)
@@ -301,6 +323,9 @@ func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]
 // so `case U as u:` of a union that names a row (rows.md, Catch 9) asserts
 // too; another interface takes val as it is.
 func (fc *funcCtx) narrow(val string, t, to check.Type) string {
+	if fc.subUnionTest(to, t) && (fc.l.flatUnionOf(t) != nil || fc.l.flatUnionOf(to) != nil) {
+		return fc.unionInto(t, to, val, fc.site) // subunion.go
+	}
 	if fu := fc.l.flatUnionOf(t); fu != nil && fc.goType(to) != fc.goType(t) {
 		k := fu.tagOf(to)
 		if k < 0 {
@@ -380,6 +405,9 @@ func (fc *funcCtx) letPattern(spec *syntax.VarSpec) {
 		p := fc.l.info.Patterns[spec.Pattern]
 		if p == nil {
 			ice(spec.Pattern, "a let pattern with no Patterns entry")
+		}
+		if fc.tupleLet(spec, p) {
+			return
 		}
 		x := spec.Values[0]
 		t := fc.typeOf(x)

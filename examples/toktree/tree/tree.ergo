@@ -1,0 +1,188 @@
+// Package tree builds the flat tree of bracket groups over a token stream,
+// in the form the self-hosted compiler's syntax tree takes (wf10
+// self-layout plan §2.2): one row per node in columns (kind, main token,
+// child run), the child lists in one pool, children put before their
+// parent so the root is the last row, and lists gathered on one scratch
+// stack with marks. A leaf is a token that is not a comment or a bracket;
+// a group is an open bracket and what it holds up to its close; an
+// unclosed group closes at the end; the root holds the top level.
+
+import dense
+import toktree/token
+
+// The kinds of a row.
+let Leaf = 1
+let Group = 2
+let Root = 3
+
+// OneParentRootLast: the last row is the root, and every other row is a
+// child of exactly one row; the pool holds exactly those children.
+law OneParentRootLast(picks []int) {
+	let tr = Build(token.Scan(token.Sample(picks))).Tree
+	let n = Len(tr)
+	if n == 0 || Kind(tr, At(tr, n-1)) != Root {
+		return false
+	}
+	let mut parents = []int{}
+	for _ in 0..n {
+		parents = parents.Append(0)
+	}
+	for i in 0..n {
+		if i < n-1 && Kind(tr, At(tr, i)) == Root {
+			return false
+		}
+		for c in Kids(tr, At(tr, i)) {
+			parents[dense.Index(c)] += 1
+		}
+	}
+	for i in 0..n-1 {
+		if parents[i] != 1 {
+			return false
+		}
+	}
+	parents[n-1] == 0 && Pooled(tr) == n-1
+}
+
+// Node is the row tag of the tree.
+type Node {}
+
+// Tree is the flat tree: row i is Kind, Tok and the child run of its id.
+type Tree {
+	ids  dense.Count[Node],
+	kind dense.Col[Node, uint8],
+	tok  dense.Col[Node, uint32],
+	kids dense.Col[Node, dense.Run[dense.ID[Node]]],
+	pool dense.Pool[dense.ID[Node]],
+}
+
+// Len is the number of rows.
+func Len(tr Tree) int { dense.Total(tr.ids) }
+
+// At is the id of row i.
+func At(tr Tree, i int) dense.ID[Node] { dense.IDAt(tr.ids, i) }
+
+// Kind is the kind of row id.
+func Kind(tr Tree, id dense.ID[Node]) int { int(dense.Of(tr.kind, id)) }
+
+// Tok is the index of row id's main token: a leaf's token, a group's open
+// bracket, 0 for the root.
+func Tok(tr Tree, id dense.ID[Node]) int { int(dense.Of(tr.tok, id)) }
+
+// Kids is the children of row id, in order.
+func Kids(tr Tree, id dense.ID[Node]) []dense.ID[Node] { dense.List(tr.pool, dense.Of(tr.kids, id)) }
+
+// Pooled is the number of child ids in the pool.
+func Pooled(tr Tree) int { dense.Items(tr.pool) }
+
+// add puts one row with the child run kids and returns its id.
+func add(tr mut Tree, kind int, tok int, kids dense.Run[dense.ID[Node]]) dense.ID[Node] {
+	let id = dense.Next(&tr.ids)
+	dense.Push(&tr.kind, uint8(kind))
+	dense.Push(&tr.tok, uint32(tok))
+	dense.Push(&tr.kids, kids)
+	id
+}
+
+// Built is a tree and its deepest nesting.
+type Built { Tree Tree, Depth int }
+
+// Build is the tree of the tokens t. Its stores get room for a row per
+// token up front (a tree has at most one row per token, and the root), and
+// every child list is gathered on one dense.Stack: a group's children are
+// the rows pushed since its open bracket's mark, which PutSince moves into
+// the pool in one bulk append while it cuts the stack back to the mark.
+func Build(t token.Toks) Built {
+	let n = token.Len(t) + 1
+	let mut tr = Tree{
+		ids:  dense.NewCount[Node](),
+		kind: dense.ColWithCap[Node, uint8](n),
+		tok:  dense.ColWithCap[Node, uint32](n),
+		kids: dense.ColWithCap[Node, dense.Run[dense.ID[Node]]](n),
+		pool: dense.PoolWithCap[dense.ID[Node]](n),
+	}
+	let mut stack = dense.StackWithCap[dense.ID[Node]](64)
+	let mut marks = []int{}
+	let mut opens = []int{}
+	let mut open = 0
+	let mut depth = 0
+	let none = dense.PutList(&tr.pool, []dense.ID[Node]{})
+	for i in 0..token.Len(t) {
+		let k = token.Kind(t, token.At(t, i))
+		if k == token.Comment {
+			continue
+		}
+		if k == token.Open {
+			if open < len(marks) {
+				marks[open] = dense.Mark(stack)
+				opens[open] = i
+			} else {
+				marks = marks.Append(dense.Mark(stack))
+				opens = opens.Append(i)
+			}
+			open = open + 1
+			if open > depth {
+				depth = open
+			}
+			continue
+		}
+		let id = if k == token.Close && open > 0 {
+			open = open - 1
+			add(&tr, Group, opens[open], dense.PutSince(&tr.pool, &stack, marks[open]))
+		} else {
+			add(&tr, Leaf, i, none)
+		}
+		dense.StackPush(&stack, id)
+	}
+	for open > 0 {
+		open = open - 1
+		let id = add(&tr, Group, opens[open], dense.PutSince(&tr.pool, &stack, marks[open]))
+		dense.StackPush(&stack, id)
+	}
+	let _ = add(&tr, Root, 0, dense.PutSince(&tr.pool, &stack, 0))
+	Built{Tree: tr, Depth: depth}
+}
+
+// ChildrenBeforeParent: every child's id is below its parent's.
+law ChildrenBeforeParent(picks []int) {
+	let tr = Build(token.Scan(token.Sample(picks))).Tree
+	for i in 0..Len(tr) {
+		for c in Kids(tr, At(tr, i)) {
+			if dense.Index(c) >= i {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// GroupsAreOpens: there is one group per open bracket, a group's main
+// token is an open bracket, and a leaf's is neither a comment nor an open
+// bracket.
+law GroupsAreOpens(picks []int) {
+	let t = token.Scan(token.Sample(picks))
+	let tr = Build(t).Tree
+	let mut opens = 0
+	for i in 0..token.Len(t) {
+		if token.Kind(t, token.At(t, i)) == token.Open {
+			opens = opens + 1
+		}
+	}
+	let mut groups = 0
+	for i in 0..Len(tr) {
+		let id = At(tr, i)
+		let k = Kind(tr, id)
+		if k == Group {
+			groups = groups + 1
+			if token.Kind(t, token.At(t, Tok(tr, id))) != token.Open {
+				return false
+			}
+		}
+		if k == Leaf {
+			let tk = token.Kind(t, token.At(t, Tok(tr, id)))
+			if tk == token.Comment || tk == token.Open {
+				return false
+			}
+		}
+	}
+	groups == opens
+}

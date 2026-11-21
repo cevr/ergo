@@ -1,0 +1,169 @@
+// tn1 runs TN1 networks (module ergo.dev/tn1) on feature records, writes
+// the conformance vectors other engines must reproduce, and scores a
+// network against a labelled suite.
+//
+//	tn1 gen control                     the narration control's weights
+//	tn1 gen control-stop                the same, reading `words stop`
+//	tn1 gen seeded SEED D F K H         a seeded network of that shape
+//	tn1 id WEIGHTS                      the model id (SHA-256 of the packed weights)
+//	tn1 run WEIGHTS RECORD              the findings: LINE SCORE PERMILLE
+//	tn1 vectors DIR                     the findings of DIR/nets/*.tn1 on DIR/records/*.record
+//	tn1 score WEIGHTS RECORDS EXPECTED [train|holdout]
+//	                                    the network on a suite's records; exit 1 below the bar
+//
+// A record is made by a host's parser (Ergo's: go run ./scripts/tn1record);
+// this program never reads source.
+
+import ergo.dev/tn1
+import fs
+import io
+import os
+import strconv
+import strings
+import tn1/suite
+
+// Usage is the text of a usage failure.
+let Usage = "usage: tn1 gen control | tn1 gen control-stop | tn1 gen seeded SEED D F K H | tn1 id WEIGHTS | tn1 run WEIGHTS RECORD | tn1 vectors DIR | tn1 score WEIGHTS RECORDS EXPECTED [train|holdout]"
+
+type GenControl {}
+type GenControlStop {}
+type GenSeeded { Seed int, D int, F int, K int, H int }
+type Identify { Weights string }
+type RunOne { Weights string, Record string }
+type Vectors { Dir string }
+type Score { Weights string, Records string, Expected string, Bar suite.Bar }
+type Command = GenControl | GenControlStop | GenSeeded | Identify | RunOne | Vectors | Score
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+func count(s string) int fails os.Exit {
+	strconv.Atoi(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "tn1: \(strconv.Quote(s)) is not a number\n\(Usage)"}
+	}
+}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 2 && args[0] == "gen" && args[1] == "control" {
+		return GenControl
+	}
+	if len(args) == 2 && args[0] == "gen" && args[1] == "control-stop" {
+		return GenControlStop
+	}
+	if len(args) == 7 && args[0] == "gen" && args[1] == "seeded" {
+		return GenSeeded{Seed: try count(args[2]), D: try count(args[3]), F: try count(args[4]), K: try count(args[5]), H: try count(args[6])}
+	}
+	if len(args) == 2 && args[0] == "id" {
+		return Identify{Weights: args[1]}
+	}
+	if len(args) == 3 && args[0] == "run" {
+		return RunOne{Weights: args[1], Record: args[2]}
+	}
+	if len(args) == 2 && args[0] == "vectors" {
+		return Vectors{Dir: args[1]}
+	}
+	if (len(args) == 4 || len(args) == 5) && args[0] == "score" {
+		let mut bar suite.Bar = suite.Train
+		if len(args) == 5 {
+			match args[4] {
+			case "train":
+				bar = suite.Train
+			case "holdout":
+				bar = suite.Holdout
+			case _:
+				return usage()
+			}
+		}
+		return Score{Weights: args[1], Records: args[2], Expected: args[3], Bar: bar}
+	}
+	return usage()
+}
+
+// read is the text of the file at path.
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "tn1: cannot read \(path)"}
+	}
+}
+
+// named is the files of dir whose names end in suffix, in name order.
+func named(dir string, suffix string) []tn1.Named fails os.Exit needs fs.Files {
+	let names = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "tn1: cannot read the folder \(dir)"}
+	}
+	let mut out = []tn1.Named{}
+	for name in names {
+		if strings.HasSuffix(name, suffix) {
+			out = out.Append(tn1.Named{Name: name, Text: try read(dir + "/" + name)})
+		}
+	}
+	if len(out) == 0 {
+		return os.Exit{Code: 1, Message: "tn1: \(dir) holds no \(suffix) file"}
+	}
+	out
+}
+
+func net(path string) tn1.Net fails os.Exit needs fs.Files {
+	tn1.ParseNet(try read(path)) catch {
+	case tn1.Malformed as m:
+		return os.Exit{Code: 1, Message: "tn1: \(path):\(m.Line): \(m.Reason)"}
+	}
+}
+
+func bad(b tn1.BadFile) os.Exit { os.Exit{Code: 1, Message: "tn1: \(b.Name):\(b.Line): \(b.Reason)"} }
+
+// Run is what the command writes.
+func Run(c Command) string fails os.Exit needs fs.Files {
+	match c {
+	case GenControl:
+		tn1.NarrationControl()
+	case GenControlStop:
+		tn1.NarrationControlStop()
+	case GenSeeded as g:
+		tn1.Seeded(g.Seed, g.D, g.F, g.K, g.H)
+	case Identify as i:
+		tn1.ID(try net(i.Weights)) + "\n"
+	case RunOne as r:
+		let n = try net(r.Weights)
+		let record = tn1.ParseRecord(try read(r.Record)) catch {
+		case tn1.Malformed as m:
+			return os.Exit{Code: 1, Message: "tn1: \(r.Record):\(m.Line): \(m.Reason)"}
+		}
+		let mut out = strings.NewBuilder()
+		for f in tn1.Run(n, record) {
+			out.WriteString("\(f.Line) \(f.Score) \(f.Permille)\n")
+		}
+		out.String()
+	case Vectors as v:
+		let records = try named(v.Dir+"/records", ".record")
+		let nets = try named(v.Dir+"/nets", ".tn1")
+		tn1.Expected(records, nets) catch {
+		case tn1.BadFile as b:
+			return bad(b)
+		}
+	case Score as s:
+		let n = try net(s.Weights)
+		let want = suite.ParseExpected(try read(s.Expected)) catch {
+		case suite.BadLabel as b:
+			return os.Exit{Code: 1, Message: "tn1: \(s.Expected):\(b.Line): \(b.Reason)"}
+		}
+		let r = suite.Score(n, try named(s.Records, ".record"), want) catch {
+		case tn1.BadFile as b:
+			return bad(b)
+		}
+		let head = "weights \(s.Weights): D=\(n.D) F=\(n.F) K=\(n.K) H=\(n.H), \(len(tn1.Packed(n))) bytes packed, model \(tn1.ID(n))\n"
+		if !suite.Passes(r, s.Bar) {
+			return os.Exit{Code: 1, Message: strings.TrimSuffix(head+suite.Report(r, s.Bar), "\n")}
+		}
+		head + suite.Report(r, s.Bar)
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let c = try Parse(os.NewHost().Args())
+	let out = try with context { fs.Files: fs.NewHost() } { Run(c) }
+	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
+}

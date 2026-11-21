@@ -1,0 +1,482 @@
+// Package page is a window over a long list: the rows a view shows of a
+// list too long to hold, read by pages from a read model, plus the rows
+// that arrive live from the source and the client's own pending rows
+// (wf10 RPG1). A Window is a pure value: the program that reads the pages
+// keeps it in its state, and Rows is the view's list.
+//
+// Rows are known by their ID, not by their position: a row can come in a
+// page and in the live tail, and a pending row comes back confirmed with
+// the ID it had while pending. Each row is shown once.
+
+import slices
+
+// Row is one row of the list: its key (the order of the list and the
+// cursor of a page), its ID and its value. Keys and IDs are unique in a
+// list.
+type Row[K, T] { Key K, ID string, Value T }
+
+// LiveRowStaysAfterLoadedEnd: a live row shows after the loaded rows when
+// the window holds the list's last row, and not at all before: never
+// inside a part of the list that is not loaded.
+law LiveRowStaysAfterLoadedEnd(ops []int) {
+	for s in trace(ops) {
+		let r = Row[int, string]{Key: len(s.List), ID: "live", Value: "live"}
+		let before = loaded(Rows(s.W))
+		let after = loaded(Rows(Tail(s.W, r)))
+		if Ended(s.W) && after != before.Append("live") {
+			return false
+		}
+		if !Ended(s.W) && after != before {
+			return false
+		}
+	}
+	true
+}
+
+// Page is one read of the list. It holds every row that the list held at
+// the read with a key above After and below Before, in key order. None is
+// no bound: a page with After None starts at the first row of the list,
+// and a page with Before None reaches its last row.
+type Page[K, T] { Rows []Row[K, T], After Option[K], Before Option[K] }
+
+// Pending is a row of one of the client's commands that the authority has
+// not confirmed: it has no key yet. Its ID is the ID that its row has
+// when it is confirmed.
+type Pending[T] { ID string, Value T }
+
+// Item is one row of the view. A Pending item is a row of the client's
+// own command that is not confirmed.
+type Item[T] { ID string, Value T, Pending bool }
+
+// Window is what a view knows of a list. Its rows are a part of the list
+// with no gap, in key order. start is set when the rows begin at the
+// list's first row; end is set when they reach its last row, and from
+// then on every live row joins them. A live row that comes before the
+// window reaches the end is held, and it joins the rows when the window
+// reaches the end: it is never shown inside a part that is not loaded.
+// local is the outbox's rows; failed is set when the last page failed.
+type Window[K, T] {
+	rows   []Row[K, T],
+	held   []Row[K, T],
+	local  []Pending[T],
+	start  bool,
+	end    bool,
+	failed bool,
+}
+
+// WindowIsTheListsWindow is the model-based property (wf10 RPG1): after
+// any run, the view is a window of the list (isWindowOf), no loaded row is
+// ever lost, and reading to both ends then shows the whole list and the
+// outbox rows that no row confirms.
+law WindowIsTheListsWindow(ops []int) {
+	let states = trace(ops)
+	for i in 0..len(states) {
+		if !isWindowOf(states[i]) {
+			return false
+		}
+		if i > 0 {
+			let now = loaded(Rows(states[i].W))
+			for id in loaded(Rows(states[i-1].W)) {
+				if !slices.Contains(now, id) {
+					return false
+				}
+			}
+		}
+	}
+	let d = drain(states[len(states)-1])
+	isWindowOf(d) && Started(d.W) && Ended(d.W) && loaded(Rows(d.W)) == ids(d.List)
+}
+
+type sim {
+	W        Window[int, string],
+	List     []Row[int, string],
+	Readable int,
+	Flight   []Page[int, string],
+	Outbox   []Pending[string],
+	Made     int,
+}
+
+func digit(op int, n int) int { ((op % n) + n) % n }
+
+func start() sim {
+	let mut list = []Row[int, string]{}
+	for k in 0..5 {
+		list = list.Append(Row[int, string]{Key: k, ID: "r\(k)", Value: "v\(k)"})
+	}
+	sim{W: Empty[int, string](), List: list, Readable: 5, Flight: []Page[int, string]{}, Outbox: []Pending[string]{}, Made: 0}
+}
+
+// readAfter is the read model's page of at most n rows after the cursor,
+// of the rows it has caught up to.
+func readAfter(list []Row[int, string], after Option[int], n int) Page[int, string] {
+	let mut rows = []Row[int, string]{}
+	for r in list {
+		if atMost(after, r.Key) && after != (Some{Value: r.Key}) {
+			if len(rows) == n {
+				return Page[int, string]{Rows: rows, After: after, Before: Some{Value: r.Key}}
+			}
+			rows = rows.Append(r)
+		}
+	}
+	Page[int, string]{Rows: rows, After: after, Before: None}
+}
+
+// readBefore is the read model's page of at most n rows before the cursor.
+func readBefore(list []Row[int, string], before Option[int], n int) Page[int, string] {
+	let mut below = []Row[int, string]{}
+	for r in list {
+		if atLeast(before, r.Key) && before != (Some{Value: r.Key}) {
+			below = below.Append(r)
+		}
+	}
+	if len(below) <= n {
+		return Page[int, string]{Rows: below, After: None, Before: before}
+	}
+	Page[int, string]{Rows: below[len(below)-n:], After: Some{Value: below[len(below)-n-1].Key}, Before: before}
+}
+
+func confirmed(list []Row[int, string], id string) bool { holds(list, id) }
+
+func live(s sim, id string, value string) sim {
+	let r = Row[int, string]{Key: len(s.List), ID: id, Value: value}
+	sim{..s, List: s.List.Append(r), W: Tail(s.W, r)}
+}
+
+// step is one generated event: a page asked after or before the window
+// (it is in flight until it is delivered or fails), a page delivered, a
+// page failed, a live row, a submit, a confirmation of a pending row (its
+// row arrives live), and the read model catching up or the outbox
+// dropping a confirmed or refused row.
+func step(s sim, op int) sim {
+	let x = digit(op/8, 1000)
+	let k = digit(op, 8)
+	if k == 0 {
+		return sim{..s, Flight: s.Flight.Append(readAfter(s.List[:s.Readable], Next(s.W), 1+x%3))}
+	}
+	if k == 1 {
+		return sim{..s, Flight: s.Flight.Append(readBefore(s.List[:s.Readable], Prev(s.W), 1+x%3))}
+	}
+	if k == 2 || k == 3 {
+		if len(s.Flight) == 0 {
+			return s
+		}
+		let i = x % len(s.Flight)
+		let rest = slices.Concat(s.Flight[:i], s.Flight[i+1:])
+		if k == 3 {
+			return sim{..s, Flight: rest, W: Fail(s.W)}
+		}
+		return sim{..s, Flight: rest, W: Extend(s.W, s.Flight[i])}
+	}
+	if k == 4 {
+		return live(s, "r\(len(s.List))", "v\(len(s.List))")
+	}
+	if k == 5 {
+		let outbox = s.Outbox.Append(Pending[string]{ID: "p\(s.Made)", Value: "mine \(s.Made)"})
+		return sim{..s, Outbox: outbox, Made: s.Made + 1, W: Local(s.W, outbox)}
+	}
+	if k == 6 {
+		if len(s.Outbox) == 0 {
+			return s
+		}
+		let p = s.Outbox[x%len(s.Outbox)]
+		if confirmed(s.List, p.ID) {
+			return s
+		}
+		return live(s, p.ID, p.Value)
+	}
+	if x%2 == 0 {
+		return sim{..s, Readable: len(s.List)}
+	}
+	let mut outbox = []Pending[string]{}
+	for i in 0..len(s.Outbox) {
+		if !confirmed(s.List, s.Outbox[i].ID) && i != x%(len(s.Outbox)+1) {
+			outbox = outbox.Append(s.Outbox[i])
+		}
+	}
+	sim{..s, Outbox: outbox, W: Local(s.W, outbox)}
+}
+
+// trace is the states of a run of ops, the first state included.
+func trace(ops []int) []sim {
+	let mut s = start()
+	let mut out = []sim{s}
+	for op in ops {
+		s = step(s, op)
+		out = out.Append(s)
+	}
+	out
+}
+
+// drain reads, with the read model caught up, after the window until it
+// ends and before it until it starts. The bound is one page a row and one
+// more each way.
+func drain(s sim) sim {
+	let mut t = sim{..s, Readable: len(s.List), Flight: []Page[int, string]{}}
+	for _ in 0..len(t.List)+1 {
+		if !Ended(t.W) {
+			t = sim{..t, W: Extend(t.W, readAfter(t.List, Next(t.W), 1))}
+		}
+		if !Started(t.W) {
+			t = sim{..t, W: ExtendBack(t.W, readBefore(t.List, Prev(t.W), 1))}
+		}
+	}
+	t
+}
+
+func loaded(items []Item[string]) []string {
+	let mut out = []string{}
+	for it in items {
+		if !it.Pending {
+			out = out.Append(it.ID)
+		}
+	}
+	out
+}
+
+func pending(items []Item[string]) []string {
+	let mut out = []string{}
+	for it in items {
+		if it.Pending {
+			out = out.Append(it.ID)
+		}
+	}
+	out
+}
+
+func ids(list []Row[int, string]) []string {
+	let mut out = []string{}
+	for r in list {
+		out = out.Append(r.ID)
+	}
+	out
+}
+
+// shown is what the view must show of s: the outbox rows that no loaded
+// row confirms, when the window has ended.
+func shown(s sim, rows []string) []string {
+	let mut out = []string{}
+	if !Ended(s.W) {
+		return out
+	}
+	for p in s.Outbox {
+		if !slices.Contains(rows, p.ID) {
+			out = out.Append(p.ID)
+		}
+	}
+	out
+}
+
+// isWindowOf is true when s's view is a window of its list: the loaded
+// rows are a run of the list with no gap, no row twice and none out of
+// order, from its first row when the window started and to its last when
+// it ended; then the outbox rows that no row confirms.
+func isWindowOf(s sim) bool {
+	let items = Rows(s.W)
+	let rows = loaded(items)
+	let all = ids(s.List)
+	if pending(items) != shown(s, rows) {
+		return false
+	}
+	if len(rows) == 0 {
+		return !Ended(s.W) || len(all) == 0
+	}
+	let mut first = -1
+	for i in 0..len(all) {
+		if all[i] == rows[0] {
+			first = i
+		}
+	}
+	if first < 0 || first+len(rows) > len(all) || all[first:first+len(rows)] != rows {
+		return false
+	}
+	if Started(s.W) && first != 0 {
+		return false
+	}
+	!Ended(s.W) || first+len(rows) == len(all)
+}
+
+// Empty is a window that has read nothing.
+func Empty[K, T]() Window[K, T] {
+	Window[K, T]{rows: []Row[K, T]{}, held: []Row[K, T]{}, local: []Pending[T]{}, start: false, end: false, failed: false}
+}
+
+// Next is the cursor of the next page after the window: the key of its
+// last row, or None for a window with no rows (a read from the start).
+func Next[K, T](w Window[K, T]) Option[K] {
+	if len(w.rows) == 0 {
+		return None
+	}
+	Some{Value: w.rows[len(w.rows)-1].Key}
+}
+
+// Prev is the cursor of the next page before the window: the key of its
+// first row, or None for a window with no rows (a read of the last rows).
+func Prev[K, T](w Window[K, T]) Option[K] {
+	if len(w.rows) == 0 {
+		return None
+	}
+	Some{Value: w.rows[0].Key}
+}
+
+// Started is true when the window holds the list's first row: there is
+// nothing more to read before it.
+func Started[K, T](w Window[K, T]) bool { w.start }
+
+// Ended is true when the window holds the list's last row: live rows join
+// it, and the outbox's rows show after it.
+func Ended[K, T](w Window[K, T]) bool { w.end }
+
+// Failed is true when the last page failed and no page came after it.
+func Failed[K, T](w Window[K, T]) bool { w.failed }
+
+// FailedPageChangesNothing: a failed page changes no row of the view and
+// no cursor.
+law FailedPageChangesNothing(ops []int) {
+	for s in trace(ops) {
+		let f = Fail(s.W)
+		if Rows(f) != Rows(s.W) || Next(f) != Next(s.W) || Prev(f) != Prev(s.W) || !Failed(f) {
+			return false
+		}
+	}
+	true
+}
+
+// Extend adds a page that was read after the window (with After its Next)
+// and ExtendBack one that was read before it (with Before its Prev). Each
+// takes any page that touches the window, a late one too: the rows the
+// window already holds are not added again. A page that does not touch it
+// would leave a gap, and it changes nothing.
+func Extend[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
+
+// ExtendBack adds a page read before the window; see Extend.
+func ExtendBack[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge(w, p) }
+
+// merge adds p when its range and the window's rows meet: p holds every
+// row between its bounds, and the window every row between its first and
+// last, so the union has no gap exactly when After is at most the last
+// key and Before at least the first.
+func merge[K ordered, T](w own Window[K, T], p Page[K, T]) Window[K, T] {
+	if len(w.rows) > 0 && !(atMost(p.After, w.rows[len(w.rows)-1].Key) && atLeast(p.Before, w.rows[0].Key)) {
+		return w
+	}
+	let mut rows = w.rows
+	for r in p.Rows {
+		rows = insert(rows, r)
+	}
+	let start = w.start || p.After == None
+	let end = w.end || p.Before == None
+	if !end {
+		return Window[K, T]{..w, rows: rows, start: start, failed: false}
+	}
+	for r in w.held {
+		rows = insert(rows, r)
+	}
+	Window[K, T]{..w, rows: rows, held: []Row[K, T]{}, start: start, end: true, failed: false}
+}
+
+func atMost[K ordered](b Option[K], k K) bool {
+	match b {
+	case Some[K] as s:
+		s.Value <= k
+	case None:
+		true
+	}
+}
+
+func atLeast[K ordered](b Option[K], k K) bool {
+	match b {
+	case Some[K] as s:
+		s.Value >= k
+	case None:
+		true
+	}
+}
+
+// insert puts r into rows in key order, unless rows already hold its ID
+// or its key.
+func insert[K ordered, T](rows own []Row[K, T], r own Row[K, T]) []Row[K, T] {
+	let mut out = []Row[K, T]{}
+	let mut put = false
+	for x in rows {
+		if x.ID == r.ID || x.Key == r.Key {
+			return rows
+		}
+		if !put && r.Key < x.Key {
+			out = out.Append(r)
+			put = true
+		}
+		out = out.Append(x)
+	}
+	if !put {
+		out = out.Append(r)
+	}
+	out
+}
+
+// Fail records a page that failed: the rows stay as they are.
+func Fail[K, T](w Window[K, T]) Window[K, T] { Window[K, T]{..w, failed: true} }
+
+// Tail adds a row that arrived live from the source. A window that holds
+// the list's last row shows it; any other window holds it until a page
+// reaches the end.
+func Tail[K ordered, T](w Window[K, T], r Row[K, T]) Window[K, T] {
+	if w.end {
+		return Window[K, T]{..w, rows: insert(w.rows, r)}
+	}
+	Window[K, T]{..w, held: w.held.Append(r)}
+}
+
+// Local sets the outbox's rows, in the outbox's order: the replica's
+// pending commands as rows.
+func Local[K, T](w Window[K, T], ps []Pending[T]) Window[K, T] { Window[K, T]{..w, local: ps} }
+
+// ConfirmedLocalRowIsNotTwice: a pending row whose confirmed row arrived
+// shows once, as the confirmed row, while the outbox still holds it.
+law ConfirmedLocalRowIsNotTwice(ops []int) {
+	for s in trace(ops) {
+		for p in s.Outbox {
+			if confirmed(s.List, p.ID) {
+				continue
+			}
+			let w = Tail(s.W, Row[int, string]{Key: len(s.List), ID: p.ID, Value: p.Value})
+			let mut n = 0
+			for it in Rows(w) {
+				if it.ID == p.ID {
+					n = n + 1
+				}
+			}
+			if n != (if Ended(s.W) { 1 } else { 0 }) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Rows is the view's list: the window's rows, then, when the window holds
+// the list's last row, each outbox row whose ID no row has yet. A pending
+// row that came back confirmed is shown once, as the confirmed row.
+func Rows[K, T](w Window[K, T]) []Item[T] {
+	let mut out = []Item[T]{}
+	for r in w.rows {
+		out = out.Append(Item[T]{ID: r.ID, Value: r.Value, Pending: false})
+	}
+	if !w.end {
+		return out
+	}
+	for p in w.local {
+		if !holds(w.rows, p.ID) {
+			out = out.Append(Item[T]{ID: p.ID, Value: p.Value, Pending: true})
+		}
+	}
+	out
+}
+
+func holds[K, T](rows []Row[K, T], id string) bool {
+	for r in rows {
+		if r.ID == id {
+			return true
+		}
+	}
+	false
+}

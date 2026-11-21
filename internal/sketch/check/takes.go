@@ -1,7 +1,6 @@
 package check
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,26 +35,27 @@ import (
 // (Gap 39; intern.go, typeops.go): so a function whose clause is inferred
 // and not empty writes it when it is used as a value.
 //
-// A generic body is checked with every type parameter counted as a
-// resource (mayHoldResource). Where the ownership pass would refuse a
-// value whose type holds a resource only through a type parameter (a use
-// after a hand-off, a second hand-off, a hand-off from a nested frame, a
-// lend and a take in one call), it records a copy site for that type
-// parameter instead (Info.Copies). A call of a function that copies its
-// type parameter, bound to the caller's own type parameter, is a copy
-// site of the caller too, so the sites propagate with the fixpoint. A
-// generic declaration with no body (an extern) copies each type parameter
-// unless runtime/v1's reviewed table (v1.MovesOnly) lists its body. At a
-// call that binds a type parameter with a copy site to a resource, the
-// call is S108 (R44: a machine runner copies its state). A type parameter
-// the function uses as a map key is a copy site too, and that call is
-// S112 (R40).
+// A type parameter's ownership is written, [T own] (types.md, Generics 9;
+// EXM2, q172): a generic body is checked with each type parameter marked
+// own counted as a resource (mayHoldResource), and an unmarked one as
+// plain data. Where the ownership pass would refuse a value whose type
+// holds a resource only through an own type parameter (a use after a
+// hand-off, a second hand-off, a hand-off from a nested frame, a lend and
+// a take in one call, a drop that a generic body cannot release yet), it
+// refuses it at that site (ownSite), and an own type parameter used as a
+// map key is S112 at the key (R40). An instantiation that binds a
+// resource, or the caller's own type parameter, to an unmarked type
+// parameter is S108 naming the mark (checkOwnMarks, resource.go): the
+// call reads the callee's signature, never its body. An extern's mark is
+// its Go body's review: runtime/v1's table (v1.MovesOnly) lists each
+// extern that writes it (std.TestOwnExternsAreReviewed).
 //
 // Prior art: Lean 4's borrow inference (owned and borrowed parameters, a
-// fixpoint over the call graph); OxCaml's mode crossing (a type parameter
-// carries no mark; the instantiation decides); Swift's consuming
-// parameters are written, the owner's choice for exported signatures
-// (q55). Gleam, Elixir and ReScript copy freely: their values own nothing.
+// fixpoint over the call graph) still infers the takes clause above;
+// Swift's ~Copyable generic parameters (T: ~Copyable) and Rust's ?Sized
+// are written marks of the same kind; OxCaml's mode crossing lets plain
+// data cross every mode. Gleam, Elixir and ReScript copy freely: their
+// values own nothing.
 
 // takesKey is a signature's takes clause as a canonical string: the
 // indexes ascending, and "s" for a bare takes. Empty for no clause.
@@ -91,7 +91,7 @@ func (c *checker) takesEffect(sig *Signature, recv Type) string {
 			out.Takes = append(out.Takes, i)
 		}
 	}
-	out.TakesSelf = sig.TakesSelf && recv != nil && c.mayHoldResource(recv)
+	out.TakesSelf = sig.TakesSelf && recv != nil && c.mayHoldAny(recv)
 	return takesKey(&out)
 }
 
@@ -246,34 +246,20 @@ func (c *checker) infersTakes(f *Func) bool {
 		f.Decl.Recv == nil && !writesTakes(f) && !isExported(f.Name) && f.Name != "main"
 }
 
-// CopySites returns f's checked copy policy without exposing the stored
-// slice to modification. Inspection uses the same policy as instantiation,
-// including the conservative facts for a declaration with no body.
-func CopySites(f *Func) []CopySite { return slices.Clone(copiesOf(f)) }
-
-// copiesOf is f's copy sites: its body's, or for a generic declaration
-// with no body every type parameter, unless runtime/v1 lists the body as
-// moving its values only (plan 1.3, D-B).
-func copiesOf(f *Func) []CopySite {
-	if f == nil || f.Sig == nil || len(f.Sig.TParams) == 0 {
-		return nil
+// typeMentions reports whether a value of type t may hold a value of the
+// type parameter tp. A function value holds none: what it captures was
+// judged where it was captured.
+func typeMentions(t Type, tp *TypeParam) bool {
+	if _, ok := under(t).(*Signature); ok {
+		return false
 	}
-	if f.Decl != nil && f.Decl.Body != nil && f.Decl.Extern == nil {
-		if f.Pkg != nil && f.Pkg.Info != nil {
-			return f.Pkg.Info.Copies[f]
+	found := false
+	eachTypeParam(t, func(p *TypeParam) {
+		if p == tp {
+			found = true
 		}
-		return nil
-	}
-	if f.Decl != nil && f.Decl.Extern != nil {
-		if BodyOf(f).MovesOnly {
-			return nil
-		}
-	}
-	out := make([]CopySite, len(f.Sig.TParams))
-	for i := range f.Sig.TParams {
-		out[i] = CopySite{TParam: i, What: "its body is Go code that may copy it, and runtime/v1 does not list it as moving its values only"}
-	}
-	return out
+	})
+	return found
 }
 
 // eachTypeParam calls f for each type parameter t is built from.
@@ -312,7 +298,6 @@ func (c *checker) inferTakes() {
 		nodes = append(nodes, n)
 		by[f] = n
 	}
-	c.mapKeyCopies()
 	for _, n := range nodes {
 		seen := map[*bodyNode]bool{}
 		// An edge per function the body names: a call, or a value use,
@@ -353,64 +338,15 @@ func (c *checker) inferTakes() {
 	}
 }
 
-// mapKeyCopies records, for a generic function, a type parameter it uses
-// as a map key (the A1 site whose key names a type parameter).
-func (c *checker) mapKeyCopies() {
-	owner := map[*TypeParam]*Func{}
-	for _, f := range c.funcs {
-		if f.Sig == nil {
-			continue
-		}
-		for _, tp := range f.Sig.TParams {
-			owner[tp] = f
-		}
-	}
-	for _, s := range c.resourceSites {
-		if s.name != "" || s.t == nil || isInvalid(s.t) {
-			continue
-		}
-		eachTypeParam(s.t, func(tp *TypeParam) {
-			f := owner[tp]
-			if f == nil {
-				return
-			}
-			i := slices.Index(f.Sig.TParams, tp)
-			c.addCopy(f, CopySite{TParam: i, At: s.at, Where: c.sitePos(s.file, s.at), What: "it is a map key", Key: true})
-		})
-	}
-	c.ownershipCopies(owner)
-}
-
-// sitePos is n's position as file:line:col.
-func (c *checker) sitePos(fi *fileInfo, n syntax.Node) string {
-	line, col := fi.syntax.Position(n.Pos())
-	if fi.syntax.Name == "" {
-		return fmt.Sprintf("%d:%d", line, col)
-	}
-	return fmt.Sprintf("%s:%d:%d", fi.syntax.Name, line, col)
-}
-
-// addCopy records site for f when its type parameter has none yet.
-func (c *checker) addCopy(f *Func, site CopySite) bool {
-	for _, s := range c.pkg.Info.Copies[f] {
-		if s.TParam == site.TParam {
-			return false
-		}
-	}
-	c.pkg.Info.Copies[f] = append(c.pkg.Info.Copies[f], site)
-	return true
-}
-
 // takesPass walks f's body once with inference on; it reports whether f's
-// clause or copy sites grew.
+// clause grew.
 func (c *checker) takesPass(f *Func) bool {
 	c.cur = f.file
 	w := c.newOwnWalk()
 	w.infer = true
 	w.fn = f
-	w.copies = map[*TypeParam]CopySite{}
 	w.promote = map[int]bool{}
-	w.frame(f.Decl.Body, takesOf(f), w.paramVars(f.Decl.Recv, f.Decl.Type.Params), f.Decl.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[f.Decl] != nil)
+	w.frame(f.Decl.Body, takesOf(f), w.paramVars(f.Decl.Recv, f.Decl.Type.Params), f.Decl.Name.Name, "", c.pkg.Info.Closes[f.Decl] != nil)
 	changed := false
 	if len(w.promote) > 0 {
 		ix := slices.Clone(c.pkg.Info.Takes[f])
@@ -423,84 +359,45 @@ func (c *checker) takesPass(f *Func) bool {
 		slices.Sort(ix)
 		c.pkg.Info.Takes[f] = ix
 	}
-	for i, tp := range f.Sig.TParams {
-		if s, ok := w.copies[tp]; ok {
-			s.TParam = i
-			if c.addCopy(f, s) {
-				changed = true
-			}
-		}
-	}
 	return changed
 }
 
-// instance checks a call of a generic function f, or f as a function
-// value (16a fix r4), whose type arguments are
-// targs: a type argument that holds a resource, bound to a type parameter
-// f copies, is S108 (S112 for a map key); one built from the caller's own
-// type parameter is the caller's copy site.
-func (w *ownWalk) instance(x syntax.Node, f *Func, targs []Type) {
-	for _, s := range copiesOf(f) {
-		if s.TParam >= len(targs) || s.TParam >= len(f.Sig.TParams) {
-			continue
-		}
-		t := targs[s.TParam]
-		if t == nil || isInvalid(t) {
-			continue
-		}
-		tp := f.Sig.TParams[s.TParam]
-		where := ""
-		if s.Where != "" {
-			where = " at " + s.Where
-		}
-		switch {
-		case w.c.holdsResource(t):
-			if s.Key {
-				w.reportCode(x, "S112", "%s cannot take a %s: %s uses its %s as a map key%s, and a map key has no owner to release it (resources R40); key the map by a plain value, such as an id", f.Name, t, f.Name, tp.Name, where)
-				continue
-			}
-			w.reportCode(x, CodeType, "%s cannot take a %s: %s copies its %s%s (%s), and %s is a resource, which has one owner (resources R44, plan 1.3); pass a value that is not a resource", f.Name, t, f.Name, tp.Name, where, s.What, t)
-		case w.c.mayHoldResource(t):
-			what := fmt.Sprintf("%s copies its %s", f.Name, tp.Name)
-			if s.Key {
-				what = fmt.Sprintf("%s uses its %s as a map key", f.Name, tp.Name)
-			}
-			w.copySite(t, x, what, s.Key)
-		}
-	}
-}
-
-// valueInstance checks a generic function named as a value at x (h[Res],
-// or h where the type arguments are inferred): its copy sites bind as a
-// call's do, since the value is called later with the same arguments.
-func (w *ownWalk) valueInstance(x syntax.Expr) {
-	if inst := w.info.Instances[x]; inst != nil && inst.Func != nil {
-		w.instance(x, inst.Func, inst.TypeArgs)
-	}
-}
-
-// copySite records x as the copy site of each of the walked function's
-// type parameters that t is built from.
-func (w *ownWalk) copySite(t Type, x syntax.Node, what string, key bool) {
-	if w.copies == nil || w.fn == nil {
+// ownExternReviewed refuses own on a type parameter of the extern f
+// whose Go body runtime/v1 has not reviewed as moving its values only
+// (v1.MovesOnly): the checker cannot read a Go body, so the mark stands
+// on the review (types.md, Generics 9).
+func (c *checker) ownExternReviewed(f *Func) {
+	if f.Decl == nil || f.Decl.TypeParams == nil || BodyOf(f).MovesOnly {
 		return
 	}
-	eachTypeParam(t, func(tp *TypeParam) {
-		if !slices.Contains(w.fn.Sig.TParams, tp) {
-			return
+	for _, field := range f.Decl.TypeParams.List {
+		if field.Own != nil {
+			c.errorIn(field, field.Own.At, field.Own.At+3, CodeType, "%s's Go body is not reviewed as moving its values only (runtime/v1's MovesOnly table), so its type parameters cannot be marked own; drop own, and a resource cannot bind them (types.md, Generics 9)", f.Name)
 		}
-		if _, ok := w.copies[tp]; !ok {
-			w.copies[tp] = CopySite{At: x, Where: w.c.sitePos(w.c.cur, x), What: what, Key: key}
+	}
+}
+
+// ownSite refuses, at x, what the body does with a value of t, which
+// holds a resource only through an own type parameter: the mark holds the
+// body to a resource's rules (types.md, Generics 9).
+func (w *ownWalk) ownSite(t Type, x syntax.Node, what string) {
+	var names []string
+	eachTypeParam(t, func(tp *TypeParam) {
+		if tp.Own && !slices.Contains(names, tp.Name) {
+			names = append(names, tp.Name)
 		}
 	})
+	if len(names) == 0 || !w.c.mayHoldResource(t) {
+		return // plain data: nothing to refuse
+	}
+	w.reportCode(x, CodeType, "%s, and %s is marked own, so its value has one owner as a resource's has (types.md, Generics 9)", what, strings.Join(names, ", "))
 }
 
 // funcValue checks a function named as a value (not called): its takes
 // clause is part of its type, so an inferred clause that takes something
 // is written (Gap 39). inst is the value's type at this instance: a taken
 // parameter whose type is plain data there takes nothing, and one that is
-// a resource only through the walked function's type parameter is its
-// copy site (the value lends what the body hands off).
+// a resource or an own type parameter takes it.
 func (w *ownWalk) funcValue(x *syntax.Ident, inst Type) {
 	f, _ := w.info.Uses[x].(*Func)
 	if f == nil || writesTakes(f) || !w.c.infersTakes(f) || len(w.info.Takes[f]) == 0 {
@@ -513,10 +410,8 @@ func (w *ownWalk) funcValue(x *syntax.Ident, inst Type) {
 	sig.Takes = w.info.Takes[f]
 	held := false
 	for _, i := range sig.Takes {
-		if t := sig.Params[i].Type; w.c.holdsResource(t) {
+		if w.c.mayHoldResource(sig.Params[i].Type) {
 			held = true
-		} else if w.c.mayHoldResource(t) {
-			w.copySite(t, x, fmt.Sprintf("%s is used as a value and takes %s", f.Name, sig.Params[i].Name), false)
 		}
 	}
 	if !held {

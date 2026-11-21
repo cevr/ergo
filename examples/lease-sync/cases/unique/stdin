@@ -1,0 +1,10 @@
+a take build
+b take build
+a push
+b push
+b pull
+a pull
+b give build
+b push
+b pull
+state

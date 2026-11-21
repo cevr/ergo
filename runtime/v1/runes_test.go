@@ -241,6 +241,25 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 		x, k := r.Uint64()>>r.IntN(65), int(r.Int64())
 		return bits.OnesCount64(bits.RotateLeft64(x, k)) == bits.OnesCount64(x), []any{x, k}
 	},
+	"bits SubUndoesAdd64": func(r *rand.Rand) (bool, any) {
+		xh, xl, y := r.Uint64(), r.Uint64(), r.Uint64()
+		lo, c := BitsAdd64(xl, y, 0)
+		hi, _ := BitsAdd64(xh, 0, c)
+		l2, b := BitsSub64(lo, y, 0)
+		h2, _ := BitsSub64(hi, 0, b)
+		return l2 == xl && h2 == xh, []any{xh, xl, y}
+	},
+	"bits DivUndoesMul64": func(r *rand.Rand) (bool, any) {
+		x, y, rr := r.Uint64(), r.Uint64()>>r.IntN(64), r.Uint64()
+		if y == 0 {
+			return true, []any{x, y, rr}
+		}
+		hi, lo := BitsMul64(x, y)
+		rem := rr % y
+		lo2, c := BitsAdd64(lo, rem, 0)
+		q, back := BitsDiv64(hi+c, lo2, y)
+		return q == x && back == rem, []any{x, y, rr}
+	},
 	"bits LenAndLeadingZeros": func(r *rand.Rand) (bool, any) {
 		x := r.Uint64() >> r.IntN(65)
 		return bits.Len64(x)+bits.LeadingZeros64(x) == 64, x
@@ -261,6 +280,8 @@ var runesLawStatements = map[string]string{
 	"bits RotateLeft64Inverts":          `RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }`,
 	"bits RotateLeft32Inverts":          `RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }`,
 	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) } == { OnesCount64(x) }`,
+	"bits SubUndoesAdd64":               `SubUndoesAdd64(xh uint64, xl uint64, y uint64) { let (lo, c) = Add64(xl, y, 0) let (hi, _) = Add64(xh, 0, c) let (l2, b) = Sub64(lo, y, 0) let (h2, _) = Sub64(hi, 0, b) l2 == xl && h2 == xh }`,
+	"bits DivUndoesMul64":               `DivUndoesMul64(x uint64, y uint64, r uint64) { if y == 0 { return true } let (hi, lo) = Mul64(x, y) let rem = r % y let (lo2, c) = Add64(lo, rem, 0) let (q, back) = Div64(hi+c, lo2, y) q == x && back == rem }`,
 	"bits LenAndLeadingZeros":           `LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }`,
 }
 

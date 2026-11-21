@@ -5,7 +5,7 @@
 // std http's Serve runs it for each request, and the tests call it with
 // no socket.
 
-import jobs/jobs
+import jobsapp/jobs
 import json
 import time
 
@@ -17,8 +17,10 @@ type Draft { Name string, Priority json.Optional[int] }
 
 // View is a job as a client reads it. Ended is when the job ended, and null while
 // it is queued or running: a json.Nullable field, whose key is always
-// there, so a client tells "not ended" from a missing key.
-type View { Id int, Name string, Priority int, State string, Created string, Ended json.Nullable[string] }
+// there, so a client tells "not ended" from a missing key. A time.Time's
+// wire form is its RFC 3339 text in UTC, which the encode appends to the
+// response's buffer: no string of it is made.
+type View { Id int, Name string, Priority int, State string, Created time.Time, Ended json.Nullable[time.Time] }
 
 // Listing is the body of GET /jobs.
 type Listing { Jobs []View }
@@ -36,12 +38,14 @@ let MaxBody = 1 << 16
 
 func draftCodec() json.Codec[Draft] { json.Codec[Draft]{MaxBytes: MaxBody, MaxDepth: 4} }
 
-// Stamp is the JSON form of a time: RFC 3339, in UTC.
-func Stamp(t time.Time) string { t.Format(time.RFC3339) }
+// Stamp is the instant a client reads for t: its wall reading. The JSON
+// text has no monotonic reading, so a View holds none, and two views of
+// one job are equal.
+func Stamp(t time.Time) time.Time { time.Unix(t.UnixSeconds(), t.Nanosecond()) }
 
 // ViewOf is the JSON form of j.
 func ViewOf(j jobs.Job) View {
-	let ended json.Nullable[string] = if jobs.Ended(j.State) { json.NonNull{Value: Stamp(j.Since)} } else { json.Null }
+	let ended json.Nullable[time.Time] = if jobs.Ended(j.State) { json.NonNull{Value: Stamp(j.Since)} } else { json.Null }
 	View{Id: j.Id, Name: j.Name, Priority: j.Priority, State: jobs.Name(j.State), Created: Stamp(j.Created), Ended: ended}
 }
 
@@ -69,7 +73,10 @@ func DraftOf(text string) Draft fails json.Malformed | BadBody {
 func DraftText(d Draft) string { json.Encode(draftCodec(), d) }
 
 // ViewText, ListingText and ProblemText are the JSON texts of the bodies.
-func ViewText(v View) string { json.Encode(json.Codec[View]{MaxBytes: 0, MaxDepth: 0}, v) }
+func ViewText(v View) string { json.Encode(viewCodec, v) }
+
+// viewCodec is View's codec, for ViewText and http.SuccessJSON.
+let viewCodec = json.Codec[View]{MaxBytes: 0, MaxDepth: 0}
 
 func ListingText(l Listing) string { json.Encode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, l) }
 

@@ -18,10 +18,29 @@ import "sync"
 // of internal/sketch/lower, the longest step (841 s), started at 381 s,
 // behind steps of seconds (fu-sweep-deadline). A step with no weight (0)
 // weighs unrecordedWeight: the gate has no record of how long it takes.
+//
+// The steps ready at the start ask for a slot at once, and the first to
+// ask took the free slots whatever their weight: in the fast tier's std
+// edit, build bin/ergo (which cmd/ergo, lower and the examples need) got
+// a slot at 15.8 s, behind four test packages that took the four slots at
+// 2 s (gate-speed GS22). So the pool holds its slots until the steps
+// ready at the start (holdFor) have all asked, and hands them out by
+// weight then.
 type slotPool struct {
 	mu     sync.Mutex
 	free   int
 	queues [2][]waiter
+	// held is how many of the steps ready at the start have not asked yet;
+	// no slot is handed out while it is above 0.
+	held int
+}
+
+// holdFor makes the pool wait for n requests before it hands out a slot:
+// the number of steps that ask at once when the gate starts.
+func (p *slotPool) holdFor(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.held = n
 }
 
 // waiter is a step that waits for a slot: ready closes when it gets one.
@@ -61,7 +80,9 @@ func (p *slotPool) acquireWeighted(first bool, weight float64) {
 // steady stream of small steps could starve it forever.
 func (p *slotPool) acquireN(first bool, weight float64, slots int) {
 	p.mu.Lock()
-	if p.free >= slots && len(p.queues[0])+len(p.queues[1]) == 0 {
+	if p.held > 0 {
+		p.held--
+	} else if p.free >= slots && len(p.queues[0])+len(p.queues[1]) == 0 {
 		p.free -= slots
 		p.mu.Unlock()
 		return
@@ -95,6 +116,9 @@ func (p *slotPool) releaseN(slots int) {
 // dispatch admits the next highest-priority reservation only when all of
 // its slots fit. Called with p.mu held.
 func (p *slotPool) dispatch() {
+	if p.held > 0 {
+		return
+	}
 	for i, queue := range p.queues {
 		for len(queue) > 0 {
 			next := heaviest(queue)

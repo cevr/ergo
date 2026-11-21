@@ -1,0 +1,75 @@
+// Package settings is a write-through cache of text settings. Each value
+// lives in a Backing, as one line per key: the value quoted by
+// strconv.Quote, so a line holds no raw line feed. The Cache keeps the
+// values decoded, so a read needs no decode, and a write goes through to
+// the Backing first and keeps the value as the Backing's line decodes, so
+// the cache never holds a value the Backing would not give back.
+//
+// That read-back is a round trip, Decode(Encode(v)), across two functions
+// and a let. The build sees through them: the std law
+// strconv.UnquoteInvertsQuote, validated in std's ledger, replaces the
+// decode by the value itself (ergo inspect rewrites lists the site).
+
+import strconv
+import sync
+
+// Backing is where the settings persist: a line per key. Read is the last
+// line written under key.
+type Backing {
+	Write(key string, line string),
+	Read(key string) Option[string],
+
+	// ReadsTheLastWrite: a line written under a key is the line that key
+	// reads.
+	law ReadsTheLastWrite(key string, line string) {
+		Write(key, line)
+		Read(key) == Some[string]{Value: line}
+	},
+}
+
+// Encode is value's line: value quoted.
+func Encode(value string) string { strconv.Quote(value) }
+
+// Decode is the value of line, a line Encode wrote.
+func Decode(line string) string fails strconv.Malformed { try strconv.Unquote(line) }
+
+// Cache is the decoded values of the settings, by key. Its values are in
+// a sync.Ref, so every copy of a Cache is the same cache. NewCache makes
+// one.
+type Cache { values sync.Ref[Map[string, string]] }
+
+// NewCache is an empty Cache.
+func NewCache() Cache { Cache{values: sync.NewRef[Map[string, string]](Map[string, string]{})} }
+
+// Set writes value under key through to the Backing, then keeps the value
+// the Backing's line decodes to.
+func Set(c Cache, key string, value string) fails strconv.Malformed needs Backing {
+	let line = Encode(value)
+	Backing.Write(key, line)
+	let kept = try Decode(line)
+	c.values.Update() func(values Map[string, string]) Map[string, string] { values.Put(key, kept) }
+}
+
+// Get is the value of key, from the cache alone.
+func Get(c Cache, key string) Option[string] { c.values.Get().Get(key) }
+
+// Load is the value of key, read from the Backing into the cache when the
+// cache holds none.
+func Load(c Cache, key string) Option[string] fails strconv.Malformed needs Backing {
+	match Get(c, key) {
+	case Some[string] as v:
+		return v
+	case None:
+	}
+	match Backing.Read(key) {
+	case Some[string] as line:
+		let value = try Decode(line.Value)
+		c.values.Update() func(values Map[string, string]) Map[string, string] { values.Put(key, value) }
+		Some[string]{Value: value}
+	case None:
+		None
+	}
+}
+
+// RoundTrips: a value's line decodes to the value.
+law RoundTrips(value string) { try Decode(Encode(value)) == value }

@@ -34,7 +34,7 @@ func (e eraser) stmt(s *irStmt) {
 		if e.seen != nil {
 			e.seen("match", s.F.Layout)
 		}
-		s.K, s.F = s.F.Kind, nil
+		s.K, s.F, s.Was = s.F.Kind, nil, s.F
 	}
 	s.X = e.expr(s.X)
 	s.Y = e.expr(s.Y)
@@ -68,7 +68,10 @@ func (e eraser) expr(x *irExpr) *irExpr {
 		if e.seen != nil && x.F != nil {
 			e.seen("variant", x.F.Layout)
 		}
-		return eraseVariant(x)
+		was := x.F
+		v := eraseVariant(x)
+		v.Was = was
+		return v
 	}
 	return x
 }

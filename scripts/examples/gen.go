@@ -118,7 +118,7 @@ func (r *runner) genProgram(p *program) bool {
 	passed := true
 	for _, g := range contracts {
 		leg := "gen " + g.kind + " " + strings.TrimPrefix(g.target, p.dir+string(filepath.Separator))
-		if o, err := r.tool(0, "gen", g.kind, "--check", g.target); err != nil || !o.passed() {
+		if o, err := r.tool(0, "gen", g.kind, "--check", g.target); err != nil || !o.Passed() {
 			r.toolFailed(p, leg, o, err)
 			passed = false
 		}

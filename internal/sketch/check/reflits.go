@@ -125,8 +125,9 @@ func (c *checker) typeObjectWith(name string, file *fileInfo, find func(*Scope, 
 	return nil
 }
 
-// shadowImport gives a refused import its binding to prevent cascades:
-// over a prelude name, or over its clashing package declaration. A local
+// shadowImport gives an import its binding over a prelude name, as Go's
+// file block lies inside the universe, and gives a refused import its
+// binding over its clashing package declaration, to prevent cascades. A local
 // still wins. Typing and the lexical reference walk use the same rule.
 func (c *checker) shadowImport(name string, at *Scope, file *fileInfo) Object {
 	if file == nil {

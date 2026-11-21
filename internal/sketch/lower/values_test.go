@@ -19,6 +19,7 @@ const valueElideSource = `import maps
 import slices
 import strings
 import sync
+import tasks
 import utf8
 
 type Box { M Map[int, int], S []int }
@@ -35,6 +36,24 @@ func bump(old Option[int]) int {
 func put(m Map[int, int], k int) Map[int, int] {
 	let mut c = m
 	c[k] = k
+	c
+}
+
+func each(xs []int, f func(x int)) {
+	for x in xs {
+		f(x)
+	}
+}
+
+// joinedPut reads m in a callback each runs and in one tasks.Transform
+// runs on the children it joins: both end before the bind, so m is owned.
+func joinedPut(m Map[int, int], k int) Map[int, int] {
+	each([]int{1, 2}, func(x int) {
+		let _ = len(m) + x
+	})
+	let sizes = tasks.Transform([]int{1, 2}, 2, func(x int) int { len(m) + x })
+	let mut c = m
+	c[k] = len(sizes)
 	c
 }
 
@@ -97,7 +116,7 @@ func boxed(n int) Box {
 
 type Text { B []byte }
 
-func addRune(r rune, t *Text) { t.B = utf8.AppendRune(t.B, r) }
+func addRune(r rune, t mut Text) { t.B = utf8.AppendRune(t.B, r) }
 
 func runes(n int) Text {
 	let mut p = []byte{}
@@ -218,10 +237,188 @@ func tally(n int) int {
 	})
 }
 
+func shelfAt(all Map[int, Box], k int) Box {
+	match all.Get(k) {
+	case Some[Box] as b:
+		b.Value
+	case None:
+		Box{M: Map[int, int]{}, S: []int{}}
+	}
+}
+
+func shelve(r sync.Ref[Map[int, Box]], k int) int {
+	sync.Modify(r, func(all Map[int, Box]) (int, Map[int, Box]) {
+		let s = shelfAt(all, k)
+		let mut next = all
+		next[k] = Box{M: s.M, S: s.S.Append(k)}
+		(len(s.S), next)
+	})
+}
+
+func shelveArms(r sync.Ref[Map[int, Box]], k int, deny bool) int {
+	sync.Modify(r, func(all Map[int, Box]) (int, Map[int, Box]) {
+		let s = shelfAt(all, k)
+		match deny {
+		case true:
+			let mut opened = all
+			opened[k] = Box{M: Map[int, int]{}, S: []int{}}
+			(0, opened)
+		case false:
+			let mut next = all
+			next[k] = Box{M: s.M, S: s.S.Append(k)}
+			(len(s.S), next)
+		}
+	})
+}
+
+func bottoms(bottom int, k int) int {
+	let mut a = slices.Repeat([]int{bottom}, 12)
+	a[k % 12] = k
+	a[0] + a[k % 12]
+}
+
+func growB(b Box, v int) Box {
+	Box{..b, S: b.S.Append(v)}
+}
+
+type Two { A []int, B []int }
+
+func growT(t Two, v int) Two {
+	Two{..t, A: t.A.Append(v)}
+}
+
+func regrowT(n int) int {
+	let mut t = Two{A: []int{}, B: []int{1}}
+	for i in 0..n {
+		t = growT(t, i)
+	}
+	len(t.A) + len(t.B)
+}
+
+type Tally { S []int, Best Map[int, int], Log []int }
+
+func note(t Tally, v int) Tally {
+	for x in t.Log {
+		if x == v {
+			return t
+		}
+	}
+	Tally{..t, Log: t.Log.Append(v)}
+}
+
+func audit(t Tally, n int) Tally {
+	let s = t.S
+	let mut at = t
+	let mut best = t.Best
+	for i in 0..n {
+		if i < len(s) {
+			at = note(at, s[i])
+		}
+		best[i] = i
+	}
+	at = Tally{..at, Best: best}
+	at
+}
+
+func setBest(t Tally, k int) Tally {
+	Tally{..t, Best: t.Best.Put(k, k)}
+}
+
+func keepBest(t Tally, k int) int {
+	let b = t.Best
+	let mut at = t
+	at.Best[k] = k
+	len(b) + len(at.Best)
+}
+
+func handBest(t Tally, k int) int {
+	let b = t.Best
+	let mut at = t
+	at = setBest(at, k)
+	len(b) + len(at.Best)
+}
+
+func peekTake(t Tally, k int) int {
+	let mut at = t
+	let mut best = t.Best
+	best[k] = k
+	let n = len(at.Best)
+	at = Tally{..at, Best: best}
+	n + len(at.Best)
+}
+
+func handTake(t Tally, k int) int {
+	let mut at = t
+	let mut best = t.Best
+	best[k] = k
+	at = setBest(at, k + 1)
+	at = Tally{..at, Best: best}
+	len(at.Best)
+}
+
+func viaBest(t Tally, k int) Tally { setBest(t, k) }
+
+func handVia(t Tally, k int) int {
+	let b = t.Best
+	let mut at = t
+	at = viaBest(at, k)
+	len(b) + len(at.Best)
+}
+
+func peekLate(t Tally, k int) int {
+	let mut at = t
+	let mut best = t.Best
+	best[k] = k
+	at = Tally{..at, Log: []int{k}}
+	let n = len(at.Best)
+	at = Tally{..at, Best: best}
+	n + len(at.Best)
+}
+
+func loopTake(t Tally, n int) int {
+	let mut at = t
+	let mut total = 0
+	for i in 0..n {
+		let mut best = at.Best
+		best[i] = i
+		total = total + len(best)
+	}
+	at = Tally{..at, Best: Map[int, int]{}}
+	total + len(at.Best)
+}
+
+func liveAfter(t Tally, k int) int {
+	let mut at = t
+	at.Best[k] = k
+	len(t.Best) + len(at.Best)
+}
+
+func tallies(k int) int {
+	let t = Tally{S: []int{1}, Best: Map[int, int]{}, Log: []int{}}
+	keepBest(Tally{..t, Best: Map[int, int]{}}, k) + handBest(Tally{..t, Best: Map[int, int]{}}, k) + peekTake(Tally{..t, Best: Map[int, int]{}}, k) + handTake(Tally{..t, Best: Map[int, int]{}}, k) + liveAfter(Tally{..t, Best: Map[int, int]{}}, k) + handVia(Tally{..t, Best: Map[int, int]{}}, k) + peekLate(Tally{..t, Best: Map[int, int]{}}, k) + loopTake(Tally{..t, Best: Map[int, int]{}}, k)
+}
+
+func audits(n int) int {
+	let mut t = Tally{S: []int{1, 2}, Best: Map[int, int]{}, Log: []int{}}
+	for i in 0..n {
+		t = audit(t, i)
+	}
+	len(t.Log) + len(t.Best)
+}
+
+func regrow(n int) int {
+	let mut b = Box{M: Map[int, int]{}, S: []int{}}
+	for i in 0..n {
+		b = growB(b, i)
+		b = Box{..b, M: Map[int, int]{i: i}}
+	}
+	len(b.S) + len(b.M)
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5)) \(len(joinedPut(build(2), 5))) \(regrow(3)) \(regrowT(3)) \(audits(3)) \(tallies(3))")
 }
 `
 
@@ -253,6 +450,13 @@ func TestValueRuleElides(t *testing.T) {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
+	}
+	// A parameter read in callbacks before its bind is owned when every
+	// callback has ended by then: each's (non-escaping) and
+	// tasks.Transform's (its children are joined; joinedBefore). The
+	// owned body takes m with no copy; the wrapper copies it once.
+	if body := goFunc(t, code, "joinedPutOwned"); body == "" || strings.Contains(body, "Clone") {
+		t.Errorf("joinedPut does not own m, whose callbacks end before its bind:\n%s", body)
 	}
 	// A consumed receiver (Bindings 2): String's owned body shares the
 	// buffer through the runtime/v1 owned form; joined calls it with no
@@ -297,6 +501,61 @@ func TestValueRuleElides(t *testing.T) {
 	// in-place form, with no copy of the Map in or out (inPlaceLit, ST G1).
 	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateInPlace[") || !strings.Contains(body, "RefModifyInPlace[") || strings.Count(body, ", true)") != 2 {
 		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
+	}
+	// shelve's literal reads one entry, then writes one key back (wf10 ST
+	// X1, pinata's payments): the bind takes the Map whole, and the entry
+	// the read kept is copied instead (moveOver). The Map's copy is only
+	// the cell's clone argument, once: maps.Clone under MAPCOPY's entry
+	// rule (V8), whose entries have no write path, else ergoCloneMap.
+	mapCopies := func(body string) int { return strings.Count(body, "ergoCloneMap") + strings.Count(body, "maps.Clone(") }
+	if body := goFunc(t, code, "shelve"); mapCopies(body) != 1 || !strings.Contains(body, "ergoCloneBox(") {
+		t.Errorf("shelve copies the whole Map at the bind, not the entry it read:\n%s", body)
+	}
+	// shelveArms binds all in each of two arms (pinata's Change): a use
+	// in the other arm never follows, so each arm moves it (exclusive).
+	if body := goFunc(t, code, "shelveArms"); mapCopies(body) != 1 {
+		t.Errorf("shelveArms copies the whole Map in an arm, as if the other arm's use followed:\n%s", body)
+	}
+	// bottoms is mdhtml's openersBottom (PA3): a Repeat of a literal and a
+	// constant count makes its result in the caller with a make of
+	// constant length, which Go keeps on the stack (repeat.go).
+	if body := goFunc(t, code, "bottoms"); !strings.Contains(body, ".SlicesFill[int](make([]int, 12), ") {
+		t.Errorf("bottoms does not make its Repeat with a constant length:\n%s", body)
+	}
+	// A record update hands its base over (update.go): b = Box{..b, M: …}
+	// rebinds b, and growB's result shares only b's storage, so b = growB(b, i)
+	// hands b over (V7); neither copies the Box, its Map or its slice. The
+	// call stays (growB, or its owned variant growBOwned when b is handed).
+	if body := goFunc(t, code, "regrow"); strings.Contains(body, "Clone") || !strings.Contains(body, "growB") {
+		t.Errorf("regrow copies the Box its record updates hand over:\n%s", body)
+	}
+	// Two's fields have one type, so only the unshared premise (growT's
+	// parameter, handed over) makes t.A apart from the base's B.
+	if body := goFunc(t, code, "regrowT"); strings.Contains(body, "Clone") {
+		t.Errorf("regrowT copies the Two it hands over:\n%s", body)
+	}
+	// An owned parameter with field lets around its bind (ownedBind):
+	// audit takes t whole with no copy, s keeps t.S, which no write
+	// through at reaches, and best takes at.Best, which nothing reads
+	// before Tally{..at, Best: best} replaces it (moves.go, a late take).
+	if body := goFuncBody(t, code, "auditOwned"); strings.Contains(body, "Clone") {
+		t.Errorf("audit copies the Tally it owns:\n%s", body)
+	}
+	// And where a use reaches the field, the let copies it: keepBest's b
+	// beside a write at.Best[k], handBest's beside setBest(at, k), whose
+	// parameter selects Best; peekTake's best beside a read of at.Best,
+	// handTake's beside setBest; handVia's beside viaBest, which hands
+	// its parameter to setBest; peekLate's beside a read of at.Best after
+	// an update that sets another field; loopTake's, which a loop takes
+	// again before the update. liveAfter reads t after at's write, so t
+	// is not owned.
+	for _, fn := range []string{"keepBestOwned", "handBestOwned", "peekTakeOwned", "handTakeOwned", "handViaOwned", "peekLateOwned", "loopTakeOwned"} {
+		if body := goFuncBody(t, code, fn); !strings.Contains(body, "maps.Clone(") {
+			t.Errorf("%s shares a field a use of the record reaches:\n%s", fn, body)
+		}
+	}
+	if strings.Contains(code, "liveAfterOwned") {
+		t.Errorf("liveAfter owns a parameter it reads after its bind's write")
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
 	// Update's body takes the Map as it is passed, unshared, and calls

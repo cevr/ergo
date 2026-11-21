@@ -1,0 +1,30 @@
+type Money { cents int }
+
+func add(a Money, b Money) Money {
+	Money{cents: a.cents + b.cents}
+}
+
+type Bad {}
+
+func valid(n int) bool fails Bad {
+	if n < 0 {
+		return Bad
+	}
+	true
+}
+
+type Store {
+	Get() string,
+}
+
+type Mem {} implements Store
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+func read() string needs Store {
+	Store.Get()
+}
+
+law Charged() { read() == "ok" } // want S102

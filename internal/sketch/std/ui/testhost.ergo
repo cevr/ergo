@@ -1,6 +1,8 @@
 import actor
 import queue
+import testing
 import time
+import machines
 
 // TestHost runs a view over an actor in process, for a test or an agent:
 // the host a scene script drives. It steps the same Session that Run
@@ -25,19 +27,39 @@ type TestHost[S, E, D, F] {
 	// captured is the Area a Down went to, which takes every pointer
 	// event until an Up (H5g).
 	captured Option[Id[E]],
+	// heldY is the y of the last pointer event the Area that holds the
+	// pointer took, in its box: where Advance's edge scroll reads it.
+	heldY float64,
 	// said is what the live regions said, in order (Announce).
 	said []string,
+	// step is the counts of the passes since the last input (NS3).
+	step StepCounts,
+	// opened is whether the user has gone to an address (Navigate,
+	// ReplaceOn): before it, the history's one entry is the host's "/",
+	// which the first navigation replaces (FK9b).
+	opened bool,
+	// tracks is each TrackNode's motion, which the host runs on its
+	// clock with no pass (TRACKS).
+	tracks Map[Id[E], hostTrack],
 }
+
+// hostTrack is a TrackNode's key and its motion since its last target.
+type hostTrack { key Key, state TrackState }
 
 // NoNode is the failure of a script step whose label names no node on the
 // screen.
 type NoNode { Label string }
 
+// Ambiguous is the failure of a script step whose label or locator
+// finds more than one node (NS7, as Playwright's strict locators): what
+// it named and how many nodes it found. First names one.
+type Ambiguous { At string, Count int }
+
 // NewTestHost shows view of a's state. clock is the time the program's
 // tasks sleep on (a test binds it as their Scheduler); only Advance moves
 // it. A fetch's result waits in a queue of room results until the host
 // takes it.
-func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
+func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = Start(a, view, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -47,31 +69,701 @@ func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own f
 	try hostOf(s, first, posted, clock)
 }
 
+// ScriptShowsTheView: after each step of a drawn script of presses ("add"
+// by label or by locator, or the first "del" by First of a locator), the
+// test host's screen is the view of the actor's state, and that state is
+// the model's: a press of the first "del" removes the first row on the
+// screen. The clock never moves, and the expectations of a scene hold.
+law ScriptShowsTheView(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		scriptShows(seed, steps, m)
+	}
+}
+
+// shelf is the state of the list app: its rows, by key, and the next key.
+type shelf { rows []int, next int }
+
+// shelfStep: signal 0 adds a row with the next key; signal k removes the
+// row k.
+func shelfStep(s shelf, e int) Decision[shelf, int] {
+	if e == 0 {
+		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+	}
+	let mut rows = []int{}
+	for k in s.rows {
+		if k != e {
+			rows = rows.Append(k)
+		}
+	}
+	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+}
+
+func shelfTimer(s shelf) Option[Timeout[int]] { None }
+
+func shelfWork(s shelf) Option[func(send func(e int))] { None }
+
+func shelfExit(s shelf) Option[func()] { None }
+
+func shelfMachine() Machine[shelf, int, int] {
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork, Exit: shelfExit}
+}
+
+// shelfView shows the count, an add button, and each row with a delete
+// button: every row's button has the label "del", so a press of the
+// first row's names it by First (NS7).
+func shelfView(f mut Frame[int], s shelf) {
+	Column(f, Plain()) {
+		Text(f, "\(len(s.rows)) rows")
+		Pressable(f, "add", 0) {
+			Text(f, "+")
+		}
+		Each(f, s.rows, func(k int) Key { ByInt(k) }) func(k int) {
+			Row(f, Plain()) {
+				Text(f, "row \(k)")
+				Pressable(f, "del", k) {
+					Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// freshShape is what view means at s: one pass of a new frame.
+func freshShape[S](view func(f mut Frame[int], s S), s S) []Shape[int] {
+	let mut g = NewFrame[int]()
+	let _ = Render(&g, view, s)
+	FrameShape(&g)
+}
+
+func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, shelfView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let start = Now(&h)
+	let mut model = shelf{rows: []int{}, next: 1}
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut label = "add"
+		if len(model.rows) > 0 && draw(&r, 2) == 0 {
+			label = "del"
+			model = machines.Next(model, shelfStep(model, model.rows[0]))
+		} else {
+			model = machines.Next(model, shelfStep(model, 0))
+		}
+		// Half the presses go by locator, and each step expects the count
+		// the model shows and the number of delete buttons (H4r).
+		let mut tap Act = TapOn{Label: label}
+		let byRole = draw(&r, 2) == 0
+		if label == "del" && byRole {
+			tap = ClickOn{At: First{At: WithRole{Role: Button, Name: label}}}
+		} else if label == "del" {
+			tap = ClickOn{At: First{At: WithLabel{Label: label}}}
+		} else if byRole {
+			tap = ClickOn{At: WithRole{Role: Button, Name: label}}
+		}
+		let expect = []Act{ExpectOn{At: WithText{Text: "\(len(model.rows)) rows"}, Is: ToExist}, ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows)}}}
+		Play(&h, []Act{tap, expect[0], expect[1]}) catch {
+		case _:
+			return false
+		}
+		let mut refused = false
+		Play(&h, []Act{ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows) + 1}}}) catch {
+		case Mismatch:
+			refused = true
+		case _:
+			return false
+		}
+		if !refused {
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model || !SameShapes(Screen(&h), freshShape(shelfView, s)) || Now(&h) != start {
+			return false
+		}
+	}
+	true
+}
+
+// NoTickWhenSettled: over a drawn script of presses (asking for 0 to 3
+// frames) and clock moves, the test host sends a Tick exactly at each
+// frame period the view animates through, with the clock's time since it
+// started, and none while the last pass made no Animate: it wants frames
+// only while the model has frames left, and the screen is the view of the
+// model's state.
+law NoTickWhenSettled(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		ticksFollow(seed, steps, m)
+	}
+}
+
+// spin is the state of the animation app: the frames it still wants, and
+// the time of the last frame it took (in nanoseconds since the host
+// started, -1 for none).
+type spin { left int, at int }
+
+// spinStep: a signal of 0 or more asks for that many frames; a negative
+// signal is a frame at -1-e nanoseconds.
+func spinStep(s spin, e int) Decision[spin, int] {
+	if e >= 0 {
+		return Enter[spin]{Next: spin{left: e, at: s.at}}
+	}
+	Enter[spin]{Next: spin{left: s.left - 1, at: -1 - e}}
+}
+
+func spinTimer(s spin) Option[Timeout[int]] { None }
+
+func spinWork(s spin) Option[func(send func(e int))] { None }
+
+func spinExit(s spin) Option[func()] { None }
+
+func spinMachine() Machine[spin, int, int] {
+	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork, Exit: spinExit}
+}
+
+// spinView animates while frames are left; "go0" to "go3" ask for that
+// many.
+func spinView(f mut Frame[int], s spin) {
+	Text(f, "left \(s.left) at \(s.at)")
+	for n in 0..4 {
+		Pressable(f, "go\(n)", n) {
+			Text(f, "go")
+		}
+	}
+	if s.left > 0 {
+		Animate(f, func(at duration) int { -1 - int(int64(at)) })
+	}
+}
+
+// frameModel is the host's frames written without a frame: the time
+// since the host started, the time owed to the next frame, and the ticks
+// sent.
+type frameModel { since duration, owed duration, frames int, app spin }
+
+// advanced is the model after the clock moves d at frame period p.
+func advanced(m frameModel, d duration, p duration) frameModel {
+	let mut x = m
+	let mut left = d
+	for x.app.left > 0 && left >= p-x.owed {
+		let due = p - x.owed
+		x.since = x.since + due
+		left = left - due
+		x.owed = 0ns
+		x.frames = x.frames + 1
+		x.app = spin{left: x.app.left - 1, at: int(int64(x.since))}
+	}
+	x.since = x.since + left
+	if x.app.left > 0 {
+		x.owed = x.owed + left
+	} else {
+		x.owed = 0ns
+	}
+	x
+}
+
+func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, spinView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let p = 16ms
+	let start = Now(&h)
+	let mut model = frameModel{since: 0ns, owed: 0ns, frames: 0, app: spin{left: 0, at: -1}}
+	let moves = []duration{0ns, 5ms, 11ms, 16ms, 40ms, 100ms}
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act Act = SettleAll
+		if draw(&r, 2) == 0 {
+			let n = draw(&r, 4)
+			act = TapOn{Label: "go\(n)"}
+			model.app = machines.Next(model.app, spinStep(model.app, n))
+		} else {
+			let d = moves[draw(&r, len(moves))]
+			act = AdvanceBy{By: d}
+			model = advanced(model, d, p)
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model.app || h.Frames() != model.frames || Now(&h).Sub(start) != model.since || WantsFrames(&h) != (model.app.left > 0) || !SameShapes(Screen(&h), freshShape(spinView, s)) {
+			return false
+		}
+	}
+	true
+}
+
+// InputGivesSignal: over a drawn script of pointer events on the pad and
+// key presses (with and without Ctrl), the actor's state is the model's
+// fold of the signals the pad's function and the first OnKey that takes
+// a key give, and the screen is the view of that state. Escape with Ctrl
+// while the dialog is open closes it: the dialog's OnKey, made first,
+// takes it.
+law InputGivesSignal(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		inputFollows(seed, steps, m)
+	}
+}
+
+// pad is the state of the input app: whether its dialog is open, the
+// last signal the pad gave, and how many it gave.
+type pad { open bool, last int, n int }
+
+// padStep: 1 closes the dialog, 2 opens it, anything else is a pad's
+// signal.
+func padStep(s pad, e int) Decision[pad, int] {
+	if e == 1 {
+		return Enter[pad]{Next: pad{open: false, last: s.last, n: s.n}}
+	}
+	if e == 2 {
+		return Enter[pad]{Next: pad{open: true, last: s.last, n: s.n}}
+	}
+	Enter[pad]{Next: pad{open: s.open, last: e, n: s.n + 1}}
+}
+
+func padTimer(s pad) Option[Timeout[int]] { None }
+
+func padWork(s pad) Option[func(send func(e int))] { None }
+
+func padExit(s pad) Option[func()] { None }
+
+func padMachine() Machine[pad, int, int] {
+	Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork, Exit: padExit}
+}
+
+// onPad is the pad's function at s: a press gives 1000 plus its x plus
+// 100 for each signal the pad gave (mod 3), so the function a pass makes
+// reads the state; a release gives 2000 plus its y, a wheel 3000 plus its
+// dy, and a move nothing.
+func onPad(s pad, p PointerEvent) Option[int] {
+	match p.Phase {
+	case Down:
+		Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+	case Up:
+		Some{Value: 2000 + int(p.Y)}
+	case Wheel as w:
+		Some{Value: 3000 + int(w.DY)}
+	case Moved, Drag, PointerEnter, PointerLeave:
+		None
+	}
+}
+
+// padView: while the dialog is open, its OnKey comes first and takes
+// Escape (closing it); the page's OnKey takes any key with Ctrl (opening
+// the dialog) and gives the pad a 4000 plus the name's length for Enter.
+func padView(f mut Frame[int], s pad) {
+	Text(f, "last \(s.last) of \(s.n)")
+	if s.open {
+		OnKey(f, func(k KeyPress) Option[int] {
+			if k.Name == "Escape" {
+				return Some{Value: 1}
+			}
+			None
+		})
+	}
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Mods.Ctrl {
+			return Some{Value: 2}
+		}
+		if k.Name == "Enter" {
+			return Some{Value: 4005}
+		}
+		None
+	})
+	Area(f, "pad", Plain(), func(p PointerEvent) Option[int] { onPad(s, p) }) {
+		Text(f, "pad")
+	}
+}
+
+// keySignal is the signal a key press gives padView at s, written without
+// a frame.
+func keySignal(s pad, k KeyPress) Option[int] {
+	if s.open && k.Name == "Escape" {
+		return Some{Value: 1}
+	}
+	if k.Mods.Ctrl {
+		return Some{Value: 2}
+	}
+	if k.Name == "Enter" {
+		return Some{Value: 4005}
+	}
+	None
+}
+
+func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(padMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, padView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut model = pad{open: false, last: 0, n: 0}
+	let names = []string{"a", "Enter", "Escape"}
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act Act = SettleAll
+		let mut sent Option[int] = None
+		if draw(&r, 2) == 0 {
+			let k = KeyPress{Name: names[draw(&r, len(names))], Mods: Mods{Shift: false, Ctrl: draw(&r, 2) == 0, Alt: false, Meta: false}}
+			act = KeyIn{Press: k}
+			sent = keySignal(model, k)
+		} else {
+			let x = float64(draw(&r, 100)) + 0.5
+			let y = float64(draw(&r, 100)) + 0.25
+			let mut phase Phase = Moved
+			match draw(&r, 4) {
+			case 0:
+				phase = Down
+			case 1:
+				phase = Up
+			case 2:
+				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
+			case _:
+			}
+			let ev = PointerEvent{Pointer: MousePointer, Phase: phase, X: x, Y: y, Zone: None}
+			act = PointOn{Label: "pad", Pointer: ev}
+			sent = onPad(model, ev)
+		}
+		match sent {
+		case Some[int] as e:
+			model = machines.Next(model, padStep(model, e.Value))
+		case None:
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model || !SameShapes(Screen(&h), freshShape(padView, s)) {
+			return false
+		}
+	}
+	true
+}
+
+// NavigationFollowsModel (H7): over drawn navigations of the user (to a
+// place the app knows, or to one it does not), replacements of the
+// address (ReplaceOn, FK10-g1) and presses of back, on the test host of a
+// router app, the history is a model stack: the first navigation of the
+// fresh session replaces its "/", so its Back depth is 0 (FK9b), each later
+// one pushes, and a replacement changes the top; its current place and
+// depth are the model's after each step, back at the first entry does
+// nothing, and the app shows the place of the last change it knows ("/"
+// for one it does not: its second OnURL takes what the first leaves),
+// which reached it as URLChanged, a replacement's too. Each run opens
+// with a replacement (even steps) or a navigation (odd), then a
+// navigation, which pushes.
+law NavigationFollowsModel(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		navigationFollows(seed, steps, m)
+	}
+}
+
+// places are the addresses the router app knows, by index; "/nowhere"
+// is one it does not know.
+let places = []string{"/", "/a", "/b?x=1", "/c#top", "/a/b?q=2#f"}
+
+// placeOf is the index of u in places, None for an address the app does
+// not know.
+func placeOf(u URL) Option[int] {
+	for i, p in places {
+		if Href(u) == p {
+			return Some{Value: i}
+		}
+	}
+	None
+}
+
+// routeStep: the signal is the index of the place the app shows.
+func routeStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func routeTimer(s int) Option[Timeout[int]] { None }
+
+func routeWork(s int) Option[func(send func(e int))] { None }
+
+func routeExit(s int) Option[func()] { None }
+
+func routeMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: routeStep, After: routeTimer, Work: routeWork, Exit: routeExit}
+}
+
+// home is the router app's fallback: an address it does not know shows
+// "/". It is written after placeOf, so it takes only what placeOf leaves.
+func home(u URL) Option[int] { Some{Value: 0} }
+
+// routeView shows the place at s.
+func routeView(f mut Frame[int], s int) {
+	OnURL(f, placeOf)
+	OnURL(f, home)
+	Text(f, "at \(places[s])")
+}
+
+func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(routeMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, routeView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut stack = []string{"/"}
+	let mut opened = false
+	let mut shown = 0
+	// A replacement (even steps) or a navigation (odd) opens the session
+	// in place of "/"; the navigation after it pushes.
+	if (steps%2+2)%2 == 0 {
+		ReplaceOn(&h, "/a") catch {
+		case _:
+			return false
+		}
+	} else {
+		Play(&h, []Act{NavigateTo{Href: "/a"}}) catch {
+		case _:
+			return false
+		}
+	}
+	Play(&h, []Act{NavigateTo{Href: "/b?x=1"}}) catch {
+	case _:
+		return false
+	}
+	stack = []string{"/a", "/b?x=1"}
+	opened = true
+	shown = 2
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut act Act = GoBack
+		let kind = draw(&r, 4)
+		if kind != 0 {
+			let mut href = "/nowhere"
+			if draw(&r, 4) != 0 {
+				href = places[draw(&r, len(places))]
+			}
+			if kind == 3 {
+				// A replacement is no Act: the host's address changes in place.
+				ReplaceOn(&h, href) catch {
+				case _:
+					return false
+				}
+				stack[len(stack)-1] = href
+				act = SettleAll
+			} else {
+				act = NavigateTo{Href: href}
+				if opened {
+					stack = stack.Append(href)
+				} else {
+					stack[len(stack)-1] = href
+				}
+			}
+			opened = true
+		} else if len(stack) > 1 {
+			let mut kept = []string{}
+			for i in 0..len(stack)-1 {
+				kept = kept.Append(stack[i])
+			}
+			stack = kept
+		} else {
+			act = GoBack
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let top = stack[len(stack)-1]
+		match placeOf(ParseURL(top)) {
+		case Some[int] as p:
+			shown = p.Value
+		case None:
+			shown = 0
+		}
+		if Href(Current(History(&h))) != top || Depth(History(&h)) != len(stack)-1 || StateOf(&h) != shown {
+			return false
+		}
+		Play(&h, []Act{ExpectOn{At: WithText{Text: "at \(places[shown])"}, Is: ToExist}}) catch {
+		case _:
+			return false
+		}
+	}
+	true
+}
+
+// WorkReplyIsShown (DOMAIN PX3a): a reply that reaches the actor through
+// its machine's work, not through an event of the loop, is on the test
+// host's screen after a Settle, one reply at a time; before the first,
+// the screen shows the first state.
+law WorkReplyIsShown(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		replyShown(n, m)
+	}
+}
+
+// replyWork is the work of the reply app's state s: while s is under
+// last, it waits for the law to release one reply on gate and sends the
+// next state, as a request's reply arrives through a machine's work.
+func replyWork(gate queue.Queue[int], last int) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s >= last {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			send(s + 1)
+		}}
+	}
+}
+
+func replyStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func replyTimer(s int) Option[Timeout[int]] { None }
+
+func replyExit(s int) Option[func()] { None }
+
+func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last), Exit: replyExit}
+}
+
+// replyView shows the reply app's state.
+func replyView(f mut Frame[int], s int) { Text(f, "at \(s)") }
+
+func replyShown(n int, m time.Manual) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let mut h = NewTestHost(a, replyView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	if !SameShapes(Screen(&h), []Shape[int]{leaf(TextNode{Value: "at 0", Style: Plain()})}) {
+		return false
+	}
+	for i in 0..last {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == i+1 }) catch {
+		case actor.Stopped:
+			return false
+		}
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		if !SameShapes(Screen(&h), []Shape[int]{leaf(TextNode{Value: "at \(i + 1)", Style: Plain()})}) {
+			return false
+		}
+	}
+	true
+}
+
 // hostOf is the test host of session s, its first patch shown.
 func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], posted queue.Queue[Event[E]], clock time.Manual) TestHost[S, E, D, F] fails BadPatch {
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}}
+	let mut h = TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, heldY: 0.0, said: []string{}, step: NoCounts(), opened: false, tracks: Map[Id[E], hostTrack]{}}
+	// The first patch's tracks rest on their targets.
+	for op in first {
+		match op {
+		case Insert[E] as x:
+			track(&h, x.Id, x.Node)
+		case _:
+		}
+	}
+	h
 }
 
-// apply steps one event and shows its patch.
-func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+// apply steps one event and shows its patch. An input starts a step:
+// the counts of the passes before it are dropped.
+func apply[E comparable, S, D, F](h mut TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+	if isInput(ev) {
+		h.step = NoCounts()
+	}
+	try stepShown(h, ev)
+}
+
+// stepShown steps one event and shows its patch, its passes counted in
+// the step under way.
+func stepShown[E comparable, S, D, F](h mut TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+	let passes = h.session.frame.passes
 	let ops = try Step(&h.session, ev)
+	try show(h, ops)
+	if h.session.frame.passes != passes {
+		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
+	}
+}
+
+// show applies a pass's patch to the screen, and says the text of each
+// live region it writes: every patch the host shows goes through it, so
+// Announced misses none (FK11-g5).
+func show[S, E, D, F](h mut TestHost[S, E, D, F], ops []Op[E]) fails BadPatch {
 	try Apply(&h.mirror, ops)
 	for op in ops {
 		match op {
 		case Insert[E] as x:
 			say(h, x.Node)
+			track(h, x.Id, x.Node)
 		case Set[E] as x:
 			say(h, x.Node)
+			track(h, x.Id, x.Node)
+		case Remove[E] as x:
+			h.tracks = h.tracks.Delete(x.Id)
 		case _:
 		}
 	}
 }
 
+// track runs a TrackNode the patch wrote: a new one rests on its target,
+// and a new target retargets the motion at the clock's time.
+func track[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], n Node[E]) {
+	match n {
+	case TrackNode as x:
+		let now = h.clock.Now().Sub(h.start)
+		match h.tracks.Get(id) {
+		case Some[hostTrack] as t:
+			if t.Value.state.To != x.Target {
+				h.tracks[id] = hostTrack{key: x.Key, state: TrackRetarget(t.Value.state, x.Target, now)}
+			}
+		case None:
+			h.tracks[id] = hostTrack{key: x.Key, state: TrackStill(x.Target, x.Curve)}
+		}
+	case _:
+	}
+}
+
+// tracksMoving is whether a track is not yet at rest.
+func tracksMoving[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
+	let now = h.clock.Now().Sub(h.start)
+	for _, t in h.tracks {
+		if !TrackDone(t.state, now) {
+			return true
+		}
+	}
+	false
+}
+
+// TrackedValue is the value the track keyed key shows now, as the host
+// paints it (None: no such track).
+func TrackedValue[S, E, D, F](h mut TestHost[S, E, D, F], key Key) Option[float64] {
+	let now = h.clock.Now().Sub(h.start)
+	for _, t in h.tracks {
+		if t.key == key {
+			let (v, _) = TrackAt(t.state, now)
+			return Some{Value: v}
+		}
+	}
+	None
+}
+
 // say logs the text of a live region the patch wrote, unless it is empty.
-func say[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) {
+func say[S, E, D, F](h mut TestHost[S, E, D, F], n Node[E]) {
 	match n {
 	case LiveNode as l:
 		if l.Text != "" {
@@ -81,18 +773,84 @@ func say[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) {
 	}
 }
 
-// Tap presses the node id.
-func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+// isInput is whether ev is the user's (a press, a text, a pointer, a
+// key, a scroll, a navigation): what starts a step.
+func isInput[E](ev Event[E]) bool {
+	match ev {
+	case Press[E]:
+		true
+	case Type[E]:
+		true
+	case Edit[E]:
+		true
+	case Point[E]:
+		true
+	case KeyDown:
+		true
+	case Scrolled[E]:
+		true
+	case URLChanged:
+		true
+	case _:
+		false
+	}
+}
+
+// Counts is the work of the last step (NS3): the passes since the last
+// input (Tap, TypeText, PressKey, PointAt, ScrollTo, Navigate, GoBackOn),
+// that input's and those of the Settle, Pump and Advance after it,
+// summed. A receipt reads a step's work here, whatever passes settling
+// it ran.
+func Counts[S, E, D, F](h mut TestHost[S, E, D, F]) StepCounts { h.step }
+
+// Tap presses the node id. A tap is a pointer's press and release on it,
+// so it ends any capture (FK12-g1), as a window's click on a button does,
+// and the pointer stays over it (UG3): a Down and an Up at its top left
+// corner, then the press, as the desktop host sends them. Over a node a
+// layer's scrim covers, the click lands on the scrim: no press (UG4).
+func Tap[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	try TapWith(h, id, MousePointer)
+}
+
+// TapWith is Tap by the pointer p: a finger's tap (Finger) presses as the
+// mouse's does but leaves the hover where it was (MB4).
+func TapWith[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p Pointer) fails actor.Stopped | BadPatch {
+	h.captured = None
+	if Shielded(&h.session.frame, id) {
+		try scrimClick(h)
+		return
+	}
+	try point(h, id, None, PointerEvent{Pointer: p, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: p, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
 }
 
-// TypeText types text into the node id.
-func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
+// TypeText types text into the node id after a click on it, so the
+// pointer stays over it (UG3).
+func TypeText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
+	// A click on the node first, as a window's typing into a field does:
+	// the pointer stays over it (UG3), or lands on a scrim (UG4).
+	h.captured = None
+	if Shielded(&h.session.frame, id) {
+		try scrimClick(h)
+		return
+	}
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
+// EditText sends the field id an Edit (OpenTUI gap 2): its text with the
+// caret at caret and the selection's other end at anchor, as a host does
+// for each edit or move of the caret in a focused field. The field takes
+// the focus; no click goes first, since the caret moves with the
+// keyboard.
+func EditText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text string, caret int, anchor int) fails actor.Stopped | BadPatch {
+	try apply(h, Edit[E]{Id: id, Text: text, Caret: caret, Anchor: anchor})
+}
+
 // Pump takes every result a fetch has posted, without waiting.
-func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+func Pump[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
 		match h.posted.Poll() {
 		case Some[Event[E]] as ev:
@@ -103,31 +861,65 @@ func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | 
 	}
 }
 
-// Settle waits until no fetch is in flight and every posted result is
-// taken, then runs a pass: the screen then shows the actor's latest state,
-// also one its work or timer committed, with each live
+// Posted is how many posted events (fetch results, Committed, Ended)
+// wait for the host to take them, by Pump, Settle or an Advance's frame.
+func Posted[S, E, D, F](h mut TestHost[S, E, D, F]) int { h.posted.Len() }
+
+// Settle waits until nothing is left to run at this instant: no fetch in
+// flight, every posted result taken, and every task of the clock's domain
+// waiting again, so each work a signal started has run to its end or its
+// next wait on the clock (SettleRunsTheWork): the screen then shows the
+// actor's latest state, also one its work or timer committed (drawn by
+// its Committed, once: FK2-g2), with each live
 // load's result (models/uiloop SettledShowsLatest). A fetch that waits on
-// the clock waits until an Advance; Settle does not move the clock, so a
-// script advances first.
-func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+// the clock waits until an Advance: Settle does not move the clock, and
+// returns with it still in flight (Fetching; the trace's "waiting on the
+// clock: N"), so a script advances and settles again (FK4-g2). A fetch
+// that waits on an answer from outside the clock (a server of the
+// test's, on a task of its own) is waited for, also while a timer sleeps
+// on the clock (FK4-g2-g1; law OffClockAnswerIsWaitedFor).
+func Settle[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
-		for InFlight(&h.session) > 0 {
-			let ev = h.posted.Pop() catch {
-			case queue.Closed:
-				return
-			}
-			try apply(h, ev)
-		}
+		// A machine's work and a fetch run on tasks of their own: advancing
+		// the clock by nothing returns once every task of its domain waits
+		// again, so each has run to its end or its next wait, and what it
+		// posted is taken (FK1-g6). The watcher is a task of the domain too,
+		// so by then it has posted the Committed of each state the work
+		// committed: its pass draws a state no pass read (actor.Version),
+		// and a press whose pass showed its state costs no second pass
+		// (FK2-g2).
+		h.clock.Advance(duration(int64(0)))
 		try Pump(h)
-		// A state the actor committed by its own work or timer reaches the
-		// loop as Committed, on the watcher's task, at no time a test can
-		// wait for; so Settle ends with a pass, which shows nothing new when
-		// nothing changed, and settles the loads that pass started.
-		try Apply(&h.mirror, runPass(&h.session))
 		if InFlight(&h.session) == 0 {
 			return
 		}
+		// Fetches are left, and every task of the domain waits with nothing
+		// more posted. A fetch asleep on the clock waits for the script's
+		// Advance, which Settle never makes; so when each fetch left is, it
+		// returns rather than wait for ever (FK4-g2). A fetch whose answer
+		// comes from outside the clock (a server's task) is waited for, even
+		// while a timer sleeps on the clock (FK4-g2-g1).
+		if fetchesAsleep(h) {
+			return
+		}
+		// Settle waits here for what a fetch posts (RT-HOOK: the point a law
+		// releases an off-clock answer at, OffClockAnswerIsWaitedFor).
+		testing.Point("ui.settle.waits")
+		let ev = h.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try apply(h, ev)
 	}
+}
+
+// Redraw runs a pass of the view and shows it, for a view that reads
+// state outside the actor (a cell, a sync.Ref), whose change no event and
+// no commit announces: Settle draws only a state the actor committed and
+// no pass read (FK2-g2).
+func Redraw[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails BadPatch {
+	try show(h, runPass(&h.session))
+	h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 }
 
 // Advance moves the clock by d. While the view animates, it moves it a
@@ -135,59 +927,276 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 // the clock's time since the host started; time short of a period is owed
 // to the next Advance while the view still animates. A pass that stops
 // animating stops the frames: the rest of d passes with no Tick, and
-// nothing is owed. Advance takes no fetch result: a fetch it wakes posts
-// on its own task, and Settle or Pump takes it.
-func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
+// nothing is owed. After each Tick it takes the events already posted, as
+// the live loop takes its queue after each frame (Pump), so a session that
+// animates never leaves its watcher blocked on a full queue (F-GP4c-1). A
+// fetch the last stretch wakes posts on its own task, and Settle or Pump
+// takes it.
+//
+// While an Area holds the pointer near an edge of the list inside it
+// (edgeListIn), each frame period also scrolls that list by EdgeScroll
+// with EdgeBand and EdgeStep, at the pointer's last y in the Area, as a
+// host does (Host, H5g): the scroll is a Scrolled of the host's, part of
+// the step under way, before the frame's Tick. Frames run while the list
+// still moves, so the scroll stops at the end of its range (law
+// EdgeScrollRunsEachFrame).
+func Advance[E comparable, S, D, F](h mut TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
-	for Animating(&h.session.frame) && left >= h.period-h.owed {
+	// A moving track asks for frames too, as on a window: each is a Tick,
+	// which runs no pass unless the view animates (TrackCostsNoPass).
+	for (Animating(&h.session.frame) || edgeMoves(h) || tracksMoving(h)) && left >= h.period-h.owed {
 		let due = h.period - h.owed
 		h.clock.Advance(due)
 		left = left - due
 		h.owed = duration(int64(0))
-		h.frames = h.frames + 1
-		try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
+		try edgeFrame(h)
+		if Animating(&h.session.frame) || tracksMoving(h) {
+			h.frames = h.frames + 1
+			try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
+		}
+		try Pump(h)
 	}
 	h.clock.Advance(left)
-	if Animating(&h.session.frame) {
+	if Animating(&h.session.frame) || edgeMoves(h) || tracksMoving(h) {
 		h.owed = h.owed + left
 	} else {
 		h.owed = duration(int64(0))
 	}
 }
 
+// AdvanceTakesThePosted (F-GP4c-1): while the view animates for a drawn
+// number of frames more than the host's queue holds, Advance takes the
+// events posted after each frame, as the live loop does: at most the one
+// Committed of the last frame's commit is left, so the session's watcher
+// never blocks on a full queue, which kept every state the actor committed
+// and grew the heap with the frame count.
+law AdvanceTakesThePosted(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		advanceTakes(n, m)
+	}
+}
+
+func advanceTakes(n int, m time.Manual) bool needs Scheduler {
+	let frames = (n%8+8)%8 + 3
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, spinView, m, 2) catch {
+	case BadPatch:
+		return false
+	}
+	a.Send(frames + 1) catch {
+	case actor.Stopped:
+		return false
+	}
+	Settle(&h) catch {
+	case _:
+		return false
+	}
+	for _ in 0..frames {
+		Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+	}
+	Posted(&h) <= 1 && h.Frames() == frames
+}
+
+// EdgeScrollRunsEachFrame (H5g): an Area holds the pointer at a drawn y
+// (in its top band, its bottom band or its middle) over a drawn list
+// inside it, whose viewport the host reported at a drawn offset. Each
+// frame period Advance moves scrolls the list by EdgeScroll with
+// EdgeBand and EdgeStep, one Advance a period at a time or one Advance
+// over many, so its offset is EdgeScroll applied once a period and stays
+// at the end of its range once it reaches it; after an Up, Advance moves
+// it no more.
+law EdgeScrollRunsEachFrame(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		edgeFrames(seed, m)
+	}
+}
+
+// edgeFrames is EdgeScrollRunsEachFrame at seed. (a law's helper)
+func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 40) + 1
+	let rh = Length(float64(draw(&r, 20) + 4))
+	let height = Length(float64(draw(&r, 200) + 40))
+	let content = Length(float64(n)) * rh
+	let most = if content > height { content - height } else { Length(0.0) }
+	let start = Length(float64(draw(&r, int(float64(most)) + 1)))
+	let band = draw(&r, 3)
+	let y = if band == 0 { float64(draw(&r, 32)) } else if band == 1 { float64(height) - float64(draw(&r, 32)) } else { float64(height) / 2.0 }
+	let view = func(f mut Frame[int], s int) {
+		Area(f, "a", Plain(), func(p PointerEvent) Option[int] { None }) {
+			Rows(f, "list", n, rh, func(i int) Key { ByInt(i) }, func(i int) {
+				Text(f, "row \(i)")
+			})
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let list = Locate(&h, WithLabel{Label: "list"})
+	let area = Locate(&h, WithLabel{Label: "a"})
+	if len(list) != 1 || len(area) != 1 {
+		return false
+	}
+	ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Down, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	let mut want = start
+	for _ in 0..draw(&r, 8) {
+		Advance(&h, 16ms) catch {
+		case _:
+			return false
+		}
+		want = EdgeScroll(want, height, content, Length(y), EdgeBand, EdgeStep)
+		if listOffset(Screen(&h)) != want {
+			return false
+		}
+	}
+	Advance(&h, 1600ms) catch {
+	case _:
+		return false
+	}
+	for _ in 0..100 {
+		want = EdgeScroll(want, height, content, Length(y), EdgeBand, EdgeStep)
+	}
+	if listOffset(Screen(&h)) != want {
+		return false
+	}
+	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Up, X: 1.0, Y: y, Zone: None}) catch {
+	case _:
+		return false
+	}
+	ScrollTo(&h, list[0], start, height) catch {
+	case _:
+		return false
+	}
+	Advance(&h, 160ms) catch {
+	case _:
+		return false
+	}
+	listOffset(Screen(&h)) == start
+}
+
+// listOffset is the offset of the list in the screen of edgeFrames: the
+// first child of its Area. (a law's helper)
+func listOffset(screen []Shape[int]) Length {
+	if len(screen) != 1 || len(screen[0].Kids) != 1 {
+		return Length(-1.0)
+	}
+	match screen[0].Kids[0].Node {
+	case RowsNode as x:
+		x.Offset
+	case _:
+		Length(-1.0)
+	}
+}
+
+// edgeNext is the list the Area holding the pointer edge-scrolls and the
+// offset EdgeScroll moves it to this frame; None when no Area holds the
+// pointer or it holds no list with a viewport.
+func edgeNext[S, E, D, F](h mut TestHost[S, E, D, F]) Option[(edgeList[E], Length)] {
+	match Captured(h) {
+	case Some[Id[E]] as c:
+		match edgeListIn(&h.session.frame, c.Value) {
+		case Some[edgeList[E]] as l:
+			let v = l.Value.view
+			Some{Value: (l.Value, EdgeScroll(v.Offset, v.Height, l.Value.content, Length(h.heldY), EdgeBand, EdgeStep))}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// edgeMoves is whether this frame's edge scroll moves a list.
+func edgeMoves[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
+	match edgeNext(h) {
+	case Some[(edgeList[E], Length)] as x:
+		let (l, next) = x.Value
+		next != l.view.Offset
+	case None:
+		false
+	}
+}
+
+// edgeFrame scrolls the list the held pointer is at an edge of by one
+// frame's EdgeScroll, when that moves it.
+func edgeFrame[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	match edgeNext(h) {
+	case Some[(edgeList[E], Length)] as x:
+		let (l, next) = x.Value
+		if next != l.view.Offset {
+			try stepShown(h, Scrolled[E]{Id: l.id, Offset: next, Height: l.view.Height})
+		}
+	case None:
+	}
+}
+
 // FrameEvery sets the frame period of Advance (16ms when made); a period
 // under 1ns leaves it as it is.
-func FrameEvery[S, E, D, F](h *TestHost[S, E, D, F], period duration) {
+func FrameEvery[S, E, D, F](h mut TestHost[S, E, D, F], period duration) {
 	if period >= 1ns {
 		h.period = period
 	}
 }
 
 // WantsFrames is whether the view asks for frames: whether its last pass
-// made an Animate (what Run tells a window through Host.Frames).
-func WantsFrames[S, E, D, F](h *TestHost[S, E, D, F]) bool { Animating(&h.session.frame) }
+// made an Animate (what Run tells a window through Host.Frames), or a
+// track the host runs is still moving (TRACKS).
+func WantsFrames[S, E, D, F](h mut TestHost[S, E, D, F]) bool { Animating(&h.session.frame) || tracksMoving(h) }
 
 // Frames is the number of Ticks the host has sent.
-func Frames[S, E, D, F](h *TestHost[S, E, D, F]) int { h.frames }
+func Frames[S, E, D, F](h mut TestHost[S, E, D, F]) int { h.frames }
 
 // PointAt sends a pointer event to the node id (the host's hit test, which
 // a test does by naming the node), over no zone. While an Area holds the
 // pointer (a Down went to it, and no Up yet), the event goes to that Area
 // instead, wherever the pointer is, and p is in that Area's box: pointer
 // capture, as a host does it (Host, H5g).
-func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
+func PointAt[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
 	try point(h, id, None, p)
 }
+
+// scrimClick is a click on the window's background, a layer's scrim or
+// where no node is, as the desktop host makes it: the pointer leaves every
+// node and the focus every node (UG3), then a Down and an Up go to the
+// root, outside every layer, so the top layer with a dismiss signal sends
+// it (UG4).
+func scrimClick[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	let r = SessionRoot(&h.session)
+	try PointNowhere(h)
+	FocusSession(&h.session, None)
+	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
+}
+
+// KidsAt is the node id's children on the test host, in order (UG4).
+func KidsAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) []Id[E] { Kids(&h.session.frame, id) }
+
+// LayersOf is the test host's layers, the bottom first (UG4).
+func LayersOf[S, E, D, F](h mut TestHost[S, E, D, F]) []Id[E] { Layers(&h.session.frame) }
 
 // PointOver sends a pointer event to the Area id over the zone zone, whose
 // box in the Area's box is box (the host's hit test of the topmost zone
 // under the pointer). Capture holds as for PointAt.
-func PointOver[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], zone Id[E], box Rect, p PointerEvent) fails actor.Stopped | BadPatch {
+func PointOver[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], zone Id[E], box Rect, p PointerEvent) fails actor.Stopped | BadPatch {
 	try point(h, id, Some{Value: ZoneBox[E]{Id: zone, Box: box}}, p)
 }
 
 // Captured is the Area that holds the pointer, None when none does.
-func Captured[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] {
+func Captured[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Id[E]] {
 	match h.captured {
 	case Some[Id[E]] as c:
 		if isArea(&h.session.frame, c.Value) {
@@ -201,13 +1210,14 @@ func Captured[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] {
 
 // Announced is what the live regions said, in order: each text a pass
 // newly showed in one (Announce), none for an empty one.
-func Announced[S, E, D, F](h *TestHost[S, E, D, F]) []string { h.said }
+func Announced[S, E, D, F](h mut TestHost[S, E, D, F]) []string { h.said }
 
 // point routes a pointer event as a host does: to the Area that holds the
 // pointer, if one does and the tree still holds it; a Down makes the
 // Area it goes to hold the pointer, and an Up lets go.
-func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
-	let mut to = id
+func point[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
+	// Over a node a scrim covers, the pointer is over the scrim (UG4).
+	let mut to = if Shielded(&h.session.frame, id) { SessionRoot(&h.session) } else { id }
 	match Captured(h) {
 	case Some[Id[E]] as c:
 		to = c.Value
@@ -222,11 +1232,12 @@ func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option
 		h.captured = None
 	case _:
 	}
+	h.heldY = p.Y
 	try apply(h, Point[E]{Id: to, Pointer: p, Over: over})
 }
 
 // isArea is whether f holds id and it is an Area.
-func isArea[E](f *Frame[E], id Id[E]) bool {
+func isArea[E](f mut Frame[E], id Id[E]) bool {
 	match NodeOf(f, id) {
 	case Some[Node[E]] as n:
 		match n.Value {
@@ -242,43 +1253,90 @@ func isArea[E](f *Frame[E], id Id[E]) bool {
 
 // ScrollTo reports the viewport of the list id: its scroll offset and
 // visible height (a host sends this as it scrolls or sizes the list).
-func ScrollTo[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], offset Length, height Length) fails actor.Stopped | BadPatch {
+func ScrollTo[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], offset Length, height Length) fails actor.Stopped | BadPatch {
 	try apply(h, Scrolled[E]{Id: id, Offset: offset, Height: height})
 }
 
 // RowRuns is how many row functions of Rows the last pass ran: the work
 // a list costs, which grows with its viewport and not with its count.
-func RowRuns[S, E, D, F](h *TestHost[S, E, D, F]) int { ranRows(&h.session.frame) }
+func RowRuns[S, E, D, F](h mut TestHost[S, E, D, F]) int { ranRows(&h.session.frame) }
 
 // PressKey sends a key press.
-func PressKey[E comparable, S, D, F](h *TestHost[S, E, D, F], k KeyPress) fails actor.Stopped | BadPatch {
+func PressKey[E comparable, S, D, F](h mut TestHost[S, E, D, F], k KeyPress) fails actor.Stopped | BadPatch {
 	try apply(h, KeyDown{Press: k})
 }
 
 // Now is the clock's time.
-func Now[S, E, D, F](h *TestHost[S, E, D, F]) time.Time { h.clock.Now() }
+func Now[S, E, D, F](h mut TestHost[S, E, D, F]) time.Time { h.clock.Now() }
+
+// FocusOf is the node the keyboard is on (Focused): the last one pressed
+// or typed into, or the one Tab moved to.
+func FocusOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&h.session) }
 
 // Screen is what the host shows, built only from the patches.
-func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
+func Screen[S, E, D, F](h mut TestHost[S, E, D, F]) []Shape[E] { ShownShapesIn(&h.session, MirrorShape(&h.mirror)) }
+
+// LooksOf is the Looks the host holds for a node of its screen: its
+// LookId's in the host's table (look.ergo).
+func LooksOf[S, E, D, F](h mut TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(MirrorLooks(&h.mirror), LookIdOf(n)) }
+
+// PointNowhere moves the pointer off every node, as a pointer that
+// leaves the window does: a Moved to the root (UG3).
+func PointNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	try point(h, SessionRoot(&h.session), None, PointerEvent{Pointer: MousePointer, Phase: Moved, X: 0, Y: 0, Zone: None})
+}
+
+// ClickNowhere clicks where no node is, as a click on a window's
+// background does: the pointer leaves every node and the focus every
+// node (UG3), and its Down and Up go to the root, outside every layer, so
+// the top layer with a dismiss signal sends it (UG4). A click ends any
+// hold, as any Down elsewhere does.
+func ClickNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	h.captured = None
+	try scrimClick(h)
+}
+
+// Activate presses the node id from the keyboard, as Tab to it and Enter
+// do: the focus moves to it and shows, and the pointer stays where it is
+// (UG3).
+func Activate[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	h.captured = None
+	focusTo(&h.session.frame, id.ref, true)
+	try apply(h, Press[E]{Id: id})
+}
+
+// LookStateAt is the state whose look the node id shows (UG3).
+func LookStateAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) LookState { SessionLookState(&h.session, id) }
+
+// LookShownAt is the look the node id shows now: its Looks' look of its
+// LookStateAt, from the mirror's table (UG3).
+func LookShownAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) Look {
+	match entryOf(&h.mirror, id) {
+	case Some[mirrored[E]] as e:
+		LookNow(LooksOf(h, e.Value.node), LookStateAt(h, id))
+	case None:
+		Bare()
+	}
+}
 
 // StateOf is the actor's state.
-func StateOf[S, E, D, F](h *TestHost[S, E, D, F]) S { h.session.actor.State() }
+func StateOf[S, E, D, F](h mut TestHost[S, E, D, F]) S { h.session.actor.State() }
 
 // Fetching is the number of fetches in flight.
-func Fetching[S, E, D, F](h *TestHost[S, E, D, F]) int { InFlight(&h.session) }
+func Fetching[S, E, D, F](h mut TestHost[S, E, D, F]) int { InFlight(&h.session) }
 
 // Find is the first node on the screen, in tree order, whose label is
 // label: a Pressable's, a Check's or a Toggle's label, a Text's value, an
 // Input's placeholder.
-func Find[S, E, D, F](h *TestHost[S, E, D, F], label string) Option[Id[E]] {
+func Find[S, E, D, F](h mut TestHost[S, E, D, F], label string) Option[Id[E]] {
 	findIn(&h.mirror, h.mirror.root, label)
 }
 
-func findIn[E](m *Mirror[E], id Id[E], label string) Option[Id[E]] {
-	match m.nodes.Get(id) {
+func findIn[E](m mut Mirror[E], id Id[E], label string) Option[Id[E]] {
+	match entryOf(m, id) {
 	case Some[mirrored[E]] as n:
-		for k in n.Value.kids {
-			match m.nodes.Get(k) {
+		for k in childIds(m, n.Value) {
+			match entryOf(m, k) {
 			case Some[mirrored[E]] as c:
 				if labelOf(c.Value.node) == (Some{Value: label}) {
 					return Some{Value: k}
@@ -315,7 +1373,7 @@ func labelOf[E](n Node[E]) Option[string] {
 	case TextNode as x:
 		Some{Value: x.Value}
 	case InputNode as x:
-		Some{Value: x.Placeholder}
+		Some{Value: fieldName(x)}
 	case _:
 		None
 	}
@@ -323,21 +1381,47 @@ func labelOf[E](n Node[E]) Option[string] {
 
 // History is the test host's history, at "/" when the host starts: the
 // Location a test binds for the program (H7), and the one the user's
-// navigations (Navigate, GoBackOn) move.
-func History[S, E, D, F](h *TestHost[S, E, D, F]) MemoryHistory { h.history }
+// navigations (Navigate, ReplaceOn, GoBackOn) move.
+func History[S, E, D, F](h mut TestHost[S, E, D, F]) MemoryHistory { h.history }
 
 // Navigate is the user going to href, as a typed address or a link the
-// host follows: a Push of the history, then URLChanged.
-func Navigate[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
+// host follows: a Push of the history, then URLChanged. The first one of a
+// fresh session (FK9b) replaces the host's "/" instead, as a browser tab
+// opened on an address has no entry before it: Back then does nothing.
+func Navigate[E comparable, S, D, F](h mut TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
 	let u = ParseURL(href)
-	Push(h.history, u)
+	if h.opened {
+		Push(h.history, u)
+	} else {
+		Replace(h.history, u)
+		h.opened = true
+	}
 	try apply(h, URLChanged{URL: u})
+}
+
+// ReplaceOn is the address changing to href in place (FK10-g1), as a
+// redirect or history.replaceState does: a Replace of the history, then
+// URLChanged, so the program hears it through OnURL as it hears a push.
+func ReplaceOn[E comparable, S, D, F](h mut TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
+	let u = ParseURL(href)
+	Replace(h.history, u)
+	h.opened = true
+	try apply(h, URLChanged{URL: u})
+}
+
+// OpenAt is the tab opened on href before the program hears anything:
+// the history's one entry becomes href and the session is opened, so the
+// next navigation pushes (FK9b's first-navigation replace is for a host
+// no address opened). No URLChanged: the program starts at href already.
+func OpenAt[S, E, D, F](h mut TestHost[S, E, D, F], href string) {
+	Replace(h.history, ParseURL(href))
+	h.opened = true
 }
 
 // GoBackOn is the user pressing back: when the history moves, URLChanged
 // with the place it moved to, and true; false at the first entry, with
 // no event.
-func GoBackOn[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool fails actor.Stopped | BadPatch {
+func GoBackOn[E comparable, S, D, F](h mut TestHost[S, E, D, F]) bool fails actor.Stopped | BadPatch {
 	if !Back(h.history) {
 		return false
 	}
@@ -346,18 +1430,22 @@ func GoBackOn[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool fails actor.S
 }
 
 // Locate is the nodes on the screen that loc finds, in tree order (H4r).
-func Locate[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn(&h.mirror, loc) }
+func Locate[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn(&h.mirror, loc) }
 
 // AccessAt is the node id names on the screen as a locator reads it.
-func AccessAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
+func AccessAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
+
+// RelationsAt is the relations of the node id names on the screen, each
+// with the node it names (RelationsIn, UG2).
+func RelationsAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) []Related[E] { RelationsIn(&h.mirror, id) }
 
 // Expect checks is against what loc finds on the screen.
-func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
+func Expect[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
 	try ExpectIn(&h.mirror, loc, is)
 }
 
 // Act is one step of a scene script: by label (TapOn, TypeInto, PointOn,
-// ScrollOn), or by locator (ClickOn and FillIn act on the first node it
+// ScrollOn), or by locator (ClickOn and FillIn act on the one node it
 // finds; ExpectOn checks a matcher), or on the host (NavigateTo and
 // GoBack are the user's navigations).
 type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length} | ClickOn{At Locator} | FillIn{At Locator, Text string} | ExpectOn{At Locator, Is Matcher} | NavigateTo{Href string} | GoBack
@@ -369,74 +1457,198 @@ type SettleAll {}
 type GoBack {}
 
 // Play runs a script in order. A step whose label or locator names no
-// node fails NoNode with that label or locator, and an ExpectOn that does
-// not hold fails Mismatch.
-func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | Mismatch | actor.Stopped | BadPatch {
-	for act in script {
-		match act {
-		case TapOn as x:
-			try Tap(h, try found(h, x.Label))
-		case TypeInto as x:
-			try TypeText(h, try found(h, x.Label), x.Text)
-		case SettleAll:
-			try Settle(h)
-		case AdvanceBy as x:
-			try Advance(h, x.By)
-		case KeyIn as x:
-			try PressKey(h, x.Press)
-		case PointOn as x:
-			try PointAt(h, try found(h, x.Label), x.Pointer)
-		case ScrollOn as x:
-			try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
-		case ClickOn as x:
-			try Tap(h, try first(h, x.At))
-		case FillIn as x:
-			try TypeText(h, try first(h, x.At), x.Text)
-		case ExpectOn as x:
-			try Expect(h, x.At, x.Is)
-		case NavigateTo as x:
-			try Navigate(h, x.Href)
-		case GoBack:
-			let _ = try GoBackOn(h)
+// node fails NoNode with that label or locator, one that names more than
+// one node fails Ambiguous (a locator in First names the first), and an
+// ExpectOn that does not hold fails Mismatch. When the running test
+// records a trace (`ergo test --trace`), each act it runs is a step event
+// whose line is PlayTrace's for that act.
+func Play[E comparable, S, D, F](h mut TestHost[S, E, D, F], script []Act) fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	let _ = try played(h, script, false)
+}
+
+// PlayTrace runs a script as Play does, and is its trace: a line per
+// act, "step N <act>: <CountsLine of its step>", counted from 1. An act
+// that is no input (SettleAll, AdvanceBy, ExpectOn) adds to the step
+// before it, and its line shows that step's counts so far.
+func PlayTrace[E comparable, S, D, F](h mut TestHost[S, E, D, F], script []Act) []string fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	try played(h, script, true)
+}
+
+// played runs script in order. Each act's line is a step event when the
+// task records a trace, and with lines it is also the result's.
+func played[E comparable, S, D, F](h mut TestHost[S, E, D, F], script []Act, lines bool) []string fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	let on = traced()
+	let mut out = []string{}
+	for i, act in script {
+		try playOne(h, act)
+		if lines || on {
+			let line = "step \(i + 1) \(actText(act)): \(CountsLine(h.step))\(waitText(h, act))"
+			if on {
+				traceStep(line)
+			}
+			if lines {
+				out = out.Append(line)
+			}
 		}
+	}
+	out
+}
+
+// fetchesAsleep says whether each fetch in flight is asleep on the
+// host's clock, so only an Advance wakes it. It looks at every fetch
+// rather than stop at the first awake one, so the steps it takes do not
+// hang on the Map's order.
+func fetchesAsleep[E comparable, S, D, F](h mut TestHost[S, E, D, F]) bool {
+	let mut asleep = 0
+	for _, t in h.session.inflight {
+		if time.Asleep(h.clock, t) {
+			asleep = asleep + 1
+		}
+	}
+	asleep == len(h.session.inflight)
+}
+
+// waitText is what a SettleAll left in flight, waiting on the clock:
+// "; waiting on the clock: N", or nothing (FK4-g2).
+func waitText[E comparable, S, D, F](h mut TestHost[S, E, D, F], act Act) string {
+	match act {
+	case SettleAll:
+		if InFlight(&h.session) > 0 {
+			return "; waiting on the clock: \(InFlight(&h.session))"
+		}
+	case _:
+	}
+	""
+}
+
+// playOne runs one act of a script.
+func playOne[E comparable, S, D, F](h mut TestHost[S, E, D, F], act Act) fails NoNode | Ambiguous | Mismatch | actor.Stopped | BadPatch {
+	match act {
+	case TapOn as x:
+		try Tap(h, try found(h, x.Label))
+	case TypeInto as x:
+		try TypeText(h, try found(h, x.Label), x.Text)
+	case SettleAll:
+		try Settle(h)
+	case AdvanceBy as x:
+		try Advance(h, x.By)
+	case KeyIn as x:
+		try PressKey(h, x.Press)
+	case PointOn as x:
+		try PointAt(h, try found(h, x.Label), x.Pointer)
+	case ScrollOn as x:
+		try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
+	case ClickOn as x:
+		try Tap(h, try only(h, x.At))
+	case FillIn as x:
+		try TypeText(h, try only(h, x.At), x.Text)
+	case ExpectOn as x:
+		try Expect(h, x.At, x.Is)
+	case NavigateTo as x:
+		try Navigate(h, x.Href)
+	case GoBack:
+		let _ = try GoBackOn(h)
 	}
 }
 
-func first[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode {
+// actText is an act as the trace names it.
+func actText(a Act) string {
+	match a {
+	case TapOn as x:
+		"TapOn \"\(x.Label)\""
+	case TypeInto as x:
+		"TypeInto \"\(x.Label)\""
+	case SettleAll:
+		"SettleAll"
+	case AdvanceBy as x:
+		"AdvanceBy \(x.By)"
+	case KeyIn as x:
+		"KeyIn \"\(x.Press.Name)\""
+	case PointOn as x:
+		"PointOn \"\(x.Label)\""
+	case ScrollOn as x:
+		"ScrollOn \"\(x.Label)\""
+	case ClickOn as x:
+		"ClickOn \(locatorText(x.At))"
+	case FillIn as x:
+		"FillIn \(locatorText(x.At))"
+	case ExpectOn as x:
+		"ExpectOn \(locatorText(x.At))"
+	case NavigateTo as x:
+		"NavigateTo \"\(x.Href)\""
+	case GoBack:
+		"GoBack"
+	}
+}
+
+// only is the one node loc finds.
+func only[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode | Ambiguous {
 	let ids = Locate(h, loc)
 	if len(ids) == 0 {
 		return NoNode{Label: locatorText(loc)}
 	}
+	if len(ids) > 1 {
+		return Ambiguous{At: locatorText(loc), Count: len(ids)}
+	}
 	ids[0]
 }
 
-func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode {
-	match Find(h, label) {
-	case Some[Id[E]] as id:
-		id.Value
-	case None:
-		NoNode{Label: label}
+// found is the one node whose label is label (as Find matches it).
+func found[S, E, D, F](h mut TestHost[S, E, D, F], label string) Id[E] fails NoNode | Ambiguous {
+	let ids = withLabel(&h.mirror, h.mirror.root, label, []Id[E]{})
+	if len(ids) == 0 {
+		return NoNode{Label: label}
 	}
+	if len(ids) > 1 {
+		return Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// withLabel is acc and the nodes under id whose label is label, in tree
+// order, each with none under it: a match inside a match is the same
+// target (a Pressable "go" around a Text "go" is one), as Find takes the
+// outer one.
+func withLabel[E](m mut Mirror[E], id Id[E], label string, acc []Id[E]) []Id[E] {
+	let mut out = acc
+	match entryOf(m, id) {
+	case Some[mirrored[E]] as n:
+		for k in childIds(m, n.Value) {
+			match entryOf(m, k) {
+			case Some[mirrored[E]] as c:
+				if labelOf(c.Value.node) == (Some{Value: label}) {
+					out = out.Append(k)
+					continue
+				}
+			case None:
+			}
+			out = withLabel[E](m, k, label, out)
+		}
+	case None:
+	}
+	out
 }
 
 // Screenshot is the screen as text, one node a line, indented by depth:
 // what an agent reads. A canvas's paint list follows it, one op a line.
-func Screenshot[S, E, D, F](h *TestHost[S, E, D, F]) string {
+// A node whose looks are not its kind's default shows them after it, in
+// braces (look.ergo).
+func Screenshot[S, E, D, F](h mut TestHost[S, E, D, F]) string {
 	let mut out = ""
-	for line in shotLines(Screen(h), "") {
+	for line in shotLines(Screen(h), MirrorLooks(&h.mirror), "") {
 		out = out + line + "\n"
 	}
 	out
 }
 
-func shotLines[E](shapes []Shape[E], indent string) []string {
+func shotLines[E](shapes []Shape[E], looks []Looks, indent string) []string {
 	let mut out = []string{}
 	for s in shapes {
-		out = out.Append(indent + nodeText(s.Node))
+		out = out.Append(indent + nodeText(s.Node) + looksText(s.Node, looks))
 		for l in paintLines(PaintOf(s.Node), indent+"  ") {
 			out = out.Append(l)
 		}
-		for l in shotLines[E](s.Kids, indent+"  ") {
+		for l in shotLines[E](s.Kids, looks, indent+"  ") {
 			out = out.Append(l)
 		}
 	}
@@ -474,7 +1686,27 @@ func nodeText[E](n Node[E]) string {
 		}
 		"(off) \"\(x.Label)\""
 	case InputNode as x:
-		"input \"\(x.Value)\" (\(x.Placeholder))"
+		let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
+		if x.Label != "" {
+			out = out + " label \"\(x.Label)\""
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		if x.Invalid {
+			out = out + " invalid"
+		}
+		if x.Lines > 1 {
+			out = out + " lines \(x.Lines)"
+		}
+		// The caret and the selection, unless both are at the end.
+		if x.Caret != x.Anchor {
+			let (lo, hi) = Selected(EditingOf(x))
+			out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
+		} else if x.Caret != len(x.Value) {
+			out = out + " caret \(x.Caret)"
+		}
+		out
 	case FieldsetNode as x:
 		let mut out = "fieldset"
 		if x.Disabled {
@@ -488,5 +1720,417 @@ func nodeText[E](n Node[E]) string {
 		"zone \(keyText(x.Key))"
 	case LiveNode as x:
 		"live \"\(x.Text)\""
+	case ReadoutNode as x:
+		"readout \"\(x.Reserve)\""
+	case TransitionNode as x:
+		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
+	case TrackNode as x:
+		"track \(keyText(x.Key)) \(x.Target)"
+	case SemanticNode[E] as x:
+		"\(roleText(x.Access.Role)) \"\(x.Access.Name)\""
+	case LayerNode[E] as x:
+		let mut out = "layer \(zText(x.Z))"
+		match x.Anchor {
+		case Some[Key] as k:
+			out = out + " at \(keyText(k.Value))"
+		case None:
+		}
+		if x.Scrim {
+			out = out + " scrim"
+		}
+		out
+	}
+}
+
+// zText is a layer's kind as the screenshot names it.
+func zText(z Z) string {
+	match z {
+	case PopoverZ:
+		"popover"
+	case ModalZ:
+		"modal"
+	case ToastZ:
+		"toast"
+	case TooltipZ:
+		"tooltip"
+	}
+}
+
+// chain is the state of SettleRunsTheWork's machine: the step it is at
+// and the step its work stops at. (a law's helper)
+type chain { at int, last int }
+
+// chainStep enters step e. (a law's helper)
+func chainStep(s chain, e int) Decision[chain, int] {
+	Enter[chain]{Next: chain{at: e, last: s.last}}
+}
+
+// chainTimer is the machine's timer: none. (a law's helper)
+func chainTimer(s chain) Option[Timeout[int]] {
+	None
+}
+
+// chainWork is the work of a step between 1 and the last: it sends the
+// next step, with no wait on the clock. (a law's helper)
+func chainWork(s chain) Option[func(send func(e int))] {
+	if s.at < 1 || s.at >= s.last {
+		return None
+	}
+	let next = s.at + 1
+	// The work runs a while first, so a Settle that does not wait for
+	// it ends before it sends.
+	Some{Value: func(send func(e int)) {
+		let mut x = next
+		for i in 0..2000000 {
+			x = (x*31 + i) % 1000003
+		}
+		if x >= 0 {
+			send(next)
+		}
+	}}
+}
+
+// chainView shows the step, and "go" starts the chain. (a law's helper)
+func chainView(f mut Frame[int], s chain) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "go" {
+			return Some{Value: 1}
+		}
+		None
+	})
+	Text(f, "at \(s.at)")
+}
+
+// SettleRunsTheWork (FK1-g6): settled is nothing left to run at this
+// instant, a machine's work included. A press starts a chain of n works,
+// each sending the next step at once; after one Settle, with no Advance,
+// the state and the screen show the last step, and the clock has not
+// moved.
+law SettleRunsTheWork(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let last = (n%8+8)%8 + 1
+		let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: last}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, chainView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let before = m.Now()
+		PressKey(&h, KeyPress{Name: "go", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+		case _:
+			return false
+		}
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		let mut shown = false
+		for s in Screen(&h) {
+			shown = shown || s.Node == (TextNode{Value: "at \(last)", Style: Plain()})
+		}
+		StateOf(&h).at == last && shown && m.Now() == before
+	}
+}
+
+// tallyStep adds one to the row e. (a law's helper)
+func tallyStep(s []int, e int) Decision[[]int, int] {
+	let mut next = []int{}
+	for i, c in s {
+		next = next.Append(if i == e { c + 1 } else { c })
+	}
+	Enter[[]int]{Next: next}
+}
+
+// tallyTimer is the machine's timer: none. (a law's helper)
+func tallyTimer(s []int) Option[Timeout[int]] {
+	None
+}
+
+// tallyWork is the machine's work: none. (a law's helper)
+func tallyWork(s []int) Option[func(send func(e int))] {
+	None
+}
+
+// tallyView is a row per count, each in a Same of its count, with a
+// button that adds one. (a law's helper)
+func tallyView(f mut Frame[int], s []int) {
+	Column(f, Plain()) {
+		let mut idx = []int{}
+		for i in 0..len(s) {
+			idx = idx.Append(i)
+		}
+		Each(f, idx, func(i int) Key { ByInt(i) }) func(i int) {
+			Same(f, ByInt(s[i])) {
+				Text(f, "row \(i): \(s[i])")
+				Pressable(f, "plus \(i)", i) {
+					Text(f, "+")
+				}
+			}
+		}
+	}
+}
+
+// pressCounts is the counts of a press on row at of a tally of n rows,
+// then a Settle, and of the step with a Redraw after it. (a law's helper)
+func pressCounts(n int, at int, m time.Manual) Option[(StepCounts, StepCounts)] needs Scheduler {
+	let mut rows = []int{}
+	for _ in 0..n {
+		rows = rows.Append(0)
+	}
+	let a = actor.StartMachine(Machine[[]int, int, int]{Initial: rows, Step: tallyStep, After: tallyTimer, Work: tallyWork, Exit: func(s []int) Option[func()] { None }}, 1, func(o int) {})
+	let mut h = NewTestHost(a, tallyView, m, 4) catch {
+	case BadPatch:
+		return None
+	}
+	let id = match Find(&h, "plus \(at)") {
+	case Some[Id[int]] as x:
+		x.Value
+	case None:
+		return None
+	}
+	Tap(&h, id) catch {
+	case _:
+		return None
+	}
+	Settle(&h) catch {
+	case _:
+		return None
+	}
+	let pressed = Counts(&h)
+	Redraw(&h) catch {
+	case _:
+		return None
+	}
+	let redrawn = Counts(&h)
+	a.Stop()
+	Some{Value: (pressed, redrawn)}
+}
+
+// PressIsOnePass (FK2-g2): a press on one row of a tally, and the Settle
+// after it, is one pass: from n rows to 4n, the nodes it writes grow as
+// one pass of the view grows (one Same per row, which a Redraw writes),
+// not as three, and it runs one row's body. The pass of the press read
+// the state the press committed (actor.Version), so neither the watcher's
+// Committed nor Settle draws it again.
+law PressIsOnePass(n int, at int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let small = (n%8+8)%8 + 2
+		let row = (at%small + small) % small
+		match (pressCounts(small, row, m), pressCounts(4*small, row, m)) {
+		case (Some[(StepCounts, StepCounts)] as x, Some[(StepCounts, StepCounts)] as y):
+			let (p1, r1) = x.Value
+			let (p4, r4) = y.Value
+			p1.GroupsRan == 1 && p4.GroupsRan == 1 && p4.Ran-p1.Ran == (r4.Ran-p4.Ran)-(r1.Ran-p1.Ran) && p4.Ran > p1.Ran
+		case _:
+			false
+		}
+	}
+}
+
+// CountsAreTheStep (NS3): Counts is the passes since the last input,
+// summed. A press that changes the text is one pass with one Set; a
+// Settle after it adds no pass, since the press's pass showed the state
+// it committed (FK2-g2: a press is one pass); each Redraw adds its own;
+// and a key that sends nothing starts a step with no pass, so its counts
+// are none, and its PlayTrace line says so.
+law CountsAreTheStep(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, chainView, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}
+		PressKey(&h, KeyPress{Name: "go", Mods: mods}) catch {
+		case _:
+			return false
+		}
+		let pressed = Counts(&h)
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		let settled = Counts(&h)
+		// Each Redraw adds its one pass of one node; a Settle, none.
+		for _ in 0..(n%3+3)%3+1 {
+			let ran = Counts(&h).Ran
+			Redraw(&h) catch {
+			case _:
+				return false
+			}
+			Settle(&h) catch {
+			case _:
+				return false
+			}
+			if Counts(&h).Ran != ran+1 {
+				return false
+			}
+		}
+		PressKey(&h, KeyPress{Name: "noop", Mods: mods}) catch {
+		case _:
+			return false
+		}
+		if Counts(&h) != NoCounts() {
+			return false
+		}
+		// PlayTrace prints that step as its line.
+		let trace = PlayTrace(&h, []Act{KeyIn{Press: KeyPress{Name: "noop", Mods: mods}}}) catch {
+		case _:
+			return false
+		}
+		let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
+		pressed.Set == 1 && pressed.Ran == 1 && settled == pressed && trace == []string{line}
+	}
+}
+
+// lastStep keeps the last signal. (a law's helper)
+func lastStep(s int, e int) Decision[int, int] {
+	Enter[int]{Next: e}
+}
+
+// lastTimer is the law's timer: none. (a law's helper)
+func lastTimer(s int) Option[Timeout[int]] {
+	None
+}
+
+// lastWork is the law's work: none. (a law's helper)
+func lastWork(s int) Option[func(send func(e int))] {
+	None
+}
+
+// AmbiguousActFails (NS7): over screens with k of 2 to 5 buttons labelled
+// "dup" and k inputs whose placeholder is "dupi", among unique ones, each
+// act that names them (TapOn and TypeInto by label, ClickOn and FillIn
+// by role, label or placeholder) fails Ambiguous with its count k and
+// sends nothing; First names the first one, which the act then reaches;
+// and Find still gives that first one.
+law AmbiguousActFails(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let k = (seed%4+4)%4 + 2
+		let view = func(f mut Frame[int], s int) {
+			Column(f, Plain()) {
+				Text(f, "at \(s)")
+				for i in 0..k {
+					Pressable(f, "dup", i+1) {
+						Text(f, "x")
+					}
+					Pressable(f, "one\(i)", 50+i) {
+						Text(f, "y")
+					}
+					Input(f, "", "dupi", func(t string) int { 100 + i })
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}}
+		for act in acts {
+			let mut count = -1
+			Play(&h, []Act{act}) catch {
+			case Ambiguous as e:
+				count = e.Count
+			case _:
+				return false
+			}
+			Settle(&h) catch {
+			case _:
+				return false
+			}
+			if count != k || StateOf(&h) != 0 {
+				return false
+			}
+		}
+		// A unique label acts, and First names the first match.
+		Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch {
+		case _:
+			return false
+		}
+		if StateOf(&h) != 51 {
+			return false
+		}
+		Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch {
+		case _:
+			return false
+		}
+		if StateOf(&h) != 1 {
+			return false
+		}
+		Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch {
+		case _:
+			return false
+		}
+		let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}})
+		StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]})
+	}
+}
+
+// typedLabel is the label of the i-th field of TypeIntoNamesTheField, as
+// seed draws it: none, or "lab<i>". (a law's helper)
+func typedLabel(seed int, i int) string {
+	if (seed/(i+1))%2 == 0 {
+		return ""
+	}
+	"lab\(i)"
+}
+
+// TypeIntoNamesTheField (FK3-g5): over screens of 2 to 5 text fields,
+// each labelled or not as drawn, a script's TypeInto names a field by its
+// accessible name, its label or, for a field with none, its placeholder,
+// and types into that field alone; the placeholder of a labelled field
+// names no node.
+law TypeIntoNamesTheField(seed int, count int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = (count%4+4)%4 + 2
+		let s = (seed%64 + 64) % 64
+		let view = func(f mut Frame[int], st int) {
+			Column(f, Plain()) {
+				for i in 0..n {
+					LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) })
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for i in 0..n {
+			let label = typedLabel(s, i)
+			let mut name = label
+			if name == "" {
+				name = "ph\(i)"
+			}
+			let mut text = ""
+			for _ in 0..i+1 {
+				text = text + "x"
+			}
+			Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch {
+			case _:
+				return false
+			}
+			if StateOf(&h) != i*1000+i+1 {
+				return false
+			}
+			if label != "" {
+				let mut missing = false
+				Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch {
+				case NoNode:
+					missing = true
+				case _:
+					return false
+				}
+				if !missing || StateOf(&h) != i*1000+i+1 {
+					return false
+				}
+			}
+		}
+		true
 	}
 }

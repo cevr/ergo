@@ -1,0 +1,349 @@
+// Package server is the authority of a source: it keeps the source's log,
+// decides each client's commands in order with the source's Decide, and
+// answers pulls with a delta or a snapshot. A restart folds Evolve over the
+// log and never decides again: the events the clients hold stay the
+// events.
+//
+// Its book is DK2's memory book (domain/memory's Book and Admit, the
+// decision of every log provider), held with the authority's state in one
+// sync.Ref, so the pushes to one source run one at a time, as one
+// database transaction or one gen_server would run them.
+
+import lease-sync/domain
+import lease-sync/domain/memory
+import lease-sync/lease
+import lease-sync/replica
+import queue
+import sync
+import time
+import timeout
+
+// stream is the name of the source's stream in its log.
+let stream = "source"
+
+// Book is what the authority holds: the log of facts, the state the
+// applied events give, and the command of each kept id (so the same id
+// with another command is an IDConflict even when its events would be
+// the same).
+type Book[S, C, E, F] {
+	Log      memory.Book[replica.Fact[E, F]],
+	State    S,
+	Commands Map[domain.CommandID, C],
+}
+
+// Server is one source's authority. Tail is how many of the last records
+// a pull is answered from by a delta; a pull from before them gets a
+// snapshot. Its values are copies of one authority.
+type Server[S wire, C comparable, E comparable, F comparable, R] {
+	src    replica.Source[S, C, E, R],
+	decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F],
+	book   sync.Ref[Book[S, C, E, F]],
+	bells  sync.Ref[Bells],
+	Tail   int,
+}
+
+// Bells is the long polls that wait for the log to grow: one queue each,
+// which the next push that keeps a record rings once.
+type Bells { Next int, Waiting Map[int, queue.Queue[int]] }
+
+// Start is the authority of src with an empty log. decide is src's
+// Decide with its failure as the fact Refused (Facts, written where the
+// refusal's type is known): the checker does not yet take the value of a
+// one-type error row as that type in a generic argument, so a generic
+// function cannot make the fact itself (a gap of RP1).
+// TODO(lane CK, the unit for types.md Generics 1's Exit[int, Bad]): once a
+// one-type row's value type is that type in a generic argument, Start
+// catches src.Decide's R itself and Facts goes.
+func Start[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide own func(s S, c domain.Envelope[C]) []replica.Fact[E, F], tail int) Server[S, C, E, F, R] {
+	let empty = memory.Book[replica.Fact[E, F]]{Streams: Map[string, []domain.Recorded[replica.Fact[E, F]]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
+	Server[S, C, E, F, R]{src: src, decide: decide, book: sync.NewRef(Book[S, C, E, F]{Log: empty, State: src.Initial, Commands: Map[domain.CommandID, C]{}}), bells: sync.NewRef(Bells{Next: 0, Waiting: Map[int, queue.Queue[int]]{}}), Tail: tail}
+}
+
+// Answer is what a push did: kept the command's record, answered a
+// resend, or refused it as out of order or as a conflict.
+type Kept { Receipt domain.Receipt }
+type Again { Receipt domain.Receipt }
+type Ahead { Expected int }
+type Clash {}
+type Answer = Kept | Again | Ahead | Clash
+
+// Origin is the client part of a command id "seq@origin".
+func Origin(id domain.CommandID) replica.ClientID {
+	let s = string(id)
+	for i, r in s {
+		if r == '@' {
+			return replica.ClientID(s[i+1:])
+		}
+	}
+	replica.ClientID("")
+}
+
+// LastSeq is the highest number of origin's commands among records.
+func LastSeq[E](records []domain.Recorded[E], origin replica.ClientID) int {
+	let mut out = 0
+	for r in records {
+		let s = replica.SeqOf(r.ID, origin)
+		if s > out {
+			out = s
+		}
+	}
+	out
+}
+
+// Decide is the authority's step for m on b: the resend rule, the order
+// rule, Decide on the current state, Evolve, and the append. A refusal is
+// appended as the fact Refused and changes no state.
+func Decide[S wire, C comparable, E comparable, F comparable, R](src replica.Source[S, C, E, R], decide func(s S, c domain.Envelope[C]) []replica.Fact[E, F], b Book[S, C, E, F], m domain.Envelope[C]) (Answer, Book[S, C, E, F]) {
+	match b.Commands.Get(m.ID) {
+	case Some[C] as c:
+		if c.Value != m.Command {
+			return (Clash, b)
+		}
+		match b.Log.Receipts.Get(m.ID) {
+		case Some[domain.Receipt] as r:
+			return (Again{Receipt: r.Value}, b)
+		case None:
+			return (Clash, b)
+		}
+	case None:
+	}
+	let origin = Origin(m.ID)
+	let records = memory.RecordsOf(b.Log, stream)
+	let expected = LastSeq(records, origin) + 1
+	if replica.SeqOf(m.ID, origin) != expected {
+		return (Ahead{Expected: expected}, b)
+	}
+	let facts = decide(b.State, m)
+	let mut state = b.State
+	for f in facts {
+		match f {
+		case replica.Did[E] as d:
+			state = src.Evolve(state, d.Event)
+		case replica.Refused[F]:
+		}
+	}
+	let (o, log) = memory.Admit(b.Log, stream, len(records), m.ID, facts)
+	match o {
+	case memory.Kept as k:
+		(Kept{Receipt: k.Receipt}, Book[S, C, E, F]{Log: log, State: state, Commands: b.Commands.Put(m.ID, m.Command)})
+	case memory.Resent as r:
+		(Again{Receipt: r.Receipt}, b)
+	case memory.Stale, memory.Taken:
+		(Clash, b)
+	}
+}
+
+// Push is the authority's answer to m, stamped with the time at (the
+// authority's clock): the client's At is a prediction, the record's wins.
+func Push[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], m domain.Envelope[C], at time.Time) domain.Receipt fails replica.OutOfOrder | replica.IDConflict {
+	let stamped = domain.Envelope[C]{..m, At: at}
+	let a = sync.Modify(s.book, func(b Book[S, C, E, F]) (Answer, Book[S, C, E, F]) { Decide(s.src, s.decide, b, stamped) })
+	match a {
+	case Kept as k:
+		ring(s.bells)
+		k.Receipt
+	case Again as g:
+		g.Receipt
+	case Ahead as h:
+		replica.OutOfOrder{Expected: h.Expected}
+	case Clash:
+		replica.IDConflict{ID: m.ID}
+	}
+}
+
+// Pull is the frame for the client by that has read up to from: the
+// records after from while from is within the last Tail records, else a
+// snapshot of the state with by's last number and by's refusals in the
+// range it skips.
+func Pull[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int) replica.Frame[S, E, F] {
+	Frame(s.book.Get(), by, from, s.Tail)
+}
+
+// Await is Pull, but while the log holds nothing after from it waits
+// until a push keeps a record or the time limit passes: the long poll.
+// It registers its bell before it reads the log, and a push rings after
+// it keeps its record, so a record kept while Await starts is never
+// missed. A pull from anywhere else is answered at once.
+func Await[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], by replica.ClientID, from int, limit duration) replica.Frame[S, E, F] needs Scheduler {
+	let bell = queue.New[int](1)
+	let id = sync.Modify(s.bells, func(b Bells) (int, Bells) { (b.Next, Bells{Next: b.Next + 1, Waiting: b.Waiting.Put(b.Next, bell)}) })
+	if len(Records(s)) == from {
+		let _ = timeout.After(limit, func() int fails queue.Closed { bell.Pop() }) catch {
+		case timeout.Expired, queue.Closed:
+			0
+		}
+	}
+	s.bells.Update(func(b Bells) Bells { Bells{..b, Waiting: b.Waiting.Delete(id)} })
+	Pull(s, by, from)
+}
+
+// ring wakes every waiting long poll once: each bell leaves the set as it
+// is rung, so a full bell is never pushed again.
+func ring(bells sync.Ref[Bells]) {
+	let waiting = sync.Modify(bells, func(b Bells) (Map[int, queue.Queue[int]], Bells) { (b.Waiting, Bells{..b, Waiting: Map[int, queue.Queue[int]]{}}) })
+	for bell in waiting {
+		bell.Push(1) catch {
+		case queue.Closed:
+			continue
+		}
+	}
+}
+
+// Frame is the pull of by from from on b, with a delta tail of tail.
+func Frame[S, C, E, F](b Book[S, C, E, F], by replica.ClientID, from int, tail int) replica.Frame[S, E, F] {
+	let records = memory.RecordsOf(b.Log, stream)
+	if from >= 0 && from <= len(records) && len(records)-from <= tail {
+		return replica.Delta[E, F]{From: from, Records: memory.After(b.Log, stream, from)}
+	}
+	let mut told = []replica.Told[F]{}
+	for r in records {
+		if r.Position <= from || replica.SeqOf(r.ID, by) == 0 {
+			continue
+		}
+		for f in r.Events {
+			match f {
+			case replica.Refused[F] as x:
+				told = told.Append(replica.Told[F]{ID: r.ID, Why: x.Why})
+			case replica.Did[E]:
+			}
+		}
+	}
+	replica.Snapshot[S, F]{At: len(records), State: b.State, LastSeq: LastSeq(records, by), Refused: told}
+}
+
+// Records is the source's log.
+func Records[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R]) []domain.Recorded[replica.Fact[E, F]] {
+	memory.RecordsOf(s.book.Get().Log, stream)
+}
+
+// State is the authority's state.
+func State[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R]) S { s.book.Get().State }
+
+// Replay is the state Evolve folds from initial over the Did facts of
+// records: what a restarted authority starts from.
+func Replay[S wire, C, E, R, F](src replica.Source[S, C, E, R], records []domain.Recorded[replica.Fact[E, F]]) S {
+	let mut s = src.Initial
+	for r in records {
+		for f in r.Events {
+			match f {
+			case replica.Did[E] as d:
+				s = src.Evolve(s, d.Event)
+			case replica.Refused[F]:
+			}
+		}
+	}
+	s
+}
+
+// The laws of the authority, on the lease pool. pushAll sends ops as
+// commands of two clients, "a" and "b": each op picks a client, a command
+// and an id at, before or after the client's next one, so resends and
+// commands out of order come in any mix.
+func pushAll(ops []int, tail int) Server[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal] {
+	let s = Start[lease.Pool, lease.Cmd, lease.Event, lease.Refusal, lease.Refusal](leases, Facts, tail)
+	let at = time.Unix(0, 0)
+	for op in ops {
+		let x = (op%1000 + 1000) % 1000
+		let origin = if x%2 == 0 { replica.ClientID("a") } else { replica.ClientID("b") }
+		let next = LastSeq(Records(s), origin) + 1
+		let seq = next - 1 + (x/2)%3
+		if seq < 1 {
+			continue
+		}
+		let name = "n\((x / 6) % 3)"
+		let cmd = if (x/18)%2 == 0 { lease.Take{Name: name} } else { lease.Give{Name: name} }
+		let _ = Push(s, domain.Envelope[lease.Cmd]{ID: replica.IDOf(origin, seq), By: string(origin), At: at, Command: cmd}, at) catch {
+		case replica.OutOfOrder, replica.IDConflict:
+			continue
+		}
+	}
+	s
+}
+
+let leases = replica.Source[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]{Initial: lease.Empty(2), Decide: lease.Decide, Evolve: lease.Evolve, Schema: "lease/1"}
+
+// StateIsLogReplay (A4): after any pushes, the state is Evolve folded over
+// the log's applied events, the positions are 1, 2, … and each client's
+// command numbers are 1, 2, … once each, so a refusal changes no state and
+// a resend or an out-of-order command keeps nothing.
+law StateIsLogReplay(ops []int) {
+	let s = pushAll(ops, 8)
+	let records = Records(s)
+	let mut want = Map[replica.ClientID, int]{}
+	for i, r in records {
+		if r.Position != i+1 {
+			return false
+		}
+		let o = Origin(r.ID)
+		let n = match want.Get(o) {
+		case Some[int] as w:
+			w.Value
+		case None:
+			0
+		}
+		if replica.SeqOf(r.ID, o) != n+1 {
+			return false
+		}
+		want = want.Put(o, n+1)
+	}
+	State(s) == Replay(leases, records)
+}
+
+// SnapshotIsReplay (A5, with RPO1): a snapshot from any position is the
+// replay of the whole log, the caller's last number in it, and exactly the
+// caller's refusals after the position, none of another client's.
+law SnapshotIsReplay(ops []int, from int, who bool) {
+	let s = pushAll(ops, 0)
+	let records = Records(s)
+	let by = if who { replica.ClientID("a") } else { replica.ClientID("b") }
+	let f = (from%(len(records)+1) + len(records) + 1) % (len(records) + 1)
+	let mut want = []replica.Told[lease.Refusal]{}
+	for r in records {
+		if r.Position > f && Origin(r.ID) == by {
+			for x in r.Events {
+				match x {
+				case replica.Refused[lease.Refusal] as y:
+					want = want.Append(replica.Told[lease.Refusal]{ID: r.ID, Why: y.Why})
+				case replica.Did[lease.Event]:
+				}
+			}
+		}
+	}
+	match Pull(s, by, f) {
+	case replica.Snapshot[lease.Pool, lease.Refusal] as n:
+		n.At == len(records) && n.State == Replay(leases, records) && n.LastSeq == LastSeq(records, by) && n.Refused == want
+	case replica.Delta[lease.Event, lease.Refusal]:
+		len(records) == f
+	}
+}
+
+// DeltaIsTheTail: a pull from within the last Tail records is a delta of
+// exactly the records after it.
+law DeltaIsTheTail(ops []int, from int) {
+	let s = pushAll(ops, 4)
+	let records = Records(s)
+	let f = len(records) - (from%5+5)%5
+	if f < 0 {
+		return true
+	}
+	match Pull(s, replica.ClientID("a"), f) {
+	case replica.Delta[lease.Event, lease.Refusal] as d:
+		d.From == f && len(d.Records) == len(records)-f && (len(d.Records) == 0 || d.Records[0].Position == f+1)
+	case replica.Snapshot[lease.Pool, lease.Refusal]:
+		false
+	}
+}
+
+// Facts is lease.Decide with its refusal as a fact: the decide a lease
+// authority is started with.
+func Facts(p lease.Pool, c domain.Envelope[lease.Cmd]) []replica.Fact[lease.Event, lease.Refusal] {
+	let events = lease.Decide(p, c) catch {
+	case lease.Refusal as why:
+		return []replica.Fact[lease.Event, lease.Refusal]{replica.Refused[lease.Refusal]{Why: why}}
+	}
+	let mut out = []replica.Fact[lease.Event, lease.Refusal]{}
+	for e in events {
+		out = out.Append(replica.Did[lease.Event]{Event: e})
+	}
+	out
+}

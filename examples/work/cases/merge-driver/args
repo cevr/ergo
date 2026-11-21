@@ -1,0 +1,7 @@
+merge-file
+-path
+notes.txt
+auto
+o.txt
+a.txt
+b.txt

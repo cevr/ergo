@@ -1,0 +1,106 @@
+// Package grid is the terminal's screen as the cell host draws it: a grid
+// of cells, each one rune and a pen, and the frame that turns one grid
+// into the next on a terminal (frame.ergo). It knows nothing of ui: the
+// host draws into a Grid, and a test reads one back.
+
+import strings
+import utf8
+
+// Pen is how a cell's rune shows: plainly, faint (a placeholder, a
+// disabled control), strong, or in reverse video (the focused control).
+type Pen = Normal{} | Faint{} | Strong{} | Inverse{}
+
+// Cell is one cell of the screen: one rune, as text, and its pen. A blank
+// cell is a space in the Normal pen.
+type Cell { Text string, Pen Pen }
+
+// Blank is the cell of an empty screen.
+func Blank() Cell { Cell{Text: " ", Pen: Normal} }
+
+// Grid is a screen of Cols columns and Rows rows, row by row.
+type Grid { Cols int, Rows int, Cells []Cell }
+
+// New is a blank grid of cols columns and rows rows (none of a size under
+// 1).
+func New(cols int, rows int) Grid {
+	let c = if cols < 0 { 0 } else { cols }
+	let r = if rows < 0 { 0 } else { rows }
+	let mut cells = []Cell{}
+	for _ in 0..c*r {
+		cells = cells.Append(Blank())
+	}
+	Grid{Cols: c, Rows: r, Cells: cells}
+}
+
+// inside is whether column c, row r is on g.
+func inside(g Grid, c int, r int) bool { c >= 0 && r >= 0 && c < g.Cols && r < g.Rows }
+
+// At is the cell at column c, row r; a blank one off the grid.
+func At(g Grid, c int, r int) Cell {
+	if !inside(g, c, r) {
+		return Blank()
+	}
+	g.Cells[r*g.Cols+c]
+}
+
+// Put sets the cell at column c, row r; off the grid it does nothing.
+func Put(g mut Grid, c int, r int, cell Cell) {
+	if inside(*g, c, r) {
+		g.Cells[r*g.Cols+c] = cell
+	}
+}
+
+// Runes is the text of each rune of s, in order.
+func Runes(s string) []string {
+	let mut out = []string{}
+	let mut at = 0
+	for at < len(s) {
+		let d = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+		out = out.Append(strings.Slice(s, at, at+d.Size))
+		at = at + d.Size
+	}
+	out
+}
+
+// Changed is how many cells differ between two grids of one size. When
+// the sizes differ, the screen is erased first, so it is the cells of b
+// that are not blank.
+func Changed(a Grid, b Grid) int {
+	let was = if a.Cols != b.Cols || a.Rows != b.Rows { New(b.Cols, b.Rows) } else { a }
+	let mut n = 0
+	for i, c in b.Cells {
+		if was.Cells[i] != c {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// Resized is g on a terminal resized to cols by rows: the cells that
+// still fit keep their place, and the new ones are blank.
+func Resized(g Grid, cols int, rows int) Grid {
+	let mut out = New(cols, rows)
+	for r in 0..rows {
+		for c in 0..cols {
+			if inside(g, c, r) {
+				Put(&out, c, r, At(g, c, r))
+			}
+		}
+	}
+	out
+}
+
+// Text is the grid as text, a line a row, each without its trailing
+// blanks: the text screenshot of a terminal. Pens do not show.
+func Text(g Grid) string {
+	let mut out = strings.NewBuilder()
+	for r in 0..g.Rows {
+		let mut line = []string{}
+		for c in 0..g.Cols {
+			line = line.Append(At(g, c, r).Text)
+		}
+		strings.WriteString(&out, strings.TrimRight(strings.Join(line, ""), " "))
+		strings.WriteString(&out, "\n")
+	}
+	strings.String(out)
+}

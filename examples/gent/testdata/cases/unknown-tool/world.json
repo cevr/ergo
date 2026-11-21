@@ -1,0 +1,30 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "write",
+     "arguments": "{\"path\":\"x.txt\",\"text\":\"hi\"}"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "I have no such tool."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {}
+}

@@ -79,11 +79,19 @@ type specCopy struct {
 	prov *knownProv
 	// wit is the known witness a copy for a known witness is made for
 	// (witspec.go); rec and prov are nil then, and param is -1.
-	wit      *check.Witness
-	typeArgs map[*check.TypeParam]string
+	wit *check.Witness
+	// wits are the known witnesses of a copy for an instance (mono.go),
+	// one per witness parameter, when every one is known: the copy then
+	// takes none, and its callers pass none. Nil keeps the parameters.
+	wits        map[*check.TypeParam]*check.Witness
+	witsDecided bool
+	typeArgs    map[*check.TypeParam]string
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
 	bound map[*check.TypeParam]check.Type
+	// inst spells the Go type arguments of a copy made by specAt, in f's
+	// type-parameter order: the one instance the copy is.
+	inst string
 }
 
 // recordParam is the index of f's record parameter that its body calls a
@@ -172,8 +180,7 @@ func (l *lowerer) findRecordParam(f *check.Func) int {
 }
 
 // reserveSpecs gives, in the naming pass, the Go name of the copy of each
-// function of pkgs that has one for each machine of the program's own
-// packages.
+// function of pkgs that has one for each machine of machines.
 func (l *lowerer) reserveSpecs(pkgs []*check.Package, machines []*check.TypeName) {
 	if recordLowering == "opaque" || len(machines) == 0 {
 		return
@@ -190,11 +197,12 @@ func (l *lowerer) reserveSpecs(pkgs []*check.Package, machines []*check.TypeName
 	}
 }
 
-// sourcedMachines are the machine declarations of the program's own
-// packages, in the naming pass's order.
-func (l *lowerer) sourcedMachines() []*check.TypeName {
+// machinesOf are the machine declarations of pkgs, in the naming pass's
+// order: a std package's as a user package's (prompt.Asker, STD-COPY-SAME),
+// so a call that passes one goes to the same copy wherever it is declared.
+func (l *lowerer) machinesOf(pkgs []*check.Package) []*check.TypeName {
 	var out []*check.TypeName
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range pkgs {
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -282,7 +290,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	}
 	name, ok := fc.l.pkgNames[pkgKey{"spec", key}]
 	if !ok {
-		return nil // the naming pass names the machines of the program's own packages and the providers it converts
+		return nil // the naming pass names the machines of the program's packages and the providers it converts
 	}
 	// The copy is one instance: each type argument is a Go type, never a
 	// type parameter of a generic caller (a copy's are Go types).
@@ -294,6 +302,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	}
 	args := map[*check.TypeParam]string{}
 	bound := map[*check.TypeParam]check.Type{}
+	var spelled []string
 	j := 0
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
@@ -306,6 +315,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 			return nil
 		}
 		args[tp] = fc.goType(c.TypeArgs[i])
+		spelled = append(spelled, args[tp])
 		if t := fc.boundType(c.TypeArgs[i]); !mentionsTypeParam(t) {
 			bound[tp] = t
 		}
@@ -314,13 +324,21 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	if j != len(own) {
 		return nil
 	}
+	// The naming pass reserves one copy name per key, so the key's copy is
+	// its first instance's; a call at other type arguments takes the
+	// function itself (Q4: FileRowsOn and ProcessRowsOn went to
+	// DirRowsOn's RowsOn copy).
+	inst := strings.Join(spelled, "\x00")
 	if sp := fc.l.specs[key]; sp != nil {
+		if sp.inst != inst {
+			return nil
+		}
 		return sp
 	}
 	if fc.l.specs == nil {
 		fc.l.specs = map[specKey]*specCopy{}
 	}
-	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, wit: wit, typeArgs: args, bound: bound}
+	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, wit: wit, typeArgs: args, bound: bound, inst: inst}
 	fc.l.specs[key] = sp
 	if wit != nil {
 		fc.l.stats.Witnessed++
@@ -347,7 +365,7 @@ func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func,
 	if len(g.Sig.Results) == 1 && fc.noValue(x) {
 		return false // a result a block with no value binds: struct{}
 	}
-	if !gd.pure && fc.env == "" {
+	if !gd.envFree && fc.env == "" {
 		return false
 	}
 	if !fc.grow(inlineSize(g.Decl.Body)) {
@@ -401,7 +419,7 @@ func (fc *funcCtx) recordCallText(x *syntax.CallExpr, c *check.Call, sig *check.
 	}
 	gd = fc.l.useFunc(g, x)
 	vals := fc.callArgs(x.Args, x)
-	if !gd.pure {
+	if !gd.envFree {
 		vals = append([]string{fc.envExpr(x)}, vals...)
 	}
 	return gd.name + "(" + strings.Join(vals, ", ") + ")", len(sig.Results) > 0, gd.fallible, true

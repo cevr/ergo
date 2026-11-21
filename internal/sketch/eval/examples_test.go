@@ -35,6 +35,15 @@ import (
 // It is the full tier's (it checks every example program): -short skips it.
 // It builds and runs no Go: the recorded files are the built program's.
 // The setup scripts run under the kernel's memory bound (proclimit).
+// mainBudget is a whole program's budget: the evaluator is the reference
+// a case is held to (FLIP F8), not a check-time obligation, so it runs a
+// main past the obligation's 1,000,000 steps.
+var mainBudget = func() eval.Budget {
+	b := eval.DefaultBudget()
+	b.Steps = 100_000_000
+	return b
+}()
+
 func TestEvalAgreesOnExamples(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full tier: runs every example program")
@@ -47,9 +56,8 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agreed, ran := 0, 0
+	agreed, ran, differ := 0, 0, 0
 	skips := map[string][]string{}
-	var differ []string
 	for _, prog := range progs {
 		dir := filepath.Join(root, prog.Name())
 		cases, err := os.ReadDir(filepath.Join(dir, "cases"))
@@ -69,46 +77,53 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 			skips["no main package"] = append(skips["no main package"], prog.Name())
 			continue
 		}
-		a, err := sketchfront.CheckDir(mainDir)
-		if err != nil {
-			t.Fatalf("%s: %v", prog.Name(), err)
-		}
-		pkgs := a.Checked()
-		if len(pkgs) == 0 {
-			skips["the program does not check here"] = append(skips["the program does not check here"], prog.Name())
-			continue
-		}
-		for _, c := range cases {
-			label := prog.Name() + "/" + c.Name()
-			g, err := readGolden(filepath.Join(dir, "cases", c.Name()))
+		// A subtest per program and per case, so a failure, or a panic
+		// of the evaluator, names its case (fallout flip-g4).
+		t.Run(prog.Name(), func(t *testing.T) {
+			a, err := sketchfront.CheckDir(mainDir)
 			if err != nil {
-				t.Fatalf("%s: %v", label, err)
+				t.Fatal(err)
 			}
-			var files []eval.File
-			if g.setup {
-				var why string
-				files, why = setupFiles(t, filepath.Join(dir, "cases", c.Name()))
-				if why != "" {
-					skips[why] = append(skips[why], label)
-					continue
-				}
+			pkgs := a.Checked()
+			if len(pkgs) == 0 {
+				skips["the program does not check here"] = append(skips["the program does not check here"], prog.Name())
+				return
 			}
-			ran++
-			got, err := eval.RunMain(pkgs[len(pkgs)-1], eval.DefaultBudget(), eval.Process{Args: g.args, Env: g.env, Stdin: g.stdin, Files: files})
-			if err != nil {
-				t.Fatalf("%s: %v", label, err)
+			for _, c := range cases {
+				label := prog.Name() + "/" + c.Name()
+				t.Run(c.Name(), func(t *testing.T) {
+					g, err := readGolden(filepath.Join(dir, "cases", c.Name()))
+					if err != nil {
+						t.Fatal(err)
+					}
+					var files []eval.File
+					if g.setup {
+						var why string
+						files, why = setupFiles(t, filepath.Join(dir, "cases", c.Name()))
+						if why != "" {
+							skips[why] = append(skips[why], label)
+							return
+						}
+					}
+					ran++
+					got, err := eval.RunMain(pkgs[len(pkgs)-1], mainBudget, eval.Process{Args: g.args, Env: g.env, Stdin: g.stdin, Files: files})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got.Skipped != "" || got.Incomplete != "" {
+						why := got.Skipped + got.Incomplete
+						skips[why] = append(skips[why], fmt.Sprintf("%s@%s:%d", label, filepath.Base(got.Site.File), got.Site.Line))
+						return
+					}
+					if d := disagreement(g, got); d != "" {
+						differ++
+						t.Errorf("differs from its recorded output: %s", d)
+						return
+					}
+					agreed++
+				})
 			}
-			if got.Skipped != "" || got.Incomplete != "" {
-				why := got.Skipped + got.Incomplete
-				skips[why] = append(skips[why], fmt.Sprintf("%s@%s:%d", label, filepath.Base(got.Site.File), got.Site.Line))
-				continue
-			}
-			if d := disagreement(g, got); d != "" {
-				differ = append(differ, fmt.Sprintf("%s: %s", label, d))
-				continue
-			}
-			agreed++
-		}
+		})
 	}
 	skipped := 0
 	var reasons []string
@@ -117,13 +132,10 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 		reasons = append(reasons, why)
 	}
 	sort.Slice(reasons, func(i, j int) bool { return len(skips[reasons[i]]) > len(skips[reasons[j]]) })
-	t.Logf("census: %d cases run, %d agree, %d differ; %d listed as skipped", ran, agreed, len(differ), skipped)
+	t.Logf("census: %d cases run, %d agree, %d differ; %d listed as skipped", ran, agreed, differ, skipped)
 	for _, why := range reasons {
 		at := skips[why]
 		t.Logf("  %d\t%s\t%v", len(at), why, at[:min(3, len(at))])
-	}
-	if len(differ) > 0 {
-		t.Fatalf("%d cases differ from their recorded output:\n%s", len(differ), strings.Join(differ, "\n"))
 	}
 	if agreed == 0 {
 		t.Fatal("no case ran to its end at check time")
@@ -225,7 +237,12 @@ func setupFiles(t *testing.T, caseDir string) (files []eval.File, why string) {
 	work := t.TempDir()
 	cmd := exec.Command("sh", filepath.Join(caseDir, "setup.sh"), caseDir)
 	cmd.Dir = work
-	cmd.Env = []string{"HOME=" + work}
+	// git commit starts a detached `git maintenance run --auto` (git 2.47
+	// on), which outlives setup.sh and takes and drops
+	// .git/objects/maintenance.lock while the walk below reads the tree:
+	// a race that failed the walk's lstat now and then (MX-EVSLOT). The
+	// setup's git runs no maintenance.
+	cmd.Env = []string{"HOME=" + work, "GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0"}
 	if p, ok := os.LookupEnv("PATH"); ok {
 		cmd.Env = append(cmd.Env, "PATH="+p)
 	}

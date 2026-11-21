@@ -3,6 +3,7 @@ package bindc
 import (
 	"fmt"
 	"go/format"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -340,6 +341,24 @@ func (e *goEmitter) structDecl(d TypeDecl) {
 		e.p("\t_ [1]struct{} = [unsafe.Sizeof(%s{}.%s) - %d + 1]struct{}{}\n", gn, e.fieldName(d, i), f.Size)
 	}
 	e.p(")\n\n")
+	h := e.recordHeader(d)
+	if kinds := e.b.kinds[d.Name]; kinds != nil {
+		var names []string
+		for _, k := range kinds {
+			names = append(names, e.b.GoTypes[k])
+		}
+		e.p("// %s is a record that starts with a %s: one of %s.\n", e.b.RecordType(d.Name), gn, strings.Join(names, ", "))
+		e.p("// A function that takes one passes C the whole record, with its header's\n// autofill fields set and the record's size in its size field.\n")
+		e.p("type %s interface {\n\t// record returns the address of a filled copy of the record.\n\trecord() unsafe.Pointer\n}\n\n", e.b.RecordType(d.Name))
+	}
+	if h != "" {
+		fill := ""
+		if e.needsFill(d.Name) {
+			fill = "\ts.fill()\n"
+		}
+		e.p("// record makes %s a %s.\nfunc (s %s) record() unsafe.Pointer {\n%s\treturn unsafe.Pointer(&s)\n}\n\n",
+			gn, e.b.RecordType(h), gn, fill)
+	}
 	if !e.needsFill(d.Name) {
 		return
 	}
@@ -356,7 +375,25 @@ func (e *goEmitter) structDecl(d TypeDecl) {
 		}
 		e.fill("s."+fn, f.Type, 0)
 	}
+	if h != "" && h != d.Name {
+		if j := e.b.sizeField(h); j >= 0 {
+			// The header's size is the whole record's.
+			e.p("\ts.%s.%s = %d\n", e.fieldName(d, 0), e.fieldName(*e.b.k.types[h], j), d.Size)
+		}
+	}
 	e.p("}\n\n")
+}
+
+// recordHeader is the record header of which d is a record kind (d itself
+// for a header), or "".
+func (e *goEmitter) recordHeader(d TypeDecl) string {
+	if e.b.kinds[d.Name] != nil {
+		return d.Name
+	}
+	if len(d.Fields) > 0 && d.Fields[0].Type.Kind == TypeNamed && slices.Contains(e.b.kinds[d.Fields[0].Type.Name], d.Name) {
+		return d.Fields[0].Type.Name
+	}
+	return ""
 }
 
 // needsFillType reports whether a value of type t holds an autofill
@@ -559,6 +596,20 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			args = append(args, "_c"+strconv.Itoa(i))
 		case isPos && q.Class == ClassKey:
 			args = append(args, "_k"+strconv.Itoa(k.tokenOf(c, i)))
+		case isPos && q.Class == ClassValue && p.Type.LenExpr == "" && b.kinds[p.Type.Elem.Name] != nil:
+			// A record: its filled copy, or NULL for a nil record.
+			v := "_v" + strconv.Itoa(i)
+			e.p("\tvar %s unsafe.Pointer\n\tif %s != nil {\n\t\t%s = %s.record()\n\t}\n", v, gp.Name, v, gp.Name)
+			args = append(args, v)
+			keep = append(keep, v)
+		case isPos && q.Class == ClassOptional:
+			// A filled copy of the value, or NULL for nil.
+			v, s := "_v"+strconv.Itoa(i), "_s"+strconv.Itoa(i)
+			e.p("\tvar %s unsafe.Pointer\n\tvar %s %s\n\tif %s != nil {\n\t\t%s = *%s\n", v, s, b.GoType(*p.Type.Elem), gp.Name, s, gp.Name)
+			e.fill(s, *p.Type.Elem, 0)
+			e.p("\t\t%s = unsafe.Pointer(&%s)\n\t}\n", v, s)
+			args = append(args, v)
+			keep = append(keep, v)
 		case isPos && q.Class == ClassValue:
 			t := *p.Type.Elem
 			if p.Type.LenExpr != "" {

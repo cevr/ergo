@@ -1,0 +1,278 @@
+// The keys: the composer as a machine, what each key means in each
+// phase, and the status line that names the way out.
+
+import gent/agent
+import machines
+import strings
+import term
+import utf8
+
+// Line is the composer's text and its cursor: At is the count of runes
+// before it, from 0 (the start) to the text's runes (the end).
+type Line { Text string, At int }
+
+// Edit is the composer's step. A character or a paste is typed at the
+// cursor (a paste's line feeds become spaces: the composer is one line);
+// Backspace removes the rune before the cursor and Delete the one after
+// it; Left and Right move the cursor one rune, Home to the start and End
+// to the end. A key that would change nothing, and any other key, is
+// ignored. An At outside the text counts as the nearest end.
+func Edit(l Line, k term.Key) Decision[Line, Never] {
+	let n = utf8.RuneCount(l.Text)
+	let at = if l.At < 0 { 0 } else if l.At > n { n } else { l.At }
+	match k {
+	case term.Char as c:
+		typed(l.Text, at, c.Text)
+	case term.Paste as p:
+		typed(l.Text, at, strings.ReplaceAll(strings.ReplaceAll(p.Text, "\r\n", " "), "\n", " "))
+	case term.Backspace:
+		if at == 0 {
+			return Ignore
+		}
+		Stay[Line]{Next: Line{Text: runes(l.Text, 0, at-1) + runes(l.Text, at, n), At: at - 1}}
+	case term.Delete:
+		if at == n {
+			return Ignore
+		}
+		Stay[Line]{Next: Line{Text: runes(l.Text, 0, at) + runes(l.Text, at+1, n), At: at}}
+	case term.Left:
+		moved(l, at, at-1, n)
+	case term.Right:
+		moved(l, at, at+1, n)
+	case term.Home:
+		moved(l, at, 0, n)
+	case term.End:
+		moved(l, at, n, n)
+	case term.Return, term.Tab, term.Escape, term.Up, term.Down, term.Insert, term.PageUp, term.PageDown, term.F, term.Chord, term.Wheel, term.Resized, term.Interrupt, term.EndOfInput, term.Other:
+		Ignore
+	}
+}
+
+// typed is text with more typed at the cursor at, the cursor after it.
+func typed(text string, at int, more string) Decision[Line, Never] {
+	if more == "" {
+		return Ignore
+	}
+	let n = utf8.RuneCount(text)
+	Stay[Line]{Next: Line{Text: runes(text, 0, at) + more + runes(text, at, n), At: at + utf8.RuneCount(more)}}
+}
+
+// moved is l with its cursor, now at, moved to to, kept on the text of n
+// runes; a move that stays put is ignored.
+func moved(l Line, at int, to int, n int) Decision[Line, Never] {
+	let next = if to < 0 { 0 } else if to > n { n } else { to }
+	if next == at && l.At == at {
+		return Ignore
+	}
+	Stay[Line]{Next: Line{Text: l.Text, At: next}}
+}
+
+// runes is the runes of text from i to j.
+func runes(text string, i int, j int) string {
+	let mut from = len(text)
+	let mut to = len(text)
+	let mut k = 0
+	for b, _ in text {
+		if k == i {
+			from = b
+		}
+		if k == j {
+			to = b
+		}
+		k = k + 1
+	}
+	if from > to {
+		return ""
+	}
+	strings.Slice(text, from, to)
+}
+
+// Composer is the input line as a machine.
+type Composer machine[Line, term.Key] {
+	initial: Line{Text: "", At: 0},
+	step:    Edit,
+
+	// CursorStaysOnTheText: after any keys the cursor is on the text.
+	law CursorStaysOnTheText always onText,
+
+	// HomeThenTypeIsFirst: Home and then a character puts the character
+	// before the whole text, wherever the cursor was.
+	law HomeThenTypeIsFirst(l Line, c string) {
+		let home = machines.Next(l, Edit(l, term.Home))
+		c == "" || machines.Next(home, Edit(home, term.Char{Text: c})).Text == c+l.Text
+	},
+
+	// EndThenTypeIsLast: End and then a character puts the character
+	// after the whole text, wherever the cursor was.
+	law EndThenTypeIsLast(l Line, c string) {
+		let end = machines.Next(l, Edit(l, term.End))
+		c == "" || machines.Next(end, Edit(end, term.Char{Text: c})).Text == l.Text+c
+	},
+
+	// TypeThenBackspaceIsNoChange: a character typed and taken back with
+	// Backspace leaves the line as it was, wherever the cursor is; and a
+	// Backspace at the start of the line changes nothing.
+	law TypeThenBackspaceIsNoChange(l Line, c string) {
+		let line = Line{Text: l.Text, At: cursor(l)}
+		let one = runes(c, 0, 1)
+		let typedIn = machines.Next(line, Edit(line, term.Char{Text: one}))
+		let back = machines.Next(typedIn, Edit(typedIn, term.Backspace))
+		let start = Line{Text: l.Text, At: 0}
+		(one == "" || back == line) && machines.Next(start, Edit(start, term.Backspace)) == start
+	},
+
+	// PasteIsTyping: a paste of text with no line feed is the text typed
+	// a rune at a time (text that is UTF-8: a byte that is not is no
+	// rune to type).
+	law PasteIsTyping(l Line, text string) {
+		let flat = strings.ReplaceAll(strings.ReplaceAll(text, "\r", ""), "\n", "")
+		if !utf8.ValidString(flat) {
+			return true
+		}
+		let mut typedIn = l
+		for r in flat {
+			typedIn = machines.Next(typedIn, Edit(typedIn, term.Char{Text: utf8.RuneText(r)}))
+		}
+		machines.Next(l, Edit(l, term.Paste{Text: flat})) == typedIn
+	},
+}
+
+// onText reports whether l's cursor is on its text.
+func onText(l Line) bool { l.At >= 0 && l.At <= utf8.RuneCount(l.Text) }
+
+// Before and After are l's text before and after its cursor.
+func Before(l Line) string { runes(l.Text, 0, cursor(l)) }
+
+func After(l Line) string { runes(l.Text, cursor(l), utf8.RuneCount(l.Text)) }
+
+// cursor is l.At kept on the text.
+func cursor(l Line) int {
+	let n = utf8.RuneCount(l.Text)
+	if l.At < 0 { 0 } else if l.At > n { n } else { l.At }
+}
+
+// Action is what a key does: edit the composer, send the agent a signal,
+// send the composer's line, or nothing.
+type Action = Type{Key term.Key} | Send{Signal agent.Signal} | SendLine{} | Page{Up bool} | Toggle{} | Nothing{}
+
+// Intent is what k does in phase p. Ctrl-C quits when idle and stops the
+// turn otherwise; Esc stops the turn; Enter sends the line when idle; y
+// and n answer an ask; the end of the input quits. Typing goes to the
+// composer in every phase, so a person may write the next message while
+// a turn runs.
+func Intent(k term.Key, p agent.Phase) Action {
+	match (p, k) {
+	case (agent.Ended, _):
+		Nothing
+	case (_, term.EndOfInput):
+		Send{Signal: agent.Quit}
+	case (agent.Idle, term.Interrupt):
+		Send{Signal: agent.Quit}
+	case (_, term.Interrupt):
+		Send{Signal: agent.Interrupt}
+	case (agent.Idle, term.Escape):
+		Nothing
+	case (_, term.Escape):
+		Send{Signal: agent.Interrupt}
+	case (agent.Idle, term.Return):
+		SendLine
+	case (agent.Approving, term.Char as c):
+		match c.Text {
+		case "y":
+			Send{Signal: agent.Approve}
+		case "n":
+			Send{Signal: agent.Decline}
+		case _:
+			Type{Key: k}
+		}
+	case (_, term.Char), (_, term.Backspace), (_, term.Delete), (_, term.Left), (_, term.Right), (_, term.Home), (_, term.End), (_, term.Paste):
+		Type{Key: k}
+	case (_, term.PageUp):
+		Page{Up: true}
+	case (_, term.PageDown):
+		Page{Up: false}
+	case (_, term.Tab):
+		Toggle
+	case (_, term.Return), (_, term.Up), (_, term.Down), (_, term.Insert), (_, term.F), (_, term.Chord), (_, term.Wheel), (_, term.Resized), (_, term.Other):
+		Nothing
+	}
+}
+
+// Exit is the key that leaves phase p: Ctrl-C quits when idle, Esc stops
+// a turn, and n refuses an ask. Ended has none: the program has left.
+func Exit(p agent.Phase) Option[term.Key] {
+	match p {
+	case agent.Idle:
+		Some[term.Key]{Value: term.Interrupt}
+	case agent.Asking, agent.Waiting, agent.Running:
+		Some[term.Key]{Value: term.Escape}
+	case agent.Approving:
+		Some[term.Key]{Value: term.Char{Text: "n"}}
+	case agent.Ended:
+		None
+	}
+}
+
+// Name is how the status line names k.
+func Name(k term.Key) string {
+	match k {
+	case term.Interrupt:
+		"ctrl-c"
+	case term.Escape:
+		"esc"
+	case term.Return:
+		"enter"
+	case term.Char as c:
+		c.Text
+	case term.Home:
+		"home"
+	case term.End:
+		"end"
+	case term.Backspace, term.Tab, term.Up, term.Down, term.Left, term.Right, term.Insert, term.Delete, term.PageUp, term.PageDown, term.F, term.Chord, term.Paste, term.Wheel, term.Resized, term.EndOfInput, term.Other:
+		"?"
+	}
+}
+
+// Status is the status line of s: what the agent is doing, the steps of
+// the turn, and the keys that act, its Exit first.
+func Status(s agent.State) string {
+	let steps = "step \(s.Steps)/\(s.Limits.MaxSteps)"
+	match s.Phase {
+	case agent.Idle:
+		"ready · enter send · ctrl-c quit"
+	case agent.Asking:
+		"thinking · " + steps + " · esc stop"
+	case agent.Waiting as w:
+		"retry \(w.Try) in \(agent.Wait(w.Ms)) · " + steps + " · esc stop"
+	case agent.Approving as a:
+		"run " + a.Call.Name + "? · " + steps + " · n no · y yes · esc stop"
+	case agent.Running as r:
+		"running " + r.Call.Name + " · " + steps + " · esc stop"
+	case agent.Ended:
+		"ended"
+	}
+}
+
+// EveryStateShowsItsExit: in every phase but Ended, the status line names
+// a key whose intent is a signal the agent takes there.
+law EveryStateShowsItsExit(s agent.State) {
+	match Exit(s.Phase) {
+	case None:
+		match s.Phase {
+		case agent.Ended:
+			true
+		case agent.Idle, agent.Asking, agent.Waiting, agent.Approving, agent.Running:
+			false
+		}
+	case Some[term.Key] as k:
+		if !strings.Contains(Status(s), Name(k.Value)) {
+			return false
+		}
+		match Intent(k.Value, s.Phase) {
+		case Send as send:
+			machines.Can(agent.Step, s, send.Signal)
+		case Type, SendLine, Page, Toggle, Nothing:
+			false
+		}
+	}
+}

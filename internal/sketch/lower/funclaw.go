@@ -22,8 +22,9 @@ import (
 // function they reach (an `import go` function too: its binding is an
 // `extern go` target). So an edit of any body the law reaches makes the entry
 // stale, and an edit of one it does not reach leaves it current. with is
-// the keys' shown forms.
-func FuncLawDigest(law *check.Law, keys ForeignKeys) (digest, with string) {
+// the keys' shown forms, and build the build configuration they depend on
+// (the entry's under field, LAW-BUILD-KEY).
+func FuncLawDigest(law *check.Law, keys ForeignKeys) (digest, with, build string) {
 	d := newDigester()
 	d.decl("law "+law.Pkg.Path+"."+law.Name, law.Pkg, law.Decl)
 	decls := make([]string, 0, len(d.decls))
@@ -36,8 +37,8 @@ func FuncLawDigest(law *check.Law, keys ForeignKeys) (digest, with string) {
 	for _, k := range decls {
 		fmt.Fprintf(h, "%d:%s", len(k), k)
 	}
-	with = d.foreignKeys(h, keys)
-	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil)), with
+	with, build = d.foreignKeys(h, keys)
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil)), with, build
 }
 
 // funcLaw is a top-level law's entry name: its package's module-wide
@@ -54,12 +55,12 @@ func (n LedgerNames) funcLaw(law *check.Law) string {
 // `at (…)` is a site's constants and a key part, and a value may be
 // private.
 func FuncLawEntry(law *check.Law, names LedgerNames, verdict string, keys ForeignKeys) LedgerEntry {
-	d, with := FuncLawDigest(law, keys)
+	d, with, build := FuncLawDigest(law, keys)
 	by := "eval"
 	if verdict == "skipped" {
 		by = ""
 	}
-	return LedgerEntry{Law: names.funcLaw(law), Verdict: verdict, By: by, With: with, Digest: d}
+	return LedgerEntry{Law: names.funcLaw(law), Build: build, Verdict: verdict, By: by, With: with, Digest: d}
 }
 
 // AdmitFunc admits the top-level rewrite law law at a site: the law is in
@@ -76,9 +77,9 @@ func (e *LedgerEvidence) AdmitFunc(law *check.Law) (bool, string) {
 // name, the entry's verdict, run and foreign keys, its state (current,
 // stale or missing), and whether a site may use it, else why not.
 type funcVerdict struct {
-	Key, Verdict, By, With, State string
-	OK                            bool
-	Why                           string
+	Key, Build, Verdict, By, With, State string
+	OK                                   bool
+	Why                                  string
 }
 
 // funcEvidence is evidence that answers for top-level rewrite laws: the
@@ -89,15 +90,16 @@ type funcEvidence interface {
 
 func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 	key := e.names.funcLaw(law)
-	if law.FuncRewrite == nil {
+	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
-	entry, found := e.entries[key]
-	digest, with := FuncLawDigest(law, e.keys)
+	digest, with, build := FuncLawDigest(law, e.keys)
+	full := ledgerKey(key, "", "", build)
+	entry, found := e.entries[full]
 	if found {
-		e.read[key] = true
+		e.read[full] = true
 	}
-	return judgeFunc(key, entry, found, digest, with, "ergo.laws: ", func() {
+	return judgeFunc(key, build, entry, found, digest, with, "ergo.laws: ", func() {
 		e.refused[fmt.Sprintf("ergo.laws: law %s is refuted, and the sources are those it was refuted on: the build stops; correct the law or what it reaches, then run ergo test", key)] = true
 	})
 }
@@ -107,26 +109,27 @@ func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 // refuses the rewrite and stops nothing: the compiler shipped it.
 func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
 	key := LedgerNames(nil).funcLaw(law)
-	if law.FuncRewrite == nil {
+	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
-	entry, found := e.entries[key]
-	d, with := FuncLawDigest(law, ShippedForeignKeys)
-	return judgeFunc(key, entry, found, d, with, "the std law ledger: ", func() {})
+	d, with, build := FuncLawDigest(law, ShippedForeignKeys)
+	entry, found := e.entries[ledgerKey(key, "", "", build)]
+	return judgeFunc(key, build, entry, found, d, with, "the std law ledger: ", func() {})
 }
 
 // judgeFunc is the one judgement of a top-level law's entry: missing,
 // stale, refuted (onRefuted is called), a level admitLevel refuses, or
 // admitted.
-func judgeFunc(key string, entry LedgerEntry, found bool, digest, with, ledger string, onRefuted func()) funcVerdict {
-	v := funcVerdict{Key: key, Verdict: entry.Verdict, By: entry.By, With: with, State: "current"}
+func judgeFunc(key, build string, entry LedgerEntry, found bool, digest, with, ledger string, onRefuted func()) funcVerdict {
+	v := funcVerdict{Key: key, Build: build, Verdict: entry.Verdict, By: entry.By, With: with, State: "current"}
+	key = ledgerKey(key, "", "", build)
 	switch {
 	case !found:
-		v.State, v.Why = "missing", ledger+key+" is missing; run ergo test"
+		v.State, v.Why = "missing", ledger+key+" is missing"+stdUntypedWhy()+"; run ergo test"
 	case digest != entry.Digest:
-		v.State, v.Why = "stale", ledger+key+" is stale; run ergo test"
+		v.State, v.Why = "stale", ledger+key+" is stale"+stdUntypedWhy()+"; run ergo test"
 		if entry.With != with {
-			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
+			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + stdUntypedWhy() + "; run ergo test"
 		}
 	case entry.Verdict == "refuted":
 		v.Why = "law " + key + " is refuted"
@@ -154,7 +157,7 @@ func (e *LedgerEvidence) funcSite(file string, line, col int, v funcVerdict, app
 	if v.State != "current" {
 		why = ""
 	}
-	e.sites[site] = &RewriteSite{File: file, Line: line, Column: col, Law: v.Key, Verdict: v.Verdict, By: v.By, With: v.With, State: v.State, Applied: applied, Why: why}
+	e.sites[site] = &RewriteSite{File: file, Line: line, Column: col, Law: v.Key, Build: v.Build, Verdict: v.Verdict, By: v.By, With: v.With, State: v.State, Applied: applied, Why: why}
 	return site
 }
 

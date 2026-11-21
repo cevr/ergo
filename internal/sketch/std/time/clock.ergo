@@ -57,7 +57,16 @@ func Now(_ Host) Time {
 // clock, as Go's time.Since does; otherwise it is h.Now().Sub(t).
 func Elapsed(h Host, t Time) duration {
 	if t.hasMono {
-		subMono(hostMono(), t.mono)
+		// Sub's monotonic difference, saturated where it overflows.
+		let now = hostMono()
+		let m = now - t.mono
+		if m < 0 && now > t.mono {
+			return duration(maxDuration)
+		}
+		if m > 0 && now < t.mono {
+			return duration(minDuration)
+		}
+		duration(m)
 	} else {
 		h.Now().Sub(t)
 	}
@@ -87,8 +96,12 @@ extern go ergo.local/prototype/runtime/v1.Timeline type Timeline {
 	// deadline it reaches, in deadline order, and returns once the tasks
 	// it woke wait again. A negative d is a defect.
 	Advance(d duration),
-	// Sleepers is the number of tasks in Wait.
+	// Sleepers is the number of deadlines armed: the tasks in Wait and
+	// the alarms of its AlarmClock.
 	Sleepers() int,
+	// Alarms is the timeline as the runtime's waits use it: Advance
+	// fires an alarm at its deadline, as it wakes a sleeper.
+	Alarms() AlarmClock,
 
 	// AdvanceMovesRead: Advance(d) moves the monotonic reading by d, for a
 	// d of zero or more.
@@ -106,6 +119,10 @@ extern go ergo.local/prototype/runtime/v1.Timeline type Timeline {
 // (TestStdHostProvidersHaveAuthority), and a Manual's timeline is state.
 // The calling task is the first member of its domain (stdlib.md, time 6).
 func NewManual(sec int64) Manual { Manual{line: newTimeline(sec, 0)} }
+
+// atEpoch is the context Timeline's laws run under (types.md, Laws 10):
+// each case starts a fresh timeline at the Unix epoch.
+let atEpoch = context { Timeline: newTimeline(0, 0) }
 
 // Now is the Manual's time. Its monotonic reading is the time Advance has
 // moved it since NewManual.
@@ -128,7 +145,19 @@ func Sleep(m Manual, d duration) { m.line.Wait(d) }
 // negative d is a defect: time never falls.
 func Advance(m Manual, d duration) { m.line.Advance(d) }
 
-// Sleepers is the number of tasks asleep on m.
+// Sleepers is the number of deadlines armed on m: the tasks asleep on it
+// and the runtime's alarms (Alarms).
 func Sleepers(m Manual) int { m.line.Sleepers() }
+
+// Asleep says whether t, or a task started below it, is asleep on m, so
+// only m's Advance wakes it. A task that ended is asleep on nothing
+// (FK4-g2: the ui test host's Settle returns when each fetch left is).
+func Asleep[T, E](m Manual, t Task[T, E]) bool { timeAsleep(m.line, t) }
+
+extern go ergo.local/prototype/runtime/v1.TimeAsleep func timeAsleep[T, E](l Timeline, t Task[T, E]) bool
+
+// Alarms is m's time as the runtime's waits use it: Advance fires each
+// alarm at its deadline, as it wakes each sleeper.
+func Alarms(m Manual) AlarmClock { m.line.Alarms() }
 
 extern go ergo.local/prototype/runtime/v1.NewTimeline func newTimeline(sec int64, nsec int64) Timeline

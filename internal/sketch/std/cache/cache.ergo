@@ -1,0 +1,674 @@
+// Package cache remembers the value of a lookup per key (docs/spec/
+// stdlib.md, cache; std-spike C1). It is Effect's Cache: a capacity, a time
+// to live, and one lookup per key when many tasks ask at once; and it adds
+// an idle time and a release for each entry that leaves, Effect's
+// ScopedCache finalizer. A Cache is a synchronised handle: every copy is
+// the same cache, and tasks share it. Its times are read from time.Clock,
+// so a test moves them with time.Manual.
+//
+// Not taken from Effect: the lookup is given to each Get, as Go's
+// singleflight.Group.Do takes it, so its failure row E and its capability
+// row R are the caller's, not the cache's type; a failed lookup is not
+// remembered (Effect keeps the Exit until its time to live), so the next
+// Get runs it again; and times are durations, not Duration.Input strings.
+// Go control: a map under a mutex, a recency list and
+// golang.org/x/sync/singleflight.
+
+import queue
+import scope
+import sync
+import task
+import time
+
+// BadConfig is a Config New refuses: a capacity under one, or a negative
+// time.
+type BadConfig { Reason string }
+
+// Config is how much a cache holds and for how long. Capacity is the most
+// entries it holds; when a new one would pass it, the entry read least
+// recently leaves. Life is how long an entry lives after its lookup ends
+// (0: for ever); Idle is how long it lives unread (0: for ever).
+type Config { Capacity int, Life duration, Idle duration }
+
+// Stats is how a cache has answered: Hits are Gets it answered from an
+// entry, Misses are Gets that ran their lookup, and Size is the entries it
+// holds now, expired ones it has not yet dropped included.
+type Stats { Hits int, Misses int, Size int }
+
+// Cache is a cache from K to V.
+type Cache[K comparable, V] { state sync.Ref[table[K, V]], config Config, release func(k K, v V) }
+
+// cell is one place of the table: a key and its value, when its lookup
+// ended, when it was last read, and its stamp, its place in the recency
+// order. A cell no key indexes is free, and its stamp is -1.
+type cell[K, V] { key K, value V, born time.Time, used time.Time, stamp int64 }
+
+// loading is a lookup in flight: its number, and the queue its waiters pop,
+// which it ends when the lookup is over, however it ends.
+type loading { id int64, done queue.Queue[int] }
+
+// mark is a cell's place in the recency order. A mark whose stamp is not
+// its cell's stamp now is stale and skipped.
+type mark { at int, stamp int64 }
+
+// leaving is an entry that left, for its release.
+type leaving[K, V] { key K, value V }
+
+// table is what a Cache holds. The entries are cells of one slice, which
+// index finds by key, so a hit reads the map once and writes its cell in
+// place; free holds the cells evicted entries left. The lookups in flight
+// are in loads, by key. The recency order runs from order[head], oldest
+// first. size is the number of entries; next numbers the stamps and the
+// lookups; hits and misses are the counts.
+type table[K comparable, V] {
+	index  Map[K, int],
+	cells  []cell[K, V],
+	free   []int,
+	loads  Map[K, loading],
+	order  []mark,
+	head   int,
+	size   int,
+	next   int64,
+	hits   int,
+	misses int,
+}
+
+// New is an empty cache of config.
+func New[K comparable, V](config Config) Cache[K, V] fails BadConfig {
+	try NewReleasing[K, V](config, func(k K, v V) {})
+}
+
+// NewReleasing is an empty cache of config that calls release once for
+// each entry that leaves it: evicted, expired, replaced or invalidated.
+// It never calls it for an entry it still holds, and calls it outside the
+// cache's state, so release may use the cache.
+func NewReleasing[K comparable, V](config Config, release own func(k K, v V)) Cache[K, V] fails BadConfig {
+	if config.Capacity < 1 {
+		return BadConfig{Reason: "capacity \(config.Capacity): a cache holds one entry or more"}
+	}
+	if config.Life < 0s || config.Idle < 0s {
+		return BadConfig{Reason: "a negative time: use 0 for an entry that does not expire"}
+	}
+	let empty = table[K, V]{index: Map[K, int]{}, cells: []cell[K, V]{}, free: []int{}, loads: Map[K, loading]{}, order: []mark{}, head: 0, size: 0, next: 0, hits: 0, misses: 0}
+	Cache[K, V]{state: sync.NewRef[table[K, V]](empty), config: config, release: release}
+}
+
+// found, waiting and loader are what a Get does next: return an entry's
+// value, wait for a lookup in flight, or run the lookup itself (after the
+// release of the expired entry it replaces, if any).
+type found[V] { value V }
+type waiting { done queue.Queue[int] }
+type loader[K, V] { id int64, done queue.Queue[int], gone []leaving[K, V] }
+type step[K, V] = found[V] | waiting | loader[K, V]
+
+// Get is the value of k: the entry's, when the cache holds a live one, or
+// else lookup's, which the cache keeps. While one Get runs the lookup of
+// k, every other Get of k waits for it and then reads its entry, so lookup
+// runs once for many callers. A failure of lookup is the failure of the Get
+// that ran it and is not kept: a Get that waited runs the lookup again. If
+// the task that runs the lookup stops, the lookup is over, and the next
+// waiting Get runs it.
+func Get[K comparable, V, E, R](c Cache[K, V], k K, lookup func(k K) V fails E needs R) V fails E needs time.Clock | R {
+	for {
+		let now = stampOf(c.config)
+		let next = sync.Modify(c.state, func(t table[K, V]) (step[K, V], table[K, V]) { begin(c.config, k, now, t) })
+		match next {
+		case found[V] as f:
+			return f.value
+		case waiting as w:
+			let _ = w.done.Pop() catch {
+			case queue.Closed:
+				0
+			}
+		case loader[K, V] as l:
+			releaseAll(c, l.gone)
+			return try run(c, k, l, lookup)
+		}
+	}
+}
+
+// begin is the step of a Get of k at now, and the table after it. The
+// table is the last parameter of each helper below, bound to a let mut
+// first, so a helper takes it over and writes it in place (types.md,
+// Bindings 2, owned parameters). A hit is one read of index and a write of
+// its cell; a miss also reads loads, and writes it when it starts the
+// lookup.
+func begin[K comparable, V](config Config, k K, now time.Time, t table[K, V]) (step[K, V], table[K, V]) {
+	let mut u = t
+	match u.index.Get(k) {
+	case Some[int] as i:
+		let e = u.cells[i.Value]
+		if live(config, e, now) {
+			u = touch(i.Value, cell[K, V]{key: k, value: e.value, born: e.born, used: now, stamp: u.next}, u)
+			u.hits += 1
+			return (found[V]{value: e.value}, u)
+		}
+		u = drop(i.Value, u)
+		let (l, w) = startLoad(k, u)
+		(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{leaving[K, V]{key: k, value: e.value}}}, w)
+	case None:
+		match u.loads.Get(k) {
+		case Some[loading] as l:
+			(waiting{done: l.Value.done}, u)
+		case None:
+			let (l, w) = startLoad(k, u)
+			(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{}}, w)
+		}
+	}
+}
+
+// startLoad puts a new lookup in flight for k and counts a miss.
+func startLoad[K comparable, V](k K, t table[K, V]) (loading, table[K, V]) {
+	let mut u = t
+	let l = loading{id: u.next, done: queue.New[int](0)}
+	u.loads[k] = l
+	u.next += 1
+	u.misses += 1
+	(l, u)
+}
+
+// run runs the lookup of l and keeps its value, if k is still l's: a Put or
+// an Invalidate while it ran wins. However run ends, l's waiters wake.
+func run[K comparable, V, E, R](c Cache[K, V], k K, l loader[K, V], lookup func(k K) V fails E needs R) V fails E needs time.Clock | R {
+	let mut kept = false
+	scope.OnExit() {
+		// keep's Modify has ended or left l's lookup when the lookup gave
+		// its value, so only a lookup that failed or stopped is abandoned.
+		if !kept {
+			let _ = sync.Modify(c.state, func(t table[K, V]) (bool, table[K, V]) { abandon(k, l.id, t) })
+		}
+		l.done.End()
+	}
+	let v = try lookup(k)
+	let now = stampOf(c.config)
+	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) { keep(c.config, k, l.id, v, now, t) })
+	kept = true
+	releaseAll(c, gone)
+	v
+}
+
+// inFlight reports whether id is the lookup of k in flight in t.
+func inFlight[K comparable, V](t table[K, V], k K, id int64) bool {
+	match t.loads.Get(k) {
+	case Some[loading] as l:
+		l.Value.id == id
+	case None:
+		false
+	}
+}
+
+// abandon ends k's lookup if it is still the lookup id in flight.
+func abandon[K comparable, V](k K, id int64, t table[K, V]) (bool, table[K, V]) {
+	let mut u = t
+	if !inFlight(u, k, id) {
+		return (false, u)
+	}
+	u.loads = u.loads.Delete(k)
+	(true, u)
+}
+
+// keep stores v for k if k's lookup in flight is still id, and evicts down
+// to the capacity.
+func keep[K comparable, V](config Config, k K, id int64, v V, now time.Time, t table[K, V]) ([]leaving[K, V], table[K, V]) {
+	let mut u = t
+	if !inFlight(u, k, id) {
+		return ([]leaving[K, V]{}, u)
+	}
+	u.loads = u.loads.Delete(k)
+	u = place(k, v, now, u)
+	evict(config, u)
+}
+
+// place stores a new entry of v for k, which t does not index, in a free
+// cell or a new one, at the back of the recency order.
+func place[K comparable, V](k K, v V, now time.Time, t table[K, V]) table[K, V] {
+	let mut u = t
+	let e = cell[K, V]{key: k, value: v, born: now, used: now, stamp: u.next}
+	let n = len(u.free)
+	let mut at = len(u.cells)
+	if n > 0 {
+		at = u.free[n-1]
+		u.free = u.free[0 : n-1]
+		u.cells[at] = e
+	} else {
+		u.cells = u.cells.Append(e)
+	}
+	u.index[k] = at
+	u.size += 1
+	// Assigned back rather than returned: the take-over of an owned
+	// argument applies to `u = f(u)`, and a returned call clones the table.
+	u = touch(at, e, u)
+	u
+}
+
+// touch writes e into the cell at, at the back of the recency order with
+// e's stamp, the next stamp, and drops stale marks when they outnumber the
+// live ones.
+func touch[K comparable, V](at int, e cell[K, V], t table[K, V]) table[K, V] {
+	let mut u = t
+	u.cells[at] = e
+	u.order = u.order.Append(mark{at: at, stamp: e.stamp})
+	u.next += 1
+	if len(u.order)-u.head > 2*u.size+32 {
+		let mut kept = []mark{}
+		for i in u.head..len(u.order) {
+			if current(u, u.order[i]) {
+				kept = kept.Append(u.order[i])
+			}
+		}
+		u.order = kept
+		u.head = 0
+	}
+	u
+}
+
+// current reports whether m is its cell's place in the order now.
+func current[K comparable, V](t table[K, V], m mark) bool { t.cells[m.at].stamp == m.stamp }
+
+// drop frees the cell at and its key's index.
+func drop[K comparable, V](at int, t table[K, V]) table[K, V] {
+	let mut u = t
+	let e = u.cells[at]
+	u.index = u.index.Delete(e.key)
+	u.cells[at] = cell[K, V]{key: e.key, value: e.value, born: e.born, used: e.used, stamp: -1}
+	u.free = u.free.Append(at)
+	u.size -= 1
+	u
+}
+
+// evict drops the entries read least recently until t holds no more than
+// the capacity.
+func evict[K comparable, V](config Config, t table[K, V]) ([]leaving[K, V], table[K, V]) {
+	let mut u = t
+	let mut gone = []leaving[K, V]{}
+	for u.size > config.Capacity && u.head < len(u.order) {
+		let m = u.order[u.head]
+		u.head += 1
+		if current(u, m) {
+			let e = u.cells[m.at]
+			u = drop(m.at, u)
+			gone = gone.Append(leaving[K, V]{key: e.key, value: e.value})
+		}
+	}
+	(gone, u)
+}
+
+// stampOf is the time to stamp an entry with: the clock's, or, for a
+// config with no Life and no Idle, which never reads a stamp (live), the
+// zero instant, so such a cache reads no clock.
+func stampOf(config Config) time.Time needs time.Clock {
+	if config.Life == 0s && config.Idle == 0s {
+		return time.Unix(0, 0)
+	}
+	time.Clock.Now()
+}
+
+// live reports whether e is younger than the life and was read within the
+// idle time, at now.
+func live[K, V](config Config, e cell[K, V], now time.Time) bool {
+	(config.Life == 0s || time.Sub(now, e.born) < config.Life) && (config.Idle == 0s || time.Sub(now, e.used) < config.Idle)
+}
+
+// releaseAll calls c's release on each entry of gone, in order.
+func releaseAll[K comparable, V](c Cache[K, V], gone []leaving[K, V]) {
+	for g in gone {
+		c.release(g.key, g.value)
+	}
+}
+
+// Peek is k's value when the cache holds a live entry of k. It runs no
+// lookup, does not wait for one, and does not count as a read.
+func Peek[K comparable, V](c Cache[K, V], k K) Option[V] needs time.Clock {
+	let now = stampOf(c.config)
+	let held = sync.Modify(c.state, func(t table[K, V]) (Option[cell[K, V]], table[K, V]) {
+		let e = match t.index.Get(k) {
+		case Some[int] as i:
+			Some[cell[K, V]]{Value: t.cells[i.Value]}
+		case None:
+			None
+		}
+		(e, t)
+	})
+	match held {
+	case Some[cell[K, V]] as e:
+		if live(c.config, e.Value, now) { Some[V]{Value: e.Value.value} } else { None }
+	case None:
+		None
+	}
+}
+
+// Put stores v for k, as a lookup that ended now would. It replaces an
+// entry of k, which leaves, and wins over a lookup of k in flight, whose
+// waiters then read v.
+func Put[K comparable, V](c Cache[K, V], k K, v V) needs time.Clock {
+	let now = stampOf(c.config)
+	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
+		let (old, u) = remove(k, t)
+		let w = place(k, v, now, u)
+		let (evicted, x) = evict(c.config, w)
+		let mut all = old
+		for e in evicted {
+			all = all.Append(e)
+		}
+		(all, x)
+	})
+	releaseAll(c, gone)
+}
+
+// Invalidate drops k's entry, which leaves, and any lookup of k in flight,
+// whose value is then not kept. It reports whether there was either.
+func Invalidate[K comparable, V](c Cache[K, V], k K) bool {
+	let (gone, had) = sync.Modify(c.state, func(t table[K, V]) (([]leaving[K, V], bool), table[K, V]) {
+		let had = holds(t, k)
+		let (old, u) = remove(k, t)
+		((old, had), u)
+	})
+	releaseAll(c, gone)
+	had
+}
+
+// InvalidateAll drops every entry, each of which leaves, and every lookup in
+// flight.
+func InvalidateAll[K comparable, V](c Cache[K, V]) {
+	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
+		let mut out = []leaving[K, V]{}
+		for k, at in t.index {
+			out = out.Append(leaving[K, V]{key: k, value: t.cells[at].value})
+		}
+		(out, table[K, V]{..t, index: Map[K, int]{}, cells: []cell[K, V]{}, free: []int{}, loads: Map[K, loading]{}, order: []mark{}, head: 0, size: 0})
+	})
+	releaseAll(c, gone)
+}
+
+// Prune drops every entry that has expired at now; each leaves.
+func Prune[K comparable, V](c Cache[K, V]) needs time.Clock {
+	let now = stampOf(c.config)
+	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
+		let mut u = t
+		let mut out = []leaving[K, V]{}
+		for k, at in t.index {
+			let e = t.cells[at]
+			if !live(c.config, e, now) {
+				u = drop(at, u)
+				out = out.Append(leaving[K, V]{key: k, value: e.value})
+			}
+		}
+		(out, u)
+	})
+	releaseAll(c, gone)
+}
+
+// holds reports whether t has an entry or a lookup in flight for k.
+func holds[K comparable, V](t table[K, V], k K) bool {
+	match t.index.Get(k) {
+	case Some[int]:
+		true
+	case None:
+		match t.loads.Get(k) {
+		case Some[loading]:
+			true
+		case None:
+			false
+		}
+	}
+}
+
+// remove drops k's entry and its lookup in flight, and gives the entry
+// that leaves, if any.
+func remove[K comparable, V](k K, t table[K, V]) ([]leaving[K, V], table[K, V]) {
+	let mut u = t
+	u.loads = u.loads.Delete(k)
+	match u.index.Get(k) {
+	case Some[int] as i:
+		let e = u.cells[i.Value]
+		u = drop(i.Value, u)
+		([]leaving[K, V]{leaving[K, V]{key: k, value: e.value}}, u)
+	case None:
+		([]leaving[K, V]{}, u)
+	}
+}
+
+// StatsOf is c's counts now.
+func StatsOf[K comparable, V](c Cache[K, V]) Stats {
+	sync.Modify(c.state, func(t table[K, V]) (Stats, table[K, V]) { (Stats{Hits: t.hits, Misses: t.misses, Size: t.size}, t) })
+}
+
+// NewRefusesBadConfig: New makes a cache of a capacity of one or more and
+// times of zero or more, and refuses every other config.
+law NewRefusesBadConfig(capacity int, life int64, idle int64) {
+	let config = Config{Capacity: capacity, Life: duration(life), Idle: duration(idle)}
+	let ok = capacity >= 1 && life >= 0 && idle >= 0
+	let _ = New[int, int](config) catch {
+	case BadConfig:
+		return !ok
+	}
+	ok
+}
+
+// FailureIsNotKept: a lookup that fails fails its Get and leaves no entry,
+// so the next Get runs the lookup again.
+law FailureIsNotKept(k int, v int) {
+	let m = time.NewManual(0)
+	let c = New[int, int](Config{Capacity: 1, Life: 0s, Idle: 0s}) catch {
+	case BadConfig:
+		return false
+	}
+	let ok = with context { time.Clock: m } {
+		let failed = Get(c, k, func(key int) int fails BadConfig { BadConfig{Reason: "down"} }) catch {
+		case BadConfig:
+			-1
+		}
+		let mut runs = 0
+		let got = Get(c, k, func(key int) int {
+			runs += 1
+			v
+		})
+		failed == -1 && got == v && runs == 1 && StatsOf(c).Size == 1
+	}
+	ok
+}
+
+// OneLookupAtOnce: three tasks that Get one key at once run at most one
+// lookup at a time, and each gets its value. The lookup holds until the
+// law ends a gate, so the tasks that come while it runs wait for it. Under
+// Go's scheduler the overlap is likely; `ergo test --explore` searches the
+// schedules (examples/lru's explored test).
+law OneLookupAtOnce(k int) {
+	let c = New[int, int](Config{Capacity: 4, Life: 0s, Idle: 0s}) catch {
+	case BadConfig:
+		return false
+	}
+	let inflight = sync.NewRef[int](0)
+	let most = sync.NewRef[int](0)
+	let gate = queue.New[int](0)
+	let m = time.NewManual(0)
+	let ok = with context { time.Clock: m } {
+		let a = task.Go() { Get(c, k, func(key int) int { gated(inflight, most, gate, key) }) }
+		let b = task.Go() { Get(c, k, func(key int) int { gated(inflight, most, gate, key) }) }
+		let d = task.Go() { Get(c, k, func(key int) int { gated(inflight, most, gate, key) }) }
+		for inflight.Get() == 0 {
+		}
+		gate.End()
+		let sum = a.Wait() + b.Wait() + d.Wait()
+		sum == 3*(k%1000) && most.Get() == 1 && StatsOf(c).Misses+StatsOf(c).Hits == 3
+	}
+	ok
+}
+
+// gated is a lookup that counts the lookups in flight, keeps the most, and
+// holds until gate ends.
+func gated(inflight sync.Ref[int], most sync.Ref[int], gate queue.Queue[int], key int) int {
+	let now = sync.Modify(inflight, func(v int) (int, int) { (v + 1, v + 1) })
+	most.Update(func(v int) int { if now > v { now } else { v } })
+	let _ = gate.Pop() catch {
+	case queue.Closed:
+		0
+	}
+	inflight.Update(func(v int) int { v - 1 })
+	key % 1000
+}
+
+// ModelAgrees: sixty operations drawn from seed (Get, Put, Invalidate,
+// Prune, and moves of a manual clock) on a cache of a drawn capacity, life
+// and idle time give, step by step, the value, whether the lookup ran, the
+// entries that left and the counts of a reference model: a list of
+// entries from the least recently read, scanned in full.
+law ModelAgrees(seed int64) {
+	let mut s = seed
+	let draw = func(n int) int {
+		s = s*6364136223846793005 + 1442695040888963407
+		let r = (s >> 33) % int64(n)
+		int(if r < 0 { r + int64(n) } else { r })
+	}
+	let capacity = 1 + draw(4)
+	let life = time.Times(1s, draw(2)*(1+draw(5)))
+	let idle = time.Times(1s, draw(2)*(1+draw(5)))
+	let config = Config{Capacity: capacity, Life: life, Idle: idle}
+	let left = sync.NewRef[[]int]([]int{})
+	let c = NewReleasing[int, int](config, func(k int, v int) { left.Update(func(xs []int) []int { xs.Append(pairOf(k, v)) }) }) catch {
+	case BadConfig:
+		return false
+	}
+	let m = time.NewManual(0)
+	let mut model = []mentry{}
+	let mut gone = []int{}
+	let mut now = 0s
+	let mut loads = 0
+	let mut hits = 0
+	let mut misses = 0
+	with context { time.Clock: m } {
+		for _ in 0..60 {
+			let k = draw(5)
+			let op = draw(10)
+			gone = []int{}
+			left.Set([]int{})
+			if op < 5 {
+				let mut ran = false
+				let got = Get(c, k, func(key int) int {
+					ran = true
+					key*1000 + loads
+				})
+				let at = mfind(model, k)
+				if at >= 0 && mlive(config, model[at], now) {
+					let e = model[at]
+					model = mdrop(model, at).Append(mentry{key: k, value: e.value, born: e.born, used: now})
+					hits += 1
+					if ran || got != e.value {
+						return false
+					}
+				} else {
+					if at >= 0 {
+						gone = gone.Append(pairOf(k, model[at].value))
+						model = mdrop(model, at)
+					}
+					misses += 1
+					if !ran || got != k*1000+loads {
+						return false
+					}
+					loads += 1
+					model = model.Append(mentry{key: k, value: got, born: now, used: now})
+				}
+			} else if op < 7 {
+				let v = 100000 + draw(1000)
+				Put(c, k, v)
+				let at = mfind(model, k)
+				if at >= 0 {
+					gone = gone.Append(pairOf(k, model[at].value))
+					model = mdrop(model, at)
+				}
+				model = model.Append(mentry{key: k, value: v, born: now, used: now})
+			} else if op < 8 {
+				let had = Invalidate(c, k)
+				let at = mfind(model, k)
+				if had != (at >= 0) {
+					return false
+				}
+				if at >= 0 {
+					gone = gone.Append(pairOf(k, model[at].value))
+					model = mdrop(model, at)
+				}
+			} else if op < 9 {
+				Prune(c)
+				let mut kept = []mentry{}
+				for e in model {
+					if mlive(config, e, now) {
+						kept = kept.Append(e)
+					} else {
+						gone = gone.Append(pairOf(e.key, e.value))
+					}
+				}
+				model = kept
+			} else {
+				let d = time.Times(500ms, draw(9))
+				m.Advance(d)
+				now = now + d
+			}
+			if len(model) > capacity {
+				gone = gone.Append(pairOf(model[0].key, model[0].value))
+				model = mdrop(model, 0)
+			}
+			let st = StatsOf(c)
+			if !sameLeft(left.Get(), gone) || st.Size != len(model) || st.Hits != hits || st.Misses != misses {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// mentry is an entry of the reference model: born and used are durations
+// from the clock's start.
+type mentry { key int, value int, born duration, used duration }
+
+// mfind is the place of k's entry in model, or -1.
+func mfind(model []mentry, k int) int {
+	for i, e in model {
+		if e.key == k {
+			return i
+		}
+	}
+	-1
+}
+
+// mdrop is model without its i-th entry.
+func mdrop(model []mentry, i int) []mentry {
+	let mut out = []mentry{}
+	for j, e in model {
+		if j != i {
+			out = out.Append(e)
+		}
+	}
+	out
+}
+
+// mlive is live for the model.
+func mlive(config Config, e mentry, now duration) bool {
+	(config.Life == 0s || now-e.born < config.Life) && (config.Idle == 0s || now-e.used < config.Idle)
+}
+
+// sameLeft reports whether a and b hold the same entries, in any order.
+func sameLeft(a []int, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for x in a {
+		let mut n = 0
+		for y in a {
+			if y == x {
+				n += 1
+			}
+		}
+		for y in b {
+			if y == x {
+				n -= 1
+			}
+		}
+		if n != 0 {
+			return false
+		}
+	}
+	true
+}
+
+// pairOf is an entry that left, as one int: values are under a million.
+func pairOf(k int, v int) int { k*1000000 + v }

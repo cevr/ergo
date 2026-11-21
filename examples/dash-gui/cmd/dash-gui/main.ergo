@@ -7,14 +7,18 @@
 // runs the view on ui.TestHost.
 //
 //	dash-gui gen [-seed S] [-n N]   write a script of N steps
-//	dash-gui play [-seed S]         play the script on standard input
+//	dash-gui play [-seed S] [-pace P] [-every N]
+//	                                play the script on standard input,
+//	                                pacing the collector by P (edges,
+//	                                the default; percent; default),
+//	                                one frame edge in N (pace.NewEvery)
 //	dash-gui scene [-seed S] [-frames N]
 //	                                move the view N frames, then play a
 //	                                scene script on it
 //
 // This binary is the only place that chooses the providers: the seeded
 // synthetic sensors for play and scene, the scene's manual clock, a
-// seeded generator for gen.
+// seeded generator for gen, and the collector's pacing for play.
 
 import actor
 import ergo.local/prototype/examples/dashgui/feed
@@ -23,6 +27,7 @@ import ergo.local/prototype/examples/dashgui/synth
 import flag
 import io
 import os
+import pace
 import queue
 import rand
 import slices
@@ -31,18 +36,40 @@ import time
 import ui
 
 // Usage is the text of a usage failure.
-let Usage = "usage: dash-gui gen [-seed S] [-n N] | dash-gui play [-seed S] | dash-gui scene [-seed S] [-frames N]"
+let Usage = "usage: dash-gui gen [-seed S] [-n N] | dash-gui play [-seed S] [-pace edges|percent|default] [-hold N] [-every N] | dash-gui scene [-seed S] [-frames N]"
 
 let seedFlag = flag.Int("seed", 1, "the seed")
 let countFlag = flag.Int("n", 50, "how many steps")
 
 let genSet = flag.Set{Name: "dash-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
-let playSet = flag.Set{Name: "dash-gui play", Usage: "", Flags: []flag.Flag{seedFlag}, Args: []flag.ArgSpec{}}
+let paceFlag = flag.Choice("pace", "edges", []string{"edges", "percent", "default"}, "when the collector runs: at frame edges, at GOGC=400, or at Go's own pace")
+let holdFlag = flag.Int("hold", 0, "hold the pacing over each run of at most N frames, as one request")
+let everyFlag = flag.Int("every", 1, "pass one frame edge in N to the pacing (pace.NewEvery: a composed provider)")
+let playSet = flag.Set{Name: "dash-gui play", Usage: "", Flags: []flag.Flag{seedFlag, paceFlag, holdFlag, everyFlag}, Args: []flag.ArgSpec{}}
+
+// PaceLimit is the memory limit of the edges pacing: far above the
+// rings' live heap (about 16 MB), so Go collects by itself only if a
+// frame runs away.
+let PaceLimit = int64(256 << 20)
+
+// pacing is the provider the -pace flag names: pace.NewAtEdges (the
+// default: one collection between frames once the heap has grown by a
+// quarter of PaceLimit), pace.NewPercent(400), or Go's own pace.
+func pacing(name string) pace.Pacing needs go.Foreign {
+	match name {
+	case "percent":
+		pace.NewPercent(400)
+	case "default":
+		pace.Default
+	case _:
+		pace.NewAtEdges(PaceLimit)
+	}
+}
 let framesFlag = flag.Int("frames", 0, "frames the scene moves before its script")
 let sceneSet = flag.Set{Name: "dash-gui scene", Usage: "", Flags: []flag.Flag{seedFlag, framesFlag}, Args: []flag.ArgSpec{}}
 
 // run is dash-gui on args.
-func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Stdout | io.Stdin {
+func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Stdout | io.Stdin | go.Foreign {
 	if len(args) == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
@@ -67,8 +94,8 @@ func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Std
 			try flag.Exit(err, Usage)
 			return
 		}
-		with context { feed.Sensors: synth.Bank{Seed: seedFlag.Get(v)} } {
-			try script.Play(io.Stdin.Lines())
+		with context { feed.Sensors: synth.Bank{Seed: seedFlag.Get(v)}, pace.Pacing: pace.NewEvery(pacing(paceFlag.Get(v)), everyFlag.Get(v)) } {
+			try script.Play(io.Stdin.Lines(), holdFlag.Get(v))
 		}
 	case "scene":
 		let v = flag.Parse(sceneSet, rest) catch {
@@ -94,7 +121,7 @@ func run(args []string) fails os.Exit | queue.Closed | tasks.Closed needs io.Std
 	}
 }
 
-func main() fails os.Exit | queue.Closed | tasks.Closed needs Ambient {
+func main() fails os.Exit | queue.Closed | tasks.Closed needs Ambient | go.Foreign {
 	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.NewHost().Args())
 	}

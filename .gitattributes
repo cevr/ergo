@@ -1,0 +1,39 @@
+# Merge classes of `work merge-file` (modules/work/classes, SEMWS §2.6).
+# Git uses a driver only when the clone's own config names it; until then
+# these files merge as text. `work new` writes the drivers into each
+# workspace it makes, `work init` into the base, and `work doctor -fix`
+# into a base or an adopted workspace that lacks them (`work doctor`
+# names each one that does). By hand, once per clone:
+#
+#   for c in rows measured lines derived json; do
+#     git config merge.ergo-$c.name "work merge-file $c"
+#     git config merge.ergo-$c.driver "work merge-file -path %P $c %O %A %B >&2"
+#   done
+#
+# rows: mutant ledgers, row by row by name.
+**/testdata/mutants.json merge=ergo-rows
+# measured: numbers by key path; both sides measured apart keeps ours.
+scripts/gate/durations.json merge=ergo-measured
+scripts/gate/fast-cpu.json merge=ergo-measured
+# lines: allowlists and manifests, a set of lines.
+internal/residue/testdata/*.txt merge=ergo-lines
+internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
+# derived: generated files are made again, never merged. Git takes the
+# side that changed; when both changed, the driver keeps ours and prints
+# "regenerate":true, and the file must be made again from the merged
+# inputs before the merge is committed.
+*_gen.go merge=ergo-derived
+**/testdata/kills.json merge=ergo-derived
+tools/ts/bun.lock merge=ergo-derived
+toolchain/pin/lock merge=ergo-derived
+internal/sketchfront/stdsnap/std.snap merge=ergo-derived
+**/ergo.laws merge=ergo-derived
+**/expected-skips merge=ergo-derived
+# derived: the IR compiler patch and its lock digest are made from the
+# patch's source tree toolchain/ir/_go (PATCH-MERGE), which merges as
+# text, by `go run ./scripts/irport -write`, the first step of the
+# regeneration order; TestIRPatchIsCurrent refuses a stale one. Edit the
+# files under _go, never the patch. toolchain/ir/hooks is written by hand
+# (the hooks' budget, TestPatchHooksBudgeted) and merges as text.
+toolchain/ir/lock merge=ergo-derived
+toolchain/ir/go1.27.0.patch merge=ergo-derived

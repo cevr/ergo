@@ -1,0 +1,12 @@
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func main() {
+	let c = Command[int]{Name: "bad", Build: bad} // want S108
+	_ = c
+}

@@ -1,0 +1,15 @@
+# Upstream's scene tests, on upstream's test board (setup.sh).
+# The columns with their names and counts, and the cards in each.
+screen
+# Add card on To Do opens the form there (the focus is acknowledged), and
+# typing a title shows it in the input.
+add todo
+type Buy groceries
+screen
+# Submitting asks for an id, adds the card to To Do and saves.
+submit
+show
+# Cancelling shuts the form and puts the add button back.
+add todo
+cancel
+screen

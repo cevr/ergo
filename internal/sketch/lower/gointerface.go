@@ -54,6 +54,9 @@ func (fc *funcCtx) goInterface(conv check.Conversion, to *check.Named, val strin
 		ice(site, "an operations conversion to the Go type %s, which is not an interface", to)
 	}
 	l := fc.l
+	// Go may keep the value and call its methods from a goroutine of its
+	// own: the program is no longer alone (rt.Alone, v1.GoHanded).
+	fc.line(l.rt() + ".GoHanded()")
 	key := goInterfaceKey(l, to)
 	name, made := l.adapters[key]
 	if !made {

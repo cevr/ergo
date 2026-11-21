@@ -123,6 +123,21 @@ func ContextValue(t *rt.Task, pkg ContextPackage, key string) string {
 	return v
 }
 
+// ContextPairs is the key and the text of each context value of the
+// reading package in force for t, outermost first, a shadowed binding left
+// out: key, text, key, text, … (std log's Annotations).
+//
+//ergo:wait none
+func ContextPairs(t *rt.Task, pkg ContextPackage) []string {
+	var out []string
+	for _, b := range contextOf(t) {
+		if b.Package == string(pkg) {
+			out = append(out, b.Key, b.Text)
+		}
+	}
+	return out
+}
+
 // Held contexts (docs/spec/rows.md, Context values, InForce). The prelude's
 // InForce[R]() is a Context value of the providers of R in force at the
 // call. The lowering writes each call in place (internal/sketch/lower,

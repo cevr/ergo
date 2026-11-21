@@ -118,7 +118,7 @@ const capturePrelude = `func each(n int, f func()) {
 	}
 }
 
-func bump(p *int, c int) {
+func bump(p mut int, c int) {
 	*p = *p + c
 }
 
@@ -691,7 +691,7 @@ func holderPrograms() []holderProgram {
 					if frame == 4 {
 						tail = "let get = func() int { x }\n(get, func() { " + write + " })\n"
 					}
-					src := "func bump(p *int, n int) { *p = *p + n }\nfunc each(n int, f func()) { for _ in 0..n { f() } }\nfunc make() (func() int, func()) {\nlet mut x = 0\nlet mut y = 0\nlet _ = &y\n" + bind + tail + "}\nfunc main() needs Console { let (get, put) = make(); put(); Console.Println(\"\\(get())\") }\n"
+					src := "func bump(p mut int, n int) { *p = *p + n }\nfunc each(n int, f func()) { for _ in 0..n { f() } }\nfunc make() (func() int, func()) {\nlet mut x = 0\nlet mut y = 0\nlet _ = &y\n" + bind + tail + "}\nfunc main() needs Console { let (get, put) = make(); put(); Console.Println(\"\\(get())\") }\n"
 					out = append(out, holderProgram{fmt.Sprintf("holder%d", seed), src, fmt.Sprintf("%d\n", delta), frame == 4})
 				}
 			}
@@ -721,10 +721,13 @@ func captureHolderModel(t *testing.T) {
 	}
 }
 
-// callAliasPrograms draws opaque borrow flow through calls. The optimization
-// cannot assume Borrows 1 was proved at a generic instantiation. (A generic
-// body that returns or captures its T refuses a borrow, Borrows 7, so put's
-// write through a borrow parameter is the generic form left.) Mutants:
+// callAliasPrograms draws borrow flow through calls: x is lent by &x to a
+// call that writes it before a function literal reads it, and the literal
+// still captures x by reference, since x had its address taken. (A type
+// parameter binds no borrow since MODES-4, so the alias a generic
+// put[T lent] made, which let a write after the capture pass the checker,
+// is refused and no longer drawn; a direct write after it is refused by
+// Function values 3.) Mutants:
 // c2-address-proof-ignored and c2-implicit-address-proof-ignored. The no-borrow
 // control kills c2-fast-path-lost, without pinning a count of captures.
 func callAliasPrograms() []holderProgram {
@@ -732,32 +735,22 @@ func callAliasPrograms() []holderProgram {
 	for _, seed := range captureSeeds(24) {
 		r := rand.New(rand.NewPCG(seed, 0x197c205))
 		n := 1 + r.IntN(17)
-		forms := []string{
-			"let mut p = &y; put(&p, &x)",
-		}
-		for form, bind := range forms {
-			for before := range 2 {
-				work := fmt.Sprintf("bump(p, %d)\n", n)
-				get := "let get = func() int { x }\n"
-				if before != 0 {
-					get, work = work+get, ""
-				}
-				src := `func put[T lent](out *T, x T) { *out = x }
-func bump(p *int, n int) { *p = *p + n }
+		src := fmt.Sprintf(`func bump(p mut int, n int) { *p = *p + n }
 func make() func() int {
 let mut x = 0
-let mut y = 0
-let _ = &y
-` + bind + "\n" + get + work + "get\n}\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }\n"
-				out = append(out, holderProgram{fmt.Sprintf("call%d_%d_%d", seed, form, before), src, fmt.Sprintf("%d\n", n), false})
-			}
-		}
+bump(&x, %d)
+let get = func() int { x }
+get
+}
+func main() needs Console { let get = make(); Console.Println("\(get())") }
+`, n)
+		out = append(out, holderProgram{fmt.Sprintf("call%d", seed), src, fmt.Sprintf("%d\n", n), false})
 	}
 	// Examples of both proof outcomes: no alias, and an implicit receiver
 	// borrow. The latter is conservative even though this borrow ends early.
 	out = append(out,
 		holderProgram{"fast", "func make() func() int { let mut x = 0; x = 7; func() int { x } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false},
-		holderProgram{"implicit", "type Box { n int }\nfunc Bump(b *Box) { b.n = 7 }\nfunc make() func() int { let mut x = Box{n: 0}; x.Bump(); func() int { x.n } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false})
+		holderProgram{"implicit", "type Box { n int }\nfunc Bump(b mut Box) { b.n = 7 }\nfunc make() func() int { let mut x = Box{n: 0}; x.Bump(); func() int { x.n } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false})
 	return out
 }
 

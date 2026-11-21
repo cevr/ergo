@@ -15,30 +15,6 @@ func WriteWait() duration { 30s }
 
 type Writer machine[Storing, WriteSignal] { initial: sending, step: writeStep, after: writeTimer, work: writeWork }
 
-// sending is the write of the share at index i.
-func sending(at (int, Share)) Storing {
-	let i, t = at
-	Sending{Index: i, Share: t}
-}
-
-func writeStep(s Storing, e WriteSignal) Decision[Storing, Answer] {
-	match (s, e) {
-	case (Sending as a, Acked as ok):
-		Done[Answer]{Output: Taken{Index: a.Index, Share: a.Share, R: ok.R}}
-	case (Sending as a, Refused as r):
-		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: r.Why}}
-	case (Sending as a, NoAnswer):
-		Done[Answer]{Output: Lost{Index: a.Index, Share: a.Share, Why: "no answer"}}
-	}
-}
-
-func writeTimer(s Storing) Option[Timeout[WriteSignal]] {
-	match s {
-	case Sending:
-		Some{Timeout[WriteSignal]{In: WriteWait(), Signal: NoAnswer}}
-	}
-}
-
 // writeWork asks the target. Refused is a signal, so it needs no map.
 func writeWork(s Storing) Option[machines.Work[WriteSignal, Targets]] {
 	match s {

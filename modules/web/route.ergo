@@ -1,0 +1,26 @@
+// Package web serves a site from a route map, a loader and a view (SSR
+// WEB1). A site's routes are a closed union with Href and Parse (Routes,
+// law HrefParses), so a link to a route that does not exist does not
+// compile; its loader is a function whose fails row is its typed failures
+// and whose needs row is what a page may read; its view is a pure function
+// to an html.Node. Fetch joins them: a request in, a response out, with no
+// server, so a test calls Fetch as a host does (Remix 3's router.fetch).
+
+import html
+import ui
+
+// Routes is a site's route map: Href is the place of a route, and Parse
+// reads a place back as the route it is the place of, or None for a place
+// that is no route of the site.
+type Routes[R comparable] {
+	Href(r R) ui.URL,
+	Parse(u ui.URL) Option[R],
+
+	// HrefParses: every route parses back from its own place, so no link
+	// the site makes leads to its 404 page or to another route.
+	law HrefParses(r R) { Parse(Href(r)) == Some{r} },
+}
+
+// To is the link to route r of the route map m, for html.Href: a place on
+// the site, with its query and fragment when Href gives them.
+func To[R comparable](m Routes[R], r R) html.URL { html.LocalURL(ui.Href(m.Href(r))) }

@@ -292,7 +292,7 @@ func r8Program(seed int64, n int, refuse bool) []pkgSource {
 	tys := []string{"int", "string", "bool", "float64", "[]int"}
 	extras := []string{
 		"type St%[1]d = On%[1]d{} | Off%[1]d{ N int }\ntype Sg%[1]d = Tick%[1]d{}\nfunc step%[1]d(s St%[1]d, e Sg%[1]d) Decision[St%[1]d, int] { Enter[St%[1]d]{Next: Off%[1]d{N: 1}} }\ntype M%[1]d machine[St%[1]d, Sg%[1]d] { initial: On%[1]d, step: step%[1]d }\n",
-		"test T%[1]d { assert %[1]d == %[1]d }\ntest P%[1]d(n int) { assert n == n }\nlaw L%[1]d(n int) { n + 0 == n }\n",
+		"test T%[1]d { assert %[1]d == %[1]d }\ntest P%[1]d(n int) { assert n == n }\nfunc Zero%[1]d() int { 0 }\nlaw L%[1]d(n int) { n + Zero%[1]d() == n }\n",
 		"type C%[1]d { Get() int }\ntype Pv%[1]d {} implements C%[1]d\nfunc Get(x Pv%[1]d) int { %[1]d }\nlet X%[1]d = context { C%[1]d: Pv%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n",
 		"type Q%[1]d { N int }\nfunc Pick[T](q Q%[1]d, x T) T { x }\nlet V%[1]d int = %[1]d + 1\n",
 	}

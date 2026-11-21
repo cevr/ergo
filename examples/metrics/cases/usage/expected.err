@@ -1,1 +1,1 @@
-usage: metrics report WIDTH | metrics alert THRESHOLD
+usage: metrics report WIDTH | metrics calendar day|week|month | metrics alert THRESHOLD

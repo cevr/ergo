@@ -73,6 +73,24 @@ func TestStdSlicesMoreMatchGo(t *testing.T) {
 			}
 		}
 
+		// Insert and Delete (std-spike G-TT-3) give Go's slices.Insert and
+		// slices.Delete of a copy, and never write their argument's array,
+		// room included.
+		k := r.IntN(len(a) + 1)
+		whole := slices.Clone(a[:cap(a)])
+		ins := SlicesInsert(a, k, b)
+		if want := slices.Insert(slices.Clone(a), k, b...); !slices.Equal(ins, want) {
+			t.Fatalf("case %d: Insert(%v, %d, %v) = %v; want %v", i, a, k, b, ins, want)
+		}
+		hi := k + r.IntN(len(a)-k+1)
+		del := SlicesDelete(a, k, hi)
+		if want := slices.Delete(slices.Clone(a), k, hi); !slices.Equal(del, want) {
+			t.Fatalf("case %d: Delete(%v, %d, %d) = %v; want %v", i, a, k, hi, del, want)
+		}
+		if !slices.Equal(a[:cap(a)], whole) {
+			t.Fatalf("case %d: Insert or Delete wrote its argument's array", i)
+		}
+
 		m := map[string]int{}
 		for j := range r.IntN(6) {
 			m[strconv.Itoa(r.IntN(8))] = j

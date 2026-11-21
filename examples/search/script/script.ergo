@@ -131,15 +131,22 @@ func Play(s Script, clock time.Manual) []string needs Scheduler | search.Index {
 		}
 	})
 	// Changes gives the state when the loop begins first, which line @0
-	// shows, then each state the actor commits.
+	// shows, then each state the actor commits; it holds 64 at most, and
+	// says how many it dropped if the watcher fell further behind.
 	let watch = task.Go() {
 		let mut first = true
-		for st in a.Changes() {
+		for c in actor.Changes(a, 64) {
 			if first {
 				first = false
 				continue
 			}
-			states.Push(Event{At: since(), Line: search.Name(st)}) catch {
+			let line = match c {
+			case actor.Changed[search.Search] as x:
+				search.Name(x.State)
+			case actor.Overflowed as o:
+				"?? \(o.Missed) states dropped"
+			}
+			states.Push(Event{At: since(), Line: line}) catch {
 			case queue.Closed:
 			}
 		}

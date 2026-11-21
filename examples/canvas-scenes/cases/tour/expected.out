@@ -1,0 +1,176 @@
+> seed 7
+  page: # Canvas Art | Click the canvas to spawn a ball.
+  controls: [Balls], [Flow], [Pause], [Clear]; 0 balls
+  frames: wanted
+  canvas: 600x400, 1 fills, 0 strokes, 4 points
+  dots: 0, centred at none, pointer ring none
+> press 300 200
+  controls: [Balls], [Flow], [Pause], [Clear]; 1 balls
+  canvas: 600x400, 2 fills, 0 strokes, 17 points
+  dots: 1, centred at (300, 200), pointer ring none
+  dot 1: at (300, 200), radius 22, #5ac8fa
+> press 20 30
+  controls: [Balls], [Flow], [Pause], [Clear]; 2 balls
+  canvas: 600x400, 3 fills, 0 strokes, 30 points
+  dots: 2, centred at (160, 115), pointer ring none
+  dot 2: at (20, 30), radius 15, #ff2d55
+> press 590 390
+  controls: [Balls], [Flow], [Pause], [Clear]; 3 balls
+  canvas: 600x400, 4 fills, 0 strokes, 43 points
+  dots: 3, centred at (303, 207), pointer ring none
+  dot 3: at (590, 390), radius 10, #af52de
+> frame 16 x10
+  dots: 3, centred at (298, 206), pointer ring none
+  dot 1: at (291, 208), radius 22, #5ac8fa
+  dot 2: at (26, 35), radius 15, #ff2d55
+  dot 3: at (578, 376), radius 10, #af52de
+> frame 100 x20
+  dots: 3, centred at (268, 192), pointer ring none
+  dot 1: at (164, 313), radius 22, #5ac8fa
+  dot 2: at (256, 106), radius 15, #ff2d55
+  dot 3: at (384, 158), radius 10, #af52de
+> click Pause
+  controls: [Balls], [Flow], [Play], [Clear]; 3 balls
+  frames: none
+> frame 16 x5
+> click Play
+  controls: [Balls], [Flow], [Pause], [Clear]; 3 balls
+  frames: wanted
+> frame 16 x2
+  dots: 3, centred at (267, 192), pointer ring none
+  dot 1: at (163, 314), radius 22, #5ac8fa
+  dot 2: at (258, 106), radius 15, #ff2d55
+  dot 3: at (382, 156), radius 10, #af52de
+> click Clear
+  controls: [Balls], [Flow], [Pause], [Clear]; 0 balls
+  canvas: 600x400, 1 fills, 0 strokes, 4 points
+  dots: 0, centred at none, pointer ring none
+  dot 1: gone
+  dot 2: gone
+  dot 3: gone
+> press 100 100
+  controls: [Balls], [Flow], [Pause], [Clear]; 1 balls
+  canvas: 600x400, 2 fills, 0 strokes, 17 points
+  dots: 1, centred at (100, 100), pointer ring none
+  dot 1: at (100, 100), radius 22, #ff2d55
+> frame 16 x3
+  dots: 1, centred at (109, 95), pointer ring none
+  dot 1: at (109, 95), radius 22, #ff2d55
+> click Flow
+  page: # Prism Field | Move to stir. Click to bloom.
+  controls: [Balls], [Flow], [Pause], [Reset]; 45 particles
+  sliders: Turbulence 1.40, Noise scale 1.00
+  canvas: 960x600, 65 fills, 0 strokes, 692 points
+  dots: 45, centred at (488, 294), pointer ring none
+  dot 1: at (784, 224), radius 2, #d8e3fd/0
+  dot 2: at (356, 266), radius 2, #fdd8ee/0
+  dot 3: at (801, 263), radius 2, #fdd8df/0
+  dot 4: at (526, 347), radius 2, #fde9d8/0
+  dot 5: at (595, 485), radius 2, #d8fde3/0
+  dot 6: at (505, 444), radius 2, #fdd8fa/0
+> frame 16 x30
+  controls: [Balls], [Flow], [Pause], [Reset]; 55 particles
+  canvas: 960x600, 75 fills, 110 strokes, 4188 points
+  dots: 55, centred at (507, 293), pointer ring none
+  dot 1: at (791, 256), radius 2, #d8dcfd/242
+  dot 2: at (385, 293), radius 2, #fdd8e2/242
+  dot 3: at (824, 296), radius 2, #fdd8ea/242
+  dot 4: at (521, 312), radius 2, #fdf4d8/242
+  dot 5: at (635, 475), radius 2, #d9fdd8/242
+  dot 6: at (487, 406), radius 2, #fdd8f7/242
+> move 480 300
+  canvas: 960x600, 76 fills, 110 strokes, 4201 points
+  dots: 55, centred at (507, 293), pointer ring (480, 300)
+> press 480 300
+  controls: [Balls], [Flow], [Pause], [Reset]; 77 particles
+  canvas: 960x600, 98 fills, 110 strokes, 4487 points
+  dots: 77, centred at (499, 295), pointer ring (480, 300)
+> frame 16 x20
+  canvas: 960x600, 98 fills, 154 strokes, 6005 points
+  dots: 77, centred at (505, 296), pointer ring (480, 300)
+  dot 1: at (799, 276), radius 2, #d9d8fd/242
+  dot 2: at (410, 277), radius 2, #fdd8d9/242
+  dot 3: at (841, 315), radius 2, #fdd8f2/242
+  dot 4: at (499, 321), radius 2, #fdfcd8/242
+  dot 5: at (661, 480), radius 2, #e1fdd8/242
+  dot 6: at (470, 383), radius 2, #fdd8f4/242
+> strength 9
+  sliders: Turbulence 3.00, Noise scale 1.00
+> scale 0.93
+  sliders: Turbulence 3.00, Noise scale 0.95
+> frame 16 x20
+  canvas: 960x600, 98 fills, 154 strokes, 6665 points
+  dots: 77, centred at (505, 297), pointer ring (480, 300)
+  dot 1: at (802, 298), radius 2, #ded8fd/242
+  dot 2: at (436, 262), radius 2, #fddfd8/242
+  dot 3: at (838, 341), radius 2, #fdd8fa/242
+  dot 4: at (476, 320), radius 2, #f6fdd8/242
+  dot 5: at (686, 484), radius 2, #e9fdd8/242
+  dot 6: at (450, 363), radius 2, #fdd8f1/242
+> frame 50 x120
+  controls: [Balls], [Flow], [Pause], [Reset]; 55 particles
+  canvas: 960x600, 76 fills, 106 strokes, 3719 points
+  dots: 55, centred at (505, 262), pointer ring (480, 300)
+  dot 1: at (861, 338), radius 2, #fde9d8/112
+  dot 2: at (166, -65), radius 2, #fdefd8/107
+  dot 3: at (488, 304), radius 2, #fdf4d8/242
+  dot 4: at (831, 345), radius 2, #d8fde9/70
+  dot 5: at (200, 130), radius 2, #f3d8fd/242
+  dot 6: at (991, 349), radius 2, #fdd8fd/242
+> click Pause
+  controls: [Balls], [Flow], [Play], [Reset]; 55 particles
+  frames: none
+> frame 16 x5
+> click Play
+  controls: [Balls], [Flow], [Pause], [Reset]; 55 particles
+  frames: wanted
+> frame 16
+> frame 1000
+  canvas: 960x600, 76 fills, 106 strokes, 3715 points
+  dot 1: at (864, 338), radius 2, #fdead8/98
+  dot 2: at (163, -68), radius 2, #fdefd8/94
+  dot 3: at (485, 308), radius 2, #fdf3d8/242
+  dot 4: at (834, 342), radius 2, #d8fde8/56
+  dot 5: at (198, 123), radius 2, #f4d8fd/242
+  dot 6: at (997, 347), radius 2, #fcd8fd/242
+> click Reset
+  controls: [Balls], [Flow], [Pause], [Reset]; 0 particles
+  canvas: 960x600, 20 fills, 0 strokes, 107 points
+  dots: 0, centred at none, pointer ring none
+  dot 1: gone
+  dot 2: gone
+  dot 3: gone
+  dot 4: gone
+  dot 5: gone
+  dot 6: gone
+> frame 16 x2
+  controls: [Balls], [Flow], [Pause], [Reset]; 6 particles
+  canvas: 960x600, 26 fills, 6 strokes, 197 points
+  dots: 6, centred at (367, 340), pointer ring none
+  dot 1: at (191, 498), radius 2, #fdd8e5/11
+  dot 2: at (877, 284), radius 2, #fdd8e1/11
+  dot 3: at (203, 243), radius 2, #d8f4fd/11
+  dot 4: at (84, 136), radius 2, #fddbd8/0
+  dot 5: at (765, 506), radius 2, #fdd8dc/0
+  dot 6: at (83, 372), radius 2, #d8e2fd/0
+> click Balls
+  page: # Canvas Art | Click the canvas to spawn a ball.
+  controls: [Balls], [Flow], [Pause], [Clear]; 0 balls
+  canvas: 600x400, 1 fills, 0 strokes, 4 points
+  dots: 0, centred at none, pointer ring none
+  sliders: gone
+  dot 1: gone
+  dot 2: gone
+  dot 3: gone
+  dot 4: gone
+  dot 5: gone
+  dot 6: gone
+> press 50 50
+  controls: [Balls], [Flow], [Pause], [Clear]; 1 balls
+  canvas: 600x400, 2 fills, 0 strokes, 17 points
+  dots: 1, centred at (50, 50), pointer ring none
+  dot 1: at (50, 50), radius 20, #ff2d55
+> frame 16 x2
+  dots: 1, centred at (54, 48), pointer ring none
+  dot 1: at (54, 48), radius 20, #ff2d55
+> stop

@@ -1,0 +1,63 @@
+@0 open
+  # File Uploads [Upload a file] Nothing here yet. Start an upload.
+@0 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+@100 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+@200 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sending [Cancel upload 2]
+@1000 cancel 0
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sending [Cancel upload 2]
+@1500 restart 0
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sent
+@2000 cancel 2
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png sending [Cancel upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sent
+@3000 cancelall
+  # File Uploads [Upload a file]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt cancelled [Restart upload 1]
+  2 harbor-sounds.ogg sent
+@3500 restart 1
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sent
+@4000 start
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sending [Cancel upload 3]
+@4100 restart 1
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sending [Cancel upload 3]
+@4200 cancel 7
+  # File Uploads [Upload a file] [Cancel all]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt sending [Cancel upload 1]
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sending [Cancel upload 3]
+@13000 end
+  # File Uploads [Upload a file]
+  0 trail-map.png cancelled [Restart upload 0]
+  1 field-notes.txt sent
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sent

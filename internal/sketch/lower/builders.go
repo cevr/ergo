@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -86,10 +85,7 @@ func (l *lowerer) genBuilt(n *check.Named, b *check.Builder, r, d, ev string, sc
 // call, `fstest.NewMemory()`, with `…` for generated arguments.
 func (l *lowerer) builtText(n *check.Named, b *check.Builder) string {
 	f := b.Func
-	text := f.Name
-	if p := f.Pkg; p != nil && p != l.pkg && p.Path != std.PreludePath {
-		text = l.importName(p) + "." + text
-	}
+	text := l.pkg.Qualified(f.Pkg, f.Name)
 	targs, _ := b.Instance(n)
 	if len(targs) > 0 {
 		parts := make([]string, len(targs))

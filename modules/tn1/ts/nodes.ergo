@@ -1,0 +1,424 @@
+// The record's nodes for TypeScript: the module, each top-level
+// statement, each catch block. Statements counts the node's lines that
+// hold a token; MaxDepth is the most braces open in it past its own
+// depth; Shape is a SimHash of the node's token kinds in runs of three
+// (a name is "n", a literal "l", a punctuator or a word itself) — the
+// TypeScript host's own reading of "the body's kinds, names erased".
+
+import ergo.dev/tn1
+import slices
+
+// declarer reports a word that makes a statement a type.
+func declarer(s string) bool {
+	match s {
+	case "class", "interface", "enum", "type", "namespace", "module", "declare", "global":
+		true
+	case _:
+		false
+	}
+}
+
+// keyword reports a word that is itself in a shape.
+func keyword(s string) bool {
+	match s {
+	case "if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue", "return", "throw", "try", "catch", "finally",
+		"function", "class", "interface", "enum", "type", "const", "let", "var", "new", "await", "yield", "async", "import", "export", "from",
+		"extends", "implements", "typeof", "keyof", "in", "of", "instanceof", "as", "satisfies", "true", "false", "null", "undefined", "this":
+		true
+	case _:
+		false
+	}
+}
+
+func nodeKind(code []Token, from int, to int) tn1.NodeKind {
+	let h = head(code, from, to)
+	if h == "function" {
+		return tn1.Function
+	}
+	if declarer(h) {
+		return tn1.Declared
+	}
+	if (h == "test" || h == "it" || h == "describe") && from+1 < to && code[from+1].Text == "(" {
+		return tn1.Test
+	}
+	if h == "const" || h == "let" || h == "var" {
+		for j in from..to {
+			if code[j].Text == "=>" || code[j].Text == "function" && isIdent(code[j]) {
+				return tn1.Function
+			}
+		}
+		return tn1.Declared
+	}
+	tn1.Module
+}
+
+// nameOf is the statement's declared name: the word after its head;
+// an import or an export list declares none.
+func nameOf(code []Token, from int, to int) string {
+	let h = head(code, from, to)
+	if h == "import" || h == "{" || h == "*" {
+		return ""
+	}
+	for j in from..to-1 {
+		if code[j].Text == h && isIdent(code[j+1]) {
+			return code[j+1].Text
+		}
+	}
+	""
+}
+
+// params is the number of parameters of the first parenthesised list.
+func params(code []Token, from int, to int) int {
+	for j in from..to {
+		if code[j].Text == "(" {
+			let end = closing(code, j, to)
+			if end == j+1 {
+				return 0
+			}
+			let mut n = 1
+			let mut nest = 0
+			for k in j+1..end {
+				let x = code[k].Text
+				if x == "(" || x == "[" || x == "{" || x == "<" {
+					nest += 1
+				} else if x == ")" || x == "]" || x == "}" || x == ">" {
+					nest -= 1
+				} else if x == "," && nest == 0 && k+1 < end {
+					n += 1
+				}
+			}
+			return n
+		}
+	}
+	0
+}
+
+// shapeWord is a token's word in a shape.
+func shapeWord(t Token) string {
+	match t.Kind {
+	case Ident:
+		if keyword(t.Text) {
+			t.Text
+		} else {
+			"n"
+		}
+	case Literal:
+		"l"
+	case Punct:
+		t.Text
+	case LineComment, BlockComment:
+		""
+	}
+}
+
+// trigrams is, for each i, the FNV-1a 64-bit hash of the shape words of
+// code[i], code[i+1] and code[i+2], each followed by a slash. A node's
+// shape reads the runs inside it, so each run is hashed once per file.
+func trigrams(code []Token) []uint64 {
+	let mut words = []string{}
+	for t in code {
+		words = words.Append(shapeWord(t))
+	}
+	let mut out = slices.WithCapacity[uint64](len(code))
+	for i in 0..len(code)-2 {
+		let mut h uint64 = 14695981039346656037
+		for k in i..i+3 {
+			let w = words[k]
+			for c in 0..len(w) {
+				h = (h ^ uint64(w[c])) * 1099511628211
+			}
+			h = (h ^ uint64('/')) * 1099511628211
+		}
+		out = out.Append(h)
+	}
+	out
+}
+
+// Votes counts, for each of the 64 bits, the runs that have it set, as
+// bit-sliced counters: Planes[j] holds bit j of all 64 counts, so a run
+// is counted by a ripple of carries over the planes (a few word
+// operations, not 64 adds). N is the runs counted.
+type Votes { Planes []uint64, N int }
+
+// vote counts the run h.
+func vote(v mut Votes, h uint64) {
+	let mut carry = h
+	let mut j = 0
+	for carry != 0 {
+		if j == len(v.Planes) {
+			v.Planes = v.Planes.Append(0)
+		}
+		let t = v.Planes[j] & carry
+		v.Planes[j] = v.Planes[j] ^ carry
+		carry = t
+		j += 1
+	}
+	v.N += 1
+}
+
+// addVotes adds o's counts to v's, plane by plane with a carry.
+func addVotes(v mut Votes, o Votes) {
+	let mut carry = uint64(0)
+	let mut j = 0
+	for j < len(o.Planes) || carry != 0 {
+		if j == len(v.Planes) {
+			v.Planes = v.Planes.Append(0)
+		}
+		let y = if j < len(o.Planes) { o.Planes[j] } else { uint64(0) }
+		let x = v.Planes[j]
+		v.Planes[j] = x ^ y ^ carry
+		carry = x&y | carry&(x^y)
+		j += 1
+	}
+	v.N += o.N
+}
+
+// majority is the SimHash of the counted runs: the bits set in more of
+// them than not, each count compared with N/2+1 at once, from the top
+// plane down.
+func majority(v Votes) uint64 {
+	let m = v.N/2 + 1
+	let mut top = len(v.Planes)
+	for (m >> uint64(top)) != 0 {
+		top += 1
+	}
+	let mut gt = uint64(0)
+	let mut eq = ^uint64(0)
+	let mut j = top - 1
+	for j >= 0 {
+		let a = if j < len(v.Planes) { v.Planes[j] } else { uint64(0) }
+		let mb = if (m>>uint64(j))&1 == 1 { ^uint64(0) } else { uint64(0) }
+		gt = gt | eq&a&^mb
+		eq = eq &^ (a ^ mb)
+		j -= 1
+	}
+	gt | eq
+}
+
+// shape is the SimHash of the kinds of code[from:to] in runs of three:
+// each run's hash (trigrams) votes on each bit, and a bit is set when
+// more runs have it than not.
+func shape(runs []uint64, from int, to int) uint64 {
+	let mut v = Votes{Planes: []uint64{}, N: 0}
+	for i in from..to-2 {
+		vote(&v, runs[i])
+	}
+	majority(v)
+}
+
+// ShapeModel: the bit-sliced majority is the bit-by-bit vote.
+law ShapeModel(runs []uint64) { shape(runs, 0, len(runs)+2) == shapeByBit(runs, 0, len(runs)+2) }
+
+// SplitVotes: the votes of runs counted in two parts and added are the
+// votes of all of them, as the module's are its statements'.
+law SplitVotes(runs []uint64, cut int) {
+	splitShape(runs, (cut%(len(runs)+1)+len(runs)+1)%(len(runs)+1)) == shapeByBit(runs, 0, len(runs)+2)
+}
+
+func splitShape(runs []uint64, cut int) uint64 {
+	let mut a = Votes{Planes: []uint64{}, N: 0}
+	let mut b = Votes{Planes: []uint64{}, N: 0}
+	for i in 0..cut {
+		vote(&a, runs[i])
+	}
+	for i in cut..len(runs) {
+		vote(&b, runs[i])
+	}
+	addVotes(&a, b)
+	majority(a)
+}
+
+// shapeByBit is shape with a count per bit, the reference for the
+// bit-sliced counters.
+func shapeByBit(runs []uint64, from int, to int) uint64 {
+	let mut s = uint64(0)
+	let n = if to-2 > from { to - 2 - from } else { 0 }
+	for b in 0..64 {
+		let mut ones = 0
+		for i in from..to-2 {
+			ones += int((runs[i] >> uint64(b)) & 1)
+		}
+		if 2*ones > n {
+			s = s | uint64(1)<<uint64(b)
+		}
+	}
+	s
+}
+
+// handlerShape is what the catch block code[open..close] does: Empty with
+// no token, Rethrows when it throws the name it bound, YieldsLiteral when
+// its last statement returns a literal, Records when it calls something
+// and then returns, else Translates.
+func handlerShape(code []Token, bound string, open int, close int) tn1.HandlerShape {
+	if close == open+1 {
+		return tn1.Empty
+	}
+	for j in open+1..close-1 {
+		if code[j].Text == "throw" && bound != "" && code[j+1].Text == bound {
+			return tn1.Rethrows
+		}
+	}
+	let mut last = open + 1
+	for j in open+1..close {
+		if code[j].Text == "return" {
+			last = j
+		}
+	}
+	if code[last].Text == "return" && last+1 < close {
+		match code[last+1].Kind {
+		case Literal:
+			return tn1.YieldsLiteral
+		case Ident, Punct, LineComment, BlockComment:
+		}
+		let x = code[last+1].Text
+		if x == "[" && code[last+2].Text == "]" || x == "{" && code[last+2].Text == "}" || x == "null" || x == "undefined" || x == "true" || x == "false" {
+			return tn1.YieldsLiteral
+		}
+	}
+	for j in open+1..close {
+		if code[j].Text == "(" && j > open+1 && isIdent(code[j-1]) && !control(code[j-1].Text) {
+			return tn1.Records
+		}
+	}
+	tn1.Translates
+}
+
+// catches is the handler nodes of code[from:to]: each catch's block.
+func catches(code []Token, from int, to int) []Catch {
+	let mut out = []Catch{}
+	for j in from..to {
+		if code[j].Text == "catch" && isIdent(code[j]) && (j == 0 || code[j-1].Text != ".") {
+			let mut k = j + 1
+			let mut bound = ""
+			if k < to && code[k].Text == "(" {
+				if k+1 < to && isIdent(code[k+1]) {
+					bound = code[k+1].Text
+				}
+				k = closing(code, k, to) + 1
+			}
+			if k < to && code[k].Text == "{" {
+				out = out.Append(Catch{At: j, Open: k, Close: closing(code, k, to), Bound: bound})
+			}
+		}
+	}
+	out
+}
+
+type Catch { At int, Open int, Close int, Bound string }
+
+// index is the first index of code, from at, whose token starts at or
+// after p. Statements come in order, so each search starts where the
+// last ended and the walk is linear in the file.
+func index(code []Token, at int, p int) int {
+	let mut i = at
+	for i < len(code) && code[i].From < p {
+		i += 1
+	}
+	i
+}
+
+func node(src string, starts []int, code []Token, cs []Catch, sh uint64, kind tn1.NodeKind, from int, to int, name string) tn1.Node {
+	let line = lineOf(starts, code[from].From)
+	let mut lines = 0
+	let mut lastLine = -1
+	let mut deepest = 0
+	let mut l = line
+	for j in from..to {
+		l = lineFrom(starts, l, code[j].From)
+		if l != lastLine {
+			lines += 1
+			lastLine = l
+		}
+		if code[j].Depth-code[from].Depth > deepest {
+			deepest = code[j].Depth - code[from].Depth
+		}
+	}
+	let mut shapes = []tn1.HandlerShape{}
+	for c in cs {
+		shapes = shapes.Append(handlerShape(code, c.Bound, c.Open, c.Close))
+	}
+	let mut nameWords = uint64(0)
+	if name != "" {
+		nameWords = tn1.SketchOf(name)
+	}
+	let mut ps = 0
+	match kind {
+	case tn1.Function, tn1.Test:
+		ps = params(code, from, to)
+	case tn1.Declared, tn1.Handler, tn1.Module:
+	}
+	tn1.Node{
+		Kind:                  kind,
+		Offset:                code[from].From,
+		Length:                code[to-1].To - code[from].From,
+		Line:                  line + 1,
+		Column:                code[from].From - starts[line] + 1,
+		NameWords:             nameWords,
+		Params:                ps,
+		Statements:            lines,
+		MaxDepth:              deepest,
+		Handlers:              shapes,
+		Shape:                 sh,
+		CallersInPackage:      0,
+		CallersOut:            0,
+		TopCallerPackageShare: 0,
+	}
+}
+
+func nodes(src string, starts []int, code []Token, imp Imports) []tn1.Node {
+	if len(code) == 0 {
+		return []tn1.Node{}
+	}
+	let runs = trigrams(code)
+	// Each statement's runs are counted once, and the module's votes are
+	// the statements' votes plus the runs between statements.
+	let mut spans = []Span{}
+	let mut shapes = []uint64{}
+	let mut module = Votes{Planes: []uint64{}, N: 0}
+	let mut r = 0
+	let mut cursor = 0
+	for s in statementsOf(code) {
+		let from = index(code, cursor, s.From)
+		let to = index(code, from, s.To)
+		cursor = to
+		for r < from && r < len(runs) {
+			vote(&module, runs[r])
+			r += 1
+		}
+		let mut stmt = Votes{Planes: []uint64{}, N: 0}
+		for i in from..to-2 {
+			vote(&stmt, runs[i])
+		}
+		if to-2 > r {
+			r = to - 2
+		}
+		shapes = shapes.Append(majority(stmt))
+		addVotes(&module, stmt)
+		spans = spans.Append(Span{From: from, To: to})
+	}
+	for r < len(runs) {
+		vote(&module, runs[r])
+		r += 1
+	}
+	let mut out = slices.WithCapacity[tn1.Node](len(spans) + 1)
+	let all = catches(code, 0, len(code))
+	out = out.Append(node(src, starts, code, all, majority(module), tn1.Module, 0, len(code), ""))
+	out[0].Offset = 0
+	out[0].Length = len(src)
+	out[0].Line = 1
+	out[0].Column = 1
+	for k in 0..len(spans) {
+		let from = spans[k].From
+		let to = spans[k].To
+		let kind = nodeKind(code, from, to)
+		let mut name = nameOf(code, from, to)
+		if binds(imp, name) {
+			name = ""
+		}
+		out = out.Append(node(src, starts, code, catches(code, from, to), shapes[k], kind, from, to, name))
+	}
+	for c in all {
+		out = out.Append(node(src, starts, code, catches(code, c.At, c.Close+1), shape(runs, c.At, c.Close+1), tn1.Handler, c.At, c.Close+1, ""))
+	}
+	out
+}

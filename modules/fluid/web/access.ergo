@@ -1,0 +1,136 @@
+import ergo.dev/fluid/a11y
+import ergo.dev/fluid/part
+import html
+import ui
+
+// AccessOfWebIsAccessOfPart: the access tree read back from the HTML of a part tree is the
+// tree's own (a11y.Of), for trees drawn from a seed: every node kind, roles, names, keys,
+// states, relations, focus, keyboard maps, hidden and modal branches, and texts with markup's
+// special characters, each control a link or a button by the seed. A failing seed prints both
+// trees' prints and the markup.
+law AccessOfWebIsAccessOfPart(seed []int, links bool) {
+	let mut g = Gen{xs: seed, at: 0}
+	let tree = drawNode(&g, 0)
+	let markup = html.Render(Node(tree, func(e int) Act {
+		if links && e%2 == 0 { Go{URL: html.LocalURL("/next/\(e)")} } else { Inert }
+	}))
+	a11y.Print(a11y.OfHTML(markup)) == a11y.Print(a11y.Of(tree))
+}
+
+// Gen draws from a seed: the seed's numbers in turn, each mixed with its turn, so a short seed
+// still draws many values. (the property's helper)
+type Gen { xs []int, at int }
+
+func draw(g mut Gen, n int) int {
+	let v = if len(g.xs) == 0 { g.at * 7919 } else { g.xs[g.at%len(g.xs)] + g.at*7919 }
+	g.at = g.at + 1
+	((v % n) + n) % n
+}
+
+func pick[T](g mut Gen, xs []T) T { xs[draw(g, len(xs))] }
+
+let words = []string{"a", "b c", "<x>", "&amp", "\"q\"", "it's", "é", ""}
+
+let pressRoles = []part.Role{part.Button, part.Tab, part.MenuItem, part.Choice, part.Switch, part.Checkbox, part.Link, part.Generic}
+
+let reaches = []part.Reach{part.Out, part.Native, part.Stop, part.Roving{Here: true}, part.Roving{Here: false}, part.Descendant}
+
+func drawStates(g mut Gen) []part.State {
+	let all = []part.State{part.Disabled, part.Busy, part.Invalid, part.Checked{Value: part.Mixed}, part.Selected{Yes: true}, part.Expanded{Yes: false}, part.Pressed{Yes: true}, part.Current{Kind: "page"}, part.Modal, part.MultiSelectable, part.Value{Now: 2.5, Min: 0, Max: 10, Text: "two"}}
+	let mut out = []part.State{}
+	for _ in 0..draw(g, 3) {
+		let s = pick(g, all)
+		if !hasState(out, s) {
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+func hasState(states []part.State, s part.State) bool {
+	for x in states {
+		if a11y.StateName(x) == a11y.StateName(s) {
+			return true
+		}
+	}
+	false
+}
+
+func drawRels(g mut Gen) []part.Rel {
+	match draw(g, 4) {
+	case 0:
+		[]part.Rel{part.Controls{Key: "k1"}}
+	case 1:
+		[]part.Rel{part.LabelledBy{Key: "k2"}, part.HasPopup{Role: part.Menu}}
+	case _:
+		[]part.Rel{}
+	}
+}
+
+func drawSem(g mut Gen, role part.Role) part.Sem {
+	part.Sem{
+		Role:   role,
+		Name:   if draw(g, 3) == 0 { pick(g, words) } else { "" },
+		Key:    if draw(g, 3) == 0 { part.Join(part.Root("k"), "\(g.at)") } else { "" },
+		States: drawStates(g),
+		Rels:   drawRels(g),
+		Reach:  pick(g, reaches),
+		Focus:  draw(g, 4) == 0,
+		Hidden: draw(g, 8) == 0,
+	}
+}
+
+func drawKids(g mut Gen, depth int) []part.Node[int] {
+	let mut out = []part.Node[int]{}
+	for _ in 0..draw(g, if depth >= 3 { 1 } else { 4 }) {
+		out = out.Append(drawNode(g, depth+1))
+	}
+	out
+}
+
+let skins = []part.Skin{part.Bare(), part.Skin{Look: part.Bare().Look, Class: "c1"}}
+
+// drawNode is a node of the tree a seed draws.
+func drawNode(g mut Gen, depth int) part.Node[int] {
+	let kind = draw(g, if depth >= 3 { 4 } else { 13 })
+	match kind {
+	case 0:
+		part.Text{Value: pick(g, words), Skin: pick(g, skins)}
+	case 1:
+		part.Glyph{Paths: "<path d=\"M5 12h14\"></path>", Stroked: draw(g, 2) == 0, Skin: pick(g, skins)}
+	case 2:
+		part.Live{Text: pick(g, words), Assertive: draw(g, 2) == 0}
+	case 3:
+		let w = pick(g, words)
+		part.Host{Web: "<b>host &amp; " + html.Escape(w) + "</b>", Gui: func(f mut ui.Frame[int]) { ui.Text(f, "host & "+w) }}
+	case 4:
+		part.Box{Sem: part.Plain(), Skin: pick(g, skins), Inline: draw(g, 2) == 0, Keys: []part.Binding[int]{}, Kids: drawKids(g, depth)}
+	case 5, 6:
+		let keys = if draw(g, 3) == 0 { []part.Binding[int]{part.Binding[int]{Key: "ArrowRight", On: draw(g, 4)}} } else { []part.Binding[int]{} }
+		part.Box{Sem: drawSem(g, pick(g, a11y.Roles())), Skin: pick(g, skins), Inline: draw(g, 2) == 0, Keys: keys, Kids: drawKids(g, depth)}
+	case 7:
+		let on = if draw(g, 3) == 0 { None } else { Some[int]{Value: draw(g, 4)} }
+		part.Press{Sem: drawSem(g, pick(g, pressRoles)), Skin: part.Control{Root: pick(g, skins), Plate: part.Bare(), Content: pick(g, skins)}, On: on, Kids: drawKids(g, depth)}
+	case 8:
+		part.Field{Sem: drawSem(g, part.Generic), Skin: pick(g, skins), Name: "f", Value: pick(g, words), Hint: pick(g, words), Lines: draw(g, 3), On: func(s string) int { len(s) }}
+	case 9:
+		part.Scale{Sem: drawSem(g, part.Generic), Skin: pick(g, skins), Name: "s", Min: 0, Max: float64(draw(g, 5) + 1), Step: 0.5, Value: float64(draw(g, 3)) / 2.0, On: func(v float64) int { int(v) }}
+	case 10:
+		part.Layer{Z: draw(g, 3), Modal: draw(g, 3) == 0, Dismiss: None, Kids: drawKids(g, depth)}
+	case 11:
+		part.Keyed{Key: "k", Node: drawNode(g, depth+1)}
+	case _:
+		part.Box{Sem: part.Of(part.Heading{Level: 1 + draw(g, 6)}), Skin: part.Bare(), Inline: false, Keys: []part.Binding[int]{}, Kids: drawKids(g, depth)}
+	}
+}
+
+// AccessCase is what a seed of AccessOfWebIsAccessOfPart draws: the markup, then the tree read
+// back from it, then the part tree's own; a program that prints it replays a failing seed.
+func AccessCase(seed []int, links bool) string {
+	let mut g = Gen{xs: seed, at: 0}
+	let tree = drawNode(&g, 0)
+	let markup = html.Render(Node(tree, func(e int) Act {
+		if links && e%2 == 0 { Go{URL: html.LocalURL("/next/\(e)")} } else { Inert }
+	}))
+	markup + "\n--- web\n" + a11y.Print(a11y.OfHTML(markup)) + "--- part\n" + a11y.Print(a11y.Of(tree))
+}

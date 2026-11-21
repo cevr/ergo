@@ -1,13 +1,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
+	"ergo.local/prototype/internal/linked/code"
+
 	"ergo.local/prototype/internal/sketch/api"
-	"ergo.local/prototype/internal/sketch/machinegraph"
-	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -17,20 +19,21 @@ Draws the graph of each machine of the root package (runtime.md, Machines
 and actors 4 and 15): its states and signals, each arm of its step with
 the state and signal variants it takes and the decisions it can give
 (kind, target state, position), the timer and the work of each state, and
-the pairs a run can reach with the arm that steps each. --json prints the
-graphs as JSON, each with its reachable pairs.
+the pairs a run can reach with the arm that steps each. --json prints
+each machine's view as JSON: std code's MachineView, the graph and its
+reachable pairs (docs/spec/code.md).
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
-` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp + "\n" + inspectFormsHelp + "\n" + inspectRewritesHelp
+` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp + "\n" + inspectCopiesHelp + "\n" + inspectFormsHelp + "\n" + inspectRewritesHelp
 
 const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
        ergo inspect api --diff OLD NEW [--json]
 
 Shows exported functions and methods from checked source: fails, needs,
-takes (written or inferred), and generic copy sites (plain data only).
+takes (written or inferred), and the own marks of type parameters.
 This text is also the docs view. --diff reports public contract changes;
-a new take or copying parameter breaks callers that pass a resource.
+a new take or a dropped own mark breaks callers that pass a resource.
 --json prints structured contracts or changes. Both inputs must check.
 Exit status: 0 on success, 1 on a source error, 2 on invalid arguments.
 `
@@ -42,7 +45,12 @@ Lowering 7): the range of each refined parameter, each index and cut a
 dominating compare proves, each two borrow parameters that never overlap,
 and each pure function, with its position, function, condition, evidence
 (proved or checked) and reason. A tested fact is never exported. A test
-build exports none: it checks each one. --json prints them as JSON.
+build exports none: it checks each one. After the facts come the build's
+evidence rows: each law rewrite the run build applies (kind rewrite), with
+its ledger entry's level (proved, or validated by a named run) and its
+ergo.laws line, and each unsafe runtime body a shortcut the build takes
+links (kind unsafe), with its row of the unsafe inventory. --json prints
+them as JSON.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
@@ -88,6 +96,9 @@ func inspectCommand(args []string) error {
 		}
 		return inspectFactsCommand(args[1:])
 	}
+	if len(args) > 0 && args[0] == "copies" {
+		return inspectCopiesCommand(args[1:])
+	}
 	if len(args) > 0 && args[0] == "forms" {
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 			_, err := os.Stdout.WriteString(inspectFormsHelp)
@@ -106,12 +117,12 @@ func inspectCommand(args []string) error {
 }
 
 func inspectAPICommand(args []string) error {
-	json, diff := false, false
+	asJSON, diff := false, false
 	var paths []string
 	for _, arg := range args {
 		switch arg {
 		case "--json":
-			json = true
+			asJSON = true
 		case "--diff":
 			diff = true
 		default:
@@ -124,7 +135,7 @@ func inspectAPICommand(args []string) error {
 	if (!diff && len(paths) != 1) || (diff && len(paths) != 2) {
 		return invalidInvocation(fmt.Errorf("inspect api: supply FILE|DIR, or --diff OLD NEW"))
 	}
-	var views [][]api.Function
+	var tables []string
 	for _, path := range paths {
 		opts, err := parseFileOptions("inspect api", []string{path})
 		if err != nil {
@@ -137,34 +148,57 @@ func inspectAPICommand(args []string) error {
 		if !l.result.Checked {
 			return refuseUnchecked(l, opts)
 		}
-		fs := api.Functions(l.analysis.Root().Package)
-		// A single-file check has no file name in the syntax snapshot.
-		if !isPackageFolder(path) {
-			for i := range fs {
-				for j := range fs[i].Copies {
-					if fs[i].Copies[j].Where != "" {
-						fs[i].Copies[j].Where = path + ":" + fs[i].Copies[j].Where
-					}
-				}
-			}
+		t := codeTablesOf(l.analysis)
+		b, err := json.Marshal(t)
+		if err != nil {
+			return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
 		}
-		views = append(views, fs)
+		tables = append(tables, string(b))
 	}
-	var text string
+	// The view is std code's Api (ApiText, ApiDiff, ApiDiffText), linked
+	// from internal/linked/code; --json reads its answer back into the
+	// api types, so the JSON keeps their field names.
+	var out []string
+	var err error
 	if diff {
-		changes := api.Diff(views[0], views[1])
-		if json {
-			return printJSON(changes)
-		}
-		text = api.DiffText(changes)
+		out, err = code.ApiDiff(context.Background(), tables[0], tables[1], asJSON)
 	} else {
-		if json {
-			return printJSON(views[0])
-		}
-		text = api.Text(views[0])
+		out, err = code.Api(context.Background(), tables[0], asJSON)
 	}
-	_, err := os.Stdout.WriteString(text)
-	return err
+	if err != nil {
+		return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+	}
+	if len(out) != 3 || out[0] != "0" {
+		return exitStatusError{code: 1, message: "inspect api: " + strings.Join(out, " ")}
+	}
+	if !asJSON {
+		_, err = os.Stdout.WriteString(out[1])
+		return err
+	}
+	if !diff {
+		var fs []api.Function
+		if err := json.Unmarshal([]byte(out[1]), &fs); err != nil {
+			return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+		}
+		return printJSON(fs)
+	}
+	type side struct {
+		Tag   string        `json:"_tag"`
+		Value *api.Function `json:"value"`
+	}
+	var changes []struct {
+		Name                  string
+		Old, New              side
+		BreaksResourceCallers bool
+	}
+	if err := json.Unmarshal([]byte(out[1]), &changes); err != nil {
+		return exitStatusError{code: 1, message: "inspect api: " + err.Error()}
+	}
+	list := []api.Change{}
+	for _, c := range changes {
+		list = append(list, api.Change{Name: c.Name, Old: c.Old.Value, New: c.New.Value, BreaksResourceCallers: c.BreaksResourceCallers})
+	}
+	return printJSON(list)
 }
 
 // inspectFactsCommand prints the facts the run build of the root package
@@ -190,7 +224,7 @@ func inspectFactsCommand(args []string) error {
 	if !l.result.Checked || l.analysis.Checked() == nil {
 		return refuseUnchecked(l, opts)
 	}
-	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted())
+	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted(), ledgerPath(opts.file))
 	if err != nil {
 		return err
 	}
@@ -281,7 +315,9 @@ func inspectRewritesCommand(args []string) error {
 	return err
 }
 
-// inspectMachineCommand prints the machine graphs of the root package.
+// inspectMachineCommand prints the machine graphs of the root package:
+// a view of std code's MachineOf and MachineText, linked from
+// internal/linked/code.
 func inspectMachineCommand(args []string) error {
 	opts, err := parseFileOptions("inspect machine", args)
 	if err != nil {
@@ -291,57 +327,46 @@ func inspectMachineCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	root := l.analysis.Root()
-	if root.Package == nil {
+	if l.analysis.Root().Package == nil {
 		return fmt.Errorf("inspect machine: %s does not check; run ergo check", opts.file)
 	}
-	at := func(decl syntax.Node, pos syntax.Pos) machinegraph.Site {
-		for _, f := range root.Files {
-			if f.Syntax == nil {
-				continue
-			}
-			for _, d := range f.Syntax.Decls {
-				if d == decl {
-					name := f.Rel
-					if name == "" {
-						name = l.source.String()
-					}
-					return machinegraph.Site{File: name, Line: f.Syntax.Line(pos)}
+	t := codeTablesOf(l.analysis)
+	// A single-file check has no file name in the syntax snapshot.
+	name := l.source.String()
+	fix := func(p *codePlace) {
+		if p.File == "" {
+			p.File = name
+		}
+	}
+	for i := range t.Packages {
+		for j := range t.Packages[i].Machines {
+			m := &t.Packages[i].Machines[j]
+			for k := range m.Arms {
+				fix(&m.Arms[k].At)
+				for e := range m.Arms[k].Edges {
+					fix(&m.Arms[k].Edges[e].At)
 				}
 			}
-		}
-		return machinegraph.Site{File: "?", Line: 0}
-	}
-	graphs := machinegraph.Machines(root.Package, at)
-	if opts.json {
-		type out struct {
-			*machinegraph.Graph
-			Reachable []machinegraph.Pair
-		}
-		list := make([]out, len(graphs))
-		for i, g := range graphs {
-			list[i] = out{g, g.Reachable()}
-		}
-		return printJSON(list)
-	}
-	var b strings.Builder
-	for _, g := range graphs {
-		b.WriteString(g.Text())
-		for _, p := range g.Reachable() {
-			sites := make([]string, len(p.Arms))
-			for i, s := range p.Arms {
-				sites[i] = s.String()
+			for k := range m.Timers {
+				fix(&m.Timers[k].At)
 			}
-			arms := strings.Join(sites, " or ")
-			if arms == "" {
-				arms = "no arm"
+			for k := range m.Work {
+				fix(&m.Work[k])
 			}
-			fmt.Fprintf(&b, "  reach (%s, %s) by %s\n", p.State, p.Signal, arms)
 		}
 	}
-	if len(graphs) == 0 {
-		b.WriteString("no machine\n")
+	tables, err := json.Marshal(t)
+	if err != nil {
+		return exitStatusError{code: 1, message: "inspect machine: " + err.Error()}
 	}
-	_, err = os.Stdout.WriteString(b.String())
+	out, err := code.Machines(context.Background(), string(tables), opts.json)
+	if err != nil {
+		return exitStatusError{code: 1, message: "inspect machine: " + err.Error()}
+	}
+	if len(out) != 3 || out[0] != "0" {
+		return exitStatusError{code: 1, message: "inspect machine: " + strings.Join(out, " ")}
+	}
+	// With --json the answer is std code's []MachineView.
+	_, err = os.Stdout.WriteString(out[1])
 	return err
 }

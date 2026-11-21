@@ -11,14 +11,14 @@
 
 import pipeline/board
 import pipeline/pipeline
-import pipeline/pipeline/pipelinerpc
+import pipeline/pipeline/pipelineapi
 import pipeline/run
 import strconv
 import strings
 import ui
 
 // Request is one call of the Api: the generated rpc package's Request.
-type Request = pipelinerpc.Request
+type Request = pipelineapi.Request
 
 // Rejection is a typed rejection of a command, each wrapped (a union's
 // variants are records of its package).
@@ -124,11 +124,11 @@ func Number(f Form) int {
 // is picked and fetched.
 func ask(sh Shown, r Request) Screen {
 	match r {
-	case pipelinerpc.SubmitRequest, pipelinerpc.CancelRequest, pipelinerpc.RetryRequest:
+	case pipelineapi.SubmitRequest, pipelineapi.CancelRequest, pipelineapi.RetryRequest:
 		Asking{Shown: sh, Req: r}
-	case pipelinerpc.BoardRequest:
+	case pipelineapi.BoardRequest:
 		Showing{Shown: Shown{..sh, Board: ui.Loading, Version: sh.Version + 1}}
-	case pipelinerpc.RunOfRequest as x:
+	case pipelineapi.RunOfRequest as x:
 		Showing{Shown: Shown{..sh, Picked: Some[string]{Value: x.Id}, Run: ui.Loading, Version: sh.Version + 1}}
 	}
 }

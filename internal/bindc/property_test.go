@@ -175,6 +175,8 @@ var refusedConstructs = []refused{
 	{"top", CodeDirective, "@#line 10"},
 
 	{"top", CodeMacroBody, "#define $ @1u"},
+	// Only a signed INTn_C takes a negated literal (BINDC-OT).
+	{"top", CodeMacroBody, "#define $ UINT32_C(@-1)"},
 	{"top", CodeMacroBody, "#define $ @1.5"},
 	{"top", CodeMacroBody, "#define $ @\"s\""},
 	{"top", CodeMacroBody, "#define $ @'a'"},
@@ -251,7 +253,12 @@ var refusedConstructs = []refused{
 
 	{"top", CodeLexical, "uint32_t $(void); @`"},
 	{"top", CodeLexical, "/* ok */ uint32_t $(void @??) ;"},
-	{"top", CodeLexical, "#define $ 1 @\\\n"},
+	// A continuation that splits a token, outside a directive, or after a //
+	// comment (which C extends over the next line) is refused; one after a
+	// space in a directive is spliced (TestMacroExpansionProperty).
+	{"top", CodeLexical, "#define $ 1@\\\n"},
+	{"top", CodeLexical, "uint32_t $(void); @\\\n"},
+	{"top", CodeLexical, "#define $ 1 // two @\\\n"},
 }
 
 // expand replaces each `$` with a fresh name and each `$1` with the name

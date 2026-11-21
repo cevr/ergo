@@ -50,6 +50,13 @@ import (
 //     literal value, a generic store, a returned Option, a range value, a
 //     Ref's Get, one value at two keys) is read after an entry move-out,
 //     and must not see it.
+//   - arm rmw (moved): Some's arm stores w(v.Value) back under its key
+//     (the move-out's arm form, REUSE RU8): no copy; arm snapshot, arm
+//     root in value (agreement only): a snapshot read after it, and a
+//     value whose call also reads the root;
+//   - elem append: gs[1] = gs[1].Append(i) on a let mut [][]int, in place
+//     (LWR-ELEM-APPEND): no copy; elem other index (agreement only):
+//     gs[0] = gs[1].Append(7), then gs[1] grows into the slot gs[0] shows.
 //   - update, update named: m = maps.Update(m, k, f) with a literal or a
 //     top-level function by name whose results are fresh: no Map copy
 //     (argsUnshared); store read: an entry stored under another key, then
@@ -187,7 +194,7 @@ func dm%[1]s%[2]s(m Map[%[6]s, %[3]s]) int {
 	t
 }
 
-func bump%[1]s%[2]s(r *%[1]s%[2]s, k %[6]s) %[6]s {
+func bump%[1]s%[2]s(r mut %[1]s%[2]s, k %[6]s) %[6]s {
 	r.m[k] = %[4]s
 	k
 }
@@ -196,7 +203,7 @@ func bump%[1]s%[2]s(r *%[1]s%[2]s, k %[6]s) %[6]s {
 	if f.moved {
 		s += fmt.Sprintf(`func find%[1]s%[2]s(m Map[%[5]s, %[3]s], k %[5]s) Option[%[3]s] { m.Get(k) }
 
-func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
+func rmw%[1]s%[2]s(r mut %[1]s%[2]s, k %[5]s) int {
 	let mut s = %[4]s
 	match r.m.Get(k) {
 	case Some[%[3]s] as v:
@@ -208,6 +215,19 @@ func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
 	len(r.m)
 }
 
+func w%[1]s%[2]s(x %[3]s) %[3]s {
+	let mut s = x
+	%[6]s
+	s
+}
+
+func wr%[1]s%[2]s(x %[3]s, r *%[1]s%[2]s) %[3]s {
+	let mut s = x
+	%[6]s
+	r.s[0] = dm%[1]s%[2]s(r.m)
+	s
+}
+
 `, f.pre, e.k, e.typ, e.zero, f.kt, e.write)
 	}
 	return s
@@ -215,7 +235,7 @@ func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
 
 // copyShapes is the number of shapes copyGen.shape draws from in each
 // family.
-const copyShapes = 13
+const copyShapes = 14
 
 type copyGen struct {
 	r       *rand.Rand
@@ -226,6 +246,12 @@ type copyGen struct {
 	order   []string
 	reached map[string]bool
 	n       int
+}
+
+// armBody is the arm form of a move-out of the entry at key, from root r:
+// Some's arm stores value (over v.Value) back.
+func armBody(e copyEntry, key, value string) string {
+	return fmt.Sprintf("\tmatch r.m.Get(%s) {\n\tcase Some[%s] as v:\n\t\tr.m[%s] = %s\n\tcase None:\n\t}\n", key, e.typ, key, value)
 }
 
 // rmwBody is a move-out of the entry at key, from root r, with the write w
@@ -254,7 +280,7 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 	}
 	// head opens the function over the store; call is main's call of it,
 	// with the store digest after.
-	head := fmt.Sprintf("func %s(r *%s, k %s) int {\n", name, st, fam.kt)
+	head := fmt.Sprintf("func %s(r mut %s, k %s) int {\n", name, st, fam.kt)
 	if !ptr {
 		head = fmt.Sprintf("func %s(k %s) int {\n\tlet mut r = new%s()\n", name, fam.kt, st)
 	}
@@ -366,6 +392,14 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 		shape = "store read"
 		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tr.m[%s] = s\n\tlen(r.m) + %s(s)%s\n", e.zero, e.typ, e.write, fam.next, sz, tail)
 		want = holds + moved
+	case 12:
+		if !fam.moved {
+			g.chain(name, k, &shape, &head, &body, &want, &call)
+			access = "value"
+			break
+		}
+		shape = "arm rmw"
+		body = armBody(e, "k", "w"+st+"(v.Value)") + "\tlen(r.m)" + tail + "\n"
 	default:
 		g.chain(name, k, &shape, &head, &body, &want, &call)
 		access = "value"
@@ -382,7 +416,7 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 	switch {
 	case shape == "window" || shape == "copy root":
 		g.reached[fam.name+" "+shape+" "+access] = true
-	case strings.HasPrefix(shape, "chain"):
+	case strings.HasPrefix(shape, "chain"), strings.HasPrefix(shape, "elem"):
 		g.reached[shape] = true
 	case strings.HasPrefix(shape, "ref"):
 		g.reached[fam.name+" "+shape+" "+e.k] = true // a Ref site has no store
@@ -419,7 +453,19 @@ func (g *copyGen) refShape(fam copyFamily, e copyEntry, name string, k int, rmw 
 
 // chain writes one of the chains, over a slice or a Map of int.
 func (g *copyGen) chain(name string, k int, shape, head, body *string, want *int, call *func()) {
-	switch g.r.IntN(5) {
+	switch g.r.IntN(7) {
+	case 5:
+		*shape = "elem append"
+		*head = fmt.Sprintf("func %s(a int) int {\n", name)
+		*body = "\tlet mut gs = [][]int{[]int{1}, []int{2}}\n\tfor i in 0..a {\n\t\tgs[1] = gs[1].Append(i)\n\t}\n\tszS(gs[0]) * 7 + szS(gs[1])\n"
+		*want = 0
+		*call = func() { g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", name, k+3)) }
+	case 6:
+		*shape = "elem other index"
+		*head = fmt.Sprintf("func %s(a int) int {\n", name)
+		*body = "\tlet mut gs = [][]int{[]int{1}, []int{2}}\n\tgs[1] = gs[1].Append(3)\n\tgs[1] = gs[1].Append(a)\n\tgs[0] = gs[1].Append(7)\n\tgs[1] = gs[1].Append(8)\n\tszS(gs[0]) * 7 + szS(gs[1])\n"
+		*want = -1
+		*call = func() { g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", name, k+3)) }
 	case 4:
 		*shape = "chain root"
 		*head = fmt.Sprintf("func %s(x []Map[int, int], a Map[int, int]) int {\n", name)
@@ -493,7 +539,7 @@ func (g *copyGen) takes() {
 }
 
 // copyAdversaries are the agreement-only shapes of the moved family.
-var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared", "update named shared"}
+var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared", "update named shared", "arm snapshot", "arm root in value"}
 
 // adversary writes one agreement-only function of the moved family: a
 // value that may share an entry's storage, read after a move-out of it.
@@ -504,7 +550,7 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 	st := fam.pre + e.k
 	sz := "sz" + e.k
 	mt := fmt.Sprintf("Map[string, %s]", e.typ)
-	head := fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st)
+	head := fmt.Sprintf("func %s(r mut %s, k string) int {\n", name, st)
 	if !ptr {
 		head = fmt.Sprintf("func %s(k string) int {\n\tlet mut r = new%s()\n", name, st)
 	}
@@ -551,7 +597,7 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		// Through a borrow, so the caller reads the store after the
 		// return, which names nothing but X.
 		ptr = true
-		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
+		head, tail = fmt.Sprintf("func %s(r mut %s, k string) int {\n", name, st), ""
 		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tif len(k) == 1 {\n\t\treturn %s(s)\n\t}\n\tr.m[k] = s\n\tdm%s(r.m) * 3\n", e.zero, e.typ, e.write, sz, st)
 	case "update snapshot":
 		body = fmt.Sprintf("\tlet snap = r.m\n\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { %s })\n", e.typ, e.typ, e.zero) + rmw + fmt.Sprintf("\tdm%s(snap) * 3 + dm%s(r.m)%s\n", st, st, tail)
@@ -560,7 +606,7 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		// table at its type parameters), and the move-out writes one.
 		// Through a borrow: nothing writes r.
 		ptr = true
-		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
+		head, tail = fmt.Sprintf("func %s(r mut %s, k string) int {\n", name, st), ""
 		body = fmt.Sprintf("\tlet mut t = maps.Update(r.m, k + \"z\", func(_ Option[%[1]s]) %[1]s { %[2]s })\n\tlet mut s = %[2]s\n\tmatch t.Get(k) {\n\tcase Some[%[1]s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%[3]s\n\tt[k] = s\n\tdm%[4]s(t) * 3 + dm%[4]s(r.m)%[5]s\n", e.typ, e.zero, e.write, st, tail)
 	case "update named shared":
 		// A callback by name that returns a package let: not fresh.
@@ -568,6 +614,16 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, cb%s)\n", name) + rmw + fmt.Sprintf("\t%s(g%s) * 3 + dm%s(r.m)%s\n", sz, name, st, tail)
 	case "update shared":
 		body = fmt.Sprintf("\tlet e = %s\n\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { e })\n", e.sample, e.typ, e.typ) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
+	case "arm snapshot":
+		body = "\tlet snap = r.m\n" + armBody(e, "k", "w"+st+"(v.Value)") + fmt.Sprintf("\tdm%s(snap) * 3 + dm%s(r.m)%s\n", st, st, tail)
+	case "arm root in value":
+		// wr reads the root's Map after it writes its argument: the
+		// entry must not be the one it reads.
+		p := "r"
+		if !ptr {
+			p = "&r"
+		}
+		body = armBody(e, "k", "wr"+st+"(v.Value, "+p+")") + fmt.Sprintf("\tdm%s(r.m) * 3 + r.s[0]%s\n", st, tail)
 	case "rmw same value":
 		body = fmt.Sprintf("\tlet e = %s\n\tr.m[k] = e\n\tr.m[k + \"x\"] = e\n", e.sample) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
 	}
@@ -649,7 +705,7 @@ func copyPaths() []string {
 		shapes := []string{"get keep", "get match", "get none", "get in flight", "entry copy", "update", "update named", "store read"}
 		refs := []string{"ref modify"}
 		if f.moved {
-			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw", "update", "update named", "store read"}
+			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw", "update", "update named", "store read", "arm rmw"}
 			refs = append(refs, "ref rmw")
 		}
 		for _, e := range copyEntries {
@@ -680,7 +736,7 @@ func copyPaths() []string {
 			}
 		}
 	}
-	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root", "take loop", "take param", "take then put")
+	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root", "elem append", "elem other index", "take loop", "take param", "take then put")
 	return out
 }
 

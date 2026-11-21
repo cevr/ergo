@@ -6,10 +6,22 @@
 
 import rpc
 import jobsweb/jobs
+import jobsweb/jobs/jobsapi
 
-// Request is one call of jobs.Jobs: a variant per operation, whose fields
-// are the operation's parameters, so its payload is the variant's JSON.
-type Request = SubmitRequest{Spec jobs.Spec} | CancelRequest{Id int} | StatusRequest{Id int} | ListRequest{} | WorkRequest{Ticks int}
+// Request is one call of jobs.Jobs: the hub's Request, a variant per
+// operation whose fields are the operation's parameters, so its payload is
+// the variant's JSON. Each variant is named here too.
+type Request = jobsapi.Request
+
+type SubmitRequest = jobsapi.SubmitRequest
+
+type CancelRequest = jobsapi.CancelRequest
+
+type StatusRequest = jobsapi.StatusRequest
+
+type ListRequest = jobsapi.ListRequest
+
+type WorkRequest = jobsapi.WorkRequest
 
 func exactSubmitRequest(v SubmitRequest) fails rpc.Unrepresentable {
 	exactJobsSpec(v.Spec) catch {

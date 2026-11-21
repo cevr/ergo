@@ -1,0 +1,363 @@
+// Package motion is the library's one timing model: three spring tiers, curves, and clips that
+// move a number from a value to a value. At is the value of a clip at a time; the web host prints
+// the same curves as CSS (CSS), and the GUI host samples At on its frames. Both hosts honour
+// reduced motion through At's reduced argument.
+//
+// The springs are the original's: a spring is given by its duration and its bounce, as the
+// `motion` library defines it (damping ratio 1 - bounce; the natural frequency is the one at
+// which the spring's envelope has fallen to 0.001 of the move at the duration).
+
+import math
+import strconv
+import strings
+
+type Fast {}
+type Moderate {}
+type Slow {}
+
+// Tier is how far a thing moves: a control's state (Fast), a panel (Moderate), a page-sized
+// change (Slow).
+type Tier = Fast | Moderate | Slow
+
+// Spring is a spring by its duration and its bounce (0: no overshoot; at most 0.95).
+type Spring { Duration duration, Bounce float64 }
+
+// Entrance is the tier's spring for a thing that arrives or changes.
+func Entrance(t Tier) Spring {
+	match t {
+	case Fast:
+		Spring{Duration: 80ms, Bounce: 0.0}
+	case Moderate:
+		Spring{Duration: 160ms, Bounce: 0.0}
+	case Slow:
+		Spring{Duration: 240ms, Bounce: 0.12}
+	}
+}
+
+// Exit is the tier's time for a thing that leaves: a plain ease, quicker than the entrance.
+func Exit(t Tier) duration {
+	match t {
+	case Fast:
+		60ms
+	case Moderate:
+		120ms
+	case Slow:
+		160ms
+	}
+}
+
+// ExitIsQuicker: a thing leaves faster than it arrives, at every tier.
+law ExitIsQuicker(t Tier) {
+	Exit(t) < Entrance(t).Duration
+}
+
+type Sprung { Spring Spring }
+type Ease { X1 float64, Y1 float64, X2 float64, Y2 float64 }
+type Linear {}
+
+// Curve is how a clip's progress runs from 0 to 1: a spring, a cubic Bézier ease (CSS's
+// cubic-bezier, X1 and X2 in [0, 1]), or a straight line.
+type Curve = Sprung | Ease | Linear
+
+// EaseOut is the library's ease for colours and exits, cubic-bezier(0.23, 1, 0.32, 1).
+func EaseOut() Curve { Ease{X1: 0.23, Y1: 1.0, X2: 0.32, Y2: 1.0} }
+
+// Clip moves a number from From to To along Curve over Over, after Delay. A repeating clip
+// starts again at From each Over and never ends. Under reduced motion every clip rests at To,
+// so a repeating clip's To is its still value.
+type Clip { From float64, To float64, Curve Curve, Over duration, Delay duration, Repeat bool }
+
+// At is the clip's value at t after its start.
+func At(c Clip, t duration, reduced bool) float64 {
+	if reduced {
+		return c.To
+	}
+	if t < c.Delay {
+		return c.From
+	}
+	let ran = t - c.Delay
+	if c.Over <= 0ns || (!c.Repeat && ran >= c.Over) {
+		return c.To
+	}
+	let over = int64(c.Over)
+	let into = if c.Repeat { int64(ran) % over } else { int64(ran) }
+	c.From + (c.To-c.From)*Progress(c.Curve, float64(into)/float64(over))
+}
+
+// Ended reports whether the clip has stopped moving at t: it is past its end, or motion is
+// reduced. A repeating clip moves until motion is reduced.
+func Ended(c Clip, t duration, reduced bool) bool {
+	reduced || (!c.Repeat && t >= c.Delay+c.Over)
+}
+
+// Ticks reports whether a host must draw another frame at t for these clips: some clip still
+// moves. A host that asks for no frame when Ticks is false does no work for settled motion.
+func Ticks(cs []Clip, t duration, reduced bool) bool {
+	for c in cs {
+		if !Ended(c, t, reduced) {
+			return true
+		}
+	}
+	false
+}
+
+// clipOf draws a clip from integers for the laws: values in [-500, 500], a curve of each kind
+// and bounce, a length up to 2 s and a delay up to 1 s.
+func clipOf(from int, to int, kind int, over int, delay int, repeat bool) Clip {
+	let k = pick(kind, 4)
+	let curve = if k == 0 { Linear } else if k == 1 { EaseOut() } else { Sprung{Spring: Spring{Duration: duration(int64(pick(over, 2001)) * 1000000), Bounce: bounceOf(kind)}} }
+	Clip{From: float64(from % 501), To: float64(to % 501), Curve: curve, Over: duration(int64(pick(over, 2001)) * 1000000), Delay: duration(int64(pick(delay, 1001)) * 1000000), Repeat: repeat}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// bounceOf draws a bounce in [0, 0.5] in steps of 0.01.
+func bounceOf(n int) float64 { float64(pick(n, 51)) / 100.0 }
+
+// EndsAtTarget: a clip that does not repeat is at its target from its end on, whatever its
+// curve (a spring is 0.001 short of it at its duration; the clip is not).
+law EndsAtTarget(from int, to int, kind int, over int, delay int, after int) {
+	let c = clipOf(from, to, kind, over, delay, false)
+	At(c, c.Delay+c.Over+duration(int64(pick(after, 5000))*1000000), false) == c.To
+}
+
+// ReducedIsStill: under reduced motion every clip, a repeating one too, is at its still value
+// at every time, and has ended.
+law ReducedIsStill(from int, to int, kind int, over int, delay int, repeat bool, t int) {
+	let c = clipOf(from, to, kind, over, delay, repeat)
+	let at = duration(int64(pick(t, 10000)) * 1000000)
+	At(c, at, true) == c.To && Ended(c, at, true)
+}
+
+// NoTickWhenSettled: once no clip moves, none moves later, and under reduced motion none ever
+// moves; while one moves, a frame is asked for.
+law NoTickWhenSettled(a int, b int, c int, t int, later int, reduced bool) {
+	let cs = []Clip{clipOf(a, b, c, a+c, b+c, false), clipOf(b, c, a, b, c, false), clipOf(c, a, b, c+t, a, pick(a, 3) == 0)}
+	let now = duration(int64(pick(t, 4000)) * 1000000)
+	let then = now + duration(int64(pick(later, 4000))*1000000)
+	let mut moving = false
+	for x in cs {
+		moving = moving || (!reduced && (x.Repeat || now < x.Delay+x.Over))
+	}
+	Ticks(cs, now, reduced) == moving && (Ticks(cs, now, reduced) || !Ticks(cs, then, reduced)) && (!reduced || !Ticks(cs, now, reduced))
+}
+
+// Progress is the curve's eased progress at p in [0, 1]: 0 at 0 and 1 at 1 for an ease and a
+// line; a spring may pass 1 on its way (bounce) and is within 0.001 of it at 1.
+func Progress(c Curve, p float64) float64 {
+	match c {
+	case Linear:
+		p
+	case Ease as e:
+		bezier(e, p)
+	case Sprung as s:
+		spring(s.Spring.Bounce, p)
+	}
+}
+
+// bezier solves CSS's cubic-bezier for x = p by bisection on the curve's parameter (x rises
+// with it when X1 and X2 are in [0, 1]) and gives y there.
+func bezier(e Ease, p float64) float64 {
+	if p <= 0.0 {
+		return 0.0
+	}
+	if p >= 1.0 {
+		return 1.0
+	}
+	let mut lo = 0.0
+	let mut hi = 1.0
+	for _ in 0..60 {
+		let mid = (lo + hi) / 2.0
+		if cubic(e.X1, e.X2, mid) < p {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	cubic(e.Y1, e.Y2, (lo+hi)/2.0)
+}
+
+// cubic is one coordinate of a Bézier from 0 to 1 with control values a and b, at u.
+func cubic(a float64, b float64, u float64) float64 {
+	let v = 1.0 - u
+	3.0*v*v*u*a + 3.0*v*u*u*b + u*u*u
+}
+
+// damping is the spring's damping ratio: 1 - bounce, held in [0.05, 1] as `motion` holds it.
+func damping(bounce float64) float64 { if bounce <= 0.0 { 1.0 } else if bounce >= 0.95 { 0.05 } else { 1.0 - bounce } }
+
+// settle is how far the spring's envelope may stand from the target at the duration.
+let settle = 0.001
+
+// frequency is the natural angular frequency, per duration, of the spring with this damping
+// ratio: the root of its envelope at the duration, found by bisection (the envelope falls as the
+// frequency rises).
+func frequency(z float64) float64 {
+	let mut lo = 0.01
+	let mut hi = 1000.0
+	for _ in 0..100 {
+		let mid = (lo + hi) / 2.0
+		if envelope(z, mid) > settle {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	(lo + hi) / 2.0
+}
+
+// envelope is the spring's distance bound at the duration (time 1) for frequency w.
+func envelope(z float64, w float64) float64 {
+	if z < 1.0 {
+		(z * w / (w * math.Sqrt(1.0-z*z))) * math.Exp(-z*w)
+	} else {
+		math.Exp(-w) * (w + 1.0)
+	}
+}
+
+// spring is the closed form of a spring released from 0 at rest toward 1, at p durations.
+func spring(bounce float64, p float64) float64 {
+	let z = damping(bounce)
+	let w = frequency(z)
+	if z < 1.0 {
+		let wd = w * math.Sqrt(1.0-z*z)
+		1.0 - math.Exp(-z*w*p)*(cos(wd*p)+(z*w/wd)*sin(wd*p))
+	} else {
+		1.0 - math.Exp(-w*p)*(1.0+w*p)
+	}
+}
+
+// SettlesByItsDuration: the frequency puts the spring's envelope at 0.001 of the move at its
+// duration (the root, within 1e-9), so the spring stands within 0.001 / damping of its target
+// there (the envelope bounds the motion's amplitude times the damping ratio); and it starts at
+// rest at 0.
+law SettlesByItsDuration(b int) {
+	let bounce = bounceOf(b)
+	let z = damping(bounce)
+	math.Abs(envelope(z, frequency(z))-0.001) < 0.000000001 && math.Abs(1.0-spring(bounce, 1.0)) <= 0.001/z+0.000000001 && spring(bounce, 0.0) == 0.0
+}
+
+// SpringSolvesItsEquation: the closed form agrees, within 1e-6 at 20 points, with a numeric
+// integration (fourth-order Runge-Kutta, 4000 steps) of the spring's equation
+// x'' = -w²(x - 1) - 2zw x' from x = 0, x' = 0, with the same frequency and damping.
+law SpringSolvesItsEquation(b int) {
+	let bounce = bounceOf(b)
+	let z = damping(bounce)
+	let w = frequency(z)
+	let steps = 4000
+	let h = 1.0 / float64(steps)
+	let mut x = 0.0
+	let mut v = 0.0
+	let mut ok = true
+	for i in 1..steps+1 {
+		let a1 = accel(z, w, x, v)
+		let a2 = accel(z, w, x+h/2.0*v, v+h/2.0*a1)
+		let a3 = accel(z, w, x+h/2.0*(v+h/2.0*a1), v+h/2.0*a2)
+		let a4 = accel(z, w, x+h*(v+h/2.0*a2), v+h*a3)
+		x = x + h*(v+h/6.0*(a1+a2+a3))
+		v = v + h/6.0*(a1+2.0*a2+2.0*a3+a4)
+		if i%200 == 0 {
+			ok = ok && math.Abs(x-spring(bounce, float64(i)*h)) < 0.000001
+		}
+	}
+	ok
+}
+
+// accel is the spring's acceleration at position x and velocity v.
+func accel(z float64, w float64, x float64, v float64) float64 { -w*w*(x-1.0) - 2.0*z*w*v }
+
+// stops is how many equal steps a printed spring curve has: 100 keeps the browser's straight
+// lines between stops within 0.002 of the spring (FL0's probe: 0.0010 at 120, 0.0026 at 60).
+let stops = 100
+
+// CSS is the curve as a CSS easing function: linear() with the spring's value at each of its
+// stops, cubic-bezier() for an ease, linear for a line. The browser and At then move alike.
+func CSS(c Curve) string {
+	match c {
+	case Linear:
+		"linear"
+	case Ease as e:
+		"cubic-bezier(\(num(e.X1)), \(num(e.Y1)), \(num(e.X2)), \(num(e.Y2)))"
+	case Sprung as s:
+		let mut parts = []string{}
+		for i in 0..stops+1 {
+			let v = if i == stops { 1.0 } else { spring(s.Spring.Bounce, float64(i)/float64(stops)) }
+			parts = parts.Append(num(v))
+		}
+		"linear(\(strings.Join(parts, ", ")))"
+	}
+}
+
+// num prints a number with at most 4 decimals and no trailing zeros.
+func num(v float64) string {
+	let s = strconv.FormatFloat(math.Round(v*10000.0)/10000.0, 'f', -1)
+	if s == "-0" { "0" } else { s }
+}
+
+// SheetCurveMatchesSpring: the linear() the sheet prints, read back as the browser reads it
+// (equal steps, straight lines between them), is within 0.002 of the spring at every point, so
+// the browser and the GUI move alike.
+law SheetCurveMatchesSpring(b int, k int) {
+	let bounce = bounceOf(b)
+	let text = CSS(Sprung{Spring: Spring{Duration: 160ms, Bounce: bounce}})
+	let inner = strings.TrimSuffix(strings.TrimPrefix(text, "linear("), ")")
+	let mut ys = []float64{}
+	for part in strings.Split(inner, ", ") {
+		let y = strconv.ParseFloat(part) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		ys = ys.Append(y)
+	}
+	let p = float64(pick(k, 1001)) / 1000.0
+	let n = len(ys) - 1
+	let at = if p >= 1.0 { float64(n - 1) } else { math.Floor(p * float64(n)) }
+	let i = int(at)
+	let f = p*float64(n) - at
+	let shown = ys[i] + (ys[i+1]-ys[i])*f
+	n == stops && math.Abs(shown-spring(bounce, p)) <= 0.002
+}
+
+// sin and cos for the spring's oscillation (std math has neither yet): the argument reduced to
+// [-pi/4, pi/4] and the Taylor series to the 15th power there (error below 1e-16). The springs'
+// closed forms use them, so SpringSolvesItsEquation holds them too.
+let halfPi = 1.5707963267948966
+
+func sin(x float64) float64 {
+	let k = math.Round(x / halfPi)
+	let r = x - k*halfPi
+	let q = pick(int(k), 4)
+	if q == 0 {
+		sinNear(r)
+	} else if q == 1 {
+		cosNear(r)
+	} else if q == 2 {
+		-sinNear(r)
+	} else {
+		-cosNear(r)
+	}
+}
+
+func cos(x float64) float64 { sin(x + halfPi) }
+
+func sinNear(r float64) float64 {
+	let r2 = r * r
+	let mut term = r
+	let mut sum = r
+	for n in 1..8 {
+		term = -term * r2 / float64((2*n)*(2*n+1))
+		sum = sum + term
+	}
+	sum
+}
+
+func cosNear(r float64) float64 {
+	let r2 = r * r
+	let mut term = 1.0
+	let mut sum = 1.0
+	for n in 1..8 {
+		term = -term * r2 / float64((2*n-1)*(2*n))
+		sum = sum + term
+	}
+	sum
+}

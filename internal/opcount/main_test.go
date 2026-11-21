@@ -3,6 +3,7 @@ package opcount_test
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,7 +14,8 @@ import (
 // childMode makes this test binary a child program of the counter tests:
 // "loop:K" runs K steps and exits 0; "spawn:K" runs a child "loop:K", waits
 // for it, then runs K steps itself; "exit:N" exits N; "orphan" starts a
-// child "spin" and exits without waiting; "spin" runs seconds of steps.
+// child "spin" and exits without waiting; "spin" runs seconds of steps;
+// "alloc:K" allocates K small objects on four Ps, keeping every 64th.
 const childMode = "OPCOUNT_TEST_CHILD"
 
 var sink uint64
@@ -54,6 +56,19 @@ func child(mode string) int {
 		if cmd.Start() != nil {
 			return 3
 		}
+	case "alloc":
+		// K small objects, every 64th kept, on four Ps: the collector,
+		// allocation and the write barrier all run, on threads the
+		// program starts.
+		runtime.GOMAXPROCS(4)
+		keep := make([]*[4]uint64, 0, n/64+1)
+		for i := range n {
+			p := &[4]uint64{uint64(i)}
+			if i%64 == 0 {
+				keep = append(keep, p)
+			}
+		}
+		sink = uint64(len(keep))
 	case "spin":
 		// Seconds of work, so it is still running when Count checks the
 		// group; it ends by itself if a mutant leaves it running.

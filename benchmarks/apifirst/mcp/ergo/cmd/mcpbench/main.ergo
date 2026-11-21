@@ -1,0 +1,55 @@
+// mcpbench is the Ergo side of the MCP receipt (API-FIRST spec §3): it
+// answers a cycle of tools/call lines with module mcp's Handle over the
+// generated tools of counter.Counter, as many times as asked, and prints a
+// checksum of the answers.
+//
+//	mcpbench bench N    answer N lines; print "N calls, sum S"
+
+import mcpbench/counter
+import mcpbench/counter/countermcp
+import mcp
+import os
+import strconv
+
+// lines are the messages of the cycle: two values, two typed failures,
+// arguments outside the schema, and a tool that does not exist.
+func lines() []string {
+	[]string{
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"key\":\"apple\",\"n\":3}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"key\":\"kiwi\",\"n\":-7}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"get\",\"arguments\":{\"key\":\"plum\"}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"get\",\"arguments\":{\"key\":\"zest\"}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"key\":\"lime\"}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"mul\",\"arguments\":{}}}",
+	}
+}
+
+// Bench is the checksum of n answers: the length of each result, or of
+// each error's message plus one.
+func Bench(n int) int {
+	let cycle = lines()
+	let s = mcp.Server{Name: "counter", Version: "1", Tools: countermcp.Tools(counter.Tally)}
+	let mut sum = 0
+	for i in 0..n {
+		match mcp.Handle(s, cycle[i%len(cycle)]) {
+		case mcp.Answered as a:
+			sum = sum + len(a.Result)
+		case mcp.Refused as r:
+			sum = sum + len(r.Message) + 1
+		case mcp.Silent:
+		}
+	}
+	sum
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) != 2 || args[0] != "bench" {
+		return os.Exit{Code: 2, Message: "usage: mcpbench bench N"}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case _:
+		return os.Exit{Code: 2, Message: "mcpbench: N is not a number"}
+	}
+	Console.Println("\(n) calls, sum \(Bench(n))")
+}

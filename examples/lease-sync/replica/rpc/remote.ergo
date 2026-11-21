@@ -1,0 +1,73 @@
+// Package rpc is the replica's provider over std rpc, Effect RPC's HTTP
+// protocol: Push is one call, and Pull is one call that the authority may
+// hold as a long poll (server.Await) while the log has nothing new. The
+// authority's side is server.Handle, served by rpc.Serve in lease-server
+// or in this process by rpc.Loopback. A failure of the transport is
+// Unavailable, which the loops retry by a Schedule (replica.Send,
+// replica.Fetch); a typed failure crosses rpc as its tagged JSON.
+
+import lease-sync/domain
+import lease-sync/replica
+import lease-sync/replica/server
+import rpc
+
+// Remote is the authority that conn serves, with the source's codec.
+// Wait asks the authority to hold a pull that has nothing new.
+type Remote[S, C, E, F] { conn rpc.Conn, codec server.Codec[S, C, E, F], wait bool }
+
+// NewRemote is the authority conn serves.
+func NewRemote[S, C, E, F](conn rpc.Conn, codec server.Codec[S, C, E, F], wait bool) Remote[S, C, E, F] {
+	Remote[S, C, E, F]{conn: conn, codec: codec, wait: wait}
+}
+
+// Send is Authority.Push over rpc.
+func Send[S, C, E, F](r Remote[S, C, E, F], m domain.Envelope[C]) domain.Receipt fails replica.Unavailable | replica.Unauthorized | replica.OutOfOrder | replica.IDConflict {
+	let text = rpc.Call(r.conn, "Push", r.codec.WritePush(server.Pushed[C]{ID: m.ID, By: m.By, Command: m.Command})) catch {
+	case rpc.Failed as f:
+		match rpc.TagOf(f.Text) {
+		case "OutOfOrder":
+			let o = rpc.Decode[replica.OutOfOrder]("failure", f.Text) catch {
+			case rpc.Transport as t:
+				return replica.Unavailable{Reason: t.Reason}
+			}
+			return o
+		case "IDConflict":
+			let x = rpc.Decode[replica.IDConflict]("failure", f.Text) catch {
+			case rpc.Transport as t:
+				return replica.Unavailable{Reason: t.Reason}
+			}
+			return x
+		case "Unauthorized":
+			return replica.Unauthorized
+		case _:
+			return replica.Unavailable{Reason: "Push failed with a failure the replica does not name: \(f.Text)"}
+		}
+	case rpc.Unrepresentable as u:
+		return replica.Unavailable{Reason: "rpc cannot carry \(u.Path) = \(u.Value)"}
+	case rpc.Transport as t:
+		return replica.Unavailable{Reason: t.Reason}
+	}
+	rpc.Decode[domain.Receipt]("value", text) catch {
+	case rpc.Transport as t:
+		return replica.Unavailable{Reason: t.Reason}
+	}
+}
+
+// Fetch is Authority.Pull over rpc.
+func Fetch[S, C, E, F](r Remote[S, C, E, F], by replica.ClientID, from int) replica.Frame[S, E, F] fails replica.Unavailable | replica.Unauthorized {
+	let text = rpc.Call(r.conn, "Pull", rpc.Encode(server.Pulling{By: by, From: from, Wait: r.wait})) catch {
+	case rpc.Failed as f:
+		if rpc.TagOf(f.Text) == "Unauthorized" {
+			return replica.Unauthorized
+		}
+		return replica.Unavailable{Reason: "Pull failed with a failure the replica does not name: \(f.Text)"}
+	case rpc.Unrepresentable as u:
+		return replica.Unavailable{Reason: "rpc cannot carry \(u.Path) = \(u.Value)"}
+	case rpc.Transport as t:
+		return replica.Unavailable{Reason: t.Reason}
+	}
+	r.codec.ReadFrame(text) catch {
+	case rpc.Transport as t:
+		return replica.Unavailable{Reason: t.Reason}
+	}
+}

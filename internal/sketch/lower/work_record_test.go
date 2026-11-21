@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // workCopyNames renames std machines' work declarations to a program's
@@ -20,7 +20,7 @@ var workCopyNames = [][2]string{
 // Attempt and outcome, read from the std source (each from its doc
 // comment's end to the closing brace at column 0, or the one-line type).
 func workDecls(t *testing.T) string {
-	files, ok := std.Package("machines")
+	files, ok := stdlib.Package("machines")
 	if !ok {
 		t.Fatal("no std machines")
 	}
@@ -134,7 +134,7 @@ func start(q string) Phase { Asking{Query: q} }
 func main() needs Console {
 	with context { Scheduler: time.NewManual(0), Source: Fixed } {
 		let a = actor.StartMachine(machines.Start(Asker{}, "abc"), 1, func(n int) {})
-		for st in a.Changes() {
+		for st in a.LatestChanges() {
 			match st {
 			case Asking:
 			case Told as t:
@@ -151,11 +151,17 @@ func main() needs Console {
 // goDecls is the lowered Go of a program as its top-level declarations,
 // sorted, with //line directives dropped: the order in which the
 // lowering emits a package's and std's declarations is not the program's.
+// A work builder's Go name loses the suffix the lowering adds when
+// another package of the program declares the name too (std testing's Do
+// record, which actor imports for its Stage): the suffix says which of
+// the two came first, not what the builder is.
 func goDecls(text string) []string {
 	var lines []string
 	position := regexp.MustCompile(`/\*line [^*]*\*/`)
+	suffixed := regexp.MustCompile(`\b(Do|Attempt|outcome)_[0-9]+\b`)
 	for _, l := range strings.Split(text, "\n") {
 		l = position.ReplaceAllString(l, "")
+		l = suffixed.ReplaceAllString(l, "$1")
 		if !strings.HasPrefix(l, "//") && strings.TrimSpace(l) != "" {
 			lines = append(lines, l)
 		}

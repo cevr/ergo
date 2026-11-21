@@ -67,7 +67,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *TestDecl:
 		walk(n.Name, n.Params, n.Body)
 	case *LawDecl:
-		walk(n.Name, n.Params, n.Body)
+		walk(n.Name, n.TypeParams, n.Params, n.Body)
 		if n.Reach != nil {
 			idents(n.Reach.Targets)
 			if n.Reach.Pred != nil {
@@ -76,6 +76,7 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 	case *AssertStmt:
 		walk(n.X)
+	case *SkipStmt:
 	case *VariantSpec:
 		walk(n.Name, n.TypeArgs, n.Fields)
 	case *AsPattern:
@@ -90,7 +91,7 @@ func Inspect(n Node, f func(Node) bool) {
 			}
 		}
 	case *ContextDecl:
-		walk(n.Name, n.Provides, n.Needs, n.Body)
+		walk(n.Name, n.Provides, n.Fails, n.Needs, n.Body)
 	case *ContextBody:
 		for _, e := range n.Entries {
 			Inspect(e, f)
@@ -149,11 +150,14 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Types)
 		stmts(n.Body)
 	case *ContextLit:
-		walk(n.Provides, n.Needs, n.Body)
+		walk(n.Provides, n.Fails, n.Needs, n.Body)
 	case *ArrayType:
 		walk(n.Elt)
 	case *MapType:
 		walk(n.Key, n.Value)
+		if n.Hashing != nil {
+			walk(n.Hashing)
+		}
 	case *FuncType:
 		walk(n.Params, n.Results, n.Needs, n.Takes)
 	case *StructType:
@@ -167,6 +171,9 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 		for _, l := range n.Laws {
 			Inspect(l, f)
+		}
+		for _, t := range n.Terms {
+			Inspect(t.Type, f)
 		}
 		exprs(n.Union)
 	case *ErrorRow:
@@ -232,6 +239,8 @@ func isNilNode(n Node) bool {
 	case *NeedsClause:
 		return n == nil
 	case *ProvidesClause:
+		return n == nil
+	case *ErrorRow:
 		return n == nil
 	case *BlockStmt:
 		return n == nil

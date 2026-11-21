@@ -92,6 +92,9 @@ func RewritesText(sites []lower.RewriteSite) string {
 		if s.Provider != "" {
 			law += " for " + s.Provider
 		}
+		if s.Build != "" {
+			law += " under " + s.Build
+		}
 		level := s.Verdict
 		if level == "" {
 			level = "none"
@@ -120,7 +123,12 @@ func RewritesText(sites []lower.RewriteSite) string {
 // (lower/facts.go; facts.md, Lowering 7): each fact the build exports for
 // Go's optimizer, by position. It lowers the program in process and runs
 // no Go tool; source anchors a program of one source text.
-func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
+//
+// After the facts come the build's evidence rows (lower's
+// facts_evidence.go): each law rewrite the run build applies, with its
+// ledger entry's level and line in ledger (the module's ergo.laws), and
+// each unsafe body its shortcuts link.
+func InspectFacts(a Analysis, source, ledger string) ([]lower.Fact, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return nil, &BuildError{Diagnostics: a.Diagnostics}
 	}
@@ -128,11 +136,20 @@ func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
 	if err != nil {
 		return nil, err
 	}
-	facts, err := lower.Facts(unit)
-	if facts == nil && err == nil {
-		facts = []lower.Fact{}
+	facts, unsafe, err := lower.FactsAndUnsafe(unit)
+	if err != nil {
+		return facts, err
 	}
-	return facts, err
+	facts = append(append([]lower.Fact{}, facts...), unsafe...)
+	text, err := ledgerText(nil, ledger)
+	if err != nil {
+		return facts, err
+	}
+	sites, err := InspectRewrites(a, source, ledger)
+	if err != nil {
+		return facts, err
+	}
+	return append(facts, lower.RewriteFacts(sites, text)...), nil
 }
 
 // InspectForms are the form sites of the checked analysis's run build on
@@ -166,11 +183,13 @@ func FormsText(sites []lower.FormSite) string { return lower.FormsText(sites) }
 func FactsText(facts []lower.Fact) string { return lower.FactsText(facts) }
 
 // CopyReport is the copy report of the checked analysis's run build
-// (ergo build -report copies; OWN1, lower/handover.go): each Append,
-// Concat and owned-form site, with the form it lowers to (in place, one
-// extender, or copy) and why. It lowers the program in process and runs
+// (ergo build -report copies, ergo inspect copies; OWN1 and REUSE RU0,
+// lower/copyreport.go): each Append, Concat and owned-form site with the
+// form it lowers to (in place, one extender, or copy), every other copy
+// the lowering writes, each call of an owned body, with why, and the
+// functions with owned parameters. It lowers the program in process and runs
 // no Go tool; source anchors a program of one source text.
-func CopyReport(a Analysis, source string) ([]lower.CopySite, error) {
+func CopyReport(a Analysis, source string) (*lower.CopyReport, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return nil, &BuildError{Diagnostics: a.Diagnostics}
 	}
@@ -183,7 +202,7 @@ func CopyReport(a Analysis, source string) ([]lower.CopySite, error) {
 	if _, err := lower.Lower(unit); err != nil {
 		return nil, err
 	}
-	return report.Sites, nil
+	return report, nil
 }
 
 // GoDerived is one `type T derive E`: what it produced and, for a pattern,

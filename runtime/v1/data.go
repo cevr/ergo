@@ -24,8 +24,11 @@ import "slices"
 
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
-// slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+// slice.Repeat). A negative n is a defect, Go's own makeslice panic. It
+// is pure (it allocates and reads nothing), so slices.Transform, which
+// calls it, is pure over a pure function (the fusion laws, rule 4).
 //
+//ergo:pure
 //ergo:wait none
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
@@ -51,7 +54,7 @@ func ArenaTake[T any](s *ArenaValue[T]) T {
 }
 
 // Let is a read of a package let that the lowering declares as a Go
-// constant (lower.constLet): x itself, as a value and not a constant
+// constant (lower.constValueLet): x itself, as a value and not a constant
 // expression, so Go evaluates an expression over it as it evaluates one
 // over a variable (an integer wraps, a division by zero panics at run
 // time). gc inlines it and still folds the constant into the code.

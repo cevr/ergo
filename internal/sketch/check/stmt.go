@@ -41,15 +41,16 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 
 // localNameRules runs the rules of a local's name about to bind in the
 // current block, a let's value or a local context alike, and reports at
-// most one diagnostic: a prelude name (D-D3; refused, and the name still
-// binds), a second declaration in one block (S108), a capability-row
-// binding of the same name in the body's frame (S104), or a binding of an
-// enclosing scope (D-D2).
+// most one diagnostic: a binder that already has its diagnostic
+// (refusedBinder; refused, and the name still binds), a second
+// declaration in one block (S108), a
+// capability-row binding of the same name in the body's frame (S104), or a
+// binding of an enclosing scope (D-D2).
 func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 	sc := c.fn.scope
-	if c.preludeName(id) {
-		// D-D3: the one diagnostic; the name still binds below, marked
-		// used, so an unread refused binder adds no S110.
+	if c.refusedBinder(id) {
+		// The one diagnostic is the binder's; the name still binds
+		// below, marked used, so an unread refused binder adds no S110.
 		refused = true
 	} else if prev, ok := sc.names[id.Name]; ok && !isRefusedBinder(prev) {
 		switch prev := prev.(type) {
@@ -79,7 +80,7 @@ func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 // identifier stays a type test: Info.Uses keeps the object it names and
 // Info.Defs has no entry, as the reference walk reads it. The placeholder
 // has the invalid type, counts as read, and meets none of the binder rules
-// (D-D2, D-D3, bound twice), because it declares nothing. It is a refused
+// (D-D2, bound twice), because it declares nothing. It is a refused
 // binder: every lookup outside a value position sees through it (P2). A
 // name the scope already binds keeps that binding.
 func (c *checker) declarePlaceholder(id *syntax.Ident) {
@@ -131,6 +132,8 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.rangeStmt(s)
 	case *syntax.AssertStmt:
 		c.assertStmt(s)
+	case *syntax.SkipStmt:
+		c.skipStmt(s)
 	default:
 		c.undecided(s, "")
 	}
@@ -240,6 +243,7 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 	if info == nil {
 		return
 	}
+	c.noteDropped(at, call, info)
 	switch {
 	case info.Kind == CallLen:
 		c.errorf(at, CodeUnused, "the value of len is not used")
@@ -317,8 +321,12 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 				}
 			}
 			for i, n := range spec.Names {
-				if v := declare(n, types[i]); v != nil && mut && declared == nil {
+				v := declare(n, types[i])
+				if v != nil && mut && declared == nil {
 					v.byValue = spec.Values[i]
+				}
+				if len(spec.Names) == 1 {
+					c.markFreshRef(v, spec.Values[i])
 				}
 			}
 		case len(spec.Values) == 1:
@@ -404,6 +412,9 @@ func (c *checker) assignStmt(s *syntax.AssignStmt) {
 			return
 		}
 		lop := c.lhs(l)
+		if !lop.invalid() {
+			c.providerStore(s) // mapprovider.go
+		}
 		var hint Type
 		if !lop.invalid() {
 			hint = lop.typ

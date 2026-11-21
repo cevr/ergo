@@ -1,0 +1,25 @@
+import sync
+
+// Recorder is a Sink for tests: it keeps the entries of the levels its
+// least level admits, in the order they were written. Its entries are in
+// a sync.Ref, so every copy of a Recorder (the one a context binds, the
+// one the test reads) keeps the same entries, and tasks may log to one at
+// once: each entry is kept whole.
+type Recorder { least Level, entries sync.Ref[[]Entry] } implements Sink
+
+// NewRecorder is a Recorder with no entries that keeps the entries whose
+// level ranks at or above least.
+func NewRecorder(least Level) Recorder { Recorder{least: least, entries: sync.NewRef[[]Entry]([]Entry{})} }
+
+// Enabled reports that r keeps entries of level l.
+func Enabled(r Recorder, l Level) bool { Admits(r.least, l) }
+
+// Write keeps e.
+func Write(r Recorder, e Entry) {
+	r.entries.Update(func(es []Entry) []Entry { es.Append(e) })
+}
+
+// Entries are the entries r kept, in order.
+func Entries(r Recorder) []Entry {
+	sync.Modify(r.entries, func(es []Entry) ([]Entry, []Entry) { (es, es) })
+}

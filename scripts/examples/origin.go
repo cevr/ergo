@@ -11,9 +11,10 @@ import (
 	"strings"
 )
 
-// A port of a Foldkit example holds origin/ as a folder (FK0; corpus plan
-// §18.3), where a CLI port holds an origin file beside record.sh. The
-// folder holds:
+// The provenance of a port of an upstream program is a folder
+// conformance/upstream/<source>/ports/<name>/, named after its program
+// examples/<name> (checkPorts), never a folder in the example. The folder
+// holds:
 //
 //   - source: a line per vendored upstream folder whose story and scene
 //     tests the port restates, its path from the repository root (a port

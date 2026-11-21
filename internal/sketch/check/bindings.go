@@ -1,10 +1,6 @@
 package check
 
-import (
-	"strings"
-
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/syntax"
 
 // Bindings (check-v1 stage D1; #196, 196v amended and the eighth round):
 //
@@ -15,45 +11,27 @@ import (
 //   - D-D2: a binder may not reuse a name bound in an enclosing scope of the
 //     same function, function literals included (S108 at the inner binder).
 //     Sibling scopes may reuse a name, and a local may reuse a package-level
-//     name that is not a prelude name.
-//   - D-D3: a prelude name cannot be redeclared at any scope (S108 at the
-//     name). The refused binder still binds for the rest of its scope, so
-//     its uses add no diagnostic.
+//     name or a prelude name.
+//   - D-D3 (owner q244, 2026-11-19, which replaced the eighth round's item
+//     3): a declaration of any kind and at any scope may take a prelude
+//     name, as Go's declarations hide its universe. The prelude scope
+//     encloses the package scope, so the declaration hides the prelude's
+//     name for the rest of its scope, and only there.
 //
 // Each check runs where the binder binds, so every binder kind goes through
-// one of three functions: preludeName (every declaration), shadowed (every
-// local binder) and the mutability rules of lhs.
+// shadowed (every local binder) and the mutability rules of lhs.
 
 // isPreludeName reports whether name is predeclared for this package
-// (predeclared.go): a universe name of D-D3's list, a name of the prelude
-// scope, or one of predeclaredNames. The prelude package itself sees only
-// the universe above it, so its own declarations are not refused. The
-// constraint wire is not one (predeclaredAbove).
+// (predeclared.go): a universe name, a name of the prelude scope, or one
+// of predeclaredNames. The prelude package itself sees only the universe
+// above it. The constraint wire is not one (predeclaredAbove). A let or
+// for pattern reads it: a bare prelude name there binds (patternNameTests).
 func (c *checker) isPreludeName(name string) bool {
 	return predeclaredAbove(name, c.pkg.Scope.parent)
 }
 
-// preludeTypeName reports a prelude name that names a type: a type of the
-// universe or the prelude, or `Map`, which the syntax spells (Parser rule
-// 8). A package-level type declaration may take one and hides it inside
-// its package, as Go's package scope hides the universe (grammar.md,
-// Reserved names 2; L6, owner q30, which reversed the eighth round's item
-// 3 for package types). Every other declaration of a prelude name, a
-// local's included, stays D-D3's S108.
-func (c *checker) preludeTypeName(name string) bool {
-	if !c.isPreludeName(name) {
-		return false
-	}
-	if predeclaredNames[name] {
-		return true
-	}
-	o, _ := c.pkg.Scope.parent.lookup(name)
-	_, ok := o.(*TypeName)
-	return ok
-}
-
 // declaredMap is the package's own type named Map, if it declares one
-// (preludeTypeName): there `Map[K, V]` names that type, not the map type.
+// (D-D3): there `Map[K, V]` names that type, not the map type.
 func (c *checker) declaredMap() *TypeName {
 	tn, _ := c.pkg.Scope.names["Map"].(*TypeName)
 	return tn
@@ -77,7 +55,11 @@ func (c *checker) mapInstance(x *syntax.MapType) *syntax.IndexExpr {
 		return ix
 	}
 	name := made(c, &syntax.Ident{NamePos: x.Map, Name: "Map"}, syntax.Node(x))
-	ix := made(c, &syntax.IndexExpr{X: name, Lbrack: x.Lbrack, Indices: []syntax.Expr{x.Key, x.Value}, Rbrack: x.Rbrack}, syntax.Node(x))
+	indices := []syntax.Expr{x.Key, x.Value}
+	if x.Hashing != nil {
+		indices = append(indices, x.Hashing)
+	}
+	ix := made(c, &syntax.IndexExpr{X: name, Lbrack: x.Lbrack, Indices: indices, Rbrack: x.Rbrack}, syntax.Node(x))
 	if c.mapInstances == nil {
 		c.mapInstances = map[*syntax.MapType]*syntax.IndexExpr{}
 	}
@@ -86,10 +68,10 @@ func (c *checker) mapInstance(x *syntax.MapType) *syntax.IndexExpr {
 }
 
 // paramBinder applies the binder rules of a declared function's parameter
-// list, an extern's included (D-D3 "parameter"): a name the list already
-// holds is S108 and binds nothing; a prelude name is S108 and still binds.
-// seen holds the names of the list so far. It reports whether the
-// parameter binds and whether D-D3 refused it.
+// list, an extern's included: a name the list already holds is S108 and
+// binds nothing. seen holds the names of the list so far. It reports
+// whether the parameter binds and whether it already has its diagnostic
+// (refusedBinder).
 func (c *checker) paramBinder(f *Func, p *Var, seen map[string]bool) (bind, refused bool) {
 	if p.Name == "_" {
 		return false, false
@@ -99,7 +81,7 @@ func (c *checker) paramBinder(f *Func, p *Var, seen map[string]bool) (bind, refu
 		return false, false
 	}
 	seen[p.Name] = true
-	return true, c.preludeName(p.id)
+	return true, c.refusedBinder(p.id)
 }
 
 // binderKey names a binder by its file and position.
@@ -141,60 +123,6 @@ func (c *checker) abovePackage(sc *Scope) bool {
 	return false
 }
 
-// preludeName reports a declaration of a prelude name (D-D3) and returns
-// true. The caller binds the name anyway.
-func (c *checker) preludeName(id *syntax.Ident) bool {
-	if id == nil {
-		return false
-	}
-	// A binder that already has its diagnostic counts as refused and adds
-	// none.
-	if c.binderRefused(id.Pos()) {
-		return true
-	}
-	if !c.isPreludeName(id.Name) {
-		return false
-	}
-	c.errorf(id, CodeType, "%s is a prelude name%s, which cannot be redeclared; choose another name (#196, eighth round, item 3)", id.Name, c.preludeDeclText(id.Name))
-	c.refuseBinder(id.Pos())
-	return true
-}
-
-// preludeDeclText names the declaration above the package that holds name,
-// " (the prelude type Task[T, E])", so the message says which declaration
-// takes it, which no file of the program shows (K4, G-ex-c-11); "" for a
-// basic type or a constant, whose name says it all.
-func (c *checker) preludeDeclText(name string) string {
-	for sc := c.pkg.Scope.parent; sc != nil; sc = sc.parent {
-		o, ok := sc.names[name]
-		if !ok {
-			continue
-		}
-		switch o := o.(type) {
-		case *TypeName:
-			switch t := o.Type.(type) {
-			case *Named:
-				text := t.Obj.Name
-				if len(t.TParams) > 0 {
-					var tps []string
-					for _, tp := range t.TParams {
-						tps = append(tps, tp.Name)
-					}
-					text += "[" + strings.Join(tps, ", ") + "]"
-				}
-				return " (the prelude type " + text + ")"
-			case *Interface:
-				return " (the predeclared constraint " + name + ")"
-			}
-		case *Func:
-			return " (the prelude function " + name + ")"
-		}
-		// A basic type or a constant (string, true) names itself.
-		return ""
-	}
-	return ""
-}
-
 // shadowed reports a local binder that reuses a name bound in an enclosing
 // scope of the same function (D-D2) and returns true. sc is the scope the
 // binder enters; the scopes searched are its parents up to, and not
@@ -232,15 +160,22 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 	return false
 }
 
-// localBinder runs the binder rules for a local about to bind the name id
-// declares in the current scope: a prelude name (D-D3) first, else
-// shadowing (D-D2). It reports at most one diagnostic, and returns true
-// when the binder is refused (its Var carries the mark).
+// refusedBinder reports a binder that already has its diagnostic (a
+// pattern's, refuseBinder): it counts as refused and adds none.
+func (c *checker) refusedBinder(id *syntax.Ident) bool {
+	return id != nil && c.binderRefused(id.Pos())
+}
+
+// localBinder runs the binder rule for a local about to bind the name id
+// declares in the current scope: a binder that already has its diagnostic
+// (refusedBinder) first, else shadowing (D-D2). It reports at most one
+// diagnostic, and returns true when the binder is refused (its Var carries
+// the mark).
 func (c *checker) localBinder(id *syntax.Ident) (refused bool) {
 	if c.fn == nil || id.Name == "_" {
 		return false
 	}
-	if c.preludeName(id) {
+	if c.refusedBinder(id) {
 		return true
 	}
 	c.shadowed(id, c.fn.scope)
@@ -249,7 +184,7 @@ func (c *checker) localBinder(id *syntax.Ident) (refused bool) {
 
 // Refused binders (rows.md, Totality 6; diagnostics.md, D3): a refused
 // type test's placeholder (declarePlaceholder) and a binder with its own
-// diagnostic, D-D3's or a pattern's (refuseBinder), carry Var.refused. A
+// diagnostic, a pattern's (refuseBinder), carry Var.refused. A
 // refused binder changes no other verdict: a read of the name in a value
 // position finds it (P1, lookup), and every other lookup sees through it
 // to what the name means without it (P2, lookupPast): the pattern
@@ -499,12 +434,36 @@ func renamed(name string) string { return name + "2" }
 
 // reportNeverReassigned reports each `let mut` local of fc that is read but
 // never reassigned (S110, Q3). An unread one already has its unused S110,
-// and one of an invalid type has its own diagnostic (D3).
+// and one of an invalid type has its own diagnostic (D3). The report waits
+// for checkDroppedResults: a local whose only write was meant to be a
+// dropped xs.Append(x) gets that one diagnostic and its one remedy,
+// xs = xs.Append(…), not also "write let xs" (M2-APPEND).
 func (c *checker) reportNeverReassigned(fc *funcCtx) {
+	if c.silent > 0 {
+		return
+	}
 	for _, v := range fc.locals {
 		if !v.mut || v.reassigned || !v.used || v.Name == "_" || isInvalid(v.Type) || v.undiagnosed {
 			continue
 		}
-		c.errorf(v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", v.Name, v.Name)
+		c.unassigned = append(c.unassigned, unassignedLocal{v: v, file: c.cur})
+	}
+}
+
+// unassignedLocal is a let mut local never reassigned, in its file.
+type unassignedLocal struct {
+	v    *Var
+	file *fileInfo
+}
+
+// reportUnassigned reports each never-reassigned local but those that
+// receive a refused dropped call (dropRoots).
+func (c *checker) reportUnassigned(dropRoots map[*Var]bool) {
+	for _, u := range c.unassigned {
+		if dropRoots[u.v] {
+			continue
+		}
+		c.cur = u.file
+		c.errorf(u.v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", u.v.Name, u.v.Name)
 	}
 }

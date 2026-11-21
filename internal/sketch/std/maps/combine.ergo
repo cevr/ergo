@@ -1,0 +1,101 @@
+// Combining and reshaping Maps: Merge, Filter, TransformValues and Entries
+// (std-spike D1). Each returns a new Map; m is a value, so the caller's is
+// unchanged.
+
+import slices
+
+// Merge is the keys of a and of b, with b's value where both have a key
+// (Effect HashMap.union, which keeps the right; Go's maps.Copy(dst, src)
+// into a clone of a).
+func Merge[K comparable, V](a Map[K, V], b Map[K, V]) Map[K, V] {
+	let mut out = Clone(a)
+	for k, v in b {
+		out[k] = v
+	}
+	out
+}
+
+// MergeRightWins: Merge holds every key of a and b, b's value where b has
+// the key and a's elsewhere.
+law MergeRightWins(a Map[string, int], b Map[string, int]) {
+	let m = Merge(a, b)
+	let mut ok = true
+	for k, v in a {
+		ok = ok && m.Get(k) == (if b.Get(k) == None { Some[int]{Value: v} } else { b.Get(k) })
+	}
+	for k, v in b {
+		ok = ok && m.Get(k) == Some[int]{Value: v}
+	}
+	for k, _ in m {
+		ok = ok && (a.Get(k) != None || b.Get(k) != None)
+	}
+	ok
+}
+
+// Filter is the keys of m whose key and value keep accepts (Effect
+// HashMap.filter, Go's maps.DeleteFunc on a clone with keep negated). keep
+// runs once on each key; its first failure ends Filter with it.
+func Filter[K comparable, V, E, R](m Map[K, V], keep func(k K, v V) bool fails E needs R) Map[K, V] fails E needs R {
+	let mut out = Map[K, V]{}
+	for k, v in m {
+		if try keep(k, v) {
+			out[k] = v
+		}
+	}
+	out
+}
+
+// TransformValues is m with f of each value under the same key (Effect
+// HashMap.map, Gleam dict.map_values with the key dropped). f runs once on
+// each value; its first failure ends it.
+func TransformValues[K comparable, V, U, E, R](m Map[K, V], f func(v V) U fails E needs R) Map[K, U] fails E needs R {
+	let mut out = Map[K, U]{}
+	for k, v in m {
+		out[k] = try f(v)
+	}
+	out
+}
+
+// FilterAndTransformKeepKeys: Filter keeps exactly the accepted keys with
+// their values, and TransformValues keeps every key with f of its value.
+law FilterAndTransformKeepKeys(m Map[string, int]) {
+	let kept = Filter(m, func(k string, v int) bool { v%2 == 0 })
+	let doubled = TransformValues(m, func(v int) int { v * 2 })
+	let mut ok = len(doubled) == len(m)
+	for k, v in m {
+		ok = ok && kept.Get(k) == (if v%2 == 0 { Some[int]{Value: v} } else { None }) && doubled.Get(k) == Some[int]{Value: v * 2}
+	}
+	ok
+}
+
+// Entries is the keys and values of m in ascending key order (Gleam
+// dict.to_list sorted; Go's slices.Sorted(maps.Keys(m)) then a read of
+// each).
+func Entries[K ordered, V](m Map[K, V]) [](K, V) {
+	let keys = slices.Sorted(Keys(m))
+	let mut out = slices.WithCapacity[(K, V)](len(keys))
+	for k in keys {
+		match m.Get(k) {
+		case Some[V] as v:
+			out = out.Append((k, v.Value))
+		case None:
+		}
+	}
+	out
+}
+
+// EntriesAreSorted: Entries holds each key of m once, in ascending order,
+// with its value.
+law EntriesAreSorted(m Map[string, int]) {
+	let es = Entries(m)
+	let mut ok = len(es) == len(m)
+	for i, e in es {
+		let (k, v) = e
+		ok = ok && m.Get(k) == Some[int]{Value: v}
+		if i > 0 {
+			let (before, _) = es[i-1]
+			ok = ok && before < k
+		}
+	}
+	ok
+}

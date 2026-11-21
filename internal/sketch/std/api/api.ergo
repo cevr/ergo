@@ -1,0 +1,234 @@
+// Package api is what the transports of an Api share (docs/spec/api.md;
+// docs/spec/stdlib.md, api): the Output of a command line and its Exit,
+// the kebab name of an operation, and Transport, a way to carry one call
+// and its outcome, with Agrees, which says the way loses nothing. The
+// generated packages of `ergo gen cli`, `mcp` and `rpc` use it, and
+// nothing here is closed to a package a user writes.
+
+import json
+import os
+import strings
+import sync
+
+// Output is what a command line prints: Out to standard output, Err to
+// standard error, and the exit status Code (0 for a value or the help).
+type Output { Out string, Err string, Code int }
+
+// ExitOf is the end of a command whose Output is o: nothing for status 0,
+// else the os.Exit of o's Code with o's Err as its message. A status
+// outside 1..125, which os.Exit cannot carry, is 1. An Output with no Err
+// (a failure answered as JSON on standard output) says where the answer
+// went.
+func ExitOf(o Output) fails os.Exit {
+	if o.Code == 0 {
+		return
+	}
+	let code = os.ParseCode(o.Code) catch {
+	case Unsatisfied:
+		os.ParseCode(1) catch {
+		case Unsatisfied:
+			Unreachable("1 is a status os.Exit carries")
+		}
+	}
+	if o.Err == "" {
+		return os.Exit{Code: code, Message: "failed; the JSON on standard output says why"}
+	}
+	os.Exit{Code: code, Message: strings.TrimSuffix(o.Err, "\n")}
+}
+
+// Exit ends a command with o: its Out on standard output, then ExitOf(o).
+func Exit(o Output) fails os.Exit needs Console {
+	if o.Out != "" {
+		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+	}
+	try ExitOf(o)
+}
+
+// ExitAs is Exit for the program named program: an os.Exit's message
+// starts "program: ", as a command line names itself on standard error.
+func ExitAs(program string, o Output) fails os.Exit needs Console {
+	if o.Out != "" {
+		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+	}
+	ExitOf(o) catch {
+	case os.Exit as e:
+		return os.Exit{Code: e.Code, Message: program + ": " + e.Message}
+	}
+}
+
+// Shell is a shell a completion script is written for.
+type Shell = Bash{} | Zsh{} | Fish{}
+
+// Entry is one command of a completion: its name and its doc comment,
+// whose first line describes it.
+type Entry { Name string, Doc string }
+
+// Completion is the script that completes the first word of program's
+// command line in shell with the commands' names (zsh and fish show each
+// doc's first line beside its name).
+func Completion(program string, shell Shell, commands []Entry) string {
+	match shell {
+	case Bash:
+		let mut names = []string{}
+		for c in commands {
+			names = names.Append(c.Name)
+		}
+		"complete -W \"" + strings.Join(names, " ") + "\" " + program + "\n"
+	case Zsh:
+		let mut out = "#compdef " + program + "\nlocal -a commands\ncommands=(\n"
+		for c in commands {
+			out = out + "  '" + c.Name + ":" + strings.ReplaceAll(strings.ReplaceAll(firstLine(c.Doc), "'", ""), ":", "\\:") + "'\n"
+		}
+		out + ")\n_describe 'command' commands\n"
+	case Fish:
+		let mut out = ""
+		for c in commands {
+			out = out + "complete -c " + program + " -n __fish_use_subcommand -f -a " + c.Name + " -d '" + strings.ReplaceAll(firstLine(c.Doc), "'", "") + "'\n"
+		}
+		out
+	}
+}
+
+// firstLine is s up to its first line break.
+func firstLine(s string) string {
+	let i = strings.Index(s, "\n")
+	if i < 0 {
+		return s
+	}
+	s[0:i]
+}
+
+// CompletionNamesEachCommand: the script of every shell names each
+// command, and its line, in the commands' order.
+law CompletionNamesEachCommand(words []string, shell Shell) {
+	let mut commands = []Entry{}
+	for w in words {
+		commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"})
+	}
+	let text = Completion("prog", shell, commands)
+	let mut at = 0
+	for c in commands {
+		let i = strings.Index(text[at:], c.Name)
+		if i < 0 {
+			return false
+		}
+		at = at + i + len(c.Name)
+	}
+	!strings.Contains(text, "\nmore")
+}
+
+// ExitKeepsTheCode: a status of 0 ends with no failure, one of 1..125 is
+// the os.Exit of that code, and any other is 1.
+law ExitKeepsTheCode(o Output) {
+	let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 }
+	ExitOf(o) catch {
+	case os.Exit as e:
+		return int(e.Code) == want && want != 0
+	}
+	want == 0
+}
+
+// Kebab is name in kebab case, the name an operation has on every
+// transport: a dash before an upper-case letter that follows a lower-case
+// letter or a digit, or that starts a word after an acronym, and every
+// letter lower case. So RunOf is run-of, ID is id and IDCard is id-card.
+func Kebab(name string) string {
+	let mut out = ""
+	for i in 0..len(name) {
+		let c = name[i]
+		let upper = c >= 'A' && c <= 'Z'
+		if upper && i > 0 {
+			let prev = name[i-1]
+			let prevLower = prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
+			let prevUpper = prev >= 'A' && prev <= 'Z'
+			let nextLower = i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z'
+			if prevLower || prevUpper && nextLower {
+				out = out + "-"
+			}
+		}
+		out = out + strings.ToLower(name[i:i+1])
+	}
+	out
+}
+
+// word is w's letters in lower case, with "x" added until it has two (a
+// one-letter word after another reads as an acronym: AB is ab).
+func word(w string) string {
+	let mut out = ""
+	for i in 0..len(w) {
+		let c = w[i]
+		if c >= 'a' && c <= 'z' {
+			out = out + w[i:i+1]
+		} else if c >= 'A' && c <= 'Z' {
+			out = out + strings.ToLower(w[i:i+1])
+		}
+	}
+	for len(out) < 2 {
+		out = out + "x"
+	}
+	out
+}
+
+// KebabRoundTrips: the name an operation spells from words, each a capital
+// and at least one lower-case letter (RunOf), is those words joined by dashes in
+// Kebab (run-of), and Kebab is its own fixed point on that.
+law KebabRoundTrips(words []string) {
+	let mut name = ""
+	let mut parts = []string{}
+	for w in words {
+		let low = word(w)
+		parts = parts.Append(low)
+		name = name + strings.ToUpper(low[0:1]) + low[1:]
+	}
+	let k = Kebab(name)
+	k == strings.Join(parts, "-") && Kebab(k) == k
+}
+
+// Transport carries one call its own way: Carry writes c as the transport
+// writes a request (an argument list, a tools/call line, an Effect RPC
+// request), reads it back with the transport's reader, hands it to
+// answer, writes answer's outcome as the transport does, and reads that
+// back. Each generated transport package provides one: Wire.
+// law-exempt: its rule compares wire values of its type parameters, and a law cannot encode them (no row of a law holds wired[C]); the function Agrees states it, each transport package's law Agrees runs it at its instance, and AgreesSeesTheLoss holds Agrees to tell a loss.
+type Transport[C wire, O wire] {
+	Carry(c C, answer own func(c C) O) O,
+}
+
+// Agrees reports whether t carries c and o unchanged: the one call that
+// reaches answer is c, and the outcome Carry gives is o. A transport
+// package states it as its law Agrees, over the calls and the outcomes
+// its hub draws.
+func Agrees[C wire, O wire](t Transport[C, O], c C, o O) bool needs wired[C] | wired[O] {
+	let arrived = sync.NewRef[[]C]([]C{})
+	let got = t.Carry(c, func(x C) O {
+		arrived.Update(func(xs []C) []C { xs.Append(x) })
+		o
+	})
+	let calls = arrived.Get()
+	len(calls) == 1 && rpcText(calls[0]) == rpcText(c) && rpcText(got) == rpcText(o)
+}
+
+// rpcText is v's wire JSON: two values are one when their texts are.
+func rpcText[T wire](v T) string needs wired[T] { json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v) }
+
+// echo carries a call and its outcome as they are; dropping loses a
+// call's last byte. AgreesSeesTheLoss holds Agrees to tell them apart.
+type echo {} implements Transport[string, int]
+
+func Carry(t echo, c string, answer own func(c string) int) int { answer(c) }
+
+type dropping {} implements Transport[string, int]
+
+func Carry(t dropping, c string, answer own func(c string) int) int {
+	if len(c) == 0 {
+		answer(c)
+	} else {
+		answer(c[0 : len(c)-1])
+	}
+}
+
+// AgreesSeesTheLoss: a transport that carries the call as it is agrees,
+// and one that loses a byte of it does not.
+law AgreesSeesTheLoss(c string, o int) {
+	Agrees(echo, c, o) && !Agrees(dropping, c+"!", o)
+}

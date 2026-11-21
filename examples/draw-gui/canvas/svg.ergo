@@ -35,6 +35,12 @@ func Export(p Picture) string {
 	b.String()
 }
 
+// ExportParsesBack: a picture's text reads back as the same picture.
+law ExportParsesBack(shapes []Shape, layers []int) {
+	let pic = picture(shapes, layers)
+	Order(try Parse(Export(pic))) == Order(pic)
+}
+
 // element is the SVG line of one shape.
 func element(p Placed) string {
 	let id = "data-id=\"\(p.Id)\""

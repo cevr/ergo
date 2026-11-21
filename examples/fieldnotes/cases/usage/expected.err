@@ -1,0 +1,2 @@
+missing command; commands: build, print
+usage: fieldnotes build [-src folder] [-origin url] folder | fieldnotes print [-src folder] [-origin url]

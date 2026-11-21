@@ -1,0 +1,42 @@
+import machines
+
+type Codes { Check(c int) bool }
+
+type S = Idle{} | Busy{N int}
+
+type Sig = Go{N int} | Finish{}
+
+func step(s S, e Sig) Decision[S, int] {
+	match e {
+	case Go as g:
+		Enter[S]{Next: Busy{N: g.N}}
+	case Finish:
+		Done[int]{Output: 1}
+	}
+}
+
+func work(s S) Option[machines.Work[Sig, Codes]] {
+	match s {
+	case Busy as b:
+		Some{machines.Do(func() Sig needs Codes {
+			if Codes.Check(b.N) { Finish } else { Finish }
+		})}
+	case Idle:
+		None
+	}
+}
+
+type M machine[S, Sig] { initial: Idle, step: step, work: work }
+
+law FoldNeedsNoCodes(n int) {
+	let o = machines.Run(M{}, []Sig{Go{N: n}, Finish}) catch {
+	case machines.Rejected:
+		return false
+	}
+	match o {
+	case machines.Finished[S, int]:
+		true
+	case machines.Running[S, int]:
+		false
+	}
+}

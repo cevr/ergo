@@ -137,6 +137,7 @@ extern go encoding/json.Number.Int64 func (n Number) Int64() int64 fails go.Erro
 extern go encoding/json.Number.MarshalJSONTo func (n Number) MarshalJSONTo(enc own *jsontext.Encoder) fails go.Error needs go.Foreign
 
 // ergo:go func (Number).String() string
+// ergo:total
 extern go encoding/json.Number.String func (n Number) String() string needs go.Foreign
 
 // ergo:go func (*Number).UnmarshalJSONFrom(dec *jsontext.Decoder) error

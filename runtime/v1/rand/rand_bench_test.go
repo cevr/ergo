@@ -1,6 +1,7 @@
 package rand
 
 import (
+	crand "crypto/rand"
 	"math/rand/v2"
 	"testing"
 
@@ -70,6 +71,24 @@ func BenchmarkRandIntN(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			benchRandSink = rand.IntN(1000)
+		}
+	})
+}
+
+// BenchmarkSecureBytes: rand.SecureHost's Bytes against Go's crypto/rand
+// Read of the same 16 bytes (std-spike D3; moved here from the digest
+// benchmark when the body moved into this leaf).
+func BenchmarkSecureBytes(b *testing.B) {
+	b.Run("RandSecureBytes16", func(b *testing.B) {
+		for b.Loop() {
+			_ = RandSecureBytes(16)
+		}
+	})
+	b.Run("GoCryptoRandRead16", func(b *testing.B) {
+		for b.Loop() {
+			v := make([]byte, 16)
+			_, _ = crand.Read(v)
+			_ = string(v)
 		}
 	})
 }

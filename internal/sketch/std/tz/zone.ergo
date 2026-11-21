@@ -1,0 +1,163 @@
+// Package tz is time zones (docs/spec/stdlib.md, tz): a zone is a value,
+// the zone database is the capability Zones, and a wall time that does
+// not exist or exists twice is a Resolved the caller matches. It reads
+// zones in the IANA's TZif form (RFC 8536) with a reader written in Ergo;
+// std's own copy of the IANA database is package tz/iana, and a program
+// chooses its Zones provider in its context.
+//
+// Go's name is Location; tz says zone, the word of the IANA database,
+// Temporal, Effect, Elixir and jiff.
+
+import civil
+import time
+
+// Offset is a zone's offset from UTC at an instant: Seconds east of UTC,
+// whether it is daylight saving time, and its abbreviation (EST, CEST,
+// +0530).
+type Offset { Seconds int, DST bool, Abbreviation string }
+
+// Zone is a time zone: a name, its offsets and the instants it changes
+// them. Only tz builds one: FromTZif from bytes, FixedOffset, UTC, and a
+// Zones provider. A zone answers for every instant: before its first
+// change it has its first offset, and after its last change its rule.
+type Zone {
+	name string,
+	// at are the instants of the table's changes, in Unix seconds,
+	// ascending; kind[i] indexes the offset from at[i] on.
+	at []int64,
+	kind []int,
+	kinds []Offset,
+	// first is the offset before at[0], chosen as Go chooses it.
+	first int,
+	// rule is the offsets after the table's last change.
+	rule rule,
+	// least and most bound every offset of the zone, in seconds.
+	least int64,
+	most int64,
+}
+
+// UTC is Coordinated Universal Time: offset 0 at every instant.
+func UTC() Zone { fixed("UTC", Offset{Seconds: 0, DST: false, Abbreviation: "UTC"}) }
+
+// BadOffset is the failure of FixedOffset: Seconds is a day or more from
+// UTC.
+type BadOffset { Seconds int }
+
+// FixedOffset is the zone whose offset is seconds east of UTC at every
+// instant, less than a day either way (Temporal's bound). Its name and
+// abbreviation are the offset as ±HH:MM, with :SS when the seconds are
+// not whole minutes: FixedOffset(19800) is "+05:30".
+func FixedOffset(seconds int) Zone fails BadOffset {
+	if seconds <= -86400 || seconds >= 86400 {
+		return BadOffset{Seconds: seconds}
+	}
+	let text = offsetText(seconds)
+	fixed(text, Offset{Seconds: seconds, DST: false, Abbreviation: text})
+}
+
+// fixed is the zone with the one offset o.
+func fixed(name string, o Offset) Zone {
+	Zone{name: name, at: []int64{}, kind: []int{}, kinds: []Offset{o}, first: 0, rule: noRule, least: int64(o.Seconds), most: int64(o.Seconds)}
+}
+
+// offsetText is seconds as ±HH:MM or ±HH:MM:SS.
+func offsetText(seconds int) string {
+	let sign = if seconds < 0 { "-" } else { "+" }
+	let s = if seconds < 0 { -seconds } else { seconds }
+	let hm = sign + two(s / 3600) + ":" + two(s % 3600 / 60)
+	if s % 60 == 0 { hm } else { hm + ":" + two(s % 60) }
+}
+
+// two is n, 0 to 99, in two digits.
+func two(n int) string { if n < 10 { "0\(n)" } else { "\(n)" } }
+
+// Name is the zone's name: the IANA name it was loaded by
+// (America/Toronto), "UTC", or a fixed offset's text.
+func Name(z Zone) string { z.name }
+
+// OffsetAt is z's offset at the instant t.
+func OffsetAt(z Zone, t time.Time) Offset { lookup(z, time.UnixSeconds(t)) }
+
+// Civil is the wall time z shows at the instant t: t moved by its offset,
+// read as a calendar date and time of day.
+func Civil(z Zone, t time.Time) civil.DateTime {
+	let o = lookup(z, time.UnixSeconds(t))
+	civil.DateTimeOf(time.Unix(time.UnixSeconds(t) + int64(o.Seconds), int64(time.Nanosecond(t))))
+}
+
+// lookup is z's offset at the Unix second sec, as Go's Location.lookup
+// gives it: the first offset before the first change, the offset of the
+// last change at or before sec, and the rule after the last change.
+func lookup(z Zone, sec int64) Offset {
+	let n = len(z.at)
+	if n == 0 {
+		return match ruleOffsetAt(z.rule, sec) {
+		case Some[Offset] as o:
+			o.Value
+		case None:
+			z.kinds[0]
+		}
+	}
+	if sec < z.at[0] {
+		return z.kinds[z.first]
+	}
+	let i = lastAtOrBefore(z.at, sec)
+	if i == n - 1 {
+		match ruleOffsetAt(z.rule, sec) {
+		case Some[Offset] as o:
+			return o.Value
+		case None:
+		}
+	}
+	z.kinds[z.kind[i]]
+}
+
+// lastAtOrBefore is the last index i of the ascending xs with xs[i] <= v;
+// xs[0] <= v.
+func lastAtOrBefore(xs []int64, v int64) int {
+	let mut lo = 0
+	let mut hi = len(xs)
+	for hi - lo > 1 {
+		let m = lo + (hi - lo) / 2
+		if xs[m] <= v {
+			lo = m
+		} else {
+			hi = m
+		}
+	}
+	lo
+}
+
+// OffsetShowsWall: the wall time a zone shows at t is t moved by its
+// offset at t.
+law OffsetShowsWall(i int64, s int64, ns int64) {
+	let z = anyZone(i)
+	let t = anyInstant(s, ns)
+	civil.Sub(Civil(z, t), civil.DateTimeOf(t)) == duration(int64(OffsetAt(z, t).Seconds) * 1000000000)
+}
+
+// FixedOffsetIsFixed: FixedOffset fails exactly for a day or more from
+// UTC, and otherwise shows its offset, and resolves every wall time to one
+// instant.
+law FixedOffsetIsFixed(n int64, s int64) {
+	let seconds = int(within(n, -90000, 90000))
+	let t = anyInstant(s, 0)
+	let z = FixedOffset(seconds) catch {
+	case BadOffset as b:
+		return b.Seconds == seconds && (seconds <= -86400 || seconds >= 86400)
+	}
+	let o = OffsetAt(z, t)
+	let unique = match Resolve(z, Civil(z, t)) {
+	case Unique as u:
+		u.At == t
+	case Gap, Overlap:
+		false
+	}
+	seconds > -86400 && seconds < 86400 && o.Seconds == seconds && !o.DST && o.Abbreviation == Name(z) && unique
+}
+
+// floorDiv is a / b rounded down; b > 0.
+func floorDiv(a int64, b int64) int64 {
+	let q = a / b
+	if a % b < 0 { q - 1 } else { q }
+}

@@ -20,6 +20,16 @@ func Highlight(_ NoColor, lang string, code string) []html.Node { []html.Node{ht
 // language Lang as <span class="kw">, and writes other blocks as text.
 type Keywords { Lang string, Words []string } implements Highlighter
 
+// KeywordsMarkEachKeyword: a Go keyword alone in a go block is one span,
+// and the spans of a go block of words and keywords keep its text (the
+// drawn Keywords of Highlighter.KeepsTheText is rarely of go).
+law KeywordsMarkEachKeyword(pick int, words []string) {
+	let k = GoKeywords[index(pick, len(GoKeywords))]
+	let h = Keywords{Lang: "go", Words: GoKeywords}
+	let code = strings.Join(words, " "+k+" ")
+	html.RenderAll(h.Highlight("go", k)) == "<span class=\"kw\">"+k+"</span>" && html.RenderAll(h.Highlight("sh", k)) == k && TextOfAll(h.Highlight("go", code)) == code
+}
+
 func Highlight(k Keywords, lang string, code string) []html.Node {
 	if lang != k.Lang {
 		return []html.Node{html.Text{S: code}}
@@ -92,6 +102,23 @@ func Nodes(d Doc, trust Trust) []html.Node needs Highlighter { children(d, trust
 
 // Render is the HTML of the Markdown text src.
 func Render(src string, trust Trust) string needs Highlighter { html.RenderAll(Nodes(Parse(src), trust)) }
+
+// BlankLineSeparates: a blank line between blocks of the pool reads as
+// the blocks read apart.
+law BlankLineSeparates(picks []int) {
+	let mut parts = []string{}
+	let mut want = strings.NewBuilder()
+	for p in picks {
+		let b = pool[index(p, len(pool))]
+		parts = parts.Append(b)
+		want.WriteString(md(b))
+	}
+	md(strings.Join(parts, "\n\n")) == want.String()
+}
+
+// blocks is a pool of blocks that a blank line closes, so none of them
+// joins the block after it.
+let pool = []string{"# head *x*", "para with `code`", "***", "```\nfence\n\n```", "> quote\nlazy", "two\nlines", "**strong** _em_", "[x](/u \"t\")", "<div>\nhtml\n</div>", "Setext\n---", "a  \nhard", "<span>inline</span> &amp; &copy;"}
 
 func children(d Doc, trust Trust, id int, tight bool) []html.Node needs Highlighter {
 	let mut out = []html.Node{}
@@ -206,7 +233,7 @@ func inlineNode(d Doc, trust Trust, id int) html.Node {
 }
 
 // plain writes the text of the inlines below id, for an image's alt.
-func plain(d Doc, b *strings.Builder, id int) {
+func plain(d Doc, b mut strings.Builder, id int) {
 	let mut k = d.nodes[id].first
 	for k >= 0 {
 		let n = d.nodes[k]

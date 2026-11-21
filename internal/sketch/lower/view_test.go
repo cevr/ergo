@@ -22,7 +22,7 @@ func poke(s string) int {
 	readsfix.Poke(strings.Bytes(s))
 }
 
-func main() needs Console {
+func main() needs Console | go.Foreign {
 	Console.Println("\(poke("abc"))")
 }
 

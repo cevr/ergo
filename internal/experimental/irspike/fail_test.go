@@ -41,6 +41,11 @@ func TestIRFailuresMatchSource(t *testing.T) {
 		if a.exit != 0 {
 			defects++
 		}
+		// main's total catches: each default is the unreachable defect,
+		// so a failure no arm reads does not escape (FAIL-ELIDE).
+		if lower.IRCatchDefectOn() && rep.CatchDefects == 0 {
+			t.Errorf("seed %d: no full catch's default named the unreachable defect\nreplay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run '^TestIRFailuresMatchSource$' ./internal/experimental/irspike", seed, seed)
+		}
 		irKinds(t, filepath.Join(dir, "ir", lower.IRFileName), seen)
 		polled += backEdgePolls(t, filepath.Join(dir, "ir", lower.IRFileName))
 		for _, name := range rep.IR {

@@ -1,0 +1,384 @@
+import strconv
+import strings
+
+// Row is one element of a keyed list: its key and its raw text.
+type Row { Key string, Raw string }
+
+// RowKey is the member that names a row of a keyed list.
+let RowKey = "name"
+
+// sameBare reports whether two raw JSON texts differ only in layout.
+func sameBare(a string, b string) bool { a == b || Bare(a) == Bare(b) }
+
+// MergeRows merges two JSON objects member by member, and a member whose
+// value is a list of objects that each have a string name, row by row:
+// a row only one side changed, added or removed takes that side; a row
+// both sides changed alike is one; a row both changed apart, or that one
+// side removed and the other changed, is a conflict. Ours' layout and
+// order are kept; a row theirs added goes after the row before it in
+// theirs.
+func MergeRows(base string, ours string, theirs string) Merged fails Unreadable {
+	let b = try Members(base, "base")
+	let o = try Members(ours, "ours")
+	let t = try Members(theirs, "theirs")
+	let mut edits = []Span{}
+	let mut conflicts = []string{}
+	for m in o {
+		let bv = member(b, m.Key)
+		let tv = member(t, m.Key)
+		let keyed = match (bv, tv) {
+		case (Some[string] as x, Some[string] as y):
+			isKeyed(x.Value) && isKeyed(m.Raw) && isKeyed(y.Value)
+		case _:
+			false
+		}
+		if keyed {
+			let (raw, clashes) = try mergeList(textOf(bv), m.Raw, textOf(tv))
+			if raw != m.Raw {
+				edits = edits.Append(Span{Raw: raw, Start: m.Start, End: m.End})
+			}
+			for c in clashes {
+				conflicts = conflicts.Append(m.Key + "/" + c)
+			}
+			continue
+		}
+		match Choose(bv, Some[string]{Value: m.Raw}, tv, sameBare) {
+		case Take as k:
+			match k.Value {
+			case Some[string] as v:
+				if v.Value != m.Raw {
+					edits = edits.Append(Span{Raw: v.Value, Start: m.Start, End: m.End})
+				}
+			case None:
+				conflicts = conflicts.Append(m.Key)
+			}
+		case Clash:
+			conflicts = conflicts.Append(m.Key)
+			edits = edits.Append(Span{Raw: Marked(m.Raw, textOf(tv)), Start: m.Start, End: m.End})
+		}
+	}
+	for m in t {
+		if member(o, m.Key) == None && Choose(member(b, m.Key), None, Some[string]{Value: m.Raw}, sameBare) != (Take{Value: None}) {
+			conflicts = conflicts.Append(m.Key)
+		}
+	}
+	Merged{Text: replaced(ours, edits), Conflicts: conflicts, Regenerate: false}
+}
+
+// KeyedRows is each row of the keyed lists of a JSON object, by
+// "MEMBER/NAME", to its text with its layout dropped (Bare): what a
+// lane record compares, so a reformat of a row changes none.
+func KeyedRows(text string) Map[string, string] fails Unreadable {
+	let mut out = Map[string, string]{}
+	for m in try Members(text, "rows") {
+		if !isKeyed(m.Raw) {
+			continue
+		}
+		for r in try rowsOf(m.Raw, "rows") {
+			out[m.Key+"/"+r.Key] = Bare(r.Raw)
+		}
+	}
+	out
+}
+
+// textOf is an optional raw text as text ("" when absent).
+func textOf(v Option[string]) string {
+	match v {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+}
+
+func member(ms []Entry, key string) Option[string] {
+	for m in ms {
+		if m.Key == key {
+			return Some[string]{Value: m.Raw}
+		}
+	}
+	None
+}
+
+// replaced is text with each span's place holding the span's raw text
+// (the spans in order and apart).
+func replaced(text string, spans []Span) string {
+	let mut out = strings.NewBuilder()
+	let mut at = 0
+	for s in spans {
+		out.WriteString(strings.Slice(text, at, s.Start))
+		out.WriteString(s.Raw)
+		at = s.End
+	}
+	out.WriteString(strings.Slice(text, at, len(text)))
+	out.String()
+}
+
+// isKeyed reports whether raw is a list whose every element is an object
+// with a string name, no name twice.
+func isKeyed(raw string) bool {
+	let rows = rowsOf(raw, "") catch {
+	case Unreadable:
+		return false
+	}
+	for i, r in rows {
+		for j in 0..i {
+			if rows[j].Key == r.Key {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// rowsOf is the rows of a keyed list.
+func rowsOf(raw string, side string) []Row fails Unreadable {
+	let mut out = []Row{}
+	for e in try Elements(raw, side) {
+		let name = match member(try Members(e.Raw, side), RowKey) {
+		case Some[string] as n:
+			n.Value
+		case None:
+			return Unreadable{Side: side, At: e.Start, Why: "a row has no \(RowKey)"}
+		}
+		if !strings.HasPrefix(name, "\"") {
+			return Unreadable{Side: side, At: e.Start, Why: "a row's \(RowKey) is not a string"}
+		}
+		out = out.Append(Row{Key: unquote(name), Raw: e.Raw})
+	}
+	out
+}
+
+func rowNamed(rows []Row, key string) Option[string] {
+	for r in rows {
+		if r.Key == key {
+			return Some[string]{Value: r.Raw}
+		}
+	}
+	None
+}
+
+// mergeList merges three keyed lists row by row, in ours' layout; it is
+// the merged list's text and the keys of the rows that conflict.
+func mergeList(base string, ours string, theirs string) (string, []string) fails Unreadable {
+	let b = try rowsOf(base, "base")
+	let o = try rowsOf(ours, "ours")
+	let t = try rowsOf(theirs, "theirs")
+	let mut out = []Row{}
+	let mut clashes = []string{}
+	for r in o {
+		match Choose(rowNamed(b, r.Key), Some[string]{Value: r.Raw}, rowNamed(t, r.Key), sameBare) {
+		case Take as k:
+			match k.Value {
+			case Some[string] as v:
+				out = out.Append(Row{Key: r.Key, Raw: v.Value})
+			case None:
+			}
+		case Clash:
+			let other = textOf(rowNamed(t, r.Key))
+			let byLines = MergeText(textOf(rowNamed(b, r.Key)), r.Raw, other)
+			if byLines.Clashes == 0 && rowNamed(b, r.Key) != None && other != "" {
+				out = out.Append(Row{Key: r.Key, Raw: Text(byLines)})
+			} else {
+				clashes = clashes.Append(r.Key)
+				out = out.Append(Row{Key: r.Key, Raw: Marked(r.Raw, other)})
+			}
+		}
+	}
+	let mut after Option[string] = None
+	for r in t {
+		if rowNamed(o, r.Key) == None {
+			match Choose(rowNamed(b, r.Key), None, Some[string]{Value: r.Raw}, sameBare) {
+			case Take as k:
+				match k.Value {
+				case Some[string] as v:
+					out = rowInserted(out, after, Row{Key: r.Key, Raw: v.Value})
+				case None:
+				}
+			case Clash:
+				clashes = clashes.Append(r.Key)
+				out = rowInserted(out, after, Row{Key: r.Key, Raw: Marked("", r.Raw)})
+			}
+		}
+		if rowNamed(out, r.Key) != None {
+			after = Some[string]{Value: r.Key}
+		}
+	}
+	(listText(ours, try Elements(ours, "ours"), out), clashes)
+}
+
+// rowInserted is rows with row after the row keyed after (first when
+// there is none).
+func rowInserted(rows []Row, after Option[string], row Row) []Row {
+	let mut out = []Row{}
+	let mut done = false
+	if after == None {
+		out = out.Append(row)
+		done = true
+	}
+	for r in rows {
+		out = out.Append(r)
+		if !done && after == (Some[string]{Value: r.Key}) {
+			out = out.Append(row)
+			done = true
+		}
+	}
+	if !done {
+		out = out.Append(row)
+	}
+	out
+}
+
+// listText is the rows as a list in the layout of the list text ours,
+// whose elements are els: its text before the first element, between two
+// and after the last.
+func listText(ours string, els []Span, rows []Row) string {
+	let open = strings.Index(ours, "[")
+	let close = strings.LastIndex(ours, "]")
+	let (head, sep, tail) = if len(els) >= 2 {
+		(strings.Slice(ours, open+1, els[0].Start), strings.Slice(ours, els[0].End, els[1].Start), strings.Slice(ours, els[len(els)-1].End, close))
+	} else if len(els) == 1 {
+		(strings.Slice(ours, open+1, els[0].Start), ",\n    ", strings.Slice(ours, els[0].End, close))
+	} else {
+		("\n    ", ",\n    ", "\n  ")
+	}
+	if len(rows) == 0 {
+		return "[]"
+	}
+	let mut parts = []string{}
+	for r in rows {
+		parts = parts.Append(r.Raw)
+	}
+	strings.Slice(ours, 0, open+1) + head + strings.Join(parts, sep) + tail + strings.Slice(ours, close, len(ours))
+}
+
+// ledger is units as a mutant ledger: an about line and one row a line,
+// in key order.
+func ledger(units Map[int, int]) string {
+	let mut rows = []string{}
+	for key in 0..6 {
+		match units.Get(key) {
+		case Some[int] as v:
+			rows = rows.Append("    {\"name\":\"k\(key)\",\"file\":\"f.go\",\"value\":\(v.Value)}")
+		case None:
+		}
+	}
+	let list = if len(rows) == 0 { "[]" } else { "[\n" + strings.Join(rows, ",\n") + "\n  ]" }
+	"{\n  \"about\": \"a ledger\",\n  \"mutants\": " + list + "\n}\n"
+}
+
+// rowsRead is the units of a ledger's text, or None when it does not read.
+func rowsRead(text string) Option[Map[int, int]] {
+	let members = Members(text, "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let list = match member(members, "mutants") {
+	case Some[string] as l:
+		l.Value
+	case None:
+		return None
+	}
+	let rows = rowsOf(list, "merged") catch {
+	case Unreadable:
+		return None
+	}
+	let mut out = Map[int, int]{}
+	for r in rows {
+		let key = strconv.Atoi(strings.TrimPrefix(r.Key, "k")) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		let fields = Members(r.Raw, "merged") catch {
+		case Unreadable:
+			return None
+		}
+		let value = strconv.Atoi(textOf(member(fields, "value"))) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return None
+		}
+		if out.Get(key) != None {
+			return None
+		}
+		out[key] = value
+	}
+	Some[Map[int, int]]{Value: out}
+}
+
+func clashKeys(m Merged, prefix string) []int {
+	let mut out = []int{}
+	for c in m.Conflicts {
+		let key = strconv.Atoi(strings.TrimPrefix(c, prefix+"k")) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			0 - 1
+		}
+		out = out.Append(key)
+	}
+	out
+}
+
+func sameInts(a []int, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for x in a {
+		let mut found = false
+		for y in b {
+			found = found || x == y
+		}
+		if !found {
+			return false
+		}
+	}
+	true
+}
+
+// RowsAreTheReference: two scripts on a ledger merge row by row to the
+// reference, where it is clean, and the rows that clash are the rows both
+// scripts changed apart (an addition of one name by both, a removal
+// against a change).
+law RowsAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let theirs = applied(base, theirEdits)
+	let want = reference(base, ours, theirs)
+	let got = Merge(Rows, ledger(base), ledger(ours), ledger(theirs)) catch {
+	case Unreadable:
+		return false
+	}
+	sameInts(clashKeys(got, "mutants/"), want.Clashes) && (len(want.Clashes) > 0 || rowsRead(got.Text) == Some[Map[int, int]]{Value: want.Units})
+}
+
+// RowsByUnitsAreTheReference: the same by units alone, where the line
+// merge does not come first: the conflicts are exactly the reference's.
+law RowsByUnitsAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = applied(units, []Edit{})
+	let ours = applied(base, ourEdits)
+	let theirs = applied(base, theirEdits)
+	let want = reference(base, ours, theirs)
+	let got = ByUnits(Rows, ledger(base), ledger(ours), ledger(theirs)) catch {
+	case Unreadable:
+		return false
+	}
+	if !sameInts(clashKeys(got, "mutants/"), want.Clashes) {
+		return false
+	}
+	len(want.Clashes) > 0 || rowsRead(got.Text) == Some[Map[int, int]]{Value: want.Units}
+}
+
+// RowsCommute: the merge in the other order clashes on the same rows,
+// and where it is clean it has the same rows.
+law RowsCommute(units Map[int, int], ourEdits []Edit, theirEdits []Edit) {
+	let base = ledger(applied(units, []Edit{}))
+	let ours = ledger(applied(applied(units, []Edit{}), ourEdits))
+	let theirs = ledger(applied(applied(units, []Edit{}), theirEdits))
+	let one = ByUnits(Rows, base, ours, theirs) catch {
+	case Unreadable:
+		return false
+	}
+	let two = ByUnits(Rows, base, theirs, ours) catch {
+	case Unreadable:
+		return false
+	}
+	sameInts(clashKeys(one, "mutants/"), clashKeys(two, "mutants/")) && (len(one.Conflicts) > 0 || rowsRead(one.Text) == rowsRead(two.Text))
+}

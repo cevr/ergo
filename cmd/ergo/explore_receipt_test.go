@@ -41,13 +41,15 @@ func TestExploreReceiptMatchesPlain(t *testing.T) {
 				var src strings.Builder
 				src.WriteString("import sync\nimport task\n\n")
 				for j := range 1 + r.IntN(3) {
-					body, status := "x == x", "tested"
+					body, status := "Same(x) == x", "tested"
 					if r.IntN(4) == 0 {
-						body, status = "x != x", "refuted"
+						body, status = "Same(x) != x", "refuted"
 					}
 					fmt.Fprintf(&src, "law Rule%d_%d(x int) { %s }\n\n", i, j, body)
 					want[i] = append(want[i], fmt.Sprintf("law Rule%d_%d %s", i, j, status))
 				}
+				// Same is the laws' subject (S115).
+				src.WriteString("func Same(x int) int { x }\n\n")
 				src.WriteString("test Race {\n\tlet c = sync.NewRef(0)\n\tlet a = task.Go() { c.Set(c.Get() + 1) }\n\tlet b = task.Go() { c.Set(c.Get() + 1) }\n\ta.Wait()\n\tb.Wait()\n\tassert c.Get() >= 1\n}\n")
 				name := fmt.Sprintf("p%d/p.ergo", i)
 				smokeWrite(t, root, name, src.String())

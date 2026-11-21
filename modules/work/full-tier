@@ -1,0 +1,3 @@
+# Package folders only the gate's full tier tests (scripts/examples
+# -full-tier); every other run of the examples leaves them out.
+git/checkout  # the Vcs laws on a real checkout: git starts in every case (about 19 s)

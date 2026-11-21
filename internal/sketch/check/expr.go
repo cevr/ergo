@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -434,8 +435,7 @@ func (c *checker) localTypeCtx() *typeCtx {
 // lookup resolves a name in expression position, innermost frame first:
 // locals and the body's frame, the package, the universe and the prelude,
 // then the file's import names (D4). An import named after a prelude name
-// is refused (D-D3) and still binds, so it wins over the prelude name it
-// reuses.
+// hides it in its file (D-D3, owner q244; shadowImport).
 func (c *checker) lookup(name string) Object { return c.lookupWith(name, (*Scope).lookup) }
 
 // lookupWith is lookup with find as the scope search: Scope.lookup, or
@@ -698,6 +698,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		c.orphanElements(x, mark, lt())
 		return bad(x)
 	}
+	if IsProviderMap(t) && c.pkg.Path != stdlib.PreludePath {
+		// The prelude builds its table as the record it is.
+		return c.providerLit(x, t, mark, lt) // mapprovider.go
+	}
 	if RefinementOf(t) != nil {
 		// The elements still check, so nothing cascades (Refinements 6).
 		c.errorf(x, CodeType, "a literal of %s is not checked against its where; write %s(%s{…})", t, c.parseFunc(t), refinedBase(t))
@@ -725,37 +729,7 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 	case *Array:
 		c.arrayElements(x, t, u, lt)
 	case *Map:
-		// A constant key appears once, compared after conversion to the
-		// key type, as in Go (N3).
-		type constKey struct {
-			typ int32 // the interned id of the key's dynamic type
-			val string
-		}
-		seen := map[constKey]bool{}
-		for _, e := range x.Elts {
-			kv, ok := e.(*syntax.KeyValueExpr)
-			if !ok {
-				c.errorf(e, CodeType, "a map literal's elements are key: value pairs")
-				c.orphanValue(e, mark, lt(), false)
-				continue
-			}
-			k := c.elementValue(kv.Key, u.Key, lt, true)
-			if c.assign(&k, u.Key, "map key") && k.mode == modeConst && k.val != nil {
-				// Keys of an interface type compare by dynamic type and
-				// value: int(1) and int64(1) are distinct (round-2 M7).
-				dyn := u.Key
-				if asInterface(u.Key) != nil {
-					dyn = k.typ
-				}
-				key := constKey{c.types.id(dyn), k.val.Kind().String() + ":" + k.val.ExactString()}
-				if seen[key] {
-					c.errorf(kv.Key, CodeType, "the key %s appears twice in this map literal", k.val.ExactString())
-				}
-				seen[key] = true
-			}
-			v := c.elementValue(kv.Value, u.Elem, lt, false)
-			c.assign(&v, u.Elem, "map value")
-		}
+		c.mapElements(x, u.Key, u.Elem, mark, lt)
 	case *MachineType:
 		if len(x.Elts) > 0 {
 			c.errorf(x, CodeType, "a machine value has no fields")
@@ -767,6 +741,41 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		return bad(x)
 	}
 	return operand{mode: modeValue, typ: t}
+}
+
+// mapElements checks a Map literal's key: value elements against the key
+// and value types: a constant key appears once, compared after conversion
+// to the key type, as in Go (N3).
+func (c *checker) mapElements(x *syntax.CompositeLit, keyT, elemT Type, mark int, lt func() litType) {
+	type constKey struct {
+		typ int32 // the interned id of the key's dynamic type
+		val string
+	}
+	seen := map[constKey]bool{}
+	for _, e := range x.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			c.errorf(e, CodeType, "a map literal's elements are key: value pairs")
+			c.orphanValue(e, mark, lt(), false)
+			continue
+		}
+		k := c.elementValue(kv.Key, keyT, lt, true)
+		if c.assign(&k, keyT, "map key") && k.mode == modeConst && k.val != nil {
+			// Keys of an interface type compare by dynamic type and
+			// value: int(1) and int64(1) are distinct (round-2 M7).
+			dyn := keyT
+			if asInterface(keyT) != nil {
+				dyn = k.typ
+			}
+			key := constKey{c.types.id(dyn), k.val.Kind().String() + ":" + k.val.ExactString()}
+			if seen[key] {
+				c.errorf(kv.Key, CodeType, "the key %s appears twice in this map literal", k.val.ExactString())
+			}
+			seen[key] = true
+		}
+		v := c.elementValue(kv.Value, elemT, lt, false)
+		c.assign(&v, elemT, "map value")
+	}
 }
 
 // literalType resolves a composite literal's written type. A generic type
@@ -877,6 +886,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 		}
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
+	c.recordTypeMark(n, targs, x)
 	return c.instantiate(n, targs)
 }
 
@@ -1234,6 +1244,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 					return bad(x)
 				}
 			}
+			if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {
+				// A mut operation writes its receiver: a value of T is
+				// read, so the call needs a mut T (types.md, Generics 2).
+				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), tp.Name, exprText(x.X), tp.Name)
+				return bad(x)
+			}
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
@@ -1308,7 +1324,7 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {
-				star = "*"
+				star = "mut " // the borrow, as Ergo writes it (MODES-2)
 			}
 			var tps []string
 			for _, tp := range n.Orig.TParams {
@@ -1338,9 +1354,17 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s", base.typ, x.Sel.Name)
 		return bad(x)
 	}
-	if !called {
+	if !called && (index != nil || isExtern(fn)) {
+		// An extern on a type (a prelude function on a collection, a Go
+		// body) is call-only, as the extern itself is (externValue).
 		c.errorf(x.Sel, CodeUnknown, "%s has no field %s; the function %s on its type is reached only by a call %s.%s(…)", base.typ, x.Sel.Name, fn.Name, exprText(x.X), fn.Name)
 		return bad(x)
+	}
+	if !called {
+		if text := c.methodValueRefused(x, base, sig, fn); text != "" {
+			c.errorf(x.Sel, CodeType, "a method value of %s %s; write the closure func(…) { %s.%s(…) } (types.md, Methods 2)", fn.Name, text, exprText(x.X), fn.Name)
+			return bad(x)
+		}
 	}
 	if index != nil && sig.NBracket == 0 {
 		// x.f[i](…): f has no bracket type parameter x does not bind, so
@@ -1353,7 +1377,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) && !base.addressable {
-		c.errorf(x.X, CodeType, "%s takes *%s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
+		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) {
@@ -1393,10 +1417,46 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		}
 		c.recordInstantiation(fn.Name, tps, targs, x)
 	}
+	if !called {
+		// x.f as a value: f with x bound here (types.md, Methods 2). Every
+		// type parameter of f is x's (methodValueRefused).
+		if c.silent == 0 {
+			c.pkg.Info.MethodValues[x] = fn
+			if len(fn.Sig.TParams) > 0 {
+				targs := make([]Type, len(fn.Sig.TParams))
+				for i, tp := range fn.Sig.TParams {
+					targs[i] = self[tp]
+				}
+				c.recordInstance(x, fn, targs)
+			}
+		}
+		return operand{mode: modeValue, typ: sig}
+	}
 	if len(sig.TParams) > 0 {
 		return operand{mode: modeGeneric, typ: sig, fn: fn, self: self}
 	}
 	return operand{mode: modeValue, typ: sig, fn: fn, self: self}
+}
+
+// methodValueRefused says why x.f, the function f on x's type with x of
+// base's type, is no method value (types.md, Methods 2), or "" when it is
+// one. A method value keeps a copy of x: a first parameter that borrows x
+// (*T) or takes it (own) would alias or move x out of sight of the borrow
+// and ownership rules, and a resource has one owner, so each is the
+// closure the program writes. (An own first parameter takes only a
+// resource; any other has no effect, S110.) A type parameter of f that
+// x's type does not bind has no brackets to fill.
+func (c *checker) methodValueRefused(x *syntax.SelectorExpr, base operand, sig *Signature, fn *Func) string {
+	recv := exprText(x.X)
+	switch {
+	case fn.Ptr:
+		return fmt.Sprintf("borrows %s (mut %s)", recv, fn.owner.Obj.Name)
+	case c.holdsResource(base.typ):
+		return fmt.Sprintf("would keep %s, a resource, which has one owner", recv)
+	case sig != nil && len(sig.TParams) > 0:
+		return fmt.Sprintf("leaves its type parameter %s unbound", sig.TParams[0].Name)
+	}
+	return ""
 }
 
 // overloadedText is the S108 of a plain reference to a name several package
@@ -1521,6 +1581,16 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	}
 	t := base.typ
+	if key, elem, _, ok := c.mapParts(t); ok && IsProviderMap(t) {
+		k := c.valueExpr(x.Indices[0], key)
+		c.assign(&k, key, "map key")
+		if c.writeTarget != x {
+			c.errorf(x, CodeType, "a Map read may miss; write m.Get(k), which returns an Option")
+			return bad(x)
+		}
+		// The store becomes m = m.Put(k, v) (mapprovider.go, assignStmt).
+		return operand{mode: modeValue, typ: elem, mapElem: true}
+	}
 	if r, ok := unparen(x.Indices[0]).(*syntax.BinaryExpr); ok && r.Op == syntax.DOTDOT && (isSliceType(t) || isString(t)) {
 		// words[0..n]: one diagnostic at the index, and no mismatch of the
 		// element type where the part was meant (K4, cron's ParseTable).
@@ -1705,6 +1775,8 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		switch msg := literalMismatch(op.expr, t); {
 		case msg != "":
 			c.errorf(op.expr, CodeType, "%s", msg)
+		case c.mapProviderMismatch(op.typ, t) != "":
+			c.errorf(op.expr, CodeType, "%s", c.mapProviderMismatch(op.typ, t)) // mapprovider.go
 		case repair != "":
 			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s; write %s", op.typ, t, what, repair)
 		case why != "":

@@ -1,0 +1,300 @@
+// A zoned time: an instant seen on a zone's wall clock, its calendar
+// arithmetic, its formats and its RFC 9557 text.
+
+import civil
+import time
+
+// Zoned is the instant At seen in the zone Zone.
+type Zoned { At time.Time, Zone Zone }
+
+// Wall is the wall time z's zone shows at its instant.
+func Wall(z Zoned) civil.DateTime { Civil(z.Zone, z.At) }
+
+// Add moves z by the calendar period p on its wall clock: the wall date
+// moves by p (civil.Add, which clamps the day to the month), the wall time
+// of day stays, and the result is that wall time's Compatible instant in
+// the zone, so a wall time the zone skips moves forward by the gap.
+// Temporal's ZonedDateTime.add and Effect's DateTime.add on a Zoned do the
+// same.
+func Add(z Zoned, p civil.Period) Zoned {
+	let w = Wall(z)
+	let to = civil.DateTime{Date: civil.Add(w.Date, p), Time: w.Time}
+	Zoned{At: Compatible(Resolve(z.Zone, to)), Zone: z.Zone}
+}
+
+// AddDuration moves z by the exact duration d; its wall time moves by d
+// only when no change of the zone's offset lies between.
+func AddDuration(z Zoned, d duration) Zoned { Zoned{At: time.Add(z.At, d), Zone: z.Zone} }
+
+// parts is the text of z's zone fields.
+func parts(z Zoned) civil.ZoneParts {
+	let o = OffsetAt(z.Zone, z.At)
+	civil.ZoneParts{Offset: o.Seconds, Abbreviation: o.Abbreviation, Zone: Name(z.Zone)}
+}
+
+// FormatZoned is the text of z in f: its wall time, and its offset,
+// abbreviation and zone name where f has those fields.
+func FormatZoned(z Zoned, f civil.ZonedFormat) string { civil.FormatWithZone(Wall(z), parts(z), f) }
+
+// ParseZoned is the zoned time the text s writes in f, as strict as
+// civil.ParseDateTime, its zone loaded from the context's database:
+//
+//   - a zone name: that zone, and the text's offset, when it has one, must
+//     be the zone's at that time, and its abbreviation the zone's; with no
+//     offset, the wall time's Compatible instant, and a wall time the zone
+//     skips is refused;
+//   - an offset and no name: the fixed zone of that offset;
+//   - neither, or an abbreviation alone: refused, since an abbreviation
+//     names no one offset (CST is three).
+func ParseZoned(f civil.ZonedFormat, s string) Zoned fails civil.ParseError | UnknownZone needs Zones {
+	let x = try civil.ParseWithZone(f, s)
+	match x.Zone {
+	case Some[string] as name:
+		let z = try zoneNamed(name.Value)
+		let at = match x.Offset {
+		case Some[int] as o:
+			let t = instant(x.Wall, o.Value)
+			if OffsetAt(z, t).Seconds != o.Value {
+				return civil.ParseError{Text: s, At: 0, Reason: "the offset is not \(name.Value)'s at that time"}
+			}
+			t
+		case None:
+			match Resolve(z, x.Wall) {
+			case Unique as u:
+				u.At
+			case Overlap as o:
+				o.Earlier
+			case Gap:
+				return civil.ParseError{Text: s, At: 0, Reason: "\(name.Value) skips that wall time"}
+			}
+		}
+		match x.Abbreviation {
+		case Some[string] as a:
+			if OffsetAt(z, at).Abbreviation != a.Value {
+				return civil.ParseError{Text: s, At: 0, Reason: "the abbreviation is not \(name.Value)'s at that time"}
+			}
+		case None:
+		}
+		Zoned{At: at, Zone: z}
+	case None:
+		match x.Offset {
+		case Some[int] as o:
+			let z = FixedOffset(o.Value) catch {
+			case BadOffset:
+				return civil.ParseError{Text: s, At: 0, Reason: "the offset is out of range"}
+			}
+			Zoned{At: instant(x.Wall, o.Value), Zone: z}
+		case None:
+			civil.ParseError{Text: s, At: 0, Reason: "the text names no offset and no zone; an abbreviation names no one offset"}
+		}
+	}
+}
+
+// ParseInstant is the instant the text s writes in f, read with the
+// offset the text holds; f has an offset and no zone name (a name is
+// ParseZoned's, which checks the offset against the zone).
+func ParseInstant(f civil.ZonedFormat, s string) time.Time fails civil.ParseError {
+	let x = try civil.ParseWithZone(f, s)
+	match x.Zone {
+	case Some[string]:
+		return civil.ParseError{Text: s, At: 0, Reason: "a zone name is read by tz.ParseZoned, which checks the offset against the zone"}
+	case None:
+	}
+	match x.Offset {
+	case Some[int] as o:
+		instant(x.Wall, o.Value)
+	case None:
+		civil.ParseError{Text: s, At: 0, Reason: "the text has no offset"}
+	}
+}
+
+// instant is the instant of the wall time w read with offset seconds.
+func instant(w civil.DateTime, offset int) time.Time {
+	let u = civil.Instant(w)
+	time.Unix(time.UnixSeconds(u) - int64(offset), int64(time.Nanosecond(u)))
+}
+
+// zoneNamed is the zone name: a fixed offset's name (+05:30, as RFC 9557
+// writes an offset zone and FixedOffset names one) or a name of the
+// context's database.
+func zoneNamed(name string) Zone fails UnknownZone needs Zones {
+	if len(name) > 0 && (name[0] == '+' || name[0] == '-') {
+		let n = len(name)
+		if n != 6 && n != 9 {
+			return UnknownZone{Name: name}
+		}
+		let mut v = 0
+		for k in 0..n / 3 {
+			let i = 1 + 3 * k
+			if k > 0 && name[i - 1] != ':' || !digitAt(name, i) || !digitAt(name, i + 1) {
+				return UnknownZone{Name: name}
+			}
+			v = v * 60 + int(name[i] - '0') * 10 + int(name[i + 1] - '0')
+		}
+		if n == 6 {
+			v = v * 60
+		}
+		let z = FixedOffset(if name[0] == '-' { -v } else { v }) catch {
+		case BadOffset:
+			return UnknownZone{Name: name}
+		}
+		if Name(z) != name {
+			return UnknownZone{Name: name}
+		}
+		return z
+	}
+	try Zones.Load(name)
+}
+
+func digitAt(s string, i int) bool { s[i] >= '0' && s[i] <= '9' }
+
+// rfc9557 is RFC 9557's text: RFC 3339's date, time, fraction when not
+// zero and offset, then the zone's name in brackets.
+func rfc9557() civil.ZonedFormat {
+	civil.ZonedFields([]civil.Field{
+		civil.YearNumber{Digits: civil.FourDigits}, civil.Literal{Text: "-"}, civil.MonthNumber{Pad: civil.ZeroPad}, civil.Literal{Text: "-"}, civil.DayOfMonth{Pad: civil.ZeroPad},
+		civil.Literal{Text: "T"}, civil.Hour24{Pad: civil.ZeroPad}, civil.Literal{Text: ":"}, civil.MinuteNumber{Pad: civil.ZeroPad}, civil.Literal{Text: ":"}, civil.SecondNumber{Pad: civil.ZeroPad},
+		civil.Fraction{Digits: 9, Trim: true}, civil.OffsetField{Colon: true, Z: false}, civil.Literal{Text: "["}, civil.ZoneID, civil.Literal{Text: "]"},
+	}, civil.English()) catch {
+	case civil.BadPattern:
+		Unreachable("RFC 9557's text is a zoned format")
+	}
+}
+
+// Text is z as RFC 9557 writes it: 2027-03-14T03:30:00-04:00[America/Toronto],
+// with a fraction when the instant has one, and the offset's seconds when
+// it has them. Years are 0001 to 9999.
+func Text(z Zoned) string { FormatZoned(z, rfc9557()) }
+
+// ParseText is the zoned time of an RFC 9557 text as Text writes it: its
+// zone loaded from the context's database, and its offset the zone's at
+// that time (Temporal's offset: "reject"). A time zone name that is an
+// offset (+05:30) is that fixed zone.
+func ParseText(s string) Zoned fails civil.ParseError | UnknownZone needs Zones { try ParseZoned(rfc9557(), s) }
+
+// ZonedAddKeepsWall: away from a change of the zone's offset, Add moves
+// the wall date by the period and keeps the wall time of day.
+law ZonedAddKeepsWall(i int64, s int64, n int64) {
+	let z = anyZoned(i, s, 0, false)
+	let p = civil.Period{Years: 0, Months: int(within(n, -30, 30)), Weeks: 0, Days: int(within(n / 61, -400, 400))}
+	let w = Wall(z)
+	let want = civil.DateTime{Date: civil.Add(w.Date, p), Time: w.Time}
+	let ok = match Resolve(z.Zone, want) {
+	case Unique:
+		Wall(Add(z, p)) == want
+	case Gap, Overlap:
+		true
+	}
+	ok
+}
+
+// anyZoned is a zoned time at the instant s names in the zone i names,
+// or, when fixed, in the fixed zone of an offset of up to 18 hours.
+func anyZoned(i int64, s int64, ns int64, fixed bool) Zoned {
+	let z = if fixed {
+		FixedOffset(int(within(i, -64800, 64800))) catch {
+		case BadOffset:
+			Unreachable("an offset of 18 hours or less is fixed")
+		}
+	} else {
+		anyZone(i)
+	}
+	Zoned{At: anyInstant(s, ns), Zone: z}
+}
+
+// TextRoundTrips: ParseText reads Text's text back as the same instant in
+// a zone of the same name and the same offset at it.
+law TextRoundTrips(i int64, s int64, ns int64, fixed bool) {
+	let z = anyZoned(i, s, ns, fixed)
+	let mut ok = false
+	with context { Zones: lawZones } {
+		let back = ParseText(Text(z)) catch {
+		case civil.ParseError, UnknownZone:
+			return false
+		}
+		ok = time.Equal(back.At, z.At) && Name(back.Zone) == Name(z.Zone) && OffsetAt(back.Zone, back.At) == OffsetAt(z.Zone, z.At)
+	}
+	ok
+}
+
+// lawZones is the laws' provider of Zones over std's IANA copy.
+type lawZones {} implements Zones
+
+// Load is the zone name of std's IANA copy, or UnknownZone.
+func Load(_ lawZones, name string) Zone fails UnknownZone {
+	let data = ianaZone(name)
+	if len(data) == 0 {
+		return UnknownZone{Name: name}
+	}
+	FromTZif(name, data) catch {
+	case BadData:
+		Unreachable("std's IANA copy holds only zones Go's reader reads")
+	}
+}
+
+// ParseTextChecksOffset: a text whose offset is not its zone's at that
+// time is refused, as Temporal's offset "reject" refuses it.
+law ParseTextChecksOffset(i int64, s int64, k int64) {
+	let z = anyZoned(i, s, 0, false)
+	let o = OffsetAt(z.Zone, z.At).Seconds
+	let wrong = o + int(within(k, 1, 7200)) * (if o > 0 { -1 } else { 1 })
+	let text = civil.FormatWithZone(Wall(z), civil.ZoneParts{Offset: wrong, Abbreviation: "", Zone: Name(z.Zone)}, rfc9557())
+	let mut ok = false
+	with context { Zones: lawZones } {
+		let back = ParseText(text) catch {
+		case civil.ParseError:
+			return true
+		case UnknownZone:
+			return false
+		}
+		ok = OffsetAt(back.Zone, back.At).Seconds == wrong
+	}
+	ok
+}
+
+// ZonedFormatRoundTrips: a zoned format with seconds and an offset reads
+// back the instant it writes, and its offset; with a zone name and no
+// offset, the instant when the zone shows the wall time once.
+law ZonedFormatRoundTrips(i int64, s int64, k int64) {
+	let z = anyZoned(i, s, 0, false)
+	let patterns = []string{"yyyy-MM-dd HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ssxx", "EEE, d MMM yyyy HH:mm:ss Z", "yyyy-MM-dd HH:mm:ss XXX VV", "yyyy-MM-dd HH:mm:ss VV", "dd/MMM/yyyy:HH:mm:ss ZZZZZ z"}
+	let text = patterns[int(within(k, 0, int64(len(patterns) - 1)))]
+	let f = civil.ZonedPattern(text) catch {
+	case civil.BadPattern:
+		return false
+	}
+	let once = match Resolve(z.Zone, Wall(z)) {
+	case Unique:
+		true
+	case Gap, Overlap:
+		false
+	}
+	let mut ok = false
+	with context { Zones: lawZones } {
+		let back = ParseZoned(f, FormatZoned(z, f)) catch {
+		case civil.ParseError:
+			return false
+		case UnknownZone:
+			return false
+		}
+		ok = time.Equal(back.At, z.At) && OffsetAt(back.Zone, back.At).Seconds == OffsetAt(z.Zone, z.At).Seconds || !once && text == "yyyy-MM-dd HH:mm:ss VV"
+	}
+	ok
+}
+
+// FormatZonedWritesTheZone: a zoned format writes the zone's offset,
+// abbreviation and name at the instant, and the wall time the zone shows.
+law FormatZonedWritesTheZone(i int64, s int64) {
+	let z = anyZoned(i, s, 0, false)
+	let f = civil.ZonedFields([]civil.Field{civil.OffsetField{Colon: true, Z: false}, civil.Literal{Text: " "}, civil.ZoneAbbreviation, civil.Literal{Text: " "}, civil.ZoneID}, civil.English()) catch {
+	case civil.BadPattern:
+		return false
+	}
+	let o = OffsetAt(z.Zone, z.At)
+	let wall = civil.FormatDateTime(Wall(z), civil.ISODateTime())
+	let zoned = civil.ZonedFields(civil.FormatFields(civil.ISODateTime()).Append(civil.Literal{Text: "|"}), civil.English()) catch {
+	case civil.BadPattern:
+		return false
+	}
+	FormatZoned(z, f) == "\(offsetText(o.Seconds)) \(o.Abbreviation) \(Name(z.Zone))" && FormatZoned(z, zoned) == wall + "|"
+}

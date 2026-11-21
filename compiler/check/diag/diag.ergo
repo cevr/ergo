@@ -1,0 +1,47 @@
+// Package diag is the self-hosted checker's diagnostics (capstone S3: the
+// checker swaps when its diagnostics are the Go checker's, text, position
+// and order). A Diag is located by file and byte offset; a printer that
+// holds the source gives it its line and column (syntax.PositionOf).
+//
+// This first part is S110's unused locals and imports (S3-DIAG), decided
+// from bind's Uses alone.
+
+import cmp
+import compiler/syntax
+import dense
+import slices
+
+// The codes this package reports (internal/sketch/check/codes.go).
+let CodeUnused = "S110"
+
+// Diag is a diagnostic: the index of its file in the package's files, its
+// byte offset and length there, its code and its message.
+type Diag { File int, Offset int, Length int, Code string, Message string }
+
+// Before is the Go checker's order of diagnostics in a package (check.go
+// Check): by file, then offset, length, code and message.
+func Before(a Diag, b Diag) int {
+	if a.File != b.File {
+		return a.File - b.File
+	}
+	if a.Offset != b.Offset {
+		return a.Offset - b.Offset
+	}
+	if a.Length != b.Length {
+		return a.Length - b.Length
+	}
+	let c = cmp.Compare(a.Code, b.Code)
+	if c != 0 {
+		return c
+	}
+	cmp.Compare(a.Message, b.Message)
+}
+
+// Sorted is ds in the Go checker's order.
+func Sorted(ds []Diag) []Diag { slices.SortStableFunc(ds, Before) }
+
+// textAt is the text of the one-token row id.
+func textAt(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let j = syntax.TokStartingAt(p, syntax.NodePos(p, id))
+	if j < 0 { "" } else { syntax.TokText(p, j) }
+}

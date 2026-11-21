@@ -1,10 +1,10 @@
 {
-  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them; BS7 (machine graphs as static data, no init-time registration) added pairing, an actor program, with its registry facts; BS8 (the stack landed on batch 17, with http, rpc, redacted, exec start and the host walk in leaves) raised every fixture's ceiling to its measured value plus 2 % for the batch-17 code the stack had not seen: the core's json.go and moves.go initializers and ergoStack's new frames (hello +4 KB stripped), std flag's parser (kvstore main +64 KB) and the core's JSON text (deploys, pairing); it narrowed the registry facts to the start-up registration (RegisterMachine, RegisteredGraph, main.init.N), since a generic flat union's ErgoVariant reads VariantOf lazily on the trace path. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them; BS7 (machine graphs as static data, no init-time registration) added pairing, an actor program, with its registry facts; BS8 (the stack landed on batch 17, with http, rpc, redacted, exec start and the host walk in leaves) raised every fixture's ceiling to its measured value plus 2 % for the batch-17 code the stack had not seen: the core's json.go and moves.go initializers and ergoStack's new frames (hello +4 KB stripped), std flag's parser (kvstore main +64 KB) and the core's JSON text (deploys, pairing); it narrowed the registry facts to the start-up registration (RegisterMachine, RegisteredGraph, main.init.N), since a generic flat union's ErgoVariant reads VariantOf lazily on the trace path. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent. SIZE-HELLO added packages to hello, pure and unused: the Go packages whose code each may link (runtime/debug stands for the runtime's own setGCPercent, setMemoryLimit and setPanicOnFault, which the runtime defines under that name); runtime/metrics is among them for PACE1's goal (its live heap and scan roots), the only package PACE1 adds. SIZE-HELLO also put a ledger beside each ceiling: base is the ceilings before the first recorded raise, and each raise names its unit, the two measured commits, its owners with their symbol bytes (go tool nm -size) and largest symbols, and the Go packages it adds; Checked refuses a ceiling above base plus its raises, so the next raise names its bytes too. Make one with `go run ./internal/sizes/cmd/sizes -keep DIR` at both commits and diff the binaries (SIZE-HELLO round-2 request).",
   "fixtures": {
     "hello": {
-      "ergoOnly": 269308,
-      "ergoOnlyStripped": 183829,
-      "goPackages": 69,
+      "ergoOnly": 388552,
+      "ergoOnlyStripped": 269845,
+      "goPackages": 71,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -20,12 +20,152 @@
         "^crypto/",
         "^hash/crc32\\.",
         "^encoding/base64\\."
+      ],
+      "packages": [
+        "context",
+        "ergo.local/prototype/runtime/rt",
+        "ergo.local/prototype/runtime/rt/rttrace",
+        "ergo.local/prototype/runtime/v1",
+        "errors",
+        "internal/abi",
+        "internal/bytealg",
+        "internal/chacha8rand",
+        "internal/cpu",
+        "internal/godebugs",
+        "internal/poll",
+        "internal/reflectlite",
+        "internal/runtime/atomic",
+        "internal/runtime/cgroup",
+        "internal/runtime/exithook",
+        "internal/runtime/gc/scan",
+        "internal/runtime/maps",
+        "internal/runtime/sys",
+        "internal/runtime/syscall/linux",
+        "internal/strconv",
+        "internal/stringslite",
+        "internal/sync",
+        "internal/syscall/unix",
+        "internal/testlog",
+        "io",
+        "io/fs",
+        "iter",
+        "main",
+        "math",
+        "os",
+        "path/filepath",
+        "runtime",
+        "runtime/debug",
+        "runtime/metrics",
+        "strconv",
+        "strings",
+        "sync",
+        "sync/atomic",
+        "syscall",
+        "time",
+        "unicode",
+        "unicode/utf8"
+      ],
+      "base": {
+        "ergoOnly": 269308,
+        "ergoOnlyStripped": 183829,
+        "goPackages": 69
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 119244,
+          "ergoOnlyStripped": 86016,
+          "goPackages": 2,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4844,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "syscall.read +229"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 597,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "runtime.Caller +382",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4257,
+              "symbols": [
+                "go:func.* +3728",
+                "type:.eq.M7K1M32SM72 +189",
+                "type:.eq.M6K2M32SM72 -189",
+                "type:.eq.SSM9 +149",
+                "runtime.findfunctab +125"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": 598,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.(*Task).exitOf +195",
+                "ergo.local/prototype/runtime/rt.Run[go.shape.struct {}] +181",
+                "ergo.local/prototype/runtime/v1.runMain +174",
+                "ergo.local/prototype/runtime/v1.Console.Println -142",
+                "main.init.0 -113"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/std/prelude (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        }
       ]
     },
     "pure": {
-      "ergoOnly": 269349,
-      "ergoOnlyStripped": 183829,
-      "goPackages": 69,
+      "ergoOnly": 392841,
+      "ergoOnlyStripped": 273941,
+      "goPackages": 71,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -41,12 +181,152 @@
         "^crypto/",
         "^hash/crc32\\.",
         "^encoding/base64\\."
+      ],
+      "packages": [
+        "context",
+        "ergo.local/prototype/runtime/rt",
+        "ergo.local/prototype/runtime/rt/rttrace",
+        "ergo.local/prototype/runtime/v1",
+        "errors",
+        "internal/abi",
+        "internal/bytealg",
+        "internal/chacha8rand",
+        "internal/cpu",
+        "internal/godebugs",
+        "internal/poll",
+        "internal/reflectlite",
+        "internal/runtime/atomic",
+        "internal/runtime/cgroup",
+        "internal/runtime/exithook",
+        "internal/runtime/gc/scan",
+        "internal/runtime/maps",
+        "internal/runtime/sys",
+        "internal/runtime/syscall/linux",
+        "internal/strconv",
+        "internal/stringslite",
+        "internal/sync",
+        "internal/syscall/unix",
+        "internal/testlog",
+        "io",
+        "io/fs",
+        "iter",
+        "main",
+        "math",
+        "os",
+        "path/filepath",
+        "runtime",
+        "runtime/debug",
+        "runtime/metrics",
+        "strconv",
+        "strings",
+        "sync",
+        "sync/atomic",
+        "syscall",
+        "time",
+        "unicode",
+        "unicode/utf8"
+      ],
+      "base": {
+        "ergoOnly": 269349,
+        "ergoOnlyStripped": 183829,
+        "goPackages": 69
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 123492,
+          "ergoOnlyStripped": 90112,
+          "goPackages": 2,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4844,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "syscall.read +229"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 597,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "runtime.Caller +382",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4262,
+              "symbols": [
+                "go:func.* +3728",
+                "type:.eq.M7K1M32SM72 +189",
+                "type:.eq.M6K2M32SM72 -189",
+                "type:.eq.SSM9 +149",
+                "runtime.findfunctab +130"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": 598,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.(*Task).exitOf +195",
+                "ergo.local/prototype/runtime/rt.Run[go.shape.struct {}] +181",
+                "ergo.local/prototype/runtime/v1.runMain +174",
+                "ergo.local/prototype/runtime/v1.Console.Println -142",
+                "main.init.0 -113"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/std/prelude (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        }
       ]
     },
     "unused": {
-      "ergoOnly": 269308,
-      "ergoOnlyStripped": 183829,
-      "goPackages": 69,
+      "ergoOnly": 388552,
+      "ergoOnlyStripped": 269845,
+      "goPackages": 71,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -65,12 +345,152 @@
         "^strings\\.ToUpper$",
         "^ergo\\.local/prototype/runtime/v1/csv\\.",
         "^ergo\\.local/prototype/runtime/v1/digest\\."
+      ],
+      "packages": [
+        "context",
+        "ergo.local/prototype/runtime/rt",
+        "ergo.local/prototype/runtime/rt/rttrace",
+        "ergo.local/prototype/runtime/v1",
+        "errors",
+        "internal/abi",
+        "internal/bytealg",
+        "internal/chacha8rand",
+        "internal/cpu",
+        "internal/godebugs",
+        "internal/poll",
+        "internal/reflectlite",
+        "internal/runtime/atomic",
+        "internal/runtime/cgroup",
+        "internal/runtime/exithook",
+        "internal/runtime/gc/scan",
+        "internal/runtime/maps",
+        "internal/runtime/sys",
+        "internal/runtime/syscall/linux",
+        "internal/strconv",
+        "internal/stringslite",
+        "internal/sync",
+        "internal/syscall/unix",
+        "internal/testlog",
+        "io",
+        "io/fs",
+        "iter",
+        "main",
+        "math",
+        "os",
+        "path/filepath",
+        "runtime",
+        "runtime/debug",
+        "runtime/metrics",
+        "strconv",
+        "strings",
+        "sync",
+        "sync/atomic",
+        "syscall",
+        "time",
+        "unicode",
+        "unicode/utf8"
+      ],
+      "base": {
+        "ergoOnly": 269308,
+        "ergoOnlyStripped": 183829,
+        "goPackages": 69
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 119244,
+          "ergoOnlyStripped": 86016,
+          "goPackages": 2,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4844,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "syscall.read +229"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 597,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "runtime.Caller +382",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4257,
+              "symbols": [
+                "go:func.* +3728",
+                "type:.eq.M7K1M32SM72 +189",
+                "type:.eq.M6K2M32SM72 -189",
+                "type:.eq.SSM9 +149",
+                "runtime.findfunctab +125"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": 598,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.(*Task).exitOf +195",
+                "ergo.local/prototype/runtime/rt.Run[go.shape.struct {}] +181",
+                "ergo.local/prototype/runtime/v1.runMain +174",
+                "ergo.local/prototype/runtime/v1.Console.Println -142",
+                "main.init.0 -113"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/std/prelude (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        }
       ]
     },
     "relay": {
-      "ergoOnly": 301405,
-      "ergoOnlyStripped": 208896,
-      "goPackages": 69,
+      "ergoOnly": 421862,
+      "ergoOnlyStripped": 294912,
+      "goPackages": 74,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -86,12 +506,135 @@
         "^encoding/base64\\.",
         "^math/rand",
         "^bufio\\."
+      ],
+      "base": {
+        "ergoOnly": 301405,
+        "ergoOnlyStripped": 208896,
+        "goPackages": 69
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 120457,
+          "ergoOnlyStripped": 86016,
+          "goPackages": 4,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4844,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "syscall.read +229"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 597,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "runtime.Caller +382",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4754,
+              "symbols": [
+                "go:func.* +3944",
+                "type:.eq.M8IIIII +276",
+                "type:.eq.M7K1M32SM72 +189",
+                "type:.eq.M6K2M32SM72 -189",
+                "type:.eq.SSM9 +149"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": 1289,
+              "symbols": [
+                "main.header -562",
+                "main.Cut -368",
+                "main.NoteText.Decode +288",
+                "main.JoinText.Decode +271",
+                "main.Read +203"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/shared (package split)",
+            "ergo.local/program/std/os (package split)",
+            "ergo.local/program/std/strings (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 1,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (4104 bytes moved, net +0); the byte ceilings are unchanged",
+              "bytes": 4104,
+              "symbols": [
+                "ergo.local/program/pkg/relay/chat.Read +1209",
+                "main.Read -1209",
+                "ergo.local/program/pkg/relay/text.NoteText.Decode +622",
+                "main.NoteText.Decode -622",
+                "ergo.local/program/pkg/relay/chat.Forward +405"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/relay/chat (package split)",
+            "ergo.local/program/pkg/relay/text (package split)"
+          ]
+        }
       ]
     },
     "kvstore": {
-      "ergoOnly": 979670,
-      "ergoOnlyStripped": 676824,
-      "goPackages": 70,
+      "ergoOnly": 1111995,
+      "ergoOnlyStripped": 771032,
+      "goPackages": 79,
       "forbid": [
         "^fmt\\.",
         "^internal/fmtsort\\.",
@@ -103,12 +646,140 @@
         "^crypto/",
         "^hash/crc32\\.",
         "^encoding/base64\\."
+      ],
+      "base": {
+        "ergoOnly": 979670,
+        "ergoOnlyStripped": 676824,
+        "goPackages": 70
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 132325,
+          "ergoOnlyStripped": 94208,
+          "goPackages": 8,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4615,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "runtime.gcWaitOnMark +174"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 215,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180",
+                "ergo.local/prototype/runtime/v1.jsonSafeHTML -128"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4719,
+              "symbols": [
+                "go:func.* +3984",
+                "type:.eq.SSSM1K7S -261",
+                "type:.eq.SSSSM1 +255",
+                "type:.eq.SSSM9 +197",
+                "type:.eq.SM8SM1K7S -197"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": 5072,
+              "symbols": [
+                "main.runHostAsFiles +2038",
+                "main.run -2021",
+                "main.Set.Parse +630",
+                "main.Collect[go.shape.string] -462",
+                "main.CollectMono_i1 +421"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/shared (package split)",
+            "ergo.local/program/std/flag (package split)",
+            "ergo.local/program/std/fs (package split)",
+            "ergo.local/program/std/io (package split)",
+            "ergo.local/program/std/os (package split)",
+            "ergo.local/program/std/prelude (package split)",
+            "ergo.local/program/std/strings (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 1,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (21843 bytes moved, net +11); the byte ceilings are unchanged",
+              "bytes": 21843,
+              "symbols": [
+                "ergo.local/program/pkg/kvstore/kv.Exec +2123",
+                "main.Exec -2123",
+                "ergo.local/program/pkg/kvstore/file.Open +2055",
+                "main.Open -2055",
+                "ergo.local/program/pkg/kvstore/kv.Answer +1817"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/kvstore/file (package split)",
+            "ergo.local/program/pkg/kvstore/kv (package split)",
+            "ergo.local/program/pkg/kvstore/memory (package split)"
+          ]
+        }
       ]
     },
     "deploys": {
-      "ergoOnly": 635690,
-      "ergoOnlyStripped": 442860,
-      "goPackages": 69,
+      "ergoOnly": 741360,
+      "ergoOnlyStripped": 516588,
+      "goPackages": 79,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
         "^time\\.LoadLocation",
@@ -125,12 +796,140 @@
         "^math/rand",
         "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph)\\[",
         "^main\\.init\\.[1-9]"
+      ],
+      "base": {
+        "ergoOnly": 635690,
+        "ergoOnlyStripped": 442860,
+        "goPackages": 69
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 105670,
+          "ergoOnlyStripped": 73728,
+          "goPackages": 6,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4615,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "runtime.gcWaitOnMark +174"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 215,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180",
+                "ergo.local/prototype/runtime/v1.jsonSafeHTML -128"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4062,
+              "symbols": [
+                "go:func.* +3544",
+                "type:.eq.M7K1M32SM72 +189",
+                "type:.eq.M6K2M32SM72 -189",
+                "type:.eq.SSM9 +149",
+                "type:.eq.[4SM24] +122"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": -2059,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.JSONAppendQuoted +1876",
+                "ergo.local/prototype/runtime/v1.jsonAppendString -1836",
+                "internal/runtime/maps.(*Iter).Next -1651",
+                "ergo.local/prototype/runtime/v1.(*lineReader).take -1221",
+                "ergo.local/prototype/runtime/v1.(*lineReader).readAll +930"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/shared (package split)",
+            "ergo.local/program/std/io (package split)",
+            "ergo.local/program/std/json (package split)",
+            "ergo.local/program/std/prelude (package split)",
+            "ergo.local/program/std/strings (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 4,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (45692 bytes moved, net +8); the byte ceilings are unchanged",
+              "bytes": 45692,
+              "symbols": [
+                "ergo.local/program/pkg/deploys/api.Request.Handle +8746",
+                "main.Request.Handle -8746",
+                "ergo.local/program/pkg/deploys/http1.ReadRequest +2542",
+                "main.ReadRequest -2542",
+                "ergo.local/program/pkg/deploys/deploys.Apply +2285"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/deploys/api (package split)",
+            "ergo.local/program/pkg/deploys/deploys (package split)",
+            "ergo.local/program/pkg/deploys/http1 (package split)",
+            "ergo.local/program/pkg/deploys/jsontext (package split)",
+            "ergo.local/program/pkg/deploys/memory (package split)"
+          ]
+        }
       ]
     },
     "pairing": {
-      "ergoOnly": 1304670,
-      "ergoOnlyStripped": 898253,
-      "goPackages": 73,
+      "ergoOnly": 1437784,
+      "ergoOnlyStripped": 992461,
+      "goPackages": 83,
       "forbid": [
         "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph)\\[",
         "^main\\.init\\.[1-9]",
@@ -142,6 +941,134 @@
         "^hash/crc32\\.",
         "^encoding/base64\\.",
         "^math/rand"
+      ],
+      "base": {
+        "ergoOnly": 1304670,
+        "ergoOnlyStripped": 898253,
+        "goPackages": 73
+      },
+      "raises": [
+        {
+          "unit": "SIZE-HELLO",
+          "ergoOnly": 133114,
+          "ergoOnlyStripped": 94208,
+          "goPackages": 7,
+          "from": "6369e7308",
+          "to": "3e41a02ee",
+          "owners": [
+            {
+              "owner": "PACE1: runtime/metrics, for the live heap and the scan roots the goal is computed from",
+              "bytes": 16868,
+              "symbols": [
+                "runtime.initMetrics +7312",
+                "runtime.agg +1520",
+                "runtime/metrics.init.0 +1269",
+                "runtime.(*consistentHeapStats).read +660",
+                "runtime.(*schedStatsAggregate).compute +517"
+              ]
+            },
+            {
+              "owner": "PACE1: the pacer, the cgroup memory limit and the GC knobs",
+              "bytes": 4615,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.cgroupMemoryLimit +1310",
+                "ergo.local/prototype/runtime/rt.readSmall +1082",
+                "ergo.local/prototype/runtime/rt.(*pacer).cycle +627",
+                "ergo.local/prototype/runtime/rt.Pace +347",
+                "runtime.gcWaitOnMark +174"
+              ]
+            },
+            {
+              "owner": "IO1: buffered standard output, one write per flush, direct on a terminal",
+              "bytes": 2486,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.writeStdout +553",
+                "internal/poll.(*FD).RawControl +330",
+                "ergo.local/prototype/runtime/v1.(*stdoutState).decide +241",
+                "ergo.local/prototype/runtime/v1.fileIsTerminal +201",
+                "ergo.local/prototype/runtime/v1.flushStdout +182"
+              ]
+            },
+            {
+              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "bytes": 597,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.registerCompact +485",
+                "ergo.local/prototype/runtime/v1.init -466",
+                "runtime.Caller +382",
+                "ergo.local/prototype/runtime/v1.ergoStack +256",
+                "ergo.local/prototype/runtime/v1.sourceFile +180"
+              ]
+            },
+            {
+              "owner": "MAPPED: the mapped-file fault value, reached lazily",
+              "bytes": 100,
+              "symbols": [
+                "ergo.local/prototype/runtime/rt.FaultValue +84",
+                "ergo.local/prototype/runtime/rt.mappingsLive +8",
+                "ergo.local/prototype/runtime/rt.faultValueOf +8"
+              ]
+            },
+            {
+              "owner": "Go's func and type metadata for the code above",
+              "bytes": 4583,
+              "symbols": [
+                "go:func.* +4144",
+                "type:.eq.M7K1M32SM88IM1 +299",
+                "type:.eq.M6K2M32SM88IM1 -299",
+                "type:.eq.M7K1M32SM72 +189",
+                "type:.eq.M6K2M32SM72 -189"
+              ]
+            },
+            {
+              "owner": "the program's own code and the runtime's start and exit path: batch-19/20 lowering and example changes and the exit flush (main's declarations moved into std and shared packages net out)",
+              "bytes": 4696,
+              "symbols": [
+                "ergo.local/prototype/runtime/v1.(*Actor[go.shape.interface { main.isFlow() },go.shape.inte… +2856",
+                "ergo.local/prototype/runtime/v1.(*Actor[go.shape.interface { main.isFlow() },go.shape.inte… -2792",
+                "main.launch[go.shape.interface { main.isFlow() },go.shape.interface { main.isSignal() },go… -2032",
+                "ergo.local/prototype/runtime/v1.machineStart[go.shape.interface { main.isFlow() },go.shape… +2021",
+                "ergo.local/prototype/runtime/v1.machineStart[go.shape.interface { main.isFlow() },go.shape… -1997"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/shared (package split)",
+            "ergo.local/program/std/actor (package split)",
+            "ergo.local/program/std/io (package split)",
+            "ergo.local/program/std/machines (package split)",
+            "ergo.local/program/std/prelude (package split)",
+            "ergo.local/program/std/time (package split)",
+            "runtime/metrics (PACE1)"
+          ]
+        },
+        {
+          "unit": "I19 split key (f11422723)",
+          "ergoOnly": 0,
+          "ergoOnlyStripped": 0,
+          "goPackages": 3,
+          "from": "1bf4b3242 with f11422723 reverted",
+          "to": "1bf4b3242",
+          "owners": [
+            {
+              "owner": "CS4 package split working again (f11422723: the split finds a declaration's package by its BS6 //line name): the program's own packages leave main, so their code moves (48536 bytes moved, net +109); the byte ceilings are unchanged",
+              "bytes": 48536,
+              "symbols": [
+                "ergo.local/program/pkg/pairing/screen.Run_1 +6580",
+                "main.Run_1 -6565",
+                "ergo.local/program/pkg/pairing/pair.Step +5950",
+                "main.Step -5886",
+                "ergo.local/program/pkg/pairing/screen.Parse +2373"
+              ]
+            }
+          ],
+          "packages": [
+            "ergo.local/program/pkg/pairing/memory (package split)",
+            "ergo.local/program/pkg/pairing/pad (package split)",
+            "ergo.local/program/pkg/pairing/pair (package split)",
+            "ergo.local/program/pkg/pairing/screen (package split)"
+          ]
+        }
       ]
     }
   }

@@ -1,0 +1,133 @@
+// Package hmac is keyed message authentication (RFC 2104; docs/spec/
+// stdlib.md, keyed digests; std-spike D3): Sum signs a message with a
+// key, and Equal checks a signature in constant time. It is Go's
+// crypto/hmac over Ergo's strings, which hold bytes. The hash is a union,
+// as base64's alphabet is, where Go passes a constructor function
+// (sha256.New) and Effect has no hmac.
+
+import hex
+import strings
+
+// SHA256 is HMAC-SHA-256: 32-byte tags.
+type SHA256 {}
+
+// SHA512 is HMAC-SHA-512: 64-byte tags.
+type SHA512 {}
+
+// SHA1 is HMAC-SHA-1: 20-byte tags, for formats that name it (TOTP).
+type SHA1 {}
+
+// Hash is the hash of an HMAC.
+type Hash = SHA256 | SHA512 | SHA1
+
+// Size is the bytes of h's tag.
+func Size(h Hash) int {
+	match h {
+	case SHA256:
+		32
+	case SHA512:
+		64
+	case SHA1:
+		20
+	}
+}
+
+// Sum is the HMAC of message under key with h: Size(h) raw bytes, as Go's
+// hmac.New(h's New, key) written with message and read with Sum(nil).
+// hex.Encode(Sum(h, key, message)) is its usual text.
+func Sum(h Hash, key string, message string) string {
+	match h {
+	case SHA256:
+		sum256(key, message)
+	case SHA512:
+		sum512(key, message)
+	case SHA1:
+		sum1(key, message)
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1/digest.HmacSHA256 func sum256(key string, message string) string
+extern go ergo.local/prototype/runtime/v1/digest.HmacSHA512 func sum512(key string, message string) string
+extern go ergo.local/prototype/runtime/v1/digest.HmacSHA1 func sum1(key string, message string) string
+
+// Keyed is a key made ready for h once (Key): Tag signs each message with
+// it at the cost of the message alone, where Sum hashes the key's two
+// pads again for every message, as Go's hmac Reset spares a reused HMAC.
+// It holds the hash states after the pads, never the key.
+type Keyed { alg int, inner string, outer string }
+
+// Key is key made ready for h: the inner and outer hash states after
+// RFC 2104's key pads.
+func Key(h Hash, key string) Keyed {
+	let alg = match h {
+	case SHA256:
+		256
+	case SHA512:
+		512
+	case SHA1:
+		1
+	}
+	let inner, outer = keyState(alg, key)
+	Keyed{alg: alg, inner: inner, outer: outer}
+}
+
+// Tag is the HMAC of message under k: Sum(h, key, message) for the h and
+// key k was made from.
+func Tag(k Keyed, message string) string { keyedSum(k.alg, k.inner, k.outer, message) }
+
+extern go ergo.local/prototype/runtime/v1/digest.HmacKeyState func keyState(alg int, key string) (string, string)
+extern go ergo.local/prototype/runtime/v1/digest.HmacKeyedSum func keyedSum(alg int, inner string, outer string, message string) string
+
+// TagIsSum: a tag under a key made once is the HMAC of that key and the
+// message, for each hash, keys longer than a block included.
+law TagIsSum(key string, message string) {
+	let long = key + strings.Repeat("k", 129)
+	Tag(Key(SHA1, key), message) == Sum(SHA1, key, message) && Tag(Key(SHA256, key), message) == Sum(SHA256, key, message) && Tag(Key(SHA512, key), message) == Sum(SHA512, key, message) && Tag(Key(SHA1, long), message) == Sum(SHA1, long, message) && Tag(Key(SHA512, long), message) == Sum(SHA512, long, message)
+}
+
+// Equal is whether a and b hold the same bytes, in a time that depends on
+// their lengths only (Go's hmac.Equal), so comparing a received tag with
+// the expected one tells an attacker nothing of where they differ. Check
+// a tag with Equal, never ==.
+extern go ergo.local/prototype/runtime/v1/digest.HmacEqual func Equal(a string, b string) bool
+
+// EqualIsEquality: Equal answers as == does.
+law EqualIsEquality(a string, b string) {
+	Equal(a, b) == (a == b) && Equal(a, a)
+}
+
+// SumHasSize: a tag has its hash's size, for any key and message.
+law SumHasSize(key string, message string) {
+	len(Sum(SHA256, key, message)) == 32 && len(Sum(SHA512, key, message)) == 64 && len(Sum(SHA1, key, message)) == 20
+}
+
+// vector is one RFC 4231 test case: key and data in hex, and the
+// HMAC-SHA-256 and HMAC-SHA-512 tags in hex.
+type vector { Key string, Data string, Tag256 string, Tag512 string }
+
+func unhex(s string) string {
+	hex.Decode(s) catch {
+	case hex.Malformed:
+		""
+	}
+}
+
+// MatchesRFC4231: Sum gives RFC 4231's tags for its test cases 1, 2, 3, 4,
+// 6 and 7 (case 5 is a truncated tag), with SHA256 and SHA512, and RFC
+// 2202's case 2 with SHA1.
+law MatchesRFC4231() {
+	let cases = []vector{
+		vector{Key: "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b", Data: "4869205468657265", Tag256: "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", Tag512: "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854"},
+		vector{Key: "4a656665", Data: "7768617420646f2079612077616e7420666f72206e6f7468696e673f", Tag256: "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", Tag512: "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737"},
+		vector{Key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Data: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", Tag256: "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe", Tag512: "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39bf3e848279a722c806b485a47e67c807b946a337bee8942674278859e13292fb"},
+		vector{Key: "0102030405060708090a0b0c0d0e0f10111213141516171819", Data: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", Tag256: "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b", Tag512: "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3dba91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd"},
+		vector{Key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Data: "54657374205573696e67204c6172676572205468616e20426c6f636b2d53697a65204b6579202d2048617368204b6579204669727374", Tag256: "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54", Tag512: "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f3526b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598"},
+		vector{Key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Data: "5468697320697320612074657374207573696e672061206c6172676572207468616e20626c6f636b2d73697a65206b657920616e642061206c6172676572207468616e20626c6f636b2d73697a6520646174612e20546865206b6579206e6565647320746f20626520686173686564206265666f7265206265696e6720757365642062792074686520484d414320616c676f726974686d2e", Tag256: "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2", Tag512: "e37b6a775dc87dbaa4dfa9f96e5e3ffddebd71f8867289865df5a32d20cdc944b6022cac3c4982b10d5eeb55c3e4de15134676fb6de0446065c97440fa8c6a58"},
+	}
+	for c in cases {
+		if hex.Encode(Sum(SHA256, unhex(c.Key), unhex(c.Data))) != c.Tag256 || hex.Encode(Sum(SHA512, unhex(c.Key), unhex(c.Data))) != c.Tag512 {
+			return false
+		}
+	}
+	hex.Encode(Sum(SHA1, "Jefe", "what do ya want for nothing?")) == "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79"
+}

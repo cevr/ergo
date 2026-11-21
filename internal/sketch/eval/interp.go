@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"math"
 	"unsafe"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -12,13 +13,24 @@ import (
 type interp struct {
 	budget Budget
 	root   *check.Package
-	steps  int64
-	bytes  int64 // value bytes allocated
+	// fold is set in a build-time fold (FoldValue, FoldTemplate): std
+	// build's InFold, which a law evaluated at check time sees false, as
+	// a built program does.
+	fold  bool
+	steps int64
+	bytes int64 // value bytes allocated
 	// stepsAt and bytesAt are steps and bytes when the obligation in
 	// progress began (the package's initializers are their own): each
 	// obligation has the whole budget, so one that runs no longer leaves
 	// less to the obligations after it.
 	stepsAt, bytesAt int64
+	// stepsEnd caches stepsAt + stepLimit() for charge; it is never past
+	// the true end (steps only grow), so a stale one only takes chargeSlow.
+	stepsEnd int64
+	// perCase is the case count the obligation in progress multiplies the
+	// step budget by (casesBudget); 0 is one, as for an initializer, a
+	// test without parameters or a machine search.
+	perCase int64
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
@@ -30,7 +42,10 @@ type interp struct {
 	// fact owner, read once (facts.go).
 	params map[*check.Func][]*check.Var
 	owners map[unsafe.Pointer]check.FactOwner
-	files  map[syntax.Decl]*syntax.File
+	plans  map[*check.Func]*funcPlan // plan.go
+	// walk turns compiled forms off for this request (compile.go).
+	walk  bool
+	files map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
 	// it when another task runs.
@@ -62,6 +77,9 @@ type interp struct {
 	// (licence.go): a native that would read the working directory, the
 	// environment or the time zone reads it here.
 	ambient ambient
+	// goBodies runs a module's own Go bodies in a licence run (LAWFFI
+	// LF2m; gobodies.go), nil elsewhere.
+	goBodies GoBodies
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair
@@ -120,6 +138,9 @@ type frame struct {
 	// actor it started (ORACLE O33). A call's frame that did not escape
 	// goes back to the pool (freeFrame).
 	escaped bool
+	// ret is the completion a compiled return gives (compile.go): one per
+	// frame, as a return ends the frame.
+	ret abrupt
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
@@ -130,6 +151,22 @@ func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
 		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, in.ownerOf(pkg, decl), in.table(pkg.Info)
 	} else {
 		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	}
+	fr.vars = &fr.ownVars
+	return fr
+}
+
+// framePlanned is newFrame for a call of p's function, with the owner
+// and the table its plan read once.
+func (in *interp) framePlanned(p *funcPlan) *frame {
+	var fr *frame
+	pkg, decl := p.fn.Pkg, p.fn.Decl
+	if n := len(in.framePool); n > 0 {
+		fr = in.framePool[n-1]
+		in.framePool = in.framePool[:n-1]
+		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, p.owner, p.tab
+	} else {
+		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: p.owner, tab: p.tab}
 	}
 	fr.vars = &fr.ownVars
 	return fr
@@ -159,6 +196,13 @@ func (fr *frame) bind(v *check.Var, val Value) {
 	if v != nil {
 		fr.vars.bind(v, val)
 	}
+}
+
+// forms reports whether the frame runs compiled forms (compile.go): it has
+// no substitution, or it reads the facts of one instance (ORACLE O38), so
+// what a form reads of the types is the same at every evaluation.
+func (fr *frame) forms() bool {
+	return fr.env == nil || fr.tab != nil && fr.tab.instance
 }
 
 // rt is t read in the frame's substitution.
@@ -222,12 +266,29 @@ func (fr *frame) unsupported(at syntax.Node, format string, args ...any) *abrupt
 // charge spends n steps before the work they pay for; it returns the
 // exhaustion when the obligation's budget cannot pay.
 func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || n > in.stepsLeft() {
-		in.steps = in.stepsAt + in.budget.Steps
-		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
+	// One unsigned compare against the cached end: a negative n is past
+	// every budget. A stale end (a new obligation, a fresh interp) takes
+	// chargeSlow, which reads the budget itself.
+	if uint64(n) <= uint64(in.stepsEnd-in.steps) {
+		in.steps += n
+		return nil
 	}
-	in.steps += n
-	return nil
+	return in.chargeSlow(fr, at, n)
+}
+
+// chargeSlow is charge out of line, so that charge inlines: it renews the
+// cached end of the budget, then charges or stops the obligation.
+func (in *interp) chargeSlow(fr *frame, at syntax.Node, n int64) *abrupt {
+	in.stepsEnd = in.stepsAt + in.stepLimit()
+	if n >= 0 && n <= in.stepsEnd-in.steps {
+		in.steps += n
+		return nil
+	}
+	in.steps = in.stepsEnd
+	if in.perCase > 1 {
+		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps (%d for each of its %d cases)", in.stepLimit(), in.budget.Steps, in.perCase))
+	}
+	return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
 }
 
 // allocate spends n bytes of the byte budget before the allocation they
@@ -243,10 +304,34 @@ func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
 }
 
 // stepsLeft is what the obligation in progress may still spend.
-func (in *interp) stepsLeft() int64 { return in.budget.Steps - (in.steps - in.stepsAt) }
+func (in *interp) stepsLeft() int64 { return in.stepLimit() - (in.steps - in.stepsAt) }
 
-// begin gives the obligation that starts now the whole budget.
-func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }
+// stepLimit is the step budget of the obligation in progress: the budget
+// for each of its cases, so a property's or law's limit grows with the
+// cases its plan runs (TP-BUILT-FAST; docs/testing.md, Budgets).
+func (in *interp) stepLimit() int64 {
+	if in.perCase <= 1 {
+		return in.budget.Steps
+	}
+	if in.budget.Steps > math.MaxInt64/4/in.perCase {
+		return math.MaxInt64 / 4 // stepsAt + the limit stays an int64
+	}
+	return in.budget.Steps * in.perCase
+}
+
+// casesBudget gives the obligation in progress the step budget of count
+// cases.
+func (in *interp) casesBudget(count int) {
+	in.perCase = int64(count)
+	in.stepsEnd = in.stepsAt + in.stepLimit()
+}
+
+// begin gives the obligation that starts now the whole budget, of one
+// case until its plan says how many it runs (casesBudget).
+func (in *interp) begin() {
+	in.stepsAt, in.bytesAt, in.perCase = in.steps, in.bytes, 0
+	in.stepsEnd = in.stepsAt + in.budget.Steps
+}
 
 // build charges both budgets of an allocation of slots collection slots
 // and raw bytes: steps for the work, bytes for the values.
@@ -259,6 +344,12 @@ func (in *interp) build(fr *frame, at syntax.Node, steps, slots, raw int64) *abr
 	}
 	return in.allocate(fr, at, slots*valueBytes+raw)
 }
+
+// byteWork is the steps of a copy or a comparison of n bytes: Go's build
+// moves and compares them a word at a time (memmove, memequal), so a step
+// is a word, not a byte (FU-eval-step-per-op). The node that copies or
+// compares pays its own step.
+func byteWork(n int64) int64 { return (n + 7) / 8 }
 
 // typeOf is x's checked type; a missing entry is an internal error.
 func (fr *frame) typeOf(x syntax.Expr) check.Type {
@@ -291,13 +382,16 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 	if len(fn.Sig.TParams) == 0 {
 		return in.callResolved(fr, at, fn, nil, args)
 	}
-	if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
-		return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
-	}
-	// Each type argument is read in the caller's substitution.
+	// Each type argument is read in the caller's substitution, and so is
+	// each operation witness (witness.go).
 	var rt []rtype
 	for _, t := range targs {
 		rt = append(rt, fr.rt(t))
+	}
+	if at != nil {
+		if wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {
+			return in.callWitnessed(fr, at, fn, rt, wits, args)
+		}
 	}
 	return in.callResolved(fr, at, fn, rt, args)
 }
@@ -307,37 +401,83 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 // one (natives.go); any other Go function is skipped. The callee sees
 // the caller's capabilities.
 func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, args []Value) (Value, *abrupt) {
-	switch {
-	case check.AppendsString(fn):
+	return in.callWitnessed(fr, at, fn, targs, nil, args)
+}
+
+// callWitnessed is callResolved with the operation witnesses of the
+// callee's constrained type parameters (witness.go).
+func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, wits map[*check.TypeParam]*witnessV, args []Value) (Value, *abrupt) {
+	return in.callPlanned(fr, at, in.planOf(fn), targs, wits, args)
+}
+
+// callPlanned is callResolved with the callee's plan (plan.go).
+func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs []rtype, wits map[*check.TypeParam]*witnessV, args []Value) (Value, *abrupt) {
+	fn := p.fn
+	if p.appendsString {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab
 		}
-		return appendString(fn, args[0], args[1]), nil
-	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
-		if in.sym != nil {
+		xs, isSlice := args[0].(sliceV)
+		s, isText := args[1].(string)
+		if in.sym != nil || !isSlice || !isText {
+			return appendString(fn, args[0], args[1]), nil
+		}
+		// A run appends each byte as Go's append does, growing the
+		// store in place (MX-EVBUILDER: a copy per call made civil's
+		// formats quadratic, at one step a call).
+		var site syntax.Node = fr.decl
+		if at != nil {
+			site = at
+		}
+		var v Value = xs
+		for i := 0; i < len(s); i++ {
+			var ab *abrupt
+			if v, ab = in.appendTo(fr, site, v.(sliceV), s[i], nil); ab != nil {
+				return nil, ab
+			}
+		}
+		return v, nil
+	}
+	if !p.ergo {
+		if spreads := check.AppendSpreads(fn); check.GoBuiltin(fn) == "append" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0]) && (!spreads || isSliceV(args[1]))) {
+			// An extern of Go's append (check/builtin.go) at its first
+			// shape, [T](xs []T, x T) []T: the prelude's xs.Append(x),
+			// which the lowering also writes as Go's append (MX-EVAPPEND);
+			// or at its spread shape, [T](xs []T, ys []T) []T, Go's
+			// append(xs, ys...): slices.AppendAll (EVAL-IFP: it ran as
+			// the first shape, ys one element).
+			xs, ok := args[0].(sliceV)
+			if !ok {
+				ice("append's first argument is %T", args[0])
+			}
+			var site syntax.Node = fr.decl
+			if at != nil {
+				site = at
+			}
+			if spreads {
+				return in.appendAll(fr, site, xs, args[1].(sliceV))
+			}
+			return in.appendTo(fr, site, xs, args[1], nil)
+		}
+		if in.sym != nil && in.sym.tmpl {
+			if ab := in.symExtern(fr, at, fn, args); ab != nil { // foldvalue.go
+				return nil, ab
+			}
+		} else if in.sym != nil {
 			v, why := externTerm(fn, args)
 			if why != "" {
 				return nil, fr.abrupt(ctlUnsupported, at, nil, why)
 			}
 			return v, nil
 		}
-		if nat := nativeOf(fn); nat != nil && !fn.Pkg.Host() {
+		if p.nat != nil {
 			var site syntax.Node = fr.decl
 			if at != nil {
 				site = at
 			}
-			return nat(in, fr, site, fn, args)
-		}
-		if nat := goNativeOf(fn); nat != nil {
-			var site syntax.Node = fr.decl
-			if at != nil {
-				site = at
-			}
-			return nat(in, fr, site, fn, args)
+			return p.nat(in, fr, site, fn, args)
 		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
-	case fn.Pkg.Info == nil:
-		ice("the package of %s has no Info", fn.Name)
 	}
 	if in.sym != nil {
 		if !rowless(fn) {
@@ -345,26 +485,49 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 		}
 		in.sym.mark(fn.Pkg.Info, fn.Decl.Body)
 	}
-	callee := in.newFrame(fn.Pkg, fn.Decl)
+	callee := in.framePlanned(p)
 	callee.caps = fr.caps
 	if len(fn.Sig.TParams) > 0 {
 		if len(targs) != len(fn.Sig.TParams) {
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
 		n := len(targs)
-		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
+		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n], wits: wits} // full slices: a bind appends to neither
 	}
-	params := in.paramsOf(fn)
+	// A generic callee reads the facts of its instance (ORACLE O38): its
+	// forms are compiled for its type arguments.
+	bodyForm, bodyFast := &p.bodyForm, &p.body
+	if callee.env != nil {
+		bodyForm, bodyFast = nil, nil
+		if !in.walk {
+			if inst := in.instanceOf(p, targs); inst != nil {
+				callee.tab = inst.tab
+				bodyForm, bodyFast = &inst.bodyForm, &inst.body
+			}
+		}
+	}
+	params := p.params
 	if len(params) != len(args) {
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
 	}
-	for i, p := range params {
-		callee.bind(p, args[i])
+	for i, v := range params {
+		callee.bind(v, args[i])
 	}
-	for _, p := range params {
-		in.ownVar(callee, p, fn.Decl) // a taken parameter (R8)
+	for _, i := range p.owned {
+		in.ownVar(callee, params[i], fn.Decl) // a taken parameter (R8)
 	}
-	v, ab := in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	var body fastBody
+	if bodyForm != nil && !in.walk {
+		switch *bodyForm {
+		case formUnseen:
+			*bodyForm = formSeen
+		case formSeen:
+			*bodyForm = formDone
+			*bodyFast = in.compileBody(callee, fn.Decl.Body.List)
+		}
+		body = *bodyFast
+	}
+	v, ab := in.runFrameBody(fr, at, callee, fn.Name, fn.Decl.Body.List, body)
 	in.freeFrame(callee)
 	return v, ab
 }
@@ -372,6 +535,11 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 // runFrame runs the body of a called frame one call deeper, and turns its
 // completion into the call's: a return's value, or the callee's failure.
 func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt) (Value, *abrupt) {
+	return in.runFrameBody(fr, at, callee, name, body, nil)
+}
+
+// runFrameBody is runFrame with the body's compiled form, when it has one.
+func (in *interp) runFrameBody(fr *frame, at *syntax.CallExpr, callee *frame, name string, body []syntax.Stmt, fast fastBody) (Value, *abrupt) {
 	if in.depth >= in.budget.Depth {
 		return nil, fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the call depth reached its bound of %d", in.budget.Depth))
 	}
@@ -380,7 +548,11 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 	var val Value
 	ab := in.entryPoll(callee)
 	if ab == nil {
-		val, ab = in.bodyValue(callee, body)
+		if fast != nil {
+			val, ab = fast(in, callee)
+		} else {
+			val, ab = in.bodyValue(callee, body)
+		}
 	}
 	// The frame ends: it releases what it still owns, on every exit.
 	ab = in.endFrame(callee, ab)
@@ -509,12 +681,30 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 		return nil, ab
 	}
-	if fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {
+	if in.returnsError(fr, x) {
 		if _, isRecord := v.(*record); isRecord {
 			return nil, fr.abrupt(ctlEscape, x, v, "")
 		}
 	}
 	return v, nil
+}
+
+// returnsError reports that x, a returned expression, gives a value of an
+// error type the declared result does not make the success value. Outside
+// a generic body the answer is the same at every return of x: the frame
+// that returns x runs the body that holds x, whose fact owner is x's, so
+// x's facts keep it (ORACLE O34): the checker's IsErrorType ranges over a
+// map of sets.
+func (in *interp) returnsError(fr *frame, x syntax.Expr) bool {
+	if !fr.forms() || fr.tab == nil {
+		return fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+	}
+	f := in.fx(fr, x)
+	if !f.errSeen {
+		f.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+		f.errSeen = true
+	}
+	return f.errIs
 }
 
 // resultExpr retains the chosen tail of a result-position control

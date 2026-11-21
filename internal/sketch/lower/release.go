@@ -504,6 +504,7 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 			i := g.fc.temp("i")
 			b.WriteString("for " + i + " := len(" + x + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + x + "[" + i + "]; " + g.release(d.Elem, e) + "}; ")
 		case *check.Map:
+			g.fc.l.intMapConflict(d.Type) // intmap.go: ranges over Go's map
 			b.WriteString("for _, " + e + " := range " + x + " { " + g.release(d.Elem, e) + "}; ")
 		default:
 			ice(g.site, "a generated release of %s, which has elements but is no slice, array or Map", d.Type)
@@ -641,6 +642,9 @@ func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
 		return
 	}
 	fc.line(fc.own(v, d, v.Type, fc.locals[v], site))
+	if fc.frame == nil || fc.frame.static == nil {
+		fc.ownAt(v, d, fc.l.owned[v], fc.locals[v], site)
+	}
 }
 
 // armHeldVar declares, for x, a lent if, match, catch or with whose Go
@@ -969,7 +973,10 @@ func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
 
 // releaseAt writes the releases the plan records at key, a place that
 // ends inside the frame: last acquired first. A value whose entry left
-// the list (a hand-off on this path) is skipped by its entry (R21).
+// the list (a hand-off on this path) is skipped by its entry (R21). The
+// plan's order is the declarations'; a reassignment registers its new
+// value last (R41), so two or more entries are released by one
+// v1.ReleaseAll, which follows the list's order at run time (R5).
 func (fc *funcCtx) releaseAt(key syntax.Node) {
 	// The plan lists the values last declared first. An assignment that
 	// replaces an owned local's value registers the new value then (R41),
@@ -1078,6 +1085,7 @@ func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
 	fc.releaseAt(id)
 	fc.line(target + " = " + t)
 	fc.line(h + " = " + next)
+	fc.ownAt(v, cl, h, target, id)
 	return true
 }
 

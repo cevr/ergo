@@ -109,6 +109,11 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 		irNo("with that owns resources")
 	case w.Contexts[0].Lit == nil && !b.l.declaredContext(w.Contexts[0]):
 		irNo("with of an undeclared context")
+	case w.Contexts[0].TestAmbient != nil:
+		// The emitter opens the case's folder and removes it when the
+		// test's function returns (testAmbient, calls.go), a defer the IR
+		// has no form for.
+		irNo("with of a context that needs TestAmbient")
 	}
 	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	p := b.pos(arg, arg.Pos())
@@ -136,7 +141,9 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	if w.Next != nil {
 		return append(out, b.withOperand(x, i+1, w.Next, ret, to)...)
 	}
-	return append(out, b.tailTo(x.Trailing.List, ret && to == nil, to)...)
+	// The block's scope releases what it owns at its end (the emitter's
+	// scoped; PORT-CALLS-2: a Listener and a Task let in main's with).
+	return append(out, b.scoped(x.Trailing, b.tailTo(x.Trailing.List, ret && to == nil, to), b.pos(x.Trailing, x.Trailing.Rbrace))...) // ir_own.go
 }
 
 // opsConv is e, the value of x, through the operations conversion conv:
@@ -144,13 +151,36 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 // for a value of the program whose type's functions provide the
 // operations, &A{v: e} for a sealed std value, as the operation type.
 // The emitter declares the adapter; the IR builds its literal. A value
-// whose type is already an interface is itself; a script's, a type
-// parameter's, a generic adapter's and one with witnesses stay the
+// whose type is already an interface is itself; a Script's is &A{v: e}.
+// A type parameter's, a generic adapter's and one with witnesses stay the
 // emitter's.
 func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	l := b.l
+	if to, ok := conv.To.(*check.Named); ok && to.Obj.Pkg.Host() && !goAdapterConv(conv) {
+		// A Go value into a Go interface (a go.Ref[strings.Reader] as an
+		// io.Reader): Go's own implicit conversion, as the emitter's
+		// convert leaves it, spelled for the decoder, which inserts none
+		// (IR-GOCALLS-4). A Go interface value into another is Go's
+		// assignment the decoder does not spell.
+		if _, iface := underEqual(conv.From).(*check.Interface); iface {
+			irNo("Go interface value into another Go interface")
+		}
+		b.hostImported(to) // ir_govar.go
+		t := b.goType(conv.To, x)
+		b.keepImport("var _ " + b.fc.goType(conv.To)) // main.go imports its package
+		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
+	}
 	if check.ScriptOf(conv.From) != nil {
-		irNo("operations conversion of a script")
+		// A Script's adapter holds the Script alone (the emitter's
+		// scriptOperations): &A{v: e}, as the operation type.
+		b.fc.operations(conv, "_", x)
+		key, _, ok := l.adapterName(conv)
+		name := l.adapters[key]
+		if !ok || name == "" {
+			irNo("operations conversion of a script")
+		}
+		lit := &irExpr{K: "lit", Pos: e.Pos, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
+		return &irExpr{K: "toiface", Pos: e.Pos, T: b.goType(conv.To, x), X: &irExpr{K: "addr", Pos: e.Pos, X: lit}}
 	}
 	from, _ := conv.From.(*check.Named)
 	sealed := from != nil && l.runtimeNamed(from, x)
@@ -179,6 +209,12 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		irNo("operations conversion without an adapter")
 	}
 	p := e.Pos
+	if goAdapterConv(conv) {
+		// goInterface's v1.GoHanded: Go may call the value's methods from
+		// a goroutine of its own (rt.Alone).
+		b.keepImport("var _ = " + l.rt() + ".GoHanded")
+		b.runFirst([]*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}}})
+	}
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
 		env := &irExpr{K: "zero", Pos: p, T: "*" + l.env()}
@@ -217,9 +253,6 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 		e := a.Entry
 		if !local[e] {
 			irNo("with of a context that embeds a named one")
-		}
-		if _, ok := b.l.sourceOf(e.Provider); !ok {
-			irNo("with of a context entry outside the program's sources")
 		}
 		p := b.pos(e.Provider, e.Provider.Pos())
 		saved := b.env

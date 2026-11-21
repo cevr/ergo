@@ -1,0 +1,224 @@
+// The top-level statements of a file: a trait's chunks. A statement
+// starts at its first token (a doc comment before it is not in its span,
+// as TypeScript's getStart() leaves it out) and ends after its last
+// token. It ends at a ; at the top level, and at a line break where
+// automatic semicolon insertion ends it: the token before the break can
+// end a statement and the token after it cannot continue one. A
+// statement that is a block (a function, a class, an interface, an enum,
+// a namespace, an if, a loop, a switch, a try) ends at its closing brace.
+
+import strings
+
+// Span is a statement's bytes, From to To.
+type Span { From int, To int }
+
+// The word sets below are string matches, which lower to Go's switch on
+// strings (a length and byte compare), not a walk of a list.
+
+// binary is the operators that join two operands: a line break after one
+// never ends a statement, and one first on a line continues the
+// statement before it.
+func binary(s string) bool {
+	match s {
+	case "=", "=>", ",", ".", "?.", "(", "[", "?", ":", "+", "-", "*", "/", "%", "**", "&", "|", "^", "&&", "||", "??",
+		"==", "!=", "===", "!==", "<=", ">=", "<<", ">>", ">>>", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??=":
+		true
+	case _:
+		false
+	}
+}
+
+// noEnd reports a token after which a line break never ends a statement.
+func noEnd(s string) bool {
+	if binary(s) {
+		return true
+	}
+	match s {
+	case "{", "...", "@",
+		"export", "default", "declare", "abstract", "async", "import", "const", "let", "var", "class", "function", "new", "extends", "implements",
+		"interface", "enum", "namespace", "module", "as", "satisfies", "keyof", "typeof", "in", "instanceof", "is", "readonly", "unique", "infer":
+		true
+	case _:
+		false
+	}
+}
+
+// continues reports a token that, first on a line, continues the
+// statement before it.
+func continues(s string) bool {
+	if binary(s) {
+		return true
+	}
+	match s {
+	case ")", "]", "}", "as", "satisfies", "extends", "implements", "instanceof", "in", "else", "catch", "finally":
+		true
+	case _:
+		false
+	}
+}
+
+// block reports the first word of a statement that ends at its closing
+// brace.
+func block(s string) bool {
+	match s {
+	case "function", "class", "interface", "enum", "namespace", "module", "global", "if", "for", "while", "switch", "try", "do":
+		true
+	case _:
+		false
+	}
+}
+
+// modifier reports a word that may come before a declaration's own.
+func modifier(s string) bool {
+	match s {
+	case "export", "default", "declare", "abstract", "async":
+		true
+	case _:
+		false
+	}
+}
+
+// head is the statement's first word after its modifiers and
+// decorators, or "".
+func head(code []Token, from int, to int) string {
+	let mut i = from
+	for i < to {
+		let t = code[i]
+		if t.Text == "@" {
+			// @name, @a.b or @call(...): skip to the next word that is not
+			// part of it.
+			i += 1
+			for i < to && (code[i].Text == "." || isIdent(code[i]) && i > from && (code[i-1].Text == "@" || code[i-1].Text == ".")) {
+				i += 1
+			}
+			if i < to && code[i].Text == "(" {
+				i = closing(code, i, to) + 1
+			}
+			continue
+		}
+		if isIdent(t) && modifier(t.Text) {
+			i += 1
+			continue
+		}
+		// A label: name followed by a colon.
+		if isIdent(t) && i+1 < to && code[i+1].Text == ":" && isPunctOrWord(code[i+1]) {
+			i += 2
+			continue
+		}
+		return t.Text
+	}
+	""
+}
+
+func isIdent(t Token) bool {
+	match t.Kind {
+	case Ident:
+		true
+	case Punct, Literal, LineComment, BlockComment:
+		false
+	}
+}
+
+// closing is the index of the token that closes the bracket at i, or the
+// last index before to.
+func closing(code []Token, i int, to int) int {
+	let mut n = 0
+	let mut j = i
+	for j < to {
+		let t = code[j].Text
+		if t == "(" || t == "[" || t == "{" {
+			n += 1
+		} else if t == ")" || t == "]" || t == "}" {
+			n -= 1
+			if n == 0 {
+				return j
+			}
+		}
+		j += 1
+	}
+	to - 1
+}
+
+// Statements is the top-level statements of src, as spans.
+func Statements(src string) []Span { statementsOf(Code(src, Scan(src))) }
+
+// statementsOf is the top-level statements of a file's code tokens.
+func statementsOf(code []Token) []Span {
+	let mut out = []Span{}
+	let mut start = -1
+	let mut nest = 0 // open ( [ { at this point
+	let mut i = 0
+	for i < len(code) {
+		let t = code[i]
+		if start >= 0 && nest == 0 && t.NewLine {
+			let p = code[i-1]
+			let decorated = code[start].Text == "@" && !seenBrace(code, start, i)
+			if !decorated && !(isPunctOrWord(p) && noEnd(p.Text)) && !(isPunctOrWord(t) && continues(t.Text)) {
+				out = out.Append(Span{From: code[start].From, To: p.To})
+				start = -1
+			}
+		}
+		if start < 0 {
+			start = i
+		}
+		let x = if isPunctOrWord(t) && !isIdent(t) { t.Text } else { "" }
+		if x == "(" || x == "[" || x == "{" {
+			nest += 1
+		} else if (x == ")" || x == "]" || x == "}") && nest > 0 {
+			nest -= 1
+		}
+		if nest == 0 && x == ";" {
+			out = out.Append(Span{From: code[start].From, To: t.To})
+			start = -1
+		} else if nest == 0 && x == "}" && block(head(code, start, i+1)) {
+			let next = i + 1
+			if next >= len(code) || !(isPunctOrWord(code[next]) && joins(code[next].Text)) {
+				// A do statement ends after its while (...); every other
+				// block statement ends here.
+				if head(code, start, i+1) != "do" {
+					out = out.Append(Span{From: code[start].From, To: t.To})
+					start = -1
+				}
+			}
+		}
+		i += 1
+	}
+	if start >= 0 {
+		out = out.Append(Span{From: code[start].From, To: code[len(code)-1].To})
+	}
+	out
+}
+
+// joins reports a word that continues a block statement after its
+// closing brace.
+func joins(s string) bool {
+	match s {
+	case "else", "catch", "finally", "while":
+		true
+	case _:
+		false
+	}
+}
+
+// isPunctOrWord reports a token whose text means something here.
+func isPunctOrWord(t Token) bool {
+	match t.Kind {
+	case Punct, Ident:
+		true
+	case Literal, LineComment, BlockComment:
+		false
+	}
+}
+
+// seenBrace reports a { among code[from:to].
+func seenBrace(code []Token, from int, to int) bool {
+	for j in from..to {
+		if code[j].Text == "{" || code[j].Text == "class" || code[j].Text == "function" {
+			return true
+		}
+	}
+	false
+}
+
+// Text is src's bytes of s.
+func Text(src string, s Span) string { strings.Slice(src, s.From, s.To) }

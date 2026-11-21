@@ -1,0 +1,289 @@
+import maps
+import slices
+import strings
+
+// Machines (SEMTOOLS SEM2b): a machine declaration's graph as the tables
+// hold it (the checker's reading of its step, after and work functions,
+// internal/sketch/machinegraph), the pairs a run can step, and the text
+// `ergo inspect machine` prints.
+
+// Place is a line of a file; a state's work names its state in What.
+type Place { What string, File string, Line int }
+
+// Transition is one decision an arm can give: its kind (Enter, Stay,
+// Emit, Tell, Ignore, Reject, Done, or ? for a value the reading cannot
+// follow), the state it moves to ("*" for any, "" for none), and where.
+type Transition { Decision string, To string, At Place }
+
+// Arm is one arm of the step: where it is, the states and signals it
+// takes (any, with AnyState or AnySignal), whether a pattern of it tests
+// more than the variant, and its decisions. A case of several tuple
+// patterns lists each in Alts: the arm takes a pair one of them takes,
+// not every pair of its States and Signals ((A, X), (B, Y) does not take
+// (A, Y)).
+type Arm {
+	At        Place,
+	States    []string,
+	AnyState  bool,
+	Signals   []string,
+	AnySignal bool,
+	Partial   bool,
+	Edges     []Transition,
+	Alts      []Alt,
+}
+
+// Alt is one pattern of an arm: the states and signals it takes (any,
+// with AnyState or AnySignal), and whether it tests more than the variant.
+type Alt {
+	States    []string,
+	AnyState  bool,
+	Signals   []string,
+	AnySignal bool,
+	Partial   bool,
+}
+
+// Timer is the timer of a state's entry: the signal it gives and where.
+type Timer { State string, Signal string, At Place }
+
+// MachineGraph is one machine declaration's graph: its handle and name,
+// its states and signals in declaration order, the initial state ("*"
+// when the source does not fix it), the arms in match order, the timers,
+// the work and the exit actions by state in the states' order, and the
+// states whose timer, work or exit action the reading cannot decide.
+type MachineGraph {
+	Handle  string,
+	Name    string,
+	States  []string,
+	Signals []string,
+	Initial string,
+	Arms    []Arm,
+	Timers  []Timer,
+	Work    []Place,
+	Exit    []Place,
+	Unsure  []string,
+}
+
+// Pair is a (state, signal) pair a run can step, with the arms that may
+// step it: one, or, after partial arms, each up to the first that takes
+// the pair whole; none when no arm takes it.
+type Pair { State string, Signal string, Arms []Place }
+
+// MachineView is the graph of the machine asked for, and the pairs of
+// every state it can reach from its initial state (by Enter, Stay and
+// and Tell; an edge whose target or kind is unknown reaches every state)
+// and any signal, in state then signal order.
+type MachineView {
+	Revision  string,
+	Complete  bool,
+	Graph     MachineGraph,
+	Reachable []Pair,
+}
+
+// NotMachine is the failure of an address whose declaration is not a
+// machine.
+type NotMachine { Address string, Kind string }
+
+// machinesOf is every machine graph of the tables, by handle.
+func machinesOf(t Tables) Map[string, MachineGraph] {
+	let mut out = Map[string, MachineGraph]{}
+	for p in t.Packages {
+		for m in p.Machines {
+			out[m.Handle] = m
+		}
+	}
+	out
+}
+
+// altTakes is whether pattern x takes the pair (state, signal).
+func altTakes(x Alt, state string, signal string) bool {
+	(x.AnyState || has(x.States, state)) && (x.AnySignal || has(x.Signals, signal))
+}
+
+// takesIt is whether arm a takes the pair (state, signal): one of its
+// patterns does.
+func takesIt(a Arm, state string, signal string) bool {
+	if len(a.Alts) == 0 {
+		return (a.AnyState || has(a.States, state)) && (a.AnySignal || has(a.Signals, signal))
+	}
+	slices.IndexFunc(a.Alts, func(x Alt) bool { altTakes(x, state, signal) }) >= 0
+}
+
+// partialAt is whether arm a takes the pair only maybe: each of its
+// patterns that takes it is partial.
+func partialAt(a Arm, state string, signal string) bool {
+	if len(a.Alts) == 0 {
+		return a.Partial
+	}
+	slices.IndexFunc(a.Alts, func(x Alt) bool { altTakes(x, state, signal) && !x.Partial }) < 0
+}
+
+// armsFor is the arms of g that may step (state, signal), in match
+// order: up to and including the first that takes it whole.
+func armsFor(g MachineGraph, state string, signal string) []Arm {
+	let mut out = []Arm{}
+	for a in g.Arms {
+		if takesIt(a, state, signal) {
+			out = out.Append(a)
+			if !partialAt(a, state, signal) {
+				return out
+			}
+		}
+	}
+	out
+}
+
+// targets is the states an edge reaches: its target, or every state for
+// "*" or an unknown kind; none for a decision that stops or keeps no
+// state.
+func targets(g MachineGraph, e Transition) []string {
+	if e.Decision == "?" || e.To == "*" && (e.Decision == "Enter" || e.Decision == "Stay" || e.Decision == "Emit" || e.Decision == "Tell") {
+		return g.States
+	}
+	if e.Decision == "Enter" || e.Decision == "Stay" || e.Decision == "Emit" || e.Decision == "Tell" {
+		return []string{e.To}
+	}
+	[]string{}
+}
+
+// pairsOf is the pairs of the reached states, in state then signal order.
+func pairsOf(g MachineGraph, reached Map[string, bool]) []Pair {
+	let mut out = []Pair{}
+	for s in g.States {
+		if !maps.GetOr(reached, s, false) {
+			continue
+		}
+		for sg in g.Signals {
+			let mut arms = []Place{}
+			for a in armsFor(g, s, sg) {
+				arms = arms.Append(a.At)
+			}
+			out = out.Append(Pair{State: s, Signal: sg, Arms: arms})
+		}
+	}
+	out
+}
+
+// reachableBySteps is Index's reading: a breadth-first walk from the
+// initial state.
+func reachableBySteps(g MachineGraph) []Pair {
+	let mut reached = Map[string, bool]{}
+	let mut queue = []string{}
+	for s in targets(g, Transition{Decision: "Enter", To: g.Initial, At: Place{What: "", File: "", Line: 0}}) {
+		if !maps.GetOr(reached, s, false) {
+			reached[s] = true
+			queue = queue.Append(s)
+		}
+	}
+	let mut i = 0
+	for i < len(queue) {
+		let s = queue[i]
+		i = i + 1
+		for sg in g.Signals {
+			for a in armsFor(g, s, sg) {
+				for e in a.Edges {
+					for x in targets(g, e) {
+						if !maps.GetOr(reached, x, false) {
+							reached[x] = true
+							queue = queue.Append(x)
+						}
+					}
+				}
+			}
+		}
+	}
+	pairsOf(g, reached)
+}
+
+// reachableByRounds is Scan's reading, the reference: rounds over every
+// reached state and signal until a round reaches nothing new, with its own
+// rule for what an edge reaches (not targets).
+func reachableByRounds(g MachineGraph) []Pair {
+	let mut reached = Map[string, bool]{}
+	for s in g.States {
+		if g.Initial == "*" || s == g.Initial {
+			reached[s] = true
+		}
+	}
+	let mut grew = true
+	for grew {
+		grew = false
+		for s in g.States {
+			if !maps.GetOr(reached, s, false) {
+				continue
+			}
+			for sg in g.Signals {
+				for a in armsFor(g, s, sg) {
+					for e in a.Edges {
+						let moves = has([]string{"Enter", "Stay", "Emit", "Tell"}, e.Decision)
+						for x in g.States {
+							let hit = e.Decision == "?" || moves && (e.To == "*" || e.To == x)
+							if hit && !maps.GetOr(reached, x, false) {
+								reached[x] = true
+								grew = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	pairsOf(g, reached)
+}
+
+// machineTarget is the machine graph at the declaration d of a.
+func machineTarget(a string, d Decl, graphs Map[string, MachineGraph]) MachineGraph fails NotMachine {
+	match graphs.Get(d.Handle) {
+	case Some[MachineGraph] as g:
+		g.Value
+	case None:
+		NotMachine{Address: a, Kind: d.Kind}
+	}
+}
+
+// placeText is a place as `file:line`.
+func placeText(p Place) string { "\(p.File):\(p.Line)" }
+
+// MachineText draws a machine view as `ergo inspect machine` prints it,
+// one fact per line: the machine, its states and signals, each arm with
+// its edges, the timers, the work and the exit actions by state in state
+// name order, the unsure states, then each reachable pair with the arms that may step it.
+func MachineText(v MachineView) string {
+	let g = v.Graph
+	let list = func(any bool, vs []string) string { if any { "*" } else { strings.Join(vs, "|") } }
+	let mut b = "machine \(g.Name)\n  states \(strings.Join(g.States, " "))\n  signals \(strings.Join(g.Signals, " "))\n  initial \(g.Initial)\n"
+	for a in g.Arms {
+		let partial = if a.Partial { " (partial)" } else { "" }
+		b = b + "  arm \(placeText(a.At)) (\(list(a.AnyState, a.States)), \(list(a.AnySignal, a.Signals)))\(partial)\n"
+		for e in a.Edges {
+			if e.To != "" {
+				b = b + "    \(e.Decision) -> \(e.To) at \(placeText(e.At))\n"
+			} else {
+				b = b + "    \(e.Decision) at \(placeText(e.At))\n"
+			}
+		}
+	}
+	let timers = slices.SortFunc(slices.Clone(g.Timers), func(x Timer, y Timer) int { strings.Compare(x.State, y.State) })
+	for tm in timers {
+		b = b + "  timer \(tm.State) -> \(tm.Signal) at \(placeText(tm.At))\n"
+	}
+	let work = slices.SortFunc(slices.Clone(g.Work), func(x Place, y Place) int { strings.Compare(x.What, y.What) })
+	for w in work {
+		b = b + "  work \(w.What) at \(placeText(w))\n"
+	}
+	let exit = slices.SortFunc(slices.Clone(g.Exit), func(x Place, y Place) int { strings.Compare(x.What, y.What) })
+	for x in exit {
+		b = b + "  exit \(x.What) at \(placeText(x))\n"
+	}
+	for s in g.Unsure {
+		b = b + "  unsure \(s): its timer, work or exit action is not a literal\n"
+	}
+	for p in v.Reachable {
+		let mut sites = []string{}
+		for a in p.Arms {
+			sites = sites.Append(placeText(a))
+		}
+		let arms = if len(sites) == 0 { "no arm" } else { strings.Join(sites, " or ") }
+		b = b + "  reach (\(p.State), \(p.Signal)) by \(arms)\n"
+	}
+	b
+}

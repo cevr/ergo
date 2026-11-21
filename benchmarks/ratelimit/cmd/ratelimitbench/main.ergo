@@ -1,0 +1,67 @@
+// ratelimitbench is ST1's receipt program: N takes of one token from a
+// std ratelimit/memory limiter, over 64 keys, each at a time 10µs after
+// the one before, so most are granted and some are refused. Its hand Go
+// twin and the Go floor are in ../../testdata; a workload per algorithm in
+// ../../KIND (go run ./scripts/opcount -control -rounds 5
+// benchmarks/ratelimit/KIND).
+//
+//	ratelimitbench bench KIND N
+//
+// One unit is one take. KIND is bucket, window or sliding. It prints the
+// number of takes granted.
+
+import os
+import ratelimit
+import ratelimit/memory
+import strconv
+import time
+
+func keys() []string {
+	let mut ks = []string{}
+	for i in 0..64 {
+		ks = ks.Append("key-\(i)")
+	}
+	ks
+}
+
+func bench(kind string, n int) int {
+	let rule ratelimit.Rule = if kind == "window" {
+		ratelimit.FixedWindow{Limit: 10, Window: 10ms}
+	} else if kind == "sliding" {
+		ratelimit.SlidingWindow{Limit: 10, Window: 10ms}
+	} else {
+		ratelimit.TokenBucket{Capacity: 10, Every: 1ms}
+	}
+	let l = memory.New(rule) catch {
+	case ratelimit.BadRule:
+		return -1
+	}
+	let ks = keys()
+	let start = time.Unix(0, 0)
+	let mut granted = 0
+	for i in 0..n {
+		let now = start.Add(time.Times(10us, i))
+		let g = memory.TakeAt(l, ks[i%64], 1, now) catch {
+		case ratelimit.Limited, ratelimit.BadCost:
+			ratelimit.Grant{Remaining: -1}
+		}
+		if g.Remaining >= 0 {
+			granted += 1
+		}
+	}
+	granted
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: ratelimitbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "ratelimitbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

@@ -62,6 +62,8 @@ type depModule struct {
 	// matched; "" for a local folder, which has no hash and may change.
 	// It names the module's checked packages in the snapshot (stdcache.go).
 	sum string
+	// mod is what the module's ergo.mod says.
+	mod modFile
 }
 
 // moduleGraph is the build list the root's go.mod gives.
@@ -503,14 +505,37 @@ func (l *loader) dependency(path, version string) *depModule {
 	l.texts[m.name+"/"+ModFile] = string(data)
 	// Only the root's trust lines count, as only the root's replace lines
 	// do: a dependency's say what it needs, not what the program admits.
-	name, _, problem := parseModule(string(data))
+	mf, problem := parseModule(string(data))
 	switch {
 	case problem != nil:
 		m.reason = fmt.Sprintf("the %s of module %s does not parse: %s", ModFile, m.name, problem.Message)
-	case name != path:
-		m.reason = fmt.Sprintf("the %s of module %s names module %s, not %s", ModFile, m.name, name, path)
+	case mf.module != path:
+		m.reason = fmt.Sprintf("the %s of module %s names module %s, not %s", ModFile, m.name, mf.module, path)
 	}
+	m.mod = mf
 	return m
+}
+
+// dependencyPin is the diagnostic that refuses the program when a required
+// module it reads asks for an ergo newer than this one, nil when none
+// does. Of the ergo lines of the build list the highest counts, as the
+// highest go line does for Go: the root's was compared when it was read
+// (findModule), and the refusal names the highest of the dependencies'.
+func (l *loader) dependencyPin() *report.Diagnostic {
+	var top *depModule
+	for _, m := range l.deps {
+		if m.reason != "" || m.mod.ergo == "" {
+			continue
+		}
+		if top == nil || compareVersions(m.mod.ergo, top.mod.ergo) > 0 || compareVersions(m.mod.ergo, top.mod.ergo) == 0 && m.name < top.name {
+			top = m
+		}
+	}
+	if top == nil {
+		return nil
+	}
+	file := top.name + "/" + ModFile
+	return pinProblem(binaryVersion(), file, l.texts[file], top.mod)
 }
 
 // fetchDependency finds m's folder: the local folder that replaces it, or

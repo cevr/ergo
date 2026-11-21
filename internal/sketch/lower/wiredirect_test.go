@@ -29,6 +29,7 @@ func Int(t Text, n int64)        {}
 func Uint(t Text, n uint64)      {}
 func Float(t Text, f float64)    {}
 func String(t Text, s string)    {}
+func StringBytes(t Text, b []byte) {}
 func BeginList(t Text, n int)    {}
 func EndList(t Text)             {}
 func BeginObject(t Text, n int)  {}

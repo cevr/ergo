@@ -32,7 +32,7 @@ func TestPreludeAndStdAreClean(t *testing.T) {
 // (the unit-test mirror of the acceptance negatives, spec Work rules).
 var negativeSpans = map[string][2]string{
 	"argument-mismatch":                  {"S108", "\"x\""},
-	"borrow-in-field":                    {"S108", "*int64"},
+	"borrow-in-field":                    {"S108", "mut int64"},
 	"capability-as-value":                {"S104", "Store"},
 	"case-not-variant":                   {"S108", "C"},
 	"catch-arm-not-in-row":               {"S108", "B"},
@@ -248,7 +248,7 @@ func FuzzCheck(f *testing.F) {
 	for _, r := range localRules() {
 		f.Add(localPrelude + r.body)
 	}
-	// The top-level law programs of TestTopLevelLawRules (law-top A2), so
+	// The top-level law programs of sketchtest.LawTopCases (law-top A2), so
 	// the declaration-order oracle meets a law and a test of one name.
 	for _, c := range sketchtest.LawTopCases {
 		f.Add(c.Src)

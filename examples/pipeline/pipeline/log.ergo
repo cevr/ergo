@@ -10,6 +10,7 @@
 import github.com/cevr/ergo/modules/domain
 import pipeline/retry
 import pipeline/run
+import slices
 
 // Stream is the stream of the context's entries.
 let Stream = "pipeline"
@@ -34,7 +35,7 @@ func Evolve(d Desk, e Entry) Desk {
 	case run.Submitted:
 		within(d, Book{..b, Queue: b.Queue.Append(e.Run)})
 	case run.Started:
-		Busy{Book: Book{..b, Queue: without(b.Queue, e.Run)}, Job: Job{Run: e.Run, Stage: 0, Attempt: retry.First(retry.Standard)}}
+		Busy{Book: Book{..b, Queue: slices.Filter(b.Queue, func(x string) bool { x != e.Run })}, Job: Job{Run: e.Run, Stage: 0, Attempt: retry.First(retry.Standard)}}
 	case run.StagePassed:
 		match RunIn(b, e.Run) {
 		case run.Running as r:
@@ -56,7 +57,7 @@ func Evolve(d Desk, e Entry) Desk {
 	case run.Finished, run.Abandoned:
 		Idle{Book: b}
 	case run.Stopped:
-		let left = Book{..b, Queue: without(b.Queue, e.Run)}
+		let left = Book{..b, Queue: slices.Filter(b.Queue, func(x string) bool { x != e.Run })}
 		match d {
 		case Busy as w:
 			if w.Job.Run == e.Run { Idle{Book: left} } else { within(d, left) }
@@ -91,17 +92,6 @@ func jobOf(d Desk, id string, stage int) Job {
 	case Idle:
 		Job{Run: id, Stage: stage, Attempt: retry.First(retry.Standard)}
 	}
-}
-
-// without is q with no id.
-func without(q []string, id string) []string {
-	let mut out = []string{}
-	for x in q {
-		if x != id {
-			out = out.Append(x)
-		}
-	}
-	out
 }
 
 // Normal is d with its queue as Evolve gives it: the runs still queued.

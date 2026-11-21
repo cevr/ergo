@@ -1,0 +1,65 @@
+// Package btrfs is a work.Cloner by btrfs subvolume snapshot: one call
+// clones the whole tree, whatever its size, when the base is a
+// subvolume. A base that is a plain folder, or a host with no btrfs, is
+// Unsupported, so the next Cloner is tried.
+//
+// Go control: the same call Rift makes (rift create on btrfs).
+
+import exec
+import github.com/cevr/ergo/modules/work/system
+import github.com/cevr/ergo/modules/work/work
+
+// Cloner snapshots subvolumes through the btrfs command.
+type Cloner { trees system.Trees } implements work.Cloner
+
+// New is the Cloner over a Runner.
+func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+
+// unsupported are the btrfs errors that mean "not here": the source is
+// not a subvolume, or not on btrfs.
+let unsupported = []string{"not a btrfs subvolume", "not a subvolume", "not a btrfs filesystem", "inappropriate ioctl", "operation not supported", "invalid argument"}
+
+func Name(_ Cloner) string { "btrfs" }
+
+func Shares(_ Cloner) bool { true }
+
+// KeepsInodes: a snapshot keeps every inode and time.
+func KeepsInodes(_ Cloner) bool { true }
+
+func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
+	try system.Prepare(c.trees, "btrfs", from, to)
+	let r = system.Run(c.trees, "btrfs", "btrfs", []string{"subvolume", "snapshot", from, to}) catch {
+	case work.CloneFailed as f:
+		return work.Unsupported{Cloner: "btrfs", Why: f.Reason}
+	}
+	if r.Status != 0 {
+		system.Leave(c.trees, to)
+		try system.Failure("btrfs", from, to, r.Stderr, unsupported)
+	}
+}
+
+func Has(c Cloner, root string) bool { system.Has(c.trees, root) }
+
+func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try system.Move(c.trees, "btrfs", from, to) }
+
+// Discard deletes the snapshot at root in one call (`btrfs subvolume
+// delete`: the mount must allow it by user_subvol_rm_allowed, which
+// doctor reports);
+// where that is refused it deletes the files one by one. A subvolume
+// nested in the snapshot makes the call fail, and the file removal then
+// deletes the rest.
+func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
+	if !system.Has(c.trees, root) {
+		return work.Missing{Path: root}
+	}
+	let r = system.Run(c.trees, "btrfs", "btrfs", []string{"subvolume", "delete", "--", root}) catch {
+	case work.CloneFailed:
+		exec.Result{Status: 1, Stdout: "", Stderr: ""}
+	}
+	if r.Status == 0 && !system.Has(c.trees, root) {
+		return
+	}
+	try system.Discard(c.trees, "btrfs", root)
+}
+
+func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try system.SharedUsage(c.trees, "btrfs", root) }

@@ -160,7 +160,7 @@ func generateProgram(seed int64) genProgram {
 		genChunk{"test TPair { try pair() }", nil},
 		genChunk{"test TLate { try late() }", nil},
 		genChunk{"test Prop(n int) { assert n + 0 == n }", nil},
-		genChunk{"law Ident(n int) { n + 0 == n }", nil},
+		genChunk{"func Zero() int { 0 }\n\nlaw Ident(n int) { n + Zero() == n }", nil},
 	)
 	g.root = spread(r, "", root, names, paths)
 	g.want = strings.Join(want, " ") + "\n"

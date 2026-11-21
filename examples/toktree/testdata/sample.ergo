@@ -1,0 +1,16 @@
+// A sample for toktree: every token kind, a nested group, an unclosed
+// block comment's neighbour and an unmatched close.
+
+/* a block comment */
+type Point { X int, Y int }
+
+func norm(p Point) int {
+	let s = "a \"quoted\" (string)"
+	let r = 'x'
+	let raw = `raw [text]`
+	if p.X > 0 {
+		return p.X*p.X + p.Y*p.Y + 3.5e2
+	}
+	[1, [2, (3)]]
+}
+)

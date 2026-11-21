@@ -100,6 +100,34 @@ func helperMain() {
 	if op, ok := os.LookupEnv(childVariable); ok {
 		os.Exit(childMain(op))
 	}
+	if cpu, ok := os.LookupEnv(spinVariable); ok {
+		os.Exit(spinMain(cpu))
+	}
+}
+
+// spinVariable makes the test binary a silent worker (spinMain): it
+// computes, writing nothing, until it has used the CPU time the variable
+// names, then exits 0.
+const spinVariable = "ERGO_CLOSURE_SPIN"
+
+func spinMain(cpu string) int {
+	want, err := time.ParseDuration(cpu)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	for x := uint64(1); ; x = x*6364136223846793005 + 1442695040888963407 {
+		if x&0xfffff == 0 {
+			var usage syscall.Rusage
+			if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 2
+			}
+			if time.Duration(usage.Utime.Nano()+usage.Stime.Nano()) >= want {
+				return 0
+			}
+		}
+	}
 }
 
 // sandboxMain builds the sandbox in this process's namespaces, checks it,
@@ -167,24 +195,33 @@ func (v violation) Error() string {
 	return fmt.Sprintf("closure violation: %s writes outside its scratch directories, which the sweep makes read-only (write to t.TempDir instead):\n  %s", v.pkg, strings.Join(v.lines, "\n  "))
 }
 
-// runTimeout is a run that did not end within its deadline (runDeadline):
-// the sweep stopped it. left are the run's processes at the deadline.
+// runTimeout is a run that the sweep stopped (runWithin): it made no
+// progress for its quiet window (runDeadline), or it reached the end this
+// test binary's deadline leaves it (runEnd). left are the run's processes
+// then.
 type runTimeout struct {
 	pkg, output string
-	deadline    time.Duration
+	quiet       time.Duration
+	outcome     watchOutcome
 	left        []string
 }
 
 func (r runTimeout) Error() string {
-	return fmt.Sprintf("%s: the run did not end within %v (%s, or this test's own deadline), so the sweep stopped it; its processes then:\n  %s\noutput %s", r.pkg, r.deadline.Round(time.Second), runDeadlineVariable, strings.Join(r.left, "\n  "), r.output)
+	why := fmt.Sprintf("did not end within %v of its last progress, a growth of its output or test log or a use of CPU by any of its processes (%s)", r.quiet.Round(time.Second), runDeadlineVariable)
+	if r.outcome == watchEnd {
+		why = "did not end within this test's own deadline, though it was making progress"
+	}
+	return fmt.Sprintf("%s: the run %s, so the sweep stopped it; its processes then:\n  %s\noutput %s", r.pkg, why, strings.Join(r.left, "\n  "), r.output)
 }
 
-// runDeadlineVariable bounds each run of a test binary in the sandbox (a
-// Go duration; by default hangDeadline of the run's recorded cost). A run
-// that has not ended by then is
-// a failure that names its package and the processes the run still had,
+// runDeadlineVariable is the quiet window of each run of a test binary in
+// the sandbox (a Go duration; by default hangDeadline of the run's
+// recorded cost): a run that makes no progress for that long (watch) is a
+// failure that names its package and the processes the run still had,
 // and its process group is stopped, so a run that hangs (an observed child
-// stuck in its start, for example) leaves no process behind.
+// stuck in its start, for example) leaves no process behind. A run that
+// keeps working runs to its end, which only this test binary's own
+// deadline bounds (runEnd).
 const runDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
 
 // runReportMargin is the time a run's deadline leaves before this test
@@ -242,8 +279,9 @@ func hangDeadline(cost float64) time.Duration {
 	return max(hangFloor, d.Round(time.Minute))
 }
 
-// runDeadline is the bound of one run of recorded cost seconds that starts
-// now: runDeadlineVariable (hangDeadline of cost by default), and never
+// runDeadline is the quiet window of one run of recorded cost seconds that
+// starts now (runWithin), and the whole bound of a build (buildTestBinary):
+// runDeadlineVariable (hangDeadline of cost by default), and never
 // past runReportMargin before this test binary's own deadline. At batch 9
 // a swept run that did not end held the sweep until the step's test
 // timeout panicked, which named no package and reported no verdict
@@ -293,8 +331,8 @@ func runTestTimeout(run time.Duration) time.Duration {
 	return run - min(run/4, 30*time.Second)
 }
 
-// runProtectedWithin is runProtected with the run's bound, deadline.
-func runProtectedWithin(sb sandbox, pkg, dir string, env []string, output string, deadline time.Duration, binary string, args ...string) error {
+// runProtectedWithin is runProtected with the run's quiet window, quiet.
+func runProtectedWithin(sb sandbox, pkg, dir string, env []string, output string, quiet time.Duration, binary string, args ...string) error {
 	spec, err := json.Marshal(sb)
 	if err != nil {
 		return err
@@ -311,10 +349,10 @@ func runProtectedWithin(sb sandbox, pkg, dir string, env []string, output string
 	cmd.Dir = dir
 	cmd.Env = append(env, sandboxVariable+"="+string(spec))
 	cmd.Stdout, cmd.Stderr = file, file
-	timedOut, left, runErr := runWithin(cmd, deadline)
+	outcome, left, runErr := runWithin(cmd, quiet, runEnd(), fileProgress(output, testLogOf(args)))
 	file.Close()
-	if timedOut {
-		return runTimeout{pkg: pkg, output: output, deadline: deadline, left: left}
+	if outcome != watchExited {
+		return runTimeout{pkg: pkg, output: output, quiet: quiet, outcome: outcome, left: left}
 	}
 	if runErr == nil {
 		return nil

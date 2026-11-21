@@ -43,6 +43,12 @@ func alignInputs() []sketchtest.Input {
 		{"record types", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ",\n" }},
 		{"record types before comments", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ", // c\n" }},
 		{"let values before comments", "", "", func(i, size int) string { return "let v" + strconv.Itoa(i) + " = " + cell("x", i, size) + " // c\n" }},
+		// A comment after a multi-line raw string sits on a line that
+		// continues the string and is never aligned with its neighbours
+		// (mutant sh-raw-string-not-split).
+		{"raw strings before comments", "", "", func(i, size int) string {
+			return "let v" + strconv.Itoa(i) + " = `a\n" + cell("x", i, size) + "` // c\n"
+		}},
 		{"map keys", "let m = Map[string, int]{\n", "}\n", func(i, size int) string { return strconv.Quote(cell("k", i, max(1, size-2))) + ": 1,\n" }},
 		{"context entry keys", "let W = context {\n", "}\n", func(i, size int) string { return cell("K", i, size) + ": T{},\n" }},
 	}
@@ -146,7 +152,7 @@ var words = []string{"a", "b", "x", "count", "value", "é", "größe", "日本",
 func (g *gen) name() string { return words[g.r.IntN(len(words))] }
 
 func (g *gen) typeName() string {
-	return g.pick("int", "string", "bool", "float64", "Point", "Option[int]", "[]string", "Map[string, int]", "[3]int", "*Point", "go.Error", "a_very_long_type_name_that_breaks_alignment_sections_apart")
+	return g.pick("int", "string", "bool", "float64", "Point", "Option[int]", "[]string", "Map[string, int]", "Map[string, int, Fnv]", "[3]int", "*Point", "go.Error", "a_very_long_type_name_that_breaks_alignment_sections_apart")
 }
 
 func (g *gen) text() string {
@@ -373,6 +379,11 @@ func (g *gen) stmt() {
 			g.expr()
 		}
 	case 8:
+		if g.r.IntN(3) == 0 {
+			// skip "reason" (runtime.md, Tests 4): the reason is a literal.
+			g.w("skip ", strconv.Quote(g.pick("no host", "日本語", "")))
+			return
+		}
 		g.w("assert ")
 		g.expr()
 	case 9:
@@ -433,13 +444,28 @@ func (g *gen) decl() {
 	case 2:
 		g.w("type ", g.name(), g.pick("", "[T any]"), " {", g.pick(" ", "\n\t"))
 		g.fields(g.pick(", ", ",\n\t"))
-		g.w(g.pick(" }", ",\n}", "\n}"))
+		g.w(g.pick(" }", ",\n}", "\n}"), g.pick("", "", " implements Store", " implements jobs.Gate,  Checker"))
 	case 3:
 		g.w("type ", g.name(), " = ", g.name(), g.pick("", "{X int}"), " | ", g.name(), "{")
 		g.fields(", ")
 		g.w("}", g.pick("", " | Z", "\n\t| W{}"))
 	case 4:
-		g.w("type ", g.name(), " {\n\tGet(k string) int fails NotFound needs Store,\n\tPut(k string, v int)", g.pick("", " takes v"), ",\n\n\tlaw RoundTrip(k string, v int) { Put(k, v); try Get(k) == v },\n}")
+		if g.r.IntN(3) == 0 {
+			// A type set (TypeTerm, CONSTRAINTS C1), alone or among
+			// operations and a law.
+			g.w("type ", g.name(), " {", g.pick(" ", "\n\t", "\n\tLess(o int) bool,\n\t"))
+			g.w(g.pick("~int", "string", "~float64"))
+			for range g.r.IntN(3) {
+				g.w(g.pick(" | ", "|", " /* c */ | "), g.pick("~int64", "~string", "comparable", "uint8"))
+			}
+			g.w(g.pick(" }", ",\n}", "\n}", ",\n\n\tlaw L(a int) { a == a },\n}"))
+			return
+		}
+		// Includes, operations and laws may interleave: the printer keeps
+		// source order (sh-members-unsorted).
+		g.w("type ", g.name(), " {\n", g.pick("", "\t..Closer,\n"), "\tGet(k string) int fails NotFound needs Store,\n",
+			g.pick("", "\tlaw Seen(k string) { Get(k) >= 0 },\n", "\t..Sized,\n"),
+			"\t", g.pick("", "own "), "Put(k string, v int)", g.pick("", " takes v"), ",\n\n\tlaw RoundTrip(k string, v int) { Put(k, v); try Get(k) == v },\n}")
 	case 5:
 		g.w("type M machine[State, Signal] {\n\tinitial: ", g.name(), "{},\n\tstep:", g.pick(" ", "    "), "step,\n\tlaw Reach reaches Done,\n\tlaw P never path [A, B],\n\tlaw I invariant ok,\n}")
 	case 6:
@@ -458,14 +484,30 @@ func (g *gen) decl() {
 		g.w("law ", g.name(), "(a int, b ", g.typeName(), ") {")
 		g.block()
 	case 10:
-		g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+		// A refined type, or a derived one, which has no spec: the Ergo
+		// formatter once read the spec of `type D derive Plan(1)` and
+		// failed (S2c).
+		if g.r.IntN(2) == 0 {
+			g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+		} else {
+			g.w("type ", g.name(), " derive ", g.pick("Plan(1)", "Fixed(\"TK\", 6)", "Refine(Of[int](), 1, 65535)"))
+		}
 	case 11:
 		// Variants on one line, one of whose fields span lines: the union
 		// prints one variant per line.
 		g.w("type ", g.name(), " = ", g.name(), " | ", g.name(), "{X int,\n\tY ", g.typeName(), "}", g.pick("", " | Z", " | W{}"))
 	default:
 		g.w("func ", g.pick("", "(p *Point) "), g.name(), g.pick("", "[T any, U comparable]"), "(")
-		g.list(func() { g.w(g.name(), " ", g.typeName()) })
+		g.list(func() {
+			// A parameter of a named type takes the pure clause (grammar,
+			// Declarations 16): the formatter keeps it. It draws nothing,
+			// so the other inputs stay as they were.
+			t := g.typeName()
+			if t == "Point" {
+				t = "pure Point"
+			}
+			g.w(g.name(), " ", t)
+		})
 		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " func() int"), " {")
 		g.block()
 	}

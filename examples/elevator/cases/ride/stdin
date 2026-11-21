@@ -1,0 +1,11 @@
+call 3
+call 7
+tick
+tick 3
+tick
+call 1
+tick 5
+tick
+tick 7
+tick
+halt

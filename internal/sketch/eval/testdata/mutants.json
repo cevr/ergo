@@ -1,6 +1,13 @@
 {
   "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
   "mutants": [
+    {"name":"g17-eval-passes","origin":"wf10 GAP17-LAWS","file":"internal/sketch/eval/cases.go","from":"\tif p.Native != \"\" {\n\t\tout.Status, out.Reason = Native, NativeReason(p.Native)","to":"\tif false && p.Native != \"\" {\n\t\tout.Status, out.Reason = Native, NativeReason(p.Native)","rule":"runtime.md Tests 9 (owner q277): the evaluator runs no Go, so a law over a Go-backed provider is native, never passed or refuted at check time.","killers":["internal/sketch/eval:TestNativeOnlyLawsRunNatively"]},
+    {"name":"bw-eval-variants-no-builders","origin":"wf10 BUILDER-WELLFOUNDED","file":"internal/sketch/eval/cases.go","from":"testplan.SmallVariants(in.root.Builder, vs)","to":"testplan.SmallVariants(func(*check.Named) *check.Builder { return nil }, vs)","rule":"At the depth limit eval ranks a union's variants with the package's builders, as the checker and the Go build do.","killers":["internal/sketch/eval:TestGenerationEndsOrIsRefused"]},
+    {"name":"esr-shrink-stop-wins","origin":"wf10 EVAL-SHRINK-REFUTED","file":"internal/sketch/eval/cases.go","from":"\tif stopped {\n\t\treturn drawn, drawnShows\n\t}","to":"\tif stopped {\n\t\treturn Result{Status: Incomplete, Reason: \"the shrink stopped\"}, nil\n\t}","rule":"A refutation already found decides the obligation: a shrink the budget stops leaves the drawn case refuted, never incomplete.","killers":["internal/sketch/eval:TestRefutationOutlivesItsShrink"]},
+    {"name":"fusion-licence-defect-both-ways","origin":"wf10 FUSION-EVIDENCE","file":"internal/sketch/eval/licencefuncs.go","from":"\tif isDefectOutcome(right) {","to":"\tif isDefectOutcome(right) || isDefectOutcome(left) {","rule":"A defect the left side raises and the right side does not refutes the law.","killers":["internal/sketch/eval:TestLicenceOverFunctions"]},
+    {"name":"fusion-licence-unrun","origin":"wf10 FUSION-EVIDENCE","file":"internal/sketch/eval/licence.go","from":"\tif !rw.OverFuncs {\n\t\t// A law over function parameters has no plan","to":"\tif true {\n\t\t// A law over function parameters has no plan","rule":"A law over function parameters takes its licence run, not its property plan's Unrun.","killers":["internal/sketch/eval:TestLicenceOverFunctions"]},
+    {"name":"fusion-licence-no-defect-member","origin":"wf10 FUSION-EVIDENCE","file":"internal/sketch/eval/licencefuncs.go","from":"\t\t\t\tfn(\"func defect at odd x\",","to":"\t\t\t\tfn(\"func x / 2\",","rule":"The family of pure functions has one that raises a defect.","killers":["internal/sketch/eval:TestLicenceOverFunctions"]},
+    {"name":"fusion-licence-fuseor-ignored","origin":"wf10 FUSION-EVIDENCE","file":"internal/sketch/eval/licence.go","from":"\t\t\toutcome[1] = fusedOutcome(outcome[0], outcome[1])","to":"","rule":"A right side's defect is read as the left side's outcome, as v1.FuseOr places it.","killers":["internal/sketch/eval:TestLicenceOverFunctions"]},
     {"name":"lf6-corpus-unreplayed","origin":"wf10 LF6fu","file":"internal/sketch/eval/licence.go","from":"\tfor _, line := range corpus {\n","to":"\tfor _, line := range corpus[:0] {\n","rule":"A licence run takes the law's corpus cases first.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
     {"name":"lf6-licence-float-by-go-equality","origin":"wf10 LF6fu","file":"internal/sketch/eval/licence.go","from":"\t\tvar outcome [2]string\n","to":"\t\tif res := in.runBodyFrame(frameAt(), law.Decl.Body, true, Result{Name: l.Name}); res.Status != Passed {\n\t\t\tin.licenceStop(l, res.Status, res.Reason, res.Site, args())\n\t\t\treturn false\n\t\t}\n\t\tvar outcome [2]string\n","rule":"A licence run compares a rewrite law's sides by key equality, not by the law's ==: a float law whose sides agree at a NaN holds.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
     {"name":"lf6-second-run-same-state","origin":"wf10 LF6b","file":"internal/sketch/eval/licence.go","from":"\t\t\t\tin.ambient = ambients[s]\n","to":"\t\t\t\tin.ambient = ambients[0]\n","rule":"Each side of a licence run's case runs a second time under another working directory, environment and time zone.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
@@ -47,12 +54,10 @@
       "name": "ps2-read-of-written-field-stale",
       "origin": "wf10 PS2",
       "file": "internal/sketch/eval/stmt.go",
-      "from": "\t\t\treturn c.s, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
-      "to": "\t\t\treturn &slot{v: c.s.v}, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "from": "\t\t\treturn c.s, \"\", nil",
+      "to": "\t\t\treturn &slot{v: c.s.v}, \"\", nil",
       "rule": "A write through a provider's cell is what every later read and the end state see.",
-      "killers": [
-        "lower:TestSymbolicProofsSound"
-      ]
+      "killers": ["lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-stop-proved",
@@ -146,12 +151,10 @@
       "name": "returned-error-is-value",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
-      "to": "\tif false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
+      "from": "\t\tf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "to": "\t\tf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
       "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
-      "killers": [
-        "internal/sketch/eval:TestEvalAgreesWithReference"
-      ]
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
     },
     {
       "name": "absent-fact-pure",
@@ -179,23 +182,19 @@
       "name": "budget-shared",
       "origin": "wf10 ORACLE O22 (was incomplete-continues, EV1)",
       "file": "internal/sketch/eval/interp.go",
-      "from": "func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }",
-      "to": "func (in *interp) begin() {}",
+      "from": "\tin.stepsAt, in.bytesAt, in.perCase = in.steps, in.bytes, 0\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
+      "to": "\tin.perCase = 0\n\tin.stepsEnd = in.stepsAt + in.budget.Steps\n",
       "rule": "The step budget is per obligation: an incomplete obligation leaves the whole budget to the next one (docs/testing.md, Budgets; ORACLE O22 replaces the L7 plan's per-request budget).",
-      "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
-      ]
+      "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
     {
       "name": "fuel-ignored",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif n < 0 || n > in.stepsLeft() {",
-      "to": "\tif n < 0 {",
+      "from": "\tif n >= 0 && n <= in.stepsEnd-in.steps {",
+      "to": "\tif n >= 0 {",
       "rule": "Every evaluated node costs steps before its work, so a loop that never ends exhausts the budget (L7 plan, section 5).",
-      "killers": [
-        "internal/sketch/eval:TestRunStopsTheRun"
-      ]
+      "killers": ["internal/sketch/eval:TestRunStopsTheRun"]
     },
     {
       "name": "skip-as-pass",
@@ -338,8 +337,8 @@
       "name": "copy-fuel-ignored",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/coll.go",
-      "from": "\tif ab := in.build(fr, at, int64(s.n)+1, int64(s.n), 0); ab != nil {",
-      "to": "\tif ab := in.build(fr, at, 0, int64(s.n), 0); ab != nil {",
+      "from": "\tif ab := in.buildSlots(fr, at, int64(s.n)+1, int64(s.n), s.b.slotBytes()); ab != nil {",
+      "to": "\tif ab := in.buildSlots(fr, at, 0, int64(s.n), s.b.slotBytes()); ab != nil {",
       "rule": "Bulk copying consumes element work before allocation (plan section 5).",
       "killers": ["internal/sketch/eval:TestEvalMetersCollectionsAndCalls"]
     },
@@ -356,10 +355,19 @@
       "name": "generic-substitution-unbound",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/interp.go",
-      "from": "args: targs[:n:n]}",
-      "to": "args: make([]rtype, n)}",
+      "from": "args: targs[:n:n], wits: wits}",
+      "to": "args: make([]rtype, n), wits: wits}",
       "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "mc-map-order",
+      "origin": "wf10/mc/E1",
+      "file": "internal/sketch/eval/codecwalk.go",
+      "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })",
+      "to": "\t\tsort.Slice(keys, func(i, j int) bool { return false && keys[i].(string) < keys[j].(string) })",
+      "rule": "A Map encodes its keys in sorted order, so equal Maps have one wire form and one explore key (MODELCHECK risk 5).",
+      "killers": ["std:TestKeyEqualsEquality"]
     },
     {
       "name": "machine-done-is-edge",
@@ -398,12 +406,12 @@
       "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
     },
     {
-      "name": "machine-replay-unmetered",
-      "origin": "wf10/l7-eval/EV4",
+      "name": "vtlaws-search-replays",
+      "origin": "wf10 MX-VTLAWS",
       "file": "internal/sketch/eval/machine.go",
-      "from": "\tg.Step = func(s, e Value) (Value, bool) {\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\treturn in.machineStep(fr, m, s, e)\n\t}\n",
-      "to": "\tmemo := map[string][2]any{}\n\tg.Step = func(s, e Value) (Value, bool) {\n\t\tkey := describe(s) + \"|\" + describe(e)\n\t\tif c, hit := memo[key]; hit {\n\t\t\treturn c[0], c[1].(bool)\n\t\t}\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\tv, ok := in.machineStep(fr, m, s, e)\n\t\tmemo[key] = [2]any{v, ok}\n\t\treturn v, ok\n\t}\n",
-      "rule": "Every step call is metered, a replay's too: the explorer rebuilds each state it expands by stepping its run again, so its work exceeds its edges (plan section 5).",
+      "from": "\tr := explore.SearchHeld(l.g, l.targets[0], budget)\n",
+      "to": "\tr := explore.Search(l.g, l.targets[0], budget)\n",
+      "rule": "Check time's search holds its frontier, so a whole search steps each edge once: its step calls are the states times the signals, not that plus a replayed run per state (docs/testing.md, Budgets).",
       "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
     },
     {
@@ -452,16 +460,6 @@
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     },
     {
-      "name": "b16d-eval-invariant-searched",
-      "origin": "wf10 batch 16d (EV x X2)",
-      "file": "internal/sketch/eval/machine.go",
-      "from": "\tif law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
-      "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
-      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect. Its killer is in the lowering's suite, which the runner judges it with: TestMachineLawRuns runs the law through ergo check, a built CLI the coverage pass does not instrument, so the anchor names it as covering.",
-      "killers": ["internal/sketch/lower:TestMachineLawRuns"],
-      "anchor": {"tests": ["internal/sketch/lower:TestMachineLawRuns"]}
-    },
-    {
       "name": "b16d-eval-float-int-wraps",
       "origin": "wf10 batch 16d (EV x S-conv)",
       "file": "internal/sketch/eval/value.go",
@@ -487,6 +485,15 @@
       "to": "\t\tcase false && html && (r == '<' || r == '>' || r == '&'):",
       "rule": "std json NewHTMLText: its strings escape <, > and & as \\u003c, \\u003e and \\u0026.",
       "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
+    },
+    {
+      "name": "jsoncursor-stringbytes-drops",
+      "origin": "wf10 B24-ERGOTESTS r2",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "\t\treturn appendString(nil, args[0], s), nil\n",
+      "to": "\t\treturn args[0], nil\n",
+      "rule": "std json's Cursor.StringBytes in the evaluator adds the next string's bytes to into, as String reads them (GX12).",
+      "killers": ["internal/sketch/std/json:law:StringBytesReadsString"]
     },
     {
       "name": "oracle-o18-json-pair-split",
@@ -677,13 +684,13 @@
       "rule": "ListenFailed's Reason is Go's net.Listen error text.",
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
-    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
     {
       "name": "oracle-o23-preflight-go-extern",
       "origin": "wf10 ORACLE O23",
       "file": "internal/sketch/eval/preflight.go",
-      "from": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {",
-      "to": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || false && goNativeOf(fn) != nil {",
+      "from": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == \"append\" || p.in.goBody(fn) {",
+      "to": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || false && goNativeOf(fn) != nil || check.GoBuiltin(fn) == \"append\" || p.in.goBody(fn) {",
       "rule": "An obligation that calls a program extern the evaluator runs (nativesgo.go) is not skipped.",
       "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
     },
@@ -826,8 +833,8 @@
       "name": "oracle-o31-reported-arguments-dropped",
       "origin": "wf10 ORACLE O31",
       "file": "internal/sketch/eval/cases.go",
-      "from": "\t\t\tout.Case, out.Arguments = k+1, shown(shows)",
-      "to": "\t\t\tout.Case, out.Arguments = k+1, nil",
+      "from": "\t\t\tout.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn",
+      "to": "\t\t\tout.Case, out.Arguments, out.Drawn = k+1, nil, result.Drawn",
       "rule": "A refuted case reports the arguments it ran with, written when it is reported.",
       "killers": ["internal/sketch/eval:TestCasePlansRun"]
     },
@@ -880,7 +887,7 @@
       "name": "oracle-o33-plain-skips-conversion",
       "origin": "wf10 ORACLE O33",
       "file": "internal/sketch/eval/facts.go",
-      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow)",
+      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)",
       "to": "\t\ttrue",
       "rule": "A value the checker converts where it is used (a provider into an operation type) is converted however its expression is dispatched.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
@@ -1148,15 +1155,6 @@
       "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
     },
     {
-      "name": "oracle-o3-native-submono-wraps",
-      "origin": "wf10 ORACLE O3",
-      "file": "internal/sketch/eval/tasks.go",
-      "from": "\t\tcase d < 0 && a > b:\n\t\t\td = math.MaxInt64",
-      "to": "\t\tcase false:\n\t\t\td = math.MaxInt64",
-      "rule": "The duration between two monotonic readings saturates at the largest duration where a - b overflows (runtime/v1 TimeSubMono; time.go, Sub).",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o3-scheduler-host-order",
       "origin": "wf10 ORACLE O3",
       "file": "internal/sketch/eval/sched.go",
@@ -1332,8 +1330,8 @@
       "name": "oracle-o16-stable-sort-reversed",
       "origin": "wf10 ORACLE O16",
       "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
-      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
+      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tt.reads[\"arena.grow\"] = \"sliceV T\"\n\tnatives[\"arena.grow\"]",
+      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tt.reads[\"arena.grow\"] = \"sliceV T\"\n\tnatives[\"arena.grow\"]",
       "rule": "std slices.SortStableFunc sorts a copy by compare, as Go's slices.SortStableFunc (std slices).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1557,6 +1555,539 @@
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
     },
     {
+      "name": "incomplete-continues",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\t\tstopped = \"the evaluation budget ran out\"",
+      "to": "\t\t\tstopped = \"\"",
+      "rule": "The budget is per request: once it runs out, every later obligation is reported not run (L7 plan, section 5).",
+      "killers": [
+        "internal/sketch/eval:TestRunStopsTheRun"
+      ]
+    },
+    {"name":"i22-eval-pair-append-one-arg","origin":"wf10 batch-22 I22 (tip 113 x codecwalk: the evaluator's encode passes an append-form pair its buffer)","file":"internal/sketch/eval/codecwalk.go","from":"\tif p := w.in.wirePair(r.t); p != nil && p.Append {\n\t\t// As the lowered encoder","to":"\tif p := w.in.wirePair(r.t); p != nil && false {\n\t\t// As the lowered encoder","rule":"types.md Codecs 1: the append form of a by-name pair encodes as the string of the bytes it adds to an empty buffer (GX10).","killers":["examples:jobs"]},
+    {"name":"fstest-append-copies-the-file","origin":"wf10 FU-FSTEST-APPEND","file":"internal/sketch/std/fstest/memory.ergo","from":"\t\t\tu[c] = entry{Dir: false, Text: p.At.Text, More: Part{Text: text, Before: p.At.More}, Perm: mode}\n","to":"\t\t\tu[c] = entry{Dir: false, Text: joined(p.At.Text, p.At.More) + text, More: NoParts, Perm: mode}\n","rule":"An append of fstest.Memory puts its text in front of the file's parts, so a log of n appends copies O(n) bytes, not the file again each time (stdlib.md fstest; TestFSMemoryAppendCopiesLinearBytes).","killers":["internal/sketch/eval:TestFSMemoryAppendCopiesLinearBytes"]},
+    {"name":"fstest-read-parts-last-first","origin":"wf10 FU-FSTEST-APPEND","file":"internal/sketch/std/fstest/memory.ergo","from":"\ttext + strings.Join(slices.Reverse(texts), \"\")\n","to":"\ttext + strings.Join(texts, \"\")\n","rule":"A read of fstest.Memory joins the appended parts in the order they were appended, not the list's order (last first).","killers":["internal/sketch/eval:TestFSMemoryAppendCopiesLinearBytes"]},
+    {"name":"evskips-invariant-skipped","origin":"wf10 MX-EVSKIPS","file":"internal/sketch/eval/machine.go","from":"\tif law.Pred != nil {\n\t\tif why := pre.function(fr, law.Pred); why != \"\" {\n","to":"\tif law.Pred != nil {\n\t\treturn skip(\"this \" + law.Decl.Reach.Kind() + \" law reads its states through a predicate, which check time does not search\")\n\t\tif why := pre.function(fr, law.Pred); why != \"\" {\n","rule":"An always or sometimes law runs at check time, decided by the same explorer as ergo test (docs/testing.md, check time; types.md Laws 13).","killers":["internal/sketch/eval:TestInvariantLawsRunAtCheckTime"]},
+    {"name":"evskips-always-reads-holds","origin":"wf10 MX-EVSKIPS","file":"internal/sketch/eval/machine.go","from":"\t\t\tkind, holds = \"never\", false\n","to":"\t\t\tkind, holds = \"never\", true\n","rule":"always p never reaches a state where p is false (lower machinelaws.go, the same decision).","killers":["internal/sketch/eval:TestInvariantLawsRunAtCheckTime"]},
+    {"name":"evskips-sometimes-is-never","origin":"wf10 MX-EVSKIPS","file":"internal/sketch/eval/machine.go","from":"\t\t\tkind = \"reaches\"\n\t\t\tnames = append(names, \"a state where \"+name+\" holds\")\n","to":"\t\t\tkind = \"never\"\n\t\t\tnames = append(names, \"a state where \"+name+\" holds\")\n","rule":"sometimes p reaches a state where p holds.","killers":["internal/sketch/eval:TestInvariantLawsRunAtCheckTime"]},
+    {"name":"vtlaws-provider-lit-skipped","origin":"wf10 MX-VTLAWS","file":"internal/sketch/eval/expr.go","from":"\tif ok && len(x.Elts) == 0 && x.Base == nil && ergoProvider(n) {\n","to":"\tif false && ok && len(x.Elts) == 0 && x.Base == nil && ergoProvider(n) {\n","rule":"The literal of a derived provider whose field type is declared in Ergo runs at check time: each field made by its NewF (patterns.md, Provider plans 3; lower/script.go scriptLit).","killers":["internal/sketch/eval:TestErgoProvidersRunAtCheckTime"]},
+    {"name":"vtlaws-provider-silent-defect","origin":"wf10 MX-VTLAWS","file":"internal/sketch/eval/provider.go","from":"\tif len(sig.Results) == 0 && sig.Errors.Empty() {\n","to":"\tif false && len(sig.Results) == 0 && sig.Errors.Empty() {\n","rule":"An unanswered operation with no result and no failure is only recorded, as the test build's adapter does (lower/script.go scriptOperations).","killers":["internal/sketch/eval:TestErgoProvidersRunAtCheckTime"]},
+    {"name":"vtlaws-provider-args-first","origin":"wf10 MX-VTLAWS","file":"internal/sketch/eval/provider.go","from":"\t\ta = tuple{elems: append([]Value(nil), args...)}\n","to":"\t\ta = args[0]\n","rule":"A call of several arguments records them as a tuple (check/script.go rule 2).","killers":["internal/sketch/eval:TestErgoProvidersRunAtCheckTime"]},
+    {"name":"vtlaws-provider-defect-text","origin":"wf10 MX-VTLAWS","file":"internal/sketch/eval/provider.go","from":"\treturn nil, fr.defect(at, \"%s: %s has no answer\", n, name)\n","to":"\treturn nil, fr.defect(at, \"%s has no answer\", name)\n","rule":"An unanswered operation's defect names the provider and the operation as v1.NoAnswerDefect does.","killers":["internal/sketch/eval:TestErgoProvidersRunAtCheckTime"]},
+    {
+      "name": "g1-eval-exit-never",
+      "origin": "wf10 FK9-g1c",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t_, ab = a.call(in, fr, a.leave, s)\n\treturn ab\n",
+      "to": "\treturn ab\n",
+      "rule": "The check-time runner runs a state's exit action as the Go runner does (runtime.md, Machines and actors 18): gallery's tour reads the saved draft back.",
+      "killers": ["examples:gallery"]
+    },
+    {
+      "name": "g1-eval-exit-unmasked-has",
+      "origin": "wf10 FK9-g1c",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t// Both calls are masked: a Stop's end runs them on a stopped runner.\n\tin.mask(1)\n\tdefer in.mask(-1)\n\thas, ab := a.call(in, fr, a.hasExit, s)\n\tif ab != nil || has != true {\n\t\treturn ab\n\t}\n",
+      "to": "\thas, ab := a.call(in, fr, a.hasExit, s)\n\tif ab != nil || has != true {\n\t\treturn ab\n\t}\n\tin.mask(1)\n\tdefer in.mask(-1)\n",
+      "rule": "A Stop's end runs the open entry's exit action on a stopped runner: the whole of it is masked, hasExit included (gallery's law LeavingStudioAlwaysSaves, a site that ends in the studio).",
+      "killers": ["examples:gallery"]
+    },
+    {
+      "name": "g1-eval-exit-not-on-enter",
+      "origin": "wf10 FK9-g1c",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t\tif ab := a.leaveEntry(in, fr, s); ab != nil {\n\t\t\treturn s, true, ab\n\t\t}\n",
+      "to": "",
+      "rule": "An Enter or an Emit ends the entry with its exit action, before the next entry opens (gallery's tour: the save on leaving the studio).",
+      "killers": ["examples:gallery"]
+    },
+    {"name":"q14-changesof-unrun","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/runner.go","from":"\tnatives[\"actor.changesOf\"] = ","to":"\tnatives[\"actor.changesOfUnrun\"] = ","rule":"The check-time runner runs std actor's changesOf, so WaitFor, SendAndWait and Changes run at check time.","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+    {"name":"q14-changes-no-overflow","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/runner.go","from":"\tif len(c.buf) >= c.room {\n","to":"\tif false && len(c.buf) >= c.room {\n","rule":"A Changes loop holds at most room states: a commit that finds it full drops them and the loop reads an Overflowed with their number (runtime/v1 publishLocked).","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+    {"name":"q14-changes-subscription-kept","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/stmt.go","from":"\t\tif d, ok := q.(seqDone); ok {\n\t\t\tdefer d.done()\n\t\t}\n","to":"","rule":"A loop over an actor's changes that leaves early (WaitFor's return) ends its subscription, so Held does not count it.","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+    {
+      "name": "evlaw-builder-skipped",
+      "origin": "wf10 MX-EVLAW",
+      "file": "internal/sketch/eval/preflight.go",
+      "from": "\t\t\t// Drawn by its builder, as the Go build draws it (genBuilt).\n",
+      "to": "\t\t\treturn \"an operation-type builder without an interpreter adapter\"\n",
+      "rule": "An operation-type law runs at check time over a provider whose field is an operation type: its builder draws it, as the Go build does.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "evlaw-world-cached-converted",
+      "origin": "wf10 MX-EVLAW",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\treturn mustValue(in.call(fr, nil, b.Func, targs, args))\n\t}\n\tvar v Value",
+      "to": "\t\treturn &operation{value: mustValue(in.call(fr, nil, b.Func, targs, args)), conv: b.Conv, env: fr.env}\n\t}\n\tvar v Value",
+      "rule": "A case keeps a world builder's result, not its conversion: one value is each operation type it provides.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "evlaw-builder-of-law-package",
+      "origin": "wf10 MX-EVLAW",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\tb := in.root.Builder(n)\n",
+      "to": "\tb := fr.pkg.Builder(n)\n",
+      "rule": "The builder is the one the checked package sees, as the Go build asks the package it lowers.",
+      "killers": ["internal/sketch/eval:TestCaseProviderIdentity"]
+    },
+    {
+      "name": "ft-step-not-counted-in-fast-path",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\treturn func(in *interp, fr *frame) (Value, *abrupt) {\n\t\t\treturn v, nil\n",
+      "to": "\t\treturn func(in *interp, fr *frame) (Value, *abrupt) {\n\t\t\tif ab := in.charge(fr, at, 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n\t\t\treturn v, nil\n",
+      "rule": "A compiled form charges the steps the walk charges for its node: a constant is a leaf and costs none (FU-eval-step-per-op).",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees", "internal/sketch/eval:TestStepsCountTheNodesThatWork"]
+    },
+    {
+      "name": "oracle-o34-local-lends-not",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\t\ts.lend()\n\t\t\t\treturn s.v, nil",
+      "to": "\t\t\t\treturn s.v, nil",
+      "rule": "Reading a local lends its slot in a compiled form as in the walk: a store read out may be shared, so a later write copies it.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-field-lends-not",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\t\troot.lend() // a part that holds a store leaves the slot",
+      "to": "\t\t\t\t_ = root",
+      "rule": "A field that holds a store, read out of a local record, lends the local's slot.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-range-lends-not",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\troot.lend() // the iteration binding holds its own element value",
+      "to": "\t\t\t_ = root",
+      "rule": "A for-in binding that holds an element with a store lends the ranged local's slot.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-for-no-back-edge",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\tif ab := in.backEdge(fr, at); ab != nil {\n\t\t\t\treturn ab\n\t\t\t}\n\t\t}\n\t}\n}",
+      "to": "\t\t}\n\t}\n}",
+      "rule": "Each iteration of a compiled for ends at its interruption point and the schedule's turn, as the walk's does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-map-argument-order-unfixed",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tslices.SortFunc(keys, compareKeys)\n",
+      "to": "\t\tslices.SortFunc(keys[:0], compareKeys)\n",
+      "rule": "The steps an obligation costs are the same on every run: rendering a Map argument sorts from one fixed order, not Go's map order.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-body-prefix-skipped",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tif ab := prefix(in, fr); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n",
+      "to": "\t\t_ = prefix\n",
+      "rule": "A compiled body runs every statement before the one that yields its result.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-record-fields-free",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tif ab := in.charge(fr, at, int64(nf)); ab != nil {",
+      "to": "\t\tif ab := in.charge(fr, at, 0); ab != nil {",
+      "rule": "A compiled record literal costs a step per field, as the walk's does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o34-taken-parameter-unowned",
+      "origin": "wf10 ORACLE O34",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tfor _, i := range p.owned {",
+      "to": "\tfor _, i := range p.owned[:0] {",
+      "rule": "A parameter the callee's package owns is registered at the call, read from the callee's plan (R8).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-arm-pattern-uncharged",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\tif ab := in.charge(fr, a.items[i], 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "\t\t\t_ = a.items[i]\n",
+      "rule": "A compiled match charges a step for each pattern it tries, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-value-case-uncharged",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\tif ab := in.charge(fr, c.at, 1); ab != nil {\n\t\t\t\treturn nil, ab\n\t\t\t}\n",
+      "to": "",
+      "rule": "A compiled value match charges a step for each constant it compares, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-if-yield-else-dropped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\treturn els(in, fr)\n",
+      "to": "\t\t\treturn nil, nil\n",
+      "rule": "An if that yields a value yields its else branch's when its condition is false.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o35-arm-owners-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\tin.patternOwners(fr, a.cl)\n",
+      "to": "",
+      "rule": "A compiled arm moves its pattern's sources into its bindings before its body (Info.PatternOwners).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-receiver-dropped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\tif recv == nil {\n\t\treturn nil\n\t}\n",
+      "to": "\tif recv == nil || true {\n\t\treturn nil\n\t}\n",
+      "rule": "A compiled dot call evaluates its receiver, with its step, before its arguments.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-append-all-grows-shared",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif xs.off+xs.n == len(xs.b.data) {\n\t\tif len(xs.b.data)+ys.n > cap(xs.b.data) {",
+      "to": "\tif xs.off+xs.n <= len(xs.b.data) {\n\t\tif len(xs.b.data)+ys.n > cap(xs.b.data) {",
+      "rule": "AppendAll grows xs's store in place only when no value sees past xs's end: a slice made before it keeps its elements.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-append-all-drops-xs",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tcopy(data, xs.elems())\n\tdata = append(data, add...)",
+      "to": "\tdata = append(data, add...)",
+      "rule": "AppendAll's result in a store of its own starts with xs's elements.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-append-all-drops-ys",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif ys.n == 0 {\n\t\treturn xs, nil\n\t}\n\tadd := ys.elems()",
+      "to": "\tif ys.n >= 0 {\n\t\treturn xs, nil\n\t}\n\tadd := ys.elems()",
+      "rule": "AppendAll adds ys's elements after xs's.",
+      "killers": ["internal/sketch/eval:TestAppendAllKeepsValues"]
+    },
+    {
+      "name": "oracle-o36-native-call-uncharged",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tif ab := in.charge(fr, at, 1); ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n\t\tvals := make([]Value, 0, n)",
+      "to": "\t\t_ = at\n\t\tvals := make([]Value, 0, n)",
+      "rule": "A compiled call of a native charges the call's step, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-native-args-reused",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\tvals := make([]Value, 0, n)",
+      "to": "\t\tvals := in.argStack[len(in.argStack):]",
+      "rule": "A native's arguments are a slice of its own: a native that keeps them (a record, a closure) sees them unchanged by a later call.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o36-frame-return-valueless",
+      "origin": "wf10 ORACLE O36",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\t\t\tfr.ret = abrupt{kind: ctlReturn, val: v, pkg: fr.pkg, decl: fr.decl, at: pos}\n",
+      "to": "\t\t\t_ = v\n\t\t\tfr.ret = abrupt{kind: ctlReturn, val: nil, pkg: fr.pkg, decl: fr.decl, at: pos}\n",
+      "rule": "A compiled return gives its value to the call.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o37-compiled-error-is-value",
+      "origin": "wf10 ORACLE O37",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\t\txf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "to": "\t\t\txf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "rule": "A compiled return of a value of an error type is a failure (types.md, Error types 2).",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-instances-share-forms",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/plan.go",
+      "from": "\tk := b.String()\n",
+      "to": "\tk := \"\"\n",
+      "rule": "A generic function's forms belong to one instance: two calls with different type arguments read different facts.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-record-key-unsubstituted",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/compile.go",
+      "from": "\tkey := argsKey(n, t.env)\n",
+      "to": "\tkey := argsKey(n, nil)\n",
+      "rule": "A compiled record literal in an instance keys its type with the instance's type arguments, as the walk does.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-forms-in-any-generic-frame",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\treturn fr.env == nil || fr.tab != nil && fr.tab.instance\n",
+      "to": "\treturn true\n",
+      "rule": "Only a frame that reads one instance's facts compiles forms: a generic frame on its package's table shares facts across type arguments.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-get-hint-unchecked",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/vars.go",
+      "from": "\tif i := int(*hint); t.keyAt(i) == v {\n\t\treturn t.at(i), true\n",
+      "to": "\tif i := int(*hint); t.keyAt(i) != nil {\n\t\treturn t.at(i), true\n",
+      "rule": "A compiled read of a local reads that local's slot: a remembered index is used only when it still names the local.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-o38-bind-hint-unchecked",
+      "origin": "wf10 ORACLE O38",
+      "file": "internal/sketch/eval/vars.go",
+      "from": "\tif i := int(*hint); t.keyAt(i) == v {\n\t\t*t.at(i) = slot{v: val}\n",
+      "to": "\tif i := int(*hint); t.keyAt(i) != nil {\n\t\t*t.at(i) = slot{v: val}\n",
+      "rule": "A compiled let binds its own local: a remembered index is used only when it still names the local.",
+      "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
+    },
+    {
+      "name": "oracle-ft1-shrink-no-zero-pass",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/shrink.go",
+      "from": "\t\t\t\tif !zero && try(c) {\n",
+      "to": "\t\t\t\tif !zero && len(c) < 0 && try(c) {\n",
+      "rule": "The evaluator shrinks a refuted case as the native runner does: the same passes, so the same candidates and the same smallest tape.",
+      "killers": ["internal/sketch/eval:TestShrinkAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-ft1-shrink-budget-ignored",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/shrink.go",
+      "from": "\t\tif tries >= budget {\n\t\t\treturn false\n",
+      "to": "\t\tif tries >= budget+1000 {\n\t\t\treturn false\n",
+      "rule": "A shrink stops at the native runner's budget of replays, so both tiers stop at the same tape.",
+      "killers": ["internal/sketch/eval:TestShrinkAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-ft1-no-shrink",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tif result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {\n",
+      "to": "\t\tif false && result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {\n",
+      "rule": "A refuted drawn case reports its shrunk arguments, the native runner's counterexample (TESTSPEED FT1).",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-int-drawn-unrecorded",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tv, _ := fromInt64(u.Kind, int64(r.Integer(width, signed)))\n",
+      "to": "\t\t\t\tv, _ := fromInt64(u.Kind, r.I64())\n\t\t\t\t_, _ = width, signed\n",
+      "rule": "An integer is drawn as the native runner draws it, sign and magnitude on the tape, so a shrink lowers it to the same value.",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-drawn-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tgot.Drawn = large\n",
+      "to": "\t\t_ = large\n",
+      "rule": "A shrunk case keeps its drawn arguments, which the native FAIL line shows after \"shrunk from:\".",
+      "killers": ["internal/sketch/eval:TestShrinkReachesLeast"]
+    },
+    {
+      "name": "oracle-ft1-law-replay-seedless",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\t\tif r.form == formDrawn {\n",
+      "to": "\t\tif r.form == formNone {\n",
+      "rule": "A drawn law's replay line names its seed, as the native runner's does; a listed law's names none.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-message-site-unnamed",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\treturn \"assert failed at \" + nativeSite(site) + \": \" + text\n",
+      "to": "\treturn \"assert failed: \" + text\n",
+      "rule": "A failed assert's report names its site, file:line:column, as the native runner's does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-shown-operands-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\tif a.shown {\n",
+      "to": "\tif false && a.shown {\n",
+      "rule": "A failed comparison whose operand types are printable shows its left and right values, as the native runner's report does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-string-diff-dropped",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/assert.go",
+      "from": "\t\t\t\ttext += assertDiff(ls, rs)\n",
+      "to": "\t\t\t\t_, _ = ls, rs\n",
+      "rule": "A failed comparison of strings over more than one line adds the native runner's line diff.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-summary-failed-uncounted",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\t\t\tfailed++\n",
+      "to": "\t\t\t_ = failed\n",
+      "rule": "A decided package's summary counts its failed tests, prints FAIL (k of n tests) and exits 1, as the native run does.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-ft1-defect-decided",
+      "origin": "wf10 ORACLE FT1",
+      "file": "internal/sketch/eval/verdict.go",
+      "from": "\tcase Refuted:\n",
+      "to": "\tcase Refuted, Defect:\n",
+      "rule": "A defect stops the native run, so the evaluator does not decide a package with one: the native runner answers it.",
+      "killers": ["internal/sketch/eval:TestTiersAgree"]
+    },
+    {
+      "name": "oracle-o35-last-release-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tv, ab := last(in, fr)\n\t\tif ab == nil && rel != nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n",
+      "to": "\t\tv, ab := last(in, fr)\n\t\t_ = rel\n",
+      "rule": "A compiled list releases its yielding statement's temporaries after it (R43).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o35-scope-release-skipped",
+      "origin": "wf10 ORACLE O35",
+      "file": "internal/sketch/eval/compile_yield.go",
+      "from": "\t\tv, ab := y(in, fr)\n\t\tif ab == nil {\n\t\t\tab = rel(in, fr)\n\t\t}\n",
+      "to": "\t\tv, ab := y(in, fr)\n",
+      "rule": "A compiled scope releases what it owns at its normal end (R6).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {"name":"ft-stored-law-form-dropped","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/eval/eval.go","from":"\t\t\t\t\tif v.Machine == nil {\n\t\t\t\t\t\tres.form = formOf(v.Evidence)\n\t\t\t\t\t}\n","to":"","rule":"A law verdict read from the store is written as the native runner's line, so a package with stored laws stays the evaluator's.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
+    {"name":"tskip-eval-reason","origin":"wf10 TSKIP","file":"internal/sketch/eval/stmt.go","from":"return fr.abrupt(ctlUnsupported, s, nil, why)","to":"return fr.abrupt(ctlUnsupported, s, nil, \"skipped\" + why[:0])","rule":"Check-time evaluation reports a skip skipped with the test's reason and the statement's site.","killers":["internal/sketch/eval:TestRunReportsTheSkipsReason"]},
+    {
+      "name": "oracle-f8-runtime-error-unprefixed",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\tif b == 0 {\n\t\t\treturn nil, \"runtime error: integer divide by zero\", true\n\t\t}\n\t\treturn a / b, \"\", true\n",
+      "to": "\t\tif b == 0 {\n\t\t\treturn nil, \"integer divide by zero\", true\n\t\t}\n\t\treturn a / b, \"\", true\n",
+      "rule": "A defect the Go runtime raises is written as the built program writes it: panic: runtime error: TEXT.",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "oracle-f8-negative-index-with-length",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif _, negative, _ := shiftCount(iv); negative {\n",
+      "to": "\tif _, negative, _ := shiftCount(iv); negative && false {\n",
+      "rule": "Go names a negative index alone, with no length.",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "oracle-f8-slice-low-negative-unnamed",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:]\", lo), false\n",
+      "to": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:%d]\", lo, hi), false\n",
+      "rule": "Go names a negative low bound alone: slice bounds out of range [LO:].",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {"name":"evwitness-skipped","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/interp.go","from":"\t\tif wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {\n\t\t\treturn in.callWitnessed(fr, at, fn, rt, wits, args)\n","to":"\t\tif wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {\n\t\t\treturn nil, fr.unsupported(at, \"a generic call with witnesses yet\")\n","rule":"A generic call whose type parameter an operation type constrains runs at check time, each operation through the instance's witness (lower/witness.go).","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-outer-lost","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/witness.go","from":"\t\tif outer := recvParam(wv.w.Arg); outer != nil {\n","to":"\t\tif outer := recvParam(wv.w.Arg); false && outer != nil {\n","rule":"A type parameter passed on to another constrained call keeps its caller's witness (check Witness: Func is nil when Arg is the caller's type parameter).","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-receiver-dropped","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/witness.go","from":"\tall = append(append(all, recv), args...)\n","to":"\tall = append(append(all, args...), recv)\n","rule":"A witnessed operation calls its function with the receiver first (WitnessOp.Sig: Arg first, then the operation's parameters).","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-borrow-read-skipped","origin":"wf10 SELFHOST-MERGE r2 (MODES-4 respell of witness_test)","file":"internal/sketch/eval/witness.go","from":"\tif p, ok := recv.(*ptrV); ok && len(op.Func.Sig.Params) > 0 && !isPointer(op.Func.Sig.Params[0].Type) {","to":"\tif p, ok := recv.(*ptrV); false && ok && len(op.Func.Sig.Params) > 0 && !isPointer(op.Func.Sig.Params[0].Type) {","rule":"A `mut S` receiver whose witness function takes its type by value reads the borrowed place (types.md, Borrows 1; MODES-1): the function never sees the borrow.","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-optype-borrow-unread","origin":"wf10 SELFHOST-MERGE r2 (MODES-4 respell of witness_test)","file":"internal/sketch/eval/witness.go","from":"\t\tif p, ok := recv.(*ptrV); ok {","to":"\t\tif p, ok := recv.(*ptrV); false && ok {","rule":"A borrow of an operation-type value bound to `mut S` runs its provider on the value the place holds.","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-handover-local-only","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/stmt.go","from":"\tif len(steps) > 0 {\n\t\tif !samePlace(s.Lhs[0], c.Recv) {\n","to":"\tif len(steps) > 0 {\n\t\tif true || !samePlace(s.Lhs[0], c.Recv) {\n","rule":"x.f = x.f.Append(e), through a borrow too, hands the place over as x = x.Append(e) does: its slot does not lend, so the next write does not copy the slice (Go's append extends in place).","killers":["internal/sketch/eval:TestOwnedWritesStayLinear"]},
+    {"name":"evwitness-record-read-lends","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/expr.go","from":"\t\tif root != nil && !holdsNoStore(v) {\n\t\t\t// A part that holds a store leaves the slot: the slot lends.\n","to":"\t\tif root != nil && !basicValue(v) {\n\t\t\t// A part that holds a store leaves the slot: the slot lends.\n","rule":"A read of a part that reaches no slice or Map store (a record of basic values) does not lend its slot: records are never written in place, so nothing is shared.","killers":["internal/sketch/eval:TestOwnedWritesStayLinear"]},
+    {"name":"evwitness-len-lends","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/expr.go","from":"\t\tcase *syntax.SelectorExpr, *syntax.IndexExpr:\n\t\t\tif ab = in.charge(fr, a, 1); ab == nil {\n","to":"\t\tcase *syntax.BasicLit:\n\t\t\tif ab = in.charge(fr, a, 1); ab == nil {\n","rule":"len of a part reads its length only and does not lend the slot.","killers":["internal/sketch/eval:TestOwnedWritesStayLinear"]},
+    {"name":"evappend-skipped","origin":"wf10 MX-EVAPPEND","file":"internal/sketch/eval/interp.go","from":"; check.GoBuiltin(fn) == \"append\" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0]) && (!spreads || isSliceV(args[1]))) {\n","to":"; false && check.GoBuiltin(fn) == \"append\" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0]) && (!spreads || isSliceV(args[1]))) {\n","rule":"An extern of Go's append at [T](xs []T, x T) []T runs at check time as the prelude's xs.Append(x) (check/builtin.go).","killers":["internal/sketch/eval:TestBuiltinAppendRunsAtCheckTime"]},
+    {"name":"evappend-args-swapped","origin":"wf10 MX-EVAPPEND","file":"internal/sketch/eval/interp.go","from":"\t\treturn in.appendTo(fr, site, xs, args[1], nil)\n","to":"\t\treturn in.appendTo(fr, site, xs, args[0], nil)\n","rule":"Go's append bound by an extern adds its second argument at the end of its first.","killers":["internal/sketch/eval:TestBuiltinAppendRunsAtCheckTime"]},
+    {"name":"evappend-preflight-refuses","origin":"wf10 MX-EVAPPEND","file":"internal/sketch/eval/preflight.go","from":" || check.GoBuiltin(fn) == \"append\" || p.in.goBody(fn) {\n","to":" || p.in.goBody(fn) {\n","rule":"A case's preflight admits an extern of Go's append, which the run evaluates (check/builtin.go).","killers":["internal/sketch/eval:TestBuiltinAppendRunsAtCheckTime"]},
+    {"name":"evmathbits-host-excluded","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"fn.Decl.Extern.Target == nil || fn.Pkg == nil || fn.Pkg.Std() {\n","to":"fn.Decl.Extern.Target == nil || fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {\n","rule":"A function of an `import go` package runs as the program's extern of the same Go path and name does.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
+    {"name":"evmathbits-float64-missing","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"\t\"math.Float64bits\":     goBits(math.Float64bits),\n","to":"\t\"math.Float64bitz\":     goBits(math.Float64bits),\n","rule":"math.Float64bits runs at check time and gives Go's bits.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
+    {"name":"evmathbits-frombits-missing","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"\t\"math.Float64frombits\": goBits(math.Float64frombits),\n","to":"\t\"math.Float64frombitz\": goBits(math.Float64frombits),\n","rule":"math.Float64frombits runs at check time, through a program's extern too.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
+    {"name":"evmathbits-float32-swapped","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"\t\"math.Float32frombits\": goBits(math.Float32frombits),\n","to":"\t\"math.Float32frombits\": goBits(func(b uint32) float32 { return float32(b) }),\n","rule":"math.Float32frombits reinterprets the bits; it does not convert the number.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
+    {"name":"evbuilder-indexbyte-missing","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesgo.go","from":"\tgoNatives[\"strings.IndexByte\"] = func(","to":"\tgoNatives[\"strings.IndexBytez\"] = func(","rule":"std strings.IndexByte runs at check time as Go's strings.IndexByte.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"evbuilder-indexbyte-reads-all","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/natives.go","from":"\t\t\treturn int64(i) + 1\n","to":"\t\t\treturn int64(len(a[0].(string)))\n","rule":"IndexByte's work is the bytes it reads, up to the byte it finds (readsOf).","killers":["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]},
+    {"name":"evbuilder-appendstring-copies","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/interp.go","from":"\t\tif in.sym != nil || !isSlice || !isText {\n","to":"\t\tif true || in.sym != nil || !isSlice || !isText {\n","rule":"Go's append(out, s...) at check time appends each byte in place and counts it, as Append does.","killers":["internal/sketch/eval:TestAppendStringCountsItsBytes"]},
+    {"name":"evbuilder-appendfrom-whole-run","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesbuilder.go","from":"cur.elems()[start+k], nil)","to":"buf.elems()[min(start+k, buf.n-1)], nil)","rule":"WriteFrom's byte k is the byte at start+k of the result, so a run past the end repeats what the call wrote.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"evbuilder-appendfrom-end-start","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesbuilder.go","from":" || start == length && n > 0; bad {","to":"; bad {","rule":"WriteFrom from the text's end with n > 0 is Go's index panic, a defect.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"evbuilder-appendbytes-drops-first","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesjson.go","from":"\t\tfor _, c := range args[1].(sliceV).elems() {\n","to":"\t\tfor _, c := range args[1].(sliceV).elems()[min(1, args[1].(sliceV).n):] {\n","rule":"WriteBytes adds every byte of bs.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"evbuilder-civil-buffer-not-empty","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesjson.go","from":"\t\t// the Go target's, so an empty buffer, as strings.Borrow's.\n\t\treturn newSlice(nil), in.charge(fr, at, 1)\n","to":"\t\t// the Go target's, so an empty buffer, as strings.Borrow's.\n\t\treturn newSlice([]Value{uint8(' ')}), in.charge(fr, at, 1)\n","rule":"std civil's buffer is empty: a format's text is only what it writes.","killers":["internal/sketch/eval:TestStdTextBuffersRunAtCheckTime"]},
+    {"name":"cf1-literal-shares-loop-slot","origin":"wf10 CF1","file":"internal/sketch/eval/expr.go","from":"vars: fr.vars.snapshot(), env: fr.env, home: fr, caps: fr.caps}, nil","to":"vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil","rule":"A function literal keeps the binding of each variable it sees when it is made: a loop's variable, and a match binding in the loop's body, are per iteration, as in the lowered Go.","killers":["internal/sketch/eval:TestLiteralKeepsItsIterationsBinding"]},
+    {"name":"cf1-foldvalue-list-drops-last","origin":"wf10 CF1","file":"internal/sketch/eval/foldvalue.go","from":"\t\tfor _, e := range v.elems() {\n\t\t\tc, ok := toConst(e, holes)\n","to":"\t\tfor _, e := range v.elems()[:max(0, v.n-1)] {\n\t\t\tc, ok := toConst(e, holes)\n","rule":"A folded list holds each element of the computed list.","killers":["internal/experimental/irspike:TestConstFoldAgrees"]},
+    {"name":"cf1-infold-native-false","origin":"wf10 CF1","file":"internal/sketch/eval/nativesjson.go","from":"\t\treturn in.fold, in.charge(fr, at, 1)\n","to":"\t\treturn false, in.charge(fr, at, 1)\n","rule":"The evaluator is what computes a build-time fold, so std build's InFold is true there: a folded html subtree is its markup (CF1, CF2).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {"name":"evslot-two-words","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/slotsize.go","from":"\treturn max(size, 1)\n","to":"\treturn max(size, 1)*0 + valueBytes\n","rule":"A collection slot costs the byte budget its element type's Go size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-literal-two-words","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/expr.go","from":"in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), elem)","to":"in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), valueBytes)","rule":"A slice or array literal charges its element type's Go size a slot.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-literal-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/expr.go","from":"\ts.b.elem = elem\n","to":"","rule":"A literal's store keeps its element size, so a later copy is charged at it.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-copy-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/coll.go","from":"&backing{data: data, owner: tok, elem: s.b.elem}","to":"&backing{data: data, owner: tok}","rule":"A copied store keeps its element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-array-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/types.go","from":"\t\ts.array = true\n\t\ts.b.elem = goSize(rtype{t.Elem, u.env})\n","to":"\t\ts.array = true\n","rule":"An array default's store has its element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-zero-slice-elem","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/types.go","from":"\t\ts := newSlice(nil)\n\t\ts.b.elem = goSize(rtype{t.Elem, u.env})\n","to":"\t\ts := newSlice(nil)\n","rule":"A slice default's store has its element size, so its appends are charged at it.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-append-two-words","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/coll.go","from":"in.buildSlots(fr, at, int64(len(xs.b.data)), 2*int64(len(xs.b.data))+1, xs.b.slotBytes())","to":"in.buildSlots(fr, at, int64(len(xs.b.data)), 2*int64(len(xs.b.data))+1, valueBytes)","rule":"An Append that grows its store charges its element size a slot.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-append-copy-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/coll.go","from":"&backing{data: data, owner: own, elem: xs.b.elem}","to":"&backing{data: data, owner: own}","rule":"An Append that copies its slice into a new store keeps the element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-appender-lends","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/stmt.go","from":"\t} else if call := in.appenderHandover(fr, root, steps, s); call != nil {\n","to":"\t} else if call := in.appenderHandover(fr, root, steps, s); false && call != nil {\n","rule":"x.f = f(x.f, …), f a pure extern []T -> []T, reads x.f without lending, so the next write through x does not copy.","killers":["internal/sketch/eval:TestAppenderKeepsItsPlace"]},
+    {"origin":"wf10 CF2","name":"cf2-hole-not-symbol","file":"internal/sketch/eval/expr.go","from":"\t\t\treturn h, nil // a template's hole (foldvalue.go)\n","to":"\t\t\t_ = h\n","rule":"A template's hole is a symbol of its type; its expression, which reads a local, never runs at build time.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
+    {"origin":"wf10 CF2","name":"cf2-hole-takes-any-variant","file":"internal/sketch/eval/foldvalue.go","from":"\t\tif vn.Obj == n.Obj {\n","to":"\t\tif true {\n","rule":"A hole takes a type test only of its own type or a union of it: a node hole is no attribute (a page's attributes are written in its start tag).","killers":["internal/experimental/irspike:TestTemplateAgrees"]},
+    {"origin":"wf10 CF2","name":"cf2-native-reads-hole","file":"internal/sketch/eval/foldvalue.go","from":"\t\tif symbolic(a) {\n\t\t\tin.sym.blame(args...)\n","to":"\t\tif symbolic(a) && false {\n\t\t\tin.sym.blame(args...)\n","rule":"A native never takes a hole: the run stops and names it, so it widens (LocalURL's argument).","killers":["internal/experimental/irspike:TestTemplateCounts"]},
+    {"origin":"wf10 CF2","name":"cf2-range-reads-hole","file":"internal/sketch/eval/stmt.go","from":"\tif _, isTerm := dom.(term); isTerm && in.sym != nil {\n","to":"\tif _, isTerm := dom.(term); false && isTerm && in.sym != nil {\n","rule":"A for-in over a hole stops the run and names it (Each's list widens to the Each).","killers":["internal/experimental/irspike:TestTemplateCounts"]},
+    {"origin":"wf10 CF2","name":"cf2-template-not-in-fold","file":"internal/sketch/eval/foldvalue.go","from":"globals: map[*check.Var]*slot{}, sym: run, fold: true, walk: true}","to":"globals: map[*check.Var]*slot{}, sym: run, walk: true}","rule":"A template run is a fold: std build's InFold is true there, so html builds its template.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
+    {"origin":"wf10 CF2","name":"cf2-hole-never-hole","file":"internal/sketch/eval/nativesjson.go","from":"\t\treturn in.fold && hole, in.charge(fr, at, 1)\n","to":"\t\treturn in.fold && hole && false, in.charge(fr, at, 1)\n","rule":"std build's Hole is true of a template's hole in a fold, so html places it as it is rather than read it.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
+    {"name":"evgrow-unmapped","origin":"wf10 NP4f-15 reland (NS lane)","file":"internal/sketch/eval/natives.go","from":"\tcheck.CollGrow:       \"bytes.grow\",\n","to":"","rule":"std http.ParseQuery (Ergo, bs.Grow) runs at check time, not a skip: eval runs bs.Grow as runtime/v1.StringsBuilderGrow.","killers":["internal/sketch/eval:TestQueryParsesAtCheckTime"]},
+    {"name":"evfiring-never-set","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesmore.go","from":"\t\tin.firing = true\n","to":"\t\tin.firing = false\n","rule":"Under std machines' firing mark an Every timer's signal carries time.Clock's reading, not the zero time.","killers":["examples:stopwatch"]},
+    {"name":"evevery-unconverted","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/machinevalue.go","from":"\t\t\tif check.IsEvery(t.t) {\n","to":"\t\t\tif false && check.IsEvery(t.t) {\n","rule":"A machine's After turns an after function's machines.Every into the Timeout the build's everyTimers gives.","killers":["examples:stopwatch"]},
+    {"name":"stepop-leaf-charged","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"if leaf := f.op == opConst || f.op == opIdent; !leaf {","to":"if leaf := false; !leaf {","rule":"A leaf (a name, a constant) costs no step of its own: the node that reads it pays.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
+    {"name":"stepop-binary-free","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"if leaf := f.op == opConst || f.op == opIdent; !leaf {","to":"if leaf := f.op == opConst || f.op == opIdent || f.op == opBinary; !leaf {","rule":"An operation costs its step: only leaves are free.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
+    {"name":"stepop-root-charged","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"\t\t\t\t// (tailK).\n\t\t\t\treturn s.v, s, nil\n","to":"\t\t\t\t// (tailK).\n\t\t\t\tif ab := in.charge(fr, x, 1); ab != nil {\n\t\t\t\t\treturn nil, nil, ab\n\t\t\t\t}\n\t\t\t\treturn s.v, s, nil\n","rule":"A field path's root local costs no step: the path's node pays.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
+    {"name":"stepop-bytes-by-byte","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/interp.go","from":"func byteWork(n int64) int64 { return (n + 7) / 8 }","to":"func byteWork(n int64) int64 { return n }","rule":"A copy or comparison of n bytes costs ceil(n/8) steps, a word at a time, as memmove and memequal work.","killers":["internal/sketch/eval:TestStepsCountBytesByTheWord"]},
+    {"name":"stepop-equal-by-byte","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/value.go","from":"if !spend(byteWork(int64(min(len(a), len(bs))))) {","to":"if !spend(int64(min(len(a), len(bs)))) {","rule":"A string equality reads its bytes a word at a time.","killers":["internal/sketch/eval:TestStepsCountBytesByTheWord"]},
+    {"name":"ll-slot-never-lazy","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/expr.go","from":"\tif s := in.globals[v]; s != nil || !in.fold {\n","to":"\tif s := in.globals[v]; s != nil || true {\n","rule":"In a fold, reading a package let no initializer bound runs its initializer (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {"name":"ll-qualified-let-unbound","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/expr.go","from":"\t\t\t\t\tif s := in.slotOf(fr, o); s != nil {\n","to":"\t\t\t\t\tif s := in.globals[o]; s != nil {\n","rule":"In a fold, another package's let (pkg.v) binds on its first read as a bare name does (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {"name":"ll-let-bound-ignored","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\tin.budget.Steps, in.stepsAt, in.bytesAt, in.depth, in.sym = foldLetSteps, in.steps, in.bytes, 0, nil\n","to":"\tin.stepsAt, in.bytesAt, in.depth, in.sym = in.steps, in.bytes, 0, nil\n","rule":"A let's initializer in a fold runs under foldLetSteps, not the fold's budget (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {"name":"ll-fold-pays-let","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\t\tin.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym = budget, steps, bytes, stepsAt, bytesAt, depth, sym\n","to":"\t\tin.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym = budget, in.steps+0*steps, bytes, stepsAt, bytesAt, depth, sym\n","rule":"A fold pays none of the steps of the lets it binds: each is paid once, under its own bound (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {"name":"ll-bound-keeps-old-lets","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\tfoldLets.sites = nil\n","to":"","rule":"A new let bound forgets the lets bound under the old one (SetFoldLetStepsForTest), so a test's bound is the one the folds see.","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {
+      "name": "casefix2-ops-arg-as-conversion",
+      "origin": "wf10 CASEFIX2",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tif _, ops := t.Underlying().(*check.Interface); ops {\n\t\t\treturn in.builtText(t)\n\t\t}\n",
+      "to": "",
+      "rule": "A refuted case shows an operation type's value as its builder's call, NewHeld(…), as the Go build does (lower/builders.go builtText).",
+      "killers": [
+        "internal/sketch/lower:TestCasePlansAgreeWithGo"
+      ]
+    },
+    {
+      "name": "casefix2-ctor-arg-as-record",
+      "origin": "wf10 CASEFIX2",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tif testplan.ByConstructor(t) {\n",
+      "to": "\t\tif ctor := testplan.Constructor(t); ctor != nil && len(ctor.Sig.Params) == 0 && testplan.ByConstructor(t) {\n",
+      "rule": "A refuted case shows a value built by a constructor whose record has no text as the constructor's call, NewWrap(…), as the Go build does (testplan.ByConstructor).",
+      "killers": [
+        "internal/sketch/lower:TestCasePlansAgreeWithGo"
+      ]
+    },
+    {
       "name": "np4f1-eval-skips-import-go",
       "origin": "wf10 NP4f-1",
       "file": "internal/sketch/eval/nativesgo.go",
@@ -1564,6 +2095,104 @@
       "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
       "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {
+      "name": "red18-bytes-op-not-evaluated",
+      "origin": "wf10 red #18 (NP4f x PRIM-4)",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tcheck.CollBytes:      \"strings.stringsBytes\",\n",
+      "to": "",
+      "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
+      "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {"name":"tpdiag-isletter-is-isdigit","origin":"wf10 TP-DIAG","file":"internal/sketch/eval/nativesgo.go","from":"\t\"unicode.IsLetter\":  goRune(unicode.IsLetter),","to":"\t\"unicode.IsLetter\":  goRune(unicode.IsDigit),","rule":"An import go function runs its own Go function.","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {"name":"evalbuilder-max-is-min","origin":"wf10 EVAL-BUILDER","file":"internal/sketch/eval/natives.go","from":"pure(\"cmp.Max\", func(a []Value) Value { return pick(a[0], a[1], true) })","to":"pure(\"cmp.Max\", func(a []Value) Value { return pick(a[0], a[1], false) })","rule":"cmp.Max is Go's builtin max.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"tbf-budget-one-case","origin":"wf10 TP-BUILT-FAST","file":"internal/sketch/eval/cases.go","from":"\tin.casesBudget(p.Count)\n","to":"\tin.casesBudget(1)\n","rule":"testing.md, Budgets: the step budget is each case's, so a test or law of n cases may spend n times it.","killers":["internal/sketchfront:TestCheckEvalRunnerModel"]},
+    {"name":"tbf-context-law-one-case","origin":"wf10 TP-BUILT-FAST","file":"internal/sketch/eval/lawcontext.go","from":"\tin.casesBudget(testplan.Cases)\n","to":"\n","rule":"testing.md, Budgets: a law run under a named context runs 100 cases, so it has 100 cases' steps.","killers":["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]},
+    {"name":"evalifp-append-spread-one","origin":"wf10 EVAL-IFP","file":"internal/sketch/eval/interp.go","from":"\t\t\tif spreads {\n\t\t\t\treturn in.appendAll(","to":"\t\t\tif false {\n\t\t\t\treturn in.appendAll(","rule":"An extern of Go's append at its spread shape, [T](xs []T, ys []T) []T (slices.AppendAll), appends each element of ys, as Go's append(xs, ys...) does (check/builtin.go).","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]},
+    {"name":"hk-native-pads-swapped","origin":"wf10 HMAC-KEYED","file":"internal/sketch/eval/nativeshmac.go","from":"tuple{elems: []Value{state(0x36), state(0x5c)}}","to":"tuple{elems: []Value{state(0x5c), state(0x36)}}","rule":"The evaluator's hmac.keyState is runtime/v1's: inner pad 0x36, outer 0x5c.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"tf-native-offset-first-byte","origin":"wf10 TOTP-FLOOR","file":"internal/sketch/eval/nativeshmac.go","from":"\t\toff := h[len(h)-1] & 15","to":"\t\toff := h[0] & 15","rule":"The evaluator's totp.hotpNumber is runtime/v1's: the offset is the tag's last byte's low bits.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-native-missing","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\tpure(\"sha1.Sum\",","to":"\tpure(\"sha1.Sumz\",","rule":"Every pure std extern has an evaluator native, so a law over it runs at ergo check.","killers":["internal/sketch/eval:TestEveryPureStdExternHasANative"]},
+    {"name":"st4-toint8-width","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\tconv(\"ToInt8\", 8, true,","to":"\tconv(\"ToInt8\", 9, true,","rule":"math.ToInt8 fails OutOfRange past int8's range, as runtime/v1's does.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-touint-below-zero","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\tlo, hi := 0.0, math.Ldexp(1, n)","to":"\t\tlo, hi := -1.0, math.Ldexp(1, n)","rule":"An unsigned conversion of a value at or below -1 fails OutOfRange.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-hex-odd-offset","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\"Offset\": int64(len(s))})","to":"\"Offset\": int64(len(s) - 1)})","rule":"hex.Decode of an odd length fails Malformed at len(s).","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-base64-url-as-std","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"decode64(base64.URLEncoding))","to":"decode64(base64.StdEncoding))","rule":"base64.decodeURL reads the URL alphabet.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-max-nan","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\t\treturn max(x, b.(float64))","to":"\t\t\treturn pick(a, b, x < b.(float64))","rule":"cmp.Max of floats is Go's max: a NaN gives NaN and max(-0, +0) is +0.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-div64-swapped","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\treturn pair(q, r)","to":"\t\treturn pair(r, q)","rule":"bits.Div64 gives the quotient then the remainder.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-iso-trailing-zeros","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"strings.TrimRight(strconv.FormatUint(ns+sec, 10)[1:], \"0\")","to":"strconv.FormatUint(ns+sec, 10)[1:]","rule":"time.DurationISO drops a fraction's trailing zeros.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-iso-comma","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"(s[i] == '.' || s[i] == ',')","to":"(s[i] == '.')","rule":"time.ParseDurationISO reads a comma as the decimal point.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-iso-order","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\tnext = next[at+1:]","to":"\t\tnext = next[at:]","rule":"time.ParseDurationISO takes H, M and S in that order, each once.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-rel-fields-swapped","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"map[string]Value{\"Base\": a[0], \"Target\": a[1]}","to":"map[string]Value{\"Base\": a[1], \"Target\": a[0]}","rule":"filepath.Rel fails NotRelative{base, target}.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-query-path-escape","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\t\tb.WriteString(url.QueryEscape(r.fields[fieldIndex(r.t, \"Value\")].(string)))","to":"\t\t\tb.WriteString(url.PathEscape(r.fields[fieldIndex(r.t, \"Value\")].(string)))","rule":"http.EncodeQuery escapes a value as url.QueryEscape does (a space as +).","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-delete-keeps-range","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\tout = append(append(out, xs[:i]...), xs[j:]...)","to":"\t\tout = append(append(out, xs[:i]...), xs[i:]...)","rule":"slices.Delete leaves out xs[i:j].","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-insert-before-all","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\tout = append(append(append(out, xs[:i]...), ys...), xs[i:]...)","to":"\t\tout = append(append(append(out, ys...), xs[:i]...), xs[i:]...)","rule":"slices.Insert puts ys before index i.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-truncate-rounds","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\"time.truncate\", reading(time.Time.Truncate))","to":"\"time.truncate\", reading(time.Time.Round))","rule":"time.truncate rounds down to a multiple of d.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-appendfloat-32","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"int(a[2].(int64)), 64)","to":"int(a[2].(int64)), 32)","rule":"strconv.AppendFloat formats at 64 bits.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-quotedbytes-html-ignored","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"jsonQuote(mustBytes(a[0]), a[1].(bool))","to":"jsonQuote(mustBytes(a[0]), false)","rule":"json.appendQuotedBytes escapes <, > and & when html is set.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"st4-encode-url-as-std","origin":"wf10 STD-SURVEY ST4","file":"internal/sketch/eval/nativespure.go","from":"\t\t\"encoding/base64.URLEncoding\":    base64.URLEncoding,","to":"\t\t\"encoding/base64.URLEncoding\":    base64.StdEncoding,","rule":"The evaluator's base64.URLEncoding is Go's URL alphabet.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {
+      "name": "enl-go-read-unbuilt",
+      "origin": "wf10 EVAL-NATIVE-LOAD",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "\treturn loadedNatives().goLib[path+\".\"+name]",
+      "from": "\tif nat := loadedNatives().goLib[path+\".\"+name]; nat != nil {",
+      "to": "\tif nat := nativeTables{}.goLib[path+\".\"+name]; nat != nil {",
+      "anchor": {"tests":["internal/sketch/eval:TestFirstReaderSeesBuiltNatives"]},
+      "killers": ["internal/sketch/eval:TestFirstReaderSeesBuiltNatives"]
+    },
+    {"name":"sq1-eval-cbrt-is-sqrt","origin":"wf10 SQ1 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"Cbrt\": math.Cbrt,","to":"\"Cbrt\": math.Sqrt,","rule":"ORACLE O20: check-time evaluation calls the same Go function a build does (eval's natives).","killers":["internal/sketch/stdlib:TestStdMathTrigLaws"]},
+    {"name":"evalfp-row-one-member-union","origin":"wf10 EVAL-FAILS-PARAM","file":"internal/sketch/eval/types.go","from":"func writeRowKey(b *strings.Builder, ms []rtype) {\n\tif len(ms) == 1 {","to":"func writeRowKey(b *strings.Builder, ms []rtype) {\n\tif len(ms) == -1 {","rule":"A row of one error type in a type position names that type itself (rows.md, Error rows 8, One member): FBad[F] with F bound to the row Oops is FBad[Oops], and a match takes an FBad[Oops] value.","killers":["internal/sketch/eval:TestEvalAgreesWithModel"]},
+    {"name":"sq5-native-trim-left-only","origin":"wf10 B24-SQ5 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\t\tfor end > start {\n","to":"\t\tfor false && end > start {\n","rule":"The evaluator's strings.TrimFunc trims both ends, as Go's (ORACLE: check time agrees with a build).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
+    {"name":"sq5-native-fields-drops-last","origin":"wf10 B24-SQ5 (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\t\tif start >= 0 {\n\t\t\tout = append(out, s[start:])\n","to":"\t\tif false {\n\t\t\tout = append(out, s[start:])\n","rule":"The evaluator's strings.FieldsFunc gives the run that ends the string, as Go's.","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
+    {"name":"eval-pair-append-writes-string","origin":"wf10 lane B (codec port r1)","file":"internal/sketch/eval/codecwalk.go","from":"\t\t_, ab = w.event(wr, \"StringBytes\", out)","to":"\t\ts, _ := byteString(out.(sliceV))\n\t\t_, ab = w.event(wr, \"String\", s)","rule":"ORACLE O18: check-time evaluation writes an append-form pair's text as the lowered encoder does, through the Writer's StringBytes (lower/wire.go), so the build-time fold (CF1) prints what the program prints.","killers":["internal/experimental/irspike:TestIRWirePairsMatchSource"]},
+    {"name":"eval-pair-append-reads-string","origin":"wf10 lane B (codec port r1)","file":"internal/sketch/eval/codecwalk.go","from":"\t\traw, ab := w.event(rd, \"StringBytes\", newSlice(nil))\n\t\tif ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n\t\treturn w.callFunc(p.Parse, raw) // the append form's ParseX","to":"\t\ts, ab := w.event(rd, \"String\")\n\t\tif ab != nil {\n\t\t\treturn nil, ab\n\t\t}\n\t\treturn w.callFunc(p.Parse, bytesValue(s.(string))) // the append form's ParseX","rule":"ORACLE O18: check-time evaluation reads an append-form pair's text as the lowered decoder does, through the Reader's StringBytes (lower/wire.go).","killers":["internal/experimental/irspike:TestIRWireReadsMatchSource"]},
+    {"name":"eval-ctor-arg-unqualified","origin":"wf10 ALIAS-CASE","file":"internal/sketch/eval/arguments.go","from":"\t\t\tif i := strings.LastIndex(text, \".\"); i >= 0 {\n\t\t\t\ttext = text[:i+1]\n","to":"\t\t\tif i := strings.LastIndex(text, \".\"); i >= 0 {\n\t\t\t\ttext = \"\"\n","rule":"A constructor-built value of another package shows its constructor's call qualified as the source imports it, as the Go build does (CASEFIX2 gap, CASEGEN-PKG).","killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},
+    {"name":"eval-built-arg-unqualified","origin":"wf10 ALIAS-CASE","file":"internal/sketch/eval/arguments.go","from":"\ttext := in.root.Qualified(b.Func.Pkg, b.Func.Name)\n","to":"\ttext := b.Func.Name\n","rule":"An operation type's value built by another package's builder shows the builder's call qualified as the source imports it, as the Go build does.","killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},
+    {"name":"eval-provider-ctor-unqualified","origin":"wf10 ALIAS-CASE","file":"internal/sketch/eval/cases.go","from":"Value: in.root.Qualified(ctor.Pkg, ctor.Name) + \"(\"","to":"Value: ctor.Name + \"(\"","rule":"A law's provider built by another package's constructor shows the call qualified as the source imports it, as the Go build does.","killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},
+    {
+      "name": "np4furl-eval-go-error-dropped",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/eval/gohost.go",
+      "from": "\t\tif err, _ := outs[n-1].Interface().(error); err != nil {\n",
+      "to": "\t\tif err, _ := outs[n-1].Interface().(error); err != nil && false {\n",
+      "rule": "A Go call's non-nil error is its go.Error failure in the evaluator, as in the built program.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-eval-nil-field-some",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/eval/gohost.go",
+      "from": "\t\tif v.IsNil() {\n\t\t\treturn optionOf(t, nil, false), true\n",
+      "to": "\t\tif false {\n\t\t\treturn optionOf(t, nil, false), true\n",
+      "rule": "A nil Go pointer field is None in the evaluator, as in the built program.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {"name":"init-steps-obligation","origin":"wf10 LITERAL-LET","file":"internal/sketch/eval/init.go","from":"\tin.budget.Steps = max(steps, initSteps)","to":"\tin.budget.Steps = steps","rule":"a run's package initializers run once under a bound of their own, not one obligation's budget (LITERAL-LET)","killers":["internal/sketch/eval:TestRunInitializesUnderItsOwnBound"]},
+    {"name":"c2-eval-tie-dropped","origin":"wf10 CONSTRAINTS C2","file":"internal/sketch/testplan/plan.go","from":"if i < len(p.Ties) && len(p.Ties[i]) > 0 {","to":"if false {","rule":"runtime.md Tests 5, Ties: at check time a later parameter of one type repeats an earlier value in a quarter of the cases.","killers":["internal/sketch/eval:TestTiesReachEqualArguments"]},
+    {"name":"c5-table-hash-only","origin":"wf10 CONSTRAINTS C5 mutant 1","file":"internal/sketch/std/prelude.ergo","from":"\t\t\t\tif t.by.Equal(Value.key, k) {\n","to":"\t\t\t\tif true {\n","rule":"types.md Maps 5: the table compares keys by H.Equal, not by their probe position alone.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5-table-delete-hole","origin":"wf10 CONSTRAINTS C5 mutant 2","file":"internal/sketch/std/prelude.ergo","from":"\t\t\t\tif (j - h) & mask >= (j - i) & mask {\n","to":"\t\t\t\tif false {\n","rule":"types.md Maps 5: a delete shifts the later slots of its probe run back, so no probe ends early at the freed slot.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5-table-grow-other-hash","origin":"wf10 CONSTRAINTS C5 mutant 11","file":"internal/sketch/std/prelude.ergo","from":"let mut j = home(t.by.Hash(Value.key), size)","to":"let mut j = home(t.by.Hash(Value.key), len(t.slots))","rule":"types.md Maps 5: a growth places each key at its home in the new size.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5d-table-latest-spelling","origin":"wf10 CONSTRAINTS C5d","file":"internal/sketch/std/prelude.ergo","from":"match t.slots[j] {\n\t\tcase Some{Value}: Value.key\n","to":"match t.slots[j] {\n\t\tcase Some{Value}: k\n","rule":"types.md Maps 3: a key keeps the spelling it was first put with, in the table.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5d-normal-form-ignored","origin":"wf10 CONSTRAINTS C5d","file":"internal/sketch/std/prelude.ergo","from":"\tif m.by.NormalForm() {\n\t\treturn match m.norm.Get(m.by.NormalKey(k)) {\n","to":"\tif false {\n\t\treturn match m.norm.Get(m.by.NormalKey(k)) {\n","rule":"types.md Maps 6: a Map whose provider has a normal form finds its keys in the Go map keyed by NormalKey.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5d-written-normal-form-ignored","origin":"wf10 CONSTRAINTS C5d","file":"internal/sketch/check/mapshape.go","from":"\t\tif _, own := c.methodOf(n, name); own != nil {\n","to":"\t\tif false {\n","rule":"types.md Maps 6: a provider's own NormalForm and NormalKey stand; the checker derives neither.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5b-keytable-latest-spelling","origin":"wf10 CONSTRAINTS C5b (C5 mutant 3)","file":"internal/sketch/std/prelude.ergo","from":"match m.norm.Get(n) {\n\t\t\tcase Some{Value}: Value.key\n","to":"match m.norm.Get(n) {\n\t\t\tcase Some{Value}: k\n","rule":"types.md Maps 3: a key keeps the spelling it was first put with, under a normal form too.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5b-map-equal-structural","origin":"wf10 CONSTRAINTS C5b","file":"internal/sketch/check/operators.go","from":"if IsProviderMap(t) && c.providerEqual(x, t) {","to":"if false {","rule":"types.md Maps 3: == of two Maps with a provider compares keys by the provider's Equal, not the tables' records.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5b-map-equal-spelling","origin":"wf10 CONSTRAINTS C5b","file":"internal/sketch/std/prelude.ergo","from":"\t\tlet same = match o.Get(k) {\n","to":"\t\tlet same = match o.Stored().Get(k) {\n","rule":"types.md Maps 3: == reads keys through the provider; two spellings it calls Equal are one key.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5b-hash-zero-sign","origin":"wf10 CONSTRAINTS C5b (C5 mutant 6)","file":"internal/sketch/eval/hash.go","from":"\t\tif v == 0 {\n\t\t\tv = 0 // -0.0 == 0.0\n\t\t}\n","to":"","rule":"types.md Maps 4: hash(0.0) == hash(-0.0), since 0.0 == -0.0.","killers":["internal/sketch/eval:TestHashAgreesWithEquality"]},
+    {"name":"c5b-hash-record-by-text","origin":"wf10 CONSTRAINTS C5b (C5 mutant 6)","file":"internal/sketch/eval/hash.go","from":"\t\tif basicValue(v) {\n","to":"\t\tif true {\n","rule":"types.md Maps 4: a record's hash reads each field's value, not the record's identity, with -0.0 as 0.0.","killers":["internal/sketch/eval:TestHashAgreesWithEquality"]},
+    {"name":"c2-tie-never","origin":"wf10 CONSTRAINTS C2","file":"runtime/testgen/stream.go","from":"if k := r.Intn(4 * n); k < n {","to":"if k := r.Intn(4 * n); k < 0 {","rule":"runtime.md Tests 5, Ties: a tie is drawn with probability 1/4 (the tie rule removed, probability 0).","killers":["internal/sketch/eval:TestTiesReachEqualArguments"]},
+    {"name":"slide-eval-evicted-dropped","origin":"wf10 SLIDE-RELEASE","file":"internal/sketch/eval/tasks.go","from":"\t\treturn in.option(fr, call, old, evicted)","to":"\t\treturn in.option(fr, call, old, false)","rule":"The evaluator's Slide gives the evicted value back, so the caller's scope releases it (SLIDE-RELEASE).","killers":["internal/sketch/eval:TestEvalSlideReleasesTheEvicted"]},
+    {"name":"net-send-rawpath-unread","origin":"wf10 EVAL-RAWPATH","file":"internal/sketch/eval/nativesnet.go","from":"\tu.Path, u.RawPath, u.RawQuery = p, rawPath, strings.Join(vals, \"&\")","to":"\tu.Path, u.RawPath, u.RawQuery = p, rawPath[:0], strings.Join(vals, \"&\")","rule":"std http send sends RawPath when it encodes Path, as runtime/v1 HTTPDo does (HTTP-RAWPATH).","anchor":{"tests":["internal/sketch/eval:TestNetSendCarriesRawPath"]},"killers":["internal/sketch/eval:TestNetSendCarriesRawPath"]},
+    {"name":"net-serve-rawpath-dropped","origin":"wf10 EVAL-RAWPATH","file":"internal/sketch/eval/nativesnet.go","from":"rawPath: r.URL.EscapedPath(), header:","to":"rawPath: r.URL.Path, header:","rule":"std http serve gives a handler the escaped path as it came, as runtime/v1 HTTPServe does (HTTP-RAWPATH).","anchor":{"tests":["internal/sketch/eval:TestNetSendCarriesRawPath"]},"killers":["internal/sketch/eval:TestNetSendCarriesRawPath"]},
+    {"name":"sched-fault-stack-dropped","origin":"wf10 EVAL-RAWPATH","file":"internal/sketch/eval/sched.go","from":"\t\treturn taskPanic{fault: f, stack: debug.Stack()}\n","to":"\t\treturn taskPanic{fault: f, stack: debug.Stack()[:0]}\n","rule":"A runtime fault on a task's goroutine, raised again by the root, names the site where it happened (fallout flip-g4).","anchor":{"tests":["internal/sketch/eval:TestTaskFaultKeepsItsStack"]},"killers":["internal/sketch/eval:TestTaskFaultKeepsItsStack"]},
+    {"name":"sq5-native-lastindexany-first","origin":"wf10 SQ5 natives (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"goNatives[\"strings.LastIndexAny\"] = index(strings.LastIndexAny)","to":"goNatives[\"strings.LastIndexAny\"] = index(strings.IndexAny)","rule":"The evaluator's strings.LastIndexAny is Go's last match, not the first (ORACLE O20).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
+    {"name":"sq5-native-isspace-letter","origin":"wf10 SQ5 natives (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"unicode.IsSpace\":   goRune(unicode.IsSpace),","to":"\"unicode.IsSpace\":   goRune(unicode.IsLetter),","rule":"The evaluator's unicode.IsSpace is Go's (ORACLE O20).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
+    {"name":"arity-serve-handler-short","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/http.ergo","from":"[]Field, string, bool, string) Response needs R)","to":"[]Field, string, bool) Response needs R)","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind, and calls a callback with the declared arity (EVAL-RAWPATH: serve called an 8-parameter handler with 9).","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
+    {"name":"arity-send-moved","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/client.ergo","from":"header []Field, body string) Response fails SendFailed","to":"body string, header []Field) Response fails SendFailed","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind: a parameter moved under an unchanged native fails the fast tier.","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
+    {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["lower:TestCellReaderAgrees"]},
+    {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]}
   ]
 }

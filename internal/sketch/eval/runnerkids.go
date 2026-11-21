@@ -101,8 +101,10 @@ func ownerOf(t *etask) *entryRef {
 	return nil
 }
 
-func registerRunnerkids() {
+func registerRunnerkids(t nativeTables) {
+	natives := t.std
 	stoppedOf := func(fn *check.Func) *check.Named { return stdRecord(fn, "Stopped", nil).t }
+	t.reads["actor.NewHost"] = ""
 	natives["actor.NewHost"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 2, 0); ab != nil {
 			return nil, ab
@@ -121,9 +123,11 @@ func registerRunnerkids() {
 		h.state = hostClosed // no entry owns it
 		return h, nil
 	}
+	t.reads["actor.noHost"] = ""
 	natives["actor.noHost"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return &hostV{none: true, state: hostClosed, stopped: stoppedOf(fn)}, nil
 	}
+	t.reads["actor.child"] = "host:actor.Host T func/2 func/2 func/1 func/1 func/1 func/2 func/1 func/1 func/1 func/2 func/2 int64"
 	natives["actor.child"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.actorChild(fr, at, fn, args)
 	}
@@ -132,7 +136,7 @@ func registerRunnerkids() {
 // actorChild is std actor's child: a machine actor that the entry of the
 // calling work owns, filling host unless it is none.
 func (in *interp) actorChild(fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-	if len(args) != 12 {
+	if len(args) != 14 {
 		ice("actor.child with %d arguments", len(args))
 	}
 	host, ok := args[0].(*hostV)
@@ -150,10 +154,11 @@ func (in *interp) actorChild(fr *frame, at syntax.Node, fn *check.Func, args []V
 	if !host.none && (host.state != hostOpen || host.owner != parent) {
 		return nil, fr.unsupported(at, "an actor.ChildIn on a host its entry cannot fill (its defect names the Go build's call site)")
 	}
-	outFn := args[10]
+	outFn := args[12]
 	c := &actorV{
 		initial: args[1], step: args[2], fire: args[3], delay: args[4], workOf: args[5], hasWork: args[6], work: args[7],
-		kind: args[8], next: args[9], owner: ref,
+		hasExit: args[8], leave: args[9],
+		kind: args[10], next: args[11], owner: ref,
 	}
 	// deliver gives a child output to the parent as a signal of the entry
 	// that owns the child, on the child's task; once the parent ended,
@@ -179,7 +184,7 @@ func (in *interp) actorChild(fr *frame, at syntax.Node, fn *check.Func, args []V
 			parent.settled = true
 		}
 	}
-	if ab := in.launch(fr, at, fn, c, args[11].(int64)); ab != nil {
+	if ab := in.launch(fr, at, fn, c, args[13].(int64)); ab != nil {
 		return nil, ab
 	}
 	return c, nil

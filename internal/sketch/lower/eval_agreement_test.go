@@ -144,23 +144,27 @@ func evaluate(src string) (eval.Report, error) {
 // flat match, Go's capture by reference, the switch catch, the Option's
 // type switch, interface unions, calls not inlined, Go builtins through
 // helpers, opaque callbacks and records, union locals kept whole, and the
-// value forms as before OPT5 (forms.go, drop.go), and no loop reservation
-// (reserve.go). With calls not inlined,
+// value forms as before OPT5 (forms.go, drop.go), no loop reservation
+// (reserve.go), and a back-edge poll on every loop (pollplace.go). With
+// calls not inlined,
 // the growth rule (growth.go) has nothing to decide.
 // (The plain Update call went with update.go, OPT6b b21853eb.)
 func referenceLowerings() (restore func()) {
 	saved := []string{valueLowering, matchLowering, captureLowering, getLowering, unionLowering,
-		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering, formLowering, reserveLowering}
-	formLowering, reserveLowering = "reference", "off"
+		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering, formLowering, reserveLowering, pollLowering}
+	formLowering, reserveLowering, pollLowering = "reference", "off", "every"
 	valueLowering, matchLowering, captureLowering = "copy", "flat", "reference"
 	getLowering, unionLowering = "switch", "interface"
 	inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = "call", "call", "opaque", "opaque", "off"
 	catch := SetCatchSwitchForTest(true)
+	savedChain := chainLowering
+	chainLowering = "if"
 	return func() {
 		catch()
+		chainLowering = savedChain
 		valueLowering, matchLowering, captureLowering = saved[0], saved[1], saved[2]
 		getLowering, unionLowering = saved[3], saved[4]
 		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = saved[5], saved[6], saved[7], saved[8], saved[9]
-		formLowering, reserveLowering = saved[10], saved[11]
+		formLowering, reserveLowering, pollLowering = saved[10], saved[11], saved[12]
 	}
 }

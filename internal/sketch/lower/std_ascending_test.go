@@ -18,7 +18,7 @@ import (
 // Ascending other than Ascend is refused, and the ways that make no new
 // value check clean. The check fixture
 // internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo
-// mirrors it for TestFixtures.
+// mirrors it for `ergo check --want`.
 func TestAscendingIsTheOnlyWayIn(t *testing.T) {
 	const head = "import slices\n\ntype Mine slices.Ascending[int]\n\n"
 	const tail = "\nfunc main() {}\n"
@@ -29,7 +29,7 @@ func TestAscendingIsTheOnlyWayIn(t *testing.T) {
 		{"zero value", "func f() int {\n\tlet a slices.Ascending[int]\n\tlen(a.Items())\n}\n", "S114", "let a of type slices.Ascending[int] needs a value: its zero value builds a new value of slices.Ascending"},
 		{"defined type literal", "func f() Mine { Mine{} }\n", "S114", "a literal of Mine, defined over slices.Ascending, builds a new value"},
 		{"record update", "func f(a slices.Ascending[int]) slices.Ascending[int] { slices.Ascending[int]{..a, xs: []int{2, 1}} }\n", "S114", "a record update of slices.Ascending[int] builds a new value"},
-		{"property parameter", "test Generated(a slices.Ascending[int]) {\n\tassert len(a.Items()) >= 0\n}\n", "S108", "a property parameter is generated, and slices.Ascending[int] cannot be"},
+		{"property parameter", "test Generated(a slices.Ascending[int]) {\n\tlet _ = a.Items()\n}\n", "S108", "a property parameter is generated, and slices.Ascending[int] cannot be"},
 		{"ways that make no new value", "func f(xs []int) Option[int] {\n\tlet a = slices.Ascend(xs)\n\tlet b = a\n\tlet m = Mine(b)\n\tlet back = slices.Ascending[int](m)\n\tslices.BinarySearch(back, 1)\n}\n", "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {

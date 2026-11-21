@@ -136,6 +136,9 @@ type Var struct {
 	// a binder with its own diagnostic (D-D3). Only a read in a value
 	// position finds it; every other lookup sees through it (lookupPast).
 	refused bool
+	// freshRef marks a let of a fresh Go handle: a field read through it
+	// charges nothing (gofresh.go).
+	freshRef bool
 }
 
 // Mut reports a `let mut` name, the only kind an assignment or a borrow
@@ -221,6 +224,13 @@ type Context struct {
 	// replace of a replace is one override on each context (contextsum.go,
 	// finishBody).
 	Overrides []Override
+	// TestAmbient is the prelude's TestAmbient for a named context whose
+	// header says `needs TestAmbient` (rows.md, Test's ambient), nil for any
+	// other: its build may require the test's ambient, which the test
+	// runner provides, so only a test's with or a law run builds it.
+	// headerRead marks the header read (contextTestAmbient).
+	TestAmbient *Named
+	headerRead  bool
 }
 
 func (o *TypeName) name() string { return o.Name }

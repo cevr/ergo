@@ -12,7 +12,7 @@ const strconvAppendSource = `import strconv
 
 type text { out []byte }
 
-func put(t *text, n int64, f float64) {
+func put(t mut text, n int64, f float64) {
 	t.out = strconv.AppendInt(t.out, n, 10)
 	t.out = strconv.AppendUint(t.out, uint64(n), 16)
 	t.out = strconv.AppendFloat(t.out, f, 'g', -1)

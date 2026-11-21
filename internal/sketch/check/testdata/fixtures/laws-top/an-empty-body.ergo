@@ -1,0 +1,2 @@
+law Empty(n int) {
+} // want S108

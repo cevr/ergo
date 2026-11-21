@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -363,17 +364,31 @@ func TestBudgetAndSelection(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	slow := map[string]map[string]string{"basic": {"expected.out": "done\n"}}
-	// slowpoke burns CPU (a shell loop; at least 10 ms on any host); dozer
-	// sleeps a second and does almost nothing.
+	// slowpoke burns CPU (a shell loop of 200,000 steps); dozer sleeps a
+	// second and does almost nothing. No bound sits near what a case uses:
+	// a budget of 1ns fails any case that ran on a CPU, and dozer's few
+	// milliseconds of CPU stay far under 500ms while its second of wall
+	// time is over it (ert-budget-wall-time); 1h selects without judging.
+	// Each run names only the programs whose verdict it reads, so no
+	// verdict rests on how long the loop takes. A 10ms budget failed dozer
+	// once at load 80+, where sh and sleep alone took more (GT-CPUBUDGET).
 	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 200000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
 	f.program("dozer", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
 	f.program("lazy", "#!/bin/sh\nsleep 1\necho done\n", "slow net\n", slow, nil)
-	code, out := f.run("-budget", "10ms")
-	oks, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
-		t.Fatalf("default selection: want FAIL slowpoke/basic budget, ok dozer/basic and no lazy; exit %d\n%s", code, out)
+	code, out := f.run("-budget", "1ns", "slowpoke")
+	if _, fails := verdicts(out); code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") {
+		t.Fatalf("a budget of 1ns: want FAIL slowpoke/basic budget; exit %d\n%s", code, out)
 	}
-	for _, args := range [][]string{{"-tags", "slow", "-budget", "10ms"}, {"-tags", "cc,net"}, {"lazy"}} {
+	code, out = f.run("-budget", "500ms", "dozer")
+	if oks, _ := verdicts(out); code != 0 || !oks["dozer/basic"] {
+		t.Fatalf("a budget of 500ms: want ok dozer/basic; exit %d\n%s", code, out)
+	}
+	code, out = f.run("-budget", "1h")
+	oks, _ := verdicts(out)
+	if code != 0 || !oks["slowpoke/basic"] || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
+		t.Fatalf("default selection: want ok slowpoke/basic and dozer/basic and no lazy; exit %d\n%s", code, out)
+	}
+	for _, args := range [][]string{{"-tags", "slow", "-budget", "1ns"}, {"-tags", "cc,net"}, {"lazy"}} {
 		code, out = f.run(args...)
 		oks, _ := verdicts(out)
 		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") || strings.Contains(out, "dozer") {
@@ -501,7 +516,7 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 		}
 	}
 	content, _ := read(t, filepath.Join(filepath.Dir(f.calls), "cache.log"))
-	caches := lines([]byte(content))
+	caches := cases.Lines([]byte(content))
 	if len(caches) != len(calls) || caches[0] == "unset" || caches[0] == os.Getenv(emissionCacheVariable) {
 		t.Fatalf("compiler calls got %s %q, not the run's own (caller's %q)", emissionCacheVariable, caches, os.Getenv(emissionCacheVariable))
 	}
@@ -534,7 +549,7 @@ func readCalls(t *testing.T, f *fixture) []string {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return lines(content)
+	return cases.Lines(content)
 }
 
 func read(t *testing.T, name string) (string, bool) {
@@ -561,9 +576,9 @@ func TestRecordLegWritesGoldensFromTheOriginal(t *testing.T) {
 	port := f.program("porter", original("orig"), "default\n", map[string]map[string]string{
 		"r1": {"args": "a\n"},
 		"r2": {"args": "quiet\n", "expected.out": "stale\n", "expected.err": "stale\n", "expected.status": "9\n"},
-	}, map[string]string{"record.sh": original("orig"), "origin": "a fixture original\n"})
+	}, map[string]string{"record.sh": original("orig")})
 	drift := f.program("drifter", original("port"), "default\n", map[string]map[string]string{"r1": {"args": "a\n"}},
-		map[string]string{"record.sh": original("orig"), "origin": "a fixture original\n"})
+		map[string]string{"record.sh": original("orig")})
 	code, out := f.run("-record", "porter", "drifter")
 	if code != 0 || !strings.Contains(out, "recorded porter/r1\n") {
 		t.Fatalf("-record: exit %d\n%s", code, out)
@@ -628,7 +643,7 @@ func TestRecordLegWritesNothingWhenTheOriginalCannotStart(t *testing.T) {
 			files["stdin"] = "input\n"
 		}
 		dir := f.program("port", "#!/bin/sh\necho port\n", "default\n", map[string]map[string]string{"basic": files},
-			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n", "origin": "a fixture original\n"})
+			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n"})
 		return f, filepath.Join(dir, "cases", "basic")
 	}
 	check := func(t *testing.T, f *fixture, caseDir string) {
@@ -676,26 +691,26 @@ func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	stopping := newLive()
-	stopping.closed = true
+	stopping := cases.NewLive()
+	stopping.Interrupt() // closes the run: nothing starts after it
 	rows := []struct {
 		what  string
 		live  *live
 		argv  []string
 		stdin string
 	}{
-		{"stdin cannot be opened", newLive(), []string{"sh", "-c", "exit 0"}, missing},
-		{"command cannot be started", newLive(), []string{missing}, ""},
+		{"stdin cannot be opened", cases.NewLive(), []string{"sh", "-c", "exit 0"}, missing},
+		{"command cannot be started", cases.NewLive(), []string{missing}, ""},
 		{"the run is stopping", stopping, []string{"sh", "-c", "exit 0"}, ""},
 	}
 	for _, row := range rows {
-		o, err := row.live.execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
+		o, err := row.live.Execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
 		if err == nil {
 			t.Errorf("%s: no error; outcome %+v", row.what, o)
 		}
 	}
-	if o, err := newLive().execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.status != 4 {
-		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.status, err)
+	if o, err := cases.NewLive().Execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.Status != 4 {
+		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.Status, err)
 	}
 }
 
@@ -752,31 +767,6 @@ func TestTestLeg(t *testing.T) {
 	}
 	if code, out := f.run("pending"); code != 1 || strings.Contains(out, "skip") {
 		t.Fatalf("a pending reply alone: want exit 1 and no skip, got %d\n%s", code, out)
-	}
-}
-
-// A skip line that the program's expected-skips file does not list fails
-// the test leg (fs4); a listed one passes, and the cases still run.
-func TestTestLegFailsAnUnexpectedSkip(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
-	src := "#!/bin/sh\necho hi\nexit 0\n# TESTSKIP\ntest Fixture {\n}\n"
-	line := "skip law Store.Keeps for Box: its values have no generator: why"
-	f.program("skipping", src, "default\n", hi, nil)
-	f.program("listed", src, "default\n", hi, map[string]string{"expected-skips": "# Box holds a function\n" + line + "\n"})
-	code, out := f.run()
-	if code != 1 {
-		t.Fatalf("an unexpected skip: want exit 1, got %d\n%s", code, out)
-	}
-	for _, want := range []string{"FAIL skipping: test: 1 unexpected skips", "    " + line + "\n", "ok listed: test ("} {
-		if !strings.Contains(out, want) {
-			t.Errorf("no %q\n%s", want, out)
-		}
-	}
-	oks, _ := verdicts(out)
-	if !oks["skipping/basic"] || !oks["listed/basic"] {
-		t.Errorf("a skip must not stop the cases\n%s", out)
 	}
 }
 
@@ -845,17 +835,17 @@ func TestProgramsRunAtOnceAndPrintInOrder(t *testing.T) {
 
 func TestUnifiedDiff(t *testing.T) {
 	t.Parallel()
-	got := unifiedDiff([]byte("a\nb\nc\n"), []byte("a\nB\nc"))
+	got := cases.Diff([]byte("a\nb\nc\n"), []byte("a\nB\nc"))
 	want := "--- want\n+++ got\n@@ -1,3 +1,3 @@\n a\n-b\n-c\n+B\n+c\n\\ No newline at end of file\n"
 	if got != want {
 		t.Fatalf("diff:\n%s\nwant:\n%s", got, want)
 	}
 	long := strings.Repeat("same\n", 20)
-	got = unifiedDiff([]byte("x\n"+long+"y\n"), []byte("X\n"+long+"Y\n"))
+	got = cases.Diff([]byte("x\n"+long+"y\n"), []byte("X\n"+long+"Y\n"))
 	if strings.Count(got, "@@ -") != 2 || !strings.Contains(got, "@@ -1,4 +1,4 @@\n-x\n+X\n same\n") || !strings.Contains(got, "@@ -19,4 +19,4 @@\n same\n same\n same\n-y\n+Y\n") {
 		t.Fatalf("two distant changes are not two hunks:\n%s", got)
 	}
-	if got := unifiedDiff(nil, []byte("new\n")); got != "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+new\n" {
+	if got := cases.Diff(nil, []byte("new\n")); got != "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+new\n" {
 		t.Fatalf("diff from empty:\n%s", got)
 	}
 }

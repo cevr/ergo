@@ -74,7 +74,7 @@ const cacheVersion = "ergo-examples-cache v2"
 // the lowering emits from std's bodies is in the emitted digest.
 var (
 	driverRoots   = []string{"./cmd/ergo", "./scripts/examples"}
-	emissionRoots = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/std/gostd"}
+	emissionRoots = []string{"internal/sketch/check", "internal/sketch/check/snapshot", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/stdlib", "internal/sketch/std/gostd"}
 )
 
 // cacheKeep is how many entries of one program the cache keeps: the newest.
@@ -131,17 +131,25 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 			targets = append(targets, e.target)
 		}
 	}
-	calls := [][]string{append([]string{"fmt", "--check"}, p.sources...), {"build", "--emitted", p.main}}
-	// A program of packages is keyed by one check and one test --emitted
-	// over all its packages (DIR/...): the std packages they import are
-	// checked once per call, not once per package, about a third of the
-	// calls' CPU (gate-speed GS27). Its targets are every package, so the
-	// pattern reaches the same packages, which coveredPackages holds.
+	calls := [][]string{append([]string{"fmt", "--check"}, p.sources...)}
+	// A program of packages is keyed by one call over all its packages
+	// (DIR/...), `ergo test --emitted --json`: for each package its check
+	// envelope, the digest of its test module and, for the main package,
+	// of its build, from one load of the module, where three calls (check,
+	// test --emitted and build --emitted) each loaded it (gate-speed GS27,
+	// GS31b). Its targets are every package, so the pattern reaches the
+	// same packages, which coveredPackages holds.
 	pattern := ""
 	if p.module && len(targets) > 1 {
 		pattern = filepath.Join(p.dir, "...")
-		calls = append(calls, []string{"check", pattern}, []string{"test", "--emitted", pattern})
+		calls = append(calls, []string{"test", "--emitted", "--json", pattern})
+		if r.cfg.rewrites != "" {
+			// The pattern's build digest is the default build's; a
+			// -rewrites run keys its own build (EVIDENCE-REPORT).
+			calls = append(calls, r.buildArgs("--emitted", p.main))
+		}
 	} else {
+		calls = append(calls, r.buildArgs("--emitted", p.main))
 		for _, target := range targets {
 			calls = append(calls, []string{"check", target}, []string{"test", "--emitted", target})
 		}
@@ -151,32 +159,90 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		if err != nil {
 			return fmt.Sprintf("ergo %s could not start: %v", strings.Join(args, " "), err)
 		}
-		if over := o.overCap(); over != "" || o.timedOut {
+		if over := o.OverCap(); over != "" || o.TimedOut {
 			return fmt.Sprintf("ergo %s: no result to key", strings.Join(args, " "))
 		}
 		if r.keyed == nil {
 			r.keyed = map[string]outcome{}
 		}
 		r.keyed[keyedCall(args)] = o
-		stdout := o.stdout
+		stdout := o.Stdout
 		if args[0] == "check" {
 			stdout = withoutProducer(stdout)
 		}
 		if pattern != "" && args[0] == "test" {
-			if why := coveredPackages(p, targets, o.stdout); why != "" {
+			lines, why := emittedLines(o.Stdout)
+			if why == "" {
+				why = coveredPackages(p, targets, lines)
+			}
+			if why != "" {
 				return why
 			}
+			stdout = nil
+			var envelopes []byte
+			for _, l := range lines {
+				stdout = append(stdout, l.key...)
+				envelopes = append(append(envelopes, l.Check...), '\n')
+			}
+			// The check leg's call (checkModule) takes the envelopes, as
+			// ergo check DIR/... prints them; the call's exit is check's
+			// when every digest was computed, so only a pass is kept.
+			if o.Passed() {
+				check := o
+				check.Stdout = envelopes
+				r.keyed[keyedCall([]string{"check", pattern})] = check
+			}
 		}
-		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, stdout, o.stderr)
+		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.Status, o.Signal, stdout, o.Stderr)
 	}
 	return ""
 }
 
-// coveredPackages says why the packages a pattern's test --emitted named
-// (its "package PATH" lines) are not the program's targets, or "": a key
-// that missed a target would not change when that target's emitted Go
-// does, so the program is then not cached (fail closed).
-func coveredPackages(p *program, targets []string, stdout []byte) string {
+// emittedLine is one package's line of `ergo test --emitted --json`
+// (cmd/ergo emittedjson.go), and key the line less its check envelope's
+// producers, as the key holds it.
+type emittedLine struct {
+	Package string          `json:"package"`
+	Check   json.RawMessage `json:"check"`
+	Test    string          `json:"test"`
+	Build   string          `json:"build"`
+	key     []byte
+}
+
+// emittedLines decodes the lines of `ergo test --emitted --json`, or says
+// why they are not such lines.
+func emittedLines(stdout []byte) ([]emittedLine, string) {
+	var out []emittedLine
+	for _, text := range bytes.Split(bytes.TrimRight(stdout, "\n"), []byte("\n")) {
+		var l emittedLine
+		if err := json.Unmarshal(text, &l); err != nil || l.Package == "" || len(l.Check) == 0 {
+			return nil, fmt.Sprintf("ergo test --emitted --json printed a line that is not a package's: %.80q", text)
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(text, &fields) != nil {
+			return nil, "ergo test --emitted --json printed a line that is not an object"
+		}
+		stripped, ok := envelopeWithoutProducer(l.Check)
+		if !ok {
+			return nil, fmt.Sprintf("package %s: its check is not an envelope", l.Package)
+		}
+		fields["check"] = stripped
+		key, err := json.Marshal(fields)
+		if err != nil {
+			return nil, err.Error()
+		}
+		l.key = append(key, '\n')
+		out = append(out, l)
+	}
+	return out, ""
+}
+
+// coveredPackages says why the packages of a pattern's lines are not the
+// program's targets, or why its main package has no build digest, or "": a
+// key that missed a target or the main package's build would not change
+// when that one's emitted Go does, so the program is then not cached (fail
+// closed).
+func coveredPackages(p *program, targets []string, lines []emittedLine) string {
 	module := ""
 	if data, err := os.ReadFile(filepath.Join(p.dir, "ergo.mod")); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
@@ -189,27 +255,40 @@ func coveredPackages(p *program, targets []string, stdout []byte) string {
 	if module == "" {
 		return "ergo.mod names no module: the key cannot match its packages"
 	}
+	pathOf := func(folder string) (string, bool) {
+		rel, err := filepath.Rel(p.dir, folder)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return "", false
+		}
+		if rel == "." {
+			return module, true
+		}
+		return module + "/" + filepath.ToSlash(rel), true
+	}
 	var want, got []string
 	for _, target := range targets {
-		rel, err := filepath.Rel(p.dir, target)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		path, ok := pathOf(target)
+		if !ok {
 			return fmt.Sprintf("target %s is outside the program", target)
-		}
-		path := module
-		if rel != "." {
-			path += "/" + filepath.ToSlash(rel)
 		}
 		want = append(want, path)
 	}
-	for _, line := range strings.Split(string(stdout), "\n") {
-		if path, ok := strings.CutPrefix(line, "package "); ok {
-			got = append(got, path)
-		}
+	main, ok := pathOf(p.main)
+	if !ok {
+		return fmt.Sprintf("main %s is outside the program", p.main)
+	}
+	built := false
+	for _, l := range lines {
+		got = append(got, l.Package)
+		built = built || l.Package == main && l.Build != ""
 	}
 	slices.Sort(want)
 	slices.Sort(got)
 	if !slices.Equal(slices.Compact(want), got) {
 		return fmt.Sprintf("ergo test --emitted over the program named packages %v, not its targets %v", got, want)
+	}
+	if !built {
+		return fmt.Sprintf("ergo test --emitted --json gave no build digest for the main package %s", main)
 	}
 	return ""
 }
@@ -220,6 +299,17 @@ func coveredPackages(p *program, targets []string, stdout []byte) string {
 // key's result: on a miss the fmt leg and each check leg run once, not
 // twice (gate-speed GS20).
 func keyedCall(args []string) string { return strings.Join(args, "\x00") }
+
+// buildArgs is an ergo build call of args, with -rewrites when the run
+// names a mode; the verdict cache keys on these words, so a run under
+// another mode never replays the default's pass.
+func (r *runner) buildArgs(args ...string) []string {
+	out := append([]string{"build"}, args...)
+	if r.cfg.rewrites != "" {
+		out = append(out, "-rewrites="+r.cfg.rewrites)
+	}
+	return out
+}
 
 // withoutProducer is a check envelope less its producers (its own and its
 // snapshot's), the digest of the compiler's own bytes, which every compiler

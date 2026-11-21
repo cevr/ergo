@@ -13,8 +13,10 @@ import strings
 import utf8
 
 // State is the editor in one of its modes. Searching keeps the caret it
-// started from, which Escape goes back to.
-type State = Editing{D Doc} | Selecting{D Doc, Anchor int} | Searching{D Doc, Query string, Origin int}
+// started from, which Escape goes back to, and how many matches the query
+// has (Count), counted when the query changes, since the text does not
+// while searching (law CountIsMatches).
+type State = Editing{D Doc} | Selecting{D Doc, Anchor int} | Searching{D Doc, Query string, Origin int, Count int}
 
 // Signal is what a script or a window gives the editor. Counts move by
 // runes or lines; a count of 0 moves nothing.
@@ -42,6 +44,85 @@ type Signal =
 	| Goto{At int}
 	| Copy{}
 	| Cut{}
+
+// Pointing and the clipboard, as laws of the editor's signals.
+law GotoLandsOnARune(text string, signals []Signal, at int) {
+	let s = Run(Open(text), signals)
+	let d = DocOf(s)
+	let to = if at < 0 { 0 } else if at > piece.Len(d.Buf) { piece.Len(d.Buf) } else { at }
+	let c = DocOf(After(s, Goto{At: at})).Caret
+	match s {
+	case Searching:
+		c == d.Caret
+	case Editing, Selecting:
+		// The caret is the last rune boundary of to's line at or before to:
+		// the moves' column walk reaches it, and the next rune ends past to.
+		let next = RuneAfter(d, c)
+		let start = LineStart(d, c)
+		c <= to && (next == 0 || c+next > to) && Forward(d, start, Column(d, c), LineEnd(d, c)) == c && LineOf(d, c) == LineOf(d, to)
+	}
+}
+
+// CopyIsTheSelection: a copy puts the selected text on the clipboard and
+// changes nothing.
+law CopyIsTheSelection(text string, signals []Signal, a int, b int) {
+	let s = selection(text, signals, a, b)
+	match s {
+	case Selecting as l:
+		let d = l.D
+		let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
+		let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
+		match Step(s, Copy) {
+		case Emit[State, Output] as e:
+			e.Next == s && e.Output == Copied{Text: piece.Slice(d.Buf, lo, hi)}
+		case Enter[State], Stay[State], Tell[State, Output], Ignore, Reject, Done[Output]:
+			false
+		}
+	case Editing, Searching:
+		Step(s, Copy) == Reject
+	}
+}
+
+// selection is a selection from a to b made on the editor after signals,
+// or the state the signals reach when it is not editing.
+func selection(text string, signals []Signal, a int, b int) State {
+	let s = Run(Open(text), signals)
+	match s {
+	case Editing:
+		After(After(After(s, Goto{At: a}), Select), Goto{At: b})
+	case Selecting, Searching:
+		s
+	}
+}
+
+// CutThenPasteRestores: a cut puts the selected text on the clipboard and
+// takes it out, as one change; typing what it put there gives the text
+// back.
+law CutThenPasteRestores(text string, signals []Signal, a int, b int) {
+	let s = selection(text, signals, a, b)
+	match s {
+	case Selecting as l:
+		let d = l.D
+		let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
+		let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
+		match Step(s, Cut) {
+		case Emit[State, Output] as e:
+			let cut = DocOf(e.Next)
+			let copied = match e.Output {
+			case Copied as c:
+				c.Text
+			case Write:
+				return false
+			}
+			let undos = if lo < hi { len(d.Undo) + 1 } else { len(d.Undo) }
+			copied == piece.Slice(d.Buf, lo, hi) && len(cut.Undo) == undos && Text(DocOf(After(e.Next, Type{Text: copied}))) == Text(d)
+		case Enter[State], Stay[State], Tell[State, Output], Ignore, Reject, Done[Output]:
+			false
+		}
+	case Editing, Searching:
+		Step(s, Cut) == Reject
+	}
+}
 
 // Output is what the editor asks of its driver: the text to write, or
 // the text to put on the clipboard. A paste is the driver's: it types
@@ -100,7 +181,7 @@ func editing(d Doc, sig Signal) Decision[State, Output] {
 	case Select:
 		Enter[State]{Next: Selecting{D: d, Anchor: d.Caret}}
 	case Find:
-		Enter[State]{Next: Searching{D: d, Query: "", Origin: d.Caret}}
+		Enter[State]{Next: Searching{D: d, Query: "", Origin: d.Caret, Count: 0}}
 	case UndoIt:
 		if len(d.Undo) == 0 {
 			return Reject
@@ -157,18 +238,18 @@ func searching(f Searching, sig Signal) Decision[State, Output] {
 	match sig {
 	case Type as t:
 		let q = f.Query + t.Text
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}
 	case Back:
 		if f.Query == "" {
 			return Reject
 		}
 		let q = strings.Slice(f.Query, 0, len(f.Query)-lastRune(f.Query))
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}
 	case Next:
 		if f.Query == "" || piece.Index(d.Buf, f.Query, 0) < 0 {
 			return Reject
 		}
-		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin, Count: f.Count}}
 	case Replace as r:
 		let at = piece.Matches(d.Buf, f.Query)
 		if len(at) == 0 {
@@ -185,7 +266,7 @@ func searching(f Searching, sig Signal) Decision[State, Output] {
 	case Escape:
 		Enter[State]{Next: Editing{D: Doc{..d, Caret: f.Origin}}}
 	case Saved:
-		Stay[State]{Next: Searching{D: Doc{..d, Dirty: false}, Query: f.Query, Origin: f.Origin}}
+		Stay[State]{Next: Searching{D: Doc{..d, Dirty: false}, Query: f.Query, Origin: f.Origin, Count: f.Count}}
 	case Find:
 		Enter[State]{Next: Editing{D: d}}
 	case Del, Left, Right, Up, Down, Home, End, Top, Bottom, Select, UndoIt, RedoIt, Save, Goto, Copy, Cut:

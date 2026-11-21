@@ -1,7 +1,5 @@
 package rt
 
-import "runtime/debug"
-
 // settle is the one finalization step shared by every task boundary (Run, so
 // child tasks and the root alike) and every scope end, empty or not. It
 // records a recovered panic, then applies stop-wins (runtime.md, Exit causes
@@ -32,7 +30,7 @@ func Run[T any](t *Task, body func(*Task) (T, error)) (v T, err error) {
 		t.traceTask(TraceStart, nil)
 	}
 	if old, set := faultsPanic(); set {
-		defer debug.SetPanicOnFault(old)
+		defer panicOnFault(old)
 	}
 	defer func() {
 		if err = t.exitOf(err, recover()); err != nil {

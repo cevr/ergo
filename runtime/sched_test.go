@@ -27,6 +27,9 @@ func TestSchedHooksCostNothingLive(t *testing.T) {
 	hooks := map[string]bool{}
 	var parsed []*ast.File
 	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
 		file, err := parser.ParseFile(fset, f.Path, f.Data, 0)
 		if err != nil {
 			t.Fatal(err)

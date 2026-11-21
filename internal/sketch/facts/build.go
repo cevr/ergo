@@ -76,6 +76,14 @@ type builder struct {
 	// function of an overloaded name (196m) its receiver type in its
 	// handle.
 	funcNames map[*check.Package]map[string]int
+	// charges and withs are what each call charges and each with's block
+	// (rows.go).
+	charges []charge
+	withs   []withBlock
+	catches []catchBlock
+	// entryPkg is the package that declares each context entry a with
+	// of pkg binds, by its context (rows.go).
+	entryPkg map[*check.ContextEntry]*check.Package
 }
 
 // Build writes the fact tables of pkg from the checker's result, in one
@@ -120,8 +128,10 @@ func Build(pkg *check.Package, files []File) (*Table, Counts) {
 	}
 	b.variants()
 	b.ops()
+	b.needs()
 	b.index()
 	b.callEdges()
+	b.chargeEdges()
 	b.machines(files, encls)
 	return b.t, b.n
 }
@@ -294,6 +304,7 @@ func (b *builder) visit(n syntax.Node) bool {
 		if c := b.info.Calls[x]; c != nil {
 			b.calls[x.Fun] = c
 		}
+		b.noteCall(x)
 		if b.info.Withs[x] != nil {
 			for _, a := range x.Args {
 				b.ctxPos[a] = true
@@ -330,6 +341,8 @@ func (b *builder) visit(n syntax.Node) bool {
 		b.markAll(x.Names, Provides)
 	case *syntax.CatchArm:
 		b.markAll(x.Types, Handles)
+	case *syntax.CatchExpr:
+		b.noteCatch(x)
 	case *syntax.ContextEntry:
 		if x.Kind != syntax.ContextEmbed {
 			b.marks[x.Key] = mark{kind: Binds}

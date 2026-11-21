@@ -18,7 +18,9 @@ package lower
 // internal/residue/testdata/unsafe.txt.
 //
 // A test build (`ergo test`) takes no shortcut: takes is false there, so
-// each site lowers to its checking form. For a bounds fact the checking
+// each site lowers to its checking form. The exception is a row marked
+// inTests, whose form has no checking form to fall back to (MONO1's
+// copies): there the test build runs what ships. For a bounds fact the checking
 // form is Go's checked index; for a handover it is the copy, with the old
 // storage poisoned (handover.go), so a read through an alias the proof
 // missed reads poison and fails the program's own tests. The receipt of
@@ -65,6 +67,11 @@ type shortcut struct {
 	consumer string
 	// referenced reports whether the build selects the reference lowering.
 	referenced func() bool
+	// inTests marks a shortcut the test build takes too: its form rests on
+	// no proof a checking form could catch failing (an exact rewrite its
+	// agreement test holds equal to the reference), so a test build runs
+	// what ships (MONO-HOOKS-MIN, 2026-11-19).
+	inTests bool
 }
 
 // shortcuts is the registry.
@@ -187,8 +194,12 @@ var shortcuts = []shortcut{
 	{
 		// MONO1: a call of a generic function whose type arguments are
 		// known Go types goes to a plain copy for them (mono.go). The
-		// proof is the checker's instantiation; the test build takes the
-		// stenciled Go generic.
+		// proof is the checker's instantiation. The test build takes it
+		// too (MONO-HOOKS-MIN): tests run what ships, and a copy is
+		// compiled once, in its generic's package, where a stencil is
+		// compiled again in every package and shard that instantiates it.
+		// TestGenericLoweringsAgree holds the copies to the stenciled
+		// reference.
 		name:       "mono-instance",
 		class:      valueClass,
 		admission:  "monoAt",
@@ -196,6 +207,7 @@ var shortcuts = []shortcut{
 		agreement:  "TestGenericLoweringsAgree",
 		mutant:     "mono-shares-unequal-bodies",
 		referenced: func() bool { return genericLowering == "stencil" },
+		inTests:    true,
 	},
 	{
 		// NOSCAN1: a record's Go struct lists its pointer-holding fields
@@ -220,6 +232,33 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-call-pass",
+		class:      valueClass,
+		admission:  "passedApart",
+		reference:  "borrowPassLowering=off",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-call-pass-write-blind",
+		referenced: func() bool { return !valueOwned() || !borrowPassOn() },
+	},
+	{
+		name:       "own-enter-field",
+		class:      valueClass,
+		admission:  "sharedField",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-enter-field-write-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-borrow-return",
+		class:      valueClass,
+		admission:  "borrowRetSites",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-borrow-return-caller-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-reslice",
 		class:      valueClass,
 		admission:  "reslices",
@@ -238,6 +277,51 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-return",
+		class:      valueClass,
+		admission:  "returnsBefore",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-return-whole-on-consuming-route",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-parts",
+		class:      valueClass,
+		admission:  "partsTaken",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-parts-overlap",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-move",
+		class:      valueClass,
+		admission:  "baseCovers",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-move-shared-field",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-catch",
+		class:      valueClass,
+		admission:  "catchTaken",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-catch-arm-shares",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-update-self",
+		class:      valueClass,
+		admission:  "updateSelf",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "reuse-update-self-reads-old",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-ref-in-place",
 		class:      valueClass,
 		admission:  "inPlaceOf",
@@ -245,6 +329,15 @@ var shortcuts = []shortcut{
 		agreement:  "TestValueRuleAgrees",
 		mutant:     "own-ref-in-place-cloned-init",
 		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "uni-slot",
+		class:      valueClass,
+		admission:  "slotAdmit",
+		reference:  "slotLowering=off",
+		agreement:  "TestFlatUnionsAgree",
+		mutant:     "uni-slot-shared-by-two-live-results",
+		referenced: func() bool { return slotLowering == "off" },
 	},
 }
 
@@ -259,12 +352,13 @@ func shortcutNamed(name string) *shortcut {
 }
 
 // takes reports whether this build may take the shortcut name: not in a
-// test build, which lowers every site to its checking form, and not when
-// the shortcut's reference lowering is selected. Only the shortcut's
+// test build, which lowers every site to its checking form, unless the
+// shortcut is one the test build takes too (inTests), and not when the
+// shortcut's reference lowering is selected. Only the shortcut's
 // admission function asks (TestShortcutsAreRegistered).
 func (l *lowerer) takes(name string) bool {
 	s := shortcutNamed(name)
-	if l.tests != nil {
+	if l.tests != nil && !s.inTests {
 		return false
 	}
 	return !s.referenced()

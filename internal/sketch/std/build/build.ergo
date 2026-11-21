@@ -1,0 +1,54 @@
+// Package build tells a function what is decided when the program is
+// built (CF2, q10). The lowering computes a call of a function with an
+// empty row whose arguments are known at build time, and writes its
+// result as a constant (a build-time fold; runtime.md, Build-time folds);
+// a call whose arguments are partly known is computed as far as the known
+// parts go (a template). InFold and Known let a function build its result
+// in a form a fold can write, which a built program never builds.
+//
+// The rule for a function that branches on InFold or Known: its branches
+// give results a program cannot tell apart, and a law states it by
+// calling both branches (BranchesAgree below; html's StaticIsItsTree). A
+// fold then changes how fast a program runs, never what it prints.
+//
+// Prior art: C++'s std::is_constant_evaluated, Zig's @inComptime, GCC's
+// __builtin_constant_p.
+
+import strings
+
+// InFold is whether the code runs in a build-time fold: false in a built
+// program, true in the evaluator that computes a fold.
+extern go ergo.local/prototype/runtime/v1.BuildInFold func InFold() bool
+
+// Known is whether x is known when the program is built: false in a built
+// program; in a fold, true unless x holds a part of a template that only
+// the run knows (a hole).
+extern go ergo.local/prototype/runtime/v1.BuildKnown func Known[T](x T) bool
+
+// Hole is whether x, as a whole, is a template's hole: a value only the
+// run knows, where Known is false when any part of x is one. It is false
+// in a built program. A function asks it to place a hole in its result
+// as it is, where it would read a value it holds.
+extern go ergo.local/prototype/runtime/v1.BuildHole func Hole[T](x T) bool
+
+// twice is s twice, by + in a fold and through a builder in a built
+// program: the shape the rule asks for, and BranchesAgree its law.
+func twice(s string) string {
+	if InFold() && Known(s) {
+		return foldTwice(s)
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString(s)
+	b.WriteString(s)
+	b.String()
+}
+
+// foldTwice is twice's fold branch.
+func foldTwice(s string) string { s + s }
+
+// BranchesAgree: twice's two branches give the same string.
+law BranchesAgree(s string) { twice(s) == foldTwice(s) }
+
+// BuiltKnowsNoFold: a built program runs in no fold, knows no value at
+// build time and holds no hole.
+law BuiltKnowsNoFold(x int, s string) { !InFold() && !Known(x) && !Known(s) && !Hole(x) && !Hole(s) }

@@ -48,4 +48,7 @@ const (
 	// ruleNamingPass: the naming pass names every package-scope
 	// declaration before any body is lowered.
 	ruleNamingPass = `the naming pass (naming.go), which names every package-scope declaration first`
+	// ruleValuesFirst: the value rule analyzes a body before its IR is
+	// built (KMEANS-LAW).
+	ruleValuesFirst = `analyzeValues before newBuilder (ir.go), which every IR body of source statements is started by`
 )

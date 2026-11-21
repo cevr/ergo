@@ -6,14 +6,14 @@ import (
 
 	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // withLine is the shipped ledger with key's line replaced by line ("" drops
 // it).
 func withLine(key, line string) string {
 	var out []string
-	for _, l := range strings.Split(std.Ledger(), "\n") {
+	for _, l := range strings.Split(stdlib.Ledger(), "\n") {
 		if strings.HasPrefix(l, "fact "+key+" ") {
 			if line != "" {
 				out = append(out, line)
@@ -39,7 +39,7 @@ func TestSyncRowsActOnlyValidated(t *testing.T) {
 	saved := check.FactLedger
 	t.Cleanup(func() { check.FactLedger = saved })
 	key := gofacts.SyncKey("sort.Search")
-	current, ok := gofacts.Find(std.Ledger(), key)
+	current, ok := gofacts.Find(stdlib.Ledger(), key)
 	if !ok || current.Verdict != "validated" {
 		t.Fatalf("the shipped ledger has no validated line for %s: %+v", key, current)
 	}
@@ -50,7 +50,7 @@ func TestSyncRowsActOnlyValidated(t *testing.T) {
 	for _, c := range []struct {
 		name, ledger, want string
 	}{
-		{"validated", std.Ledger(), ""},
+		{"validated", stdlib.Ledger(), ""},
 		{"missing", withLine(key, ""), "sort.Search declares a non-escaping Go callback without a reviewed clause that acts (the std ledger has no guard line for " + key},
 		{"stale", withLine(key, stale.Line()), "sort.Search declares a non-escaping Go callback without a reviewed clause that acts (the guard line for " + key + " is stale"},
 		{"refuted", withLine(key, refuted.Line()), "sort.Search declares a non-escaping Go callback, and its reviewed clause does not hold: its guard refuted it"},

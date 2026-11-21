@@ -76,7 +76,9 @@ func TestDirectBuildStartsNoGoCommand(t *testing.T) {
 		os.Remove(report)
 		command := exec.Command(binary, "build", "-work", "-o", out, "./cmd/app")
 		command.Dir = src
-		command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "ERGO_STAGE_REPORT="+report)
+		// GOFLAGS empty, as a user's build has it: the direct path
+		// refuses a set GOFLAGS, and the gate sets it for its steps.
+		command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "ERGO_STAGE_REPORT="+report, "GOFLAGS=")
 		stdout, stderr, code := runSmokeCommand(t, command)
 		if code != 0 {
 			t.Fatalf("%s: ergo build: exit %d %s\n%s", label, code, stdout, stderr)

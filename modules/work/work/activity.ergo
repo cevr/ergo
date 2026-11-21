@@ -1,0 +1,60 @@
+import exec
+import strconv
+import strings
+import time
+
+// UseProbe is the argument that names the in-use probe to sh (its $0):
+// sh -c UseScript work-use ROOT STAMP STAMPFILE.
+let UseProbe = "work-use"
+
+// UseScript tells whether the folder $1 is in use, by sh, on Linux and
+// macOS alike: a file or folder under it ($1/.git included) whose
+// modification time is after STAMP ($2, touch -t's CCYYMMDDhhmm.SS in
+// UTC, set on the file $3 to compare with find -newer), or a process
+// whose working folder is in it (each /proc/N/cwd; with no /proc,
+// lsof's cwd entries). It prints why it is in use (a changed path
+// relative to the folder), nothing when it is not, and fails when it
+// cannot tell.
+let UseScript = "set -eu\nroot=$(cd \"$1\" && pwd -P)\nTZ=UTC0 touch -t \"$2\" \"$3\"\nchanged=$(find \"$root\" -newer \"$3\" -print 2>/dev/null | head -n 1) || true\nif [ -n \"$changed\" ]; then printf 'changed since the window began: %s\\n' \"${changed#\"$root\"/}\"; exit 0; fi\nif [ -e /proc/self/cwd ]; then\n  for p in /proc/[0-9]*; do\n    c=$(readlink \"$p/cwd\" 2>/dev/null) || continue\n    case \"$c\" in \"$root\"|\"$root\"/*) printf 'process %s works in it\\n' \"${p#/proc/}\"; exit 0;; esac\n  done\n  exit 0\nfi\nif command -v lsof >/dev/null 2>&1; then\n  lsof -nP -d cwd -Fn 2>/dev/null | while IFS= read -r l; do case \"$l\" in n\"$root\"|n\"$root\"/*) printf 'a process works in it\\n'; break;; esac; done\n  exit 0\nfi\necho 'neither /proc nor lsof tells the processes' >&2\nexit 3\n"
+
+// inUse is why the workspace at root is in use over the window that
+// began at the second since: a file under it changed after since, or a
+// process works in it now; "" when neither. A host where that cannot be
+// told answers why, so gc -idle never removes what it cannot judge.
+func inUse(t Tool, root string, since int64) string {
+	let c = exec.New("sh", []string{"-c", UseScript, UseProbe, root, Stamp(since), t.home + "/.idle-stamp"})
+	let r = t.runner.Run(c) catch {
+	case exec.NotFound:
+		return "cannot tell: no sh"
+	case exec.Denied:
+		return "cannot tell: sh is denied"
+	case exec.Failed as f:
+		return "cannot tell: \(f.Reason)"
+	}
+	if r.Status != 0 {
+		return "cannot tell: \(strings.TrimSpace(r.Stderr))"
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+// Stamp is the Unix second sec as touch -t reads it in UTC:
+// CCYYMMDDhhmm.SS.
+func Stamp(sec int64) string {
+	let c = time.Calendar(time.Unix(sec, 0))
+	"\(pad(c.Year, 4))\(pad(time.MonthNumber(c.Month), 2))\(pad(c.Day, 2))\(pad(c.Hour, 2))\(pad(c.Minute, 2)).\(pad(c.Second, 2))"
+}
+
+func pad(n int, width int) string {
+	let mut s = strconv.Itoa(n)
+	for len(s) < width {
+		s = "0" + s
+	}
+	s
+}
+
+// StampIsUTC: the smallest repro that a stamp is UTC, zero-padded, as
+// touch -t reads it (the epoch, and 2026-11-15 09:05:03).
+test StampIsUTC {
+	assert Stamp(0) == "197001010000.00"
+	assert Stamp(1794733503) == "202611150905.03"
+}

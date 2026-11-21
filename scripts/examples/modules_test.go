@@ -56,13 +56,32 @@ func TestModulesLeg(t *testing.T) {
 			t.Fatalf("exit %d, want 1\n%s", code, out)
 		}
 	})
+	t.Run("full tier", func(t *testing.T) {
+		// heavy fails; only a -full-tier run tests it, and that run tests
+		// nothing else.
+		extra := map[string]string{"heavy/heavy.ergo": "func g() {}\n// TESTFAIL\n", "full-tier": "# laws on the host\nheavy  # every case starts git\n"}
+		f := newFixture(t)
+		module(f, "func f() {}\n", extra)
+		code, out := f.run("-modules")
+		if code != 0 || !strings.Contains(out, "skip modules/hello: test heavy: the full tier runs it") || !strings.Contains(out, "ok modules/hello: test hello (") {
+			t.Fatalf("default run: exit %d, want 0 with heavy skipped\n%s", code, out)
+		}
+		g := newFixture(t)
+		module(g, "func f() {}\n", extra)
+		code, out = g.run("-full-tier")
+		if code != 1 || !strings.Contains(out, "FAIL modules/hello: test heavy") || strings.Contains(out, "test hello") {
+			t.Fatalf("-full-tier: exit %d, want 1 from heavy alone\n%s", code, out)
+		}
+	})
 	for _, c := range []struct {
 		extra map[string]string
 		want  string
 	}{
+		{map[string]string{"full-tier": "nothere\n"}, "modules/hello: full-tier names nothere, which is no package folder of the module"},
 		{map[string]string{"cmd/hello/main.ergo": "func main() {}\n"}, "modules/hello: a module is a library: it has no cmd/"},
 		{map[string]string{"go.mod": "module example.com/other\n"}, "modules/hello: ergo.mod names the module example.com/hello and go.mod example.com/other"},
 		{map[string]string{"notes.txt": "x\n"}, "modules/hello: unexpected notes.txt"},
+		{map[string]string{"origin/README.md": "x\n", "origin/hidden.ergo": "func g() {}\n"}, "modules/hello: unexpected origin/hidden.ergo; a module's origin folder holds Markdown notes only"},
 	} {
 		f := newFixture(t)
 		module(f, "func f() {}\n", c.extra)

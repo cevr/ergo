@@ -11,6 +11,9 @@ cd "$(dirname "$0")/.."
 export GOCACHE="${GOCACHE:-$HOME/.cache/go-build}"
 export GOTMPDIR="${GOTMPDIR:-$HOME/.cache/go-tmp}"
 mkdir -p "$GOTMPDIR"
+# An `ergo test DIR/...` whose module test binary does not build fails here
+# instead of testing each package alone (cmd/ergo, sharedFallback).
+export ERGO_SHARED_FALLBACK="${ERGO_SHARED_FALLBACK:-fail}"
 # The gate is built, then executed in place of this shell, so a signal sent
 # to this script's process reaches the gate's stop code (`go run` does not
 # pass SIGTERM on). go build relinks only when the gate's sources changed

@@ -4,26 +4,33 @@
 // through the pixels, the hit test and the focus.
 
 import actor
+import go ergo.local/prototype/hosts/mygo/screen
 import ui
 import ui/layout
 import utf8
 
-// Drain feeds the window's queued input to d.
-func Drain[E comparable, S, D, F](d *Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+// Drain feeds the window's queued input to d. After each frame it takes
+// what the session posted (Pump), as the window's own loop does after
+// every input and as ui.Advance does on ui.TestHost, so both hosts take a
+// work's reply at the same frame (F-GP4c-1).
+func Drain[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for {
 		let (next, ok) = d.w.Poll()
 		if !ok {
 			return
 		}
 		try Feed(d, next)
+		if next.Kind == screen.Frame {
+			try Pump(d)
+		}
 	}
 }
 
 // Find is the first node of the window's tree, in tree order, whose
 // label is label (labelOf).
-func Find[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
 
-func findIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
 	for k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
 		case Some[held[E]] as h:
@@ -41,12 +48,44 @@ func findIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) Option
 	None
 }
 
+// found is the one node whose label is label, as ui.TestHost's acts find
+// it (NS7): none fails NoNode, more than one Ambiguous, and a match inside
+// a match is the same target.
+func found[S, E, D, F](d mut Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = labelledIn(d, d.root, label, []ui.Id[E]{})
+	if len(ids) == 0 {
+		return ui.NoNode{Label: label}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// labelledIn is acc and the nodes under id whose label is label, in tree
+// order, none searched below a match.
+func labelledIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
+	let mut out = acc
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if labelOf(h.Value.node) == (Some{Value: label}) {
+				out = out.Append(k)
+				continue
+			}
+		case None:
+		}
+		out = labelledIn[S, E, D, F](d, k, label, out)
+	}
+	out
+}
+
 // Focusables are the nodes that take the focus (a Pressable, a Check, a
 // Toggle, an Input), in tree order: the order Tab visits them in, since
 // the window paints in tree order and Tab follows the paint.
-func Focusables[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
+func Focusables[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Id[E] { focusablesIn(d, d.root, []ui.Id[E]{}) }
 
-func focusablesIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
+func focusablesIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E]) []ui.Id[E] {
 	let mut out = into
 	for k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
@@ -63,7 +102,7 @@ func focusablesIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], into []ui.Id[E
 
 // BoxOf is where the node labelled label shows, as the last paint laid it
 // out (a Scroll's offset taken off).
-func BoxOf[S, E, D, F](d *Driver[S, E, D, F], label string) Option[layout.Box] {
+func BoxOf[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[layout.Box] {
 	match Find(d, label) {
 	case Some[ui.Id[E]] as id:
 		d.boxes.Get(id.Value)
@@ -72,22 +111,33 @@ func BoxOf[S, E, D, F](d *Driver[S, E, D, F], label string) Option[layout.Box] {
 	}
 }
 
+// LaidOf is the box the kept tree lays the node labelled label out in:
+// where it sits before a Scroll lifts it or a track moves it.
+func LaidOf[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[layout.Box] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		match d.lids.Get(id.Value) {
+		case Some[layout.Id] as l:
+			Some{Value: boxOf(&d.tree, l.Value)}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
 // at is the box of the node labelled label, where a step on it presses or
 // points, after the Scrolls around it are scrolled with the wheel until
 // its centre shows, as a person scrolls to a row below the fold.
-func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
-	let id = match Find(d, label) {
-	case Some[ui.Id[E]] as i:
-		i.Value
-	case None:
-		return ui.NoNode{Label: label}
-	}
+func at[E comparable, S, D, F](d mut Driver[S, E, D, F], label string) layout.Box fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	let id = try found(d, label)
 	try boxAt(d, id, label)
 }
 
 // reveal wheels each Scroll that holds id, outermost first, until the
 // centre of id's box is inside the Scroll's box.
-func reveal[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func reveal[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for sc in d.spots {
 		match sc.node {
 		case ui.ScrollNode, ui.RowsNode:
@@ -116,7 +166,7 @@ func reveal[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) fails ui.
 }
 
 // holds is whether id is below top in the window's tree.
-func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
+func holds[S, E, D, F](d mut Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
 	for k in kidsOf(d, top) {
 		if k == id || holds[S, E, D, F](d, k, id) {
 			return true
@@ -132,11 +182,13 @@ func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
 // pointer's phase at its place in the box; ScrollOn turns the wheel on
 // the list until its offset is the step's (the window decides its
 // height); SettleAll settles; ClickOn and FillIn act as TapOn and TypeInto on
-// the first node the locator finds on the window's tree, ExpectOn checks
+// the node the locator finds on the window's tree, ExpectOn checks
 // its matcher there, and NavigateTo and GoBack move the window's history
 // and send URLChanged, as ui.TestHost does. AdvanceBy
 // does nothing: the window's frames come from its display, not a clock.
-func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+// A label or a locator that finds more than one node fails Ambiguous, as
+// ui.TestHost's Play does.
+func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for act in script {
 		match act {
 		case ui.TapOn as x:
@@ -147,12 +199,7 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 			let b = try at(d, x.Label)
 			tap(d, b)
 			try Drain(d)
-			let id = match Find(d, x.Label) {
-			case Some[ui.Id[E]] as i:
-				i.Value
-			case None:
-				return ui.NoNode{Label: x.Label}
-			}
+			let id = try found(d, x.Label)
 			let old = match d.nodes.Get(id) {
 			case Some[held[E]] as h:
 				match h.Value.node {
@@ -191,7 +238,7 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 			match x.Pointer.Phase {
 			case ui.Down:
 				d.w.Press(px, py)
-			case ui.Moved:
+			case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
 				d.w.Hover(px, py)
 			case ui.Up:
 				d.w.Release(px, py)
@@ -202,12 +249,7 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		case ui.ScrollOn as x:
 			// The wheel, at the list's centre, by what takes it to Offset;
 			// the height is the window's, which the list reports.
-			let id = match Find(d, x.Label) {
-			case Some[ui.Id[E]] as i:
-				i.Value
-			case None:
-				return ui.NoNode{Label: x.Label}
-			}
+			let id = try found(d, x.Label)
 			match spotOf(d, id) {
 			case Some[spot[E]] as s:
 				let dy = dips(x.Offset) - scrolledBy(d, id)
@@ -262,18 +304,22 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 	}
 }
 
-// located is the first node of the window's tree loc finds.
-func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
+// located is the one node of the window's tree loc finds (a locator in
+// First finds one).
+func located[E comparable, S, D, F](d mut Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
 	let ids = ui.LocateIn(&d.mirror, loc)
 	if len(ids) == 0 {
 		return ui.NoNode{Label: "a locator"}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "a locator", Count: len(ids)}
 	}
 	ids[0]
 }
 
 // boxAt is where id shows, after the lists around it scrolled it into
 // view; NoNode names it by label when it shows nowhere.
-func boxAt[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func boxAt[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	try reveal(d, id)
 	match d.boxes.Get(id) {
 	case Some[layout.Box] as b:
@@ -284,7 +330,7 @@ func boxAt[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label stri
 }
 
 // tap presses and releases at b's centre.
-func tap[S, E, D, F](d *Driver[S, E, D, F], b layout.Box) needs go.Foreign {
+func tap[S, E, D, F](d mut Driver[S, E, D, F], b layout.Box) needs go.Foreign {
 	let x = float64(b.X + b.W/2)
 	let y = float64(b.Y + b.H/2)
 	d.w.Press(x, y)

@@ -1,0 +1,22 @@
+// The host process as a test in the case's folder sees it (TestAmbient;
+// docs/spec/rows.md, Test's ambient): NewTestHost is a Host with no arguments, the
+// folder as its working directory, and an environment of HOME, TMPDIR and
+// PWD, each the folder, and PATH, the host's, so a program the test runs
+// is found as on the host. Every other key is unset, so no test reads the
+// host's configuration.
+
+// NewTestHost is the Process of the case's folder. It needs the test's
+// ambient, which only the test runner provides, to a context that states
+// it: `context needs TestAmbient { os.Process: os.NewTestHost() }`.
+func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
+
+// confinedEnv is the value of key for a test's Host, h.
+func confinedEnv(h Host, key string) Option[string] {
+	if key == "HOME" || key == "TMPDIR" || key == "PWD" {
+		Some[string]{Value: h.root}
+	} else if key == "PATH" && hostHasEnv(key) {
+		Some[string]{Value: hostGetenv(key)}
+	} else {
+		None
+	}
+}

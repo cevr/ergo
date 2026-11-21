@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -18,7 +18,9 @@ func (law *Law) Title(from *Package) string {
 	case law.Machine != nil:
 		title = law.Machine.Name + "." + law.Name
 	}
-	if law.Pkg != nil && law.Pkg != from {
+	if law.Pkg != nil && law.Pkg != from && law.Pkg.Path != stdlib.PreludePath {
+		// A prelude name is written bare in every package, so its law
+		// is named bare (Hashing.EqualKeysHashEqual; CONSTRAINTS C5).
 		title = law.Pkg.Name + "." + title
 	}
 	return title
@@ -281,9 +283,42 @@ func (c *checker) planMachineLaw(law *Law) {
 
 // typeParams are the type parameters of the law's type (rule 6); a
 // top-level law has none.
+// lawTypeParams declares a top-level rewrite law's type parameters (owner
+// q234), as a function's are declared (funcSig): each is a type, never a
+// row, since a rewrite's function parameters fail nothing and need
+// nothing (funcrewrite.go, rule 4).
+func (c *checker) lawTypeParams(list *syntax.FieldList) []*TypeParam {
+	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	var out []*TypeParam
+	type pending struct {
+		tp *TypeParam
+		x  syntax.Expr
+	}
+	var constraints []pending
+	for _, field := range list.List {
+		cons := c.constraintExpr(field)
+		for _, name := range field.Names {
+			tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
+			c.def(name, tp)
+			if cons != nil {
+				constraints = append(constraints, pending{tp, cons})
+			}
+			if _, dup := ctx.params[name.Name]; dup {
+				c.errorf(name, CodeType, "type parameter %s is declared twice", name.Name)
+			}
+			ctx.params[name.Name] = tp
+			out = append(out, tp)
+		}
+	}
+	for _, p := range constraints {
+		p.tp.Constraint = c.constraint(p.x, ctx)
+	}
+	return out
+}
+
 func (l *Law) typeParams() []*TypeParam {
 	if l.Owner == nil {
-		return nil
+		return l.TParams
 	}
 	if n, ok := l.Owner.Type.(*Named); ok {
 		return n.TParams
@@ -309,19 +344,6 @@ func (l *Law) capability() *Named {
 	return n
 }
 
-// constraintMethods reports whether tp's constraint has operations: a run
-// would pass a witness for it (lower/witness.go), which it does not build.
-func constraintMethods(tp *TypeParam) bool {
-	var it *Interface
-	switch c := tp.Constraint.(type) {
-	case *Interface:
-		it = c
-	case *Named:
-		it, _ = c.Underlying().(*Interface)
-	}
-	return it != nil && len(it.Methods) > 0
-}
-
 // planLaws decides how ergo test runs each law (Running, rules 7 to 9):
 // its providers and, when it does not run, why. A duplicate law is
 // refused (S108), so its plan is never read.
@@ -342,15 +364,49 @@ func (c *checker) planLaws() {
 		// constructor builds one per side from the case's arguments.
 		for _, b := range r.Bindings {
 			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
-				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
+				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func " + syntax.ConstructorName(b[0].Type.Obj.Name) + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
 		// A run under a named context is planned later (lawContext).
 	}
 }
 
+// pairUngeneratable is why the round-trip law of a by-name pair over t
+// does not run, or "" (types.md, Codecs 7; GX11). The law draws x from t's
+// own generator: the values t's package makes, by its constructor New<T>,
+// or any value of a record or union that every package may build field by
+// field. A generator that only t's own authority makes, a record of an
+// unexported field built field by field or a defined type over a basic
+// type drawn as its base, makes values t's ParseX may refuse, so it is not
+// t's own: the law does not run, and the test build reports why, rather
+// than draw the base type, whose values ParseX almost never reads.
+func (c *checker) pairUngeneratable(t Type) string {
+	n, ok := t.(*Named)
+	if !ok {
+		return ""
+	}
+	if _, built := c.constructorWhy(n); built {
+		return ""
+	}
+	switch n.Underlying().(type) {
+	case *Struct, *Union:
+		if c.ungeneratableFrom(n, nil) == "" {
+			return ""
+		}
+	}
+	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare " + syntax.ConstructorName(n.Obj.Name) + ", or make " + n.String() + " a record or union of exported fields"
+}
+
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
+	if len(law.TParams) > 0 {
+		// A rewrite over functions (owner q234): the property run has no
+		// instantiation and no generator of functions; ergo test's licence
+		// run (eval/licencefuncs.go) runs it at int over a family of pure
+		// functions, and its verdict goes to ergo.laws.
+		law.Unrun = "a law with type parameters of its own runs as its licence run, at int, not as a property"
+		return
+	}
 	var slots []LawSlot
 	for i, v := range law.Params {
 		if isInvalid(v.Type) {
@@ -377,6 +433,12 @@ func (c *checker) planLaw(law *Law) {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
 			return
 		}
+		if law.Decl.Pair != nil {
+			if why := c.pairUngeneratable(v.Type); why != "" {
+				law.Unrun = why
+				return
+			}
+		}
 	}
 	if law.Owner != nil {
 		own := law.capability()
@@ -397,10 +459,8 @@ func (c *checker) planLaw(law *Law) {
 					law.Unrun = "its operation type " + law.Owner.Name + " has the row parameter " + tp.Name + ", and a run binds only type parameters"
 					return
 				}
-				if constraintMethods(tp) {
-					law.Unrun = "its operation type " + law.Owner.Name + " constrains " + tp.Name + " by operations, and a run passes no witness"
-					return
-				}
+				// A parameter that operations constrain takes the
+				// witness of its instance (LawProvider.Witnesses).
 			}
 			own = n
 		}
@@ -437,6 +497,19 @@ func (c *checker) planLaw(law *Law) {
 		}
 	}
 	law.Slots = slots
+	for i, adm := range law.Admit {
+		// An admission law quantifies over the slots of the parameters up
+		// to its own (lawwhere.go).
+		if adm == nil {
+			continue
+		}
+		adm.Slots = nil
+		for _, s := range slots {
+			if s.Param <= i {
+				adm.Slots = append(adm.Slots, s)
+			}
+		}
+	}
 }
 
 // lawRuns are the laws the package's test build runs or reports (rule 7):
@@ -555,8 +628,56 @@ func (c *checker) lawInstance(law *Law, b []LawProvider) []LawProvider {
 			p.Unrun = "its parameter " + v.Name + " has no generator at " + p.Slot.String() + ": " + why
 		}
 	}
+	if p.Unrun == "" {
+		var why string
+		p.Witnesses, why = c.lawWitnesses(own, p.Slot.TArgs)
+		if why != "" {
+			p.Unrun = why
+		}
+	}
 	b[0] = p
 	return b
+}
+
+// lawWitnesses are the witnesses a law of the generic operation type own
+// takes at the instance targs (CONSTRAINTS C2): one per type parameter
+// that operations constrain, Ranked's T in type Ranked[T Ranked[T]], built
+// as a call's are (instanceWitnesses), or why one cannot be.
+func (c *checker) lawWitnesses(own *Named, targs []Type) ([]Witness, string) {
+	m := paramMap(own.TParams, targs)
+	var out []Witness
+	for i, tp := range own.TParams {
+		if tp.Kind != KindType || tp.Constraint == nil || i >= len(targs) {
+			continue
+		}
+		constraint := c.subst(tp.Constraint, m)
+		it := asInterface(constraint)
+		if it == nil || len(it.Methods) == 0 {
+			continue
+		}
+		if why := c.satisfies(targs[i], constraint); why != "" {
+			return nil, "its instance " + targs[i].String() + " does not satisfy " + constraint.String() + ": " + why
+		}
+		w := Witness{Param: tp, Arg: targs[i]}
+		for _, op := range it.Methods {
+			method, f := c.methodOf(targs[i], op.Name)
+			if method == nil {
+				return nil, "its instance " + targs[i].String() + " has no operation " + op.Name
+			}
+			sig := *op.Sig
+			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+				var why string
+				if wo.Inst, why = c.witnessInstance(f, receiverTypeArgs(targs[i], f)); why != "" {
+					return nil, why
+				}
+			}
+			w.Ops = append(w.Ops, wo)
+		}
+		out = append(out, w)
+	}
+	return out, ""
 }
 
 // lawSlotParam reports whether the law's parameter i is a slot.
@@ -615,12 +736,20 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		}
 		slot = c.instantiate(own, targs)
 	}
+	// A provider whose operations call Go converts only where its build
+	// holds go.Foreign (README Gap 17). No test does, but a law case of the
+	// test binary does (rows.md, Entry 4; owner q277): its binding runs
+	// natively, built by a constructor whose row may be go.Foreign alone
+	// (nativeConstructor) or by a generated value.
+	var held captured
+	c.capture = &held
 	a, _ := c.providerAssignability(p, slot)
 	ptr := false
 	value := false
 	if _, record := p.Underlying().(*Struct); record {
 		// A law owns a fresh record and may lend it to *P operations.
 		// This is not a value-to-operation-type conversion (PS3).
+		c.capture = &held
 		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
 		value = a.ok()
 	}
@@ -640,14 +769,56 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		ptr = true
 	}
 	c.recordLegacy(p, slot, "law")
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value}
+	if held.ambient != nil {
+		// A provider whose operations read the host (HOST-ROW) is built
+		// holding Ambient, which a law case does not hold: a test holds
+		// TestAmbient only (rows.md, Entry 4). Its laws are a stated skip.
+		lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: held.foreign}
+		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " reads the host and requires Ambient, which a law case does not hold (HOST-ROW)"
+		return lp, true
+	}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: held.foreign}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
+	} else if ctor := c.nativeConstructor(p, held.foreign); ctor != nil {
+		lp.Ctor = ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why
 		lp.noGenerator = true
 	}
 	return lp, true
+}
+
+// nativeConstructor is the constructor a law case of the test binary
+// calls for p, a provider whose operations call Go (captured, README Gap
+// 17): the function New<P> of p's package that planConstructor would take
+// but for its capability row, which is go.Foreign alone. The case holds
+// go.Foreign (types.md, Laws 10; owner q277); nothing else may treat the
+// function as p's constructor, so tn.ctor stays unset.
+func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
+	tn := p.Obj
+	if !captured || tn == nil || tn.Pkg == nil || p.Orig != nil || len(p.TArgs) > 0 || len(p.TParams) > 0 {
+		return nil
+	}
+	for _, f := range tn.Pkg.Funcs {
+		sig := f.Sig
+		if f.Name != syntax.ConstructorName(tn.Name) || sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], p) {
+			continue
+		}
+		if rowHolds(sig.Errors) || !goForeignRow(sig.Uses) {
+			continue
+		}
+		ok := true
+		for _, v := range sig.Params {
+			if isInvalid(v.Type) || c.ungeneratableFrom(v.Type, tn.Pkg) != "" {
+				ok = false
+			}
+		}
+		if ok {
+			return f
+		}
+	}
+	return nil
 }
 
 // lawProviderFixes adds to the skip of each provider with no generator
@@ -678,14 +849,14 @@ func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
 		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
 	}
-	return "; a func New" + p.Type.Obj.Name + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
+	return "; a func " + syntax.ConstructorName(p.Type.Obj.Name) + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
 }
 
 // lawClosures are, for pkg and each package it sees, the packages each
 // sees: itself, the prelude and its imports at any depth (rule 7).
 func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
 	pre := pkg
-	if pkg.Path != std.PreludePath {
+	if pkg.Path != stdlib.PreludePath {
 		pre = prelude().pkg
 	}
 	out := map[*Package]map[*Package]bool{}
@@ -752,6 +923,9 @@ func (c *checker) checkLaw(law *Law) {
 		return
 	}
 	defer c.beginBodyCheck(law)()
+	if law.Owner == nil && d.TypeParams != nil && law.TParams == nil {
+		law.TParams = c.lawTypeParams(d.TypeParams)
+	}
 	tparams := law.typeParams()
 	defer c.monoOwner(tparams)()
 	name := "law " + law.Name
@@ -799,7 +973,8 @@ func (c *checker) checkLaw(law *Law) {
 			for _, id := range field.Names {
 				v := &Var{Name: id.Name, Type: typ, Pos: id.Pos(), id: id, param: true, used: true}
 				law.Params = append(law.Params, v)
-				if field.Where != nil && !containsInvalid(typ) {
+				relational := field.Where != nil && c.relationalWhere(law, field.Where)
+				if field.Where != nil && !containsInvalid(typ) && !relational {
 					// A law parameter's where (types.md, Refinements 10):
 					// its generator draws inside the predicate.
 					c.refining = true
@@ -819,14 +994,25 @@ func (c *checker) checkLaw(law *Law) {
 					c.errorf(id, CodeType, "%s is already a parameter of %s", id.Name, name)
 					continue
 				}
-				// D-D3, else D-D2 against the operations; the parameter
-				// still binds.
-				if !c.preludeName(id) {
+				// D-D2 against the operations, unless the binder already
+				// has its diagnostic; the parameter still binds.
+				if !c.refusedBinder(id) {
 					c.shadowed(id, frame)
 				}
 				c.def(id, v)
 				frame.insert(id.Name, v)
+				if relational && !containsInvalid(typ) {
+					c.admission(law, d, len(law.Params)-1, field.Where) // lawwhere.go
+				}
 			}
+		}
+	}
+	law.Ties = c.ties(law.Params, law.Where)
+	for i, a := range law.Admit {
+		// A parameter with a where over earlier parameters is drawn by
+		// search (lawwhere.go), never repeated by the tie rule.
+		if a != nil && i < len(law.Ties) {
+			law.Ties[i] = nil
 		}
 	}
 	if d.Rewrite != nil {
@@ -905,4 +1091,28 @@ func (c *checker) lawOpCall(x *syntax.CallExpr) (operand, bool) {
 	call := c.callInfo(x)
 	call.Kind, call.Op = CallLawOp, m
 	return c.callSig(x, m.Sig, fun), true
+}
+
+// ties is, for each of params, the earlier parameters of an identical type
+// (Law.Ties): a generated case repeats one of their values with
+// probability 1/4 (the tie rule, runtime/testgen Stream.Tie). A parameter
+// with a where neither ties nor is tied to, since a repeated value need
+// not hold the other's predicate.
+func (c *checker) ties(params []*Var, where []*Refinement) [][]int {
+	var out [][]int
+	for i, p := range params {
+		var earlier []int
+		if i >= len(where) || where[i] == nil {
+			for j := range i {
+				if (j >= len(where) || where[j] == nil) && !containsInvalid(p.Type) && c.identical(params[j].Type, p.Type) {
+					earlier = append(earlier, j)
+				}
+			}
+		}
+		out = append(out, earlier)
+	}
+	if !slices.ContainsFunc(out, func(e []int) bool { return len(e) > 0 }) {
+		return nil
+	}
+	return out
 }

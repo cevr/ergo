@@ -1,26 +1,24 @@
 // Package mcpgen writes the Ergo source that puts an operation type on the
-// Model Context Protocol (`ergo gen mcp`; docs/spec/rpc.md, ergo gen mcp).
-// The output is ordinary Ergo over module mcp (modules/mcp) and std rpc's
-// JSON, in the package <pkg>mcp beside the contract's package, in one
-// file, mcp.ergo:
+// Model Context Protocol (`ergo gen mcp`; docs/spec/api.md, ergo gen mcp).
+// The output is ordinary Ergo over std mcp (moved from modules/mcp, MCP0), std rpc's
+// JSON and the contract's hub (`ergo gen api`), in the package <pkg>mcp
+// beside the contract's package, in one file, mcp.ergo:
 //
-//   - Request, the Request of `ergo gen rpc` (the rpc package must exist
-//     and be current: one call has one type on every surface);
-//   - a tool per operation: its name (the operation's in kebab case, as
-//     the CLI's command), its description (the operation's doc comment, or
-//     its signature), and the JSON schema of its arguments, which this
-//     package derives from the parameters' wire forms (Input);
+//   - Request, the hub's Request (one call has one type on every surface);
+//   - a tool per operation: its name (the hub's Name), its description (the
+//     hub's Doc: the operation's doc comment, or its signature), and the
+//     JSON schema of its arguments (the hub's Schema, Input);
 //   - Call(name, arguments) Request and Arguments(r), its other half, with
 //     the laws ArgumentsRoundTrip and ArgumentsFitTheSchema (mcp.Conforms);
-//   - Answer(r), which calls the bound provider: the value as JSON, a typed
-//     failure as an mcp.ToolError whose message is the failure's tagged
-//     JSON (the wire's);
+//   - Answer(r), which answers r through the hub's Call on the bound
+//     provider: the value as JSON, a typed failure as an mcp.ToolError
+//     whose message is the failure's tagged JSON (the wire's);
 //   - Tools(p), the mcp.Tool of each operation on the provider p.
 //
 // An operation whose only parameter is a record takes that record's
 // fields as its arguments; any other takes its parameters by their wire
-// keys. The file carries the contract's digest, and `--check` regenerates
-// and compares, as `ergo gen rpc` does.
+// keys (rpcgen.Flat). The file carries the contract's digest, and
+// `--check` regenerates and compares, as `ergo gen api` does.
 package mcpgen
 
 import (
@@ -31,64 +29,56 @@ import (
 	"strings"
 	"sync"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
-	"ergo.local/prototype/internal/sketch/std"
-	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
-// ModulePath is the import path of module mcp, which the generated
-// package imports; the contract's module requires it.
-const ModulePath = "github.com/cevr/ergo/modules/mcp"
+// ModulePath is the import path of std mcp, which the generated package
+// imports; it is std, so the contract's module requires nothing for it.
+const ModulePath = "mcp"
 
 // Files is the generated package: its folder, relative to the contract's
 // package folder, and its files by name.
 type Files = rpcgen.Files
 
 // Generate writes the mcp package of the operation type opName of pkg,
-// whose import path is path; rpcPath is the import path of the contract's
-// generated rpc package, whose Request it names.
-func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
-	if rpcPath == "" {
-		return Files{}, fmt.Errorf("the mcp package names the rpc package's Request; run ergo gen rpc first")
+// whose import path is path, over its hub at the import path apiPath.
+func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
+	if apiPath == "" {
+		return Files{}, fmt.Errorf("the mcp package is written over the hub; run ergo gen api first")
 	}
-	ops, err := rpcgen.Ops(pkg, opName)
+	ops, digest, err := rpcgen.Contract(pkg, path, opName)
 	if err != nil {
 		return Files{}, err
 	}
-	wire, err := rpcgen.Generate(pkg, path, opName)
-	if err != nil {
+	// The hub's Schema refuses what has no JSON schema; the tools need one.
+	if _, err := rpcgen.GenerateAPI(pkg, path, opName); err != nil {
 		return Files{}, err
-	}
-	digest := digestLine().FindString(wire.Files["wire.ergo"])
-	if digest == "" {
-		return Files{}, fmt.Errorf("mcpgen: the rpc generator wrote no digest line")
 	}
 	pkgName := lastElem(path)
-	rpcName := lastElem(rpcPath)
-	g := &gen{pkg: pkg, path: path, op: opName, rq: rpcName + ".", imports: map[string]string{"json": "json", "rpc": "rpc", ModulePath: "mcp", rpcPath: rpcName}}
+	api := lastElem(apiPath)
+	g := &gen{pkg: pkg, path: path, op: opName, api: api, rq: api + ".", imports: map[string]string{"json": "json", "rpc": "rpc", ModulePath: "mcp", apiPath: api}}
 	g.importOf(pkg)
-	docs := opDocs(pkg, opName)
+	g.stdAPI = rpcgen.StdAPIName(g.imports)
+	g.imports["api"] = g.stdAPI
 	var tools []*tool
 	names := map[string]string{}
 	for _, op := range ops {
-		t := g.tool(op, docs[op.Name])
-		if g.err != nil {
-			return Files{}, g.err
-		}
+		t := &tool{op: op, name: rpcgen.Kebab(op.Name), flat: rpcgen.Flat(op)}
 		if other, ok := names[t.name]; ok {
 			return Files{}, fmt.Errorf("%s.%s and %s.%s have one tool name, %s", opName, other, opName, op.Name, t.name)
 		}
 		names[t.name] = op.Name
 		tools = append(tools, t)
 	}
+	body := g.file(ops, tools)
 	for _, name := range g.imports {
 		if reserved[name] {
 			return Files{}, fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", opName, name)
 		}
 	}
-	body := g.file(tools)
 	head := fmt.Sprintf("// Code generated by ergo gen mcp; DO NOT EDIT.\n%s\n\n", digest)
 	lead := fmt.Sprintf("// Package %smcp puts %s.%s on the Model Context Protocol (ergo gen\n// mcp): a tool per operation, the JSON schema of its arguments, Call and\n// Arguments between a tool call and a Request, and Tools, which call the\n// provider the caller gives.\n\n", pkgName, pkgName, opName)
 	src := head + lead + g.importBlock(body) + "\n" + body
@@ -99,10 +89,8 @@ func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
 	return Files{Dir: pkgName + "mcp", Files: map[string]string{"mcp.ergo": out}}, nil
 }
 
-var digestLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^// Contract .*, digest sha256:[0-9a-f]+\.$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
-
 // reserved are the locals the generated functions use.
-var reserved = map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true}
+var reserved = map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true, "done": true, "rejected": true, "reply": true, "failure": true, "o": true, "c": true, "w": true, "g": true, "answer": true, "result": true, "tools": true, "server": true, "message": true, "carry": true, "toolOver": true}
 
 func lastElem(path string) string {
 	if i := strings.LastIndex(path, "/"); i >= 0 {
@@ -111,49 +99,22 @@ func lastElem(path string) string {
 	return path
 }
 
-// opDocs are the doc comments of opName's operations, by name.
-func opDocs(pkg *check.Package, opName string) map[string]string {
-	out := map[string]string{}
-	for _, t := range pkg.Types {
-		if t.Name != opName || t.Decl == nil {
-			continue
-		}
-		it, ok := t.Decl.Spec.(*syntax.InterfaceType)
-		if !ok {
-			continue
-		}
-		for _, m := range it.Methods {
-			if m.Doc == nil || len(m.Names) == 0 {
-				continue
-			}
-			var lines []string
-			for _, c := range m.Doc.List {
-				lines = append(lines, strings.TrimSpace(strings.TrimPrefix(c.Text, "//")))
-			}
-			out[m.Names[0].Name] = strings.Join(lines, " ")
-		}
-	}
-	return out
-}
-
 type gen struct {
-	pkg     *check.Package
-	path    string
-	op      string
-	rq      string // the rpc package's qualifier, "<pkg>rpc."
+	pkg  *check.Package
+	path string
+	op   string
+	api  string // the hub's package name
+	rq   string // the hub's qualifier, "<pkg>api."
+	// stdAPI is the name of std api.
+	stdAPI string
+	// imports are every package the file may name, by path, with the name
+	// source uses for it.
 	imports map[string]string
-	err     error
-}
-
-func (g *gen) fail(format string, args ...any) {
-	if g.err == nil {
-		g.err = fmt.Errorf(format, args...)
-	}
 }
 
 // importOf records p's import and is the name source uses for it.
 func (g *gen) importOf(p *check.Package) string {
-	if p == nil || p.Path == std.PreludePath {
+	if p == nil || p.Path == stdlib.PreludePath {
 		return ""
 	}
 	if p == g.pkg {
@@ -212,235 +173,11 @@ func unalias(t check.Type) check.Type {
 
 // tool is the plan of one operation's tool.
 type tool struct {
-	op          rpcgen.Op
-	name        string
-	description string
-	schema      string
-	// flat is the wire key of the operation's only parameter when it is
-	// a record whose fields are the arguments; "" otherwise.
+	op   rpcgen.Op
+	name string
+	// flat is the wire key of the operation's only parameter when it is a
+	// record whose fields are the arguments; "" otherwise.
 	flat string
-}
-
-func (g *gen) tool(op rpcgen.Op, doc string) *tool {
-	t := &tool{op: op, name: kebab(op.Name), description: doc}
-	if t.description == "" {
-		t.description = g.signature(op)
-	}
-	if len(op.Params) == 1 {
-		if _, ok := recordOf(op.Params[0].Type); ok {
-			t.flat = paramKey(op.Params[0].Name)
-			t.schema = g.schema(op.Params[0].Type, map[*check.Named]bool{}, op.Name+" "+op.Params[0].Name)
-			return t
-		}
-	}
-	var props, required []string
-	for _, p := range op.Params {
-		key := paramKey(p.Name)
-		props = append(props, quote(key)+":"+g.schema(p.Type, map[*check.Named]bool{}, op.Name+" "+p.Name))
-		required = append(required, quote(key))
-	}
-	t.schema = object(props, required)
-	return t
-}
-
-// paramKey is the wire key of the Request field of the parameter name.
-func paramKey(name string) string {
-	return check.WireFieldName(&check.Field{Name: rpcgen.FieldName(name)})
-}
-
-func quote(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
-}
-
-// object is an object schema with the properties props (each `"key":schema`)
-// and the required keys.
-func object(props, required []string) string {
-	s := `{"type":"object","properties":{` + strings.Join(props, ",") + `}`
-	if len(required) > 0 {
-		s += `,"required":[` + strings.Join(required, ",") + `]`
-	}
-	return s + "}"
-}
-
-// recordOf is t's struct when t is a declared record (not a union).
-func recordOf(t check.Type) (*check.Struct, bool) {
-	n, ok := unalias(t).(*check.Named)
-	if !ok || pairOf(n) != nil || check.RefinementOf(n) != nil {
-		return nil, false
-	}
-	s, ok := n.Underlying().(*check.Struct)
-	return s, ok
-}
-
-// stdJSON is t's type arguments when t is std json's type name.
-func stdJSON(t check.Type, name string) (*check.Named, bool) {
-	n, ok := unalias(t).(*check.Named)
-	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name {
-		return n, true
-	}
-	return nil, false
-}
-
-// pairOf is the Wire function of t's by-name pair, or nil.
-func pairOf(n *check.Named) *check.Func {
-	if n.Obj == nil || n.Obj.Pkg == nil || len(n.TArgs) > 0 {
-		return nil
-	}
-	for _, f := range n.Obj.Pkg.Funcs {
-		if (f.Name == "Wire" || f.Name == "wire") && f.Sig != nil && len(f.Sig.Params) == 1 && len(f.Sig.Results) == 1 && f.Sig.Params[0].Type.String() == n.String() {
-			return f
-		}
-	}
-	return nil
-}
-
-// schema is the JSON schema of t's wire form (docs/spec/types.md, Codecs
-// 2): where names the parameter for a refusal.
-func (g *gen) schema(t check.Type, seen map[*check.Named]bool, where string) string {
-	t = unalias(t)
-	switch u := t.(type) {
-	case *check.Basic:
-		switch u.Kind {
-		case check.Bool:
-			return `{"type":"boolean"}`
-		case check.String:
-			return `{"type":"string"}`
-		case check.Int, check.Int8, check.Int16, check.Int32, check.Int64, check.Uint, check.Uint8, check.Uint16, check.Uint32, check.Uint64:
-			return `{"type":"integer"}`
-		case check.Float32, check.Float64:
-			return `{"type":"number"}`
-		}
-	case *check.Slice:
-		return `{"type":"array","items":` + g.schema(u.Elem, seen, where) + `}`
-	case *check.Array:
-		return `{"type":"array","items":` + g.schema(u.Elem, seen, where) + fmt.Sprintf(`,"minItems":%d,"maxItems":%d}`, u.Len, u.Len)
-	case *check.Tuple:
-		var items []string
-		for _, e := range u.Types {
-			items = append(items, g.schema(e, seen, where))
-		}
-		return `{"type":"array","prefixItems":[` + strings.Join(items, ",") + `]}`
-	case *check.Map:
-		return `{"type":"object","additionalProperties":` + g.schema(u.Elem, seen, where) + `}`
-	case *check.Named:
-		return g.named(u, seen, where)
-	}
-	g.fail("%s.%s: %s has the type %s, which has no JSON schema here", g.op, where, where, t)
-	return "{}"
-}
-
-func (g *gen) named(n *check.Named, seen map[*check.Named]bool, where string) string {
-	if _, ok := stdJSON(n, "Value"); ok {
-		return `{}`
-	}
-	if _, ok := stdJSON(n, "Num"); ok {
-		return `{"type":"number"}`
-	}
-	if nn, ok := stdJSON(n, "Nullable"); ok && len(nn.TArgs) == 1 {
-		return `{"anyOf":[` + g.schema(nn.TArgs[0], seen, where) + `,{"type":"null"}]}`
-	}
-	if f := pairOf(n); f != nil {
-		return g.schema(f.Sig.Results[0], seen, where)
-	}
-	if check.RefinementOf(n) != nil {
-		return g.schema(n.Underlying(), seen, where)
-	}
-	for s := range seen {
-		if s.String() == n.String() {
-			g.fail("%s.%s: %s reaches %s again (a recursive type), which has no JSON schema here", g.op, where, where, n)
-			return "{}"
-		}
-	}
-	seen[n] = true
-	defer delete(seen, n)
-	switch u := n.Underlying().(type) {
-	case *check.Struct:
-		return g.record(u, "", seen, where)
-	case *check.Union:
-		var vs []string
-		for _, v := range u.Variants {
-			vn, ok := unalias(v).(*check.Named)
-			if !ok {
-				g.fail("%s.%s: a variant of %s is not a record", g.op, where, n)
-				return "{}"
-			}
-			s, ok := vn.Underlying().(*check.Struct)
-			if !ok {
-				g.fail("%s.%s: the variant %s of %s is not a record", g.op, where, vn, n)
-				return "{}"
-			}
-			vs = append(vs, g.record(s, vn.Obj.Name, seen, where))
-		}
-		return `{"anyOf":[` + strings.Join(vs, ",") + `]}`
-	case *check.Basic, *check.Slice, *check.Map, *check.Tuple, *check.Array:
-		return g.schema(u, seen, where)
-	}
-	g.fail("%s.%s: %s has the type %s, which has no JSON schema here", g.op, where, where, n)
-	return "{}"
-}
-
-// record is the object schema of s; tag, when set, is the union variant's
-// "_tag". A json.Optional field is not required.
-func (g *gen) record(s *check.Struct, tag string, seen map[*check.Named]bool, where string) string {
-	var props, required []string
-	if tag != "" {
-		props = append(props, `"_tag":{"const":`+quote(tag)+`}`)
-		required = append(required, `"_tag"`)
-	}
-	for _, f := range s.Fields {
-		key := check.WireFieldName(f)
-		if opt, ok := stdJSON(f.Type, "Optional"); ok && len(opt.TArgs) == 1 {
-			props = append(props, quote(key)+":"+g.schema(opt.TArgs[0], seen, where))
-			continue
-		}
-		props = append(props, quote(key)+":"+g.schema(f.Type, seen, where))
-		required = append(required, quote(key))
-	}
-	return object(props, required)
-}
-
-// kebab is a name as a command line writes it (cligen's rule): RunOf
-// run-of, userID user-id.
-func kebab(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		upper := c >= 'A' && c <= 'Z'
-		if upper && i > 0 {
-			prev := s[i-1]
-			prevLower := prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
-			nextLower := i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z'
-			prevUpper := prev >= 'A' && prev <= 'Z'
-			if prevLower || prevUpper && nextLower {
-				b.WriteByte('-')
-			}
-		}
-		if upper {
-			c += 'a' - 'A'
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
-}
-
-func (g *gen) signature(op rpcgen.Op) string {
-	var params []string
-	for _, p := range op.Params {
-		params = append(params, p.Name+" "+g.expr(p.Type))
-	}
-	s := op.Name + "(" + strings.Join(params, ", ") + ")"
-	if op.Result != nil {
-		s += " " + g.expr(op.Result)
-	}
-	if len(op.Fails) > 0 {
-		var fs []string
-		for _, f := range op.Fails {
-			fs = append(fs, g.expr(f))
-		}
-		s += " fails " + strings.Join(fs, " | ")
-	}
-	return s
 }
 
 // lit is s as an Ergo string literal: `\`, `"` and control characters
@@ -485,10 +222,10 @@ func failTag(t check.Type) string {
 }
 
 // file is mcp.ergo's declarations.
-func (g *gen) file(tools []*tool) string {
+func (g *gen) file(ops []rpcgen.Op, tools []*tool) string {
 	capName := g.importOf(g.pkg) + "." + g.op
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Request is one call of %s: the rpc package's Request.\ntype Request = %sRequest\n\n", capName, g.rq)
+	fmt.Fprintf(&b, "// Request is one call of %s: the hub's Request.\ntype Request = %sRequest\n\n", capName, g.rq)
 	b.WriteString("// valueOf is the JSON value text spells: the wire's text, so JSON.\nfunc valueOf(text string) json.Value {\njson.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {\ncase _:\njson.Null\n}\n}\n\n")
 	b.WriteString("// textOf is v's JSON text.\nfunc textOf(v json.Value) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }\n\n")
 	b.WriteString("// untagged is v without its \"_tag\" member: a variant's record as a\n// tool's arguments.\nfunc untagged(v json.Value) json.Value {\nmatch v {\ncase json.Object as o:\nlet mut members = []json.Member{}\nfor m in o.Members {\nif m.Key != \"_tag\" {\nmembers = members.Append(m)\n}\n}\njson.Object{Members: members}\ncase json.Null, json.Boolean, json.Num, json.Str, json.Array:\nv\n}\n}\n\n")
@@ -499,15 +236,15 @@ func (g *gen) file(tools []*tool) string {
 	}
 	fmt.Fprintf(&b, "// Names are the tools' names, one per operation of %s, in its order.\nlet Names = []string{%s}\n\n", capName, strings.Join(names, ", "))
 
-	b.WriteString("// Description is what the tool name does: its operation's doc comment,\n// or its signature.\nfunc Description(name string) string {\nmatch name {\n")
+	b.WriteString("// Description is what the tool name does: its operation's doc comment,\n// or its signature (the hub's Doc).\nfunc Description(name string) string {\nmatch name {\n")
 	for _, t := range tools {
-		fmt.Fprintf(&b, "case %s:\n%s\n", lit(t.name), lit(t.description))
+		fmt.Fprintf(&b, "case %s:\n%sDoc(%s%sOp)\n", lit(t.name), g.rq, g.rq, t.op.Name)
 	}
 	b.WriteString("case _:\n\"\"\n}\n}\n\n")
 
-	b.WriteString("// Input is the JSON schema of the tool name's arguments (an object\n// schema with no properties for a name that is no tool's).\nfunc Input(name string) json.Value {\nmatch name {\n")
+	b.WriteString("// Input is the JSON schema of the tool name's arguments (the hub's\n// Schema; an object schema with no properties for a name that is no\n// tool's).\nfunc Input(name string) json.Value {\nmatch name {\n")
 	for _, t := range tools {
-		fmt.Fprintf(&b, "case %s:\nvalueOf(%s)\n", lit(t.name), lit(t.schema))
+		fmt.Fprintf(&b, "case %s:\n%sSchema(%s%sOp)\n", lit(t.name), g.rq, g.rq, t.op.Name)
 	}
 	b.WriteString("case _:\nvalueOf(\"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}\")\n}\n}\n\n")
 
@@ -536,53 +273,77 @@ func (g *gen) file(tools []*tool) string {
 	}
 	b.WriteString("}\n}\n\n")
 
-	fmt.Fprintf(&b, "// Answer calls the operation r asks for on the bound %s: its\n// value as JSON (null for none), or its typed failure as a ToolError\n// whose message is the failure's tagged JSON.\nfunc Answer(r Request) json.Value fails mcp.ToolError needs %s {\nmatch r {\n", capName, capName)
+	fmt.Fprintf(&b, "// Show is the outcome o as a tool's answer: its value as JSON (null for\n// none), or its typed failure as a ToolError whose message is the\n// failure's tagged JSON.\nfunc Show(o %sOutcome) json.Value fails mcp.ToolError {\n", g.rq)
+	fmt.Fprintf(&b, "match o {\ncase %sDone as done:\nmatch done.Reply {\n", g.rq)
 	for _, t := range tools {
-		op := t.op
-		v := g.rq + op.Name + "Request"
-		var args []string
-		for _, p := range op.Params {
-			args = append(args, "x."+rpcgen.FieldName(p.Name))
-		}
-		if len(op.Params) == 0 {
-			fmt.Fprintf(&b, "case %s:\n", v)
+		reply := g.rq + t.op.Name + "Reply"
+		if t.op.Result == nil {
+			fmt.Fprintf(&b, "case %s:\njson.Null\n", reply)
 		} else {
-			fmt.Fprintf(&b, "case %s as x:\n", v)
-		}
-		call := fmt.Sprintf("%s.%s(%s)", capName, op.Name, strings.Join(args, ", "))
-		if op.Result != nil {
-			call = "let v = " + call
-		}
-		b.WriteString(call)
-		if len(op.Fails) > 0 {
-			b.WriteString(" catch {\n")
-			for _, f := range op.Fails {
-				fmt.Fprintf(&b, "case %s as e:\n", g.expr(f))
-				if tag := failTag(f); tag != "" {
-					fmt.Fprintf(&b, "return mcp.ToolError{Message: rpc.Tagged(%q, rpc.Encode(e))}\n", tag)
-				} else {
-					b.WriteString("return mcp.ToolError{Message: rpc.Encode(e)}\n")
-				}
-			}
-			b.WriteString("}")
-		}
-		b.WriteString("\n")
-		if op.Result == nil {
-			b.WriteString("json.Null\n")
-		} else {
-			b.WriteString("valueOf(rpc.Encode(v))\n")
+			fmt.Fprintf(&b, "case %s as reply:\nvalueOf(rpc.Encode(reply.Value))\n", reply)
 		}
 	}
-	b.WriteString("}\n}\n\n")
+	fmt.Fprintf(&b, "}\ncase %sRejected as rejected:\nmatch rejected.Failure {\n", g.rq)
+	fails := rpcgen.Failures(ops)
+	for _, f := range fails {
+		fmt.Fprintf(&b, "case %s%s as failure:\n", g.rq, rpcgen.FailureVariant(ops, f))
+		if tag := failTag(f); tag != "" {
+			fmt.Fprintf(&b, "return mcp.ToolError{Message: rpc.Tagged(%q, rpc.Encode(failure.E))}\n", tag)
+		} else {
+			b.WriteString("return mcp.ToolError{Message: rpc.Encode(failure.E)}\n")
+		}
+	}
+	if len(fails) == 0 {
+		fmt.Fprintf(&b, "case %s%s:\nreturn mcp.ToolError{Message: \"the hub answered NoFailure, which no operation fails\"}\n", g.rq, rpcgen.NoFailure)
+	}
+	b.WriteString("}\n}\n}\n\n")
 
-	fmt.Fprintf(&b, "// tool is the tool name on p: it reads its arguments (Call) and\n// answers on p (Answer).\nfunc tool(name string, p %s) mcp.Tool {\nmcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {\nlet r = Call(name, arguments) catch {\ncase mcp.ToolError as e:\nreturn e\ncase mcp.UnknownTool as e:\nreturn mcp.ToolError{Message: \"no tool is named \" + e.Name}\n}\nwith context { %s: p } { try Answer(r) }\n}}\n}\n\n", capName, capName)
+	fmt.Fprintf(&b, "// Answer answers r through the hub's Call on the bound %s (Show).\nfunc Answer(r Request) json.Value fails mcp.ToolError needs %s {\ntry Show(%sCall(r))\n}\n\n", capName, capName, g.rq)
+
+	fmt.Fprintf(&b, "// ReadAnswer is the outcome of r that a tool's result says: its value's\n// JSON, or, when it is an error, its failure's tagged JSON. Any other\n// result is not an answer to r, a defect.\nfunc ReadAnswer(r Request, result mcp.Called) %sOutcome {\n", g.rq)
+	b.WriteString("if len(result.Content) != 1 {\nUnreachable(\"a tool answered \\(len(result.Content)) blocks, not one\")\n}\nlet text = result.Content[0].Text\nif !result.IsError {\nmatch r {\n")
+	for _, t := range tools {
+		op := t.op
+		req := g.rq + op.Name + "Request"
+		reply := g.rq + op.Name + "Reply"
+		if op.Result == nil {
+			fmt.Fprintf(&b, "case %s:\nif text != \"null\" {\nUnreachable(\"the tool %s answered \" + text + \", not null\")\n}\n%sDone{Reply: %s}\n", req, t.name, g.rq, reply)
+			continue
+		}
+		fmt.Fprintf(&b, "case %s:\nlet v = rpc.Decode[%s](\"value\", text) catch {\ncase rpc.Transport as e:\nUnreachable(\"the tool %s answered a value it cannot read: \" + e.Reason)\n}\n%sDone{Reply: %s{Value: v}}\n", req, g.expr(op.Result), t.name, g.rq, reply)
+	}
+	b.WriteString("}\n} else {\nmatch rpc.TagOf(text) {\n")
+	for _, f := range fails {
+		var quoted []string
+		for _, tag := range rpcgen.FailTags(unalias(f)) {
+			quoted = append(quoted, fmt.Sprintf("%q", tag))
+		}
+		fmt.Fprintf(&b, "case %s:\nlet e = rpc.Decode[%s](\"failure\", text) catch {\ncase rpc.Transport as x:\nUnreachable(\"a tool answered a failure it cannot read: \" + x.Reason)\n}\n%sRejected{Failure: %s%s{E: e}}\n", strings.Join(quoted, ", "), g.expr(f), g.rq, g.rq, rpcgen.FailureVariant(ops, f))
+	}
+	b.WriteString("case _:\nUnreachable(\"a tool answered an error no operation has: \" + text)\n}\n}\n}\n\n")
+
+	fmt.Fprintf(&b, "// toolOver is the tool name answered by answer: it reads its arguments\n// (Call) and shows answer's outcome (Show).\nfunc toolOver(name string, answer own func(r Request) %sOutcome) mcp.Tool {\nmcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {\nlet r = Call(name, arguments) catch {\ncase mcp.ToolError as e:\nreturn e\ncase mcp.UnknownTool as e:\nreturn mcp.ToolError{Message: \"no tool is named \" + e.Name}\n}\ntry Show(answer(r))\n}}\n}\n\n", g.rq)
+	fmt.Fprintf(&b, "// tool is the tool name on p: it reads its arguments (Call) and\n// answers on p through the hub's Call.\nfunc tool(name string, p %s) mcp.Tool {\ntoolOver(name, func(r Request) %sOutcome {\nwith context { %s: p } { %sCall(r) }\n})\n}\n\n", capName, g.rq, capName, g.rq)
 	fmt.Fprintf(&b, "// Tools are the tools of %s on p, one per operation, in its order.\nfunc Tools(p %s) []mcp.Tool {\nlet mut out = []mcp.Tool{}\nfor name in Names {\nout = out.Append(tool(name, p))\n}\nout\n}\n\n", capName, capName)
+
+	fmt.Fprintf(&b, "// carry is c through the protocol: the tools/call message of its tool,\n// answered by module mcp's Handle over tools whose answer is answer, and\n// the result read back (ReadAnswer).\nfunc carry(c Request, answer own func(c Request) %sOutcome) %sOutcome {\n", g.rq, g.rq)
+	b.WriteString("let mut tools = []mcp.Tool{}\nfor name in Names {\ntools = tools.Append(toolOver(name, answer))\n}\nlet server = mcp.Server{Name: \"carry\", Version: \"1\", Tools: tools}\nlet (name, arguments) = Arguments(c)\nlet message = \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\" + rpc.Encode(name) + \",\\\"arguments\\\":\" + textOf(arguments) + \"}}\"\n")
+	b.WriteString("match mcp.Handle(server, message) {\ncase mcp.Answered as a:\nlet result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {\ncase _:\nUnreachable(\"a tool's result is not one: \" + a.Result)\n}\nReadAnswer(c, result)\ncase mcp.Refused as e:\nUnreachable(\"the server refused the call: \" + e.Message)\ncase mcp.Silent:\nUnreachable(\"the server did not answer the call\")\n}\n}\n\n")
+	fmt.Fprintf(&b, "// Wire is the protocol as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %sOutcome]\n\n", g.stdAPI, g.rq)
+	fmt.Fprintf(&b, "// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) %sOutcome) %sOutcome { carry(c, answer) }\n\n", g.rq, g.rq)
+	fmt.Fprintf(&b, "// Agrees: the protocol carries every call and every outcome the call\n// can have unchanged.\nlaw Agrees(r Request, g %sGiven) { %s.Agrees(Wire, r, %sOutcomeOf(r, g)) }\n\n", g.rq, g.stdAPI, g.rq)
 
 	b.WriteString("// RoundTrips reports whether Call reads what Arguments writes of r as r.\nfunc RoundTrips(r Request) bool {\nlet (name, arguments) = Arguments(r)\nlet back = Call(name, arguments) catch {\ncase mcp.ToolError, mcp.UnknownTool:\nreturn false\n}\nback == r\n}\n\n")
 	b.WriteString("// FitsSchema reports whether the arguments that ask for r fit the\n// schema their tool lists.\nfunc FitsSchema(r Request) bool {\nlet (name, arguments) = Arguments(r)\nmcp.Conforms(Input(name), arguments)\n}\n\n")
 	b.WriteString("// ArgumentsRoundTrip: Call reads what Arguments writes as the same Request.\nlaw ArgumentsRoundTrip(r Request) { RoundTrips(r) }\n\n")
 	b.WriteString("// ArgumentsFitTheSchema: the arguments of every Request fit the schema\n// of their tool.\nlaw ArgumentsFitTheSchema(r Request) { FitsSchema(r) }\n")
 	return b.String()
+}
+
+// quote is s as a JSON string.
+func quote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // importBlock imports each package the declarations text names.
@@ -609,7 +370,11 @@ func (g *gen) importBlock(text string) string {
 	})
 	var b strings.Builder
 	for _, p := range paths {
-		fmt.Fprintf(&b, "import %s\n", p)
+		if name := g.imports[p]; name != lastElem(p) {
+			fmt.Fprintf(&b, "import %s %s\n", name, p)
+		} else {
+			fmt.Fprintf(&b, "import %s\n", p)
+		}
 	}
 	return b.String()
 }

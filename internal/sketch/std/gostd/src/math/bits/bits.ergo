@@ -2,12 +2,15 @@
 // ergo:bind math/bits go1.27 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 // ergo:go func Add(x uint, y uint, carry uint) (sum uint, carryOut uint)
+// ergo:total
 extern go math/bits.Add func Add(x uint, y uint, carry uint) (uint, uint)
 
 // ergo:go func Add32(x uint32, y uint32, carry uint32) (sum uint32, carryOut uint32)
+// ergo:total
 extern go math/bits.Add32 func Add32(x uint32, y uint32, carry uint32) (uint32, uint32)
 
 // ergo:go func Add64(x uint64, y uint64, carry uint64) (sum uint64, carryOut uint64)
+// ergo:total
 extern go math/bits.Add64 func Add64(x uint64, y uint64, carry uint64) (uint64, uint64)
 
 // ergo:go func Div(hi uint, lo uint, y uint) (quo uint, rem uint)
@@ -50,12 +53,15 @@ extern go math/bits.Len64 func Len64(x uint64) int
 extern go math/bits.Len8 func Len8(x uint8) int
 
 // ergo:go func Mul(x uint, y uint) (hi uint, lo uint)
+// ergo:total
 extern go math/bits.Mul func Mul(x uint, y uint) (uint, uint)
 
 // ergo:go func Mul32(x uint32, y uint32) (hi uint32, lo uint32)
+// ergo:total
 extern go math/bits.Mul32 func Mul32(x uint32, y uint32) (uint32, uint32)
 
 // ergo:go func Mul64(x uint64, y uint64) (hi uint64, lo uint64)
+// ergo:total
 extern go math/bits.Mul64 func Mul64(x uint64, y uint64) (uint64, uint64)
 
 // ergo:go func OnesCount(x uint) int
@@ -68,6 +74,7 @@ extern go math/bits.OnesCount16 func OnesCount16(x uint16) int
 extern go math/bits.OnesCount32 func OnesCount32(x uint32) int
 
 // ergo:go func OnesCount64(x uint64) int
+// ergo:total
 extern go math/bits.OnesCount64 func OnesCount64(x uint64) int
 
 // ergo:go func OnesCount8(x uint8) int
@@ -83,54 +90,69 @@ extern go math/bits.Rem32 func Rem32(hi uint32, lo uint32, y uint32) uint32
 extern go math/bits.Rem64 func Rem64(hi uint64, lo uint64, y uint64) uint64
 
 // ergo:go func Reverse(x uint) uint
+// ergo:total
 extern go math/bits.Reverse func Reverse(x uint) uint
 
 // ergo:go func Reverse16(x uint16) uint16
 extern go math/bits.Reverse16 func Reverse16(x uint16) uint16
 
 // ergo:go func Reverse32(x uint32) uint32
+// ergo:total
 extern go math/bits.Reverse32 func Reverse32(x uint32) uint32
 
 // ergo:go func Reverse64(x uint64) uint64
+// ergo:total
 extern go math/bits.Reverse64 func Reverse64(x uint64) uint64
 
 // ergo:go func Reverse8(x uint8) uint8
 extern go math/bits.Reverse8 func Reverse8(x uint8) uint8
 
 // ergo:go func ReverseBytes(x uint) uint
+// ergo:total
 extern go math/bits.ReverseBytes func ReverseBytes(x uint) uint
 
 // ergo:go func ReverseBytes16(x uint16) uint16
+// ergo:total
 extern go math/bits.ReverseBytes16 func ReverseBytes16(x uint16) uint16
 
 // ergo:go func ReverseBytes32(x uint32) uint32
+// ergo:total
 extern go math/bits.ReverseBytes32 func ReverseBytes32(x uint32) uint32
 
 // ergo:go func ReverseBytes64(x uint64) uint64
+// ergo:total
 extern go math/bits.ReverseBytes64 func ReverseBytes64(x uint64) uint64
 
 // ergo:go func RotateLeft(x uint, k int) uint
+// ergo:total
 extern go math/bits.RotateLeft func RotateLeft(x uint, k int) uint
 
 // ergo:go func RotateLeft16(x uint16, k int) uint16
+// ergo:total
 extern go math/bits.RotateLeft16 func RotateLeft16(x uint16, k int) uint16
 
 // ergo:go func RotateLeft32(x uint32, k int) uint32
+// ergo:total
 extern go math/bits.RotateLeft32 func RotateLeft32(x uint32, k int) uint32
 
 // ergo:go func RotateLeft64(x uint64, k int) uint64
+// ergo:total
 extern go math/bits.RotateLeft64 func RotateLeft64(x uint64, k int) uint64
 
 // ergo:go func RotateLeft8(x uint8, k int) uint8
+// ergo:total
 extern go math/bits.RotateLeft8 func RotateLeft8(x uint8, k int) uint8
 
 // ergo:go func Sub(x uint, y uint, borrow uint) (diff uint, borrowOut uint)
+// ergo:total
 extern go math/bits.Sub func Sub(x uint, y uint, borrow uint) (uint, uint)
 
 // ergo:go func Sub32(x uint32, y uint32, borrow uint32) (diff uint32, borrowOut uint32)
+// ergo:total
 extern go math/bits.Sub32 func Sub32(x uint32, y uint32, borrow uint32) (uint32, uint32)
 
 // ergo:go func Sub64(x uint64, y uint64, borrow uint64) (diff uint64, borrowOut uint64)
+// ergo:total
 extern go math/bits.Sub64 func Sub64(x uint64, y uint64, borrow uint64) (uint64, uint64)
 
 // ergo:go func TrailingZeros(x uint) int

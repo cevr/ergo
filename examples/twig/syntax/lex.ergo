@@ -76,6 +76,33 @@ func Lex(src string) []Token fails LexError {
 	toks.Append(Token{Kind: End, Text: "", At: Pos{Line: line, Col: len(src) - lineStart + 1}, Fresh: fresh})
 }
 
+// TokensStandInOrder: the tokens of a text stand in order, each after the
+// one before it, and End is last, after them all.
+law TokensStandInOrder(src string) {
+	let toks = Lex(src) catch {
+	case LexError:
+		return true
+	}
+	let mut line = 0
+	let mut col = 0
+	for i, t in toks {
+		let after = t.At.Line > line || (t.At.Line == line && t.At.Col > col)
+		if !after {
+			return false
+		}
+		match t.Kind {
+		case End:
+			if i != len(toks)-1 {
+				return false
+			}
+		case Ident, Keyword, IntTok, FloatTok, StrTok, Punct:
+		}
+		line = t.At.Line
+		col = t.At.Col
+	}
+	true
+}
+
 // quoted reads a string literal whose body starts at byte from of src,
 // with the machine Quoting: it is the literal's value and the byte after
 // its closing quote.

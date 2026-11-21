@@ -1,0 +1,230 @@
+// Package content reads the journal's entries from files: one note a
+// file, entries/SLUG.txt, read one line at a time by a machine whose
+// state is the part of the note being read.
+//
+//	title: A walk to the marsh
+//	day: 2026-10-03
+//	related: heron-count, first-frost
+//
+//	The first paragraph, which may run
+//	over several lines.
+//
+//	The second paragraph.
+//
+// The head is key: value lines up to the first blank line; title and day
+// are required, related is optional. Each paragraph after it is its lines
+// joined by a space.
+
+import fieldnotes/journal
+import fs
+import machines
+import strconv
+import strings
+
+// BadLine is a line of a note that cannot be read; No counts from 1, and
+// 0 is the end of the note.
+type BadLine { No int, Reason string }
+
+// Part is where the reader is: in the head, or in the body with the
+// lines of the paragraph it is reading. Each holds the entry read so far.
+type Part = Head{E journal.Entry} | Body{E journal.Entry, Lines []string}
+
+// Signal is a line of the note, or its end.
+type Signal = Line{No int, Text string} | End{}
+
+// Reader reads a note one line at a time.
+type Reader machine[Part, Signal] {
+	initial: Head{E: journal.Entry{Slug: "", Title: "", Day: "", Body: []string{}, Related: []string{}}},
+	step:    Step,
+}
+
+// Step reads one signal in part p. In the head a key line Stays with its
+// field set and a blank line Enters the body once the head has a title
+// and a day; in the body a text line Stays with one more line of its
+// paragraph and a blank line ends the paragraph; the end is Done with the
+// entry.
+func Step(p Part, s Signal) Decision[Part, journal.Entry] fails BadLine {
+	match (p, s) {
+	case (Head as h, End):
+		try headDone(h.E, 0)
+		Done[journal.Entry]{Output: h.E}
+	case (Head as h, Line as l):
+		if strings.TrimSpace(l.Text) == "" {
+			try headDone(h.E, l.No)
+			return Enter[Part]{Next: Body{E: h.E, Lines: []string{}}}
+		}
+		Stay[Part]{Next: Head{E: try field(h.E, l)}}
+	case (Body as b, End):
+		Done[journal.Entry]{Output: paragraph(b.E, b.Lines)}
+	case (Body as b, Line as l):
+		if strings.TrimSpace(l.Text) == "" {
+			return Stay[Part]{Next: Body{E: paragraph(b.E, b.Lines), Lines: []string{}}}
+		}
+		Stay[Part]{Next: Body{E: b.E, Lines: b.Lines.Append(strings.TrimSpace(l.Text))}}
+	}
+}
+
+// headDone fails when the head e ends at line no without a title or a day.
+func headDone(e journal.Entry, no int) fails BadLine {
+	if e.Title == "" {
+		return BadLine{No: no, Reason: "the note has no title line"}
+	}
+	if e.Day == "" {
+		return BadLine{No: no, Reason: "the note has no day line"}
+	}
+}
+
+// field is e with the head line l read into it.
+func field(e journal.Entry, l Line) journal.Entry fails BadLine {
+	let h = match strings.Cut(l.Text, ":") {
+	case Some[strings.Halves] as h:
+		h.Value
+	case None:
+		return BadLine{No: l.No, Reason: "a head line is key: value"}
+	}
+	let value = strings.TrimSpace(h.After)
+	match strings.TrimSpace(h.Before) {
+	case "title":
+		if value == "" {
+			return BadLine{No: l.No, Reason: "the title is empty"}
+		}
+		journal.Entry{..e, Title: value}
+	case "day":
+		if !IsDay(value) {
+			return BadLine{No: l.No, Reason: value + " is not a day; write YYYY-MM-DD"}
+		}
+		journal.Entry{..e, Day: value}
+	case "related":
+		let mut related = []string{}
+		for part in strings.Split(value, ",") {
+			let slug = strings.TrimSpace(part)
+			if slug != "" {
+				if journal.Slug(slug) != slug {
+					return BadLine{No: l.No, Reason: slug + " is not a slug"}
+				}
+				related = related.Append(slug)
+			}
+		}
+		journal.Entry{..e, Related: related}
+	case _:
+		BadLine{No: l.No, Reason: "unknown key " + strings.TrimSpace(h.Before) + "; want title, day or related"}
+	}
+}
+
+// paragraph is e with lines, joined by a space, as its next paragraph;
+// no lines add none.
+func paragraph(e journal.Entry, lines []string) journal.Entry {
+	if len(lines) == 0 {
+		return e
+	}
+	journal.Entry{..e, Body: e.Body.Append(strings.Join(lines, " "))}
+}
+
+// IsDay is whether s is a day as YYYY-MM-DD writes it: four digits, a
+// dash, two digits, a dash, two digits.
+func IsDay(s string) bool {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	for i in 0..10 {
+		if i != 4 && i != 7 && (s[i] < '0' || s[i] > '9') {
+			return false
+		}
+	}
+	true
+}
+
+// Read is the entry of slug that text holds.
+func Read(slug string, text string) journal.Entry fails BadLine {
+	let mut signals = []Signal{}
+	for l in strings.Lines(text) {
+		signals = signals.Append(Line{No: len(signals) + 1, Text: l})
+	}
+	let o = try machines.Run(Reader{}, signals.Append(End)) catch {
+	case machines.Rejected:
+		Unreachable("Step never rejects: a bad line fails BadLine")
+	}
+	match o {
+	case machines.Finished[Part, journal.Entry] as f:
+		journal.Entry{..f.Output, Slug: slug}
+	case machines.Running[Part, journal.Entry]:
+		Unreachable("the last signal is End, and Step ends every End with Done or BadLine")
+	}
+}
+
+// Format is e as a note: Read(e.Slug, Format(e)) is e when e's title,
+// day and paragraphs are each one line of text (law FormatThenRead).
+func Format(e journal.Entry) string {
+	let mut lines = []string{"title: " + e.Title, "day: " + e.Day}
+	if len(e.Related) > 0 {
+		lines = lines.Append("related: " + strings.Join(e.Related, ", "))
+	}
+	for p in e.Body {
+		lines = lines.Append("")
+		lines = lines.Append(p)
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// Note is e made a note Format can write and Read read back: its title
+// and each paragraph one line of words (none empty), a day made from day,
+// and related slugs.
+func Note(e journal.Entry, day int) journal.Entry {
+	let title = strings.Join(strings.Fields(e.Title), " ")
+	let mut body = []string{}
+	for p in e.Body {
+		let words = strings.Join(strings.Fields(p), " ")
+		if words != "" {
+			body = body.Append(words)
+		}
+	}
+	let mut related = []string{}
+	for r in e.Related {
+		related = related.Append(journal.Slug(r))
+	}
+	let d = if day < 0 { -(day % 10000) } else { day % 10000 }
+	journal.Entry{
+		Slug:    journal.Slug(e.Slug),
+		Title:   if title == "" { "Untitled" } else { title },
+		Day:     strings.PadLeft(strconv.Itoa(1900+d%100), 4, '0') + "-" + strings.PadLeft(strconv.Itoa(1+d%12), 2, '0') + "-" + strings.PadLeft(strconv.Itoa(1+d%28), 2, '0'),
+		Body:    body,
+		Related: related,
+	}
+}
+
+// FormatThenRead: a note Format writes reads back as the entry it was
+// written from.
+law FormatThenRead(e journal.Entry, day int) {
+	let n = Note(e, day)
+	let back = Read(n.Slug, Format(n)) catch {
+	case BadLine:
+		return false
+	}
+	journal.Same(back, n)
+}
+
+// BadNote is a note of the folder that cannot be read: its file, and the
+// line and reason.
+type BadNote { File string, No int, Reason string }
+
+// ReadFolder is the entries of the notes in the folder dir: each file
+// SLUG.txt, its name a slug. Other files are not notes and are skipped.
+func ReadFolder(dir string) []journal.Entry fails BadNote | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let mut out = []journal.Entry{}
+	for name in try fs.Files.ReadDir(dir) {
+		if strings.HasSuffix(name, ".txt") {
+			let slug = strings.TrimSuffix(name, ".txt")
+			let file = dir + "/" + name
+			if journal.Slug(slug) != slug {
+				return BadNote{File: file, No: 0, Reason: "the file name is not a slug (" + journal.Slug(slug) + ".txt)"}
+			}
+			let text = try fs.Files.ReadFile(file)
+			let e = Read(slug, text) catch {
+			case BadLine as b:
+				return BadNote{File: file, No: b.No, Reason: b.Reason}
+			}
+			out = out.Append(e)
+		}
+	}
+	out
+}

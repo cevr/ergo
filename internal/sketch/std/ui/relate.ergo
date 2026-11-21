@@ -1,0 +1,248 @@
+// Relations (UG2): a node's Access names other nodes by key, as WAI-ARIA's
+// id references do (aria-controls, aria-labelledby, aria-describedby,
+// aria-activedescendant), and says what kind of popup it opens
+// (aria-haspopup). A node takes a key in its Access (Key); a relation
+// names a key, not an Id, so a view writes it in the same pass as the
+// node it names, before or after it, as HTML writes an id reference. A
+// host and a locator resolve a key to the first node of the screen, in
+// tree order, that declares it (RelationsIn), and a relation whose key no
+// node declares resolves to nothing: the tree, not the view, says what a
+// relation names.
+//
+// Prior art: WAI-ARIA 1.2's relationship attributes; Testing Library's
+// queries read them as the browser's accessibility tree resolves them;
+// AccessKit's NodeId references, which a host resolves per update.
+
+import actor
+import time
+
+// Rel is a relation of a node to other nodes, or the popup it opens.
+// Controls names a node whose content or presence this node controls, as
+// the panel a tab shows (aria-controls); LabelledBy a node whose text
+// names it (aria-labelledby); DescribedBy a node whose text describes it
+// (aria-describedby); ActiveDescendant the node under it that the
+// keyboard is on while it keeps the focus, as a list box's active option
+// (aria-activedescendant); OpensPopup the role of the popup it opens: a
+// Menu, a ListBox, a Tree, a Grid or a Dialog (aria-haspopup).
+type Rel = Controls{To Key} | LabelledBy{To Key} | DescribedBy{To Key} | ActiveDescendant{To Key} | OpensPopup{Role Role}
+
+// Range is a slider's or spin button's value and its bounds
+// (aria-valuenow, aria-valuemin, aria-valuemax).
+type Range { Now float64, Min float64, Max float64 }
+
+// Related is a relation of a node and the node it names on a screen: None
+// when no node of the screen declares its key, and for OpensPopup.
+type Related[E] { Rel Rel, To Option[Id[E]] }
+
+// relKey is the key a relation names, NoKey for OpensPopup.
+func relKey(r Rel) Key {
+	match r {
+	case Controls as x:
+		x.To
+	case LabelledBy as x:
+		x.To
+	case DescribedBy as x:
+		x.To
+	case ActiveDescendant as x:
+		x.To
+	case OpensPopup:
+		NoKey
+	}
+}
+
+// RelationsIn is the relations of the node id names on m, each with the
+// node it names: the first node of m, in tree order, whose Access
+// declares the relation's key.
+func RelationsIn[E](m mut Mirror[E], id Id[E]) []Related[E] {
+	let mut out = []Related[E]{}
+	for r in AccessOf(m, id).Rels {
+		let k = relKey(r)
+		let mut to Option[Id[E]] = None
+		if k != NoKey {
+			match entryOf(m, m.root) {
+			case Some[mirrored[E]] as root:
+				to = keyFrom(m, root.Value.first, k)
+			case None:
+			}
+		}
+		out = out.Append(Related[E]{Rel: r, To: to})
+	}
+	out
+}
+
+// keyFrom is the first node, in tree order, of the siblings from at and
+// their subtrees whose Access declares the key k.
+func keyFrom[E](m mut Mirror[E], at Option[Id[E]], k Key) Option[Id[E]] {
+	let mut c = at
+	for {
+		match c {
+		case Some[Id[E]] as x:
+			let e = entry(m, refOf(m, x.Value))
+			if declaresKey(e.node, k) {
+				return c
+			}
+			match keyFrom[E](m, e.first, k) {
+			case Some[Id[E]] as found:
+				return Some{Value: found.Value}
+			case None:
+			}
+			c = e.next
+		case None:
+			return None
+		}
+	}
+}
+
+// declaresKey is whether n is a Semantic node whose Access declares k.
+func declaresKey[E](n Node[E], k Key) bool {
+	match n {
+	case SemanticNode[E] as s:
+		s.Access.Key == k
+	case _:
+		false
+	}
+}
+
+// relText is a relation as a screenshot writes it.
+func relText(r Rel) string {
+	match r {
+	case Controls as x:
+		"controls \(keyText(x.To))"
+	case LabelledBy as x:
+		"labelledby \(keyText(x.To))"
+	case DescribedBy as x:
+		"describedby \(keyText(x.To))"
+	case ActiveDescendant as x:
+		"activedescendant \(keyText(x.To))"
+	case OpensPopup as x:
+		"haspopup \(roleText(x.Role))"
+	}
+}
+
+// drawRel is a drawn relation to a key from 0 to keys-1, or a popup. (a
+// law's helper)
+func drawRel(r mut rng, keys int) Rel {
+	let k = ByInt(draw(r, keys))
+	match draw(r, 5) {
+	case 0:
+		Controls{To: k}
+	case 1:
+		LabelledBy{To: k}
+	case 2:
+		DescribedBy{To: k}
+	case 3:
+		ActiveDescendant{To: k}
+	case _:
+		OpensPopup{Role: Menu}
+	}
+}
+
+// relScreen is n Semantic nodes named "r0" to "r<n-1>" in a Column, node
+// i keyed ByInt(i) when keyed[i], with the relations rels[i], and a
+// Pressable "next" that sends 1; the nodes gone[i] leaves out. (a law's
+// helper)
+func relScreen(f mut Frame[int], keyed []bool, rels [][]Rel, gone []bool) {
+	Column(f, Plain()) {
+		for i, k in keyed {
+			if !gone[i] {
+				let mut a = Named(Group, "r\(i)")
+				if k {
+					a.Key = ByInt(i)
+				}
+				a.Rels = rels[i]
+				Semantic(f, a, None, Plain()) {
+					Text(f, "t\(i)")
+				}
+			}
+		}
+		Pressable(f, "next", 1) {
+			Text(f, "n")
+		}
+	}
+}
+
+// RelationsNameHeldNodes (UG2): over drawn screens of nodes, some keyed,
+// each with drawn relations to keys some node declares and some none
+// does, the host resolves each relation of each node to the node of the
+// screen that declares its key, and to nothing when no node of the screen
+// declares it: after a pass that leaves out drawn nodes, a relation to a
+// node left out resolves to nothing, and the others still resolve.
+law RelationsNameHeldNodes(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 6) + 2
+		let mut keyed = []bool{}
+		let mut rels = [][]Rel{}
+		let mut gone = []bool{}
+		let mut none = []bool{}
+		for _ in 0..n {
+			keyed = keyed.Append(draw(&r, 4) != 0)
+			gone = gone.Append(draw(&r, 3) == 0)
+			none = none.Append(false)
+			let mut rs = []Rel{}
+			for _ in 0..draw(&r, 4) {
+				rs = rs.Append(drawRel(&r, n+2))
+			}
+			rels = rels.Append(rs)
+		}
+		let view = func(f mut Frame[int], s int) {
+			relScreen(f, keyed, rels, if s == 0 { none } else { gone })
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for s in 0..2 {
+			let left = if s == 0 { none } else { gone }
+			for i in 0..n {
+				let ids = Locate(&h, WithLabel{Label: "r\(i)"})
+				if len(ids) != (if left[i] { 0 } else { 1 }) {
+					return false
+				}
+				if len(ids) == 1 {
+					let got = RelationsAt(&h, ids[0])
+					if len(got) != len(rels[i]) {
+						return false
+					}
+					for j, rel in rels[i] {
+						let k = relKey(rel)
+						let mut want = "none"
+						match k {
+						case IntKey as x:
+							if x.Value < n && keyed[x.Value] && !left[x.Value] {
+								want = "r\(x.Value)"
+							}
+						case _:
+						}
+						let mut named = "none"
+						match got[j].To {
+						case Some[Id[int]] as t:
+							named = AccessAt(&h, t.Value).Name
+						case None:
+						}
+						if got[j].Rel != rel || named != want {
+							return false
+						}
+					}
+				}
+			}
+			if s == 0 {
+				let next = Locate(&h, WithLabel{Label: "next"})
+				if len(next) != 1 {
+					return false
+				}
+				Tap(&h, next[0]) catch {
+				case _:
+					return false
+				}
+				Settle(&h) catch {
+				case _:
+					return false
+				}
+			}
+		}
+		true
+	}
+}

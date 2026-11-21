@@ -1,0 +1,321 @@
+// The terminal's input: keys from std term, and taps at a cell (a
+// script's, or a terminal's mouse report when one is read). The host
+// keeps the keyboard focus: Tab moves it in paint order, Enter and space
+// press the focused control, typing goes to the focused Input, and every
+// other key goes to the view's OnKey.
+
+import actor
+import ergo.local/prototype/examples/cells/grid
+import queue
+import term
+import ui
+import ui/layout
+
+// Feed takes one key. It fails ui.Closed at the end of the input and on
+// Ctrl-C (Interrupt), which a raw terminal passes as a key.
+func Feed[E comparable, S, D, F](h mut Host[S, E, D, F], k term.Key) fails ui.Closed | actor.Stopped | ui.BadPatch {
+	match k {
+	case term.Interrupt, term.EndOfInput:
+		return ui.Closed
+	case term.Tab:
+		moveFocus(h, false)
+	case term.Return:
+		try press(h, "Enter")
+	case term.Backspace:
+		match focusedInput(h) {
+		case Some[ui.Id[E]] as id:
+			let v = valueOf(h, id.Value)
+			if v != "" {
+				try step(h, ui.Type[E]{Id: id.Value, Text: withoutLast(v)})
+			}
+		case None:
+			try key(h, "Backspace")
+		}
+	case term.Escape:
+		try key(h, "Escape")
+	case term.Up:
+		try key(h, "ArrowUp")
+	case term.Down:
+		try key(h, "ArrowDown")
+	case term.Left:
+		try key(h, "ArrowLeft")
+	case term.Right:
+		try key(h, "ArrowRight")
+	case term.Home:
+		try key(h, "Home")
+	case term.End:
+		try key(h, "End")
+	case term.Delete:
+		try key(h, "Delete")
+	case term.PageUp:
+		try key(h, "PageUp")
+	case term.PageDown:
+		try key(h, "PageDown")
+	case term.Char as c:
+		try typed(h, c.Text)
+	case term.Paste as p:
+		try typed(h, p.Text)
+	case term.Insert, term.F, term.Chord, term.Wheel, term.Resized, term.Other:
+	}
+}
+
+// key sends a key to the view's OnKey.
+func key[E comparable, S, D, F](h mut Host[S, E, D, F], name string) fails actor.Stopped | ui.BadPatch {
+	try step(h, ui.KeyDown{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}})
+}
+
+// press presses the focused control, or sends name to OnKey.
+func press[E comparable, S, D, F](h mut Host[S, E, D, F], name string) fails actor.Stopped | ui.BadPatch {
+	match h.focus {
+	case Some[ui.Id[E]] as f:
+		match spotOf(h, f.Value) {
+		case Some[spot[E]] as s:
+			if pressable(s.Value.node) {
+				try step(h, ui.Press[E]{Id: f.Value})
+				return
+			}
+		case None:
+		}
+	case None:
+	}
+	try key(h, name)
+}
+
+// typed types text into the focused Input; with none focused, a space
+// presses the focused control and other text goes to OnKey rune by rune.
+func typed[E comparable, S, D, F](h mut Host[S, E, D, F], text string) fails actor.Stopped | ui.BadPatch {
+	match focusedInput(h) {
+	case Some[ui.Id[E]] as id:
+		try step(h, ui.Type[E]{Id: id.Value, Text: valueOf(h, id.Value) + text})
+		return
+	case None:
+	}
+	for r in runesOf(text) {
+		if r == " " {
+			try press(h, " ")
+		} else {
+			try key(h, r)
+		}
+	}
+}
+
+// focusedInput is the focused node when it is an Input.
+func focusedInput[S, E, D, F](h mut Host[S, E, D, F]) Option[ui.Id[E]] {
+	match h.focus {
+	case Some[ui.Id[E]] as f:
+		match h.nodes.Get(f.Value) {
+		case Some[held[E]] as n:
+			match n.Value.node {
+			case ui.InputNode:
+				Some{Value: f.Value}
+			case _:
+				None
+			}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// valueOf is the text of the Input id.
+func valueOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) string {
+	match h.nodes.Get(id) {
+	case Some[held[E]] as n:
+		match n.Value.node {
+		case ui.InputNode as x:
+			x.Value
+		case _:
+			""
+		}
+	case None:
+		""
+	}
+}
+
+// moveFocus moves the focus to the next focusable spot in paint order,
+// or the one before with back, from the first (or the last), scrolls it
+// into view and draws again.
+func moveFocus[S, E, D, F](h mut Host[S, E, D, F], back bool) {
+	let mut order = []ui.Id[E]{}
+	for s in h.spots {
+		if focusable(s.node) {
+			order = order.Append(s.id)
+		}
+	}
+	let n = len(order)
+	if n == 0 {
+		return
+	}
+	let mut at = -1
+	for i, id in order {
+		if h.focus == (Some{Value: id}) {
+			at = i
+		}
+	}
+	let next = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n }
+	h.focus = Some{Value: order[next]}
+	reveal(h, order[next])
+	redraw(h)
+}
+
+// Tap is a press and release at column c, row r: the node the hit test
+// finds there takes the focus when it takes one, and is pressed when it is
+// a control; an Area gets the pointer's Down and Up at the cell's centre.
+func Tap[E comparable, S, D, F](h mut Host[S, E, D, F], c int, r int) fails actor.Stopped | ui.BadPatch {
+	match HitAt(h, c, r) {
+	case Some[ui.Id[E]] as id:
+		match spotOf(h, id.Value) {
+		case Some[spot[E]] as s:
+			if focusable(s.Value.node) && h.focus != (Some{Value: id.Value}) {
+				h.focus = Some{Value: id.Value}
+				redraw(h)
+			}
+			match s.Value.node {
+			case ui.AreaNode:
+				let x = float64((float32(c)+0.5)*CellW - s.Value.box.X)
+				let y = float64((float32(r)+0.5)*CellH - s.Value.box.Y)
+				let over = zoneAt(h, s.Value, c, r)
+				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: None}, Over: over})
+				try step(h, ui.Point[E]{Id: id.Value, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: None}, Over: over})
+			case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+				if pressable(s.Value.node) {
+					try step(h, ui.Press[E]{Id: id.Value})
+				}
+			}
+		case None:
+		}
+	case None:
+		if h.focus != None {
+			h.focus = None
+			redraw(h)
+		}
+	}
+}
+
+// zoneOver is the host's hit test of a pointer at x, y in the Area area's
+// box (H5g): the topmost zone below the Area whose box holds the point,
+// and that box in the Area's box; None when no zone does. The composer
+// turns it into the event's ZoneHit.
+func zoneOver[S, E, D, F](h mut Host[S, E, D, F], area spot[E], x float64, y float64) Option[ui.ZoneBox[E]] {
+	let px = area.box.X + float32(x)
+	let py = area.box.Y + float32(y)
+	topZone(h, area, func(b layout.Box) bool { px >= b.X && px < b.X+b.W && py >= b.Y && py < b.Y+b.H })
+}
+
+// zoneAt is zoneOver for a tap at column c, row r: a zone holds the cell
+// when it is drawn there, by the rounding rule (Span), as HitAt is.
+func zoneAt[S, E, D, F](h mut Host[S, E, D, F], area spot[E], c int, r int) Option[ui.ZoneBox[E]] {
+	topZone(h, area, func(b layout.Box) bool { holds(Span(b), c, r) })
+}
+
+// topZone is the last zone below area, in paint order, whose box hit
+// holds, with that box in the Area's box.
+func topZone[S, E, D, F](h mut Host[S, E, D, F], area spot[E], hit func(b layout.Box) bool) Option[ui.ZoneBox[E]] {
+	let mut over Option[ui.ZoneBox[E]] = None
+	for z in h.spots {
+		match z.node {
+		case ui.ZoneNode:
+			let b = z.box
+			if under(h, area.id, z.id) && hit(b) {
+				over = Some{Value: ui.ZoneBox[E]{Id: z.id, Box: ui.Rect{X: points(b.X - area.box.X), Y: points(b.Y - area.box.Y), W: points(b.W), H: points(b.H)}}}
+			}
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		}
+	}
+	over
+}
+
+func points(v float32) ui.Length { ui.Length(float64(v)) }
+
+// reveal scrolls each Scroll that holds id, outermost first, by whole
+// rows until id's first row shows in it.
+func reveal[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) {
+	for sc in h.spots {
+		match sc.node {
+		case ui.ScrollNode, ui.RowsNode:
+			if sc.id != id && under(h, sc.id, id) {
+				match h.drawn.Get(id) {
+				case Some[drawnAt] as d:
+					let box = Span(sc.box)
+					let top = d.Value.at.R
+					let mut by = 0
+					if top >= box.R+box.H {
+						by = top - (box.R + box.H) + 1
+					} else if top < box.R {
+						by = top - box.R
+					}
+					if by != 0 {
+						let most = match h.extents.Get(sc.id) {
+						case Some[int] as e:
+							if e.Value > box.H { e.Value - box.H } else { 0 }
+						case None:
+							0
+						}
+						let mut next = scrolledBy(h, sc.id) + by
+						if next > most {
+							next = most
+						}
+						if next < 0 {
+							next = 0
+						}
+						h.scrolled[sc.id] = next
+						redraw(h)
+					}
+				case None:
+				}
+			}
+		case _:
+		}
+	}
+}
+
+// under is whether id is below top in the host's tree.
+func under[S, E, D, F](h mut Host[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
+	for k in kidsOf(h, top) {
+		if k == id || under[S, E, D, F](h, k, id) {
+			return true
+		}
+	}
+	false
+}
+
+// Pump takes every fetch result posted so far, without waiting.
+func Pump[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch {
+	for {
+		match h.posted.Poll() {
+		case Some[ui.Event[E]] as ev:
+			try step(h, ev.Value)
+		case None:
+			return
+		}
+	}
+}
+
+// Settle waits until no fetch is in flight and every posted result is
+// taken, as ui.Settle does.
+func Settle[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch {
+	for ui.InFlight(&h.session) > 0 || h.posted.Len() > 0 {
+		let ev = h.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try step(h, ev)
+	}
+}
+
+// runesOf is the text of each rune of s.
+func runesOf(s string) []string { grid.Runes(s) }
+
+// withoutLast is s without its last rune.
+func withoutLast(s string) string {
+	let rs = runesOf(s)
+	let mut out = ""
+	for i, r in rs {
+		if i < len(rs)-1 {
+			out = out + r
+		}
+	}
+	out
+}

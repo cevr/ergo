@@ -1,0 +1,899 @@
+// The package replica is the design model of the sync replica
+// (examples/lease-sync/replica): optimistic mutation, rebase by rerun of
+// decide, push and pull over a bad network, a client restart that loses the
+// cache, and the screen. It is checked by `ergo test models/replica` (the
+// explorer: a breadth-first search of every state in a small scope; the
+// gate's full tier). It replaced a Quint model of the 2026-11 sync spike, a
+// random simulation.
+//
+// One authority keeps a log of receipts (who, id, command, applied). It
+// reruns decide on its own state: a resend of an id with a receipt is a
+// no-op, an id past the client's next one is refused, and a command the
+// state does not allow gets a refused receipt (the refusal is recorded, so a
+// client's ids have no hole). Each client keeps a base (the replay of the
+// log prefix it has read), a cursor, a queue of pending mutations, the next
+// id, the floor and the refusals it was told (Told, the Refused list of the
+// client state); its view is the base plus a rerun of the pending
+// mutations. The journal keeps the queue, the next id, the floor and Told; a
+// restart loses the base and the cursor. The floor is the cursor at the
+// last prune of the queue: until the cursor is at the floor again the
+// replica is Loading. Each commit of a replica posts its view to the host
+// queue; the main thread takes a post and shows it.
+//
+// Frames. A delta carries the log entries from a position; a snapshot
+// carries the state at a position, the caller's last id at it (LastSeq),
+// and the caller's refused commands in the range it skips (Refused). A
+// snapshot without the refusals prunes a refused command from the queue and
+// the client never learns its typed reason (mutant 13).
+//
+// The domain is a counter: Reserve needs a free unit, Release needs a taken
+// one, so the authority can refuse what a client predicted.
+//
+// The network, and why the model holds no message. A delivery is one
+// action, and the merge is exact for the design:
+//   - Deliver{C, I} gives the authority the I-th pending mutation of C. A
+//     mutation leaves the queue only when its receipt is in the log prefix
+//     the client has read, so a late copy of a mutation that is no longer
+//     pending is a resend of an id with a receipt: a no-op. A copy that is
+//     still pending can be delivered now. So every delivery of an in-flight
+//     copy is this action or a no-op: duplicates (the action again),
+//     reorders (I = 1 before I = 0, refused as ahead) and loss (never).
+//   - Delta{C, From, To} and Snapshot{C, At} are a frame the authority
+//     makes from any position and the client takes at once. The log only
+//     grows, so a frame made earlier and delivered now is a frame that can
+//     be made now: old, doubled and reordered frames are these actions.
+//   - A link that is down (Link{C}) stops both for C: a partition.
+//
+// The screen. Posts is the host queue of a client, oldest first. Render
+// takes any post. The design shows it only if it is of the current
+// instance (epoch), and drops it and every older post (the rule "newer
+// than the one shown", since every post behind it in the queue is older).
+// A restart ends the instance: its posts can never show, so the design
+// drops them at the restart (exact: a dead post changes nothing but the
+// length of the queue). The queue holds QueueCap posts; one more drops the
+// oldest, which the design allows (the host may skip to a later state).
+// This bound is part of the scope.
+//
+// Each action is a signal; an action that is not enabled is Ignore. The
+// invariants are checked after each step: a step that breaks one enters
+// Broken with its name.
+//
+//   - FreeInRange, StateIsLogReplay, ReceiptsContiguous: the authority's
+//     state is legal and is the replay of its log; each client's receipts
+//     are ids 1, 2, ... once each (exactly once);
+//   - NoLostMutation: every mutation a client issued has its one receipt or
+//     still waits in the queue;
+//   - BaseIsPrefixReplay: a replica's base is the replay of the log prefix
+//     it has read;
+//   - ViewCommittedPlusPending, ShownCommittedPlusPending: a Ready view, and
+//     what the screen shows, is the authority's state at one log position
+//     plus the client's own pending tail, in order, with no gap, none twice;
+//   - NoStaleShown: the screen shows only the current replica instance;
+//   - ReadyIsStable: a Ready replica stays Ready until a restart;
+//   - SettledShowsLatest: when the host queue is empty the screen is the
+//     replica's view;
+//   - QuiescentConvergence, SettledScreensAgree: when every queue is empty
+//     and every replica has read the whole log, every view, and every
+//     settled screen, is the authority's state;
+//   - RefusalIsTold: a client knows the refusal of each of its commands
+//     that the log prefix it has read holds as refused.
+//
+// The scope: 1 unit; client A issues up to 2 mutations and B up to 1 (so a
+// log of up to 3 receipts); A restarts up to once; a host queue of 2. It is
+// the claim: "proved" means proved in this scope (459,364 states). A larger
+// scope is opt-in: in a copy of this file set MaxRestartsB = 1 (B also
+// restarts once; 1,743,732 states) or Seats = 2, and run
+// `ergo test <copy> --law Design.Safe --states 4000000`.
+//
+// Mutants, each a machine whose law Breaks must hold: a shortest run that
+// breaks the invariant the fault is planted to break (a run that breaks
+// another invariant first ends in Other and is not counted):
+//    1 ApplyResend: the authority applies a resend again (ReceiptsContiguous);
+//    2 TrustClient: the authority trusts the client's prediction (FreeInRange);
+//    3 KeepConfirmed: a confirmed mutation stays pending after a delta
+//      (ViewCommittedPlusPending);
+//    4 SnapshotNoLastID: a snapshot carries no last mutation id
+//      (ViewCommittedPlusPending);
+//    5 AcceptGap: a delta past the cursor is applied (BaseIsPrefixReplay);
+//    6 AcceptOldSnapshot: a snapshot behind the cursor is applied
+//      (ReadyIsStable);
+//    7 NoFloor: a restarted replica is Ready before its floor
+//      (ViewCommittedPlusPending);
+//    8 IDsNotJournaled: a restart derives the next id from the queue
+//      (NoLostMutation);
+//    9 DropOnUnlink: a dropped link clears the queue (NoLostMutation);
+//   10 NoEpochCheck: the screen takes a post of an old instance
+//      (NoStaleShown);
+//   11 NoOrderCheck: the screen takes an older post after a newer one
+//      (SettledShowsLatest);
+//   12 RefusalChangesState: a refused command still changes the authority's
+//      state (StateIsLogReplay);
+//   13 SnapshotDropsRefusals: a snapshot carries LastSeq and no refusal, so
+//      a refused command it skips leaves the queue untold (RefusalIsTold).
+// QuiescentConvergence, SettledScreensAgree and ShownCommittedPlusPending
+// have no mutant of their own: in the design they follow from the other
+// invariants, and they are stated because they are the properties a user
+// sees.
+//
+// Witnesses, the `sometimes` laws of Design, so the invariants are not
+// vacuous: convergence after a refusal; convergence over the full log of 3
+// receipts with every screen settled; a replica that was Loading after a
+// restart and is Ready again with a mutation pending; a restarted replica
+// still Loading; convergence after a refusal and a Loading restart in one
+// run; a partition that holds a full queue while other work lands.
+
+type Who = A{} | B{}
+
+type Cmd = Reserve{} | Release{}
+
+type Mutation { By Who, ID int, Cmd Cmd }
+
+type Entry { By Who, ID int, Cmd Cmd, Applied bool }
+
+// View is what a replica shows: Loading (Ready false), or the base at log
+// position K plus a rerun of the pending mutations Muts.
+type View { Ready bool, K int, Muts []Mutation, Value int }
+
+type Post { Epoch int, View View }
+
+type Client {
+	// The cache, lost at a restart.
+	Base   int,
+	Cursor int,
+	// The journal, kept at a restart.
+	Pending []Mutation,
+	NextID  int,
+	Floor   int,
+	// Told is the ids of this client's commands that it was told are
+	// refused: the model of the client state's Refused list.
+	Told []int,
+	// The connection and the instance.
+	Linked bool,
+	Epoch  int,
+	// Ghosts, read only by the invariants.
+	Issued     []Mutation,
+	WasReady   bool,
+	WasLoading bool,
+	// The host queue and the screen.
+	Posts      []Post,
+	ShownEpoch int,
+	Shown      View,
+}
+
+type World { Log []Entry, Free int, A Client, B Client }
+
+// St is the model's state: the world, a broken invariant, or (in a mutant
+// machine) another invariant broken first.
+type St = Live{W World} | Broken{Why string} | Other{Why string}
+
+// Slot is an index into a client's pending queue or host queue.
+type Slot = I0{} | I1{}
+
+// Pos is a log position.
+type Pos = P0{} | P1{} | P2{} | P3{}
+
+type Act = Mutate{C Who, Cmd Cmd} | Deliver{C Who, I Slot} | Delta{C Who, From Pos, To Pos} | Snapshot{C Who, At Pos} | Link{C Who} | Restart{C Who} | Render{C Who, I Slot}
+
+// The scope.
+let Seats = 1
+let MaxMutsA = 2
+let MaxMutsB = 1
+let MaxRestartsA = 1
+let MaxRestartsB = 0
+let QueueCap = 2
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let ApplyResend = 1
+let TrustClient = 2
+let KeepConfirmed = 3
+let SnapshotNoLastID = 4
+let AcceptGap = 5
+let AcceptOldSnapshot = 6
+let NoFloor = 7
+let IDsNotJournaled = 8
+let DropOnUnlink = 9
+let NoEpochCheck = 10
+let NoOrderCheck = 11
+let RefusalChangesState = 12
+let SnapshotDropsRefusals = 13
+
+func loading() View { View{Ready: false, K: 0, Muts: []Mutation{}, Value: 0} }
+
+func fresh() Client {
+	Client{
+		Base:       Seats,
+		Cursor:     0,
+		Pending:    []Mutation{},
+		NextID:     1,
+		Floor:      0,
+		Told:       []int{},
+		Linked:     true,
+		Epoch:      0,
+		Issued:     []Mutation{},
+		WasReady:   true,
+		WasLoading: false,
+		Posts:      []Post{},
+		ShownEpoch: 0,
+		Shown:      View{Ready: true, K: 0, Muts: []Mutation{}, Value: Seats},
+	}
+}
+
+func first() St { Live{W: World{Log: []Entry{}, Free: Seats, A: fresh(), B: fresh()}} }
+
+func slot(i Slot) int {
+	match i {
+	case I0:
+		0
+	case I1:
+		1
+	}
+}
+
+func pos(p Pos) int {
+	match p {
+	case P0:
+		0
+	case P1:
+		1
+	case P2:
+		2
+	case P3:
+		3
+	}
+}
+
+func get(w World, c Who) Client {
+	match c {
+	case A:
+		w.A
+	case B:
+		w.B
+	}
+}
+
+func set(w World, c Who, v Client) World {
+	match c {
+	case A:
+		World{..w, A: v}
+	case B:
+		World{..w, B: v}
+	}
+}
+
+func maxMuts(c Who) int {
+	match c {
+	case A:
+		MaxMutsA
+	case B:
+		MaxMutsB
+	}
+}
+
+func maxRestarts(c Who) int {
+	match c {
+	case A:
+		MaxRestartsA
+	case B:
+		MaxRestartsB
+	}
+}
+
+// The domain: decide, then evolve.
+func decide(f int, c Cmd) bool {
+	match c {
+	case Reserve:
+		f > 0
+	case Release:
+		f < Seats
+	}
+}
+
+func evolve(f int, c Cmd) int {
+	match c {
+	case Reserve:
+		f - 1
+	case Release:
+		f + 1
+	}
+}
+
+// replay is f after the applied entries of log at positions from up to to.
+func replay(log []Entry, from int, to int, f int) int {
+	let mut out = f
+	for i, e in log {
+		if i >= from && i < to && e.Applied {
+			out = evolve(out, e.Cmd)
+		}
+	}
+	out
+}
+
+// rerun is f after the pending mutations: each is decided on the state the
+// one before it left.
+func rerun(ms []Mutation, f int) int {
+	let mut out = f
+	for m in ms {
+		if decide(out, m.Cmd) {
+			out = evolve(out, m.Cmd)
+		}
+	}
+	out
+}
+
+// lastID is the highest id of c among the first upto entries of log.
+func lastID(log []Entry, upto int, c Who) int {
+	let mut out = 0
+	for i, e in log {
+		if i < upto && e.By == c && e.ID > out {
+			out = e.ID
+		}
+	}
+	out
+}
+
+// push is the authority's step for the mutation mu.
+func push(m int, w World, mu Mutation) World {
+	let last = lastID(w.Log, len(w.Log), mu.By)
+	if m != ApplyResend && mu.ID <= last {
+		return w
+	}
+	if mu.ID > last+1 {
+		return w
+	}
+	let ok = m == TrustClient || decide(w.Free, mu.Cmd)
+	World{..w,
+		Log:  w.Log.Append(Entry{By: mu.By, ID: mu.ID, Cmd: mu.Cmd, Applied: ok}),
+		Free: if ok || m == RefusalChangesState { evolve(w.Free, mu.Cmd) } else { w.Free },
+	}
+}
+
+func viewOf(c Client) View {
+	if c.Cursor >= c.Floor {
+		View{Ready: true, K: c.Cursor, Muts: c.Pending, Value: rerun(c.Pending, c.Base)}
+	} else {
+		loading()
+	}
+}
+
+// commit is c after one commit of the replica: its view joins the host
+// queue, and the oldest post leaves a full queue.
+func commit(c Client) Client {
+	let v = viewOf(c)
+	let all = c.Posts.Append(Post{Epoch: c.Epoch, View: v})
+	let mut kept = []Post{}
+	for i, p in all {
+		if len(all)-i <= QueueCap {
+			kept = kept.Append(p)
+		}
+	}
+	Client{..c, WasReady: c.WasReady || v.Ready, WasLoading: c.WasLoading || !v.Ready, Posts: kept}
+}
+
+func above(ms []Mutation, id int) []Mutation {
+	let mut out = []Mutation{}
+	for m in ms {
+		if m.ID > id {
+			out = out.Append(m)
+		}
+	}
+	out
+}
+
+func highest(ms []Mutation) int {
+	let mut out = 0
+	for m in ms {
+		if m.ID > out {
+			out = m.ID
+		}
+	}
+	out
+}
+
+// applied is me after it takes a frame that moves the cursor to to with
+// the base base; prune says whether the frame tells the client which of its
+// mutations the log holds.
+func applied(w World, c Who, me Client, base int, to int, prune bool, tell bool) Client {
+	let known = lastID(w.Log, to, c)
+	commit(Client{..me,
+		Base:    base,
+		Cursor:  to,
+		Pending: if prune { above(me.Pending, known) } else { me.Pending },
+		Floor:   if me.Floor > to { me.Floor } else { to },
+		Told:    if tell { told(w.Log, to, c, me.Told) } else { me.Told },
+	})
+}
+
+func has(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// told is have plus the ids of c's refused commands among the first upto
+// entries of log: what a frame that carries the caller's refusals tells.
+func told(log []Entry, upto int, c Who, have []int) []int {
+	let mut out = have
+	for i, e in log {
+		if i < upto && e.By == c && !e.Applied && !has(out, e.ID) {
+			out = out.Append(e.ID)
+		}
+	}
+	out
+}
+
+// refusalIsTold says that c knows the refusal of each of its commands that
+// the log prefix it has read holds as refused.
+func refusalIsTold(w World, c Who) bool {
+	let me = get(w, c)
+	for i, e in w.Log {
+		if i < me.Cursor && e.By == c && !e.Applied && !has(me.Told, e.ID) {
+			return false
+		}
+	}
+	true
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Mutate as x:
+		// A press: the mutation joins the queue and the journal, and the
+		// view shows it at once.
+		let me = get(w, x.C)
+		if len(me.Issued) >= maxMuts(x.C) {
+			return None
+		}
+		let mu = Mutation{By: x.C, ID: me.NextID, Cmd: x.Cmd}
+		Some[World]{Value: set(w, x.C, commit(Client{..me,
+			Pending: me.Pending.Append(mu),
+			NextID:  me.NextID + 1,
+			Issued:  me.Issued.Append(mu),
+		}))}
+	case Deliver as x:
+		// The network gives the authority a pending mutation of C.
+		let me = get(w, x.C)
+		let i = slot(x.I)
+		if !me.Linked || i >= len(me.Pending) {
+			return None
+		}
+		let w2 = push(m, w, me.Pending[i])
+		if w2 == w {
+			return None
+		}
+		Some[World]{Value: w2}
+	case Delta as x:
+		// The client takes the log entries from From up to To. The design
+		// takes them only when they join the cursor and bring something new.
+		let me = get(w, x.C)
+		let from = pos(x.From)
+		let to = pos(x.To)
+		if !me.Linked || from > to || to > len(w.Log) || to <= me.Cursor {
+			return None
+		}
+		if from > me.Cursor && m != AcceptGap {
+			return None
+		}
+		let start = if from > me.Cursor { from } else { me.Cursor }
+		Some[World]{Value: set(w, x.C, applied(w, x.C, me, replay(w.Log, start, to, me.Base), to, m != KeepConfirmed, true))}
+	case Snapshot as x:
+		// The client takes the state at At. The design takes it only when
+		// it is past the cursor.
+		let me = get(w, x.C)
+		let at = pos(x.At)
+		if !me.Linked || at > len(w.Log) {
+			return None
+		}
+		if at <= me.Cursor && (m != AcceptOldSnapshot || at == me.Cursor) {
+			return None
+		}
+		Some[World]{Value: set(w, x.C, applied(w, x.C, me, replay(w.Log, 0, at, Seats), at, m != SnapshotNoLastID, m != SnapshotDropsRefusals))}
+	case Link as x:
+		// A partition starts or ends. The queue stays.
+		let me = get(w, x.C)
+		if m == DropOnUnlink && me.Linked && len(me.Pending) > 0 {
+			return Some[World]{Value: set(w, x.C, commit(Client{..me, Linked: false, Pending: []Mutation{}}))}
+		}
+		Some[World]{Value: set(w, x.C, Client{..me, Linked: !me.Linked})}
+	case Restart as x:
+		// The program stops and starts again: a new instance reads the
+		// journal, the cache is gone, and the screen shows Loading.
+		let me = get(w, x.C)
+		if me.Epoch >= maxRestarts(x.C) {
+			return None
+		}
+		Some[World]{Value: set(w, x.C, commit(Client{..me,
+			Base:       Seats,
+			Cursor:     0,
+			NextID:     if m == IDsNotJournaled { highest(me.Pending) + 1 } else { me.NextID },
+			Floor:      if m == NoFloor { 0 } else { me.Floor },
+			Epoch:      me.Epoch + 1,
+			WasReady:   false,
+			Posts:      if m == NoEpochCheck { me.Posts } else { []Post{} },
+			ShownEpoch: me.Epoch + 1,
+			Shown:      loading(),
+		}))}
+	case Render as x:
+		// The main thread takes one post from the host queue.
+		let me = get(w, x.C)
+		let i = slot(x.I)
+		if i >= len(me.Posts) {
+			return None
+		}
+		let p = me.Posts[i]
+		let mut rest = []Post{}
+		for j, q in me.Posts {
+			if j > i || (m == NoOrderCheck && j < i) {
+				rest = rest.Append(q)
+			}
+		}
+		Some[World]{Value: set(w, x.C, Client{..me, Posts: rest, ShownEpoch: p.Epoch, Shown: p.View})}
+	}
+}
+
+// The invariants.
+
+func count(ms []Mutation, m Mutation) int {
+	let mut n = 0
+	for x in ms {
+		if x == m {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func receiptsContiguous(w World, c Who) bool {
+	let mut want = 1
+	for e in w.Log {
+		if e.By == c {
+			if e.ID != want {
+				return false
+			}
+			want = want + 1
+		}
+	}
+	true
+}
+
+func noLostMutation(w World, c Who) bool {
+	let me = get(w, c)
+	let last = lastID(w.Log, len(w.Log), c)
+	let waiting = above(me.Pending, last)
+	let mut mine = 0
+	for e in w.Log {
+		if e.By == c {
+			mine = mine + 1
+		}
+	}
+	if len(me.Issued) != mine+len(waiting) {
+		return false
+	}
+	for mu in me.Issued {
+		let mut receipts = 0
+		for e in w.Log {
+			if e.By == c && e.ID == mu.ID && e.Cmd == mu.Cmd {
+				receipts = receipts + 1
+			}
+		}
+		if receipts != 1 && count(waiting, mu) != 1 {
+			return false
+		}
+	}
+	true
+}
+
+// committedPlusPending says that a Ready view of c is the authority's state
+// at the log position v.K plus c's own mutations with no receipt at v.K.
+func committedPlusPending(w World, c Who, v View) bool {
+	if !v.Ready {
+		return true
+	}
+	let last = lastID(w.Log, v.K, c)
+	for i, mu in v.Muts {
+		if mu.ID != last+1+i || count(get(w, c).Issued, mu) != 1 {
+			return false
+		}
+	}
+	v.Value == rerun(v.Muts, replay(w.Log, 0, v.K, Seats))
+}
+
+func quiescent(w World) bool {
+	len(w.A.Pending) == 0 && len(w.B.Pending) == 0 && w.A.Cursor == len(w.Log) && w.B.Cursor == len(w.Log)
+}
+
+func settled(w World) bool { len(w.A.Posts) == 0 && len(w.B.Posts) == 0 }
+
+func showsFree(w World, v View) bool { v.Ready && v.Value == w.Free }
+
+// holdsFor is the invariant name for the client c.
+func holdsFor(name string, w World, c Who) bool {
+	let me = get(w, c)
+	if name == "ReceiptsContiguous" {
+		return receiptsContiguous(w, c)
+	}
+	if name == "NoLostMutation" {
+		return noLostMutation(w, c)
+	}
+	if name == "BaseIsPrefixReplay" {
+		return me.Base == replay(w.Log, 0, me.Cursor, Seats)
+	}
+	if name == "ViewCommittedPlusPending" {
+		return committedPlusPending(w, c, viewOf(me))
+	}
+	if name == "ShownCommittedPlusPending" {
+		return committedPlusPending(w, c, me.Shown)
+	}
+	if name == "NoStaleShown" {
+		return me.ShownEpoch == me.Epoch
+	}
+	if name == "ReadyIsStable" {
+		return !me.WasReady || viewOf(me).Ready
+	}
+	if name == "SettledShowsLatest" {
+		return len(me.Posts) != 0 || me.Shown == viewOf(me)
+	}
+	if name == "QuiescentConvergence" {
+		return !quiescent(w) || showsFree(w, viewOf(me))
+	}
+	if name == "RefusalIsTold" {
+		return refusalIsTold(w, c)
+	}
+	if name == "SettledScreensAgree" {
+		return !(quiescent(w) && settled(w)) || showsFree(w, me.Shown)
+	}
+	true
+}
+
+// holds is the invariant name in w.
+func holds(name string, w World) bool {
+	if name == "FreeInRange" {
+		return w.Free >= 0 && w.Free <= Seats
+	}
+	if name == "StateIsLogReplay" {
+		return replay(w.Log, 0, len(w.Log), Seats) == w.Free
+	}
+	holdsFor(name, w, A) && holdsFor(name, w, B)
+}
+
+func names() []string {
+	[]string{
+		"FreeInRange", "StateIsLogReplay", "ReceiptsContiguous", "NoLostMutation", "BaseIsPrefixReplay",
+		"ViewCommittedPlusPending", "ShownCommittedPlusPending", "NoStaleShown", "ReadyIsStable",
+		"SettledShowsLatest", "QuiescentConvergence", "SettledScreensAgree", "RefusalIsTold",
+	}
+}
+
+// broken is the name of the first invariant w breaks, or "".
+func broken(w World) string {
+	for n in names() {
+		if !holds(n, w) {
+			return n
+		}
+	}
+	""
+}
+
+// stepWith is the step under the mutant m. The design (want "") enters
+// Broken at any broken invariant. A mutant enters Broken only when the
+// invariant want breaks, and Other when another one breaks first.
+func stepWith(m int, want string, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if want != "" && !holds(want, n.Value) {
+				return Enter[St]{Next: Broken{Why: want}}
+			}
+			let why = broken(n.Value)
+			if why == "" {
+				Enter[St]{Next: Live{W: n.Value}}
+			} else if want == "" {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Enter[St]{Next: Other{Why: why}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string]            { stepWith(NoMutant, "", s, a) }
+func stepApplyResend(s St, a Act) Decision[St, string]       { stepWith(ApplyResend, "ReceiptsContiguous", s, a) }
+func stepTrustClient(s St, a Act) Decision[St, string]       { stepWith(TrustClient, "FreeInRange", s, a) }
+func stepKeepConfirmed(s St, a Act) Decision[St, string]     { stepWith(KeepConfirmed, "ViewCommittedPlusPending", s, a) }
+func stepSnapshotNoLastID(s St, a Act) Decision[St, string]  { stepWith(SnapshotNoLastID, "ViewCommittedPlusPending", s, a) }
+func stepAcceptGap(s St, a Act) Decision[St, string]         { stepWith(AcceptGap, "BaseIsPrefixReplay", s, a) }
+func stepAcceptOldSnapshot(s St, a Act) Decision[St, string] { stepWith(AcceptOldSnapshot, "ReadyIsStable", s, a) }
+func stepNoFloor(s St, a Act) Decision[St, string]           { stepWith(NoFloor, "ViewCommittedPlusPending", s, a) }
+func stepIDsNotJournaled(s St, a Act) Decision[St, string]   { stepWith(IDsNotJournaled, "NoLostMutation", s, a) }
+func stepDropOnUnlink(s St, a Act) Decision[St, string]      { stepWith(DropOnUnlink, "NoLostMutation", s, a) }
+func stepNoEpochCheck(s St, a Act) Decision[St, string]      { stepWith(NoEpochCheck, "NoStaleShown", s, a) }
+func stepNoOrderCheck(s St, a Act) Decision[St, string]      { stepWith(NoOrderCheck, "SettledShowsLatest", s, a) }
+func stepRefusalChangesState(s St, a Act) Decision[St, string] {
+	stepWith(RefusalChangesState, "StateIsLogReplay", s, a)
+}
+
+func stepSnapshotDropsRefusals(s St, a Act) Decision[St, string] {
+	stepWith(SnapshotDropsRefusals, "RefusalIsTold", s, a)
+}
+
+// The witnesses, as predicates on the state.
+
+func refused(w World) bool {
+	for e in w.Log {
+		if !e.Applied {
+			return true
+		}
+	}
+	false
+}
+
+func convergedAfterRefusal(s St) bool {
+	match s {
+	case Live as l:
+		quiescent(l.W) && settled(l.W) && refused(l.W)
+	case _:
+		false
+	}
+}
+
+func convergedOverFullLog(s St) bool {
+	match s {
+	case Live as l:
+		quiescent(l.W) && settled(l.W) && len(l.W.Log) == MaxMutsA+MaxMutsB
+	case _:
+		false
+	}
+}
+
+func restartedReadyWithPending(s St) bool {
+	match s {
+	case Live as l:
+		l.W.A.WasLoading && viewOf(l.W.A).Ready && len(l.W.A.Pending) > 0
+	case _:
+		false
+	}
+}
+
+func convergedAfterRefusalAndRestart(s St) bool {
+	match s {
+	case Live as l:
+		quiescent(l.W) && settled(l.W) && refused(l.W) && l.W.A.WasLoading
+	case _:
+		false
+	}
+}
+
+func heldWhileUnlinked(s St) bool {
+	match s {
+	case Live as l:
+		!l.W.A.Linked && len(l.W.A.Pending) == MaxMutsA && len(l.W.Log) > 0
+	case _:
+		false
+	}
+}
+
+func restartedStillLoading(s St) bool {
+	match s {
+	case Live as l:
+		l.W.A.Epoch > 0 && !viewOf(l.W.A).Ready
+	case _:
+		false
+	}
+}
+
+// The design keeps every invariant in the scope.
+type Design machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+	law ConvergesAfterRefusal sometimes convergedAfterRefusal,
+	law ConvergesOverFullLog sometimes convergedOverFullLog,
+	law RestartsReadyWithPending sometimes restartedReadyWithPending,
+	law RestartsLoading sometimes restartedStillLoading,
+	law ConvergesAfterRefusalAndRestart sometimes convergedAfterRefusalAndRestart,
+	law HoldsWhileUnlinked sometimes heldWhileUnlinked,
+}
+
+type MutantApplyResend machine[St, Act] {
+	initial: first(),
+	step:    stepApplyResend,
+
+	law Breaks reaches Broken,
+}
+
+type MutantTrustClient machine[St, Act] {
+	initial: first(),
+	step:    stepTrustClient,
+
+	law Breaks reaches Broken,
+}
+
+type MutantKeepConfirmed machine[St, Act] {
+	initial: first(),
+	step:    stepKeepConfirmed,
+
+	law Breaks reaches Broken,
+}
+
+type MutantSnapshotNoLastID machine[St, Act] {
+	initial: first(),
+	step:    stepSnapshotNoLastID,
+
+	law Breaks reaches Broken,
+}
+
+type MutantAcceptGap machine[St, Act] {
+	initial: first(),
+	step:    stepAcceptGap,
+
+	law Breaks reaches Broken,
+}
+
+type MutantAcceptOldSnapshot machine[St, Act] {
+	initial: first(),
+	step:    stepAcceptOldSnapshot,
+
+	law Breaks reaches Broken,
+}
+
+type MutantNoFloor machine[St, Act] {
+	initial: first(),
+	step:    stepNoFloor,
+
+	law Breaks reaches Broken,
+}
+
+type MutantIDsNotJournaled machine[St, Act] {
+	initial: first(),
+	step:    stepIDsNotJournaled,
+
+	law Breaks reaches Broken,
+}
+
+type MutantDropOnUnlink machine[St, Act] {
+	initial: first(),
+	step:    stepDropOnUnlink,
+
+	law Breaks reaches Broken,
+}
+
+type MutantNoEpochCheck machine[St, Act] {
+	initial: first(),
+	step:    stepNoEpochCheck,
+
+	law Breaks reaches Broken,
+}
+
+type MutantNoOrderCheck machine[St, Act] {
+	initial: first(),
+	step:    stepNoOrderCheck,
+
+	law Breaks reaches Broken,
+}
+
+type MutantRefusalChangesState machine[St, Act] {
+	initial: first(),
+	step:    stepRefusalChangesState,
+
+	law Breaks reaches Broken,
+}
+
+// MutantSnapshotDropsRefusals is the frame Snapshot{At, State, LastSeq}
+// with no refusals: a client that passes a refused command of its own by a
+// snapshot prunes it from Pending and never learns that it was refused.
+type MutantSnapshotDropsRefusals machine[St, Act] {
+	initial: first(),
+	step:    stepSnapshotDropsRefusals,
+
+	law Breaks reaches Broken,
+}

@@ -20,6 +20,7 @@ extern go image/jpeg.Encode func Encode(w own io.Writer, m own image.Image, o ow
 extern go image/jpeg.FormatError type FormatError string
 
 // ergo:go func (FormatError).Error() string
+// ergo:total
 extern go image/jpeg.FormatError.Error func (e FormatError) Error() string needs go.Foreign
 
 // ergo:go type Options struct
@@ -37,4 +38,5 @@ extern go image/jpeg.Reader type Reader {
 extern go image/jpeg.UnsupportedError type UnsupportedError string
 
 // ergo:go func (UnsupportedError).Error() string
+// ergo:total
 extern go image/jpeg.UnsupportedError.Error func (e UnsupportedError) Error() string needs go.Foreign

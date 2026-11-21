@@ -1,0 +1,170 @@
+// The forward pass over one record.
+//
+// A line's features x, N = F + Planes values of 0 or 1:
+//
+//	x[f]           f < F: some window of the line's comment text fires
+//	               filter f (sum of its K taps >= its bias)
+//	x[F+0 … F+4]   the line's kind: Blank, Code, CommentOnly, DocComment,
+//	               Directive
+//	x[F+5 … F+8]   depth >= 1, >= 2, >= 3, >= 4
+//	x[F+9 … F+17]  the start bits, in StartNames' order
+//	x[F+18 … F+81] the comment words' bits 0 to 63 (under `words stop`,
+//	               those of CommentText's words that are not StopWords)
+//	x[F+82 … F+145] the code words' bits 0 to 63
+//
+// The comment text is read as bytes, A to Z lowered, cut at MaxColumns; a
+// tap past its end reads byte 0. Hidden unit j reads the lines i-1, i,
+// i+1 and i+2 (a line outside the file has no feature): its sum is the
+// trits of those lines' features, and it adds OutScale × Out[j] × (sum -
+// bias) to the line's score when the sum is over its bias. The score
+// starts at OutBias and adds SkipScale × Skip[n] for each feature n of
+// the line. A line is flagged when its score is over 0.
+
+// MaxColumns is the most bytes of a comment the filters read.
+let MaxColumns = 160
+
+// Finding is one flagged line: its 1-based number, its score and the
+// probability in thousandths. The host gives it a span (the comment's).
+type Finding { Line int, Score int, Permille int }
+
+// sigmoid[s+8] is round(1000 / (1 + exp(-s/2))) for s in -8..8, written
+// out so no engine computes exp.
+let sigmoid = [17]int{18, 29, 47, 76, 119, 182, 269, 378, 500, 622, 731, 818, 881, 924, 953, 971, 982}
+
+// Permille is the probability of a score, the score clamped to -8..8.
+func Permille(score int) int {
+	if score < -8 {
+		return sigmoid[0]
+	}
+	if score > 8 {
+		return sigmoid[16]
+	}
+	sigmoid[score+8]
+}
+
+// PermilleRises: a higher score never has a lower probability.
+law PermilleRises(a int, b int) { a > b || Permille(a) <= Permille(b) }
+
+// lowered is byte c of text with A to Z lowered, or 0 past its end.
+func lowered(text string, c int) int {
+	if c >= len(text) || c >= MaxColumns {
+		return 0
+	}
+	let b = int(text[c])
+	if b >= 'A' && b <= 'Z' {
+		return b + 32
+	}
+	b
+}
+
+// fires reports whether some window of text fires filter f.
+func fires(n Net, f int, text string) bool {
+	let width = lo(len(text), MaxColumns)
+	for c in 0..width {
+		let mut sum = 0
+		for k in 0..n.K {
+			sum += n.table[(f*n.K+k)*256+lowered(text, c+k)]
+		}
+		if sum >= n.convBias[f] {
+			return true
+		}
+	}
+	false
+}
+
+func lo(a int, b int) int {
+	if a < b {
+		return a
+	}
+	b
+}
+
+// kindIndex is the plane of a line kind.
+func kindIndex(k LineKind) int {
+	match k {
+	case Blank:
+		0
+	case Code:
+		1
+	case CommentOnly:
+		2
+	case DocComment:
+		3
+	case Directive:
+		4
+	}
+}
+
+// active appends the features of line l that are 1, in rising order.
+func active(n Net, l Line, into []int) []int {
+	let mut out = into
+	for f in 0..n.F {
+		if fires(n, f, l.CommentText) {
+			out = out.Append(f)
+		}
+	}
+	out = out.Append(n.F + kindIndex(l.Kind))
+	for d in 0..4 {
+		if l.Depth > d {
+			out = out.Append(n.F + 5 + d)
+		}
+	}
+	for s in 0..9 {
+		if (l.Starts>>s)&1 == 1 {
+			out = out.Append(n.F + 9 + s)
+		}
+	}
+	let comment = if n.stop { ContentSketchOf(l.CommentText) } else { l.CommentWords }
+	for b in 0..64 {
+		if (comment>>b)&1 == 1 {
+			out = out.Append(n.F + 18 + b)
+		}
+	}
+	for b in 0..64 {
+		if (l.CodeWords>>b)&1 == 1 {
+			out = out.Append(n.F + 82 + b)
+		}
+	}
+	out
+}
+
+// Run is the findings of n on a record, in line order.
+func Run(n Net, r Features) []Finding {
+	let width = Inputs(n)
+	// The features of line i are xs[starts[i]:starts[i+1]].
+	let mut xs = []int{}
+	let mut starts = []int{0}
+	for l in r.Lines {
+		xs = active(n, l, xs)
+		starts = starts.Append(len(xs))
+	}
+	let lines = len(r.Lines)
+	let mut found = []Finding{}
+	for i in 0..lines {
+		let mut score = n.outBias
+		for j in 0..n.H {
+			if n.out[j] != 0 {
+				let mut sum = 0
+				for o in 0..4 {
+					let at = i + o - 1
+					if at >= 0 && at < lines {
+						let w = (j*4 + o) * width
+						for a in starts[at]..starts[at+1] {
+							sum += n.hidden[w+xs[a]]
+						}
+					}
+				}
+				if sum > n.hiddenBias[j] {
+					score += n.outScale * n.out[j] * (sum - n.hiddenBias[j])
+				}
+			}
+		}
+		for a in starts[i]..starts[i+1] {
+			score += n.skipScale * n.skip[xs[a]]
+		}
+		if score > 0 {
+			found = found.Append(Finding{Line: i + 1, Score: score, Permille: Permille(score)})
+		}
+	}
+	found
+}

@@ -1,0 +1,4 @@
+law Unused(n int) {
+	let x = 1 // want S110
+	n == n
+}

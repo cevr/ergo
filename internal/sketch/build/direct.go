@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"go/build"
 	"io"
@@ -54,8 +55,9 @@ import (
 // cache; Gleam's and Mix's incremental compilers, which also skip the host
 // build tool and call the host compiler per module.
 
-// directSchema versions every key and plan this file writes.
-const directSchema = "ergo-go-direct-3"
+// directSchema versions every key and plan this file writes (4: the
+// compile runs in the package's folder, FT6).
+const directSchema = "ergo-go-direct-4"
 
 // GoBuildVariable set to "go" in the environment selects go build, the
 // reference path, for every build of the process.
@@ -97,10 +99,18 @@ func (r Report) String() string {
 // go build (Command); otherwise it takes the direct path, falling back to
 // go build when the direct path refuses or fails.
 func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer) (Report, error) {
+	if t.Cover != "" {
+		return t.coverBuild(module, output, stderr)
+	}
 	var report Report
-	if t.GoBuild {
+	switch {
+	case t.GoBuild:
 		report.Refused = "go build selected"
-	} else {
+	case t.PGO != "":
+		// A profile recompiles std and the runtime with it: no pin set
+		// and no plan's std archives hold those objects.
+		report.Refused = "a PGO profile (release build)"
+	default:
 		d := direct{t: t, c: c, module: module, output: output}
 		err := d.build()
 		if err == nil {
@@ -111,6 +121,9 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 		report.Refused = err.Error()
 		report.Executable = ""
 	}
+	if t.Stored {
+		return report, ErrNotStored
+	}
 	child := t.Command(module, output)
 	child.Stdout, child.Stderr = stderr, stderr
 	stage.Add(stage.GoCommands, 1)
@@ -120,6 +133,9 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 	}
 	return report, nil
 }
+
+// ErrNotStored ends a Toolchain.Stored build that would run a tool.
+var ErrNotStored = errors.New("build: not in the store")
 
 // refusal is a reason the direct path does not build a module.
 type refusal string
@@ -214,11 +230,8 @@ func (d *direct) build() error {
 	// with the host's release tags to learn the standard imports the plan
 	// lists, and again with the plan's, which decide the build.
 	guess := planFile{GOOS: d.goos(), GOARCH: d.goarch(), Version: "go1." + strconv.Itoa(hostMinor())}
-	switch guess.GOARCH {
-	case "amd64":
-		guess.LevelKey, guess.LevelValue = "GOAMD64", cmp.Or(os.Getenv("GOAMD64"), "v1")
-	case "arm64":
-		guess.LevelKey, guess.LevelValue = "GOARM64", cmp.Or(os.Getenv("GOARM64"), "v8.0")
+	if v := LevelVariable(guess.GOARCH); v != "" {
+		guess.LevelKey, guess.LevelValue = v, cmp.Or(d.t.Level, os.Getenv(v), DefaultLevel(guess.GOARCH))
 	}
 	tg, err := d.scan(guess)
 	if err != nil {
@@ -469,6 +482,25 @@ func buildID(key string, parts int) string {
 	return strings.Join(ids, "/")
 }
 
+// compileFlags are the profile's compile flags for p (Toolchain.CompileFlags)
+// when p's directory is in the module's directory, which is where go build
+// applies the profile's -gcflags=./...=…; none otherwise.
+func (d *direct) compileFlags(p *goPackage) []string {
+	flags := d.t.CompileFlags()
+	if len(flags) == 0 {
+		return nil
+	}
+	root, err := filepath.Abs(d.module.Dir)
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(root, p.Dir)
+	if err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+		return nil
+	}
+	return flags
+}
+
 // compileKey is the action key of a package's compile: every input of the
 // object it writes. The package's IR file (-ergoir, in its folder) is
 // one, by its content; the patched compile that reads it is one through
@@ -486,6 +518,11 @@ func (d *direct) packageKey(p *goPackage, kind string, tool func(*keyer)) (strin
 	k.add("p", p.ImportPath)
 	k.add("main", strconv.FormatBool(p.ImportPath == d.mainPath()))
 	k.add("lang", p.Lang)
+	if flags := d.compileFlags(p); len(flags) > 0 {
+		// Only a profile with flags adds them: a release key, and so a
+		// release executable's build IDs, are the ones before FT5.
+		k.add("flags", strings.Join(flags, " "))
+	}
 	for _, f := range p.Files {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -711,6 +748,9 @@ func (d *direct) compile(p *goPackage) error {
 		stage.Add(stage.GoCompilesReused, 1) // reused from the set, as from the store
 		return d.record(key, a.Digest, a.Export)
 	}
+	if d.t.Stored {
+		return ErrNotStored
+	}
 	pkgPath := p.ImportPath
 	if pkgPath == d.mainPath() {
 		pkgPath = "main"
@@ -732,33 +772,19 @@ func (d *direct) compile(p *goPackage) error {
 		return err
 	}
 	out := filepath.Join(objdir, "_pkg_.a")
-	args := []string{"-o", out, "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
-		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
-		"-goversion", d.plan.Version}
-	if c := min(4, runtime.GOMAXPROCS(0)); c > 1 {
-		args = append(args, "-c="+strconv.Itoa(c))
+	args, release, err := d.compileArgs(p, pkgPath, key, objdir)
+	if err != nil {
+		return err
 	}
-	if d.plan.pie() {
-		args = append(args, "-shared")
-	}
-	// Where go build puts -gcflags: the package's IR bodies, for the
-	// patched compile (ergoIR).
-	args = append(args, ergoIR(p.Dir)...)
-	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
-	if p.Embed != nil {
-		cfg, err := embedConfig(p)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644); err != nil {
-			return err
-		}
-		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
-	}
-	args = append(args, "-pack")
-	args = append(args, p.Files...)
+	defer release()
 	cmd := exec.Command(d.plan.Compile.Path, args...)
-	cmd.Dir = d.module.Dir
+	// In the package's folder, as go build runs it: the compile reads a
+	// relative source name of the package's IR file (ergoIR) from its
+	// working folder, and -trimpath rewrites only names under p.Dir, so
+	// the folder makes a frame of an IR body read ProgramModule/<pkg>/
+	// <file>, as the runtime's source map expects (test-speed FT6: the
+	// test build's root package is not the module's folder).
+	cmd.Dir = p.Dir
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
 	stage.Add(stage.GoCompiles, 1)
 	stage.Add(stage.Processes, 1)
@@ -775,6 +801,51 @@ func (d *direct) compile(p *goPackage) error {
 	d.digests[p.ImportPath] = a
 	d.report.Compiled++
 	return d.record(key, a.Digest, a.Export)
+}
+
+// compileArgs is the argument list of p's compile into objdir (which holds
+// its import config), as package pkgPath of action key, with the
+// back-end concurrency of a compile slot (slot.go) that the caller
+// releases when the compile ends.
+func (d *direct) compileArgs(p *goPackage, pkgPath, key, objdir string) (args []string, release func(), err error) {
+	trim := p.Dir + "=>" + p.Trim + ";" + objdir + "=>"
+	if p.Dir != d.module.Dir && strings.HasPrefix(p.Dir, d.module.Dir+string(filepath.Separator)) {
+		// A package below the module root (the package split, CS4) names
+		// its sources relative to that root (emitName, BS6): the patched
+		// compile resolves its IR file's names against its working
+		// directory, the root. Trimmed as the root package's are, the
+		// object holds no path of the build's directory, so a build in
+		// another cache makes the same archive (TestWarmAnswerAgreesWithFullBuild).
+		trim += ";" + d.module.Dir + "=>" + d.mainPath()
+	}
+	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", trim,
+		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
+		"-goversion", d.plan.Version}
+	c, release := compileSlot(d.c.Root)
+	if c > 1 {
+		args = append(args, "-c="+strconv.Itoa(c))
+	}
+	if d.plan.pie() {
+		args = append(args, "-shared")
+	}
+	args = append(args, d.compileFlags(p)...)
+	// Where go build puts -gcflags: the package's IR bodies, for the
+	// patched compile (ergoIR).
+	args = append(args, ergoIR(p.Dir)...)
+	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
+	if p.Embed != nil {
+		cfg, err := embedConfig(p)
+		if err == nil {
+			err = os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644)
+		}
+		if err != nil {
+			release()
+			return nil, nil, err
+		}
+		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
+	}
+	args = append(args, "-pack")
+	return append(args, p.Files...), release, nil
 }
 
 // storeArchive moves a package archive into the blob store.
@@ -815,6 +886,9 @@ func (d *direct) modinfo(tg *target) string {
 	set := func(k, v string) { info.Settings = append(info.Settings, debug.BuildSetting{Key: k, Value: v}) }
 	set("-buildmode", "exe")
 	set("-compiler", "gc")
+	if d.t.Profile == Dev {
+		set("-gcflags", devGcflags) // go build records the flag's text
+	}
 	if len(d.t.Tags) > 0 {
 		set("-tags", strings.Join(d.t.Tags, ","))
 	}
@@ -867,6 +941,8 @@ func (d *direct) link(tg *target) error {
 	if ok && len(fields) == 1 {
 		digest = fields[0]
 		stage.Add(stage.LinksReused, 1)
+	} else if d.t.Stored {
+		return ErrNotStored
 	} else {
 		var cfg strings.Builder
 		cfg.WriteString("# import config\n")

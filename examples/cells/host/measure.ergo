@@ -1,0 +1,120 @@
+// The grid of points under the cells: the host lays a view out in points
+// with std ui/layout, as every host does, and projects each box to cells
+// by one rounding rule (Span), which drawing and hit testing both use.
+// Text is measured on the grid: a rune is one cell wide, a line one cell
+// high, whatever the font size.
+
+import strings
+import ui/layout
+import utf8
+
+// CellW and CellH are a cell's size in points.
+let CellW = float32(8)
+
+let CellH = float32(16)
+
+// Cells is the Measure of the grid: every rune one cell, every line one
+// row, lines broken at spaces as layout.Monospace breaks them.
+type Cells {} implements layout.Measure
+
+// words are the runs of the paragraphs of text, by line feed.
+func paragraphs(text string) [][]string {
+	let mut out = [][]string{}
+	for p in strings.Split(text, "\n") {
+		out = out.Append(strings.Fields(p))
+	}
+	out
+}
+
+func fmax(a float32, b float32) float32 { if a > b { a } else { b } }
+
+// Widths is the widest paragraph's runs one space apart, and the widest
+// run, in points.
+func Widths(_ Cells, text string, size float32) layout.Intrinsic {
+	let mut most = float32(0)
+	let mut least = float32(0)
+	for words in paragraphs(text) {
+		let mut line = 0
+		for i, w in words {
+			let n = utf8.RuneCount(w)
+			line = line + n + (if i > 0 { 1 } else { 0 })
+			least = fmax(least, float32(n)*CellW)
+		}
+		most = fmax(most, float32(line)*CellW)
+	}
+	layout.Intrinsic{Max: most, Min: least}
+}
+
+// Height is the rows of text broken into lines no wider than width.
+func Height(_ Cells, text string, size float32, width float32) float32 {
+	let n = len(Lines(text, width))
+	float32(n) * CellH
+}
+
+// Lines is text broken greedily into lines no wider than width points: a
+// run goes on the line when the line with it fits, else on a new line,
+// where a run wider than width takes a line of its own. An empty
+// paragraph between others is an empty line; a text of no runs has none.
+func Lines(text string, width float32) []string {
+	let mut out = []string{}
+	let mut any = false
+	for words in paragraphs(text) {
+		let mut line = ""
+		let mut n = -1
+		for w in words {
+			any = true
+			let k = utf8.RuneCount(w)
+			if n < 0 {
+				line = w
+				n = k
+			} else if float32(n+1+k)*CellW <= width {
+				line = line + " " + w
+				n = n + 1 + k
+			} else {
+				out = out.Append(line)
+				line = w
+				n = k
+			}
+		}
+		out = out.Append(line)
+	}
+	if !any {
+		return []string{}
+	}
+	out
+}
+
+// Rect is a box on the grid: the columns C to C+W and rows R to R+H,
+// the ends excluded.
+type Rect { C int, R int, W int, H int }
+
+// floor is the integer at or below x.
+func floor(x float32) int {
+	let i = int(x)
+	if float32(i) > x { i - 1 } else { i }
+}
+
+// cellOf is the grid line nearest x points along an axis of unit points
+// a cell: half a cell rounds up.
+func cellOf(x float32, unit float32) int { floor(x/unit + 0.5) }
+
+// Span is the cells a box covers: its edges each rounded to the nearest
+// grid line. It is the one rule from points to cells: a node is drawn in
+// its Span and hit in its Span (HitMatchesDraw).
+func Span(b layout.Box) Rect {
+	let c = cellOf(b.X, CellW)
+	let r = cellOf(b.Y, CellH)
+	Rect{C: c, R: r, W: cellOf(b.X+b.W, CellW) - c, H: cellOf(b.Y+b.H, CellH) - r}
+}
+
+// holds is whether column c, row r is in rect.
+func holds(rect Rect, c int, r int) bool { c >= rect.C && r >= rect.R && c < rect.C+rect.W && r < rect.R+rect.H }
+
+// cut is the part of b inside a.
+func cut(a Rect, b Rect) Rect {
+	let c = if a.C > b.C { a.C } else { b.C }
+	let r = if a.R > b.R { a.R } else { b.R }
+	let e = if a.C+a.W < b.C+b.W { a.C + a.W } else { b.C + b.W }
+	let f = if a.R+a.H < b.R+b.H { a.R + a.H } else { b.R + b.H }
+	Rect{C: c, R: r, W: if e > c { e - c } else { 0 }, H: if f > r { f - r } else { 0 }}
+}

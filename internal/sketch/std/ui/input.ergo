@@ -1,4 +1,6 @@
+import actor
 import arena
+import time
 
 // Pointer, key and frame events (H5a). Each reaches the program as a
 // signal of its own type E, which a view's function makes from the event's
@@ -6,24 +8,66 @@ import arena
 // node under a pointer (it has the boxes); the composer finds the
 // function.
 
-// Phase is what a pointer did: pressed, moved, released, or a wheel turned
-// by DX and DY.
-type Phase = Down | Moved | Up | Wheel{DX float64, DY float64}
+// Phase is what a pointer did: pressed, moved with no button held, moved
+// with it held (dragged), released, or a wheel turned by DX and DY.
+type Phase = Down | Moved | Drag | Up | Wheel{DX float64, DY float64} | PointerEnter | PointerLeave
 
 // Down is a pointer pressed.
 type Down {}
 
-// Moved is a pointer moved, pressed or not.
+// Moved is a pointer moved with no button held over this node: a hover.
 type Moved {}
+
+// Drag is a pointer moved with its button held, after a Down on this node
+// (FK12-g1). The composer decides it, not the host: a move a host sends
+// (Moved or Drag) is a Drag exactly when it goes to the node the last Down
+// went to, with no Up since (gripped), so a move without a press is never
+// a drag.
+type Drag {}
 
 // Up is a pointer released.
 type Up {}
 
+// PointerEnter is the pointer come over this node from another, or from none
+// (UG3): the composer decides it, as it decides a Drag, from the node
+// each pointer event a host sends goes to (a host sends an event to the
+// root for a pointer over no node). Its position is the event's.
+type PointerEnter {}
+
+// PointerLeave is the pointer gone from this node to another, or to none (UG3).
+// Its position is (0, 0): the pointer is not in the node's box.
+type PointerLeave {}
+
 // PointerEvent is a pointer's phase and its position in the node's box,
-// in device-independent pixels from the box's top left corner, and the
-// zone under it (H5g): the composer fills Zone from the host's hit test
-// (Point.Over), so a host sends None.
-type PointerEvent { Phase Phase, X float64, Y float64, Zone Option[ZoneHit] }
+// in device-independent pixels from the box's top left corner, the zone
+// under it (H5g): the composer fills Zone from the host's hit test
+// (Point.Over), so a host sends None; and the pointer that did it
+// (MB4): several fingers on a screen are several pointers, told apart by
+// their Id.
+type PointerEvent { Pointer Pointer, Phase Phase, X float64, Y float64, Zone Option[ZoneHit] }
+
+// Pointer is the device of a pointer event (MB4, as Pointer Events'
+// pointerId and pointerType): a mouse, a finger or a pen, and its Id,
+// which a host keeps for a finger from its touch to its lift and gives no
+// other finger touching meanwhile. A mouse is one pointer, Id 0.
+type Pointer { Id int, Kind PointerKind }
+
+// PointerKind is what a pointer is. A finger is coarse: a host hits the
+// nearest control within the reach margin around it (Reach, MB4), and it
+// does not hover.
+type PointerKind = Mouse | Finger | Pen
+
+// Mouse is a mouse, or a touchpad that moves a pointer as one does.
+type Mouse {}
+
+// Finger is a finger on a touchscreen.
+type Finger {}
+
+// Pen is a pen on a tablet or a screen.
+type Pen {}
+
+// MousePointer is the mouse: a desktop's one pointer.
+let MousePointer = Pointer{Id: 0, Kind: Mouse}
 
 // Mods are the modifier keys held with a key.
 type Mods { Shift bool, Ctrl bool, Alt bool, Meta bool }
@@ -36,7 +80,7 @@ type KeyPress { Name string, Mods Mods }
 // of each, None for an event the program ignores (a move with no button
 // down). label names it to a test host and to assistive technology; body
 // is what it shows.
-func Area[E, F, R](f *Frame[E], label string, style Style, on own func(p PointerEvent) Option[E], body func() fails F needs R, at CallSite) fails F needs R {
+func Area[E, F, R](f mut Frame[E], label string, style Style, on own func(p PointerEvent) Option[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let i = put(f, AreaNode{Label: label, Style: style}, None, None, at)
 	f.specs[i].onPoint = Some{Value: on}
@@ -53,7 +97,7 @@ func Area[E, F, R](f *Frame[E], label string, style Style, on own func(p Pointer
 // calls in the order the pass made them, and the first that gives a signal
 // takes it, so a dialog written before the page it covers takes its keys
 // first.
-func OnKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
+func OnKey[E](f mut Frame[E], on own func(k KeyPress) Option[E]) {
 	if f.nkeys < len(f.keys) {
 		f.keys[f.nkeys] = on
 	} else {
@@ -62,11 +106,36 @@ func OnKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
 	f.nkeys = f.nkeys + 1
 }
 
+// OnFocusKey takes the key presses that reach the container being
+// written (UC-FOCUS): while the keyboard's focus is on it or on a node
+// inside it, a press goes first to the OnFocusKey of the focused node,
+// then of each container above it in turn, as a DOM keydown bubbles from
+// its target, and only then to the OnKey calls; the first that gives a
+// signal takes it. A press on a node, or a text typed into one, puts the
+// focus there, as a click on a control does. A container has one; a later
+// call replaces it. At the top, outside any container, it is an OnKey.
+func OnFocusKey[E](f mut Frame[E], on own func(k KeyPress) Option[E]) {
+	if f.parent < 0 {
+		OnKey(f, on)
+		return
+	}
+	f.specs[f.parent].onKey = Some{Value: on}
+}
+
+// Focused is the node the keyboard is on: the last one pressed or typed
+// into while the tree holds it, None before any.
+func Focused[E](f mut Frame[E]) Option[Id[E]] {
+	if f.focus == arena.Null[node[E]]() || !arena.Has(f.nodes, f.focus) {
+		return None
+	}
+	Some{Value: Id[E]{ref: f.focus}}
+}
+
 // Animate asks for frames while a pass makes it: the host sends a Tick per
 // frame, and on makes the signal of each from the frame's time (since the
 // host started). A pass that makes no Animate asks for no frame, so a
 // settled screen costs nothing.
-func Animate[E](f *Frame[E], on own func(at duration) E) {
+func Animate[E](f mut Frame[E], on own func(at duration) E) {
 	if f.nanims < len(f.anims) {
 		f.anims[f.nanims] = on
 	} else {
@@ -75,13 +144,15 @@ func Animate[E](f *Frame[E], on own func(at duration) E) {
 	f.nanims = f.nanims + 1
 }
 
-// Animating is whether the last pass made an Animate: whether the host
-// should send frames.
-func Animating[E](f *Frame[E]) bool { f.nanims > 0 }
+// Animating is whether the last pass made an Animate or has a Presence
+// row in motion: whether the host should send frames.
+func Animating[E](f mut Frame[E]) bool { f.nanims > 0 || f.moving }
 
 // ticked is the signals of a frame at time at: one per Animate of the last
 // pass, in pass order.
-func ticked[E](f *Frame[E], at duration) []E {
+func ticked[E](f mut Frame[E], at duration) []E {
+	f.now = at
+	f.tickAt = Some{Value: at}
 	let mut out = []E{}
 	for i in 0..f.nanims {
 		out = out.Append(f.anims[i](at))
@@ -92,7 +163,7 @@ func ticked[E](f *Frame[E], at duration) []E {
 // pointed is the signal of a pointer event on the node id: None for a
 // node with no Area function, one the tree no longer holds, or an event
 // the function ignores.
-func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
+func pointed[E](f mut Frame[E], id Id[E], p PointerEvent) Option[E] {
 	let n = f.nodes.Get(id.ref) catch {
 	case arena.Stale:
 		return None
@@ -105,9 +176,38 @@ func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
 	}
 }
 
-// keyed is the signal of a key press: the first OnKey of the last pass
-// that gives one.
-func keyed[E](f *Frame[E], k KeyPress) Option[E] {
+// gripped is the phase a pointer event on id reaches the program with
+// (FK12-g1): a Down makes id the node the pointer holds and an Up lets go;
+// a move, as the host sent it, is a Drag when it goes to that node and a
+// Moved otherwise; a wheel is as sent.
+func gripped[E](f mut Frame[E], id Id[E], ph Phase) Phase {
+	match ph {
+	case Down:
+		f.down = id.ref
+		ph
+	case Up:
+		f.down = arena.Null[node[E]]()
+		ph
+	case Moved, Drag:
+		if f.down == id.ref { Drag } else { Moved }
+	case Wheel, PointerEnter, PointerLeave:
+		ph
+	}
+}
+
+// keyed is the signal of a key press: the first OnFocusKey on the path
+// from the focused node up that gives one, else the first OnKey of the
+// last pass that gives one.
+func keyed[E](f mut Frame[E], k KeyPress) Option[E] {
+	match Focused(f) {
+	case Some[Id[E]]:
+		match focusKey(f, f.root, k).signal {
+		case Some[E] as e:
+			return Some{Value: e.Value}
+		case None:
+		}
+	case None:
+	}
 	for i in 0..f.nkeys {
 		match f.keys[i](k) {
 		case Some[E] as e:
@@ -116,4 +216,220 @@ func keyed[E](f *Frame[E], k KeyPress) Option[E] {
 		}
 	}
 	None
+}
+
+// focusHit is focusKey's answer under one node: whether the node holds
+// the focus, and the signal of the first OnFocusKey on the way up from
+// the focused node that gave one.
+type focusHit[E] { found bool, signal Option[E] }
+
+// focusKey looks for the focused node under r (r itself included) and,
+// on the way back up, asks each node's OnFocusKey for k until one gives a
+// signal.
+func focusKey[E](f mut Frame[E], r arena.Ref[node[E]], k KeyPress) focusHit[E] {
+	let n = nodeAt(f, r)
+	let mut hit = focusHit[E]{found: r == f.focus, signal: None}
+	if !hit.found {
+		for c in n.kids {
+			if !hit.found {
+				hit = focusKey[E](f, c, k)
+			}
+		}
+	}
+	if !hit.found {
+		return hit
+	}
+	match hit.signal {
+	case Some[E]:
+		return hit
+	case None:
+	}
+	match n.onKey {
+	case Some[func(k KeyPress) Option[E]] as on:
+		hit.signal = on.Value(k)
+	case None:
+	}
+	hit
+}
+
+// Focusable is whether n takes the keyboard's focus from Tab (UC-TAB): a
+// control a press or a text acts on (a Pressable, a Check, a Toggle, an
+// Input) or a Semantic that a press sends from and is not disabled (a
+// radio, an option, a link). A node under a disabled Fieldset does not.
+func Focusable[E](n Node[E]) bool {
+	match n {
+	case PressableNode[E], CheckNode[E], ToggleNode, InputNode:
+		true
+	case SemanticNode[E] as x:
+		!x.Access.Disabled && sends(x.On)
+	case _:
+		false
+	}
+}
+
+// sends is whether a press has a signal to send.
+func sends[E](on Option[E]) bool {
+	match on {
+	case Some[E]:
+		true
+	case None:
+		false
+	}
+}
+
+// focusables is the focusable nodes under r, r's own included, in tree
+// order, onto out.
+func focusables[E](f mut Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let n = nodeAt(f, r)
+	let mut all = out
+	if !n.off && Focusable(n.node) {
+		all = all.Append(r)
+	}
+	for k in n.kids {
+		all = focusables[E](f, k, all)
+	}
+	all
+}
+
+// nextFocus is the tab stop after the focus in tree order, or the one
+// before it when back, round from the last to the first; from no focus
+// (or one that is not a tab stop), the first or the last; Null when
+// there is no tab stop. Inside a focus scope it goes round the scope's
+// tab stops; a roving group is one stop (UG3).
+func nextFocus[E](f mut Frame[E], back bool) arena.Ref[node[E]] {
+	let order = tabStops(f, tabRoot(f), []arena.Ref[node[E]]{})
+	let n = len(order)
+	if n == 0 {
+		return arena.Null[node[E]]()
+	}
+	let mut at = -1
+	for i, r in order {
+		if r == f.focus {
+			at = i
+		}
+	}
+	if at < 0 {
+		return if back { order[n-1] } else { order[0] }
+	}
+	if back { order[(at+n-1)%n] } else { order[(at+1)%n] }
+}
+
+// FocusOn puts the keyboard's focus on id, or nowhere (None): a host's
+// own focus change, as a click on a field or on empty space.
+func FocusOn[E](f mut Frame[E], id Option[Id[E]]) {
+	match id {
+	case Some[Id[E]] as x:
+		focusTo(f, x.Value.ref, false)
+	case None:
+		focusTo(f, arena.Null[node[E]](), false)
+	}
+}
+
+// tabScreen writes the drawn kinds in a Column: 0 a Text, 1 a Pressable,
+// 2 a labelled Input, 3 a Check, 4 a Semantic button (a press sends), 5 a
+// Semantic heading (none does), 6 a Pressable under a disabled Fieldset;
+// the i-th is named "f<i>" when it takes the focus, else "n<i>".
+// (a law's helper)
+func tabScreen(f mut Frame[int], s int, kinds []int) {
+	Column(f, Plain()) {
+		for i, k in kinds {
+			if k == 0 {
+				Text(f, "n\(i)")
+			} else if k == 1 {
+				Pressable(f, "f\(i)", s) {
+					Text(f, "p\(i)")
+				}
+			} else if k == 2 {
+				LabelledInput(f, FieldLabel{Text: "f\(i)", Description: "", Invalid: false}, "", "", func(t string) int { s })
+			} else if k == 3 {
+				Check(f, "f\(i)", false, s)
+			} else if k == 4 {
+				Semantic(f, Named(Button, "f\(i)"), Some{Value: s}, Plain()) {
+					Text(f, "b\(i)")
+				}
+			} else if k == 5 {
+				Semantic(f, Named(Heading, "n\(i)"), None, Plain()) {
+					Text(f, "h\(i)")
+				}
+			} else {
+				Fieldset(f, true, "") {
+					Pressable(f, "n\(i)", s) {
+						Text(f, "q\(i)")
+					}
+				}
+			}
+		}
+	}
+}
+
+// tabKey presses Tab (Shift+Tab when back) on h. (a law's helper)
+func tabKey[S, D, F](h mut TestHost[S, int, D, F], back bool) bool {
+	PressKey(h, KeyPress{Name: "Tab", Mods: Mods{Shift: back, Ctrl: false, Alt: false, Meta: false}}) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// TabWalksTheFocusables (UC-TAB): over screens of 3 to 8 drawn nodes, some
+// focusable (a Pressable, an Input, a Check, a Semantic a press sends
+// from) and some not (a Text, a Semantic with no signal, a Pressable
+// under a disabled Fieldset), and drawn Tabs, Shift+Tabs and presses: Tab
+// moves the focus to the next focusable node in tree order and Shift+Tab
+// to the one before, round at the ends, from the first (or the last) when
+// nothing is focused; a press puts the focus on what it pressed, and the
+// next Tab goes on from there.
+law TabWalksTheFocusables(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut kinds = []int{}
+		let mut order = []string{}
+		for i in 0..draw(&r, 6)+3 {
+			let k = draw(&r, 7)
+			kinds = kinds.Append(k)
+			if k >= 1 && k <= 4 {
+				order = order.Append("f\(i)")
+			}
+		}
+		let ks = kinds
+		let view = func(f mut Frame[int], s int) { tabScreen(f, s, ks) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let n = len(order)
+		let mut at = -1
+		for _ in 0..(steps%10+10)%10+4 {
+			let act = draw(&r, 4)
+			if act == 3 && n > 0 {
+				let j = draw(&r, n)
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: order[j]}}}) catch {
+				case _:
+					return false
+				}
+				at = j
+			} else {
+				let back = act == 2
+				if !tabKey(&h, back) {
+					return false
+				}
+				if n > 0 {
+					at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n }
+				}
+			}
+			match FocusOf(&h) {
+			case Some[Id[int]] as id:
+				if at < 0 || AccessAt(&h, id.Value).Name != order[at] {
+					return false
+				}
+			case None:
+				if at >= 0 {
+					return false
+				}
+			}
+		}
+		true
+	}
 }

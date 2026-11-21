@@ -1,0 +1,186 @@
+// Package screen is the weather lookup on a screen (stage b): the form (the
+// zip field and the button, which reads "Loading..." and is disabled
+// while a fetch is under way) and the panel. The
+// panel is written with a typed boundary: the report reads the lookup's
+// value with try ui.Await, and the boundary's catch shows the loading and
+// failed arms. PanelMatched is the same panel as an exhaustive match, the
+// other form; the law BoundaryIsTheMatch holds them to one screen.
+
+import weather/weather
+import ui
+
+// Placeholder is the zip field's placeholder, which names it.
+let Placeholder = "Enter a zip code"
+
+// AskLabel and BusyLabel are the button's label: idle, and while a fetch
+// is under way.
+let AskLabel = "Get Weather"
+
+let BusyLabel = "Loading..."
+
+// ReportName is the name of the report's region.
+let ReportName = "Weather report"
+
+// Screen is the lookup: the form, then the panel.
+func Screen(f mut ui.Frame[weather.Signal], l weather.Lookup) {
+	ui.Column(f, ui.Plain()) {
+		ui.Input(f, l.Draft, Placeholder, func(t string) weather.Signal { weather.Edited{Text: t} })
+		let busy = weather.Busy(l)
+		let label = if busy { BusyLabel } else { AskLabel }
+		ui.Fieldset(f, busy, "") {
+			ui.Pressable(f, label, weather.Submitted) {
+				ui.Text(f, label)
+			}
+		}
+		Panel(f, l.Panel)
+	}
+}
+
+// Panel is the panel in a typed boundary: nothing before the first ask;
+// else the report, read with try ui.Await, whose Pending and failures the
+// boundary's catch shows.
+func Panel(f mut ui.Frame[weather.Signal], p weather.Panel) {
+	match asyncOf(p) {
+	case None:
+	case Some[ui.Async[weather.Report, Refused]] as a:
+		ui.Boundary(f) {
+			report(f, try ui.Await(a.Value))
+		} catch {
+		case ui.Pending:
+			ui.Text(f, LoadingText)
+		case Refused as r:
+			ui.Text(f, Failure(r.Why))
+		}
+	}
+}
+
+// BoundaryIsTheMatch: for any drawn panel (nothing, loading, a report, or
+// each reason), the boundary's panel and the exhaustive match's write the
+// same nodes, in order (plan §19.5: the two ways to read one value).
+law BoundaryIsTheMatch(kind int, zip int, temperature int, reason int) {
+	let p = drawn(kind, zip, temperature, reason)
+	writtenBy(Panel, p) == writtenBy(PanelMatched, p)
+}
+
+// drawn is a panel from numbers.
+func drawn(kind int, zip int, temperature int, reason int) weather.Panel {
+	let z = "\(pick(zip, 100000))"
+	match pick(kind, 4) {
+	case 0:
+		weather.Blank
+	case 1:
+		weather.Loading{Zip: z}
+	case 2:
+		let r = weather.Report{Zip: z, Temperature: pick(temperature, 200) - 80, Description: "Clear sky", Humidity: pick(temperature, 101), WindSpeed: pick(zip, 60), Location: "Place \(z)", Region: if pick(reason, 2) == 0 { "" } else { "Region" }}
+		weather.Ready{Report: r}
+	case _:
+		let w weather.Why = match pick(reason, 3) {
+		case 0:
+			weather.NoZip
+		case 1:
+			weather.NotFound{Zip: z}
+		case _:
+			weather.Unavailable{Reason: "reason \(z)"}
+		}
+		weather.Failed{Why: w}
+	}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// writtenBy is what view writes for p in a fresh frame: each node's text,
+// name and role, depth first.
+func writtenBy(view func(f mut ui.Frame[weather.Signal], p weather.Panel), p weather.Panel) []string {
+	let mut f = ui.NewFrame[weather.Signal]()
+	let _ = ui.Render(&f, view, p)
+	written(&f, ui.Root(&f))
+}
+
+func written(f mut ui.Frame[weather.Signal], id ui.Id[weather.Signal]) []string {
+	let mut out = []string{}
+	for k in ui.Kids(f, id) {
+		match ui.NodeOf(f, k) {
+		case Some[ui.Node[weather.Signal]] as n:
+			match n.Value {
+			case ui.TextNode as t:
+				out = out.Append("text \(t.Value)")
+			case ui.SemanticNode as s:
+				out = out.Append("group \(s.Access.Name)")
+			case _:
+				out = out.Append("node")
+			}
+		case None:
+		}
+		for t in written(f, k) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// PanelMatched is the panel as an exhaustive match on the lookup's panel.
+func PanelMatched(f mut ui.Frame[weather.Signal], p weather.Panel) {
+	match p {
+	case weather.Blank:
+	case weather.Loading:
+		ui.Text(f, LoadingText)
+	case weather.Ready as r:
+		report(f, r.Report)
+	case weather.Failed as x:
+		ui.Text(f, Failure(x.Why))
+	}
+}
+
+// LoadingText is what the panel shows while a fetch is under way.
+let LoadingText = "Fetching weather..."
+
+// Refused is the failure the panel's boundary catches: the lookup's
+// reason. weather.Why is not a row here, because its NoZip is a variant,
+// not an error type of package weather (types.md, Error types 4).
+type Refused { Why weather.Why }
+
+// asyncOf is the panel as a load's state: none before the first ask.
+func asyncOf(p weather.Panel) Option[ui.Async[weather.Report, Refused]] {
+	match p {
+	case weather.Blank:
+		None
+	case weather.Loading:
+		Some{Value: ui.Loading}
+	case weather.Ready as r:
+		Some{Value: ui.Ready[weather.Report]{Value: r.Report}}
+	case weather.Failed as x:
+		Some{Value: ui.Failed[Refused]{Error: Refused{Why: x.Why}}}
+	}
+}
+
+// Failure is the text of a reason, and why the forecast could not
+// answer.
+func Failure(w weather.Why) string {
+	match w {
+	case weather.Unavailable as u:
+		"\(weather.Said(w)) (\(u.Reason))"
+	case weather.NoZip, weather.NotFound:
+		weather.Said(w)
+	}
+}
+
+// report is the report's region: the zip as its
+// heading, the place, the temperature, the sky, the humidity and the wind.
+func report(f mut ui.Frame[weather.Signal], r weather.Report) {
+	ui.Semantic(f, named(ui.Region, ReportName, None), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.Heading, r.Zip, Some{Value: 2}), None, ui.Plain()) {
+			ui.Text(f, r.Zip)
+		}
+		let place = if r.Region == "" { r.Location } else { r.Location + ", " + r.Region }
+		ui.Text(f, place)
+		ui.Text(f, "\(r.Temperature)°F")
+		ui.Text(f, r.Description)
+		ui.Text(f, "\(r.Humidity)%")
+		ui.Text(f, "\(r.WindSpeed) mph")
+	}
+}
+
+// named is the access of a container with a role and a name.
+func named(role ui.Role, name string, level Option[int]) ui.Access {
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+}

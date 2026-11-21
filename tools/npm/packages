@@ -1,0 +1,13 @@
+# The binary packages of tools/npm, one per line, read by scripts/npm.sh
+# and scripts/npm-check.sh:
+#
+#   NAME PROGRAM LAUNCHER
+#
+# NAME is the wrapper package tools/npm/NAME (@cvr/NAME), its bin NAME,
+# and its platform packages tools/npm/NAME-OS-CPU (@cvr/NAME-OS-CPU).
+# PROGRAM is the example program whose cmd/NAME is built into each
+# platform package's bin/NAME. LAUNCHER is `shared` when the wrapper takes
+# bin/NAME and install.js from tools/npm/launcher at build time, or `own`
+# when it keeps its own in the repository.
+work examples/work own
+tn1-lint examples/tn1-lint shared

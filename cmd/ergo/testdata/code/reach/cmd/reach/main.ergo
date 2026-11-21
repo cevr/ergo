@@ -1,0 +1,34 @@
+import reachfix/memory
+import reachfix/store
+
+// lookup is the value at key, or "none" for the key "b": the arm matches
+// a record pattern of only some Missing values, so other keys' Missing
+// escapes, and reach follows its chain through the call.
+func lookup(key string) string fails store.Missing | store.Closed needs store.Store {
+	try store.Fetch(key) catch {
+	case store.Missing{Key: "b"}:
+		"none"
+	}
+}
+
+// lookupAny is the value at key, or "none k": the arm matches every
+// Missing value, so only Closed escapes.
+func lookupAny(key string) string fails store.Closed needs store.Store {
+	try store.Fetch(key) catch {
+	case store.Missing{Key: k}:
+		"none " + k
+	}
+}
+
+func main() needs Console {
+	with memory.Serving {
+		Console.Println(lookup("a") catch {
+		case _:
+			"missing"
+		})
+		Console.Println(lookupAny("c") catch {
+		case _:
+			"closed"
+		})
+	}
+}

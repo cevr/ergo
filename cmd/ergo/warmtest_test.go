@@ -99,6 +99,8 @@ func TestWarmTestRunsNothing(t *testing.T) {
 				want = 3
 			case "bytes_read", "bytes_hashed":
 				want = inputs
+			case "obligations_stored":
+				want = 1 // app's one test, answered by the stored verdict
 			}
 			if v != want {
 				t.Errorf("warm %v: %s = %d, want %d", w.args(), k, v, want)
@@ -232,7 +234,12 @@ func verdictSequence(t *testing.T, seed uint64, bin string) {
 		first := runWarm(t, bin, w.root, warmXDG, nil, w.args()...)
 		second := runWarm(t, bin, w.root, warmXDG, nil, w.args()...)
 		for n, got := range []warmRun{first, second} {
-			if got.code != ref.code || got.stdout != ref.stdout {
+			// A verdict the evaluator wrote is marked (TESTSPEED FT1); the
+			// module's one test binary, which the reference may run,
+			// writes the same line unmarked. A verdict read from the
+			// verdict store is marked " (cached)" (FT2), as a law's is.
+			unmark := strings.NewReplacer(" (evaluated)\n", "\n", " (cached)\n", "\n").Replace
+			if got.code != ref.code || unmark(got.stdout) != unmark(ref.stdout) {
 				fail("run %d: exit %d %q, the reference exit %d %q", n+1, got.code, got.stdout, ref.code, ref.stdout)
 			}
 		}

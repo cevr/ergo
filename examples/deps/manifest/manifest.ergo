@@ -14,7 +14,7 @@
 // indented. A blank line or a comment changes nothing.
 
 import deps/resolve
-import deps/semver
+import semver
 import machines
 import slices
 import strings
@@ -94,8 +94,8 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 		if len(words) != 3 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write package NAME VERSION"}
 		}
-		let v = semver.ParseVersion(words[2]) catch {
-		case semver.BadVersion:
+		let v = semver.Parse(words[2]) catch {
+		case semver.Malformed:
 			return BadLine{No: l.No, Text: l.Text, Reason: "\(words[2]) is not a version"}
 		}
 		for r in m.Releases {
@@ -109,9 +109,9 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 		if len(words) < 2 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write needs NAME [CONSTRAINT]"}
 		}
-		let want = semver.ParseConstraint(strings.Join(slices.Slice(words, 2, len(words)), " ")) catch {
-		case semver.BadConstraint as c:
-			return BadLine{No: l.No, Text: l.Text, Reason: c.Reason}
+		let want = resolve.ParseConstraint(strings.Join(slices.Slice(words, 2, len(words)), " ")) catch {
+		case semver.Malformed as c:
+			return BadLine{No: l.No, Text: l.Text, Reason: "\(c.Text) names no version"}
 		}
 		let r = resolve.Requirement{Name: words[1], Want: want}
 		match b {
@@ -164,4 +164,55 @@ func Read(text string) Manifest fails BadLine {
 	case machines.Running[Block, Manifest]:
 		Unreachable("the last signal is End, and Step ends every End with Done or BadLine")
 	}
+}
+
+// ReadInvertsFormat: reading a formatted manifest gives the manifest back.
+law ReadInvertsFormat(entries []resolve.Entry, root []resolve.Need) {
+	let m = Generated(entries, root)
+	try Read(Format(m)) == m
+}
+
+// Format is m as manifest text that Read reads back: the project and its
+// needs, then each release and its needs, a blank line between blocks.
+func Format(m Manifest) string {
+	let mut lines = []string{"project " + m.Project}
+	for r in m.Root {
+		lines = lines.Append(needLine(r))
+	}
+	for rel in m.Releases {
+		lines = lines.Append("")
+		lines = lines.Append("package " + rel.Name + " " + semver.Format(rel.V))
+		for r in rel.Needs {
+			lines = lines.Append(needLine(r))
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func needLine(r resolve.Requirement) string { "  needs " + r.Name + " " + r.Want.Text }
+
+// Generated is the manifest of a generated registry: project app, the
+// root's needs, and each release once.
+func Generated(entries []resolve.Entry, root []resolve.Need) Manifest {
+	let mut rs = []resolve.Release{}
+	for r in resolve.TableOf(entries).Releases {
+		let mut seen = false
+		for x in rs {
+			if x.Name == r.Name && x.V == r.V {
+				seen = true
+			}
+		}
+		if !seen {
+			rs = rs.Append(r)
+		}
+	}
+	Manifest{Project: "app", Root: resolve.RootOf(root), Releases: rs}
+}
+
+// NoiseChangesNothing: blank lines, comments and trailing comments do not
+// change what a manifest says.
+law NoiseChangesNothing(entries []resolve.Entry, root []resolve.Need) {
+	let text = Format(Generated(entries, root))
+	let noisy = "# deps manifest\n\n" + strings.ReplaceAll(text, "\n", "  # note\n\n")
+	Format(try Read(noisy)) == text
 }

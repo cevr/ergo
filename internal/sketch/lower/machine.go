@@ -7,6 +7,8 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 	rtpkg "ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Machine plan values (spec D5; runtime.md, Machines and actors 1 and 5).
@@ -150,7 +153,10 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		if fd.fallible {
 			results = "(" + result + ", error)"
 		}
-		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call([]string{env}) + "\n}\n\n")
+		// The Step takes the environment (the runner passes one to a step
+		// that fails or reads it); a failing step that reads none takes
+		// none (ENV-FREE-FALLIBLE), so it is passed only to one that does.
+		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call(fd.envLead(env)) + "\n}\n\n")
 	})
 	if m.start == nil {
 		l.machineInit(td, initial)
@@ -219,7 +225,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 				goOf[v.Name] = rt + ".VariantOf[" + t + "]()"
 				continue
 			}
-			name, ok := l.variantName(t)
+			name, ok := l.ergoVariantName(t)
 			if !ok {
 				ice(td.tn.Decl.Name, "the machine %s has the variant %s, whose Go type %s the lowering cannot name", td.tn.Name, v.Name, t)
 			}
@@ -262,7 +268,55 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 			b.WriteString("\t\t{State: " + stateOf[k] + ", Signal: " + signalOf[sig] + "},\n")
 		}
 	}
-	b.WriteString("\t},\n}")
+	b.WriteString("\t},\n")
+	// A flat state or signal (flatunion.go) is one Go type for all its
+	// variants: the runner names a value's variant by its tag (MSB1), and
+	// any other value by its Go type, as VariantOf does. The names are
+	// the graph's own (stateOf, signalOf), static text but under the
+	// reference registry.
+	if mt, ok := td.named.Underlying().(*check.MachineType); ok && (l.flatUnionOf(mt.State) != nil || l.flatUnionOf(mt.Signal) != nil) {
+		var cases strings.Builder
+		done := map[string]bool{}
+		nameOf := func(gt string) string {
+			if graphRegistry() {
+				return rt + ".VariantOf[" + gt + "]()"
+			}
+			name, ok := l.ergoVariantName(gt)
+			if !ok {
+				ice(td.tn.Decl.Name, "the machine %s has a variant whose Go type %s the lowering cannot name", td.tn.Name, gt)
+			}
+			return strconv.Quote(name)
+		}
+		for i, t := range []check.Type{mt.State, mt.Signal} {
+			if fu := l.flatUnionOf(t); fu != nil {
+				gt := tc.goType(t)
+				if done[gt] {
+					continue
+				}
+				done[gt] = true
+				cases.WriteString("\t\tcase " + gt + ":\n\t\t\tswitch " + fu.tagExpr(tc, "x") + " {\n")
+				for k, v := range fu.variants {
+					cases.WriteString("\t\t\tcase " + strconv.Itoa(k) + ":\n\t\t\t\treturn " + nameOf(tc.goType(v)) + "\n")
+				}
+				cases.WriteString("\t\t\t}\n")
+				continue
+			}
+			vs := g.States
+			if i == 1 {
+				vs = g.Signals
+			}
+			for _, v := range vs {
+				gt := tc.goType(v.Type)
+				if done[gt] {
+					continue
+				}
+				done[gt] = true
+				cases.WriteString("\t\tcase " + gt + ":\n\t\t\treturn " + nameOf(gt) + "\n")
+			}
+		}
+		b.WriteString("\tVariant: func(v any) string {\n\t\tswitch x := v.(type) {\n" + cases.String() + "\t\t}\n\t\treturn \"\"\n\t},\n")
+	}
+	b.WriteString("}")
 	if graphRegistry() {
 		return "func init() {\n\t" + rt + ".RegisterMachine[" + state + ", " + signal + "](" + b.String() + ")\n}\n\n"
 	}
@@ -274,6 +328,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 // graphArg is the hidden graph argument of an actor's start whose states
 // and signals are the Go types state and signal.
 func (l *lowerer) graphArg(state, signal string) string {
+	l.actorStarted = true
 	if graphRegistry() {
 		return l.rt() + ".RegisteredGraph[" + state + ", " + signal + "]"
 	}
@@ -342,6 +397,56 @@ func (l *lowerer) variantName(t string) (string, bool) {
 		return "", false
 	}
 	return rtpkg.TypeName(s), true
+}
+
+// variantLowering selects the name the lowering writes for a variant a
+// runner traces: "" (the default), its Ergo name (ergoVariantName); "go",
+// the reference, its Go type's name, which carries the suffix that keeps
+// a Go name unique (Idle_1 beside the root's Idle).
+var variantLowering string
+
+// ergoVariantName is the name a runner gives a value of the variant whose
+// Go type is t: variantName, with the head and each type argument whose Go
+// name the lowering suffixed spelled as its Ergo name (Box_1[main.Idle_1]
+// is Box[main.Idle]), by v1.ErgoTypeName over the table typeNamesInit
+// registers, which the runtime reads for a name it computes
+// (TRACE-VARIANT-SUFFIX).
+func (l *lowerer) ergoVariantName(t string) (string, bool) {
+	name, ok := l.variantName(t)
+	if !ok || variantLowering == "go" {
+		return name, ok
+	}
+	return v1.ErgoTypeName(name, "main", l.suffixedTypeNames()), true
+}
+
+// suffixedTypeNames maps the Go name of each type the program declares
+// whose Go name the lowering suffixed to keep it unique to its Ergo name.
+// A host type, named through its package, is never suffixed.
+func (l *lowerer) suffixedTypeNames() map[string]string {
+	names := map[string]string{}
+	for tn, td := range l.types {
+		if td.name != tn.Name && !strings.Contains(td.name, ".") {
+			names[td.name] = tn.Name
+		}
+	}
+	return names
+}
+
+// typeNamesInit registers the program's suffixed type names
+// (v1.RegisterTypeNames) when it starts a machine actor, whose runner
+// names the variants a graph does not (a boxed value, an actor of a
+// shared pair, a generic flat union's): "" when it starts none or no name
+// is suffixed, and under the reference.
+func (l *lowerer) typeNamesInit() string {
+	names := l.suffixedTypeNames()
+	if !l.actorStarted || len(names) == 0 || variantLowering == "go" {
+		return ""
+	}
+	var pairs []string
+	for _, goName := range slices.Sorted(maps.Keys(names)) {
+		pairs = append(pairs, strconv.Quote(goName), strconv.Quote(names[goName]))
+	}
+	return "func init() {\n\t" + l.rtRef("RegisterTypeNames") + "(\"main\", " + strings.Join(pairs, ", ") + ")\n}\n\n"
 }
 
 // runtimeSpelling is Go's runtime type string of the type expression x of
@@ -474,7 +579,7 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 // everyOption reports whether t is Option[machines.Every[E]].
 func everyOption(t check.Type) bool {
 	o, ok := t.(*check.Named)
-	return ok && len(o.TArgs) == 1 && check.IsStdEvery(o.TArgs[0])
+	return ok && len(o.TArgs) == 1 && check.IsEvery(o.TArgs[0])
 }
 
 // everyTimers is the After of a machine whose after function gives a
@@ -513,7 +618,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 	st, ok := every.Underlying().(*check.Struct)
 	var at check.Type
 	if ok {
-		// The checker admitted std machines.Every (check.IsStdEvery):
+		// The checker admitted an Every timer (check.IsEvery):
 		// its one function field is Signal.
 		for _, f := range st.Fields {
 			if fs, isSig := f.Type.(*check.Signature); isSig && len(fs.Params) == 1 {
@@ -539,7 +644,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 			ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " {\n" +
 			ind + "\tif " + t + ".Value." + in + " <= 0 {\n" +
-			ind + "\t\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value." + in + "))\n" +
+			ind + "\t\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + fc.variantAny(sig.Params[0].Type, s) + ", " + t + ".Value." + in + "))\n" +
 			ind + "\t}\n" +
 			ind + "\tvar " + when + " " + fc.goType(at) + "\n" +
 			ind + "\tif " + fc.l.rt() + ".MachineFiringNow(" + taskOf(env) + ") {\n" +
@@ -602,6 +707,44 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 	})
 }
 
+// machineExit is the Exit of a machine value's Machine (ConvMachine;
+// FK9-g1, runtime.md, Machines and actors 12a): a function that calls the
+// machine's exit function and gives its action as the field's type, or,
+// when it has none, a function that gives every state None (no exit
+// action). The exit function has no rows of its own (checkMachineExit), so
+// its error is always nil.
+//
+//	func(env *Env, s S) (Option[func(…)], error) {
+//		o, _ := exit(env, s)
+//		if x, ok := o.(Some[func(…)]); ok {
+//			return Some[func(…)]{Value: x.Value}, nil
+//		}
+//		return None{}, nil
+//	}
+func (fc *funcCtx) machineExit(conv check.Conversion, site syntax.Node) string {
+	exit := conv.Table["Exit"]
+	if exit == nil {
+		return fc.machineNone(conv, "Exit", site)
+	}
+	sig := fc.machineField(conv, "Exit", site)
+	if len(exit.Sig.Params) != 1 || len(exit.Sig.Results) != 1 {
+		ice(site, "the exit function %s is not func(S) Option[func() needs R]", exit.Name)
+	}
+	g := fc.funcValue(exit, exit.Sig, site, nil)
+	gv, o, x := fc.scope.alloc("exit"), fc.scope.alloc("o"), fc.scope.alloc("x")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		s := fc.scope.alloc("s")
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
+			ind + gv + " := " + g + "\n" +
+				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
+				ind + "if " + fc.optionSomeIf(exit.Sig.Results[0], o, x, site) + " {\n" +
+				ind + "\treturn " + fc.optionSome(sig.Results[0], x+".Value", site) + ", nil\n" +
+				ind + "}\n" +
+				ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
+	})
+}
+
 // machineField is the type of the prelude Machine's field name, a
 // function func(S) Option[…].
 func (fc *funcCtx) machineField(conv check.Conversion, name string, site syntax.Node) *check.Signature {
@@ -652,7 +795,7 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 		body := ind + gv + " := " + g + "\n" +
 			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " && " + t + ".Value.In <= 0 {\n" +
-			ind + "\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
+			ind + "\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + fc.variantAny(sig.Params[0].Type, s) + ", " + t + ".Value.In))\n" +
 			ind + "}\n" +
 			ind + "return " + o + ", " + err + "\n"
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]), body

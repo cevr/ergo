@@ -1,0 +1,189 @@
+// Package token scans source text into two token columns, kind and start,
+// in the form of Zig's tokenizer: no end and no text are kept, and a
+// token's text is found by scanning again from its start. It is the
+// SELFLAYOUT prototype's scanner (wf10 self-layout plan §2.3), a byte-class
+// scanner for Ergo-like text: identifiers, numbers, strings, runes,
+// comments, brackets and punctuation. It is not Ergo's grammar.
+
+import dense
+
+// The kinds of a token.
+let Comment = 1
+let Ident = 2
+let Number = 3
+let String = 4
+let Rune = 5
+let Open = 6
+let Close = 7
+let Punct = 8
+
+// Tok is the row tag of tokens.
+type Tok {}
+
+// Toks is the token stream as columns: token i is Kind of its id and Start
+// of its id, the offset of its first byte.
+type Toks {
+	ids   dense.Count[Tok],
+	kind  dense.Col[Tok, uint8],
+	start dense.Col[Tok, uint32],
+}
+
+// Len is the number of tokens.
+func Len(t Toks) int { dense.Total(t.ids) }
+
+// At is the id of the token at index i.
+func At(t Toks, i int) dense.ID[Tok] { dense.IDAt(t.ids, i) }
+
+// Kind is the kind of token id.
+func Kind(t Toks, id dense.ID[Tok]) int { int(dense.Of(t.kind, id)) }
+
+// Start is the offset of token id's first byte.
+func Start(t Toks, id dense.ID[Tok]) int { int(dense.Of(t.start, id)) }
+
+func isIdentStart(c byte) bool {
+	c >= 97 && c <= 122 || c >= 65 && c <= 90 || c == 95
+}
+
+func isDigit(c byte) bool { c >= 48 && c <= 57 }
+
+// Scan is the tokens of src.
+func Scan(src string) Toks {
+	let n = len(src)
+	// Room for a token per four bytes, the control's guess for source text.
+	let room = n / 4
+	let mut t = Toks{ids: dense.NewCount[Tok](), kind: dense.ColWithCap[Tok, uint8](room), start: dense.ColWithCap[Tok, uint32](room)}
+	let mut i = 0
+	for i < n {
+		let c = src[i]
+		if c == 32 || c == 9 || c == 10 || c == 13 {
+			i = i + 1
+			continue
+		}
+		let start = i
+		let mut kind = uint8(Punct)
+		if isIdentStart(c) {
+			kind = uint8(Ident)
+			i = i + 1
+			for i < n && (isIdentStart(src[i]) || isDigit(src[i])) {
+				i = i + 1
+			}
+		} else if isDigit(c) {
+			kind = uint8(Number)
+			i = i + 1
+			for i < n && (isIdentStart(src[i]) || isDigit(src[i]) || src[i] == 46) {
+				i = i + 1
+			}
+		} else if c == 47 && i+1 < n && src[i+1] == 47 {
+			kind = uint8(Comment)
+			i = i + 2
+			for i < n && src[i] != 10 {
+				i = i + 1
+			}
+		} else if c == 47 && i+1 < n && src[i+1] == 42 {
+			kind = uint8(Comment)
+			i = i + 2
+			for i < n && !(src[i] == 42 && i+1 < n && src[i+1] == 47) {
+				i = i + 1
+			}
+			if i < n {
+				i = i + 2
+			}
+		} else if c == 34 || c == 39 {
+			kind = if c == 39 { uint8(Rune) } else { uint8(String) }
+			i = i + 1
+			for i < n && src[i] != c && src[i] != 10 {
+				if src[i] == 92 && i+1 < n {
+					i = i + 1
+				}
+				i = i + 1
+			}
+			if i < n && src[i] == c {
+				i = i + 1
+			}
+		} else if c == 96 {
+			kind = uint8(String)
+			i = i + 1
+			for i < n && src[i] != 96 {
+				i = i + 1
+			}
+			if i < n {
+				i = i + 1
+			}
+		} else if c == 40 || c == 91 || c == 123 {
+			kind = uint8(Open)
+			i = i + 1
+		} else if c == 41 || c == 93 || c == 125 {
+			kind = uint8(Close)
+			i = i + 1
+		} else {
+			i = i + 1
+		}
+		let _ = dense.Next(&t.ids)
+		dense.Push(&t.kind, kind)
+		dense.Push(&t.start, uint32(start))
+	}
+	t
+}
+
+// StartsAdvance: the starts strictly increase, each is inside the text,
+// and no token starts on whitespace.
+law StartsAdvance(picks []int) {
+	let src = Sample(picks)
+	let t = Scan(src)
+	let mut last = -1
+	for i in 0..Len(t) {
+		let s = Start(t, At(t, i))
+		if s <= last || s >= len(src) {
+			return false
+		}
+		let c = src[s]
+		if c == 32 || c == 9 || c == 10 || c == 13 {
+			return false
+		}
+		last = s
+	}
+	true
+}
+
+// pieces are fragments whose concatenations reach every branch of Scan:
+// whitespace, names, numbers, both comment forms (closed and not), the
+// three string forms with escapes, brackets and punctuation.
+let pieces = []string{" ", "\n", "\t", "ab_1", "Z", "42", "3.5e", "// c\n", "/* x */", "/* open", "\"s\\\"q\"", "'r'", "`raw`", "\"open\n", "(", ")", "[", "]", "{", "}", "+", "/", ";", "é"}
+
+// Sample is the concatenation of the pieces picks names, each taken modulo
+// the number of pieces.
+func Sample(picks []int) string {
+	let mut s = ""
+	for p in picks {
+		let k = if p < 0 { -(p % len(pieces)) } else { p % len(pieces) }
+		s = s + pieces[k]
+	}
+	s
+}
+
+// BracketsAreTheirOwnTokens: every bracket byte outside a comment or a
+// string is one token of kind Open or Close of length one.
+law BracketsAreTheirOwnTokens(picks []int) {
+	let src = Sample(picks)
+	let t = Scan(src)
+	for i in 0..Len(t) {
+		let id = At(t, i)
+		let k = Kind(t, id)
+		if k == Open || k == Close {
+			let c = src[Start(t, id)]
+			let open = c == 40 || c == 91 || c == 123
+			let close = c == 41 || c == 93 || c == 125
+			if (k == Open && !open) || (k == Close && !close) {
+				return false
+			}
+			let end = if i+1 < Len(t) { Start(t, At(t, i+1)) } else { len(src) }
+			for j in Start(t, id)+1..end {
+				let d = src[j]
+				if d != 32 && d != 9 && d != 10 && d != 13 {
+					return false
+				}
+			}
+		}
+	}
+	true
+}

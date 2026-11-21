@@ -1,0 +1,445 @@
+// Package pace is the collector's pacing (RT-SPIKE PACE1, the one visible
+// runtime lever of rt-spike/levers.md, L3). A loop that knows where one
+// unit of its work ends (a frame, a turn, a batch) calls Pacing.Edge()
+// there; the provider in the context decides what an edge does with Go's
+// collector. Only a binary's cmd/<name>/main.ergo chooses the provider,
+// as it chooses every other host provider: Default (today's pace, an edge
+// does nothing), Percent (Go's GOGC=n, set once) or AtEdges (no collection
+// inside a unit of work, one at an edge once the heap has grown). A test
+// binds Counting and counts the edges a loop marks. A stretch that must
+// not be paced mid-way (a drag, a request) runs in Held (PACE2): no edge
+// inside collects, and the last release runs the collection owed.
+//
+// Every provider is plain Ergo over Go's public API (runtime and
+// runtime/debug through import go, as a user binds them): std ui's loop
+// calls Edge as a user's loop does, and a user may write a provider of
+// their own (STD HAS NO PRIVILEGES). Go's collector never changes what a
+// program computes, so no provider changes a program's output (law
+// EdgeKeepsValues; the seeded property of cmd/ergo
+// TestDashGuiAgreesWithControl runs dash-gui under all three).
+//
+// Prior art: Go has the knobs (GOGC, GOMEMLIMIT, runtime.GC) and no
+// notion of a unit of work; Erlang frees a process's heap when it ends
+// and Unity and game engines collect between frames; Effect has no
+// collector policy. Ergo puts the edge in the program and the policy in
+// main.
+
+import atomic
+import scope
+import go runtime
+import go runtime/debug
+
+// Pacing is what a loop tells the collector: Edge marks the end of one
+// unit of the loop's work, where little of what the unit made is still
+// live. A provider may collect there, or do nothing; it never changes a
+// value the program holds. Hold and Release bracket a stretch that must
+// not be paced mid-way (a drag, a request, a burst of frames): no edge
+// inside collects, and the Release that closes the outermost hold runs
+// the collection an edge inside it was due, once. Holds count across
+// tasks, so overlapping holds compose. Code calls Held, which pairs them;
+// Go's memory limit still collects inside a hold.
+type Pacing {
+	Edge(),
+	Hold(),
+	Release(),
+
+	// EdgeKeepsValues: what a program built before an Edge reads the same
+	// after it; a collection moves no value and frees nothing reachable.
+	law EdgeKeepsValues(xs []int, s string) {
+		let kept = xs.Append(len(s))
+		let text = s + "."
+		Edge()
+		let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
+		for i, x in xs {
+			same = same && kept[i] == x
+		}
+		same
+	},
+
+	// HoldKeepsValues: a held stretch and its release keep every value,
+	// as an edge does.
+	law HoldKeepsValues(xs []int, n int) {
+		let kept = xs.Append(n)
+		Hold()
+		Edge()
+		Release()
+		len(kept) == len(xs)+1 && kept[len(xs)] == n
+	},
+}
+
+// Held runs block as one held stretch: Hold before it, Release when it
+// ends, however it ends (scope.OnExit). Held inside Held, or on several
+// tasks at once, nests: only the last release may collect.
+func Held[T, E, R](block func() T fails E needs R) T fails E needs R | Pacing {
+	Pacing.Hold()
+	scope.OnExit() { Pacing.Release() }
+	try block()
+}
+
+// Holds is the hold count a provider keeps for Hold and Release, shared
+// by every copy: how many holds are open and whether an edge inside them
+// owed a collection. AtEdges and Counting keep one; a user's provider
+// may too.
+type Holds { depth atomic.Int64, owed atomic.Bool }
+
+// NewHolds is a Holds with none open and nothing owed.
+func NewHolds() Holds { Holds{depth: atomic.NewInt64(0), owed: atomic.NewBool(false)} }
+
+// Open opens one hold.
+func Open(h Holds) { let _ = h.depth.Add(1) }
+
+// Close closes one hold that Open opened. It is true when it closed the
+// last open hold and an edge inside owed a collection: the caller runs
+// it, once (the debt is cleared). A collection that a close runs may
+// overlap a hold another task opens just then.
+func Close(h Holds) bool {
+	if h.depth.Add(-1) > 0 {
+		return false
+	}
+	h.owed.Swap(false)
+}
+
+// Owe is asked by an edge that is due to collect: true when a hold is
+// open, and the debt is recorded for the last Close, so the edge must not
+// collect; false when the edge collects now. When the last hold closes
+// while the debt is being recorded, exactly one of the edge and the close
+// takes it.
+func Owe(h Holds) bool {
+	if h.depth.Load() <= 0 {
+		return false
+	}
+	h.owed.Store(true)
+	if h.depth.Load() > 0 {
+		return true
+	}
+	!h.owed.Swap(false)
+}
+
+// Depth is how many holds are open.
+func Depth(h Holds) int64 { h.depth.Load() }
+
+// HoldsOweTheLastClose: against a model (a count and a flag), a run of
+// opens, closes and due edges answers the same at every step: an edge
+// owes while a hold is open, and only the close that ends the last open
+// hold after a due edge collects, once.
+law HoldsOweTheLastClose(ops []int) {
+	let h = NewHolds()
+	let mut depth = 0
+	let mut owed = false
+	let mut same = true
+	for op in ops {
+		let kind = within(op, 0, 2)
+		if kind == 0 {
+			h.Open()
+			depth = depth + 1
+		} else if kind == 1 && depth > 0 {
+			let collects = h.Close()
+			depth = depth - 1
+			same = same && collects == (depth == 0 && owed)
+			if depth == 0 {
+				owed = false
+			}
+		} else if kind == 2 {
+			same = same && h.Owe() == (depth > 0)
+			owed = owed || depth > 0
+		}
+		same = same && h.Depth() == int64(depth)
+	}
+	same
+}
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
+// Default is today's pacing: an edge does nothing, and Go's collector
+// keeps its own pace (with the runtime's heap floor, rt.Pace).
+type Default {} implements Pacing
+
+// Edge does nothing.
+func Edge(_ Default) {}
+
+// Hold does nothing: Default's edges never collect.
+func Hold(_ Default) {}
+
+// Release does nothing.
+func Release(_ Default) {}
+
+// DefaultReachesNothing: Default needs no capability, so a law, which
+// has none, binds it, and its edges change nothing a program holds.
+law DefaultReachesNothing(xs []int, n int) {
+	let kept = xs.Append(n)
+	with context { Pacing: Default } {
+		for _ in 0..within(n, 0, 64) {
+			Pacing.Edge()
+		}
+	}
+	len(kept) == len(xs)+1 && kept[len(xs)] == n
+}
+
+// Percent is Go's GOGC=n: the collector starts a cycle when the heap has
+// grown n percent over what the last cycle left live. NewPercent sets it
+// once; an edge does nothing. A negative n turns the collector off, as
+// GOGC=off does, with no limit beside it.
+type Percent { percent int } implements Pacing
+
+// NewPercent sets the collector's percent to n, as GOGC=n, and is the
+// provider that keeps it. The runtime's heap floor (rt.Pace) stops at the
+// next cycle, since the program chose its own percent.
+func NewPercent(n int) Percent needs go.Foreign {
+	let _ = debug.SetGCPercent(n)
+	Percent{percent: n}
+}
+
+// Edge does nothing: Go's own pace runs at the percent set.
+func Edge(_ Percent) {}
+
+// Hold does nothing: Percent's edges never collect, and Go's own pace
+// does not stop for a hold.
+func Hold(_ Percent) {}
+
+// Release does nothing.
+func Release(_ Percent) {}
+
+// AtEdges collects only at edges: the collector's percent is off, the
+// memory limit is the net (Go collects by itself as the heap nears it),
+// and an edge collects (runtime.GC, which waits for the cycle) once the
+// heap has grown by a quarter of the limit since the last collection. A
+// cycle at an edge marks only what outlives the unit of work; one inside
+// a unit also marks the unit's own data (levers.md §3.1: 0.44 of today's
+// collector cost on the frame model). An edge reads the heap only now and
+// then (NextRead), so most edges are a counter's step. Inside a hold, a
+// due edge owes its collection to the last Release instead.
+type AtEdges {
+	grow  int64,
+	stats go.Ref[runtime.MemStats],
+	base  atomic.Int64,
+	last  atomic.Int64,
+	span  atomic.Int64,
+	wait  atomic.Int64,
+	holds Holds,
+} implements Pacing
+
+// NewAtEdges turns the collector's percent off, sets the memory limit to
+// limit bytes, and is the provider that collects at edges. limit should
+// be well above the heap that outlives a unit of work: Go collects by
+// itself, inside a unit, as the heap nears it.
+func NewAtEdges(limit int64) AtEdges needs go.Foreign {
+	let _ = debug.SetGCPercent(-1)
+	let _ = debug.SetMemoryLimit(limit)
+	let stats = go.New[runtime.MemStats]()
+	runtime.ReadMemStats(stats)
+	let heap = int64(stats.HeapAlloc)
+	AtEdges{grow: limit / 4, stats: stats, base: atomic.NewInt64(heap), last: atomic.NewInt64(heap), span: atomic.NewInt64(1), wait: atomic.NewInt64(1), holds: NewHolds()}
+}
+
+// Edge counts down to the next read of the heap. At a read, it collects
+// when the heap has grown by a quarter of the limit since the last
+// collection, and else sets the next read by NextRead. Only the edge that
+// brings the count to zero reads, so edges on several tasks never read
+// the heap at once.
+func Edge(p AtEdges) needs go.Foreign {
+	if p.wait.Add(-1) != 0 {
+		return
+	}
+	runtime.ReadMemStats(p.stats)
+	let heap = int64(p.stats.HeapAlloc)
+	let grown = heap - p.base.Load()
+	if grown >= p.grow {
+		if p.holds.Owe() {
+			// The debt is the last Release's; the held edges after this
+			// one read the heap rarely.
+			p.wait.Store(maxSpan())
+			return
+		}
+		collect(p)
+		return
+	}
+	let next = NextRead(heap-p.last.Load(), p.span.Load(), p.grow-grown)
+	p.last.Store(heap)
+	p.span.Store(next)
+	p.wait.Store(next)
+}
+
+// collect runs a cycle and makes the heap it leaves the new base, with
+// the next read at the next edge.
+func collect(p AtEdges) needs go.Foreign {
+	runtime.GC()
+	runtime.ReadMemStats(p.stats)
+	let after = int64(p.stats.HeapAlloc)
+	p.base.Store(after)
+	p.last.Store(after)
+	p.span.Store(1)
+	p.wait.Store(1)
+}
+
+// Hold opens a hold.
+func Hold(p AtEdges) { p.holds.Open() }
+
+// Release closes a hold; the last one runs the collection an edge inside
+// owed.
+func Release(p AtEdges) needs go.Foreign {
+	if p.holds.Close() {
+		collect(p)
+	}
+}
+
+// MaxSpan is the most edges AtEdges lets pass between two reads of the
+// heap.
+let MaxSpan = maxSpan()
+
+// maxSpan is MaxSpan. spanOf calls it rather than read the let, so a
+// program that reaches AtEdges's edge alone lowers the same from std and
+// from a copy (TestStdCopyAgrees; follow-up in PACE2's request).
+func maxSpan() int64 { 256 }
+
+// NextRead is how many edges to let pass before the next read of the
+// heap, when the heap grew by grown bytes over the last edges edges and
+// room bytes are left before a collection is due: half of room at the
+// rate seen, so a read comes before the room fills while the rate holds,
+// at least 1 and at most MaxSpan. A heap that did not grow doubles the
+// span. Reading Go's heap stops the world (runtime.ReadMemStats, about
+// 17,000 instructions at GOMAXPROCS=4, measured), so the span keeps reads
+// rare while the room is large.
+func NextRead(grown int64, edges int64, room int64) int64 {
+	if room <= 0 {
+		return 1
+	}
+	if grown <= 0 {
+		return spanOf(edges * 2)
+	}
+	spanOf(room / rateOf(grown, edges) / 2)
+}
+
+// rateOf is the heap's growth per edge, at least one byte.
+func rateOf(grown int64, edges int64) int64 {
+	let per = if edges > 1 { grown / edges } else { grown }
+	if per < 1 { 1 } else { per }
+}
+
+// spanOf is n kept in 1..MaxSpan.
+func spanOf(n int64) int64 {
+	if n < 1 {
+		1
+	} else if n > maxSpan() {
+		maxSpan()
+	} else {
+		n
+	}
+}
+
+// NextReadLeavesRoom: the next read comes after 1 to MaxSpan edges, and,
+// while the heap grows at the rate seen, before it has grown by more
+// than half of the room left (or at the very next edge). The room is drawn
+// in units of the rate seen, up to past twice MaxSpan, where the span is
+// decided.
+law NextReadLeavesRoom(grown int64, edges int64, room int64) {
+	let g = int64(within(int(grown%1000000000), 0, 999999999))
+	let e = int64(within(int(edges%1000), 1, 1000))
+	let perEdge = if g/e < 1 { int64(1) } else { g / e }
+	let r = perEdge*int64(within(int(room%1000), -2, 600)) + int64(within(int(room%7), 0, 6))
+	let next = NextRead(g, e, r)
+	1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2)
+}
+
+// Counting is the test provider: an edge does nothing to the collector
+// and adds one to a count that every copy shares, so a test asserts that
+// a loop paces. Every edge counts as due, so an edge inside a hold is
+// counted as held, and the release it is owed to as deferred. NewCounting
+// makes one at zero.
+type Counting { edges atomic.Int64, held atomic.Int64, deferred atomic.Int64, holds Holds } implements Pacing
+
+// NewCounting is a Counting at zero edges.
+func NewCounting() Counting {
+	Counting{edges: atomic.NewInt64(0), held: atomic.NewInt64(0), deferred: atomic.NewInt64(0), holds: NewHolds()}
+}
+
+// Edge adds one to the count, and one to the held count inside a hold.
+func Edge(c Counting) {
+	let _ = c.edges.Add(1)
+	if c.holds.Owe() {
+		let _ = c.held.Add(1)
+	}
+}
+
+// Hold opens a hold.
+func Hold(c Counting) { c.holds.Open() }
+
+// Release closes a hold, and counts a deferred collection when it is the
+// last and an edge inside was held.
+func Release(c Counting) {
+	if c.holds.Close() {
+		let _ = c.deferred.Add(1)
+	}
+}
+
+// Edges is the number of edges marked so far, on any copy of c.
+func Edges(c Counting) int64 { c.edges.Load() }
+
+// HeldEdges is the number of edges marked inside a hold.
+func HeldEdges(c Counting) int64 { c.held.Load() }
+
+// Deferred is the number of releases that ran (here: counted) the
+// collection an edge inside their hold owed.
+func Deferred(c Counting) int64 { c.deferred.Load() }
+
+// HeldDefersToTheLastRelease: n edges inside k nested Held blocks are
+// all held, the one owed collection runs once, at the outer block's end,
+// and an edge after it is not held; a block that fails releases too.
+law HeldDefersToTheLastRelease(n int, k int, stop bool) {
+	let edges = within(n, 0, 16)
+	let depth = within(k, 1, 4)
+	let c = NewCounting()
+	with context { Pacing: c } {
+		nest(depth, edges, stop) catch {
+		case stopped:
+		}
+		Pacing.Edge()
+	}
+	let owed = if edges > 0 { int64(1) } else { int64(0) }
+	c.Edges() == int64(edges+1) && c.HeldEdges() == int64(edges) && c.Deferred() == owed
+}
+
+// stopped is the failure of nest's innermost block.
+type stopped {}
+
+// nest is depth Held blocks, one inside the other, the innermost marking
+// edges edges and failing stopped when stop.
+func nest(depth int, edges int, stop bool) fails stopped needs Pacing {
+	Held() { try inner(depth, edges, stop) }
+}
+
+// inner is nest's block: the next nest, or the edges.
+func inner(depth int, edges int, stop bool) fails stopped needs Pacing {
+	if depth > 1 {
+		try nest(depth-1, edges, stop)
+		return
+	}
+	for _ in 0..edges {
+		Pacing.Edge()
+	}
+	if stop {
+		return stopped
+	}
+}
+
+// CountingCountsEachEdge: n edges under a Counting add n to its count,
+// seen on the copy the test kept.
+law CountingCountsEachEdge(n int) {
+	let k = within(n, 0, 64)
+	let c = NewCounting()
+	let before = c.Edges()
+	with context { Pacing: c } {
+		for _ in 0..k {
+			Pacing.Edge()
+		}
+	}
+	before == 0 && c.Edges() == int64(k)
+}

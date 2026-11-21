@@ -1,0 +1,9 @@
+type Bad {}
+
+type Command[C, E] { Name string, Build func() C fails E }
+
+func one() int { 1 }
+
+func bad() int fails Bad { Bad }
+
+func run(c Command[int, Bad]) int fails Bad { try c.Build() }

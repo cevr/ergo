@@ -6,7 +6,7 @@
 // string (the record says it, nothing infers it). The binary chooses the
 // format (cmd/catalog binds xmlfeed's).
 
-import ergo.dev/xml
+import xml
 import machines
 import strconv
 

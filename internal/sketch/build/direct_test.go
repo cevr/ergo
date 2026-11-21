@@ -220,6 +220,15 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 			return tc
 		}, 3, true, false},
 	}
+	// The dev profile (FT5) compiles every package of the module's
+	// directory with other flags: none reuses a release archive
+	// (ft-profile-not-in-key), and the executable is still go build's with
+	// -gcflags=./...=-l -dwarf=false.
+	rows = append(rows, row{"dev profile", func(t *testing.T) build.Toolchain {
+		dev := tc
+		dev.Profile = build.Dev
+		return dev
+	}, 3, true, false})
 	if runtime.GOARCH == "amd64" {
 		rows = append(rows, row{"architecture level", func(t *testing.T) build.Toolchain {
 			t.Setenv("GOAMD64", "v3")

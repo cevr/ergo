@@ -1,0 +1,155 @@
+// Spans: ranges of dates, both ends included, and their calendar buckets.
+
+import slices
+
+// Span is the dates from From to To, both included, as a date picker and a
+// report's range name them. Only NewSpan builds one, so From is never after
+// To and a Span holds at least one date. For instants, time.Interval is
+// half open.
+type Span { from Date, to Date }
+
+// Reversed is the failure of NewSpan: to is before from.
+type Reversed { From Date, To Date }
+
+// NewSpan is the span from from to to, both included.
+func NewSpan(from Date, to Date) Span fails Reversed {
+	if Before(to, from) {
+		return Reversed{From: from, To: to}
+	}
+	Span{from: from, to: to}
+}
+
+// From is the first date of s; To its last.
+func From(s Span) Date { s.from }
+
+func To(s Span) Date { s.to }
+
+// Len is the count of dates of s, at least 1.
+func Len(s Span) int { DaysBetween(s.from, s.to) + 1 }
+
+// Contains reports whether d is in s.
+func Contains(s Span, d Date) bool { !Before(d, s.from) && !After(d, s.to) }
+
+// Overlaps reports whether a and b share a date.
+func Overlaps(a Span, b Span) bool { !After(Max(a.from, b.from), Min(a.to, b.to)) }
+
+// Intersect is the dates a and b share, or None when they share none.
+func Intersect(a Span, b Span) Option[Span] {
+	if !Overlaps(a, b) {
+		return None
+	}
+	Some[Span]{Value: Span{from: Max(a.from, b.from), to: Min(a.to, b.to)}}
+}
+
+// Dates is each date of s, From first.
+func Dates(s Span) Seq[Date] {
+	Seq[Date](func(yield func(d Date) bool) {
+		let mut d = s.from.day
+		for d <= s.to.day {
+			if !yield(Date{day: d}) {
+				return
+			}
+			d = d + 1
+		}
+	})
+}
+
+// Split is s cut at the borders of unit u: the part of s in each day,
+// week, month, quarter or year, in order. The first and last parts may be
+// partial periods; together they hold each date of s once.
+func Split(s Span, u Unit) Seq[Span] {
+	Seq[Span](func(yield func(p Span) bool) {
+		let mut from = s.from
+		for !After(from, s.to) {
+			let end = Min(EndOf(from, u), s.to)
+			if !yield(Span{from: from, to: end}) || end == MaxDate() {
+				return
+			}
+			from = AddDays(end, 1)
+		}
+	})
+}
+
+// anySpan is a span of up to 400 dates from the day x names.
+func anySpan(x int64, k int64) Span {
+	let from = anyDay(x)
+	Span{from: from, to: AddDays(from, int(within(k, 0, 400)))}
+}
+
+// SpanDaysCount: NewSpan fails exactly when to is before from; Dates gives
+// Len dates, one day apart, From first and To last.
+law SpanDaysCount(x int64, k int64) {
+	let from = anyDay(x)
+	let to = AddDays(from, int(within(k, -3, 400)))
+	let s = NewSpan(from, to) catch {
+	case Reversed:
+		return Before(to, from)
+	}
+	let days = slices.Collect(Dates(s))
+	let mut ok = !Before(to, from) && len(days) == Len(s) && days[0] == From(s) && days[len(days)-1] == To(s)
+	for i in 1..len(days) {
+		ok = ok && DaysBetween(days[i-1], days[i]) == 1
+	}
+	ok
+}
+
+// SpanDatesStops: Dates is a Seq that stops (stdlib.md, Std laws 5): a yield
+// that returns false at its k-th call is called min(k, Len(s)) times.
+law SpanDatesStops(x int64, k int64, stop int64) {
+	let s = anySpan(x, within(k, 0, 10))
+	let at = int(within(stop, 1, 12))
+	let mut calls = 0
+	Dates(s)(func(d Date) bool {
+		calls = calls + 1
+		calls < at
+	})
+	calls == (if at < Len(s) { at } else { Len(s) })
+}
+
+// SplitTiles: the parts of Split hold each date of s once, in order, and
+// each part is inside one period of the unit.
+law SplitTiles(x int64, k int64, u int64, w int64) {
+	let s = anySpan(x, k)
+	let unit = anyUnit(u, w)
+	let parts = slices.Collect(Split(s, unit))
+	let mut ok = len(parts) > 0 && From(parts[0]) == From(s) && To(parts[len(parts)-1]) == To(s)
+	let mut total = 0
+	for i in 0..len(parts) {
+		let p = parts[i]
+		total = total + Len(p)
+		ok = ok && StartOf(From(p), unit) == StartOf(To(p), unit)
+		if i > 0 {
+			ok = ok && AddDays(To(parts[i-1]), 1) == From(p)
+		}
+	}
+	ok && total == Len(s)
+}
+
+// SpanSplitStops: Split is a Seq that stops: a yield that returns false at its
+// k-th call is called min(k, parts) times.
+law SpanSplitStops(x int64, k int64, u int64, w int64, stop int64) {
+	let s = anySpan(x, k)
+	let unit = anyUnit(u, w)
+	let n = len(slices.Collect(Split(s, unit)))
+	let at = int(within(stop, 1, 30))
+	let mut calls = 0
+	Split(s, unit)(func(p Span) bool {
+		calls = calls + 1
+		calls < at
+	})
+	calls == (if at < n { at } else { n })
+}
+
+// SpansOverlapIffIntersect: two spans overlap exactly when they share a
+// date, and the intersection is inside both.
+law SpansOverlapIffIntersect(x int64, a int64, y int64, b int64) {
+	let p = anySpan(x, a)
+	let q = anySpan(UnixDays(From(p)) + within(y, -20, 20), b)
+	let agrees = match Intersect(p, q) {
+	case Some[Span] as r:
+		Overlaps(p, q) && Contains(p, From(r.Value)) && Contains(q, From(r.Value)) && Contains(p, To(r.Value)) && Contains(q, To(r.Value))
+	case None:
+		!Overlaps(p, q) && !Contains(q, From(p)) && !Contains(p, From(q))
+	}
+	agrees
+}

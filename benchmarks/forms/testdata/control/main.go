@@ -253,6 +253,40 @@ func walk(t tree, passes int) int {
 
 func benchView(n int) int { return walk(build(4096), n/4096) }
 
+// ---- segpath ----
+
+// seg is a hand Go path segment: its op and its point, no box.
+type seg struct {
+	op   uint8 // 0 move, 1 line
+	x, y float64
+}
+
+func segPath(i int) []seg {
+	segs := make([]seg, 0, 16)
+	for j := 0; j < 8; j++ {
+		x := float64(i + j)
+		segs = append(segs, seg{0, x, 1.0}, seg{1, x, x + 2.0})
+	}
+	return segs
+}
+
+func benchSegPath(n int) int {
+	acc := 0
+	for i := 0; i < n; i++ {
+		for _, s := range segPath(i & 1023) {
+			switch s.op {
+			case 0:
+				acc += int(s.x)
+			case 1:
+				acc += int(s.y)
+			default:
+				acc++
+			}
+		}
+	}
+	return acc
+}
+
 // ---- ctx ----
 
 type plain struct{ scale int }
@@ -299,6 +333,51 @@ func benchLoop(n int) int {
 	return s
 }
 
+// widen and rebuild: hand Go's sub-union is an interface that embeds the
+// larger one, so the conversion is free (UNION-FLAT).
+type quiz interface{ isQuiz() }
+type settled interface {
+	quiz
+	isSettled()
+}
+type calculating struct{ next int }
+type asked struct{ q int }
+type shown struct{ n int }
+
+func (calculating) isQuiz() {}
+func (asked) isQuiz()       {}
+func (asked) isSettled()    {}
+func (shown) isQuiz()       {}
+func (shown) isSettled()    {}
+
+//go:noinline
+func settledOf(i int) settled {
+	if i%3 == 0 {
+		return asked{q: i & 7}
+	}
+	return shown{n: i & 3}
+}
+
+func score(q quiz) int {
+	switch v := q.(type) {
+	case calculating:
+		return v.next
+	case asked:
+		return v.q
+	case shown:
+		return v.n + 1
+	}
+	return 0
+}
+
+func benchWiden(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += score(settledOf(i))
+	}
+	return s
+}
+
 func main() {
 	if len(os.Args) != 4 {
 		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
@@ -326,10 +405,14 @@ func main() {
 		out = benchLoop(n)
 	case "viewlocal", "viewcross":
 		out = benchView(n)
+	case "segpath":
+		out = benchSegPath(n)
 	case "ctx":
 		out = benchCtx(n)
 	case "ref":
 		out = benchRef(n)
+	case "widen", "rebuild":
+		out = benchWiden(n)
 	}
 	fmt.Println(out)
 }

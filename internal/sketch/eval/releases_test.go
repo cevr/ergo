@@ -34,7 +34,9 @@ import (
 // Mutants only it kills (testdata/mutants.json): oracle-o2-release-forward,
 // oracle-o2-release-skipped-on-exit, oracle-o2-release-in-inner-env,
 // oracle-o2-acquire-fail-leaks, oracle-o2-law-case-unreleased,
-// oracle-o2-context-value-leaks.
+// oracle-o2-context-value-leaks; through held, whose arm owns its pattern's
+// bindings and runs compiled from its second call: oracle-o35-arm-owners-
+// skipped, oracle-o35-scope-release-skipped, oracle-o35-last-release-skipped.
 func TestEvalReleasesAgreeWithModel(t *testing.T) {
 	n := 150
 	if testing.Short() {
@@ -118,6 +120,7 @@ func admitReleasingContexts(pkg *check.Package) {
 var releaseForms = []string{
 	"with-res", "with-aud", "with-pair", "with-both", "with-lease", "with-local", "with-two", "with-note", "with-install",
 	"exit-normal", "exit-return", "exit-fail", "exit-try", "exit-acquire",
+	"step-held",
 }
 
 const releasePrelude = `import log
@@ -206,6 +209,25 @@ test Owned {
 }
 
 let Both = context { Audit: Aud{name: "A"}, Store: NewRes("S") }
+
+type Two { R Res, S Res }
+
+func useRes(r Res) { r.Put("m") }
+
+// held matches a pair of resources: the arm owns both bindings, bound S
+// first, and releases them, last bound first, when it ends, before the
+// line after the match (Info.PatternOwners).
+func held(r string, s string) string {
+	let mut got = ""
+	match (Two{R: Res{name: r}, S: Res{name: s}}) {
+	case Two{S: b, R: a}:
+		a.Put("m")
+		got = b.name
+		useRes(Res{name: "t"})
+	}
+	say("held " + got)
+	got
+}
 
 func who() string {
 	match log.Annotation("who") {
@@ -460,6 +482,19 @@ func (g *releaseGen) steps(depth int, cur *relLevel) {
 			k := g.name("n")
 			g.line(depth, "Audit.Note(%q)", k)
 			g.say(cur.audit.name + ".note " + k)
+		case g.r.IntN(2) == 0:
+			// The arm's bindings are released at its end, last bound
+			// (R's a) first, before held's next line.
+			g.reached["step-held"] = true
+			r, s := g.name("p"), g.name("q")
+			g.line(depth, "say(held(%q, %q))", r, s)
+			g.say(r + ".put m")
+			g.say("t.put m")
+			g.say("close t") // the arm's last statement's temporary (R43)
+			g.say("close " + r)
+			g.say("close " + s)
+			g.say("held " + s)
+			g.say(s)
 		default:
 			g.line(depth, "say(\"who=\" + who())")
 			g.say("who=" + cur.who)

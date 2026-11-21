@@ -29,7 +29,7 @@ Tag: `default`. It is an original program, a neutral re-creation of a common pat
 - **State-owned work with typed failures (MU4).** `fetching` gives `Fetching` a work against `Source`. `NotFound` and `TimedOut` are failures and signals, so the work needs no failure map (#95).
 - **A dynamic timer.** `Timer(Waiting{Try})` is `Backoff(Try)`: the timer's length comes from the state.
 - **Exit values (MU12).** `Done[End]` ends the actor, and `actor.ExitOf` reads `Finished{Output}`. A file's end is one value, not a state.
-- **Observers (MU12).** `actor.Select(a.Changes(), ViewOf)` gives a line only when the view (`View{Got, Wait}`, a comparable record) changes.
+- **Observers (MU12).** `for c in actor.Changes(f, 64)` reads every state and gives a line only when its view (`View{Got, Wait}`, a comparable record) changes, as `actor.Select` would; the loop holds 64 states at most, and an `Overflowed` it reads after a gap becomes a `?? n states dropped` line (F-GP4c-1).
 - **Exhaustive `match`.** Every step arm names each state. A chunk in a state that has no work is `Ignore`. `StepManager` matches the pair (state, order).
 - **Children (MU5) with hosts.** The manager's `Running` entry has a work that starts the file's `Download` as a child in the entry's `actor.Host`, and returns. The work's row is `Source | Scheduler` (the child needs the `Source`, and its timer the `Scheduler`; MB F8). The script reads the child from the host and watches it.
 - **A wait the clock sees.** The work that started the child waits for the child's stop, and the manual clock sees that wait (runtime.md, Machines and actors 11.16; wf10 MK1), so `Advance` fires the child's retry timer while the manager waits.
@@ -70,21 +70,6 @@ go run ./scripts/examples downloads
 - `cancel`: a file cancelled at its first wait, then fetched again. The server still counts the earlier timeout, so this time it times out once only.
 - `drain`: two files, then a drain: both still finish, and the `get` after the drain is refused.
 - `badscript`: a line that is not `get` or `drain` (status 1).
-
-## effect-machine side by side (README's first machine, widened; em-parity plan §2)
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| the fetch | `.task(State.Fetching, …)` with `onSuccess`/`onFailure` | `work: fetching`, with failures that are signals | compiler + runner |
-| retry wait | a `.timeout` per state, or `Schedule.exponential` in the task (inferred) | `after: Timer`, whose `In` is `Backoff(Try)` | runner + laws |
-| the end | `awaitExit` / final state | `Done[End]` and `ExitOf` | runner (MU12) |
-| progress | `subscribe` with a selector | `actor.Select(Changes, ViewOf)`, a loop | runner (MU12) |
-| a child per file | spawn a child actor in the parent's handler; the parent keeps its reference (inferred) | `actor.ChildIn` in the `Running` entry's work, in the entry's `Host`; the entry's end stops the child | runner (MU5, rule 13) + checker (the work's row) |
-| shutdown | interrupt the actor, or a "stopping" state by hand (inferred) | the order `Drain`: the queue finishes, `Done[Report]` has every end, a later add is `Closed` | laws |
-
-Where Ergo could not improve:
-
-- **The manual clock (MB2-G2).** `Play` moves the clock by the wait it reads from the view. The manager runs one file at a time, so there is only one retry timer at a time, and the script's view of the time stays the clock's.
 
 ## Benchmark
 

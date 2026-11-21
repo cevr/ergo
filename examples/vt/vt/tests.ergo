@@ -1,0 +1,18 @@
+// The stream's work guard: the fast paths take their runs with no step of
+// the machine, so a regression that sends them back byte by byte shows as
+// a count, not a time. FastPathMatchesStep holds that they give the same
+// events.
+
+// sequences is shell-like output with no byte of text between its CSI
+// sequences: cursor moves, SGR with and without parameters, erases.
+let sequences = "\x1b[12;40H\x1b[1;31m\x1b[2J\x1b[m\x1b[38;5;196m\x1b[K\x1b[24;80r"
+
+test FastPathsTakeNoSteps {
+	let mut fast = NewStream(true)
+	fast.Feed(sequences)
+	let mut slow = NewStream(false)
+	slow.Feed(sequences)
+	assert Steps(slow) == len(sequences)
+	assert Steps(fast) == 0
+	assert Render(fast.Take()) == Render(slow.Take())
+}

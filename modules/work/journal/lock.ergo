@@ -1,0 +1,63 @@
+import fs
+import github.com/cevr/ergo/modules/work/work
+import sync
+
+// Lock is the journal's locks: a kernel file lock (fs.LockFile) per key
+// in the base's storage home, so two processes exclude each other and a
+// process that dies holds nothing. The mutation lock is the file .lock;
+// a reservation's is .lock-ID, which Release removes: only its maker
+// and gc (each under the mutation lock) open it, so no third opener can
+// lock the removed file.
+type Lock { host fs.Host, home string, wait duration, held sync.Ref[Map[string, fs.FileLock]] } implements work.Lock
+
+// NewLock is the locks of the storage home, waiting at most wait for the
+// mutation lock.
+func NewLock(host fs.Host, home string, wait duration) Lock {
+	Lock{host: host, home: home, wait: wait, held: sync.NewRef(Map[string, fs.FileLock]{})}
+}
+
+// LockFile is the file of the lock of key in home.
+func LockFile(home string, key string) string {
+	if key == "" { home + "/.lock" } else { home + "/.lock-" + key }
+}
+
+func Hold(l Lock, key string) bool fails work.Unkept {
+	if l.held.Get().Get(key) != None {
+		return false
+	}
+	let wait = if key == "" { l.wait } else { 0s }
+	let file = LockFile(l.home, key)
+	let taken = l.host.LockFile(file, wait) catch {
+	case fs.NotFound:
+		return work.Unkept{Reason: "\(file): its folder is not there; run work init"}
+	case fs.Denied:
+		return work.Unkept{Reason: "\(file): permission denied"}
+	case fs.Failed as f:
+		return work.Unkept{Reason: "\(file): \(f.Reason)"}
+	}
+	match taken {
+	case Some[fs.FileLock] as k:
+		let mut next = l.held.Get()
+		next[key] = k.Value
+		l.held.Set(next)
+		true
+	case None:
+		false
+	}
+}
+
+func Release(l Lock, key string) {
+	match l.held.Get().Get(key) {
+	case Some[fs.FileLock] as k:
+		if key != "" {
+			l.host.Remove(LockFile(l.home, key)) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+			}
+		}
+		l.host.UnlockFile(k.Value)
+		l.held.Set(l.held.Get().Delete(key))
+	case None:
+	}
+}
+
+func Held(l Lock, key string) bool { l.held.Get().Get(key) != None }

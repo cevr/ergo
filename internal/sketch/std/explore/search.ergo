@@ -1,0 +1,479 @@
+// The state explorer (docs/spec/stdlib.md, Testing; types.md, Laws 13;
+// MODELCHECK E1). A Graph is a set of starts, a list of signals and a
+// step; Always, Sometimes and Path decide a property on the graph by a
+// breadth-first search with a visited set of 128-bit keys, so a
+// counterexample or a witness is a shortest run, and the search says
+// "proved" only when it saw the whole graph within its budget of states.
+// A machine law (`never reaches`, `always`, `sometimes`, `path`) is decided
+// by these same functions on Of(machine); a user's own graph gets the same
+// search and the same keys. It is ordinary Ergo: no Go body, no rule of
+// the compiler keyed on this package.
+//
+// Prior art: TLC's breadth-first search over fingerprints (64-bit; here
+// 128, Q6), its parent pointers for the trace; Stateright's embedded
+// checker, whose model is compiled host code; P's PEx keeps hashes of
+// visited states.
+
+import go math
+import dense
+
+// Graph is what a search explores: its starts, its signals, and its step
+// as an edge, None when the step ends the run (no edge).
+type Graph[S, E] {
+	Starts  []S,
+	Signals []E,
+	Step    func(s S, e E) Option[S],
+}
+
+// Hash is the 128-bit key of a state: the hash of the events of its wire
+// form (types.md, Codecs). Equal values write equal events, so they have
+// one key; the events are prefix free (each starts with its kind and each
+// count and text with its length) and a float writes its bits, so two
+// values a step can tell apart write different events, and share a key
+// only by a hash collision (about 2^-128 a pair).
+type Hash { Hi uint64, Lo uint64 }
+
+// Hasher is a Writer that hashes the events written to it: Sum is the key
+// of the events so far, size the count of 64-bit words it took in (the
+// size of the state, by which a search decides to keep it whole). size is
+// unexported, so the operation type is sealed in this package and a
+// hasher moves into a cell as json's text does.
+// law-exempt: Hasher is a Writer whose reads are Sum and size, a hash; KeyIsEquality states its law over the values written (equal values, equal keys; unequal values, unequal keys).
+type Hasher {
+	..Writer,
+	Sum() Hash,
+	size() int,
+}
+
+// hasher is Hasher's one provider: the two lanes of the hash and the
+// count of words.
+type hasher { hi uint64, lo uint64, n int } implements Hasher
+
+// The odd constants of the mixes: the golden ratio's (Fibonacci hashing),
+// murmur3's and splitmix64's finalizers.
+let golden uint64 = 0x9e3779b97f4a7c15
+let mixHi uint64 = 0xc2b2ae3d27d4eb4f
+let smixA uint64 = 0xbf58476d1ce4e5b9
+let smixB uint64 = 0x94d049bb133111eb
+
+func newHasher() hasher { hasher{hi: uint64(0x6c62272e07bb0142), lo: uint64(0x62b821756295c58d), n: 0} }
+
+// absorb takes in one word: each lane is a multiply and a shift, and the
+// high lane reads the low one, so the state is 128 bits wide.
+func absorb(h mut hasher, x uint64) {
+	let lo = (h.lo ^ x) * golden
+	let l = lo ^ (lo >> uint64(31))
+	let hi = (h.hi ^ x ^ l) * mixHi
+	h.hi = hi ^ (hi >> uint64(29))
+	h.lo = l
+	h.n = h.n + 1
+}
+
+// absorbText takes in a text: its length, then its bytes, eight to a word.
+func absorbText(h mut hasher, s string) {
+	absorb(h, uint64(len(s)))
+	let mut w = uint64(0)
+	let mut k = 0
+	for i in 0..len(s) {
+		w = w | (uint64(s[i]) << uint64(8*k))
+		k = k + 1
+		if k == 8 {
+			absorb(h, w)
+			w = uint64(0)
+			k = 0
+		}
+	}
+	if k > 0 {
+		absorb(h, w)
+	}
+}
+
+func Null(h mut hasher) { absorb(h, uint64(1)) }
+func Number(h mut hasher, text string) {
+	absorb(h, uint64(2))
+	absorbText(h, text)
+}
+func Bool(h mut hasher, b bool) { absorb(h, if b { uint64(4) } else { uint64(3) }) }
+func Int(h mut hasher, n int64) {
+	absorb(h, uint64(5))
+	absorb(h, uint64(n))
+}
+func Uint(h mut hasher, n uint64) {
+	absorb(h, uint64(6))
+	absorb(h, n)
+}
+
+// Float takes in the float's bits as they are: 0 and -0 stay apart, as a
+// step can tell them apart, and a NaN is one state by its payload
+// (batch-15 X1 M1).
+func Float(h mut hasher, f float64) {
+	absorb(h, uint64(7))
+	absorb(h, math.Float64bits(f))
+}
+func String(h mut hasher, s string) {
+	absorb(h, uint64(8))
+	absorbText(h, s)
+}
+
+// StringBytes takes in the string its bytes spell, as String does, with
+// no string made of them (Writer's StringBytes, GX12).
+func StringBytes(h mut hasher, b []byte) {
+	absorb(h, uint64(8))
+	absorb(h, uint64(len(b)))
+	let mut w = uint64(0)
+	let mut k = 0
+	for i in 0..len(b) {
+		w = w | (uint64(b[i]) << uint64(8*k))
+		k = k + 1
+		if k == 8 {
+			absorb(h, w)
+			w = uint64(0)
+			k = 0
+		}
+	}
+	if k > 0 {
+		absorb(h, w)
+	}
+}
+func BeginList(h mut hasher, n int) {
+	absorb(h, uint64(9))
+	absorb(h, uint64(n))
+}
+func EndList(h mut hasher) { absorb(h, uint64(10)) }
+func BeginObject(h mut hasher, n int) {
+	absorb(h, uint64(11))
+	absorb(h, uint64(n))
+}
+func Tag(h mut hasher, name string) {
+	absorb(h, uint64(12))
+	absorbText(h, name)
+}
+func Key(h mut hasher, k string) {
+	absorb(h, uint64(13))
+	absorbText(h, k)
+}
+func EndObject(h mut hasher) { absorb(h, uint64(14)) }
+func Sum(h hasher) Hash      { Hash{Hi: h.hi, Lo: h.lo} }
+func size(h hasher) int      { h.n }
+
+// KeyOf is the key of s and the count of words its wire form took.
+func KeyOf[S wire](s S) (Hash, int) needs wired[S] {
+	let h Hasher = newHasher()
+	encode(s, h)
+	(h.Sum(), h.size())
+}
+
+// KeyIsEquality: two values have one key exactly when they are equal,
+// a float compared by its bits (types.md, Laws 13). b is a near miss of a:
+// a with one part changed, often to a value equal to the old one, or to
+// one that writes the same bytes but for a length ("a" and "a\x00"), or
+// to -0 for 0, so equal and unequal pairs are both common and differ in
+// one place. The seeded property TestKeyEqualsEquality (std explore's
+// Go test) holds it over generated types as well.
+law KeyIsEquality(a Probe, which uint8, n int) {
+	let b = nearby(a, which, n)
+	let (ka, _) = KeyOf(a)
+	let (kb, _) = KeyOf(b)
+	(ka == kb) == sameBits(a, b)
+}
+
+// Probe is a state type the law above draws: a record, a union, a slice,
+// a Map, a float and a text, so each event kind is taken in.
+type Probe { N int, On bool, F float64, Text string, Xs []uint8, M Map[string, int], Pick Pick }
+
+type Pick = Left{} | Right{V int} | Both{A int8, B string}
+
+// nearby is a with the part which picks changed by n.
+func nearby(a Probe, which uint8, n int) Probe {
+	let mut b = a
+	let flip = n%2 == 0
+	let w = which % uint8(8)
+	if w == uint8(0) {
+		b.N = if flip { a.N } else { a.N + 1 }
+	} else if w == uint8(1) {
+		b.On = flip
+	} else if w == uint8(2) {
+		b.Text = if flip { a.Text + "\x00" } else { a.Text }
+	} else if w == uint8(3) {
+		b.Xs = if flip { a.Xs.Append(uint8(0)) } else { a.Xs }
+	} else if w == uint8(4) {
+		b.M = a.M.Put("k", n%3)
+	} else if w == uint8(5) {
+		b.Pick = if flip { Left } else { Right{V: n % 2} }
+	} else if w == uint8(6) {
+		b.F = 0.0 - a.F
+	} else {
+		b.F = if flip { a.F } else { 0.0 }
+	}
+	b
+}
+
+// sameBits is a == b with the floats compared by their bits.
+func sameBits(a Probe, b Probe) bool {
+	a.N == b.N && a.On == b.On && math.Float64bits(a.F) == math.Float64bits(b.F) && a.Text == b.Text && a.Xs == b.Xs && a.M == b.M && a.Pick == b.Pick
+}
+
+// Stats is what a search did: the states it saw, the steps it took that
+// did not end the run (edges), the longest shortest run of a state it saw
+// (Depth), the longest run length up to which it checked every run
+// (Checked: Depth when Complete, else one less than the layer the budget
+// stopped, -1 when the budget stopped it among the starts), whether it
+// saw the whole graph, and the peak count of whole states it kept in its
+// frontier (Frontier: a wide state is rebuilt from its run instead).
+type Stats {
+	States   int,
+	Edges    int,
+	Depth    int,
+	Checked  int,
+	Complete bool,
+	Frontier int,
+}
+
+// Run is a run of a graph: the index of its start in Starts and the
+// indexes of its signals in Signals, in order.
+type Run { Start int, Signals []int }
+
+// Result is a search: Found is the node of the first target it met (for
+// Path, of the last layer), or -1; Stats its counters. parent and sig are
+// the nodes it saw: from the start Starts[sig] when parent is -1, else
+// from the node parent by Signals[sig].
+type Result { Found int, Stats Stats, parent []int32, sig []int32 }
+
+// RunTo is the run to the node i of r.
+func RunTo(r Result, i int) Run {
+	let mut back = []int{}
+	let mut at = i
+	for r.parent[at] >= int32(0) {
+		back = back.Append(int(r.sig[at]))
+		at = int(r.parent[at])
+	}
+	let mut sigs = []int{}
+	for j in 0..len(back) {
+		sigs = sigs.Append(back[len(back)-1-j])
+	}
+	Run{Start: int(r.sig[at]), Signals: sigs}
+}
+
+// ReplayRun is the state at the end of run, stepped from its start. A step
+// that ends the run keeps the state.
+func ReplayRun[S, E](g Graph[S, E], run Run) S {
+	let mut s = g.Starts[run.Start]
+	for e in run.Signals {
+		match g.Step(s, g.Signals[e]) {
+		case Some[S] as t:
+			s = t.Value
+		case None:
+		}
+	}
+	s
+}
+
+func larger(a int, b int) int { if a > b { a } else { b } }
+
+// SmallWords is the widest state, in words of its key's events, that a
+// search keeps whole in its frontier; a wider one is rebuilt by replaying
+// its run when it is expanded (batch-15 r7: a frontier of whole worlds
+// ran out of memory at 5 M states).
+let SmallWords = 16
+
+// Search explores g breadth first from its starts, the starts included,
+// until it meets a state for which target holds or it has seen budget
+// states. The first target it meets has a shortest run.
+func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result needs wired[S] {
+	let mut seen = dense.NewKeys()
+	let mut parent = []int32{}
+	let mut sig = []int32{}
+	let mut st = Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}
+	let mut ids = []int{}
+	let mut kept = []Option[S]{}
+	let mut held = 0
+	for i in 0..len(g.Starts) {
+		let s = g.Starts[i]
+		let (k, words) = KeyOf(s)
+		if !dense.AddKey(&seen, k.Hi, k.Lo) {
+			continue
+		}
+		if len(parent) == budget {
+			st.Checked = -1
+			return Result{Found: -1, Stats: st, parent: parent, sig: sig}
+		}
+		parent = parent.Append(int32(-1))
+		sig = sig.Append(int32(i))
+		st.States = st.States + 1
+		if target(s) {
+			return Result{Found: len(parent) - 1, Stats: st, parent: parent, sig: sig}
+		}
+		if words <= SmallWords {
+			kept = kept.Append(Some[S]{Value: s})
+			held = held + 1
+		} else {
+			kept = kept.Append(None)
+		}
+		st.Frontier = larger(st.Frontier, held)
+		ids = ids.Append(len(parent) - 1)
+	}
+	let mut depth = 1
+	for len(ids) > 0 {
+		let mut next = []int{}
+		let mut nextKept = []Option[S]{}
+		let mut nextHeld = 0
+		for f in 0..len(ids) {
+			let s = frontierState(g, parent, sig, kept[f], ids[f])
+			for e in 0..len(g.Signals) {
+				match g.Step(s, g.Signals[e]) {
+				case None:
+				case Some[S] as stepped:
+					let t = stepped.Value
+					st.Edges = st.Edges + 1
+					let (k, words) = KeyOf(t)
+					if dense.AddKey(&seen, k.Hi, k.Lo) {
+						if len(parent) == budget {
+							st.Checked = depth - 1
+							return Result{Found: -1, Stats: st, parent: parent, sig: sig}
+						}
+						parent = parent.Append(int32(ids[f]))
+						sig = sig.Append(int32(e))
+						st.States = st.States + 1
+						st.Depth = depth
+						if target(t) {
+							return Result{Found: len(parent) - 1, Stats: st, parent: parent, sig: sig}
+						}
+						if words <= SmallWords {
+							nextKept = nextKept.Append(Some[S]{Value: t})
+							nextHeld = nextHeld + 1
+						} else {
+							nextKept = nextKept.Append(None)
+						}
+						st.Frontier = larger(st.Frontier, held+nextHeld)
+						next = next.Append(len(parent) - 1)
+					}
+				}
+			}
+		}
+		ids = next
+		kept = nextKept
+		held = nextHeld
+		depth = depth + 1
+	}
+	st.Checked = st.Depth
+	st.Complete = true
+	Result{Found: -1, Stats: st, parent: parent, sig: sig}
+}
+
+// frontierState is the state of the node id: the kept one, or the one its
+// run replays to.
+func frontierState[S, E](g Graph[S, E], parent []int32, sig []int32, kept Option[S], id int) S {
+	match kept {
+	case Some[S] as s:
+		s.Value
+	case None:
+		ReplayRun(g, RunTo(Result{Found: id, Stats: Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}, parent: parent, sig: sig}, id))
+	}
+}
+
+// PathSearch looks for a run whose first len(targets) states meet targets
+// in order: layer k holds the distinct states that a run meeting
+// targets[0] to targets[k] reaches. It stops at budget states over all
+// layers. Found is a node of the last layer, or -1; Complete is true when
+// the search ended within the budget.
+func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) Result needs wired[S] {
+	let mut layer = dense.NewKeys()
+	let mut parent = []int32{}
+	let mut sig = []int32{}
+	let mut st = Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}
+	let mut ids = []int{}
+	let mut kept = []Option[S]{}
+	let mut held = 0
+	if len(targets) == 0 {
+		st.Complete = true
+		return Result{Found: -1, Stats: st, parent: parent, sig: sig}
+	}
+	for i in 0..len(g.Starts) {
+		let s = g.Starts[i]
+		if targets[0](s) {
+			let (k, words) = KeyOf(s)
+			if dense.AddKey(&layer, k.Hi, k.Lo) {
+				if len(parent) == budget {
+					st.States = len(parent)
+					return Result{Found: -1, Stats: st, parent: parent, sig: sig}
+				}
+				parent = parent.Append(int32(-1))
+				sig = sig.Append(int32(i))
+				if words <= SmallWords {
+					kept = kept.Append(Some[S]{Value: s})
+					held = held + 1
+				} else {
+					kept = kept.Append(None)
+				}
+				st.Frontier = larger(st.Frontier, held)
+				ids = ids.Append(len(parent) - 1)
+			}
+		}
+	}
+	let mut d = 1
+	for d < len(targets) && len(ids) > 0 {
+		layer = dense.NewKeys()
+		let mut next = []int{}
+		let mut nextKept = []Option[S]{}
+		let mut nextHeld = 0
+		for f in 0..len(ids) {
+			let s = frontierState(g, parent, sig, kept[f], ids[f])
+			for e in 0..len(g.Signals) {
+				match g.Step(s, g.Signals[e]) {
+				case None:
+				case Some[S] as stepped:
+					let t = stepped.Value
+					st.Edges = st.Edges + 1
+					if targets[d](t) {
+						let (k, words) = KeyOf(t)
+						if dense.AddKey(&layer, k.Hi, k.Lo) {
+							if len(parent) == budget {
+								st.States = len(parent)
+								return Result{Found: -1, Stats: st, parent: parent, sig: sig}
+							}
+							parent = parent.Append(int32(ids[f]))
+							sig = sig.Append(int32(e))
+							if words <= SmallWords {
+								nextKept = nextKept.Append(Some[S]{Value: t})
+								nextHeld = nextHeld + 1
+							} else {
+								nextKept = nextKept.Append(None)
+							}
+							st.Frontier = larger(st.Frontier, held+nextHeld)
+							next = next.Append(len(parent) - 1)
+						}
+					}
+				}
+			}
+		}
+		ids = next
+		kept = nextKept
+		held = nextHeld
+		st.Depth = d
+		d = d + 1
+	}
+	st.States = len(parent)
+	st.Checked = st.Depth
+	st.Complete = true
+	let found = if len(ids) > 0 { ids[0] } else { -1 }
+	Result{Found: found, Stats: st, parent: parent, sig: sig}
+}
+
+// Moves is the indexes of the signals whose step from s does not end the
+// run and goes to a state with another key: the moves a random walk picks
+// from, so it does not spend its steps on Ignore and Reject.
+func Moves[S wire, E](g Graph[S, E], s S) []int needs wired[S] {
+	let (here, _) = KeyOf(s)
+	let mut out = []int{}
+	for e in 0..len(g.Signals) {
+		match g.Step(s, g.Signals[e]) {
+		case None:
+		case Some[S] as t:
+			let (k, _) = KeyOf(t.Value)
+			if k != here {
+				out = out.Append(e)
+			}
+		}
+	}
+	out
+}

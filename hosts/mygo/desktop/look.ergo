@@ -1,0 +1,165 @@
+// A node's look (ui.Look, UG1) painted under its children: its outer
+// shadows, its box (fill and border), its inset shadows, then, under its
+// opacity, the node and its subtree. The look is the Rest look of the
+// node's LookId in the table the window's mirror holds (ui.Define). The
+// driver keeps no colour of its own for a node with a Style: the default
+// looks are std's (ui.PressLook).
+
+import ui
+import ui/layout
+
+// lookProbe is a painted look whose colours a test can sample: where its
+// fill shows, and what shows at its top-left corner (outside its radius).
+type lookProbe { label string, box layout.Box, clip layout.Box, look ui.Look, state ui.LookState, under Option[uint32], padTop float32, padLeft float32, alpha float64, ringed bool }
+
+// LookAt is a labelled node's look state and the look the window painted
+// for it (UG3).
+type LookAt { Label string, State ui.LookState, Look ui.Look }
+
+// painted is what painting a look changed, for unpaint: the opacity and
+// the colour under the node's children before it.
+type painted { opacity float64, under Option[uint32] }
+
+// rgba is a ui Color as 0xRRGGBBAA.
+func rgba(c ui.Color) uint32 {
+	(uint32(c.R) << 24) | (uint32(c.G) << 16) | (uint32(c.B) << 8) | uint32(c.A)
+}
+
+// lookOf is the look the window paints for the node id showing n: the
+// look of its LookId for the state std decides (ui.SessionLookState,
+// UG3): hovered, focused by a key, pressed, disabled or at rest.
+func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) ui.Look {
+	ui.LookNow(ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)), ui.SessionLookState(&d.session, id))
+}
+
+// LookStates are the labelled nodes of the last paint with a look, each
+// with the state std decided and the look the window painted.
+func LookStates[S, E, D, F](d mut Driver[S, E, D, F]) []LookAt {
+	let mut out = []LookAt{}
+	for p in d.looked {
+		if p.label != "" {
+			out = out.Append(LookAt{Label: p.label, State: p.state, Look: p.look})
+		}
+	}
+	out
+}
+
+// paintLook paints n's look at b, sets the opacity of its subtree and the
+// colour under its children, and is how to undo both (unpaint).
+func paintLook[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], b layout.Box, clip layout.Box, lineH float32, focus bool) painted needs go.Foreign {
+	let before = painted{opacity: d.w.Opacity(), under: d.under}
+	match ui.StyleOf(n) {
+	case Some[ui.Style]:
+	case None:
+		return before
+	}
+	let l = lookOf(d, id, n)
+	if l == ui.Bare() {
+		return before
+	}
+	if l.Opacity != 1.0 {
+		d.w.SetOpacity(before.opacity * l.Opacity)
+	}
+	let c = l.Corners
+	let (x, y, w, h) = (float64(b.X), float64(b.Y), float64(b.W), float64(b.H))
+	let (tl, tr, br, bl) = (float64(c.TopLeft), float64(c.TopRight), float64(c.BottomRight), float64(c.BottomLeft))
+	for sh in l.Shadows {
+		if sh.Color.A != 0 && !sh.Inset {
+			d.shadowed = true
+			d.w.Shadow(x, y, w, h, tl, tr, br, bl, float64(sh.X), float64(sh.Y), float64(sh.Blur), float64(sh.Spread), rgba(sh.Color), false)
+		}
+	}
+	let line = if l.Border.Color.A == 0 { 0.0 } else { float64(l.Border.Width) }
+	if l.Fill.A != 0 || line > 0 {
+		d.w.Box(x, y, w, h, tl, tr, br, bl, rgba(l.Fill), line, rgba(l.Border.Color))
+	}
+	let mut inset = false
+	for sh in l.Shadows {
+		if sh.Color.A != 0 && sh.Inset {
+			inset = true
+			d.w.Shadow(x, y, w, h, tl, tr, br, bl, float64(sh.X), float64(sh.Y), float64(sh.Blur), float64(sh.Spread), rgba(sh.Color), true)
+		}
+	}
+	let st = styleOf(n, lineH)
+	d.looked = d.looked.Append(lookProbe{label: probeLabel(n), box: b, clip: clip, look: l, state: ui.SessionLookState(&d.session, id), under: d.under, padTop: st.Padding[0], padLeft: st.Padding[3], alpha: before.opacity, ringed: focus})
+	// What shows under the children: the fill, when it is opaque and
+	// nothing else of the look paints over it there; else unknown.
+	if l.Fill.A == 255 && line == 0 && !inset && l.Opacity == 1.0 {
+		d.under = Some{Value: rgba(l.Fill)}
+	} else if l.Fill.A != 0 || line > 0 || inset {
+		d.under = None
+	}
+	before
+}
+
+// unpaint puts back what paintLook changed.
+func unpaint[S, E, D, F](d mut Driver[S, E, D, F], p painted) needs go.Foreign {
+	if d.w.Opacity() != p.opacity {
+		d.w.SetOpacity(p.opacity)
+	}
+	d.under = p.under
+}
+
+// probeLabel names a node in a probe: its label, or its kind.
+func probeLabel[E](n ui.Node[E]) string {
+	match labelOf(n) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		"a node's look"
+	}
+}
+
+// lookProbes are the probes of the looks painted: a fill shows inside the
+// box, just below its border at the middle of its top edge, when the fill
+// and the look are opaque, no inset shadow paints there and the node's
+// padding keeps its children off it; the colour under the node shows at
+// its top-left pixel, when no focus ring is drawn round it, outside a radius of 9 or more (no antialiased edge reaches it), when that colour is
+// known, no shadow is painted anywhere this frame, the node is opaque and
+// its padding keeps its children off that pixel.
+func lookProbes[S, E, D, F](d mut Driver[S, E, D, F]) []Probe {
+	let mut out = []Probe{}
+	for i, p in d.looked {
+		let l = p.look
+		if p.alpha != 1.0 || l.Opacity != 1.0 {
+			continue
+		}
+		let border = if l.Border.Color.A == 0 { float32(0) } else { float32(float64(l.Border.Width)) }
+		let mut inset = false
+		for sh in l.Shadows {
+			inset = inset || (sh.Color.A != 0 && sh.Inset)
+		}
+		let b = p.box
+		if l.Fill.A == 255 && !inset && p.padTop >= border+2 && b.W >= 4 {
+			let x = int(b.X + b.W/2)
+			let y = int(fceil(b.Y+border) + 0.5)
+			if probeShows(p.clip, x, y) && float32(y) < b.Y+b.H && !coveredLook(d, i, x, y) {
+				out = out.Append(Probe{Label: p.label, X: x, Y: y, Color: rgba(l.Fill)})
+			}
+		}
+		match p.under {
+		case Some[uint32] as u:
+			if !d.shadowed && !p.ringed && float64(l.Corners.TopLeft) >= 9 && p.padTop >= 1 && p.padLeft >= 1 {
+				let x = int(fceil(b.X))
+				let y = int(fceil(b.Y))
+				if probeShows(p.clip, x, y) && !coveredLook(d, i, x, y) {
+					out = out.Append(Probe{Label: p.label + " corner", X: x, Y: y, Color: u.Value})
+				}
+			}
+		case None:
+		}
+	}
+	out
+}
+
+func fceil(v float32) float32 {
+	let t = float32(int(v))
+	if t < v { t + 1 } else { t }
+}
+
+// probeShows is whether the pixel x, y is inside clip.
+func probeShows(c layout.Box, x int, y int) bool {
+	let cx = float32(x)
+	let cy = float32(y)
+	cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H
+}

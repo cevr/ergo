@@ -17,7 +17,7 @@ var decidedFamilies = []string{
 	"defined type", "refinement", "type parameters", "ordered constraint",
 	"fails and needs", "escaping", "tuple type", "tuple value", "Map type",
 	"first-parameter function", "extern",
-	"test", "assert",
+	"test", "assert", "skip",
 	"if value", "match value", "value match", "type match", "tuple subject",
 	"record pattern", "as pattern", "nested as pattern",
 	"catch arm", "catch-all binding", "or pattern",
@@ -206,6 +206,11 @@ func Tag(p P) int { 1 }
 func f() Named { P{n: "x"} }
 func main() {}
 `, nil},
+	{"operation type", "a type set constrains a generic function (CONSTRAINTS C1)", `
+type Count { ~int | int64 }
+func Sum[T Count](a T, b T) T { a + b }
+func main() { _ = Sum(1, 2) }
+`, nil},
 	{"law", "a law in an operation type", `
 type Monoid {
 	Combine(a int, b int) int,
@@ -334,6 +339,13 @@ func f(m Map[string, int64], xs []int64) []int64 {
 }
 func main() {}
 `, nil},
+	{"Map type", "a Map with a provider", `
+type Fold {} implements Hashing[string]
+func Hash(_ Fold, k string) uint64 { hash(k) }
+func Equal(_ Fold, a string, b string) bool { a == b }
+func f(m Map[string, int, Fold]) int { len(m) }
+func main() {}
+`, nil},
 	{"Map type", "append checks its elements", `
 func f(xs []int64) []int64 { return xs.Append("a") }
 func main() {}
@@ -369,6 +381,12 @@ test Adds {
 }
 func main() {}
 `, nil},
+	{"skip", "skip in a function body (runtime.md, Tests 4: S108 outside a test or law)", `
+func f() {
+	skip "no host"
+}
+func main() {}
+`, []string{"S108:3"}},
 	{"assert", "assert in a function body (196l: S108 outside a test or law)", `
 func f() {
 	assert true
@@ -677,6 +695,16 @@ func main() {}
 `, []string{"S108:2"}},
 	// Round 7 review T2: the node types and fields the inventory
 	// (TestDecidedNodeInventory) found no row building.
+	{"mut operation", "a constraint's mut operation, called on x mut T", `
+type Counter { mut Bump() int }
+type Tally { n int } implements Counter
+func Bump(t mut Tally) int { t.n }
+func twice[C Counter](c mut C) int { c.Bump() + c.Bump() }
+func main() {
+	let mut t = Tally{n: 0}
+	let _ = twice(&t)
+}
+`, nil},
 	{"fails and needs", "try passes a failure on", `
 type Bang {}
 func g() int fails Bang { return 1 }
@@ -688,7 +716,7 @@ func main() {}
 `, nil},
 	{"core forms", "the expressions and statements Go shares", `
 type P { X int, Y int }
-func g(p *P) int { return p.X }
+func g(p mut P) int { return p.X }
 func f(xs []int, m Map[string, int]) int {
 	let mut p = P{X: 1, Y: 2}
 	p.X = -(g(&p) + 1)
@@ -828,6 +856,17 @@ func half(s string) string { s[:len(s) / 2] }
 law HalfTwice(s string) { half(twice(s)) } == { s }
 func main() {}
 `, nil},
+	{"law", "a rewrite law over function parameters, with type parameters of its own (types.md, Laws 14; FUSION)", `
+func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		out = out.Append(try f(x))
+	}
+	out
+}
+law TransformFuses[T, U, V comparable](xs []T, f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == { Transform(xs, func(x T) V { g(f(x)) }) }
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.
@@ -947,10 +986,12 @@ func probe(s State) Option[machines.Work[Signal]] {
 		return None
 	}
 }
+func leave(s State) Option[func()] { None }
 type Breaker machine[State, Signal] {
 	initial: Closed,
 	step:    step,
 	work:    probe,
+	exit:    leave,
 }
 func main() {}
 `, nil},

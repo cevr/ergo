@@ -43,15 +43,25 @@ var forms = map[string][2]func(string) bool{
 	"Label":  {matchLabel, matchLabelTable},
 }
 
-func BenchmarkMatch(b *testing.B) {
+// TestFormsAgreeWithRegexp: each pattern's two lowered forms answer as
+// Go's regexp does on every input, so the bench compares matchers that
+// agree. It is the package's test leg (a leg that runs no test is red).
+func TestFormsAgreeWithRegexp(t *testing.T) {
 	for _, name := range names {
 		re := regexp.MustCompile(`^(?:` + sources[name] + `)$`)
 		f := forms[name]
 		for _, s := range inputs[name] {
 			if f[0](s) != re.MatchString(s) || f[1](s) != re.MatchString(s) {
-				b.Fatalf("%s %q: the forms say %v and %v, regexp %v", name, s, f[0](s), f[1](s), re.MatchString(s))
+				t.Errorf("%s %q: the forms say %v and %v, regexp %v", name, s, f[0](s), f[1](s), re.MatchString(s))
 			}
 		}
+	}
+}
+
+func BenchmarkMatch(b *testing.B) {
+	for _, name := range names {
+		re := regexp.MustCompile(`^(?:` + sources[name] + `)$`)
+		f := forms[name]
 		b.Run(name+"/switch", func(b *testing.B) { run(b, inputs[name], f[0]) })
 		b.Run(name+"/table", func(b *testing.B) { run(b, inputs[name], f[1]) })
 		b.Run(name+"/regexp", func(b *testing.B) { run(b, inputs[name], re.MatchString) })

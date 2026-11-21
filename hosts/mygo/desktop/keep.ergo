@@ -19,7 +19,7 @@ import ui/layout
 // applied to the window's tree: the boxes of new nodes, the style and
 // order of the children of every parent an op touched. A Remove's box
 // went out in drop.
-func keep[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign {
+func keep[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign {
 	let mut touched = Map[ui.Id[E], bool]{}
 	for op in ops {
 		match op {
@@ -38,6 +38,8 @@ func keep[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign {
 			// A list's First places its rows.
 			touched[x.Id] = true
 		case ui.Remove[E]:
+		case ui.Define:
+			// A look's definition lays nothing out (look.ergo).
 		}
 	}
 	let line = lineHeight(d.metrics, textSize)
@@ -48,7 +50,7 @@ func keep[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign {
 
 // keepKids styles p's children again and puts them in p's order: from the
 // first child whose place changed, each is appended to p in turn.
-func keepKids[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E], line float32) {
+func keepKids[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E], line float32) {
 	match d.nodes.Get(p) {
 	case Some[held[E]]:
 	case None:
@@ -73,7 +75,8 @@ func keepKids[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E], line float32) {
 			let n = boxFor(d, k)
 			restyle(d, n, styleIn(list, i, h.Value.node, line))
 			if i >= from {
-				layout.Append(&d.tree, into, n) catch {
+				// A layer hangs from the window's box (UG4).
+				layout.Append(&d.tree, if isLayer(h.Value.node) { d.top } else { into }, n) catch {
 				case arena.Stale:
 				}
 			}
@@ -92,7 +95,7 @@ func keepKids[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E], line float32) {
 
 // boxFor is id's box in the kept tree, a new one if it has none yet (the
 // root's is the window's).
-func boxFor[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) layout.Id {
+func boxFor[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) layout.Id {
 	if id == d.root {
 		return d.top
 	}
@@ -108,7 +111,7 @@ func boxFor[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) layout.Id {
 
 // restyle gives box n the style s, unless it has it: setting a style
 // forgets what the kernel computed around the box.
-func restyle[S, E, D, F](d *Driver[S, E, D, F], n layout.Id, s layout.Style) {
+func restyle[S, E, D, F](d mut Driver[S, E, D, F], n layout.Id, s layout.Style) {
 	let now = layout.StyleOf(&d.tree, n) catch {
 	case arena.Stale:
 		return
@@ -121,7 +124,7 @@ func restyle[S, E, D, F](d *Driver[S, E, D, F], n layout.Id, s layout.Style) {
 }
 
 // listOf is p's node when it is a list, whose rows it places.
-func listOf[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E]) Option[ui.RowsNode] {
+func listOf[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) Option[ui.RowsNode] {
 	match d.nodes.Get(p) {
 	case Some[held[E]] as h:
 		match h.Value.node {
@@ -149,18 +152,44 @@ func styleIn[E](list Option[ui.RowsNode], i int, node ui.Node[E], line float32) 
 		st.Height = layout.Px{Value: rh}
 	case None:
 	}
+	// A layer is out of the flow, at its own size, where placeLayers
+	// moves it (UG4).
+	if isLayer(node) {
+		st.Position = layout.Absolute{Left: 0, Top: 0}
+	}
 	st
 }
 
+// layerBase is the style layer l lays out in before placeLayers moves it.
+func layerBase[S, E, D, F](d mut Driver[S, E, D, F], l ui.Id[E], line float32) Option[layout.Style] {
+	match (d.lparent.Get(l), d.nodes.Get(l)) {
+	case (Some[ui.Id[E]] as p, Some[held[E]] as h):
+		for i, k in kidsOf(d, p.Value) {
+			if k == l {
+				return Some{Value: styleIn(listOf(d, p.Value), i, h.Value.node, line)}
+			}
+		}
+		None
+	case _:
+		None
+	}
+}
+
 // layOutKept lays the kept tree out at the window's size: the window's
-// box takes its size, each list given room at the last paint goes back to
-// its own style, and after a layout each list no taller than 0 is given
-// the window's room below its top (giveRoom), as the reference does.
-func layOutKept[S, E, D, F](d *Driver[S, E, D, F]) {
-	let mut rs = plainStyle()
-	rs.Width = layout.Px{Value: d.width}
-	rs.Height = layout.Px{Value: d.height}
-	restyle(d, d.top, rs)
+// box takes its size and insets, each list given room at the last paint
+// and each layer placed at it goes back to its own style, and after a
+// layout each list no taller than 0 is given the window's room below its
+// top (giveRoom), then each layer goes to its place, as the reference
+// does.
+func layOutKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
+	restyle(d, d.top, rootStyle(d))
+	for l in stacked(d) {
+		match (d.lids.Get(l), layerBase(d, l, line)) {
+		case (Some[layout.Id] as n, Some[layout.Style] as s):
+			restyle(d, n.Value, s.Value)
+		case _:
+		}
+	}
 	for k, s in d.roomed {
 		match d.lids.Get(k) {
 		case Some[layout.Id] as l:
@@ -194,6 +223,11 @@ func layOutKept[S, E, D, F](d *Driver[S, E, D, F]) {
 			}
 			d.work = d.work + layout.Work(d.tree)
 		}
+		// placeAll reads the driver beside the tree it moves layers in.
+		let mut t = d.tree
+		let w = placeAll(d, &t, d.top, d.lids)
+		d.tree = t
+		d.work = d.work + w
 	}
 }
 
@@ -201,7 +235,7 @@ func layOutKept[S, E, D, F](d *Driver[S, E, D, F]) {
 // window's room below its top, at least one row, as a list with no height
 // of its own fills the window under it. It is the style l had, when it
 // gave it room.
-func giveRoom(t *layout.Tree, l layout.Id, height float32, row float32) Option[layout.Style] {
+func giveRoom(t mut layout.Tree, l layout.Id, height float32, row float32) Option[layout.Style] {
 	let b = boxOf(t, l)
 	if b.H > 0 {
 		return None

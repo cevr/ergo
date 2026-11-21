@@ -1,0 +1,5 @@
+// The rules of the reader as laws over whole documents. Generated
+// strings are rarely Markdown, so each law builds its document from the
+// letters of a generated string or from a pool of blocks.
+
+let noColor = context { Highlighter: NoColor }

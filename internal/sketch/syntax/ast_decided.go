@@ -1,5 +1,7 @@
 package syntax
 
+import "strconv"
+
 // ---------------------------------------------------------------- decided-grammar nodes (#196)
 
 // ExternSpec is the binding of an extern declaration: `extern go
@@ -102,12 +104,15 @@ func (*TestDecl) declNode()  {}
 // `law Name reaches V`, `law Name never reaches V` or `law Name path [V1,
 // V2]`, with Reach set and no parameters and no body.
 type LawDecl struct {
-	Doc    *CommentGroup
-	Law    Pos
-	Name   *Ident
-	Params *FieldList
-	Body   *BlockStmt // nil for a reachability law
-	Reach  *LawReach  // nil unless a reachability law
+	Doc  *CommentGroup
+	Law  Pos
+	Name *Ident
+	// TypeParams are a top-level rewrite law's type parameters (`law
+	// L[T, U](…) { lhs } == { rhs }`, owner q234), nil without a list.
+	TypeParams *FieldList
+	Params     *FieldList
+	Body       *BlockStmt // nil for a reachability law
+	Reach      *LawReach  // nil unless a reachability law
 	// Rewrite is the rewrite form of a member law (types.md, Laws 14):
 	// `law L(params) [when R() == C] { lhs } == { rhs }`, or nil.
 	// Body then holds the guard, when there is one, as an ExprStmt, then
@@ -237,6 +242,30 @@ type AssertStmt struct {
 func (s *AssertStmt) Pos() Pos { return s.Assert }
 func (s *AssertStmt) End() Pos { return s.X.End() }
 func (*AssertStmt) stmtNode()  {}
+
+// SkipStmt is `skip "reason"` (runtime.md, Tests 4): it ends the test or
+// law run it stands in as skipped, with the reason, a string literal.
+// Reason is the literal's source text, quoted, from ReasonPos to
+// ReasonEnd: a literal, not an expression, so no name or value stands in
+// it.
+type SkipStmt struct {
+	Skip      Pos
+	ReasonPos Pos
+	Reason    string
+	ReasonEnd Pos
+}
+
+func (s *SkipStmt) Pos() Pos { return s.Skip }
+func (s *SkipStmt) End() Pos { return s.ReasonEnd }
+
+func (*SkipStmt) stmtNode() {}
+
+// Text is the skip's reason, unquoted; false when the literal does not
+// unquote.
+func (s *SkipStmt) Text() (string, bool) {
+	text, err := strconv.Unquote(s.Reason)
+	return text, err == nil
+}
 
 // VariantSpec is a union variant declared in place: `Authorized{AuthID
 // string}` or `Pending{}`. A variant without members is a bare type name

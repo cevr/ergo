@@ -1,0 +1,165 @@
+import maps
+
+// Calls (SEMTOOLS SEM2): who calls whom, from the call edges of the
+// tables, one per call site, each from the declaration the call is in to
+// the declaration it calls (a function, an operation, or a parameter or
+// local that holds a function value).
+
+// Call is one call site: the declaration it is in, the declaration it
+// calls, where; the capabilities of the callee's row it charges the
+// caller (Brings) and those a with around it discharges (Discharged),
+// with the provider each is bound to (Bound); and the failures of the
+// callee's error row it raises in the caller (Raises) and those a catch
+// around it handles (Caught), by handle (reach.ergo).
+type Call {
+	From       string,
+	To         string,
+	File       string,
+	Line       int,
+	Column     int,
+	Brings     []string,
+	Discharged []string,
+	Bound      []Binding,
+	Raises     []string,
+	Caught     []string,
+}
+
+// CallQuery asks for the calls out of the declaration at Of (Direction
+// "out", the default) or into it ("in"), to Depth steps (1 by default, at
+// most MaxDepth), a page at a time.
+type CallQuery {
+	Of        string,
+	Direction Option[string],
+	Depth     Option[int],
+	Offset    Option[int],
+	Limit     Option[int],
+}
+
+// Hop is a call of an answer, with the number of steps from Of that
+// reach it: 1 for a call Of makes (or, in, that calls Of).
+type Hop {
+	Depth int,
+	Call  Call,
+}
+
+// CallPage is a page of hops: by depth, then each declaration in the
+// order the step before reached it, then table order. Each declaration is
+// followed once.
+type CallPage {
+	Revision string,
+	Complete bool,
+	Hops     []Hop,
+	Total    int,
+	Next     int,
+}
+
+// NotCallable is the failure of an address whose declaration neither
+// calls nor is called: a type, a field, a variant, a package.
+type NotCallable { Address string, Kind string }
+
+// MaxDepth is the deepest a calls query goes.
+let MaxDepth = 16
+
+// callable is whether a declaration of kind k can call or be called: all
+// but a type, a type parameter, a field, a variant and a package.
+func callable(k string) bool {
+	!has([]string{"type", "typeparam", "field", "variant", "package"}, k)
+}
+
+// depthOf is q's depth, 1 by default, at most MaxDepth.
+func depthOf(q CallQuery) int {
+	let d = or(q.Depth, 1)
+	if d < 1 { 1 } else if d > MaxDepth { MaxDepth } else { d }
+}
+
+// inward is whether q asks for the calls into Of.
+func inward(q CallQuery) bool { text(q.Direction) == "in" }
+
+// callPage is the page of q's window over hops.
+func callPage(t Tables, q CallQuery, hops []Hop) CallPage {
+	let (start, end, next) = window(len(hops), q.Offset, q.Limit)
+	CallPage{Revision: t.Revision, Complete: summaryOf(t).Complete, Hops: hops[start:end], Total: len(hops), Next: next}
+}
+
+// edgesOf is every call of the tables, in table order.
+func edgesOf(t Tables) []Call {
+	let mut out = []Call{}
+	for p in t.Packages {
+		for c in p.Calls {
+			out = out.Append(c)
+		}
+	}
+	out
+}
+
+// callsByStep is Index's answer: a breadth-first walk over the calls,
+// indexed by the end each step follows.
+func callsByStep(from Map[string, []Call], start string, depth int, inward bool) []Hop {
+	let mut out = []Hop{}
+	let mut seen = Map[string, bool]{}
+	seen[start] = true
+	let mut frontier = []string{start}
+	for d in 1..depth + 1 {
+		let mut next = []string{}
+		for h in frontier {
+			for c in maps.GetOr(from, h, []Call{}) {
+				out = out.Append(Hop{Depth: d, Call: c})
+				let far = if inward { c.From } else { c.To }
+				if !maps.GetOr(seen, far, false) {
+					seen[far] = true
+					next = next.Append(far)
+				}
+			}
+		}
+		frontier = next
+	}
+	out
+}
+
+// callsByRounds is Scan's answer, the reference: the steps of each
+// declaration found by rounds over every call (a declaration is at step n
+// when a call from one at step n-1 reaches it and none before did), then
+// each call from a declaration at step d-1 < depth, listed at depth d, in
+// the order the declarations were reached.
+func callsByRounds(edges []Call, start string, depth int, inward bool) []Hop {
+	let near = func(c Call) string { if inward { c.To } else { c.From } }
+	let far = func(c Call) string { if inward { c.From } else { c.To } }
+	let mut order = []string{start}
+	let mut step = []int{0}
+	for round in 1..depth {
+		let mut i = 0
+		for i < len(order) {
+			if step[i] == round - 1 {
+				for c in edges {
+					if near(c) == order[i] && !has(order, far(c)) {
+						order = order.Append(far(c))
+						step = step.Append(round)
+					}
+				}
+			}
+			i = i + 1
+		}
+	}
+	let mut out = []Hop{}
+	for d in 1..depth + 1 {
+		for i, h in order {
+			if step[i] == d - 1 {
+				for c in edges {
+					if near(c) == h {
+						out = out.Append(Hop{Depth: d, Call: c})
+					}
+				}
+			}
+		}
+	}
+	out
+}
+
+// callTarget is the declaration of q's address, or the failure.
+func callTarget(q CallQuery, d Decl) Decl fails NotCallable {
+	if !callable(d.Kind) {
+		return NotCallable{Address: q.Of, Kind: d.Kind}
+	}
+	d
+}
+

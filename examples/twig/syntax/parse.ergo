@@ -20,11 +20,11 @@ func Parse(src string) []Stmt fails Failure {
 	out
 }
 
-func peek(p *parser) Token { p.toks[p.pos] }
+func peek(p mut parser) Token { p.toks[p.pos] }
 
 // next is the next token, and moves past it. The End token is never
 // passed, so the index stays inside the tokens.
-func next(p *parser) Token {
+func next(p mut parser) Token {
 	let t = p.toks[p.pos]
 	if !ended(t) {
 		p.pos += 1
@@ -56,7 +56,7 @@ func unexpected(t Token, want string) ParseError {
 }
 
 // expect moves past the punctuation or keyword w, or fails.
-func expect(p *parser, w string) fails ParseError {
+func expect(p mut parser, w string) fails ParseError {
 	let t = next(p)
 	if !is(t, w) {
 		return unexpected(t, "\""+w+"\"")
@@ -64,7 +64,7 @@ func expect(p *parser, w string) fails ParseError {
 }
 
 // name reads a name.
-func name(p *parser, what string) string fails ParseError {
+func name(p mut parser, what string) string fails ParseError {
 	let t = next(p)
 	match t.Kind {
 	case Ident:
@@ -75,7 +75,7 @@ func name(p *parser, what string) string fails ParseError {
 }
 
 // block reads statements between braces.
-func block(p *parser) []Stmt fails ParseError {
+func block(p mut parser) []Stmt fails ParseError {
 	try expect(p, "{")
 	let mut out = []Stmt{}
 	for !is(peek(p), "}") {
@@ -89,7 +89,7 @@ func block(p *parser) []Stmt fails ParseError {
 }
 
 // params reads a parameter list in parentheses.
-func params(p *parser) []string fails ParseError {
+func params(p mut parser) []string fails ParseError {
 	try expect(p, "(")
 	let mut out = []string{}
 	if is(peek(p), ")") {
@@ -114,7 +114,7 @@ func params(p *parser) []string fails ParseError {
 }
 
 // statement reads one statement.
-func statement(p *parser) Stmt fails ParseError {
+func statement(p mut parser) Stmt fails ParseError {
 	let t = peek(p)
 	let at = t.At
 	match t.Kind {
@@ -178,7 +178,7 @@ func statement(p *parser) Stmt fails ParseError {
 }
 
 // ifStmt reads an if after its keyword, with its else if and else parts.
-func ifStmt(p *parser, at Pos) Stmt fails ParseError {
+func ifStmt(p mut parser, at Pos) Stmt fails ParseError {
 	let c = try expr(p, 0)
 	let then = try block(p)
 	if !is(peek(p), "else") {
@@ -239,7 +239,7 @@ func binOp(t Token) Option[BinOp] {
 // expr reads an expression whose infix operators bind at least min: the
 // Pratt loop. A call, an index and a field bind tighter than every
 // operator; ( and [ continue the expression only on its line.
-func expr(p *parser, min int) Expr fails ParseError {
+func expr(p mut parser, min int) Expr fails ParseError {
 	let mut left = try prefix(p)
 	for {
 		let t = peek(p)
@@ -276,7 +276,7 @@ func expr(p *parser, min int) Expr fails ParseError {
 }
 
 // list reads expressions separated by commas, up to the punctuation end.
-func list(p *parser, end string) []Expr fails ParseError {
+func list(p mut parser, end string) []Expr fails ParseError {
 	let mut out = []Expr{}
 	if is(peek(p), end) {
 		let _ = next(p)
@@ -294,7 +294,7 @@ func list(p *parser, end string) []Expr fails ParseError {
 
 // prefix reads an operand: a literal, a name, a prefix operator and its
 // operand, a list, a record, a function or an expression in parentheses.
-func prefix(p *parser) Expr fails ParseError {
+func prefix(p mut parser) Expr fails ParseError {
 	let t = next(p)
 	match t.Kind {
 	case IntTok:
@@ -351,7 +351,7 @@ func prefix(p *parser) Expr fails ParseError {
 
 // record reads a record literal after its {: keys and values, a key at
 // most once.
-func record(p *parser, at Pos) Expr fails ParseError {
+func record(p mut parser, at Pos) Expr fails ParseError {
 	let mut keys = []string{}
 	let mut vals = []Expr{}
 	if is(peek(p), "}") {

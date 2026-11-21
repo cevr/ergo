@@ -17,9 +17,13 @@ import (
 
 // syncLawsProbe restates each law whose ledger runner is TestSyncLaws, as
 // a test of the same name (TestStdLawsRun's naming). UpdateCallsOnce runs
-// on Refs of int and of string; UpdateIsAtomic on four tasks.
-const syncLawsProbe = `import sync
+// on Refs of int and of string; UpdateIsAtomic on four tasks. The
+// Semaphore, Latch and Deferred laws (SB1) call the package's functions in
+// the dot form, as a user does.
+const syncLawsProbe = `import queue
+import sync
 import task
+import time
 
 test SyncRefUpdateCallsOnce(a int, s string) {
 	let r = sync.NewRef[int](a)
@@ -84,6 +88,119 @@ test SyncUpdateIsAtomic(n int) {
 	d.Wait()
 	assert r.Get() == 4 * k
 }
+
+func crowd(s sync.Semaphore, inside sync.Ref[int], most sync.Ref[int], done sync.Ref[int]) {
+	for _ in 0..50 {
+		s.With() {
+			let now = sync.Modify(inside, func(v int) (int, int) { (v + 1, v + 1) })
+			most.Update(func(m int) int { if now > m { now } else { m } })
+			let q = queue.New[bool](1)
+			q.Push(true) catch {
+			case queue.Closed:
+			}
+			let _ = q.Poll()
+			inside.Update(func(v int) int { v - 1 })
+			done.Update(func(v int) int { v + 1 })
+		}
+	}
+}
+
+test SyncNeverMoreThanN(n int) {
+	let size = 1 + (n % 3 + 3) % 3
+	let s = sync.NewSemaphore(size)
+	let inside = sync.NewRef[int](0)
+	let most = sync.NewRef[int](0)
+	let done = sync.NewRef[int](0)
+	let a = task.Go() { crowd(s, inside, most, done) }
+	let b = task.Go() { crowd(s, inside, most, done) }
+	let c = task.Go() { crowd(s, inside, most, done) }
+	let d = task.Go() { crowd(s, inside, most, done) }
+	a.Wait()
+	b.Wait()
+	c.Wait()
+	d.Wait()
+	assert most.Get() <= size
+	assert done.Get() == 4 * 50
+	assert s.Available() == size
+}
+
+test SyncReleaseOnFailure(n int) {
+	let s = sync.NewSemaphore(1 + (n % 3 + 3) % 3)
+	let failed = s.With(func() bool fails queue.Closed { queue.Closed }) catch {
+	case queue.Closed:
+		true
+	}
+	assert failed
+	assert s.Available() == s.Size()
+}
+
+test SyncReleaseOnInterrupt() {
+	let s = sync.NewSemaphore(1)
+	let m = time.NewManual(0)
+	let holder = with context { Scheduler: m } {
+		task.Go() {
+			s.With() {
+				Scheduler.Sleep(1h)
+			}
+		}
+	}
+	for m.Sleepers() == 0 {
+	}
+	assert s.Available() == 0
+	let waiter = task.Go() {
+		s.With() {
+		}
+	}
+	waiter.Stop()
+	assert s.Available() == 0
+	holder.Stop()
+	assert s.Available() == 1
+}
+
+test SyncLatchOpensOnce(k int) {
+	let l = sync.NewLatch()
+	assert !l.IsOpen()
+	assert l.Open()
+	for _ in 0..(k % 3 + 3) % 3 + 1 {
+		assert !l.Open()
+	}
+	l.Await()
+	assert l.IsOpen()
+}
+
+test SyncOpenReleasesWaiters(n int) {
+	let l = sync.NewLatch()
+	let copy = l
+	let a = task.Go() {
+		l.Await()
+		l.IsOpen()
+	}
+	let b = task.Go() {
+		copy.Await()
+		copy.IsOpen()
+	}
+	let opened = if n % 2 == 0 { l.Open() } else { copy.Open() }
+	assert opened
+	assert a.Wait()
+	assert b.Wait()
+}
+
+test SyncDeferredSetsOnce(a int, b int) {
+	let d = sync.NewDeferred[int]()
+	assert d.Peek() == None
+	assert d.Complete(a)
+	assert !d.Complete(b)
+	assert d.Wait() == a
+	assert d.Peek() == Some[int]{Value: a}
+}
+
+test SyncWaitSeesTheValue(a int) {
+	let d = sync.NewDeferred[int]()
+	let w = task.Go() { d.Wait() }
+	let p = task.Go() { d.Complete(a) }
+	assert p.Wait()
+	assert w.Wait() == a
+}
 `
 
 // syncLawStatements is the statement of each law the probe restates, the
@@ -94,6 +211,13 @@ var syncLawStatements = map[string]string{
 	"sync Ref.UpdateCallsOnce":    `UpdateCallsOnce() { let mut calls = 0 Update(func(v T) T { calls = calls + 1 v }) calls == 1 }`,
 	"sync UpdateComposes":         `UpdateComposes(a int) { let r = NewRef[int](a) r.Update(func(v int) int { v + 1 }) r.Update(func(v int) int { v * 3 }) r.Get() == (a+1)*3 }`,
 	"sync UpdateIsAtomic":         `UpdateIsAtomic(n int) { let k = 1000 + (n%1000+1000)%1000 let r = NewRef[int](0) let a = task.Go() { for _ in 0..k { r.Update(func(v int) int { v + 1 }) } } let b = task.Go() { for _ in 0..k { r.Update(func(v int) int { v + 1 }) } } a.Wait() b.Wait() r.Get() == 2*k }`,
+	"sync NeverMoreThanN":         `NeverMoreThanN(n int) { let size = 1 + (n%3+3)%3 let s = NewSemaphore(size) let inside = NewRef[int](0) let most = NewRef[int](0) let done = NewRef[int](0) let a = task.Go() { crowd(s, inside, most, done) } let b = task.Go() { crowd(s, inside, most, done) } let c = task.Go() { crowd(s, inside, most, done) } let d = task.Go() { crowd(s, inside, most, done) } a.Wait() b.Wait() c.Wait() d.Wait() most.Get() <= size && done.Get() == 4*50 && Available(s) == size }`,
+	"sync ReleaseOnFailure":       `ReleaseOnFailure(n int) { let s = NewSemaphore(1 + (n%3+3)%3) let failed = With(s, func() bool fails queue.Closed { queue.Closed }) catch { case queue.Closed: true } failed && Available(s) == Size(s) }`,
+	"sync ReleaseOnInterrupt":     `ReleaseOnInterrupt() { let s = NewSemaphore(1) let m = time.NewManual(0) let holder = with context { Scheduler: m } { task.Go() { With(s) { Scheduler.Sleep(1h) } } } for m.Sleepers() == 0 { } let taken = Available(s) == 0 let waiter = task.Go() { With(s) { } } waiter.Stop() let none = Available(s) == 0 holder.Stop() taken && none && Available(s) == 1 }`,
+	"sync LatchOpensOnce":         `LatchOpensOnce(k int) { let l = NewLatch() let closed = !IsOpen(l) let first = Open(l) let mut later = true for _ in 0..(k%3+3)%3+1 { later = later && !Open(l) } Await(l) closed && first && later && IsOpen(l) }`,
+	"sync OpenReleasesWaiters":    `OpenReleasesWaiters(n int) { let l = NewLatch() let copy = l let a = task.Go() { Await(l) IsOpen(l) } let b = task.Go() { Await(copy) IsOpen(copy) } let opened = if n%2 == 0 { Open(l) } else { Open(copy) } opened && a.Wait() && b.Wait() }`,
+	"sync DeferredSetsOnce":       `DeferredSetsOnce(a int, b int) { let d = NewDeferred[int]() let empty = Peek(d) == None let first = Complete(d, a) let second = Complete(d, b) empty && first && !second && Wait(d) == a && Peek(d) == Some[int]{Value: a} }`,
+	"sync WaitSeesTheValue":       `WaitSeesTheValue(a int) { let d = NewDeferred[int]() let w = task.Go() { Wait(d) } let p = task.Go() { Complete(d, a) } p.Wait() && w.Wait() == a }`,
 }
 
 // TestSyncLaws runs the probe with --seed 1; lawledger.Run holds that it

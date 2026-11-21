@@ -1,0 +1,94 @@
+// Directories on the machine.
+
+import github.com/cevr/ergo/modules/infra
+import fs
+import json
+import fstest
+
+// DirProps asks for a directory at Path, a relative path below the
+// driver's base folder.
+type DirProps { Path string }
+
+// Dir is a directory that exists: its path.
+type Dir { Path string }
+
+// Dirs is the driver of directories below base.
+type Dirs { base string, ledger Ledger, files fs.Files, writes fs.Writes } implements infra.Driver[DirProps, Dir]
+
+// DirsOn is the driver of directories below base, over files and writes,
+// with its ledger in the folder state.
+func DirsOn(files fs.Files, writes fs.Writes, base string, state string) Dirs {
+	Dirs{base: base, ledger: NewLedger(state, files, writes), files: files, writes: writes}
+}
+
+// NewDirs is the driver of directories in a new fstest.Memory: base /work,
+// ledger /state. The driver laws run on it.
+func NewDirs() Dirs {
+	let m = fstest.NewMemory()
+	DirsOn(m, m, "/work", "/state")
+}
+
+func Attrs(d Dirs, id string, p DirProps) Dir { Dir{Path: d.base + "/" + p.Path} }
+
+func Apply(d Dirs, id string, p DirProps) Dir fails infra.Failed {
+	let path = try under(id, d.base, p.Path)
+	d.writes.MkdirAll(path) catch {
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot make \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	try put(d.ledger, "dir", id, []string{path})
+	Dir{Path: path}
+}
+
+func Read(d Dirs, id string) Option[Dir] fails infra.Failed {
+	let path = match try get(d.ledger, "dir", id) {
+	case None:
+		return None
+	case Some[[]string] as entry:
+		try onePath(id, entry.Value)
+	}
+	let info = d.files.Stat(path) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot read \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	if !info.Dir {
+		return None
+	}
+	Some[Dir]{Value: Dir{Path: path}}
+}
+
+func Delete(d Dirs, id string) fails infra.Failed {
+	match try get(d.ledger, "dir", id) {
+	case None:
+	case Some[[]string] as entry:
+		try remove(d.writes, id, try onePath(id, entry.Value))
+		try drop(d.ledger, "dir", id)
+	}
+}
+
+// onePath is the path of a ledger entry that holds one.
+func onePath(id string, fields []string) string fails infra.Failed {
+	if len(fields) != 1 {
+		return infra.Failed{ID: id, Reason: "the ledger's entry for \(id) is not a path"}
+	}
+	fields[0]
+}
+
+// DirRowsOn is the state store of DirPropss in the folder root over files and
+// writes, the props kept as JSON.
+func DirRowsOn(files fs.Files, writes fs.Writes, root string) Rows[DirProps] {
+	let codec = json.Codec[DirProps]{MaxBytes: 0, MaxDepth: 0}
+	RowsOn[DirProps](files, writes, root, func(p DirProps) string { json.Encode(codec, p) }, func(text string) Option[DirProps] {
+		let p = json.Decode(codec, text) catch {
+		case _:
+			return None
+		}
+		Some[DirProps]{Value: p}
+	})
+}

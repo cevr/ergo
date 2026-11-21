@@ -1,0 +1,327 @@
+// Instants: when an expression fires in a time zone. A wall minute that
+// fires is given an instant by tz.Compatible, the choice of ECMA-262 and
+// Temporal: a minute the zone skips fires once, moved forward by the gap
+// (a job at 02:30 runs at 03:30 on the day clocks go forward), and a
+// minute the zone shows twice fires once, at its earlier instant.
+
+import civil
+import time
+import tz
+import hex
+import rand
+
+// Next is the first instant after t at which e fires in z, or None when e
+// does not fire within Horizon years. Instants come from wall minutes by
+// tz.Compatible, so Next(e, z, s) is after s for each s, and the instants
+// it walks through are each once (laws NextIsFirstFiring, GapFiresOnce,
+// OverlapFiresOnce).
+func Next(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
+	let c = tz.Civil(z, t)
+	let limit = civil.Year(c.Date) + Horizon()
+	// A minute the zone skipped before t fires after t when t is within
+	// the gap after the change: start that much earlier.
+	let mut w = wallMinute(c) - gapBehind(z, t)/60 - 1
+	for {
+		match nextAt(e, w, limit) {
+		case Some[int64] as n:
+			let (s, gap) = tz.CompatibleShift(z, wallOf(n.Value))
+			if time.After(s, t) {
+				if gap > 0s {
+					// A skipped minute fires a gap late, so a minute after
+					// it within the gap may fire before it.
+					return Some[time.Time]{Value: earliestWithin(e, z, t, n.Value, s, gap, limit)}
+				}
+				return Some[time.Time]{Value: s}
+			}
+			w = n.Value
+		case None:
+			return None
+		}
+	}
+	None
+}
+
+// instantOf is the instant tz.Compatible gives the wall minute w in z.
+func instantOf(z tz.Zone, w int64) time.Time {
+	let (s, _) = tz.CompatibleShift(z, wallOf(w))
+	s
+}
+
+// earliestWithin is the earliest instant after t at which e fires from
+// the wall minutes after w within gap, or s.
+func earliestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap duration, limit int) time.Time {
+	let end = w + int64(gap)/60000000000
+	let mut best = s
+	let mut at = w
+	for at < end {
+		match nextAt(e, at, limit) {
+		case Some[int64] as n:
+			at = n.Value
+			if at < end {
+				let x = instantOf(z, at)
+				if time.After(x, t) && time.Before(x, best) {
+					best = x
+				}
+			}
+		case None:
+			at = end
+		}
+	}
+	best
+}
+
+// Previous is the last instant before t at which e fires in z, or None
+// when e does not fire within Horizon years: the instant whose Next is at
+// or after t (law PreviousUndoesNext).
+func Previous(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
+	let c = tz.Civil(z, t)
+	let limit = civil.Year(c.Date) - Horizon()
+	// Within the second showing of an hour the zone repeats, the minutes
+	// after t's wall minute fired at their earlier instants, before t.
+	let mut w = wallMinute(c) + overlapBehind(z, t)/60 + 2
+	for {
+		match previousAt(e, w, limit) {
+		case Some[int64] as p:
+			let s = instantOf(z, p.Value)
+			if time.Before(s, t) {
+				// Within the gap after a change, a skipped minute before
+				// this one fires a gap late, so it may fire after it.
+				let g = gapBehind(z, s)
+				if g == 0 {
+					return Some[time.Time]{Value: s}
+				}
+				return Some[time.Time]{Value: latestWithin(e, z, t, p.Value, s, g, limit)}
+			}
+			w = p.Value
+		case None:
+			return None
+		}
+	}
+	None
+}
+
+// latestWithin is the latest instant before t at which e fires from the
+// wall minutes before w within gap seconds, or s.
+func latestWithin(e Expr, z tz.Zone, t time.Time, w int64, s time.Time, gap int64, limit int) time.Time {
+	let end = w - gap/60
+	let mut best = s
+	let mut at = w
+	for at > end {
+		match previousAt(e, at, limit) {
+		case Some[int64] as p:
+			at = p.Value
+			if at > end {
+				let x = instantOf(z, at)
+				if time.Before(x, t) && time.After(x, best) {
+					best = x
+				}
+			}
+		case None:
+			at = end
+		}
+	}
+	best
+}
+
+// gapBehind is the seconds of the gap of z's last forward change at or
+// before t, when t is within that many seconds after it; else 0.
+func gapBehind(z tz.Zone, t time.Time) int64 {
+	let mut g = int64(0)
+	for c in tz.Transitions(z, time.Unix(time.UnixSeconds(t)-2*86400, 0), t) {
+		let d = int64(c.After.Seconds - c.Before.Seconds)
+		g = if d > 0 && time.UnixSeconds(t) < time.UnixSeconds(c.At)+d { d } else { 0 }
+	}
+	g
+}
+
+// overlapBehind is the seconds of the hour z repeats at its last backward
+// change at or before t, when t is within that many seconds after it;
+// else 0.
+func overlapBehind(z tz.Zone, t time.Time) int64 {
+	let mut o = int64(0)
+	for c in tz.Transitions(z, time.Unix(time.UnixSeconds(t)-2*86400, 0), t) {
+		let d = int64(c.Before.Seconds - c.After.Seconds)
+		o = if d > 0 && time.UnixSeconds(t) < time.UnixSeconds(c.At)+d { d } else { 0 }
+	}
+	o
+}
+
+// NextIsFirstFiring: Next is after t, and it is the earliest instant
+// after t that tz.Compatible gives a wall minute e fires at: a walk of
+// every wall minute from a day before t's to two days after it finds the
+// same instant when either is within a day of t.
+law NextIsFirstFiring(seed uint64) {
+	let e = drawnExpr(seed)
+	let z = drawnZone(seed)
+	let t = drawnInstant(seed, z)
+	let found = firstFiring(e, z, t)
+	let day = time.Add(t, 24h)
+	let next = Next(e, z, t)
+	let nextNear = match next {
+	case Some[time.Time] as n:
+		time.After(n.Value, t) && !time.After(n.Value, day)
+	case None:
+		false
+	}
+	let foundNear = match found {
+	case Some[time.Time] as f:
+		!time.After(f.Value, day)
+	case None:
+		false
+	}
+	let after = match next {
+	case Some[time.Time] as n:
+		time.After(n.Value, t)
+	case None:
+		true
+	}
+	after && (!nextNear || found == next) && (!foundNear || found == next)
+}
+
+// ruleZone is the zone of a TZif file in hex that holds no changes and
+// the POSIX rule of its footer.
+func ruleZone(name string, data string) tz.Zone {
+	let bytes = hex.Decode(data) catch {
+	case hex.Malformed:
+		Unreachable("the laws' zones are hex")
+	}
+	tz.FromTZif(name, bytes) catch {
+	case tz.BadData:
+		Unreachable("the laws' zones are TZif")
+	}
+}
+
+// newYork is New York's rule since 2007 (EST5EDT,M3.2.0,M11.1.0): a gap
+// and a repeated hour of 60 minutes.
+func newYork() tz.Zone {
+	ruleZone("America/New_York", "545a696632000000000000000000000000000000000000000000000000000000000000000000000100000004ffffb9b0000045535400545a696632000000000000000000000000000000000000000000000000000000000000000000000100000004ffffb9b00000455354000a455354354544542c4d332e322e302c4d31312e312e300a")
+}
+
+// lordHowe is Lord Howe Island's rule (+10:30, and +11 in summer): a gap
+// and a repeated half hour.
+func lordHowe() tz.Zone {
+	ruleZone("Australia/Lord_Howe", "545a696632000000000000000000000000000000000000000000000000000000000000000000000100000006000093a800002b3130333000545a696632000000000000000000000000000000000000000000000000000000000000000000000100000006000093a800002b31303330000a3c2b313033303e2d31303a33303c2b31313e2d31312c4d31302e312e302c4d342e312e300a")
+}
+
+// drawnZone is UTC, India's fixed +05:30, New York or Lord Howe.
+func drawnZone(seed uint64) tz.Zone {
+	match seed % 4 {
+	case 0:
+		tz.UTC()
+	case 1:
+		tz.FixedOffset(19800) catch {
+		case tz.BadOffset:
+			Unreachable("+05:30 is an offset")
+		}
+	case 2:
+		newYork()
+	case _:
+		lordHowe()
+	}
+}
+
+// drawnInstant is an instant from 1970 to 2100 drawn from seed; one time
+// in two it is within two hours of a change of z, where gaps and repeated
+// hours are.
+func drawnInstant(seed uint64, z tz.Zone) time.Time {
+	let r = rand.Seeded(seed + 1)
+	let base = time.Unix(int64(r.IntN(4102444800)), 0)
+	let near = int64(r.IntN(14400)) - 7200
+	if r.IntN(2) == 0 {
+		return base
+	}
+	for c in tz.Transitions(z, base, time.Unix(time.UnixSeconds(base)+366*86400, 0)) {
+		return time.Unix(time.UnixSeconds(c.At)+near, 0)
+	}
+	base
+}
+
+// minuteOf is dt with its seconds dropped.
+func minuteOf(dt civil.DateTime) civil.DateTime {
+	let t = civil.NewTimeOfDay(civil.Hour(dt.Time), civil.Minute(dt.Time), 0, 0) catch {
+	case civil.NoSuchTime:
+		Unreachable("an hour and minute of a time of day")
+	}
+	civil.DateTime{Date: dt.Date, Time: t}
+}
+
+// firstFiring is the earliest instant after t that tz.Compatible gives a
+// wall minute e fires at, among the wall minutes from a day before t's
+// wall minute to two days after it, minute by minute.
+func firstFiring(e Expr, z tz.Zone, t time.Time) Option[time.Time] {
+	let start = civil.AddDuration(minuteOf(tz.Civil(z, t)), -24h)
+	let mut best Option[time.Time] = None
+	for k in 0..4320 {
+		let w = civil.AddDuration(start, time.Times(1m, k))
+		if Matches(e, w) {
+			let s = tz.Compatible(tz.Resolve(z, w))
+			if time.After(s, t) {
+				match best {
+				case Some[time.Time] as b:
+					if time.Before(s, b.Value) {
+						best = Some[time.Time]{Value: s}
+					}
+				case None:
+					best = Some[time.Time]{Value: s}
+				}
+			}
+		}
+	}
+	best
+}
+
+// PreviousUndoesNext: the last firing before t is before t, and the next
+// firing after it is at or after t.
+law PreviousUndoesNext(seed uint64) {
+	let e = drawnExpr(seed)
+	let z = drawnZone(seed)
+	let t = drawnInstant(seed, z)
+	let p = match Previous(e, z, t) {
+	case Some[time.Time] as v:
+		v.Value
+	case None:
+		return true
+	}
+	let n = match Next(e, z, p) {
+	case Some[time.Time] as v:
+		v.Value
+	case None:
+		return false
+	}
+	time.Before(p, t) && !time.Before(n, t)
+}
+
+// GapFiresOnce: on 2026-03-08, when New York's clocks go forward from
+// 02:00 to 03:00, a job at 02:30 fires once, at 03:30 EDT, and the next
+// day at 02:30 again, also when asked at 03:10 EDT, after the change but
+// before 02:30's instant; a job every 30 minutes fires at 01:30 EST, then at
+// 03:00 EDT (for 02:00) and 03:30 EDT, never twice at one instant. On
+// 2026-10-04, when Lord Howe's clocks go from 02:00 to 02:30, a job at
+// 02:15 and 02:40 fires first at 02:40, before 02:15's instant, 02:45.
+law GapFiresOnce() {
+	let z = newYork()
+	let job = try Parse("30 2 * * *")
+	let half = try Parse("*/30 * * * *")
+	let a = time.Unix(1772955000, 0)
+	let b = time.Unix(1773037800, 0)
+	let three = time.Unix(1772953200, 0)
+	let once = Next(job, z, time.Unix(1772902800, 0)) == Some[time.Time]{Value: a} && Next(job, z, a) == Some[time.Time]{Value: b}
+	let within = Next(job, z, time.Unix(1772953800, 0)) == Some[time.Time]{Value: a}
+	let pair = try Parse("15,40 2 * * *")
+	let earliest = Next(pair, lordHowe(), time.Unix(1791040800, 0)) == Some[time.Time]{Value: time.Unix(1791042000, 0)}
+	once && within && earliest && Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && Next(half, z, three) == Some[time.Time]{Value: a}
+}
+
+// OverlapFiresOnce: on 2026-11-01, when New York's clocks go back from
+// 02:00 to 01:00, a job at 01:30 fires once, at 01:30 EDT, and next at
+// 01:30 EST the day after; Previous walks back the same way, and at
+// 01:10 EST, in the hour's second showing, the last firing is 01:30 EDT.
+law OverlapFiresOnce() {
+	let z = newYork()
+	let e = try Parse("30 1 * * *")
+	let first = time.Unix(1793511000, 0)
+	let second = time.Unix(1793601000, 0)
+	let once = Next(e, z, time.Unix(1793462400, 0)) == Some[time.Time]{Value: first} && Next(e, z, first) == Some[time.Time]{Value: second}
+	let within = Previous(e, z, time.Unix(1793513400, 0)) == Some[time.Time]{Value: first}
+	once && within && Previous(e, z, second) == Some[time.Time]{Value: first} && Previous(e, z, time.Unix(1793514600, 0)) == Some[time.Time]{Value: first}
+}

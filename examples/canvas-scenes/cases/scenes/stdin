@@ -1,0 +1,32 @@
+seed 3
+# canvas-art, scene: the first screen shows the heading, the prompt, Pause
+# and Clear, and 0 balls.
+# canvas-art, scene: Pause toggles to Play when the simulation stops, and
+# Pause is gone.
+click Pause
+click Play
+# canvas-art, scene: the ball count reflects the balls (three presses).
+press 10 20
+press 30 40
+press 50 60
+# canvas-art, scene: Clear empties the count.
+click Clear
+# A press while paused still spawns a ball, and frames move nothing.
+click Pause
+press 300 200
+frame 16 x4
+click Play
+# generative-art, scene: the first screen shows Pause, Reset and the
+# particle count; Reset empties it to 0 particles.
+click Flow
+click Reset
+# generative-art, scene: clicking Pause swaps the toggle to Play.
+click Pause
+# generative-art, scene: Turbulence and Noise scale are present and
+# labelled, and a press on either sets its value on its step.
+strength 0.25
+scale 2.4
+strength 1.62
+scale 1.05
+# A click on a button the screen does not show is no node.
+click Clear

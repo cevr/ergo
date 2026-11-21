@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 // the response the server answers with and the client's body budget.
 type clientCase struct {
 	method, path  string
+	rawPath       string // sent as the escaped path when it is an encoding of path, else ignored
 	query, header []HTTPField
 	body          string
 	answer        HTTPResponse
@@ -29,6 +31,33 @@ func clientText(r *rand.Rand, alphabet string, max int) string {
 	var b strings.Builder
 	for n := r.IntN(max + 1); n > 0; n-- {
 		b.WriteRune(runes[r.IntN(len(runes))])
+	}
+	return b.String()
+}
+
+// clientRawPath is a raw (escaped) path as a caller writes one: each byte
+// of its segments unreserved and kept, a sub-delimiter, ':' or '@' kept or
+// escaped, or any byte escaped in upper or lower case hex ("%2f" and
+// "%2F" for a "/" inside a segment). It is a valid encoding, so Go keeps
+// it as the request's escaped path.
+func clientRawPath(r *rand.Rand) string {
+	const bytes = "aZ09-._~!$&'()*+,;=:@/ %?#\xc3\xa9"
+	var b strings.Builder
+	for n := 1 + r.IntN(3); n > 0; n-- {
+		b.WriteByte('/')
+		for k := r.IntN(6); k > 0; k-- {
+			c := bytes[r.IntN(len(bytes))]
+			switch {
+			case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("-._~", c) >= 0:
+				b.WriteByte(c)
+			case strings.IndexByte("!$&'()*+,;=:@", c) >= 0 && r.IntN(2) == 0:
+				b.WriteByte(c)
+			case r.IntN(2) == 0:
+				fmt.Fprintf(&b, "%%%02x", c)
+			default:
+				fmt.Fprintf(&b, "%%%02X", c)
+			}
+		}
 	}
 	return b.String()
 }
@@ -50,6 +79,20 @@ func newClientCase(r *rand.Rand) clientCase {
 		header: clientFields(r, []string{"X-A", "X-Bee", "X-C"}, "az 0,;=é"),
 		answer: HTTPResponse{Status: statuses[r.IntN(len(statuses))], Header: clientFields(r, []string{"X-R", "X-Ess"}, "az 0,;=")},
 		budget: 1 + r.IntN(24),
+	}
+	switch r.IntN(4) {
+	case 0: // an escaped path with a "/" inside a segment ("%2F"), which only RawPath keeps
+		a, b := clientText(r, "ab/ %?é", 4), clientText(r, "ab/ %?é", 4)
+		c.path, c.rawPath = "/"+a+"/"+b, "/"+url.PathEscape(a)+"/"+url.PathEscape(b)
+	case 1: // a raw path that does not encode path, which Go ignores
+		c.rawPath = "/elsewhere%2F"
+	case 2: // a raw path as a caller writes one (HTTP-PATH-ESCAPE: "/@scope%2fname")
+		c.rawPath = clientRawPath(r)
+		p, err := url.PathUnescape(c.rawPath)
+		if err != nil {
+			panic(err)
+		}
+		c.path = p
 	}
 	if c.method != "GET" && c.method != "OPTIONS" {
 		c.body = clientText(r, "ab\n{}é", 16)
@@ -99,7 +142,12 @@ func clientSubset(want, got []HTTPField) bool {
 
 // TestHTTPClientMatchesServer is G9's model property with G1's server on
 // a loopback listener as the peer: each generated request arrives as sent
-// (method, decoded path, query, header and body), and each generated
+// (method, decoded path, query, header and body), its escaped path
+// included when the request's RawPath encodes its Path: byte for byte,
+// "%2f" and kept reserved bytes too, never escaped again. That is what
+// http.InMemory gives its handler (it hands the Request over as it is),
+// so the host Net and the in-memory one deliver the same request
+// (HTTP-PATH-ESCAPE; mutant rawpath-client-ignored). Each generated
 // response comes back as sent (status, header and body; a 3xx is a
 // response, not a redirect), or TooLarge when its body is over the
 // client's budget. A failing seed prints the case and its replay.
@@ -107,10 +155,10 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 	var mu sync.Mutex
 	var next HTTPResponse
 	var arrived clientCase
-	l, _ := startHTTPLimits(t, serveLimits(1<<16, 1<<16), func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTPLimits(t, serveLimits(1<<16, 1<<16), func(_ *rt.Task, _ *Exchange, method, path, rawPath string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
 		mu.Lock()
 		defer mu.Unlock()
-		arrived = clientCase{method: method, path: path, query: query, header: header, body: body}
+		arrived = clientCase{method: method, path: path, rawPath: rawPath, query: query, header: header, body: body}
 		return next
 	})
 	origin := "http://" + l.Addr()
@@ -120,7 +168,7 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 		mu.Lock()
 		next = c.answer
 		mu.Unlock()
-		res, err := HTTPDo(caller, origin, serveLimits(c.budget, 1<<16), c.method, c.path, c.query, c.header, c.body)
+		res, err := HTTPDo(caller, origin, serveLimits(c.budget, 1<<16), c.method, c.path, c.rawPath, c.query, c.header, c.body)
 		mu.Lock()
 		in := arrived
 		mu.Unlock()
@@ -129,6 +177,15 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 		}
 		if in.method != c.method || in.path != c.path || in.body != c.body {
 			fail("the request did not arrive as sent")
+		}
+		// The escaped path is c.rawPath when that encodes c.path, and Go's
+		// escape of c.path otherwise (url.URL.EscapedPath).
+		wantRaw := (&url.URL{Path: c.path}).EscapedPath()
+		if p, err := url.PathUnescape(c.rawPath); err == nil && p == c.path {
+			wantRaw = c.rawPath
+		}
+		if in.rawPath != wantRaw {
+			fail("the escaped path did not arrive as sent: want " + wantRaw)
 		}
 		if !maps2Equal(clientValues(in.query, false), clientValues(c.query, false)) || !clientSubset(c.header, in.header) {
 			fail("the request's query or header did not arrive as sent")
@@ -169,14 +226,14 @@ func TestHTTPClientRefusedAndStopped(t *testing.T) {
 	}
 	addr := closed.Addr()
 	closed.Close()
-	_, err = HTTPDo(rt.Root("refused"), "http://"+addr, serveLimits(16, 4096), "GET", "/", nil, nil, "")
+	_, err = HTTPDo(rt.Root("refused"), "http://"+addr, serveLimits(16, 4096), "GET", "/", "", nil, nil, "")
 	var f HTTPSendFailed
 	if !errors.As(err, &f) || f.Kind != httpRefused {
 		t.Fatalf("a refused connection failed %v, want Refused", err)
 	}
 
 	entered, hungUp := make(chan struct{}), make(chan struct{})
-	l, _ := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		close(entered)
 		<-ct.Done()
 		close(hungUp)
@@ -186,7 +243,7 @@ func TestHTTPClientRefusedAndStopped(t *testing.T) {
 	ended := make(chan any, 1)
 	go func() {
 		defer func() { ended <- recover() }()
-		_, err := HTTPDo(caller, "http://"+l.Addr(), serveLimits(16, 4096), "GET", "/hold", nil, nil, "")
+		_, err := HTTPDo(caller, "http://"+l.Addr(), serveLimits(16, 4096), "GET", "/hold", "", nil, nil, "")
 		ended <- fmt.Sprintf("returned %v", err)
 	}()
 	select {

@@ -1,4 +1,11 @@
 import arena
+import actor
+import time
+import queue
+import scope
+import strings
+import task
+import testing
 
 // Frame is the composer: the retained tree of the passes committed so far
 // and the pass a view is writing. A view writes nodes into it; Render
@@ -12,17 +19,35 @@ import arena
 // maps are emptied in place. first and last are the root's first and
 // last child spec (-1 for none).
 type Frame[E] {
-	nodes   arena.Of[node[E]],
-	root    arena.Ref[node[E]],
-	specs   []spec[E],
-	nspecs  int,
-	first   int,
-	last    int,
+	nodes  arena.Of[node[E]],
+	root   arena.Ref[node[E]],
+	specs  []spec[E],
+	nspecs int,
+	first  int,
+	last   int,
+	// nroot is how many specs this pass wrote at the top (spec.nkids for
+	// the root): the place of the next one, which prior tries first.
+	nroot int,
+	// pass numbers the passes: an entry of seen counts only in the pass
+	// it names, so a pass starts with no count and deletes none.
+	pass int,
+	// pending is the kept groups whose tops' counts the pass has not
+	// taken yet (the first npending; group.ergo, writeAgain), and
+	// rootPending whether one is at the top (spec.pending below one).
+	pending     []pendingCounts,
+	npending    int,
+	rootPending bool,
+	// unplaced counts the pass's lookups that missed the old child at
+	// the node's place (Unplaced).
+	unplaced int,
 	cells   []cellSpec,
 	ncells  int,
 	loads   []loadSpec[E],
 	nloads  int,
-	seen    Map[slotOf, int],
+	// seen holds the counts by slotKey, and seenWide those of the slots
+	// slotKey cannot pack (a TextKey row, an Id out of range).
+	seen    Map[int, tally],
+	seenWide Map[slotOf, tally],
 	seenLog []slotOf,
 	nseen   int,
 	index   Map[kid[E], arena.Ref[node[E]]],
@@ -42,26 +67,1498 @@ type Frame[E] {
 	anims   []func(at duration) E,
 	nanims  int,
 	rowRuns int,
-	// Groups (group.ergo): the arguments' memo, the groups kept from the
-	// last pass, this pass's groups, the one being written (-1 none), the
-	// groups' identities counted apart from the nodes' with the first
-	// ngroupLog entries of groupLog the counts taken (a cut gives them
-	// back), the cuts this pass made, and the bodies run.
-	args      GroupArgs,
-	kept      Map[groupKey[E], int],
-	keptList  []keptGroup[E],
-	groups    []groupRec[E],
-	group     int,
-	groupSeen Map[slotOf, int],
-	groupLog  []slotOf,
-	ngroupLog int,
-	cuts      int,
-	groupRuns int,
 	skips   int,
 	written int,
 	stops   []CallSite,
 	nstops  int,
 	slow    Option[slowWatch[E]],
+	// Groups (group.ergo): the arguments' memo, the kept groups by key
+	// and their entries with the free ones, the passes kept, this pass's
+	// groups (the first ngroups) and whether one is inside another, the
+	// one being written (-1 none), the groups' identities counted apart
+	// from the nodes', the bodies run, the Sames this pass skipped, and
+	// the nodes Commit compared.
+	args       GroupArgs,
+	kept       Map[groupKey[E], int],
+	keptList   []keptGroup[E],
+	free       []int,
+	nfree      int,
+	passes     int,
+	keptPasses int,
+	// nheld is how many entries of keptList are held, swept how many
+	// entries the last keepGroups walked (Swept).
+	nheld     int,
+	swept     int,
+	groups    []groupRec[E],
+	ngroups   int,
+	nested    bool,
+	group     int,
+	groupSeen Map[int, tally],
+	groupWide Map[slotOf, tally],
+	groupRuns int,
+	sameSkips int,
+	// sames is the Sames the pass wrote, run, skipped or inside a group
+	// written again, and keptSames those inside a group written again,
+	// whose bodies the pass did not run either (Stats.Skipped).
+	sames     int,
+	keptSames int,
+	compared  int,
+	// visits is the nodes Commit visited (NS3).
+	visits int,
+	// now is the time of the last frame (Tick), tickAt that time while
+	// the pass a Tick caused runs, the passes so far (passes, above, which keepGroups also counts), and moving
+	// whether a Presence of this pass moves (H5e).
+	now    duration,
+	tickAt Option[duration],
+	moving bool,
+	// focus is the node the keyboard is on (UC-FOCUS): the last one pressed
+	// or typed into, Null before any.
+	focus arena.Ref[node[E]],
+	// down is the node the last pointer Down went to, Null after an Up
+	// (FK12-g1): a move to it is a Drag.
+	down arena.Ref[node[E]],
+	// lookList is the Looks the frame interned (look.ergo), by LookId,
+	// lookIds each one's LookId, and lookSent how many a Commit has sent
+	// (Define).
+	lookList []Looks,
+	lookIds  Map[Looks, int],
+	lookSent int,
+	// UG3 (focus.ergo): hover is the node the pointer is over (Null:
+	// none), over the Areas that hold it, the innermost first (OT-PHASES:
+	// the crossings follow them), crossed the Leave and Enter signals the last event made,
+	// visible whether the focus came from a key, want this pass's Focus
+	// request and wanted the last one applied, openers the focus scopes
+	// the tree holds, roved each roving group's stop.
+	hover   arena.Ref[node[E]],
+	over    []arena.Ref[node[E]],
+	crossed []E,
+	visible bool,
+	want    Option[Key],
+	wanted  Option[Key],
+	openers []opener[E],
+	roved   Map[arena.Ref[node[E]], arena.Ref[node[E]]],
+	// paint is the scratch every canvas paints into (Canvas, paint.ergo).
+	paint  Paint,
+	// readouts is the readouts the pass placed, the first nreadouts
+	// (ReadoutText, readout.ergo).
+	readouts  []Readout,
+	nreadouts int,
+}
+
+// LayersDismissFromTheTop (UG4): over drawn layers of drawn kinds, some
+// nested in the one before, some with a scrim, some dismissable, and
+// drawn Escapes and clicks on the flow's and the layers' Pressables, the
+// program sees the reference model's signals: Escape is the top
+// dismissable layer's dismiss signal, and the page's key function's only
+// when no layer is dismissable; a click outside the top dismissable layer
+// sends its dismiss signal first; a click on a node a scrim covers (outside
+// the top scrim layer) sends nothing else, and any other click its press;
+// a key's press of a node sends its press unless a scrim covers it.
+// The layers stack by kind, then in tree order.
+law LayersDismissFromTheTop(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 1
+		let mut kinds = []int{}
+		let mut scrims = []bool{}
+		let mut dismiss = []bool{}
+		let mut parents = []int{}
+		for i in 0..n {
+			kinds = kinds.Append(draw(&r, 4))
+			scrims = scrims.Append(draw(&r, 3) == 0)
+			dismiss = dismiss.Append(draw(&r, 4) != 0)
+			parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 })
+		}
+		let ks = kinds
+		let ss = scrims
+		let ds = dismiss
+		let ps = parents
+		let view = func(f mut Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
+		let all = (1 << n) - 1
+		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(s layerApp) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut open = all
+		let mut log = ""
+		for _ in 0..(steps%16+16)%16+4 {
+			let topD = layerTop(open, kinds, parents, dismiss)
+			let topS = layerTop(open, kinds, parents, scrims)
+			let act = draw(&r, 4)
+			if act == 0 {
+				Play(&h, []Act{KeyIn{Press: KeyPress{Name: "Escape", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch {
+				case _:
+					return false
+				}
+				if topD >= 0 {
+					log = log + "\(10 + topD),"
+					open = open - (open & (1 << topD))
+				} else {
+					log = log + "900,"
+				}
+			} else {
+				// A click on a flow Pressable (-1) or a shown layer's.
+				let mut shown = []int{-1}
+				for i in 0..n {
+					if layerShown(open, parents, i) {
+						shown = shown.Append(i)
+					}
+				}
+				let at = shown[draw(&r, len(shown))]
+				let j = draw(&r, 3)
+				let label = if at < 0 { "f\(j)" } else { "l\(at)" }
+				let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) }
+				if act == 3 {
+					// A key's press: no pointer, so no dismissal; a scrim
+					// stops it outside its layer.
+					let ids = Locate(&h, WithLabel{Label: label})
+					if len(ids) != 1 {
+						return false
+					}
+					Activate(&h, ids[0]) catch {
+					case _:
+						return false
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				} else {
+					Play(&h, []Act{TapOn{Label: label}}) catch {
+					case _:
+						return false
+					}
+					if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) {
+						log = log + "\(10 + topD),"
+						open = open - (open & (1 << topD))
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				}
+			}
+			if StateOf(&h).log != log || StateOf(&h).open != open {
+				return false
+			}
+			// The stack: by kind, then in tree order.
+			let ids = LayersOf(&h)
+			let mut k = 0
+			for z in 0..4 {
+				for i in 0..n {
+					if layerShown(open, parents, i) && kinds[i] == z {
+						if k >= len(ids) {
+							return false
+						}
+						let held = Locate(&h, WithLabel{Label: "l\(i)"})
+						if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) {
+							return false
+						}
+						k = k + 1
+					}
+				}
+			}
+			if k != len(ids) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// layerApp is the layer law's state: the open layers (bit i for layer i)
+// and the signals seen. (a law's helper)
+type layerApp { open int, log string }
+
+// layerStep closes layer i on its dismiss signal 10+i, and logs every
+// signal. (a law's helper)
+func layerStep(s layerApp, e int) Decision[layerApp, int] {
+	let mut open = s.open
+	if e >= 10 && e < 20 {
+		open = open - (open & (1 << (e - 10)))
+	}
+	Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
+}
+
+func layerTimer(s layerApp) Option[Timeout[int]] {
+	None
+}
+
+func layerWork(s layerApp) Option[func(send func(e int))] {
+	None
+}
+
+// layerKind is kind k of four. (a law's helper)
+func layerKind(k int) Z {
+	if k == 0 { PopoverZ } else if k == 1 { ModalZ } else if k == 2 { ToastZ } else { TooltipZ }
+}
+
+// layerBody writes layer i while it is open: a Pressable "l<i>" sending
+// 200+i, then, under it, layer i+1 when that one's parent is i. (a law's
+// helper)
+func layerBody(f mut Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	if s.open&(1<<i) == 0 {
+		return
+	}
+	let d = if dismiss[i] { Some{Value: 10 + i} } else { None }
+	Layer(f, Layered[int]{Z: layerKind(kinds[i]), Anchor: Some{Value: ByInt(0)}, Place: Place{Side: SideBottom, Align: AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, Plain()) {
+		Pressable(f, "l\(i)", 200+i) {
+			Text(f, "x")
+		}
+		if i+1 < len(kinds) && parents[i+1] == i {
+			layerBody(f, s, i+1, kinds, scrims, dismiss, parents)
+		}
+	}
+}
+
+// layerScreen is three Pressables "f0" to "f2" sending 100 to 102, in a
+// zone keyed 0, an OnKey sending 900 on Escape, and the open layers, each
+// top one keyed by its index, so a layer that closes leaves the next one's
+// nodes their identity. (a law's helper)
+func layerScreen(f mut Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 900} } else { None }
+	})
+	Zone(f, ByInt(0), Plain()) {
+		for j in 0..3 {
+			Pressable(f, "f\(j)", 100+j) {
+				Text(f, "x")
+			}
+		}
+	}
+	let mut tops = []int{}
+	for i in 0..len(kinds) {
+		if parents[i] < 0 {
+			tops = tops.Append(i)
+		}
+	}
+	Each(f, tops, func(i int) Key { ByInt(i) }) func(i int) {
+		layerBody(f, s, i, kinds, scrims, dismiss, parents)
+	}
+}
+
+// layerShown is whether layer i is in the tree: it and every layer it is
+// under are open. (a law's helper)
+func layerShown(open int, parents []int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if open&(1<<k) == 0 {
+			return false
+		}
+		k = parents[k]
+	}
+	true
+}
+
+// layerTop is the top shown layer (by kind, then the later) that pick
+// holds of, -1 for none. (a law's helper)
+func layerTop(open int, kinds []int, parents []int, pick []bool) int {
+	let mut top = -1
+	for i in 0..len(kinds) {
+		if layerShown(open, parents, i) && pick[i] && (top < 0 || kinds[i] >= kinds[top]) {
+			top = i
+		}
+	}
+	top
+}
+
+// layerUnder is whether layer i is layer l or under it. (a law's helper)
+func layerUnder(parents []int, l int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if k == l {
+			return true
+		}
+		k = parents[k]
+	}
+	false
+}
+
+// isUnderId is whether x is the node id's child. (a law's helper)
+func isUnderId[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], x Id[E]) bool {
+	for k in KidsAt(h, id) {
+		if k == x {
+			return true
+		}
+	}
+	false
+}
+
+// ScrollCostsNoViewPass: over drawn lists (a count, a row height, a
+// header above them) and drawn wheel steps and resizes, a scroll whose
+// viewport shows the same rows (Visible) as the last runs no pass (the
+// step's Counts are none), and every scroll leaves the screen the header
+// and the list cut at its viewport, with the offset the host scrolled to:
+// what a pass would have written.
+law ScrollCostsNoViewPass(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
+		let rh = float64(draw(&r, 30) + 10)
+		let view = func(f mut Frame[int], s int) {
+			Text(f, "head \(s)")
+			Rows(f, "list", n, Length(rh), func(i int) Key { ByInt(i) }) func(i int) {
+				Text(f, "row \(i)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let most = float64(n) * rh
+		let mut off = 0.0
+		let mut height = float64(draw(&r, 400) + 1)
+		let mut was = Visible(n, Length(rh), Viewport{Offset: 0, Height: 0})
+		for k in 0..(steps%40+40)%40+1 {
+			// The first step reports a height; then mostly wheel steps of
+			// under three rows, sometimes a resize.
+			if k > 0 && draw(&r, 8) == 0 {
+				height = float64(draw(&r, 400) + 1)
+			} else if k > 0 {
+				off = off + float64(draw(&r, int(6.0*rh)+1)) - 3.0*rh
+			}
+			if off < 0.0 {
+				off = 0.0
+			}
+			if off > most {
+				off = most
+			}
+			Play(&h, []Act{ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}}) catch {
+			case _:
+				return false
+			}
+			let now = Visible(n, Length(rh), Viewport{Offset: Length(off), Height: Length(height)})
+			if now == was && Counts(&h) != NoCounts() {
+				return false
+			}
+			let (first, last) = now
+			let mut rows = []Shape[int]{}
+			for i in first..last {
+				rows = rows.Append(Shape[int]{Node: TextNode{Value: "row \(i)", Style: Plain()}, Kids: []Shape[int]{}})
+			}
+			let want = []Shape[int]{
+				Shape[int]{Node: TextNode{Value: "head 0", Style: Plain()}, Kids: []Shape[int]{}},
+				Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows},
+			}
+			if !SameShapes(Screen(&h), want) {
+				return false
+			}
+			was = now
+		}
+		true
+	}
+}
+
+// KeyedReorderKeepsRows (UC-REORDER): a component that shows keyed rows,
+// each a Same over a component of its own, keeps every row through any
+// reorder. Over drawn permutations of 2 to 6 rows, each committed once or
+// twice (a press that also navigates commits twice, and the second pass
+// writes the component again from the first), the host's copy shows the
+// rows in the model's order after every commit. A program's component
+// call is a group (UI 13); std's are not, so the probe that restates this
+// law in a program is what holds groups to it.
+law KeyedReorderKeepsRows(seed int, steps int) {
+	let orders = reorders(seed, steps)
+	let mut r = seeded(steps)
+	let view = func(f mut Frame[int], k int) {
+		reorderTable(f, seed, steps, k)
+	}
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for k in 0..len(orders) {
+		let mut want = []string{}
+		for x in orders[k] {
+			want = want.Append("row \(x)")
+		}
+		for _ in 0..draw(&r, 2)+1 {
+			Apply(&m, Render(&f, view, k)) catch {
+			case BadPatch:
+				return false
+			}
+			if shownTexts(MirrorShape(&m)) != want {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// shownTexts is the texts of shapes, in tree order. (a law's helper)
+func shownTexts(shapes []Shape[int]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case TextNode as x:
+			out = out.Append(x.Value)
+		case _:
+		}
+		for x in shownTexts(s.Kids) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// reorders is the orders of KeyedReorderKeepsRows: 2 to 6 rows, then 3 to
+// 8 drawn permutations of them. (a law's helper)
+func reorders(seed int, steps int) [][]int {
+	let mut r = seeded(seed)
+	let mut order = []int{}
+	for i in 0..draw(&r, 5)+2 {
+		order = order.Append(i)
+	}
+	let mut out = [][]int{order}
+	for _ in 0..(steps%6+6)%6+3 {
+		let mut next = []int{}
+		for x in out[len(out)-1] {
+			next = next.Append(x)
+		}
+		for i in 0..len(next) {
+			let j = i + draw(&r, len(next)-i)
+			let x = next[i]
+			next[i] = next[j]
+			next[j] = x
+		}
+		out = out.Append(next)
+	}
+	out
+}
+
+// reorderTable is the k-th order's rows, each a Same keyed by its row
+// over the component reorderRow: a component itself. (a law's helper)
+func reorderTable(f mut Frame[int], seed int, steps int, k int) {
+	Column(f, Plain()) {
+		Each(f, reorders(seed, steps)[k], func(x int) Key { ByInt(x) }) func(x int) {
+			Same(f, ByInt(x)) {
+				reorderRow(f, x)
+			}
+		}
+	}
+}
+
+// reorderRow is row x. (a law's helper)
+func reorderRow(f mut Frame[int], x int) {
+	Text(f, "row \(x)")
+}
+
+// PointerCrossesOnce (UG3): over screens of 2 to 5 Areas, drawn pointer
+// moves onto them and off every node give, each time the node under the
+// pointer changes, the Leave of the node it left and then the Enter of
+// the node it came to, and nothing while it stays, so the program's log
+// is the model's.
+law PointerCrossesOnce(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 4) + 2
+		let view = func(f mut Frame[int], s string) { crossScreen(f, n) }
+		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut at = -1
+		let mut log = ""
+		for _ in 0..draw(&r, 10)+4 {
+			let j = draw(&r, n+1)
+			if j == n {
+				PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+			} else {
+				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let to = if j == n { -1 } else { j }
+			if to != at {
+				if at >= 0 {
+					log = log + "\(10*at + 2),"
+				}
+				if to >= 0 {
+					log = log + "\(10*to + 1),"
+				}
+				at = to
+			}
+			if StateOf(&h) != log {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// crossStep logs each signal. (a law's helper)
+func crossStep(s string, e int) Decision[string, int] {
+	Enter[string]{Next: s + "\(e),"}
+}
+
+func crossTimer(s string) Option[Timeout[int]] {
+	None
+}
+
+func crossWork(s string) Option[func(send func(e int))] {
+	None
+}
+
+// crossScreen is n Areas "a0" to "a<n-1>"; Area i gives 10i+1 on the
+// pointer's enter, 10i+2 on its leave, and nothing else. (a law's helper)
+func crossScreen(f mut Frame[int], n int) {
+	Column(f, Plain()) {
+		for i in 0..n {
+			Area(f, "a\(i)", Plain(), func(p PointerEvent) Option[int] {
+				match p.Phase {
+				case PointerEnter:
+					Some{Value: 10*i + 1}
+				case PointerLeave:
+					Some{Value: 10*i + 2}
+				case _:
+					None
+				}
+			}) {
+				Text(f, "t\(i)")
+			}
+		}
+	}
+}
+
+// FocusFollowsTheRing (UG3): over drawn screens of texts, Pressables,
+// disabled Pressables and roving groups of 1 to 3 Pressables, and drawn
+// Tabs, Shift+Tabs, arrows, Home, End and clicks, the focus is the
+// reference ring's: Tab and Shift+Tab walk the tab stops in tree order,
+// round at the ends, a roving group being one stop, its member the focus
+// was last on (its first before any); an arrow, Home or End moves inside
+// the roving group the focus is in, round at the ends, and does nothing
+// elsewhere; a click puts the focus on what it pressed. The focused node
+// shows its focus look after a key moved the focus there, and after a
+// click its hover look (the pointer stays over it).
+law FocusFollowsTheRing(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut kinds = []int{}
+		let mut sizes = []int{}
+		let mut mem = []int{}
+		let mut labels = []string{}
+		for _ in 0..draw(&r, 6)+2 {
+			let k = draw(&r, 4)
+			kinds = kinds.Append(k)
+			sizes = sizes.Append(draw(&r, 3) + 1)
+			mem = mem.Append(0)
+		}
+		for i, k in kinds {
+			if k == 1 {
+				labels = labels.Append("p\(i)")
+			} else if k == 3 {
+				for j in 0..sizes[i] {
+					labels = labels.Append("g\(i)m\(j)")
+				}
+			}
+		}
+		let ks = kinds
+		let ss = sizes
+		let view = func(f mut Frame[int], s int) { ringScreen(f, s, ks, ss) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut fi = -1
+		let mut fm = 0
+		let mut visible = false
+		for _ in 0..(steps%16+16)%16+4 {
+			let act = draw(&r, 7)
+			if act == 6 && len(labels) == 0 {
+				// nothing to click
+			} else if act == 6 {
+				let l = labels[draw(&r, len(labels))]
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: l}}}) catch {
+				case _:
+					return false
+				}
+				for i, k in kinds {
+					if k == 1 && l == "p\(i)" {
+						fi = i
+						fm = 0
+					} else if k == 3 {
+						for j in 0..sizes[i] {
+							if l == "g\(i)m\(j)" {
+								fi = i
+								fm = j
+								mem[i] = j
+							}
+						}
+					}
+				}
+				visible = false
+			} else if act < 2 {
+				let back = act == 1
+				Play(&h, []Act{keyIn("Tab", back)}) catch {
+				case _:
+					return false
+				}
+				let mut ring = []int{}
+				for i, k in kinds {
+					if k == 1 || k == 3 {
+						ring = ring.Append(i)
+					}
+				}
+				let n = len(ring)
+				if n == 0 {
+					fi = -1
+				} else {
+					let mut pos = -1
+					for p, i in ring {
+						if i == fi {
+							pos = p
+						}
+					}
+					pos = if pos < 0 { if back { n - 1 } else { 0 } } else if back { (pos + n - 1) % n } else { (pos + 1) % n }
+					fi = ring[pos]
+					fm = if kinds[fi] == 3 { mem[fi] } else { 0 }
+				}
+				visible = true
+			} else {
+				let names = []string{"ArrowRight", "ArrowLeft", "Home", "End"}
+				let key = names[act-2]
+				Play(&h, []Act{keyIn(key, false)}) catch {
+				case _:
+					return false
+				}
+				if fi >= 0 && kinds[fi] == 3 {
+					let k = sizes[fi]
+					fm = if key == "ArrowRight" { (fm + 1) % k } else if key == "ArrowLeft" { (fm + k - 1) % k } else if key == "Home" { 0 } else { k - 1 }
+					mem[fi] = fm
+					visible = true
+				}
+			}
+			let want = if fi < 0 { "" } else { ringName(kinds, fi, fm) }
+			if focusName(&h) != want {
+				return false
+			}
+			match FocusOf(&h) {
+			case Some[Id[int]] as id:
+				let shown LookState = if visible { FocusVisible } else { Hover }
+				if LookStateAt(&h, id.Value) != shown {
+					return false
+				}
+			case None:
+			}
+		}
+		true
+	}
+}
+
+// ringScreen writes the drawn items in a Column: 0 a Text "n<i>", 1 a
+// Pressable "p<i>", 2 a Pressable "d<i>" under a disabled Fieldset, 3 a
+// Roving group of sizes[i] Pressables "g<i>m<j>". (a law's helper)
+func ringScreen(f mut Frame[int], s int, kinds []int, sizes []int) {
+	Column(f, Plain()) {
+		for i, k in kinds {
+			if k == 0 {
+				Text(f, "n\(i)")
+			} else if k == 1 {
+				Pressable(f, "p\(i)", s) {
+					Text(f, "x")
+				}
+			} else if k == 2 {
+				Fieldset(f, true, "") {
+					Pressable(f, "d\(i)", s) {
+						Text(f, "x")
+					}
+				}
+			} else {
+				Roving(f) {
+					for j in 0..sizes[i] {
+						Pressable(f, "g\(i)m\(j)", s) {
+							Text(f, "x")
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// keyIn presses the key name, with Shift when shift. (a law's helper)
+func keyIn(name string, shift bool) Act {
+	KeyIn{Press: KeyPress{Name: name, Mods: Mods{Shift: shift, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+// focusName is the name of the node the focus is on, "" for none. (a
+// law's helper)
+func focusName[S, D, F](h mut TestHost[S, int, D, F]) string {
+	match FocusOf(h) {
+	case Some[Id[int]] as id:
+		AccessAt(h, id.Value).Name
+	case None:
+		""
+	}
+}
+
+// ringName is the name of item i's member j in ringScreen. (a law's
+// helper)
+func ringName(kinds []int, i int, j int) string {
+	if kinds[i] == 3 { "g\(i)m\(j)" } else { "p\(i)" }
+}
+
+// FocusStaysInScope (UG3): over drawn screens with 1 to 4 Pressables
+// outside a focus scope and 1 to 4 (and "close") inside it, a click
+// outside opens the scope and the focus moves to its first Pressable;
+// then drawn Tabs, Shift+Tabs and arrows keep the focus inside it, Tab
+// going round the scope's own stops.
+law FocusStaysInScope(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let outs = draw(&r, 4) + 1
+		let ins = draw(&r, 4) + 1
+		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		Play(&h, []Act{ClickOn{At: WithLabel{Label: "o\(draw(&r, outs))"}}}) catch {
+		case _:
+			return false
+		}
+		if focusName(&h) != "s0" {
+			return false
+		}
+		let n = ins + 1
+		let mut at = 0
+		for _ in 0..(steps%12+12)%12+4 {
+			let act = draw(&r, 3)
+			if act == 2 {
+				Play(&h, []Act{keyIn("ArrowDown", false)}) catch {
+				case _:
+					return false
+				}
+			} else {
+				Play(&h, []Act{keyIn("Tab", act == 1)}) catch {
+				case _:
+					return false
+				}
+				at = if act == 1 { (at + n - 1) % n } else { (at + 1) % n }
+			}
+			let want = if at == ins { "close" } else { "s\(at)" }
+			if focusName(&h) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// scopeScreen is outside Pressables "o0" to "o<outs-1>", each sending 1,
+// and while s is 1 a FocusScope of Pressables "s0" to "s<ins-1>", each
+// sending 1, and "close", sending 0, the last; Escape sends 0 from
+// anywhere. (a law's helper)
+func scopeScreen(f mut Frame[int], s int, outs int, ins int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 0} } else { None }
+	})
+	Column(f, Plain()) {
+		for i in 0..outs {
+			Pressable(f, "o\(i)", 1) {
+				Text(f, "x")
+			}
+		}
+		if s == 1 {
+			FocusScope(f) {
+				for j in 0..ins {
+					Pressable(f, "s\(j)", 1) {
+						Text(f, "x")
+					}
+				}
+				Pressable(f, "close", 0) {
+					Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// FocusReturnsOnEnd (UG3): drawn rounds over a screen with 1 to 4
+// Pressables outside a focus scope: a click on one opens the scope (the
+// focus moves in), drawn Tabs move inside it, a drawn click outside moves
+// the focus out, and the scope closes by "close" or by Escape; then the
+// focus is on the Pressable that opened it, or, when a click had moved
+// the focus out and Escape closed it, stays where the click put it.
+law FocusReturnsOnEnd(seed int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let outs = draw(&r, 4) + 1
+		let ins = draw(&r, 3) + 1
+		let view = func(f mut Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for _ in 0..draw(&r, 3)+1 {
+			let opener = draw(&r, outs)
+			let mut want = "o\(opener)"
+			Play(&h, []Act{ClickOn{At: WithLabel{Label: want}}}) catch {
+			case _:
+				return false
+			}
+			for _ in 0..draw(&r, 4) {
+				Play(&h, []Act{keyIn("Tab", false)}) catch {
+				case _:
+					return false
+				}
+			}
+			let out = draw(&r, 2) == 0
+			if out {
+				want = "o\(draw(&r, outs))"
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: want}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let escape = out || draw(&r, 2) == 0
+			let close = if escape { keyIn("Escape", false) } else { ClickOn{At: WithLabel{Label: "close"}} }
+			Play(&h, []Act{close}) catch {
+			case _:
+				return false
+			}
+			if focusName(&h) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// CancelledFetchStops: the load app's fetch says when it starts and when
+// it ends, and sleeps an hour on the clock. A press of "next" changes the
+// key: when the press returns, the fetch of the old key has ended (its task
+// was stopped, not left asleep), one fetch is in flight, and the program
+// holds no result. A Settle then returns with the fetch still asleep on
+// the clock, in flight, and its trace line says "waiting on the clock: 1":
+// it never blocks on a sleeper the script could wake (FK4-g2). After the
+// clock moves an hour, Settle returns with the live key's result shown and
+// no fetch in flight (settledShowsLatest).
+law CancelledFetchStops(steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cancelStops(steps, m)
+	}
+}
+
+// chosen is the state of the load app: the key its view loads, and the
+// result the program holds (-1 for none yet).
+type chosen { key int, ready int }
+
+// chosenStep: a signal of 0 or more is a new key, and the result goes back to
+// none; a negative signal is a fetch's result.
+func chosenStep(s chosen, e int) Decision[chosen, int] {
+	if e >= 0 {
+		return Enter[chosen]{Next: chosen{key: e, ready: -1}}
+	}
+	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+}
+
+func chosenTimer(s chosen) Option[Timeout[int]] { None }
+
+func chosenWork(s chosen) Option[func(send func(e int))] { None }
+
+func chosenExit(s chosen) Option[func()] { None }
+
+func chosenMachine() Machine[chosen, int, int] {
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork, Exit: chosenExit}
+}
+
+// valueOf is what the fetch of key k gives.
+func valueOf(k int) int { k*10 + 7 }
+
+func cancelStops(steps int, m time.Manual) bool needs Scheduler {
+	let started = queue.New[int](64)
+	let ended = queue.New[int](64)
+	let view = func(f mut Frame[int], s chosen) {
+		let k = s.key
+		Text(f, "key \(k) ready \(s.ready)")
+		Pressable(f, "next", k+1+k%3) {
+			Text(f, "next")
+		}
+		Load(f, ByInt(k), func() int {
+			started.Push(k) catch {
+			case queue.Closed:
+			}
+			scope.OnExit() {
+				ended.Push(k) catch {
+				case queue.Closed:
+				}
+			}
+			time.Sleep(m, 1h)
+			-1 - valueOf(k)
+		})
+	}
+	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let first = started.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	if first != 0 {
+		return false
+	}
+	for _ in 0..(steps%8+8)%8+1 {
+		let old = StateOf(&h).key
+		Play(&h, []Act{TapOn{Label: "next"}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if ended.Poll() != (Some{Value: old}) || Fetching(&h) != 1 || s.ready != -1 {
+			return false
+		}
+		let now = started.Pop() catch {
+		case queue.Closed:
+			return false
+		}
+		if now != s.key {
+			return false
+		}
+	}
+	let waiting = PlayTrace(&h, []Act{SettleAll}) catch {
+	case _:
+		return false
+	}
+	if Fetching(&h) != 1 || len(waiting) != 1 || !strings.HasSuffix(waiting[0], "; waiting on the clock: 1") {
+		return false
+	}
+	Play(&h, []Act{AdvanceBy{By: 1h}, SettleAll}) catch {
+	case _:
+		return false
+	}
+	let s = StateOf(&h)
+	s.ready == valueOf(s.key) && Fetching(&h) == 0 && SameShapes(Screen(&h), freshShape(view, s))
+}
+
+// OffClockAnswerIsWaitedFor: the load app's fetch asks a server and waits
+// for its answer. The server answers from a task of its own, which left the
+// host's clock for a clock of its own and waits there before each answer,
+// as a real server answers on its own time; meanwhile a timer sleeps an
+// hour on the host's clock, and so does a second fetch of the view. The
+// server answers only once Settle has found the fetch in flight and waits
+// for what it posts (the point "ui.settle.waits", RT-HOOK), so the answer
+// comes after every check Settle makes, on every run. After each press of
+// "next", Settle waits for the answer: it returns with the live key's
+// result shown, only the sleeping fetch in flight, and the timer still
+// asleep. A sleeper the script could wake, a fetch's own among them, never
+// makes it give up on a fetch the clock does not hold (FK4-g2-g1).
+law OffClockAnswerIsWaitedFor(steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		offClock(steps, m)
+	}
+}
+
+func offClock(steps int, m time.Manual) bool needs Scheduler {
+	let asks = queue.New[int](8)
+	let answers = queue.New[int](8)
+	let release = queue.New[int](8)
+	let hops = (steps%32+32)%32 + 32
+	let server = task.Go() {
+		let c = testing.NewVirtualClock(0)
+		let mut open = true
+		for open {
+			let k = asks.Pop() catch {
+			case queue.Closed:
+				-1
+			}
+			if k >= 0 {
+				let _ = release.Pop() catch {
+				case queue.Closed:
+					-1
+				}
+			}
+			if k < 0 {
+				open = false
+			} else {
+				for _ in 0..hops {
+					testing.Sleep(c, 1ms)
+				}
+				answers.Push(-1 - valueOf(k)) catch {
+				case queue.Closed:
+					open = false
+				}
+			}
+		}
+		true
+	}
+	let timer = task.Go() {
+		time.Sleep(m, 1h)
+		true
+	}
+	let view = func(f mut Frame[int], s chosen) {
+		let k = s.key
+		Text(f, "key \(k) ready \(s.ready)")
+		Pressable(f, "next", k+1) {
+			Text(f, "next")
+		}
+		Load(f, ByInt(k), func() int {
+			asks.Push(k) catch {
+			case queue.Closed:
+			}
+			answers.Pop() catch {
+			case queue.Closed:
+				-1
+			}
+		})
+		Load(f, ByInt(-1), func() int {
+			time.Sleep(m, 1h)
+			0
+		})
+	}
+	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut held = true
+	for i in 0..(steps%4+4)%4+1 {
+		let script = if i == 0 { []Act{SettleAll} } else { []Act{TapOn{Label: "next"}, SettleAll} }
+		testing.At("ui.settle.waits", func() {
+			release.Push(i) catch {
+			case queue.Closed:
+			}
+		})
+		Play(&h, script) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		held = held && s.ready == valueOf(s.key) && Fetching(&h) == 1 && time.Sleepers(m) == 2
+	}
+	asks.End()
+	release.End()
+	timer.Stop()
+	server.Stop()
+	held
+}
+
+// VersionedNeverRunsAhead: a commit that lands between a pass's read of
+// the actor's state and its read of the version after it (the point
+// "ui.versioned", RT-HOOK) is drawn. The pass reads again, so the version
+// it records is the version of the state it drew, and the screen shows the
+// newest state once Settle returns. A version guessed high would record
+// the commit as drawn and leave the older state on the screen
+// (FK2-g2-g1).
+law VersionedNeverRunsAhead(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		versionedHolds(n, m)
+	}
+}
+
+func versionedHolds(n int, m time.Manual) bool needs Scheduler {
+	let landed = 1000 + (n%1000+1000)%1000
+	let a = actor.StartMachine(dialMachine(), 4, func(o int) {})
+	let view = func(f mut Frame[int], s int) {
+		Text(f, "n \(s)")
+		Pressable(f, "set", s+1) {
+			Text(f, "set")
+		}
+	}
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	testing.At("ui.versioned", func() {
+		a.Send(landed) catch {
+		case actor.Stopped:
+			return
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == landed }) catch {
+		case actor.Stopped:
+			return
+		}
+	})
+	Play(&h, []Act{TapOn{Label: "set"}, SettleAll}) catch {
+	case _:
+		return false
+	}
+	let s = StateOf(&h)
+	a.Stop()
+	s == landed && SameShapes(Screen(&h), freshShape(view, s))
+}
+
+func dialStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func dialTimer(s int) Option[Timeout[int]] { None }
+
+func dialWork(s int) Option[func(send func(e int))] { None }
+
+func dialExit(s int) Option[func()] { None }
+
+func dialMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork, Exit: dialExit}
+}
+
+// RowsKeepTheCursor (GP1b): a long list that keeps its cursor's row in
+// view (RowsKeeping), under drawn host scrolls and resizes and drawn
+// moves of the cursor, some past the list's end: after each step the
+// node's offset is the model's, where a move brings the row whole into
+// view by the least move and a scroll of the host's stays until the
+// cursor moves again, and the list shows the rows that offset shows.
+law RowsKeepTheCursor(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cursorKept(seed, steps, m)
+	}
+}
+
+// cursorStep: the signal is the cursor's row.
+func cursorStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func cursorTimer(s int) Option[Timeout[int]] { None }
+
+func cursorWork(s int) Option[func(send func(e int))] { None }
+
+func cursorExit(s int) Option[func()] { None }
+
+func cursorMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork, Exit: cursorExit}
+}
+
+// keptOffset is the model of the offset that shows row k whole, by its
+// two candidates: the offset stays when the row is inside the viewport;
+// else the viewport's top or its bottom meets the row's, whichever is
+// nearer, and its top when the viewport is shorter than a row.
+func keptOffset(k int, rh float64, off float64, height float64) float64 {
+	let top = float64(k) * rh
+	let bottom = top + rh
+	if height >= rh && top >= off && bottom <= off+height {
+		return off
+	}
+	if height < rh {
+		return top
+	}
+	let up = top
+	let down = bottom - height
+	if (off-up)*(off-up) <= (down-off)*(down-off) {
+		return up
+	}
+	down
+}
+
+func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let sizes = []int{0, 3, 50, 1000}
+	let n = sizes[draw(&r, len(sizes))]
+	let rh = float64(draw(&r, 40) + 10)
+	let view = func(f mut Frame[int], s int) {
+		OnKey(f, func(k KeyPress) Option[int] {
+			for i in 0..n+1 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		RowsKeeping(f, "list", n, Length(rh), s, func(i int) Key { ByInt(i) }) func(i int) {
+			Text(f, "row \(i)")
+		}
+	}
+	let a = actor.StartMachine(cursorMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut off = 0.0
+	let mut height = 0.0
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act Act = SettleAll
+		if draw(&r, 2) == 0 {
+			off = float64(draw(&r, n*int(rh)+1))
+			height = float64(draw(&r, 300))
+			act = ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}
+		} else {
+			let k = draw(&r, n+1)
+			act = KeyIn{Press: KeyPress{Name: "\(k)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+			if k != StateOf(&h) && k < n {
+				off = keptOffset(k, rh, off, height)
+			}
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let now = shownRows(n, rh, off, height)
+		let mut rows = []Shape[int]{}
+		for i in now {
+			rows = rows.Append(leaf(TextNode{Value: "row \(i)", Style: Plain()}))
+		}
+		let mut first = n
+		if len(now) > 0 {
+			first = now[0]
+		}
+		let want = Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}
+		if !SameShapes(Screen(&h), []Shape[int]{want}) {
+			return false
+		}
+	}
+	true
+}
+
+// CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
+// Text outside them, a key that removes the first Area and a tap on a
+// Pressable or the Text (a press and a release on what it taps, which lets
+// go: FK12-g1), each event
+// goes where a model of capture says: to the Area that took the last Down
+// with no Up since, while the tree still holds it, else to the node
+// named. Each Area's signal names it and the phase, so the actor's state
+// is the model's after each event, and the host's Captured is the
+// model's. A move, sent as a Moved or as a Drag, reaches the Area as a
+// Drag exactly when an Area holds the pointer: a move without a press is
+// never a drag (FK12-g1).
+law CaptureKeepsThePointer(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		captureFollows(seed, steps, m)
+	}
+}
+
+// pointerOnly is base plus the phase's code, and nothing on the
+// pointer's enter or leave (UG3). (a law's helper)
+func pointerOnly(base int, p PointerEvent) Option[int] {
+	match p.Phase {
+	case PointerEnter, PointerLeave:
+		None
+	case _:
+		Some{Value: base + phaseCode(p.Phase)}
+	}
+}
+
+func phaseCode(p Phase) int {
+	match p {
+	case Down:
+		1
+	case Moved:
+		2
+	case Up:
+		3
+	case Wheel:
+		4
+	case Drag:
+		5
+	case PointerEnter:
+		6
+	case PointerLeave:
+		7
+	}
+}
+
+func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f mut Frame[int], s int) {
+		OnKey(f, func(k KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
+		Pressable(f, "tap", 98) {
+			Text(f, "tap")
+		}
+		Text(f, "top")
+		if s != 99 {
+			Area(f, "a", Plain(), func(p PointerEvent) Option[int] { pointerOnly(10, p) }) {
+				Text(f, "in a")
+			}
+		}
+		Area(f, "b", Plain(), func(p PointerEvent) Option[int] { pointerOnly(20, p) }) {
+			Text(f, "in b")
+		}
+	}
+	let a = actor.StartMachine(zoneMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	// The model: the Area holding the pointer (0 none, 10 a, 20 b) and the
+	// actor's state.
+	let mut held = 0
+	let mut state = 0
+	let mut last = 0
+	// The first nine events are fixed: on b a Down, Drag, Up, Moved, Down, a
+	// tap and Moved, then a Down on the Text and a Moved on b; the rest are
+	// drawn.
+	let opening = []Phase{Down, Drag, Up, Moved, Down, Down, Moved, Down, Moved}
+	for i in 0..(steps%24+24)%24+16 {
+		let shownA = state != 99
+		let other = if i < 9 { if i == 5 { 1 } else { 2 } } else { draw(&r, 8) }
+		if other == 0 {
+			// The key h hides a; a key holds no pointer, so b keeps it.
+			PressKey(&h, KeyPress{Name: "h", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+			case _:
+				return false
+			}
+			state = 99
+			if held == 10 {
+				held = 0
+			}
+		} else if other == 1 {
+			// A tap is a press and a release: it lets go of the pointer, and
+			// its Down and Up go to what it taps, not the Area that held the
+			// pointer. The opening's tap, after a Down on b, is on the Text,
+			// whose press sends nothing.
+			let onText = i == 5 || (i >= 9 && draw(&r, 2) == 0)
+			Play(&h, []Act{TapOn{Label: if onText { "top" } else { "tap" }}}) catch {
+			case _:
+				return false
+			}
+			if !onText {
+				state = 98
+			}
+			held = 0
+		} else {
+			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}, Drag}
+			let phase = if i < 9 { opening[i] } else { phases[draw(&r, 5)] }
+			// The node under the pointer: a (when shown), b or the Text; half
+			// the time the one the last event went to (the Area holding the
+			// pointer, if one did), as a pointer stays over a node for a
+			// press, its drag, its release and the hover after.
+			let mut at = if i < 9 { if i == 7 { 0 } else { 20 } } else if draw(&r, 2) == 0 { last } else { []int{10, 20, 0}[draw(&r, 3)] }
+			if at == 10 && !shownA {
+				at = 0
+			}
+			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
+			let id = foundId(&h, label)
+			PointAt(&h, id, PointerEvent{Pointer: MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			case _:
+				return false
+			}
+			let to = if held != 0 { held } else { at }
+			last = if to != 0 { to } else { at }
+			match phase {
+			case Down:
+				if to != 0 {
+					held = to
+				}
+			case Up:
+				held = 0
+			case _:
+			}
+			let seen = match phase {
+			case Moved, Drag:
+				if held != 0 { Drag } else { Moved }
+			case _:
+				phase
+			}
+			if to != 0 {
+				state = to + phaseCode(seen)
+			}
+		}
+		if StateOf(&h) != state {
+			return false
+		}
+		let want = if held == 10 { Find(&h, "a") } else if held == 20 { Find(&h, "b") } else { None }
+		if Captured(&h) != want {
+			return false
+		}
+	}
+	true
+}
+
+// PostedOrderKeepsTheCounts (UC-SIGNALS-FLAKE): a key whose pass starts
+// more loads than the view's budget of fetches (OnSlow) makes the session
+// send a Slow, which stops the loads. The loads' results and the Slow's
+// Committed are posted by tasks of their own; the law takes them in a
+// drawn order, as a scheduler may post them. In every order the last
+// pass shows the warning, and it counts one signal (the Slow), no fetch
+// and no result: the counts of a pass never depend on scheduling.
+law PostedOrderKeepsTheCounts(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		postedOrder(seed, m)
+	}
+}
+
+// orderStep is the law's machine: the key starts the loads (1), a Slow
+// stops them (2), and a load's result changes nothing (3). (a law's
+// helper)
+func orderStep(s int, e int) Decision[int, int] {
+	if e == 3 {
+		return Ignore
+	}
+	Enter[int]{Next: e}
+}
+
+func postedOrder(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 4) + 3
+	let view = func(f mut Frame[int], s int) {
+		OnSlow(f, Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x Slow) int { 2 })
+		OnKey(f, func(k KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
+		Text(f, "s\(s)")
+		if s == 1 {
+			for i in 0..n {
+				Load(f, ByInt(i), func() int { 3 })
+			}
+		}
+	}
+	let posted = queue.New[Event[int]](64)
+	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+	let (s, _) = Start(a, view, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let _ = Step(&session, KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+	case actor.Stopped:
+		return false
+	}
+	// Every task runs to its end: n results and the Slow's Committed wait.
+	m.Advance(duration(int64(0)))
+	let mut evs = []Event[int]{}
+	let mut more = true
+	for more {
+		match posted.Poll() {
+		case Some[Event[int]] as ev:
+			evs = evs.Append(ev.Value)
+		case None:
+			more = false
+		}
+	}
+	// Take them in a drawn order (a shuffle), then whatever they posted.
+	for i in 0..len(evs) {
+		let j = i + draw(&r, len(evs)-i)
+		let x = evs[i]
+		evs[i] = evs[j]
+		evs[j] = x
+	}
+	for ev in evs {
+		let _ = Step(&session, ev) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(duration(int64(0)))
+	let mut rest = true
+	for rest {
+		match posted.Poll() {
+		case Some[Event[int]] as ev:
+			let _ = Step(&session, ev.Value) catch {
+			case actor.Stopped:
+				return false
+			}
+		case None:
+			rest = false
+		}
+	}
+	let st = SessionStats(&session)
+	let ok = a.State() == 2 && st.Signals == 1 && st.Fetches == 0
+	a.Stop()
+	ok
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -88,6 +1585,9 @@ type base { site CallSite, each CallSite, key Key }
 // slotOf is a base under one parent spec (-1 the root), for counting n.
 type slotOf { parent int, b base }
 
+// tally is how many identities of one slotOf the pass numbered pass took.
+type tally { pass int, n int }
+
 // node is one retained node: what it shows, its identity, its children in
 // order, the signal of a text (an Input), the cell an event on it writes
 // (a Field, a Toggle, a Submit), and the cells and loads read directly
@@ -103,6 +1603,7 @@ type node[E] {
 	off     bool,
 	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
+	onKey   Option[func(k KeyPress) Option[E]],
 	binds   Option[bound[E]],
 	cells   Map[ident, Cell],
 	loads   Map[ident, slot],
@@ -110,6 +1611,11 @@ type node[E] {
 	dirty   bool,
 	memo    arena.Ref[node[E]],
 	up      arena.Ref[node[E]],
+	// edit is the text, caret and anchor the last Type or Edit gave an
+	// Input; a pass shows them while the value is that text (edit.ergo).
+	edit    Option[Editing],
+	// focusAs is how the node takes part in the focus (focus.ergo).
+	focusAs int,
 }
 
 // bound is the cell an event on a node writes: the cell id of node owner.
@@ -118,10 +1624,17 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // spec is one node a pass wrote: what it shows, its identity, the index
 // of its parent spec (-1 for a child of the root), the node of the last
 // pass with its identity (prev, Null for none) and the node of this pass
-// (ref, set by Commit). The pass's tree is linked through the specs: first
+// (ref, set by Commit). again marks a node a kept group wrote again
+// (group.ergo), skipped as a skipped Same is. The pass's tree is linked through the specs: first
 // and last are the spec's first and last child, next and before its next
 // and previous sibling (-1 for none), so the children of a spec are a
-// walk, not a list built each pass.
+// walk, not a list built each pass. nkids is how many children it has so
+// far: the place of the next, which prior tries first. pending is whether
+// a kept group under it has not taken its tops' counts yet. block is the
+// kept group (an index of keptList) whose top nodes this one spec stands
+// for, written again together (group.ergo, putTops), or -1: a block's
+// nodes are its group's tops, skipped, and Commit, settle and FrameShape
+// read them from the group (blockTop).
 type spec[E] {
 	node    Node[E],
 	id      ident,
@@ -130,64 +1643,994 @@ type spec[E] {
 	ref     arena.Ref[node[E]],
 	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
+	onKey   Option[func(k KeyPress) Option[E]],
 	binds   Option[cellAt],
 	off     bool,
 	memo    int,
 	same    Option[memoRun[E]],
 	skip    bool,
+	again   bool,
 	live    bool,
 	first   int,
 	last    int,
 	next    int,
 	before  int,
+	nkids   int,
+	pending bool,
+	block   int,
+	focusAs int,
 }
 
-let nowhere = CallSite{File: "", Line: 0, Column: 0}
+let nowhere = CallSite{File: "", Line: 0, Column: 0, Id: 0}
 
 // Op is one change a host applies, in order. Before names the sibling the
-// node goes in front of; None puts it last.
-type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]}
+// node goes in front of; None puts it last. Define gives the host the
+// Looks of a new LookId, the next one, before any node names it (UG1).
+type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]} | Define{Id LookId, Looks Looks}
 
 // NewFrame is a composer whose tree has only its root.
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
-	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupLog: []slotOf{}, ngroupLog: 0, cuts: 0, groupRuns: 0}
+	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
 }
 
-func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]]()}
+// IncrementalEqualsFresh: committing the frames of a run of states in
+// order leaves the tree, and the mirror built from the patches, showing
+// what the program means at the last state, as a fresh commit of that
+// frame shows it. The tree holds no node more than the frame wrote, and
+// after a pass in which no boundary stopped, the frame holds no parked
+// node either. The programs hold boundaries whose reads fail by the
+// state, inside containers, Each rows and other boundaries (H8a).
+law IncrementalEqualsFresh(seed int, steps int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for _ in 0..(steps%8+8)%8+1 {
+		let s = genState(&r)
+		Apply(&m, pass(&f, ps, s)) catch {
+		case BadPatch:
+			return false
+		}
+		let mut fresh = NewFrame[int]()
+		let mut fm = NewMirror[int](Root(&fresh))
+		Apply(&fm, pass(&fresh, ps, s)) catch {
+		case BadPatch:
+			return false
+		}
+		let want = models(ps, s, 0)
+		if !SameShapes(FrameShape(&f), want) || !SameShapes(TreeShape(&f), want) || !SameShapes(MirrorShape(&m), want) || !SameShapes(MirrorShape(&fm), want) {
+			return false
+		}
+		if Len(&f) != nodes(want)+1 || Held(&m) != Len(&f) {
+			return false
+		}
+		if !stopsAt(ps, s, 0) && Retained(&f) != Len(&f) {
+			return false
+		}
+	}
+	true
+}
+
+// Missing is the drawn read's failure that is not Pending.
+type Missing { V int }
+
+// swap writes a Text or a Check at its caller's site.
+func swap(f mut Frame[int], v int, at CallSite) {
+	if v%2 == 0 {
+		Text(f, "even \(v)", at)
+	} else {
+		Check(f, "odd", v%3 == 0, v, at)
+	}
+}
+
+func render(f mut Frame[int], p prog, s []int, row int) fails Missing | Pending {
+	match p {
+	case pText as x:
+		Text(f, "t\(s[x.slot] + row)")
+	case pInput as x:
+		let v = s[x.slot] + row
+		Input(f, "v\(v)", "type", func(t string) int { len(t) + v })
+	case pCheck as x:
+		Check(f, "c", s[x.slot]%2 == 0, s[x.slot]+row)
+	case pSwap as x:
+		swap(f, s[x.slot]+row)
+	case pBox as x:
+		try Box(f, gapped(s[x.slot])) {
+			for c in x.kids {
+				try render(f, c, s, row)
+			}
+		}
+	case pRow as x:
+		try Row(f, Plain()) {
+			for c in x.kids {
+				try render(f, c, s, row)
+			}
+		}
+		Text(f, "after")
+	case pPress as x:
+		try Pressable(f, "press", s[x.slot]%4+row) {
+			for c in x.kids {
+				try render(f, c, s, row)
+			}
+		}
+	case pFieldset as x:
+		try Fieldset(f, s[x.slot]%3 == 0, described(s[x.slot])) {
+			for c in x.kids {
+				try render(f, c, s, row)
+			}
+		}
+	case pEach as x:
+		try Each(f, items(s[x.slot]), func(k int) Key { ByInt(k) }) func(k int) fails Missing | Pending {
+			for c in x.kids {
+				try render(f, c, s, k)
+			}
+		}
+		Text(f, "after")
+	case pSame as x:
+		let dig = digest(x.kids, s, row)
+		if x.memo {
+			try Same(f, ByInt(dig)) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		} else {
+			try Box(f, Plain()) {
+				try sameBody(f, x.kids, s, row, dig)
+			}
+		}
+	case pBound as x:
+		if x.form == 0 {
+			Boundary(f) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case Pending:
+				Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					Text(f, "missing \(e.V)")
+				}
+			}
+		} else if x.form == 1 {
+			Box(f, Plain()) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case Pending:
+				Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					Text(f, "missing \(e.V)")
+				}
+			}
+		} else {
+			Each(f, items(s[x.slot]), func(k int) Key { ByInt(k) }) func(k int) fails Missing | Pending {
+				for c in x.kids {
+					try render(f, c, s, k)
+				}
+			} catch {
+			case Pending:
+				Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					Text(f, "missing \(e.V)")
+				}
+			}
+		}
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 1 {
+			return Pending
+		}
+		if v%3 == 2 {
+			return Missing{V: v}
+		}
+	}
+}
+
+// sameBody is what a pSame writes: an OnKey whose signal is its key, a
+// Toggle of its own, a Box with a Toggle (a cell its Same does not own),
+// and its kids.
+func sameBody(f mut Frame[int], kids []prog, s []int, row int, dig int) fails Missing | Pending {
+	OnKey(f, func(k KeyPress) Option[int] { Some{Value: dig} })
+	let fl = NewFlag(f, false)
+	Toggle(f, fl, "same")
+	Box(f, Plain()) {
+		let inner = NewFlag(f, false)
+		Toggle(f, inner, "inner")
+	}
+	for c in kids {
+		try render(f, c, s, row)
+	}
+}
+
+// digest is a pSame's key: the row and the state values its kids read,
+// so the kids are a function of it.
+func digest(kids []prog, s []int, row int) int {
+	let mut used = []bool{}
+	for _ in 0..slots {
+		used = used.Append(false)
+	}
+	for c in kids {
+		used = reads(c, used)
+	}
+	let mut d = row
+	for i in 0..slots {
+		d = d * 64
+		if used[i] {
+			d = d + s[i]
+		}
+	}
+	d
+}
+
+// models is what the top programs mean: a failure never leaves them, as
+// a read is drawn only under a pBound.
+func models(ps []prog, s []int, row int) []Shape[int] { outcomes(ps, s, row).shapes }
+
+// pass renders the programs ps at state s as one pass of f.
+func pass(f mut Frame[int], ps []prog, s []int) []Op[int] {
+	Render(f, func(g mut Frame[int], st []int) {
+		for p in ps {
+			render(g, p, st, 0) catch {
+			case Missing:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			case Pending:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			}
+		}
+	}, s)
+}
+
+func nodes(shapes []Shape[int]) int {
+	let mut n = 0
+	for x in shapes {
+		n = n + 1 + nodes(x.Kids)
+	}
+	n
+}
+
+// IdempotentCommit: a second pass of an equal view changes nothing.
+law IdempotentCommit(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let s0 = genState(&r)
+	let s1 = genState(&r)
+	let _ = pass(&f, ps, s0)
+	let _ = pass(&f, ps, s1)
+	len(pass(&f, ps, s1)) == 0
+}
+
+// KeyedMovesFewest: a permutation of one-node keyed rows shows the new
+// order with the fewest Moves: every row but a longest run whose old
+// positions strictly increase (the patience sort's kept run).
+law KeyedMovesFewest(seed int, count int) {
+	let mut r = seeded(seed)
+	let mut xs = []int{}
+	for i in 0..(count%12+12)%12+1 {
+		xs = xs.Append(i)
+	}
+	let ys = shuffled(xs, &r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	Apply(&m, Render(&f, keyedLines, xs)) catch {
+	case BadPatch:
+		return false
+	}
+	let ops = Render(&f, keyedLines, ys)
+	Apply(&m, ops) catch {
+	case BadPatch:
+		return false
+	}
+	let mut moves = 0
+	for op in ops {
+		match op {
+		case Move[int]:
+			moves = moves + 1
+		case _:
+			return false
+		}
+	}
+	SameShapes(MirrorShape(&m), FrameShape(&f)) && moves == len(ys)-longestRise(ys)
+}
+
+// keyedLines is keyed rows of one node each, so two rows that swap are
+// two neighbours whose old positions differ by one.
+func keyedLines(f mut Frame[int], xs []int) {
+	Column(f, Plain()) {
+		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
+			Text(f, "line \(x)")
+		}
+	}
+}
+
+// longestRise is the length of the longest strictly increasing
+// subsequence of xs, by the quadratic reference.
+func longestRise(xs []int) int {
+	let mut best = []int{}
+	let mut most = 0
+	for i, x in xs {
+		let mut b = 1
+		for j in 0..i {
+			if xs[j] < x && best[j]+1 > b {
+				b = best[j] + 1
+			}
+		}
+		best = best.Append(b)
+		if b > most {
+			most = b
+		}
+	}
+	most
+}
+
+// KeyedIdentity: a permutation of keyed rows keeps each row's nodes, and
+// the node after the Each, with their Ids, and the patch only moves them;
+// so does a second permutation after it, which finds the children the
+// first moved (a pass after one that looked them up by index).
+law KeyedIdentity(seed int, count int) {
+	let mut r = seeded(seed)
+	let mut xs = []int{}
+	for i in 0..(count%12+12)%12+1 {
+		xs = xs.Append(i * 7)
+	}
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	Apply(&m, Render(&f, keyedRows, xs)) catch {
+	case BadPatch:
+		return false
+	}
+	let before = rowIds(&f, xs)
+	for _ in 0..2 {
+		let ys = shuffled(xs, &r)
+		let ops = Render(&f, keyedRows, ys)
+		Apply(&m, ops) catch {
+		case BadPatch:
+			return false
+		}
+		for op in ops {
+			match op {
+			case Move[int]:
+			case _:
+				return false
+			}
+		}
+		let after = rowIds(&f, ys)
+		if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) {
+			return false
+		}
+		for x, ids in before {
+			if after.Get(x) != (Some{Value: ids}) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func keyedRows(f mut Frame[int], xs []int) {
+	Column(f, Plain()) {
+		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
+			Text(f, "row \(x)")
+			Pressable(f, "go", x) {
+				Text(f, "go")
+			}
+		}
+		Text(f, "end")
+	}
+}
+
+// rowIds is the Ids of each key's two nodes, by key, in the column the
+// view writes.
+func rowIds(f mut Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
+	let mut out = Map[int, (Id[int], Id[int])]{}
+	let col = Kids(f, Root(f))
+	if len(col) != 1 {
+		return out
+	}
+	let kids = Kids(f, col[0])
+	if len(kids) != 2*len(xs)+1 {
+		return out
+	}
+	for i, x in xs {
+		out[x] = (kids[2*i], kids[2*i+1])
+	}
+	out[-1] = (kids[2*len(xs)], kids[2*len(xs)])
+	out
+}
+
+// GroupByKeepsAfterCheapEqual (P-ui-flow): over passes whose arguments
+// stay, change their compared value, change their slice or both, a
+// groupBy group writes what running its body writes, and it runs exactly
+// when the model says: on its first pass, after a pass that held its
+// arguments shallow (whose compared value changed), and when they differ;
+// it is skipped only when the last memo was its own copy (the first
+// pass's, or one after a pass whose compared value stayed) and equal.
+law GroupByKeepsAfterCheapEqual(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut g = NewFrame[int]()
+	let mut prev = gbArgs{n: 0, xs: []int{}}
+	let mut deep = true
+	for i in 0..(steps%10+10)%10+2 {
+		let pick = draw(&r, 4)
+		let a = if i == 0 || pick == 3 {
+			gbArgs{n: prev.n + draw(&r, 2), xs: []int{draw(&r, 3), draw(&r, 3)}}
+		} else if pick == 0 {
+			prev
+		} else if pick == 1 {
+			gbArgs{n: prev.n + 1, xs: prev.xs}
+		} else {
+			gbArgs{n: prev.n, xs: prev.xs.Append(draw(&r, 3))}
+		}
+		if !opsEqual(Render(&f, gbGrouped, a), Render(&g, gbBody, a)) {
+			return false
+		}
+		let ran = i == 0 || !deep || !gbSame(prev, a)
+		if (GroupRuns(&f) == 1) != ran {
+			return false
+		}
+		if ran {
+			deep = i == 0 || gbCheap(prev, a)
+		}
+		prev = a
+	}
+	true
+}
+
+// groupBy is group for arguments Go's == cannot compare (NS2c): a slice,
+// a Map, or a record that holds one. same is their structural equality,
+// cheap the equality of the values among them Go's == compares (true when
+// there are none), and keep a copy of its own, all generated by the
+// compiler. The memo holds keep(args), made only when the call runs, so a
+// later write in place through the program's value never reaches what the
+// next pass compares; but only after a pass whose cheap values compared
+// equal to the last ones (and on the group's first pass). Otherwise, as
+// in each frame of an animation whose time is an argument, it holds args
+// as they are and is shallow: its cheap values are its own (Go copies
+// them), and the next pass compares only those, running the group either
+// way, so a slice it shares with the program is never read. A view that
+// stops changing runs its group once more, then skips (P-ui-flow).
+func groupBy[E comparable, A](f mut Frame[E], args A, same func(a A, b A) bool, cheap func(a A, b A) bool, keep func(a A) A, body func(), at CallSite) {
+	let id = groupIdent(f, at)
+	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
+	let outer = f.group
+	if outer >= 0 {
+		f.nested = true
+	}
+	let start = f.nspecs
+	let mut slot = -1
+	let mut entry = -1
+	match f.kept.Get(key) {
+	case Some[int] as i:
+		entry = i.Value
+		slot = f.keptList[entry].slot
+		let mut deep = true
+		if argsHas[heldArgs[A]](f.args, slot) {
+			let k = argsAt[heldArgs[A]](f.args, slot)
+			if k.deep && same(k.args, args) && writeAgain(f, entry) {
+				keptAgain(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false, sames: f.keptList[entry].sames})
+				return
+			}
+			deep = cheap(k.args, args)
+		}
+		argsSetBy(f.args, slot, heldOf(args, deep, keep))
+	case None:
+		slot = argsPutBy(f.args, heldOf(args, true, keep))
+	}
+	runGroup(f, id, outer, start, slot, entry, body)
+}
+
+// heldArgs is what groupBy's memo holds: the arguments, a copy of its own
+// when deep, else as the pass gave them (whose slices only the program
+// may read).
+type heldArgs[A] { args A, deep bool }
+
+// heldOf is args as groupBy's memo holds them: keep(args) when deep.
+func heldOf[A](args A, deep bool, keep func(a A) A) heldArgs[A] {
+	if deep {
+		return heldArgs[A]{args: keep(args), deep: true}
+	}
+	heldArgs[A]{args: args, deep: false}
+}
+
+// runGroup runs body as the group whose arguments' slot is slot, entry
+// the kept group its key found (-1 none), and records whether it may be
+// kept.
+func runGroup[E comparable](f mut Frame[E], id ident, outer int, start int, slot int, entry int, body func()) {
+	let r = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: start, outer: outer, pure: true, again: -1, entry: entry, fresh: entry < 0, sames: 0})
+	let before = f.sames
+	let cells = f.ncells
+	let loads = f.nloads
+	let keys = f.nkeys
+	let urls = f.nurls
+	let anims = f.nanims
+	let stops = f.nstops
+	let sames = f.sameSkips
+	f.group = r
+	f.groupRuns = f.groupRuns + 1
+	body()
+	f.group = outer
+	f.groups[r].end = f.nspecs
+	f.groups[r].sames = f.sames - before
+	// A body that read state, or skipped a Same (whose subtree may hold
+	// state), or stopped a group, writes what its arguments alone do not
+	// say.
+	f.groups[r].pure = f.ncells == cells && f.nloads == loads && f.nkeys == keys && f.nurls == urls && f.nanims == anims && f.nstops == stops && f.sameSkips == sames
+}
+
+// keptAgain records g, a group written again: the Sames inside it are
+// written, and kept without running.
+func keptAgain[E](f mut Frame[E], g groupRec[E]) {
+	f.sames = f.sames + g.sames
+	f.keptSames = f.keptSames + g.sames
+	let _ = record(f, g)
+}
+
+// record stores g as the pass's next group, in the storage of the last
+// pass's, and returns its index.
+func record[E](f mut Frame[E], g groupRec[E]) int {
+	let r = f.ngroups
+	if r < len(f.groups) {
+		f.groups[r] = g
+	} else {
+		f.groups = f.groups.Append(g)
+	}
+	f.ngroups = r + 1
+	r
+}
+
+// groupCount is how many group identities of s this pass took, which it
+// then moves by d (count, frame.ergo).
+func groupCount[E](f mut Frame[E], s slotOf, d int) int {
+	let k = slotKey(s)
+	if k >= 0 {
+		let n = thisPass(f.groupSeen.Get(k), f.pass)
+		f.groupSeen[k] = tally{pass: f.pass, n: n + d}
+		return n
+	}
+	let n = thisPass(f.groupWide.Get(s), f.pass)
+	f.groupWide[s] = tally{pass: f.pass, n: n + d}
+	n
+}
+
+// groupIdent is the identity of a group under the current parent, counted
+// apart from the nodes' (identify): a node keeps the identity it has when
+// the call is no group, so cells and matching see the same nodes under
+// either lowering.
+func groupIdent[E](f mut Frame[E], at CallSite) ident {
+	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
+	let n = groupCount(f, s, 1)
+	ident{site: at, each: f.each, key: f.key, n: n}
+}
+
+// writeAgain writes the top nodes of kept group i under the current
+// parent, as its call would, each skipped: each takes the next count of
+// its identity there, which must be the count it had, and must keep its
+// disabled state; else nothing is written and the call runs. It is true
+// when it wrote them. A kept group was written by the last pass and not
+// cut (cut drops the groups it takes back), so its top nodes are the
+// children of its owner in the host's tree, never parked, and its owner,
+// which this pass matched, is no node that comes back from being parked.
+func writeAgain[E](f mut Frame[E], i int) bool {
+	let p = f.parent
+	let up = p >= 0 && f.specs[p].off
+	let t = len(f.keptList[i].tops)
+	// Each top must keep its disabled state.
+	if (up && !f.keptList[i].allOff) || (!up && !f.keptList[i].offSelf) {
+		return false
+	}
+	if f.keptList[i].alone && clearBefore(f, p, f.keptList[i].each) {
+		// No node before the group under p shares its tops' row site, so
+		// each top's identity count is none before it, the first count it
+		// had: the counts are taken only when a later write under p asks
+		// for one (see), which a list holder's rows seldom are.
+		let start = f.nspecs
+		putTops(f, i, p)
+		if f.npending < len(f.pending) {
+			f.pending[f.npending] = pendingCounts{parent: p, entry: i, start: start, done: false}
+		} else {
+			f.pending = f.pending.Append(pendingCounts{parent: p, entry: i, start: start, done: false})
+		}
+		f.npending = f.npending + 1
+		if p < 0 {
+			f.rootPending = true
+		} else {
+			f.specs[p].pending = true
+		}
+		return true
+	}
+	for k in 0..t {
+		// Each top takes its count as it is checked (one lookup a top);
+		// a refusal gives back the counts taken.
+		let id = f.keptList[i].tops[k].id
+		if see(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}) != id.n {
+			unsee(f, k+1)
+			return false
+		}
+	}
+	putTops(f, i, p)
+	true
+}
+
+// putTops writes the top nodes of kept group i under parent p, skipped,
+// as one block spec: one spec for any number of tops, which Commit keeps
+// in place (fix 5: a spec a top cost a list holder of 800 rows most of
+// its pass). A group with no top writes no spec.
+func putTops[E](f mut Frame[E], i int, p int) {
+	if len(f.keptList[i].tops) == 0 {
+		return
+	}
+	let x = f.keptList[i].tops[0]
+	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, onKey: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i, focusAs: focusPlain})
+}
+
+// clearBefore is whether the few nodes written so far under p (at most
+// four, counted, not looked up) all have a row site other than each: then
+// none shares an identity's base with a top of a group whose tops share
+// row site each.
+func clearBefore[E](f mut Frame[E], p int, each CallSite) bool {
+	if kidsWritten(f, p) > 4 {
+		return false
+	}
+	let mut s = lastKid(f, p)
+	for s >= 0 {
+		let b = f.specs[s].block
+		if b >= 0 && !f.keptList[b].alone {
+			return false
+		}
+		if f.specs[s].id.each == each {
+			return false
+		}
+		s = f.specs[s].before
+	}
+	true
+}
+
+// unsee gives back the last n identity counts the pass took.
+func unsee[E](f mut Frame[E], n int) {
+	for _ in 0..n {
+		f.nseen = f.nseen - 1
+		count(f, f.seenLog[f.nseen], -1)
+	}
+}
+
+// opsEqual is whether two patches are the same changes.
+func opsEqual(a []Op[int], b []Op[int]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// SameEqualsRecompute (UC-4): a Same that skips its body gives what
+// running it gives. Over a run of states that change one slot or none,
+// with presses of Toggles under Sames between passes, the programs with
+// Sames (and a revived one, whose boundary fails and passes in turn) and
+// the same programs with each Same run every pass give equal patches and
+// trees, and send equal signals on every node and on a key; a pass at the
+// state of the pass before, with no press between, keeps every outermost
+// Same outside a failing group without running it (Skips).
+// gbArgs are a group's arguments for GroupByKeepsAfterCheapEqual: a value
+// Go's == compares (n) and a slice it cannot (xs).
+type gbArgs { n int, xs []int }
+
+func gbSame(a gbArgs, b gbArgs) bool {
+	if a.n != b.n || len(a.xs) != len(b.xs) {
+		return false
+	}
+	for i, x in a.xs {
+		if b.xs[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+func gbCheap(a gbArgs, b gbArgs) bool { a.n == b.n }
+
+func gbKeep(a gbArgs) gbArgs {
+	let mut ys = []int{}
+	for x in a.xs {
+		ys = ys.Append(x)
+	}
+	gbArgs{n: a.n, xs: ys}
+}
+
+func gbBody(f mut Frame[int], a gbArgs) {
+	Text(f, "n \(a.n)")
+	for x in a.xs {
+		Text(f, "x \(x)")
+	}
+}
+
+func gbGrouped(f mut Frame[int], a gbArgs) {
+	groupBy(f, a, gbSame, gbCheap, gbKeep, func() { gbBody(f, a) })
+}
+
+// GroupSkipsEqualArguments (P-ui, SP9: the group protocol): over passes
+// whose arguments stay or change, a group writes what running its body
+// writes, and it runs its body exactly on its first pass and when its
+// arguments differ from the last pass's. It is the law the skip rests on
+// (equal arguments write equal nodes); a frame package's group is the
+// compiler's form of a component call only when a law of that package
+// reaches it (lower/uigroup.go, groupLawed), so a user's UI library
+// states its own.
+law GroupSkipsEqualArguments(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut g = NewFrame[int]()
+	let mut prev = grArgs{n: 0, on: false}
+	for i in 0..(steps%10+10)%10+2 {
+		let a = if i > 0 && draw(&r, 2) == 0 {
+			prev
+		} else {
+			grArgs{n: draw(&r, 3), on: draw(&r, 2) == 0}
+		}
+		if !opsEqual(Render(&f, grGrouped, a), Render(&g, grBody, a)) || !SameShapes(TreeShape(&f), TreeShape(&g)) {
+			return false
+		}
+		let ran = i == 0 || a.n != prev.n || a.on != prev.on
+		if (GroupRuns(&f) == 1) != ran {
+			return false
+		}
+		prev = a
+	}
+	true
+}
+
+// group writes body's nodes as one group (the compiler's form of a
+// component call, never written by a program): the nodes of the last
+// pass's group when it is kept with arguments equal to args, else body's.
+func group[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
+	let id = groupIdent(f, at)
+	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
+	let outer = f.group
+	if outer >= 0 {
+		f.nested = true
+	}
+	let start = f.nspecs
+	let mut slot = -1
+	let mut entry = -1
+	// The kept groups are a list the map indexes: a Map whose values hold
+	// slices is copied whole when read (measured: 93% of a pass).
+	match f.kept.Get(key) {
+	case Some[int] as i:
+		entry = i.Value
+		slot = f.keptList[entry].slot
+		if argsSame(f.args, slot, args) && writeAgain(f, entry) {
+			keptAgain(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false, sames: f.keptList[entry].sames})
+			return
+		}
+		argsSet(f.args, slot, args)
+	case None:
+		slot = argsPut(f.args, args)
+	}
+	runGroup(f, id, outer, start, slot, entry, body)
+}
+
+// grArgs are a group's arguments for GroupSkipsEqualArguments: every
+// value its body reads.
+type grArgs { n int, on bool }
+
+func grBody(f mut Frame[int], a grArgs) {
+	Text(f, "n \(a.n)")
+	if a.on {
+		Box(f, Plain()) {
+			Text(f, "on")
+		}
+	}
+}
+
+// grGrouped writes grBody through group, as the compiler writes a
+// component call.
+func grGrouped(f mut Frame[int], a grArgs) {
+	group(f, a, func() { grBody(f, a) })
+}
+
+// StateKeeps: across passes that reorder keyed rows, each cell holds the
+// last value an event wrote to it, wherever its row moves.
+law StateKeeps(seed int, steps int) {
+	cellsFollowModel(seed, steps, false)
+}
+
+// row is the model of one keyed row of cellRows: its draft a, its draft b
+// and its flag.
+type row { a string, b string, on bool }
+
+// cellRows writes, for each key, a Field over a draft a with a Text that
+// shows it, a Row holding a Field over a draft b, a Toggle over a flag and
+// a Submit that sends the key and empties a. Draft a and the flag are read
+// directly under the Each, so their cells are keyed by the row's key; draft
+// b is read inside the Row, so its cell lives in that row's node.
+func cellRows(f mut Frame[int], keys []int) {
+	Column(f, Plain()) {
+		Each(f, keys, rowKey) func(k int) {
+			let a = NewDraft(f, "")
+			Field(f, a, "a")
+			Text(f, a.Value)
+			Row(f, Plain()) {
+				let b = NewDraft(f, "b\(k)")
+				Field(f, b, "b")
+			}
+			let on = NewFlag(f, false)
+			Toggle(f, on, "t")
+			Submit(f, a, "send", k) {
+				Text(f, "send")
+			}
+		}
+	}
+}
+
+// rowKey is the Key of cellRows' row k: an int for an even k, a text for
+// an odd one, so a reorder moves rows of both kinds of key.
+func rowKey(k int) Key {
+	if k%2 == 0 {
+		return ByInt(k)
+	}
+	ByText("k\(k)")
+}
+
+// cellShape is what cellRows means for the model rows of keys.
+func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
+	let mut kids = []Shape[int]{}
+	for k in keys {
+		let r = rowOf(rows, k)
+		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(r.a), Anchor: len(r.a)}))
+		kids = kids.Append(leaf(TextNode{Value: r.a, Style: Plain()}))
+		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(r.b), Anchor: len(r.b)})}})
+		kids = kids.Append(leaf(ToggleNode{Label: "t", On: r.on}))
+		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: PressStyle()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
+	}
+	[]Shape[int]{Shape[int]{Node: ColumnNode{Style: Plain()}, Kids: kids}}
+}
+
+// rowOf is the model row of k: a fresh row (each cell at init) when k has
+// none.
+func rowOf(rows Map[int, row], k int) row {
+	match rows.Get(k) {
+	case Some[row] as r:
+		r.Value
+	case None:
+		row{a: "", b: "b\(k)", on: false}
+	}
+}
+
+// part is the node at position i (0 to 4) of the row at position at, and
+// for i == 2 the Field inside its Row.
+func part(f mut Frame[int], at int, i int) Id[int] {
+	let col = Kids(f, Root(f))[0]
+	let id = Kids(f, col)[5*at+i]
+	if i == 2 {
+		return Kids(f, id)[0]
+	}
+	id
+}
+
+// cellsFollowModel runs steps drawn passes and events: a pass with a drawn
+// order of keys (a drawn subset of them when unmount), a text into a
+// row's draft a or b, a press of a row's Toggle or Submit. After each, the
+// screen is what the model rows mean, an event says it changed state
+// exactly when the model changed, and a Submit sends its key. A row the
+// pass leaves out loses its cells: the model drops it.
+func cellsFollowModel(seed int, steps int, unmount bool) bool {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut keys = pick(&r, true)
+	let mut rows = Map[int, row]{}
+	let _ = Render(&f, cellRows, keys)
+	for i in 0..(steps%24+24)%24+1 {
+		let what = draw(&r, 5)
+		if what == 0 || len(keys) == 0 {
+			keys = pick(&r, !unmount)
+			let mut kept = Map[int, row]{}
+			for k in keys {
+				match rows.Get(k) {
+				case Some[row] as x:
+					kept[k] = x.Value
+				case None:
+				}
+			}
+			rows = kept
+		} else {
+			let at = draw(&r, len(keys))
+			let k = keys[at]
+			let old = rowOf(rows, k)
+			let mut now = old
+			let mut done = Handled[int]{Signal: None, Changed: false, Ops: []Op[int]{}}
+			match what {
+			case 1:
+				now.a = "s\(i % 3)"
+				done = Handle(&f, Type[int]{Id: part(&f, at, 0), Text: now.a})
+			case 2:
+				now.b = "u\(i % 3)"
+				done = Handle(&f, Type[int]{Id: part(&f, at, 2), Text: now.b})
+			case 3:
+				now.on = !old.on
+				done = Handle(&f, Press[int]{Id: part(&f, at, 3)})
+			case _:
+				now.a = ""
+				done = Handle(&f, Press[int]{Id: part(&f, at, 4)})
+				if sent(done.Signal) != k {
+					return false
+				}
+			}
+			if what != 4 && sent(done.Signal) != -1 {
+				return false
+			}
+			if done.Changed != (now != old) {
+				return false
+			}
+			rows[k] = now
+		}
+		let _ = Render(&f, cellRows, keys)
+		if !SameShapes(FrameShape(&f), cellShape(keys, rows)) || !SameShapes(TreeShape(&f), cellShape(keys, rows)) {
+			return false
+		}
+	}
+	true
+}
+
+// FreshMountInits: a row a pass leaves out loses its cells; when its key
+// returns, each cell starts from init.
+law FreshMountInits(seed int, steps int) {
+	cellsFollowModel(seed, steps, true)
+}
+
+func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool) node[E] {
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), edit: None, focusAs: focusPlain}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
 // shows what the view wrote, and the result is the changes a host applies.
-func Render[E comparable, S lent, R](f *Frame[E], view func(f *Frame[E], s S) needs R, s S) []Op[E] needs R {
+func Render[E comparable, S, R](f mut Frame[E], view func(f mut Frame[E], s S) needs R, s S) []Op[E] needs R {
 	begin(f)
 	view(f, s)
-	Commit(f)
+	let ops = Commit(f)
+	f.tickAt = None
+	ops
 }
 
 // begin starts a pass: nothing written yet.
-func begin[E](f *Frame[E]) {
+func begin[E](f mut Frame[E]) {
 	f.nspecs = 0
 	f.first = -1
 	f.last = -1
 	f.ncells = 0
 	f.nloads = 0
-	for s, _ in f.seen {
-		f.seen = f.seen.Delete(s)
+	f.nroot = 0
+	f.unplaced = 0
+	f.npending = 0
+	f.rootPending = false
+	// The last pass's counts are stale by its number. A map holding many
+	// more than the last pass took (rows that went) starts again.
+	f.pass = f.pass + 1
+	if len(f.seen)+len(f.seenWide) > 2*f.nseen+64 {
+		f.seen = Map[int, tally]{}
+		f.seenWide = Map[slotOf, tally]{}
 	}
-	for k, _ in f.index {
-		f.index = f.index.Delete(k)
+	// A map the last pass wrote starts again empty: deleting its keys one
+	// by one, or walking a map once grown, costs its size every pass.
+	if len(f.index) > 0 {
+		f.index = Map[kid[E], arena.Ref[node[E]]]{}
 	}
-	for p, _ in f.indexed {
-		f.indexed = f.indexed.Delete(p)
+	if len(f.indexed) > 0 {
+		f.indexed = Map[arena.Ref[node[E]], bool]{}
 	}
-	for p, _ in f.held {
-		f.held = f.held.Delete(p)
+	if len(f.held) > 0 {
+		f.held = Map[arena.Ref[node[E]], bool]{}
 	}
-	for p, _ in f.stopped {
-		f.stopped = f.stopped.Delete(p)
+	if len(f.stopped) > 0 {
+		f.stopped = Map[int, bool]{}
 	}
 	f.nseen = 0
 	f.parent = -1
@@ -197,50 +2640,126 @@ func begin[E](f *Frame[E]) {
 	f.nurls = 0
 	f.nanims = 0
 	f.rowRuns = 0
-	f.groups = []groupRec[E]{}
-	f.group = -1
-	f.groupSeen = Map[slotOf, int]{}
-	f.ngroupLog = 0
-	f.cuts = 0
-	f.groupRuns = 0
 	f.written = 0
 	f.nstops = 0
 	f.slow = None
+	if len(f.groupSeen)+len(f.groupWide) > 2*f.ngroups+64 {
+		f.groupSeen = Map[int, tally]{}
+		f.groupWide = Map[slotOf, tally]{}
+	}
+	f.ngroups = 0
+	f.nested = false
+	f.group = -1
+	f.groupRuns = 0
+	f.sameSkips = 0
+	f.sames = 0
+	f.keptSames = 0
+	f.passes = f.passes + 1
+	f.moving = false
+	f.want = None
+	f.nreadouts = 0
 }
 
 // identify is the identity of the next entry at site under the current
 // parent and row.
-func identify[E](f *Frame[E], at CallSite) ident {
+func identify[E](f mut Frame[E], at CallSite) ident {
 	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
-	let n = count(f.seen, s)
-	bump(f, s)
+	let n = see(f, s)
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
-// bump takes the next identity count of s, logged so that a cut gives it
-// back.
-func bump[E](f *Frame[E], s slotOf) {
-	f.seen[s] = count(f.seen, s) + 1
+// see takes the next count of s, logged so a cut gives it back.
+func see[E](f mut Frame[E], s slotOf) int {
+	if pendingUnder(f, s.parent) {
+		takePending(f, s.parent)
+	}
+	let n = count(f, s, 1)
 	if f.nseen < len(f.seenLog) {
 		f.seenLog[f.nseen] = s
 	} else {
 		f.seenLog = f.seenLog.Append(s)
 	}
 	f.nseen = f.nseen + 1
+	n
 }
 
-func count(seen Map[slotOf, int], s slotOf) int {
-	match seen.Get(s) {
-	case Some[int] as c:
-		c.Value
+// count is how many identities of s this pass took, which it then moves
+// by d: one map lookup and one write, on the packed key when s packs.
+func count[E](f mut Frame[E], s slotOf, d int) int {
+	let k = slotKey(s)
+	if k >= 0 {
+		let n = thisPass(f.seen.Get(k), f.pass)
+		f.seen[k] = tally{pass: f.pass, n: n + d}
+		return n
+	}
+	let n = thisPass(f.seenWide.Get(s), f.pass)
+	f.seenWide[s] = tally{pass: f.pass, n: n + d}
+	n
+}
+
+// thisPass is the count of t when the pass numbered pass took it, else 0.
+func thisPass(t Option[tally], pass int) int {
+	match t {
+	case Some[tally] as x:
+		if x.Value.pass == pass {
+			return x.Value.n
+		}
+		0
 	case None:
 		0
 	}
 }
 
+// slotKey packs s into one int, so the counts' map compares ints, not
+// two CallSites (types.md, Call sites 6): the parent spec + 1 in 16 bits,
+// the site's and the row's Ids in 15 bits each (0 for nowhere), and the
+// row's key in 16 (0 NoKey, IntKey v as v + 1). A slot with a part that
+// does not fit (a TextKey, an IntKey outside 0 to 65534, an Id of 32768 or
+// more, a written CallSite with Id 0 that is not nowhere) is -1: it counts
+// in the wide map, by its whole slotOf. Two sites with distinct Ids pack
+// apart; a written CallSite that sets an Id names the site of that Id.
+func slotKey(s slotOf) int {
+	let site = siteBits(s.b.site)
+	let each = siteBits(s.b.each)
+	let key = keyBits(s.b.key)
+	if site < 0 || each < 0 || key < 0 || s.parent+1 >= 65536 {
+		return -1
+	}
+	(((s.parent+1)*32768+site)*32768+each)*65536 + key
+}
+
+// siteBits is c's part of a slotKey, -1 when it does not fit.
+func siteBits(c CallSite) int {
+	if c.Id > 0 {
+		if c.Id < 32768 {
+			return c.Id
+		}
+		return -1
+	}
+	if c == nowhere {
+		return 0
+	}
+	-1
+}
+
+// keyBits is k's part of a slotKey, -1 when it does not fit.
+func keyBits(k Key) int {
+	match k {
+	case NoKey:
+		0
+	case IntKey as x:
+		if x.Value >= 0 && x.Value < 65535 {
+			return x.Value + 1
+		}
+		-1
+	case TextKey:
+		-1
+	}
+}
+
 // owner is the node of the last pass that the current parent spec was:
 // the root for the top, Null when the parent is new in this pass.
-func owner[E](f *Frame[E], parent int) arena.Ref[node[E]] {
+func owner[E](f mut Frame[E], parent int) arena.Ref[node[E]] {
 	if parent < 0 {
 		return f.root
 	}
@@ -248,12 +2767,24 @@ func owner[E](f *Frame[E], parent int) arena.Ref[node[E]] {
 }
 
 // prior is the node of the last pass with identity id under the current
-// parent, Null for none.
-func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
+// parent, Null for none. It tries the old child at the place the node
+// takes first: when the children come back in order, that is it, and the
+// pass builds no index of them. A child's identity is its own among its
+// siblings, and a parked node is indexed only when no child has its
+// identity, so the index would give that child too.
+func prior[E](f mut Frame[E], id ident) arena.Ref[node[E]] {
 	let o = owner(f, f.parent)
 	if !arena.Has(f.nodes, o) {
 		return arena.Null[node[E]]()
 	}
+	let at = kidsWritten(f, f.parent)
+	if at < kidCount(f, o) {
+		let r = kidAt(f, o, at)
+		if idOf(f, r) == id {
+			return r
+		}
+	}
+	f.unplaced = f.unplaced + 1
 	if f.indexed.Get(o) == None {
 		for i in 0..kidCount(f, o) {
 			let r = kidAt(f, o, i)
@@ -276,39 +2807,62 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 	}
 }
 
+// caretIn is n with its caret and anchor when it is an Input (OpenTUI
+// gap 2): the ones the last Type or Edit gave the node prev, while its
+// value is the text they were given for, else both at the end of the
+// value; and at least one line.
+func caretIn[E](f mut Frame[E], prev arena.Ref[node[E]], n Node[E]) Node[E] {
+	match n {
+	case InputNode as x:
+		let mut out = x
+		out.Lines = if x.Lines < 1 { 1 } else { x.Lines }
+		out.Caret = len(x.Value)
+		out.Anchor = len(x.Value)
+		if arena.Has(f.nodes, prev) {
+			let mut held Option[Editing] = None
+			change(f, prev, func(m mut node[E]) { held = m.edit })
+			match held {
+			case Some[Editing] as e:
+				if e.Value.Text == x.Value {
+					out.Caret = e.Value.Caret
+					out.Anchor = e.Value.Anchor
+				}
+			case None:
+			}
+		}
+		out
+	case _:
+		n
+	}
+}
+
 // put writes one node under the current parent and returns its index.
-func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
+func put[E](f mut Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
 	let id = identify(f, at)
 	let mut prev = prior(f, id)
 	if arena.Has(f.nodes, prev) && kindAt(f, prev) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
-	link(f, spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1})
+	let p = f.parent
+	let sp = spec[E]{node: caretIn(f, prev, n), id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
+	putSpec(f, sp)
 }
 
-// link writes sp as the next spec of the pass, the last child of its
-// parent spec, and returns its index.
-func link[E](f *Frame[E], given spec[E]) int {
+// putSpec stores sp as the pass's next spec, the last child of its parent,
+// and returns its index.
+func putSpec[E](f mut Frame[E], sp spec[E]) int {
 	let i = f.nspecs
-	let p = given.parent
-	let mut sp = given
-	sp.first = -1
-	sp.last = -1
-	sp.next = -1
-	sp.before = lastKid(f, p)
-	sp.off = (p >= 0 && f.specs[p].off) || disables(sp.node)
-	sp.memo = memoOf(f, p)
-	sp.same = None
-	sp.skip = false
-	sp.live = (p < 0 || f.specs[p].live) && arena.Has(f.nodes, sp.prev) && !has(f.held, sp.prev)
+	let p = sp.parent
 	if i < len(f.specs) {
 		f.specs[i] = sp
 	} else {
 		f.specs = f.specs.Append(sp)
 	}
 	f.nspecs = i + 1
-	f.written = f.written + 1
+	let w = nodesOf(f, sp)
+	f.written = f.written + w
 	if p < 0 {
+		f.nroot = f.nroot + w
 		if f.last < 0 {
 			f.first = i
 		} else {
@@ -316,6 +2870,7 @@ func link[E](f *Frame[E], given spec[E]) int {
 		}
 		f.last = i
 	} else {
+		f.specs[p].nkids = f.specs[p].nkids + w
 		if f.specs[p].last < 0 {
 			f.specs[p].first = i
 		} else {
@@ -327,7 +2882,7 @@ func link[E](f *Frame[E], given spec[E]) int {
 }
 
 // firstKid is the first child spec of spec p (-1 the root), -1 for none.
-func firstKid[E](f *Frame[E], p int) int {
+func firstKid[E](f mut Frame[E], p int) int {
 	if p < 0 {
 		return f.first
 	}
@@ -335,16 +2890,72 @@ func firstKid[E](f *Frame[E], p int) int {
 }
 
 // lastKid is the last child spec of spec p (-1 the root), -1 for none.
-func lastKid[E](f *Frame[E], p int) int {
+func lastKid[E](f mut Frame[E], p int) int {
 	if p < 0 {
 		return f.last
 	}
 	f.specs[p].last
 }
 
+// nodesOf is how many nodes sp stands for: its block's tops, else one.
+func nodesOf[E](f mut Frame[E], sp spec[E]) int {
+	if sp.block >= 0 {
+		return len(f.keptList[sp.block].tops)
+	}
+	1
+}
+
+// blockTop is top k of the block spec s as the spec of that one node:
+// skipped, written again, its old node its own.
+func blockTop[E](f mut Frame[E], s int, k int) spec[E] {
+	let x = f.keptList[f.specs[s].block].tops[k]
+	spec[E]{node: x.node, id: x.id, parent: f.specs[s].parent, prev: x.ref, ref: x.ref, onText: x.onText, onPoint: x.onPoint, onKey: x.onKey, binds: None, off: x.off, memo: f.specs[s].memo, same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: -1, nkids: 0, pending: false, block: -1, focusAs: focusPlain}
+}
+
+// kids is the children of a spec as nodes: spec[j] is the spec of child
+// j, and top[j] which top of that spec's block it is (-1 for a spec that
+// is one node).
+type kids { spec []int, top []int }
+
+// kidNodes is the children of spec p (-1 the root) as nodes, in order: a
+// block spec gives each of its tops.
+func kidNodes[E](f mut Frame[E], p int) kids {
+	let mut out = kids{spec: []int{}, top: []int{}}
+	let mut s = firstKid(f, p)
+	for s >= 0 {
+		if f.specs[s].block >= 0 {
+			for k in 0..len(f.keptList[f.specs[s].block].tops) {
+				out.spec = out.spec.Append(s)
+				out.top = out.top.Append(k)
+			}
+		} else {
+			out.spec = out.spec.Append(s)
+			out.top = out.top.Append(-1)
+		}
+		s = f.specs[s].next
+	}
+	out
+}
+
+// kidSpec is child j of ks as one node's spec.
+func kidSpec[E](f mut Frame[E], ks kids, j int) spec[E] {
+	if ks.top[j] >= 0 {
+		return blockTop(f, ks.spec[j], ks.top[j])
+	}
+	f.specs[ks.spec[j]]
+}
+
+// kidsWritten is how many children spec p (-1 the root) has so far.
+func kidsWritten[E](f mut Frame[E], p int) int {
+	if p < 0 {
+		return f.nroot
+	}
+	f.specs[p].nkids
+}
+
 // memoOf is the nearest Same at or above spec p (-1 the root), -1 for
 // none.
-func memoOf[E](f *Frame[E], p int) int {
+func memoOf[E](f mut Frame[E], p int) int {
 	if p < 0 {
 		return -1
 	}
@@ -352,7 +2963,7 @@ func memoOf[E](f *Frame[E], p int) int {
 }
 
 // childrenOf is the child specs of spec p (-1 the root), in order.
-func childrenOf[E](f *Frame[E], p int) []int {
+func childrenOf[E](f mut Frame[E], p int) []int {
 	let mut out = []int{}
 	let mut s = firstKid(f, p)
 	for s >= 0 {
@@ -365,7 +2976,7 @@ func childrenOf[E](f *Frame[E], p int) []int {
 // open writes a node and runs body with that node as the parent. It is a
 // group (H8a): a failure that leaves body cuts the node and what body
 // wrote, and passes on.
-func open[E, F, R](f *Frame[E], n Node[E], body func() fails F needs R, at CallSite) fails F needs R {
+func open[E, F, R](f mut Frame[E], n Node[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.parent = put(f, n, None, None, at)
 	body() catch {
@@ -381,7 +2992,7 @@ func open[E, F, R](f *Frame[E], n Node[E], body func() fails F needs R, at CallS
 // under it does nothing (Handle), and a locator reports each control
 // under it disabled; description, when not empty, is the accessible
 // description of the nodes under it that no nearer Fieldset describes.
-func Fieldset[E, F, R](f *Frame[E], disabled bool, description string, body func() fails F needs R, at CallSite) fails F needs R {
+func Fieldset[E, F, R](f mut Frame[E], disabled bool, description string, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, FieldsetNode{Disabled: disabled, Description: description}, body, at)
 }
 
@@ -396,51 +3007,96 @@ func disables[E](n Node[E]) bool {
 }
 
 // Box is a container that stacks its children.
-func Box[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Box[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, BoxNode{Style: style}, body, at)
 }
 
 // Row lays its children out left to right.
-func Row[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Row[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, RowNode{Style: style}, body, at)
 }
 
 // Column lays its children out top to bottom.
-func Column[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Column[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, ColumnNode{Style: style}, body, at)
 }
 
 // Scroll shows its children in a scrolled viewport.
-func Scroll[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+func Scroll[E, F, R](f mut Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, ScrollNode{Style: style}, body, at)
 }
 
-// Pressable sends on when the host presses it; body is what it shows.
-func Pressable[E, F, R](f *Frame[E], label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
-	try open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
+// Pressable sends on when the host presses it; body is what it shows. Its
+// look is PressLook (PressableStyled gives it another).
+func Pressable[E, F, R](f mut Frame[E], label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, PressableNode{Label: label, On: on, Style: PressStyle()}, body, at)
+}
+
+// Semantic is a container that declares what it is to a locator and an
+// assistive technology (NS4): its Access, as the kit's controls give it
+// (a tab's role and selected state, a heading's level). A press on it
+// sends on, when it has one and is not disabled, as a Pressable's does.
+func Semantic[E, F, R](f mut Frame[E], a Access, on Option[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
+	try open(f, SemanticNode{Access: a, On: on, Style: style}, body, at)
 }
 
 // Text shows a string.
-func Text[E](f *Frame[E], value string, at CallSite) {
+func Text[E](f mut Frame[E], value string, at CallSite) {
 	let _ = put(f, TextNode{Value: value, Style: Plain()}, None, None, at)
 }
 
+// TextStyled shows a string with a Style: its layout, and its look,
+// whose Ink draws the text (look.ergo).
+func TextStyled[E](f mut Frame[E], value string, style Style, at CallSite) {
+	let _ = put(f, TextNode{Value: value, Style: style}, None, None, at)
+}
+
 // Check shows a check box; a press sends on.
-func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
+func Check[E](f mut Frame[E], label string, checked bool, on E, at CallSite) {
 	let _ = put(f, CheckNode{Label: label, Checked: checked, On: on}, None, None, at)
 }
 
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
-func Input[E](f *Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder}, Some{Value: onText}, None, at)
+func Input[E](f mut Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+}
+
+// FieldLabel is what a labelled Input says of itself (FK3-g5, FK5-g3), as
+// HTML's label element, aria-describedby and aria-invalid do: Text is its
+// accessible name (a placeholder names only a field with no label),
+// Description its accessible description (the nearest Fieldset's when
+// empty), and Invalid whether its value is refused. A host draws all
+// three: the label above the field, the description under it, and an
+// invalid field marked.
+type FieldLabel { Text string, Description string, Invalid bool }
+
+// LabelledInput is an Input that says what it is (FieldLabel): a locator
+// finds it by its label (WithLabel) and a script names it by it.
+func LabelledInput[E](f mut Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+}
+
+// InputLines is an Input of lines lines (OpenTUI gap 2): a box that many
+// lines high whose text holds newlines (Enter types one), and whose
+// caret moves by line (Up, Down). Its caret and selection are the
+// model's, as every Input's are (edit.ergo).
+func InputLines[E](f mut Frame[E], value string, placeholder string, lines int, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+}
+
+// HintedInput is a LabelledInput that tells a phone's keyboard what it
+// takes (Hints, MB5): an email field asks for EmailKeys, a search field
+// for ReturnSearch.
+func HintedInput[E](f mut Frame[E], label FieldLabel, hints Hints, value string, placeholder string, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the
 // row's key, so a row keeps its instance when xs is reordered. It is a
 // group with no node of its own (H8a): a failure that leaves a row cuts
 // every row written so far and passes on.
-func Each[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fails F needs R, at CallSite) fails F needs R {
+func Each[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, row func(x T) fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let outerEach = f.each
 	let outerKey = f.key
@@ -461,18 +3117,22 @@ func Each[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fail
 // in the order a host applies them. A node whose identity returns under
 // the same parent keeps its Id; a keyed row that moved is one Move. It
 // also decides the pass's jobs (Jobs): a load that is new or has a new
-// key is fetched, and a load that ended or changed key is cancelled.
-func Commit[E comparable](f *Frame[E]) []Op[E] {
-	f.ops = []Op[E]{}
+// key is fetched, and a load that ended or changed key is cancelled. The
+// Looks the pass interned come first, one Define each.
+func Commit[E comparable](f mut Frame[E]) []Op[E] {
+	f.ops = defines(f)
 	f.jobs = []Job[E]{}
+	f.compared = 0
+	f.visits = 0
 	reconcile(f, -1, f.root)
 	settle(f)
+	focusCommit(f)
 	keepGroups(f)
 	f.ops
 }
 
 // at is the node r names; every Ref the tree holds is live.
-func nodeAt[E](f *Frame[E], r arena.Ref[node[E]]) node[E] {
+func nodeAt[E](f mut Frame[E], r arena.Ref[node[E]]) node[E] {
 	f.nodes.Get(r) catch {
 	case arena.Stale:
 		Unreachable("ui: the tree holds a freed node")
@@ -485,62 +3145,63 @@ func nodeAt[E](f *Frame[E], r arena.Ref[node[E]]) node[E] {
 // (GP frame cost, UC-2).
 
 // idOf is the identity of the node r names.
-func idOf[E](f *Frame[E], r arena.Ref[node[E]]) ident {
+func idOf[E](f mut Frame[E], r arena.Ref[node[E]]) ident {
 	let mut id = ident{site: nowhere, each: nowhere, key: NoKey, n: 0}
-	change(f, r, func(n *node[E]) { id = n.id })
+	change(f, r, func(n mut node[E]) { id = n.id })
 	id
 }
 
 // kindAt is the kind of what the node r names shows.
-func kindAt[E](f *Frame[E], r arena.Ref[node[E]]) int {
+func kindAt[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut k = -1
-	change(f, r, func(n *node[E]) { k = kindOf(n.node) })
+	change(f, r, func(n mut node[E]) { k = kindOf(n.node) })
 	k
 }
 
 // shows is whether the node r names shows x.
-func shows[E comparable](f *Frame[E], r arena.Ref[node[E]], x Node[E]) bool {
+func shows[E comparable](f mut Frame[E], r arena.Ref[node[E]], x Node[E]) bool {
 	let mut same = false
-	change(f, r, func(n *node[E]) { same = n.node == x })
+	change(f, r, func(n mut node[E]) { same = n.node == x })
 	same
 }
 
 // kidCount is the number of children of the node r names.
-func kidCount[E](f *Frame[E], r arena.Ref[node[E]]) int {
+func kidCount[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut c = 0
-	change(f, r, func(n *node[E]) { c = len(n.kids) })
+	change(f, r, func(n mut node[E]) { c = len(n.kids) })
 	c
 }
 
 // kidAt is child i of the node r names.
-func kidAt[E](f *Frame[E], r arena.Ref[node[E]], i int) arena.Ref[node[E]] {
+func kidAt[E](f mut Frame[E], r arena.Ref[node[E]], i int) arena.Ref[node[E]] {
 	let mut k = arena.Null[node[E]]()
-	change(f, r, func(n *node[E]) { k = n.kids[i] })
+	change(f, r, func(n mut node[E]) { k = n.kids[i] })
 	k
 }
 
 // kidsOf is the children of the node r names.
-func kidsOf[E](f *Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
+func kidsOf[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
 	let mut kids = []arena.Ref[node[E]]{}
-	change(f, r, func(n *node[E]) { kids = n.kids })
+	change(f, r, func(n mut node[E]) { kids = n.kids })
 	kids
 }
 
 // change runs edit on the node r names.
-func change[E](f *Frame[E], r arena.Ref[node[E]], edit func(n *node[E])) {
+func change[E](f mut Frame[E], r arena.Ref[node[E]], edit func(n mut node[E])) {
 	f.nodes.Update(r, edit) catch {
 	case arena.Stale:
 		Unreachable("ui: the tree holds a freed node")
 	}
 }
 
-func emit[E](f *Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
+func emit[E](f mut Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
 
 // reconcile makes the children of parent (spec index p, node pr) the nodes
 // of the child specs of p, keeping each old child that put matched (prev),
 // and then does the same below each child. When every child is the old
 // child at its place, nothing moves, and the pass builds no list (UC-3).
-func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
+func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
+	f.visits = f.visits + 1
 	if inPlace(f, p, pr) {
 		let mut s = lastKid(f, p)
 		for s >= 0 {
@@ -554,7 +3215,8 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		}
 		return
 	}
-	let want = childrenOf(f, p)
+	let ks = kidNodes(f, p)
+	let want = ks.spec
 	let old = kidsOf(f, pr)
 	let mut oldAt = Map[arena.Ref[node[E]], int]{}
 	let mut used = []bool{}
@@ -563,9 +3225,9 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		used = used.Append(false)
 	}
 	let mut src = []int{}
-	for s in want {
+	for j, _ in want {
 		let mut from = -1
-		match oldAt.Get(f.specs[s].prev) {
+		match oldAt.Get(kidSpec(f, ks, j).prev) {
 		case Some[int] as o:
 			if !used[o.Value] {
 				from = o.Value
@@ -588,10 +3250,10 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		back = back.Append(false)
 	}
 	let mut revive = []bool{}
-	for j, s in want {
+	for j, _ in want {
 		let mut again = false
 		if src[j] < 0 {
-			match heldAt.Get(f.specs[s].prev) {
+			match heldAt.Get(kidSpec(f, ks, j).prev) {
 			case Some[int] as h:
 				if !back[h.Value] {
 					back[h.Value] = true
@@ -625,18 +3287,25 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 	let keep = increasing(src)
 	let mut refs = []arena.Ref[node[E]]{}
 	for j, s in want {
-		let sp = f.specs[s]
+		let sp = kidSpec(f, ks, j)
+		if src[j] < 0 && ks.top[j] >= 0 {
+			Unreachable("ui: a kept group's top is not a child of its parent")
+		}
 		if src[j] >= 0 {
 			refs = refs.Append(old[src[j]])
 		} else if revive[j] {
 			refs = refs.Append(sp.prev)
 			unpark(f, sp.prev)
 		} else {
-			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.off)))
+			let mut made = fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.onKey, sp.off)
+			made.focusAs = sp.focusAs
+			refs = refs.Append(f.nodes.Put(made))
 		}
-		f.specs[s].ref = refs[j]
+		if ks.top[j] < 0 {
+			f.specs[s].ref = refs[j]
+		}
 	}
-	change(f, pr, func(n *node[E]) {
+	change(f, pr, func(n mut node[E]) {
 		n.kids = refs
 		n.parked = parked
 	})
@@ -647,16 +3316,19 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 		if j+1 < len(refs) {
 			before = Some{Value: Id[E]{ref: refs[j+1]}}
 		}
-		let sp = f.specs[want[j]]
+		let sp = kidSpec(f, ks, j)
 		let id = Id[E]{ref: refs[j]}
 		if src[j] < 0 {
+			f.compared = f.compared + 1
 			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
 			if revive[j] {
-				change(f, refs[j], func(n *node[E]) {
+				change(f, refs[j], func(n mut node[E]) {
 					n.node = sp.node
 					n.onText = sp.onText
 					n.onPoint = sp.onPoint
+					n.onKey = sp.onKey
 					n.off = sp.off
+					n.focusAs = sp.focusAs
 				})
 			}
 		} else {
@@ -676,8 +3348,8 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 // unpark makes a parked node that comes back hold no child in the tree:
 // the host's copy has none of them, so its old children are parked under
 // it, and each comes back by the same rule when the pass wrote it.
-func unpark[E](f *Frame[E], r arena.Ref[node[E]]) {
-	change(f, r, func(n *node[E]) {
+func unpark[E](f mut Frame[E], r arena.Ref[node[E]]) {
+	change(f, r, func(n mut node[E]) {
 		let mut all = n.parked
 		for k in n.kids {
 			all = all.Append(k)
@@ -689,7 +3361,7 @@ func unpark[E](f *Frame[E], r arena.Ref[node[E]]) {
 
 // inPlace is whether the child specs of p are the children of pr, each
 // the old child at its own place, and pr holds no parked child.
-func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
+func inPlace[E](f mut Frame[E], p int, pr arena.Ref[node[E]]) bool {
 	if parkedCount(f, pr) > 0 {
 		return false
 	}
@@ -697,10 +3369,26 @@ func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
 	let mut i = 0
 	let mut s = firstKid(f, p)
 	for s >= 0 {
-		if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
-			return false
+		let b = f.specs[s].block
+		if b >= 0 {
+			// A kept group's tops are contiguous and in order among the
+			// children of their parent: the pass that kept them committed
+			// them so (a parent's children are its child specs' nodes, in
+			// order, and a group writes its tops one after another), and
+			// no pass since committed that parent, or it would have kept
+			// the group anew. So the block is in place when its first and
+			// last tops are at their places.
+			let t = len(f.keptList[b].tops)
+			if i+t > n || f.keptList[b].tops[0].ref != kidAt(f, pr, i) || f.keptList[b].tops[t-1].ref != kidAt(f, pr, i+t-1) {
+				return false
+			}
+			i = i + t
+		} else {
+			if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
+				return false
+			}
+			i = i + 1
 		}
-		i = i + 1
 		s = f.specs[s].next
 	}
 	i == n
@@ -708,22 +3396,25 @@ func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
 
 // update makes the kept node r show spec s: a Set when what it shows
 // changed, and the spec's functions.
-func update[E comparable](f *Frame[E], s int, r arena.Ref[node[E]]) {
+func update[E comparable](f mut Frame[E], s int, r arena.Ref[node[E]]) {
+	f.compared = f.compared + 1
 	let sp = f.specs[s]
 	if !shows(f, r, sp.node) {
 		emit(f, Set{Id: Id[E]{ref: r}, Node: sp.node})
 	}
-	change(f, r, func(n *node[E]) {
+	change(f, r, func(n mut node[E]) {
 		n.node = sp.node
 		n.onText = sp.onText
 		n.onPoint = sp.onPoint
+		n.onKey = sp.onKey
 		n.off = sp.off
+		n.focusAs = sp.focusAs
 	})
 }
 
 // drop frees the node r names and every node below it; each load they
 // own is cancelled.
-func drop[E](f *Frame[E], r arena.Ref[node[E]]) {
+func drop[E](f mut Frame[E], r arena.Ref[node[E]]) {
 	let n = nodeAt(f, r)
 	for k in n.kids {
 		drop[E](f, k)
@@ -818,17 +3509,27 @@ func kindOf[E](n Node[E]) int {
 		13
 	case LiveNode:
 		14
+	case TransitionNode:
+		15
+	case SemanticNode[E]:
+		16
+	case LayerNode[E]:
+		17
+	case TrackNode:
+		18
+	case ReadoutNode:
+		19
 	}
 }
 
 // Root is the Id of the root, the parent of what a view writes at its top.
-func Root[E](f *Frame[E]) Id[E] { Id[E]{ref: f.root} }
+func Root[E](f mut Frame[E]) Id[E] { Id[E]{ref: f.root} }
 
 // Len is the number of nodes in f's tree, the root included. A parked
 // node is not in the tree.
-func Len[E](f *Frame[E]) int { treeSize(f, f.root) }
+func Len[E](f mut Frame[E]) int { treeSize(f, f.root) }
 
-func treeSize[E](f *Frame[E], r arena.Ref[node[E]]) int {
+func treeSize[E](f mut Frame[E], r arena.Ref[node[E]]) int {
 	let mut c = 1
 	for i in 0..kidCount(f, r) {
 		c = c + treeSize[E](f, kidAt(f, r, i))
@@ -836,13 +3537,19 @@ func treeSize[E](f *Frame[E], r arena.Ref[node[E]]) int {
 	c
 }
 
+// Unplaced is how many nodes the last pass of f looked up in its index
+// of the old children, not finding the old child at the node's place
+// (prior): none while the children come back in order. A growth guard
+// counts it, never times.
+func Unplaced[E](f mut Frame[E]) int { f.unplaced }
+
 // Retained is the number of nodes f holds: the tree's and the parked ones,
 // with their subtrees. It is the frame's memory: a parked node that is
 // never released shows here (the growth guard of the boundary laws).
-func Retained[E](f *Frame[E]) int { arena.Len(f.nodes) }
+func Retained[E](f mut Frame[E]) int { arena.Len(f.nodes) }
 
 // Kids are the children of id, in order; none for an Id f does not hold.
-func Kids[E](f *Frame[E], id Id[E]) []Id[E] {
+func Kids[E](f mut Frame[E], id Id[E]) []Id[E] {
 	let n = f.nodes.Get(id.ref) catch {
 	case arena.Stale:
 		return []Id[E]{}
@@ -855,7 +3562,7 @@ func Kids[E](f *Frame[E], id Id[E]) []Id[E] {
 }
 
 // NodeOf is what id shows; None for an Id f does not hold.
-func NodeOf[E](f *Frame[E], id Id[E]) Option[Node[E]] {
+func NodeOf[E](f mut Frame[E], id Id[E]) Option[Node[E]] {
 	let n = f.nodes.Get(id.ref) catch {
 	case arena.Stale:
 		return None

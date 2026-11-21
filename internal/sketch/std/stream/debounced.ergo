@@ -1,0 +1,223 @@
+import queue
+import task
+import time
+import timeout
+
+// Debounced moves the values of src to out and keeps only the last value
+// of each burst (Effect's Stream.debounce, Rx's debounceTime). Unlike
+// Debounce over a Seq, it has a timer: a value leaves d after it arrived
+// when no newer value arrived by then, even while src stays open and
+// silent. Run it as a task of its own (`task.Go() { stream.Debounced(src,
+// d, out) }`). It holds the last value and the time it arrived, and waits
+// on one timeout.Deadline, armed for d at the first value of a burst and
+// kept while values come (lodash's debounce): a value only replaces the
+// held one and reads the clock, so a burst arms no alarm per value. When
+// the deadline fires, a held value that arrived d or more ago leaves for
+// out; a newer one re-arms the deadline for the rest of its d. When src
+// ends, it pushes the held value at once and ends out. A value that
+// arrives at the deadline's own instant may either replace the held one or
+// follow it; it is never lost. A d of zero or less keeps every value. It
+// fails Closed when out is closed before it ends.
+func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queue.Closed needs Scheduler | time.Clock {
+	if d <= 0ns {
+		for v in src.Values() {
+			try out.Push(v)
+		}
+		out.End()
+		return
+	}
+	let dl = timeout.NewDeadline()
+	let mut pending Option[T] = None
+	let mut last = time.Clock.Now()
+	let mut open = true
+	for open {
+		let e = match pending {
+		case Some[T]:
+			nextBefore(src, dl)
+		case None:
+			nextOf(src)
+		}
+		match e {
+		case arrival[T] as a:
+			pending = Some[T]{Value: a.Value}
+			last = time.Clock.Now()
+			if !dl.Armed() {
+				dl.Arm(d)
+			}
+		case quiet:
+			let rest = d - time.Clock.Elapsed(last)
+			if rest > 0ns {
+				dl.Arm(rest)
+			} else {
+				try pushHeld(out, pending)
+				pending = None
+			}
+		case ended:
+			dl.Stop()
+			try pushHeld(out, pending)
+			out.End()
+			open = false
+		}
+	}
+}
+
+// DebouncedMatchesModel: Debounced emits the last value of each burst d
+// after it arrived, never while the burst goes on, and the last value of
+// src when src ends, unless it left already (debouncedModel). A producer
+// task pushes xs with even gaps of 0 to 98 ms on a time.Manual and ends
+// src an even tail of 0 to 98 ms after the last; the window d is odd (1
+// to 59 ms), so no arrival or end falls on a deadline's instant, and a
+// reader task records each value of out with the time it arrived.
+law DebouncedMatchesModel(gaps []int, xs []int, w int) {
+	let m = time.NewManual(0)
+	let d = 2*(window(w)%30) + 1
+	let tail = 2*(((w/7)%50 + 50)%50)
+	let n = len(xs)
+	let start = m.Now()
+	with context { Scheduler: m, time.Clock: m } {
+		let src = queue.New[int](n + 1)
+		let out = queue.New[int](n + 1)
+		let seen = queue.New[int](2*n + 1)
+		let producer = task.Go() {
+			for i, x in xs {
+				Scheduler.Sleep(millis(2 * gapAt(gaps, i)))
+				src.Push(x) catch {
+				case queue.Closed:
+				}
+			}
+			Scheduler.Sleep(millis(tail))
+			src.End()
+		}
+		let debouncer = task.Go() {
+			Debounced(src, millis(d), out) catch {
+			case queue.Closed:
+			}
+		}
+		let reader = task.Go() {
+			for v in out.Values() {
+				seen.Push(v) catch {
+				case queue.Closed:
+				}
+				seen.Push(time.Count(m.Elapsed(start), 1ms)) catch {
+				case queue.Closed:
+				}
+			}
+			seen.End()
+		}
+		let at = evenArrivals(gaps, n)
+		m.Advance(millis(lastOf(at) + tail + d + 1))
+		producer.Wait()
+		debouncer.Wait()
+		reader.Wait()
+		sameInts(collect(seen.Values()), debouncedModel(at, xs, d, lastOf(at) + tail))
+	}
+}
+
+// gapAt is the gap before the i-th value, in milliseconds: gaps[i] mod 50,
+// or 0 past the end of gaps.
+func gapAt(gaps []int, i int) int {
+	if i < len(gaps) {
+		((gaps[i] % 50) + 50) % 50
+	} else {
+		0
+	}
+}
+
+// window is w as a window from 0 to 59 milliseconds: 0 keeps every value.
+func window(w int) int { ((w % 60) + 60) % 60 }
+
+// millis is n milliseconds.
+func millis(n int) duration { time.Times(1ms, n) }
+
+// collect is the values of s.
+func collect(s Seq[int]) []int {
+	let mut out = []int{}
+	for v in s {
+		out = out.Append(v)
+	}
+	out
+}
+
+// sameInts reports that a and b hold the same values in order.
+func sameInts(a []int, b []int) bool {
+	let mut same = len(a) == len(b)
+	for i in 0..len(a) {
+		same = same && i < len(b) && a[i] == b[i]
+	}
+	same
+}
+
+// debouncedModel is what Debounced emits for values xs arriving at at
+// (ms) with window d and src ending at end, as value, time pairs: each
+// xs[i] whose next value arrives more than d later, at at[i]+d, and the
+// last at at[i]+d when src ends more than d after it, else at end.
+func debouncedModel(at []int, xs []int, d int, end int) []int {
+	let mut out = []int{}
+	for i, x in xs {
+		if i == len(xs)-1 {
+			out = out.Append(x).Append(if end-at[i] > d { at[i] + d } else { end })
+		} else if at[i+1]-at[i] > d {
+			out = out.Append(x).Append(at[i] + d)
+		}
+	}
+	out
+}
+
+// evenArrivals is the arrival time of each of n values with the gaps
+// doubled, in milliseconds.
+func evenArrivals(gaps []int, n int) []int {
+	let mut at = []int{}
+	let mut t = 0
+	for i in 0..n {
+		t = t + 2*gapAt(gaps, i)
+		at = at.Append(t)
+	}
+	at
+}
+
+// lastOf is the last value of at, or 0 when at is empty.
+func lastOf(at []int) int {
+	if len(at) == 0 {
+		0
+	} else {
+		at[len(at)-1]
+	}
+}
+
+// pushHeld pushes the value pending holds, if any, to out.
+func pushHeld[T](out queue.Queue[T], pending Option[T]) fails queue.Closed {
+	match pending {
+	case Some[T] as p:
+		try out.Push(p.Value)
+	case None:
+	}
+}
+
+// arrival is a value of the source; quiet, a wait that d ended; ended,
+// the end of the source.
+type arrival[T] { Value T }
+type quiet {}
+type ended {}
+type event[T] = arrival[T] | quiet | ended
+
+// nextOf waits for the next value of src, with no deadline.
+func nextOf[T](src queue.Queue[T]) event[T] {
+	let v = src.Pop() catch {
+	case queue.Closed:
+		return ended
+	}
+	arrival[T]{Value: v}
+}
+
+// nextBefore waits for the next value of src until dl fires. A value
+// already in src is taken first; a value that enters at the fire's instant
+// is taken or stays in src, never lost.
+func nextBefore[T](src queue.Queue[T], dl timeout.Deadline) event[T] {
+	let v = timeout.PopBefore(src, dl) catch {
+	case timeout.Expired:
+		return quiet
+	case queue.Closed:
+		return ended
+	}
+	arrival[T]{Value: v}
+}

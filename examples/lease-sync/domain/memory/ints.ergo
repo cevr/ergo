@@ -1,0 +1,18 @@
+import lease-sync/domain
+
+// Ints is the memory log of int events: the instance at which ergo test
+// runs domain.Log's laws in this package, since a generic provider fixes
+// no instance (types.md, Laws 10). NewInts builds a new one for each
+// case.
+type Ints { log Log[int] } implements domain.Log[int]
+
+// NewInts is an empty log of int events.
+func NewInts() Ints { Ints{log: New[int]()} }
+
+func Append(l Ints, stream string, expected int, id domain.CommandID, events []int) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
+	try l.log.Append(stream, expected, id, events)
+}
+
+func Read(l Ints, stream string, from int) []domain.Recorded[int] { l.log.Read(stream, from) }
+
+func Seen(l Ints, id domain.CommandID) Option[domain.Receipt] { l.log.Seen(id) }

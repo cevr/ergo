@@ -1,0 +1,30 @@
+// The work.Vcs laws on git over a real checkout, in a folder of each
+// case's own (TestAmbient). This package is in the module's full-tier
+// file: every case of every law starts git three times to make its
+// checkout, and the package's test takes about 19 s and 5.4 G
+// instructions (WG2 r1, load 35), so only the gate's full tier runs it
+// (`go run ./scripts/examples -full-tier`). The fast tier keeps git's own
+// package: the laws in an empty folder (onShell), the tests that hold each
+// law's fact on a repository they make, and the model's laws in memory.
+
+import exec
+import github.com/cevr/ergo/modules/work/git
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient { work.Vcs: Checkout(exec.NewTestHost()) }
+
+// CheckoutScript makes the working folder a checkout of branch main with
+// one commit and an untracked file. It starts three processes, as each
+// case of each law under onHost runs it.
+let CheckoutScript = "git init -q -b main . && git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m one && printf 'new\\n' > new.txt"
+
+// Checkout is the git Vcs over run, after it made run's folder a
+// checkout (CheckoutScript). A failure leaves the folder as it is, and
+// the laws then hold by their failure cases.
+func Checkout(run exec.Runner) git.Vcs {
+	let _ = run.Run(exec.New("sh", []string{"-c", CheckoutScript})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		exec.Result{Stdout: "", Stderr: "", Status: 1}
+	}
+	git.New(run)
+}

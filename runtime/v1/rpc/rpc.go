@@ -216,7 +216,9 @@ func (s *rpcRun) start(c *rpcCall) {
 			c.exit = rpcExit(v, err)
 		}
 		<-ready // c.h is set
-		s.ended <- c
+		// The request's task may be parked on ended in a clock's domain
+		// (rpcCalls): it is unparked before the call becomes visible.
+		rt.Wake(s.t, s, func() { s.ended <- c })
 		return struct{}{}, nil
 	})
 	close(ready)
@@ -234,8 +236,20 @@ func (s *rpcRun) stopAll() {
 	for c := range s.live {
 		c.h.Task().Interrupt()
 	}
+	// The wait for their ends parks, uninterruptibly (no stop: t is
+	// stopped already), as the Stop of a task does: a call ends when it
+	// runs on, so under a clock or the explored scheduler the request must
+	// let it (wf10 RPC-STOP).
 	for len(s.live) > 0 {
-		s.end(<-s.ended)
+		var p rt.Parked
+		if s.t.InDomain() {
+			p = rt.Park(s.t, s, nil, func() bool { return len(s.ended) > 0 })
+		}
+		rt.Block(s.t)
+		c := <-s.ended
+		rt.Unblock(s.t)
+		p.Unpark()
+		s.end(c)
 	}
 }
 
@@ -243,6 +257,11 @@ func (s *rpcRun) stopAll() {
 // gives each Exit line to each as its call ends, on t's goroutine. A stop
 // of t, a defect or a stop raised by each, and an error of each stop the
 // calls left and wait for them before rpcCalls ends: no call outlives it.
+// Its wait for the next call to end is one a clock sees (runtime.md,
+// Machines and actors 9.6; rt idle.go): in a VirtualClock's domain t
+// parks on the run while its calls run, so a call that sleeps on the
+// clock, or a long poll held on timeout.After, moves the time, and a
+// Manual's Advance settles past it.
 func rpcCalls(span v1.Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(c *rpcCall) error) error {
 	t.Check()
 	s := &rpcRun{span: span, t: t, handle: handle, ended: make(chan *rpcCall, len(envs)), live: map[*rpcCall]bool{}}
@@ -266,13 +285,31 @@ func rpcCalls(span v1.Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task
 	}
 	stop := t.Done()
 	for len(s.live) > 0 {
+		var p rt.Parked
+		if t.InDomain() {
+			p = rt.Park(t, s, stop, func() bool { return len(s.ended) > 0 })
+		}
+		rt.Block(t)
 		select {
 		case c := <-s.ended:
+			rt.Unblock(t)
+			p.Unpark()
 			s.end(c)
+			// A stop wins over an end: a stop can end the calls, so their
+			// ends and the stop may be ready at once, and select takes
+			// either. An answer then would tell a stopped caller that its
+			// calls ran (TestRPCStopWinsOverAnEnd, wf10 RPC-STOP).
+			select {
+			case <-stop:
+				panic(rt.Interrupted)
+			default:
+			}
 			if err := each(c); err != nil {
 				return err // the deferred stopAll stops the calls left
 			}
 		case <-stop:
+			rt.Unblock(t)
+			p.Unpark()
 			panic(rt.Interrupted)
 		}
 	}

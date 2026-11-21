@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/stage"
 )
 
 // Evaluate runs the root package's pure obligations, its examples first,
@@ -27,13 +28,21 @@ func (a Analysis) Evaluate(b eval.Budget) (eval.Report, error) {
 	name := root.Name
 	root.Name = "main"
 	defer func() { root.Name = name }()
-	return eval.Run(root, b)
+	rep, err := eval.Run(root, b)
+	for _, res := range rep.Results {
+		if res.Status != eval.Skipped && res.Status != eval.NotRun && res.Status != eval.Native {
+			stage.Add(stage.ObligationsEvaluated, 1)
+		}
+	}
+	stage.Add(stage.EvalSteps, rep.Steps)
+	return rep, err
 }
 
 // Evaluation is Evaluate as the check envelope reports it (report.Evaluation):
 // its Revision is the analysed text's, so it names the source it ran on,
 // and each obligation that did not pass names the native command that
-// replays it, `ergo test SOURCE --seed N` (with --law TITLE for a law),
+// replays it, `ergo test SOURCE --seed N` (with --law TITLE for a law;
+// a machine law's is `--law TITLE --states N`, replay),
 // source being the path as the user gave it.
 func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, error) {
 	rep, err := a.Evaluate(b)
@@ -73,7 +82,7 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 			o.Machine = &report.MachineSearch{States: m.States, Edges: m.Edges, Depth: m.Depth, Checked: m.Checked, Steps: m.Steps, Complete: m.Complete, Runs: m.Runs, Run: m.Run}
 		}
 		if res.Status != eval.Passed {
-			o.Replay = replay(source, b.Seed, res.Name)
+			o.Replay = replay(source, b, res)
 		}
 		statuses = append(statuses, o.Status)
 		out.Obligations = append(out.Obligations, o)
@@ -84,13 +93,29 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 
 // replay is the ergo test command that runs the obligation name natively
 // with the same seed: a law by its report's title, a test with the rest.
-func replay(source string, seed uint64, name string) string {
+// A machine law its graph search refuted is the command the test build
+// prints for it ($Replay, lower/machinelaws.go), which draws nothing:
+// --states the states the search held when it found the run, or the
+// budget when no run reaches the goal (MODELCHECK T3d: the trial read
+// two replay commands for one law).
+func replay(source string, b eval.Budget, res eval.Result) string {
 	if strings.ContainsAny(source, " \t\n'\"\\$`") || strings.HasPrefix(source, "-") {
 		source = strconv.Quote(source)
 	}
-	cmd := "ergo test " + source + " --seed " + strconv.FormatUint(seed, 10)
-	if title, ok := strings.CutPrefix(name, "law "); ok {
-		title, _, _ = strings.Cut(title, " ")
+	title, law := strings.CutPrefix(res.Name, "law ")
+	title, _, _ = strings.Cut(title, " ")
+	if m := res.Machine; law && m != nil && m.Runs == 0 {
+		states := b.States
+		if states <= 0 {
+			states = defaultStates
+		}
+		if m.Run != "" {
+			states = m.States
+		}
+		return "ergo test " + source + " --law " + title + " --states " + strconv.Itoa(states)
+	}
+	cmd := "ergo test " + source + " --seed " + strconv.FormatUint(b.Seed, 10)
+	if law {
 		cmd += " --law " + title
 	}
 	return cmd

@@ -1,0 +1,25 @@
+> screen
+  button "Crash"
+    text "Crash"
+> crashed
+  running
+> tap Crash
+> crashed
+  crashed: a defect
+> screen
+  text "Something went wrong"
+  text "unreachable at crash.ergo:20:2: This is a simulated crash!"
+  button "Reload"
+    text "Reload"
+> reports
+  crash report: a defect on ClickedCrash in Calm: unreachable at crash.ergo:20:2: This is a simulated crash!
+> tap Reload
+> crashed
+  running
+> screen
+  button "Crash"
+    text "Crash"
+> tap Crash
+> reports
+  crash report: a defect on ClickedCrash in Calm: unreachable at crash.ergo:20:2: This is a simulated crash!
+  crash report: a defect on ClickedCrash in Calm: unreachable at crash.ergo:20:2: This is a simulated crash!

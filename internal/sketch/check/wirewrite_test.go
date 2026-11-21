@@ -14,19 +14,20 @@ const cellPen = `type Pen {
 
 type pen { n int } implements Pen
 
-func Null(p *pen) { p.n = p.n + 1 }
-func Number(p *pen, text string) { p.n = p.n + 1 }
-func Bool(p *pen, b bool) { p.n = p.n + 1 }
-func Int(p *pen, n int64) { p.n = p.n + 1 }
-func Uint(p *pen, n uint64) { p.n = p.n + 1 }
-func Float(p *pen, f float64) { p.n = p.n + 1 }
-func String(p *pen, s string) { p.n = p.n + 1 }
-func BeginList(p *pen, n int) { p.n = p.n + 1 }
-func EndList(p *pen) { p.n = p.n + 1 }
-func BeginObject(p *pen, n int) { p.n = p.n + 1 }
-func Tag(p *pen, name string) { p.n = p.n + 1 }
-func Key(p *pen, k string) { p.n = p.n + 1 }
-func EndObject(p *pen) { p.n = p.n + 1 }
+func Null(p mut pen) { p.n = p.n + 1 }
+func Number(p mut pen, text string) { p.n = p.n + 1 }
+func Bool(p mut pen, b bool) { p.n = p.n + 1 }
+func Int(p mut pen, n int64) { p.n = p.n + 1 }
+func Uint(p mut pen, n uint64) { p.n = p.n + 1 }
+func Float(p mut pen, f float64) { p.n = p.n + 1 }
+func String(p mut pen, s string) { p.n = p.n + 1 }
+func StringBytes(p mut pen, b []byte) { p.n = p.n + 1 }
+func BeginList(p mut pen, n int) { p.n = p.n + 1 }
+func EndList(p mut pen) { p.n = p.n + 1 }
+func BeginObject(p mut pen, n int) { p.n = p.n + 1 }
+func Tag(p mut pen, name string) { p.n = p.n + 1 }
+func Key(p mut pen, k string) { p.n = p.n + 1 }
+func EndObject(p mut pen) { p.n = p.n + 1 }
 func seal(p pen) {}
 
 func NewPen() Pen { pen{n: 0} }
@@ -43,10 +44,10 @@ func TestWireWriteDiagnostics(t *testing.T) {
 		name, decl string
 		want       string // a part of the one diagnostic's message; "": none
 	}{
-		{name: "admitted", decl: "func WireWrite(m Mark, p *pen) { p.n = p.n + m.V }\n"},
-		{name: "another package's type", decl: "func WireWrite(n int, p *pen) { p.n = p.n + n }\n", want: "WireWrite writes a type of its own package"},
-		{name: "a result", decl: "func WireWrite(m Mark, p *pen) int { m.V }\n", want: "WireWrite of Mark is no write of its own: it takes the value and the writer's provider"},
-		{name: "a provider of no Writer", decl: "func WireWrite(m Mark, s *src) { s.at = m.V }\n", want: "WireWrite of Mark is no write of its own: src is not the cell provider of a sealed operation type of package main that provides the prelude's Writer"},
+		{name: "admitted", decl: "func WireWrite(m Mark, p mut pen) { p.n = p.n + m.V }\n"},
+		{name: "another package's type", decl: "func WireWrite(n int, p mut pen) { p.n = p.n + n }\n", want: "WireWrite writes a type of its own package"},
+		{name: "a result", decl: "func WireWrite(m Mark, p mut pen) int { m.V }\n", want: "WireWrite of Mark is no write of its own: it takes the value and the writer's provider"},
+		{name: "a provider of no Writer", decl: "func WireWrite(m Mark, s mut src) { s.at = m.V }\n", want: "WireWrite of Mark is no write of its own: src is not the cell provider of a sealed operation type of package main that provides the prelude's Writer"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			src := cellPen + cellReader + row.decl

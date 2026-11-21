@@ -14,7 +14,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lawcache"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -33,7 +33,7 @@ func main() {
 		lines = append(lines, e.Line())
 	}
 	var kept []string
-	for _, l := range strings.Split(std.Ledger(), "\n") {
+	for _, l := range strings.Split(stdlib.Ledger(), "\n") {
 		stale := false
 		for k := range fresh {
 			stale = stale || strings.HasPrefix(l, k)

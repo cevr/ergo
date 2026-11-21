@@ -46,12 +46,18 @@ func (l lawlessType) String() string {
 // and one problem per diagnostic or read error, which means its types
 // could not be read.
 func lawlessPackage(dir, base string) ([]lawlessType, []string) {
+	return lawlessPackageIn(dir, base, sketchfront.CheckDir)
+}
+
+// lawlessPackageIn is lawlessPackage with the package checked by checkDir:
+// a program's load reads its shared analysis (program.checkedDir, GS31a).
+func lawlessPackageIn(dir, base string, checkDir func(string) (sketchfront.Analysis, error)) ([]lawlessType, []string) {
 	label := relTo(base, dir)
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("%s: the law check cannot read the package: %v", label, err)}
 	}
-	a, err := sketchfront.CheckDir(abs)
+	a, err := checkDir(abs)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("%s: the law check cannot read the package: %v", label, err)}
 	}
@@ -99,7 +105,7 @@ func isOperationType(tn *check.TypeName) bool {
 }
 
 // onlyIncludes reports an operation type that adds no operation to the
-// ones its members `..I` include but seal (modules/xml's Cursor, the
+// ones its members `..I` include but seal (std xml's Cursor, the
 // prelude's Reader sealed): it states no contract of its own, and the
 // included types' laws are its.
 func onlyIncludes(it *check.Interface) bool {
@@ -157,7 +163,7 @@ func moduleLawProblems(p *program) []string {
 		}
 	}
 	for _, dir := range packageFolders(sources) {
-		found, checkProblems := lawlessPackage(dir, p.dir)
+		found, checkProblems := lawlessPackageIn(dir, p.dir, p.checkedDir)
 		problems = append(problems, checkProblems...)
 		for _, l := range found {
 			problems = append(problems, l.String())

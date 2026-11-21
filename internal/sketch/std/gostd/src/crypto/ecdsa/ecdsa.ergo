@@ -8,13 +8,13 @@ import go io
 import go math/big
 
 // ergo:go func GenerateKey(c elliptic.Curve, r io.Reader) (*PrivateKey, error)
-extern go crypto/ecdsa.GenerateKey func GenerateKey(c own elliptic.Curve, r own io.Reader) go.Ref[PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.GenerateKey func GenerateKey(c own elliptic.Curve, r own io.Reader) Option[go.Ref[PrivateKey]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseRawPrivateKey(curve elliptic.Curve, data []byte) (*PrivateKey, error)
-extern go crypto/ecdsa.ParseRawPrivateKey func ParseRawPrivateKey(curve own elliptic.Curve, data []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.ParseRawPrivateKey func ParseRawPrivateKey(curve own elliptic.Curve, data []byte) Option[go.Ref[PrivateKey]] fails go.Error needs go.Foreign
 
 // ergo:go func ParseUncompressedPublicKey(curve elliptic.Curve, data []byte) (*PublicKey, error)
-extern go crypto/ecdsa.ParseUncompressedPublicKey func ParseUncompressedPublicKey(curve own elliptic.Curve, data []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.ParseUncompressedPublicKey func ParseUncompressedPublicKey(curve own elliptic.Curve, data []byte) Option[go.Ref[PublicKey]] fails go.Error needs go.Foreign
 
 // ergo:go type PrivateKey struct
 extern go crypto/ecdsa.PrivateKey type PrivateKey {
@@ -32,7 +32,7 @@ extern go crypto/ecdsa.PrivateKey.Bytes func (priv *PrivateKey) Bytes() []byte f
 extern go crypto/ecdsa.PrivateKey.Double func (r PrivateKey) Double(x1 own *big.Int, y1 own *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
 
 // ergo:go func (*PrivateKey).ECDH() (*ecdh.PrivateKey, error)
-extern go crypto/ecdsa.PrivateKey.ECDH func (priv *PrivateKey) ECDH() go.Ref[ecdh.PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.ECDH func (priv *PrivateKey) ECDH() Option[go.Ref[ecdh.PrivateKey]] fails go.Error needs go.Foreign
 
 // ergo:go func (*PrivateKey).Equal(x crypto.PrivateKey) bool
 // ergo:refused PrivateKey.Equal: parameter 1: type PrivateKey is refused: Ergo has no any; an empty interface hides the host type
@@ -72,7 +72,7 @@ extern go crypto/ecdsa.PublicKey.Bytes func (pub *PublicKey) Bytes() []byte fail
 extern go crypto/ecdsa.PublicKey.Double func (r PublicKey) Double(x1 own *big.Int, y1 own *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
 
 // ergo:go func (*PublicKey).ECDH() (*ecdh.PublicKey, error)
-extern go crypto/ecdsa.PublicKey.ECDH func (pub *PublicKey) ECDH() go.Ref[ecdh.PublicKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PublicKey.ECDH func (pub *PublicKey) ECDH() Option[go.Ref[ecdh.PublicKey]] fails go.Error needs go.Foreign
 
 // ergo:go func (*PublicKey).Equal(x crypto.PublicKey) bool
 // ergo:refused PublicKey.Equal: parameter 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type

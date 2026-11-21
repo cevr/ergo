@@ -87,6 +87,7 @@ type actorV struct {
 	initial, fresh                                 Value
 	step, fire, delay, workOf, hasWork, work, kind Value
 	next, out                                      Value
+	hasExit, leave                                 Value // a state's exit action (rule 18)
 	limit                                          int64
 
 	inbox *queueV
@@ -109,6 +110,7 @@ type actorV struct {
 	// timer and work tasks, and the started sources.
 	cur     *envelope
 	epoch   uint64
+	owed    bool // the open entry has not run its exit action yet (rule 18)
 	timer   *etask
 	working *etask
 	feeds   []*etask
@@ -144,10 +146,13 @@ type entryRef struct {
 
 func (a *actorV) describe() string { return "an actor.Actor" }
 
-func registerRunner() {
+func registerRunner(t nativeTables) {
+	natives := t.std
+	t.reads["actor.start"] = "T func/0 int64 func/2 func/2 func/1 func/1 func/1 func/2 func/1 func/1 func/1 func/2 func/1 int64"
 	natives["actor.start"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.actorStart(fr, at, fn, args)
 	}
+	t.reads["actor.noTimer"] = ""
 	natives["actor.noTimer"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return int64(math.MinInt64), nil
 	}
@@ -158,18 +163,23 @@ func registerRunner() {
 		}
 		return a
 	}
+	t.reads["actor.Restarts"] = "host:actor.Actor"
 	natives["actor.Restarts"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).restarts, nil
 	}
+	t.reads["actor.hasLatest"] = "host:actor.Actor"
 	natives["actor.hasLatest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).hasLatest, nil
 	}
+	t.reads["actor.latest"] = "host:actor.Actor"
 	natives["actor.latest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).latest, nil
 	}
+	t.reads["actor.final"] = "host:actor.Actor"
 	natives["actor.final"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).final, nil
 	}
+	t.reads["actor.failure"] = "host:actor.Actor"
 	natives["actor.failure"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if a.fail == nil {
@@ -177,6 +187,7 @@ func registerRunner() {
 		}
 		return nil, fr.abrupt(ctlFail, at, a.fail.val, "")
 	}
+	t.reads["actor.exitKind"] = "host:actor.Actor"
 	natives["actor.exitKind"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if ab := in.block(fr, at, "an actor to end", func() bool { return a.ended }); ab != nil {
@@ -192,6 +203,7 @@ func registerRunner() {
 		}
 		return int64(1), nil
 	}
+	t.reads["actor.live"] = "host:actor.Actor"
 	natives["actor.live"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		r, ab := a.ask(in, fr, at, &envelope{kind: envState})
@@ -203,6 +215,15 @@ func registerRunner() {
 		}
 		return r.s, nil
 	}
+	t.reads["actor.changesOf"] = "host:actor.Actor int64 func/1 func/1"
+	natives["actor.changesOf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		room, ok := args[1].(int64)
+		if !ok {
+			ice("changesOf's room is %T", args[1])
+		}
+		return &changesSeq{a: actorOf(args[0]), room: int(max(room, 1)), changed: args[2], overflowed: args[3]}, nil
+	}
+	t.reads["actor.feed"] = "host:actor.Actor func/1"
 	natives["actor.feed"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -218,7 +239,7 @@ func registerRunner() {
 // actorStart is std actor's start: the actor, once its runner has
 // opened the first entry (its timer armed, its work started).
 func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-	if len(args) != 13 {
+	if len(args) != 15 {
 		ice("actor.start with %d arguments", len(args))
 	}
 	limit := args[2].(int64)
@@ -228,9 +249,10 @@ func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []V
 	a := &actorV{
 		initial: args[0], fresh: args[1], limit: limit,
 		step: args[3], fire: args[4], delay: args[5], workOf: args[6], hasWork: args[7], work: args[8],
-		kind: args[9], next: args[10], out: args[11],
+		hasExit: args[9], leave: args[10],
+		kind: args[11], next: args[12], out: args[13],
 	}
-	if ab := in.launch(fr, at, fn, a, args[12].(int64)); ab != nil {
+	if ab := in.launch(fr, at, fn, a, args[14].(int64)); ab != nil {
 		return nil, ab
 	}
 	return a, nil
@@ -357,6 +379,9 @@ func (a *actorV) renew(in *interp, fr *frame) *abrupt {
 // loop is one incarnation: the first entry, then one envelope at a time.
 func (a *actorV) loop(in *interp, fr *frame) *abrupt {
 	s := a.state
+	// The first entry is open from here: a raise in its arm or its work
+	// still ends it with its exit action (rule 18).
+	a.owed = true
 	if ab := a.open(in, fr, s, false); ab != nil {
 		return ab
 	}
@@ -470,11 +495,17 @@ func (a *actorV) handle(in *interp, fr *frame, s Value, env *envelope) (Value, b
 		if ab := a.stopEntry(in, fr); ab != nil {
 			return s, true, ab
 		}
+		// The old entry's exit action runs last, with the state it holds
+		// now, before the next entry opens (rule 18).
+		if ab := a.leaveEntry(in, fr, s); ab != nil {
+			return s, true, ab
+		}
 		ns, ab := a.call(in, fr, a.next, s, d)
 		if ab != nil {
 			return s, true, ab
 		}
 		s = ns
+		a.owed = true
 		a.epoch++
 		if ab := a.open(in, fr, s, true); ab != nil {
 			return s, true, ab
@@ -662,6 +693,31 @@ func (a *actorV) stopEntry(in *interp, fr *frame) *abrupt {
 	return a.stopTask(in, fr, w)
 }
 
+// leaveEntry runs the open entry's exit action (rule 18), as the Go
+// runner's leaveEntry does: when the entry owes it and its state s has
+// one, masked, so a stop does not cut it, after the entry's children,
+// timer and work ended. owed is cleared first, so the end that follows a
+// defect in the action does not run it again. The action has no error
+// row: it ends normally or with a defect.
+func (a *actorV) leaveEntry(in *interp, fr *frame, s Value) *abrupt {
+	if !a.owed {
+		return nil
+	}
+	a.owed = false
+	if a.hasExit == nil {
+		return nil
+	}
+	// Both calls are masked: a Stop's end runs them on a stopped runner.
+	in.mask(1)
+	defer in.mask(-1)
+	has, ab := a.call(in, fr, a.hasExit, s)
+	if ab != nil || has != true {
+		return ab
+	}
+	_, ab = a.call(in, fr, a.leave, s)
+	return ab
+}
+
 // stopKids ends the open entry's children (rule 13): the entry takes no
 // more, its hosts close, and each child is stopped and waited for, last
 // started first. It gives the first defect a child did not report.
@@ -716,7 +772,7 @@ func (a *actorV) halt(in *interp, fr *frame) *abrupt {
 func (a *actorV) publish(s Value) {
 	a.state = s
 	for _, c := range a.subs {
-		c.buf = append(c.buf, s)
+		c.add(s)
 	}
 }
 
@@ -746,6 +802,11 @@ func (a *actorV) crash(in *interp, fr *frame) *abrupt {
 		if ab := a.stopTask(in, fr, x); stops(ab) {
 			return ab
 		}
+	}
+	// The open entry's exit action (rule 18); its defect is the crash's,
+	// as the children's are.
+	if ab := a.leaveEntry(in, fr, a.state); stops(ab) {
+		return ab
 	}
 	if a.cur != nil {
 		a.release(a.cur)
@@ -792,6 +853,13 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		a.note(ab)
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action, with the state it holds (rule 18): a
+	// defect in it joins the exit.
+	ab = a.leaveEntry(in, fr, a.state)
+	if stops(ab) {
+		return ab
+	}
+	a.note(ab)
 	for _, t := range a.feeds {
 		ab := a.stopTask(in, fr, t)
 		if stops(ab) {
@@ -920,29 +988,66 @@ func (a *actorV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 		return unit{}, nil
 	case "Dropped":
 		return a.dropped, nil
-	case "Changes":
-		return &changesSeq{a: a}, nil
+	case "LatestChanges":
+		return &changesSeq{a: a, room: 1}, nil
+	case "Held":
+		n := 0
+		for _, c := range a.subs {
+			n += len(c.buf)
+		}
+		return int64(n), nil
 	}
 	ice("the Actor operation %s", name)
 	return nil, nil
 }
 
-// changesSeq is a.Changes(): a for over it subscribes at its first step.
+// changesSeq is a loop over an actor's committed states: LatestChanges
+// (room 1, the states themselves), or std actor's changesOf(a, room,
+// changed, overflowed), the loop of Changes(a, room), which gives
+// changed(s) for each state and, before a state an overflow dropped
+// others for, overflowed(n) with their number (runtime/v1 ActorChanges).
+// A for over it subscribes at its first step and unsubscribes when it
+// ends, a break or a return included (done).
 type changesSeq struct {
-	a   *actorV
-	sub *changeSub
+	a                   *actorV
+	room                int
+	changed, overflowed Value // nil for LatestChanges
+	sub                 *changeSub
+	// held marks pending, the state changesOf gives after the
+	// overflowed(n) it gave first.
+	pending Value
+	held    bool
 }
 
-// changeSub is one subscription: the states it has not given yet.
+// changeSub is one subscription: the states it has not given yet, at most
+// room, and how many an overflow dropped since the reader last took one.
 type changeSub struct {
-	buf   []Value
-	ended bool
+	buf    []Value
+	room   int
+	missed int
+}
+
+// add is a commit of s on the subscription, as runtime/v1's
+// publishLocked: full, it drops the unread states, counts them, and holds
+// s alone.
+func (c *changeSub) add(s Value) {
+	if len(c.buf) >= c.room {
+		c.missed += len(c.buf)
+		c.buf = append(c.buf[:0:0], s)
+		return
+	}
+	c.buf = append(c.buf, s)
 }
 
 func (c *changesSeq) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *abrupt) {
+	if c.held {
+		s := c.pending
+		c.pending, c.held = nil, false
+		return c.give(in, fr, at, s)
+	}
 	a := c.a
 	if c.sub == nil {
-		c.sub = &changeSub{buf: []Value{a.state}}
+		c.sub = &changeSub{buf: []Value{a.state}, room: max(c.room, 1)}
 		if !a.ended {
 			a.subs = append(a.subs, c.sub)
 		}
@@ -957,7 +1062,37 @@ func (c *changesSeq) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *
 	}
 	v := sub.buf[0]
 	sub.buf = sub.buf[1:]
+	missed := sub.missed
+	sub.missed = 0
+	if c.changed == nil {
+		return v, true, nil
+	}
+	if missed > 0 {
+		o, ab := in.callValue(fr, at, c.overflowed, []Value{int64(missed)})
+		if ab != nil {
+			return nil, false, ab
+		}
+		c.pending, c.held = v, true
+		return o, true, nil
+	}
+	return c.give(in, fr, at, v)
+}
+
+// give is changed(s), changesOf's value for the state s.
+func (c *changesSeq) give(in *interp, fr *frame, at syntax.Node, s Value) (Value, bool, *abrupt) {
+	v, ab := in.callValue(fr, at, c.changed, []Value{s})
+	if ab != nil {
+		return nil, false, ab
+	}
 	return v, true, nil
+}
+
+// done ends the subscription of a loop that left early, as the runtime's
+// subscription ends when its range function returns.
+func (c *changesSeq) done() {
+	if c.sub != nil {
+		c.a.unsubscribe(c.sub)
+	}
 }
 
 func (a *actorV) unsubscribe(sub *changeSub) {

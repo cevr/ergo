@@ -1,0 +1,52 @@
+ergo.dev/fluid is an Ergo port of the design of Fluid Functionalism.
+Its Ergo text is new work. It takes the original's design and values
+(colours, sizes, radii, shadows, spring timings) under the licence below.
+
+1. Fluid Functionalism (the original design and its values)
+   https://github.com/mickadesign/fluid-functionalism
+
+MIT License
+
+Copyright (c) 2026 Micka Touillaud
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+2. The reference for behaviour and structure
+   Fluid Functionalism for Foldkit, by Tim Hanlon,
+   https://github.com/timhanlon/fluid-functionalism-foldkit at commit a8fdcc03,
+   with its docs at https://fff.timhanlon.com. This port reads it for how the
+   components behave and how they are built. It copies no text from it.
+
+3. Icons
+   The icon package (when it ships) holds glyph path data of these sets, each
+   with its full licence text under icon/licenses/:
+   - Lucide, ISC License. Copyright (c) for portions of Lucide are held by
+     Cole Bemis 2013-2026 as part of Feather (MIT). All other copyright (c)
+     for Lucide are held by Lucide Contributors 2026.
+   - Tabler Icons, MIT License. Copyright (c) 2020-2026 Paweł Kuna.
+   - Phosphor Icons, MIT License. Copyright (c) 2020 Phosphor Icons.
+   - Hugeicons (free set), MIT License. Copyright (c) 2025 Hugeicons.
+   Untitled UI icons, the original's default set, are not in this port: their
+   licence forbids their use in a UI kit or library.
+
+4. Fonts
+   The original's pages render with Inter (SIL Open Font License 1.1,
+   Copyright 2016 The Inter Project Authors). This module names the font
+   family; it bundles no font file. A host that bundles Inter ships its
+   licence with it.

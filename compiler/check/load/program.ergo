@@ -1,0 +1,210 @@
+// A run of several packages, typed together: the tables a Go host writes
+// for each (EXT and FOREIGN, typedump's), their files, then binding in
+// import waves, loading each once and typing each with its imports'
+// loaded packages as its deps. exprdump and irdump read a corpus this way.
+
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/task
+import compiler/check/types
+import fs
+import strconv
+import strings
+
+// Tables is what EXT and FOREIGN hold: the external kinds, the foreign
+// types, and the package's name and import path from FOREIGN's @pkg line
+// (a checked root's are main; a name of "" is a package whose name the
+// importer does not print).
+type Tables { Ext []types.Ext, Foreign []types.Foreign, PkgName string, PkgPath string }
+
+func bit(w string) int {
+	if w == "type" { 1 } else if w == "errors" { 2 } else if w == "uses" { 4 } else { 8 }
+}
+
+// TablesOf reads EXT's and FOREIGN's texts.
+func TablesOf(extText string, foreignText string) Tables {
+	let mut ext = []types.Ext{}
+	for line in strings.Split(extText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		let mut ks = []int{}
+		for w in strings.Split(parts[1], ",") {
+			ks = ks.Append(bit(w))
+		}
+		ext = ext.Append(types.Ext{Head: parts[0], Kinds: ks})
+	}
+	let mut foreign = []types.Foreign{}
+	let mut pkgName = "main"
+	let mut pkgPath = "main"
+	for line in strings.Split(foreignText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) == 4 && parts[0] == "@pkg" {
+			pkgName = if parts[3] == "1" { parts[1] } else { "" }
+			pkgPath = parts[2]
+			continue
+		}
+		if len(parts) != 6 {
+			continue
+		}
+		let n = strconv.Atoi(parts[2]) catch {
+		case _:
+			0
+		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
+	}
+	Tables{Ext: ext, Foreign: types.WithUnions(foreign, foreignText), PkgName: pkgName, PkgPath: pkgPath}
+}
+
+// Unit is one package of a run: its tables, its files (Paths their
+// paths, in order), its import path and its folder.
+type Unit { Tab Tables, Files []bind.File, Paths []string, Path string, Dir string }
+
+// UnitOf is a package of the files at paths, parsed (files), with tables
+// tab; its import path is the tables' until the caller sets it.
+func UnitOf(tab Tables, files []bind.File, paths []string) Unit {
+	Unit{Tab: tab, Files: files, Paths: paths, Path: tab.PkgPath, Dir: if len(paths) > 0 { Dir(paths[0]) } else { "." }}
+}
+
+// Outside is the interfaces of the packages the units import and do not
+// hold, loaded from std, transitively: each unit's, against its tables.
+func Outside(units []Unit, std string) []types.Iface needs fs.Files {
+	let mut held = []string{}
+	for u in units {
+		held = held.Append(u.Path)
+	}
+	let mut have = []types.Iface{}
+	for u in units {
+		let pkgs = Imported(bind.Imports(u.Files), held, ModuleOf(u.Dir), std)
+		for p in pkgs {
+			held = held.Append(p.Path)
+		}
+		have = Interfaces(pkgs, u.Tab.Ext, u.Tab.Foreign, have)
+	}
+	have
+}
+
+// Program is a run's units bound and loaded: each loaded package (Loaded)
+// and the unit it is (Units).
+type Program { Loaded []expr.Dep, Units []int }
+
+// Typed is one package typed: its store, what Load made of it and the
+// typer's result.
+type Typed { S store.Store, K expr.Pkg, T expr.Typer }
+
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}
+
+// LoadAll binds the units as package tasks in import waves (check/task:
+// each binds against its imports' frozen stores) and loads each once, its
+// imports' interfaces (types.Iface) done first (those of have0, the
+// imports outside the run) (S3d3, S3d12). Up to threads package tasks
+// bind at once (check/task); the result does not depend on it.
+func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
+	let mut pkgs = []task.Package{}
+	for u in units {
+		pkgs = pkgs.Append(task.Package{Path: u.Path, Files: u.Files})
+	}
+	let checked = task.Check(pkgs, threads)
+	let mut stores = []store.Store{}
+	let mut have = have0
+	let mut done = []bool{}
+	let mut ks = []Option[expr.Pkg]{}
+	for i, c in checked {
+		// Its importers reach it by its path; its own types are named
+		// by the path its tables give (main for a checked root).
+		let mut s = store.Of(c.Store)
+		store.SetPath(&s, units[i].Tab.PkgPath)
+		stores = stores.Append(s)
+		done = done.Append(false)
+		ks = ks.Append(None)
+	}
+	// A pass loads the units whose imports in the program are all
+	// loaded; when none is ready (an import cycle), the first one left
+	// loads against what is done.
+	let mut left = len(units)
+	for left > 0 {
+		let mut progress = false
+		for pass in 0..2 {
+			if progress {
+				break
+			}
+			for i, c in checked {
+				if isSome(ks[i]) || (pass == 1 && progress) {
+					continue
+				}
+				let mut ready = true
+				for path in store.ImportPaths(stores[i]) {
+					for j, u in units {
+						if u.Path == path && j != i && !done[j] {
+							ready = false
+						}
+					}
+				}
+				if pass == 0 && !ready {
+					continue
+				}
+				let deps = Deps(stores[i], have)
+				let mut s = stores[i]
+				let k = expr.Load(&s, units[i].Files, c.Uses, c.Parents, units[i].Tab.Ext, units[i].Tab.Foreign, deps, units[i].Tab.PkgName == "")
+				// Its importers read it by its import path, which its
+				// types print with (a checked root's own path is main).
+				let mut at = s
+				store.SetPath(&at, units[i].Path)
+				have = have.Append(types.Interface(at, k.Parsed, k.Kinds, k.Ext, units[i].Tab.Foreign, deps))
+				done[i] = true
+				stores[i] = s
+				ks[i] = Some[expr.Pkg]{Value: k}
+				left = left - 1
+				progress = true
+			}
+		}
+	}
+	let mut loaded = []expr.Dep{}
+	let mut of = []int{}
+	for i, c in checked {
+		match ks[i] {
+		case Some[expr.Pkg] as k:
+			loaded = loaded.Append(expr.Dep{Path: c.Path, S: stores[i], K: k.Value})
+			of = of.Append(i)
+		case None:
+		}
+	}
+	Program{Loaded: loaded, Units: of}
+}
+
+// TypeAt types the program's i-th loaded package with its imports'
+// loaded packages as its deps (and the prelude's, every package's: its
+// Append, Get, Put and Delete are functions on slices and Maps; types.md,
+// Methods 7). A caller that writes each package as it is typed holds one
+// typing at a time.
+func TypeAt(p Program, i int) Typed {
+	let d = p.Loaded[i]
+	let mut deps = []expr.Dep{}
+	for e in p.Loaded {
+		if e.Path == "prelude" && d.Path != "prelude" {
+			deps = deps.Append(e)
+			break
+		}
+	}
+	for path in store.ImportPaths(d.S) {
+		for e in p.Loaded {
+			if e.Path == path {
+				deps = deps.Append(e)
+				break
+			}
+		}
+	}
+	let mut s = d.S
+	let k = expr.WithDeps(d.K, deps)
+	let t = expr.Check(&s, k)
+	Typed{S: s, K: k, T: t}
+}

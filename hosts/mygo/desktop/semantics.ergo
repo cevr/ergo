@@ -1,0 +1,115 @@
+// A Semantic node's Access in the window's accessibility tree (UG2): its
+// role, states, level, range, current item, popup, description and its
+// relations to other nodes, as std ui reads them (ui.AccessOf on the
+// window's mirror, ui.RelationsIn), by WAI-ARIA's names (ui.RoleName).
+// MyGo's tree has no field for LabelledBy, ActiveDescendant, Modal or
+// Pressed: those stay std ui's and the test host's.
+
+import go ergo.local/prototype/hosts/mygo/screen
+import ui
+import ui/layout
+
+// semantic adds the Semantic node id, shown at b, to the accessibility
+// tree with what std ui reads of it.
+func semantic[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], b layout.Box, focus bool) needs go.Foreign {
+	let a = ui.AccessOf(&d.mirror, id)
+	let value = match a.Value {
+	case Some[string] as v:
+		v.Value
+	case None:
+		""
+	}
+	access(d, id, screen.RoleGroup, a.Name, value, b, false, focus)
+	d.semantics = d.semantics.Append(id)
+	d.w.AccessRole(ui.RoleName(a.Role))
+	if focusable(n) {
+		d.w.AccessFocusable()
+	}
+	for s in statesOf(a) {
+		d.w.AccessState(s)
+	}
+	let level = match a.Level {
+	case Some[int] as l:
+		l.Value
+	case None:
+		0
+	}
+	let current = match a.Current {
+	case Some[string] as c:
+		c.Value
+	case None:
+		""
+	}
+	let mut popup = if a.HasPopup { "menu" } else { "" }
+	for r in a.Rels {
+		match r {
+		case ui.OpensPopup as p:
+			popup = ui.RoleName(p.Role)
+		case _:
+		}
+	}
+	d.w.AccessDescribe(a.Description, level, current, popup)
+	match a.Range {
+	case Some[ui.Range] as r:
+		d.w.AccessRange(r.Value.Now, r.Value.Min, r.Value.Max)
+	case None:
+	}
+	for rel in ui.RelationsIn(&d.mirror, id) {
+		match rel.To {
+		case Some[ui.Id[E]] as to:
+			match rel.Rel {
+			case ui.Controls:
+				d.w.AccessRelate("controls", nameOf(d, to.Value))
+			case ui.DescribedBy:
+				d.w.AccessRelate("describedby", nameOf(d, to.Value))
+			case _:
+			}
+		case None:
+		}
+	}
+}
+
+// statesOf is the WAI-ARIA states a holds that the window's tree carries.
+func statesOf(a ui.Access) []string {
+	let mut out = []string{}
+	if a.Disabled {
+		out = out.Append("disabled")
+	}
+	if a.Checked == (Some{Value: true}) {
+		out = out.Append("checked")
+	}
+	if a.Mixed {
+		out = out.Append("mixed")
+	}
+	if a.Selected == (Some{Value: true}) {
+		out = out.Append("selected")
+	}
+	if a.Expanded == (Some{Value: true}) {
+		out = out.Append("expanded")
+	}
+	if a.Busy {
+		out = out.Append("busy")
+	}
+	if a.Invalid {
+		out = out.Append("invalid")
+	}
+	if a.MultiSelectable {
+		out = out.Append("multiselectable")
+	}
+	out
+}
+
+// Semantics are the Semantic nodes the last paint put in the
+// accessibility tree, in paint order.
+func Semantics[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Id[E] { d.semantics }
+
+// AccessName is the id of the node id in the window's accessibility tree,
+// None for a node never painted.
+func AccessName[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[int] { d.names.Get(id) }
+
+// AccessAt is the node id names as std ui reads it on the window's mirror.
+func AccessAt[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) ui.Access { ui.AccessOf(&d.mirror, id) }
+
+// RelationsAt is the relations of the node id names on the window's
+// mirror, each with the node it names.
+func RelationsAt[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Related[E] { ui.RelationsIn(&d.mirror, id) }

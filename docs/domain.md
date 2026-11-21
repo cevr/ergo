@@ -22,7 +22,9 @@ What Ergo adds to the source library's model: `Decide` has no `needs` row, so it
 | External system | An operation type with laws, bound in `cmd/<name>/main.ergo`; a `testing.Script` of it in a scene | exists |
 | Context (actor, tenant, time, command id) | Data in the command's envelope, never an ambient value (rule 3) | pattern |
 | Api | One operation type: commands and reads as operations, laws beside them | exists |
-| Projection of the Api | `ergo gen rpc` (HTTP, Effect RPC's protocol) and `ergo gen cli` (a std `flag` tree with the law `ArgsRoundTrip`); MCP is planned (AP3); a UI is a pattern (rule 6) | rpc and cli exist |
+| Hub of the Api | `ergo gen api`: `<pkg>api` holds the call as data (`Request`, `Op`, `Reply`, `Failure`, `Outcome`), the one dispatch `Call` and a `Client`, with the laws `CallIsTheOperation` and `ClientIsCall` | exists |
+| Projection of the Api | Transports written over the hub: `ergo gen rpc` (HTTP, Effect RPC's protocol), `ergo gen cli` (a std `flag` tree with the law `ArgsRoundTrip`) and `ergo gen mcp` (tools with the law `ArgumentsFitTheSchema`); a UI is a pattern (rule 6) | rpc, cli and mcp exist |
+| Transport policy | Functions in `cmd/<name>` over the hub's unions, each an exhaustive `match` (exit code, HTTP status) | planned (API-FIRST AF2, AF3) |
 
 ## 2. The aggregate
 
@@ -132,7 +134,7 @@ func Handle(s Run, c Command) Decision[Run, []Event] fails WrongState | WrongSta
 
 The aggregate is a machine, and its rules are laws of the machine:
 
-<!-- quote examples/pipeline/run/laws.ergo Life -->
+<!-- quote examples/pipeline/run/life.ergo Life -->
 ```go
 // Life is the run as a machine: its step is Handle, so a durable actor
 // of it keeps the commands and replays them (std journal).
@@ -175,7 +177,7 @@ A command's id makes a resend harmless: the context keeps the receipt of each id
 
 ## 5. The Api, declared once
 
-**Rule 5. The Api is one operation type: commands and reads are its operations, and its laws stand beside them.** Every surface is a provider of it or a caller of it: the in-process model, the generated RPC client (`ergo gen rpc`), the generated command line (`ergo gen cli`), the generated MCP tools (`ergo gen mcp`, whose descriptions are the operations' doc comments), and later a sync replica. `ergo test` runs the Api's laws against each provider that has a constructor, so a projection is admitted by the laws.
+**Rule 5. The Api is one operation type: commands and reads are its operations, and its laws stand beside them.** Every surface is a provider of it or a caller of it: the in-process model, the generated RPC client (`ergo gen rpc`), the generated command line (`ergo gen cli`), the generated MCP tools (`ergo gen mcp`, whose descriptions are the operations' doc comments), and later a sync replica. `ergo gen api` writes the Api's hub, `<pkg>api`: one call as data (`Request`), its operation alone (`Op`), what it ends in (`Outcome`: a `Reply` or a typed `Failure`), and the one dispatch `Call`, with laws that `Call` is the operation and that a `Client` over `Call` is the provider. Every transport is written over the hub, so a call has one type and one dispatch on every surface ([api.md](spec/api.md#ergo-gen-api)). Each transport package provides `Wire`, an `api.Transport` of std `api` that carries a call to an answer and its outcome back, and states the law `Agrees`: every call and every outcome `Call` can have (drawn as the hub's `Given`) comes through `Wire` unchanged. A transport is admitted by that one law, so no other law re-plays requests through each transport. `ergo test` runs the Api's laws against each provider that has a constructor, so a projection is admitted by the laws.
 
 <!-- quote examples/pipeline/pipeline/api.ergo Pipeline -->
 ```go
@@ -236,7 +238,8 @@ type Runner {
 func Apply(v View, id string, e run.Event) View {
 	match moved(e) {
 	case Some[Column] as c:
-		let out = View{Queued: without(v.Queued, id), Running: without(v.Running, id), Failing: without(v.Failing, id), Passed: without(v.Passed, id), Stopped: without(v.Stopped, id)}
+		let other = func(x string) bool { x != id }
+		let out = View{Queued: slices.Filter(v.Queued, other), Running: slices.Filter(v.Running, other), Failing: slices.Filter(v.Failing, other), Passed: slices.Filter(v.Passed, other), Stopped: slices.Filter(v.Stopped, other)}
 		put(out, c.Value, id)
 	case None:
 		v
@@ -244,7 +247,7 @@ func Apply(v View, id string, e run.Event) View {
 }
 ```
 
-<!-- quote examples/pipeline/board/laws.ergo BoardIsFoldOfEvents -->
+<!-- quote examples/pipeline/board/board.ergo BoardIsFoldOfEvents -->
 ```go
 // BoardIsFoldOfEvents: the board folded from the events of every run is
 // the board of the runs' states, with each run once, in the column of
@@ -270,7 +273,7 @@ law BoardIsFoldOfEvents(acts []Act) {
 			v = Apply(v, id, e)
 			match moved(e) {
 			case Some[Column]:
-				order = without(order, id).Append(id)
+				order = slices.Filter(order, func(x string) bool { x != id }).Append(id)
 			case None:
 			}
 		}
@@ -301,7 +304,7 @@ func React(id string, e run.Event) []Notice {
 
 **The log is the source; a view and a policy are its followers.** `examples/pipeline`'s desk keeps each step's entries in the stream `pipeline` of a `domain.Log` before it commits the step, and a restart folds the stream back into the desk (`domain.Sourced` with `Evolve`). A command taken while the desk runs a try or waits out a backoff is committed with `domain.Keep`, which keeps the entry: the try and the wait go on (`CommandKeepsTheWait`). The board and the notices are not part of the desk: each is a `domain.Follow` follower of the stream with its own cursor, so a follower added later reads the whole history, and one that falls behind catches up from its cursor. The laws hold the parts together: the stream folds back into the desk the scene ended in, a restart part-way goes on to the story's end, and the followed board is the fold of the entries.
 
-<!-- quote examples/pipeline/pipeline/log_laws.ergo RestartGoesOn restarted -->
+<!-- quote examples/pipeline/pipeline/scene.ergo RestartGoesOn restarted -->
 ```go
 // RestartGoesOn: a context stopped after the acts before cut and opened
 // again over the same log (a restart: it recovers by Evolve, then
@@ -373,7 +376,7 @@ A **stage** (`testing.Stage`) is the one kernel that a domain scene, a UI scene 
 
 ## 8. A UI is a view of a domain
 
-**Rule 6. Projecting the Api to a UI is a pattern, not a package.** The screen is its own machine, whose state holds what only the screen knows and the domain's view as a load. A command is a signal that carries the Api's request value; the view asks the host for the call as a load (`ui.Load`), so the answer, a rejection included, comes back as a signal and so as state that the view shows. (A signal that an actor's `work` sends would change the state with no new pass of the view, since a `ui` session renders after its own events.) The view is one function of the state, given the provider of the Api, which the test host, the terminal host, the desktop host and the page host all draw. `cmd/<name>/main.ergo` chooses that provider; the screen does not change. The worked example's screen is `examples/pipeline`'s `screen` and `view`: scenes on `ui.TestHost` hold a call of the runner and of the Api, and `SurfacesAgree` plays one list of requests on the screen as on the model, the generated RPC client and the command line.
+**Rule 6. Projecting the Api to a UI is a pattern, not a package.** The screen is its own machine, whose state holds what only the screen knows and the domain's view as a load. A command is a signal that carries the Api's request value; the view asks the host for the call as a load (`ui.Load`), so the answer, a rejection included, comes back as a signal and so as state that the view shows. (A signal that an actor's `work` sends would change the state with no new pass of the view, since a `ui` session renders after its own events.) The view is one function of the state, given the provider of the Api, which the test host, the terminal host, the desktop host and the page host all draw. `cmd/<name>/main.ergo` chooses that provider; the screen does not change. The worked example's screen is `examples/pipeline`'s `screen` and `view`: scenes on `ui.TestHost` hold a call of the runner and of the Api, and `SurfacesAgree` plays one list of requests on the screen as on the model; the generated transports are held by their own `Agrees`, and `TransportsTakeEachCommandOnce` runs `Pipeline.DuplicateIsNoop` through each one's `Wire`.
 
 ## 9. Infrastructure
 

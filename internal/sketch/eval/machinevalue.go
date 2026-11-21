@@ -57,7 +57,9 @@ func (in *interp) machineValue(fr *frame, at syntax.Node, p *machinePlan, conv c
 		set("Initial", v)
 	}
 	set("Step", &funcRef{fn: step})
-	for _, name := range []string{"After", "Work"} {
+	// Exit (FK9-g1): the exit function, or None for every state; a fold
+	// runs no exit action, so only a program that calls Exit reads it.
+	for _, name := range []string{"After", "Work", "Exit"} {
 		set(name, in.machineOption(to, n, name, conv.Table[name]))
 	}
 	return out, nil
@@ -117,6 +119,13 @@ func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check
 			if t.fields[fieldIndex(t.t, "In")].(int64) <= 0 {
 				return nil, fr.unsupported(at, "a machine timer that is not positive, whose defect text the Go build formats")
 			}
+			if check.IsEvery(t.t) {
+				tv, ab := in.everyTimeout(fr, at, fn, result, t)
+				if ab != nil {
+					return nil, ab
+				}
+				v = tv
+			}
 		case "Work":
 			w, ok := v.(*record)
 			if !ok {
@@ -126,6 +135,82 @@ func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check
 		}
 		return optionOf(result, v, true), nil
 	}}
+}
+
+// everyTimeout is the Timeout the prelude Machine's After gives for an
+// after function's machines.Every (FKG1; the build's everyTimers, lower/
+// machine.go): In as written, and Signal made from time.Clock's reading
+// when the task runs under std machines' firing mark (a timer that
+// fires), else from the zero time, where the runner reads only In.
+func (in *interp) everyTimeout(fr *frame, at syntax.Node, after *check.Func, result rtype, every *record) (Value, *abrupt) {
+	timeout, ok := optionElem(result)
+	if !ok {
+		ice("the prelude Machine's After gives no Option[Timeout[E]]")
+	}
+	sigField := every.fields[fieldIndex(every.t, "Signal")]
+	var when Value
+	clockT := check.EveryClock(after.Sig)
+	if clockT == nil {
+		ice("std machines.Every has no time.Clock")
+	}
+	timeT := sigParam(every)
+	if in.firing {
+		op, ok := fr.caps.lookup(typeKey(rtype{t: clockT, env: fr.env}))
+		if !ok {
+			return nil, fr.unsupported(at, "the capability %s, which no with of the run binds", clockT)
+		}
+		call, _ := at.(*syntax.CallExpr)
+		now, ab := in.dispatch(fr, call, op, "Now", nil)
+		if ab != nil {
+			return nil, ab
+		}
+		when = now
+	} else {
+		z, ab := in.zero(fr, at, rtype{t: timeT, env: fr.env})
+		if ab != nil {
+			return nil, ab
+		}
+		when = z
+	}
+	e, ab := in.callValue(fr, at, sigField, []Value{when})
+	if ab != nil {
+		return nil, ab
+	}
+	n, ok := timeout.t.(*check.Named)
+	if !ok {
+		ice("Timeout is %s, no record", timeout.t)
+	}
+	out := &record{t: n, key: argsKey(n, timeout.env), fields: make([]Value, len(structOf(n).Fields))}
+	out.fields[fieldIndex(n, "In")] = every.fields[fieldIndex(every.t, "In")]
+	out.fields[fieldIndex(n, "Signal")] = e
+	return out, nil
+}
+
+// sigParam is the type of the parameter of an Every's Signal field,
+// time.Time.
+func sigParam(every *record) check.Type {
+	f := structOf(every.t).Fields[fieldIndex(every.t, "Signal")]
+	if s, ok := f.Type.(*check.Signature); ok && len(s.Params) == 1 {
+		return s.Params[0].Type
+	}
+	ice("std machines.Every has no Signal func(at time.Time) E")
+	return nil
+}
+
+// optionElem is T of the Option type t: the type of the field of its one
+// variant with a field.
+func optionElem(t rtype) (rtype, bool) {
+	u, ok := t.under().t.(*check.Union)
+	if !ok {
+		return rtype{}, false
+	}
+	for _, vt := range u.Variants {
+		n, ok := vt.(*check.Named)
+		if ok && structOf(n) != nil && len(structOf(n).Fields) == 1 {
+			return rtype{t: structOf(n).Fields[0].Type, env: t.under().env}, true
+		}
+	}
+	return rtype{}, false
 }
 
 // optionOf is Some{v} (found) or None of the Option type t.

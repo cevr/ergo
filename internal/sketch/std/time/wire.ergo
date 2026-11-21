@@ -1,0 +1,43 @@
+// Time's wire form (GX10; types.md, Codecs 1): the string of its RFC 3339
+// text with nanoseconds, in UTC, as Go's time.Time MarshalJSON writes it,
+// read back by RFC 3339 (fractions of a second optional), as Go's
+// UnmarshalJSON reads it. The pair is the append form, Wire(t, into) with
+// the bytes of the text added to into, so an encode writes the text into a
+// buffer it lends and makes no string of it. The monotonic reading is not
+// part of the text, as in Go: a decoded Time has none.
+
+import utf8
+
+// ParseTime is the instant the RFC 3339 text whose bytes are b writes, as
+// Parse(RFC3339, text).
+func ParseTime(b []byte) Time fails ParseError { try Parse(RFC3339, utf8.String(b)) }
+
+// Wire is into with t's RFC3339Nano text added: Format(t, RFC3339Nano)'s
+// bytes. An instant of the years 0 to 9999 is written into the buffer
+// itself (Go's AppendFormat); one outside them through Format, whose text
+// is the one that names such a year.
+func Wire(t Time, into []byte) []byte {
+	if t.sec >= -62167219200 && t.sec < 253402300800 {
+		appendUTC(into, t.sec, t.nsec, "2006-01-02T15:04:05.999999999Z07:00")
+	} else {
+		appendText(into, Format(t, RFC3339Nano))
+	}
+}
+
+// appendUTC is Go's time.Unix(sec, nsec).UTC().AppendFormat(into, layout).
+extern go ergo.local/prototype/runtime/v1.TimeAppendUTC func appendUTC(into []byte, sec int64, nsec int64, layout string) []byte
+
+// appendText is Go's append(into, s...).
+extern go append func appendText(into []byte, s string) []byte
+
+// WireIsFormat: Wire adds Format's RFC3339Nano text after the bytes into
+// holds, for an instant in the years 1 to 9999 (near) and for any second.
+law WireIsFormat(sec int64, nsec int64, near bool, pre []byte) {
+	let s = if near { anyYear(sec) } else { sec }
+	let t = Time{sec: s, nsec: within(nsec, 0, 999999999), mono: 0, hasMono: false}
+	utf8.String(t.Wire(pre)) == utf8.String(pre)+t.Format(RFC3339Nano)
+}
+
+// The parser derives the pair's round-trip law, TimeRoundTrips: ParseTime
+// reads back the instant Wire writes, for each Time that NewTime, Time's
+// constructor, makes from two drawn integers (types.md, Codecs 7).

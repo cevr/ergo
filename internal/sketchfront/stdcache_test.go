@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/eval/casegen"
 	"ergo.local/prototype/internal/sketch/eval/evalgen"
@@ -177,7 +178,7 @@ func TestStdSnapshotAgrees(t *testing.T) {
 	// Include diagnostics: an erased cached error row must not admit a caller.
 	cases = append(cases, stdCacheCase{name: "diagnostic", source: "import strconv\nfunc main() { let n = strconv.Atoi(\"bad\") }\n"})
 	resetStdCache(t)
-	data, err := check.ExportStd()
+	data, err := snapshot.ExportStd()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestStdSnapshotAgrees(t *testing.T) {
 	}
 	for _, snap := range snapshots {
 		resetStdCache(t)
-		if err := check.InstallStd(bytes.NewReader(snap.data), int64(len(snap.data))); err != nil {
+		if err := snapshot.InstallStd(bytes.NewReader(snap.data), int64(len(snap.data))); err != nil {
 			t.Fatalf("%s: %v", snap.name, err)
 		}
 		for i, c := range cases {

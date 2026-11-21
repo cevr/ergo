@@ -16,6 +16,27 @@ func nothingToTest(pkg *check.Package) bool {
 	return len(pkg.Tests) == 0 && len(pkg.LawRuns) == 0
 }
 
+// nativeObligations is the number of obligations a run of the test binary
+// with opts decides: one named by --run or --law, else every test and law
+// run but those --skip-law names (test-speed FT0's counter).
+func nativeObligations(pkg *check.Package, opts fileOptions) int {
+	if opts.run != "" {
+		return 1
+	}
+	n := len(pkg.Tests)
+	for _, run := range pkg.LawRuns {
+		title := run.Law.Title(pkg)
+		if opts.law != "" && title != opts.law || opts.skipLaw != "" && title == opts.skipLaw {
+			continue
+		}
+		n++
+	}
+	if opts.law != "" {
+		n -= len(pkg.Tests)
+	}
+	return n
+}
+
 // emptyTestRun is what the test binary of a package with nothing to test
 // does with opts (lower's testRunner and $Seed), without building or
 // running it, as go test reports "[no test files]": so the package's

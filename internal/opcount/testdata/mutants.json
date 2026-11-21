@@ -92,6 +92,15 @@
       "killers": ["internal/opcount:TestWorkloadFileReads"]
     },
     {
+      "name": "workload-floor-dropped",
+      "origin": "wf10 FLOORS",
+      "file": "internal/opcount/workload.go",
+      "from": "\t\t\tw.Floor = rest[0]\n",
+      "to": "\t\t\t_ = rest[0]\n",
+      "rule": "A floor line names the Go-runtime floor program the receipt measures beside the control.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
       "name": "slope-not-difference",
       "origin": "wf10 STROBE OPC",
       "file": "internal/opcount/receipt.go",
@@ -119,6 +128,15 @@
       "killers": ["internal/opcount:TestReceiptNumbers"]
     },
     {
+      "name": "workload-package-unread",
+      "origin": "wf10 TOK-BISECT",
+      "file": "internal/opcount/workload.go",
+      "from": "if st, err := os.Stat(p); err == nil && st.IsDir() {",
+      "to": "if st, err := os.Stat(p); false && err == nil && st.IsDir() {",
+      "rule": "A program whose workload is a package folder keeps its workload file in it (workload/workload), and opcount reads it there.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoLayoutIsClean"]
+    },
+    {
       "name": "hook-allocs-unreported",
       "origin": "wf10 STROBE OPC",
       "file": "internal/opcount/hook.go",
@@ -126,7 +144,44 @@
       "to": "\"alloc %d\\nalloc_bytes %d\\ngc_cycles %d\\n\"",
       "rule": "The exit hook reports every counter scripts/opcount reads; a missing one is NoMetric in the receipt, never 0.",
       "killers": [],
-      "gap": "The hook runs only inside a program scripts/opcount builds and runs; its run is a tool check by hand (round-1 request: opcount on examples/lru and examples/onebrc), not a gate test."
-    }
+      "gap": "The hook runs only inside a program scripts/opcount builds and runs; its run is a tool check by hand (round-1 request: opcount on examples/lru and examples/station-stats), not a gate test."
+    },
+    {
+      "name": "share-no-inherit",
+      "origin": "wf10 RT-SHARE",
+      "file": "internal/opcount/sample_linux.go",
+      "from": "Flags:        perfFlagDisabled | perfFlagInherit | perfFlagExclKernel | perfFlagExclHV | perfFlagComm",
+      "to": "Flags:        perfFlagDisabled | perfFlagExclKernel | perfFlagExclHV | perfFlagComm",
+      "rule": "The sampling events are inherited by the program and every thread and process it starts, so the parts are of the whole run the counting event counts: they sum to its instructions.",
+      "killers": ["internal/opcount:TestPartsSumToTheCount"]
+    },
+    {
+      "name": "share-runtime-as-program",
+      "origin": "wf10 RT-SHARE",
+      "file": "internal/opcount/share.go",
+      "from": "\t\tif rest, ok := strings.CutPrefix(name, p); ok {",
+      "to": "\t\tif rest, ok := strings.CutPrefix(name, p); ok && false {",
+      "rule": "A function of Go's runtime is one of its parts (the collector, allocation, barriers, the scheduler, stacks, the rest), never the program's.",
+      "killers": ["internal/opcount:TestPartsSumToTheCount"]
+    },
+    {
+      "name": "share-ergo-runtime-path",
+      "origin": "wf10 RT-SHARE (the backfill's InstrErgo 0)",
+      "file": "internal/opcount/share.go",
+      "from": "const ergoRuntime = \"ergo.local/prototype/runtime/\"",
+      "to": "const ergoRuntime = \"ergo.local/program/ergo/runtime/v1.\"",
+      "rule": "Ergo's runtime is its own part, named by the package path an emitted program links it under.",
+      "killers": ["internal/opcount:TestErgoRuntimeIsItsPart"]
+    },
+    {
+      "name": "parts-short-admitted",
+      "origin": "wf10 RT-SHARE",
+      "file": "internal/opcount/share.go",
+      "from": "if d := c - i; d > PartsTolerance*i || -d > PartsTolerance*i {",
+      "to": "if d := c - i; false && (d > PartsTolerance*i || -d > PartsTolerance*i) {",
+      "rule": "Parts whose sampling events did not count the run the counting event counted are refused (PartsShort): the law that the parts sum to the run's instructions.",
+      "killers": ["internal/opcount:TestShortPartsAreRefused"]
+    },
+    {"name":"gtd-darwin-countself-twice","origin":"wf10 GATE2 GT-DARWIN","file":"internal/opcount/counter_other.go","from":"// Available reports that only Linux counts instructions here.\n","to":"// CountSelf runs f; off Linux it counts nothing (-1).\nfunc CountSelf(f func()) int64 {\n\tf()\n\treturn -1\n}\n\n// Available reports that only Linux counts instructions here.\n","rule":"cmd/ergo and every package it imports compile on macOS (arm64 and amd64), not only on the Linux gate: a merge once declared CountSelf twice in the off-Linux counter.","killers":["scripts/gate:TestErgoCompilesOnEveryPlatform"]}
   ]
 }

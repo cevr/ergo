@@ -90,9 +90,12 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			pre, v := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
 		}
-		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
-			// A function value's pair: its failure leaves, then the
-			// frame returns with no value (ir_closure.go).
+		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call) || b.fc.frame.unit) && b.result == nil {
+			// A function value's pair, a generic's whose result is no
+			// value (unitPair), or any fallible call a literal with no
+			// value returns (its Go form is (struct{}, error), the call's
+			// is not: G6): its failure leaves, then the frame returns with
+			// no value (ir_closure.go, unitReturns).
 			pre, _ := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
@@ -109,7 +112,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
+		return append(pre, &irStmt{K: "ret", Pos: p, X: e, Pair: true})
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)
@@ -236,6 +239,9 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 
 // try is try call: its value, after a failure leaves the frame.
 func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
+	if pre, val, ok := b.unfoldAt(call); ok {
+		return pre, val // a fallible law's right side, which cannot fail (ir_unfold.go)
+	}
 	pre, v, e := b.bind(call)
 	p := b.pos(call, call.Pos())
 	pre = append(pre, b.propagate(e, p))
@@ -254,13 +260,27 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	if pre, v, e, ok := b.hostBind(call); ok { // ir_golib.go: a fallible Go call
 		return pre, v, e
 	}
+	if upre, val, ok := b.unfoldAt(call); ok {
+		// A fallible law's right side, which cannot fail: its error is
+		// nil (ir_unfold.go).
+		p := b.pos(call, call.Pos())
+		e = b.temp("err", "error", p)
+		upre = append(upre, &irStmt{K: "var", Pos: p, Local: e})
+		v = -1
+		if t := b.l.info.Types[call]; t != nil && !isNoValue(t) {
+			v = b.temp("v", b.goType(t, call), p)
+			upre = append(upre, &irStmt{K: "def", Pos: p, Local: v, X: val})
+		}
+		return upre, v, e
+	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
-	if x.K == "vcall" && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
+	if (x.K == "vcall" || b.unitPair(call)) && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
 		// A function value with no value returns struct{} first
-		// (ir_closure.go).
+		// (ir_closure.go), as a generic whose result is no value does
+		// (unitPair).
 		u := b.temp("unit", "struct{}", p)
 		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
 	}
@@ -316,6 +336,19 @@ func (b *irBuilder) bindMatch(x syntax.Expr, m syntax.Stmt) (pre []*irStmt, v, e
 		pre = append(pre, &irStmt{K: "var", Pos: p, Local: v})
 	}
 	return append(pre, b.matchStmt(m, true, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e // ir_match.go
+}
+
+// unitPair reports a call of a function whose declared result is a type
+// parameter: Go returns that parameter's value, struct{} when the call
+// has no value (term.Raw[T] at unit: (struct{}, error)), so a fallible
+// one is a pair, as a function value's is.
+func (b *irBuilder) unitPair(call *syntax.CallExpr) bool {
+	c := b.l.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || len(c.Func.Sig.Results) != 1 {
+		return false
+	}
+	_, ok := c.Func.Sig.Results[0].(*check.TypeParam)
+	return ok
 }
 
 // isNoValue reports the type of a call with no value.
@@ -412,7 +445,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	pre, v, e := bindSrc()
 	b.rawErr = nil
 	p := b.pos(x, x.Catch)
-	result := -1
+	result, caught := -1, -1
 	var rt string
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
@@ -420,6 +453,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			irNo("catch value of another type")
 		}
 		result = b.temp("caught", rt, p)
+		caught = len(pre)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
 	}
 	k := "panic"
@@ -434,8 +468,15 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if patterned {
 		t := &treeIR{b: b, s: x, site: x, p: p}
 		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result) }
+		// The tree's exit is a catch's default too: a full catch's names
+		// no failure (FAIL-ELIDE-PAT, ir_catch_defect.go).
 		t.exit = func(ep irPos) []*irStmt {
-			return []*irStmt{{K: k, Pos: ep, X: &irExpr{K: "local", Pos: ep, I: e}}}
+			n := b.st.report.CatchDefects
+			d := b.catchDefault(x, k, partial, e, ep)
+			if b.st.report.CatchDefects > n {
+				b.st.report.CatchTreeDefects++
+			}
+			return []*irStmt{d}
 		}
 		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
 		arms = nil
@@ -454,10 +495,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
-	sw.Else = []*irStmt{{K: k, Pos: sw.ElsePos, X: &irExpr{K: "local", Pos: sw.ElsePos, I: e}}}
+	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
-	} else if then == nil {
+	} else if !patterned {
+		// A patterned catch's tree is its whole then, empty for a catch
+		// whose one arm, `case _:`, does nothing: that swallows the
+		// failure, where sw, with no cases, panics with it.
 		then = []*irStmt{sw}
 	}
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}
@@ -466,6 +510,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		// The call's value joins the union of the arms' (ir_union.go).
 		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
 		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
+		if !patterned && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irArmsLeave(sw, result) {
+			// Every arm leaves (the emitter's catch, whose arms all
+			// panic or return, yields the call's value in place): the
+			// value is the call's own local, with no caught copy (RED17).
+			pre = append(pre[:caught], pre[caught+1:]...)
+			return append(pre, &irStmt{K: "if", Pos: p, End: sw.End, X: ifs.X, Then: then}), &irExpr{K: "local", Pos: p, I: v}
+		}
 	}
 	pre = append(pre, ifs)
 	if result < 0 {
@@ -544,7 +595,7 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 // definition (owner: lane GP): OPC's operandFits (ir_operand.go) reads it
 // too, and a ConvVariant's target is the case OPC's own copy covered.
 func (b *irBuilder) operandType(a syntax.Expr) check.Type {
-	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
+	if conv, ok := b.l.info.Implicit[a]; ok && conv.Kind != 0 && conv.To != nil {
 		return conv.To
 	}
 	return b.l.info.Types[a]
@@ -563,11 +614,19 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 }
 
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
-// polling frame (the emitter's loopBody). A continue polls before it
-// leaves the iteration (continueStmt), so it skips no poll.
-func (b *irBuilder) loopPoll(s syntax.Stmt) []*irStmt {
-	if !b.loopPolls() {
+// polling frame (the emitter's loopBody), unless every iteration polls
+// through a callee (iterationPolls, pollplace.go). A continue polls before
+// it leaves the iteration (continueStmt).
+func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
+	}
+	if r, ok := s.(*syntax.RangeStmt); ok && b.seqLoop(r) {
+		// A Seq loop's poll stands at the body's closing brace: at the
+		// loop's own position, Go's range-over-func rewrite also calls the
+		// adapter, and gc does not inline a call at a position already on
+		// its inlining stack (ir_seq.go).
+		return []*irStmt{b.pollAt(body, body.Rbrace)}
 	}
 	return []*irStmt{b.poll(s)}
 }

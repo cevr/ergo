@@ -1,0 +1,166 @@
+// Package decimal is exact decimal numbers: a signed 128-bit coefficient
+// and a scale, the count of digits after the point, so 12.50 is 1250 at
+// scale 2 (docs/spec/stdlib.md, decimal). Add, Sub and Mul are exact or
+// fail with Overflow; Div and Round take the result's scale and a
+// RoundingMode. It is Effect's BigDecimal for money and quantities, with a
+// fixed 128-bit coefficient (38 digits) in place of a big integer, so a
+// Decimal is a value with no pointer, as shopspring/decimal's is not.
+
+// Decimal is coef / 10^scale, negative when neg. A zero is never neg.
+// == compares the coefficient and the scale, so 1.5 and 1.50 differ, as
+// Text writes them; Equal and Cmp compare the numbers.
+type Decimal { neg bool, coef u128, scale int }
+
+// Overflow is the failure of an operation whose exact result needs a
+// coefficient over 128 bits or a scale outside 0 to MaxScale.
+type Overflow {}
+
+// DivideByZero is the failure of Div by a zero.
+type DivideByZero {}
+
+// MaxScale is the largest scale, 38: the digits of a 128-bit
+// coefficient.
+func MaxScale() int { 38 }
+
+func build(neg bool, c u128, scale int) Decimal {
+	Decimal{neg: neg && !isZero(c), coef: c, scale: scale}
+}
+
+// Zero is 0 at scale 0.
+func Zero() Decimal { build(false, small(0), 0) }
+
+// FromInt is n at scale 0.
+func FromInt(n int64) Decimal {
+	New(n, 0) catch {
+	case Overflow:
+		Zero()
+	}
+}
+
+// New is units / 10^scale: New(1250, 2) is 12.50. It fails with Overflow
+// for a scale outside 0 to MaxScale.
+func New(units int64, scale int) Decimal fails Overflow {
+	if scale < 0 || scale > MaxScale() {
+		return Overflow
+	}
+	let mag = if units < 0 { uint64(-(units + 1)) + 1 } else { uint64(units) }
+	build(units < 0, small(mag), scale)
+}
+
+// Scale is the digits of d after the point.
+func Scale(d Decimal) int { d.scale }
+
+// Sign is -1, 0 or 1 as d is negative, zero or positive.
+func Sign(d Decimal) int {
+	if isZero(d.coef) { 0 } else if d.neg { -1 } else { 1 }
+}
+
+// Neg is -d.
+func Neg(d Decimal) Decimal { build(!d.neg, d.coef, d.scale) }
+
+// Abs is |d|.
+func Abs(d Decimal) Decimal { build(false, d.coef, d.scale) }
+
+// rescale is c at scale from moved to scale to, to at least from.
+func rescale(c u128, from int, to int) u128 fails Overflow {
+	if to == from || isZero(c) {
+		return c
+	}
+	let (out, over) = mul128(c, pow10(to-from))
+	if over {
+		return Overflow
+	}
+	out
+}
+
+// Add is a + b exactly, at the larger scale.
+func Add(a Decimal, b Decimal) Decimal fails Overflow {
+	let s = if a.scale > b.scale { a.scale } else { b.scale }
+	let x = try rescale(a.coef, a.scale, s)
+	let y = try rescale(b.coef, b.scale, s)
+	if a.neg == b.neg {
+		let (sum, over) = add128(x, y)
+		if over {
+			return Overflow
+		}
+		return build(a.neg, sum, s)
+	}
+	if cmp128(x, y) >= 0 { build(a.neg, sub128(x, y), s) } else { build(b.neg, sub128(y, x), s) }
+}
+
+// Sub is a - b exactly, at the larger scale.
+func Sub(a Decimal, b Decimal) Decimal fails Overflow { try Add(a, Neg(b)) }
+
+// Mul is a · b exactly, at the sum of the scales.
+func Mul(a Decimal, b Decimal) Decimal fails Overflow {
+	let s = a.scale + b.scale
+	if s > MaxScale() {
+		return Overflow
+	}
+	let (c, over) = mul128(a.coef, b.coef)
+	if over {
+		return Overflow
+	}
+	build(a.neg != b.neg, c, s)
+}
+
+// Cmp is -1, 0 or 1 as a is below, equal to or above b as numbers, at
+// any scales: Cmp(1.5, 1.50) is 0.
+func Cmp(a Decimal, b Decimal) int {
+	let sa = Sign(a)
+	let sb = Sign(b)
+	if sa != sb {
+		return if sa < sb { -1 } else { 1 }
+	}
+	let s = if a.scale > b.scale { a.scale } else { b.scale }
+	// A coefficient that overflows at the common scale is over 2¹²⁸, so
+	// above the other's.
+	let x = rescale(a.coef, a.scale, s) catch {
+	case Overflow:
+		return sa
+	}
+	let y = rescale(b.coef, b.scale, s) catch {
+	case Overflow:
+		return -sa
+	}
+	if sa < 0 { cmp128(y, x) } else { cmp128(x, y) }
+}
+
+// Equal is whether a and b are the same number: Cmp(a, b) == 0.
+func Equal(a Decimal, b Decimal) bool { Cmp(a, b) == 0 }
+
+// dec is the law's Decimal of a drawn units and scale: units within
+// ±10^12, scale 0 to 6.
+func dec(units int64, scale int) Decimal {
+	let u = units % 1000000000000
+	let s = (scale%7 + 7) % 7
+	New(u, s) catch {
+	case Overflow:
+		Zero()
+	}
+}
+
+// RingLaws: on numbers far from the coefficient's bound, Add and Mul are
+// the ring of the rationals: Add commutes and associates, Zero is its
+// identity and Neg its inverse, Mul commutes and distributes over Add,
+// and Sub is Add of Neg.
+law RingLaws(x int64, i int, y int64, j int, z int64, k int) {
+	let a = dec(x, i)
+	let b = dec(y, j)
+	let c = dec(z, k)
+	let ok = Equal(try Add(a, b), try Add(b, a)) &&
+		Equal(try Add(try Add(a, b), c), try Add(a, try Add(b, c))) &&
+		Equal(try Add(a, Zero()), a) &&
+		Sign(try Add(a, Neg(a))) == 0 &&
+		Equal(try Mul(a, b), try Mul(b, a)) &&
+		Equal(try Mul(a, try Add(b, c)), try Add(try Mul(a, b), try Mul(a, c))) &&
+		Equal(try Sub(a, b), try Add(a, Neg(b)))
+	ok
+}
+
+// CmpIsSubSign: Cmp is the sign of the difference, at any scales.
+law CmpIsSubSign(x int64, i int, y int64, j int) {
+	let a = dec(x, i)
+	let b = dec(y, j)
+	Cmp(a, b) == Sign(try Sub(a, b)) && Cmp(b, a) == -Cmp(a, b)
+}

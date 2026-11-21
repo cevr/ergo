@@ -119,6 +119,7 @@ type flow struct {
 
 func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 	fl := &flow{l: l, info: info, parent: map[syntax.Node]syntax.Node{}, uses: map[*check.Var][]*syntax.Ident{}, inLit: map[*syntax.Ident]bool{}}
+	var kids []syntax.Node // the walk's stack of children (appendChildren)
 	var visit func(n syntax.Node, lit bool)
 	visit = func(n syntax.Node, lit bool) {
 		switch x := n.(type) {
@@ -135,13 +136,18 @@ func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
 				fl.inLit[x] = lit
 			}
 		}
-		for _, c := range children(n) {
+		start := len(kids)
+		kids = appendChildren(kids, n)
+		end := len(kids)
+		for i := start; i < end; i++ {
+			c := kids[i]
 			if call, ok := n.(*syntax.CallExpr); ok && c == syntax.Node(call.Trailing) {
 				continue
 			}
 			fl.parent[c] = n
 			visit(c, lit)
 		}
+		kids = kids[:start]
 	}
 	visit(d.Body, false)
 	return fl
@@ -359,13 +365,18 @@ func (fl *flow) callFlow(x *syntax.CallExpr, c *check.Call, cur syntax.Node) (ne
 
 // borrowResult reports whether the result of the call x is copied at the
 // caller (above): the callee's declared result holds one of its type
-// parameters, the result's instance here holds a Map or slice, and the
-// summary says it depends on an operand that is a borrow. In both
-// lowerings: it is a rule of values, not a choice of speed.
+// parameters, or the callee returns parts of its borrows shared
+// (borrowret.go, own-borrow-return), the result's instance here holds a
+// Map or slice, and the summary says it depends on an operand that is a
+// borrow. For a generic result in both lowerings: it is a rule of values,
+// not a choice of speed.
 func (w *valueWalk) borrowResult(x *syntax.CallExpr) bool {
 	c := w.info.Calls[x]
-	if c == nil || c.Func == nil || len(c.Func.Sig.Results) != 1 || len(freeTypeParams(c.Func.Sig.Results[0])) == 0 {
+	if c == nil || c.Func == nil || len(c.Func.Sig.Results) != 1 {
 		return false
+	}
+	if len(freeTypeParams(c.Func.Sig.Results[0])) == 0 && !w.l.borrowReturns(c.Func) {
+		return false // the callee copies at its return (borrowret.go)
 	}
 	if !w.l.holdsValue(w.typeOf(x)) {
 		return false
@@ -419,8 +430,13 @@ func hides(t check.Type, seen map[check.Type]bool) bool {
 			}
 		}
 	case *check.Union:
+		// A union holds its variant behind a match, so the value copy
+		// copies none of it (holdsValue): a variant that reaches a Map or
+		// a slice is hidden from a copy of the result, which then must be
+		// a copy of the argument (wf10 OWN1 arms: `let o = optS(cur)`
+		// then `cur[0] = k` reached o's slice, under every lowering).
 		for _, v := range u.Variants {
-			if hides(v, seen) {
+			if hides(v, seen) || holdsValueSeen(v, map[check.Type]bool{}) {
 				return true
 			}
 		}

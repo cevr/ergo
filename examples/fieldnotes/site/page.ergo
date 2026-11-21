@@ -1,0 +1,141 @@
+import xml
+import fieldnotes/journal
+import fieldnotes/memory
+import github.com/cevr/ergo/modules/web
+import github.com/cevr/ergo/modules/web/static
+import github.com/cevr/ergo/modules/web/webtest
+import html
+import slices
+import ui
+
+// Page is what a route shows: the index of every entry, one entry with
+// the entries it points to, or the feed of every entry.
+type IndexPage { Entries []journal.Entry }
+type EntryPage { Entry journal.Entry, Related []journal.Entry }
+type FeedPage { Entries []journal.Entry }
+type Page = IndexPage | EntryPage | FeedPage
+
+// Load is the page of r. Its row is all a page may read: the journal. An
+// entry that points to a slug the journal lacks fails as that slug's
+// Missing, so a build stops at a broken link instead of writing it.
+func Load(r Route) Page fails journal.Missing needs journal.Journal {
+	match r {
+	case Index:
+		IndexPage{Entries: journal.Journal.List()}
+	case Entry as e:
+		let entry = try journal.Journal.Read(e.Slug)
+		let mut related = []journal.Entry{}
+		for slug in entry.Related {
+			related = related.Append(try journal.Journal.Read(slug))
+		}
+		EntryPage{Entry: entry, Related: related}
+	case Feed:
+		FeedPage{Entries: journal.Journal.List()}
+	}
+}
+
+// Listed is every route the site builds: the index, the feed and each
+// entry (law EveryPageIsListed).
+func Listed() []Route needs journal.Journal {
+	let mut out = []Route{Index, Feed}
+	for e in journal.Journal.List() {
+		out = out.Append(Entry{Slug: e.Slug})
+	}
+	out
+}
+
+// New is the site, its feed's links made absolute with origin (such as
+// https://example.org).
+func New(origin string) web.Site[Route, Page, journal.Missing, journal.Journal] {
+	web.Site[Route, Page, journal.Missing, journal.Journal]{
+		Routes: Map,
+		Load:   Load,
+		View:   func(p Page) html.Node { View(origin, p) },
+		Status: func(f) web.Reply {
+			match f {
+			case journal.Missing as m:
+				web.Reply{Status: 404, Page: missingPage(m.Slug)}
+			}
+		},
+		NotFound: notFoundPage,
+		Assets:   []web.Asset{sheet},
+	}
+}
+
+let origin = "https://example.org"
+
+// journalOf is entries as a journal the site can build: each slug made a
+// slug, and each related slug one of the entries' own, so no entry
+// points nowhere.
+func journalOf(entries []journal.Entry) memory.Journal {
+	let mut slugs = []string{}
+	for e in entries {
+		slugs = slugs.Append(journal.Slug(e.Slug))
+	}
+	let mut out = []journal.Entry{}
+	for e in entries {
+		let mut related = []string{}
+		for r in e.Related {
+			let s = journal.Slug(r)
+			if slices.Contains(slugs, s) {
+				related = related.Append(s)
+			}
+		}
+		out = out.Append(journal.Entry{..e, Slug: journal.Slug(e.Slug), Related: related})
+	}
+	memory.NewJournal(out)
+}
+
+// BuiltEqualsServed: static's host law for this site over generated
+// journals: the built tree is a file for each listed route and the 404
+// page, each the bytes Fetch answers.
+law BuiltEqualsServed(entries []journal.Entry) {
+	with context { journal.Journal: journalOf(entries) } {
+		let diffs = static.Differences(New(origin), Listed()) catch {
+		case _:
+			return false
+		}
+		len(diffs) == 0
+	}
+}
+
+// LinksResolve: every link of every built page, the content's included,
+// is a page of the site.
+law LinksResolve(entries []journal.Entry) {
+	with context { journal.Journal: journalOf(entries) } {
+		let site = New(origin)
+		for r in Listed() {
+			let body = webtest.Get(site, ui.Href(Href(Map, r))).Body
+			if len(webtest.Unresolved(site, body)) > 0 {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// EveryPageIsListed: a route whose GET answers 200 is listed, so the
+// build leaves no page out; the route is drawn from the journal's
+// entries and from generated routes.
+law EveryPageIsListed(entries []journal.Entry, r Route, pick int) {
+	with context { journal.Journal: journalOf(entries) } {
+		let list = Listed()
+		let all = journal.Journal.List()
+		let route = if len(all) > 0 && pick%2 == 0 { Entry{Slug: all[((pick%len(all))+len(all))%len(all)].Slug} } else { r }
+		let served = webtest.Get(New(origin), ui.Href(Href(Map, route)))
+		served.Status != 200 || slices.Contains(list, route)
+	}
+}
+
+// FeedIsWellFormed: the feed is well-formed XML whatever the entries'
+// titles and paragraphs hold.
+law FeedIsWellFormed(entries []journal.Entry) {
+	with context { journal.Journal: journalOf(entries) } {
+		let body = webtest.Get(New(origin), "/feed.xml").Body
+		let _ = xml.Check(body, 8) catch {
+		case xml.Malformed:
+			return false
+		}
+		true
+	}
+}

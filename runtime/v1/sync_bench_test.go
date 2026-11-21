@@ -11,7 +11,7 @@ import (
 
 // Benchmarks of std sync's Ref against hand-written Go (stdlib.md, Sync and
 // STM 1). The ergo side is the shape of the Go the lowering emits for
-// r.Update(func(v int) int { v + 1 }): the adapter of an Ergo function
+// r.Update(env.task, func(v int) int { v + 1 }): the adapter of an Ergo function
 // literal (lowerer.adaptPlainFunc), which calls the literal's uniform
 // shape with the caller's environment and drops its error. The controls
 // are a value guarded by a sync.Mutex, written by hand, and an
@@ -128,7 +128,7 @@ func BenchmarkRef(b *testing.B) {
 	b.Run("Update/ergo", func(b *testing.B) {
 		r := NewRef(0)
 		for b.Loop() {
-			r.Update(func(p int) int {
+			r.Update(env.task, func(p int) int {
 				v, _ := benchErgoIncrement(env, p)
 				return v
 			})
@@ -154,10 +154,12 @@ func BenchmarkRef(b *testing.B) {
 		}
 	})
 	b.Run("UpdateParallel/ergo", func(b *testing.B) {
+		rt.Spread() // RunParallel's goroutines (rt.Alone)
 		r := NewRef(0)
 		b.RunParallel(func(pb *testing.PB) {
+			task := rt.Root("bench") // a task per goroutine: a mask is its owner's
 			for pb.Next() {
-				r.Update(func(p int) int {
+				r.Update(task, func(p int) int {
 					v, _ := benchErgoIncrement(env, p)
 					return v
 				})
@@ -181,10 +183,10 @@ func BenchmarkRef(b *testing.B) {
 		i := 0
 		for b.Loop() {
 			i++
-			RefUpdateOwned(r, func(m map[int]int) map[int]int {
+			RefUpdateOwned(env.task, r, func(m map[int]int) map[int]int {
 				m[i&1023] = i
 				return m
-			}, clone, true)
+			}, clone, true, true)
 		}
 	})
 	b.Run("UpdateOwnedMap/mutex", func(b *testing.B) {

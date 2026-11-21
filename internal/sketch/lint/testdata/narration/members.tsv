@@ -1,0 +1,20 @@
+examples/deploys/deploys/store.ergo:14	// Find is the deploy of id.
+examples/deploys/deploys/store.ergo:21	// FindAfterAdd: an added deploy is found by its ID.
+examples/deps/resolve/index.ergo:23	// Versions is every version of the package name, newest first.
+examples/deps/resolve/index.ergo:25	// Needs is what the release name v needs.
+examples/jobs-web/jobs/jobs.ergo:45	// RejectsWhatCannotRun: a spec of no steps is rejected and adds no job.
+examples/keypad/keypad/shift.ergo:55	// LocksCaps: some run of taps locks Caps.
+examples/keypad/keypad/shift.ergo:58	// LocksInTwo: Caps is two Shifts away from Lower, through ShiftOnce.
+examples/kvstore/kv/store.ergo:27	// GetAfterPut: a value put under a key is the value that key gets.
+examples/kvstore/kv/store.ergo:33	// PutOverwrites: the last put of a key wins.
+examples/kvstore/kv/store.ergo:59	// PutKeepsOthers: a put of one key changes no other key.
+examples/particles/sim/loop.ergo:16	// ShowCountsOne: each Show is one more frame shown.
+examples/router-model/route/server.ergo:195	// DrainingRefusesNew: no signal opens a request on a draining server.
+examples/shards/shards/targets.ergo:26	// EraseGivesBack: a erase gives back the size of its write.
+examples/ssg/site/source.ergo:7	// ReadPage is the whole text of the page at path.
+examples/ssg/site/source.ergo:11	// ReadTemplate is the whole text of the template name.
+examples/tasks-cli/tasks/board.ergo:73	// CloseOfNoTaskIsNotFound: an ID past the last task fails NotFound.
+internal/sketch/std/io/io.ergo:38	// Println writes line and a line feed.
+internal/sketch/std/io/io.ergo:51	// Eprintln writes line and a line feed.
+internal/sketch/std/prelude.ergo:69	// Float64InUnit: a draw of Float64 is in [0, 1).
+internal/sketch/std/term/term.ergo:51	// Size is the window's size.

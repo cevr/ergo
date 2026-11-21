@@ -1,0 +1,38 @@
+import hex
+import html
+import sha256
+import strings
+
+// Asset is a file a site serves as it is, beside its pages: a style
+// sheet, a font, an image. Path is its place (from the root, with a
+// leading /), Type its Content-Type, and Body its bytes. Fetch answers a
+// GET of Path with Body, and static writes Body at Path's file, so the
+// two hosts serve the same bytes (law AssetServedIsBuilt).
+type Asset { Path string, Type string, Body string }
+
+// Hashed is an asset named by its bytes: name's stem, then a dot and the
+// first 12 hex digits of body's SHA-256, then name's extension, at the
+// root ("site.css" is /site.3f2a…c1.css). An asset whose bytes change
+// gets a new place, so a host or a browser may keep it forever (Remix and
+// Vite's hashed asset names). The name is the asset's link: Link.
+func Hashed(name string, contentType string, body string) Asset {
+	let digest = strings.Slice(hex.Encode(sha256.Sum(body)), 0, 12)
+	let dot = strings.LastIndex(name, ".")
+	let file = if dot < 0 { name + "." + digest } else { strings.Slice(name, 0, dot) + "." + digest + strings.Slice(name, dot, len(name)) }
+	Asset{Path: "/" + file, Type: contentType, Body: body}
+}
+
+// Stylesheet is the text/css asset name with css, hashed (Hashed).
+func Stylesheet(name string, css string) Asset { Hashed(name, "text/css; charset=utf-8", css) }
+
+// Link is a's place as a link, for html.Href.
+func Link(a Asset) html.URL { html.LocalURL(a.Path) }
+
+// HashedNameIsItsBytes: two bodies get one place exactly when they are
+// the same bytes (up to the digest's 48 bits), and a place keeps the
+// name's stem and extension.
+law HashedNameIsItsBytes(a string, b string) {
+	let x = Hashed("site.css", "text/css", a)
+	let y = Hashed("site.css", "text/css", b)
+	(x.Path == y.Path) == (a == b) && strings.HasPrefix(x.Path, "/site.") && strings.HasSuffix(x.Path, ".css") && len(x.Path) == len("/site.css")+13
+}

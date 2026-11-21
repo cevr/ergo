@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -33,13 +35,33 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 
 // tailK is tailExpr with x's facts, f.
 func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
-	if ab := in.charge(fr, x, 1); ab != nil {
-		return nil, ab
+	if f.plain && fr.forms() {
+		if f.fast != nil {
+			return f.fast(in, fr) // compile.go
+		}
+		if f.form != formDone && in.visitExpr(fr, x, f) {
+			return f.fast(in, fr)
+		}
+	}
+	// A leaf, a name or a constant (a folded one too), is an operand of
+	// the node that reads it, as Go's build reads it in that node's
+	// instructions (a register or an immediate): the reading node's step
+	// pays for it (FU-eval-step-per-op). A leaf evaluates no operand, so a
+	// step still bounds the work: one node and the leaves it reads.
+	if leaf := f.op == opConst || f.op == opIdent; !leaf {
+		if ab := in.charge(fr, x, 1); ab != nil {
+			return nil, ab
+		}
 	}
 	// plain: no rule below applies, unless a try is open (ownFailure) or
 	// the run is symbolic (symStop).
 	if f.plain && fr.tries == 0 && in.sym == nil {
 		return in.exprFacts(fr, x, f)
+	}
+	if in.sym != nil && in.sym.holes != nil {
+		if h, ok := in.sym.holes[x]; ok {
+			return h, nil // a template's hole (foldvalue.go)
+		}
 	}
 	if f.ctx != nil {
 		return in.makeContextValue(fr, x, f.ctx)
@@ -72,10 +94,11 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	if f.owned != nil {
 		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
 	}
-	// A variant or a row value goes into its union unchanged: the value
-	// keeps its record type. A provider goes into an operation type as an
+	// A variant, a sub-union's value (ConvWiden) or a row value goes into its union unchanged: the value
+	// keeps its record type; so does a function narrowed to a row value's
+	// one error type (ConvNarrow), whose row value is that type's value. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow && conv.Kind != check.ConvWiden {
 		return in.toOperation(fr, x, v, conv)
 	}
 	if convs := f.elems; len(convs) > 0 {
@@ -85,7 +108,7 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 		}
 		var out tuple
 		for i, conv := range convs {
-			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow || conv.Kind == check.ConvWiden {
 				continue
 			}
 			if out.elems == nil {
@@ -112,7 +135,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	switch f.op {
 	case opConst:
-		if f.cval != nil && fr.env == nil {
+		if f.cval != nil && fr.forms() {
 			return f.cval, nil
 		}
 		t := fr.rt(f.typ)
@@ -120,8 +143,8 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if !ok {
 			return nil, fr.unsupported(x, "a constant of %s yet", t.t)
 		}
-		if fr.env == nil {
-			f.cval = v // a constant's value, made once outside a generic body
+		if fr.forms() {
+			f.cval = v // a constant's value, made once per instance (O38)
 		}
 		return v, nil
 	case opBare:
@@ -149,7 +172,7 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if ab != nil {
 			return nil, ab
 		}
-		if root != nil && !basicValue(v) {
+		if root != nil && !holdsNoStore(v) {
 			// A part that holds a store leaves the slot: the slot lends.
 			root.lend()
 		}
@@ -192,7 +215,7 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		// It runs where it is written, or where a native the evaluator
 		// runs calls it (sync.Ref's Update, natives.go).
 		fr.escaped = true
-		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
+		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars.snapshot(), env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
 		return in.deref(fr, x.X)
 	}
@@ -241,6 +264,9 @@ func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value
 			in.handoff(fr, id)
 			return s.v, nil
 		}
+		if in.fold {
+			return nil, fr.unsupported(id, "the package let %s in a fold: %s", id.Name, foldLetWhy(o))
+		}
 		return nil, fr.unsupported(id, "the package let %s, which no initializer bound", id.Name)
 	case *check.Const:
 		return o.Val, nil
@@ -252,9 +278,21 @@ func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value
 	return nil, fr.unsupported(id, "the name %s here", id.Name)
 }
 
-// slotOf is v's slot: a local of the frame, or a package let.
+// slotOf is v's slot: a local of the frame, or a package let; in a fold,
+// a package let no initializer bound yet binds on this read (foldLet).
 func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
 	if s, ok := fr.vars.get(v); ok {
+		return s
+	}
+	if s := in.globals[v]; s != nil || !in.fold {
+		return s
+	}
+	return in.foldLet(v)
+}
+
+// slotAt is slotOf from a compiled form, with varTable.getAt's hint.
+func (in *interp) slotAt(fr *frame, v *check.Var, hint *int32) *slot {
+	if s, ok := fr.vars.getAt(v, hint); ok {
 		return s
 	}
 	return in.globals[v]
@@ -276,15 +314,28 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 	case *syntax.Ident:
 		if v, ok := in.fx(fr, x).use.(*check.Var); ok {
 			if s := in.slotOf(fr, v); s != nil {
-				if ab := in.charge(fr, x, 1); ab != nil {
-					return nil, nil, ab
-				}
+				// The path's root is a leaf the path's node pays for
+				// (tailK).
 				return s.v, s, nil
 			}
 		}
 	case *syntax.SelectorExpr:
+		if f := fr.info.MethodValues[x]; f != nil {
+			// x.f as a value (types.md, Methods 2): f with x's value bound
+			// now, as a dot call's receiver is passed.
+			ref, ab := in.funcValue(fr, x, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			recv, ab := in.receiver(fr, x.X, f)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			r := ref.(*funcRef)
+			return &funcRef{fn: r.fn, targs: r.targs, recv: recv, bound: true}, nil, nil
+		}
 		xf := in.fx(fr, x)
-		if xf.field.t != nil && fr.env == nil {
+		if xf.field.t != nil && fr.forms() {
 			// A record's field, checked at an earlier read (ORACLE O33).
 			base, root, ab := in.peekBase(fr, x.X, path)
 			if ab != nil {
@@ -292,6 +343,9 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 			r, ok := base.(*record)
 			if !ok {
+				if in.sym != nil {
+					return nil, nil, in.symStop(fr, x.X, base)
+				}
 				ice("a field of %T", base)
 			}
 			if path != nil {
@@ -307,10 +361,14 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 				var member check.Object
 				if pn := fr.info.Uses[id].(*check.PkgName); !pn.Pkg.Host() {
 					member = in.memberOf(pn.Pkg, x.Sel.Name)
+				} else if v, ok := goVars[pn.Pkg.Path+"."+x.Sel.Name]; ok {
+					// A read-only Go variable that a Go function's
+					// native reads (nativespure.go, goVars).
+					return v, nil, nil
 				}
 				switch o := member.(type) {
 				case *check.Var:
-					if s := in.globals[o]; s != nil {
+					if s := in.slotOf(fr, o); s != nil {
 						return s.v, nil, nil
 					}
 				case *check.Func:
@@ -321,7 +379,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 		t := fr.rtypeOf(x.X)
-		if _, isPtr := t.t.(*check.Pointer); isPtr && in.sym != nil {
+		if _, isPtr := t.t.(*check.Pointer); isPtr && in.sym != nil && !in.sym.tmpl {
 			// A field through a provider's cell (symbolic.go).
 			v, ab := in.expr(fr, x.X)
 			if ab != nil {
@@ -337,11 +395,27 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 			return r.fields[fieldIndex(r.t, x.Sel.Name)], c.s, nil
 		}
+		if _, ref := check.GoRefElem(t.t); ref {
+			// A field of a Go value through its go.Ref (gohost.go).
+			base, root, ab := in.peekBase(fr, x.X, path)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			g, ok := base.(goVal)
+			if !ok {
+				return nil, nil, fr.unsupported(x, "a field of %s", describe(base))
+			}
+			v, ok := goField(g, x.Sel.Name, fr.rtypeOf(x))
+			if !ok {
+				return nil, nil, fr.unsupported(x, "the Go field %s", x.Sel.Name)
+			}
+			return v, root, nil
+		}
 		if p, ok := t.t.(*check.Pointer); ok {
 			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
 		}
 		n, ok := t.t.(*check.Named)
-		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
+		if !ok || (check.ScriptOf(n) != nil && !ergoProvider(n)) || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
 		}
 		base, root, ab := in.peekBase(fr, x.X, path)
@@ -358,7 +432,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		if path != nil {
 			*path = append(*path, step{at: x, field: x.Sel.Name})
 		}
-		if fr.env == nil {
+		if fr.forms() {
 			xf.field.t = n
 		}
 		return r.fields[xf.fieldOf(r.t, x.Sel.Name)], root, nil
@@ -387,13 +461,13 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		case string:
 			i, ok := in.index(fr, x, iv, len(b))
 			if !ok {
-				return nil, nil, fr.defect(x, "index out of range [%s] with length %d", describe(iv), len(b))
+				return nil, nil, fr.defect(x, "%s", indexError(iv, len(b)))
 			}
 			return b[i], root, nil
 		case sliceV:
 			i, ok := in.index(fr, x, iv, b.n)
 			if !ok {
-				return nil, nil, fr.defect(x, "index out of range [%s] with length %d", describe(iv), b.n)
+				return nil, nil, fr.defect(x, "%s", indexError(iv, b.n))
 			}
 			return b.b.data[b.off+i], root, nil
 		case mapV:
@@ -438,7 +512,10 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 	default:
 		ice("a slice of %T", base)
 	}
-	bounds := []int{0, length, length}
+	// Every bound is evaluated, left to right, before any is checked, as
+	// in Go.
+	var bounds [3]int64
+	given := [3]bool{}
 	for i, e := range []syntax.Expr{x.Low, x.High, x.Max} {
 		if e == nil {
 			continue
@@ -447,27 +524,23 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 		if ab != nil {
 			return nil, ab
 		}
-		n, negative, ok := shiftCount(v)
-		if !ok {
-			ice("a slice bound of %T", v)
-		}
-		if negative {
-			return nil, fr.defect(e, "slice bounds out of range [%s]", describe(v))
-		}
-		if n > uint64(length) {
-			if s, isSlice := base.(sliceV); isSlice && !s.array {
-				return nil, fr.unsupported(e, "a slice bound past the length, which reads the Go target's capacity")
-			}
-			return nil, fr.defect(e, "slice bounds out of range [%d] with length %d", n, length)
-		}
-		bounds[i] = int(n)
-		if i == 1 && x.Max == nil {
-			bounds[2] = max(bounds[2], bounds[1])
-		}
+		bounds[i], given[i] = boundValue(v), true
 	}
-	lo, hi, mx := bounds[0], bounds[1], bounds[2]
-	if lo > hi || hi > mx {
-		return nil, fr.defect(x, "slice bounds out of range [%d:%d:%d]", lo, hi, mx)
+	_, capacityUnknown := base.(sliceV)
+	if s, ok := base.(sliceV); ok && s.array {
+		capacityUnknown = false
+	}
+	if msg, skip := sliceBoundsError(bounds, given, int64(length), capacityUnknown); skip {
+		return nil, fr.unsupported(x, "a slice bound past the length, which reads the Go target's capacity")
+	} else if msg != "" {
+		return nil, fr.defect(x, "%s", msg)
+	}
+	lo, hi, mx := int(bounds[0]), length, length
+	if given[1] {
+		hi = int(bounds[1])
+	}
+	if given[2] {
+		mx = int(bounds[2])
 	}
 	switch b := base.(type) {
 	case string:
@@ -489,6 +562,81 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 		return out, nil
 	}
 	return nil, nil
+}
+
+// boundValue is an integer slice bound as an int64 (a uint64 past
+// MaxInt64 stays past every length: it is clamped).
+func boundValue(v Value) int64 {
+	n, negative, ok := shiftCount(v)
+	if !ok {
+		ice("a slice bound of %T", v)
+	}
+	if !negative && n > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(n)
+}
+
+// sliceBoundsError is Go's runtime error for a slice expression whose
+// bounds (low, high, max; given says which were written) do not fit
+// length, or "" when they fit. Go checks, in order, the last bound against
+// the capacity, then each bound against the next one, comparing unsigned
+// (a negative bound is past every other), and names a negative bound
+// alone (runtime boundsError). A slice's capacity is the Go target's:
+// when the check would read it (a last bound past the length, where
+// capacityUnknown), skip says so.
+func sliceBoundsError(b [3]int64, given [3]bool, length int64, capacityUnknown bool) (msg string, skip bool) {
+	past := func(x, y int64) bool { return uint64(x) > uint64(y) }
+	lo, hi := b[0], length
+	if given[1] {
+		hi = b[1]
+	}
+	if given[2] {
+		mx := b[2]
+		switch {
+		case mx < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [::%d]", mx), false
+		case mx > length && capacityUnknown:
+			return "", true
+		case mx > length:
+			return fmt.Sprintf("runtime error: slice bounds out of range [::%d] with length %d", mx, length), false
+		case hi < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d:]", hi), false
+		case past(hi, mx):
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d:%d]", hi, mx), false
+		case lo < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [%d::]", lo), false
+		case past(lo, hi):
+			return fmt.Sprintf("runtime error: slice bounds out of range [%d:%d:]", lo, hi), false
+		}
+		return "", false
+	}
+	if given[1] {
+		switch {
+		case hi < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d]", hi), false
+		case hi > length && capacityUnknown:
+			return "", true
+		case hi > length:
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d] with length %d", hi, length), false
+		}
+	}
+	switch {
+	case lo < 0:
+		return fmt.Sprintf("runtime error: slice bounds out of range [%d:]", lo), false
+	case past(lo, hi):
+		return fmt.Sprintf("runtime error: slice bounds out of range [%d:%d]", lo, hi), false
+	}
+	return "", false
+}
+
+// indexError is Go's runtime error for the index iv out of range of n
+// elements: a negative index is named alone (runtime boundsError).
+func indexError(iv Value, n int) string {
+	if _, negative, _ := shiftCount(iv); negative {
+		return fmt.Sprintf("runtime error: index out of range [%s]", describe(iv))
+	}
+	return fmt.Sprintf("runtime error: index out of range [%s] with length %d", describe(iv), n)
 }
 
 // binary evaluates x op y: && and || evaluate y only when x does not
@@ -554,12 +702,12 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 	}
 	switch u := t.under().t.(type) {
 	case *check.Slice:
-		return in.listLit(fr, x, 0, false)
+		return in.listLit(fr, x, 0, false, goSize(rtype{u.Elem, t.under().env}))
 	case *check.Array:
 		if len(x.Elts) == 0 {
 			return in.zero(fr, x, t)
 		}
-		return in.listLit(fr, x, int(u.Len), true)
+		return in.listLit(fr, x, int(u.Len), true, goSize(rtype{u.Elem, t.under().env}))
 	case *check.Map:
 		m := newMap()
 		if ab := in.build(fr, x, int64(len(x.Elts)), 2*int64(len(x.Elts)), 0); ab != nil {
@@ -586,6 +734,9 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 	n, ok := t.t.(*check.Named)
 	if _, machine := t.under().t.(*check.MachineType); ok && machine && len(x.Elts) == 0 {
 		return &machinePlan{tn: n.Obj}, nil // machinevalue.go
+	}
+	if ok && len(x.Elts) == 0 && x.Base == nil && ergoProvider(n) {
+		return in.providerLit(fr, x, n, t) // provider.go
 	}
 	if !ok || structOf(n) == nil || check.ScriptOf(n) != nil || check.IsGoError(n) {
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
@@ -660,9 +811,9 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 }
 
 // listLit builds a slice literal, or an array literal that lists all its
-// elements.
-func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) (Value, *abrupt) {
-	if ab := in.build(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), 0); ab != nil {
+// elements, each slot elem bytes (goSize).
+func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool, elem int64) (Value, *abrupt) {
+	if ab := in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), elem); ab != nil {
 		return nil, ab
 	}
 	elems := make([]Value, 0, len(x.Elts))
@@ -682,6 +833,7 @@ func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) 
 	}
 	s := newSlice(elems)
 	s.array = array
+	s.b.elem = elem
 	return s, nil
 }
 
@@ -692,7 +844,8 @@ func (in *interp) zero(fr *frame, at syntax.Node, t rtype) (Value, *abrupt) {
 	if !ok {
 		return nil, fr.unsupported(at, "the default value of %s yet", t.t)
 	}
-	if ab := in.build(fr, at, size, size, 0); ab != nil {
+	// The steps build each value; the bytes are the Go value's size.
+	if ab := in.build(fr, at, size, 0, goSize(t)); ab != nil {
 		return nil, ab
 	}
 	z, ok := zeroOf(t)
@@ -844,7 +997,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 	if c == nil {
 		ice("a call with no Calls entry")
 	}
-	if check.IsUnreachable(c) {
+	if xf.unreachable {
 		return nil, fr.defect(x, "unreachable")
 	}
 	switch c.Kind {
@@ -869,10 +1022,34 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		}
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
-	case check.CallLen:
+	case check.CallHash:
 		v, ab := in.expr(fr, x.Args[0])
 		if ab != nil {
 			return nil, ab
+		}
+		mustCharge(in, fr, 1)
+		return hashValue(v), nil
+	case check.CallLen:
+		// len reads a length, not the elements: a part it reads leaves
+		// no share behind, so its slot does not lend (MX-EVWITNESS: vt's
+		// push read len(s.flags), and the next write copied the screen).
+		var v Value
+		var ab *abrupt
+		switch a := unparen(x.Args[0]).(type) {
+		case *syntax.SelectorExpr, *syntax.IndexExpr:
+			if ab = in.charge(fr, a, 1); ab == nil {
+				v, _, ab = in.peek(fr, a)
+			}
+		default:
+			v, ab = in.expr(fr, x.Args[0])
+		}
+		if ab != nil {
+			return nil, ab
+		}
+		if isTerm(v) && in.sym != nil {
+			// A template run reads the length of a list that holds a
+			// hole, never of a hole (foldvalue.go).
+			return nil, in.symStop(fr, x.Args[0], v)
 		}
 		switch v := v.(type) {
 		case string:
@@ -887,31 +1064,37 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
+		p := in.planAt(xf, c.Func)
 		ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
 		if x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
-		if preludeCollection(c.Func) {
-			return in.collectionCall(fr, x, c, nil)
+		if p.collection {
+			return in.collectionCall(fr, x, c, nil, nil)
 		}
 		// A bodiless std function that takes an owned local holds its
 		// entry until it returns (own.go, holdTaken).
 		var held []*syntax.Ident
-		if c.Func.Decl != nil && c.Func.Decl.Extern != nil && c.Func.Pkg.Std() && len(c.Func.Sig.Takes) > 0 {
+		if p.takes {
 			ops := x.Args
 			if c.Recv != nil {
 				ops = append([]syntax.Expr{c.Recv}, x.Args...)
 			}
 			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
 		}
-		if ergoBody && x.Trailing == nil && len(held) == 0 && !c.Func.Pkg.Host() {
+		if p.ergo && x.Trailing == nil && len(held) == 0 {
 			// An Ergo body binds its arguments to its parameters and
 			// keeps no slice of them.
 			args, mark, ab := in.stackArgs(fr, x, c, xf)
 			if ab != nil {
 				return nil, ab
 			}
-			v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+			var v Value
+			if len(c.Func.Sig.TParams) == 0 {
+				v, ab = in.callPlanned(fr, x, p, nil, nil, args)
+			} else {
+				v, ab = in.call(fr, x, c.Func, c.TypeArgs, args)
+			}
 			in.argStack = in.argStack[:mark]
 			return v, ab
 		}
@@ -928,7 +1111,12 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			fr.escaped = true
 			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
 		}
-		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+		var v Value
+		if len(c.Func.Sig.TParams) == 0 {
+			v, ab = in.callPlanned(fr, x, p, nil, nil, args)
+		} else {
+			v, ab = in.call(fr, x, c.Func, c.TypeArgs, args)
+		}
 		if len(held) > 0 {
 			ab = in.settleHeld(fr, held, ab)
 		}
@@ -966,6 +1154,10 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		return in.embedValue(fr, x, c) // nativesembed.go
 	case check.CallEncode, check.CallDecode:
 		return in.wireCall(fr, x, c) // codecwalk.go
+	case check.CallGoError:
+		if c.Name == "go.New" || c.Name == "go.Zero" {
+			return in.goBuiltin(fr, x, c) // gohost.go
+		}
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }
@@ -1096,16 +1288,20 @@ func preludeCollection(f *check.Func) bool {
 }
 
 // collectionCall runs xs.Append(x), m.Get(k), m.Delete(k) or m.Put(k, v).
-// own is the token of the slot an assignment hands the receiver over from
-// (x = x.Append(e)); the receiver is then read without a lend.
-func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot) (Value, *abrupt) {
+// own is the slot an assignment hands the receiver over from (x =
+// x.Append(e), x.f = x.f.Append(e)), and at the path from own's value to
+// the receiver (stmt.go, handover); the receiver is then read without a
+// lend.
+func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot, at []step) (Value, *abrupt) {
 	var recv Value
 	var ab *abrupt
 	if own != nil {
 		if ab := in.charge(fr, c.Recv, 1); ab != nil {
 			return nil, ab
 		}
-		recv = own.v
+		if recv, ab = in.read(fr, own.v, at); ab != nil {
+			return nil, ab
+		}
 	} else if recv, ab = in.expr(fr, c.Recv); ab != nil {
 		return nil, ab
 	}
@@ -1228,7 +1424,7 @@ func (in *interp) interpolated(fr *frame, x *syntax.InterpolatedString) (Value, 
 		}
 		b.WriteString(text)
 	}
-	if ab := in.build(fr, x, int64(b.Len()), 0, int64(b.Len())); ab != nil {
+	if ab := in.build(fr, x, byteWork(int64(b.Len())), 0, int64(b.Len())); ab != nil {
 		return nil, ab
 	}
 	return b.String(), nil
