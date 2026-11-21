@@ -580,7 +580,7 @@ func main() {}
 		// which is no skip (types.md, Laws). Law Calls is gone: a law no
 		// case can feed is a check error (LAW-UNFED).
 		"law Ranked.Same runs where Ranked has a provider: none is in this package or its imports",
-		"PASS (8 tests, 7 skipped)",
+		"PASS (9 tests, 5 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
