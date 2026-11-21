@@ -374,7 +374,7 @@ func (l *lowerer) knownBodyCall(info *check.Info, x *syntax.CallExpr, plain map[
 		return false
 	}
 	switch c.Kind {
-	case check.CallConversion, check.CallLen, check.CallGoError, check.CallEmbed:
+	case check.CallConversion, check.CallLen, check.CallGoError, check.CallEmbed, check.CallHash:
 		return true
 	case check.CallFuncValue:
 		id, ok := unparen(x.Fun).(*syntax.Ident)

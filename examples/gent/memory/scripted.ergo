@@ -5,6 +5,7 @@
 import exec
 import gent/agent
 import strings
+import task
 import testing
 import time
 
@@ -59,9 +60,39 @@ func NewScripted(first []string, cut bool, rest []Entry) Scripted {
 law ReplayIsTheRun(s Scripted, t Tree, texts []string, allow bool) {
 	let c = testing.NewVirtualClock(0)
 	let (live, record) = with context { agent.Model: s, agent.Tools: t, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
-		agent.Headless(agent.Limits{MaxSteps: 4, MaxRetries: 2}, texts, allow)
+		agent.Headless(agent.Open(agent.Limits{MaxSteps: 4, MaxRetries: 2}), texts, allow)
 	}
 	agent.Replay(record) == live
+}
+
+// JournalIgnoresElapsedTime: a session's journal does not depend on how
+// long its work took: two runs of one script, whose read is answered at
+// once in one and 5s later (a virtual clock) in the other, commit the
+// same signals. So nothing that only marks time (a spinner's turn) is a
+// signal of the agent.
+test JournalIgnoresElapsedTime {
+	assert slowRead(0s) == slowRead(5s)
+}
+
+// slowRead is the record of a session that asks the model of a script
+// that reads a.txt, whose read answers after d on a virtual clock.
+func slowRead(d duration) agent.Recorded {
+	let tools = testing.Script[agent.Tools]{}
+	tools.Read.Hold()
+	let read = agent.Call{Id: "c1", Name: "read", Arguments: "{\"path\":\"a.txt\"}"}
+	let world = Scripted{Replies: []Entry{Says{Pieces: []string{"Let me read."}, Calls: []agent.Call{read}, End: agent.ToolUse}, Says{Pieces: []string{"Done."}, Calls: []agent.Call{}, End: agent.Finished}}}
+	let c = testing.NewVirtualClock(0)
+	with context { agent.Model: world, agent.Tools: tools, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, Scheduler: c, time.Clock: c } {
+		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
+		let said = task.Go() { agent.Say(s, "read a.txt") }
+		if d > 0s {
+			Scheduler.Sleep(d)
+		}
+		tools.Read.Release(func(path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable { "hello" })
+		let _ = said.Wait()
+		s.Agent.Stop()
+		agent.RecordOf(s)
+	}
 }
 
 // entry is the entry that answers p, or the failure of a script that has
