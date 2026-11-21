@@ -15,8 +15,11 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// sigType is the Go type of a function value of the signature s.
-func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
+// sigHead is the parameter half of the Go type of a function value of the
+// signature s, `func(*Env, P...)`, and the Go type of its value, "" when
+// it has none. It is the one reader of the env type for both shapes
+// (sigType, frameSigType), and writes no body.
+func (b *irBuilder) sigHead(s *check.Signature, site syntax.Node) (head, value string) {
 	if len(s.Results) > 1 {
 		irNo("function type with several results")
 	}
@@ -24,32 +27,31 @@ func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
 	for _, p := range s.Params {
 		parts = append(parts, b.goType(p.Type, site))
 	}
-	res := b.fc.valueResults(nil) // the emitter's (struct{}, error)
 	if len(s.Results) == 1 {
-		res = " (" + b.goType(s.Results[0], site) + ", error)"
+		value = b.goType(s.Results[0], site)
 	}
-	return "func(" + strings.Join(parts, ", ") + ")" + res
+	return "func(" + strings.Join(parts, ", ") + ")", value
 }
 
-// hasSig reports a slice type whose elements are, at some depth, function
-// values: its spelling is built from its parts (goType).
+// sigType is the Go type of a function value of the signature s.
+func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
+	head, value := b.sigHead(s, site)
+	if value == "" {
+		return head + b.fc.valueResults(nil) // the emitter's (struct{}, error)
+	}
+	return head + " (" + value + ", error)"
+}
+
 // frameSigType is sigType with its results named, as the emitter's
 // funcLitClosure writes a frame literal's (namedResults): `(_ R, err
 // error)`, struct{} for R with no value, so the frame's deferred End sets
 // the literal's error result after its return ("result" 1).
 func (b *irBuilder) frameSigType(s *check.Signature, site syntax.Node) string {
-	if len(s.Results) > 1 {
-		irNo("function type with several results")
+	head, value := b.sigHead(s, site)
+	if value == "" {
+		value = "struct{}" // the emitter's unit shape
 	}
-	parts := []string{"*" + b.l.env()}
-	for _, p := range s.Params {
-		parts = append(parts, b.goType(p.Type, site))
-	}
-	r := "struct{}" // the emitter's unit shape
-	if len(s.Results) == 1 {
-		r = b.goType(s.Results[0], site)
-	}
-	return "func(" + strings.Join(parts, ", ") + ") (_ " + r + ", ergoFrameErr error)"
+	return head + " (_ " + value + ", ergoFrameErr error)"
 }
 
 // litParam is the local of a function literal's parameter: v's, written
@@ -62,6 +64,8 @@ func (b *irBuilder) litParam(v *check.Var, id *syntax.Ident, t check.Type, site 
 	return b.local(v, id)
 }
 
+// hasSig reports a slice type whose elements are, at some depth, function
+// values: its spelling is built from its parts (goType).
 func hasSig(t check.Type) bool {
 	for {
 		switch u := t.(type) {

@@ -21,8 +21,10 @@
 // the typer gave the call (compiler/check/expr), the capability a call
 // charges is the operation type the typer read its receiver as. Where it
 // cannot tell, it says nothing: a body or call it does not walk yet (a
-// function literal, a call with a trailing block, so every with and go
-// block, a catch's operand, a method's body, a law's and a test's), a row
+// call with a trailing block, so every with and go block; a context
+// literal's providers, charged at the with that names it; a catch's
+// operand; a law's and a test's body), a function literal whose row is
+// inferred, a row
 // whose elements are not all named types, and the failures the Go checker
 // also reads from values (a returned error value, a value tail that is not
 // a call, the covering rules of cover.go).
@@ -41,7 +43,7 @@ let kUses = 1
 
 // site is one place where a body exceeds a clause of kind: its node and
 // the elements outside the written clause.
-type site { at dense.ID[syntax.Node], kind int, extra []dense.ID[store.TKey] }
+type site { at dense.ID[syntax.Node], kind int, extra []dense.ID[store.TKey], lit bool, decl []dense.ID[store.TKey] }
 
 // walker is one function body's walk: the tables read for every node, the
 // declared rows (known is false for one with an element this pass does
@@ -50,12 +52,16 @@ type walker {
 	types  dense.Col[store.PNode, dense.Opt[store.TKey]],
 	calls  dense.Col[store.PNode, dense.Opt[store.TKey]],
 	caps   dense.Col[store.PNode, dense.Opt[store.TKey]],
+	lits   dense.Col[store.PNode, int],
+	litRows []expr.LitRows,
 	file   int,
 	errs   []dense.ID[store.TKey],
 	uses   []dense.ID[store.TKey],
 	known  []bool,
 	tries  int,
 	sites  []site,
+	// lit is whether the body walked is a function literal's.
+	lit bool,
 }
 
 // Rows is the S101 and S102 diagnostics of one typed package, in the Go
@@ -70,10 +76,12 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 	let mut ts = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
 	let mut cs = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
 	let mut ks = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut ls = dense.ColWithCap[store.PNode, int](rows)
 	for _ in 0..rows {
 		dense.Push(&ts, dense.NoID[store.TKey]())
 		dense.Push(&cs, dense.NoID[store.TKey]())
 		dense.Push(&ks, dense.NoID[store.TKey]())
+		dense.Push(&ls, -1)
 	}
 	for e in t.Entries {
 		if dense.In(ts, e.At) {
@@ -85,12 +93,17 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			dense.SetOf(&cs, c.Call, dense.OptOf(c.Callee.Sig))
 		}
 	}
+	for i, l in t.Lits {
+		if dense.In(ls, l.At) {
+			dense.SetOf(&ls, l.At, i)
+		}
+	}
 	for c in t.Caps {
 		if dense.In(ks, c.Call) {
 			dense.SetOf(&ks, c.Call, dense.OptOf(c.T))
 		}
 	}
-	let mut w = walker{types: ts, calls: cs, caps: ks, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}}
+	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false}
 	let mut out = []diag.Diag{}
 	let mut seen = Map[string, bool]{}
 	for f in k.Fns {
@@ -99,9 +112,6 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			continue
 		}
 		let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
-		if isSome(dense.Unpack(fd.Recv)) {
-			continue
-		}
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
 			let ops = store.OperandsOf(s, f.Sig)
@@ -238,6 +248,12 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	let tr = k.Parsed[w.file].Tree
 	let kind = syntax.KindOf(tr, x)
 	if kind == syntax.KFuncLit {
+		funcLit(w, s, k, x)
+		return
+	}
+	if kind == syntax.KContextLit {
+		// A local context's provider expressions are charged at each with
+		// that names it (D-E5), which this pass does not walk yet.
 		return
 	}
 	if kind == syntax.KCallExpr {
@@ -282,6 +298,44 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	}
 	for c in syntax.Children(tr, x, []uint32{}) {
 		walk(w, s, k, syntax.NodeAt(tr, int(c)))
+	}
+}
+
+// funcLit walks the body of the function literal x, a target of its own
+// (call.go funcLit): its rows are the ones it writes, else its context's
+// function type's when closed (expr.LitRows). A row the literal infers is
+// checked against nothing.
+func funcLit(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	let n = bind.PNodeOf(k.Ps, w.file, x)
+	if !dense.In(w.lits, n) || dense.Of(w.lits, n) < 0 {
+		return
+	}
+	let lr = w.litRows[dense.Of(w.lits, n)]
+	let (errs, uses, known, tries, lit) = (w.errs, w.uses, w.known, w.tries, w.lit)
+	let (e, ek) = rowOf(s, lr.Errs)
+	let (u, uk) = rowOf(s, lr.Uses)
+	w.errs = e
+	w.uses = u
+	w.known = []bool{ek, uk}
+	w.tries = 0
+	w.lit = true
+	body(w, s, k, syntax.FuncLitOf(k.Parsed[w.file].Tree, x).Body)
+	w.errs = errs
+	w.uses = uses
+	w.known = known
+	w.tries = tries
+	w.lit = lit
+}
+
+// rowOf is the elements of a literal's row and whether it is known: a row
+// it infers, or one with an element this pass does not read, is not.
+func rowOf(s store.Store, r Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey], bool) {
+	match r {
+	case Some[dense.ID[store.TKey]] as row:
+		let xs = store.OperandsOf(s, row.Value)
+		(xs, simple(s, xs))
+	case None:
+		([]dense.ID[store.TKey]{}, false)
 	}
 }
 
@@ -378,7 +432,7 @@ func charge(w mut walker, s store.Store, x dense.ID[syntax.Node], cap dense.ID[s
 	if !w.known[kUses] || slices.Contains(w.uses, cap) {
 		return
 	}
-	w.sites = w.sites.Append(site{at: x, kind: kUses, extra: []dense.ID[store.TKey]{cap}})
+	w.sites = w.sites.Append(site{at: x, kind: kUses, extra: []dense.ID[store.TKey]{cap}, lit: w.lit, decl: w.uses})
 }
 
 // escape records that the failures errs escape at x: a site with the ones
@@ -394,6 +448,6 @@ func escape(w mut walker, x dense.ID[syntax.Node], errs []dense.ID[store.TKey]) 
 		}
 	}
 	if len(extra) > 0 {
-		w.sites = w.sites.Append(site{at: x, kind: kErrors, extra: extra})
+		w.sites = w.sites.Append(site{at: x, kind: kErrors, extra: extra, lit: w.lit, decl: w.errs})
 	}
 }
