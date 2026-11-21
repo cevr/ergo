@@ -146,15 +146,21 @@ law QuietRunsBody(n int) {
 	got == n
 }
 
-// StopEndsBody: a raised stop ends a body that would wait forever; the
+// StopEndsBody: a stop raised while a body waits forever ends it; the
 // body's exit action has run when UntilStop fails with Stopped of that
-// kind.
+// kind. The stop comes once the body has started (afterStart): a stop
+// already there may win before the body runs at all, and then the body
+// has no exit action to run.
 law StopEndsBody(pick int) {
 	let k = stopOf((pick%3+3)%3 + 1)
 	let cleaned = sync.NewRef[int](0)
+	let started = queue.New[int](1)
 	let never = queue.New[int](0)
-	let _ = UntilStop(NewScript([]Stop{k}), func() int {
+	let _ = UntilStop(afterStart{started: started, k: k}, func() int {
 		scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
+		started.Push(1) catch {
+		case queue.Closed:
+		}
 		never.Pop() catch {
 		case queue.Closed:
 			0
@@ -165,6 +171,20 @@ law StopEndsBody(pick int) {
 	}
 	false
 }
+
+// afterStart is StopEndsBody's Stops: Next gives k once the body has
+// pushed to started, so the stop comes while the body waits.
+type afterStart { started queue.Queue[int], k Stop } implements Stops
+
+func Next(a afterStart) Stop {
+	let _ = a.started.Pop() catch {
+	case queue.Closed:
+		return a.k
+	}
+	a.k
+}
+
+func Poll(_ afterStart) Option[Stop] { None }
 
 // StatusOf is the exit status of a program a stop of kind k ended: 128
 // plus the signal's number, as a shell reports it: 130 for Interrupt, 143

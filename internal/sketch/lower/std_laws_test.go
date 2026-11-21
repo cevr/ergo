@@ -1136,12 +1136,30 @@ test SignalQuietRunsBody(n int) {
 	assert got == n
 }
 
+// signalAfterStart is StopEndsBody's Stops: Next gives k once the body
+// has pushed to started, so the stop comes while the body waits.
+type signalAfterStart { started queue.Queue[int], k signal.Stop } implements signal.Stops
+
+func Next(a signalAfterStart) signal.Stop {
+	let _ = a.started.Pop() catch {
+	case queue.Closed:
+		return a.k
+	}
+	a.k
+}
+
+func Poll(_ signalAfterStart) Option[signal.Stop] { None }
+
 test SignalStopEndsBody(pick int) {
 	let k = signalOf(pick)
 	let cleaned = sync.NewRef[int](0)
+	let started = queue.New[int](1)
 	let never = queue.New[int](0)
-	let _ = signal.UntilStop(signal.NewScript([]signal.Stop{k}), func() int {
+	let _ = signal.UntilStop(signalAfterStart{started: started, k: k}, func() int {
 		scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
+		started.Push(1) catch {
+		case queue.Closed:
+		}
 		never.Pop() catch {
 		case queue.Closed:
 			0
@@ -1306,7 +1324,7 @@ var stdLawsStatements = map[string]string{
 	"signal RaisedInOrder":                 `RaisedInOrder(picks []int) { let mut raised = []Stop{} for p in picks { raised = raised.Append(stopOf((p%3+3)%3 + 1)) } let s = NewScript(raised) for k in raised { if s.Next() != k { return false } } s.Poll() == None }`,
 	"signal PollTakesOnce":                 `PollTakesOnce(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = NewScript([]Stop{k}) s.Poll() == Some[Stop]{Value: k} && s.Poll() == None }`,
 	"signal QuietRunsBody":                 `QuietRunsBody(n int) { let got = UntilStop(NewScript([]Stop{}), func() int { n }) catch { case Stopped: return false } got == n }`,
-	"signal StopEndsBody":                  `StopEndsBody(pick int) { let k = stopOf((pick%3+3)%3 + 1) let cleaned = sync.NewRef[int](0) let never = queue.New[int](0) let _ = UntilStop(NewScript([]Stop{k}), func() int { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } never.Pop() catch { case queue.Closed: 0 } }) catch { case Stopped as st: return st.Kind == k && cleaned.Get() == 1 } false }`,
+	"signal StopEndsBody":                  `StopEndsBody(pick int) { let k = stopOf((pick%3+3)%3 + 1) let cleaned = sync.NewRef[int](0) let started = queue.New[int](1) let never = queue.New[int](0) let _ = UntilStop(afterStart{started: started, k: k}, func() int { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } started.Push(1) catch { case queue.Closed: } never.Pop() catch { case queue.Closed: 0 } }) catch { case Stopped as st: return st.Kind == k && cleaned.Get() == 1 } false }`,
 	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
 	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
 	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
