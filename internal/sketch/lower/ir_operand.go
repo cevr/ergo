@@ -9,7 +9,9 @@ package lower
 // definition, ir_fail.go).
 
 import (
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // operandFits reports whether the operand x passes as the Go parameter
@@ -19,4 +21,32 @@ import (
 func (b *irBuilder) operandFits(x syntax.Expr, goType string, subst map[string]string, pkg string) bool {
 	t := b.operandType(x)
 	return b.sameGo(t, goType) || b.sameRT(t, goType, subst, pkg)
+}
+
+// operandConv is how the operand x passes as the Go parameter type goType
+// (operandFits's terms): ok with conv "" when it fits as it is; ok with
+// conv goType when x's type is a runtime type over that basic type (fs's
+// Text, `type MappedText = string`, at FSClone's string), which a Go
+// conversion passes unchanged, as the Go text's assignment does; else not
+// ok (CONV-OPERAND).
+func (b *irBuilder) operandConv(x syntax.Expr, goType string, subst map[string]string, pkg string) (conv string, ok bool) {
+	if b.operandFits(x, goType, subst, pkg) {
+		return "", true
+	}
+	if n, isNamed := b.operandType(x).(*check.Named); isNamed {
+		if name, bound := check.GoTypeOf(n); bound {
+			if gt, known := v1.TypeOf(name); known && gt.Basic != "" && gt.Basic == goType {
+				return goType, true
+			}
+		}
+	}
+	return "", false
+}
+
+// convOperands wraps each operand in args whose convs entry names a Go
+// type in that type's conversion (operandConv).
+func convOperands(args []*irExpr, convs map[int]string) {
+	for i, t := range convs {
+		args[i] = &irExpr{K: "conv", Pos: args[i].Pos, T: t, X: args[i]}
+	}
 }
