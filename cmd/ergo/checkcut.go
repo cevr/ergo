@@ -192,8 +192,16 @@ func (t *checkTree) replay(a sketchfront.Analysis) ([]byte, bool) {
 	if ok && narrowed {
 		stage.Add(stage.PackagesKeptByReads, 1)
 	}
+	if ok && treeCutReplayed != nil {
+		treeCutReplayed(a.Root().Path, narrowed, c.Reads != nil)
+	}
 	return out, ok
 }
+
+// treeCutReplayed, when not nil, hears each package the cutoff replayed,
+// whether only its reads kept it, and whether its entry knew its reads (a
+// test's account of a failing case).
+var treeCutReplayed func(path string, narrowed, reads bool)
 
 // storePuts is the store's Puts so far (0 with no tree).
 func (t *checkTree) storePuts() int {

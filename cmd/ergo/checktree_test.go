@@ -245,9 +245,13 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				t.Setenv("ERGO_CACHE", store)
 				after := treeFingerprints(t, pattern)
 				reran := map[string]bool{}
+				var replayed []string
 				treeRerun = func(path string) { reran[path] = true }
+				treeCutReplayed = func(path string, narrowed, reads bool) {
+					replayed = append(replayed, fmt.Sprintf("%s (narrowed %v, reads %v)", path, narrowed, reads))
+				}
 				got := runCheckTree(t, pattern, false)
-				treeRerun = nil
+				treeRerun, treeCutReplayed = nil, nil
 				fail := func(format string, args ...any) {
 					t.Helper()
 					var diff strings.Builder
@@ -281,9 +285,9 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 						fail("nothing changed, but the run evaluated %v", slices.Sorted(maps.Keys(reran)))
 					}
 				} else {
-					for path := range must {
+					for path, why := range must {
 						if !reran[path] {
-							fail("the cutoff kept %s, which it must evaluate (evaluated %v)", path, slices.Sorted(maps.Keys(reran)))
+							fail("the cutoff kept %s, which it must evaluate (%s; evaluated %v; replayed %q; kept at the base: %v)", path, why, slices.Sorted(maps.Keys(reran)), replayed, cutKept)
 						}
 					}
 					for path := range reran {
@@ -295,7 +299,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 					// What the implementation rule would run and the reads
 					// kept: the read set at work, as the run counts it.
 					if n := got.counts["packages_kept_by_reads"]; n != int64(len(may)) {
-						fail("the run counts %d packages kept by their reads, want %d: %v", n, len(may), slices.Sorted(maps.Keys(may)))
+						fail("the run counts %d packages kept by their reads, want %d: %v (replayed: %q; kept at the base: %v)", n, len(may), slices.Sorted(maps.Keys(may)), replayed, cutKept)
 					}
 					narrowed += len(may)
 				}
@@ -364,16 +368,34 @@ func treeFingerprints(t *testing.T, pattern string) map[string]treeFP {
 // whether each holds an obligation) is edited to after, and those it may:
 // the must, and each with an obligation whose import's implementation
 // changed (its verdicts' reads decide which; WS0c).
-func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (must, may map[string]bool, ok bool) {
+func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (must map[string]string, may map[string]bool, ok bool) {
 	if before == nil || after == nil {
 		return nil, nil, false
 	}
-	must, may = map[string]bool{}, map[string]bool{}
+	must, may = map[string]string{}, map[string]bool{}
 	for path, a := range after {
 		b, ok := before[path]
 		obligations, kept := cutKept[path]
-		if !ok || !kept || a.diags || a.source != b.source || !maps.Equal(a.ifaces, b.ifaces) {
-			must[path], may[path] = true, true
+		why := ""
+		switch {
+		case !ok:
+			why = "new"
+		case !kept:
+			why = "not kept at the base"
+		case a.diags:
+			why = "a diagnostic"
+		case a.source != b.source:
+			why = "its source changed"
+		case !maps.Equal(a.ifaces, b.ifaces):
+			for p := range a.ifaces {
+				if a.ifaces[p] != b.ifaces[p] {
+					why += " the interface of " + p
+				}
+			}
+			why = "changed:" + why
+		}
+		if why != "" {
+			must[path], may[path] = why, true
 		} else if obligations && !maps.Equal(a.impls, b.impls) {
 			may[path] = true
 		}
