@@ -10,6 +10,9 @@ import "testing"
 //
 //   - SSEErgo: http.ReadEvents of the whole body.
 //   - SSEErgoChunked: http.Feed over 4 KiB parts, as a stream gives them.
+//   - SSEErgoView: http.FeedEach over the whole body, each view read
+//     through DataLines and DataLine (SSE-VIEW): no event value, no joined
+//     data, no slice of events; its floor is SSEFloor's.
 //   - SSEGo: the hand-Go reader, the WHATWG rules over the string with
 //     strings.IndexAny and strings.Cut, a []byte for the data, one
 //     string per event's data (the shape of a bufio.Scanner loop with
@@ -57,8 +60,19 @@ func Chunked(body string, size int) int {
 	n
 }
 
+func View(body string) int {
+	let mut r = http.NewEventReader()
+	let mut n = 0
+	http.FeedEach(&r, body, func(e mut http.EventView) {
+		for i in 0..http.DataLines(e) {
+			n = n + len(http.DataLine(e, i)) + 1
+		}
+	})
+	n
+}
+
 func main() needs Console {
-	Console.Println("\(Whole("data: a\n\n")) \(Chunked("data: a\n\n", 3))")
+	Console.Println("\(Whole("data: a\n\n")) \(Chunked("data: a\n\n", 3)) \(View("data: a\n\n"))")
 }
 `
 	gen := func(mainGo string) string {
@@ -193,6 +207,13 @@ func BenchmarkSSEErgoChunked(b *testing.B) {
 	agree(b, ` + emittedCall(mainGo, "Chunked", "body, 4096") + `)
 	for range b.N {
 		sink = ` + emittedCall(mainGo, "Chunked", "body, 4096") + `
+	}
+}
+
+func BenchmarkSSEErgoView(b *testing.B) {
+	agree(b, ` + emittedCall(mainGo, "View", "body") + `)
+	for range b.N {
+		sink = ` + emittedCall(mainGo, "View", "body") + `
 	}
 }
 

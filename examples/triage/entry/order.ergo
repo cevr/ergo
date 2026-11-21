@@ -1,0 +1,38 @@
+import cmp
+
+// BySeverity orders entries the most severe first, then by host, then by
+// line: every field takes part, so no two entries of one log tie.
+type BySeverity {} implements cmp.Order[Entry]
+
+// Compare is BySeverity's order.
+func Compare(_ BySeverity, a Entry, b Entry) int {
+	cmp.Then(cmp.Compare(b.Severity, a.Severity), cmp.Then(cmp.Compare(a.Host, b.Host), cmp.Compare(a.Line, b.Line)))
+}
+
+// ByHost orders entries by host, then the most severe first, then by
+// line.
+type ByHost {} implements cmp.Order[Entry]
+
+// Compare is ByHost's order.
+func Compare(_ ByHost, a Entry, b Entry) int {
+	cmp.Then(cmp.Compare(a.Host, b.Host), cmp.Then(cmp.Compare(b.Severity, a.Severity), cmp.Compare(a.Line, b.Line)))
+}
+
+// MoreSevereFirst: BySeverity puts a more severe entry before a less
+// severe one, whatever their hosts and lines.
+law MoreSevereFirst(a Entry, b Entry) {
+	a.Severity <= b.Severity || BySeverity.Compare(a, b) < 0
+}
+
+// OneHostTogether: ByHost puts every entry of a host before every entry
+// of a later host.
+law OneHostTogether(a Entry, b Entry) {
+	a.Host >= b.Host || ByHost.Compare(a, b) < 0
+}
+
+// LineBreaksTies: two entries of one severity and one host keep their
+// log's order under both orders.
+law LineBreaksTies(a Entry, b Entry) {
+	let tied = Entry{..b, Severity: a.Severity, Host: a.Host}
+	a.Line >= tied.Line || BySeverity.Compare(a, tied) < 0 && ByHost.Compare(a, tied) < 0
+}

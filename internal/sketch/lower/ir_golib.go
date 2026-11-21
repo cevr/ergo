@@ -569,7 +569,7 @@ func (b *irBuilder) monoName(f *check.Func) string {
 	}
 	at := reflect.ValueOf(b.fc.params).Pointer()
 	for key, sp := range b.l.monos {
-		if key.f == f && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
+		if key.decl == monoDecl(monoFunc{f}) && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
 			return sp.name
 		}
 	}
