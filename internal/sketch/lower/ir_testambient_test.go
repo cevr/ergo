@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -38,14 +39,31 @@ test Wd {
 	if len(report.Fallback) > 0 {
 		t.Fatalf("bodies fall back to the emitter: %v", report.Fallback)
 	}
-	// No body is Go text, so the folder's opening is in the IR the
-	// patched compiler reads (ergoir.json), the one place it can be.
-	var names []string
+	// No body is Go text, so the folder's opening is in the test's IR
+	// body, which the patched compiler reads (ergoir.json). The law
+	// runner's cases under onShell open folders of their own, so only
+	// ergoTestWd's body counts.
 	for _, f := range files {
-		names = append(names, f.Path)
-		if strings.Contains(string(f.Data), "TestFolderOpen") {
+		if !strings.HasSuffix(f.Path, IRFileName) {
+			continue
+		}
+		var ir irFile
+		if err := json.Unmarshal(f.Data, &ir); err != nil {
+			t.Fatal(err)
+		}
+		for _, fn := range ir.Funcs {
+			if fn.Name != "ergoTestWd" {
+				continue
+			}
+			body, err := json.Marshal(fn.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), `"TestFolderOpen"`) {
+				t.Fatalf("the test's with of a context that needs TestAmbient does not open the case's folder:\n%s", body)
+			}
 			return
 		}
 	}
-	t.Fatalf("the test's with of a context that needs TestAmbient does not open the case's folder: no lowered file (%v) names TestFolderOpen", names)
+	t.Fatal("no IR file holds ergoTestWd's body")
 }
