@@ -67,14 +67,13 @@ var (
 	mergeWritten   = &FormReason{"call", "merge", false, "an operand or the earlier value is written in the function, or not of a basic type"}
 	mergeNotValue  = &FormReason{"call", "merge", false, "the equal call before it is not a whole value"}
 	mergeNotFirst  = &FormReason{"call", "merge", false, "the equal call before it does not run first on every path"}
-	mergeCallKinds = map[string]bool{"call": true, "pcall": true}
 )
 
 // markPure gives the call e of x its facts when its callee is pure: a
 // pure std body or reviewed-pure Go function (check.PureStd), or an Ergo
 // function the lowering emits pure.
 func (b *irBuilder) markPure(x *syntax.CallExpr, e *irExpr) {
-	if e == nil || !mergeCallKinds[e.K] || e.X != nil || x.Trailing != nil {
+	if e == nil || (e.K != "call" && e.K != "pcall") || e.X != nil || x.Trailing != nil {
 		return
 	}
 	c := b.l.info.Calls[x]
