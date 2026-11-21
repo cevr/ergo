@@ -1,0 +1,125 @@
+// incdump runs compiler/check/inc's plan over a sequence of edits of one
+// program and prints, per step, the packages it checks again:
+//
+//	incdump MANIFEST
+//
+// MANIFEST is the program at each step, steps split by a line "@step",
+// each other line "PATH DIR": a package's import path and its folder.
+// Each step is checked from scratch (compiler/check/task); after the first,
+// the plan of compiler/check/inc picks the rows to check again against
+// the rows of the step before, and incdump prints
+//
+//	N PATH... agrees|differs
+//
+// with the paths of the packages that have a row checked again, sorted,
+// and whether the incremental rows equal the rows from scratch. The first
+// step prints "0" and every path.
+//
+// It is the Ergo side of the work comparison with the Go checker's cache
+// (internal/selfhostcheck's TestIncPlanWorkWithinGoCache, S3E-MODEL S3).
+
+import compiler/check/bind
+import compiler/check/inc
+import compiler/check/task
+import compiler/syntax
+import fs
+import io
+import os
+import slices
+import strings
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case _:
+		return os.Exit{Code: 1, Message: "incdump: cannot read \(path)"}
+	}
+}
+
+// loadDir is the package path in folder d, its .ergo files in name order.
+func loadDir(path string, d string) task.Package needs fs.Files {
+	let names = fs.Files.ReadDir(d) catch {
+	case _:
+		return task.Package{Path: path, Files: []bind.File{}}
+	}
+	let mut files = []bind.File{}
+	for n in slices.Sorted(slices.Values(names)) {
+		if !strings.HasSuffix(n, ".ergo") {
+			continue
+		}
+		let src = fs.Files.ReadFile(d + "/" + n) catch {
+		case _:
+			continue
+		}
+		files = files.Append(bind.File{Name: n, Parsed: syntax.Parse(src)})
+	}
+	task.Package{Path: path, Files: files}
+}
+
+// steps is the manifest's steps, each its lines.
+func steps(text string) [][]string {
+	let mut out = [][]string{}
+	let mut cur = []string{}
+	for line in strings.Split(text, "\n") {
+		let l = strings.TrimSpace(line)
+		if l == "@step" {
+			if len(cur) > 0 {
+				out = out.Append(cur)
+			}
+			cur = []string{}
+		} else if l != "" {
+			cur = cur.Append(l)
+		}
+	}
+	if len(cur) > 0 {
+		out = out.Append(cur)
+	}
+	out
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: incdump MANIFEST"}
+	}
+	let mut cache = []inc.Row{}
+	let mut b = strings.NewBuilder()
+	for n, step in steps(try read(args[0])) {
+		let mut pkgs = []task.Package{}
+		for line in step {
+			let f = strings.Fields(line)
+			if len(f) == 2 {
+				pkgs = pkgs.Append(loadDir(f[0], f[1]))
+			}
+		}
+		let now = inc.Scratch(pkgs, task.Check(pkgs, 1))
+		let mut paths = []string{}
+		let mut agrees = true
+		if n == 0 {
+			for p in pkgs {
+				paths = paths.Append(p.Path)
+			}
+			cache = now.Rows
+		} else {
+			let again = inc.Plan(cache, now)
+			let rows = inc.Apply(cache, now, again)
+			for i, row in now.Rows {
+				if again[i] && !slices.Contains(paths, row.Pkg) {
+					paths = paths.Append(row.Pkg)
+				}
+				agrees = agrees && rows[i].Result == row.Result
+			}
+			cache = rows
+		}
+		b.WriteString("\(n)")
+		for p in slices.Sorted(slices.Values(paths)) {
+			b.WriteString(" " + p)
+		}
+		b.WriteString(if agrees { " agrees\n" } else { " differs\n" })
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

@@ -199,7 +199,7 @@ func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs
 		}
 		match lineClass(line) {
 		case Some[classes.Class] as k:
-			try mergeWith(t, k.Value, line.Kind, path, base, ours, theirs)
+			try mergeWith(t, k.Value, line.Kind, line.By, path, base, ours, theirs)
 		case None:
 			try mergeLines(t, path, base, ours, theirs)
 		}
@@ -334,8 +334,15 @@ func mergeByUnits(t Tool, c Config, l LanguageLine, path string, base string, ou
 	FileMerged{Path: path, Class: l.Name, Regenerate: false}
 }
 
-// mergeWith merges the three files by the class c and writes ours.
-func mergeWith(t Tool, c classes.Class, name string, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+// mergeWith merges the three files by the class c and writes ours. A
+// merge the class says must be made again (a derived file both sides
+// changed, a number both sides measured apart) is a conflict here: Git
+// runs merge-file as its driver and nothing regenerates after it, so a
+// clean answer would keep ours silently. The file keeps the class's
+// merge, which reads (ours whole for a derived file), and the conflict
+// names by, the command that makes it again ("" when no line names one).
+// A tree merge (MergeTree) regenerates instead.
+func mergeWith(t Tool, c classes.Class, name string, by string, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	let b = try t.files.ReadFile(base)
 	let a = try t.files.ReadFile(ours)
 	let other = try t.files.ReadFile(theirs)
@@ -348,7 +355,11 @@ func mergeWith(t Tool, c classes.Class, name string, path string, base string, o
 	if len(merged.Conflicts) > 0 {
 		return MergeConflict{Path: path, Class: name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
 	}
-	FileMerged{Path: path, Class: name, Regenerate: merged.Regenerate}
+	if merged.Regenerate {
+		let then = if by == "" { "make it again" } else { "run \(by)" }
+		return MergeConflict{Path: path, Class: name, Units: []string{}, Why: "both sides changed \(path), a \(name) file: \(then), then git add"}
+	}
+	FileMerged{Path: path, Class: name, Regenerate: false}
 }
 
 // mergeLines is Git's line merge of the three files into ours.

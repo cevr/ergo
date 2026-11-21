@@ -98,13 +98,25 @@ func NewFlag[E](f mut Frame[E], init bool, at CallSite) Flag {
 // Field shows a text field over d: a text the host takes in it becomes the
 // draft's value at the next pass, and sends no signal.
 func Field[E](f mut Frame[E], d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
 }
 
 // LabelledField is a Field that says what it is (FieldLabel), as
 // LabelledInput is an Input that does.
 func LabelledField[E](f mut Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
-	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, None, Some{Value: d.at}, at)
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+}
+
+// FieldLines is a Field of lines lines, as InputLines is an Input of them
+// (OpenTUI gap 2): a multi-line draft, such as a prompt.
+func FieldLines[E](f mut Frame[E], d Draft, placeholder string, lines int, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
+}
+
+// HintedField is a LabelledField that tells a phone's keyboard what it
+// takes (Hints), as HintedInput does.
+func HintedField[E](f mut Frame[E], label FieldLabel, hints Hints, d Draft, placeholder string, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, None, Some{Value: d.at}, at)
 }
 
 // Toggle shows a check box over fl: a press flips the flag and sends no
@@ -762,9 +774,11 @@ func loadsOf[E](m Map[arena.Ref[node[E]], Map[ident, slot]], r arena.Ref[node[E]
 	}
 }
 
-// Handled is what an event did: the signal it sends to the program, and
-// whether it changed view-local state (so the view must render again).
-type Handled[E] { Signal Option[E], Changed bool }
+// Handled is what an event did: the signal it sends to the program,
+// whether it changed view-local state (so the view must render again),
+// and, when it did not, the changes it made to the kept tree itself,
+// which a host applies as a pass's (SCROLL-COST: a list's new offset).
+type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
 
 // Handle applies a host event to f: a press sends a Pressable's or a
 // Check's signal, flips a Toggle and empties a Submit's draft; a text
@@ -772,13 +786,21 @@ type Handled[E] { Signal Option[E], Changed bool }
 // sends its signal while its load is live (Arrive); a pointer event
 // sends its Area's signal, and a key press the first OnKey's. A Tick
 // sends nothing here: a Session sends the signal of each Animate. A
-// list's viewport (Scrolled) becomes its cell and sends nothing. A press
+// list's viewport (Scrolled) becomes its cell and sends nothing; when the
+// list shows the same rows at it (Visible), the kept list takes the new
+// offset with no pass (one Set), else the view renders again. A press
 // or a text on a node under a disabled Fieldset does nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
-	let mut out = Handled[E]{Signal: None, Changed: false}
+	let mut out = Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}
 	if len(f.crossed) > 0 {
 		f.crossed = []E{}
+	}
+	// The layers first (UG4): Escape, a press outside, a scrim.
+	match layerGate(f, event) {
+	case Some[Handled[E]] as h:
+		return h.Value
+	case None:
 	}
 	match event {
 	case Press[E] as p:
@@ -818,30 +840,9 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		case _:
 		}
 	case Type[E] as x:
-		let n = f.nodes.Get(x.Id.ref) catch {
-		case arena.Stale:
-			return out
-		}
-		if n.off {
-			return out
-		}
-		focusTo(f, x.Id.ref, false)
-		match n.onText {
-		case Some[func(t string) E] as g:
-			out.Signal = Some{Value: g.Value(x.Text)}
-		case None:
-		}
-		// Only a Field takes a text into its draft: a Toggle's flag and a
-		// Submit's draft take none.
-		match n.node {
-		case InputNode:
-			match n.binds {
-			case Some[bound[E]] as d:
-				out.Changed = write(f, d.Value, TextCell{Value: x.Text})
-			case None:
-			}
-		case _:
-		}
+		return edited(f, x.Id, x.Text, len(x.Text), len(x.Text))
+	case Edit[E] as x:
+		return edited(f, x.Id, x.Text, x.Caret, x.Anchor)
 	case Arrived[E] as a:
 		if Arrive(f, a.Epoch) {
 			out.Signal = Some{Value: a.Signal}
@@ -884,6 +885,7 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		out.Signal = routed(f, u.URL)
 	case Committed:
 	case Ended:
+	case Published:
 	case Tick:
 	case Scrolled[E] as x:
 		let n = f.nodes.Get(x.Id.ref) catch {
@@ -891,22 +893,36 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 			return out
 		}
 		match n.node {
-		case RowsNode:
+		case RowsNode as list:
 			match n.binds {
 			case Some[bound[E]] as d:
 				// A scroll keeps the row the list last brought into view
 				// (RowsKeeping), so the list does not bring it back.
 				let mut follow = -1
+				let mut was = Viewport{Offset: 0, Height: 0}
 				match cellOf(f, d.Value.owner, d.Value.id) {
 				case Some[Cell] as old:
 					match old.Value {
 					case ViewCell as v:
 						follow = v.Follow
+						was = Viewport{Offset: v.Offset, Height: v.Height}
 					case _:
 					}
 				case None:
 				}
-				out.Changed = write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height, Follow: follow})
+				let now = Viewport{Offset: x.Offset, Height: x.Height}
+				if !write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height, Follow: follow}) {
+					return out
+				}
+				// The same rows at the new viewport: the pass would write
+				// what it wrote, but the offset (SCROLL-COST).
+				if Visible(list.Count, list.RowHeight, was) == Visible(list.Count, list.RowHeight, now) {
+					let moved = RowsNode{Label: list.Label, Count: list.Count, RowHeight: list.RowHeight, First: list.First, Offset: x.Offset}
+					change(f, x.Id.ref, func(k mut node[E]) { k.node = moved })
+					out.Ops = []Op[E]{Set{Id: x.Id, Node: moved}}
+				} else {
+					out.Changed = true
+				}
 			case None:
 			}
 		case _:
@@ -917,6 +933,52 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 
 // write sets the cell b names, when its owner still holds it; it is
 // whether the cell changed.
+// edited is Handle's Type and Edit (OpenTUI gap 2): the field id takes
+// text, its newlines dropped when it is one line, with the caret and the
+// selection's anchor clamped into it at rune starts (FitCaret). The node
+// holds them for the next pass, which keeps them while the field's value
+// is that text. A move of the caret alone changes the view and sends
+// nothing; a text sends the field's onText, or goes into its draft (only
+// a Field takes one: a Toggle's flag and a Submit's draft take none).
+func edited[E](f mut Frame[E], id Id[E], text string, caret int, anchor int) Handled[E] {
+	let mut out = Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}
+	let n = f.nodes.Get(id.ref) catch {
+	case arena.Stale:
+		return out
+	}
+	if n.off {
+		return out
+	}
+	focusTo(f, id.ref, false)
+	let mut e = Editing{Text: text, Caret: caret, Anchor: anchor}
+	match n.node {
+	case InputNode as x:
+		e = FitCaret(OneLine(e, x.Lines))
+		change(f, id.ref, func(m mut node[E]) { m.edit = Some{Value: e} })
+		if e.Text == x.Value && (e.Caret != x.Caret || e.Anchor != x.Anchor) {
+			// The caret moved and the text stayed: a pass shows it.
+			out.Changed = true
+			return out
+		}
+	case _:
+	}
+	match n.onText {
+	case Some[func(t string) E] as g:
+		out.Signal = Some{Value: g.Value(e.Text)}
+	case None:
+	}
+	match n.node {
+	case InputNode:
+		match n.binds {
+		case Some[bound[E]] as d:
+			out.Changed = write(f, d.Value, TextCell{Value: e.Text})
+		case None:
+		}
+	case _:
+	}
+	out
+}
+
 func write[E](f mut Frame[E], b bound[E], c Cell) bool {
 	if !arena.Has(f.nodes, b.owner) {
 		return false

@@ -108,21 +108,21 @@ func handOnRun(seed uint64) (string, string) {
 }
 
 // TestReservationIsTheLargestPeak: a command's reservation is what it
-// asks for (capped), else its largest peak and a quarter (capped), else
-// the default (not capped: a command never measured is never killed by
-// its own cap), and never over the budget (mem.ergo); a run killed at its
-// own cap leaves twice it, and an uncapped run leaves its real peak.
-// Mutants: budget-killed-keeps-cap, budget-cap-unknown.
+// asks for (capped at it), else its largest peak and a quarter (capped at
+// that or the default, the larger), else the default (not capped: a
+// command never measured is never killed by its own cap), and never over
+// the budget (mem.ergo); a run killed at its own cap leaves twice it, and
+// an uncapped run leaves its real peak. Mutants: budget-killed-keeps-cap,
+// budget-cap-unknown.
 func TestReservationIsTheLargestPeak(t *testing.T) {
 	r := Rules{Cores: 4, Memory: 100}
 	for _, c := range []struct {
-		asked, peak, dflt, want int64
-		capped                  bool
+		asked, peak, dflt, want, capAt int64
 	}{
-		{0, 0, 8, 8, false}, {0, 40, 8, 50, true}, {0, 4, 8, 5, true}, {50, 30, 8, 50, true}, {0, 300, 8, 100, true},
+		{0, 0, 8, 8, 0}, {0, 40, 8, 50, 50}, {0, 4, 8, 5, 8}, {50, 30, 8, 50, 50}, {4, 0, 8, 4, 4}, {0, 300, 8, 100, 100}, {0, 4, 200, 5, 100},
 	} {
-		if got, capped := Reservation(r, c.asked, c.peak, c.dflt); got != c.want || capped != c.capped {
-			t.Errorf("Reservation(asked %d, peak %d, default %d) = %d, capped %v; want %d, capped %v", c.asked, c.peak, c.dflt, got, capped, c.want, c.capped)
+		if got, capAt := Reservation(r, c.asked, c.peak, c.dflt); got != c.want || capAt != c.capAt {
+			t.Errorf("Reservation(asked %d, peak %d, default %d) = %d, cap %d; want %d, cap %d", c.asked, c.peak, c.dflt, got, capAt, c.want, c.capAt)
 		}
 	}
 	if got := KeptPeak(8, 1, true, 8); got != 16 {
@@ -145,9 +145,9 @@ func TestReservationIsTheLargestPeak(t *testing.T) {
 // charge, uncapped. Mutant: budget-charge-at-join.
 func TestPeakIsReadAtAdmission(t *testing.T) {
 	r := Rules{Cores: 1, Memory: 100, Peak: func(string) int64 { return 0 }, Default: 8}
-	s := State{Holders: []Entry{{ID: "a", Width: 1, Memory: 8}}, Waiters: []Entry{{ID: "b", Width: 1, Memory: 50, Capped: true, Key: "k"}}, NextTicket: 1}
+	s := State{Holders: []Entry{{ID: "a", Width: 1, Memory: 8}}, Waiters: []Entry{{ID: "b", Width: 1, Memory: 50, Cap: 50, Key: "k"}}, NextTicket: 1}
 	s.Remove(r, "a")
-	if len(s.Holders) != 1 || s.Holders[0].Memory != 8 || s.Holders[0].Capped {
+	if len(s.Holders) != 1 || s.Holders[0].Memory != 8 || s.Holders[0].Cap != 0 {
 		t.Fatalf("b admitted after its key was deleted: %+v; want charged 8, not capped", s.Holders)
 	}
 }
