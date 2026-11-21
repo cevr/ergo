@@ -219,6 +219,21 @@ func (b *irBuilder) sigTypeArgs(sig *check.Signature, targs []check.Type, site s
 	return strings.Join(out, ", ")
 }
 
+// callerSlot is the Slot row parameter that the row argument a holds
+// alone (written as a row value or as a row argument), or nil.
+func callerSlot(a check.Type) *check.TypeParam {
+	r := check.SlotRow(a)
+	if ra, ok := a.(*check.RowArg); ok && r == nil {
+		if es := rowElems(ra.Row); len(es) == 1 {
+			r, _ = es[0].(*check.TypeParam)
+		}
+	}
+	if r == nil || !r.Slot {
+		return nil
+	}
+	return r
+}
+
 // goArg is the Go type argument a of the Go type parameter tp, as the
 // emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
 // type; a Slot row's (`F error`) single named error type, or error for a
@@ -227,6 +242,13 @@ func (b *irBuilder) sigTypeArgs(sig *check.Signature, targs []check.Type, site s
 func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
 	if tp.Kind == check.KindType {
 		return b.goType(a, site)
+	}
+	if r := callerSlot(a); r != nil && tp.Kind != check.KindUses && irInlineSlotLowering != "off" {
+		// The caller's own Slot row passed on is its Go type parameter,
+		// as the emitter's slotType names it (rowslot.go, INLINE-SLOT).
+		if name, ok := b.fc.params[r]; ok {
+			return b.spelling(name)
+		}
 	}
 	if tp.Kind == check.KindUses || check.SlotRow(a) != nil {
 		irNo("generic call with a row type argument of the caller")

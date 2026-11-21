@@ -176,6 +176,8 @@ type irInlSite struct {
 	// failLeaf is a fallible leaf inlined for its failures' jumps
 	// (FAIL-INLINE): it pays wherever it is.
 	failLeaf bool
+	// slot is a callee with a Slot row, bound at the call (INLINE-SLOT).
+	slot bool
 }
 
 // irStdInlLowering is "off" for the reference: a call in a library body
@@ -269,7 +271,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	// copy too: its failures then jump to the catch arm that takes them,
 	// with no error value (FAIL-INLINE, ir_forms_failjump.go).
 	failLeaf := false
-	if !b.l.inlineBody(f) {
+	if !b.l.inlineSlotBody(f) {
 		if !fd.fallible || irFailJumpLowering == "off" || !b.l.inlineWithin(f, -inlineBudget) {
 			return e
 		}
@@ -283,10 +285,21 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		if !b.l.goParam(tp) {
 			continue
 		}
-		if tp.Kind != check.KindType || i >= len(c.TypeArgs) {
+		if i >= len(c.TypeArgs) || tp.Kind != check.KindType && (!tp.Slot || irInlineSlotLowering == "off") {
 			return e
 		}
-		tsub[tp] = b.goArg(tp, c.TypeArgs[i], x)
+		if tp.Kind == check.KindType {
+			tsub[tp] = b.goArg(tp, c.TypeArgs[i], x)
+			continue
+		}
+		// A Slot row whose Go type is not known at the call (a row
+		// parameter of the caller) keeps the call (INLINE-SLOT).
+		a := c.TypeArgs[i]
+		t := irTypeOrNone(func() string { return b.goArg(tp, a, x) })
+		if t == "" {
+			return e
+		}
+		tsub[tp] = t
 	}
 	key := e.Name
 	if fd.method != nil {
@@ -300,6 +313,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub,
 		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
 		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible, anon: anon, failLeaf: failLeaf,
+		slot: b.l.hasGoRow(f.Sig),
 	}
 	if t := b.l.info.Types[x]; t != nil && len(f.Sig.Results) == 1 {
 		site.result = irTypeOrNone(func() string { return b.goType(t, x) })
@@ -559,6 +573,9 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	p.spent += site.size
 	in.count++
 	in.st.report.FailArgs += failArgs
+	if site.slot {
+		in.st.report.InlinedSlots++
+	}
 	if ret {
 		in.st.report.InlinedReturns++
 	}
@@ -863,6 +880,20 @@ func irArmsLeave(sw *irStmt, result int) bool {
 	return !named
 }
 
+// irFailField reports a failure that is a field of a local, at any depth
+// (`return e.Error` of a variant whose field holds a Slot row's value):
+// read where the copy fails, as the callee reads it, and converted to
+// error. INLINE-SLOT; off with it.
+func irFailField(x *irExpr) bool {
+	if irInlineSlotLowering == "off" || x == nil || x.K != "field" {
+		return false
+	}
+	for x != nil && x.K == "field" {
+		x = x.X
+	}
+	return x != nil && x.K == "local"
+}
+
 // irInlinable reports a callee body the pass may copy: no statement that
 // belongs to its own frame (a deferred call, a named result, a failure,
 // a recover), and, with a result, a return that gives it.
@@ -872,10 +903,11 @@ func irInlinable(body []*irStmt, result, fallible bool) bool {
 		switch {
 		case s.K == "defer", s.K == "fail" && !lit && !fallible:
 			ok = false
-		case s.K == "fail" && !lit && irFailValue(s.X) == nil && (irFailLocalLowering == "off" || s.X == nil || s.X.K != "local"):
+		case s.K == "fail" && !lit && irFailValue(s.X) == nil && (irFailLocalLowering == "off" || s.X == nil || s.X.K != "local") && !irFailField(s.X):
 			// A failure of a type the IR does not spell; a local's or a
 			// parameter's is spelled by its slot (irRets.failValue,
-			// INLINE-FAIL-LOCAL).
+			// INLINE-FAIL-LOCAL); a field's converts to error whatever its
+			// type (INLINE-SLOT: a Slot row's value in a variant's field).
 			ok = false
 		case s.K == "ret" && !lit:
 			ret = true
@@ -1305,6 +1337,12 @@ type irRets struct {
 func (r *irRets) failValue(x *irExpr) *irExpr {
 	if v := irFailValue(x); v != nil {
 		return v
+	}
+	if irFailField(x) {
+		// error(x): the conversion the call's own return makes, valid
+		// for an error and a variant alike (INLINE-SLOT).
+		r.in.st.report.FailFields++
+		return &irExpr{K: "toiface", Pos: x.Pos, T: "error", X: x}
 	}
 	if r.in.slotType(x.I) == "error" {
 		r.in.st.report.FailLocalErrors++

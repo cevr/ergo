@@ -127,6 +127,13 @@ type IRReport struct {
 	// passes on as they are, not through its error local
 	// (INLINE-FAILARG, ir_forms_failjump.go failThrough).
 	FailThrough int `json:"-"`
+	// InlinedSlots counts the inlined calls of functions with a Slot row,
+	// bound at the call (INLINE-SLOT, rowslot.go).
+	InlinedSlots int `json:"-"`
+	// FailFields counts the failures of inlined fallible bodies that are
+	// a field of a local, set as the site's error (INLINE-SLOT,
+	// ir_forms_inline.go irFailField).
+	FailFields int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
