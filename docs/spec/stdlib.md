@@ -2328,6 +2328,15 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `prelude` | `TakeIsGetAndDelete` | `TakeIsGetAndDelete(m Map[int, int], k int) { let v, rest = m.Take(k) sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k)) }` | `TestCollLaws` | tested |
 | `prelude` | `TakeAtIsIndexAndRest` | `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 \|\| i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs)-1 for k, y in rest { ok = ok && (k < i && y == xs[k] \|\| k >= i && y == xs[k+1]) } ok }` | `TestCollLaws` | tested |
 | `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
+| `prelude` | `Hashing.EqualIsReflexive` | `EqualIsReflexive(a K) { Equal(a, a) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.EqualIsSymmetric` | `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.EqualIsTransitive` | `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.EqualKeysHashEqual` | `EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) }` | `#162` | checked |
+| `prelude` | `Hashing.EqualKeysNormalEqual` | `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() \|\| NormalKey(a) == NormalKey(b) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `Hashing.NormalKeyIsEqual` | `NormalKeyIsEqual(a K) { !NormalForm() \|\| Equal(a, NormalKey(a)) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `StructuralFloatKeysHashEqual` | `StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }` | `#162` | checked |
+| `prelude` | `StructuralIntKeysHashEqual` | `StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }` | `#162` | checked |
+| `prelude` | `StructuralStringKeysHashEqual` | `StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }` | `#162` | checked |
 | `queue` | `EndKeepsValues` | `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
 | `queue` | `LenCountsUntaken` | `LenCountsUntaken(xs []int) { let q = New[int](len(xs)) for x in xs { try q.Push(x) } let full = q.Len() == len(xs) let mut drained = true for x in xs { drained = drained && q.Poll() == Some[int]{Value: x} } full && drained && q.Len() == 0 }` | `TestQueuePollLaws` | tested |
