@@ -32,7 +32,7 @@
       "name": "task-outputs-unchecked",
       "origin": "wf10 MONOREPO WT1a",
       "file": "internal/task/gen.go",
-      "from": "\t\tif d != o.digest {\n\t\t\treturn entry.outs, false, nil\n\t\t}\n",
+      "from": "\t\tif d != o.digest {\n\t\t\treturn entry.outs, false, \"output \" + o.path + \" no longer hashes as stored\", nil\n\t\t}\n",
       "to": "\t\t_ = d\n",
       "rule": "A hit needs the tree's outputs to hash as the stored run wrote them: a generated file edited or deleted by hand is a miss.",
       "killers": ["internal/task:TestGenCheckIsFreshRegeneration"]
