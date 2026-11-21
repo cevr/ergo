@@ -3,6 +3,7 @@ func keep(f own func()) bool {
 }
 
 func apply(f func()) bool {
+	f()
 	true
 }
 
