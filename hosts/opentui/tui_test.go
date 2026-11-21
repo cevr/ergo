@@ -141,6 +141,11 @@ func genScript(r *rand.Rand, app string) string {
 		// a turn of the wheel while the list (60 rows) has room to move
 		lines = append(lines, fmt.Sprintf("wheel list %d", 1+r.IntN(3)))
 	}
+	if app == "drag" {
+		// a press held in the bottom band for some frames, so every drag
+		// script edge-scrolls the list (mutant OT5-edge-scroll-still)
+		lines = append(lines, "point drag down 40 352", fmt.Sprintf("point drag move 40 %d", 16*(36+r.IntN(3))), fmt.Sprintf("frames %d", 2+r.IntN(8)))
+	}
 	// held: a pad's or a sketch's pointer went down and has not come up. A person's
 	// mouse cannot press a button or Tab then, so the script does not.
 	held := false
@@ -170,7 +175,7 @@ func genScript(r *rand.Rand, app string) string {
 			if r.IntN(8) == 0 && !held {
 				// over the pad's button (inside the Area: no crossing),
 				// a tap on it, or out of every Area (the pad's Leave)
-				step = pick(r, "tap clear", "tap clear", "point clear move 0 0", "leave")
+				step = pick(r, "tap clear", "tap reset", "point clear move 0 0", "leave")
 			}
 		case "drag":
 			// a press, moves and frames in the Area: y in its top band, in its

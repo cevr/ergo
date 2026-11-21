@@ -56,6 +56,12 @@ func padView(f mut ui.Frame[int], s pad) {
 			ui.Text(f, "spot")
 		}
 	}
+	// A button outside the Area: a press on it leaves the pad on both hosts
+	// only when the press goes to the node under the pointer (OT-PHASES;
+	// mutant OTPH-down-areas-only).
+	ui.Pressable(f, "reset", 6000) {
+		ui.Text(f, "Reset")
+	}
 }
 
 // list: a virtual list (ui.RowsKeeping) of n rows, a button each; "more"
