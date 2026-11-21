@@ -63,7 +63,8 @@ law FoldFlips[T comparable](t Tree[T], f func(x T) T, z T, g func(acc T, x T) T)
 //
 // Mutants (eval mutants.json): ladt-union-untyped (a type parameter
 // inside a union is no int: "a generator for T"), ladt-no-two-family
-// (a two-parameter function takes no family: FoldOfMap is skipped).
+// (a two-parameter function takes no family: FoldOfMap is skipped),
+// ladt-union-one-class (a union's classes stop at its first variant).
 func TestLicenceOverUnions(t *testing.T) {
 	pkg, diags := check.CheckSource(licenceADTSrc)
 	if pkg == nil || len(diags) > 0 {
@@ -86,8 +87,13 @@ func TestLicenceOverUnions(t *testing.T) {
 		return l
 	}
 	for _, name := range []string{"MapFuses", "TreeMapFuses", "FoldOfMap"} {
-		if l := run(name); l.Verdict != "validated" || len(l.Missed) > 0 {
+		l := run(name)
+		if l.Verdict != "validated" || len(l.Missed) > 0 {
 			t.Errorf("%s: %s; want validated, every class reached", name, l.Line())
+		}
+		// Each variant of the tree is a class of its own.
+		if name == "TreeMapFuses" && (!strings.Contains(l.Line(), "Leaf ") || !strings.Contains(l.Line(), "Node[T] ")) {
+			t.Errorf("%s: %s; want a class for Leaf and one for Node", name, l.Line())
 		}
 	}
 	if l := run("FoldFlips"); l.Verdict != "refuted" || !strings.Contains(l.Line(), "g = func a") {

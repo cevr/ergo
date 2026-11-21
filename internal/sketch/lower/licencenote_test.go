@@ -3,6 +3,8 @@ package lower
 import (
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // TestRewriteLawRunsAsLicence (LICENCE-ADT, step 4): a rewrite law in
@@ -29,7 +31,8 @@ func main() {}
 	for _, f := range p.files {
 		text.Write(f.Data)
 	}
-	got := text.String()
+	// Every law has a `--skip-law` line; the reason line is the skip.
+	got := strings.ReplaceAll(text.String(), `: --skip-law"`, "")
 	if !strings.Contains(got, `"law TwiceUnfolds runs as its licence run (ergo.laws): `) {
 		t.Errorf("no licence note for TwiceUnfolds in the runner")
 	}
@@ -38,5 +41,18 @@ func main() {}
 	}
 	if !strings.Contains(got, `"skip law TwiceIsTwice:`) {
 		t.Errorf("the property law TwiceIsTwice is no longer a skip; the test lost its control")
+	}
+	// The summary counts the rewrite law neither as a run nor as a skip.
+	var r check.LawRun
+	for _, lr := range p.pkg.LawRuns {
+		if lr.Law.Name == "TwiceUnfolds" {
+			r = lr
+		}
+	}
+	if r.Law == nil {
+		t.Fatal("no law run for TwiceUnfolds")
+	}
+	if runs, skips := lawCounts(r); runs != 0 || skips != 0 {
+		t.Errorf("lawCounts(TwiceUnfolds) = %d runs, %d skips; want 0, 0", runs, skips)
 	}
 }
