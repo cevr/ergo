@@ -609,6 +609,13 @@ func (r *Row) with(tab *typeTable, t Type) *Row {
 	if ra, ok := t.(*RowArg); ok {
 		return r.union(tab, ra.Row)
 	}
+	if n, ok := t.(*Named); ok && tab.rowOf != nil {
+		// A named row in a row is its members (namedrow.go): a row is a
+		// set of error types, and the name stands for its set.
+		if nr := tab.rowOf(n); nr != nil {
+			return r.union(tab, nr)
+		}
+	}
 	r = tab.local(r)
 	id, inf := tab.intern(t)
 	i, ok := r.find(id)
