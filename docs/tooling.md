@@ -595,13 +595,14 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
 
 ## ergo budget
 
-`ergo budget [--config FILE] [--width N] [--memory SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]` (`cmd/ergo/budget.go`, `internal/budget`, units WS4a and WS4c) runs COMMAND once the host's budget has `--width` cores and its memory free for it, and gives them back when COMMAND ends. Every `ergo budget` on the host shares one budget, so ten workspaces cannot each take every core or all the memory. Its design is the model `models/gatebudget`, checked by `ergo test ./models/gatebudget`.
+`ergo budget [--config FILE] [--width N] [--memory SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]` (`cmd/ergo/budget.go`, `internal/budget`, units WS4a, WS4c and BUDGET-BACKFILL) runs COMMAND once the host's budget has `--width` cores and its memory free for it, and gives them back when COMMAND ends. Every `ergo budget` on the host shares one budget, so ten workspaces cannot each take every core or all the memory. Its design is the model `models/gatebudget`, checked by `ergo test ./models/gatebudget`.
 
 - **The budget file.** The host's owner writes it, because the host may be shared. It is named by `--config` or `$ERGO_BUDGET`, with one `key value` per line:
   - `cores N`, the budget in cores, required;
   - `memory SIZE` (`40G`, `512M` or bytes), the budget in memory; without it, memory is not counted;
   - `default-memory SIZE`, the reservation of a command never measured, by default 8G;
   - `share N`, the lane class's share of the cores;
+  - `backfill N`, how many later waiters may take past one next waiter that does not fit, by default 4 (0: none);
   - `state DIR`, the folder of the budget's state, by default `FILE.state`;
   - `log FILE`, which gets a `queue`, `take` and `end` line per command.
   - Every decision reads the file again, and an edit wakes the waiters (Linux's inotify), so an edit takes effect at once. The old `gate-load` key is refused: memory admission replaced the load gate.
@@ -612,13 +613,15 @@ The `ergo` binary carries the checked prelude and std as a snapshot (`internal/s
   - A run that fails without an OOM kill records no peak: it may have stopped before its work's peak.
   - A command never measured is charged `default-memory` but not capped at it: it runs to its end and its peak is recorded. Only the slice can kill it, when the budget's commands together would pass `memory`.
   - Elsewhere the peak is the largest process's resident set, and nothing is capped.
-- **Order.** One queue, served in order with no backfill: a narrow newcomer never passes a wide older waiter.
+- **Order.** One queue, served in order, with a bounded backfill (unit BUDGET-BACKFILL; cores.ergo NoIdleBehindBlockedHead and HeadWithinBound).
   - The next waiter is the oldest lane waiter while the lane class holds less than its share, else the oldest crit waiter, else the oldest lane waiter.
+  - When the next waiter (the head) does not fit, the oldest later waiter that fits in cores and memory takes past it (a pass). After `backfill` passes the head is passed no more: it waits only for runs that already hold, and takes when they end. The bound counts takes, not time, so the budget needs no run's duration. With `backfill 0` a narrow newcomer never passes a wide older waiter, the rule until 2026-11-21, when 22 width-4 runs waited over an hour behind a width-16 head with 12 cores free.
   - A release hands the cores on at once. Waiters sleep on the holders' locks, so a release and a crash wake them; there is no clock.
 - **Crashes.** Each waiter and holder owns a file under the state folder, flocked for its lifetime, so the kernel frees a dead runner's share. The lock is never inherited by COMMAND.
 - **Children.** COMMAND runs with `GOMAXPROCS` set to the width and the grant lent in `$ERGO_BUDGET_GRANT`. An `ergo budget` inside it runs in the grant (at most its width, in its memory) and takes nothing, so a holder never waits on its own child.
   - COMMAND runs in its own process group, which is killed when COMMAND ends.
   - On Linux, COMMAND also dies with `ergo budget`.
+- **Status.** `ergo budget [--config FILE] status` prints the budget as the last decision left it, and changes nothing: each holder and waiter with its class, width, charge and cap, and why the head waits, as `head ID: needs 16 cores, 4 free; passed 2 of 2: no more passes` (or the memory it lacks, or that the lane share puts crit first).
 - **The log.** `queue LANE PID`; `take LANE CLASS/WIDTH PID RESERVED`; `end LANE CLASS/WIDTH PID CODE PEAK`.
 - **Exit.** COMMAND's exit code (128 plus the signal for a signal); 2 for an invalid invocation; 1 when the budget cannot be read.
 
