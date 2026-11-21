@@ -7,20 +7,21 @@
 // GateAll, PollAfterLoad and GatedHead, the last the live bug of
 // 2026-11-20); memory admission (mem.ergo) replaces it.
 //
-// The world: B = 3 cores. Four runners, each with a width and a class:
+// The world: B = 3 cores. Five runners, each with a width and a class:
 // A and N are lane runners of width 1, H is a heavy run of width 2 (as
 // heavy.sh, one at a time), all of the lane class; C is a crit runner of
-// width 1. A, N and C run up to twice, H once.
+// width 1, and N2 a lane runner of width 1. A, N and C run up to twice, H
+// and N2 once.
 //
 // The design:
 //   - Admission is by cores: a take fits when the widths held plus its
 //     own are at most B.
-//   - One queue order, no backfill. A newcomer joins the queue, and it
-//     takes at once only when it is the next waiter and fits. A join and
-//     a release hand the free cores on in the same step, to the next
-//     waiter by the rule below, as long as it fits; a next waiter that
-//     does not fit stops the hand-on (head of line), so a narrow
-//     newcomer never passes a wide older waiter.
+//   - One queue order, with a bounded backfill (BUDGET-BACKFILL). A join
+//     and a release hand the free cores on in the same step, to the next
+//     waiter by the rule below while it fits. When it does not fit, the
+//     oldest later waiter that fits takes past it (a pass), at most
+//     MaxPass times for one head; then the head stops the hand-on (head
+//     of line) until it fits. There is no clock: the bound counts takes.
 //   - The next waiter: the oldest lane waiter while the lane class holds
 //     fewer than Share cores, else the oldest crit waiter, else the
 //     oldest lane waiter.
@@ -30,15 +31,21 @@
 //   - NextNotIdle: the next waiter never waits while it fits.
 //   - InOrder: no runner takes while an older waiter of its own class
 //     waits, and no lane runner takes while a crit waiter waits, unless
-//     the lane class is under its share.
+//     the lane class is under its share, except by a pass.
+//   - NoIdleBehindBlockedHead: while the head does not fit and has been
+//     passed fewer than MaxPass times, no waiter that fits waits.
+//   - HeadWithinBound: no head is passed more than MaxPass times.
 //
 // Mutants, each a machine whose law Breaks must hold:
 //   - ByCount: admission counts holders (at most 3), not cores
 //     (WithinBudget).
 //   - QuitIdle: a release hands nothing on; waiters find the cores at
 //     their next poll, as light.sh's sleep (NextNotIdle).
-//   - Backfill: a release hands free cores to any waiter that fits, and
-//     so a narrow runner passes a wide older one (InOrder).
+//   - Backfill: passes with no bound, so H is passed again and again
+//     (HeadWithinBound).
+//   - NoBackfill: the hand-on stops at a head that does not fit, and N2
+//     waits behind H with a core free (NoIdleBehindBlockedHead); this was
+//     the code until BUDGET-BACKFILL.
 //
 // Witnesses (laws of Cores, each `sometimes`): H holds while a narrow
 // runner waits; a narrow runner waits behind H while a core is free (the
@@ -72,6 +79,7 @@ type Cores {
 	Ticket     []int,
 	NextTicket int,
 	Passes     []int,
+	Backfilled bool,
 	Passed     bool,
 	WideHolds  bool,
 	HeadBlocks bool,
@@ -82,7 +90,7 @@ type Cores {
 
 func coreWorld() Cores {
 	Cores{Pc: []int{0, 0, 0, 0, 0}, Done: []int{0, 0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1, -1}, NextTicket: 0,
-		Passes: []int{0, 0, 0, 0, 0}, Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritPassed: false, Full: false}
+		Passes: []int{0, 0, 0, 0, 0}, Backfilled: false, Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritPassed: false, Full: false}
 }
 
 func rn(r Rn) int {
@@ -196,9 +204,9 @@ func breaksOrder(c Cores, r int) bool {
 	return false
 }
 
-func admit(c0 Cores, r int) Cores {
+func admit(c0 Cores, r int, pass bool) Cores {
 	let mut c = c0
-	if breaksOrder(c, r) {
+	if breaksOrder(c, r) && !pass {
 		c.Passed = true
 	}
 	if c.Pc[r] == Waiting && r == 2 {
@@ -212,24 +220,45 @@ func admit(c0 Cores, r int) Cores {
 	return c
 }
 
-// handOn serves waiters in order while the next fits; under Backfill, any
-// waiter that fits.
+// oldestFitting is the oldest waiter other than h that fits, -1 for none.
+func oldestFitting(m int, c Cores, h int) int {
+	let mut best = -1
+	for r in all4() {
+		if r != h && c.Pc[r] == Waiting && fits(m, c, r) && (best == -1 || c.Ticket[r] < c.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+// handOn serves the next waiter while it fits. When it does not, the
+// oldest later waiter that fits takes past it (a pass), at most MaxPass
+// times for one head: then the hand-on stops at the head, as with no
+// backfill. Under NoBackfill there is no pass (the code before
+// BUDGET-BACKFILL); under Backfill the passes have no bound.
 func handOn(m int, c0 Cores) Cores {
 	let mut c = c0
 	for _ in all4() {
-		let mut to = nextWaiter(c)
-		if m == BackfillMutant {
-			to = -1
-			for r in all4() {
-				if to == -1 && c.Pc[r] == Waiting && fits(m, c, r) {
-					to = r
-				}
-			}
-		}
-		if to == -1 || !fits(m, c, to) {
+		let to = nextWaiter(c)
+		if to == -1 {
 			return c
 		}
-		c = admit(c, to)
+		if fits(m, c, to) {
+			c = admit(c, to, false)
+			c.Passes[to] = 0
+		} else {
+			if m == NoBackfillMutant || (m != BackfillMutant && c.Passes[to] >= MaxPass) {
+				return c
+			}
+			let by = oldestFitting(m, c, to)
+			if by == -1 {
+				return c
+			}
+			c = admit(c, by, true)
+			c.Passes[by] = 0
+			c.Passes[to] = c.Passes[to] + 1
+			c.Backfilled = true
+		}
 	}
 	return c
 }
@@ -286,6 +315,7 @@ func coreDesign(c Cores, a CoreAct) Decision[Cores, string] { coreWith(CoreDesig
 func byCount(c Cores, a CoreAct) Decision[Cores, string]    { coreWith(ByCountMutant, c, a) }
 func quitIdle(c Cores, a CoreAct) Decision[Cores, string]   { coreWith(QuitIdleMutant, c, a) }
 func backfill(c Cores, a CoreAct) Decision[Cores, string]   { coreWith(BackfillMutant, c, a) }
+func noBackfill(c Cores, a CoreAct) Decision[Cores, string] { coreWith(NoBackfillMutant, c, a) }
 
 func withinBudget(c Cores) bool { used(c) <= B }
 
@@ -338,6 +368,7 @@ func headBlocks(c Cores) bool { c.HeadBlocks }
 func wideWaited(c Cores) bool { c.WideWaited }
 func critPassed(c Cores) bool { c.CritPassed }
 func full(c Cores) bool       { c.Full }
+func backfilled(c Cores) bool { c.Backfilled }
 
 type CoreBudget machine[Cores, CoreAct] {
 	initial: coreWorld(),
@@ -354,6 +385,7 @@ type CoreBudget machine[Cores, CoreAct] {
 	law WideTakesAfterWaiting sometimes wideWaited,
 	law CritPassesLane sometimes critPassed,
 	law FullWithWide sometimes full,
+	law PassesBlockedHead sometimes backfilled,
 }
 
 type ByCount machine[Cores, CoreAct] {
@@ -374,5 +406,12 @@ type Backfill machine[Cores, CoreAct] {
 	initial: coreWorld(),
 	step:    backfill,
 
-	law Breaks sometimes passed2,
+	law Breaks sometimes pastBound,
+}
+
+type NoBackfill machine[Cores, CoreAct] {
+	initial: coreWorld(),
+	step:    noBackfill,
+
+	law Breaks sometimes idleBehindHead,
 }
