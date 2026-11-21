@@ -140,6 +140,7 @@ func insertDecl(text string, cursor int, name, file, decl string) (string, int, 
 		return text, cursor, false
 	}
 	at := nameAt + fileLoc[1]
-	add := `, "decl": ` + q(decl)
+	quoted, _ := json.Marshal(decl)
+	add := `, "decl": ` + string(quoted)
 	return text[:at] + add + text[at:], at + len(add), true
 }

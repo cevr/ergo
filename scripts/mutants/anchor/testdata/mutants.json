@@ -26,8 +26,8 @@
       "origin": "wf10 MN0",
       "file": "scripts/mutants/anchor/anchor.go",
       "decl": "goDecls",
-      "from": "\t\tif doc != nil {\n\t\t\tstart = off(doc.Pos())\n\t\t}\n",
-      "to": "",
+      "from": "\t\tif doc != nil {\n\t\t\tstart = off(doc.Pos())\n",
+      "to": "\t\tif doc != nil && false {\n\t\t\tstart = off(doc.Pos())\n",
       "rule": "A Go declaration's span starts at its doc comment.",
       "killers": ["scripts/mutants/anchor:TestLocate"]
     },

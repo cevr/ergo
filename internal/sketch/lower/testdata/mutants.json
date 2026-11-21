@@ -773,7 +773,7 @@
     {
       "name": "existing-26-verify-impure-step-nil-env",
       "origin": "lower-v1/verify-s4b/mutants-verify.json",
-      "file": "internal/sketch/lower/machine.go", "decl": "lowerer\.machinePlan",
+      "file": "internal/sketch/lower/machine.go", "decl": "lowerer.machinePlan",
       "from": "call(fd.envLead(env)) + \"\\n}\\n\\n\")",
       "to": "call(fd.envLead(\"nil\")) + \"\\n}\\n\\n\")",
       "rule": "machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.",
