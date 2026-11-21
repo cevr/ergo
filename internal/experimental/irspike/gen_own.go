@@ -9,9 +9,10 @@ import (
 // ownFuncs are the functions GenerateOwn writes besides the owN: give
 // returns the value it owns (v1.ReturnStatic), keep owns its taken
 // parameter, guarded owns two in a frame with an error row, tried leaves
-// its frame through a try while it owns two (TryReleases), and Res's
+// its frame through a try while it owns two (TryReleases), temped owns
+// statement temporaries (OwnedTemps), and Res's
 // checked Close runs masked (v1.Release).
-var ownFuncs = []string{"give", "Res.keep", "guarded", "tried", "Res.Close"}
+var ownFuncs = []string{"give", "Res.keep", "guarded", "tried", "temped", "Res.Close"}
 
 // GenerateOwn is a program of owned values in static frames (FLIP F7
 // wave 2): a resource Res whose Close prints its id, and functions
@@ -123,6 +124,34 @@ func triedAt(k int, bad bool) int needs Console {
 	use(x)
 }
 
+// temped owns statement temporaries in a static frame (OWNED-LOCAL-2,
+// Info.OwnedTemps): each call's Res is released at its statement's
+// end, before the next statement; a fallible one only once it is built,
+// and a try that leaves releases r through the frame. With bad, the
+// first temporary's Close fails at its statement's end.
+func temped(k int, bad bool) int fails Oops needs Console {
+	let r = open(60 + k, false)
+	let u = use(open(61 + k, bad))
+	Console.Println("temped \(u)")
+	let w = use(try openOr(k))
+	Console.Println("temped w \(w)")
+	use(r) + use(open(63 + k, false)) + w
+}
+
+func openOr(k int) Res fails Oops needs Console {
+	if k == 1 {
+		return Oops{code: 7}
+	}
+	open(62 + k, false)
+}
+
+func tempedAt(k int, bad bool) int needs Console {
+	temped(k, bad) catch {
+	case Oops as o:
+		o.code
+	}
+}
+
 // Box is a generic resource: its Close is generic, which a frame's
 // release helper calls on each instance (RELEASE-IR).
 type Box[T] { id int, v T } implements Closer
@@ -214,9 +243,14 @@ func give(id int, k int) Res needs Console {
 	b.WriteString("\tConsole.Println(\"\\(caught(0)) \\(caught(1))\")\n")
 	b.WriteString("\tfor k in 0..4 {\n\t\tConsole.Println(\"guarded \\(guardedAt(k, false))\")\n\t}\n")
 	b.WriteString("\tfor k in 0..3 {\n\t\tConsole.Println(\"tried \\(triedAt(k, false))\")\n\t}\n")
+	b.WriteString("\tfor k in 0..3 {\n\t\tConsole.Println(\"temped \\(tempedAt(k, false))\")\n\t}\n")
 	if seed%3 == 0 {
 		// A try's failure whose release fails too.
 		b.WriteString("\tConsole.Println(\"tried bad \\(triedAt(2, true))\")\n")
+	}
+	if seed%3 == 1 {
+		// A statement temporary whose release fails at its statement's end.
+		b.WriteString("\tConsole.Println(\"temped bad \\(tempedAt(2, true))\")\n")
 	}
 	last := r.IntN(nf)
 	if seed%2 == 0 {
