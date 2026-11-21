@@ -21,6 +21,18 @@ func New(capacity int) Option[Gate] needs go.Foreign {
 	}
 }
 
+// NewGate is a Gate of capacity 4, as memory's NewGate is: the law cases
+// of ergo test build it, and their build holds go.Foreign (types.md, Laws
+// 10). Go gives a semaphore for every weight.
+func NewGate() Gate needs go.Foreign {
+	match New(4) {
+	case Some[Gate] as g:
+		g.Value
+	case None:
+		Unreachable("semaphore.NewWeighted gave no semaphore")
+	}
+}
+
 // Capacity is the semaphore's whole weight.
 func Capacity(g Gate) int { g.capacity }
 

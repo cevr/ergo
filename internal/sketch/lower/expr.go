@@ -134,7 +134,7 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			if _, ok := fc.l.info.Values[n]; ok {
 				return false
 			}
-			if fc.methodOf(n) != nil {
+			if fc.methodOf(n) != nil || fc.l.info.MethodValues[n] != nil {
 				found = true
 			}
 		case syntax.Expr:
@@ -618,6 +618,9 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 	}
 	if op := fc.methodOf(x); op != nil {
 		return fc.methodValue(x, op)
+	}
+	if f := fc.l.info.MethodValues[x]; f != nil {
+		return fc.methodValue196(x, f)
 	}
 	recv := fc.value(x.X)
 	if hostRecv(fc.typeOf(x.X)) {

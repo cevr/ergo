@@ -23,7 +23,7 @@ func NewWorkspace(width int) Workspace {
 	w
 }
 
-func storage(w *Workspace) {
+func storage(w mut Workspace) {
 	w.frontiers = slices.Repeat([]int{0}, 2*w.width)
 	w.marks = slices.Repeat([]int{0}, w.width)
 	w.Storage += 3 * w.width
@@ -31,7 +31,7 @@ func storage(w *Workspace) {
 
 // nextGeneration clears marks only at rollover, never allocates storage.
 // The bound is representable on every supported Go int width.
-func nextGeneration(w *Workspace) {
+func nextGeneration(w mut Workspace) {
 	w.generation += 1
 	if w.generation == 1073741824 {
 		for i in 0..w.width {
@@ -41,7 +41,7 @@ func nextGeneration(w *Workspace) {
 	}
 }
 
-func reset(w *Workspace) {
+func reset(w mut Workspace) {
 	w.side = 0
 	w.count = 0
 	w.nextGeneration()
@@ -49,7 +49,7 @@ func reset(w *Workspace) {
 
 // includeWorkspace visits Split cycles once, keeping only byte readers
 // and Accept. Every closure has at most width members.
-func includeWorkspace(w *Workspace, p Program, pc int) {
+func includeWorkspace(w mut Workspace, p Program, pc int) {
 	if w.marks[pc] == w.generation {
 		return
 	}
@@ -67,7 +67,7 @@ func includeWorkspace(w *Workspace, p Program, pc int) {
 	}
 }
 
-func accepting(w *Workspace, p Program) bool {
+func accepting(w mut Workspace, p Program) bool {
 	for i in 0..w.count {
 		match p.insts[w.frontiers[w.side*w.width+i]] {
 		case Accept:
@@ -78,7 +78,7 @@ func accepting(w *Workspace, p Program) bool {
 	false
 }
 
-func consume(w *Workspace, p Program, c byte) {
+func consume(w mut Workspace, p Program, c byte) {
 	// Step 2 - make from using side width
 	let from = w.side * w.width
 	let count = w.count
@@ -105,7 +105,7 @@ func consume(w *Workspace, p Program, c byte) {
 
 // RunWhole reuses scratch but keeps the original machine's anchored End
 // acceptance. Simulation remains the independently selectable reference.
-func RunWhole(w *Workspace, p Program, text string) Work {
+func RunWhole(w mut Workspace, p Program, text string) Work {
 	w.reset()
 	// Step 2 - invoke include workspace start
 	w.includeWorkspace(p, p.start)
@@ -148,7 +148,7 @@ func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {
 
 // RunSearch is the iterator path. Literal-complete patterns never start
 // an NFA. No-prefix programs retain R1's Search expansion.
-func RunSearch(c SearchCompiled, w *Workspace, text string) Work {
+func RunSearch(c SearchCompiled, w mut Workspace, text string) Work {
 	w.reset()
 	if c.prefix.Complete {
 		// Hand back the work matched strings contains text

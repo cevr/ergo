@@ -10,7 +10,10 @@
 //   - A command with no recorded peak (unknown) is charged MDefault and is
 //     not capped on its own: it runs to its real peak, which is recorded.
 //   - A command with a recorded peak is charged it (the largest seen) and
-//     capped at it: a run past its own recorded peak is killed alone.
+//     capped at it or MDefault, the larger: a run past its own recorded
+//     peak is killed alone, but never at or below MDefault, since a short
+//     run's low peak (a chain that failed fast and exited 0) says nothing
+//     of what the full run needs (2026-11-20, a compile killed at 1.4G).
 //   - Every budget command runs in one slice capped at MM, so the real use
 //     of all of them never passes the budget: when an unknown run's growth
 //     would pass it, the kernel kills a run in the slice (here the run that
@@ -21,7 +24,8 @@
 //     recorded peak, and is killed for it).
 //   - G: a heavy lane runner of width 2, real peaks 3, 1, 3 (a light run
 //     between two heavy ones, as a cached build between two cold ones).
-//   - K: a crit runner of width 1, real peaks 1, 1.
+//   - K: a crit runner of width 1, real peaks 1, 2 (a short run, then a
+//     full one that needs MDefault).
 // A holder first reaches its real peak (Grow), then ends (End). There is
 // no load gate: the order, head of line and the lane share are
 // cores.ergo's.
@@ -36,6 +40,8 @@
 //     a recorded peak.
 //   - KilledPastOwnPeak: a command is killed by its own cap only when its
 //     run passes the largest peak it ever reached.
+//   - NotKilledBelowDefault: no command is killed by its own cap at a real
+//     use of MDefault or less.
 //
 // Mutants, each a machine whose law Breaks must hold:
 //   - ByCores: admission ignores memory (WithinMemory).
@@ -45,6 +51,9 @@
 //   - LastPeak: the recorded peak is the last run's, not the largest: G's
 //     light run shrinks it, and G's next heavy run is killed within a peak
 //     it already reached (KilledPastOwnPeak).
+//   - CapAtPeak: a known command is capped at its recorded peak alone, so
+//     K's full run is killed at MDefault after its short run recorded 1
+//     (NotKilledBelowDefault); 28a172227 did this.
 //
 // Witnesses (laws of MemBudget, `sometimes`): a waiter waits on memory
 // with cores free; a run is killed past its own peak (Q); the slice kills
@@ -64,6 +73,7 @@ let MemDesign = 0
 let ByCoresMutant = 1
 let LastPeakMutant = 2
 let CapUnknownMutant = 3
+let CapAtPeakMutant = 4
 
 // Mems is a world of this model: per runner (Q, G, K) its step, its
 // finished runs, its ticket, the reservation it holds, its real use once
@@ -82,6 +92,7 @@ type Mems {
 	Passed      bool,
 	UnknownKill bool,
 	EarlyKill   bool,
+	LowKill     bool,
 	MemWaits    bool,
 	OwnKill     bool,
 	SliceKill   bool,
@@ -91,7 +102,7 @@ type Mems {
 func memWorld() Mems {
 	Mems{Pc: []int{0, 0, 0}, Done: []int{0, 0, 0}, Ticket: []int{-1, -1, -1}, NextTicket: 0,
 		Held: []int{0, 0, 0}, Use: []int{0, 0, 0}, Peak: []int{0, 0, 0}, MaxSeen: []int{0, 0, 0},
-		Passed: false, UnknownKill: false, EarlyKill: false, MemWaits: false, OwnKill: false, SliceKill: false, RaisedWait: false}
+		Passed: false, UnknownKill: false, EarlyKill: false, LowKill: false, MemWaits: false, OwnKill: false, SliceKill: false, RaisedWait: false}
 }
 
 func mrn(r MRn) int {
@@ -124,7 +135,7 @@ func peaks(r int) []int {
 	if r == 1 {
 		return []int{3, 1, 3}
 	}
-	return []int{1, 1}
+	return []int{1, 2}
 }
 
 // resOf is the reservation r is charged: its recorded peak, MDefault when
@@ -134,6 +145,15 @@ func resOf(c Mems, r int) int {
 		return MDefault
 	}
 	return c.Peak[r]
+}
+
+// capOf is the cap of a holder r with a recorded peak: its reservation or
+// MDefault, the larger; its reservation alone under CapAtPeak.
+func capOf(m int, c Mems, r int) int {
+	if m == CapAtPeakMutant || c.Held[r] > MDefault {
+		return c.Held[r]
+	}
+	return MDefault
 }
 
 func mCores(c Mems) int {
@@ -287,7 +307,10 @@ func memNext(m int, c0 Mems, a MemAct) Option[Mems] {
 		}
 		let real = peaks(r)[c.Done[r]]
 		let capped = c.Peak[r] > 0 || m == CapUnknownMutant
-		if capped && real > c.Held[r] {
+		if capped && real > capOf(m, c, r) {
+			if real <= MDefault {
+				c.LowKill = true
+			}
 			if c.Peak[r] == 0 {
 				c.UnknownKill = true
 			}
@@ -333,6 +356,7 @@ func memDesign(c Mems, a MemAct) Decision[Mems, string]  { memWith(MemDesign, c,
 func byCores(c Mems, a MemAct) Decision[Mems, string]    { memWith(ByCoresMutant, c, a) }
 func lastPeak(c Mems, a MemAct) Decision[Mems, string]   { memWith(LastPeakMutant, c, a) }
 func capUnknown(c Mems, a MemAct) Decision[Mems, string] { memWith(CapUnknownMutant, c, a) }
+func capAtPeak(c Mems, a MemAct) Decision[Mems, string]  { memWith(CapAtPeakMutant, c, a) }
 
 func withinMemory(c Mems) bool     { mMem(c) <= MM }
 func realWithinMemory(c Mems) bool { mReal(c) <= MM }
@@ -349,10 +373,12 @@ func memNextNotIdle(c Mems) bool {
 func memInOrder(c Mems) bool       { !c.Passed }
 func unknownNotCapped(c Mems) bool { !c.UnknownKill }
 func killedPastOwnPeak(c Mems) bool { !c.EarlyKill }
+func notKilledBelowDefault(c Mems) bool { !c.LowKill }
 
 func overMemory(c Mems) bool    { !withinMemory(c) }
 func unknownKilled(c Mems) bool { c.UnknownKill }
 func killedEarly(c Mems) bool   { c.EarlyKill }
+func killedLow(c Mems) bool     { c.LowKill }
 func memWaits(c Mems) bool      { c.MemWaits }
 func ownKill(c Mems) bool       { c.OwnKill }
 func sliceKill(c Mems) bool     { c.SliceKill }
@@ -369,6 +395,7 @@ type MemBudget machine[Mems, MemAct] {
 	law MemInOrder always memInOrder,
 	law UnknownNotCapped always unknownNotCapped,
 	law KilledPastOwnPeak always killedPastOwnPeak,
+	law NotKilledBelowDefault always notKilledBelowDefault,
 
 	law WaitsOnMemory sometimes memWaits,
 	law KilledPastItsPeak sometimes ownKill,
@@ -395,4 +422,11 @@ type LastPeak machine[Mems, MemAct] {
 	step:    lastPeak,
 
 	law Breaks sometimes killedEarly,
+}
+
+type CapAtPeak machine[Mems, MemAct] {
+	initial: memWorld(),
+	step:    capAtPeak,
+
+	law Breaks sometimes killedLow,
 }

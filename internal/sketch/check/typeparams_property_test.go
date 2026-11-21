@@ -248,7 +248,12 @@ func callerModel(names []string, want map[string]string, kept map[string]bool, g
 			}
 			hint = fmt.Sprintf("; [%s %s] constrains %s as it does %s: write [%s] to leave %s unconstrained", strings.Join(members, ", "), cons, n, members[len(members)-1], fix, n)
 		}
-		return fmt.Sprintf("S108 %s does not satisfy the constraint %s of f's %s: %s is not %s%s (types.md, Generics 2)", n, cons, n, n, cons, hint)
+		why := n + " is not " + cons
+		if cons == "ordered" || cons == "number" {
+			// The prelude's type sets (prelude.ergo): their first 8 terms.
+			why = n + " is not in " + cons + "'s type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, …"
+		}
+		return fmt.Sprintf("S108 %s does not satisfy the constraint %s of f's %s: %s%s (types.md, Generics 2)", n, cons, n, why, hint)
 	}
 	return ""
 }

@@ -539,11 +539,11 @@ func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
 	if it == nil {
 		ice(site, "the constraint %s of %s is not an interface", tp.Constraint, tp.Name)
 	}
-	switch it.Set {
-	case check.SetComparable:
+	if it.Set == check.SetComparable {
 		return "comparable"
-	case check.SetOrdered, check.SetNumber:
-		return l.typeSetDecl(it.Set)
+	}
+	if tn := typeSetOrigin(tp); tn != nil {
+		return l.typeSetConstraint(tn, site) // ir_typeset.go (CONSTRAINTS C1)
 	}
 	return "any"
 }
@@ -561,31 +561,9 @@ func sameGoConstraint(a, b *check.TypeParam) bool {
 	}
 	as, am := setOf(a)
 	bs, bm := setOf(b)
-	// wire takes its codec as a witness (wire.go).
-	return as == bs && !am && !bm && as != check.SetWire
-}
-
-// typeSetDecl is the Go name of the interface that lowers the predeclared
-// constraint s, ordered or number, emitted once. Its terms are the Go
-// types Ergo's set holds and the types defined over them (types.md,
-// Generics 2): duration is time.Duration, an int64 underneath. A Go type
-// set, never any, so Go admits the operators the checker admitted (<, +,
-// -, * and /) and stencils by GC shape as it does for cmp.Ordered.
-func (l *lowerer) typeSetDecl(s check.TypeSet) string {
-	if name, ok := l.sets[s]; ok {
-		return name
-	}
-	name := l.pkgName(pkgKey{"constraint", s}, "ergo"+strings.ToUpper(s.String()[:1])+s.String()[1:])
-	l.sets[s] = name
-	terms := "~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64"
-	what := "the integer and float types"
-	if s == check.SetOrdered {
-		terms += " | ~string"
-		what = "the integer, float, string and duration types"
-	}
-	l.gen.WriteString("// " + name + " is Ergo's " + s.String() + ": " + what + " and the types defined over them.\n")
-	l.gen.WriteString("type " + name + " interface {\n\t" + terms + "\n}\n\n")
-	return name
+	// wire takes its codec as a witness (wire.go). A type set is the same
+	// Go constraint only when it is the same declaration (ir_typeset.go).
+	return as == bs && !am && !bm && as != check.SetWire && typeSetOrigin(a) == typeSetOrigin(b)
 }
 
 // useType returns td after queueing a library declaration's emission: the
@@ -1197,7 +1175,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	fc.frame = newFrame(nil, fd.fallible, false)
 	if fd.extern == "" && f.Decl.Body != nil {
-		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
+		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl) && !copyIsPure(f, sp)
 	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
@@ -1210,6 +1188,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			// A copy for a known witness (witspec.go): no parameter; a
 			// use of the witness itself takes one built in the copy.
 			fc.static = map[*check.TypeParam]*check.Witness{tp: sp.wit}
+			continue
+		}
+		if sp != nil && sp.wits[tp] != nil {
+			// A copy for an instance whose witnesses are known (mono.go
+			// monoWitnesses): the same, for each of them.
+			if fc.static == nil {
+				fc.static = map[*check.TypeParam]*check.Witness{}
+			}
+			fc.static[tp] = sp.wits[tp]
 			continue
 		}
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
@@ -1366,6 +1353,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		if w := fc.witness[sp.wit.Param]; namesIdent(body, w) {
 			fc.depth = 1
 			body = "\t" + w + " := " + fc.witnessValue(sp.wit, site) + "\n" + body
+		}
+	}
+	if sp != nil && sp.wits != nil {
+		// In witness parameter order, so the text is deterministic.
+		for _, tp := range slices.Backward(witnessParams(f.Sig)) {
+			if w := fc.witness[tp]; namesIdent(body, w) {
+				fc.depth = 1
+				body = "\t" + w + " := " + fc.witnessValue(sp.wits[tp], site) + "\n" + body
+			}
 		}
 	}
 	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")

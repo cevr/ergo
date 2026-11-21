@@ -13,7 +13,10 @@
 //  3. a lend and a hand-off of one value in one call (R17);
 //  4. a resource no one owns: a call or literal whose value is dropped, or
 //     bound to _ (R42);
-//  5. a hand-off of a package let (R11, R15).
+//  5. a hand-off of a package let (R11, R15), or a with's resource
+//     provider that names one (R11);
+//  6. a hand-off of a for-in's element, lent from its container (R35),
+//     or of an element or a field of a local (R35, R36, R39).
 //
 // A hand-off is a let, an assignment, a return or a block's value, a part
 // of a tuple or composite literal that is handed off (R14), an argument for
@@ -31,8 +34,8 @@
 // moves the local into the binding (patternClauses). Where it cannot tell,
 // it says nothing: an untyped value is not tracked, an unknown callee lends
 // its arguments, and these forms are not walked yet: another pattern's
-// bindings (a lent subject's, a let pattern's, a for-in's elements, a
-// field pattern's), a field or element taken or moved out, a provider its
+// bindings (a lent subject's, a let pattern's, a queue's for-in elements,
+// a field pattern's), a field taken in place (b.r.Close()), a provider its
 // with's block reaches only through a callee's needs, a function literal
 // or block that may escape, and the lends a value keeps (R31). The Go
 // checker's release plan is the lowering's and is not built here.
@@ -74,8 +77,10 @@ type state { reached bool, slots []slot }
 
 // local is what a slot holds: a local or parameter (decl, its name's
 // package row) or a temporary (decl -1), its type when known, and the
-// node a release of it names (its name, or the temporary's expression).
-type local { decl int, name string, lent bool, depth int, param int, ty Option[dense.ID[store.TKey]], site dense.Opt[syntax.Node] }
+// node a release of it names (its name, or the temporary's expression);
+// from is the container a for-in's lent element is lent from ("" for
+// none).
+type local { decl int, name string, lent bool, depth int, param int, ty Option[dense.ID[store.TKey]], site dense.Opt[syntax.Node], from string }
 
 // hand names a hand-off: where it is (an offset) and what it does; lend is
 // the call an operand is lent to (0 for none), yieldRoot marks a root
@@ -565,7 +570,7 @@ func acquire(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l0 local)
 }
 
 // temp acquires a temporary: the value of x, of type ty when known.
-func temp(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], ty Option[dense.ID[store.TKey]]) int { acquire(w, ws, wk, wt, local{decl: -1, name: "", lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(x)}) }
+func temp(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], ty Option[dense.ID[store.TKey]]) int { acquire(w, ws, wk, wt, local{decl: -1, name: "", lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(x), from: ""}) }
 
 // release refuses each value from slot first on that a path still owns
 // (or may) and that holds a resource only through an own type parameter:
@@ -657,6 +662,10 @@ func move(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x den
 		refuse(w, ws, wk, wt, l.ty, x, "\(n) hands off \(l.name), which may run more than once", "\(n) cannot hand off \(l.name) (\(h.how)): \(l.name) belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", 0)
 		return
 	}
+	if l.lent && l.from != "" {
+		refuse(w, ws, wk, wt, l.ty, x, "\(l.name), lent from \(l.from), is handed off (\(h.how))", "\(l.name) is lent from \(l.from), so it cannot be handed off (\(h.how)) (resources R35, Gap 36); hand off \(l.from) whole", 0)
+		return
+	}
 	if l.lent {
 		let fname = if w.nested != "" { w.nested } else { w.name }
 		refuse(w, ws, wk, wt, l.ty, x, "\(l.name) is lent and handed off (\(h.how)); write own before its type to take it", "\(l.name) is lent to \(fname), so it cannot hand \(l.name) off (\(h.how)) (resources R10, R17); write own before its type in the signature: \(l.name) own T", l.param)
@@ -712,7 +721,7 @@ func frame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, body dense.
 	let scope = len(w.vars)
 	for i, p in ps {
 		if tracked(w, ws, wk, wt, p.t) {
-			acquire(w, ws, wk, wt, local{decl: p.decl, name: p.name, lent: lendAll || !p.taken, depth: 0, param: if w.depth == 1 { i + 1 } else { 0 }, ty: p.t, site: p.site})
+			acquire(w, ws, wk, wt, local{decl: p.decl, name: p.name, lent: lendAll || !p.taken, depth: 0, param: if w.depth == 1 { i + 1 } else { 0 }, ty: p.t, site: p.site, from: ""})
 		}
 	}
 	stmts(w, ws, wk, wt, syntax.BlockStmtOf(wk.Parsed[w.file].Tree, body).List, yield)
@@ -835,12 +844,13 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 		close(w, ws, wk, wt, first)
 	} else if kind == syntax.KForStmt {
 		let fs = syntax.ForStmtOf(wk.Parsed[w.file].Tree, s)
-		loop(w, ws, wk, wt, s, fs.Cond, false, fs.Body)
+		loop(w, ws, wk, wt, s, fs.Cond, false, fs.Body, []local{})
 	} else if kind == syntax.KRangeStmt {
-		// A for-in's elements are not walked yet: the container is lent.
+		// The container is lent, and an element of a slice, array or map
+		// local is lent from it to the body (R35; ownership.go rangeBinds).
 		let rs = syntax.RangeStmtOf(wk.Parsed[w.file].Tree, s)
 		region(w, ws, wk, wt, rs.X, mLend, noHand())
-		loop(w, ws, wk, wt, s, dense.NoID[syntax.Node](), true, rs.Body)
+		loop(w, ws, wk, wt, s, dense.NoID[syntax.Node](), true, rs.Body, rangeBinds(w, ws, wk, wt, rs))
 	} else if kind == syntax.KAssertStmt {
 		region(w, ws, wk, wt, syntax.AssertStmtOf(wk.Parsed[w.file].Tree, s).X, mLend, noHand())
 	}
@@ -878,7 +888,7 @@ func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, su
 					let si = if syntax.KindOf(tr, subj) == syntax.KIdent { slotOf(w, ws, wk, wt, subj) } else { -1 }
 					if tracked(w, ws, wk, wt, ty) && si >= 0 && !w.vars[si].lent && w.vars[si].depth == w.depth && w.st.reached {
 						move(w, ws, wk, wt, si, subj, handAt(at(w, ws, wk, wt, subj), "the match pattern moves it"))
-						acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: textAt(wk.Parsed[w.file], ap.Name), lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(ap.Name)})
+						acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: textAt(wk.Parsed[w.file], ap.Name), lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(ap.Name), from: ""})
 					}
 				case _:
 				}
@@ -914,7 +924,7 @@ func clauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.
 // more times, as a for with a condition does; a bare for ends only by
 // break. Each loop keeps its last fixpoint (entry, exit, diagnostics), so
 // an enclosing loop's later pass with the same entry reuses it.
-func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[syntax.Node], cond dense.Opt[syntax.Node], ranged bool, body dense.ID[syntax.Node]) {
+func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[syntax.Node], cond dense.Opt[syntax.Node], ranged bool, body dense.ID[syntax.Node], binds []local) {
 	let first = len(w.vars)
 	let key = dense.Index(n)
 	let mut entry = w.st
@@ -944,7 +954,11 @@ func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[s
 				exits = w.st
 			}
 		}
+		for b in binds {
+			let _ = acquire(w, ws, wk, wt, b)
+		}
 		block(w, ws, wk, wt, syntax.BlockStmtOf(wk.Parsed[w.file].Tree, body).List, false)
+		close(w, ws, wk, wt, first)
 		let top = len(w.loops) - 1
 		let lf = w.loops[top]
 		w.loops = w.loops[0:top]
@@ -966,6 +980,114 @@ func loop(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[s
 		}
 		entry = next
 		w.diags = w.diags[0:mark]
+	}
+}
+
+// rangeBinds is the for-in rs's bindings that hold a resource, each lent
+// from the container (ownership.go rangeBinds, R35), when the container is
+// a local of a slice, array or map type; a binding of any other container
+// (a queue's Values(), whose elements the body owns) is not walked yet.
+func rangeBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, rs syntax.RangeStmt) []local {
+	let p = wk.Parsed[w.file]
+	let mut out = []local{}
+	let x = un(w, ws, wk, wt, rs.X)
+	if syntax.KindOf(p.Tree, x) != syntax.KIdent || !containerAt(w, ws, wk, wt, x) {
+		return out
+	}
+	let mut ids = []dense.ID[syntax.Node]{}
+	match dense.Unpack(rs.Key) {
+	case Some[dense.ID[syntax.Node]] as k:
+		ids = ids.Append(k.Value)
+	case None:
+	}
+	ids = ids.Append(rs.Value)
+	for id in ids {
+		if syntax.KindOf(p.Tree, id) != syntax.KIdent || textAt(p, id) == "_" {
+			continue
+		}
+		let d = bind.PNodeOf(wk.Ps, w.file, id)
+		let ty = defType(w, ws, wk, wt, d)
+		if tracked(w, ws, wk, wt, ty) {
+			out = out.Append(local{decl: dense.Index(d), name: textAt(p, id), lent: true, depth: 0, param: 0, ty: ty, site: dense.OptOf(id), from: textAt(p, x)})
+		}
+	}
+	out
+}
+
+// containerAt is whether x's type is a slice, array or map.
+func containerAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
+	match typeOf(w, ws, wk, wt, x) {
+	case Some{Value: t}:
+		let kind = store.KindOfType(ws, t)
+		kind == store.KSlice || kind == store.KArray || kind == store.KMap
+	case None:
+		false
+	}
+}
+
+// fieldPlace is whether the selector x is a field of a record local, the
+// record a type of the package that is no union and no operation type.
+func fieldPlace(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
+	let t = wk.Parsed[w.file].Tree
+	if syntax.KindOf(t, x) != syntax.KSelectorExpr {
+		return false
+	}
+	let root = un(w, ws, wk, wt, syntax.SelectorExprOf(t, x).X)
+	if syntax.KindOf(t, root) != syntax.KIdent || slotOf(w, ws, wk, wt, root) < 0 {
+		return false
+	}
+	match typeOf(w, ws, wk, wt, root) {
+	case Some{Value: rt}:
+		let kind = store.KindOfType(ws, rt)
+		let name = if kind == store.KNamed {
+			store.TypeNameText(ws, store.ArgOf(ws, rt))
+		} else if kind == store.KInstance && int(store.OriginOfType(ws, rt).Import) == 0 {
+			store.DeclText(ws, int(store.OriginOfType(ws, rt).Decl))
+		} else {
+			""
+		}
+		match w.infos.Get(name) {
+		case Some[typeInfo] as ti:
+			!ti.Value.op && len(ti.Value.variants) == 0
+		case None:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+// placeMove refuses a hand-off of a place that holds a resource
+// (ownership.go placeMove): an element of a slice, array or map local
+// (R35, R36) or a field of a record local (R39). A generic-only one names
+// the own mark (refuse).
+func placeMove(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) {
+	let p = wk.Parsed[w.file]
+	let ty = typeOf(w, ws, wk, wt, x)
+	if !w.st.reached || !tracked(w, ws, wk, wt, ty) {
+		return
+	}
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIndexExpr {
+		let root = un(w, ws, wk, wt, syntax.IndexExprOf(p.Tree, x).X)
+		if syntax.KindOf(p.Tree, root) != syntax.KIdent || !containerAt(w, ws, wk, wt, root) {
+			return
+		}
+		let r = textAt(p, root)
+		refuse(w, ws, wk, wt, ty, x, "an element \(r)[…] is handed off", "\(r)[…] cannot be handed off: it is an element of \(r), lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off \(r) whole, or lend the element", 0)
+	} else if fieldPlace(w, ws, wk, wt, x) {
+		let se = syntax.SelectorExprOf(p.Tree, x)
+		let r = textAt(p, un(w, ws, wk, wt, se.X))
+		let f = textAt(p, se.Sel)
+		let tn = match typeOf(w, ws, wk, wt, un(w, ws, wk, wt, se.X)) {
+		case Some{Value: rt}:
+			text(w, ws, wk, wt, rt)
+		case None:
+			""
+		}
+		let base = if strings.Contains(tn, "[") { tn[0:strings.Index(tn, "[")] } else { tn }
+		let hint = if base != "" { "lend the field, or bind it where the record is matched: case \(base){\(f): name}" } else { "or lend the field" }
+		refuse(w, ws, wk, wt, ty, x, "a field \(r).\(f) is handed off", "\(r).\(f) cannot be handed off: it is a field of \(r); a field cannot be moved out of its record (resources R39); move \(r) whole, \(hint)", 0)
 	}
 }
 
@@ -1012,7 +1134,7 @@ func letSpec(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, spec dens
 		let d = bind.PNodeOf(wk.Ps, w.file, id)
 		let ty = defType(w, ws, wk, wt, d)
 		if tracked(w, ws, wk, wt, ty) {
-			acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: name, lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(id)})
+			acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: name, lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(id), from: ""})
 		}
 	}
 }
@@ -1116,11 +1238,17 @@ func eval(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 		eval(w, ws, wk, wt, kv.Key, mLend, noHand())
 		eval(w, ws, wk, wt, kv.Value, mLend, noHand())
 	} else if kind == syntax.KSelectorExpr {
+		if mode == mMove {
+			placeMove(w, ws, wk, wt, x)
+		}
 		let mut r = h
 		r.root = true
 		lendRoot(w, ws, wk, wt, syntax.SelectorExprOf(wk.Parsed[w.file].Tree, x).X, x, mode, r)
 	} else if kind == syntax.KIndexExpr {
 		let ix = syntax.IndexExprOf(wk.Parsed[w.file].Tree, x)
+		if mode == mMove {
+			placeMove(w, ws, wk, wt, x)
+		}
 		lendRoot(w, ws, wk, wt, ix.X, x, mode, h)
 		lendList(w, ws, wk, wt, ix.Indices)
 	} else if kind == syntax.KSliceExpr {
@@ -1565,7 +1693,14 @@ func knownCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	w.active = w.active.Append(id)
 	let off = if ct.Recv { 1 } else { 0 }
 	if ct.Recv {
-		operand(w, ws, wk, wt, syntax.SelectorExprOf(wk.Parsed[w.file].Tree, un(w, ws, wk, wt, c.Fun)).X, f, 0, name, id)
+		let r = syntax.SelectorExprOf(wk.Parsed[w.file].Tree, un(w, ws, wk, wt, c.Fun)).X
+		if len(f.Takes) > 0 && f.Takes[0] && fieldPlace(w, ws, wk, wt, un(w, ws, wk, wt, r)) {
+			// A taken field receiver is taken in place (ownership.go
+			// fieldTake, R39), which is not walked yet: it is lent.
+			eval(w, ws, wk, wt, r, mLend, noHand())
+		} else {
+			operand(w, ws, wk, wt, r, f, 0, name, id)
+		}
 	}
 	for i in 0..syntax.Len(c.Args) {
 		let a = syntax.Item(wk.Parsed[w.file].Tree, c.Args, i)
@@ -1684,9 +1819,15 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 						continue
 					}
 					// A package let has no owner: the with does not own
-					// it (R11).
-					let unowned = syntax.KindOf(p.Tree, un(w, ws, wk, wt, v.Value)) == syntax.KIdent && slotOf(w, ws, wk, wt, un(w, ws, wk, wt, v.Value)) < 0
-					if trackedAt(w, ws, wk, wt, v.Value) && !unowned {
+					// it, and a resource provider that names one is
+					// refused at the provider (R11; withown.go).
+					let root = pkgLetRoot(w, ws, wk, wt, v.Value)
+					let resource = trackedAt(w, ws, wk, wt, v.Value)
+					if resource && root != "" {
+						reportAt(w, ws, wk, wt, v.Value, "this resource provider names the package let \(root), which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", 0)
+					}
+					let unowned = root != "" || syntax.KindOf(p.Tree, un(w, ws, wk, wt, v.Value)) == syntax.KIdent && slotOf(w, ws, wk, wt, un(w, ws, wk, wt, v.Value)) < 0
+					if resource && !unowned {
 						eval(w, ws, wk, wt, v.Value, mMove, handAt(at(w, ws, wk, wt, v.Value), "the with owns it"))
 					} else {
 						eval(w, ws, wk, wt, v.Value, mLend, noHand())
@@ -1698,6 +1839,35 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 		}
 	case _:
 	}
+}
+
+// pkgLetRoot is the name of the package let that the expression x reads
+// through its tries, selectors and indexes (`shared`, `shared.conn`,
+// `shared[0]`), or "" when x reads none (withown.go packageRoot). A let
+// counts when it holds a resource (letsHolding), the only provider R11
+// refuses.
+func pkgLetRoot(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) string {
+	let t = wk.Parsed[w.file].Tree
+	let mut y = un(w, ws, wk, wt, x)
+	for {
+		let kind = syntax.KindOf(t, y)
+		if kind == syntax.KTryExpr {
+			y = un(w, ws, wk, wt, syntax.TryExprOf(t, y).X)
+		} else if kind == syntax.KSelectorExpr {
+			y = un(w, ws, wk, wt, syntax.SelectorExprOf(t, y).X)
+		} else if kind == syntax.KIndexExpr {
+			y = un(w, ws, wk, wt, syntax.IndexExprOf(t, y).X)
+		} else if kind == syntax.KIdent {
+			let d = declOf(w, ws, wk, wt, y)
+			if d >= 0 && slotOf(w, ws, wk, wt, y) < 0 && slices.Contains(w.pkgLets, d) {
+				return textAt(wk.Parsed[w.file], y)
+			}
+			return ""
+		} else {
+			return ""
+		}
+	}
+	""
 }
 
 // namesCap is whether the node x of p names the capability key as a

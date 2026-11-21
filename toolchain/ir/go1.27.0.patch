@@ -1,9 +1,9 @@
 diff --git a/src/cmd/compile/internal/ergoir/ergoir.go b/src/cmd/compile/internal/ergoir/ergoir.go
 new file mode 100644
-index 0000000..76b1438
+index 0000000..004f057
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir.go
-@@ -0,0 +1,293 @@
+@@ -0,0 +1,297 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -141,6 +141,10 @@ index 0000000..76b1438
 +	// tparams are the type parameters of the function being decoded, its
 +	// receiver's then its own (F1): a type spelling names them first.
 +	tparams []*types2.TypeParam
++	// rangeFunc reports a range over a func in the body being decoded,
++	// outside its function literals: rangefunc.Rewrite names a literal's
++	// results then (ergoir_closure.go).
++	rangeFunc bool
 +	// tdef is the call a "tdef" binds, whose several results call
 +	// admits (ergoir_tuple.go).
 +	tdef *ergoExpr
@@ -561,10 +565,10 @@ index 0000000..2ef77a2
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_closure.go b/src/cmd/compile/internal/ergoir/ergoir_closure.go
 new file mode 100644
-index 0000000..594e63c
+index 0000000..5148dcd
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_closure.go
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,244 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -581,6 +585,8 @@ index 0000000..594e63c
 +package ergoir
 +
 +import (
++	"fmt"
++	"go/token"
 +	"strings"
 +
 +	"cmd/compile/internal/syntax"
@@ -616,23 +622,40 @@ index 0000000..594e63c
 +	default:
 +		results = []string{rest}
 +	}
-+	tuple := func(list []string) (*types2.Tuple, bool) {
++	tuple := func(list []string, named bool) (*types2.Tuple, bool) {
 +		var vars []*types2.Var
 +		for _, e := range list {
++			name := ""
++			if named {
++				name, e = ergoResultName(e)
++			}
 +			et := c.typ(p, e)
 +			if et == nil {
 +				return nil, false
 +			}
-+			vars = append(vars, types2.NewParam(c.pos(p), c.pkg, "", et))
++			vars = append(vars, types2.NewParam(c.pos(p), c.pkg, name, et))
 +		}
 +		return types2.NewTuple(vars...), true
 +	}
-+	pt, ok1 := tuple(params)
-+	rt, ok2 := tuple(results)
++	pt, ok1 := tuple(params, false)
++	rt, ok2 := tuple(results, true)
 +	if !ok1 || !ok2 {
 +		return nil, true
 +	}
 +	return types2.NewSignatureType(nil, nil, nil, pt, rt, false), true
++}
++
++// ergoResultName splits a result's spelling "name T" (a frame literal's
++// "(_ R, err error)", whose deferred End sets err: the "result" form a
++// function has) into its name and type; a spelling with no name is all
++// type.
++func ergoResultName(s string) (name, t string) {
++	s = strings.TrimSpace(s)
++	first, rest, ok := strings.Cut(s, " ")
++	if !ok || !token.IsIdentifier(first) && first != "_" {
++		return "", s
++	}
++	return first, strings.TrimSpace(rest)
 +}
 +
 +// ergoSplitList splits "(A, B) rest" at the commas outside any bracket:
@@ -731,14 +754,12 @@ index 0000000..594e63c
 +		c.info.Defs[name] = pv
 +		ft.ParamList = append(ft.ParamList, field(name, pv.Type()))
 +	}
-+	for i := 0; i < sig0.Results().Len(); i++ {
-+		ft.ResultList = append(ft.ResultList, field(nil, sig0.Results().At(i).Type()))
-+	}
 +	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig0.Results(), false)
 +	// The body is a function of its own: its returns are the literal's,
 +	// and no loop or label of the enclosing body is in its scope.
-+	sigS, loopsS, loopLabelsS, labelsS, gotosS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos
-+	c.sig, c.loops, c.loopLabels, c.labels, c.gotos = sig, nil, nil, nil, nil
++	sigS, loopsS, loopLabelsS, labelsS, gotosS, rangeFuncS := c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc
++	c.sig, c.loops, c.loopLabels, c.labels, c.gotos, c.rangeFunc = sig, nil, nil, nil, nil, false
++	defer func() { c.rangeFunc = rangeFuncS }()
 +	before := c.nerr
 +	body := &syntax.BlockStmt{List: c.stmts(x.Body), Rbrace: c.pos(x.End)}
 +	body.SetPos(pos)
@@ -753,6 +774,40 @@ index 0000000..594e63c
 +	if failed {
 +		return nil, nil
 +	}
++	// The literal's results, named in one place for both uses:
++	//   - a result its type names (a frame literal's "(_ R, err error)",
++	//     G6) is declared, so "result" I names it in the body (resultExpr)
++	//     as in a function's;
++	//   - a return in a range over a func becomes, in rangefunc.Rewrite,
++	//     an assignment to the literal's results, which it names through
++	//     the signature's scope (types2.Signature.RenameResult) when they
++	//     have no name or the name _. A decoded signature has no scope, so
++	//     such a result is named here as RenameResult would: #rv1, #rv2, …
++	//     (REGEX-ICE).
++	// Other literals keep their results as their type spells them.
++	var results []*types2.Var
++	renamed := false
++	for i := 0; i < sig0.Results().Len(); i++ {
++		r := sig0.Results().At(i)
++		fresh := c.rangeFunc && (r.Name() == "" || r.Name() == "_")
++		if fresh {
++			r = types2.NewParam(pos, c.pkg, fmt.Sprintf("#rv%d", i+1), r.Type())
++			renamed = true
++		}
++		var name *syntax.Name
++		if r.Name() != "" {
++			name = syntax.NewName(pos, r.Name())
++			if fresh {
++				ergoValue(name, r.Type(), nil) // as RenameResult types its name
++			}
++			c.info.Defs[name] = r
++		}
++		results = append(results, r)
++		ft.ResultList = append(ft.ResultList, field(name, r.Type()))
++	}
++	if renamed {
++		sig = types2.NewSignatureType(nil, nil, nil, sig.Params(), types2.NewTuple(results...), false)
++	}
 +	lit := &syntax.FuncLit{Type: ft, Body: body}
 +	lit.SetPos(pos)
 +	ergoValue(lit, sig, nil)
@@ -760,10 +815,10 @@ index 0000000..594e63c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..9d743ae
+index 0000000..f242ca5
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,526 @@
+@@ -0,0 +1,590 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -777,6 +832,7 @@ index 0000000..9d743ae
 +	"go/token"
 +	"strconv"
 +	"strings"
++	"sync"
 +
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
@@ -1021,7 +1077,7 @@ index 0000000..9d743ae
 +		}
 +		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{e0}}
 +		call.SetPos(pos)
-+		ergoValue(call, t, nil)
++		ergoValue(call, t, ergoConstConv(e0.GetTypeInfo().Value, et, t))
 +		return call, t
 +	case "global":
 +		v, ok := c.pkg.Scope().Lookup(x.Name).(*types2.Var)
@@ -1266,7 +1322,7 @@ index 0000000..9d743ae
 +		}
 +		return types2.Typ[types2.Bool]
 +	case syntax.Lss, syntax.Leq, syntax.Gtr, syntax.Geq:
-+		if !ergoIsNumeric(lt) && !ergoIsString(lt) {
++		if !ergoOrdered(lt) {
 +			return bad()
 +		}
 +		return types2.Typ[types2.Bool]
@@ -1279,6 +1335,31 @@ index 0000000..9d743ae
 +	return bad()
 +}
 +
++// ergoOrdered reports whether Go's < applies to t: a basic number or
++// string, or a type parameter whose type set holds only those (an Ergo
++// ordered parameter, GP-ORDER). types2 judges the type parameter: it
++// satisfies cmp.Ordered's type set, so a constraint with no type terms
++// is not ordered.
++func ergoOrdered(t types2.Type) bool {
++	if _, ok := t.(*types2.TypeParam); !ok {
++		return ergoIsNumeric(t) || ergoIsString(t)
++	}
++	return types2.Satisfies(t, ergoOrderedSet())
++}
++
++// ergoOrderedSet is cmp.Ordered: ~int | … | ~float64 | ~string.
++var ergoOrderedSet = sync.OnceValue(func() *types2.Interface {
++	var terms []*types2.Term
++	for _, k := range []types2.BasicKind{types2.Int, types2.Int8, types2.Int16, types2.Int32, types2.Int64, types2.Uint, types2.Uint8, types2.Uint16, types2.Uint32, types2.Uint64, types2.Uintptr, types2.Float32, types2.Float64, types2.String} {
++		terms = append(terms, types2.NewTerm(true, types2.Typ[k]))
++	}
++	it := types2.NewInterfaceType(nil, []types2.Type{types2.NewUnion(terms)})
++	// Its type set is computed here, once (types2 has no Complete): computed
++	// lazily, two decoder goroutines would both write the one shared value.
++	it.IsMethodSet()
++	return it
++})
++
 +// ergoFuncConv reports a conversion between a function type and a type
 +// defined over it (Seq[T] of a function literal): identical signatures,
 +// which Go converts as identical underlying types (GP-DEFINED).
@@ -1289,6 +1370,44 @@ index 0000000..9d743ae
 +	}
 +	fs, ok := types2.CoreType(from).(*types2.Signature)
 +	return ok && types2.Identical(ts, fs)
++}
++
++// ergoConstConv is T(v) of a constant v of type from, a constant of type
++// to, as Go's checker folds a constant conversion: the conversion's tree
++// is then the literal the text's T(v) compiles to, not a conversion of
++// one. nil (no fold) when v is not a constant, or the kinds differ in a
++// way the fold would round: an integer to any integer type that holds
++// it, a float to a float of its size, a string or a bool to its kind.
++//
++// A constant the target cannot hold is never folded. Ergo's checker
++// refuses it in source, where gc refuses int8(300): "the constant N
++// overflows T", and for a float that is not whole, "the constant X
++// truncates to an integer" (check/operators.go, conversion; rows in
++// check's TestLiteralRules). A named target takes such a constant only
++// through its base, so the base's conversion is the one refused. A read
++// of a package let is a value, not a constant (TestConstLetsStayValues),
++// so int8(Big + 100) wraps at run time as Ergo means; left unfolded here,
++// it does the same.
++func ergoConstConv(v constant.Value, from, to types2.Type) constant.Value {
++	switch {
++	case v == nil:
++		return nil
++	case ergoIsInteger(from) && ergoIsInteger(to) && v.Kind() == constant.Int:
++		return ergoConstant(to, v.ExactString())
++	case ergoIsFloat(from) && ergoIsFloat(to):
++		if ergoFloat32(from) == ergoFloat32(to) {
++			return v
++		}
++	case ergoIsString(from) && ergoIsString(to) && v.Kind() == constant.String,
++		ergoIsBool(from) && ergoIsBool(to) && v.Kind() == constant.Bool:
++		return v
++	}
++	return nil
++}
++
++func ergoFloat32(t types2.Type) bool {
++	b, _ := types2.CoreType(t).(*types2.Basic)
++	return b != nil && b.Kind() == types2.Float32
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_f7.go b/src/cmd/compile/internal/ergoir/ergoir_f7.go
 new file mode 100644
@@ -2201,10 +2320,10 @@ index 0000000..c4434f6
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_slice.go b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 new file mode 100644
-index 0000000..f90510c
+index 0000000..e699f98
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_slice.go
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,66 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2215,8 +2334,9 @@ index 0000000..f90510c
 +// named type over one): X is the operand, Args the indices, two or three,
 +// a missing low or high index null. Go's own slice expression, so gc
 +// lowers it to OSLICE or OSLICESTR and checks its bounds at the
-+// expression's position. An array is no operand: Go slices an
-+// addressable array only.
++// expression's position. An array place (ergoPlace) is an operand too,
++// and the result is a slice of its element (OSLICEARR); Go slices an
++// addressable array only, so an array value that is no place is refused.
 +
 +package ergoir
 +
@@ -2236,8 +2356,15 @@ index 0000000..f90510c
 +		c.errorf(x.Pos, "ergoir: slice with %d indices", n)
 +		return nil, nil
 +	}
-+	switch types2.CoreType(xt).(type) {
++	rt := xt
++	switch ct := types2.CoreType(xt).(type) {
 +	case *types2.Slice:
++	case *types2.Array:
++		if !ergoPlace(xs) {
++			c.errorf(x.Pos, "ergoir: slice of an array that is no place")
++			return nil, nil
++		}
++		rt = types2.NewSlice(ct.Elem())
 +	default:
 +		if !ergoIsString(xt) || n == 3 {
 +			c.errorf(x.Pos, "ergoir: slice of %v", xt)
@@ -2260,15 +2387,15 @@ index 0000000..f90510c
 +		e.Index[i] = v
 +	}
 +	e.SetPos(c.pos(x.Pos))
-+	ergoValue(e, xt, nil)
-+	return e, xt
++	ergoValue(e, rt, nil)
++	return e, rt
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_stmt.go b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
 new file mode 100644
-index 0000000..8c93145
+index 0000000..344964c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
-@@ -0,0 +1,366 @@
+@@ -0,0 +1,369 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2574,6 +2701,9 @@ index 0000000..8c93145
 +				return nil
 +			}
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
++		}
++		if _, isFunc := types2.CoreType(t).(*types2.Signature); isFunc {
++			c.rangeFunc = true // ergoir_closure.go
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
 +		if elem == nil {
