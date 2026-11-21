@@ -67,6 +67,8 @@ func (in *irInliner) failJumps(body []*irStmt) []*irStmt {
 		for i := 0; i < len(l); i++ {
 			if out, ok := in.failJump(body, l, i); ok {
 				l = out
+			} else if out, ok := in.failThrough(l, i); ok {
+				l = out
 			}
 		}
 		return l
@@ -200,6 +202,110 @@ func (in *irInliner) failJump(body, l []*irStmt, i int) ([]*irStmt, bool) {
 	}
 	out = append(out, &irStmt{K: "block", Pos: chk.Pos, End: chk.Pos, Label: skip})
 	out = append(out, l[i+1:]...)
+	return out, true
+}
+
+// failThrough rewrites l around a check that passes the copy's failure on
+// (a `try`'s), when every failure of the copy is built in place:
+//
+//	B                          the copy, a block; then its end label, if any
+//	if e != nil { P }          P: `fail e`, or `set f e; goto L` (the
+//	                           try of an enclosing copy)
+//
+// becomes B with each `set e <toiface T{…}>` (and the jump past B after
+// it) replaced by P with the variant for e: the failure passes on built
+// in place, so an enclosing site's check can take it to its arm
+// (failJump), as a hand-written `return 0, T{…}` reaches its caller's
+// switch. e is named nowhere else. INLINE-FAILARG; off with it.
+func (in *irInliner) failThrough(l []*irStmt, i int) ([]*irStmt, bool) {
+	if irFailArgLowering == "off" {
+		return nil, false
+	}
+	chk := l[i]
+	x := chk.X
+	if chk.K != "if" || len(chk.Else) != 0 || x == nil || x.K != "bin" || x.Op != "!=" || x.X == nil || x.X.K != "local" || x.Y == nil || x.Y.K != "nil" {
+		return nil, false
+	}
+	e := x.X.I
+	reads := func(v *irExpr) bool { return v != nil && v.K == "local" && v.I == e }
+	pass := chk.Then
+	if !(len(pass) == 1 && pass[0].K == "fail" && reads(pass[0].X) ||
+		len(pass) == 2 && pass[0].K == "set" && pass[0].Local != e && reads(pass[0].X) && pass[1].K == "goto") {
+		return nil, false
+	}
+	j := i - 1
+	endLabel := ""
+	if j >= 0 && l[j].K == "block" && l[j].Label != "" && len(l[j].Body) == 0 {
+		endLabel = l[j].Label
+		j--
+	}
+	if j < 0 || l[j].K != "block" || l[j].Label != "" {
+		return nil, false
+	}
+	b := l[j]
+	sites := map[*irStmt]bool{}
+	ok := true
+	var scan func([]*irStmt, bool)
+	scan = func(sl []*irStmt, top bool) {
+		for k, s := range sl {
+			if !ok {
+				return
+			}
+			if s.K == "set" && s.Local == e {
+				v := s.X
+				next := endLabel != "" && k+1 < len(sl) && sl[k+1].K == "goto" && sl[k+1].Label == endLabel
+				if v == nil || v.K != "toiface" || v.X == nil || (v.X.K != "lit" && v.X.K != "zero") || !next && !(top && k == len(sl)-1) {
+					ok = false
+					return
+				}
+				sites[s] = true
+				continue
+			}
+			if irNamesStmt(s, e) || s.K == "func" || s.X != nil && s.X.K == "func" {
+				ok = false
+				return
+			}
+			scan(s.Then, false)
+			scan(s.Else, false)
+			scan(s.Body, false)
+			for _, c := range s.Cases {
+				scan(c.Body, false)
+			}
+		}
+	}
+	scan(b.Body, true)
+	if !ok || len(sites) == 0 || irNames(l[i+1:], e, true) || irNamesInLiteral(b.Body, e) {
+		return nil, false
+	}
+	var rewrite func([]*irStmt) []*irStmt
+	rewrite = func(sl []*irStmt) []*irStmt {
+		var out []*irStmt
+		for k := 0; k < len(sl); k++ {
+			s := sl[k]
+			if sites[s] {
+				p := *pass[0]
+				p.X = s.X
+				out = append(out, &p)
+				if len(pass) == 2 {
+					g := *pass[1]
+					out = append(out, &g)
+				}
+				if endLabel != "" && k+1 < len(sl) && sl[k+1].K == "goto" && sl[k+1].Label == endLabel {
+					k++ // the jump past the copy
+				}
+				continue
+			}
+			s.Then, s.Else, s.Body = rewrite(s.Then), rewrite(s.Else), rewrite(s.Body)
+			for _, c := range s.Cases {
+				c.Body = rewrite(c.Body)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	b.Body = rewrite(b.Body)
+	in.st.report.FailThrough += len(sites)
+	out := append(append([]*irStmt(nil), l[:i]...), l[i+1:]...)
 	return out, true
 }
 

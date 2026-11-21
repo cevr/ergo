@@ -150,6 +150,7 @@ const stdSlicesOutput = "npm/c:9 github/a:5 npm/a:5 npm/b:5 github/d:1\n" +
 const stdSlicesLawsProbe = `import slices
 import maps
 import cmp
+import math
 
 type tagged { Key int, At int }
 
@@ -418,6 +419,68 @@ test CmpLessIsCompareBelowZero(a string, b string) {
 	assert !cmp.Less(a, a)
 }
 
+func isOrder[T any, O cmp.Order[T]](o O, a T, b T, c T) bool {
+	let reflexive = o.Compare(a, a) == 0
+	let antisymmetric = (o.Compare(a, b) < 0) == (o.Compare(b, a) > 0) && (o.Compare(a, b) == 0) == (o.Compare(b, a) == 0)
+	let transitive = !(o.Compare(a, b) <= 0 && o.Compare(b, c) <= 0) || o.Compare(a, c) <= 0
+	reflexive && antisymmetric && transitive
+}
+
+test CmpNaturalIntIsAnOrder(a int, b int, c int) { assert isOrder(cmp.Natural[int], a, b, c) }
+
+test CmpNaturalStringIsAnOrder(a string, b string, c string) { assert isOrder(cmp.Natural[string], a, b, c) }
+
+test CmpNaturalFloatIsAnOrder(a float64, b float64, c float64) {
+	assert isOrder(cmp.Natural[float64], a, b, c)
+	let nan = math.Sqrt(-1.0)
+	assert isOrder(cmp.Natural[float64], nan, a, b) && isOrder(cmp.Natural[float64], a, nan, nan)
+}
+
+test CmpOrderReflexive(a int, s string, f float64) {
+	assert cmp.Natural[int].Compare(a, a) == 0 && cmp.Natural[string].Compare(s, s) == 0 && cmp.Natural[float64].Compare(f, f) == 0
+	assert cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}.Compare(a, a) == 0
+}
+
+test CmpOrderAntisymmetric(a int, b int, s string, t string) {
+	assert isOrder(cmp.Natural[int], a, b, a) && isOrder(cmp.Natural[string], s, t, s)
+	assert isOrder(cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}, a, b, a)
+}
+
+test CmpOrderTransitive(a int, b int, c int) {
+	assert isOrder(cmp.Natural[int], a, b, c) && isOrder(cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}, a, b, c)
+}
+
+test CmpReverseOfNaturalIsAnOrder(a int, b int, c int) { assert isOrder(cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}, a, b, c) }
+
+test CmpReverseTwiceIsTheOrder(a int, b int) {
+	assert cmp.Reverse[int, cmp.Reverse[int, cmp.Natural[int]]]{Of: cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}}.Compare(a, b) == cmp.Compare(a, b)
+	assert cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}.Compare(a, b) == cmp.Compare(b, a)
+}
+
+test CmpThenIsAssociative(a int, b int, c int) { assert cmp.Then(cmp.Then(a, b), c) == cmp.Then(a, cmp.Then(b, c)) }
+
+test CmpThenOfZeroIsNext(b int) { assert cmp.Then(0, b) == b }
+
+test CmpThenWithZeroIsFirst(a int) {
+	assert cmp.Then(a, 0) == a
+	assert a == 0 || cmp.Then(a, a + 1) == a
+}
+
+test SlicesSortByIsSorted(xs []int) {
+	assert slices.IsSortedBy(slices.SortBy(xs, cmp.Natural[int]), cmp.Natural[int])
+	assert isSorted(slices.SortBy(xs, cmp.Natural[int]))
+}
+
+test SlicesSortByIsAPermutation(xs []int) {
+	let sorted = slices.SortBy(xs, cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]})
+	assert len(sorted) == len(xs)
+	for x in xs {
+		assert count(sorted, x) == count(xs, x)
+	}
+}
+
+test SlicesSortByOfNaturalIsSort(xs []int) { assert slices.Equal(slices.SortBy(xs, cmp.Natural[int]), slices.Sort(xs)) }
+
 test SlicesCloneCopies(xs []int) {
 	let c = slices.Clone(xs)
 	let mut d = slices.Clone(xs)
@@ -548,6 +611,20 @@ var stdSlicesLawStatements = map[string]string{
 	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
 	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
 	"cmp MaxMinSplit":                  `MaxMinSplit(a int, b int) { Max(a, b) == Max(b, a) && Min(a, b) == Min(b, a) && Max(a, b)+Min(a, b) == a+b && Min(a, b) <= Max(a, b) }`,
+	"cmp NaturalFloatIsAnOrder":        `NaturalFloatIsAnOrder(a float64, b float64, c float64) { isOrder(Natural[float64], a, b, c) }`,
+	"cmp NaturalIntIsAnOrder":          `NaturalIntIsAnOrder(a int, b int, c int) { isOrder(Natural[int], a, b, c) }`,
+	"cmp NaturalStringIsAnOrder":       `NaturalStringIsAnOrder(a string, b string, c string) { isOrder(Natural[string], a, b, c) }`,
+	"cmp Order.Antisymmetric":          `Antisymmetric(a T, b T) { (Compare(a, b) < 0) == (Compare(b, a) > 0) && (Compare(a, b) == 0) == (Compare(b, a) == 0) }`,
+	"cmp Order.Reflexive":              `Reflexive(a T) { Compare(a, a) == 0 }`,
+	"cmp Order.Transitive":             `Transitive(a T, b T, c T) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
+	"cmp ReverseOfNaturalIsAnOrder":    `ReverseOfNaturalIsAnOrder(a int, b int, c int) { isOrder(Reverse[int, Natural[int]]{Of: Natural[int]}, a, b, c) }`,
+	"cmp ReverseTwiceIsTheOrder":       `ReverseTwiceIsTheOrder(a int, b int) { Reverse[int, Reverse[int, Natural[int]]]{Of: Reverse[int, Natural[int]]{Of: Natural[int]}}.Compare(a, b) == Compare(a, b) }`,
+	"cmp ThenIsAssociative":            `ThenIsAssociative(a int, b int, c int) { Then(Then(a, b), c) == Then(a, Then(b, c)) }`,
+	"cmp ThenOfZeroIsNext":             `ThenOfZeroIsNext(b int) { Then(0, b) == b }`,
+	"cmp ThenWithZeroIsFirst":          `ThenWithZeroIsFirst(a int) { Then(a, 0) == a }`,
+	"slices SortByIsAPermutation":      `SortByIsAPermutation(xs []int) { let sorted = SortBy(xs, cmp.Reverse[int, cmp.Natural[int]]{Of: cmp.Natural[int]}) let mut same = len(sorted) == len(xs) for x in xs { same = same && count(sorted, x) == count(xs, x) } same }`,
+	"slices SortByIsSorted":            `SortByIsSorted(xs []int) { IsSortedBy(SortBy(xs, cmp.Natural[int]), cmp.Natural[int]) }`,
+	"slices SortByOfNaturalIsSort":     `SortByOfNaturalIsSort(xs []int) { Equal(SortBy(xs, cmp.Natural[int]), Sort(xs)) }`,
 	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
 	"maps KeysStops":                   `KeysStops(m Map[string, int]) { let s = Keys(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(key string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"maps ValuesStops":                 `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,

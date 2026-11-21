@@ -107,7 +107,7 @@ func setLaws() map[string]lawledger.Law {
 				}
 			}
 		}},
-		"tasks RestartRunsAgain": {Statement: `RestartRunsAgain(n int) { let limit = limitOf(n) - 1 let runs = sync.NewRef[int](0) let set = NewSet(Restart{Limit: limit}) Go(set, func() { let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) }) if r <= limit { Unreachable("a defect the Set restarts") } }) catch { case Closed: } set.Wait() runs.Get() == limit + 1 }`, Check: func(t *testing.T) {
+		"tasks RestartRunsAgain": {Statement: `RestartRunsAgain(n int) { let limit = limitOf(n) - 1 let runs = sync.NewRef[int](0) let set = NewSet(Restart{Limit: limit}) Go(set, func() { let r = sync.Modify(runs, func(v int) (int, int) { (v + 1, v + 1) }) if r <= limit { Unreachable("a defect the Set restarts") } }) catch { case Closed: } set.Wait() runs.Get() == limit+1 }`, Check: func(t *testing.T) {
 			r := rand.New(rand.NewPCG(1, 44))
 			for range 200 {
 				limit := setLawsLimit(r.Int()) - 1

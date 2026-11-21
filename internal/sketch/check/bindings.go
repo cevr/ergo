@@ -55,7 +55,11 @@ func (c *checker) mapInstance(x *syntax.MapType) *syntax.IndexExpr {
 		return ix
 	}
 	name := made(c, &syntax.Ident{NamePos: x.Map, Name: "Map"}, syntax.Node(x))
-	ix := made(c, &syntax.IndexExpr{X: name, Lbrack: x.Lbrack, Indices: []syntax.Expr{x.Key, x.Value}, Rbrack: x.Rbrack}, syntax.Node(x))
+	indices := []syntax.Expr{x.Key, x.Value}
+	if x.Hashing != nil {
+		indices = append(indices, x.Hashing)
+	}
+	ix := made(c, &syntax.IndexExpr{X: name, Lbrack: x.Lbrack, Indices: indices, Rbrack: x.Rbrack}, syntax.Node(x))
 	if c.mapInstances == nil {
 		c.mapInstances = map[*syntax.MapType]*syntax.IndexExpr{}
 	}

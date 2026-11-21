@@ -116,7 +116,15 @@ func WarmKey(parts ...string) string {
 			return ""
 		}
 	}
-	if strings.HasPrefix(compiler, "process:") {
+	return warmKeyOf(compiler, parts, os.Environ(), goExperiments())
+}
+
+// warmKeyOf is WarmKey of its reads: the compiler's identity, the parts,
+// the environment and the Go experiments (which choose a module's Go files,
+// buildsFor, and may come from the go env file, which no variable holds).
+// compiler/cachekey's WarmKey is its port (TestWarmKeyAgreesWithErgo).
+func warmKeyOf(compiler string, parts, environ, experiments []string) string {
+	if compiler == "" || strings.HasPrefix(compiler, "process:") {
 		return ""
 	}
 	h := sha256.New()
@@ -128,7 +136,9 @@ func WarmKey(parts ...string) string {
 		write(p)
 	}
 	var env []string
-	for _, kv := range os.Environ() {
+	for _, kv := range environ {
+		// An answer variable, or one warmEnv does not classify; never a
+		// location (compiler/cachekey's WarmLocations is the same list).
 		name := warmEnvName(kv)
 		if answer, known := warmEnv[name]; name != "" && (answer || !known) {
 			env = append(env, kv)
@@ -139,9 +149,7 @@ func WarmKey(parts ...string) string {
 	for _, kv := range env {
 		write(kv)
 	}
-	// The experiments choose a module's Go files (buildsFor) and may come
-	// from the go env file, which no variable above holds.
-	write("experiments " + strings.Join(goExperiments(), ","))
+	write("experiments " + strings.Join(experiments, ","))
 	return hex.EncodeToString(h.Sum(nil))
 }
 

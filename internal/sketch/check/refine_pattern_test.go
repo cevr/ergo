@@ -53,7 +53,13 @@ func TestRefinementPatternConstants(t *testing.T) {
 		if zero {
 			body = "let z T\n\tz"
 		}
-		src := fmt.Sprintf("type T string where matches(it, `%s`) && %d <= len(it) && len(it) <= %d\n\nfunc f() T {\n\t%s\n}\n", pat, lo, hi, body)
+		// A lower bound of 0 is no bound, and written it is S108 (a length
+		// is never negative; VET-CHECK rank 2).
+		lower := ""
+		if lo > 0 {
+			lower = fmt.Sprintf(" && %d <= len(it)", lo)
+		}
+		src := fmt.Sprintf("type T string where matches(it, `%s`)%s && len(it) <= %d\n\nfunc f() T {\n\t%s\n}\n", pat, lower, hi, body)
 		fail := func(format string, args ...any) {
 			t.Helper()
 			t.Fatalf("seed %d (replay: ERGO_SEED=%d go test -run TestRefinementPatternConstants ./internal/sketch/check): %s\n%s", seed, seed, fmt.Sprintf(format, args...), src)

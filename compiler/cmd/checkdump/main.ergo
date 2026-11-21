@@ -14,13 +14,14 @@
 // Each package's lines follow its "@pkg I" line: one JSON object per
 // diagnostic, {"file","line","col","code","message"}, in the Go checker's
 // order (diag.Before). The diagnostics are the passes compiler/check/diag
-// has: the unused locals and imports (S110), the ownership flow and the own
-// marks. A code the Ergo checker does not report yet is the agreement's
-// ratchet.
+// has (the unused locals and imports, S110; the ownership flow; the own
+// marks), and the row pass, compiler/check/rows (S101, S102). A code the
+// Ergo checker does not report yet is the agreement's ratchet.
 
 import compiler/check/bind
 import compiler/check/diag
 import compiler/check/load
+import compiler/check/rows
 import compiler/check/types
 import compiler/syntax
 import fs
@@ -156,6 +157,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			ds = ds.Append(g)
 		}
 		for g in diag.OwnMarks(d.S, d.K, d.T) {
+			ds = ds.Append(g)
+		}
+		for g in rows.Rows(d.S, d.K, d.T) {
 			ds = ds.Append(g)
 		}
 		let mut lines = []syntax.Lines{}
