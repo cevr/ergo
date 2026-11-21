@@ -32,13 +32,41 @@ type EventReader {
 	line    string,
 	afterCR bool,
 	started bool,
-	event   string,
-	data    string,
-	hasData bool,
-	id      string,
+	view    EventView,
 	retry   Option[int],
 	open    string,
 	fields  bool,
+}
+
+// EventView is the event FeedEach lends to its each, read in place: its
+// type, its id and its data lines are spans of the parts fed (a line cut
+// between two parts is joined once), and the reader keeps its list of
+// lines from event to event. A view is a borrow (*EventView), so the
+// checker refuses a caller that keeps it past each's return (types.md,
+// Borrows 1); the strings its functions give are values and may be kept.
+type EventView { event string, id string, lines []string, n int }
+
+// Event is e's type: "message" when the stream names none.
+func Event(e mut EventView) string { if e.event == "" { "message" } else { e.event } }
+
+// ID is the last event id the stream set, as ServerEvent's ID.
+func ID(e mut EventView) string { e.id }
+
+// DataLines is how many data lines e has: one or more.
+func DataLines(e mut EventView) int { e.n }
+
+// DataLine is e's data line i, from 0 to DataLines(e) - 1, without its
+// line end. A data line that is not there is a defect.
+func DataLine(e mut EventView, i int) string { e.lines[0:e.n][i] }
+
+// Data is e's data lines joined by line feeds, as ServerEvent's Data: the
+// line itself, with no copy, when there is one.
+func Data(e mut EventView) string {
+	let mut d = e.lines[0]
+	for k in 1..e.n {
+		d = d + "\n" + e.lines[k]
+	}
+	d
 }
 
 // bom is the byte order mark a stream may begin with, which the reader
@@ -47,7 +75,7 @@ let bom = "\xEF\xBB\xBF"
 
 // NewEventReader is a reader at the start of a stream.
 func NewEventReader() EventReader {
-	EventReader{line: "", afterCR: false, started: false, event: "", data: "", hasData: false, id: "", retry: None, open: "", fields: false}
+	EventReader{line: "", afterCR: false, started: false, view: EventView{event: "", id: "", lines: []string{}, n: 0}, retry: None, open: "", fields: false}
 }
 
 // Retry is the reconnection time in milliseconds of the last retry field
@@ -57,78 +85,136 @@ func Retry(r EventReader) Option[int] { r.retry }
 // Feed reads the next part of the stream: the reader after it, and the
 // events whose blank line it held, in order. A line end cut between two
 // parts (CR at the end of one, LF at the start of the next) is one line
-// end.
+// end. It is FeedEach with each event copied out once, as it ends.
+func Feed(r EventReader, part string) (EventReader, []ServerEvent) {
+	let mut at = r
+	let mut out = []ServerEvent{}
+	let mut s = partScan{text: part, i: 0, from: 0, carried: "", lines: 0, lent: false}
+	if !scanBegins(&at, &s) {
+		return (at, out)
+	}
+	for _ in 0..len(s.text)+1 {
+		if !scanNext(&at, &s) {
+			break
+		}
+		out = out.Append(ServerEvent{Event: Event(&at.view), Data: Data(&at.view), ID: ID(&at.view)})
+	}
+	scanEnds(&at, &s)
+	(at, out)
+}
+
+// FeedEach reads the next part of the stream into r and lends each event
+// whose blank line it holds to each, in order, as it ends: Feed's events,
+// with no value made for one. each borrows the view only for its call.
 //
 // The open event's text (End's Truncated) is kept as the span of the part
 // since the last blank line, and joined to the reader's once per part, so
 // a line costs no copy of the text before it.
-func Feed(r EventReader, part string) (EventReader, []ServerEvent) {
-	let mut at = r
-	let mut text = part
-	if !at.started {
-		let head = at.line + part
+func FeedEach(r mut EventReader, part string, each func(e mut EventView)) {
+	let mut s = partScan{text: part, i: 0, from: 0, carried: "", lines: 0, lent: false}
+	if !scanBegins(r, &s) {
+		return
+	}
+	for _ in 0..len(s.text)+1 {
+		if !scanNext(r, &s) {
+			break
+		}
+		each(&r.view)
+	}
+	scanEnds(r, &s)
+}
+
+// partScan is a part read so far, which Feed and FeedEach pull events
+// from: text is the part (its byte order mark gone), i the next line's
+// start, from where the part's open text begins, carried the line the
+// last part left unended (the first line here completes it), lines how
+// many lines ended, and lent whether the reader's view was just given out.
+type partScan { text string, i int, from int, carried string, lines int, lent bool }
+
+// scanBegins starts reading s.text into r: false when there is nothing to
+// read (a part of the byte order mark, or an empty part).
+func scanBegins(r mut EventReader, s mut partScan) bool {
+	if !r.started {
+		let head = r.line + s.text
 		if len(head) < len(bom) && strings.HasPrefix(bom, head) {
-			return (EventReader{..at, line: head}, []ServerEvent{})
+			r.line = head
+			return false
 		}
-		at = EventReader{..at, started: true, line: ""}
-		text = strings.TrimPrefix(head, bom)
+		r.started = true
+		r.line = ""
+		s.text = strings.TrimPrefix(head, bom)
 	}
-	let mut out = []ServerEvent{}
-	if len(text) == 0 {
-		return (at, out)
+	if len(s.text) == 0 {
+		return false
 	}
-	let mut i = 0
-	if at.afterCR && text[0] == '\n' {
-		i = 1
+	if r.afterCR && s.text[0] == '\n' {
+		s.i = 1
 	}
-	at.afterCR = false
-	// from is where this part's open text begins; carried is the line the
-	// last part left unended, which the first line here completes.
-	let mut from = i
-	let mut carried = at.line
-	let mut lines = 0
+	r.afterCR = false
+	s.from = s.i
+	s.carried = r.line
+	true
+}
+
+// scanNext reads whole lines of s.text into r until a blank line ends an
+// event, and reports it: r.view is then that event, until the next call.
+// false when the part has no more whole lines.
+func scanNext(r mut EventReader, s mut partScan) bool {
+	if s.lent {
+		r.view.event = ""
+		r.view.n = 0
+		s.lent = false
+	}
+	let text = s.text
 	for _ in 0..len(text)+1 {
-		if i >= len(text) {
-			break
+		if s.i >= len(text) {
+			return false
 		}
-		let j = lineEnd(text, i)
+		let j = lineEnd(text, s.i)
 		if j < 0 {
-			break
+			return false
 		}
-		let ln = if at.line == "" { strings.Slice(text, i, j) } else { at.line + strings.Slice(text, i, j) }
-		lines = lines + 1
-		at.line = ""
-		let event = lineOf(&at, ln)
+		let ln = if r.line == "" { strings.Slice(text, s.i, j) } else { r.line + strings.Slice(text, s.i, j) }
+		s.lines = s.lines + 1
+		r.line = ""
+		let ended = lineOf(r, ln)
 		let mut after = j + 1
 		if text[j] == '\r' {
 			if j+1 == len(text) {
-				at.afterCR = true
+				r.afterCR = true
 			} else if text[j+1] == '\n' {
 				after = j + 2
 			}
 		}
 		if ln == "" {
 			// A blank line ends the open text: it starts again after it.
-			at.open = ""
-			carried = ""
-			from = after
+			r.open = ""
+			s.carried = ""
+			s.from = after
 		}
-		match event {
-		case Some[ServerEvent] as e:
-			out = out.Append(e.Value)
-		case None:
+		s.i = after
+		if ended {
+			s.lent = true
+			return true
 		}
-		i = after
 	}
-	let rest = strings.Slice(text, i, len(text))
-	let ended = strings.Slice(text, from, i)
-	if lines == 0 {
+	false
+}
+
+// scanEnds keeps what s.text left open in r: the open event's text and
+// the line not yet ended. It runs after scanNext reported false, which
+// has already taken back a view it lent.
+func scanEnds(r mut EventReader, s mut partScan) {
+	let rest = strings.Slice(s.text, s.i, len(s.text))
+	let ended = strings.Slice(s.text, s.from, s.i)
+	let mut carried = s.carried
+	if s.lines == 0 {
 		carried = ""
 	}
 	if carried != "" || ended != "" {
-		at.open = at.open + carried + lineFeeds(ended)
+		r.open = r.open + carried + lineFeeds(ended)
 	}
-	(EventReader{..at, line: at.line + rest}, out)
+	r.line = r.line + rest
 }
 
 // lineFeeds is s with each line end (CR LF, CR or LF) written as LF.
@@ -171,23 +257,19 @@ func lineEnd(s string, from int) int {
 	-1
 }
 
-// lineOf reads one whole line into r, and is the event a blank line
-// ends.
-func lineOf(r mut EventReader, ln string) Option[ServerEvent] {
+// lineOf reads one whole line into r, and reports a blank line that
+// ends an event with data: r.view is then that event.
+func lineOf(r mut EventReader, ln string) bool {
 	if ln == "" {
-		let had = r.hasData
-		let event = ServerEvent{Event: if r.event == "" { "message" } else { r.event }, Data: r.data, ID: r.id}
-		r.event = ""
-		r.data = ""
-		r.hasData = false
 		r.fields = false
-		if !had {
-			return None
+		if r.view.n == 0 {
+			r.view.event = ""
+			return false
 		}
-		return Some[ServerEvent]{Value: event}
+		return true
 	}
 	if ln[0] == ':' {
-		return None
+		return false
 	}
 	r.fields = true
 	let colon = strings.IndexByte(ln, ':')
@@ -196,27 +278,30 @@ func lineOf(r mut EventReader, ln string) Option[ServerEvent] {
 	let value = strings.TrimPrefix(rest, " ")
 	match field {
 	case "event":
-		r.event = value
+		r.view.event = value
 	case "data":
-		// One data line is the event's data as it is; another joins it
-		// after a line feed.
-		r.data = if r.hasData { r.data + "\n" + value } else { value }
-		r.hasData = true
+		// The reader keeps its list of lines from event to event.
+		if r.view.n < len(r.view.lines) {
+			r.view.lines[r.view.n] = value
+		} else {
+			r.view.lines = r.view.lines.Append(value)
+		}
+		r.view.n = r.view.n + 1
 	case "id":
 		if strings.IndexByte(value, 0) < 0 {
-			r.id = value
+			r.view.id = value
 		}
 	case "retry":
 		if digits(value) {
 			let ms = strconv.Atoi(value) catch {
 			case strconv.Malformed, strconv.OutOfRange:
-				return None
+				return false
 			}
 			r.retry = Some[int]{Value: ms}
 		}
 	case _:
 	}
-	None
+	false
 }
 
 // digits reports whether s is one or more ASCII digits.
@@ -395,20 +480,58 @@ law CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) {
 // in drawn cuts, the reader gives the model's events, its end and its
 // retry.
 law FeedMatchesModel(seed int) {
-	let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"}
 	with context { Random: rand.Seeded(uint64(seed)) } {
-		let mut text = if Random.IntN(4) == 0 { bom } else { "" }
-		for _ in 0..Random.IntN(120) {
-			text = text + pieces[Random.IntN(len(pieces))]
-		}
-		let mut sizes = []int{}
-		for _ in 0..1+Random.IntN(8) {
-			sizes = sizes.Append(Random.IntN(10))
-		}
+		let text, sizes = drawnText()
 		let r, got = feedIn(text, sizes)
 		let want, end, retry = modelRead(text)
 		got == want && r.End() == end && Retry(r) == retry
 	}
+}
+
+// FeedEachMatchesModel: over FeedMatchesModel's text, fed in drawn cuts
+// of 1 to 10 bytes,
+// the views FeedEach lends, read through Event, ID, DataLines and
+// DataLine inside each, are the model's events, and the reader ends as
+// the model does.
+law FeedEachMatchesModel(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let text, sizes = drawnText()
+		let mut r = NewEventReader()
+		let mut got = []ServerEvent{}
+		let mut from = 0
+		for k in 0..len(text)+1 {
+			if from >= len(text) {
+				break
+			}
+			let s = 1 + sizes[k%len(sizes)]
+			let to = if from+s > len(text) { len(text) } else { from + s }
+			FeedEach(&r, strings.Slice(text, from, to), func(e mut EventView) {
+				let mut data = []string{}
+				for i in 0..DataLines(e) {
+					data = data.Append(DataLine(e, i))
+				}
+				got = got.Append(ServerEvent{Event: Event(e), Data: strings.Join(data, "\n"), ID: ID(e)})
+			})
+			from = to
+		}
+		let want, end, retry = modelRead(text)
+		got == want && r.End() == end && Retry(r) == retry
+	}
+}
+
+// drawnText is FeedMatchesModel's text, up to 120 pieces, and the part
+// lengths to feed it in, 0 to 9 each.
+func drawnText() (string, []int) needs Random {
+	let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"}
+	let mut text = if Random.IntN(4) == 0 { bom } else { "" }
+	for _ in 0..Random.IntN(120) {
+		text = text + pieces[Random.IntN(len(pieces))]
+	}
+	let mut sizes = []int{}
+	for _ in 0..1+Random.IntN(8) {
+		sizes = sizes.Append(Random.IntN(10))
+	}
+	(text, sizes)
 }
 
 // modelRead is the events of a whole body by the WHATWG rules, written
