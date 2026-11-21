@@ -16,7 +16,6 @@ package obs
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"runtime/pprof"
 	"runtime/trace"
@@ -180,7 +179,7 @@ func (s *Sink) panicked(e rt.Event) {
 		ctx = t.ctx
 	}
 	s.mu.Unlock()
-	s.tr.Log(ctx, "ergo.defect", fmt.Sprint(e.Defect))
+	s.tr.Log(ctx, "ergo.defect", rt.Text(e.Defect))
 	if s.defect != nil {
 		s.defect()
 	}

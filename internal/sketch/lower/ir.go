@@ -757,6 +757,11 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	// lawOwn is the local of the provider under test that a law of a
+	// generic operation type takes after its environment (the emitter's
+	// lawDecl `own`), which its operation calls call; 0 in any other body
+	// (a law's environment is its local 0, so own is never 0).
+	lawOwn int
 	// keep is the depth of AsWritten call trees, kept as written
 	// (ir_rewrite.go). lawArgs are a law's parameters bound to the site's
 	// operands while a side is lowered; lawDepth counts the sides being
