@@ -436,6 +436,11 @@ type Info struct {
 	// every type parameter bound by x's type, and its instance is
 	// Instances[x]. Added in CV1 (additive).
 	MethodValues map[*syntax.SelectorExpr]*Func
+	// etaMethodValues is each literal that is the exact eta closure of a
+	// method value with the same meaning (etamethodvalue.go), for lint
+	// (EtaMethodValue). It is not exported: only a program's own files
+	// are fixed, never an imported package's.
+	etaMethodValues map[*syntax.FuncLit]*syntax.SelectorExpr
 	// Handoffs is each use of an owned local or taken parameter that
 	// hands it off (a move or a take), with the owned local it hands off:
 	// the ident's own, or the root of the borrow a Close is called through

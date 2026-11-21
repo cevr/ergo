@@ -102,8 +102,6 @@ type Codec_escWalk = escWalk
 
 type Codec_explicitArgs = explicitArgs
 
-type Codec_fedBinding = fedBinding
-
 type Codec_fileInfo = fileInfo
 
 type Codec_footprinter = footprinter
@@ -344,8 +342,6 @@ type Codec_typeWalker = typeWalker
 
 type Codec_unassignedLocal = unassignedLocal
 
-type Codec_unfedBinding = unfedBinding
-
 type Codec_universeState = universeState
 
 type Codec_useAt = useAt
@@ -460,6 +456,14 @@ type CodecFields_GoBindings struct {
 
 func CodecFieldsOf_GoBindings(v *GoBindings) CodecFields_GoBindings {
 	return CodecFields_GoBindings{F_pkgs: &v.pkgs}
+}
+
+type CodecFields_Info struct {
+	F_etaMethodValues *map[*syntax.FuncLit]*syntax.SelectorExpr
+}
+
+func CodecFieldsOf_Info(v *Info) CodecFields_Info {
+	return CodecFields_Info{F_etaMethodValues: &v.etaMethodValues}
 }
 
 type CodecFields_Interface struct {
@@ -1250,15 +1254,6 @@ type CodecFields_explicitArgs struct {
 
 func CodecFieldsOf_explicitArgs(v *explicitArgs) CodecFields_explicitArgs {
 	return CodecFields_explicitArgs{F_targs: &v.targs}
-}
-
-type CodecFields_fedBinding struct {
-	F_law      **Law
-	F_provider *Type
-}
-
-func CodecFieldsOf_fedBinding(v *fedBinding) CodecFields_fedBinding {
-	return CodecFields_fedBinding{F_law: &v.law, F_provider: &v.provider}
 }
 
 type CodecFields_fileInfo struct {
@@ -2584,16 +2579,6 @@ type CodecFields_unassignedLocal struct {
 
 func CodecFieldsOf_unassignedLocal(v *unassignedLocal) CodecFields_unassignedLocal {
 	return CodecFields_unassignedLocal{F_v: &v.v, F_file: &v.file}
-}
-
-type CodecFields_unfedBinding struct {
-	F_law      **Law
-	F_provider **Named
-	F_diag     **Diagnostic
-}
-
-func CodecFieldsOf_unfedBinding(v *unfedBinding) CodecFields_unfedBinding {
-	return CodecFields_unfedBinding{F_law: &v.law, F_provider: &v.provider, F_diag: &v.diag}
 }
 
 type CodecFields_universeState struct {
