@@ -113,6 +113,9 @@ type View =
 		Escaping int,
 		Entry    int,
 		Func     int,
+		// TypeParams are an operation's own type parameters,
+		// `Fold[A](…)`, the row's one item (GENERIC-OP); none elsewhere.
+		TypeParams dense.Opt[Node],
 		Params   dense.ID[Node],
 		Results  dense.Opt[Node],
 		Needs    dense.Opt[Node],
@@ -501,6 +504,10 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		}
 		mkIndex(t, m, KMapType, wid(x.X), x.Lbrack, x.Rbrack)
 	case FuncType as x:
+		let tp = wopt(x.TypeParams)
+		if tp != uint32(0) {
+			pushW(t, tp-uint32(1))
+		}
 		mkFuncType(t, m, wtok(x.Escaping), wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wopt(x.Takes))
 	case StructType as x:
 		row(t, KStructType, uint32(0), wid(x.Fields), uint32(0))

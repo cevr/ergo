@@ -1251,6 +1251,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 				return bad(x)
 			}
 		}
+		if len(sig.TParams) > 0 {
+			// A generic operation (types.md, Interface assignability,
+			// Generic operations): its call infers or is given the
+			// operation's own type arguments, as a generic function's.
+			return operand{mode: modeGeneric, typ: sig, method: m}
+		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
 	if n, ok := t.(*Named); ok && !isPointer(base.typ) {

@@ -67,6 +67,9 @@ func posOf(t Tree, k tokens, x uint32) int {
 		if fn != uint32(0) {
 			return optPos(k, fn)
 		}
+		if items(t, x, 7) == 1 {
+			return posOf(t, k, item(t, x, 0)) // an operation's `[A]` (GENERIC-OP)
+		}
 		return posOf(t, k, fixed(t, x, 7, 3))
 	}
 	if kd == KField {

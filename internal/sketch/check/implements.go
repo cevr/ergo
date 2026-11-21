@@ -166,6 +166,7 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 			seen[m.Name] = true
 			it.Methods = append(it.Methods, m)
 		}
+		it.Generic = it.Generic || inc.Generic
 	}
 }
 

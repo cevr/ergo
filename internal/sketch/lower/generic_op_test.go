@@ -58,7 +58,7 @@ var genericOpRefusals = []struct {
 	name, decls, want string
 }{
 	{"value let", `func use(m Maybe[int]) { let s Foldable[int] = m }`,
-		"Foldable has a generic operation, so it is a constraint and has no values; write [M Foldable[T]]"},
+		"Foldable has a generic operation, so it is a constraint and has no values; write [M Foldable[int]]"},
 	{"value param", `func use(s Foldable[int]) {}`,
 		"Foldable has a generic operation, so it is a constraint and has no values"},
 	{"extra count", `type Box[T] { V T } implements Foldable[T]
@@ -68,7 +68,7 @@ func Fold[T, A, B](b Box[T], z A, f func(acc A, x T) A) A { z }`,
 	{"extra constraint", `type Box[T] { V T } implements Foldable[T]
 
 func Fold[T, A comparable](b Box[T], z A, f func(acc A, x T) A) A { z }`,
-		"Box cannot satisfy Foldable"},
+		"Box.Fold's type parameter A is comparable, and Foldable.Fold's A is unconstrained"},
 }
 
 // TestGenericOperations: a function over a constraint-only operation type

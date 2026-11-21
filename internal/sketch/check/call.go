@@ -407,7 +407,7 @@ func (c *checker) explicit(x *syntax.IndexExpr, fun operand) operand {
 		// instantiateValue (P3).
 		mode = modeExtern
 	}
-	return operand{mode: mode, typ: sig, fn: fun.fn, self: fun.self, obj: &explicitArgs{targs: targs}}
+	return operand{mode: mode, typ: sig, fn: fun.fn, self: fun.self, method: fun.method, obj: &explicitArgs{targs: targs}}
 }
 
 // cannotInfer reports a type parameter the inferred subset does not reach
@@ -812,6 +812,10 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		}
 		c.callInfo(x).TypeArgs = targs
 		c.recordInstance(x, fun.fn, targs)
+	} else if fun.method != nil {
+		// A generic operation's own type arguments: a copy calls the
+		// providing function with them after its receiver's (GENERIC-OP).
+		c.callInfo(x).TypeArgs = targs
 	}
 	inst := c.subst(sig, in.m).(*Signature)
 	inst.TParams = nil

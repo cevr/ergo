@@ -142,6 +142,11 @@ type Interface struct {
 	// Generics 2), nil when the operation type has none. An operation
 	// type with one is a constraint only.
 	Terms []*Term
+	// Generic is true when an operation takes type parameters of its own
+	// (Method.Sig.TParams; types.md, Interface assignability, Generic
+	// operations). Such an operation type is a constraint only, too: no
+	// Go interface holds a generic method, so it lowers by copies only.
+	Generic bool
 	// byName holds the methods sorted by name, once, when the type is
 	// resolved (go/types NewInterfaceType): identity reads it and never
 	// sorts (round 11 M3).
