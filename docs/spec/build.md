@@ -403,7 +403,13 @@ would keep it current; `--list` names its writer.
   a package folder) is itself in the key. A generator is a hit, and does
   not run, when the key holds and every output hashes as kept. A failed
   run is never kept. Each hit prints its class: `vouched: declared
-  reads`, since the key is only as complete as the `reads` lines.
+  reads`, since the key is only as complete as the `reads` lines. The
+  last run is kept per tree (by its root), the results by content alone,
+  so checkouts that share the cache share results but never read each
+  other's last runs. Each miss prints its reason: no last run, the first
+  line of the environment that changed, the first input file whose digest
+  or folder whose names moved since the last run, or the output that no
+  longer hashes as kept; a miss never goes without one.
 - **`--check`** writes nothing in the tree: at the first miss the tree is
   copied (blocks shared where the file system can) and the generators
   that miss run in the copy; the run fails naming each file the copy's

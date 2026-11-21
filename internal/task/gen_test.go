@@ -481,6 +481,122 @@ func TestGenStopsARestlessCycle(t *testing.T) {
 	}
 }
 
+// TestGenMissSaysWhy: every miss names its reason, the first input whose
+// digest moved since the last run (a file, a listed folder's names, the
+// environment), so an unexplained miss cannot pass unseen (MONOREPO WT1b,
+// the c10 miss). It catches task-why-unnamed (testdata/mutants.json).
+func TestGenMissSaysWhy(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, text string) {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("in/a.txt", "a")
+	write("in/b.txt", "b")
+	env := "go1"
+	node := Node{
+		Name: "n", Class: Vouched, Ident: "n",
+		Env: func(context.Context) (string, error) { return env, nil },
+		Inputs: func(context.Context, string) (Inputs, error) {
+			return Inputs{Files: []string{"in/a.txt", "in/b.txt"}, Dirs: []string{"in"}}, nil
+		},
+		Run: func(_ context.Context, root string) ([]byte, error) {
+			a, _ := os.ReadFile(filepath.Join(root, "in/a.txt"))
+			b, _ := os.ReadFile(filepath.Join(root, "in/b.txt"))
+			return nil, os.WriteFile(filepath.Join(root, "out.txt"), append(a, b...), 0o644)
+		},
+	}
+	r := &Runner{Root: root, Store: lawcache.Memory(StoreIdentity)}
+	gen := func() string {
+		t.Helper()
+		var log strings.Builder
+		r.Out = &log
+		if _, err := r.Gen(context.Background(), []Node{node}, Mode{}); err != nil {
+			t.Fatal(err)
+		}
+		return log.String()
+	}
+	for _, step := range []struct {
+		edit func()
+		want string
+	}{
+		{func() {}, "ran (no stored last run)"},
+		{func() { write("in/b.txt", "b2") }, "ran (input in/b.txt changed)"},
+		{func() { write("in/c.txt", "c") }, "ran (the names in folder in changed)"},
+		{func() { env = "go2" }, `ran (the environment changed: "go1" -> "go2")`},
+		{func() { write("out.txt", "hand") }, "ran (output out.txt no longer hashes as stored)"},
+		{func() {}, "hit"},
+	} {
+		step.edit()
+		if log := gen(); !strings.Contains(log, step.want) {
+			t.Fatalf("want %q in:\n%s", step.want, log)
+		}
+	}
+}
+
+// TestGenTreesShareAStore: two checkouts with one store (the host's one
+// cache root), each generated, their inputs different. A gen in the
+// other tree leaves this tree's next run all hits, since a last run is
+// this tree's alone. It catches
+// task-last-unrooted (testdata/mutants.json).
+func TestGenTreesShareAStore(t *testing.T) {
+	store := lawcache.Memory(StoreIdentity)
+	node := Node{
+		Name: "n", Class: Vouched, Ident: "n",
+		Env:    func(context.Context) (string, error) { return "env", nil },
+		// What it reads is the tree's to say (as a Go build's closure is
+		// its go list's), so two trees' manifests differ.
+		Inputs: func(_ context.Context, root string) (Inputs, error) {
+			data, err := os.ReadFile(filepath.Join(root, "deps.txt"))
+			if err != nil {
+				return Inputs{}, err
+			}
+			return Inputs{Files: append([]string{"deps.txt"}, strings.Fields(string(data))...)}, nil
+		},
+		Run: func(_ context.Context, root string) ([]byte, error) {
+			data, err := os.ReadFile(filepath.Join(root, "deps.txt"))
+			if err != nil {
+				return nil, err
+			}
+			return nil, os.WriteFile(filepath.Join(root, "out.txt"), append(data, '!'), 0o644)
+		},
+	}
+	tree := func(deps string) string {
+		root := t.TempDir()
+		for _, f := range []string{"deps.txt", "in.txt", "extra.txt"} {
+			text := f
+			if f == "deps.txt" {
+				text = deps
+			}
+			if err := os.WriteFile(filepath.Join(root, f), []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return root
+	}
+	gen := func(root string) Report {
+		t.Helper()
+		var log strings.Builder
+		rep, err := (&Runner{Root: root, Store: store, Out: &log}).Gen(context.Background(), []Node{node}, Mode{})
+		if err != nil {
+			t.Fatalf("%v\n%s", err, log.String())
+		}
+		return rep
+	}
+	a, b := tree("in.txt"), tree("in.txt extra.txt")
+	gen(a)
+	gen(b)
+	if rep := gen(a); rep.Ran["n"] != 0 {
+		t.Fatalf("a gen in another tree made this one miss: %+v", rep)
+	}
+}
+
 func maps2Equal(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
