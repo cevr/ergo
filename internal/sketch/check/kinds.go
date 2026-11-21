@@ -126,6 +126,31 @@ func (c *checker) solveDeclKinds() {
 			}
 		}
 	}
+	// An inline variant's parameters are its union's, by name
+	// (variantParams), so each has its union parameter's kind: `Run{Go
+	// func() int fails F}` makes the union's F an error row, and the F of
+	// a sibling `Failed{Error F}` with it (ROW-PARAM AC1, AC2).
+	for _, tn := range decls {
+		it, ok := tn.Decl.Spec.(*syntax.InterfaceType)
+		if !ok {
+			continue
+		}
+		names := params(tn)
+		for _, x := range it.Union {
+			vs, ok := x.(*syntax.VariantSpec)
+			if !ok || c.variants[vs] == nil {
+				continue
+			}
+			vtn := c.variants[vs]
+			for j, vn := range params(vtn) {
+				for i, un := range names {
+					if un == vn {
+						union(kindVar{vtn, j}, kindVar{tn, i})
+					}
+				}
+			}
+		}
+	}
 	for _, tn := range decls {
 		saved := c.cur
 		// Defensive: this walk only observes and unifies parameter kinds.

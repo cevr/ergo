@@ -457,7 +457,7 @@ func extraSem(v int) Access {
 
 func extraShapes(v int) []Shape[int] {
 	let l = extraLabel(v)
-	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), Shape[int]{Node: SemanticNode{Access: extraSem(v), On: None, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in sem", Style: Plain()})}}}
+	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid, Hints: PlainHints, Lines: 1, Caret: len("val"), Anchor: len("val")}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), Shape[int]{Node: SemanticNode{Access: extraSem(v), On: None, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in sem", Style: Plain()})}}}
 	[]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 

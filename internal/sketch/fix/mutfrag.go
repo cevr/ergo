@@ -59,6 +59,12 @@ var fragmentCloses = []string{"", "\n}\n", "\n}\n}\n", "\n}\n}\n}\n"}
 // as a result (goSource), is Go and is left. n is 0 when no form parses or
 // none has a borrow.
 func MutFragment(text string, closes bool) (out string, n int) {
+	return mutFragment(text, closes, nil)
+}
+
+// mutFragment is MutFragment with the packages the rest of a generator
+// imports (generatorImports).
+func mutFragment(text string, closes bool, fileImports map[string]bool) (out string, n int) {
 	shaped := verbRE.ReplaceAllStringFunc(text, func(v string) string {
 		if v == "%%" {
 			return "% "
@@ -74,7 +80,7 @@ func MutFragment(text string, closes bool) (out string, n int) {
 		if err != nil {
 			continue
 		}
-		if goSource(shaped + close) {
+		if goSource(shaped+close, fileImports) {
 			return text, 0
 		}
 		var all []mutEdit

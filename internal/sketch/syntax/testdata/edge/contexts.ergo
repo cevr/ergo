@@ -2,6 +2,13 @@ let Base = context provides Accounts needs Clock {
 	Accounts: MemoryAccounts{},
 }
 
+// A header's failure row stands where a signature's does, before needs
+// (CTX-ROWS-1b).
+// expect: "let Opened = context provides Accounts fails Missing | Closed needs Clock {"
+let Opened = context provides Accounts fails Missing | Closed needs Clock {
+	Accounts: MemoryAccounts{},
+}
+
 let Test = context {
 	Base,
 	replace Accounts: FakeAccounts{},
@@ -11,6 +18,8 @@ let Test = context {
 func main() needs Console {
 	with context { Console: Quiet{} } { Console.Println("x") }
 	let local = context { Clock: Fixed{} }
+	// expect: "let failing = context fails Missing { Clock: Fixed{} }"
+	let failing = context fails Missing { Clock: Fixed{} }
 	with Test, local {
 		Console.Println("y")
 	}

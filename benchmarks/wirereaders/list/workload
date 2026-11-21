@@ -1,0 +1,7 @@
+# scripts/opcount: `readerbench bench list N` reads a list of four records
+# N times on the prelude's Reader interface (PORT-WIRE-READERS R1). The
+# control is hand Go: encoding/json into a slice of the record's struct.
+unit read
+sizes 5000 30000
+args bench list {n}
+control benchmarks/wirereaders/testdata/control

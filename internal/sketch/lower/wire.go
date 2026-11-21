@@ -630,13 +630,17 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 	}
 	reader := tc.readerGoType()
 	zero := "*new(" + goType + ")"
-	l.wireDecodeBody(tc, &body, t, env, task, r, zero, scope)
-	if l.ir != nil {
-		// No IR builder takes a decoder yet (PORT-WIRE-READERS): the
-		// census counts it by its form.
-		l.ir.codecText(name, "codec reader: "+l.wireReadForm(t))
+	head := "func " + name + tlist + "(" + lead + ", " + r + " " + reader + ") (" + goType + ", error)"
+	if l.ir != nil && l.ir.wireRead(l, name, t, tc, scope, site) {
+		// The IR builds the body (ir_wire_read.go): the Go declaration
+		// has none.
+		l.gen.WriteString(head + "\n\n")
+		return name
 	}
-	l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + r + " " + reader + ") (" + goType + ", error) {\n" + body.String() + "}\n\n")
+	// A decoder the IR does not build keeps this text; wireRead counted
+	// it by its reason, "codec reader: <form>".
+	l.wireDecodeBody(tc, &body, t, env, task, r, zero, scope)
+	l.gen.WriteString(head + " {\n" + body.String() + "}\n\n")
 	return name
 }
 
@@ -824,6 +828,9 @@ func (l *lowerer) wireReadForm(t check.Type) string {
 }
 
 func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
+	if l.wireOwnRead(tc, b, t, env, r, zero, scope) {
+		return // R's own read of t (wireread.go)
+	}
 	if check.WireFormOf(t) == check.WireNullable {
 		l.wireNullableDecode(tc, b, t, env, task, r, zero, scope)
 		return

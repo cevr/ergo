@@ -2,20 +2,18 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/toolchain"
@@ -118,38 +116,10 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 	if !testCacheable(opts) {
 		return ""
 	}
-	id := toolchainIdentity(tc)
-	if id == "" {
-		return ""
-	}
-	h := sha256.New()
-	write := func(s string) { fmt.Fprintf(h, "%d:%s\x00", len(s), s) }
-	write("ergo-test-result-1")
-	write(id)
 	// A full run writes the law ledger; a run that finds another ledger
-	// than the stored run left is no hit.
-	write(ledgerPart(ledger))
-	write(strconv.FormatUint(limit, 10))
-	write(strconv.Itoa(len(args)))
-	for _, a := range args {
-		write(a)
-	}
-	var env []string
-	for _, kv := range os.Environ() {
-		// Where the stage report goes changes no verdict.
-		if strings.HasPrefix(kv, sketchfront.StageReportVariable+"=") {
-			continue
-		}
-		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
-			env = append(env, kv)
-		}
-	}
-	slices.Sort(env)
-	write(strconv.Itoa(len(env)))
-	for _, kv := range env {
-		write(kv)
-	}
-	return hex.EncodeToString(h.Sum(nil))
+	// than the stored run left is no hit. Where the stage report goes
+	// changes no verdict.
+	return lawcache.TestResultKey(toolchainIdentity(tc), ledgerPart(ledger), limit, args, os.Environ(), sketchfront.StageReportVariable)
 }
 
 // testResult is the output of a passing run.

@@ -20,12 +20,15 @@ import (
 // Mutants (testdata/mutants.json): regen-output-kept, regen-new-file-kept,
 // regen-failure-ignored.
 func TestRegenerateWritesThenRestores(t *testing.T) {
-	root := t.TempDir()
+	// The copy is under the work directory, as workerPool makes it:
+	// restoreUnder removes files only there.
+	work := t.TempDir()
+	root := filepath.Join(work, "w0", "src")
 	files := map[string]string{"gen/in.txt": "mutated\n", "gen/out.txt": "original\n", "other/x.txt": "x\n"}
 	for name, text := range files {
 		writeFile(t, filepath.Join(root, name), text)
 	}
-	e := &engine{cfg: Config{CoverDeadline: time.Minute}}
+	e := &engine{cfg: Config{CoverDeadline: time.Minute, Work: work}}
 	for _, name := range []string{"gen/in.txt", "gen/out.txt", "other/x.txt"} {
 		data := files[name]
 		if name == "gen/in.txt" {

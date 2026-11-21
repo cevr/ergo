@@ -106,13 +106,14 @@ func isSome[T](o Option[T]) bool {
 // LoadAll binds the units as package tasks in import waves (check/task:
 // each binds against its imports' frozen stores) and loads each once, its
 // imports' interfaces (types.Iface) done first (those of have0, the
-// imports outside the run) (S3d3, S3d12).
-func LoadAll(units []Unit, have0 []types.Iface) Program {
+// imports outside the run) (S3d3, S3d12). Up to threads package tasks
+// bind at once (check/task); the result does not depend on it.
+func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 	let mut pkgs = []task.Package{}
 	for u in units {
 		pkgs = pkgs.Append(task.Package{Path: u.Path, Files: u.Files})
 	}
-	let checked = task.Check(pkgs, 4)
+	let checked = task.Check(pkgs, threads)
 	let mut stores = []store.Store{}
 	let mut have = have0
 	let mut done = []bool{}

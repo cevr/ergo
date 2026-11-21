@@ -965,6 +965,7 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 		// invalid, so nothing that uses it cascades (D3).
 		return bad(x)
 	}
+	c.etaMethodValue(x, sig)
 	// Creating the literal runs nothing: an unknown row in its body makes
 	// only a call of it unknown, through its inferred row (stage D1 round 2
 	// review M1).
@@ -1276,7 +1277,7 @@ func groupedConstraint(f *Func, tp *TypeParam) string {
 			for j, n := range field.Names {
 				names[j] = n.Name
 			}
-			cons := exprText(field.Type)
+			cons := typeText(field.Type)
 			// The repair keeps the order (type arguments are written by
 			// position): the names before tp keep the constraint, tp ends an
 			// unconstrained group, and the names after it keep theirs.
@@ -1288,6 +1289,28 @@ func groupedConstraint(f *Func, tp *TypeParam) string {
 		}
 	}
 	return ""
+}
+
+// typeText is a written type as its source spells it, for a repair hint:
+// Order[T], []T, Map[K, V]. A form it does not spell is exprText's.
+func typeText(x syntax.Expr) string {
+	switch x := x.(type) {
+	case *syntax.IndexExpr:
+		args := make([]string, len(x.Indices))
+		for i, a := range x.Indices {
+			args[i] = typeText(a)
+		}
+		return typeText(x.X) + "[" + strings.Join(args, ", ") + "]"
+	case *syntax.ArrayType:
+		return "[" + x.Len + "]" + typeText(x.Elt)
+	case *syntax.MapType:
+		return "Map[" + typeText(x.Key) + ", " + typeText(x.Value) + "]"
+	case *syntax.ParenExpr:
+		return typeText(x.X)
+	case *syntax.SelectorExpr:
+		return typeText(x.X) + "." + x.Sel.Name
+	}
+	return exprText(x)
 }
 
 // IsInForce reports a call of the prelude's InForce, which the lowering
@@ -1359,6 +1382,9 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		c.silentArgs(x)
 		return bad(x)
 	}
+	if b.Name == "hash" {
+		return c.hashCall(x) // mapprovider.go
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)
@@ -1371,6 +1397,10 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	op := c.valueExpr(x.Args[0], nil)
 	if op.invalid() {
 		return bad(x)
+	}
+	if IsProviderMap(op.typ) {
+		c.mapSites = append(c.mapSites, mapSite{node: x}) // mapprovider.go
+		return operand{mode: modeValue, typ: Typ[Int]}
 	}
 	switch u := under(op.typ).(type) {
 	case *Basic:
