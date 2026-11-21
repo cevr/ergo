@@ -93,7 +93,6 @@ func Files(p Plan) []string {
 	case MIT, Apache:
 		out = out.Append(p.Name + "/LICENSE")
 	case Unlicensed:
-		out = out
 	}
 	for f in p.Features {
 		out = out.Append(p.Name + "/" + featureFile(f))

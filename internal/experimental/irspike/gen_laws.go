@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// lawBodies is the number of laws GenerateLaws writes: each gets an IR
-// body in every seed (G6).
-const lawBodies = 8
+// lawBodies is the number of law bodies GenerateLaws writes: each gets an
+// IR body in every seed (G6). Pair's two laws count once per provider's
+// instance, a copy each (mono.go lawMonoFor).
+const lawBodies = 12
 
 // GenerateLaws is a program of laws (G6): a law whose tail is a
 // comparison, one that returns early from an if, one whose tail is an if
@@ -44,6 +45,18 @@ func GenerateLaws(seed uint64) string {
 	fmt.Fprintf(&b, "law Shapes(n int) {\n\tmatch shapeOf(n) {\n\tcase Dot:\n\t\tn %% 2 == 0\n\tcase Box as x:\n\t\tx.W %s n\n\t}\n}\n\n", cmp("==", "<"))
 	fmt.Fprintf(&b, "law Caught(n int) {\n\tlet v = check(n) catch {\n\tcase Bad:\n\t\treturn %s\n\t}\n\tv == n\n}\n\n", cmp("n % 7 == 3", "n < 0"))
 	fmt.Fprintf(&b, "law Tried(n int) {\n\tlet v = try check(n %% %d)\n\tv >= 0\n}\n\n", 3+r.IntN(5))
+	// A generic operation type's member laws (G6: law of a generic
+	// operation type), run by two providers of different instances:
+	// Ints (Pair[int]) clamps, so Idem holds; Strs (Pair[string]) appends,
+	// so Idem is refuted with its site. Each runs a copy of each law at
+	// its instance (mono.go lawMonoFor).
+	b.WriteString("type Pair[T comparable] {\n\tPut(v T) T,\n\tTake(v T) T fails Bad,\n\tSame(a T, c T) bool,\n\n\tlaw Idem(v T) {\n\t\tlet w = Put(v)\n\t\tSame(Put(w), w)\n\t},\n\n\tlaw Taken(v T) {\n\t\tlet w = Take(v) catch {\n\t\tcase Bad:\n\t\t\treturn true\n\t\t}\n\t\tSame(w, v)\n\t},\n}\n\n")
+	fmt.Fprintf(&b, "type Ints {} implements Pair[int]\n\nfunc Put(_ Ints, v int) int {\n\tif v > %d {\n\t\treturn %d\n\t}\n\tv\n}\n\n", 3+r.IntN(5), 3+r.IntN(5))
+	fmt.Fprintf(&b, "func Take(_ Ints, v int) int fails Bad {\n\tif v %% %d == 0 {\n\t\treturn Bad{N: v}\n\t}\n\tv\n}\n\n", 2+r.IntN(4))
+	b.WriteString("func Same(_ Ints, a int, c int) bool {\n\ta == c\n}\n\n")
+	b.WriteString("type Strs {} implements Pair[string]\n\nfunc Put(_ Strs, v string) string {\n\tv + \"!\"\n}\n\n")
+	fmt.Fprintf(&b, "func Take(_ Strs, v string) string fails Bad {\n\tif len(v) %% %d == 0 {\n\t\treturn Bad{N: len(v)}\n\t}\n\tv\n}\n\n", 2+r.IntN(3))
+	b.WriteString("func Same(_ Strs, a string, c string) bool {\n\ta == c\n}\n\n")
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"\\(scale(2))\")\n}\n")
 	return b.String()
 }

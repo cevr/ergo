@@ -1816,6 +1816,54 @@
       "to": "Sha256: hex.Encode(sha256.Sum(req.Path))",
       "rule": "The request's digest is the sha256 of its own text (RequestWithoutABlockIsItsFirstLine; ReadyWritesTheRecord).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "lm-regenerate-answered-clean", "origin": "wf10/semws WORK-LOCKMERGE",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif merged.Regenerate {\n\t\tlet then",
+      "to": "\tif merged.Regenerate && by == \"never\" {\n\t\tlet then",
+      "rule": "merge-file never answers clean a merge that must be made again: under Git's driver nothing regenerates, so ours would be kept silently (memory's MergeFileReportsWhatItCannotMerge).",
+      "anchor": {"tests": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]}, "killers": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]
+    },
+    {
+      "name": "wl-setting-trims-the-value", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tstrings.TrimSuffix(r.Stdout, \"\\n\")\n",
+      "to": "\tstrings.TrimSpace(r.Stdout)\n",
+      "rule": "git.Setting reads back what Configure set, its own spaces kept; only git config's newline goes (git's law work.Vcs.SettingIsWhatConfigureSet under onShell).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wl-driver-plays-a-stated-status", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/memory/candidate.ergo",
+      "from": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) {\n",
+      "to": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) && c.Name == \"\" {\n",
+      "rule": "memory's Driver never answers a status a script did not state: a script ending in its own exit is NotFound (memory's law exec.Runner.ShellRunsAsWritten for Driver).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wcg-gc-deletes-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
+      "file": "modules/work/work/remove.ergo",
+      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {",
+      "to": "strings.HasPrefix(w.Path, t.home+\"/\") {",
+      "rule": "gc (bare, -idle, -id) never deletes a Creating record whose folder holds a checkout: its maker may have died after the clone, and an agent may work there (memory's ToolAgreesWithTheReference, CrashOp Cloned).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "wcg-rm-skips-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tcase Creating:\n\t\t\tt.copier.Has(w.Path + \"/.git\")\n",
+      "to": "\t\tcase Creating:\n\t\t\tfalse\n",
+      "rule": "rm on a Creating record over a checkout runs the unsaved-work check an Active one gets: work not held is NotHeld unless abandoned (memory's ToolAgreesWithTheReference, CrashOp Cloned then RmOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "tl-host-setting-ignored", "origin": "wf10/semws WORK-TRASH-LOCAL",
+      "file": "modules/work/work/api.ergo",
+      "from": "let local = try LocalTrash(c, setting)",
+      "to": "let local = try LocalTrash(c, strings.TrimPrefix(setting, setting))",
+      "rule": "the base's Git setting work.trash (host-local) decides rm's trash over work.toml and the default; doctor says which (memory's TheHostSettingDecidesTrash).",
+      "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
     }
   ]
 }

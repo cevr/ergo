@@ -295,12 +295,19 @@ func TestWorkspaceDiscoveryAgrees(t *testing.T) {
 // TestWorkFileRefusesWhatItCannotRead is ergo.work's rule (build.md,
 // Workspace): an unknown key, a newer version, a missing version line and
 // a skip that is not a clean folder below the root fail, naming the line,
-// never ignored. It catches ws-work-unknown-key-ignored and
-// ws-work-newer-version-read.
+// never ignored. It catches ws-work-unknown-key-ignored,
+// ws-work-v2-key-ignored and ws-work-newer-version-read. Version 2's
+// gen and reads lines (Generators) read as written.
 func TestWorkFileRefusesWhatItCannotRead(t *testing.T) {
 	for _, c := range []struct{ text, want string }{
 		{"version 1\nskip a\ntasks build\n", "ergo.work:3: unknown key tasks"},
-		{"version 2\nskip a\n", "ergo.work:1: version 2 needs a newer ergo"},
+		{"version 3\nskip a\n", "ergo.work:1: version 3 needs a newer ergo"},
+		{"version 1\ngen a go run ./x\n", "ergo.work:2: unknown key gen; version 1 knows skip"},
+		{"version 2\ngen a go run ./x\nenv a X\n", "ergo.work:3: unknown key env"},
+		{"version 2\nreads a x\ngen a go run ./x\n", "ergo.work:2: reads a names no gen above it"},
+		{"version 2\ngen a go run ./x\ngen a go run ./y\n", "ergo.work:3: gen a is named twice"},
+		{"version 2\ngen A go run ./x\n", "ergo.work:2: gen takes a name"},
+		{"version 2\ngen a go run ./x\nreads a ../y\n", "ergo.work:3: reads ../y is not a clean"},
 		{"skip a\n", "ergo.work:1: the first line is version N"},
 		{"", "ergo.work: the first line is version N"},
 		{"version 1\nskip ../out\n", "ergo.work:2: skip ../out is not a clean"},
@@ -310,9 +317,13 @@ func TestWorkFileRefusesWhatItCannotRead(t *testing.T) {
 			t.Errorf("parseWorkFile(%q): %v, want %q", c.text, err, c.want)
 		}
 	}
-	skips, err := parseWorkFile("// c\nversion 1\nskip a/b // why\nskip c\n")
-	if err != nil || len(skips) != 2 || skips[0].dir != "a/b" || skips[1].line != 4 {
-		t.Errorf("a valid file read as %v, %v", skips, err)
+	wf, err := parseWorkFile("// c\nversion 1\nskip a/b // why\nskip c\n")
+	if err != nil || len(wf.skips) != 2 || wf.skips[0].dir != "a/b" || wf.skips[1].line != 4 {
+		t.Errorf("a valid file read as %v, %v", wf, err)
+	}
+	wf, err = parseWorkFile("version 2\nskip a\ngen x go run ./s -w\nreads x d/e f\nreads x g\n")
+	if err != nil || len(wf.gens) != 1 || strings.Join(wf.gens[0].Command, " ") != "go run ./s -w" || strings.Join(wf.gens[0].Reads, " ") != "d/e f g" {
+		t.Errorf("a valid version 2 file read as %+v, %v", wf, err)
 	}
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, WorkFile), []byte("version 1\nskip gone\n"), 0o644); err != nil {

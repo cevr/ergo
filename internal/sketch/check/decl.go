@@ -96,6 +96,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// rows are never inferred (D-E5).
 		c.checkExterns,
 		c.collectBodyErrorRows,
+		c.checkSlotArgs,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
 		// does not depend on which body meets a context first (contextsum.go).
@@ -195,6 +196,13 @@ func (c *checker) collectBodyErrorRows() {
 					}
 				}
 			}
+			if ix, ok := n.(*syntax.IndexExpr); ok {
+				// A row written as the argument of a generic type's error
+				// row parameter names its members as a `fails` row does:
+				// `ui.Async[int, Oops]` makes Oops an error type of the
+				// writing body's owner (ROW-PARAM AC3).
+				c.collectRowArgs(ix)
+			}
 			if arm, ok := n.(*syntax.CatchArm); ok {
 				// A type a catch arm tests names an error type of the
 				// arm's owner, as a fails row does (Error types 1; Catch
@@ -214,6 +222,35 @@ func (c *checker) collectBodyErrorRows() {
 			}
 			return true
 		})
+	}
+}
+
+// collectRowArgs records the error types that ix, when it instantiates a
+// generic type, writes at the type's failure parameters: each member of
+// the written row, as a `fails` row's (collectBodyErrorRows). A failure
+// parameter is an error row parameter (the head's kinds: its solved ones
+// for a local declaration, its resolved ones for an imported one,
+// slotKinds) or a type parameter that a function of the type's package
+// takes as a Slot row (slotBound: Async's F, which Await fails). Any other
+// index expression names none.
+func (c *checker) collectRowArgs(ix *syntax.IndexExpr) {
+	if _, n := c.namedHead(ix.X); n == nil {
+		return
+	}
+	kinds := c.slotKinds(ix.X)
+	bound := c.slotBound(ix.X)
+	for i, a := range ix.Indices {
+		if i >= len(kinds) || kinds[i] != KindErrors && (i >= len(bound) || bound[i] == "") {
+			continue
+		}
+		for _, x := range orLeaves(a) {
+			if n := c.errorRowHead(x); n != nil {
+				c.addErrorType(n, c.pkg.OwnerOf(ix), x)
+			}
+			for _, n := range c.namedRowHeads(x) {
+				c.addErrorType(n, c.pkg.OwnerOf(ix), x)
+			}
+		}
 	}
 }
 
@@ -951,11 +988,15 @@ func (c *checker) resolveNamed(n *Named) {
 	defer func() { c.cur, c.shallow = saved, shallow }()
 	d := n.Obj.Decl
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
+	var later, checks []func()
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
 		// Option and Some are language types: their T admits a resource
 		// with no mark (types.md, Generics 9).
 		lang := c.pkg.Path == stdlib.PreludePath && (n.Obj.Name == "Option" || n.Obj.Name == "Some")
+		// Every parameter is declared before any constraint resolves, so a
+		// bound may name a later parameter or the type itself:
+		// type Ranked[T Ranked[T]] (types.md, Generics 2; CONSTRAINTS C2).
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
@@ -964,7 +1005,20 @@ func (c *checker) resolveNamed(n *Named) {
 				c.def(name, tp)
 				switch {
 				case cons != nil:
-					tp.Constraint = c.constraint(cons, ctx)
+					later = append(later, func() {
+						c.deferBounds++
+						tp.Constraint = c.constraint(cons, ctx)
+						c.deferBounds--
+					})
+					checks = append(checks, func() {
+						if cn, ok := tp.Constraint.(*Named); ok && cn.origin() == n && !bareParams(cn.TArgs) {
+							// A self bound that grows its argument,
+							// type R[T R[[]T]]: the instantiation cycle
+							// is its one diagnostic (mono.go).
+							return
+						}
+						c.constraintBounds(tp, cons)
+					})
 				case conflicts[name.Name]:
 					c.errorf(name, CodeType, "type parameter %s is used both as a type and as a row (types.md, Generics 1)", name.Name)
 					tp.conflict = true
@@ -982,6 +1036,18 @@ func (c *checker) resolveNamed(n *Named) {
 	}
 	restore := c.monoOwner(n.TParams)
 	defer restore()
+	// Under the owner, so that a bound that grows its own argument,
+	// type R[T R[[]T]], is an instantiation cycle (mono.go).
+	for _, f := range later {
+		f()
+	}
+	// A bound's own bounds, once every parameter has its constraint; for
+	// a self bound, once the type has its body (resolveNamed's end).
+	defer func() {
+		for _, f := range checks {
+			f()
+		}
+	}()
 	switch spec := d.Spec.(type) {
 	case *syntax.StructType:
 		if c.emptyUnion(n, spec) {
@@ -1127,6 +1193,13 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 	it := &Interface{}
 	seen := map[string]bool{}
 	c.interfaceIncludes(spec, ctx, it, seen)
+	if spec.Terms != nil {
+		if it.Terms != nil {
+			c.errorf(spec.Terms[0], CodeType, "an operation type has one type set, and an included type gives it one already (types.md, Generics 2)")
+		} else {
+			it.Terms = c.typeTerms(spec.Terms, ctx)
+		}
+	}
 	for _, m := range spec.Methods {
 		ft, ok := m.Type.(*syntax.FuncType)
 		if !ok || len(m.Names) == 0 {
@@ -1458,6 +1531,12 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 		c.errorf(x, CodeType, "%s is %s parameter, not a type", tp.Name, tp.Kind)
 		return invalid
 	}
+	if c.inConstraint == 0 && typeSetOnly(t) {
+		// Go draws the same line: an interface with type terms is a
+		// constraint only (types.md, Generics 2).
+		c.errorf(x, CodeType, "%s has a type set, so it is a constraint only and no value has it as its type; write a type parameter: [T %s] (types.md, Generics 2)", t, t)
+		return invalid
+	}
 	return t
 }
 
@@ -1498,7 +1577,21 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 			return invalid
 		}
 		c.mapKeySite(x.Key, k)
-		return &Map{Key: k, Elem: v}
+		var h Type
+		if x.Hashing != nil {
+			h = c.typExpr(x.Hashing, ctx)
+			if isInvalid(h) || isInvalid(k) {
+				return invalid
+			}
+			if hn := c.hashingOf(); hn != nil {
+				cons := c.instantiate(hn.Type.(*Named), []Type{k})
+				if why := c.satisfies(h, cons); why != "" {
+					c.errorf(x.Hashing, CodeType, "%s does not satisfy the constraint %s of Map's H: %s (types.md, Generics 2)", h, cons, why)
+					return invalid
+				}
+			}
+		}
+		return c.mapOf(k, v, h)
 	case *syntax.StarExpr:
 		if ctx == nil || !ctx.param {
 			c.errorf(x, CodeType, "a borrow mut T is only a parameter or receiver type (types.md, Borrows 1)")
@@ -1769,19 +1862,62 @@ func (c *checker) recordUse(id *syntax.Ident, o Object) {
 // constraint resolves a bracket constraint: comparable, ordered, number or
 // an interface with methods (types.md, Generics 2).
 func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
+	c.inConstraint++
 	t := c.typExpr(x, ctx)
+	c.inConstraint--
 	if isInvalid(t) {
 		return nil
+	}
+	if n, ok := t.(*Named); ok && resolvingOps(n) {
+		// A self bound, type Ranked[T Ranked[T]]: the operation type is
+		// still resolving here, and it is one by its declaration
+		// (CONSTRAINTS C2).
+		return t
 	}
 	it := asInterface(t)
 	if it == nil {
 		c.errorf(x, CodeType, "a constraint is an interface, not %s", t)
 		return nil
 	}
-	if it.Set == SetAll && len(it.Methods) == 0 {
+	if it.Set == SetAll && len(it.Methods) == 0 && it.Terms == nil {
 		return nil
 	}
 	return t
+}
+
+// constraintBounds checks, once a bracket's constraints are all set
+// (deferBounds), that tp's constraint, an instance, meets its own type's
+// bounds: in `[T Ranked[T]]`, T must satisfy Ranked's bound on its T.
+func (c *checker) constraintBounds(tp *TypeParam, x syntax.Expr) {
+	n, ok := tp.Constraint.(*Named)
+	if !ok || n.Orig == nil {
+		return
+	}
+	if p, why := c.boundsUnmet(n); p != nil {
+		c.errorf(x, CodeType, "%s does not satisfy %s: %s", n.TArgs[slices.Index(n.origin().TParams, p)], c.subst(p.Constraint, paramMap(n.origin().TParams, n.TArgs)), why)
+	}
+}
+
+// bareParams reports whether every type argument is a type parameter.
+func bareParams(args []Type) bool {
+	for _, a := range args {
+		if _, ok := a.(*TypeParam); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// resolvingOps reports whether n is an instance of a type still resolving
+// (a bound inside its own brackets) whose declaration is an operation type
+// with braces, no union.
+func resolvingOps(n *Named) bool {
+	o := n.origin()
+	if o.state != 1 || o.Obj == nil || o.Obj.Decl == nil {
+		return false
+	}
+	spec, ok := o.Obj.Decl.Spec.(*syntax.InterfaceType)
+	return ok && spec.Lbrace.IsValid() && len(spec.Union) == 0
 }
 
 // instantiateExprs instantiates a generic type with written type arguments.
@@ -1834,7 +1970,7 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		return invalid
 	}
 	for i, tp := range n.TParams {
-		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 {
+		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 && c.deferBounds == 0 {
 			cons := c.subst(tp.Constraint, paramMap(n.TParams, targs))
 			if why := c.satisfies(targs[i], cons); why != "" {
 				c.errorf(args[i], CodeType, "%s does not satisfy %s: %s", targs[i], cons, why)
@@ -2467,8 +2603,13 @@ func (c *checker) funcSig(f *Func) *Signature {
 	// signature instances too).
 	owner := append([]*TypeParam(nil), tparams...)
 	restore := c.monoOwner(owner)
+	c.deferBounds++
 	for _, p := range constraints {
 		p.tp.Constraint = c.constraint(p.x, ctx)
+	}
+	c.deferBounds--
+	for _, p := range constraints {
+		c.constraintBounds(p.tp, p.x)
 	}
 	c.kindBracketParams(d.Type, ctx, unconstrained)
 	c.ownRowParams(d.TypeParams, tparams)
@@ -2647,6 +2788,12 @@ func (c *checker) collectSelfFuncs() {
 		// function) still apply first (round 3 review M3).
 		owners := map[any]bool{}
 		valid := true
+		// One member may be a plain function, whose first parameter is no
+		// type of the package: a plain call or reference names it, and
+		// x.f(…) a function on x's type (types.md, Methods 3; CONSTRAINTS
+		// C3: cmp.Compare beside Natural's Compare). Go declares a method
+		// and a function of one name in one package the same way.
+		var plain *Func
 		for _, g := range group {
 			var key any
 			if g.owner != nil {
@@ -2670,6 +2817,10 @@ func (c *checker) collectSelfFuncs() {
 					key = name
 				}
 			}
+			if key == nil && plain == nil && g.Name != "main" && !c.namesLocalType(g.Decl) {
+				plain = g
+				continue
+			}
 			if key == nil || owners[key] {
 				valid = false
 				break
@@ -2678,7 +2829,12 @@ func (c *checker) collectSelfFuncs() {
 		}
 		if valid {
 			for _, g := range group {
-				g.overloaded = true
+				if g == plain {
+					// The package scope holds the plain function.
+					c.pkg.Scope.names[g.Name] = g
+				} else {
+					g.overloaded = true
+				}
 				c.def(g.Decl.Name, g) // a later same-named function is in no scope
 			}
 			c.pkg.Funcs = append(c.pkg.Funcs, f.same...)
@@ -2693,7 +2849,7 @@ func (c *checker) collectSelfFuncs() {
 				// main is never a member (types.md, Methods 3).
 				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package", g.Name)
 			} else {
-				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)", g.Name)
+				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package, and one other may be a plain function (types.md, Methods 3)", g.Name)
 			}
 			g.owner, g.opOwner, g.selfArgs, g.Ptr = nil, nil, nil, false
 		}
@@ -2780,6 +2936,18 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 // memberShaped reports a function whose first parameter names a type, so
 // it may be a member of that type (selfOwner decides once the types are
 // declared).
+// namesLocalType reports whether d's first parameter names a type the
+// package declares: such a function is a member that failed, never the
+// plain function of a group (types.md, Methods 3).
+func (c *checker) namesLocalType(d *syntax.FuncDecl) bool {
+	name, _, _ := selfOwnerName(d)
+	if name == "" {
+		return false
+	}
+	_, ok := c.pkg.Scope.names[name].(*TypeName)
+	return ok || c.dupNames[name]
+}
+
 func memberShaped(d *syntax.FuncDecl) bool {
 	name, _, _ := selfOwnerName(d)
 	return name != "" && d.Name.Name != "main"

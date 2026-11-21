@@ -709,6 +709,82 @@
       "killers": [
         "internal/selfhostcheck:TestIRWriteAgreesWithGo"
       ]
+    },
+    {
+      "name": "report-crlf-two-lines",
+      "origin": "wf10/selfhost/S5-PURE",
+      "file": "compiler/report/report.ergo",
+      "from": "if text[i] == '\\r' && i+1 < n && text[i+1] == '\\n' {",
+      "to": "if false {",
+      "rule": "A CRLF ends one line, not two (internal/report sourcePositionIndex).",
+      "killers": [
+        "internal/selfhostcheck:TestReportAgreesWithGo"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "cachekey-framed-no-nul",
+      "origin": "wf10/selfhost/S5-PURE",
+      "file": "compiler/cachekey/cachekey.ergo",
+      "from": "b = b.Append(\"\\(len(p)):\" + p + \"\\x00\")",
+      "to": "b = b.Append(\"\\(len(p)):\" + p)",
+      "rule": "A framed key writes NUL after each part, as the test-result and warm keys do in Go.",
+      "killers": [
+        "internal/sketch/lawcache:TestKeysAgreeWithErgo"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "source-fit-at-bound",
+      "origin": "wf10/selfhost/S5-PURE",
+      "file": "compiler/source/source.ergo",
+      "from": "if limit > 0 && len(data) > limit {",
+      "to": "if limit > 0 && len(data) >= limit {",
+      "rule": "A source exactly as long as its bound fits (ReadRegularFile).",
+      "killers": [
+        "internal/source:TestSourceAgreesWithErgo"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "warm-key-drops-experiments",
+      "origin": "wf10/selfhost/S5-PURE",
+      "file": "compiler/cachekey/warm.ergo",
+      "from": "all = all.Append(\"experiments \" + strings.Join(experiments, \",\"))",
+      "to": "all = all.Append(\"experiments \")",
+      "rule": "The warm key covers the Go experiments, which choose a module's Go files (AnswerIsFresh).",
+      "killers": [
+        "internal/sketchfront:TestWarmKeyAgreesWithErgo"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     }
   ]
 }

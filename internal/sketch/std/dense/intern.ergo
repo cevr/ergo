@@ -140,8 +140,8 @@ func Text(s Strings, id ID[Str]) string {
 	s.tail[i-settled]
 }
 
-// hash is the 32-bit FNV-1a hash of text.
-func hash(text string) uint32 {
+// fnv is the 32-bit FNV-1a hash of text.
+func fnv(text string) uint32 {
 	let mut h = uint32(2166136261)
 	for i in 0..len(text) {
 		h = (h ^ uint32(text[i])) * uint32(16777619)
@@ -155,7 +155,7 @@ func FindText(s Strings, text string) Option[ID[Str]] {
 		return None
 	}
 	let mask = len(s.slots) - 1
-	let mut at = int(hash(text)) & mask
+	let mut at = int(fnv(text)) & mask
 	for s.slots[at] != 0 {
 		let id = ID[Str]{n: s.slots[at] - 1}
 		if Text(s, id) == text {
@@ -169,7 +169,7 @@ func FindText(s Strings, text string) Option[ID[Str]] {
 // place puts id in the first free slot of its text's probe sequence.
 func place(s mut Strings, id ID[Str], text string) {
 	let mask = len(s.slots) - 1
-	let mut at = int(hash(text)) & mask
+	let mut at = int(fnv(text)) & mask
 	for s.slots[at] != 0 {
 		at = (at + 1) & mask
 	}
