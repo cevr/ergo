@@ -125,11 +125,14 @@ func SetConstFoldBudgetForTest(steps int64) int64 {
 // within the budget, and the other candidates it refused (a value that is
 // no constant, a form it does not run), in the bodies that took IR. It is
 // a count, never a time. Templates counts the calls built as templates and
-// TemplateRefused the candidates that made none (ir_template.go).
+// TemplateRefused the candidates that made none (ir_template.go). NoNative
+// counts the refused that called a Go function the evaluator has no
+// native of (eval.NoNative), a part of Refused.
 type FoldCounts struct {
 	Folded          int `json:"folded"`
 	OverBudget      int `json:"overBudget"`
 	Refused         int `json:"refused"`
+	NoNative        int `json:"noNative"`
 	Templates       int `json:"templates"`
 	TemplateRefused int `json:"templateRefused"`
 }
@@ -138,6 +141,7 @@ func (c *FoldCounts) add(d FoldCounts) {
 	c.Folded += d.Folded
 	c.OverBudget += d.OverBudget
 	c.Refused += d.Refused
+	c.NoNative += d.NoNative
 	c.Templates += d.Templates
 	c.TemplateRefused += d.TemplateRefused
 }
@@ -173,6 +177,9 @@ func (b *irBuilder) fold(x *syntax.CallExpr) (out *irExpr) {
 			counts.OverBudget++
 		} else {
 			counts.Refused++
+			if eval.NoNative(why) {
+				counts.NoNative++
+			}
 		}
 		return nil
 	}

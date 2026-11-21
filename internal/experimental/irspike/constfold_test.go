@@ -91,6 +91,9 @@ func TestConstFoldCounts(t *testing.T) {
 	if rep.Folds.Folded == 0 || rep.Folds.OverBudget == 0 {
 		t.Errorf("folds %+v: want folded calls and spin over the budget\n%s", rep.Folds, text)
 	}
+	if rep.Folds.NoNative != 0 {
+		t.Errorf("folds %+v: a fold called a Go function the evaluator has no native of (b25)", rep.Folds)
+	}
 	for _, fn := range []string{"static0", "lits", "recs"} {
 		if !slices.Contains(rep.IR, fn) {
 			t.Errorf("%s takes no IR body (fallback %v)", fn, rep.Fallback)
