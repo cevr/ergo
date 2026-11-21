@@ -46,7 +46,7 @@
 // waits (the lane class at its share); the budget is full with H and a
 // narrow runner.
 
-type Rn = A{} | N{} | H{} | C{}
+type Rn = A{} | N{} | H{} | C{} | N2{}
 
 type CoreAct = Join{R Rn} | Quit{R Rn}
 
@@ -57,6 +57,11 @@ let CoreDesign = 0
 let ByCountMutant = 1
 let QuitIdleMutant = 2
 let BackfillMutant = 4
+let NoBackfillMutant = 5
+
+// MaxPass is how many later waiters may take past one blocked head
+// (budget.conf `backfill`).
+let MaxPass = 1
 
 // Cores is a world of this model: per runner (A, N, H, C) its step (Idle,
 // Waiting, Holding), its finished runs and its ticket; Passed: a take
@@ -66,6 +71,7 @@ type Cores {
 	Done       []int,
 	Ticket     []int,
 	NextTicket int,
+	Passes     []int,
 	Passed     bool,
 	WideHolds  bool,
 	HeadBlocks bool,
@@ -75,8 +81,8 @@ type Cores {
 }
 
 func coreWorld() Cores {
-	Cores{Pc: []int{0, 0, 0, 0}, Done: []int{0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1}, NextTicket: 0,
-		Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritPassed: false, Full: false}
+	Cores{Pc: []int{0, 0, 0, 0, 0}, Done: []int{0, 0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1, -1}, NextTicket: 0,
+		Passes: []int{0, 0, 0, 0, 0}, Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritPassed: false, Full: false}
 }
 
 func rn(r Rn) int {
@@ -89,10 +95,12 @@ func rn(r Rn) int {
 		return 2
 	case C:
 		return 3
+	case N2:
+		return 4
 	}
 }
 
-func all4() []int { []int{0, 1, 2, 3} }
+func all4() []int { []int{0, 1, 2, 3, 4} }
 
 func width(r int) int {
 	if r == 2 {
@@ -102,7 +110,7 @@ func width(r int) int {
 }
 
 func runsOf(r int) int {
-	if r == 2 {
+	if r == 2 || r == 4 {
 		return 1
 	}
 	return 2
@@ -292,6 +300,36 @@ func nextNotIdle(c Cores) bool {
 
 func inOrder2(c Cores) bool { !c.Passed }
 
+// noIdleBehindBlockedHead: while the next waiter does not fit and has been
+// passed fewer than MaxPass times, no other waiter waits that fits (the
+// 2026-11-20 queue: 22 runs of width 4 waited behind a width-16 head that
+// could not fit, with 12 cores free).
+func noIdleBehindBlockedHead(c Cores) bool {
+	let h = nextWaiter(c)
+	if h == -1 || used(c) + width(h) <= B || c.Passes[h] >= MaxPass {
+		return true
+	}
+	for r in all4() {
+		if r != h && c.Pc[r] == Waiting && used(c) + width(r) <= B {
+			return false
+		}
+	}
+	return true
+}
+
+// headWithinBound: no waiter is passed more than MaxPass times.
+func headWithinBound(c Cores) bool {
+	for r in all4() {
+		if c.Passes[r] > MaxPass {
+			return false
+		}
+	}
+	return true
+}
+
+func idleBehindHead(c Cores) bool { !noIdleBehindBlockedHead(c) }
+func pastBound(c Cores) bool      { !headWithinBound(c) }
+
 func overBudget(c Cores) bool { !withinBudget(c) }
 func nextIdle(c Cores) bool   { !nextNotIdle(c) }
 func passed2(c Cores) bool    { !inOrder2(c) }
@@ -308,6 +346,8 @@ type CoreBudget machine[Cores, CoreAct] {
 	law WithinBudget always withinBudget,
 	law NextNotIdle always nextNotIdle,
 	law InOrder always inOrder2,
+	law NoIdleBehindBlockedHead always noIdleBehindBlockedHead,
+	law HeadWithinBound always headWithinBound,
 
 	law WideHolds sometimes wideHolds,
 	law HeadOfLine sometimes headBlocks,
