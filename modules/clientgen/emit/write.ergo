@@ -5,6 +5,7 @@
 // someName, the one place a move of Option (NO-PRELUDE) changes.
 
 import github.com/cevr/ergo/modules/clientgen/smithy
+import json
 import strconv
 import strings
 
@@ -590,4 +591,29 @@ test ListObjectsIsRefused {
 		return
 	}
 	assert len(files) < 0
+}
+
+// RequiredIsPlain: a required input member that is not a label (here a
+// header) is written as its type, not an Option, and New takes it.
+test RequiredIsPlain {
+	let m = drawnModel([]int{2}, []int{})
+	let mut shapes = []smithy.Shape{}
+	for x in m.Shapes {
+		if x.Id == "t#In" {
+			let mut ms = []smithy.Member{}
+			match x.Kind {
+			case smithy.Structure as st:
+				for mem in st.Members {
+					ms = ms.Append(smithy.Member{..mem, Traits: mem.Traits.Append(trait("smithy.api#required", json.Object{Members: []json.Member{}}))})
+				}
+			case smithy.Simple, smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
+			}
+			shapes = shapes.Append(smithy.Shape{..x, Kind: smithy.Structure{Members: ms}})
+		} else {
+			shapes = shapes.Append(x)
+		}
+	}
+	let files = try Emit(smithy.Model{..m, Shapes: shapes}, drawnProvider)
+	assert strings.Contains(files[0].Text, "type In {\n\tM0 string,\n}")
+	assert strings.Contains(files[0].Text, "func NewIn(m0 string) In {")
 }

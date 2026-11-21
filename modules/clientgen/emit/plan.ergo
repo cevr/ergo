@@ -612,3 +612,10 @@ func drawnModel(ins []int, outs []int) smithy.Model {
 	let meta = smithy.Shape{Id: "t#Meta", Kind: smithy.Mapping{Key: smithy.Member{Name: "key", Target: "smithy.api#String", Traits: []smithy.Trait{}}, Value: smithy.Member{Name: "value", Target: "smithy.api#String", Traits: []smithy.Trait{}}}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
 	smithy.Model{Version: "2.0", Metadata: json.Object{Members: []json.Member{}}, Shapes: []smithy.Shape{op, drawnStruct("t#In", im), drawnStruct("t#Out", drawnMembers(outs, false)), str, blob, meta}}
 }
+
+// GreedyLabelIsGreedy: the label a uri template writes as {Name+} is
+// planned greedy (its "/" stays a separator) and the others are not.
+test GreedyLabelIsGreedy {
+	let plan = try PlanOf(drawnModel([]int{0, 5}, []int{}), Provider{Package: "t", Runtime: "rt", RuntimeName: "rt", Service: "T", Operations: []string{"t#Op"}})
+	assert plan.Ops[0].In == []Field{Field{Name: "M0", Ty: TString, Where: AtLabel{Greedy: false}, Required: true}, Field{Name: "M1", Ty: TString, Where: AtLabel{Greedy: true}, Required: true}}
+}
