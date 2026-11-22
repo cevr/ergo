@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -34,15 +35,17 @@ func fragmentFile(file string) (read, closes bool) {
 // ergoMarkerRE matches a word only Ergo writes at the start of a statement
 // or a declaration: an unquoted import (Go quotes its paths), let, match,
 // or a fails or needs clause.
-var ergoMarkerRE = regexp.MustCompile(`(^|\n)import [a-z]|\blet |\bmatch |\bfails |\bneeds `)
+var ergoMarkerRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|\n)import [a-z]|\blet |\bmatch |\bfails |\bneeds `)
+})
 
 // ergoMarker reports a test's literal that is Ergo, so that its open piece
 // (a program a generator ends after it) is closed and read like a
 // generator's (fragmentFile).
-func ergoMarker(text string) bool { return ergoMarkerRE.MatchString(text) }
+func ergoMarker(text string) bool { return ergoMarkerRE().MatchString(text) }
 
 // verbRE matches a fmt verb: `%d`, `%5.2f`, `%%`.
-var verbRE = regexp.MustCompile(`%[-+# 0-9.*]*[a-zA-Z%]`)
+var verbRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`%[-+# 0-9.*]*[a-zA-Z%]`) })
 
 // fragmentCloses are the texts tried after a fragment, so that a function
 // whose body a later literal writes parses: none, then one to three
@@ -65,7 +68,7 @@ func MutFragment(text string, closes bool) (out string, n int) {
 // mutFragment is MutFragment with the packages the rest of a generator
 // imports (generatorImports).
 func mutFragment(text string, closes bool, fileImports map[string]bool) (out string, n int) {
-	shaped := verbRE.ReplaceAllStringFunc(text, func(v string) string {
+	shaped := verbRE().ReplaceAllStringFunc(text, func(v string) string {
 		if v == "%%" {
 			return "% "
 		}

@@ -178,7 +178,7 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 // the stat settings, the cloner on the reservation (under the lock), and
 // last the marker. A failure deletes what it made and the reservation.
 func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed | VcsFailed | Unkept | Locked {
-	let by = cloned(t, m.Parent, m.Path, m.Copy) catch {
+	let (by, _) = cloned(t, m.Parent, m.Path, m.Copy, false) catch {
 	case NotSameVolume as e:
 		try unreserve(t, m)
 		return e

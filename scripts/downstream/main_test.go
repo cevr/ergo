@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testinputs"
 )
 
@@ -266,7 +267,7 @@ var oneErgo struct {
 func buildErgo(t *testing.T) string {
 	t.Helper()
 	oneErgo.once.Do(func() {
-		command := exec.Command("go", "build", "-buildvcs=false", "-o", oneErgo.path, "../../cmd/ergo")
+		command := ergobuild.Command(oneErgo.path, "../../cmd/ergo", "-buildvcs=false")
 		oneErgo.out, oneErgo.err = command.CombinedOutput()
 	})
 	if oneErgo.err != nil {

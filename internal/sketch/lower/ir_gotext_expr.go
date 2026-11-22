@@ -10,6 +10,7 @@ import (
 	"go/types"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // irPrinter prints the body of one IR function.
@@ -383,7 +384,7 @@ func (p *irPrinter) expr(x *irExpr, typed bool) gx {
 		return p.constant(x)
 	case "bin":
 		l, r := p.expr(x.X, true), p.expr(x.Y, true)
-		prec := irBinPrec[x.Op]
+		prec := irBinPrec()[x.Op]
 		if prec == 0 {
 			p.fail("operator %q", x.Op)
 		}
@@ -494,12 +495,14 @@ func (p *irPrinter) expr(x *irExpr, typed bool) gx {
 }
 
 // irBinPrec is the precedence of each binary operator.
-var irBinPrec = map[string]int{
-	"||": 1, "&&": 2,
-	"==": 3, "!=": 3, "<": 3, "<=": 3, ">": 3, ">=": 3,
-	"+": 4, "-": 4, "|": 4, "^": 4,
-	"*": 5, "/": 5, "%": 5, "<<": 5, ">>": 5, "&": 5, "&^": 5,
-}
+var irBinPrec = sync.OnceValue(func() map[string]int {
+	return map[string]int{
+		"||": 1, "&&": 2,
+		"==": 3, "!=": 3, "<": 3, "<=": 3, ">": 3, ">=": 3,
+		"+": 4, "-": 4, "|": 4, "^": 4,
+		"*": 5, "/": 5, "%": 5, "<<": 5, ">>": 5, "&": 5, "&^": 5,
+	}
+})
 
 // index is x[i]: a map's value by its key, a slice's, an array's or a
 // string's element.
