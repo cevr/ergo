@@ -1423,7 +1423,7 @@
     {
       "name": "oracle-o13-parse-message-lost",
       "origin": "wf10 ORACLE O13",
-      "file": "internal/sketch/eval/nativestime.go",
+      "file": "internal/sketch/eval/nativestime.go", "decl": "registerNativestime",
       "from": "\"Value\": pe.Value, \"Message\": pe.Message}",
       "to": "\"Value\": pe.Value, \"Message\": \"\"}",
       "rule": "std time.Parse fails ParseError with Go's message (std time Parse; runtime/v1 TimeParse).",
@@ -1432,7 +1432,7 @@
     {
       "name": "oracle-o13-parse-keeps-nanos-off",
       "origin": "wf10 ORACLE O13",
-      "file": "internal/sketch/eval/nativestime.go",
+      "file": "internal/sketch/eval/nativestime.go", "decl": "registerNativestime",
       "from": "\"Nsec\": r.Nsec,",
       "to": "\"Nsec\": int64(0),",
       "rule": "std time.Parse reads the fraction of a second the layout writes: the Reading's Nsec (std time Parse).",
@@ -1441,7 +1441,7 @@
     {
       "name": "oracle-o13-format-ignores-layout",
       "origin": "wf10 ORACLE O13",
-      "file": "internal/sketch/eval/nativestime.go",
+      "file": "internal/sketch/eval/nativestime.go", "decl": "registerNativestime",
       "from": "args[1].(int64), args[2].(string))",
       "to": "args[1].(int64), \"2006-01-02T15:04:05Z07:00\")",
       "rule": "std time.Format writes the instant in UTC by its layout, as Go's t.UTC().Format(layout).",
