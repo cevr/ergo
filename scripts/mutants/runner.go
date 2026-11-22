@@ -512,37 +512,37 @@ func commitCopy(dst string, files []treeFile) error {
 }
 
 // verifyCopy checks that every file a mutant touched in the copy at dst is
-// back to the checkout's bytes: a file a row edited (mutated), and every
-// file under a regenerate step's folder, which restoreUnder rewrote after
-// the step (for `go run ./scripts/linked`, the whole tree). A file of the
-// second kind that differs at the end was written after its restore, by a
-// test or step that ran in the copy, not left by a mutant: each is named
-// with its first differing line.
-func (e *engine) verifyCopy(dst string, touched, mutated map[string]bool) error {
-	var unrestored, written []string
+// back to the checkout's bytes: a file a row edited, and every file under
+// a regenerate step's folder (for `go run ./scripts/linked`, the whole
+// tree). A symbolic link is compared by its target, as treeFile keeps it:
+// read through the link, every link under a regenerate folder "differed"
+// (conformance/upstream/foldkit-d21db423/CLAUDE.md -> AGENTS.md; IR1, PF).
+// Each changed file is named with its first differing line.
+func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
+	var bad []string
 	for _, f := range e.files {
 		if !touched[f.path] {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(f.path)))
+		p := filepath.Join(dst, filepath.FromSlash(f.path))
+		var data []byte
+		var err error
+		if f.mode&fs.ModeSymlink != 0 {
+			var target string
+			target, err = os.Readlink(p)
+			data = []byte(target)
+		} else {
+			data, err = os.ReadFile(p)
+		}
 		if err == nil && bytes.Equal(data, f.data) {
 			continue
 		}
-		what := f.path + " (" + firstDiff(f.data, data, err) + ")"
-		if mutated[f.path] {
-			unrestored = append(unrestored, what)
-		} else {
-			written = append(written, what)
-		}
+		bad = append(bad, f.path+" ("+firstDiff(f.data, data, err)+")")
 	}
-	var errs []error
-	if len(unrestored) > 0 {
-		errs = append(errs, fmt.Errorf("a mutant was not restored in %s: %s", dst, strings.Join(unrestored, "; ")))
+	if len(bad) > 0 {
+		return fmt.Errorf("a mutant was not restored in %s: %s", dst, strings.Join(bad, "; "))
 	}
-	if len(written) > 0 {
-		errs = append(errs, fmt.Errorf("a test or step wrote a file of the checkout in the copy %s after the runner restored it (no row edits it): %s", dst, strings.Join(written, "; ")))
-	}
-	return errors.Join(errs...)
+	return nil
 }
 
 // firstDiff is the first line where the copy's bytes (got, or its read

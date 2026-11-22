@@ -158,10 +158,6 @@ func (w *worker) apply(m *Mutant, path string, original []byte) (func(), string)
 		return nil, err.Error()
 	}
 	w.touched[m.File] = true
-	if w.mutated == nil {
-		w.mutated = map[string]bool{}
-	}
-	w.mutated[m.File] = true
 	if err := os.WriteFile(path, []byte(strings.Replace(string(original), m.From, m.To, 1)), info.Mode().Perm()); err != nil {
 		w.err = errors.Join(w.err, err)
 		return nil, err.Error()

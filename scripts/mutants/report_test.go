@@ -1,22 +1,22 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-// TestVerifyCopyNamesWhatChanged: at a run's end a file a row edited that
-// differs from the checkout is "a mutant was not restored"; a file only a
-// regenerate step's folder brought into the check, changed after the
-// runner restored it, is a test or step writing the copy, not a mutant
-// (IR1: a file under conformance/upstream was reported as an unrestored
-// mutant). Each names its first differing line. Mutants
-// (testdata/mutants.json): vc-written-as-mutant, vc-no-first-diff.
-func TestVerifyCopyNamesWhatChanged(t *testing.T) {
+// TestVerifyCopyComparesLinksByTarget: at a run's end a symbolic link of
+// the checkout, restored as the checkout has it, is equal to it: it is
+// compared by its target, not by the file it points to (IR1, PF: every run
+// with a `go run ./scripts/linked` row failed on
+// conformance/upstream/foldkit-d21db423/CLAUDE.md -> AGENTS.md). A file
+// left changed is named with its first differing line. Mutants
+// (testdata/mutants.json): vc-link-read-through, vc-no-first-diff.
+func TestVerifyCopyComparesLinksByTarget(t *testing.T) {
 	dst := t.TempDir()
-	for name, data := range map[string]string{"a.go": "package a\nvar x = 2\n", "up/b.txt": "one\nthree\n"} {
+	for name, data := range map[string]string{"a.go": "package a\nvar x = 2\n", "up/AGENTS.md": "# agents\n"} {
 		p := filepath.Join(dst, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -25,23 +25,21 @@ func TestVerifyCopyNamesWhatChanged(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e := &engine{files: []treeFile{
-		{path: "a.go", data: []byte("package a\nvar x = 1\n")},
-		{path: "up/b.txt", data: []byte("one\ntwo\n")},
-	}}
-	err := e.verifyCopy(dst, map[string]bool{"a.go": true, "up/b.txt": true}, map[string]bool{"a.go": true})
-	if err == nil {
-		t.Fatal("two changed files: no error")
+	if err := os.Symlink("AGENTS.md", filepath.Join(dst, "up", "CLAUDE.md")); err != nil {
+		t.Fatal(err)
 	}
-	msg := err.Error()
-	for _, want := range []string{
-		"a mutant was not restored in " + dst + `: a.go (line 2: checkout "var x = 1", copy "var x = 2")`,
-		"a test or step wrote a file of the checkout in the copy " + dst,
-		`up/b.txt (line 2: checkout "two", copy "three")`,
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("verifyCopy: %s\nwant it to hold %q", msg, want)
-		}
+	e := &engine{files: []treeFile{
+		{path: "up/AGENTS.md", mode: 0o644, data: []byte("# agents\n")},
+		{path: "up/CLAUDE.md", mode: fs.ModeSymlink | 0o777, data: []byte("AGENTS.md")},
+	}}
+	touched := map[string]bool{"a.go": true, "up/AGENTS.md": true, "up/CLAUDE.md": true}
+	if err := e.verifyCopy(dst, touched); err != nil {
+		t.Errorf("a restored link and its file: %v", err)
+	}
+	e.files = append(e.files, treeFile{path: "a.go", mode: 0o644, data: []byte("package a\nvar x = 1\n")})
+	want := "a mutant was not restored in " + dst + `: a.go (line 2: checkout "var x = 1", copy "var x = 2")`
+	if err := e.verifyCopy(dst, touched); err == nil || err.Error() != want {
+		t.Errorf("a changed a.go: %v\nwant %s", err, want)
 	}
 }
 

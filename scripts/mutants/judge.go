@@ -146,7 +146,7 @@ func (e *engine) judgeAll(ctx context.Context, jobs []Job) ([]Result, error) {
 	// environment lost the token) ends with the run.
 	reapAfter("")
 	for _, w := range e.workers {
-		err = errors.Join(err, w.err, e.verifyCopy(w.root, w.touched, w.mutated))
+		err = errors.Join(err, w.err, e.verifyCopy(w.root, w.touched))
 	}
 	err = errors.Join(err, journalErr, ctx.Err())
 	complete := err == nil && !slices.ContainsFunc(results, func(r Result) bool { return r.Status == "" })
@@ -160,7 +160,7 @@ func (e *engine) workerPool() ([]*worker, error) {
 	}
 	for w := 0; w < e.cfg.Workers; w++ {
 		dir := filepath.Join(e.cfg.Work, "w"+strconv.Itoa(w))
-		wk := &worker{e: e, root: filepath.Join(dir, "src"), bin: filepath.Join(dir, "bin"), touched: map[string]bool{}, mutated: map[string]bool{}}
+		wk := &worker{e: e, root: filepath.Join(dir, "src"), bin: filepath.Join(dir, "bin"), touched: map[string]bool{}}
 		if err := e.copyTree(wk.root); err != nil {
 			return nil, err
 		}
@@ -339,8 +339,7 @@ type worker struct {
 	e       *engine
 	root    string
 	bin     string
-	touched map[string]bool // files verifyCopy checks: mutated, and under a regenerate step
-	mutated map[string]bool // files a row edited
+	touched map[string]bool
 	err     error
 	// unmutated holds each source file's state before any mutant (they
 	// are restored after each one), and sourceTools the source checks'
