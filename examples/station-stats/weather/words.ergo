@@ -1,7 +1,6 @@
 // Eight bytes at a time (SWAR): the fast path reads a station and a
 // temperature as 64-bit little-endian words.
 
-import bits
 import fs
 
 // Word is the eight bytes of w as a little-endian word. Its caller cuts w
@@ -39,21 +38,25 @@ type Temp { Tenths int, Width int, Bad uint64 }
 
 // ReadTemp reads the temperature at the start of w: its tenths, the width
 // of its text before the newline, and Bad, 0 exactly when w holds that
-// form. It has no branch (one multiply turns the digits into the
-// value), and every shift is by a count below 64 (& 63), so Go makes
-// one instruction of each.
+// form. It branches once on the form, d.d or dd.d after an optional '-',
+// and each digit is its byte less '0', compared unsigned, so one compare
+// rejects a byte below '0' as well as one above '9'.
 func ReadTemp(w uint64) Temp {
-	let neg = (((w ^ 0x2D) & 0xFF) - 1) >> 63
-	let dot = uint(bits.TrailingZeros64(^w&0x10101000)) >> 3
-	let sh = (dot * 8) & 63
-	let nsh = (dot*8 + 16) & 63
-	let l = ^uint64(0) >> ((40 - dot*8) & 63)
-	let d = (w & l) ^ (uint64(0x1E) << sh) ^ (neg * 0x1D) ^ (uint64(0x3A) << nsh)
-	let bad = (((d & 0xF0F0F0F0F0F0F0F0) ^ 0x3030303030303030) & l) | ((((d & 0x0F0F0F0F0F0F0F0F) + 0x0606060606060606) & 0x1010101010101010) & l) | (((w >> sh) & 0xFF) ^ 0x2E) | (((w >> nsh) & 0xFF) ^ 0x0A) | (uint64(dot-uint(neg)-1) & ^uint64(1))
-	let signed = -neg
-	let digits = ((w & ^(signed & 0xFF)) << ((24 - dot*8) & 63)) & 0x0F000F0F00
-	let abs = ((digits * 0x640a0001) >> 32) & 0x3FF
-	Temp{Tenths: int((abs ^ signed) - signed), Width: int(dot) + 2, Bad: bad}
+	let sign = if (w & 0xFF) == 0x2D { 1 } else { 0 }
+	let d = w >> (uint(sign) * 8)
+	let c0 = (d & 0xFF) - 0x30
+	let c1 = (d >> 8) & 0xFF
+	let c2 = (d >> 16) & 0xFF
+	let c3 = (d >> 24) & 0xFF
+	if c1 == 0x2E && c3 == 0x0A && c0 <= 9 && c2-0x30 <= 9 {
+		let v = int(c0*10 + c2 - 0x30)
+		return Temp{Tenths: (v ^ -sign) + sign, Width: 3 + sign, Bad: 0}
+	}
+	if c2 == 0x2E && ((d >> 32) & 0xFF) == 0x0A && c0 <= 9 && c1-0x30 <= 9 && c3-0x30 <= 9 {
+		let v = int(c0*100 + (c1-0x30)*10 + c3 - 0x30)
+		return Temp{Tenths: (v ^ -sign) + sign, Width: 4 + sign, Bad: 0}
+	}
+	Temp{Tenths: 0, Width: 0, Bad: 1}
 }
 
 // Words is the first sixteen bytes of the station of n bytes at p, as the

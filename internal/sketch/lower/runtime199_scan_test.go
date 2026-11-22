@@ -219,6 +219,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.groupCall":      "the IR's group body of a component call: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 		"irBuilder.sameLit":        "the IR's group equality literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 		"irBuilder.cheapLit":       "the IR's group cheap-equality literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
+		"irBuilder.inForce":        "the IR's InForce: the Env copy taken at the call and the *Env parameter of the Context literal over it, locals of the IR body; the derivative writes the closure (ir_inforce.go, IR-INFORCE)",
 		"irBuilder.keepLit":        "the IR's group keep literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 	}
 	for _, owner := range sortedKeys(readers) {

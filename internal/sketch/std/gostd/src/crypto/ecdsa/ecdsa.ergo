@@ -90,13 +90,13 @@ extern go crypto/ecdsa.PublicKey.ScalarBaseMult func (r PublicKey) ScalarBaseMul
 extern go crypto/ecdsa.PublicKey.ScalarMult func (r PublicKey) ScalarMult(x1 own *big.Int, y1 own *big.Int, k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
 
 // ergo:go func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r *big.Int, s *big.Int, err error)
-extern go crypto/ecdsa.Sign func Sign(rand own io.Reader, priv own *PrivateKey, hash []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign
+extern go crypto/ecdsa.Sign func Sign(rand own io.Reader, priv own *PrivateKey, p2 []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign
 
 // ergo:go func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error)
-extern go crypto/ecdsa.SignASN1 func SignASN1(r own io.Reader, priv own *PrivateKey, hash []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/ecdsa.SignASN1 func SignASN1(r own io.Reader, priv own *PrivateKey, p2 []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool
-extern go crypto/ecdsa.Verify func Verify(pub own *PublicKey, hash []byte, r own *big.Int, s own *big.Int) bool needs go.Foreign
+extern go crypto/ecdsa.Verify func Verify(pub own *PublicKey, p1 []byte, r own *big.Int, s own *big.Int) bool needs go.Foreign
 
 // ergo:go func VerifyASN1(pub *PublicKey, hash []byte, sig []byte) bool
-extern go crypto/ecdsa.VerifyASN1 func VerifyASN1(pub own *PublicKey, hash []byte, sig []byte) bool needs go.Foreign
+extern go crypto/ecdsa.VerifyASN1 func VerifyASN1(pub own *PublicKey, p1 []byte, sig []byte) bool needs go.Foreign
