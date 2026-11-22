@@ -105,7 +105,7 @@
       "origin": "wf10 LANE-ENV-TOOLCHAIN",
       "file": "scripts/lanework/lanework.sh",
       "from": "    printf 'export PATH=%s:$PATH GOTOOLCHAIN=local\\n' \"$bin\"\n",
-      "to": "",
+      "to": "    :\n",
       "rule": "A lane's env puts the source's Go first on PATH.",
       "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
     },
