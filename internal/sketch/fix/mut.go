@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -411,7 +412,7 @@ func importsOf(f *syntax.File) map[string]bool {
 
 // ergoImportRE matches an Ergo import line in a generator's piece: Go
 // quotes its paths, Ergo does not (`import arena`, `import go net/url`).
-var ergoImportRE = regexp.MustCompile(`(?m)^import ((go )?[a-z][a-z0-9_/.]*)\s*$`)
+var ergoImportRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^import ((go )?[a-z][a-z0-9_/.]*)\s*$`) })
 
 // generatorImports are the packages the Ergo pieces of a generator's
 // literals import, by the name they bind. A generator writes its import
@@ -422,7 +423,7 @@ var ergoImportRE = regexp.MustCompile(`(?m)^import ((go )?[a-z][a-z0-9_/.]*)\s*$
 func generatorImports(lits []string) map[string]bool {
 	imported := map[string]bool{}
 	for _, text := range lits {
-		for _, m := range ergoImportRE.FindAllStringSubmatch(text, -1) {
+		for _, m := range ergoImportRE().FindAllStringSubmatch(text, -1) {
 			p := strings.TrimPrefix(m[1], "go ")
 			imported[p[strings.LastIndex(p, "/")+1:]] = true
 		}

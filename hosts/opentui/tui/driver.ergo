@@ -62,6 +62,19 @@ type Driver[S, E, D, F] {
 	tops      Map[ui.Id[E], float64],
 	viewports Map[ui.Id[E], ui.Viewport],
 	captured  Option[ui.Id[E]],
+	// The frames (frames.ergo): the period, the time since the driver
+	// started, the time owed to the next frame, the Ticks stepped, and
+	// whether the live screen's ticker runs.
+	period  duration,
+	at      duration,
+	owed    duration,
+	frames  int,
+	ticking bool,
+	// The edge scroll (frames.ergo): the y of the last pointer event in
+	// its Area's box (DIPs), and the list an edge scroll moves with the
+	// offset it is at, exact, between the whole cells the scene shows.
+	heldY float64,
+	edge  Option[(ui.Id[E], ui.Length)],
 }
 
 // held is a node of the tree and its children, in order.
@@ -114,6 +127,13 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 		tops:      Map[ui.Id[E], float64]{},
 		viewports: Map[ui.Id[E], ui.Viewport]{},
 		captured:  None,
+		period:    16ms,
+		at:        duration(int64(0)),
+		owed:      duration(int64(0)),
+		frames:    0,
+		ticking:   false,
+		heldY:     0.0,
+		edge:      None,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	d.nums[root] = 0
@@ -149,6 +169,9 @@ func show[E comparable, S, D, F](d mut Driver[S, E, D, F], ops []ui.Op[E]) fails
 			}
 		case ui.Set[E] as x:
 			reset(d, x.Id, x.Node)
+			// A look the pass interned: the terminal shows its own look for
+			// each kind of node and reads no Style.Look (a gap of this host).
+		case ui.Define:
 		}
 	}
 	placeRows(d)
@@ -190,7 +213,10 @@ func create[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign 
 	match node {
 	case ui.RowsNode as x:
 		content(d, id, x.Count, x.RowHeight)
-	case _:
+	case ui.CanvasNode as x:
+		drawCanvas(d, n, x)
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No content beyond the scene node's own kind, text and look.
 	}
 	relook(d, id)
 	relabel(d, id)
@@ -248,7 +274,10 @@ func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) n
 	match node {
 	case ui.RowsNode as x:
 		content(d, id, x.Count, x.RowHeight)
-	case _:
+	case ui.CanvasNode as x:
+		drawCanvas(d, n, x)
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No content beyond the scene node's own kind, text and look.
 	}
 	relabel(d, id)
 	match labelText(node) {
@@ -438,6 +467,8 @@ func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) f
 		try typed(d, oneLine(input.Text))
 	} else if input.Kind == screen.Resize {
 		try repaint(d)
+	} else if input.Kind == screen.Frame {
+		try Advance(d, d.period-d.owed)
 	}
 }
 
@@ -565,14 +596,14 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 		case Some[ui.Id[E]] as a:
 			try point(d, a.Value, input, ui.Down)
 		case None:
-			match hit {
-			case Some[ui.Id[E]] as id:
-				if isArea(nodeOf(d, id.Value)) {
-					d.captured = hit
-					try point(d, id.Value, input, ui.Down)
-				}
-			case None:
+			// Every Down goes to the node under the pointer, whatever its
+			// kind, so the session's hover and its Areas' crossings follow
+			// the pointer (OT-PHASES); an Area also holds it.
+			let to = under(d, hit)
+			if isArea(nodeOf(d, to)) {
+				d.captured = hit
 			}
+			try point(d, to, input, ui.Down)
 		}
 	} else if input.Action == screen.Up {
 		match Captured(d) {
@@ -580,13 +611,7 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 			d.captured = None
 			try point(d, a.Value, input, ui.Up)
 		case None:
-			match targetAt(d, input.X, input.Y) {
-			case Some[ui.Id[E]] as id:
-				if isArea(nodeOf(d, id.Value)) {
-					try point(d, id.Value, input, ui.Up)
-				}
-			case None:
-			}
+			try point(d, under(d, targetAt(d, input.X, input.Y)), input, ui.Up)
 		}
 		let was = d.pressed
 		d.pressed = None
@@ -597,6 +622,29 @@ func mouse[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 			}
 		case None:
 		}
+	}
+}
+
+// under is the node a pointer event goes to: the target hit, or the root
+// where no node takes input, as TestHost's click or move nowhere points
+// at the root (the hover then leaves every node).
+func under[S, E, D, F](d mut Driver[S, E, D, F], hit Option[ui.Id[E]]) ui.Id[E] {
+	match hit {
+	case Some[ui.Id[E]] as id:
+		id.Value
+	case None:
+		d.root
+	}
+}
+
+// TargetAt is the node that takes the mouse at column x, row y, and that
+// node, None where none does (a script mirrors a click on TestHost by it).
+func TargetAt[S, E, D, F](d mut Driver[S, E, D, F], x int, y int) Option[(ui.Id[E], ui.Node[E])] needs go.Foreign {
+	match targetAt(d, x, y) {
+	case Some[ui.Id[E]] as id:
+		Some{Value: (id.Value, nodeOf(d, id.Value))}
+	case None:
+		None
 	}
 }
 
@@ -700,7 +748,12 @@ func pressable[E](n ui.Node[E]) bool {
 	match n {
 	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
 		true
-	case _:
+	case ui.SemanticNode[E]:
+		// Degraded: a Semantic that sends a signal (a radio, an option, a
+		// link) is focusable and pressable in std ui (ui.Focusable), not
+		// on the terminal yet (OT-SEMANTIC).
+		false
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
 }
@@ -710,7 +763,10 @@ func focusable[E](n ui.Node[E]) bool {
 	match n {
 	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
 		true
-	case _:
+	case ui.SemanticNode[E]:
+		// Degraded: see pressable (OT-SEMANTIC).
+		false
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
 }
@@ -857,6 +913,7 @@ func forwardAll[E](s go.Ref[screen.Screen], fetched queue.Queue[ui.Event[E]], po
 // serve feeds the screen's input to d until the input ends or Ctrl+C.
 func serve[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
+		ticker(d)
 		let next = try next(d.s)
 		Feed(d, next) catch {
 		case ui.Closed:

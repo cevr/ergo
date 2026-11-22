@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -58,7 +59,7 @@ var wireKeyQuote = &Rule{
 
 // generatedLine is Go's generated-file convention (go help generate),
 // matched against a whole line.
-var generatedLine = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+var generatedLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`) })
 
 // generatedSource reports a source with a line that matches Go's
 // generated-file convention before its first declaration: among the
@@ -67,7 +68,7 @@ var generatedLine = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 func generatedSource(src string) bool {
 	for _, line := range strings.Split(src, "\n") {
 		line = strings.TrimSuffix(line, "\r")
-		if generatedLine.MatchString(line) {
+		if generatedLine().MatchString(line) {
 			return true
 		}
 		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "//") {
