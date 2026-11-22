@@ -108,6 +108,9 @@ test MacMountsNameAPFS {
 // Doctor reports on the base.
 func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked {
 	try initialized(t)
+	if o.Repair {
+		try settled(t)
+	}
 	let c = try config(t)
 	let mut names = []string{}
 	for cl in t.cloners {

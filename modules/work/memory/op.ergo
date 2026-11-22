@@ -24,7 +24,7 @@ type Op =
 	| ReadyOp{Name int}
 	| SyncOp{Name int}
 	| BaseOp{}
-	| CrashOp{Name int, Cloned bool}
+	| CrashOp{Name int, Cloned bool, At int}
 	| GcOp{Older int, Idle int}
 	| GcIdOp{Name int}
 	| RepairOp{}
@@ -37,7 +37,10 @@ type Op =
 // reservation whose maker died after its clone and before its marker,
 // and whose folder an agent then wrote in. Until is the second before
 // which gc keeps a trashed one's trash (gc -idle's IdleTrash), else 0.
-type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string, Cloned bool, Until int64 }
+// Staged is where a reservation's maker died making it as this work
+// makes one (CrashOp's At): 1 before its clone, 2 inside Stage, 3 after
+// Place; 0 for a record of an older work, which cloned in place.
+type Expected { Name string, State string, Parent string, Kept bool, Sure bool, Since int64, Path string, Cloned bool, Until int64, Staged int }
 
 // pick is one of three names, so sequences reuse them.
 func pick(n int) string { []string{"a", "b", "wf/c"}[((n%3)+3)%3] }
@@ -49,7 +52,7 @@ func small(n int, limit int) int { ((n % limit) + limit) % limit }
 // base on the same disk, with a workspace in its trash.
 let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
-type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
+type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk Marked, hooks Hooks, lock Lock, runner Runner }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
@@ -398,14 +401,14 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 	let lock = NewLock()
 	let hooks = Recording(lock, failing)
 	let runner = NewRunner()
-	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: hooks, Vcs: vcs, Files: disk, Writes: disk, Runner: runner, Clock: clock}
+	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: hooks, Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: clock}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = tool.Init() catch {
 	case work.BadConfig, work.Unkept, fs.Denied, fs.Failed:
 		Unreachable("init of a memory base")
 		""
 	}
-	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock, disk: disk, hooks: hooks, lock: lock, runner: runner}
+	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock, disk: MarkedOver(disk, trees), hooks: hooks, lock: lock, runner: runner}
 }
 
 // fresh are new's options with only the copy flag.
@@ -425,6 +428,11 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 	let mut commits = 0
 	for op in ops {
 		let at = w.clock.Now().UnixSeconds()
+		if locks(op) {
+			let (settledWant, dropped) = settledIn(want, at)
+			want = settledWant
+			gone = slices.Concat(gone, dropped)
+		}
 		match op {
 		case NewOp as o:
 			let name = pick(o.Name)
@@ -436,7 +444,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				return false
 			}
 			if !holds(want, name) {
-				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name), Cloned: false, Until: 0}
+				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name), Cloned: false, Until: 0, Staged: 0}
 				want = freed(want, name, if sharing || o.Copy { Some[Expected]{Value: e} } else { None })
 			}
 		case OnOp as o:
@@ -453,7 +461,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					return false
 				}
 				if can {
-					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made, Cloned: false, Until: 0}
+					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made, Cloned: false, Until: 0, Staged: 0}
 					want = freed(want, name, if made != "" { Some[Expected]{Value: e} } else { None })
 				}
 			case None:
@@ -544,27 +552,54 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: crashId(name), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
 				case work.Unkept:
 				}
-				// Cut short before the clone (a folder with no checkout), or
-				// after it: a whole checkout of the base, unmarked, that an
-				// agent wrote in (2026-11-20: rm and gc deleted such a lane).
-				let cloned = o.Cloned && cloneWithWork(w, path)
-				if !cloned {
-					Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
+				let cut = small(o.At, 4)
+				// The name's folder and staging folder are this crash's now.
+				let staging = work.StagingOf(work.Home(theBase, ""), crashId(name))
+				gone = slices.Filter(gone, func(p string) bool { p != path && p != staging })
+				if cut == 0 {
+					// An older work's new, which cloned in place, cut short
+					// before the clone (a folder with no checkout), or after
+					// it: a whole checkout of the base, unmarked, that an
+					// agent wrote in (2026-11-20: rm and gc deleted such a lane).
+					let cloned = o.Cloned && cloneWithWork(w, path)
+					if !cloned {
+						Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
+					}
+					want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: cloned, Until: 0, Staged: 0})
+				} else if cut == 3 {
+					// This work's new, killed after Place: its clone is whole and
+					// marked at its path, and an agent wrote in it.
+					let placed = cloneWithWork(w, path) && Write(w.trees, path, work.MarkerFile, crashId(name)+"\n")
+					want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: placed, Until: 0, Staged: if placed { 3 } else { 1 }})
+				} else {
+					// Killed before its clone (1) or inside Stage (2: its staging
+					// folder part copied); nothing is at its path.
+					if cut == 2 {
+						Plant(w.trees, work.StagingOf(work.Home(theBase, ""), crashId(name)), Map[string, string]{"half": "a clone cut short"})
+					}
+					want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: false, Until: 0, Staged: cut})
 				}
-				want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: cloned, Until: 0})
 			}
 		case GcIdOp as o:
 			// gc -id of a reservation whose maker died (workrift's call on
 			// a stale record): it is purged, folder and all, exactly when
 			// its folder holds no checkout.
+			// Its settle runs whatever the record is now, so the call does:
+			// of an id no record holds when name's is not a reservation.
 			let name = pick(o.Name)
+			let creating = match find(want, name) {
+			case Some[Expected] as e:
+				e.Value.State == "creating"
+			case None:
+				false
+			}
+			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false}) catch {
+			case _:
+				return false
+			}
 			match find(want, name) {
 			case Some[Expected] as e:
 				if e.Value.State == "creating" {
-					let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(crashId(name)), Archive: false}) catch {
-					case _:
-						return false
-					}
 					let wanted = if e.Value.Cloned { []string{} } else { []string{name} }
 					if out.Purged != wanted {
 						return false
@@ -1187,7 +1222,8 @@ func agrees(w World, want []Expected, gone []string) bool {
 		if g.Name != e.Name || work.StateName(g.State) != e.State || g.Parent != e.Parent {
 			return false
 		}
-		if !w.trees.Has(g.Path) {
+		// A reservation stopped before Place has nothing at its path.
+		if !w.trees.Has(g.Path) && !(e.State == "creating" && (e.Staged == 1 || e.Staged == 2)) {
 			return false
 		}
 		// No command deletes a folder that holds unsaved work.
@@ -1206,6 +1242,36 @@ func agrees(w World, want []Expected, gone []string) bool {
 		}
 	}
 	true
+}
+
+// locks is whether op's command takes the registry's lock, so it first
+// settles the reservations whose maker is gone (work's settled).
+func locks(op Op) bool {
+	match op {
+	case NewOp, OnOp, RmOp, ReadyOp, SyncOp, GcOp, GcIdOp, RepairOp:
+		true
+	case EditOp, LandOp, BaseOp, CrashOp, WaitOp:
+		false
+	}
+}
+
+// settledIn is the reference after a settle at the second at: a
+// reservation this work's new left placed is active (with what the agent
+// wrote); one it left before or inside Stage is gone, with its staging
+// folder, which are the paths dropped. An older work's are as they were.
+func settledIn(want []Expected, at int64) ([]Expected, []string) {
+	let mut next = []Expected{}
+	let mut dropped = []string{}
+	for e in want {
+		if e.State != "creating" || e.Staged == 0 {
+			next = next.Append(e)
+		} else if e.Staged == 3 {
+			next = next.Append(Expected{..e, State: "active", Since: at, Staged: 0})
+		} else {
+			dropped = slices.Concat(dropped, []string{e.Path, work.StagingOf(work.Home(theBase, ""), crashId(e.Name))})
+		}
+	}
+	(next, dropped)
 }
 
 // crashId is the id of name's crashed reservation, a slash a dash as in
