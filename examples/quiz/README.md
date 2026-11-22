@@ -57,7 +57,7 @@ The program is a module of packages (`ergo.mod`: `module quiz`), in the Go layou
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/quiz/cmd/quiz < examples/quiz/cases/plants/stdin
 ./bin/ergo test examples/quiz/quiz
 go run ./scripts/examples quiz

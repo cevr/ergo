@@ -52,7 +52,7 @@ The live laws run the actor for each generated case, so they also check the runn
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/search/cmd/search < examples/search/cases/browse/stdin
 ./bin/ergo test examples/search/search
 ./bin/ergo test examples/search/memory

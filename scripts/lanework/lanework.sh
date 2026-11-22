@@ -77,6 +77,9 @@ cmd_warm() {
     umask 022
     export GOCACHE="$SRC/.git/gocache" GOMEMLIMIT=6GiB GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=-p=2
     bounded go build ./...
+    # The ergo tool builds without cgo (internal/ergobuild), and a package
+    # above net is a separate cache entry per cgo setting.
+    CGO_ENABLED=0 bounded go build -o /dev/null ./cmd/ergo
     bounded go vet ./...
   ) 9>&-
 }

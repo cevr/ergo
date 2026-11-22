@@ -1424,6 +1424,9 @@ type $TestAmbient struct{ dir string }
 
 func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
 
+// end removes the case's folder: the IR defers it (ir_with.go testAmbient).
+func (a $TestAmbient) end() { $Runtime.TestFolderRemove(a.dir) }
+
 // $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
 type $Assertion struct{ at, text, what, declaration string }

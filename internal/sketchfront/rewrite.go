@@ -338,7 +338,7 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 		// it needs no Go tool (licenceEntries): a std Go body runs by its
 		// evaluator native. Std holds no skipped licence, as a module's
 		// test does not (AC10), so a skip fails the fresh ledger.
-		lic, skipped, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil, build.Toolchain{})
+		lic, skipped, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys(), req.Stderr, nil, build.Toolchain{})
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
@@ -366,7 +366,7 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
-		for _, e := range lower.LedgerEntries(unit, nil, ev, lower.ShippedForeignKeys) {
+		for _, e := range lower.LedgerEntries(unit, nil, ev, lower.ShippedForeignKeys()) {
 			entries[e.Key()] = e
 		}
 	}

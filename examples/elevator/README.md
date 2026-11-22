@@ -25,7 +25,7 @@ The program is a module of packages (`ergo.mod`: `module elevator`), in the Go l
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 printf 'call 3\ncall 7\ntick 8\nhalt\n' | ./bin/ergo run examples/elevator/cmd/elevator
 ./bin/ergo test examples/elevator/floors
 ./bin/ergo test examples/elevator/car
