@@ -6,8 +6,7 @@
 # the excerpt is text of one line of the file that contains the match; `*` covers the
 # whole file.
 
-# skipped: the history list of the 196n spec (docs/research/ef-migrate/*.ergo is parsed
-# in the current syntax and stays checked), the old-syntax parser and its inputs
+# skipped: the history list of the 196n spec, the old-syntax parser and its inputs
 !docs/receipts/
 !docs/previews/2026-
 !docs/research/
