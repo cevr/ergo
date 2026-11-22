@@ -194,9 +194,18 @@ func pureCandidate(info *check.Info, f *check.Func, fails bool) ([]*check.Func, 
 		// task (release.go, L8 B1).
 		return nil, false
 	}
+	return pureCalls(info, d.Body)
+}
+
+// pureCalls reports whether every call in n, outside the bodies of
+// function literals, is a pure call or a call of an Ergo-bodied function
+// (the candidates it gives, which isPure decides), and n converts no
+// value into a Go interface: pureCandidate's rule for a body, which a
+// quiet loop's body meets too (ir_poll.go).
+func pureCalls(info *check.Info, n syntax.Node) ([]*check.Func, bool) {
 	var callees []*check.Func
 	ok := true
-	syntax.Inspect(d.Body, func(n syntax.Node) bool {
+	syntax.Inspect(n, func(n syntax.Node) bool {
 		if !ok {
 			return false
 		}

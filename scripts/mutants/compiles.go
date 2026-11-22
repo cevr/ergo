@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
 // A mutant that does not compile is invalid, never killed (GT-COMPILE).
@@ -157,8 +159,12 @@ func (w *worker) apply(m *Mutant, path string, original []byte) (func(), string)
 		w.err = errors.Join(w.err, err)
 		return nil, err.Error()
 	}
+	mutated, err := anchor.Apply(m.File, original, m.Decl, m.From, m.To)
+	if err != nil {
+		return nil, err.Error()
+	}
 	w.touched[m.File] = true
-	if err := os.WriteFile(path, []byte(strings.Replace(string(original), m.From, m.To, 1)), info.Mode().Perm()); err != nil {
+	if err := os.WriteFile(path, mutated, info.Mode().Perm()); err != nil {
 		w.err = errors.Join(w.err, err)
 		return nil, err.Error()
 	}

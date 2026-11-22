@@ -87,9 +87,17 @@ func kindsProgram(seed uint64) string {
 	// copied in a law and in a generic function the law calls: its Go
 	// field is Go's map in every instance (intmap.go intMapFields; std/jobs
 	// failed to build when its laws' copies were first analyzed).
-	b.WriteString("type Box[T] { M Map[int, T] }\n\n")
-	b.WriteString("func grow[T](b Box[T], k int, v T) Box[T] {\n\tlet mut c = b\n\tc.M[k] = v\n\tc\n}\n\n")
-	fmt.Fprintf(&b, "law VGeneric(a int) {\n\tlet x = Box[int]{M: Map[int, int]{1: a}}\n\tlet y = grow(x, 2, a)\n\tlet mut z = x\n\tz.M[%d] = a\n\tlen(x.M) == 1 && len(y.M) == 2 && len(z.M) == 2\n}\n\n", 3+r.IntN(5))
+	// The record's value is itself a generic record and the functions own
+	// their argument, so the emitter writes a clone of each instance: with
+	// the field taken for an int map table that clone calls a Clone method
+	// Go's map lacks (std/jobs's State[J]; a plain Map[int, T] field took
+	// no clone and survived the mutant).
+	b.WriteString("type E[T] { v T, n int }\n\ntype Box[T] { M Map[int, E[T]], xs []int }\n\n")
+	b.WriteString("func boxOf[T]() Box[T] {\n\tBox[T]{M: Map[int, E[T]]{}, xs: []int{}}\n}\n\n")
+	b.WriteString("func put[T](b own Box[T], k int, v T) Box[T] {\n\tlet mut c = b\n\tc.M[k] = E[T]{v: v, n: k}\n\tc.xs = c.xs.Append(k)\n\tc\n}\n\n")
+	b.WriteString("func drop[T](b own Box[T], k int) Box[T] {\n\tlet mut c = b\n\tc.M = c.M.Delete(k)\n\tc\n}\n\n")
+	b.WriteString("func has[T](b Box[T], k int) bool {\n\tmatch b.M.Get(k) {\n\tcase Some[E[T]] as e:\n\t\te.Value.n == k\n\tcase None:\n\t\tfalse\n\t}\n}\n\n")
+	fmt.Fprintf(&b, "law VGeneric(a int) {\n\tlet x = put(boxOf[int](), 1, a)\n\tlet y = put(x, %d, a)\n\tlet z = drop(x, 1)\n\thas(x, 1) && has(y, %[1]d) && !has(z, 1) && len(x.M) == 1 && len(y.M) == 2\n}\n\n", 3+r.IntN(5))
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"x\")\n}\n")
 	return b.String()
 }
@@ -107,6 +115,12 @@ func kindsVerdicts(out string) map[string]string {
 		got[name] = "no verdict"
 		for _, l := range lines(out) {
 			switch {
+			case (l == "ok "+name || strings.HasPrefix(l, "ok "+name+" ")) && strings.Contains(l, "(evaluated)"):
+				// The evaluator decided it, so the IR never ran it: ergo
+				// test evaluates a package whose native build it does not
+				// make (KMEANS-LAW: with intMapFields off, VGeneric's
+				// build fails and the run passed evaluated).
+				got[name] = "evaluated, not run natively"
 			case l == "ok "+name || strings.HasPrefix(l, "ok "+name+" "):
 				got[name] = "passed"
 			case strings.HasPrefix(l, "FAIL "+name+" ") || strings.HasPrefix(l, "FAIL "+name+":"):
@@ -189,9 +203,14 @@ func TestValueRuleEveryBodyKind(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "kinds.ergo"), []byte(src), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(ergoCLI(t), "test", dir)
+		cmd := exec.Command(ergoCLI(t), "test", dir, "--native", "--count", "1")
 		cmd.Dir = dir
-		irOut, _ := cmd.CombinedOutput()
+		irOut, irErr := cmd.CombinedOutput()
+		if irErr != nil {
+			// A failed run names its exit (a build error, a kill) beside
+			// the output, so a verdict it lacks shows why.
+			t.Errorf("seed %d: ergo test --native: %v\n--- output\n%s\n%s", seed, irErr, irOut, replay)
+		}
 		for _, run := range []struct{ name, out string }{{"the text path", text}, {"ergo test (the IR)", string(withoutBuildNote(irOut))}} {
 			for name, v := range kindsVerdicts(run.out) {
 				if v != "passed" {

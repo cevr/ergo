@@ -11,14 +11,31 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
 
+// toolchainModule is the Go module of Ergo's toolchain: a row of one of
+// its packages (runtime/v1/hostfs) hashes the declaration in this tree,
+// not in goroot.
+const toolchainModule = "ergo.local/prototype"
+
+// pkgDir is the source directory of the Go package pkg: under goroot/src,
+// or in this module's tree for a package of toolchainModule.
+func pkgDir(goroot, pkg string) string {
+	if rest, ok := strings.CutPrefix(pkg, toolchainModule+"/"); ok {
+		_, file, _, _ := runtime.Caller(0) // .../internal/gofacts/source.go
+		return filepath.Join(filepath.Dir(file), "..", "..", filepath.FromSlash(rest))
+	}
+	return filepath.Join(goroot, "src", filepath.FromSlash(pkg))
+}
+
 // SourceHash is the first 12 hex digits of the sha256 of target's Go
 // declarations (a function of a package of Go's standard library, every
 // file of the package, any build constraint), printed by go/printer, in
-// the source tree goroot/src. A row whose Source differs is reviewed
+// the source tree goroot/src, or of a function of the toolchain's own
+// module in its tree (pkgDir). A row whose Source differs is reviewed
 // again.
 func SourceHash(goroot, target string) (string, error) {
 	// "path.F", or "path.T.M" for a method of T.
@@ -31,7 +48,7 @@ func SourceHash(goroot, target string) (string, error) {
 	if len(parts) == 3 {
 		recv = parts[1]
 	}
-	dir := filepath.Join(goroot, "src", filepath.FromSlash(pkg))
+	dir := pkgDir(goroot, pkg)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", err

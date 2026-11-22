@@ -107,7 +107,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if captureLowering != "reference" && len(l.info.ValueCaptures[n]) > 0 {
 		irNo("function literal that copies what it captures")
 	}
-	if l.info.TaskCaptures[n] != nil {
+	if c := l.info.TaskCaptures[n]; c != nil && !taskLendsOnly(c) {
 		irNo("function literal that a task captures")
 	}
 	var params []*check.Var
@@ -161,9 +161,12 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	}
 	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
 	own, frame, exits, exitsFC := b.own, b.frame, b.exits, b.exitsFC
+	amort, sites := b.amort, b.pollSites
+	b.amort, b.pollSites = nil, nil // a frame of its own: its nests count apart (ir_poll.go)
 	defer func() {
 		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
 		b.own, b.frame, b.exits, b.exitsFC = own, frame, exits, exitsFC
+		b.amort, b.pollSites = amort, sites
 	}()
 	// The literal's body is a frame of its own: no loop of the maker's
 	// memoizes a call of it (ir_memo.go).
@@ -200,6 +203,26 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		lit.Body = b.unitReturns(lit.Body, e)
 	}
 	return lit
+}
+
+// taskLendsOnly reports a task's literal that moves no resource and only
+// borrows lets (R12, R27; check.TaskCapture): the emitter's taskSnapshot
+// then only rebinds each borrowed let to a sender local of the same value,
+// with no owner to hand at admission (captureCall), no root owner of a
+// repeated body (taskCaptureRoot) and no capture the literal's frame owns
+// (funcLitClosure). A let is never written, so the literal reading it is
+// that snapshot. A move, or a borrowed let mut, which the snapshot fixes
+// before later writes, stays the emitter's.
+func taskLendsOnly(c *check.TaskCapture) bool {
+	if len(c.Vars) > 0 {
+		return false
+	}
+	for _, v := range c.Borrowed {
+		if v.Mut() {
+			return false
+		}
+	}
+	return true
 }
 
 // unitReturns is the body of a literal with no value: each return gives

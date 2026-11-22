@@ -46,7 +46,7 @@ func none(s field) Option[Timeout[fieldEvent]] { None }
 func idle(s field) Option[func(send func(e fieldEvent))] { None }
 
 func fieldMachine() Machine[field, fieldEvent, int] {
-	Machine[field, fieldEvent, int]{Initial: field{text: ""}, Step: fieldStep, After: none, Work: idle}
+	Machine[field, fieldEvent, int]{Initial: field{text: ""}, Step: fieldStep, After: none, Work: idle, Exit: func(s field) Option[func()] { None }}
 }
 
 func fieldView(f mut ui.Frame[fieldEvent], s field) {
