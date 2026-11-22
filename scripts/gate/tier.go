@@ -477,6 +477,9 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 	for _, p := range packages {
 		importPaths = append(importPaths, p.importPath)
 	}
+	if err := checkDurationRows(root, importPaths); err != nil {
+		return nil, nil, err
+	}
 	full, err := declareSteps(root, importPaths)
 	if err != nil {
 		return nil, nil, err

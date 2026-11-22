@@ -1,7 +1,4 @@
 {
-  "cmd/ergo": {
-    "TestDevClientAnswersInProcessWhenTheConnectionEnds": 0.01
-  },
   "ergo.local/prototype/cmd/ergo": {
     "TestALargeSourceChecksAndFmtRefusesIt": 0.09,
     "TestAManifestSelectsNothing": 1.49,
@@ -2889,8 +2886,5 @@
   },
   "ergo.local/prototype/scripts/tzdata": {
     "TestZonesBinIsEncoded": 0
-  },
-  "internal/sketchfront": {
-    "TestStatSumsReadOnlyWhatChanged": 0.01
   }
 }
