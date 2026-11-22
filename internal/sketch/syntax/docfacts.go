@@ -1,6 +1,10 @@
 package syntax
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+	"sync"
+)
 
 // Doc-comment facts. A declaration's doc comment can state a fact about it
 // in a paragraph that starts with a fixed word and a colon, as Go's
@@ -8,6 +12,29 @@ import "strings"
 // SA1019). The parser keeps the comment; these methods read the fact, so a
 // reader (lint) matches the declaration a use resolves to and never the
 // comment's text.
+
+// Generated reports a file that a tool wrote: a // comment that is the
+// whole line `// Code generated … DO NOT EDIT.` (Go's convention, go help
+// generate; Go's ast.IsGenerated) among the comments before the first
+// declaration, which `ergo bind go` and `ergo gen` put first. Such a
+// comment after code, or one that only holds the words, is not the mark.
+func (f *File) Generated() bool {
+	for _, g := range f.Comments {
+		for _, c := range g.List {
+			if len(f.Decls) > 0 && c.End() > f.Decls[0].Pos() {
+				return false
+			}
+			if generatedLine().MatchString(c.Text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// generatedLine is Go's generated-file mark, matched against a whole
+// comment.
+var generatedLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`) })
 
 // Deprecated is the paragraph of the doc comment that starts "Deprecated:",
 // and whether there is one: the declaration is kept for old callers and

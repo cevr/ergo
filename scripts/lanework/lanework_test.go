@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -235,6 +236,54 @@ func TestCreateTrimsTheCacheOverItsBound(t *testing.T) {
 		t.Fatalf("create over the bound: %v\n%s", err, out)
 	}
 	kept("cd/hour-d", "trim.txt", "README", "ef/fresh-a")
+}
+
+// TestLaneEnvPutsGoModsGoFirst: a lane's env puts on PATH, before the
+// host's, the Go that the source's go.mod names on its toolchain line,
+// from the module cache (GOTOOLCHAIN=local), or the folder LANE_GO_BIN
+// names, with GOROOT the folder above its bin (a -trimpath build has no
+// GOROOT of its own). Two lanes made by create built with the host's go
+// (2026-11-22). Mutants: no PATH line (lanework-env-no-go-path), no
+// GOROOT line (lanework-env-no-goroot), a version read from
+// the go line instead (lanework-go-bin-ignores-gomod), LANE_GO_BIN
+// ignored (lanework-go-bin-override-ignored).
+func TestLaneEnvPutsGoModsGoFirst(t *testing.T) {
+	f := newFixture(t, "no-push:workspaces-never-push-origin")
+	if err := os.WriteFile(filepath.Join(f.src, "go.mod"), []byte("module m\n\ngo 9.9\n\ntoolchain go9.9.9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mod := filepath.Join(f.dir, "mod")
+	toolchain := filepath.Join(mod, "golang.org", "toolchain@v0.0.1-go9.9.9."+runtime.GOOS+"-"+runtime.GOARCH, "bin")
+	other := filepath.Join(f.dir, "other-go", "bin")
+	for _, dir := range []string{toolchain, other} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.env = append(f.env, "GOMODCACHE="+mod)
+	for _, c := range []struct{ lane, override, want string }{
+		{"lane-f", "", toolchain},
+		{"lane-g", other, other},
+	} {
+		f.env = append(f.env, "LANE_GO_BIN="+c.override)
+		out, err := f.lanework(f.dir, "create", c.lane, "main")
+		if err != nil {
+			t.Fatalf("create %s: %v\n%s", c.lane, err, out)
+		}
+		lane := out[strings.LastIndexByte(out, '\n')+1:]
+		env, err := os.ReadFile(filepath.Join(lane, ".git", "lane.env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range []string{"export PATH=" + c.want + ":$PATH GOTOOLCHAIN=local\n", "export GOROOT=" + filepath.Dir(c.want) + "\n"} {
+			if !strings.Contains(string(env), line) {
+				t.Errorf("%s's lane.env is\n%s\nwant the line %q", c.lane, env, line)
+			}
+		}
+	}
 }
 
 // TestCreateLeavesOnlyOriginGuarded: a lane create makes keeps origin's
