@@ -867,7 +867,7 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 		if !lawLowered(r) || r.Law.Decl.Reach != nil {
 			continue
 		}
-		copies := l.takes("mono-instance")
+		copies := l.monoTaken()
 		for _, adm := range r.Law.Admit {
 			if adm != nil && !(lawGenericOwner(adm) != nil && copies) {
 				l.lawDecl(adm, nil) // lawnear.go; a generic one's runs call its copies
