@@ -78,7 +78,7 @@ func TestImportGoRows(t *testing.T) {
 		// go.Foreign's interface is empty, so only this rule keeps a
 		// context (in a test, say) from providing it.
 		{"test-context", "import go net/url\ntype Fake {}\nfunc esc(s string) string needs go.Foreign { url.QueryEscape(s) }\ntest Esc { with context { go.Foreign: Fake } { assert esc(\"a\") == \"a\" } }\n",
-			"4:39:S106 no context binds go.Foreign: its one provider is the program entry, for a main that lists it (rows.md, Entry 4)"},
+			"4:39:S106 no context binds go.Foreign: its one provider is the program entry, for a main that lists it (rows.md, Capability rows 4)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(tc.src)

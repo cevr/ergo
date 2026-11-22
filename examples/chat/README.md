@@ -27,7 +27,7 @@ The program is a module of packages (`ergo.mod`: `module chat`), in the Go layou
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/chat/cmd/chat < examples/chat/cases/session/stdin
 ./bin/ergo test examples/chat/memory   # and room, cmd/chat
 go run ./scripts/examples chat

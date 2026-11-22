@@ -2,6 +2,7 @@ package lower
 
 import (
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -259,37 +260,39 @@ func (l *lowerer) pureIntrinsic(f *check.Func) bool {
 // method of go vet's stdmethods check (Go 1.27; Flush is not in vet's
 // table), each with the Go spellings of its parameters and results. A "="
 // marks a parameter go vet keys on; an exact match ignores the mark.
-var hostProtocols = map[string]struct{ args, results []string }{
-	"Error":         {nil, []string{"string"}},
-	"String":        {nil, []string{"string"}},
-	"GoString":      {nil, []string{"string"}},
-	"As":            {[]string{"any"}, []string{"bool"}},
-	"Format":        {[]string{"=fmt.State", "rune"}, nil},
-	"GobDecode":     {[]string{"[]byte"}, []string{"error"}},
-	"GobEncode":     {nil, []string{"[]byte", "error"}},
-	"Is":            {[]string{"error"}, []string{"bool"}},
-	"MarshalJSON":   {nil, []string{"[]byte", "error"}},
-	"MarshalXML":    {[]string{"*xml.Encoder", "xml.StartElement"}, []string{"error"}},
-	"ReadByte":      {nil, []string{"byte", "error"}},
-	"ReadFrom":      {[]string{"=io.Reader"}, []string{"int64", "error"}},
-	"ReadRune":      {nil, []string{"rune", "int", "error"}},
-	"Scan":          {[]string{"=fmt.ScanState", "rune"}, []string{"error"}},
-	"Seek":          {[]string{"=int64", "int"}, []string{"int64", "error"}},
-	"UnmarshalJSON": {[]string{"[]byte"}, []string{"error"}},
-	"UnmarshalXML":  {[]string{"*xml.Decoder", "xml.StartElement"}, []string{"error"}},
-	"UnreadByte":    {nil, []string{"error"}},
-	"UnreadRune":    {nil, []string{"error"}},
-	"Unwrap":        {nil, []string{"error"}},
-	"WriteByte":     {[]string{"byte"}, []string{"error"}},
-	"WriteTo":       {[]string{"=io.Writer"}, []string{"int64", "error"}},
-}
+var hostProtocols = sync.OnceValue(func() map[string]struct{ args, results []string } {
+	return map[string]struct{ args, results []string }{
+		"Error":         {nil, []string{"string"}},
+		"String":        {nil, []string{"string"}},
+		"GoString":      {nil, []string{"string"}},
+		"As":            {[]string{"any"}, []string{"bool"}},
+		"Format":        {[]string{"=fmt.State", "rune"}, nil},
+		"GobDecode":     {[]string{"[]byte"}, []string{"error"}},
+		"GobEncode":     {nil, []string{"[]byte", "error"}},
+		"Is":            {[]string{"error"}, []string{"bool"}},
+		"MarshalJSON":   {nil, []string{"[]byte", "error"}},
+		"MarshalXML":    {[]string{"*xml.Encoder", "xml.StartElement"}, []string{"error"}},
+		"ReadByte":      {nil, []string{"byte", "error"}},
+		"ReadFrom":      {[]string{"=io.Reader"}, []string{"int64", "error"}},
+		"ReadRune":      {nil, []string{"rune", "int", "error"}},
+		"Scan":          {[]string{"=fmt.ScanState", "rune"}, []string{"error"}},
+		"Seek":          {[]string{"=int64", "int"}, []string{"int64", "error"}},
+		"UnmarshalJSON": {[]string{"[]byte"}, []string{"error"}},
+		"UnmarshalXML":  {[]string{"*xml.Decoder", "xml.StartElement"}, []string{"error"}},
+		"UnreadByte":    {nil, []string{"error"}},
+		"UnreadRune":    {nil, []string{"error"}},
+		"Unwrap":        {nil, []string{"error"}},
+		"WriteByte":     {[]string{"byte"}, []string{"error"}},
+		"WriteTo":       {[]string{"=io.Writer"}, []string{"int64", "error"}},
+	}
+})
 
 // meetsHostProtocol reports whether f lowers to a Go method whose name and
 // Go signature, without an environment, are a host protocol's exactly
 // (case a). Only a function with a protocol's name is asked, so the
 // receiver of any other function is not resolved here.
 func (l *lowerer) meetsHostProtocol(f *check.Func) bool {
-	p, ok := hostProtocols[memberName(f.Name)]
+	p, ok := hostProtocols()[memberName(f.Name)]
 	if !ok {
 		return false
 	}
@@ -329,7 +332,7 @@ func goBasicName(t check.Type) string {
 // among td's fields and the functions on td, as a field renamed for Error
 // is (typeDecl).
 func (l *lowerer) protocolFreeName(f *check.Func, td *typeDecl, name string) string {
-	if _, ok := hostProtocols[name]; !ok {
+	if _, ok := hostProtocols()[name]; !ok {
 		return name
 	}
 	taken := map[string]bool{}

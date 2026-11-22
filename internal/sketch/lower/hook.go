@@ -2,6 +2,7 @@ package lower
 
 import (
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -16,10 +17,12 @@ import (
 
 // hookTargets are the Go bodies of a named point: std testing's At and
 // Point bind them, and so may any package's extern.
-var hookTargets = map[string]bool{
-	runtimeModule + "/runtime/v1.HookAt":    true,
-	runtimeModule + "/runtime/v1.HookPoint": true,
-}
+var hookTargets = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		runtimeModule + "/runtime/v1.HookAt":    true,
+		runtimeModule + "/runtime/v1.HookPoint": true,
+	}
+})
 
 // hookFunc reports whether f is an extern bound to a named point's Go
 // body. It reads the binding, never the package that declares it, so a
@@ -27,7 +30,7 @@ var hookTargets = map[string]bool{
 // testing's does (STD HAS NO PRIVILEGES).
 func hookFunc(f *check.Func) bool {
 	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil &&
-		hookTargets[strings.Trim(f.Decl.Extern.Target.Value, "\"`")]
+		hookTargets()[strings.Trim(f.Decl.Extern.Target.Value, "\"`")]
 }
 
 // dropHook writes, in the run build, what a call statement of At or Point
