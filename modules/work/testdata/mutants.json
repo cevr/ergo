@@ -1620,8 +1620,8 @@
     {
       "name": "m0-doctor-skips-workspaces", "origin": "wf10/semws M0",
       "file": "modules/work/work/doctor.ergo",
-      "from": "\t\tif w.State == Active {\n\t\t\troots = roots.Append(w.Path)\n",
-      "to": "\t\tif false {\n\t\t\troots = roots.Append(w.Path)\n",
+      "from": "\t\tif w.State == Active {\n\t\t\tall = all.Append(w.Path)\n",
+      "to": "\t\tif false {\n\t\t\tall = all.Append(w.Path)\n",
       "rule": "doctor checks every active workspace, not only the base (memory's DoctorSeesAnUnregisteredDriver).",
       "anchor": {"tests": ["examples:modules/work"]}
     },
