@@ -99,7 +99,7 @@ func ratio(o json.Object, s Shown) Option[float64] {
 			if stringOf(member(po, "head")) == "ergo" && stringOf(member(po, "base")) == s.Base && stringOf(member(po, "counter")) == s.Counter {
 				match member(po, "ratio") {
 				case json.Num as n:
-					let f = strconv.ParseFloat(json.Wire(n)) catch {
+					let f = strconv.ParseFloat(n.Wire()) catch {
 					case _:
 						return None
 					}

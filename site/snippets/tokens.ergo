@@ -169,7 +169,7 @@ func stringOf(v json.Value) string {
 func integer(v json.Value) int {
 	match v {
 	case json.Num as n:
-		number(json.Wire(n))
+		number(n.Wire())
 	case _:
 		-1
 	}
