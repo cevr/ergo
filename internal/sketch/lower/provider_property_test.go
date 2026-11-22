@@ -14,7 +14,7 @@ var provSeed = flag.Uint64("providers.seed", 0, "run TestKnownProvidersAgree on 
 
 // adapterParam is a Sink parameter (s, or both's a) of an adapter's type
 // in a Go function's parameter list, after the environment.
-var adapterParam = regexp.MustCompile(`, [sa] \*ops[A-Za-z]+AsSink[,)]`)
+var adapterParam = regexp.MustCompile(`[(, ][sa] \*ops[A-Za-z]+AsSink[,)]`)
 
 // TestKnownProvidersAgree is the seeded property of the copies for known
 // providers (provider.go): each seed (lower/provgen) writes a program of functions on an
@@ -88,7 +88,7 @@ func TestKnownProvidersAgree(t *testing.T) {
 	}
 	if *provSeed == 0 {
 		var missing []string
-		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance", "capture: literal", "capture: nested", "capture: std callback", "capture: task", "capture: pass on", "capture: returned"} {
+		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance", "capture: literal", "capture: nested", "capture: std callback", "capture: task", "capture: pass on", "capture: returned", "capture: known callback"} {
 			if !reached[k] {
 				missing = append(missing, k)
 			}

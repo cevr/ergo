@@ -85,6 +85,8 @@ func keep[T](s Sink, v T, k int) T {
 
 func total(s Sink) int { s.Total() }
 
+func apply(f func(int) int, k int) int { f(k) + 1 }
+
 // later returns a literal that reads its Sink (PROV-COPY-CLOSURE's
 // repro): called after later returns.
 func later(s Sink, k int) func() int {
@@ -174,7 +176,12 @@ func (g *gen) function(j int) {
 			// A read of s inside a function literal or a task's block
 			// (PROV-COPY-CLOSURE): the copy's parameter, captured, is
 			// still the adapter, and keeps the copy.
-			switch g.r.IntN(5) {
+			switch g.r.IntN(6) {
+			case 5:
+				// A known callback (known.go; ir_kcb.go): apply's call
+				// with its literal goes to apply's known variant.
+				fmt.Fprintf(&b, "\tacc = acc + apply(func(i int) int {\n\t\ts.Put(i)\n\t\ts.Total() + i\n\t}, %d)\n", c)
+				g.reached["capture: known callback"] = true
 			case 0:
 				fmt.Fprintf(&b, "\tlet g%[1]d = func(n int) int {\n\t\ts.Put(n)\n\t\ts.Total() + n\n\t}\n\tacc = acc + g%[1]d(%[2]d)\n", n, c)
 				g.reached["capture: literal"] = true
