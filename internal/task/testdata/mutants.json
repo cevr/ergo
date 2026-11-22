@@ -59,8 +59,8 @@
       "name": "task-affected-ignores-base",
       "origin": "wf10 MONOREPO WT2a",
       "file": "internal/task/affected.go",
-      "from": "\t\twhy[i], err = r.moved(rec, base)\n",
-      "to": "\t\twhy[i] = \"every node\"\n",
+      "from": "\t\tif base.Changed(f) {\n",
+      "to": "\t\tif true {\n",
       "rule": "--affected lists exactly the nodes whose key or outputs moved since BASE, and those after them.",
       "killers": ["internal/task:TestAffectedIsWhereTheKeyMoved"]
     },
