@@ -32,7 +32,7 @@ test InsertKeepsOrder {
 		let xs = gen.Named("xs", showInts, sortedInts)
 		let x = gen.Named("x", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(-5, 100) })
 		let got = Insert(xs, x)
-		IsSorted(got) && len(got) == len(xs) + 1
+		IsSorted(got) && len(got) == len(xs)+1
 	}).Report() == ""
 }
 

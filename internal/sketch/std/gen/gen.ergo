@@ -69,16 +69,16 @@ type span { start int, end int }
 // state is a source's: a splitmix64 state when recording, the tape when
 // replaying, and what the run read.
 type state {
-	mix uint64,
-	size int,
+	mix       uint64,
+	size      int,
 	replaying bool,
-	replay []uint64,
-	max int,
-	used []uint64,
-	overrun bool,
-	spans []span,
-	open []int,
-	shown []Shown,
+	replay    []uint64,
+	max       int,
+	used      []uint64,
+	overrun   bool,
+	spans     []span,
+	open      []int,
+	shown     []Shown,
 }
 
 // source is the Draws provider of one run. Its state is in a Ref, so the
@@ -159,7 +159,7 @@ func End(p source) {
 		let n = len(t.open)
 		if n > 0 {
 			let at = t.open[n-1]
-			t.open = t.open[0:n-1]
+			t.open = t.open[0 : n-1]
 			t.spans[at] = span{start: t.spans[at].start, end: len(t.used)}
 		}
 		t
@@ -306,7 +306,7 @@ law ZeroIsSimplest() {
 // the one above first at a tie, each value once.
 law IntInRanksByDistance(lo int8, width uint8) {
 	let l = int(lo)
-	let h = l + int(width % uint8(20))
+	let h = l + int(width%uint8(20))
 	let mut ok = true
 	let mut prev = -1
 	let mut seen = []int{}
@@ -595,7 +595,7 @@ law SpanDeletesAnElement() {
 law SpanDeletesARow() {
 	let mut a = []uint64{uint64(1)}
 	for i in 0..12 {
-		a = a.Append(uint64(1 + i % 3))
+		a = a.Append(uint64(1 + i%3))
 	}
 	a = a.Append(uint64(1))
 	for i in 0..11 {
@@ -704,7 +704,7 @@ law ReportNamesSeedDrawsReplay() {
 	match o {
 	case Refuted as r:
 		let text = Report(o)
-		strings.Contains(text, "seed 3") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "shrunk from: n = ") && strings.Contains(text, "\treplay: " + ReplayText(r.Shrunk.Tape)) && Replay(r.Shrunk.Tape, below(7)).Fails && Report(Check(lawConfig(uint64(3)), below(1001))) == ""
+		strings.Contains(text, "seed 3") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "shrunk from: n = ") && strings.Contains(text, "\treplay: "+ReplayText(r.Shrunk.Tape)) && Replay(r.Shrunk.Tape, below(7)).Fails && Report(Check(lawConfig(uint64(3)), below(1001))) == ""
 	case Held:
 		false
 	case GaveUp:

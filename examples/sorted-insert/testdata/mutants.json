@@ -6,7 +6,7 @@
       "origin": "wf10 PROPERTY-TESTING P1",
       "file": "examples/sorted-insert/ordered/ordered.ergo",
       "from": "if !placed && x < y {",
-      "to": "if !placed && x < y - 1 {",
+      "to": "if !placed && x < y-1 {",
       "rule": "ordered.Insert puts x before the first larger element (property InsertKeepsOrder, which shrinks the failure to xs = []int{0}, x = -1).",
       "anchor": {
         "tests": [
