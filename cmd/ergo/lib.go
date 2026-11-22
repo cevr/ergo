@@ -10,6 +10,7 @@ import (
 	"ergo.local/prototype/internal/experimental/irspike"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 const libHelp = "usage: ergo lib FILE|DIR -o DIR\n\n" +
@@ -92,8 +93,9 @@ func irLibrary(l loaded) ([]lower.File, error) {
 		return nil, fmt.Errorf("ergo lib: %w", err)
 	}
 	// The spike's driver keys its own Go cache by the compile's content,
-	// beside the patched release, as buildGoText's does.
-	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(filepath.Dir(action.Root), "gocache")}
+	// in the patched release's writable folder (the entry is read-only),
+	// as buildGoText's does.
+	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(toolchain.PatchedWork(action.Root), "gocache")}
 	text, err := irspike.LibraryText(files, tc, l.name, os.Stderr)
 	if err != nil {
 		return nil, fmt.Errorf("ergo lib: %w", err)

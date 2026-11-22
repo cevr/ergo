@@ -308,7 +308,9 @@ func flatBail(n syntax.Node, fu *flatUnion) {
 // into an interface, so the rounds end.
 func (l *lowerer) lowerAgain() ([]byte, error) {
 	next := lowererOf(l.canon, l.pkg, l.goModule, l.tests.fresh())
-	next.noEntry, next.matchTest = l.noEntry, l.matchTest
+	// A library's restart writes the library again: without its package
+	// it wrote a program with no main (examples/deploys/api; LIB-ON-IR).
+	next.noEntry, next.matchTest, next.lib = l.noEntry, l.matchTest, l.lib
 	next.ir = l.ir.restart() // LowerIR and CensusIR (ir.go)
 	if l.rewrite != nil {
 		// The run build's laws rewrite the program again on the same

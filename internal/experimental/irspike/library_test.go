@@ -99,18 +99,14 @@ func libraryAgreeOn(t *testing.T, target exampleTarget) {
 	if err != nil {
 		t.Fatalf("%s: IR library: %v", target.key(), err)
 	}
-	want, got := goAPI(t, text, "lib.go"), goAPI(t, ir, "lib.go")
+	want, got := goAPI(t, target.key()+": text library", text, "lib.go"), goAPI(t, target.key()+": IR library", ir, "lib.go")
 	if !slices.Equal(got, want) {
 		t.Errorf("%s: the IR library's Go API differs from the text library's\nonly in the IR library:\n%s\nonly in the text library:\n%s", target.key(), strings.Join(minus(got, want), "\n"), strings.Join(minus(want, got), "\n"))
 	}
 }
 
 // goEntry reports a Go entry of an exported Ergo function: its first
-// parameter is a context.Context (interop.md, A library). The library's
-// other exported Go functions are the lowering's own helpers (a std
-// function's Go body, such as strings' ToLower or NewBuilder), which each
-// lowering keeps or inlines as its bodies need: they are not the library's
-// Go API, and the two lowerings differ in them by design.
+// parameter is a context.Context (interop.md, A library).
 func goEntry(fd *ast.FuncDecl) bool {
 	ps := fd.Type.Params.List
 	if len(ps) == 0 {
@@ -131,10 +127,13 @@ func minus(a, b []string) []string {
 	return out
 }
 
-// goAPI is the Go API of the file name of files: its package clause, each
-// exported top-level function's signature, and each "Not exported to Go"
-// line, sorted.
-func goAPI(t *testing.T, files []lower.File, name string) []string {
+// goAPI is the Go API of the file name of files: its package clause,
+// each Go entry's signature (goEntry), and each "Not exported to Go" line,
+// sorted. The library exports nothing else (interop.md, A library): an
+// exported package-scope name that is not an entry (a lowered helper such
+// as a std function's body, strings' ToLower, a type, a value) fails, in
+// either library (mutant lib-helpers-exported).
+func goAPI(t *testing.T, which string, files []lower.File, name string) []string {
 	t.Helper()
 	i := slices.IndexFunc(files, func(f lower.File) bool { return f.Path == name })
 	if i < 0 {
@@ -146,16 +145,41 @@ func goAPI(t *testing.T, files []lower.File, name string) []string {
 		t.Fatalf("%s: %v", name, err)
 	}
 	out := []string{"package " + f.Name.Name}
+	var outside []string
 	for _, d := range f.Decls {
-		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv != nil || !fd.Name.IsExported() || !goEntry(fd) {
-			continue
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Recv != nil || !d.Name.IsExported() {
+				continue
+			}
+			if !goEntry(d) {
+				outside = append(outside, "func "+d.Name.Name)
+				continue
+			}
+			var b bytes.Buffer
+			if err := printer.Fprint(&b, fset, d.Type); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, "func "+d.Name.Name+strings.TrimPrefix(b.String(), "func"))
+		case *ast.GenDecl:
+			for _, sp := range d.Specs {
+				switch sp := sp.(type) {
+				case *ast.TypeSpec:
+					if sp.Name.IsExported() {
+						outside = append(outside, "type "+sp.Name.Name)
+					}
+				case *ast.ValueSpec:
+					for _, n := range sp.Names {
+						if n.IsExported() {
+							outside = append(outside, d.Tok.String()+" "+n.Name)
+						}
+					}
+				}
+			}
 		}
-		var b bytes.Buffer
-		if err := printer.Fprint(&b, fset, fd.Type); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, "func "+fd.Name.Name+strings.TrimPrefix(b.String(), "func"))
+	}
+	if len(outside) > 0 {
+		t.Errorf("%s exports Go names outside its entries:\n%s", which, strings.Join(outside, "\n"))
 	}
 	for _, line := range strings.Split(string(files[i].Data), "\n") {
 		if strings.HasPrefix(line, "// Not exported to Go:") {

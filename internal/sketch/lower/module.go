@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -184,10 +186,26 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 	if l.prenamed {
 		unreachable(l.file, ruleNamingPass, "the package-scope name %s (%s) has no name from the naming pass", base, key.kind)
 	}
+	if l.lib != "" && key.kind != "export" {
+		// A library's Go API is its entries alone (interop.md, A
+		// library): every other package-scope name, a helper, a type,
+		// a std function's body, is unexported, so a Go caller reaches
+		// nothing else and neither lowering's helpers are API (LIB-ON-IR).
+		base = unexported(base)
+	}
 	name := l.names.alloc(base)
 	l.pkgNames[key] = name
 	l.pkgOrder = append(l.pkgOrder, pkgEntry{key: key, base: base})
 	return name
+}
+
+// unexported is name with its first letter lower case, when it is upper.
+func unexported(name string) string {
+	r, n := utf8.DecodeRuneInString(name)
+	if !unicode.IsUpper(r) {
+		return name
+	}
+	return string(unicode.ToLower(r)) + name[n:]
 }
 
 // lowerer holds the lowering of one package.

@@ -400,6 +400,14 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	switch {
 	case c.Recv == nil || c.Op == nil:
 		irNo("operation call form")
+	case hostRecv(b.l.info.Types[c.Recv]):
+		// An operation of a Go interface (fmt.Stringer's String on a
+		// parameter of that type): Go's method on its receiver, as the
+		// emitter's goCall makes it (goImportCall, gocall.go goSig), never
+		// an Ergo operation with the task first (LIB-ON-IR: TestGoCallsErgo's
+		// Probe and Wait).
+		f, gc := goInterfaceMethod(b.l.info.Types[c.Recv], c)
+		return b.hostCall(x, gc, f, p) // ir_tuple.go
 	case b.env < 0:
 		irNo("operation call from a pure function")
 	case b.inPlaceSite(x):
@@ -433,6 +441,25 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	env := &irExpr{K: "local", Pos: p, I: b.env}
 	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, vals[1:]...)
 	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}), true // ir_call.go
+}
+
+// goInterfaceMethod is the Go method of the operation call c on a value of
+// recv, a Go interface type of import go (or a go.Ref or borrow of one),
+// as a Go package function hostCall calls: the binding's method, its
+// signature the operation's (no receiver parameter), its target
+// PATH.TYPE.METHOD, a value receiver; and c as a call of it.
+func goInterfaceMethod(recv check.Type, c *check.Call) (*check.Func, *check.Call) {
+	n := hostNamed(recv)
+	target := n.Obj.Pkg.Path + "." + n.Obj.Name + "." + c.Op.Name
+	decl := &syntax.FuncDecl{
+		Extern: &syntax.ExternSpec{Target: &syntax.BasicLit{Value: target}},
+		Recv:   &syntax.FieldList{List: []*syntax.Field{{Type: &syntax.Ident{Name: n.Obj.Name}}}},
+		Name:   &syntax.Ident{Name: c.Op.Name},
+	}
+	f := &check.Func{Name: c.Op.Name, Pkg: n.Obj.Pkg, Decl: decl, Sig: c.Op.Sig}
+	gc := *c
+	gc.Kind, gc.Func = check.CallFunc, f
+	return f, &gc
 }
 
 // countLoop is the for-in s over a prelude Range[T] of an integer T, as
