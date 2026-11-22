@@ -34,8 +34,8 @@ go run ./scripts/examples todo-shell
 
 ## What waits
 
-- Laws run as generated tests when #162 lands; then the restated property tests go. Laws move into the machine type when machines carry laws (#57).
-- A runner from the actor library (#57, #101) replaces `Run`'s loop over `turn`.
+- Laws run as generated tests when laws and proofs lands; then the restated property tests go. Laws move into the machine type when machines carry laws.
+- A runner from the actor library replaces `Run`'s loop over `turn`.
 - `Run` cannot catch a read failure of standard input: `Lines` is a `Seq`, which has no failure row (std-strengths I3).
 
 ## Cases

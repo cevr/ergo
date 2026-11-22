@@ -11,7 +11,7 @@ printf '9 4 2 7 4 5' | ergo run cmd/gointerop -- find 4 6   # "4 rank 1 of 6 fou
 
 ## What a Go programmer would write, and what this program does
 
-A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strconv`'s errors. In Ergo, `import go` is not built yet (#202); std binds the pure Go packages, and a user extern binds a function of the pure allowlist (`math`, `path/filepath`, `slices`, `sort`, `strconv`, `strings`, `unicode/utf8`, `encoding/hex`). So:
+A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strconv`'s errors. In Ergo, `import go` is not built yet; std binds the pure Go packages, and a user extern binds a function of the pure allowlist (`math`, `path/filepath`, `slices`, `sort`, `strconv`, `strings`, `unicode/utf8`, `encoding/hex`). So:
 
 - **SHA-256 is Go's** (`sha256/`): the provider is `hex.Encode(sha256.Sum(text))`, std `sha256` and `hex` over Go's `crypto/sha256` and `encoding/hex`. It replaced a FIPS 180-4 SHA-256 written in Ergo (0.75 s on 50 MB where Go's assembly takes 0.08 s); the FIPS vectors and coreutils' block-edge digests stay as its tests.
 - **The statistics use Go's `math`** (`stats/`): `math.Sqrt` and `math.Abs` are std; `math.Log`, `math.Exp` and `strings.TrimRight`, which std lacks, are user externs.
