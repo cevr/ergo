@@ -1,5 +1,5 @@
 {
-  "about": "scripts/lanework/lanework.sh: a lane hands its branch back to the main checkout whatever push guard work put on its remotes. Each mutant restores one way push failed (2026-11-19) and a test of this package kills it.",
+  "about": "scripts/lanework/lanework.sh: a lane hands its branch back to the main checkout whatever push guard work put on its remotes. Each mutant restores one way push failed (2026-11-19) and a test of this package kills it. The lanework-env and lanework-cache rows: every lane shares one Go cache that no clone or snapshot copies (SHARED-GOCACHE, 2026-11-22).",
   "mutants": [
     {
       "name": "lanework-push-by-remote",
@@ -18,6 +18,51 @@
       "to": "",
       "rule": "A lane create makes guards origin only; main-checkout, its push remote, takes a plain git push.",
       "killers": ["scripts/lanework:TestCreateLeavesOnlyOriginGuarded"]
+    },
+    {
+      "name": "lanework-env-per-lane",
+      "origin": "wf10 SHARED-GOCACHE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  printf 'export GOCACHE=%s\\n' \"$cache\"\n",
+      "to": "  printf 'export GOCACHE=%s/.git/gocache\\n' \"$1\"\n",
+      "rule": "Every lane's env names the one shared Go cache, not a cache of its own.",
+      "killers": ["scripts/lanework:TestLanesShareOneGoCache"]
+    },
+    {
+      "name": "lanework-cache-relative",
+      "origin": "wf10 SHARED-GOCACHE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    *) fail \"the shared Go cache is not an absolute path: '$GOCACHE_SHARED'\" ;;\n",
+      "to": "",
+      "rule": "The shared Go cache is an absolute path.",
+      "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
+    },
+    {
+      "name": "lanework-cache-dots",
+      "origin": "wf10 SHARED-GOCACHE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    */./* | */../* | *//*) fail",
+      "to": "    *///////*) fail",
+      "rule": "The shared Go cache has no . or .. part, which would hide that it lies inside a base.",
+      "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
+    },
+    {
+      "name": "lanework-cache-in-base",
+      "origin": "wf10 SHARED-GOCACHE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  for inside in \"$SRC\" \"${SRC%/*}/.work\"",
+      "to": "  for inside in \"${SRC%/*}/.work\"",
+      "rule": "The shared Go cache is not inside the source base, which every lane clones.",
+      "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
+    },
+    {
+      "name": "lanework-cache-in-storage",
+      "origin": "wf10 SHARED-GOCACHE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  for inside in \"$SRC\" \"${SRC%/*}/.work\"",
+      "to": "  for inside in \"$SRC\"",
+      "rule": "The shared Go cache is not inside the base's workspace storage.",
+      "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
     }
   ]
 }

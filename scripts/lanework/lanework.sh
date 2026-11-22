@@ -2,10 +2,11 @@
 # lanework.sh: Ergo lanes in copy-on-write workspaces of `work` (ergo work).
 #
 #   lanework.sh create <branch> <base>   make a lane workspace for <branch>; prints its path
-#   lanework.sh env [lane]               print the lane's env (GOCACHE inside the lane)
+#   lanework.sh env [lane]               print the lane's env (GOCACHE: the shared cache)
 #   lanework.sh push [lane]              hand the branch back to the main checkout
 #   lanework.sh remove <lane> [--force]  move the lane to the work trash (at READY)
-#   lanework.sh warm                     rebuild the warm source's Go cache
+#   lanework.sh warm                     rebuild the shared Go cache from the source
+#   (a lane made before the shared cache: lanework.sh env LANE > LANE/.git/lane.env)
 #
 # The same verbs as the Rift-era lane-rift.sh, over `work`. The source is
 # a base `work init` made; a lane is its workspace named <branch>. <base>
@@ -20,6 +21,11 @@ SRC=${ERGO_WORK_SOURCE:-/workspaces/ergo}
 MAIN=${ERGO_MAIN_CHECKOUT:-/home/exedev/Developer/personal/ergo}
 WORK=${WORK:-work}
 MIN_FREE_GIB=${LANE_MIN_FREE_GIB:-10}
+# The Go build cache every lane shares: one folder on the source's file
+# system, outside the source and every workspace, so no clone or snapshot
+# copies it. Go's cache is safe for concurrent go commands and trims
+# itself by age (a day's trim of entries unused for five days).
+GOCACHE_SHARED=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
 
 fail() {
   printf 'lanework: %s\n' "$*" >&2
@@ -59,8 +65,30 @@ lane_of() {
   printf '%s\n' "$found"
 }
 
+# lane_gocache prints the shared GOCACHE and makes its folder. It refuses
+# a cache that is not absolute, or that lies inside the source, the
+# source's workspace storage or the lane at $1 (when given), where a
+# clone or a snapshot would copy it.
+lane_gocache() {
+  case "$GOCACHE_SHARED" in
+    /*) ;;
+    *) fail "the shared Go cache is not an absolute path: '$GOCACHE_SHARED'" ;;
+  esac
+  case "$GOCACHE_SHARED/" in
+    */./* | */../* | *//*) fail "the shared Go cache has a . or .. or empty part: $GOCACHE_SHARED" ;;
+  esac
+  for inside in "$SRC" "${SRC%/*}/.work" "${SRC%/*}/.rifts" ${1:+"$1"}; do
+    case "$GOCACHE_SHARED/" in
+      "$inside"/*) fail "the shared Go cache $GOCACHE_SHARED is inside $inside, which a clone or a snapshot copies" ;;
+    esac
+  done
+  mkdir -p "$GOCACHE_SHARED"
+  printf '%s\n' "$GOCACHE_SHARED"
+}
+
 lane_env() {
-  printf 'export GOCACHE=%s/.git/gocache\n' "$1"
+  cache=$(lane_gocache "$1")
+  printf 'export GOCACHE=%s\n' "$cache"
   printf 'export GOMEMLIMIT=6GiB\n'
   printf 'umask 022\n'
 }
@@ -72,10 +100,11 @@ lock_source() {
 
 cmd_warm() {
   check_disk
+  cache=$(lane_gocache)
   (
     cd "$SRC"
     umask 022
-    export GOCACHE="$SRC/.git/gocache" GOMEMLIMIT=6GiB GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=-p=2
+    export GOCACHE="$cache" GOMEMLIMIT=6GiB GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=-p=2
     bounded go build ./...
     # The ergo tool builds without cgo (internal/ergobuild), and a package
     # above net is a separate cache entry per cgo setting.
@@ -91,6 +120,8 @@ cmd_create() {
   [ "$branch" != main ] || fail 'a lane never works on main'
   git check-ref-format --branch "$branch" >/dev/null || fail "bad branch name: $branch"
   check_disk
+  # A cache a clone would copy is refused before any lane is made.
+  lane_gocache >/dev/null
 
   base_sha=$(git -C "$MAIN" rev-parse --verify --quiet "$base^{commit}") || fail "base not in the main checkout: $base"
   branch_sha=$(git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$branch^{commit}" || true)
@@ -180,5 +211,5 @@ case "$command" in
   push) cmd_push "$@" ;;
   remove) cmd_remove "$@" ;;
   warm) cmd_warm ;;
-  *) sed -n '2,9p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,10p' "$0" >&2; exit 2 ;;
 esac

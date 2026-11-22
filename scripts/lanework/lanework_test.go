@@ -60,7 +60,8 @@ func newFixture(t *testing.T, guard string) *fixture {
 	f.env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-		"ERGO_WORK_SOURCE="+f.src, "ERGO_MAIN_CHECKOUT="+f.main, "WORK="+f.work, "LANE_MIN_FREE_GIB=0")
+		"ERGO_WORK_SOURCE="+f.src, "ERGO_MAIN_CHECKOUT="+f.main, "WORK="+f.work, "LANE_MIN_FREE_GIB=0",
+		"LANE_GOCACHE="+filepath.Join(dir, "gocache"))
 	script := strings.NewReplacer("@DIR@", dir, "@GUARD@", guard).Replace(fakeWork)
 	if err := os.WriteFile(f.work, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -121,6 +122,64 @@ func TestPushReachesTheMainCheckoutOfAGuardedLane(t *testing.T) {
 		}
 		if got := f.git(lane, "config", "remote.origin.pushurl"); got != guard {
 			t.Errorf("%s: push changed origin's guard to %q", guard, got)
+		}
+	}
+}
+
+// TestLanesShareOneGoCache: two lanes create makes, and the env a lane
+// made before the shared cache regenerates, all name the one shared
+// GOCACHE, and its folder exists. 137 lane caches held about 240 GB of
+// their own (SHARED-GOCACHE, 2026-11-22). Mutant: the env names the lane's
+// own cache again (lanework-env-per-lane).
+func TestLanesShareOneGoCache(t *testing.T) {
+	f := newFixture(t, "no-push:workspaces-never-push-origin")
+	want := "export GOCACHE=" + filepath.Join(f.dir, "gocache")
+	var lanes []string
+	for _, name := range []string{"lane-a", "lane-b"} {
+		out, err := f.lanework(f.dir, "create", name, "main")
+		if err != nil {
+			t.Fatalf("create %s: %v\n%s", name, err, out)
+		}
+		lanes = append(lanes, out[strings.LastIndexByte(out, '\n')+1:])
+	}
+	for _, lane := range lanes {
+		env, err := os.ReadFile(filepath.Join(lane, ".git", "lane.env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(env), want+"\n") {
+			t.Errorf("%s's lane.env is\n%s\nwant the line %q", lane, env, want)
+		}
+		if out, err := f.lanework(lane, "env"); err != nil || !strings.Contains(out, want+"\n") {
+			t.Errorf("env in %s: %v\n%s\nwant the line %q", lane, err, out, want)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(f.dir, "gocache")); err != nil || !info.IsDir() {
+		t.Errorf("the shared cache's folder: %v", err)
+	}
+}
+
+// TestLaneRefusesACacheACloneCopies: create refuses, before it makes a
+// lane, a GOCACHE that is relative, has a .. part, or lies inside the
+// source or its workspace storage, where work new's clone or a snapshot
+// of the base would copy it. Each row's mutant drops one check
+// (lanework-cache-relative, lanework-cache-dots, lanework-cache-in-base,
+// lanework-cache-in-storage).
+func TestLaneRefusesACacheACloneCopies(t *testing.T) {
+	f := newFixture(t, "no-push:workspaces-never-push-origin")
+	for _, cache := range []string{
+		"gocache",
+		f.dir + "/x/../src/c", // not Join, which cleans the .. away
+		filepath.Join(f.src, ".git", "gocache"),
+		filepath.Join(f.dir, ".work", "src", "gocache"),
+	} {
+		f.env = append(f.env, "LANE_GOCACHE="+cache)
+		out, err := f.lanework(f.dir, "create", "lane-c", "main")
+		if err == nil || !strings.Contains(out, "shared Go cache") {
+			t.Errorf("create with GOCACHE %s: %v\n%s\nwant a refusal of the cache", cache, err, out)
+		}
+		if _, err := os.Stat(filepath.Join(f.dir, "lanes")); err == nil {
+			t.Fatalf("create with GOCACHE %s made a lane", cache)
 		}
 	}
 }
