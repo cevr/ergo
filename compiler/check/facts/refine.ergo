@@ -617,9 +617,15 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 	out
 }
 
-// Diags is the refinement diagnostics of the package k.
+// Diags is the refinement diagnostics of the package k. The prelude has
+// none: the Go checker checks it once and reads none of its diagnostics
+// (check.go prelude()), and its laws' relational wheres (b where a == b)
+// stand.
 func Diags(s mut store.Store, k expr.Pkg) []diag.Diag {
 	let mut out = []diag.Diag{}
+	if store.PathOf(*s) == "prelude" {
+		return out
+	}
 	let mut done = []string{}
 	for r in Refinements(s, k) {
 		for g in r.Diags {
