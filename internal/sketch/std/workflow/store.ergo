@@ -1,0 +1,605 @@
+// Package workflow is the store of durable workflow runs (the DURABLE
+// plan, unit W1; the design model is models/workflow). A run is a journal
+// of events and one wake: the time it is due next, with a revision. A
+// worker claims a due wake, loads the run's events, folds them, and writes
+// what the fold asks for next with one Commit: the events and the next
+// wake, under the cursor it loaded (another write since is a Conflict)
+// and the fence of its claim (another claim since is Fenced). A sender's
+// signal is admitted into the run's journal with a ready wake, in one
+// write, so a commit loaded before it is a Conflict and the worker reads
+// it again (the model's Deliver; Temporal's signal event in the history).
+//
+// Store is the contract, with its laws. Its rules are one pure function,
+// Apply, over a State: the providers live in packages named after where
+// they keep the state, workflow/memory in the process and workflow/file
+// in a log of the host that replays the operations with Apply. The time
+// is an argument of each operation, as in jobs: an operation carries no
+// capability (types.md, Capabilities 4).
+//
+// A claim is lent, never held: Work claims a wake and lends it to a
+// block as a Claimed, and when Work ends, on every exit (a return, a
+// failure, a defect, a stop), the store gives back a claim the block did
+// not settle, so the wake is claimable at once. Claimed is a resource that
+// only this package builds: Settle takes it, so a second Settle, or a
+// Commit after the Settle, does not check. A worker whose process dies
+// gives nothing back; its lease runs out and the wake comes back.
+//
+// Effect: effect/workflow's WorkflowEngine and cluster MessageStorage
+// (a run's journal and its resumption); Temporal's history with its
+// workflow task (a signal is an event of the history, and a task
+// completion is refused when new events came). Go control: a table of
+// runs and a time-ordered wake per run under a mutex, a lease and an
+// epoch per run (a fencing token).
+
+import time
+
+// RunID names a run: a payload's id gives the same run.
+type RunID string where len(it) > 0 && len(it) <= 200
+
+// Cursor is a place in a run's journal: the number of events before it.
+type Cursor int where it >= 0
+
+// Failed is a store that could not keep or read its runs: Reason is the
+// provider's text, such as the host's error.
+type Failed { Reason string }
+
+// Conflict is a commit under a cursor that is not the run's: another
+// write came since the worker loaded (Actual is the run's cursor).
+type Conflict { Expected Cursor, Actual Cursor }
+
+// Fenced is a commit under a claim that is no longer the run's: it was
+// settled or given back, or the run was claimed again since.
+type Fenced { Run RunID }
+
+// Event is one entry of a run's journal. Every fold over it is a match,
+// so a new kind stops the build at each one.
+type Event =
+	| Started{Payload string, Version string, At time.Time}
+	| StepAsked{Op string, N int, Digest string, Input string}
+	| StepDone{Op string, N int, Result string}
+	| StepFailed{Op string, N int, Failure string}
+	| StepAgain{Op string, N int, Attempt int, Due time.Time}
+	| TimerSet{Name string, Due time.Time}
+	| TimerDue{Name string}
+	| SignalIn{Signal string, Value string}
+	| WaitTimedOut{Signal string}
+	| UndoAsked{Op string, N int}
+	| UndoDone{Op string, N int}
+	| UndoFailed{Op string, N int, Reason string}
+	| CancelAsked{}
+	| Ended{Outcome string}
+
+// Wake is when a run is due next, and its revision: each new wake of a
+// run has a higher one.
+type Wake { Due time.Time, Rev int }
+
+// Loaded is a run's events from a cursor, the cursor after them, and its
+// wake.
+type Loaded { Events []Event, Next Cursor, Wake Option[Wake] }
+
+// Admission is what Admit did with a signal: kept it, at the cursor
+// before it; found its key kept already; or refused it, the run having
+// ended or never started.
+type Admission = Kept{At Cursor} | Duplicate{} | RunEnded{} | NoSuchRun{}
+
+// Grant is a claim's data: the run, the revision of the wake claimed, the
+// claim's epoch (the fence) and the end of its lease.
+type Grant { Run RunID, Rev int, Epoch int, Until time.Time }
+
+// Claimed is a claim that Work lends to its block. Only this package
+// builds one, so a commit is made only inside Work.
+type Claimed { grant Grant } implements Closer
+
+// Close does nothing: Work's end gives the claim back, from the store.
+func Close(_ Claimed) {}
+
+// GrantOf is the data of c.
+func GrantOf(c Claimed) Grant { c.grant }
+
+// Store keeps workflow runs.
+type Store {
+	// Create starts run with first as its first event and a wake due at
+	// now. It is false, and changes nothing, when run exists.
+	Create(run RunID, first Event, now time.Time) bool fails Failed,
+	// Admit keeps a signal for run, under key, before anything answers
+	// its sender: the event SignalIn after the run's events, and a wake
+	// due at now or before, in one write. A key kept before is a
+	// Duplicate; a run that ended or never started keeps nothing.
+	Admit(run RunID, key string, signal string, value string, now time.Time) Admission fails Failed,
+	// Load is run's events from the cursor from, the cursor after them
+	// and the run's wake (none of each for a run that never started).
+	Load(run RunID, from Cursor) Loaded fails Failed,
+	// Claim leases the wake due earliest at now, the least run first
+	// among equal times, whose run no live lease holds, until now plus
+	// lease, under a new epoch. A lease that ended is claimed again.
+	Claim(now time.Time, lease duration) Option[Grant] fails Failed,
+	// Commit records, as one write or not at all, events after the run's
+	// first expected events and, when next is some, the run's next wake
+	// with a new revision; with next none the claimed wake stays for the
+	// settle. It is the cursor after the events. It fails Conflict on
+	// another cursor and Fenced when c is no longer the run's claim.
+	Commit(c Claimed, expected Cursor, events []Event, next Option[time.Time]) Cursor fails Conflict | Fenced | Failed,
+	// Settle ends c: it retires the wake when it is still the revision c
+	// claimed (a newer one stays), and gives back the lease.
+	Settle(c own Claimed) fails Failed,
+	// GiveBack gives back the lease of g, when it is still the run's
+	// claim, and keeps the wake: the run is claimable at once.
+	GiveBack(g Grant) fails Failed,
+	..Closer,
+
+	// CommitThenLoad: Load gives the events a commit recorded after the
+	// run's, from the start and from the commit's cursor, and the cursor
+	// after them is the commit's.
+	law CommitThenLoad(run RunID, texts []string, sec int64) {
+		let now = at(sec)
+		if !try Create(run, begun(now), now) {
+			return false
+		}
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		let c = Claimed{grant: g}
+		let events = done(texts)
+		let next = try Commit(c, 1, events, Some[time.Time]{Value: now.Add(1s)})
+		try Settle(c)
+		let all = try Load(run, 0)
+		let tail = try Load(run, 1)
+		int(next) == 1+len(texts) && all.Next == next && tail.Next == next && all.Events == []Event{begun(now)}.Concat(events) && tail.Events == events
+	},
+
+	// StaleCommitChangesNothing: a commit under a claim the run was
+	// claimed again since is Fenced, a commit under another cursor is a
+	// Conflict, and neither changes what Load gives.
+	law StaleCommitChangesNothing(run RunID, text string, sec int64) {
+		let now = at(sec)
+		let _ = try Create(run, begun(now), now)
+		let first = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		let second = match try Claim(now.Add(1s), 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		let before = try Load(run, 0)
+		let stale = Claimed{grant: first}
+		// A commit's cursor is at least 1 (the run's first event), so 0
+		// marks a refusal.
+		let late = try Commit(stale, 1, done([]string{text}), None) catch {
+		case Fenced:
+			0
+		case Conflict:
+			return false
+		}
+		if late != 0 || try Load(run, 0) != before {
+			return false
+		}
+		let c = Claimed{grant: second}
+		let behind = try Commit(c, 0, done([]string{text}), None) catch {
+		case Conflict as k:
+			if k.Actual != 1 || k.Expected != 0 {
+				return false
+			}
+			0
+		case Fenced:
+			return false
+		}
+		behind == 0 && try Load(run, 0) == before
+	},
+
+	// CommitIsAllOrNothing: a commit that fails leaves the run as it was
+	// or holds every event it was given and its wake, never a part.
+	law CommitIsAllOrNothing(run RunID, texts []string, sec int64) {
+		let now = at(sec)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		let before = try Load(run, 0)
+		let events = done(texts)
+		let due = now.Add(2s)
+		let wrote = try Commit(Claimed{grant: g}, 1, events, Some[time.Time]{Value: due}) catch {
+		case Failed:
+			0
+		}
+		let after = try Load(run, 0)
+		let whole = after.Events == before.Events.Concat(events) && dueOf(after.Wake) == Some[time.Time]{Value: due}
+		if wrote != 0 {
+			return whole
+		}
+		whole || after == before
+	},
+
+	// OneClaimPerWake: a due wake is claimed once while its lease lives:
+	// a second claim at the same time or before the lease ends, also of a
+	// newer wake the claim's own commit made due, finds nothing.
+	law OneClaimPerWake(run RunID, sec int64, ms int) {
+		let now = at(sec)
+		let lease = time.Times(1ms, 1+((ms%1000)+1000)%1000)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, lease) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		if g.Run != run || g.Until != now.Add(lease) || try Claim(now, lease) != None {
+			return false
+		}
+		let _ = try Commit(Claimed{grant: g}, 1, done([]string{"a"}), Some[time.Time]{Value: now})
+		try Claim(now.Add(lease).Add(-1ns), lease) == None
+	},
+
+	// UnsettledClaimComesBack: a claim neither settled nor given back
+	// (its worker died) holds its wake until its lease ends, and then the
+	// wake is claimed again under a higher epoch.
+	law UnsettledClaimComesBack(run RunID, sec int64, ms int) {
+		let now = at(sec)
+		let lease = time.Times(1ms, 1+((ms%1000)+1000)%1000)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, lease) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		if try Claim(now.Add(lease).Add(-1ns), lease) != None {
+			return false
+		}
+		match try Claim(now.Add(lease), lease) {
+		case Some{Value: again}:
+			again.Run == run && again.Rev == g.Rev && again.Epoch > g.Epoch
+		case None:
+			false
+		}
+	},
+
+	// SettleLeavesNewerWake: a settle retires the wake it claimed, and
+	// leaves a newer one (a signal admitted since) due and claimable.
+	law SettleLeavesNewerWake(run RunID, signal bool, sec int64) {
+		let now = at(sec)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		if signal {
+			if try Admit(run, "key", "go", "v", now) != (Kept{At: 1}) {
+				return false
+			}
+		}
+		try Settle(Claimed{grant: g})
+		let w = (try Load(run, 0)).Wake
+		if !signal {
+			return w == None
+		}
+		match w {
+		case Some{Value: newer}:
+			if newer.Rev <= g.Rev {
+				return false
+			}
+		case None:
+			return false
+		}
+		match try Claim(now, 1s) {
+		case Some{Value: again}:
+			again.Run == run && again.Rev > g.Rev
+		case None:
+			false
+		}
+	},
+
+	// GiveBackFreesNow: a claim given back is claimable at the same time,
+	// before any of its lease passed, under a higher epoch, and a commit
+	// under the claim given back is Fenced.
+	law GiveBackFreesNow(run RunID, sec int64) {
+		let now = at(sec)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		try GiveBack(g)
+		let late = try Commit(Claimed{grant: g}, 1, []Event{}, None) catch {
+		case Fenced:
+			0
+		case Conflict:
+			return false
+		}
+		match try Claim(now, 1s) {
+		case Some{Value: again}:
+			late == 0 && again.Run == run && again.Epoch > g.Epoch
+		case None:
+			false
+		}
+	},
+}
+
+// at is a time of the laws: sec seconds into the epoch, kept small.
+func at(sec int64) time.Time { time.Unix(((sec%1000000)+1000000)%1000000, 0) }
+
+// begun is the first event of the laws' runs.
+func begun(now time.Time) Event { Started{Payload: "p", Version: "1", At: now} }
+
+// done is one StepDone per text, numbered from 1.
+func done(texts []string) []Event {
+	let mut out = []Event{}
+	for i, t in texts {
+		out = out.Append(StepDone{Op: "op", N: i + 1, Result: t})
+	}
+	out
+}
+
+// dueOf is the due time of a wake.
+func dueOf(w Option[Wake]) Option[time.Time] {
+	match w {
+	case Some{Value: x}:
+		Some[time.Time]{Value: x.Due}
+	case None:
+		None
+	}
+}
+
+// Work claims the wake due earliest at now for lease and lends the claim
+// to work: it is false when no wake is due. When Work ends, on every
+// exit, the store gives back the claim unless work settled it, so the
+// wake is claimable at once; a give-back that fails leaves the lease to
+// run out.
+func Work[E, R](s Store, now time.Time, lease duration, work func(c own Claimed) fails E needs R) bool fails E | Failed needs R {
+	match try s.Claim(now, lease) {
+	case Some{Value: g}:
+		try work(Claimed{grant: g})
+		s.GiveBack(g) catch {
+		case Failed:
+		}
+		true
+	case None:
+		false
+	}
+}
+
+// Op is one operation of a store that changes it, as a value: the log of
+// workflow/file keeps them, and Apply runs them.
+type Op =
+	| Creating{Run RunID, First Event, Now time.Time}
+	| Admitting{Run RunID, Key string, Signal string, Value string, Now time.Time}
+	| Claiming{Now time.Time, Lease duration}
+	| Committing{Grant Grant, Expected Cursor, Events []Event, Next Option[time.Time]}
+	| Settling{Grant Grant}
+	| GivingBack{Grant Grant}
+
+// Outcome is what Apply of an Op gave.
+type Outcome =
+	| Created{New bool}
+	| Admitted{As Admission}
+	| Granted{Grant Option[Grant]}
+	| Committed{Next Cursor}
+	| Behind{Expected Cursor, Actual Cursor}
+	| Unfenced{Run RunID}
+	| Done{}
+
+// State is a store's runs. Empty makes one; Apply changes it.
+type State { runs Map[RunID, run] }
+
+// run is one run: its events, the signal keys it kept, its wake, the last
+// revision and epoch it gave, and its lease (held, until).
+type run {
+	events []Event,
+	keys   Map[string, bool],
+	wake   Option[Wake],
+	rev    int,
+	epoch  int,
+	held   bool,
+	until  time.Time,
+}
+
+// Empty is a store with no run.
+func Empty() State { State{runs: Map[RunID, run]{}} }
+
+// cursorOf is the cursor of a count of events.
+func cursorOf(n int) Cursor {
+	ParseCursor(n) catch {
+	case Unsatisfied:
+		Unreachable("a count is not below zero")
+	}
+}
+
+// LoadOf is Load of run from from in s.
+func LoadOf(s State, id RunID, from Cursor) Loaded {
+	match s.runs.Get(id) {
+	case Some{Value: r}:
+		let mut out = []Event{}
+		for i, e in r.events {
+			if i >= int(from) {
+				out = out.Append(e)
+			}
+		}
+		Loaded{Events: out, Next: cursorOf(len(r.events)), Wake: r.wake}
+	case None:
+		Loaded{Events: []Event{}, Next: 0, Wake: None}
+	}
+}
+
+// ended is whether events end with Ended.
+func ended(events []Event) bool {
+	if len(events) == 0 {
+		return false
+	}
+	match events[len(events)-1] {
+	case Ended:
+		true
+	case _:
+		false
+	}
+}
+
+// Apply runs op on s: the outcome, the state after it, and whether the
+// state changed (a claim that found no wake, a duplicate or refused
+// signal, a refused commit, and a settle or give-back of a claim that is
+// no longer the run's that leaves its wake, change nothing).
+func Apply(s State, op Op) (Outcome, State, bool) {
+	let mut st = s
+	match op {
+	case Creating as c:
+		if st.runs.Get(c.Run) != None {
+			return (Created{New: false}, st, false)
+		}
+		st.runs[c.Run] = run{events: []Event{c.First}, keys: Map[string, bool]{}, wake: Some[Wake]{Value: Wake{Due: c.Now, Rev: 1}}, rev: 1, epoch: 0, held: false, until: c.Now}
+		(Created{New: true}, st, true)
+	case Admitting as a:
+		let r = match st.runs.Get(a.Run) {
+		case Some{Value: x}:
+			x
+		case None:
+			return (Admitted{As: NoSuchRun}, st, false)
+		}
+		if r.keys.Get(a.Key) != None {
+			return (Admitted{As: Duplicate}, st, false)
+		}
+		if ended(r.events) {
+			return (Admitted{As: RunEnded}, st, false)
+		}
+		let due = match r.wake {
+		case Some{Value: w}:
+			if w.Due.Before(a.Now) { w.Due } else { a.Now }
+		case None:
+			a.Now
+		}
+		let mut keys = r.keys
+		keys[a.Key] = true
+		st.runs[a.Run] = run{..r, events: r.events.Append(SignalIn{Signal: a.Signal, Value: a.Value}), keys: keys, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
+		(Admitted{As: Kept{At: cursorOf(len(r.events))}}, st, true)
+	case Claiming as c:
+		let mut best Option[RunID] = None
+		for id, r in st.runs {
+			if claimable(r, c.Now) && earlier(st, id, best) {
+				best = Some[RunID]{Value: id}
+			}
+		}
+		match best {
+		case Some{Value: id}:
+			let r = match st.runs.Get(id) {
+			case Some{Value: x}:
+				x
+			case None:
+				Unreachable("the best run is in the store")
+			}
+			let until = c.Now.Add(c.Lease)
+			let g = Grant{Run: id, Rev: revOf(r.wake), Epoch: r.epoch + 1, Until: until}
+			st.runs[id] = run{..r, epoch: r.epoch + 1, held: true, until: until}
+			(Granted{Grant: Some[Grant]{Value: g}}, st, true)
+		case None:
+			(Granted{Grant: None}, st, false)
+		}
+	case Committing as c:
+		let r = match st.runs.Get(c.Grant.Run) {
+		case Some{Value: x}:
+			x
+		case None:
+			return (Unfenced{Run: c.Grant.Run}, st, false)
+		}
+		if r.epoch != c.Grant.Epoch || !r.held {
+			return (Unfenced{Run: c.Grant.Run}, st, false)
+		}
+		if len(r.events) != int(c.Expected) {
+			return (Behind{Expected: c.Expected, Actual: cursorOf(len(r.events))}, st, false)
+		}
+		let events = r.events.Concat(c.Events)
+		let next = match c.Next {
+		case Some{Value: due}:
+			run{..r, events: events, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
+		case None:
+			run{..r, events: events}
+		}
+		st.runs[c.Grant.Run] = next
+		(Committed{Next: cursorOf(len(events))}, st, true)
+	case Settling as e:
+		let r = match st.runs.Get(e.Grant.Run) {
+		case Some{Value: x}:
+			x
+		case None:
+			return (Done, st, false)
+		}
+		let mine = r.epoch == e.Grant.Epoch && r.held
+		let retire = r.wake != None && revOf(r.wake) == e.Grant.Rev
+		if !mine && !retire {
+			return (Done, st, false)
+		}
+		st.runs[e.Grant.Run] = run{..r, held: r.held && !mine, wake: if retire { None } else { r.wake }}
+		(Done, st, true)
+	case GivingBack as b:
+		let r = match st.runs.Get(b.Grant.Run) {
+		case Some{Value: x}:
+			x
+		case None:
+			return (Done, st, false)
+		}
+		if r.epoch != b.Grant.Epoch || !r.held {
+			return (Done, st, false)
+		}
+		st.runs[b.Grant.Run] = run{..r, held: false}
+		(Done, st, true)
+	}
+}
+
+// claimable is whether r has a wake due at now and no live lease.
+func claimable(r run, now time.Time) bool {
+	match r.wake {
+	case Some{Value: w}:
+		!w.Due.After(now) && (!r.held || !r.until.After(now))
+	case None:
+		false
+	}
+}
+
+// earlier is whether the wake of id is due before best's, or at the same
+// time with the lesser run.
+func earlier(s State, id RunID, best Option[RunID]) bool {
+	match best {
+	case Some{Value: b}:
+		let a = dueAt(s, id)
+		let o = dueAt(s, b)
+		a.Before(o) || (a == o && id < b)
+	case None:
+		true
+	}
+}
+
+// dueAt is the due time of the wake of id.
+func dueAt(s State, id RunID) time.Time {
+	match s.runs.Get(id) {
+	case Some{Value: r}:
+		match r.wake {
+		case Some{Value: w}:
+			w.Due
+		case None:
+			Unreachable("a claimable run has a wake")
+		}
+	case None:
+		Unreachable("the run is in the store")
+	}
+}
+
+// revOf is the revision of a wake, 0 for none.
+func revOf(w Option[Wake]) int {
+	match w {
+	case Some{Value: x}:
+		x.Rev
+	case None:
+		0
+	}
+}
