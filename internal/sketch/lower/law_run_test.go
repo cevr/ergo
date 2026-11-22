@@ -610,9 +610,13 @@ func main() {}
 		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
-		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
+		// A law of an operation type whose parameter is bounded by
+		// operations runs at each provider's instance with its witness
+		// (CONSTRAINTS C2); Ranked has none here, so it names where it runs,
+		// which is no skip (types.md, Laws).
+		"law Ranked.Same runs where Ranked has a provider: none is in this package or its imports",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (8 tests, 9 skipped)",
+		"PASS (8 tests, 8 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
@@ -829,13 +833,16 @@ func Two() int { 1 + 1 }
 // type (the b13 binding); each program also has a top-level law, true or
 // false. Half the providers are also bound by a named context, under
 // which the law runs too (L5), and fails exactly when the provider is the
-// broken one. Half the providers of a non-generic Op are borrow providers,
-// whose F takes *P (Laws 10), and half the programs add Gate, whose one
+// broken one. Half the non-generic Ops reached without the helper declare
+// F mut, and half of their providers are borrow providers, whose F takes
+// mut P (Laws 10; a function on mut P implements only a mut operation,
+// MODES-4), and half the programs add Gate, whose one
 // borrow provider G is listed: proved, or refuted by a broken Set. want
 // are the lines the test binary prints, in order, and exit its status.
 type lawRunProgram struct {
 	name, src string
 	generic   bool   // Op[T], run at each provider's instance
+	mutOp     bool   // a non-generic Op that declares mut F
 	borrowed  bool   // a borrow provider of Op is the broken one
 	gate      string // "ok" or "FAIL" for Gate's listed borrow provider, "" for none
 	want      []string
@@ -857,10 +864,19 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	// one: f(2n) = 2f(n) - f(0), which the broken provider's step at its
 	// threshold breaks for n past it (threshold >= 0) or below it (< 0).
 	generic := !helper && r.Intn(2) == 0
+	// A non-generic Op reached without the helper declares F mut half the
+	// time (MODES-4): only then may a provider be a borrow provider, as a
+	// function on mut P implements only a mut operation (S106), while a
+	// function on P implements either kind.
+	opMut := !generic && !helper && r.Intn(2) == 0
+	mode := ""
+	if opMut {
+		mode = "mut "
+	}
 	if generic {
 		b.WriteString("type Op[T number] {\n\tF(n T) T,\n\tlaw Linear(n T) { F(n + n) == F(n) + F(n) - F(n - n) },\n}\n\n")
 	} else {
-		fmt.Fprintf(&b, "type Op {\n\tF(n int) int,\n\tlaw Linear(n int) { %s == n * %d + %d },\n}\n\n", call, k, c)
+		fmt.Fprintf(&b, "type Op {\n\t%sF(n int) int,\n\tlaw Linear(n int) { %s == n * %d + %d },\n}\n\n", mode, call, k, c)
 	}
 	if helper {
 		b.WriteString("func viaHelper(n int) int needs Op { Op.F(n) }\n\n")
@@ -888,7 +904,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 		if generic {
 			impl = "Op[" + elem + "]"
 		}
-		borrow := !generic && r.Intn(2) == 0
+		borrow := opMut && r.Intn(2) == 0
 		if borrow {
 			fmt.Fprintf(&b, "type %s { tag int } implements %s\n\nfunc F(p mut %s, n int) int {\n\tp.tag = p.tag + 1\n\t%s\n}\n\n", name, impl, name, body)
 		} else {
@@ -901,9 +917,10 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 			failed++
 		}
 		want = append(want, line)
-		if !borrow && r.Intn(2) == 0 {
+		if !opMut && r.Intn(2) == 0 {
 			// A named context that binds the provider: the law also runs
-			// under it (L5), after the provider runs.
+			// under it (L5), after the provider runs. A mut Op's value
+			// needs a place (Borrows 6), which a context entry is not.
 			key := "Op"
 			if generic {
 				key = "Op[" + elem + "]"
@@ -966,7 +983,7 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	} else {
 		want = append(want, fmt.Sprintf("PASS (%d tests)", total))
 	}
-	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit, generic: generic, borrowed: borrowed, gate: gate}
+	return lawRunProgram{name: fmt.Sprintf("lawrun_gen_%02d", i), src: b.String(), want: want, exit: exit, generic: generic, mutOp: opMut, borrowed: borrowed, gate: gate}
 }
 
 // TestLawRunFindsTheBrokenProvider is the property: over generated
@@ -991,11 +1008,15 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	var builds []*lowered
 	brokenAt := map[int]bool{}
 	genericBroken, borrowBroken := false, false
+	modes := map[bool]bool{} // a non-generic Op's F: mut, or not
 	gates := map[string]bool{}
 	for i := 0; i < 32; i++ {
 		p := genLawRunProgram(r, i)
 		progs = append(progs, p)
 		borrowBroken = borrowBroken || p.borrowed
+		if !p.generic {
+			modes[p.mutOp] = true
+		}
 		gates[p.gate] = true
 		builds = append(builds, lowerTestBuild(t, p.name, p.src))
 		for k, w := range p.want {
@@ -1017,6 +1038,9 @@ func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	}
 	// It reaches a broken borrow provider of Op, and Gate's listed borrow
 	// provider both proved and refuted (Laws 10).
+	if !modes[true] || !modes[false] {
+		t.Fatalf("seed %d: the generator draws one mode of a non-generic Op's F only (%v)", seed, modes)
+	}
 	if !borrowBroken || !gates["ok"] || !gates["FAIL"] {
 		t.Fatalf("seed %d: the generator reaches no broken borrow provider (%v) or no proved and refuted Gate (%v)", seed, borrowBroken, gates)
 	}

@@ -458,6 +458,14 @@ func CodecFieldsOf_GoBindings(v *GoBindings) CodecFields_GoBindings {
 	return CodecFields_GoBindings{F_pkgs: &v.pkgs}
 }
 
+type CodecFields_Info struct {
+	F_etaMethodValues *map[*syntax.FuncLit]*syntax.SelectorExpr
+}
+
+func CodecFieldsOf_Info(v *Info) CodecFields_Info {
+	return CodecFields_Info{F_etaMethodValues: &v.etaMethodValues}
+}
+
 type CodecFields_Interface struct {
 	F_byName   *[]*Method
 	F_obj      **TypeName

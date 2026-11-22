@@ -1,0 +1,8 @@
+# scripts/opcount: `readerbench bench record N` reads a record's JSON N
+# times on the prelude's Reader interface (PORT-WIRE-READERS R1): the
+# interface decoder, which the IR builds. The control is hand Go:
+# encoding/json into the record's struct.
+unit read
+sizes 20000 120000
+args bench record {n}
+control benchmarks/wirereaders/testdata/control
