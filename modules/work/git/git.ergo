@@ -449,23 +449,20 @@ func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFaile
 // Setting is git config --get: status 1 is a key no file sets. The value
 // is as Configure set it, its own spaces kept (Git quotes a value that
 // ends in one): only the newline git config ends its answer with goes.
-func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
-	let r = try reads(v, root, []string{"config", "--get", key})
-	if r.Status == 1 {
-		return ""
-	}
-	let _ = try ok(r, root, []string{"config", "--get", key})
-	strings.TrimSuffix(r.Stdout, "\n")
-}
+func Setting(v Vcs, root string, key string) string fails work.VcsFailed { try configGet(v, root, []string{"config", "--get", key}) }
 
 // OwnSetting is git config --local --get: the checkout's .git/config
 // alone, so a user's ~/.gitconfig does not answer for it.
-func OwnSetting(v Vcs, root string, key string) string fails work.VcsFailed {
-	let r = try reads(v, root, []string{"config", "--local", "--get", key})
+func OwnSetting(v Vcs, root string, key string) string fails work.VcsFailed { try configGet(v, root, []string{"config", "--local", "--get", key}) }
+
+// configGet is the answer of the git config read args, as Setting
+// describes it: "" for status 1, else the value without git's newline.
+func configGet(v Vcs, root string, args []string) string fails work.VcsFailed {
+	let r = try reads(v, root, args)
 	if r.Status == 1 {
 		return ""
 	}
-	let _ = try ok(r, root, []string{"config", "--local", "--get", key})
+	let _ = try ok(r, root, args)
 	strings.TrimSuffix(r.Stdout, "\n")
 }
 
