@@ -62,8 +62,8 @@ debt	internal/sketch/eval/process.go:runMainOrdered	decides by std membership or
 debt	internal/sketch/lower/handover.go:funcCtx.ownedFormAt	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/handover.go:lowerer.checkedOwnedForm	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir.go:irState.body	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/ir.go:irState.intrinsic	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir.go:irState.reachAll	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/ir_intrinsic.go:irState.intrinsicBody	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
 debt	internal/sketch/lower/std.go:funcCtx.graphArg	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP

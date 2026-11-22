@@ -23,6 +23,8 @@ package lower
 // them, so their bodies are the compiler's own and take its IR.
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 )
 
@@ -95,9 +97,9 @@ func (b *irBuilder) intrinsicStmts(f *check.Func, op check.CollOp, in []*irExpr,
 	ret := func(x *irExpr) *irStmt { return &irStmt{K: "ret", Pos: p, X: x} }
 	switch op {
 	case check.CollAppend:
-		return []*irStmt{ret(&irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Append", Args: in})}
+		return []*irStmt{ret(&irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Append", V: b.ownTypeArgs(f), Args: in})}
 	case check.CollPut:
-		return []*irStmt{ret(&irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Put", Args: in})}
+		return []*irStmt{ret(&irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Put", V: b.ownTypeArgs(f), Args: in})}
 	case check.CollGet:
 		v, okv := b.mapRead(res, in, p)
 		return []*irStmt{v, b.ifSome(okv, ret(b.intrinsicSome(res, v.Local, p)), p), ret(b.machineNone(res, p, f.Decl))}
@@ -118,7 +120,8 @@ func (b *irBuilder) intrinsicStmts(f *check.Func, op check.CollOp, in []*irExpr,
 // Option instance opt's value type, and ok's local.
 func (b *irBuilder) mapRead(opt check.Type, in []*irExpr, p irPos) (*irStmt, int) {
 	some, _ := optionVariants(opt, b.decl)
-	v := b.temp("v", b.goType(recordFieldType(some, "Value"), b.decl), p)
+	_, vt := onlyField(some)
+	v := b.temp("v", b.goType(vt, b.decl), p)
 	okv := b.temp("ok", "bool", p)
 	return &irStmt{K: "mapget", Pos: p, Local: v, Val: &okv, X: in[0], Y: in[1]}, okv
 }
@@ -131,6 +134,30 @@ func (b *irBuilder) ifSome(okv int, then *irStmt, p irPos) *irStmt {
 // intrinsicSome is Some of the local v, as the Option instance opt.
 func (b *irBuilder) intrinsicSome(opt check.Type, v int, p irPos) *irExpr {
 	some, _ := optionVariants(opt, b.decl)
-	lit := &irExpr{K: "lit", Pos: p, T: b.goType(some, b.decl), Keys: []string{memberName("Value")}, Elems: []*irExpr{{K: "local", Pos: p, I: v}}}
+	name, _ := onlyField(some)
+	lit := &irExpr{K: "lit", Pos: p, T: b.goType(some, b.decl), Keys: []string{memberName(name)}, Elems: []*irExpr{{K: "local", Pos: p, I: v}}}
 	return b.variantInto(some, opt, lit, b.decl) // ir_union.go
+}
+
+// ownTypeArgs is the Go type arguments of a runtime call that forwards the
+// type parameters of f, in order: the reader of the IR names every
+// instance (ergoir's "pcall").
+func (b *irBuilder) ownTypeArgs(f *check.Func) string {
+	parts := make([]string, len(f.Sig.TParams))
+	for i, tp := range f.Sig.TParams {
+		parts[i] = b.goType(tp, b.decl)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// onlyField is the name and type of the one field of the record t (the
+// prelude's Some, by its shape), or stops the body.
+func onlyField(t check.Type) (string, check.Type) {
+	if n, ok := t.(*check.Named); ok {
+		if s, ok := n.Underlying().(*check.Struct); ok && len(s.Fields) == 1 {
+			return s.Fields[0].Name, s.Fields[0].Type
+		}
+	}
+	irNo("intrinsic body")
+	return "", nil
 }
