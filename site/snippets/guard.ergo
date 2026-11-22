@@ -1,0 +1,206 @@
+import exec
+import fs
+import strings
+
+// Report is a run of the guard: its problems, and the counts it prints.
+type Report { Problems []string, Checked int, Planned int, Marks int, Tokens int, Shown int }
+
+// Guard runs the snippet guard over the site folder root, with the ergo
+// binary named ergo. It checks every package under examples/checked with
+// `ergo check` (no diagnostic) and `ergo fmt --check`; every planned
+// snippet with `ergo check --want` and against the manifest; every marks
+// file against its snippet's tokens, from compiler/syntax.Scan for Ergo
+// (`ergo run ./compiler/cmd/scandump`, run from the repository root) and
+// from the tokens file for TypeScript and Go; every tokens file against
+// its snippet's digest; and every number in receipts/shown.tsv against its
+// receipt.
+func Guard(root string, ergo string) Report needs fs.Files | exec.Runner {
+	let mut problems = Log{Lines: []string{}}
+	let checked = walk(root + "/examples/checked")
+	let planned = walk(root + "/examples/planned")
+	problems.AddAll(checked.Problems)
+	problems.AddAll(planned.Problems)
+
+	let packages = packageDirs(checked.Files)
+	for dir in packages {
+		problems.AddAll(JudgeChecked(dir, run(ergo, []string{"check", dir})))
+	}
+	if len(packages) > 0 {
+		problems.AddAll(JudgeFormatted(root+"/examples/checked", run(ergo, []string{"fmt", "--check", root + "/examples/checked"})))
+	}
+
+	let mut plannedSnippets = []string{}
+	for f in planned.Files {
+		if strings.HasSuffix(f, ".ergo") {
+			problems.AddAll(JudgePlanned(f, run(ergo, []string{"check", "--want", f})))
+			plannedSnippets = plannedSnippets.Append(strings.TrimPrefix(f, root+"/examples/"))
+		}
+	}
+	let manifestFile = root + "/examples/planned.tsv"
+	let manifest = ParseManifest(manifestFile, read(manifestFile, &problems))
+	problems.AddAll(JudgeManifest(manifestFile, manifest, plannedSnippets))
+
+	let files = checked.Files.Concat(planned.Files)
+	let mut ergoMarked = []string{}
+	let mut marks = 0
+	let mut tokens = 0
+	for f in files {
+		if strings.HasSuffix(f, ".marks.tsv") {
+			marks = marks + 1
+			let source = strings.TrimSuffix(f, ".marks.tsv")
+			if !holds(files, source) {
+				problems.Add("\(f): marks a file that is not there")
+			} else if strings.HasSuffix(source, ".ergo") {
+				ergoMarked = ergoMarked.Append(source)
+			}
+		} else if strings.HasSuffix(f, ".tokens.json") {
+			tokens = tokens + 1
+			let source = strings.TrimSuffix(f, ".tokens.json")
+			if !holds(files, source) {
+				problems.Add("\(f): holds the tokens of a file that is not there")
+			}
+		} else if (strings.HasSuffix(f, ".ts") || strings.HasSuffix(f, ".go")) && !holds(files, f+".tokens.json") {
+			problems.Add("\(f): has no tokens file; run bun site/tokens/gen.ts")
+		}
+	}
+
+	let mut scanned = Map[string, []Span]{}
+	if len(ergoMarked) > 0 {
+		let r = run(ergo, []string{"run", "./compiler/cmd/scandump"}.Concat(ergoMarked))
+		if r.Status != 0 {
+			problems.Add("scandump exits \(r.Status):\n" + indent(r.Stdout+r.Stderr))
+		}
+		scanned = Scanned(r.Stdout)
+	}
+
+	for f in files {
+		if strings.HasSuffix(f, ".tokens.json") {
+			let source = strings.TrimSuffix(f, ".tokens.json")
+			if holds(files, source) {
+				let t = ParseTokens(f, read(f, &problems))
+				problems.AddAll(JudgeTokens(f, t, base(source), read(source, &problems)))
+			}
+			continue
+		}
+		if !strings.HasSuffix(f, ".marks.tsv") {
+			continue
+		}
+		let source = strings.TrimSuffix(f, ".marks.tsv")
+		if !holds(files, source) {
+			continue
+		}
+		let src = read(source, &problems)
+		let m = ParseMarks(f, read(f, &problems))
+		problems.AddAll(m.Problems)
+		let spans = if strings.HasSuffix(source, ".ergo") {
+			spansOf(scanned, source)
+		} else if holds(files, source+".tokens.json") {
+			TokenSpans(src, ParseTokens(source+".tokens.json", read(source+".tokens.json", &problems)).Rows)
+		} else {
+			[]Span{}
+		}
+		problems.AddAll(JudgeMarks(source, src, m.Rows, spans))
+	}
+
+	let shownFile = root + "/receipts/shown.tsv"
+	let mut shown = 0
+	if exists(shownFile) {
+		let s = ParseShown(shownFile, read(shownFile, &problems))
+		problems.AddAll(s.Problems)
+		for row in s.Rows {
+			shown = shown + 1
+			problems.AddAll(JudgeShown(row, read(root+"/receipts/"+row.Receipt+".json", &problems)))
+		}
+	}
+	Report{Problems: problems.Lines, Checked: len(packages), Planned: len(plannedSnippets), Marks: marks, Tokens: tokens, Shown: shown}
+}
+
+// Log is the problems found so far.
+type Log { Lines []string }
+
+// Add adds one problem to l.
+func Add(l mut Log, line string) { l.Lines = l.Lines.Append(line) }
+
+// AddAll adds every problem of lines to l.
+func AddAll(l mut Log, lines []string) { l.Lines = l.Lines.Concat(lines) }
+
+// Tree is the files below a folder, sorted, and the problems of reading it.
+type Tree { Files []string, Problems []string }
+
+// walk is the files below dir, none when dir is not there.
+func walk(dir string) Tree needs fs.Files {
+	if !exists(dir) {
+		return Tree{Files: []string{}, Problems: []string{}}
+	}
+	let mut files = []string{}
+	let mut problems = Log{Lines: []string{}}
+	let names = fs.Files.ReadDir(dir) catch {
+	case _:
+		return Tree{Files: []string{}, Problems: []string{"\(dir): cannot list it"}}
+	}
+	for name in names {
+		let path = dir + "/" + name
+		let info = fs.Files.Stat(path) catch {
+		case _:
+			problems.Add("\(path): cannot stat it")
+			continue
+		}
+		if info.Dir {
+			let below = walk(path)
+			files = files.Concat(below.Files)
+			problems.AddAll(below.Problems)
+		} else {
+			files = files.Append(path)
+		}
+	}
+	Tree{Files: files, Problems: problems.Lines}
+}
+
+// packageDirs is each folder of files that holds an .ergo file, once, in
+// order.
+func packageDirs(files []string) []string {
+	let mut out = []string{}
+	for f in files {
+		if strings.HasSuffix(f, ".ergo") {
+			let dir = dirOf(f)
+			if !holds(out, dir) {
+				out = out.Append(dir)
+			}
+		}
+	}
+	out
+}
+
+func dirOf(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { "." } else { path.Slice(0, i) }
+}
+
+func base(path string) string { path.Slice(strings.LastIndex(path, "/")+1, len(path)) }
+
+func exists(path string) bool needs fs.Files {
+	let _ = fs.Files.Stat(path) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// read is the text of path, or "" with a problem added.
+func read(path string, problems mut Log) string needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case _:
+		problems.Add("\(path): cannot read it")
+		""
+	}
+}
+
+// run runs ergo with args; a program that cannot start is status 127.
+func run(ergo string, args []string) exec.Result needs exec.Runner {
+	exec.Runner.Run(exec.New(ergo, args)) catch {
+	case exec.NotFound:
+		exec.Result{Status: 127, Stdout: "", Stderr: "\(ergo): not found"}
+	case _:
+		exec.Result{Status: 127, Stdout: "", Stderr: "\(ergo): cannot run it"}
+	}
+}

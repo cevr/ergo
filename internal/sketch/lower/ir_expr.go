@@ -238,9 +238,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, built := b.strBufs[o]; built {
 				return b.strCall("StrGet", i, p) // strbuf.go
 			}
-			if b.scalars[o] != nil {
-				// Its gather writes statements: a value (ir_scalar.go).
-				irNo("scalar-form local inside an expression")
+			if sc := b.scalars[o]; sc != nil {
+				// Its gather writes statements (ir_scalar.go): they run
+				// before the expression that holds the read, in order, as
+				// a call's do (ir_order.go), as the emitter's gather does.
+				pre, e := b.gather(sc, x, p)
+				b.runFirst(pre)
+				return e
 			}
 			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
 				// A package let lowered as a Go constant (constLet): its

@@ -707,21 +707,25 @@ law AttributesKeepOtherLines(n int, m int) {
 // attributes init writes) and `ergo-CLASS` for each class (the names a
 // repository's tracked .gitattributes gives its files), each sending
 // merge-file's answer to stderr so that git merge-tree's output stays
-// Git's; and rerere.enabled, so a resolution made once is used again.
-// Git uses a driver only when the checkout's own configuration names it:
-// every checkout work makes or fixes gets these lines.
+// Git's. Git uses a driver only when the checkout's own configuration
+// names it: every checkout work makes or fixes gets these lines. They
+// name drivers and nothing else: rerere.enabled, which replays a
+// resolution recorded once into every later merge, is the checkout
+// owner's to choose, and a driver fix leaves it as it was (memory's
+// RegisterDriversLeavesRerere; integrators merged whole groups with it
+// on, unaware, when M0 wrote it).
 func DriverSettings() [][]string {
 	let mut out = [][]string{[]string{"merge.work.name", "work merge-file (work.toml's [[class]] lines)"}, []string{"merge.work.driver", "work merge-file -path %P auto %O %A %B >&2"}}
 	for c in classes.ClassNames {
 		out = out.Append([]string{"merge.ergo-\(c).name", "work merge-file \(c)"})
 		out = out.Append([]string{"merge.ergo-\(c).driver", "work merge-file -path %P \(c) %O %A %B >&2"})
 	}
-	out.Append([]string{"rerere.enabled", "true"})
+	out
 }
 
 // DriversKey is the configuration key whose value is the digest of the
 // DriverSettings a checkout holds: a clone of a registered base has it
-// and writes nothing (one read, where the settings are thirteen writes,
+// and writes nothing (one read, where the settings are a write per line,
 // each a git process).
 let DriversKey = "work.drivers"
 
