@@ -86,7 +86,7 @@ func main() needs Console {
 	Console.Println("t=\(t) n=\(n) d=\(d)")
 }
 `},
-	{"e6-other", `// E6a probe: parts with no text form in v1 (Q5: S109 naming #49).
+	{"e6-other", `// E6a probe: parts with no text form in v1 (Q5: S109 naming derived text forms).
 type Card { n int }
 type Pick = Yes{} | No{}
 

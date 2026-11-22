@@ -19,7 +19,7 @@ import (
 // before one that writes statements is bound to a temporary first.
 //
 // The concatenation allocates once, as the Go a person writes with
-// strconv appends into a sized buffer does (owner, #242/#243: emitted Go
+// strconv appends into a sized buffer does (owner, self-hosting and performance levers: emitted Go
 // matches hand-written Go). Go's compiler reads a string(b) operand of a
 // concatenation that holds a non-empty literal in place, with no copy
 // (cmd/compile, order.go, OBYTES2STRTMP), and a constant-size make whose

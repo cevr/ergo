@@ -9,7 +9,7 @@ import (
 )
 
 // reviewCases reproduce the round-1 review probes (round-1-findings.md) and
-// the repairs' own cases. Each source is a decided file body (#196); want
+// the repairs' own cases. Each source is a decided file body; want
 // is the exact sequence of codes, "" for none.
 var reviewCases = []struct {
 	finding, name, want, src string

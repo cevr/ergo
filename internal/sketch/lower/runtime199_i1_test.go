@@ -19,7 +19,7 @@ import (
 	"ergo.local/prototype/internal/testwait"
 )
 
-// #199 stage 1 (runtime.md, I1): a frame whose footprint is not empty
+// Runtime semantics stage 1 (runtime.md, I1): a frame whose footprint is not empty
 // checks for a stop before each capability call and at the end of each
 // loop iteration. Recursive or opaque impure frames also poll at entry, so
 // recursive back-edges pass a check; a pure frame has none. The oracle is
@@ -486,7 +486,7 @@ var i1Split = newSplit(split[i1Case]{
 const (
 	// i1Parts: the 17 131 cases took 170 to 180 s in one test at load
 	// 30 to 46 (measured at f79be34b), so a part takes about 8 s; the
-	// 18 647 of #162 about 9 s.
+	// 18 647 law cases about 9 s.
 	i1Parts = 24
 	// i1Short: under -short a part checks every 50th case of its share.
 	i1Short = 50
@@ -976,7 +976,7 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		f.Decls = i1UserDecls(f.Decls)
 	}
 	// The test build lowers a top-level law, which runs once or over
-	// generated values (types.md, Laws; #162 law-run-1); a member law runs
+	// generated values (types.md, Laws; law-run-1); a member law runs
 	// per provider, and no generated program declares one. The run build
 	// lowers no law.
 	topLaws := map[*syntax.LawDecl]bool{}

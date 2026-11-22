@@ -24,7 +24,7 @@ import (
 // rule.
 
 // matchLen is the length of the keyword a totality diagnostic spans: the
-// decided parser builds every match from `match` (#196).
+// decided parser builds every match from `match`.
 const matchLen = syntax.Pos(len("match"))
 
 // totalityBudget is the minimum budget of each match's two solvers, one
