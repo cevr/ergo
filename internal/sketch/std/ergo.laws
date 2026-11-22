@@ -184,11 +184,13 @@ law json.Text.PlainIsRaw for json.text at ("g") proved by native with go1.27.4,r
 law json.Text.PlainIsRaw for json.text at ("h") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:WuDuJtzVqXs56IQ4uKxLthSyT5BcJytIYebOJrFF3P4=
 law json.Text.PlainIsRaw for json.text at ("host") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:5+iy2SJnU6a3VwTHogjgFsGpIqGv8ClwerBbKFaGbys=
 law json.Text.PlainIsRaw for json.text at ("i") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:QZPm3KJViUpLm3w/ezWp5YotkMKzaEQlbWHqXC9Xa54=
+law json.Text.PlainIsRaw for json.text at ("id") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:WVCZpPTsPCtDr+PeiGxPAgTw5SdYrqitzkgux6U83vs=
 law json.Text.PlainIsRaw for json.text at ("j") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:n4snmKDn7DF2xlunIKCj0eksugtaEIFVnu+gs2MZcDE=
 law json.Text.PlainIsRaw for json.text at ("k") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:AFVjaNfU2nD1Jw38ldR6XM5XdG77xf2sNJgefw5P7rI=
 law json.Text.PlainIsRaw for json.text at ("l") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:iDzx83NrT/QzdjQx0fNDTSKbARPxOLY7fB0oRQ+9b28=
 law json.Text.PlainIsRaw for json.text at ("load") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:6Xje513I3x6Ihh2xxWE9Jv/RttN19or3FaEK+AaACdw=
 law json.Text.PlainIsRaw for json.text at ("meta") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:crxnNVAGKQ0rPTeiId91VviaL5j+eLxWV7i49taw4iU=
+law json.Text.PlainIsRaw for json.text at ("n") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:qOM3+OPDgHun3zSCzwkb6rtn/PUX3y1jcqGW/MoJ6OU=
 law json.Text.PlainIsRaw for json.text at ("name") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:GOtfxLJIwoxXlMNV2DUf3RXNCJTEPnQy24aGzECdMe4=
 law json.Text.PlainIsRaw for json.text at ("nested") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:CTW/CDIQPWwQUWCVPWJ+BnHZrAREhrJ6dK94hz8La1o=
 law json.Text.PlainIsRaw for json.text at ("pairs") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:+aWXAFfkaBOQGmmxY11aYpYr2oVb2FB3H+hStztujBM=
@@ -249,6 +251,8 @@ law json.Text.RawJoins for json.text at ("[", "") proved by native with go1.27.4
 law json.Text.RawJoins for json.text at ("\"load\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:NxdHrNPVkNrQlUTlevEGfSTZNSM4nlPP2CqC46f5qeE=
 law json.Text.RawJoins for json.text at ("\"load\":", "") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:Z0DJEtS4fjhCkGwDz2o9YrCBZe3CFYeRA6+/SOle8MM=
 law json.Text.RawJoins for json.text at ("\"meta\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:/EozF+Ro0oW+BEwqiaAas0URLmr+epjmIDpwG6zLtRA=
+law json.Text.RawJoins for json.text at ("\"n\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:pCVmaWCX4i4uhh64ZOMaXZ9Zq4ZDzR4ctMmmT/wkgIg=
+law json.Text.RawJoins for json.text at ("\"n\":", "") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:sciX1yWyA2mqBSNNB41MNHXRIXa0BMmYon58Ol9/42Y=
 law json.Text.RawJoins for json.text at ("\"nested\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:GyHpf9iaR2NPSh4xjcHcceABhvOX3vJi6C73RRsnJ9s=
 law json.Text.RawJoins for json.text at ("\"pairs\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:YJy1plb7xRdDvIK11hM7ynbz6bb6e/n90rtCDOqlxcQ=
 law json.Text.RawJoins for json.text at ("\"sizes\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:B4GkWX5UyhtskzG7NdLyrZWCX6zNKH0ASjEBxb/AGkg=
@@ -259,6 +263,7 @@ law json.Text.RawJoins for json.text at ("{", "") proved by native with go1.27.4
 law json.Text.RawJoins for json.text at ("{", "\"_tag\":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:8MK/VpZ7fAXHFem8sjmEWcWtBWunIzaLGCs620jzGKU=
 law json.Text.RawJoins for json.text at ("{", "\"a\"") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:NhUGB6wpL20yiYEMBGJ3jyq6ykIdRjalPpeG5WxWxfE=
 law json.Text.RawJoins for json.text at ("{", "\"host\"") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:72HVJLj6bW9IQ0DNhhXkXXLX0cYrTl3/XtP5B1GA3ck=
+law json.Text.RawJoins for json.text at ("{", "\"id\"") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:QiXMUyhJgMJln5RPV6M/u+fWPDkiTtUYmqJIOUGu+C0=
 law json.Text.RawJoins for json.text at ("{", "\"name\"") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:C9Bz4jpzvUglPIktxmEMs4UtGqRBGgQ1eT7jqWW5DqQ=
 law json.Text.RawJoins for json.text at ("{", "\"value\"") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:WG+NRFRMAmjDa8x+vkxOl2PqPPyuoz74fWJFZIicuo8=
 law json.Text.RawJoins for json.text at ("{\"_tag\":", "\"None\"") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:HWLSiD0v2EBgwd4R29g6AwCfB183wMZqOvqLgDcsE28=
@@ -278,6 +283,7 @@ law json.Text.RawJoins for json.text at ("{\"a\"", ":") proved by native with go
 law json.Text.RawJoins for json.text at ("{\"a\":", "") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:5cbGaUq0/hcf+m5hgOpsr4MxblHfYdZBePornfTxkz8=
 law json.Text.RawJoins for json.text at ("{\"host\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:9a7hpMp7ASRXmOofwvFsZEGqupQVpaxC1iuRgNTPGkw=
 law json.Text.RawJoins for json.text at ("{\"host\":", "") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:ycNeKNJZzs4KdCKP6fK1U6vm9n08N9npDqoD8ISA8qQ=
+law json.Text.RawJoins for json.text at ("{\"id\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:bI8WO93opOuKJjtbSjpIjKWDtTBNh2g1CJ6XSezHBQA=
 law json.Text.RawJoins for json.text at ("{\"name\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:2MRcZktVVBKJwQc/DfI3ASXWCrMhlcMPctLjl+dEtWI=
 law json.Text.RawJoins for json.text at ("{\"name\":", "") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:yWg04UoN/jprC9rMK8lzVoJIE1SYsPQGVIyCO05IkKo=
 law json.Text.RawJoins for json.text at ("{\"value\"", ":") proved by native with go1.27.4,runtime/v1@07b3eb2968b9 h1:I1PeoZkmfkqQcFXKXFqSzVDv35OcabjKFS3XISjD8es=
