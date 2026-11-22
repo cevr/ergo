@@ -1,0 +1,146 @@
+// Package snippets holds the site's code snippets to the compilers: the
+// judgments of the snippet guard over the tree site/examples (checked/,
+// planned/ and planned.tsv), the marks beside each snippet, the token
+// files of its TypeScript and Go sides and the receipts a page may show.
+// Every judgment gives problems, one line each; none means it holds.
+
+import strconv
+import strings
+
+// Mark is one row of a marks file, `<file>.marks.tsv` beside its snippet:
+// the span of one concern on one line, columns 1-based in bytes, End
+// exclusive, the concern's Class and the Text the span holds.
+type Mark { Line int, Col int, End int, Class string, Text string }
+
+// Classes are the seven marked concerns of the linked hover; the work, the
+// eighth, is everything unmarked.
+let Classes = []string{"failure", "handling", "service", "supply", "time", "cleanup", "contract"}
+
+// marksHeader is the first line of every marks file.
+let marksHeader = "line\tcol\tend\tclass\ttext"
+
+// Marks is the reading of one marks file: its rows, and the problems of
+// the rows that do not read.
+type Marks { Rows []Mark, Problems []string }
+
+// ParseMarks reads the marks file named file.
+func ParseMarks(file string, text string) Marks {
+	let lines = rows(text)
+	if len(lines) == 0 || lines[0] != marksHeader {
+		return Marks{Rows: []Mark{}, Problems: []string{"\(file):1: the first line is not \(strconv.Quote(marksHeader))"}}
+	}
+	let mut marks = []Mark{}
+	let mut problems = []string{}
+	for i in 1..len(lines) {
+		let cells = strings.Split(lines[i], "\t")
+		let at = "\(file):\(i + 1)"
+		if len(cells) != 5 {
+			problems = problems.Append("\(at): a row has 5 cells, this one \(len(cells))")
+			continue
+		}
+		let line = number(cells[0])
+		let col = number(cells[1])
+		let end = number(cells[2])
+		if line < 1 || col < 1 || end <= col {
+			problems = problems.Append("\(at): line, col and end are numbers from 1, with end after col")
+			continue
+		}
+		marks = marks.Append(Mark{Line: line, Col: col, End: end, Class: cells[3], Text: cells[4]})
+	}
+	Marks{Rows: marks, Problems: problems}
+}
+
+// Span is a token's byte range in its source, End exclusive.
+type Span { Start int, End int }
+
+// JudgeMarks judges the marks of the snippet src, named file, against its
+// tokens: each mark's line exists and its range holds the recorded text,
+// neither end of the range falls inside a token, the class is one of the
+// seven, and the rows are in order with no two overlapping.
+func JudgeMarks(file string, src string, marks []Mark, tokens []Span) []string {
+	let starts = lineStarts(src)
+	let mut problems = []string{}
+	let mut prev = Mark{Line: 0, Col: 0, End: 0, Class: "", Text: ""}
+	for m in marks {
+		let at = "\(file).marks.tsv \(m.Line):\(m.Col)"
+		if m.Line > len(starts) {
+			problems = problems.Append("\(at): \(file) has no line \(m.Line)")
+			continue
+		}
+		let first = starts[m.Line-1]
+		let width = lineEnd(src, first) - first
+		if m.End-1 > width {
+			problems = problems.Append("\(at): the range ends past the line, which is \(width) bytes")
+			continue
+		}
+		let here = src.Slice(first+m.Col-1, first+m.End-1)
+		if here != m.Text {
+			problems = problems.Append("\(at): the file reads \(strconv.Quote(here)), the mark says \(strconv.Quote(m.Text))")
+		}
+		for p in []int{first + m.Col - 1, first + m.End - 1} {
+			for t in tokens {
+				if t.Start < p && p < t.End {
+					problems = problems.Append("\(at): the range cuts the token \(strconv.Quote(src.Slice(t.Start, t.End)))")
+				}
+			}
+		}
+		if !known(m.Class) {
+			problems = problems.Append("\(at): unknown class \(strconv.Quote(m.Class))")
+		}
+		if m.Line < prev.Line || (m.Line == prev.Line && m.Col < prev.Col) {
+			problems = problems.Append("\(at): the marks are out of order")
+		} else if m.Line == prev.Line && m.Col < prev.End {
+			problems = problems.Append("\(at): overlaps the mark before it")
+		}
+		prev = m
+	}
+	problems
+}
+
+// known reports whether class is one of the seven.
+func known(class string) bool {
+	for c in Classes {
+		if c == class {
+			return true
+		}
+	}
+	false
+}
+
+// rows is the lines of text, without a last empty line.
+func rows(text string) []string {
+	let lines = strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		return lines[:len(lines)-1]
+	}
+	lines
+}
+
+// number is the decimal s, or -1 when s is not one.
+func number(s string) int {
+	strconv.Atoi(s) catch {
+	case _:
+		-1
+	}
+}
+
+// lineStarts is the byte offset of the start of each line of src.
+func lineStarts(src string) []int {
+	let mut starts = []int{0}
+	for i in 0..len(src) {
+		if src[i] == '\n' && i+1 < len(src) {
+			starts = starts.Append(i + 1)
+		}
+	}
+	starts
+}
+
+// lineEnd is the offset of the line feed that ends the line starting at
+// first, or the length of src.
+func lineEnd(src string, first int) int {
+	let mut i = first
+	for i < len(src) && src[i] != '\n' {
+		i = i + 1
+	}
+	i
+}

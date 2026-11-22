@@ -62,6 +62,9 @@ type versionReport struct {
 	Installed bool `json:"installed,omitempty"`
 	// Features is versionFeatures.
 	Features []string `json:"features"`
+	// IRCompiler is the shared IR compiler's line: present or absent (and
+	// why), its key and its entry (irCompilerLine).
+	IRCompiler string `json:"irCompiler"`
 	// WarmUnclassified are the environment's GO*, CGO_* and ERGO_*
 	// variables the warm key holds for want of a class
 	// (sketchfront.WarmUnclassified).
@@ -92,7 +95,7 @@ func versionCommand(args []string) error {
 		return err
 	}
 	t, installed := toolchain.Status(os.Getenv, root)
-	report := versionReport{Version: ergoversion.Current(), Go: toolchain.Version, Toolchain: t.Mode, Command: t.Go, Installed: installed, Features: versionFeatures, WarmUnclassified: sketchfront.WarmUnclassified()}
+	report := versionReport{Version: ergoversion.Current(), Go: toolchain.Version, Toolchain: t.Mode, Command: t.Go, Installed: installed, Features: versionFeatures, IRCompiler: irCompilerLine(t, installed, root), WarmUnclassified: sketchfront.WarmUnclassified()}
 	if json {
 		return printJSON(report)
 	}
@@ -107,8 +110,33 @@ func versionCommand(args []string) error {
 	default:
 		fmt.Printf("toolchain: %s (ERGO_GO)\n", t.Go)
 	}
+	fmt.Println(report.IRCompiler)
 	if len(report.WarmUnclassified) > 0 {
 		fmt.Printf("warm answers keyed by unclassified variables: %s\n", strings.Join(report.WarmUnclassified, " "))
 	}
 	return nil
+}
+
+// irCompilerLine says whether the shared IR compiler root holds the
+// patched compile the toolchain's release takes, and its key
+// (SHARED-IRC). It downloads nothing: a managed release not yet in the
+// cache has no compile to look for.
+func irCompilerLine(t toolchain.Toolchain, installed bool, root string) string {
+	if t.Mode == "managed" && !installed {
+		return "ir compiler: none yet (the release is not downloaded)"
+	}
+	source, err := sketchfront.ReleaseSource(t, root)
+	if err == nil {
+		var irc string
+		if irc, err = toolchain.IRCRoot(os.Getenv); err == nil {
+			var key, entry, miss string
+			if key, entry, miss, err = toolchain.PatchedState(toolchain.PatchConfig{Cache: irc, Source: source}); err == nil {
+				if miss == "" {
+					return fmt.Sprintf("ir compiler: present, key %s, %s", key, entry)
+				}
+				return fmt.Sprintf("ir compiler: absent (%s), key %s, %s", miss, key, entry)
+			}
+		}
+	}
+	return "ir compiler: unknown: " + err.Error()
 }

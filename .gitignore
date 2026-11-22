@@ -7,3 +7,5 @@ dist/
 # scripts/bootstrap writes its stages under .bootstrap/ by default.
 .bootstrap/
 __pycache__/
+# The site's token generator installs its pinned highlighter here.
+/site/tokens/node_modules/
