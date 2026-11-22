@@ -129,6 +129,7 @@
     {"name":"gobind-total-func-value","origin":"wf10 GOBIND-TOTAL","file":"internal/gobind/total.go","from":"\t\treturn false // a function value, nil","to":"\t\treturn true","rule":"A function value proves nothing.","killers":["internal/gobind:TestTotalProperty"]},
     {"name":"gobind-total-pointer-receiver","origin":"wf10 GOBIND-TOTAL","file":"internal/gobind/total.go","from":"if rt == \"\" || isPointer(fn.Type().(*types.Signature).Recv().Type()) {","to":"if rt == \"\" {","rule":"A pointer receiver is refused.","killers":["internal/gobind:TestTotalProperty"]},
     {"name":"gobind-total-range","origin":"wf10 GOBIND-TOTAL","file":"internal/gobind/total.go","from":"\t\treturn t.integer(s.X) && t.expr(s.X)","to":"\t\treturn t.expr(s.X)","rule":"Only a range over an integer.","killers":["internal/gobind:TestTotalProperty"]},
+    {"name":"gobind-stale-skips-a-file","origin":"BIND-FRESH","file":"internal/gobind/stale.go","from":"\tfor _, p := range order {","to":"\tfor _, p := range order[1:] {","rule":"the freshness check of committed bindings compares every file of a set, so a stale binding at any path fails it","killers":["internal/gobind:TestStaleNamesEveryChangedBinding"]},
     {"name":"gobind-total-len","origin":"wf10 GOBIND-TOTAL","file":"internal/gobind/total.go","from":"\t\treturn array\n","to":"\t\treturn array || true\n","rule":"len and cap only of a string or an array value.","killers":["internal/gobind:TestTotalProperty"]}
   ]
 }
