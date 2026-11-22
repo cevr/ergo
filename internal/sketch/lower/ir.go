@@ -134,6 +134,10 @@ type IRReport struct {
 	// a field of a local, set as the site's error (INLINE-SLOT,
 	// ir_forms_inline.go irFailField).
 	FailFields int `json:"-"`
+	// FailTyped counts the inlined failures read from a local or a field
+	// that jump to their arm by their struct type (FAILJUMP-TYPED,
+	// ir_forms_failjump.go).
+	FailTyped int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
@@ -606,6 +610,14 @@ type irStmt struct {
 	// Ls are a "tdef"'s locals, one per result of its Go call, in order:
 	// l0, l1, … := X (ir_tuple.go).
 	Ls []int `json:"ls,omitempty"`
+	// FailT is the Go type of a "fail"'s failure (or of the "set" of a
+	// copy's error that a fail became) when it is a struct, in memory
+	// only: a failure read from a local or a field then jumps to the arm
+	// of that type as one built in place does (FAILJUMP-TYPED,
+	// ir_forms_failjump.go). FailTP is the Slot row whose Go type the
+	// failure is, set by a copy that binds it to a struct.
+	FailT  string           `json:"-"`
+	FailTP *check.TypeParam `json:"-"`
 	// F is a "match" form's facts, in memory only (ir_forms.go).
 	F *irMatch `json:"-"`
 	// Was is the facts of the match form this switch was erased from, in
