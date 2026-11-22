@@ -146,6 +146,11 @@ func genScript(r *rand.Rand, app string) string {
 		// a turn of the wheel while the list (60 rows) has room to move
 		lines = append(lines, fmt.Sprintf("wheel list %d", 1+r.IntN(3)))
 	}
+	if app == "choice" {
+		// four Tabs: past "a" to "c" to "reset", where a Tab that took the
+		// disabled "d" would stop (mutant OTSEM-disabled-focused)
+		lines = append(lines, "focus 4")
+	}
 	if app == "drag" {
 		// a press held in the bottom band for some frames, so every drag
 		// script edge-scrolls the list (mutant OT5-edge-scroll-still)
