@@ -830,7 +830,7 @@
       "to": "\t\tif false {\n",
       "rule": "types.md Laws 14.2: the checker accepts // ergo:aswritten only above a pure identity of one parameter, else S108.",
       "anchor": {"tests":["check:TestNegativeSpans"]},
-      "killers": ["check:TestNegativeSpans", "check:TestFixtures"]
+      "killers": ["check:TestNegativeSpans"]
     },
     {"name":"s2-writes-results-refused","origin":"wf10 lawffi HOST-ROW-3 slice 2","file":"internal/sketch/check/gowrites.go","from":"\t\t\tfirst = t.Types[0]\n","to":"\t\t\tfirst = nil\n","rule":"interop.md Go writes in place (HOST-ROW-3 slice 2): a writes line is admitted when the written slice is the function's result or its result tuple's first element.","killers":["internal/sketch/check:TestGoStdBindingsCheckClean"]},
     {"name":"gb-promoted-own-row","origin":"wf10 lawffi GB","file":"internal/gobind/map.go","from":"\trow := declaredTarget(f, target)\n","to":"\trow := target\n","rule":"GB: a method Go promotes from an embedded field takes its declaring type's memory-only row, so a user calls it with no go.Foreign.","killers":["internal/sketch/check:TestPromotedMethodTakesItsRow"]},

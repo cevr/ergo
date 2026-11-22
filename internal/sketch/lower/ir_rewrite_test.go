@@ -190,7 +190,17 @@ func main() {
 	}
 	// AW-ERGO: a marked function's call stays a call (the inliner skips
 	// it), in std and in a user's package alike.
-	if count(on["G"], "AsWritten") != 1 || count(on["K"], "Keep") != 1 {
+	// A generic call may be a monomorphic instance (MONO-ROWS: AsWrittenMono_i1).
+	kept := func(calls []string, name string) int {
+		n := 0
+		for _, c := range calls {
+			if c == name || strings.HasPrefix(c, name+"Mono_") {
+				n++
+			}
+		}
+		return n
+	}
+	if kept(on["G"], "AsWritten") != 1 || kept(on["K"], "Keep") != 1 {
 		t.Errorf("run build: G calls %v, K calls %v; want the marked call kept as a call", on["G"], on["K"])
 	}
 	// The pass (LF6p): a right side another law matches is rewritten too

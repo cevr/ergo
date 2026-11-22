@@ -365,7 +365,17 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 	}
 	if v >= 0 {
 		vpre, val := b.hostResult(hostTargetName(f), results[0], v, e, call, p)
-		pre, v = append(pre, vpre...), val.I
+		pre = append(pre, vpre...)
+		if val.K == "local" {
+			v = val.I
+		} else {
+			// A copied result (goResultCopy: a slice of Go records,
+			// hostfs.ReadDir's []Entry) is an expression; bind it, so the
+			// caller reads a local, never local 0 (the env).
+			c := b.temp("v", b.rawGoType(results[0], call), p)
+			pre = append(pre, &irStmt{K: "def", Pos: p, Local: c, X: val})
+			v = c
+		}
 	}
 	if tuple != nil {
 		vals := make([]*irExpr, len(rs))

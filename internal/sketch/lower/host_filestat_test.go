@@ -69,7 +69,7 @@ func TestFileStatNeedsOnlyAmbient(t *testing.T) {
 	// body, whose call is hostfs's function with the handle first.
 	const ir = `import go os
 
-func statSize(f *os.File) int fails go.Error needs Ambient {
+func statSize(f mut os.File) int fails go.Error needs Ambient {
 	let info = try f.Stat()
 	int(info.Size)
 }
