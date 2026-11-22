@@ -617,8 +617,10 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 		}
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
-	case defersCall(body) || commaOk(body):
+	case commaOk(body):
 		irNo("std call with an adapted result")
+	case defersCall(body) && hasHidden(body.Hidden, v1.Frame):
+		irNo("std call with an adapted result") // a Seq outlives its frame (seqElem)
 	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
 	case x.Trailing != nil && !adapted(body.Params[len(ops)]):
@@ -675,7 +677,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
 		irNo("fallible call with an empty row at its site")
 	}
-	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
+	if !isTuple && !defersCall(body) && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
@@ -716,6 +718,13 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	if pkg == "" {
 		pkg = runtimeImport
+	}
+	if defersCall(body) {
+		if isExit || len(args) != len(ops) {
+			irNo("std call with an adapted result")
+		}
+		seqPre, seq, impure := b.stdSeqCall(x, c, body, subst, pkg, name, targs, ops, args, convs, p) // ir_adapted.go: Go's iter.Seq[T], a Seq
+		return append(pre, seqPre...), seq, impure
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
 	if name == "Go" && pkg == runtimeImport && x.Trailing != nil && targs != "" {

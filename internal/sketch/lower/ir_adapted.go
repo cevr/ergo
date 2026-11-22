@@ -106,15 +106,7 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 // rather than a failure no checked program has. The emitter (stdResult)
 // returns it; a change that lets a yield fail fails here, loudly.
 func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos) ([]*irStmt, *irExpr, bool) {
-	t := b.l.info.Types[x]
-	seqT, ok := t.(*check.Named)
-	if !ok || !isPreludeType(t, "Seq") || len(seqT.TArgs) != 1 || failsHere(c) || hasHidden(body.Hidden, v1.Frame) {
-		irNo("std call with an adapted result")
-	}
-	if b.env < 0 {
-		irNo("call of a function value from a pure function") // the Seq is called with an environment
-	}
-	elem := seqT.TArgs[0]
+	elem := b.seqElem(x, c, body)
 	goElem := b.recvTypeArgs(n, strings.TrimSuffix(strings.TrimPrefix(body.Results[0], "iter.Seq["), "]"))
 	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, nil, body.Package) {
 		irNo("std call with a converted result")
@@ -135,17 +127,79 @@ func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	ops := append([]syntax.Expr{c.Recv}, x.Args...)
 	pre, vals := b.operands(ops)
 	convOperands(vals, convs) // ir_operand.go
-	// Each operand once, here, in source order (bindDeferred).
+	pre = append(pre, b.bindDeferred(x, ops, vals, convs, p)...)
+	lit := b.seqLit(x, c, elem, body, p, func(hidden []*irExpr) *irExpr {
+		return &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
+	})
+	return pre, lit, !body.Pure
+}
+
+// stdSeqCall is the call x of a std function's body named name (in pkg,
+// at the type arguments targs) whose Go result is iter.Seq[T] (stdCall):
+// its operands args, the function operands among them adapted (on the
+// making environment, as the emitter's adaptFunc runs before its
+// bindDeferred), bound to locals where the Seq is made, and the Seq[T]
+// the literal seqOpCall's is, calling the function on the iterating
+// environment (actor.Changes, io's hostLines).
+func (b *irBuilder) stdSeqCall(x *syntax.CallExpr, c *check.Call, body v1.Body, subst map[string]string, pkg, name, targs string, ops []syntax.Expr, args []*irExpr, convs map[int]string, p irPos) ([]*irStmt, *irExpr, bool) {
+	elem := b.seqElem(x, c, body)
+	goElem := strings.TrimSuffix(strings.TrimPrefix(body.Results[0], "iter.Seq["), "]")
+	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, subst, body.Package) {
+		irNo("std call with a converted result")
+	}
+	pre := b.bindDeferred(x, ops, args, convs, p)
+	lit := b.seqLit(x, c, elem, body, p, func(hidden []*irExpr) *irExpr {
+		return &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	})
+	return pre, lit, !body.Pure
+}
+
+// seqElem is T of the Seq[T] the call x of body returns, which returns
+// Go's iter.Seq: a call that fails at its site, or a body that takes the
+// frame scope (a Seq outlives its frame), keeps the source body.
+func (b *irBuilder) seqElem(x *syntax.CallExpr, c *check.Call, body v1.Body) check.Type {
+	t := b.l.info.Types[x]
+	seqT, ok := t.(*check.Named)
+	if !ok || !isPreludeType(t, "Seq") || len(seqT.TArgs) != 1 || failsHere(c) || hasHidden(body.Hidden, v1.Frame) {
+		irNo("std call with an adapted result")
+	}
+	if b.env < 0 {
+		irNo("call of a function value from a pure function") // the Seq is called with an environment
+	}
+	return seqT.TArgs[0]
+}
+
+// bindDeferred binds each of a deferred call's operands vals (the IR of
+// ops, then any adapted block after them) to a local, here, in source
+// order, as the emitter's bindDeferred spills them: the Seq evaluates
+// none again. A local's type is the operand's converted type (convs, by
+// index), an adapter's own, or the operand's.
+func (b *irBuilder) bindDeferred(x *syntax.CallExpr, ops []syntax.Expr, vals []*irExpr, convs map[int]string, p irPos) []*irStmt {
+	var pre []*irStmt
 	for i, v := range vals {
 		typ := convs[i]
-		if typ == "" {
+		switch {
+		case typ != "":
+		case v.K == "func" && v.T != "":
+			typ = v.T
+		case i < len(ops):
 			typ = b.goType(b.l.info.Types[ops[i]], x)
+		default:
+			irNo("std call with an adapted result") // a trailing block's adapter has its type
 		}
 		l := b.temp("op", typ, p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: l, X: v})
 		vals[i] = &irExpr{K: "local", Pos: p, I: l}
 	}
-	sig, ok := seqT.Underlying().(*check.Signature)
+	return pre
+}
+
+// seqLit is the Seq[elem] of the call x: the function literal of the
+// uniform shape (seqOpCall) ranging over call's iter.Seq, call given the
+// hidden arguments read from the iterating environment.
+func (b *irBuilder) seqLit(x *syntax.CallExpr, c *check.Call, elem check.Type, body v1.Body, p irPos, call func(hidden []*irExpr) *irExpr) *irExpr {
+	t := b.l.info.Types[x]
+	sig, ok := t.(*check.Named).Underlying().(*check.Signature)
 	if !ok || len(sig.Params) != 1 {
 		irNo("std call with an adapted result")
 	}
@@ -160,7 +214,6 @@ func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	b.env = e // the hidden arguments take the iterating environment
 	hidden := b.hidden(body, x, c, p)
 	b.env = outer
-	call := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	v := b.temp("v", b.goType(elem, x), p)
 	yok, yerr := b.temp("ok", "bool", p), b.temp("err", "error", p)
 	b.keepImport("var _ = " + b.l.rt() + ".UnreachableAt")
@@ -169,12 +222,12 @@ func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 		{K: "const", Pos: p, T: "string", V: b.l.siteText(x)},
 	}}}
 	unit := func() *irStmt { return &irStmt{K: "ret", Pos: p, X: &irExpr{K: "zero", Pos: p, T: "struct{}"}} }
-	loop := &irStmt{K: "range", Pos: p, End: p, X: call, Key: &v, Body: []*irStmt{
+	loop := &irStmt{K: "range", Pos: p, End: p, X: call(hidden), Key: &v, Body: []*irStmt{
 		{K: "def2", Pos: p, Local: yok, Val: &yerr, X: &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: yield}, Args: []*irExpr{{K: "local", Pos: p, I: e}, {K: "local", Pos: p, I: v}}}},
 		{K: "if", Pos: p, End: p, X: b.notNil(yerr, p), Then: []*irStmt{unreachable}},
 		{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: &irExpr{K: "local", Pos: p, I: yok}}, Then: []*irStmt{unit()}},
 	}}
 	end := p
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{e, yield}, End: &end, Body: []*irStmt{loop, unit()}}
-	return pre, &irExpr{K: "conv", Pos: p, T: b.goType(t, x), X: lit}, !body.Pure // the literal is the named Seq's underlying func
+	return &irExpr{K: "conv", Pos: p, T: b.goType(t, x), X: lit} // the literal is the named Seq's underlying func
 }
