@@ -50,7 +50,6 @@ var bodyTable = []bodyRow{
 	{"Append", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"[]T"}, Pure: true, Package: Path}}},
 	{"AppendPoison", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"[]T"}, Package: Path}}},
 	{"ArenaTake", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*ArenaValue[T]"}}, Results: []string{"T"}, Pure: true, Wait: "none", Package: Path}}},
-	{"AsWritten", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "T"}}, Results: []string{"T"}, Pure: true, Wait: "none", AsWritten: true, Package: Path}}},
 	{"Base64Malformed.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path + "/digest"}}},
 	{"Base64StdDecode", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string", "error"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"Base64StdEncode", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},

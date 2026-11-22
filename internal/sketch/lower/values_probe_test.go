@@ -168,6 +168,51 @@ func main() needs Console {
 	Console.Println("\(len(l)) \(len(b.M))")
 }
 `, "1 2\n"},
+	// A later rebinding ends the value a use reads (S2-COPY, killOf): Go
+	// writes the let mut it gets in place only when every run of the use
+	// runs the rebinding next. A break between them, a read between them
+	// and a use in a loop's condition with the rebinding after the loop
+	// each keep the copy (TestValueRuleMutants' switches kill-branch-blind,
+	// kill-between-blind and kill-loop-blind).
+	{"PKbreak", `import go slices
+
+func main() needs Console | go.Foreign {
+	let mut buf = []int{3, 1, 2}
+	for i in 0..3 {
+		let s = slices.Sort(buf)
+		if i == 0 {
+			break
+		}
+		buf = s
+	}
+	Console.Println("\(buf[0])\(buf[1])\(buf[2])")
+}
+`, "312\n"},
+	{"PKbetween", `import go slices
+
+func main() needs Console | go.Foreign {
+	let mut buf = []int{3, 1, 2}
+	let mut seen = 0
+	for _ in 0..2 {
+		let s = slices.Sort(buf)
+		seen = seen + buf[0]
+		buf = s
+	}
+	Console.Println("\(seen)")
+}
+`, "4\n"},
+	{"PKloop", `import go slices
+
+func main() needs Console | go.Foreign {
+	let mut buf = []int{1, 2, 3}
+	let mut n = 0
+	for slices.Reverse(buf)[0] == 3 && n < 3 {
+		n = n + 1
+	}
+	buf = []int{9}
+	Console.Println("\(n) \(buf[0])")
+}
+`, "3 9\n"},
 }
 
 // TestValueRuleProbes runs every probe: each prints what value semantics
