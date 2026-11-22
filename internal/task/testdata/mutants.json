@@ -65,6 +65,15 @@
       "killers": ["internal/task:TestAffectedIsWhereTheKeyMoved"]
     },
     {
+      "name": "task-no-store-restless",
+      "origin": "wf10 MONOREPO WT2a (CS report: ERGO_LAWCACHE=off)",
+      "file": "internal/task/gen.go",
+      "from": "\tif r.Store == nil {\n\t\t// No store kept across runs",
+      "to": "\tif false {\n\t\t// No store kept across runs",
+      "rule": "With no store, gen keeps its passes' last runs in memory: each generator runs once and the run settles.",
+      "killers": ["internal/task:TestGenRunsWithNoStore"]
+    },
+    {
       "name": "task-why-unnamed",
       "origin": "wf10 MONOREPO WT1b miss diagnosis",
       "file": "internal/task/gen.go",
