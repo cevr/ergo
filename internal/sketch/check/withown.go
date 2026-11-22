@@ -179,6 +179,7 @@ func (c *checker) withOwnership() {
 			}
 		}
 		if owning {
+			c.cur = s.file
 			c.ownedBlock(s.x, w, taskHeld)
 		}
 	}
@@ -279,7 +280,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 			}
 			// A provider that names a place is lent to the with, as an
 			// argument is (R11, R16); a new value is the with's own.
-			a.Lent = (a.Close != nil || a.Drop != nil) && isPlace(e.Provider)
+			a.Lent = (a.Close != nil || a.Drop != nil) && placeVar(info, e.Provider)
 		}
 		list = append(list, a)
 	}
@@ -682,6 +683,26 @@ func (w *With) discharge(cap Type, e *ContextEntry) {
 // with), or "". Any other provider is made by it (a call's result is the
 // caller's, q62) or is a local, which the ownership pass moves into the
 // with.
+// placeVar reports a provider that names a place: a local, a parameter or
+// a package let (pkg.v too), or a field path of one. A type's name (an
+// empty record's value) and a call are new values.
+func placeVar(info *Info, x syntax.Expr) bool {
+	for {
+		switch e := unparen(x).(type) {
+		case *syntax.SelectorExpr:
+			if _, ok := info.Uses[e.Sel].(*Var); ok && info.Types[e.X] == nil {
+				return true // pkg.v, an imported package let
+			}
+			x = e.X
+		case *syntax.Ident:
+			_, ok := info.Uses[e].(*Var)
+			return ok
+		default:
+			return false
+		}
+	}
+}
+
 func packageRoot(info *Info, x syntax.Expr) string {
 	for {
 		switch e := unparen(x).(type) {

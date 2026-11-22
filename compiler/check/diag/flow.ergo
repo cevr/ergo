@@ -14,7 +14,8 @@
 //  4. a resource no one owns: a call or literal whose value is dropped, or
 //     bound to _ (R42);
 //  5. a hand-off of a package let (R11, R15), or a with's resource
-//     provider that names one (R11);
+//     provider read through an element of one (R11), and a hand-off,
+//     close or replacement of a local a with lends to its block (R11, R28);
 //  6. a hand-off of a for-in's element, lent from its container (R35),
 //     or of an element or a field of a local (R35, R36, R39).
 //
@@ -28,10 +29,11 @@
 // This part reads what the package says: a resource is a type of the
 // package that holds one (resources, own.ergo), a callee's takes are its
 // declaration's. A resource converted to an operation type moves into the
-// interface value (R23); a with owns the resource providers of an inline
-// context whose capabilities its block names (withProviders); a match
-// clause that binds a resource by name from a whole local this frame owns
-// moves the local into the binding (patternClauses). Where it cannot tell,
+// interface value (R23); a with owns the new resource providers of an
+// inline context whose capabilities its block names, and borrows the ones
+// that name a place (withProviders); a match clause that binds a resource
+// by name from a whole local this frame owns moves the local into the
+// binding (patternClauses). Where it cannot tell,
 // it says nothing: an untyped value is not tracked, an unknown callee lends
 // its arguments, and these forms are not walked yet: another pattern's
 // bindings (a lent subject's, a let pattern's, a queue's for-in elements,
@@ -132,6 +134,10 @@ type walker {
 	// tries counts the try expressions the walk is in, outside a catch:
 	// a failing call there leaves the frame.
 	tries int,
+	// lends are the slots the withs around the point lend to their
+	// blocks (providers), innermost last; lendAt is each with's offset.
+	lends  []int,
+	lendAt []int,
 	// tryCatch is the catch a try writes around (try … catch), by its
 	// node's index, or -1: the failures no arm of it handles escape.
 	tryCatch int,
@@ -170,7 +176,7 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 	for src in srcs {
 		lines = lines.Append(syntax.LinesOf(src))
 	}
-	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}, own: []bool{}, tries: 0, tryCatch: -1}
+	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}, own: []bool{}, tries: 0, tryCatch: -1, lends: []int{}, lendAt: []int{}}
 	w.pkgLets = letsHolding(&w, s, k, t)
 	let mut out = []Diag{}
 	for fi, f in k.Fns {
@@ -613,6 +619,11 @@ func reportAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 	if !w.st.reached {
 		return
 	}
+	spanDiag(w, ws, wk, wt, x, msg, take)
+}
+
+// spanDiag adds msg at x, its span kept on its first line.
+func spanDiag(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], msg string, take int) {
 	let a = syntax.NodePos(wk.Parsed[w.file], x)
 	// A span stays on its first line (check.go report): an if or match
 	// is underlined at its header.
@@ -650,6 +661,9 @@ func move(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x den
 		return
 	}
 	use(w, ws, wk, wt, i, x)
+	if withLent(w, ws, wk, wt, i, x) {
+		return
+	}
 	let s = w.st.slots[i]
 	if s.st != stOwned {
 		// Reported by use; the first hand-off stays the one named.
@@ -673,6 +687,26 @@ func move(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x den
 	}
 	loanConflict(w, ws, wk, wt, i, h)
 	w.st.slots[i] = slot{st: stMoved, at: h.at, how: h.how, loans: w.st.slots[i].loans}
+}
+
+// withLent refuses a take of slot i at x while a with around it lends the
+// slot's value to its block (providers; R11, R28), and reports whether it
+// refused (ownership.go withLent).
+func withLent(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x dense.ID[syntax.Node]) bool {
+	if !w.st.reached {
+		return false
+	}
+	let mut k = len(w.lends) - 1
+	for k >= 0 {
+		if w.lends[k] == i {
+			let l = w.vars[i]
+			let p = pos(w, ws, wk, wt, w.lendAt[k])
+			refuse(w, ws, wk, wt, l.ty, x, "\(l.name) is taken while the with at \(p) lends it", "\(l.name) is lent to the with at \(p) until its block ends, so it cannot be handed off, closed or replaced inside the block (resources R11, R28); do that after the block", 0)
+			return true
+		}
+		k = k - 1
+	}
+	false
 }
 
 // loanConflict refuses each operand lent to a call still being evaluated
@@ -1175,6 +1209,10 @@ func assign(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a syntax.A
 	for x0 in lhs {
 		let x = un(w, ws, wk, wt, x0)
 		if syntax.KindOf(wk.Parsed[w.file].Tree, x) != syntax.KIdent {
+			let r = placeSlot(w, ws, wk, wt, x)
+			if r >= 0 && trackedAt(w, ws, wk, wt, x) {
+				let _ = withLent(w, ws, wk, wt, r, x)
+			}
 			lhsPlace(w, ws, wk, wt, x)
 			continue
 		}
@@ -1182,6 +1220,7 @@ func assign(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a syntax.A
 		if i < 0 || !w.st.reached {
 			continue
 		}
+		let _ = withLent(w, ws, wk, wt, i, x)
 		if live(w.st.slots[i]) {
 			loanConflict(w, ws, wk, wt, i, handAt(at(w, ws, wk, wt, x), "it is replaced"))
 		}
@@ -1792,11 +1831,13 @@ func opType(w walker, ws store.Store, t dense.ID[store.TKey]) bool {
 
 // providers walks the entries of the inline context cl a with builds
 // (ownership.go withProviders): an entry whose capability the with's block
-// names (Store.Get()) is acquired, and its provider, a resource, moves
-// into the with, which owns it; a provider of no resource is lent. An
-// entry the block does not name may be acquired through a callee's needs,
-// which this part does not read: it is not walked (no diagnostic).
-func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl syntax.ContextLit, body dense.Opt[syntax.Node]) {
+// names (Store.Get()) is acquired. A resource provider that is a new value
+// moves into the with, which owns it; one that names a place (a local, a
+// parameter, a field path of one) is lent to the with until its block
+// ends, so the block cannot take it (withLent); any other provider is lent.
+// An entry the block does not name may be acquired through a callee's
+// needs, which this part does not read: it is not walked (no diagnostic).
+func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl syntax.ContextLit, body dense.Opt[syntax.Node], withAt int) {
 	let p = wk.Parsed[w.file]
 	let b = match dense.Unpack(body) {
 	case Some[dense.ID[syntax.Node]] as v:
@@ -1818,19 +1859,26 @@ func providers(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl synt
 					if !named {
 						continue
 					}
-					// A package let has no owner: the with does not own
-					// it, and a resource provider that names one is
-					// refused at the provider (R11; withown.go).
+					// A provider that names a place is lent to the with
+					// for its block (R11, R16): its owner keeps it. A new
+					// value is the with's own. A package let read through
+					// an element has no owner to hand it to the with, and
+					// is refused at the provider (withown.go).
 					let root = pkgLetRoot(w, ws, wk, wt, v.Value)
 					let resource = trackedAt(w, ws, wk, wt, v.Value)
-					if resource && root != "" {
+					let place = isPlace(p, un(w, ws, wk, wt, v.Value))
+					if resource && !place && root != "" {
 						reportAt(w, ws, wk, wt, v.Value, "this resource provider names the package let \(root), which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", 0)
 					}
-					let unowned = root != "" || syntax.KindOf(p.Tree, un(w, ws, wk, wt, v.Value)) == syntax.KIdent && slotOf(w, ws, wk, wt, un(w, ws, wk, wt, v.Value)) < 0
-					if resource && !unowned {
+					if resource && !place && root == "" {
 						eval(w, ws, wk, wt, v.Value, mMove, handAt(at(w, ws, wk, wt, v.Value), "the with owns it"))
 					} else {
 						eval(w, ws, wk, wt, v.Value, mLend, noHand())
+						let r = placeSlot(w, ws, wk, wt, v.Value)
+						if resource && place && r >= 0 {
+							w.lends = w.lends.Append(r)
+							w.lendAt = w.lendAt.Append(withAt)
+						}
 					}
 				case None:
 				}
@@ -1868,6 +1916,42 @@ func pkgLetRoot(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 		}
 	}
 	""
+}
+
+// isPlace is whether x is a name or a field path of one (discard.go
+// isPlace): a provider the with lends.
+func isPlace(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		return true
+	}
+	if kind == syntax.KSelectorExpr {
+		return isPlace(p, syntax.SelectorExprOf(p.Tree, x).X)
+	}
+	if kind == syntax.KParenExpr {
+		return isPlace(p, syntax.ParenExprOf(p.Tree, x).X)
+	}
+	false
+}
+
+// placeSlot is the slot of the local a place starts from (b of b.r,
+// xs of xs[0]), or -1.
+func placeSlot(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) int {
+	let t = wk.Parsed[w.file].Tree
+	let mut y = un(w, ws, wk, wt, x)
+	for {
+		let kind = syntax.KindOf(t, y)
+		if kind == syntax.KSelectorExpr {
+			y = un(w, ws, wk, wt, syntax.SelectorExprOf(t, y).X)
+		} else if kind == syntax.KIndexExpr {
+			y = un(w, ws, wk, wt, syntax.IndexExprOf(t, y).X)
+		} else if kind == syntax.KIdent {
+			return slotOf(w, ws, wk, wt, y)
+		} else {
+			return -1
+		}
+	}
+	-1
 }
 
 // namesCap is whether the node x of p names the capability key as a
@@ -1913,10 +1997,11 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 			eval(w, ws, wk, wt, a, mLend, noHand())
 		}
 	}
+	let lent = len(w.lends)
 	for i in 0..syntax.Len(c.Args) {
 		match syntax.ViewOf(wk.Parsed[w.file].Tree, syntax.Item(wk.Parsed[w.file].Tree, c.Args, i)) {
 		case syntax.ContextLit as cl:
-			providers(w, ws, wk, wt, cl, c.Trailing)
+			providers(w, ws, wk, wt, cl, c.Trailing, at(w, ws, wk, wt, x))
 		case _:
 		}
 	}
@@ -1925,5 +2010,8 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 		block(w, ws, wk, wt, syntax.BlockStmtOf(wk.Parsed[w.file].Tree, b.Value).List, true)
 	case None:
 	}
+	// The block ends: the withs' lends end with it.
+	w.lends = w.lends[0:lent]
+	w.lendAt = w.lendAt[0:lent]
 	w.tl = saved
 }

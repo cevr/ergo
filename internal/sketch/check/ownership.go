@@ -2697,6 +2697,10 @@ func (w *ownWalk) withProviders(x *syntax.CallExpr) int {
 				continue
 			}
 			switch {
+			case a.Releases() && packageRoot(w.info, p) != "":
+				// Read through an element of a package let: refused at the
+				// provider (withOwnership), and lent, not handed off again.
+				w.expr(p, mLend, hand{})
 			case a.Releases():
 				w.expr(p, mMove, hand{at: p, how: "the with owns it", provider: true})
 			case a.Lent:

@@ -19,8 +19,10 @@ import (
 // a call of a taking function, a reassignment of a let mut (R41), a
 // temporary (R43), if/else (its header a comparison, a starting try, or a
 // match on a starting try), a for loop with break and continue (R6), a
-// try of a failing call (R7), a defect in the body or in a Close (R9),
-// and a stop at a generated point of a task, reached by a queue handshake
+// try of a failing call (R7), a defect in the body or in a Close (R9), a
+// with whose provider is a local it lends or a new value it owns (R11;
+// both release lowerings), and a stop at a generated point of a task,
+// reached by a queue handshake
 // (no fixed waits). A Go reference model of the frame's list (the Quint
 // machine) runs the same body and predicts the trace of opens, uses and
 // closes and the exit. Each seed is one program; the programs of a run are
@@ -37,7 +39,8 @@ import (
 // reassignment does not release the old value; a returned local released
 // by its frame; the branch releases skipped; a try's failure releases
 // keyed as the header it starts (check mutants.json,
-// try1-failure-shares-header-key). Each seed also runs genHandleRun's
+// try1-failure-shares-header-key); a lent provider released by its with as
+// well as by its owner (with-lend-registers-release: two closes). Each seed also runs genHandleRun's
 // program (EXH1), once in each release lowering: a declared root written
 // in place, whose release must see its writes (exh1-in-place-release-stale,
 // exh1-in-place-static-slot, exh1-in-place-receiver-unseen).
@@ -62,6 +65,14 @@ func TestOwnershipRunModel(t *testing.T) {
 		name := fmt.Sprintf("ownrun_%d", seed)
 		cases = append(cases, runCase{name, src, want, seed})
 		programs = append(programs, mustLower(t, name, src))
+		if strings.Contains(src, "with context") {
+			// A with's scope and a lent provider, in the list form too.
+			prev := SetReleaseLoweringForTest("scope")
+			list := name + "_list"
+			cases = append(cases, runCase{list, src, want, seed})
+			programs = append(programs, mustLower(t, list, src))
+			SetReleaseLoweringForTest(prev)
+		}
 	}
 	if os.Getenv("ERGO_SEED") == "" {
 		// Few seeds reassign a let mut that still owns its value (3 of 48,
@@ -140,6 +151,7 @@ const (
 	orAgg                  // a value built of parts, a later one may leave (ownership_parts_test.go)
 	orReturn               // if n > cond { return n }
 	orQLoop                // for rV in qK.Values() { … }: each element owned (Q7)
+	orWith                 // with context { Store: rW } { body } (lent, R11) or { Store: open(id, bad) } (the with's own)
 )
 
 type orStmt struct {
@@ -148,6 +160,7 @@ type orStmt struct {
 	id        int
 	bad, give bool
 	mut       bool
+	lend      bool // orWith: the provider is rW, lent; else open(id, bad)
 	cond      int
 	body, els []orStmt
 	head      orHead // orIf: how the branch is written
@@ -249,13 +262,13 @@ func (g *orGen) stmt() orStmt {
 	var muts []int
 	for _, s := range g.scopes {
 		for _, v := range s {
-			if g.mut[v] && g.state[v] != 2 {
+			if g.mut[v] && g.state[v] != 2 && g.state[v] != 3 {
 				muts = append(muts, v)
 			}
 		}
 	}
 	for {
-		switch k := orKind(g.r.IntN(15)); k {
+		switch k := orKind(g.r.IntN(16)); k {
 		case orAgg:
 			return orStmt{kind: orAgg, agg: g.aggregate()}
 		case orReturn:
@@ -332,6 +345,23 @@ func (g *orGen) stmt() orStmt {
 			s.body = g.block(1 + g.r.IntN(3))
 			g.scopes = saved
 			return s
+		case orWith:
+			if g.depth > 2 {
+				continue
+			}
+			s := orStmt{kind: orWith}
+			if len(owned) > 0 && g.r.IntN(3) != 0 {
+				// The with lends rW for its block: the block uses it only
+				// through Store (state 3: neither used nor taken here).
+				s.lend, s.w = true, owned[g.r.IntN(len(owned))]
+				g.state[s.w] = 3
+				s.body = g.block(1 + g.r.IntN(3))
+				g.state[s.w] = 0
+				return s
+			}
+			s.id, s.bad = g.id(), g.bad()
+			s.body = g.block(1 + g.r.IntN(3))
+			return s
 		case orFail, orBoom:
 			if g.r.IntN(3) != 0 {
 				continue
@@ -373,7 +403,11 @@ func genOwnRun(seed int) (string, string) {
 	}
 }
 
-const orPrelude = `type Res { id int, bad bool } implements Closer
+const orPrelude = `type Res { id int, bad bool } implements Closer, Store
+
+type Store { Get() int }
+
+func Get(r Res) int { r.id }
 
 type Bad { n int }
 
@@ -587,6 +621,14 @@ func orWrite(b *strings.Builder, list []orStmt, depth int, muts map[int]bool) {
 			fmt.Fprintf(b, "%sif n > %d {\n%s\treturn n\n%s}\n", ind, s.cond, ind, ind)
 		case orQLoop:
 			orWriteQueueLoop(b, s, depth, muts)
+		case orWith:
+			provider := fmt.Sprintf("r%d", s.w)
+			if !s.lend {
+				provider = fmt.Sprintf("open(%d, %v)", s.id, s.bad)
+			}
+			fmt.Fprintf(b, "%swith context { Store: %s } {\n", ind, provider)
+			orWrite(b, s.body, depth+1, muts)
+			fmt.Fprintf(b, "%s\tConsole.Println(\"get \\(Store.Get())\")\n%s}\n", ind, ind)
 		}
 	}
 }
@@ -852,6 +894,28 @@ func (m *orModel) stmt(s orStmt, sc int) orExit {
 		}
 	case orQLoop:
 		return m.queueLoop(s)
+	case orWith:
+		// The block is a scope of its own. A new provider is the with's:
+		// opened first, released last at the block's end, and by the
+		// frame on an exit that leaves it. A lent one is its owner's and
+		// is released where the owner is (R11).
+		m.nextSc++
+		wsc := m.nextSc
+		id := 0
+		if s.lend {
+			id = m.vars[s.w].id
+		} else {
+			m.say("open %d", s.id)
+			m.push(&orEntry{id: s.id, bad: s.bad, scope: wsc})
+			id = s.id
+		}
+		if x := m.stmts(s.body, wsc); x != exNormal {
+			return x
+		}
+		m.say("get %d", id)
+		if m.endScope(wsc) {
+			return exDefect
+		}
 	}
 	return exNormal
 }

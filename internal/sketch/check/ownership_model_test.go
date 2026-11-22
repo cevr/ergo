@@ -25,7 +25,9 @@ import (
 // taken argument, a dropped value; arms with statements of their own and a
 // tail that takes, names or makes a value, or nests another), and a
 // trailing block (a frame of its own) that uses or hands off the
-// enclosing locals; with a lent and a taken parameter. A reference abstract interpreter in the
+// enclosing locals; a with whose Store provider names a local or
+// parameter, the package let shared, or a new value, around a generated
+// block; with a lent and a taken parameter. A reference abstract interpreter in the
 // test, written from resources R4-R21 and R41-R43, computes the verdict
 // (S108 positions) and the release plan (what each scope end, statement,
 // assignment and exit edge releases, with drop flags); both must equal the
@@ -43,7 +45,9 @@ import (
 // path every run takes (batch-15 A2 M1: the value leaked when it did not
 // run); the arms of a value if or match skipped, an arm's value moved
 // wherever the value goes, and the temporary of a lent one owned on every
-// path or on none (batch-15 A2 M1 repeat).
+// path or on none (batch-15 A2 M1 repeat); a with that moves a named
+// resource provider (with-move-named), and a with's lend that ends at the
+// entry instead of the block's end (with-lend-ends-at-entry).
 func TestOwnershipFlowModel(t *testing.T) {
 	seeds := make([]uint64, 0, 400)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -572,6 +576,7 @@ func TestOwnershipMessages(t *testing.T) {
 		{"let a = open(1)\n\tboth(a, take(a))", "a is lent to both here and handed off at +2:15 (take takes r) in the same call"},
 		{"open(1)", "the Res this produces is discarded"},
 		{"let _ = open(1)", "the Res this produces is discarded"},
+		{"let a = open(1)\n\twith context { Store: a } {\n\t\ta.Close()\n\t\tlet _ = Store.Get()\n\t}", "a is lent to the with at +2:2 until its block ends, so it cannot be handed off, closed or replaced inside the block (resources R11, R28); do that after the block"},
 	} {
 		// +k is the body's k-th line.
 		base := strings.Count(ofPrelude, "\n") + 1
@@ -654,6 +659,8 @@ func lendCloser(c Closes) {}
 
 let shared = Res{id: 0}
 
+let sharedList = []Res{Res{id: 1}}
+
 func newQueue() queue.Queue[Res] { queue.New[Res](2) }
 
 `
@@ -696,10 +703,9 @@ const (
 	ofForIn      // for eN in L { keep(eN) } or { lend(eN) }: lent elements
 	ofHeldNew    // let hN Held = Y
 	ofMatchHeld  // match H { case Res as vN: keep(vN) or lend(vN); case Empty: }
-	ofWithMove   // with context { Store: Y } { … }: Y moves into the with (R11)
+	ofWith       // with context { Store: Y | shared | open(k) } { body; let _ = Store.Get() }: a named provider is lent for the block, a new one is the with's (R11)
 	ofConvert    // lendCloser(Y): a conversion to Closer moves (R23); the statement owns the lent interface value (R43)
 	ofLitLend    // lendBox(Box{r: Y, n: 0}): a lent literal moves its parts
-	ofWithShared // with context { Store: shared } { … }: a package let has no owner (R11)
 	ofQueueNew   // let uN = newQueue()
 	ofQueueLoop  // for eN in U.Values() { keep(eN) } or { lend(eN) }: owned elements (Q7)
 	ofLast
@@ -742,6 +748,7 @@ type ofStmt struct {
 	line, elseLine int
 	armLine        int // ofValue match: the first clause's line; ofCatch: the arm's
 	col, col2      int // y's column (both: the lent y); the taken y in both
+	xcol           int // an assignment's x column
 }
 
 type ofVar struct {
@@ -885,7 +892,7 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			k = []int{ofIf, ofMatch, ofLoop, ofCatch, ofValue}[g.r.IntN(5)]
 		}
 		switch k {
-		case ofDeclMove, ofLend, ofClose, ofKeep, ofBoth, ofShort, ofBoxNew, ofListNew, ofHeldNew, ofWithMove, ofConvert, ofLitLend:
+		case ofDeclMove, ofLend, ofClose, ofKeep, ofBoth, ofShort, ofBoxNew, ofListNew, ofHeldNew, ofConvert, ofLitLend:
 			if !g.hasRes() {
 				continue // nothing live to name
 			}
@@ -904,7 +911,7 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			return s
 		case ofBreak, ofContinue, ofReturn:
 			continue // only as an if body's last statement
-		case ofIf, ofMatch, ofLoop, ofRun, ofCatch:
+		case ofIf, ofMatch, ofLoop, ofRun, ofCatch, ofWith:
 			if nest >= 3 {
 				continue
 			}
@@ -1001,9 +1008,20 @@ func (g *ofGen) stmt(depth, nest int, inLoop bool) *ofStmt {
 			if s.y = g.pickKind("held"); s.y == "" {
 				continue
 			}
-		case ofWithShared:
-			s.y = "shared"
-		case ofWithMove, ofConvert, ofLitLend:
+		case ofWith:
+			// The provider: a live local or parameter (lent), the package
+			// let shared (lent), an element of a package let (refused), or
+			// a new value (the with's own).
+			switch n := g.r.IntN(4); {
+			case n < 2 && g.hasRes():
+				s.y = g.pick()
+			case n == 2:
+				s.y = "shared"
+			case n == 3 && g.r.IntN(3) == 0:
+				s.y = "sharedList[0]" // an element of a package let: no owner to lend it
+			}
+			s.body = g.block(3, depth, nest+1, inLoop)
+		case ofConvert, ofLitLend:
 			s.y = g.pick()
 		}
 		if k == ofForIn || k == ofMatchHeld || k == ofQueueLoop {
@@ -1079,8 +1097,10 @@ func ofPrint(body []*ofStmt, bare bool) (string, int) {
 				emit(depth, "keep("+s.y+")")
 			case ofAssign:
 				k++
+				s.xcol = col(depth, "")
 				emit(depth, fmt.Sprintf("%s = open(%d)", s.x, k))
 			case ofAssignMove:
+				s.xcol = col(depth, "")
 				p := s.x + " = "
 				s.col = col(depth, p)
 				emit(depth, p+s.y)
@@ -1193,23 +1213,30 @@ func ofPrint(body []*ofStmt, bare bool) (string, int) {
 				case tNested:
 					value(s.body[0], depth, "", "")
 				}
-			case ofBoxNew, ofListNew, ofHeldNew, ofWithMove, ofConvert, ofLitLend, ofWithShared:
+			case ofWith:
+				p := "with context { Store: "
+				s.col = col(depth, p)
+				provider := s.y
+				if provider == "" {
+					k++
+					provider = fmt.Sprintf("open(%d)", k)
+				}
+				emit(depth, p+provider+" } {")
+				walk(s.body, depth+1)
+				// Last, so the block has no value: the block reaches Store.
+				emit(depth+1, "let _ = Store.Get()")
+				emit(depth, "}")
+			case ofBoxNew, ofListNew, ofHeldNew, ofConvert, ofLitLend:
 				p := map[int]string{
-					ofBoxNew:     fmt.Sprintf("let %s = Box{r: ", s.x),
-					ofListNew:    fmt.Sprintf("let %s = []Res{", s.x),
-					ofHeldNew:    fmt.Sprintf("let %s Held = ", s.x),
-					ofWithMove:   "with context { Store: ",
-					ofWithShared: "with context { Store: ",
-					ofConvert:    "lendCloser(",
-					ofLitLend:    "lendBox(Box{r: ",
+					ofBoxNew:  fmt.Sprintf("let %s = Box{r: ", s.x),
+					ofListNew: fmt.Sprintf("let %s = []Res{", s.x),
+					ofHeldNew: fmt.Sprintf("let %s Held = ", s.x),
+					ofConvert: "lendCloser(",
+					ofLitLend: "lendBox(Box{r: ",
 				}[s.kind]
-				q := map[int]string{ofBoxNew: ", n: 1}", ofListNew: "}", ofHeldNew: "", ofWithMove: " } {", ofWithShared: " } {", ofConvert: ")", ofLitLend: ", n: 0})"}[s.kind]
+				q := map[int]string{ofBoxNew: ", n: 1}", ofListNew: "}", ofHeldNew: "", ofConvert: ")", ofLitLend: ", n: 0})"}[s.kind]
 				s.col = col(depth, p)
 				emit(depth, p+s.y+q)
-				if s.kind == ofWithMove || s.kind == ofWithShared {
-					emit(depth+1, "let _ = Store.Get()")
-					emit(depth, "}")
-				}
 			case ofBoxLend, ofBoxKeep, ofFieldLend, ofFieldKeep, ofIndexLend:
 				p := map[int]string{ofBoxLend: "lendBox(", ofBoxKeep: "keepBox(", ofFieldLend: "lend(", ofFieldKeep: "keep(", ofIndexLend: "lend("}[s.kind]
 				q := map[int]string{ofBoxLend: ")", ofBoxKeep: ")", ofFieldLend: ".r)", ofFieldKeep: ".r)", ofIndexLend: "[0])"}[s.kind]
@@ -1328,6 +1355,7 @@ type rfRun struct {
 	diags  map[string]bool
 	rel    map[string]string
 	movers map[string]bool // slots moved in the current both call
+	lends  []int           // the slots the withs around the point lend (R11)
 	// The value arms being run: where their value goes, and for a lent
 	// Res the slot of the statement's temporary that owns a new value.
 	vmode, vslot, vfirst int
@@ -1461,6 +1489,10 @@ func (r *rfRun) move(name string, line, col int) {
 	}
 	r.use(name, line, col)
 	i := r.find(name)
+	if r.lentToWith(i) {
+		r.diag(line, col) // lent to a with until its block ends (R11, R28)
+		return
+	}
 	s := &r.st[i]
 	if s.st != rfOwned {
 		s.st, s.ft, s.fm = rfMoved, false, false
@@ -1475,6 +1507,9 @@ func (r *rfRun) move(name string, line, col int) {
 		r.movers[name] = true
 	}
 }
+
+// lentToWith reports a slot a with around the point lends.
+func (r *rfRun) lentToWith(i int) bool { return slices.Contains(r.lends, i) }
 
 func rfCopy(s []rfSlot) []rfSlot {
 	if s == nil {
@@ -1560,6 +1595,9 @@ func (r *rfRun) stmt(s *ofStmt) {
 		}
 		if r.st != nil {
 			i := r.find(s.x)
+			if r.lentToWith(i) {
+				r.diag(s.line, s.xcol) // replaced while a with lends it (R11, R41)
+			}
 			v := ""
 			switch r.st[i].st {
 			case rfOwned:
@@ -1704,15 +1742,29 @@ func (r *rfRun) stmt(s *ofStmt) {
 	case ofBoxNew, ofListNew, ofHeldNew:
 		r.move(s.y, s.line, s.col)
 		r.acquire(s.x)
-	case ofWithMove, ofBoxKeep:
+	case ofBoxKeep:
 		r.move(s.y, s.line, s.col)
+	case ofWith:
+		// A named provider is lent to the with until its block ends: the
+		// owner is used here and cannot be taken inside (R11, R28). A new
+		// value is the with's own, released by its scope, not a slot.
+		if s.y == "sharedList[0]" {
+			r.diag(s.line, s.col) // withown.go: an element of a package let has no owner
+		}
+		lent := s.y != "" && s.y != "shared" && s.y != "sharedList[0]" && r.st != nil
+		if lent {
+			r.use(s.y, s.line, s.col)
+			r.lends = append(r.lends, r.find(s.y))
+		}
+		r.block(s.body, "block", s.line, 0)
+		if lent {
+			r.lends = r.lends[:len(r.lends)-1]
+		}
 	case ofConvert:
 		// The parameter lends the interface value the conversion made:
 		// the statement owns it (lang-audit F2).
 		r.move(s.y, s.line, s.col)
 		r.record(fmt.Sprintf("stmt@%d", s.line), "tmp")
-	case ofWithShared:
-		r.diag(s.line, s.col) // withown.go: the package let has no owner
 	case ofLitLend:
 		r.move(s.y, s.line, s.col)
 		r.record(fmt.Sprintf("stmt@%d", s.line), "tmp")
