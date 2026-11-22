@@ -240,6 +240,14 @@
       "to": "",
       "rule": "The Model's release stops its actor, so no path needs a manual Stop: HandleEndsWithItsOwner (a command through the Handle after Close is taken, not Unavailable).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pc-id-field-adds-newline", "origin": "wf10/lang PIPELINE-CLOSE (held-ask-newline)",
+      "file": "examples/pipeline/screen/screen.ergo",
+      "from": "\t\tForm{..f, ID: text}\n",
+      "to": "\t\tForm{..f, ID: text + \"\\n\"}\n",
+      "rule": "The screen sends the id its one-line field keeps (ui.OneLine), not more: HeldAskShowsSendingThenReceipt.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]
 }
