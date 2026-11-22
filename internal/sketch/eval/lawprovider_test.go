@@ -20,7 +20,8 @@ import (
 // fstest's Folder (NewFolder needs TestAmbient) are not run, so their
 // laws are no longer refuted on values no program holds.
 // Mutants it kills (testdata/mutants.json): lawprov-draws-past-ctor,
-// lawprov-ctor-name-only, lawprov-eval-ignores-unrun.
+// lawprov-ctor-name-only. (The evaluator skips such a binding through
+// testplan's Reason, which reads LawProvider.Unrun.)
 func TestLawProvidersAreBuiltHonestly(t *testing.T) {
 	const ops = `type Counter {
 	Next() int,
