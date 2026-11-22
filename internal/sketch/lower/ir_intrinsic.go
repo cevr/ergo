@@ -56,9 +56,9 @@ func (st *irState) intrinsicBody(fc *funcCtx, fd *funcDecl, params []*check.Var,
 		}
 		return false
 	}
-	b := st.newBuilder(fc, f.Decl)
-	b.result = fc.frame.result
+	b := st.newBuilder(fc, nil) // no source statements: nothing for the value rule to analyze
 	b.decl, b.pkg = f.Decl, f.Pkg
+	b.result = fc.frame.result
 	defer st.finish(b, f.Pkg.Path, fd.name, f.Decl, f.Pkg.Std(), &ok)
 	p := b.pos(f.Decl, f.Decl.Pos())
 	b.fn = &irFunc{Name: fd.name, Pos: p, End: p}
