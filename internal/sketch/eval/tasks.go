@@ -35,6 +35,27 @@ func registerTasks(t nativeTables) {
 		in.handCaptures(fr, c)
 		return &taskV{t: t}, nil
 	}
+	// task.ExitOf's two externs (Tasks 13): exitOf waits as Wait does and
+	// gives (0, "") for a value, (2, reason) for a defect, which it
+	// contains, and a lone typed failure as its failure; exitValue takes
+	// the value after a 0.
+	t.reads["task.exitOf"] = "host:prelude.Task"
+	natives["task.exitOf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		v, ok := args[0].(*taskV)
+		if !ok {
+			return nil, fr.unsupported(at, "a Task the evaluator did not start")
+		}
+		return v.exitOf(in, fr, at)
+	}
+	t.reads["task.exitValue"] = "host:prelude.Task"
+	natives["task.exitValue"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		v, ok := args[0].(*taskV)
+		if !ok {
+			return nil, fr.unsupported(at, "a Task the evaluator did not start")
+		}
+		v.delivered = true
+		return v.t.val, nil
+	}
 	t.reads["scope.OnExit"] = "func/0"
 	natives["scope.OnExit"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		c, ok := args[0].(*closure)
@@ -242,6 +263,44 @@ type taskV struct {
 }
 
 func (v *taskV) describe() string { return fmt.Sprintf("a Task (task #%d)", v.t.id) }
+
+// exitOf is task.ExitOf's wait (Tasks 13): Wait's, but a defect-only exit
+// is the tuple (2, its text), contained, and a value is (0, ""), left in
+// the task for exitValue.
+func (v *taskV) exitOf(in *interp, fr *frame, at syntax.Node) (Value, *abrupt) {
+	if ab := in.charge(fr, at, 1); ab != nil {
+		return nil, ab
+	}
+	t := v.t
+	if v.used {
+		return nil, fr.defect(at, "task: ExitOf on a task that was already waited for, stopped or released")
+	}
+	v.used = true
+	if ab := in.block(fr, at, fmt.Sprintf("task #%d to end", t.id), func() bool { return t.state == done }); ab != nil {
+		if ab.kind != ctlInterrupt {
+			return nil, ab
+		}
+		stopTree(t)
+		if d := in.waitDone(fr, at, t, fmt.Sprintf("task #%d to end", t.id)); d != nil {
+			return nil, d
+		}
+		if t.exit != nil && t.exit.kind == ctlDefect {
+			return nil, t.exit
+		}
+		return nil, ab
+	}
+	switch {
+	case t.exit == nil:
+		return tuple{elems: []Value{int64(0), ""}}, nil
+	case t.exit.kind == ctlFail || t.exit.kind == ctlEscape:
+		return nil, fr.abrupt(ctlFail, at, t.exit.val, "")
+	case t.exit.kind == ctlDefect:
+		return tuple{elems: []Value{int64(2), t.exit.msg}}, nil
+	case t.exit.kind == ctlInterrupt:
+		return nil, fr.interrupt(at)
+	}
+	return nil, t.exit
+}
 
 func (v *taskV) opCall(in *interp, fr *frame, at syntax.Node, name string, args []Value) (Value, *abrupt) {
 	if ab := in.charge(fr, at, 1); ab != nil {

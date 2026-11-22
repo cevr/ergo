@@ -998,7 +998,19 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		ice("a call with no Calls entry")
 	}
 	if xf.unreachable {
-		return nil, fr.defect(x, "unreachable")
+		// The runtime's text (runtime/v1 UnreachableDefect): the reason
+		// with the call's position, which task.ExitOf's Defected and
+		// actor.Defected give as a value.
+		reason := ""
+		if len(x.Args) == 1 {
+			v, ab := in.expr(fr, x.Args[0])
+			if ab != nil {
+				return nil, ab
+			}
+			reason, _ = v.(string)
+		}
+		s := in.site(fr.pkg, fr.decl, x.Pos())
+		return nil, fr.defect(x, "unreachable at %s:%d:%d: %s", s.File, s.Line, s.Column, reason)
 	}
 	switch c.Kind {
 	case check.CallConversion:

@@ -549,6 +549,77 @@ func (t *Task[T]) Wait() (T, error) {
 	panic("unreachable")
 }
 
+// Exit kinds of TaskExit: the order of std task's Exit variants.
+const (
+	taskDone     = iota // the block returned its value
+	taskFailed          // the task's whole exit is one typed failure
+	taskDefected        // a defect ended it (with or without a typed failure)
+)
+
+// TaskExit is std task's exitOf(t): it waits for the task to end, as Wait
+// does, and gives how it ended (taskDone, taskFailed, taskDefected) and,
+// for a defect, the text of its first defect as the runtime's report
+// writes it after "panic: " (defectReason, the helper ActorDefectReason
+// reads; Tasks 13). A lone typed failure is its returned error, which the
+// caller's catch takes. A defect is observed here: it is returned as a
+// value and never raised again, by this call or by the owner's release,
+// since the task is consumed. The task's exit actions and drains have run
+// before it returns, because rt writes the exit only after the task's
+// releases. A stop of the waiter is Wait's: the task is stopped and
+// drained, and the interruption, with the task's defects, is raised. So is
+// an exit that holds an interruption. A TaskExit after Wait, Stop or Close
+// is a defect. It consumes the task but does not deliver its value: the
+// value stays in the Task for TaskValue.
+//
+//ergo:wait handle
+func TaskExit[T any](t *Task[T]) (int, string, error) {
+	if t.used {
+		panic("task: ExitOf on a task that was already waited for, stopped or released")
+	}
+	t.used = true
+	_, err := t.h.Wait()
+	if err == nil {
+		return taskDone, "", nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		return taskFailed, "", f
+	}
+	if why := defectReason(err); why != "" && !interrupted(err) {
+		return taskDefected, why, nil
+	}
+	raise(err)
+	panic("unreachable")
+}
+
+// interrupted reports whether err holds an interruption.
+func interrupted(err error) bool {
+	if err == rt.Interrupted {
+		return true
+	}
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return false
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindInterruption {
+			return true
+		}
+	}
+	return false
+}
+
+// TaskValue is std task's exitValue(t): the value the block returned, read
+// after TaskExit gave taskDone. It takes the value: the Task's owner
+// drains nothing after it.
+//
+//ergo:wait none
+func TaskValue[T any](t *Task[T]) T {
+	v := t.out
+	var zero T
+	t.out, t.ended = zero, false
+	return v
+}
+
 // Stop interrupts the task and waits, uninterruptibly, until it has ended,
 // its exit actions included (law R5), and consumes it. The task's
 // interruption and an abandoned typed failure are the expected result of

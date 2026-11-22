@@ -559,6 +559,8 @@ var bodyTable = []bodyRow{
 	{"Task.Drain", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Results: []string{"[]T"}, Wait: "none", Package: Path}}},
 	{"Task.Stop", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Wait: "drain", Package: Path}}},
 	{"Task.Wait", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Results: []string{"T", "error"}, Wait: "handle", Package: Path}}},
+	{"TaskExit", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Task[T]"}}, Results: []string{"int", "string", "error"}, Wait: "handle", Package: Path}}},
+	{"TaskValue", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Task[T]"}}, Results: []string{"T"}, Wait: "none", Package: Path}}},
 	{"TasksClosed.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"TasksGo", bodyFact{body: Body{Hidden: []Hidden{"site", "task"}, Params: []Param{{Type: "*Set"}, {Type: "func(*rt.Task) error", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"error"}}}}, Results: []string{"error"}, Wait: "parent", Package: Path}}},
 	{"TasksGoOwned", bodyFact{body: Body{Hidden: []Hidden{"site", "task"}, Params: []Param{{Type: "*Set"}, {Type: "func(*rt.Task) *Scope", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"*Scope"}}}, {Type: "func(*rt.Task) error", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"error"}}}}, Results: []string{"error"}, Wait: "parent", Package: Path}}},
