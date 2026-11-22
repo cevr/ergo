@@ -13,6 +13,7 @@ import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import config
 import http
+import strconv
 import strings
 import sync
 
@@ -135,3 +136,67 @@ func holds(r http.Request, name string, value string) bool {
 		false
 	}
 }
+
+// Derived is a test signer whose header is computed from the request and
+// a secret, as SigV4's is: Authorization carries a digest of the secret,
+// the method and the path. It stands until std http holds a computed
+// credential the Net applies as it writes a request
+// (HTTP-SIGNED-CREDENTIAL), when aws.Signer goes away.
+type Derived { secret config.Redacted[string] } implements aws.Signer
+
+func Sign(d Derived, r http.Request) http.Request {
+	let mut h uint64 = 14695981039346656037
+	let text = d.secret.Reveal() + "\n" + r.Method + "\n" + r.RawPath
+	for i in 0..len(text) {
+		h = (h ^ uint64(text[i])) * 1099511628211
+	}
+	http.Request{..r, Header: r.Header.Append(http.Field{Name: "Authorization", Value: "TEST4-HMAC " + strconv.AppendUint([]byte{}, h, 16).Text()})}
+}
+
+// Recorded keeps each request before its inner signer signs it: where a
+// recording of a client's traffic sits (CASSETTE's Record over the Api)
+// until signing moves into the Net.
+type Recorded { inner aws.Signer, log sync.Ref[[]http.Request] } implements aws.Signer
+
+func Sign(r Recorded, q http.Request) http.Request {
+	r.log.Update(func(rs []http.Request) []http.Request { rs.Append(q) })
+	r.inner.Sign(q)
+}
+
+// RecordingSitsAboveTheSigner: a recording placed over the signer holds
+// no Authorization value and no byte of the secret, while every request
+// the server gets carries the signature the signer derived.
+law RecordingSitsAboveTheSigner(secret string, steps []int) {
+	let key = "s3cr3t-" + secret
+	let rec = Recorded{inner: Derived{secret: config.NewRedacted(key)}, log: sync.NewRef[[]http.Request]([]http.Request{})}
+	let got = sync.NewRef[[]http.Request]([]http.Request{})
+	let serve = Handler(NewMemory())
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming {
+		got.Update(func(rs []http.Request) []http.Request { rs.Append(r) })
+		serve(r)
+	})
+	for i, n in steps {
+		if i < 6 {
+			call(s3.New(net, rec), n, keyOf(n))
+		}
+	}
+	for r in rec.log.Get() {
+		if strings.Contains(textOf(r), key) || strings.Contains(textOf(r), "Authorization") {
+			return false
+		}
+	}
+	for r in got.Get() {
+		match http.Header(r.Header, "Authorization") {
+		case Some as v:
+			if !strings.HasPrefix(v.Value, "TEST4-HMAC ") {
+				return false
+			}
+		case None:
+			return false
+		}
+	}
+	len(got.Get()) == len(rec.log.Get())
+}
+
+// The signer Signer's law runs under: a Recorded over Unsigned.
+let lawRecorded = context { aws.Signer: Recorded{inner: aws.Unsigned, log: sync.NewRef[[]http.Request]([]http.Request{})} }

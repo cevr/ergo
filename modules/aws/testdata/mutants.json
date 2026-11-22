@@ -48,6 +48,14 @@
       "to": "\tif status == 404 {\n\t\treturn \"Status404\"\n",
       "rule": "An error answer with no body (a HEAD) gets its status's name as its code, so HeadObject's 404 is NotFound: ApiIsTheFake.",
       "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-recording-below-signer", "origin": "wf10 GEN-EMIT (q20)",
+      "file": "modules/aws/memory/signer.ergo",
+      "from": "\tr.log.Update(func(rs []http.Request) []http.Request { rs.Append(q) })\n\tr.inner.Sign(q)\n",
+      "to": "\tlet signed = r.inner.Sign(q)\n\tr.log.Update(func(rs []http.Request) []http.Request { rs.Append(signed) })\n\tsigned\n",
+      "rule": "A recording sits above the signer, so it holds no signature: RecordingSitsAboveTheSigner (here the recording keeps the signed request).",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
     }
   ]
 }
