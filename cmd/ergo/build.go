@@ -299,8 +299,8 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 		return fmt.Errorf("-go-text: %w", err)
 	}
 	// The spike's driver keys its own Go cache by the compile's content,
-	// beside the patched release.
-	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(filepath.Dir(action.Root), "gocache")}
+	// in the patched release's writable folder (the entry is read-only).
+	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(toolchain.PatchedWork(action.Root), "gocache")}
 	dir, err := filepath.Abs(opts.goText)
 	if err != nil {
 		return err
