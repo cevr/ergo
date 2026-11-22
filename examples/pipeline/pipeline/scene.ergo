@@ -335,7 +335,6 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 	}
 	let d = m.desk.State().State
 	let v = Board(m)
-	Stop(m)
 	(d, v)
 }
 

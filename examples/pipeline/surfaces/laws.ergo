@@ -202,7 +202,6 @@ func answers(s Surface, rs []Request, failing int) []string fails domain.Conflic
 		case ThroughScreen:
 			onScreen(rs, m, clock)
 		}
-		pipeline.Stop(m)
 		out
 	}
 }
@@ -257,8 +256,6 @@ law TransportsTakeEachCommandOnce(c pipeline.SubmitRun, t Transport) {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
-		let ok = with context { pipeline.Pipeline: Through(t, m) } { pipeline.DuplicateIsNoop(c) }
-		pipeline.Stop(m)
-		ok
+		with context { pipeline.Pipeline: Through(t, m) } { pipeline.DuplicateIsNoop(c) }
 	}
 }

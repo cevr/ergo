@@ -55,7 +55,6 @@ func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain
 	for i, id in []string{"build", "docs"} {
 		let _ = send(m, Envelope{ID: "c\(i)", Run: id, Command: run.Submit{Stages: 1}}) catch {
 		case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
-			Stop(m)
 			return false
 		}
 		let _ = try Settle(m)
@@ -65,7 +64,6 @@ func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain
 	}
 	clock.Advance(wait - part)
 	let d = try Settle(m)
-	Stop(m)
 	match RunIn(BookOf(d), "build") {
 	case run.Done:
 		true

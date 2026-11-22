@@ -67,6 +67,5 @@ func main() fails os.Exit needs Ambient {
 				return os.Exit{Code: 2, Message: "pipeline-server: the server's limits are not positive"}
 			}
 		}
-		pipeline.Stop(m)
 	}
 }

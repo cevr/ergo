@@ -13,8 +13,11 @@ import github.com/cevr/ergo/modules/domain/memory
 // DeskActor is the running context.
 type DeskActor = actor.Actor[Ledger, Signal, Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
-// Model is the context as a Pipeline. Open makes one.
-type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline
+// Model is the context as a Pipeline. Open makes one. It is a resource
+// (resources.md R1): its actor runs until Close stops it, so one owner
+// holds it, a with that builds it or a frame, and releases it on every
+// path (q266).
+type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline, Settler, Closer
 
 // Open runs the context over log: it starts in the desk that the stream
 // Stream folds to, and appends the entries of each step to the stream
@@ -90,8 +93,32 @@ func RunOf(m Model, id string) run.Run fails NoSuchRun {
 	}
 }
 
+// Settler waits for a provider of Pipeline to settle: code that holds
+// Pipeline through a with reaches Settle through it, beside Pipeline, as
+// the with owns the Model (WITH-LEND evidence).
+type Settler {
+	// Settle waits until the runner runs no try: the context is idle, or
+	// a failed try waits for its backoff. It is the desk's state then.
+	Settle() Desk fails Unavailable,
+
+	// SettledStays: a second Settle with no command between is the same
+	// desk.
+	law SettledStays() {
+		let first = Settle() catch {
+		case Unavailable:
+			return false
+		}
+		let again = Settle() catch {
+		case Unavailable:
+			return false
+		}
+		again == first
+	},
+}
+
 // Settle waits until the runner runs no try: the context is idle, or a
-// failed try waits for its backoff. It is the desk's state then.
+// failed try waits for its backoff. It is the desk's state then; it fails
+// Unavailable only when the desk has stopped (Close).
 func Settle(m Model) Desk fails Unavailable {
 	let l = actor.WaitFor(m.desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
 	case actor.Stopped:
@@ -100,9 +127,9 @@ func Settle(m Model) Desk fails Unavailable {
 	l.State
 }
 
-// Stop stops the context. (Model has no Close: it is a handle that a
-// context binds and the binary copies, not a resource one owner holds.)
-func Stop(m Model) {
+// Close stops the context's actor (q266: Close is Stop). Its owner calls
+// it on every path: the with that built it, or the frame that holds it.
+func Close(m Model) {
 	m.desk.Stop() catch {
 	case _:
 	}

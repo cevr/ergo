@@ -225,7 +225,6 @@ law HeldTryShowsRunningThenPassed(pick int) {
 		}
 		let done = shows(&h, "passed: "+name) && !shows(&h, "running: "+name)
 		stop(a)
-		pipeline.Stop(m)
 		busy && done && testing.Unanswered() == ""
 	}
 }
