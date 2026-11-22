@@ -11,7 +11,6 @@ package tzdata
 
 import (
 	_ "embed"
-	"encoding/binary"
 	"strings"
 	"sync"
 )
@@ -60,10 +59,10 @@ func read() db {
 	line() // the source digest
 	at := len(zones) - len(s)
 	for at < len(zones) {
-		n := int(binary.BigEndian.Uint16([]byte(zones[at : at+2])))
+		n := int(zones[at])<<8 | int(zones[at+1]) // big-endian, by hand: encoding/binary is an init root (TestCoreHasNoInitRoots)
 		name := zones[at+2 : at+2+n]
 		at += 2 + n
-		size := int(binary.BigEndian.Uint32([]byte(zones[at : at+4])))
+		size := int(zones[at])<<24 | int(zones[at+1])<<16 | int(zones[at+2])<<8 | int(zones[at+3])
 		at += 4
 		d.names = append(d.names, name)
 		d.at[name] = entry{at: at, n: size}

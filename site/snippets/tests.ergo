@@ -1,0 +1,192 @@
+import exec
+import fs
+import fstest
+import strings
+
+// src is a snippet: two lines.
+let src = "let name = \"host\"\nfunc Lookup(ctx context) {}\n"
+
+// spans are its tokens as compiler/syntax.Scan gives them: `let`, `name`,
+// `=`, the string, then line 2's words.
+let spans = []Span{Span{Start: 0, End: 3}, Span{Start: 4, End: 8}, Span{Start: 9, End: 10}, Span{Start: 11, End: 17}, Span{Start: 18, End: 22}, Span{Start: 23, End: 29}}
+
+func mark(line int, col int, end int, class string, text string) Mark {
+	Mark{Line: line, Col: col, End: end, Class: class, Text: text}
+}
+
+// has reports whether one of problems holds part.
+func has(problems []string, part string) bool {
+	for p in problems {
+		if strings.Contains(p, part) {
+			return true
+		}
+	}
+	false
+}
+
+test MarksOnTokenBoundariesHold {
+	assert len(JudgeMarks("a.ergo", src, []Mark{mark(1, 1, 9, "service", "let name"), mark(2, 1, 12, "failure", "func Lookup")}, spans)) == 0
+}
+
+test AShiftedMarkIsReported {
+	// The same text one byte to the right: the file reads "et name ".
+	let p = JudgeMarks("a.ergo", src, []Mark{mark(1, 2, 10, "service", "let name")}, spans)
+	assert has(p, "the file reads \"et name \", the mark says \"let name\"")
+}
+
+test AMarkCuttingATokenIsReported {
+	assert has(JudgeMarks("a.ergo", src, []Mark{mark(1, 1, 3, "service", "le")}, spans), "cuts the token \"let\"")
+	assert has(JudgeMarks("a.ergo", src, []Mark{mark(1, 14, 18, "service", "ost\"")}, spans), "cuts the token \"\\\"host\\\"\"")
+}
+
+test MarkRowsAreOrderedKnownAndApart {
+	assert has(JudgeMarks("a.ergo", src, []Mark{mark(1, 1, 4, "colour", "let")}, spans), "unknown class \"colour\"")
+	assert has(JudgeMarks("a.ergo", src, []Mark{mark(1, 5, 9, "time", "name"), mark(1, 1, 4, "time", "let")}, spans), "out of order")
+	assert has(JudgeMarks("a.ergo", src, []Mark{mark(1, 1, 9, "time", "let name"), mark(1, 5, 9, "time", "name")}, spans), "overlaps")
+	assert has(JudgeMarks("a.ergo", src, []Mark{mark(3, 1, 2, "time", "x")}, spans), "has no line 3")
+}
+
+test MarksFileReads {
+	let m = ParseMarks("a.ergo.marks.tsv", "line\tcol\tend\tclass\ttext\n2\t1\t5\tfailure\tfunc\n2\tx\t5\tfailure\tfunc\n")
+	assert len(m.Rows) == 1 && m.Rows[0] == mark(2, 1, 5, "failure", "func")
+	assert has(m.Problems, "a.ergo.marks.tsv:3:")
+	assert has(ParseMarks("b", "line\tcol\n").Problems, "the first line")
+}
+
+test ScandumpGivesTokensAndComments {
+	let s = Scanned("F a.ergo\nT 1 0 3\nC 4 9\nN 1\nOK\nF b.ergo\nT 2 1 2\nN 1\nOK\n")
+	assert spansOf(s, "a.ergo") == []Span{Span{Start: 0, End: 3}, Span{Start: 4, End: 9}}
+	assert spansOf(s, "b.ergo") == []Span{Span{Start: 1, End: 2}}
+}
+
+// The highlighter merges `ctx context` into one variable record; the
+// guard splits it into its words, and keeps a string record whole.
+let records = []TokenRow{TokenRow{Line: 2, Col: 1, End: 12, Kind: "keyword"}, TokenRow{Line: 2, Col: 13, End: 24, Kind: "variable"}, TokenRow{Line: 1, Col: 12, End: 18, Kind: "string"}}
+
+test RecordsSplitIntoWords {
+	let t = TokenSpans(src, records)
+	assert t == []Span{Span{Start: 18, End: 22}, Span{Start: 23, End: 29}, Span{Start: 30, End: 33}, Span{Start: 34, End: 41}, Span{Start: 11, End: 17}}
+	assert len(JudgeMarks("a.go", src, []Mark{mark(2, 17, 24, "time", "context")}, t)) == 0
+	assert has(JudgeMarks("a.go", src, []Mark{mark(2, 13, 20, "time", "ctx con")}, t), "cuts the token \"context\"")
+	assert has(JudgeMarks("a.go", src, []Mark{mark(1, 13, 18, "time", "host\"")}, t), "cuts the token")
+}
+
+test TokensFileReadsAndHoldsItsDigest {
+	let file = "{\"source\": \"a.go\", \"sha256\": \"\(Digest(src))\", \"highlighter\": \"h\", \"tokens\": [\n[2,1,5,\"keyword\"],\n[2,0,5,\"keyword\"]\n]}\n"
+	let t = ParseTokens("a.go.tokens.json", file)
+	assert t.Rows == []TokenRow{TokenRow{Line: 2, Col: 1, End: 5, Kind: "keyword"}}
+	assert has(t.Problems, "token 1 is not")
+	assert len(JudgeTokens("a.go.tokens.json", Tokens{..t, Problems: []string{}}, "a.go", src)) == 0
+	assert has(JudgeTokens("a.go.tokens.json", t, "a.go", src+"\n"), "its digest is not a.go's")
+	assert has(JudgeTokens("a.go.tokens.json", t, "b.go", src), "names the source \"a.go\", not \"b.go\"")
+	assert has(ParseTokens("x", "[1]").Problems, "not a JSON object")
+}
+
+func result(status int, out string) exec.Result { exec.Result{Status: status, Stdout: out, Stderr: ""} }
+
+test ACheckedSnippetWithADiagnosticFails {
+	assert len(JudgeChecked("d", result(0, "{\"checked\":true,\"diagnostics\":[]}"))) == 0
+	assert has(JudgeChecked("d", result(1, "{\"checked\":false}")), "ergo check exits 1")
+	assert has(JudgeChecked("d", result(0, "{\"checked\":true,\"diagnostics\":[{\"code\":\"S110\"}]}")), "reports 1 diagnostics")
+	assert has(JudgeFormatted("d", result(1, "d/a.ergo")), "ergo fmt --check exits 1")
+}
+
+test APlannedSnippetThatChecksIsReported {
+	assert len(JudgePlanned("p.ergo", result(0, "ok 1 fixtures\n"))) == 0
+	assert has(JudgePlanned("p.ergo", result(1, "p.ergo: want [S104@3], got []\n1 fixtures differ\n")), "now checks")
+	assert has(JudgePlanned("p.ergo", result(1, "p.ergo: want [S104@3], got [S102@4]\n")), "fails other than")
+}
+
+test EveryPlannedSnippetHasOneRow {
+	let m = ParseManifest("planned.tsv", "path\tfeature\tcheck\nplanned/a.ergo\tmethod forms\tergo check passes\nplanned/b.ergo\tx\ty\nplanned/a.ergo\tmethod forms\tergo check passes\nchecked/c.ergo\tx\ty\n")
+	let p = JudgeManifest("planned.tsv", m, []string{"planned/a.ergo", "planned/d.ergo"})
+	assert has(p, "planned/b.ergo has a row and no file")
+	assert has(p, "planned/d.ergo is planned and has no row")
+	assert has(p, "planned/a.ergo has two rows")
+	assert has(p, "checked/c.ergo is not under planned/")
+	assert !has(p, "planned/a.ergo is planned and has no row")
+	assert has(ParseManifest("planned.tsv", "path\tissue\n").Problems, "the first line")
+}
+
+// receipt is a bench.v1 receipt of case rows: Ergo against hand Go at
+// control, and against the floor at floor.
+func receipt(control string, floor string) string {
+	"{\"schema\":\"bench.v1\",\"commit\":\"abc\",\"cases\":[{\"case\":\"rows\",\"comparisons\":[" + "{\"counter\":\"instructions\",\"base\":\"control\",\"head\":\"ergo\",\"ratio\":\(control)}," + "{\"counter\":\"instructions\",\"base\":\"floor\",\"head\":\"ergo\",\"ratio\":\(floor)}]}]}"
+}
+
+func shown(base string, label string) Shown {
+	Shown{Receipt: "station-stats", Case: "rows", Counter: "instructions", Base: base, Label: label}
+}
+
+test AShownNumberIsAtOrUnderOneAgainstItsNamedControl {
+	// The floor ratio is over 1.0 in the file and is not shown: allowed.
+	assert len(JudgeShown(shown("control", LabelHandGo), receipt("0.91", "1.32"))) == 0
+	assert len(JudgeShown(shown("control", LabelHandGo), receipt("1.0", "1.32"))) == 0
+	assert has(JudgeShown(shown("control", LabelHandGo), receipt("1.01", "1.32")), "over 1.0")
+	assert has(JudgeShown(shown("floor", LabelFloor), receipt("0.91", "1.32")), "over 1.0")
+	assert has(JudgeShown(shown("control", ""), receipt("0.91", "1.32")), "names no control")
+	assert has(JudgeShown(shown("control", LabelFloor), receipt("0.91", "1.32")), "does not name the base \"control\"")
+	assert has(JudgeShown(Shown{..shown("control", LabelHandGo), Counter: "allocs"}, receipt("0.91", "1.32")), "has no ratio")
+	assert has(JudgeShown(shown("control", LabelHandGo), strings.ReplaceAll(receipt("0.91", "1.32"), "bench.v1", "bench.v0")), "not bench.v1")
+	assert has(ParseShown("shown.tsv", "receipt\tcase\tcounter\tbase\tlabel\na\tb\n").Problems, "shown.tsv:2:")
+}
+
+// The guard over a tree in memory, with every ergo run it makes scripted.
+let lookup = "site/examples/checked/lookup"
+
+func tree(extra Map[string, string]) fstest.Memory {
+	let m = fstest.NewMemory()
+	let mut files = Map[string, string]{}
+	files[lookup+"/lookup.ergo"] = src
+	files[lookup+"/lookup.ergo.marks.tsv"] = "line\tcol\tend\tclass\ttext\n2\t1\t12\tfailure\tfunc Lookup\n"
+	files["site/examples/planned.tsv"] = "path\tfeature\tcheck\nplanned/len.ergo\tmethod forms\tergo check passes\n"
+	files["site/examples/planned/len.ergo"] = "planned"
+	for k, v in extra {
+		files[k] = v
+	}
+	for k, v in files {
+		m.MkdirAll(dirOf(k)) catch {
+		case _:
+			Unreachable("a memory tree makes every folder")
+		}
+		m.WriteFile(k, v) catch {
+		case _:
+			Unreachable("a memory tree writes every file")
+		}
+	}
+	m
+}
+
+func script(checked exec.Result, planned exec.Result) exec.Script {
+	let mut r = Map[string, exec.Result]{}
+	r[exec.Key(exec.New("ergo", []string{"check", lookup}))] = checked
+	r[exec.Key(exec.New("ergo", []string{"fmt", "--check", "site/examples/checked"}))] = result(0, "")
+	r[exec.Key(exec.New("ergo", []string{"check", "--want", "site/examples/planned/len.ergo"}))] = planned
+	r[exec.Key(exec.New("ergo", []string{"run", "./compiler/cmd/scandump", lookup + "/lookup.ergo"}))] = result(0, "F \(lookup)/lookup.ergo\nT 1 18 22\nT 1 23 29\nOK\n")
+	exec.Script{Results: r}
+}
+
+func guard(files fstest.Memory, runs exec.Script) Report {
+	with context { fs.Files: files, exec.Runner: runs } {
+		Guard("site", "ergo")
+	}
+}
+
+let clean = result(0, "{\"diagnostics\":[]}")
+
+test TheGuardPassesAHeldTree {
+	let r = guard(tree(Map[string, string]{}), script(clean, result(0, "ok")))
+	assert r.Problems == []string{}
+	assert r.Checked == 1 && r.Planned == 1 && r.Marks == 1
+}
+
+test TheGuardFailsEachBrokenHold {
+	assert has(guard(tree(Map[string, string]{}), script(result(1, "S102"), result(0, "ok"))).Problems, "ergo check exits 1")
+	assert has(guard(tree(Map[string, string]{}), script(clean, result(1, "len.ergo: want [S104@1], got []"))).Problems, "now checks")
+	let shifted = Map[string, string]{lookup + "/lookup.ergo.marks.tsv": "line\tcol\tend\tclass\ttext\n2\t2\t13\tfailure\tfunc Lookup\n"}
+	assert has(guard(tree(shifted), script(clean, result(0, "ok"))).Problems, "the file reads")
+	let unlisted = Map[string, string]{"site/examples/planned/more.ergo": "x"}
+	assert has(guard(tree(unlisted), script(clean, result(0, "ok"))).Problems, "planned/more.ergo is planned and has no row")
+	let untokened = Map[string, string]{lookup + "/go/lookup.go": "package hosts\n"}
+	assert has(guard(tree(untokened), script(clean, result(0, "ok"))).Problems, "has no tokens file")
+}

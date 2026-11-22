@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/eval"
 )
 
-// exploreLawPackages are the std packages whose ledger rows name
+// exploreLawPackages are the std packages whose runner-file lines name
 // TestStdExploreLawsRun: std explore and its visited set, dense.Keys.
 var exploreLawPackages = []string{"explore", "dense"}
 
@@ -21,8 +21,8 @@ var exploreLawPackages = []string{"explore", "dense"}
 // process: the evaluator runs std explore's Ergo, which is the code a test
 // build lowers, so no Go is built. Each law runs its 100 generated cases
 // with a step budget large enough to finish them; lawledger.Run holds that
-// the ledger's rows that name this runner are exactly these laws, and each
-// passed. The mc-* mutants of std explore's ledger name it.
+// the runner file's lines that name this runner are exactly these laws,
+// each stated as its source states it, and each passed. The mc-* mutants of std explore's ledger name it.
 func TestStdExploreLawsRun(t *testing.T) {
 	rows, err := lawledger.Read()
 	if err != nil {
@@ -51,7 +51,8 @@ func TestStdExploreLawsRun(t *testing.T) {
 			continue
 		}
 		r, ok := results[row.Key()]
-		laws[row.Key()] = lawledger.Law{Statement: row.Statement, Check: func(t *testing.T) {
+		statement, _ := lawledger.StdStatement(row.Key())
+		laws[row.Key()] = lawledger.Law{Statement: statement, Check: func(t *testing.T) {
 			switch {
 			case !ok:
 				t.Errorf("std %s has no law %s at check time", row.Pkg, row.Law)
