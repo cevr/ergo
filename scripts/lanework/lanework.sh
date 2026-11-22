@@ -2,7 +2,7 @@
 # lanework.sh: Ergo lanes in copy-on-write workspaces of `work` (ergo work).
 #
 #   lanework.sh create <branch> <base>   make a lane workspace for <branch>; prints its path
-#   lanework.sh env [lane]               print the lane's env (GOCACHE: the shared cache)
+#   lanework.sh env [lane]               print the lane's env (the shared GOCACHE, go.mod's Go first on PATH)
 #   lanework.sh push [lane]              hand the branch back to the main checkout
 #   lanework.sh remove <lane> [--force]  move the lane to the work trash (at READY)
 #   lanework.sh warm                     rebuild the shared Go cache from the source
@@ -113,7 +113,31 @@ lane_env() {
   cache=$(lane_gocache "$1")
   printf 'export GOCACHE=%s\n' "$cache"
   printf 'export GOMEMLIMIT=6GiB\n'
+  bin=$(lane_go_bin)
+  if [ -n "$bin" ]; then
+    printf 'export PATH=%s:$PATH GOTOOLCHAIN=local\n' "$bin"
+  fi
   printf 'umask 022\n'
+}
+
+# lane_go_bin prints the folder of the Go the source's go.mod names on
+# its toolchain line, so a lane builds with it first on its PATH: by
+# default the module cache's golang.org/toolchain of that version, for
+# this host's GOOS and GOARCH; LANE_GO_BIN names another, which must
+# hold go. With no toolchain line, or no such toolchain downloaded, it
+# prints nothing and the lane uses the go on its PATH.
+lane_go_bin() {
+  if [ -n "${LANE_GO_BIN:-}" ]; then
+    [ -x "$LANE_GO_BIN/go" ] || fail "LANE_GO_BIN has no go: $LANE_GO_BIN"
+    printf '%s\n' "$LANE_GO_BIN"
+    return
+  fi
+  version=$(awk '$1 == "toolchain" { print $2 }' "$SRC/go.mod" 2>/dev/null || true)
+  [ -n "$version" ] || return 0
+  dir="$(go env GOMODCACHE)/golang.org/toolchain@v0.0.1-$version.$(go env GOOS)-$(go env GOARCH)/bin"
+  if [ -x "$dir/go" ]; then
+    printf '%s\n' "$dir"
+  fi
 }
 
 lock_source() {
