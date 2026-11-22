@@ -1,0 +1,195 @@
+// Frames: while the view animates (its last pass made a ui.Animate), the
+// driver steps a ui.Tick at each frame period, as ui.TestHost's Advance
+// does: the time since the driver started, a period at a time. On a live
+// screen the frames come from the screen's ticker, which runs only while
+// the view animates; a test moves the time with Advance. A Tick whose
+// pass changes nothing shows nothing, and a settled view takes no frame.
+
+import actor
+import ui
+
+// FrameEvery sets the frame period (16ms when made); a period under 1ns
+// leaves it as it is.
+func FrameEvery[S, E, D, F](d mut Driver[S, E, D, F], period duration) {
+	if period >= 1ns {
+		d.period = period
+	}
+}
+
+// Advance moves the driver's time by by. While the view animates, it moves
+// it a frame period at a time and steps a Tick at the end of each period;
+// time short of a period is owed to the next Advance while the view still
+// animates. A pass that stops animating stops the frames: the rest of by
+// passes with no Tick, and nothing is owed. While an Area holds the
+// pointer near an edge of the list inside it, each period also scrolls
+// the list (edgeFrame), and frames run while it moves.
+func Advance[E comparable, S, D, F](d mut Driver[S, E, D, F], by duration) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let mut left = by
+	for (ui.SessionAnimates(&d.session) || edgeMoves(d)) && left >= d.period-d.owed {
+		let due = d.period - d.owed
+		left = left - due
+		d.at = d.at + due
+		d.owed = duration(int64(0))
+		try edgeFrame(d)
+		if ui.SessionAnimates(&d.session) {
+			d.frames = d.frames + 1
+			try step(d, ui.Tick{At: d.at})
+		}
+		try Pump(d)
+	}
+	d.at = d.at + left
+	if ui.SessionAnimates(&d.session) || edgeMoves(d) {
+		d.owed = d.owed + left
+	} else {
+		d.owed = duration(int64(0))
+	}
+}
+
+// Frames is the number of Ticks the driver has stepped.
+func Frames[S, E, D, F](d mut Driver[S, E, D, F]) int { d.frames }
+
+// WantsFrames is whether the view asks for frames: whether its last pass
+// made an Animate.
+func WantsFrames[S, E, D, F](d mut Driver[S, E, D, F]) bool { ui.SessionAnimates(&d.session) }
+
+// ticker runs the live screen's frame ticker while the view animates, and
+// stops it when the view stops.
+func ticker[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
+	let want = ui.SessionAnimates(&d.session) || edgeMoves(d)
+	if want != d.ticking {
+		d.ticking = want
+		d.s.Tick(if want { int64(d.period) } else { int64(0) })
+	}
+}
+
+// edgeNext is the list the Area holding the pointer edge-scrolls, the
+// offset it is at and the offset ui.EdgeScroll moves it to this frame,
+// as ui.TestHost's Advance does: the first list inside the Area whose
+// viewport the driver reported, at the pointer's last y in the Area's
+// box, ui.EdgeBand and ui.EdgeStep. The offset it is at is the edge
+// scroll's own while the scene shows it (it moves in DIPs, the scene in
+// whole cells), else the reported one. An Area with no such list
+// edge-scrolls the first plain Scroll inside it instead, at the viewport
+// the scene shows (ui.TestHost has no layout, so it models only lists).
+func edgeNext[S, E, D, F](d mut Driver[S, E, D, F]) Option[(ui.Id[E], ui.Length, ui.Length)] needs go.Foreign {
+	match Captured(d) {
+	case Some[ui.Id[E]] as area:
+		let c = d.options.Cell.H
+		let held = match listIn(d, area.Value) {
+		case Some[ui.Id[E]] as id:
+			match (d.viewports.Get(id.Value), nodeOf(d, id.Value)) {
+			case (Some[ui.Viewport] as v, ui.RowsNode as x):
+				Some{Value: (id.Value, v.Value, ui.Length(float64(x.Count)) * x.RowHeight)}
+			case _:
+				None
+			}
+		case None:
+			match scrollIn(d, area.Value) {
+			case Some[ui.Id[E]] as id:
+				let st = d.s.ScrollOf(numOf(d, id.Value))
+				Some{Value: (id.Value, ui.Viewport{Offset: ui.Length(float64(st.Offset) * c), Height: ui.Length(float64(st.Height) * c)}, ui.Length(float64(st.Content) * c))}
+			case None:
+				None
+			}
+		}
+		match held {
+		case Some[(ui.Id[E], ui.Viewport, ui.Length)] as x:
+			let (id, v, content) = x.Value
+			let mut at = v.Offset
+			match d.edge {
+			case Some[(ui.Id[E], ui.Length)] as e:
+				let (l, exact) = e.Value
+				if l == id && ui.Length(float64(int(float64(exact)/c+0.5))*c) == v.Offset {
+					at = exact
+				}
+			case None:
+			}
+			Some{Value: (id, at, ui.EdgeScroll(at, v.Height, content, ui.Length(d.heldY), ui.EdgeBand, ui.EdgeStep))}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// listIn is the first list inside id, in tree order, whose viewport the
+// driver reported.
+func listIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+	for k in kidsOf(d, id) {
+		match nodeOf(d, k) {
+		case ui.RowsNode:
+			if d.viewports.Get(k) != None {
+				return Some{Value: k}
+			}
+		case _:
+		}
+		match listIn[S, E, D, F](d, k) {
+		case Some[ui.Id[E]] as l:
+			return Some{Value: l.Value}
+		case None:
+		}
+	}
+	None
+}
+
+// scrollIn is the first plain Scroll inside id, in tree order.
+func scrollIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+	for k in kidsOf(d, id) {
+		match nodeOf(d, k) {
+		case ui.ScrollNode:
+			return Some{Value: k}
+		case _:
+		}
+		match scrollIn[S, E, D, F](d, k) {
+		case Some[ui.Id[E]] as l:
+			return Some{Value: l.Value}
+		case None:
+		}
+	}
+	None
+}
+
+// ScrollsAt is the offset, in whole cells, of each plain Scroll the scene
+// shows, in tree order.
+func ScrollsAt[S, E, D, F](d mut Driver[S, E, D, F]) []int needs go.Foreign { scrollsIn(d, d.root, []int{}) }
+
+func scrollsIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []int) []int needs go.Foreign {
+	let mut out = into
+	for k in kidsOf(d, id) {
+		match nodeOf(d, k) {
+		case ui.ScrollNode:
+			out = out.Append(d.s.ScrollOf(numOf(d, k)).Offset)
+		case _:
+		}
+		out = scrollsIn[S, E, D, F](d, k, out)
+	}
+	out
+}
+
+// edgeMoves is whether this frame's edge scroll moves a list.
+func edgeMoves[S, E, D, F](d mut Driver[S, E, D, F]) bool needs go.Foreign {
+	match edgeNext(d) {
+	case Some[(ui.Id[E], ui.Length, ui.Length)] as x:
+		let (_, at, next) = x.Value
+		next != at
+	case None:
+		false
+	}
+}
+
+// edgeFrame scrolls the list the held pointer is at an edge of by one
+// frame's edge scroll: the scene to the whole cell nearest the offset, and
+// the session the viewport the scene then shows.
+func edgeFrame[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	match edgeNext(d) {
+	case Some[(ui.Id[E], ui.Length, ui.Length)] as x:
+		let (id, at, next) = x.Value
+		if next != at {
+			d.edge = Some{Value: (id, next)}
+			try scrollTo(d.s, numOf(d, id), int(float64(next)/d.options.Cell.H+0.5), false)
+			try repaint(d)
+		}
+	case None:
+	}
+}

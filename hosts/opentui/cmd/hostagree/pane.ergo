@@ -1,0 +1,39 @@
+// The pane app: the edge scroll of a plain Scroll. An Area of 10 rows
+// holds a Scroll of 40 lines; while the pointer, pressed in the Area,
+// stays near its top or bottom, each frame scrolls the Scroll by
+// ui.EdgeScroll. ui.TestHost has no layout and models only lists, so the
+// trees agree as they do with no edge scroll, and TestPlainScrollEdges
+// holds the offsets (the scrolls step) to its own reference.
+
+import ui
+
+// pane counts the presses in the Area.
+type pane { n int }
+
+func paneStep(s pane, e int) Decision[pane, int] { Enter[pane]{Next: pane{n: s.n + 1}} }
+
+func paneMachine() Machine[pane, int, int] {
+	Machine[pane, int, int]{Initial: pane{n: 0}, Step: paneStep, After: none[pane, int], Work: idle[pane, int], Exit: func(s pane) Option[func()] { None }}
+}
+
+func paneView(f mut ui.Frame[int], s pane) {
+	ui.Text(f, "\(s.n) presses")
+	let mut box = ui.Plain()
+	box.Height = ui.Fixed{Value: 160}
+	ui.Area(f, "pane", box, func(p ui.PointerEvent) Option[int] {
+		match p.Phase {
+		case ui.Down:
+			Some{Value: 1}
+		case _:
+			None
+		}
+	}) {
+		let mut view = ui.Plain()
+		view.Height = ui.Fixed{Value: 160}
+		ui.Scroll(f, view) {
+			for i in 0..40 {
+				ui.Text(f, "line \(i)")
+			}
+		}
+	}
+}

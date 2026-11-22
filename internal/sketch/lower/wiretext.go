@@ -594,7 +594,7 @@ func (e *shippedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteIns
 	d, ok := e.digests[key]
 	if !ok {
 		r := e.rules[key]
-		d, _, _ = LawDigest(law, prov, r.conv, r.ctor, "", ShippedForeignKeys)
+		d, _, _ = LawDigest(law, prov, r.conv, r.ctor, "", ShippedForeignKeys())
 		e.digests[key] = d
 	}
 	if d != entry.Digest {

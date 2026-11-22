@@ -20,7 +20,7 @@ func lockStep(s lock, e lockEvent) Decision[lock, int] {
 }
 
 func lockMachine() Machine[lock, lockEvent, int] {
-	Machine[lock, lockEvent, int]{Initial: lock{locked: false, n: 0, text: ""}, Step: lockStep, After: none[lock, lockEvent], Work: idle[lock, lockEvent]}
+	Machine[lock, lockEvent, int]{Initial: lock{locked: false, n: 0, text: ""}, Step: lockStep, After: none[lock, lockEvent], Work: idle[lock, lockEvent], Exit: func(s lock) Option[func()] { None }}
 }
 
 func lockView(f mut ui.Frame[lockEvent], s lock) {

@@ -41,8 +41,8 @@
       "name": "budget-store-admit-by-count",
       "origin": "wf10 WS4a (model ByCount, in the store)",
       "file": "internal/budget/store_unix.go",
-      "from": "func (c Config) rules() Rules { return Rules{Cores: c.Cores, Memory: c.Memory, Share: c.Share} }",
-      "to": "func (c Config) rules() Rules { return Rules{Cores: 2 * c.Cores, Memory: c.Memory, Share: c.Share} }",
+      "from": "\treturn Rules{Cores: c.Cores, Memory: c.Memory, Share: c.Share, Backfill: c.Backfill}",
+      "to": "\treturn Rules{Cores: 2 * c.Cores, Memory: c.Memory, Share: c.Share, Backfill: c.Backfill}",
       "rule": "The store decides with the host owner's budget, not a larger one.",
       "killers": ["internal/budget:TestFullBudgetQueues"]
     },
@@ -131,8 +131,8 @@
       "name": "budget-charge-at-join",
       "origin": "wf10 WS4c (2026-11-20: a key deleted while its rerun waited still capped the rerun)",
       "file": "internal/budget/decide.go",
-      "from": "\t\tif i != -1 && r.Peak != nil && r.Memory > 0 {\n",
-      "to": "\t\tif i != -1 && r.Peak != nil && r.Memory > 0 && s.Waiters[i].Memory == 0 {\n",
+      "from": "\tif r.Peak != nil && r.Memory > 0 {\n",
+      "to": "\tif r.Peak != nil && r.Memory > 0 && s.Waiters[i].Memory == 0 {\n",
       "rule": "A waiter is charged from its command's peak at its admission, not once at its join.",
       "killers": ["internal/budget:TestPeakIsReadAtAdmission"]
     },
@@ -189,6 +189,60 @@
       "to": "\n",
       "rule": "An edit of the budget's file wakes the waiters.",
       "killers": ["internal/budget:TestConfigEditWakesAWaiter"]
+    },
+    {
+      "name": "budget-no-backfill",
+      "origin": "wf10 BUDGET-BACKFILL (model NoBackfill; 2026-11-20: 22 width-4 runs behind a width-16 head)",
+      "file": "internal/budget/decide.go",
+      "from": "\t\t\tif s.Waiters[h].Passed >= r.Backfill {\n",
+      "to": "\t\t\tif true {\n",
+      "rule": "While the head does not fit and is under its bound, a later waiter that fits takes.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-backfill-unbounded",
+      "origin": "wf10 BUDGET-BACKFILL (model Backfill)",
+      "file": "internal/budget/decide.go",
+      "from": "\t\t\tif s.Waiters[h].Passed >= r.Backfill {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "A head is passed at most Backfill times.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-pass-ignores-memory",
+      "origin": "wf10 BUDGET-BACKFILL (model PassFitsCoresOnly)",
+      "file": "internal/budget/decide.go",
+      "from": "\t\tif s.Fits(r, s.Waiters[i]) {\n\t\t\tbest = i\n",
+      "to": "\t\tif s.Used()+s.Waiters[i].Width <= r.Cores {\n\t\t\tbest = i\n",
+      "rule": "A pass fits in memory as well as cores.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-pass-not-oldest",
+      "origin": "wf10 BUDGET-BACKFILL",
+      "file": "internal/budget/decide.go",
+      "from": "best != -1 && s.Waiters[i].Ticket > s.Waiters[best].Ticket",
+      "to": "best != -1 && s.Waiters[i].Ticket < s.Waiters[best].Ticket",
+      "rule": "A pass takes the oldest later waiter that fits.",
+      "killers": ["internal/budget:TestHandOnKeepsTheModelsInvariants"]
+    },
+    {
+      "name": "budget-conf-backfill-ignored",
+      "origin": "wf10 BUDGET-BACKFILL",
+      "file": "internal/budget/config.go",
+      "from": "\t\t\t\tc.Backfill = v\n",
+      "to": "\t\t\t\t_ = v\n",
+      "rule": "The budget file's backfill bounds the passes.",
+      "killers": ["internal/budget:TestNarrowRunsPassABlockedHead"]
+    },
+    {
+      "name": "budget-why-no-cores",
+      "origin": "wf10 BUDGET-BACKFILL",
+      "file": "internal/budget/decide.go",
+      "from": "\t\twhy = append(why, fmt.Sprintf(\"needs %d cores, %d free\", w.Width, free))\n",
+      "to": "",
+      "rule": "Status says the cores a blocked head lacks.",
+      "killers": ["internal/budget:TestNarrowRunsPassABlockedHead"]
     }
   ]
 }
