@@ -1,10 +1,10 @@
 package irspike
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -12,11 +12,59 @@ import (
 	"ergo.local/prototype/internal/sketch/lower/provgen"
 )
 
-// ifaceLocal is a local read as an interface value in the IR file: in
-// these programs only a copy's adapter parameter would be one (provRead),
-// and every use of it in a copy is an operation call's receiver or an
-// argument at a copy's parameter, which take the adapter's pointer.
-var ifaceLocal = regexp.MustCompile(`"k":"toiface","pos":\[[^\]]*\],"t":"[^"]*","x":\{"k":"local"`)
+// dynamicReads counts, in the IR file, the locals read as an interface
+// value (toiface) where a copy's adapter must stay its pointer: an
+// operation call's receiver (mcall), or an argument of a call of a copy
+// (its Go name ends in AsSink). In these programs only a copy's adapter
+// parameter is read as an interface (provRead); an argument at a
+// function that keeps its Sink (a store, a let, a generic: no copy) is
+// the interface by design, as a function literal's read is
+// (PROV-COPY-CLOSURE).
+func dynamicReads(t *testing.T, text []byte) int {
+	var root any
+	if err := json.Unmarshal(text, &root); err != nil {
+		t.Fatal(err)
+	}
+	iface := func(x any) bool {
+		m, ok := x.(map[string]any)
+		if !ok || m["k"] != "toiface" {
+			return false
+		}
+		in, ok := m["x"].(map[string]any)
+		return ok && in["k"] == "local"
+	}
+	n := 0
+	var walk func(x any)
+	walk = func(x any) {
+		switch v := x.(type) {
+		case []any:
+			for _, e := range v {
+				walk(e)
+			}
+		case map[string]any:
+			switch v["k"] {
+			case "mcall":
+				if iface(v["x"]) {
+					n++
+				}
+			case "call":
+				if name, _ := v["name"].(string); strings.HasSuffix(name, "AsSink") {
+					args, _ := v["args"].([]any)
+					for _, a := range args {
+						if iface(a) {
+							n++
+						}
+					}
+				}
+			}
+			for _, e := range v {
+				walk(e)
+			}
+		}
+	}
+	walk(root)
+	return n
+}
 
 // TestIRProvidersMatchSource is the agreement property of the copies for
 // known providers on IR (PORT-INSTCOPY; lower/ir_known.go): each program
@@ -75,7 +123,7 @@ func TestIRProvidersMatchSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n := len(ifaceLocal.FindAll(irText, -1)); n > 0 {
+		if n := dynamicReads(t, irText); n > 0 {
 			t.Errorf("seed %d: %d reads of a copy's adapter parameter as the interface (an operation call through it is dynamic)\n%s\n%s", seed, n, replay, text)
 		}
 		copies += len(built)
