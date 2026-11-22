@@ -1385,7 +1385,8 @@ func (w *Window) Painted() int {
 	return w.painted
 }
 
-// The input of a Headless window, as its fake surface sends it.
+// The input of a Headless window, as its fake surface sends it, or of a
+// window on a screen that desktop.Drive plays.
 
 // Press presses the primary button at x, y.
 func (w *Window) Press(x, y float64) {
@@ -1479,7 +1480,17 @@ func (w *Window) Chord(name string, shift, ctrl, alt, meta bool) {
 func (w *Window) send(ev platform.SurfaceEvent) {
 	if w.fake != nil {
 		w.fake.Send(ev)
+		return
 	}
+	// A window on a screen (desktop.Drive) takes the input as its surface
+	// would give it. An input event only queues an Input under w.mu, so
+	// any goroutine may send one; frames and resizes come only from the
+	// surface.
+	switch ev.Kind {
+	case platform.SurfaceFrame, platform.SurfaceRenew, platform.SurfaceLowMemory, platform.SurfaceResize:
+		return
+	}
+	w.event(ev)
 }
 
 // Render draws a Headless window's frame when one was asked for, and

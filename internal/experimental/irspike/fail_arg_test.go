@@ -55,7 +55,12 @@ func TestIRFailArgCounts(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 8)
 	for seed := first; seed < first+count; seed++ {
 		u, text := failArgUnit(t, seed, t.TempDir())
+		// FAILJUMP-TYPED off: a failure argument bound to a local (a site
+		// that must not take its literal) jumps by its type too, 5 with the
+		// case on and 3 off; these counts are the literal's alone.
+		prev := lower.SetFailTypedLoweringForTest("off")
 		on, off := lowerFailArg(t, u, ""), lowerFailArg(t, u, "off")
+		lower.SetFailTypedLoweringForTest(prev)
 		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run '^TestIRFailArgCounts$' ./internal/experimental/irspike"
 		if on.FailArgs != 4 || on.FailThrough != 2 || on.FailJumps != 3 || off.FailArgs+off.FailThrough+off.FailJumps != 0 {
 			t.Errorf("seed %d: %d failure arguments in place, %d passed on as built, %d failures jump (off: %d, %d, %d); want 4, 2, 3 (off 0)\n%s\n%s", seed, on.FailArgs, on.FailThrough, on.FailJumps, off.FailArgs, off.FailThrough, off.FailJumps, replay, text)
