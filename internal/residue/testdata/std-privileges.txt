@@ -1,128 +1,496 @@
-# The compiler's functions that read std membership or a std name
-# (TestCompilerReadsNoStdMembership; owner, 2026-11-12: the standard
-# library gets no special treatment). A line is
-# `category<TAB>file:function<TAB>reason<TAB>unit`.
-# seam: a function of a seam file (docs/spec/stdlib.md, Std is ordinary)
-#   that finds, ships, caches or names std and decides nothing.
-# language: a reader of a predeclared name of the language, listed in the
-#   same section.
-# debt: any other; the unit names who removes it. Debt only shrinks.
-
-seam	internal/sketch/check/check.go:StdFixture	a test fixture checked as std (no Ergo source reaches it)	-
-seam	internal/sketch/check/check.go:installPrelude	installs a snapshot's decoded prelude and marks it std, as prelude marks the checked one	-
-seam	internal/sketch/check/check.go:prelude	loads the embedded prelude and marks it std	-
-seam	internal/sketch/check/check.go:stdImporter.decoded	marks a package decoded from a std segment std, as load marks one it checks; a module segment's stays unmarked	-
-seam	internal/sketch/check/check.go:stdImporter.importAll	finds every embedded std package (stdlib.Packages), so a snapshot of std has them all	-
-seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std package and marks it std	-
-seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
-seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
-seam	internal/sketch/check/decl.go:checker.run	the second check of a package keeps its std mark	-
-seam	internal/sketch/check/snapshot/snapshot.go:ExportSnapshot	writes the checked snapshot of std and of required modules' packages; a module segment is never a std package	-
-seam	internal/sketch/check/info.go:Package.Std	the accessor of the std mark	-
-seam	internal/sketch/lower/lower.go:Unit.Validate	a std package has no unit: its sources ship in the compiler	-
-seam	internal/sketch/lower/naming.go:lowerer.nameAll	names a std package's lets and context builders, which have no unit	-
-seam	internal/sketch/lower/sources.go:lowerer.missingImport	a reached user package needs a unit; std ships in the compiler	-
-seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	the std packages whose lets the program initializes	-
-seam	internal/sketch/check/factguard.go:FactLedger	the guard lines of runtime/v1's reviewed tables (sync, pure) ship in the ledger of the module the compiler ships	-
-seam	internal/sketch/lower/sources.go:shippedLedger	std's law ledger ships with its sources: the ledger of the module the compiler ships	-
-seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedded std first	-
-seam	internal/sketchfront/load.go:isStdPath	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
-seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
-seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
-language	internal/rpcgen/rpcgen.go:importName	a prelude name is written unqualified	-
-language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	-
-language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
-language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
-language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test's host authority	-
-language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
-language	internal/sketch/check/decl.go:checker.resolveNamed	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
-language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
-language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
-language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-
-language	internal/sketch/check/implements.go:checker.recordLegacyReleases	Closer, the release contract (ergo fix)	-
-language	internal/sketch/check/implements.go:isGoCloser	io.Closer, Go's release contract in a binding	-
-language	internal/sketch/check/contextvalues.go:contextRow	Context, the predeclared row value	-
-language	internal/sketch/check/durable.go:pureSeer.step	Machine, a machine literal whose Step a pure parameter sees	-
-language	internal/sketch/check/durable.go:pureSeer.stepValue	Machine's Step	-
-debt	internal/sketch/check/mappedtext.go:escWalk.textOwner	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:ownWalk.textRootOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/mappedtext.go:textTemporary	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/never.go:IsNever	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/check/never.go:checker.emptyUnion	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/plan.go:interp.planOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/machinevalue.go:interp.machineOption	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/natives.go:nativeOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/natives.go:readsOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/natives.go:registerNatives	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/natives.go:shares	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/nativesembed.go:newEmbedFS	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/nativesgo.go:goNativeOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/nativesgo.go:goNatives	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/process.go:runMainOrdered	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/handover.go:funcCtx.ownedFormAt	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/handover.go:lowerer.checkedOwnedForm	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/ir.go:irState.body	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/ir.go:irState.intrinsic	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/ir.go:irState.reachAll	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
-debt	internal/sketch/lower/std.go:funcCtx.graphArg	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-language	internal/sketch/check/entry.go:checker.checkErrorMethods	Error, the method of a failure type	-
-language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
-language	internal/sketch/check/extern.go:predeclaredExtern	the prelude's externs are intrinsics the lowering writes	-
-language	internal/sketch/check/lintfacts.go:IsScheduler	Scheduler, the predeclared capability a manual clock implements (test-waits-on-time)	-
-language	internal/sketch/check/lintfacts.go:IsConsole	Console, the predeclared output capability (console-outside-entry)	-
-language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a law	-
-language	internal/sketch/check/loops.go:checker.preludeOrigin	Range and Seq, the iteration forms	-
-language	internal/sketch/check/match.go:reusableBinderName	Decision, the machine result	-
-language	internal/sketch/check/ownership.go:checker.checkOwnership	Close, the release operation	-
-language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the release operation	-
-language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
-language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
-language	internal/sketch/eval/machine.go:interp.machineStep	Enter, Stay, Emit, Done and Next of a machine	-
-language	internal/sketch/lower/builders.go:lowerer.builtText	a prelude constructor is written unqualified	-
-language	internal/sketch/lower/calls.go:funcCtx.callee	a prelude function is written unqualified in the call table	-
-language	internal/sketch/lower/decls.go:isPreludeType	Option, Some and None	-
-language	internal/sketch/lower/decls.go:lowerer.intrinsic	the prelude collection functions	-
-language	internal/sketch/lower/getmatch.go:getPattern	Some's Value, the comma-ok form of Get	-
-language	internal/sketch/lower/gocall.go:isOptionType	Option at the Go boundary	-
-language	internal/sketch/lower/library.go:hostProvides	Console and Ambient at the entry	-
-language	internal/sketch/lower/literal.go:lowerer.ergoType	a prelude type is written unqualified	-
-language	internal/sketch/lower/module.go:lowerer.hostFields	Console and Ambient at the entry	-
-language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
-language	internal/tsproj/project.go:emitter.schema	Option	-
-language	internal/sketch/check/entry.go:isPreludeMachine	Machine, by declaration (the prelude's own check reaches it)	-
-language	internal/sketch/check/entry.go:isPreludeMachineValue	Machine and InputMachine, by declaration	-
-language	internal/sketch/check/expr.go:checker.compositeLit	the predeclared Map's provider form: the prelude writes its table as the record	-
-language	internal/sketch/check/laws.go:Law.Title	a prelude law is named unqualified, as prelude names are written	-
-language	internal/sketch/check/mapprovider.go:providerParts	hashTable, the predeclared Map's provider form	-
-language	internal/sketch/check/mapprovider.go:checker.providerEqual	the prelude compares its Map records as records; a program's == of provider Maps is the table's Equal	-
-language	internal/sketch/check/mapshape.go:checker.derivedNormal	NormalForm, the operation of Hashing the checker derives	-
-language	internal/sketch/check/mapshape.go:checker.writeShapes	Hashing's NormalForm and NormalKey; the prelude's own providers write theirs	-
-language	internal/sketch/check/mapprovider.go:checker.isStructural	Structural, the predeclared Map's default provider	-
-language	internal/sketch/check/mapprovider.go:checker.preludeTypeObj	the prelude's Map types, from its scope in its own check	-
-language	internal/sketch/eval/cases.go:qualifiedLaw	a prelude law is named unqualified, as prelude names are written	-
-debt	internal/sketch/eval/machine.go:interp.machineLaw	a machine law is skipped when its state holds a std type	NP7
-debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	a std provider has no line directive and its own Info	NP8
-debt	internal/sketch/lower/calls.go:lowerer.hostImportNames	std time is imported by the runtime already	NP4c
-debt	internal/sketch/lower/calls.go:lowerer.stdContext	a std context's builder is a std body	NP8
-debt	internal/sketch/lower/context.go:contextNamespace	the context namespace std:path	NP8
-debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c
-debt	internal/sketch/lower/values.go:lowerer.ownedForm	reads v1.BodyOf outside the body contract files; lower/values.go is IR-G lane V's (STD-NOPRIV Do not touch), so its writer moves it to runtimeBody	IR-G V
-debt	internal/sketchfront/inspect.go:InspectGo	inspect skips std	NP5
-debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
-debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
-debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
-debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
-debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/pkgsplit.go:stdImports	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/check/lintfacts.go:IsTimeoutPackage	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/check/lintfacts.go:ProgramType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/check/lintfacts.go:RoleOf	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/check/lintfacts.go:isStdObj	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/check/lintfacts.go:stdRoles	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/facts.go:extractor.unit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+# The compiler's std privilege keys (TestCompilerReadsNoStdMembership; owner,
+# 2026-11-12: the standard library gets no special treatment). One row per
+# key, sorted: `category<TAB>file:function<TAB>kind<TAB>key<TAB>reason<TAB>unit`;
+# kind is mark, flag, name, built, runtime or table, key a quoted Go string.
+# go test ./internal/residue -run '^TestCompilerReadsNoStdMembership$' -write-privileges
+# drops the rows no key names and sorts; it adds none. A debt row joins only
+# through stdPrivilegesBaseline, a go-boundary row only through goBoundaryKeys
+# (std_privileges_baseline_test.go).
+debt	cmd/ergo/test.go:printSteps	runtime	"rt.TraceStep"	printSteps: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	cmd/ergo/test.go:runTestBinary	runtime	"v1.TraceEnv"	runTestBinary: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/cligen/cligen.go:Generate	table	"flag"	Generate: a fact about Go's flag (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/cligen/cligen.go:Generate	table	"io"	Generate: a fact about Go's io (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:Generate	table	"json"	Generate: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:Generate	table	"prompt"	Generate: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:Generate	table	"rpc"	Generate: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/cligen/cligen.go:Generate	table	"slices"	Generate: a fact about Go's slices (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/cligen/cligen.go:Generate	table	"strconv"	Generate: a fact about Go's strconv (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/cligen/cligen.go:Generate	table	"strings"	Generate: a fact about Go's strings (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:Generate	table	"term"	Generate: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:gen.importOf	mark	"stdlib.PreludePath"	gen.importOf: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:optionOf	mark	"stdlib.PreludePath"	optionOf: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/cligen/cligen.go:optionOf	name	"Option"	optionOf: a name key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/census.go:StdFuncs	mark	"stdlib.Packages"	StdFuncs: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/gen_f7_select.go:GenerateSelect	table	"lib.East"	GenerateSelect: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/gen_f7_select.go:GenerateSelect	table	"lib.North"	GenerateSelect: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/gen_f7_select.go:GenerateSelect	table	"lib.South"	GenerateSelect: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/gen_f7_select.go:GenerateSelect	table	"lib.West"	GenerateSelect: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/gen_std.go:GenerateStd	table	"base64.StdEncoding"	GenerateStd: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/gen_std.go:GenerateStd	table	"base64.URLEncoding"	GenerateStd: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/experimental/irspike/text.go:exportImporter	runtime	"v1.ProgramModule"	exportImporter: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/binding.go:closer.decls	name	"io.Closer"	closer.decls: a fact about Go's io.Closer (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/map.go:ValueResults	table	"os.File.ReadDir"	ValueResults: a fact about Go's os.File.ReadDir (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/map.go:ValueResults	table	"os.File.Readdir"	ValueResults: a fact about Go's os.File.Readdir (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/map.go:ValueResults	table	"os.File.Stat"	ValueResults: a fact about Go's os.File.Stat (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/map.go:ValueResults	table	"os.Lstat"	ValueResults: a fact about Go's os.Lstat (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/map.go:ValueResults	table	"os.ReadDir"	ValueResults: a fact about Go's os.ReadDir (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/gobind/map.go:ValueResults	table	"os.Stat"	ValueResults: a fact about Go's os.Stat (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/gobind/map.go:mapper.decl	runtime	"v1.GoReadOnlyVars"	mapper.decl: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/gobind/map.go:mapper.funcDecl	runtime	"v1.GoArgLent"	mapper.funcDecl: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/gobind/map.go:mapper.funcDecl	runtime	"v1.GoWrites"	mapper.funcDecl: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/gobind/map.go:mapper.pure	runtime	"v1.PureImportsExcept"	mapper.pure: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/gobind/map.go:mapper.typeDecl	runtime	"v1.GoArgLent"	mapper.typeDecl: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/gobind/nonnil.go:nnProof.unsafePointer	name	"Pointer"	nnProof.unsafePointer: a name key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/mcpgen/mcpgen.go:gen.importOf	mark	"stdlib.PreludePath"	gen.importOf: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/rpcgen/hub.go:GenerateAPI	table	"json"	GenerateAPI: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/rpcgen/hub.go:GenerateAPI	table	"sync"	GenerateAPI: a fact about Go's sync (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/rpcgen/rpcgen.go:importName	mark	"stdlib.PreludePath"	a prelude name is written unqualified	-
+language	internal/rpcgen/rpcgen.go:pairOf	name	"Wire"	Wire, the codec's conversion protocol	-
+debt	internal/rpcgen/rpcgen.go:readContract	table	"rpc"	readContract: a table key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/aspattern.go:checker.refusedRest	flag	"preludeObject"	checker.refusedRest: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/authority.go:authorityText	mark	"stdlib.PreludePath"	a prelude constructor is named unqualified in a diagnostic	-
+language	internal/sketch/check/authority.go:isAmbient	mark	"stdlib.PreludePath"	Ambient, the host authority	-
+language	internal/sketch/check/authority.go:isAmbient	name	"Ambient"	Ambient, the host authority	-
+language	internal/sketch/check/authority.go:isTestAmbient	mark	"stdlib.PreludePath"	TestAmbient, the test's host authority	-
+language	internal/sketch/check/authority.go:isTestAmbient	name	"TestAmbient"	TestAmbient, the test's host authority	-
+debt	internal/sketch/check/body.go:checker.runtimeTypeRefusal	mark	".trusted"	checker.runtimeTypeRefusal: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/call.go:IsInForce	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
+debt	internal/sketch/check/call.go:IsInForce	name	"InForce"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
+debt	internal/sketch/check/call.go:IsUnreachable	flag	"isUnreachable"	IsUnreachable: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/call.go:checker.callOf	flag	"isUnreachable"	checker.callOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/call.go:checker.preludeOp	mark	"stdlib.PreludePath"	a prelude operation reached by the dot form	-
+debt	internal/sketch/check/call.go:checker.unreachableCall	flag	"isUnreachable"	checker.unreachableCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/call.go:isUnreachable	mark	"stdlib.PreludePath"	Unreachable	-
+language	internal/sketch/check/call.go:isUnreachable	name	"Unreachable"	Unreachable	-
+seam	internal/sketch/check/check.go:StdFixture	mark	".std"	a test fixture checked as std (no Ergo source reaches it)	-
+debt	internal/sketch/check/check.go:StdFixture	mark	".trusted"	StdFixture: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/check.go:check	mark	".trusted"	check: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/check/check.go:installPrelude	mark	".std"	installs a snapshot's decoded prelude and marks it std, as prelude marks the checked one	-
+seam	internal/sketch/check/check.go:prelude	mark	".std"	loads the embedded prelude and marks it std	-
+debt	internal/sketch/check/check.go:prelude	mark	".trusted"	prelude: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/check/check.go:prelude	mark	"stdlib.Prelude"	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:prelude	mark	"stdlib.PreludePath"	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.decoded	mark	".std"	marks a package decoded from a std segment std, as load marks one it checks; a module segment's stays unmarked	-
+seam	internal/sketch/check/check.go:stdImporter.importAll	mark	"stdlib.Packages"	finds every embedded std package (stdlib.Packages), so a snapshot of std has them all	-
+seam	internal/sketch/check/check.go:stdImporter.load	mark	".std"	loads an embedded std package and marks it std	-
+debt	internal/sketch/check/check.go:stdImporter.load	mark	".trusted"	stdImporter.load: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/check/check.go:stdImporter.load	mark	"stdlib.Package"	loads an embedded std package and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.testOf	mark	"stdlib.Package"	finds the std package a std test package tests	-
+debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_Package	mark	".trusted"	CodecFieldsOf_Package: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_TypeParam	flag	"lang"	CodecFieldsOf_TypeParam: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isTestAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/contextvalues.go:contextRow	mark	"stdlib.PreludePath"	Context, the predeclared row value	-
+language	internal/sketch/check/contextvalues.go:contextRow	name	"Context"	Context, the predeclared row value	-
+seam	internal/sketch/check/decl.go:checker.importSpec	mark	"stdlib.Package"	a std path always names std (no shadowing)	-
+debt	internal/sketch/check/decl.go:checker.resolveNamed	flag	"emptyUnion"	checker.resolveNamed: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/decl.go:checker.resolveNamed	mark	"stdlib.PreludePath"	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
+language	internal/sketch/check/decl.go:checker.resolveNamed	name	"Option"	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
+language	internal/sketch/check/decl.go:checker.resolveNamed	name	"Some"	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
+seam	internal/sketch/check/decl.go:checker.run	mark	".std"	the second check of a package keeps its std mark	-
+debt	internal/sketch/check/decl.go:checker.run	mark	".trusted"	checker.run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/discard.go:checker.raisesByName	flag	"IsUnreachable"	checker.raisesByName: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/durable.go:pureSeer.step	name	"Step"	Machine, a machine literal whose Step a pure parameter sees	-
+language	internal/sketch/check/durable.go:pureSeer.stepValue	name	"Step"	Machine's Step	-
+language	internal/sketch/check/entry.go:checker.checkErrorMethods	name	"Error"	Error, the method of a failure type	-
+language	internal/sketch/check/entry.go:isPreludeMachine	mark	"stdlib.PreludePath"	Machine, by declaration (the prelude's own check reaches it)	-
+language	internal/sketch/check/entry.go:isPreludeMachine	name	"Machine"	Machine, by declaration (the prelude's own check reaches it)	-
+language	internal/sketch/check/entry.go:isPreludeMachineValue	mark	"stdlib.PreludePath"	Machine and InputMachine, by declaration	-
+language	internal/sketch/check/entry.go:isPreludeMachineValue	name	"InputMachine"	Machine and InputMachine, by declaration	-
+language	internal/sketch/check/entry.go:isPreludeMachineValue	name	"Machine"	Machine and InputMachine, by declaration	-
+debt	internal/sketch/check/expr.go:captured.add	flag	"isAmbient"	captured.add: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/expr.go:checker.compositeLit	mark	"stdlib.PreludePath"	the predeclared Map's provider form: the prelude writes its table as the record	-
+language	internal/sketch/check/extern.go:IsGoError	name	"Error"	go.Error of the Go boundary	-
+debt	internal/sketch/check/extern.go:PureGoPackages	runtime	"v1.PureImports"	PureGoPackages: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:checker.externAdapter	flag	"isAmbient"	checker.externAdapter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:checker.moduleDoor	runtime	"v1.Body"	checker.moduleDoor: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:checker.moduleDoor	runtime	"v1.ReadBodies"	checker.moduleDoor: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:checker.runtimeDoor	flag	"predeclaredExtern"	checker.runtimeDoor: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:checker.runtimeDoor	mark	".trusted"	checker.runtimeDoor: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:checker.runtimeDoor	runtime	"v1.Owns"	checker.runtimeDoor: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:externValue	flag	"predeclaredExtern"	externValue: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/extern.go:moduleShape	runtime	"v1.ResultRelease"	moduleShape: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/extern.go:predeclaredExtern	mark	"stdlib.PreludePath"	the prelude's externs are intrinsics the lowering writes	-
+seam	internal/sketch/check/factguard.go:FactLedger	mark	"stdlib.Ledger"	the guard lines of runtime/v1's reviewed tables (sync, pure) ship in the ledger of the module the compiler ships	-
+debt	internal/sketch/check/factguard.go:PureActs	runtime	"v1.PureImports"	PureActs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/factguard.go:PureActs	runtime	"v1.PureImportsExcept"	PureActs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/factguard.go:SyncActs	runtime	"v1.GoSyncCallbacks"	SyncActs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/goconfined.go:goReaches	runtime	"v1.GoConcurrentTypes"	goReaches: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/hostclauses.go:checker.hostClauses	runtime	"v1.GoArgLent"	checker.hostClauses: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/implements.go:checker.implementsClause	mark	"stdlib.PreludePath"	a prelude type that a package's own type of its name hides	-
+language	internal/sketch/check/implements.go:checker.preludeContract	mark	"stdlib.PreludePath"	Closer and Keeping, the prelude's contracts	-
+language	internal/sketch/check/implements.go:checker.recordLegacyReleases	mark	"stdlib.PreludePath"	Closer, the release contract (ergo fix)	-
+language	internal/sketch/check/implements.go:isGoCloser	name	"Closer"	io.Closer, Go's release contract in a binding	-
+language	internal/sketch/check/implements.go:isGoCloser	name	"io"	io.Closer, Go's release contract in a binding	-
+seam	internal/sketch/check/info.go:Package.Std	mark	".std"	the accessor of the std mark	-
+debt	internal/sketch/check/info.go:Package.Trusted	mark	".trusted"	Package.Trusted: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/laws.go:Law.Title	mark	"stdlib.PreludePath"	a prelude law is named unqualified, as prelude names are written	-
+language	internal/sketch/check/laws.go:lawClosures	mark	"stdlib.PreludePath"	the prelude's providers in a law	-
+debt	internal/sketch/check/lintfacts.go:ClockCaps	flag	"IsScheduler"	ClockCaps: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/lintfacts.go:IsConsole	mark	"stdlib.PreludePath"	Console, the predeclared output capability (console-outside-entry)	-
+language	internal/sketch/check/lintfacts.go:IsConsole	name	"Console"	Console, the predeclared output capability (console-outside-entry)	-
+debt	internal/sketch/check/lintfacts.go:IsManualClock	flag	"IsScheduler"	IsManualClock: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/lintfacts.go:IsScheduler	mark	"stdlib.PreludePath"	Scheduler, the predeclared capability a manual clock implements (test-waits-on-time)	-
+language	internal/sketch/check/lintfacts.go:IsScheduler	name	"Scheduler"	Scheduler, the predeclared capability a manual clock implements (test-waits-on-time)	-
+debt	internal/sketch/check/lintfacts.go:IsSchedulerSleep	flag	"isSchedulerSleep"	IsSchedulerSleep: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/lintfacts.go:IsTimeoutExpired	flag	"isStdObj"	IsTimeoutExpired: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/lintfacts.go:IsTimeoutPackage	mark	"Std()"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:IsTimeoutPackage	name	"timeout"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:ProgramType	mark	"Std()"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:RoleOf	mark	"Std()"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:TimeWaitOf	flag	"IsSchedulerSleep"	TimeWaitOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/lintfacts.go:TimeWaitOf	flag	"isSchedulerSleep"	TimeWaitOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/lintfacts.go:isSchedulerSleep	flag	"IsScheduler"	isSchedulerSleep: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/lintfacts.go:isStdObj	mark	"Std()"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/check/lintfacts.go:stdRoles	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+language	internal/sketch/check/loops.go:checker.preludeOrigin	mark	"stdlib.PreludePath"	Range and Seq, the iteration forms	-
+debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	mark	"Trusted()"	escWalk.endsBeforeReturn: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	runtime	"v1.EndsRunsBeforeReturn"	escWalk.endsBeforeReturn: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn	runtime	"v1.Owns"	escWalk.endsBeforeReturn: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/mappedtext.go:escWalk.textOwner	name	"Text"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/check/mappedtext.go:namesRuntimeType	runtime	"v1.Path"	namesRuntimeType: a real read main held unlisted (DOC-GUARD-1 triage: path == v1.Path); its fix deletes the row	SQ STD-READS-OUT
+debt	internal/sketch/check/mappedtext.go:ownWalk.textRootOf	name	"Text"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/check/mappedtext.go:textTemporary	name	"Text"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+language	internal/sketch/check/mapprovider.go:checker.isStructural	mark	"stdlib.PreludePath"	Structural, the predeclared Map's default provider	-
+language	internal/sketch/check/mapprovider.go:checker.isStructural	name	"Structural"	Structural, the predeclared Map's default provider	-
+debt	internal/sketch/check/mapprovider.go:checker.mapOf	flag	"isStructural"	checker.mapOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/mapprovider.go:checker.preludeTypeObj	mark	"stdlib.PreludePath"	the prelude's Map types, from its scope in its own check	-
+language	internal/sketch/check/mapprovider.go:checker.providerEqual	mark	"stdlib.PreludePath"	the prelude compares its Map records as records; a program's == of provider Maps is the table's Equal	-
+language	internal/sketch/check/mapprovider.go:providerParts	mark	"stdlib.PreludePath"	hashTable, the predeclared Map's provider form	-
+language	internal/sketch/check/mapshape.go:checker.derivedNormal	name	"NormalForm"	NormalForm, the operation of Hashing the checker derives	-
+language	internal/sketch/check/mapshape.go:checker.writeShapes	mark	"stdlib.PreludePath"	Hashing's NormalForm and NormalKey; the prelude's own providers write theirs	-
+debt	internal/sketch/check/match.go:patResolver.pattern0	flag	"preludeObject"	patResolver.pattern0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/match.go:patResolver.pattern0	flag	"reusableBinderName"	patResolver.pattern0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/match.go:preludeObject	flag	"reusableBinderName"	preludeObject: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/match.go:reusableBinderName	mark	"stdlib.PreludePath"	Decision, the machine result	-
+debt	internal/sketch/check/never.go:IsNever	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/check/never.go:IsNever	name	"Never"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/check/never.go:checker.emptyUnion	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/check/never.go:checker.emptyUnion	name	"Never"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+language	internal/sketch/check/ownership.go:checker.checkOwnership	name	"Close"	Close, the release operation	-
+language	internal/sketch/check/releaseneeds.go:checker.releaseWider	name	"Close"	Close, the release operation	-
+debt	internal/sketch/check/resource.go:checker.checkTypeMark	flag	"languageParam"	checker.checkTypeMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/resource.go:checker.recordOwnMark	flag	"languageParam"	checker.recordOwnMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/resource.go:languageParam	flag	"lang"	languageParam: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/snapshot/codec_gen.go:decoder.decT222	runtime	"v1.Hidden"	decoder.decT222: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/snapshot/codec_gen.go:decoder.decV1_Hidden	runtime	"v1.Hidden"	decoder.decV1_Hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/check/snapshot/snapshot.go:ExportSnapshot	mark	"Std()"	writes the checked snapshot of std and of required modules' packages; a module segment is never a std package	-
+language	internal/sketch/check/stmt.go:checker.isErrorValue	name	"Error"	go.Error of the Go boundary	-
+debt	internal/sketch/check/tails.go:checker.yieldExpr	flag	"unreachableCall"	checker.yieldExpr: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/testambient.go:checker.contextTestAmbient	flag	"isTestAmbient"	checker.contextTestAmbient: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/typeops.go:checker.assignability	flag	"isPreludeMachine"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/typeops.go:checker.assignability	flag	"isPreludeMachineValue"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/check/unify.go:inferer.nify	flag	"isPreludeMachineValue"	inferer.nify: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/derive/eval.go:evaluator.callee	name	"Of"	Of, the derive plan's constructor	-
+language	internal/sketch/eval/cases.go:qualifiedLaw	mark	"stdlib.PreludePath"	a prelude law is named unqualified, as prelude names are written	-
+debt	internal/sketch/eval/compile.go:interp.compileCall	flag	"takes"	interp.compileCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/compile.go:interp.compileCall	flag	"unreachable"	interp.compileCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/expr.go:interp.callOf	flag	"takes"	interp.callOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/expr.go:interp.callOf	flag	"unreachable"	interp.callOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/facts.go:factTable.of	flag	"IsUnreachable"	factTable.of: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/facts.go:factTable.of	flag	"unreachable"	factTable.of: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"path/filepath.Clean"	goFolds: a fact about Go's path/filepath.Clean (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strconv.FormatBool"	goFolds: a fact about Go's strconv.FormatBool (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strconv.Itoa"	goFolds: a fact about Go's strconv.Itoa (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strconv.Quote"	goFolds: a fact about Go's strconv.Quote (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strconv.QuoteToASCII"	goFolds: a fact about Go's strconv.QuoteToASCII (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strings.ToLower"	goFolds: a fact about Go's strings.ToLower (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strings.ToUpper"	goFolds: a fact about Go's strings.ToUpper (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/foldgo.go:goFolds	table	"strings.TrimSpace"	goFolds: a fact about Go's strings.TrimSpace (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/netip.ParseAddr"	goFuncs: a fact about Go's net/netip.ParseAddr (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/url.Parse"	goFuncs: a fact about Go's net/url.Parse (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/url.ParseQuery"	goFuncs: a fact about Go's net/url.ParseQuery (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"strconv.FormatUint"	goFuncs: a fact about Go's strconv.FormatUint (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"strconv.ParseUint"	goFuncs: a fact about Go's strconv.ParseUint (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goTypes	table	"net/netip.Addr"	goTypes: a fact about Go's net/netip.Addr (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goTypes	table	"net/url.URL"	goTypes: a fact about Go's net/url.URL (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goTypes	table	"net/url.Userinfo"	goTypes: a fact about Go's net/url.Userinfo (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/machine.go:interp.machineLaw	mark	"Std()"	a machine law is skipped when its state holds a std type	NP7
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"Done"	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"Emit"	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"Enter"	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"Next"	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"Stay"	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"Tell"	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/machine.go:interp.machineStep	name	"prelude"	Enter, Stay, Emit, Done and Next of a machine	-
+debt	internal/sketch/eval/machinevalue.go:interp.machineOption	name	"Some"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:nativeOf	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:readsOf	table	"strings.HasPrefix"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:readsOf	table	"strings.HasSuffix"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:readsOf	table	"strings.IndexByte"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:readsOf	table	"strings.Slice"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:readsOf	table	"strings.TrimPrefix"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:readsOf	table	"strings.TrimSuffix"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:registerNatives	name	"strconv.ParseFloat"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:registerNatives	name	"strconv.Unquote"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:shares	table	"strings.Slice"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:shares	table	"strings.TrimPrefix"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/natives.go:shares	table	"strings.TrimSuffix"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/nativesembed.go:newEmbedFS	name	"NotFound"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/nativesembed.go:newEmbedFS	name	"Stat"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/nativesgo.go:goNativeOf	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"math.Exp"	goNativeReads: a fact about Go's math.Exp (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"math.Float32bits"	goNativeReads: a fact about Go's math.Float32bits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"math.Float32frombits"	goNativeReads: a fact about Go's math.Float32frombits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"math.Float64frombits"	goNativeReads: a fact about Go's math.Float64frombits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"math.Log"	goNativeReads: a fact about Go's math.Log (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"strconv.QuoteRune"	goNativeReads: a fact about Go's strconv.QuoteRune (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"strings.TrimLeft"	goNativeReads: a fact about Go's strings.TrimLeft (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"strings.TrimRight"	goNativeReads: a fact about Go's strings.TrimRight (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"unicode.IsDigit"	goNativeReads: a fact about Go's unicode.IsDigit (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"unicode.IsLetter"	goNativeReads: a fact about Go's unicode.IsLetter (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNativeReads	table	"unicode.IsSpace"	goNativeReads: a fact about Go's unicode.IsSpace (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"math.Exp"	goNatives: a fact about Go's math.Exp (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"math.Float32bits"	goNatives: a fact about Go's math.Float32bits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"math.Float32frombits"	goNatives: a fact about Go's math.Float32frombits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"math.Float64bits"	goNatives: a fact about Go's math.Float64bits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"math.Float64frombits"	goNatives: a fact about Go's math.Float64frombits (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"math.Log"	goNatives: a fact about Go's math.Log (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"strconv.QuoteRune"	goNatives: a fact about Go's strconv.QuoteRune (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"strings.TrimLeft"	goNatives: a fact about Go's strings.TrimLeft (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"strings.TrimRight"	goNatives: a fact about Go's strings.TrimRight (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"unicode.IsDigit"	goNatives: a fact about Go's unicode.IsDigit (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"unicode.IsLetter"	goNatives: a fact about Go's unicode.IsLetter (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativesgo.go:goNatives	table	"unicode.IsSpace"	goNatives: a fact about Go's unicode.IsSpace (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:goVars	table	"encoding/base64.RawStdEncoding"	goVars: a fact about Go's encoding/base64.RawStdEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:goVars	table	"encoding/base64.RawURLEncoding"	goVars: a fact about Go's encoding/base64.RawURLEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:goVars	table	"encoding/base64.StdEncoding"	goVars: a fact about Go's encoding/base64.StdEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:goVars	table	"encoding/base64.URLEncoding"	goVars: a fact about Go's encoding/base64.URLEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:goVars	table	"hash/crc32.IEEETable"	goVars: a fact about Go's hash/crc32.IEEETable (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:registerNativespure	table	"encoding/base64.RawStdEncoding"	registerNativespure: a fact about Go's encoding/base64.RawStdEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:registerNativespure	table	"encoding/base64.RawURLEncoding"	registerNativespure: a fact about Go's encoding/base64.RawURLEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:registerNativespure	table	"encoding/base64.StdEncoding"	registerNativespure: a fact about Go's encoding/base64.StdEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:registerNativespure	table	"encoding/base64.URLEncoding"	registerNativespure: a fact about Go's encoding/base64.URLEncoding (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/nativespure.go:registerNativespure	table	"hash/crc32.IEEETable"	registerNativespure: a fact about Go's hash/crc32.IEEETable (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/plan.go:interp.planOf	flag	"takes"	interp.planOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/plan.go:interp.planOf	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/preflight.go:preflight.body	flag	"IsUnreachable"	preflight.body: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/eval/process.go:runMainOrdered	name	"Ambient"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/process.go:runMainOrdered	name	"Console"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/process.go:runMainOrdered	name	"Exit"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/process.go:runMainOrdered	name	"os"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/eval/process.go:runMainOrdered	name	"prelude"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/fix/edit.go:editor.spell	mark	"stdlib.PreludePath"	editor.spell: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/fix/fix.go:Run	flag	"stdFile"	Run: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/fix/fix.go:Run	mark	"stdlib.Packages"	Run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/fix/fix.go:Run	mark	"stdlib.PreludePath"	Run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/fix/fix.go:stdFile	mark	"stdlib.Packages"	stdFile: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lawfix/run.go:Run	mark	"stdlib.Packages"	Run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/facts.go:extractor.unit	mark	"Std()"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/graphlayout.go:implementations	flag	"ProgramType"	implementations: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_console_outside_entry.go:checkConsoleOutsideEntry	flag	"IsConsole"	checkConsoleOutsideEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	mark	"stdlib.CoveredBy"	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
+debt	internal/sketch/lint/rule_race_for_timeout.go:failsExpired	flag	"IsTimeoutExpired"	failsExpired: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_race_for_timeout.go:sleeperOf	flag	"IsSchedulerSleep"	sleeperOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_race_for_timeout.go:timeoutFixOf	flag	"IsTimeoutPackage"	timeoutFixOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_silent_catch.go:leavesTrace	flag	"IsUnreachable"	leavesTrace: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_with_at_entry.go:checkWithAtEntry	flag	"ProgramType"	checkWithAtEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lint/rule_with_at_entry.go:contextPick	flag	"ProgramType"	contextPick: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/blocking.go:funcCtx.runtimeCall	runtime	"v1.CallerTask"	funcCtx.runtimeCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/blocking.go:funcCtx.runtimeCall	runtime	"v1.ReadingPackage"	funcCtx.runtimeCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/body.go:funcCtx.at	flag	"directives"	funcCtx.at: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/body.go:funcCtx.at	flag	"marks"	funcCtx.at: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/body.go:funcCtx.atSite	flag	"directives"	funcCtx.atSite: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/body.go:funcCtx.innerFuncCtx	flag	"directives"	funcCtx.innerFuncCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/body.go:funcCtx.innerFuncCtx	flag	"marks"	funcCtx.innerFuncCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/body.go:funcCtx.joinResult	flag	"directives"	funcCtx.joinResult: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	flag	"directives"	funcCtx.buildProvider: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	flag	"marks"	funcCtx.buildProvider: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	mark	"Std()"	a std provider has no line directive and its own Info	NP8
+debt	internal/sketch/lower/calls.go:funcCtx.call	flag	"IsInForce"	funcCtx.call: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:funcCtx.call	flag	"IsUnreachable"	funcCtx.call: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/lower/calls.go:funcCtx.callee	name	"prelude"	a prelude function is written unqualified in the call table	-
+debt	internal/sketch/lower/calls.go:funcCtx.identify	flag	"directives"	funcCtx.identify: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:funcCtx.with	flag	"declaredContext"	funcCtx.with: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:lowerer.declaredContext	flag	"stdContext"	lowerer.declaredContext: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:lowerer.emitContext	flag	"declaredContext"	lowerer.emitContext: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:lowerer.emitContext	flag	"marks"	lowerer.emitContext: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:lowerer.emitContext	flag	"stdContext"	lowerer.emitContext: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:lowerer.hostImportNames	name	"time"	std time is imported by the runtime already	NP4c
+debt	internal/sketch/lower/calls.go:lowerer.localContext	flag	"declaredContext"	lowerer.localContext: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/calls.go:lowerer.stdContext	mark	"Std()"	a std context's builder is a std body	NP8
+debt	internal/sketch/lower/canon.go:canonicalize	flag	"sourced"	canonicalize: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/catch_plain.go:funcCtx.goFailing	flag	"IsUnreachable"	funcCtx.goFailing: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/catch_plain.go:funcCtx.plainCatch	flag	"goFailing"	funcCtx.plainCatch: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/context.go:contextNamespace	mark	"Std()"	the context namespace std:path	NP8
+debt	internal/sketch/lower/contextvalues.go:funcCtx.contextValue	flag	"declaredContext"	funcCtx.contextValue: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/lower/decls.go:isPreludeType	name	"prelude"	Option, Some and None	-
+debt	internal/sketch/lower/decls.go:lowerer.addInit	flag	"stdLets"	lowerer.addInit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.emitBody	flag	"isSourced"	lowerer.emitBody: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.emitBody	flag	"marks"	lowerer.emitBody: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.emitBody	flag	"readsEnv"	lowerer.emitBody: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.emitType	flag	"isSourced"	lowerer.emitType: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/lower/decls.go:lowerer.intrinsic	name	"InForce"	the prelude collection functions	-
+language	internal/sketch/lower/decls.go:lowerer.intrinsic	name	"prelude"	the prelude collection functions	-
+debt	internal/sketch/lower/decls.go:lowerer.letDecl	flag	"stdLets"	lowerer.letDecl: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.packagePattern	flag	"stdLets"	lowerer.packagePattern: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.packageVar	flag	"stdLets"	lowerer.packageVar: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/decls.go:lowerer.recordLet	flag	"stdLets"	lowerer.recordLet: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/defect.go:funcCtx.unreachableCall	flag	"IsUnreachable"	funcCtx.unreachableCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/embed.go:lowerer.assetFiles	flag	"isSourced"	lowerer.assetFiles: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/expr.go:funcCtx.catch	flag	"plainCatch"	funcCtx.catch: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/flatunion.go:lowerer.unionPkg	flag	"isSourced"	lowerer.unionPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/flatunion.go:lowerer.unionSourced	flag	"isSourced"	lowerer.unionSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/forms.go:funcCtx.catchAlias	flag	"leaves"	funcCtx.catchAlias: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/forms.go:funcCtx.leaves	flag	"IsUnreachable"	funcCtx.leaves: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/forms.go:funcCtx.soleFailure	flag	"IsUnreachable"	funcCtx.soleFailure: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/lower/getmatch.go:getPattern	name	"Value"	Some's Value, the comma-ok form of Get	-
+debt	internal/sketch/lower/gobody.go:goBodies	runtime	"v1.Source"	goBodies: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/gobody.go:lowerer.madeResult	runtime	"v1.Owns"	lowerer.madeResult: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/gobody.go:lowerer.pureV1	runtime	"v1.Owns"	lowerer.pureV1: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/gobody.go:viewExtern	mark	"Std()"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
+language	internal/sketch/lower/gocall.go:isOptionType	name	"Option"	Option at the Go boundary	-
+language	internal/sketch/lower/gocall.go:isOptionType	name	"prelude"	Option at the Go boundary	-
+debt	internal/sketch/lower/handover.go:funcCtx.ownedFormAt	runtime	"v1.BodyOf"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/handover.go:lowerer.checkedOwnedForm	runtime	"v1.BodyOf"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/inforce.go:lowerer.held	flag	"IsInForce"	lowerer.held: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.closeInline	flag	"directives"	funcCtx.closeInline: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.closeInline	flag	"iface"	funcCtx.closeInline: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.inlineCall	flag	"directives"	funcCtx.inlineCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.inlineCall	flag	"iface"	funcCtx.inlineCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.inlineCall	flag	"isSourced"	funcCtx.inlineCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.inlineLit	flag	"directives"	funcCtx.inlineLit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.inlineLit	flag	"iface"	funcCtx.inlineLit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inline.go:funcCtx.site0	flag	"directives"	funcCtx.site0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/inplace.go:lowerer.writtenInPlace	flag	"isSourced"	lowerer.writtenInPlace: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir.go:irState.body	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/ir.go:irState.intrinsic	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/ir.go:irState.reachAll	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/ir_adapt.go:irBuilder.adaptOperand	runtime	"v1.CallerTask"	irBuilder.adaptOperand: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_assert.go:irState.lawBody	mark	"Std()"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
+debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"IsInForce"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"IsUnreachable"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"directives"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_defect.go:irBuilder.unreachableCall	flag	"IsUnreachable"	irBuilder.unreachableCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_fail.go:irBuilder.catch	flag	"plainCatch"	irBuilder.catch: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"directives"	irBuilder.inlineMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"isSourced"	irBuilder.inlineMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"sourced"	irInliner.splice: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"directives"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"isSourced"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_fusion.go:irBuilder.fuseOr	runtime	"v1.PackageOf"	irBuilder.fuseOr: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_gocall.go:irBuilder.callbackShape	runtime	"v1.Body"	irBuilder.callbackShape: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_gocall.go:irBuilder.callbackShape	runtime	"v1.Param"	irBuilder.callbackShape: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_gocall.go:irBuilder.hostArgs	runtime	"v1.Body"	irBuilder.hostArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_gocall.go:irBuilder.hostArgs	runtime	"v1.Param"	irBuilder.hostArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_operand.go:basicOver	runtime	"v1.TypeOf"	basicOver: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	SQ STD-READS-OUT
+debt	internal/sketch/lower/ir_own.go:irBuilder.closeMasked	runtime	"v1.CallerTask"	irBuilder.closeMasked: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_own.go:irBuilder.startsOnFrame	runtime	"v1.Frame"	irBuilder.startsOnFrame: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_own.go:irBuilder.taskClose	runtime	"v1.CallerTask"	irBuilder.taskClose: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.CallSite"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.CallerScheduler"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.CallerTask"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.Frame"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.ReadingPackage"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_pkg.go:irBuilder.stdCall	runtime	"v1.PackageOf"	irBuilder.stdCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_rewrite.go:irBuilder.canary	runtime	"v1.PackageOf"	irBuilder.canary: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_rewrite.go:irBuilder.lawSide	flag	"directives"	irBuilder.lawSide: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_rewrite.go:irBuilder.shadow	flag	"isSourced"	irBuilder.shadow: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_rewrite.go:irBuilder.shadow	runtime	"v1.PackageOf"	irBuilder.shadow: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_rewrite.go:lowerer.funcVerdictOf	flag	"isSourced"	lowerer.funcVerdictOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_wire.go:wireGen.plan	runtime	"v1.WireKeyRoom"	wireGen.plan: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_wire.go:wireGen.plan	runtime	"v1.WireTextRoom"	wireGen.plan: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_with.go:irBuilder.withOperand	flag	"declaredContext"	irBuilder.withOperand: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/known.go:lowerer.knownBodyCall	flag	"IsUnreachable"	lowerer.knownBodyCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ledger.go:lowerer.evidenceFor	flag	"isSourced"	lowerer.evidenceFor: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/lower/library.go:hostProvides	name	"Ambient"	Console and Ambient at the entry	-
+language	internal/sketch/lower/library.go:hostProvides	name	"Console"	Console and Ambient at the entry	-
+language	internal/sketch/lower/library.go:hostProvides	name	"prelude"	Console and Ambient at the entry	-
+seam	internal/sketch/lower/lower.go:Unit.Validate	mark	"Std()"	a std package has no unit: its sources ship in the compiler	-
+debt	internal/sketch/lower/machine.go:lowerer.ergoVariantName	runtime	"v1.ErgoTypeName"	lowerer.ergoVariantName: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/machine.go:lowerer.machineInit	flag	"isSourced"	lowerer.machineInit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/machine.go:lowerer.machineInit	flag	"stdLets"	lowerer.machineInit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/machine.go:lowerer.machinePlan	flag	"isSourced"	lowerer.machinePlan: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/machine.go:lowerer.machinePlan	flag	"machinePure"	lowerer.machinePlan: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/machine.go:lowerer.variantName	runtime	"rt.TypeName"	lowerer.variantName: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/machine.go:machinePure	flag	"readsEnv"	machinePure: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:Runtime	runtime	"v1.HostText"	Runtime: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:Runtime	runtime	"v1.HostWalk"	Runtime: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:Runtime	runtime	"v1.Leaves"	Runtime: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/lower/module.go:lowerer.hostFields	name	"Ambient"	Console and Ambient at the entry	-
+language	internal/sketch/lower/module.go:lowerer.hostFields	name	"Console"	Console and Ambient at the entry	-
+language	internal/sketch/lower/module.go:lowerer.hostFields	name	"prelude"	Console and Ambient at the entry	-
+debt	internal/sketch/lower/module.go:lowerer.program	runtime	"v1.HostText"	lowerer.program: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:lowerer.program	runtime	"v1.HostWalk"	lowerer.program: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:lowerer.readVars	flag	"sourced"	lowerer.readVars: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:lowerer.readsOf	flag	"sourced"	lowerer.readsOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:lowerer.rtRef	runtime	"v1.NeedsHostText"	lowerer.rtRef: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:lowerer.rtRef	runtime	"v1.NeedsHostWalk"	lowerer.rtRef: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/module.go:lowerer.rtRef	runtime	"v1.PackageOf"	lowerer.rtRef: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/naming.go:lowerer.nameAll	flag	"isSourced"	lowerer.nameAll: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/naming.go:lowerer.nameAll	flag	"stdContext"	lowerer.nameAll: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/lower/naming.go:lowerer.nameAll	mark	"Std()"	names a std package's lets and context builders, which have no unit	-
+debt	internal/sketch/lower/naming.go:lowerer.nameAll	runtime	"v1.Leaves"	lowerer.nameAll: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins	mark	"Std()"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
+debt	internal/sketch/lower/pkgsplit.go:stdImports	mark	"Std()"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
+debt	internal/sketch/lower/reach.go:reach.typeName	flag	"isSourced"	reach.typeName: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/record.go:funcCtx.inlineField	flag	"directives"	funcCtx.inlineField: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	runtime	"v1.Body"	funcCtx.inPlaceOf: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	runtime	"v1.BodyOf"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc	flag	"isSourced"	lowerer.rewriteFunc: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/sealedops.go:funcCtx.sealedMethod	built	"."	funcCtx.sealedMethod: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"Std()"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
+debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"stdlib.PreludePath"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
+debt	internal/sketch/lower/slot.go:funcCtx.slotAdmit	flag	"slotCallee"	funcCtx.slotAdmit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/slot.go:lowerer.slotCallee	flag	"isSourced"	lowerer.slotCallee: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/sources.go:lowerer.enter	flag	"isSourced"	lowerer.enter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/sources.go:lowerer.inStdPkg	flag	"stdLets"	lowerer.inStdPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/sources.go:lowerer.isSourced	flag	"sourced"	lowerer.isSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/sources.go:lowerer.missingImport	flag	"isSourced"	lowerer.missingImport: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/lower/sources.go:lowerer.missingImport	mark	"Std()"	a reached user package needs a unit; std ships in the compiler	-
+debt	internal/sketch/lower/sources.go:lowerer.sourcedLibs	flag	"isSourced"	lowerer.sourcedLibs: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	mark	"Std()"	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
+seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	mark	"stdlib.PreludePath"	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
+debt	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	flag	"isSourced"	lowerer.stdLetPkgs: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	mark	"Std()"	the std packages whose lets the program initializes	-
+seam	internal/sketch/lower/sources.go:shippedLedger	mark	"stdlib.Ledger"	std's law ledger ships with its sources: the ledger of the module the compiler ships	-
+debt	internal/sketch/lower/std.go:funcCtx.adaptFunc	runtime	"v1.CallerTask"	funcCtx.adaptFunc: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.adaptFuncs	runtime	"v1.CallerTask"	funcCtx.adaptFuncs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.adaptTaskFunc	runtime	"v1.CallerTask"	funcCtx.adaptTaskFunc: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.graphArg	runtime	"v1.BodyOf"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.CallSite"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.CallerScheduler"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.CallerTask"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.Frame"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.Graph"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.ReadingPackage"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.ResultRelease"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.opCall	built	"."	funcCtx.opCall: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:funcCtx.stdResult	runtime	"v1.Frame"	funcCtx.stdResult: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:lowerer.needsFrame	runtime	"v1.Frame"	lowerer.needsFrame: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:lowerer.stdBody	runtime	"v1.Body"	lowerer.stdBody: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:lowerer.stdBody	runtime	"v1.BodyIn"	lowerer.stdBody: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/std.go:lowerer.stdBody	runtime	"v1.Owns"	lowerer.stdBody: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/tests.go:lowerer.lawDecl	flag	"isSourced"	lowerer.lawDecl: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/types.go:lowerer.foreignOwner	mark	"Std()"	the std package that owns a runtime type	NP4c
+debt	internal/sketch/lower/types.go:lowerer.foreignOwner	name	"prelude"	the std package that owns a runtime type	NP4c
+debt	internal/sketch/lower/values.go:lowerer.ownedForm	runtime	"v1.BodyOf"	reads v1.BodyOf outside the body contract files; lower/values.go is IR-G lane V's (STD-NOPRIV Do not touch), so its writer moves it to runtimeBody	IR-G V
+debt	internal/sketch/machinegraph/graph.go:reader.edgesOf	name	"Next"	reader.edgesOf: a name key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/machinegraph/graph.go:reader.some	name	"Some"	reader.some: a name key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/machinegraph/graph.go:reader.someOrNone	name	"None"	reader.someOrNone: a name key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketchfront/inspect.go:InspectGo	flag	"ergoBody"	InspectGo: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketchfront/inspect.go:InspectGo	mark	"Std()"	inspect skips std	NP5
+debt	internal/sketchfront/inspect.go:ergoBody	mark	"Std()"	inspect skips std	NP5
+debt	internal/sketchfront/inspect.go:reachWalker.reaches	flag	"ergoBody"	reachWalker.reaches: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketchfront/load.go:isStdPath	mark	"stdlib.Package"	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
+seam	internal/sketchfront/load.go:isStdPath	mark	"stdlib.PreludePath"	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
+debt	internal/sketchfront/load.go:loader.read	flag	"isStdPath"	loader.read: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketchfront/load.go:modulePathProblem	mark	"stdlib.Package"	a module path may not take a std package's name	-
+seam	internal/sketchfront/load.go:modulePathProblem	mark	"stdlib.PreludePath"	a module path may not take a std package's name	-
+seam	internal/sketchfront/load.go:shippedImport	mark	"stdlib.Package"	std paths resolve to the embedded std first	-
+debt	internal/sketchfront/rewrite.go:FreshStdLedger	mark	"stdlib.Package"	std's ledger is written by a std-only path	NP5
+debt	internal/sketchfront/rewrite.go:FreshStdLedger	mark	"stdlib.Packages"	std's ledger is written by a std-only path	NP5
+seam	internal/sketchfront/sketchfront.go:stdDependencies	mark	"stdlib.Package"	the digest of std's sources in the build key	-
+seam	internal/sketchfront/sketchfront.go:stdDependencies	mark	"stdlib.Packages"	the digest of std's sources in the build key	-
+seam	internal/sketchfront/sketchfront.go:stdDependencies	mark	"stdlib.Prelude"	the digest of std's sources in the build key	-
+seam	internal/sketchfront/sketchfront.go:stdDependencies	mark	"stdlib.PreludePath"	the digest of std's sources in the build key	-
+debt	internal/tsproj/http.go:httpFailureStatuses	mark	"Std()"	http.FailureStatus by name	NP7
+debt	internal/tsproj/http.go:httpFailureStatuses	name	"FailureStatus"	http.FailureStatus by name	NP7
+debt	internal/tsproj/http.go:httpFailureStatuses	name	"http"	http.FailureStatus by name	NP7
+debt	internal/tsproj/http.go:httpTables	mark	"Std()"	http.Route by name	NP7
+debt	internal/tsproj/http.go:httpTables	name	"Route"	http.Route by name	NP7
+debt	internal/tsproj/http.go:httpTables	name	"http"	http.Route by name	NP7
+language	internal/tsproj/project.go:emitter.declare	name	"Wire"	Wire, the codec's conversion protocol	-
+language	internal/tsproj/project.go:emitter.schema	mark	"stdlib.PreludePath"	Option	-
+language	internal/tsproj/project.go:emitter.schema	name	"Option"	Option	-
+debt	scripts/stdlaws/main.go:main	mark	"stdlib.Ledger"	main: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP

@@ -71,13 +71,13 @@
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
     },
-    {"name":"residue-debt-grows","origin":"wf10 STD-NOPRIV NP1","file":"internal/residue/testdata/std-privileges.txt","from":"language\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\t-\n","to":"debt\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\tNP6\n","rule":"The debt list only shrinks: a row may not join it.","killers":["internal/residue:TestCompilerReadsNoStdMembership"],"anchor":{"tests":["internal/residue:TestCompilerReadsNoStdMembership"]}},
+    {"name":"residue-debt-grows","origin":"wf10 STD-NOPRIV NP1","file":"internal/residue/testdata/std-privileges.txt","from":"language\tinternal/sketch/lower/gocall.go:isOptionType\tname\t\"Option\"\tOption at the Go boundary\t-\n","to":"debt\tinternal/sketch/lower/gocall.go:isOptionType\tname\t\"Option\"\tOption at the Go boundary\tNP6\n","rule":"The debt list only shrinks: a row may not join it.","killers":["internal/residue:TestCompilerReadsNoStdMembership"],"anchor":{"tests":["internal/residue:TestCompilerReadsNoStdMembership"]}},
     {
       "name": "residue-scan-skips-package",
       "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/residue/std_membership_test.go",
-      "from": "\"internal/hostsyntax\", \"internal/sketchfront\", \"internal/tsproj\",\n",
-      "to": "\"internal/hostsyntax\", \"internal/sketchfront\",\n",
+      "from": "\t\"internal/sketchfront\",\n\t\"internal/tsproj\",\n",
+      "to": "\t\"internal/sketchfront\",\n",
       "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
@@ -143,6 +143,8 @@
     {"name":"key-unlisted-v1-read","origin":"wf10 PRIVILEGE-KEYS (sp0 1432b1c7b)","file":"internal/sketch/lower/values.go","from":"func preludeAppend(f *check.Func) bool {\n","to":"func mutantLent(target string) bool { return v1.GoArgLent(target, 0) }\n\nfunc preludeAppend(f *check.Func) bool {\n","rule":"Every read of runtime/v1 outside the body-contract files is a key, not only a listed few.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]},
     {"name":"key-go-name-row","origin":"wf10 PRIVILEGE-KEYS (sp0 1432b1c7b)","file":"internal/sketch/eval/nativesgo.go","from":"\"strconv.QuoteRune\": \"int32\",\n","to":"\"strconv.QuoteRune\": \"int32\",\n\t\t\"bytes.Fields\": \"string\",\n","rule":"A new entry of a table keyed by a Go library name is a new key: a go-boundary row joins only through the test's goBoundaryKeys.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]},
     {"name":"key-std-name-in-go-table","origin":"wf10 PRIVILEGE-KEYS","file":"internal/sketch/eval/nativesgo.go","from":"\"strconv.QuoteRune\": \"int32\",\n","to":"\"strconv.QuoteRune\": \"int32\",\n\t\t\"machines.Every\": \"int\",\n","rule":"A std name in a table of Go library names is a std key, not the Go boundary: it needs a debt row, which may not join.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]},
-    {"name":"key-scan-skips-package","origin":"wf10 PRIVILEGE-KEYS (sp0 1432b1c7b)","file":"internal/residue/std_membership_test.go","from":"\"internal/rpcgen\", \"cmd/ergo\",\n","to":"\"internal/rpcgen\",\n","rule":"A package that imports the checker is scanned, or the test refuses it, even when it holds no key today.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]}
+    {"name":"key-scan-skips-package","origin":"wf10 PRIVILEGE-KEYS (sp0 1432b1c7b)","file":"internal/residue/std_membership_test.go","from":"\t\"internal/rpcgen\",\n\t\"internal/sketch/api\",\n","to":"\t\"internal/rpcgen\",\n","rule":"A package that imports the checker is scanned, or the test refuses it, even when it holds no key today.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]},
+    {"name":"key-baseline-grows","origin":"wf10 PRIVILEGE-KEYS","file":"internal/residue/std_privileges_baseline_test.go","from":"var stdPrivilegesBaseline = []string{\n","to":"var stdPrivilegesBaseline = []string{\n\t`internal/sketch/lower/expr.go:funcCtx.typeOf mark \"Std()\"`,\n","rule":"The per-key baseline only falls: an admission no debt row uses fails, so it cannot be raised ahead of a read.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]},
+    {"name":"key-baseline-edited","origin":"wf10 PRIVILEGE-KEYS (sp0 1432b1c7b)","file":"internal/residue/testdata/std-privileges.txt","from":"debt\tinternal/sketch/eval/natives.go:readsOf\ttable\t\"strings.HasPrefix\"\t","to":"go-boundary\tinternal/sketch/eval/natives.go:readsOf\ttable\t\"strings.HasPrefix\"\t","rule":"A go-boundary row joins only through goBoundaryKeys in the test's admission file, not by an edit of the inventory: debt re-labelled as the Go boundary fails.","killers":["internal/residue:TestCompilerReadsNoStdMembership"]}
   ]
 }
