@@ -33,7 +33,7 @@ import "embed"
 //go:embed mcp/*.ergo mcp/memory/*.ergo mcp/stdio/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
-//go:embed schedule/*.ergo cron/*.ergo
+//go:embed schedule/*.ergo cron/*.ergo process/*.ergo
 //go:embed http/*.ergo net/*.ergo nettest/*.ergo
 //go:embed sql/*.ergo sqltest/*.ergo
 //go:embed ratelimit/*.ergo ratelimit/memory/*.ergo
