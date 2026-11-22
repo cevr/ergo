@@ -66,4 +66,3 @@ func harnessMembers(k expr.Pkg, p syntax.Parsed, f int, td syntax.TypeDecl, it d
 	}
 	out
 }
-
