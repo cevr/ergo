@@ -63,6 +63,28 @@ func report(w mut walker, s store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDe
 	out
 }
 
+// reportTest is the diagnostics of the sites of the test f's body: a test
+// has no clause to write (pend asks for one only of a function), so its
+// messages end at the row.
+func reportTest(w mut walker, s store.Store, k expr.Pkg, f expr.Fn) []diag.Diag {
+	let p = k.Parsed[f.File]
+	let names = types.Names{Params: f.Params, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}
+	let mut out = []diag.Diag{}
+	for st in w.sites {
+		let at = syntax.NodePos(p, st.at)
+		if st.kind == kErrors {
+			// Only a literal's: the test's own failures are not read.
+			let msg = "\(rowText(s, names, st.extra)) escapes this function literal, whose error row \(rowText(s, names, st.decl)) does not list it"
+			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: syntax.NodeEnd(p, st.at) - at, Code: "S101", Message: msg})
+			continue
+		}
+		let owner = if st.lit { "this function literal" } else { "test " + types.NameText(p, f.Name) }
+		let msg = "this call requires \(types.RowText(s, names, st.extra)), which is not in the capability row of \(owner) and no with provides it"
+		out = out.Append(diag.Diag{File: f.File, Offset: at, Length: syntax.NodeEnd(p, st.at) - at, Code: "S102", Message: msg})
+	}
+	out
+}
+
 // rowText is a row as a message writes it, in braces (typeops.go rowText).
 func rowText(s store.Store, names types.Names, xs []dense.ID[store.TKey]) string {
 	if len(xs) == 0 {

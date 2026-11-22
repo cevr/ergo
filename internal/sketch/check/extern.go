@@ -574,6 +574,12 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 	foreign := goForeignRow(level1.Uses)
 	wrote := c.types.resolve(w.Uses)
 	switch {
+	case GoHost(bf):
+		// A host row (HOST-ROW): the binding's row is Ambient, and so is
+		// the extern's, as for every other tier.
+		if elems := wrote.Elems(); len(elems) != 1 || !isAmbient(elems[0]) {
+			return fmt.Sprintf("extern go %s reads the host process through a host row of internal/gofacts; declare needs Ambient (only main provides it) (docs/spec/interop.md)", target), CodeType
+		}
 	case foreign && !goForeignRow(wrote):
 		return fmt.Sprintf("extern go %s runs Go that is not on the reviewed pure list; declare needs go.Foreign (only main provides it) (docs/spec/interop.md)", target), CodeType
 	case !foreign && !wrote.Empty():

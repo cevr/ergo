@@ -1834,12 +1834,12 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "targetPath", File: "syntax/parse_decl.ergo", Line: 921, End: 924},
 	{Name: "targetName", File: "syntax/parse_decl.ergo", Line: 926, End: 929},
 	{Name: "isRuntimeTarget", File: "syntax/parse_decl.ergo", Line: 933, End: 935},
-	{Name: "parser.parseExternDecl", File: "syntax/parse_decl.ergo", Line: 940, End: 1005},
-	{Name: "parser.parseTestDecl", File: "syntax/parse_decl.ergo", Line: 1008, End: 1020},
-	{Name: "parser.parseLawDecl", File: "syntax/parse_decl.ergo", Line: 1028, End: 1084},
-	{Name: "parser.oneSide", File: "syntax/parse_decl.ergo", Line: 1088, End: 1094},
-	{Name: "parser.parseLetDecl", File: "syntax/parse_decl.ergo", Line: 1098, End: 1157},
-	{Name: "parser.parseLetPattern", File: "syntax/parse_decl.ergo", Line: 1161, End: 1166},
+	{Name: "parser.parseExternDecl", File: "syntax/parse_decl.ergo", Line: 940, End: 1012},
+	{Name: "parser.parseTestDecl", File: "syntax/parse_decl.ergo", Line: 1015, End: 1027},
+	{Name: "parser.parseLawDecl", File: "syntax/parse_decl.ergo", Line: 1035, End: 1091},
+	{Name: "parser.oneSide", File: "syntax/parse_decl.ergo", Line: 1095, End: 1101},
+	{Name: "parser.parseLetDecl", File: "syntax/parse_decl.ergo", Line: 1105, End: 1164},
+	{Name: "parser.parseLetPattern", File: "syntax/parse_decl.ergo", Line: 1168, End: 1173},
 	{Name: "parser.parseExpr", File: "syntax/parse_expr.ergo", Line: 4, End: 17},
 	{Name: "parser.tryOperand", File: "syntax/parse_expr.ergo", Line: 20, End: 25},
 	{Name: "parser.parseCatchExpr", File: "syntax/parse_expr.ergo", Line: 27, End: 33},
@@ -2199,34 +2199,34 @@ var ergoInlines = [...]struct {
 	{Key: "46", Call: 1565, Parent: ""},
 	{Key: "47", Call: 1566, Parent: ""},
 	{Key: "48", Call: 1567, Parent: ""},
-	{Key: "49", Call: 4046, Parent: ""},
-	{Key: "50", Call: 4035, Parent: "49"},
-	{Key: "51", Call: 4048, Parent: ""},
-	{Key: "52", Call: 4032, Parent: "51"},
-	{Key: "53", Call: 4037, Parent: "52"},
-	{Key: "54", Call: 4035, Parent: "53"},
-	{Key: "55", Call: 4039, Parent: "52"},
-	{Key: "56", Call: 4035, Parent: "55"},
-	{Key: "57", Call: 4041, Parent: "52"},
-	{Key: "58", Call: 4035, Parent: "57"},
-	{Key: "59", Call: 4043, Parent: "52"},
-	{Key: "60", Call: 4035, Parent: "59"},
-	{Key: "61", Call: 4033, Parent: "51"},
-	{Key: "62", Call: 4034, Parent: "51"},
-	{Key: "63", Call: 3655, Parent: ""},
-	{Key: "64", Call: 4035, Parent: "63"},
-	{Key: "65", Call: 3657, Parent: ""},
-	{Key: "66", Call: 4035, Parent: "65"},
-	{Key: "67", Call: 3659, Parent: ""},
-	{Key: "68", Call: 4035, Parent: "67"},
-	{Key: "69", Call: 4037, Parent: ""},
-	{Key: "70", Call: 4035, Parent: "69"},
-	{Key: "71", Call: 4039, Parent: ""},
-	{Key: "72", Call: 4035, Parent: "71"},
-	{Key: "73", Call: 4041, Parent: ""},
-	{Key: "74", Call: 4035, Parent: "73"},
-	{Key: "75", Call: 4043, Parent: ""},
-	{Key: "76", Call: 4035, Parent: "75"},
+	{Key: "49", Call: 4047, Parent: ""},
+	{Key: "50", Call: 4036, Parent: "49"},
+	{Key: "51", Call: 4049, Parent: ""},
+	{Key: "52", Call: 4033, Parent: "51"},
+	{Key: "53", Call: 4038, Parent: "52"},
+	{Key: "54", Call: 4036, Parent: "53"},
+	{Key: "55", Call: 4040, Parent: "52"},
+	{Key: "56", Call: 4036, Parent: "55"},
+	{Key: "57", Call: 4042, Parent: "52"},
+	{Key: "58", Call: 4036, Parent: "57"},
+	{Key: "59", Call: 4044, Parent: "52"},
+	{Key: "60", Call: 4036, Parent: "59"},
+	{Key: "61", Call: 4034, Parent: "51"},
+	{Key: "62", Call: 4035, Parent: "51"},
+	{Key: "63", Call: 3656, Parent: ""},
+	{Key: "64", Call: 4036, Parent: "63"},
+	{Key: "65", Call: 3658, Parent: ""},
+	{Key: "66", Call: 4036, Parent: "65"},
+	{Key: "67", Call: 3660, Parent: ""},
+	{Key: "68", Call: 4036, Parent: "67"},
+	{Key: "69", Call: 4038, Parent: ""},
+	{Key: "70", Call: 4036, Parent: "69"},
+	{Key: "71", Call: 4040, Parent: ""},
+	{Key: "72", Call: 4036, Parent: "71"},
+	{Key: "73", Call: 4042, Parent: ""},
+	{Key: "74", Call: 4036, Parent: "73"},
+	{Key: "75", Call: 4044, Parent: ""},
+	{Key: "76", Call: 4036, Parent: "75"},
 	{Key: "77", Call: 12, Parent: ""},
 	{Key: "78", Call: 17, Parent: ""},
 	{Key: "79", Call: 36, Parent: ""},
@@ -2279,112 +2279,112 @@ var ergoInlines = [...]struct {
 	{Key: "126", Call: 92, Parent: ""},
 	{Key: "127", Call: 99, Parent: ""},
 	{Key: "128", Call: 105, Parent: ""},
-	{Key: "129", Call: 4841, Parent: ""},
-	{Key: "130", Call: 4010, Parent: "129"},
-	{Key: "131", Call: 4842, Parent: ""},
-	{Key: "132", Call: 4843, Parent: ""},
-	{Key: "133", Call: 4850, Parent: ""},
+	{Key: "129", Call: 4842, Parent: ""},
+	{Key: "130", Call: 4011, Parent: "129"},
+	{Key: "131", Call: 4843, Parent: ""},
+	{Key: "132", Call: 4844, Parent: ""},
+	{Key: "133", Call: 4851, Parent: ""},
 	{Key: "134", Call: 1677, Parent: "133"},
-	{Key: "135", Call: 4829, Parent: ""},
-	{Key: "136", Call: 4283, Parent: ""},
-	{Key: "137", Call: 4009, Parent: "136"},
-	{Key: "138", Call: 4284, Parent: ""},
-	{Key: "139", Call: 4285, Parent: ""},
-	{Key: "140", Call: 4010, Parent: "139"},
-	{Key: "141", Call: 4286, Parent: ""},
-	{Key: "142", Call: 4287, Parent: ""},
+	{Key: "135", Call: 4830, Parent: ""},
+	{Key: "136", Call: 4284, Parent: ""},
+	{Key: "137", Call: 4010, Parent: "136"},
+	{Key: "138", Call: 4285, Parent: ""},
+	{Key: "139", Call: 4286, Parent: ""},
+	{Key: "140", Call: 4011, Parent: "139"},
+	{Key: "141", Call: 4287, Parent: ""},
+	{Key: "142", Call: 4288, Parent: ""},
 	{Key: "143", Call: 202, Parent: ""},
 	{Key: "144", Call: 203, Parent: ""},
 	{Key: "145", Call: 247, Parent: "144"},
 	{Key: "146", Call: 250, Parent: "144"},
 	{Key: "147", Call: 267, Parent: "146"},
-	{Key: "148", Call: 4009, Parent: ""},
-	{Key: "149", Call: 4010, Parent: ""},
-	{Key: "150", Call: 4013, Parent: ""},
+	{Key: "148", Call: 4010, Parent: ""},
+	{Key: "149", Call: 4011, Parent: ""},
+	{Key: "150", Call: 4014, Parent: ""},
 	{Key: "151", Call: 1676, Parent: ""},
 	{Key: "152", Call: 1677, Parent: ""},
 	{Key: "153", Call: 1682, Parent: ""},
 	{Key: "154", Call: 1687, Parent: ""},
-	{Key: "155", Call: 4009, Parent: "154"},
+	{Key: "155", Call: 4010, Parent: "154"},
 	{Key: "156", Call: 1694, Parent: ""},
 	{Key: "157", Call: 1770, Parent: "156"},
 	{Key: "158", Call: 1626, Parent: ""},
 	{Key: "159", Call: 1628, Parent: ""},
-	{Key: "160", Call: 4356, Parent: ""},
-	{Key: "161", Call: 4358, Parent: ""},
-	{Key: "162", Call: 4362, Parent: ""},
-	{Key: "163", Call: 4368, Parent: ""},
-	{Key: "164", Call: 4374, Parent: ""},
-	{Key: "165", Call: 4382, Parent: ""},
-	{Key: "166", Call: 4389, Parent: ""},
-	{Key: "167", Call: 4406, Parent: ""},
-	{Key: "168", Call: 4416, Parent: ""},
-	{Key: "169", Call: 4427, Parent: ""},
-	{Key: "170", Call: 4434, Parent: ""},
-	{Key: "171", Call: 4447, Parent: ""},
-	{Key: "172", Call: 4448, Parent: ""},
-	{Key: "173", Call: 4460, Parent: ""},
-	{Key: "174", Call: 4466, Parent: ""},
-	{Key: "175", Call: 4473, Parent: ""},
-	{Key: "176", Call: 4483, Parent: ""},
-	{Key: "177", Call: 4505, Parent: ""},
-	{Key: "178", Call: 4511, Parent: ""},
-	{Key: "179", Call: 4515, Parent: ""},
-	{Key: "180", Call: 4519, Parent: ""},
-	{Key: "181", Call: 4523, Parent: ""},
-	{Key: "182", Call: 4531, Parent: ""},
-	{Key: "183", Call: 4538, Parent: ""},
-	{Key: "184", Call: 4545, Parent: ""},
-	{Key: "185", Call: 4549, Parent: ""},
-	{Key: "186", Call: 4551, Parent: ""},
-	{Key: "187", Call: 4556, Parent: ""},
-	{Key: "188", Call: 4566, Parent: ""},
-	{Key: "189", Call: 4571, Parent: ""},
-	{Key: "190", Call: 4574, Parent: ""},
-	{Key: "191", Call: 4580, Parent: ""},
-	{Key: "192", Call: 4583, Parent: ""},
-	{Key: "193", Call: 4590, Parent: ""},
-	{Key: "194", Call: 4600, Parent: ""},
-	{Key: "195", Call: 4609, Parent: ""},
-	{Key: "196", Call: 4615, Parent: ""},
-	{Key: "197", Call: 4621, Parent: ""},
-	{Key: "198", Call: 4628, Parent: ""},
-	{Key: "199", Call: 4632, Parent: ""},
-	{Key: "200", Call: 4641, Parent: ""},
-	{Key: "201", Call: 4648, Parent: ""},
-	{Key: "202", Call: 4649, Parent: ""},
-	{Key: "203", Call: 4650, Parent: ""},
-	{Key: "204", Call: 4655, Parent: ""},
-	{Key: "205", Call: 4665, Parent: ""},
-	{Key: "206", Call: 4676, Parent: ""},
-	{Key: "207", Call: 4678, Parent: ""},
-	{Key: "208", Call: 4683, Parent: ""},
-	{Key: "209", Call: 4684, Parent: ""},
-	{Key: "210", Call: 4685, Parent: ""},
-	{Key: "211", Call: 4687, Parent: ""},
-	{Key: "212", Call: 4691, Parent: ""},
-	{Key: "213", Call: 4693, Parent: ""},
-	{Key: "214", Call: 4697, Parent: ""},
-	{Key: "215", Call: 4712, Parent: ""},
-	{Key: "216", Call: 4718, Parent: ""},
-	{Key: "217", Call: 4729, Parent: ""},
-	{Key: "218", Call: 4731, Parent: ""},
-	{Key: "219", Call: 4734, Parent: ""},
-	{Key: "220", Call: 4736, Parent: ""},
-	{Key: "221", Call: 4738, Parent: ""},
-	{Key: "222", Call: 4745, Parent: ""},
-	{Key: "223", Call: 4749, Parent: ""},
-	{Key: "224", Call: 4754, Parent: ""},
-	{Key: "225", Call: 4760, Parent: ""},
-	{Key: "226", Call: 4768, Parent: ""},
-	{Key: "227", Call: 4777, Parent: ""},
-	{Key: "228", Call: 4785, Parent: ""},
-	{Key: "229", Call: 4791, Parent: ""},
-	{Key: "230", Call: 4794, Parent: ""},
-	{Key: "231", Call: 4799, Parent: ""},
-	{Key: "232", Call: 4808, Parent: ""},
-	{Key: "233", Call: 4812, Parent: ""},
-	{Key: "234", Call: 4030, Parent: ""},
+	{Key: "160", Call: 4357, Parent: ""},
+	{Key: "161", Call: 4359, Parent: ""},
+	{Key: "162", Call: 4363, Parent: ""},
+	{Key: "163", Call: 4369, Parent: ""},
+	{Key: "164", Call: 4375, Parent: ""},
+	{Key: "165", Call: 4383, Parent: ""},
+	{Key: "166", Call: 4390, Parent: ""},
+	{Key: "167", Call: 4407, Parent: ""},
+	{Key: "168", Call: 4417, Parent: ""},
+	{Key: "169", Call: 4428, Parent: ""},
+	{Key: "170", Call: 4435, Parent: ""},
+	{Key: "171", Call: 4448, Parent: ""},
+	{Key: "172", Call: 4449, Parent: ""},
+	{Key: "173", Call: 4461, Parent: ""},
+	{Key: "174", Call: 4467, Parent: ""},
+	{Key: "175", Call: 4474, Parent: ""},
+	{Key: "176", Call: 4484, Parent: ""},
+	{Key: "177", Call: 4506, Parent: ""},
+	{Key: "178", Call: 4512, Parent: ""},
+	{Key: "179", Call: 4516, Parent: ""},
+	{Key: "180", Call: 4520, Parent: ""},
+	{Key: "181", Call: 4524, Parent: ""},
+	{Key: "182", Call: 4532, Parent: ""},
+	{Key: "183", Call: 4539, Parent: ""},
+	{Key: "184", Call: 4546, Parent: ""},
+	{Key: "185", Call: 4550, Parent: ""},
+	{Key: "186", Call: 4552, Parent: ""},
+	{Key: "187", Call: 4557, Parent: ""},
+	{Key: "188", Call: 4567, Parent: ""},
+	{Key: "189", Call: 4572, Parent: ""},
+	{Key: "190", Call: 4575, Parent: ""},
+	{Key: "191", Call: 4581, Parent: ""},
+	{Key: "192", Call: 4584, Parent: ""},
+	{Key: "193", Call: 4591, Parent: ""},
+	{Key: "194", Call: 4601, Parent: ""},
+	{Key: "195", Call: 4610, Parent: ""},
+	{Key: "196", Call: 4616, Parent: ""},
+	{Key: "197", Call: 4622, Parent: ""},
+	{Key: "198", Call: 4629, Parent: ""},
+	{Key: "199", Call: 4633, Parent: ""},
+	{Key: "200", Call: 4642, Parent: ""},
+	{Key: "201", Call: 4649, Parent: ""},
+	{Key: "202", Call: 4650, Parent: ""},
+	{Key: "203", Call: 4651, Parent: ""},
+	{Key: "204", Call: 4656, Parent: ""},
+	{Key: "205", Call: 4666, Parent: ""},
+	{Key: "206", Call: 4677, Parent: ""},
+	{Key: "207", Call: 4679, Parent: ""},
+	{Key: "208", Call: 4684, Parent: ""},
+	{Key: "209", Call: 4685, Parent: ""},
+	{Key: "210", Call: 4686, Parent: ""},
+	{Key: "211", Call: 4688, Parent: ""},
+	{Key: "212", Call: 4692, Parent: ""},
+	{Key: "213", Call: 4694, Parent: ""},
+	{Key: "214", Call: 4698, Parent: ""},
+	{Key: "215", Call: 4713, Parent: ""},
+	{Key: "216", Call: 4719, Parent: ""},
+	{Key: "217", Call: 4730, Parent: ""},
+	{Key: "218", Call: 4732, Parent: ""},
+	{Key: "219", Call: 4735, Parent: ""},
+	{Key: "220", Call: 4737, Parent: ""},
+	{Key: "221", Call: 4739, Parent: ""},
+	{Key: "222", Call: 4746, Parent: ""},
+	{Key: "223", Call: 4750, Parent: ""},
+	{Key: "224", Call: 4755, Parent: ""},
+	{Key: "225", Call: 4761, Parent: ""},
+	{Key: "226", Call: 4769, Parent: ""},
+	{Key: "227", Call: 4778, Parent: ""},
+	{Key: "228", Call: 4786, Parent: ""},
+	{Key: "229", Call: 4792, Parent: ""},
+	{Key: "230", Call: 4795, Parent: ""},
+	{Key: "231", Call: 4800, Parent: ""},
+	{Key: "232", Call: 4809, Parent: ""},
+	{Key: "233", Call: 4813, Parent: ""},
+	{Key: "234", Call: 4031, Parent: ""},
 	{Key: "235", Call: 1276, Parent: ""},
 	{Key: "236", Call: 1676, Parent: "235"},
 	{Key: "237", Call: 1277, Parent: ""},
@@ -2444,10 +2444,10 @@ var ergoInlines = [...]struct {
 	{Key: "291", Call: 2214, Parent: "283"},
 	{Key: "292", Call: 1756, Parent: "291"},
 	{Key: "293", Call: 2216, Parent: "283"},
-	{Key: "294", Call: 2893, Parent: "293"},
+	{Key: "294", Call: 2894, Parent: "293"},
 	{Key: "295", Call: 1746, Parent: "294"},
 	{Key: "296", Call: 1748, Parent: "294"},
-	{Key: "297", Call: 2894, Parent: "293"},
+	{Key: "297", Call: 2895, Parent: "293"},
 	{Key: "298", Call: 1792, Parent: "297"},
 	{Key: "299", Call: 2219, Parent: "283"},
 	{Key: "300", Call: 1746, Parent: "299"},
@@ -2464,39 +2464,39 @@ var ergoInlines = [...]struct {
 	{Key: "311", Call: 1750, Parent: "310"},
 	{Key: "312", Call: 1753, Parent: "310"},
 	{Key: "313", Call: 2223, Parent: "283"},
-	{Key: "314", Call: 4142, Parent: "313"},
-	{Key: "315", Call: 4143, Parent: "313"},
-	{Key: "316", Call: 4144, Parent: "313"},
-	{Key: "317", Call: 4145, Parent: "313"},
-	{Key: "318", Call: 4146, Parent: "313"},
-	{Key: "319", Call: 4147, Parent: "313"},
-	{Key: "320", Call: 4148, Parent: "313"},
+	{Key: "314", Call: 4143, Parent: "313"},
+	{Key: "315", Call: 4144, Parent: "313"},
+	{Key: "316", Call: 4145, Parent: "313"},
+	{Key: "317", Call: 4146, Parent: "313"},
+	{Key: "318", Call: 4147, Parent: "313"},
+	{Key: "319", Call: 4148, Parent: "313"},
+	{Key: "320", Call: 4149, Parent: "313"},
 	{Key: "321", Call: 1813, Parent: ""},
-	{Key: "322", Call: 2278, Parent: "321"},
+	{Key: "322", Call: 2279, Parent: "321"},
 	{Key: "323", Call: 1730, Parent: "322"},
 	{Key: "324", Call: 1746, Parent: "323"},
 	{Key: "325", Call: 1748, Parent: "323"},
 	{Key: "326", Call: 1733, Parent: "322"},
 	{Key: "327", Call: 1750, Parent: "326"},
 	{Key: "328", Call: 1753, Parent: "326"},
-	{Key: "329", Call: 2279, Parent: "321"},
-	{Key: "330", Call: 2893, Parent: "329"},
+	{Key: "329", Call: 2280, Parent: "321"},
+	{Key: "330", Call: 2894, Parent: "329"},
 	{Key: "331", Call: 1746, Parent: "330"},
 	{Key: "332", Call: 1748, Parent: "330"},
-	{Key: "333", Call: 2894, Parent: "329"},
+	{Key: "333", Call: 2895, Parent: "329"},
 	{Key: "334", Call: 1792, Parent: "333"},
-	{Key: "335", Call: 2282, Parent: "321"},
+	{Key: "335", Call: 2283, Parent: "321"},
 	{Key: "336", Call: 1746, Parent: "335"},
 	{Key: "337", Call: 1750, Parent: "336"},
 	{Key: "338", Call: 1753, Parent: "336"},
 	{Key: "339", Call: 1748, Parent: "335"},
 	{Key: "340", Call: 1750, Parent: "339"},
 	{Key: "341", Call: 1753, Parent: "339"},
-	{Key: "342", Call: 2284, Parent: "321"},
-	{Key: "343", Call: 4158, Parent: "342"},
-	{Key: "344", Call: 4159, Parent: "342"},
-	{Key: "345", Call: 4160, Parent: "342"},
-	{Key: "346", Call: 4161, Parent: "342"},
+	{Key: "342", Call: 2285, Parent: "321"},
+	{Key: "343", Call: 4159, Parent: "342"},
+	{Key: "344", Call: 4160, Parent: "342"},
+	{Key: "345", Call: 4161, Parent: "342"},
+	{Key: "346", Call: 4162, Parent: "342"},
 	{Key: "347", Call: 1816, Parent: ""},
 	{Key: "348", Call: 1750, Parent: "347"},
 	{Key: "349", Call: 1756, Parent: "348"},
@@ -2521,23 +2521,23 @@ var ergoInlines = [...]struct {
 	{Key: "368", Call: 1753, Parent: "366"},
 	{Key: "369", Call: 1820, Parent: ""},
 	{Key: "370", Call: 1770, Parent: ""},
-	{Key: "371", Call: 4316, Parent: ""},
-	{Key: "372", Call: 4311, Parent: ""},
-	{Key: "373", Call: 4313, Parent: ""},
-	{Key: "374", Call: 4314, Parent: ""},
-	{Key: "375", Call: 4315, Parent: ""},
-	{Key: "376", Call: 4325, Parent: ""},
-	{Key: "377", Call: 4328, Parent: ""},
-	{Key: "378", Call: 4050, Parent: "377"},
-	{Key: "379", Call: 4336, Parent: ""},
-	{Key: "380", Call: 4339, Parent: ""},
-	{Key: "381", Call: 4050, Parent: "380"},
-	{Key: "382", Call: 4342, Parent: ""},
-	{Key: "383", Call: 4344, Parent: ""},
-	{Key: "384", Call: 4345, Parent: ""},
-	{Key: "385", Call: 4050, Parent: ""},
-	{Key: "386", Call: 4351, Parent: ""},
-	{Key: "387", Call: 4819, Parent: ""},
+	{Key: "371", Call: 4317, Parent: ""},
+	{Key: "372", Call: 4312, Parent: ""},
+	{Key: "373", Call: 4314, Parent: ""},
+	{Key: "374", Call: 4315, Parent: ""},
+	{Key: "375", Call: 4316, Parent: ""},
+	{Key: "376", Call: 4326, Parent: ""},
+	{Key: "377", Call: 4329, Parent: ""},
+	{Key: "378", Call: 4051, Parent: "377"},
+	{Key: "379", Call: 4337, Parent: ""},
+	{Key: "380", Call: 4340, Parent: ""},
+	{Key: "381", Call: 4051, Parent: "380"},
+	{Key: "382", Call: 4343, Parent: ""},
+	{Key: "383", Call: 4345, Parent: ""},
+	{Key: "384", Call: 4346, Parent: ""},
+	{Key: "385", Call: 4051, Parent: ""},
+	{Key: "386", Call: 4352, Parent: ""},
+	{Key: "387", Call: 4820, Parent: ""},
 	{Key: "388", Call: 1720, Parent: ""},
 	{Key: "389", Call: 307, Parent: ""},
 	{Key: "390", Call: 284, Parent: "389"},
@@ -2650,7 +2650,7 @@ var ergoInlines = [...]struct {
 	{Key: "497", Call: 1312, Parent: "494"},
 	{Key: "498", Call: 1307, Parent: "497"},
 	{Key: "499", Call: 289, Parent: ""},
-	{Key: "500", Call: 4050, Parent: "499"},
+	{Key: "500", Call: 4051, Parent: "499"},
 	{Key: "501", Call: 233, Parent: ""},
 	{Key: "502", Call: 1677, Parent: "501"},
 	{Key: "503", Call: 274, Parent: ""},
@@ -2661,43 +2661,43 @@ var ergoInlines = [...]struct {
 	{Key: "508", Call: 265, Parent: ""},
 	{Key: "509", Call: 1459, Parent: ""},
 	{Key: "510", Call: 1462, Parent: ""},
-	{Key: "511", Call: 4035, Parent: ""},
-	{Key: "512", Call: 3668, Parent: ""},
-	{Key: "513", Call: 3666, Parent: "512"},
-	{Key: "514", Call: 3660, Parent: "513"},
-	{Key: "515", Call: 4009, Parent: "514"},
-	{Key: "516", Call: 3662, Parent: "513"},
-	{Key: "517", Call: 3669, Parent: ""},
-	{Key: "518", Call: 3660, Parent: "517"},
-	{Key: "519", Call: 4009, Parent: "518"},
-	{Key: "520", Call: 3662, Parent: "517"},
-	{Key: "521", Call: 3671, Parent: ""},
-	{Key: "522", Call: 3666, Parent: "521"},
-	{Key: "523", Call: 3660, Parent: "522"},
-	{Key: "524", Call: 4009, Parent: "523"},
-	{Key: "525", Call: 3662, Parent: "522"},
-	{Key: "526", Call: 3673, Parent: ""},
-	{Key: "527", Call: 3663, Parent: "526"},
-	{Key: "528", Call: 3660, Parent: "527"},
-	{Key: "529", Call: 4009, Parent: "528"},
-	{Key: "530", Call: 3662, Parent: "527"},
-	{Key: "531", Call: 3675, Parent: ""},
-	{Key: "532", Call: 3663, Parent: "531"},
-	{Key: "533", Call: 3660, Parent: "532"},
-	{Key: "534", Call: 4009, Parent: "533"},
-	{Key: "535", Call: 3662, Parent: "532"},
-	{Key: "536", Call: 3677, Parent: ""},
-	{Key: "537", Call: 3663, Parent: "536"},
-	{Key: "538", Call: 3660, Parent: "537"},
-	{Key: "539", Call: 4009, Parent: "538"},
-	{Key: "540", Call: 3662, Parent: "537"},
-	{Key: "541", Call: 3684, Parent: ""},
-	{Key: "542", Call: 3772, Parent: "541"},
-	{Key: "543", Call: 3663, Parent: "542"},
-	{Key: "544", Call: 3660, Parent: "543"},
-	{Key: "545", Call: 3662, Parent: "543"},
-	{Key: "546", Call: 3653, Parent: ""},
-	{Key: "547", Call: 4009, Parent: "546"},
+	{Key: "511", Call: 4036, Parent: ""},
+	{Key: "512", Call: 3669, Parent: ""},
+	{Key: "513", Call: 3667, Parent: "512"},
+	{Key: "514", Call: 3661, Parent: "513"},
+	{Key: "515", Call: 4010, Parent: "514"},
+	{Key: "516", Call: 3663, Parent: "513"},
+	{Key: "517", Call: 3670, Parent: ""},
+	{Key: "518", Call: 3661, Parent: "517"},
+	{Key: "519", Call: 4010, Parent: "518"},
+	{Key: "520", Call: 3663, Parent: "517"},
+	{Key: "521", Call: 3672, Parent: ""},
+	{Key: "522", Call: 3667, Parent: "521"},
+	{Key: "523", Call: 3661, Parent: "522"},
+	{Key: "524", Call: 4010, Parent: "523"},
+	{Key: "525", Call: 3663, Parent: "522"},
+	{Key: "526", Call: 3674, Parent: ""},
+	{Key: "527", Call: 3664, Parent: "526"},
+	{Key: "528", Call: 3661, Parent: "527"},
+	{Key: "529", Call: 4010, Parent: "528"},
+	{Key: "530", Call: 3663, Parent: "527"},
+	{Key: "531", Call: 3676, Parent: ""},
+	{Key: "532", Call: 3664, Parent: "531"},
+	{Key: "533", Call: 3661, Parent: "532"},
+	{Key: "534", Call: 4010, Parent: "533"},
+	{Key: "535", Call: 3663, Parent: "532"},
+	{Key: "536", Call: 3678, Parent: ""},
+	{Key: "537", Call: 3664, Parent: "536"},
+	{Key: "538", Call: 3661, Parent: "537"},
+	{Key: "539", Call: 4010, Parent: "538"},
+	{Key: "540", Call: 3663, Parent: "537"},
+	{Key: "541", Call: 3685, Parent: ""},
+	{Key: "542", Call: 3773, Parent: "541"},
+	{Key: "543", Call: 3664, Parent: "542"},
+	{Key: "544", Call: 3661, Parent: "543"},
+	{Key: "545", Call: 3663, Parent: "543"},
+	{Key: "546", Call: 3654, Parent: ""},
+	{Key: "547", Call: 4010, Parent: "546"},
 	{Key: "548", Call: 1772, Parent: ""},
 	{Key: "549", Call: 1824, Parent: ""},
 	{Key: "550", Call: 1730, Parent: "549"},
@@ -2731,11 +2731,11 @@ var ergoInlines = [...]struct {
 	{Key: "578", Call: 1833, Parent: ""},
 	{Key: "579", Call: 1835, Parent: ""},
 	{Key: "580", Call: 1844, Parent: ""},
-	{Key: "581", Call: 4034, Parent: "580"},
+	{Key: "581", Call: 4035, Parent: "580"},
 	{Key: "582", Call: 1845, Parent: ""},
-	{Key: "583", Call: 4034, Parent: "582"},
+	{Key: "583", Call: 4035, Parent: "582"},
 	{Key: "584", Call: 1846, Parent: ""},
-	{Key: "585", Call: 4034, Parent: "584"},
+	{Key: "585", Call: 4035, Parent: "584"},
 	{Key: "586", Call: 1822, Parent: ""},
 	{Key: "587", Call: 1746, Parent: "586"},
 	{Key: "588", Call: 1750, Parent: "587"},
@@ -2760,28 +2760,28 @@ var ergoInlines = [...]struct {
 	{Key: "607", Call: 1756, Parent: "606"},
 	{Key: "608", Call: 1753, Parent: "605"},
 	{Key: "609", Call: 1855, Parent: ""},
-	{Key: "610", Call: 2893, Parent: "609"},
+	{Key: "610", Call: 2894, Parent: "609"},
 	{Key: "611", Call: 1746, Parent: "610"},
 	{Key: "612", Call: 1750, Parent: "611"},
 	{Key: "613", Call: 1753, Parent: "611"},
 	{Key: "614", Call: 1748, Parent: "610"},
 	{Key: "615", Call: 1750, Parent: "614"},
 	{Key: "616", Call: 1753, Parent: "614"},
-	{Key: "617", Call: 2894, Parent: "609"},
+	{Key: "617", Call: 2895, Parent: "609"},
 	{Key: "618", Call: 1792, Parent: "617"},
-	{Key: "619", Call: 4034, Parent: "618"},
+	{Key: "619", Call: 4035, Parent: "618"},
 	{Key: "620", Call: 1879, Parent: ""},
 	{Key: "621", Call: 1882, Parent: ""},
-	{Key: "622", Call: 4131, Parent: "621"},
-	{Key: "623", Call: 4132, Parent: "621"},
-	{Key: "624", Call: 4133, Parent: "621"},
-	{Key: "625", Call: 4134, Parent: "621"},
-	{Key: "626", Call: 4135, Parent: "621"},
-	{Key: "627", Call: 4136, Parent: "621"},
-	{Key: "628", Call: 4137, Parent: "621"},
-	{Key: "629", Call: 4138, Parent: "621"},
-	{Key: "630", Call: 4139, Parent: "621"},
-	{Key: "631", Call: 4140, Parent: "621"},
+	{Key: "622", Call: 4132, Parent: "621"},
+	{Key: "623", Call: 4133, Parent: "621"},
+	{Key: "624", Call: 4134, Parent: "621"},
+	{Key: "625", Call: 4135, Parent: "621"},
+	{Key: "626", Call: 4136, Parent: "621"},
+	{Key: "627", Call: 4137, Parent: "621"},
+	{Key: "628", Call: 4138, Parent: "621"},
+	{Key: "629", Call: 4139, Parent: "621"},
+	{Key: "630", Call: 4140, Parent: "621"},
+	{Key: "631", Call: 4141, Parent: "621"},
 	{Key: "632", Call: 2213, Parent: ""},
 	{Key: "633", Call: 1730, Parent: "632"},
 	{Key: "634", Call: 1746, Parent: "633"},
@@ -2797,16 +2797,16 @@ var ergoInlines = [...]struct {
 	{Key: "644", Call: 2214, Parent: ""},
 	{Key: "645", Call: 1756, Parent: "644"},
 	{Key: "646", Call: 2216, Parent: ""},
-	{Key: "647", Call: 2893, Parent: "646"},
+	{Key: "647", Call: 2894, Parent: "646"},
 	{Key: "648", Call: 1746, Parent: "647"},
 	{Key: "649", Call: 1750, Parent: "648"},
 	{Key: "650", Call: 1753, Parent: "648"},
 	{Key: "651", Call: 1748, Parent: "647"},
 	{Key: "652", Call: 1750, Parent: "651"},
 	{Key: "653", Call: 1753, Parent: "651"},
-	{Key: "654", Call: 2894, Parent: "646"},
+	{Key: "654", Call: 2895, Parent: "646"},
 	{Key: "655", Call: 1792, Parent: "654"},
-	{Key: "656", Call: 4034, Parent: "655"},
+	{Key: "656", Call: 4035, Parent: "655"},
 	{Key: "657", Call: 2219, Parent: ""},
 	{Key: "658", Call: 1746, Parent: "657"},
 	{Key: "659", Call: 1750, Parent: "658"},
@@ -2826,13 +2826,13 @@ var ergoInlines = [...]struct {
 	{Key: "673", Call: 1756, Parent: "672"},
 	{Key: "674", Call: 1753, Parent: "671"},
 	{Key: "675", Call: 2223, Parent: ""},
-	{Key: "676", Call: 4142, Parent: "675"},
-	{Key: "677", Call: 4143, Parent: "675"},
-	{Key: "678", Call: 4144, Parent: "675"},
-	{Key: "679", Call: 4145, Parent: "675"},
-	{Key: "680", Call: 4146, Parent: "675"},
-	{Key: "681", Call: 4147, Parent: "675"},
-	{Key: "682", Call: 4148, Parent: "675"},
+	{Key: "676", Call: 4143, Parent: "675"},
+	{Key: "677", Call: 4144, Parent: "675"},
+	{Key: "678", Call: 4145, Parent: "675"},
+	{Key: "679", Call: 4146, Parent: "675"},
+	{Key: "680", Call: 4147, Parent: "675"},
+	{Key: "681", Call: 4148, Parent: "675"},
+	{Key: "682", Call: 4149, Parent: "675"},
 	{Key: "683", Call: 2228, Parent: ""},
 	{Key: "684", Call: 1730, Parent: "683"},
 	{Key: "685", Call: 1746, Parent: "684"},
@@ -2879,13 +2879,13 @@ var ergoInlines = [...]struct {
 	{Key: "726", Call: 1756, Parent: "725"},
 	{Key: "727", Call: 1753, Parent: "724"},
 	{Key: "728", Call: 2237, Parent: ""},
-	{Key: "729", Call: 4034, Parent: "728"},
+	{Key: "729", Call: 4035, Parent: "728"},
 	{Key: "730", Call: 2239, Parent: ""},
 	{Key: "731", Call: 1750, Parent: "730"},
 	{Key: "732", Call: 1756, Parent: "731"},
 	{Key: "733", Call: 1753, Parent: "730"},
 	{Key: "734", Call: 2240, Parent: ""},
-	{Key: "735", Call: 4034, Parent: "734"},
+	{Key: "735", Call: 4035, Parent: "734"},
 	{Key: "736", Call: 2245, Parent: ""},
 	{Key: "737", Call: 2255, Parent: ""},
 	{Key: "738", Call: 1750, Parent: "737"},
@@ -2905,12 +2905,12 @@ var ergoInlines = [...]struct {
 	{Key: "752", Call: 1753, Parent: "749"},
 	{Key: "753", Call: 2262, Parent: ""},
 	{Key: "754", Call: 2263, Parent: ""},
-	{Key: "755", Call: 2270, Parent: ""},
-	{Key: "756", Call: 2893, Parent: "755"},
-	{Key: "757", Call: 2894, Parent: "755"},
-	{Key: "758", Call: 2273, Parent: ""},
-	{Key: "759", Call: 2275, Parent: ""},
-	{Key: "760", Call: 2278, Parent: ""},
+	{Key: "755", Call: 2271, Parent: ""},
+	{Key: "756", Call: 2894, Parent: "755"},
+	{Key: "757", Call: 2895, Parent: "755"},
+	{Key: "758", Call: 2274, Parent: ""},
+	{Key: "759", Call: 2276, Parent: ""},
+	{Key: "760", Call: 2279, Parent: ""},
 	{Key: "761", Call: 1730, Parent: "760"},
 	{Key: "762", Call: 1746, Parent: "761"},
 	{Key: "763", Call: 1750, Parent: "762"},
@@ -2922,18 +2922,18 @@ var ergoInlines = [...]struct {
 	{Key: "769", Call: 1750, Parent: "768"},
 	{Key: "770", Call: 1756, Parent: "769"},
 	{Key: "771", Call: 1753, Parent: "768"},
-	{Key: "772", Call: 2279, Parent: ""},
-	{Key: "773", Call: 2893, Parent: "772"},
+	{Key: "772", Call: 2280, Parent: ""},
+	{Key: "773", Call: 2894, Parent: "772"},
 	{Key: "774", Call: 1746, Parent: "773"},
 	{Key: "775", Call: 1750, Parent: "774"},
 	{Key: "776", Call: 1753, Parent: "774"},
 	{Key: "777", Call: 1748, Parent: "773"},
 	{Key: "778", Call: 1750, Parent: "777"},
 	{Key: "779", Call: 1753, Parent: "777"},
-	{Key: "780", Call: 2894, Parent: "772"},
+	{Key: "780", Call: 2895, Parent: "772"},
 	{Key: "781", Call: 1792, Parent: "780"},
-	{Key: "782", Call: 4034, Parent: "781"},
-	{Key: "783", Call: 2282, Parent: ""},
+	{Key: "782", Call: 4035, Parent: "781"},
+	{Key: "783", Call: 2283, Parent: ""},
 	{Key: "784", Call: 1746, Parent: "783"},
 	{Key: "785", Call: 1750, Parent: "784"},
 	{Key: "786", Call: 1756, Parent: "785"},
@@ -2942,12 +2942,12 @@ var ergoInlines = [...]struct {
 	{Key: "789", Call: 1750, Parent: "788"},
 	{Key: "790", Call: 1756, Parent: "789"},
 	{Key: "791", Call: 1753, Parent: "788"},
-	{Key: "792", Call: 2284, Parent: ""},
-	{Key: "793", Call: 4158, Parent: "792"},
-	{Key: "794", Call: 4159, Parent: "792"},
-	{Key: "795", Call: 4160, Parent: "792"},
-	{Key: "796", Call: 4161, Parent: "792"},
-	{Key: "797", Call: 2286, Parent: ""},
+	{Key: "792", Call: 2285, Parent: ""},
+	{Key: "793", Call: 4159, Parent: "792"},
+	{Key: "794", Call: 4160, Parent: "792"},
+	{Key: "795", Call: 4161, Parent: "792"},
+	{Key: "796", Call: 4162, Parent: "792"},
+	{Key: "797", Call: 2287, Parent: ""},
 	{Key: "798", Call: 1730, Parent: "797"},
 	{Key: "799", Call: 1746, Parent: "798"},
 	{Key: "800", Call: 1750, Parent: "799"},
@@ -2959,48 +2959,48 @@ var ergoInlines = [...]struct {
 	{Key: "806", Call: 1750, Parent: "805"},
 	{Key: "807", Call: 1756, Parent: "806"},
 	{Key: "808", Call: 1753, Parent: "805"},
-	{Key: "809", Call: 2287, Parent: ""},
-	{Key: "810", Call: 2893, Parent: "809"},
+	{Key: "809", Call: 2288, Parent: ""},
+	{Key: "810", Call: 2894, Parent: "809"},
 	{Key: "811", Call: 1746, Parent: "810"},
 	{Key: "812", Call: 1750, Parent: "811"},
 	{Key: "813", Call: 1753, Parent: "811"},
 	{Key: "814", Call: 1748, Parent: "810"},
 	{Key: "815", Call: 1750, Parent: "814"},
 	{Key: "816", Call: 1753, Parent: "814"},
-	{Key: "817", Call: 2894, Parent: "809"},
+	{Key: "817", Call: 2895, Parent: "809"},
 	{Key: "818", Call: 1792, Parent: "817"},
-	{Key: "819", Call: 4034, Parent: "818"},
-	{Key: "820", Call: 2297, Parent: ""},
-	{Key: "821", Call: 2298, Parent: ""},
-	{Key: "822", Call: 4163, Parent: "821"},
-	{Key: "823", Call: 4164, Parent: "821"},
-	{Key: "824", Call: 4165, Parent: "821"},
-	{Key: "825", Call: 4166, Parent: "821"},
-	{Key: "826", Call: 4167, Parent: "821"},
-	{Key: "827", Call: 4168, Parent: "821"},
-	{Key: "828", Call: 4169, Parent: "821"},
-	{Key: "829", Call: 4170, Parent: "821"},
-	{Key: "830", Call: 4171, Parent: "821"},
-	{Key: "831", Call: 2302, Parent: ""},
-	{Key: "832", Call: 2304, Parent: ""},
-	{Key: "833", Call: 2309, Parent: ""},
-	{Key: "834", Call: 2328, Parent: "833"},
-	{Key: "835", Call: 2310, Parent: ""},
-	{Key: "836", Call: 2328, Parent: "835"},
-	{Key: "837", Call: 2312, Parent: ""},
-	{Key: "838", Call: 2314, Parent: ""},
-	{Key: "839", Call: 2315, Parent: ""},
-	{Key: "840", Call: 2316, Parent: ""},
-	{Key: "841", Call: 4262, Parent: "840"},
-	{Key: "842", Call: 2318, Parent: ""},
-	{Key: "843", Call: 4163, Parent: "842"},
-	{Key: "844", Call: 4164, Parent: "842"},
-	{Key: "845", Call: 4165, Parent: "842"},
-	{Key: "846", Call: 4166, Parent: "842"},
-	{Key: "847", Call: 4167, Parent: "842"},
-	{Key: "848", Call: 4168, Parent: "842"},
-	{Key: "849", Call: 4169, Parent: "842"},
-	{Key: "850", Call: 2330, Parent: ""},
+	{Key: "819", Call: 4035, Parent: "818"},
+	{Key: "820", Call: 2298, Parent: ""},
+	{Key: "821", Call: 2299, Parent: ""},
+	{Key: "822", Call: 4164, Parent: "821"},
+	{Key: "823", Call: 4165, Parent: "821"},
+	{Key: "824", Call: 4166, Parent: "821"},
+	{Key: "825", Call: 4167, Parent: "821"},
+	{Key: "826", Call: 4168, Parent: "821"},
+	{Key: "827", Call: 4169, Parent: "821"},
+	{Key: "828", Call: 4170, Parent: "821"},
+	{Key: "829", Call: 4171, Parent: "821"},
+	{Key: "830", Call: 4172, Parent: "821"},
+	{Key: "831", Call: 2303, Parent: ""},
+	{Key: "832", Call: 2305, Parent: ""},
+	{Key: "833", Call: 2310, Parent: ""},
+	{Key: "834", Call: 2329, Parent: "833"},
+	{Key: "835", Call: 2311, Parent: ""},
+	{Key: "836", Call: 2329, Parent: "835"},
+	{Key: "837", Call: 2313, Parent: ""},
+	{Key: "838", Call: 2315, Parent: ""},
+	{Key: "839", Call: 2316, Parent: ""},
+	{Key: "840", Call: 2317, Parent: ""},
+	{Key: "841", Call: 4263, Parent: "840"},
+	{Key: "842", Call: 2319, Parent: ""},
+	{Key: "843", Call: 4164, Parent: "842"},
+	{Key: "844", Call: 4165, Parent: "842"},
+	{Key: "845", Call: 4166, Parent: "842"},
+	{Key: "846", Call: 4167, Parent: "842"},
+	{Key: "847", Call: 4168, Parent: "842"},
+	{Key: "848", Call: 4169, Parent: "842"},
+	{Key: "849", Call: 4170, Parent: "842"},
+	{Key: "850", Call: 2331, Parent: ""},
 	{Key: "851", Call: 1730, Parent: "850"},
 	{Key: "852", Call: 1746, Parent: "851"},
 	{Key: "853", Call: 1750, Parent: "852"},
@@ -3012,26 +3012,26 @@ var ergoInlines = [...]struct {
 	{Key: "859", Call: 1750, Parent: "858"},
 	{Key: "860", Call: 1756, Parent: "859"},
 	{Key: "861", Call: 1753, Parent: "858"},
-	{Key: "862", Call: 2334, Parent: ""},
-	{Key: "863", Call: 2353, Parent: ""},
-	{Key: "864", Call: 2355, Parent: ""},
-	{Key: "865", Call: 4150, Parent: "864"},
-	{Key: "866", Call: 4151, Parent: "864"},
-	{Key: "867", Call: 4152, Parent: "864"},
-	{Key: "868", Call: 4153, Parent: "864"},
-	{Key: "869", Call: 4154, Parent: "864"},
-	{Key: "870", Call: 4155, Parent: "864"},
-	{Key: "871", Call: 4156, Parent: "864"},
-	{Key: "872", Call: 2358, Parent: ""},
-	{Key: "873", Call: 4126, Parent: "872"},
-	{Key: "874", Call: 4127, Parent: "872"},
-	{Key: "875", Call: 4128, Parent: "872"},
-	{Key: "876", Call: 4129, Parent: "872"},
-	{Key: "877", Call: 2359, Parent: ""},
-	{Key: "878", Call: 4121, Parent: "877"},
-	{Key: "879", Call: 4122, Parent: "877"},
-	{Key: "880", Call: 4123, Parent: "877"},
-	{Key: "881", Call: 4124, Parent: "877"},
+	{Key: "862", Call: 2335, Parent: ""},
+	{Key: "863", Call: 2354, Parent: ""},
+	{Key: "864", Call: 2356, Parent: ""},
+	{Key: "865", Call: 4151, Parent: "864"},
+	{Key: "866", Call: 4152, Parent: "864"},
+	{Key: "867", Call: 4153, Parent: "864"},
+	{Key: "868", Call: 4154, Parent: "864"},
+	{Key: "869", Call: 4155, Parent: "864"},
+	{Key: "870", Call: 4156, Parent: "864"},
+	{Key: "871", Call: 4157, Parent: "864"},
+	{Key: "872", Call: 2359, Parent: ""},
+	{Key: "873", Call: 4127, Parent: "872"},
+	{Key: "874", Call: 4128, Parent: "872"},
+	{Key: "875", Call: 4129, Parent: "872"},
+	{Key: "876", Call: 4130, Parent: "872"},
+	{Key: "877", Call: 2360, Parent: ""},
+	{Key: "878", Call: 4122, Parent: "877"},
+	{Key: "879", Call: 4123, Parent: "877"},
+	{Key: "880", Call: 4124, Parent: "877"},
+	{Key: "881", Call: 4125, Parent: "877"},
 	{Key: "882", Call: 1750, Parent: ""},
 	{Key: "883", Call: 1756, Parent: "882"},
 	{Key: "884", Call: 1753, Parent: ""},
@@ -3043,12 +3043,12 @@ var ergoInlines = [...]struct {
 	{Key: "890", Call: 1750, Parent: "889"},
 	{Key: "891", Call: 1756, Parent: "890"},
 	{Key: "892", Call: 1753, Parent: "889"},
-	{Key: "893", Call: 3357, Parent: ""},
-	{Key: "894", Call: 4052, Parent: "893"},
-	{Key: "895", Call: 4053, Parent: "893"},
-	{Key: "896", Call: 3359, Parent: ""},
-	{Key: "897", Call: 4331, Parent: ""},
-	{Key: "898", Call: 4349, Parent: ""},
+	{Key: "893", Call: 3358, Parent: ""},
+	{Key: "894", Call: 4053, Parent: "893"},
+	{Key: "895", Call: 4054, Parent: "893"},
+	{Key: "896", Call: 3360, Parent: ""},
+	{Key: "897", Call: 4332, Parent: ""},
+	{Key: "898", Call: 4350, Parent: ""},
 	{Key: "899", Call: 284, Parent: ""},
 	{Key: "900", Call: 413, Parent: ""},
 	{Key: "901", Call: 414, Parent: ""},
@@ -3354,85 +3354,85 @@ var ergoInlines = [...]struct {
 	{Key: "1201", Call: 1471, Parent: ""},
 	{Key: "1202", Call: 1476, Parent: "1201"},
 	{Key: "1203", Call: 1477, Parent: "1201"},
-	{Key: "1204", Call: 3666, Parent: ""},
-	{Key: "1205", Call: 3660, Parent: "1204"},
-	{Key: "1206", Call: 4009, Parent: "1205"},
-	{Key: "1207", Call: 3662, Parent: "1204"},
-	{Key: "1208", Call: 3660, Parent: ""},
-	{Key: "1209", Call: 4009, Parent: "1208"},
-	{Key: "1210", Call: 3662, Parent: ""},
-	{Key: "1211", Call: 3663, Parent: ""},
-	{Key: "1212", Call: 3660, Parent: "1211"},
-	{Key: "1213", Call: 4009, Parent: "1212"},
-	{Key: "1214", Call: 3662, Parent: "1211"},
-	{Key: "1215", Call: 3707, Parent: ""},
-	{Key: "1216", Call: 3666, Parent: "1215"},
-	{Key: "1217", Call: 3660, Parent: "1216"},
-	{Key: "1218", Call: 4009, Parent: "1217"},
-	{Key: "1219", Call: 3662, Parent: "1216"},
-	{Key: "1220", Call: 3708, Parent: ""},
+	{Key: "1204", Call: 3667, Parent: ""},
+	{Key: "1205", Call: 3661, Parent: "1204"},
+	{Key: "1206", Call: 4010, Parent: "1205"},
+	{Key: "1207", Call: 3663, Parent: "1204"},
+	{Key: "1208", Call: 3661, Parent: ""},
+	{Key: "1209", Call: 4010, Parent: "1208"},
+	{Key: "1210", Call: 3663, Parent: ""},
+	{Key: "1211", Call: 3664, Parent: ""},
+	{Key: "1212", Call: 3661, Parent: "1211"},
+	{Key: "1213", Call: 4010, Parent: "1212"},
+	{Key: "1214", Call: 3663, Parent: "1211"},
+	{Key: "1215", Call: 3708, Parent: ""},
+	{Key: "1216", Call: 3667, Parent: "1215"},
+	{Key: "1217", Call: 3661, Parent: "1216"},
+	{Key: "1218", Call: 4010, Parent: "1217"},
+	{Key: "1219", Call: 3663, Parent: "1216"},
+	{Key: "1220", Call: 3709, Parent: ""},
 	{Key: "1221", Call: 1673, Parent: "1220"},
 	{Key: "1222", Call: 1674, Parent: "1220"},
 	{Key: "1223", Call: 1675, Parent: "1220"},
-	{Key: "1224", Call: 3712, Parent: ""},
-	{Key: "1225", Call: 3666, Parent: "1224"},
-	{Key: "1226", Call: 3660, Parent: "1225"},
-	{Key: "1227", Call: 4009, Parent: "1226"},
-	{Key: "1228", Call: 3662, Parent: "1225"},
-	{Key: "1229", Call: 3713, Parent: ""},
+	{Key: "1224", Call: 3713, Parent: ""},
+	{Key: "1225", Call: 3667, Parent: "1224"},
+	{Key: "1226", Call: 3661, Parent: "1225"},
+	{Key: "1227", Call: 4010, Parent: "1226"},
+	{Key: "1228", Call: 3663, Parent: "1225"},
+	{Key: "1229", Call: 3714, Parent: ""},
 	{Key: "1230", Call: 1673, Parent: "1229"},
 	{Key: "1231", Call: 1674, Parent: "1229"},
 	{Key: "1232", Call: 1675, Parent: "1229"},
-	{Key: "1233", Call: 3735, Parent: ""},
-	{Key: "1234", Call: 3663, Parent: "1233"},
-	{Key: "1235", Call: 3660, Parent: "1234"},
-	{Key: "1236", Call: 4009, Parent: "1235"},
-	{Key: "1237", Call: 3662, Parent: "1234"},
-	{Key: "1238", Call: 3736, Parent: ""},
-	{Key: "1239", Call: 3663, Parent: "1238"},
-	{Key: "1240", Call: 3660, Parent: "1239"},
-	{Key: "1241", Call: 4009, Parent: "1240"},
-	{Key: "1242", Call: 3662, Parent: "1239"},
-	{Key: "1243", Call: 3765, Parent: ""},
-	{Key: "1244", Call: 3663, Parent: "1243"},
-	{Key: "1245", Call: 3660, Parent: "1244"},
-	{Key: "1246", Call: 4009, Parent: "1245"},
-	{Key: "1247", Call: 3662, Parent: "1244"},
-	{Key: "1248", Call: 3767, Parent: ""},
-	{Key: "1249", Call: 3663, Parent: "1248"},
-	{Key: "1250", Call: 3660, Parent: "1249"},
-	{Key: "1251", Call: 4009, Parent: "1250"},
-	{Key: "1252", Call: 3662, Parent: "1249"},
-	{Key: "1253", Call: 3773, Parent: ""},
-	{Key: "1254", Call: 3663, Parent: "1253"},
-	{Key: "1255", Call: 3660, Parent: "1254"},
-	{Key: "1256", Call: 4009, Parent: "1255"},
-	{Key: "1257", Call: 3662, Parent: "1254"},
-	{Key: "1258", Call: 3777, Parent: ""},
-	{Key: "1259", Call: 3663, Parent: "1258"},
-	{Key: "1260", Call: 3660, Parent: "1259"},
-	{Key: "1261", Call: 4009, Parent: "1260"},
-	{Key: "1262", Call: 3662, Parent: "1259"},
-	{Key: "1263", Call: 3772, Parent: ""},
-	{Key: "1264", Call: 3663, Parent: "1263"},
-	{Key: "1265", Call: 3660, Parent: "1264"},
-	{Key: "1266", Call: 4009, Parent: "1265"},
-	{Key: "1267", Call: 3662, Parent: "1264"},
-	{Key: "1268", Call: 3785, Parent: ""},
-	{Key: "1269", Call: 3663, Parent: "1268"},
-	{Key: "1270", Call: 3660, Parent: "1269"},
-	{Key: "1271", Call: 4009, Parent: "1270"},
-	{Key: "1272", Call: 3662, Parent: "1269"},
-	{Key: "1273", Call: 3704, Parent: ""},
-	{Key: "1274", Call: 3663, Parent: "1273"},
-	{Key: "1275", Call: 3660, Parent: "1274"},
-	{Key: "1276", Call: 4009, Parent: "1275"},
-	{Key: "1277", Call: 3662, Parent: "1274"},
-	{Key: "1278", Call: 3798, Parent: ""},
-	{Key: "1279", Call: 3663, Parent: "1278"},
-	{Key: "1280", Call: 3660, Parent: "1279"},
-	{Key: "1281", Call: 4009, Parent: "1280"},
-	{Key: "1282", Call: 3662, Parent: "1279"},
+	{Key: "1233", Call: 3736, Parent: ""},
+	{Key: "1234", Call: 3664, Parent: "1233"},
+	{Key: "1235", Call: 3661, Parent: "1234"},
+	{Key: "1236", Call: 4010, Parent: "1235"},
+	{Key: "1237", Call: 3663, Parent: "1234"},
+	{Key: "1238", Call: 3737, Parent: ""},
+	{Key: "1239", Call: 3664, Parent: "1238"},
+	{Key: "1240", Call: 3661, Parent: "1239"},
+	{Key: "1241", Call: 4010, Parent: "1240"},
+	{Key: "1242", Call: 3663, Parent: "1239"},
+	{Key: "1243", Call: 3766, Parent: ""},
+	{Key: "1244", Call: 3664, Parent: "1243"},
+	{Key: "1245", Call: 3661, Parent: "1244"},
+	{Key: "1246", Call: 4010, Parent: "1245"},
+	{Key: "1247", Call: 3663, Parent: "1244"},
+	{Key: "1248", Call: 3768, Parent: ""},
+	{Key: "1249", Call: 3664, Parent: "1248"},
+	{Key: "1250", Call: 3661, Parent: "1249"},
+	{Key: "1251", Call: 4010, Parent: "1250"},
+	{Key: "1252", Call: 3663, Parent: "1249"},
+	{Key: "1253", Call: 3774, Parent: ""},
+	{Key: "1254", Call: 3664, Parent: "1253"},
+	{Key: "1255", Call: 3661, Parent: "1254"},
+	{Key: "1256", Call: 4010, Parent: "1255"},
+	{Key: "1257", Call: 3663, Parent: "1254"},
+	{Key: "1258", Call: 3778, Parent: ""},
+	{Key: "1259", Call: 3664, Parent: "1258"},
+	{Key: "1260", Call: 3661, Parent: "1259"},
+	{Key: "1261", Call: 4010, Parent: "1260"},
+	{Key: "1262", Call: 3663, Parent: "1259"},
+	{Key: "1263", Call: 3773, Parent: ""},
+	{Key: "1264", Call: 3664, Parent: "1263"},
+	{Key: "1265", Call: 3661, Parent: "1264"},
+	{Key: "1266", Call: 4010, Parent: "1265"},
+	{Key: "1267", Call: 3663, Parent: "1264"},
+	{Key: "1268", Call: 3786, Parent: ""},
+	{Key: "1269", Call: 3664, Parent: "1268"},
+	{Key: "1270", Call: 3661, Parent: "1269"},
+	{Key: "1271", Call: 4010, Parent: "1270"},
+	{Key: "1272", Call: 3663, Parent: "1269"},
+	{Key: "1273", Call: 3705, Parent: ""},
+	{Key: "1274", Call: 3664, Parent: "1273"},
+	{Key: "1275", Call: 3661, Parent: "1274"},
+	{Key: "1276", Call: 4010, Parent: "1275"},
+	{Key: "1277", Call: 3663, Parent: "1274"},
+	{Key: "1278", Call: 3799, Parent: ""},
+	{Key: "1279", Call: 3664, Parent: "1278"},
+	{Key: "1280", Call: 3661, Parent: "1279"},
+	{Key: "1281", Call: 4010, Parent: "1280"},
+	{Key: "1282", Call: 3663, Parent: "1279"},
 	{Key: "1283", Call: 1730, Parent: ""},
 	{Key: "1284", Call: 1746, Parent: "1283"},
 	{Key: "1285", Call: 1750, Parent: "1284"},
@@ -3450,9 +3450,9 @@ var ergoInlines = [...]struct {
 	{Key: "1297", Call: 1847, Parent: ""},
 	{Key: "1298", Call: 1756, Parent: "1297"},
 	{Key: "1299", Call: 1792, Parent: ""},
-	{Key: "1300", Call: 4034, Parent: "1299"},
-	{Key: "1301", Call: 4034, Parent: ""},
-	{Key: "1302", Call: 2893, Parent: ""},
+	{Key: "1300", Call: 4035, Parent: "1299"},
+	{Key: "1301", Call: 4035, Parent: ""},
+	{Key: "1302", Call: 2894, Parent: ""},
 	{Key: "1303", Call: 1746, Parent: "1302"},
 	{Key: "1304", Call: 1750, Parent: "1303"},
 	{Key: "1305", Call: 1756, Parent: "1304"},
@@ -3461,9 +3461,9 @@ var ergoInlines = [...]struct {
 	{Key: "1308", Call: 1750, Parent: "1307"},
 	{Key: "1309", Call: 1756, Parent: "1308"},
 	{Key: "1310", Call: 1753, Parent: "1307"},
-	{Key: "1311", Call: 2894, Parent: ""},
+	{Key: "1311", Call: 2895, Parent: ""},
 	{Key: "1312", Call: 1792, Parent: "1311"},
-	{Key: "1313", Call: 4034, Parent: "1312"},
+	{Key: "1313", Call: 4035, Parent: "1312"},
 	{Key: "1314", Call: 1931, Parent: ""},
 	{Key: "1315", Call: 1730, Parent: "1314"},
 	{Key: "1316", Call: 1746, Parent: "1315"},
@@ -3478,27 +3478,27 @@ var ergoInlines = [...]struct {
 	{Key: "1325", Call: 1753, Parent: "1322"},
 	{Key: "1326", Call: 1933, Parent: ""},
 	{Key: "1327", Call: 1944, Parent: ""},
-	{Key: "1328", Call: 4190, Parent: "1327"},
-	{Key: "1329", Call: 4191, Parent: "1327"},
-	{Key: "1330", Call: 4192, Parent: "1327"},
-	{Key: "1331", Call: 4193, Parent: "1327"},
-	{Key: "1332", Call: 4194, Parent: "1327"},
-	{Key: "1333", Call: 4195, Parent: "1327"},
-	{Key: "1334", Call: 4196, Parent: "1327"},
-	{Key: "1335", Call: 4197, Parent: "1327"},
-	{Key: "1336", Call: 4198, Parent: "1327"},
+	{Key: "1328", Call: 4191, Parent: "1327"},
+	{Key: "1329", Call: 4192, Parent: "1327"},
+	{Key: "1330", Call: 4193, Parent: "1327"},
+	{Key: "1331", Call: 4194, Parent: "1327"},
+	{Key: "1332", Call: 4195, Parent: "1327"},
+	{Key: "1333", Call: 4196, Parent: "1327"},
+	{Key: "1334", Call: 4197, Parent: "1327"},
+	{Key: "1335", Call: 4198, Parent: "1327"},
+	{Key: "1336", Call: 4199, Parent: "1327"},
 	{Key: "1337", Call: 1945, Parent: ""},
 	{Key: "1338", Call: 1949, Parent: ""},
-	{Key: "1339", Call: 4190, Parent: "1338"},
-	{Key: "1340", Call: 4191, Parent: "1338"},
-	{Key: "1341", Call: 4192, Parent: "1338"},
-	{Key: "1342", Call: 4193, Parent: "1338"},
-	{Key: "1343", Call: 4194, Parent: "1338"},
-	{Key: "1344", Call: 4195, Parent: "1338"},
-	{Key: "1345", Call: 4196, Parent: "1338"},
-	{Key: "1346", Call: 4197, Parent: "1338"},
-	{Key: "1347", Call: 4198, Parent: "1338"},
-	{Key: "1348", Call: 4199, Parent: "1338"},
+	{Key: "1339", Call: 4191, Parent: "1338"},
+	{Key: "1340", Call: 4192, Parent: "1338"},
+	{Key: "1341", Call: 4193, Parent: "1338"},
+	{Key: "1342", Call: 4194, Parent: "1338"},
+	{Key: "1343", Call: 4195, Parent: "1338"},
+	{Key: "1344", Call: 4196, Parent: "1338"},
+	{Key: "1345", Call: 4197, Parent: "1338"},
+	{Key: "1346", Call: 4198, Parent: "1338"},
+	{Key: "1347", Call: 4199, Parent: "1338"},
+	{Key: "1348", Call: 4200, Parent: "1338"},
 	{Key: "1349", Call: 1950, Parent: ""},
 	{Key: "1350", Call: 1959, Parent: ""},
 	{Key: "1351", Call: 1746, Parent: "1350"},
@@ -3510,26 +3510,26 @@ var ergoInlines = [...]struct {
 	{Key: "1357", Call: 1756, Parent: "1356"},
 	{Key: "1358", Call: 1753, Parent: "1355"},
 	{Key: "1359", Call: 1961, Parent: ""},
-	{Key: "1360", Call: 4202, Parent: "1359"},
-	{Key: "1361", Call: 4203, Parent: "1359"},
+	{Key: "1360", Call: 4203, Parent: "1359"},
+	{Key: "1361", Call: 4204, Parent: "1359"},
 	{Key: "1362", Call: 1892, Parent: ""},
-	{Key: "1363", Call: 4202, Parent: "1362"},
-	{Key: "1364", Call: 4203, Parent: "1362"},
+	{Key: "1363", Call: 4203, Parent: "1362"},
+	{Key: "1364", Call: 4204, Parent: "1362"},
 	{Key: "1365", Call: 1896, Parent: ""},
 	{Key: "1366", Call: 1898, Parent: ""},
 	{Key: "1367", Call: 1901, Parent: ""},
 	{Key: "1368", Call: 1903, Parent: ""},
 	{Key: "1369", Call: 1905, Parent: ""},
-	{Key: "1370", Call: 4131, Parent: "1369"},
-	{Key: "1371", Call: 4132, Parent: "1369"},
-	{Key: "1372", Call: 4133, Parent: "1369"},
-	{Key: "1373", Call: 4134, Parent: "1369"},
-	{Key: "1374", Call: 4135, Parent: "1369"},
-	{Key: "1375", Call: 4136, Parent: "1369"},
-	{Key: "1376", Call: 4137, Parent: "1369"},
-	{Key: "1377", Call: 4138, Parent: "1369"},
-	{Key: "1378", Call: 4139, Parent: "1369"},
-	{Key: "1379", Call: 4140, Parent: "1369"},
+	{Key: "1370", Call: 4132, Parent: "1369"},
+	{Key: "1371", Call: 4133, Parent: "1369"},
+	{Key: "1372", Call: 4134, Parent: "1369"},
+	{Key: "1373", Call: 4135, Parent: "1369"},
+	{Key: "1374", Call: 4136, Parent: "1369"},
+	{Key: "1375", Call: 4137, Parent: "1369"},
+	{Key: "1376", Call: 4138, Parent: "1369"},
+	{Key: "1377", Call: 4139, Parent: "1369"},
+	{Key: "1378", Call: 4140, Parent: "1369"},
+	{Key: "1379", Call: 4141, Parent: "1369"},
 	{Key: "1380", Call: 2097, Parent: ""},
 	{Key: "1381", Call: 1964, Parent: "1380"},
 	{Key: "1382", Call: 1730, Parent: "1381"},
@@ -3548,13 +3548,13 @@ var ergoInlines = [...]struct {
 	{Key: "1395", Call: 1750, Parent: "1394"},
 	{Key: "1396", Call: 1753, Parent: "1394"},
 	{Key: "1397", Call: 2098, Parent: ""},
-	{Key: "1398", Call: 4251, Parent: "1397"},
-	{Key: "1399", Call: 4252, Parent: "1397"},
+	{Key: "1398", Call: 4252, Parent: "1397"},
+	{Key: "1399", Call: 4253, Parent: "1397"},
 	{Key: "1400", Call: 2101, Parent: ""},
-	{Key: "1401", Call: 4202, Parent: "1400"},
-	{Key: "1402", Call: 4203, Parent: "1400"},
+	{Key: "1401", Call: 4203, Parent: "1400"},
+	{Key: "1402", Call: 4204, Parent: "1400"},
 	{Key: "1403", Call: 2104, Parent: ""},
-	{Key: "1404", Call: 4034, Parent: "1403"},
+	{Key: "1404", Call: 4035, Parent: "1403"},
 	{Key: "1405", Call: 2145, Parent: ""},
 	{Key: "1406", Call: 1730, Parent: "1405"},
 	{Key: "1407", Call: 1746, Parent: "1406"},
@@ -3635,10 +3635,10 @@ var ergoInlines = [...]struct {
 	{Key: "1482", Call: 1753, Parent: "1479"},
 	{Key: "1483", Call: 2174, Parent: ""},
 	{Key: "1484", Call: 2176, Parent: ""},
-	{Key: "1485", Call: 4254, Parent: "1484"},
-	{Key: "1486", Call: 4255, Parent: "1484"},
-	{Key: "1487", Call: 4256, Parent: "1484"},
-	{Key: "1488", Call: 4257, Parent: "1484"},
+	{Key: "1485", Call: 4255, Parent: "1484"},
+	{Key: "1486", Call: 4256, Parent: "1484"},
+	{Key: "1487", Call: 4257, Parent: "1484"},
+	{Key: "1488", Call: 4258, Parent: "1484"},
 	{Key: "1489", Call: 2106, Parent: ""},
 	{Key: "1490", Call: 1750, Parent: "1489"},
 	{Key: "1491", Call: 1756, Parent: "1490"},
@@ -3646,24 +3646,24 @@ var ergoInlines = [...]struct {
 	{Key: "1493", Call: 2107, Parent: ""},
 	{Key: "1494", Call: 2108, Parent: ""},
 	{Key: "1495", Call: 2115, Parent: ""},
-	{Key: "1496", Call: 4251, Parent: "1495"},
-	{Key: "1497", Call: 4252, Parent: "1495"},
-	{Key: "1498", Call: 3087, Parent: ""},
+	{Key: "1496", Call: 4252, Parent: "1495"},
+	{Key: "1497", Call: 4253, Parent: "1495"},
+	{Key: "1498", Call: 3088, Parent: ""},
 	{Key: "1499", Call: 1758, Parent: "1498"},
 	{Key: "1500", Call: 1759, Parent: "1499"},
 	{Key: "1501", Call: 1884, Parent: ""},
-	{Key: "1502", Call: 2364, Parent: ""},
+	{Key: "1502", Call: 2365, Parent: ""},
 	{Key: "1503", Call: 1758, Parent: "1502"},
 	{Key: "1504", Call: 1759, Parent: "1503"},
-	{Key: "1505", Call: 2366, Parent: ""},
-	{Key: "1506", Call: 2372, Parent: "1505"},
-	{Key: "1507", Call: 2369, Parent: ""},
-	{Key: "1508", Call: 4034, Parent: "1507"},
+	{Key: "1505", Call: 2367, Parent: ""},
+	{Key: "1506", Call: 2373, Parent: "1505"},
+	{Key: "1507", Call: 2370, Parent: ""},
+	{Key: "1508", Call: 4035, Parent: "1507"},
 	{Key: "1509", Call: 1883, Parent: ""},
-	{Key: "1510", Call: 3160, Parent: ""},
+	{Key: "1510", Call: 3161, Parent: ""},
 	{Key: "1511", Call: 1758, Parent: "1510"},
 	{Key: "1512", Call: 1759, Parent: "1511"},
-	{Key: "1513", Call: 3163, Parent: ""},
+	{Key: "1513", Call: 3164, Parent: ""},
 	{Key: "1514", Call: 1746, Parent: "1513"},
 	{Key: "1515", Call: 1750, Parent: "1514"},
 	{Key: "1516", Call: 1756, Parent: "1515"},
@@ -3672,54 +3672,54 @@ var ergoInlines = [...]struct {
 	{Key: "1519", Call: 1750, Parent: "1518"},
 	{Key: "1520", Call: 1756, Parent: "1519"},
 	{Key: "1521", Call: 1753, Parent: "1518"},
-	{Key: "1522", Call: 3164, Parent: ""},
+	{Key: "1522", Call: 3165, Parent: ""},
 	{Key: "1523", Call: 1750, Parent: "1522"},
 	{Key: "1524", Call: 1756, Parent: "1523"},
 	{Key: "1525", Call: 1753, Parent: "1522"},
-	{Key: "1526", Call: 3168, Parent: ""},
-	{Key: "1527", Call: 3171, Parent: ""},
-	{Key: "1528", Call: 2898, Parent: "1527"},
+	{Key: "1526", Call: 3169, Parent: ""},
+	{Key: "1527", Call: 3172, Parent: ""},
+	{Key: "1528", Call: 2899, Parent: "1527"},
 	{Key: "1529", Call: 1792, Parent: "1528"},
-	{Key: "1530", Call: 4034, Parent: "1529"},
-	{Key: "1531", Call: 2900, Parent: "1527"},
-	{Key: "1532", Call: 2893, Parent: "1531"},
+	{Key: "1530", Call: 4035, Parent: "1529"},
+	{Key: "1531", Call: 2901, Parent: "1527"},
+	{Key: "1532", Call: 2894, Parent: "1531"},
 	{Key: "1533", Call: 1746, Parent: "1532"},
 	{Key: "1534", Call: 1748, Parent: "1532"},
-	{Key: "1535", Call: 2894, Parent: "1531"},
+	{Key: "1535", Call: 2895, Parent: "1531"},
 	{Key: "1536", Call: 1792, Parent: "1535"},
-	{Key: "1537", Call: 2902, Parent: "1527"},
-	{Key: "1538", Call: 2893, Parent: "1537"},
+	{Key: "1537", Call: 2903, Parent: "1527"},
+	{Key: "1538", Call: 2894, Parent: "1537"},
 	{Key: "1539", Call: 1746, Parent: "1538"},
 	{Key: "1540", Call: 1748, Parent: "1538"},
-	{Key: "1541", Call: 2894, Parent: "1537"},
+	{Key: "1541", Call: 2895, Parent: "1537"},
 	{Key: "1542", Call: 1792, Parent: "1541"},
-	{Key: "1543", Call: 2903, Parent: "1527"},
-	{Key: "1544", Call: 4034, Parent: "1543"},
-	{Key: "1545", Call: 3174, Parent: ""},
-	{Key: "1546", Call: 4131, Parent: ""},
-	{Key: "1547", Call: 4132, Parent: ""},
-	{Key: "1548", Call: 4133, Parent: ""},
-	{Key: "1549", Call: 4134, Parent: ""},
-	{Key: "1550", Call: 4135, Parent: ""},
-	{Key: "1551", Call: 4136, Parent: ""},
-	{Key: "1552", Call: 4137, Parent: ""},
-	{Key: "1553", Call: 4138, Parent: ""},
-	{Key: "1554", Call: 4139, Parent: ""},
-	{Key: "1555", Call: 4140, Parent: ""},
-	{Key: "1556", Call: 2908, Parent: ""},
-	{Key: "1557", Call: 2913, Parent: ""},
-	{Key: "1558", Call: 2924, Parent: ""},
-	{Key: "1559", Call: 4243, Parent: "1558"},
-	{Key: "1560", Call: 4244, Parent: "1558"},
-	{Key: "1561", Call: 4245, Parent: "1558"},
-	{Key: "1562", Call: 4246, Parent: "1558"},
-	{Key: "1563", Call: 4247, Parent: "1558"},
-	{Key: "1564", Call: 4248, Parent: "1558"},
-	{Key: "1565", Call: 4249, Parent: "1558"},
-	{Key: "1566", Call: 2711, Parent: ""},
+	{Key: "1543", Call: 2904, Parent: "1527"},
+	{Key: "1544", Call: 4035, Parent: "1543"},
+	{Key: "1545", Call: 3175, Parent: ""},
+	{Key: "1546", Call: 4132, Parent: ""},
+	{Key: "1547", Call: 4133, Parent: ""},
+	{Key: "1548", Call: 4134, Parent: ""},
+	{Key: "1549", Call: 4135, Parent: ""},
+	{Key: "1550", Call: 4136, Parent: ""},
+	{Key: "1551", Call: 4137, Parent: ""},
+	{Key: "1552", Call: 4138, Parent: ""},
+	{Key: "1553", Call: 4139, Parent: ""},
+	{Key: "1554", Call: 4140, Parent: ""},
+	{Key: "1555", Call: 4141, Parent: ""},
+	{Key: "1556", Call: 2909, Parent: ""},
+	{Key: "1557", Call: 2914, Parent: ""},
+	{Key: "1558", Call: 2925, Parent: ""},
+	{Key: "1559", Call: 4244, Parent: "1558"},
+	{Key: "1560", Call: 4245, Parent: "1558"},
+	{Key: "1561", Call: 4246, Parent: "1558"},
+	{Key: "1562", Call: 4247, Parent: "1558"},
+	{Key: "1563", Call: 4248, Parent: "1558"},
+	{Key: "1564", Call: 4249, Parent: "1558"},
+	{Key: "1565", Call: 4250, Parent: "1558"},
+	{Key: "1566", Call: 2712, Parent: ""},
 	{Key: "1567", Call: 1758, Parent: "1566"},
 	{Key: "1568", Call: 1759, Parent: "1567"},
-	{Key: "1569", Call: 2712, Parent: ""},
+	{Key: "1569", Call: 2713, Parent: ""},
 	{Key: "1570", Call: 1730, Parent: "1569"},
 	{Key: "1571", Call: 1746, Parent: "1570"},
 	{Key: "1572", Call: 1750, Parent: "1571"},
@@ -3731,7 +3731,7 @@ var ergoInlines = [...]struct {
 	{Key: "1578", Call: 1750, Parent: "1577"},
 	{Key: "1579", Call: 1756, Parent: "1578"},
 	{Key: "1580", Call: 1753, Parent: "1577"},
-	{Key: "1581", Call: 2715, Parent: ""},
+	{Key: "1581", Call: 2716, Parent: ""},
 	{Key: "1582", Call: 1746, Parent: "1581"},
 	{Key: "1583", Call: 1750, Parent: "1582"},
 	{Key: "1584", Call: 1756, Parent: "1583"},
@@ -3740,16 +3740,16 @@ var ergoInlines = [...]struct {
 	{Key: "1587", Call: 1750, Parent: "1586"},
 	{Key: "1588", Call: 1756, Parent: "1587"},
 	{Key: "1589", Call: 1753, Parent: "1586"},
-	{Key: "1590", Call: 2718, Parent: ""},
-	{Key: "1591", Call: 4262, Parent: "1590"},
-	{Key: "1592", Call: 4142, Parent: ""},
-	{Key: "1593", Call: 4143, Parent: ""},
-	{Key: "1594", Call: 4144, Parent: ""},
-	{Key: "1595", Call: 4145, Parent: ""},
-	{Key: "1596", Call: 4146, Parent: ""},
-	{Key: "1597", Call: 4147, Parent: ""},
-	{Key: "1598", Call: 4148, Parent: ""},
-	{Key: "1599", Call: 2980, Parent: ""},
+	{Key: "1590", Call: 2719, Parent: ""},
+	{Key: "1591", Call: 4263, Parent: "1590"},
+	{Key: "1592", Call: 4143, Parent: ""},
+	{Key: "1593", Call: 4144, Parent: ""},
+	{Key: "1594", Call: 4145, Parent: ""},
+	{Key: "1595", Call: 4146, Parent: ""},
+	{Key: "1596", Call: 4147, Parent: ""},
+	{Key: "1597", Call: 4148, Parent: ""},
+	{Key: "1598", Call: 4149, Parent: ""},
+	{Key: "1599", Call: 2981, Parent: ""},
 	{Key: "1600", Call: 1730, Parent: "1599"},
 	{Key: "1601", Call: 1746, Parent: "1600"},
 	{Key: "1602", Call: 1750, Parent: "1601"},
@@ -3761,7 +3761,7 @@ var ergoInlines = [...]struct {
 	{Key: "1608", Call: 1750, Parent: "1607"},
 	{Key: "1609", Call: 1756, Parent: "1608"},
 	{Key: "1610", Call: 1753, Parent: "1607"},
-	{Key: "1611", Call: 2989, Parent: ""},
+	{Key: "1611", Call: 2990, Parent: ""},
 	{Key: "1612", Call: 1746, Parent: "1611"},
 	{Key: "1613", Call: 1750, Parent: "1612"},
 	{Key: "1614", Call: 1756, Parent: "1613"},
@@ -3770,71 +3770,71 @@ var ergoInlines = [...]struct {
 	{Key: "1617", Call: 1750, Parent: "1616"},
 	{Key: "1618", Call: 1756, Parent: "1617"},
 	{Key: "1619", Call: 1753, Parent: "1616"},
-	{Key: "1620", Call: 2995, Parent: ""},
-	{Key: "1621", Call: 2996, Parent: ""},
-	{Key: "1622", Call: 2998, Parent: ""},
-	{Key: "1623", Call: 3000, Parent: ""},
-	{Key: "1624", Call: 3004, Parent: ""},
-	{Key: "1625", Call: 4202, Parent: "1624"},
-	{Key: "1626", Call: 4203, Parent: "1624"},
-	{Key: "1627", Call: 3008, Parent: ""},
-	{Key: "1628", Call: 3030, Parent: "1627"},
-	{Key: "1629", Call: 2972, Parent: "1628"},
-	{Key: "1630", Call: 3009, Parent: ""},
+	{Key: "1620", Call: 2996, Parent: ""},
+	{Key: "1621", Call: 2997, Parent: ""},
+	{Key: "1622", Call: 2999, Parent: ""},
+	{Key: "1623", Call: 3001, Parent: ""},
+	{Key: "1624", Call: 3005, Parent: ""},
+	{Key: "1625", Call: 4203, Parent: "1624"},
+	{Key: "1626", Call: 4204, Parent: "1624"},
+	{Key: "1627", Call: 3009, Parent: ""},
+	{Key: "1628", Call: 3031, Parent: "1627"},
+	{Key: "1629", Call: 2973, Parent: "1628"},
+	{Key: "1630", Call: 3010, Parent: ""},
 	{Key: "1631", Call: 1801, Parent: "1630"},
 	{Key: "1632", Call: 1802, Parent: "1630"},
-	{Key: "1633", Call: 3010, Parent: ""},
-	{Key: "1634", Call: 3011, Parent: ""},
-	{Key: "1635", Call: 3014, Parent: ""},
-	{Key: "1636", Call: 3016, Parent: ""},
-	{Key: "1637", Call: 4190, Parent: "1636"},
-	{Key: "1638", Call: 4191, Parent: "1636"},
-	{Key: "1639", Call: 4192, Parent: "1636"},
-	{Key: "1640", Call: 4193, Parent: "1636"},
-	{Key: "1641", Call: 4194, Parent: "1636"},
-	{Key: "1642", Call: 4195, Parent: "1636"},
-	{Key: "1643", Call: 4196, Parent: "1636"},
-	{Key: "1644", Call: 4197, Parent: "1636"},
-	{Key: "1645", Call: 4198, Parent: "1636"},
-	{Key: "1646", Call: 3018, Parent: ""},
-	{Key: "1647", Call: 3020, Parent: ""},
-	{Key: "1648", Call: 3030, Parent: "1647"},
-	{Key: "1649", Call: 2972, Parent: "1648"},
-	{Key: "1650", Call: 3022, Parent: ""},
+	{Key: "1633", Call: 3011, Parent: ""},
+	{Key: "1634", Call: 3012, Parent: ""},
+	{Key: "1635", Call: 3015, Parent: ""},
+	{Key: "1636", Call: 3017, Parent: ""},
+	{Key: "1637", Call: 4191, Parent: "1636"},
+	{Key: "1638", Call: 4192, Parent: "1636"},
+	{Key: "1639", Call: 4193, Parent: "1636"},
+	{Key: "1640", Call: 4194, Parent: "1636"},
+	{Key: "1641", Call: 4195, Parent: "1636"},
+	{Key: "1642", Call: 4196, Parent: "1636"},
+	{Key: "1643", Call: 4197, Parent: "1636"},
+	{Key: "1644", Call: 4198, Parent: "1636"},
+	{Key: "1645", Call: 4199, Parent: "1636"},
+	{Key: "1646", Call: 3019, Parent: ""},
+	{Key: "1647", Call: 3021, Parent: ""},
+	{Key: "1648", Call: 3031, Parent: "1647"},
+	{Key: "1649", Call: 2973, Parent: "1648"},
+	{Key: "1650", Call: 3023, Parent: ""},
 	{Key: "1651", Call: 1930, Parent: "1650"},
-	{Key: "1652", Call: 3023, Parent: ""},
-	{Key: "1653", Call: 3025, Parent: ""},
-	{Key: "1654", Call: 4202, Parent: "1653"},
-	{Key: "1655", Call: 4203, Parent: "1653"},
-	{Key: "1656", Call: 4158, Parent: ""},
-	{Key: "1657", Call: 4159, Parent: ""},
-	{Key: "1658", Call: 4160, Parent: ""},
-	{Key: "1659", Call: 4161, Parent: ""},
-	{Key: "1660", Call: 4163, Parent: ""},
-	{Key: "1661", Call: 4164, Parent: ""},
-	{Key: "1662", Call: 4165, Parent: ""},
-	{Key: "1663", Call: 4166, Parent: ""},
-	{Key: "1664", Call: 4167, Parent: ""},
-	{Key: "1665", Call: 4168, Parent: ""},
-	{Key: "1666", Call: 4169, Parent: ""},
-	{Key: "1667", Call: 4170, Parent: ""},
-	{Key: "1668", Call: 4171, Parent: ""},
-	{Key: "1669", Call: 2328, Parent: ""},
-	{Key: "1670", Call: 4262, Parent: ""},
-	{Key: "1671", Call: 2362, Parent: ""},
-	{Key: "1672", Call: 2893, Parent: "1671"},
+	{Key: "1652", Call: 3024, Parent: ""},
+	{Key: "1653", Call: 3026, Parent: ""},
+	{Key: "1654", Call: 4203, Parent: "1653"},
+	{Key: "1655", Call: 4204, Parent: "1653"},
+	{Key: "1656", Call: 4159, Parent: ""},
+	{Key: "1657", Call: 4160, Parent: ""},
+	{Key: "1658", Call: 4161, Parent: ""},
+	{Key: "1659", Call: 4162, Parent: ""},
+	{Key: "1660", Call: 4164, Parent: ""},
+	{Key: "1661", Call: 4165, Parent: ""},
+	{Key: "1662", Call: 4166, Parent: ""},
+	{Key: "1663", Call: 4167, Parent: ""},
+	{Key: "1664", Call: 4168, Parent: ""},
+	{Key: "1665", Call: 4169, Parent: ""},
+	{Key: "1666", Call: 4170, Parent: ""},
+	{Key: "1667", Call: 4171, Parent: ""},
+	{Key: "1668", Call: 4172, Parent: ""},
+	{Key: "1669", Call: 2329, Parent: ""},
+	{Key: "1670", Call: 4263, Parent: ""},
+	{Key: "1671", Call: 2363, Parent: ""},
+	{Key: "1672", Call: 2894, Parent: "1671"},
 	{Key: "1673", Call: 1746, Parent: "1672"},
 	{Key: "1674", Call: 1750, Parent: "1673"},
 	{Key: "1675", Call: 1753, Parent: "1673"},
 	{Key: "1676", Call: 1748, Parent: "1672"},
 	{Key: "1677", Call: 1750, Parent: "1676"},
 	{Key: "1678", Call: 1753, Parent: "1676"},
-	{Key: "1679", Call: 2894, Parent: "1671"},
+	{Key: "1679", Call: 2895, Parent: "1671"},
 	{Key: "1680", Call: 1792, Parent: "1679"},
-	{Key: "1681", Call: 4034, Parent: "1680"},
-	{Key: "1682", Call: 4259, Parent: ""},
-	{Key: "1683", Call: 4260, Parent: ""},
-	{Key: "1684", Call: 3196, Parent: ""},
+	{Key: "1681", Call: 4035, Parent: "1680"},
+	{Key: "1682", Call: 4260, Parent: ""},
+	{Key: "1683", Call: 4261, Parent: ""},
+	{Key: "1684", Call: 3197, Parent: ""},
 	{Key: "1685", Call: 1730, Parent: "1684"},
 	{Key: "1686", Call: 1746, Parent: "1685"},
 	{Key: "1687", Call: 1750, Parent: "1686"},
@@ -3846,7 +3846,7 @@ var ergoInlines = [...]struct {
 	{Key: "1693", Call: 1750, Parent: "1692"},
 	{Key: "1694", Call: 1756, Parent: "1693"},
 	{Key: "1695", Call: 1753, Parent: "1692"},
-	{Key: "1696", Call: 3203, Parent: ""},
+	{Key: "1696", Call: 3204, Parent: ""},
 	{Key: "1697", Call: 1746, Parent: "1696"},
 	{Key: "1698", Call: 1750, Parent: "1697"},
 	{Key: "1699", Call: 1756, Parent: "1698"},
@@ -3855,29 +3855,29 @@ var ergoInlines = [...]struct {
 	{Key: "1702", Call: 1750, Parent: "1701"},
 	{Key: "1703", Call: 1756, Parent: "1702"},
 	{Key: "1704", Call: 1753, Parent: "1701"},
-	{Key: "1705", Call: 3205, Parent: ""},
-	{Key: "1706", Call: 4238, Parent: "1705"},
-	{Key: "1707", Call: 4239, Parent: "1705"},
-	{Key: "1708", Call: 4240, Parent: "1705"},
-	{Key: "1709", Call: 4241, Parent: "1705"},
-	{Key: "1710", Call: 4150, Parent: ""},
-	{Key: "1711", Call: 4151, Parent: ""},
-	{Key: "1712", Call: 4152, Parent: ""},
-	{Key: "1713", Call: 4153, Parent: ""},
-	{Key: "1714", Call: 4154, Parent: ""},
-	{Key: "1715", Call: 4155, Parent: ""},
-	{Key: "1716", Call: 4156, Parent: ""},
-	{Key: "1717", Call: 4126, Parent: ""},
-	{Key: "1718", Call: 4127, Parent: ""},
-	{Key: "1719", Call: 4128, Parent: ""},
-	{Key: "1720", Call: 4129, Parent: ""},
-	{Key: "1721", Call: 4121, Parent: ""},
-	{Key: "1722", Call: 4122, Parent: ""},
-	{Key: "1723", Call: 4123, Parent: ""},
-	{Key: "1724", Call: 4124, Parent: ""},
-	{Key: "1725", Call: 4051, Parent: ""},
-	{Key: "1726", Call: 4052, Parent: ""},
-	{Key: "1727", Call: 4053, Parent: ""},
+	{Key: "1705", Call: 3206, Parent: ""},
+	{Key: "1706", Call: 4239, Parent: "1705"},
+	{Key: "1707", Call: 4240, Parent: "1705"},
+	{Key: "1708", Call: 4241, Parent: "1705"},
+	{Key: "1709", Call: 4242, Parent: "1705"},
+	{Key: "1710", Call: 4151, Parent: ""},
+	{Key: "1711", Call: 4152, Parent: ""},
+	{Key: "1712", Call: 4153, Parent: ""},
+	{Key: "1713", Call: 4154, Parent: ""},
+	{Key: "1714", Call: 4155, Parent: ""},
+	{Key: "1715", Call: 4156, Parent: ""},
+	{Key: "1716", Call: 4157, Parent: ""},
+	{Key: "1717", Call: 4127, Parent: ""},
+	{Key: "1718", Call: 4128, Parent: ""},
+	{Key: "1719", Call: 4129, Parent: ""},
+	{Key: "1720", Call: 4130, Parent: ""},
+	{Key: "1721", Call: 4122, Parent: ""},
+	{Key: "1722", Call: 4123, Parent: ""},
+	{Key: "1723", Call: 4124, Parent: ""},
+	{Key: "1724", Call: 4125, Parent: ""},
+	{Key: "1725", Call: 4052, Parent: ""},
+	{Key: "1726", Call: 4053, Parent: ""},
+	{Key: "1727", Call: 4054, Parent: ""},
 	{Key: "1728", Call: 977, Parent: ""},
 	{Key: "1729", Call: 1311, Parent: "1728"},
 	{Key: "1730", Call: 1306, Parent: "1729"},
@@ -4328,24 +4328,24 @@ var ergoInlines = [...]struct {
 	{Key: "2175", Call: 1673, Parent: ""},
 	{Key: "2176", Call: 1674, Parent: ""},
 	{Key: "2177", Call: 1675, Parent: ""},
-	{Key: "2178", Call: 3756, Parent: ""},
-	{Key: "2179", Call: 3663, Parent: "2178"},
-	{Key: "2180", Call: 3660, Parent: "2179"},
-	{Key: "2181", Call: 4009, Parent: "2180"},
-	{Key: "2182", Call: 3662, Parent: "2179"},
-	{Key: "2183", Call: 4190, Parent: ""},
-	{Key: "2184", Call: 4191, Parent: ""},
-	{Key: "2185", Call: 4192, Parent: ""},
-	{Key: "2186", Call: 4193, Parent: ""},
-	{Key: "2187", Call: 4194, Parent: ""},
-	{Key: "2188", Call: 4195, Parent: ""},
-	{Key: "2189", Call: 4196, Parent: ""},
-	{Key: "2190", Call: 4197, Parent: ""},
-	{Key: "2191", Call: 4198, Parent: ""},
-	{Key: "2192", Call: 4199, Parent: ""},
-	{Key: "2193", Call: 4200, Parent: ""},
-	{Key: "2194", Call: 4202, Parent: ""},
-	{Key: "2195", Call: 4203, Parent: ""},
+	{Key: "2178", Call: 3757, Parent: ""},
+	{Key: "2179", Call: 3664, Parent: "2178"},
+	{Key: "2180", Call: 3661, Parent: "2179"},
+	{Key: "2181", Call: 4010, Parent: "2180"},
+	{Key: "2182", Call: 3663, Parent: "2179"},
+	{Key: "2183", Call: 4191, Parent: ""},
+	{Key: "2184", Call: 4192, Parent: ""},
+	{Key: "2185", Call: 4193, Parent: ""},
+	{Key: "2186", Call: 4194, Parent: ""},
+	{Key: "2187", Call: 4195, Parent: ""},
+	{Key: "2188", Call: 4196, Parent: ""},
+	{Key: "2189", Call: 4197, Parent: ""},
+	{Key: "2190", Call: 4198, Parent: ""},
+	{Key: "2191", Call: 4199, Parent: ""},
+	{Key: "2192", Call: 4200, Parent: ""},
+	{Key: "2193", Call: 4201, Parent: ""},
+	{Key: "2194", Call: 4203, Parent: ""},
+	{Key: "2195", Call: 4204, Parent: ""},
 	{Key: "2196", Call: 1925, Parent: ""},
 	{Key: "2197", Call: 1930, Parent: "2196"},
 	{Key: "2198", Call: 1964, Parent: ""},
@@ -4371,8 +4371,8 @@ var ergoInlines = [...]struct {
 	{Key: "2218", Call: 1750, Parent: "2217"},
 	{Key: "2219", Call: 1756, Parent: "2218"},
 	{Key: "2220", Call: 1753, Parent: "2217"},
-	{Key: "2221", Call: 4251, Parent: ""},
-	{Key: "2222", Call: 4252, Parent: ""},
+	{Key: "2221", Call: 4252, Parent: ""},
+	{Key: "2222", Call: 4253, Parent: ""},
 	{Key: "2223", Call: 2180, Parent: ""},
 	{Key: "2224", Call: 1730, Parent: "2223"},
 	{Key: "2225", Call: 1746, Parent: "2224"},
@@ -4386,16 +4386,16 @@ var ergoInlines = [...]struct {
 	{Key: "2233", Call: 1756, Parent: "2232"},
 	{Key: "2234", Call: 1753, Parent: "2231"},
 	{Key: "2235", Call: 2181, Parent: ""},
-	{Key: "2236", Call: 2893, Parent: "2235"},
+	{Key: "2236", Call: 2894, Parent: "2235"},
 	{Key: "2237", Call: 1746, Parent: "2236"},
 	{Key: "2238", Call: 1750, Parent: "2237"},
 	{Key: "2239", Call: 1753, Parent: "2237"},
 	{Key: "2240", Call: 1748, Parent: "2236"},
 	{Key: "2241", Call: 1750, Parent: "2240"},
 	{Key: "2242", Call: 1753, Parent: "2240"},
-	{Key: "2243", Call: 2894, Parent: "2235"},
+	{Key: "2243", Call: 2895, Parent: "2235"},
 	{Key: "2244", Call: 1792, Parent: "2243"},
-	{Key: "2245", Call: 4034, Parent: "2244"},
+	{Key: "2245", Call: 4035, Parent: "2244"},
 	{Key: "2246", Call: 2187, Parent: ""},
 	{Key: "2247", Call: 1746, Parent: "2246"},
 	{Key: "2248", Call: 1750, Parent: "2247"},
@@ -4435,25 +4435,25 @@ var ergoInlines = [...]struct {
 	{Key: "2282", Call: 1756, Parent: "2281"},
 	{Key: "2283", Call: 1753, Parent: "2280"},
 	{Key: "2284", Call: 2209, Parent: ""},
-	{Key: "2285", Call: 4173, Parent: "2284"},
-	{Key: "2286", Call: 4174, Parent: "2284"},
-	{Key: "2287", Call: 4176, Parent: "2284"},
-	{Key: "2288", Call: 4177, Parent: "2284"},
-	{Key: "2289", Call: 4178, Parent: "2284"},
-	{Key: "2290", Call: 4180, Parent: "2284"},
+	{Key: "2285", Call: 4174, Parent: "2284"},
+	{Key: "2286", Call: 4175, Parent: "2284"},
+	{Key: "2287", Call: 4177, Parent: "2284"},
+	{Key: "2288", Call: 4178, Parent: "2284"},
+	{Key: "2289", Call: 4179, Parent: "2284"},
+	{Key: "2290", Call: 4181, Parent: "2284"},
 	{Key: "2291", Call: 2210, Parent: ""},
-	{Key: "2292", Call: 4163, Parent: "2291"},
-	{Key: "2293", Call: 4164, Parent: "2291"},
-	{Key: "2294", Call: 4165, Parent: "2291"},
-	{Key: "2295", Call: 4166, Parent: "2291"},
-	{Key: "2296", Call: 4167, Parent: "2291"},
-	{Key: "2297", Call: 4168, Parent: "2291"},
-	{Key: "2298", Call: 4169, Parent: "2291"},
-	{Key: "2299", Call: 4170, Parent: "2291"},
-	{Key: "2300", Call: 4254, Parent: ""},
-	{Key: "2301", Call: 4255, Parent: ""},
-	{Key: "2302", Call: 4256, Parent: ""},
-	{Key: "2303", Call: 4257, Parent: ""},
+	{Key: "2292", Call: 4164, Parent: "2291"},
+	{Key: "2293", Call: 4165, Parent: "2291"},
+	{Key: "2294", Call: 4166, Parent: "2291"},
+	{Key: "2295", Call: 4167, Parent: "2291"},
+	{Key: "2296", Call: 4168, Parent: "2291"},
+	{Key: "2297", Call: 4169, Parent: "2291"},
+	{Key: "2298", Call: 4170, Parent: "2291"},
+	{Key: "2299", Call: 4171, Parent: "2291"},
+	{Key: "2300", Call: 4255, Parent: ""},
+	{Key: "2301", Call: 4256, Parent: ""},
+	{Key: "2302", Call: 4257, Parent: ""},
+	{Key: "2303", Call: 4258, Parent: ""},
 	{Key: "2304", Call: 2117, Parent: ""},
 	{Key: "2305", Call: 1746, Parent: "2304"},
 	{Key: "2306", Call: 1750, Parent: "2305"},
@@ -4464,23 +4464,23 @@ var ergoInlines = [...]struct {
 	{Key: "2311", Call: 1756, Parent: "2310"},
 	{Key: "2312", Call: 1753, Parent: "2309"},
 	{Key: "2313", Call: 2118, Parent: ""},
-	{Key: "2314", Call: 2898, Parent: "2313"},
+	{Key: "2314", Call: 2899, Parent: "2313"},
 	{Key: "2315", Call: 1792, Parent: "2314"},
-	{Key: "2316", Call: 4034, Parent: "2315"},
-	{Key: "2317", Call: 2900, Parent: "2313"},
-	{Key: "2318", Call: 2893, Parent: "2317"},
+	{Key: "2316", Call: 4035, Parent: "2315"},
+	{Key: "2317", Call: 2901, Parent: "2313"},
+	{Key: "2318", Call: 2894, Parent: "2317"},
 	{Key: "2319", Call: 1746, Parent: "2318"},
 	{Key: "2320", Call: 1748, Parent: "2318"},
-	{Key: "2321", Call: 2894, Parent: "2317"},
+	{Key: "2321", Call: 2895, Parent: "2317"},
 	{Key: "2322", Call: 1792, Parent: "2321"},
-	{Key: "2323", Call: 2902, Parent: "2313"},
-	{Key: "2324", Call: 2893, Parent: "2323"},
+	{Key: "2323", Call: 2903, Parent: "2313"},
+	{Key: "2324", Call: 2894, Parent: "2323"},
 	{Key: "2325", Call: 1746, Parent: "2324"},
 	{Key: "2326", Call: 1748, Parent: "2324"},
-	{Key: "2327", Call: 2894, Parent: "2323"},
+	{Key: "2327", Call: 2895, Parent: "2323"},
 	{Key: "2328", Call: 1792, Parent: "2327"},
-	{Key: "2329", Call: 2903, Parent: "2313"},
-	{Key: "2330", Call: 4034, Parent: "2329"},
+	{Key: "2329", Call: 2904, Parent: "2313"},
+	{Key: "2330", Call: 4035, Parent: "2329"},
 	{Key: "2331", Call: 2121, Parent: ""},
 	{Key: "2332", Call: 1746, Parent: "2331"},
 	{Key: "2333", Call: 1750, Parent: "2332"},
@@ -4493,13 +4493,13 @@ var ergoInlines = [...]struct {
 	{Key: "2340", Call: 2126, Parent: ""},
 	{Key: "2341", Call: 2128, Parent: ""},
 	{Key: "2342", Call: 2129, Parent: ""},
-	{Key: "2343", Call: 4190, Parent: "2342"},
-	{Key: "2344", Call: 4191, Parent: "2342"},
-	{Key: "2345", Call: 4192, Parent: "2342"},
-	{Key: "2346", Call: 4193, Parent: "2342"},
-	{Key: "2347", Call: 4194, Parent: "2342"},
-	{Key: "2348", Call: 4195, Parent: "2342"},
-	{Key: "2349", Call: 4196, Parent: "2342"},
+	{Key: "2343", Call: 4191, Parent: "2342"},
+	{Key: "2344", Call: 4192, Parent: "2342"},
+	{Key: "2345", Call: 4193, Parent: "2342"},
+	{Key: "2346", Call: 4194, Parent: "2342"},
+	{Key: "2347", Call: 4195, Parent: "2342"},
+	{Key: "2348", Call: 4196, Parent: "2342"},
+	{Key: "2349", Call: 4197, Parent: "2342"},
 	{Key: "2350", Call: 2137, Parent: ""},
 	{Key: "2351", Call: 1964, Parent: "2350"},
 	{Key: "2352", Call: 1730, Parent: "2351"},
@@ -4519,15 +4519,15 @@ var ergoInlines = [...]struct {
 	{Key: "2366", Call: 1753, Parent: "2364"},
 	{Key: "2367", Call: 2138, Parent: ""},
 	{Key: "2368", Call: 2140, Parent: ""},
-	{Key: "2369", Call: 4202, Parent: "2368"},
-	{Key: "2370", Call: 4203, Parent: "2368"},
+	{Key: "2369", Call: 4203, Parent: "2368"},
+	{Key: "2370", Call: 4204, Parent: "2368"},
 	{Key: "2371", Call: 2143, Parent: ""},
-	{Key: "2372", Call: 4208, Parent: "2371"},
-	{Key: "2373", Call: 4209, Parent: "2371"},
-	{Key: "2374", Call: 4210, Parent: "2371"},
+	{Key: "2372", Call: 4209, Parent: "2371"},
+	{Key: "2373", Call: 4210, Parent: "2371"},
+	{Key: "2374", Call: 4211, Parent: "2371"},
 	{Key: "2375", Call: 1758, Parent: ""},
 	{Key: "2376", Call: 1759, Parent: "2375"},
-	{Key: "2377", Call: 3097, Parent: ""},
+	{Key: "2377", Call: 3098, Parent: ""},
 	{Key: "2378", Call: 1746, Parent: "2377"},
 	{Key: "2379", Call: 1750, Parent: "2378"},
 	{Key: "2380", Call: 1756, Parent: "2379"},
@@ -4536,29 +4536,29 @@ var ergoInlines = [...]struct {
 	{Key: "2383", Call: 1750, Parent: "2382"},
 	{Key: "2384", Call: 1756, Parent: "2383"},
 	{Key: "2385", Call: 1753, Parent: "2382"},
-	{Key: "2386", Call: 3100, Parent: ""},
-	{Key: "2387", Call: 3102, Parent: ""},
-	{Key: "2388", Call: 2898, Parent: "2387"},
+	{Key: "2386", Call: 3101, Parent: ""},
+	{Key: "2387", Call: 3103, Parent: ""},
+	{Key: "2388", Call: 2899, Parent: "2387"},
 	{Key: "2389", Call: 1792, Parent: "2388"},
-	{Key: "2390", Call: 4034, Parent: "2389"},
-	{Key: "2391", Call: 2900, Parent: "2387"},
-	{Key: "2392", Call: 2893, Parent: "2391"},
+	{Key: "2390", Call: 4035, Parent: "2389"},
+	{Key: "2391", Call: 2901, Parent: "2387"},
+	{Key: "2392", Call: 2894, Parent: "2391"},
 	{Key: "2393", Call: 1746, Parent: "2392"},
 	{Key: "2394", Call: 1748, Parent: "2392"},
-	{Key: "2395", Call: 2894, Parent: "2391"},
+	{Key: "2395", Call: 2895, Parent: "2391"},
 	{Key: "2396", Call: 1792, Parent: "2395"},
-	{Key: "2397", Call: 2902, Parent: "2387"},
-	{Key: "2398", Call: 2893, Parent: "2397"},
+	{Key: "2397", Call: 2903, Parent: "2387"},
+	{Key: "2398", Call: 2894, Parent: "2397"},
 	{Key: "2399", Call: 1746, Parent: "2398"},
 	{Key: "2400", Call: 1748, Parent: "2398"},
-	{Key: "2401", Call: 2894, Parent: "2397"},
+	{Key: "2401", Call: 2895, Parent: "2397"},
 	{Key: "2402", Call: 1792, Parent: "2401"},
-	{Key: "2403", Call: 2903, Parent: "2387"},
-	{Key: "2404", Call: 4034, Parent: "2403"},
-	{Key: "2405", Call: 3104, Parent: ""},
-	{Key: "2406", Call: 3108, Parent: ""},
+	{Key: "2403", Call: 2904, Parent: "2387"},
+	{Key: "2404", Call: 4035, Parent: "2403"},
+	{Key: "2405", Call: 3105, Parent: ""},
+	{Key: "2406", Call: 3109, Parent: ""},
 	{Key: "2407", Call: 1756, Parent: "2406"},
-	{Key: "2408", Call: 3111, Parent: ""},
+	{Key: "2408", Call: 3112, Parent: ""},
 	{Key: "2409", Call: 1746, Parent: "2408"},
 	{Key: "2410", Call: 1750, Parent: "2409"},
 	{Key: "2411", Call: 1756, Parent: "2410"},
@@ -4567,7 +4567,7 @@ var ergoInlines = [...]struct {
 	{Key: "2414", Call: 1750, Parent: "2413"},
 	{Key: "2415", Call: 1756, Parent: "2414"},
 	{Key: "2416", Call: 1753, Parent: "2413"},
-	{Key: "2417", Call: 3114, Parent: ""},
+	{Key: "2417", Call: 3115, Parent: ""},
 	{Key: "2418", Call: 1746, Parent: "2417"},
 	{Key: "2419", Call: 1750, Parent: "2418"},
 	{Key: "2420", Call: 1756, Parent: "2419"},
@@ -4576,11 +4576,11 @@ var ergoInlines = [...]struct {
 	{Key: "2423", Call: 1750, Parent: "2422"},
 	{Key: "2424", Call: 1756, Parent: "2423"},
 	{Key: "2425", Call: 1753, Parent: "2422"},
-	{Key: "2426", Call: 3116, Parent: ""},
-	{Key: "2427", Call: 4034, Parent: "2426"},
-	{Key: "2428", Call: 3119, Parent: ""},
-	{Key: "2429", Call: 4034, Parent: "2428"},
-	{Key: "2430", Call: 3121, Parent: ""},
+	{Key: "2426", Call: 3117, Parent: ""},
+	{Key: "2427", Call: 4035, Parent: "2426"},
+	{Key: "2428", Call: 3120, Parent: ""},
+	{Key: "2429", Call: 4035, Parent: "2428"},
+	{Key: "2430", Call: 3122, Parent: ""},
 	{Key: "2431", Call: 1746, Parent: "2430"},
 	{Key: "2432", Call: 1750, Parent: "2431"},
 	{Key: "2433", Call: 1756, Parent: "2432"},
@@ -4589,8 +4589,8 @@ var ergoInlines = [...]struct {
 	{Key: "2436", Call: 1750, Parent: "2435"},
 	{Key: "2437", Call: 1756, Parent: "2436"},
 	{Key: "2438", Call: 1753, Parent: "2435"},
-	{Key: "2439", Call: 3129, Parent: ""},
-	{Key: "2440", Call: 3131, Parent: ""},
+	{Key: "2439", Call: 3130, Parent: ""},
+	{Key: "2440", Call: 3132, Parent: ""},
 	{Key: "2441", Call: 1730, Parent: "2440"},
 	{Key: "2442", Call: 1746, Parent: "2441"},
 	{Key: "2443", Call: 1750, Parent: "2442"},
@@ -4602,13 +4602,13 @@ var ergoInlines = [...]struct {
 	{Key: "2449", Call: 1750, Parent: "2448"},
 	{Key: "2450", Call: 1756, Parent: "2449"},
 	{Key: "2451", Call: 1753, Parent: "2448"},
-	{Key: "2452", Call: 3132, Parent: ""},
-	{Key: "2453", Call: 4034, Parent: "2452"},
-	{Key: "2454", Call: 3133, Parent: ""},
+	{Key: "2452", Call: 3133, Parent: ""},
+	{Key: "2453", Call: 4035, Parent: "2452"},
+	{Key: "2454", Call: 3134, Parent: ""},
 	{Key: "2455", Call: 2072, Parent: "2454"},
-	{Key: "2456", Call: 3134, Parent: ""},
-	{Key: "2457", Call: 3136, Parent: ""},
-	{Key: "2458", Call: 3138, Parent: ""},
+	{Key: "2456", Call: 3135, Parent: ""},
+	{Key: "2457", Call: 3137, Parent: ""},
+	{Key: "2458", Call: 3139, Parent: ""},
 	{Key: "2459", Call: 1730, Parent: "2458"},
 	{Key: "2460", Call: 1746, Parent: "2459"},
 	{Key: "2461", Call: 1750, Parent: "2460"},
@@ -4620,18 +4620,18 @@ var ergoInlines = [...]struct {
 	{Key: "2467", Call: 1750, Parent: "2466"},
 	{Key: "2468", Call: 1756, Parent: "2467"},
 	{Key: "2469", Call: 1753, Parent: "2466"},
-	{Key: "2470", Call: 3139, Parent: ""},
-	{Key: "2471", Call: 4259, Parent: "2470"},
-	{Key: "2472", Call: 4260, Parent: "2470"},
-	{Key: "2473", Call: 3142, Parent: ""},
+	{Key: "2470", Call: 3140, Parent: ""},
+	{Key: "2471", Call: 4260, Parent: "2470"},
+	{Key: "2472", Call: 4261, Parent: "2470"},
+	{Key: "2473", Call: 3143, Parent: ""},
 	{Key: "2474", Call: 1750, Parent: "2473"},
 	{Key: "2475", Call: 1756, Parent: "2474"},
 	{Key: "2476", Call: 1753, Parent: "2473"},
-	{Key: "2477", Call: 3147, Parent: ""},
+	{Key: "2477", Call: 3148, Parent: ""},
 	{Key: "2478", Call: 1750, Parent: "2477"},
 	{Key: "2479", Call: 1756, Parent: "2478"},
 	{Key: "2480", Call: 1753, Parent: "2477"},
-	{Key: "2481", Call: 3149, Parent: ""},
+	{Key: "2481", Call: 3150, Parent: ""},
 	{Key: "2482", Call: 1746, Parent: "2481"},
 	{Key: "2483", Call: 1750, Parent: "2482"},
 	{Key: "2484", Call: 1756, Parent: "2483"},
@@ -4640,35 +4640,35 @@ var ergoInlines = [...]struct {
 	{Key: "2487", Call: 1750, Parent: "2486"},
 	{Key: "2488", Call: 1756, Parent: "2487"},
 	{Key: "2489", Call: 1753, Parent: "2486"},
-	{Key: "2490", Call: 2372, Parent: ""},
-	{Key: "2491", Call: 2898, Parent: ""},
+	{Key: "2490", Call: 2373, Parent: ""},
+	{Key: "2491", Call: 2899, Parent: ""},
 	{Key: "2492", Call: 1792, Parent: "2491"},
-	{Key: "2493", Call: 4034, Parent: "2492"},
-	{Key: "2494", Call: 2900, Parent: ""},
-	{Key: "2495", Call: 2893, Parent: "2494"},
+	{Key: "2493", Call: 4035, Parent: "2492"},
+	{Key: "2494", Call: 2901, Parent: ""},
+	{Key: "2495", Call: 2894, Parent: "2494"},
 	{Key: "2496", Call: 1746, Parent: "2495"},
 	{Key: "2497", Call: 1750, Parent: "2496"},
 	{Key: "2498", Call: 1753, Parent: "2496"},
 	{Key: "2499", Call: 1748, Parent: "2495"},
 	{Key: "2500", Call: 1750, Parent: "2499"},
 	{Key: "2501", Call: 1753, Parent: "2499"},
-	{Key: "2502", Call: 2894, Parent: "2494"},
+	{Key: "2502", Call: 2895, Parent: "2494"},
 	{Key: "2503", Call: 1792, Parent: "2502"},
-	{Key: "2504", Call: 4034, Parent: "2503"},
-	{Key: "2505", Call: 2902, Parent: ""},
-	{Key: "2506", Call: 2893, Parent: "2505"},
+	{Key: "2504", Call: 4035, Parent: "2503"},
+	{Key: "2505", Call: 2903, Parent: ""},
+	{Key: "2506", Call: 2894, Parent: "2505"},
 	{Key: "2507", Call: 1746, Parent: "2506"},
 	{Key: "2508", Call: 1750, Parent: "2507"},
 	{Key: "2509", Call: 1753, Parent: "2507"},
 	{Key: "2510", Call: 1748, Parent: "2506"},
 	{Key: "2511", Call: 1750, Parent: "2510"},
 	{Key: "2512", Call: 1753, Parent: "2510"},
-	{Key: "2513", Call: 2894, Parent: "2505"},
+	{Key: "2513", Call: 2895, Parent: "2505"},
 	{Key: "2514", Call: 1792, Parent: "2513"},
-	{Key: "2515", Call: 4034, Parent: "2514"},
-	{Key: "2516", Call: 2903, Parent: ""},
-	{Key: "2517", Call: 4034, Parent: "2516"},
-	{Key: "2518", Call: 3184, Parent: ""},
+	{Key: "2515", Call: 4035, Parent: "2514"},
+	{Key: "2516", Call: 2904, Parent: ""},
+	{Key: "2517", Call: 4035, Parent: "2516"},
+	{Key: "2518", Call: 3185, Parent: ""},
 	{Key: "2519", Call: 1730, Parent: "2518"},
 	{Key: "2520", Call: 1746, Parent: "2519"},
 	{Key: "2521", Call: 1750, Parent: "2520"},
@@ -4680,7 +4680,7 @@ var ergoInlines = [...]struct {
 	{Key: "2527", Call: 1750, Parent: "2526"},
 	{Key: "2528", Call: 1756, Parent: "2527"},
 	{Key: "2529", Call: 1753, Parent: "2526"},
-	{Key: "2530", Call: 3185, Parent: ""},
+	{Key: "2530", Call: 3186, Parent: ""},
 	{Key: "2531", Call: 1746, Parent: "2530"},
 	{Key: "2532", Call: 1750, Parent: "2531"},
 	{Key: "2533", Call: 1756, Parent: "2532"},
@@ -4689,8 +4689,8 @@ var ergoInlines = [...]struct {
 	{Key: "2536", Call: 1750, Parent: "2535"},
 	{Key: "2537", Call: 1756, Parent: "2536"},
 	{Key: "2538", Call: 1753, Parent: "2535"},
-	{Key: "2539", Call: 3187, Parent: ""},
-	{Key: "2540", Call: 3190, Parent: ""},
+	{Key: "2539", Call: 3188, Parent: ""},
+	{Key: "2540", Call: 3191, Parent: ""},
 	{Key: "2541", Call: 1730, Parent: "2540"},
 	{Key: "2542", Call: 1746, Parent: "2541"},
 	{Key: "2543", Call: 1750, Parent: "2542"},
@@ -4702,12 +4702,12 @@ var ergoInlines = [...]struct {
 	{Key: "2549", Call: 1750, Parent: "2548"},
 	{Key: "2550", Call: 1756, Parent: "2549"},
 	{Key: "2551", Call: 1753, Parent: "2548"},
-	{Key: "2552", Call: 3191, Parent: ""},
-	{Key: "2553", Call: 4217, Parent: "2552"},
-	{Key: "2554", Call: 4218, Parent: "2552"},
-	{Key: "2555", Call: 2941, Parent: ""},
+	{Key: "2552", Call: 3192, Parent: ""},
+	{Key: "2553", Call: 4218, Parent: "2552"},
+	{Key: "2554", Call: 4219, Parent: "2552"},
+	{Key: "2555", Call: 2942, Parent: ""},
 	{Key: "2556", Call: 1756, Parent: "2555"},
-	{Key: "2557", Call: 2943, Parent: ""},
+	{Key: "2557", Call: 2944, Parent: ""},
 	{Key: "2558", Call: 1730, Parent: "2557"},
 	{Key: "2559", Call: 1746, Parent: "2558"},
 	{Key: "2560", Call: 1750, Parent: "2559"},
@@ -4719,9 +4719,9 @@ var ergoInlines = [...]struct {
 	{Key: "2566", Call: 1750, Parent: "2565"},
 	{Key: "2567", Call: 1756, Parent: "2566"},
 	{Key: "2568", Call: 1753, Parent: "2565"},
-	{Key: "2569", Call: 2945, Parent: ""},
-	{Key: "2570", Call: 2948, Parent: ""},
-	{Key: "2571", Call: 2958, Parent: ""},
+	{Key: "2569", Call: 2946, Parent: ""},
+	{Key: "2570", Call: 2949, Parent: ""},
+	{Key: "2571", Call: 2959, Parent: ""},
 	{Key: "2572", Call: 1730, Parent: "2571"},
 	{Key: "2573", Call: 1746, Parent: "2572"},
 	{Key: "2574", Call: 1750, Parent: "2573"},
@@ -4733,9 +4733,9 @@ var ergoInlines = [...]struct {
 	{Key: "2580", Call: 1750, Parent: "2579"},
 	{Key: "2581", Call: 1756, Parent: "2580"},
 	{Key: "2582", Call: 1753, Parent: "2579"},
-	{Key: "2583", Call: 2962, Parent: ""},
-	{Key: "2584", Call: 2972, Parent: "2583"},
-	{Key: "2585", Call: 2926, Parent: ""},
+	{Key: "2583", Call: 2963, Parent: ""},
+	{Key: "2584", Call: 2973, Parent: "2583"},
+	{Key: "2585", Call: 2927, Parent: ""},
 	{Key: "2586", Call: 1730, Parent: "2585"},
 	{Key: "2587", Call: 1746, Parent: "2586"},
 	{Key: "2588", Call: 1750, Parent: "2587"},
@@ -4747,17 +4747,17 @@ var ergoInlines = [...]struct {
 	{Key: "2594", Call: 1750, Parent: "2593"},
 	{Key: "2595", Call: 1756, Parent: "2594"},
 	{Key: "2596", Call: 1753, Parent: "2593"},
-	{Key: "2597", Call: 2929, Parent: ""},
-	{Key: "2598", Call: 2934, Parent: ""},
-	{Key: "2599", Call: 4243, Parent: ""},
-	{Key: "2600", Call: 4244, Parent: ""},
-	{Key: "2601", Call: 4245, Parent: ""},
-	{Key: "2602", Call: 4246, Parent: ""},
-	{Key: "2603", Call: 4247, Parent: ""},
-	{Key: "2604", Call: 4248, Parent: ""},
-	{Key: "2605", Call: 4249, Parent: ""},
-	{Key: "2606", Call: 2720, Parent: ""},
-	{Key: "2607", Call: 2723, Parent: ""},
+	{Key: "2597", Call: 2930, Parent: ""},
+	{Key: "2598", Call: 2935, Parent: ""},
+	{Key: "2599", Call: 4244, Parent: ""},
+	{Key: "2600", Call: 4245, Parent: ""},
+	{Key: "2601", Call: 4246, Parent: ""},
+	{Key: "2602", Call: 4247, Parent: ""},
+	{Key: "2603", Call: 4248, Parent: ""},
+	{Key: "2604", Call: 4249, Parent: ""},
+	{Key: "2605", Call: 4250, Parent: ""},
+	{Key: "2606", Call: 2721, Parent: ""},
+	{Key: "2607", Call: 2724, Parent: ""},
 	{Key: "2608", Call: 1746, Parent: "2607"},
 	{Key: "2609", Call: 1750, Parent: "2608"},
 	{Key: "2610", Call: 1756, Parent: "2609"},
@@ -4766,58 +4766,58 @@ var ergoInlines = [...]struct {
 	{Key: "2613", Call: 1750, Parent: "2612"},
 	{Key: "2614", Call: 1756, Parent: "2613"},
 	{Key: "2615", Call: 1753, Parent: "2612"},
-	{Key: "2616", Call: 3051, Parent: ""},
-	{Key: "2617", Call: 3052, Parent: ""},
-	{Key: "2618", Call: 2893, Parent: "2617"},
+	{Key: "2616", Call: 3052, Parent: ""},
+	{Key: "2617", Call: 3053, Parent: ""},
+	{Key: "2618", Call: 2894, Parent: "2617"},
 	{Key: "2619", Call: 1746, Parent: "2618"},
 	{Key: "2620", Call: 1750, Parent: "2619"},
 	{Key: "2621", Call: 1753, Parent: "2619"},
 	{Key: "2622", Call: 1748, Parent: "2618"},
 	{Key: "2623", Call: 1750, Parent: "2622"},
 	{Key: "2624", Call: 1753, Parent: "2622"},
-	{Key: "2625", Call: 2894, Parent: "2617"},
+	{Key: "2625", Call: 2895, Parent: "2617"},
 	{Key: "2626", Call: 1792, Parent: "2625"},
-	{Key: "2627", Call: 4034, Parent: "2626"},
-	{Key: "2628", Call: 3059, Parent: ""},
-	{Key: "2629", Call: 3066, Parent: ""},
-	{Key: "2630", Call: 3069, Parent: ""},
-	{Key: "2631", Call: 3070, Parent: ""},
-	{Key: "2632", Call: 2893, Parent: "2631"},
+	{Key: "2627", Call: 4035, Parent: "2626"},
+	{Key: "2628", Call: 3060, Parent: ""},
+	{Key: "2629", Call: 3067, Parent: ""},
+	{Key: "2630", Call: 3070, Parent: ""},
+	{Key: "2631", Call: 3071, Parent: ""},
+	{Key: "2632", Call: 2894, Parent: "2631"},
 	{Key: "2633", Call: 1746, Parent: "2632"},
 	{Key: "2634", Call: 1750, Parent: "2633"},
 	{Key: "2635", Call: 1753, Parent: "2633"},
 	{Key: "2636", Call: 1748, Parent: "2632"},
 	{Key: "2637", Call: 1750, Parent: "2636"},
 	{Key: "2638", Call: 1753, Parent: "2636"},
-	{Key: "2639", Call: 2894, Parent: "2631"},
+	{Key: "2639", Call: 2895, Parent: "2631"},
 	{Key: "2640", Call: 1792, Parent: "2639"},
-	{Key: "2641", Call: 4034, Parent: "2640"},
-	{Key: "2642", Call: 3074, Parent: ""},
-	{Key: "2643", Call: 3030, Parent: ""},
-	{Key: "2644", Call: 2972, Parent: "2643"},
+	{Key: "2641", Call: 4035, Parent: "2640"},
+	{Key: "2642", Call: 3075, Parent: ""},
+	{Key: "2643", Call: 3031, Parent: ""},
+	{Key: "2644", Call: 2973, Parent: "2643"},
 	{Key: "2645", Call: 1801, Parent: ""},
 	{Key: "2646", Call: 1802, Parent: ""},
 	{Key: "2647", Call: 1930, Parent: ""},
-	{Key: "2648", Call: 2979, Parent: ""},
+	{Key: "2648", Call: 2980, Parent: ""},
 	{Key: "2649", Call: 1792, Parent: "2648"},
-	{Key: "2650", Call: 4034, Parent: "2649"},
-	{Key: "2651", Call: 2839, Parent: ""},
+	{Key: "2650", Call: 4035, Parent: "2649"},
+	{Key: "2651", Call: 2840, Parent: ""},
 	{Key: "2652", Call: 1758, Parent: "2651"},
 	{Key: "2653", Call: 1759, Parent: "2652"},
-	{Key: "2654", Call: 2842, Parent: ""},
-	{Key: "2655", Call: 2893, Parent: "2654"},
+	{Key: "2654", Call: 2843, Parent: ""},
+	{Key: "2655", Call: 2894, Parent: "2654"},
 	{Key: "2656", Call: 1746, Parent: "2655"},
 	{Key: "2657", Call: 1750, Parent: "2656"},
 	{Key: "2658", Call: 1753, Parent: "2656"},
 	{Key: "2659", Call: 1748, Parent: "2655"},
 	{Key: "2660", Call: 1750, Parent: "2659"},
 	{Key: "2661", Call: 1753, Parent: "2659"},
-	{Key: "2662", Call: 2894, Parent: "2654"},
+	{Key: "2662", Call: 2895, Parent: "2654"},
 	{Key: "2663", Call: 1792, Parent: "2662"},
-	{Key: "2664", Call: 4034, Parent: "2663"},
-	{Key: "2665", Call: 2843, Parent: ""},
-	{Key: "2666", Call: 4034, Parent: "2665"},
-	{Key: "2667", Call: 2952, Parent: ""},
+	{Key: "2664", Call: 4035, Parent: "2663"},
+	{Key: "2665", Call: 2844, Parent: ""},
+	{Key: "2666", Call: 4035, Parent: "2665"},
+	{Key: "2667", Call: 2953, Parent: ""},
 	{Key: "2668", Call: 1730, Parent: "2667"},
 	{Key: "2669", Call: 1746, Parent: "2668"},
 	{Key: "2670", Call: 1750, Parent: "2669"},
@@ -4829,9 +4829,9 @@ var ergoInlines = [...]struct {
 	{Key: "2676", Call: 1750, Parent: "2675"},
 	{Key: "2677", Call: 1756, Parent: "2676"},
 	{Key: "2678", Call: 1753, Parent: "2675"},
-	{Key: "2679", Call: 2955, Parent: ""},
-	{Key: "2680", Call: 2972, Parent: "2679"},
-	{Key: "2681", Call: 3207, Parent: ""},
+	{Key: "2679", Call: 2956, Parent: ""},
+	{Key: "2680", Call: 2973, Parent: "2679"},
+	{Key: "2681", Call: 3208, Parent: ""},
 	{Key: "2682", Call: 1730, Parent: "2681"},
 	{Key: "2683", Call: 1746, Parent: "2682"},
 	{Key: "2684", Call: 1750, Parent: "2683"},
@@ -4843,8 +4843,8 @@ var ergoInlines = [...]struct {
 	{Key: "2690", Call: 1750, Parent: "2689"},
 	{Key: "2691", Call: 1756, Parent: "2690"},
 	{Key: "2692", Call: 1753, Parent: "2689"},
-	{Key: "2693", Call: 3219, Parent: ""},
-	{Key: "2694", Call: 3225, Parent: ""},
+	{Key: "2693", Call: 3220, Parent: ""},
+	{Key: "2694", Call: 3226, Parent: ""},
 	{Key: "2695", Call: 1746, Parent: "2694"},
 	{Key: "2696", Call: 1750, Parent: "2695"},
 	{Key: "2697", Call: 1756, Parent: "2696"},
@@ -4853,8 +4853,8 @@ var ergoInlines = [...]struct {
 	{Key: "2700", Call: 1750, Parent: "2699"},
 	{Key: "2701", Call: 1756, Parent: "2700"},
 	{Key: "2702", Call: 1753, Parent: "2699"},
-	{Key: "2703", Call: 3226, Parent: ""},
-	{Key: "2704", Call: 3229, Parent: ""},
+	{Key: "2703", Call: 3227, Parent: ""},
+	{Key: "2704", Call: 3230, Parent: ""},
 	{Key: "2705", Call: 1746, Parent: "2704"},
 	{Key: "2706", Call: 1750, Parent: "2705"},
 	{Key: "2707", Call: 1756, Parent: "2706"},
@@ -4863,12 +4863,12 @@ var ergoInlines = [...]struct {
 	{Key: "2710", Call: 1750, Parent: "2709"},
 	{Key: "2711", Call: 1756, Parent: "2710"},
 	{Key: "2712", Call: 1753, Parent: "2709"},
-	{Key: "2713", Call: 3231, Parent: ""},
-	{Key: "2714", Call: 4182, Parent: "2713"},
-	{Key: "2715", Call: 4238, Parent: ""},
-	{Key: "2716", Call: 4239, Parent: ""},
-	{Key: "2717", Call: 4240, Parent: ""},
-	{Key: "2718", Call: 4241, Parent: ""},
+	{Key: "2713", Call: 3232, Parent: ""},
+	{Key: "2714", Call: 4183, Parent: "2713"},
+	{Key: "2715", Call: 4239, Parent: ""},
+	{Key: "2716", Call: 4240, Parent: ""},
+	{Key: "2717", Call: 4241, Parent: ""},
+	{Key: "2718", Call: 4242, Parent: ""},
 	{Key: "2719", Call: 981, Parent: ""},
 	{Key: "2720", Call: 284, Parent: "2719"},
 	{Key: "2721", Call: 982, Parent: ""},
@@ -5042,10 +5042,10 @@ var ergoInlines = [...]struct {
 	{Key: "2889", Call: 1307, Parent: "2888"},
 	{Key: "2890", Call: 270, Parent: "2889"},
 	{Key: "2891", Call: 1128, Parent: ""},
-	{Key: "2892", Call: 3357, Parent: "2891"},
-	{Key: "2893", Call: 4052, Parent: "2892"},
-	{Key: "2894", Call: 4053, Parent: "2892"},
-	{Key: "2895", Call: 3359, Parent: "2891"},
+	{Key: "2892", Call: 3358, Parent: "2891"},
+	{Key: "2893", Call: 4053, Parent: "2892"},
+	{Key: "2894", Call: 4054, Parent: "2892"},
+	{Key: "2895", Call: 3360, Parent: "2891"},
 	{Key: "2896", Call: 1129, Parent: ""},
 	{Key: "2897", Call: 1308, Parent: "2896"},
 	{Key: "2898", Call: 1311, Parent: "2897"},
@@ -5120,16 +5120,16 @@ var ergoInlines = [...]struct {
 	{Key: "2967", Call: 2001, Parent: ""},
 	{Key: "2968", Call: 2002, Parent: ""},
 	{Key: "2969", Call: 2004, Parent: ""},
-	{Key: "2970", Call: 4190, Parent: "2969"},
-	{Key: "2971", Call: 4191, Parent: "2969"},
-	{Key: "2972", Call: 4192, Parent: "2969"},
-	{Key: "2973", Call: 4193, Parent: "2969"},
-	{Key: "2974", Call: 4194, Parent: "2969"},
-	{Key: "2975", Call: 4195, Parent: "2969"},
-	{Key: "2976", Call: 4196, Parent: "2969"},
-	{Key: "2977", Call: 4197, Parent: "2969"},
-	{Key: "2978", Call: 4198, Parent: "2969"},
-	{Key: "2979", Call: 4199, Parent: "2969"},
+	{Key: "2970", Call: 4191, Parent: "2969"},
+	{Key: "2971", Call: 4192, Parent: "2969"},
+	{Key: "2972", Call: 4193, Parent: "2969"},
+	{Key: "2973", Call: 4194, Parent: "2969"},
+	{Key: "2974", Call: 4195, Parent: "2969"},
+	{Key: "2975", Call: 4196, Parent: "2969"},
+	{Key: "2976", Call: 4197, Parent: "2969"},
+	{Key: "2977", Call: 4198, Parent: "2969"},
+	{Key: "2978", Call: 4199, Parent: "2969"},
+	{Key: "2979", Call: 4200, Parent: "2969"},
 	{Key: "2980", Call: 2006, Parent: ""},
 	{Key: "2981", Call: 2008, Parent: ""},
 	{Key: "2982", Call: 2013, Parent: ""},
@@ -5142,17 +5142,17 @@ var ergoInlines = [...]struct {
 	{Key: "2989", Call: 1750, Parent: "2988"},
 	{Key: "2990", Call: 1756, Parent: "2989"},
 	{Key: "2991", Call: 1753, Parent: "2988"},
-	{Key: "2992", Call: 4173, Parent: ""},
-	{Key: "2993", Call: 4174, Parent: ""},
-	{Key: "2994", Call: 4176, Parent: ""},
-	{Key: "2995", Call: 4177, Parent: ""},
-	{Key: "2996", Call: 4178, Parent: ""},
-	{Key: "2997", Call: 4180, Parent: ""},
-	{Key: "2998", Call: 4208, Parent: ""},
-	{Key: "2999", Call: 4209, Parent: ""},
-	{Key: "3000", Call: 4210, Parent: ""},
+	{Key: "2992", Call: 4174, Parent: ""},
+	{Key: "2993", Call: 4175, Parent: ""},
+	{Key: "2994", Call: 4177, Parent: ""},
+	{Key: "2995", Call: 4178, Parent: ""},
+	{Key: "2996", Call: 4179, Parent: ""},
+	{Key: "2997", Call: 4181, Parent: ""},
+	{Key: "2998", Call: 4209, Parent: ""},
+	{Key: "2999", Call: 4210, Parent: ""},
+	{Key: "3000", Call: 4211, Parent: ""},
 	{Key: "3001", Call: 1759, Parent: ""},
-	{Key: "3002", Call: 3150, Parent: ""},
+	{Key: "3002", Call: 3151, Parent: ""},
 	{Key: "3003", Call: 1730, Parent: "3002"},
 	{Key: "3004", Call: 1746, Parent: "3003"},
 	{Key: "3005", Call: 1750, Parent: "3004"},
@@ -5164,7 +5164,7 @@ var ergoInlines = [...]struct {
 	{Key: "3011", Call: 1750, Parent: "3010"},
 	{Key: "3012", Call: 1756, Parent: "3011"},
 	{Key: "3013", Call: 1753, Parent: "3010"},
-	{Key: "3014", Call: 3151, Parent: ""},
+	{Key: "3014", Call: 3152, Parent: ""},
 	{Key: "3015", Call: 1746, Parent: "3014"},
 	{Key: "3016", Call: 1750, Parent: "3015"},
 	{Key: "3017", Call: 1756, Parent: "3016"},
@@ -5174,16 +5174,16 @@ var ergoInlines = [...]struct {
 	{Key: "3021", Call: 1756, Parent: "3020"},
 	{Key: "3022", Call: 1753, Parent: "3019"},
 	{Key: "3023", Call: 2072, Parent: ""},
-	{Key: "3024", Call: 2377, Parent: ""},
+	{Key: "3024", Call: 2378, Parent: ""},
 	{Key: "3025", Call: 1758, Parent: "3024"},
 	{Key: "3026", Call: 1759, Parent: "3025"},
-	{Key: "3027", Call: 2380, Parent: ""},
+	{Key: "3027", Call: 2381, Parent: ""},
 	{Key: "3028", Call: 1750, Parent: "3027"},
 	{Key: "3029", Call: 1756, Parent: "3028"},
 	{Key: "3030", Call: 1753, Parent: "3027"},
-	{Key: "3031", Call: 2382, Parent: ""},
-	{Key: "3032", Call: 4034, Parent: "3031"},
-	{Key: "3033", Call: 2404, Parent: ""},
+	{Key: "3031", Call: 2383, Parent: ""},
+	{Key: "3032", Call: 4035, Parent: "3031"},
+	{Key: "3033", Call: 2405, Parent: ""},
 	{Key: "3034", Call: 1730, Parent: "3033"},
 	{Key: "3035", Call: 1746, Parent: "3034"},
 	{Key: "3036", Call: 1750, Parent: "3035"},
@@ -5195,7 +5195,7 @@ var ergoInlines = [...]struct {
 	{Key: "3042", Call: 1750, Parent: "3041"},
 	{Key: "3043", Call: 1756, Parent: "3042"},
 	{Key: "3044", Call: 1753, Parent: "3041"},
-	{Key: "3045", Call: 2405, Parent: ""},
+	{Key: "3045", Call: 2406, Parent: ""},
 	{Key: "3046", Call: 1746, Parent: "3045"},
 	{Key: "3047", Call: 1750, Parent: "3046"},
 	{Key: "3048", Call: 1756, Parent: "3047"},
@@ -5204,7 +5204,7 @@ var ergoInlines = [...]struct {
 	{Key: "3051", Call: 1750, Parent: "3050"},
 	{Key: "3052", Call: 1756, Parent: "3051"},
 	{Key: "3053", Call: 1753, Parent: "3050"},
-	{Key: "3054", Call: 2411, Parent: ""},
+	{Key: "3054", Call: 2412, Parent: ""},
 	{Key: "3055", Call: 1730, Parent: "3054"},
 	{Key: "3056", Call: 1746, Parent: "3055"},
 	{Key: "3057", Call: 1750, Parent: "3056"},
@@ -5216,8 +5216,8 @@ var ergoInlines = [...]struct {
 	{Key: "3063", Call: 1750, Parent: "3062"},
 	{Key: "3064", Call: 1756, Parent: "3063"},
 	{Key: "3065", Call: 1753, Parent: "3062"},
-	{Key: "3066", Call: 2413, Parent: ""},
-	{Key: "3067", Call: 2415, Parent: ""},
+	{Key: "3066", Call: 2414, Parent: ""},
+	{Key: "3067", Call: 2416, Parent: ""},
 	{Key: "3068", Call: 1746, Parent: "3067"},
 	{Key: "3069", Call: 1750, Parent: "3068"},
 	{Key: "3070", Call: 1756, Parent: "3069"},
@@ -5226,49 +5226,49 @@ var ergoInlines = [...]struct {
 	{Key: "3073", Call: 1750, Parent: "3072"},
 	{Key: "3074", Call: 1756, Parent: "3073"},
 	{Key: "3075", Call: 1753, Parent: "3072"},
-	{Key: "3076", Call: 2417, Parent: ""},
-	{Key: "3077", Call: 4235, Parent: "3076"},
-	{Key: "3078", Call: 4236, Parent: "3076"},
-	{Key: "3079", Call: 3195, Parent: ""},
-	{Key: "3080", Call: 4034, Parent: "3079"},
-	{Key: "3081", Call: 4217, Parent: ""},
-	{Key: "3082", Call: 4218, Parent: ""},
-	{Key: "3083", Call: 2965, Parent: ""},
-	{Key: "3084", Call: 2967, Parent: ""},
-	{Key: "3085", Call: 2970, Parent: ""},
-	{Key: "3086", Call: 2972, Parent: ""},
-	{Key: "3087", Call: 2734, Parent: ""},
+	{Key: "3076", Call: 2418, Parent: ""},
+	{Key: "3077", Call: 4236, Parent: "3076"},
+	{Key: "3078", Call: 4237, Parent: "3076"},
+	{Key: "3079", Call: 3196, Parent: ""},
+	{Key: "3080", Call: 4035, Parent: "3079"},
+	{Key: "3081", Call: 4218, Parent: ""},
+	{Key: "3082", Call: 4219, Parent: ""},
+	{Key: "3083", Call: 2966, Parent: ""},
+	{Key: "3084", Call: 2968, Parent: ""},
+	{Key: "3085", Call: 2971, Parent: ""},
+	{Key: "3086", Call: 2973, Parent: ""},
+	{Key: "3087", Call: 2735, Parent: ""},
 	{Key: "3088", Call: 1758, Parent: "3087"},
 	{Key: "3089", Call: 1759, Parent: "3088"},
 	{Key: "3090", Call: 1800, Parent: ""},
 	{Key: "3091", Call: 1770, Parent: "3090"},
-	{Key: "3092", Call: 2846, Parent: ""},
-	{Key: "3093", Call: 2898, Parent: "3092"},
+	{Key: "3092", Call: 2847, Parent: ""},
+	{Key: "3093", Call: 2899, Parent: "3092"},
 	{Key: "3094", Call: 1792, Parent: "3093"},
-	{Key: "3095", Call: 4034, Parent: "3094"},
-	{Key: "3096", Call: 2900, Parent: "3092"},
-	{Key: "3097", Call: 2893, Parent: "3096"},
+	{Key: "3095", Call: 4035, Parent: "3094"},
+	{Key: "3096", Call: 2901, Parent: "3092"},
+	{Key: "3097", Call: 2894, Parent: "3096"},
 	{Key: "3098", Call: 1746, Parent: "3097"},
 	{Key: "3099", Call: 1748, Parent: "3097"},
-	{Key: "3100", Call: 2894, Parent: "3096"},
+	{Key: "3100", Call: 2895, Parent: "3096"},
 	{Key: "3101", Call: 1792, Parent: "3100"},
-	{Key: "3102", Call: 2902, Parent: "3092"},
-	{Key: "3103", Call: 2893, Parent: "3102"},
+	{Key: "3102", Call: 2903, Parent: "3092"},
+	{Key: "3103", Call: 2894, Parent: "3102"},
 	{Key: "3104", Call: 1746, Parent: "3103"},
 	{Key: "3105", Call: 1748, Parent: "3103"},
-	{Key: "3106", Call: 2894, Parent: "3102"},
+	{Key: "3106", Call: 2895, Parent: "3102"},
 	{Key: "3107", Call: 1792, Parent: "3106"},
-	{Key: "3108", Call: 2903, Parent: "3092"},
-	{Key: "3109", Call: 4034, Parent: "3108"},
-	{Key: "3110", Call: 2849, Parent: ""},
-	{Key: "3111", Call: 2513, Parent: "3110"},
-	{Key: "3112", Call: 4034, Parent: "3111"},
-	{Key: "3113", Call: 2852, Parent: ""},
-	{Key: "3114", Call: 2513, Parent: "3113"},
-	{Key: "3115", Call: 4034, Parent: "3114"},
-	{Key: "3116", Call: 2853, Parent: ""},
-	{Key: "3117", Call: 4034, Parent: "3116"},
-	{Key: "3118", Call: 2857, Parent: ""},
+	{Key: "3108", Call: 2904, Parent: "3092"},
+	{Key: "3109", Call: 4035, Parent: "3108"},
+	{Key: "3110", Call: 2850, Parent: ""},
+	{Key: "3111", Call: 2514, Parent: "3110"},
+	{Key: "3112", Call: 4035, Parent: "3111"},
+	{Key: "3113", Call: 2853, Parent: ""},
+	{Key: "3114", Call: 2514, Parent: "3113"},
+	{Key: "3115", Call: 4035, Parent: "3114"},
+	{Key: "3116", Call: 2854, Parent: ""},
+	{Key: "3117", Call: 4035, Parent: "3116"},
+	{Key: "3118", Call: 2858, Parent: ""},
 	{Key: "3119", Call: 1730, Parent: "3118"},
 	{Key: "3120", Call: 1746, Parent: "3119"},
 	{Key: "3121", Call: 1750, Parent: "3120"},
@@ -5280,13 +5280,13 @@ var ergoInlines = [...]struct {
 	{Key: "3127", Call: 1750, Parent: "3126"},
 	{Key: "3128", Call: 1756, Parent: "3127"},
 	{Key: "3129", Call: 1753, Parent: "3126"},
-	{Key: "3130", Call: 2858, Parent: ""},
-	{Key: "3131", Call: 4034, Parent: "3130"},
-	{Key: "3132", Call: 2859, Parent: ""},
+	{Key: "3130", Call: 2859, Parent: ""},
+	{Key: "3131", Call: 4035, Parent: "3130"},
+	{Key: "3132", Call: 2860, Parent: ""},
 	{Key: "3133", Call: 2072, Parent: "3132"},
-	{Key: "3134", Call: 2860, Parent: ""},
-	{Key: "3135", Call: 2862, Parent: ""},
-	{Key: "3136", Call: 2864, Parent: ""},
+	{Key: "3134", Call: 2861, Parent: ""},
+	{Key: "3135", Call: 2863, Parent: ""},
+	{Key: "3136", Call: 2865, Parent: ""},
 	{Key: "3137", Call: 1730, Parent: "3136"},
 	{Key: "3138", Call: 1746, Parent: "3137"},
 	{Key: "3139", Call: 1750, Parent: "3138"},
@@ -5298,14 +5298,14 @@ var ergoInlines = [...]struct {
 	{Key: "3145", Call: 1750, Parent: "3144"},
 	{Key: "3146", Call: 1756, Parent: "3145"},
 	{Key: "3147", Call: 1753, Parent: "3144"},
-	{Key: "3148", Call: 2865, Parent: ""},
-	{Key: "3149", Call: 4259, Parent: "3148"},
-	{Key: "3150", Call: 4260, Parent: "3148"},
-	{Key: "3151", Call: 2868, Parent: ""},
+	{Key: "3148", Call: 2866, Parent: ""},
+	{Key: "3149", Call: 4260, Parent: "3148"},
+	{Key: "3150", Call: 4261, Parent: "3148"},
+	{Key: "3151", Call: 2869, Parent: ""},
 	{Key: "3152", Call: 1750, Parent: "3151"},
 	{Key: "3153", Call: 1756, Parent: "3152"},
 	{Key: "3154", Call: 1753, Parent: "3151"},
-	{Key: "3155", Call: 2869, Parent: ""},
+	{Key: "3155", Call: 2870, Parent: ""},
 	{Key: "3156", Call: 1746, Parent: "3155"},
 	{Key: "3157", Call: 1750, Parent: "3156"},
 	{Key: "3158", Call: 1756, Parent: "3157"},
@@ -5314,10 +5314,10 @@ var ergoInlines = [...]struct {
 	{Key: "3161", Call: 1750, Parent: "3160"},
 	{Key: "3162", Call: 1756, Parent: "3161"},
 	{Key: "3163", Call: 1753, Parent: "3160"},
-	{Key: "3164", Call: 3175, Parent: ""},
+	{Key: "3164", Call: 3176, Parent: ""},
 	{Key: "3165", Call: 1758, Parent: "3164"},
 	{Key: "3166", Call: 1759, Parent: "3165"},
-	{Key: "3167", Call: 3178, Parent: ""},
+	{Key: "3167", Call: 3179, Parent: ""},
 	{Key: "3168", Call: 1746, Parent: "3167"},
 	{Key: "3169", Call: 1750, Parent: "3168"},
 	{Key: "3170", Call: 1756, Parent: "3169"},
@@ -5326,34 +5326,34 @@ var ergoInlines = [...]struct {
 	{Key: "3173", Call: 1750, Parent: "3172"},
 	{Key: "3174", Call: 1756, Parent: "3173"},
 	{Key: "3175", Call: 1753, Parent: "3172"},
-	{Key: "3176", Call: 3179, Parent: ""},
+	{Key: "3176", Call: 3180, Parent: ""},
 	{Key: "3177", Call: 1750, Parent: "3176"},
 	{Key: "3178", Call: 1756, Parent: "3177"},
 	{Key: "3179", Call: 1753, Parent: "3176"},
-	{Key: "3180", Call: 3181, Parent: ""},
-	{Key: "3181", Call: 2898, Parent: "3180"},
+	{Key: "3180", Call: 3182, Parent: ""},
+	{Key: "3181", Call: 2899, Parent: "3180"},
 	{Key: "3182", Call: 1792, Parent: "3181"},
-	{Key: "3183", Call: 4034, Parent: "3182"},
-	{Key: "3184", Call: 2900, Parent: "3180"},
-	{Key: "3185", Call: 2893, Parent: "3184"},
+	{Key: "3183", Call: 4035, Parent: "3182"},
+	{Key: "3184", Call: 2901, Parent: "3180"},
+	{Key: "3185", Call: 2894, Parent: "3184"},
 	{Key: "3186", Call: 1746, Parent: "3185"},
 	{Key: "3187", Call: 1748, Parent: "3185"},
-	{Key: "3188", Call: 2894, Parent: "3184"},
+	{Key: "3188", Call: 2895, Parent: "3184"},
 	{Key: "3189", Call: 1792, Parent: "3188"},
-	{Key: "3190", Call: 2902, Parent: "3180"},
-	{Key: "3191", Call: 2893, Parent: "3190"},
+	{Key: "3190", Call: 2903, Parent: "3180"},
+	{Key: "3191", Call: 2894, Parent: "3190"},
 	{Key: "3192", Call: 1746, Parent: "3191"},
 	{Key: "3193", Call: 1748, Parent: "3191"},
-	{Key: "3194", Call: 2894, Parent: "3190"},
+	{Key: "3194", Call: 2895, Parent: "3190"},
 	{Key: "3195", Call: 1792, Parent: "3194"},
-	{Key: "3196", Call: 2903, Parent: "3180"},
-	{Key: "3197", Call: 4034, Parent: "3196"},
-	{Key: "3198", Call: 4184, Parent: ""},
-	{Key: "3199", Call: 4185, Parent: ""},
-	{Key: "3200", Call: 4186, Parent: ""},
-	{Key: "3201", Call: 4187, Parent: ""},
-	{Key: "3202", Call: 4188, Parent: ""},
-	{Key: "3203", Call: 4182, Parent: ""},
+	{Key: "3196", Call: 2904, Parent: "3180"},
+	{Key: "3197", Call: 4035, Parent: "3196"},
+	{Key: "3198", Call: 4185, Parent: ""},
+	{Key: "3199", Call: 4186, Parent: ""},
+	{Key: "3200", Call: 4187, Parent: ""},
+	{Key: "3201", Call: 4188, Parent: ""},
+	{Key: "3202", Call: 4189, Parent: ""},
+	{Key: "3203", Call: 4183, Parent: ""},
 	{Key: "3204", Call: 1240, Parent: ""},
 	{Key: "3205", Call: 1223, Parent: ""},
 	{Key: "3206", Call: 1231, Parent: ""},
@@ -5470,7 +5470,7 @@ var ergoInlines = [...]struct {
 	{Key: "3317", Call: 1319, Parent: "3310"},
 	{Key: "3318", Call: 1307, Parent: "3317"},
 	{Key: "3319", Call: 270, Parent: "3318"},
-	{Key: "3320", Call: 4029, Parent: ""},
+	{Key: "3320", Call: 4030, Parent: ""},
 	{Key: "3321", Call: 950, Parent: ""},
 	{Key: "3322", Call: 951, Parent: ""},
 	{Key: "3323", Call: 970, Parent: ""},
@@ -5512,83 +5512,83 @@ var ergoInlines = [...]struct {
 	{Key: "3359", Call: 1753, Parent: "3356"},
 	{Key: "3360", Call: 2051, Parent: ""},
 	{Key: "3361", Call: 2054, Parent: ""},
-	{Key: "3362", Call: 4259, Parent: "3361"},
-	{Key: "3363", Call: 4260, Parent: "3361"},
+	{Key: "3362", Call: 4260, Parent: "3361"},
+	{Key: "3363", Call: 4261, Parent: "3361"},
 	{Key: "3364", Call: 2057, Parent: ""},
-	{Key: "3365", Call: 4190, Parent: "3364"},
-	{Key: "3366", Call: 4191, Parent: "3364"},
-	{Key: "3367", Call: 4192, Parent: "3364"},
-	{Key: "3368", Call: 4193, Parent: "3364"},
-	{Key: "3369", Call: 4194, Parent: "3364"},
-	{Key: "3370", Call: 4195, Parent: "3364"},
-	{Key: "3371", Call: 4196, Parent: "3364"},
-	{Key: "3372", Call: 4197, Parent: "3364"},
-	{Key: "3373", Call: 4198, Parent: "3364"},
+	{Key: "3365", Call: 4191, Parent: "3364"},
+	{Key: "3366", Call: 4192, Parent: "3364"},
+	{Key: "3367", Call: 4193, Parent: "3364"},
+	{Key: "3368", Call: 4194, Parent: "3364"},
+	{Key: "3369", Call: 4195, Parent: "3364"},
+	{Key: "3370", Call: 4196, Parent: "3364"},
+	{Key: "3371", Call: 4197, Parent: "3364"},
+	{Key: "3372", Call: 4198, Parent: "3364"},
+	{Key: "3373", Call: 4199, Parent: "3364"},
 	{Key: "3374", Call: 2078, Parent: ""},
 	{Key: "3375", Call: 2084, Parent: ""},
 	{Key: "3376", Call: 2086, Parent: ""},
 	{Key: "3377", Call: 2087, Parent: ""},
 	{Key: "3378", Call: 2090, Parent: ""},
-	{Key: "3379", Call: 2513, Parent: "3378"},
-	{Key: "3380", Call: 4034, Parent: "3379"},
+	{Key: "3379", Call: 2514, Parent: "3378"},
+	{Key: "3380", Call: 4035, Parent: "3379"},
 	{Key: "3381", Call: 2093, Parent: ""},
 	{Key: "3382", Call: 1801, Parent: "3381"},
 	{Key: "3383", Call: 1802, Parent: "3381"},
 	{Key: "3384", Call: 2094, Parent: ""},
-	{Key: "3385", Call: 4190, Parent: "3384"},
-	{Key: "3386", Call: 4191, Parent: "3384"},
-	{Key: "3387", Call: 4192, Parent: "3384"},
-	{Key: "3388", Call: 4193, Parent: "3384"},
-	{Key: "3389", Call: 4194, Parent: "3384"},
-	{Key: "3390", Call: 4195, Parent: "3384"},
-	{Key: "3391", Call: 4196, Parent: "3384"},
-	{Key: "3392", Call: 4197, Parent: "3384"},
-	{Key: "3393", Call: 4198, Parent: "3384"},
-	{Key: "3394", Call: 4199, Parent: "3384"},
-	{Key: "3395", Call: 4200, Parent: "3384"},
-	{Key: "3396", Call: 2387, Parent: ""},
+	{Key: "3385", Call: 4191, Parent: "3384"},
+	{Key: "3386", Call: 4192, Parent: "3384"},
+	{Key: "3387", Call: 4193, Parent: "3384"},
+	{Key: "3388", Call: 4194, Parent: "3384"},
+	{Key: "3389", Call: 4195, Parent: "3384"},
+	{Key: "3390", Call: 4196, Parent: "3384"},
+	{Key: "3391", Call: 4197, Parent: "3384"},
+	{Key: "3392", Call: 4198, Parent: "3384"},
+	{Key: "3393", Call: 4199, Parent: "3384"},
+	{Key: "3394", Call: 4200, Parent: "3384"},
+	{Key: "3395", Call: 4201, Parent: "3384"},
+	{Key: "3396", Call: 2388, Parent: ""},
 	{Key: "3397", Call: 1759, Parent: "3396"},
-	{Key: "3398", Call: 2388, Parent: ""},
+	{Key: "3398", Call: 2389, Parent: ""},
 	{Key: "3399", Call: 1758, Parent: "3398"},
 	{Key: "3400", Call: 1759, Parent: "3399"},
-	{Key: "3401", Call: 2395, Parent: ""},
-	{Key: "3402", Call: 4034, Parent: "3401"},
-	{Key: "3403", Call: 2660, Parent: ""},
-	{Key: "3404", Call: 2663, Parent: ""},
+	{Key: "3401", Call: 2396, Parent: ""},
+	{Key: "3402", Call: 4035, Parent: "3401"},
+	{Key: "3403", Call: 2661, Parent: ""},
+	{Key: "3404", Call: 2664, Parent: ""},
 	{Key: "3405", Call: 1750, Parent: "3404"},
 	{Key: "3406", Call: 1756, Parent: "3405"},
 	{Key: "3407", Call: 1753, Parent: "3404"},
-	{Key: "3408", Call: 2665, Parent: ""},
+	{Key: "3408", Call: 2666, Parent: ""},
 	{Key: "3409", Call: 1750, Parent: "3408"},
 	{Key: "3410", Call: 1756, Parent: "3409"},
 	{Key: "3411", Call: 1753, Parent: "3408"},
-	{Key: "3412", Call: 2668, Parent: ""},
-	{Key: "3413", Call: 2669, Parent: ""},
-	{Key: "3414", Call: 4205, Parent: ""},
-	{Key: "3415", Call: 4206, Parent: ""},
-	{Key: "3416", Call: 4235, Parent: ""},
-	{Key: "3417", Call: 4236, Parent: ""},
-	{Key: "3418", Call: 2740, Parent: ""},
-	{Key: "3419", Call: 4034, Parent: "3418"},
-	{Key: "3420", Call: 2744, Parent: ""},
-	{Key: "3421", Call: 4034, Parent: "3420"},
-	{Key: "3422", Call: 2745, Parent: ""},
-	{Key: "3423", Call: 4034, Parent: "3422"},
-	{Key: "3424", Call: 2747, Parent: ""},
+	{Key: "3412", Call: 2669, Parent: ""},
+	{Key: "3413", Call: 2670, Parent: ""},
+	{Key: "3414", Call: 4206, Parent: ""},
+	{Key: "3415", Call: 4207, Parent: ""},
+	{Key: "3416", Call: 4236, Parent: ""},
+	{Key: "3417", Call: 4237, Parent: ""},
+	{Key: "3418", Call: 2741, Parent: ""},
+	{Key: "3419", Call: 4035, Parent: "3418"},
+	{Key: "3420", Call: 2745, Parent: ""},
+	{Key: "3421", Call: 4035, Parent: "3420"},
+	{Key: "3422", Call: 2746, Parent: ""},
+	{Key: "3423", Call: 4035, Parent: "3422"},
+	{Key: "3424", Call: 2748, Parent: ""},
 	{Key: "3425", Call: 1756, Parent: "3424"},
-	{Key: "3426", Call: 2752, Parent: ""},
-	{Key: "3427", Call: 4034, Parent: "3426"},
-	{Key: "3428", Call: 2756, Parent: ""},
+	{Key: "3426", Call: 2753, Parent: ""},
+	{Key: "3427", Call: 4035, Parent: "3426"},
+	{Key: "3428", Call: 2757, Parent: ""},
 	{Key: "3429", Call: 1750, Parent: "3428"},
 	{Key: "3430", Call: 1756, Parent: "3429"},
 	{Key: "3431", Call: 1753, Parent: "3428"},
-	{Key: "3432", Call: 2761, Parent: ""},
+	{Key: "3432", Call: 2762, Parent: ""},
 	{Key: "3433", Call: 1756, Parent: "3432"},
-	{Key: "3434", Call: 2765, Parent: ""},
+	{Key: "3434", Call: 2766, Parent: ""},
 	{Key: "3435", Call: 1750, Parent: "3434"},
 	{Key: "3436", Call: 1756, Parent: "3435"},
 	{Key: "3437", Call: 1753, Parent: "3434"},
-	{Key: "3438", Call: 2769, Parent: ""},
+	{Key: "3438", Call: 2770, Parent: ""},
 	{Key: "3439", Call: 1746, Parent: "3438"},
 	{Key: "3440", Call: 1750, Parent: "3439"},
 	{Key: "3441", Call: 1756, Parent: "3440"},
@@ -5597,11 +5597,11 @@ var ergoInlines = [...]struct {
 	{Key: "3444", Call: 1750, Parent: "3443"},
 	{Key: "3445", Call: 1756, Parent: "3444"},
 	{Key: "3446", Call: 1753, Parent: "3443"},
-	{Key: "3447", Call: 2774, Parent: ""},
-	{Key: "3448", Call: 4034, Parent: "3447"},
-	{Key: "3449", Call: 2775, Parent: ""},
-	{Key: "3450", Call: 4034, Parent: "3449"},
-	{Key: "3451", Call: 2870, Parent: ""},
+	{Key: "3447", Call: 2775, Parent: ""},
+	{Key: "3448", Call: 4035, Parent: "3447"},
+	{Key: "3449", Call: 2776, Parent: ""},
+	{Key: "3450", Call: 4035, Parent: "3449"},
+	{Key: "3451", Call: 2871, Parent: ""},
 	{Key: "3452", Call: 1730, Parent: "3451"},
 	{Key: "3453", Call: 1746, Parent: "3452"},
 	{Key: "3454", Call: 1750, Parent: "3453"},
@@ -5613,18 +5613,18 @@ var ergoInlines = [...]struct {
 	{Key: "3460", Call: 1750, Parent: "3459"},
 	{Key: "3461", Call: 1756, Parent: "3460"},
 	{Key: "3462", Call: 1753, Parent: "3459"},
-	{Key: "3463", Call: 2873, Parent: ""},
-	{Key: "3464", Call: 2893, Parent: "3463"},
+	{Key: "3463", Call: 2874, Parent: ""},
+	{Key: "3464", Call: 2894, Parent: "3463"},
 	{Key: "3465", Call: 1746, Parent: "3464"},
 	{Key: "3466", Call: 1750, Parent: "3465"},
 	{Key: "3467", Call: 1753, Parent: "3465"},
 	{Key: "3468", Call: 1748, Parent: "3464"},
 	{Key: "3469", Call: 1750, Parent: "3468"},
 	{Key: "3470", Call: 1753, Parent: "3468"},
-	{Key: "3471", Call: 2894, Parent: "3463"},
+	{Key: "3471", Call: 2895, Parent: "3463"},
 	{Key: "3472", Call: 1792, Parent: "3471"},
-	{Key: "3473", Call: 4034, Parent: "3472"},
-	{Key: "3474", Call: 2874, Parent: ""},
+	{Key: "3473", Call: 4035, Parent: "3472"},
+	{Key: "3474", Call: 2875, Parent: ""},
 	{Key: "3475", Call: 1730, Parent: "3474"},
 	{Key: "3476", Call: 1746, Parent: "3475"},
 	{Key: "3477", Call: 1750, Parent: "3476"},
@@ -5636,13 +5636,13 @@ var ergoInlines = [...]struct {
 	{Key: "3483", Call: 1750, Parent: "3482"},
 	{Key: "3484", Call: 1756, Parent: "3483"},
 	{Key: "3485", Call: 1753, Parent: "3482"},
-	{Key: "3486", Call: 2876, Parent: ""},
-	{Key: "3487", Call: 4034, Parent: "3486"},
-	{Key: "3488", Call: 2878, Parent: ""},
+	{Key: "3486", Call: 2877, Parent: ""},
+	{Key: "3487", Call: 4035, Parent: "3486"},
+	{Key: "3488", Call: 2879, Parent: ""},
 	{Key: "3489", Call: 1801, Parent: "3488"},
 	{Key: "3490", Call: 1802, Parent: "3488"},
-	{Key: "3491", Call: 2879, Parent: ""},
-	{Key: "3492", Call: 2881, Parent: ""},
+	{Key: "3491", Call: 2880, Parent: ""},
+	{Key: "3492", Call: 2882, Parent: ""},
 	{Key: "3493", Call: 1746, Parent: "3492"},
 	{Key: "3494", Call: 1750, Parent: "3493"},
 	{Key: "3495", Call: 1756, Parent: "3494"},
@@ -5651,19 +5651,19 @@ var ergoInlines = [...]struct {
 	{Key: "3498", Call: 1750, Parent: "3497"},
 	{Key: "3499", Call: 1756, Parent: "3498"},
 	{Key: "3500", Call: 1753, Parent: "3497"},
-	{Key: "3501", Call: 2883, Parent: ""},
-	{Key: "3502", Call: 4212, Parent: "3501"},
-	{Key: "3503", Call: 4213, Parent: "3501"},
-	{Key: "3504", Call: 4214, Parent: "3501"},
-	{Key: "3505", Call: 4215, Parent: "3501"},
-	{Key: "3506", Call: 2513, Parent: ""},
-	{Key: "3507", Call: 4034, Parent: "3506"},
-	{Key: "3508", Call: 2886, Parent: ""},
+	{Key: "3501", Call: 2884, Parent: ""},
+	{Key: "3502", Call: 4213, Parent: "3501"},
+	{Key: "3503", Call: 4214, Parent: "3501"},
+	{Key: "3504", Call: 4215, Parent: "3501"},
+	{Key: "3505", Call: 4216, Parent: "3501"},
+	{Key: "3506", Call: 2514, Parent: ""},
+	{Key: "3507", Call: 4035, Parent: "3506"},
+	{Key: "3508", Call: 2887, Parent: ""},
 	{Key: "3509", Call: 1750, Parent: "3508"},
 	{Key: "3510", Call: 1756, Parent: "3509"},
 	{Key: "3511", Call: 1753, Parent: "3508"},
-	{Key: "3512", Call: 2888, Parent: ""},
-	{Key: "3513", Call: 2890, Parent: ""},
+	{Key: "3512", Call: 2889, Parent: ""},
+	{Key: "3513", Call: 2891, Parent: ""},
 	{Key: "3514", Call: 1252, Parent: ""},
 	{Key: "3515", Call: 578, Parent: ""},
 	{Key: "3516", Call: 1308, Parent: "3515"},
@@ -5789,19 +5789,19 @@ var ergoInlines = [...]struct {
 	{Key: "3636", Call: 1306, Parent: "3635"},
 	{Key: "3637", Call: 1312, Parent: "3634"},
 	{Key: "3638", Call: 1307, Parent: "3637"},
-	{Key: "3639", Call: 2397, Parent: ""},
+	{Key: "3639", Call: 2398, Parent: ""},
 	{Key: "3640", Call: 1758, Parent: "3639"},
 	{Key: "3641", Call: 1759, Parent: "3640"},
-	{Key: "3642", Call: 2399, Parent: ""},
-	{Key: "3643", Call: 2372, Parent: "3642"},
-	{Key: "3644", Call: 2402, Parent: ""},
-	{Key: "3645", Call: 4034, Parent: "3644"},
-	{Key: "3646", Call: 2727, Parent: ""},
-	{Key: "3647", Call: 2731, Parent: ""},
-	{Key: "3648", Call: 4034, Parent: "3647"},
-	{Key: "3649", Call: 2733, Parent: ""},
-	{Key: "3650", Call: 4034, Parent: "3649"},
-	{Key: "3651", Call: 2616, Parent: ""},
+	{Key: "3642", Call: 2400, Parent: ""},
+	{Key: "3643", Call: 2373, Parent: "3642"},
+	{Key: "3644", Call: 2403, Parent: ""},
+	{Key: "3645", Call: 4035, Parent: "3644"},
+	{Key: "3646", Call: 2728, Parent: ""},
+	{Key: "3647", Call: 2732, Parent: ""},
+	{Key: "3648", Call: 4035, Parent: "3647"},
+	{Key: "3649", Call: 2734, Parent: ""},
+	{Key: "3650", Call: 4035, Parent: "3649"},
+	{Key: "3651", Call: 2617, Parent: ""},
 	{Key: "3652", Call: 1730, Parent: "3651"},
 	{Key: "3653", Call: 1746, Parent: "3652"},
 	{Key: "3654", Call: 1750, Parent: "3653"},
@@ -5813,12 +5813,12 @@ var ergoInlines = [...]struct {
 	{Key: "3660", Call: 1750, Parent: "3659"},
 	{Key: "3661", Call: 1756, Parent: "3660"},
 	{Key: "3662", Call: 1753, Parent: "3659"},
-	{Key: "3663", Call: 2617, Parent: ""},
+	{Key: "3663", Call: 2618, Parent: ""},
 	{Key: "3664", Call: 1756, Parent: "3663"},
-	{Key: "3665", Call: 2621, Parent: ""},
-	{Key: "3666", Call: 2613, Parent: "3665"},
+	{Key: "3665", Call: 2622, Parent: ""},
+	{Key: "3666", Call: 2614, Parent: "3665"},
 	{Key: "3667", Call: 1756, Parent: "3666"},
-	{Key: "3668", Call: 2622, Parent: ""},
+	{Key: "3668", Call: 2623, Parent: ""},
 	{Key: "3669", Call: 1746, Parent: "3668"},
 	{Key: "3670", Call: 1750, Parent: "3669"},
 	{Key: "3671", Call: 1756, Parent: "3670"},
@@ -5827,10 +5827,10 @@ var ergoInlines = [...]struct {
 	{Key: "3674", Call: 1750, Parent: "3673"},
 	{Key: "3675", Call: 1756, Parent: "3674"},
 	{Key: "3676", Call: 1753, Parent: "3673"},
-	{Key: "3677", Call: 2626, Parent: ""},
+	{Key: "3677", Call: 2627, Parent: ""},
 	{Key: "3678", Call: 1758, Parent: "3677"},
 	{Key: "3679", Call: 1759, Parent: "3678"},
-	{Key: "3680", Call: 2632, Parent: ""},
+	{Key: "3680", Call: 2633, Parent: ""},
 	{Key: "3681", Call: 1746, Parent: "3680"},
 	{Key: "3682", Call: 1750, Parent: "3681"},
 	{Key: "3683", Call: 1756, Parent: "3682"},
@@ -5839,12 +5839,12 @@ var ergoInlines = [...]struct {
 	{Key: "3686", Call: 1750, Parent: "3685"},
 	{Key: "3687", Call: 1756, Parent: "3686"},
 	{Key: "3688", Call: 1753, Parent: "3685"},
-	{Key: "3689", Call: 2633, Parent: ""},
-	{Key: "3690", Call: 4264, Parent: "3689"},
-	{Key: "3691", Call: 4265, Parent: "3689"},
-	{Key: "3692", Call: 4266, Parent: "3689"},
-	{Key: "3693", Call: 4267, Parent: "3689"},
-	{Key: "3694", Call: 2635, Parent: ""},
+	{Key: "3689", Call: 2634, Parent: ""},
+	{Key: "3690", Call: 4265, Parent: "3689"},
+	{Key: "3691", Call: 4266, Parent: "3689"},
+	{Key: "3692", Call: 4267, Parent: "3689"},
+	{Key: "3693", Call: 4268, Parent: "3689"},
+	{Key: "3694", Call: 2636, Parent: ""},
 	{Key: "3695", Call: 1730, Parent: "3694"},
 	{Key: "3696", Call: 1746, Parent: "3695"},
 	{Key: "3697", Call: 1750, Parent: "3696"},
@@ -5856,10 +5856,10 @@ var ergoInlines = [...]struct {
 	{Key: "3703", Call: 1750, Parent: "3702"},
 	{Key: "3704", Call: 1756, Parent: "3703"},
 	{Key: "3705", Call: 1753, Parent: "3702"},
-	{Key: "3706", Call: 2638, Parent: ""},
-	{Key: "3707", Call: 2613, Parent: "3706"},
+	{Key: "3706", Call: 2639, Parent: ""},
+	{Key: "3707", Call: 2614, Parent: "3706"},
 	{Key: "3708", Call: 1756, Parent: "3707"},
-	{Key: "3709", Call: 2639, Parent: ""},
+	{Key: "3709", Call: 2640, Parent: ""},
 	{Key: "3710", Call: 1746, Parent: "3709"},
 	{Key: "3711", Call: 1750, Parent: "3710"},
 	{Key: "3712", Call: 1756, Parent: "3711"},
@@ -5868,8 +5868,8 @@ var ergoInlines = [...]struct {
 	{Key: "3715", Call: 1750, Parent: "3714"},
 	{Key: "3716", Call: 1756, Parent: "3715"},
 	{Key: "3717", Call: 1753, Parent: "3714"},
-	{Key: "3718", Call: 2646, Parent: ""},
-	{Key: "3719", Call: 2650, Parent: ""},
+	{Key: "3718", Call: 2647, Parent: ""},
+	{Key: "3719", Call: 2651, Parent: ""},
 	{Key: "3720", Call: 1730, Parent: "3719"},
 	{Key: "3721", Call: 1746, Parent: "3720"},
 	{Key: "3722", Call: 1750, Parent: "3721"},
@@ -5881,8 +5881,8 @@ var ergoInlines = [...]struct {
 	{Key: "3728", Call: 1750, Parent: "3727"},
 	{Key: "3729", Call: 1756, Parent: "3728"},
 	{Key: "3730", Call: 1753, Parent: "3727"},
-	{Key: "3731", Call: 2652, Parent: ""},
-	{Key: "3732", Call: 2654, Parent: ""},
+	{Key: "3731", Call: 2653, Parent: ""},
+	{Key: "3732", Call: 2655, Parent: ""},
 	{Key: "3733", Call: 1746, Parent: "3732"},
 	{Key: "3734", Call: 1750, Parent: "3733"},
 	{Key: "3735", Call: 1756, Parent: "3734"},
@@ -5891,15 +5891,15 @@ var ergoInlines = [...]struct {
 	{Key: "3738", Call: 1750, Parent: "3737"},
 	{Key: "3739", Call: 1756, Parent: "3738"},
 	{Key: "3740", Call: 1753, Parent: "3737"},
-	{Key: "3741", Call: 2657, Parent: ""},
-	{Key: "3742", Call: 4269, Parent: "3741"},
-	{Key: "3743", Call: 4270, Parent: "3741"},
-	{Key: "3744", Call: 4271, Parent: "3741"},
-	{Key: "3745", Call: 2658, Parent: ""},
-	{Key: "3746", Call: 4269, Parent: "3745"},
-	{Key: "3747", Call: 4270, Parent: "3745"},
-	{Key: "3748", Call: 4271, Parent: "3745"},
-	{Key: "3749", Call: 2801, Parent: ""},
+	{Key: "3741", Call: 2658, Parent: ""},
+	{Key: "3742", Call: 4270, Parent: "3741"},
+	{Key: "3743", Call: 4271, Parent: "3741"},
+	{Key: "3744", Call: 4272, Parent: "3741"},
+	{Key: "3745", Call: 2659, Parent: ""},
+	{Key: "3746", Call: 4270, Parent: "3745"},
+	{Key: "3747", Call: 4271, Parent: "3745"},
+	{Key: "3748", Call: 4272, Parent: "3745"},
+	{Key: "3749", Call: 2802, Parent: ""},
 	{Key: "3750", Call: 1730, Parent: "3749"},
 	{Key: "3751", Call: 1746, Parent: "3750"},
 	{Key: "3752", Call: 1750, Parent: "3751"},
@@ -5911,18 +5911,18 @@ var ergoInlines = [...]struct {
 	{Key: "3758", Call: 1750, Parent: "3757"},
 	{Key: "3759", Call: 1756, Parent: "3758"},
 	{Key: "3760", Call: 1753, Parent: "3757"},
-	{Key: "3761", Call: 2803, Parent: ""},
+	{Key: "3761", Call: 2804, Parent: ""},
 	{Key: "3762", Call: 1756, Parent: "3761"},
-	{Key: "3763", Call: 2808, Parent: ""},
+	{Key: "3763", Call: 2809, Parent: ""},
 	{Key: "3764", Call: 1756, Parent: "3763"},
-	{Key: "3765", Call: 2811, Parent: ""},
-	{Key: "3766", Call: 4034, Parent: "3765"},
-	{Key: "3767", Call: 2812, Parent: ""},
-	{Key: "3768", Call: 2815, Parent: ""},
+	{Key: "3765", Call: 2812, Parent: ""},
+	{Key: "3766", Call: 4035, Parent: "3765"},
+	{Key: "3767", Call: 2813, Parent: ""},
+	{Key: "3768", Call: 2816, Parent: ""},
 	{Key: "3769", Call: 1750, Parent: "3768"},
 	{Key: "3770", Call: 1756, Parent: "3769"},
 	{Key: "3771", Call: 1753, Parent: "3768"},
-	{Key: "3772", Call: 2817, Parent: ""},
+	{Key: "3772", Call: 2818, Parent: ""},
 	{Key: "3773", Call: 1730, Parent: "3772"},
 	{Key: "3774", Call: 1746, Parent: "3773"},
 	{Key: "3775", Call: 1750, Parent: "3774"},
@@ -5934,10 +5934,10 @@ var ergoInlines = [...]struct {
 	{Key: "3781", Call: 1750, Parent: "3780"},
 	{Key: "3782", Call: 1756, Parent: "3781"},
 	{Key: "3783", Call: 1753, Parent: "3780"},
-	{Key: "3784", Call: 2820, Parent: ""},
+	{Key: "3784", Call: 2821, Parent: ""},
 	{Key: "3785", Call: 1801, Parent: "3784"},
 	{Key: "3786", Call: 1802, Parent: "3784"},
-	{Key: "3787", Call: 2823, Parent: ""},
+	{Key: "3787", Call: 2824, Parent: ""},
 	{Key: "3788", Call: 1746, Parent: "3787"},
 	{Key: "3789", Call: 1750, Parent: "3788"},
 	{Key: "3790", Call: 1756, Parent: "3789"},
@@ -5946,15 +5946,15 @@ var ergoInlines = [...]struct {
 	{Key: "3793", Call: 1750, Parent: "3792"},
 	{Key: "3794", Call: 1756, Parent: "3793"},
 	{Key: "3795", Call: 1753, Parent: "3792"},
-	{Key: "3796", Call: 2825, Parent: ""},
-	{Key: "3797", Call: 4273, Parent: "3796"},
-	{Key: "3798", Call: 4274, Parent: "3796"},
-	{Key: "3799", Call: 4275, Parent: "3796"},
-	{Key: "3800", Call: 4276, Parent: "3796"},
-	{Key: "3801", Call: 4277, Parent: "3796"},
-	{Key: "3802", Call: 2828, Parent: ""},
+	{Key: "3796", Call: 2826, Parent: ""},
+	{Key: "3797", Call: 4274, Parent: "3796"},
+	{Key: "3798", Call: 4275, Parent: "3796"},
+	{Key: "3799", Call: 4276, Parent: "3796"},
+	{Key: "3800", Call: 4277, Parent: "3796"},
+	{Key: "3801", Call: 4278, Parent: "3796"},
+	{Key: "3802", Call: 2829, Parent: ""},
 	{Key: "3803", Call: 1756, Parent: "3802"},
-	{Key: "3804", Call: 2830, Parent: ""},
+	{Key: "3804", Call: 2831, Parent: ""},
 	{Key: "3805", Call: 1746, Parent: "3804"},
 	{Key: "3806", Call: 1750, Parent: "3805"},
 	{Key: "3807", Call: 1756, Parent: "3806"},
@@ -5963,15 +5963,15 @@ var ergoInlines = [...]struct {
 	{Key: "3810", Call: 1750, Parent: "3809"},
 	{Key: "3811", Call: 1756, Parent: "3810"},
 	{Key: "3812", Call: 1753, Parent: "3809"},
-	{Key: "3813", Call: 2832, Parent: ""},
-	{Key: "3814", Call: 4034, Parent: "3813"},
-	{Key: "3815", Call: 2780, Parent: ""},
-	{Key: "3816", Call: 2785, Parent: ""},
+	{Key: "3813", Call: 2833, Parent: ""},
+	{Key: "3814", Call: 4035, Parent: "3813"},
+	{Key: "3815", Call: 2781, Parent: ""},
+	{Key: "3816", Call: 2786, Parent: ""},
 	{Key: "3817", Call: 1757, Parent: "3816"},
-	{Key: "3818", Call: 4212, Parent: ""},
-	{Key: "3819", Call: 4213, Parent: ""},
-	{Key: "3820", Call: 4214, Parent: ""},
-	{Key: "3821", Call: 4215, Parent: ""},
+	{Key: "3818", Call: 4213, Parent: ""},
+	{Key: "3819", Call: 4214, Parent: ""},
+	{Key: "3820", Call: 4215, Parent: ""},
+	{Key: "3821", Call: 4216, Parent: ""},
 	{Key: "3822", Call: 1253, Parent: ""},
 	{Key: "3823", Call: 1255, Parent: ""},
 	{Key: "3824", Call: 1256, Parent: ""},
@@ -6003,35 +6003,35 @@ var ergoInlines = [...]struct {
 	{Key: "3850", Call: 1306, Parent: "3849"},
 	{Key: "3851", Call: 1312, Parent: "3848"},
 	{Key: "3852", Call: 1307, Parent: "3851"},
-	{Key: "3853", Call: 2425, Parent: ""},
-	{Key: "3854", Call: 2454, Parent: "3853"},
-	{Key: "3855", Call: 2458, Parent: "3853"},
-	{Key: "3856", Call: 2460, Parent: "3853"},
+	{Key: "3853", Call: 2426, Parent: ""},
+	{Key: "3854", Call: 2455, Parent: "3853"},
+	{Key: "3855", Call: 2459, Parent: "3853"},
+	{Key: "3856", Call: 2461, Parent: "3853"},
 	{Key: "3857", Call: 1801, Parent: "3856"},
 	{Key: "3858", Call: 1802, Parent: "3856"},
-	{Key: "3859", Call: 2426, Parent: ""},
+	{Key: "3859", Call: 2427, Parent: ""},
 	{Key: "3860", Call: 1759, Parent: "3859"},
-	{Key: "3861", Call: 2427, Parent: ""},
+	{Key: "3861", Call: 2428, Parent: ""},
 	{Key: "3862", Call: 1758, Parent: "3861"},
 	{Key: "3863", Call: 1759, Parent: "3862"},
-	{Key: "3864", Call: 2430, Parent: ""},
-	{Key: "3865", Call: 2893, Parent: "3864"},
+	{Key: "3864", Call: 2431, Parent: ""},
+	{Key: "3865", Call: 2894, Parent: "3864"},
 	{Key: "3866", Call: 1746, Parent: "3865"},
 	{Key: "3867", Call: 1750, Parent: "3866"},
 	{Key: "3868", Call: 1753, Parent: "3866"},
 	{Key: "3869", Call: 1748, Parent: "3865"},
 	{Key: "3870", Call: 1750, Parent: "3869"},
 	{Key: "3871", Call: 1753, Parent: "3869"},
-	{Key: "3872", Call: 2894, Parent: "3864"},
+	{Key: "3872", Call: 2895, Parent: "3864"},
 	{Key: "3873", Call: 1792, Parent: "3872"},
-	{Key: "3874", Call: 4034, Parent: "3873"},
-	{Key: "3875", Call: 2431, Parent: ""},
-	{Key: "3876", Call: 4034, Parent: "3875"},
-	{Key: "3877", Call: 2433, Parent: ""},
+	{Key: "3874", Call: 4035, Parent: "3873"},
+	{Key: "3875", Call: 2432, Parent: ""},
+	{Key: "3876", Call: 4035, Parent: "3875"},
+	{Key: "3877", Call: 2434, Parent: ""},
 	{Key: "3878", Call: 1756, Parent: "3877"},
-	{Key: "3879", Call: 2435, Parent: ""},
+	{Key: "3879", Call: 2436, Parent: ""},
 	{Key: "3880", Call: 1756, Parent: "3879"},
-	{Key: "3881", Call: 2437, Parent: ""},
+	{Key: "3881", Call: 2438, Parent: ""},
 	{Key: "3882", Call: 1746, Parent: "3881"},
 	{Key: "3883", Call: 1750, Parent: "3882"},
 	{Key: "3884", Call: 1756, Parent: "3883"},
@@ -6040,46 +6040,46 @@ var ergoInlines = [...]struct {
 	{Key: "3887", Call: 1750, Parent: "3886"},
 	{Key: "3888", Call: 1756, Parent: "3887"},
 	{Key: "3889", Call: 1753, Parent: "3886"},
-	{Key: "3890", Call: 2441, Parent: ""},
-	{Key: "3891", Call: 2613, Parent: ""},
+	{Key: "3890", Call: 2442, Parent: ""},
+	{Key: "3891", Call: 2614, Parent: ""},
 	{Key: "3892", Call: 1756, Parent: "3891"},
-	{Key: "3893", Call: 4264, Parent: ""},
-	{Key: "3894", Call: 4265, Parent: ""},
-	{Key: "3895", Call: 4266, Parent: ""},
-	{Key: "3896", Call: 4267, Parent: ""},
-	{Key: "3897", Call: 2698, Parent: ""},
-	{Key: "3898", Call: 4269, Parent: ""},
-	{Key: "3899", Call: 4270, Parent: ""},
-	{Key: "3900", Call: 4271, Parent: ""},
-	{Key: "3901", Call: 2834, Parent: ""},
-	{Key: "3902", Call: 2837, Parent: ""},
-	{Key: "3903", Call: 4273, Parent: ""},
-	{Key: "3904", Call: 4274, Parent: ""},
-	{Key: "3905", Call: 4275, Parent: ""},
-	{Key: "3906", Call: 4276, Parent: ""},
-	{Key: "3907", Call: 4277, Parent: ""},
+	{Key: "3893", Call: 4265, Parent: ""},
+	{Key: "3894", Call: 4266, Parent: ""},
+	{Key: "3895", Call: 4267, Parent: ""},
+	{Key: "3896", Call: 4268, Parent: ""},
+	{Key: "3897", Call: 2699, Parent: ""},
+	{Key: "3898", Call: 4270, Parent: ""},
+	{Key: "3899", Call: 4271, Parent: ""},
+	{Key: "3900", Call: 4272, Parent: ""},
+	{Key: "3901", Call: 2835, Parent: ""},
+	{Key: "3902", Call: 2838, Parent: ""},
+	{Key: "3903", Call: 4274, Parent: ""},
+	{Key: "3904", Call: 4275, Parent: ""},
+	{Key: "3905", Call: 4276, Parent: ""},
+	{Key: "3906", Call: 4277, Parent: ""},
+	{Key: "3907", Call: 4278, Parent: ""},
 	{Key: "3908", Call: 1757, Parent: ""},
-	{Key: "3909", Call: 2470, Parent: ""},
-	{Key: "3910", Call: 2893, Parent: "3909"},
+	{Key: "3909", Call: 2471, Parent: ""},
+	{Key: "3910", Call: 2894, Parent: "3909"},
 	{Key: "3911", Call: 1746, Parent: "3910"},
 	{Key: "3912", Call: 1750, Parent: "3911"},
 	{Key: "3913", Call: 1753, Parent: "3911"},
 	{Key: "3914", Call: 1748, Parent: "3910"},
 	{Key: "3915", Call: 1750, Parent: "3914"},
 	{Key: "3916", Call: 1753, Parent: "3914"},
-	{Key: "3917", Call: 2894, Parent: "3909"},
+	{Key: "3917", Call: 2895, Parent: "3909"},
 	{Key: "3918", Call: 1792, Parent: "3917"},
-	{Key: "3919", Call: 4034, Parent: "3918"},
-	{Key: "3920", Call: 2472, Parent: ""},
+	{Key: "3919", Call: 4035, Parent: "3918"},
+	{Key: "3920", Call: 2473, Parent: ""},
 	{Key: "3921", Call: 1792, Parent: "3920"},
-	{Key: "3922", Call: 4034, Parent: "3921"},
-	{Key: "3923", Call: 2474, Parent: ""},
-	{Key: "3924", Call: 2513, Parent: "3923"},
-	{Key: "3925", Call: 4034, Parent: "3924"},
-	{Key: "3926", Call: 2476, Parent: ""},
+	{Key: "3922", Call: 4035, Parent: "3921"},
+	{Key: "3923", Call: 2475, Parent: ""},
+	{Key: "3924", Call: 2514, Parent: "3923"},
+	{Key: "3925", Call: 4035, Parent: "3924"},
+	{Key: "3926", Call: 2477, Parent: ""},
 	{Key: "3927", Call: 1758, Parent: "3926"},
 	{Key: "3928", Call: 1759, Parent: "3927"},
-	{Key: "3929", Call: 2480, Parent: ""},
+	{Key: "3929", Call: 2481, Parent: ""},
 	{Key: "3930", Call: 1730, Parent: "3929"},
 	{Key: "3931", Call: 1746, Parent: "3930"},
 	{Key: "3932", Call: 1750, Parent: "3931"},
@@ -6091,13 +6091,13 @@ var ergoInlines = [...]struct {
 	{Key: "3938", Call: 1750, Parent: "3937"},
 	{Key: "3939", Call: 1756, Parent: "3938"},
 	{Key: "3940", Call: 1753, Parent: "3937"},
-	{Key: "3941", Call: 2482, Parent: ""},
-	{Key: "3942", Call: 4034, Parent: "3941"},
-	{Key: "3943", Call: 2483, Parent: ""},
+	{Key: "3941", Call: 2483, Parent: ""},
+	{Key: "3942", Call: 4035, Parent: "3941"},
+	{Key: "3943", Call: 2484, Parent: ""},
 	{Key: "3944", Call: 2072, Parent: "3943"},
-	{Key: "3945", Call: 2484, Parent: ""},
-	{Key: "3946", Call: 2486, Parent: ""},
-	{Key: "3947", Call: 2488, Parent: ""},
+	{Key: "3945", Call: 2485, Parent: ""},
+	{Key: "3946", Call: 2487, Parent: ""},
+	{Key: "3947", Call: 2489, Parent: ""},
 	{Key: "3948", Call: 1730, Parent: "3947"},
 	{Key: "3949", Call: 1746, Parent: "3948"},
 	{Key: "3950", Call: 1750, Parent: "3949"},
@@ -6109,11 +6109,11 @@ var ergoInlines = [...]struct {
 	{Key: "3956", Call: 1750, Parent: "3955"},
 	{Key: "3957", Call: 1756, Parent: "3956"},
 	{Key: "3958", Call: 1753, Parent: "3955"},
-	{Key: "3959", Call: 2490, Parent: ""},
-	{Key: "3960", Call: 4259, Parent: "3959"},
-	{Key: "3961", Call: 4260, Parent: "3959"},
-	{Key: "3962", Call: 2494, Parent: ""},
-	{Key: "3963", Call: 2495, Parent: ""},
+	{Key: "3959", Call: 2491, Parent: ""},
+	{Key: "3960", Call: 4260, Parent: "3959"},
+	{Key: "3961", Call: 4261, Parent: "3959"},
+	{Key: "3962", Call: 2495, Parent: ""},
+	{Key: "3963", Call: 2496, Parent: ""},
 	{Key: "3964", Call: 1730, Parent: "3963"},
 	{Key: "3965", Call: 1746, Parent: "3964"},
 	{Key: "3966", Call: 1750, Parent: "3965"},
@@ -6125,7 +6125,7 @@ var ergoInlines = [...]struct {
 	{Key: "3972", Call: 1750, Parent: "3971"},
 	{Key: "3973", Call: 1756, Parent: "3972"},
 	{Key: "3974", Call: 1753, Parent: "3971"},
-	{Key: "3975", Call: 2496, Parent: ""},
+	{Key: "3975", Call: 2497, Parent: ""},
 	{Key: "3976", Call: 1746, Parent: "3975"},
 	{Key: "3977", Call: 1750, Parent: "3976"},
 	{Key: "3978", Call: 1756, Parent: "3977"},
@@ -6134,17 +6134,17 @@ var ergoInlines = [...]struct {
 	{Key: "3981", Call: 1750, Parent: "3980"},
 	{Key: "3982", Call: 1756, Parent: "3981"},
 	{Key: "3983", Call: 1753, Parent: "3980"},
-	{Key: "3984", Call: 2499, Parent: ""},
-	{Key: "3985", Call: 2500, Parent: ""},
-	{Key: "3986", Call: 2502, Parent: ""},
-	{Key: "3987", Call: 4034, Parent: "3986"},
-	{Key: "3988", Call: 2504, Parent: ""},
-	{Key: "3989", Call: 2506, Parent: ""},
-	{Key: "3990", Call: 2507, Parent: ""},
+	{Key: "3984", Call: 2500, Parent: ""},
+	{Key: "3985", Call: 2501, Parent: ""},
+	{Key: "3986", Call: 2503, Parent: ""},
+	{Key: "3987", Call: 4035, Parent: "3986"},
+	{Key: "3988", Call: 2505, Parent: ""},
+	{Key: "3989", Call: 2507, Parent: ""},
+	{Key: "3990", Call: 2508, Parent: ""},
 	{Key: "3991", Call: 1750, Parent: "3990"},
 	{Key: "3992", Call: 1756, Parent: "3991"},
 	{Key: "3993", Call: 1753, Parent: "3990"},
-	{Key: "3994", Call: 2512, Parent: ""},
+	{Key: "3994", Call: 2513, Parent: ""},
 	{Key: "3995", Call: 1746, Parent: "3994"},
 	{Key: "3996", Call: 1750, Parent: "3995"},
 	{Key: "3997", Call: 1756, Parent: "3996"},
@@ -6153,12 +6153,12 @@ var ergoInlines = [...]struct {
 	{Key: "4000", Call: 1750, Parent: "3999"},
 	{Key: "4001", Call: 1756, Parent: "4000"},
 	{Key: "4002", Call: 1753, Parent: "3999"},
-	{Key: "4003", Call: 2454, Parent: ""},
-	{Key: "4004", Call: 2458, Parent: ""},
-	{Key: "4005", Call: 2460, Parent: ""},
+	{Key: "4003", Call: 2455, Parent: ""},
+	{Key: "4004", Call: 2459, Parent: ""},
+	{Key: "4005", Call: 2461, Parent: ""},
 	{Key: "4006", Call: 1801, Parent: "4005"},
 	{Key: "4007", Call: 1802, Parent: "4005"},
-	{Key: "4008", Call: 2527, Parent: ""},
+	{Key: "4008", Call: 2528, Parent: ""},
 	{Key: "4009", Call: 1746, Parent: "4008"},
 	{Key: "4010", Call: 1750, Parent: "4009"},
 	{Key: "4011", Call: 1756, Parent: "4010"},
@@ -6167,15 +6167,15 @@ var ergoInlines = [...]struct {
 	{Key: "4014", Call: 1750, Parent: "4013"},
 	{Key: "4015", Call: 1756, Parent: "4014"},
 	{Key: "4016", Call: 1753, Parent: "4013"},
-	{Key: "4017", Call: 2533, Parent: ""},
+	{Key: "4017", Call: 2534, Parent: ""},
 	{Key: "4018", Call: 1750, Parent: "4017"},
 	{Key: "4019", Call: 1756, Parent: "4018"},
 	{Key: "4020", Call: 1753, Parent: "4017"},
-	{Key: "4021", Call: 2534, Parent: ""},
+	{Key: "4021", Call: 2535, Parent: ""},
 	{Key: "4022", Call: 1750, Parent: "4021"},
 	{Key: "4023", Call: 1756, Parent: "4022"},
 	{Key: "4024", Call: 1753, Parent: "4021"},
-	{Key: "4025", Call: 2537, Parent: ""},
+	{Key: "4025", Call: 2538, Parent: ""},
 	{Key: "4026", Call: 1730, Parent: "4025"},
 	{Key: "4027", Call: 1746, Parent: "4026"},
 	{Key: "4028", Call: 1750, Parent: "4027"},
@@ -6187,16 +6187,16 @@ var ergoInlines = [...]struct {
 	{Key: "4034", Call: 1750, Parent: "4033"},
 	{Key: "4035", Call: 1756, Parent: "4034"},
 	{Key: "4036", Call: 1753, Parent: "4033"},
-	{Key: "4037", Call: 2539, Parent: ""},
-	{Key: "4038", Call: 4220, Parent: "4037"},
-	{Key: "4039", Call: 4221, Parent: "4037"},
-	{Key: "4040", Call: 4222, Parent: "4037"},
-	{Key: "4041", Call: 4223, Parent: "4037"},
-	{Key: "4042", Call: 4224, Parent: "4037"},
-	{Key: "4043", Call: 4226, Parent: "4037"},
-	{Key: "4044", Call: 2542, Parent: ""},
-	{Key: "4045", Call: 2544, Parent: ""},
-	{Key: "4046", Call: 2546, Parent: ""},
+	{Key: "4037", Call: 2540, Parent: ""},
+	{Key: "4038", Call: 4221, Parent: "4037"},
+	{Key: "4039", Call: 4222, Parent: "4037"},
+	{Key: "4040", Call: 4223, Parent: "4037"},
+	{Key: "4041", Call: 4224, Parent: "4037"},
+	{Key: "4042", Call: 4225, Parent: "4037"},
+	{Key: "4043", Call: 4227, Parent: "4037"},
+	{Key: "4044", Call: 2543, Parent: ""},
+	{Key: "4045", Call: 2545, Parent: ""},
+	{Key: "4046", Call: 2547, Parent: ""},
 	{Key: "4047", Call: 1730, Parent: "4046"},
 	{Key: "4048", Call: 1746, Parent: "4047"},
 	{Key: "4049", Call: 1750, Parent: "4048"},
@@ -6208,10 +6208,10 @@ var ergoInlines = [...]struct {
 	{Key: "4055", Call: 1750, Parent: "4054"},
 	{Key: "4056", Call: 1756, Parent: "4055"},
 	{Key: "4057", Call: 1753, Parent: "4054"},
-	{Key: "4058", Call: 2547, Parent: ""},
-	{Key: "4059", Call: 4217, Parent: "4058"},
-	{Key: "4060", Call: 4218, Parent: "4058"},
-	{Key: "4061", Call: 2563, Parent: ""},
+	{Key: "4058", Call: 2548, Parent: ""},
+	{Key: "4059", Call: 4218, Parent: "4058"},
+	{Key: "4060", Call: 4219, Parent: "4058"},
+	{Key: "4061", Call: 2564, Parent: ""},
 	{Key: "4062", Call: 1730, Parent: "4061"},
 	{Key: "4063", Call: 1746, Parent: "4062"},
 	{Key: "4064", Call: 1750, Parent: "4063"},
@@ -6223,12 +6223,12 @@ var ergoInlines = [...]struct {
 	{Key: "4070", Call: 1750, Parent: "4069"},
 	{Key: "4071", Call: 1756, Parent: "4070"},
 	{Key: "4072", Call: 1753, Parent: "4069"},
-	{Key: "4073", Call: 2565, Parent: ""},
-	{Key: "4074", Call: 2567, Parent: ""},
+	{Key: "4073", Call: 2566, Parent: ""},
+	{Key: "4074", Call: 2568, Parent: ""},
 	{Key: "4075", Call: 1750, Parent: "4074"},
 	{Key: "4076", Call: 1756, Parent: "4075"},
 	{Key: "4077", Call: 1753, Parent: "4074"},
-	{Key: "4078", Call: 2569, Parent: ""},
+	{Key: "4078", Call: 2570, Parent: ""},
 	{Key: "4079", Call: 1746, Parent: "4078"},
 	{Key: "4080", Call: 1750, Parent: "4079"},
 	{Key: "4081", Call: 1756, Parent: "4080"},
@@ -6237,17 +6237,17 @@ var ergoInlines = [...]struct {
 	{Key: "4084", Call: 1750, Parent: "4083"},
 	{Key: "4085", Call: 1756, Parent: "4084"},
 	{Key: "4086", Call: 1753, Parent: "4083"},
-	{Key: "4087", Call: 2573, Parent: ""},
-	{Key: "4088", Call: 2575, Parent: ""},
-	{Key: "4089", Call: 4228, Parent: "4088"},
-	{Key: "4090", Call: 4229, Parent: "4088"},
-	{Key: "4091", Call: 4230, Parent: "4088"},
-	{Key: "4092", Call: 4231, Parent: "4088"},
-	{Key: "4093", Call: 4232, Parent: "4088"},
-	{Key: "4094", Call: 2578, Parent: ""},
+	{Key: "4087", Call: 2574, Parent: ""},
+	{Key: "4088", Call: 2576, Parent: ""},
+	{Key: "4089", Call: 4229, Parent: "4088"},
+	{Key: "4090", Call: 4230, Parent: "4088"},
+	{Key: "4091", Call: 4231, Parent: "4088"},
+	{Key: "4092", Call: 4232, Parent: "4088"},
+	{Key: "4093", Call: 4233, Parent: "4088"},
+	{Key: "4094", Call: 2579, Parent: ""},
 	{Key: "4095", Call: 1758, Parent: "4094"},
 	{Key: "4096", Call: 1759, Parent: "4095"},
-	{Key: "4097", Call: 2579, Parent: ""},
+	{Key: "4097", Call: 2580, Parent: ""},
 	{Key: "4098", Call: 1730, Parent: "4097"},
 	{Key: "4099", Call: 1746, Parent: "4098"},
 	{Key: "4100", Call: 1750, Parent: "4099"},
@@ -6259,27 +6259,27 @@ var ergoInlines = [...]struct {
 	{Key: "4106", Call: 1750, Parent: "4105"},
 	{Key: "4107", Call: 1756, Parent: "4106"},
 	{Key: "4108", Call: 1753, Parent: "4105"},
-	{Key: "4109", Call: 2582, Parent: ""},
+	{Key: "4109", Call: 2583, Parent: ""},
 	{Key: "4110", Call: 1750, Parent: "4109"},
 	{Key: "4111", Call: 1756, Parent: "4110"},
 	{Key: "4112", Call: 1753, Parent: "4109"},
-	{Key: "4113", Call: 2587, Parent: ""},
-	{Key: "4114", Call: 2588, Parent: ""},
+	{Key: "4113", Call: 2588, Parent: ""},
+	{Key: "4114", Call: 2589, Parent: ""},
 	{Key: "4115", Call: 1750, Parent: "4114"},
 	{Key: "4116", Call: 1756, Parent: "4115"},
 	{Key: "4117", Call: 1753, Parent: "4114"},
-	{Key: "4118", Call: 2589, Parent: ""},
+	{Key: "4118", Call: 2590, Parent: ""},
 	{Key: "4119", Call: 1750, Parent: "4118"},
 	{Key: "4120", Call: 1756, Parent: "4119"},
 	{Key: "4121", Call: 1753, Parent: "4118"},
-	{Key: "4122", Call: 2592, Parent: ""},
+	{Key: "4122", Call: 2593, Parent: ""},
 	{Key: "4123", Call: 1801, Parent: "4122"},
 	{Key: "4124", Call: 1802, Parent: "4122"},
-	{Key: "4125", Call: 2593, Parent: ""},
+	{Key: "4125", Call: 2594, Parent: ""},
 	{Key: "4126", Call: 1801, Parent: "4125"},
 	{Key: "4127", Call: 1802, Parent: "4125"},
-	{Key: "4128", Call: 2594, Parent: ""},
-	{Key: "4129", Call: 2596, Parent: ""},
+	{Key: "4128", Call: 2595, Parent: ""},
+	{Key: "4129", Call: 2597, Parent: ""},
 	{Key: "4130", Call: 1746, Parent: "4129"},
 	{Key: "4131", Call: 1750, Parent: "4130"},
 	{Key: "4132", Call: 1756, Parent: "4131"},
@@ -6288,16 +6288,16 @@ var ergoInlines = [...]struct {
 	{Key: "4135", Call: 1750, Parent: "4134"},
 	{Key: "4136", Call: 1756, Parent: "4135"},
 	{Key: "4137", Call: 1753, Parent: "4134"},
-	{Key: "4138", Call: 2599, Parent: ""},
-	{Key: "4139", Call: 4212, Parent: "4138"},
-	{Key: "4140", Call: 4213, Parent: "4138"},
-	{Key: "4141", Call: 4214, Parent: "4138"},
-	{Key: "4142", Call: 4215, Parent: "4138"},
-	{Key: "4143", Call: 2516, Parent: ""},
-	{Key: "4144", Call: 2518, Parent: ""},
-	{Key: "4145", Call: 2520, Parent: ""},
-	{Key: "4146", Call: 2522, Parent: ""},
-	{Key: "4147", Call: 2524, Parent: ""},
+	{Key: "4138", Call: 2600, Parent: ""},
+	{Key: "4139", Call: 4213, Parent: "4138"},
+	{Key: "4140", Call: 4214, Parent: "4138"},
+	{Key: "4141", Call: 4215, Parent: "4138"},
+	{Key: "4142", Call: 4216, Parent: "4138"},
+	{Key: "4143", Call: 2517, Parent: ""},
+	{Key: "4144", Call: 2519, Parent: ""},
+	{Key: "4145", Call: 2521, Parent: ""},
+	{Key: "4146", Call: 2523, Parent: ""},
+	{Key: "4147", Call: 2525, Parent: ""},
 	{Key: "4148", Call: 1746, Parent: "4147"},
 	{Key: "4149", Call: 1750, Parent: "4148"},
 	{Key: "4150", Call: 1756, Parent: "4149"},
@@ -6306,7 +6306,7 @@ var ergoInlines = [...]struct {
 	{Key: "4153", Call: 1750, Parent: "4152"},
 	{Key: "4154", Call: 1756, Parent: "4153"},
 	{Key: "4155", Call: 1753, Parent: "4152"},
-	{Key: "4156", Call: 2682, Parent: ""},
+	{Key: "4156", Call: 2683, Parent: ""},
 	{Key: "4157", Call: 1730, Parent: "4156"},
 	{Key: "4158", Call: 1746, Parent: "4157"},
 	{Key: "4159", Call: 1750, Parent: "4158"},
@@ -6318,12 +6318,12 @@ var ergoInlines = [...]struct {
 	{Key: "4165", Call: 1750, Parent: "4164"},
 	{Key: "4166", Call: 1756, Parent: "4165"},
 	{Key: "4167", Call: 1753, Parent: "4164"},
-	{Key: "4168", Call: 2683, Parent: ""},
+	{Key: "4168", Call: 2684, Parent: ""},
 	{Key: "4169", Call: 1792, Parent: "4168"},
-	{Key: "4170", Call: 4034, Parent: "4169"},
-	{Key: "4171", Call: 2685, Parent: ""},
-	{Key: "4172", Call: 2688, Parent: ""},
-	{Key: "4173", Call: 2692, Parent: ""},
+	{Key: "4170", Call: 4035, Parent: "4169"},
+	{Key: "4171", Call: 2686, Parent: ""},
+	{Key: "4172", Call: 2689, Parent: ""},
+	{Key: "4173", Call: 2693, Parent: ""},
 	{Key: "4174", Call: 1746, Parent: "4173"},
 	{Key: "4175", Call: 1750, Parent: "4174"},
 	{Key: "4176", Call: 1756, Parent: "4175"},
@@ -6332,27 +6332,27 @@ var ergoInlines = [...]struct {
 	{Key: "4179", Call: 1750, Parent: "4178"},
 	{Key: "4180", Call: 1756, Parent: "4179"},
 	{Key: "4181", Call: 1753, Parent: "4178"},
-	{Key: "4182", Call: 2694, Parent: ""},
-	{Key: "4183", Call: 4228, Parent: "4182"},
-	{Key: "4184", Call: 4229, Parent: "4182"},
-	{Key: "4185", Call: 4230, Parent: "4182"},
-	{Key: "4186", Call: 4231, Parent: "4182"},
-	{Key: "4187", Call: 4232, Parent: "4182"},
-	{Key: "4188", Call: 2551, Parent: ""},
-	{Key: "4189", Call: 2553, Parent: ""},
-	{Key: "4190", Call: 4220, Parent: ""},
-	{Key: "4191", Call: 4221, Parent: ""},
-	{Key: "4192", Call: 4222, Parent: ""},
-	{Key: "4193", Call: 4223, Parent: ""},
-	{Key: "4194", Call: 4224, Parent: ""},
-	{Key: "4195", Call: 4226, Parent: ""},
-	{Key: "4196", Call: 4228, Parent: ""},
-	{Key: "4197", Call: 4229, Parent: ""},
-	{Key: "4198", Call: 4230, Parent: ""},
-	{Key: "4199", Call: 4231, Parent: ""},
-	{Key: "4200", Call: 4232, Parent: ""},
-	{Key: "4201", Call: 2608, Parent: ""},
-	{Key: "4202", Call: 4034, Parent: "4201"},
+	{Key: "4182", Call: 2695, Parent: ""},
+	{Key: "4183", Call: 4229, Parent: "4182"},
+	{Key: "4184", Call: 4230, Parent: "4182"},
+	{Key: "4185", Call: 4231, Parent: "4182"},
+	{Key: "4186", Call: 4232, Parent: "4182"},
+	{Key: "4187", Call: 4233, Parent: "4182"},
+	{Key: "4188", Call: 2552, Parent: ""},
+	{Key: "4189", Call: 2554, Parent: ""},
+	{Key: "4190", Call: 4221, Parent: ""},
+	{Key: "4191", Call: 4222, Parent: ""},
+	{Key: "4192", Call: 4223, Parent: ""},
+	{Key: "4193", Call: 4224, Parent: ""},
+	{Key: "4194", Call: 4225, Parent: ""},
+	{Key: "4195", Call: 4227, Parent: ""},
+	{Key: "4196", Call: 4229, Parent: ""},
+	{Key: "4197", Call: 4230, Parent: ""},
+	{Key: "4198", Call: 4231, Parent: ""},
+	{Key: "4199", Call: 4232, Parent: ""},
+	{Key: "4200", Call: 4233, Parent: ""},
+	{Key: "4201", Call: 2609, Parent: ""},
+	{Key: "4202", Call: 4035, Parent: "4201"},
 }
 
 // ergoCall is the Ergo identity of one lowered call (#230).
@@ -8623,106 +8623,107 @@ var ergoCalls = [...]ergoCall{
 	{Func: 667, Callee: 668, File: 558, Line: 988, Column: 14},
 	{Func: 667, Callee: 668, File: 558, Line: 989, Column: 15},
 	{Func: 667, Callee: 669, File: 558, Line: 990, Column: 15},
-	{Func: 667, Callee: 576, File: 558, Line: 991, Column: 36},
-	{Func: 667, Callee: 576, File: 558, Line: 991, Column: 60},
-	{Func: 667, Callee: 481, File: 558, Line: 991, Column: 82},
-	{Func: 667, Callee: 481, File: 558, Line: 991, Column: 107},
-	{Func: 667, Callee: 482, File: 558, Line: 991, Column: 118},
-	{Func: 667, Callee: 507, File: 558, Line: 992, Column: 4},
-	{Func: 667, Callee: 585, File: 558, Line: 995, Column: 14},
-	{Func: 667, Callee: 577, File: 558, Line: 998, Column: 13},
-	{Func: 667, Callee: 587, File: 558, Line: 998, Column: 18},
-	{Func: 667, Callee: 504, File: 558, Line: 1001, Column: 3},
-	{Func: 667, Callee: 625, File: 558, Line: 1003, Column: 11},
-	{Func: 667, Callee: 663, File: 558, Line: 1004, Column: 2},
-	{Func: 667, Callee: 559, File: 558, Line: 1004, Column: 19},
-	{Func: 667, Callee: 577, File: 558, Line: 1004, Column: 35},
-	{Func: 673, Callee: 573, File: 558, Line: 1009, Column: 16},
-	{Func: 673, Callee: 585, File: 558, Line: 1010, Column: 13},
-	{Func: 673, Callee: 577, File: 558, Line: 1013, Column: 12},
-	{Func: 673, Callee: 672, File: 558, Line: 1013, Column: 17},
-	{Func: 673, Callee: 504, File: 558, Line: 1016, Column: 3},
-	{Func: 673, Callee: 662, File: 558, Line: 1018, Column: 13},
-	{Func: 673, Callee: 674, File: 558, Line: 1019, Column: 2},
-	{Func: 673, Callee: 559, File: 558, Line: 1019, Column: 19},
-	{Func: 675, Callee: 573, File: 558, Line: 1029, Column: 15},
-	{Func: 675, Callee: 585, File: 558, Line: 1030, Column: 13},
-	{Func: 675, Callee: 521, File: 558, Line: 1034, Column: 18},
-	{Func: 675, Callee: 577, File: 558, Line: 1036, Column: 13},
-	{Func: 675, Callee: 587, File: 558, Line: 1036, Column: 18},
-	{Func: 675, Callee: 672, File: 558, Line: 1038, Column: 15},
-	{Func: 675, Callee: 601, File: 558, Line: 1041, Column: 5},
-	{Func: 675, Callee: 574, File: 558, Line: 1042, Column: 10},
-	{Func: 675, Callee: 508, File: 558, Line: 1043, Column: 3},
-	{Func: 675, Callee: 595, File: 558, Line: 1046, Column: 11},
-	{Func: 675, Callee: 662, File: 558, Line: 1049, Column: 12},
-	{Func: 675, Callee: 523, File: 558, Line: 1052, Column: 4},
-	{Func: 675, Callee: 660, File: 558, Line: 1054, Column: 10},
-	{Func: 675, Callee: 559, File: 558, Line: 1054, Column: 26},
-	{Func: 675, Callee: 577, File: 558, Line: 1054, Column: 65},
-	{Func: 675, Callee: 577, File: 558, Line: 1054, Column: 79},
-	{Func: 675, Callee: 523, File: 558, Line: 1057, Column: 3},
-	{Func: 675, Callee: 496, File: 558, Line: 1057, Column: 14},
-	{Func: 675, Callee: 523, File: 558, Line: 1060, Column: 3},
-	{Func: 675, Callee: 521, File: 558, Line: 1060, Column: 14},
-	{Func: 675, Callee: 574, File: 558, Line: 1063, Column: 11},
-	{Func: 675, Callee: 508, File: 558, Line: 1064, Column: 2},
-	{Func: 675, Callee: 662, File: 558, Line: 1065, Column: 12},
-	{Func: 675, Callee: 676, File: 558, Line: 1070, Column: 3},
-	{Func: 675, Callee: 676, File: 558, Line: 1071, Column: 3},
-	{Func: 675, Callee: 559, File: 558, Line: 1076, Column: 11},
-	{Func: 675, Callee: 560, File: 558, Line: 1078, Column: 3},
-	{Func: 675, Callee: 546, File: 558, Line: 1078, Column: 15},
-	{Func: 675, Callee: 560, File: 558, Line: 1080, Column: 2},
-	{Func: 675, Callee: 560, File: 558, Line: 1081, Column: 2},
-	{Func: 675, Callee: 677, File: 558, Line: 1082, Column: 13},
-	{Func: 675, Callee: 485, File: 558, Line: 1082, Column: 59},
-	{Func: 675, Callee: 660, File: 558, Line: 1083, Column: 2},
-	{Func: 675, Callee: 559, File: 558, Line: 1083, Column: 18},
-	{Func: 675, Callee: 577, File: 558, Line: 1083, Column: 57},
-	{Func: 675, Callee: 577, File: 558, Line: 1083, Column: 71},
-	{Func: 678, Callee: 679, File: 558, Line: 1089, Column: 10},
-	{Func: 678, Callee: 481, File: 558, Line: 1089, Column: 28},
-	{Func: 678, Callee: 209, File: 558, Line: 1090, Column: 5},
-	{Func: 678, Callee: 548, File: 558, Line: 1090, Column: 20},
-	{Func: 678, Callee: 680, File: 558, Line: 1090, Column: 30},
-	{Func: 678, Callee: 207, File: 558, Line: 1090, Column: 34},
-	{Func: 678, Callee: 523, File: 558, Line: 1093, Column: 2},
-	{Func: 678, Callee: 496, File: 558, Line: 1093, Column: 13},
-	{Func: 681, Callee: 573, File: 558, Line: 1099, Column: 15},
-	{Func: 681, Callee: 574, File: 558, Line: 1102, Column: 12},
-	{Func: 681, Callee: 508, File: 558, Line: 1103, Column: 3},
-	{Func: 681, Callee: 559, File: 558, Line: 1105, Column: 11},
-	{Func: 681, Callee: 560, File: 558, Line: 1107, Column: 3},
-	{Func: 681, Callee: 682, File: 558, Line: 1107, Column: 15},
-	{Func: 681, Callee: 598, File: 558, Line: 1108, Column: 7},
+	{Func: 667, Callee: 576, File: 558, Line: 994, Column: 31},
+	{Func: 667, Callee: 576, File: 558, Line: 994, Column: 54},
+	{Func: 667, Callee: 576, File: 558, Line: 996, Column: 23},
+	{Func: 667, Callee: 481, File: 558, Line: 998, Column: 27},
+	{Func: 667, Callee: 481, File: 558, Line: 998, Column: 52},
+	{Func: 667, Callee: 482, File: 558, Line: 998, Column: 63},
+	{Func: 667, Callee: 507, File: 558, Line: 999, Column: 4},
+	{Func: 667, Callee: 585, File: 558, Line: 1002, Column: 14},
+	{Func: 667, Callee: 577, File: 558, Line: 1005, Column: 13},
+	{Func: 667, Callee: 587, File: 558, Line: 1005, Column: 18},
+	{Func: 667, Callee: 504, File: 558, Line: 1008, Column: 3},
+	{Func: 667, Callee: 625, File: 558, Line: 1010, Column: 11},
+	{Func: 667, Callee: 663, File: 558, Line: 1011, Column: 2},
+	{Func: 667, Callee: 559, File: 558, Line: 1011, Column: 19},
+	{Func: 667, Callee: 577, File: 558, Line: 1011, Column: 35},
+	{Func: 673, Callee: 573, File: 558, Line: 1016, Column: 16},
+	{Func: 673, Callee: 585, File: 558, Line: 1017, Column: 13},
+	{Func: 673, Callee: 577, File: 558, Line: 1020, Column: 12},
+	{Func: 673, Callee: 672, File: 558, Line: 1020, Column: 17},
+	{Func: 673, Callee: 504, File: 558, Line: 1023, Column: 3},
+	{Func: 673, Callee: 662, File: 558, Line: 1025, Column: 13},
+	{Func: 673, Callee: 674, File: 558, Line: 1026, Column: 2},
+	{Func: 673, Callee: 559, File: 558, Line: 1026, Column: 19},
+	{Func: 675, Callee: 573, File: 558, Line: 1036, Column: 15},
+	{Func: 675, Callee: 585, File: 558, Line: 1037, Column: 13},
+	{Func: 675, Callee: 521, File: 558, Line: 1041, Column: 18},
+	{Func: 675, Callee: 577, File: 558, Line: 1043, Column: 13},
+	{Func: 675, Callee: 587, File: 558, Line: 1043, Column: 18},
+	{Func: 675, Callee: 672, File: 558, Line: 1045, Column: 15},
+	{Func: 675, Callee: 601, File: 558, Line: 1048, Column: 5},
+	{Func: 675, Callee: 574, File: 558, Line: 1049, Column: 10},
+	{Func: 675, Callee: 508, File: 558, Line: 1050, Column: 3},
+	{Func: 675, Callee: 595, File: 558, Line: 1053, Column: 11},
+	{Func: 675, Callee: 662, File: 558, Line: 1056, Column: 12},
+	{Func: 675, Callee: 523, File: 558, Line: 1059, Column: 4},
+	{Func: 675, Callee: 660, File: 558, Line: 1061, Column: 10},
+	{Func: 675, Callee: 559, File: 558, Line: 1061, Column: 26},
+	{Func: 675, Callee: 577, File: 558, Line: 1061, Column: 65},
+	{Func: 675, Callee: 577, File: 558, Line: 1061, Column: 79},
+	{Func: 675, Callee: 523, File: 558, Line: 1064, Column: 3},
+	{Func: 675, Callee: 496, File: 558, Line: 1064, Column: 14},
+	{Func: 675, Callee: 523, File: 558, Line: 1067, Column: 3},
+	{Func: 675, Callee: 521, File: 558, Line: 1067, Column: 14},
+	{Func: 675, Callee: 574, File: 558, Line: 1070, Column: 11},
+	{Func: 675, Callee: 508, File: 558, Line: 1071, Column: 2},
+	{Func: 675, Callee: 662, File: 558, Line: 1072, Column: 12},
+	{Func: 675, Callee: 676, File: 558, Line: 1077, Column: 3},
+	{Func: 675, Callee: 676, File: 558, Line: 1078, Column: 3},
+	{Func: 675, Callee: 559, File: 558, Line: 1083, Column: 11},
+	{Func: 675, Callee: 560, File: 558, Line: 1085, Column: 3},
+	{Func: 675, Callee: 546, File: 558, Line: 1085, Column: 15},
+	{Func: 675, Callee: 560, File: 558, Line: 1087, Column: 2},
+	{Func: 675, Callee: 560, File: 558, Line: 1088, Column: 2},
+	{Func: 675, Callee: 677, File: 558, Line: 1089, Column: 13},
+	{Func: 675, Callee: 485, File: 558, Line: 1089, Column: 59},
+	{Func: 675, Callee: 660, File: 558, Line: 1090, Column: 2},
+	{Func: 675, Callee: 559, File: 558, Line: 1090, Column: 18},
+	{Func: 675, Callee: 577, File: 558, Line: 1090, Column: 57},
+	{Func: 675, Callee: 577, File: 558, Line: 1090, Column: 71},
+	{Func: 678, Callee: 679, File: 558, Line: 1096, Column: 10},
+	{Func: 678, Callee: 481, File: 558, Line: 1096, Column: 28},
+	{Func: 678, Callee: 209, File: 558, Line: 1097, Column: 5},
+	{Func: 678, Callee: 548, File: 558, Line: 1097, Column: 20},
+	{Func: 678, Callee: 680, File: 558, Line: 1097, Column: 30},
+	{Func: 678, Callee: 207, File: 558, Line: 1097, Column: 34},
+	{Func: 678, Callee: 523, File: 558, Line: 1100, Column: 2},
+	{Func: 678, Callee: 496, File: 558, Line: 1100, Column: 13},
+	{Func: 681, Callee: 573, File: 558, Line: 1106, Column: 15},
+	{Func: 681, Callee: 574, File: 558, Line: 1109, Column: 12},
+	{Func: 681, Callee: 508, File: 558, Line: 1110, Column: 3},
 	{Func: 681, Callee: 559, File: 558, Line: 1112, Column: 11},
-	{Func: 681, Callee: 559, File: 558, Line: 1114, Column: 15},
-	{Func: 681, Callee: 548, File: 558, Line: 1115, Column: 6},
-	{Func: 681, Callee: 577, File: 558, Line: 1122, Column: 14},
-	{Func: 681, Callee: 683, File: 558, Line: 1123, Column: 4},
-	{Func: 681, Callee: 577, File: 558, Line: 1125, Column: 14},
-	{Func: 681, Callee: 634, File: 558, Line: 1125, Column: 19},
-	{Func: 681, Callee: 577, File: 558, Line: 1130, Column: 9},
-	{Func: 681, Callee: 593, File: 558, Line: 1130, Column: 14},
-	{Func: 681, Callee: 574, File: 558, Line: 1135, Column: 12},
-	{Func: 681, Callee: 508, File: 558, Line: 1136, Column: 3},
-	{Func: 681, Callee: 684, File: 558, Line: 1138, Column: 12},
-	{Func: 681, Callee: 485, File: 558, Line: 1144, Column: 15},
-	{Func: 681, Callee: 485, File: 558, Line: 1145, Column: 13},
-	{Func: 681, Callee: 485, File: 558, Line: 1146, Column: 14},
-	{Func: 681, Callee: 485, File: 558, Line: 1147, Column: 15},
-	{Func: 681, Callee: 653, File: 558, Line: 1148, Column: 4},
-	{Func: 681, Callee: 683, File: 558, Line: 1150, Column: 4},
-	{Func: 681, Callee: 685, File: 558, Line: 1151, Column: 11},
-	{Func: 681, Callee: 577, File: 558, Line: 1153, Column: 11},
-	{Func: 681, Callee: 595, File: 558, Line: 1153, Column: 16},
-	{Func: 681, Callee: 686, File: 558, Line: 1155, Column: 13},
-	{Func: 681, Callee: 687, File: 558, Line: 1156, Column: 2},
-	{Func: 681, Callee: 559, File: 558, Line: 1156, Column: 18},
-	{Func: 688, Callee: 586, File: 558, Line: 1162, Column: 22},
-	{Func: 688, Callee: 585, File: 558, Line: 1163, Column: 10},
-	{Func: 688, Callee: 689, File: 558, Line: 1165, Column: 2},
+	{Func: 681, Callee: 560, File: 558, Line: 1114, Column: 3},
+	{Func: 681, Callee: 682, File: 558, Line: 1114, Column: 15},
+	{Func: 681, Callee: 598, File: 558, Line: 1115, Column: 7},
+	{Func: 681, Callee: 559, File: 558, Line: 1119, Column: 11},
+	{Func: 681, Callee: 559, File: 558, Line: 1121, Column: 15},
+	{Func: 681, Callee: 548, File: 558, Line: 1122, Column: 6},
+	{Func: 681, Callee: 577, File: 558, Line: 1129, Column: 14},
+	{Func: 681, Callee: 683, File: 558, Line: 1130, Column: 4},
+	{Func: 681, Callee: 577, File: 558, Line: 1132, Column: 14},
+	{Func: 681, Callee: 634, File: 558, Line: 1132, Column: 19},
+	{Func: 681, Callee: 577, File: 558, Line: 1137, Column: 9},
+	{Func: 681, Callee: 593, File: 558, Line: 1137, Column: 14},
+	{Func: 681, Callee: 574, File: 558, Line: 1142, Column: 12},
+	{Func: 681, Callee: 508, File: 558, Line: 1143, Column: 3},
+	{Func: 681, Callee: 684, File: 558, Line: 1145, Column: 12},
+	{Func: 681, Callee: 485, File: 558, Line: 1151, Column: 15},
+	{Func: 681, Callee: 485, File: 558, Line: 1152, Column: 13},
+	{Func: 681, Callee: 485, File: 558, Line: 1153, Column: 14},
+	{Func: 681, Callee: 485, File: 558, Line: 1154, Column: 15},
+	{Func: 681, Callee: 653, File: 558, Line: 1155, Column: 4},
+	{Func: 681, Callee: 683, File: 558, Line: 1157, Column: 4},
+	{Func: 681, Callee: 685, File: 558, Line: 1158, Column: 11},
+	{Func: 681, Callee: 577, File: 558, Line: 1160, Column: 11},
+	{Func: 681, Callee: 595, File: 558, Line: 1160, Column: 16},
+	{Func: 681, Callee: 686, File: 558, Line: 1162, Column: 13},
+	{Func: 681, Callee: 687, File: 558, Line: 1163, Column: 2},
+	{Func: 681, Callee: 559, File: 558, Line: 1163, Column: 18},
+	{Func: 688, Callee: 586, File: 558, Line: 1169, Column: 22},
+	{Func: 688, Callee: 585, File: 558, Line: 1170, Column: 10},
+	{Func: 688, Callee: 689, File: 558, Line: 1172, Column: 2},
 	{Func: 690, Callee: 691, File: 692, Line: 5, Column: 2},
 	{Func: 690, Callee: 508, File: 692, Line: 8, Column: 3},
 	{Func: 690, Callee: 693, File: 692, Line: 9, Column: 3},
@@ -13462,16 +13463,24 @@ func ReportProject_1(env *Env, source string, text_2 string, files []string, str
 	}
 	/*line api/report.ergo:20:1*/ held_1 := map[string]string{}
 	/*line api/report.ergo:21:1*/ i := 0
+	/*line api/report.ergo:22:1*/ pc := 1024
 	/*line api/report.ergo:22:1*/ for {
 		/*line api/report.ergo:23:2*/ if i >= len(files) {
 			/*line api/report.ergo:24:3*/ break
 		}
 		/*line api/report.ergo:26:2*/ held_1[files[i]] = files[i+1]
 		/*line api/report.ergo:27:2*/ i += 2
-		/*line api/report.ergo:22:1*/ env.task.Check()
+		/*line api/report.ergo:25:2*/ {
+			/*line api/report.ergo:22:1*/ pc -= 1
+			/*line api/report.ergo:25:2*/ if pc == 0 {
+				/*line api/report.ergo:22:1*/ pc = 1024
+				/*line api/report.ergo:22:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line api/report.ergo:29:1*/ ds := []Diagnostic{}
 	/*line api/report.ergo:30:1*/ k_1 := 0
+	/*line api/report.ergo:31:1*/ pc_1 := 1024
 	/*line api/report.ergo:31:1*/ for {
 		/*line api/report.ergo:32:2*/ if k_1*3 >= len(strs) {
 			/*line api/report.ergo:33:3*/ break
@@ -13479,21 +13488,34 @@ func ReportProject_1(env *Env, source string, text_2 string, files []string, str
 		/*line api/report.ergo:35:2*/ span_1 := Span_1{Offset: nums[k_1*4], Length: nums[k_1*4+1], Line: nums[k_1*4+2], Column: nums[k_1*4+3]}
 		/*line api/report.ergo:36:2*/ ds = append(ds, Diagnostic{Code: strs[k_1*3], File: strs[k_1*3+1], Message: strs[k_1*3+2], Span: span_1})
 		/*line api/report.ergo:37:2*/ k_1 += 1
-		/*line api/report.ergo:31:1*/ env.task.Check()
+		/*line api/report.ergo:34:2*/ {
+			/*line api/report.ergo:31:1*/ pc_1 -= 1
+			/*line api/report.ergo:34:2*/ if pc_1 == 0 {
+				/*line api/report.ergo:31:1*/ pc_1 = 1024
+				/*line api/report.ergo:31:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line api/report.ergo:39:10*/ v := Project(env, text_2, held_1, ds)
 	/*line api/report.ergo:39:1*/ fs := v
 	/*line api/report.ergo:40:1*/ b := Builder{buf: []uint8{}}
+	/*line api/report.ergo:41:1*/ pc_2 := 1024
 	/*line api/report.ergo:41:1*/ for _, f_1 := range fs {
-		/*line api/report.ergo:42:16*/ var if15 int
+		/*line api/report.ergo:42:16*/ var if17 int
 		/*line api/report.ergo:42:16*/ if f_1.Located {
-			/*line api/report.ergo:42:31*/ if15 = 1
+			/*line api/report.ergo:42:31*/ if17 = 1
 		} else {
-			/*line api/report.ergo:42:42*/ if15 = 0
+			/*line api/report.ergo:42:42*/ if17 = 0
 		}
-		/*line api/report.ergo:42:2*/ located := if15
+		/*line api/report.ergo:42:2*/ located := if17
 		/*line api/report.ergo:43:2*/ (&b).WriteString(field(f_1.Code) + " " + field(f_1.File) + " " + field(f_1.Message) + (" " + strconv.FormatInt(int64(f_1.Span.Offset), 10) + " " + strconv.FormatInt(int64(f_1.Span.Length), 10) + " " + strconv.FormatInt(int64(f_1.Span.Line), 10) + " " + strconv.FormatInt(int64(f_1.Span.Column), 10) + " " + strconv.FormatInt(int64(located), 10) + " " + strconv.FormatInt(int64(f_1.Range.Start.Line), 10) + " " + strconv.FormatInt(int64(f_1.Range.Start.Character), 10) + " " + strconv.FormatInt(int64(f_1.Range.End.Line), 10) + " " + strconv.FormatInt(int64(f_1.Range.End.Character), 10) + "\n"))
-		/*line api/report.ergo:41:1*/ env.task.Check()
+		/*line api/report.ergo:42:44*/ {
+			/*line api/report.ergo:41:1*/ pc_2 -= 1
+			/*line api/report.ergo:42:44*/ if pc_2 == 0 {
+				/*line api/report.ergo:41:1*/ pc_2 = 1024
+				/*line api/report.ergo:41:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line api/report.ergo:45:1*/ (&b).WriteString("--\n")
 	/*line api/report.ergo:46:15*/ v_1 := Lines(env, source, fs)
@@ -14636,10 +14658,17 @@ func Project(env *Env, text_2 string, files map[string]string, ds []Diagnostic) 
 	/*line report/report.ergo:234:1*/ seen := map[string]bool{}
 	/*line report/report.ergo:235:1*/ indexes_1 := map[string]Index{}
 	/*line report/report.ergo:236:1*/ out := []Finding{}
+	/*line report/report.ergo:237:1*/ pc := 1024
 	/*line report/report.ergo:237:1*/ for _, d := range ds {
 		/*line report/report.ergo:238:2*/ key := strconv.FormatInt(int64(len(d.Code)), 10) + ":" + d.Code + (strconv.FormatInt(int64(len(d.File)), 10) + ":") + d.File + (strconv.FormatInt(int64(len(d.Message)), 10) + ":") + d.Message + (" " + strconv.FormatInt(int64(d.Span.Offset), 10) + " " + strconv.FormatInt(int64(d.Span.Length), 10))
 		/*line report/report.ergo:239:2*/ if GetOrMono_i1(seen, key, false) {
-			/*line report/report.ergo:240:3*/ env.task.Check()
+			/*line report/report.ergo:240:3*/ {
+				/*line report/report.ergo:240:3*/ pc -= 1
+				/*line report/report.ergo:240:3*/ if pc == 0 {
+					/*line report/report.ergo:240:3*/ pc = 1024
+					/*line report/report.ergo:240:3*/ env.task.Check()
+				}
+			}
 			/*line report/report.ergo:240:3*/ continue
 		}
 		/*line report/report.ergo:242:2*/ seen[key] = true
@@ -14715,7 +14744,13 @@ func Project(env *Env, text_2 string, files map[string]string, ds []Diagnostic) 
 			}
 		}
 		/*line report/report.ergo:271:2*/ out = append(out, f_1)
-		/*line report/report.ergo:237:1*/ env.task.Check()
+		/*line report/report.ergo:270:2*/ {
+			/*line report/report.ergo:237:1*/ pc -= 1
+			/*line report/report.ergo:270:2*/ if pc == 0 {
+				/*line report/report.ergo:237:1*/ pc = 1024
+				/*line report/report.ergo:237:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line report/report.ergo:273:1*/ v_2 := ergo.SlicesSortStableFunc[Finding](out, func(p_2 Finding, p_3 Finding) int {
 		/*line report/report.ergo:273:1*/ r_2, err := func(env_1 *Env, p Finding, p_1 Finding) (int, error) {
@@ -18454,9 +18489,9 @@ func (p *parser) parseFile() {
 				} else {
 					/*line syntax/parse_decl.ergo:23:9*/ if p.tk == uint8(84) {
 						/*line syntax/parse_decl.ergo:24:3*/ {
-							/*line syntax/parse_decl.ergo#ergo-inline-321:1009:1*/ var testTok_inl321 int
+							/*line syntax/parse_decl.ergo#ergo-inline-321:1016:1*/ var testTok_inl321 int
 							/*line syntax/parse_decl.ergo:24:3*/ {
-								/*line syntax/parse_decl.ergo#ergo-inline-321:1009:23*/ p1_inl322 := uint8(84)
+								/*line syntax/parse_decl.ergo#ergo-inline-321:1016:23*/ p1_inl322 := uint8(84)
 								/*line syntax/parse_decl.ergo:24:3*/ if p.tk != p1_inl322 {
 									/*line syntax/parse_decl.ergo:24:3*/ if p.loud() {
 										/*line syntax/parse_decl.ergo:24:3*/ {
@@ -18548,7 +18583,7 @@ func (p *parser) parseFile() {
 								/*line syntax/parse.ergo#ergo-inline-322:732:1*/ testTok_inl321 = p.i
 								/*line syntax/parse.ergo#ergo-inline-322:733:1*/ p.next()
 							}
-							/*line syntax/parse_decl.ergo#ergo-inline-321:1010:1*/ var name_inl321 uint32
+							/*line syntax/parse_decl.ergo#ergo-inline-321:1017:1*/ var name_inl321 uint32
 							/*line syntax/parse_decl.ergo:24:3*/ {
 								/*line syntax/parse_decl.ergo:24:3*/ if p.tk != uint8(3) {
 									/*line syntax/parse_decl.ergo:24:3*/ {
@@ -18638,13 +18673,13 @@ func (p *parser) parseFile() {
 							/*line syntax/parse_decl.ergo:24:3*/ inl329:
 							/*line syntax/parse_decl.ergo:24:3*/ {
 							}
-							/*line syntax/parse_decl.ergo#ergo-inline-321:1011:1*/ params_inl321 := uint32(0)
+							/*line syntax/parse_decl.ergo#ergo-inline-321:1018:1*/ params_inl321 := uint32(0)
 							/*line syntax/parse_decl.ergo:24:3*/ if p.tk == uint8(51) {
-								/*line syntax/parse_decl.ergo#ergo-inline-321:1013:2*/ params_inl321 = some_1(p.parseParameters(true, false))
+								/*line syntax/parse_decl.ergo#ergo-inline-321:1020:2*/ params_inl321 = some_1(p.parseParameters(true, false))
 							}
 							/*line syntax/parse_decl.ergo:24:3*/ if p.tk != uint8(53) {
 								/*line syntax/parse_decl.ergo:24:3*/ {
-									/*line syntax/parse_decl.ergo#ergo-inline-321:1016:14*/ p1_inl335 := "expected \"{\", found "
+									/*line syntax/parse_decl.ergo#ergo-inline-321:1023:14*/ p1_inl335 := "expected \"{\", found "
 									/*line syntax/parse_decl.ergo:24:3*/ if p.loud() {
 										/*line syntax/parse_decl.ergo:24:3*/ {
 											/*line syntax/parse.ergo#ergo-inline-335:814:18*/ p1_inl336 := p1_inl335 + p.found()
@@ -18712,10 +18747,10 @@ func (p *parser) parseFile() {
 									}
 								}
 							}
-							/*line syntax/parse_decl.ergo#ergo-inline-321:1018:1*/ body_inl321 := p.parseBlock()
+							/*line syntax/parse_decl.ergo#ergo-inline-321:1025:1*/ body_inl321 := p.parseBlock()
 							/*line syntax/parse_decl.ergo:24:3*/ {
-								/*line syntax/parse_decl.ergo#ergo-inline-321:1019:12*/ p0_inl342 := &p.t
-								/*line syntax/parse_decl.ergo#ergo-inline-321:1019:18*/ p1_inl342 := p.t.mark()
+								/*line syntax/parse_decl.ergo#ergo-inline-321:1026:12*/ p0_inl342 := &p.t
+								/*line syntax/parse_decl.ergo#ergo-inline-321:1026:18*/ p1_inl342 := p.t.mark()
 								/*line syntax/parse_decl.ergo:24:3*/ {
 									/*line syntax/parse_decl.ergo:24:3*/ if p0_inl342.top >= len(p0_inl342.stack) {
 										/*line syntax/tree.ergo#ergo-inline-343:163:2*/ p0_inl342.growStack()
@@ -24424,16 +24459,20 @@ func (p *parser) parseExternDecl(doc uint32) uint32 {
 		/*line syntax/parse_decl.ergo:990:2*/ inl754:
 		/*line syntax/parse_decl.ergo:990:2*/ {
 		}
-		/*line syntax/parse_decl.ergo:991:2*/ if !p.failed && (mpath == "" || !isIdentifier(mtype) || !isIdentifier(name) || p.t.items(r, 2) != 1 || p.t.items(p.t.item(r, 0), 11) != 1) {
-			/*line syntax/parse_decl.ergo:992:3*/ p.errorf("an extern method has one named receiver and the target path.Type.Method")
+		/*line syntax/parse_decl.ergo:994:2*/ ok := mpath != "" && isIdentifier(mtype) && isIdentifier(name)
+		/*line syntax/parse_decl.ergo:995:2*/ if mpath == "" {
+			/*line syntax/parse_decl.ergo:996:3*/ ok = path != "" && isIdentifier(name)
+		}
+		/*line syntax/parse_decl.ergo:998:2*/ if !p.failed && (!ok || p.t.items(r, 2) != 1 || p.t.items(p.t.item(r, 0), 11) != 1) {
+			/*line syntax/parse_decl.ergo:999:3*/ p.errorf("an extern method has one named receiver and the target path.Type.Method, or path.Func of a Go function that takes the receiver first")
 		}
 	}
-	/*line syntax/parse_decl.ergo:995:1*/ var fname uint32
-	/*line syntax/parse_decl.ergo:995:1*/ {
-		/*line syntax/parse_decl.ergo:995:1*/ if p.tk != uint8(3) {
-			/*line syntax/parse_decl.ergo:995:1*/ {
+	/*line syntax/parse_decl.ergo:1002:1*/ var fname uint32
+	/*line syntax/parse_decl.ergo:1002:1*/ {
+		/*line syntax/parse_decl.ergo:1002:1*/ if p.tk != uint8(3) {
+			/*line syntax/parse_decl.ergo:1002:1*/ {
 				/*line syntax/parse_type.ergo#ergo-inline-755:6:14*/ p1_inl756 := "expected a name, found "
-				/*line syntax/parse_decl.ergo:995:1*/ if p.loud() {
+				/*line syntax/parse_decl.ergo:1002:1*/ if p.loud() {
 					/*line syntax/parse.ergo#ergo-inline-756:814:2*/ p.errorf(p1_inl756 + p.found())
 				} else {
 					/*line syntax/parse.ergo#ergo-inline-756:816:2*/ p.errorf("")
@@ -24442,35 +24481,35 @@ func (p *parser) parseExternDecl(doc uint32) uint32 {
 			/*line syntax/parse_type.ergo#ergo-inline-755:7:2*/ fname = uint32(4294967295)
 			/*line syntax/parse_type.ergo#ergo-inline-755:7:2*/ goto inl755
 		}
-		/*line syntax/parse_decl.ergo:995:1*/ {
+		/*line syntax/parse_decl.ergo:1002:1*/ {
 			/*line syntax/parse_type.ergo#ergo-inline-755:9:24*/ p1_inl757 := p.i
 			/*line syntax/parse.ergo#ergo-inline-757:1064:44*/ fname = (&p.t).row(uint8(24), uint32(p1_inl757), uint32(0), uint32(0))
 		}
 		/*line syntax/parse_type.ergo#ergo-inline-755:10:1*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:995:1*/ inl755:
-	/*line syntax/parse_decl.ergo:995:1*/ {
+	/*line syntax/parse_decl.ergo:1002:1*/ inl755:
+	/*line syntax/parse_decl.ergo:1002:1*/ {
 	}
-	/*line syntax/parse_decl.ergo:996:1*/ tparams := uint32(0)
-	/*line syntax/parse_decl.ergo:997:1*/ if p.tk == uint8(52) {
-		/*line syntax/parse_decl.ergo:998:2*/ tparams = some_1(p.parseTypeParams())
+	/*line syntax/parse_decl.ergo:1003:1*/ tparams := uint32(0)
+	/*line syntax/parse_decl.ergo:1004:1*/ if p.tk == uint8(52) {
+		/*line syntax/parse_decl.ergo:1005:2*/ tparams = some_1(p.parseTypeParams())
 	}
-	/*line syntax/parse_decl.ergo:1000:1*/ if p.tk != uint8(51) {
-		/*line syntax/parse_decl.ergo:1001:2*/ {
-			/*line syntax/parse_decl.ergo:1001:14*/ p1_inl758 := "expected \"(\", found "
-			/*line syntax/parse_decl.ergo:1001:2*/ if p.loud() {
+	/*line syntax/parse_decl.ergo:1007:1*/ if p.tk != uint8(51) {
+		/*line syntax/parse_decl.ergo:1008:2*/ {
+			/*line syntax/parse_decl.ergo:1008:14*/ p1_inl758 := "expected \"(\", found "
+			/*line syntax/parse_decl.ergo:1008:2*/ if p.loud() {
 				/*line syntax/parse.ergo#ergo-inline-758:814:2*/ p.errorf(p1_inl758 + p.found())
 			} else {
 				/*line syntax/parse.ergo#ergo-inline-758:816:2*/ p.errorf("")
 			}
 		}
 	}
-	/*line syntax/parse_decl.ergo:1003:1*/ ty := p.parseSignature(uint32(0), 0, false)
-	/*line syntax/parse_decl.ergo:1004:1*/ {
-		/*line syntax/parse_decl.ergo:1004:12*/ p0_inl759 := &p.t
-		/*line syntax/parse_decl.ergo:1004:18*/ p1_inl759 := p.t.mark()
-		/*line syntax/parse_decl.ergo:1004:34*/ p3_inl759 := some_1(spec)
-		/*line syntax/parse_decl.ergo:1004:76*/ p9_inl759 := uint32(0)
+	/*line syntax/parse_decl.ergo:1010:1*/ ty := p.parseSignature(uint32(0), 0, false)
+	/*line syntax/parse_decl.ergo:1011:1*/ {
+		/*line syntax/parse_decl.ergo:1011:12*/ p0_inl759 := &p.t
+		/*line syntax/parse_decl.ergo:1011:18*/ p1_inl759 := p.t.mark()
+		/*line syntax/parse_decl.ergo:1011:34*/ p3_inl759 := some_1(spec)
+		/*line syntax/parse_decl.ergo:1011:76*/ p9_inl759 := uint32(0)
 		/*line syntax/view.ergo#ergo-inline-759:599:1*/ p0_inl759.pushW(doc)
 		/*line syntax/view.ergo#ergo-inline-759:600:1*/ p0_inl759.pushW(p3_inl759)
 		/*line syntax/view.ergo#ergo-inline-759:601:1*/ p0_inl759.pushW(recv)
@@ -24484,213 +24523,213 @@ func (p *parser) parseExternDecl(doc uint32) uint32 {
 
 //line syntax/parse_decl.ergo:941
 
-//line syntax/parse_decl.ergo:1008:1
+//line syntax/parse_decl.ergo:1015:1
 func (p *parser) parseTestDecl(doc uint32) uint32 {
-	/*line syntax/parse_decl.ergo:1009:1*/ var testTok int
-	/*line syntax/parse_decl.ergo:1009:1*/ {
-		/*line syntax/parse_decl.ergo:1009:23*/ p1_inl760 := uint8(84)
-		/*line syntax/parse_decl.ergo:1009:1*/ if p.tk != p1_inl760 {
-			/*line syntax/parse_decl.ergo:1009:1*/ if p.loud() {
-				/*line syntax/parse_decl.ergo:1009:1*/ {
+	/*line syntax/parse_decl.ergo:1016:1*/ var testTok int
+	/*line syntax/parse_decl.ergo:1016:1*/ {
+		/*line syntax/parse_decl.ergo:1016:23*/ p1_inl760 := uint8(84)
+		/*line syntax/parse_decl.ergo:1016:1*/ if p.tk != p1_inl760 {
+			/*line syntax/parse_decl.ergo:1016:1*/ if p.loud() {
+				/*line syntax/parse_decl.ergo:1016:1*/ {
 					/*line syntax/parse.ergo#ergo-inline-760:727:46*/ p1_inl761 := "expected " + quote(tokenName(p1_inl760)) + ", found "
-					/*line syntax/parse_decl.ergo:1009:1*/ if p.loud() {
-						/*line syntax/parse_decl.ergo:1009:1*/ {
+					/*line syntax/parse_decl.ergo:1016:1*/ if p.loud() {
+						/*line syntax/parse_decl.ergo:1016:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-761:814:18*/ p1_inl762 := p1_inl761 + p.found()
-							/*line syntax/parse_decl.ergo:1009:1*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1016:1*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-762:824:2*/ goto inl762
 							}
 							/*line syntax/parse.ergo#ergo-inline-762:826:9*/ a_inl762 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-762:826:9*/ i_inl762 := 0
 							/*line syntax/parse.ergo#ergo-inline-762:826:9*/ i_inl762 = i_inl762*256 + int(a_inl762)
 							/*line syntax/parse.ergo#ergo-inline-762:826:9*/ var h_inl762 int
-							/*line syntax/parse_decl.ergo:1009:1*/ if (&tabtokenHabitK[i_inl762]).Ready() {
+							/*line syntax/parse_decl.ergo:1016:1*/ if (&tabtokenHabitK[i_inl762]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-762:826:9*/ h_inl762 = tabtokenHabitV[i_inl762]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-762:826:9*/ h_inl762 = tabtokenHabitFill(i_inl762, a_inl762)
 							}
-							/*line syntax/parse_decl.ergo:1009:1*/ if h_inl762 >= 0 {
-								/*line syntax/parse_decl.ergo:1009:1*/ {
+							/*line syntax/parse_decl.ergo:1016:1*/ if h_inl762 >= 0 {
+								/*line syntax/parse_decl.ergo:1016:1*/ {
 									/*line syntax/parse.ergo#ergo-inline-762:828:11*/ p1_inl763 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-762:828:19*/ p2_inl763 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-763:834:54*/ p.errorAt(p1_inl763, p2_inl763, habitMessages[h_inl762])
 								}
 								/*line syntax/parse.ergo#ergo-inline-762:829:2*/ goto inl762
 							}
-							/*line syntax/parse_decl.ergo:1009:1*/ {
+							/*line syntax/parse_decl.ergo:1016:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-762:831:12*/ p1_inl764 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-762:831:20*/ p2_inl764 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-764:804:65*/ p.errorCode("S001", p1_inl764, p2_inl764, p1_inl762)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1009:1*/ inl762:
-						/*line syntax/parse_decl.ergo:1009:1*/ {
+						/*line syntax/parse_decl.ergo:1016:1*/ inl762:
+						/*line syntax/parse_decl.ergo:1016:1*/ {
 						}
 					} else {
-						/*line syntax/parse_decl.ergo:1009:1*/ {
+						/*line syntax/parse_decl.ergo:1016:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-761:816:12*/ p1_inl765 := ""
-							/*line syntax/parse_decl.ergo:1009:1*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1016:1*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-765:824:2*/ goto inl765
 							}
 							/*line syntax/parse.ergo#ergo-inline-765:826:9*/ a_inl765 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-765:826:9*/ i_inl765 := 0
 							/*line syntax/parse.ergo#ergo-inline-765:826:9*/ i_inl765 = i_inl765*256 + int(a_inl765)
 							/*line syntax/parse.ergo#ergo-inline-765:826:9*/ var h_inl765 int
-							/*line syntax/parse_decl.ergo:1009:1*/ if (&tabtokenHabitK[i_inl765]).Ready() {
+							/*line syntax/parse_decl.ergo:1016:1*/ if (&tabtokenHabitK[i_inl765]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-765:826:9*/ h_inl765 = tabtokenHabitV[i_inl765]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-765:826:9*/ h_inl765 = tabtokenHabitFill(i_inl765, a_inl765)
 							}
-							/*line syntax/parse_decl.ergo:1009:1*/ if h_inl765 >= 0 {
-								/*line syntax/parse_decl.ergo:1009:1*/ {
+							/*line syntax/parse_decl.ergo:1016:1*/ if h_inl765 >= 0 {
+								/*line syntax/parse_decl.ergo:1016:1*/ {
 									/*line syntax/parse.ergo#ergo-inline-765:828:11*/ p1_inl766 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-765:828:19*/ p2_inl766 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-766:834:54*/ p.errorAt(p1_inl766, p2_inl766, habitMessages[h_inl765])
 								}
 								/*line syntax/parse.ergo#ergo-inline-765:829:2*/ goto inl765
 							}
-							/*line syntax/parse_decl.ergo:1009:1*/ {
+							/*line syntax/parse_decl.ergo:1016:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-765:831:12*/ p1_inl767 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-765:831:20*/ p2_inl767 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-767:804:65*/ p.errorCode("S001", p1_inl767, p2_inl767, p1_inl765)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1009:1*/ inl765:
-						/*line syntax/parse_decl.ergo:1009:1*/ {
+						/*line syntax/parse_decl.ergo:1016:1*/ inl765:
+						/*line syntax/parse_decl.ergo:1016:1*/ {
 						}
 					}
 				}
 			} else {
-				/*line syntax/parse_decl.ergo:1009:1*/ {
+				/*line syntax/parse_decl.ergo:1016:1*/ {
 					/*line syntax/parse.ergo#ergo-inline-760:729:13*/ p1_inl768 := ""
-					/*line syntax/parse_decl.ergo:1009:1*/ if p.failed {
+					/*line syntax/parse_decl.ergo:1016:1*/ if p.failed {
 						/*line syntax/parse.ergo#ergo-inline-768:824:2*/ goto inl768
 					}
 					/*line syntax/parse.ergo#ergo-inline-768:826:9*/ a_inl768 := p.tk
 					/*line syntax/parse.ergo#ergo-inline-768:826:9*/ i_inl768 := 0
 					/*line syntax/parse.ergo#ergo-inline-768:826:9*/ i_inl768 = i_inl768*256 + int(a_inl768)
 					/*line syntax/parse.ergo#ergo-inline-768:826:9*/ var h_inl768 int
-					/*line syntax/parse_decl.ergo:1009:1*/ if (&tabtokenHabitK[i_inl768]).Ready() {
+					/*line syntax/parse_decl.ergo:1016:1*/ if (&tabtokenHabitK[i_inl768]).Ready() {
 						/*line syntax/parse.ergo#ergo-inline-768:826:9*/ h_inl768 = tabtokenHabitV[i_inl768]
 					} else {
 						/*line syntax/parse.ergo#ergo-inline-768:826:9*/ h_inl768 = tabtokenHabitFill(i_inl768, a_inl768)
 					}
-					/*line syntax/parse_decl.ergo:1009:1*/ if h_inl768 >= 0 {
-						/*line syntax/parse_decl.ergo:1009:1*/ {
+					/*line syntax/parse_decl.ergo:1016:1*/ if h_inl768 >= 0 {
+						/*line syntax/parse_decl.ergo:1016:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-768:828:11*/ p1_inl769 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-768:828:19*/ p2_inl769 := p.tokLen()
-							/*line syntax/parse_decl.ergo:1009:1*/ {
+							/*line syntax/parse_decl.ergo:1016:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-769:834:77*/ p3_inl770 := habitMessages[h_inl768]
 								/*line syntax/parse.ergo#ergo-inline-770:804:65*/ p.errorCode("S001", p1_inl769, p2_inl769, p3_inl770)
 							}
 						}
 						/*line syntax/parse.ergo#ergo-inline-768:829:2*/ goto inl768
 					}
-					/*line syntax/parse_decl.ergo:1009:1*/ {
+					/*line syntax/parse_decl.ergo:1016:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-768:831:12*/ p1_inl771 := p.pos()
 						/*line syntax/parse.ergo#ergo-inline-768:831:20*/ p2_inl771 := p.tokLen()
 						/*line syntax/parse.ergo#ergo-inline-771:804:65*/ p.errorCode("S001", p1_inl771, p2_inl771, p1_inl768)
 					}
 				}
-				/*line syntax/parse_decl.ergo:1009:1*/ inl768:
-				/*line syntax/parse_decl.ergo:1009:1*/ {
+				/*line syntax/parse_decl.ergo:1016:1*/ inl768:
+				/*line syntax/parse_decl.ergo:1016:1*/ {
 				}
 			}
 		}
 		/*line syntax/parse.ergo#ergo-inline-760:732:1*/ testTok = p.i
 		/*line syntax/parse.ergo#ergo-inline-760:733:1*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:1010:1*/ var name uint32
-	/*line syntax/parse_decl.ergo:1010:1*/ {
-		/*line syntax/parse_decl.ergo:1010:1*/ if p.tk != uint8(3) {
-			/*line syntax/parse_decl.ergo:1010:1*/ {
+	/*line syntax/parse_decl.ergo:1017:1*/ var name uint32
+	/*line syntax/parse_decl.ergo:1017:1*/ {
+		/*line syntax/parse_decl.ergo:1017:1*/ if p.tk != uint8(3) {
+			/*line syntax/parse_decl.ergo:1017:1*/ {
 				/*line syntax/parse_type.ergo#ergo-inline-772:6:14*/ p1_inl773 := "expected a name, found "
-				/*line syntax/parse_decl.ergo:1010:1*/ if p.loud() {
-					/*line syntax/parse_decl.ergo:1010:1*/ {
+				/*line syntax/parse_decl.ergo:1017:1*/ if p.loud() {
+					/*line syntax/parse_decl.ergo:1017:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-773:814:18*/ p1_inl774 := p1_inl773 + p.found()
-						/*line syntax/parse_decl.ergo:1010:1*/ if p.failed {
+						/*line syntax/parse_decl.ergo:1017:1*/ if p.failed {
 							/*line syntax/parse.ergo#ergo-inline-774:824:2*/ goto inl774
 						}
 						/*line syntax/parse.ergo#ergo-inline-774:826:9*/ a_inl774 := p.tk
 						/*line syntax/parse.ergo#ergo-inline-774:826:9*/ i_inl774 := 0
 						/*line syntax/parse.ergo#ergo-inline-774:826:9*/ i_inl774 = i_inl774*256 + int(a_inl774)
 						/*line syntax/parse.ergo#ergo-inline-774:826:9*/ var h_inl774 int
-						/*line syntax/parse_decl.ergo:1010:1*/ if (&tabtokenHabitK[i_inl774]).Ready() {
+						/*line syntax/parse_decl.ergo:1017:1*/ if (&tabtokenHabitK[i_inl774]).Ready() {
 							/*line syntax/parse.ergo#ergo-inline-774:826:9*/ h_inl774 = tabtokenHabitV[i_inl774]
 						} else {
 							/*line syntax/parse.ergo#ergo-inline-774:826:9*/ h_inl774 = tabtokenHabitFill(i_inl774, a_inl774)
 						}
-						/*line syntax/parse_decl.ergo:1010:1*/ if h_inl774 >= 0 {
-							/*line syntax/parse_decl.ergo:1010:1*/ {
+						/*line syntax/parse_decl.ergo:1017:1*/ if h_inl774 >= 0 {
+							/*line syntax/parse_decl.ergo:1017:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-774:828:11*/ p1_inl775 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-774:828:19*/ p2_inl775 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-775:834:54*/ p.errorAt(p1_inl775, p2_inl775, habitMessages[h_inl774])
 							}
 							/*line syntax/parse.ergo#ergo-inline-774:829:2*/ goto inl774
 						}
-						/*line syntax/parse_decl.ergo:1010:1*/ {
+						/*line syntax/parse_decl.ergo:1017:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-774:831:12*/ p1_inl776 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-774:831:20*/ p2_inl776 := p.tokLen()
 							/*line syntax/parse.ergo#ergo-inline-776:804:65*/ p.errorCode("S001", p1_inl776, p2_inl776, p1_inl774)
 						}
 					}
-					/*line syntax/parse_decl.ergo:1010:1*/ inl774:
-					/*line syntax/parse_decl.ergo:1010:1*/ {
+					/*line syntax/parse_decl.ergo:1017:1*/ inl774:
+					/*line syntax/parse_decl.ergo:1017:1*/ {
 					}
 				} else {
-					/*line syntax/parse_decl.ergo:1010:1*/ {
+					/*line syntax/parse_decl.ergo:1017:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-773:816:12*/ p1_inl777 := ""
-						/*line syntax/parse_decl.ergo:1010:1*/ if p.failed {
+						/*line syntax/parse_decl.ergo:1017:1*/ if p.failed {
 							/*line syntax/parse.ergo#ergo-inline-777:824:2*/ goto inl777
 						}
 						/*line syntax/parse.ergo#ergo-inline-777:826:9*/ a_inl777 := p.tk
 						/*line syntax/parse.ergo#ergo-inline-777:826:9*/ i_inl777 := 0
 						/*line syntax/parse.ergo#ergo-inline-777:826:9*/ i_inl777 = i_inl777*256 + int(a_inl777)
 						/*line syntax/parse.ergo#ergo-inline-777:826:9*/ var h_inl777 int
-						/*line syntax/parse_decl.ergo:1010:1*/ if (&tabtokenHabitK[i_inl777]).Ready() {
+						/*line syntax/parse_decl.ergo:1017:1*/ if (&tabtokenHabitK[i_inl777]).Ready() {
 							/*line syntax/parse.ergo#ergo-inline-777:826:9*/ h_inl777 = tabtokenHabitV[i_inl777]
 						} else {
 							/*line syntax/parse.ergo#ergo-inline-777:826:9*/ h_inl777 = tabtokenHabitFill(i_inl777, a_inl777)
 						}
-						/*line syntax/parse_decl.ergo:1010:1*/ if h_inl777 >= 0 {
-							/*line syntax/parse_decl.ergo:1010:1*/ {
+						/*line syntax/parse_decl.ergo:1017:1*/ if h_inl777 >= 0 {
+							/*line syntax/parse_decl.ergo:1017:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-777:828:11*/ p1_inl778 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-777:828:19*/ p2_inl778 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-778:834:54*/ p.errorAt(p1_inl778, p2_inl778, habitMessages[h_inl777])
 							}
 							/*line syntax/parse.ergo#ergo-inline-777:829:2*/ goto inl777
 						}
-						/*line syntax/parse_decl.ergo:1010:1*/ {
+						/*line syntax/parse_decl.ergo:1017:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-777:831:12*/ p1_inl779 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-777:831:20*/ p2_inl779 := p.tokLen()
 							/*line syntax/parse.ergo#ergo-inline-779:804:65*/ p.errorCode("S001", p1_inl779, p2_inl779, p1_inl777)
 						}
 					}
-					/*line syntax/parse_decl.ergo:1010:1*/ inl777:
-					/*line syntax/parse_decl.ergo:1010:1*/ {
+					/*line syntax/parse_decl.ergo:1017:1*/ inl777:
+					/*line syntax/parse_decl.ergo:1017:1*/ {
 					}
 				}
 			}
 			/*line syntax/parse_type.ergo#ergo-inline-772:7:2*/ name = uint32(4294967295)
 			/*line syntax/parse_type.ergo#ergo-inline-772:7:2*/ goto inl772
 		}
-		/*line syntax/parse_decl.ergo:1010:1*/ {
+		/*line syntax/parse_decl.ergo:1017:1*/ {
 			/*line syntax/parse_type.ergo#ergo-inline-772:9:24*/ p1_inl780 := p.i
-			/*line syntax/parse_decl.ergo:1010:1*/ {
+			/*line syntax/parse_decl.ergo:1017:1*/ {
 				/*line syntax/parse.ergo#ergo-inline-780:1064:48*/ p0_inl781 := &p.t
 				/*line syntax/parse.ergo#ergo-inline-780:1064:54*/ p1_inl781 := uint8(24)
 				/*line syntax/parse.ergo#ergo-inline-780:1064:62*/ p2_inl781 := uint32(p1_inl780)
 				/*line syntax/parse.ergo#ergo-inline-780:1064:73*/ p3_inl781 := uint32(0)
 				/*line syntax/parse.ergo#ergo-inline-780:1064:84*/ p4_inl781 := uint32(0)
 				/*line syntax/tree.ergo#ergo-inline-781:133:1*/ i_inl781 := p0_inl781.n
-				/*line syntax/parse_decl.ergo:1010:1*/ if i_inl781 >= len(p0_inl781.kind) {
+				/*line syntax/parse_decl.ergo:1017:1*/ if i_inl781 >= len(p0_inl781.kind) {
 					/*line syntax/tree.ergo#ergo-inline-781:135:2*/ p0_inl781.growRows()
 				}
 				/*line syntax/tree.ergo#ergo-inline-781:137:1*/ p0_inl781.kind[i_inl781] = uint32(p1_inl781)
 				/*line syntax/tree.ergo#ergo-inline-781:138:1*/ p0_inl781.tok[i_inl781] = p2_inl781
 				/*line syntax/tree.ergo#ergo-inline-781:139:1*/ p0_inl781.a[i_inl781] = p3_inl781
 				/*line syntax/tree.ergo#ergo-inline-781:140:1*/ p0_inl781.b[i_inl781] = p4_inl781
-				/*line syntax/parse_decl.ergo:1010:1*/ if i_inl781 == CountTotalMono_i3(p0_inl781.ids) {
-					/*line syntax/parse_decl.ergo:1010:1*/ {
+				/*line syntax/parse_decl.ergo:1017:1*/ if i_inl781 == CountTotalMono_i3(p0_inl781.ids) {
+					/*line syntax/parse_decl.ergo:1017:1*/ {
 						/*line syntax/tree.ergo#ergo-inline-781:142:21*/ p0_inl782 := &p0_inl781.ids
 						/*line syntax/tree.ergo#ergo-inline-781:142:10*/ id_inl782 := nextMono_i2(int(p0_inl782.n))
 						/*line syntax/tree.ergo#ergo-inline-781:142:10*/ p0_inl782.n = p0_inl782.n + uint32(1)
@@ -24702,121 +24741,121 @@ func (p *parser) parseTestDecl(doc uint32) uint32 {
 				/*line syntax/tree.ergo#ergo-inline-781:145:1*/ goto inl780
 			}
 		}
-		/*line syntax/parse_decl.ergo:1010:1*/ inl780:
-		/*line syntax/parse_decl.ergo:1010:1*/ {
+		/*line syntax/parse_decl.ergo:1017:1*/ inl780:
+		/*line syntax/parse_decl.ergo:1017:1*/ {
 		}
 		/*line syntax/parse_type.ergo#ergo-inline-772:10:1*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:1010:1*/ inl772:
-	/*line syntax/parse_decl.ergo:1010:1*/ {
+	/*line syntax/parse_decl.ergo:1017:1*/ inl772:
+	/*line syntax/parse_decl.ergo:1017:1*/ {
 	}
-	/*line syntax/parse_decl.ergo:1011:1*/ params := uint32(0)
-	/*line syntax/parse_decl.ergo:1012:1*/ if p.tk == uint8(51) {
-		/*line syntax/parse_decl.ergo:1013:2*/ params = some_1(p.parseParameters(true, false))
+	/*line syntax/parse_decl.ergo:1018:1*/ params := uint32(0)
+	/*line syntax/parse_decl.ergo:1019:1*/ if p.tk == uint8(51) {
+		/*line syntax/parse_decl.ergo:1020:2*/ params = some_1(p.parseParameters(true, false))
 	}
-	/*line syntax/parse_decl.ergo:1015:1*/ if p.tk != uint8(53) {
-		/*line syntax/parse_decl.ergo:1016:2*/ {
-			/*line syntax/parse_decl.ergo:1016:14*/ p1_inl783 := "expected \"{\", found "
-			/*line syntax/parse_decl.ergo:1016:2*/ if p.loud() {
-				/*line syntax/parse_decl.ergo:1016:2*/ {
+	/*line syntax/parse_decl.ergo:1022:1*/ if p.tk != uint8(53) {
+		/*line syntax/parse_decl.ergo:1023:2*/ {
+			/*line syntax/parse_decl.ergo:1023:14*/ p1_inl783 := "expected \"{\", found "
+			/*line syntax/parse_decl.ergo:1023:2*/ if p.loud() {
+				/*line syntax/parse_decl.ergo:1023:2*/ {
 					/*line syntax/parse.ergo#ergo-inline-783:814:18*/ p1_inl784 := p1_inl783 + p.found()
-					/*line syntax/parse_decl.ergo:1016:2*/ if p.failed {
+					/*line syntax/parse_decl.ergo:1023:2*/ if p.failed {
 						/*line syntax/parse.ergo#ergo-inline-784:824:2*/ goto inl784
 					}
 					/*line syntax/parse.ergo#ergo-inline-784:826:9*/ a_inl784 := p.tk
 					/*line syntax/parse.ergo#ergo-inline-784:826:9*/ i_inl784 := 0
 					/*line syntax/parse.ergo#ergo-inline-784:826:9*/ i_inl784 = i_inl784*256 + int(a_inl784)
 					/*line syntax/parse.ergo#ergo-inline-784:826:9*/ var h_inl784 int
-					/*line syntax/parse_decl.ergo:1016:2*/ if (&tabtokenHabitK[i_inl784]).Ready() {
+					/*line syntax/parse_decl.ergo:1023:2*/ if (&tabtokenHabitK[i_inl784]).Ready() {
 						/*line syntax/parse.ergo#ergo-inline-784:826:9*/ h_inl784 = tabtokenHabitV[i_inl784]
 					} else {
 						/*line syntax/parse.ergo#ergo-inline-784:826:9*/ h_inl784 = tabtokenHabitFill(i_inl784, a_inl784)
 					}
-					/*line syntax/parse_decl.ergo:1016:2*/ if h_inl784 >= 0 {
-						/*line syntax/parse_decl.ergo:1016:2*/ {
+					/*line syntax/parse_decl.ergo:1023:2*/ if h_inl784 >= 0 {
+						/*line syntax/parse_decl.ergo:1023:2*/ {
 							/*line syntax/parse.ergo#ergo-inline-784:828:11*/ p1_inl785 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-784:828:19*/ p2_inl785 := p.tokLen()
-							/*line syntax/parse_decl.ergo:1016:2*/ {
+							/*line syntax/parse_decl.ergo:1023:2*/ {
 								/*line syntax/parse.ergo#ergo-inline-785:834:77*/ p3_inl786 := habitMessages[h_inl784]
 								/*line syntax/parse.ergo#ergo-inline-786:804:65*/ p.errorCode("S001", p1_inl785, p2_inl785, p3_inl786)
 							}
 						}
 						/*line syntax/parse.ergo#ergo-inline-784:829:2*/ goto inl784
 					}
-					/*line syntax/parse_decl.ergo:1016:2*/ {
+					/*line syntax/parse_decl.ergo:1023:2*/ {
 						/*line syntax/parse.ergo#ergo-inline-784:831:12*/ p1_inl787 := p.pos()
 						/*line syntax/parse.ergo#ergo-inline-784:831:20*/ p2_inl787 := p.tokLen()
 						/*line syntax/parse.ergo#ergo-inline-787:804:65*/ p.errorCode("S001", p1_inl787, p2_inl787, p1_inl784)
 					}
 				}
-				/*line syntax/parse_decl.ergo:1016:2*/ inl784:
-				/*line syntax/parse_decl.ergo:1016:2*/ {
+				/*line syntax/parse_decl.ergo:1023:2*/ inl784:
+				/*line syntax/parse_decl.ergo:1023:2*/ {
 				}
 			} else {
-				/*line syntax/parse_decl.ergo:1016:2*/ {
+				/*line syntax/parse_decl.ergo:1023:2*/ {
 					/*line syntax/parse.ergo#ergo-inline-783:816:12*/ p1_inl788 := ""
-					/*line syntax/parse_decl.ergo:1016:2*/ if p.failed {
+					/*line syntax/parse_decl.ergo:1023:2*/ if p.failed {
 						/*line syntax/parse.ergo#ergo-inline-788:824:2*/ goto inl788
 					}
 					/*line syntax/parse.ergo#ergo-inline-788:826:9*/ a_inl788 := p.tk
 					/*line syntax/parse.ergo#ergo-inline-788:826:9*/ i_inl788 := 0
 					/*line syntax/parse.ergo#ergo-inline-788:826:9*/ i_inl788 = i_inl788*256 + int(a_inl788)
 					/*line syntax/parse.ergo#ergo-inline-788:826:9*/ var h_inl788 int
-					/*line syntax/parse_decl.ergo:1016:2*/ if (&tabtokenHabitK[i_inl788]).Ready() {
+					/*line syntax/parse_decl.ergo:1023:2*/ if (&tabtokenHabitK[i_inl788]).Ready() {
 						/*line syntax/parse.ergo#ergo-inline-788:826:9*/ h_inl788 = tabtokenHabitV[i_inl788]
 					} else {
 						/*line syntax/parse.ergo#ergo-inline-788:826:9*/ h_inl788 = tabtokenHabitFill(i_inl788, a_inl788)
 					}
-					/*line syntax/parse_decl.ergo:1016:2*/ if h_inl788 >= 0 {
-						/*line syntax/parse_decl.ergo:1016:2*/ {
+					/*line syntax/parse_decl.ergo:1023:2*/ if h_inl788 >= 0 {
+						/*line syntax/parse_decl.ergo:1023:2*/ {
 							/*line syntax/parse.ergo#ergo-inline-788:828:11*/ p1_inl789 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-788:828:19*/ p2_inl789 := p.tokLen()
-							/*line syntax/parse_decl.ergo:1016:2*/ {
+							/*line syntax/parse_decl.ergo:1023:2*/ {
 								/*line syntax/parse.ergo#ergo-inline-789:834:77*/ p3_inl790 := habitMessages[h_inl788]
 								/*line syntax/parse.ergo#ergo-inline-790:804:65*/ p.errorCode("S001", p1_inl789, p2_inl789, p3_inl790)
 							}
 						}
 						/*line syntax/parse.ergo#ergo-inline-788:829:2*/ goto inl788
 					}
-					/*line syntax/parse_decl.ergo:1016:2*/ {
+					/*line syntax/parse_decl.ergo:1023:2*/ {
 						/*line syntax/parse.ergo#ergo-inline-788:831:12*/ p1_inl791 := p.pos()
 						/*line syntax/parse.ergo#ergo-inline-788:831:20*/ p2_inl791 := p.tokLen()
 						/*line syntax/parse.ergo#ergo-inline-791:804:65*/ p.errorCode("S001", p1_inl791, p2_inl791, p1_inl788)
 					}
 				}
-				/*line syntax/parse_decl.ergo:1016:2*/ inl788:
-				/*line syntax/parse_decl.ergo:1016:2*/ {
+				/*line syntax/parse_decl.ergo:1023:2*/ inl788:
+				/*line syntax/parse_decl.ergo:1023:2*/ {
 				}
 			}
 		}
 	}
-	/*line syntax/parse_decl.ergo:1018:1*/ body := p.parseBlock()
-	/*line syntax/parse_decl.ergo:1019:1*/ {
-		/*line syntax/parse_decl.ergo:1019:12*/ p0_inl792 := &p.t
-		/*line syntax/parse_decl.ergo:1019:18*/ p1_inl792 := p.t.mark()
-		/*line syntax/parse_decl.ergo:1019:1*/ {
-			/*line syntax/parse_decl.ergo:1019:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
+	/*line syntax/parse_decl.ergo:1025:1*/ body := p.parseBlock()
+	/*line syntax/parse_decl.ergo:1026:1*/ {
+		/*line syntax/parse_decl.ergo:1026:12*/ p0_inl792 := &p.t
+		/*line syntax/parse_decl.ergo:1026:18*/ p1_inl792 := p.t.mark()
+		/*line syntax/parse_decl.ergo:1026:1*/ {
+			/*line syntax/parse_decl.ergo:1026:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
 				/*line syntax/tree.ergo#ergo-inline-793:163:2*/ p0_inl792.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-793:165:1*/ p0_inl792.stack[p0_inl792.top] = doc
 			/*line syntax/tree.ergo#ergo-inline-793:166:1*/ p0_inl792.top = p0_inl792.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1019:1*/ {
-			/*line syntax/parse_decl.ergo:1019:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
+		/*line syntax/parse_decl.ergo:1026:1*/ {
+			/*line syntax/parse_decl.ergo:1026:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
 				/*line syntax/tree.ergo#ergo-inline-794:163:2*/ p0_inl792.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-794:165:1*/ p0_inl792.stack[p0_inl792.top] = name
 			/*line syntax/tree.ergo#ergo-inline-794:166:1*/ p0_inl792.top = p0_inl792.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1019:1*/ {
-			/*line syntax/parse_decl.ergo:1019:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
+		/*line syntax/parse_decl.ergo:1026:1*/ {
+			/*line syntax/parse_decl.ergo:1026:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
 				/*line syntax/tree.ergo#ergo-inline-795:163:2*/ p0_inl792.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-795:165:1*/ p0_inl792.stack[p0_inl792.top] = params
 			/*line syntax/tree.ergo#ergo-inline-795:166:1*/ p0_inl792.top = p0_inl792.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1019:1*/ {
-			/*line syntax/parse_decl.ergo:1019:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
+		/*line syntax/parse_decl.ergo:1026:1*/ {
+			/*line syntax/parse_decl.ergo:1026:1*/ if p0_inl792.top >= len(p0_inl792.stack) {
 				/*line syntax/tree.ergo#ergo-inline-796:163:2*/ p0_inl792.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-796:165:1*/ p0_inl792.stack[p0_inl792.top] = body
@@ -24826,215 +24865,215 @@ func (p *parser) parseTestDecl(doc uint32) uint32 {
 	}
 }
 
-//line syntax/parse_decl.ergo:1009
+//line syntax/parse_decl.ergo:1016
 
-//line syntax/parse_decl.ergo:1028:1
+//line syntax/parse_decl.ergo:1035:1
 func (p *parser) parseLawDecl(doc uint32, top bool) uint32 {
-	/*line syntax/parse_decl.ergo:1029:1*/ var arg_3 int
-	/*line syntax/parse_decl.ergo:1029:1*/ {
-		/*line syntax/parse_decl.ergo:1029:22*/ p1_inl797 := uint8(85)
-		/*line syntax/parse_decl.ergo:1029:1*/ if p.tk != p1_inl797 {
-			/*line syntax/parse_decl.ergo:1029:1*/ if p.loud() {
-				/*line syntax/parse_decl.ergo:1029:1*/ {
+	/*line syntax/parse_decl.ergo:1036:1*/ var arg_3 int
+	/*line syntax/parse_decl.ergo:1036:1*/ {
+		/*line syntax/parse_decl.ergo:1036:22*/ p1_inl797 := uint8(85)
+		/*line syntax/parse_decl.ergo:1036:1*/ if p.tk != p1_inl797 {
+			/*line syntax/parse_decl.ergo:1036:1*/ if p.loud() {
+				/*line syntax/parse_decl.ergo:1036:1*/ {
 					/*line syntax/parse.ergo#ergo-inline-797:727:46*/ p1_inl798 := "expected " + quote(tokenName(p1_inl797)) + ", found "
-					/*line syntax/parse_decl.ergo:1029:1*/ if p.loud() {
-						/*line syntax/parse_decl.ergo:1029:1*/ {
+					/*line syntax/parse_decl.ergo:1036:1*/ if p.loud() {
+						/*line syntax/parse_decl.ergo:1036:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-798:814:18*/ p1_inl799 := p1_inl798 + p.found()
-							/*line syntax/parse_decl.ergo:1029:1*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1036:1*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-799:824:2*/ goto inl799
 							}
 							/*line syntax/parse.ergo#ergo-inline-799:826:9*/ a_inl799 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-799:826:9*/ i_inl799 := 0
 							/*line syntax/parse.ergo#ergo-inline-799:826:9*/ i_inl799 = i_inl799*256 + int(a_inl799)
 							/*line syntax/parse.ergo#ergo-inline-799:826:9*/ var h_inl799 int
-							/*line syntax/parse_decl.ergo:1029:1*/ if (&tabtokenHabitK[i_inl799]).Ready() {
+							/*line syntax/parse_decl.ergo:1036:1*/ if (&tabtokenHabitK[i_inl799]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-799:826:9*/ h_inl799 = tabtokenHabitV[i_inl799]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-799:826:9*/ h_inl799 = tabtokenHabitFill(i_inl799, a_inl799)
 							}
-							/*line syntax/parse_decl.ergo:1029:1*/ if h_inl799 >= 0 {
-								/*line syntax/parse_decl.ergo:1029:1*/ {
+							/*line syntax/parse_decl.ergo:1036:1*/ if h_inl799 >= 0 {
+								/*line syntax/parse_decl.ergo:1036:1*/ {
 									/*line syntax/parse.ergo#ergo-inline-799:828:11*/ p1_inl800 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-799:828:19*/ p2_inl800 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-800:834:54*/ p.errorAt(p1_inl800, p2_inl800, habitMessages[h_inl799])
 								}
 								/*line syntax/parse.ergo#ergo-inline-799:829:2*/ goto inl799
 							}
-							/*line syntax/parse_decl.ergo:1029:1*/ {
+							/*line syntax/parse_decl.ergo:1036:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-799:831:12*/ p1_inl801 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-799:831:20*/ p2_inl801 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-801:804:65*/ p.errorCode("S001", p1_inl801, p2_inl801, p1_inl799)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1029:1*/ inl799:
-						/*line syntax/parse_decl.ergo:1029:1*/ {
+						/*line syntax/parse_decl.ergo:1036:1*/ inl799:
+						/*line syntax/parse_decl.ergo:1036:1*/ {
 						}
 					} else {
-						/*line syntax/parse_decl.ergo:1029:1*/ {
+						/*line syntax/parse_decl.ergo:1036:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-798:816:12*/ p1_inl802 := ""
-							/*line syntax/parse_decl.ergo:1029:1*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1036:1*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-802:824:2*/ goto inl802
 							}
 							/*line syntax/parse.ergo#ergo-inline-802:826:9*/ a_inl802 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-802:826:9*/ i_inl802 := 0
 							/*line syntax/parse.ergo#ergo-inline-802:826:9*/ i_inl802 = i_inl802*256 + int(a_inl802)
 							/*line syntax/parse.ergo#ergo-inline-802:826:9*/ var h_inl802 int
-							/*line syntax/parse_decl.ergo:1029:1*/ if (&tabtokenHabitK[i_inl802]).Ready() {
+							/*line syntax/parse_decl.ergo:1036:1*/ if (&tabtokenHabitK[i_inl802]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-802:826:9*/ h_inl802 = tabtokenHabitV[i_inl802]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-802:826:9*/ h_inl802 = tabtokenHabitFill(i_inl802, a_inl802)
 							}
-							/*line syntax/parse_decl.ergo:1029:1*/ if h_inl802 >= 0 {
-								/*line syntax/parse_decl.ergo:1029:1*/ {
+							/*line syntax/parse_decl.ergo:1036:1*/ if h_inl802 >= 0 {
+								/*line syntax/parse_decl.ergo:1036:1*/ {
 									/*line syntax/parse.ergo#ergo-inline-802:828:11*/ p1_inl803 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-802:828:19*/ p2_inl803 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-803:834:54*/ p.errorAt(p1_inl803, p2_inl803, habitMessages[h_inl802])
 								}
 								/*line syntax/parse.ergo#ergo-inline-802:829:2*/ goto inl802
 							}
-							/*line syntax/parse_decl.ergo:1029:1*/ {
+							/*line syntax/parse_decl.ergo:1036:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-802:831:12*/ p1_inl804 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-802:831:20*/ p2_inl804 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-804:804:65*/ p.errorCode("S001", p1_inl804, p2_inl804, p1_inl802)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1029:1*/ inl802:
-						/*line syntax/parse_decl.ergo:1029:1*/ {
+						/*line syntax/parse_decl.ergo:1036:1*/ inl802:
+						/*line syntax/parse_decl.ergo:1036:1*/ {
 						}
 					}
 				}
 			} else {
-				/*line syntax/parse_decl.ergo:1029:1*/ {
+				/*line syntax/parse_decl.ergo:1036:1*/ {
 					/*line syntax/parse.ergo#ergo-inline-797:729:13*/ p1_inl805 := ""
-					/*line syntax/parse_decl.ergo:1029:1*/ if p.failed {
+					/*line syntax/parse_decl.ergo:1036:1*/ if p.failed {
 						/*line syntax/parse.ergo#ergo-inline-805:824:2*/ goto inl805
 					}
 					/*line syntax/parse.ergo#ergo-inline-805:826:9*/ a_inl805 := p.tk
 					/*line syntax/parse.ergo#ergo-inline-805:826:9*/ i_inl805 := 0
 					/*line syntax/parse.ergo#ergo-inline-805:826:9*/ i_inl805 = i_inl805*256 + int(a_inl805)
 					/*line syntax/parse.ergo#ergo-inline-805:826:9*/ var h_inl805 int
-					/*line syntax/parse_decl.ergo:1029:1*/ if (&tabtokenHabitK[i_inl805]).Ready() {
+					/*line syntax/parse_decl.ergo:1036:1*/ if (&tabtokenHabitK[i_inl805]).Ready() {
 						/*line syntax/parse.ergo#ergo-inline-805:826:9*/ h_inl805 = tabtokenHabitV[i_inl805]
 					} else {
 						/*line syntax/parse.ergo#ergo-inline-805:826:9*/ h_inl805 = tabtokenHabitFill(i_inl805, a_inl805)
 					}
-					/*line syntax/parse_decl.ergo:1029:1*/ if h_inl805 >= 0 {
-						/*line syntax/parse_decl.ergo:1029:1*/ {
+					/*line syntax/parse_decl.ergo:1036:1*/ if h_inl805 >= 0 {
+						/*line syntax/parse_decl.ergo:1036:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-805:828:11*/ p1_inl806 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-805:828:19*/ p2_inl806 := p.tokLen()
-							/*line syntax/parse_decl.ergo:1029:1*/ {
+							/*line syntax/parse_decl.ergo:1036:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-806:834:77*/ p3_inl807 := habitMessages[h_inl805]
 								/*line syntax/parse.ergo#ergo-inline-807:804:65*/ p.errorCode("S001", p1_inl806, p2_inl806, p3_inl807)
 							}
 						}
 						/*line syntax/parse.ergo#ergo-inline-805:829:2*/ goto inl805
 					}
-					/*line syntax/parse_decl.ergo:1029:1*/ {
+					/*line syntax/parse_decl.ergo:1036:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-805:831:12*/ p1_inl808 := p.pos()
 						/*line syntax/parse.ergo#ergo-inline-805:831:20*/ p2_inl808 := p.tokLen()
 						/*line syntax/parse.ergo#ergo-inline-808:804:65*/ p.errorCode("S001", p1_inl808, p2_inl808, p1_inl805)
 					}
 				}
-				/*line syntax/parse_decl.ergo:1029:1*/ inl805:
-				/*line syntax/parse_decl.ergo:1029:1*/ {
+				/*line syntax/parse_decl.ergo:1036:1*/ inl805:
+				/*line syntax/parse_decl.ergo:1036:1*/ {
 				}
 			}
 		}
 		/*line syntax/parse.ergo#ergo-inline-797:732:1*/ arg_3 = p.i
 		/*line syntax/parse.ergo#ergo-inline-797:733:1*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:1030:1*/ var arg_4 uint32
-	/*line syntax/parse_decl.ergo:1030:1*/ {
-		/*line syntax/parse_decl.ergo:1030:1*/ if p.tk != uint8(3) {
-			/*line syntax/parse_decl.ergo:1030:1*/ {
+	/*line syntax/parse_decl.ergo:1037:1*/ var arg_4 uint32
+	/*line syntax/parse_decl.ergo:1037:1*/ {
+		/*line syntax/parse_decl.ergo:1037:1*/ if p.tk != uint8(3) {
+			/*line syntax/parse_decl.ergo:1037:1*/ {
 				/*line syntax/parse_type.ergo#ergo-inline-809:6:14*/ p1_inl810 := "expected a name, found "
-				/*line syntax/parse_decl.ergo:1030:1*/ if p.loud() {
-					/*line syntax/parse_decl.ergo:1030:1*/ {
+				/*line syntax/parse_decl.ergo:1037:1*/ if p.loud() {
+					/*line syntax/parse_decl.ergo:1037:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-810:814:18*/ p1_inl811 := p1_inl810 + p.found()
-						/*line syntax/parse_decl.ergo:1030:1*/ if p.failed {
+						/*line syntax/parse_decl.ergo:1037:1*/ if p.failed {
 							/*line syntax/parse.ergo#ergo-inline-811:824:2*/ goto inl811
 						}
 						/*line syntax/parse.ergo#ergo-inline-811:826:9*/ a_inl811 := p.tk
 						/*line syntax/parse.ergo#ergo-inline-811:826:9*/ i_inl811 := 0
 						/*line syntax/parse.ergo#ergo-inline-811:826:9*/ i_inl811 = i_inl811*256 + int(a_inl811)
 						/*line syntax/parse.ergo#ergo-inline-811:826:9*/ var h_inl811 int
-						/*line syntax/parse_decl.ergo:1030:1*/ if (&tabtokenHabitK[i_inl811]).Ready() {
+						/*line syntax/parse_decl.ergo:1037:1*/ if (&tabtokenHabitK[i_inl811]).Ready() {
 							/*line syntax/parse.ergo#ergo-inline-811:826:9*/ h_inl811 = tabtokenHabitV[i_inl811]
 						} else {
 							/*line syntax/parse.ergo#ergo-inline-811:826:9*/ h_inl811 = tabtokenHabitFill(i_inl811, a_inl811)
 						}
-						/*line syntax/parse_decl.ergo:1030:1*/ if h_inl811 >= 0 {
-							/*line syntax/parse_decl.ergo:1030:1*/ {
+						/*line syntax/parse_decl.ergo:1037:1*/ if h_inl811 >= 0 {
+							/*line syntax/parse_decl.ergo:1037:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-811:828:11*/ p1_inl812 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-811:828:19*/ p2_inl812 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-812:834:54*/ p.errorAt(p1_inl812, p2_inl812, habitMessages[h_inl811])
 							}
 							/*line syntax/parse.ergo#ergo-inline-811:829:2*/ goto inl811
 						}
-						/*line syntax/parse_decl.ergo:1030:1*/ {
+						/*line syntax/parse_decl.ergo:1037:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-811:831:12*/ p1_inl813 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-811:831:20*/ p2_inl813 := p.tokLen()
 							/*line syntax/parse.ergo#ergo-inline-813:804:65*/ p.errorCode("S001", p1_inl813, p2_inl813, p1_inl811)
 						}
 					}
-					/*line syntax/parse_decl.ergo:1030:1*/ inl811:
-					/*line syntax/parse_decl.ergo:1030:1*/ {
+					/*line syntax/parse_decl.ergo:1037:1*/ inl811:
+					/*line syntax/parse_decl.ergo:1037:1*/ {
 					}
 				} else {
-					/*line syntax/parse_decl.ergo:1030:1*/ {
+					/*line syntax/parse_decl.ergo:1037:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-810:816:12*/ p1_inl814 := ""
-						/*line syntax/parse_decl.ergo:1030:1*/ if p.failed {
+						/*line syntax/parse_decl.ergo:1037:1*/ if p.failed {
 							/*line syntax/parse.ergo#ergo-inline-814:824:2*/ goto inl814
 						}
 						/*line syntax/parse.ergo#ergo-inline-814:826:9*/ a_inl814 := p.tk
 						/*line syntax/parse.ergo#ergo-inline-814:826:9*/ i_inl814 := 0
 						/*line syntax/parse.ergo#ergo-inline-814:826:9*/ i_inl814 = i_inl814*256 + int(a_inl814)
 						/*line syntax/parse.ergo#ergo-inline-814:826:9*/ var h_inl814 int
-						/*line syntax/parse_decl.ergo:1030:1*/ if (&tabtokenHabitK[i_inl814]).Ready() {
+						/*line syntax/parse_decl.ergo:1037:1*/ if (&tabtokenHabitK[i_inl814]).Ready() {
 							/*line syntax/parse.ergo#ergo-inline-814:826:9*/ h_inl814 = tabtokenHabitV[i_inl814]
 						} else {
 							/*line syntax/parse.ergo#ergo-inline-814:826:9*/ h_inl814 = tabtokenHabitFill(i_inl814, a_inl814)
 						}
-						/*line syntax/parse_decl.ergo:1030:1*/ if h_inl814 >= 0 {
-							/*line syntax/parse_decl.ergo:1030:1*/ {
+						/*line syntax/parse_decl.ergo:1037:1*/ if h_inl814 >= 0 {
+							/*line syntax/parse_decl.ergo:1037:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-814:828:11*/ p1_inl815 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-814:828:19*/ p2_inl815 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-815:834:54*/ p.errorAt(p1_inl815, p2_inl815, habitMessages[h_inl814])
 							}
 							/*line syntax/parse.ergo#ergo-inline-814:829:2*/ goto inl814
 						}
-						/*line syntax/parse_decl.ergo:1030:1*/ {
+						/*line syntax/parse_decl.ergo:1037:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-814:831:12*/ p1_inl816 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-814:831:20*/ p2_inl816 := p.tokLen()
 							/*line syntax/parse.ergo#ergo-inline-816:804:65*/ p.errorCode("S001", p1_inl816, p2_inl816, p1_inl814)
 						}
 					}
-					/*line syntax/parse_decl.ergo:1030:1*/ inl814:
-					/*line syntax/parse_decl.ergo:1030:1*/ {
+					/*line syntax/parse_decl.ergo:1037:1*/ inl814:
+					/*line syntax/parse_decl.ergo:1037:1*/ {
 					}
 				}
 			}
 			/*line syntax/parse_type.ergo#ergo-inline-809:7:2*/ arg_4 = uint32(4294967295)
 			/*line syntax/parse_type.ergo#ergo-inline-809:7:2*/ goto inl809
 		}
-		/*line syntax/parse_decl.ergo:1030:1*/ {
+		/*line syntax/parse_decl.ergo:1037:1*/ {
 			/*line syntax/parse_type.ergo#ergo-inline-809:9:24*/ p1_inl817 := p.i
-			/*line syntax/parse_decl.ergo:1030:1*/ {
+			/*line syntax/parse_decl.ergo:1037:1*/ {
 				/*line syntax/parse.ergo#ergo-inline-817:1064:48*/ p0_inl818 := &p.t
 				/*line syntax/parse.ergo#ergo-inline-817:1064:54*/ p1_inl818 := uint8(24)
 				/*line syntax/parse.ergo#ergo-inline-817:1064:62*/ p2_inl818 := uint32(p1_inl817)
 				/*line syntax/parse.ergo#ergo-inline-817:1064:73*/ p3_inl818 := uint32(0)
 				/*line syntax/parse.ergo#ergo-inline-817:1064:84*/ p4_inl818 := uint32(0)
 				/*line syntax/tree.ergo#ergo-inline-818:133:1*/ i_inl818 := p0_inl818.n
-				/*line syntax/parse_decl.ergo:1030:1*/ if i_inl818 >= len(p0_inl818.kind) {
+				/*line syntax/parse_decl.ergo:1037:1*/ if i_inl818 >= len(p0_inl818.kind) {
 					/*line syntax/tree.ergo#ergo-inline-818:135:2*/ p0_inl818.growRows()
 				}
 				/*line syntax/tree.ergo#ergo-inline-818:137:1*/ p0_inl818.kind[i_inl818] = uint32(p1_inl818)
 				/*line syntax/tree.ergo#ergo-inline-818:138:1*/ p0_inl818.tok[i_inl818] = p2_inl818
 				/*line syntax/tree.ergo#ergo-inline-818:139:1*/ p0_inl818.a[i_inl818] = p3_inl818
 				/*line syntax/tree.ergo#ergo-inline-818:140:1*/ p0_inl818.b[i_inl818] = p4_inl818
-				/*line syntax/parse_decl.ergo:1030:1*/ if i_inl818 == CountTotalMono_i3(p0_inl818.ids) {
-					/*line syntax/parse_decl.ergo:1030:1*/ {
+				/*line syntax/parse_decl.ergo:1037:1*/ if i_inl818 == CountTotalMono_i3(p0_inl818.ids) {
+					/*line syntax/parse_decl.ergo:1037:1*/ {
 						/*line syntax/tree.ergo#ergo-inline-818:142:21*/ p0_inl819 := &p0_inl818.ids
 						/*line syntax/tree.ergo#ergo-inline-818:142:10*/ id_inl819 := nextMono_i2(int(p0_inl819.n))
 						/*line syntax/tree.ergo#ergo-inline-818:142:10*/ p0_inl819.n = p0_inl819.n + uint32(1)
@@ -25046,106 +25085,106 @@ func (p *parser) parseLawDecl(doc uint32, top bool) uint32 {
 				/*line syntax/tree.ergo#ergo-inline-818:145:1*/ goto inl817
 			}
 		}
-		/*line syntax/parse_decl.ergo:1030:1*/ inl817:
-		/*line syntax/parse_decl.ergo:1030:1*/ {
+		/*line syntax/parse_decl.ergo:1037:1*/ inl817:
+		/*line syntax/parse_decl.ergo:1037:1*/ {
 		}
 		/*line syntax/parse_type.ergo#ergo-inline-809:10:1*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:1030:1*/ inl809:
-	/*line syntax/parse_decl.ergo:1030:1*/ {
+	/*line syntax/parse_decl.ergo:1037:1*/ inl809:
+	/*line syntax/parse_decl.ergo:1037:1*/ {
 	}
-	/*line syntax/parse_decl.ergo:1033:1*/ arg_5 := uint32(0)
-	/*line syntax/parse_decl.ergo:1034:1*/ tparamPos := p.pos()
-	/*line syntax/parse_decl.ergo:1035:1*/ if top && p.tk == uint8(52) {
-		/*line syntax/parse_decl.ergo:1036:2*/ arg_5 = some_1(p.parseTypeParams())
+	/*line syntax/parse_decl.ergo:1040:1*/ arg_5 := uint32(0)
+	/*line syntax/parse_decl.ergo:1041:1*/ tparamPos := p.pos()
+	/*line syntax/parse_decl.ergo:1042:1*/ if top && p.tk == uint8(52) {
+		/*line syntax/parse_decl.ergo:1043:2*/ arg_5 = some_1(p.parseTypeParams())
 	}
-	/*line syntax/parse_decl.ergo:1038:1*/ params := p.parseParameters(true, false)
-	/*line syntax/parse_decl.ergo:1039:1*/ when_1 := uint32(0)
-	/*line syntax/parse_decl.ergo:1040:1*/ guard_1 := uint32(4294967295)
-	/*line syntax/parse_decl.ergo:1041:1*/ if p.isWord("when") {
-		/*line syntax/parse_decl.ergo:1042:2*/ when_1 = someTok(p.i)
-		/*line syntax/parse_decl.ergo:1043:2*/ p.next()
-		/*line syntax/parse_decl.ergo:1044:2*/ saved := p.exprLev
-		/*line syntax/parse_decl.ergo:1045:2*/ p.exprLev = (-1)
-		/*line syntax/parse_decl.ergo:1046:2*/ guard_1 = p.parseExpr()
-		/*line syntax/parse_decl.ergo:1047:2*/ p.exprLev = saved
+	/*line syntax/parse_decl.ergo:1045:1*/ params := p.parseParameters(true, false)
+	/*line syntax/parse_decl.ergo:1046:1*/ when_1 := uint32(0)
+	/*line syntax/parse_decl.ergo:1047:1*/ guard_1 := uint32(4294967295)
+	/*line syntax/parse_decl.ergo:1048:1*/ if p.isWord("when") {
+		/*line syntax/parse_decl.ergo:1049:2*/ when_1 = someTok(p.i)
+		/*line syntax/parse_decl.ergo:1050:2*/ p.next()
+		/*line syntax/parse_decl.ergo:1051:2*/ saved := p.exprLev
+		/*line syntax/parse_decl.ergo:1052:2*/ p.exprLev = (-1)
+		/*line syntax/parse_decl.ergo:1053:2*/ guard_1 = p.parseExpr()
+		/*line syntax/parse_decl.ergo:1054:2*/ p.exprLev = saved
 	}
-	/*line syntax/parse_decl.ergo:1049:1*/ lhs := p.parseBlock()
-	/*line syntax/parse_decl.ergo:1050:1*/ if p.tk != uint8(41) && when_1 == uint32(0) {
-		/*line syntax/parse_decl.ergo:1051:2*/ if arg_5 != uint32(0) {
-			/*line syntax/parse_decl.ergo:1052:3*/ {
-				/*line syntax/parse_decl.ergo:1052:25*/ p2_inl820 := 1
-				/*line syntax/parse_decl.ergo:1052:28*/ p3_inl820 := "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type"
+	/*line syntax/parse_decl.ergo:1056:1*/ lhs := p.parseBlock()
+	/*line syntax/parse_decl.ergo:1057:1*/ if p.tk != uint8(41) && when_1 == uint32(0) {
+		/*line syntax/parse_decl.ergo:1058:2*/ if arg_5 != uint32(0) {
+			/*line syntax/parse_decl.ergo:1059:3*/ {
+				/*line syntax/parse_decl.ergo:1059:25*/ p2_inl820 := 1
+				/*line syntax/parse_decl.ergo:1059:28*/ p3_inl820 := "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type"
 				/*line syntax/parse.ergo#ergo-inline-820:804:65*/ p.errorCode("S001", tparamPos, p2_inl820, p3_inl820)
 			}
 		}
-		/*line syntax/parse_decl.ergo:1054:2*/ {
-			/*line syntax/parse_decl.ergo:1054:19*/ p0_inl821 := &p.t
-			/*line syntax/parse_decl.ergo:1054:25*/ p1_inl821 := p.t.mark()
-			/*line syntax/parse_decl.ergo:1054:64*/ p6_inl821 := some_1(params)
-			/*line syntax/parse_decl.ergo:1054:78*/ p7_inl821 := some_1(lhs)
-			/*line syntax/parse_decl.ergo:1054:89*/ p8_inl821 := uint32(0)
-			/*line syntax/parse_decl.ergo:1054:95*/ p9_inl821 := uint32(0)
-			/*line syntax/parse_decl.ergo:1054:106*/ p10_inl821 := uint32(0)
-			/*line syntax/parse_decl.ergo:1054:112*/ p11_inl821 := uint32(0)
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+		/*line syntax/parse_decl.ergo:1061:2*/ {
+			/*line syntax/parse_decl.ergo:1061:19*/ p0_inl821 := &p.t
+			/*line syntax/parse_decl.ergo:1061:25*/ p1_inl821 := p.t.mark()
+			/*line syntax/parse_decl.ergo:1061:64*/ p6_inl821 := some_1(params)
+			/*line syntax/parse_decl.ergo:1061:78*/ p7_inl821 := some_1(lhs)
+			/*line syntax/parse_decl.ergo:1061:89*/ p8_inl821 := uint32(0)
+			/*line syntax/parse_decl.ergo:1061:95*/ p9_inl821 := uint32(0)
+			/*line syntax/parse_decl.ergo:1061:106*/ p10_inl821 := uint32(0)
+			/*line syntax/parse_decl.ergo:1061:112*/ p11_inl821 := uint32(0)
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-822:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-822:165:1*/ p0_inl821.stack[p0_inl821.top] = doc
 				/*line syntax/tree.ergo#ergo-inline-822:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-823:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-823:165:1*/ p0_inl821.stack[p0_inl821.top] = arg_4
 				/*line syntax/tree.ergo#ergo-inline-823:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-824:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-824:165:1*/ p0_inl821.stack[p0_inl821.top] = arg_5
 				/*line syntax/tree.ergo#ergo-inline-824:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-825:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-825:165:1*/ p0_inl821.stack[p0_inl821.top] = p6_inl821
 				/*line syntax/tree.ergo#ergo-inline-825:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-826:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-826:165:1*/ p0_inl821.stack[p0_inl821.top] = p7_inl821
 				/*line syntax/tree.ergo#ergo-inline-826:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-827:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-827:165:1*/ p0_inl821.stack[p0_inl821.top] = p8_inl821
 				/*line syntax/tree.ergo#ergo-inline-827:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-828:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-828:165:1*/ p0_inl821.stack[p0_inl821.top] = p9_inl821
 				/*line syntax/tree.ergo#ergo-inline-828:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-829:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-829:165:1*/ p0_inl821.stack[p0_inl821.top] = p10_inl821
 				/*line syntax/tree.ergo#ergo-inline-829:166:1*/ p0_inl821.top = p0_inl821.top + 1
 			}
-			/*line syntax/parse_decl.ergo:1054:2*/ {
-				/*line syntax/parse_decl.ergo:1054:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
+			/*line syntax/parse_decl.ergo:1061:2*/ {
+				/*line syntax/parse_decl.ergo:1061:2*/ if p0_inl821.top >= len(p0_inl821.stack) {
 					/*line syntax/tree.ergo#ergo-inline-830:163:2*/ p0_inl821.growStack()
 				}
 				/*line syntax/tree.ergo#ergo-inline-830:165:1*/ p0_inl821.stack[p0_inl821.top] = p11_inl821
@@ -25154,100 +25193,100 @@ func (p *parser) parseLawDecl(doc uint32, top bool) uint32 {
 			/*line syntax/view.ergo#ergo-inline-821:638:1*/ return p0_inl821.rec(uint8(10), uint32(arg_3), p1_inl821)
 		}
 	}
-	/*line syntax/parse_decl.ergo:1056:1*/ if top && when_1 != uint32(0) {
-		/*line syntax/parse_decl.ergo:1057:2*/ {
-			/*line syntax/parse_decl.ergo:1057:13*/ p1_inl831 := p.tpos(int(when_1) - 1)
-			/*line syntax/parse_decl.ergo:1057:35*/ p2_inl831 := 4
-			/*line syntax/parse_decl.ergo:1057:38*/ p3_inl831 := "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property"
+	/*line syntax/parse_decl.ergo:1063:1*/ if top && when_1 != uint32(0) {
+		/*line syntax/parse_decl.ergo:1064:2*/ {
+			/*line syntax/parse_decl.ergo:1064:13*/ p1_inl831 := p.tpos(int(when_1) - 1)
+			/*line syntax/parse_decl.ergo:1064:35*/ p2_inl831 := 4
+			/*line syntax/parse_decl.ergo:1064:38*/ p3_inl831 := "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property"
 			/*line syntax/parse.ergo#ergo-inline-831:804:65*/ p.errorCode("S001", p1_inl831, p2_inl831, p3_inl831)
 		}
 	}
-	/*line syntax/parse_decl.ergo:1059:1*/ if p.tk != uint8(41) {
-		/*line syntax/parse_decl.ergo:1060:2*/ {
-			/*line syntax/parse_decl.ergo:1060:13*/ p1_inl832 := p.pos()
-			/*line syntax/parse_decl.ergo:1060:21*/ p2_inl832 := 1
-			/*line syntax/parse_decl.ergo:1060:24*/ p3_inl832 := "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }"
+	/*line syntax/parse_decl.ergo:1066:1*/ if p.tk != uint8(41) {
+		/*line syntax/parse_decl.ergo:1067:2*/ {
+			/*line syntax/parse_decl.ergo:1067:13*/ p1_inl832 := p.pos()
+			/*line syntax/parse_decl.ergo:1067:21*/ p2_inl832 := 1
+			/*line syntax/parse_decl.ergo:1067:24*/ p3_inl832 := "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }"
 			/*line syntax/parse.ergo#ergo-inline-832:804:65*/ p.errorCode("S001", p1_inl832, p2_inl832, p3_inl832)
 		}
-		/*line syntax/parse_decl.ergo:1061:2*/ return uint32(4294967295)
+		/*line syntax/parse_decl.ergo:1068:2*/ return uint32(4294967295)
 	}
-	/*line syntax/parse_decl.ergo:1063:1*/ eq := someTok(p.i)
-	/*line syntax/parse_decl.ergo:1064:1*/ p.next()
-	/*line syntax/parse_decl.ergo:1065:1*/ rhs := p.parseBlock()
-	/*line syntax/parse_decl.ergo:1066:1*/ if p.failed {
-		/*line syntax/parse_decl.ergo:1067:2*/ return uint32(4294967295)
+	/*line syntax/parse_decl.ergo:1070:1*/ eq := someTok(p.i)
+	/*line syntax/parse_decl.ergo:1071:1*/ p.next()
+	/*line syntax/parse_decl.ergo:1072:1*/ rhs := p.parseBlock()
+	/*line syntax/parse_decl.ergo:1073:1*/ if p.failed {
+		/*line syntax/parse_decl.ergo:1074:2*/ return uint32(4294967295)
 	}
-	/*line syntax/parse_decl.ergo:1069:1*/ if top {
-		/*line syntax/parse_decl.ergo:1070:2*/ {
-			/*line syntax/parse_decl.ergo#ergo-inline-833:1089:1*/ l_inl833 := p.t.listAt(lhs, 0, p.t.items(lhs, 1))
-			/*line syntax/parse_decl.ergo:1070:2*/ if l_inl833.Len() == 1 && p.kindAt(wid(p.t.Item(l_inl833, 0))) == uint8(53) {
-				/*line syntax/parse_decl.ergo#ergo-inline-833:1091:2*/ goto inl833
+	/*line syntax/parse_decl.ergo:1076:1*/ if top {
+		/*line syntax/parse_decl.ergo:1077:2*/ {
+			/*line syntax/parse_decl.ergo#ergo-inline-833:1096:1*/ l_inl833 := p.t.listAt(lhs, 0, p.t.items(lhs, 1))
+			/*line syntax/parse_decl.ergo:1077:2*/ if l_inl833.Len() == 1 && p.kindAt(wid(p.t.Item(l_inl833, 0))) == uint8(53) {
+				/*line syntax/parse_decl.ergo#ergo-inline-833:1098:2*/ goto inl833
 			}
-			/*line syntax/parse_decl.ergo:1070:2*/ {
-				/*line syntax/parse_decl.ergo#ergo-inline-833:1093:12*/ p1_inl834 := p.tpos(int(p.t.tok[int(lhs)]))
-				/*line syntax/parse_decl.ergo#ergo-inline-833:1093:43*/ p2_inl834 := 1
-				/*line syntax/parse_decl.ergo#ergo-inline-833:1093:46*/ p3_inl834 := "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }"
+			/*line syntax/parse_decl.ergo:1077:2*/ {
+				/*line syntax/parse_decl.ergo#ergo-inline-833:1100:12*/ p1_inl834 := p.tpos(int(p.t.tok[int(lhs)]))
+				/*line syntax/parse_decl.ergo#ergo-inline-833:1100:43*/ p2_inl834 := 1
+				/*line syntax/parse_decl.ergo#ergo-inline-833:1100:46*/ p3_inl834 := "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }"
 				/*line syntax/parse.ergo#ergo-inline-834:804:65*/ p.errorCode("S001", p1_inl834, p2_inl834, p3_inl834)
 			}
 		}
-		/*line syntax/parse_decl.ergo:1070:2*/ inl833:
-		/*line syntax/parse_decl.ergo:1070:2*/ {
+		/*line syntax/parse_decl.ergo:1077:2*/ inl833:
+		/*line syntax/parse_decl.ergo:1077:2*/ {
 		}
-		/*line syntax/parse_decl.ergo:1071:2*/ {
-			/*line syntax/parse_decl.ergo#ergo-inline-835:1089:1*/ l_inl835 := p.t.listAt(rhs, 0, p.t.items(rhs, 1))
-			/*line syntax/parse_decl.ergo:1071:2*/ if l_inl835.Len() == 1 && p.kindAt(wid(p.t.Item(l_inl835, 0))) == uint8(53) {
-				/*line syntax/parse_decl.ergo#ergo-inline-835:1091:2*/ goto inl835
+		/*line syntax/parse_decl.ergo:1078:2*/ {
+			/*line syntax/parse_decl.ergo#ergo-inline-835:1096:1*/ l_inl835 := p.t.listAt(rhs, 0, p.t.items(rhs, 1))
+			/*line syntax/parse_decl.ergo:1078:2*/ if l_inl835.Len() == 1 && p.kindAt(wid(p.t.Item(l_inl835, 0))) == uint8(53) {
+				/*line syntax/parse_decl.ergo#ergo-inline-835:1098:2*/ goto inl835
 			}
-			/*line syntax/parse_decl.ergo:1071:2*/ {
-				/*line syntax/parse_decl.ergo#ergo-inline-835:1093:12*/ p1_inl836 := p.tpos(int(p.t.tok[int(rhs)]))
-				/*line syntax/parse_decl.ergo#ergo-inline-835:1093:43*/ p2_inl836 := 1
-				/*line syntax/parse_decl.ergo#ergo-inline-835:1093:46*/ p3_inl836 := "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }"
+			/*line syntax/parse_decl.ergo:1078:2*/ {
+				/*line syntax/parse_decl.ergo#ergo-inline-835:1100:12*/ p1_inl836 := p.tpos(int(p.t.tok[int(rhs)]))
+				/*line syntax/parse_decl.ergo#ergo-inline-835:1100:43*/ p2_inl836 := 1
+				/*line syntax/parse_decl.ergo#ergo-inline-835:1100:46*/ p3_inl836 := "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }"
 				/*line syntax/parse.ergo#ergo-inline-836:804:65*/ p.errorCode("S001", p1_inl836, p2_inl836, p3_inl836)
 			}
 		}
-		/*line syntax/parse_decl.ergo:1071:2*/ inl835:
-		/*line syntax/parse_decl.ergo:1071:2*/ {
+		/*line syntax/parse_decl.ergo:1078:2*/ inl835:
+		/*line syntax/parse_decl.ergo:1078:2*/ {
 		}
-		/*line syntax/parse_decl.ergo:1072:2*/ if p.failed {
-			/*line syntax/parse_decl.ergo:1073:3*/ return uint32(4294967295)
+		/*line syntax/parse_decl.ergo:1079:2*/ if p.failed {
+			/*line syntax/parse_decl.ergo:1080:3*/ return uint32(4294967295)
 		}
 	}
-	/*line syntax/parse_decl.ergo:1076:1*/ bm := p.t.mark()
-	/*line syntax/parse_decl.ergo:1077:1*/ if guard_1 != uint32(4294967295) {
-		/*line syntax/parse_decl.ergo:1078:2*/ {
-			/*line syntax/parse_decl.ergo:1078:8*/ p0_inl837 := &p.t
-			/*line syntax/parse_decl.ergo:1078:14*/ p1_inl837 := (&p.t).row(uint8(53), uint32(0), guard_1, uint32(0))
-			/*line syntax/parse_decl.ergo:1078:2*/ if p0_inl837.top >= len(p0_inl837.stack) {
+	/*line syntax/parse_decl.ergo:1083:1*/ bm := p.t.mark()
+	/*line syntax/parse_decl.ergo:1084:1*/ if guard_1 != uint32(4294967295) {
+		/*line syntax/parse_decl.ergo:1085:2*/ {
+			/*line syntax/parse_decl.ergo:1085:8*/ p0_inl837 := &p.t
+			/*line syntax/parse_decl.ergo:1085:14*/ p1_inl837 := (&p.t).row(uint8(53), uint32(0), guard_1, uint32(0))
+			/*line syntax/parse_decl.ergo:1085:2*/ if p0_inl837.top >= len(p0_inl837.stack) {
 				/*line syntax/tree.ergo#ergo-inline-837:163:2*/ p0_inl837.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-837:165:1*/ p0_inl837.stack[p0_inl837.top] = p1_inl837
 			/*line syntax/tree.ergo#ergo-inline-837:166:1*/ p0_inl837.top = p0_inl837.top + 1
 		}
 	}
-	/*line syntax/parse_decl.ergo:1080:1*/ {
-		/*line syntax/parse_decl.ergo:1080:7*/ p0_inl838 := &p.t
-		/*line syntax/parse_decl.ergo:1080:1*/ if p0_inl838.top >= len(p0_inl838.stack) {
+	/*line syntax/parse_decl.ergo:1087:1*/ {
+		/*line syntax/parse_decl.ergo:1087:7*/ p0_inl838 := &p.t
+		/*line syntax/parse_decl.ergo:1087:1*/ if p0_inl838.top >= len(p0_inl838.stack) {
 			/*line syntax/tree.ergo#ergo-inline-838:163:2*/ p0_inl838.growStack()
 		}
 		/*line syntax/tree.ergo#ergo-inline-838:165:1*/ p0_inl838.stack[p0_inl838.top] = lhs
 		/*line syntax/tree.ergo#ergo-inline-838:166:1*/ p0_inl838.top = p0_inl838.top + 1
 	}
-	/*line syntax/parse_decl.ergo:1081:1*/ {
-		/*line syntax/parse_decl.ergo:1081:7*/ p0_inl839 := &p.t
-		/*line syntax/parse_decl.ergo:1081:1*/ if p0_inl839.top >= len(p0_inl839.stack) {
+	/*line syntax/parse_decl.ergo:1088:1*/ {
+		/*line syntax/parse_decl.ergo:1088:7*/ p0_inl839 := &p.t
+		/*line syntax/parse_decl.ergo:1088:1*/ if p0_inl839.top >= len(p0_inl839.stack) {
 			/*line syntax/tree.ergo#ergo-inline-839:163:2*/ p0_inl839.growStack()
 		}
 		/*line syntax/tree.ergo#ergo-inline-839:165:1*/ p0_inl839.stack[p0_inl839.top] = rhs
 		/*line syntax/tree.ergo#ergo-inline-839:166:1*/ p0_inl839.top = p0_inl839.top + 1
 	}
-	/*line syntax/parse_decl.ergo:1082:1*/ var body uint32
-	/*line syntax/parse_decl.ergo:1082:1*/ {
-		/*line syntax/parse_decl.ergo:1082:20*/ p0_inl840 := &p.t
-		/*line syntax/parse_decl.ergo:1082:30*/ p2_inl840 := int(p.t.tok[int(lhs)])
-		/*line syntax/parse_decl.ergo:1082:54*/ p3_inl840 := int(p.t.fixed(rhs, 1, 0))
-		/*line syntax/parse_decl.ergo:1082:1*/ {
+	/*line syntax/parse_decl.ergo:1089:1*/ var body uint32
+	/*line syntax/parse_decl.ergo:1089:1*/ {
+		/*line syntax/parse_decl.ergo:1089:20*/ p0_inl840 := &p.t
+		/*line syntax/parse_decl.ergo:1089:30*/ p2_inl840 := int(p.t.tok[int(lhs)])
+		/*line syntax/parse_decl.ergo:1089:54*/ p3_inl840 := int(p.t.fixed(rhs, 1, 0))
+		/*line syntax/parse_decl.ergo:1089:1*/ {
 			/*line syntax/view.ergo#ergo-inline-840:778:10*/ p1_inl841 := uint32(p3_inl840)
-			/*line syntax/parse_decl.ergo:1082:1*/ if p0_inl840.top >= len(p0_inl840.stack) {
+			/*line syntax/parse_decl.ergo:1089:1*/ if p0_inl840.top >= len(p0_inl840.stack) {
 				/*line syntax/tree.ergo#ergo-inline-841:163:2*/ p0_inl840.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-841:165:1*/ p0_inl840.stack[p0_inl840.top] = p1_inl841
@@ -25255,63 +25294,63 @@ func (p *parser) parseLawDecl(doc uint32, top bool) uint32 {
 		}
 		/*line syntax/view.ergo#ergo-inline-840:779:1*/ body = p0_inl840.rec(uint8(57), uint32(p2_inl840), bm)
 	}
-	/*line syntax/parse_decl.ergo:1083:11*/ arg := &p.t
-	/*line syntax/parse_decl.ergo:1083:17*/ arg_1 := p.t.mark()
-	/*line syntax/parse_decl.ergo:1083:28*/ arg_2 := doc
-	/*line syntax/parse_decl.ergo:1083:56*/ arg_6 := some_1(params)
-	/*line syntax/parse_decl.ergo:1083:70*/ arg_7 := some_1(body)
-	/*line syntax/parse_decl.ergo:1083:88*/ var if16 uint32
-	/*line syntax/parse_decl.ergo:1083:88*/ if top {
-		/*line syntax/parse_decl.ergo:1083:97*/ if16 = uint32(2)
+	/*line syntax/parse_decl.ergo:1090:11*/ arg := &p.t
+	/*line syntax/parse_decl.ergo:1090:17*/ arg_1 := p.t.mark()
+	/*line syntax/parse_decl.ergo:1090:28*/ arg_2 := doc
+	/*line syntax/parse_decl.ergo:1090:56*/ arg_6 := some_1(params)
+	/*line syntax/parse_decl.ergo:1090:70*/ arg_7 := some_1(body)
+	/*line syntax/parse_decl.ergo:1090:88*/ var if16 uint32
+	/*line syntax/parse_decl.ergo:1090:88*/ if top {
+		/*line syntax/parse_decl.ergo:1090:97*/ if16 = uint32(2)
 	} else {
-		/*line syntax/parse_decl.ergo:1083:116*/ if16 = uint32(1)
+		/*line syntax/parse_decl.ergo:1090:116*/ if16 = uint32(1)
 	}
-	/*line syntax/parse_decl.ergo:1083:126*/ {
-		/*line syntax/parse_decl.ergo:1083:82*/ p8_inl842 := uint32(0)
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+	/*line syntax/parse_decl.ergo:1090:126*/ {
+		/*line syntax/parse_decl.ergo:1090:82*/ p8_inl842 := uint32(0)
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-843:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-843:165:1*/ arg.stack[arg.top] = arg_2
 			/*line syntax/tree.ergo#ergo-inline-843:166:1*/ arg.top = arg.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-844:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-844:165:1*/ arg.stack[arg.top] = arg_4
 			/*line syntax/tree.ergo#ergo-inline-844:166:1*/ arg.top = arg.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-845:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-845:165:1*/ arg.stack[arg.top] = arg_5
 			/*line syntax/tree.ergo#ergo-inline-845:166:1*/ arg.top = arg.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-846:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-846:165:1*/ arg.stack[arg.top] = arg_6
 			/*line syntax/tree.ergo#ergo-inline-846:166:1*/ arg.top = arg.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-847:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-847:165:1*/ arg.stack[arg.top] = arg_7
 			/*line syntax/tree.ergo#ergo-inline-847:166:1*/ arg.top = arg.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-848:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-848:165:1*/ arg.stack[arg.top] = p8_inl842
 			/*line syntax/tree.ergo#ergo-inline-848:166:1*/ arg.top = arg.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1083:126*/ {
-			/*line syntax/parse_decl.ergo:1083:126*/ if arg.top >= len(arg.stack) {
+		/*line syntax/parse_decl.ergo:1090:126*/ {
+			/*line syntax/parse_decl.ergo:1090:126*/ if arg.top >= len(arg.stack) {
 				/*line syntax/tree.ergo#ergo-inline-849:163:2*/ arg.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-849:165:1*/ arg.stack[arg.top] = if16
@@ -25323,237 +25362,237 @@ func (p *parser) parseLawDecl(doc uint32, top bool) uint32 {
 	}
 }
 
-//line syntax/parse_decl.ergo:1029
+//line syntax/parse_decl.ergo:1036
 
-//line syntax/parse_decl.ergo:1098:1
+//line syntax/parse_decl.ergo:1105:1
 func (p *parser) parseLetDecl(doc uint32, top bool) uint32 {
-	/*line syntax/parse_decl.ergo:1099:1*/ var letTok int
-	/*line syntax/parse_decl.ergo:1099:1*/ {
-		/*line syntax/parse_decl.ergo:1099:22*/ p1_inl850 := uint8(78)
-		/*line syntax/parse_decl.ergo:1099:1*/ if p.tk != p1_inl850 {
-			/*line syntax/parse_decl.ergo:1099:1*/ if p.loud() {
-				/*line syntax/parse_decl.ergo:1099:1*/ {
+	/*line syntax/parse_decl.ergo:1106:1*/ var letTok int
+	/*line syntax/parse_decl.ergo:1106:1*/ {
+		/*line syntax/parse_decl.ergo:1106:22*/ p1_inl850 := uint8(78)
+		/*line syntax/parse_decl.ergo:1106:1*/ if p.tk != p1_inl850 {
+			/*line syntax/parse_decl.ergo:1106:1*/ if p.loud() {
+				/*line syntax/parse_decl.ergo:1106:1*/ {
 					/*line syntax/parse.ergo#ergo-inline-850:727:46*/ p1_inl851 := "expected " + quote(tokenName(p1_inl850)) + ", found "
-					/*line syntax/parse_decl.ergo:1099:1*/ if p.loud() {
-						/*line syntax/parse_decl.ergo:1099:1*/ {
+					/*line syntax/parse_decl.ergo:1106:1*/ if p.loud() {
+						/*line syntax/parse_decl.ergo:1106:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-851:814:18*/ p1_inl852 := p1_inl851 + p.found()
-							/*line syntax/parse_decl.ergo:1099:1*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1106:1*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-852:824:2*/ goto inl852
 							}
 							/*line syntax/parse.ergo#ergo-inline-852:826:9*/ a_inl852 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-852:826:9*/ i_inl852 := 0
 							/*line syntax/parse.ergo#ergo-inline-852:826:9*/ i_inl852 = i_inl852*256 + int(a_inl852)
 							/*line syntax/parse.ergo#ergo-inline-852:826:9*/ var h_inl852 int
-							/*line syntax/parse_decl.ergo:1099:1*/ if (&tabtokenHabitK[i_inl852]).Ready() {
+							/*line syntax/parse_decl.ergo:1106:1*/ if (&tabtokenHabitK[i_inl852]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-852:826:9*/ h_inl852 = tabtokenHabitV[i_inl852]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-852:826:9*/ h_inl852 = tabtokenHabitFill(i_inl852, a_inl852)
 							}
-							/*line syntax/parse_decl.ergo:1099:1*/ if h_inl852 >= 0 {
-								/*line syntax/parse_decl.ergo:1099:1*/ {
+							/*line syntax/parse_decl.ergo:1106:1*/ if h_inl852 >= 0 {
+								/*line syntax/parse_decl.ergo:1106:1*/ {
 									/*line syntax/parse.ergo#ergo-inline-852:828:11*/ p1_inl853 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-852:828:19*/ p2_inl853 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-853:834:54*/ p.errorAt(p1_inl853, p2_inl853, habitMessages[h_inl852])
 								}
 								/*line syntax/parse.ergo#ergo-inline-852:829:2*/ goto inl852
 							}
-							/*line syntax/parse_decl.ergo:1099:1*/ {
+							/*line syntax/parse_decl.ergo:1106:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-852:831:12*/ p1_inl854 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-852:831:20*/ p2_inl854 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-854:804:65*/ p.errorCode("S001", p1_inl854, p2_inl854, p1_inl852)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1099:1*/ inl852:
-						/*line syntax/parse_decl.ergo:1099:1*/ {
+						/*line syntax/parse_decl.ergo:1106:1*/ inl852:
+						/*line syntax/parse_decl.ergo:1106:1*/ {
 						}
 					} else {
-						/*line syntax/parse_decl.ergo:1099:1*/ {
+						/*line syntax/parse_decl.ergo:1106:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-851:816:12*/ p1_inl855 := ""
-							/*line syntax/parse_decl.ergo:1099:1*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1106:1*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-855:824:2*/ goto inl855
 							}
 							/*line syntax/parse.ergo#ergo-inline-855:826:9*/ a_inl855 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-855:826:9*/ i_inl855 := 0
 							/*line syntax/parse.ergo#ergo-inline-855:826:9*/ i_inl855 = i_inl855*256 + int(a_inl855)
 							/*line syntax/parse.ergo#ergo-inline-855:826:9*/ var h_inl855 int
-							/*line syntax/parse_decl.ergo:1099:1*/ if (&tabtokenHabitK[i_inl855]).Ready() {
+							/*line syntax/parse_decl.ergo:1106:1*/ if (&tabtokenHabitK[i_inl855]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-855:826:9*/ h_inl855 = tabtokenHabitV[i_inl855]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-855:826:9*/ h_inl855 = tabtokenHabitFill(i_inl855, a_inl855)
 							}
-							/*line syntax/parse_decl.ergo:1099:1*/ if h_inl855 >= 0 {
-								/*line syntax/parse_decl.ergo:1099:1*/ {
+							/*line syntax/parse_decl.ergo:1106:1*/ if h_inl855 >= 0 {
+								/*line syntax/parse_decl.ergo:1106:1*/ {
 									/*line syntax/parse.ergo#ergo-inline-855:828:11*/ p1_inl856 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-855:828:19*/ p2_inl856 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-856:834:54*/ p.errorAt(p1_inl856, p2_inl856, habitMessages[h_inl855])
 								}
 								/*line syntax/parse.ergo#ergo-inline-855:829:2*/ goto inl855
 							}
-							/*line syntax/parse_decl.ergo:1099:1*/ {
+							/*line syntax/parse_decl.ergo:1106:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-855:831:12*/ p1_inl857 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-855:831:20*/ p2_inl857 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-857:804:65*/ p.errorCode("S001", p1_inl857, p2_inl857, p1_inl855)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1099:1*/ inl855:
-						/*line syntax/parse_decl.ergo:1099:1*/ {
+						/*line syntax/parse_decl.ergo:1106:1*/ inl855:
+						/*line syntax/parse_decl.ergo:1106:1*/ {
 						}
 					}
 				}
 			} else {
-				/*line syntax/parse_decl.ergo:1099:1*/ {
+				/*line syntax/parse_decl.ergo:1106:1*/ {
 					/*line syntax/parse.ergo#ergo-inline-850:729:13*/ p1_inl858 := ""
-					/*line syntax/parse_decl.ergo:1099:1*/ if p.failed {
+					/*line syntax/parse_decl.ergo:1106:1*/ if p.failed {
 						/*line syntax/parse.ergo#ergo-inline-858:824:2*/ goto inl858
 					}
 					/*line syntax/parse.ergo#ergo-inline-858:826:9*/ a_inl858 := p.tk
 					/*line syntax/parse.ergo#ergo-inline-858:826:9*/ i_inl858 := 0
 					/*line syntax/parse.ergo#ergo-inline-858:826:9*/ i_inl858 = i_inl858*256 + int(a_inl858)
 					/*line syntax/parse.ergo#ergo-inline-858:826:9*/ var h_inl858 int
-					/*line syntax/parse_decl.ergo:1099:1*/ if (&tabtokenHabitK[i_inl858]).Ready() {
+					/*line syntax/parse_decl.ergo:1106:1*/ if (&tabtokenHabitK[i_inl858]).Ready() {
 						/*line syntax/parse.ergo#ergo-inline-858:826:9*/ h_inl858 = tabtokenHabitV[i_inl858]
 					} else {
 						/*line syntax/parse.ergo#ergo-inline-858:826:9*/ h_inl858 = tabtokenHabitFill(i_inl858, a_inl858)
 					}
-					/*line syntax/parse_decl.ergo:1099:1*/ if h_inl858 >= 0 {
-						/*line syntax/parse_decl.ergo:1099:1*/ {
+					/*line syntax/parse_decl.ergo:1106:1*/ if h_inl858 >= 0 {
+						/*line syntax/parse_decl.ergo:1106:1*/ {
 							/*line syntax/parse.ergo#ergo-inline-858:828:11*/ p1_inl859 := p.pos()
 							/*line syntax/parse.ergo#ergo-inline-858:828:19*/ p2_inl859 := p.tokLen()
-							/*line syntax/parse_decl.ergo:1099:1*/ {
+							/*line syntax/parse_decl.ergo:1106:1*/ {
 								/*line syntax/parse.ergo#ergo-inline-859:834:77*/ p3_inl860 := habitMessages[h_inl858]
 								/*line syntax/parse.ergo#ergo-inline-860:804:65*/ p.errorCode("S001", p1_inl859, p2_inl859, p3_inl860)
 							}
 						}
 						/*line syntax/parse.ergo#ergo-inline-858:829:2*/ goto inl858
 					}
-					/*line syntax/parse_decl.ergo:1099:1*/ {
+					/*line syntax/parse_decl.ergo:1106:1*/ {
 						/*line syntax/parse.ergo#ergo-inline-858:831:12*/ p1_inl861 := p.pos()
 						/*line syntax/parse.ergo#ergo-inline-858:831:20*/ p2_inl861 := p.tokLen()
 						/*line syntax/parse.ergo#ergo-inline-861:804:65*/ p.errorCode("S001", p1_inl861, p2_inl861, p1_inl858)
 					}
 				}
-				/*line syntax/parse_decl.ergo:1099:1*/ inl858:
-				/*line syntax/parse_decl.ergo:1099:1*/ {
+				/*line syntax/parse_decl.ergo:1106:1*/ inl858:
+				/*line syntax/parse_decl.ergo:1106:1*/ {
 				}
 			}
 		}
 		/*line syntax/parse.ergo#ergo-inline-850:732:1*/ letTok = p.i
 		/*line syntax/parse.ergo#ergo-inline-850:733:1*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:1100:1*/ mutTok := uint32(0)
-	/*line syntax/parse_decl.ergo:1101:1*/ if p.tk == uint8(79) {
-		/*line syntax/parse_decl.ergo:1102:2*/ mutTok = someTok(p.i)
-		/*line syntax/parse_decl.ergo:1103:2*/ p.next()
+	/*line syntax/parse_decl.ergo:1107:1*/ mutTok := uint32(0)
+	/*line syntax/parse_decl.ergo:1108:1*/ if p.tk == uint8(79) {
+		/*line syntax/parse_decl.ergo:1109:2*/ mutTok = someTok(p.i)
+		/*line syntax/parse_decl.ergo:1110:2*/ p.next()
 	}
-	/*line syntax/parse_decl.ergo:1105:1*/ pm := p.t.mark()
-	/*line syntax/parse_decl.ergo:1106:1*/ for {
-		/*line syntax/parse_decl.ergo:1107:2*/ {
-			/*line syntax/parse_decl.ergo:1107:8*/ p0_inl862 := &p.t
-			/*line syntax/parse_decl.ergo:1107:14*/ p1_inl862 := p.parseLetPattern()
-			/*line syntax/parse_decl.ergo:1107:2*/ if p0_inl862.top >= len(p0_inl862.stack) {
+	/*line syntax/parse_decl.ergo:1112:1*/ pm := p.t.mark()
+	/*line syntax/parse_decl.ergo:1113:1*/ for {
+		/*line syntax/parse_decl.ergo:1114:2*/ {
+			/*line syntax/parse_decl.ergo:1114:8*/ p0_inl862 := &p.t
+			/*line syntax/parse_decl.ergo:1114:14*/ p1_inl862 := p.parseLetPattern()
+			/*line syntax/parse_decl.ergo:1114:2*/ if p0_inl862.top >= len(p0_inl862.stack) {
 				/*line syntax/tree.ergo#ergo-inline-862:163:2*/ p0_inl862.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-862:165:1*/ p0_inl862.stack[p0_inl862.top] = p1_inl862
 			/*line syntax/tree.ergo#ergo-inline-862:166:1*/ p0_inl862.top = p0_inl862.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1108:2*/ if !p.got(uint8(54)) {
-			/*line syntax/parse_decl.ergo:1109:3*/ break
+		/*line syntax/parse_decl.ergo:1115:2*/ if !p.got(uint8(54)) {
+			/*line syntax/parse_decl.ergo:1116:3*/ break
 		}
 	}
-	/*line syntax/parse_decl.ergo:1112:1*/ np := p.t.mark() - pm
-	/*line syntax/parse_decl.ergo:1113:1*/ names := true
-	/*line syntax/parse_decl.ergo:1114:1*/ r := Range_1[int]{Start: pm, End: p.t.mark()}
-	/*line syntax/parse_decl.ergo:1114:1*/ for j := r.Start; j < r.End; j++ {
-		/*line syntax/parse_decl.ergo:1115:2*/ if p.kindAt(p.t.stack[j]) != uint8(24) {
-			/*line syntax/parse_decl.ergo:1116:3*/ names = false
+	/*line syntax/parse_decl.ergo:1119:1*/ np := p.t.mark() - pm
+	/*line syntax/parse_decl.ergo:1120:1*/ names := true
+	/*line syntax/parse_decl.ergo:1121:1*/ r := Range_1[int]{Start: pm, End: p.t.mark()}
+	/*line syntax/parse_decl.ergo:1121:1*/ for j := r.Start; j < r.End; j++ {
+		/*line syntax/parse_decl.ergo:1122:2*/ if p.kindAt(p.t.stack[j]) != uint8(24) {
+			/*line syntax/parse_decl.ergo:1123:3*/ names = false
 		}
 	}
-	/*line syntax/parse_decl.ergo:1119:1*/ pattern := uint32(0)
-	/*line syntax/parse_decl.ergo:1120:1*/ if !names {
-		/*line syntax/parse_decl.ergo:1121:2*/ if np == 1 {
-			/*line syntax/parse_decl.ergo:1122:3*/ pattern = some_1(p.t.stack[pm])
-			/*line syntax/parse_decl.ergo:1123:3*/ (&p.t).cutStack(pm)
+	/*line syntax/parse_decl.ergo:1126:1*/ pattern := uint32(0)
+	/*line syntax/parse_decl.ergo:1127:1*/ if !names {
+		/*line syntax/parse_decl.ergo:1128:2*/ if np == 1 {
+			/*line syntax/parse_decl.ergo:1129:3*/ pattern = some_1(p.t.stack[pm])
+			/*line syntax/parse_decl.ergo:1130:3*/ (&p.t).cutStack(pm)
 		} else {
-			/*line syntax/parse_decl.ergo:1125:3*/ pattern = some_1((&p.t).mkTuple(pm, uint32(0), uint32(0)))
+			/*line syntax/parse_decl.ergo:1132:3*/ pattern = some_1((&p.t).mkTuple(pm, uint32(0), uint32(0)))
 		}
 	}
-	/*line syntax/parse_decl.ergo:1128:1*/ typ_1 := uint32(0)
-	/*line syntax/parse_decl.ergo:1129:1*/ if !(p.tk == uint8(44) || p.tk == uint8(59) || p.tk == uint8(58) || p.tk == uint8(1)) {
-		/*line syntax/parse_decl.ergo:1130:2*/ typ_1 = some_1(p.parseType(0))
+	/*line syntax/parse_decl.ergo:1135:1*/ typ_1 := uint32(0)
+	/*line syntax/parse_decl.ergo:1136:1*/ if !(p.tk == uint8(44) || p.tk == uint8(59) || p.tk == uint8(58) || p.tk == uint8(1)) {
+		/*line syntax/parse_decl.ergo:1137:2*/ typ_1 = some_1(p.parseType(0))
 	}
-	/*line syntax/parse_decl.ergo:1132:1*/ assign := uint32(0)
-	/*line syntax/parse_decl.ergo:1133:1*/ value_2 := uint32(0)
-	/*line syntax/parse_decl.ergo:1134:1*/ if p.tk == uint8(44) {
-		/*line syntax/parse_decl.ergo:1135:2*/ assign = someTok(p.i)
-		/*line syntax/parse_decl.ergo:1136:2*/ p.next()
-		/*line syntax/parse_decl.ergo:1137:2*/ if top && mutTok == uint32(0) && names && np == 1 && typ_1 == uint32(0) && p.tk == uint8(76) {
-			/*line syntax/parse_decl.ergo:1138:3*/ w := p.parseContextLit()
-			/*line syntax/parse_decl.ergo:1139:3*/ if p.failed {
-				/*line syntax/parse_decl.ergo:1140:4*/ return uint32(4294967295)
+	/*line syntax/parse_decl.ergo:1139:1*/ assign := uint32(0)
+	/*line syntax/parse_decl.ergo:1140:1*/ value_2 := uint32(0)
+	/*line syntax/parse_decl.ergo:1141:1*/ if p.tk == uint8(44) {
+		/*line syntax/parse_decl.ergo:1142:2*/ assign = someTok(p.i)
+		/*line syntax/parse_decl.ergo:1143:2*/ p.next()
+		/*line syntax/parse_decl.ergo:1144:2*/ if top && mutTok == uint32(0) && names && np == 1 && typ_1 == uint32(0) && p.tk == uint8(76) {
+			/*line syntax/parse_decl.ergo:1145:3*/ w := p.parseContextLit()
+			/*line syntax/parse_decl.ergo:1146:3*/ if p.failed {
+				/*line syntax/parse_decl.ergo:1147:4*/ return uint32(4294967295)
 			}
-			/*line syntax/parse_decl.ergo:1143:3*/ ctxTok := int(p.t.tok[int(w)])
-			/*line syntax/parse_decl.ergo:1144:3*/ prov := p.t.fixed(w, 4, 0)
-			/*line syntax/parse_decl.ergo:1145:3*/ fl := p.t.fixed(w, 4, 1)
-			/*line syntax/parse_decl.ergo:1146:3*/ nds := p.t.fixed(w, 4, 2)
-			/*line syntax/parse_decl.ergo:1147:3*/ body := p.t.fixed(w, 4, 3)
-			/*line syntax/parse_decl.ergo:1148:3*/ {
-				/*line syntax/parse_decl.ergo:1148:12*/ p0_inl863 := &p.t
+			/*line syntax/parse_decl.ergo:1150:3*/ ctxTok := int(p.t.tok[int(w)])
+			/*line syntax/parse_decl.ergo:1151:3*/ prov := p.t.fixed(w, 4, 0)
+			/*line syntax/parse_decl.ergo:1152:3*/ fl := p.t.fixed(w, 4, 1)
+			/*line syntax/parse_decl.ergo:1153:3*/ nds := p.t.fixed(w, 4, 2)
+			/*line syntax/parse_decl.ergo:1154:3*/ body := p.t.fixed(w, 4, 3)
+			/*line syntax/parse_decl.ergo:1155:3*/ {
+				/*line syntax/parse_decl.ergo:1155:12*/ p0_inl863 := &p.t
 				/*line syntax/tree.ergo#ergo-inline-863:212:1*/ i_inl863 := p0_inl863.n - 1
-				/*line syntax/parse_decl.ergo:1148:3*/ if p0_inl863.b[i_inl863] > uint32(0) && int(p0_inl863.a[i_inl863])+int(p0_inl863.b[i_inl863]) == p0_inl863.ne && recorded(uint8(p0_inl863.kind[i_inl863])) {
+				/*line syntax/parse_decl.ergo:1155:3*/ if p0_inl863.b[i_inl863] > uint32(0) && int(p0_inl863.a[i_inl863])+int(p0_inl863.b[i_inl863]) == p0_inl863.ne && recorded(uint8(p0_inl863.kind[i_inl863])) {
 					/*line syntax/tree.ergo#ergo-inline-863:214:2*/ p0_inl863.ne = int(p0_inl863.a[i_inl863])
 					/*line syntax/tree.ergo#ergo-inline-863:215:2*/ p0_inl863.extra = p0_inl863.extra[:p0_inl863.ne]
 				}
 				/*line syntax/tree.ergo#ergo-inline-863:217:1*/ p0_inl863.n = i_inl863
 			}
-			/*line syntax/parse_decl.ergo:1149:3*/ name := p.t.stack[pm]
-			/*line syntax/parse_decl.ergo:1150:3*/ (&p.t).cutStack(pm)
-			/*line syntax/parse_decl.ergo:1151:3*/ {
-				/*line syntax/parse_decl.ergo:1151:24*/ p0_inl864 := &p.t
-				/*line syntax/parse_decl.ergo:1151:3*/ {
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+			/*line syntax/parse_decl.ergo:1156:3*/ name := p.t.stack[pm]
+			/*line syntax/parse_decl.ergo:1157:3*/ (&p.t).cutStack(pm)
+			/*line syntax/parse_decl.ergo:1158:3*/ {
+				/*line syntax/parse_decl.ergo:1158:24*/ p0_inl864 := &p.t
+				/*line syntax/parse_decl.ergo:1158:3*/ {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-865:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-865:165:1*/ p0_inl864.stack[p0_inl864.top] = doc
 					/*line syntax/tree.ergo#ergo-inline-865:166:1*/ p0_inl864.top = p0_inl864.top + 1
 				}
-				/*line syntax/parse_decl.ergo:1151:3*/ {
+				/*line syntax/parse_decl.ergo:1158:3*/ {
 					/*line syntax/view.ergo#ergo-inline-864:611:10*/ p1_inl866 := uint32(ctxTok)
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-866:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-866:165:1*/ p0_inl864.stack[p0_inl864.top] = p1_inl866
 					/*line syntax/tree.ergo#ergo-inline-866:166:1*/ p0_inl864.top = p0_inl864.top + 1
 				}
-				/*line syntax/parse_decl.ergo:1151:3*/ {
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+				/*line syntax/parse_decl.ergo:1158:3*/ {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-867:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-867:165:1*/ p0_inl864.stack[p0_inl864.top] = name
 					/*line syntax/tree.ergo#ergo-inline-867:166:1*/ p0_inl864.top = p0_inl864.top + 1
 				}
-				/*line syntax/parse_decl.ergo:1151:3*/ {
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+				/*line syntax/parse_decl.ergo:1158:3*/ {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-868:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-868:165:1*/ p0_inl864.stack[p0_inl864.top] = prov
 					/*line syntax/tree.ergo#ergo-inline-868:166:1*/ p0_inl864.top = p0_inl864.top + 1
 				}
-				/*line syntax/parse_decl.ergo:1151:3*/ {
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+				/*line syntax/parse_decl.ergo:1158:3*/ {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-869:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-869:165:1*/ p0_inl864.stack[p0_inl864.top] = fl
 					/*line syntax/tree.ergo#ergo-inline-869:166:1*/ p0_inl864.top = p0_inl864.top + 1
 				}
-				/*line syntax/parse_decl.ergo:1151:3*/ {
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+				/*line syntax/parse_decl.ergo:1158:3*/ {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-870:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-870:165:1*/ p0_inl864.stack[p0_inl864.top] = nds
 					/*line syntax/tree.ergo#ergo-inline-870:166:1*/ p0_inl864.top = p0_inl864.top + 1
 				}
-				/*line syntax/parse_decl.ergo:1151:3*/ {
-					/*line syntax/parse_decl.ergo:1151:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
+				/*line syntax/parse_decl.ergo:1158:3*/ {
+					/*line syntax/parse_decl.ergo:1158:3*/ if p0_inl864.top >= len(p0_inl864.stack) {
 						/*line syntax/tree.ergo#ergo-inline-871:163:2*/ p0_inl864.growStack()
 					}
 					/*line syntax/tree.ergo#ergo-inline-871:165:1*/ p0_inl864.stack[p0_inl864.top] = body
@@ -25562,34 +25601,34 @@ func (p *parser) parseLetDecl(doc uint32, top bool) uint32 {
 				/*line syntax/view.ergo#ergo-inline-864:617:1*/ return p0_inl864.rec(uint8(8), uint32(letTok), pm)
 			}
 		}
-		/*line syntax/parse_decl.ergo:1153:2*/ value_2 = some_1(p.parseExpr())
+		/*line syntax/parse_decl.ergo:1160:2*/ value_2 = some_1(p.parseExpr())
 	}
-	/*line syntax/parse_decl.ergo:1155:1*/ var spec uint32
-	/*line syntax/parse_decl.ergo:1155:1*/ {
-		/*line syntax/parse_decl.ergo:1155:22*/ p0_inl872 := &p.t
-		/*line syntax/parse_decl.ergo:1155:1*/ {
-			/*line syntax/parse_decl.ergo:1155:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
+	/*line syntax/parse_decl.ergo:1162:1*/ var spec uint32
+	/*line syntax/parse_decl.ergo:1162:1*/ {
+		/*line syntax/parse_decl.ergo:1162:22*/ p0_inl872 := &p.t
+		/*line syntax/parse_decl.ergo:1162:1*/ {
+			/*line syntax/parse_decl.ergo:1162:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
 				/*line syntax/tree.ergo#ergo-inline-873:163:2*/ p0_inl872.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-873:165:1*/ p0_inl872.stack[p0_inl872.top] = pattern
 			/*line syntax/tree.ergo#ergo-inline-873:166:1*/ p0_inl872.top = p0_inl872.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1155:1*/ {
-			/*line syntax/parse_decl.ergo:1155:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
+		/*line syntax/parse_decl.ergo:1162:1*/ {
+			/*line syntax/parse_decl.ergo:1162:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
 				/*line syntax/tree.ergo#ergo-inline-874:163:2*/ p0_inl872.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-874:165:1*/ p0_inl872.stack[p0_inl872.top] = typ_1
 			/*line syntax/tree.ergo#ergo-inline-874:166:1*/ p0_inl872.top = p0_inl872.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1155:1*/ {
-			/*line syntax/parse_decl.ergo:1155:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
+		/*line syntax/parse_decl.ergo:1162:1*/ {
+			/*line syntax/parse_decl.ergo:1162:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
 				/*line syntax/tree.ergo#ergo-inline-875:163:2*/ p0_inl872.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-875:165:1*/ p0_inl872.stack[p0_inl872.top] = assign
 			/*line syntax/tree.ergo#ergo-inline-875:166:1*/ p0_inl872.top = p0_inl872.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1155:1*/ {
-			/*line syntax/parse_decl.ergo:1155:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
+		/*line syntax/parse_decl.ergo:1162:1*/ {
+			/*line syntax/parse_decl.ergo:1162:1*/ if p0_inl872.top >= len(p0_inl872.stack) {
 				/*line syntax/tree.ergo#ergo-inline-876:163:2*/ p0_inl872.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-876:165:1*/ p0_inl872.stack[p0_inl872.top] = value_2
@@ -25597,33 +25636,33 @@ func (p *parser) parseLetDecl(doc uint32, top bool) uint32 {
 		}
 		/*line syntax/view.ergo#ergo-inline-872:581:1*/ spec = p0_inl872.rec(uint8(5), uint32(0), pm)
 	}
-	/*line syntax/parse_decl.ergo:1156:1*/ {
-		/*line syntax/parse_decl.ergo:1156:11*/ p0_inl877 := &p.t
-		/*line syntax/parse_decl.ergo:1156:17*/ p1_inl877 := p.t.mark()
-		/*line syntax/parse_decl.ergo:1156:33*/ p3_inl877 := uint32(0)
-		/*line syntax/parse_decl.ergo:1156:1*/ {
-			/*line syntax/parse_decl.ergo:1156:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
+	/*line syntax/parse_decl.ergo:1163:1*/ {
+		/*line syntax/parse_decl.ergo:1163:11*/ p0_inl877 := &p.t
+		/*line syntax/parse_decl.ergo:1163:17*/ p1_inl877 := p.t.mark()
+		/*line syntax/parse_decl.ergo:1163:33*/ p3_inl877 := uint32(0)
+		/*line syntax/parse_decl.ergo:1163:1*/ {
+			/*line syntax/parse_decl.ergo:1163:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
 				/*line syntax/tree.ergo#ergo-inline-878:163:2*/ p0_inl877.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-878:165:1*/ p0_inl877.stack[p0_inl877.top] = doc
 			/*line syntax/tree.ergo#ergo-inline-878:166:1*/ p0_inl877.top = p0_inl877.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1156:1*/ {
-			/*line syntax/parse_decl.ergo:1156:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
+		/*line syntax/parse_decl.ergo:1163:1*/ {
+			/*line syntax/parse_decl.ergo:1163:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
 				/*line syntax/tree.ergo#ergo-inline-879:163:2*/ p0_inl877.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-879:165:1*/ p0_inl877.stack[p0_inl877.top] = p3_inl877
 			/*line syntax/tree.ergo#ergo-inline-879:166:1*/ p0_inl877.top = p0_inl877.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1156:1*/ {
-			/*line syntax/parse_decl.ergo:1156:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
+		/*line syntax/parse_decl.ergo:1163:1*/ {
+			/*line syntax/parse_decl.ergo:1163:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
 				/*line syntax/tree.ergo#ergo-inline-880:163:2*/ p0_inl877.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-880:165:1*/ p0_inl877.stack[p0_inl877.top] = mutTok
 			/*line syntax/tree.ergo#ergo-inline-880:166:1*/ p0_inl877.top = p0_inl877.top + 1
 		}
-		/*line syntax/parse_decl.ergo:1156:1*/ {
-			/*line syntax/parse_decl.ergo:1156:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
+		/*line syntax/parse_decl.ergo:1163:1*/ {
+			/*line syntax/parse_decl.ergo:1163:1*/ if p0_inl877.top >= len(p0_inl877.stack) {
 				/*line syntax/tree.ergo#ergo-inline-881:163:2*/ p0_inl877.growStack()
 			}
 			/*line syntax/tree.ergo#ergo-inline-881:165:1*/ p0_inl877.stack[p0_inl877.top] = spec
@@ -25633,7 +25672,7 @@ func (p *parser) parseLetDecl(doc uint32, top bool) uint32 {
 	}
 }
 
-//line syntax/parse_decl.ergo:1099
+//line syntax/parse_decl.ergo:1106
 
 //line syntax/parse.ergo:822:1
 func (p *parser) errorf(message string) {
@@ -35319,21 +35358,21 @@ func (t *Tree) mkLawDecl(m int, doc uint32, lawW int, name uint32, tparams uint3
 
 //line syntax/view.ergo:629
 
-//line syntax/parse_decl.ergo:1088:1
+//line syntax/parse_decl.ergo:1095:1
 func (p *parser) oneSide(b uint32) {
-	/*line syntax/parse_decl.ergo:1089:1*/ l := p.t.listAt(b, 0, p.t.items(b, 1))
-	/*line syntax/parse_decl.ergo:1090:1*/ if l.Len() == 1 && p.kindAt(wid(p.t.Item(l, 0))) == uint8(53) {
-		/*line syntax/parse_decl.ergo:1091:2*/ return
+	/*line syntax/parse_decl.ergo:1096:1*/ l := p.t.listAt(b, 0, p.t.items(b, 1))
+	/*line syntax/parse_decl.ergo:1097:1*/ if l.Len() == 1 && p.kindAt(wid(p.t.Item(l, 0))) == uint8(53) {
+		/*line syntax/parse_decl.ergo:1098:2*/ return
 	}
-	/*line syntax/parse_decl.ergo:1093:1*/ {
-		/*line syntax/parse_decl.ergo:1093:12*/ p1_inl1669 := p.tpos(int(p.t.tok[int(b)]))
-		/*line syntax/parse_decl.ergo:1093:43*/ p2_inl1669 := 1
-		/*line syntax/parse_decl.ergo:1093:46*/ p3_inl1669 := "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }"
+	/*line syntax/parse_decl.ergo:1100:1*/ {
+		/*line syntax/parse_decl.ergo:1100:12*/ p1_inl1669 := p.tpos(int(p.t.tok[int(b)]))
+		/*line syntax/parse_decl.ergo:1100:43*/ p2_inl1669 := 1
+		/*line syntax/parse_decl.ergo:1100:46*/ p3_inl1669 := "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }"
 		/*line syntax/parse.ergo#ergo-inline-1669:804:65*/ p.errorCode("S001", p1_inl1669, p2_inl1669, p3_inl1669)
 	}
 }
 
-//line syntax/parse_decl.ergo:1089
+//line syntax/parse_decl.ergo:1096
 
 //line syntax/view.ergo:777:1
 func (t *Tree) mkBlock(m int, lbrace int, rbrace int) uint32 {
@@ -35350,100 +35389,100 @@ func (t *Tree) mkBlock(m int, lbrace int, rbrace int) uint32 {
 
 //line syntax/view.ergo:778
 
-//line syntax/parse_decl.ergo:1161:1
+//line syntax/parse_decl.ergo:1168:1
 func (p *parser) parseLetPattern() uint32 {
-	/*line syntax/parse_decl.ergo:1162:1*/ if p.tk == uint8(3) && p.opensCollection(1) {
-		/*line syntax/parse_decl.ergo:1163:2*/ {
-			/*line syntax/parse_decl.ergo:1163:2*/ if p.tk != uint8(3) {
-				/*line syntax/parse_decl.ergo:1163:2*/ {
+	/*line syntax/parse_decl.ergo:1169:1*/ if p.tk == uint8(3) && p.opensCollection(1) {
+		/*line syntax/parse_decl.ergo:1170:2*/ {
+			/*line syntax/parse_decl.ergo:1170:2*/ if p.tk != uint8(3) {
+				/*line syntax/parse_decl.ergo:1170:2*/ {
 					/*line syntax/parse_type.ergo#ergo-inline-1671:6:14*/ p1_inl1672 := "expected a name, found "
-					/*line syntax/parse_decl.ergo:1163:2*/ if p.loud() {
-						/*line syntax/parse_decl.ergo:1163:2*/ {
+					/*line syntax/parse_decl.ergo:1170:2*/ if p.loud() {
+						/*line syntax/parse_decl.ergo:1170:2*/ {
 							/*line syntax/parse.ergo#ergo-inline-1672:814:18*/ p1_inl1673 := p1_inl1672 + p.found()
-							/*line syntax/parse_decl.ergo:1163:2*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1170:2*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-1673:824:2*/ goto inl1673
 							}
 							/*line syntax/parse.ergo#ergo-inline-1673:826:9*/ a_inl1673 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-1673:826:9*/ i_inl1673 := 0
 							/*line syntax/parse.ergo#ergo-inline-1673:826:9*/ i_inl1673 = i_inl1673*256 + int(a_inl1673)
 							/*line syntax/parse.ergo#ergo-inline-1673:826:9*/ var h_inl1673 int
-							/*line syntax/parse_decl.ergo:1163:2*/ if (&tabtokenHabitK[i_inl1673]).Ready() {
+							/*line syntax/parse_decl.ergo:1170:2*/ if (&tabtokenHabitK[i_inl1673]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-1673:826:9*/ h_inl1673 = tabtokenHabitV[i_inl1673]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-1673:826:9*/ h_inl1673 = tabtokenHabitFill(i_inl1673, a_inl1673)
 							}
-							/*line syntax/parse_decl.ergo:1163:2*/ if h_inl1673 >= 0 {
-								/*line syntax/parse_decl.ergo:1163:2*/ {
+							/*line syntax/parse_decl.ergo:1170:2*/ if h_inl1673 >= 0 {
+								/*line syntax/parse_decl.ergo:1170:2*/ {
 									/*line syntax/parse.ergo#ergo-inline-1673:828:11*/ p1_inl1674 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-1673:828:19*/ p2_inl1674 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-1674:834:54*/ p.errorAt(p1_inl1674, p2_inl1674, habitMessages[h_inl1673])
 								}
 								/*line syntax/parse.ergo#ergo-inline-1673:829:2*/ goto inl1673
 							}
-							/*line syntax/parse_decl.ergo:1163:2*/ {
+							/*line syntax/parse_decl.ergo:1170:2*/ {
 								/*line syntax/parse.ergo#ergo-inline-1673:831:12*/ p1_inl1675 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-1673:831:20*/ p2_inl1675 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-1675:804:65*/ p.errorCode("S001", p1_inl1675, p2_inl1675, p1_inl1673)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1163:2*/ inl1673:
-						/*line syntax/parse_decl.ergo:1163:2*/ {
+						/*line syntax/parse_decl.ergo:1170:2*/ inl1673:
+						/*line syntax/parse_decl.ergo:1170:2*/ {
 						}
 					} else {
-						/*line syntax/parse_decl.ergo:1163:2*/ {
+						/*line syntax/parse_decl.ergo:1170:2*/ {
 							/*line syntax/parse.ergo#ergo-inline-1672:816:12*/ p1_inl1676 := ""
-							/*line syntax/parse_decl.ergo:1163:2*/ if p.failed {
+							/*line syntax/parse_decl.ergo:1170:2*/ if p.failed {
 								/*line syntax/parse.ergo#ergo-inline-1676:824:2*/ goto inl1676
 							}
 							/*line syntax/parse.ergo#ergo-inline-1676:826:9*/ a_inl1676 := p.tk
 							/*line syntax/parse.ergo#ergo-inline-1676:826:9*/ i_inl1676 := 0
 							/*line syntax/parse.ergo#ergo-inline-1676:826:9*/ i_inl1676 = i_inl1676*256 + int(a_inl1676)
 							/*line syntax/parse.ergo#ergo-inline-1676:826:9*/ var h_inl1676 int
-							/*line syntax/parse_decl.ergo:1163:2*/ if (&tabtokenHabitK[i_inl1676]).Ready() {
+							/*line syntax/parse_decl.ergo:1170:2*/ if (&tabtokenHabitK[i_inl1676]).Ready() {
 								/*line syntax/parse.ergo#ergo-inline-1676:826:9*/ h_inl1676 = tabtokenHabitV[i_inl1676]
 							} else {
 								/*line syntax/parse.ergo#ergo-inline-1676:826:9*/ h_inl1676 = tabtokenHabitFill(i_inl1676, a_inl1676)
 							}
-							/*line syntax/parse_decl.ergo:1163:2*/ if h_inl1676 >= 0 {
-								/*line syntax/parse_decl.ergo:1163:2*/ {
+							/*line syntax/parse_decl.ergo:1170:2*/ if h_inl1676 >= 0 {
+								/*line syntax/parse_decl.ergo:1170:2*/ {
 									/*line syntax/parse.ergo#ergo-inline-1676:828:11*/ p1_inl1677 := p.pos()
 									/*line syntax/parse.ergo#ergo-inline-1676:828:19*/ p2_inl1677 := p.tokLen()
 									/*line syntax/parse.ergo#ergo-inline-1677:834:54*/ p.errorAt(p1_inl1677, p2_inl1677, habitMessages[h_inl1676])
 								}
 								/*line syntax/parse.ergo#ergo-inline-1676:829:2*/ goto inl1676
 							}
-							/*line syntax/parse_decl.ergo:1163:2*/ {
+							/*line syntax/parse_decl.ergo:1170:2*/ {
 								/*line syntax/parse.ergo#ergo-inline-1676:831:12*/ p1_inl1678 := p.pos()
 								/*line syntax/parse.ergo#ergo-inline-1676:831:20*/ p2_inl1678 := p.tokLen()
 								/*line syntax/parse.ergo#ergo-inline-1678:804:65*/ p.errorCode("S001", p1_inl1678, p2_inl1678, p1_inl1676)
 							}
 						}
-						/*line syntax/parse_decl.ergo:1163:2*/ inl1676:
-						/*line syntax/parse_decl.ergo:1163:2*/ {
+						/*line syntax/parse_decl.ergo:1170:2*/ inl1676:
+						/*line syntax/parse_decl.ergo:1170:2*/ {
 						}
 					}
 				}
 				/*line syntax/parse_type.ergo#ergo-inline-1671:7:2*/ return uint32(4294967295)
 			}
 			/*line syntax/parse_type.ergo#ergo-inline-1671:9:1*/ var id_inl1671 uint32
-			/*line syntax/parse_decl.ergo:1163:2*/ {
+			/*line syntax/parse_decl.ergo:1170:2*/ {
 				/*line syntax/parse_type.ergo#ergo-inline-1671:9:24*/ p1_inl1679 := p.i
-				/*line syntax/parse_decl.ergo:1163:2*/ {
+				/*line syntax/parse_decl.ergo:1170:2*/ {
 					/*line syntax/parse.ergo#ergo-inline-1679:1064:48*/ p0_inl1680 := &p.t
 					/*line syntax/parse.ergo#ergo-inline-1679:1064:54*/ p1_inl1680 := uint8(24)
 					/*line syntax/parse.ergo#ergo-inline-1679:1064:62*/ p2_inl1680 := uint32(p1_inl1679)
 					/*line syntax/parse.ergo#ergo-inline-1679:1064:73*/ p3_inl1680 := uint32(0)
 					/*line syntax/parse.ergo#ergo-inline-1679:1064:84*/ p4_inl1680 := uint32(0)
 					/*line syntax/tree.ergo#ergo-inline-1680:133:1*/ i_inl1680 := p0_inl1680.n
-					/*line syntax/parse_decl.ergo:1163:2*/ if i_inl1680 >= len(p0_inl1680.kind) {
+					/*line syntax/parse_decl.ergo:1170:2*/ if i_inl1680 >= len(p0_inl1680.kind) {
 						/*line syntax/tree.ergo#ergo-inline-1680:135:2*/ p0_inl1680.growRows()
 					}
 					/*line syntax/tree.ergo#ergo-inline-1680:137:1*/ p0_inl1680.kind[i_inl1680] = uint32(p1_inl1680)
 					/*line syntax/tree.ergo#ergo-inline-1680:138:1*/ p0_inl1680.tok[i_inl1680] = p2_inl1680
 					/*line syntax/tree.ergo#ergo-inline-1680:139:1*/ p0_inl1680.a[i_inl1680] = p3_inl1680
 					/*line syntax/tree.ergo#ergo-inline-1680:140:1*/ p0_inl1680.b[i_inl1680] = p4_inl1680
-					/*line syntax/parse_decl.ergo:1163:2*/ if i_inl1680 == CountTotalMono_i3(p0_inl1680.ids) {
-						/*line syntax/parse_decl.ergo:1163:2*/ {
+					/*line syntax/parse_decl.ergo:1170:2*/ if i_inl1680 == CountTotalMono_i3(p0_inl1680.ids) {
+						/*line syntax/parse_decl.ergo:1170:2*/ {
 							/*line syntax/tree.ergo#ergo-inline-1680:142:21*/ p0_inl1681 := &p0_inl1680.ids
 							/*line syntax/tree.ergo#ergo-inline-1680:142:10*/ id_inl1681 := nextMono_i2(int(p0_inl1681.n))
 							/*line syntax/tree.ergo#ergo-inline-1680:142:10*/ p0_inl1681.n = p0_inl1681.n + uint32(1)
@@ -35455,17 +35494,17 @@ func (p *parser) parseLetPattern() uint32 {
 					/*line syntax/tree.ergo#ergo-inline-1680:145:1*/ goto inl1679
 				}
 			}
-			/*line syntax/parse_decl.ergo:1163:2*/ inl1679:
-			/*line syntax/parse_decl.ergo:1163:2*/ {
+			/*line syntax/parse_decl.ergo:1170:2*/ inl1679:
+			/*line syntax/parse_decl.ergo:1170:2*/ {
 			}
 			/*line syntax/parse_type.ergo#ergo-inline-1671:10:1*/ p.next()
 			/*line syntax/parse_type.ergo#ergo-inline-1671:11:1*/ return id_inl1671
 		}
 	}
-	/*line syntax/parse_decl.ergo:1165:1*/ return p.parsePattern()
+	/*line syntax/parse_decl.ergo:1172:1*/ return p.parsePattern()
 }
 
-//line syntax/parse_decl.ergo:1162
+//line syntax/parse_decl.ergo:1169
 
 //line syntax/parse.ergo:1056:1
 func (p *parser) kindAt(x uint32) uint8 {
@@ -39951,9 +39990,16 @@ func (p *Printer) row(env *Env, names []ID[Node_1]) {
 func (p *Printer) members(env *Env, lbrace int, rbrace int, nodes []ID[Node_1], print_1 func(*Env, int, bool) (struct{}, error), tight bool) {
 	/*line format/nodes.ergo:471:1*/ env.task.Check()
 	/*line format/nodes.ergo:472:1*/ oneLine_1 := p.ln(lbrace) == p.ln(rbrace)
+	/*line format/nodes.ergo:473:1*/ pc := 1024
 	/*line format/nodes.ergo:473:1*/ for _, m := range nodes {
 		/*line format/nodes.ergo:474:2*/ oneLine_1 = oneLine_1 && !forcesBreak(p.P.Tree, m)
-		/*line format/nodes.ergo:473:1*/ env.task.Check()
+		/*line format/nodes.ergo:473:1*/ {
+			/*line format/nodes.ergo:473:1*/ pc -= 1
+			/*line format/nodes.ergo:473:1*/ if pc == 0 {
+				/*line format/nodes.ergo:473:1*/ pc = 1024
+				/*line format/nodes.ergo:473:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line format/nodes.ergo:476:1*/ if oneLine_1 {
 		/*line format/nodes.ergo:477:2*/ {
@@ -40362,9 +40408,16 @@ func (p *Printer) members(env *Env, lbrace int, rbrace int, nodes []ID[Node_1], 
 //line format/nodes.ergo:471:1
 func (p *Printer) membersKnown(env *Env, lbrace int, rbrace int, nodes []ID[Node_1], print_1 func(int, bool), tight bool) {
 	/*line format/nodes.ergo:472:1*/ oneLine_1 := p.ln(lbrace) == p.ln(rbrace)
+	/*line format/nodes.ergo:473:1*/ pc := 1024
 	/*line format/nodes.ergo:473:1*/ for _, m := range nodes {
 		/*line format/nodes.ergo:474:2*/ oneLine_1 = oneLine_1 && !forcesBreak(p.P.Tree, m)
-		/*line format/nodes.ergo:473:1*/ env.task.Check()
+		/*line format/nodes.ergo:473:1*/ {
+			/*line format/nodes.ergo:473:1*/ pc -= 1
+			/*line format/nodes.ergo:473:1*/ if pc == 0 {
+				/*line format/nodes.ergo:473:1*/ pc = 1024
+				/*line format/nodes.ergo:473:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line format/nodes.ergo:476:1*/ if oneLine_1 {
 		/*line format/nodes.ergo:477:2*/ {

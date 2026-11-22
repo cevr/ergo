@@ -46,10 +46,14 @@ type irOwn struct {
 	live, kept int // locals; kept is -1 until a return keeps a value
 	slots      []irSlot
 	bit        map[*check.Var]int
-	deferred   *irStmt       // the frame's deferred release, filled by ownDone
-	returned   *syntax.Ident // the local a return hands off (returning)
-	site       syntax.Node
-	p          irPos
+	// tbit is the slot of each owned temporary (Info.OwnedTemps, R43)
+	// registered so far (ownTemp): the statement's planned release finds
+	// it there (releaseAt).
+	tbit     map[syntax.Expr]int
+	deferred *irStmt       // the frame's deferred release, filled by ownDone
+	returned *syntax.Ident // the local a return hands off (returning)
+	site     syntax.Node
+	p        irPos
 	// keys are the places of the body whose planned releases the builder
 	// has not reached yet (releaseAt, scoped); pending the owned locals
 	// bound and not yet registered (ownable, ownLet). Both end empty
@@ -112,7 +116,7 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 		irNo("owned local") // a pure body has no task to settle its exit on
 	}
 	p := b.pos(f.Decl, f.Decl.Pos())
-	o := &irOwn{kept: -1, bit: map[*check.Var]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	o := &irOwn{kept: -1, bit: map[*check.Var]int{}, tbit: map[syntax.Expr]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
 	b.ownBodyChecks(f.Decl.Body, o)
 	// The body's own scope ends at the frame's exit: its values are the
 	// deferred release's, in the same order (last registered first).
@@ -640,7 +644,7 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 				}
 			}
 		}
-		if x, ok := n.(syntax.Expr); ok && (info.OwnedTemps[x] != nil || info.ArmValues[x] != nil) {
+		if x, ok := n.(syntax.Expr); ok && (info.OwnedTemps[x] != nil && !b.tempOwnable(x, o) || info.ArmValues[x] != nil) {
 			irNo("owned temporary")
 		}
 		return true
@@ -709,9 +713,20 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 	var out []*irStmt
 	for _, r := range rs {
 		if r.Var == nil {
-			if b.l.info.OwnedTemps[r.Temp] != nil {
+			if b.l.info.OwnedTemps[r.Temp] == nil {
+				continue
+			}
+			// The statement's temporary, released now if its bit is
+			// still set (the emitter's staticRelease); a temporary the
+			// builder did not register (ownTemp) stops the body.
+			k, ok := -1, false
+			if o != nil {
+				k, ok = o.tbit[r.Temp]
+			}
+			if !ok {
 				irNo("owned temporary")
 			}
+			out = append(out, b.slotRelease(k, p))
 			continue
 		}
 		if b.l.info.OwnedVars[r.Var] == nil {
@@ -830,6 +845,53 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node, value syntax.E
 	typ := b.goType(v.Type, site)
 	call := b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), &irExpr{K: "local", Pos: p, I: i})
 	return []*irStmt{{K: "expr", Pos: p, X: call}}
+}
+
+// tempOwnable reports an owned temporary x (Info.OwnedTemps, R43) that
+// the static frame being built registers in a slot of its own (ownTemp):
+// one whose release is its type's own Close, that is no moved part of a
+// value being built (PartHands) and no lent arm result (ArmHeld, HeldIn).
+// The list form's temporaries, and these, keep their source body.
+func (b *irBuilder) tempOwnable(x syntax.Expr, o *irOwn) bool {
+	info := b.l.info
+	d := info.OwnedTemps[x]
+	if d == nil || o == nil || o.list || d.Glue() || d.Close == nil {
+		return false
+	}
+	return !info.PartHands[x] && !info.ArmHeld[x] && info.HeldIn[x] == nil
+}
+
+// ownTemp registers e, the value of x, a temporary its statement owns
+// (R43), in a slot of the static frame: the step that receives the value
+// (the emitter's ownTemp and staticOwn). The statement's end releases it
+// (releaseAt); a failure or a defect before then, the frame's exit. e is
+// the value after its copy, before its implicit conversion, as the
+// emitter registers it. A fallible operand registers only on success: its
+// failure leaves before e is evaluated (the builder's pre statements).
+func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
+	if b.l.info.OwnedTemps[x] == nil {
+		return e
+	}
+	if !b.tempOwnable(x, b.own) {
+		irNo("owned temporary")
+	}
+	o := b.own
+	t := b.l.info.Types[x]
+	if t == nil {
+		irNo("owned temporary")
+	}
+	p := e.Pos
+	k, seen := o.tbit[x]
+	typ := b.goType(t, x)
+	if !seen {
+		k = len(o.slots)
+		if k >= 64 {
+			irNo("owned temporary")
+		}
+		o.tbit[x] = k
+		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, o.p), t: t, d: b.l.info.OwnedTemps[x], site: x})
+	}
+	return b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), e)
 }
 
 // handoff is the read e of id, a use of an owned local: as it is, or at a
