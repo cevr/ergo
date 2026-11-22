@@ -4,8 +4,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeWork is a stand-in for `work` in the source base: `--json list`
@@ -182,6 +184,57 @@ func TestLaneRefusesACacheACloneCopies(t *testing.T) {
 			t.Fatalf("create with GOCACHE %s made a lane", cache)
 		}
 	}
+}
+
+// TestCreateTrimsTheCacheOverItsBound: under its bound, create's trim
+// keeps every entry. Over it, the trim deletes the entries unused longest
+// and keeps one used an hour ago (Go marks use at most hourly, so a
+// running build may hold it) and the cache's own files beside its
+// entries. Mutants: no size check (lanework-trim-unbounded), no trim
+// (lanework-trim-never), a floor under an hour (lanework-trim-recent), a
+// trim of the cache's own files (lanework-trim-anything).
+func TestCreateTrimsTheCacheOverItsBound(t *testing.T) {
+	f := newFixture(t, "no-push:workspaces-never-push-origin")
+	cache := filepath.Join(f.dir, "gocache")
+	now := time.Now()
+	files := map[string]time.Duration{
+		"ab/old-d":   -6 * 24 * time.Hour,
+		"cd/hour-d":  -time.Hour,
+		"trim.txt":   -6 * 24 * time.Hour,
+		"README":     -6 * 24 * time.Hour,
+		"ef/fresh-a": 0,
+	}
+	for name, age := range files {
+		p := filepath.Join(cache, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("entry"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, now.Add(age), now.Add(age)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept := func(want ...string) {
+		t.Helper()
+		for name := range files {
+			_, err := os.Stat(filepath.Join(cache, name))
+			if got, should := err == nil, slices.Contains(want, name); got != should {
+				t.Errorf("after the trim, %s is there: %v; want %v", name, got, should)
+			}
+		}
+	}
+	f.env = append(f.env, "LANE_GOCACHE_MAX_GIB=40")
+	if out, err := f.lanework(f.dir, "create", "lane-d", "main"); err != nil {
+		t.Fatalf("create under the bound: %v\n%s", err, out)
+	}
+	kept("ab/old-d", "cd/hour-d", "trim.txt", "README", "ef/fresh-a")
+	f.env = append(f.env, "LANE_GOCACHE_MAX_GIB=0")
+	if out, err := f.lanework(f.dir, "create", "lane-e", "main"); err != nil {
+		t.Fatalf("create over the bound: %v\n%s", err, out)
+	}
+	kept("cd/hour-d", "trim.txt", "README", "ef/fresh-a")
 }
 
 // TestCreateLeavesOnlyOriginGuarded: a lane create makes keeps origin's

@@ -12,9 +12,10 @@
 # a base `work init` made; a lane is its workspace named <branch>. <base>
 # is a branch name or a commit of the main checkout. When <branch> already
 # exists in the main checkout, the lane continues it and <base> is only
-# checked to be its ancestor. This script never pushes to origin and never
-# deletes files itself: removal is `work rm` (the trash; `work gc` empties
-# it, and `work gc -idle 48h` collects lanes left idle whose work is held).
+# checked to be its ancestor. This script never pushes to origin and
+# deletes no file but the shared Go cache's oldest entries (trim_gocache):
+# removal is `work rm` (the trash; `work gc` empties it, and
+# `work gc -idle 48h` collects lanes left idle whose work is held).
 set -eu
 
 SRC=${ERGO_WORK_SOURCE:-/workspaces/ergo}
@@ -24,8 +25,11 @@ MIN_FREE_GIB=${LANE_MIN_FREE_GIB:-10}
 # The Go build cache every lane shares: one folder on the source's file
 # system, outside the source and every workspace, so no clone or snapshot
 # copies it. Go's cache is safe for concurrent go commands and trims
-# itself by age (a day's trim of entries unused for five days).
+# itself by age (a day's trim of entries unused for five days), never by
+# size: lanes kept 319 GB of distinct entries, all used within five days
+# (2026-11-22), so trim_gocache bounds it by size too.
 GOCACHE_SHARED=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
+GOCACHE_MAX_GIB=${LANE_GOCACHE_MAX_GIB:-40}
 
 fail() {
   printf 'lanework: %s\n' "$*" >&2
@@ -86,6 +90,25 @@ lane_gocache() {
   printf '%s\n' "$GOCACHE_SHARED"
 }
 
+# trim_gocache bounds the shared cache at $1 by size, on the terms Go's
+# own trim deletes on. Over GOCACHE_MAX_GIB, it deletes the entries
+# unused the longest, in steps of last use from four days down to two
+# hours, until the cache is under the bound. Go marks an entry used at
+# most once an hour, so an entry that a running build looked up is never
+# deleted. Only the cache's entries (the files in its 00 to ff folders)
+# are deleted, and one trim runs at a time; a second one skips.
+trim_gocache() {
+  case "$1" in /?*) ;; *) fail "trim of a cache that is not an absolute path: '$1'" ;; esac
+  limit_kib=$((GOCACHE_MAX_GIB * 1024 * 1024))
+  (
+    flock -n 8 || exit 0
+    for minutes in 5760 2880 1440 720 360 120; do
+      [ "$(du -sk "$1" | cut -f1)" -gt "$limit_kib" ] || break
+      nice -n 19 find "$1" -mindepth 2 -maxdepth 2 -type f -mmin +"$minutes" -delete
+    done
+  ) 8>"$1/trim.lock"
+}
+
 lane_env() {
   cache=$(lane_gocache "$1")
   printf 'export GOCACHE=%s\n' "$cache"
@@ -101,6 +124,7 @@ lock_source() {
 cmd_warm() {
   check_disk
   cache=$(lane_gocache)
+  trim_gocache "$cache"
   (
     cd "$SRC"
     umask 022
@@ -121,7 +145,8 @@ cmd_create() {
   git check-ref-format --branch "$branch" >/dev/null || fail "bad branch name: $branch"
   check_disk
   # A cache a clone would copy is refused before any lane is made.
-  lane_gocache >/dev/null
+  cache=$(lane_gocache)
+  trim_gocache "$cache"
 
   base_sha=$(git -C "$MAIN" rev-parse --verify --quiet "$base^{commit}") || fail "base not in the main checkout: $base"
   branch_sha=$(git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$branch^{commit}" || true)
