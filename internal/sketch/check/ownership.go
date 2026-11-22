@@ -222,6 +222,9 @@ type ownWalk struct {
 	c    *checker
 	info *Info
 	st   ownState
+	// withLends are the locals the withs around the point lend
+	// (withProviders), innermost last.
+	withLends []withLend
 	// fresh is the last new value made in a moving position (produced):
 	// a return reads it after its value (retAfter).
 	fresh syntax.Expr
@@ -2461,10 +2464,11 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			for _, a := range x.Args {
 				w.expr(a, mLend, hand{})
 			}
-			w.withProviders(x)
+			lends := w.withProviders(x)
 			if x.Trailing != nil {
 				w.block(x.Trailing, x.Trailing.List)
 			}
+			w.withLends = w.withLends[:len(w.withLends)-lends]
 		})
 		return true
 	}
@@ -2670,14 +2674,19 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 }
 
 // withProviders evaluates the provider expressions with x builds that lie
-// in this body (an inline or a local context's): a resource provider
-// moves into the with, which releases it at the block's end (R11); any
-// other is lent. A context literal itself evaluates nothing: each with
-// that builds it does (expr). A package let provider is withown.go's.
-func (w *ownWalk) withProviders(x *syntax.CallExpr) {
+// in this body (an inline or a local context's), as a call evaluates its
+// arguments (R11, R16): a resource provider that is a new value moves
+// into the with, which releases it at the block's end; one that names a
+// place is lent to the with until its block ends (Acquisition.Lent), so
+// the block cannot hand its owner off, close or replace it (withLent);
+// any other provider is lent. A context literal itself evaluates nothing:
+// each with that builds it does (expr). It returns the number of lends it
+// pushed, which the with pops when its block ends.
+func (w *ownWalk) withProviders(x *syntax.CallExpr) int {
 	if w.top == nil {
-		return
+		return 0
 	}
+	pushed := 0
 	for f := w.info.Withs[x]; f != nil; f = f.Next {
 		for _, a := range f.Acquired {
 			if a == nil || a.Entry == nil || a.Entry.Provider == nil {
@@ -2687,13 +2696,46 @@ func (w *ownWalk) withProviders(x *syntax.CallExpr) {
 			if owner := w.c.contextOwners.of[a.Entry]; owner == nil || owner.file != w.c.cur || p.Pos() < w.top.Pos() || p.End() > w.top.End() {
 				continue
 			}
-			if a.Releases() {
+			switch {
+			case a.Releases():
 				w.expr(p, mMove, hand{at: p, how: "the with owns it", provider: true})
-			} else {
+			case a.Lent:
+				w.expr(p, mLend, hand{})
+				if v, _, ok := w.placeRoot(p); ok {
+					w.withLends = append(w.withLends, withLend{v: v, with: x})
+					pushed++
+				}
+			default:
 				w.expr(p, mLend, hand{})
 			}
 		}
 	}
+	return pushed
+}
+
+// withLend is a local a with's provider names, lent to the with until its
+// block ends (R11, R28).
+type withLend struct {
+	v    *Var
+	with *syntax.CallExpr
+}
+
+// withLent refuses a take of slot i at at while a with around it lends
+// the local (R11, R28): the with's block reaches the provider through its
+// capability, so the owner can be handed off, closed or replaced only
+// after the block. It reports whether it refused.
+func (w *ownWalk) withLent(i int, at syntax.Node) bool {
+	v := w.vars[i].v
+	if v == nil || !w.st.reached {
+		return false
+	}
+	for k := len(w.withLends) - 1; k >= 0; k-- {
+		if l := w.withLends[k]; l.v == v {
+			w.refuse(i, at, fmt.Sprintf("%s is taken while the with at %s lends it", v.Name, w.pos(l.with)), "%s is lent to the with at %s until its block ends, so it cannot be handed off, closed or replaced inside the block (resources R11, R28); do that after the block", v.Name, w.pos(l.with))
+			return true
+		}
+	}
+	return false
 }
 
 // holdsTaken reports a call that takes a value and whose body is a Go
