@@ -199,8 +199,10 @@ type Api {
 	// read only) as a workspace, a copy made on a copy with that one as
 	// its parent; it moves no file, and a second run adopts nothing.
 	AdoptRift(o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Unkept | VcsFailed | Locked,
-	// List is every workspace of the base.
-	List() []Workspace fails NoBase | Unkept,
+	// List is every workspace of the base; with -status, each active
+	// one's commits against its parent's default branch, whether it has a
+	// change and its last commit (LaneStatus), by read-only Git calls.
+	List(o ListOptions) []Listed fails NoBase | Unkept,
 	// Rm moves a workspace to the trash.
 	Rm(name string, o RmOptions) []Removed fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants,
 	// Gc deletes the trash of this base (never another's) and the
@@ -298,11 +300,11 @@ type Api {
 			return true
 		}
 		let path = made.Path
-		let all = List() catch {
+		let all = List(ListOptions{Status: false}) catch {
 		case NoBase, Unkept:
 			return false
 		}
-		let mine = named(all, name)
+		let mine = named(Records(all), name)
 		let listed = len(mine) == 1 && mine[0].Path == path && StateName(mine[0].State) == "active"
 		New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
 		case NameTaken:
@@ -870,11 +872,6 @@ func pinned(t Tool, name string, on bool) Workspace fails NoBase | NoWorkspace |
 	}
 	t.lock.Release("")
 	w
-}
-
-func List(t Tool) []Workspace fails NoBase | Unkept {
-	try initialized(t)
-	try t.registry.All()
 }
 
 func Du(t Tool) []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept {

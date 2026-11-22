@@ -213,7 +213,7 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
 	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
 	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false})
-	try t.List()
+	try records(t)
 }
 
 // invariants are the model's, on the records all of w after recovery.
@@ -392,7 +392,7 @@ func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]stri
 				// The claim is the new's linear point: its parent is, at
 				// that moment, the base or the live workspace Look found.
 				if m.ParentId != "" {
-					let all = t.List() catch {
+					let all = records(t) catch {
 					case _:
 						[]work.Workspace{}
 					}

@@ -51,6 +51,10 @@ let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
 
+// records is the plain list of t's workspaces, as the registry keeps
+// them.
+func records(t work.Tool) []work.Workspace fails work.NoBase | work.Unkept { work.Records(try t.List(work.ListOptions{Status: false})) }
+
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
 func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
@@ -74,7 +78,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -86,7 +90,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let purged = w.tool.List() catch {
+	let purged = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -141,7 +145,7 @@ law ReservingWithATokenTwiceIsOnce(token string, again int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -168,7 +172,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -176,7 +180,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -230,7 +234,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 	}
 	let _ = w.tool.Claim(begun, o.On) catch {
 	case work.NoWorkspace as n:
-		let all = w.tool.List() catch {
+		let all = records(w.tool) catch {
 		case _:
 			return false
 		}
@@ -927,7 +931,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 		}
 	}
 	let at = w.clock.Now().UnixSeconds()
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1018,7 +1022,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1058,7 +1062,7 @@ law MadeCloneOutlivesItsMaker(text string) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1104,7 +1108,7 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1151,7 +1155,7 @@ func handedHeld(w World, e Expected, h work.Handed) bool {
 // synced reports whether a sync of name that merged theirs left it
 // recorded as the workspace's base, and its head contains it.
 func synced(w World, name string, theirs string) bool {
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1171,7 +1175,7 @@ func synced(w World, name string, theirs string) bool {
 // the records in order, and the trashed ones whose name a new took again
 // (work.TrashedName; the reference's name~) by their folders.
 func agrees(w World, want []Expected, gone []string) bool {
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1366,7 +1370,7 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1375,7 +1379,7 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1427,7 +1431,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 		}
 		ids = ids.Append(made.Id)
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1442,7 +1446,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
