@@ -25,8 +25,9 @@ import (
 // Mutants: lf6-impure-side-admitted, lf6-same-size-admitted,
 // lf6-orphan-admitted, lf6-ergo-only-law-refused (q195: the checker asks
 // for a Go function), lf6-wider-failure-row-admitted,
-// lf6-guarded-law-admitted, hr-getenv-foreign (the host row of os.Getenv
-// is Ambient: interop.md Purity and authority).
+// lf6-guarded-law-admitted, lf6-impure-row-text-stale (the refusal names the
+// row the call charges: Ambient for os.Getenv, interop.md Purity and
+// authority).
 //
 // ERGO_FUNCREWRITE_SEED=N replays one seed.
 func TestFunctionRewriteShapes(t *testing.T) {
