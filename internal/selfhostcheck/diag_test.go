@@ -363,11 +363,6 @@ func unusedPool(t *testing.T) []unusedFile {
 	return pool
 }
 
-// unusedStride keeps one pool file in unusedStride as an unused case
-// (about 300 of today's pool), chosen by its path's hash: a file is a
-// case or not by itself, whatever else the corpus holds.
-const unusedStride = 3
-
 // unusedDraw is a pool file's unused case: its name, the seed its
 // perturbation draws from and the perturbed source.
 type unusedDraw struct {
@@ -376,20 +371,16 @@ type unusedDraw struct {
 	src  string
 }
 
-// unusedDraws is the unused cases of pool, in pool order. Each is keyed
-// by its own file: its path's hash decides whether it is a case and
-// seeds its perturbation, so a file added to or edited in the corpus
+// unusedDraws is the unused cases of pool, in pool order: one per file
+// whose drawn form applies. Each is keyed by its own file: its path's
+// hash seeds its perturbation, so a file added to or edited in the corpus
 // adds or changes only its own case (TestUnusedDrawsAreKeyedByFile).
 func unusedDraws(pool []unusedFile) []unusedDraw {
 	var out []unusedDraw
 	for _, u := range pool {
 		h := fnv.New32a()
 		h.Write([]byte(u.path))
-		key := h.Sum32()
-		if key%unusedStride != 0 {
-			continue
-		}
-		seed := key / unusedStride
+		seed := h.Sum32()
 		if src, ok := perturbUnused(u, seed); ok {
 			out = append(out, unusedDraw{name: "unused " + u.path, seed: seed, src: src})
 		}

@@ -281,6 +281,7 @@ case examples/mdhtml/workload
 case examples/metrics/alert
 case examples/metrics/cmd/metrics
 case examples/metrics/series
+case examples/modelslice/cmd/modelslice
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -1050,305 +1051,72 @@ case internal/sketch/std/url
 case internal/sketch/std/utf8
 case internal/sketch/std/uuid
 case internal/sketch/std/xml
-case unused seed 1
-case unused seed 10
-case unused seed 100
-case unused seed 101
-case unused seed 102
-case unused seed 103
-case unused seed 104
-case unused seed 106
-case unused seed 107
-case unused seed 108
-case unused seed 109
-case unused seed 11
-case unused seed 110
-case unused seed 111
-case unused seed 112
-case unused seed 113
-case unused seed 114
-case unused seed 115
-case unused seed 116
-case unused seed 117
-case unused seed 118
-case unused seed 119
-case unused seed 12
-case unused seed 120
-case unused seed 121
-case unused seed 122
-case unused seed 123
-case unused seed 124
-case unused seed 125
-case unused seed 126
-case unused seed 127
-case unused seed 128
-case unused seed 129
-case unused seed 13
-case unused seed 130
-case unused seed 131
-case unused seed 132
-case unused seed 133
-case unused seed 134
-case unused seed 135
-case unused seed 136
-case unused seed 137
-case unused seed 138
-case unused seed 139
-case unused seed 14
-case unused seed 140
-case unused seed 141
-case unused seed 142
-case unused seed 143
-case unused seed 144
-case unused seed 145
-case unused seed 146
-case unused seed 147
-case unused seed 148
-case unused seed 149
-case unused seed 15
-case unused seed 150
-case unused seed 151
-case unused seed 152
-case unused seed 153
-case unused seed 154
-case unused seed 155
-case unused seed 156
-case unused seed 157
-case unused seed 158
-case unused seed 159
-case unused seed 16
-case unused seed 160
-case unused seed 161
-case unused seed 162
-case unused seed 163
-case unused seed 164
-case unused seed 165
-case unused seed 166
-case unused seed 167
-case unused seed 168
-case unused seed 169
-case unused seed 17
-case unused seed 170
-case unused seed 171
-case unused seed 172
-case unused seed 173
-case unused seed 174
-case unused seed 175
-case unused seed 176
-case unused seed 177
-case unused seed 178
-case unused seed 179
-case unused seed 18
-case unused seed 180
-case unused seed 181
-case unused seed 182
-case unused seed 183
-case unused seed 184
-case unused seed 185
-case unused seed 186
-case unused seed 187
-case unused seed 188
-case unused seed 189
-case unused seed 19
-case unused seed 190
-case unused seed 191
-case unused seed 192
-case unused seed 193
-case unused seed 194
-case unused seed 195
-case unused seed 196
-case unused seed 197
-case unused seed 198
-case unused seed 199
-case unused seed 2
-case unused seed 20
-case unused seed 200
-case unused seed 201
-case unused seed 202
-case unused seed 203
-case unused seed 204
-case unused seed 205
-case unused seed 206
-case unused seed 207
-case unused seed 208
-case unused seed 209
-case unused seed 21
-case unused seed 210
-case unused seed 211
-case unused seed 212
-case unused seed 213
-case unused seed 214
-case unused seed 215
-case unused seed 216
-case unused seed 217
-case unused seed 218
-case unused seed 219
-case unused seed 22
-case unused seed 220
-case unused seed 221
-case unused seed 222
-case unused seed 223
-case unused seed 224
-case unused seed 225
-case unused seed 226
-case unused seed 227
-case unused seed 228
-case unused seed 229
-case unused seed 23
-case unused seed 230
-case unused seed 231
-case unused seed 232
-case unused seed 233
-case unused seed 234
-case unused seed 235
-case unused seed 236
-case unused seed 237
-case unused seed 238
-case unused seed 239
-case unused seed 24
-case unused seed 240
-case unused seed 241
-case unused seed 242
-case unused seed 243
-case unused seed 244
-case unused seed 245
-case unused seed 246
-case unused seed 247
-case unused seed 248
-case unused seed 249
-case unused seed 25
-case unused seed 250
-case unused seed 251
-case unused seed 252
-case unused seed 253
-case unused seed 254
-case unused seed 255
-case unused seed 256
-case unused seed 257
-case unused seed 258
-case unused seed 259
-case unused seed 26
-case unused seed 260
-case unused seed 261
-case unused seed 262
-case unused seed 263
-case unused seed 264
-case unused seed 265
-case unused seed 266
-case unused seed 267
-case unused seed 268
-case unused seed 269
-case unused seed 27
-case unused seed 270
-case unused seed 271
-case unused seed 272
-case unused seed 273
-case unused seed 274
-case unused seed 275
-case unused seed 276
-case unused seed 277
-case unused seed 278
-case unused seed 279
-case unused seed 28
-case unused seed 280
-case unused seed 281
-case unused seed 282
-case unused seed 283
-case unused seed 284
-case unused seed 285
-case unused seed 286
-case unused seed 287
-case unused seed 288
-case unused seed 289
-case unused seed 29
-case unused seed 290
-case unused seed 291
-case unused seed 292
-case unused seed 293
-case unused seed 294
-case unused seed 295
-case unused seed 296
-case unused seed 297
-case unused seed 298
-case unused seed 299
-case unused seed 3
-case unused seed 30
-case unused seed 300
-case unused seed 31
-case unused seed 32
-case unused seed 33
-case unused seed 34
-case unused seed 35
-case unused seed 36
-case unused seed 37
-case unused seed 38
-case unused seed 39
-case unused seed 4
-case unused seed 40
-case unused seed 41
-case unused seed 42
-case unused seed 43
-case unused seed 44
-case unused seed 45
-case unused seed 46
-case unused seed 47
-case unused seed 48
-case unused seed 49
-case unused seed 5
-case unused seed 50
-case unused seed 51
-case unused seed 52
-case unused seed 53
-case unused seed 54
-case unused seed 55
-case unused seed 56
-case unused seed 57
-case unused seed 58
-case unused seed 59
-case unused seed 6
-case unused seed 60
-case unused seed 61
-case unused seed 62
-case unused seed 63
-case unused seed 64
-case unused seed 65
-case unused seed 66
-case unused seed 67
-case unused seed 68
-case unused seed 69
-case unused seed 7
-case unused seed 70
-case unused seed 71
-case unused seed 72
-case unused seed 73
-case unused seed 74
-case unused seed 75
-case unused seed 76
-case unused seed 77
-case unused seed 78
-case unused seed 79
-case unused seed 8
-case unused seed 80
-case unused seed 81
-case unused seed 82
-case unused seed 83
-case unused seed 84
-case unused seed 85
-case unused seed 86
-case unused seed 87
-case unused seed 88
-case unused seed 89
-case unused seed 9
-case unused seed 90
-case unused seed 91
-case unused seed 92
-case unused seed 93
-case unused seed 94
-case unused seed 95
-case unused seed 96
-case unused seed 97
-case unused seed 98
-case unused seed 99
+case unused examples/address-routes/files/tree.ergo
+case unused examples/canvas-scenes/flow/noise.ergo
+case unused examples/cborpack/registry/registry.ergo
+case unused examples/cells/grid/grid.ergo
+case unused examples/cells/host/sample.ergo
+case unused examples/confparse/toml/doc.ergo
+case unused examples/counter-gui/counter/counter.ergo
+case unused examples/deploys/deploys/lifecycle.ergo
+case unused examples/domain-search/domains/catalog.ergo
+case unused examples/domain-search/domains/catalog.ergo
+case unused examples/domain-search/search/cache/cache.ergo
+case unused examples/download/domain/download.ergo
+case unused examples/flattree/tree/number.ergo
+case unused examples/flattree/tree/value.ergo
+case unused examples/forge/forge/ore.ergo
+case unused examples/gallery/gallery/paintings.ergo
+case unused examples/idle-timer/display/policy.ergo
+case unused examples/jobs/jobs/job.ergo
+case unused examples/jsonv/json/value.ergo
+case unused examples/kvstore/kv/command.ergo
+case unused examples/limiter/limits/limits.ergo
+case unused examples/markup/render/render.ergo
+case unused examples/pairing/pad/pad.ergo
+case unused examples/pairing/pair/devices.ergo
+case unused examples/pipeline/run/run.ergo
+case unused examples/query-table/query/escape.ergo
+case unused examples/quota/quota/table.ergo
+case unused examples/respd/store/decimal.ergo
+case unused examples/respd/store/engine.ergo
+case unused examples/router-model/route/server.ergo
+case unused examples/router/route/has.ergo
+case unused examples/runtime-faults/crash/crash.ergo
+case unused examples/scoped-engine/engine/engine.ergo
+case unused examples/snake/game/world.ergo
+case unused examples/starter/plan/plan.ergo
+case unused examples/task-board/drag/drag.ergo
+case unused examples/tidewalk-replay/walk/replays.ergo
+case unused examples/todo-shell/todo/list.ergo
+case unused examples/toktree/token/token.ergo
+case unused examples/triage/entry/entry.ergo
+case unused examples/tui/keys/key.ergo
+case unused examples/twig/syntax/token.ergo
+case unused examples/vt/width/width.ergo
+case unused examples/weather/weather/forecast.ergo
+case unused internal/selfhostcheck/testdata/bind/a.ergo
+case unused internal/selfhostcheck/testdata/bind/elide.ergo
+case unused internal/sketch/std/ansi/ansi.ergo
+case unused internal/sketch/std/bench/stats.ergo
+case unused internal/sketch/std/cache/cache.ergo
+case unused internal/sketch/std/codec/codec.ergo
+case unused internal/sketch/std/fstest/recorder.ergo
+case unused internal/sketch/std/jobs/jobs.ergo
+case unused internal/sketch/std/jobs/memory/memory.ergo
+case unused internal/sketch/std/journal/journal.ergo
+case unused internal/sketch/std/journal/memory/memory.ergo
+case unused internal/sketch/std/kv/file/file.ergo
+case unused internal/sketch/std/llm/memory/scripted.ergo
+case unused internal/sketch/std/maps/maps.ergo
+case unused internal/sketch/std/mcp/mcp.ergo
+case unused internal/sketch/std/pace/pace.ergo
+case unused internal/sketch/std/proof/file/file.ergo
+case unused internal/sketch/std/proof/memory/memory.ergo
+case unused internal/sketch/std/pubsub/pubsub.ergo
+case unused internal/sketch/std/session/memory/memory.ergo
+case unused internal/sketch/std/url/url.ergo
+case unused internal/sketch/std/uuid/uuid.ergo
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 26:2: S101 {WireMissingField} escapes function flags, whose error row {WireWrongKind} does not list it; write: func flags(r Reader) Flags fails WireWrongKind | WireMissingField
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 38:2: S101 {BadHost} escapes function narrow, whose error row {Unsatisfied | WireMissingField | WireUnknownTag | WireWrongKind} does not list it; write: func narrow(r Reader) State fails WireWrongKind | WireMissingField | WireUnknownTag | Unsatisfied | BadHost
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 62:2: S101 {WireMissingField | WireUnknownTag} escapes function optional, whose error row {WireWrongKind | wired[T]} does not list it; write: func optional[T wire](r Reader) Option[T] fails wired[T] | WireMissingField | WireUnknownTag needs wired[T]
@@ -1538,31 +1306,11 @@ site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 24:15: S108 p is a borrow (mut T), and this function literal or block may outlive the call that lent it or run on another task; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 34:15: S108 xs[0] and xs[0] are borrows of one place; a call takes no two overlapping borrows: pass one, or two places apart (types.md, Borrows 2)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 35:15: S108 xs[i] and xs[j] may be borrows of one place, since i may equal j; guard the call with if i != j, with each index a constant or a let (types.md, Borrows 2)
-site S108 missing in unused seed 111: p.ergo 1:8: S108 an import alias is only for a name clash; write import math (#196, fourth round, item 3)
-site S108 missing in unused seed 124: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv (#196, fourth round, item 3)
-site S108 missing in unused seed 137: p.ergo 1:8: S108 an import alias is only for a name clash; write import cmp (#196, fourth round, item 3)
-site S108 missing in unused seed 150: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused seed 163: p.ergo 1:8: S108 an import alias is only for a name clash; write import math (#196, fourth round, item 3)
-site S108 missing in unused seed 176: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused seed 189: p.ergo 1:8: S108 an import alias is only for a name clash; write import cmp (#196, fourth round, item 3)
-site S108 missing in unused seed 202: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused seed 20: p.ergo 1:8: S108 an import alias is only for a name clash; write import math (#196, fourth round, item 3)
-site S108 missing in unused seed 215: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused seed 228: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused seed 241: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused seed 254: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv (#196, fourth round, item 3)
-site S108 missing in unused seed 267: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused seed 280: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused seed 291: p.ergo 126:28: S108 journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)
-site S108 missing in unused seed 291: p.ergo 160:22: S108 journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)
-site S108 missing in unused seed 293: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused seed 33: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused seed 46: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused seed 59: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused seed 72: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused seed 7: p.ergo 1:8: S108 an import alias is only for a name clash; write import math (#196, fourth round, item 3)
-site S108 missing in unused seed 85: p.ergo 1:8: S108 an import alias is only for a name clash; write import cmp (#196, fourth round, item 3)
-site S108 missing in unused seed 98: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
+site S108 missing in unused examples/confparse/toml/doc.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
+site S108 missing in unused examples/counter-gui/counter/counter.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
+site S108 missing in unused internal/sketch/std/journal/memory/memory.ergo: p.ergo 244:24: S108 journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)
+site S108 missing in unused internal/sketch/std/journal/memory/memory.ergo: p.ergo 274:24: S108 journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)
+site S108 missing in unused internal/sketch/std/kv/file/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
 site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-constructor-is-37.ergo: context-constructor-is-37.ergo 8:9: S109 a constructor entry is #37's (context constructors); write a provider value, not a function
 site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-exposure-hides-entry.ergo: context-exposure-hides-entry.ergo 7:19: S109 a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet
 site S109 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 15:10: S109 a value of type Card has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)
@@ -1961,7 +1709,7 @@ site S110 extra in internal/sketch/check/testdata/fixtures/negative/catch-rest-a
 site S110 extra in internal/sketch/check/testdata/v1/B6-case-domain.neg.ergo: B6-case-domain.neg.ergo 18:19: S110 the binding t is read nowhere in its arm; write _ in its place (rows.md, Totality 1)
 site S110 extra in internal/sketch/check/testdata/v1/D6-dot-calls.neg.ergo: D6-dot-calls.neg.ergo 22:6: S110 f is declared and not used
 site S110 extra in internal/sketch/std/pubsub: pubsub.ergo 161:7: S110 gone is declared and not used
-site S110 extra in unused seed 254: p.ergo 165:7: S110 gone is declared and not used
+site S110 extra in unused internal/sketch/std/pubsub/pubsub.ergo: p.ergo 163:7: S110 gone is declared and not used
 site S110 missing in flow seed 102: p.ergo 67:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in flow seed 102: p.ergo 74:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in flow seed 108: p.ergo 51:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
