@@ -3,7 +3,7 @@
 An event-sourced backup service (a backup is planned with its files, stored, verified or aborted), modelled as a domain (an aggregate that decides commands into events, rejections as typed failures, a view, a policy and a saga), in Ergo's own constructs: unions and exhaustive `match`, typed failures, an operation type with laws, contexts and a machine.
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 printf 'plan a alpha a.txt:2:150\nstore a 300\n' | ./bin/ergo run examples/backups/cmd/backups
 ./bin/ergo test examples/backups/backup
 ```

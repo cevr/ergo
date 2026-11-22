@@ -42,7 +42,7 @@ The program is a module of packages (`ergo.mod`: `module deploys`), in the Go la
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 printf 'GET /deploys HTTP/1.1\r\n\r\n' | ./bin/ergo run examples/deploys/cmd/deploys
 ./bin/ergo test examples/deploys/deploys
 ./bin/ergo test examples/deploys/memory

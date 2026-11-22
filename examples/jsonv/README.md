@@ -27,7 +27,7 @@ The program is a module of packages (`ergo.mod`: `module jsonv`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/jsonv/cmd/jsonv -- fmt examples/jsonv/testdata/kitchen.json
 ./bin/ergo test examples/jsonv/json
 go run ./scripts/examples jsonv
