@@ -549,7 +549,7 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 		}
 		name := "go test " + pkg + " (" + suffix + ")"
 		if pl.whole != "" {
-			note = "whole: " + pl.whole
+			note = wholeNote + pl.whole
 		}
 		if pl.chosen != nil {
 			chosen := *pl.chosen

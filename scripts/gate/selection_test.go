@@ -349,9 +349,11 @@ func selectionVerdicts(t *testing.T, root string, env []string, dir string, name
 
 // The fast tier narrows a selection package's tests by the selector: a
 // skipped test joins the names its shards skip, another package keeps its
-// steps, and the step carries the selector's note. A package whose every
-// fast test the selector skips has no step, and a line says so (GS24; it
-// catches gs24-drop-never and gs24-drop-unsaid).
+// steps, and the step carries the selector's note. A package that runs
+// whole (whole.go) is not narrowed: its step skips nothing and carries the
+// note "whole: <why>". A package whose every fast test the selector skips
+// has no step, and a line says so (GS24; it catches gs24-drop-never and
+// gs24-drop-unsaid).
 func TestFastTierSkipsWhatTheSelectorSkips(t *testing.T) {
 	root := checkoutRoot(t)
 	skipped := "TestNoSuchTestTheSelectorSkips"
@@ -387,12 +389,18 @@ func TestFastTierSkipsWhatTheSelectorSkips(t *testing.T) {
 			t.Fatalf("no fast step tests %s", dir)
 		}
 		last := shards[len(shards)-1]
+		if strings.HasPrefix(last.Note, wholeNote) {
+			if strings.Contains(strings.Join(last.Argv, " "), skipped) {
+				t.Errorf("%s: argv %q; a whole package's step skips nothing (note %q)", last.Name, last.Argv, last.Note)
+			}
+			continue
+		}
 		if !strings.Contains(strings.Join(last.Argv, " "), skipped) || last.Note != "selected for "+dir {
 			t.Errorf("%s: argv %q, note %q; want %s skipped and the selector's note", last.Name, last.Argv, last.Note, skipped)
 		}
 	}
 	for _, step := range steps {
-		if step.Note != "" && !slices.ContainsFunc(selectPackages, func(dir string) bool { return strings.HasPrefix(step.Name, "go test ./"+dir+" ") }) {
+		if step.Note != "" && !strings.HasPrefix(step.Note, wholeNote) && !slices.ContainsFunc(selectPackages, func(dir string) bool { return strings.HasPrefix(step.Name, "go test ./"+dir+" ") }) {
 			t.Errorf("%s is not a selection package's step, yet it has the note %q", step.Name, step.Note)
 		}
 	}

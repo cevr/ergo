@@ -33,6 +33,9 @@ import (
 // wholeMarker opens the line that declares a guard package.
 const wholeMarker = "//gate:whole"
 
+// wholeNote starts the note of a step that runs its package whole.
+const wholeNote = "whole: "
+
 // wholeTestLimit is the most Test functions a declared guard package may
 // have: the counted bound of its whole run (internal/sketch/stdlib had 55
 // on 2026-11-22). A guard by grant is held by its grant's review instead.
