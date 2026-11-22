@@ -13,10 +13,11 @@ import (
 // that keeps it past each's return is refused, at its place and with the
 // borrow rule's text, and one that reads it inside each checks clean. The
 // reader reuses a view's list of data lines from event to event, so a
-// kept view would show a later event's lines. Mutant sse-view-not-lent
-// (each takes the view by value, `func(e EventView)`): the kept views
-// then check clean, and these rows fail; no law or example writes a
-// program the checker must refuse.
+// kept view would show a later event's lines. If each took the view by
+// value (`func(e EventView)`), the kept views would check clean and these
+// rows would fail; no law or example writes a program the checker must
+// refuse. That edit is no ledger row: std's FeedEach then copies the view
+// out of its reader's borrow, which the checker refuses (new S108).
 func TestSSEViewIsLent(t *testing.T) {
 	const head = "import http\n\n"
 	cases := []struct {

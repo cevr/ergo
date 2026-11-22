@@ -632,7 +632,7 @@ func (p *prober) load() error {
 	if err := json.Unmarshal(data, &p.fams); err != nil {
 		return fmt.Errorf("%s: %w", probeFamiliesPath, err)
 	}
-	out, err := exec.Command("git", "-C", p.root, "ls-files", "-z").Output()
+	out, err := exec.Command("git", "--no-optional-locks", "-C", p.root, "ls-files", "-z").Output()
 	if err != nil {
 		return fmt.Errorf("git ls-files: %w", err)
 	}

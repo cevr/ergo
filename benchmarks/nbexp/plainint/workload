@@ -1,0 +1,6 @@
+# NO-BUILTINS: nb bench plainint N, one unit per element. Sizes and control as plain.
+unit op
+sizes 2457600 14745600
+args bench plainint {n}
+control benchmarks/nbexp/testdata/control
+floor benchmarks/nbexp/testdata/floor
