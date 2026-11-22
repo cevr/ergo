@@ -55,6 +55,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testinputs/genprogram"
 )
 
@@ -159,7 +160,7 @@ func setUp(work, ergo string, keep, needsErgo bool) (runner, int) {
 	}
 	if r.ergo == "" && needsErgo {
 		r.ergo = filepath.Join(r.work, "bin", "ergo")
-		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
+		build := ergobuild.Command(r.ergo, "./cmd/ergo")
 		build.Stdout, build.Stderr = os.Stderr, os.Stderr
 		if err := build.Run(); err != nil {
 			fmt.Fprintln(os.Stderr, "buildcost: go build ./cmd/ergo:", err)

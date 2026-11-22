@@ -1,0 +1,525 @@
+// Reading and writing the JSON AST. The text is read once by std json into
+// a json.Value, which keeps member order and repeated keys, and walked; a
+// trait id or shape type is matched by name here, once, never at a later
+// call. Write builds the json.Value back, so Read(Write(m)) == m.
+
+import json
+
+let valueCodec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+
+// Unread is a key of a shape object the reader does not read (a mixin
+// list, a resource's properties), kept with its value: it is refused by
+// name (Refusals), never dropped.
+type Unread { Key string, Value json.Value }
+
+// Read is the model text writes. A text that is not JSON fails std json's
+// Malformed; JSON that is not a Smithy 2 JSON AST fails NotSmithy.
+func Read(text string) Model fails json.Malformed | NotSmithy {
+	let v = json.Decode(valueCodec, text) catch {
+	case json.Malformed as m:
+		return m
+	case _:
+		return NotSmithy{Path: "", Reason: "not a JSON value"}
+	}
+	let top = try object(v, "")
+	let mut version = ""
+	let mut meta json.Value = json.Object{Members: []json.Member{}}
+	let mut shapes = []Shape{}
+	for m in top.Members {
+		if m.Key == "smithy" {
+			version = try str(m.Value, "smithy")
+		} else if m.Key == "metadata" {
+			meta = m.Value
+		} else if m.Key == "shapes" {
+			let o = try object(m.Value, "shapes")
+			for s in o.Members {
+				shapes = shapes.Append(try shapeOf(s.Key, s.Value))
+			}
+		} else {
+			return NotSmithy{Path: m.Key, Reason: "a top-level key of no Smithy JSON AST"}
+		}
+	}
+	if version != "2.0" && version != "2" {
+		return NotSmithy{Path: "smithy", Reason: "version \"" + version + "\", not 2.0"}
+	}
+	Model{Version: version, Metadata: meta, Shapes: shapes}
+}
+
+// shapeKeys are the keys a shape of type t holds that the reader reads.
+func shapeKeys(t string) []string {
+	if t == "list" {
+		return []string{"type", "traits", "member"}
+	}
+	if t == "map" {
+		return []string{"type", "traits", "key", "value"}
+	}
+	if t == "structure" || t == "union" || t == "enum" || t == "intEnum" {
+		return []string{"type", "traits", "members"}
+	}
+	if t == "operation" {
+		return []string{"type", "traits", "input", "output", "errors"}
+	}
+	if t == "service" {
+		return []string{"type", "traits", "version", "operations", "resources", "errors", "rename"}
+	}
+	if t == "resource" {
+		return []string{"type", "traits", "identifiers", "create", "put", "read", "update", "delete", "list", "operations", "collectionOperations", "resources"}
+	}
+	[]string{"type", "traits"}
+}
+
+func has(xs []string, x string) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+func shapeOf(id string, v json.Value) Shape fails NotSmithy {
+	let path = "shapes/" + id
+	let o = try object(v, path)
+	let t = try str(try field(o, "type", path), path+"/type")
+	let kind = try kindOf(t, o, path)
+	match kind {
+	case Unsupported:
+		return Shape{Id: id, Kind: kind, Traits: []Trait{}, Keys: []Unread{}}
+	case Simple, Enum, IntEnum, List, Mapping, Structure, Union, Operation, Service, Resource:
+	}
+	let mut traits = []Trait{}
+	let mut keys = []Unread{}
+	let read = shapeKeys(t)
+	for m in o.Members {
+		if m.Key == "traits" {
+			traits = try traitsOf(m.Value, path+"/traits")
+		} else if !has(read, m.Key) {
+			keys = keys.Append(Unread{Key: m.Key, Value: m.Value})
+		}
+	}
+	Shape{Id: id, Kind: kind, Traits: traits, Keys: keys}
+}
+
+func kindOf(t string, o json.Object, path string) Kind fails NotSmithy {
+	match scalarOf(t) {
+	case Some[Scalar] as s:
+		return Simple{Of: s.Value}
+	case None:
+	}
+	if t == "enum" {
+		return Enum{Members: try membersIn(o, path)}
+	}
+	if t == "intEnum" {
+		return IntEnum{Members: try membersIn(o, path)}
+	}
+	if t == "structure" {
+		return Structure{Members: try membersIn(o, path)}
+	}
+	if t == "union" {
+		return Union{Members: try membersIn(o, path)}
+	}
+	if t == "list" {
+		return List{Member: try memberOf("member", try field(o, "member", path), path+"/member")}
+	}
+	if t == "map" {
+		return Mapping{Key: try memberOf("key", try field(o, "key", path), path+"/key"), Value: try memberOf("value", try field(o, "value", path), path+"/value")}
+	}
+	if t == "operation" {
+		return Operation{Input: try targetAt(o, "input", path), Output: try targetAt(o, "output", path), Errors: try targetsAt(o, "errors", path)}
+	}
+	if t == "service" {
+		let mut version = ""
+		match get(o, "version") {
+		case Some[json.Value] as v:
+			version = try str(v.Value, path+"/version")
+		case None:
+		}
+		let mut rename json.Value = json.Object{Members: []json.Member{}}
+		match get(o, "rename") {
+		case Some[json.Value] as r:
+			rename = r.Value
+		case None:
+		}
+		return Service{Version: version, Operations: try targetsAt(o, "operations", path), Resources: try targetsAt(o, "resources", path), Errors: try targetsAt(o, "errors", path), Rename: rename}
+	}
+	if t == "resource" {
+		let mut ids = []Ref{}
+		match get(o, "identifiers") {
+		case Some[json.Value] as v:
+			for m in (try object(v.Value, path+"/identifiers")).Members {
+				ids = ids.Append(Ref{Role: m.Key, Target: try targetOf(m.Value, path+"/identifiers/"+m.Key)})
+			}
+		case None:
+		}
+		let mut life = []Ref{}
+		for role in []string{"create", "put", "read", "update", "delete", "list"} {
+			match try targetAt(o, role, path) {
+			case Some[string] as s:
+				life = life.Append(Ref{Role: role, Target: s.Value})
+			case None:
+			}
+		}
+		return Resource{Identifiers: ids, Lifecycle: life, Operations: try targetsAt(o, "operations", path), CollectionOperations: try targetsAt(o, "collectionOperations", path), Resources: try targetsAt(o, "resources", path)}
+	}
+	let whole json.Value = o
+	Unsupported{Type: t, Text: whole}
+}
+
+func scalarOf(t string) Option[Scalar] {
+	let mut s Scalar = BlobType
+	if t == "blob" {
+		s = BlobType
+	} else if t == "boolean" {
+		s = BooleanType
+	} else if t == "string" {
+		s = StringType
+	} else if t == "byte" {
+		s = ByteType
+	} else if t == "short" {
+		s = ShortType
+	} else if t == "integer" {
+		s = IntegerType
+	} else if t == "long" {
+		s = LongType
+	} else if t == "float" {
+		s = FloatType
+	} else if t == "double" {
+		s = DoubleType
+	} else if t == "bigInteger" {
+		s = BigIntegerType
+	} else if t == "bigDecimal" {
+		s = BigDecimalType
+	} else if t == "timestamp" {
+		s = TimestampType
+	} else if t == "document" {
+		s = DocumentType
+	} else {
+		return None
+	}
+	Some[Scalar]{Value: s}
+}
+
+func scalarName(s Scalar) string {
+	match s {
+	case BlobType:
+		"blob"
+	case BooleanType:
+		"boolean"
+	case StringType:
+		"string"
+	case ByteType:
+		"byte"
+	case ShortType:
+		"short"
+	case IntegerType:
+		"integer"
+	case LongType:
+		"long"
+	case FloatType:
+		"float"
+	case DoubleType:
+		"double"
+	case BigIntegerType:
+		"bigInteger"
+	case BigDecimalType:
+		"bigDecimal"
+	case TimestampType:
+		"timestamp"
+	case DocumentType:
+		"document"
+	}
+}
+
+func membersIn(o json.Object, path string) []Member fails NotSmithy {
+	let mut out = []Member{}
+	match get(o, "members") {
+	case Some[json.Value] as v:
+		for m in (try object(v.Value, path+"/members")).Members {
+			out = out.Append(try memberOf(m.Key, m.Value, path+"/members/"+m.Key))
+		}
+	case None:
+	}
+	out
+}
+
+func memberOf(name string, v json.Value, path string) Member fails NotSmithy {
+	let o = try object(v, path)
+	let mut target = ""
+	let mut traits = []Trait{}
+	for m in o.Members {
+		if m.Key == "target" {
+			target = try str(m.Value, path+"/target")
+		} else if m.Key == "traits" {
+			traits = try traitsOf(m.Value, path+"/traits")
+		} else {
+			return NotSmithy{Path: path + "/" + m.Key, Reason: "a member key the reader does not read"}
+		}
+	}
+	if target == "" {
+		return NotSmithy{Path: path, Reason: "a member with no target"}
+	}
+	Member{Name: name, Target: target, Traits: traits}
+}
+
+func traitsOf(v json.Value, path string) []Trait fails NotSmithy {
+	let mut out = []Trait{}
+	for m in (try object(v, path)).Members {
+		if has(knownTraits, m.Key) {
+			out = out.Append(Known{Id: m.Key, Value: m.Value})
+		} else {
+			out = out.Append(Refused{Id: m.Key, Value: m.Value, Why: "a trait the reader does not read yet"})
+		}
+	}
+	out
+}
+
+func targetOf(v json.Value, path string) string fails NotSmithy {
+	let o = try object(v, path)
+	try str(try field(o, "target", path), path+"/target")
+}
+
+func targetAt(o json.Object, key string, path string) Option[string] fails NotSmithy {
+	match get(o, key) {
+	case Some[json.Value] as v:
+		Some[string]{Value: try targetOf(v.Value, path+"/"+key)}
+	case None:
+		None
+	}
+}
+
+func targetsAt(o json.Object, key string, path string) []string fails NotSmithy {
+	let mut out = []string{}
+	match get(o, key) {
+	case Some[json.Value] as v:
+		match v.Value {
+		case json.Array as a:
+			for i, x in a.Items {
+				out = out.Append(try targetOf(x, path+"/"+key+"/\(i)"))
+			}
+		case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+			return NotSmithy{Path: path + "/" + key, Reason: "not a list of targets"}
+		}
+	case None:
+	}
+	out
+}
+
+func get(o json.Object, key string) Option[json.Value] {
+	for m in o.Members {
+		if m.Key == key {
+			return Some[json.Value]{Value: m.Value}
+		}
+	}
+	None
+}
+
+func field(o json.Object, key string, path string) json.Value fails NotSmithy {
+	match get(o, key) {
+	case Some[json.Value] as v:
+		v.Value
+	case None:
+		NotSmithy{Path: path + "/" + key, Reason: "missing"}
+	}
+}
+
+func object(v json.Value, path string) json.Object fails NotSmithy {
+	match v {
+	case json.Object as o:
+		o
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		NotSmithy{Path: path, Reason: "not an object"}
+	}
+}
+
+func str(v json.Value, path string) string fails NotSmithy {
+	match v {
+	case json.Str as s:
+		s.Value
+	case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+		NotSmithy{Path: path, Reason: "not a string"}
+	}
+}
+
+// EveryTraitReadOrRefused: a model text whose shapes and members carry
+// trait ids drawn from the reader's vocabulary and from outside it reads
+// to a Model holding each of them once, in order: Known for an id of the
+// vocabulary, Refused for any other. No trait is dropped.
+law EveryTraitReadOrRefused(picks []int, shapes int) {
+	let pool = knownTraits.Concat([]string{"x.test#unread", "aws.protocols#httpChecksum", "smithy.api#examples"})
+	let n = ((shapes%6)+6)%6 + 1
+	let mut at = 0
+	let mut want = [][]string{}
+	let mut text = "{\"smithy\":\"2.0\",\"shapes\":{"
+	for i in 0..n {
+		let mut ids = []string{}
+		for _ in 0..3 {
+			let p = if len(picks) == 0 { i } else { picks[at%len(picks)] }
+			at = at + 1
+			let id = pool[((p%len(pool))+len(pool))%len(pool)]
+			if !has(ids, id) {
+				ids = ids.Append(id)
+			}
+		}
+		want = want.Append(ids).Append(ids)
+		if i > 0 {
+			text = text + ","
+		}
+		text = text + "\"t#S\(i)\":{\"type\":\"structure\",\"members\":{\"m\":{\"target\":\"smithy.api#String\",\"traits\":" + traitsText(ids) + "}},\"traits\":" + traitsText(ids) + "}"
+	}
+	text = text + "}}"
+	let m = Read(text) catch {
+	case _:
+		return false
+	}
+	let mut got = [][]string{}
+	for s in m.Shapes {
+		got = got.Append(sortedIds(membersOf(s.Kind)[0].Traits)).Append(sortedIds(s.Traits))
+	}
+	got == want
+}
+
+func traitsText(ids []string) string {
+	let mut t = "{"
+	for i, id in ids {
+		if i > 0 {
+			t = t + ","
+		}
+		t = t + "\"" + id + "\":{}"
+	}
+	t + "}"
+}
+
+// sortedIds is the ids of ts in order, each checked against the
+// vocabulary: an id read as the wrong one of Known and Refused is "!".
+func sortedIds(ts []Trait) []string {
+	let mut out = []string{}
+	for t in ts {
+		match t {
+		case Known as k:
+			out = out.Append(if has(knownTraits, k.Id) { k.Id } else { "!" })
+		case Refused as r:
+			out = out.Append(if has(knownTraits, r.Id) { "!" } else { r.Id })
+		}
+	}
+	out
+}
+
+// WriteReadRoundTrips: a drawn model, with known and refused traits and
+// an unread key on its shapes, is the model Write's text reads to.
+law WriteReadRoundTrips(kinds []int, refs []int) {
+	let m = drawnModel(kinds, refs, true)
+	let back = Read(Write(m)) catch {
+	case _:
+		return false
+	}
+	back == m
+}
+
+// Write is m as a JSON AST text: Read(Write(m)) == m (WriteReadRoundTrips).
+func Write(m Model) string {
+	let mut shapes = []json.Member{}
+	for s in m.Shapes {
+		shapes = shapes.Append(json.Member{Key: s.Id, Value: shapeValue(s)})
+	}
+	let top json.Value = json.Object{Members: []json.Member{json.Member{Key: "smithy", Value: jstr(m.Version)}, json.Member{Key: "metadata", Value: m.Metadata}, json.Member{Key: "shapes", Value: jobj(shapes)}}}
+	json.Encode(valueCodec, top)
+}
+
+func shapeValue(s Shape) json.Value {
+	let mut ms = []json.Member{}
+	match s.Kind {
+	case Unsupported as u:
+		return u.Text
+	case Simple as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr(scalarName(k.Of))})
+	case Enum as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("enum")}).Append(json.Member{Key: "members", Value: membersValue(k.Members)})
+	case IntEnum as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("intEnum")}).Append(json.Member{Key: "members", Value: membersValue(k.Members)})
+	case Structure as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("structure")}).Append(json.Member{Key: "members", Value: membersValue(k.Members)})
+	case Union as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("union")}).Append(json.Member{Key: "members", Value: membersValue(k.Members)})
+	case List as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("list")}).Append(json.Member{Key: "member", Value: memberValue(k.Member)})
+	case Mapping as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("map")}).Append(json.Member{Key: "key", Value: memberValue(k.Key)}).Append(json.Member{Key: "value", Value: memberValue(k.Value)})
+	case Operation as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("operation")})
+		match k.Input {
+		case Some[string] as t:
+			ms = ms.Append(json.Member{Key: "input", Value: target(t.Value)})
+		case None:
+		}
+		match k.Output {
+		case Some[string] as t:
+			ms = ms.Append(json.Member{Key: "output", Value: target(t.Value)})
+		case None:
+		}
+		ms = ms.Append(json.Member{Key: "errors", Value: targets(k.Errors)})
+	case Service as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("service")}).Append(json.Member{Key: "version", Value: jstr(k.Version)}).Append(json.Member{Key: "operations", Value: targets(k.Operations)}).Append(json.Member{Key: "resources", Value: targets(k.Resources)}).Append(json.Member{Key: "errors", Value: targets(k.Errors)}).Append(json.Member{Key: "rename", Value: k.Rename})
+	case Resource as k:
+		ms = ms.Append(json.Member{Key: "type", Value: jstr("resource")})
+		let mut ids = []json.Member{}
+		for r in k.Identifiers {
+			ids = ids.Append(json.Member{Key: r.Role, Value: target(r.Target)})
+		}
+		ms = ms.Append(json.Member{Key: "identifiers", Value: jobj(ids)})
+		for r in k.Lifecycle {
+			ms = ms.Append(json.Member{Key: r.Role, Value: target(r.Target)})
+		}
+		ms = ms.Append(json.Member{Key: "operations", Value: targets(k.Operations)}).Append(json.Member{Key: "collectionOperations", Value: targets(k.CollectionOperations)}).Append(json.Member{Key: "resources", Value: targets(k.Resources)})
+	}
+	ms = ms.Append(json.Member{Key: "traits", Value: traitsValue(s.Traits)})
+	for u in s.Keys {
+		ms = ms.Append(json.Member{Key: u.Key, Value: u.Value})
+	}
+	jobj(ms)
+}
+
+func membersValue(ms []Member) json.Value {
+	let mut out = []json.Member{}
+	for m in ms {
+		out = out.Append(json.Member{Key: m.Name, Value: memberValue(m)})
+	}
+	jobj(out)
+}
+
+func memberValue(m Member) json.Value {
+	jobj([]json.Member{json.Member{Key: "target", Value: jstr(m.Target)}, json.Member{Key: "traits", Value: traitsValue(m.Traits)}})
+}
+
+func traitsValue(ts []Trait) json.Value {
+	let mut out = []json.Member{}
+	for t in ts {
+		match t {
+		case Known as k:
+			out = out.Append(json.Member{Key: k.Id, Value: k.Value})
+		case Refused as r:
+			out = out.Append(json.Member{Key: r.Id, Value: r.Value})
+		}
+	}
+	jobj(out)
+}
+
+func target(id string) json.Value { jobj([]json.Member{json.Member{Key: "target", Value: jstr(id)}}) }
+
+func targets(ids []string) json.Value {
+	let mut items = []json.Value{}
+	for id in ids {
+		items = items.Append(target(id))
+	}
+	let v json.Value = json.Array{Items: items}
+	v
+}
+
+func jstr(s string) json.Value {
+	let v json.Value = json.Str{Value: s}
+	v
+}
+
+func jobj(ms []json.Member) json.Value {
+	let v json.Value = json.Object{Members: ms}
+	v
+}
