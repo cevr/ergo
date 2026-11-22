@@ -874,7 +874,7 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 // membership: a trusted module's copy of std's type gets the same call
 // (TestStdOpCallCopyAgreesOnIR, internal/sketch/std).
 func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
-	name := n.Obj.Name + "." + c.Op.Name
+	name := check.RuntimeTypeName(n) + "." + c.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
