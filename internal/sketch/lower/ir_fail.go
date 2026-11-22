@@ -229,7 +229,13 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			// emitter's try does.
 			return b.value(x.X)
 		}
-		return b.try(call)
+		pre, v := b.try(call)
+		if v != nil {
+			// The call's value, a temporary its statement owns (R43),
+			// registers once the failure has left (ownTemp, ir_own.go).
+			v = b.ownTemp(call, v)
+		}
+		return pre, v
 	case *syntax.CatchExpr:
 		return b.catch(x, false)
 	}
