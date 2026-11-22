@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // LAW-RUNS-PARITY: a check build's law runs are the same on every test
@@ -16,9 +17,13 @@ import (
 // each rewrite site instance it checks, and each post law it runs from
 // reached states (its ok line names the prefixes).
 var (
-	runLabel     = regexp.MustCompile(`CachedRun\("((?:[^"\\]|\\.)*)"\)`)
-	runInstance  = regexp.MustCompile(`\.X?instances = append\([^,]+, "((?:[^"\\]|\\.)*)"\)`) // X: a split package's exported field
-	runPostLabel = regexp.MustCompile(`"ok ((?:[^"\\]|\\.)*) \(\d+ cases, prefixes up to "`)
+	runRes = sync.OnceValue(func() map[string]*regexp.Regexp {
+		return map[string]*regexp.Regexp{
+			"run":      regexp.MustCompile(`CachedRun\("((?:[^"\\]|\\.)*)"\)`),
+			"instance": regexp.MustCompile(`\.X?instances = append\([^,]+, "((?:[^"\\]|\\.)*)"\)`), // X: a split package's exported field
+			"post":     regexp.MustCompile(`"ok ((?:[^"\\]|\\.)*) \(\d+ cases, prefixes up to "`),
+		}
+	})
 )
 
 // LawRunSet is the law runs of a test build's files, each with its count:
@@ -30,7 +35,7 @@ func LawRunSet(files []File) map[string]int {
 			continue
 		}
 		text := string(f.Data)
-		for kind, re := range map[string]*regexp.Regexp{"run": runLabel, "instance": runInstance, "post": runPostLabel} {
+		for kind, re := range runRes() {
 			for _, m := range re.FindAllStringSubmatch(text, -1) {
 				out[kind+" "+m[1]]++
 			}

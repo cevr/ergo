@@ -174,7 +174,8 @@ func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 			if list == None {
 				list = Some{Value: at}
 			}
-		case _:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+			// Takes no wheel: the turn goes on to the nodes around.
 		}
 		at = parentOf(d, at)
 	}
@@ -194,13 +195,15 @@ func wheel[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 	}
 }
 
-// point sends a pointer event to the Area id: the input's cell in DIPs
-// from the Area's box, over the topmost Zone under the pointer in it.
+// point sends a pointer event to the node id (an Area, another node that
+// takes input, or the root): the input's cell in DIPs from its box, over
+// the topmost Zone under the pointer in it when it is an Area.
 func point[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], input screen.Input, phase ui.Phase) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let c = d.options.Cell
 	let b = d.s.BoxOf(numOf(d, id))
 	let over = zoneUnder(d, id, b, input.X, input.Y)
-	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: float64(input.Y-b.Y) * c.H, Zone: None}, Over: over})
+	d.heldY = float64(input.Y-b.Y) * c.H
+	try step(d, ui.Point[E]{Id: id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(input.X-b.X) * c.W, Y: d.heldY, Zone: None}, Over: over})
 }
 
 // zoneUnder is the topmost Zone of the Area area under column x, row y,
@@ -245,12 +248,9 @@ func moved[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) 
 	case Some[ui.Id[E]] as a:
 		try point(d, a.Value, input, ui.Moved)
 	case None:
-		match targetAt(d, input.X, input.Y) {
-		case Some[ui.Id[E]] as t:
-			if isArea(nodeOf(d, t.Value)) {
-				try point(d, t.Value, input, ui.Moved)
-			}
-		case None:
-		}
+		// A move goes to the node under the pointer whatever its kind
+		// (OT-PHASES): the session moves its hover there and crosses the
+		// Areas that hold it.
+		try point(d, under(d, targetAt(d, input.X, input.Y)), input, ui.Moved)
 	}
 }

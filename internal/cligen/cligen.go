@@ -568,7 +568,9 @@ func kebab(s string) string {
 
 // reserved are the names the generated functions use for their locals: an
 // imported package of one of these names would be shadowed.
-var reserved = map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true, "o": true, "text": true, "t": true, "c": true, "w": true, "g": true, "answer": true, "carry": true, "runOver": true, "p": true, "q": true, "d": true, "k": true, "f": true, "same": true, "yes": true, "globals": true, "usage": true, "line": true, "front": true, "frontOf": true, "asked": true, "ended": true, "needsYes": true, "declined": true, "shell": true}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true, "o": true, "text": true, "t": true, "c": true, "w": true, "g": true, "answer": true, "carry": true, "runOver": true, "p": true, "q": true, "d": true, "k": true, "f": true, "same": true, "yes": true, "globals": true, "usage": true, "line": true, "front": true, "frontOf": true, "asked": true, "ended": true, "needsYes": true, "declined": true, "shell": true}
+})
 
 var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[fatnuj][0-9]+$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
@@ -577,7 +579,7 @@ var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 func (g *gen) checkNames() error {
 	byName := map[string]string{}
 	for path, name := range g.imports {
-		if reserved[name] || localName().MatchString(name) {
+		if reserved()[name] || localName().MatchString(name) {
 			return fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", g.op, name)
 		}
 		if other, ok := byName[name]; ok {

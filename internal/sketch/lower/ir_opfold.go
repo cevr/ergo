@@ -4,6 +4,7 @@ import (
 	"go/constant"
 	"go/token"
 	"math"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -98,14 +99,16 @@ func (b *irBuilder) foldConst(x syntax.Expr, e *irExpr) *irExpr {
 	return b.constant(b.l.info.Types[x], v, x, e.Pos)
 }
 
-var foldTokens = map[string]token.Token{
-	"+": token.ADD, "-": token.SUB, "*": token.MUL, "/": token.QUO, "%": token.REM,
-	"&": token.AND, "|": token.OR, "^": token.XOR, "&^": token.AND_NOT,
-}
+var foldTokens = sync.OnceValue(func() map[string]token.Token {
+	return map[string]token.Token{
+		"+": token.ADD, "-": token.SUB, "*": token.MUL, "/": token.QUO, "%": token.REM,
+		"&": token.AND, "|": token.OR, "^": token.XOR, "&^": token.AND_NOT,
+	}
+})
 
 // foldBin is l op r of the basic type t, or nil.
 func foldBin(op string, l, r constant.Value, t *check.Basic) constant.Value {
-	tok, ok := foldTokens[op]
+	tok, ok := foldTokens()[op]
 	if l == nil || r == nil || t == nil || !ok {
 		return nil
 	}

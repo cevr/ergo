@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"math"
 	"math/big"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -273,15 +274,17 @@ func (r *refiner) set(x syntax.Expr) (spanSet, bool) {
 }
 
 // flipped is the comparison c OP it written as it OP' c.
-var flipped = map[syntax.Token]syntax.Token{
-	syntax.EQL: syntax.EQL, syntax.NEQ: syntax.NEQ,
-	syntax.LSS: syntax.GTR, syntax.LEQ: syntax.GEQ, syntax.GTR: syntax.LSS, syntax.GEQ: syntax.LEQ,
-}
+var flipped = sync.OnceValue(func() map[syntax.Token]syntax.Token {
+	return map[syntax.Token]syntax.Token{
+		syntax.EQL: syntax.EQL, syntax.NEQ: syntax.NEQ,
+		syntax.LSS: syntax.GTR, syntax.LEQ: syntax.GEQ, syntax.GTR: syntax.LSS, syntax.GEQ: syntax.LEQ,
+	}
+})
 
 func (r *refiner) compare(x *syntax.BinaryExpr) (spanSet, bool) {
 	op, subj, lit := x.Op, x.X, x.Y
 	if !r.isSubject(subj) {
-		op, subj, lit = flipped[x.Op], x.Y, x.X
+		op, subj, lit = flipped()[x.Op], x.Y, x.X
 	}
 	if !r.isSubject(subj) {
 		return r.refuse(x)

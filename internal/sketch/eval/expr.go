@@ -361,7 +361,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 				var member check.Object
 				if pn := fr.info.Uses[id].(*check.PkgName); !pn.Pkg.Host() {
 					member = in.memberOf(pn.Pkg, x.Sel.Name)
-				} else if v, ok := goVars[pn.Pkg.Path+"."+x.Sel.Name]; ok {
+				} else if v, ok := goVars()[pn.Pkg.Path+"."+x.Sel.Name]; ok {
 					// A read-only Go variable that a Go function's
 					// native reads (nativespure.go, goVars).
 					return v, nil, nil
