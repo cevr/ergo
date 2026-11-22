@@ -148,7 +148,7 @@ func namedOf(t check.Type) *check.TypeName {
 // runs only before the call returns, one run at a time, never at once with
 // its caller; lent: used only before the call returns) needs the review;
 // escaping and takes trust nothing. A Go standard library binding's
-// non-escaping callback must be in the reviewed v1.GoSyncCallbacks
+// non-escaping callback must be in the reviewed v1.GoSyncCallbacks()
 // (interop.md, Callbacks 1) and is not listed again.
 func TestExternArgumentClauses(t *testing.T) {
 	listed := map[string]stdlib.ArgClause{}
@@ -166,9 +166,9 @@ func TestExternArgumentClauses(t *testing.T) {
 	for _, p := range declaredClauses(t) {
 		if p.target != "" && !runtimeBody(p.target) {
 			// A Go standard library binding (gobind): its callback clause
-			// is v1.GoSyncCallbacks'.
-			if p.clause == "non-escaping" && v1.GoSyncCallbacks[p.target] == "" {
-				t.Errorf("%s: the binding of %s writes a non-escaping callback, but v1.GoSyncCallbacks does not list %s as calling it only during the call; write escaping, or review it into the table", p.key, p.target, p.target)
+			// is v1.GoSyncCallbacks()'.
+			if p.clause == "non-escaping" && v1.GoSyncCallbacks()[p.target] == "" {
+				t.Errorf("%s: the binding of %s writes a non-escaping callback, but v1.GoSyncCallbacks() does not list %s as calling it only during the call; write escaping, or review it into the table", p.key, p.target, p.target)
 			}
 			continue
 		}

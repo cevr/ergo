@@ -63,7 +63,7 @@ The MB2 mutants were measured on the two-actor form. Of the wf10 DH1 mutants (`/
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/router/cmd/router < examples/router/cases/table/stdin
 ./bin/ergo test examples/router/route
 ./bin/ergo test examples/router/memory
