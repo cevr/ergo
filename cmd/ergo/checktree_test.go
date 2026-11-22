@@ -70,6 +70,14 @@ var treeEdits = []treeEdit{
 		// Outside the sub-folder request, which reaches it.
 		f[pkgFile(dep)] = strings.Replace(f[pkgFile(dep)], "\t\treturn Rect{W: it.Weight, H: ", "\t\treturn Rect{W: it.Weight + 2, H: ", 1)
 	}},
+	{name: "unread import", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
+		// The body of the package the last one imports and no test of it
+		// enters (TestCheckTreeAnswersByTokens's unread.ergo): the last
+		// package is kept by its verdicts' reads (WS0c).
+		m := regexp.MustCompile(`/p(\d+)\n`).FindStringSubmatch(f[genprogram.Name(genprogram.Width+1)+"/unread.ergo"])
+		u, _ := strconv.Atoi(m[1])
+		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "\t\treturn Rect{W: it.Weight, H: ", "\t\treturn Rect{W: it.Weight + 3, H: ", 1)
+	}},
 	{name: "defect", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
 		// A body every verdict that enters it sees: Sum0 divides by
 		// zero, so each test whose run reaches it is a defect, and a
@@ -139,7 +147,7 @@ func treeText(src string) string {
 // `ergo check DIR/...` by tokens (MONOREPO WS0, checktree.go): over
 // generated modules and edit scripts (none, layout only, a comment, a
 // body, a signature, a new file, a test, a package outside the request
-// that it imports), for the whole module and for a sub-folder, the answer
+// that it imports, the body of an import no test enters), for the whole module and for a sub-folder, the answer
 // is byte-equal to the normal path's (ERGO_BUILD=full) after every edit,
 // and, for a kept base, files_parsed, obligations_evaluated and
 // eval_steps are 0 exactly when nothing the request reaches changed in
@@ -176,6 +184,24 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 			t.Fatalf("seed %d: package %d imports nothing", seed, sub)
 		}
 		dep, _ := strconv.Atoi(deps[0][1])
+		// An import no obligation enters (WS0c): the last package also
+		// imports a first-layer package it does not otherwise import, in a
+		// function no test calls, so an edit of that package's body
+		// changes an import's implementation that its verdicts did not
+		// read (the "unread import" edit; its reads keep it).
+		last := genprogram.Width + 1
+		unread := -1
+		for u := range genprogram.Width {
+			if !strings.Contains(p.Files[pkgFile(last)], "import "+p.Module+"/"+genprogram.Name(u)+"\n") {
+				unread = u
+				break
+			}
+		}
+		if unread < 0 {
+			t.Fatalf("seed %d: package %d imports every first-layer package", seed, last)
+		}
+		p.Files[genprogram.Name(last)+"/unread.ergo"] = fmt.Sprintf("import %s/%s\n\n// unread is called by no test: no verdict of %s reads %s.\nfunc unread() int {\n\tlen(%s.Make0(0))\n}\n",
+			p.Module, genprogram.Name(unread), genprogram.Name(last), genprogram.Name(unread), genprogram.Name(unread))
 		if seed%2 == 0 {
 			// A package let whose initializer calls Go: check time skips
 			// the package's obligations with a reason that names the let's
