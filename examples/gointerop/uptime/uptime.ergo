@@ -1,9 +1,12 @@
 // Package uptime is the time since a start, read from Go's monotonic
 // clock with time.Now and time.Since. It is gointerop's deliberately
-// Go-backed provider: its operations call Go, which needs go.Foreign, so
-// the check-time evaluator cannot run its law. ergo test runs it natively:
-// the test binary's law case holds go.Foreign and builds the provider with
-// NewGoClock (docs/spec/types.md, Laws 10; owner q277). A program would
+// Go-backed provider: its operation calls Go's time.Since, which needs
+// go.Foreign, so the check-time evaluator cannot run its law. ergo test
+// runs it natively: the test binary's law case holds go.Foreign
+// (docs/spec/types.md, Laws 10; owner q277). Its start comes from
+// time.Now, a host row that reads the host's clock and so needs Ambient
+// (docs/spec/interop.md, Purity and authority; HOST-ROW): NewGoClock
+// declares it, and only main provides it. A program would
 // use std's time.Clock instead; this package exists to keep that path
 // under its laws.
 
@@ -28,8 +31,9 @@ type Elapsed {
 type GoClock { start time.Time } implements Elapsed
 
 // NewGoClock is a clock started now: Go's time.Now, which carries the
-// monotonic reading time.Since subtracts from.
-func NewGoClock() GoClock needs go.Foreign { GoClock{start: time.Now()} }
+// monotonic reading time.Since subtracts from. time.Now reads the host's
+// clock: a host row, so it needs Ambient, not go.Foreign.
+func NewGoClock() GoClock needs Ambient { GoClock{start: time.Now()} }
 
 // Nanos is Go's time.Since the start.
 func Nanos(c GoClock) int64 needs go.Foreign { int64(time.Since(c.start)) }
