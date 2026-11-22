@@ -262,6 +262,8 @@ func ArrayTypeOf(t Tree, id dense.ID[Node]) ArrayType {
 // FuncTypeOf reads a row of kind KFuncType.
 func FuncTypeOf(t Tree, id dense.ID[Node]) FuncType {
 	let i = uint32(dense.Index(id))
+	// TypeParams, an operation's own `[A]`, is the row's one item
+	// (GENERIC-OP); a function type has none.
 	let tps = if items(t, i, 7) == 1 { onid(t, item(t, i, 0)+uint32(1)) } else { dense.NoID[Node]() }
 	FuncType{Escaping: otok(fixed(t, i, 7, 0)), Entry: otok(fixed(t, i, 7, 1)), Func: otok(fixed(t, i, 7, 2)), TypeParams: tps, Params: nid(t, fixed(t, i, 7, 3)), Results: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Takes: onid(t, fixed(t, i, 7, 6))}
 }

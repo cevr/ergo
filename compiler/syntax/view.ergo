@@ -110,16 +110,14 @@ type View =
 	| ArrayType{Lbrack int, Len int, Elt dense.ID[Node]}
 	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Hashing dense.Opt[Node], Rbrack int}
 	| FuncType{
-		Escaping int,
-		Entry    int,
-		Func     int,
-		// TypeParams are an operation's own type parameters,
-		// `Fold[A](…)`, the row's one item (GENERIC-OP); none elsewhere.
+		Escaping   int,
+		Entry      int,
+		Func       int,
 		TypeParams dense.Opt[Node],
-		Params   dense.ID[Node],
-		Results  dense.Opt[Node],
-		Needs    dense.Opt[Node],
-		Takes    dense.Opt[Node],
+		Params     dense.ID[Node],
+		Results    dense.Opt[Node],
+		Needs      dense.Opt[Node],
+		Takes      dense.Opt[Node],
 	}
 	| StructType{Fields dense.ID[Node]}
 	| InterfaceType{Lbrace int, Members List, Rbrace int}

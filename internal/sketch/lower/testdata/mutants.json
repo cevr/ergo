@@ -2056,8 +2056,8 @@
       "name": "l11b-l3",
       "origin": "wf10 v1-lang-B L11b",
       "file": "internal/sketch/lower/witness.go",
-      "from": "it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire)",
-      "to": "it != nil && len(it.Methods) > 0",
+      "from": "it != nil && !it.Generic && (len(it.Methods) > 0 || it.Set == check.SetWire)",
+      "to": "it != nil && !it.Generic && len(it.Methods) > 0",
       "rule": "types.md, Codecs 6: a wire type parameter takes its codec as a witness.",
       "killers": [
         "lower:TestStdCodecLawsRun"

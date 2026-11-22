@@ -748,6 +748,12 @@ func main() {
 	_ = b
 }
 `, nil},
+	{"core forms", "a generic operation (GENERIC-OP)", `
+type Foldable[T] {
+	Fold[A](z A, f func(acc A, x T) A) A,
+}
+func main() {}
+`, nil},
 	{"doc comments", "a doc comment on each declaration that keeps one", `
 // The timeout module.
 import timeout

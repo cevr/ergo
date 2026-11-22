@@ -148,7 +148,6 @@ var MalformedTable = []Malformed{
 	{Name: "context-entry-assign", Src: "let Live = context {\n\tClock = Fixed{},\n}\n", Lines: []int{2}},
 	{Name: "catch-bind", Src: "func f() {\n\tg() catch e {\n\tcase E:\n\t}\n}\n", Lines: []int{2}},
 	{Name: "bodiless", Src: "func Upper(s string) string\n", Lines: []int{1}},
-	{Name: "operation-type-params", Src: "type Store {\n\tGet[T](k string) T,\n}\n", Lines: []int{2}},
 	{Name: "singleton-tuple", Src: "let t = (1,)\n", Lines: []int{1}},
 	{Name: "singleton-tuple-type", Src: "func f(t (int64,)) {}\n", Lines: []int{1}},
 	{Name: "singleton-tuple-pattern", Src: "func f(x T) {\n\tmatch x {\n\tcase (A,):\n\t}\n}\n", Lines: []int{3}},

@@ -70,6 +70,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Set":      {why: "a predeclared constraint's type set: basic types only"},
 		"Terms":    {why: "a type set's terms: an operation type with them is a constraint only, so no value, field or row holds one; a type argument it admits is mentioned where it is written"},
 		"includes": {why: "the ..I members: their operations are in Methods, which the walk reads"},
+		"Generic":  {why: "a flag: an operation has its own type parameters; it holds no type"},
 	},
 	"Method": {
 		"Sig":  {sel: "Sig"},
