@@ -28,15 +28,11 @@ import (
 // generated inputs: texts with multi-byte and invalid UTF-8, empty
 // separators, negative and huge counts, every strconv base and bit size,
 // NaN and -0 in sorts, instants past the years 0 to 9999, and the seeded
-// rand stream draw for draw. Most natives are written from Go's standard
-// library and the std's spec, so this is two implementations agreeing,
-// value for value, failure for failure (record and text) and defect for
-// defect (Go's panic text). time.format and time.parse call their runtime
-// bodies (nativestime.go), so a law run at check time runs the build's
-// code; their rows hold that the native is that body
-// (eval-time-format-is-gos, eval-time-parse-is-gos). A failing seed
-// prints the native, the arguments and both results, and the replay
-// command.
+// rand stream draw for draw. The natives are written from Go's standard
+// library and the std's spec, never by calling runtime/v1, so this is two
+// implementations agreeing, value for value, failure for failure (record
+// and text) and defect for defect (Go's panic text). A failing seed prints
+// the native, the arguments and both results, and the replay command.
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
@@ -44,6 +40,7 @@ import (
 // oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
 // evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last,
 // eval-time-format-is-gos, eval-time-parse-is-gos,
+// eval-time-expanded-year-unpadded,
 // eval-sortfunc-equal-on-greater, eval-repeat-drops-one, and
 // ST4's st4-* rows but st4-native-missing (nativespure.go).
 // The tests read the natives through loadedNatives, which builds them.

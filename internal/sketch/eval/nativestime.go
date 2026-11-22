@@ -1,18 +1,15 @@
 package eval
 
 import (
-	"errors"
-
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// The std time text functions (ORACLE O13) are the runtime bodies the
-// build calls, v1.TimeFormat and v1.TimeParse, so a law over Format or
-// Parse run at check time runs the program's code: outside the years 0 to
-// 9999 both write and read ISO 8601's expanded year, where Go's own
-// Format writes a year its Parse refuses. Neither reads the host's zone.
+// The std time text functions (ORACLE O13) write and read the text the
+// build does (timetext.go): outside the years 0 to 9999 both write and
+// read ISO 8601's expanded year, where Go's own Format writes a year its
+// Parse refuses, so a law over Format or Parse run at check time judges
+// what the program does. Neither reads the host's zone.
 func registerNativestime(t nativeTables) {
 	natives := t.std
 	t.reads["time.format"] = "int64 int64 string"
@@ -20,7 +17,7 @@ func registerNativestime(t nativeTables) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
 		}
-		out := v1.TimeFormat(args[0].(int64), args[1].(int64), args[2].(string))
+		out := formatTime(args[0].(int64), args[1].(int64), args[2].(string))
 		if ab := in.allocate(fr, at, valueSize(out)); ab != nil {
 			return nil, ab
 		}
@@ -32,12 +29,8 @@ func registerNativestime(t nativeTables) {
 			return nil, ab
 		}
 		layout, value := args[0].(string), args[1].(string)
-		r, err := v1.TimeParse(layout, value)
-		if err != nil {
-			var pe v1.ParseError
-			if !errors.As(err, &pe) {
-				pe = v1.ParseError{Layout: layout, Value: value, Message: err.Error()}
-			}
+		r, pe := parseTime(layout, value)
+		if pe != nil {
 			return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "ParseError", map[string]Value{"Layout": pe.Layout, "Value": pe.Value, "Message": pe.Message}), "")
 		}
 		return stdRecord(fn, "Reading", map[string]Value{"Sec": r.Sec, "Nsec": r.Nsec, "Mono": int64(0)}), nil
