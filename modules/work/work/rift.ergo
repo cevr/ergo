@@ -142,6 +142,7 @@ func livePath(all []Workspace, path string) Option[Workspace] {
 // a workspace or is taken, or its parent was left.
 func AdoptRift(t Tool, o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Unkept | VcsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let file = RiftRegistry(t, o)
 	let rows = try RiftCopies(t, file)
 	let mut root = false
