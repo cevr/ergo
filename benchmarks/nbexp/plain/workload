@@ -1,0 +1,8 @@
+# NO-BUILTINS: nb bench plain N, one unit per element. Since NB-CUT the cut
+# of an owned slice takes its array, so the cost per unit is constant: the
+# sizes are extern's, and the control's plain kind does the same push.
+unit op
+sizes 2457600 14745600
+args bench plain {n}
+control benchmarks/nbexp/testdata/control
+floor benchmarks/nbexp/testdata/floor
