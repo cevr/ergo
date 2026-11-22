@@ -749,15 +749,15 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	// test binary does (rows.md, Entry 4; owner q277): its binding runs
 	// natively, built by a constructor whose row may be go.Foreign alone
 	// (nativeConstructor) or by a generated value.
-	captured := false
-	c.capture = &captured
+	var held captured
+	c.capture = &held
 	a, _ := c.providerAssignability(p, slot)
 	ptr := false
 	value := false
 	if _, record := p.Underlying().(*Struct); record {
 		// A law owns a fresh record and may lend it to *P operations.
 		// This is not a value-to-operation-type conversion (PS3).
-		c.capture = &captured
+		c.capture = &held
 		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
 		value = a.ok()
 	}
@@ -777,10 +777,18 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		ptr = true
 	}
 	c.recordLegacy(p, slot, "law")
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: captured}
+	if held.ambient != nil {
+		// A provider whose operations read the host (HOST-ROW) is built
+		// holding Ambient, which a law case does not hold: a test holds
+		// TestAmbient only (rows.md, Entry 4). Its laws are a stated skip.
+		lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: held.foreign}
+		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " reads the host and requires Ambient, which a law case does not hold (HOST-ROW)"
+		return lp, true
+	}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: held.foreign}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
-	} else if ctor := c.nativeConstructor(p, captured); ctor != nil {
+	} else if ctor := c.nativeConstructor(p, held.foreign); ctor != nil {
 		lp.Ctor = ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why

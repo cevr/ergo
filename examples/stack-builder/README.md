@@ -42,7 +42,7 @@ That children stop with their entry, nested ones before their parent (survey `No
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/stack-builder/cmd/stack-builder < examples/stack-builder/cases/nested/stdin
 ./bin/ergo test examples/stack-builder/stack
 ./bin/ergo test examples/stack-builder/memory

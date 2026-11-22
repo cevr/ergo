@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -150,6 +151,37 @@ func TestForgottenCacheIsRefused(t *testing.T) {
 	other := filepath.Join(home, "other")
 	if got, want := run("HOME="+home, "XDG_CACHE_HOME="+other), "root "+filepath.Join(other, "ergo"); got != want {
 		t.Errorf("with its own XDG_CACHE_HOME the program got %q, want %q", got, want)
+	}
+}
+
+// TestAncestryWalkedOnce: a process walks its ancestors in /proc once,
+// however often it asks for its cache root; every ergo command asks at
+// least twice (main, then the command). It counts walks (procWalks), not
+// time. Mutant: the walk made on each call (start-ancestry-walked-each-call).
+func TestAncestryWalkedOnce(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ergo")
+	for range 3 {
+		testRoots(root)
+	}
+	if n := procWalks.Load(); n != 1 {
+		t.Errorf("three asks walked the ancestry %d times; want once per process", n)
+	}
+}
+
+// TestProcReadAllocatesItsBuffer: the ancestry walk reads each /proc file
+// into one buffer with plain system calls, never through an *os.File,
+// whose poller registration, finalizer and fcntl were most of the walk's
+// cost at every ergo start (ERGO-STARTUP-2). It counts allocations, not
+// time: a read of a short file allocates its buffer and the system call's copy of
+// the path, where os.ReadFile also allocates the file and its stat. Mutant: the read
+// through os.ReadFile (start-proc-read-through-file).
+func TestProcReadAllocatesItsBuffer(t *testing.T) {
+	path := "/proc/" + strconv.Itoa(os.Getpid()) + "/stat"
+	if _, err := readProc(path); err != nil {
+		t.Skipf("no /proc: %v", err)
+	}
+	if n := testing.AllocsPerRun(20, func() { _, _ = readProc(path) }); n > 2 {
+		t.Errorf("a read of %s allocates %.0f times; want its buffer and the path's copy only", path, n)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -515,20 +516,22 @@ var builtinLowering string
 
 // builtinHelpers are the reference's Go functions, by builtin; ORD stands
 // for the import name of Go's cmp.
-var builtinHelpers = map[string]string{
-	"append":       "[T any](xs []T, x T) []T { return append(xs, x) }",
-	"appendString": "(xs []byte, s string) []byte { return append(xs, s...) }",
-	"len":          "[T any](xs []T) int { return len(xs) }",
-	"cap":          "[T any](xs []T) int { return cap(xs) }",
-	"copy":         "[T any](dst []T, src []T) int { return copy(dst, src) }",
-	"clear":        "[T any](xs []T) { clear(xs) }",
-	"delete":       "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
-	"min":          "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
-	"max":          "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
+var builtinHelpers = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"append":       "[T any](xs []T, x T) []T { return append(xs, x) }",
+		"appendString": "(xs []byte, s string) []byte { return append(xs, s...) }",
+		"len":          "[T any](xs []T) int { return len(xs) }",
+		"cap":          "[T any](xs []T) int { return cap(xs) }",
+		"copy":         "[T any](dst []T, src []T) int { return copy(dst, src) }",
+		"clear":        "[T any](xs []T) { clear(xs) }",
+		"delete":       "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
+		"min":          "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
+		"max":          "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
 
-	// appendAll is the reference of the spread binding (check.AppendSpreads).
-	"appendAll": "[T any](xs []T, ys []T) []T { return append(xs, ys...) }",
-}
+		// appendAll is the reference of the spread binding (check.AppendSpreads).
+		"appendAll": "[T any](xs []T, ys []T) []T { return append(xs, ys...) }",
+	}
+})
 
 // builtinHelper is the name of the reference's Go function for b, written
 // once.
@@ -539,7 +542,7 @@ func (l *lowerer) builtinHelper(b string, site syntax.Node) string {
 	}
 	if !l.builtinDone[b] {
 		l.builtinDone[b] = true
-		text := builtinHelpers[b]
+		text := builtinHelpers()[b]
 		if strings.Contains(text, "ORD.") {
 			text = strings.ReplaceAll(text, "ORD.", l.hostPkg("cmp", site)+".")
 		}
@@ -774,7 +777,7 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	if path == "time" {
 		return l.timePkg()
 	}
-	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) {
+	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) && path != hostFSImport {
 		ice(site, "the Go package %q is outside Go's standard library and in no module of the go.mod beside ergo.mod; the loader refuses it (IG7)", path)
 	}
 	if path == "unsafe" {
@@ -835,7 +838,7 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 		// The reference's builtin helpers, and Go's cmp for min and max
 		// (builtinHelper): reserved, written only where a call needs one.
 		var bs []string
-		for b := range builtinHelpers {
+		for b := range builtinHelpers() {
 			bs = append(bs, b)
 		}
 		sort.Strings(bs)
@@ -1688,9 +1691,11 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
 		// table function that needs capabilities (S108, with #37), except
-		// go.Foreign, which the converting site holds (README Gap 17) and
-		// which no environment holds (module.go).
-		if len(rowElems(f.Sig.Uses)) > 0 && !check.GoForeign(f.Sig) {
+		// go.Foreign and Ambient, which the converting site holds (README
+		// Gap 17; HOST-ROW): no environment holds go.Foreign (module.go),
+		// and the converting frame's, which the adapter keeps, holds
+		// Ambient.
+		if len(rowElems(f.Sig.Uses)) > 0 && !check.Captured(f.Sig) {
 			ice(site, "the operation %s of %s is provided by %s, which needs capabilities", op.Name, conv.To, f.Name)
 		}
 		l.useFunc(f, site)

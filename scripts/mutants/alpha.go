@@ -168,7 +168,7 @@ func alphaMatrix(ctx context.Context, cfg Config, jobs []Job, target func(string
 				continue
 			}
 			rows = append(rows, pending{i, m, candidates})
-			keyed = append(keyed, &Mutant{Name: m.Name, File: m.File, From: m.From, To: m.To, Killers: candidates})
+			keyed = append(keyed, &Mutant{Name: m.Name, File: m.File, Decl: m.Decl, From: m.From, To: m.To, Killers: candidates})
 		}
 	}
 	in, err := gatherReuse(cfg.Root, []Job{{Ledger: &Ledger{Mutants: keyed}}})

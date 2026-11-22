@@ -52,7 +52,7 @@ The program is a module of packages (`ergo.mod`: `module logstat`), in the Go la
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/logstat/cmd/logstat -- -json < examples/logstat/cases/summary/stdin
 ./bin/ergo test examples/logstat/access
 go run ./scripts/examples logstat
