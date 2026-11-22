@@ -417,6 +417,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		types []string
 		as    *check.Var
 		asT   string
+		// whole marks `case Row as e` of a named row: the binding is the
+		// error itself, Go's error being the row's type (namedrow.go).
+		whole bool
 		pos   irPos
 		body  []syntax.Stmt
 	}
@@ -441,6 +444,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 				ar.types = append(ar.types, b.l.caseGoTypes(p.Type, func(t check.Type) string { return b.goType(t, te) })...)
 			case p.Kind == check.PatAs && len(a.Types) == 1 && len(p.Elems) == 1 && p.Elems[0].Kind == check.PatTypeTest && p.Var != nil:
 				ar.asT = b.goType(p.Elems[0].Type, te)
+				ar.whole = b.l.namedRow(p.Elems[0].Type)
 				ar.types = append(ar.types, b.l.caseGoTypes(p.Elems[0].Type, func(t check.Type) string { return b.goType(t, te) })...)
 				ar.as = p.Var
 			default:
@@ -506,7 +510,11 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		if a.as != nil {
 			name := b.named(a.as.Name, a.asT, a.pos)
 			b.locals[a.as] = name
-			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
+			val := &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}
+			if a.whole {
+				val = &irExpr{K: "local", Pos: a.pos, I: e}
+			}
+			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: val})
 		}
 		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
 		sw.Cases = append(sw.Cases, c)
@@ -515,6 +523,12 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
+	} else if !patterned && !partial && len(arms) == 1 && arms[0].whole && b.armTakesRow(arms[0].types, m.Subjects, x) {
+		// A full catch whose one arm binds the named row whole takes every
+		// failure of the call, a Go error of one of the row's variants (the
+		// checker's proof, as catchDefault's): the arm is the then, with
+		// no type switch, as hand Go's `if err != nil` (NR1 receipt).
+		then = sw.Cases[0].Body
 	} else if !patterned {
 		// A patterned catch's tree is its whole then, empty for a catch
 		// whose one arm, `case _:`, does nothing: that swallows the
@@ -673,4 +687,24 @@ func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
 		out = append(out, b.sitePoll(s))
 	}
 	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
+}
+
+// armTakesRow reports whether a catch arm's Go case types are exactly its
+// call's failure row, subjects (namedrow.go's caseGoTypes of each).
+func (b *irBuilder) armTakesRow(types []string, subjects []check.Type, x *syntax.CatchExpr) bool {
+	want := map[string]bool{}
+	for _, s := range subjects {
+		for _, g := range b.l.caseGoTypes(s, func(t check.Type) string { return b.goType(t, x) }) {
+			want[g] = true
+		}
+	}
+	if len(want) != len(types) {
+		return false
+	}
+	for _, g := range types {
+		if !want[g] {
+			return false
+		}
+	}
+	return true
 }
