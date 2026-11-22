@@ -57,7 +57,6 @@ debt	internal/sketch/eval/natives.go:registerNatives	decides by std membership o
 debt	internal/sketch/eval/natives.go:shares	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/eval/nativesembed.go:newEmbedFS	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/eval/nativesgo.go:goNativeOf	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/eval/nativesgo.go:goNatives	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/eval/process.go:runMainOrdered	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/handover.go:funcCtx.ownedFormAt	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/handover.go:lowerer.checkedOwnedForm	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
@@ -80,14 +79,12 @@ language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the r
 language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
 language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
 language	internal/sketch/eval/machine.go:interp.machineStep	Enter, Stay, Emit, Done and Next of a machine	-
-language	internal/sketch/lower/builders.go:lowerer.builtText	a prelude constructor is written unqualified	-
 language	internal/sketch/lower/calls.go:funcCtx.callee	a prelude function is written unqualified in the call table	-
 language	internal/sketch/lower/decls.go:isPreludeType	Option, Some and None	-
 language	internal/sketch/lower/decls.go:lowerer.intrinsic	the prelude collection functions	-
 language	internal/sketch/lower/getmatch.go:getPattern	Some's Value, the comma-ok form of Get	-
 language	internal/sketch/lower/gocall.go:isOptionType	Option at the Go boundary	-
 language	internal/sketch/lower/library.go:hostProvides	Console and Ambient at the entry	-
-language	internal/sketch/lower/literal.go:lowerer.ergoType	a prelude type is written unqualified	-
 language	internal/sketch/lower/module.go:lowerer.hostFields	Console and Ambient at the entry	-
 language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
 language	internal/tsproj/project.go:emitter.schema	Option	-
