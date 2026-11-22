@@ -105,6 +105,9 @@ type Func struct {
 	// goExtern is a user extern's admitted adapter of its Go target's
 	// binding (extern.go, Level 2), once checkExterns admits it.
 	goExtern *GoExtern
+	// asWritten: the function's doc holds `// ergo:aswritten` and it is a
+	// pure identity of one parameter (aswritten.go).
+	asWritten bool
 }
 
 // Var is a variable: a parameter, a local or a package-level let.

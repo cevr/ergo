@@ -1002,8 +1002,15 @@ func parseExternDecl(p mut parser, doc uint32) uint32 {
 		let rest = targetPath(text)
 		let mpath = targetPath(rest)
 		let mtype = targetName(rest)
-		if !p.failed && (mpath == "" || !isIdentifier(mtype) || !isIdentifier(name) || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 11) != 1) {
-			errorf(p, "an extern method has one named receiver and the target path.Type.Method")
+		// The target is path.Type.Method, or path.Func of a Go function
+		// that takes the receiver first (S2-FILE-B): its rest has no type
+		// element.
+		let mut ok = mpath != "" && isIdentifier(mtype) && isIdentifier(name)
+		if mpath == "" {
+			ok = path != "" && isIdentifier(name)
+		}
+		if !p.failed && (!ok || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 11) != 1) {
+			errorf(p, "an extern method has one named receiver and the target path.Type.Method, or path.Func of a Go function that takes the receiver first")
 		}
 	}
 	let fname = parseIdent(p)
