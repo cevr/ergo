@@ -31,7 +31,9 @@ package lower
 //   - each bound is a constant or a local, which reads the same before
 //     the let and at the loop (the length is computed before the Range);
 //   - the Range's values are Go ints (the index) and the element is a
-//     basic type, which owns nothing.
+//     basic type, which owns nothing;
+//   - the loop is no loop idiom (ir_loops.go): a collect's guarded call
+//     appends the part Q[a:b] to the slice at once, or takes it.
 //
 // presizeLowering "off" keeps the appends: the reference that the
 // property (irspike TestIRFillsMatchSource) and the probe's receipt
@@ -103,7 +105,12 @@ func (b *irBuilder) fillLet(v *check.Var, value syntax.Expr, def *irStmt) {
 // loop's body is built.
 func (b *irBuilder) fillLoop(s *syntax.RangeStmt, lp *check.Loop, start *irExpr, loop int, p irPos) func() {
 	done := func() {}
-	if presizeLowering == "off" {
+	if presizeLowering == "off" || b.loopIdiom(s, lp) != nil {
+		// A loop idiom (ir_loops.go) writes the loop's guarded call
+		// before it: a collect appends the part Q[a:b] to the slice, or
+		// takes it, which a slice presized to the loop's length would
+		// hold after its zero values (IRF-2: stackvm's held gave
+		// [0 5] for [5]).
 		return done
 	}
 	decl, ok := b.fills.prev.(*syntax.DeclStmt)

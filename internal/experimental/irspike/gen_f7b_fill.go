@@ -12,7 +12,7 @@ import (
 // an IR body too.
 var (
 	fillFuncs = []string{"counted", "offset", "words", "shared"}
-	sameFuncs = []string{"growing", "between", "lastLoop", "loud"}
+	sameFuncs = []string{"growing", "between", "lastLoop", "loud", "collected"}
 )
 
 // GenerateFill is a program of slices built by a count loop that appends
@@ -30,7 +30,9 @@ var (
 // slice's growing length (growing), a statement that reads the empty
 // slice between the let and the loop (between), and a body with no value
 // whose last statement is the loop, after a read of the empty slice
-// (lastLoop), and a bound that prints when it is computed (loud). main
+// (lastLoop), a bound that prints when it is computed (loud), and a
+// collect from a parameter's elements (collected, stackvm's held), a
+// loop idiom whose guarded call appends the part at once (IRF-2). main
 // prints a digest of each, so a value out of place, a
 // length, or a shared array changes the output.
 func GenerateFill(seed uint64) string {
@@ -49,7 +51,9 @@ func GenerateFill(seed uint64) string {
 	b.WriteString("func lastLoop(n int) needs Console {\n\tlet mut xs = []int{}\n\tConsole.Println(\"last \\(len(xs))\")\n\tfor i in 0..n {\n\t\txs = xs.Append(i)\n\t}\n}\n\n")
 	b.WriteString("func bound(n int) int needs Console {\n\tConsole.Println(\"bound \\(n)\")\n\tn\n}\n\n")
 	b.WriteString("func loud(n int) int needs Console {\n\tlet mut xs = []int{}\n\tfor i in 0..bound(n) {\n\t\txs = xs.Append(i * 3)\n\t}\n\tdigest(xs)\n}\n\n")
+	b.WriteString("func collected(q []int, n int) int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = xs.Append(q[i])\n\t}\n\tdigest(xs)\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
+	fmt.Fprintf(&b, "\tConsole.Println(\"collected \\(collected([]int{%d, 6, 7, 8}, %d))\")\n", 1+n(9), 1+n(4))
 	for i := 0; i < 3; i++ {
 		a := n(10) - 2
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(counted(%d)) \\(offset(%d, %d)) \\(words(%d)) \\(shared(%d)) \\(growing(%d)) \\(between(%d))\")\n", i, n(200), a, a+n(12)-3, n(6), n(9), n(8), n(8))
