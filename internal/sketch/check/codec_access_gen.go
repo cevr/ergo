@@ -467,14 +467,13 @@ func CodecFieldsOf_Info(v *Info) CodecFields_Info {
 }
 
 type CodecFields_Interface struct {
-	F_index    *map[string]*Method
 	F_byName   *[]*Method
 	F_obj      **TypeName
 	F_includes *[]*Named
 }
 
 func CodecFieldsOf_Interface(v *Interface) CodecFields_Interface {
-	return CodecFields_Interface{F_index: &v.index, F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
+	return CodecFields_Interface{F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
 }
 
 type CodecFields_Law struct {
@@ -595,14 +594,13 @@ func CodecFieldsOf_Scope(v *Scope) CodecFields_Scope {
 }
 
 type CodecFields_Struct struct {
-	F_index     *map[string]int
 	F_includes  *[]*include
 	F_expanding *bool
 	F_obj       **TypeName
 }
 
 func CodecFieldsOf_Struct(v *Struct) CodecFields_Struct {
-	return CodecFields_Struct{F_index: &v.index, F_includes: &v.includes, F_expanding: &v.expanding, F_obj: &v.obj}
+	return CodecFields_Struct{F_includes: &v.includes, F_expanding: &v.expanding, F_obj: &v.obj}
 }
 
 type CodecFields_Test struct {

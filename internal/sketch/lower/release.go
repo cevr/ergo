@@ -526,7 +526,7 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 		if n, ok := d.Type.(*check.Named); ok && g.fc.l.runtimeType(n, g.site) != "" {
 			// A runtime-backed type: its operations are the Go methods of
 			// the runtime's type, whose Go names are exported.
-			name := n.Obj.Name + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
+			name := check.RuntimeTypeName(n) + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
 			drain = g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
 		} else {
 			drain, _, _ = g.fc.opCall(d.Type, op, nil, []string{x}, g.env, nil, nil, g.site)
