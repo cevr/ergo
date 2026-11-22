@@ -15,9 +15,8 @@ import (
 // (GLOSSARY.md, Codec: ParseX decodes and x.Wire() encodes), and with it
 // "on the wire", a wire format, the wire key of a field, and the Wire
 // transports of an Api. The construct that binds capabilities for a block
-// was spelled wire until 196w and is spelled context
-// (docs/previews/2026-11-02-wire-to-context.md: "The network sense
-// stays"). So the old sense is the construct's syntax, and these tests
+// was spelled wire until 196w and is spelled context; the network sense
+// stays. So the old sense is the construct's syntax, and these tests
 // look for that syntax, not for the word: wire is a keyword nowhere
 // (check's TestWireIsAnIdentifier, the refuse fixtures 49-wire-let and
 // 50-wire-with), every checked program refuses `wire { … }` as an unknown
@@ -25,10 +24,10 @@ import (
 // terms.
 
 // wireHistory are the dated records that keep the words of their day
-// (196w decision 6): receipts, the dated previews, the plans, the frozen
+// (196w decision 6): receipts, the dated previews, the frozen
 // prototypes and upstream copies, the research notes.
 var wireHistory = []string{
-	"docs/receipts/", "docs/previews/2026-", "plans/", "prototypes/sketch9/",
+	"docs/receipts/", "docs/previews/2026-", "prototypes/sketch9/",
 	"conformance/upstream/", "docs/research/",
 }
 
@@ -43,7 +42,7 @@ var wireConstruct = regexp.MustCompile(`(?m)^with "with"\nIDENT "wire"\n|^= "="\
 // code is checked by nothing else.
 func TestDocsShowNoWireConstruct(t *testing.T) {
 	repo := wireRepo(t)
-	out, err := exec.Command("git", "-C", repo, "--no-optional-locks", "ls-files", "-z", "--", "*.md").Output()
+	out, err := exec.Command("git", "--no-optional-locks", "-C", repo, "ls-files", "-z", "--", "*.md").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

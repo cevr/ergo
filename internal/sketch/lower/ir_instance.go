@@ -26,9 +26,10 @@ package lower
 // arguments (monoKey), so two providers of one element type are two
 // copies, and the count is bounded by the distinct instances, never by
 // the call sites. A test build takes the copies too (shortcuts.go:
-// mono-instance is inTests), so tests run what ships. genericLowering
-// "stencil" takes none: its calls keep the generic function and its
-// witness, the reference of the copies. instanceOps "witness" keeps the copies and
+// mono-instance is inTests, admitted by monoTaken), so tests run what
+// ships. genericLowering "stencil" takes none: its calls keep the generic
+// function and its witness, the reference of the copies. instanceOps
+// "witness" keeps the copies and
 // calls every operation through the witness: the reference of the direct
 // call alone. TestInstanceCopiesAgree (internal/experimental/irspike) runs
 // generated programs by the IR and by the source path, whose copies call
