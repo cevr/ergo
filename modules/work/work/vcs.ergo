@@ -28,6 +28,20 @@ type Local { Ref string, Commit string }
 // commit To holds that From does not contain.
 type Pushed { From string, To string, Force bool }
 
+// Tip is a checkout's HEAD: its commit ("" when unborn), its branch (""
+// when detached) and the commit's committer time in Unix seconds (0 when
+// unborn).
+type Tip { Commit string, Branch string, Time int64 }
+
+// Located is a repository's default branch: its full ref ("" when it has
+// none), its commit, and the folder of the repository's objects.
+type Located { Ref string, Commit string, Objects string }
+
+// Apart is how two commits differ: Ahead counts the non-merge commits
+// the head has that the base lacks, Behind those the base has that the
+// head lacks.
+type Apart { Ahead int, Behind int }
+
 // Vcs is what work needs of version control, for the checkout at root:
 // its commit and branch, whether it holds changes, snapshots of its
 // working files, refs with compare-and-set, a branch started at a commit,
@@ -117,6 +131,22 @@ type Vcs {
 	// place of any it had. ready writes it in the parent, where the tip
 	// went: two lanes never push one notes ref past each other.
 	SetNote(root string, commit string, text string) fails VcsFailed,
+	// TipOf is the checkout's HEAD in one read: its commit, branch and
+	// committer time (an unborn HEAD is the empty Tip).
+	TipOf(root string) Tip fails VcsFailed,
+	// Default is the default branch of the repository at parent: the
+	// branch its origin's HEAD names when the parent has that branch,
+	// else the branch checked out there; with its commit and the folder of
+	// its objects. A parent with neither is the empty Located.
+	Default(parent string) Located fails VcsFailed,
+	// Counts is how far head and base are apart, read in the checkout at
+	// root with objects (a Located's) beside its own, so a commit only
+	// the parent has is known: the non-merge commits head has that base
+	// lacks, and those base has that head lacks. It writes no ref.
+	Counts(root string, objects string, base string, head string) Apart fails VcsFailed,
+	// Unpicked is Counts' Ahead with each commit whose patch base's side
+	// has too left out (landed by cherry-pick or rebase).
+	Unpicked(root string, objects string, base string, head string) int fails VcsFailed,
 
 	// NoteIsWhatSetNoteWrote: a note set on the head reads back as its
 	// text, and a second set replaces it.

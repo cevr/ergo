@@ -6,6 +6,7 @@
 
 import exec
 import filepath
+import maps
 import slices
 import github.com/cevr/ergo/modules/work/work
 import strconv
@@ -480,4 +481,110 @@ func Refresh(v Vcs, root string) fails work.VcsFailed {
 	if r.Status != 0 && r.Status != 1 {
 		return work.VcsFailed{Reason: "git update-index --refresh in \(root): \(strings.TrimSpace(r.Stderr))"}
 	}
+}
+
+// TipOf is one git log of HEAD: its commit, committer time and the
+// branch HEAD names (short decorations: "HEAD -> BRANCH, ..."). An unborn
+// HEAD (git log fails, rev-parse --verify finds no HEAD) is the empty Tip.
+func TipOf(v Vcs, root string) work.Tip fails work.VcsFailed {
+	let args = []string{"log", "-1", "--decorate=short", "--format=%H%x00%ct%x00%D", "HEAD"}
+	let r = try reads(v, root, args)
+	if r.Status != 0 {
+		let head = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", "HEAD"})
+		if head.Status == 1 && strings.TrimSpace(head.Stdout) == "" {
+			return work.Tip{Commit: "", Branch: "", Time: 0}
+		}
+		return work.VcsFailed{Reason: "git \(strings.Join(args, " ")) in \(root): \(strings.TrimSpace(r.Stderr))"}
+	}
+	let parts = strings.Split(strings.TrimSpace(r.Stdout), "\x00")
+	if len(parts) != 3 {
+		return work.VcsFailed{Reason: "git log in \(root): \(r.Stdout)"}
+	}
+	let time = strconv.Atoi(parts[1]) catch {
+	case _:
+		return work.VcsFailed{Reason: "git log in \(root): a time \(parts[1])"}
+	}
+	work.Tip{Commit: parts[0], Branch: headBranch(parts[2]), Time: int64(time)}
+}
+
+// headBranch is the branch a short %D names as HEAD's ("" when HEAD is
+// detached).
+func headBranch(decorations string) string {
+	if !strings.HasPrefix(decorations, "HEAD -> ") {
+		return ""
+	}
+	let rest = strings.TrimPrefix(decorations, "HEAD -> ")
+	match strings.Cut(rest, ", ") {
+	case Some[strings.Halves] as h:
+		h.Value.Before
+	case None:
+		rest
+	}
+}
+
+// Default is two reads in the parent: its Git folder, and one
+// for-each-ref of its branches and origin's HEAD (which branch is checked
+// out, each commit, and the branch origin's HEAD points to).
+func Default(v Vcs, parent string) work.Located fails work.VcsFailed {
+	let dir = try answer(v, parent, []string{"rev-parse", "--absolute-git-dir"})
+	let refs = try answer(v, parent, []string{"for-each-ref", "--format=%(HEAD)%00%(refname)%00%(objectname)%00%(symref)", "refs/heads", "refs/remotes/origin/HEAD"})
+	let mut heads = Map[string, string]{}
+	let mut current = ""
+	let mut named = ""
+	for line in strings.Split(refs, "\n") {
+		let f = strings.Split(line, "\x00")
+		if len(f) != 4 {
+			continue
+		}
+		if f[1] == "refs/remotes/origin/HEAD" {
+			named = "refs/heads/" + strings.TrimPrefix(f[3], "refs/remotes/origin/")
+			continue
+		}
+		heads[f[1]] = f[2]
+		if f[0] == "*" {
+			current = f[1]
+		}
+	}
+	let ref = if named != "" && heads.Get(named) != None { named } else { current }
+	work.Located{Ref: ref, Commit: maps.GetOr(heads, ref, ""), Objects: filepath.Join([]string{dir, "objects"})}
+}
+
+// Counts is one rev-list in root with the parent's objects as an
+// alternate (GIT_ALTERNATE_OBJECT_DIRECTORIES adds them to the lookup
+// and writes nothing).
+func Counts(v Vcs, root string, objects string, base string, head string) work.Apart fails work.VcsFailed {
+	let out = try counted(v, root, objects, []string{"rev-list", "--no-merges", "--left-right", "--count", base + "..." + head})
+	let f = strings.Fields(out)
+	if len(f) != 2 {
+		return work.VcsFailed{Reason: "git rev-list --count in \(root): \(out)"}
+	}
+	let behind = strconv.Atoi(f[0]) catch {
+	case _:
+		return work.VcsFailed{Reason: "git rev-list --count in \(root): \(out)"}
+	}
+	let ahead = strconv.Atoi(f[1]) catch {
+	case _:
+		return work.VcsFailed{Reason: "git rev-list --count in \(root): \(out)"}
+	}
+	work.Apart{Ahead: ahead, Behind: behind}
+}
+
+// Unpicked is one rev-list --cherry-pick --right-only: Git leaves out
+// each commit whose patch id the other side has.
+func Unpicked(v Vcs, root string, objects string, base string, head string) int fails work.VcsFailed {
+	let out = try counted(v, root, objects, []string{"rev-list", "--no-merges", "--cherry-pick", "--right-only", "--count", base + "..." + head})
+	strconv.Atoi(out) catch {
+	case _:
+		return work.VcsFailed{Reason: "git rev-list --cherry-pick in \(root): \(out)"}
+	}
+}
+
+// counted is a reading git call in root with objects beside its own.
+func counted(v Vcs, root string, objects string, args []string) string fails work.VcsFailed {
+	let mut all = []string{"--no-optional-locks"}
+	for a in args {
+		all = all.Append(a)
+	}
+	let env = if objects == "" { []string{} } else { []string{"GIT_ALTERNATE_OBJECT_DIRECTORIES", objects} }
+	try ok(try git(v, root, all, env), root, args)
 }
