@@ -920,6 +920,106 @@ func exitsRan(signals []int, drain bool, durable bool) []int {
 test ActorExitSeesLastState(signals []int) { assert exitsRan(signals, false, false) == exitsLeft(signals) }
 
 test ActorExitRunsOncePerEntry(signals []int, drain bool) { assert exitsRan(signals, drain, drain) == exitsLeft(signals) }
+
+func exitCode[F](x actor.Exit[int, int, F]) int {
+	match x {
+	case actor.Finished[int, int]:
+		1
+	case actor.Halted[int]:
+		2
+	case actor.Failed[F]:
+		3
+	case actor.Defected:
+		4
+	}
+}
+
+func watched(signals []int, before bool) bool needs Scheduler {
+	let log = actor.StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+	watchedBy(log, sent(signals), before)
+}
+
+func watchedBy[F](log actor.Actor[[]int, int, Decision[[]int, int]], a actor.Actor[int, int, Decision[int, int], F], before bool) bool needs Scheduler {
+	if before {
+		a.Stop() catch {
+		case _:
+		}
+	}
+	actor.Watch(log, a, func(x actor.Exit[int, int, F]) int { exitCode(x) }) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !before {
+		a.Stop() catch {
+		case _:
+		}
+	}
+	let want = exitCode(actor.ExitOf(a))
+	let got = actor.WaitFor(log, func(s []int) bool { len(s) >= 1 }) catch {
+	case actor.Stopped:
+		return false
+	}
+	log.Stop()
+	len(got) == 1 && got[0] == want
+}
+
+func WatchSeesTheEnd(signals []int, before bool) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		watched(signals, before)
+	}
+}
+
+test ActorWatchSeesTheEnd(signals []int, before bool) { assert WatchSeesTheEnd(signals, before) }
+
+func registryDrops(signals []int, k int) bool needs Scheduler {
+	let r = actor.NewRegistry[int, int, int, Decision[int, int]]()
+	let a = actor.StartMachine(tally(), 1, func(o int) {})
+	actor.Register(r, k, a) catch {
+	case actor.Taken, actor.Stopped:
+		a.Stop()
+		return false
+	}
+	let found = named(r, k)
+	let b = actor.StartMachine(tally(), 1, func(o int) {})
+	let mut taken = false
+	actor.Register(r, k, b) catch {
+	case actor.Taken:
+		taken = true
+	case actor.Stopped:
+	}
+	for e in signals {
+		a.Send(e) catch {
+		case actor.Stopped:
+		}
+	}
+	a.Stop()
+	let gone = !named(r, k)
+	actor.Register(r, k, b) catch {
+	case actor.Taken, actor.Stopped:
+		b.Stop()
+		return false
+	}
+	let back = named(r, k)
+	b.Stop()
+	found && taken && gone && back && !named(r, k)
+}
+
+func named(r actor.Registry[int, int, int, Decision[int, int]], k int) bool {
+	match actor.Lookup(r, k) {
+	case Some[actor.Actor[int, int, Decision[int, int]]]:
+		true
+	case None:
+		false
+	}
+}
+
+func RegistryDropsTheEnded(signals []int, k int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		registryDrops(signals, k)
+	}
+}
+
+test ActorRegistryDropsTheEnded(signals []int, k int) { assert RegistryDropsTheEnded(signals, k) }
 `
 
 // actorLawStatements is the statement of each actor law, as the ledger
@@ -945,6 +1045,8 @@ var actorLawStatements = map[string]string{
 	"actor SendsStepInOrder":           `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
 	"actor ExitSeesLastState":          `ExitSeesLastState(signals []int) { exitsRan(signals, false, false) == exitsLeft(signals) }`,
 	"actor ExitRunsOncePerEntry":       `ExitRunsOncePerEntry(signals []int, drain bool) { exitsRan(signals, drain, drain) == exitsLeft(signals) }`,
+	"actor WatchSeesTheEnd": `WatchSeesTheEnd(signals []int, before bool) { with context { Scheduler: time.NewManual(0) } { watched(signals, before) } }`,
+	"actor RegistryDropsTheEnded": `RegistryDropsTheEnded(signals []int, k int) { with context { Scheduler: time.NewManual(0) } { registryDrops(signals, k) } }`,
 	"testing Stage.SettleIsIdempotent": `SettleIsIdempotent() { Settle() let v = Show() Settle() Show() == v }`,
 	"testing Stage.ShowIsStable":       `ShowIsStable() { Settle() Show() == Show() }`,
 	"actor ActorStageAgreesWithFold":   `ActorStageAgreesWithFold(acts []int) { let clock = time.NewManual(0) with context { Scheduler: clock } { stagedAgrees(acts, clock) } }`,
