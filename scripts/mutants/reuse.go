@@ -69,7 +69,7 @@ func rowKey(in *reuseInputs, m *Mutant) string {
 	}
 	put("version", reuseVersion)
 	put("toolchain", in.toolchain)
-	put("row", m.Name, m.File, m.From, m.To)
+	put("row", m.Name, m.File, m.Decl, m.From, m.To)
 	killers := killerIDs(m)
 	slices.Sort(killers)
 	whole := false
