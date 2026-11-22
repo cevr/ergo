@@ -63,6 +63,36 @@
       "to": "if false {",
       "rule": "The limit error of a span-queue fault names the Go runtime bug, so a reader does not take it for a clean out-of-memory report.",
       "killers": ["internal/proclimit:TestQueueFaultIsNamed"]
+    },
+    {
+      "name": "proclimit-fixed-wait",
+      "origin": "wf10 WAITDELAY (2026-11-21: BUDGET-BACKFILL check1, `WaitDelay expired before I/O complete` after a passing model)",
+      "file": "internal/proclimit/watch.go",
+      "decl": "Watch",
+      "from": "\townGroup(cmd)\n",
+      "to": "\townGroup(cmd)\n\tcmd.WaitDelay = 1 << 30\n",
+      "rule": "Wait waits for the program's output to close, never a fixed time after its exit.",
+      "killers": ["internal/proclimit:TestWaitReadsOutputAfterExit"]
+    },
+    {
+      "name": "proclimit-no-group-kill",
+      "origin": "wf10 WAITDELAY (2026-11-21: BUDGET-BACKFILL check1, `WaitDelay expired before I/O complete` after a passing model)",
+      "file": "internal/proclimit/wait_linux.go",
+      "decl": "Wait",
+      "from": "\t\t\t_ = syscall.Kill(-pid, syscall.SIGKILL)\n",
+      "to": "",
+      "rule": "Once the program exits, Wait ends the processes it left in its group, which may hold its output.",
+      "killers": ["internal/proclimit:TestWaitEndsWhatTheProgramLeaves"]
+    },
+    {
+      "name": "proclimit-no-own-group",
+      "origin": "wf10 WAITDELAY (2026-11-21: BUDGET-BACKFILL check1, `WaitDelay expired before I/O complete` after a passing model)",
+      "file": "internal/proclimit/wait_linux.go",
+      "decl": "ownGroup",
+      "from": "\t\ta.Setpgid = true\n",
+      "to": "",
+      "rule": "A watched program leads a process group of its own, so Wait can end what it leaves and nothing else.",
+      "killers": ["internal/proclimit:TestWaitEndsWhatTheProgramLeaves"]
     }
   ]
 }
