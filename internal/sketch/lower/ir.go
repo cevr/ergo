@@ -741,6 +741,12 @@ type irBuilder struct {
 	// (catch_plain.go; ir_fail.go catch): bind leaves it Go's error, not
 	// go.Error (GOERR-BOX).
 	rawErr *syntax.CallExpr
+	// tupleBind is the fallible call bind is binding, whose std body may
+	// return several values and an error (A, B, error); tupleBound is
+	// that body's Go call, which bind binds with its error (tupleErrBind;
+	// EXTERN-MULTI-RESULT).
+	tupleBind  *syntax.CallExpr
+	tupleBound *irExpr
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
