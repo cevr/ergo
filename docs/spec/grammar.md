@@ -329,4 +329,4 @@ Every old spelling is S001 at its own token, with a byte span, line and column. 
 | `goto` | goto is not part of the language; use structured control flow |
 | `fallthrough` | fallthrough is not part of the language; list the patterns in one case |
 
-**Old Ergo-only spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { … }`, bodiless functions with `//ef:go`, `uses`) get the plain S001 any stray token gets, with no rename hint ([#217](https://github.com/cevr/ergo/issues/217)). The one-off translator `scripts/migrate196` rewrites old sources into the decided syntax; it is deleted after v1.
+**Old Ergo-only spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { … }`, bodiless functions with `//ef:go`, `uses`) get the plain S001 any stray token gets, with no rename hint ([#217](https://github.com/cevr/ergo/issues/217)).
