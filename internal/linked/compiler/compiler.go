@@ -64426,7 +64426,7 @@ func (p *parser) parseElementValue() uint32 {
 func ergoInit(env *Env) {
 //line cachekey/warm.ergo:34:5
 	{
-		/*line cachekey/warm.ergo:34:5*/ WarmLocations = []string{"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV", "GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT", "ERGO_CACHE", ergo.Let(StageReportVariable), ergo.Let(WarmVariable), "ERGO_PARITY_LOG", "ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE", "ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET", "ERGO_GATE_CPUS"}
+		/*line cachekey/warm.ergo:34:5*/ WarmLocations = []string{"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV", "GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT", "ERGO_CACHE", ergo.Let(StageReportVariable), ergo.Let(WarmVariable), "ERGO_PARITY_LOG", "ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE", "ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET", "ERGO_GATE_CPUS", "ERGO_IRC"}
 		/*line cachekey/warm.ergo:34:5*/
 	}
 //line ir/ir.ergo:105:5

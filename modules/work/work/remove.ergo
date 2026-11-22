@@ -10,6 +10,7 @@ type Removal = Workspace | Removed
 
 func Rm(t Tool, name string, o RmOptions) []Removed fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants {
 	try initialized(t)
+	try settled(t)
 	let c = try config(t)
 	let mut out = []Removed{}
 	if o.Tree {
@@ -174,6 +175,11 @@ func intend(t Tool, name string, expect Option[string], abandon bool, until int6
 			return Busy{Name: name, State: StateName(w.State)}
 		}
 		unreserved(t, w)
+		// A rolled-back reservation whose tomb is not yet deleted is
+		// buried's: its record goes once the tomb has.
+		if w.Id != "" && t.copier.Has(TombOf(t.home, w.Id)) {
+			return Busy{Name: name, State: StateName(w.State)}
+		}
 		w
 	case Landed, Abandoned:
 		w
@@ -308,6 +314,7 @@ func markerOf(t Tool, path string) string {
 
 func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let older = try age(o.Older)
 	let idle = match o.Idle {
 	case Some[string]:
@@ -493,7 +500,8 @@ func rmOnce(t Tool, c Config, w Workspace, abandon bool, until int64) string fai
 // A reservation whose maker is gone but whose clone carries its marker
 // was made: its maker stopped between Fill and Activate (a killed `work
 // new`), and an agent may already work in it. Collect activates it, as
-// Activate would have, and never deletes it.
+// Activate would have, and never deletes it. (Its hold settles this
+// work's reservations first; the rules below are for an older work's.)
 func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept | Locked {
 	try hold(t)
 	let at = now(t)
@@ -535,7 +543,9 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 					return e
 				}
 				unreserved(t, w)
-			} else if taken && strings.HasPrefix(w.Path, t.home+"/") && !t.copier.Has(w.Path+"/.git") {
+			} else if taken && strings.HasPrefix(w.Path, t.home+"/") && !t.copier.Has(w.Path+"/.git") && !t.copier.Has(TombOf(t.home, w.Id)) {
+				// (A reservation with a tomb is buried's, which drops the
+				// record only once the tomb is gone.)
 				// A folder cut off before its checkout holds no work; one
 				// over a checkout may (its maker died after the clone, before
 				// the marker): gc leaves it, and rm decides it as it decides

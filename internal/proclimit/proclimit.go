@@ -36,6 +36,7 @@
 package proclimit
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -126,13 +127,13 @@ func Start(cmd *exec.Cmd, limit uint64) error {
 	return nil
 }
 
-// Run is Start, then cmd.Wait, with the error Check makes.
+// Run is Watch, Start, then Wait, with the error Check makes.
 func Run(cmd *exec.Cmd, limit uint64) error {
 	watch := Watch(cmd)
 	if err := Start(cmd, limit); err != nil {
 		return err
 	}
-	return Check(cmd.Path, limit, cmd.Wait(), watch.Stderr())
+	return Check(cmd.Path, limit, Wait(context.Background(), cmd), watch.Stderr())
 }
 
 // LimitError is a program that the limit stopped.
