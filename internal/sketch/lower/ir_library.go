@@ -45,7 +45,10 @@ func LowerIRLibrary(u Unit, name string) ([]File, IRReport, error) {
 	sum := sha256.Sum256(data)
 	report := mod.IRReport
 	report.Hash = hex.EncodeToString(sum[:])
-	return append(files, File{Path: IRFileName, Data: data}), report, nil
+	// Keyed as a program's are (irKeyed): `ergo go` builds a library at a
+	// stable path, where an edited IR body would otherwise reuse the old
+	// compile (GO-DROPIN-PROBE step 10).
+	return irKeyed(append(files, File{Path: IRFileName, Data: data})), report, nil
 }
 
 // LibraryModule is the Go module `ergo lib` writes for the library that
