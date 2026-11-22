@@ -261,6 +261,11 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 	let again = if here { "work doctor -here -fix" } else { "work doctor -fix" }
 	let mut notes = []string{}
 	for root in roots {
+		// An older work wrote rerere.enabled with the drivers (M0); work
+		// no longer owns the key, so doctor names it and changes nothing.
+		if here && try t.vcs.OwnSetting(root, "rerere.enabled") == "true" {
+			notes = notes.Append(rerereNote(root))
+		}
 		let names = Unregistered(t, root) catch {
 		case fs.Denied, fs.Failed:
 			[]string{}
@@ -296,6 +301,13 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 		notes = notes.Append("the merge line \(p) takes no file of the base")
 	}
 	notes
+}
+
+// rerereNote is doctor -here's note on a checkout whose own Git config
+// sets rerere.enabled: Git replays each recorded resolution into its later
+// merges, and the one command that stops it.
+func rerereNote(root string) string {
+	"\(root): its own Git config sets rerere.enabled=true (an older work wrote it with the merge drivers; work no longer sets it), so Git replays recorded resolutions in its merges: to stop, run git -C \(root) config --local --unset rerere.enabled"
 }
 
 // holding is the checkout of roots that holds the folder dir, the

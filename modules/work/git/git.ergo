@@ -458,6 +458,17 @@ func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
 	strings.TrimSuffix(r.Stdout, "\n")
 }
 
+// OwnSetting is git config --local --get: the checkout's .git/config
+// alone, so a user's ~/.gitconfig does not answer for it.
+func OwnSetting(v Vcs, root string, key string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"config", "--local", "--get", key})
+	if r.Status == 1 {
+		return ""
+	}
+	let _ = try ok(r, root, []string{"config", "--local", "--get", key})
+	strings.TrimSuffix(r.Stdout, "\n")
+}
+
 // StatDirty counts the entries git diff-files reports (a stat that
 // differs from the index's; diff-files refreshes nothing) less those whose
 // content changed (git diff, which compares content and, with

@@ -1780,6 +1780,41 @@ law RegisterDriversLeavesRerere(set int) {
 	drivers && after == before
 }
 
+// DoctorHereNamesAnOldRerere: doctor -here, with or without -fix, names
+// a checkout whose own config sets rerere.enabled=true (an older work
+// wrote it) with the command that unsets it, names no other value, and
+// leaves the key as it was: work no longer owns it.
+law DoctorHereNamesAnOldRerere(set int, fix bool) {
+	let w = world(true)
+	let copy = "/w/copy"
+	w.trees.Clone(theBase, copy) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let before = []string{"", "false", "true"}[small(set, 3)]
+	if before != "" {
+		Configure(w.vcs, copy, "rerere.enabled", before) catch {
+		case _:
+			return false
+		}
+	}
+	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", w.p, copy)
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
+	case _:
+		return false
+	}
+	let after = Setting(w.vcs, copy, "rerere.enabled") catch {
+	case _:
+		return false
+	}
+	let note = copy + ": its own Git config sets rerere.enabled=true (an older work wrote it with the merge drivers; work no longer sets it), so Git replays recorded resolutions in its merges: to stop, run git -C " + copy + " config --local --unset rerere.enabled"
+	slices.Contains(report.Notes, note) == (before == "true") && after == before
+}
+
 // DoctorHereFixesOnlyItsCheckout: doctor -here, run inside one of two
 // adopted copies that lack the merge drivers, names (or with -fix
 // registers) that copy's drivers alone; the other copy is never named

@@ -1666,6 +1666,14 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
+      "name": "dt-old-rerere-unnamed", "origin": "wf10/semws DRIVER-TABLE-ONE-SOURCE",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif here && try t.vcs.OwnSetting(root, \"rerere.enabled\") == \"true\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "doctor -here names a checkout's own rerere.enabled=true with the command that unsets it, and changes nothing (memory's DoctorHereNamesAnOldRerere).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
       "name": "hmd-here-checks-all", "origin": "wf10/semws HUB-MERGE-DRIVERS",
       "file": "modules/work/work/doctor.ergo",
       "from": "\tlet roots = if here { holding(all, t.here) } else { all }\n",
