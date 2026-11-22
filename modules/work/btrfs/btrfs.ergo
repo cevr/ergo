@@ -63,3 +63,7 @@ func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 }
 
 func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try system.SharedUsage(c.trees, "btrfs", root) }
+
+func Free(c Cloner, root string) int fails work.Unsupported | work.Missing | work.CloneFailed { try system.FreeOf(c.trees, "btrfs", root) }
+
+func Entries(c Cloner, root string) int fails work.Missing | work.CloneFailed { try system.EntriesOf(c.trees, "btrfs", root) }

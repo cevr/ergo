@@ -52,3 +52,28 @@ test CloneStatusEqualsBaseStatus {
 		assert try status("trees/one") == base
 	}
 }
+
+// LinkScript makes src with three links that leave it: an absolute one
+// to outside/secret, a relative one that climbs out (../outside/secret)
+// and the first of a chain that goes out and back (a -> ../outside/b,
+// outside/b -> ../src/c); and src/c.
+let LinkScript = "set -eu\nmkdir -p src outside trees\nprintf 'secret\\n' > outside/secret\nprintf 'c\\n' > src/c\nln -s \"$(pwd)/outside/secret\" src/abs\nln -s ../outside/secret src/climb\nln -s ../outside/b src/a\nln -s ../src/c outside/b\n"
+
+// LinkCheck exits 0 when every link of src is a link in trees/one with
+// the same text and the files outside src are as they were.
+let LinkCheck = "set -eu\nfor l in abs climb a; do test -L \"trees/one/$l\"; test \"$(readlink \"trees/one/$l\")\" = \"$(readlink \"src/$l\")\"; done\ntest \"$(cat outside/secret)\" = secret\ntest \"$(readlink outside/b)\" = ../src/c\ntest \"$(find trees/one | wc -l)\" -eq 5\n"
+
+// CloneKeepsLinksAsLinks: a link that leaves the source (absolute,
+// climbing out, or the start of a chain out and back) is cloned as a
+// link with its text, its target never followed; the clone answers four
+// entries, the files and links under it (the copy's cp -a; cp -aL would
+// copy the targets).
+test CloneKeepsLinksAsLinks {
+	with onHost {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", LinkScript})).Status == 0
+		try work.Cloner.Clone("src", "trees/one")
+		assert try work.Cloner.Entries("trees/one") == 4
+		let check = try exec.Runner.Run(exec.New("sh", []string{"-c", LinkCheck}))
+		assert check.Status == 0
+	}
+}

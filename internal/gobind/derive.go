@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/gofacts"
 )
@@ -52,7 +53,7 @@ const readsVerdict = " does not escape, mutate, or call"
 type Facts map[string]map[string]bool
 
 // escapeLine is one line of the compiler's -m output.
-var escapeLine = regexp.MustCompile(`^(.+\.go):(\d+):(\d+): (.*)$`)
+var escapeLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(.+\.go):(\d+):(\d+): (.*)$`) })
 
 // srcPos is a position in a Go file, by its absolute name.
 type srcPos struct {
@@ -66,7 +67,7 @@ type srcPos struct {
 func ParseEscape(out, dir string) (reads, other map[srcPos]bool) {
 	reads, other = map[srcPos]bool{}, map[srcPos]bool{}
 	for _, line := range strings.Split(out, "\n") {
-		m := escapeLine.FindStringSubmatch(line)
+		m := escapeLine().FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
