@@ -270,6 +270,20 @@ func (l *lowerer) nameTests() {
 					}
 				}
 			}
+			// A harnessed test's rewritten shown assert (check harness.go).
+			if x, ok := n.(*syntax.CallExpr); ok {
+				if c := l.info.Calls[x]; c != nil && c.Kind == check.CallTestShown && len(x.Args) == 2 {
+					lt, lok := l.typedExpr(x.Args[0])
+					rt, rok := l.typedExpr(x.Args[1])
+					if lok && rok {
+						reserveLit(lt)
+						reserveLit(rt)
+					}
+					if l.ir != nil {
+						l.pkgName(assertShowKey(x), "ergoAssertShow")
+					}
+				}
+			}
 			return true
 		})
 	}

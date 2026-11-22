@@ -299,3 +299,36 @@ func assertDiff(a, b string) string {
 	}
 	return out.String()
 }
+
+// shownText is ergo·shown(left, right), which the rewrite of a harnessed
+// test's shown assert calls: the text assertMessage adds after a shown
+// assert's source text, ": left L, right R" and the line diff of two
+// strings, each operand at the type the checker gave it.
+func (in *interp) shownText(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
+	if len(x.Args) != 2 {
+		ice("ergo·shown of %d values", len(x.Args))
+	}
+	var vals [2]Value
+	var types [2]check.Type
+	for i, a := range x.Args {
+		v, ab := in.expr(fr, a)
+		if ab != nil {
+			return nil, ab
+		}
+		t, ok := typedExpr(fr.info, a)
+		if !ok {
+			ice("ergo·shown of an untyped operand")
+		}
+		vals[i], types[i] = v, t
+	}
+	text := ": left " + in.argument(fr, types[0], vals[0]) + ", right " + in.argument(fr, types[1], vals[1])
+	if isStringLike(types[0]) && isStringLike(types[1]) {
+		ls, lok := vals[0].(string)
+		rs, rok := vals[1].(string)
+		if lok && rok {
+			text += assertDiff(ls, rs)
+		}
+	}
+	mustCharge(in, fr, int64(len(text)))
+	return text, nil
+}

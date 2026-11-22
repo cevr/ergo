@@ -1026,6 +1026,10 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		// The run's --seed, for a harnessed test (check harness.go).
 		mustCharge(in, fr, 1)
 		return in.budget.Seed, nil
+	case check.CallTestShown:
+		// A harnessed test's failed comparison shows its operands as the
+		// runner's assert does (assertMessage; check harness.go).
+		return in.shownText(fr, x)
 	case check.CallHash:
 		v, ab := in.expr(fr, x.Args[0])
 		if ab != nil {

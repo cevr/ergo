@@ -272,7 +272,7 @@ func (b *irBuilder) skip(s *syntax.SkipStmt) []*irStmt {
 // `: left L, right R`, each an Ergo literal of its type, and the line
 // diff of two strings. It is emitted once per assert s, whose name the
 // naming pass reserves (nameTests, under LowerIR and CensusIR only).
-func (l *lowerer) assertShowFunc(s *syntax.AssertStmt, lt, rt check.Type, site syntax.Node) string {
+func (l *lowerer) assertShowFunc(s syntax.Node, lt, rt check.Type, site syntax.Node) string {
 	tc := &typeCtx{l: l, site: site}
 	lg, rg := tc.goType(lt), tc.goType(rt)
 	key := assertShowKey(s)
@@ -291,5 +291,24 @@ func (l *lowerer) assertShowFunc(s *syntax.AssertStmt, lt, rt check.Type, site s
 	return name
 }
 
-// assertShowKey is the package-scope key of s's show helper.
-func assertShowKey(s *syntax.AssertStmt) pkgKey { return pkgKey{"assert show", s} }
+// assertShowKey is the package-scope key of s's show helper: a shown
+// assert, or the ergo·shown call of a harnessed test's rewritten assert
+// (check harness.go).
+func assertShowKey(s syntax.Node) pkgKey { return pkgKey{"assert show", s} }
+
+// shownCall is ergo·shown(left, right) (check.CallTestShown): the helper
+// of a shown assert on the two operands, each at the type the checker
+// gave it, which gives the runner's text after the assert's source text.
+func (b *irBuilder) shownCall(x *syntax.CallExpr, p irPos) ([]*irStmt, *irExpr) {
+	l := b.l
+	if l.tests == nil || len(x.Args) != 2 {
+		irNo("ergo·shown outside a harnessed test")
+	}
+	lt, lok := l.typedExpr(x.Args[0])
+	rt, rok := l.typedExpr(x.Args[1])
+	if !lok || !rok || !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+		irNo("ergo·shown of an operand that does not print")
+	}
+	pre, vals := b.operands(x.Args) // ir_fail.go
+	return pre, &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(x, lt, rt, x), Args: vals}
+}

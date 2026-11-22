@@ -47,7 +47,8 @@ func (i coinImporter) Import(path string) (*check.Package, error) {
 // TestHarnessRunsTheBody: the evaluator runs a harnessed test through its
 // harness: a body that holds passes, and a failed assert fails the test
 // with the harness's failure, which holds the run's name, its --seed and
-// the test's site, and the assert's site and text.
+// the test's site, and the assert's site and text; a failed comparison
+// shows its operands as the runner's assert does (P1c part 1).
 func TestHarnessRunsTheBody(t *testing.T) {
 	lf, err := syntax.Parse(coinLib)
 	if err != nil {
@@ -57,7 +58,7 @@ func TestHarnessRunsTheBody(t *testing.T) {
 	if len(ds) != 0 {
 		t.Fatalf("lib: %v", ds)
 	}
-	f, err := syntax.Parse("import lib\n\ntest Holds {\n\tassert lib.Heads()\n}\n\ntest Fails {\n\tlet h = lib.Heads()\n\tassert !h\n}\n")
+	f, err := syntax.Parse("import lib\n\ntest Holds {\n\tassert lib.Heads()\n}\n\ntest Fails {\n\tlet h = lib.Heads()\n\tassert !h\n}\n\ntest Shows {\n\tlet n = if lib.Heads() { 2 } else { 0 }\n\tassert n == 3\n}\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,5 +84,10 @@ func TestHarnessRunsTheBody(t *testing.T) {
 	want := "Fails seed 7 at coin_test.ergo:7: assert failed at coin_test.ergo:9:2: !h"
 	if r.Status != Refuted || !strings.Contains(r.Reason, want) {
 		t.Errorf("Fails: %s %q, want refuted with %q", r.Status, r.Reason, want)
+	}
+	r = got["Shows"]
+	want = "Shows seed 7 at coin_test.ergo:12: assert failed at coin_test.ergo:14:2: n == 3: left 2, right 3"
+	if r.Status != Refuted || !strings.Contains(r.Reason, want) {
+		t.Errorf("Shows: %s %q, want refuted with %q", r.Status, r.Reason, want)
 	}
 }

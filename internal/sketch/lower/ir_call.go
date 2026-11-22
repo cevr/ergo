@@ -166,6 +166,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// runtime reads it from the test binary's own arguments.
 		b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
 		return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
+	case check.CallTestShown:
+		pre, e := b.shownCall(x, p) // ir_assert.go
+		return pre, e, false
 	case check.CallHash:
 		return b.hashCall(x, p) // ir_mapprovider.go
 	case check.CallLen:

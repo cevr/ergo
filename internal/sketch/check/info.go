@@ -783,6 +783,11 @@ const (
 	// CallTestSeed is the run's --seed, a uint64, which only the rewrite of
 	// a harnessed test calls (harness.go, rule 3). Added in P1b.
 	CallTestSeed
+	// CallTestShown is ergo·shown(left, right): the runner's text of a
+	// failed comparison's operands (": left L, right R" and the line diff
+	// of two strings), which only the rewrite of a harnessed test's
+	// assert calls (harness.go, rule 3). Added in P1c.
+	CallTestShown
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount

@@ -59,6 +59,10 @@ const hiddenPrefix = "ergo·"
 // TestSeedName is the built-in the rewrite calls for the run's --seed.
 const TestSeedName = hiddenPrefix + "seed"
 
+// TestShownName is the built-in the rewrite calls for a failed
+// comparison's operands, as the runner shows them (CallTestShown).
+const TestShownName = hiddenPrefix + "shown"
+
 const harnessShapeText = "func %[1]s(run R, body func() fails F needs %[2]s) fails F, with R a record {Name string, Seed uint64, Site string} and F a record {Message string}, both of this package"
 
 // planHarnesses plans the harness each operation type of the package
@@ -236,6 +240,7 @@ func rewrittenHarness(body *syntax.BlockStmt) string {
 // names its body uses: the harness's package path and the seed built-in.
 func (c *checker) bindHarnessNames(frame *Scope, pkgPath string) {
 	frame.insert(TestSeedName, &Builtin{Name: TestSeedName})
+	frame.insert(TestShownName, &Builtin{Name: TestShownName})
 	var pkg *Package
 	if pkgPath == c.pkg.Path {
 		pkg = c.pkg
@@ -268,17 +273,43 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 	line, _ := f.Position(at)
 	site := path.Base(strings.ReplaceAll(f.Name, "\\", "/")) + ":" + strconv.Itoa(line)
 	body := d.Body
-	rewriteAsserts(body.List, func(s *syntax.AssertStmt) syntax.Stmt {
+	spills := 0
+	body.List = rewriteAsserts(body.List, func(s *syntax.AssertStmt) []syntax.Stmt {
 		l, col := f.Position(s.Assert)
 		text := f.Src[int(s.X.Pos()):min(int(s.X.End()), len(f.Src))]
 		msg := fmt.Sprintf("assert failed at %s:%d:%d: %s", path.Base(strings.ReplaceAll(f.Name, "\\", "/")), l, col, text)
-		fail := &syntax.CompositeLit{Type: qual(s.Assert, h.Fail.Obj.Name), Lbrace: s.Assert, DotDot: syntax.NoPos, Elts: []syntax.Expr{field(s.Assert, "Message", str(s.Assert, msg))}, Rbrace: s.X.End()}
-		return &syntax.IfStmt{
+		var message syntax.Expr = str(s.Assert, msg)
+		cond := s.X
+		var spilled []syntax.Stmt
+		if b := c.shownCompare(s.X); b != nil {
+			// The runner's shown assert (P1c part 1): each operand once,
+			// left to right, into a hidden local (a constant stays
+			// inline), and the failure's message shows them.
+			ops := []syntax.Expr{b.X, b.Y}
+			spills++
+			n := strconv.Itoa(spills)
+			for i, name := range []string{hiddenPrefix + "left" + n, hiddenPrefix + "right" + n} {
+				if _, isConst := c.pkg.Info.Values[ops[i]]; isConst {
+					continue
+				}
+				pos := ops[i].Pos()
+				spilled = append(spilled, &syntax.DeclStmt{Decl: &syntax.VarDecl{Var: pos, Mut: syntax.NoPos, Specs: []*syntax.VarSpec{{Names: []*syntax.Ident{{NamePos: pos, Name: name}}, Assign: pos, Values: []syntax.Expr{ops[i]}}}}})
+				ops[i] = &syntax.Ident{NamePos: pos, Name: name}
+			}
+			cond = &syntax.BinaryExpr{X: ops[0], OpPos: b.OpPos, Op: b.Op, Y: ops[1]}
+			shown := &syntax.CallExpr{Fun: &syntax.Ident{NamePos: s.Assert, Name: TestShownName}, Lparen: s.Assert, Args: ops, Rparen: s.X.End()}
+			message = &syntax.BinaryExpr{X: message, OpPos: s.Assert, Op: syntax.ADD, Y: shown}
+		}
+		fail := &syntax.CompositeLit{Type: qual(s.Assert, h.Fail.Obj.Name), Lbrace: s.Assert, DotDot: syntax.NoPos, Elts: []syntax.Expr{field(s.Assert, "Message", message)}, Rbrace: s.X.End()}
+		check := &syntax.IfStmt{
 			If:      s.Assert,
-			Cond:    &syntax.UnaryExpr{OpPos: s.Assert, Op: syntax.NOT, X: &syntax.ParenExpr{Lparen: s.Assert, X: s.X, Rparen: s.X.End()}},
+			Cond:    &syntax.UnaryExpr{OpPos: s.Assert, Op: syntax.NOT, X: &syntax.ParenExpr{Lparen: s.Assert, X: cond, Rparen: s.X.End()}},
 			Body:    &syntax.BlockStmt{Lbrace: s.Assert, List: []syntax.Stmt{&syntax.ReturnStmt{Return: s.Assert, Results: []syntax.Expr{fail}}}, Rbrace: s.X.End()},
 			ElsePos: syntax.NoPos,
 		}
+		// The hidden locals bind in the assert's own list, before it: a
+		// bare block is no statement of the decided syntax (S109).
+		return append(spilled, check)
 	})
 	seed := &syntax.CallExpr{Fun: &syntax.Ident{NamePos: at, Name: TestSeedName}, Lparen: at, Rparen: at}
 	run := &syntax.CompositeLit{Type: qual(at, h.Run.Obj.Name), Lbrace: at, DotDot: syntax.NoPos, Elts: []syntax.Expr{
@@ -298,30 +329,157 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 	d.Body = &syntax.BlockStmt{Lbrace: body.Lbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: &syntax.TryExpr{Try: at, X: call}}}, Rbrace: body.Rbrace}
 }
 
-// rewriteAsserts replaces, in list and the statement lists inside it, each
-// assert by to's statement. A function literal keeps its own: an assert
-// stands in none (S108).
-func rewriteAsserts(list []syntax.Stmt, to func(*syntax.AssertStmt) syntax.Stmt) {
-	for i, s := range list {
+// rewriteAsserts is list with each assert, in it and in the statement
+// lists inside it, replaced by to's statements. A function literal keeps
+// its own: an assert stands in none (S108).
+func rewriteAsserts(list []syntax.Stmt, to func(*syntax.AssertStmt) []syntax.Stmt) []syntax.Stmt {
+	out := make([]syntax.Stmt, 0, len(list))
+	for _, s := range list {
 		if a, ok := s.(*syntax.AssertStmt); ok {
-			list[i] = to(a)
+			out = append(out, to(a)...)
 			continue
 		}
+		out = append(out, s)
 		syntax.Inspect(s, func(n syntax.Node) bool {
 			switch n := n.(type) {
 			case *syntax.FuncLit:
 				return false
 			case *syntax.BlockStmt:
-				rewriteAsserts(n.List, to)
+				n.List = rewriteAsserts(n.List, to)
 				return false
 			case *syntax.CaseClause:
-				rewriteAsserts(n.Body, to)
+				n.Body = rewriteAsserts(n.Body, to)
 				return false
 			case *syntax.CatchArm:
-				rewriteAsserts(n.Body, to)
+				n.Body = rewriteAsserts(n.Body, to)
 				return false
 			}
 			return true
 		})
 	}
+	return out
+}
+
+// shownCompare is x when a failed assert of it shows its operands, by the
+// runner's rule (lower's and eval's assertShown): a comparison, through
+// parentheses and with no try at its start, not of two constants, whose
+// operand types are both printable in the test's package.
+func (c *checker) shownCompare(x syntax.Expr) *syntax.BinaryExpr {
+	for {
+		p, ok := x.(*syntax.ParenExpr)
+		if !ok {
+			break
+		}
+		x = p.X
+	}
+	b, ok := x.(*syntax.BinaryExpr)
+	if !ok {
+		return nil
+	}
+	switch b.Op.String() {
+	case "==", "!=", "<", "<=", ">", ">=":
+	default:
+		return nil
+	}
+	_, lc := c.pkg.Info.Values[b.X]
+	_, rc := c.pkg.Info.Values[b.Y]
+	lt, lok := c.typedExpr(b.X)
+	rt, rok := c.typedExpr(b.Y)
+	if (lc && rc) || !lok || !rok || !Printable(c.pkg, lt) || !Printable(c.pkg, rt) {
+		return nil
+	}
+	return b
+}
+
+// typedExpr is x's checked type, through parentheses.
+func (c *checker) typedExpr(x syntax.Expr) (Type, bool) {
+	for {
+		if t, ok := c.pkg.Info.Types[x]; ok {
+			return t, true
+		}
+		p, isParen := x.(*syntax.ParenExpr)
+		if !isParen {
+			return nil, false
+		}
+		x = p.X
+	}
+}
+
+// Printable is the runner's rule for a type a failed assert's report
+// shows (lower's and eval's printable): a basic type; a slice, Map or
+// tuple of printable types; a union of printable members; or a record,
+// union or defined type of pkg, the package under test, over printable
+// types.
+func Printable(pkg *Package, t Type) bool { return printable(pkg, t, map[*Named]bool{}) }
+
+func printable(pkg *Package, t Type, seen map[*Named]bool) bool {
+	switch u := t.(type) {
+	case *Basic:
+		return true
+	case *Slice:
+		return printable(pkg, u.Elem, seen)
+	case *Map:
+		return printable(pkg, u.Key, seen) && printable(pkg, u.Elem, seen)
+	case *Tuple:
+		for _, e := range u.Types {
+			if !printable(pkg, e, seen) {
+				return false
+			}
+		}
+		return true
+	case *Union:
+		for _, v := range u.Variants {
+			if !printable(pkg, v, seen) {
+				return false
+			}
+		}
+		return len(u.Variants) > 0
+	case *Named:
+		if seen[u] {
+			return true
+		}
+		seen[u] = true
+		if u.Obj.Pkg != pkg {
+			return false
+		}
+		switch under := u.Underlying().(type) {
+		case *Struct:
+			for _, f := range under.Fields {
+				if !printable(pkg, f.Type, seen) {
+					return false
+				}
+			}
+			return true
+		case *Union:
+			for _, v := range under.Variants {
+				if !printable(pkg, v, seen) {
+					return false
+				}
+			}
+			return true
+		case *Basic, *Slice, *Map, *Tuple:
+			return printable(pkg, under, seen)
+		}
+	}
+	return false
+}
+
+// shownCall checks ergo·shown(left, right), which only the rewrite of a
+// shown assert writes: a let-bound operand first, so a constant operand
+// takes the other's type as the comparison gave it.
+func (c *checker) shownCall(x *syntax.CallExpr) operand {
+	if len(x.Args) != 2 {
+		c.silentArgs(x)
+		return bad(x)
+	}
+	first := 0
+	if id, ok := x.Args[0].(*syntax.Ident); !ok || !strings.HasPrefix(id.Name, hiddenPrefix) {
+		first = 1
+	}
+	a := c.valueExpr(x.Args[first], nil)
+	b := c.valueExpr(x.Args[1-first], a.typ)
+	if a.invalid() || b.invalid() {
+		return bad(x)
+	}
+	return operand{mode: modeValue, typ: Typ[String]}
 }

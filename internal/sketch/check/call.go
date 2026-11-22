@@ -1395,6 +1395,9 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		}
 		return operand{mode: modeValue, typ: Typ[Uint64]}
 	}
+	if b.Name == TestShownName {
+		return c.shownCall(x) // harness.go
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)
