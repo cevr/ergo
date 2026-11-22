@@ -1,0 +1,39 @@
+# What does not pass on its own source yet (go run ./scripts/ergotests -std,
+# the gate's step "std laws in place"), one line each,
+# "KEY<TAB>CLASS: why<TAB>REGISTER-ID":
+#   pkg Law   a std law with no Go runner (#162) that no tier runs (class
+#             "not run"), or a law that fails on its own source;
+#   pkg Name  a test that fails there;
+#   pkg *     a package whose evaluation stops ("internal error", "error").
+# A key that needs a line and has none is red; a listed key that passes, or
+# names nothing, is red until its line goes; a key that now fails in
+# another class than its line's is red. This list only shrinks.
+cmp *	internal error: eval: a bare value of int is not a record with no fields (Natural[int] as a value)	STDLAW-RED-CMP
+fstest Confined.InsideIsWritten	refuted: for Folder, a failure escaped: fs.NotFound{Path: "inside"}	STDLAW-RED-FSTEST
+fstest Confined.OutsideIsDenied	refuted: for Folder, the law is false	STDLAW-RED-FSTEST
+json RepairIsOnePass	not run: skipped at check time: a Go function (AppendString), even a pure one	STDLAW-162-NOWHERE
+json Text.PlainIsRaw	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.RawJoins	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SepAfterSet	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaLast	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaSinks	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaSinksBool	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaSinksFloat	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaSinksInt	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaSinksString	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+json Text.SetCommaSinksUint	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
+prelude Hashing.EqualKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE
+prelude StructuralFloatKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE
+prelude StructuralIntKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE
+prelude StructuralStringKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE
+proof/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+rand *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+ratelimit/memory ratelimit.Limiter.RetryAfterIsExact	refuted: for Limiter, the law is false	STDLAW-RED-RATELIMIT
+session/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+slices FilterFuses	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+slices FilterThenTransform	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+slices TransformFuses	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+slices TransformThenFilter	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+time FormatParseRoundTrip	refuted: the law is false	STDLAW-RED-TIME
+uuid *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+xml Text.RawJoins	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
