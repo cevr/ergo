@@ -227,7 +227,7 @@ func twoStages(root string) error {
 	srcs := [][]byte{disk}
 	from := []string{"the disk"}
 	for _, rev := range []string{"HEAD", "MERGE_HEAD", "HEAD^1", "HEAD^2"} {
-		out, err := exec.Command("git", "-C", root, "show", rev+":"+compilerFile).Output()
+		out, err := exec.Command("git", "--no-optional-locks", "-C", root, "show", rev+":"+compilerFile).Output()
 		if err != nil || slices.ContainsFunc(srcs, func(b []byte) bool { return bytes.Equal(b, out) }) {
 			continue
 		}
