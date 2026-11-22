@@ -90,7 +90,6 @@ func (n *Named) Alias() Type {
 // Struct is a struct type.
 type Struct struct {
 	Fields []*Field
-	index  map[string]int
 	// includes are the `..R` members of a record declaration, in source
 	// order, until expandIncludes splices R's fields in (include.go).
 	includes  []*include
@@ -136,7 +135,6 @@ func (f *Field) Origin() *Field {
 // wire, comparable; 196g).
 type Interface struct {
 	Methods []*Method
-	index   map[string]*Method
 	Set     TypeSet // the predeclared constraint's type set; SetAll for a method set
 	// Terms is the type-set member `~int | ~int64` (typeset.go; types.md,
 	// Generics 2), nil when the operation type has none. An operation
@@ -1062,20 +1060,18 @@ func isStructNamed(t Type) bool {
 	return ok
 }
 
+// field is s's first field named name and its index, or nil and -1. It
+// reads Fields and writes nothing: a struct is shared by every check
+// that imports its package (the std importer's packages are read by
+// concurrent checks), so a lookup must not fill a cache (go/types
+// scans a struct's fields the same way, lookup.go).
 func (s *Struct) field(name string) (*Field, int) {
-	if s.index == nil {
-		s.index = make(map[string]int, len(s.Fields))
-		for i, f := range s.Fields {
-			if _, dup := s.index[f.Name]; !dup {
-				s.index[f.Name] = i
-			}
+	for i, f := range s.Fields {
+		if f.Name == name {
+			return f, i
 		}
 	}
-	i, ok := s.index[name]
-	if !ok {
-		return nil, -1
-	}
-	return s.Fields[i], i
+	return nil, -1
 }
 
 // Includes are the operation types the members `..I` include, at this
@@ -1083,14 +1079,14 @@ func (s *Struct) field(name string) (*Field, int) {
 // declare itself.
 func (i *Interface) Includes() []*Named { return i.includes }
 
+// method is i's first method named name, or nil. Like Struct.field it
+// reads Methods and writes nothing: an interface is shared by
+// concurrent checks.
 func (i *Interface) method(name string) *Method {
-	if i.index == nil {
-		i.index = make(map[string]*Method, len(i.Methods))
-		for _, m := range i.Methods {
-			if _, dup := i.index[m.Name]; !dup {
-				i.index[m.Name] = m
-			}
+	for _, m := range i.Methods {
+		if m.Name == name {
+			return m
 		}
 	}
-	return i.index[name]
+	return nil
 }
