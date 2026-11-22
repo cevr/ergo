@@ -1,0 +1,161 @@
+import compiler/syntax
+import dense
+import strings
+
+// AsWritten is S108 for each `// ergo:aswritten` line above a function
+// that is no pure identity of one parameter (AW-ERGO, owner q230; the Go
+// checker's checkAsWritten, internal/sketch/check/aswritten.go): no
+// receiver and no extern, one parameter, one result of the parameter's
+// type, no failure row and no needs clause, and a body that is the
+// parameter (`{ v }` or `{ return v }`). The result's type is compared
+// with the parameter's as written, which the shapes the line is for
+// (`func AsWritten[T](v T) T { v }`) decide exactly.
+func AsWritten(k []syntax.Parsed) []Diag {
+	let mut out = []Diag{}
+	for f, p in k {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				if fd.Doc < 0 || !asWrittenLine(p, fd.Doc) || asWrittenShape(p, fd) {
+					continue
+				}
+				let name = textAt(p, fd.Name)
+				let at = syntax.NodePos(p, fd.Name)
+				out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, fd.Name) - at, Code: CodeType, Message: "the `// ergo:aswritten` line above \(name) marks no pure identity of one parameter: write `func \(name)[T](v T) T { v }`"})
+			case _:
+			}
+		}
+	}
+	out
+}
+
+// asWrittenLine reports a doc comment group g that holds the marker line.
+func asWrittenLine(p syntax.Parsed, g int) bool {
+	let text = syntax.SourceOf(p)[syntax.GroupPos(p, g):syntax.GroupEnd(p, g)]
+	for l in strings.Split(text, "\n") {
+		if strings.TrimSpace(l) == "// ergo:aswritten" {
+			return true
+		}
+	}
+	false
+}
+
+// has reports a word that holds a node.
+func has(o dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(o) {
+	case Some[dense.ID[syntax.Node]]:
+		true
+	case None:
+		false
+	}
+}
+
+// asWrittenShape reports a function the line may mark.
+func asWrittenShape(p syntax.Parsed, fd syntax.FuncDecl) bool {
+	if has(fd.Extern) || has(fd.Recv) {
+		return false
+	}
+	match syntax.ViewOf(p.Tree, fd.Type) {
+	case syntax.FuncType as ft:
+		if has(ft.Needs) || has(ft.Takes) {
+			return false
+		}
+		match dense.Unpack(ft.Results) {
+		case Some[dense.ID[syntax.Node]] as rs:
+			let param = oneField(p, ft.Params)
+			let result = oneField(p, rs.Value)
+			if param.name == "" || result.typ == "" || result.typ != param.typ {
+				return false
+			}
+			match dense.Unpack(fd.Body) {
+			case Some[dense.ID[syntax.Node]] as b:
+				bodyIs(p, b.Value, param.name)
+			case None:
+				false
+			}
+		case None:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// fieldShape is a list's one field: its one name ("" for none) and its
+// type's source text ("" when the list is not one field with a type, or
+// its type is a failure row).
+type fieldShape { name string, typ string }
+
+func oneField(p syntax.Parsed, list dense.ID[syntax.Node]) fieldShape {
+	let none = fieldShape{name: "", typ: ""}
+	match syntax.ViewOf(p.Tree, list) {
+	case syntax.FieldList as fl:
+		if syntax.Len(fl.List) != 1 {
+			return none
+		}
+		match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, 0)) {
+		case syntax.Field as fd:
+			if fd.Dots >= 0 || syntax.Len(fd.Names) > 1 {
+				return none
+			}
+			match dense.Unpack(fd.Type) {
+			case Some[dense.ID[syntax.Node]] as t:
+				match syntax.ViewOf(p.Tree, t.Value) {
+				case syntax.ErrorRow:
+					return none
+				case _:
+				}
+				let typ = syntax.SourceOf(p)[syntax.NodePos(p, t.Value):syntax.NodeEnd(p, t.Value)]
+				let name = if syntax.Len(fd.Names) == 1 { textAt(p, syntax.Item(p.Tree, fd.Names, 0)) } else { "" }
+				fieldShape{name: name, typ: typ}
+			case None:
+				none
+			}
+		case _:
+			none
+		}
+	case _:
+		none
+	}
+}
+
+// bodyIs reports a block of one statement that is the name v, as an
+// expression or a return, parentheses aside.
+func bodyIs(p syntax.Parsed, body dense.ID[syntax.Node], v string) bool {
+	match syntax.ViewOf(p.Tree, body) {
+	case syntax.BlockStmt as b:
+		if syntax.Len(b.List) != 1 {
+			return false
+		}
+		match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, b.List, 0)) {
+		case syntax.ExprStmt as s:
+			isName(p, s.X, v)
+		case syntax.ReturnStmt as r:
+			match dense.Unpack(r.Result) {
+			case Some[dense.ID[syntax.Node]] as x:
+				isName(p, x.Value, v)
+			case None:
+				false
+			}
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// isName reports an expression that is the name v, parentheses aside.
+func isName(p syntax.Parsed, x dense.ID[syntax.Node], v string) bool {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.ParenExpr as pe:
+		isName(p, pe.X, v)
+	case syntax.Name:
+		textAt(p, x) == v
+	case _:
+		false
+	}
+}

@@ -380,6 +380,9 @@ extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 	More() bool,
 	Key() string,
 	Skip(),
+	// SkipText is Skip, giving the text of the value it passed as the input
+	// spells it: a substring, no copy (Raw).
+	SkipText() string,
 	End(),
 }
 
