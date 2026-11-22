@@ -4,4 +4,4 @@ package sketchfront
 
 // embeddedStdSources is the digest of the std sources stdsnap/std.snap
 // was checked from (stdSourcesDigest).
-const embeddedStdSources = "1b1d576a4fca3aa668c4d9773679c9761907ea56e75a7b104533379b46f098ac"
+const embeddedStdSources = "2440259b065c5b0cb53511373814ae70d99ff3c7a5d237756bce62f4562b3b96"
