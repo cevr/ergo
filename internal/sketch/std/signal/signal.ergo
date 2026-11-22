@@ -32,6 +32,10 @@ type Stop = Interrupt | Terminate | Hangup
 type Stopped { Kind Stop }
 
 // Stops is a source of stops.
+// law-exempt: Stops has no operation that makes a stop, so a member law
+// cannot set one up; the host's Watched gets stops only from signals a law
+// cannot send. The top-level laws RaisedInOrder, PollTakesOnce,
+// QuietRunsBody and StopEndsBody state Next and Poll on Script.
 type Stops {
 	// Next waits for the next stop and takes it. It is an interruption
 	// point of the calling task.
