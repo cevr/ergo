@@ -199,7 +199,6 @@ var declared = map[string][]allowance{
 		glob("docs/research/ef-migrate/*.ergo", "the migrated examples parse (sketchtest.Repository)"),
 		[]allowance{
 			{"examples/editions/sketch/main.ergo", file, "the 2026 example program parses (sketchtest.Repository)"},
-			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
 		},
 	),
 	"internal/hostsyntax": declare(

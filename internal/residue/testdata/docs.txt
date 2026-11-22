@@ -31,7 +31,6 @@ docs/previews/2026-10-27-ergo.md	-	delete: DEL-DEAD
 docs/previews/2026-10-27-go-sketch.md	-	delete: DEL-DEAD
 docs/previews/2026-10-27-needs-provides.md	-	delete: DEL-DEAD
 docs/previews/2026-10-27-traceability.md	-	delete: DEL-DEAD
-docs/previews/2026-10-28-without-go-syntax.md	-	delete: PREVIEW-TEST
 docs/previews/2026-11-02-wire-to-context.md	-	delete: DEL-DEAD
 docs/previews/2026-11-10-atomic-handles.md	-	delete: DEL-DEAD
 docs/previews/2026-11-10-embedded-assets.md	-	delete: DEL-DEAD
