@@ -409,7 +409,27 @@ func main() {
 	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
 	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
 	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
+	parts := flag.Int("parts", 0, "N with one package directory: print the N go test selections that deal its tests into fixed parts by the counted work in "+testWorkFile+", one line each, and exit (parts.go)")
+	recordWorkProbe := flag.String("record-work", "", "PROBE with one package directory: rewrite the package's rows of "+testWorkFile+" from the probe log of a -short run (ERGO_SPLIT_PROBE), and exit")
 	flag.Parse()
+	if *parts != 0 || *recordWorkProbe != "" {
+		if flag.NArg() != 1 || (*parts != 0 && *recordWorkProbe != "") {
+			fatal(errors.New("-parts N and -record-work PROBE each take one package directory, and not together"))
+		}
+		root, err := repositoryRoot()
+		if err != nil {
+			fatal(err)
+		}
+		if *parts != 0 {
+			err = printParts(root, flag.Arg(0), *parts, os.Stdout)
+		} else {
+			err = recordWork(root, flag.Arg(0), *recordWorkProbe, os.Stdout)
+		}
+		if err != nil {
+			fatal(err)
+		}
+		return
+	}
 	if *blameTarget != "" {
 		if flag.NArg() != 1 {
 			fatal(errors.New("-blame DIR:TEST takes one argument, GOOD..BAD"))
