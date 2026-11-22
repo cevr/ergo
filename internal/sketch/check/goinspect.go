@@ -107,3 +107,14 @@ func FuncPosition(f *Func) (string, int) {
 func GoForeign(sig *Signature) bool {
 	return sig != nil && goForeignRow(sig.Uses)
 }
+
+// Captured reports a provider function's row that its build captures
+// (README Gap 17; HOST-ROW): go.Foreign or Ambient and nothing else, which
+// the converting site holds, so no caller of the operation provides it.
+func Captured(sig *Signature) bool {
+	if sig == nil {
+		return false
+	}
+	var held captured
+	return held.add(sig.Uses)
+}
