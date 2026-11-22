@@ -599,10 +599,9 @@ func packageKeyHashUses(t *testing.T) []string {
 		}
 		files = append(files, f)
 	}
-	// The package is type-checked without its imports: go/importer and
-	// go/build import os/exec, and this package's tests replay from Go's
-	// test cache, so their closure may not start a program
-	// (TestCachedGatePackagesAreHermetic). The objects the check follows,
+	// The package is type-checked without its imports, so the test starts
+	// no program (go/importer would run the go command). The objects the
+	// check follows,
 	// put and the hasher h, are the package's own, so an import that
 	// resolves to an empty package leaves their uses resolved; only an
 	// error that is not an undefined import's selector fails the test.

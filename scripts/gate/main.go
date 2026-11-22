@@ -23,9 +23,8 @@
 // tests run git, ps, shells, the go command and gates in systemd scopes, is a
 // host package (hostTestPackages): its step runs with -count=1, so Go's test
 // cache never replays it, with its parallel tests bounded by hostTestParallel.
-// The packages below it are hermetic: each runs no program
-// but its own test binary and builds with CGO_ENABLED=0 (package
-// scripts/gate/hermetic checks them), so they replay.
+// The packages below it run as every other package does: uncached, under
+// -count=1 (uncachedTestFlag), with no exception.
 //
 // Above the steps sits the whole-gate replay (package replay, wholegate.go).
 // One key covers every input of every step: the gate executable, the
@@ -131,23 +130,15 @@ type Step struct {
 	// ERGO_TOOL_VERSIONS; a test that reads it keys Go's test cache on it.
 	ToolEnv []string
 	// Env sets variables ("NAME=value") for the step, over the environment
-	// the gate gives it; a hermetic Go test step sets CGO_ENABLED=0.
+	// the gate gives it.
 	Env []string
 	// GoStore gives the step's test processes the run's test Go store
 	// (goStore, testGoStoreVariable).
 	GoStore bool
-	// Hermetic marks the go test step of the hermetic gate packages (below
-	// hermeticTestRoot), the one exception to the gate's default: every other
-	// step runs with -count=1 added to GOFLAGS (stepEnvironment), so no go
-	// test it starts replays Go's test cache. A hermetic step keeps the
-	// caller's GOFLAGS, so Go may replay its tests.
-	// TestCachedGatePackagesAreHermetic checks each of its packages.
-	Hermetic bool
 	// Observe, set on a test step that runs its tests uncached (a fast-tier
 	// step, a full-tier package step), says it runs go test -json: the gate
 	// keeps its tests' times for the size rule (observeStep, testSeconds)
-	// and prints plain go test's text. The hermetic step replays Go's test
-	// cache, whose times are not a run's, and observes nothing.
+	// and prints plain go test's text.
 	Observe bool
 	// Package, set on a fast-tier test step, is the closure of the test
 	// package it runs: the step replays its last pass while its package
@@ -738,10 +729,9 @@ func (g *gate) mergeTier(out io.Writer) int {
 		}
 		defer g.limit.close()
 	}
-	var uncached []*Step
-	for _, step := range g.steps {
-		uncached = append(uncached, uncachedStep(step))
-	}
+	// Every step already runs uncached (stepEnvironment); the merge tier's
+	// run is the inner tier's steps.
+	uncached := slices.Clone(g.steps)
 	// The go test steps record their runs, and the sweeps read them
 	// (closurerecord.go).
 	uncached = recordForSweep(g.root, uncached)
@@ -1545,7 +1535,7 @@ func keyedEnvironment() []string {
 }
 
 // uncachedTestFlag is what the gate adds to the caller's GOFLAGS for every
-// step but a hermetic one (Step.Hermetic). Go's test cache replays a result
+// step. Go's test cache replays a result
 // only when every test flag is cacheable, and -count is not, so no go test
 // that a step starts replays a result: one in the step's argv, one a shell
 // script runs, one a program runs (go run, go test -exec, -toolexec,
@@ -1556,8 +1546,8 @@ func keyedEnvironment() []string {
 // policy test refuses both by name.
 const uncachedTestFlag = "-count=1"
 
-// stepEnvironment is the environment every step runs with, a hermetic one
-// excepted (stepEnvironmentFor), and every tool query: keyedEnvironment with
+// stepEnvironment is the environment every step runs with, and every tool
+// query: keyedEnvironment with
 // uncachedTestFlag after the caller's GOFLAGS. It is added, not set, so the
 // caller's flags still apply, and it comes last, so it wins over a -count
 // the caller gives. The flag follows from the gate's code, which the
@@ -1621,14 +1611,9 @@ func emptyStepTempDir(name string) error {
 }
 
 // stepEnvironmentFor is the environment of one step, before its own
-// variables: stepEnvironment, or keyedEnvironment for a hermetic step (the
-// one exception to the uncached default), with the step's TMPDIR.
+// variables: stepEnvironment, with the step's TMPDIR.
 func stepEnvironmentFor(root string, step *Step) []string {
-	environment := stepEnvironment()
-	if step.Hermetic {
-		environment = keyedEnvironment()
-	}
-	return setEnvironmentVariable(environment, "TMPDIR", stepTempDir(root, step.Name))
+	return setEnvironmentVariable(stepEnvironment(), "TMPDIR", stepTempDir(root, step.Name))
 }
 
 // stepCommandEnvironment is the environment a step's command runs with,

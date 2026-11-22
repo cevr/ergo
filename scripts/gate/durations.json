@@ -2795,7 +2795,6 @@
     "TestCPUBudgetScopedReceipt": 0.47,
     "TestCPUBudgetSystemdScope": 0.32,
     "TestCPUProbe": 0,
-    "TestCachedGatePackagesAreHermetic": 28.98,
     "TestCachedStepReplaysOnlyItsRecordedOutput": 0.51,
     "TestCachedStepReplaysOnlyWhileItsInputsAreUnchanged": 0.41,
     "TestCallerToolDigestNeverReachesAStep": 0.33,
@@ -2844,7 +2843,6 @@
     "TestGoRuntimeEnvironmentKeysEveryStepThatRunsGoPrograms": 0.97,
     "TestGoTestStepsReceiveOnlyKeyedVariables": 0.33,
     "TestGroupProcessZombieLeaderOfRealPS": 0.18,
-    "TestHermeticCheckResolvesExecutableByIdentity": 29.08,
     "TestHistoryReadingStepsNeverReplay": 0.39,
     "TestHostMemoryIsObserved": 1.07,
     "TestHostPackagesRunOnEveryGateWithBoundedParallelism": 1.57,
@@ -2941,14 +2939,6 @@
     "TestWholeGateRunRecordsAndReplays": 3.55,
     "TestWriterPathMarksWritersAndTheirNeeds": 1.97,
     "TestWriterTakesTheNextFreedSlot": 1.31
-  },
-  "ergo.local/prototype/scripts/gate/hermetic": {
-    "TestClosureChecksEveryPackageOfTheBinary": 0,
-    "TestDependenciesMayRunTheTestBinaryMoreThanOnce": 0,
-    "TestFilesAllowOneHelperThatRunsTheTestBinary": 0,
-    "TestFilesAllowOnlyOneHelper": 0,
-    "TestFilesRefuseWhatRunsAProgram": 0.05,
-    "TestRawSystemCallsRunNoProgram": 0
   },
   "ergo.local/prototype/scripts/gate/replay": {
     "TestKeyFailsClosed": 4.01,

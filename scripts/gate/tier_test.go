@@ -134,10 +134,8 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 }
 
 // Every fast-tier step that runs a package's go test is keyed by its
-// package and runs -short, the hermetic packages with CGO_ENABLED=0 as
-// their full-tier step builds them; the nested modules' steps are the full
-// tier's own; no full-tier test step is left, the hermetic one included
-// (it relinks its test binaries on every run to find Go's cached result),
+// package and runs -short with no environment of its own; the nested
+// modules' steps are the full tier's own; no full-tier test step is left,
 // and neither is the build of every test binary, nor a need on it, nor a
 // closure sweep. Each package is keyed on its closure table entry, and no
 // host package has a step (classHeavy), nor a package whose every test
@@ -177,11 +175,10 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			if !slices.Equal(step.Package.Declared, table[step.Package.Dir]) {
 				t.Errorf("%s: declared %v; want its closure table entry %v", step.Name, step.Package.Declared, table[step.Package.Dir])
 			}
-			hermetic := strings.HasPrefix(step.Package.Dir, hermeticTestRoot)
-			if hermetic != slices.Equal(step.Env, hermeticEnvironment) {
-				t.Errorf("%s: environment %q; a hermetic package's step builds with %q, no other step does", step.Name, step.Env, hermeticEnvironment)
+			if len(step.Env) > 0 {
+				t.Errorf("%s: environment %q; a package step sets none", step.Name, step.Env)
 			}
-		case step.Hermetic, step.Name == fullBuildStep:
+		case step.Name == fullBuildStep:
 			t.Errorf("%s: a full-tier test step is in the fast tier", step.Name)
 		case !runsGoTest(step):
 		default:

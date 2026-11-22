@@ -277,16 +277,14 @@ func TestWholeGateRecordNamesItsTier(t *testing.T) {
 	}
 }
 
-// TestMergeTierUncached: in merge mode every step, the hermetic one too,
-// runs its own command with -count=1 after the caller's GOFLAGS; no receipt
+// TestMergeTierUncached: in merge mode every step runs its own command with -count=1 after the caller's GOFLAGS; no receipt
 // or whole-gate record is looked up; and a verdict that differs from the
 // record fails the merge tier and withdraws the record.
 func TestMergeTierUncached(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	repository, _ := repositorySteps(t)
-	// The durations file names neither a host nor a hermetic gate package:
-	// declare the steps with one of each too, so every kind of go test step
-	// is checked.
+	// Declare the steps with the host package and a gate package below it
+	// too, so every kind of go test step is checked.
 	durations, err := readDurations(repository)
 	if err != nil {
 		t.Fatal(err)
@@ -297,38 +295,22 @@ func TestMergeTierUncached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"go test ./scripts/gate (host, every run)", "go test (hermetic gate packages)", "go test (other packages)", "go test ./prototypes/sketch9/sketch (kernel)", "provenance analyzer"} {
+	for _, name := range []string{"go test ./scripts/gate (host, every run)", "go test (other packages)", "go test ./prototypes/sketch9/sketch (kernel)", "provenance analyzer"} {
 		if !slices.ContainsFunc(steps, func(s *Step) bool { return s.Name == name }) {
 			t.Fatalf("no step %q among the declared steps; the check is vacuous", name)
 		}
 	}
-	// The merge tier runs each step's own command with the gate's uncached
-	// default (stepEnvironment), the hermetic step too: GOFLAGS is the inner
-	// tier's caller flags with -count=1 after them, so no go test the step
+	// Every step, and so the merge tier's run of it, runs its own command
+	// with the gate's uncached default (stepEnvironment): GOFLAGS is the
+	// caller's flags with -count=1 after them, so no go test the step
 	// starts, at any depth, replays Go's test cache.
-	hermeticSteps := 0
 	for _, step := range steps {
-		merged := uncachedStep(step)
-		if merged.Name != step.Name || !slices.Equal(merged.Argv, step.Argv) || !slices.Equal(merged.Env, step.Env) {
-			t.Errorf("the merge tier changed step %q to %q %q env %q", step.Name, merged.Name, merged.Argv, merged.Env)
-		}
-		if step.Hermetic {
-			hermeticSteps++
-		}
-		before, _ := environmentVariable(stepCommandEnvironment(repository, step), "GOFLAGS")
-		after, _ := environmentVariable(stepCommandEnvironment(repository, merged), "GOFLAGS")
+		flags, _ := environmentVariable(stepCommandEnvironment(repository, step), "GOFLAGS")
 		// The gate's -p bound follows the caller's flags in every step
 		// (stepGOFLAGS), and the uncached default follows it.
-		bounded := stepGOFLAGS("-mod=mod", stepCPUs())
-		if after != bounded+" -count=1" {
-			t.Errorf("merge step %q gets GOFLAGS %q, want the caller's -mod=mod and the -p bound with -count=1 after them (inner tier %q)", step.Name, after, before)
+		if want := stepGOFLAGS("-mod=mod", stepCPUs()) + " -count=1"; flags != want {
+			t.Errorf("step %q gets GOFLAGS %q, want the caller's -mod=mod and the -p bound with -count=1 after them: %q", step.Name, flags, want)
 		}
-		if want := map[bool]string{false: bounded + " -count=1", true: bounded}[step.Hermetic]; before != want {
-			t.Errorf("inner step %q (hermetic %t) gets GOFLAGS %q, want %q", step.Name, step.Hermetic, before, want)
-		}
-	}
-	if hermeticSteps == 0 {
-		t.Fatal("no hermetic step among the declared steps; the merge tier's exception check is vacuous")
 	}
 
 	// A fixture: the inner tier records, the merge tier reruns every step

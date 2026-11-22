@@ -124,18 +124,6 @@ func hostSteps(root, pkg, relative string, measured map[string]float64) []*Step 
 	return steps
 }
 
-// hermeticTestRoot holds the gate's hermetic test packages: every package
-// below it that is not a host package. Their step is the gate's one
-// exception to uncached go tests (Step.Hermetic): they replay from Go's test
-// cache, so each must be hermetic (package scripts/gate/hermetic): it runs
-// no program but its own test binary, and its step builds it with
-// CGO_ENABLED=0, so it loads no shared library.
-// TestCachedGatePackagesAreHermetic checks every package of that step.
-const hermeticTestRoot = "scripts/gate/"
-
-// hermeticEnvironment is what a hermetic step adds to the environment.
-var hermeticEnvironment = []string{"CGO_ENABLED=0"}
-
 // goRuntimeEnvironment are variables every Go-built program reads at startup.
 // They change what a program prints without changing its bytes: GODEBUG=
 // inittrace=1 writes to standard error, GOTRACEBACK shapes a crash report. A
@@ -388,17 +376,13 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// runtime/v1's record.
 	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"], pkgDir(modulePath(root)+"/runtime/v1"))
 	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1", "./runtime/v1/rpc"}, Weight: v1, Class: classHeavy})
-	var unsharded, hermetic []string
+	var unsharded []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
 		if slices.Contains(hostTestPackages, relative) {
 			for _, step := range hostSteps(root, pkg, relative, durations[pkg]) {
 				add(step)
 			}
-			continue
-		}
-		if strings.HasPrefix(relative, hermeticTestRoot) {
-			hermetic = append(hermetic, pkg)
 			continue
 		}
 		_, ok := durations[pkg]
@@ -462,15 +446,6 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			sweep.Needs = []string{"go test build"}
 			add(sweep)
 		}
-	}
-	// The one step that keeps Go's test cache (Step.Hermetic); every other
-	// step runs its go tests uncached.
-	if len(hermetic) > 0 {
-		weight := 0.0
-		for _, pkg := range hermetic {
-			weight += packageSeconds(durations[pkg], pkgDir(pkg))
-		}
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(weight)}, hermetic...), Env: hermeticEnvironment, Hermetic: true, Weight: weight, Class: classHeavy})
 	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
@@ -572,17 +547,6 @@ func compilerErgoTests(root string) *Step {
 		return nil
 	}
 	return &Step{Name: "ergo tests compiler/...", Argv: []string{"go", "run", "./scripts/ergotests", "./compiler/..."}, Class: classHeavy}
-}
-
-// uncachedStep is the step as the merge tier runs it: without the hermetic
-// exception, so it runs with the gate's uncached default (stepEnvironment)
-// like every other step, and no go test it starts, at any depth, replays
-// Go's test cache. Its argv is the inner tier's. Go's build cache stays: it
-// is keyed by content, the toolchain included.
-func uncachedStep(step *Step) *Step {
-	uncached := *step
-	uncached.Hermetic = false
-	return &uncached
 }
 
 // stagedBuild returns a command that builds a package's executable to a

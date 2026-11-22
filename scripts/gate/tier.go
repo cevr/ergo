@@ -272,10 +272,7 @@ func fastShardArgs(groups [][]string, large []string) [][]string {
 // classFastSteps are the full tier's classFast steps, which the fast tier
 // keeps (stepClass); a step with no class fails. Every go test step of the
 // full tier is heavy: in the fast tier each test package gets a keyed
-// -short step instead (fastSteps). The hermetic step, kept, relinked both
-// test binaries to find Go's cached result on every run: about 20 s of a
-// 27 s docs-edit run (measured 2026-11-06, leg-docs-3.log). The full
-// tier's "go test build" links and starts every test binary of the module
+// -short step instead (fastSteps). The full tier's "go test build" links and starts every test binary of the module
 // before any test step: in the fast tier a package step builds only its
 // own test binary, and only when its key changed, so the step and the
 // needs on it are dropped. go vet still type-checks every package and its
@@ -443,11 +440,7 @@ func planOf(root string, p testPackage, relative string, measured map[string]flo
 	} else if only && !round {
 		return nil, nil
 	}
-	// A hermetic package builds as its full-tier step builds it.
 	var env, needs []string
-	if strings.HasPrefix(relative, hermeticTestRoot) {
-		env = hermeticEnvironment
-	}
 	// A package whose tests run the CLI runs the one this run built.
 	if slices.Contains(cliTestPackages, relative) {
 		env, needs = cliTestEnvironment, []string{buildCLIStep}
