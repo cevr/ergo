@@ -83,6 +83,10 @@ type Pkg {
 	// (ParsePort for Port): each named by its type's name node, where
 	// bind declares it.
 	Parses []OpName,
+	// Claims and OpSigs are the package's implements clauses and its
+	// operation types' operations, resolved (claims.ergo).
+	Claims []Claim,
+	OpSigs []OpSig,
 	Deps   []Dep,
 	// Unions is the unions a call's inference may meet, the package's
 	// and its imports' (types.UnionsOf).
@@ -594,7 +598,8 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	// The unions a call meets, read once: inference looks one up per
 	// union argument, not per declaration.
 	let unions = if len(parsed) > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	let (claims, opSigs) = claimsOf(s, parsed, kinds, ext, foreign, deps)
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Claims: claims, OpSigs: opSigs, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // parseFn is the parse function the refined type named at the package
