@@ -13,7 +13,7 @@ test RiftRegistryOnAMac {
 	let disk = fstest.NewMemory()
 	let trees = NewCloner()
 	let lock = NewLock()
-	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: disk, Writes: disk, Runner: NewRunner(), Clock: time.NewManual(1000)}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: NewRunner(), Clock: time.NewManual(1000)}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/u/.local/share/work", p, "/")
 	let none = work.RiftOptions{Registry: None}
 	let mac = "/u/Library/Application Support/rift/rift.sqlite"

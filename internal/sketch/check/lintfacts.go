@@ -4,6 +4,7 @@ import (
 	"go/constant"
 	"math/big"
 	"slices"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -20,6 +21,26 @@ import (
 // (impureWhy).
 func CallAddsFootprint(info *Info, x *syntax.CallExpr) bool {
 	return impureWhy(info, x) != ""
+}
+
+// GoTagKey reports a field whose wire key holds a double quote, the Go
+// struct-tag habit (types.md, Codecs 2: the key is the wire name itself),
+// and the name such a tag names, `json:"name,omitempty"` → name, else the
+// key without its quotes and spaces. A colon alone is no sign
+// (`"xml:lang"` is a real key), so a key with no quote is no habit.
+func (f *Field) GoTagKey() (name string, habit bool) {
+	key := f.Origin().WireKey
+	if !strings.Contains(key, "\"") {
+		return "", false
+	}
+	if i := strings.Index(key, ":\""); i > 0 {
+		name = key[i+2:]
+		if j := strings.IndexAny(name, ",\""); j >= 0 {
+			name = name[:j]
+		}
+		return name, true
+	}
+	return strings.Trim(key, "\" "), true
 }
 
 // Exported reports whether f is visible to importers of its package
