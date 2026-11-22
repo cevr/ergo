@@ -3937,9 +3937,9 @@
       "name": "ckra-inline-slot",
       "origin": "wf10 CK CK-rowarg",
       "file": "internal/sketch/lower/inline.go",
-      "from": " || nativeOf(f) != nil || l.hasGoRow(f.Sig) {",
-      "to": " || nativeOf(f) != nil {",
-      "rule": "A function with a Slot row is not inlined: an inlined body names only its type-kinded parameters, so its match would test the Go instance with error where the caller holds the member's type (CK-rowarg; a defect at run time).",
+      "from": "\tif l.hasGoRow(f.Sig) && !slot {\n",
+      "to": "\tif l.hasGoRow(f.Sig) && false {\n",
+      "rule": "A function with a Slot row is not inlined by the text path (only the IR inliner binds it at the call, INLINE-SLOT): a text copy names only its type-kinded parameters, so its match would test the Go instance with error where the caller holds the member's type (CK-rowarg; a defect at run time).",
       "killers": [
         "lower:TestRowParamBindsFromTypeArgRuns"
       ]
