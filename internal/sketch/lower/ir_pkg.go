@@ -907,11 +907,15 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	if err != nil || len(body.Params) != len(x.Args) {
 		irNo("std operation without its runtime method")
 	}
+	option := commaOk(body) && !goFallible(body) // Go's (T, bool): an Option (ir_adapted.go)
 	switch {
-	case defersCall(body) || commaOk(body):
+	case defersCall(body) || commaOk(body) && !option:
 		irNo("std call with an adapted result")
 	case b.l.info.Closes[x] != nil:
 		irNo("std Close")
+	}
+	if option {
+		return b.commaOkOpCall(x, c, n, body, p)
 	}
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
 		irNo("std call with an adapted result")
