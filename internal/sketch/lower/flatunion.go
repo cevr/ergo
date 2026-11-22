@@ -339,19 +339,14 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	return out, err
 }
 
-// unionSourced reports a package of unionPkgs: the program's own, and
-// under MSB3 every package it reaches (libraries). A union takes one form
-// by its shape, whichever module declares it, so a std package lowers as
-// its copy in a user module does (std-copy, flat-union-std); the rule
-// reads no std membership (TestCompilerReadsNoStdMembership).
+// unionSourced reports a package of unionPkgs: the program's own and
+// every package it reaches, in every mode. A union takes one form by its
+// shape, whichever module declares it, so a std package lowers as its
+// copy in a user module does (std-copy, flat-union-std); the rule reads
+// neither std membership nor source presence
+// (TestCompilerReadsNoStdMembership).
 func (l *lowerer) unionSourced(p *check.Package) bool {
-	if p == nil {
-		return false
-	}
-	if p == l.pkg || l.isSourced(p) {
-		return true
-	}
-	return msb3Lowering != "off" && slices.Contains(l.libraries(), p)
+	return p != nil && (p == l.pkg || slices.Contains(l.libraries(), p) || slices.Contains(l.sourcedLibs(), p))
 }
 
 // flatUnionSet decides, once, which unions of the program are flat.
@@ -506,13 +501,11 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 // no box, and a std machine's state and signal are flat past the bounds as
 // a program's are. The program's own packages come first, in import
 // order, then the others by path, so the lowering is deterministic. The
-// reference msb3Lowering "off" reads the program's own packages alone, as
-// before MSB3.
+// reference msb3Lowering "off" reads the same packages: what it keeps of
+// the pre-MSB3 rule is shape (a signal is no state, an error variant
+// boxes), never which module declares a union.
 func (l *lowerer) unionPkgs() []*check.Package {
 	ps := l.sourcedPkgs()
-	if msb3Lowering == "off" {
-		return ps
-	}
 	seen := map[*check.Package]bool{}
 	for _, p := range ps {
 		seen[p] = true
@@ -525,16 +518,6 @@ func (l *lowerer) unionPkgs() []*check.Package {
 	}
 	slices.SortFunc(rest, func(a, b *check.Package) int { return strings.Compare(a.Path, b.Path) })
 	return append(ps, rest...)
-}
-
-// unionPkg reports whether p is one of unionPkgs: under MSB3 any Ergo
-// package (libraries holds every one the program reaches; a Go package
-// has no Ergo declarations).
-func (l *lowerer) unionPkg(p *check.Package) bool {
-	if p == nil || p.Host() {
-		return false
-	}
-	return msb3Lowering != "off" || l.isSourced(p)
 }
 
 // optionCycle reports whether a record of the program holds itself by

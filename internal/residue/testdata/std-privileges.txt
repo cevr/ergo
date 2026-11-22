@@ -460,9 +460,6 @@ debt	internal/sketch/lower/expr.go:funcCtx.convert	mark	"Host()"	funcCtx.convert
 debt	internal/sketch/lower/expr.go:funcCtx.selector	flag	"hostRecv"	funcCtx.selector: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/expr.go:funcCtx.selector	mark	"Host()"	funcCtx.selector: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/flatunion.go:lowerer.layoutOf	mark	"Host()"	lowerer.layoutOf: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/flatunion.go:lowerer.unionPkg	flag	"isSourced"	lowerer.unionPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/flatunion.go:lowerer.unionPkg	mark	"Host()"	lowerer.unionPkg: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/flatunion.go:lowerer.unionSourced	flag	"isSourced"	lowerer.unionSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/forms.go:funcCtx.catchAlias	flag	"leaves"	funcCtx.catchAlias: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/forms.go:funcCtx.leaves	flag	"IsUnreachable"	funcCtx.leaves: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/forms.go:funcCtx.soleFailure	flag	"IsUnreachable"	funcCtx.soleFailure: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -522,9 +519,8 @@ debt	internal/sketch/lower/ir_fnname.go:irBuilder.declaredLit	flag	"userExtern"	
 debt	internal/sketch/lower/ir_fnname.go:irBuilder.declaredLit	mark	"Host()"	irBuilder.declaredLit: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fold.go:irBuilder.foldCalls	mark	"Host()"	irBuilder.foldCalls: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fold.go:irBuilder.foldableIn	mark	"Host()"	irBuilder.foldableIn: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"directives"	irBuilder.inlineMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"isSourced"	irBuilder.inlineMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"sourced"	irInliner.splice: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"directives"	irBuilder.inlineMark: positions only: inline site and //line; decides no emitted instruction (TestInlinePositionsOnly)	PK-NP
+debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"isSourced"	irInliner.splice: positions only: inline site and //line; decides no emitted instruction (TestInlinePositionsOnly)	PK-NP
 debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"directives"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"isSourced"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fusion.go:irBuilder.fuseOr	runtime	"v1.PackageOf"	irBuilder.fuseOr: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -621,8 +617,6 @@ debt	internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc	flag	"isSourced"	lo
 debt	internal/sketch/lower/sealedops.go:funcCtx.sealedMethod	built	"."	funcCtx.sealedMethod: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"Std()"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
 debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"stdlib.PreludePath"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
-debt	internal/sketch/lower/slot.go:funcCtx.slotAdmit	flag	"slotCallee"	funcCtx.slotAdmit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/slot.go:lowerer.slotCallee	flag	"isSourced"	lowerer.slotCallee: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.enter	flag	"isSourced"	lowerer.enter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.inStdPkg	flag	"stdLets"	lowerer.inStdPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.isSourced	flag	"sourced"	lowerer.isSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
