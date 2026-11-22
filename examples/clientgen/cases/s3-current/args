@@ -1,0 +1,5 @@
+emit
+--check
+s3
+s3.json
+s3
