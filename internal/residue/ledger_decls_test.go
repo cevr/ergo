@@ -15,9 +15,10 @@ import (
 	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
-// TestErgoDeclSpansMatchTheParser holds the mutant runner's line-based
-// Ergo declarations (scripts/mutants/anchor.ErgoDecls, which keeps the
-// parser out of the runner's and the gate's closures) to the parser, on
+// TestErgoDeclSpansMatchTheParser holds the mutant runner's Ergo
+// declarations, read line by line (scripts/mutants/anchor.ErgoDecls,
+// which keeps the parser out of the runner's and the gate's closures) to
+// the parser, on
 // every .ergo file a ledger row anchors in by declaration (MN0
 // DECL-ANCHOR): the named declarations start where the parser's top-level
 // declarations start (their doc comments included), in the same order,
