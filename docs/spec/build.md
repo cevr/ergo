@@ -93,7 +93,7 @@ compiler, the output deleted or replaced, a blob trimmed, two builds at once)
 against `ERGO_BUILD=full`: equal exits, check output and executable bytes
 after every step, and the least work the model allows.
 
-## Warm answer by tokens: `ergo check DIR/...`
+## Warm answer by tokens, `ergo check DIR/...`
 
 `ergo check DIR/...` with one shared load of its module keeps its answer by
 what a check reads, not by bytes (MONOREPO WS0; `cmd/ergo/checktree.go`).
