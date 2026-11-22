@@ -1061,14 +1061,25 @@ both against net/http's `DetectContentType`.
     `Do(r Request) Response fails RequestFailed needs Net` sends one
     buffered request through the bound `Net`, the operation type
     `Net { Send(r Request) Response fails RequestFailed }`. The host's
-    provider is `NewClient(origin, limits Limits) Client fails InvalidClient | InvalidLimits needs Ambient`:
+    provider is `NewClient(origin, limits Limits, credentials []Credential) Client fails InvalidClient | InvalidLimits needs Ambient`:
     `origin` is `scheme://authority` (http or https, no user, path, query
     or fragment), and `limits` is the required response budget (header
     and body, both positive; `InvalidClient{Origin, Reason}` otherwise).
     No request is made until a Send. Send joins `r.Path` (the decoded
     path, which the client escapes) and `r.Query` (in its order) to the
-    origin and sends `r.Header` with the `Buffered` body; the Request type
-    is the server's. `RequestFailed{Cause}` has the closed cause union
+    origin and sends `r.Header`, then each credential's field, with the
+    `Buffered` body; the Request type is the server's. **A secret header
+    is a credential** (HTTP-SECRET): `ForOrigin` (11) makes one from a
+    `config.Redacted[string]`, the Client holds it as given, and its value
+    is revealed only where the transport writes the header. So no
+    provider wrapped around the Net (a recorder, a logger, a retry) sees
+    it, and the Client, like the Credential, has no text form and no wire
+    form. A credential of another origin is `InvalidClient`.
+    `InMemoryAt(origin, credentials, handle) Handler fails InvalidClient`
+    is `InMemory` with credentials: `handle` reads the request's header
+    and then each credential's field. The law `CredentialPassesUnseen`
+    wraps a recording Net around one and finds no byte of the secret in
+    any request, response or part it saw, while the handler read it. `RequestFailed{Cause}` has the closed cause union
     `Refused{Reason}` (nothing accepted the connection),
     `Transport{Reason}` (the exchange broke or was not HTTP),
     `TooLarge{Limit}` (the response's header or body over its budget;
@@ -1114,9 +1125,12 @@ both against net/http's `DetectContentType`.
     `URLRequest { URL string, Method string, Header []Field,
     Credentials []Credential, Body string }` takes an absolute http(s) URL.
     It does not hide a URL inside the server Request's decoded Path.
-    `ForOrigin(origin string, field Field) Credential fails InvalidClient`
+    `ForOrigin(origin string, name string, value config.Redacted[string]) Credential fails InvalidClient`
     marks one header as a credential of that origin. Its private fields
-    prevent a forged owner; no Ambient is needed to label data. Ordinary
+    prevent a forged owner; no Ambient is needed to label data. The value
+    stays a `Redacted` until the transport writes the header, so the
+    program never calls `Reveal` and a URLRequest that holds a credential
+    has no text form and no wire form. Ordinary
     Header fields are public and may cross origins: secret headers belong
     only in Credentials, including Authorization, cookies and custom keys.
 
@@ -1755,6 +1769,7 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `http` | `StreamIsItsWrites` | `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `WriteAfterStreamFails` | `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `InMemorySendIntoIsSend` | `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken \|\| explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `CredentialPassesUnseen` | `CredentialPassesUnseen(secret string, header []Field, into bool) { let key = "key-" + secret let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: header, Body: Buffered{Text: ""}} if strings.Contains(requestText(r), key) { return true } let c = ForOrigin("http://api.test", "X-Api-Key", config.NewRedacted(key)) catch { case InvalidClient: return false } let got = sync.NewRef[[]Field]([]Field{}) let inner = InMemoryAt("http://api.test", []Credential{c}, func(q Request) Response needs Streaming { got.Set(q.Header) Response{Status: 200, Header: []Field{}, Body: "ok"} }) catch { case InvalidClient: return false } let w = watched{inner: inner, seen: sync.NewRef[string]("")} if into { let _ = w.SendInto(r, AnySuccess, func(part string) fails SinkFailed {}) catch { case RequestFailed, StatusRefused, SinkFailed: return false } } else { let _ = w.Send(r) catch { case RequestFailed: return false } } !strings.Contains(w.seen.Get(), key) && got.Get() == header.Append(Field{Name: "X-Api-Key", Value: key}) && refusesOther(c) }` | `#162` | checked |
 | `http` | `RawPathDecodesToPath` | `RawPathDecodesToPath(segments []string, upper bool) { let mut raw = "" for i, s in segments { let seg = if s == "" { "-" } else { s } raw = raw + "/" + queryEscape(seg, i%2 == 0, upper) } if raw == "" { raw = "/" } let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming { Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path} }) catch { case InvalidClient, InvalidLimits: return false } let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch { case RequestFailed, OriginRefused, RedirectLimit: return false } let decoded = DecodePath(raw) catch { case BadEscape: return false } got.Body == raw+"\n"+decoded }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `QueryDecodesByTheRule` | `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" \|\| key == "on" \|\| key == "page" \|\| key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `WriteThenRead` | `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }` | `TestStdHTTPLawsRun` | tested |
