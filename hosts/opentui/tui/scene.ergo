@@ -264,14 +264,15 @@ func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
 		look{fg: if off { grey } else { white }, bg: 0, attr: if on { screen.Bold } else { 0 }}
 	case ui.InputNode:
 		look{fg: if off { grey } else { white }, bg: 0, attr: screen.Underline + (if on { screen.Bold } else { 0 })}
-	case ui.TextNode, ui.LiveNode:
+	case ui.TextNode, ui.LiveNode, ui.ReadoutNode:
+		// A Readout is a text on the terminal (kindOf).
 		match pressableAbove(d, id) {
 		case Some[ui.Id[E]] as p:
 			textOn(d, p.Value)
 		case None:
 			look{fg: white, bg: 0, attr: 0}
 		}
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
 		// The terminal's own colours: a container paints nothing of its own
 		// (a Style.Look is OT-LOOKS's).
 		look{fg: 0, bg: 0, attr: 0}

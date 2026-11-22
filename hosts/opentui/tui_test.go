@@ -199,7 +199,12 @@ func genScript(r *rand.Rand, app string) string {
 		case "reading":
 			step = pick(r, "publish "+pick(r, readings...), "publish "+pick(r, readings...), "tap tick")
 		case "sketch":
-			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(10))
+			// the canvas is 150 DIPs high, 9 whole rows of 16 on the
+			// terminal (Cells rounds 9.375 to 9), so y stays in rows 0 to
+			// 8: a press at 144 is in the Area on TestHost and below it on
+			// the terminal (follow-up OT-CANVAS-OFFGRID, as OFF-GRID-ROWS
+			// for lists)
+			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(9))
 		case "list":
 			// the wheel turns down more than up, so it moves a list that
 			// starts at its top
