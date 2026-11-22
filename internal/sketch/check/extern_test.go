@@ -1918,7 +1918,7 @@ func main() {
 		// Transaction binds it (std sql, Operation types 1).
 		"sql-tx-faked": `import sql
 
-type Mine {} implements sql.Tx // want S109
+type Mine {} implements sql.Tx // want S106
 
 func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
 func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
