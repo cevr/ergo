@@ -249,19 +249,20 @@ func (st *irState) inlineCallee(b *irBuilder, fd *funcDecl, params []*check.Var)
 
 // knownInline reports whether a call of f's known variant may be copied
 // at its site (KNOWN-FILTER-INLINE): a body within the inline budget that
-// reaches no call of itself and needs no owner frame of its own (a taken
-// resource parameter, as inlineRule refuses). Its callbacks are known
-// pure at the site and its other calls are those knownBody admits, so
-// nothing in the copy re-enters the frame; splice's irInlinable then
-// checks the built body's shape.
+// opens no scope of its own (bodyNeedsFrame, as inlineRule refuses). A
+// variant takes no owned parameter and is never recursive (knownBody
+// refuses both: a call of itself is decided while it is deciding). Its
+// callbacks are known pure at the site and its other calls are those
+// knownBody admits, so nothing in the copy re-enters the frame; splice's
+// irInlinable then checks the built body's shape.
 func (l *lowerer) knownInline(f *check.Func) bool {
 	d := f.Decl
-	if d == nil || d.Body == nil || f.Pkg == nil || f.Pkg.Info == nil || inlineSize(d.Body) > inlineBudget || l.inlineRecursive(f) {
+	if d == nil || d.Body == nil || f.Pkg == nil || f.Pkg.Info == nil || inlineSize(d.Body) > inlineBudget {
 		return false
 	}
 	saved := l.info
 	l.info = f.Pkg.Info
-	frame := l.bodyNeedsFrame(d.Body.List) || l.ownsParams(paramVars(f))
+	frame := l.bodyNeedsFrame(d.Body.List)
 	l.info = saved
 	return !frame
 }

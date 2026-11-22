@@ -305,4 +305,17 @@ func TestKnownVariantInlined(t *testing.T) {
 			t.Errorf("IR: filters still calls optFilterKnown per element:\n%s", f.Body)
 		}
 	}
+	// The refusal: a variant past the inline budget keeps its call. It
+	// kills kfi-budget-ignored.
+	big := strings.Replace(knownLoopSrc, "if try p(s.Value) {", "if try p(s.Value)"+strings.Repeat(" && try p(s.Value)", 40)+" {", 1)
+	ob := lowerSource("knownbig", big, true)
+	if ob.err != nil || len(ob.diags) > 0 || ob.refused != nil || ob.panicked != nil {
+		t.Fatalf("lowering the big variant failed: %v %v %v %v", ob.err, ob.diags, ob.refused, ob.panicked)
+	}
+	ub := Unit{Package: ob.pkg, Files: []*syntax.File{ob.file}, Sources: []Source{{Path: testSourcePath, Text: big}}}
+	if _, rep, err := LowerIR(ub); err != nil {
+		t.Fatal(err)
+	} else if rep.KnownInlined != 0 {
+		t.Errorf("IR: a known variant past the inline budget is inlined (%d sites)", rep.KnownInlined)
+	}
 }
