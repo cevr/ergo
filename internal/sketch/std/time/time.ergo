@@ -134,7 +134,10 @@ func Add(t Time, d duration) Time {
 	}
 	let mono = t.mono + ns
 	let keep = t.hasMono && (ns < 0) == (mono < t.mono)
-	Time{sec: s, nsec: n, mono: mono, hasMono: keep}
+	// A time with no reading keeps none: its mono stays 0, so == compares
+	// the instant alone.
+	let kept = if keep { mono } else { 0 }
+	Time{sec: s, nsec: n, mono: kept, hasMono: keep}
 }
 
 // AddKeepsWallOnly: Add on a time with no monotonic reading gives a time
