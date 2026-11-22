@@ -8357,6 +8357,7 @@ func (e *encoder) encFieldsownSlot(v *check.Codec_ownSlot) {
 	e.encT220(*f.F_maybe)
 	e.encSyntax_Node(*f.F_fieldAt)
 	e.encT280(*f.F_loans)
+	e.encT14(*f.F_paramFree)
 }
 
 func (e *encoder) encownSlot(v check.Codec_ownSlot) { e.encFieldsownSlot(&v) }
@@ -8852,6 +8853,7 @@ func (e *encoder) encFieldsresWalk(v *check.Codec_resWalk) {
 	e.encT301(*f.F_nodes)
 	e.encT183(*f.F_stack)
 	e.encT1(*f.F_next)
+	e.encT105(*f.F_local)
 }
 
 func (e *encoder) encresWalk(v check.Codec_resWalk) { e.encFieldsresWalk(&v) }
@@ -20547,6 +20549,7 @@ func (d *decoder) decFieldsownSlot(v *check.Codec_ownSlot) {
 	*f.F_maybe = d.decT220()
 	*f.F_fieldAt = d.decSyntax_Node()
 	*f.F_loans = d.decT280()
+	*f.F_paramFree = d.decT14()
 }
 
 func (d *decoder) decownSlot() (v check.Codec_ownSlot) {
@@ -21328,6 +21331,7 @@ func (d *decoder) decFieldsresWalk(v *check.Codec_resWalk) {
 	*f.F_nodes = d.decT301()
 	*f.F_stack = d.decT183()
 	*f.F_next = d.decT1()
+	*f.F_local = d.decT105()
 }
 
 func (d *decoder) decresWalk() (v check.Codec_resWalk) {

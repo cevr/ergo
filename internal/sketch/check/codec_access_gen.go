@@ -1877,10 +1877,11 @@ type CodecFields_ownSlot struct {
 	F_maybe     *uint64
 	F_fieldAt   *syntax.Node
 	F_loans     *[]resourceLoan
+	F_paramFree *bool
 }
 
 func CodecFieldsOf_ownSlot(v *ownSlot) CodecFields_ownSlot {
-	return CodecFields_ownSlot{F_st: &v.st, F_at: &v.at, F_how: &v.how, F_callLoans: &v.callLoans, F_fields: &v.fields, F_maybe: &v.maybe, F_fieldAt: &v.fieldAt, F_loans: &v.loans}
+	return CodecFields_ownSlot{F_st: &v.st, F_at: &v.at, F_how: &v.how, F_callLoans: &v.callLoans, F_fields: &v.fields, F_maybe: &v.maybe, F_fieldAt: &v.fieldAt, F_loans: &v.loans, F_paramFree: &v.paramFree}
 }
 
 type CodecFields_ownState struct {
@@ -2282,10 +2283,11 @@ type CodecFields_resWalk struct {
 	F_nodes *map[int32]*taskNode
 	F_stack *[]int32
 	F_next  *int
+	F_local *map[int32]bool
 }
 
 func CodecFieldsOf_resWalk(v *resWalk) CodecFields_resWalk {
-	return CodecFields_resWalk{F_c: &v.c, F_mode: &v.mode, F_nodes: &v.nodes, F_stack: &v.stack, F_next: &v.next}
+	return CodecFields_resWalk{F_c: &v.c, F_mode: &v.mode, F_nodes: &v.nodes, F_stack: &v.stack, F_next: &v.next, F_local: &v.local}
 }
 
 type CodecFields_resolved struct {
