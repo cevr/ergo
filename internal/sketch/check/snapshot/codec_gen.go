@@ -94,7 +94,6 @@ func (e *encoder) encFieldsTypeName(v *check.TypeName) {
 	e.encType(v.Type)
 	e.encPtrSyntax_TypeDecl(v.Decl)
 	e.encT8(v.Laws)
-	e.encPtrHarness(v.Harness)
 	e.encPtrfileInfo(*f.F_file)
 	e.encT1(*f.F_id)
 	e.encPtrFunc(*f.F_ctor)
@@ -559,22 +558,6 @@ func (e *encoder) encPtrSyntax_TypeDecl(v *syntax.TypeDecl) {
 		return
 	}
 	e.node(v)
-}
-
-func (e *encoder) encFieldsHarness(v *check.Harness) {
-	e.encPtrTypeName(v.Cap)
-	e.encPtrFunc(v.Func)
-	e.encPtrNamed(v.Run)
-	e.encPtrNamed(v.Fail)
-}
-
-func (e *encoder) encHarness(v check.Harness) { e.encFieldsHarness(&v) }
-
-func (e *encoder) encPtrHarness(v *check.Harness) {
-	if e.ref(v, v == nil) {
-		return
-	}
-	e.encFieldsHarness(v)
 }
 
 func (e *encoder) encFieldsfileInfo(v *check.Codec_fileInfo) {
@@ -4837,761 +4820,755 @@ func (e *encoder) encT173(v any) {
 	case *check.GoExtern:
 		e.uint(29)
 		e.encPtrGoExtern(x)
-	case *check.Harness:
-		e.uint(30)
-		e.encPtrHarness(x)
 	case *check.Import:
-		e.uint(31)
+		e.uint(30)
 		e.encPtrImport(x)
 	case *check.ImportError:
-		e.uint(32)
+		e.uint(31)
 		e.encPtrImportError(x)
 	case *check.Info:
-		e.uint(33)
+		e.uint(32)
 		e.encPtrInfo(x)
 	case *check.Initializer:
-		e.uint(34)
+		e.uint(33)
 		e.encPtrInitializer(x)
 	case *check.Instance:
-		e.uint(35)
+		e.uint(34)
 		e.encPtrInstance(x)
 	case *check.Interface:
-		e.uint(36)
+		e.uint(35)
 		e.encPtrInterface(x)
 	case *check.Law:
-		e.uint(37)
+		e.uint(36)
 		e.encPtrLaw(x)
 	case *check.LawContext:
-		e.uint(38)
+		e.uint(37)
 		e.encPtrLawContext(x)
 	case *check.LawHelper:
-		e.uint(39)
+		e.uint(38)
 		e.encPtrLawHelper(x)
 	case *check.LawProvider:
-		e.uint(40)
+		e.uint(39)
 		e.encPtrLawProvider(x)
 	case *check.LawRun:
-		e.uint(41)
+		e.uint(40)
 		e.encPtrLawRun(x)
 	case *check.LawSlot:
-		e.uint(42)
+		e.uint(41)
 		e.encPtrLawSlot(x)
 	case *check.LawSubject:
-		e.uint(43)
+		e.uint(42)
 		e.encPtrLawSubject(x)
 	case *check.LegacyPair:
-		e.uint(44)
+		e.uint(43)
 		e.encPtrLegacyPair(x)
 	case *check.Loop:
-		e.uint(45)
+		e.uint(44)
 		e.encPtrLoop(x)
 	case *check.MachineType:
-		e.uint(46)
+		e.uint(45)
 		e.encPtrMachineType(x)
 	case *check.Map:
-		e.uint(47)
+		e.uint(46)
 		e.encPtrMap(x)
 	case *check.Match:
-		e.uint(48)
+		e.uint(47)
 		e.encPtrMatch(x)
 	case *check.Matcher:
-		e.uint(49)
+		e.uint(48)
 		e.encPtrMatcher(x)
 	case *check.Method:
-		e.uint(50)
+		e.uint(49)
 		e.encPtrMethod(x)
 	case *check.Mint:
-		e.uint(51)
+		e.uint(50)
 		e.encPtrMint(x)
 	case *check.MintFrame:
-		e.uint(52)
+		e.uint(51)
 		e.encPtrMintFrame(x)
 	case *check.Named:
-		e.uint(53)
+		e.uint(52)
 		e.encPtrNamed(x)
 	case *check.OpBody:
-		e.uint(54)
+		e.uint(53)
 		e.encPtrOpBody(x)
 	case *check.Options:
-		e.uint(55)
+		e.uint(54)
 		e.encPtrOptions(x)
 	case *check.Override:
-		e.uint(56)
+		e.uint(55)
 		e.encPtrOverride(x)
 	case *check.Package:
-		e.uint(57)
+		e.uint(56)
 		e.encPtrPackage(x)
 	case *check.Pattern:
-		e.uint(58)
+		e.uint(57)
 		e.encPtrPattern(x)
 	case *check.PatternEdge:
-		e.uint(59)
+		e.uint(58)
 		e.encPtrPatternEdge(x)
 	case *check.PatternError:
-		e.uint(60)
+		e.uint(59)
 		e.encPtrPatternError(x)
 	case *check.PatternOwners:
-		e.uint(61)
+		e.uint(60)
 		e.encPtrPatternOwners(x)
 	case *check.PatternState:
-		e.uint(62)
+		e.uint(61)
 		e.encPtrPatternState(x)
 	case *check.PkgName:
-		e.uint(63)
+		e.uint(62)
 		e.encPtrPkgName(x)
 	case *check.Pointer:
-		e.uint(64)
+		e.uint(63)
 		e.encPtrPointer(x)
 	case *check.ProviderCalls:
-		e.uint(65)
+		e.uint(64)
 		e.encPtrProviderCalls(x)
 	case *check.ProviderTypes:
-		e.uint(66)
+		e.uint(65)
 		e.encPtrProviderTypes(x)
 	case *check.ReadSet:
-		e.uint(67)
+		e.uint(66)
 		e.encPtrReadSet(x)
 	case *check.Refinement:
-		e.uint(68)
+		e.uint(67)
 		e.encPtrRefinement(x)
 	case *check.Release:
-		e.uint(69)
+		e.uint(68)
 		e.encPtrRelease(x)
 	case *check.Replaced:
-		e.uint(70)
+		e.uint(69)
 		e.encPtrReplaced(x)
 	case *check.Rewrite:
-		e.uint(71)
+		e.uint(70)
 		e.encPtrRewrite(x)
 	case *check.RewriteArg:
-		e.uint(72)
+		e.uint(71)
 		e.encPtrRewriteArg(x)
 	case *check.RewriteCall:
-		e.uint(73)
+		e.uint(72)
 		e.encPtrRewriteCall(x)
 	case *check.Row:
-		e.uint(74)
+		e.uint(73)
 		e.encPtrRow(x)
 	case *check.RowArg:
-		e.uint(75)
+		e.uint(74)
 		e.encPtrRowArg(x)
 	case *check.RowVar:
-		e.uint(76)
+		e.uint(75)
 		e.encPtrRowVar(x)
 	case *check.Scope:
-		e.uint(77)
+		e.uint(76)
 		e.encPtrScope(x)
 	case *check.Signature:
-		e.uint(78)
+		e.uint(77)
 		e.encPtrSignature(x)
 	case *check.Slice:
-		e.uint(79)
+		e.uint(78)
 		e.encPtrSlice(x)
 	case *check.Span:
-		e.uint(80)
+		e.uint(79)
 		e.encPtrSpan(x)
 	case *check.Spread:
-		e.uint(81)
+		e.uint(80)
 		e.encPtrSpread(x)
 	case *check.Struct:
-		e.uint(82)
+		e.uint(81)
 		e.encPtrStruct(x)
 	case *check.TaskCapture:
-		e.uint(83)
+		e.uint(82)
 		e.encPtrTaskCapture(x)
 	case *check.Term:
-		e.uint(84)
+		e.uint(83)
 		e.encPtrTerm(x)
 	case *check.Test:
-		e.uint(85)
+		e.uint(84)
 		e.encPtrTest(x)
 	case *check.Tuple:
-		e.uint(86)
+		e.uint(85)
 		e.encPtrTuple(x)
 	case *check.TypeName:
-		e.uint(87)
+		e.uint(86)
 		e.encPtrTypeName(x)
 	case *check.TypeParam:
-		e.uint(88)
+		e.uint(87)
 		e.encPtrTypeParam(x)
 	case *check.Union:
-		e.uint(89)
+		e.uint(88)
 		e.encPtrUnion(x)
 	case *check.ValueRanks:
-		e.uint(90)
+		e.uint(89)
 		e.encPtrValueRanks(x)
 	case *check.Var:
-		e.uint(91)
+		e.uint(90)
 		e.encPtrVar(x)
 	case *check.WirePair:
-		e.uint(92)
+		e.uint(91)
 		e.encPtrWirePair(x)
 	case *check.WireRead:
-		e.uint(93)
+		e.uint(92)
 		e.encPtrWireRead(x)
 	case *check.WireWrite:
-		e.uint(94)
+		e.uint(93)
 		e.encPtrWireWrite(x)
 	case *check.Wired:
-		e.uint(95)
+		e.uint(94)
 		e.encPtrWired(x)
 	case *check.With:
-		e.uint(96)
+		e.uint(95)
 		e.encPtrWith(x)
 	case *check.Witness:
-		e.uint(97)
+		e.uint(96)
 		e.encPtrWitness(x)
 	case *check.WitnessOp:
-		e.uint(98)
+		e.uint(97)
 		e.encPtrWitnessOp(x)
 	case *check.Work:
-		e.uint(99)
+		e.uint(98)
 		e.encPtrWork(x)
 	case *check.Codec_argList:
-		e.uint(100)
+		e.uint(99)
 		e.encPtrargList(x)
 	case *check.Codec_armVar:
-		e.uint(101)
+		e.uint(100)
 		e.encPtrarmVar(x)
 	case *check.Codec_asBinding:
-		e.uint(102)
+		e.uint(101)
 		e.encPtrasBinding(x)
 	case *check.Codec_assignment:
-		e.uint(103)
+		e.uint(102)
 		e.encPtrassignment(x)
 	case *check.Codec_at:
-		e.uint(104)
+		e.uint(103)
 		e.encPtrat(x)
 	case *check.Codec_binderKey:
-		e.uint(105)
+		e.uint(104)
 		e.encPtrbinderKey(x)
 	case *check.Codec_bodyNode:
-		e.uint(106)
+		e.uint(105)
 		e.encPtrbodyNode(x)
 	case *check.Codec_bodySum:
-		e.uint(107)
+		e.uint(106)
 		e.encPtrbodySum(x)
 	case *check.Codec_borrowWalk:
-		e.uint(108)
+		e.uint(107)
 		e.encPtrborrowWalk(x)
 	case *check.Codec_branch:
-		e.uint(109)
+		e.uint(108)
 		e.encPtrbranch(x)
 	case *check.Codec_capBinding:
-		e.uint(110)
+		e.uint(109)
 		e.encPtrcapBinding(x)
 	case *check.Codec_capCall:
-		e.uint(111)
+		e.uint(110)
 		e.encPtrcapCall(x)
 	case *check.Codec_capKey:
-		e.uint(112)
+		e.uint(111)
 		e.encPtrcapKey(x)
 	case *check.Codec_capNode:
-		e.uint(113)
+		e.uint(112)
 		e.encPtrcapNode(x)
 	case *check.Codec_capSet:
-		e.uint(114)
+		e.uint(113)
 		e.encPtrcapSet(x)
 	case *check.Codec_captured:
-		e.uint(115)
+		e.uint(114)
 		e.encPtrcaptured(x)
 	case *check.Codec_catchItem:
-		e.uint(116)
+		e.uint(115)
 		e.encPtrcatchItem(x)
 	case *check.Codec_catchMatrix:
-		e.uint(117)
+		e.uint(116)
 		e.encPtrcatchMatrix(x)
 	case *check.Codec_catchSpace:
-		e.uint(118)
+		e.uint(117)
 		e.encPtrcatchSpace(x)
 	case *check.Codec_caughtCall:
-		e.uint(119)
+		e.uint(118)
 		e.encPtrcaughtCall(x)
 	case *check.Codec_cell:
-		e.uint(120)
+		e.uint(119)
 		e.encPtrcell(x)
 	case *check.Codec_cellSite:
-		e.uint(121)
+		e.uint(120)
 		e.encPtrcellSite(x)
 	case *check.Codec_checker:
-		e.uint(122)
+		e.uint(121)
 		e.encPtrchecker(x)
 	case *check.Codec_colInfo:
-		e.uint(123)
+		e.uint(122)
 		e.encPtrcolInfo(x)
 	case *check.Codec_collKey:
-		e.uint(124)
+		e.uint(123)
 		e.encPtrcollKey(x)
 	case *check.Codec_collision:
-		e.uint(125)
+		e.uint(124)
 		e.encPtrcollision(x)
 	case *check.Codec_column:
-		e.uint(126)
+		e.uint(125)
 		e.encPtrcolumn(x)
 	case *check.Codec_contextComp:
-		e.uint(127)
+		e.uint(126)
 		e.encPtrcontextComp(x)
 	case *check.Codec_contextDeps:
-		e.uint(128)
+		e.uint(127)
 		e.encPtrcontextDeps(x)
 	case *check.Codec_contextFinding:
-		e.uint(129)
+		e.uint(128)
 		e.encPtrcontextFinding(x)
 	case *check.Codec_contextGroup:
-		e.uint(130)
+		e.uint(129)
 		e.encPtrcontextGroup(x)
 	case *check.Codec_contextMeter:
-		e.uint(131)
+		e.uint(130)
 		e.encPtrcontextMeter(x)
 	case *check.Codec_contextNode:
-		e.uint(132)
+		e.uint(131)
 		e.encPtrcontextNode(x)
 	case *check.Codec_contextOwners:
-		e.uint(133)
+		e.uint(132)
 		e.encPtrcontextOwners(x)
 	case *check.Codec_contextPass:
-		e.uint(134)
+		e.uint(133)
 		e.encPtrcontextPass(x)
 	case *check.Codec_contextValueSite:
-		e.uint(135)
+		e.uint(134)
 		e.encPtrcontextValueSite(x)
 	case *check.Codec_declKinds:
-		e.uint(136)
+		e.uint(135)
 		e.encPtrdeclKinds(x)
 	case *check.Codec_dropWalk:
-		e.uint(137)
+		e.uint(136)
 		e.encPtrdropWalk(x)
 	case *check.Codec_droppedCall:
-		e.uint(138)
+		e.uint(137)
 		e.encPtrdroppedCall(x)
 	case *check.Codec_escWalk:
-		e.uint(139)
+		e.uint(138)
 		e.encPtrescWalk(x)
 	case *check.Codec_explicitArgs:
-		e.uint(140)
+		e.uint(139)
 		e.encPtrexplicitArgs(x)
 	case *check.Codec_fileInfo:
-		e.uint(141)
+		e.uint(140)
 		e.encPtrfileInfo(x)
 	case *check.Codec_footprinter:
-		e.uint(142)
+		e.uint(141)
 		e.encPtrfootprinter(x)
 	case *check.Codec_fpArg:
-		e.uint(143)
+		e.uint(142)
 		e.encPtrfpArg(x)
 	case *check.Codec_fpCall:
-		e.uint(144)
+		e.uint(143)
 		e.encPtrfpCall(x)
 	case *check.Codec_fpNode:
-		e.uint(145)
+		e.uint(144)
 		e.encPtrfpNode(x)
 	case *check.Codec_fpTArg:
-		e.uint(146)
+		e.uint(145)
 		e.encPtrfpTArg(x)
 	case *check.Codec_frameVerdict:
-		e.uint(147)
+		e.uint(146)
 		e.encPtrframeVerdict(x)
 	case *check.Codec_funcCtx:
-		e.uint(148)
+		e.uint(147)
 		e.encPtrfuncCtx(x)
 	case *check.Codec_goImp:
-		e.uint(149)
+		e.uint(148)
 		e.encPtrgoImp(x)
 	case *check.Codec_groupSite:
-		e.uint(150)
+		e.uint(149)
 		e.encPtrgroupSite(x)
 	case *check.Codec_guardNode:
-		e.uint(151)
+		e.uint(150)
 		e.encPtrguardNode(x)
 	case *check.Codec_guardedUse:
-		e.uint(152)
+		e.uint(151)
 		e.encPtrguardedUse(x)
 	case *check.Codec_hand:
-		e.uint(153)
+		e.uint(152)
 		e.encPtrhand(x)
-	case *check.Codec_harnessUse:
-		e.uint(154)
-		e.encPtrharnessUse(x)
 	case *check.Codec_hostPkg:
-		e.uint(155)
+		e.uint(153)
 		e.encPtrhostPkg(x)
 	case *check.Codec_importAlias:
-		e.uint(156)
+		e.uint(154)
 		e.encPtrimportAlias(x)
 	case *check.Codec_include:
-		e.uint(157)
+		e.uint(155)
 		e.encPtrinclude(x)
 	case *check.Codec_inferer:
-		e.uint(158)
+		e.uint(156)
 		e.encPtrinferer(x)
 	case *check.Codec_initDeps:
-		e.uint(159)
+		e.uint(157)
 		e.encPtrinitDeps(x)
 	case *check.Codec_keyShape:
-		e.uint(160)
+		e.uint(158)
 		e.encPtrkeyShape(x)
 	case *check.Codec_kindVar:
-		e.uint(161)
+		e.uint(159)
 		e.encPtrkindVar(x)
 	case *check.Codec_lawDecls:
-		e.uint(162)
+		e.uint(160)
 		e.encPtrlawDecls(x)
 	case *check.Codec_lawRef:
-		e.uint(163)
+		e.uint(161)
 		e.encPtrlawRef(x)
 	case *check.Codec_lendPoint:
-		e.uint(164)
+		e.uint(162)
 		e.encPtrlendPoint(x)
 	case *check.Codec_lendWalk:
-		e.uint(165)
+		e.uint(163)
 		e.encPtrlendWalk(x)
 	case *check.Codec_litFrame:
-		e.uint(166)
+		e.uint(164)
 		e.encPtrlitFrame(x)
 	case *check.Codec_litParams:
-		e.uint(167)
+		e.uint(165)
 		e.encPtrlitParams(x)
 	case *check.Codec_litType:
-		e.uint(168)
+		e.uint(166)
 		e.encPtrlitType(x)
 	case *check.Codec_litUse:
-		e.uint(169)
+		e.uint(167)
 		e.encPtrlitUse(x)
 	case *check.Codec_localBinding:
-		e.uint(170)
+		e.uint(168)
 		e.encPtrlocalBinding(x)
 	case *check.Codec_lookupSteps:
-		e.uint(171)
+		e.uint(169)
 		e.encPtrlookupSteps(x)
 	case *check.Codec_mapSite:
-		e.uint(172)
+		e.uint(170)
 		e.encPtrmapSite(x)
 	case *check.Codec_matrixSolver:
-		e.uint(173)
+		e.uint(171)
 		e.encPtrmatrixSolver(x)
 	case *check.Codec_mentioner:
-		e.uint(174)
+		e.uint(172)
 		e.encPtrmentioner(x)
 	case *check.Codec_minter:
-		e.uint(175)
+		e.uint(173)
 		e.encPtrminter(x)
 	case *check.Codec_missingResult:
-		e.uint(176)
+		e.uint(174)
 		e.encPtrmissingResult(x)
 	case *check.Codec_moduleImporter:
-		e.uint(177)
+		e.uint(175)
 		e.encPtrmoduleImporter(x)
 	case *check.Codec_monoEdge:
-		e.uint(178)
+		e.uint(176)
 		e.encPtrmonoEdge(x)
 	case *check.Codec_monoState:
-		e.uint(179)
+		e.uint(177)
 		e.encPtrmonoState(x)
 	case *check.Codec_mutEvent:
-		e.uint(180)
+		e.uint(178)
 		e.encPtrmutEvent(x)
 	case *check.Codec_nfaBuilder:
-		e.uint(181)
+		e.uint(179)
 		e.encPtrnfaBuilder(x)
 	case *check.Codec_nfaState:
-		e.uint(182)
+		e.uint(180)
 		e.encPtrnfaState(x)
 	case *check.Codec_noValue:
-		e.uint(183)
+		e.uint(181)
 		e.encPtrnoValue(x)
 	case *check.Codec_nodeKey:
-		e.uint(184)
+		e.uint(182)
 		e.encPtrnodeKey(x)
 	case *check.Codec_operand:
-		e.uint(185)
+		e.uint(183)
 		e.encPtroperand(x)
 	case *check.Codec_ownCatch:
-		e.uint(186)
+		e.uint(184)
 		e.encPtrownCatch(x)
 	case *check.Codec_ownDiag:
-		e.uint(187)
+		e.uint(185)
 		e.encPtrownDiag(x)
 	case *check.Codec_ownFrameSave:
-		e.uint(188)
+		e.uint(186)
 		e.encPtrownFrameSave(x)
 	case *check.Codec_ownLoan:
-		e.uint(189)
+		e.uint(187)
 		e.encPtrownLoan(x)
 	case *check.Codec_ownLoanCall:
-		e.uint(190)
+		e.uint(188)
 		e.encPtrownLoanCall(x)
 	case *check.Codec_ownLocal:
-		e.uint(191)
+		e.uint(189)
 		e.encPtrownLocal(x)
 	case *check.Codec_ownLoop:
-		e.uint(192)
+		e.uint(190)
 		e.encPtrownLoop(x)
 	case *check.Codec_ownLoopMemo:
-		e.uint(193)
+		e.uint(191)
 		e.encPtrownLoopMemo(x)
 	case *check.Codec_ownMarkSite:
-		e.uint(194)
+		e.uint(192)
 		e.encPtrownMarkSite(x)
 	case *check.Codec_ownScope:
-		e.uint(195)
+		e.uint(193)
 		e.encPtrownScope(x)
 	case *check.Codec_ownSlot:
-		e.uint(196)
+		e.uint(194)
 		e.encPtrownSlot(x)
 	case *check.Codec_ownState:
-		e.uint(197)
+		e.uint(195)
 		e.encPtrownState(x)
 	case *check.Codec_ownTail:
-		e.uint(198)
+		e.uint(196)
 		e.encPtrownTail(x)
 	case *check.Codec_ownWalk:
-		e.uint(199)
+		e.uint(197)
 		e.encPtrownWalk(x)
 	case *check.Codec_ownershipKey:
-		e.uint(200)
+		e.uint(198)
 		e.encPtrownershipKey(x)
 	case *check.Codec_ownershipSite:
-		e.uint(201)
+		e.uint(199)
 		e.encPtrownershipSite(x)
 	case *check.Codec_patBinding:
-		e.uint(202)
+		e.uint(200)
 		e.encPtrpatBinding(x)
 	case *check.Codec_patNode:
-		e.uint(203)
+		e.uint(201)
 		e.encPtrpatNode(x)
 	case *check.Codec_patParser:
-		e.uint(204)
+		e.uint(202)
 		e.encPtrpatParser(x)
 	case *check.Codec_patResolver:
-		e.uint(205)
+		e.uint(203)
 		e.encPtrpatResolver(x)
 	case *check.Codec_patSpace:
-		e.uint(206)
+		e.uint(204)
 		e.encPtrpatSpace(x)
 	case *check.Codec_patternCost:
-		e.uint(207)
+		e.uint(205)
 		e.encPtrpatternCost(x)
 	case *check.Codec_patternMeter:
-		e.uint(208)
+		e.uint(206)
 		e.encPtrpatternMeter(x)
 	case *check.Codec_patternPart:
-		e.uint(209)
+		e.uint(207)
 		e.encPtrpatternPart(x)
 	case *check.Codec_pendingClause:
-		e.uint(210)
+		e.uint(208)
 		e.encPtrpendingClause(x)
 	case *check.Codec_pendingSelf:
-		e.uint(211)
+		e.uint(209)
 		e.encPtrpendingSelf(x)
 	case *check.Codec_pkgPattern:
-		e.uint(212)
+		e.uint(210)
 		e.encPtrpkgPattern(x)
 	case *check.Codec_pkgVar:
-		e.uint(213)
+		e.uint(211)
 		e.encPtrpkgVar(x)
 	case *check.Codec_place:
-		e.uint(214)
+		e.uint(212)
 		e.encPtrplace(x)
 	case *check.Codec_placeStep:
-		e.uint(215)
+		e.uint(213)
 		e.encPtrplaceStep(x)
 	case *check.Codec_pnode:
-		e.uint(216)
+		e.uint(214)
 		e.encPtrpnode(x)
 	case *check.Codec_preludeResult:
-		e.uint(217)
+		e.uint(215)
 		e.encPtrpreludeResult(x)
 	case *check.Codec_preludeState:
-		e.uint(218)
+		e.uint(216)
 		e.encPtrpreludeState(x)
 	case *check.Codec_pureArg:
-		e.uint(219)
+		e.uint(217)
 		e.encPtrpureArg(x)
 	case *check.Codec_pureBinding:
-		e.uint(220)
+		e.uint(218)
 		e.encPtrpureBinding(x)
 	case *check.Codec_pureSeer:
-		e.uint(221)
+		e.uint(219)
 		e.encPtrpureSeer(x)
 	case *check.Codec_reachNode:
-		e.uint(222)
+		e.uint(220)
 		e.encPtrreachNode(x)
 	case *check.Codec_readKey:
-		e.uint(223)
+		e.uint(221)
 		e.encPtrreadKey(x)
 	case *check.Codec_readNode:
-		e.uint(224)
+		e.uint(222)
 		e.encPtrreadNode(x)
 	case *check.Codec_refWalker:
-		e.uint(225)
+		e.uint(223)
 		e.encPtrrefWalker(x)
 	case *check.Codec_refiner:
-		e.uint(226)
+		e.uint(224)
 		e.encPtrrefiner(x)
 	case *check.Codec_relCap:
-		e.uint(227)
+		e.uint(225)
 		e.encPtrrelCap(x)
 	case *check.Codec_relNeed:
-		e.uint(228)
+		e.uint(226)
 		e.encPtrrelNeed(x)
 	case *check.Codec_relSeed:
-		e.uint(229)
+		e.uint(227)
 		e.encPtrrelSeed(x)
 	case *check.Codec_resWalk:
-		e.uint(230)
+		e.uint(228)
 		e.encPtrresWalk(x)
 	case *check.Codec_resolved:
-		e.uint(231)
+		e.uint(229)
 		e.encPtrresolved(x)
 	case *check.Codec_resourceLoan:
-		e.uint(232)
+		e.uint(230)
 		e.encPtrresourceLoan(x)
 	case *check.Codec_resourceSite:
-		e.uint(233)
+		e.uint(231)
 		e.encPtrresourceSite(x)
 	case *check.Codec_rowRef:
-		e.uint(234)
+		e.uint(232)
 		e.encPtrrowRef(x)
 	case *check.Codec_rowSet:
-		e.uint(235)
+		e.uint(233)
 		e.encPtrrowSet(x)
 	case *check.Codec_scopeNode:
-		e.uint(236)
+		e.uint(234)
 		e.encPtrscopeNode(x)
 	case *check.Codec_sink:
-		e.uint(237)
+		e.uint(235)
 		e.encPtrsink(x)
 	case *check.Codec_speller:
-		e.uint(238)
+		e.uint(236)
 		e.encPtrspeller(x)
 	case *check.Codec_stdBase:
-		e.uint(239)
+		e.uint(237)
 		e.encPtrstdBase(x)
 	case *check.Codec_stdEntry:
-		e.uint(240)
+		e.uint(238)
 		e.encPtrstdEntry(x)
 	case *check.Codec_stdImporter:
-		e.uint(241)
+		e.uint(239)
 		e.encPtrstdImporter(x)
 	case *check.Codec_switchGroup:
-		e.uint(242)
+		e.uint(240)
 		e.encPtrswitchGroup(x)
 	case *check.Codec_switchUnion:
-		e.uint(243)
+		e.uint(241)
 		e.encPtrswitchUnion(x)
 	case *check.Codec_target:
-		e.uint(244)
+		e.uint(242)
 		e.encPtrtarget(x)
 	case *check.Codec_taskNode:
-		e.uint(245)
+		e.uint(243)
 		e.encPtrtaskNode(x)
 	case *check.Codec_testState:
-		e.uint(246)
+		e.uint(244)
 		e.encPtrtestState(x)
 	case *check.Codec_trimmedNode:
-		e.uint(247)
+		e.uint(245)
 		e.encPtrtrimmedNode(x)
 	case *check.Codec_tryCover:
-		e.uint(248)
+		e.uint(246)
 		e.encPtrtryCover(x)
 	case *check.Codec_typeCtx:
-		e.uint(249)
+		e.uint(247)
 		e.encPtrtypeCtx(x)
 	case *check.Codec_typeEnv:
-		e.uint(250)
+		e.uint(248)
 		e.encPtrtypeEnv(x)
 	case *check.Codec_typeTable:
-		e.uint(251)
+		e.uint(249)
 		e.encPtrtypeTable(x)
 	case *check.Codec_typeWalker:
-		e.uint(252)
+		e.uint(250)
 		e.encPtrtypeWalker(x)
 	case *check.Codec_unassignedLocal:
-		e.uint(253)
+		e.uint(251)
 		e.encPtrunassignedLocal(x)
 	case *check.Codec_universeState:
-		e.uint(254)
+		e.uint(252)
 		e.encPtruniverseState(x)
 	case *check.Codec_useAt:
-		e.uint(255)
+		e.uint(253)
 		e.encPtruseAt(x)
 	case *check.Codec_useSite:
-		e.uint(256)
+		e.uint(254)
 		e.encPtruseSite(x)
 	case *check.Codec_valueFrame:
-		e.uint(257)
+		e.uint(255)
 		e.encPtrvalueFrame(x)
 	case *check.Codec_variantIndex:
-		e.uint(258)
+		e.uint(256)
 		e.encPtrvariantIndex(x)
 	case *check.Codec_vcand:
-		e.uint(259)
+		e.uint(257)
 		e.encPtrvcand(x)
 	case *check.Codec_vnode:
-		e.uint(260)
+		e.uint(258)
 		e.encPtrvnode(x)
 	case *check.Codec_vouch:
-		e.uint(261)
+		e.uint(259)
 		e.encPtrvouch(x)
 	case *check.Codec_vrow:
-		e.uint(262)
+		e.uint(260)
 		e.encPtrvrow(x)
 	case *check.Codec_vsym:
-		e.uint(263)
+		e.uint(261)
 		e.encPtrvsym(x)
 	case *check.Codec_vterms:
-		e.uint(264)
+		e.uint(262)
 		e.encPtrvterms(x)
 	case *check.Codec_wireFault:
-		e.uint(265)
+		e.uint(263)
 		e.encPtrwireFault(x)
 	case *check.Codec_wireNeed:
-		e.uint(266)
+		e.uint(264)
 		e.encPtrwireNeed(x)
 	case *check.Codec_withFrame:
-		e.uint(267)
+		e.uint(265)
 		e.encPtrwithFrame(x)
 	case *check.Codec_withNeedKey:
-		e.uint(268)
+		e.uint(266)
 		e.encPtrwithNeedKey(x)
 	case *check.Codec_withOperand:
-		e.uint(269)
+		e.uint(267)
 		e.encPtrwithOperand(x)
 	case *check.Codec_withRefusal:
-		e.uint(270)
+		e.uint(268)
 		e.encPtrwithRefusal(x)
 	case *check.Codec_withScope:
-		e.uint(271)
+		e.uint(269)
 		e.encPtrwithScope(x)
 	case *check.Codec_withSite:
-		e.uint(272)
+		e.uint(270)
 		e.encPtrwithSite(x)
 	case *check.Codec_worklist:
-		e.uint(273)
+		e.uint(271)
 		e.encPtrworklist(x)
 	case bool:
-		e.uint(274)
+		e.uint(272)
 		e.encT14(x)
 	case int:
-		e.uint(275)
+		e.uint(273)
 		e.encT1(x)
 	case int32:
-		e.uint(276)
+		e.uint(274)
 		e.encT172(x)
 	case int64:
-		e.uint(277)
+		e.uint(275)
 		e.encT155(x)
 	case string:
-		e.uint(278)
+		e.uint(276)
 		e.encT2(x)
 	default:
 		if syntax.IsObject(x) {
-			e.uint(279)
+			e.uint(277)
 			e.node(x)
 			return
 		}
 		if i, ok := e.external(x); ok {
-			e.uint(280)
+			e.uint(278)
 			e.uint(i)
 			return
 		}
@@ -6182,7 +6159,6 @@ func (e *encoder) encFieldstarget(v *check.Codec_target) {
 	e.encT217(*f.F_pending)
 	e.encPtrRow(*f.F_missErrors)
 	e.encPtrRow(*f.F_missUses)
-	e.encPtrharnessUse(*f.F_harness)
 }
 
 func (e *encoder) enctarget(v check.Codec_target) { e.encFieldstarget(&v) }
@@ -7816,21 +7792,6 @@ func (e *encoder) encPtrhand(v *check.Codec_hand) {
 		return
 	}
 	e.encFieldshand(v)
-}
-
-func (e *encoder) encFieldsharnessUse(v *check.Codec_harnessUse) {
-	f := check.CodecFieldsOf_harnessUse(v)
-	e.encPtrHarness(*f.F_h)
-	e.encSyntax_Node(*f.F_at)
-}
-
-func (e *encoder) encharnessUse(v check.Codec_harnessUse) { e.encFieldsharnessUse(&v) }
-
-func (e *encoder) encPtrharnessUse(v *check.Codec_harnessUse) {
-	if e.ref(v, v == nil) {
-		return
-	}
-	e.encFieldsharnessUse(v)
 }
 
 func (e *encoder) encPtrimportAlias(v *check.Codec_importAlias) {
@@ -11247,7 +11208,6 @@ func (d *decoder) decFieldsTypeName(v *check.TypeName) {
 	v.Type = d.decType()
 	v.Decl = d.decPtrSyntax_TypeDecl()
 	v.Laws = d.decT8()
-	v.Harness = d.decPtrHarness()
 	*f.F_file = d.decPtrfileInfo()
 	*f.F_id = d.decT1()
 	*f.F_ctor = d.decPtrFunc()
@@ -11699,32 +11659,6 @@ func (d *decoder) decPtrSyntax_TypeDecl() *syntax.TypeDecl {
 		return nil
 	}
 	return x.(*syntax.TypeDecl)
-}
-
-func (d *decoder) decFieldsHarness(v *check.Harness) {
-	v.Cap = d.decPtrTypeName()
-	v.Func = d.decPtrFunc()
-	v.Run = d.decPtrNamed()
-	v.Fail = d.decPtrNamed()
-}
-
-func (d *decoder) decHarness() (v check.Harness) {
-	d.decFieldsHarness(&v)
-	return v
-}
-
-func (d *decoder) decPtrHarness() *check.Harness {
-	x, fresh := d.ref()
-	if !fresh {
-		if x == nil {
-			return nil
-		}
-		return x.(*check.Harness)
-	}
-	v := new(check.Harness)
-	d.add(v)
-	d.decFieldsHarness(v)
-	return v
 }
 
 func (d *decoder) decFieldsfileInfo(v *check.Codec_fileInfo) {
@@ -16065,506 +15999,502 @@ func (d *decoder) decT173() any {
 	case 29:
 		return d.decPtrGoExtern()
 	case 30:
-		return d.decPtrHarness()
-	case 31:
 		return d.decPtrImport()
-	case 32:
+	case 31:
 		return d.decPtrImportError()
-	case 33:
+	case 32:
 		return d.decPtrInfo()
-	case 34:
+	case 33:
 		return d.decPtrInitializer()
-	case 35:
+	case 34:
 		return d.decPtrInstance()
-	case 36:
+	case 35:
 		return d.decPtrInterface()
-	case 37:
+	case 36:
 		return d.decPtrLaw()
-	case 38:
+	case 37:
 		return d.decPtrLawContext()
-	case 39:
+	case 38:
 		return d.decPtrLawHelper()
-	case 40:
+	case 39:
 		return d.decPtrLawProvider()
-	case 41:
+	case 40:
 		return d.decPtrLawRun()
-	case 42:
+	case 41:
 		return d.decPtrLawSlot()
-	case 43:
+	case 42:
 		return d.decPtrLawSubject()
-	case 44:
+	case 43:
 		return d.decPtrLegacyPair()
-	case 45:
+	case 44:
 		return d.decPtrLoop()
-	case 46:
+	case 45:
 		return d.decPtrMachineType()
-	case 47:
+	case 46:
 		return d.decPtrMap()
-	case 48:
+	case 47:
 		return d.decPtrMatch()
-	case 49:
+	case 48:
 		return d.decPtrMatcher()
-	case 50:
+	case 49:
 		return d.decPtrMethod()
-	case 51:
+	case 50:
 		return d.decPtrMint()
-	case 52:
+	case 51:
 		return d.decPtrMintFrame()
-	case 53:
+	case 52:
 		return d.decPtrNamed()
-	case 54:
+	case 53:
 		return d.decPtrOpBody()
-	case 55:
+	case 54:
 		return d.decPtrOptions()
-	case 56:
+	case 55:
 		return d.decPtrOverride()
-	case 57:
+	case 56:
 		return d.decPtrPackage()
-	case 58:
+	case 57:
 		return d.decPtrPattern()
-	case 59:
+	case 58:
 		return d.decPtrPatternEdge()
-	case 60:
+	case 59:
 		return d.decPtrPatternError()
-	case 61:
+	case 60:
 		return d.decPtrPatternOwners()
-	case 62:
+	case 61:
 		return d.decPtrPatternState()
-	case 63:
+	case 62:
 		return d.decPtrPkgName()
-	case 64:
+	case 63:
 		return d.decPtrPointer()
-	case 65:
+	case 64:
 		return d.decPtrProviderCalls()
-	case 66:
+	case 65:
 		return d.decPtrProviderTypes()
-	case 67:
+	case 66:
 		return d.decPtrReadSet()
-	case 68:
+	case 67:
 		return d.decPtrRefinement()
-	case 69:
+	case 68:
 		return d.decPtrRelease()
-	case 70:
+	case 69:
 		return d.decPtrReplaced()
-	case 71:
+	case 70:
 		return d.decPtrRewrite()
-	case 72:
+	case 71:
 		return d.decPtrRewriteArg()
-	case 73:
+	case 72:
 		return d.decPtrRewriteCall()
-	case 74:
+	case 73:
 		return d.decPtrRow()
-	case 75:
+	case 74:
 		return d.decPtrRowArg()
-	case 76:
+	case 75:
 		return d.decPtrRowVar()
-	case 77:
+	case 76:
 		return d.decPtrScope()
-	case 78:
+	case 77:
 		return d.decPtrSignature()
-	case 79:
+	case 78:
 		return d.decPtrSlice()
-	case 80:
+	case 79:
 		return d.decPtrSpan()
-	case 81:
+	case 80:
 		return d.decPtrSpread()
-	case 82:
+	case 81:
 		return d.decPtrStruct()
-	case 83:
+	case 82:
 		return d.decPtrTaskCapture()
-	case 84:
+	case 83:
 		return d.decPtrTerm()
-	case 85:
+	case 84:
 		return d.decPtrTest()
-	case 86:
+	case 85:
 		return d.decPtrTuple()
-	case 87:
+	case 86:
 		return d.decPtrTypeName()
-	case 88:
+	case 87:
 		return d.decPtrTypeParam()
-	case 89:
+	case 88:
 		return d.decPtrUnion()
-	case 90:
+	case 89:
 		return d.decPtrValueRanks()
-	case 91:
+	case 90:
 		return d.decPtrVar()
-	case 92:
+	case 91:
 		return d.decPtrWirePair()
-	case 93:
+	case 92:
 		return d.decPtrWireRead()
-	case 94:
+	case 93:
 		return d.decPtrWireWrite()
-	case 95:
+	case 94:
 		return d.decPtrWired()
-	case 96:
+	case 95:
 		return d.decPtrWith()
-	case 97:
+	case 96:
 		return d.decPtrWitness()
-	case 98:
+	case 97:
 		return d.decPtrWitnessOp()
-	case 99:
+	case 98:
 		return d.decPtrWork()
-	case 100:
+	case 99:
 		return d.decPtrargList()
-	case 101:
+	case 100:
 		return d.decPtrarmVar()
-	case 102:
+	case 101:
 		return d.decPtrasBinding()
-	case 103:
+	case 102:
 		return d.decPtrassignment()
-	case 104:
+	case 103:
 		return d.decPtrat()
-	case 105:
+	case 104:
 		return d.decPtrbinderKey()
-	case 106:
+	case 105:
 		return d.decPtrbodyNode()
-	case 107:
+	case 106:
 		return d.decPtrbodySum()
-	case 108:
+	case 107:
 		return d.decPtrborrowWalk()
-	case 109:
+	case 108:
 		return d.decPtrbranch()
-	case 110:
+	case 109:
 		return d.decPtrcapBinding()
-	case 111:
+	case 110:
 		return d.decPtrcapCall()
-	case 112:
+	case 111:
 		return d.decPtrcapKey()
-	case 113:
+	case 112:
 		return d.decPtrcapNode()
-	case 114:
+	case 113:
 		return d.decPtrcapSet()
-	case 115:
+	case 114:
 		return d.decPtrcaptured()
-	case 116:
+	case 115:
 		return d.decPtrcatchItem()
-	case 117:
+	case 116:
 		return d.decPtrcatchMatrix()
-	case 118:
+	case 117:
 		return d.decPtrcatchSpace()
-	case 119:
+	case 118:
 		return d.decPtrcaughtCall()
-	case 120:
+	case 119:
 		return d.decPtrcell()
-	case 121:
+	case 120:
 		return d.decPtrcellSite()
-	case 122:
+	case 121:
 		return d.decPtrchecker()
-	case 123:
+	case 122:
 		return d.decPtrcolInfo()
-	case 124:
+	case 123:
 		return d.decPtrcollKey()
-	case 125:
+	case 124:
 		return d.decPtrcollision()
-	case 126:
+	case 125:
 		return d.decPtrcolumn()
-	case 127:
+	case 126:
 		return d.decPtrcontextComp()
-	case 128:
+	case 127:
 		return d.decPtrcontextDeps()
-	case 129:
+	case 128:
 		return d.decPtrcontextFinding()
-	case 130:
+	case 129:
 		return d.decPtrcontextGroup()
-	case 131:
+	case 130:
 		return d.decPtrcontextMeter()
-	case 132:
+	case 131:
 		return d.decPtrcontextNode()
-	case 133:
+	case 132:
 		return d.decPtrcontextOwners()
-	case 134:
+	case 133:
 		return d.decPtrcontextPass()
-	case 135:
+	case 134:
 		return d.decPtrcontextValueSite()
-	case 136:
+	case 135:
 		return d.decPtrdeclKinds()
-	case 137:
+	case 136:
 		return d.decPtrdropWalk()
-	case 138:
+	case 137:
 		return d.decPtrdroppedCall()
-	case 139:
+	case 138:
 		return d.decPtrescWalk()
-	case 140:
+	case 139:
 		return d.decPtrexplicitArgs()
-	case 141:
+	case 140:
 		return d.decPtrfileInfo()
-	case 142:
+	case 141:
 		return d.decPtrfootprinter()
-	case 143:
+	case 142:
 		return d.decPtrfpArg()
-	case 144:
+	case 143:
 		return d.decPtrfpCall()
-	case 145:
+	case 144:
 		return d.decPtrfpNode()
-	case 146:
+	case 145:
 		return d.decPtrfpTArg()
-	case 147:
+	case 146:
 		return d.decPtrframeVerdict()
-	case 148:
+	case 147:
 		return d.decPtrfuncCtx()
-	case 149:
+	case 148:
 		return d.decPtrgoImp()
-	case 150:
+	case 149:
 		return d.decPtrgroupSite()
-	case 151:
+	case 150:
 		return d.decPtrguardNode()
-	case 152:
+	case 151:
 		return d.decPtrguardedUse()
-	case 153:
+	case 152:
 		return d.decPtrhand()
-	case 154:
-		return d.decPtrharnessUse()
-	case 155:
+	case 153:
 		return d.decPtrhostPkg()
-	case 156:
+	case 154:
 		return d.decPtrimportAlias()
-	case 157:
+	case 155:
 		return d.decPtrinclude()
-	case 158:
+	case 156:
 		return d.decPtrinferer()
-	case 159:
+	case 157:
 		return d.decPtrinitDeps()
-	case 160:
+	case 158:
 		return d.decPtrkeyShape()
-	case 161:
+	case 159:
 		return d.decPtrkindVar()
-	case 162:
+	case 160:
 		return d.decPtrlawDecls()
-	case 163:
+	case 161:
 		return d.decPtrlawRef()
-	case 164:
+	case 162:
 		return d.decPtrlendPoint()
-	case 165:
+	case 163:
 		return d.decPtrlendWalk()
-	case 166:
+	case 164:
 		return d.decPtrlitFrame()
-	case 167:
+	case 165:
 		return d.decPtrlitParams()
-	case 168:
+	case 166:
 		return d.decPtrlitType()
-	case 169:
+	case 167:
 		return d.decPtrlitUse()
-	case 170:
+	case 168:
 		return d.decPtrlocalBinding()
-	case 171:
+	case 169:
 		return d.decPtrlookupSteps()
-	case 172:
+	case 170:
 		return d.decPtrmapSite()
-	case 173:
+	case 171:
 		return d.decPtrmatrixSolver()
-	case 174:
+	case 172:
 		return d.decPtrmentioner()
-	case 175:
+	case 173:
 		return d.decPtrminter()
-	case 176:
+	case 174:
 		return d.decPtrmissingResult()
-	case 177:
+	case 175:
 		return d.decPtrmoduleImporter()
-	case 178:
+	case 176:
 		return d.decPtrmonoEdge()
-	case 179:
+	case 177:
 		return d.decPtrmonoState()
-	case 180:
+	case 178:
 		return d.decPtrmutEvent()
-	case 181:
+	case 179:
 		return d.decPtrnfaBuilder()
-	case 182:
+	case 180:
 		return d.decPtrnfaState()
-	case 183:
+	case 181:
 		return d.decPtrnoValue()
-	case 184:
+	case 182:
 		return d.decPtrnodeKey()
-	case 185:
+	case 183:
 		return d.decPtroperand()
-	case 186:
+	case 184:
 		return d.decPtrownCatch()
-	case 187:
+	case 185:
 		return d.decPtrownDiag()
-	case 188:
+	case 186:
 		return d.decPtrownFrameSave()
-	case 189:
+	case 187:
 		return d.decPtrownLoan()
-	case 190:
+	case 188:
 		return d.decPtrownLoanCall()
-	case 191:
+	case 189:
 		return d.decPtrownLocal()
-	case 192:
+	case 190:
 		return d.decPtrownLoop()
-	case 193:
+	case 191:
 		return d.decPtrownLoopMemo()
-	case 194:
+	case 192:
 		return d.decPtrownMarkSite()
-	case 195:
+	case 193:
 		return d.decPtrownScope()
-	case 196:
+	case 194:
 		return d.decPtrownSlot()
-	case 197:
+	case 195:
 		return d.decPtrownState()
-	case 198:
+	case 196:
 		return d.decPtrownTail()
-	case 199:
+	case 197:
 		return d.decPtrownWalk()
-	case 200:
+	case 198:
 		return d.decPtrownershipKey()
-	case 201:
+	case 199:
 		return d.decPtrownershipSite()
-	case 202:
+	case 200:
 		return d.decPtrpatBinding()
-	case 203:
+	case 201:
 		return d.decPtrpatNode()
-	case 204:
+	case 202:
 		return d.decPtrpatParser()
-	case 205:
+	case 203:
 		return d.decPtrpatResolver()
-	case 206:
+	case 204:
 		return d.decPtrpatSpace()
-	case 207:
+	case 205:
 		return d.decPtrpatternCost()
-	case 208:
+	case 206:
 		return d.decPtrpatternMeter()
-	case 209:
+	case 207:
 		return d.decPtrpatternPart()
-	case 210:
+	case 208:
 		return d.decPtrpendingClause()
-	case 211:
+	case 209:
 		return d.decPtrpendingSelf()
-	case 212:
+	case 210:
 		return d.decPtrpkgPattern()
-	case 213:
+	case 211:
 		return d.decPtrpkgVar()
-	case 214:
+	case 212:
 		return d.decPtrplace()
-	case 215:
+	case 213:
 		return d.decPtrplaceStep()
-	case 216:
+	case 214:
 		return d.decPtrpnode()
-	case 217:
+	case 215:
 		return d.decPtrpreludeResult()
-	case 218:
+	case 216:
 		return d.decPtrpreludeState()
-	case 219:
+	case 217:
 		return d.decPtrpureArg()
-	case 220:
+	case 218:
 		return d.decPtrpureBinding()
-	case 221:
+	case 219:
 		return d.decPtrpureSeer()
-	case 222:
+	case 220:
 		return d.decPtrreachNode()
-	case 223:
+	case 221:
 		return d.decPtrreadKey()
-	case 224:
+	case 222:
 		return d.decPtrreadNode()
-	case 225:
+	case 223:
 		return d.decPtrrefWalker()
-	case 226:
+	case 224:
 		return d.decPtrrefiner()
-	case 227:
+	case 225:
 		return d.decPtrrelCap()
-	case 228:
+	case 226:
 		return d.decPtrrelNeed()
-	case 229:
+	case 227:
 		return d.decPtrrelSeed()
-	case 230:
+	case 228:
 		return d.decPtrresWalk()
-	case 231:
+	case 229:
 		return d.decPtrresolved()
-	case 232:
+	case 230:
 		return d.decPtrresourceLoan()
-	case 233:
+	case 231:
 		return d.decPtrresourceSite()
-	case 234:
+	case 232:
 		return d.decPtrrowRef()
-	case 235:
+	case 233:
 		return d.decPtrrowSet()
-	case 236:
+	case 234:
 		return d.decPtrscopeNode()
-	case 237:
+	case 235:
 		return d.decPtrsink()
-	case 238:
+	case 236:
 		return d.decPtrspeller()
-	case 239:
+	case 237:
 		return d.decPtrstdBase()
-	case 240:
+	case 238:
 		return d.decPtrstdEntry()
-	case 241:
+	case 239:
 		return d.decPtrstdImporter()
-	case 242:
+	case 240:
 		return d.decPtrswitchGroup()
-	case 243:
+	case 241:
 		return d.decPtrswitchUnion()
-	case 244:
+	case 242:
 		return d.decPtrtarget()
-	case 245:
+	case 243:
 		return d.decPtrtaskNode()
-	case 246:
+	case 244:
 		return d.decPtrtestState()
-	case 247:
+	case 245:
 		return d.decPtrtrimmedNode()
-	case 248:
+	case 246:
 		return d.decPtrtryCover()
-	case 249:
+	case 247:
 		return d.decPtrtypeCtx()
-	case 250:
+	case 248:
 		return d.decPtrtypeEnv()
-	case 251:
+	case 249:
 		return d.decPtrtypeTable()
-	case 252:
+	case 250:
 		return d.decPtrtypeWalker()
-	case 253:
+	case 251:
 		return d.decPtrunassignedLocal()
-	case 254:
+	case 252:
 		return d.decPtruniverseState()
-	case 255:
+	case 253:
 		return d.decPtruseAt()
-	case 256:
+	case 254:
 		return d.decPtruseSite()
-	case 257:
+	case 255:
 		return d.decPtrvalueFrame()
-	case 258:
+	case 256:
 		return d.decPtrvariantIndex()
-	case 259:
+	case 257:
 		return d.decPtrvcand()
-	case 260:
+	case 258:
 		return d.decPtrvnode()
-	case 261:
+	case 259:
 		return d.decPtrvouch()
-	case 262:
+	case 260:
 		return d.decPtrvrow()
-	case 263:
+	case 261:
 		return d.decPtrvsym()
-	case 264:
+	case 262:
 		return d.decPtrvterms()
-	case 265:
+	case 263:
 		return d.decPtrwireFault()
-	case 266:
+	case 264:
 		return d.decPtrwireNeed()
-	case 267:
+	case 265:
 		return d.decPtrwithFrame()
-	case 268:
+	case 266:
 		return d.decPtrwithNeedKey()
-	case 269:
+	case 267:
 		return d.decPtrwithOperand()
-	case 270:
+	case 268:
 		return d.decPtrwithRefusal()
-	case 271:
+	case 269:
 		return d.decPtrwithScope()
-	case 272:
+	case 270:
 		return d.decPtrwithSite()
-	case 273:
+	case 271:
 		return d.decPtrworklist()
-	case 274:
+	case 272:
 		return d.decT14()
-	case 275:
+	case 273:
 		return d.decT1()
-	case 276:
+	case 274:
 		return d.decT172()
-	case 277:
+	case 275:
 		return d.decT155()
-	case 278:
+	case 276:
 		return d.decT2()
-	case 279:
+	case 277:
 		return d.node().(any)
-	case 280:
+	case 278:
 		return d.external().(any)
 	}
 	d.failf("bad tag in any")
@@ -17223,7 +17153,6 @@ func (d *decoder) decFieldstarget(v *check.Codec_target) {
 	*f.F_pending = d.decT217()
 	*f.F_missErrors = d.decPtrRow()
 	*f.F_missUses = d.decPtrRow()
-	*f.F_harness = d.decPtrharnessUse()
 }
 
 func (d *decoder) dectarget() (v check.Codec_target) {
@@ -19719,31 +19648,6 @@ func (d *decoder) decPtrhand() *check.Codec_hand {
 	v := new(check.Codec_hand)
 	d.add(v)
 	d.decFieldshand(v)
-	return v
-}
-
-func (d *decoder) decFieldsharnessUse(v *check.Codec_harnessUse) {
-	f := check.CodecFieldsOf_harnessUse(v)
-	*f.F_h = d.decPtrHarness()
-	*f.F_at = d.decSyntax_Node()
-}
-
-func (d *decoder) decharnessUse() (v check.Codec_harnessUse) {
-	d.decFieldsharnessUse(&v)
-	return v
-}
-
-func (d *decoder) decPtrharnessUse() *check.Codec_harnessUse {
-	x, fresh := d.ref()
-	if !fresh {
-		if x == nil {
-			return nil
-		}
-		return x.(*check.Codec_harnessUse)
-	}
-	v := new(check.Codec_harnessUse)
-	d.add(v)
-	d.decFieldsharnessUse(v)
 	return v
 }
 
