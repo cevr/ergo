@@ -72,7 +72,7 @@
   # Your permit | # Filing your permit | The office answers in a moment.
   # State machine inspector | Stage: Filing | log{20: Review -> Filing on File …20}
 > stats
-stats: 3 insert, 12 remove, 3 set; ran 83 nodes, kept 67; groups ran 1, kept 59; visits 17
+stats: 3 insert, 12 remove, 3 set
 > wait 999
   # Your permit | # Filing your permit | The office answers in a moment.
   # State machine inspector | Stage: Filing | log{20: Review -> Filing on File …20}

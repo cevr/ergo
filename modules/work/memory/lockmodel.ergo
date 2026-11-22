@@ -122,7 +122,7 @@ law LockIsTheManifests(base Map[int, int], ours Map[int, int], theirs Map[int, i
 	let pm = NewPackageManager(disk)
 	let trees = NewCloner()
 	let lock = NewLock()
-	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: disk, Writes: disk, Runner: pm, Clock: time.NewManual(1000)}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: pm, Clock: time.NewManual(1000)}
 	let home = work.Home(theBase, "")
 	let tool = work.NewTool(theBase, home, "/data", p, "/")
 	let c = work.Config{..work.EmptyConfig(), Classes: work.PresetLines([]work.ClassLine{}, []string{"bun.lock"})}

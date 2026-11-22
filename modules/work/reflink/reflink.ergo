@@ -40,6 +40,10 @@ func Has(c Cloner, root string) bool { system.Has(c.trees, root) }
 
 func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try system.Move(c.trees, "reflink", from, to) }
 
+func Placeable(c Cloner, staging string, home string) fails work.NotSameVolume | work.CloneFailed { try system.Placeable(c.trees, "reflink", staging, home) }
+
+func Place(c Cloner, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed { try system.Place(c.trees, "reflink", from, to) }
+
 func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed { try system.Discard(c.trees, "reflink", root) }
 
 // Usage is btrfs's count of shared extents; on another file system with
