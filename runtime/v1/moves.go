@@ -29,6 +29,7 @@ var movesOnly = sync.OnceValue(func() map[string]bool {
 		"After":          true, // timeout.After: the body's result moves out
 		"TaskExit":       true, // task.ExitOf's wait: consumes the Task, leaves its value in it
 		"TaskValue":      true, // task.ExitOf's value: moves out once, the Task keeps none
+		"TaskReason":     true, // task.ExitOf's defect text: reads a string, moves nothing
 	}
 })
 

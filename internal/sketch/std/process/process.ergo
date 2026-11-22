@@ -242,15 +242,22 @@ func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler {
 func small(k int) int { ((k % 4) + 4) % 4 }
 
 // timed runs play on a time.Manual in a task, and moves the clock a
-// millisecond at a time while that task, or one below it, sleeps on it:
-// time is the input. Advance returns once every other task waits again,
-// so each step sees every sleep the last one led to.
+// millisecond at a time until that task has played: time is the input.
+// Advance returns once every other task waits again, so each step sees
+// every sleep the last one led to.
 func timed(play own func(on Scheduler) Report needs Runner) Report needs Runner {
 	let m = time.NewManual(0)
+	let played = queue.New[int](1)
 	with context { Scheduler: m } {
-		let p = task.Go() { play(m) }
+		let p = task.Go() {
+			let r = play(m)
+			played.Push(1) catch {
+			case queue.Closed:
+			}
+			r
+		}
 		m.Advance(0ns)
-		for time.Asleep(m, p) {
+		for played.Len() == 0 {
 			m.Advance(1ms)
 		}
 		p.Wait()
