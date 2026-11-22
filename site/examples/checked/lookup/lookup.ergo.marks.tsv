@@ -1,0 +1,21 @@
+line	col	end	class	text
+3	1	30	failure	type NotFound { Name string }
+6	1	16	service	type Resolver {
+7	2	29	service	Resolve(name string) Answer
+7	30	44	failure	fails NotFound
+10	2	29	contract	law Answered(name string) {
+11	3	37	contract	let answer = Resolve(name) catch {
+12	3	17	contract	case NotFound:
+13	4	15	contract	return true
+14	3	4	contract	}
+15	3	43	contract	answer.Name == name && answer.Addr != ""
+16	2	4	contract	},
+17	1	2	service	}
+19	33	65	failure	fails NotFound | timeout.Expired
+19	66	92	service	needs Resolver | Scheduler
+20	2	19	time	timeout.After(2s)
+23	34	60	service	needs Resolver | Scheduler
+24	28	35	handling	catch {
+25	2	16	handling	case NotFound:
+27	2	23	handling	case timeout.Expired:
+29	2	3	handling	}
