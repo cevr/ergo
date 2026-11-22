@@ -230,7 +230,7 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 				in.notError = y
 				return false
 			}
-			ar = in.rowOf(y)
+			ar = newRow().with(in.c.types, y)
 		default:
 			return false
 		}
@@ -370,7 +370,7 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 			// `bad func(f F) E`): the argument's row binds it, as a row
 			// after fails does. An error type is the row of itself, and
 			// a row value its row; the instance is assigned afterwards.
-			yrow := in.rowOf(y)
+			yrow := newRow().with(in.c.types, y)
 			if ok && yu.Row != nil {
 				yrow = yu.Row
 			}
@@ -391,23 +391,6 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		return ok && in.nify(x.State, ym.State, emode, depth) && in.nify(x.Signal, ym.Signal, emode, depth)
 	}
 	return in.c.identical(x, y)
-}
-
-// rowOf is the row the error type y stands for where a row parameter's
-// value type meets it: a union that names a row is the set of its
-// variants (types.md, Error types 4; Generics 8: "a named row stands for
-// its variants"), any other error type the row of itself. So
-// func(e LookFail) binds E to NotFound | Busy for LookFail = NotFound |
-// Busy, the row a spelled func(e NotFound | Busy) binds.
-func (in *inferer) rowOf(y Type) *Row {
-	r := newRow()
-	if !in.c.isErrorValue(y) {
-		return r.with(in.c.types, y)
-	}
-	for _, m := range rowMembers(y) {
-		r = r.with(in.c.types, m)
-	}
-	return r
 }
 
 // unionOf reports whether u is a named union and v one of its variants
