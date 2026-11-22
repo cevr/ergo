@@ -32,10 +32,10 @@ type Neg {}
 
 `
 	cases := []struct{ name, decls, unrun string }{
-		{"failing Make", "type Box { n int } implements Counter\n\nfunc Next(b Box) int { b.n + 1 }\n\nfunc Make(n int) Box fails Neg {\n\tif n < 0 {\n\t\treturn Neg{}\n\t}\n\tBox{n: n}\n}\n", "Box is built only by its constructor Make, which fails Neg"},
+		{"failing Make", "type Box { n int } implements Counter\n\nfunc Next(b Box) int { b.n + 1 }\n\nfunc Make(n int) Box fails Neg {\n\tif n < 0 {\n\t\treturn Neg\n\t}\n\tBox{n: n}\n}\n", "Box is built only by its constructor Make, which fails Neg"},
 		{"row-free NewBox", "type Box { n int } implements Counter\n\nfunc Next(b Box) int { b.n + 1 }\n\nfunc NewBox(n int) Box { Box{n: n * n} }\n", ""},
 		{"only a With", "type Box { n int } implements Counter\n\nfunc Next(b Box) int { b.n + 1 }\n\nfunc Bump(b Box) Box { Box{n: b.n + 1} }\n", ""},
-		{"no private field", "type Box { N int } implements Counter\n\nfunc Next(b Box) int { b.N + 1 }\n\nfunc Make(n int) Box fails Neg {\n\tif n < 0 {\n\t\treturn Neg{}\n\t}\n\tBox{N: n}\n}\n", ""},
+		{"no private field", "type Box { N int } implements Counter\n\nfunc Next(b Box) int { b.N + 1 }\n\nfunc Make(n int) Box fails Neg {\n\tif n < 0 {\n\t\treturn Neg\n\t}\n\tBox{N: n}\n}\n", ""},
 	}
 	for _, c := range cases {
 		pkg := checked(t, ops+c.decls+"\nfunc main() {}\n")
