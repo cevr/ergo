@@ -16,47 +16,9 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The decided grammar's own fixtures (#196, D7): testdata/decided holds the
-// preview's Decided blocks, testdata/edge the edge forms, testdata/refuse
-// one old spelling per file. They are copies of the acceptance inputs of
-// the parse-v1 unit.
-const previewPath = "../../../docs/previews/2026-10-28-without-go-syntax.md"
-
-// previewRenames are the later renames of the preview's names: the preview
-// is recorded history and keeps its spelling, so the tests read it through
-// these (196w, docs/previews/2026-11-02-wire-to-context.md).
-var previewRenames = map[string]string{
-	"WireBody": "ContextBody", "WireEntry": "ContextEntry", "WireLit": "ContextLit",
-	"wire": "context",
-}
-
-var previewWord = regexp.MustCompile(`[A-Za-z]+`)
-
-// previewRow is a capability row in the preview's comma spelling. The
-// preview keeps it as recorded; the tests read it in the pipe spelling
-// (196n). Every row of the preview is a declaration's, so its commas are
-// the row's.
-var previewRow = regexp.MustCompile(`\b(needs|provides) [A-Za-z_][A-Za-z0-9_.]*(, [A-Za-z_][A-Za-z0-9_.]*)+`)
-
-// readPreview returns the preview's text with previewRenames and the pipe
-// spelling of rows applied.
-func readPreview(t *testing.T) string {
-	t.Helper()
-	data, err := os.ReadFile(previewPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := previewWord.ReplaceAllStringFunc(string(data), func(w string) string {
-		if r, ok := previewRenames[w]; ok {
-			return r
-		}
-		return w
-	})
-	return previewRow.ReplaceAllStringFunc(text, func(row string) string {
-		return strings.ReplaceAll(row, ", ", " | ")
-	})
-}
-
+// readDir reads one directory of the decided grammar's own fixtures (#196,
+// D7): testdata/decided holds one program per decided form, testdata/edge
+// the edge forms, testdata/refuse one old spelling per file.
 func readDir(t *testing.T, dir string) []sketchtest.Input {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join("testdata", dir, "*.ergo"))
@@ -474,81 +436,12 @@ func TestOldCorpusRefusedOrSame(t *testing.T) {
 	}
 }
 
-// previewDecidedBlocks extracts the go block that follows each **Decided.**
-// paragraph of the preview, with the heading it is under.
-func previewDecidedBlocks(t *testing.T) map[string]string {
-	t.Helper()
-	blocks := map[string]string{}
-	heading := ""
-	lines := strings.Split(readPreview(t), "\n")
-	for i := 0; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "### ") {
-			heading = strings.TrimPrefix(lines[i], "### ")
-		}
-		if !strings.HasPrefix(lines[i], "**Decided.**") {
-			continue
-		}
-		for i++; i < len(lines) && lines[i] != "```go"; i++ {
-			if strings.HasPrefix(lines[i], "### ") || strings.HasPrefix(lines[i], "**") {
-				t.Fatalf("%s: a Decided paragraph without a go block", heading)
-			}
-		}
-		var body []string
-		for i++; i < len(lines) && lines[i] != "```"; i++ {
-			body = append(body, lines[i])
-		}
-		blocks[heading] = strings.Join(body, "\n") + "\n"
-	}
-	return blocks
-}
-
-// commentGap is the run of blanks before a trailing line comment.
-var commentGap = regexp.MustCompile(`[ \t]+//`)
-
-// TestPreviewDecidedBlocksCanonical: every Decided block of the preview
-// parses, and the formatter returns it unchanged up to the alignment of
-// trailing comments (the preview misaligns one comment; D4). The signature
-// block is a list of bodiless lines, not a program, and is checked through
-// its adapted fixture testdata/decided/signatures.ergo.
-func TestPreviewDecidedBlocksCanonical(t *testing.T) {
-	blocks := previewDecidedBlocks(t)
-	if len(blocks) != 13 {
-		t.Fatalf("%d Decided blocks, want 13", len(blocks))
-	}
-	for heading, src := range blocks {
-		if heading == "A signature with failures and services" {
-			continue
-		}
-		out, err := format.Source(src)
-		if err != nil {
-			t.Errorf("%s: %v", heading, err)
-			continue
-		}
-		if commentGap.ReplaceAllString(out, " //") != commentGap.ReplaceAllString(src, " //") {
-			t.Errorf("%s: not canonical:\n%s", heading, out)
-		}
-	}
-}
-
-// laterProductions are the productions grammar.md gained after the
-// preview's decided sketch: PatternCore (D1) and ArrayType (196y, the
-// fixed arrays that decisions.md 2026-11-02 (c) brought back) and CapName
-// (L4, generic capabilities: a capability name takes type arguments) and
-// Implements (audit CSX, declared implementation, owner q167). #197's
-// TakesClause left the grammar for the mode word own (EXM1, q168).
-// AltPattern is FK7a's nested alternatives (orpattern.go).
-var laterProductions = []string{"PatternCore", "ArrayType", "CapName", "Implements", "AltPattern"}
-
-// splitProductions are the sketch's productions that grammar.md states
-// under other names: PointerType became the borrow written as the mode
-// word mut (MutType) and Go's pointer, written only in a Go binding
-// (GoPointerType) (MODES-2, q169).
-var splitProductions = map[string][]string{"PointerType": {"MutType", "GoPointerType"}}
-
-// TestGrammarStatesTheSketch: the syntactic productions of
-// docs/spec/grammar.md are the 62 of the preview's decided sketch plus
-// laterProductions, so the specification and the sketch cannot drift.
-func TestGrammarStatesTheSketch(t *testing.T) {
+// TestGrammarStatesTheFixtures: the syntactic productions of
+// docs/spec/grammar.md are exactly the names of the grammar fixtures
+// (sketchtest.GrammarFixtures, one or more per production; a lowercase
+// name is a lexical form, not a production), so the specification and the
+// parser's inputs cannot drift.
+func TestGrammarStatesTheFixtures(t *testing.T) {
 	data, err := os.ReadFile("../../../docs/spec/grammar.md")
 	if err != nil {
 		t.Fatal(err)
@@ -564,56 +457,27 @@ func TestGrammarStatesTheSketch(t *testing.T) {
 			spec[m[1]] = true
 		}
 	}
-	var sketch []string
-	for _, name := range append(sketchProductions(t), laterProductions...) {
-		if parts, ok := splitProductions[name]; ok {
-			sketch = append(sketch, parts...)
-			continue
+	fixtures := map[string]bool{}
+	for _, g := range sketchtest.GrammarFixtures {
+		if g.Name[0] >= 'A' && g.Name[0] <= 'Z' {
+			fixtures[g.Name] = true
 		}
-		sketch = append(sketch, name)
 	}
-	for _, name := range sketch {
+	for name := range fixtures {
 		if !spec[name] {
-			t.Errorf("grammar.md has no production %s", name)
+			t.Errorf("a grammar fixture is named %s, which grammar.md does not state", name)
 		}
-		delete(spec, name)
 	}
 	for name := range spec {
-		t.Errorf("grammar.md states %s, which the decided sketch does not have", name)
+		if !fixtures[name] {
+			t.Errorf("grammar.md states %s, which has no grammar fixture", name)
+		}
 	}
 }
 
-// sketchProductions returns the production names of the preview's decided
-// sketch, in order.
-func sketchProductions(t *testing.T) []string {
-	t.Helper()
-	text := readPreview(t)
-	start := strings.Index(text, "<!-- count: grammar/decided -->")
-	if start < 0 {
-		t.Fatal("no decided sketch in the preview")
-	}
-	text = text[start:]
-	open := strings.Index(text, "```ebnf\n")
-	close := strings.Index(text[open+8:], "\n```")
-	production := regexp.MustCompile(`(?m)^([A-Za-z]+) *=`)
-	var names []string
-	for _, m := range production.FindAllStringSubmatch(text[open+8:open+8+close], -1) {
-		names = append(names, m[1])
-	}
-	if len(names) != 62 {
-		t.Fatalf("%d productions in the decided sketch, want 62", len(names))
-	}
-	return names
-}
-
-// TestGrammarFixtures: every production of the preview's decided sketch,
-// and each of laterProductions, has a grammar fixture named after it; each fixture
-// parses and is canonical.
+// TestGrammarFixtures: every grammar fixture parses and is canonical.
 func TestGrammarFixtures(t *testing.T) {
-	names := append(sketchProductions(t), laterProductions...)
-	have := map[string]bool{}
 	for _, g := range sketchtest.GrammarFixtures {
-		have[g.Name] = true
 		out, err := format.Source(g.Src)
 		if err != nil {
 			t.Errorf("%s: %v", g.Name, err)
@@ -621,11 +485,6 @@ func TestGrammarFixtures(t *testing.T) {
 		}
 		if out != g.Src {
 			t.Errorf("%s: not canonical:\n%s", g.Name, out)
-		}
-	}
-	for _, name := range names {
-		if !have[name] {
-			t.Errorf("production %s has no grammar fixture", name)
 		}
 	}
 }
