@@ -885,6 +885,8 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
 		case v1.Graph:
 			out = append(out, b.graphArg(body, c, x, p))
+		case v1.ResultRelease:
+			out = append(out, b.resultRelease(x, p)) // ir_own.go
 		default:
 			irNo("std call with hidden argument %s", h)
 		}

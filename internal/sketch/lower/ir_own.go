@@ -574,7 +574,7 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 	// Close method takes them from its receiver.
 	var targs []string
 	if len(cl.Func.Sig.TParams) > 0 {
-		args := closeTypeArgs(cl, b.own.site)
+		args := closeTypeArgs(cl, b.slotSite(s))
 		for i, tp := range cl.Func.Sig.TParams {
 			if b.l.goParam(tp) {
 				targs = append(targs, b.spelling(b.fc.goArg(tp, args[i])))
@@ -584,6 +584,58 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 	return &irExpr{K: "call", Pos: p, Name: fd.name, T: strings.Join(targs, ", "), Args: []*irExpr{e, recv}}, true
 }
 
+// slotSite is the site a slot's release reads its package by: the static
+// frame's, or, outside one (a result release, resultRelease), the slot's
+// own.
+func (b *irBuilder) slotSite(s irSlot) syntax.Node {
+	if b.own != nil {
+		return b.own.site
+	}
+	return s.site
+}
+
+// resultRelease is the hidden release argument of the std call x
+// (v1.ResultRelease, a v1.Releaser of the call's value type): nil when the
+// value owns nothing (Info.ResultDrops), else a literal that releases a
+// value the call dropped on the task it is given, on a copy of the
+// caller's environment that holds that task, through the value's checked
+// Close, as the emitter's resultRelease writes it with providerRelease. A
+// generated release of the value's parts keeps the source body.
+func (b *irBuilder) resultRelease(x *syntax.CallExpr, p irPos) *irExpr {
+	t := b.l.info.Types[x]
+	if t == nil {
+		irNo("std call with hidden argument release")
+	}
+	vt := b.goType(t, x)
+	rel := b.spelling(b.l.rt() + ".Releaser[" + vt + "]")
+	d := b.l.info.ResultDrops[x]
+	if d == nil {
+		return &irExpr{K: "nil", Pos: p, T: rel}
+	}
+	if d.Glue() || d.Close == nil {
+		irNo("std call with hidden argument release") // the generated release (glueOn)
+	}
+	tt := b.spelling("*" + b.l.taskPkg() + ".Task")
+	task, v := b.temp("t", tt, p), b.temp("v", vt, p)
+	cp := b.temp("e", b.envValue(), p)
+	ep := b.temp("ep", b.envPointer(), p)
+	pv := b.temp("pv", "*"+vt, p)
+	call, ok := b.closeCall(irSlot{t: d.Type, d: d, site: x}, ep, pv, p)
+	if !ok {
+		irNo("std call with hidden argument release")
+	}
+	end := p
+	lit := &irExpr{K: "func", Pos: p, T: "func(" + tt + ", " + vt + ")", Params: []int{task, v}, End: &end, Body: []*irStmt{
+		// childEnv: e := *env; e.task = t; the release runs with &e.
+		{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: b.env}}},
+		{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: task}},
+		{K: "def", Pos: p, Local: ep, X: b.addrOf(cp, p)},
+		{K: "def", Pos: p, Local: pv, X: b.addrOf(v, p)},
+		{K: "expr", Pos: p, X: call},
+	}}
+	return &irExpr{K: "conv", Pos: p, T: rel, X: lit} // the body's parameter type
+}
+
 // stdCloseCall is the release of a value of a std operation type at slot
 // (fs.Mapped): its runtime method, as the emitter's opCall writes it
 // through runtimeCall, for a Close that takes nothing and returns nothing
@@ -591,7 +643,7 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 // Go-text release.
 func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (*irExpr, bool) {
 	n, ok := cl.Receiver.(*check.Named)
-	if !ok || !b.l.runtimeNamed(n, b.own.site) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
+	if !ok || !b.l.runtimeNamed(n, b.slotSite(s)) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
 		return nil, false
 	}
 	name := check.RuntimeTypeName(n) + "." + cl.Op.Name
