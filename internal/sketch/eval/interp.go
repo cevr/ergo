@@ -12,7 +12,11 @@ import (
 // interp is one evaluation request: its budget and the work it used.
 type interp struct {
 	budget Budget
-	root   *check.Package
+	// atInt are the type parameters of the law a licence run runs, each
+	// read at int wherever it occurs (in a Maybe[T], a Tree[T], a field):
+	// types.md Laws 14, rule 5 (LICENCE-ADT).
+	atInt map[*check.TypeParam]bool
+	root  *check.Package
 	// fold is set in a build-time fold (FoldValue, FoldTemplate): std
 	// build's InFold, which a law evaluated at check time sees false, as
 	// a built program does.

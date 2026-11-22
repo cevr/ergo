@@ -202,7 +202,7 @@ var shortcuts = []shortcut{
 		// reference.
 		name:       "mono-instance",
 		class:      valueClass,
-		admission:  "monoAt",
+		admission:  "monoTaken",
 		reference:  "genericLowering=stencil",
 		agreement:  "TestGenericLoweringsAgree",
 		mutant:     "mono-shares-unequal-bodies",
