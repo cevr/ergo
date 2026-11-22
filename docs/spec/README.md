@@ -119,50 +119,50 @@ The size of the language, counted from the parser and this specification by `scr
 | Productions (grammar.md) | 87 |  |
 | Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
 | Diagnostic rule bullets (diagnostics.md) | 77 |  |
-| Spec words (docs/spec) | 393631 |  |
+| Spec words (docs/spec) | 395457 |  |
 
-Uses count tokens, so neither a comment nor a string, in the 1562 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+Uses count tokens, so neither a comment nor a string, in the 1565 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
 
 | Form | Kind | Uses | Names | Previous | Note |
 | --- | --- | --- | --- | --- | --- |
-| `break` | keyword | 174 |  | 171 |  |
-| `case` | keyword | 21350 |  | 20805 |  |
-| `continue` | keyword | 578 |  | 568 |  |
-| `else` | keyword | 3480 |  | 3294 |  |
-| `for` | keyword | 6218 |  | 6030 |  |
-| `func` | keyword | 18804 |  | 18435 |  |
-| `if` | keyword | 12185 |  | 11691 |  |
-| `import` | keyword | 4347 |  | 4298 |  |
-| `return` | keyword | 10584 |  | 10260 |  |
-| `type` | keyword | 5422 |  | 5338 |  |
-| `try` | keyword | 4275 |  | 4190 |  |
-| `catch` | keyword | 3550 |  | 3456 |  |
-| `needs` | keyword | 5977 |  | 5968 |  |
+| `break` | keyword | 174 |  | 174 |  |
+| `case` | keyword | 21357 |  | 21350 |  |
+| `continue` | keyword | 578 |  | 578 |  |
+| `else` | keyword | 3484 |  | 3480 |  |
+| `for` | keyword | 6218 |  | 6218 |  |
+| `func` | keyword | 18817 |  | 18804 |  |
+| `if` | keyword | 12192 |  | 12185 |  |
+| `import` | keyword | 4351 |  | 4347 |  |
+| `return` | keyword | 10592 |  | 10584 |  |
+| `type` | keyword | 5426 |  | 5422 |  |
+| `try` | keyword | 4276 |  | 4275 |  |
+| `catch` | keyword | 3557 |  | 3550 |  |
+| `needs` | keyword | 5964 |  | 5977 |  |
 | `provides` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `context` | keyword | 714 |  | 696 |  |
+| `context` | keyword | 714 |  | 714 |  |
 | `machine` | keyword | 106 |  | 106 |  |
-| `let` | keyword | 28050 |  | 27169 |  |
-| `mut` | keyword | 8288 |  | 7952 |  |
-| `in` | keyword | 5486 |  | 5315 |  |
-| `match` | keyword | 4982 |  | 4833 |  |
+| `let` | keyword | 28063 |  | 28050 |  |
+| `mut` | keyword | 8291 |  | 8288 |  |
+| `in` | keyword | 5486 |  | 5486 |  |
+| `match` | keyword | 4982 |  | 4982 |  |
 | `escaping` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `fails` | keyword | 4518 |  | 4484 |  |
-| `test` | keyword | 607 |  | 609 |  |
-| `law` | keyword | 2128 |  | 2082 |  |
-| `assert` | keyword | 1700 |  | 1721 |  |
-| `extern` | keyword | 9724 |  | 9730 |  |
-| `with` | keyword | 705 |  | 689 |  |
+| `fails` | keyword | 4523 |  | 4518 |  |
+| `test` | keyword | 607 |  | 607 |  |
+| `law` | keyword | 2131 |  | 2128 |  |
+| `assert` | keyword | 1700 |  | 1700 |  |
+| `extern` | keyword | 9729 |  | 9724 |  |
+| `with` | keyword | 705 |  | 705 |  |
 | `takes` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `as` | keyword | 8432 |  | 8217 |  |
+| `as` | keyword | 8432 |  | 8432 |  |
 | `after` | word | 21 | 466 | 21 |  |
-| `always` | word | 8 | 9 | 7 | for the owner: delete or teach |
+| `always` | word | 8 | 9 | 8 | for the owner: delete or teach |
 | `derive` | word | 2 | 0 | 2 | for the owner: delete or teach |
 | `entry` | word | 18 | 218 | 18 |  |
 | `exit` | word | 2 | 51 | 2 | for the owner: delete or teach |
-| `implements` | word | 376 | 0 | 373 |  |
+| `implements` | word | 376 | 0 | 376 |  |
 | `initial` | word | 106 | 20 | 106 |  |
 | `never` | word | 1 | 4 | 1 | for the owner: delete or teach |
-| `own` | word | 1460 | 52 | 1464 |  |
+| `own` | word | 1460 | 52 | 1460 |  |
 | `path` | word | 14 | 1843 | 14 |  |
 | `pure` | word | 3 | 6 | 3 | for the owner: delete or teach |
 | `reaches` | word | 7 | 19 | 7 | for the owner: delete or teach |
