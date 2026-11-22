@@ -129,7 +129,7 @@ func (b *irBuilder) spawnLocalType(i int) (string, bool) {
 		return t, true
 	}
 	if i == b.env && b.env >= 0 {
-		return "*" + b.l.env(), true
+		return b.envPointer(), true
 	}
 	if !b.params[i] || b.ops == nil || b.ops.f == nil || b.ops.f.Decl == nil || b.ops.f.Decl.Recv != nil {
 		return "", false

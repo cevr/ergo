@@ -116,7 +116,7 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	}
 	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	p := b.pos(arg, arg.Pos())
-	env := b.l.env()
+	env := b.envValue()
 	// env2 := *env; envP := &env2: the copy the block runs against (the
 	// emitter's `env2 := *env` and `(&env2)`); a named context's builder
 	// builds its providers into it, an inline or a local context's are
@@ -225,7 +225,7 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	}
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
-		env := &irExpr{K: "zero", Pos: p, T: "*" + l.env()}
+		env := &irExpr{K: "zero", Pos: p, T: b.envPointer()}
 		if b.env >= 0 {
 			env = &irExpr{K: "local", Pos: p, I: b.env}
 		}

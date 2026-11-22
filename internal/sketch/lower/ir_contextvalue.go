@@ -25,9 +25,9 @@ func (b *irBuilder) contextValue(x syntax.Expr, w *check.With, p irPos) *irExpr 
 	if len(w.Contexts) == 0 {
 		irNo("context value")
 	}
-	env := b.l.env()
+	env, envp := b.envValue(), b.envPointer()
 	snap := b.temp("ctx", env, p)
-	ptr := b.temp("ctxp", "*"+env, p)
+	ptr := b.temp("ctxp", envp, p)
 	// The snapshot copies the environment; a pure function binds none, so
 	// its providers see only what the snapshot binds (the emitter's
 	// `var snap Env`).
@@ -50,7 +50,7 @@ func (b *irBuilder) contextValue(x syntax.Expr, w *check.With, p irPos) *irExpr 
 		build := b.l.contextBuilder(w, x)
 		pre = append(pre, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: build, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}})
 	}
-	e := b.temp("e", "*"+env, p)
+	e := b.temp("e", envp, p)
 	lit := &irExpr{K: "func", Pos: p, T: b.sigType(&check.Signature{}, x), Params: []int{e}}
 	for _, c := range w.Discharged {
 		n, ok := c.(*check.Named)
@@ -75,9 +75,9 @@ func (b *irBuilder) contextValue(x syntax.Expr, w *check.With, p irPos) *irExpr 
 func (b *irBuilder) installWith(x *syntax.CallExpr, i int, w *check.With, arg syntax.Expr, ret bool, to *yieldTo) []*irStmt {
 	pre, v := b.value(arg)
 	p := past(b.pos(arg, arg.Pos()), pre)
-	env := b.l.env()
+	env, envp := b.envValue(), b.envPointer()
 	cp := b.temp("env", env, p)
-	ptr := b.temp("envp", "*"+env, p)
+	ptr := b.temp("envp", envp, p)
 	unit, errv := b.temp("unit", "struct{}", p), b.temp("err", "error", p)
 	out := append(pre,
 		&irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: b.env}}},
