@@ -6,11 +6,9 @@
 # the excerpt is text of one line of the file that contains the match; `*` covers the
 # whole file.
 
-# skipped: the history list of the 196n spec (docs/research/ef-migrate/*.ergo is parsed
-# in the current syntax and stays checked), the old-syntax parser and its inputs
+# skipped: the history list of the 196n spec, the old-syntax parser and its inputs
 !docs/receipts/
 !docs/previews/2026-
-!plans/
 !docs/research/
 !prototypes/sketch9/
 !internal/migrate196/oldsyntax/
@@ -31,11 +29,9 @@ internal/sketch/lower/json_value_test.go	It needs json, strconv and strings.
 internal/sketch/lower/ir_methodvalue.go	receiver that needs evaluating, outside a value position
 # A parameter list: the comma ends the parameter `body func() fails F needs R`.
 internal/sketch/std/ui/track.ergo	fails F needs R, at CallSite
-CHANGELOG.md	a module function that provides it, or
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/rows.md	the entry that provides it, and
-docs/specs/actors.md	No guarantee needs syntax, so
 internal/sketch/check/context.go	written needs row, the
 internal/sketch/check/context.go	// the needs row, then
 internal/sketch/check/contextsum.go	in needs rows, and

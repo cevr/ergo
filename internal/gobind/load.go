@@ -51,7 +51,7 @@ func (m *goModule) stamp() string {
 
 // Load type-checks the Go packages that patterns name, from the export
 // data `go list -deps -export` writes, for one platform, as the retired .ef
-// compiler did (docs/prototype.md). dir is where go list runs (the module
+// compiler did. dir is where go list runs (the module
 // of a local or third-party package); env is the go command's environment,
 // to which Load adds GOOS, GOARCH, CGO_ENABLED=0 and -mod=readonly, so go
 // list never edits go.mod or go.sum. It runs no Go process but go list,

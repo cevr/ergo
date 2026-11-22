@@ -1,0 +1,29 @@
+line	col	end	class	text
+15	1	41	failure	type NotFoundError struct{ Name string }
+17	1	70	failure	func (e *NotFoundError) Error() string { return "no host " + e.Name }
+19	1	26	service	type Resolver interface {
+20	2	9	service	Resolve
+20	10	29	time	ctx context.Context
+20	53	58	failure	error
+21	1	2	service	}
+23	13	32	time	ctx context.Context
+23	34	44	service	r Resolver
+23	68	73	failure	error
+24	2	56	time	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+25	2	16	cleanup	defer cancel()
+26	9	10	supply	r
+26	19	22	time	ctx
+29	14	33	time	ctx context.Context
+29	35	45	service	r Resolver
+29	69	74	failure	error
+30	10	13	handling	err
+30	24	27	time	ctx
+30	29	30	supply	r
+31	2	29	handling	var notFound *NotFoundError
+32	2	10	handling	switch {
+33	2	18	handling	case err == nil:
+35	2	33	handling	case errors.As(err, &notFound):
+37	2	48	handling	case errors.Is(err, context.DeadlineExceeded):
+39	2	10	handling	default:
+40	3	17	handling	return "", err
+41	2	3	handling	}

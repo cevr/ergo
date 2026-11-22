@@ -13,6 +13,7 @@ abi	calls.go:lowerer.hostImportNames	the Go import list: std time is imported by
 abi	decls.go:isPreludeType	the runtime type representation of a prelude type its callers name (Range, Seq, Decision's variants; Option's callers are in prelude-unions.txt)
 abi	decls.go:lowerer.intrinsic	the prelude collection wrappers Append and Put bind runtime/v1 bodies
 abi	gocall.go:funcCtx.goErrorCall	go.Is and go.As bind v1.GoIs and v1.GoAs (IG5)
+abi	ir_golib.go:irBuilder.goBuiltin	the IR's go.New, go.Zero, go.Is and go.As, by the call's name, as goErrorCall's; held unlisted on main until PRIVILEGE-KEYS listed it (SQ STD-READS-OUT removes it)
 abi	library.go:hostProvides	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
 abi	module.go:lowerer.hostFields	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
 abi	types.go:lowerer.foreignOwner	the std package that owns a runtime type representation (prelude types are the program's)

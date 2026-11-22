@@ -9,6 +9,10 @@
 //				-tree prints the screen after it, a JSON line a node (ui.TreeLine),
 //				and -png writes its picture to p
 //	todo-gui -headless < s   play the script s through the window's input
+//	todo-gui -headless -drive ADDR  play the lines one connection to ADDR sends
+//	ERGO_DRIVE=ADDR todo-gui open the window and play, first, the lines one
+//				connection to ADDR sends (on a phone: the property
+//				debug.ergo.drive, screen.DriveAddr)
 
 import actor
 import ergo.local/prototype/examples/todogui/script
@@ -18,12 +22,14 @@ import ergo.local/prototype/hosts/mygo/desktop
 import fs
 import go ergo.local/prototype/hosts/mygo/screen
 import io
+import net
 import os
 import time
 import ui
 
 func main() fails os.Exit needs Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	let drive = screen.DriveAddr()
 	if len(args) > 0 && args[0] == "-headless" {
 		try headless(args)
 		return
@@ -34,6 +40,18 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 			return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
 		}
 		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		if drive != "" {
+			let ln = try listen(drive)
+			desktop.Drive(w, a, view.View, ln, parse, todo.Summary) catch {
+			case ui.Closed:
+			case actor.Stopped:
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+			case go.Error as e:
+				return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
+			}
+			return
+		}
 		desktop.Run(w, a, view.View) catch {
 		case ui.Closed:
 		case actor.Stopped:
@@ -43,6 +61,53 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 			return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
 		}
 	}
+}
+
+// listen listens on addr for the script a test drives the window with
+// (desktop.Drive, desktop.Answer).
+func listen(addr string) net.Listener fails os.Exit needs Ambient {
+	net.Listen(net.NewHost(), addr) catch {
+	case net.ListenFailed as f:
+		return os.Exit{Code: 1, Message: "todo-gui: cannot listen on \(f.Addr): \(f.Reason)"}
+	}
+}
+
+// parse is the steps of one script line; a line that is no step has none.
+func parse(line string) []ui.Act {
+	script.Parse(line) catch {
+	case script.BadLine:
+		return []ui.Act{}
+	}
+}
+
+// answer plays the script lines one connection to addr sends through a
+// window with no screen, and answers each with the list after each step
+// (desktop.Answer). It prints the address it listens on first.
+func answer(addr string) fails os.Exit needs Ambient | go.Foreign {
+	let ln = try listen(addr)
+	io.NewHost().Println("listening \(ln.Addr())")
+	let c = ln.Accept() catch {
+	case net.Failed as f:
+		return os.Exit{Code: 1, Message: "todo-gui: \(f.Reason)"}
+	}
+	with context { Scheduler: time.NewManual(0) } {
+		let w = screen.Headless(420, 520) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "todo-gui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(todo.Todo{}, 8, func(_ todo.List) {})
+		let mut d = desktop.New(w, a, view.View, 64) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+		}
+		desktop.Answer(&d, c, parse, todo.Summary) catch {
+		case ui.Closed, actor.Stopped:
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-gui: \(b.Why)"}
+		}
+	}
+	c.Close()
+	ln.Close()
 }
 
 // headless plays the script on standard input through a window with no
@@ -60,6 +125,9 @@ func headless(args []string) fails os.Exit needs Ambient | go.Foreign {
 			file = args[i+1]
 		} else if a == "-png" && i+1 < len(args) {
 			picture = args[i+1]
+		} else if a == "-drive" && i+1 < len(args) {
+			try answer(args[i+1])
+			return
 		}
 	}
 	if file != "" {
