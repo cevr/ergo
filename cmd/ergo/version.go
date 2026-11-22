@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"ergo.local/prototype/internal/ergoversion"
 	"ergo.local/prototype/internal/sketch/build"
@@ -37,6 +38,12 @@ It downloads nothing. --json prints the same facts as one JSON object,
 with "features": what this ergo has that a tool driving it may require
 (versionFeatures), since a version orders builds by time, and a build of
 another branch may be newer and lack them.
+
+When the environment holds a GO*, CGO_* or ERGO_* variable that the warm
+answers do not classify as changing an answer or only naming a location
+(a cache, a temporary folder), a last line lists it ("warmUnclassified"
+in --json): every warm answer is keyed by its value until it is
+classified.
 Exit status: 0, or 2 on an invalid invocation.
 `
 
@@ -58,6 +65,10 @@ type versionReport struct {
 	// IRCompiler is the shared IR compiler's line: present or absent (and
 	// why), its key and its entry (irCompilerLine).
 	IRCompiler string `json:"irCompiler"`
+	// WarmUnclassified are the environment's GO*, CGO_* and ERGO_*
+	// variables the warm key holds for want of a class
+	// (sketchfront.WarmUnclassified).
+	WarmUnclassified []string `json:"warmUnclassified,omitempty"`
 }
 
 // versionFeatures are the abilities a tool that drives ergo checks for
@@ -84,7 +95,7 @@ func versionCommand(args []string) error {
 		return err
 	}
 	t, installed := toolchain.Status(os.Getenv, root)
-	report := versionReport{Version: ergoversion.Current(), Go: toolchain.Version, Toolchain: t.Mode, Command: t.Go, Installed: installed, Features: versionFeatures, IRCompiler: irCompilerLine(t, installed, root)}
+	report := versionReport{Version: ergoversion.Current(), Go: toolchain.Version, Toolchain: t.Mode, Command: t.Go, Installed: installed, Features: versionFeatures, IRCompiler: irCompilerLine(t, installed, root), WarmUnclassified: sketchfront.WarmUnclassified()}
 	if json {
 		return printJSON(report)
 	}
@@ -100,6 +111,9 @@ func versionCommand(args []string) error {
 		fmt.Printf("toolchain: %s (ERGO_GO)\n", t.Go)
 	}
 	fmt.Println(report.IRCompiler)
+	if len(report.WarmUnclassified) > 0 {
+		fmt.Printf("warm answers keyed by unclassified variables: %s\n", strings.Join(report.WarmUnclassified, " "))
+	}
 	return nil
 }
 
