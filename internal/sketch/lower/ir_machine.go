@@ -327,18 +327,12 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 		timeout := recordFieldType(some, "Value")
 		inType := recordFieldType(timeout, "In")
 		st := sig.Params[0].Type
-		gst := b.goType(st, site)
-		// rtRef: the defect writes the state with rt.TypedText, so main.go
-		// imports the gofmt leaf (v1.NeedsHostText).
-		b.keepImport("var _ = " + b.l.rtRef(timerPanic) + "[" + gst + "]")
+		gst := b.timerImport(st, site)
 		out = append(out, b.machineSome(ot, o, p, site, func(w int) []*irStmt {
 			in := func() *irExpr {
 				return b.recordField(timeout, b.recordField(some, &irExpr{K: "local", Pos: p, I: w}, "Value", site), "In", site)
 			}
-			cond := &irExpr{K: "bin", Pos: p, Op: "<=", X: in(), Y: b.constant(inType, constant.MakeInt64(0), nil, p)}
-			raise := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: timerPanic, V: gst, Args: []*irExpr{
-				irStringConst(p, "string", n.Obj.Name), {K: "local", Pos: p, I: ps[0]}, in()}}
-			return []*irStmt{{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "expr", Pos: p, X: raise}}}}
+			return []*irStmt{b.timerGuard(n, gst, ps[0], in, inType, p)}
 		}))
 		return append(out, &irStmt{K: "ret", Pos: p, X: &irExpr{K: "local", Pos: p, I: o}})
 	})
@@ -384,16 +378,13 @@ func (b *irBuilder) everyAfter(field *check.Signature, after *check.Func, n *che
 	valueName, _ := onlyField(some) // ir_intrinsic.go
 	rsome, _ := optionVariants(rt, site)
 	_, timeout := onlyField(rsome)
-	gst := b.goType(asig.Params[0].Type, site)
-	b.keepImport("var _ = " + b.l.rtRef(timerPanic) + "[" + gst + "]") // as machineAfter's
+	gst := b.timerImport(asig.Params[0].Type, site)
 	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
 	o := b.temp("o", b.goType(ot, site), p)
 	out := []*irStmt{{K: "def", Pos: p, Local: o, X: b.machineCall(after, env, []*irExpr{local(s)}, p, site)}}
 	out = append(out, b.machineSome(ot, o, p, site, func(w int) []*irStmt {
 		ev := func() *irExpr { return b.recordField(some, local(w), valueName, site) }
 		in := func() *irExpr { return b.recordField(every, ev(), inName, site) }
-		cond := &irExpr{K: "bin", Pos: p, Op: "<=", X: in(), Y: b.constant(inType, constant.MakeInt64(0), nil, p)}
-		raise := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: timerPanic, V: gst, Args: []*irExpr{irStringConst(p, "string", n.Obj.Name), local(s), in()}}
 		when := b.temp("at", b.goType(at, site), p)
 		task := func() *irExpr { return &irExpr{K: "field", Pos: p, Name: envTask, X: local(env)} }
 		now := &irExpr{K: "mcall", Pos: p, Name: "Now", X: &irExpr{K: "field", Pos: p, Name: b.l.envField(clock), X: local(env)}, Args: []*irExpr{task()}}
@@ -403,7 +394,7 @@ func (b *irBuilder) everyAfter(field *check.Signature, after *check.Func, n *che
 		tval := &irExpr{K: "lit", Pos: p, T: b.goType(timeout, site), Keys: []string{b.goField(timeout, inName, site), b.goField(timeout, sigName, site)}, Elems: []*irExpr{in(), local(e)}}
 		sval := &irExpr{K: "lit", Pos: p, T: b.goType(rsome, site), Keys: []string{b.goField(rsome, valueName, site)}, Elems: []*irExpr{tval}}
 		return []*irStmt{
-			{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "expr", Pos: p, X: raise}}},
+			b.timerGuard(n, gst, s, in, inType, p),
 			{K: "var", Pos: p, Local: when},
 			{K: "if", Pos: p, End: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "MachineFiringNow", Args: []*irExpr{task()}}, Then: []*irStmt{{K: "set", Pos: p, Local: when, X: now}}},
 			{K: "def2", Pos: p, Local: e, Val: &errv, X: signal},
@@ -417,6 +408,25 @@ func (b *irBuilder) everyAfter(field *check.Signature, after *check.Func, n *che
 // goField is the Go name of the field name of the record type t.
 func (b *irBuilder) goField(t check.Type, name string, site syntax.Node) string {
 	return b.recordField(t, &irExpr{K: "zero"}, name, site).Name
+}
+
+// timerImport is the Go type of the state st, whose defect an After's
+// timerGuard raises: rtRef, because the defect writes the state with
+// rt.TypedText, so main.go imports the gofmt leaf (v1.NeedsHostText).
+func (b *irBuilder) timerImport(st check.Type, site syntax.Node) string {
+	gst := b.goType(st, site)
+	b.keepImport("var _ = " + b.l.rtRef(timerPanic) + "[" + gst + "]")
+	return gst
+}
+
+// timerGuard is `if In <= 0 { panic }` of an After (fs2): the defect
+// names the machine n, the state's local s (its Go type gst) and the
+// duration in() of the type inType.
+func (b *irBuilder) timerGuard(n *check.Named, gst string, s int, in func() *irExpr, inType check.Type, p irPos) *irStmt {
+	cond := &irExpr{K: "bin", Pos: p, Op: "<=", X: in(), Y: b.constant(inType, constant.MakeInt64(0), nil, p)}
+	raise := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: timerPanic, V: gst, Args: []*irExpr{
+		irStringConst(p, "string", n.Obj.Name), {K: "local", Pos: p, I: s}, in()}}
+	return &irStmt{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "expr", Pos: p, X: raise}}}
 }
 
 // timerPanic is the runtime/v1 body an After's IR calls on a timer whose
