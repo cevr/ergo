@@ -486,14 +486,17 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
-	b.loopBody(loop, s, s.Body) // ir_stmt.go
+	ctr := b.loopBody(loop, s, s.Body) // ir_stmt.go
 	// The Range's statements run first, once (rangeStmt).
 	loop.Pos = past(loop.Pos, pre) // ir_match.go
+	// The nest's counter follows the Range's definition (ir_poll.go).
+	head := append(append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}), ctr...)
 	if st := b.loopIdiomIR(s, lp, loop, field); st != nil {
-		// A fill, a move or a collect: the call, guarded, before the loop (ir_loops.go).
-		return append(append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}), st...)
+		// A fill, a move or a collect: the call, guarded, before the loop
+		// (ir_loops.go), which stays in the guard's else and counts there.
+		return append(head, st...)
 	}
-	return append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}, loop)
+	return append(head, loop)
 }
 
 // conversion is the conversion x, T(v), as the emitter writes it: a Go
