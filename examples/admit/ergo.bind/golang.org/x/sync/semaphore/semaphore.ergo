@@ -10,10 +10,10 @@ extern go golang.org/x/sync/semaphore.Weighted type Weighted {}
 
 // ergo:go func (*Weighted).Acquire(ctx context.Context, n int64) error
 // ergo:context
-extern go golang.org/x/sync/semaphore.Weighted.Acquire func (s own *Weighted) Acquire(n int64) fails go.Error needs go.Foreign
+extern go golang.org/x/sync/semaphore.Weighted.Acquire func (s *Weighted) Acquire(n int64) fails go.Error needs go.Foreign
 
 // ergo:go func (*Weighted).Release(n int64)
-extern go golang.org/x/sync/semaphore.Weighted.Release func (s own *Weighted) Release(n int64) needs go.Foreign
+extern go golang.org/x/sync/semaphore.Weighted.Release func (s *Weighted) Release(n int64) needs go.Foreign
 
 // ergo:go func (*Weighted).TryAcquire(n int64) bool
-extern go golang.org/x/sync/semaphore.Weighted.TryAcquire func (s own *Weighted) TryAcquire(n int64) bool needs go.Foreign
+extern go golang.org/x/sync/semaphore.Weighted.TryAcquire func (s *Weighted) TryAcquire(n int64) bool needs go.Foreign

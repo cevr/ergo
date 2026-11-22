@@ -131,6 +131,7 @@
           "runtime:TestWalkTypesFollowsEveryEdge"
         ]
       }
-    }
+    },
+    {"name":"tzdata-imports-binary","origin":"wf10 TZDATA-NOINIT","file":"runtime/tzdata/tzdata.go","from":"\t_ \"embed\"\n\t\"strings\"\n","to":"\t_ \"embed\"\n\t_ \"encoding/binary\"\n\t\"strings\"\n","rule":"runtime/tzdata, which every program that reads a zone links, imports no package with an init root: it reads its big-endian lengths by hand.","killers":["runtime:TestCoreHasNoInitRoots"],"anchor":{"tests":["runtime:TestCoreHasNoInitRoots"]}}
   ]
 }
