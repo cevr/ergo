@@ -513,6 +513,10 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		return in.genRefined(fr, r, t, d, ref)
 	}
 	switch u := t.(type) {
+	case *check.TypeParam:
+		if in.atInt[u] {
+			return in.generate(fr, r, check.Typ[check.Int], d, nil)
+		}
 	case *check.Basic:
 		switch u.Kind {
 		case check.Bool:

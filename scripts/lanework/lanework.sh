@@ -2,24 +2,34 @@
 # lanework.sh: Ergo lanes in copy-on-write workspaces of `work` (ergo work).
 #
 #   lanework.sh create <branch> <base>   make a lane workspace for <branch>; prints its path
-#   lanework.sh env [lane]               print the lane's env (GOCACHE inside the lane)
+#   lanework.sh env [lane]               print the lane's env (the shared GOCACHE, go.mod's Go first on PATH)
 #   lanework.sh push [lane]              hand the branch back to the main checkout
 #   lanework.sh remove <lane> [--force]  move the lane to the work trash (at READY)
-#   lanework.sh warm                     rebuild the warm source's Go cache
+#   lanework.sh warm                     rebuild the shared Go cache from the source
+#   (a lane made before the shared cache: lanework.sh env LANE > LANE/.git/lane.env)
 #
 # The same verbs as the Rift-era lane-rift.sh, over `work`. The source is
 # a base `work init` made; a lane is its workspace named <branch>. <base>
 # is a branch name or a commit of the main checkout. When <branch> already
 # exists in the main checkout, the lane continues it and <base> is only
-# checked to be its ancestor. This script never pushes to origin and never
-# deletes files itself: removal is `work rm` (the trash; `work gc` empties
-# it, and `work gc -idle 48h` collects lanes left idle whose work is held).
+# checked to be its ancestor. This script never pushes to origin and
+# deletes no file but the shared Go cache's oldest entries (trim_gocache):
+# removal is `work rm` (the trash; `work gc` empties it, and
+# `work gc -idle 48h` collects lanes left idle whose work is held).
 set -eu
 
 SRC=${ERGO_WORK_SOURCE:-/workspaces/ergo}
 MAIN=${ERGO_MAIN_CHECKOUT:-/home/exedev/Developer/personal/ergo}
 WORK=${WORK:-work}
 MIN_FREE_GIB=${LANE_MIN_FREE_GIB:-10}
+# The Go build cache every lane shares: one folder on the source's file
+# system, outside the source and every workspace, so no clone or snapshot
+# copies it. Go's cache is safe for concurrent go commands and trims
+# itself by age (a day's trim of entries unused for five days), never by
+# size: lanes kept 319 GB of distinct entries, all used within five days
+# (2026-11-22), so trim_gocache bounds it by size too.
+GOCACHE_SHARED=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
+GOCACHE_MAX_GIB=${LANE_GOCACHE_MAX_GIB:-40}
 
 fail() {
   printf 'lanework: %s\n' "$*" >&2
@@ -59,10 +69,91 @@ lane_of() {
   printf '%s\n' "$found"
 }
 
+# lane_gocache prints the shared GOCACHE and makes its folder. It refuses
+# a cache that is not absolute, or that lies inside the source, the
+# source's workspace storage or the lane at $1 (when given), where a
+# clone or a snapshot would copy it.
+lane_gocache() {
+  case "$GOCACHE_SHARED" in
+    /*) ;;
+    *) fail "the shared Go cache is not an absolute path: '$GOCACHE_SHARED'" ;;
+  esac
+  case "$GOCACHE_SHARED/" in
+    */./* | */../* | *//*) fail "the shared Go cache has a . or .. or empty part: $GOCACHE_SHARED" ;;
+  esac
+  for inside in "$SRC" "${SRC%/*}/.work" "${SRC%/*}/.rifts" ${1:+"$1"}; do
+    case "$GOCACHE_SHARED/" in
+      "$inside"/*) fail "the shared Go cache $GOCACHE_SHARED is inside $inside, which a clone or a snapshot copies" ;;
+    esac
+  done
+  mkdir -p "$GOCACHE_SHARED"
+  printf '%s\n' "$GOCACHE_SHARED"
+}
+
+# trim_gocache bounds the shared cache at $1 by size, on the terms Go's
+# own trim deletes on. Over GOCACHE_MAX_GIB, it deletes the entries
+# unused the longest, in steps of last use from four days down to two
+# hours, until the cache is under the bound. Go marks an entry used at
+# most once an hour, so an entry that a running build looked up is never
+# deleted. Only the cache's entries (the files in its 00 to ff folders)
+# are deleted, and one trim runs at a time; a second one skips.
+trim_gocache() {
+  case "$1" in /?*) ;; *) fail "trim of a cache that is not an absolute path: '$1'" ;; esac
+  limit_kib=$((GOCACHE_MAX_GIB * 1024 * 1024))
+  (
+    flock -n 8 || exit 0
+    for minutes in 5760 2880 1440 720 360 120; do
+      [ "$(du -sk "$1" | cut -f1)" -gt "$limit_kib" ] || break
+      nice -n 19 find "$1" -mindepth 2 -maxdepth 2 -type f -mmin +"$minutes" -delete
+    done
+  ) 8>"$1/trim.lock"
+}
+
 lane_env() {
-  printf 'export GOCACHE=%s/.git/gocache\n' "$1"
+  cache=$(lane_gocache "$1")
+  printf 'export GOCACHE=%s\n' "$cache"
   printf 'export GOMEMLIMIT=6GiB\n'
+  bin=$(lane_go_bin)
+  if [ -n "$bin" ]; then
+    printf 'export PATH=%s:$PATH GOTOOLCHAIN=local\n' "$bin"
+  fi
+  # GOROOT stated: a Go built with -trimpath (a test binary, ergo
+  # itself) has no GOROOT of its own, and go/build's default then finds
+  # no standard library (TRIMPATH-SHARE measure 1).
+  printf 'export GOROOT=%s\n' "$(lane_goroot "$bin")"
   printf 'umask 022\n'
+}
+
+# lane_goroot prints the GOROOT of the lane's Go: the folder above the
+# toolchain's bin, or the go on PATH's when the lane has none.
+lane_goroot() {
+  if [ -n "$1" ]; then
+    printf '%s\n' "${1%/bin}"
+    return
+  fi
+  root=$(go env GOROOT)
+  [ -n "$root" ] || fail 'go env GOROOT is empty'
+  printf '%s\n' "$root"
+}
+
+# lane_go_bin prints the folder of the Go the source's go.mod names on
+# its toolchain line, so a lane builds with it first on its PATH: by
+# default the module cache's golang.org/toolchain of that version, for
+# this host's GOOS and GOARCH; LANE_GO_BIN names another, which must
+# hold go. With no toolchain line, or no such toolchain downloaded, it
+# prints nothing and the lane uses the go on its PATH.
+lane_go_bin() {
+  if [ -n "${LANE_GO_BIN:-}" ]; then
+    [ -x "$LANE_GO_BIN/go" ] || fail "LANE_GO_BIN has no go: $LANE_GO_BIN"
+    printf '%s\n' "$LANE_GO_BIN"
+    return
+  fi
+  version=$(awk '$1 == "toolchain" { print $2 }' "$SRC/go.mod" 2>/dev/null || true)
+  [ -n "$version" ] || return 0
+  dir="$(go env GOMODCACHE)/golang.org/toolchain@v0.0.1-$version.$(go env GOOS)-$(go env GOARCH)/bin"
+  if [ -x "$dir/go" ]; then
+    printf '%s\n' "$dir"
+  fi
 }
 
 lock_source() {
@@ -72,10 +163,12 @@ lock_source() {
 
 cmd_warm() {
   check_disk
+  cache=$(lane_gocache)
+  trim_gocache "$cache"
   (
     cd "$SRC"
     umask 022
-    export GOCACHE="$SRC/.git/gocache" GOMEMLIMIT=6GiB GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=-p=2
+    export GOCACHE="$cache" GOMEMLIMIT=6GiB GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=-p=2
     bounded go build ./...
     # The ergo tool builds without cgo (internal/ergobuild), and a package
     # above net is a separate cache entry per cgo setting.
@@ -91,6 +184,9 @@ cmd_create() {
   [ "$branch" != main ] || fail 'a lane never works on main'
   git check-ref-format --branch "$branch" >/dev/null || fail "bad branch name: $branch"
   check_disk
+  # A cache a clone would copy is refused before any lane is made.
+  cache=$(lane_gocache)
+  trim_gocache "$cache"
 
   base_sha=$(git -C "$MAIN" rev-parse --verify --quiet "$base^{commit}") || fail "base not in the main checkout: $base"
   branch_sha=$(git -C "$MAIN" rev-parse --verify --quiet "refs/heads/$branch^{commit}" || true)
@@ -180,5 +276,5 @@ case "$command" in
   push) cmd_push "$@" ;;
   remove) cmd_remove "$@" ;;
   warm) cmd_warm ;;
-  *) sed -n '2,9p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,10p' "$0" >&2; exit 2 ;;
 esac
