@@ -254,7 +254,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			o = neverRan(o)
 			t := &covTest{ID: id, Seconds: o.seconds}
 			if o.reason != "" {
-				t.Failed, t.Detail = true, o.reason+": "+lastLines(o.tail, 20)
+				t.Failed, t.Detail = true, baseDetail(o)
 				e.logf("baseline: %s fails on the unmutated tree (%s): its rows are unjudged\n%s", id, o.reason, lastLines(o.tail, 8))
 			}
 			mu.Lock()
@@ -438,7 +438,7 @@ func (w *worker) judgeNamed(ctx context.Context, m *Mutant) (r Result, more bool
 	// A test that would judge the mutant and fails on the unmutated tree
 	// kills nothing, so a verdict would rest on a red baseline (FT11b).
 	if red := w.e.red(named); len(red) > 0 {
-		r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
+		r.Status, r.Detail = Unjudged, w.e.redDetail(red)
 		return r, false
 	}
 	// A test that fails because the mutated file does not compile kills
@@ -510,7 +510,7 @@ func (w *worker) judgeCovered(ctx context.Context, m *Mutant, r Result) Result {
 	}
 	if red := w.e.red(ids); len(red) > 0 {
 		if r.Killer == "" {
-			r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
+			r.Status, r.Detail = Unjudged, w.e.redDetail(red)
 			return r
 		}
 		// -all after a kill: a red test only names no further killer.
@@ -670,6 +670,46 @@ func firstCompileError(detail string) string {
 		return line
 	}
 	return firstLine(detail)
+}
+
+// testError is a line a failing Go test prints: a t.Error or t.Fatal
+// line (file_test.go:12: …), a panic, or a build error.
+var testError = regexp.MustCompile(`(?m)^\s*(\S+\.go:\d+(:\d+)?: .*|panic: .*)$`)
+
+// firstError is the first error line of a failed test's output, else its
+// first line that is not go test's own bookkeeping; "" when it has none.
+func firstError(out string) string {
+	if line := testError.FindString(out); line != "" {
+		return strings.TrimSpace(line)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "=== ") && !strings.HasPrefix(line, "--- FAIL") && line != "FAIL" {
+			return line
+		}
+	}
+	return ""
+}
+
+// baseDetail is a red baseline's Detail: its reason, its first error
+// line, then its output's last lines.
+func baseDetail(o outcome) string {
+	return o.reason + ": " + firstError(o.tail) + "\n" + lastLines(o.tail, 20)
+}
+
+// redDetail is the Detail of a row whose covering tests red fail on the
+// unmutated tree: each with its first error line.
+func (e *engine) redDetail(red []string) string {
+	var parts []string
+	for _, id := range red {
+		if t := e.info(id); t != nil {
+			if _, rest, _ := strings.Cut(t.Detail, ": "); firstError(rest) != "" {
+				id += " (" + firstError(rest) + ")"
+			}
+		}
+		parts = append(parts, id)
+	}
+	return strings.Join(parts, " ") + " fails on the unmutated tree"
 }
 
 // notRun is the reason of a test that passed without starting: no test of

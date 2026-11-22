@@ -116,7 +116,7 @@ func level2Targets(t *testing.T, path string) []goTarget {
 				continue
 			}
 			tg := goTarget{path: path, name: fd.Name.Name}
-			tg.foreign = !slices.Contains(v1.PureImports, path) || slices.Contains(v1.PureImportsExcept[path], fd.Name.Name)
+			tg.foreign = !slices.Contains(v1.PureImports, path) || slices.Contains(v1.PureImportsExcept()[path], fd.Name.Name)
 			var results []ast.Expr
 			if fd.Type.Results != nil {
 				for _, r := range fd.Type.Results.List {
