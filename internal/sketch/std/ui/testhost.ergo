@@ -1569,11 +1569,11 @@ func actText(a Act) string {
 	case ScrollOn as x:
 		"ScrollOn \"\(x.Label)\""
 	case ClickOn as x:
-		"ClickOn \(locatorText(x.At))"
+		"ClickOn \(LocatorText(x.At))"
 	case FillIn as x:
-		"FillIn \(locatorText(x.At))"
+		"FillIn \(LocatorText(x.At))"
 	case ExpectOn as x:
-		"ExpectOn \(locatorText(x.At))"
+		"ExpectOn \(LocatorText(x.At))"
 	case NavigateTo as x:
 		"NavigateTo \"\(x.Href)\""
 	case GoBack:
@@ -1585,10 +1585,10 @@ func actText(a Act) string {
 func only[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode | Ambiguous {
 	let ids = Locate(h, loc)
 	if len(ids) == 0 {
-		return NoNode{Label: locatorText(loc)}
+		return NoNode{Label: LocatorText(loc)}
 	}
 	if len(ids) > 1 {
-		return Ambiguous{At: locatorText(loc), Count: len(ids)}
+		return Ambiguous{At: LocatorText(loc), Count: len(ids)}
 	}
 	ids[0]
 }
@@ -1635,17 +1635,17 @@ func withLabel[E](m mut Mirror[E], id Id[E], label string, acc []Id[E]) []Id[E] 
 // braces (look.ergo).
 func Screenshot[S, E, D, F](h mut TestHost[S, E, D, F]) string {
 	let mut out = ""
-	for line in shotLines(Screen(h), MirrorLooks(&h.mirror), "") {
+	for line in shotLines(LowerShapes(Screen(h)), MirrorLooks(&h.mirror), "") {
 		out = out + line + "\n"
 	}
 	out
 }
 
-func shotLines[E](shapes []Shape[E], looks []Looks, indent string) []string {
+func shotLines[E](shapes []HostShape[E], looks []Looks, indent string) []string {
 	let mut out = []string{}
 	for s in shapes {
-		out = out.Append(indent + nodeText(s.Node) + looksText(s.Node, looks))
-		for l in paintLines(PaintOf(s.Node), indent+"  ") {
+		out = out.Append(indent + HostShotText(s.Node) + hostLooksText(s.Node, looks))
+		for l in paintLines(HostPaintOf(s.Node), indent+"  ") {
 			out = out.Append(l)
 		}
 		for l in shotLines[E](s.Kids, looks, indent+"  ") {
@@ -1653,93 +1653,6 @@ func shotLines[E](shapes []Shape[E], looks []Looks, indent string) []string {
 		}
 	}
 	out
-}
-
-func nodeText[E](n Node[E]) string {
-	match n {
-	case BoxNode:
-		"box"
-	case RowNode:
-		"row"
-	case ColumnNode:
-		"column"
-	case ScrollNode:
-		"scroll"
-	case AreaNode as x:
-		"area \"\(x.Label)\""
-	case CanvasNode as x:
-		"canvas \"\(x.Label)\" \(x.Width)x\(x.Height)"
-	case RowsNode as x:
-		"rows \"\(x.Label)\" \(x.Count) of \(x.RowHeight) from \(x.First)"
-	case TextNode as x:
-		"text \"\(x.Value)\""
-	case PressableNode[E] as x:
-		"button \"\(x.Label)\""
-	case CheckNode[E] as x:
-		if x.Checked {
-			return "[x] \"\(x.Label)\""
-		}
-		"[ ] \"\(x.Label)\""
-	case ToggleNode as x:
-		if x.On {
-			return "(on) \"\(x.Label)\""
-		}
-		"(off) \"\(x.Label)\""
-	case InputNode as x:
-		let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
-		if x.Label != "" {
-			out = out + " label \"\(x.Label)\""
-		}
-		if x.Description != "" {
-			out = out + " \"\(x.Description)\""
-		}
-		if x.Invalid {
-			out = out + " invalid"
-		}
-		if x.Lines > 1 {
-			out = out + " lines \(x.Lines)"
-		}
-		// The caret and the selection, unless both are at the end.
-		if x.Caret != x.Anchor {
-			let (lo, hi) = Selected(EditingOf(x))
-			out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
-		} else if x.Caret != len(x.Value) {
-			out = out + " caret \(x.Caret)"
-		}
-		out
-	case FieldsetNode as x:
-		let mut out = "fieldset"
-		if x.Disabled {
-			out = out + " disabled"
-		}
-		if x.Description != "" {
-			out = out + " \"\(x.Description)\""
-		}
-		out
-	case ZoneNode as x:
-		"zone \(keyText(x.Key))"
-	case LiveNode as x:
-		"live \"\(x.Text)\""
-	case ReadoutNode as x:
-		"readout \"\(x.Reserve)\""
-	case TransitionNode as x:
-		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
-	case TrackNode as x:
-		"track \(keyText(x.Key)) \(x.Target)"
-	case SemanticNode[E] as x:
-		"\(roleText(x.Access.Role)) \"\(x.Access.Name)\""
-	case LayerNode[E] as x:
-		let mut out = "layer \(zText(x.Z))"
-		match x.Anchor {
-		case Some[Key] as k:
-			out = out + " at \(keyText(k.Value))"
-		case None:
-		}
-		if x.Scrim {
-			out = out + " scrim"
-		}
-		out
-	}
 }
 
 // zText is a layer's kind as the screenshot names it.

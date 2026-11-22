@@ -2845,7 +2845,7 @@ func statsFollow(seed int, steps int) bool needs Scheduler {
 		let changed = if st.key != prev.key { 1 } else { 0 }
 		let canvas = if st.canvas { 1 } else { 0 }
 		let (ins, mov, rem, set, paint) = opCounts(ops)
-		let want = ui.Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Painted: paint, Fetches: changed, Cancels: changed}
+		let want = ui.Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Lowered: ins + set, Painted: paint, Fetches: changed, Cancels: changed}
 		let got = ui.SessionStats(&session)
 		if got != want || len(ui.StoppedAt(&session)) != stopped {
 			return false

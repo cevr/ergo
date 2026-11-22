@@ -392,14 +392,10 @@ func lookText(l Look) string {
 	out + inkText(l.Ink)
 }
 
-// looksText is what a screenshot prints after a node for its looks:
-// nothing when they are its kind's default; else the rest look, and each
+// looksIdText is what a screenshot prints after a node for looks id that
+// are not its kind's default (hostLooksText): the rest look, and each
 // other state's look that differs from it.
-func looksText[E](n Node[E], table []Looks) string {
-	let id = LookIdOf(n)
-	if id == DefaultLooks(n) {
-		return ""
-	}
+func looksIdText(id LookId, table []Looks) string {
 	let ls = LooksIn(table, id)
 	let mut out = " {" + lookText(ls.Rest) + " }"
 	let states = []string{"hover", "focus", "active", "disabled"}
