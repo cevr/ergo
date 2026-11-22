@@ -17,7 +17,11 @@ import (
 //     going into a field of its type;
 //   - main catches each read in a loop, its arms reading the variants'
 //     fields; viaTwo passes a failure on through a try; main catches it
-//     in even seeds and fails with it in odd ones (uncaught: exit 1).
+//     in even seeds and fails with it in odd ones (uncaught: exit 1);
+//   - held fails with a local (Lost) or a literal (Torn), once with a local
+//     caught beside an arm no failure reaches, fromParam with
+//     its parameter, each caught by the arm of its type (FAILJUMP-TYPED:
+//     a failure read from a field or a local jumps to its arm too).
 //
 // main prints the totals; a copy whose catch takes the wrong arm, or a
 // Box of the wrong Go type, changes them, the exit status or the build.
@@ -34,13 +38,19 @@ func GenerateInlineSlot(seed uint64) string {
 	fmt.Fprintf(&b, "func one(i int) Box[int, Lost] {\n\tif i %% %d == 0 {\n\t\treturn Bad[Lost]{Error: Lost{At: i}}\n\t}\n\tif i %% %d == 1 {\n\t\treturn Idle\n\t}\n\tGot[int]{Value: i * %d}\n}\n\n", 3+n(4), 5+n(3), 2+n(5))
 	fmt.Fprintf(&b, "func src(i int) int fails Lost | Torn {\n\tif i %% %d == 0 {\n\t\treturn Lost{At: i}\n\t}\n\tif i %% %d == 2 {\n\t\treturn Torn{Why: i + %d}\n\t}\n\ti * 3\n}\n\n", 4+n(3), 5+n(4), n(9))
 	b.WriteString("func two(i int) Box[int, Lost | Torn] {\n\tput(func() int fails Lost | Torn { src(i) })\n}\n\n")
+	fmt.Fprintf(&b, "func held(i int) int fails Lost | Torn {\n\tlet l = Lost{At: i + %d}\n\tif i %% %d == 0 {\n\t\treturn l\n\t}\n\tif i %% %d == 1 {\n\t\treturn Torn{Why: i}\n\t}\n\ti\n}\n\n", n(7), 3+n(3), 4+n(3))
+	fmt.Fprintf(&b, "func once(i int) int fails Lost | Torn {\n\tlet l = Lost{At: i * 2}\n\tif i %% %d == 0 {\n\t\treturn l\n\t}\n\ti + 1\n}\n\n", 2+n(3))
+	fmt.Fprintf(&b, "func fromParam(t Torn, i int) int fails Torn {\n\tif i %% %d == 0 {\n\t\treturn t\n\t}\n\ti * 2\n}\n\n", 2+n(4))
 	b.WriteString("func viaTwo(i int) int fails Lost | Torn | Pend {\n\tlet v = try get(two(i))\n\tv * 2\n}\n\n")
 	fmt.Fprintf(&b, "func main() fails Lost | Torn | Pend needs Console {\n\tlet mut total = 0\n\tfor i in 0..%d {\n", 30+n(60))
 	b.WriteString("\t\tlet a = get(one(i)) catch {\n\t\tcase Lost as l:\n\t\t\tl.At * 3\n\t\tcase Pend:\n\t\t\t7\n\t\t}\n")
 	b.WriteString("\t\tlet c = get(two(i)) catch {\n\t\tcase Lost as l:\n\t\t\tl.At * 5\n\t\tcase Torn as t:\n\t\t\tt.Why * 11\n\t\tcase Pend:\n\t\t\t13\n\t\t}\n")
 	b.WriteString("\t\tlet d = pass(one(i + 1)) catch {\n\t\tcase Lost as l:\n\t\t\tl.At + 17\n\t\tcase Pend:\n\t\t\t19\n\t\t}\n")
 	b.WriteString("\t\tlet e = viaTwo(i + 2) catch {\n\t\tcase Lost as l:\n\t\t\tl.At * 23\n\t\tcase Torn as t:\n\t\t\tt.Why + 29\n\t\tcase Pend:\n\t\t\t31\n\t\t}\n")
-	b.WriteString("\t\ttotal = total + a + c + d + e\n\t}\n")
+	b.WriteString("\t\tlet f = held(i) catch {\n\t\tcase Lost as l:\n\t\t\tl.At * 37\n\t\tcase Torn as t:\n\t\t\tt.Why + 41\n\t\t}\n")
+	b.WriteString("\t\tlet g = fromParam(Torn{Why: i + 3}, i) catch {\n\t\tcase Torn as t:\n\t\t\tt.Why * 43\n\t\t}\n")
+	b.WriteString("\t\tlet h = once(i) catch {\n\t\tcase Lost as l:\n\t\t\tl.At + 47\n\t\tcase Torn:\n\t\t\t53\n\t\t}\n")
+	b.WriteString("\t\ttotal = total + a + c + d + e + f + g + h\n\t}\n")
 	b.WriteString("\tConsole.Println(\"total \\(total)\")\n")
 	if seed%2 == 1 {
 		// Uncaught: src(0) fails with Lost (0 % k == 0).
