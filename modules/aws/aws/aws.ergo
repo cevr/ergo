@@ -6,8 +6,6 @@
 // (modules/clientgen). SigV4 is AWS-CORE's provider of Signer.
 
 import http
-import maps
-import slices
 import strconv
 import strings
 import time
@@ -225,8 +223,22 @@ func Prefixed(h []http.Field, prefix string) Map[string, string] {
 // PutPrefixed adds a header prefix+name for each entry of m, in the
 // order of the names.
 func PutPrefixed(h []http.Field, prefix string, m Map[string, string]) []http.Field {
+	// The names are sorted by insertion, not slices.Sorted(maps.Keys(m)):
+	// the IR lowering does not build a range over a func Seq in a module's
+	// package yet (GEN-EMIT/ir-gaps.md); the IR unit that fixes it turns
+	// this back.
+	let mut names = []string{}
+	for k, _ in m {
+		let mut at = len(names)
+		for i, n in names {
+			if at == len(names) && k < n {
+				at = i
+			}
+		}
+		names = names[0:at].Append(k).Concat(names[at:len(names)])
+	}
 	let mut out = h
-	for k in slices.Sorted(maps.Keys(m)) {
+	for k in names {
 		match m.Get(k) {
 		case Some as v:
 			out = out.Append(http.Field{Name: prefix + k, Value: v.Value})
