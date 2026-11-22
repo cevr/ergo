@@ -930,7 +930,8 @@ func (b *irBuilder) graphArg(c *check.Call, x *syntax.CallExpr, p irPos) *irExpr
 		call = &irExpr{K: "call", Pos: p, Name: l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph"), T: targs}
 	}
 	end := p
-	return &irExpr{K: "func", Pos: p, T: "func() *" + b.spelling(l.rt()+".MachineGraph"), Body: []*irStmt{{K: "ret", Pos: p, X: call}}, End: &end}
+	lit := &irExpr{K: "func", Pos: p, T: "func() *" + b.spelling(l.rt()+".MachineGraph"), Body: []*irStmt{{K: "ret", Pos: p, X: call}}, End: &end}
+	return &irExpr{K: "conv", Pos: p, T: b.spelling(l.rt() + ".GraphOf"), X: lit} // the body's parameter type
 }
 
 // boundOpCall is the call x of the operation c.Op on a value of an
