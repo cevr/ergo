@@ -30,3 +30,6 @@ func Open(Config) (*Budget, error) { return nil, errUnsupported }
 func Run(context.Context, *Budget, Request, []string, io.Reader, io.Writer, io.Writer) (int, error) {
 	return 1, errUnsupported
 }
+
+// Status fails: the budget needs flock.
+func (*Budget) Status(io.Writer) error { return errUnsupported }
