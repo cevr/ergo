@@ -32,7 +32,8 @@ type GoClock { start time.Time } implements Elapsed
 
 // NewGoClock is a clock started now: Go's time.Now, which carries the
 // monotonic reading time.Since subtracts from. time.Now reads the host's
-// clock: a host row, so it needs Ambient, not go.Foreign.
+// clock: a host row, so the capability it needs is Ambient; go.Foreign is
+// not that.
 func NewGoClock() GoClock needs Ambient { GoClock{start: time.Now()} }
 
 // Nanos is Go's time.Since the start.
