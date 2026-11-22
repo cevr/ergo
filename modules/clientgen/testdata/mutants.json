@@ -1,0 +1,37 @@
+{
+  "about": "module clientgen's mutants (wf10 GEN-MODEL): each is judged by the module's laws (scripts/examples -modules clientgen). The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "smithy-trait-dropped", "origin": "wf10 GEN-MODEL",
+      "file": "modules/clientgen/smithy/read.ergo",
+      "from": "\t\tif has(knownTraits, m.Key) {\n\t\t\tout = out.Append(Known{Id: m.Key, Value: m.Value})\n",
+      "to": "\t\tif m.Key == \"smithy.api#paginated\" {\n\t\t} else if has(knownTraits, m.Key) {\n\t\t\tout = out.Append(Known{Id: m.Key, Value: m.Value})\n",
+      "rule": "No trait is dropped: each is read as Known or kept as Refused, by name: EveryTraitReadOrRefused.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "smithy-prune-drops-error", "origin": "wf10 GEN-MODEL",
+      "file": "modules/clientgen/smithy/prune.ergo",
+      "from": "\t\tlet mut out = o.Errors\n",
+      "to": "\t\tlet mut out = []string{}\n",
+      "rule": "Prune keeps an operation's error shapes and what they reach: PruneKeepsClosure.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "smithy-prune-drops-map-value", "origin": "wf10 GEN-MODEL",
+      "file": "modules/clientgen/smithy/model.ergo",
+      "from": "\t\t[]Member{m.Key, m.Value}\n",
+      "to": "\t\t[]Member{m.Key}\n",
+      "rule": "Prune keeps a map's value target: PruneKeepsClosure; the member list also feeds WriteReadRoundTrips through Refusals' walk.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "smithy-drop-misses-member", "origin": "wf10 GEN-MODEL (orchestrator q11)",
+      "file": "modules/clientgen/smithy/prune.ergo",
+      "from": "\tMember{Name: m.Name, Target: m.Target, Traits: strippedTraits(m.Traits, drop)}\n",
+      "to": "\tm\n",
+      "rule": "A dropped trait appears nowhere in the slice, members included: PruneKeepsClosure (drawn members carry the droppable traits).",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    }
+  ]
+}
