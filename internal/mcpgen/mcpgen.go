@@ -75,7 +75,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 	}
 	body := g.file(ops, tools)
 	for _, name := range g.imports {
-		if reserved[name] {
+		if reserved()[name] {
 			return Files{}, fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", opName, name)
 		}
 	}
@@ -90,7 +90,9 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 }
 
 // reserved are the locals the generated functions use.
-var reserved = map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true, "done": true, "rejected": true, "reply": true, "failure": true, "o": true, "c": true, "w": true, "g": true, "answer": true, "result": true, "tools": true, "server": true, "message": true, "carry": true, "toolOver": true}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true, "done": true, "rejected": true, "reply": true, "failure": true, "o": true, "c": true, "w": true, "g": true, "answer": true, "result": true, "tools": true, "server": true, "message": true, "carry": true, "toolOver": true}
+})
 
 func lastElem(path string) string {
 	if i := strings.LastIndex(path, "/"); i >= 0 {

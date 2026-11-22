@@ -29,6 +29,7 @@ type Config struct {
 	Memory        int64
 	DefaultMemory int64
 	Share         int
+	Backfill      int
 	State         string
 	Log           string
 }
@@ -40,7 +41,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	defer f.Close()
-	c := Config{Path: path, State: path + ".state", DefaultMemory: 8 << 30}
+	c := Config{Path: path, State: path + ".state", DefaultMemory: 8 << 30, Backfill: 4}
 	sc := bufio.NewScanner(f)
 	for n := 1; sc.Scan(); n++ {
 		line, _, _ := strings.Cut(sc.Text(), "#")
@@ -49,15 +50,18 @@ func LoadConfig(path string) (Config, error) {
 		bad := func() error { return fmt.Errorf("%s:%d: %s wants a value, has %q", path, n, key, value) }
 		switch key {
 		case "":
-		case "cores", "share":
+		case "cores", "share", "backfill":
 			v, err := strconv.Atoi(value)
 			if err != nil || v < 0 {
 				return Config{}, bad()
 			}
-			if key == "cores" {
+			switch key {
+			case "cores":
 				c.Cores = v
-			} else {
+			case "share":
 				c.Share = v
+			default:
+				c.Backfill = v
 			}
 		case "memory", "default-memory":
 			v, err := ParseSize(value)
@@ -89,7 +93,7 @@ func LoadConfig(path string) (Config, error) {
 				c.Log = value
 			}
 		default:
-			return Config{}, fmt.Errorf("%s:%d: unknown key %q (cores, memory, default-memory, share, state, log)", path, n, key)
+			return Config{}, fmt.Errorf("%s:%d: unknown key %q (cores, memory, default-memory, share, backfill, state, log)", path, n, key)
 		}
 	}
 	if err := sc.Err(); err != nil {

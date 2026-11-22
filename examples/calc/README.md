@@ -40,7 +40,7 @@ The program is a module of packages (`ergo.mod`: `module calc`), in the Go layou
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 printf '1 + 2\n' | ./bin/ergo run examples/calc/cmd/calc -- -fold
 ./bin/ergo test examples/calc/opt
 go run ./scripts/examples calc
