@@ -340,4 +340,4 @@ The error carries the fix as data: the bytes of `var`, or of `x :=`, and the tex
 - a list such as `a, b := e`;
 - a package-level `var`.
 
-**Old Ergo-only spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { … }`, bodiless functions with `//ef:go`, `uses`) get the plain S001 any stray token gets, with no rename hint ([#217](https://github.com/cevr/ergo/issues/217)). The one-off translator `scripts/migrate196` rewrites old sources into the decided syntax; it is deleted after v1.
+**Old Ergo-only spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { … }`, bodiless functions with `//ef:go`, `uses`) get the plain S001 any stray token gets, with no rename hint ([#217](https://github.com/cevr/ergo/issues/217)).

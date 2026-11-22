@@ -2,10 +2,8 @@ package lint
 
 import (
 	"go/constant"
-	"regexp"
+	"go/token"
 	"strconv"
-	"strings"
-	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -21,7 +19,7 @@ import (
 // preset, so a lint run reports them only when asked, and they skip a file
 // whose header says it is generated: a whole line matching Go's
 // convention, ^// Code generated .* DO NOT EDIT\.$, before the first
-// declaration (generatedSource), which `ergo bind go` and `ergo gen` put
+// declaration (syntax.File.Generated), which `ergo bind go` and `ergo gen` put
 // first. A program evalgen writes is never linted at all: its harness
 // checks and runs it, and lint is a separate, asked-for run.
 
@@ -57,34 +55,13 @@ var wireKeyQuote = &Rule{
 	Check:   checkWireKeyQuote,
 }
 
-// generatedLine is Go's generated-file convention (go help generate),
-// matched against a whole line.
-var generatedLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`) })
-
-// generatedSource reports a source with a line that matches Go's
-// generated-file convention before its first declaration: among the
-// comment and blank lines that lead the file. Any other comment, one
-// that only holds the words, or the line after code, is not the mark.
-func generatedSource(src string) bool {
-	for _, line := range strings.Split(src, "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		if generatedLine().MatchString(line) {
-			return true
-		}
-		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "//") {
-			return false
-		}
-	}
-	return false
-}
-
 func checkSelfAssignment(p *Pass) {
-	if generatedSource(p.File.Src) {
+	if p.File.Generated() {
 		return
 	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		s, ok := n.(*syntax.AssignStmt)
-		if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || !sameStorage(s.Lhs[0], s.Rhs[0]) {
+		if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || !sameStorage(p.Info, s.Lhs[0], s.Rhs[0]) {
 			return true
 		}
 		text := storageText(s.Lhs[0])
@@ -94,29 +71,41 @@ func checkSelfAssignment(p *Pass) {
 }
 
 // sameStorage reports whether a and b name the same storage with no work
-// between: one local, a field of it, or an element at one name or literal
-// index. No shadowing (196v rule 2) makes a name one variable in a
-// function, so equal spellings are one place. A call, a slice or any other
-// form is never the same storage, since it may compute a new place.
-func sameStorage(a, b syntax.Expr) bool {
+// between: one variable (the object both uses resolve to), a field of it
+// (one field declaration, check.SelectedField), or an element at one
+// variable or one constant index (equal checked values). A call, a slice
+// or any other form is never the same storage, since it may compute a new
+// place; a name the checker resolved to nothing (`_`) is no storage.
+func sameStorage(info *check.Info, a, b syntax.Expr) bool {
 	a, b = unparenExpr(a), unparenExpr(b)
 	switch x := a.(type) {
 	case *syntax.Ident:
 		y, ok := b.(*syntax.Ident)
-		return ok && x.Name == y.Name && x.Name != "_"
-	case *syntax.SelectorExpr:
-		y, ok := b.(*syntax.SelectorExpr)
-		return ok && x.Sel.Name == y.Sel.Name && sameStorage(x.X, y.X)
-	case *syntax.IndexExpr:
-		y, ok := b.(*syntax.IndexExpr)
-		if !ok || len(x.Indices) != 1 || len(y.Indices) != 1 || !sameStorage(x.X, y.X) {
+		if !ok {
 			return false
 		}
-		if lx, ok := unparenExpr(x.Indices[0]).(*syntax.BasicLit); ok {
-			ly, ok := unparenExpr(y.Indices[0]).(*syntax.BasicLit)
-			return ok && lx.Kind == ly.Kind && lx.Value == ly.Value
+		vx, okx := info.Uses[x].(*check.Var)
+		vy, oky := info.Uses[y].(*check.Var)
+		return okx && oky && vx == vy
+	case *syntax.SelectorExpr:
+		y, ok := b.(*syntax.SelectorExpr)
+		if !ok || !sameStorage(info, x.X, y.X) {
+			return false
 		}
-		return sameStorage(x.Indices[0], y.Indices[0])
+		fx, _ := check.SelectedField(info, x)
+		fy, _ := check.SelectedField(info, y)
+		return fx != nil && fy != nil && fx.Origin() == fy.Origin()
+	case *syntax.IndexExpr:
+		y, ok := b.(*syntax.IndexExpr)
+		if !ok || len(x.Indices) != 1 || len(y.Indices) != 1 || !sameStorage(info, x.X, y.X) {
+			return false
+		}
+		kx, cx := info.Values[unparenExpr(x.Indices[0])]
+		ky, cy := info.Values[unparenExpr(y.Indices[0])]
+		if cx || cy {
+			return cx && cy && constant.Compare(kx, token.EQL, ky)
+		}
+		return sameStorage(info, x.Indices[0], y.Indices[0])
 	}
 	return false
 }
@@ -148,7 +137,7 @@ func storageText(x syntax.Expr) string {
 }
 
 func checkSignDecided(p *Pass) {
-	if generatedSource(p.File.Src) {
+	if p.File.Generated() {
 		return
 	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
@@ -178,8 +167,8 @@ func decidedBySign(info *check.Info, x *syntax.BinaryExpr) (always bool, why str
 	if !kConst || kv.Kind() != constant.Int {
 		return false, "", false
 	}
-	why = nonNegative(info, v)
-	if why == "" {
+	why, never := nonNegative(info, v)
+	if !never {
 		return false, "", false
 	}
 	s := constant.Sign(kv)
@@ -197,21 +186,22 @@ func decidedBySign(info *check.Info, x *syntax.BinaryExpr) (always bool, why str
 	return always, why, decided
 }
 
-// nonNegative names why e's value is never negative, or "": its type is an
-// unsigned integer, or it is a call of len. A conversion to a signed type
-// of an unsigned value (int(u)) is a signed value: it may be negative, so
-// it is not; the expression's own final type decides, never an operand's.
-func nonNegative(info *check.Info, e syntax.Expr) string {
+// nonNegative names why e's value is never negative, and whether it is:
+// its type is an unsigned integer, or it is a call of len. A conversion
+// to a signed type of an unsigned value (int(u)) is a signed value: it may
+// be negative, so it is not; the expression's own final type decides,
+// never an operand's.
+func nonNegative(info *check.Info, e syntax.Expr) (string, bool) {
 	e = unparenExpr(e)
 	if b, ok := underOf(info.Types[e]).(*check.Basic); ok && b.Kind >= check.Uint && b.Kind <= check.Uintptr {
-		return "a value of type " + b.Name + " is never negative"
+		return "a value of type " + b.Name + " is never negative", true
 	}
 	if call, ok := e.(*syntax.CallExpr); ok {
 		if c := info.Calls[call]; c != nil && c.Kind == check.CallLen {
-			return "a length is never negative"
+			return "a length is never negative", true
 		}
 	}
-	return ""
+	return "", false
 }
 
 // mirrorOp is the comparison with its operands swapped: 0 > u is u < 0.
@@ -230,45 +220,28 @@ func mirrorOp(op syntax.Token) syntax.Token {
 }
 
 func checkWireKeyQuote(p *Pass) {
-	if generatedSource(p.File.Src) {
+	if p.File.Generated() {
 		return
 	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		f, ok := n.(*syntax.Field)
-		if !ok || f.Key == nil {
+		if !ok || f.Key == nil || len(f.Names) == 0 {
 			return true
 		}
-		key, err := strconv.Unquote(f.Key.Value)
-		if err != nil {
+		// The names of one field share its key: the first declares it.
+		field, ok := p.Info.Defs[f.Names[0]].(*check.Field)
+		if !ok {
 			return true
 		}
-		name, habit := goTagKey(key)
+		name, habit := field.GoTagKey()
 		if !habit {
 			return true
 		}
 		fix := "write the key alone, with no quote in it"
-		if name != "" {
+		if len(name) > 0 {
 			fix = "write " + strconv.Quote(name)
 		}
-		p.Report(f.Key.Pos(), f.Key.End(), "the key "+strconv.Quote(key)+" holds a quote, as a Go struct tag does; a field's string is its wire key itself, for every format: "+fix+" (types.md, Codecs 2)")
+		p.Report(f.Key.Pos(), f.Key.End(), "the key "+strconv.Quote(field.WireKey)+" holds a quote, as a Go struct tag does; a field's string is its wire key itself, for every format: "+fix+" (types.md, Codecs 2)")
 		return true
 	})
-}
-
-// goTagKey reports a field key that holds a double quote, and the name a
-// Go struct tag in it names, `json:"name,omitempty"` → name, else the key
-// without its quotes. A colon alone is no sign (`"xml:lang"` is a real
-// key), so a key with no quote passes.
-func goTagKey(key string) (name string, ok bool) {
-	if !strings.Contains(key, "\"") {
-		return "", false
-	}
-	if i := strings.Index(key, ":\""); i > 0 {
-		name = key[i+2:]
-		if j := strings.IndexAny(name, ",\""); j >= 0 {
-			name = name[:j]
-		}
-		return name, true
-	}
-	return strings.Trim(key, "\" "), true
 }
