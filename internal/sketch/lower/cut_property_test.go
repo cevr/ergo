@@ -270,7 +270,7 @@ func TestCutKeepsUniqueness(t *testing.T) {
 // all five print the same lines.
 //
 // The pushes branch on cap, which the spec leaves unspecified
-// (interop.md, Go builtins 13): two builds may give one slice different
+// (interop.md, Lowering 13): two builds may give one slice different
 // room and so take different branches (r1's seed 1: the cut reference
 // reserved room for src3 and took the in-place branch, the copying rule
 // did not and took the copy branch, which shared each Box's S through Go's
