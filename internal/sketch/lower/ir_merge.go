@@ -63,10 +63,10 @@ type irCall struct {
 
 // The merge pass's reasons (ir_forms_report.go).
 var (
-	mergeFired     = &FormReason{"call", "merge", true, "reads the value of an equal call before it"}
-	mergeWritten   = &FormReason{"call", "merge", false, "an operand or the earlier value is written in the function, or not of a basic type"}
-	mergeNotValue  = &FormReason{"call", "merge", false, "the equal call before it is not a whole value"}
-	mergeNotFirst  = &FormReason{"call", "merge", false, "the equal call before it does not run first on every path"}
+	mergeFired    = &FormReason{"call", "merge", true, "reads the value of an equal call before it"}
+	mergeWritten  = &FormReason{"call", "merge", false, "an operand or the earlier value is written in the function, or not of a basic type"}
+	mergeNotValue = &FormReason{"call", "merge", false, "the equal call before it is not a whole value"}
+	mergeNotFirst = &FormReason{"call", "merge", false, "the equal call before it does not run first on every path"}
 )
 
 // markPure gives the call e of x its facts when its callee is pure: a
