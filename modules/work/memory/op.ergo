@@ -581,14 +581,22 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			// gc -id of a reservation whose maker died (workrift's call on
 			// a stale record): it is purged, folder and all, exactly when
 			// its folder holds no checkout.
+			// Its settle runs whatever the record is now, so the call does:
+			// of an id no record holds when name's is not a reservation.
 			let name = pick(o.Name)
+			let creating = match find(want, name) {
+			case Some[Expected] as e:
+				e.Value.State == "creating"
+			case None:
+				false
+			}
+			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false}) catch {
+			case _:
+				return false
+			}
 			match find(want, name) {
 			case Some[Expected] as e:
 				if e.Value.State == "creating" {
-					let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(crashId(name)), Archive: false}) catch {
-					case _:
-						return false
-					}
 					let wanted = if e.Value.Cloned { []string{} } else { []string{name} }
 					if out.Purged != wanted {
 						return false
