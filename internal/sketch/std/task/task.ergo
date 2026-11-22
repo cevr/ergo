@@ -117,11 +117,11 @@ law ExitOfWaitsForCleanup(n int) {
 
 // StopOfWaiterStillInterrupts: a task that waits in ExitOf on a task that
 // sleeps forever ends when it is stopped, by the interruption, not with
-// an Exit: the sleeper is stopped and drained, and the waiter delivers
-// nothing.
+// an Exit: ExitOf never returns to it (a return would reach the
+// Unreachable, whose defect Stop raises), and the sleeper is stopped and
+// drained.
 law StopOfWaiterStillInterrupts() {
 	let m = time.NewManual(0)
-	let got = queue.New[int](1)
 	with context { Scheduler: m } {
 		let waiter = Go() {
 			let sleeper = Go() {
@@ -129,14 +129,12 @@ law StopOfWaiterStillInterrupts() {
 				0
 			}
 			let _ = ExitOf(sleeper)
-			got.Push(1) catch {
-			case queue.Closed:
-			}
+			Unreachable("ExitOf returned to a stopped waiter")
 		}
 		for m.Sleepers() == 0 {
 		}
 		waiter.Stop()
-		got.Len() == 0 && m.Sleepers() == 0
+		m.Sleepers() == 0
 	}
 }
 

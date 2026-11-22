@@ -276,7 +276,7 @@ func (v *taskV) exitOf(in *interp, fr *frame, at syntax.Node) (Value, *abrupt) {
 		return nil, fr.defect(at, "task: ExitOf on a task that was already waited for, stopped or released")
 	}
 	v.used = true
-	if ab := in.block(fr, at, fmt.Sprintf("task #%d to end", t.id), func() bool { return t.state == done }); ab != nil {
+	if ab := in.block(fr, at, fmt.Sprintf("task #%d to end (ExitOf)", t.id), func() bool { return t.state == done }); ab != nil {
 		if ab.kind != ctlInterrupt {
 			return nil, ab
 		}

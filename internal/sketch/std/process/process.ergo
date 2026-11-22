@@ -39,8 +39,10 @@ type Exit = OverTime | Crashed
 // Crashed when a defect ends f. Every exit action and task of f has ended
 // before Run returns, on every path. A stop of the caller stops f and is
 // the caller's interruption, never an Exit. A Go fatal error in f (out of
-// memory, a stack overflow) is no defect, and ends the program.
-func Run[A own, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | Crashed needs R | Scheduler {
+// memory, a stack overflow) is no defect, and ends the program. A is not
+// own: a generic body cannot yet release a resource value it drops (#197
+// Gap 42), so a block gives plain data.
+func Run[A, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | Crashed needs R | Scheduler {
 	let t = task.Go() { try settle(l, f) }
 	match task.ExitOf(t) {
 	case task.Done[attempt[A, E]] as d:
@@ -60,10 +62,10 @@ func Run[A own, E, R](l Limits, f own func() A fails E needs R) A fails E | Over
 // attempt is f's end as a value: its value or its typed failure. It
 // keeps f's own failures apart from the time limit's timeout.Expired,
 // which f may fail with too.
-type attempt[A own, E] = gave[A]{Value A} | raised[E]{Error E}
+type attempt[A, E] = gave[A]{Value A} | raised[E]{Error E}
 
 // settle runs f under l's time limit, on the process's task.
-func settle[A own, E, R](l Limits, f own func() A fails E needs R) attempt[A, E] fails timeout.Expired needs R | Scheduler {
+func settle[A, E, R](l Limits, f own func() A fails E needs R) attempt[A, E] fails timeout.Expired needs R | Scheduler {
 	if l.Time > 0s {
 		return try timeout.After(l.Time) { tried(f) }
 	}
@@ -71,7 +73,7 @@ func settle[A own, E, R](l Limits, f own func() A fails E needs R) attempt[A, E]
 }
 
 // tried is f's end as an attempt.
-func tried[A own, E, R](f own func() A fails E needs R) attempt[A, E] needs R {
+func tried[A, E, R](f own func() A fails E needs R) attempt[A, E] needs R {
 	let v = f() catch {
 	case err:
 		return raised[E]{Error: err}

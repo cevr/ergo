@@ -439,7 +439,6 @@ test TaskExitOfWaitsForCleanup(n int) {
 
 test TaskStopOfWaiterStillInterrupts() {
 	let m = time.NewManual(0)
-	let got = queue.New[int](1)
 	with context { Scheduler: m } {
 		let waiter = task.Go() {
 			let sleeper = task.Go() {
@@ -447,14 +446,12 @@ test TaskStopOfWaiterStillInterrupts() {
 				0
 			}
 			let _ = task.ExitOf(sleeper)
-			got.Push(1) catch {
-			case queue.Closed:
-			}
+			Unreachable("ExitOf returned to a stopped waiter")
 		}
 		for m.Sleepers() == 0 {
 		}
 		waiter.Stop()
-		assert got.Len() == 0 && m.Sleepers() == 0
+		assert m.Sleepers() == 0
 	}
 }
 
@@ -1208,7 +1205,7 @@ var stdLawsStatements = map[string]string{
 	"task WaitReturnsTheBlock":             `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
 	"task DefectIsObservedOnce":            `DefectIsObservedOnce(n int) { let k = ((n % 3) + 3) % 3 let t = Go() { try ended(k, n) } match ExitOf(t) { case Defected as d: k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)") case Failed[Odd] as f: k == 1 && f.Error.N == n case Done[int] as v: k == 2 && v.Value == n } }`,
 	"task ExitOfWaitsForCleanup":           `ExitOfWaitsForCleanup(n int) { let k = ((n % 4) + 4) % 4 let marks = queue.New[int](4) let t = Go() { crashed(k, marks) } match ExitOf(t) { case Defected: marks.Len() == k case _: false } }`,
-	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) let got = queue.New[int](1) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) got.Push(1) catch { case queue.Closed: } } for m.Sleepers() == 0 { } waiter.Stop() got.Len() == 0 && m.Sleepers() == 0 } }`,
+	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) Unreachable("ExitOf returned to a stopped waiter") } for m.Sleepers() == 0 { } waiter.Stop() m.Sleepers() == 0 } }`,
 	"testing HeldCallWaitsForRelease":      `HeldCallWaitsForRelease(k string, a int) { let s = Script[probe]{} s.Get.Answer(func(key string) int fails Absent { a }) s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let held = s.Get.Held() let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1 s.Get.Release(func(key string) int fails Absent { a + 1 }) let got = t.Wait() catch { case Absent: a } s.Get.Answer(func(key string) int fails Absent { a + 2 }) let later = probe.Get(k) catch { case Absent: a } waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ReleaseAnswersOldestFirst":    `ReleaseAnswersOldestFirst(k string, j string, a int) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let first = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let second = task.Go() { probe.Get(j) } Scheduler.Sleep(1s) let held = s.Get.Held() let order = len(held) == 2 && held[0] == k && held[1] == j s.Get.Release(func(key string) int fails Absent { a }) s.Get.Release(func(key string) int fails Absent { a + 1 }) let one = first.Wait() catch { case Absent: a - 1 } let two = second.Wait() catch { case Absent: a - 1 } s.Get.Release(func(key string) int fails Absent { a + 2 }) let three = probe.Get(k) catch { case Absent: a - 1 } order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ScriptNamesTheHeldCall":       `ScriptNamesTheHeldCall(k string) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let report = Unanswered() let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered") let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0 s.Get.Release(func(key string) int fails Absent { 0 }) let _ = t.Wait() catch { case Absent: 0 } named && unread && Unanswered() == "" } }`,
