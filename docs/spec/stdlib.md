@@ -2331,12 +2331,12 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `prelude` | `Hashing.EqualIsReflexive` | `EqualIsReflexive(a K) { Equal(a, a) }` | `TestStdHashingLawsRun` | tested |
 | `prelude` | `Hashing.EqualIsSymmetric` | `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }` | `TestStdHashingLawsRun` | tested |
 | `prelude` | `Hashing.EqualIsTransitive` | `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }` | `TestStdHashingLawsRun` | tested |
-| `prelude` | `Hashing.EqualKeysHashEqual` | `EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) }` | `#162` | checked |
+| `prelude` | `Hashing.EqualKeysHashEqual` | `EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) }` | `TestStdHashingLawsRun` | tested |
 | `prelude` | `Hashing.EqualKeysNormalEqual` | `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() \|\| NormalKey(a) == NormalKey(b) }` | `TestStdHashingLawsRun` | tested |
 | `prelude` | `Hashing.NormalKeyIsEqual` | `NormalKeyIsEqual(a K) { !NormalForm() \|\| Equal(a, NormalKey(a)) }` | `TestStdHashingLawsRun` | tested |
-| `prelude` | `StructuralFloatKeysHashEqual` | `StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }` | `#162` | checked |
-| `prelude` | `StructuralIntKeysHashEqual` | `StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }` | `#162` | checked |
-| `prelude` | `StructuralStringKeysHashEqual` | `StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }` | `#162` | checked |
+| `prelude` | `StructuralFloatKeysHashEqual` | `StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `StructuralIntKeysHashEqual` | `StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }` | `TestStdHashingLawsRun` | tested |
+| `prelude` | `StructuralStringKeysHashEqual` | `StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }` | `TestStdHashingLawsRun` | tested |
 | `queue` | `EndKeepsValues` | `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
 | `queue` | `LenCountsUntaken` | `LenCountsUntaken(xs []int) { let q = New[int](len(xs)) for x in xs { try q.Push(x) } let full = q.Len() == len(xs) let mut drained = true for x in xs { drained = drained && q.Poll() == Some[int]{Value: x} } full && drained && q.Len() == 0 }` | `TestQueuePollLaws` | tested |

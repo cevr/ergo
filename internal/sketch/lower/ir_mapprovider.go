@@ -23,6 +23,38 @@ func (l *lowerer) reserveHash() {
 	l.pkgName(pkgKey{"hash seed", nil}, hashSeedName)
 }
 
+// hashSeed is the Go name of the build's hash seed, declared once: among
+// the declarations an IR body keeps (withKeeps) when the IR lowers, else
+// in the emitter's generated declarations.
+func (l *lowerer) hashSeed() string {
+	pkg := l.goPkg("hash/maphash")
+	seed := l.pkgName(pkgKey{"hash seed", nil}, hashSeedName)
+	decl := "var " + seed + " = " + pkg + ".MakeSeed()"
+	switch {
+	case l.ir != nil:
+		if l.ir.keep == nil {
+			l.ir.keep = map[string]bool{}
+		}
+		l.ir.keep[decl] = true
+	case !l.hashSeeded:
+		l.hashSeeded = true
+		l.gen.WriteString(decl + "\n\n")
+	}
+	return seed
+}
+
+// hashCall is the emitter's hash(k), for a body the IR does not take (a
+// fallback, and every body of a census): the IR's call, Go's
+// maphash.Comparable of k at k's type under the seed (#162).
+func (fc *funcCtx) hashCall(x *syntax.CallExpr) operand {
+	if len(x.Args) != 1 {
+		ice(x, "hash with %d arguments", len(x.Args))
+	}
+	k := fc.value(x.Args[0])
+	seed := fc.l.hashSeed()
+	return operand{val: fc.l.goPkg("hash/maphash") + ".Comparable[" + fc.goType(fc.typeOf(x.Args[0])) + "](" + seed + ", " + k + ")"}
+}
+
 // hashCall is hash(k): Go's maphash.Comparable of k under the seed, which
 // hashes k as Go's == compares it (-0.0 and 0.0 hash equal; every field
 // of a record is read).
@@ -35,9 +67,7 @@ func (b *irBuilder) hashCall(x *syntax.CallExpr, p irPos) ([]*irStmt, *irExpr, b
 		irNo("hash of an untyped value")
 	}
 	pre, k := b.value(x.Args[0])
-	pkg := b.l.goPkg("hash/maphash")
-	seed := b.l.pkgName(pkgKey{"hash seed", nil}, hashSeedName)
-	b.keepImport("var " + seed + " = " + pkg + ".MakeSeed()")
+	seed := b.l.hashSeed()
 	call := &irExpr{K: "pcall", Pos: p, T: "hash/maphash", Name: "Comparable", V: b.goType(t, x.Args[0]),
 		Args: []*irExpr{{K: "global", Pos: p, Name: seed}, k}}
 	return pre, call, false
