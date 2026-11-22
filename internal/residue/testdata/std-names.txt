@@ -15,5 +15,4 @@ abi	decls.go:lowerer.intrinsic	the prelude collection wrappers Append and Put bi
 abi	gocall.go:funcCtx.goErrorCall	go.Is and go.As bind v1.GoIs and v1.GoAs (IG5)
 abi	library.go:hostProvides	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
 abi	module.go:lowerer.hostFields	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
-abi	std.go:lowerer.runtimeType	the runtime type representation of std fs.Text, a mapped text, as the Go string of its Mapped (MAPPED; batch-19 combined integration)
 abi	types.go:lowerer.foreignOwner	the std package that owns a runtime type representation (prelude types are the program's)
