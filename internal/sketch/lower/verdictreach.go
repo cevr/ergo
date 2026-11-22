@@ -73,7 +73,7 @@ func (t RunTarget) Reach(pkg *check.Package) []ReachedDecl {
 func testWalk(pkg *check.Package, t *check.Test) *digester {
 	d := newDigester()
 	if t.Decl != nil {
-		d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
+		d.decl("test "+d.names.Of(pkg)+"."+t.Name, pkg, t.Decl)
 	} else {
 		d.decls["test "+t.Name] = true
 	}
