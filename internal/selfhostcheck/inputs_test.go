@@ -1,6 +1,7 @@
 package selfhostcheck
 
 import (
+	"hash/fnv"
 	"io/fs"
 	"math/rand/v2"
 	"os"
@@ -21,7 +22,11 @@ const seedVariable = "ERGO_SELFHOST_SEED"
 // examples/**/*.ergo and compiler/ .ergo file (an invalid one is compared
 // as a failure), sketchtest.Positive(), a whitespace perturbation of each,
 // and seeded edits: truncations, invalid UTF-8 inside comments and
-// strings, random bytes, and random byte strings.
+// strings, random bytes, and random byte strings. Each input is keyed by
+// its own name: a source's edit and perturbation draw from the seed and a
+// hash of its name, a random string from the seed and its index, so a
+// file added to or edited in the tree adds or changes only its own inputs
+// (TestSourceInputsAreKeyedByName).
 func sourceInputs(t *testing.T, seed uint64) []sketchtest.Input {
 	t.Helper()
 	var inputs []sketchtest.Input
@@ -50,16 +55,24 @@ func sourceInputs(t *testing.T, seed uint64) []sketchtest.Input {
 		t.Fatal(err)
 	}
 	inputs = append(inputs, positive...)
-	r := rand.New(rand.NewPCG(seed, 0x5e1f))
-	base := len(inputs)
-	for i := range base {
-		in := inputs[i]
-		if p, ok := sketchtest.Perturb(in.Src, seed+uint64(i)); ok {
+	return append(inputs, derivedInputs(inputs, seed)...)
+}
+
+// derivedInputs are each source's perturbation and edit, keyed by its
+// name, then the random strings, keyed by their index.
+func derivedInputs(sources []sketchtest.Input, seed uint64) []sketchtest.Input {
+	var inputs []sketchtest.Input
+	for _, in := range sources {
+		h := fnv.New64a()
+		h.Write([]byte(in.Name))
+		key := h.Sum64()
+		if p, ok := sketchtest.Perturb(in.Src, seed^key); ok {
 			inputs = append(inputs, sketchtest.Input{Name: in.Name + "/perturbed", Src: p})
 		}
-		inputs = append(inputs, sketchtest.Input{Name: in.Name + "/edited", Src: edit(r, in.Src)})
+		inputs = append(inputs, sketchtest.Input{Name: in.Name + "/edited", Src: edit(rand.New(rand.NewPCG(seed, key)), in.Src)})
 	}
 	for i := range 64 {
+		r := rand.New(rand.NewPCG(seed, 0x5e1f0000+uint64(i)))
 		b := make([]byte, r.IntN(48))
 		for j := range b {
 			b[j] = byte(r.IntN(256))

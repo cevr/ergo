@@ -116,6 +116,9 @@ type testPackage struct {
 	importPath string
 	dir        string
 	closure    *replay.Closure
+	// unread says the closure table could not be read: closure.Declared
+	// is then the whole checkout as a key, not a grant the table gives.
+	unread bool
 }
 
 // testPackages lists the module's test packages and the closure of each,
@@ -222,7 +225,7 @@ func testPackages(root string) ([]testPackage, string, error) {
 			}
 			c.Programs[a.Path] = closureOf(a.Path, append([]string{program.ImportPath}, program.Deps...))
 		}
-		packages = append(packages, testPackage{importPath: p.ImportPath, dir: dir, closure: c})
+		packages = append(packages, testPackage{importPath: p.ImportPath, dir: dir, closure: c, unread: problem != ""})
 	}
 	sort.Slice(packages, func(i, j int) bool { return packages[i].dir < packages[j].dir })
 	return packages, problem, nil
@@ -542,7 +545,7 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 		}
 		name := "go test " + pkg + " (" + suffix + ")"
 		if pl.whole != "" {
-			note = "whole: " + pl.whole
+			note = wholeNote + pl.whole
 		}
 		if pl.chosen != nil {
 			chosen := *pl.chosen

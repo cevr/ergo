@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/scripts/gate/replay"
 )
 
 // The guard packages run whole in the fast tier: no size cut, no
@@ -39,9 +41,21 @@ func TestGuardPackagesRunWhole(t *testing.T) {
 
 // A //gate:whole declaration gives its reason and sits in a package that
 // builds no Go (kills marker-on-building-package-accepted) and has at most
-// wholeTestLimit tests.
+// wholeTestLimit tests. The grant of '.' makes a package whole only when the
+// closure table was read: an unread table keys every package on the whole
+// checkout and grants nothing (kills unread-table-runs-whole; the 2026-11-22
+// I22 bounce: TestRecordFastCPUWritesOnlyTheFastCPUTable's fixture, with no
+// table, ran its large test).
 func TestWholeMarkerHoldsItsBounds(t *testing.T) {
 	root := t.TempDir()
+	write(t, root, "g/g_test.go", "package g\n\nimport \"testing\"\n\nfunc TestG(t *testing.T) {}\n")
+	checkout := &replay.Closure{Declared: []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}}
+	if reason, err := wholeOf(root, testPackage{dir: "g", closure: checkout}); err != nil || reason == "" {
+		t.Errorf("a package the table grants the checkout: %q, %v; want it whole", reason, err)
+	}
+	if reason, err := wholeOf(root, testPackage{dir: "g", closure: checkout, unread: true}); err != nil || reason != "" {
+		t.Errorf("a package keyed on the checkout by an unread table: %q, %v; want it not whole", reason, err)
+	}
 	p := testPackage{dir: "a"}
 	write(t, root, "a/a_test.go", "package a\n\n//gate:whole the rows of a\n\nimport \"testing\"\n\nfunc TestRows(t *testing.T) {}\n")
 	if reason, err := wholeOf(root, p); err != nil || reason != "the rows of a" {

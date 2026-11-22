@@ -2,6 +2,7 @@ package lint
 
 import (
 	"cmp"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,14 +123,11 @@ func ParseLog(text string) (subjects []string, commits [][]string) {
 func PackagesOf(files []FileChange) []string {
 	var out []string
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".ergo") {
+		// A changed path is a slash path relative to the module root.
+		if path.Ext(f.Path) != ".ergo" {
 			continue
 		}
-		dir := "."
-		if i := strings.LastIndexByte(f.Path, '/'); i >= 0 {
-			dir = f.Path[:i]
-		}
-		out = append(out, dir)
+		out = append(out, path.Dir(f.Path))
 	}
 	slices.Sort(out)
 	return slices.Compact(out)

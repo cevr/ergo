@@ -2971,9 +2971,6 @@
     "TestNewSyntaxOnTheSameLayoutTakesTwoStages": 0,
     "TestStageOneTakesTheParserThatReadsTheTree": 0.01
   },
-  "ergo.local/prototype/scripts/migrate196": {
-    "TestWriteKeepsRowComments": 0
-  },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
   },

@@ -33,15 +33,19 @@ import (
 // wholeMarker opens the line that declares a guard package.
 const wholeMarker = "//gate:whole"
 
+// wholeNote starts the note of a step that runs its package whole.
+const wholeNote = "whole: "
+
 // wholeTestLimit is the most Test functions a declared guard package may
 // have: the counted bound of its whole run (internal/sketch/stdlib had 55
 // on 2026-11-22). A guard by grant is held by its grant's review instead.
 const wholeTestLimit = 80
 
 // wholeOf is why the fast tier runs p whole, or "" when it does not: the
-// grant of the checkout, or the reason p's own marker gives.
+// grant of the checkout, or the reason p's own marker gives. A table the
+// gate cannot read grants nothing (testPackage.unread).
 func wholeOf(root string, p testPackage) (string, error) {
-	if p.closure != nil && slices.Contains(p.closure.Declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {
+	if p.closure != nil && !p.unread && slices.Contains(p.closure.Declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {
 		return "the closure table grants it the whole checkout", nil
 	}
 	dir := filepath.Join(root, filepath.FromSlash(p.dir))

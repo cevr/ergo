@@ -263,7 +263,7 @@ const (
 )
 
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
-var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance"}
+var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance", "site"}
 
 // provenanceManifest lists the checker functions that may make syntax nodes;
 // the provenance analyzer flags a node made anywhere else in the checker.
@@ -484,6 +484,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...), Class: classFast})
 	for _, step := range generatedSteps() {
 		add(step)
+	}
+
+	// The site's snippets (site/snippets): every checked snippet checks
+	// and is formatted, every planned one fails exactly as its markers say
+	// and has its manifest row, every mark and tokens file holds against
+	// its snippet, every shown number against its receipt. A checkout with
+	// no site/ has none.
+	if info, err := os.Stat(filepath.Join(root, "site", "cmd", "snippets")); err == nil && info.IsDir() {
+		add(&Step{Name: "site snippets", Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "run", "./site/cmd/snippets", "-ergo", "./bin/ergo"}, Class: classFast})
 	}
 
 	// The design models (models/<name>, wf10 X3): ergo test decides each

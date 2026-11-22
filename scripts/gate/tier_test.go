@@ -399,8 +399,9 @@ const fastReachTestLimit = 2270
 // Over the module's tests as go test lists them: each fast-tier package's
 // shards run every test that is not large exactly once and no large one,
 // so the fast selection and the full-only set are every test (gate-fast
-// acceptance leg 4). It builds every test binary, so the full tier runs
-// it.
+// acceptance leg 4); a package that runs whole (whole.go, its step's note
+// "whole: ...") runs every test once, the large ones too. It builds every
+// test binary, so the full tier runs it.
 func TestFastTierCoversEveryListedTest(t *testing.T) {
 	root := checkoutRoot(t)
 	durations, err := readDurations(root)
@@ -415,6 +416,7 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: go test -list: %v", dir, err)
 		}
+		whole := slices.ContainsFunc(steps, func(s *Step) bool { return strings.HasPrefix(s.Note, wholeNote) })
 		listed := 0
 		for _, name := range strings.Fields(string(output)) {
 			if !strings.HasPrefix(name, "Test") && !strings.HasPrefix(name, "Fuzz") && !strings.HasPrefix(name, "Example") {
@@ -428,11 +430,11 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 				}
 			}
 			want := 1
-			if d, ok := durations[module+"/"+dir][name]; ok && d >= sizeCutoff {
+			if d, ok := durations[module+"/"+dir][name]; ok && d >= sizeCutoff && !whole {
 				want = 0
 			}
 			if runs != want {
-				t.Errorf("%s: %s runs in %d fast steps, want %d", dir, name, runs, want)
+				t.Errorf("%s: %s runs in %d fast steps, want %d (whole %t)", dir, name, runs, want, whole)
 			}
 		}
 		if listed == 0 {
