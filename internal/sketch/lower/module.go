@@ -524,7 +524,16 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 
 // lowererOf is the lowerer of the canonical unit c of the package pkg, whose
 // root unit requires the Go modules goModule.
+// loweringWork, when set, is called with "lowerer" for each lowerer made
+// and "body" for each function body lowered (emitBody), whatever entry
+// point made them: the package tests' probe log counts the work of each
+// test by it (split_test.go, probeLog). Nil outside the tests.
+var loweringWork func(kind string)
+
 func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
+	if loweringWork != nil {
+		loweringWork("lowerer")
+	}
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
