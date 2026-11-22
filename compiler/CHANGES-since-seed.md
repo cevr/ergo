@@ -11,3 +11,4 @@ A seed bump empties the table.
 | --- | --- | --- |
 | `a composite literal mixes keyed and positional elements` | The Ergo parser reports this error at the element that mixes the two kinds. The Go parser reported it only when the literal closed, so it could stop at a later error first. | S2b (`compiler/syntax`) |
 | `clear, delete, min, max` | An extern target may name Go's builtin `delete`, so the list in the error names it. | OPT7 (abb541786) |
+| `unexpected character '~'` | `~` is a token since type sets (a constraint's `~T` member), so a stray `~` is a parse error at the same place (`expected …, found "~"`) where the seed's lexer refused the character. | CN ROW-PARAM r3 (e0878beb2) |
