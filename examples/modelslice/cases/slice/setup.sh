@@ -1,0 +1,1 @@
+printf '%s\n' '{"smithy":"2.0","shapes":{"t#Get":{"type":"operation","input":{"target":"t#In"},"traits":{"smithy.api#http":{"method":"GET","uri":"/x"}}},"t#In":{"type":"structure","members":{"a":{"target":"smithy.api#String","traits":{"smithy.api#documentation":"a","x.test#tests":{}}}}},"t#Other":{"type":"string"}}}' > m.json
