@@ -884,7 +884,7 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 		case v1.Frame:
 			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
 		case v1.Graph:
-			out = append(out, b.graphArg(c, x, p))
+			out = append(out, b.graphArg(body, c, x, p))
 		default:
 			irNo("std call with hidden argument %s", h)
 		}
@@ -895,24 +895,21 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 // graphArg is the hidden graph argument (v1.Graph, a v1.GraphOf) of the
 // call x of an actor's start, as the emitter's graphArg writes it: the
 // graph accessor of the machine whose states and signals are the call's
-// type arguments for the Go body's first two type parameters, matched by
-// name. Go text passes the accessor's instance as a value; the IR has no
+// type arguments for the Go body's first two type parameters (body, the
+// contract hidden reads), matched by name. Go text passes the accessor's instance as a value; the IR has no
 // value of a generic function, so it passes a literal that calls it.
-func (b *irBuilder) graphArg(c *check.Call, x *syntax.CallExpr, p irPos) *irExpr {
+func (b *irBuilder) graphArg(body v1.Body, c *check.Call, x *syntax.CallExpr, p irPos) *irExpr {
 	var state, signal string
-	if c != nil && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Extern != nil {
-		_, name := c.Func.Decl.Extern.Split()
-		if body, err := v1.BodyOf(name); err == nil && len(body.TypeParams) >= 2 {
-			for i, tp := range c.Func.Sig.TParams {
-				if i >= len(c.TypeArgs) {
-					break
-				}
-				switch tp.Name {
-				case body.TypeParams[0].Name:
-					state = b.goType(c.TypeArgs[i], x)
-				case body.TypeParams[1].Name:
-					signal = b.goType(c.TypeArgs[i], x)
-				}
+	if c != nil && c.Func != nil && len(body.TypeParams) >= 2 {
+		for i, tp := range c.Func.Sig.TParams {
+			if i >= len(c.TypeArgs) {
+				break
+			}
+			switch tp.Name {
+			case body.TypeParams[0].Name:
+				state = b.goType(c.TypeArgs[i], x)
+			case body.TypeParams[1].Name:
+				signal = b.goType(c.TypeArgs[i], x)
 			}
 		}
 	}

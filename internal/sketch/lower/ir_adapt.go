@@ -149,9 +149,9 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 			// actor.StartMachine's work, MU4): a plain Go function,
 			// passed to the value in the uniform shape (the emitter's
 			// adaptTaskFunc wraps it the same way).
-			w, local, gfn := b.givenFunc(sp.Type, task, site, p)
+			w, gl, gfn := b.givenFunc(sp.Type, task, site, p)
 			params = append(params, gfn)
-			lit.Params = append(lit.Params, local)
+			lit.Params = append(lit.Params, gl)
 			call.Args = append(call.Args, w)
 			continue
 		}
