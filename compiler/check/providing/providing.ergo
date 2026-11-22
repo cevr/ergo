@@ -1072,7 +1072,7 @@ func RefusedLets(k expr.Pkg) []dense.ID[store.PNode] {
 
 // Quiet is held, and also true of the names RefusedLets finds: the locals
 // whose S110 the unused check (diag.Unused) does not report.
-func Quiet(k expr.Pkg, held func(n dense.ID[store.PNode]) bool) func(n dense.ID[store.PNode]) bool {
+func Quiet(k expr.Pkg, held own func(n dense.ID[store.PNode]) bool) func(n dense.ID[store.PNode]) bool {
 	let refused = RefusedLets(k)
 	if len(refused) == 0 {
 		return held
