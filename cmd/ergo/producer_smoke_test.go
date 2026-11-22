@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -424,7 +425,7 @@ func producerSmokeOverlays(t *testing.T, root, directory, source string, replace
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			command := exec.Command("go", "build", "-buildvcs=false", "-overlay", overlayPath, "-o", binary, "./cmd/ergo")
+			command := ergobuild.Command(binary, "./cmd/ergo", "-buildvcs=false", "-overlay", overlayPath)
 			command.Dir = root
 			stdout, stderr, code, err := runSmokeDeadline(command, limit)
 			if err != nil || code != 0 {

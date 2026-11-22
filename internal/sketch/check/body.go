@@ -162,7 +162,7 @@ func OpBodyOf(t Type, op string) OpBody {
 		return OpBody{}
 	}
 	o := n.origin().Obj
-	name := o.Name + "." + op
+	name := RuntimeTypeName(n) + "." + op
 	if _, err := v1.BodyOf(name); err != nil || !bindsRuntime(o.Pkg) {
 		return OpBody{}
 	}
@@ -289,6 +289,19 @@ func GoTypeOf(n *Named) (string, bool) {
 	}
 	path, name := n.origin().Obj.Decl.Extern.Split()
 	return name, v1.Owns(path)
+}
+
+// RuntimeTypeName is the name the runtime's body table keys n's
+// operations by (Type.Op, and Type+Op+"Owned" for an owned form): the Go
+// type its extern declaration binds (GoTypeOf), which may differ from the
+// Ergo name (`extern go …/digest.Sha256Hasher type Hasher`), else n's own
+// name. Every lookup of an operation's body reads it, so the binding is
+// the one source of the name (LOWER-EXTERN-METHOD-NAME).
+func RuntimeTypeName(n *Named) string {
+	if name, ok := GoTypeOf(n); ok {
+		return name
+	}
+	return n.origin().Obj.Name
 }
 
 // embedTreeBody is the runtime's embedded-tree constructor, which the
