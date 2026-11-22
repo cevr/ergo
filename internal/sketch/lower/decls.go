@@ -1232,6 +1232,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		// nothing: each return evaluates its value for its effects alone.
 		fc.frame.result = f.Sig.Results[0]
 	}
+	fc.goGeneric = sp == nil && len(own) > 0 // an intrinsic's IR body too (irHeadEnd)
 	if fd.extern != "" {
 		if isClose(f) {
 			// A checked Close masks its own body (closeBody, below); an
@@ -1283,7 +1284,6 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	fc.depth = 1
 	l.analyzeValues(f.Decl, f.Pkg.Info)
-	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
 	if l.ir != nil {
 		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
