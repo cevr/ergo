@@ -1,4 +1,5 @@
 import compiler/check/bind
+import compiler/check/expr
 import compiler/check/store
 import compiler/syntax
 import dense
@@ -28,8 +29,10 @@ import strings
 //     only for a clash).
 //
 // Bind decides both: a read of a local resolves to its row (Declared),
-// and a name of an import resolves outside the package, by its text.
-func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, missing []string) []Diag {
+// and a name of an import resolves outside the package, by its text. A
+// let's name whose type holds a resource (held, from the typer: Held) is
+// not reported: it is held for its release at scope end.
+func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, missing []string, held func(dense.ID[store.PNode]) bool) []Diag {
 	let mut total = 0
 	for file in files {
 		if !file.Parsed.Failed {
@@ -80,6 +83,11 @@ func Unused(files []bind.File, s store.Store, u bind.Uses, ps bind.Parents, miss
 		let tail = "\(hint(name)) (rows.md, Totality 1)"
 		let message = match binderOf(files, ps, n) {
 		case Let:
+			if held(n) && letBound(files, ps, n) {
+				// A resource held only for its release at scope end (D4;
+				// rows.go reportUnused, R42).
+				continue
+			}
 			"\(name) is declared and not used"
 		case ArmName:
 			arm + "write _ in its place" + tail
@@ -159,6 +167,50 @@ func binderOf(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) Binde
 			from = up.Value
 		case None:
 			return Unreported
+		}
+	}
+}
+
+// letBound is whether the local that row n declares is a let's name (the
+// Go checker's Var.let: stmt.go varDecl), not a range's.
+func letBound(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) bool {
+	let (nf, _) = bind.RowOf(ps, n)
+	let t = files[nf].Parsed.Tree
+	let mut from = n
+	for {
+		match dense.Unpack(bind.ParentOf(ps, from)) {
+		case Some[dense.ID[store.PNode]] as up:
+			let (_, row) = bind.RowOf(ps, up.Value)
+			let k = syntax.KindOf(t, syntax.NodeAt(t, row))
+			if k == syntax.KVarSpec {
+				return true
+			}
+			if k == syntax.KRangeStmt || k == syntax.KFuncType {
+				return false
+			}
+			from = up.Value
+		case None:
+			return false
+		}
+	}
+}
+
+// NoneHeld is Unused's held for a caller with no typer: every let is
+// reported.
+func NoneHeld(_ dense.ID[store.PNode]) bool { false }
+
+// Held is Unused's held from the typer: whether the local declared at a
+// name node has a type that holds a resource (resources.go holdsResource,
+// a type parameter counted as plain data; resources).
+func Held(s store.Store, k expr.Pkg, t expr.Typer) func(dense.ID[store.PNode]) bool {
+	let (infos, names) = typeInfos(k)
+	let res = resources(s, k, infos, names)
+	func(n dense.ID[store.PNode]) bool {
+		match expr.DefType(t, n) {
+		case Some[dense.ID[store.TKey]] as ty:
+			holds(s, k, res, []bool{}, ty.Value)
+		case None:
+			false
 		}
 	}
 }

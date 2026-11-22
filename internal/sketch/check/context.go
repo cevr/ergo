@@ -585,11 +585,11 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		// The provider goes into the capability by assignability (types.md,
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.
-		captured := false
-		c.capture = &captured
+		var held captured
+		c.capture = &held
 		a, why := c.providerAssignability(pt, cap)
 		if a.ok() {
-			c.captureForeign(e.Value, captured, pt, cap)
+			c.captureForeign(e.Value, held, pt, cap)
 		}
 		if !a.ok() {
 			if why == "" {
