@@ -165,7 +165,7 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		// convert, D-C3). A flat union (MSB3) is no interface: a type
 		// switch builds its variant (ir_flatconv.go).
 		if b.l.flatUnionOf(conv.To) != nil {
-			return b.flatInto(conv, e, x, "row into a flat union")
+			return b.flatInto(conv, e, x)
 		}
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
@@ -176,7 +176,7 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		// A sub-union's value into a union that holds its variants (the
 		// emitter's widen): an assertion between two sealed interfaces.
 		if b.l.flatUnionOf(conv.From) != nil || b.l.flatUnionOf(conv.To) != nil {
-			return b.flatInto(conv, e, x, "sub-union into a flat union") // ir_flatconv.go
+			return b.flatInto(conv, e, x) // ir_flatconv.go
 		}
 		if b.goType(conv.From, x) == b.goType(conv.To, x) {
 			return e

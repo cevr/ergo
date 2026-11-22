@@ -4,11 +4,17 @@ package lower
 // Go assertion (the emitter's convert for ConvRow and its unionInto for
 // ConvWiden, subunion.go, whose rule this is). The value goes into a
 // local; a switch on what it holds puts each variant the target holds
-// into the target's form (variantInto), and any other panics, as the
-// emitter's function literal does. The IR writes the switch as
+// into the target's form (variantInto). The IR writes the switch as
 // statements before the expression (runFirst, ir_order.go) where the
-// emitter calls a literal in place: Go inlines neither, and the
-// statements need no closure.
+// emitter calls a literal in place: the statements need no closure.
+//
+// The switch has no default of its own: the checker admits the
+// conversion only when the target holds every variant the value may hold
+// (a row's error types, a sub-union's variants), so the last variant is
+// the default. A flat value's tag is one of its variants'; an interface
+// value or a row's error that is none of them (a nil interface, which no
+// Ergo value is) fails the last case's Go assertion, Go's own defect,
+// where the emitter's literal panics with its text.
 //
 // Prior art: Rust's From between enums and OCaml's polymorphic variant
 // coercion (`(x :> t)`) are each a match that rebuilds the variant; a
@@ -26,7 +32,7 @@ import (
 // a flat union. A row's value (ConvRow) is a Go error, tested by its
 // error variants' Go types; a sub-union's (ConvWiden) is its tag when it
 // is flat, else its Go type.
-func (b *irBuilder) flatInto(conv check.Conversion, e *irExpr, x syntax.Node, why string) *irExpr {
+func (b *irBuilder) flatInto(conv check.Conversion, e *irExpr, x syntax.Node) *irExpr {
 	row := conv.Kind == check.ConvRow
 	ff, tf := b.flatOf(conv.From), b.flatOf(conv.To)
 	if row {
@@ -34,7 +40,11 @@ func (b *irBuilder) flatInto(conv check.Conversion, e *irExpr, x syntax.Node, wh
 	}
 	for _, fu := range []*flatUnion{ff, tf} {
 		if fu != nil && (fu.niche || fu.generic) {
-			irNo(why) // the emitter bails too (flatBail): an interface for now
+			// The emitter bails too (flatBail): an interface for now.
+			if row {
+				irNo("row into a flat union")
+			}
+			irNo("sub-union into a flat union")
 		}
 	}
 	p := e.Pos
@@ -77,12 +87,13 @@ func (b *irBuilder) flatInto(conv check.Conversion, e *irExpr, x syntax.Node, wh
 			sw.Cases = append(sw.Cases, &irCase{Pos: p, Types: []string{gv}, Body: into(vt, &irExpr{K: "assert", Pos: p, T: gv, X: &irExpr{K: "local", Pos: p, I: s}})})
 		}
 	}
-	// The emitter's default: a row's error itself, a sub-union's text.
-	var msg *irExpr = &irExpr{K: "local", Pos: p, I: s}
-	if !row {
-		msg = &irExpr{K: "const", Pos: p, T: "string", V: "ergo: a sub-union value of another variant"}
+	if len(sw.Cases) == 0 {
+		irNo("conversion of a union with no variant") // the checker admits none
 	}
-	sw.Else = []*irStmt{{K: "panic", Pos: p, X: msg}}
+	// The last variant is the default (above): its case's body, whose
+	// assertion is the defect of a value that is none of them.
+	last := sw.Cases[len(sw.Cases)-1]
+	sw.Cases, sw.Else = sw.Cases[:len(sw.Cases)-1], last.Body
 	b.runFirst([]*irStmt{{K: "def", Pos: p, Local: s, X: e}, {K: "var", Pos: p, Local: r}, sw})
 	return &irExpr{K: "local", Pos: p, I: r}
 }
