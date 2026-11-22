@@ -1912,6 +1912,110 @@
       "to": "[]string{\"-aL\", from, to}",
       "rule": "The copy Cloner copies a link that leaves the source as a link with its text, never its target (copy's CloneKeepsLinksAsLinks on the host).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-clone-in-place", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet staging = StagingOf(t.home, m.Id)\n\tt.copier.Placeable(",
+      "to": "\tlet staging = m.Path\n\tt.copier.Placeable(",
+      "rule": "new clones into its staging folder and places it by one rename, so a folder at a workspace's path is never half made (SchedulesKeepTheInvariants, ListShowsAStrandedReservation).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-place-copies", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tt.copier.Placeable(StagingFolder(t.home), t.home) catch {",
+      "to": "\tt.copier.Placeable(t.home, t.home) catch {",
+      "rule": "Stage refuses a staging folder on another file system than the home before any copy (PlaceNeverCopies).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-marker-holds-path", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet marked = mark(t, staging, m.Id) catch {",
+      "to": "\tlet marked = mark(t, staging, staging) catch {",
+      "rule": "The marker is the id, path-free, so a placed clone is its record's after the rename (SchedulesKeepTheInvariants: a dead maker's placed clone is settled; ListShowsAStrandedReservation at 3).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-settle-in-gc-only", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\t\tcase Creating:\n\t\t\t\ttry settle(t, w)\n",
+      "to": "\t\t\tcase Creating:\n",
+      "rule": "Every command that takes the lock settles a dead maker's reservation, not only gc (SchedulesKeepTheInvariants' next command, ListShowsAStrandedReservation, ToolAgreesWithTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-maker-by-age", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif w.Id == \"\" || !try makerGone(t, w) {",
+      "to": "\tif w.Id == \"\" || now(t)-w.Since < 3600 {",
+      "rule": "Only the kernel's lock of a reservation says its maker is gone, never its age (SettleNeverTakesALiveMaker).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-activate-unmarked", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tif markerOf(t, w.Path) == w.Id {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
+      "to": "\t\tif true {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
+      "rule": "settle activates only a placed clone that carries its id; an older work's unmarked folder keeps gc's and doctor's rules (ToolAgreesWithTheReference, CrashOp at 0).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-placed-dropped", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif t.copier.Has(w.Path) {\n\t\tif markerOf(",
+      "to": "\tif false {\n\t\tif markerOf(",
+      "rule": "settle never drops a record whose folder is at its path (ToolAgreesWithTheReference at 3, SchedulesKeepTheInvariants).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-staging-kept", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif t.copier.Has(staging) {\n\t\tclonerNamed(",
+      "to": "\tif false && t.copier.Has(staging) {\n\t\tclonerNamed(",
+      "rule": "A rollback deletes the staging folder before it drops the record: no staging folder outlives its record (ListShowsAStrandedReservation, SchedulesKeepTheInvariants' owned trees, ToolAgreesWithTheReference's gone paths).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-settle-scans-active", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\t\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\t\t}\n\t\t\tcontinue",
+      "to": "\t\t\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\t\t\tlet _ = t.copier.Has(w.Path)\n\t\t\t}\n\t\t\tcontinue",
+      "rule": "settle costs nothing per record that is not a reservation (SettleCostsAtMost).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-rm-cut-redone", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tif t.copier.Has(w.Moving) {\n\t\t\tt.copier.Move(w.Moving, w.Path) catch {",
+      "to": "\t\tif false {\n\t\t\tt.copier.Move(w.Moving, w.Path) catch {",
+      "rule": "An rm stopped after its intent has its move redone by the next command that takes the lock (SchedulesKeepTheInvariants).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-gc-cut-redone", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/remove.ergo",
+      "from": "func DiscardOf(t Tool, w Workspace) fails Missing | CloneFailed {\n\tif !t.copier.Has(w.Path) {",
+      "to": "func DiscardOf(t Tool, w Workspace) fails Missing | CloneFailed {\n\tif !t.copier.Has(w.Path + \"/.git\") {",
+      "rule": "A gc stopped inside its deletes deletes the rest of a part-deleted folder next time, before it buries the record (SchedulesKeepTheInvariants' cut in the discards).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-place-no-sync", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/system/trees.ergo",
+      "from": "sync -- \\\"$a\\\" \\\"$b\\\"; fi",
+      "to": "true; fi",
+      "rule": "Place syncs both folders after the rename, so a power cut cannot lose it after Activate writes Active (copy's PlaceSyncsBothFolders).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-place-copies-across", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/system/trees.ergo",
+      "from": "mv --no-copy -T -- ",
+      "to": "mv -T -- ",
+      "rule": "Place's rename never falls back to a copy (copy's PlaceSyncsBothFolders reads the call).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
