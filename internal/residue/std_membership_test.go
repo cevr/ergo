@@ -33,11 +33,12 @@ var writePrivileges = flag.Bool("write-privileges", false, "rewrite testdata/std
 // function (a method as Recv.Name; a package-level var by its name) holds,
 // as `file:function kind key`. Kinds:
 //
-//   - mark: a call of .Std() or .Trusted(); in the checker, a read of the
-//     field std or trusted; a use of std.Package, std.Packages,
-//     std.Prelude, std.PreludePath, std.Ledger or std.CoveredBy of
-//     internal/sketch/stdlib. Host() is no mark: it tells an import go
-//     package from an Ergo one, which every module reaches alike.
+//   - mark: a call of .Std(), .Trusted() or .Host(); in the checker, a
+//     read of the field std or trusted; a use of std.Package,
+//     std.Packages, std.Prelude, std.PreludePath, std.Ledger or
+//     std.CoveredBy of internal/sketch/stdlib. Host() counts: a function
+//     that asks whether a package is a host leaf decides by something the
+//     package's source does not declare (orchestrator, PRIVILEGE-KEYS r2).
 //   - flag: a read of a derived flag: a bool function, field or variable
 //     whose value comes from a mark or a flag, computed to a fixed point
 //     from the marks and declaredFlags. The key is the flag's name.
@@ -166,7 +167,7 @@ const (
 
 var (
 	stdMembers  = []string{"Package", "Packages", "Prelude", "PreludePath", "Ledger", "CoveredBy"}
-	markCalls   = []string{"Std", "Trusted"}
+	markCalls   = []string{"Std", "Trusted", "Host"}
 	bodySinks   = []string{"runtimeBody", "runtimeCall", "opBody"}
 	stringsTest = []string{"HasPrefix", "HasSuffix", "TrimPrefix", "TrimSuffix", "Cut", "CutPrefix", "CutSuffix", "EqualFold"}
 	// qualifiedRE matches "P.Name" or "P.Type.Op": a std or a Go library
