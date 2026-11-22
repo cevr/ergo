@@ -60,9 +60,9 @@ proto/probes/ordinary-after.sketch	S108
 proto/probes/ordinary-println.sketch	S108
 proto/probes/portable-integer.sketch	OK
 proto/probes/predeclared-error.sketch	S108 S114
-proto/probes/predeclared-local.sketch	S108
+proto/probes/predeclared-local.sketch	OK
 proto/probes/predeclared-panic.sketch	S108
-proto/probes/prelude-locals.sketch	S104 S108 S108 S108
+proto/probes/prelude-locals.sketch	S104 S104
 proto/probes/provider-helper.sketch	S108 S108
 proto/probes/provider-parameter.sketch	S106 S108 S108
 proto/probes/provider-scheduler.sketch	S106 S108
@@ -95,7 +95,7 @@ proto/probes/wire-initializer.sketch	S102 S108
 proto/probes/wire-method-cycle.sketch	S108 S108 S114
 proto/probes/wire-order.sketch	OK
 proto/probes/wire-parameter-shadow.sketch	OK
-proto/probes/wire-predeclared-name.sketch	S108
+proto/probes/wire-predeclared-name.sketch	OK
 proto/probes/wire-sibling.sketch	S102
 proto/probes/with-local-capture.sketch	OK
 proto/probes/with-name.sketch	S108
