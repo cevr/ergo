@@ -90,13 +90,18 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 //	func(e *Env, yield func(*Env, T) (bool, error)) (struct{}, error) {
 //		for v := range recv.Op(e's task, args...) {
 //			ok, err := yield(e, v)
-//			if err != nil { return struct{}{}, err }
+//			if err != nil { panic(UnreachableAt(…, the call's site)) }
 //			if !ok { return struct{}{}, nil }
 //		}
 //		return struct{}{}, nil
 //	}
 //
 // whose hidden arguments read e, the environment the Seq is iterated on.
+// A Seq's yield is func(v T) bool, with no failure (types.md, Loops and
+// len 4), so its error is always nil: the uniform shape carries it, and
+// the literal makes a non-nil one the unreachable defect at the call
+// rather than a failure no checked program has. The emitter (stdResult)
+// returns it; a change that lets a yield fail fails here, loudly.
 func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos) ([]*irStmt, *irExpr, bool) {
 	t := b.l.info.Types[x]
 	seqT, ok := t.(*check.Named)
@@ -155,10 +160,15 @@ func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	call := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	v := b.temp("v", b.goType(elem, x), p)
 	yok, yerr := b.temp("ok", "bool", p), b.temp("err", "error", p)
+	b.keepImport("var _ = " + b.l.rt() + ".UnreachableAt")
+	unreachable := &irStmt{K: "panic", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "UnreachableAt", Args: []*irExpr{
+		{K: "const", Pos: p, T: "string", V: "a Seq's yield failed"},
+		{K: "const", Pos: p, T: "string", V: b.l.siteText(x)},
+	}}}
 	unit := func() *irStmt { return &irStmt{K: "ret", Pos: p, X: &irExpr{K: "zero", Pos: p, T: "struct{}"}} }
 	loop := &irStmt{K: "range", Pos: p, End: p, X: call, Key: &v, Body: []*irStmt{
 		{K: "def2", Pos: p, Local: yok, Val: &yerr, X: &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: yield}, Args: []*irExpr{{K: "local", Pos: p, I: e}, {K: "local", Pos: p, I: v}}}},
-		{K: "if", Pos: p, End: p, X: b.notNil(yerr, p), Then: []*irStmt{{K: "fail", Pos: p, X: &irExpr{K: "local", Pos: p, I: yerr}}}},
+		{K: "if", Pos: p, End: p, X: b.notNil(yerr, p), Then: []*irStmt{unreachable}},
 		{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: &irExpr{K: "local", Pos: p, I: yok}}, Then: []*irStmt{unit()}},
 	}}
 	end := p
