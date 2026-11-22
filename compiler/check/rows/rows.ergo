@@ -49,17 +49,17 @@ type site { at dense.ID[syntax.Node], kind int, extra []dense.ID[store.TKey], li
 // declared rows (known is false for one with an element this pass does
 // not read: nothing is reported against it), the try depth and the sites.
 type walker {
-	types  dense.Col[store.PNode, dense.Opt[store.TKey]],
-	calls  dense.Col[store.PNode, dense.Opt[store.TKey]],
-	caps   dense.Col[store.PNode, dense.Opt[store.TKey]],
-	lits   dense.Col[store.PNode, int],
+	types   dense.Col[store.PNode, dense.Opt[store.TKey]],
+	calls   dense.Col[store.PNode, dense.Opt[store.TKey]],
+	caps    dense.Col[store.PNode, dense.Opt[store.TKey]],
+	lits    dense.Col[store.PNode, int],
 	litRows []expr.LitRows,
-	file   int,
-	errs   []dense.ID[store.TKey],
-	uses   []dense.ID[store.TKey],
-	known  []bool,
-	tries  int,
-	sites  []site,
+	file    int,
+	errs    []dense.ID[store.TKey],
+	uses    []dense.ID[store.TKey],
+	known   []bool,
+	tries   int,
+	sites   []site,
 	// lit is whether the body walked is a function literal's.
 	lit bool,
 }

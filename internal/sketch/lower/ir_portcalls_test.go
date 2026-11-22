@@ -40,6 +40,8 @@ import "testing"
 // a field), T{..fresh(n), F: v} ("record update of a computed base"; PF's
 // r02; mutant pu-computed-base-refused).
 //
+// CONV-OPERAND: row convop (below).
+//
 // The programs reach other stops (witness parameters, instance copies),
 // which are not these families: the test reads the report's fallback
 // reasons, not that every body lowers.
@@ -168,6 +170,41 @@ func main() needs Ambient {
 	with context { io.Stdout: io.NewHost() } {
 		run(1)
 	}
+}
+`},
+		// CONV-OPERAND: an operand of a runtime type over a basic type
+		// (fs.Text, Go's MappedText = string) at a body's string, passed
+		// through Go's conversion (mutant co-basic-refused), and a leaf
+		// body's parameter that names a type of runtime/v1 through the
+		// leaf's import (http.DoFile's *v1.HostRoot; mutant
+		// co-leaf-root-unread). The census's io.File, weather.Summarize,
+		// the mapped examples' Files.Text and http.DoFile.
+		{"convop", `import fs
+import http
+import io
+
+func clip(text fs.Text, a int, b int) string { fs.Clone(text[a:b]) }
+
+func whole(m fs.Mapped) string { fs.Clone(m.Text()) }
+
+func load(h fs.Host, p string) int {
+	let _ = io.File(h, p, 64) catch {
+	case _:
+		return 0
+	}
+	1
+}
+
+func get(root fs.HostRoot, p string, r http.Request) int needs http.Net {
+	let _ = http.DoFile(root, p, r) catch {
+	case _:
+		return 0
+	}
+	1
+}
+
+func main() needs Console {
+	Console.Println("\(clip(fs.MapText("abcdef").Text(), 1, 3)) \(whole(fs.MapText("x")))")
 }
 `},
 	} {

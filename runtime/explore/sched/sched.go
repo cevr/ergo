@@ -18,6 +18,7 @@
 // happens-before that DFS uses.
 package sched
 
+import "sync"
 import "strconv"
 
 // Step is an enabled task and the operation it does when it is picked:
@@ -112,12 +113,14 @@ const (
 	local
 )
 
-var kinds = map[string]int{
-	"start": local, "resume": barrier, "end": barrier, "spawn": barrier,
-	"join": barrier, "stop": barrier, "sleep": barrier, "await": barrier,
-	"push": change, "pop": change, "close": change, "write": change,
-	"read": read,
-}
+var kinds = sync.OnceValue(func() map[string]int {
+	return map[string]int{
+		"start": local, "resume": barrier, "end": barrier, "spawn": barrier,
+		"join": barrier, "stop": barrier, "sleep": barrier, "await": barrier,
+		"push": change, "pop": change, "close": change, "write": change,
+		"read": read,
+	}
+})
 
 // Dependent reports whether the order of a and b, steps of two tasks, can
 // show: swapping them may change a value, an outcome or which task is
@@ -127,7 +130,7 @@ func Dependent(a, b Step) bool {
 	if a.Task == b.Task {
 		return true
 	}
-	ka, kb := kinds[a.Kind], kinds[b.Kind]
+	ka, kb := kinds()[a.Kind], kinds()[b.Kind]
 	if ka == 0 || kb == 0 || ka == barrier || kb == barrier || a.Handle == 0 || b.Handle == 0 {
 		return true
 	}

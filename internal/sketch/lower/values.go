@@ -1992,7 +1992,7 @@ func (w *valueWalk) openingCall(n syntax.Node) *syntax.CallExpr {
 }
 
 // joinsChildren reports a call of an extern whose runtime body (its body
-// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds):
+// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds()):
 // the caller is the parent of the tasks the body starts, and the body
 // joins them before it returns, running its function operands only on
 // itself and on them. So an escaping literal it is given runs no more once

@@ -238,7 +238,7 @@ func risky(n int) int fails Oops {
 			call, ok = "mix(x, "+c.text+", "+a.text+")", a.ok
 		}
 		sunk = append(sunk, ok)
-		fmt.Fprintf(&b, "func site%d(x int, p *Box) int fails Oops needs Console { %s }\n\n", i, call)
+		fmt.Fprintf(&b, "func site%d(x int, p mut Box) int fails Oops needs Console { %s }\n\n", i, call)
 		fmt.Fprintf(&main, "\tlet v%d = try site%d(%d, &box)\n\tConsole.Println(\"site%d \\(v%d)\")\n", i, i, x, i, i)
 	}
 	b.WriteString("func run() fails Oops needs Console {\n\tlet mut box = Box{V: 3}\n")

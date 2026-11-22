@@ -29,6 +29,7 @@ package lower
 
 import (
 	"slices"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -280,10 +281,12 @@ func (at *rwAt) placed() bool { return at.slot != nil && !at.cond && at.total }
 
 // rwSlotted are the statements that evaluate their expressions once,
 // before anything else they do.
-var rwSlotted = map[string]bool{
-	"def": true, "def2": true, "tdef": true, "var": true, "set": true, "store": true, "ret": true, "expr": true,
-	"discard": true, "panic": true, "if": true, "switch": true, "tswitch": true, "match": true, "range": true,
-}
+var rwSlotted = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"def": true, "def2": true, "tdef": true, "var": true, "set": true, "store": true, "ret": true, "expr": true,
+		"discard": true, "panic": true, "if": true, "switch": true, "tswitch": true, "match": true, "range": true,
+	}
+})
 
 // rwFuncs reports a lowering with laws over functions in its scope.
 func (b *irBuilder) rwFuncs() bool {
@@ -317,7 +320,7 @@ func (b *irBuilder) rwList(list []*irStmt) []*irStmt {
 func (b *irBuilder) rwStmt(s *irStmt) []*irStmt {
 	var slot []*irStmt
 	at := &rwAt{total: true}
-	if rwSlotted[s.K] {
+	if rwSlotted()[s.K] {
 		at.slot = &slot
 	}
 	s.X = b.rwExpr(s.X, at)

@@ -34,7 +34,7 @@ The program is a module of packages (`ergo.mod`: `module regex`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/regex/cmd/regex -o /tmp/regex
 printf 'the cat\nthe dog\n' | /tmp/regex 'c.t|d[aeiou]g'
 ./bin/ergo test examples/regex/nfa       # and syntax, backtrack, cmd/regex
