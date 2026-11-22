@@ -504,24 +504,11 @@ func (c *Cursor) readString() (string, bool) {
 // \udcff as the byte JSONAppendString escaped, and any other lone
 // surrogate as U+FFFD (encoding/json's rule).
 func (c *Cursor) str() string {
-	c.i++
-	start := c.i
-	for c.i < len(c.s) {
-		ch := c.s[c.i]
-		if ch == '"' {
-			s := strings.Clone(c.s[start:c.i]) // a decoded string does not pin the text
-			c.i++
-			return s
-		}
-		if ch == '\\' {
-			break
-		}
-		if ch < 0x20 && c.check {
-			c.bad = true
-		}
-		c.i++
+	s, window := c.strText()
+	if window {
+		return strings.Clone(s) // a decoded string does not pin the text
 	}
-	return string(c.unescape([]byte(c.s[start:c.i])))
+	return s
 }
 
 // key takes a member's key at the cursor, as str does, but with no copy:
@@ -529,14 +516,22 @@ func (c *Cursor) str() string {
 // record's decode compares it in place; a decode that keeps it, a Map's,
 // copies it (json 2). A key with an escape is built, as str builds it.
 func (c *Cursor) key() string {
+	k, _ := c.strText()
+	return k
+}
+
+// strText is the string at the cursor, its escapes read as str reads
+// them: a window of the text when it holds no escape (window true), else
+// the string the escapes build.
+func (c *Cursor) strText() (s string, window bool) {
 	c.i++
 	start := c.i
 	for c.i < len(c.s) {
 		ch := c.s[c.i]
 		if ch == '"' {
-			k := c.s[start:c.i]
+			s := c.s[start:c.i]
 			c.i++
-			return k
+			return s, true
 		}
 		if ch == '\\' {
 			break
@@ -546,7 +541,7 @@ func (c *Cursor) key() string {
 		}
 		c.i++
 	}
-	return string(c.unescape([]byte(c.s[start:c.i])))
+	return string(c.unescape([]byte(c.s[start:c.i]))), false
 }
 
 // strBytes is str's bytes added to dst, with no string made (the Reader's
@@ -1043,7 +1038,9 @@ func (c *Cursor) Number() string {
 	c.at()
 	v, ok := c.number()
 	c.wrong = !ok
-	return v
+	// A number's spelling is a copy (stdlib.md json 2): a value that keeps
+	// it, a json.Num, keeps no window of the text (JSON-CURSOR-ALLOC).
+	return strings.Clone(v)
 }
 
 //ergo:wait none

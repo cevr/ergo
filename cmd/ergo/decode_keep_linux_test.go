@@ -131,8 +131,8 @@ func main() fails json.Malformed | io.ReadFailed | WireWrongKind | WireMissingFi
 // Mutants (lower ledger): map-key-not-cloned-text (wireDecodeBody's Map
 // keeps Key as it is) puts decode and stream over the bound;
 // map-key-not-cloned-ir (ir_wire_read.go's Map) puts reader over it;
-// member-key-not-cloned (wireMembersDecode) and num-not-owned (json
-// ParseNum keeps its text) put value over it.
+// member-key-not-cloned (wireMembersDecode) and num-not-owned (Cursor
+// Number gives the window) put value over it.
 func TestDecodedKeysKeepNoText(t *testing.T) {
 	needsBuild(t)
 	const keepKeys, pad, keepBound = 10000, 8192, 32 << 20
