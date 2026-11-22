@@ -529,15 +529,18 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 // the waiter (I1): when the waiter is stopped first or while it waits, the
 // task is stopped and drained, and Wait raises the interruption with the
 // task's defects; it delivers neither the task's value nor its typed
-// failure (law R4). A Wait after Wait, Stop or Close is a defect.
+// failure (law R4). A Wait after Wait, Stop or Close is a defect. The
+// waiter is ct, the task that calls Wait: the Task's owner, which a
+// hand-off may have made another task than the one that started it
+// (runtime.md Tasks, rule 11; issue 236).
 //
-//ergo:wait handle
-func (t *Task[T]) Wait() (T, error) {
+//ergo:wait caller
+func (t *Task[T]) Wait(ct *rt.Task) (T, error) {
 	if t.used {
 		panic("task: Wait on a task that was already waited for, stopped or released")
 	}
 	t.used = true
-	v, err := t.h.Wait()
+	v, err := t.h.WaitBy(ct)
 	if err == nil {
 		return v, nil
 	}
@@ -553,15 +556,16 @@ func (t *Task[T]) Wait() (T, error) {
 // its exit actions included (law R5), and consumes it. The task's
 // interruption and an abandoned typed failure are the expected result of
 // the stop and are dropped (laws R3, R6); its defects are raised in the
-// caller. Stop on a consumed task does nothing.
+// caller. Stop on a consumed task does nothing. The waiter is ct, the task
+// that calls Stop (Wait).
 //
 //ergo:wait drain
-func (t *Task[T]) Stop() {
+func (t *Task[T]) Stop(ct *rt.Task) {
 	if t.used {
 		return
 	}
 	t.used = true
-	if err := t.h.Stop(); err != nil {
+	if err := t.h.StopBy(ct); err != nil {
 		raise(err)
 	}
 }
@@ -581,7 +585,7 @@ func (t *Task[T]) Close(ct *rt.Task) {
 	}
 	t.used = true
 	Release(ct, func() {
-		if err := t.h.Stop(); err != nil {
+		if err := t.h.StopBy(ct); err != nil {
 			raise(err)
 		}
 	})

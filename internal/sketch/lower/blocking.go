@@ -22,8 +22,11 @@ type waitTask uint8
 const (
 	noWait     waitTask = iota
 	callerWait          // the hidden *rt.Task, from the invocation environment
-	handleWait          // the handle's owner; Move changes the owning frame, not task
-	drainWait           // uninterruptible stop and completed drain
+	// drainWait is an uninterruptible stop and completed drain by the
+	// hidden *rt.Task of the invocation environment: a Task's waiter is
+	// the task that holds it, which a hand-off moves (runtime.md Tasks,
+	// rule 11), never the task that started it (issue 236).
+	drainWait
 	// childWait is the hidden *rt.Task of the invocation environment as the
 	// parent of the children the body starts and joins (timeout.After,
 	// through rt.AfterSpan). It parks on no primitive of its own: the
@@ -77,7 +80,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.wait == endWait || b.release == callerRelease || b.reads || b.task
+	return b.wait == callerWait || b.wait == drainWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.wait == endWait || b.release == callerRelease || b.reads || b.task
 }
 
 // goDurationName is the Go type a body's duration operand has, as the body

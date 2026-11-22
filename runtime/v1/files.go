@@ -154,8 +154,9 @@ const (
 // takes the caller's task (CallerTask) to wait on or to start under:
 //   - none: the body never waits;
 //   - caller: it waits on the caller's task, and a stop of it ends the wait;
-//   - handle: it waits on the task of the handle it is given;
-//   - drain: an uninterruptible stop and completed drain;
+//   - drain: an uninterruptible stop and completed drain, with the caller's
+//     task as the one that waits (a Task's waiter is its owner, not the
+//     task that started it: runtime.md Tasks, rule 11);
 //   - child: the caller is the parent of the children it starts and joins
 //     before it returns; it runs its function operands only on itself and
 //     on those children, so none runs after the call (lower's
@@ -166,7 +167,7 @@ const (
 //   - end: it waits, uninterruptibly, for an actor's runner to end.
 var WaitKinds = sync.OnceValue(func() map[string]bool {
 	return map[string]bool{
-		"none": false, "caller": true, "handle": false, "drain": false, "child": true,
+		"none": false, "caller": true, "drain": true, "child": true,
 		"member": true, "parent": true, "settle": true, "end": true,
 	}
 })

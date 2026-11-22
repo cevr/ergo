@@ -254,7 +254,7 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 					for range 3 {
 						runtime.Gosched()
 					}
-					h.Stop()
+					h.Stop(ct)
 					ls.End(nil)
 				}
 			}
@@ -262,7 +262,7 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 		})
 	}
 	for i, h := range tasks {
-		if _, err := h.Wait(); err != nil {
+		if _, err := h.Wait(root); err != nil {
 			panic(err)
 		}
 		stamp(-1, i, false)
@@ -326,7 +326,7 @@ func TestTestingLaws(t *testing.T) {
 					return line.Read().Mono, nil
 				})
 				line.Wait(root, d)
-				seen, err := h.Wait()
+				seen, err := h.Wait(root)
 				s.End(nil)
 				if err != nil || seen != 0 || line.Read().Mono != int64(d) || q.Len() != count {
 					t.Fatalf("pusher saw %v (err %v), clock %v after Sleep(%v), %d queued of %d", time.Duration(seen), err, time.Duration(line.Read().Mono), d, q.Len(), count)

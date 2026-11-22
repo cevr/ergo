@@ -31,10 +31,11 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Queue.Pop":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"T", "error"}},
 		"Queue.Values": {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"iter.Seq[T]"}},
 		"Queue.End":    {TypeParams: anyT},
-		// The prelude's Task operations; Close, the release, masks on the
+		// The prelude's Task operations wait by the caller's task (runtime.md
+		// Tasks, rule 11: the waiter is the owner); Close, the release, masks on the
 		// caller's task (#197 L8 B3t).
-		"Task.Wait":    {TypeParams: anyT, Results: []string{"T", "error"}},
-		"Task.Stop":    {TypeParams: anyT},
+		"Task.Wait":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"T", "error"}},
+		"Task.Stop":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}},
 		"Task.Close":   {TypeParams: anyT, Hidden: []Hidden{CallerTask}},
 		"ContextBound": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"bool"}},
 		"ContextValue": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"string"}},
