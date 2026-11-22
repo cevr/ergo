@@ -15,10 +15,6 @@ import (
 	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
-// noRunner is the runner of a ledger row whose law no Go test runs: the
-// law runs on its own source or nowhere (#162).
-const noRunner = "#162"
-
 // stdRedFile lists, from the module root, what does not pass on its own
 // source yet, one line each, "KEY<TAB>CLASS: why<TAB>REGISTER-ID": a std
 // law with no Go runner that no tier runs ("pkg Law"), an obligation that
@@ -80,7 +76,7 @@ func runStd(w io.Writer, root string) int {
 	}
 	var bare []string
 	for _, r := range rows {
-		if r.Runner == noRunner {
+		if r.Runner == lawledger.NoRunner {
 			bare = append(bare, r.Key())
 		}
 	}

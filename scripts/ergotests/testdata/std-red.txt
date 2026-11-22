@@ -1,7 +1,7 @@
 # What does not pass on its own source yet (go run ./scripts/ergotests -std,
 # the gate's step "std laws in place"), one line each,
 # "KEY<TAB>CLASS: why<TAB>REGISTER-ID":
-#   pkg Law   a std law with no Go runner (#162) that no tier runs (class
+#   pkg Law   a std law with no Go runner (runner none) that no tier runs (class
 #             "not run"), or a law that fails on its own source;
 #   pkg Name  a test that fails there;
 #   pkg *     a package whose evaluation stops ("internal error", "error").
