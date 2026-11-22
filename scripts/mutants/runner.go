@@ -515,22 +515,59 @@ func commitCopy(dst string, files []treeFile) error {
 }
 
 // verifyCopy checks that every file a mutant touched in the copy at dst is
-// back to the checkout's bytes.
+// back to the checkout's bytes: a file a row edited, and every file under
+// a regenerate step's folder (for `go run ./scripts/linked`, the whole
+// tree). A symbolic link is compared by its target, as treeFile keeps it:
+// read through the link, every link under a regenerate folder "differed"
+// (conformance/upstream/foldkit-d21db423/CLAUDE.md -> AGENTS.md; IR1, PF).
+// Each changed file is named with its first differing line.
 func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 	var bad []string
 	for _, f := range e.files {
 		if !touched[f.path] {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(f.path)))
-		if err != nil || !bytes.Equal(data, f.data) {
-			bad = append(bad, f.path)
+		p := filepath.Join(dst, filepath.FromSlash(f.path))
+		var data []byte
+		var err error
+		if f.mode&fs.ModeSymlink != 0 {
+			var target string
+			target, err = os.Readlink(p)
+			data = []byte(target)
+		} else {
+			data, err = os.ReadFile(p)
 		}
+		if err == nil && bytes.Equal(data, f.data) {
+			continue
+		}
+		bad = append(bad, f.path+" ("+firstDiff(f.data, data, err)+")")
 	}
 	if len(bad) > 0 {
-		return fmt.Errorf("a mutant was not restored: %s in %s differs from the checkout", strings.Join(bad, ", "), dst)
+		return fmt.Errorf("a mutant was not restored in %s: %s", dst, strings.Join(bad, "; "))
 	}
 	return nil
+}
+
+// firstDiff is the first line where the copy's bytes (got, or its read
+// error) differ from the checkout's (want).
+func firstDiff(want, got []byte, err error) string {
+	if err != nil {
+		return "in the copy: " + err.Error()
+	}
+	w, g := strings.Split(string(want), "\n"), strings.Split(string(got), "\n")
+	for i := 0; i < max(len(w), len(g)); i++ {
+		var a, b string
+		if i < len(w) {
+			a = w[i]
+		}
+		if i < len(g) {
+			b = g[i]
+		}
+		if a != b || i >= len(w) || i >= len(g) {
+			return fmt.Sprintf("line %d: checkout %.120q, copy %.120q", i+1, a, b)
+		}
+	}
+	return "same lines, other bytes"
 }
 
 // env is the environment of every child: the runner's own, with the
@@ -1175,7 +1212,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	}
 	if o = neverRan(o); o.reason != "" {
 		t.Failed = true
-		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
+		t.Detail = baseDetail(o)
 		e.logf("coverage: %s fails on the unmutated tree (%s): it kills nothing", t.ID, o.reason)
 	}
 	entries, err := os.ReadDir(dir)
