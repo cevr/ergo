@@ -8,7 +8,7 @@ import (
 
 // testBodies is the number of tests GenerateTests writes: each gets an IR
 // body in every seed (G6).
-const testBodies = 11
+const testBodies = 12
 
 // GenerateTests is a program of test declarations (G6): asserts whose
 // failure shows its operands (a comparison of ints, of strings, of a
@@ -28,7 +28,7 @@ func GenerateTests(seed uint64) string {
 		}
 		return right
 	}
-	b.WriteString("type Bad { N int }\n\n")
+	b.WriteString("import scope\n\ntype Bad { N int }\n\n")
 	fmt.Fprintf(&b, "func scale(n int) int {\n\tn * %d\n}\n\n", k)
 	b.WriteString("func even(n int) bool {\n\tn % 2 == 0\n}\n\n")
 	b.WriteString("func name(n int) string {\n\tif n > 3 {\n\t\treturn \"big\"\n\t}\n\t\"small\"\n}\n\n")
@@ -60,6 +60,11 @@ func GenerateTests(seed uint64) string {
 	// (lru's memo test).
 	b.WriteString("func first[E](f func() int fails E) int fails E {\n\ttry f()\n}\n\n")
 	fmt.Fprintf(&b, "test Records {\n\tlet _ = first(func() int { 1 })\n\tassert ending(%d) == Won{Moves: %s}\n\tassert Pt{X: %d, Y: 1} == Pt{X: %d, Y: %s}\n\tassert []int{%d, 1} != []int{%d, %s}\n}\n\n", z, pick(fmt.Sprint(z), fmt.Sprint(z+1)), z, z, pick("1", "2"), z, z, pick("2", "1"))
+	// A test that opens a frame scope (GP-FRAMES): its exit action runs
+	// when the test ends, after a try that may fail it, and raises a
+	// defect at a seeded index, so an action that does not run, or a
+	// failure the frame's End loses, changes the report.
+	fmt.Fprintf(&b, "test Exits {\n\tscope.OnExit() {\n\t\tlet ys = []int{1, 2}\n\t\tlet _ = ys[%d]\n\t}\n\tlet v = try check(%d)\n\tassert v > 0\n}\n\n", r.IntN(3), r.IntN(7))
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"\\(scale(2))\")\n}\n")
 	return b.String()
 }
