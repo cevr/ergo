@@ -524,7 +524,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		f.fn = &irFunc{Name: s.helper, Pos: p, End: p, Body: []*irStmt{{K: "expr", Pos: p, X: c}}}
 		b.st.out.Funcs = append(b.st.out.Funcs, *f.fn)
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body; its body is IR (FLIP F7, RELEASE-IR).\n")
-		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + l.names.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
+		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " " + b.envPointer() + ", " + l.names.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
 	}
 	l.gen.WriteString(t.String())
 	return true
@@ -1102,7 +1102,7 @@ func (b *irBuilder) ownDone(name string) {
 	env := fc.envExpr(site)
 	helper := l.names.alloc(strings.ReplaceAll(name, ".", "_") + "Release") // a method's name is T.m
 	live, kept, rel := l.names.alloc("live"), l.names.alloc("kept"), l.names.alloc("rel")
-	params := []string{env + " *" + l.env(), live + " *uint64"}
+	params := []string{env + " " + b.envPointer(), live + " *uint64"}
 	args := []*irExpr{{K: "local", Pos: o.p, I: b.env}, b.addrOf(o.live, o.p)}
 	if o.kept >= 0 {
 		params = append(params, kept+" *uint64")
@@ -1172,7 +1172,7 @@ func (b *irBuilder) ownDone(name string) {
 		}
 		slot := l.names.alloc("slot")
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body (IR, FLIP F7).\n")
-		t.WriteString("func " + s.helper + "(" + env + " *" + l.env() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
+		t.WriteString("func " + s.helper + "(" + env + " " + b.envPointer() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
 		t.WriteString(fc.providerRelease(&check.Acquisition{Close: s.d.Close}, env, "(*"+slot+")", site) + "\n}\n\n")
 	}
 	l.gen.WriteString(t.String())
