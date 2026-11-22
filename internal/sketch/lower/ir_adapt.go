@@ -56,7 +56,7 @@ func (b *irBuilder) givenFunc(t check.Type, task bool, site syntax.Node, p irPos
 	}
 	gt = "func(" + strings.Join(goParams, ", ") + ")"
 	local = b.temp("p", gt, p)
-	env := b.temp("env", "*"+b.l.env(), p)
+	env := b.temp("env", b.envPointer(), p)
 	w = &irExpr{K: "func", Pos: p, T: b.goType(t, site), Params: []int{env}}
 	call := &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: local}}
 	for _, gp := range goParams {
@@ -135,7 +135,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		t := b.temp("t", tt, p)
 		params = append(params, tt)
 		lit.Params = append(lit.Params, t)
-		cp := b.temp("e", b.l.env(), p)
+		cp := b.temp("e", b.envValue(), p)
 		lit.Body = append(lit.Body,
 			&irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: env}},
 			&irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: t}})

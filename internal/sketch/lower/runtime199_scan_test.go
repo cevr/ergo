@@ -181,9 +181,12 @@ func stringLits(t *testing.T, n ast.Node) []string {
 // other reader may hold both "func(" and "{" in its literals, however the
 // text is assembled (concatenation, fmt.Sprintf, a local). A helper that
 // returns env-typed parameter text is a new reader, so it fails too.
+// The IR builder's readers read the type through irBuilder.envPointer,
+// so they are not listed; the same closure rule holds them.
 func TestRuntime199EnvTypeReaders(t *testing.T) {
 	src := typedPackage(t, ".")
 	readers := src.users(src.method(t, "lowerer", "env"))
+	irReaders := src.users(src.method(t, "irBuilder", "envPointer"))
 	classified := map[string]string{
 		"funcCtx.envClosure":       "the closure owner",
 		"lowerer.emitBody":         "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
@@ -204,23 +207,9 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"typeCtx.funcType":         "a function type, which has no body",
 		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
 		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
-		"irBuilder.withOperand":    "the IR's with: the Env copy and its pointer, locals of the body (ir_with.go, IRG6)",
-		"irBuilder.opsConv":        "the IR's operations adapter: a nil *Env where no environment is bound, no closure (ir_with.go, IRG6)",
-		"irBuilder.sigHead":        "the IR's function type's parameter half, for typeCtx.funcType's uniform shape (sigType) and a frame literal's named results (frameSigType): no body (ir_closure.go, IRG6 r2, G6-FRAMELIT)",
-		"irBuilder.closureLit":     "the IR's function literal: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_closure.go, IRG6 r2)",
-		"irBuilder.machineFunc":    "the IR's function literal of a machine value's field: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_machine.go, MACHINE-IR)",
-		"irBuilder.declaredLit":    "the IR's closure of a declared function or method used as a value: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_fnname.go, FLIP F7 CS; funcName's, moved here with method values)",
+		"irBuilder.envPointer":     "the IR builder's one reader: the Go type of an environment local, *Env (the function's parameter, a literal's, a with's pointer), recorded at its first read; the IR's readers take it from there (ir.go, IR-ENV-SLOT-TYPE)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
-		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
-		"irBuilder.adaptOperand":   "the IR's adapter of a std body's function parameter: the task block's Env copy, a local of the literal, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
-		"irBuilder.givenFunc":      "the IR's uniform-shape literal around a Go function a std body gives its callback: its *Env parameter, a local of the IR literal, unread, as adaptTaskFunc's callerEnv wrapper (ir_adapt.go, HIDDEN-ARGS)",
-		"irBuilder.releaseFuncs":   "the IR release helpers' headers, func xRelease(env *Env, ...) and xFree(env *Env, slot *T), with no body: their bodies are IR (ir_own.go, RELEASE-IR)",
-		"irBuilder.spawnLocalType": "the IR's type of a GoWith capture field: *Env for the environment local, a type, no closure (ir_spawn.go, GP-SPAWN2)",
-		"irBuilder.groupCall":      "the IR's group body of a component call: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
-		"irBuilder.sameLit":        "the IR's group equality literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
-		"irBuilder.cheapLit":       "the IR's group cheap-equality literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
-		"irBuilder.keepLit":        "the IR's group keep literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
@@ -238,10 +227,9 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.initOnce":       "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
 		"irBuilder.ownDone":      "a slot's release closure for Static.Part takes no parameter; it runs on the helper's env",
 		"irBuilder.adaptOperand": "a std body's Go function parameter takes the body's own parameters (a task, values), as adaptTaskFunc's and adaptPlainFunc's; the Ergo value runs on the caller's env or the task block's copy",
-		"irBuilder.givenFunc":    "the Go function a std body gives its callback (an actor work's send) takes the signal alone; only the uniform-shape literal around it takes the Env",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
-		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {
+		if !(readers[owner] || irReaders[owner]) || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {
 			return
 		}
 		open, brace := false, false
