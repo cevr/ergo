@@ -44,7 +44,12 @@ func TestMalformed(t *testing.T) {
 				if !ok {
 					t.Fatalf("no habit %q", m.Habit)
 				}
-				if e.Message != want {
+				// A fixed local declaration names its let form after the
+				// habit's message (VET-CHECK-VAR: "; here `let x = 1`, ...").
+				if e.Fix != nil {
+					want += "; here "
+				}
+				if e.Fix != nil && !strings.HasPrefix(e.Message, want) || e.Fix == nil && e.Message != want {
 					t.Fatalf("message %q, want the habit's %q", e.Message, want)
 				}
 			}
