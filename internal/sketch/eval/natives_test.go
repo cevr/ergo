@@ -34,14 +34,17 @@ import (
 // defect (Go's panic text). time.format and time.parse call their runtime
 // bodies (nativestime.go), so a law run at check time runs the build's
 // code; their rows hold that the native is that body
-// (eval-time-format-is-gos, eval-time-parse-is-gos). A failing seed prints the native, the arguments and
-// both results, and the replay command.
+// (eval-time-format-is-gos, eval-time-parse-is-gos). A failing seed
+// prints the native, the arguments and both results, and the replay
+// command.
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
 // oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
-// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last, and
+// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last,
+// eval-time-format-is-gos, eval-time-parse-is-gos,
+// eval-sortfunc-equal-on-greater, eval-repeat-drops-one, and
 // ST4's st4-* rows but st4-native-missing (nativespure.go).
 // The tests read the natives through loadedNatives, which builds them.
 
@@ -396,6 +399,10 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
 			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
 		}},
+		{name: "slices.SortFunc", args: []Value{li(ints), byMod3}, v1: func() any {
+			return v1.SlicesSortFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
+		}},
+		{name: "slices.Repeat", args: []Value{li(ints), int64(i)}, anyDefect: true, v1: func() any { return v1.SlicesRepeat(ints, i) }},
 		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
 	}, pureCases(g, s, u, d, m, f, ints, ints2, x, sec, nsec, lay)...)
 }
