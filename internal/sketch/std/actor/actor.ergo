@@ -1411,10 +1411,12 @@ type Registry[K comparable, S, E, D, F] {
 }
 
 // registered is an actor in a registry, with the number of its Register,
-// so the end of an actor removes its own entry and never a later one.
+// so the end of an actor removes its own entry and never a later one, and
+// whether the source that removes it has started.
 type registered[S, E, D, F] {
 	Actor Actor[S, E, D, F],
 	N int,
+	Started sync.Ref[bool],
 }
 
 // Taken is the failure of Register when a live actor holds the key.
@@ -1428,19 +1430,24 @@ func NewRegistry[K comparable, S, E, D, F]() Registry[K, S, E, D, F] {
 	}
 }
 
-// Register names a by k. It fails Taken while another actor holds k, and
-// Stopped when a has ended or its Stop was requested (it then names
-// nothing). The entry is removed by a's end, on a task a owns (a Feed's
-// source whose exit action removes it), so a registry keeps no ended actor
-// and runs no task of its own.
+// Register names a by k. It fails Taken while another live actor holds k,
+// and Stopped when a has ended or its Stop was requested (it then names
+// nothing). The entry is removed at a's end by a source of a (Feed's
+// body) whose exit action removes it, so a registry runs no task of its
+// own. A source a ends before it starts never runs: Lookup asks such an
+// entry's actor whether it runs (its inbox, behind the signals queued
+// before) and drops it when it does not, so Register and Lookup of a key
+// whose actor has ended never give that actor.
 func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[S, E, D, F]) fails Taken | Stopped {
+	let _ = Lookup(r, k)
 	let n = sync.Modify(r.next, func(v int) (int, int) { (v + 1, v + 1) })
+	let started = sync.NewRef[bool](false)
 	let free = sync.Modify(r.entries, func(m Map[K, registered[S, E, D, F]]) (bool, Map[K, registered[S, E, D, F]]) {
 		match m.Get(k) {
 		case Some[registered[S, E, D, F]]:
 			(false, m)
 		case None:
-			(true, m.Put(k, registered[S, E, D, F]{Actor: a, N: n}))
+			(true, m.Put(k, registered[S, E, D, F]{Actor: a, N: n, Started: started}))
 		}
 	})
 	if !free {
@@ -1451,6 +1458,7 @@ func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[
 		scope.OnExit() {
 			entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
 		}
+		started.Set(true)
 		let hold = queue.New[int](1)
 		hold.Pop() catch {
 		case queue.Closed:
@@ -1476,10 +1484,23 @@ func unregistered[K comparable, S, E, D, F](m Map[K, registered[S, E, D, F]], k 
 	}
 }
 
-// Lookup is the actor that k names, None when no live actor holds it.
+// Lookup is the actor that k names, None when no live actor holds it. An
+// entry whose source has started is removed by that source's exit, before
+// Stop, Drain or ExitOf of its actor returns; for one whose source has not
+// started, Lookup asks the actor (live) and drops the entry when it has
+// ended. So Lookup from an actor's own step, of a key that actor took in
+// that step, waits for the actor: it never returns.
 func Lookup[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K) Option[Actor[S, E, D, F]] {
 	match r.entries.Get().Get(k) {
 	case Some[registered[S, E, D, F]] as e:
+		if !e.Value.Started.Get() {
+			let _ = live(e.Value.Actor) catch {
+			case Stopped:
+				let n = e.Value.N
+				r.entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
+				return None
+			}
+		}
 		Some[Actor[S, E, D, F]]{Value: e.Value.Actor}
 	case None:
 		None
