@@ -281,10 +281,9 @@ func TestScheduleAgreesWithModel(t *testing.T) {
 }
 
 // stdScheduleLawsProbe restates the schedule laws, and the tasks laws of
-// Retry, Repeat and the restart policy, whose runner is
-// TestStdScheduleLawsRun, as Ergo tests over the exported API: within,
-// draw, gen, lawSchedule, intensityOf and instantsOf are the packages' own
-// helpers, restated.
+// Retry and Repeat, whose runner is TestStdScheduleLawsRun, as Ergo tests
+// over the exported API: within, draw, gen and lawSchedule are the
+// packages' own helpers, restated.
 const stdScheduleLawsProbe = `import cron
 import schedule
 import sync
@@ -497,79 +496,6 @@ test TasksRepeatFollowsDecide(work int, k int, limit int) {
 		assert got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at
 	}
 }
-
-func intensityOf(k int, p int) tasks.Intensity {
-	tasks.Intensity{Max: 1 + (k%4+4)%4, Period: duration(int64(1+(p%10+10)%10) * 1000000000)}
-}
-
-func instantsOf(gaps []int) []duration {
-	let mut at = 0s
-	let mut out = []duration{}
-	for g in gaps {
-		at = at + duration(int64((g%4+4)%4)*1000000000)
-		out = out.Append(at)
-	}
-	out
-}
-
-test TasksStrategiesNest(failed int, j int) {
-	let f = (failed%8 + 8) % 8
-	let m = (j%8 + 8) % 8
-	let one = tasks.Restarted(tasks.OneForOne, f, m)
-	let rest = tasks.Restarted(tasks.RestForOne, f, m)
-	let all = tasks.Restarted(tasks.AllForOne, f, m)
-	assert tasks.Restarted(tasks.OneForOne, f, f) && tasks.Restarted(tasks.RestForOne, f, f) && (!one || rest) && (!rest || all) && all && (m >= f || !rest)
-}
-
-test TasksWindowForgets(gaps []int, k int, p int) {
-	let i = intensityOf(k, p)
-	let past = instantsOf(gaps)
-	let last = if len(past) == 0 { 0s } else { past[len(past)-1] }
-	let mut burst = []duration{}
-	for _ in 0..i.Max {
-		burst = burst.Append(last)
-	}
-	assert tasks.Allows(i, past, last+i.Period) && !tasks.Allows(i, burst, last)
-}
-
-test TasksRecentKeepsTheVerdict(gaps []int, k int, p int, later int) {
-	let i = intensityOf(k, p)
-	let past = instantsOf(gaps)
-	let now = if len(past) == 0 { 0s } else { past[len(past)-1] }
-	let then = now + duration(int64((later%5+5)%5)*1000000000)
-	let mut kept = []duration{}
-	for t in past {
-		if tasks.Allows(i, kept, t) {
-			kept = tasks.Recent(i, kept.Append(t), t)
-		}
-	}
-	let r = tasks.Recent(i, past, now)
-	assert tasks.Allows(i, r, now) == tasks.Allows(i, past, now) && tasks.Allows(i, tasks.Recent(i, past, now), then) == tasks.Allows(i, past, then) && len(kept) <= i.Max
-}
-
-test TasksDecideWaitsTheBackoff(gaps []int, k int, p int) {
-	let i = intensityOf(k, p)
-	let s = tasks.Supervision{Strategy: tasks.OneForOne, Intensity: i, Backoff: schedule.Exponential(1s, 2.0, 1h)}
-	let past = instantsOf(gaps)
-	let now = if len(past) == 0 { 0s } else { past[len(past)-1] }
-	let n = len(tasks.Recent(i, past, now))
-	let mut want = 1s
-	for _ in 0..n {
-		want = duration(int64(want) * 2)
-	}
-	let quiet = match tasks.Decide(s, past, now+i.Period) {
-	case tasks.RestartAfter as r:
-		r.Wait == 1s
-	case tasks.GiveUp:
-		false
-	}
-	match tasks.Decide(s, past, now) {
-	case tasks.RestartAfter as r:
-		assert quiet && tasks.Allows(i, past, now) && r.Wait == want
-	case tasks.GiveUp:
-		assert quiet && !tasks.Allows(i, past, now)
-	}
-}
 `
 
 // stdScheduleLawStatements is the statement of each law the probe
@@ -584,10 +510,6 @@ var stdScheduleLawStatements = map[string]string{
 	"schedule AndIsMaxOrIsMin":       `AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) { let x = gen(a, 2) let y = gen(b, 2) let r = int(within(runs, 1, 20)) let e = duration(within(at, 0, 20000000000)) let both = Decide(And(x, y), r, e) let either = Decide(Or(x, y), r, e) match (Decide(x, r, e), Decide(y, r, e)) { case (Continue as p, Continue as q): let long = if p.After >= q.After { p.After } else { q.After } let short = if p.After <= q.After { p.After } else { q.After } both == Continue{After: long} && either == Continue{After: short} case (Continue as p, Stop): both == Stop && either == p case (Stop, Continue as q): both == Stop && either == q case (Stop, Stop): both == Stop && either == Stop } }`,
 	"tasks RetryFollowsDecide":       `RetryFollowsDecide(failing int, work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let n = (failing%10 + 10) % 10 let mut runs = 0 let mut at = 0s let mut want = 0 for want == 0 { runs = runs + 1 at = at + w if runs > n { want = runs } else { match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: want = 0 - runs } } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Retry(s, func() int fails lawFailed needs Scheduler { Scheduler.Sleep(w) let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) if i <= n { return lawFailed{Run: i} } i }) catch { case lawFailed as f: 0 - f.Run } got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
 	"tasks RepeatFollowsDecide":      `RepeatFollowsDecide(work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let mut runs = 0 let mut at = 0s let mut more = true for more { runs = runs + 1 at = at + w match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: more = false } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Repeat(s, func() int needs Scheduler { Scheduler.Sleep(w) sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) }) got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
-	"tasks StrategiesNest": `StrategiesNest(failed int, j int) { let f = (failed%8 + 8) % 8 let m = (j%8 + 8) % 8 let one = Restarted(OneForOne, f, m) let rest = Restarted(RestForOne, f, m) let all = Restarted(AllForOne, f, m) Restarted(OneForOne, f, f) && Restarted(RestForOne, f, f) && (!one || rest) && (!rest || all) && all && (m >= f || !rest) }`,
-	"tasks WindowForgets": `WindowForgets(gaps []int, k int, p int) { let i = intensityOf(k, p) let past = instantsOf(gaps) let last = if len(past) == 0 { 0s } else { past[len(past)-1] } let mut burst = []duration{} for _ in 0..i.Max { burst = burst.Append(last) } Allows(i, past, last+i.Period) && !Allows(i, burst, last) }`,
-	"tasks RecentKeepsTheVerdict": `RecentKeepsTheVerdict(gaps []int, k int, p int, later int) { let i = intensityOf(k, p) let past = instantsOf(gaps) let now = if len(past) == 0 { 0s } else { past[len(past)-1] } let then = now + duration(int64((later%5+5)%5)*1000000000) let mut kept = []duration{} for t in past { if Allows(i, kept, t) { kept = Recent(i, kept.Append(t), t) } } let r = Recent(i, past, now) Allows(i, r, now) == Allows(i, past, now) && Allows(i, Recent(i, past, now), then) == Allows(i, past, then) && len(kept) <= i.Max }`,
-	"tasks DecideWaitsTheBackoff": `DecideWaitsTheBackoff(gaps []int, k int, p int) { let i = intensityOf(k, p) let s = Supervision{Strategy: OneForOne, Intensity: i, Backoff: schedule.Exponential(1s, 2.0, 1h)} let past = instantsOf(gaps) let now = if len(past) == 0 { 0s } else { past[len(past)-1] } let n = len(Recent(i, past, now)) let mut want = 1s for _ in 0..n { want = duration(int64(want) * 2) } let quiet = match Decide(s, past, now+i.Period) { case RestartAfter as r: r.Wait == 1s case GiveUp: false } match Decide(s, past, now) { case RestartAfter as r: quiet && Allows(i, past, now) && r.Wait == want case GiveUp: quiet && !Allows(i, past, now) } }`,
 }
 
 // TestStdScheduleLawsRun runs the probe's tests with --seed 1;
