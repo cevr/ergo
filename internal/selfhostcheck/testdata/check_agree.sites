@@ -54,6 +54,7 @@ case examples/chat/cmd/chat
 case examples/chat/memory
 case examples/chat/room
 case examples/chat/server
+case examples/clientgen/cmd/clientgen
 case examples/confparse/cmd/confparse
 case examples/confparse/config
 case examples/confparse/toml
@@ -183,6 +184,7 @@ case examples/gointerop/cmd/gointerop
 case examples/gointerop/index
 case examples/gointerop/sha256
 case examples/gointerop/stats
+case examples/gointerop/uptime
 case examples/idle-timer/cmd/idle-timer
 case examples/idle-timer/display
 case examples/idle-timer/memory
@@ -280,7 +282,6 @@ case examples/mdhtml/workload
 case examples/metrics/alert
 case examples/metrics/cmd/metrics
 case examples/metrics/series
-case examples/modelslice/cmd/modelslice
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -1103,6 +1104,7 @@ case unused examples/gallery/gallery/paintings.ergo
 case unused examples/gointerop/checksum/checksum.ergo
 case unused examples/gointerop/index/index.ergo
 case unused examples/gointerop/stats/stats.ergo
+case unused examples/gointerop/uptime/uptime.ergo
 case unused examples/idle-timer/display/policy.ergo
 case unused examples/inbox/threads/inbox.ergo
 case unused examples/jobq/limit/bucket.ergo
