@@ -82,7 +82,7 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash, check.CallTestSeed, check.CallTestShown:
+			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash, check.CallTestSeed, check.CallTestShown, check.CallTestSource, check.CallTestReport, check.CallTestFile:
 			case check.CallFunc:
 				// Each witnessed operation's function runs where the
 				// callee calls the operation (witness.go).

@@ -716,8 +716,9 @@ law ReportNamesSeedDrawsReplay() {
 }
 
 // Run is a harnessed test's run (runtime.md, Tests: harnesses): the
-// test's name, the runner's --seed and the test's site, file:line.
-type Run { Name string, Seed uint64, Site string }
+// test's name, the runner's --seed, the test's site, file:line, and the
+// source ergo test was given, which the replay command names.
+type Run { Name string, Seed uint64, Site string, Source string }
 
 // Failed is a harnessed test's failure: the failed assert, the report
 // and the command that replays it.
@@ -734,7 +735,7 @@ func Property(run Run, body func() fails Failed needs Draws) fails Failed {
 	let report = match o {
 	case Refuted as r:
 		let shown = Refuted{Seed: run.Seed, Of: r.Of, Found: r.Found, Shrunk: r.Shrunk, Shrinks: r.Shrinks}
-		"\(failureOf(r.Shrunk.Tape, cfg.MaxDraws, body))\n\(Report(shown))\n\tat \(run.Site)\n\treplay: ergo test --run \(run.Name) --seed \(run.Seed)"
+		"\(failureOf(r.Shrunk.Tape, cfg.MaxDraws, body))\n\(Report(shown))\n\tat \(run.Site)\n\treplay: ergo test \(run.Source) --run \(run.Name) --seed \(run.Seed)"
 	case GaveUp:
 		Report(o)
 	case Held:
@@ -786,10 +787,10 @@ law PropertyReportsTheShrunkAssert() {
 			return Failed{Message: "assert failed at x.ergo:3:2: n < 7"}
 		}
 	}
-	let run = Run{Name: "T", Seed: uint64(5), Site: "x.ergo:2"}
+	let run = Run{Name: "T", Seed: uint64(5), Site: "x.ergo:2", Source: "pkg/x"}
 	let text = messageOf(run, failing)
 	let held = messageOf(run, func() fails Failed needs Draws { let _ = IntIn(0, 9) }) == ""
-	held && strings.HasPrefix(text, "assert failed at x.ergo:3:2: n < 7\nrefuted (") && strings.Contains(text, "seed 5") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "\tat x.ergo:2\n\treplay: ergo test --run T --seed 5") && nameSeed(uint64(5), "T") != nameSeed(uint64(5), "U")
+	held && strings.HasPrefix(text, "assert failed at x.ergo:3:2: n < 7\nrefuted (") && strings.Contains(text, "seed 5") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "\tat x.ergo:2\n\treplay: ergo test pkg/x --run T --seed 5") && nameSeed(uint64(5), "T") != nameSeed(uint64(5), "U")
 }
 
 // messageOf is the message Property fails with on body, or "".

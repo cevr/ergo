@@ -2,7 +2,6 @@ package check
 
 import (
 	"fmt"
-	"path"
 	"strconv"
 	"strings"
 
@@ -16,7 +15,7 @@ import (
 //
 //  1. H has the shape func H(run R, body func() fails F needs D) fails F:
 //     R a record of D's package whose fields are exactly Name string,
-//     Seed uint64 and Site string, F a record of D's package with exactly
+//     Seed uint64, Site string and Source string, F a record of D's package with exactly
 //     the field Message string, no type parameters and an empty needs
 //     row. Any other shape is one S108 at the declaration (planHarness).
 //  2. In a test with no parameters, a charge of a capability with a
@@ -27,12 +26,23 @@ import (
 //  3. A test whose body was admitted so, and checked clean, is rewritten
 //     in place and checked again (rewriteHarnessed):
 //
-//     test T { try H(R{Name: "T", Seed: ⟨seed⟩, Site: "file:line"}, func() fails F needs D { BODY' }) }
+//     test T {
+//     	H(R{Name: "T", Seed: ⟨seed⟩, Site: "file:line", Source: ⟨source⟩}, func() fails F needs D { BODY' }) catch {
+//     	case F as failed: ⟨report⟩(failed.Message)
+//     	}
+//     }
 //
 //     BODY' is the body with each assert x turned into
 //     if !(x) { return F{Message: "assert failed at file:line:col: x"} }.
+//     file is ergo·file(), the test's file as the runner names it
+//     (CallTestFile): a source of one file is checked with no name.
 //     ⟨seed⟩ is the run's --seed, a built-in only the rewrite names
-//     (CallTestSeed). Both tiers then run the same Ergo; a rewrite bug is
+//     (CallTestSeed); ⟨source⟩ is the path ergo test was given (its
+//     --source to the test binary, the file or package folder a replay
+//     command names), or the test's file when the binary runs alone
+//     (CallTestSource). ⟨report⟩ fails the test with the harness's
+//     message as its whole report, the text after "FAIL T: " (CallTestReport),
+//     so the replay command ends the report's last line. Both tiers then run the same Ergo; a rewrite bug is
 //     a diagnostic of the second check, never wrong Go.
 //
 // The member is `test H` among the type's operations and laws (grammar.md,
@@ -59,11 +69,24 @@ const hiddenPrefix = "ergo·"
 // TestSeedName is the built-in the rewrite calls for the run's --seed.
 const TestSeedName = hiddenPrefix + "seed"
 
+// TestSourceName is the built-in the rewrite calls for the source path a
+// replay command names: ergo·source(file), the run's --source or file.
+const TestSourceName = hiddenPrefix + "source"
+
+// TestFileName is the built-in the rewrite calls for the test's file as
+// the runner names it in a report: its base name, the evaluator's and the
+// test binary's alike (CallTestFile).
+const TestFileName = hiddenPrefix + "file"
+
+// TestReportName is the built-in a rewritten test calls with its
+// harness's failure message: the test fails with that report (rule 3).
+const TestReportName = hiddenPrefix + "report"
+
 // TestShownName is the built-in the rewrite calls for a failed
 // comparison's operands, as the runner shows them (CallTestShown).
 const TestShownName = hiddenPrefix + "shown"
 
-const harnessShapeText = "func %[1]s(run R, body func() fails F needs %[2]s) fails F, with R a record {Name string, Seed uint64, Site string} and F a record {Message string}, both of this package"
+const harnessShapeText = "func %[1]s(run R, body func() fails F needs %[2]s) fails F, with R a record {Name string, Seed uint64, Site string, Source string} and F a record {Message string}, both of this package"
 
 // planHarnesses plans the harness each operation type of the package
 // declares (rule 1). It runs after the bodies converge, so H's inferred
@@ -117,9 +140,9 @@ func (c *checker) planHarness(tn *TypeName, at syntax.Node, name string) {
 		why = name + "'s needs row is not empty"
 	}
 	if why == "" {
-		run = c.harnessRecord(s.Params[0].Type, "Name", Typ[String], "Seed", Typ[Uint64], "Site", Typ[String])
+		run = c.harnessRecord(s.Params[0].Type, "Name", Typ[String], "Seed", Typ[Uint64], "Site", Typ[String], "Source", Typ[String])
 		if run == nil {
-			why = "its first parameter is not a record {Name string, Seed uint64, Site string} of this package"
+			why = "its first parameter is not a record {Name string, Seed uint64, Site string, Source string} of this package"
 		}
 	}
 	if why == "" {
@@ -217,11 +240,11 @@ func rewrittenHarness(body *syntax.BlockStmt) string {
 	if es == nil {
 		return ""
 	}
-	try, _ := es.X.(*syntax.TryExpr)
-	if try == nil {
+	caught, _ := es.X.(*syntax.CatchExpr)
+	if caught == nil {
 		return ""
 	}
-	call, _ := try.X.(*syntax.CallExpr)
+	call, _ := caught.X.(*syntax.CallExpr)
 	if call == nil {
 		return ""
 	}
@@ -237,10 +260,13 @@ func rewrittenHarness(body *syntax.BlockStmt) string {
 }
 
 // bindHarnessNames binds, in the frame of a rewritten test, the hidden
-// names its body uses: the harness's package path and the seed built-in.
+// names its body uses: the harness's package path and the built-ins.
 func (c *checker) bindHarnessNames(frame *Scope, pkgPath string) {
 	frame.insert(TestSeedName, &Builtin{Name: TestSeedName})
 	frame.insert(TestShownName, &Builtin{Name: TestShownName})
+	frame.insert(TestSourceName, &Builtin{Name: TestSourceName})
+	frame.insert(TestReportName, &Builtin{Name: TestReportName})
+	frame.insert(TestFileName, &Builtin{Name: TestFileName})
 	var pkg *Package
 	if pkgPath == c.pkg.Path {
 		pkg = c.pkg
@@ -270,18 +296,28 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 	field := func(pos syntax.Pos, name string, v syntax.Expr) syntax.Expr {
 		return &syntax.KeyValueExpr{Key: &syntax.Ident{NamePos: pos, Name: name}, Colon: pos, Value: v}
 	}
+	// The file's name is the runner's (ergo·file): a source of one file
+	// is checked with no name, and each tier names it as its reports do.
+	fileCall := func(pos syntax.Pos) syntax.Expr {
+		return &syntax.CallExpr{Fun: &syntax.Ident{NamePos: pos, Name: TestFileName}, Lparen: pos, Rparen: pos}
+	}
+	cat := func(pos syntax.Pos, xs ...syntax.Expr) syntax.Expr {
+		x := xs[0]
+		for _, y := range xs[1:] {
+			x = &syntax.BinaryExpr{X: x, OpPos: pos, Op: syntax.ADD, Y: y}
+		}
+		return x
+	}
 	line, _ := f.Position(at)
-	site := path.Base(strings.ReplaceAll(f.Name, "\\", "/")) + ":" + strconv.Itoa(line)
 	body := d.Body
 	spills := 0
 	body.List = rewriteAsserts(body.List, func(s *syntax.AssertStmt) []syntax.Stmt {
 		l, col := f.Position(s.Assert)
 		text := f.Src[int(s.X.Pos()):min(int(s.X.End()), len(f.Src))]
-		msg := fmt.Sprintf("assert failed at %s:%d:%d: %s", path.Base(strings.ReplaceAll(f.Name, "\\", "/")), l, col, text)
-		var message syntax.Expr = str(s.Assert, msg)
+		var message syntax.Expr = cat(s.Assert, str(s.Assert, "assert failed at "), fileCall(s.Assert), str(s.Assert, fmt.Sprintf(":%d:%d: %s", l, col, text)))
 		cond := s.X
 		var spilled []syntax.Stmt
-		if b := c.shownCompare(s.X); b != nil {
+		if b, _, _, shown := ShownCompare(c.pkg, c.pkg.Info, s.X); shown {
 			// The runner's shown assert (P1c part 1): each operand once,
 			// left to right, into a hidden local (a constant stays
 			// inline), and the failure's message shows them.
@@ -315,7 +351,8 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 	run := &syntax.CompositeLit{Type: qual(at, h.Run.Obj.Name), Lbrace: at, DotDot: syntax.NoPos, Elts: []syntax.Expr{
 		field(at, "Name", str(at, test.Name)),
 		field(at, "Seed", seed),
-		field(at, "Site", str(at, site)),
+		field(at, "Site", cat(at, fileCall(at), str(at, ":"+strconv.Itoa(line)))),
+		field(at, "Source", &syntax.CallExpr{Fun: &syntax.Ident{NamePos: at, Name: TestSourceName}, Lparen: at, Args: []syntax.Expr{fileCall(at)}, Rparen: at}),
 	}, Rbrace: at}
 	lit := &syntax.FuncLit{
 		Type: &syntax.FuncType{Escaping: syntax.NoPos, Func: at, Params: &syntax.FieldList{Opening: at, Closing: at},
@@ -326,7 +363,13 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 		Body: body,
 	}
 	call := &syntax.CallExpr{Fun: &syntax.SelectorExpr{X: pkgID(), Sel: &syntax.Ident{NamePos: at, Name: h.Func.Name}}, Lparen: at, Args: []syntax.Expr{run, lit}, Rparen: body.Rbrace}
-	d.Body = &syntax.BlockStmt{Lbrace: body.Lbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: &syntax.TryExpr{Try: at, X: call}}}, Rbrace: body.Rbrace}
+	failed := func() *syntax.Ident { return &syntax.Ident{NamePos: at, Name: hiddenPrefix + "failed"} }
+	report := &syntax.CallExpr{Fun: &syntax.Ident{NamePos: at, Name: TestReportName}, Lparen: at, Args: []syntax.Expr{
+		&syntax.SelectorExpr{X: failed(), Sel: &syntax.Ident{NamePos: at, Name: "Message"}},
+	}, Rparen: at}
+	arm := &syntax.CatchArm{Case: at, Types: []syntax.Expr{&syntax.AsPattern{X: qual(at, h.Fail.Obj.Name), As: at, Name: failed()}}, Colon: at, Body: []syntax.Stmt{&syntax.ExprStmt{X: report}}}
+	caught := &syntax.CatchExpr{X: call, Catch: body.Rbrace, Lbrace: body.Rbrace, Arms: []*syntax.CatchArm{arm}, Rbrace: body.Rbrace}
+	d.Body = &syntax.BlockStmt{Lbrace: body.Lbrace, List: []syntax.Stmt{&syntax.ExprStmt{X: caught}}, Rbrace: body.Rbrace}
 }
 
 // rewriteAsserts is list with each assert, in it and in the statement
@@ -360,41 +403,36 @@ func rewriteAsserts(list []syntax.Stmt, to func(*syntax.AssertStmt) []syntax.Stm
 	return out
 }
 
-// shownCompare is x when a failed assert of it shows its operands, by the
-// runner's rule (lower's and eval's assertShown): a comparison, through
-// parentheses and with no try at its start, not of two constants, whose
-// operand types are both printable in the test's package.
-func (c *checker) shownCompare(x syntax.Expr) *syntax.BinaryExpr {
-	for {
-		p, ok := x.(*syntax.ParenExpr)
-		if !ok {
-			break
-		}
-		x = p.X
-	}
-	b, ok := x.(*syntax.BinaryExpr)
+// ShownCompare is the one rule (checker, evaluator and lowering) for a
+// failed assert of x that shows its operands: x, through parentheses, is a
+// comparison (==, !=, <, <=, >, >=), not of two constants, whose operand
+// types, by info, are both Printable in pkg, the package under test. It
+// returns the comparison and the operand types. A try that starts x is
+// the caller's to look through.
+func ShownCompare(pkg *Package, info *Info, x syntax.Expr) (*syntax.BinaryExpr, Type, Type, bool) {
+	b, ok := unparen(x).(*syntax.BinaryExpr)
 	if !ok {
-		return nil
+		return nil, nil, nil, false
 	}
 	switch b.Op.String() {
 	case "==", "!=", "<", "<=", ">", ">=":
 	default:
-		return nil
+		return nil, nil, nil, false
 	}
-	_, lc := c.pkg.Info.Values[b.X]
-	_, rc := c.pkg.Info.Values[b.Y]
-	lt, lok := c.typedExpr(b.X)
-	rt, rok := c.typedExpr(b.Y)
-	if (lc && rc) || !lok || !rok || !Printable(c.pkg, lt) || !Printable(c.pkg, rt) {
-		return nil
+	_, lc := info.Values[b.X]
+	_, rc := info.Values[b.Y]
+	lt, lok := TypedExpr(info, b.X)
+	rt, rok := TypedExpr(info, b.Y)
+	if (lc && rc) || !lok || !rok || !Printable(pkg, lt) || !Printable(pkg, rt) {
+		return nil, nil, nil, false
 	}
-	return b
+	return b, lt, rt, true
 }
 
-// typedExpr is x's checked type, through parentheses.
-func (c *checker) typedExpr(x syntax.Expr) (Type, bool) {
+// TypedExpr is x's checked type in info, through parentheses.
+func TypedExpr(info *Info, x syntax.Expr) (Type, bool) {
 	for {
-		if t, ok := c.pkg.Info.Types[x]; ok {
+		if t, ok := info.Types[x]; ok {
 			return t, true
 		}
 		p, isParen := x.(*syntax.ParenExpr)
@@ -405,8 +443,9 @@ func (c *checker) typedExpr(x syntax.Expr) (Type, bool) {
 	}
 }
 
-// Printable is the runner's rule for a type a failed assert's report
-// shows (lower's and eval's printable): a basic type; a slice, Map or
+// Printable is the one rule for a type a failed assert's report shows,
+// which an argument literal writes (lower's litExpr, eval's argument): a
+// basic type; a slice, Map or
 // tuple of printable types; a union of printable members; or a record,
 // union or defined type of pkg, the package under test, over printable
 // types.

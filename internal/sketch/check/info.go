@@ -788,6 +788,20 @@ const (
 	// of two strings), which only the rewrite of a harnessed test's
 	// assert calls (harness.go, rule 3). Added in P1c.
 	CallTestShown
+	// CallTestSource is ergo·source(file): the path ergo test was given,
+	// the test binary's --source, or file when none is given, for a
+	// harnessed test's replay command; only the rewrite calls it
+	// (harness.go, rule 3). Added in P1c.
+	CallTestSource
+	// CallTestReport is ergo·report(message): the test fails with message
+	// as its whole report, as a failed assert ends it; only the rewrite of
+	// a harnessed test calls it, with its harness's failure (harness.go,
+	// rule 3). Added in P1c.
+	CallTestReport
+	// CallTestFile is ergo·file(): the base name of the file that holds
+	// the call, as the runner's reports name it; only the rewrite of a
+	// harnessed test calls it (harness.go, rule 3). Added in P1c.
+	CallTestFile
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount

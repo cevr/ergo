@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -17,7 +16,7 @@ const coinLib = `type Coin {
 	test Toss,
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string }
 
@@ -30,7 +29,7 @@ func Heads() bool needs Coin { Coin.Flip() }
 func Toss(run Run, body func() fails Failed needs Coin) fails Failed {
 	with context { Coin: always } { body() } catch {
 	case Failed as f:
-		return Failed{Message: run.Name + " seed \(run.Seed) at " + run.Site + ": " + f.Message}
+		return Failed{Message: run.Name + " seed \(run.Seed) at " + run.Site + " of " + run.Source + ": " + f.Message}
 	}
 }
 `
@@ -46,8 +45,9 @@ func (i coinImporter) Import(path string) (*check.Package, error) {
 
 // TestHarnessRunsTheBody: the evaluator runs a harnessed test through its
 // harness: a body that holds passes, and a failed assert fails the test
-// with the harness's failure, which holds the run's name, its --seed and
-// the test's site, and the assert's site and text; a failed comparison
+// with the harness's failure as its whole report, which holds the run's
+// name, its --seed, the test's site and the source ergo test was given
+// (Budget.Source), and the assert's site and text; a failed comparison
 // shows its operands as the runner's assert does (P1c part 1).
 func TestHarnessRunsTheBody(t *testing.T) {
 	lf, err := syntax.Parse(coinLib)
@@ -68,7 +68,7 @@ func TestHarnessRunsTheBody(t *testing.T) {
 		t.Fatalf("main: %v", ds)
 	}
 	b := DefaultBudget()
-	b.Seed = 7
+	b.Seed, b.Source = 7, "pkg/coin"
 	rep, err := Run(pkg, b)
 	if err != nil {
 		t.Fatal(err)
@@ -81,13 +81,13 @@ func TestHarnessRunsTheBody(t *testing.T) {
 		t.Errorf("Holds: %s %s", r.Status, r.Reason)
 	}
 	r := got["Fails"]
-	want := "Fails seed 7 at coin_test.ergo:7: assert failed at coin_test.ergo:9:2: !h"
-	if r.Status != Refuted || !strings.Contains(r.Reason, want) {
-		t.Errorf("Fails: %s %q, want refuted with %q", r.Status, r.Reason, want)
+	want := "Fails seed 7 at coin_test.ergo:7 of pkg/coin: assert failed at coin_test.ergo:9:2: !h"
+	if r.Status != Refuted || r.Message != want {
+		t.Errorf("Fails: %s %q, want refuted with %q", r.Status, r.Message, want)
 	}
 	r = got["Shows"]
-	want = "Shows seed 7 at coin_test.ergo:12: assert failed at coin_test.ergo:14:2: n == 3: left 2, right 3"
-	if r.Status != Refuted || !strings.Contains(r.Reason, want) {
-		t.Errorf("Shows: %s %q, want refuted with %q", r.Status, r.Reason, want)
+	want = "Shows seed 7 at coin_test.ergo:12 of pkg/coin: assert failed at coin_test.ergo:14:2: n == 3: left 2, right 3"
+	if r.Status != Refuted || r.Message != want {
+		t.Errorf("Shows: %s %q, want refuted with %q", r.Status, r.Message, want)
 	}
 }

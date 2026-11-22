@@ -78,6 +78,7 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	}
 	b := eval.DefaultBudget()
 	b.Seed, b.States = seed, states
+	b.Source = source
 	pkg := a.rootPackage()
 	foreign := foreignKeys(a, nil)
 	var notes map[string]string

@@ -241,7 +241,7 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		// compared with its union is the union's value): the helper takes
 		// them at those types and prints the value it holds.
 		lt, rt = b.operandType(x.X), b.operandType(x.Y)
-		if !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+		if !l.printable(lt) || !l.printable(rt) {
 			irNo("assert of a converted operand that does not print")
 		}
 		show := &irExpr{K: "call", Pos: p, Name: l.assertShowFunc(s, lt, rt, x), Args: vals}
@@ -306,7 +306,7 @@ func (b *irBuilder) shownCall(x *syntax.CallExpr, p irPos) ([]*irStmt, *irExpr) 
 	}
 	lt, lok := l.typedExpr(x.Args[0])
 	rt, rok := l.typedExpr(x.Args[1])
-	if !lok || !rok || !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+	if !lok || !rok || !l.printable(lt) || !l.printable(rt) {
 		irNo("ergo·shown of an operand that does not print")
 	}
 	pre, vals := b.operands(x.Args) // ir_fail.go

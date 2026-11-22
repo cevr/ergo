@@ -25,7 +25,7 @@ type Other {
 	test Echo,
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string }
 
@@ -94,10 +94,13 @@ func TestHarnessAdmitsTheBody(t *testing.T) {
 	if len(body.List) != 1 || es == nil {
 		t.Fatalf("the body is not rewritten: %#v", body.List)
 	}
-	try, _ := es.X.(*syntax.TryExpr)
-	call, _ := try.X.(*syntax.CallExpr)
-	if try == nil || call == nil || call.Fun.(*syntax.SelectorExpr).Sel.Name != "Toss" {
-		t.Fatalf("the body is not a try of Toss: %#v", es.X)
+	caught, _ := es.X.(*syntax.CatchExpr)
+	var call *syntax.CallExpr
+	if caught != nil {
+		call, _ = caught.X.(*syntax.CallExpr)
+	}
+	if call == nil || call.Fun.(*syntax.SelectorExpr).Sel.Name != "Toss" {
+		t.Fatalf("the body is not a caught call of Toss: %#v", es.X)
 	}
 	for _, c := range []struct{ name, src, want string }{
 		{"function", "func f() bool { lib.Heads() }\n", "S102"},

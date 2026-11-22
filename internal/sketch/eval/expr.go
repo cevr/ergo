@@ -1026,6 +1026,30 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		// The run's --seed, for a harnessed test (check harness.go).
 		mustCharge(in, fr, 1)
 		return in.budget.Seed, nil
+	case check.CallTestFile:
+		// The test's file as the runner names it (check harness.go).
+		mustCharge(in, fr, 1)
+		site := nativeSite(in.site(fr.pkg, fr.decl, x.Pos()))
+		for range 2 {
+			site = site[:strings.LastIndex(site, ":")]
+		}
+		return site, nil
+	case check.CallTestReport:
+		// A harnessed test's failure (check harness.go): the test fails
+		// with the harness's message as its whole report.
+		v, ab := in.expr(fr, x.Args[0])
+		if ab != nil {
+			return nil, ab
+		}
+		return nil, fr.abrupt(ctlAssert, x, &shownAssert{report: v.(string), reported: true}, "")
+	case check.CallTestSource:
+		// The path a harnessed test's replay names (check harness.go):
+		// ergo test's source, or the test's file when the run names none.
+		if in.budget.Source != "" {
+			mustCharge(in, fr, 1)
+			return in.budget.Source, nil
+		}
+		return in.expr(fr, x.Args[0])
 	case check.CallTestShown:
 		// A harnessed test's failed comparison shows its operands as the
 		// runner's assert does (assertMessage; check harness.go).

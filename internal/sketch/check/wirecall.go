@@ -207,6 +207,12 @@ func builtinKind(b *Builtin) CallKind {
 		return CallTestSeed
 	case TestShownName:
 		return CallTestShown
+	case TestSourceName:
+		return CallTestSource
+	case TestReportName:
+		return CallTestReport
+	case TestFileName:
+		return CallTestFile
 	}
 	return CallLen
 }
