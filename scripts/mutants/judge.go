@@ -673,20 +673,25 @@ func firstCompileError(detail string) string {
 }
 
 // testError is a line a failing Go test prints: a t.Error or t.Fatal
-// line (file_test.go:12: …), a panic, or a build error.
-var testError = regexp.MustCompile(`(?m)^\s*(\S+\.go:\d+(:\d+)?: .*|panic: .*)$`)
+// line (file_test.go:12: …), a panic, or a build error; or the FAIL line
+// of a command killer (scripts/examples: "FAIL modules/work: test: …").
+var testError = regexp.MustCompile(`(?m)^\s*(\S+\.go:\d+(:\d+)?: .*|panic: .*|FAIL \S+: .*)$`)
 
 // firstError is the first error line of a failed test's output, else its
-// first line that is not go test's own bookkeeping; "" when it has none.
+// first line that is neither go test's bookkeeping nor a passing or
+// skipped case of a command killer ("ok …", "skip …": I22's
+// clone-follows-links named the examples runner's full-tier skip line as
+// the failure); "" when it has none.
 func firstError(out string) string {
 	if line := testError.FindString(out); line != "" {
 		return strings.TrimSpace(line)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "=== ") && !strings.HasPrefix(line, "--- FAIL") && line != "FAIL" {
-			return line
+		if line == "" || line == "FAIL" || strings.HasPrefix(line, "=== ") || strings.HasPrefix(line, "--- FAIL") || strings.HasPrefix(line, "ok ") || strings.HasPrefix(line, "skip ") {
+			continue
 		}
+		return line
 	}
 	return ""
 }

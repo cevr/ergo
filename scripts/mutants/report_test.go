@@ -55,4 +55,14 @@ func TestRedBaselineNamesItsFirstError(t *testing.T) {
 	if got := e.redDetail([]string{"cmd/ergo:TestX"}); got != want {
 		t.Errorf("redDetail: %q\nwant %q", got, want)
 	}
+	// A command killer's skip and ok lines are not its failure; its FAIL
+	// line is (I22 882: the examples runner's full-tier skip line was
+	// named; rd-skip-named-as-failure).
+	ex := "skip modules/work: test git/checkout: the full tier runs it (full-tier)\nok modules/work: fmt\nFAIL modules/work: test: copy: law refuted\n"
+	if got, want := firstError(ex), "FAIL modules/work: test: copy: law refuted"; got != want {
+		t.Errorf("firstError of an examples run: %q, want %q", got, want)
+	}
+	if got := firstError("skip modules/work: test git/checkout: the full tier runs it (full-tier)\nexit status 1\n"); got != "exit status 1" {
+		t.Errorf("firstError named a skip line: %q", got)
+	}
 }
