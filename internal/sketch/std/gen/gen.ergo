@@ -712,6 +712,92 @@ law ReportNamesSeedDrawsReplay() {
 	}
 }
 
+// Run is a harnessed test's run (runtime.md, Tests: harnesses): the
+// test's name, the runner's --seed and the test's site, file:line.
+type Run { Name string, Seed uint64, Site string }
+
+// Failed is a harnessed test's failure: the failed assert, the report
+// and the command that replays it.
+type Failed { Message string }
+
+// Property is Draws' test harness: a test whose body draws runs as a
+// property. Its cases come from the run's seed mixed with the test's
+// name, so two tests of one body draw different cases; a failing case is
+// shrunk and reported with the assert that failed on it, its named draws
+// and the ergo test command that replays it.
+func Property(run Run, body func() fails Failed needs Draws) fails Failed {
+	let cfg = Config{..Defaults(), Seed: nameSeed(run.Seed, run.Name)}
+	let o = Check(cfg, func() bool fails Rejected needs Draws { holdsOn(body) })
+	let report = match o {
+	case Refuted as r:
+		let shown = Refuted{Seed: run.Seed, Of: r.Of, Found: r.Found, Shrunk: r.Shrunk, Shrinks: r.Shrinks}
+		"\(failureOf(r.Shrunk.Tape, cfg.MaxDraws, body))\n\(Report(shown))\n\tat \(run.Site)\n\treplay: ergo test --run \(run.Name) --seed \(run.Seed)"
+	case GaveUp:
+		Report(o)
+	case Held:
+		""
+	}
+	if report != "" {
+		return Failed{Message: report}
+	}
+}
+
+// holdsOn is whether body holds on the case being drawn.
+func holdsOn(body func() fails Failed needs Draws) bool needs Draws {
+	body() catch {
+	case Failed:
+		return false
+	}
+	true
+}
+
+// failureOf is the failure body reports on the case of tape t: the assert
+// that failed on it.
+func failureOf(t Tape, max int, body func() fails Failed needs Draws) string {
+	with context { Draws: replaying(t, max) } { body() } catch {
+	case Failed as f:
+		return f.Message
+	}
+	""
+}
+
+// nameSeed is seed mixed with name (FNV-1a of its bytes, then splitmix).
+func nameSeed(seed uint64, name string) uint64 {
+	let mut h = fnvOffset
+	for b in name.Bytes() {
+		h = (h ^ uint64(b)) * fnvPrime
+	}
+	splitmix(seed ^ h)
+}
+
+let fnvOffset uint64 = 0xcbf29ce484222325
+let fnvPrime uint64 = 0x100000001b3
+
+// PropertyReportsTheShrunkAssert: a body that fails for n of 7 or more
+// fails Property with the assert's text, the shrunk n = 7, the run's seed
+// and the replay command; one that holds does not fail; two names draw
+// two streams.
+law PropertyReportsTheShrunkAssert() {
+	let failing = func() fails Failed needs Draws {
+		if Named("n", func(v int) string { "\(v)" }, func() int needs Draws { IntIn(0, 1000) }) >= 7 {
+			return Failed{Message: "assert failed at x.ergo:3:2: n < 7"}
+		}
+	}
+	let run = Run{Name: "T", Seed: uint64(5), Site: "x.ergo:2"}
+	let text = messageOf(run, failing)
+	let held = messageOf(run, func() fails Failed needs Draws { let _ = IntIn(0, 9) }) == ""
+	held && strings.HasPrefix(text, "assert failed at x.ergo:3:2: n < 7\nrefuted (") && strings.Contains(text, "seed 5") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "\tat x.ergo:2\n\treplay: ergo test --run T --seed 5") && nameSeed(uint64(5), "T") != nameSeed(uint64(5), "U")
+}
+
+// messageOf is the message Property fails with on body, or "".
+func messageOf(run Run, body func() fails Failed needs Draws) string {
+	Property(run, body) catch {
+	case Failed as f:
+		return f.Message
+	}
+	""
+}
+
 // lawConfig is the small run the laws use: 20 cases, 300 replays a
 // shrink, so a law stays within the evaluator's step budget.
 func lawConfig(seed uint64) Config { Config{..Defaults(), Seed: seed, Cases: 20, Shrinks: 300} }
