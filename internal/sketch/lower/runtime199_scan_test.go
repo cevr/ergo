@@ -205,6 +205,8 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
 		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
 		"irBuilder.withOperand":    "the IR's with: the Env copy and its pointer, locals of the body (ir_with.go, IRG6)",
+		"irBuilder.contextValue":   "the IR's Context value: the Env snapshot and the closure over it, of the uniform shape (ir_contextvalue.go, CENSUS-TAIL-2)",
+		"irBuilder.installWith":    "the IR's with of a Context value: the Env copy and its pointer, locals of the body (ir_contextvalue.go, CENSUS-TAIL-2)",
 		"irBuilder.opsConv":        "the IR's operations adapter: a nil *Env where no environment is bound, no closure (ir_with.go, IRG6)",
 		"irBuilder.sigHead":        "the IR's function type's parameter half, for typeCtx.funcType's uniform shape (sigType) and a frame literal's named results (frameSigType): no body (ir_closure.go, IRG6 r2, G6-FRAMELIT)",
 		"irBuilder.closureLit":     "the IR's function literal: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_closure.go, IRG6 r2)",
