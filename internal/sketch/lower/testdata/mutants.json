@@ -2056,8 +2056,8 @@
       "name": "l11b-l3",
       "origin": "wf10 v1-lang-B L11b",
       "file": "internal/sketch/lower/witness.go",
-      "from": "it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire)",
-      "to": "it != nil && len(it.Methods) > 0",
+      "from": "it != nil && !it.Generic && (len(it.Methods) > 0 || it.Set == check.SetWire)",
+      "to": "it != nil && !it.Generic && len(it.Methods) > 0",
       "rule": "types.md, Codecs 6: a wire type parameter takes its codec as a witness.",
       "killers": [
         "lower:TestStdCodecLawsRun"
@@ -6635,6 +6635,8 @@
     {"name":"cv-mv-known-site-off","origin":"wf10 CV1 r2 (q11: the known-callback form takes a method value)","file":"internal/sketch/lower/known.go","from":"\tfd := l.funcDecl(f)\n\treturn fd.pure && fd.envFree","to":"\tfd := l.funcDecl(f)\n\treturn false && fd.pure && fd.envFree","rule":"a pure method value passed to a known-callback variant is a known site (pureMethodValue), as fast as the eta closure","killers":["internal/sketch/lower:TestMethodValueTakesTheIR"]},
     {"name":"cv-mv-ir-late-binding","origin":"wf10 CV1 r2 (IR method value)","file":"internal/sketch/lower/ir_methodvalue.go","from":"\tlocal := &irExpr{K: \"local\", Pos: p, I: r}\n","to":"\tlocal := recv\n\t_ = r\n","rule":"types.md Methods 2: the IR's method value binds x's value where x.f is evaluated (its spilled local), never x at the call; its eta twin, a non-escaping literal, sees a later write. The property's cases take their numbers from main's mutable local, so no build-time fold hides the IR body (CV1 fork-answer.md)","killers":["internal/experimental/irspike:TestIRMethodValuesMatchSource"]},
     {"name":"ir-default-map-nil","origin":"wf10 OWN1 REC-DEFAULTS","file":"internal/sketch/lower/ir_letpat.go","from":"\t\treturn &irExpr{K: \"lit\", Pos: p, T: b.goType(t, site)}\n\tcase *check.Named:","to":"\t\treturn &irExpr{K: \"zero\", Pos: p, T: b.goType(t, site)}\n\tcase *check.Named:","rule":"A Map's default is an empty Map, not Go's nil map: a write through it works (types.md, Defaults; REC-DEFAULTS).","killers":["lower:TestIRDefaultsMatchEmitter"]},
-    {"name":"mono-law-shares-instances","origin":"wf10 G6-GENERIC-LAW (IR1)","file":"internal/sketch/lower/mono.go","from":"\tsp, made := l.monoCopy(monoLaw{law}, base, spelled, law.Decl)","to":"\tsp, made := l.monoCopy(monoLaw{law}, base, spelled[:0], law.Decl)","rule":"A law of a generic operation type has one copy per instance its providers fix: killed as the two instances sharing one copy","killers":["internal/sketch/lower:TestGenericLawLoweringsAgree"]}
+    {"name":"mono-law-shares-instances","origin":"wf10 G6-GENERIC-LAW (IR1)","file":"internal/sketch/lower/mono.go","from":"\tsp, made := l.monoCopy(monoLaw{law}, base, spelled, law.Decl)","to":"\tsp, made := l.monoCopy(monoLaw{law}, base, spelled[:0], law.Decl)","rule":"A law of a generic operation type has one copy per instance its providers fix: killed as the two instances sharing one copy","killers":["internal/sketch/lower:TestGenericLawLoweringsAgree"]},
+    {"name":"genop-dynamic-witness","origin":"wf10 GENERIC-OP","file":"internal/sketch/lower/decls.go","from":"\t\tif it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic {","to":"\t\tif it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic && false {","rule":"types.md Interface assignability 8: a constraint-only operation type has no Go type; its functions lower as copies only","killers":["internal/sketch/lower:TestGenericOperations"]},
+    {"name":"genop-tparams-substituted","origin":"wf10 GENERIC-OP","file":"internal/sketch/check/info.go","from":"\t\targs[i] = own[k]\n\t\tk++","to":"\t\targs[i] = self\n\t\tk++","rule":"types.md Interface assignability 8: a generic operation call goes to the provider's copy at the call's own type arguments, not the receiver's","killers":["internal/sketch/lower:TestGenericOperations"]}
   ]
 }

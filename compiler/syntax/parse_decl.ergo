@@ -376,10 +376,7 @@ func memberList(p mut parser, lbrace int) members {
 			let tm = mark(p.t)
 			r.terms = parseTypeTerms(p)
 			r.firstTerm = p.t.stack[tm]
-		} else if p.tk == Ident && peek(p, 1) == LBrack && bracketsThenParen(p) {
-			errorAt(p, tpos(p, p.i+1), 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
-			return r
-		} else if (p.tk == Ident && peek(p, 1) == LParen) || (isWord(p, "own") && peek(p, 1) == Ident && peek(p, 2) == LParen) || (p.tk == Mut && peek(p, 1) == Ident && peek(p, 2) == LParen) {
+		} else if opNameAt(p, 0) || (isWord(p, "own") && opNameAt(p, 1)) || (p.tk == Mut && opNameAt(p, 1)) {
 			kind = memberOperation
 			let cp = save(p)
 			let fm = mark(p.t)
@@ -388,12 +385,17 @@ func memberList(p mut parser, lbrace int) members {
 			if p.tk == Mut {
 				mutW = someTok(p.i) // `mut Bump()`: the operation writes its receiver
 				next(p)
-			} else if peek(p, 1) != LParen {
+			} else if !opNameAt(p, 0) {
+				// `own Close()`: `own` before the name; `own[A](…)` is
+				// an operation named own.
 				own = someTok(p.i)
 				next(p)
 			}
 			pushW(&p.t, parseIdent(p))
-			let ft = parseSignature(p, none, ctxMember, false)
+			// `Fold[A](…)`: the operation's own type parameters, the one
+			// item of its signature's row (GENERIC-OP).
+			let tps = if p.tk == LBrack { some(parseTypeParams(p)) } else { none }
+			let ft = parseSignatureWith(p, none, ctxMember, false, tps)
 			if tupleShaped(p, ft) && p.asFields {
 				restore(p, cp)
 				pushW(&p.t, opAsField(p, doc))
@@ -599,14 +601,22 @@ func refuseSingleton(p mut parser) {
 	}
 }
 
-// bracketsThenParen reports whether the brackets that open at the next
-// token close before a `(`, as in the operation `Get[T](k string) T`.
-func bracketsThenParen(p mut parser) bool {
-	if peek(p, 2) != Ident {
+// opNameAt reports whether the token o after the current one names an
+// operation: an identifier followed by `(`, or by brackets that close
+// before a `(`, as in the generic operation `Fold[A](z A) A` (types.md,
+// Interface assignability, Generic operations).
+func opNameAt(p mut parser, o int) bool {
+	peek(p, o) == Ident && (peek(p, o+1) == LParen || peek(p, o+1) == LBrack && bracketsThenParen(p, o))
+}
+
+// bracketsThenParen reports whether the brackets that open at the token
+// o+1 after the current one close before a `(`.
+func bracketsThenParen(p mut parser, o int) bool {
+	if peek(p, o+2) != Ident {
 		return false
 	}
 	let mut depth = 0
-	let mut i = 1
+	let mut i = o + 1
 	for {
 		let k = peek(p, i)
 		if k == LBrack {

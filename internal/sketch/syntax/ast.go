@@ -699,10 +699,15 @@ type (
 		Entry    bool
 		EntryPos Pos
 		Func     Pos
-		Params   *FieldList
-		Results  *FieldList
-		Needs    *NeedsClause
-		Takes    *TakesClause
+		// TypeParams are an operation's own type parameters,
+		// `Fold[A](z A, …) A` (types.md, Interface assignability,
+		// Generic operations), or nil: only an operation member's
+		// signature has them; a function's are its FuncDecl's.
+		TypeParams *FieldList
+		Params     *FieldList
+		Results    *FieldList
+		Needs      *NeedsClause
+		Takes      *TakesClause
 	}
 
 	// StructType is the record of `type T { fields }`: Fields holds the
@@ -872,6 +877,8 @@ func (x *FuncType) Pos() Pos {
 		return x.EntryPos
 	case x.Func.IsValid():
 		return x.Func
+	case x.TypeParams != nil:
+		return x.TypeParams.Pos()
 	}
 	return x.Params.Pos()
 }

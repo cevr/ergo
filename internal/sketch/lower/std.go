@@ -426,6 +426,9 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 		}
 	}
 	if tp, ok := t.(*check.TypeParam); ok {
+		if len(op.Sig.TParams) > 0 {
+			return fc.genericOpCall(tp, op, vals, env, c, site)
+		}
 		return fc.witnessCall(tp, op, vals, env, site)
 	}
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
