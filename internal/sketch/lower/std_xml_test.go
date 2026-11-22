@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/lawledger/parsed"
 )
 
 // stdXmlLawsProbe restates the laws whose runner is TestStdXmlLawsRun
@@ -230,5 +230,5 @@ func TestStdXmlLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the law tests of stdxml failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	lawledger.Run(t, lawsPassed(t, stdXmlLawStatements, stdXmlLawTestName, stdXmlLawsProbe, stdout))
+	parsed.Run(t, lawsPassed(t, stdXmlLawStatements, stdXmlLawTestName, stdXmlLawsProbe, stdout))
 }
