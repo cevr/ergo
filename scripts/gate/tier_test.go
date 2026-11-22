@@ -287,7 +287,8 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// package (DEAD-SCRIPTS found it red on main d090c6ac1). A docs edit
 	// reaches exactly the stepped packages granted the whole checkout; a
 	// checker edit reaches those and the packages whose test binaries
-	// (or the programs they build) compile the checker, and no other.
+	// (or the programs they build) compile the checker or walk its
+	// directory, and no other.
 	grantsAll := func(p testPackage) bool {
 		return slices.Contains(p.closure.Declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree})
 	}
@@ -308,7 +309,12 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		for _, program := range p.closure.Programs {
 			compilesCheck = compilesCheck || slices.Contains(program.Deps, "internal/sketch/check")
 		}
-		if grantsAll(p) || compilesCheck {
+		// A subtree grant over the checker's directory reads its sources
+		// too (scripts/bootstrap walks each compiler package, GS29).
+		walksCheck := slices.ContainsFunc(p.closure.Declared, func(a replay.Allowance) bool {
+			return a.Grant == replay.GrantSubtree && strings.HasPrefix("internal/sketch/check/", a.Path+"/")
+		})
+		if grantsAll(p) || compilesCheck || walksCheck {
 			wantCheck = append(wantCheck, p.dir)
 		}
 	}
