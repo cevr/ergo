@@ -125,7 +125,7 @@ var declared = map[string][]allowance{
 		glob("internal/sketch/syntax/testdata/corpus/*/*/*.ergo", "the corpus globs check every sketch-eval source one directory down"),
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
 		glob("examples/*/*/*/*.ergo", "TestCheckOnePass checks every example source of a package folder one directory further down"),
-		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
+		glob("internal/sketch/sketchtest/testdata/migrated/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
 	"examples/lintpack/policy": exactly("the in-process fixture tests run the example pack over its fixtures under its configurations, as `ergo lint test` does; loading the manifest admits (stats) the program it names",
@@ -196,7 +196,7 @@ var declared = map[string][]allowance{
 		glob("internal/sketch/testdata/*/*.ergo", "decidedInputs parses every source of the shared corpus one directory down"),
 		[]allowance{{"internal/migrate196/testdata/old", subtree, "the old spellings must stop parsing: decided_test.go walks them (filepath.WalkDir)"}},
 		glob("docs/spec/*.md", "every go fence of the language spec parses (sketchtest.SpecFences); grammar.md is read by name too"),
-		glob("docs/research/ef-migrate/*.ergo", "the migrated examples parse (sketchtest.Repository)"),
+		glob("internal/sketch/sketchtest/testdata/migrated/*.ergo", "the migrated examples parse (sketchtest.Repository)"),
 		[]allowance{
 			{"examples/editions/sketch/main.ergo", file, "the 2026 example program parses (sketchtest.Repository)"},
 			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
@@ -207,7 +207,7 @@ var declared = map[string][]allowance{
 		glob("internal/sketch/syntax/testdata/decided/*.ergo", "the formatter round-trips the decided-syntax fixtures"),
 		glob("internal/sketch/syntax/testdata/edge/*.ergo", "the formatter round-trips the edge fixtures"),
 		glob("docs/spec/*.md", "the formatter round-trips every go fence of the language spec (sketchtest.SpecFences)"),
-		glob("docs/research/ef-migrate/*.ergo", "the formatter round-trips the migrated examples (sketchtest.Repository)"),
+		glob("internal/sketch/sketchtest/testdata/migrated/*.ergo", "the formatter round-trips the migrated examples (sketchtest.Repository)"),
 		[]allowance{{"examples/editions/sketch/main.ergo", file, "the formatter round-trips the 2026 example program (sketchtest.Repository)"}},
 	),
 	"internal/selfhostcheck": declare(
@@ -217,7 +217,7 @@ var declared = map[string][]allowance{
 			{"internal/hostsyntax/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatLaws's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
 		},
 		glob("docs/spec/*.md", "the format property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
-		glob("docs/research/ef-migrate/*.ergo", "the format property's inputs include the migrated examples (sketchtest.Repository)"),
+		glob("internal/sketch/sketchtest/testdata/migrated/*.ergo", "the format property's inputs include the migrated examples (sketchtest.Repository)"),
 		[]allowance{{"compiler", subtree, "the format property's inputs include every compiler/**/*.ergo (sourceInputs walks it)"}},
 	),
 	"cmd/ergo": {

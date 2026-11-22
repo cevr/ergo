@@ -32,6 +32,30 @@
       "to": "\tm\n",
       "rule": "A dropped trait appears nowhere in the slice, members included: PruneKeepsClosure (drawn members carry the droppable traits).",
       "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-member-dropped", "origin": "wf10 GEN-EMIT",
+      "file": "modules/clientgen/emit/plan.ergo",
+      "from": "\t\tout = out.Append(try fieldOf(index, m, op, input))\n",
+      "to": "\t\tif input || len(out) == 0 {\n\t\t\tout = out.Append(try fieldOf(index, m, op, input))\n\t\t}\n",
+      "rule": "Each output member is read from exactly one place: EveryMemberIsBound (drawn outputs hold several members).",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-optional-required", "origin": "wf10 GEN-EMIT",
+      "file": "modules/clientgen/emit/write.ergo",
+      "from": "\t\tif f.Required { base } else { optionName + \"[\" + base + \"]\" }\n",
+      "to": "\t\toptionName + \"[\" + base + \"]\"\n",
+      "rule": "A required member that is not a label is written as its type, not an Option: the test RequiredIsPlain.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-label-never-greedy", "origin": "wf10 GEN-EMIT",
+      "file": "modules/clientgen/emit/plan.ergo",
+      "from": "\t\t\t\t\tif l.Member == f.Name && l.Greedy {\n",
+      "to": "\t\t\t\t\tif l.Member == f.Name && l.Greedy && len(l.Member) < 0 {\n",
+      "rule": "A {Key+} label is planned greedy: the test GreedyLabelIsGreedy, and the drift case examples/clientgen/cases/s3-current (the committed s3.ergo writes aws.Label(r.Key, true)); its effect on the client is modules/aws's emit-label-not-greedy, killed by SlashesStayInThePath.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
     }
   ]
 }
