@@ -2388,10 +2388,10 @@ law GroupSkipsEqualArguments(seed int, steps int) {
 	true
 }
 
-// runGroup writes body's nodes as one group (the compiler's form of a
+// writeGroup writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
 // pass's group when it is kept with arguments equal to args, else body's.
-func runGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
+func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2434,7 +2434,7 @@ func grBody(f mut Frame[int], a grArgs) {
 // grGrouped writes grBody through group, as the compiler writes a
 // component call.
 func grGrouped(f mut Frame[int], a grArgs) {
-	runGroup(f, a, func() { grBody(f, a) })
+	writeGroup(f, a, func() { grBody(f, a) })
 }
 
 // StateKeeps: across passes that reorder keyed rows, each cell holds the
