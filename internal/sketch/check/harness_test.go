@@ -14,11 +14,15 @@ import (
 const harnessLib = `// Coin is a source of flips.
 type Coin {
 	Flip() bool,
+
+	// A test whose body flips runs under Toss.
+	test Toss,
 }
 
 // Other is a second capability with a harness.
 type Other {
 	Ping() bool,
+	test Echo,
 }
 
 type Run { Name string, Seed uint64, Site string }
@@ -55,13 +59,9 @@ func Echo(run Run, body func() fails Failed needs Other) fails Failed {
 }
 `
 
-// harnessMarks marks lib's harnesses until the syntax member lands.
-var harnessMarks = map[string]string{"lib.Coin": "Toss", "lib.Other": "Echo"}
-
-// checkHarnessed checks lib under marks, then src as package main.
-func checkHarnessed(t *testing.T, marks map[string]string, lib, src string) (*check.Package, []check.Diagnostic, []check.Diagnostic) {
+// checkHarnessed checks lib, then src as package main.
+func checkHarnessed(t *testing.T, lib, src string) (*check.Package, []check.Diagnostic, []check.Diagnostic) {
 	t.Helper()
-	defer check.SetTestHarnesses(marks)()
 	lf, err := syntax.Parse(lib)
 	if err != nil {
 		t.Fatal(err)
@@ -76,11 +76,16 @@ func checkHarnessed(t *testing.T, marks map[string]string, lib, src string) (*ch
 	return pkg, libDiags, ds
 }
 
+// The shape's S108s are the negative fixtures harness-*.ergo
+// (testdata/fixtures/negative), which compiler/check agrees on; the
+// admission below has no compiler/check counterpart yet: it checks no
+// test body (S3-ROWS owns test-body rows).
+
 // TestHarnessAdmitsTheBody: a test with no parameters whose body needs a
 // capability with a harness checks clean, and its body is rewritten into
 // the harness's call; every other place that reaches it is still S102.
 func TestHarnessAdmitsTheBody(t *testing.T) {
-	pkg, libDiags, ds := checkHarnessed(t, harnessMarks, harnessLib, "test Flips {\n\tassert lib.Heads()\n}\n")
+	pkg, libDiags, ds := checkHarnessed(t, harnessLib, "test Flips {\n\tassert lib.Heads()\n}\n")
 	if len(libDiags) != 0 || len(ds) != 0 {
 		t.Fatalf("lib %v, main %v", libDiags, ds)
 	}
@@ -100,35 +105,15 @@ func TestHarnessAdmitsTheBody(t *testing.T) {
 		{"law", "law L() {\n\tlib.Heads()\n}\n", "S102"},
 		{"two harnesses", "test Both {\n\tassert lib.Heads()\n\tassert lib.Pinged()\n}\n", "one harness"},
 	} {
-		_, _, ds := checkHarnessed(t, harnessMarks, harnessLib, c.src)
+		_, _, ds := checkHarnessed(t, harnessLib, c.src)
 		if !strings.Contains(diagText(ds), c.want) {
 			t.Errorf("%s: want %s, got %v", c.name, c.want, ds)
 		}
 	}
-	// No mark, no harness: the same library's capability is S102 (the rule
-	// is the declaration, not the package).
-	if _, _, ds := checkHarnessed(t, nil, harnessLib, "test Flips {\n\tassert lib.Heads()\n}\n"); !strings.Contains(diagText(ds), "S102") {
+	// No member, no harness: the same library's capability is S102 (the
+	// rule is the declaration, not the package).
+	if _, _, ds := checkHarnessed(t, strings.Replace(harnessLib, "\n\n\t// A test whose body flips runs under Toss.\n\ttest Toss,", "", 1), "test Flips {\n\tassert lib.Heads()\n}\n"); !strings.Contains(diagText(ds), "S102") {
 		t.Errorf("unmarked: want S102, got %v", ds)
-	}
-}
-
-// TestHarnessShape: a harness of any other shape is one S108 at its
-// declaration, with the shape printed.
-func TestHarnessShape(t *testing.T) {
-	for _, c := range []struct{ name, from, to string }{
-		{"run field", "type Run { Name string, Seed uint64, Site string }", "type Run { Name string, Seed int, Site string }"},
-		{"fail field", "type Failed { Message string }", "type Failed { Message string, Code int }"},
-		{"body row", "func Toss(run Run, body func() fails Failed needs Coin) fails Failed {", "func Toss(run Run, body func() fails Failed needs Other) fails Failed {"},
-	} {
-		lib := strings.Replace(harnessLib, c.from, c.to, 1)
-		if c.name == "body row" {
-			lib = strings.Replace(lib, "with context { Coin: always }", "with context { Other: pong }", 1)
-		}
-		_, libDiags, _ := checkHarnessed(t, harnessMarks, lib, "")
-		text := diagText(libDiags)
-		if len(libDiags) != 1 || !strings.Contains(text, "S108") || !strings.Contains(text, "must have the shape func Toss(run R, body func() fails F needs Coin) fails F") {
-			t.Errorf("%s: want one S108 with the shape, got %v", c.name, libDiags)
-		}
 	}
 }
 

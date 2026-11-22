@@ -35,6 +35,9 @@ import (
 //     (CallTestSeed). Both tiers then run the same Ergo; a rewrite bug is
 //     a diagnostic of the second check, never wrong Go.
 //
+// The member is `test H` among the type's operations and laws (grammar.md,
+// Declarations; syntax.InterfaceType.Harnesses).
+//
 // The rewrite's names are bound in the test's frame under names no source
 // can spell (hiddenPrefix): the harness's package, so its H, R, F and D
 // resolve whether or not the test's file imports it, and the seed
@@ -56,20 +59,6 @@ const hiddenPrefix = "ergo·"
 // TestSeedName is the built-in the rewrite calls for the run's --seed.
 const TestSeedName = hiddenPrefix + "seed"
 
-// testHarnessMarks is the test-only marking of harnesses until the member
-// `test H` lands in the syntax (q4: the syntax member goes last): the
-// qualified name path.D of an operation type to its harness's name.
-var testHarnessMarks map[string]string
-
-// SetTestHarnesses marks, for a test, each operation type path.D of the map
-// as declaring the harness the map names; restore undoes it. Test-only:
-// the syntax member `test H` replaces it.
-func SetTestHarnesses(m map[string]string) (restore func()) {
-	saved := testHarnessMarks
-	testHarnessMarks = m
-	return func() { testHarnessMarks = saved }
-}
-
 const harnessShapeText = "func %[1]s(run R, body func() fails F needs %[2]s) fails F, with R a record {Name string, Seed uint64, Site string} and F a record {Message string}, both of this package"
 
 // planHarnesses plans the harness each operation type of the package
@@ -77,12 +66,22 @@ const harnessShapeText = "func %[1]s(run R, body func() fails F needs %[2]s) fai
 // rows are final.
 func (c *checker) planHarnesses() {
 	for _, tn := range c.pkg.Types {
-		name, ok := testHarnessMarks[c.pkg.Path+"."+tn.Name]
-		if !ok || tn.Decl == nil {
+		if tn.Decl == nil {
+			continue
+		}
+		it, _ := tn.Decl.Spec.(*syntax.InterfaceType)
+		if it == nil || len(it.Harnesses) == 0 {
 			continue
 		}
 		c.cur = tn.file
-		c.planHarness(tn, tn.Decl, name)
+		for _, extra := range it.Harnesses[1:] {
+			c.errorf(extra, CodeType, "%s declares a second test harness %s; an operation type has one", tn.Name, extra.Name.Name)
+		}
+		h := it.Harnesses[0]
+		c.planHarness(tn, h, h.Name.Name)
+		if tn.Harness != nil {
+			c.recordUse(h.Name, tn.Harness.Func)
+		}
 	}
 }
 
@@ -90,13 +89,11 @@ func (c *checker) planHarness(tn *TypeName, at syntax.Node, name string) {
 	bad := func(why string) {
 		c.errorf(at, CodeType, "test harness %s of %s must have the shape "+harnessShapeText+"; %s", name, tn.Name, why)
 	}
+	// The reasons name the part of the shape that differs, in words
+	// compiler/check (diag/harness.ergo) writes from the declarations.
 	d, _ := tn.Type.(*Named)
 	if d == nil || len(d.TParams) != 0 {
 		bad(tn.Name + " is generic")
-		return
-	}
-	if _, ok := under(d).(*Interface); !ok {
-		bad(tn.Name + " is not an operation type")
 		return
 	}
 	f, _ := c.pkg.Scope.names[name].(*Func)
@@ -109,16 +106,16 @@ func (c *checker) planHarness(tn *TypeName, at syntax.Node, name string) {
 	var run, fail *Named
 	switch {
 	case len(s.TParams) != 0:
-		why = "it has type parameters"
+		why = name + " has type parameters"
 	case len(s.Params) != 2 || len(s.Results) != 0:
-		why = "it takes " + strconv.Itoa(len(s.Params)) + " parameters and gives " + strconv.Itoa(len(s.Results)) + " results"
+		why = name + " does not take two parameters and give no result"
 	case !s.Uses.Empty():
-		why = "its needs row is " + s.Uses.String()
+		why = name + "'s needs row is not empty"
 	}
 	if why == "" {
 		run = c.harnessRecord(s.Params[0].Type, "Name", Typ[String], "Seed", Typ[Uint64], "Site", Typ[String])
 		if run == nil {
-			why = "its first parameter is " + s.Params[0].Type.String()
+			why = "its first parameter is not a record {Name string, Seed uint64, Site string} of this package"
 		}
 	}
 	if why == "" {
@@ -126,7 +123,7 @@ func (c *checker) planHarness(tn *TypeName, at syntax.Node, name string) {
 			fail = c.harnessRecord(es[0], "Message", Typ[String])
 		}
 		if fail == nil {
-			why = "its failure row is " + rowText(s.Errors)
+			why = "its failure row is not one record {Message string} of this package"
 		}
 	}
 	if why == "" {
@@ -137,7 +134,7 @@ func (c *checker) planHarness(tn *TypeName, at syntax.Node, name string) {
 			ok = len(es) == 1 && c.identical(es[0], fail) && len(us) == 1 && c.identical(us[0], d)
 		}
 		if !ok {
-			why = "its second parameter is " + s.Params[1].Type.String()
+			why = "its second parameter is not func() fails " + fail.Obj.Name + " needs " + tn.Name
 		}
 	}
 	if why != "" {

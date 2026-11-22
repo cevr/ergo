@@ -14,6 +14,7 @@ import (
 // gave it.
 const coinLib = `type Coin {
 	Flip() bool,
+	test Toss,
 }
 
 type Run { Name string, Seed uint64, Site string }
@@ -48,7 +49,6 @@ func (i coinImporter) Import(path string) (*check.Package, error) {
 // with the harness's failure, which holds the run's name, its --seed and
 // the test's site, and the assert's site and text.
 func TestHarnessRunsTheBody(t *testing.T) {
-	defer check.SetTestHarnesses(map[string]string{"lib.Coin": "Toss"})()
 	lf, err := syntax.Parse(coinLib)
 	if err != nil {
 		t.Fatal(err)

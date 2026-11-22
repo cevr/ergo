@@ -24,6 +24,9 @@ type Draws {
 	mut End(),
 	mut Show(label string, text string),
 
+	// A test whose body draws runs as a property (Property).
+	test Property,
+
 	// DrawBelowBound: a draw of Draw(n) is below n, for each n above zero.
 	law DrawBelowBound(n uint64) {
 		let v = Draw(n)
