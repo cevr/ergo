@@ -2,6 +2,11 @@
 # work.Tool is the Api over providers the binary chooses; package work
 # sees no provider of its contracts. The Api's law runs in package memory
 # under overTool (a Tool over the memory providers) and overClient.
+# workapi's Client is the Api over a send function, which no generator
+# builds; the law runs in memory under overClient (a Client whose send is
+# Call on a memory Tool): it runs in memory under overClient. A workapi
+# test cannot bind one: memory imports workapi.
+skip law work.Api.NewIsListedOnce for Client: its values have no generator: func(Request) Outcome is a function type; bind one in a named context of a test file, let Name = context { work.Api: … }, and the law runs under it
 skip law Api.NewIsListedOnce for Tool: its values have no generator: Lock is an operation type with no builder: neither main nor maintest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Api: … }, and the law runs under it
 # The host Cloners (btrfs, reflink, clonefile, copy) run system commands
 # through an exec.Runner, which no generator builds. Their laws run under
