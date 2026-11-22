@@ -133,5 +133,5 @@ func matrixKey(in *reuseInputs, m *Mutant, candidates []string) string {
 	if in == nil {
 		return ""
 	}
-	return rowKey(in, &Mutant{Name: m.Name, File: m.File, From: m.From, To: m.To, Killers: candidates})
+	return rowKey(in, &Mutant{Name: m.Name, File: m.File, Decl: m.Decl, From: m.From, To: m.To, Killers: candidates})
 }

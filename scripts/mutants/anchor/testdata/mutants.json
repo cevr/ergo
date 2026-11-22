@@ -1,0 +1,75 @@
+{
+  "about": "Locating a row's edit (MN0 DECL-ANCHOR): a row anchored by its declaration finds its from inside that declaration's span, so an edit elsewhere in the file cannot break it.",
+  "mutants": [
+    {
+      "name": "anchor-ignores-receiver",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "goDecls",
+      "from": "name = recvName(d.Recv.List[0].Type) + \".\" + name",
+      "to": "name = \".\" + name",
+      "rule": "A method is named with its receiver's type, so two methods of one name on two types are two declarations.",
+      "killers": ["scripts/mutants/anchor:TestLocate"]
+    },
+    {
+      "name": "anchor-file-wide-count",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "Locate",
+      "from": "if n := strings.Count(text, from); n != 1 {",
+      "to": "if n := strings.Count(string(src), from); n != 1 {",
+      "rule": "With a declaration, from must be unique in the declaration, not in the file: a copy elsewhere does not break the row.",
+      "killers": ["scripts/mutants/anchor:TestLocate"]
+    },
+    {
+      "name": "anchor-span-without-doc",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "goDecls",
+      "from": "\t\tif doc != nil {\n\t\t\tstart = off(doc.Pos())\n",
+      "to": "\t\tif doc != nil && false {\n\t\t\tstart = off(doc.Pos())\n",
+      "rule": "A Go declaration's span starts at its doc comment.",
+      "killers": ["scripts/mutants/anchor:TestLocate"]
+    },
+    {
+      "name": "anchor-ergo-span-without-doc",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "ErgoDecls",
+      "from": "for start > 0 && strings.HasPrefix(line(start-1), \"//\") {",
+      "to": "for false && start > 0 && strings.HasPrefix(line(start-1), \"//\") {",
+      "rule": "An Ergo declaration's span starts at its doc comment.",
+      "killers": ["scripts/mutants/anchor:TestLocate"]
+    },
+    {
+      "name": "anchor-ergo-doc-across-blank",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "ErgoDecls",
+      "from": "for start > 0 && strings.HasPrefix(line(start-1), \"//\") {",
+      "to": "for start > 0 && (strings.HasPrefix(line(start-1), \"//\") || line(start-1) == \"\") {",
+      "rule": "An Ergo declaration's span starts at its doc comment, the comment lines right above it, as the parser's does; not at a comment or blank line above that.",
+      "killers": ["internal/residue:TestErgoDeclSpansMatchTheParser"]
+    },
+    {
+      "name": "anchor-enclosing-across",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "Enclosing",
+      "from": "if d.Start <= at && at+n <= d.End {",
+      "to": "if d.Start <= at && at < d.End {",
+      "rule": "The migration anchors a text to a declaration only when the declaration holds all of it.",
+      "killers": ["scripts/mutants/anchor:TestEnclosing"]
+    },
+    {
+      "name": "anchor-apply-first",
+      "origin": "wf10 MN0",
+      "file": "scripts/mutants/anchor/anchor.go",
+      "decl": "Apply",
+      "from": "\tat, err := Locate(file, src, decl, from)\n",
+      "to": "\t_, err := Locate(file, src, decl, from)\n\tat := strings.Index(string(src), from)\n",
+      "rule": "The edit is made at the located occurrence, not the first in the file.",
+      "killers": ["scripts/mutants/anchor:TestApply"]
+    }
+  ]
+}
