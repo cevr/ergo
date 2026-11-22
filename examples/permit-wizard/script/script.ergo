@@ -7,7 +7,7 @@
 //	check LABEL   click the check box named LABEL
 //	code TEXT     type TEXT in the code field (the rest of the line)
 //	wait MS       let MS milliseconds pass (the filing office answers)
-//	stats         print the work of the act before it
+//	stats         print the ops of the act before it
 //
 // A blank line or one that starts with # is skipped. An act whose
 // control is not on the screen, or is disabled, does nothing; the line
@@ -111,28 +111,49 @@ func play(clerk Clerk, clock time.Manual, script []Line) int fails actor.Stopped
 	Console.Println(Shown(&h))
 	for x in script {
 		Console.Println("> \(x.Text)")
-		match x.Do {
-		case Act as a:
-			ui.Play(&h, []ui.Act{a.Act, ui.SettleAll}) catch {
-			case ui.NoNode as no:
-				Console.Println("? no node: \(no.Label)")
-				continue
-			case ui.Ambiguous as m:
-				Console.Println("? \(m.Count) nodes: \(m.At)")
-				continue
-			case ui.Mismatch:
-				continue
-			case actor.Stopped as s:
-				return s
-			case ui.BadPatch as p:
-				return p
-			}
-			Console.Println(Shown(&h))
-		case Stats:
-			Console.Println("stats: \(ui.CountsLine(ui.Counts(&h)))")
+		match try step(&h, x) {
+		case Some[string] as line:
+			Console.Println(line.Value)
+		case None:
 		}
 	}
 	0
+}
+
+// step does the line x on h and is what the host prints after it: the
+// screen after an act, why an act did nothing, or the ops of the act
+// before a `stats` line (its work counters are TourWorkIsBounded's).
+func step(h mut Host, x Line) Option[string] fails actor.Stopped | ui.BadPatch {
+	match x.Do {
+	case Act as a:
+		ui.Play(h, []ui.Act{a.Act, ui.SettleAll}) catch {
+		case ui.NoNode as no:
+			return Some{Value: "? no node: \(no.Label)"}
+		case ui.Ambiguous as m:
+			return Some{Value: "? \(m.Count) nodes: \(m.At)"}
+		case ui.Mismatch:
+			return None
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as p:
+			return p
+		}
+		Some{Value: Shown(h)}
+	case Stats:
+		Some{Value: "stats: \(opsLine(ui.Counts(h)))"}
+	}
+}
+
+// opsLine is the ops of c by kind, as ui.CountsLine begins.
+func opsLine(c ui.StepCounts) string {
+	let mut out = ""
+	for k in [](int, string){(c.Inserted, "insert"), (c.Moved, "move"), (c.Removed, "remove"), (c.Set, "set")} {
+		let (n, name) = k
+		if n > 0 {
+			out = if out == "" { "\(n) \(name)" } else { out + ", \(n) \(name)" }
+		}
+	}
+	if out == "" { "no ops" } else { out }
 }
 
 // ScreenOffersOnlyTransitions: every control the screen offers enabled

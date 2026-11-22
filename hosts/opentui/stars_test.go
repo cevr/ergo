@@ -154,7 +154,9 @@ func TestTuiKeepsItsScene(t *testing.T) {
 	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(line, "cost "):
-			costs = append(costs, strings.TrimPrefix(line, "cost "))
+			// "cost CALLS bytes BYTES": the guard counts calls; the
+			// bytes follow what the frame changed (the header's digits)
+			costs = append(costs, strings.Fields(line)[1])
 		case strings.HasPrefix(line, "ok "), line == "end":
 		default:
 			t.Errorf("hostagree: %s", line)
