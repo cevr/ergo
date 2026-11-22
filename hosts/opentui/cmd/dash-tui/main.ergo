@@ -150,6 +150,8 @@ func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
 				tui.Play(&d, []ui.Act{ui.TapOn{Label: strings.TrimPrefix(l, "tap ")}}) catch {
 				case ui.NoNode as x:
 					out.Println("? no node " + x.Label)
+				case ui.Ambiguous as amb:
+					out.Println("? " + amb.At + " finds \(amb.Count) nodes")
 				case ui.Mismatch as miss:
 					out.Println("? want " + miss.Want + ", got " + miss.Got)
 				case ui.Closed, actor.Stopped:
