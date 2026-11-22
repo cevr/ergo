@@ -275,7 +275,7 @@ func TestStreamOperationsRunAlone(t *testing.T) {
 		}
 	}
 	for _, f := range doc.Funcs {
-		if strings.HasPrefix(f.Name, "Stream") {
+		if strings.HasPrefix(f.Name, goOf("json", "Stream")) {
 			walk(f.Name, f.Body)
 		}
 	}
