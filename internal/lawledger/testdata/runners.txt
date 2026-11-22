@@ -328,7 +328,7 @@ html TextIsInert	TestStdHTMLLawsRun
 http AllowIsWhatMatches	TestStdHTTPLawsRun
 http BuiltPathMatches	TestStdHTTPLawsRun
 http ChunkingDoesNotMatter	TestStdHTTPLawsRun
-http CredentialPassesUnseen	#162
+http CredentialPassesUnseen	none
 http CutIsNotAnEvent	TestStdHTTPLawsRun
 http FailureUsesTable	TestStdHTTPLawsRun
 http FeedEachMatchesModel	TestStdHTTPLawsRun
