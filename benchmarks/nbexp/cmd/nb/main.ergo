@@ -1,0 +1,147 @@
+// nb: NO-BUILTINS experiment, NB-CUT's receipt. The language's built-in
+// operations Append and Repeat against the same operation written by a user:
+// bound to Go's builtin by an extern (the user-reachable kernel), and written
+// in plain Ergo over the kernel (cap, copy, a cut, an index write).
+//
+//	nb bench KIND N
+
+import os
+import strconv
+
+extern go append func pushGo[T](xs []T, x T) []T
+extern go cap func room[T](xs []T) int
+extern go copy func copyInto[T](dst *[]T, src []T) int
+
+// push is Append in plain Ergo over the kernel: a cut into the room after
+// xs's length, or a new array twice the size, then an index write.
+func push[T](xs own []T, x own T) []T {
+	let n = len(xs)
+	if n < room(xs) {
+		let mut ys = xs[0:n + 1]
+		ys[n] = x
+		ys
+	} else {
+		let mut ys = MakeSlice[T](2 * n + 8)[0:n + 1]
+		let _ = copyInto(&ys, xs)
+		ys[n] = x
+		ys
+	}
+}
+
+// pushInt is push at one type, with no type parameter.
+func pushInt(xs []int, x int) []int {
+	let n = len(xs)
+	if n < room(xs) {
+		let mut ys = xs[0:n + 1]
+		ys[n] = x
+		ys
+	} else {
+		let mut ys = MakeSlice[int](2 * n + 8)[0:n + 1]
+		let _ = copyInto(&ys, xs)
+		ys[n] = x
+		ys
+	}
+}
+
+// repeat is Repeat in plain Ergo: one array of the full size, then an
+// index write per element. (A copy into a cut of out would write the cut,
+// a value, not out: Ergo has no borrow of a sub-slice.)
+func repeat[T](xs []T, k int) []T {
+	let m = len(xs)
+	let mut out = MakeSlice[T](m * k)[0:m * k]
+	for i in 0..k {
+		for j in 0..m {
+			out[i * m + j] = xs[j]
+		}
+	}
+	out
+}
+
+// repeatAppend is Repeat in plain Ergo with the built-in Append only.
+func repeatAppend[T](xs []T, k int) []T {
+	let mut out = MakeSlice[T](len(xs) * k)
+	for _ in 0..k {
+		for x in xs {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func benchAppend(n int) int {
+	let mut xs = MakeSlice[int](0)
+	for i in 0..n {
+		xs = xs.Append(i)
+	}
+	len(xs) + xs[n - 1]
+}
+
+func benchExtern(n int) int {
+	let mut xs = MakeSlice[int](0)
+	for i in 0..n {
+		xs = pushGo(xs, i)
+	}
+	len(xs) + xs[n - 1]
+}
+
+func benchPlain(n int) int {
+	let mut xs = MakeSlice[int](0)
+	for i in 0..n {
+		xs = push(xs, i)
+	}
+	len(xs) + xs[n - 1]
+}
+
+func benchPlainInt(n int) int {
+	let mut xs = MakeSlice[int](0)
+	for i in 0..n {
+		xs = pushInt(xs, i)
+	}
+	len(xs) + xs[n - 1]
+}
+
+// One unit of the Repeat kinds is one element of the result: n/64 repeats
+// of an 8-element slice 8 times over.
+func benchRepeat(n int, how int) int {
+	let base = []int{1, 2, 3, 4, 5, 6, 7, 8}
+	let mut s = 0
+	for i in 0..n / 64 {
+		let out = if how == 0 { base.Repeat(8) } else if how == 1 { repeat(base, 8) } else { repeatAppend(base, 8) }
+		s = s + out[i & 63]
+	}
+	s
+}
+
+func run(kind string, n int) int {
+	if kind == "append" {
+		benchAppend(n)
+	} else if kind == "extern" {
+		benchExtern(n)
+	} else if kind == "plain" {
+		benchPlain(n)
+	} else if kind == "plainint" {
+		benchPlainInt(n)
+	} else if kind == "repeat" {
+		benchRepeat(n, 0)
+	} else if kind == "repeatplain" {
+		benchRepeat(n, 1)
+	} else if kind == "repeatappend" {
+		benchRepeat(n, 2)
+	} else {
+		-1
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: nb bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "nb: N is not a count"}
+		}
+		Console.Println("\(run(args[1], n))")
+	}
+}
