@@ -1,0 +1,47 @@
+// snippets is the snippet guard of the site (package snippets), the gate's
+// step "site snippets", run from the repository root:
+//
+//	ergo run ./site/cmd/snippets [-ergo BIN] [ROOT]
+//
+// ROOT is the site folder (default site); BIN is the ergo that checks the
+// snippets (default ergo on the PATH). It prints each problem and exits 1
+// when there is one, else prints the counts and exits 0. This binary is
+// the only place that chooses the providers: the host's files, programs
+// and standard output.
+
+import exec
+import fs
+import io
+import os
+import github.com/cevr/ergo/site/snippets
+
+func run(args []string) fails os.Exit needs fs.Files | exec.Runner | io.Stdout {
+	let mut ergo = "ergo"
+	let mut root = "site"
+	let mut i = 0
+	for i < len(args) {
+		if args[i] == "-ergo" && i+1 < len(args) {
+			ergo = args[i+1]
+			i = i + 2
+		} else if len(args) == i+1 && args[i] != "" && args[i][0] != '-' {
+			root = args[i]
+			i = i + 1
+		} else {
+			return os.Exit{Code: 2, Message: "usage: snippets [-ergo BIN] [ROOT]"}
+		}
+	}
+	let r = snippets.Guard(root, ergo)
+	for p in r.Problems {
+		io.Stdout.Println(p)
+	}
+	if len(r.Problems) > 0 {
+		return os.Exit{Code: 1, Message: "snippets: \(len(r.Problems)) problems"}
+	}
+	io.Stdout.Println("snippets: ok: \(r.Checked) checked packages, \(r.Planned) planned snippets on credit, \(r.Marks) marks files, \(r.Tokens) tokens files, \(r.Shown) shown numbers")
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), exec.Runner: exec.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
