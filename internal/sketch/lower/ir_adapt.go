@@ -39,6 +39,37 @@ func trailing(x *syntax.CallExpr) int {
 	return 0
 }
 
+// givenFunc is a parameter of an adapter (task is set: adaptTaskFunc's
+// shape) that takes a plain Go function the std body gives the callback,
+// of the Ergo function type t with no result and an empty row: w is the value
+// the callback receives, a literal of t's uniform shape that calls it and
+// returns no failure; local and gt are the adapter's parameter (its
+// local and Go type).
+func (b *irBuilder) givenFunc(t check.Type, task bool, site syntax.Node, p irPos) (w *irExpr, local int, gt string) {
+	ps, ok := t.(*check.Signature)
+	if !task || !ok || len(ps.Results) != 0 || len(rowElems(ps.Errors)) != 0 || len(rowElems(ps.Uses)) != 0 {
+		irNo("std call that adapts a function the body gives a function")
+	}
+	var goParams []string
+	for _, q := range ps.Params {
+		goParams = append(goParams, b.goType(q.Type, site))
+	}
+	gt = "func(" + strings.Join(goParams, ", ") + ")"
+	local = b.temp("p", gt, p)
+	env := b.temp("env", "*"+b.l.env(), p)
+	w = &irExpr{K: "func", Pos: p, T: b.goType(t, site), Params: []int{env}}
+	call := &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: local}}
+	for _, gp := range goParams {
+		a := b.temp("a", gp, p)
+		w.Params = append(w.Params, a)
+		call.Args = append(call.Args, &irExpr{K: "local", Pos: p, I: a})
+	}
+	end := p
+	w.Body = b.unitReturns([]*irStmt{{K: "expr", Pos: p, X: call}}, end)
+	w.End = &end
+	return w, local, gt
+}
+
 // adaptOperand is the adapter of e, the IR of a function value of the
 // signature sig (the operand at site), to the Go parameter q of a std
 // body, and the statements that bind e first.
@@ -112,10 +143,18 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	call := &irExpr{K: "vcall", Pos: b.litCallPos(site, e, p), X: fv, Args: []*irExpr{env}}
 	for i, sp := range sig.Params {
-		if shape.Params[i].Func != nil {
-			irNo("std call that adapts a function the body gives a function")
-		}
 		gt := b.goType(sp.Type, site)
+		if shape.Params[i].Func != nil {
+			// A function the Go body gives the callback (the send of
+			// actor.StartMachine's work, MU4): a plain Go function,
+			// passed to the value in the uniform shape (the emitter's
+			// adaptTaskFunc wraps it the same way).
+			w, local, gfn := b.givenFunc(sp.Type, task, site, p)
+			params = append(params, gfn)
+			lit.Params = append(lit.Params, local)
+			call.Args = append(call.Args, w)
+			continue
+		}
 		local := b.temp("p", gt, p)
 		params = append(params, gt)
 		lit.Params = append(lit.Params, local)
