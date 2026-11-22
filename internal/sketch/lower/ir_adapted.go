@@ -44,12 +44,11 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 	}
 	some, _ := optionVariants(t, x)
 	// Some's one field, the payload, by its declaration (ADT-NOPRIV).
-	someN, ok := some.(*check.Named)
 	var st *check.Struct
-	if ok {
-		st, ok = someN.Underlying().(*check.Struct)
+	if someN, named := some.(*check.Named); named {
+		st, _ = someN.Underlying().(*check.Struct)
 	}
-	if !ok || len(st.Fields) != 1 {
+	if st == nil || len(st.Fields) != 1 {
 		ice(x, "the prelude's Some is not a record of one field")
 	}
 	elem := t.(*check.Named).TArgs[0]
