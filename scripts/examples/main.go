@@ -1147,7 +1147,9 @@ func (r *runner) testProgram(p *program) {
 	ledger := filepath.Join(p.dir, "ergo.laws")
 	kept, err := os.ReadFile(ledger)
 	tracked := err == nil
-	if !(p.module && len(p.tests) > 1 && r.testModule(p)) {
+	// A module with full-tier folders tests each package alone: `ergo test
+	// DIR/...` would run those folders too, which only the full tier runs.
+	if !(p.module && len(p.tests) > 1 && len(p.heavy) == 0 && r.testModule(p)) {
 		for _, target := range p.tests {
 			leg := "test"
 			if p.module {
@@ -1169,6 +1171,32 @@ func (r *runner) testProgram(p *program) {
 		fmt.Fprintf(r.out, "FAIL %s: ledger: ergo test changed the checked-in ergo.laws (put back); run ergo test in %s and commit the file it writes\n", p.name, p.dir)
 	}
 	r.fail(p.name + ": ledger")
+}
+
+// packageDifference is the packages of want that ran does not hold, and
+// the packages of ran that want does not, each sorted.
+func packageDifference(ran, want []string) (notRun, notOurs []string) {
+	for _, w := range want {
+		if !slices.Contains(ran, w) {
+			notRun = append(notRun, w)
+		}
+	}
+	for _, g := range ran {
+		if !slices.Contains(want, g) {
+			notOurs = append(notOurs, g)
+		}
+	}
+	slices.Sort(notRun)
+	slices.Sort(notOurs)
+	return notRun, notOurs
+}
+
+// orNone is the names joined by spaces, or "none".
+func orNone(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, " ")
 }
 
 // testModule runs every package of the program of packages p in one `ergo
@@ -1217,8 +1245,8 @@ func (r *runner) testModule(p *program) bool {
 			r.testTarget(p, target, "test "+filepath.ToSlash(rel))
 		}
 	}()
-	if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
-		fmt.Fprintf(r.out, "FAIL %s: test: ergo test ran the packages %s; the program's packages are %s\n", p.name, strings.Join(got, " "), strings.Join(want, " "))
+	if notRun, notOurs := packageDifference(order, want); len(notRun) > 0 || len(notOurs) > 0 {
+		fmt.Fprintf(r.out, "FAIL %s: test: ergo test DIR/... did not run the program's packages %s, and ran packages that are not the program's: %s\n", p.name, orNone(notRun), orNone(notOurs))
 		r.fail(p.name + ": test")
 		return true
 	}

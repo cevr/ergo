@@ -357,10 +357,19 @@
       "name": "one-module-any-packages",
       "origin": "wf10 TEST-one",
       "file": "scripts/examples/main.go",
-      "from": "if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {",
-      "to": "if got := slices.Sorted(slices.Values(order)); false {",
+      "from": "if notRun, notOurs := packageDifference(order, want); len(notRun) > 0 || len(notOurs) > 0 {",
+      "to": "if notRun, notOurs := packageDifference(order, want); false && (len(notRun) > 0 || len(notOurs) > 0) {",
       "rule": "A run that tested other packages than the program's fails the program.",
       "killers": ["scripts/examples:TestModuleProgramRunsEveryPackage"]
+    },
+    {
+      "name": "module-run-with-full-tier",
+      "origin": "wf10 CTX-ROWS-2b r3",
+      "file": "scripts/examples/main.go",
+      "from": "len(p.tests) > 1 && len(p.heavy) == 0 && r.testModule(p)",
+      "to": "len(p.tests) > 1 && r.testModule(p)",
+      "rule": "A module with full-tier folders tests each fast package alone: one ergo test DIR/... would run the full-tier folders too.",
+      "killers": ["scripts/examples:TestModulesLeg"]
     },
     {
       "name": "one-module-check-per-package",
