@@ -3,6 +3,7 @@ package selfhostcheck
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -165,14 +166,6 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 	needsBuild(t)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
-	base := uint32(1)
-	if v := os.Getenv(seedVariable); v != "" {
-		n, err := strconv.ParseUint(v, 10, 32)
-		if err != nil {
-			t.Fatalf("%s=%q: %v", seedVariable, v, err)
-		}
-		base = uint32(n)
-	}
 	tmp := t.TempDir()
 	var cases []unusedCase
 	// The corpus: every folder the Go checker accepts has no line.
@@ -217,26 +210,23 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		t.Fatal("no corpus file checks alone")
 	}
 	seeds := 0
-	for seed := base; seed < base+300; seed++ {
-		src, ok := perturbUnused(pool, seed)
-		if !ok {
-			continue
-		}
+	for _, d := range unusedDraws(pool) {
+		src := d.src
 		_, ds := check.CheckSource(src)
 		if len(ds) > 0 && ds[0].Code == check.CodeSyntax {
-			t.Fatalf("seed %d: the perturbation does not parse: %v\n%s", seed, ds[0], src)
+			t.Fatalf("%s: the perturbation does not parse: %v\n%s", d.name, ds[0], src)
 		}
 		want := goUnused(ds)
 		if len(want) == 0 {
-			t.Fatalf("seed %d: the Go checker reports no unused name in the perturbation:\n%s", seed, src)
+			t.Fatalf("%s: the Go checker reports no unused name in the perturbation:\n%s", d.name, src)
 		}
-		dir := filepath.Join(tmp, "seed", strconv.Itoa(int(seed)))
+		dir := filepath.Join(tmp, "seed", strconv.Itoa(seeds))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		f := filepath.Join(dir, "p.ergo")
 		writeLines(t, f, []string{strings.TrimSuffix(src, "\n")})
-		cases = append(cases, unusedCase{name: fmt.Sprintf("seed %d", seed), files: []string{f}, want: prefixed("p.ergo", want), src: src, seed: seed})
+		cases = append(cases, unusedCase{name: d.name, files: []string{f}, want: prefixed("p.ergo", want), src: src, seed: d.seed})
 		seeds++
 	}
 	// One binddump run over every case, a package per manifest line.
@@ -281,7 +271,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		}
 		msg := fmt.Sprintf("%s: unused diagnostics differ\n--- go\n%s\n--- ergo\n%s", c.name, strings.Join(c.want, "\n"), strings.Join(got[i], "\n"))
 		if c.src != "" {
-			msg += fmt.Sprintf("\n--- source\n%s\nreplay: %s=%d go test -count=1 -run '^TestCompilerUnusedAgreesWithChecker$' ./internal/selfhostcheck (the first seed is the failing one)", c.src, seedVariable, c.seed)
+			msg += fmt.Sprintf("\n--- source\n%s\nreplay: go test -count=1 -run '^TestCompilerUnusedAgreesWithChecker$' ./internal/selfhostcheck (the case is drawn from its file, seed %d)", c.src, c.seed)
 		}
 		t.Error(msg)
 	}
@@ -313,6 +303,7 @@ func bindDump(t *testing.T, ctx context.Context) string {
 // unusedFile is a corpus file that the Go checker accepts alone, with its
 // function bodies' braces and its import block's end.
 type unusedFile struct {
+	path         string // the file, relative to the repository root
 	src          string
 	bodies       []int // the offset after each body's "{"
 	blocks       []int // the offset after each nested block's "{"
@@ -339,7 +330,7 @@ func unusedPool(t *testing.T) []unusedFile {
 			if err != nil {
 				continue
 			}
-			u := unusedFile{src: src}
+			u := unusedFile{path: rel(p), src: src}
 			for _, d := range f.Decls {
 				if im, ok := d.(*syntax.ImportDecl); ok {
 					for _, s := range im.Specs {
@@ -372,6 +363,40 @@ func unusedPool(t *testing.T) []unusedFile {
 	return pool
 }
 
+// unusedStride keeps one pool file in unusedStride as an unused case
+// (about 300 of today's pool), chosen by its path's hash: a file is a
+// case or not by itself, whatever else the corpus holds.
+const unusedStride = 3
+
+// unusedDraw is a pool file's unused case: its name, the seed its
+// perturbation draws from and the perturbed source.
+type unusedDraw struct {
+	name string
+	seed uint32
+	src  string
+}
+
+// unusedDraws is the unused cases of pool, in pool order. Each is keyed
+// by its own file: its path's hash decides whether it is a case and
+// seeds its perturbation, so a file added to or edited in the corpus
+// adds or changes only its own case (TestUnusedDrawsAreKeyedByFile).
+func unusedDraws(pool []unusedFile) []unusedDraw {
+	var out []unusedDraw
+	for _, u := range pool {
+		h := fnv.New32a()
+		h.Write([]byte(u.path))
+		key := h.Sum32()
+		if key%unusedStride != 0 {
+			continue
+		}
+		seed := key / unusedStride
+		if src, ok := perturbUnused(u, seed); ok {
+			out = append(out, unusedDraw{name: "unused " + u.path, seed: seed, src: src})
+		}
+	}
+	return out
+}
+
 // unusedImports are std packages a perturbation imports and does not
 // read.
 var unusedImports = []string{"strings", "slices", "maps", "strconv", "cmp", "math"}
@@ -387,10 +412,9 @@ var unusedImports = []string{"strings", "slices", "maps", "strconv", "cmp", "mat
 // plain or `as` binding, a catch arm's rest, the later arm of an
 // or-pattern, or a capitalised name. False when the seed's form does not
 // apply to its file.
-func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
+func perturbUnused(u unusedFile, seed uint32) (string, bool) {
 	r := rand.New(rand.NewPCG(uint64(seed), 0x5333))
-	u := pool[r.IntN(len(pool))]
-	name := fmt.Sprintf("zq%d", seed)
+	name := fmt.Sprintf("zq%d", seed%100000)
 	insert := func(at int, text string) string { return u.src[:at] + text + u.src[at:] }
 	free := func() string {
 		var out []string

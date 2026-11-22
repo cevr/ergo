@@ -716,6 +716,17 @@
           "./scripts/linked"
         ]
       }
+    },
+    {
+      "name": "unused-draw-by-position",
+      "origin": "wf10/selfhost/AGREEMENT-CASES-STABLE",
+      "file": "internal/selfhostcheck/diag_test.go",
+      "from": "\t\tseed := key / unusedStride\n",
+      "to": "\t\tseed := uint32(len(out))\n",
+      "rule": "An unused case is keyed by its own file: a pool that loses or gains other files leaves its perturbation unchanged.",
+      "killers": [
+        "internal/selfhostcheck:TestUnusedDrawsAreKeyedByFile"
+      ]
     }
   ]
 }

@@ -209,10 +209,12 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	}
 	seeds := 0
 	pool := unusedPool(t)
-	for seed := base; seed < base+300; seed++ {
-		if src, ok := perturbUnused(pool, seed); ok && single(fmt.Sprintf("unused seed %d", seed), "p.ergo", src) {
+	for _, d := range unusedDraws(pool) {
+		if single(d.name, "p.ergo", d.src) {
 			seeds++
 		}
+	}
+	for seed := base; seed < base+300; seed++ {
 		if single(fmt.Sprintf("flow seed %d", seed), "p.ergo", flowProgram(seed)) {
 			seeds++
 		}
