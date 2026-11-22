@@ -1,0 +1,8 @@
+# scripts/opcount: `tailbench bench slotlit N` makes N reads of a generic
+# Box[int, Gone] at one type, its failure built in place (FAILJUMP-TYPED),
+# caught in the loop. The control is hand Go: a tagged struct read by a
+# switch, the failure returned as an error and type-switched.
+unit read
+sizes 409600 2457600
+args bench slotlit {n}
+control benchmarks/tailcall/testdata/control

@@ -120,7 +120,8 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		if b.fc.frame.fallible {
 			k = "fail"
 		}
-		return append(pre, &irStmt{K: k, Pos: p, X: e})
+		ft, ftp := b.failType(x) // for failJumps (FAILJUMP-TYPED)
+		return append(pre, &irStmt{K: k, Pos: p, X: e, FailT: ft, FailTP: ftp})
 	}
 	if b.result == nil {
 		// A no-value call returned for its effect (retExpr).
@@ -155,14 +156,22 @@ func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 	}
 	out := b.tail(list[:n-1], false)
 	b.part(func() {
-		if es, ok := list[n-1].(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+		s := list[n-1]
+		if es, ok := s.(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+			// It returns: the frame's exit releases what the statement
+			// owns (releasesAtExit's rule for a return).
+			if b.own != nil {
+				delete(b.own.keys, s)
+			}
 			out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...)
 			return
 		}
 		// A branch whose tail is an error value fails the frame there
 		// (tailTo, voidTail).
-		b.voidTail = b.failureTail(list[n-1], false)
-		out = append(out, b.stmt(list[n-1])...)
+		b.voidTail = b.failureTail(s, false)
+		// The statement's own releases (R43), as tailTo's scoped: its
+		// temporaries end with it, before the frame's exit.
+		out = append(out, b.scoped(s, b.stmt(s), b.pos(s, s.Pos()))...) // ir_own.go
 		b.voidTail = false
 	})
 	return out
@@ -229,7 +238,13 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			// emitter's try does.
 			return b.value(x.X)
 		}
-		return b.try(call)
+		pre, v := b.try(call)
+		if v != nil {
+			// The call's value, a temporary its statement owns (R43),
+			// registers once the failure has left (ownTemp, ir_own.go).
+			v = b.ownTemp(call, v)
+		}
+		return pre, v
 	case *syntax.CatchExpr:
 		return b.catch(x, false)
 	}

@@ -126,7 +126,7 @@ func main() {
 		for i := 0; i < n; i++ {
 			t += caught(tryLet(i & 4095))
 		}
-	case "slotget":
+	case "slotget", "slotfield", "slotlit":
 		for i := 0; i < n; i++ {
 			t += caught(get(boxOf(i & 4095)))
 		}
