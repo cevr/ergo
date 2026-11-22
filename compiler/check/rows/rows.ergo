@@ -33,6 +33,7 @@ import compiler/check/bind
 import compiler/check/diag
 import compiler/check/expr
 import compiler/check/store
+import compiler/check/types
 import compiler/syntax
 import dense
 import slices
@@ -54,6 +55,10 @@ type walker {
 	caps    dense.Col[store.PNode, dense.Opt[store.TKey]],
 	lits    dense.Col[store.PNode, int],
 	litRows []expr.LitRows,
+	// decs is the index in decRows of each decode[T](r) whose row expr
+	// reads (expr.DecodeRow), -1 for none.
+	decs    dense.Col[store.PNode, int],
+	decRows []expr.DecodeRow,
 	file    int,
 	errs    []dense.ID[store.TKey],
 	uses    []dense.ID[store.TKey],
@@ -77,11 +82,13 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 	let mut cs = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
 	let mut ks = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
 	let mut ls = dense.ColWithCap[store.PNode, int](rows)
+	let mut ds = dense.ColWithCap[store.PNode, int](rows)
 	for _ in 0..rows {
 		dense.Push(&ts, dense.NoID[store.TKey]())
 		dense.Push(&cs, dense.NoID[store.TKey]())
 		dense.Push(&ks, dense.NoID[store.TKey]())
 		dense.Push(&ls, -1)
+		dense.Push(&ds, -1)
 	}
 	for e in t.Entries {
 		if dense.In(ts, e.At) {
@@ -98,17 +105,44 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			dense.SetOf(&ls, l.At, i)
 		}
 	}
+	for i, d in t.Decodes {
+		if dense.In(ds, d.Call) {
+			dense.SetOf(&ds, d.Call, i)
+		}
+	}
 	for c in t.Caps {
 		if dense.In(ks, c.Call) {
 			dense.SetOf(&ks, c.Call, dense.OptOf(c.T))
 		}
 	}
-	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false}
+	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false}
 	let mut out = []diag.Diag{}
 	let mut seen = Map[string, bool]{}
 	for f in k.Fns {
 		let p = k.Parsed[f.File]
-		if p.Failed || syntax.KindOf(p.Tree, f.Decl) != syntax.KFuncDecl {
+		if p.Failed {
+			continue
+		}
+		if syntax.KindOf(p.Tree, f.Decl) == syntax.KTestDecl {
+			// A test's capability row is empty: what it charges outside a
+			// with is S102 (E4). Its failures are not read here.
+			w.file = f.File
+			w.errs = []dense.ID[store.TKey]{}
+			w.uses = []dense.ID[store.TKey]{}
+			w.known = []bool{false, true}
+			w.tries = 0
+			w.sites = []site{}
+			body(&w, s, k, syntax.TestDeclOf(p.Tree, f.Decl).Body)
+			for d in reportTest(&w, s, k, f) {
+				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
+				if !isSome(seen.Get(key)) {
+					seen[key] = true
+					out = out.Append(d)
+				}
+			}
+			continue
+		}
+		if syntax.KindOf(p.Tree, f.Decl) != syntax.KFuncDecl {
 			continue
 		}
 		let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
@@ -355,9 +389,14 @@ func walkNoEscape(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Nod
 func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc Option[dense.ID[syntax.Node]]) {
 	let tr = k.Parsed[w.file].Tree
 	let c = syntax.CallExprOf(tr, x)
-	if isSome(dense.Unpack(c.Trailing)) {
-		// A with, a go block or a block argument: not walked yet.
+	match dense.Unpack(c.Trailing) {
+	case Some[dense.ID[syntax.Node]] as b:
+		if isWith(k.Parsed[w.file], c.Fun) && syntax.KindOf(tr, b.Value) == syntax.KBlockStmt {
+			withBlock(w, s, k, b.Value)
+		}
+		// A go block or a block argument: not walked yet.
 		return
+	case None:
 	}
 	walk(w, s, k, c.Fun)
 	for i in 0..syntax.Len(c.Args) {
@@ -377,6 +416,18 @@ func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc 
 			charge(w, s, x, cap.Value)
 		case None:
 		}
+	}
+	if dense.In(w.decs, n) && dense.Of(w.decs, n) >= 0 {
+		// decode[T](r): its row is the codec's (expr.DecodeRow).
+		match esc {
+		case Some[dense.ID[syntax.Node]] as at:
+			let errs = w.decRows[dense.Of(w.decs, n)].Errs
+			if simple(s, errs) {
+				escape(w, at.Value, errs)
+			}
+		case None:
+		}
+		return
 	}
 	match sigOf(w, s, k, x, c.Fun) {
 	case Some[dense.ID[store.TKey]] as sig:
@@ -400,6 +451,33 @@ func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc 
 		}
 	case None:
 	}
+}
+
+// isWith is whether the callee fun of a call with a trailing block is the
+// word with (bind's isWith): `with W { block }`.
+func isWith(p syntax.Parsed, fun dense.ID[syntax.Node]) bool {
+	syntax.KindOf(p.Tree, fun) == syntax.KIdent && types.NameText(p, fun) == "with"
+}
+
+// withBlock walks the block b of a with (context.go with): a try in it
+// lets its failure escape the target, as anywhere in the body (rows.md,
+// With 6). What it charges is not read: the with discharges what its
+// context binds, which this pass does not resolve, so the capability row
+// is unknown inside it. Its operands are not walked either: an inline
+// context's providers charge the target and a local context's are charged
+// at the with (D-E5), both unread here. Its last expression is the with's
+// value, not the body's, so no tail escapes from it.
+func withBlock(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	let (known, tries) = (w.known[kUses], w.tries)
+	w.known[kUses] = false
+	w.tries = 0
+	let l = syntax.BlockStmtOf(tr, b).List
+	for i in 0..syntax.Len(l) {
+		walk(w, s, k, syntax.Item(tr, l, i))
+	}
+	w.known[kUses] = known
+	w.tries = tries
 }
 
 // sigOf is the signature the typer gave the callee of the call x: the
