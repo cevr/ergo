@@ -890,7 +890,6 @@ ui FreshMountInits	TestUILoadModel
 ui GroupByKeepsAfterCheapEqual	TestUITreeModel
 ui GroupSkipsEqualArguments	TestUITreeModel
 ui HitFindsTheCaret	TestUITextModel
-ui HostKeepsAnswers	TestUITreeModel
 ui HoverCostsNoPass	TestUIHostModel
 ui HrefParses	TestUIHostModel
 ui IdempotentCommit	TestUITreeModel
@@ -912,7 +911,6 @@ ui Location.PushThenBackRestores	TestUIHostModel
 ui Location.ReplaceKeepsDepth	TestUIHostModel
 ui LocatorAgreesWithAccessTree	TestUITreeModel
 ui LongPressNeedsStillness	TestUIHostModel
-ui LowerIsInjective	TestUITreeModel
 ui Measure.EmptyIsZero	TestUITextModel
 ui Measure.WidthGrows	TestUITextModel
 ui MirrorRejectsBadPatches	TestUITreeModel
@@ -934,6 +932,7 @@ ui PostedOrderKeepsTheCounts	TestUIHostModel
 ui PresenceKeepsTheList	TestUIHostModel
 ui PressGivesSignal	TestUITreeModel
 ui PressIsOnePass	TestUIHostModel
+ui PressReachesItsControl	TestUIHostModel
 ui QueryRoundTrips	TestUIHostModel
 ui ReachPicksTheNearest	TestUIHostModel
 ui RelationsNameHeldNodes	TestUIHostModel
