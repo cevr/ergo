@@ -117,7 +117,7 @@ func fakeBuild(builds *atomic.Int32) func(source, overlay, out string) error {
 // (irt-patched-never-ready).
 func TestPatchBuildsOnceAndKeysOnThePatch(t *testing.T) {
 	var builds atomic.Int32
-	cache, source := t.TempDir(), fakeRelease(t, "go1.27.0")
+	cache, source := ircDir(t), fakeRelease(t, "go1.27.0")
 	c := PatchConfig{Cache: cache, Source: source, lock: plantedLock("go1.27.0", "B"), build: fakeBuild(&builds)}
 	first, err := Patch(c)
 	if err != nil {
@@ -170,7 +170,7 @@ func TestPatchBuildsOnceForTwoBuilds(t *testing.T) {
 	var builds atomic.Int32
 	entered, release := make(chan struct{}, 2), make(chan struct{})
 	inner := fakeBuild(&builds)
-	c := PatchConfig{Cache: t.TempDir(), Source: fakeRelease(t, "go1.27.0"), lock: plantedLock("go1.27.0", "B"),
+	c := PatchConfig{Cache: ircDir(t), Source: fakeRelease(t, "go1.27.0"), lock: plantedLock("go1.27.0", "B"),
 		build: func(source, overlay, out string) error {
 			entered <- struct{}{}
 			<-release
@@ -230,7 +230,7 @@ func TestGoModPinsTheRelease(t *testing.T) {
 // (irt-pin-unported).
 func TestPatchRefusesAnUnportedGo(t *testing.T) {
 	var builds atomic.Int32
-	_, err := Patch(PatchConfig{Cache: t.TempDir(), Source: fakeRelease(t, "go1.27.1"), build: fakeBuild(&builds)})
+	_, err := Patch(PatchConfig{Cache: ircDir(t), Source: fakeRelease(t, "go1.27.1"), build: fakeBuild(&builds)})
 	if err == nil || !strings.Contains(err.Error(), "Go go1.27.1 has no port") || !strings.Contains(err.Error(), Version) {
 		t.Errorf("an unported go1.27.1: %v; want the refusal that lists the ports", err)
 	}
