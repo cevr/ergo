@@ -159,7 +159,7 @@ func TestErgoLineRows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "ergo.mod S108 3:7 ergo.mod needs ergo v1.10.0 or newer, and this ergo is v1.2.0; install it: go install github.com/cevr/ergo/cmd/ergo@v1.10.0\n"
+		want := "ergo.mod S108 3:7 ergo.mod needs ergo v1.10.0 or newer, and this ergo is v1.2.0; install it: CGO_ENABLED=0 go install github.com/cevr/ergo/cmd/ergo@v1.10.0\n"
 		if got := diagnosticLines(a); got != want {
 			t.Fatalf("got\n%swant\n%s", got, want)
 		}
@@ -178,7 +178,7 @@ func TestErgoLineRows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "example.com/dep@v1.0.0/ergo.mod S108 2:6 example.com/dep@v1.0.0/ergo.mod needs ergo v1.3.0 or newer, and this ergo is v1.2.0; install it: go install github.com/cevr/ergo/cmd/ergo@v1.3.0\n"
+		want := "example.com/dep@v1.0.0/ergo.mod S108 2:6 example.com/dep@v1.0.0/ergo.mod needs ergo v1.3.0 or newer, and this ergo is v1.2.0; install it: CGO_ENABLED=0 go install github.com/cevr/ergo/cmd/ergo@v1.3.0\n"
 		if got := diagnosticLines(a); got != want {
 			t.Fatalf("got\n%swant\n%s", got, want)
 		}
