@@ -147,7 +147,7 @@ var declared = map[string][]allowance{
 			{"internal/sketch/testdata", subtree, "the accepted and refusal inventories and TestCorpusProbesRun walk the shared corpus (filepath.WalkDir), lowering each"},
 			{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
 			{"docs/spec/support.md", file, "TestSupportTableIsCurrent compares the support table with the one the family inventory generates"},
-			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
+			{"internal/lawledger/testdata/runners.txt", file, "the std law runners pass their laws to lawledger.Run, which reads the runner file to hold each runner to its lines"},
 		},
 	),
 	// The std tests import internal/sketch/lower (TestStdCopyAgrees lowers
@@ -156,7 +156,8 @@ var declared = map[string][]allowance{
 	// them (runnerPackages) needs no grant.
 	"internal/sketch/stdlib": declare(
 		[]allowance{
-			{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"},
+			{"internal/lawledger/testdata/runners.txt", file, "TestStdLawLedger and the host law runner read the runner file of the std laws"},
+			{"docs/spec/stdlib.md", file, "TestStdStrengthsTable reads the strengths table (std-better SB0)"},
 			// The CLI's compiled closure holds the directories of
 			// internal/sketch/lower and internal/rpcgen, so it covers the
 			// reads that were globs of their test files here:
@@ -180,16 +181,16 @@ var declared = map[string][]allowance{
 		{"modules", subtree, "TestEvalAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
 	"runtime/v1": {
-		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
+		{"internal/lawledger/testdata/runners.txt", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the runner file"},
 	},
 	"runtime/v1/digest": {
-		{"docs/spec/stdlib.md", file, "TestStdDigestLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
+		{"internal/lawledger/testdata/runners.txt", file, "TestStdDigestLaws passes its laws to lawledger.Run, which reads the runner file"},
 	},
 	"runtime/v1/exec": {
-		{"docs/spec/stdlib.md", file, "the exec law runners pass their laws to lawledger.Run, which reads the Std laws ledger"},
+		{"internal/lawledger/testdata/runners.txt", file, "the exec law runners pass their laws to lawledger.Run, which reads the runner file"},
 	},
 	"runtime/v1/rand": {
-		{"docs/spec/stdlib.md", file, "TestRandLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
+		{"internal/lawledger/testdata/runners.txt", file, "TestRandLaws passes its laws to lawledger.Run, which reads the runner file"},
 	},
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),

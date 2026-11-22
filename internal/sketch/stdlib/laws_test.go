@@ -2,7 +2,6 @@ package stdlib_test
 
 import (
 	"errors"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,7 +9,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/lawledger/parsed"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -27,7 +26,7 @@ import (
 // The std law rule (docs/spec/stdlib.md, Std laws; std-align S1a): every
 // operation type of every std package, the prelude included, has a member
 // law or a written exemption, and every law of std source has exactly one
-// row in the ledger, which names the Go test that runs it now.
+// line in the runner file (lawledger.File), which names what runs it.
 
 // exemptPrefix starts the one doc-comment line that exempts an operation
 // type from the rule. The text after it is the reason, never empty.
@@ -217,102 +216,31 @@ type Both {
 	}
 }
 
-// readLedger is the Std laws table of stdlib.md (lawledger.Read).
-func readLedger(t *testing.T) []lawledger.Row {
-	t.Helper()
-	rows, err := lawledger.Read()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return rows
-}
-
-var spaces = regexp.MustCompile(`\s+`)
-
-// lawStatement is the source text of d from its name to its closing
-// brace, with each run of white space made one space: the Statement cell
-// of its ledger row. The round-trip law of a by-name pair (d.Pair) has no
-// source text: the parser derives it after the file's declarations, at
-// the Wire's position (syntax/pair.go). Its statement is the law as
-// pair.go's doc writes it, with X, ParseX and the drawn parameter's type
-// as the file spells them.
-func lawStatement(f *syntax.File, d *syntax.LawDecl) string {
-	if td := d.Derived; td != nil {
-		// Derived nodes retain the type's source positions, not a source
-		// slice of the generated law. State the parser's derived law.
-		base := spaces.ReplaceAllString(f.Src[td.Spec.Pos():td.Spec.End()], " ")
-		binding := "let it " + base + " = v"
-		switch td.Spec.(type) {
-		case *syntax.Ident, *syntax.SelectorExpr:
-			binding = "let it = " + base + "(v)"
-		}
-		return fmt.Sprintf("%s(v %s) { %s (%s) && try %s(it) == v }", d.Name.Name, td.Name.Name, binding, syntax.WhereText(f.Src, td.Where), syntax.ParseName(td.Name.Name))
-	}
-	if w := d.Pair; w != nil {
-		return pairStatement(d, w)
-	}
-	return spaces.ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
-}
-
-// pairStatement is the round-trip law the parser derives for the by-name
-// pair whose Wire is w (types.md, Codecs 7), as source: its nodes carry
-// Wire's position, not a source slice of their own. It states the form
-// syntax/pair.go builds: over a drawn x, with an empty buffer for the
-// append form, and with try when ParseX fails.
-func pairStatement(d *syntax.LawDecl, w *syntax.FuncDecl) string {
-	x := w.Type.Params.List[0].Type.(*syntax.Ident).Name
-	into := ""
-	if len(w.Type.Params.List) == 2 {
-		into = "[]byte{}"
-	}
-	held := fmt.Sprintf("%s(x.Wire(%s)) == x", syntax.ParseName(x), into)
-	if _, fails := d.Body.List[0].(*syntax.ExprStmt).X.(*syntax.TryExpr); fails {
-		held = "try " + held
-	}
-	return fmt.Sprintf("%s(x %s) { %s }", d.Name.Name, x, held)
-}
-
 // sourceLaws are the laws of the std sources by ledger key, "pkg Law" for
-// a top-level law and "pkg Type.Law" for a member, with their statements.
+// a top-level law and "pkg Type.Law" for a member, with their statements
+// as the parser states them (parsed.Laws).
 func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	add := func(key, statement string) {
-		if _, dup := out[key]; dup {
-			t.Errorf("std law %s is declared twice", key)
-		}
-		out[key] = statement
-	}
 	for _, p := range pkgs {
-		for _, f := range p.files {
-			for _, d := range f.Decls {
-				switch d := d.(type) {
-				case *syntax.LawDecl:
-					add(p.path+" "+d.Name.Name, lawStatement(f, d))
-				case *syntax.TestDecl:
-					// No step runs a std test: ergo test and check-time
-					// evaluation run the root package's tests, and no gate
-					// step makes a std package the root. A std law runs
-					// through its ledger runner; a std test would pass
-					// unrun (FK9 g1b dropped one for that reason).
-					t.Errorf("std %s declares test %s, which nothing runs: state it as a law with a ledger row and runner, or as a Go test", p.path, d.Name.Name)
-				case *syntax.TypeDecl:
-					if it, ok := d.Spec.(*syntax.InterfaceType); ok {
-						for _, l := range it.Laws {
-							add(p.path+" "+d.Name.Name+"."+l.Name.Name, lawStatement(f, l))
-						}
-					}
-				}
+		laws, problems := parsed.Laws(p.path, p.files)
+		for _, problem := range problems {
+			t.Error(problem)
+		}
+		for key, statement := range laws {
+			if _, dup := out[key]; dup {
+				t.Errorf("std law %s is declared twice", key)
 			}
+			out[key] = statement
 		}
 		// The parse and the checker agree on the laws, so no law the
-		// checker records escapes the ledger.
+		// checker records escapes the runner file.
 		for _, l := range p.pkg.Laws {
 			key := p.path + " " + l.Name
 			if l.Owner != nil {
 				key = p.path + " " + l.Owner.Name + "." + l.Name
 			}
-			if _, ok := out[key]; !ok {
+			if _, ok := laws[key]; !ok {
 				t.Errorf("the checker records law %s, which the source walk missed", key)
 			}
 		}
@@ -321,14 +249,14 @@ func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 }
 
 // TestPairLawStatement is the smallest repro of LINT4 bug "a std file
-// with a by-name pair panics the ledger": lawStatement sliced a derived
-// pair law's source from its name, at the Wire's name, to its body's
+// with a by-name pair panics the ledger": the statement (parsed.Statement)
+// sliced a derived pair law's source from its name, at the Wire's name, to its body's
 // end, at the Wire's func keyword before it, so TestStdLawLedger panicked
 // (slice bounds out of range) on any std file declaring ParseX and Wire
 // together. The statement of a derived law is the law pair.go derives,
 // over a drawn x of X (GX11), with try when ParseX fails.
 //
-// Mutant lint4-ledger-pair-sliced (lawStatement slices every law).
+// Mutant lint4-ledger-pair-sliced (parsed.Statement slices every law).
 func TestPairLawStatement(t *testing.T) {
 	const src = `type UnknownKind { Name string }
 
@@ -381,7 +309,7 @@ func Wire(p Port) []string { []string{"p"} }
 	got := map[string]string{}
 	for _, d := range f.Decls {
 		if l, ok := d.(*syntax.LawDecl); ok {
-			got[l.Name.Name] = lawStatement(f, l)
+			got[l.Name.Name] = parsed.Statement(f, l)
 		}
 	}
 	want := map[string]string{
@@ -394,49 +322,28 @@ func Wire(p Port) []string { []string{"p"} }
 	}
 }
 
-// TestStdLawLedger: each law of std source has exactly one ledger row, each
-// row names a law of std source, the row's statement is the law's source
-// text, its runner is a Go test that a runner package declares and that runs
-// its laws through lawledger.Run (or #162 for a law no Go test can run
-// yet), and its state follows from the runner. lawledger.Run then holds,
-// when the runner runs, that it restates each of its rows' laws with the
-// row's statement and runs it.
+// TestStdLawLedger: each law of std source has exactly one line in the
+// runner file (lawledger.File), each line names a law of std source, and
+// its runner is a Go test that a runner package declares and that runs its
+// laws through lawledger.Run or parsed.Run, or lawledger.NoRunner; each
+// such Go test has a line (ledgerProblems). lawledger.Run then holds, when
+// the runner runs, that it restates each of its lines' laws with the
+// source's statement and runs it. With -v it prints one line per law,
+// `law <key>: <runner>`.
 func TestStdLawLedger(t *testing.T) {
-	laws := sourceLaws(t, stdLawPackages(t))
-	tests := repoTests(t)
-	rows := map[string]bool{}
-	for _, r := range readLedger(t) {
-		key := r.Key()
-		if rows[key] {
-			t.Errorf("stdlib.md:%d: law %s has a second row", r.Line, key)
-		}
-		rows[key] = true
-		statement, ok := laws[key]
-		if !ok {
-			t.Errorf("stdlib.md:%d: row %s names no law of std source", r.Line, key)
-			continue
-		}
-		if !lawledger.Same(r.Statement, statement) {
-			t.Errorf("stdlib.md:%d: the statement of %s is\n\t%s\nthe source says\n\t%s", r.Line, key, r.Statement, statement)
-		}
-		runsLaws, declared := tests[r.Runner]
-		switch {
-		case r.Runner == "#162":
-			if r.State != "checked" {
-				t.Errorf("stdlib.md:%d: %s has no Go runner, so its state is checked, not %q", r.Line, key, r.State)
-			}
-		case !declared:
-			t.Errorf("stdlib.md:%d: the runner %s of %s is no func Test… of the runner packages %v", r.Line, r.Runner, key, runnerPackages)
-		case !runsLaws:
-			t.Errorf("stdlib.md:%d: the runner %s of %s does not call lawledger.Run, so nothing holds that it runs the law", r.Line, r.Runner, key)
-		case r.State != "tested":
-			t.Errorf("stdlib.md:%d: %s runs in %s, so its state is tested, not %q", r.Line, key, r.Runner, r.State)
-		}
+	laws := map[string]bool{}
+	for key := range sourceLaws(t, stdLawPackages(t)) {
+		laws[key] = true
 	}
-	for key := range laws {
-		if !rows[key] {
-			t.Errorf("std law %s has no row in the Std laws table of docs/spec/stdlib.md", key)
-		}
+	rows, err := lawledger.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, problem := range ledgerProblems(laws, rows, repoTests(t)) {
+		t.Error(problem)
+	}
+	for _, r := range rows {
+		t.Logf("law %s: %s", r.Key(), r.Runner)
 	}
 }
 
@@ -492,12 +399,13 @@ func repoTests(t *testing.T) map[string]bool {
 }
 
 // TestCallsLedgerRun: a runner is a test whose own body calls
-// lawledger.Run with its own t; a test that calls nothing, another Run,
-// or lawledger.Run with another t is not.
+// lawledger.Run or parsed.Run with its own t; a test that calls nothing,
+// another Run, or lawledger.Run with another t is not.
 func TestCallsLedgerRun(t *testing.T) {
 	const src = `package p
 
 func TestRunner(t *testing.T) { lawledger.Run(t, laws) }
+func TestParsed(t *testing.T) { parsed.Run(t, laws) }
 func TestNested(t *testing.T) { t.Run("x", func(t *testing.T) {}); if ok { lawledger.Run(t, map[string]lawledger.Law{}) } }
 func TestLawless(t *testing.T) { check(t) }
 func TestOtherRun(t *testing.T) { t.Run("lawledger", nil) }
@@ -508,7 +416,7 @@ func TestNoParam() { lawledger.Run(t, laws) }
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"TestRunner": true, "TestNested": true, "TestLawless": false, "TestOtherRun": false, "TestOtherT": false, "TestNoParam": false}
+	want := map[string]bool{"TestRunner": true, "TestParsed": true, "TestNested": true, "TestLawless": false, "TestOtherRun": false, "TestOtherT": false, "TestNoParam": false}
 	for _, decl := range f.Decls {
 		fn := decl.(*ast.FuncDecl)
 		if got := callsLedgerRun(fn); got != want[fn.Name.Name] {
@@ -517,8 +425,8 @@ func TestNoParam() { lawledger.Run(t, laws) }
 	}
 }
 
-// callsLedgerRun reports whether fn's body calls lawledger.Run with fn's
-// own t as its first argument.
+// callsLedgerRun reports whether fn's body calls lawledger.Run or
+// parsed.Run with fn's own t as its first argument.
 func callsLedgerRun(fn *ast.FuncDecl) bool {
 	if fn.Body == nil || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) != 1 {
 		return false
@@ -536,7 +444,7 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 		}
 		pkg, ok := sel.X.(*ast.Ident)
 		arg, isIdent := call.Args[0].(*ast.Ident)
-		found = ok && pkg.Name == "lawledger" && isIdent && arg.Name == param
+		found = ok && (pkg.Name == "lawledger" || pkg.Name == "parsed") && isIdent && arg.Name == param
 		return !found
 	})
 	return found
