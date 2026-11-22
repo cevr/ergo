@@ -84,6 +84,9 @@ const (
 	resConcrete = iota // as plain data
 	resOwn             // as a resource when it is marked own
 	resAny             // as a resource
+	// resOwnPart counts only an own type parameter: a concrete resource
+	// is plain data to it (holdsOwnParam).
+	resOwnPart
 )
 
 // releasable reports whether t has a release (resources R1, R13): it
@@ -102,15 +105,32 @@ func (c *checker) releasable(t Type) bool {
 // crosses reports whether ownership means nothing for a value of type t.
 func (c *checker) crosses(t Type) bool { return !c.holdsResource(t) }
 
+// holdsOwnParam reports whether a value of type t holds a value of an own
+// type parameter, directly or through a part (a field, an element, a
+// variant, a type argument), whatever concrete resources it also holds:
+// the part a generic body cannot release (#197 Gap 42).
+func (c *checker) holdsOwnParam(t Type) bool {
+	w := resWalk{c: c, mode: resOwnPart}
+	h, _ := w.visit(t)
+	return h
+}
+
 type resWalk struct {
 	c     *checker
 	mode  int
 	nodes map[int32]*taskNode
 	stack []int32
 	next  int
+	local map[int32]bool // resOwnPart's memo, one walk's
 }
 
 func (w *resWalk) memo() map[int32]bool {
+	if w.mode == resOwnPart {
+		if w.local == nil {
+			w.local = map[int32]bool{}
+		}
+		return w.local
+	}
 	if w.c.resMemo[w.mode] == nil {
 		w.c.resMemo[w.mode] = map[int32]bool{}
 	}
@@ -124,12 +144,15 @@ func (w *resWalk) visit(t Type) (bool, int) {
 	c.resSteps++
 	switch t := t.(type) {
 	case *TypeParam:
-		return w.mode == resAny || w.mode == resOwn && t.Own, noLow
+		return w.mode == resAny || (w.mode == resOwn || w.mode == resOwnPart) && t.Own, noLow
 	case *Named:
 		if t.foreign {
 			return false, noLow
 		}
 		if t.Obj != nil && t.Obj.Pkg != nil && t.Obj.Pkg.Host() {
+			if w.mode == resOwnPart {
+				return false, noLow
+			}
 			// A Go type is a resource when its method set has Close() or
 			// Close() error (IG9, hostres.go); its fields are Go's.
 			if c.hostClose(t) != nil {
@@ -195,6 +218,12 @@ func (w *resWalk) visit(t Type) (bool, int) {
 		switch {
 		case o.state != 2:
 			n.final = false
+		case w.mode == resOwnPart:
+			// Only the type arguments can bring an own type parameter in:
+			// the declared body's parameters stand for them.
+			for _, a := range t.TArgs {
+				edge(a)
+			}
 		case c.implementsCloser(t):
 			n.holds = true
 		default:
