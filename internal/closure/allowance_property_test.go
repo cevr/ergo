@@ -102,15 +102,15 @@ func TestGrantsCoverOnlyTheirAccesses(t *testing.T) {
 		e      entry
 		inside bool
 	}{
-		{entry{opList, "docs/research/ef-migrate"}, true},
-		{entry{opStat, "docs/research/ef-migrate"}, true},
-		{entry{opOpen, "docs/research/ef-migrate/main.ergo"}, true},
-		{entry{opOpen, "docs/research/ef-migrate/notes.md"}, false},
-		{entry{opOpen, "docs/research/ef-migrate/sub/main.ergo"}, false},
-		{entry{opList, "docs/research/ef-migrate/sub"}, false},
-		{entry{opOpen, "docs/research/ef-migrate/unused/deep/input.txt"}, false},
-		{entry{opList, "docs/research"}, false},
-		{entry{opOpen, "docs/research/other.ergo"}, false},
+		{entry{opList, "internal/sketch/sketchtest/testdata/migrated"}, true},
+		{entry{opStat, "internal/sketch/sketchtest/testdata/migrated"}, true},
+		{entry{opOpen, "internal/sketch/sketchtest/testdata/migrated/main.ergo"}, true},
+		{entry{opOpen, "internal/sketch/sketchtest/testdata/migrated/notes.md"}, false},
+		{entry{opOpen, "internal/sketch/sketchtest/testdata/migrated/sub/main.ergo"}, false},
+		{entry{opList, "internal/sketch/sketchtest/testdata/migrated/sub"}, false},
+		{entry{opOpen, "internal/sketch/sketchtest/testdata/migrated/unused/deep/input.txt"}, false},
+		{entry{opList, "internal/sketch/sketchtest/testdata"}, false},
+		{entry{opOpen, "internal/sketch/sketchtest/testdata/other.ergo"}, false},
 	} {
 		if got := len(c.check([]entry{tc.e}, map[string]bool{})) == 0; got != tc.inside {
 			t.Errorf("internal/sketch/check: %s %s inside=%v, want %v", tc.e.op, tc.e.path, got, tc.inside)
@@ -139,8 +139,8 @@ func keys(decl []allowance) []string {
 // test reads the matches of the whole pattern.
 func TestGlobDeclaresWhatGlobReads(t *testing.T) {
 	for pattern, want := range map[string]string{
-		"docs/research/ef-migrate/*.ergo": "listing docs/research/ef-migrate, files docs/research/ef-migrate/*.ergo",
-		"examples/*/*/*.ergo":             "listing examples, listing examples/*, listing examples/*/*, files examples/*/*/*.ergo",
+		"internal/sketch/sketchtest/testdata/migrated/*.ergo": "listing internal/sketch/sketchtest/testdata/migrated, files internal/sketch/sketchtest/testdata/migrated/*.ergo",
+		"examples/*/*/*.ergo": "listing examples, listing examples/*, listing examples/*/*, files examples/*/*/*.ergo",
 	} {
 		if got := strings.Join(keys(glob(pattern, "r")), ", "); got != want {
 			t.Errorf("glob(%q) = %s, want %s", pattern, got, want)

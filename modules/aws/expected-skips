@@ -1,0 +1,8 @@
+# s3.Api is the generated client over an http.Net the program chooses;
+# package s3 sees no provider of it. Its four laws run in package memory
+# under lawApi (the Api over http.InMemory(Handler(NewMemory()))), and
+# over the fake under lawMemory.
+skip law S3.HeadObjectIsRepeatable for Api: its values have no generator: http.Net is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { S3: … }, and the law runs under it
+skip law S3.GetObjectIsRepeatable for Api: its values have no generator: http.Net is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { S3: … }, and the law runs under it
+skip law S3.PutObjectIsIdempotent for Api: its values have no generator: http.Net is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { S3: … }, and the law runs under it
+skip law S3.DeleteObjectIsIdempotent for Api: its values have no generator: http.Net is an operation type with no builder: neither http nor httptest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { S3: … }, and the law runs under it
