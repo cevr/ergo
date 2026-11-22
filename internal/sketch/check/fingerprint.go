@@ -20,7 +20,7 @@ import (
 //     other comment edit, or a layout edit, changes none of it.
 //   - Interface: what an importer can see. The token text of every file
 //     with the bodies an importer cannot see cut out (interfaceCuts), the
-//     rows the checker inferred from those bodies, the cell conversions
+//     cell conversions
 //     the package makes, and the interface of each import, so a type an
 //     import declares and this package passes on is in it too.
 //   - Implementation: the source and the implementation of each import.
@@ -89,8 +89,8 @@ func SourceFingerprint(path string, files []*syntax.File, env string) string {
 }
 
 // InterfaceText is the text the interface fingerprint hashes: each file's
-// token text without the bodies interfaceCuts names, then the rows
-// inferred from those bodies, the package-level variables that a body
+// token text without the bodies interfaceCuts names, then the
+// package-level variables that a body
 // assigns, and the cell conversions the package makes. It is not a
 // printing of the package: only its equality means anything.
 func InterfaceText(pkg *Package) string {
@@ -108,16 +108,6 @@ func InterfaceText(pkg *Package) string {
 		// A binding's `// ergo:` markers decide the facts an importer's
 		// call gets (gobinding.go), and token text has no comment.
 		b.WriteString(syntax.MarkerText(f))
-	}
-	// A body this text cuts decides an inferred row, which a caller in an
-	// importer reads through a value (`let Step = helper`).
-	for i, fn := range pkg.Funcs {
-		if fn.inferErrors && fn.errVar != nil {
-			fmt.Fprintf(&b, "errors %d %s {%s}\n", i, fn.Name, fn.errVar.Solution().list("|"))
-		}
-		if fn.inferUses && fn.useVar != nil {
-			fmt.Fprintf(&b, "uses %d %s {%s}\n", i, fn.Name, fn.useVar.Solution().list("|"))
-		}
 	}
 	names := make([]string, 0, len(pkg.Scope.names))
 	for name := range pkg.Scope.names {

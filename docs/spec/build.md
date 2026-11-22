@@ -252,7 +252,7 @@ reuse waits on references by name (CS5b).
    each file's token text and markers with two kinds of span cut out of the
    text: the body of each
    function that is not generic, and the body of each test. It also covers
-   the rows the checker inferred from those bodies, the package lets a body
+   the package lets a body
    assigns, the cell conversions the package makes, and the export
    fingerprint of each import. What stays covers every declaration's
    signature with its written rows, every type definition with its `where`,
