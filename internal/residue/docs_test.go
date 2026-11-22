@@ -344,7 +344,7 @@ func TestDocsListedRules(t *testing.T) {
 // TestSpecCitationRules pins the citation rule on fixed text.
 func TestSpecCitationRules(t *testing.T) {
 	specs := map[string]string{
-		"rows": "# Rows\n\n## Capability rows\n\n1. One.\n2. Two.\n\n" +
+		"zrows": "# Rows\n\n## Capability rows\n\n1. One.\n2. Two.\n\n" +
 			"## Zero values and definite initialisation\n\n1. Zero.\n\n```\n7. not an item\n```\n\n" +
 			"## Totality\n\n### Tail results\n\n3. Tail.\n",
 	}
@@ -353,29 +353,29 @@ func TestSpecCitationRules(t *testing.T) {
 		dangle int
 		name   string
 	}{
-		{"// (rows.md, Capability rows 2)", 0, "an item of its section"},
-		{"// (rows.md, Capability rows 3)", 1, "an item past the section's end"},
-		{"// (rows.md, Zero values 1)", 0, "a heading's first words"},
-		{"// (rows.md, Zero val 1)", 1, "a prefix that is not whole words"},
-		{"// (rows.md, Zero values and definite initialisation 7)", 1, "a number in a fenced block"},
-		{"// (rows.md, Totality 3)", 0, "an item of a subsection"},
-		{"// (rows.md, Capability rows rule 1)", 0, "a trailing rule"},
-		{"// (rows.md, Entry 4)", 1, "no such section"},
+		{"// (zrows.md, Capability rows 2)", 0, "an item of its section"},
+		{"// (zrows.md, Capability rows 3)", 1, "an item past the section's end"},
+		{"// (zrows.md, Zero values 1)", 0, "a heading's first words"},
+		{"// (zrows.md, Zero val 1)", 1, "a prefix that is not whole words"},
+		{"// (zrows.md, Zero values and definite initialisation 7)", 1, "a number in a fenced block"},
+		{"// (zrows.md, Totality 3)", 0, "an item of a subsection"},
+		{"// (zrows.md, Capability rows rule 1)", 0, "a trailing rule"},
+		{"// (zrows.md, Entry 4)", 1, "no such section"},
 		{"// (notes.md, Entry 4)", 0, "not a spec file"},
 	} {
 		if got := danglingCitations(map[string]string{"a.go": c.source}, specs); len(got) != c.dangle {
 			t.Errorf("%s: %v, want %d dangling", c.name, got, c.dangle)
 		}
 	}
-	dangling := map[string]bool{citationKey("a.go", "rows.md, Entry 4"): true, citationKey("b.go", "rows.md, Entry 4"): true}
+	dangling := map[string]bool{citationKey("a.go", "zrows.md, Entry 4"): true, citationKey("b.go", "zrows.md, Entry 4"): true}
 	for _, c := range []struct {
 		allow    map[string]string
 		problems int
 		name     string
 	}{
-		{map[string]string{citationKey("a.go", "rows.md, Entry 4"): "U", citationKey("b.go", "rows.md, Entry 4"): "U"}, 0, "every dangling citation listed"},
-		{map[string]string{citationKey("a.go", "rows.md, Entry 4"): "U"}, 1, "a new dangling citation"},
-		{map[string]string{citationKey("a.go", "rows.md, Entry 4"): "U", citationKey("b.go", "rows.md, Entry 4"): "U", citationKey("c.go", "rows.md, Entry 4"): "U"}, 1, "a row that no longer dangles"},
+		{map[string]string{citationKey("a.go", "zrows.md, Entry 4"): "U", citationKey("b.go", "zrows.md, Entry 4"): "U"}, 0, "every dangling citation listed"},
+		{map[string]string{citationKey("a.go", "zrows.md, Entry 4"): "U"}, 1, "a new dangling citation"},
+		{map[string]string{citationKey("a.go", "zrows.md, Entry 4"): "U", citationKey("b.go", "zrows.md, Entry 4"): "U", citationKey("c.go", "zrows.md, Entry 4"): "U"}, 1, "a row that no longer dangles"},
 	} {
 		if got := citationProblems(dangling, c.allow); len(got) != c.problems {
 			t.Errorf("%s: %v, want %d problems", c.name, got, c.problems)
