@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -157,16 +158,18 @@ func (b *irBuilder) plain(x syntax.Expr) {
 }
 
 // irOps are the binary operators of the IR: Go's, on the basic types.
-var irOps = map[string]bool{
-	"+": true, "-": true, "*": true, "/": true, "%": true,
-	"&": true, "|": true, "^": true, "&^": true, "<<": true, ">>": true,
-	"==": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true,
-	"&&": true, "||": true,
-}
+var irOps = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"+": true, "-": true, "*": true, "/": true, "%": true,
+		"&": true, "|": true, "^": true, "&^": true, "<<": true, ">>": true,
+		"==": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true,
+		"&&": true, "||": true,
+	}
+})
 
 // operator admits op on operands of type t (its left operand's).
 func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
-	if !irOps[op] {
+	if !irOps()[op] {
 		irNo("operator %s", op)
 	}
 	if b.scalarBasic(t) == nil && !orderedParam(op, t) { // ir_union.go: a named scalar's too

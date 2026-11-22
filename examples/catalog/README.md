@@ -28,7 +28,7 @@ The program is a module of packages (`ergo.mod`: `module catalog`), in the Go la
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/catalog/cmd/catalog -- feed 3
 ./bin/ergo run examples/catalog/cmd/catalog -- check < examples/catalog/cases/check/stdin
 go run ./scripts/examples catalog

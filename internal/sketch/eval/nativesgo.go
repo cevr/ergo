@@ -77,7 +77,7 @@ func registerNativesgo(t nativeTables) {
 	}
 	t.reads["strings.IndexByte"] = "string uint8"
 	goNatives["strings.IndexByte"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		if ab := in.charge(fr, at, 1+readsOf["strings.IndexByte"](args)); ab != nil {
+		if ab := in.charge(fr, at, 1+readsOf()["strings.IndexByte"](args)); ab != nil {
 			return nil, ab
 		}
 		return int64(strings.IndexByte(args[0].(string), args[1].(uint8))), nil
