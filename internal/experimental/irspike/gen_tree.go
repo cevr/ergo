@@ -108,8 +108,10 @@ func (g *ugen) trees() {
 	})))
 	// A loop-carried union local, which the lowering gives the scalar
 	// form (scalar.go): its let and assignments scatter, a match reads
-	// its tag, a call's operand gathers.
-	fmt.Fprintf(&g.b, "func walk(t Tree, n int) int {\n\tlet mut cur = t\n\tlet mut acc = 0\n\tlet mut i = 0\n\tfor i < n {\n\t\tmatch cur {\n\t\tcase Leaf as l:\n\t\t\tacc += l.N\n\t\t\tcur = Node{L: l, R: Leaf{N: i}, K: i + %d}\n\t\tcase Node as nd:\n\t\t\tacc += nd.K\n\t\t\tcur = nd.%s\n\t\t}\n\t\ti += 1\n\t}\n\tlet s = sum(cur)\n\tacc * 100 + s\n}\n\n", g.n(3), []string{"L", "R"}[g.n(2)])
+	// its tag, a call's operand gathers, and a record literal's field
+	// gathers inside the expression (SCALAR-IN-EXPR).
+	g.b.WriteString("type Hold { t Tree, k int }\n\n")
+	fmt.Fprintf(&g.b, "func walk(t Tree, n int) int {\n\tlet mut cur = t\n\tlet mut acc = 0\n\tlet mut i = 0\n\tfor i < n {\n\t\tmatch cur {\n\t\tcase Leaf as l:\n\t\t\tacc += l.N\n\t\t\tcur = Node{L: l, R: Leaf{N: i}, K: i + %d}\n\t\tcase Node as nd:\n\t\t\tacc += nd.K\n\t\t\tcur = nd.%s\n\t\t}\n\t\ti += 1\n\t}\n\tlet h = Hold{t: cur, k: acc}\n\tlet s = sum(cur)\n\th.k * 100 + s + sum(h.t)\n}\n\n", g.n(3), []string{"L", "R"}[g.n(2)])
 	// A fallible call's variant returned into the frame's union: the
 	// failure leaves first, then the value converts.
 	fmt.Fprintf(&g.b, "func leafOf(n int) Leaf fails E1 | E2 {\n\tif n %% %d == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tLeaf{N: n}\n}\n\nfunc lift(n int) Tree fails E1 | E2 {\n\treturn leafOf(n)\n}\n\n", 2+g.n(3))

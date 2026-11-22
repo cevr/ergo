@@ -1647,7 +1647,7 @@ extern go strings.ToUpper func up(s string) string
 func Get(_ Env) string { getenv("HOME") }
 
 extern go os.Getenv func getenv(k string) string
-`, "declare needs go.Foreign"},
+`, "declare needs Ambient"}, // a host row (interop.md, Purity and authority; HOST-ROW)
 		{"runtime extern", `type Disk {}
 
 func Read(_ Disk) string { hostRead("x") }

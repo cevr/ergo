@@ -25,7 +25,7 @@ package lower
 // Copies are keyed by the callee and the Go spelling of the type
 // arguments (monoKey), so two providers of one element type are two
 // copies, and the count is bounded by the distinct instances, never by
-// the call sites. A test build takes no copy (shortcuts.go: monoAt asks
+// the call sites. A test build takes no copy (shortcuts.go: monoTaken asks
 // takes("mono-instance")), so its calls keep the generic function and its
 // witness, as genericLowering "stencil" does in a run build: the
 // reference of the copies. instanceOps "witness" keeps the copies and

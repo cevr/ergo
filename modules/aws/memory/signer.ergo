@@ -1,0 +1,115 @@
+// Keyed is a test signer that holds a credential: it adds it as an
+// Authorization header and keeps each request it was given, so the laws
+// below can read what the Api built before signing. It stands where
+// AWS-CORE's SigV4 signer will, with the same contract: the credential is
+// a Redacted value and only Sign reads it.
+
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/s3
+import config
+import http
+import strings
+import sync
+
+type Keyed { key config.Redacted[string], seen sync.Ref[[]http.Request] } implements aws.Signer
+
+// NewKeyed is a signer of key that has seen no request.
+func NewKeyed(key config.Redacted[string]) Keyed { Keyed{key: key, seen: sync.NewRef[[]http.Request]([]http.Request{})} }
+
+func Sign(k Keyed, r http.Request) http.Request {
+	k.seen.Update(func(rs []http.Request) []http.Request { rs.Append(r) })
+	http.Request{..r, Header: r.Header.Append(http.Field{Name: "Authorization", Value: "Bearer " + k.key.Reveal()})}
+}
+
+// Seen is every request k was given, in order.
+func Seen(k Keyed) []http.Request { k.seen.Get() }
+
+// textOf is every byte of a request: its line, query, headers and body.
+func textOf(r http.Request) string {
+	let mut s = r.Method + " " + r.Path + " " + r.RawPath
+	for f in r.Query.Concat(r.Header) {
+		s = s + "\n" + f.Name + ": " + f.Value
+	}
+	match r.Body {
+	case http.Buffered as b:
+		s + "\n\n" + b.Text
+	case http.BodyTooLarge, http.BodyReadFailed:
+		s
+	}
+}
+
+let keys = []string{"k", "a/b c", "dir/x%2F+y/", "", "über/ünder"}
+
+func keyOf(n int) string { keys[(n%len(keys)+len(keys))%len(keys)] }
+
+// call sends one drawn operation through api, its outcome dropped.
+func call(api s3.Api, n int, key string) {
+	let op = (n/8%4 + 4) % 4
+	if op == 0 {
+		let _ = api.HeadObject(s3.NewHeadObjectRequest("bk", key)) catch {
+		case _:
+			return
+		}
+	} else if op == 1 {
+		let _ = api.GetObject(s3.NewGetObjectRequest("bk", key), func(part string) fails http.SinkFailed {}) catch {
+		case _:
+			return
+		}
+	} else if op == 2 {
+		let _ = api.PutObject(s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", key), Body: "payload", Metadata: Map[string, string]{"Note": "n"}}) catch {
+		case _:
+			return
+		}
+	} else {
+		let _ = api.DeleteObject(s3.NewDeleteObjectRequest("bk", key)) catch {
+		case _:
+			return
+		}
+	}
+}
+
+// KeyOnlyInTheSigner: no request the Api builds holds a byte of its
+// signer's credential before the signer gets it, and the signed request
+// that reaches the net does (so a recording of the requests the Api
+// builds, CASSETTE's Record, holds no key with no rules).
+law KeyOnlyInTheSigner(secret string, steps []int) {
+	let key = "k3y-" + secret + "-AKIA"
+	let signer = NewKeyed(config.NewRedacted(key))
+	let sent = sync.NewRef[[]string]([]string{})
+	let back = NewMemory()
+	let serve = Handler(back)
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming {
+		sent.Update(func(xs []string) []string { xs.Append(textOf(r)) })
+		serve(r)
+	})
+	let api = s3.New(net, signer)
+	for i, n in steps {
+		if i < 6 {
+			call(api, n, keyOf(n))
+		}
+	}
+	for r in signer.Seen() {
+		if strings.Contains(textOf(r), key) {
+			return false
+		}
+	}
+	for t in sent.Get() {
+		if !strings.Contains(t, "Bearer "+key) {
+			return false
+		}
+	}
+	len(sent.Get()) == len(signer.Seen())
+}
+
+// SlashesStayInThePath: a key's "/" is sent as a path separator, each
+// segment escaped once (S3's {Key+}): the escaped path has one "/" more
+// than the key, and decodes to it. SigV4 (AWS-CORE) signs that path as
+// sent, and S3's consoles list a key's segments as folders.
+law SlashesStayInThePath(n int) {
+	let key = keyOf(n)
+	let signer = NewKeyed(config.NewRedacted("k"))
+	let api = s3.New(http.InMemory(Handler(NewMemory())), signer)
+	call(api, n, key)
+	let r = signer.Seen()[0]
+	strings.Count(r.RawPath, "/") == 2+strings.Count(key, "/") && r.Path == "/bk/"+key
+}
