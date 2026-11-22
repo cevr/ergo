@@ -88,7 +88,7 @@ func TestKnownProvidersAgree(t *testing.T) {
 	}
 	if *provSeed == 0 {
 		var missing []string
-		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance"} {
+		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance", "capture: literal", "capture: nested", "capture: std callback", "capture: task", "capture: pass on", "capture: returned"} {
 			if !reached[k] {
 				missing = append(missing, k)
 			}

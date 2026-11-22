@@ -83,6 +83,17 @@ func keep[T](s Sink, v T, k int) T {
 	v
 }
 
+func total(s Sink) int { s.Total() }
+
+// later returns a literal that reads its Sink (PROV-COPY-CLOSURE's
+// repro): called after later returns.
+func later(s Sink, k int) func() int {
+	func() int {
+		s.Put(k)
+		total(s) + k
+	}
+}
+
 func both(a Sink, b Sink, k int) int fails Empty {
 	a.Put(k)
 	b.Put(k + 1)
@@ -103,6 +114,8 @@ type gen struct {
 	passes   [][]int // the functions fJ passes s on to
 	copies   map[string]bool
 	reached  map[string]bool
+	// imports are the std packages a capture shape wrote (slices, task).
+	imports map[string]bool
 }
 
 // copyOf records the copy of fJ for provider p and, through it, those of
@@ -113,6 +126,10 @@ func (g *gen) copyOf(j int, p string) {
 	}
 	g.copies[fmt.Sprintf("f%d %s", j, p)] = true
 	for _, m := range g.passes[j] {
+		if m < 0 {
+			g.copies["total "+p] = true // a literal's pass-on to total
+			continue
+		}
 		g.copyOf(m, p)
 	}
 }
@@ -127,7 +144,7 @@ func (g *gen) function(j int) {
 	var passes []int
 	for n := range 2 + g.r.IntN(4) {
 		c := g.r.IntN(5)
-		switch kind := g.r.IntN(9); {
+		switch kind := g.r.IntN(11); {
 		case kind < 3:
 			fmt.Fprintf(&b, "\ts.Put(k + %d)\n", c)
 		case kind == 3:
@@ -153,6 +170,28 @@ func (g *gen) function(j int) {
 				fmt.Fprintf(&b, "\tlet u%d = id(s)\n\tu%d.Put(%d)\n", n, n, c)
 				g.reached["kept: generic"] = true
 			}
+		case kind >= 9:
+			// A read of s inside a function literal or a task's block
+			// (PROV-COPY-CLOSURE): the copy's parameter, captured, is
+			// still the adapter, and keeps the copy.
+			switch g.r.IntN(5) {
+			case 0:
+				fmt.Fprintf(&b, "\tlet g%[1]d = func(n int) int {\n\t\ts.Put(n)\n\t\ts.Total() + n\n\t}\n\tacc = acc + g%[1]d(%[2]d)\n", n, c)
+				g.reached["capture: literal"] = true
+			case 1:
+				fmt.Fprintf(&b, "\tlet q%[1]d = func(n int) int {\n\t\tlet h = func() int { s.Total() + n }\n\t\th()\n\t}\n\tacc = acc + q%[1]d(%[2]d)\n", n, c)
+				g.reached["capture: nested"] = true
+			case 2:
+				fmt.Fprintf(&b, "\tacc = acc + slices.Fold([]int{1, 2, %d}, 0, func(a int, x int) int {\n\t\ts.Put(x)\n\t\ta + x + s.Total()\n\t})\n", c)
+				g.reached["capture: std callback"], g.imports["slices"] = true, true
+			case 3:
+				fmt.Fprintf(&b, "\tlet t%[1]d = task.Go() {\n\t\ts.Put(%[2]d)\n\t\ts.Total()\n\t}\n\tacc = acc + t%[1]d.Wait()\n", n, c)
+				g.reached["capture: task"], g.imports["task"] = true, true
+			default:
+				fmt.Fprintf(&b, "\tlet w%[1]d = func(n int) int {\n\t\ttotal(s) + n\n\t}\n\tacc = acc + w%[1]d(%[2]d)\n", n, c)
+				passes = append(passes, -1) // total, a function of Sink
+				g.reached["capture: pass on"] = true
+			}
 		default:
 			fmt.Fprintf(&b, "\tacc = acc + s.Total()\n")
 		}
@@ -170,7 +209,7 @@ var providers = map[string]string{"Counter": "c", "Log": "l", "Fixed": "x"}
 // and whether it ends in a defect. reached collects the shapes the seed
 // wrote (TestKnownProvidersAgree checks the fixed seeds reach them all).
 func Program(seed uint64, reached map[string]bool) (src string, copies int, defect bool) {
-	g := &gen{r: rand.New(rand.NewPCG(seed, 0x70726f76)), copies: map[string]bool{}, reached: reached}
+	g := &gen{r: rand.New(rand.NewPCG(seed, 0x70726f76)), copies: map[string]bool{}, reached: reached, imports: map[string]bool{}}
 	nf := 4 + g.r.IntN(4)
 	for j := range nf {
 		g.function(j)
@@ -223,7 +262,17 @@ func Program(seed uint64, reached map[string]bool) (src string, copies int, defe
 		fmt.Fprintf(&calls, "\tlet rd = f%d(c, 1) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tlet re = boom(c, rd) catch {\n\tcase Empty as e:\n\t\te.at\n\t}\n\tConsole.Println(\"boom \\(re)\")\n", j)
 		reached["defect"] = true
 	}
+	lp := names[g.r.IntN(len(names))]
+	g.copies["later "+lp], g.copies["total "+lp] = true, true
+	reached["capture: returned"] = true
+	fmt.Fprintf(&calls, "\tlet lf = later(%s, 2)\n\tConsole.Println(\"later \\(lf()) \\(c.sum)\")\n", providers[lp])
 	var s strings.Builder
+	for _, p := range []string{"slices", "task"} {
+		if g.imports[p] {
+			s.WriteString("import " + p + "\n")
+		}
+	}
+	s.WriteString("\n")
 	s.WriteString(prelude)
 	s.WriteString(g.funcs.String())
 	s.WriteString("func main() needs Console {\n\tlet c = Counter{sum: 6, puts: 2}\n\tlet l = Log{text: \"abc\"}\n\tlet x = Fixed{k: 4}\n")
