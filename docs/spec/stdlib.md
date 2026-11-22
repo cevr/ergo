@@ -2861,14 +2861,12 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/stmt.go:checker.isErrorValue` | `go.Error` |
 | `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
 | `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Tell`, `Done`, `Next` |
-| `internal/sketch/lower/builders.go:lowerer.builtText` | a prelude constructor, written unqualified |
 | `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |
 | `internal/sketch/lower/decls.go:isPreludeType` | `Option`, `Some`, `None` |
 | `internal/sketch/lower/decls.go:lowerer.intrinsic` | `Append`, `Delete`, `Put`, `Take` |
 | `internal/sketch/lower/getmatch.go:getPattern` | `Some`'s `Value`, the comma-ok form of `Get` |
 | `internal/sketch/lower/gocall.go:isOptionType` | `Option` |
 | `internal/sketch/lower/library.go:hostProvides` | `Console`, `Ambient` |
-| `internal/sketch/lower/literal.go:lowerer.ergoType` | a prelude type, written unqualified |
 | `internal/sketch/lower/module.go:lowerer.hostFields` | `Console`, `Ambient` |
 | `internal/tsproj/project.go:emitter.declare` | `Wire` |
 | `internal/tsproj/project.go:emitter.schema` | `Option` |
