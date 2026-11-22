@@ -512,15 +512,11 @@ func commitCopy(dst string, files []treeFile) error {
 }
 
 // verifyCopy checks that every file a mutant touched in the copy at dst is
-// back to the checkout's bytes.
+// back to the checkout's bytes, a symlink to its target.
 func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 	var bad []string
 	for _, f := range e.files {
-		if !touched[f.path] {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(f.path)))
-		if err != nil || !bytes.Equal(data, f.data) {
+		if touched[f.path] && !f.matches(filepath.Join(dst, filepath.FromSlash(f.path))) {
 			bad = append(bad, f.path)
 		}
 	}
@@ -528,6 +524,22 @@ func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 		return fmt.Errorf("a mutant was not restored: %s in %s differs from the checkout", strings.Join(bad, ", "), dst)
 	}
 	return nil
+}
+
+// matches reports whether the file at p is f as the checkout has it: a
+// symlink with f's target (its data), or a file with f's bytes. A symlink
+// is never read through: its target's bytes are another file's.
+func (f treeFile) matches(p string) bool {
+	if f.mode&fs.ModeSymlink != 0 {
+		target, err := os.Readlink(p)
+		return err == nil && target == string(f.data)
+	}
+	info, err := os.Lstat(p)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	data, err := os.ReadFile(p)
+	return err == nil && bytes.Equal(data, f.data)
 }
 
 // env is the environment of every child: the runner's own, with the

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -244,13 +243,25 @@ func (w *worker) restoreUnder(dir string) error {
 	known := map[string]bool{}
 	var errs []error
 	for _, f := range w.e.files {
-		if !under(f.path, dir) || f.mode&fs.ModeSymlink != 0 {
+		if !under(f.path, dir) {
 			continue
 		}
 		known[f.path] = true
 		p := filepath.Join(w.root, filepath.FromSlash(f.path))
-		if data, err := os.ReadFile(p); err == nil && bytes.Equal(data, f.data) {
+		if f.matches(p) {
 			continue
+		}
+		if f.mode&fs.ModeSymlink != 0 {
+			// A symlink is put back as a link to its target, never written
+			// through (it would overwrite the file it names).
+			_ = os.Remove(p)
+			if err := os.Symlink(string(f.data), p); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
+		if info, err := os.Lstat(p); err == nil && !info.Mode().IsRegular() {
+			_ = os.Remove(p)
 		}
 		if err := os.WriteFile(p, f.data, f.mode.Perm()|0o200); err != nil {
 			errs = append(errs, err)
