@@ -26813,7 +26813,7 @@ func (s Set) Parse(args []string) (Values_1, error) {
 		b = v_2
 	}
 	if b {
-		v_3 := Usage(s)
+		v_3 := (s).UsageText()
 		return *new(Values_1), Help{Text: v_3}
 	}
 	v_4 := noItem()
@@ -27690,7 +27690,7 @@ func (s Set) helpAsked(args []string) bool {
 	return false
 }
 
-func Usage(s Set) string {
+func (s Set) UsageText() string {
 	var v string
 	if s.Name == "" {
 		v = "Usage:\n"
