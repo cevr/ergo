@@ -30,7 +30,9 @@ var sentinel = InputEvent{Kind: 0xee, Action: 0xee, Code: 0xdeadbeef, X: 0xbeef,
 //     size and of a seeded size, with cell lengths of width*height cells;
 //   - SessionInputFeed parses up to 24 seeded key and mouse events into
 //     4..28 records (OT_INPUT_EVENTS_MIN is 4) and a payload of
-//     OT_INPUT_PAYLOAD_BYTES_MIN..+64 bytes.
+//     OT_INPUT_PAYLOAD_BYTES_MIN..+64 bytes, after a call with one record
+//     fewer than OT_INPUT_EVENTS_MIN, which is refused with no record
+//     written.
 //
 // After every call the canaries hold, whatever the call's status, and
 // what the library reports written fits the length passed. A failing seed
@@ -183,6 +185,21 @@ func rawSeedRun(ctx *Context, seed int64) (failed []string) {
 	var keys []byte
 	for range 1 + r.IntN(24) {
 		keys = append(keys, events[r.IntN(len(events))]...)
+	}
+	// One record short of OT_INPUT_EVENTS_MIN is refused with every record
+	// untouched: the library sees the slice's own length. (It keeps
+	// OT_INPUT_EVENTS_MIN records free while it parses, so a length one too
+	// long shows here, not as a write past the slice.)
+	short := make([]InputEvent, OT_INPUT_EVENTS_MIN+3)
+	for i := range short {
+		short[i] = sentinel
+	}
+	room, _ := guarded(int(OT_INPUT_PAYLOAD_BYTES_MIN))
+	if _, err := SessionInputFeed(ctx, session, keys, 1, short[:OT_INPUT_EVENTS_MIN-1:OT_INPUT_EVENTS_MIN-1], room); err == nil {
+		failed = append(failed, fmt.Sprintf("SessionInputFeed took %d records, below OT_INPUT_EVENTS_MIN", OT_INPUT_EVENTS_MIN-1))
+	}
+	if slices.ContainsFunc(short, func(e InputEvent) bool { return e != sentinel }) {
+		failed = append(failed, "SessionInputFeed wrote records in a call it refused")
 	}
 	rc := int(OT_INPUT_EVENTS_MIN) + r.IntN(25)
 	all := make([]InputEvent, rc+4)
