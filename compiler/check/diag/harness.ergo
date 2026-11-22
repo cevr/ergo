@@ -83,7 +83,7 @@ func harnessWhy(k expr.Pkg, tname string, generic bool, hname string) string {
 	}
 	let ft = syntax.FuncTypeOf(hp.Tree, fd.Type)
 	let params = fieldTypes(hp, ft.Params)
-	let (results, fails) = resultsOf(hp, ft.Results)
+	let (results, errs) = resultsOf(hp, ft.Results)
 	if len(params) != 2 || len(results) != 0 {
 		return "\(hname) does not take two parameters and give no result"
 	}
@@ -93,7 +93,7 @@ func harnessWhy(k expr.Pkg, tname string, generic bool, hname string) string {
 	if !isRecord(k, typeName(hp, params[0]), []string{"Name", "Seed", "Site"}, []string{"string", "uint64", "string"}) {
 		return "its first parameter is not a record {Name string, Seed uint64, Site string} of this package"
 	}
-	let fname = if len(fails) == 1 { typeName(hp, fails[0]) } else { "" }
+	let fname = if len(errs) == 1 { typeName(hp, errs[0]) } else { "" }
 	if !isRecord(k, fname, []string{"Message"}, []string{"string"}) {
 		return "its failure row is not one record {Message string} of this package"
 	}
@@ -151,14 +151,14 @@ func fieldTypes(p syntax.Parsed, l dense.ID[syntax.Node]) []dense.ID[syntax.Node
 // types of its failure row.
 func resultsOf(p syntax.Parsed, r dense.Opt[syntax.Node]) ([]dense.ID[syntax.Node], []dense.ID[syntax.Node]) {
 	let mut results = []dense.ID[syntax.Node]{}
-	let mut fails = []dense.ID[syntax.Node]{}
+	let mut errs = []dense.ID[syntax.Node]{}
 	match dense.Unpack(r) {
 	case Some[dense.ID[syntax.Node]] as l:
 		for t in fieldTypes(p, l.Value) {
 			if syntax.KindOf(p.Tree, t) == syntax.KErrorRow {
 				let er = syntax.ErrorRowOf(p.Tree, t)
 				for i in 0..syntax.Len(er.Types) {
-					fails = fails.Append(syntax.Item(p.Tree, er.Types, i))
+					errs = errs.Append(syntax.Item(p.Tree, er.Types, i))
 				}
 			} else {
 				results = results.Append(t)
@@ -166,7 +166,7 @@ func resultsOf(p syntax.Parsed, r dense.Opt[syntax.Node]) ([]dense.ID[syntax.Nod
 		}
 	case None:
 	}
-	(results, fails)
+	(results, errs)
 }
 
 // needsNames is the names of a needs clause.
@@ -262,7 +262,7 @@ func bodyShape(p syntax.Parsed, t dense.ID[syntax.Node], fname string, tname str
 		return false
 	}
 	let ft = syntax.FuncTypeOf(p.Tree, t)
-	let (results, fails) = resultsOf(p, ft.Results)
-	let needs = needsNames(p, ft.Needs)
-	len(fieldTypes(p, ft.Params)) == 0 && len(results) == 0 && len(fails) == 1 && typeName(p, fails[0]) == fname && len(needs) == 1 && typeName(p, needs[0]) == tname
+	let (results, errs) = resultsOf(p, ft.Results)
+	let caps = needsNames(p, ft.Needs)
+	len(fieldTypes(p, ft.Params)) == 0 && len(results) == 0 && len(errs) == 1 && typeName(p, errs[0]) == fname && len(caps) == 1 && typeName(p, caps[0]) == tname
 }

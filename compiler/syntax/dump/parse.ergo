@@ -199,7 +199,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		line(d, depth, "TestDecl "+a+" doc="+itoa(x.Doc)+" Test="+itoa(tp(d, x.Test)))
 		node(d, c, x.Name)
 		opt(d, c, x.Params)
-		node(d, c, x.Body)
+		opt(d, c, x.Body)
 	case syntax.LawDecl as x:
 		line(d, depth, "LawDecl "+a+" doc="+itoa(x.Doc)+" Law="+itoa(tp(d, x.Law))+" Rewrite="+(if x.Equation { "2" } else { b01(x.Rewrite) })+" When="+itoa(tp(d, x.When))+" Eq="+itoa(tp(d, x.Eq)))
 		node(d, c, x.Name)
