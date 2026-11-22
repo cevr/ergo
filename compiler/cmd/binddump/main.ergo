@@ -231,7 +231,7 @@ func unused(b mut strings.Builder, paths []string, std string, threads int) fail
 	for src in srcs {
 		lines = lines.Append(syntax.LinesOf(src))
 	}
-	for d in diag.Unused(files, store.Of(c.Store), c.Uses, c.Parents, missing) {
+	for d in diag.Unused(files, store.Of(c.Store), c.Uses, c.Parents, missing, diag.NoneHeld) {
 		let at = syntax.PositionOf(lines[d.File], d.Offset)
 		b.WriteString("\(files[d.File].Name) \(at.Line):\(at.Column): \(d.Code) \(d.Message)\n")
 	}
