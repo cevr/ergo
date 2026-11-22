@@ -1,13 +1,12 @@
 // Command control is namedrowbench's hand Go twin
 // (benchmarks/namedrow/cmd/namedrowbench): the same calls failing one of
 // six error types, as a person writing Go handles them: an error result,
-// then an errors.As chain that maps the failure to its code, run as
+// then a type switch that maps the failure to its code, run as
 // `control bench KIND N`. KIND named and spelled run the same code: Go has
 // one way to write it.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -56,25 +55,22 @@ func call(i int) (int, error) {
 	return i, nil
 }
 
+// code maps a failure to its code with a type switch: the floor. An
+// errors.As chain, the form that also sees wrapped errors, costs about
+// 2280 instructions a call here (NR1 receipt, first run).
 func code(err error) int {
-	var u Unique
-	var s Serialization
-	var d Deadlock
-	var t Timeout
-	var c Closed
-	var o Other
-	switch {
-	case errors.As(err, &u):
+	switch err.(type) {
+	case Unique:
 		return 1
-	case errors.As(err, &s):
+	case Serialization:
 		return 2
-	case errors.As(err, &d):
+	case Deadlock:
 		return 3
-	case errors.As(err, &t):
+	case Timeout:
 		return 4
-	case errors.As(err, &c):
+	case Closed:
 		return 5
-	case errors.As(err, &o):
+	case Other:
 		return 6
 	}
 	panic(err)
@@ -93,8 +89,8 @@ func loop(n int) int {
 }
 
 func main() {
-	if len(os.Args) != 4 || os.Args[1] != "bench" || os.Args[2] != "named" && os.Args[2] != "spelled" {
-		fmt.Fprintln(os.Stderr, "usage: control bench named|spelled N")
+	if len(os.Args) != 4 || os.Args[1] != "bench" || os.Args[2] != "named" && os.Args[2] != "spelled" && os.Args[2] != "match" {
+		fmt.Fprintln(os.Stderr, "usage: control bench named|spelled|match N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])

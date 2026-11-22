@@ -1,8 +1,9 @@
 // namedrowbench holds NR1's receipt (NAMED-ROWS; types.md, Error types 4):
 // a call that fails one of sql's six transaction failures, caught and
-// matched, with the row named (`Lost`, Go's error since NR1) and spelled,
+// matched, with the row named (`Lost`, Go's error since NR1) and spelled, and
+// caught whole as the name (match),
 // each against its hand Go twin in ../../testdata/control, which tests the
-// error with an errors.As chain; a workload per kind in ../../KIND (go run
+// error with a type switch (the floor); a workload per kind in ../../KIND (go run
 // ./scripts/opcount -control -rounds 5 benchmarks/namedrow/KIND). The
 // sealed form, the lowering before NR1, is the named kind built with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.namedRowLowering=sealed.
@@ -86,12 +87,37 @@ func code(e Lost) int {
 	}
 }
 
+// namedLoop is spelledLoop over the named row: the same arms, so the two
+// differ only in how the row is written.
 func namedLoop(n int) int {
 	let mut h = 0
 	for i in 0..n {
 		h = h + (named(i) catch {
-		case err:
-			code(err)
+		case Unique:
+			1
+		case Serialization:
+			2
+		case Deadlock:
+			3
+		case Timeout:
+			4
+		case Closed:
+			5
+		case Other:
+			6
+		})
+	}
+	h
+}
+
+// matchLoop is the form only a name allows: the failure caught whole as
+// the row and matched in a function typed by the name.
+func matchLoop(n int) int {
+	let mut h = 0
+	for i in 0..n {
+		h = h + (named(i) catch {
+		case Lost as l:
+			code(l)
 		})
 	}
 	h
@@ -121,6 +147,8 @@ func spelledLoop(n int) int {
 func bench(kind string, n int) int {
 	if kind == "named" {
 		namedLoop(n)
+	} else if kind == "match" {
+		matchLoop(n)
 	} else {
 		spelledLoop(n)
 	}
@@ -129,8 +157,8 @@ func bench(kind string, n int) int {
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost() } {
 		let args = os.Process.Args()
-		if len(args) != 3 || args[1] != "named" && args[1] != "spelled" {
-			return os.Exit{Code: 2, Message: "usage: namedrowbench bench named|spelled N"}
+		if len(args) != 3 || args[1] != "named" && args[1] != "spelled" && args[1] != "match" {
+			return os.Exit{Code: 2, Message: "usage: namedrowbench bench named|spelled|match N"}
 		}
 		let n = strconv.Atoi(args[2]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
