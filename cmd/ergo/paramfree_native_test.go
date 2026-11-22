@@ -35,7 +35,9 @@ func TestParamFreeArmsNative(t *testing.T) {
 	}
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
-	xdg := testXDG(t, t.TempDir())
+	// The process's cache, not one of the test's: the patched compile it
+	// builds is read-only, which a test's TempDir cleanup cannot remove.
+	xdg := processCache
 	tmp := t.TempDir()
 	src := paramfreegen.Source(admitted, true)
 	file := smokeWrite(t, root, "paramfree.ergo", src+"\nfunc main() {}\n")

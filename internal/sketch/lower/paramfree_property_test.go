@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -80,19 +81,33 @@ func TestParamFreeArmsVerdict(t *testing.T) {
 // lowered Go compiles, not which Close it runs.
 //
 // Mutant only it kills (check mutants.json): gap42-concrete-release-skipped
-// (a T-free arm's concrete resource not released).
+// (a T-free arm's concrete resource left out of the release plan: the
+// frame's end releases it, after "matched", in every leg). A seed of the
+// statement form is what reaches it; a tail match releases at the
+// frame's end either way.
 func TestParamFreeArmsRun(t *testing.T) {
 	needsBuild(t)
 	var admitted []*paramfreegen.Seed
 	var names []string
+	tailTwin := map[string]bool{}
 	for _, s := range pfSeeds(t) {
 		if s.Admitted {
 			admitted = append(admitted, s)
 			names = append(names, s.TestNames...)
+			for _, name := range s.TestNames {
+				if s.Tail && strings.HasSuffix(name, "_pickRes") {
+					tailTwin[name] = true
+				}
+			}
 		}
 	}
 	if len(admitted) == 0 {
 		t.Fatal("no admitted seed")
+	}
+	if os.Getenv("ERGO_PF_SEED") == "" && !slices.ContainsFunc(admitted, func(s *paramfreegen.Seed) bool {
+		return !s.Tail && slices.Contains(s.Kinds, paramfreegen.Concrete)
+	}) {
+		t.Fatal("no admitted seed drops a concrete variant in a statement's match: the release before the pick's end is not reached")
 	}
 	src := paramfreegen.Source(admitted, true)
 	rep, err := evaluate(src)
@@ -105,9 +120,9 @@ func TestParamFreeArmsRun(t *testing.T) {
 		// twin's arm), a bug main has without generics: unit
 		// EVAL-RETURNED-TEMPS, repro
 		// /home/exedev/.cache/baton/wf10/lang/EVAL-RETURNED-TEMPS/repro-tail-arm.
-		// Until it lands the evaluator leg reads the generic pick's
-		// tests only; the text and IR legs read every test.
-		if strings.HasSuffix(res.Name, "_pickRes") {
+		// Until it lands the evaluator leg skips the twin's tests of the
+		// tail form; the text and IR legs read every test.
+		if tailTwin[res.Name] {
 			continue
 		}
 		if string(res.Status) != "passed" {

@@ -16,7 +16,10 @@
 //
 // Each seed declares a union sNU[T own] over a choice of the variants
 // below, a generic sNpick[T own] and its concrete twin sNpickRes over
-// sNU[Res] with the same arms, and one test per variant and form that
+// sNU[Res] with the same arms (each matches a temporary, the value handed
+// through sNpass, in a let statement, so a dropped arm's release has a
+// place before the pick's end: the statement's end), and one test per
+// variant and form that
 // picks a value of that variant and finishes the result. Every Close
 // writes to one journal. The model: the checker's verdict is S108 iff
 // some arm drops a variant that holds T; an admitted program's journal is
@@ -51,6 +54,9 @@ type Seed struct {
 	Kinds []int
 	// Drop is the arms that drop their variant (bind nothing).
 	Drop map[int]bool
+	// Tail is the seed's form: pick's match is its tail, matching the
+	// parameter, or (false) a let statement matching a temporary.
+	Tail bool
 	// Admitted is the model's verdict: no arm drops a variant that
 	// holds T.
 	Admitted bool
@@ -104,6 +110,7 @@ func Generate(n int) *Seed {
 	if len(s.Kinds) == 1 {
 		s.Kinds = append(s.Kinds, Empty)
 	}
+	s.Tail = r.IntN(2) == 0
 	s.Admitted = true
 	for _, k := range s.Kinds {
 		// An empty or concrete variant binds no T: its arm drops it. A
@@ -124,8 +131,21 @@ func Generate(n int) *Seed {
 	}
 	var d strings.Builder
 	fmt.Fprintf(&d, "\ntype %s[T own] = %s\n", u, strings.Join(vs, " | "))
-	fmt.Fprintf(&d, "\nfunc s%dpick[T own](o own %s[T]) Option[T] {\n%s}\n", n, u, s.arms())
-	fmt.Fprintf(&d, "\nfunc s%dpickRes(o own %s[Res]) Option[Res] {\n%s}\n", n, u, s.arms())
+	if s.Tail {
+		// pick's tail matches its parameter: a dropped arm's concrete
+		// resource is released at the pick's end.
+		fmt.Fprintf(&d, "\nfunc s%dpick[T own](o own %s[T]) Option[T] {\n\tmatch o {\n%s}\n", n, u, s.arms())
+		fmt.Fprintf(&d, "\nfunc s%dpickRes(o own %s[Res]) Option[Res] {\n\tmatch o {\n%s}\n", n, u, s.arms())
+	} else {
+		// pick matches a temporary, pass's result, in a statement: the
+		// statement's end releases a dropped arm's concrete resource
+		// (R43), before "matched"; the frame's end would release it
+		// after.
+		fmt.Fprintf(&d, "\nfunc s%dpass[T own](o own %s[T]) %s[T] { o }\n", n, u, u)
+		fmt.Fprintf(&d, "\nfunc s%dpick[T own](o own %s[T]) Option[T] {\n\tlet r = match s%dpass(o) {\n%s\tsay(\"matched\")\n\tr\n}\n", n, u, n, s.arms())
+		fmt.Fprintf(&d, "\nfunc s%dpassRes(o own %s[Res]) %s[Res] { o }\n", n, u, u)
+		fmt.Fprintf(&d, "\nfunc s%dpickRes(o own %s[Res]) Option[Res] {\n\tlet r = match s%dpassRes(o) {\n%s\tsay(\"matched\")\n\tr\n}\n", n, u, n, s.arms())
+	}
 	s.Decls = d.String()
 	var b strings.Builder
 	for i, k := range s.Kinds {
@@ -134,7 +154,7 @@ func Generate(n int) *Seed {
 			s.TestNames = append(s.TestNames, name)
 			id := 100*n + 10 + i
 			var quoted []string
-			for _, l := range Journal(k, id) {
+			for _, l := range Journal(k, id, s.Tail) {
 				quoted = append(quoted, strconv.Quote(l))
 			}
 			fmt.Fprintf(&b, "\ntest %s {\n\tjournal.Set([]string{})\n\tlet o %s[Res] = %s\n\tlet r = s%d%s(o)\n\tsay(\"picked\")\n\tfinish(r)\n\tassert journal.Get() == []string{%s}\n}\n",
@@ -159,10 +179,9 @@ func Source(seeds []*Seed, tests bool) string {
 	return b.String()
 }
 
-// arms is the match of pick's body.
+// arms is the arms and the closing brace of pick's match.
 func (s *Seed) arms() string {
 	var b strings.Builder
-	b.WriteString("\tmatch o {\n")
 	for _, k := range s.Kinds {
 		n := names[k]
 		switch {
@@ -194,16 +213,22 @@ func value(k, id int) string {
 }
 
 // Journal is the model's journal of an admitted test of variant k: a
-// dropped concrete variant is released in the pick, before "picked"; a
-// handed-on T is closed by finish, after it; an empty variant closes
-// nothing.
-func Journal(k, id int) []string {
+// dropped concrete variant is released at the end of the pick's match
+// statement, before "matched" (a tail match says no "matched": before
+// "picked"); a handed-on T is closed by finish, after "picked"; an empty
+// variant closes nothing.
+func Journal(k, id int, tail bool) []string {
 	closed := fmt.Sprintf("close %d", id)
-	switch k {
-	case Empty:
-		return []string{"picked"}
-	case Concrete:
-		return []string{closed, "picked"}
+	var out []string
+	if k == Concrete {
+		out = append(out, closed)
 	}
-	return []string{"picked", closed}
+	if !tail {
+		out = append(out, "matched")
+	}
+	out = append(out, "picked")
+	if HoldsT(k) {
+		out = append(out, closed)
+	}
+	return out
 }
