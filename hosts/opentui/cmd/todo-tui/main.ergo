@@ -73,6 +73,9 @@ func headless() fails os.Exit needs Ambient | go.Foreign {
 			case ui.NoNode as n:
 				out.Println("\(i + 1): no node \(n.Label)")
 				continue
+			case ui.Ambiguous as amb:
+				out.Println("\(i + 1): \(amb.Count) nodes at \(amb.At)")
+				continue
 			case ui.Mismatch as m:
 				out.Println("\(i + 1): want \(m.Want), got \(m.Got)")
 				continue

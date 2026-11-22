@@ -8,6 +8,9 @@ extern go ergo.local/prototype/hosts/mygo/screen.Closed let Closed int
 // ergo:go const Down untyped int
 extern go ergo.local/prototype/hosts/mygo/screen.Down let Down int
 
+// ergo:go func DriveAddr() string
+extern go ergo.local/prototype/hosts/mygo/screen.DriveAddr func DriveAddr() string needs go.Foreign
+
 // ergo:go const Edited untyped int
 extern go ergo.local/prototype/hosts/mygo/screen.Edited let Edited int
 
