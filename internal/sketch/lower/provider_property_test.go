@@ -14,7 +14,7 @@ var provSeed = flag.Uint64("providers.seed", 0, "run TestKnownProvidersAgree on 
 
 // adapterParam is a Sink parameter (s, or both's a) of an adapter's type
 // in a Go function's parameter list, after the environment.
-var adapterParam = regexp.MustCompile(`[(, ][sa] \*ops[A-Za-z]+AsSink[,)]`)
+var adapterParam = regexp.MustCompile(`(\w\(|, )[sa] \*ops[A-Za-z]+AsSink[,)]`)
 
 // TestKnownProvidersAgree is the seeded property of the copies for known
 // providers (provider.go): each seed (lower/provgen) writes a program of functions on an
