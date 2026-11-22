@@ -965,7 +965,12 @@ func parseStmt1(p mut parser) uint32 {
 	}
 	if k == LBrace {
 		errorf(p, "unexpected \"{\": a block follows a header such as if, for or with")
+	} else if k == Var {
+		localDecl(p, habitVar)
 	} else if k == Ident {
+		if peek(p, 1) == Define {
+			localDecl(p, habitDefine)
+		}
 		if peek(p, 1) == Colon {
 			habit(p, pos(p), tokLen(p)+1, habitLabel)
 		}
@@ -985,6 +990,161 @@ func parseStmt1(p mut parser) uint32 {
 		return row(&p.t, KAssignStmt, uint32(op), x, y)
 	}
 	row(&p.t, KExprStmt, uint32(0), x, none)
+}
+
+// localDecl reports a Go local declaration at the start of a statement,
+// `var x [T] = e` or `x := e`, with the let form that replaces it and the
+// fix that writes it (VET-CHECK-VAR): `let mut` only when a later
+// statement of the declaring block assigns the name (assignedAfter; no
+// shadowing, so the name is the one variable there), else `let`. The fix
+// rewrites `var` or `x :=`, nothing else. A `var` with no name, or with no
+// `=` before the statement ends (`var x int`, which `let` cannot spell
+// without a value), returns: the plain habit is reported where the parser
+// meets the token. Quiet (an attempt), it builds nothing.
+func localDecl(p mut parser, h int) {
+	if !loud(p) {
+		return
+	}
+	let i = p.i
+	let def = h == habitDefine
+	if !def && tokKind(p, i+1) != Ident {
+		return
+	}
+	let nameTok = if def { i } else { i + 1 }
+	// rest is the first token after the name (var) or after `:=`.
+	let rest = i + 2
+	let stop = statementEnd(p, rest)
+	if !def && !assignAt(p, rest, stop) {
+		return
+	}
+	let name = lit(p, nameTok)
+	let reassigned = assignedAfter(p, name, stop)
+	let kw = if reassigned { "let mut" } else { "let" }
+	let text = if def { kw + " " + name + " =" } else { kw }
+	// The fix spans `var` alone, or `x :=` whole; the error is at `var` or
+	// at `:=`.
+	let at = if def { i + 1 } else { i }
+	// What the message shows: the fix's text, then the declaration's text
+	// after what the fix replaces.
+	let after = if def { rest } else { nameTok }
+	let shown = text + " " + trimBlank(p.src[tpos(p, after):tpos(p, stop)])
+	errorFix(p, tpos(p, at), tend(p, at)-tpos(p, at), localDeclMessage(h, shown, name, reassigned), tpos(p, i), tend(p, at)-tpos(p, i), text)
+}
+
+// tokKind is the kind of token j, the last token's (EOF) past the parse's.
+func tokKind(p mut parser, j int) uint8 {
+	if j < p.ntok {
+		return uint8(p.toks.kind[j])
+	}
+	uint8(p.toks.kind[p.ntok-1])
+}
+
+// statementEnd is the index of the token that ends the statement whose
+// tokens start at index start: a semicolon at its depth, the brace that
+// closes its block, or the last token.
+func statementEnd(p mut parser, start int) int {
+	let mut depth = 0
+	let mut j = start
+	for j < p.ntok-1 {
+		let k = tokKind(p, j)
+		if k == LBrace || k == LParen || k == LBrack {
+			depth = depth + 1
+		} else if k == RBrace || k == RParen || k == RBrack {
+			if depth == 0 {
+				return j
+			}
+			depth = depth - 1
+		} else if k == Semicolon && depth == 0 {
+			return j
+		}
+		j = j + 1
+	}
+	p.ntok - 1
+}
+
+// assignAt reports an `=` at depth zero among the tokens from index start
+// to index stop: a `var` declaration with a value.
+func assignAt(p mut parser, start int, stop int) bool {
+	let mut depth = 0
+	for j in start..stop {
+		let k = tokKind(p, j)
+		if k == LBrace || k == LParen || k == LBrack {
+			depth = depth + 1
+		} else if k == RBrace || k == RParen || k == RBrack {
+			depth = depth - 1
+		} else if k == Assign && depth == 0 {
+			return true
+		}
+	}
+	false
+}
+
+// assignedAfter reports whether a statement after index start, up to the
+// brace that closes the declaring block, assigns name: `name = e`, `name
+// += e`, `name.f = e` or `name[k] = e`, in a nested block or a function
+// literal too.
+func assignedAfter(p mut parser, name string, start int) bool {
+	let mut depth = 0
+	let mut atStart = true
+	let mut j = start
+	for j < p.ntok-1 {
+		let k = tokKind(p, j)
+		if k == LBrace {
+			depth = depth + 1
+			atStart = true
+		} else if k == RBrace {
+			if depth == 0 {
+				return false
+			}
+			depth = depth - 1
+			atStart = false
+		} else if k == Semicolon || k == Colon {
+			atStart = true
+		} else {
+			if atStart && k == Ident && lit(p, j) == name && assigns(p, j+1) {
+				return true
+			}
+			atStart = false
+		}
+		j = j + 1
+	}
+	false
+}
+
+// assigns reports whether the statement whose first name ends before index
+// start is an assignment: a selector or index chain, then an assignment
+// operator at the statement's depth.
+func assigns(p mut parser, start int) bool {
+	let mut depth = 0
+	let mut j = start
+	for j < p.ntok-1 {
+		let k = tokKind(p, j)
+		if k == LParen || k == LBrack {
+			depth = depth + 1
+		} else if k == RParen || k == RBrack {
+			depth = depth - 1
+		} else if isAssignOp(k) {
+			return depth == 0
+		} else if depth == 0 && k != Period && !(k == Ident && tokKind(p, j-1) == Period) {
+			return false
+		}
+		j = j + 1
+	}
+	false
+}
+
+// trimBlank is s without its leading and trailing spaces, tabs and line
+// ends.
+func trimBlank(s string) string {
+	let mut a = 0
+	let mut b = len(s)
+	for a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\n' || s[a] == '\r') {
+		a = a + 1
+	}
+	for b > a && (s[b-1] == ' ' || s[b-1] == '\t' || s[b-1] == '\n' || s[b-1] == '\r') {
+		b = b - 1
+	}
+	s[a:b]
 }
 
 // parseForStmt parses `for { }`, `for cond { }` and `for P {, P} in e { }`.
