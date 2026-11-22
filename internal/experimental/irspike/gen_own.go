@@ -10,9 +10,9 @@ import (
 // returns the value it owns (v1.ReturnStatic), keep owns its taken
 // parameter, guarded owns two in a frame with an error row, tried leaves
 // its frame through a try while it owns two (TryReleases), temped owns
-// statement temporaries (OwnedTemps), and Res's
+// statement temporaries (OwnedTemps), tempTail one in its last statement, and Res's
 // checked Close runs masked (v1.Release).
-var ownFuncs = []string{"give", "Res.keep", "guarded", "tried", "temped", "Res.Close"}
+var ownFuncs = []string{"give", "Res.keep", "guarded", "tried", "temped", "tempTail", "Res.Close"}
 
 // GenerateOwn is a program of owned values in static frames (FLIP F7
 // wave 2): a resource Res whose Close prints its id, and functions
@@ -138,6 +138,14 @@ func temped(k int, bad bool) int fails Oops needs Console {
 	use(r) + use(open(63 + k, false)) + w
 }
 
+// tempTail is a body with no value whose last statement owns a
+// temporary (OWNED-LOCAL-2): it is released at that statement's end,
+// before the frame's exit releases r.
+func tempTail(k int) needs Console {
+	let r = open(66 + k, false)
+	Console.Println("tail \(use(r)) \(use(open(67 + k, false)))")
+}
+
 func openOr(k int) Res fails Oops needs Console {
 	if k == 1 {
 		return Oops{code: 7}
@@ -243,6 +251,7 @@ func give(id int, k int) Res needs Console {
 	b.WriteString("\tConsole.Println(\"\\(caught(0)) \\(caught(1))\")\n")
 	b.WriteString("\tfor k in 0..4 {\n\t\tConsole.Println(\"guarded \\(guardedAt(k, false))\")\n\t}\n")
 	b.WriteString("\tfor k in 0..3 {\n\t\tConsole.Println(\"tried \\(triedAt(k, false))\")\n\t}\n")
+	b.WriteString("\ttempTail(1)\n")
 	b.WriteString("\tfor k in 0..3 {\n\t\tConsole.Println(\"temped \\(tempedAt(k, false))\")\n\t}\n")
 	if seed%3 == 0 {
 		// A try's failure whose release fails too.
