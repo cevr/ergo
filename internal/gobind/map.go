@@ -69,7 +69,7 @@ type Decl struct {
 	Total   bool
 	Refused string
 	// Writes is the binder of the parameter that Go writes in place
-	// (v1.GoWrites; GBX2), or "". The Ergo signature returns that
+	// (v1.GoWrites(); GBX2), or "". The Ergo signature returns that
 	// parameter's type: the call's value is the slice Go wrote, and the
 	// binding's `// ergo:writes` line names it.
 	Writes string
@@ -286,7 +286,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo = "let " + o.Name() + " " + t
 	case *types.Var:
 		d.Kind = Var
-		if v1.GoReadOnlyVars[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
+		if v1.GoReadOnlyVars()[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
 			// A reviewed variable no Go code of its package writes after
 			// init (GBX3): a read-only let, a pointer never nil, so a
 			// go.Ref. The table holds no interface variable.
@@ -336,10 +336,10 @@ func resourceType(t types.Type) bool {
 
 // pure reports whether a member of the bound package is in the reviewed
 // pure tier: a package of v1.PureImports whose guard line acts
-// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept.
+// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept().
 func (m *mapper) pure(name string) bool {
 	path := m.pkg.Path()
-	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept[path], name)
+	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept()[path], name)
 }
 
 func (m *mapper) needs(name string) string {
@@ -423,11 +423,11 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		params[i].own = goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off)
 	}
 	// A Go function that sorts or reverses its slice in place and returns
-	// nothing (the reviewed v1.GoWrites; GBX2) returns the slice in Ergo:
+	// nothing (the reviewed v1.GoWrites(); GBX2) returns the slice in Ergo:
 	// `let s = slices.Sort(s)`. The lowering passes Go the value the
 	// value rule gives it (a copy, or the dead local itself) and takes it
 	// back as the call's value.
-	if w, ok := v1.GoWrites[target]; ok && w.Reason != "" && recv == nil && results == "" && !fails {
+	if w, ok := v1.GoWrites()[target]; ok && w.Reason != "" && recv == nil && results == "" && !fails {
 		if i := w.Index; i >= 0 && i < len(params) && !(variadic && i == len(params)-1) && goSlice(sig.Params().At(i+first).Type()) {
 			results, m.writes = params[i].typ, params[i].name
 		}
@@ -714,7 +714,7 @@ func binder(name string) bool {
 type sigMapper struct {
 	*mapper
 	subst map[*types.TypeParam]types.Type
-	// sync: the function is in v1.GoSyncCallbacks; method: it is a
+	// sync: the function is in v1.GoSyncCallbacks(); method: it is a
 	// method (row-free callbacks); outerFails: its last result is error.
 	// usedFails and usedNeeds record a callback that took the row
 	// parameters.
@@ -1302,7 +1302,7 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 }
 
 // syncActs reports a function whose callbacks the reviewed table
-// v1.GoSyncCallbacks lists as synchronous, with its guard line acting
+// v1.GoSyncCallbacks() lists as synchronous, with its guard line acting
 // (check.SyncActs; LAWFFI LF2d).
 func syncActs(target string) bool {
 	ok, _, _ := check.SyncActs(target)

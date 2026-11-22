@@ -100,6 +100,9 @@ type Tool struct {
 	Name    string
 	Package string
 	Flags   []string
+	// Env is set over the runner's environment for the tool's build (the
+	// ergo tool's: ergobuild.Cgo).
+	Env []string
 }
 
 // Suite is a set of tests. A Go suite is a test package: its tests are the
@@ -881,7 +884,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
 	}
 	argv = append(append(argv, t.Flags...), "-o", filepath.Join(bin, name), t.Package)
-	return e.exec(ctx, root, argv, e.env(), deadline), nil
+	return e.exec(ctx, root, argv, append(e.env(), t.Env...), deadline), nil
 }
 
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {

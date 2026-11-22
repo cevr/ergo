@@ -33,7 +33,7 @@ The program is a module of packages (`ergo.mod`: `module respd`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/respd/cmd/respd -o /tmp/respd
 /tmp/respd -at 1700000000 < examples/respd/cases/session/stdin
 ./bin/ergo test examples/respd/resp     # and store, memory

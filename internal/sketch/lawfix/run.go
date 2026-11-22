@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/stdlib"
@@ -291,7 +292,7 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	return nil
 }
 
-var selector = regexp.MustCompile(`\.([A-Z][A-Za-z0-9_]*)`)
+var selector = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.([A-Z][A-Za-z0-9_]*)`) })
 
 // selectorNames maps each exported name that follows a dot in a .ergo or
 // .go file under roots to the folders of those files: a name another
@@ -326,7 +327,7 @@ func selectorNames(roots []string) (map[string]map[string]bool, error) {
 			if filepath.Ext(path) == ".go" {
 				dir += "#go" // a Go file is never the package's own source
 			}
-			for _, m := range selector.FindAllSubmatch(data, -1) {
+			for _, m := range selector().FindAllSubmatch(data, -1) {
 				n := string(m[1])
 				if out[n] == nil {
 					out[n] = map[string]bool{}

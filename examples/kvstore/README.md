@@ -30,7 +30,7 @@ The program is a module of packages (`ergo.mod`: `module kvstore`), in the Go la
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/kvstore/cmd/kvstore -- put greeting "hello, world"
 ./bin/ergo run examples/kvstore/cmd/kvstore -- get greeting      # prints: hello, world
 printf 'put a 1\ndump\n' | ./bin/ergo run examples/kvstore/cmd/kvstore -- -store memory
