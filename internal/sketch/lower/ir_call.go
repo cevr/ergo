@@ -312,7 +312,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		} else if known != "" {
 			// The variant takes the function's type arguments (callText).
 			targs := b.typeArgs(c, x)
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}), !fd.envFree
+			return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs})), !fd.envFree // ir_forms_inline.go (KNOWN-FILTER-INLINE)
 		}
 		if fd.method != nil {
 			return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go

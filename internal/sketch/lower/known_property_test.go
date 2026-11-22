@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The seeded property of known callbacks (known.go) and result-alias
@@ -571,6 +573,7 @@ func TestKnownCallbacksAgree(t *testing.T) {
 	var runs []run
 	var programs []*lowered
 	var newStats, refStats knownStats
+	knownInlined := 0
 	for _, seed := range seeds {
 		src, want := knownProgram(seed, reached)
 		for _, ref := range []bool{false, true} {
@@ -583,6 +586,12 @@ func TestKnownCallbacksAgree(t *testing.T) {
 				refStats.add(s)
 			} else {
 				newStats.add(s)
+				// The IR's copies of known variants (KNOWN-FILTER-INLINE):
+				// the run below compares them with the reference.
+				u := Unit{Package: p.pkg, Files: []*syntax.File{p.file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
+				if _, rep, err := LowerIR(u); err == nil {
+					knownInlined += rep.KnownInlined
+				}
 			}
 			programs = append(programs, p)
 			runs = append(runs, run{seed, src, want, name})
@@ -598,9 +607,12 @@ func TestKnownCallbacksAgree(t *testing.T) {
 			t.Errorf("seed %d, %s: the program and the model differ\nReplay: go test -run '^TestKnownCallbacksAgree$' ./internal/sketch/lower -args -known.seed=%d\n%s\n--- program (exit %d)\n%s%s\n--- model\n%s", r.seed, r.name, r.seed, r.src, code, out, stderr, r.want)
 		}
 	}
-	t.Logf("seeds %v: new %+v, reference %+v", seeds, newStats, refStats)
+	t.Logf("seeds %v: new %+v, reference %+v, IR copies of known variants %d", seeds, newStats, refStats, knownInlined)
 	if *knownSeed != 0 {
 		return
+	}
+	if knownInlined == 0 {
+		t.Error("the fixed seeds never inline a known variant on the IR (KNOWN-FILTER-INLINE)")
 	}
 	for _, path := range knownPaths {
 		if !reached[path] {

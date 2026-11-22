@@ -226,4 +226,83 @@ func TestKnownRowsRun(t *testing.T) {
 	needsBuild(t)
 	wantRun(t, knownSharedRowSrc, "-1\n")
 	wantRun(t, knownRowsSrc, "19\n")
+	wantRun(t, knownLoopSrc, "512\n")
+}
+
+// knownLoopSrc calls optFilter, the combinator Go's inliner declines, with
+// a known pure literal in a loop: absencebench's filter kind
+// (KNOWN-FILTER-INLINE). Keys 0..2047 against the 1024 even keys, each
+// valued k/2: a read keeps its value when k/2 is even (k ≡ 0 mod 4), so
+// 512 of the 2048 reads are Some.
+const knownLoopSrc = `
+func optFilter[T, E, R](o Option[T], p func(v T) bool fails E needs R) Option[T] fails E needs R {
+	match o {
+	case Some[T] as s:
+		if try p(s.Value) {
+			return s
+		}
+		None
+	case None:
+		None
+	}
+}
+
+func filters(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		match optFilter(m.Get(i & 2047), func(v int) bool { v & 1 == 0 }) {
+		case Some[int]:
+			t = t + 1
+		case None:
+			t = t + 0
+		}
+	}
+	t
+}
+
+func main() needs Console {
+	let mut m = Map[int, int]{}
+	for i in 0..1024 {
+		m = m.Put(i * 2, i)
+	}
+	Console.Println("\(filters(m, 2048) + filters(m, 0))")
+}
+`
+
+// TestKnownVariantInlined: on the IR, a call of a known variant in a loop
+// is inlined with its literal bound at the copy's head, so no call is
+// left per element (KNOWN-FILTER-INLINE). It kills kfi-callback-callee-
+// refused and kfi-known-footprint-refused: with either admission
+// condition undone, the call to optFilterKnown stays.
+func TestKnownVariantInlined(t *testing.T) {
+	o := lowerSource("knownloop", knownLoopSrc, true)
+	if o.err != nil || len(o.diags) > 0 || o.refused != nil || o.panicked != nil {
+		t.Fatalf("lowering failed: %v %v %v %v", o.err, o.diags, o.refused, o.panicked)
+	}
+	u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: knownLoopSrc}}}
+	files, report, err := LowerIR(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.KnownInlined == 0 {
+		t.Error("IR: no call of a known variant is inlined")
+	}
+	var ir struct {
+		Funcs []struct {
+			Name string          `json:"name"`
+			Body json.RawMessage `json:"body"`
+		} `json:"funcs"`
+	}
+	for _, f := range files {
+		if f.Path == IRFileName {
+			if err := json.Unmarshal(f.Data, &ir); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, f := range ir.Funcs {
+		if f.Name == "filters" && strings.Contains(string(f.Body), `"optFilterKnown"`) {
+			t.Errorf("IR: filters still calls optFilterKnown per element:\n%s", f.Body)
+		}
+	}
 }
