@@ -24,7 +24,7 @@ const previewPath = "../../../docs/previews/2026-10-28-without-go-syntax.md"
 
 // previewRenames are the later renames of the preview's names: the preview
 // is recorded history and keeps its spelling, so the tests read it through
-// these (196w, docs/previews/2026-11-02-wire-to-context.md).
+// these (196w).
 var previewRenames = map[string]string{
 	"WireBody": "ContextBody", "WireEntry": "ContextEntry", "WireLit": "ContextLit",
 	"wire": "context",
