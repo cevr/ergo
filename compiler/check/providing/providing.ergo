@@ -634,7 +634,7 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 			}
 		}
 		if len(more) > 0 {
-			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)"
+			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)"
 		}
 	}
 	""
