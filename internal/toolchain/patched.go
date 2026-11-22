@@ -383,11 +383,16 @@ func runBuildCompile(source, overlay, out string, target []string) error {
 // what the go command reports in a module whose go.mod is goMod, kept
 // under cache. A build's go command runs in the generated module, so
 // Go's toolchain switch (GOTOOLCHAIN) picks there the release the build
-// would have run.
+// would have run. The probe's go.mod adds a toolchain line naming Version
+// (the release the lock ports), as the repository's go.mod does: a go on
+// PATH older than it switches to it when GOTOOLCHAIN allows, where the go
+// line alone ("go 1.27") switched a go1.26 to go1.27.0, which has no port.
+// A go newer than Version, or GOTOOLCHAIN=local, keeps its own release.
 func SourceOf(t Toolchain, cache string, goMod []byte) (string, error) {
 	if t.Root != "" {
 		return t.Root, nil
 	}
+	goMod = withToolchain(goMod)
 	sum := sha256.Sum256(goMod)
 	probe := filepath.Join(cache, "toolchain", "probe-"+hex.EncodeToString(sum[:])[:16])
 	if data, err := os.ReadFile(filepath.Join(probe, "go.mod")); err != nil || !bytes.Equal(data, goMod) {
@@ -453,6 +458,21 @@ func SourceOf(t Toolchain, cache string, goMod []byte) (string, error) {
 		}
 	}
 	return root, nil
+}
+
+// withToolchain is goMod with a toolchain line naming Version, unless it
+// names one already.
+func withToolchain(goMod []byte) []byte {
+	for _, line := range strings.Split(string(goMod), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "toolchain ") {
+			return goMod
+		}
+	}
+	out := append([]byte(nil), goMod...)
+	if len(out) > 0 && out[len(out)-1] != '\n' {
+		out = append(out, '\n')
+	}
+	return append(out, "\ntoolchain "+Version+"\n"...)
 }
 
 // probeKey keys a go command's GOROOT answer on what chooses it: the
@@ -528,7 +548,11 @@ func portOf(lockFS fs.FS, release string) (port, error) {
 		}
 	}
 	if name == "" {
-		return port{}, fmt.Errorf("Go %s has no port of the IR compiler patch (toolchain/ir/lock ports %s); build with one of those (ERGO_GO)", release, strings.Join(ported, ", "))
+		want := Version
+		if !slices.Contains(ported, want) && len(ported) > 0 {
+			want = ported[len(ported)-1]
+		}
+		return port{}, fmt.Errorf("Go %s has no port of the IR compiler patch (toolchain/ir/lock ports %s); build with one of those: unset ERGO_GO (ergo installs %s), let the go command switch to it (GOTOOLCHAIN=auto), or install it with `go install golang.org/dl/%s@latest && %s download` and set ERGO_GO=$(go env GOPATH)/bin/%s", release, strings.Join(ported, ", "), Version, want, want, want)
 	}
 	patch, err := fs.ReadFile(lockFS, name)
 	if err != nil {

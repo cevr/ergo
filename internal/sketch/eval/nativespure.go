@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -375,13 +376,15 @@ type goVar string
 
 // goVars are the read-only Go variables a std body passes to a Go
 // function that has a native (nativespure.go, overGo).
-var goVars = map[string]Value{
-	"hash/crc32.IEEETable":           goVar("hash/crc32.IEEETable"),
-	"encoding/base64.StdEncoding":    goVar("encoding/base64.StdEncoding"),
-	"encoding/base64.URLEncoding":    goVar("encoding/base64.URLEncoding"),
-	"encoding/base64.RawStdEncoding": goVar("encoding/base64.RawStdEncoding"),
-	"encoding/base64.RawURLEncoding": goVar("encoding/base64.RawURLEncoding"),
-}
+var goVars = sync.OnceValue(func() map[string]Value {
+	return map[string]Value{
+		"hash/crc32.IEEETable":           goVar("hash/crc32.IEEETable"),
+		"encoding/base64.StdEncoding":    goVar("encoding/base64.StdEncoding"),
+		"encoding/base64.URLEncoding":    goVar("encoding/base64.URLEncoding"),
+		"encoding/base64.RawStdEncoding": goVar("encoding/base64.RawStdEncoding"),
+		"encoding/base64.RawURLEncoding": goVar("encoding/base64.RawURLEncoding"),
+	}
+})
 
 // mustBytes is the text of a []byte the evaluator holds as uint8 values;
 // any other slice panics, a defect of the native's guard.
