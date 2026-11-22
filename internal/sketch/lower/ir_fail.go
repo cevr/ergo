@@ -57,7 +57,10 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 		return nil
 	}
 	c := b.l.info.Calls[call]
-	if c == nil || !failsHere(c) {
+	if c == nil || !failsHere(c) || b.plainCallee(call) {
+		// A known variant's callback, which the checker types with the
+		// callee's own row parameters, is called plain: it cannot fail
+		// (ir_kcb.go; KNOWN-VARIANT K1).
 		return nil
 	}
 	return call
@@ -232,10 +235,7 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			return b.catch(c, true)
 		}
 		call := b.fallibleCall(x.X)
-		if call == nil || b.plainCallee(call) {
-			// A known variant's callback, which the checker types with the
-			// callee's own row parameters, is called plain: it cannot fail
-			// (ir_kcb.go; KNOWN-VARIANT K1).
+		if call == nil {
 			// try covers the whole expression: each fallible call in it
 			// fails the frame where it runs (call, operand), as the
 			// emitter's try does.

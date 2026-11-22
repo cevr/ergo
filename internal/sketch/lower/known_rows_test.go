@@ -154,6 +154,11 @@ func TestKnownVariantRowInstance(t *testing.T) {
 		if body, ok := bodies[name+"Known"]; ok && strings.Contains(body, `"Check"`) {
 			t.Errorf("IR: %sKnown polls at entry", name)
 		}
+		// try of the plain callback is the call alone: no (value, error)
+		// pair, which its one result cannot bind.
+		if body, ok := bodies[name+"Known"]; ok && strings.Contains(body, `"def2"`) {
+			t.Errorf("IR: %sKnown binds its plain callback's call as a (value, error) pair", name)
+		}
 	}
 }
 
