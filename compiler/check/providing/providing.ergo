@@ -19,6 +19,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import slices
 
 // tparam is one bracket parameter as written: its name and its
 // constraint's text, "" for none.
@@ -633,11 +634,31 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 				more = more.Append(x)
 			}
 		}
-		if len(more) > 0 {
+		if len(more) > 0 && !builtHeld(s, k, more) {
 			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)"
 		}
 	}
 	""
+}
+
+// builtHeld is whether every capability of more is one a provider's build
+// site holds for it: go.Foreign, which has no provider value, or Ambient
+// (README Gap 17; the Go checker's captured.add at a clause).
+func builtHeld(s store.Store, k expr.Pkg, more []dense.ID[store.TKey]) bool {
+	for x in more {
+		if store.KindOfType(s, x) != store.KForeign {
+			return false
+		}
+		let i = store.ArgOf(s, x)
+		if i >= len(k.Foreign) {
+			return false
+		}
+		let f = k.Foreign[i]
+		if !(f.Qual == "go" && f.Name == "Foreign") && !(f.Path == "prelude" && f.Name == "Ambient") {
+			return false
+		}
+	}
+	true
 }
 
 // clauses checks each implements clause of the package that names a
@@ -688,6 +709,52 @@ func clauses(s store.Store, k expr.Pkg, decls Map[string, typeDecl], order []str
 	out
 }
 
+// placedLits is the spans of p's context literals in their places: after
+// `let x =` (a body's or the package's) or as an operand of with
+// (grammar.md, Expressions 8; rows.md, Context 9). A literal anywhere else
+// is refused as misplaced, and its entries are not checked (the Go
+// checker's ContextLit case of expr).
+func placedLits(p syntax.Parsed) [](int, int) {
+	let mut out = [](int, int){}
+	for i in 0..syntax.NumNodes(p.Tree) {
+		let n = syntax.NodeAt(p.Tree, i)
+		let kind = syntax.KindOf(p.Tree, n)
+		if kind == syntax.KVarSpec {
+			match dense.Unpack(syntax.VarSpecOf(p.Tree, n).Value) {
+			case Some{Value: v}:
+				out = withLit(p, out, v)
+			case None:
+			}
+		} else if kind == syntax.KCallExpr {
+			let c = syntax.CallExprOf(p.Tree, n)
+			if syntax.KindOf(p.Tree, c.Fun) == syntax.KIdent && textOf(p, c.Fun) == "with" {
+				for j in 0..syntax.Len(c.Args) {
+					out = withLit(p, out, syntax.Item(p.Tree, c.Args, j))
+				}
+			}
+		}
+	}
+	out
+}
+
+// withLit is spans with x's, when x is a context literal.
+func withLit(p syntax.Parsed, spans [](int, int), x dense.ID[syntax.Node]) [](int, int) {
+	if syntax.KindOf(p.Tree, x) != syntax.KContextLit {
+		return spans
+	}
+	spans.Append((syntax.NodePos(p, x), syntax.NodeEnd(p, x)))
+}
+
+func inSpans(spans [](int, int), at int) bool {
+	for sp in spans {
+		let (a, b) = sp
+		if at >= a && at < b {
+			return true
+		}
+	}
+	false
+}
+
 // entries checks each context entry whose capability is a local
 // operation type and whose provider names a local type of no parameters
 // with no implements clause: it does not declare the operation type it
@@ -698,9 +765,10 @@ func entries(k expr.Pkg, decls Map[string, typeDecl]) []diag.Diag {
 		if p.Failed {
 			continue
 		}
+		let placed = placedLits(p)
 		for i in 0..syntax.NumNodes(p.Tree) {
 			let n = syntax.NodeAt(p.Tree, i)
-			if syntax.KindOf(p.Tree, n) != syntax.KContextEntry {
+			if syntax.KindOf(p.Tree, n) != syntax.KContextEntry || !inSpans(placed, syntax.NodePos(p, n)) {
 				continue
 			}
 			let e = syntax.ContextEntryOf(p.Tree, n)
@@ -952,6 +1020,84 @@ func bodyPlaces(out mut []diag.Diag, k expr.Pkg, decls Map[string, typeDecl], f 
 	}
 	for c in syntax.Children(p.Tree, x, []uint32{}) {
 		bodyPlaces(out, k, decls, f, p, hide, syntax.NodeAt(p.Tree, int(c)))
+	}
+}
+
+// RefusedLets is the names the package's lets bind at a declared type
+// this check refuses (a constraint-only operation type as a value's type).
+// Such a local's type is invalid, so it is never reported unused (the Go
+// checker's declareLocal marks it used; S110 does not stack on S108).
+func RefusedLets(k expr.Pkg) []dense.ID[store.PNode] {
+	let mut out = []dense.ID[store.PNode]{}
+	let decls = typeDecls(k)
+	let mut any = false
+	for p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				match decls.Get(textOf(p, td.Name)) {
+				case Some{Value: t}:
+					any = any || t.Generic
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	if !any {
+		return out
+	}
+	for f, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				let hide = names(brackets(p, fd.TypeParams))
+				match dense.Unpack(fd.Body) {
+				case Some{Value: b}:
+					refusedLets(&out, k, decls, f, p, hide, b)
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	out
+}
+
+// Quiet is held, and also true of the names RefusedLets finds: the locals
+// whose S110 the unused check (diag.Unused) does not report.
+func Quiet(k expr.Pkg, held func(n dense.ID[store.PNode]) bool) func(n dense.ID[store.PNode]) bool {
+	let refused = RefusedLets(k)
+	if len(refused) == 0 {
+		return held
+	}
+	func(n dense.ID[store.PNode]) bool { held(n) || slices.Contains(refused, n) }
+}
+
+func refusedLets(out mut []dense.ID[store.PNode], k expr.Pkg, decls Map[string, typeDecl], f int, p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.VarSpec as vs:
+		match dense.Unpack(vs.Type) {
+		case Some{Value: t}:
+			let mut ds = []diag.Diag{}
+			typePlace(&ds, k, decls, f, p, hide, t)
+			if len(ds) > 0 {
+				for i in 0..syntax.Len(vs.Names) {
+					*out = (*out).Append(bind.PNodeOf(k.Ps, f, syntax.Item(p.Tree, vs.Names, i)))
+				}
+			}
+		case None:
+		}
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		refusedLets(out, k, decls, f, p, hide, syntax.NodeAt(p.Tree, int(c)))
 	}
 }
 
