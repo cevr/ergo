@@ -1,5 +1,7 @@
 package syntax
 
+import "sync"
+
 // Habit is a Go spelling that the decided grammar refuses with a message
 // naming the Ergo form (#220: a host-language habit is not compatibility,
 // so the parser says what to write instead). Every habit is S001 at its own
@@ -82,20 +84,22 @@ func Habits() []Habit { return append([]Habit(nil), habits[:]...) }
 
 // reservedHabit is the habit a reserved word starts, where it stands at the
 // start of a declaration, statement, type or expression.
-var reservedHabit = map[Token]int{
-	CHAN:        habitChan,
-	CONST:       habitConst,
-	DEFAULT:     habitDefault,
-	DEFER:       habitDefer,
-	FALLTHROUGH: habitFallthrough,
-	GO:          habitGo,
-	GOTO:        habitGoto,
-	INTERFACE:   habitInterface,
-	MAP:         habitMap,
-	PACKAGE:     habitPackage,
-	RANGE:       habitRange,
-	SELECT:      habitSelect,
-	STRUCT:      habitStruct,
-	SWITCH:      habitSwitch,
-	VAR:         habitVar,
-}
+var reservedHabit = sync.OnceValue(func() map[Token]int {
+	return map[Token]int{
+		CHAN:        habitChan,
+		CONST:       habitConst,
+		DEFAULT:     habitDefault,
+		DEFER:       habitDefer,
+		FALLTHROUGH: habitFallthrough,
+		GO:          habitGo,
+		GOTO:        habitGoto,
+		INTERFACE:   habitInterface,
+		MAP:         habitMap,
+		PACKAGE:     habitPackage,
+		RANGE:       habitRange,
+		SELECT:      habitSelect,
+		STRUCT:      habitStruct,
+		SWITCH:      habitSwitch,
+		VAR:         habitVar,
+	}
+})

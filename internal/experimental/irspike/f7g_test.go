@@ -83,7 +83,7 @@ func TestIRContinuePolls(t *testing.T) {
 // and the run gives IR bodies to functions with a continue in a polling
 // loop, with operation calls inside an expression, in a condition and in
 // a range, and with each form of orderForms: seed s's function forced is
-// an IR body of form s mod len(orderForms), and the test's forms and the
+// an IR body of form s mod len(orderForms()), and the test's forms and the
 // generator's schedule are the same set. A failing seed prints the Ergo source, both outcomes and its
 // replay command. It builds Go because the question is what the compiled
 // program does: the order of effects, polls and defects.
@@ -92,13 +92,13 @@ func TestIROrderMatchesSource(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 24)
 	// Every form the test asks for is in GenerateOrder's schedule, and
 	// every scheduled form is one it asks for.
-	for _, f := range orderForms {
+	for _, f := range orderForms() {
 		if orderFormRes[f.name] == nil {
 			t.Fatalf("GenerateOrder schedules %q, which the test does not check", f.name)
 		}
 	}
 	for name := range orderFormRes {
-		if !slices.ContainsFunc(orderForms, func(f orderForm) bool { return f.name == name }) {
+		if !slices.ContainsFunc(orderForms(), func(f orderForm) bool { return f.name == name }) {
 			t.Fatalf("GenerateOrder's schedule has no %q", name)
 		}
 	}
@@ -151,7 +151,7 @@ func TestIROrderMatchesSource(t *testing.T) {
 			missing = append(missing, form)
 		}
 	}
-	if count >= uint64(len(orderForms)) && (len(missing) > 0 || gated == 0) {
+	if count >= uint64(len(orderForms())) && (len(missing) > 0 || gated == 0) {
 		slices.Sort(missing)
 		t.Fatalf("the run did not reach IR bodies with: %v (gate's failing branch tails: %d)", missing, gated)
 	}
@@ -240,9 +240,21 @@ func walkLists(v any, f func([]any)) {
 	}
 }
 
-// isPoll reports the poll statement: the task's Check.
+// isPoll reports the poll statement: the task's Check, or a quiet loop's
+// amortized poll (POLL-AMORT, lower/ir_poll.go), a block that counts the
+// back edge down and checks when the count ends.
 func isPoll(s any) bool {
 	m, _ := s.(map[string]any)
 	x, _ := m["x"].(map[string]any)
+	if m["k"] == "block" {
+		body, _ := m["body"].([]any)
+		if len(body) != 2 {
+			return false
+		}
+		dec, _ := body[0].(map[string]any)
+		at, _ := body[1].(map[string]any)
+		then, _ := at["then"].([]any)
+		return dec["k"] == "set" && dec["op"] == "-" && at["k"] == "if" && len(then) == 2 && isPoll(then[1])
+	}
 	return m["k"] == "expr" && x["k"] == "mcall" && x["name"] == "Check"
 }

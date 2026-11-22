@@ -106,7 +106,7 @@ func (l *lowerer) ownedFormOf(c *check.Call, recv check.Type, site syntax.Node) 
 		if !ok || c.Op == nil || !l.runtimeNamed(n, site) {
 			return ownedForm{}, false
 		}
-		body, owned, shift = n.Obj.Name+"."+c.Op.Name, n.Obj.Name+c.Op.Name+"Owned", 1
+		body, owned, shift = check.RuntimeTypeName(n)+"."+c.Op.Name, check.RuntimeTypeName(n)+c.Op.Name+"Owned", 1
 	default:
 		return ownedForm{}, false
 	}

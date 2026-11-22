@@ -4,7 +4,8 @@
 //     the next one's call, and a type switch on the error where the loop
 //     catches it;
 //   - trylet: a function that passes c0's error on (`if err != nil`);
-//   - orfail: a Map read, comma-ok, with the error built on the miss only.
+//   - orfail: a Map read, comma-ok, with the error built on the miss only;
+//   - slotget: a tagged box read by a switch, its failure an error.
 package main
 
 import (
@@ -65,6 +66,33 @@ func look(m map[int]int, k int) (int, error) {
 	return v, nil
 }
 
+// box is a Box[int, gone] by hand: a tag and both payloads.
+type box struct {
+	tag   uint8 // 0 idle, 1 got, 2 bad
+	value int
+	err   gone
+}
+
+func boxOf(i int) box {
+	if i%3 == 0 {
+		return box{tag: 2, err: gone{At: i}}
+	}
+	if i%7 == 1 {
+		return box{}
+	}
+	return box{tag: 1, value: i}
+}
+
+func get(b box) (int, error) {
+	switch b.tag {
+	case 0:
+		return 0, bad{Why: 0}
+	case 1:
+		return b.value, nil
+	}
+	return 0, b.err
+}
+
 // caught is the loop's catch: the arm's value of err, or v.
 func caught(v int, err error) int {
 	switch e := err.(type) {
@@ -97,6 +125,10 @@ func main() {
 	case "trylet":
 		for i := 0; i < n; i++ {
 			t += caught(tryLet(i & 4095))
+		}
+	case "slotget":
+		for i := 0; i < n; i++ {
+			t += caught(get(boxOf(i & 4095)))
 		}
 	case "orfail":
 		m := map[int]int{}

@@ -147,7 +147,8 @@ extern go time.NewTimer func NewTimer(d duration) Option[go.Ref[Timer]] needs go
 extern go time.November let November Month
 
 // ergo:go func Now() Time
-extern go time.Now func Now() Time needs go.Foreign
+// ergo:effect ambient (vouched: it reads the host's clock and the process's local zone)
+extern go time.Now func Now() Time needs Ambient
 
 // ergo:go const October Month
 extern go time.October let October Month
@@ -249,13 +250,15 @@ extern go time.Ticker.Stop func (t *Ticker) Stop() needs go.Foreign
 extern go time.Time type Time {}
 
 // ergo:go func (Time).Add(d Duration) Time
-extern go time.Time.Add func (t Time) Add(d duration) Time needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.Add func (t Time) Add(d duration) Time
 
 // ergo:go func (Time).AddDate(years int, months int, days int) Time
 extern go time.Time.AddDate func (t Time) AddDate(years int, months int, days int) Time needs go.Foreign
 
 // ergo:go func (Time).After(u Time) bool
-extern go time.Time.After func (t Time) After(u Time) bool needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.After func (t Time) After(u Time) bool
 
 // ergo:go func (Time).AppendBinary(b []byte) ([]byte, error)
 extern go time.Time.AppendBinary func (t Time) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign
@@ -267,13 +270,15 @@ extern go time.Time.AppendFormat func (t Time) AppendFormat(b []byte, layout str
 extern go time.Time.AppendText func (t Time) AppendText(b []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (Time).Before(u Time) bool
-extern go time.Time.Before func (t Time) Before(u Time) bool needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.Before func (t Time) Before(u Time) bool
 
 // ergo:go func (Time).Clock() (hour int, min int, sec int)
 extern go time.Time.Clock func (t Time) Clock() (int, int, int) needs go.Foreign
 
 // ergo:go func (Time).Compare(u Time) int
-extern go time.Time.Compare func (t Time) Compare(u Time) int needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.Compare func (t Time) Compare(u Time) int
 
 // ergo:go func (Time).Date() (year int, month Month, day int)
 extern go time.Time.Date func (t Time) Date() (int, Month, int) needs go.Foreign
@@ -282,7 +287,8 @@ extern go time.Time.Date func (t Time) Date() (int, Month, int) needs go.Foreign
 extern go time.Time.Day func (t Time) Day() int needs go.Foreign
 
 // ergo:go func (Time).Equal(u Time) bool
-extern go time.Time.Equal func (t Time) Equal(u Time) bool needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.Equal func (t Time) Equal(u Time) bool
 
 // ergo:go func (Time).Format(layout string) string
 extern go time.Time.Format func (t Time) Format(layout string) string needs go.Foreign
@@ -310,7 +316,8 @@ extern go time.Time.In func (t Time) In(loc own *Location) Time needs go.Foreign
 extern go time.Time.IsDST func (t Time) IsDST() bool needs go.Foreign
 
 // ergo:go func (Time).IsZero() bool
-extern go time.Time.IsZero func (t Time) IsZero() bool needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.IsZero func (t Time) IsZero() bool
 
 // ergo:go func (Time).Local() Time
 extern go time.Time.Local func (t Time) Local() Time needs go.Foreign
@@ -346,25 +353,30 @@ extern go time.Time.Second func (t Time) Second() int needs go.Foreign
 extern go time.Time.String func (t Time) String() string needs go.Foreign
 
 // ergo:go func (Time).Sub(u Time) Duration
-extern go time.Time.Sub func (t Time) Sub(u Time) duration needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.Sub func (t Time) Sub(u Time) duration
 
 // ergo:go func (Time).Truncate(d Duration) Time
 extern go time.Time.Truncate func (t Time) Truncate(d duration) Time needs go.Foreign
 
 // ergo:go func (Time).UTC() Time
-extern go time.Time.UTC func (t Time) UTC() Time needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.UTC func (t Time) UTC() Time
 
 // ergo:go func (Time).Unix() int64
-extern go time.Time.Unix func (t Time) Unix() int64 needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.Unix func (t Time) Unix() int64
 
 // ergo:go func (Time).UnixMicro() int64
 extern go time.Time.UnixMicro func (t Time) UnixMicro() int64 needs go.Foreign
 
 // ergo:go func (Time).UnixMilli() int64
-extern go time.Time.UnixMilli func (t Time) UnixMilli() int64 needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.UnixMilli func (t Time) UnixMilli() int64
 
 // ergo:go func (Time).UnixNano() int64
-extern go time.Time.UnixNano func (t Time) UnixNano() int64 needs go.Foreign
+// ergo:effect none (vouched: it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's)
+extern go time.Time.UnixNano func (t Time) UnixNano() int64
 
 // ergo:go func (*Time).UnmarshalBinary(data []byte) error
 // ergo:reads data
