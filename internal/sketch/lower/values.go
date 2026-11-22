@@ -1729,6 +1729,9 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 					} else if w.fieldOwned(f, w.vars[v]) {
 						// Taken over through its fields (handover.go).
 						out = append(out, ownedParam{index: i, consumed: true, v: v})
+					} else if w.cutOwned(f, w.vars[v]) {
+						// Taken over as a cut of itself (cut.go).
+						out = append(out, ownedParam{index: i, consumed: true, v: v})
 					}
 				}
 			}
@@ -2955,6 +2958,10 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			if v, ok := w.info.Uses[id].(*check.Var); ok {
 				return w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)
 			}
+		}
+		if s, ok := x.(*syntax.SliceExpr); ok && pathRoot(s) == nil {
+			// A cut of a fresh value (cut.go).
+			return w.freshCut(s)
 		}
 		return false
 	case *syntax.CompositeLit:
