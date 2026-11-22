@@ -52,35 +52,39 @@ func Scan(text fs.Text, from int, end int) Part {
 		// checked again. It is written with len on the right: p+FastMargin
 		// could wrap past the largest int, len(text)-FastMargin cannot.
 		if 0 <= p && p <= len(text)-FastMargin {
+			// The station: the first word, and the second only when the
+			// first holds no ';' (most names are under 8 bytes).
 			w0 = Word(text[p : p+8])
-			w1 = Word(text[p+8 : p+16])
 			let s0 = Lanes(w0, Semis)
-			let s1 = Lanes(w1, Semis)
 			let mut bad uint64 = 0
-			if (s0 | s1) != 0 {
-				// A station of up to 15 bytes, with no branch on the word
-				// that ends it: z is 1 when the first word has no ';'.
-				let z = ((s0 - 1) & ^s0) >> 63
+			if s0 != 0 {
 				w0 &= Below(s0)
-				w1 &= Below(s1) & -z
-				n = (bits.TrailingZeros64(s0) >> 3) + ((bits.TrailingZeros64(s1) >> 3) & -int(z))
-				bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
+				n = bits.TrailingZeros64(s0) >> 3
+				bad = Lanes(w0, Newlines)
 			} else {
-				bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
-				n = 16
-				for uint(n) <= uint(MaxName) {
-					let w = Word(text[p+n : p+n+8])
-					let s = Lanes(w, Semis)
-					if s != 0 {
-						bad |= Lanes(w&Below(s), Newlines)
-						n += bits.TrailingZeros64(s) >> 3
-						break
+				w1 = Word(text[p+8 : p+16])
+				let s1 = Lanes(w1, Semis)
+				if s1 != 0 {
+					w1 &= Below(s1)
+					n = 8 + (bits.TrailingZeros64(s1) >> 3)
+					bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
+				} else {
+					bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
+					n = 16
+					for uint(n) <= uint(MaxName) {
+						let w = Word(text[p+n : p+n+8])
+						let s = Lanes(w, Semis)
+						if s != 0 {
+							bad |= Lanes(w&Below(s), Newlines)
+							n += bits.TrailingZeros64(s) >> 3
+							break
+						}
+						bad |= Lanes(w, Newlines)
+						n += 8
 					}
-					bad |= Lanes(w, Newlines)
-					n += 8
 				}
 			}
-			// The temperature's word, read with no branch: m is n for a
+			// The temperature's word, cut with no branch: m is n for a
 			// station of 1 to MaxName bytes, the only one the fast path
 			// keeps, and stays in 0..127 for any other, so the word lies in
 			// the guard's margin either way.

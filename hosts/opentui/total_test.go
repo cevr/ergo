@@ -32,6 +32,9 @@ var keptWildcards = map[string]string{
 	"edgeNext":       "a list found by listIn and its viewport",
 	"keep":           "a list's viewport",
 	"sayLive":        "a Live region's text",
+	"reread":         "the Readouts that read a readout",
+	"shownText":      "a Readout's reading, else textOf's answer, which names every kind",
+	"readoutsIn":     "each Readout in the tree",
 	// cmd/hostagree: walks and dumps of TestHost's tree
 	"kept":       "hostagree: each list's viewport",
 	"placed":     "hostagree: each list's rows and buttons",
@@ -39,6 +42,7 @@ var keptWildcards = map[string]string{
 	"maxOffset":  "hostagree: one list's furthest offset",
 	"shot":       "hostagree: a text dump that says \"node\" for a kind it does not spell out",
 	"shown":      "hostagree: each text's cells",
+	"twin":       "hostagree: a Semantic by role and name, any other kind by label",
 	"run":        "hostagree: a key typed into a focused Input",
 	"focusPress": "hostagree: a focused Input or another node",
 	"inked":      "hostagree: each canvas's ink",
