@@ -866,7 +866,7 @@ func hostBase(path string) string {
 
 // taskDestArgs are the leading arguments of a call of a declared function
 // or a function value: the environment. A returned Task is an owned value
-// (#197 L8 B3t): the caller registers it where it receives it, so no
+// (L8 B3t): the caller registers it where it receives it, so no
 // destination frame is passed.
 func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, _ *check.Call, _ *check.Signature) []string {
 	return []string{fc.envExpr(x)}
@@ -1360,7 +1360,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
-		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
+		refuse(w.Decl, "a context header with provides or needs waits for context header checking")
 	}
 }
 
@@ -1599,8 +1599,8 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if l.runtimeNamed(to, site) {
 		// A std type is the runtime's concrete Go type (stage D3b), a sealed
-		// std protocol the checker refuses a conversion to (C28, #206).
-		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses (#206)", conv.To)
+		// std protocol the checker refuses a conversion to (C28).
+		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses", conv.To)
 	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {
@@ -1656,7 +1656,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// A provider's requirements are met where a context builds it (rows.md,
 		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
-		// table function that needs capabilities (S108, with #37), except
+		// table function that needs capabilities (S108, with context construction), except
 		// go.Foreign, which the converting site holds (README Gap 17) and
 		// which no environment holds (module.go).
 		if len(rowElems(f.Sig.Uses)) > 0 && !check.GoForeign(f.Sig) {
@@ -1840,7 +1840,7 @@ func isString(t check.Type) bool {
 	return ok && b.Kind == check.String
 }
 
-// Call identities (#230). Every call of the program's source, to a function,
+// Call identities. Every call of the program's source, to a function,
 // an operation or a function value, keeps its Ergo identity: the source
 // declaration that makes it, what it calls and its position. The program
 // lists them in its call table, ergoCalls, and the Go line that makes the

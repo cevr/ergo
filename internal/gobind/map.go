@@ -1,7 +1,7 @@
 // Package gobind writes the Ergo binding of a Go package: the declarations
 // that `import go P` makes usable, each with its Ergo signature and rows, and
-// a reason for each Go declaration that does not map (docs/spec/interop.md;
-// #202). It is the only code that reads Go signatures: it runs go list and
+// a reason for each Go declaration that does not map (docs/spec/interop.md).
+// It is the only code that reads Go signatures: it runs go list and
 // go/types, and the checker reads only the bindings it writes.
 //
 // Prior art: Borgo's importer writes committed declaration files from Go

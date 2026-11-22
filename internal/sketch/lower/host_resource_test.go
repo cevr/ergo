@@ -19,7 +19,7 @@ import (
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// Go values that are resources (IG9; #196 item 15l, #197 Q9, Q10; the
+// Go values that are resources (IG9; the v1 language item 15l, resource ownership Q9, Q10; the
 // checker's hostres.go). A synthetic Go package, hostres, stands for an
 // os.Open-like library: Open returns a handle whose Close returns an
 // error, a package variable holds a shared handle, and a Go interface

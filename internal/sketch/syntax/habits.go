@@ -1,11 +1,11 @@
 package syntax
 
 // Habit is a Go spelling that the decided grammar refuses with a message
-// naming the Ergo form (#220: a host-language habit is not compatibility,
+// naming the Ergo form (the agent-mistakes corpus: a host-language habit is not compatibility,
 // so the parser says what to write instead). Every habit is S001 at its own
 // token. Old Ergo-only spellings (error[…] rows, `wire Name { A = x }`,
 // `catch e { … }`, bodiless functions, `uses`, try in operand position) are
-// not habits: they get the plain S001 of any stray token (#217).
+// not habits: they get the plain S001 of any stray token.
 type Habit struct {
 	Spelling string // the Go spelling, as grammar.md lists it
 	Message  string // the S001 message; the Ergo form is in backticks

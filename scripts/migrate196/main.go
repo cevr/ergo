@@ -1,5 +1,5 @@
 // Command migrate196 translates old-syntax Ergo sources into the decided
-// syntax of #196 (internal/migrate196). One-off; deleted after v1.
+// syntax of the v1 language (internal/migrate196). One-off; deleted after v1.
 //
 //	migrate196 FILE                  write the translation to stdout
 //	migrate196 -w FILE...            rewrite each file in place

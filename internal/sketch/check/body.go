@@ -186,7 +186,7 @@ func bindsRuntime(pkg *Package) bool {
 // ergo.local/prototype/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
 // The body contract; STD-NOPRIV NP4c). It is an Ergo declaration, checked as
 // one, and checkRuntimeTypes holds it to its Go type's shape. Any other
-// extern type is a binding's host type (#202).
+// extern type is a binding's host type.
 func runtimeTypeDecl(d syntax.Decl) bool {
 	td, ok := d.(*syntax.TypeDecl)
 	if !ok || td.Extern == nil || td.Extern.Target == nil {

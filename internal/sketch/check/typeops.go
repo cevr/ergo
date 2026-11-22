@@ -871,7 +871,7 @@ func ergoOperations(v Type) bool {
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
-// the check is linear in the method count (#122).
+// the check is linear in the method count.
 func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	return c.implementsCapturing(v, it, checkReceiver, nil)
 }
@@ -881,7 +881,7 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 // admitted, and *capture is set when v implements it with such a method:
 // the site that builds the provider holds go.Foreign for it, as a provider
 // built by a constructor captures what its constructor needed (README Gap
-// 17; #37 for every other capability). go.Foreign has no provider value
+// 17; context construction for every other capability). go.Foreign has no provider value
 // (rows.md, Entry 4), so the operation's Go call needs nothing at run time
 // that the build site did not have.
 func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *bool) string {
@@ -971,7 +971,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			extra := gu.minus(c.types, m.Sig.Uses)
 			if capture == nil || !goForeignRow(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with context construction)", v, m.Name, rowText(extra))
 			}
 			foreign = true
 		}

@@ -101,7 +101,7 @@ func TestGlossaryHasNoWireConstruct(t *testing.T) {
 	word := regexp.MustCompile(`(?i)\bwires?\b`)
 	for n, line := range strings.Split(string(data), "\n") {
 		if m := term.FindStringSubmatch(line); m != nil && word.MatchString(m[1]) {
-			t.Errorf("GLOSSARY.md:%d: the term %q names the construct by its old word; it is context (196w)", n+1, m[1])
+			t.Errorf("GLOSSARY.md:%d: the term %q names the construct by its old word; it is context", n+1, m[1])
 		}
 	}
 }

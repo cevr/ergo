@@ -14,7 +14,7 @@ func (p Pos) IsValid() bool { return p >= 0 }
 type Token int
 
 // The tokens. Keywords are the 28 of the decided grammar
-// (docs/spec/grammar.md, Keywords) plus `as` (#196, ninth round). The 15 Go
+// (docs/spec/grammar.md, Keywords) plus `as` (ninth round). The 15 Go
 // keywords Ergo does not use are reserved: they lex as their own tokens, so
 // no name can use them and the parser names the Ergo form for each
 // (removedForms). replace, initial and step are contextual and lex as IDENT.

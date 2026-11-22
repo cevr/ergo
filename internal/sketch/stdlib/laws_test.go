@@ -397,7 +397,7 @@ func Wire(p Port) []string { []string{"p"} }
 // TestStdLawLedger: each law of std source has exactly one ledger row, each
 // row names a law of std source, the row's statement is the law's source
 // text, its runner is a Go test that a runner package declares and that runs
-// its laws through lawledger.Run (or #162 for a law no Go test can run
+// its laws through lawledger.Run (or laws and proofs for a law no Go test can run
 // yet), and its state follows from the runner. lawledger.Run then holds,
 // when the runner runs, that it restates each of its rows' laws with the
 // row's statement and runs it.
@@ -421,7 +421,7 @@ func TestStdLawLedger(t *testing.T) {
 		}
 		runsLaws, declared := tests[r.Runner]
 		switch {
-		case r.Runner == "#162":
+		case r.Runner == "none":
 			if r.State != "checked" {
 				t.Errorf("stdlib.md:%d: %s has no Go runner, so its state is checked, not %q", r.Line, key, r.State)
 			}

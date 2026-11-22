@@ -109,8 +109,8 @@ func zeroAuthority(t Type, from *Package) *TypeName {
 // Constructible reports whether package from may build a value of t from
 // its parts: false when t, or a type a value of t holds (a field, a tuple,
 // slice or Map element or key, a union variant, at any depth), is a record
-// with an unexported field declared in another package. Generators (#162),
-// codecs (#49) and refinements read it, and build such a type only through
+// with an unexported field declared in another package. Generators,
+// codecs and refinements read it, and build such a type only through
 // its package's exported functions (docs/decisions.md, 2026-11-03 (a)).
 func Constructible(t Type, from *Package) bool {
 	seen := map[Type]bool{}

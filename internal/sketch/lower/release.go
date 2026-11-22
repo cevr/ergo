@@ -37,7 +37,7 @@ const (
 	frameRelease
 )
 
-// No generated Close route exists: aggregate Close synthesis is #197. A
+// No generated Close route exists: aggregate Close synthesis is resource ownership. A
 // generated Close declares its route here, or lowers as a checked Close.
 
 // isClose reports a checked Close: the checker's identity fact on f's
@@ -363,7 +363,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 	fc.line(fc.glueWith(own, x, "", env, drop, "func() { "+call+" }", site))
 }
 
-// Owned values (#197 L8 B1; resources R5-R10, R21, R41, R43). The checker
+// Owned values (L8 B1; resources R5-R10, R21, R41, R43). The checker
 // gives each owned local, taken parameter and temporary its release
 // (Info.OwnedVars, Info.OwnedTemps), marks each hand-off (Info.Handoffs)
 // and records the release plan (Info.Releases). The lowering registers
@@ -399,7 +399,7 @@ func (fc *funcCtx) ownRelease(d *check.Drop, t check.Type, site syntax.Node) str
 	return "func(" + v + " " + fc.goType(t) + ") { " + text + " }"
 }
 
-// Generated release (#197 L8 B2; resources R3, R37, R39, Gap 36): the
+// Generated release (L8 B2; resources R3, R37, R39, Gap 36): the
 // checker's Drop graph of the value's type, written as one Go function
 // literal at the registration. Each part's checked Close runs through one
 // v1.Drop, after an earlier part's defect, every defect kept (R9); a type

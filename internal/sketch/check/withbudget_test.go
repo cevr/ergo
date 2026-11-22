@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The with budget (withbudget.go; E5 round 2, #229 done-when 1).
+// The with budget (withbudget.go; E5 round 2, done-when 1).
 
 // checkWithBudget checks src with the package's with budget replaced by
 // limit, or the real budget when limit is nil.

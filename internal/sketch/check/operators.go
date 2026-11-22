@@ -245,7 +245,7 @@ func isComparison(op syntax.Token) bool {
 
 // binary checks Go's binary operators on Go's operand types (README Gap 10,
 // types.md Operators), with exact constant arithmetic. duration takes +, -,
-// comparisons and equality with another duration only (D2; #175).
+// comparisons and equality with another duration only (D2).
 func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 	if x.Op == syntax.SHL || x.Op == syntax.SHR {
 		return c.shift(x, hint)
@@ -360,7 +360,7 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 		}
 	}
 	if (x.Op == syntax.MUL || x.Op == syntax.QUO) && isDuration(l.typ) && isInteger(r.typ) {
-		// #175: duration has no arithmetic with an integer yet; the
+		// Duration literals: duration has no arithmetic with an integer yet; the
 		// conversion is the repair, not a duration literal (K4, G-ex-b-4).
 		d, n := exprText(x.X), exprText(x.Y)
 		if d == "this expression" {
@@ -376,7 +376,7 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 				n = "int64(" + n + ")"
 			}
 		}
-		c.errorf(x, CodeType, "a duration is not multiplied or divided by an integer (#175); write duration(int64(%s) %s %s)", d, x.Op, n)
+		c.errorf(x, CodeType, "a duration is not multiplied or divided by an integer; write duration(int64(%s) %s %s)", d, x.Op, n)
 		return false
 	}
 	switch ll, rl := c.isLiteral(x.X), c.isLiteral(x.Y); {

@@ -453,7 +453,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
 	// kernel tests that checkout explicitly: set, any problem with it (a
 	// missing directory, a go.mod Go refuses, another module) fails them, and
-	// they skip only when it is unset (#218). The tests build and run programs
+	// they skip only when it is unset. The tests build and run programs
 	// against that runtime through a go build subprocess, whose reads Go's test
 	// cache cannot see, so they run uncached; env sets the variable, which the
 	// filtered environment of a plain go test step would drop.

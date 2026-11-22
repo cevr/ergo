@@ -7,7 +7,7 @@ import (
 )
 
 // CodeSyntax is the one registered syntax code (docs/spec/diagnostics.md,
-// S001). Later syntax codes are S0xx and come from the #79 registry.
+// S001). Later syntax codes are S0xx and come from the diagnostic-code registry.
 const CodeSyntax = "S001"
 
 // Error is a located syntax error. Offset and Length are a byte span into

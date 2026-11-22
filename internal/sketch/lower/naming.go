@@ -27,7 +27,7 @@ import (
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
-//     (calls.go, #230), the package initializer (decls.go, initFunc), the
+//     (calls.go), the package initializer (decls.go, initFunc), the
 //     machine graph accessor and its pair type (machine.go, graphAccessor), the
 //     type-set interfaces of ordered and number (decls.go, constraint) and
 //     the imports of the Go packages that user externs target, in path

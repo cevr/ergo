@@ -1,4 +1,4 @@
-// spike-where prototype (#116), option (b): where-clause dispatch.
+// spike-where prototype, option (b): where-clause dispatch.
 // One generic sort and one map key, as ordinary library code. Nothing here
 // is known to the compiler by name: `compare`, `hash` and `equals` are the
 // method names this library's where clauses ask for.
@@ -28,7 +28,7 @@ fn sort2<T: type>(x: T, y: T) -> Three<T> where T.compare: fn(T, T) -> i64 {
 }
 
 // A three-element sorting network. Effra has no sequence type yet (no
-// recursive generic data, EF127; typed buffers are #120), so the sort is
+// recursive generic data, EF127; typed buffers are typed numeric buffers), so the sort is
 // fixed-size; the dispatch is what the prototype measures.
 fn sort3<T: type>(xs: Three<T>) -> Three<T> where T.compare: fn(T, T) -> i64 {
     let ab = sort2(xs.a, xs.b)

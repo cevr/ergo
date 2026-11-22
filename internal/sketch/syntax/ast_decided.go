@@ -2,7 +2,7 @@ package syntax
 
 import "strconv"
 
-// ---------------------------------------------------------------- decided-grammar nodes (#196)
+// ---------------------------------------------------------------- decided-grammar nodes
 
 // ExternSpec is the binding of an extern declaration: `extern go
 // path.Func`. Target is the unquoted target token (Kind PATH); its function
@@ -271,7 +271,7 @@ func (v *VariantSpec) End() Pos { return v.Fields.End() }
 func (*VariantSpec) exprNode()  {}
 
 // AsPattern is `P as name`: it matches P and binds the matched value,
-// narrowed to P's type, to name (#196, ninth round).
+// narrowed to P's type, to name (ninth round).
 type AsPattern struct {
 	X    Expr
 	As   Pos
