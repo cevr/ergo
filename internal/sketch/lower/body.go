@@ -268,8 +268,13 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // innerFuncCtx opens a new frame while retaining the enclosing signature's
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
+// A copy's known records and providers (recs, provs) are facts about its
+// parameters, which a literal captures as they are (a parameter is never
+// reassigned): a provider read inside the literal is still the adapter's
+// pointer, which the IR converts where the interface is wanted
+// (PROV-COPY-CLOSURE).
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, marks: fc.marks, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, marks: fc.marks, owner: fc.owner, witness: fc.witness, static: fc.static, recs: fc.recs, provs: fc.provs, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.

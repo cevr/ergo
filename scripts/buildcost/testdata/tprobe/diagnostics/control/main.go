@@ -119,7 +119,10 @@ func check(src string, offset int, msg string) (why string) {
 	if err != nil {
 		return "parse: " + err.Error()
 	}
-	f := strings.SplitN(failure, " ", 6)
+	// The first line is "code offset length line column message"; any
+	// further line is an edit of the error's fix (compiler/syntax/dump).
+	first, _, _ := strings.Cut(failure, "\n")
+	f := strings.SplitN(first, " ", 6)
 	if len(f) < 6 {
 		return fmt.Sprintf("got %q, want S001", failure)
 	}
