@@ -1,7 +1,7 @@
 // Command control is writerbench's hand Go twin (W1), run as
 // `control bench KIND N`: a record, or a list of four, written N times by
-// a hand encoder on a Go Writer interface, whose writer adds up the size
-// each event would take as JSON text, as writerbench's sizer does.
+// a hand encoder on a Go Writer interface whose writer does nothing, as
+// writerbench's sizer does.
 package main
 
 import (
@@ -39,28 +39,22 @@ type Writer interface {
 	EndObject()
 }
 
-type sizer struct{ n int }
+type sizer struct{ id int }
 
-func (s *sizer) Null()           { s.n += 4 }
-func (s *sizer) Number(t string) { s.n += len(t) }
-func (s *sizer) Bool(b bool) {
-	if b {
-		s.n += 4
-	} else {
-		s.n += 5
-	}
-}
-func (s *sizer) Int(int64)            { s.n += 8 }
-func (s *sizer) Uint(uint64)          { s.n += 8 }
-func (s *sizer) Float(float64)        { s.n += 8 }
-func (s *sizer) String(x string)      { s.n += len(x) + 2 }
-func (s *sizer) StringBytes(b []byte) { s.n += len(b) + 2 }
-func (s *sizer) BeginList(int)        { s.n++ }
-func (s *sizer) EndList()             { s.n++ }
-func (s *sizer) BeginObject(int)      { s.n++ }
-func (s *sizer) Tag(name string)      { s.n += len(name) }
-func (s *sizer) Key(k string)         { s.n += len(k) + 3 }
-func (s *sizer) EndObject()           { s.n++ }
+func (s sizer) Null()              {}
+func (s sizer) Number(string)      {}
+func (s sizer) Bool(bool)          {}
+func (s sizer) Int(int64)          {}
+func (s sizer) Uint(uint64)        {}
+func (s sizer) Float(float64)      {}
+func (s sizer) String(string)      {}
+func (s sizer) StringBytes([]byte) {}
+func (s sizer) BeginList(int)      {}
+func (s sizer) EndList()           {}
+func (s sizer) BeginObject(int)    {}
+func (s sizer) Tag(string)         {}
+func (s sizer) Key(string)         {}
+func (s sizer) EndObject()         {}
 
 //go:noinline
 func putBox(w Writer, b box) {
@@ -98,7 +92,7 @@ func main() {
 	if err != nil {
 		os.Exit(2)
 	}
-	s := &sizer{}
+	s := sizer{id: 1}
 	for i := 0; i < n; i++ {
 		if os.Args[2] == "list" {
 			putList(s, four)
@@ -106,5 +100,5 @@ func main() {
 		}
 		putBox(s, one)
 	}
-	fmt.Println(s.n)
+	fmt.Println(n)
 }

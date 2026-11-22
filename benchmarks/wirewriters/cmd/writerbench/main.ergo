@@ -8,14 +8,13 @@
 // KIND record: a record written N times; KIND list: a list of four
 // records written N times. Each write encodes by put, whose writer is the
 // Writer interface, so the encoder that runs is the interface one
-// (ergoEncode*), not a direct one. The writer is sizer, which adds up the
-// size each event would take as JSON text, so the work counted is the
-// encoder's and its interface calls, not a format's. One unit is one
-// write.
+// (ergoEncode*), not a direct one. The writer, sizer, has no state: each
+// event is a call that does nothing, so what is counted is the encoder,
+// its dispatch and the conversion of the sizer to a Writer at each write
+// (WRITER-IFACE-8X). One unit is one write.
 
 import os
 import strconv
-import sync
 
 type box { Label string, Count int, Tags []string, Weight float64 }
 
@@ -23,25 +22,23 @@ let one = box{Label: "crate", Count: 12, Tags: []string{"wood", "heavy"}, Weight
 
 let four = []box{one, one, one, one}
 
-// sizer adds up the size of the events written to it.
-type sizer { n sync.Ref[int] } implements Writer
+// sizer has no state: each event is a call that does nothing.
+type sizer { id int } implements Writer
 
-func add(s sizer, k int) { s.n.Set(s.n.Get() + k) }
-
-func Null(s sizer)                  { add(s, 4) }
-func Number(s sizer, text string)   { add(s, len(text)) }
-func Bool(s sizer, b bool)          { add(s, if b { 4 } else { 5 }) }
-func Int(s sizer, n int64)          { add(s, 8) }
-func Uint(s sizer, n uint64)        { add(s, 8) }
-func Float(s sizer, f float64)      { add(s, 8) }
-func String(s sizer, x string)      { add(s, len(x) + 2) }
-func StringBytes(s sizer, b []byte) { add(s, len(b) + 2) }
-func BeginList(s sizer, n int)      { add(s, 1) }
-func EndList(s sizer)               { add(s, 1) }
-func BeginObject(s sizer, n int)    { add(s, 1) }
-func Tag(s sizer, name string)      { add(s, len(name)) }
-func Key(s sizer, k string)         { add(s, len(k) + 3) }
-func EndObject(s sizer)             { add(s, 1) }
+func Null(s sizer)                  {}
+func Number(s sizer, text string)   {}
+func Bool(s sizer, b bool)          {}
+func Int(s sizer, n int64)          {}
+func Uint(s sizer, n uint64)        {}
+func Float(s sizer, f float64)      {}
+func String(s sizer, x string)      {}
+func StringBytes(s sizer, b []byte) {}
+func BeginList(s sizer, n int)      {}
+func EndList(s sizer)               {}
+func BeginObject(s sizer, n int)    {}
+func Tag(s sizer, name string)      {}
+func Key(s sizer, k string)         {}
+func EndObject(s sizer)             {}
 
 func putBox(w Writer, b box) {
 	encode(b, w)
@@ -51,9 +48,9 @@ func putList(w Writer, bs []box) {
 	encode(bs, w)
 }
 
-// bench is the size of N writes.
+// bench writes n times and is n.
 func bench(kind string, n int) int {
-	let s = sizer{n: sync.NewRef[int](0)}
+	let s = sizer{id: 1}
 	for _ in 0..n {
 		if kind == "list" {
 			putList(s, four)
@@ -61,7 +58,7 @@ func bench(kind string, n int) int {
 			putBox(s, one)
 		}
 	}
-	s.n.Get()
+	n
 }
 
 func main() fails os.Exit needs Console | Ambient {
