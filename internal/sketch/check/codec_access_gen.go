@@ -2561,6 +2561,7 @@ type CodecFields_typeTable struct {
 	F_empty        *int32
 	F_gen          *int32
 	F_b            **lookupSteps
+	F_rowOf        *func(*Named) *Row
 	F_lookupBuilds *int
 	F_sigBuilds    *int
 	F_sortCmps     *int
@@ -2568,7 +2569,7 @@ type CodecFields_typeTable struct {
 }
 
 func CodecFieldsOf_typeTable(v *typeTable) CodecFields_typeTable {
-	return CodecFields_typeTable{F_nodes: &v.nodes, F_sizes: &v.sizes, F_empty: &v.empty, F_gen: &v.gen, F_b: &v.b, F_lookupBuilds: &v.lookupBuilds, F_sigBuilds: &v.sigBuilds, F_sortCmps: &v.sortCmps, F_work: &v.work}
+	return CodecFields_typeTable{F_nodes: &v.nodes, F_sizes: &v.sizes, F_empty: &v.empty, F_gen: &v.gen, F_b: &v.b, F_rowOf: &v.rowOf, F_lookupBuilds: &v.lookupBuilds, F_sigBuilds: &v.sigBuilds, F_sortCmps: &v.sortCmps, F_work: &v.work}
 }
 
 type CodecFields_typeWalker struct {

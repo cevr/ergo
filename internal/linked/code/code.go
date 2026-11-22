@@ -25612,10 +25612,6 @@ func Describe_3(f Failure_1) string {
 	}
 }
 
-type Failure_1 interface{ isFailure_1() }
-
-func (Help) isFailure_1() {}
-
 type Unknown struct {
 	Name string
 }
@@ -25624,8 +25620,6 @@ func (e Unknown) Error() string {
 	return "Unknown" + textUnknown(e)
 }
 
-func (Unknown) isFailure_1() {}
-
 type NeedsValue struct {
 	Name string
 }
@@ -25633,8 +25627,6 @@ type NeedsValue struct {
 func (e NeedsValue) Error() string {
 	return "NeedsValue" + textNeedsValue(e)
 }
-
-func (NeedsValue) isFailure_1() {}
 
 type Invalid struct {
 	Name   string
@@ -25646,8 +25638,6 @@ func (e Invalid) Error() string {
 	return "Invalid" + textInvalid(e)
 }
 
-func (Invalid) isFailure_1() {}
-
 type Missing_1 struct {
 	Name string
 }
@@ -25656,8 +25646,6 @@ func (e Missing_1) Error() string {
 	return "Missing" + textMissing_1(e)
 }
 
-func (Missing_1) isFailure_1() {}
-
 type Extra struct {
 	Text string
 }
@@ -25665,8 +25653,6 @@ type Extra struct {
 func (e Extra) Error() string {
 	return "Extra" + textExtra(e)
 }
-
-func (Extra) isFailure_1() {}
 
 type UnknownCommand struct {
 	Name  string
@@ -25678,7 +25664,7 @@ func (e UnknownCommand) Error() string {
 	return "UnknownCommand" + textUnknownCommand(e)
 }
 
-func (UnknownCommand) isFailure_1() {}
+type Failure_1 = error
 
 func Encode_2[T any](env *Env, wT struct {
 	Enc     func(*Env, Writer_1, T) (struct{}, error)

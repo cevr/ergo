@@ -171,6 +171,10 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		pass()
 	}
 	c.publishErrorTypes()
+	// The named-row hook reads this checker (namedrow.go); the published
+	// table holds no function (the std snapshot exports it), and a
+	// package that imports this one reads its rows from its error types.
+	c.types.rowOf = nil
 	c.cur = nil
 	c.pkg.withSpent = c.withs.used + 1
 	return c.pkg
