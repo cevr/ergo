@@ -1166,7 +1166,7 @@ func (g *gate) run(out io.Writer) int {
 		var red *redStep
 		switch r.outcome {
 		case failed:
-			red = redsOf(g.reds, step.Name)
+			red = redsOf(g.reds, g.root, step.Name)
 			destination = io.MultiWriter(destination, red)
 		case blocked:
 			g.reds[redKey(stepFamily(step.Name), "", "not run")]++

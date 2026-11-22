@@ -8,9 +8,9 @@ import (
 )
 
 // redsOfOutput is the red lines of one failed step's printed output.
-func redsOfOutput(t *testing.T, set redSet, step, output string) {
+func redsOfOutput(t *testing.T, set redSet, root, step, output string) {
 	t.Helper()
-	w := redsOf(set, step)
+	w := redsOf(set, root, step)
 	if _, err := fmt.Fprint(w, output); err != nil {
 		t.Fatal(err)
 	}
@@ -20,20 +20,23 @@ func redsOfOutput(t *testing.T, set redSet, step, output string) {
 // A test red on the base hides no new line in it: the comparison is by
 // failure line (kills reds-compare-by-test-name), and a line that only
 // moved, to another line number, another shard or another time, is the
-// base's line (kills reds-position-sensitive). The record a run writes
+// base's line (kills reds-position-sensitive), and so is a path under
+// another checkout's folder (kills reds-root-kept). The record a run writes
 // reads back as the set it was (the base's side of -new-reds).
 func TestRedsCompareByFailureLine(t *testing.T) {
 	base, head := redSet{}, redSet{}
-	redsOfOutput(t, base, "go test ./internal/sketch/stdlib [1/2]",
+	redsOfOutput(t, base, "/w/main", "go test ./internal/sketch/stdlib [1/2]",
 		"--- FAIL: TestStdGoShareOnlyFalls (0.20s)\n"+
 			"    goshare_test.go:45: hmac.keyState has no row\n"+
 			"    goshare_test.go:45: sql.pool has no row\n"+
+			"    goshare_test.go:47: /w/main/internal/sketch/check/mappedtext.go:77: not inventoried\n"+
 			"FAIL\n"+
 			"FAIL\tergo.local/prototype/internal/sketch/stdlib\t0.31s\n")
-	redsOfOutput(t, head, "go test ./internal/sketch/stdlib [2/3]",
+	redsOfOutput(t, head, "/w/lane", "go test ./internal/sketch/stdlib [2/3]",
 		"--- FAIL: TestStdGoShareOnlyFalls (0.42s)\n"+
 			"    goshare_test.go:46: hmac.keyState has no row\n"+
 			"    goshare_test.go:46: json.isNumber has no row\n"+
+			"    goshare_test.go:48: /w/lane/internal/sketch/check/mappedtext.go:77: not inventoried\n"+
 			"FAIL\n"+
 			"FAIL\tergo.local/prototype/internal/sketch/stdlib\t0.29s")
 	added, fixed := compareReds(base, head)

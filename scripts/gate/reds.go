@@ -40,11 +40,15 @@ type redStep struct {
 	step string
 	test string
 	part []byte
+	// root is the checkout's folder: base and head run in different
+	// checkouts, so a path under it counts by its path in the module.
+	root string
 }
 
-// redsOf starts collecting the lines of the failed step name into set.
-func redsOf(set redSet, name string) *redStep {
-	return &redStep{set: set, step: stepFamily(name)}
+// redsOf starts collecting the lines of the failed step name, run in the
+// checkout root, into set.
+func redsOf(set redSet, root, name string) *redStep {
+	return &redStep{set: set, step: stepFamily(name), root: root}
 }
 
 func (w *redStep) Write(p []byte) (int, error) {
@@ -73,6 +77,9 @@ func (w *redStep) Close() error {
 // test that fails with no message still counts.
 func (w *redStep) line(text string) {
 	trimmed := strings.TrimSpace(text)
+	if w.root != "" {
+		trimmed = strings.ReplaceAll(trimmed, w.root+"/", "")
+	}
 	if trimmed == "" || trimmed == "FAIL" || strings.HasPrefix(trimmed, "=== ") {
 		return
 	}
