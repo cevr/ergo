@@ -156,8 +156,17 @@ func TestHashThroughProviderAgrees(t *testing.T) {
 			fail("%v", err)
 			continue
 		}
-		if len(rep.Results) != 1 || string(rep.Results[0].Status) != "passed" {
-			fail("the evaluator says %+v", rep.Results)
+		// V passes, and none of Mod's Hashing laws is refuted (those
+		// with a where over earlier parameters wait for the test binary).
+		passed := false
+		for _, r := range rep.Results {
+			passed = passed || r.Name == "V" && string(r.Status) == "passed"
+			if string(r.Status) == "refuted" || string(r.Status) == "defect" {
+				fail("the evaluator says %s is %s: %s", r.Name, r.Status, r.Reason)
+			}
+		}
+		if !passed {
+			fail("the evaluator does not pass V: %+v", rep.Results)
 		}
 	}
 }
