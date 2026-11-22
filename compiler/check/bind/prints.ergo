@@ -106,9 +106,10 @@ func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
 			(0, 0)
 		}
 	case syntax.TestDecl as td:
+		// A harness member `test H` has no body.
 		match dense.Unpack(td.Body) {
-		case Some{Value: body}:
-			(syntax.NodePos(p, body), syntax.NodeEnd(p, body))
+		case Some{Value: tb}:
+			(syntax.NodePos(p, tb), syntax.NodeEnd(p, tb))
 		case None:
 			(0, 0)
 		}
