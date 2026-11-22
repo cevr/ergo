@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std/gostd"
 	v1 "ergo.local/prototype/runtime/v1"
@@ -35,6 +36,21 @@ type goTarget struct {
 	params             []string // Ergo type texts
 	vals               []string // Go results but a last error, mapped
 	errs, foreign      bool
+	// host is a row of gofacts.Hosts: its tier row is needs Ambient
+	// (HOST-ROW), not go.Foreign.
+	host bool
+}
+
+// tierRow is the needs row of g's tier: Ambient for a host row, go.Foreign
+// for the foreign tier, none for the reviewed pure tier.
+func tierRow(g goTarget) string {
+	switch {
+	case g.host:
+		return "Ambient"
+	case g.foreign:
+		return "go.Foreign"
+	}
+	return ""
 }
 
 // level2Ref maps a Go type expression of package pn to the Ergo type text
@@ -117,6 +133,7 @@ func level2Targets(t *testing.T, path string) []goTarget {
 			}
 			tg := goTarget{path: path, name: fd.Name.Name}
 			tg.foreign = !slices.Contains(v1.PureImports, path) || slices.Contains(v1.PureImportsExcept()[path], fd.Name.Name)
+			_, tg.host = gofacts.HostOf(path + "." + fd.Name.Name)
 			var results []ast.Expr
 			if fd.Type.Results != nil {
 				for _, r := range fd.Type.Results.List {
@@ -173,7 +190,8 @@ func goSigText(fset *token.FileSet, fd *ast.FuncDecl) string {
 // written is a generated user extern signature.
 type written struct {
 	params, results []string
-	fails, needs    bool
+	fails           bool
+	needs           string // the written needs row, "" for none
 }
 
 func (w written) text(name, target string) string {
@@ -192,8 +210,8 @@ func (w written) text(name, target string) string {
 	if w.fails {
 		s += " fails go.Error"
 	}
-	if w.needs {
-		s += " needs go.Foreign"
+	if w.needs != "" {
+		s += " needs " + w.needs
 	}
 	return s
 }
@@ -203,7 +221,7 @@ func (w written) text(name, target string) string {
 // table: identical parameters, the binding's tier row, and one of Same,
 // Non-nil, Option or Partial for the results and the fails row.
 func level2Admits(g goTarget, w written) bool {
-	if !slices.Equal(g.params, w.params) || w.needs != g.foreign {
+	if !slices.Equal(g.params, w.params) || w.needs != tierRow(g) {
 		return false
 	}
 	inner := func(s string) (string, bool) {
@@ -236,7 +254,7 @@ func level2Admits(g goTarget, w written) bool {
 // of the adapters, or a near miss of one (a parameter, a row or a result
 // changed), so the relation is probed on both sides.
 func level2Write(r *rand.Rand, g goTarget) written {
-	w := written{params: slices.Clone(g.params), results: slices.Clone(g.vals), fails: g.errs, needs: g.foreign}
+	w := written{params: slices.Clone(g.params), results: slices.Clone(g.vals), fails: g.errs, needs: tierRow(g)}
 	others := []string{"string", "int", "bool", "int64", "[]string"}
 	for range 1 + r.IntN(2) {
 		switch r.IntN(12) {
@@ -256,8 +274,9 @@ func level2Write(r *rand.Rand, g goTarget) written {
 			w.fails = r.IntN(4) == 0
 		case 4:
 			w.fails = !w.fails
-		case 5:
-			w.needs = !w.needs
+		case 5: // another tier's row
+			rows := slices.DeleteFunc([]string{"", "go.Foreign", "Ambient"}, func(s string) bool { return s == w.needs })
+			w.needs = rows[r.IntN(len(rows))]
 		case 6:
 			if len(w.params) > 0 {
 				w.params[r.IntN(len(w.params))] = others[r.IntN(len(others))]
@@ -313,13 +332,15 @@ func TestLevel2AdapterRelation(t *testing.T) {
 		case len(g.vals) == 1 && strings.HasPrefix(g.vals[0], "Option["):
 			kinds["nullable"]++
 		}
-		if g.foreign {
+		if g.host {
+			kinds["host"]++
+		} else if g.foreign {
 			kinds["foreign"]++
 		} else {
 			kinds["pure"]++
 		}
 	}
-	for _, k := range []string{"error", "(T, bool)", "nullable", "foreign", "pure"} {
+	for _, k := range []string{"error", "(T, bool)", "nullable", "foreign", "pure", "host"} {
 		if kinds[k] == 0 {
 			t.Fatalf("no drawn target is %s: the property misses that side (%v)", k, kinds)
 		}

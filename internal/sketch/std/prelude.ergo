@@ -721,9 +721,11 @@ extern go ergo.local/prototype/runtime/v1.Unreachable func Unreachable(reason st
 
 // AsWritten is v. A call tree inside it is kept as written: a rewrite law
 // over functions never takes it as its root or a part of its match
-// (docs/spec/types.md, Laws 14). The lowering knows it by its body's mark
-// (//ergo:aswritten), never by its name.
-extern go ergo.local/prototype/runtime/v1.AsWritten func AsWritten[T](v T) T
+// (docs/spec/types.md, Laws 14). The lowering knows it by the line below,
+// which any package may write above its own identity, never by its name.
+//
+// ergo:aswritten
+func AsWritten[T](v T) T { v }
 
 // Seq is an iterator: it calls yield with each value in turn and stops
 // when yield returns false. `for v in s` runs the loop body as yield, and a

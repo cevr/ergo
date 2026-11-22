@@ -51,6 +51,16 @@ func (l *lowerer) wireOwnRead(tc *typeCtx, b *strings.Builder, t check.Type, env
 	if !ok {
 		return false
 	}
+	if _, emitted := l.adapters[key]; !emitted {
+		// The naming pass named the adapter, but no conversion lowered
+		// so far emitted it (it may come later, or never): the assertion
+		// below names it, so it is emitted now, once.
+		conv, ok := l.adapterConvs[key]
+		if !ok {
+			return false
+		}
+		newFuncCtx(l, newNamer(l.names), false).operations(conv, "nil", tc.site)
+	}
 	a, is := scope.alloc("own"), scope.alloc("ok")
 	b.WriteString("if " + a + ", " + is + " := " + r + ".(*" + name + "); " + is + " {\n" + call(a+".v") + "}\n")
 	return false

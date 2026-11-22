@@ -729,6 +729,11 @@ type irBuilder struct {
 	// forms are the body's form sites (ir_forms_report.go), kept with its
 	// IR body.
 	forms []FormSite
+	// amort is the counter of the quiet loop nest being built, nil
+	// outside one; pollSites are the polls of each loop being built,
+	// innermost last: its back edge's and its continues' (ir_poll.go).
+	amort     *pollAmort
+	pollSites [][]*irStmt
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
