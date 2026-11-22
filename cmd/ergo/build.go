@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -299,8 +300,8 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 		return fmt.Errorf("-go-text: %w", err)
 	}
 	// The spike's driver keys its own Go cache by the compile's content,
-	// beside the patched release.
-	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(filepath.Dir(action.Root), "gocache")}
+	// in the patched release's writable folder (the entry is read-only).
+	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(toolchain.PatchedWork(action.Root), "gocache")}
 	dir, err := filepath.Abs(opts.goText)
 	if err != nil {
 		return err
@@ -583,7 +584,15 @@ func runEntryProcess(child *exec.Cmd, limit uint64, watch *proclimit.Watcher) er
 		return err
 	}
 	done := make(chan error, 1)
-	go func() { done <- child.Wait() }()
+	go func() {
+		if watch != nil {
+			// Its output is piped through the watcher: wait for every byte,
+			// with what it left behind ended (proclimit.Wait).
+			done <- proclimit.Wait(context.Background(), child)
+			return
+		}
+		done <- child.Wait()
+	}()
 	forwarded := map[syscall.Signal]bool{}
 	for {
 		select {

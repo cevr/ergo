@@ -279,6 +279,36 @@ func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | w
 	c.disk.Set(Disk{..d, trees: trees})
 }
 
+// Placeable: the model has no folders to make; staging on another
+// volume than home is NotSameVolume.
+func Placeable(c Cloner, staging string, home string) fails work.NotSameVolume | work.CloneFailed {
+	let d = c.disk.Get()
+	if volumeOf(d, staging) != volumeOf(d, home) {
+		return work.NotSameVolume{From: staging, To: home}
+	}
+}
+
+// Place moves the tree at from to to on one volume; across volumes it is
+// NotSameVolume and nothing moves (a rename, never a copy).
+func Place(c Cloner, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	let tree = match d.trees.Get(from) {
+	case Some[Map[string, int]] as t:
+		t.Value
+	case None:
+		return work.Missing{Path: from}
+	}
+	if held(d, to) || inner(d, to) != None {
+		return work.Exists{Path: to}
+	}
+	if volumeOf(d, from) != volumeOf(d, to) {
+		return work.NotSameVolume{From: from, To: to}
+	}
+	let mut trees = d.trees.Delete(from)
+	trees[to] = tree
+	c.disk.Set(Disk{..d, trees: trees})
+}
+
 // Discard deletes the tree at root, or the files under a folder inside
 // a tree.
 func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
@@ -558,7 +588,7 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	case _:
 		return false
 	}
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false, Repair: false}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false, Here: false, Repair: false}) catch {
 	case _:
 		return false
 	}
@@ -614,7 +644,7 @@ func riftWorldOf(parents []int, bad []int) riftWorld {
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("sqlite3", []string{"-readonly", "-json", riftFile, work.RiftQuery})): exec.Result{Status: 0, Stdout: answer, Stderr: ""}}}
 	let lock = NewLock()
 	let registry = NewRegistry()
-	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: disk, Writes: disk, Runner: runner, Clock: time.NewManual(1000)}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: time.NewManual(1000)}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = tool.Init() catch {
 	case _:

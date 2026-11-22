@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -144,9 +145,31 @@ func drawRun(t *testing.T, bin, pic string, exists bool, script string, args ...
 	cmd := bounded(bin, append(args, "pic.svg")...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(script)
-	o, err := cmd.CombinedOutput()
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err = cmd.Run()
 	data, rerr := os.ReadFile(path)
-	return string(o), err, string(data), rerr == nil
+	out = stdout.String()
+	if err != nil {
+		// A failed run's message is part of what the legs agree on.
+		return out + stderr.String(), err, string(data), rerr == nil
+	}
+	if rest := withoutSpillWarning(stderr.String()); rest != "" {
+		t.Errorf("%s %v wrote to standard error on a run that passed:\n%s", filepath.Base(bin), args, rest)
+	}
+	return out, err, string(data), rerr == nil
+}
+
+// spillWarning is the warning MyGo's ui package logs once when a frame's
+// paths outgrow its mask atlas (ui/path_spill.go): the MyGo-direct control
+// draws on MyGo's widgets and may print it, the Ergo legs never do. It is
+// a note about how the control drew, not part of what it prints.
+var spillWarning = regexp.MustCompile(`(?m)^\d{4}/\d\d/\d\d \d\d:\d\d:\d\d mygo: drawing paths on the CPU: the mask atlas has no room for their masks, as for many large paths that change every frame; opaque StrokePolyline lines draw without masks on a GPU\n`)
+
+// withoutSpillWarning is stderr without the one spill warning a run may
+// log; anything else on a passing run's stderr fails the test.
+func withoutSpillWarning(stderr string) string {
+	return spillWarning.ReplaceAllString(stderr, "")
 }
 
 // TestDrawGuiOnTheDesktop is GP3c's agreement: for seeded pictures and
