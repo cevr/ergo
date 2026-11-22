@@ -130,6 +130,17 @@ func (g *ugen) program() string {
 	// A named scalar.
 	fmt.Fprintf(&g.b, "func stretch(m Meters, by Meters) Meters {\n\tlet mut r = m\n\tif r < %d {\n\t\tr += by * %d\n\t}\n\tr - 1\n}\n\n", g.n(20), 1+g.n(3))
 	g.b.WriteString("func meters(m Meters) int {\n\tlet mut n = 0\n\tlet mut x = m\n\tfor x > 0 {\n\t\tx = x - 7\n\t\tn += 1\n\t}\n\tn\n}\n\n")
+	// A sub-union into its union (ConvWiden), and a row value into a
+	// union with some error variants (ConvRow): both are flat unions
+	// whenever Small is, which the emitter converts by a switch.
+	g.b.WriteString("type AB = A | B\n\n")
+	fmt.Fprintf(&g.b, "func ab(i int) AB {\n\tif i %% 2 == 0 {\n\t\tA\n\t} else {\n\t\tB{N: i * %d}\n\t}\n}\n\n", 1+g.n(3))
+	g.b.WriteString("func widen(x AB) Small { x }\n\n")
+	g.b.WriteString("type Short { n int }\n\ntype Bad { code int }\n\ntype Got = A | B | Short | Bad\n\n")
+	lo, hi := g.n(3), 4+g.n(3)
+	fmt.Fprintf(&g.b, "func fetchU(i int) int fails Short | Bad {\n\tif i < %d {\n\t\treturn Short{n: i}\n\t}\n\tif i > %d {\n\t\treturn Bad{code: i}\n\t}\n\ti\n}\n\n", lo, hi)
+	g.b.WriteString("func got(i int) Got {\n\tlet n = fetchU(i) catch {\n\tcase err:\n\t\tlet g Got = err\n\t\treturn g\n\t}\n\tB{N: n}\n}\n\n")
+	g.b.WriteString("func gotN(g Got) int {\n\tmatch g {\n\tcase A:\n\t\t0\n\tcase B as b:\n\t\tb.N\n\tcase Short as s:\n\t\ts.n + 10\n\tcase Bad as b:\n\t\tb.code + 100\n\t}\n}\n\n")
 	g.trees() // gen_tree.go
 	g.main()
 	return g.b.String()
@@ -149,6 +160,7 @@ func (g *ugen) main() {
 		x := g.n(9) - 2
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"mk %d \\(weight(mk(%d))) \\(name(mk(%d))) \\(weight(flip(mk(%d)))) \\(all(%d)) \\(pick(mk(%d), %d))\")\n", x, x, x, x, x, x, x)
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"classify %d \\(classify(%d)) \\(code(\"%s\"))\")\n", x, x, []string{"a", "b", "c", "d", ""}[g.n(5)])
+		fmt.Fprintf(&g.b, "\tConsole.Println(\"widen %d \\(weight(widen(ab(%d)))) \\(gotN(got(%d)))\")\n", x, x, x)
 	}
 	for d := 0; d < 4; d++ {
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"tree %d \\(sum(build(%d))) \\(depth(build(%d)))\")\n", d, d, d)
