@@ -21227,7 +21227,7 @@ func (g MachineGraph) armsFor(env *Env, state_1 string, signal string) []Arm {
 				v_1 = b
 				goto inl
 			}
-			v_7, err := IndexFuncMono_i1(env, a.Alts, func(env_1 *Env, x Alt) (bool, error) {
+			v_7, err := IndexFuncKnown[Alt](env, a.Alts, func(x Alt) bool {
 				var v_4 bool
 				{
 					b_4 := x.AnyState
@@ -21246,7 +21246,7 @@ func (g MachineGraph) armsFor(env *Env, state_1 string, signal string) []Arm {
 					}
 
 				}
-				return v_4, nil
+				return v_4
 			})
 			_ = err
 			v_1 = (v_7 >= int(0))
@@ -21261,7 +21261,7 @@ func (g MachineGraph) armsFor(env *Env, state_1 string, signal string) []Arm {
 					v_9 = a.Partial
 					goto inl_2
 				}
-				v_13, err_1 := IndexFuncMono_i1(env, a.Alts, func(env_2 *Env, x_1 Alt) (bool, error) {
+				v_13, err_1 := IndexFuncKnown[Alt](env, a.Alts, func(x_1 Alt) bool {
 					var v_10 bool
 					{
 						b_7 := x_1.AnyState
@@ -21280,7 +21280,7 @@ func (g MachineGraph) armsFor(env *Env, state_1 string, signal string) []Arm {
 						}
 
 					}
-					return (v_10 && (!x_1.Partial)), nil
+					return (v_10 && (!x_1.Partial))
 				})
 				_ = err_1
 				v_9 = (v_13 < int(0))
@@ -25536,15 +25536,11 @@ func IndexFunc[T any](env *Env, xs []T, f func(*Env, T) (bool, error)) (int, err
 	return int(-1), nil
 }
 
-func IndexFuncMono_i1(env *Env, xs []Alt, f func(*Env, Alt) (bool, error)) (int, error) {
-	env.task.Check()
+func IndexFuncKnown[T any](env *Env, xs []T, f func(T) bool) (int, error) {
 	for k, v := range xs {
 		var i int = k
-		var x Alt = v
-		v_1, err := f(env, x)
-		if err != nil {
-			return 0, err
-		}
+		var x T = v
+		v_1 := f(x)
 		if v_1 {
 			return i, nil
 		}
@@ -26381,8 +26377,8 @@ func (report Report) familyOf(env *Env, d Decl) []Decl {
 			v_26, ok_5 := v[h]
 			if ok_5 {
 				x_2 := Some[Decl]{Value: v_26}
-				v_27, err := IndexFuncMono_i2(env, slices.Clone(out), func(env_1 *Env, y Decl) (bool, error) {
-					return (y.Handle == h), nil
+				v_27, err := IndexFuncKnown[Decl](env, slices.Clone(out), func(y Decl) bool {
+					return (y.Handle == h)
 				})
 				_ = err
 				if v_27 < int(0) {
@@ -27432,23 +27428,6 @@ func (s *scan) digitRun() int {
 			return n
 		}
 	}
-}
-
-func IndexFuncMono_i2(env *Env, xs []Decl, f func(*Env, Decl) (bool, error)) (int, error) {
-	env.task.Check()
-	for k, v := range xs {
-		var i int = k
-		var x Decl = v
-		v_1, err := f(env, x)
-		if err != nil {
-			return 0, err
-		}
-		if v_1 {
-			return i, nil
-		}
-		env.task.Check()
-	}
-	return int(-1), nil
 }
 
 func KeysMono_i2(m map[string]int) Seq[string] {
