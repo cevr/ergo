@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/sketchtest"
 )
 
 // TestUnusedDrawsAreKeyedByFile is a seeded property of unusedDraws: a
@@ -79,5 +81,62 @@ func TestUnusedDrawsAreKeyedByFile(t *testing.T) {
 	}
 	if drawn == 0 {
 		t.Fatal("no kept file was drawn")
+	}
+}
+
+// TestSourceInputsAreKeyedByName is the formatter inputs' form of the
+// same property: sources that lose some members and gain one, anywhere in
+// their order, keep every remaining source's derived inputs (its edit and
+// perturbation) byte for byte. TestFormatAgreesWithSeed once drew every
+// edit from one stream, so a file added to examples/ changed which inputs
+// differed from the seed. The sources are synthetic.
+func TestSourceInputsAreKeyedByName(t *testing.T) {
+	base := uint64(1)
+	if v := os.Getenv(seedVariable); v != "" {
+		n, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			t.Fatalf("%s=%q: %v", seedVariable, v, err)
+		}
+		base = n
+	}
+	src := func(r *rand.Rand) string {
+		return fmt.Sprintf("// c%d\nfunc f%d(a int) int {\n\tlet s = \"x%d\"\n\ta + %d\n}\n", r.IntN(100), r.IntN(100), r.IntN(100), r.IntN(100))
+	}
+	compared := 0
+	for seed := base; seed < base+100; seed++ {
+		r := rand.New(rand.NewPCG(seed, 0x666d74))
+		var sources []sketchtest.Input
+		for i := range 10 + r.IntN(30) {
+			sources = append(sources, sketchtest.Input{Name: fmt.Sprintf("examples/e%d/f%d.ergo", r.IntN(1000), i), Src: src(r)})
+		}
+		var after []sketchtest.Input
+		kept := map[string]bool{}
+		for _, in := range sources {
+			if r.IntN(5) > 0 {
+				after = append(after, in)
+				kept[in.Name] = true
+			}
+		}
+		at := r.IntN(len(after) + 1)
+		added := sketchtest.Input{Name: fmt.Sprintf("examples/new%d/a.ergo", seed), Src: src(r)}
+		after = append(after[:at], append([]sketchtest.Input{added}, after[at:]...)...)
+		now := map[string]string{}
+		for _, in := range derivedInputs(after, seed) {
+			now[in.Name] = in.Src
+		}
+		replay := fmt.Sprintf("replay: %s=%d go test -count=1 -run '^TestSourceInputsAreKeyedByName$' ./internal/selfhostcheck (the first seed is the failing one)", seedVariable, seed)
+		for _, in := range derivedInputs(sources, seed) {
+			if !kept[in.Name[:strings.LastIndex(in.Name, "/")]] && !strings.HasPrefix(in.Name, "random/") {
+				continue
+			}
+			compared++
+			got, ok := now[in.Name]
+			if !ok || got != in.Src {
+				t.Fatalf("seed %d: input %s changed after the sources changed\n--- before\n%q\n--- after\n%q\n%s", seed, in.Name, in.Src, got, replay)
+			}
+		}
+	}
+	if compared == 0 {
+		t.Fatal("no derived input was compared")
 	}
 }

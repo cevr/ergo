@@ -749,6 +749,17 @@
       "killers": [
         "internal/selfhostcheck:TestUnusedDrawsAreKeyedByFile"
       ]
+    },
+    {
+      "name": "source-edit-by-position",
+      "origin": "wf10/selfhost/AGREEMENT-CASES-STABLE",
+      "file": "internal/selfhostcheck/inputs_test.go",
+      "from": "edit(rand.New(rand.NewPCG(seed, key)), in.Src)",
+      "to": "edit(rand.New(rand.NewPCG(seed, uint64(len(inputs)))), in.Src)",
+      "rule": "A source's edit is keyed by its name: sources that lose or gain other members leave it unchanged.",
+      "killers": [
+        "internal/selfhostcheck:TestSourceInputsAreKeyedByName"
+      ]
     }
   ]
 }
