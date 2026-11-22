@@ -327,7 +327,7 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 		}
 		// A top-level rewrite law's licence run is the evaluator's, so
 		// it needs no Go tool (licenceEntries).
-		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil, build.Toolchain{})
+		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys(), req.Stderr, nil, build.Toolchain{})
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
@@ -352,7 +352,7 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
-		for _, e := range lower.LedgerEntries(unit, nil, ev, lower.ShippedForeignKeys) {
+		for _, e := range lower.LedgerEntries(unit, nil, ev, lower.ShippedForeignKeys()) {
 			entries[e.Key()] = e
 		}
 	}

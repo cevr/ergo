@@ -18,7 +18,7 @@ func counterStep(s int, e int) Decision[int, int] {
 }
 
 func counterMachine() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int]}
+	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int], Exit: func(s int) Option[func()] { None }}
 }
 
 func counterView(f mut ui.Frame[int], s int) {
@@ -92,7 +92,7 @@ func sameShelf(a shelf, b shelf) bool {
 }
 
 func shelfMachine() Machine[shelf, int, int] {
-	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int]}
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: none[shelf, int], Work: idle[shelf, int], Exit: func(s shelf) Option[func()] { None }}
 }
 
 // shelfView: row k's delete button is labelled "del k"; the list is 64
@@ -142,7 +142,7 @@ func formStep(s form, e formEvent) Decision[form, int] {
 }
 
 func formMachine() Machine[form, formEvent, int] {
-	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent]}
+	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent], Exit: func(s form) Option[func()] { None }}
 }
 
 func formView(f mut ui.Frame[formEvent], s form) {
@@ -176,7 +176,7 @@ func chosenStep(s chosen, e int) Decision[chosen, int] {
 }
 
 func loadMachine() Machine[chosen, int, int] {
-	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int]}
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int], Exit: func(s chosen) Option[func()] { None }}
 }
 
 func loadView(f mut ui.Frame[int], s chosen) {

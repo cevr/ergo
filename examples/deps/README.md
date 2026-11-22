@@ -40,7 +40,7 @@ The program is a module of packages (`ergo.mod`: `module deps`), in the Go layou
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/deps/cmd/deps resolve -f examples/deps/testdata/deps.txt
 ./bin/ergo test examples/deps/resolve
 go run ./scripts/examples deps

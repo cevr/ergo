@@ -57,7 +57,7 @@ type ForeignKeys func(target string) ForeignKey
 // and its ledger): the pinned toolchain and the runtime, read as the host
 // compiles it, against every other supported platform; std links no Go
 // module.
-var ShippedForeignKeys = HostForeignKeySource(toolchain.Version).Keys()
+var ShippedForeignKeys = sync.OnceValue(func() ForeignKeys { return HostForeignKeySource(toolchain.Version).Keys() })
 
 // HostForeignKeySource is the source of the toolchain's and the runtime's
 // keys for a build of the host's platform with no experiments, each other
