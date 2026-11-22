@@ -311,10 +311,14 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 		if after == nil {
 			return []*irStmt{{K: "ret", Pos: p, X: b.machineNone(sig.Results[0], p, site)}}
 		}
-		// A machines.Every timer is the emitter's everyTimers (LY-FIX:
-		// read as a Timeout, its Option did not type).
-		if len(after.Sig.Params) != 1 || len(after.Sig.Results) != 1 || b.l.funcDecl(after).fallible || everyOption(after.Sig.Results[0]) {
+		if len(after.Sig.Params) != 1 || len(after.Sig.Results) != 1 || b.l.funcDecl(after).fallible {
 			irNo("machine after entry of another form")
+		}
+		if everyOption(after.Sig.Results[0]) {
+			// A machines.Every timer: its own form (the emitter's
+			// everyTimers; LY-FIX: read as a Timeout, its Option did not
+			// type).
+			return b.everyAfter(sig, after, n, env, ps[0], p, site)
 		}
 		ot := after.Sig.Results[0]
 		o := b.temp("o", b.goType(ot, site), p)
@@ -338,6 +342,81 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 		}))
 		return append(out, &irStmt{K: "ret", Pos: p, X: &irExpr{K: "local", Pos: p, I: o}})
 	})
+}
+
+// everyAfter is the body of the After of a machine whose after function
+// gives a machines.Every (the emitter's everyTimers, FKG1), on the
+// environment env and the state s: the after function's Option; on a
+// Some, a timer whose In is not positive panics as machineAfter's does,
+// the reading is time.Clock's when the runner calls it for a timer that
+// fires (v1.MachineFiringNow) and the zero time otherwise, and the
+// Timeout carries In and the Signal made from the reading; None
+// otherwise. A Signal that fails returns its error (with the value's zero,
+// which no runner reads beside an error). The fields are read by their
+// shape: Some's one field, the Every's function field (Signal) and its
+// other field (In), which the field's Timeout has too.
+func (b *irBuilder) everyAfter(field *check.Signature, after *check.Func, n *check.Named, env, s int, p irPos, site syntax.Node) []*irStmt {
+	asig := after.Sig
+	clock, isClock := check.EveryClock(asig).(*check.Named)
+	ot := asig.Results[0]
+	every, isEvery := ot.(*check.Named).TArgs[0].(*check.Named)
+	if !isClock || !isEvery {
+		irNo("machine after entry of another form")
+	}
+	st, isStruct := every.Underlying().(*check.Struct)
+	if !isStruct || len(st.Fields) != 2 {
+		irNo("machine after entry of another form")
+	}
+	var inName, sigName string
+	var at, inType check.Type
+	for _, f := range st.Fields {
+		if fs, isSig := f.Type.(*check.Signature); isSig && len(fs.Params) == 1 {
+			sigName, at = f.Name, fs.Params[0].Type
+		} else {
+			inName, inType = f.Name, f.Type
+		}
+	}
+	if sigName == "" || inName == "" {
+		irNo("machine after entry of another form")
+	}
+	rt := field.Results[0]
+	some, _ := optionVariants(ot, site)
+	valueName, _ := onlyField(some) // ir_intrinsic.go
+	rsome, _ := optionVariants(rt, site)
+	_, timeout := onlyField(rsome)
+	gst := b.goType(asig.Params[0].Type, site)
+	b.keepImport("var _ = " + b.l.rtRef(timerPanic) + "[" + gst + "]") // as machineAfter's
+	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
+	o := b.temp("o", b.goType(ot, site), p)
+	out := []*irStmt{{K: "def", Pos: p, Local: o, X: b.machineCall(after, env, []*irExpr{local(s)}, p, site)}}
+	out = append(out, b.machineSome(ot, o, p, site, func(w int) []*irStmt {
+		ev := func() *irExpr { return b.recordField(some, local(w), valueName, site) }
+		in := func() *irExpr { return b.recordField(every, ev(), inName, site) }
+		cond := &irExpr{K: "bin", Pos: p, Op: "<=", X: in(), Y: b.constant(inType, constant.MakeInt64(0), nil, p)}
+		raise := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: timerPanic, V: gst, Args: []*irExpr{irStringConst(p, "string", n.Obj.Name), local(s), in()}}
+		when := b.temp("at", b.goType(at, site), p)
+		task := func() *irExpr { return &irExpr{K: "field", Pos: p, Name: envTask, X: local(env)} }
+		now := &irExpr{K: "mcall", Pos: p, Name: "Now", X: &irExpr{K: "field", Pos: p, Name: b.l.envField(clock), X: local(env)}, Args: []*irExpr{task()}}
+		e := b.temp("e", b.goType(recordFieldType(timeout, sigName), site), p)
+		errv := b.temp("err", "error", p)
+		signal := &irExpr{K: "vcall", Pos: p, X: b.recordField(every, ev(), sigName, site), Args: []*irExpr{local(env), local(when)}}
+		tval := &irExpr{K: "lit", Pos: p, T: b.goType(timeout, site), Keys: []string{b.goField(timeout, inName, site), b.goField(timeout, sigName, site)}, Elems: []*irExpr{in(), local(e)}}
+		sval := &irExpr{K: "lit", Pos: p, T: b.goType(rsome, site), Keys: []string{b.goField(rsome, valueName, site)}, Elems: []*irExpr{tval}}
+		return []*irStmt{
+			{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "expr", Pos: p, X: raise}}},
+			{K: "var", Pos: p, Local: when},
+			{K: "if", Pos: p, End: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "MachineFiringNow", Args: []*irExpr{task()}}, Then: []*irStmt{{K: "set", Pos: p, Local: when, X: now}}},
+			{K: "def2", Pos: p, Local: e, Val: &errv, X: signal},
+			{K: "if", Pos: p, End: p, X: b.notNil(errv, p), Then: []*irStmt{{K: "fail", Pos: p, X: local(errv)}}},
+			{K: "ret", Pos: p, X: b.variantInto(rsome, rt, sval, site)},
+		}
+	}))
+	return append(out, &irStmt{K: "ret", Pos: p, X: b.machineNone(rt, p, site)})
+}
+
+// goField is the Go name of the field name of the record type t.
+func (b *irBuilder) goField(t check.Type, name string, site syntax.Node) string {
+	return b.recordField(t, &irExpr{K: "zero"}, name, site).Name
 }
 
 // timerPanic is the runtime/v1 body an After's IR calls on a timer whose
