@@ -1,0 +1,69 @@
+import ui
+
+// choice: four radios as ui.Semantic nodes, "a" to "d", each sending its
+// index; "d" is disabled, so it is neither focused nor pressed (std ui's
+// Focusable); "reset" (-1) clears the pick. The state counts the picks,
+// so a press the terminal drops or adds is a state difference
+// (OT-SEMANTIC).
+type choice { picked int, picks int }
+
+let radios = []string{"a", "b", "c", "d"}
+
+func choiceStep(s choice, e int) Decision[choice, int] {
+	if e < 0 {
+		return Enter[choice]{Next: choice{picked: -1, picks: s.picks}}
+	}
+	Enter[choice]{Next: choice{picked: e, picks: s.picks + 1}}
+}
+
+func choiceMachine() Machine[choice, int, int] {
+	Machine[choice, int, int]{Initial: choice{picked: -1, picks: 0}, Step: choiceStep, After: none[choice, int], Work: idle[choice, int], Exit: func(s choice) Option[func()] { None }}
+}
+
+func choiceView(f mut ui.Frame[int], s choice) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "picked \(s.picked) of \(s.picks)")
+		for i, name in radios {
+			let mut a = ui.Named(ui.Radio, name)
+			a.Checked = Some{Value: s.picked == i}
+			a.Disabled = name == "d"
+			ui.Semantic(f, a, Some{Value: i}, ui.Plain()) {
+				ui.Text(f, "radio \(name)")
+			}
+		}
+		ui.Pressable(f, "reset", -1) {
+			ui.Text(f, "Reset")
+		}
+	}
+}
+
+// dial is the reading app's readout; hostagree's "publish" step gives it
+// a new text with no pass.
+let dial = ui.NewReadout("00:00")
+
+// reading: a readout of reserve "--:--" between two texts, and "tick"
+// (0), whose pass counts the taps, so a readout read again on a pass
+// keeps the reading its last Publish gave (OT-READOUT).
+type reading { taps int }
+
+func readingStep(s reading, e int) Decision[reading, int] { Enter[reading]{Next: reading{taps: s.taps + 1}} }
+
+func readingMachine() Machine[reading, int, int] {
+	Machine[reading, int, int]{Initial: reading{taps: 0}, Step: readingStep, After: none[reading, int], Work: idle[reading, int], Exit: func(s reading) Option[func()] { None }}
+}
+
+func readingView(f mut ui.Frame[int], s reading) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "taps \(s.taps)")
+		let mut row = ui.Plain()
+		row.Gap = 8
+		ui.Row(f, row) {
+			ui.Text(f, "at")
+			ui.ReadoutText(f, dial, "--:--")
+			ui.Text(f, "end")
+		}
+		ui.Pressable(f, "tick", 0) {
+			ui.Text(f, "Tick")
+		}
+	}
+}

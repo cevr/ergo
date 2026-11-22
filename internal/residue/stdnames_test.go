@@ -206,6 +206,7 @@ var stdNamesBaseline = []string{
 	"abi calls.go:lowerer.hostImportNames",
 	"abi decls.go:isPreludeType",
 	"abi decls.go:lowerer.intrinsic",
+	"abi ir_golib.go:irBuilder.goBuiltin", // PRIVILEGE-KEYS: main held it unlisted; SQ STD-READS-OUT removes it (q4)
 	"abi getmatch.go:getPattern",
 	"abi getmatch.go:preludeGet",
 	"abi gocall.go:funcCtx.goErrorCall",

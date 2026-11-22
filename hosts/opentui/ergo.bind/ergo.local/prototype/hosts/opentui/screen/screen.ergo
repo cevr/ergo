@@ -150,7 +150,7 @@ extern go ergo.local/prototype/hosts/opentui/screen.None let None int
 extern go ergo.local/prototype/hosts/opentui/screen.Open func Open() go.Ref[Screen] fails go.Error needs go.Foreign
 
 // ergo:go func OpenOn(in *os.File, out *os.File, cols int, rows int) (*Screen, error)
-extern go ergo.local/prototype/hosts/opentui/screen.OpenOn func OpenOn(p0 own *os.File, out own *os.File, cols int, rows int) go.Ref[Screen] fails go.Error needs go.Foreign
+extern go ergo.local/prototype/hosts/opentui/screen.OpenOn func OpenOn(p0 own *os.File, out own *os.File, cols int, rows int) Option[go.Ref[Screen]] fails go.Error needs go.Foreign
 
 // ergo:go const Padding untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Padding let Padding int
