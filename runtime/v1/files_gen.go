@@ -457,7 +457,7 @@ var bodyTable = []bodyRow{
 	{"RefUpdateOwned", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "*Ref[T]"}, {Type: "func(v T) T", Func: &Body{Params: []Param{{Type: "T"}}, Results: []string{"T"}}}, {Type: "func(v T) T", Func: &Body{Params: []Param{{Type: "T"}}, Results: []string{"T"}}}, {Type: "bool"}, {Type: "bool"}}, Wait: "none", Package: Path}}},
 	{"RegisterCalls", bodyFact{body: Body{Params: []Param{{Type: "[]struct{Name string; File string; Line, End int}"}, {Type: "[]sourceCall"}}, Package: Path}}},
 	{"RegisterCompactCalls", bodyFact{body: Body{Params: []Param{{Type: "[]struct{Name string; File string; Line, End int}"}, {Type: "[]string"}, {Type: "[]SourceCall"}}, Package: Path}}},
-	{"RegisterInlines", bodyFact{body: Body{Params: []Param{{Type: "[]struct{Call, Parent int}"}}, Package: Path}}},
+	{"RegisterInlines", bodyFact{body: Body{Params: []Param{{Type: "[]struct{Key string; Call int; Parent string}"}}, Package: Path}}},
 	{"RegisterMachine", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}}, Params: []Param{{Type: "MachineGraph"}}, Package: Path}}},
 	{"RegisterTypeNames", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "...string"}}, Package: Path}}},
 	{"RegisteredGraph", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}}, Results: []string{"*MachineGraph"}, Package: Path}}},
