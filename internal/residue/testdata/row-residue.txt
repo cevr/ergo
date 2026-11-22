@@ -10,7 +10,6 @@
 # in the current syntax and stays checked), the old-syntax parser and its inputs
 !docs/receipts/
 !docs/previews/2026-
-!plans/
 !docs/research/
 !prototypes/sketch9/
 !internal/migrate196/oldsyntax/
@@ -22,11 +21,9 @@
 internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host provides only Console and Ambient
 # The Go team's golang.org/x/sync, copied unchanged (examples/admit's Go module): Go prose.
 examples/admit/testdata/sync/errgroup/errgroup.go	provides synchronization, error propagation
-CHANGELOG.md	a module function that provides it, or
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/rows.md	the entry that provides it, and
-docs/specs/actors.md	No guarantee needs syntax, so
 internal/sketch/check/context.go	written needs row, the
 internal/sketch/check/context.go	// the needs row, then
 internal/sketch/check/contextsum.go	in needs rows, and
