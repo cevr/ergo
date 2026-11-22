@@ -74,9 +74,27 @@ var treeEdits = []treeEdit{
 		// The body of the package the last one imports and no test of it
 		// enters (TestCheckTreeAnswersByTokens's unread.ergo): the last
 		// package is kept by its verdicts' reads (WS0c).
-		m := regexp.MustCompile(`/p(\d+)\n`).FindStringSubmatch(f[genprogram.Name(genprogram.Width+1)+"/unread.ergo"])
-		u, _ := strconv.Atoi(m[1])
+		u := treeReached(f, "unread.ergo", 0)
 		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "\t\treturn Rect{W: it.Weight, H: ", "\t\treturn Rect{W: it.Weight + 3, H: ", 1)
+	}},
+	{name: "interface of the unread import", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
+		// quiet, which holds no obligation, imports it: only the cut
+		// key's interfaces evaluate it again (ws0b-key-omits-interface).
+		u := treeReached(f, "unread.ergo", 0)
+		f[pkgFile(u)] += "\n// Extra widens the interface.\nfunc Extra() int {\n\t0\n}\n"
+	}},
+	{name: "body read by a call", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
+		// The last package's ReadsByACall now fails: its verdict read
+		// the package only through the call (ws0c-plan-unrecorded).
+		u := treeReached(f, "reach.ergo", 0)
+		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "func Probe() int {\n\tlen(Make0(0))\n", "func Probe() int {\n\tlen(Make0(1))\n", 1)
+	}},
+	{name: "let read by a test", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
+		// The last package's ReadsByALet now fails: its verdict read the
+		// package only through the initializers' world
+		// (ws0c-init-unrecorded, ws0c-world-dropped).
+		u := treeReached(f, "reach.ergo", 1)
+		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "let Seed = []int{}\n", "let Seed = []int{7}\n", 1)
 	}},
 	{name: "defect", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
 		// A body every verdict that enters it sees: Sum0 divides by
@@ -90,6 +108,14 @@ var treeEdits = []treeEdit{
 		name := genprogram.Name(r.IntN(len(p.Packages)-1)) + "/tests.ergo"
 		f[name] += "\ntest Added {\n\tassert Sum0(Make0(2)) >= 0\n}\n"
 	}},
+}
+
+// treeReached is the index of the k-th package the last package's file
+// name (TestCheckTreeAnswersByTokens's unread.ergo or reach.ergo) imports.
+func treeReached(f map[string]string, name string, k int) int {
+	m := regexp.MustCompile(`/p(\d+)\n`).FindAllStringSubmatch(f[genprogram.Name(genprogram.Width+1)+"/"+name], -1)
+	i, _ := strconv.Atoi(m[k][1])
+	return i
 }
 
 // treeRun is one `ergo check DIR/...` in this process: what it printed
@@ -157,7 +183,9 @@ func treeText(src string) string {
 // site, and is never kept. Mutants ws0-key-by-bytes, ws0-key-omits-imports,
 // ws0-key-omits-comments, ws0-site-replayed, ws0-revision-replayed,
 // ws0-keeps-site-reasons, ws0b-impl-not-verified, ws0b-keeps-after-puts,
-// ws0b-key-omits-interface and ws0b-replays-with-diagnostics.
+// ws0b-key-omits-interface, ws0b-replays-with-diagnostics,
+// ws0c-reads-not-verified, ws0c-plan-unrecorded, ws0c-init-unrecorded,
+// ws0c-world-dropped and ws0c-cached-reads-dropped.
 func TestCheckTreeAnswersByTokens(t *testing.T) {
 	seeds := []uint64{}
 	for s := range uint64(treeSeeds) {
@@ -189,19 +217,33 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		// function no test calls, so an edit of that package's body
 		// changes an import's implementation that its verdicts did not
 		// read (the "unread import" edit; its reads keep it).
+		//
+		// Two more first-layer packages it did not import are read by one
+		// way each (reach.ergo): a call (the plan hook) and a package let
+		// (the initializers' world). An edit of either flips a verdict of
+		// the last package, so a read the cutoff did not record replays a
+		// verdict the normal path does not print.
+		//
+		// A package with no test (quiet) imports the unread one: an edit
+		// of that package's interface must evaluate it again, which only
+		// the cut key's interfaces say (it has no obligation to check).
 		last := genprogram.Width + 1
-		unread := -1
+		var fresh []int
 		for u := range genprogram.Width {
 			if !strings.Contains(p.Files[pkgFile(last)], "import "+p.Module+"/"+genprogram.Name(u)+"\n") {
-				unread = u
-				break
+				fresh = append(fresh, u)
 			}
 		}
-		if unread < 0 {
-			t.Fatalf("seed %d: package %d imports every first-layer package", seed, last)
+		if len(fresh) < 3 {
+			t.Fatalf("seed %d: package %d imports all but %d first-layer packages", seed, last, len(fresh))
 		}
+		unread, byCall, byLet := genprogram.Name(fresh[0]), genprogram.Name(fresh[1]), genprogram.Name(fresh[2])
 		p.Files[genprogram.Name(last)+"/unread.ergo"] = fmt.Sprintf("import %s/%s\n\n// unread is called by no test: no verdict of %s reads %s.\nfunc unread() int {\n\tlen(%s.Make0(0))\n}\n",
-			p.Module, genprogram.Name(unread), genprogram.Name(last), genprogram.Name(unread), genprogram.Name(unread))
+			p.Module, unread, genprogram.Name(last), unread, unread)
+		p.Files[pkgFile(fresh[1])] += "\n// Probe is read by a call of " + genprogram.Name(last) + "'s tests.\nfunc Probe() int {\n\tlen(Make0(0))\n}\n"
+		p.Files[pkgFile(fresh[2])] += "\n// Seed is read by a let of " + genprogram.Name(last) + "'s tests.\nlet Seed = []int{}\n"
+		p.Files[genprogram.Name(last)+"/reach.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\nimport %[1]s/%[3]s\n\ntest ReadsByACall {\n\tassert %[2]s.Probe() == 0\n}\n\ntest ReadsByALet {\n\tassert len(%[3]s.Seed) == 0\n}\n", p.Module, byCall, byLet)
+		p.Files["quiet/quiet.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\n\n// Q has no test: its evaluation holds no obligation.\nfunc Q() int {\n\tlen(%[2]s.Make0(0))\n}\n", p.Module, unread)
 		if seed%2 == 0 {
 			// A package let whose initializer calls Go: check time skips
 			// the package's obligations with a reason that names the let's
@@ -292,6 +334,13 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				}
 				if !bytes.Equal(got.out, want.out) || (got.err == nil) != (want.err == nil) {
 					fail("the answer differs from the normal path's\n got %v\n%s\nwant %v\n%s", got.err, got.out, want.err, want.out)
+				}
+				// The run after it: a run that stored verdicts keeps
+				// nothing, so this one prints what the emptied store's
+				// second run prints, never the first's
+				// (ws0b-keeps-after-puts).
+				if again := runCheckTree(t, pattern, false); !bytes.Equal(again.out, want.out) || (again.err == nil) != (want.err == nil) {
+					fail("the run after the edited one differs from the normal path's\n got %v\n%s\nwant %v\n%s", again.err, again.out, want.err, want.out)
 				}
 				work := got.counts["files_parsed"] + got.counts["obligations_evaluated"] + got.counts["eval_steps"]
 				if kept && same != (work == 0) || !kept && work == 0 {
