@@ -42,7 +42,7 @@ var wireConstruct = regexp.MustCompile(`(?m)^with "with"\nIDENT "wire"\n|^= "="\
 // code is checked by nothing else.
 func TestDocsShowNoWireConstruct(t *testing.T) {
 	repo := wireRepo(t)
-	out, err := exec.Command("git", "-C", repo, "--no-optional-locks", "ls-files", "-z", "--", "*.md").Output()
+	out, err := exec.Command("git", "--no-optional-locks", "-C", repo, "ls-files", "-z", "--", "*.md").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

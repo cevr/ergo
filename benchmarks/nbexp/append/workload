@@ -1,0 +1,6 @@
+# NO-BUILTINS: nb bench append N, one unit per element.
+unit op
+sizes 2457600 14745600
+args bench append {n}
+control benchmarks/nbexp/testdata/control
+floor benchmarks/nbexp/testdata/floor
