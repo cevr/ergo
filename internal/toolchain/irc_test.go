@@ -141,6 +141,9 @@ func TestSharedRootKeepsTheUsedLast(t *testing.T) {
 			if err := readOnly(filepath.Join(dir, name)); err != nil {
 				t.Fatal(err)
 			}
+			if err := os.MkdirAll(filepath.Join(PatchedWork(entry), "ir"), 0o755); err != nil {
+				t.Fatal(err)
+			}
 			at[name] = base.Add(time.Duration(r.IntN(1000)) * time.Minute)
 			if r.IntN(4) == 0 {
 				os.Chtimes(filepath.Join(dir, name), at[name], at[name]) // no mark
@@ -173,6 +176,16 @@ func TestSharedRootKeepsTheUsedLast(t *testing.T) {
 		slices.Sort(got)
 		if !slices.Equal(got, want) {
 			t.Fatalf("seed %d: %d entries, keep %s, n %d: left %q, want %q", seed, count, keep, n, got, want)
+		}
+		// An entry's writable folder goes with it, and only with it.
+		work, _ := filepath.Glob(filepath.Join(dir, "work", "patched-*"))
+		got = got[:0]
+		for _, w := range work {
+			got = append(got, filepath.Base(w))
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Fatalf("seed %d: work folders left %q, want those of the entries left %q", seed, got, want)
 		}
 	}
 }

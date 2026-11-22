@@ -307,9 +307,22 @@ func evict(dir, keep string, n int) error {
 			continue
 		}
 		errs = append(errs, removeEntry(filepath.Join(dir, e.name)))
+		errs = append(errs, os.RemoveAll(filepath.Join(dir, "work", e.name)))
 		os.Remove(filepath.Join(dir, "used", e.name))
 	}
 	return errors.Join(errs...)
+}
+
+// PatchedWork is the writable folder of the entry whose GOROOT is root
+// (Patched.Root): what builds with that compile keep, such as the IR
+// files' copies a -ergoir flag names or a Go build cache keyed by the
+// compile. The entry itself is read-only, and shared by every process of
+// the host, so this folder is beside it (work/<entry>), at the same path
+// in each process (the go command keys a compile on its flags); eviction
+// removes it with its entry.
+func PatchedWork(root string) string {
+	entry := filepath.Dir(root)
+	return filepath.Join(filepath.Dir(entry), "work", filepath.Base(entry))
 }
 
 // fileDigest is the sha256 of the file at path, in hex.
