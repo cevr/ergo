@@ -909,13 +909,16 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	}
 	option := commaOk(body) && !goFallible(body) // Go's (T, bool): an Option (ir_adapted.go)
 	switch {
-	case defersCall(body) || commaOk(body) && !option:
+	case commaOk(body) && !option:
 		irNo("std call with an adapted result")
 	case b.l.info.Closes[x] != nil:
 		irNo("std Close")
 	}
 	if option {
 		return b.commaOkOpCall(x, c, n, body, p)
+	}
+	if defersCall(body) {
+		return b.seqOpCall(x, c, n, body, p) // Go's iter.Seq[T]: a Seq (ir_adapted.go)
 	}
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
 		irNo("std call with an adapted result")
