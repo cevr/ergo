@@ -29,12 +29,14 @@ func IntNumber(n int64) Num { Num{text: strconv.FormatInt(n, 10)} }
 
 // ParseNum is the number text spells; text must be one JSON number. With
 // Wire it is Num's by-name pair, so only a valid spelling makes a Num; the
-// codec writes a Num as the number itself, not as Wire's string.
+// codec writes a Num as the number itself, not as Wire's string. A Num
+// holds its own copy of the digits, so a decoded Value keeps no window of
+// the text it was read from (stdlib.md json 2).
 func ParseNum(text string) Num fails Malformed {
 	// A number spelled exactly, as every decode reads one, needs no
 	// Cursor (JVD-DIRECT): the grammar alone decides.
 	if isNumber(text) {
-		return Num{text: text}
+		return Num{text: own(text)}
 	}
 	try parseNumOpened(text)
 }
@@ -50,7 +52,7 @@ law ParseNumIsOpened(parts []int) { numSaid(numText(parts), true) == numSaid(num
 func parseNumOpened(text string) Num fails Malformed {
 	let r = Open(text, 0, 0) catch { case Malformed as m: return m }
 	let s = r.Number() catch { case _: return Malformed{Offset: 0, Reason: "not a number"} }
-	Num{text: s}
+	Num{text: own(s)}
 }
 
 // numPieces are what a number text is made of: every part of the

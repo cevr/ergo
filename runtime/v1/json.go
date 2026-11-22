@@ -49,7 +49,7 @@ func JSONOpen(text string, maxBytes int, maxDepth int) (*Cursor, error) {
 	if v.i < len(text) {
 		return nil, JSONMalformed{Offset: v.i, Reason: "text after the value"}
 	}
-	return &Cursor{s: text}, nil
+	return newCursor(text, false, 0), nil
 }
 
 // JSONOpenChecked is JSONOpen in one pass (JSON-VALUE-DECODE): it checks
@@ -69,7 +69,7 @@ func JSONOpenChecked(text string, maxBytes int, maxDepth int) (*Cursor, error) {
 	if maxDepth <= 0 {
 		maxDepth = JSONDefaultDepth
 	}
-	return &Cursor{s: text, check: true, max: maxDepth}, nil
+	return newCursor(text, true, maxDepth), nil
 }
 
 // JSONSettle is nil when c, a checked Cursor, read its text whole as one
@@ -318,6 +318,10 @@ type Cursor struct {
 	s      string
 	i      int
 	frames []jsonFrame
+	// held is the frames' first array, in the Cursor itself: a text
+	// nested no deeper than len(held) opens its lists and objects with no
+	// allocation (JSON-CURSOR-ALLOC); a deeper one grows frames by append.
+	held [jsonHeldFrames]jsonFrame
 	root   bool // the root value has been read or begun
 	wrong  bool // the last read met a value of another kind
 	// check: the text was not validated (JSONOpenChecked), so each read
@@ -327,6 +331,17 @@ type Cursor struct {
 	check bool
 	bad   bool
 	max   int
+}
+
+// jsonHeldFrames is how deep a text nests before its Cursor's frames
+// leave the Cursor for the heap.
+const jsonHeldFrames = 8
+
+// newCursor is a Cursor at the start of text, its frames in held.
+func newCursor(text string, check bool, max int) *Cursor {
+	c := &Cursor{s: text, check: check, max: max}
+	c.frames = c.held[:0]
+	return c
 }
 
 // jsonFrame is an open list or object: for a list, how many elements were
@@ -509,6 +524,31 @@ func (c *Cursor) str() string {
 	return string(c.unescape([]byte(c.s[start:c.i])))
 }
 
+// key takes a member's key at the cursor, as str does, but with no copy:
+// a key with no escape is a window of the text (JSON-CURSOR-ALLOC). A
+// record's decode compares it in place; a decode that keeps it, a Map's,
+// copies it (json 2). A key with an escape is built, as str builds it.
+func (c *Cursor) key() string {
+	c.i++
+	start := c.i
+	for c.i < len(c.s) {
+		ch := c.s[c.i]
+		if ch == '"' {
+			k := c.s[start:c.i]
+			c.i++
+			return k
+		}
+		if ch == '\\' {
+			break
+		}
+		if ch < 0x20 && c.check {
+			c.bad = true
+		}
+		c.i++
+	}
+	return string(c.unescape([]byte(c.s[start:c.i])))
+}
+
 // strBytes is str's bytes added to dst, with no string made (the Reader's
 // StringBytes, GX12): the run before the first escape is copied as it is,
 // and unescape adds the rest.
@@ -664,7 +704,7 @@ func (c *Cursor) readTag() (string, bool) {
 		if c.i >= len(c.s) || c.s[c.i] != '"' {
 			return "", false
 		}
-		k := c.str()
+		k := c.key()
 		c.ws()
 		c.i++ // ':'
 		c.ws()
@@ -693,7 +733,7 @@ func (c *Cursor) More() bool {
 	}
 	if n := len(c.frames); n > 0 && !c.frames[n-1].list {
 		f := &c.frames[n-1]
-		f.key = c.str()
+		f.key = c.key()
 		f.has = true
 		c.ws()
 		c.i++ // ':'
@@ -743,7 +783,7 @@ func (c *Cursor) moreChecked() bool {
 			c.bad = true
 			return false
 		}
-		f.key = c.str()
+		f.key = c.key()
 		f.has = true
 		c.ws()
 		if c.i >= len(c.s) || c.s[c.i] != ':' {

@@ -198,7 +198,9 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 		out := b.temp("out", gt, d.p)
 		k := b.temp("k", "string", d.p)
 		pre := append(begin("Object"), &irStmt{K: "def", Pos: d.p, Local: out, X: &irExpr{K: "lit", Pos: d.p, T: gt}})
-		body := []*irStmt{{K: "def", Pos: d.p, Local: k, X: d.op("Key")}}
+		// The key a Map keeps is a copy (json 2; wireDecodeBody's Map).
+		kept := &irExpr{K: "pcall", Pos: d.p, T: runtimeImport, Name: "WireKeyKept", Args: []*irExpr{d.op("Key")}}
+		body := []*irStmt{{K: "def", Pos: d.p, Local: k, X: kept}}
 		vpre, e := d.value(u.Elem)
 		body = append(body, vpre...)
 		key := &irExpr{K: "conv", Pos: d.p, T: b.goType(u.Key, d.site), X: d.local(k)}
