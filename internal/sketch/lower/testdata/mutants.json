@@ -1996,8 +1996,8 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif kill == nil || !(w.pre[l] <= w.pre[killStmt] && w.pre[killStmt] < w.post[l]) && valueMutant != \"kill-loop-blind\" {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif kill == nil || !(w.pre[l] <= w.pre[killStmt] && w.pre[killStmt] < w.post[l]) && valueMutant != \"kill-loop-blind\" {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif kill == nil || !(w.preOf(l) <= w.preOf(killStmt) && w.preOf(killStmt) < w.postOf(l)) && valueMutant != \"kill-loop-blind\" {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif kill == nil || !(w.preOf(l) <= w.preOf(killStmt) && w.preOf(killStmt) < w.postOf(l)) && valueMutant != \"kill-loop-blind\" {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"

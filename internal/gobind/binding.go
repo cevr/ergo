@@ -477,7 +477,7 @@ func (c *closer) valueResults(bound string, i int, ds []Decl) []Decl {
 		if obj == nil {
 			continue
 		}
-		nd := mapIn(c.pkgs[bound][i], obj, nil, q)
+		nd := mapIn(c.pkgs[bound][i], obj, nil, q, c.facts)
 		nd.Name, nd.Via = d.Name, via
 		if d.Kind == Method && nd.Refused == "" {
 			// The function takes the receiver first (S2-FILE-B): its

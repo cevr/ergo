@@ -3276,7 +3276,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 			if containsNode(loops, l) {
 				continue
 			}
-			if kill == nil || !(w.pre[l] <= w.pre[killStmt] && w.pre[killStmt] < w.post[l]) && valueMutant != "kill-loop-blind" {
+			if kill == nil || !(w.preOf(l) <= w.preOf(killStmt) && w.preOf(killStmt) < w.postOf(l)) && valueMutant != "kill-loop-blind" {
 				return false
 			}
 		}
@@ -3289,7 +3289,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		// the kill stored as a let mut's every store is: a copy unless
 		// fresh. So it shares no storage with the value the use reads,
 		// even in a loop that runs the use again.
-		if kill != nil && (o == kill || o.pre >= w.post[killStmt] || valueMutant == "kill-between-blind" && o.pre > use.pre) {
+		if kill != nil && (o == kill || o.pre >= w.postOf(killStmt) || valueMutant == "kill-between-blind" && o.pre > use.pre) {
 			continue
 		}
 		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) || w.baseDisjoint(o.id, use.id, unshared) || w.baseDisjoint(use.id, o.id, unshared) {
@@ -3372,7 +3372,7 @@ func (w *valueWalk) killOf(vv *vvar, use *vocc) (*vocc, syntax.Node) {
 	}
 	var stmt syntax.Node = use.id
 	var block *syntax.BlockStmt
-	for n := w.parent[use.id]; n != nil; stmt, n = n, w.parent[n] {
+	for n := w.parentOf(use.id); n != nil; stmt, n = n, w.parentOf(n) {
 		if b, ok := n.(*syntax.BlockStmt); ok {
 			block = b
 			break
@@ -3423,7 +3423,7 @@ func (w *valueWalk) leavesBlock(s syntax.Stmt) bool {
 		if !ok {
 			return true
 		}
-		for p := w.parent[b]; p != nil; p = w.parent[p] {
+		for p := w.parentOf(b); p != nil; p = w.parentOf(p) {
 			switch p.(type) {
 			case *syntax.ForStmt, *syntax.RangeStmt:
 				return true

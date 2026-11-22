@@ -7,8 +7,8 @@ import (
 
 	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/std/gostd"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -246,7 +246,7 @@ func TestHostRowsActOnlyValidated(t *testing.T) {
 	t.Cleanup(func() { check.FactLedger = saved })
 	target := "os.Getenv"
 	key := gofacts.HostKey(target)
-	current, ok := gofacts.Find(std.Ledger(), key)
+	current, ok := gofacts.Find(stdlib.Ledger(), key)
 	if !ok || current.Verdict != "validated" {
 		t.Fatalf("the shipped ledger has no validated line for %s: %+v", key, current)
 	}
@@ -267,10 +267,10 @@ func TestHostRowsActOnlyValidated(t *testing.T) {
 	for _, c := range []struct {
 		name, ledger, binding, target, want string
 	}{
-		{"validated", std.Ledger(), binding, target, ""},
+		{"validated", stdlib.Ledger(), binding, target, ""},
 		{"missing", withLine(key, ""), binding, target, target + " is bound as a host call without a reviewed row that acts (the std ledger has no guard line for " + key},
 		{"refuted", withLine(key, refuted.Line()), binding, target, target + " is bound as a host call, and its reviewed row does not hold: its guard refuted it"},
-		{"unvouched", std.Ledger(), edited, "os.Unsetenv", "os.Unsetenv is bound with needs Ambient and no host line: only a host row of internal/gofacts charges Ambient for a Go call"},
+		{"unvouched", stdlib.Ledger(), edited, "os.Unsetenv", "os.Unsetenv is bound with needs Ambient and no host line: only a host row of internal/gofacts charges Ambient for a Go call"},
 	} {
 		ledger, src := c.ledger, c.binding
 		check.FactLedger = func() string { return ledger }
