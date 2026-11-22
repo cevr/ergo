@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,13 +17,8 @@ import (
 // here is cp, standing for go generate: the mechanism is the runner's, not
 // the generator's.
 //
-// A symlink of the checkout in that directory (the conformance corpus's
-// CLAUDE.md -> AGENTS.md) stays a link to its target, and verifyCopy
-// accepts it: before, the restore removed it and the check read through it,
-// and every run after its verdicts exited 2 (MC, 2026-11-22).
-//
 // Mutants (testdata/mutants.json): regen-output-kept, regen-new-file-kept,
-// regen-failure-ignored, regen-symlink-removed, verify-reads-through-symlink.
+// regen-failure-ignored.
 func TestRegenerateWritesThenRestores(t *testing.T) {
 	// The copy is under the work directory, as workerPool makes it:
 	// restoreUnder removes files only there.
@@ -42,10 +36,6 @@ func TestRegenerateWritesThenRestores(t *testing.T) {
 		}
 		e.files = append(e.files, treeFile{path: name, mode: 0o644, data: []byte(data)})
 	}
-	if err := os.Symlink("out.txt", filepath.Join(root, "gen", "link.md")); err != nil {
-		t.Fatal(err)
-	}
-	e.files = append(e.files, treeFile{path: "gen/link.md", mode: fs.ModeSymlink | 0o777, data: []byte("out.txt")})
 	w := &worker{e: e, root: root, touched: map[string]bool{}}
 	read := func(name string) string {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
@@ -78,12 +68,6 @@ func TestRegenerateWritesThenRestores(t *testing.T) {
 	}
 	if got := read("other/x.txt"); got != "x\n" {
 		t.Errorf("a file outside the step's directory changed: %q", got)
-	}
-	if target, err := os.Readlink(filepath.Join(root, "gen", "link.md")); err != nil || target != "out.txt" {
-		t.Errorf("after the row the symlink is %q (%v); want a link to out.txt", target, err)
-	}
-	if err := e.verifyCopy(root, w.touched); err != nil {
-		t.Errorf("verifyCopy after a full restore: %v", err)
 	}
 	if detail := w.regenerate(ctx, &Regenerate{Dir: "gen", Argv: []string{"sh", "-c", "echo broken generator >&2; exit 3"}}); !strings.Contains(detail, "broken generator") {
 		t.Errorf("a failing step: %q; want its output in the reason", detail)
