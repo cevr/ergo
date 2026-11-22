@@ -770,7 +770,17 @@
         "lower:TestMachinePlanValues"
       ]
     },
-    {"name":"existing-26-verify-impure-step-nil-env","origin":"lower-v1/verify-s4b/mutants-verify.json","file":"internal/sketch/lower/machine.go","from":"\\treturn \" + call(fd.envLead(env)) + \"\\n}\\n\\n\")","to":"\\treturn \" + call(fd.envLead(\"nil\")) + \"\\n}\\n\\n\")","rule":"machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.","killers":["lower:TestMachinePlanValues"]},
+    {
+      "name": "existing-26-verify-impure-step-nil-env",
+      "origin": "lower-v1/verify-s4b/mutants-verify.json",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "\\treturn \" + call(fd.envLead(env)) + \"\\n}\\n\\n\")",
+      "to": "\\treturn \" + call(fd.envLead(\"nil\")) + \"\\n}\\n\\n\")",
+      "rule": "machinePlan: machinePlan writes the plan of the machine td and records its initial value for the initializer.",
+      "killers": [
+        "lower:TestMachinePlanValues"
+      ]
+    },
     {
       "name": "existing-27-pure-too-wide",
       "origin": "lower-v1/verify-s5abc/mutants.json",
@@ -805,7 +815,17 @@
         "lower:TestPureMethodsMeetNoHostProtocolByAccident"
       ]
     },
-    {"name":"existing-30-protocol-no-mangle","origin":"lower-v1/receipts/s5/mutants-m1.json","file":"internal/sketch/lower/pure.go","from":"\tif _, ok := hostProtocols()[name]; !ok {\n\t\treturn name\n\t}\n\ttaken","to":"\treturn name\n\ttaken","rule":"protocolFreeName: protocolFreeName is the Go method name of a pure function f that lowers to a method of td under name (case b): name itself unless it is a host protocol's, else the name with an underscore appended until it is free among td's fields and the functions on td, as a field renamed for Error is (typeDecl).","killers":["lower:TestPureMethodsMeetNoHostProtocolByAccident"]},
+    {
+      "name": "existing-30-protocol-no-mangle",
+      "origin": "lower-v1/receipts/s5/mutants-m1.json",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "\tif _, ok := hostProtocols()[name]; !ok {\n\t\treturn name\n\t}\n\ttaken",
+      "to": "\treturn name\n\ttaken",
+      "rule": "protocolFreeName: protocolFreeName is the Go method name of a pure function f that lowers to a method of td under name (case b): name itself unless it is a host protocol's, else the name with an underscore appended until it is free among td's fields and the functions on td, as a field renamed for Error is (typeDecl).",
+      "killers": [
+        "lower:TestPureMethodsMeetNoHostProtocolByAccident"
+      ]
+    },
     {
       "name": "existing-31-errortext-drops-field",
       "origin": "lower-v1/receipts/s4/mutants-s4c-errortext.json",
@@ -6236,7 +6256,7 @@
     {"name":"gbx2-lower-written","origin":"wf10 GBX2","file":"internal/sketch/lower/gocall.go","from":"\t\t\tvals[i] = written\n","to":"\n","rule":"Go writes the operand the call's value names, not another copy.","killers":["lower:TestHostCopyElisionAgrees"]},
     {"name":"gbx2-lower-call","origin":"wf10 GBX2","file":"internal/sketch/lower/gocall.go","from":"\tif written != \"\" {\n\t\tfc.line(text)","to":"\tif false && written != \"\" {\n\t\tfc.line(text)","rule":"A writing Go call has no Go result; its value is the operand Go wrote.","killers":["lower:TestEveryGoBoundFunctionLowers"]},
     {"name":"gbx4-method-expr","origin":"wf10 GBX4","file":"internal/sketch/lower/calls.go","from":"f.Pkg != nil && f.Pkg.Host() && p == f.Pkg.Path && path != f.Pkg.Path {","to":"false && f.Pkg != nil && f.Pkg.Host() && p == f.Pkg.Path && path != f.Pkg.Path {","rule":"A Go method bound as a function of its receiver (time.DurationString) lowers to Go's method expression time.Duration.String, called or passed as a value.","killers":["lower:TestImportGoRuns"]},
-    {"name":"gbx3-var-shared","origin":"wf10 GBX3","file":"internal/sketch/lower/values.go","from":"\t\t\t\treturn w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)\n\t\t\t}\n\t\t}\n\t\treturn false","to":"\t\t\t\treturn w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)\n\t\t\t}\n\t\t}\n\t\tif s, ok := x.(*syntax.SelectorExpr); ok {\n\t\t\tif id, ok := s.X.(*syntax.Ident); ok {\n\t\t\t\tif _, pkg := w.info.Uses[id].(*check.PkgName); pkg {\n\t\t\t\t\treturn true\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\treturn false","rule":"A read of a Go package variable that holds a slice (os.Args) is Go's memory, never fresh: an Ergo write to it copies first.","killers":["lower:TestImportGoRuns"]},
+    {"name":"gbx3-var-shared","origin":"wf10 GBX3","file":"internal/sketch/lower/values.go","from":"\t\t\t\treturn w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)\n\t\t\t}\n\t\t}\n","to":"\t\t\t\treturn w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)\n\t\t\t}\n\t\t}\n\t\tif s, ok := x.(*syntax.SelectorExpr); ok {\n\t\t\tif id, ok := s.X.(*syntax.Ident); ok {\n\t\t\t\tif _, pkg := w.info.Uses[id].(*check.PkgName); pkg {\n\t\t\t\t\treturn true\n\t\t\t\t}\n\t\t\t}\n\t\t}\n","rule":"A read of a Go package variable that holds a slice (os.Args) is Go's memory, never fresh: an Ergo write to it copies first.","killers":["lower:TestImportGoRuns"]},
     {"name":"gbx1-new-value","origin":"wf10 GBX1","file":"internal/sketch/lower/gocall.go","from":"\t\treturn operand{val: \"new(\" + fc.goType(c.Type) + \")\"}","to":"\t\treturn operand{val: \"*new(\" + fc.goType(c.Type) + \")\"}","rule":"go.New[T]() is Go's new(T), a pointer, not a copy of a zero T.","killers":["lower:TestGoNew"]},
     {"name":"gb2-any-gotype","origin":"wf10 GB2","file":"internal/sketch/lower/types.go","from":"\t\t\treturn \"any\" // GB2: Go's empty interface","to":"\t\t\treturn \"interface{ M() }\"","rule":"go.Any is Go's empty interface.","killers":["lower:TestValuesIntoGoAny"]},
     {"name":"gb2-clone-callback-sig","origin":"wf10 GB2","file":"internal/sketch/lower/values.go","from":"\t\tif s, ok := t.(*check.Signature); ok && !walked[t] {","to":"\t\tif s, ok := t.(*check.Signature); false && ok && !walked[t] {","rule":"The naming pass reserves the copy functions a callback's Go operands and result need (testing/slogtest.TestHandler).","killers":["lower:TestEveryGoBoundFunctionLowers"]},
@@ -6537,6 +6557,11 @@
     {"name":"c5d-r3-literal-omits-zero-fields","origin":"wf10 CN C5d r3 (OWN1 fallout)","file":"internal/sketch/lower/ir_expr.go","from":"\t\tif slices.Contains(set, f.Name) {\n\t\t\tcontinue\n\t\t}\n\t\tname, ok := td.fieldName[f.Name]","to":"\t\tif slices.Contains(set, f.Name) || !b.l.holdsMap(f.Type) {\n\t\t\tcontinue\n\t\t}\n\t\tname, ok := td.fieldName[f.Name]","rule":"An IR record literal keys every field of its struct once; the IR toolchain refuses \"literal with 1 of 4 fields\".","killers":["internal/sketch/lower:TestProviderTableCopiesAreDirect"]},
     {"name":"lgh-record-shared","origin":"wf10 LAW-GEN-HELPERS","file":"internal/sketch/lower/ir.go","decl":"lowerIRRounds","from":"lowerIRRound(u, tests.fresh(), formsOff, unformatted, ims, reach)","to":"lowerIRRound(u, tests, formsOff, unformatted, ims, reach)","rule":"ir.go lowerIRRounds (LAW-GEN-HELPERS): each round starts with a fresh record of the test helpers it emitted, so the last round emits what one round with its facts emits.","killers":["lower:TestRoundsEmitWhatOneRoundEmits"]},
     {"name":"irrowarg-row-param-unseen","origin":"wf10 IR-ROWARG","file":"internal/sketch/lower/ir_expr.go","from":"\t\treturn t.Kind == check.KindErrors && !t.Slot\n","to":"\t\treturn false\n","rule":"An error type's value passed to a parameter of an error row parameter's type converts to error on the IR, or the patched compiler refuses the call.","killers":["lower:TestRowArgumentsBuildOnBothPaths"]},
+    {"name":"cut-fresh-blind","origin":"wf10 OWN1 NB-CUT","file":"internal/sketch/lower/cut.go","from":"\treturn w.fresh(x.X)\n","to":"\treturn false\n","rule":"A cut of a fresh value is fresh: MakeSlice(m)[0:k] is taken with no copy.","killers":["lower:TestCutKeepsUniqueness"]},
+    {"name":"cut-read-after","origin":"wf10 OWN1 NB-CUT","file":"internal/sketch/lower/cut.go","from":"\t\t\tif o.pre > c.pre {\n","to":"\t\t\tif false && o.pre > c.pre {\n","rule":"A parameter read after its cut in the same arm is not owned: the cut must be its last use.","killers":["lower:TestCutKeepsUniqueness"]},
+    {"name":"cut-arm-blind","origin":"wf10 OWN1 NB-CUT","file":"internal/sketch/lower/cut.go","from":"\t\t\tif o == c || w.exclusive(o.id, c.id) {\n","to":"\t\t\tif o == c {\n","rule":"A use in another arm than the taking runs instead of it: the push's grow arm keeps the parameter owned.","killers":["lower:TestCutKeepsUniqueness"]},
+    {"name":"cut-earlier-kept","origin":"wf10 OWN1 NB-CUT","file":"internal/sketch/lower/cut.go","from":"\t\t\tif w.classify(vv, o); o.kind != occRead {\n","to":"\t\t\tif w.classify(vv, o); false {\n","rule":"An earlier use that keeps the value (a let) is no read: the parameter is not owned.","killers":["lower:TestCutKeepsUniqueness"]},
+    {"name":"cut-off","origin":"wf10 OWN1 NB-CUT","file":"internal/sketch/lower/cut.go","from":"\tif first < 0 {\n\t\treturn false\n\t}\n","to":"\tif true {\n\t\treturn false\n\t}\n","rule":"A parameter taken into a let mut as a cut of itself is owned (V5 own-cut).","killers":["lower:TestCutKeepsUniqueness"]},
     {"name":"uflat-tag-offset","origin":"wf10 UNION-FLAT (DECL-VALUES §6 unit 1)","file":"internal/sketch/lower/subunion.go","from":"\t\t\t\tb.WriteString(\"case \" + strconv.Itoa(k) + \":\\nreturn \" + into(vt, ff.flatNarrow(&fc.typeCtx, x, k)) + \"\\n\")\n","to":"\t\t\t\tb.WriteString(\"case \" + strconv.Itoa(k+1) + \":\\nreturn \" + into(vt, ff.flatNarrow(&fc.typeCtx, x, k)) + \"\\n\")\n","rule":"types.md Unions 2: a flat union's value widened or narrowed into another keeps its variant: the tag switch reads each variant's own tag.","killers":["lower:TestSubUnionsAgree"]},
     {"name":"copy-elems-blind","origin":"wf10 OWN1 COPY-ELEMS","file":"internal/sketch/lower/values.go","from":"\tif !l.holdsValue(elemOf(t)) {\n\t\treturn nil\n\t}\n\treturn t\n","to":"\tif true {\n\t\treturn nil\n\t}\n\treturn t\n","rule":"Go's copy takes a copy of its source when the elements hold a slice or Map, so the destination shares none of the source's (V3).","killers":["lower:TestGoCopyKeepsValues"]},
     {"name":"ug4-no-flip","origin":"wf10 UG4","file":"internal/sketch/std/ui/layer.ergo","from":"\tif !fits && fitsOther {\n\t\tfirst = !before","to":"\tif false {\n\t\tfirst = !before","rule":"LayerStaysInViewAndTouches: a layer whose side has no room flips to the other side when that has room.","killers":["lower:TestUIHostModel"],"anchor":{"tests":["lower:TestUIHostModel"]}},
