@@ -68,6 +68,7 @@ func TestOwnershipFlowModel(t *testing.T) {
 		ofYieldProjections(t, seed)
 		ofYieldLifetimes(t, seed)
 		ofDeclaredHandles(t, seed)
+		ofHeldEscapes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
 		body := g.program(12)
 		src, first := ofPrint(body, g.bare)
@@ -577,6 +578,7 @@ func TestOwnershipMessages(t *testing.T) {
 		{"open(1)", "the Res this produces is discarded"},
 		{"let _ = open(1)", "the Res this produces is discarded"},
 		{"let a = open(1)\n\twith context { Store: a } {\n\t\ta.Close()\n\t\tlet _ = Store.Get()\n\t}", "a is lent to the with at +2:2 until its block ends, so it cannot be handed off, closed or replaced inside the block (resources R11, R28); do that after the block"},
+		{"let a = open(1)\n\tlet c = with context { Store: a } {\n\t\tlet _ = Store.Get()\n\t\tInForce[Store]()\n\t}\n\tlet _ = c", "this expression holds a context made inside the with at +2:10, which owns or lends a resource provider and ends with its block, so it cannot leave the block (it is the block's value) (rows.md, Context values, InForce); use it inside the block"},
 	} {
 		// +k is the body's k-th line.
 		base := strings.Count(ofPrelude, "\n") + 1
@@ -1994,3 +1996,147 @@ func ofReleases(c *checker, first int) []string {
 	slices.Sort(out)
 	return out
 }
+
+// ofHeldEscapes is the escape rule's leg (escaping.go, held contexts): a
+// held context made in a with's block, written as an InForce call, a local
+// bound from one, or a record's field that holds one, leaves the block
+// through its value, a return, an assignment to a local declared outside,
+// a push onto a queue, or as a function literal that captures it; or it is
+// used inside, as a with's operand. The with's provider is a local it
+// lends, a new resource it owns, or a value of no resource. The model: each
+// way out of a with that lends or owns a resource is one S108, at the held
+// value, and nothing else is reported. It kills held-escape-block-value
+// (the block's value admitted) and the mutants of each other way out.
+func ofHeldEscapes(t *testing.T, seed uint64) {
+	r := rand.New(rand.NewPCG(seed, 0x6e1d))
+	prov := r.IntN(3) // 0: the local m, lent; 1: open(2), owned; 2: Free{n: 3}, no resource
+	form := r.IntN(3) // 0: InForce[Store](); 1: h; 2: h2, a field of a Hold
+	exit := r.IntN(6) // 0 block value, 1 return, 2 outer assignment, 3 push, 4 inside, 5 literal
+	nest := r.IntN(2) == 0
+	if exit == 5 {
+		form = 1
+	}
+	var b strings.Builder
+	b.WriteString(heldPrelude)
+	line := strings.Count(heldPrelude, "\n") + 1
+	emit := func(depth int, s string) {
+		b.WriteString(strings.Repeat("\t", depth) + s + "\n")
+		line++
+	}
+	want := ""
+	at := func(depth int, prefix string) {
+		if prov != 2 {
+			want = fmt.Sprintf("%d:%d S108", line, depth+len(prefix)+1)
+		}
+	}
+	provider := []string{"m", "open(2)", "Free{n: 3}"}[prov]
+	v := []string{"InForce[Store]()", "h", "h2"}[form]
+	emit(0, "func body(n int, seed Context[Store], q queue.Queue[Context[Store]]) Context[Store] fails queue.Closed {")
+	emit(1, "let m = open(1)")
+	emit(1, "try q.Push(seed)")
+	head := "with context { Store: " + provider + " } {"
+	switch exit {
+	case 0:
+		emit(1, "let v = "+head)
+	case 2:
+		emit(1, "let mut out = seed")
+		emit(1, head)
+	case 5:
+		emit(1, "let f = "+head)
+	default:
+		emit(1, head)
+	}
+	emit(2, "let _ = Store.Get()")
+	if form >= 1 {
+		emit(2, "let h = InForce[Store]()")
+	}
+	if form == 2 {
+		emit(2, "let h2 = Hold{c: h}.c")
+	}
+	depth := 2
+	if nest && exit >= 1 && exit <= 3 {
+		emit(2, "if cond(n) {")
+		depth = 3
+	}
+	switch exit {
+	case 0:
+		at(2, "")
+		emit(2, v)
+	case 1:
+		at(depth, "return ")
+		emit(depth, "return "+v)
+	case 2:
+		at(depth, "out = ")
+		emit(depth, "out = "+v)
+	case 3:
+		at(depth, "try q.Push(")
+		emit(depth, "try q.Push("+v+")")
+	case 4:
+		emit(2, "let _ = with "+v+" { Store.Get() }")
+	case 5:
+		at(2, "")
+		emit(2, "func() int { with h { Store.Get() } }")
+	}
+	if depth == 3 {
+		emit(2, "}")
+	}
+	if exit >= 1 && exit <= 4 {
+		emit(2, "let _ = Store.Get()")
+	}
+	emit(1, "}")
+	emit(1, "lend(m)")
+	switch exit {
+	case 0:
+		emit(1, "v")
+	case 2:
+		emit(1, "out")
+	case 5:
+		emit(1, "let _ = f()")
+		emit(1, "seed")
+	default:
+		emit(1, "seed")
+	}
+	emit(0, "}")
+	b.WriteString("\nfunc main() {}\n")
+	src := b.String()
+	_, diags := checkFor(src)
+	var got []string
+	for _, d := range diags {
+		got = append(got, fmt.Sprintf("%d:%d %s", d.Line, d.Column, d.Code))
+	}
+	var wantD []string
+	if want != "" {
+		wantD = []string{want}
+	}
+	if !slices.Equal(got, wantD) {
+		var full []string
+		for _, d := range diags {
+			full = append(full, d.String())
+		}
+		t.Fatalf("held escapes, seed %d (replay: ERGO_SEED=%d go test -run TestOwnershipFlowModel ./internal/sketch/check)\nsource:\n%s\nchecker: %v\nmodel:   %v\n%s", seed, seed, ofNumbered(src), got, wantD, strings.Join(full, "\n"))
+	}
+}
+
+const heldPrelude = `import queue
+
+type Res { id int } implements Closer, Store
+
+type Store { Get() int }
+
+type Free { n int } implements Store
+
+type Hold { c Context[Store] }
+
+func Close(r Res) {}
+
+func Get(r Res) int { r.id }
+
+func Get(f Free) int { f.n }
+
+func open(n int) Res { Res{id: n} }
+
+func cond(n int) bool { n > 2 }
+
+func lend(r Res) {}
+
+`

@@ -17,7 +17,10 @@
 //     provider read through an element of one (R11), and a hand-off,
 //     close or replacement of a local a with lends to its block (R11, R28);
 //  6. a hand-off of a for-in's element, lent from its container (R35),
-//     or of an element or a field of a local (R35, R36, R39).
+//     or of an element or a field of a local (R35, R36, R39);
+//  7. a held context made in the block of a with that builds or lends a
+//     resource, leaving the block (heldCheck; resources, Context
+//     ownership 7).
 //
 // A hand-off is a let, an assignment, a return or a block's value, a part
 // of a tuple or composite literal that is handed off (R14), an argument for
@@ -141,6 +144,11 @@ type walker {
 	// tryCatch is the catch a try writes around (try … catch), by its
 	// node's index, or -1: the failures no arm of it handles escape.
 	tryCatch int,
+	// carry is the package's types whose value can carry a held context
+	// (carriers); held is the locals a with's block binds from one, by
+	// their declaration's row (heldCheck).
+	carry Map[string, bool],
+	held  []int,
 }
 
 // Flow is the ownership flow's S108s of the package k, typed by t, in the
@@ -176,7 +184,7 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 	for src in srcs {
 		lines = lines.Append(syntax.LinesOf(src))
 	}
-	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}, own: []bool{}, tries: 0, tryCatch: -1, lends: []int{}, lendAt: []int{}}
+	let mut w = walker{res: res, infos: infos, types: ts, calls: cs, fn: 0, file: 0, lines: lines, st: state{reached: false, slots: []slot{}}, vars: []local{}, depth: 0, first: 0, name: "", nested: "", loops: []loopFrame{}, catches: [][]state{}, memos: Map[int, memo]{}, diags: []fdiag{}, tl: frameTail(), serial: 0, active: []int{}, lenders: Map[int, string]{}, pkgLets: []int{}, own: []bool{}, tries: 0, tryCatch: -1, lends: []int{}, lendAt: []int{}, carry: carriers(s, k, infos, names), held: []int{}}
 	w.pkgLets = letsHolding(&w, s, k, t)
 	let mut out = []Diag{}
 	for fi, f in k.Fns {
@@ -214,6 +222,7 @@ func Flow(s store.Store, k expr.Pkg, t expr.Typer, srcs []string) []Diag {
 				}
 			}
 			frame(&w, s, k, t, b.Value, ps, textAt(p, f.Name), "", close, yields(s, f.Sig))
+			heldScan(&w, s, k, t, b.Value)
 			out = report(&w, s, k, t, f, decl, close, srcs[f.File], out)
 		case None:
 		}
@@ -2014,4 +2023,589 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 	w.lends = w.lends[0:lent]
 	w.lendAt = w.lendAt[0:lent]
 	w.tl = saved
+}
+
+// ---------------------------------------------------------------- held
+
+// The escape rule for a held context (escaping.go checkHeldEscapes;
+// resources, Context ownership 7). A held context made in the block of a
+// with that builds or lends a resource is dead once the block ends, so it
+// cannot leave the block: as the block's value, a result of the block's
+// own return, the value of an assignment to a place declared outside the
+// block, or an argument the callee takes; each is S108 at the value. A
+// held value is an InForce call, a local the block binds from one, a
+// function literal that names one or calls InForce, or a literal, field,
+// call or branch whose type can carry one (carries) with a held part.
+// This part reads the withs whose inline context's resource providers
+// the block names (providers); a with of a named context, and a type of
+// an import whose fields it cannot read, are not walked here (no
+// diagnostic).
+
+// carriers is the package's types whose value can carry a held context:
+// an operation type, and a record, union or type of embeddings with a
+// part that can (escaping.go heldCarries).
+func carriers(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []string) Map[string, bool] {
+	let mut c = Map[string, bool]{}
+	for name in names {
+		match infos.Get(name) {
+		case Some[typeInfo] as ti:
+			if ti.Value.op {
+				c[name] = true
+			}
+		case None:
+		}
+	}
+	for r in k.Recs {
+		if r.Op {
+			c[r.Name] = true
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for r in k.Recs {
+			if holder(c, r.Name) {
+				continue
+			}
+			for fd in r.Fields {
+				if carries(s, k, c, fd.T, true) {
+					c[r.Name] = true
+					changed = true
+					break
+				}
+			}
+		}
+		for name in names {
+			if holder(c, name) {
+				continue
+			}
+			match infos.Get(name) {
+			case Some[typeInfo] as ti:
+				for v in ti.Value.variants {
+					if v != name && holder(c, v) {
+						c[name] = true
+						changed = true
+						break
+					}
+				}
+				for e in ti.Value.embeds {
+					if e != name && holder(c, e) {
+						c[name] = true
+						changed = true
+						break
+					}
+				}
+			case None:
+			}
+		}
+	}
+	c
+}
+
+// carries is whether a value of type t can carry a held context: a
+// Context, a function value, an operation type, a type parameter outside
+// a declaration's body (body), or a type with a part that can.
+func carries(s store.Store, k expr.Pkg, c Map[string, bool], t dense.ID[store.TKey], body bool) bool {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KParam {
+		return !body
+	}
+	if kind == store.KSig {
+		return true
+	}
+	if kind == store.KNamed {
+		return holder(c, store.TypeNameText(s, store.ArgOf(s, t)))
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		let local = int(o.Import) == 0
+		if !local && int(o.Import) == store.ForeignBit && int(o.Decl) < len(k.Foreign) {
+			let f = k.Foreign[int(o.Decl)]
+			if f.Path == "prelude" && f.Name == "Context" {
+				return true
+			}
+		}
+		for a in store.OperandsOf(s, t) {
+			if carries(s, k, c, a, body) {
+				return true
+			}
+		}
+		return local && holder(c, store.DeclText(s, int(o.Decl)))
+	}
+	if kind == store.KSlice || kind == store.KArray || kind == store.KMap || kind == store.KTuple || kind == store.KPointer || kind == store.KOwn {
+		for a in store.OperandsOf(s, t) {
+			if carries(s, k, c, a, body) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// carriesAt is whether the value at x can carry a held context. A value
+// the typer leaves untyped (an InForce call's) is taken to carry one: it
+// is asked only of a value with a held part.
+func carriesAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
+	match typeOf(w, ws, wk, wt, x) {
+	case Some[dense.ID[store.TKey]] as t:
+		carries(ws, wk, w.carry, t.Value, false)
+	case None:
+		true
+	}
+}
+
+// heldScan applies the rule to each with in the subtree at x whose block
+// a resource provider of its inline context serves (scopedLit).
+func heldScan(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) {
+	let tr = wk.Parsed[w.file].Tree
+	if syntax.KindOf(tr, x) == syntax.KCallExpr && isWith(w, ws, wk, wt, x) {
+		let c = syntax.CallExprOf(tr, x)
+		match dense.Unpack(c.Trailing) {
+		case Some[dense.ID[syntax.Node]] as b:
+			let mut scoped = false
+			for i in 0..syntax.Len(c.Args) {
+				match syntax.ViewOf(tr, syntax.Item(tr, c.Args, i)) {
+				case syntax.ContextLit as cl:
+					scoped = scoped || scopedLit(w, ws, wk, wt, cl, b.Value)
+				case _:
+				}
+			}
+			if scoped {
+				heldCheck(w, ws, wk, wt, x, b.Value)
+			}
+		case None:
+		}
+	}
+	for ch in syntax.Children(tr, x, []uint32{}) {
+		heldScan(w, ws, wk, wt, syntax.NodeAt(tr, int(ch)))
+	}
+}
+
+// isWith is whether the call x is a with.
+func isWith(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
+	let p = wk.Parsed[w.file]
+	let fun = un(w, ws, wk, wt, syntax.CallExprOf(p.Tree, x).Fun)
+	syntax.KindOf(p.Tree, fun) == syntax.KIdent && syntax.TokKind(p, syntax.TokStartingAt(p, syntax.NodePos(p, fun))) == syntax.With
+}
+
+// scopedLit is whether an entry of the inline context cl that the block b
+// names has a resource provider: the with builds or lends it, and opens a
+// scope (providers).
+func scopedLit(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, cl syntax.ContextLit, b dense.ID[syntax.Node]) bool {
+	let p = wk.Parsed[w.file]
+	match syntax.ViewOf(p.Tree, cl.Body) {
+	case syntax.ContextBody as cb:
+		for i in 0..syntax.Len(cb.Entries) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, cb.Entries, i)) {
+			case syntax.ContextEntry as e:
+				match dense.Unpack(e.Value) {
+				case Some[dense.ID[syntax.Node]] as v:
+					let mut named = namesCap(p, b, headName(p, e.Key))
+					for j in 0..syntax.Len(e.Keys) {
+						named = named || namesCap(p, b, headName(p, syntax.Item(p.Tree, e.Keys, j)))
+					}
+					if named && trackedAt(w, ws, wk, wt, v.Value) {
+						return true
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	false
+}
+
+// heldCheck reports each way a held value leaves the block b of the with x.
+func heldCheck(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], b dense.ID[syntax.Node]) {
+	let lo = syntax.NodePos(wk.Parsed[w.file], b)
+	let hi = syntax.NodeEnd(wk.Parsed[w.file], b)
+	w.held = []int{}
+	// The held locals, to their fixpoint: a let or an assignment of a
+	// local the block declares, anywhere in it.
+	let mut changed = true
+	for changed {
+		changed = false
+		let before = len(w.held)
+		heldBinds(w, ws, wk, wt, b, lo, hi)
+		changed = len(w.held) != before
+	}
+	let wat = pos(w, ws, wk, wt, at(w, ws, wk, wt, x))
+	if carriesAt(w, ws, wk, wt, x) {
+		match blockTail(w, ws, wk, wt, b) {
+		case Some[dense.ID[syntax.Node]] as t:
+			if isHeld(w, ws, wk, wt, t.Value) {
+				heldReport(w, ws, wk, wt, t.Value, wat, "it is the block's value")
+			}
+		case None:
+		}
+	}
+	heldFrame(w, ws, wk, wt, b, true, lo, hi, wat)
+}
+
+// heldBinds adds to w.held the locals the subtree at n binds from a held
+// value.
+func heldBinds(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[syntax.Node], lo int, hi int) {
+	let p = wk.Parsed[w.file]
+	let kind = syntax.KindOf(p.Tree, n)
+	if kind == syntax.KVarSpec {
+		let vs = syntax.VarSpecOf(p.Tree, n)
+		match dense.Unpack(vs.Value) {
+		case Some[dense.ID[syntax.Node]] as v:
+			let count = syntax.Len(vs.Names)
+			let vals = parts(w, ws, wk, wt, v.Value)
+			for i in 0..count {
+				let id = syntax.Item(p.Tree, vs.Names, i)
+				let d = dense.Index(bind.PNodeOf(wk.Ps, w.file, id))
+				if textAt(p, id) == "_" || slices.Contains(w.held, d) {
+					continue
+				}
+				let val = if count == 1 { v.Value } else if len(vals) == count { vals[i] } else { v.Value }
+				let carry = match defType(w, ws, wk, wt, bind.PNodeOf(wk.Ps, w.file, id)) {
+				case Some[dense.ID[store.TKey]] as t:
+					carries(ws, wk, w.carry, t.Value, false)
+				case None:
+					true
+				}
+				if carry && isHeld(w, ws, wk, wt, val) {
+					w.held = w.held.Append(d)
+				}
+			}
+		case None:
+		}
+	} else if kind == syntax.KAssignStmt {
+		let a = syntax.AssignStmtOf(p.Tree, n)
+		let lhs = parts(w, ws, wk, wt, a.Lhs)
+		let rhs = parts(w, ws, wk, wt, a.Rhs)
+		for i, l0 in lhs {
+			let l = un(w, ws, wk, wt, l0)
+			if i >= len(rhs) || syntax.KindOf(p.Tree, l) != syntax.KIdent {
+				continue
+			}
+			let d = declOf(w, ws, wk, wt, l)
+			if d < 0 || slices.Contains(w.held, d) || !declaredInside(w, ws, wk, wt, d, lo, hi) {
+				continue
+			}
+			if isHeld(w, ws, wk, wt, rhs[i]) && carriesAt(w, ws, wk, wt, l) {
+				w.held = w.held.Append(d)
+			}
+		}
+	}
+	for ch in syntax.Children(p.Tree, n, []uint32{}) {
+		heldBinds(w, ws, wk, wt, syntax.NodeAt(p.Tree, int(ch)), lo, hi)
+	}
+}
+
+// heldFrame reports, in the subtree at n, the held results of a return
+// of the block's own frame (own), the held values assigned to a place
+// declared outside the block, and the held arguments a callee takes.
+func heldFrame(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, n dense.ID[syntax.Node], own bool, lo int, hi int, wat string) {
+	let p = wk.Parsed[w.file]
+	let kind = syntax.KindOf(p.Tree, n)
+	if kind == syntax.KFuncLit {
+		heldFrame(w, ws, wk, wt, syntax.FuncLitOf(p.Tree, n).Body, false, lo, hi, wat)
+		return
+	}
+	if kind == syntax.KReturnStmt && own {
+		match dense.Unpack(syntax.ReturnStmtOf(p.Tree, n).Result) {
+		case Some[dense.ID[syntax.Node]] as r:
+			for x in parts(w, ws, wk, wt, r.Value) {
+				if isHeld(w, ws, wk, wt, x) {
+					heldReport(w, ws, wk, wt, x, wat, "it is returned")
+				}
+			}
+		case None:
+		}
+	}
+	if kind == syntax.KAssignStmt {
+		let a = syntax.AssignStmtOf(p.Tree, n)
+		let lhs = parts(w, ws, wk, wt, a.Lhs)
+		let rhs = parts(w, ws, wk, wt, a.Rhs)
+		for i, l in lhs {
+			if i < len(rhs) && !assignedInside(w, ws, wk, wt, l, lo, hi) && isHeld(w, ws, wk, wt, rhs[i]) {
+				heldReport(w, ws, wk, wt, rhs[i], wat, "it is assigned to \(textAt(p, l)), declared outside the block")
+			}
+		}
+	}
+	if kind == syntax.KCallExpr {
+		takenHeld(w, ws, wk, wt, n, wat)
+		let c = syntax.CallExprOf(p.Tree, n)
+		match dense.Unpack(c.Trailing) {
+		case Some[dense.ID[syntax.Node]] as tb:
+			if !isWith(w, ws, wk, wt, n) {
+				// The trailing block of another call is a frame of its
+				// own: its return leaves it, not the block.
+				heldFrame(w, ws, wk, wt, c.Fun, own, lo, hi, wat)
+				for i in 0..syntax.Len(c.Args) {
+					heldFrame(w, ws, wk, wt, syntax.Item(p.Tree, c.Args, i), own, lo, hi, wat)
+				}
+				heldFrame(w, ws, wk, wt, tb.Value, false, lo, hi, wat)
+				return
+			}
+		case None:
+		}
+	}
+	for ch in syntax.Children(p.Tree, n, []uint32{}) {
+		heldFrame(w, ws, wk, wt, syntax.NodeAt(p.Tree, int(ch)), own, lo, hi, wat)
+	}
+}
+
+// takenHeld reports a held argument, or receiver, of the call x that its
+// callee takes.
+func takenHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], wat string) {
+	let p = wk.Parsed[w.file]
+	let c = syntax.CallExprOf(p.Tree, x)
+	match callee(w, ws, wk, wt, x) {
+	case Some[expr.CallTo] as ct:
+		let f = ct.Value.Callee
+		let off = if ct.Value.Recv { 1 } else { 0 }
+		let name = calleeText(w, ws, wk, wt, un(w, ws, wk, wt, c.Fun))
+		if ct.Value.Recv && len(f.Takes) > 0 && f.Takes[0] {
+			let r = syntax.SelectorExprOf(p.Tree, un(w, ws, wk, wt, c.Fun)).X
+			if isHeld(w, ws, wk, wt, r) {
+				heldReport(w, ws, wk, wt, r, wat, "\(name) takes it")
+			}
+		}
+		for i in 0..syntax.Len(c.Args) {
+			let a = syntax.Item(p.Tree, c.Args, i)
+			if i+off < len(f.Takes) && f.Takes[i+off] && isHeld(w, ws, wk, wt, a) {
+				heldReport(w, ws, wk, wt, a, wat, "\(name) takes it")
+			}
+		}
+	case None:
+	}
+}
+
+func heldReport(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], wat string, how string) {
+	spanDiag(w, ws, wk, wt, x, "\(exprText(wk.Parsed[w.file], x)) holds a context made inside the with at \(wat), which owns or lends a resource provider and ends with its block, so it cannot leave the block (\(how)) (rows.md, Context values, InForce); use it inside the block", 0)
+}
+
+// exprText is the Go checker's text of x in a message (expr.go
+// exprText): a name, or a selector path of one; else "this expression".
+func exprText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		return textAt(p, x)
+	}
+	if kind == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(p.Tree, x)
+		return exprText(p, se.X) + "." + textAt(p, se.Sel)
+	}
+	if kind == syntax.KParenExpr {
+		return exprText(p, syntax.ParenExprOf(p.Tree, x).X)
+	}
+	"this expression"
+}
+
+// declaredInside is whether the declaration at the row d is in the span
+// [lo, hi) of the block.
+func declaredInside(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, d int, lo int, hi int) bool {
+	let p = wk.Parsed[w.file]
+	let row = d - dense.Index(bind.PNodeOf(wk.Ps, w.file, syntax.NodeAt(p.Tree, 0)))
+	if row < 0 || row >= syntax.NumNodes(p.Tree) {
+		return false
+	}
+	let at0 = syntax.NodePos(p, syntax.NodeAt(p.Tree, row))
+	at0 >= lo && at0 < hi
+}
+
+// assignedInside is whether the root of the assigned place l is a local
+// the block declares.
+func assignedInside(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l dense.ID[syntax.Node], lo int, hi int) bool {
+	let t = wk.Parsed[w.file].Tree
+	let mut y = un(w, ws, wk, wt, l)
+	for {
+		let kind = syntax.KindOf(t, y)
+		if kind == syntax.KSelectorExpr {
+			y = un(w, ws, wk, wt, syntax.SelectorExprOf(t, y).X)
+		} else if kind == syntax.KIndexExpr {
+			y = un(w, ws, wk, wt, syntax.IndexExprOf(t, y).X)
+		} else if kind == syntax.KIdent {
+			let d = declOf(w, ws, wk, wt, y)
+			return d >= 0 && declaredInside(w, ws, wk, wt, d, lo, hi)
+		} else {
+			return false
+		}
+	}
+	false
+}
+
+// isInForce is whether the call x is InForce[R]().
+func isInForce(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
+	let p = wk.Parsed[w.file]
+	let mut f = un(w, ws, wk, wt, syntax.CallExprOf(p.Tree, x).Fun)
+	if syntax.KindOf(p.Tree, f) == syntax.KIndexExpr {
+		f = un(w, ws, wk, wt, syntax.IndexExprOf(p.Tree, f).X)
+	}
+	syntax.KindOf(p.Tree, f) == syntax.KIdent && textAt(p, f) == "InForce" && declOf(w, ws, wk, wt, f) < 0
+}
+
+// isHeld is whether x is a held value.
+func isHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x0 dense.ID[syntax.Node]) bool {
+	let p = wk.Parsed[w.file]
+	let x = un(w, ws, wk, wt, x0)
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KTryExpr {
+		return isHeld(w, ws, wk, wt, syntax.TryExprOf(p.Tree, x).X)
+	}
+	if kind == syntax.KIdent {
+		let d = declOf(w, ws, wk, wt, x)
+		return d >= 0 && slices.Contains(w.held, d)
+	}
+	if kind == syntax.KFuncLit {
+		return namesHeld(w, ws, wk, wt, x)
+	}
+	if kind == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(p.Tree, x)
+		for i in 0..syntax.Len(cl.Elts) {
+			if isHeld(w, ws, wk, wt, syntax.Item(p.Tree, cl.Elts, i)) {
+				return carriesAt(w, ws, wk, wt, x)
+			}
+		}
+		return false
+	}
+	if kind == syntax.KKeyValueExpr {
+		return isHeld(w, ws, wk, wt, syntax.KeyValueExprOf(p.Tree, x).Value)
+	}
+	if kind == syntax.KSelectorExpr {
+		return isHeld(w, ws, wk, wt, syntax.SelectorExprOf(p.Tree, x).X) && carriesAt(w, ws, wk, wt, x)
+	}
+	if kind == syntax.KIndexExpr {
+		return isHeld(w, ws, wk, wt, syntax.IndexExprOf(p.Tree, x).X) && carriesAt(w, ws, wk, wt, x)
+	}
+	if kind == syntax.KCallExpr {
+		if isInForce(w, ws, wk, wt, x) {
+			return true
+		}
+		let c = syntax.CallExprOf(p.Tree, x)
+		if isWith(w, ws, wk, wt, x) {
+			match dense.Unpack(c.Trailing) {
+			case Some[dense.ID[syntax.Node]] as b:
+				match blockTail(w, ws, wk, wt, b.Value) {
+				case Some[dense.ID[syntax.Node]] as t:
+					return isHeld(w, ws, wk, wt, t.Value) && carriesAt(w, ws, wk, wt, x)
+				case None:
+				}
+			case None:
+			}
+			return false
+		}
+		match callee(w, ws, wk, wt, x) {
+		case Some[expr.CallTo] as ct:
+			if ct.Value.Recv && isHeld(w, ws, wk, wt, syntax.SelectorExprOf(p.Tree, un(w, ws, wk, wt, c.Fun)).X) && carriesAt(w, ws, wk, wt, x) {
+				return true
+			}
+		case None:
+		}
+		for i in 0..syntax.Len(c.Args) {
+			if isHeld(w, ws, wk, wt, syntax.Item(p.Tree, c.Args, i)) {
+				return carriesAt(w, ws, wk, wt, x)
+			}
+		}
+		return false
+	}
+	if kind == syntax.KIfStmt {
+		let is = syntax.IfStmtOf(p.Tree, x)
+		let mut h = branchHeld(w, ws, wk, wt, is.Body)
+		match dense.Unpack(is.Else) {
+		case Some[dense.ID[syntax.Node]] as e:
+			h = h || branchHeld(w, ws, wk, wt, e.Value)
+		case None:
+		}
+		return h && carriesAt(w, ws, wk, wt, x)
+	}
+	if kind == syntax.KSwitchStmt {
+		return clausesHeld(w, ws, wk, wt, syntax.SwitchStmtOf(p.Tree, x).Clauses) && carriesAt(w, ws, wk, wt, x)
+	}
+	if kind == syntax.KTypeSwitchStmt {
+		return clausesHeld(w, ws, wk, wt, syntax.TypeSwitchStmtOf(p.Tree, x).Clauses) && carriesAt(w, ws, wk, wt, x)
+	}
+	false
+}
+
+// namesHeld is whether the subtree at x names a held local or calls
+// InForce.
+func namesHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool {
+	let p = wk.Parsed[w.file]
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		let d = declOf(w, ws, wk, wt, x)
+		if d >= 0 && slices.Contains(w.held, d) {
+			return true
+		}
+	}
+	if kind == syntax.KCallExpr && isInForce(w, ws, wk, wt, x) {
+		return true
+	}
+	for ch in syntax.Children(p.Tree, x, []uint32{}) {
+		if namesHeld(w, ws, wk, wt, syntax.NodeAt(p.Tree, int(ch))) {
+			return true
+		}
+	}
+	false
+}
+
+// branchHeld is whether an if's branch, a block or an else if, gives a
+// held value.
+func branchHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, b dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(wk.Parsed[w.file].Tree, b) == syntax.KIfStmt {
+		return isHeld(w, ws, wk, wt, b)
+	}
+	match blockTail(w, ws, wk, wt, b) {
+	case Some[dense.ID[syntax.Node]] as t:
+		isHeld(w, ws, wk, wt, t.Value)
+	case None:
+		false
+	}
+}
+
+func clausesHeld(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.List) bool {
+	let tr = wk.Parsed[w.file].Tree
+	for i in 0..syntax.Len(l) {
+		let c = syntax.Item(tr, l, i)
+		if syntax.KindOf(tr, c) != syntax.KCaseClause {
+			continue
+		}
+		let body = syntax.CaseClauseOf(tr, c).Body
+		let n = syntax.Len(body)
+		if n == 0 {
+			continue
+		}
+		match stmtValue(w, ws, wk, wt, syntax.Item(tr, body, n-1)) {
+		case Some[dense.ID[syntax.Node]] as v:
+			if isHeld(w, ws, wk, wt, v.Value) {
+				return true
+			}
+		case None:
+		}
+	}
+	false
+}
+
+// blockTail is the value of the last statement of the block b.
+func blockTail(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, b dense.ID[syntax.Node]) Option[dense.ID[syntax.Node]] {
+	let tr = wk.Parsed[w.file].Tree
+	if syntax.KindOf(tr, b) != syntax.KBlockStmt {
+		return None
+	}
+	let l = syntax.BlockStmtOf(tr, b).List
+	let n = syntax.Len(l)
+	if n == 0 {
+		return None
+	}
+	stmtValue(w, ws, wk, wt, syntax.Item(tr, l, n-1))
+}
+
+// stmtValue is the value a statement gives as a block's last.
+func stmtValue(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[syntax.Node]) Option[dense.ID[syntax.Node]] {
+	let tr = wk.Parsed[w.file].Tree
+	let kind = syntax.KindOf(tr, s)
+	if kind == syntax.KExprStmt {
+		return Some[dense.ID[syntax.Node]]{Value: syntax.ExprStmtOf(tr, s).X}
+	}
+	if kind == syntax.KIfStmt || kind == syntax.KSwitchStmt || kind == syntax.KTypeSwitchStmt {
+		return Some[dense.ID[syntax.Node]]{Value: s}
+	}
+	None
 }
