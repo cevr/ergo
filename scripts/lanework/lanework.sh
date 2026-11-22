@@ -117,7 +117,23 @@ lane_env() {
   if [ -n "$bin" ]; then
     printf 'export PATH=%s:$PATH GOTOOLCHAIN=local\n' "$bin"
   fi
+  # GOROOT stated: a Go built with -trimpath (a test binary, ergo
+  # itself) has no GOROOT of its own, and go/build's default then finds
+  # no standard library (TRIMPATH-SHARE measure 1).
+  printf 'export GOROOT=%s\n' "$(lane_goroot "$bin")"
   printf 'umask 022\n'
+}
+
+# lane_goroot prints the GOROOT of the lane's Go: the folder above the
+# toolchain's bin, or the go on PATH's when the lane has none.
+lane_goroot() {
+  if [ -n "$1" ]; then
+    printf '%s\n' "${1%/bin}"
+    return
+  fi
+  root=$(go env GOROOT)
+  [ -n "$root" ] || fail 'go env GOROOT is empty'
+  printf '%s\n' "$root"
 }
 
 # lane_go_bin prints the folder of the Go the source's go.mod names on

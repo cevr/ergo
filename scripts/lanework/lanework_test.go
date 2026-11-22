@@ -241,8 +241,10 @@ func TestCreateTrimsTheCacheOverItsBound(t *testing.T) {
 // TestLaneEnvPutsGoModsGoFirst: a lane's env puts on PATH, before the
 // host's, the Go that the source's go.mod names on its toolchain line,
 // from the module cache (GOTOOLCHAIN=local), or the folder LANE_GO_BIN
-// names. Two lanes made by create built with the host's go (2026-11-22).
-// Mutants: no PATH line (lanework-env-no-go-path), a version read from
+// names, with GOROOT the folder above its bin (a -trimpath build has no
+// GOROOT of its own). Two lanes made by create built with the host's go
+// (2026-11-22). Mutants: no PATH line (lanework-env-no-go-path), no
+// GOROOT line (lanework-env-no-goroot), a version read from
 // the go line instead (lanework-go-bin-ignores-gomod), LANE_GO_BIN
 // ignored (lanework-go-bin-override-ignored).
 func TestLaneEnvPutsGoModsGoFirst(t *testing.T) {
@@ -276,8 +278,10 @@ func TestLaneEnvPutsGoModsGoFirst(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if line := "export PATH=" + c.want + ":$PATH GOTOOLCHAIN=local\n"; !strings.Contains(string(env), line) {
-			t.Errorf("%s's lane.env is\n%s\nwant the line %q", c.lane, env, line)
+		for _, line := range []string{"export PATH=" + c.want + ":$PATH GOTOOLCHAIN=local\n", "export GOROOT=" + filepath.Dir(c.want) + "\n"} {
+			if !strings.Contains(string(env), line) {
+				t.Errorf("%s's lane.env is\n%s\nwant the line %q", c.lane, env, line)
+			}
 		}
 	}
 }

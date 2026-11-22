@@ -126,6 +126,15 @@
       "to": "  if false; then\n",
       "rule": "LANE_GO_BIN names the lane's Go when it is set.",
       "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-env-no-goroot",
+      "origin": "wf10 TRIMPATH-SHARE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  printf 'export GOROOT=%s\\n' \"$(lane_goroot \"$bin\")\"\n",
+      "to": "",
+      "rule": "A lane's env states GOROOT, the lane's Go's, which a -trimpath build lacks.",
+      "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
     }
   ]
 }
