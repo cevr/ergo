@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -109,30 +107,14 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		base = uint32(n)
 	}
 	var cases []agreeCase
-	// The corpus, on GOMAXPROCS workers (the Go checker is safe for
-	// concurrent use).
+	// The corpus, one folder at a time (eachGoPackage).
 	dirs := corpusDirs(t)
 	corpus := make([]*agreeCase, len(dirs))
-	next := make(chan int)
-	var wg sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for i := range next {
-				pkg := typesPackage(dirs[i])
-				if pkg == nil {
-					continue
-				}
-				_, ext := goKinds(pkg)
-				_, foreign := goTypes(pkg)
-				corpus[i] = &agreeCase{name: rel(dirs[i]), path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
-			}
-		})
-	}
-	for i := range dirs {
-		next <- i
-	}
-	close(next)
-	wg.Wait()
+	eachGoPackage(dirs, func(i int, pkg *check.Package) {
+		_, ext := goKinds(pkg)
+		_, foreign := goTypes(pkg)
+		corpus[i] = &agreeCase{name: rel(dirs[i]), path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
+	})
 	for i, c := range corpus {
 		if c != nil {
 			c.files = ergoFiles(t, dirs[i])
