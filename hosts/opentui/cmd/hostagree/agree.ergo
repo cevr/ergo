@@ -50,12 +50,23 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 			}
 			continue
 		}
+		// For the plain Scrolls' edge scroll, which TestHost does not
+		// model (TestPlainScrollEdges): their offsets on the terminal.
+		if line == "scrolls" {
+			let mut at = "scrolls"
+			for o in tui.ScrollsAt(&d) {
+				at = at + " \(o)"
+			}
+			Console.Println(at)
+			continue
+		}
 		// "cost STEP" plays STEP and prints the library calls it made.
 		let costed = strings.HasPrefix(line, "cost ")
 		let before = s.Calls()
+		let wrote = s.Bytes()
 		let (a, b) = run(&h, &d, s, strings.TrimPrefix(line, "cost "))
 		if costed {
-			Console.Println("cost \(s.Calls() - before)")
+			Console.Println("cost \(s.Calls() - before) bytes \(s.Bytes() - wrote)")
 		}
 		if a != b {
 			Console.Println("differ \(n): \(line): test host \(said(a)), terminal \(said(b))")
@@ -91,6 +102,16 @@ func said(r result) string {
 // their places, and each text's place on the screen. First TestHost takes
 // the viewport the terminal reported for each list (follow).
 func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	match looked(ui.Screen(h)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
+	match degraded(ui.Screen(h)) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	follow(h, d, tui.Screen(d))
 	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
 		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
@@ -98,12 +119,20 @@ func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Dri
 	if !same(ui.StateOf(h), tui.StateOf(d)) {
 		return Some{Value: "states differ"}
 	}
+	if h.Frames() != d.Frames() || ui.WantsFrames(h) != tui.WantsFrames(d) {
+		return Some{Value: "TestHost stepped \(h.Frames()) frames (wanting more: \(ui.WantsFrames(h))), the terminal \(d.Frames()) (\(tui.WantsFrames(d)))"}
+	}
 	if s.Count() != tui.SceneNodes(d) {
 		return Some{Value: "the scene holds \(s.Count()) nodes, the driver \(tui.SceneNodes(d))"}
 	}
 	let held = ui.Captured(h) != None
 	if held != (tui.Captured(d) != None) {
 		return Some{Value: "an Area holds the pointer on TestHost: \(held); on the terminal: \(!held)"}
+	}
+	match inked(d, s, tui.Screen(d)) {
+	case Some[string] as why:
+		return why
+	case None:
 	}
 	match kept(d, tui.Screen(d)) {
 	case Some[string] as why:
@@ -146,6 +175,85 @@ func kept[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], shapes []ui.Shape
 		}
 	}
 	None
+}
+
+// looked names a node of TestHost's tree that has a look of its own
+// (Style.Look other than its kind's default), which this host does not
+// show yet (gap OT-LOOKS: the driver takes Define and reads no
+// Style.Look); None when no node has one.
+func looked[E](shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		match ui.StyleOf(sh.Node) {
+		case Some[ui.Style] as st:
+			if st.Value.Look != ui.DefaultLooks(sh.Node) {
+				return Some{Value: "gap OT-LOOKS: a node has a look of its own (Style.Look), which the terminal does not show"}
+			}
+		case None:
+		}
+		match looked[E](sh.Kids) {
+		case Some[string] as why:
+			return Some{Value: why.Value}
+		case None:
+		}
+	}
+	None
+}
+
+// degraded names a node of TestHost's tree of a kind the terminal shows
+// degraded (OT-TOTAL: tui's matches name each kind and say what the
+// terminal does instead), so a script that reaches one fails loudly as
+// the gap it is; None when none is in the tree. Every kind is named, so a
+// new ui node kind is a check error here as in tui.
+func degraded[E](shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		let why Option[string] = match sh.Node {
+		case ui.TransitionNode:
+			Some{Value: "gap OT-TOTAL: a Transition, whose motion the terminal does not run (its body shows at rest)"}
+		case ui.ReadoutNode:
+			Some{Value: "gap OT-READOUT: a Readout, whose published text the terminal does not show (its box keeps its place)"}
+		case ui.LayerNode[E]:
+			Some{Value: "gap OT-TOTAL: a Layer, which the terminal lays in flow (no Z, anchor, placement or scrim)"}
+		case ui.TrackNode:
+			Some{Value: "gap OT-TRACKS: a Track, whose motion the terminal does not run (no offset, no fade)"}
+		case ui.SemanticNode[E]:
+			if ui.Focusable(sh.Node) {
+				Some{Value: "gap OT-SEMANTIC: a Semantic that sends a signal, which the terminal neither focuses nor presses"}
+			} else {
+				None
+			}
+		case ui.CanvasNode as x:
+			if hasImage(x.Paint) {
+				Some{Value: "gap OT-IMAGE: a canvas image, which the terminal does not paint"}
+			} else {
+				None
+			}
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
+			None
+		}
+		match why {
+		case Some[string] as w:
+			return w
+		case None:
+		}
+		match degraded[E](sh.Kids) {
+		case Some[string] as w:
+			return w
+		case None:
+		}
+	}
+	None
+}
+
+// hasImage is whether a canvas's paint draws an image.
+func hasImage(ops []ui.PaintOp) bool {
+	for op in ops {
+		match op {
+		case ui.ImageOp:
+			return true
+		case ui.FillOp, ui.StrokeOp, ui.PushTransform, ui.PushClip, ui.PopPaint:
+		}
+	}
+	false
 }
 
 // cellH is the DIPs of a cell's height (the driver's default Cell).
@@ -335,11 +443,11 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 			match n.Value {
 			case ui.InputNode as x:
 				if utf8.RuneCount(rest) == 1 && rest != " " {
-					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+					let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 						try tui.Send(d, "\x05")
 						try tui.Play(d, []ui.Act{act})
 					})
-					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+					let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 						try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+rest)
 					})
 					return (a, b)
@@ -367,10 +475,10 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 			ui.Wheel{DX: 0, DY: y}
 		}
 		let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
-		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			try tui.Play(d, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
 		})
-		let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			match zoneAt(h, d, f[0], x, y) {
 			case Some[zoned[E]] as z:
 				try ui.PointOver(h, z.Value.area, z.Value.zone, z.Value.box, p)
@@ -379,13 +487,24 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 			}
 		})
 		(a, b)
+	case "leave":
+		// The pointer moves where no node takes input (OT-PHASES): on
+		// TestHost a move nowhere, on the terminal a move with no button
+		// to the screen's last cell, which no app here draws on.
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try tui.Send(d, tui.Mouse(35, 59, 39, true))
+		})
+		let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try ui.PointNowhere(h)
+		})
+		(a, b)
 	case "scroll":
 		let f = strings.Fields(rest)
 		if len(f) != 2 {
 			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
 		}
 		let to = float64(atoi(f[1]))
-		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			try tui.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
 		})
 		(found(h, f[0]), landed(d, f[0], b, to))
@@ -403,7 +522,7 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 		case _:
 			return (found(h, f[0]), Missing{Label: f[0]})
 		}
-		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 			for _ in 0..(if k < 0 { -k } else { k }) {
 				try tui.Send(d, tui.Mouse(if k < 0 { 64 } else { 65 }, box.X+box.Width/2, box.Y+box.Height/2, true))
 			}
@@ -412,6 +531,14 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 		(found(h, f[0]), landed(d, f[0], b, if to < 0 { 0 } else { to }))
 	case "settle":
 		both(h, d, ui.SettleAll)
+	case "frames":
+		let (a, b) = both(h, d, ui.AdvanceBy{By: duration(int64(atoi(rest)) * int64(16ms))})
+		match edged(d, ui.Screen(h)) {
+		case Some[string] as why:
+			(a, Broke{Why: why.Value})
+		case None:
+			(a, b)
+		}
 	case "focus":
 		focusPress(h, d, s, atoi(rest))
 	case _:
@@ -481,21 +608,23 @@ func atoi(s string) int {
 
 // both plays one act on each host.
 func both[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
-	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+	let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try ui.Play(h, []ui.Act{act})
 	})
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+	let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Play(d, []ui.Act{act})
 	})
 	(a, b)
 }
 
-func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign) result needs go.Foreign {
+func played(f func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign) result needs go.Foreign {
 	f() catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
 	case ui.Mismatch as m:
 		return Broke{Why: "want \(m.Want), got \(m.Got)"}
+	case ui.Ambiguous as x:
+		return Broke{Why: "\(x.Count) nodes are \(x.At)"}
 	case actor.Stopped:
 		return Broke{Why: "stopped"}
 	case ui.BadPatch as b:
@@ -521,7 +650,10 @@ func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string]
 			}
 		case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
 			out = out.Append(labelOfNode(sh.Node))
-		case _:
+		case ui.SemanticNode[E]:
+			// ui.Focusable takes a Semantic that sends; the terminal does
+			// not yet, and degraded fails the step loudly (OT-SEMANTIC).
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 		out = focusOrder[E](sh.Kids, out)
 	}
@@ -556,7 +688,7 @@ func labelOfNode[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Label}
 	case ui.InputNode as x:
 		Some{Value: x.Placeholder}
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		None
 	}
 }
@@ -577,13 +709,49 @@ func named(l Option[string]) string {
 // after k Tabs the focus is on the (k-1 mod n)-th of the n focusable
 // nodes.
 func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[S, E, D, F], s go.Ref[screen.Screen], k int) (result, result) needs go.Foreign {
-	let mut keys = tui.Click(s.Cols()-1, s.Lines()-1)
+	let (cx, cy) = (s.Cols() - 1, s.Lines() - 1)
+	// The click is a pointer event on both hosts (OT-PHASES): where no node
+	// takes the mouse it is TestHost's click nowhere (the hover leaves every
+	// Area); on an Area that fills the screen (drag) it is that Area's Down
+	// and Up at the same place.
+	let hit = tui.TargetAt(d, cx, cy)
+	let mut keys = tui.Click(cx, cy)
 	for _ in 0..k {
 		keys = keys + "\t"
 	}
-	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+	let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Send(d, keys)
 	})
+	let clicked = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+		match hit {
+		case Some[(ui.Id[E], ui.Node[E])] as t:
+			let (id, n) = t.Value
+			let box = tui.Box(d, id)
+			// An Area is found by its label (twin finds focusable nodes).
+			let at = match n {
+			case ui.AreaNode as a:
+				match ui.Find(h, a.Label) {
+				case Some[ui.Id[E]] as f:
+					f.Value
+				case None:
+					return ui.NoNode{Label: a.Label}
+				}
+			case _:
+				twin(h, n, id)
+			}
+			let x = float64(cx-box.X) * 8
+			let y = float64(cy-box.Y) * cellH
+			try ui.PointAt(h, at, ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: x, Y: y, Zone: None})
+			try ui.PointAt(h, at, ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: x, Y: y, Zone: None})
+		case None:
+			try ui.ClickNowhere(h)
+		}
+	})
+	match clicked {
+	case Done:
+	case _:
+		return (clicked, b)
+	}
 	// The order is TestHost's tree's, not the driver's.
 	let order = focusOrder(ui.Screen(h), []Option[string]{})
 	let mut want Option[string] = None
@@ -603,19 +771,22 @@ func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.
 	case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
 		match n.Value {
 		case ui.InputNode as x:
-			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let b2 = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try tui.Send(d, "z")
 			})
-			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+"z")
 			})
 			return (a, b2)
 		case _:
-			let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			let b2 = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 				try tui.Send(d, "\r")
 			})
-			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
-				try ui.Tap(h, twin(h, n.Value, id.Value))
+			let a = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+				// Enter presses the focused node with no pointer, so the
+				// hover stays where it was: TestHost's press that leaves the
+				// hover is a finger's (TapWith, MB4), not the mouse's Tap.
+				try ui.TapWith(h, twin(h, n.Value, id.Value), ui.Pointer{Id: 1, Kind: ui.Finger})
 			})
 			return (a, b2)
 		}

@@ -28,7 +28,7 @@ Five fields: minute (0-59), hour (0-23), day of the month (1-31), month (1-12 or
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/cron/cmd/cron -- next "*/15 9-17 * * mon-fri" -n 3
 ./bin/ergo run examples/cron/cmd/cron -- run examples/cron/testdata/jobs -from "2026-11-30 08:00" -until "2026-11-30 10:00"
 ./bin/ergo test examples/cron/schedule

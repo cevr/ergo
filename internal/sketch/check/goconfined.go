@@ -16,7 +16,7 @@ import (
 // frame captures it, no type argument (a queue, a Ref, a Task, a generic
 // body) carries it, no package let holds it, and no Ergo operation type
 // hides it. A Go type whose memory-only methods are safe for concurrent
-// use (an atomic, v1.GoConcurrentTypes) is not confined.
+// use (an atomic, v1.GoConcurrentTypes()) is not confined.
 //
 // Prior art: Rust's rand::rngs::ThreadRng is !Send, so thread::spawn
 // refuses a closure that captures one, while AtomicU64 is Sync; Swift
@@ -43,7 +43,7 @@ func goConfinedRef(t *Named) bool {
 }
 
 // goReaches reports whether t, through goWalk's structure, reaches a Go
-// type with a memory-only method that v1.GoConcurrentTypes does not list.
+// type with a memory-only method that v1.GoConcurrentTypes() does not list.
 // A listed type stops the walk: its methods are safe for concurrent use.
 // A Go interface has no memory-only method: its methods are foreign. A Go
 // method that reaches a field the binding refuses is foreign or is
@@ -51,7 +51,7 @@ func goConfinedRef(t *Named) bool {
 func goReaches(t Type, seen map[Type]bool) bool {
 	return goWalk(t, seen, func(n *Named) (hit, stop bool) {
 		name := n.Obj.Pkg.Path + "." + n.Obj.Name
-		if v1.GoConcurrentTypes[name] != "" {
+		if v1.GoConcurrentTypes()[name] != "" {
 			return false, true
 		}
 		return goMemoryOnly(name), false
@@ -130,7 +130,7 @@ func goWalk(t Type, seen map[Type]bool, at func(n *Named) (hit, stop bool)) bool
 }
 
 // goMemoryOnly reports whether the Go type named name (path.Type) has a
-// memory-only method (goReaches asks v1.GoConcurrentTypes first).
+// memory-only method (goReaches asks v1.GoConcurrentTypes() first).
 func goMemoryOnly(name string) bool {
 	for _, e := range gofacts.Effects {
 		if strings.HasPrefix(e.Target, name+".") {

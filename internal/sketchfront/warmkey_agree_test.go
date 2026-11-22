@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -52,7 +53,24 @@ func TestWarmKeyAgreesWithErgo(t *testing.T) {
 		return xs
 	}
 	compilers := []string{"", "process:42", "sha256:ab", "ergo 1"}
-	names := []string{"GOFLAGS", "GOOS", "CGO_ENABLED", "ERGO_GO", "HOME", "PATH", StageReportVariable, WarmVariable, WarmVariable + "X"}
+	names := []string{"HOME", "PATH", "ERGO_UNCLASSIFIED", WarmVariable + "X"}
+	for name := range warmEnv {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	// Each classified variable alone: the Ergo port's locations are warmEnv's
+	// (GB-WARMENV), whatever the seed draws.
+	for _, name := range names {
+		environ := []string{name + "=v"}
+		want := warmKeyOf("ergo 1", nil, environ, nil)
+		got, err := linked.KeyWarm(ctx, "ergo 1", nil, environ, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("warm key of the environment %q: %q, want %q (is %s a location on one side only?)\n%s", environ, got, want, name, replay)
+		}
+	}
 	keyed := 0
 	for c := 0; c < 300; c++ {
 		compiler := compilers[rng.IntN(len(compilers))]

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
@@ -19,7 +20,9 @@ import (
 // `// want CODE CODE` for two diagnostics on that line.
 // A quoted text after the codes, a Go string literal, must be a part of a
 // message on that line: `// want S102 "requires B,"`.
-var wantMarker = regexp.MustCompile(`// want ([A-Z]+\d{3}(?: [A-Z]+\d{3})*)(?: ("(?:[^"\\]|\\.)*"))?\s*$`)
+var wantMarker = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`// want ([A-Z]+\d{3}(?: [A-Z]+\d{3})*)(?: ("(?:[^"\\]|\\.)*"))?\s*$`)
+})
 
 // checkWant is `ergo check --want PATH...` (tooling.md, check): each
 // PATH is a fixture file or a folder of them (its *.ergo files, not its
@@ -84,7 +87,7 @@ func checkWant(w io.Writer, paths []string) error {
 func wantedCodes(src string) []string {
 	var out []string
 	for i, line := range strings.Split(src, "\n") {
-		if m := wantMarker.FindStringSubmatch(line); m != nil {
+		if m := wantMarker().FindStringSubmatch(line); m != nil {
 			for _, code := range strings.Fields(m[1]) {
 				out = append(out, fmt.Sprintf("%s@%d", code, i+1))
 			}
@@ -119,7 +122,7 @@ func checkedCodes(diags []report.Diagnostic) []string {
 // the first one that is not.
 func wantedTexts(src string, diags []report.Diagnostic) string {
 	for i, line := range strings.Split(src, "\n") {
-		m := wantMarker.FindStringSubmatch(line)
+		m := wantMarker().FindStringSubmatch(line)
 		if m == nil || m[2] == "" {
 			continue
 		}

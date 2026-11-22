@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -55,7 +56,9 @@ const LedgerFile = "ergo.laws"
 const LawRunVersion = "ergo-laws/2"
 
 // ledgerVerdicts are the verdicts a line may hold.
-var ledgerVerdicts = map[string]bool{"proved": true, "validated": true, "tested": true, "skipped": true, "refuted": true}
+var ledgerVerdicts = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"proved": true, "validated": true, "tested": true, "skipped": true, "refuted": true}
+})
 
 // LedgerEntry is one line of a ledger. The run's text (its cases, its
 // symbols) is not part of it: one run takes the instances of the binary
@@ -169,7 +172,7 @@ func parseEntry(line string) (LedgerEntry, bool) {
 	var rest string
 	if fact, ok := strings.CutPrefix(line, "fact "); ok {
 		words := strings.Fields(fact)
-		i := slices.IndexFunc(words, func(w string) bool { return ledgerVerdicts[w] })
+		i := slices.IndexFunc(words, func(w string) bool { return ledgerVerdicts()[w] })
 		if i < 3 || words[0] != "go" {
 			return LedgerEntry{}, false
 		}
@@ -206,7 +209,7 @@ func parseEntry(line string) (LedgerEntry, bool) {
 	}
 	// The tail: <verdict> [by <run>] [with <keys>] h1:<digest>.
 	words := strings.Split(rest, " ")
-	if len(words) < 2 || !ledgerVerdicts[words[0]] {
+	if len(words) < 2 || !ledgerVerdicts()[words[0]] {
 		return LedgerEntry{}, false
 	}
 	e.Verdict, words = words[0], words[1:]

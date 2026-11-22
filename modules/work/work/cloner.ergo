@@ -13,8 +13,10 @@ type Exists { Path string }
 // Missing is a source folder that is not there.
 type Missing { Path string }
 
-// NoSpace is a clone the file system had no room for.
-type NoSpace { Path string }
+// NoSpace is a clone the file system had no room for: the bytes it
+// needs and the bytes free where it goes, each -1 when not measured (a
+// sharing Cloner's own refusal; only a plain copy is measured first).
+type NoSpace { Path string, Need int, Free int }
 
 // CloneFailed is any other failure of the call that clones, moves,
 // discards or measures a tree, with the tool's own words.
@@ -46,6 +48,12 @@ type Cloner {
 	Discard(root string) fails Missing | CloneFailed,
 	// Usage is the bytes the tree at root takes.
 	Usage(root string) Usage fails Unsupported | Missing | CloneFailed,
+	// Free is the bytes free on the file system of the folder at root;
+	// Unsupported where the host cannot tell.
+	Free(root string) int fails Unsupported | Missing | CloneFailed,
+	// Entries is the number of files, folders and links under root, root
+	// not counted.
+	Entries(root string) int fails Missing | CloneFailed,
 
 	// CloneMakesTheTree: a clone that succeeds leaves a tree at its target.
 	law CloneMakesTheTree(from string, to string) {
