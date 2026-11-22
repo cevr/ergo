@@ -381,7 +381,8 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		// FILE...": its import path (a checked root's @pkg path is main),
 		// its tables and files. Each package's lines are "E …" (types),
 		// "C …" (calls), "D …" (diagnostics), "O …" (own marks), "U …"
-		// (untyped calls by cause, writeCauses), "W …" (the ownership
+		// (untyped calls by cause, writeCauses), "S …" (S101 and S102, the
+		// row pass, compiler/check/rows), "W …" (the ownership
 		// flow), "L …" (package lets), "X …" (values outside the run) and
 		// "R …" (refined types, compiler/check/facts) after its "@pkg I"
 		// line.
@@ -407,7 +408,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			writeOwn(&b, u, d, "O ")
 			writeCauses(&b, u, d, "U ")
 			try writeFlow(&b, u, d, "W ")
-			writeRows(&b, u, d, "R ")
+			writeRows(&b, u, d, "S ")
 			writeLets(&b, u, d, "L ")
 			writeOutside(&b, u, d, "X ")
 			writeRefinements(&b, u, d, "R ")

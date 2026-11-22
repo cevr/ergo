@@ -139,6 +139,11 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		}
 		return
 	case *check.Union:
+		// The value of a Slot row alone is its Go type parameter
+		// (rowslot.go), a type the body declares.
+		if tp := check.SlotRow(t); tp != nil && tp.Slot {
+			return
+		}
 		// A row, the error of a fallible call (a catch's `case err:`): a
 		// Go error, its variants the error types (ir_tree.go).
 		if failureRow(b.fc, t) { // ir_field.go
