@@ -2873,9 +2873,6 @@
   "ergo.local/prototype/scripts/langmigrate": {
     "TestTryParensIsIdempotent": 9.42
   },
-  "ergo.local/prototype/scripts/migrate196": {
-    "TestWriteKeepsRowComments": 0
-  },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
   },

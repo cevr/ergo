@@ -6,7 +6,6 @@
 # whose job starts "delete:" names the unit that removes the file.
 # TestDocsAreListed.
 AGENTS.md	-	how an agent works in this repository: rules only
-CHANGELOG.md	-	delete: DEL-DEAD
 GLOSSARY.md	-	one definition per term of the language and its tools as built
 NORTH_STAR.md	-	the principles, their order, the tiebreaks, what stays rejected
 PRIOR_ART.md	-	index of sources: what Ergo took from each and what it refused
@@ -16,26 +15,10 @@ compiler/CHANGES-since-seed.md	-	the formatter's changes since the seed, one row
 compiler/README.md	-	the self-hosted compiler's packages
 conformance/README.md	-	what the conformance inputs are and who reads them
 conformance/size/README.md	-	the size corpus
-docs/bundled-modules.md	-	delete: DEL-DEAD
 docs/conformance.md	-	delete: TOOLING (merged into its home)
-docs/contender-roadmap.md	-	delete: DEL-DEAD
 docs/decisions.md	-	delete: PRINCIPLES (each live decision to its home)
 docs/design.md	-	the high-level design: the pipeline and its seams as built
 docs/domain.md	-	how to model a domain in Ergo; every quote is held to examples/
-docs/lsp.md	-	delete: DEL-DEAD
-docs/mcp.md	-	delete: DEL-DEAD
-docs/previews/2026-10-08-effect-contracts.md	-	delete: DEL-DEAD
-docs/previews/2026-10-12-laws.md	-	delete: DEL-DEAD
-docs/previews/2026-10-27-actor-library.md	-	delete: DEL-DEAD
-docs/previews/2026-10-27-ergo.md	-	delete: DEL-DEAD
-docs/previews/2026-10-27-go-sketch.md	-	delete: DEL-DEAD
-docs/previews/2026-10-27-needs-provides.md	-	delete: DEL-DEAD
-docs/previews/2026-10-27-traceability.md	-	delete: DEL-DEAD
-docs/previews/2026-11-02-wire-to-context.md	-	delete: DEL-DEAD
-docs/previews/2026-11-10-atomic-handles.md	-	delete: DEL-DEAD
-docs/previews/2026-11-10-embedded-assets.md	-	delete: DEL-DEAD
-docs/previews/README.md	-	delete: DEL-DEAD
-docs/prototype.md	-	delete: DEL-DEAD
 docs/receipts/check-speed.md	-	delete: DEL-DEAD
 docs/receipts/checker-maps.md	-	delete: DEL-DEAD
 docs/receipts/compile-speed.md	-	delete: DEL-DEAD
@@ -104,8 +87,6 @@ docs/research/statecharts-composition-and-evidence.md	-	delete: DEL-DEAD
 docs/research/traceability.md	-	delete: DEL-DEAD
 docs/research/union-repr.md	-	delete: DEL-DEAD
 docs/research/where-dispatch.md	-	delete: DEL-DEAD
-docs/runtime.md	-	delete: DEL-DEAD
-docs/showcases.md	-	delete: DEL-DEAD
 docs/spec/README.md	-	scope, conventions, reading order, generated status and surface tables
 docs/spec/api.md	-	operation-type hubs and their transports
 docs/spec/build.md	-	modules, workspaces, generators, pins
@@ -125,27 +106,9 @@ docs/spec/runtime.md	-	tasks, cancellation, machines, actors, tests at run time
 docs/spec/stdlib.md	-	std-wide rules and each package's guarantees that its source does not state
 docs/spec/support.md	-	generated support table
 docs/spec/types.md	-	types, unions, generics, refinements, laws
-docs/specs/absence-and-host-boundaries.md	-	delete: DEL-DEAD
-docs/specs/actors.md	-	delete: DEL-DEAD
 docs/specs/bench.md	-	delete: SPECS-CITED (merged into docs/spec)
-docs/specs/binary-reachability.md	-	delete: DEL-DEAD
-docs/specs/bundled-interfaces.md	-	delete: DEL-DEAD
 docs/specs/custom-lint.md	-	delete: SPECS-CITED (merged into docs/spec)
 docs/specs/formatting.md	-	delete: SPECS-CITED (merged into docs/spec)
-docs/specs/go-protocol-interop.md	-	delete: DEL-DEAD
-docs/specs/language-abstractions.md	-	delete: DEL-DEAD
-docs/specs/layers.md	-	delete: DEL-DEAD
-docs/specs/machine-provider-contract.md	-	delete: DEL-DEAD
-docs/specs/native-callables-unit2-corpus.md	-	delete: DEL-DEAD
-docs/specs/native-execution-lowering.md	-	delete: DEL-DEAD
-docs/specs/native-server-contracts.md	-	delete: DEL-DEAD
-docs/specs/production-foundations.md	-	delete: DEL-DEAD
-docs/specs/provider-construction.md	-	delete: DEL-DEAD
-docs/specs/semantic-tooling.md	-	delete: DEL-DEAD
-docs/specs/server-benchmarks.md	-	delete: DEL-DEAD
-docs/specs/standard-library-capabilities.md	-	delete: DEL-DEAD
-docs/specs/state-machines.md	-	delete: DEL-DEAD
-docs/standard-library.md	-	delete: DEL-DEAD
 docs/testing.md	-	delete: TOOLING (merged into its home)
 docs/tooling.md	-	the repository's own tooling rules: gate tiers, mutant ledger, closure rule, toolchain pin, regeneration order
 docs/wayfinder/ARCHIVE.md	-	delete: DEL-DEAD
@@ -156,8 +119,6 @@ hosts/*/README.md	-	one host: what it provides and how to run it
 internal/**/README.md	-	one package's inputs
 modules/*/README.md	-	one module: what it is and how to use it
 modules/fluid/origin/README.md	-	one module part: what it is and how to use it
-plans/architecture-loop-2026-10-05.md	-	delete: DEL-DEAD
-plans/architecture-loop-2026-10-06.md	-	delete: DEL-DEAD
 plugins/*/README.md	-	one plugin
 prototypes/sketch9/README.md	-	delete: PROTOTYPES
 prototypes/sketch9/RECEIPT.md	-	delete: PROTOTYPES
@@ -166,4 +127,3 @@ runtime/rt/MEASURED.md	-	delete: RECEIPTS
 scripts/**/README.md	-	one script
 toolchain/ir/ports.md	-	how the IR compiler patch is derived
 tools/**/README.md	-	one tool
-void-migration-freeze-20261007.md	-	delete: DEL-DEAD

@@ -1,5 +1,6 @@
 import fs
 import filepath
+import slices
 import strings
 
 // HookFailed is a hook command that did not end with status 0: the hook,
@@ -197,10 +198,16 @@ func hold(t Tool) fails Unkept | Locked {
 }
 
 // finish rolls each intent forward, under the lock: the folder moves to
-// the trash if it has not, and the record says it is there.
+// the trash if it has not, and the record says it is there. Then it
+// settles each reservation whose maker is gone (settle).
 func finish(t Tool) fails Unkept {
 	for w in try t.registry.All() {
 		if w.Moving == "" {
+			match w.State {
+			case Creating:
+				try settle(t, w)
+			case Active, Landing, Landed, Abandoned, Trashed:
+			}
 			continue
 		}
 		if t.copier.Has(w.Moving) && t.copier.Has(w.Path) {
@@ -218,5 +225,146 @@ func finish(t Tool) fails Unkept {
 			}
 		}
 		try t.registry.Put(Workspace{..w, Moving: ""})
+	}
+}
+
+// settle finishes or rolls back w, a reservation, under the lock, when
+// its maker is gone: only the kernel's lock of the reservation decides
+// that (makerGone; no pid, no time), so a live maker's reservation, this
+// process's own included, is never touched. A clone placed at its path
+// and marked with its id is made: it becomes Active, as Activate would
+// have written it. With no folder at its path, its staging folder (whole
+// or cut short) is renamed to its tomb (TombOf) and the record kept:
+// settled deletes the tomb for good with the lock free, never by the
+// trash, and only then drops the record (buried). A record with neither
+// folder is dropped here. So no staging folder or tomb outlives its
+// record, and no delete holds the registry's lock. A folder at the path with no marker, or another's, was written
+// by an older work (it cloned in place) or is not the record's: gc and
+// doctor keep their rules for it. A record with no id (no lock) is gc's.
+// It costs one lock attempt per such reservation, and nothing per other
+// record.
+func settle(t Tool, w Workspace) fails Unkept {
+	if w.Id == "" || !try makerGone(t, w) {
+		return
+	}
+	if t.copier.Has(w.Path) {
+		if markerOf(t, w.Path) == w.Id {
+			t.registry.Put(activation(t, w, now(t))) catch {
+			case Unkept as e:
+				unreserved(t, w)
+				return e
+			}
+		}
+		unreserved(t, w)
+		return
+	}
+	let staging = StagingOf(t.home, w.Id)
+	// The staging folder becomes the reservation's tomb, one rename
+	// under the lock; settled deletes the tomb with the lock free, and
+	// drops the record after. A rename that fails leaves the record for
+	// the next command. That never fails this command.
+	if t.copier.Has(staging) {
+		t.copier.Move(staging, TombOf(t.home, w.Id)) catch {
+		case Missing, Exists, CloneFailed:
+		}
+		unreserved(t, w)
+		return
+	}
+	if t.copier.Has(TombOf(t.home, w.Id)) {
+		unreserved(t, w)
+		return
+	}
+	t.registry.Drop(w.Name) catch {
+	case Unkept as e:
+		unreserved(t, w)
+		return e
+	}
+	unreserved(t, w)
+}
+
+// settled settles the reservations whose maker is gone before a command
+// that changes the registry decides anything: it takes the lock (and
+// gives it back) only when a reservation is there, so a command finds a
+// name a killed new held free, and its folder deleted or activated. A
+// registry that does not read is the command's to report.
+func settled(t Tool) fails Unkept | Locked {
+	let all = t.registry.All() catch {
+	case Unkept:
+		return
+	}
+	let any = slices.IndexFunc(all, func(w Workspace) bool { StateName(w.State) == "creating" }) >= 0
+	if !any {
+		return
+	}
+	try hold(t)
+	t.lock.Release("")
+	let mut gone = []Workspace{}
+	for w in all {
+		if StateName(w.State) == "creating" && buried(t, w) {
+			gone = gone.Append(w)
+		}
+	}
+	dropped(t, gone)
+}
+
+// buried deletes the tomb of w, a reservation settle rolled back, with
+// the registry's lock free, so a big copy's delete never makes another
+// command wait on the lock: true when the tomb is gone. It then holds
+// the reservation's lock, which dropped gives back: meanwhile another
+// process's settle takes this process for the live maker and leaves the
+// record, and a cut in the delete gives the lock back to the next
+// command, which deletes again. A delete that fails leaves the tomb and
+// the record for the next command.
+func buried(t Tool, w Workspace) bool {
+	let tomb = TombOf(t.home, w.Id)
+	if w.Id == "" || !t.copier.Has(tomb) {
+		return false
+	}
+	let gone = makerGone(t, w) catch {
+	case Unkept:
+		return false
+	}
+	if !gone {
+		return false
+	}
+	clonerNamed(t, w.Cloner).Discard(tomb) catch {
+	case Missing:
+	case CloneFailed:
+		unreserved(t, w)
+		return false
+	}
+	true
+}
+
+// dropped drops, in one hold, the records of the reservations whose
+// tombs buried deleted, each only while it is still the same
+// reservation, and gives their locks back. A lock another command holds,
+// or a registry that does not write, leaves the records for the next
+// command, whose settle drops them (no staging folder, no tomb).
+func dropped(t Tool, gone []Workspace) {
+	if len(gone) == 0 {
+		return
+	}
+	let mut held = true
+	hold(t) catch {
+	case Unkept, Locked:
+		held = false
+	}
+	if held {
+		let still = t.registry.All() catch {
+		case Unkept:
+			[]Workspace{}
+		}
+		for w in gone {
+			if slices.IndexFunc(still, func(r Workspace) bool { r.Name == w.Name && r.Id == w.Id && StateName(r.State) == "creating" }) >= 0 {
+				t.registry.Drop(w.Name) catch {
+				case Unkept:
+				}
+			}
+		}
+		t.lock.Release("")
+	}
+	for w in gone {
+		unreserved(t, w)
 	}
 }

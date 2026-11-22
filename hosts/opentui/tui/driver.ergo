@@ -195,7 +195,7 @@ func create[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign 
 	let node = nodeOf(d, id)
 	d.s.Create(n, kindOf(node))
 	d.looks[n] = if kindOf(node) == screen.Text { look{fg: white, bg: 0, attr: 0} } else { look{fg: 0, bg: 0, attr: 0} }
-	match textOf(node) {
+	match shownText(d, node) {
 	case Some[string] as t:
 		if t.Value != "" {
 			d.s.SetText(n, t.Value)
@@ -254,8 +254,8 @@ func reset[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) n
 		attach(d, id, parentOf(d, id))
 		return
 	}
-	let was = textOf(old.node)
-	let now = textOf(node)
+	let was = shownText(d, old.node)
+	let now = shownText(d, node)
 	if was != now {
 		match now {
 		case Some[string] as t:
@@ -675,6 +675,53 @@ func step[E comparable, S, D, F](d mut Driver[S, E, D, F], ev ui.Event[E]) fails
 		try show(d, ops)
 		try speak(d, ops)
 	}
+	match ev {
+	case ui.Published as p:
+		// A readout's new text runs no pass: the nodes that read it show
+		// it, and the screen paints again (OT-READOUT).
+		try reread(d, p.Readout)
+	case _:
+	}
+}
+
+// reread gives each node that reads readout id the text it reads now and
+// paints the screen when one changed.
+func reread[E comparable, S, D, F](d mut Driver[S, E, D, F], id int) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	let mut any = false
+	for k, h in d.nodes {
+		match h.node {
+		case ui.ReadoutNode as x:
+			match shownText(d, h.node) {
+			case Some[string] as t:
+				if x.Readout == id {
+					d.s.SetText(numOf(d, k), t.Value)
+					any = true
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	if any {
+		try repaint(d)
+	}
+}
+
+// shownText is the text node n shows on the screen: a Readout's reading,
+// clipped and padded to its reserve's width (readout.ergo: the box is the
+// reserve's), any other node's textOf.
+func shownText[S, E, D, F](d mut Driver[S, E, D, F], n ui.Node[E]) Option[string] {
+	match n {
+	case ui.ReadoutNode as x:
+		match ui.ReadingIn(&d.session, x.Readout) {
+		case Some[string] as t:
+			Some{Value: reserved(t.Value, x.Reserve)}
+		case None:
+			Some{Value: x.Reserve}
+		}
+	case _:
+		textOf(n)
+	}
 }
 
 // setFocus moves the focus to f, on the scene too, and gives the nodes
@@ -749,10 +796,9 @@ func pressable[E](n ui.Node[E]) bool {
 	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
 		true
 	case ui.SemanticNode[E]:
-		// Degraded: a Semantic that sends a signal (a radio, an option, a
-		// link) is focusable and pressable in std ui (ui.Focusable), not
-		// on the terminal yet (OT-SEMANTIC).
-		false
+		// A Semantic that sends a signal and is not disabled (a radio, an
+		// option, a link), as std ui takes it (OT-SEMANTIC).
+		ui.Focusable(n)
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
@@ -764,8 +810,8 @@ func focusable[E](n ui.Node[E]) bool {
 	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
 		true
 	case ui.SemanticNode[E]:
-		// Degraded: see pressable (OT-SEMANTIC).
-		false
+		// ui.Focusable: it sends a signal and is not disabled (OT-SEMANTIC).
+		ui.Focusable(n)
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		false
 	}
@@ -808,6 +854,36 @@ func Settle[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped
 // Screen is the driver's tree, as its ops built it: what it drives the
 // scene by.
 func Screen[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Shape[E] { shapesOf(d, d.root) }
+
+// Shown is the driver's tree as it shows now, each Readout the Text of
+// its reading (ui.ShownShapesIn): what ui.Screen gives for a TestHost.
+func Shown[S, E, D, F](d mut Driver[S, E, D, F]) []ui.Shape[E] { ui.ShownShapesIn(&d.session, Screen(d)) }
+
+// ReadoutShown is a Readout of the driver's tree: its box in cells after
+// the last frame, its reserve and the session's reading of it now.
+type ReadoutShown { Box screen.Rect, Reserve string, Reading string }
+
+// Readouts is each Readout of the driver's tree, in tree order.
+func Readouts[S, E, D, F](d mut Driver[S, E, D, F]) []ReadoutShown needs go.Foreign { readoutsIn(d, d.root, []ReadoutShown{}) }
+
+func readoutsIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], into []ReadoutShown) []ReadoutShown needs go.Foreign {
+	let mut out = into
+	for k in kidsOf(d, id) {
+		match nodeOf(d, k) {
+		case ui.ReadoutNode as x:
+			let reading = match ui.ReadingIn(&d.session, x.Readout) {
+			case Some[string] as t:
+				t.Value
+			case None:
+				x.Reserve
+			}
+			out = out.Append(ReadoutShown{Box: d.s.BoxOf(numOf(d, k)), Reserve: x.Reserve, Reading: reading})
+		case _:
+		}
+		out = readoutsIn[S, E, D, F](d, k, out)
+	}
+	out
+}
 
 func shapesOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) []ui.Shape[E] {
 	let mut out = []ui.Shape[E]{}

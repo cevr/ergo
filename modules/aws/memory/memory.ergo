@@ -1,0 +1,155 @@
+// Package memory answers the generated S3 client with no network: Memory
+// is a provider of s3.S3 over buckets held in memory, and Handler serves
+// S3's REST answers from one, so the generated Api can be run over
+// http.InMemory against the fake it must agree with (ApiIsTheFake). It is
+// written by hand (wf10 GEN-EMIT); the contexts at the end bind both
+// providers for s3's laws.
+//
+// The fake models what the four operations need: an object's body, its
+// lower-cased user metadata, its content type and its storage class. An
+// object stored in GLACIER is archived: GetObject fails
+// InvalidObjectState, as S3 does until it is restored. An object's ETag
+// is the quoted hex of its body's 64-bit FNV-1a hash, so putting the same
+// body twice gives one ETag (S3's is the MD5 of a single-part body),
+// and Last-Modified counts the store's writes from a fixed second.
+
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/s3
+import http
+import strconv
+import strings
+import sync
+import time
+
+// Object is one stored object.
+type Object { Body string, ETag string, Meta Map[string, string], ContentType Option[string], Archived bool, Modified int64 }
+
+// Memory is the fake: its objects by bucket and key, and its count of
+// writes.
+type Memory { objects sync.Ref[Map[string, Object]], writes sync.Ref[int64] } implements s3.S3
+
+// NewMemory is an empty store.
+func NewMemory() Memory { Memory{objects: sync.NewRef[Map[string, Object]](Map[string, Object]{}), writes: sync.NewRef[int64](0)} }
+
+// The first Last-Modified a store writes: 2023-11-14T22:13:20Z.
+let epoch = int64(1700000000)
+
+let noSuchKey = "The specified key does not exist."
+let archived = "The operation is not valid for the object's storage class"
+
+func at(bucket string, key string) string { "\(len(bucket)):\(bucket)/\(key)" }
+
+func find(m Memory, bucket string, key string) Option[Object] { m.objects.Get().Get(at(bucket, key)) }
+
+func etag(body string) string {
+	let mut h uint64 = 14695981039346656037
+	for i in 0..len(body) {
+		h = (h ^ uint64(body[i])) * 1099511628211
+	}
+	"\"" + strconv.AppendUint([]byte{}, h, 16).Text() + "\""
+}
+
+func storageOf(o Object) Option[s3.StorageClass] {
+	if o.Archived { Some[s3.StorageClass]{s3.StorageClassGlacier} } else { None }
+}
+
+func HeadObject(m Memory, r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.NotFound | aws.Failed | aws.Malformed | http.RequestFailed {
+	match find(m, r.Bucket, r.Key) {
+	case Some as v:
+		let o = v.Value
+		s3.HeadObjectOutput{
+			..s3.NewHeadObjectOutput(),
+			LastModified:  Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
+			ContentLength: Some[int]{len(o.Body)},
+			ETag:          Some[string]{o.ETag},
+			ContentType:   o.ContentType,
+			Metadata:      o.Meta,
+			StorageClass:  storageOf(o),
+		}
+	case None:
+		s3.NotFound{Status: 404, Message: ""}
+	}
+}
+
+func GetObject(m Memory, r s3.GetObjectRequest, put func(part string) fails http.SinkFailed) s3.GetObjectOutput fails s3.InvalidObjectState | s3.NoSuchKey | aws.Failed | aws.Malformed | http.RequestFailed | http.SinkFailed {
+	match find(m, r.Bucket, r.Key) {
+	case Some as v:
+		let o = v.Value
+		if o.Archived {
+			return s3.InvalidObjectState{Status: 403, Message: archived, StorageClass: storageOf(o), AccessTier: None}
+		}
+		if o.Body != "" {
+			try put(o.Body)
+		}
+		s3.GetObjectOutput{
+			..s3.NewGetObjectOutput(),
+			LastModified:  Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
+			ContentLength: Some[int]{len(o.Body)},
+			ETag:          Some[string]{o.ETag},
+			ContentType:   o.ContentType,
+			Metadata:      o.Meta,
+			StorageClass:  storageOf(o),
+		}
+	case None:
+		s3.NoSuchKey{Status: 404, Message: noSuchKey}
+	}
+}
+
+func PutObject(m Memory, r s3.PutObjectRequest) s3.PutObjectOutput fails s3.EncryptionTypeMismatch | s3.InvalidRequest | s3.InvalidWriteOffset | s3.TooManyParts | aws.Failed | aws.Malformed | http.RequestFailed {
+	let mut meta = Map[string, string]{}
+	for k, v in r.Metadata {
+		meta[strings.ToLower(k)] = v
+	}
+	let glacier = match r.StorageClass {
+	case Some as c:
+		c.Value == s3.StorageClassGlacier
+	case None:
+		false
+	}
+	m.writes.Update(func(n int64) int64 { n + 1 })
+	let tag = etag(r.Body)
+	let o = Object{Body: r.Body, ETag: tag, Meta: meta, ContentType: r.ContentType, Archived: glacier, Modified: m.writes.Get()}
+	let k = at(r.Bucket, r.Key)
+	m.objects.Update(func(objects Map[string, Object]) Map[string, Object] {
+		let mut out = objects
+		out[k] = o
+		out
+	})
+	s3.PutObjectOutput{..s3.NewPutObjectOutput(), ETag: Some[string]{tag}}
+}
+
+func DeleteObject(m Memory, r s3.DeleteObjectRequest) s3.DeleteObjectOutput fails aws.Failed | aws.Malformed | http.RequestFailed {
+	let k = at(r.Bucket, r.Key)
+	m.objects.Update(func(objects Map[string, Object]) Map[string, Object] { objects.Delete(k) })
+	s3.NewDeleteObjectOutput()
+}
+
+// PutThenGetIsThePayload: what PutObject stores, GetObject gives back: the
+// body to the sink, and the metadata by its lower-cased names; over the
+// fake, and over the Api in front of one.
+law PutThenGetIsThePayload(key string, body string, name string, note string) {
+	let fake = NewMemory()
+	let api = s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned)
+	roundTrips(fake, key, body, name, note) && roundTrips(api, key, body, name, note)
+}
+
+// roundTrips puts body under key with one metadata entry name+"x" and
+// reads it back through on.
+func roundTrips[S s3.S3](on S, key string, body string, name string, note string) bool {
+	let meta = "M" + strings.ReplaceAll(strings.ReplaceAll(name, "\n", ""), ":", "") + "x"
+	let r = s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", key), Body: body, Metadata: Map[string, string]{meta: note}}
+	let _ = on.PutObject(r) catch {
+	case _:
+		return false
+	}
+	let got = sync.NewRef[string]("")
+	let out = on.GetObject(s3.NewGetObjectRequest("bk", key), func(part string) fails http.SinkFailed { got.Update(func(s string) string { s + part }) }) catch {
+	case _:
+		return false
+	}
+	got.Get() == body && out.Metadata == Map[string, string]{strings.ToLower(meta): note} && out.ContentLength == Some[int]{len(body)}
+}
+
+// The contexts s3's laws run under: the fake, and the Api in front of one.
+let lawMemory = context { s3.S3: NewMemory() }
+let lawApi = context { s3.S3: s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned) }

@@ -1,0 +1,12 @@
+# scripts/opcount: `awss3bench bench calls N` makes N rounds of three S3
+# calls through the generated client over an in-memory handler (wf10
+# GEN-EMIT): HeadObject, GetObject of 64 KB into a sink, DeleteObject of a
+# missing key. The cost of one round is the slope between the two sizes.
+# The control is hand Go: net/http's Header and Request, the same handler
+# logic, the answer's headers read into a struct. The floor reads each
+# header once from a fixed table and hands the body over with no copy.
+unit round
+sizes 2000 12000
+args bench calls {n}
+control benchmarks/awss3/testdata/control
+floor benchmarks/awss3/testdata/floor
