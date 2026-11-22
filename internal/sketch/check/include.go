@@ -148,7 +148,7 @@ func (c *checker) expandInclude(n *Named) bool {
 		}
 	}
 	fields = append(fields, own[next:]...)
-	s.Fields, s.index, s.includes, s.expanding = fields, nil, nil, false
+	s.Fields, s.includes, s.expanding = fields, nil, false
 	c.resetInstances(n)
 	return true
 }

@@ -38,6 +38,7 @@ import (
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goreads.go v1/goarg.go v1/gocall.go v1/gocallback.go
 //go:embed v1/view.go v1/guard.go v1/guard_unix.go v1/guard_other.go
 //go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
+//go:embed v1/hostfs/hostfs.go
 //go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
 //go:embed explore/explore.go
 //go:embed testgen/classes.go testgen/near.go testgen/stream.go
@@ -136,6 +137,12 @@ var packages = sync.OnceValue(func() map[string]pkg {
 		"runtime/v1/net": {
 			files:   []string{"net.go"},
 			imports: []string{"runtime/rt"},
+		},
+		// A file's metadata as values: os's Stat, Lstat and ReadDir are bound
+		// to it (HOST-ROW-3). Plain Go, bound as any Go package is, not a leaf
+		// of bodies (v1.Owns).
+		"runtime/v1/hostfs": {
+			files: []string{"hostfs.go"},
 		},
 		// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
 		"runtime/v1/http": {

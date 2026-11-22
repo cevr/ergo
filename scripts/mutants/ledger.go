@@ -39,8 +39,11 @@ type Mutant struct {
 	// file that wrote it.
 	Origin string `json:"origin"`
 	// File is the mutated file, relative to the module root. From must
-	// occur exactly once in it; the mutant replaces it with To.
+	// occur exactly once in it, or, when Decl names one of its top-level
+	// declarations, exactly once in that declaration (MN0, package anchor);
+	// the mutant replaces it with To.
 	File string `json:"file"`
+	Decl string `json:"decl,omitempty"`
 	From string `json:"from"`
 	To   string `json:"to"`
 	// Rule is the rule of the language or the tool that the edit breaks.
