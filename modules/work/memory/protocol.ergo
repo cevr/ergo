@@ -27,10 +27,12 @@ func some(text string) Option[string] { Some[string]{Value: text} }
 // Watching is a Cloner that records whether the registry's lock was held
 // at any clone (the copy runs with no lock but its reservation's), and
 // counts its Has and Discard calls.
-type Watching { c Cloner, lock Lock, locked sync.Ref[bool], calls sync.Ref[int] } implements work.Cloner
+type Watching { c Cloner, lock Lock, locked sync.Ref[bool], calls sync.Ref[int], refuse sync.Ref[int] } implements work.Cloner
 
-// Watch is a Watching of c under lock.
-func Watch(c Cloner, lock Lock) Watching { Watching{c: c, lock: lock, locked: sync.NewRef(false), calls: sync.NewRef(0)} }
+// Watch is a Watching of c under lock: locked is whether a Clone or a
+// Discard ran with the registry's lock held, calls counts the Has and
+// Discard calls, and the next refuse Discards fail.
+func Watch(c Cloner, lock Lock) Watching { Watching{c: c, lock: lock, locked: sync.NewRef(false), calls: sync.NewRef(0), refuse: sync.NewRef(0)} }
 
 func Name(w Watching) string { w.c.Name() }
 
@@ -54,6 +56,13 @@ func Move(w Watching, from string, to string) fails work.Exists | work.Missing |
 
 func Discard(w Watching, root string) fails work.Missing | work.CloneFailed {
 	w.calls.Set(w.calls.Get() + 1)
+	if w.lock.table.Get().Get("") != None {
+		w.locked.Set(true)
+	}
+	if w.refuse.Get() > 0 {
+		w.refuse.Set(w.refuse.Get() - 1)
+		return work.CloneFailed{Cloner: w.c.Name(), Reason: "rm: cannot remove \(root): Directory not empty"}
+	}
 	try w.c.Discard(root)
 }
 
@@ -647,7 +656,7 @@ law ListShowsAStrandedReservation(at int) {
 	}
 	let staging = work.StagingOf(work.Home(theBase, ""), m.Id)
 	let settledRight = if cut == 3 { len(after) == 1 && work.StateName(after[0].State) == "active" && w.trees.Has(m.Path) } else { len(after) == 0 && !w.trees.Has(m.Path) }
-	pinned.Name == "" && shown && settledRight && !w.trees.Has(staging) && w.lock.Holds() == 0
+	pinned.Name == "" && shown && settledRight && !w.trees.Has(staging) && !w.trees.Has(work.TombOf(work.Home(theBase, ""), m.Id)) && w.lock.Holds() == 0
 }
 
 // SettleNeverTakesALiveMaker: a reservation whose maker lives (it holds
@@ -739,8 +748,86 @@ law PlaceNeverCopies(copy bool) {
 	refused && len(all) == 0 && slices.Filter(Roots(w.trees), func(r string) bool { strings.HasPrefix(r, home+"/") }) == []string{} && w.lock.Holds() == 0
 }
 
-// SettleCostsAtMost: settling costs a command at most three folder calls
-// (a Has or a Discard) per reservation whose maker is gone, and none per
+// NoDeleteUnderTheLock: a reservation whose maker died with its staging
+// folder there (cut at 1 or 2), or with the tomb a cut after settle's
+// rename left, is deleted by the next command (a pin, a gc or an rm of
+// it) with the registry's lock free. A delete that fails once leaves the
+// record, listed as creating, with its tomb, for the command after; the
+// gc and the rm leave it too. After that command no record, staging
+// folder or tomb is left, and no lock is held.
+law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let m = stranded(w, "a", 2, 1 + small(at, 2)) catch {
+	case _:
+		return false
+	}
+	let staging = work.StagingOf(home, m.Id)
+	let tomb = work.TombOf(home, m.Id)
+	if renamed {
+		w.trees.Move(staging, tomb) catch {
+		case _:
+			return false
+		}
+	}
+	let copier = Watch(Beside(w.trees, false), w.lock)
+	let cloner = Watch(w.trees, w.lock)
+	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: copier, Registry: w.registry, Lock: Sharing(w.lock, 99), Hooks: Recording(w.lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
+	let t = work.NewTool(theBase, home, "/data", p, "/")
+	let mut kept = true
+	if refused {
+		copier.refuse.Set(1)
+		cloner.refuse.Set(1)
+		if !poked(t, small(by, 3)) {
+			return false
+		}
+		let mid = t.List() catch {
+		case _:
+			return false
+		}
+		kept = len(mid) == 1 && work.StateName(mid[0].State) == "creating" && w.trees.Has(tomb)
+	}
+	if !poked(t, small(by, 3)) {
+		return false
+	}
+	let after = t.List() catch {
+	case _:
+		return false
+	}
+	kept && len(after) == 0 && !w.trees.Has(staging) && !w.trees.Has(tomb) && !copier.locked.Get() && !cloner.locked.Get() && w.lock.Holds() == 0
+}
+
+// poked runs the command k of NoDeleteUnderTheLock on the name a: a pin
+// of a name that is not there, a gc, or an rm (which a reservation still
+// being deleted answers Busy, and one gone NoWorkspace). It is false on
+// any other failure.
+func poked(t work.Tool, k int) bool {
+	if k == 0 {
+		let _ = t.Pin("none") catch {
+		case work.NoWorkspace:
+			return true
+		case _:
+			return false
+		}
+	} else if k == 1 {
+		let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+	} else {
+		let _ = t.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		case work.Busy, work.NoWorkspace:
+			return true
+		case _:
+			return false
+		}
+	}
+	true
+}
+
+// SettleCostsAtMost: settling costs a command at most four folder calls
+// (a Has or a Discard; settle's rename to the tomb is a Move) per
+// reservation whose maker is gone, and none per
 // other record: a pin in a registry of active workspaces and stranded
 // reservations makes no more.
 law SettleCostsAtMost(actives int, strands int, at int) {
@@ -766,5 +853,5 @@ law SettleCostsAtMost(actives int, strands int, at int) {
 	case _:
 		return false
 	}
-	watch.calls.Get() <= 3*c
+	watch.calls.Get() <= 4*c
 }

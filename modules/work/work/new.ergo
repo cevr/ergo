@@ -195,6 +195,11 @@ func StagingFolder(home string) string { home + "/.creating" }
 // StagingOf is the staging folder of the reservation id.
 func StagingOf(home string, id string) string { StagingFolder(home) + "/" + id }
 
+// TombOf is the staging folder of the reservation id once settle rolled
+// it back: renamed, so no copy a dead maker left running writes into it
+// by its name, and deleted with the lock free (buried). An id has no dot.
+func TombOf(home string, id string) string { StagingOf(home, id) + ".gone" }
+
 // Stage is Fill's first part, with no lock but the reservation's held:
 // the check that the staging folder can be placed by one rename (before
 // any copy), the clone into the staging folder, the folders work.toml

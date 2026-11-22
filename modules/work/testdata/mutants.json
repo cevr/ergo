@@ -2016,6 +2016,62 @@
       "to": "mv -T -- ",
       "rule": "Place's rename never falls back to a copy (copy's PlaceSyncsBothFolders reads the call).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-settle-deletes", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tt.copier.Move(staging, TombOf(t.home, w.Id)) catch {\n\t\tcase Missing, Exists, CloneFailed:\n\t\t}\n",
+      "to": "\t\tclonerNamed(t, w.Cloner).Discard(staging) catch {\n\t\tcase Missing, CloneFailed:\n\t\t}\n",
+      "rule": "settle renames a rolled-back staging folder to its tomb under the registry's lock and never deletes it there.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-buried-under-lock", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tclonerNamed(t, w.Cloner).Discard(tomb) catch {\n",
+      "to": "\tlet _ = t.lock.Hold(\"\") catch {\n\tcase Unkept:\n\t\tfalse\n\t}\n\tclonerNamed(t, w.Cloner).Discard(tomb) catch {\n",
+      "rule": "buried deletes a tomb with the registry's lock free.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-tomb-dropped", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif t.copier.Has(TombOf(t.home, w.Id)) {\n\t\tunreserved(t, w)\n\t\treturn\n\t}\n",
+      "to": "",
+      "rule": "settle keeps the record of a reservation whose tomb is still there: no tomb outlives its record.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-buried-drops-on-failure", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tcase CloneFailed:\n\t\tunreserved(t, w)\n\t\treturn\n\t}\n\thold(t) catch {\n",
+      "to": "\tcase CloneFailed:\n\t}\n\thold(t) catch {\n",
+      "rule": "A tomb whose delete fails keeps its record for the next command.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-gc-purges-tomb", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/remove.ergo",
+      "from": " && !t.copier.Has(w.Path+\"/.git\") && !t.copier.Has(TombOf(t.home, w.Id)) {",
+      "to": " && !t.copier.Has(w.Path+\"/.git\") {",
+      "rule": "gc leaves a reservation with a tomb to buried, which drops it only once the tomb is gone.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-rm-trashes-tomb", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif w.Id != \"\" && t.copier.Has(TombOf(t.home, w.Id)) {\n\t\t\treturn Busy{Name: name, State: StateName(w.State)}\n\t\t}\n",
+      "to": "",
+      "rule": "rm of a reservation whose tomb is not yet deleted answers Busy: the record goes with the tomb.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-no-burial", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\t\tburied(t, w)\n",
+      "to": "",
+      "rule": "A command that settled deletes the tombs and drops their records.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
