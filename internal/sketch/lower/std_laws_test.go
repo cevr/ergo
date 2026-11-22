@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/lawledger/parsed"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -1309,7 +1310,7 @@ func TestStdLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the std law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	lawledger.Run(t, lawsPassed(t, stdLawsStatements, func(key string) string {
+	parsed.Run(t, lawsPassed(t, stdLawsStatements, func(key string) string {
 		pkg, law, _ := strings.Cut(key, " ")
 		return stdLawsTestName(pkg, law)
 	}, stdLawsProbe, stdout))
