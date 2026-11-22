@@ -1,0 +1,8 @@
+# scripts/opcount: `writerbench bench record N` writes a record's JSON N
+# times on the prelude's Writer interface (W1): the interface encoder,
+# which the IR builds. The control is hand Go: encoding/json's Marshal of
+# the record's struct.
+unit write
+sizes 20000 120000
+args bench record {n}
+control benchmarks/wirewriters/testdata/control

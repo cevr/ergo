@@ -1,0 +1,7 @@
+# scripts/opcount: `writerbench bench list N` writes a list of four
+# records N times on the prelude's Writer interface (W1). The control is
+# hand Go: encoding/json's Marshal of a slice of the record's struct.
+unit write
+sizes 5000 30000
+args bench list {n}
+control benchmarks/wirewriters/testdata/control
