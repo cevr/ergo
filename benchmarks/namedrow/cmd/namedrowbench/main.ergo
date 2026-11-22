@@ -33,17 +33,17 @@ type Lost = Unique | Serialization | Deadlock | Timeout | Closed | Other
 func named(i int) int fails Lost {
 	match i % 7 {
 	case 0:
-		return Unique{}
+		return Unique
 	case 1:
-		return Serialization{}
+		return Serialization
 	case 2:
-		return Deadlock{}
+		return Deadlock
 	case 3:
-		return Timeout{}
+		return Timeout
 	case 4:
-		return Closed{}
+		return Closed
 	case 5:
-		return Other{}
+		return Other
 	case _:
 		i
 	}
@@ -52,17 +52,17 @@ func named(i int) int fails Lost {
 func spelled(i int) int fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
 	match i % 7 {
 	case 0:
-		return Unique{}
+		return Unique
 	case 1:
-		return Serialization{}
+		return Serialization
 	case 2:
-		return Deadlock{}
+		return Deadlock
 	case 3:
-		return Timeout{}
+		return Timeout
 	case 4:
-		return Closed{}
+		return Closed
 	case 5:
-		return Other{}
+		return Other
 	case _:
 		i
 	}
