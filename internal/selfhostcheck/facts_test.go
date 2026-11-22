@@ -270,6 +270,7 @@ var oddRefinements = []string{
 	"type G[T] int where it > 0\n",
 	"type M Map[int, int] where len(it) > 0\n",
 	"type C int where it > 0 && it < it\n",
+	"law Rel(a int, b int where a == b, c int where c > a && c < 9) { a == b }\n",
 	"type F float64 where it > 0\n",
 	"type P int where it > 0\n\ntype Q P where it < 9\n",
 	"type Q P where it < 9\n\ntype P int where it > 0\n",

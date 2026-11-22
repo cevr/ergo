@@ -556,10 +556,35 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 		if p.Failed {
 			continue
 		}
-		let mut inLaw = Map[int, bool]{}
+		// inLaw maps each law parameter field to its law's parameter
+		// fields, lawOf to its law; ops maps a member law to its operation
+		// type's operations.
+		let mut inLaw = Map[int, []dense.ID[syntax.Node]]{}
+		let mut lawOf = Map[int, int]{}
+		let mut ops = Map[int, []string]{}
 		for i in 0..syntax.NumNodes(p.Tree) {
 			let x = syntax.NodeAt(p.Tree, i)
-			if syntax.KindOf(p.Tree, x) != syntax.KLawDecl {
+			let kind = syntax.KindOf(p.Tree, x)
+			if kind == syntax.KInterfaceType {
+				let members = syntax.InterfaceTypeOf(p.Tree, x).Members
+				let mut names = []string{}
+				for j in 0..syntax.Len(members) {
+					let m = syntax.Item(p.Tree, members, j)
+					if syntax.KindOf(p.Tree, m) == syntax.KField {
+						let fd = syntax.FieldOf(p.Tree, m)
+						for n in 0..syntax.Len(fd.Names) {
+							names = names.Append(types.NameText(p, syntax.Item(p.Tree, fd.Names, n)))
+						}
+					}
+				}
+				for j in 0..syntax.Len(members) {
+					let m = syntax.Item(p.Tree, members, j)
+					if syntax.KindOf(p.Tree, m) == syntax.KLawDecl {
+						ops[dense.Index(m)] = names
+					}
+				}
+			}
+			if kind != syntax.KLawDecl {
 				continue
 			}
 			match syntax.ViewOf(p.Tree, x) {
@@ -568,8 +593,13 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 				case Some{Value: ps}:
 					match syntax.ViewOf(p.Tree, ps) {
 					case syntax.FieldList as fl:
+						let mut fields = []dense.ID[syntax.Node]{}
 						for j in 0..syntax.Len(fl.List) {
-							inLaw[dense.Index(syntax.Item(p.Tree, fl.List, j))] = true
+							fields = fields.Append(syntax.Item(p.Tree, fl.List, j))
+						}
+						for fx in fields {
+							inLaw[dense.Index(fx)] = fields
+							lawOf[dense.Index(fx)] = dense.Index(x)
 						}
 					case _:
 					}
@@ -588,7 +618,30 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 				match dense.Unpack(fd.Where) {
 				case Some{Value: wh}:
 					match inLaw.Get(dense.Index(x)) {
-					case Some[bool]:
+					case Some{Value: fields}:
+						// The names a where may relate to (Laws 15): the
+						// operations of a member law's type, then each
+						// parameter before the one it qualifies.
+						let mut before = match lawOf.Get(dense.Index(x)) {
+						case Some{Value: l}:
+							match ops.Get(l) {
+							case Some{Value: ns}:
+								ns
+							case None:
+								[]string{}
+							}
+						case None:
+							[]string{}
+						}
+						for other in fields {
+							if dense.Index(other) == dense.Index(x) {
+								break
+							}
+							let of = syntax.FieldOf(p.Tree, other)
+							for j in 0..syntax.Len(of.Names) {
+								before = before.Append(types.NameText(p, syntax.Item(p.Tree, of.Names, j)))
+							}
+						}
 						let tx = match dense.Unpack(fd.Type) {
 						case Some{Value: v}:
 							v
@@ -599,6 +652,14 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 						let ty = types.Resolve(s, env, tx)
 						for j in 0..syntax.Len(fd.Names) {
 							let name = types.NameText(p, syntax.Item(p.Tree, fd.Names, j))
+							let relational = names(p, wh, before)
+							before = before.Append(name)
+							if relational {
+								// An admission, not a refinement: a case
+								// runs only when it holds (types.md, Laws
+								// 15; the Go checker's relationalWhere).
+								continue
+							}
 							let (_, ds) = decide(s, whereOf{k: k, f: f, where: wh, subject: name, what: name, done: done}, ty)
 							for g in ds {
 								out = out.Append(g)
@@ -617,17 +678,36 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 	out
 }
 
-// Diags is the refinement diagnostics of the package k. The prelude has
-// none: the Go checker checks it once and reads none of its diagnostics
-// (check.go prelude()), and its laws' relational wheres (b where a == b)
-// stand. This mirrors the Go checker only until unit PRELUDE-CHECKED
-// (lane SQ) checks the prelude and rewrites those laws; that tip deletes
-// this carve-out and its mutant row facts-prelude-diags-reported.
+// names is whether the expression x names one of among: an
+// identifier inside x's span spelled as one of them.
+func names(p syntax.Parsed, x dense.ID[syntax.Node], among []string) bool {
+	if len(among) == 0 {
+		return false
+	}
+	let from = syntax.NodePos(p, x)
+	let to = syntax.NodeEnd(p, x)
+	for i in 0..syntax.NumNodes(p.Tree) {
+		let y = syntax.NodeAt(p.Tree, i)
+		if syntax.KindOf(p.Tree, y) != syntax.KIdent {
+			continue
+		}
+		let at = syntax.NodePos(p, y)
+		if at < from || at >= to {
+			continue
+		}
+		let name = types.NameText(p, y)
+		for n in among {
+			if n == name {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// Diags is the refinement diagnostics of the package k.
 func Diags(s mut store.Store, k expr.Pkg) []diag.Diag {
 	let mut out = []diag.Diag{}
-	if store.PathOf(*s) == "prelude" {
-		return out
-	}
 	let mut done = []string{}
 	for r in Refinements(s, k) {
 		for g in r.Diags {
