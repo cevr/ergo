@@ -22,3 +22,7 @@ func Tokens(src string) []uint32 { dump.Tokens(src) }
 // Failure is dump.Failure: the failure of the parse of src, "" when it
 // parses.
 func Failure(src string) string { dump.Failure(src) }
+
+// FixLines is dump.FixLines: a fix's edits as Failure writes them, which
+// the Go decoder's round-trip property reads back.
+func FixLines(class string, offsets []int, lengths []int, texts []string) string { dump.FixLines(class, offsets, lengths, texts) }
