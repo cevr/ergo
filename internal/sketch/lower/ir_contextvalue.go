@@ -78,9 +78,12 @@ func (b *irBuilder) installWith(x *syntax.CallExpr, i int, w *check.With, arg sy
 	env := b.l.env()
 	cp := b.temp("env", env, p)
 	ptr := b.temp("envp", "*"+env, p)
+	unit, errv := b.temp("unit", "struct{}", p), b.temp("err", "error", p)
 	out := append(pre,
 		&irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: b.env}}},
 		&irStmt{K: "def", Pos: p, Local: ptr, X: &irExpr{K: "addr", Pos: p, X: &irExpr{K: "local", Pos: p, I: cp}}},
-		&irStmt{K: "expr", Pos: p, X: &irExpr{K: "vcall", Pos: p, X: v, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}})
+		// The value never fails (its error is nil): its pair is bound and
+		// dropped, as the emitter's statement drops it (irUseLocals).
+		&irStmt{K: "def2", Pos: p, Local: unit, Val: &errv, X: &irExpr{K: "vcall", Pos: p, X: v, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}})
 	return append(out, b.withRest(x, i, w, ptr, ret, to)...)
 }
