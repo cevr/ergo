@@ -206,7 +206,7 @@ func (b *irBuilder) machineRecord(conv check.Conversion, n *check.Named, p irPos
 // its environment and parameters fresh locals: body builds its statements.
 func (b *irBuilder) machineFunc(sig *check.Signature, p irPos, site syntax.Node, body func(env int, params []int) []*irStmt) *irExpr {
 	lit := &irExpr{K: "func", Pos: p, T: b.sigType(sig, site), End: &p} // ir_closure.go
-	env := b.temp("env", "*"+b.l.env(), p)
+	env := b.temp("env", b.envPointer(), p)
 	lit.Params = []int{env}
 	var ps []int
 	for _, prm := range sig.Params {
