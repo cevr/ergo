@@ -16,7 +16,7 @@ import (
 const MaxNesting = 1000
 
 // Parse parses one source file of the 2026 edition. It returns the first
-// syntax error, an *Error with code S001, and no file; recovery is #38's.
+// syntax error, an *Error with code S001, and no file; recovery is the language server's.
 func Parse(src string) (file *File, err error) {
 	s := scan(src)
 	p := &parser{s: s, src: src, toks: s.toks}

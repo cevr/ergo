@@ -45,7 +45,7 @@ func TestTestAmbientDiagnostics(t *testing.T) {
 `, []string{"5:32 S102 context bare requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)"}},
 		{"a wider header", `let wider = context needs TestAmbient | fs.Writes { fs.Files: fs.NewTestHost() }
 `, []string{
-			"5:21 S109 a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)",
+			"5:21 S109 a context's needs clause waits for context header checking (rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)",
 			"5:63 S102 context wider requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)",
 		}},
 		{"an embedding", `let embeds = context { onDisk }

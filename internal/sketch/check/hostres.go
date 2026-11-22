@@ -1,6 +1,6 @@
 package check
 
-// Go values that are resources (#196 item 15l, #197 IG9; resources.md
+// Go values that are resources (the v1 language item 15l, resource ownership IG9; resources.md
 // R1, Q9, Q10; docs/spec/interop.md, Resources). A Go type whose method
 // set has Close() or Close() error is a resource at the boundary, as a
 // type with a checked Close is (plan 1.2 rule 1): its value has one

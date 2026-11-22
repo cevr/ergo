@@ -39,7 +39,7 @@ import (
 //
 // The forms the decided language removed are not generated: fixed arrays,
 // channels, anonymous struct and interface types, bodiless methods and
-// method values (#196; the merge round).
+// method values (the merge round).
 //
 // Both checkers must agree on accept or reject; a rejection must be an
 // instantiation cycle in both (any other go/types error is a generator
@@ -660,7 +660,7 @@ var refusals196u = func() []*regexp.Regexp {
 		// D-A3: a shift's literal in a non-integer context.
 		`the left operand of a shift is an integer, and \S+ is expected here; write int\(.+\) (<<|>>) .+, then convert the result`,
 		// Rule 6: mixed literal defaults, in a call and in a record literal.
-		`cannot infer \w+; write the type arguments, e\.g\. .+: its literal arguments take \S+ and \S+ \(D6; 196u rule 6\)`,
+		`cannot infer \w+; write the type arguments, e\.g\. .+: its literal arguments take \S+ and \S+ \(D6\)`,
 		`cannot infer the type argument \w+ of \w+: its literals take \S+ and \S+; write \w+\[…\] \(D6\)`,
 		// Rule 6: a literal binds its parameter to its default before the
 		// constraint is checked (G(1, s)), so the constraint failure is the
@@ -980,7 +980,7 @@ func TestDifferentialInfoNames(t *testing.T) {
 // either order or with T written (the explicit controls). Every value is a
 // parameter of Main, so no zero value is needed. The calls mix matching
 // and mismatching arguments, so both verdicts occur. The decided language
-// has no anonymous interfaces and no channels (#196), so none is written.
+// has no anonymous interfaces and no channels, so none is written.
 // The two texts differ only in their declarations.
 func inferProgram(rng *rand.Rand, wrap int) twin {
 	var b twinBuilder
