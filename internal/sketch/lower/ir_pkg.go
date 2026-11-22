@@ -930,7 +930,10 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	if defersCall(body) {
 		return b.seqOpCall(x, c, n, body, p) // Go's iter.Seq[T]: a Seq (ir_adapted.go)
 	}
-	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
+	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple && len(body.Results) != 1+btoi(goFallible(body)) {
+		// A tuple of the method's one result (Queue[(A, B)]'s Pop, Go's
+		// (T, error) at T the tuple's struct; ir_tuple.go) is that value;
+		// Go's several results, one per element, are adapted.
 		irNo("std call with an adapted result")
 	}
 	convs := map[int]string{} // by index of the receiver-first vals
