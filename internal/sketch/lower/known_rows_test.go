@@ -173,7 +173,7 @@ func both[E](o Option[int], f func(v int) int fails E, g func() int fails E) int
 }
 
 func run(o Option[int]) int fails Boom {
-	try both(o, func(v int) int { v + 1 }, func() int fails Boom { return Boom{} })
+	try both(o, func(v int) int { v + 1 }, func() int fails Boom { return Boom })
 }
 
 func main() needs Console {
