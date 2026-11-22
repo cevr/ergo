@@ -1175,8 +1175,10 @@ func (l *lowerer) ownsNode(n syntax.Node) bool {
 
 // ownsValues reports a declaration that owns a value anywhere in it, its
 // parameters and nested literals included: its frames release through a
-// frame scope on their task, so it is no pure function (pure.go).
-func ownsValues(info *check.Info, d *syntax.FuncDecl) bool {
+// frame scope on their task, so it is no pure function (pure.go). d may
+// be a loop's body: its iterations release on their task, so it is no
+// quiet loop (ir_poll.go).
+func ownsValues(info *check.Info, d syntax.Node) bool {
 	found := false
 	syntax.Inspect(d, func(n syntax.Node) bool {
 		switch n := n.(type) {

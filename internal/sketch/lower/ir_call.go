@@ -144,6 +144,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if check.IsUnreachable(c) {
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
 	}
+	if check.IsInForce(c) {
+		// Written at each call, never called (ir_inforce.go).
+		return b.inForce(x, c, p)
+	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
 	// identify records it (calls.go): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
