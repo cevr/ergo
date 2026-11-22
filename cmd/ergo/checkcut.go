@@ -115,7 +115,7 @@ func programSources(a sketchfront.Analysis) (string, map[string]string, bool) {
 func (t *checkTree) replay(a sketchfront.Analysis) ([]byte, bool) {
 	// A package with a diagnostic needs no guard here: an entry is kept
 	// only from a clean check (keepCut), and its key holds the package's
-	// source and every interface of the program, of which the check is a
+	// source and each local import's interface, of which the check is a
 	// function (CS5a; TestIncrementalCheckDecides: a package whose source
 	// and imports' interfaces are unchanged checks to the same view, its
 	// diagnostics included). So a check with a diagnostic never has a
