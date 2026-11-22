@@ -44,6 +44,22 @@ func fieldTakenTwice(n int) {
 	b.r.Close() //want: flow
 }
 
+func fieldTakenUsed() {
+	let b = Box{r: open(1), n: 1}
+	b.r.Close()
+	lend(b.r) //want: flow
+}
+
+func fieldTakenJoined(n int) {
+	let b = Box{r: open(1), n: n}
+	if n > 1 {
+		lend(b.r)
+	} else {
+		b.r.Close()
+	}
+	lend(b.r) //want: flow
+}
+
 func fieldTakenLent(b Box) {
 	b.r.Close() //want: flow
 }

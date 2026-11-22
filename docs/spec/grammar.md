@@ -329,4 +329,15 @@ Every old spelling is S001 at its own token, with a byte span, line and column. 
 | `goto` | goto is not part of the language; use structured control flow |
 | `fallthrough` | fallthrough is not part of the language; list the patterns in one case |
 
+**A Go local declaration names its let form** (owner, 2026-11-20, after MoonBit's `var x = 10` recovery; VET-CHECK-VAR). At the start of a statement, `var x [T] = e` and `x := e` get the habit's message, then the declaration in Ergo:
+- `let mut` when a later statement of the declaring block assigns the name: `x = e`, `x += e`, `x.f = e` or `x[k] = e`, in a nested block or function literal too. With no shadowing, the name is the one variable there.
+- `let` otherwise. The parser never guesses `let mut`.
+
+For example, `func f() { var count = 0; count = count + 1 }` gives, at `var`, "Ergo has no var; declare with `let x = e`, `let x T = e` or `let mut x = e`; here `let mut count = 0`, since count is reassigned". `count := 0` with no later assignment gives, at `:=`, "…; here `let count = 0`, since count is never reassigned".
+
+The error carries the fix as data: the bytes of `var`, or of `x :=`, and the text that replaces them (`syntax.Error.Fix`, an exact fix of one edit; `compiler/syntax/dump.Failure` writes each edit of a fix as a line `fix exact|suggested offset length "text"` after the error's line, layout 5). `ergo fix` applies it first among its syntactic respells. It parses again after each fix and stops when no error carries one or a fix makes no progress, and prints "let: N rewrites in M files". These keep the plain habit message, with no fix:
+- `var x T` with no value;
+- a list such as `a, b := e`;
+- a package-level `var`.
+
 **Old Ergo-only spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { … }`, bodiless functions with `//ef:go`, `uses`) get the plain S001 any stray token gets, with no rename hint ([#217](https://github.com/cevr/ergo/issues/217)).

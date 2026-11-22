@@ -1,0 +1,53 @@
+// A with's block (rows.md, With 6): a try in it lets its failure escape
+// the function, as anywhere in the body; what it charges inside the with
+// is discharged by the context, so nothing is charged there. A test's
+// capability row is empty: what it charges outside a with is S102, with no
+// clause to write (E4).
+
+type Bad {}
+
+type Worse {}
+
+type Store { Get() int }
+
+type Memory {} implements Store
+
+func Get(_ Memory) int { 1 }
+
+let Live = context { Store: Memory }
+
+func risky() int fails Bad { 1 }
+
+func worse() int fails Worse { 2 }
+
+func inside() int fails Worse {
+	with Live {
+		let n = try risky() //want: rows
+		n + Store.Get()
+	}
+}
+
+func nested() int {
+	with Live {
+		with Live {
+			let a = try risky() //want: rows
+			let b = try worse() //want: rows
+			a + b
+		}
+	}
+}
+
+func listed() int fails Bad {
+	with Live {
+		let n = try risky()
+		n + Store.Get()
+	}
+}
+
+test Unwired {
+	assert Store.Get() == 1 //want: rows
+}
+
+test Wired {
+	assert with Live { Store.Get() } == 1
+}
