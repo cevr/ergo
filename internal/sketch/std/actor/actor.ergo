@@ -12,6 +12,8 @@
 // control: a goroutine with a channel and a switch on the state.
 
 import machines
+import queue
+import scope
 import tasks
 import time
 import sync
@@ -1326,6 +1328,216 @@ func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
 		return Defected{Reason: defectOf(a)}
 	}
 	Halted[S]{State: a.State()}
+}
+
+// Watch sends watcher the signal toSignal(x) once a has ended, x its exit
+// (ExitOf): a monitor whose report is a signal in the watcher's inbox
+// (Erlang's monitor and its 'DOWN' message, typed by the watcher's
+// signal). An actor that ended before the call is reported too. The wait
+// runs on a task the watcher owns, as a Feed's source does: it ends when
+// the watcher ends, so a watcher that ended first gets nothing and holds
+// nothing. It fails Stopped when the watcher has ended or its Stop was
+// requested.
+func Watch[S, E, O, F, S2, E2, D2, F2](watcher Actor[S2, E2, D2, F2], a Actor[S, E, Decision[S, O], F], toSignal own func(x Exit[S, O, F]) E2) fails Stopped {
+	try feed(watcher, func(send func(e E2)) {
+		send(toSignal(ExitOf(a)))
+	})
+}
+
+// exitCode is an exit as a number: 1 Finished, 2 Halted, 3 Failed, 4
+// Defected.
+func exitCode[F](x Exit[int, int, F]) int {
+	match x {
+	case Finished[int, int]:
+		1
+	case Halted[int]:
+		2
+	case Failed[F]:
+		3
+	case Defected:
+		4
+	}
+}
+
+// WatchSeesTheEnd: a watcher gets the exit of the actor it watches as one
+// signal, whether the actor ends after the Watch or had ended before it.
+law WatchSeesTheEnd(signals []int, before bool) {
+	with context { Scheduler: time.NewManual(0) } {
+		watched(signals, before)
+	}
+}
+
+// watched: a log actor watches a tally actor that was sent signals; the
+// tally ends (Done, or the Stop after the signals) before or after the
+// Watch, and the log's one signal is the tally's exit code.
+func watched(signals []int, before bool) bool needs Scheduler {
+	let log = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+	watchedBy(log, sent(signals), before)
+}
+
+// watchedBy: log watches a, which ends before or after the Watch.
+func watchedBy[F](log Actor[[]int, int, Decision[[]int, int]], a Actor[int, int, Decision[int, int], F], before bool) bool needs Scheduler {
+	if before {
+		a.Stop() catch {
+		case _:
+		}
+	}
+	Watch(log, a, func(x Exit[int, int, F]) int { exitCode(x) }) catch {
+	case Stopped:
+		return false
+	}
+	if !before {
+		a.Stop() catch {
+		case _:
+		}
+	}
+	let want = exitCode(ExitOf(a))
+	let got = WaitFor(log, func(s []int) bool { len(s) >= 1 }) catch {
+	case Stopped:
+		return false
+	}
+	log.Stop()
+	len(got) == 1 && got[0] == want
+}
+
+// Registry names live actors of one type by a typed key: no name is a
+// string the program spells twice, and no registry is ambient (a program
+// makes one and passes it). An actor leaves it when it ends: once ExitOf
+// of a registered actor has returned, Lookup of its key is None and the
+// key is free. Its values are copies of one registry.
+type Registry[K comparable, S, E, D, F] {
+	entries sync.Ref[Map[K, registered[S, E, D, F]]],
+	next sync.Ref[int],
+}
+
+// registered is an actor in a registry, with the number of its Register,
+// so the end of an actor removes its own entry and never a later one.
+type registered[S, E, D, F] {
+	Actor Actor[S, E, D, F],
+	N int,
+}
+
+// Taken is the failure of Register when a live actor holds the key.
+type Taken {}
+
+// NewRegistry is an empty registry.
+func NewRegistry[K comparable, S, E, D, F]() Registry[K, S, E, D, F] {
+	Registry[K, S, E, D, F]{
+		entries: sync.NewRef[Map[K, registered[S, E, D, F]]](Map[K, registered[S, E, D, F]]{}),
+		next:    sync.NewRef[int](0),
+	}
+}
+
+// Register names a by k. It fails Taken while another actor holds k, and
+// Stopped when a has ended or its Stop was requested (it then names
+// nothing). The entry is removed by a's end, on a task a owns (a Feed's
+// source whose exit action removes it), so a registry keeps no ended actor
+// and runs no task of its own.
+func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[S, E, D, F]) fails Taken | Stopped {
+	let n = sync.Modify(r.next, func(v int) (int, int) { (v + 1, v + 1) })
+	let free = sync.Modify(r.entries, func(m Map[K, registered[S, E, D, F]]) (bool, Map[K, registered[S, E, D, F]]) {
+		match m.Get(k) {
+		case Some[registered[S, E, D, F]]:
+			(false, m)
+		case None:
+			(true, m.Put(k, registered[S, E, D, F]{Actor: a, N: n}))
+		}
+	})
+	if !free {
+		return Taken
+	}
+	let entries = r.entries
+	feed(a, func(send func(e E)) {
+		scope.OnExit() {
+			entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
+		}
+		let hold = queue.New[int](1)
+		hold.Pop() catch {
+		case queue.Closed:
+		}
+	}) catch {
+	case Stopped:
+		entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
+		return Stopped
+	}
+}
+
+// unregistered is m without k's entry when that entry is the n-th
+// Register's.
+func unregistered[K comparable, S, E, D, F](m Map[K, registered[S, E, D, F]], k K, n int) Map[K, registered[S, E, D, F]] {
+	match m.Get(k) {
+	case Some[registered[S, E, D, F]] as e:
+		if e.Value.N == n {
+			return m.Delete(k)
+		}
+		m
+	case None:
+		m
+	}
+}
+
+// Lookup is the actor that k names, None when no live actor holds it.
+func Lookup[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K) Option[Actor[S, E, D, F]] {
+	match r.entries.Get().Get(k) {
+	case Some[registered[S, E, D, F]] as e:
+		Some[Actor[S, E, D, F]]{Value: e.Value.Actor}
+	case None:
+		None
+	}
+}
+
+// RegistryDropsTheEnded: a registered actor is found by its key and the
+// key is taken; once it has ended (a Stop, or a Done among its signals),
+// its key names nothing and a new actor may take it.
+law RegistryDropsTheEnded(signals []int, k int) {
+	with context { Scheduler: time.NewManual(0) } {
+		registryDrops(signals, k)
+	}
+}
+
+// registryDrops registers a tally actor that was sent signals under k,
+// stops it, and registers a second one under k.
+func registryDrops(signals []int, k int) bool needs Scheduler {
+	let r = NewRegistry[int, int, int, Decision[int, int]]()
+	let a = StartMachine(tally(), 1, func(o int) {})
+	Register(r, k, a) catch {
+	case Taken, Stopped:
+		a.Stop()
+		return false
+	}
+	let found = named(r, k)
+	let b = StartMachine(tally(), 1, func(o int) {})
+	let mut taken = false
+	Register(r, k, b) catch {
+	case Taken:
+		taken = true
+	case Stopped:
+	}
+	for e in signals {
+		a.Send(e) catch {
+		case Stopped:
+		}
+	}
+	a.Stop()
+	let gone = !named(r, k)
+	Register(r, k, b) catch {
+	case Taken, Stopped:
+		b.Stop()
+		return false
+	}
+	let back = named(r, k)
+	b.Stop()
+	found && taken && gone && back && !named(r, k)
+}
+
+// named is whether k names an actor in r.
+func named(r Registry[int, int, int, Decision[int, int]], k int) bool {
+	match Lookup(r, k) {
+	case Some[Actor[int, int, Decision[int, int]]]:
+		true
+	case None:
+		false
+	}
 }
 
 // Latest is the decision of the last signal a stepped (a Reject and an
