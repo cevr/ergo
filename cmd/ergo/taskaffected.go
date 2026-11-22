@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -26,22 +24,18 @@ type gitBase struct {
 // readGitBase reads base's tree and the working tree's difference from it.
 func readGitBase(root, base string) (*gitBase, error) {
 	git := func(args ...string) ([]string, error) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = root
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
+		out, err := gitOutput(root, args...)
 		if err != nil {
-			return nil, fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+			return nil, err
 		}
-		return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 }), nil
+		return strings.FieldsFunc(out, func(r rune) bool { return r == 0 }), nil
 	}
-	top, err := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel").Output()
+	top, err := gitOutput(root, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, fmt.Errorf("--affected reads Git: %s is in no repository", root)
 	}
-	if t, _ := filepath.EvalSymlinks(strings.TrimSpace(string(top))); t != mustEval(root) {
-		return nil, fmt.Errorf("--affected reads Git from the repository's top folder: run it at %s", strings.TrimSpace(string(top)))
+	if t, _ := filepath.EvalSymlinks(strings.TrimSpace(top)); t != mustEval(root) {
+		return nil, fmt.Errorf("--affected reads Git from the repository's top folder: run it at %s", strings.TrimSpace(top))
 	}
 	b := &gitBase{root: root, changed: map[string]bool{}, under: map[string]bool{}, names: map[string][]string{}}
 	diff, err := git("diff", "--name-only", "--no-renames", "-z", base, "--")
