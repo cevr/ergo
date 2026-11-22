@@ -31,7 +31,7 @@ func namedRowSource(r *rand.Rand) (src, spelled string) {
 		fmt.Fprintf(&b, "\tif n == %d {\n\t\treturn %s\n\t}\n", i, m)
 	}
 	fmt.Fprintf(&b, "\tif n == %d {\n\t\treturn Other\n\t}\n\tn\n}\n\n", len(members))
-	b.WriteString("func only(n int) int fails " + spelled + " {\n\tlook(n) catch {\n\tcase Other:\n\t\t-1\n\t}\n}\n\n")
+	b.WriteString("func only(n int) int fails " + spelled + " {\n\ttry look(n) catch {\n\tcase Other:\n\t\t-1\n\t}\n}\n\n")
 	b.WriteString("func which(e F) int {\n\tmatch e {\n")
 	for i, m := range members {
 		fmt.Fprintf(&b, "\tcase %s:\n\t\t%d\n", m, i)
