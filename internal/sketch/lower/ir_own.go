@@ -143,17 +143,22 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 // temporary where it is bound (ownable, releaseAt). A plain frame (owned
 // values only) opens v1.NewOwnerScope.
 func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
-	p := b.pos(f.Decl, f.Decl.Pos())
-	errArg := &irExpr{K: "zero", Pos: p, T: "*error"}
-	if b.fc.frame.fallible {
-		// The frame's named error result, last (namedResults).
-		last := 0
-		if b.result != nil {
-			last = 1
-		}
-		errArg = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
+	return b.openScopeOf(f.Decl.Body, f.Decl, f.Decl.Name, params, b.frameErrArg(b.pos(f.Decl, f.Decl.Pos())), true)
+}
+
+// frameErrArg is the address a declaration's frame End settles: its named
+// error result, last (namedResults), or nil with no error row. A test's and
+// a law's frame scope take it too (ir_assert.go), with no static exit form:
+// the emitter's testDecl and lawDecl open the general scope.
+func (b *irBuilder) frameErrArg(p irPos) *irExpr {
+	if !b.fc.frame.fallible {
+		return &irExpr{K: "zero", Pos: p, T: "*error"}
 	}
-	return b.openScopeOf(f.Decl.Body, f.Decl, f.Decl.Name, params, errArg, true)
+	last := 0
+	if b.result != nil {
+		last = 1
+	}
+	return &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
 }
 
 // openScopeOf is openScope's frame of body, whose node is site (a
