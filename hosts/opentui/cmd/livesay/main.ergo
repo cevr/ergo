@@ -37,7 +37,7 @@ func none(s live) Option[Timeout[int]] { None }
 func idle(s live) Option[func(send func(e int))] { None }
 
 func liveMachine() Machine[live, int, int] {
-	Machine[live, int, int]{Initial: live{k: 1, shown: true}, Step: liveStep, After: none, Work: idle}
+	Machine[live, int, int]{Initial: live{k: 1, shown: true}, Step: liveStep, After: none, Work: idle, Exit: func(s live) Option[func()] { None }}
 }
 
 func liveView(f mut ui.Frame[int], s live) {
@@ -102,7 +102,7 @@ func main() needs Console | Ambient | go.Foreign {
 			let n = i + 1
 			let label = strings.TrimPrefix(line, "tap ")
 			ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
-			case ui.NoNode, ui.Mismatch, actor.Stopped, ui.BadPatch:
+			case ui.NoNode, ui.Ambiguous, ui.Mismatch, actor.Stopped, ui.BadPatch:
 				Console.Println("differ \(n): \(line): the test host failed")
 				continue
 			}
