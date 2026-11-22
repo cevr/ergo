@@ -1241,7 +1241,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the checked Close %s has an extern body, which no release route masks", f.Name)
 		}
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
-		if l.ir != nil && l.ir.intrinsicBody(fc, fd, params, sp != nil) { // ir_intrinsic.go
+		var gates []string
+		if sp != nil {
+			gates = append(gates, "copy for an instance")
+		}
+		if l.ir != nil && l.ir.body(fc, fd, params, gates, false) { // ir_intrinsic.go
 			fd.lowered, fd.readsEnv = true, false // no intrinsic's body reads its environment
 			b.WriteString(head.String() + irHeadEnd(fc.goGeneric) + "\n\n")
 			return

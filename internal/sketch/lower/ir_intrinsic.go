@@ -47,21 +47,22 @@ func irIntrinsicOp(f *check.Func, copied bool) check.CollOp {
 }
 
 // intrinsicBody builds the IR body of the prelude intrinsic fd, whose
-// parameters are params; copied is a copy of it (mono.go, record.go). It
+// parameters are params; copied is a copy of it (mono.go, record.go), std
+// the census's record of where it is declared. It
 // reports whether the IR holds the body; a census records it either way.
-func (st *irState) intrinsicBody(fc *funcCtx, fd *funcDecl, params []*check.Var, copied bool) (ok bool) {
+func (st *irState) intrinsicBody(fc *funcCtx, fd *funcDecl, params []*check.Var, copied, std bool) (ok bool) {
 	f := fd.fn
 	op := irIntrinsicOp(f, copied)
 	if op == check.CollNone || fd.method != nil || len(fc.witness) > 0 {
 		if st.census != nil {
-			st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: f.Pkg.Path, Name: fd.name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
+			st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: f.Pkg.Path, Name: fd.name, Std: std, Reasons: []string{"intrinsic body"}})
 		}
 		return false
 	}
 	b := st.newBuilder(fc, nil) // no source statements: nothing for the value rule to analyze
 	b.decl, b.pkg = f.Decl, f.Pkg
 	b.result = fc.frame.result
-	defer st.finish(b, f.Pkg.Path, fd.name, f.Decl, f.Pkg.Std(), &ok)
+	defer st.finish(b, f.Pkg.Path, fd.name, f.Decl, std, &ok)
 	p := b.pos(f.Decl, f.Decl.Pos())
 	b.fn = &irFunc{Name: fd.name, Pos: p, End: p}
 	b.names = newNamer(fc.scope)
