@@ -153,11 +153,14 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let at = p.Units[i]
 		let u = units[at]
 		let d = load.TypeAt(p, i)
-		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside))
+		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), diag.Held(d.S, d.K, d.T))
 		for g in diag.Flow(d.S, d.K, d.T, srcs[at]) {
 			ds = ds.Append(g)
 		}
 		for g in diag.OwnMarks(d.S, d.K, d.T) {
+			ds = ds.Append(g)
+		}
+		for g in diag.AsWritten(d.K.Parsed) {
 			ds = ds.Append(g)
 		}
 		for g in rows.Rows(d.S, d.K, d.T) {

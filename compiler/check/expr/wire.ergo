@@ -1,0 +1,209 @@
+// The row of decode[T](r) (types.md, Codecs 2; the Go checker's wirecall.go
+// wireRow): WireWrongKind for any value read, WireMissingField when T
+// reaches a record with fields or a union, WireUnknownTag when it reaches
+// a union, Unsatisfied when it reaches a refined type, and the row of each
+// by-name ParseX it reaches. This part reads a T whose wire form reaches
+// only what the package declares (its records, unions, refined types and
+// by-name pairs), Go's basic types, slices, maps and tuples; for any other
+// T (a type parameter, an import's type, a defined type, a type with its
+// own WireRead) it records no row, so nothing is reported against it.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// wireWalk is one decode's walk: the row so far, the types seen, and
+// whether every type reached is one this part reads.
+type wireWalk { row []dense.ID[store.TKey], seen []dense.ID[store.TKey], ok bool }
+
+// isBuiltin is whether fun names the predeclared word: a name the package
+// does not declare, written word (isLen's test).
+func isBuiltin(k Pkg, t Typer, fun dense.ID[syntax.Node], word string) bool {
+	if syntax.KindOf(tree(k, t.file), fun) != syntax.KIdent {
+		return false
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, fun)) {
+	case bind.Outside:
+		let p = k.Parsed[t.file]
+		syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, fun))) == word
+	case _:
+		false
+	}
+}
+
+// decodeCall records the row of the call x, decode[T](r), T written tx.
+func decodeCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], tx dense.ID[syntax.Node]) {
+	let ty = types.Resolve(s, envOf(*s, k, *t), tx)
+	if !valid(*s, ty) {
+		return
+	}
+	match prelude(s, k, "WireWrongKind") {
+	case Some[dense.ID[store.TKey]] as kind:
+		let mut w = wireWalk{row: []dense.ID[store.TKey]{kind.Value}, seen: []dense.ID[store.TKey]{}, ok: true}
+		wireEach(s, k, *t, &w, ty)
+		if w.ok {
+			t.Decodes = t.Decodes.Append(DecodeRow{Call: pnode(k, t.file, x), Errs: w.row})
+		}
+	case None:
+	}
+}
+
+// prelude is the prelude's type named name, none when the package's
+// foreign types do not list it.
+func prelude(s mut store.Store, k Pkg, name string) Option[dense.ID[store.TKey]] {
+	for i, f in k.Foreign {
+		if f.Qual == "-" && f.Name == name {
+			return Some[dense.ID[store.TKey]]{Value: store.TForeign(s, i)}
+		}
+	}
+	None
+}
+
+// add puts x in the walk's row once, or ends the walk's trust when x is
+// none.
+func add(w mut wireWalk, x Option[dense.ID[store.TKey]]) {
+	match x {
+	case Some[dense.ID[store.TKey]] as e:
+		for r in w.row {
+			if r == e.Value {
+				return
+			}
+		}
+		w.row = w.row.Append(e.Value)
+	case None:
+		w.ok = false
+	}
+}
+
+// wireEach adds the row of ty's wire form and walks what it reaches, each
+// type once (wirecall.go wireEach and wireRow's visit).
+func wireEach(s mut store.Store, k Pkg, t Typer, w mut wireWalk, ty dense.ID[store.TKey]) {
+	if !w.ok {
+		return
+	}
+	for x in w.seen {
+		if x == ty {
+			return
+		}
+	}
+	w.seen = w.seen.Append(ty)
+	let kind = store.KindOfType(*s, ty)
+	if kind == store.KBasic {
+		return
+	}
+	if kind == store.KSlice || kind == store.KMap || kind == store.KTuple {
+		// A map's key is a string or a basic type on the wire: its
+		// element is walked (wireEach walks Map's Elem only).
+		let ops = store.OperandsOf(*s, ty)
+		if kind == store.KMap {
+			wireEach(s, k, t, w, ops[len(ops)-1])
+		} else {
+			for o in ops {
+				wireEach(s, k, t, w, o)
+			}
+		}
+		return
+	}
+	if kind != store.KNamed {
+		w.ok = false
+		return
+	}
+	let name = store.TypeNameText(*s, store.ArgOf(*s, ty))
+	if fnNamed(*s, k, "WireRead") >= 0 {
+		// X's own read (Codecs 11): not read here.
+		w.ok = false
+		return
+	}
+	for p in k.Parses {
+		if types.NameText(k.Parsed[p.File], p.Name) == name {
+			add(w, prelude(s, k, "Unsatisfied"))
+			return
+		}
+	}
+	let pi = fnNamed(*s, k, types.ParseName(name))
+	let wi = wireOf(*s, k, ty)
+	if pi >= 0 || wi >= 0 {
+		match pairOf(*s, k, ty, pi, wi) {
+		case Some[Pair] as p:
+			let ops = store.OperandsOf(*s, k.Fns[p.Value.parse].Sig)
+			for e in store.OperandsOf(*s, ops[len(ops)-2]) {
+				add(w, Some[dense.ID[store.TKey]]{Value: e})
+			}
+			wireEach(s, k, t, w, p.Value.base)
+		case None:
+			// A ParseX or a Wire of another shape (or the append form):
+			// not read here.
+			w.ok = false
+		}
+		return
+	}
+	let (r, _) = recordOf(*s, k, ty)
+	if r >= 0 {
+		if k.Recs[r].Op || len(k.Recs[r].Params) > 0 {
+			w.ok = false
+			return
+		}
+		if len(k.Recs[r].Fields) > 0 {
+			add(w, prelude(s, k, "WireMissingField"))
+		}
+		for f in k.Recs[r].Fields {
+			wireEach(s, k, t, w, f.T)
+		}
+		return
+	}
+	let vs = types.Variants(s, envOf(*s, k, t), ty)
+	if len(vs) == 0 {
+		// A defined type, a machine or another form: not read here.
+		w.ok = false
+		return
+	}
+	add(w, prelude(s, k, "WireMissingField"))
+	add(w, prelude(s, k, "WireUnknownTag"))
+	for v in vs {
+		wireEach(s, k, t, w, v)
+	}
+}
+
+// Pair is a by-name wire pair (wirecall.go WirePair): the index in k.Fns
+// of ParseX, and the base its Wire writes.
+type Pair { parse int, base dense.ID[store.TKey] }
+
+// wireOf is the index in k.Fns of the package's Wire whose first parameter
+// is ty, -1 when none is.
+func wireOf(s store.Store, k Pkg, ty dense.ID[store.TKey]) int {
+	let mut i = fnNamed(s, k, "Wire")
+	for i >= 0 {
+		let ops = store.OperandsOf(s, k.Fns[i].Sig)
+		if len(ops) >= 4 && ops[0] == ty {
+			return i
+		}
+		i = k.sameName[i]
+	}
+	-1
+}
+
+// pairOf is the by-name pair of ty (wirecall.go wirePair): its ParseX(b B)
+// X, k.Fns[pi], and its Wire(x X) B, k.Fns[wire], neither generic and
+// Wire failing nothing; none for another shape, the append form (Wire(x
+// X, into []byte) []byte) included, which this part does not read.
+func pairOf(s store.Store, k Pkg, ty dense.ID[store.TKey], pi int, wire int) Option[Pair] {
+	if pi < 0 || wire < 0 || len(k.Fns[pi].Params) > 0 || len(k.Fns[wire].Params) > 0 {
+		return None
+	}
+	let ps = store.OperandsOf(s, k.Fns[pi].Sig)
+	let ws = store.OperandsOf(s, k.Fns[wire].Sig)
+	if len(ps) != 4 || ps[1] != ty || (len(ws) != 4 && len(ws) != 5) || len(store.OperandsOf(s, ws[len(ws)-2])) > 0 {
+		return None
+	}
+	let base = ws[len(ws)-3]
+	if len(ws) == 5 {
+		// The append form: its base on the wire is the string event.
+		return None
+	}
+	if ps[0] != base {
+		return None
+	}
+	Some[Pair]{Value: Pair{parse: pi, base: base}}
+}

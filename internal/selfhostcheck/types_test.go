@@ -273,6 +273,22 @@ func typesPackage(dir string) *check.Package {
 	return a.Root().Package
 }
 
+// eachGoPackage calls f with the Go checker's package of each of dirs
+// that checks (typesPackage), one folder at a time and in order. Not on
+// workers: the Go checker checks one package at a time (check.Std). Its
+// std importer shares its packages between checks, and a check completes
+// their lazy parts (a host binding's declarations, the underlying type of
+// an instance a std package wrote) on first read, so two checks at once
+// race on them (go test -race; the crash "concurrent map writes" in
+// TestCompilerCheckAgrees).
+func eachGoPackage(dirs []string, f func(i int, pkg *check.Package)) {
+	for i, dir := range dirs {
+		if pkg := typesPackage(dir); pkg != nil {
+			f(i, pkg)
+		}
+	}
+}
+
 // fieldOf reads field name of the struct v points to.
 func fieldOf(v reflect.Value, name string) reflect.Value {
 	f := v.Elem().FieldByName(name)

@@ -241,6 +241,7 @@ type hostPkg struct {
 	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
 	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
+	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -303,6 +304,12 @@ func (s *GoBindings) ResolveAll(path string) bool {
 	}
 	h := p.host
 	h.load()
+	// A misfit line is reported in the binding's own file.
+	if h.fi != nil {
+		saved := h.c.cur
+		h.c.cur = h.fi
+		defer func() { h.c.cur = saved }()
+	}
 	for _, name := range sortedKeys(p.Scope.names) {
 		o := p.Scope.names[name]
 		h.resolve(o)
@@ -316,6 +323,7 @@ func (s *GoBindings) ResolveAll(path string) bool {
 			for _, m := range n.mlist {
 				h.c.funcSig(m)
 				h.misfitReads(m)
+				h.misfitWrites(m) // a method writes too (HOST-ROW-3 slice 2: File.Read)
 			}
 		}
 	}
@@ -504,6 +512,14 @@ func (h *hostPkg) load() {
 			for _, m := range tn.Type.(*Named).mlist {
 				mark(m)
 			}
+		}
+	}
+	for _, fn := range c.pkg.Funcs {
+		h.ambientUnvouched(fn)
+	}
+	for _, tn := range c.pkg.Types {
+		for _, m := range tn.Type.(*Named).mlist {
+			h.ambientUnvouched(m)
 		}
 	}
 }

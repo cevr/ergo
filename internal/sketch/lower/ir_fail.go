@@ -626,9 +626,21 @@ func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 		// loop's own position, Go's range-over-func rewrite also calls the
 		// adapter, and gc does not inline a call at a position already on
 		// its inlining stack (ir_seq.go).
-		return []*irStmt{b.pollAt(body, body.Rbrace)}
+		return []*irStmt{b.sited(b.pollAt(body, body.Rbrace))}
 	}
-	return []*irStmt{b.poll(s)}
+	return []*irStmt{b.sitePoll(s)}
+}
+
+// sitePoll is a poll of the innermost loop's iteration, recorded as one
+// of its sites (ir_poll.go), which amortize may rewrite.
+func (b *irBuilder) sitePoll(s syntax.Node) *irStmt { return b.sited(b.poll(s)) }
+
+// sited records the poll p as a site of the innermost loop (ir_poll.go).
+func (b *irBuilder) sited(p *irStmt) *irStmt {
+	if n := len(b.pollSites); n > 0 {
+		b.pollSites[n-1] = append(b.pollSites[n-1], p)
+	}
+	return p
 }
 
 // loopPolls reports a frame whose loops end each iteration in a poll.
@@ -641,7 +653,7 @@ func (b *irBuilder) loopPolls() bool { return b.env >= 0 && b.fc.frame.polls }
 func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
 	var out []*irStmt
 	if b.loopPolls() {
-		out = append(out, b.poll(s))
+		out = append(out, b.sitePoll(s))
 	}
 	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
 }

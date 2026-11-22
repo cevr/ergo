@@ -29,6 +29,16 @@ func (s *ExternSpec) SplitMethod() (path, typ, name string) {
 	return path, typ, name
 }
 
+// FuncTarget reports a method's target that names a Go function, not a
+// method: path.F, which the call runs with the receiver as its first
+// argument (S2-FILE-B): `extern go
+// ergo.local/prototype/runtime/v1/hostfs.FileStat func (f *File) Stat()
+// hostfs.Info` calls hostfs.FileStat(f). Its path has no type element.
+func (s *ExternSpec) FuncTarget() bool {
+	path, _, _ := s.SplitMethod()
+	return path == ""
+}
+
 // RuntimeModule is the Go module path of the Ergo runtime. An extern type
 // whose target is in it names the runtime Go type of an Ergo declaration
 // (docs/spec/stdlib.md, The body contract), which the checker checks as
