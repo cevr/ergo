@@ -97,8 +97,11 @@ func (b *irBuilder) plainLitIR(x *syntax.FuncLit, sig *check.Signature, params [
 	inner.env = b.fc.env
 	inner.frame = newFrame(result, false, false)
 	fc, res, loops, tries, switches, label, law := b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law
+	amort, sites := b.amort, b.pollSites
+	b.amort, b.pollSites = nil, nil // a Go function of its own (ir_poll.go)
 	defer func() {
 		b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law = fc, res, loops, tries, switches, label, law
+		b.amort, b.pollSites = amort, sites
 	}()
 	lit := &irExpr{K: "func", Pos: p, T: b.plainSigType(sig, x)}
 	for i, v := range params {

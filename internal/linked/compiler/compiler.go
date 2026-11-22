@@ -13458,16 +13458,24 @@ func ReportProject_1(env *Env, source string, text_2 string, files []string, str
 	}
 	/*line api/report.ergo:20:1*/ held_1 := map[string]string{}
 	/*line api/report.ergo:21:1*/ i := 0
+	/*line api/report.ergo:22:1*/ pc := 1024
 	/*line api/report.ergo:22:1*/ for {
 		/*line api/report.ergo:23:2*/ if i >= len(files) {
 			/*line api/report.ergo:24:3*/ break
 		}
 		/*line api/report.ergo:26:2*/ held_1[files[i]] = files[i+1]
 		/*line api/report.ergo:27:2*/ i += 2
-		/*line api/report.ergo:22:1*/ env.task.Check()
+		/*line api/report.ergo:25:2*/ {
+			/*line api/report.ergo:22:1*/ pc -= 1
+			/*line api/report.ergo:25:2*/ if pc == 0 {
+				/*line api/report.ergo:22:1*/ pc = 1024
+				/*line api/report.ergo:22:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line api/report.ergo:29:1*/ ds := []Diagnostic{}
 	/*line api/report.ergo:30:1*/ k_1 := 0
+	/*line api/report.ergo:31:1*/ pc_1 := 1024
 	/*line api/report.ergo:31:1*/ for {
 		/*line api/report.ergo:32:2*/ if k_1*3 >= len(strs) {
 			/*line api/report.ergo:33:3*/ break
@@ -13475,21 +13483,34 @@ func ReportProject_1(env *Env, source string, text_2 string, files []string, str
 		/*line api/report.ergo:35:2*/ span_1 := Span_1{Offset: nums[k_1*4], Length: nums[k_1*4+1], Line: nums[k_1*4+2], Column: nums[k_1*4+3]}
 		/*line api/report.ergo:36:2*/ ds = append(ds, Diagnostic{Code: strs[k_1*3], File: strs[k_1*3+1], Message: strs[k_1*3+2], Span: span_1})
 		/*line api/report.ergo:37:2*/ k_1 += 1
-		/*line api/report.ergo:31:1*/ env.task.Check()
+		/*line api/report.ergo:34:2*/ {
+			/*line api/report.ergo:31:1*/ pc_1 -= 1
+			/*line api/report.ergo:34:2*/ if pc_1 == 0 {
+				/*line api/report.ergo:31:1*/ pc_1 = 1024
+				/*line api/report.ergo:31:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line api/report.ergo:39:10*/ v := Project(env, text_2, held_1, ds)
 	/*line api/report.ergo:39:1*/ fs := v
 	/*line api/report.ergo:40:1*/ b := Builder{buf: []uint8{}}
+	/*line api/report.ergo:41:1*/ pc_2 := 1024
 	/*line api/report.ergo:41:1*/ for _, f_1 := range fs {
-		/*line api/report.ergo:42:16*/ var if15 int
+		/*line api/report.ergo:42:16*/ var if17 int
 		/*line api/report.ergo:42:16*/ if f_1.Located {
-			/*line api/report.ergo:42:31*/ if15 = 1
+			/*line api/report.ergo:42:31*/ if17 = 1
 		} else {
-			/*line api/report.ergo:42:42*/ if15 = 0
+			/*line api/report.ergo:42:42*/ if17 = 0
 		}
-		/*line api/report.ergo:42:2*/ located := if15
+		/*line api/report.ergo:42:2*/ located := if17
 		/*line api/report.ergo:43:2*/ (&b).WriteString(field(f_1.Code) + " " + field(f_1.File) + " " + field(f_1.Message) + (" " + strconv.FormatInt(int64(f_1.Span.Offset), 10) + " " + strconv.FormatInt(int64(f_1.Span.Length), 10) + " " + strconv.FormatInt(int64(f_1.Span.Line), 10) + " " + strconv.FormatInt(int64(f_1.Span.Column), 10) + " " + strconv.FormatInt(int64(located), 10) + " " + strconv.FormatInt(int64(f_1.Range.Start.Line), 10) + " " + strconv.FormatInt(int64(f_1.Range.Start.Character), 10) + " " + strconv.FormatInt(int64(f_1.Range.End.Line), 10) + " " + strconv.FormatInt(int64(f_1.Range.End.Character), 10) + "\n"))
-		/*line api/report.ergo:41:1*/ env.task.Check()
+		/*line api/report.ergo:42:44*/ {
+			/*line api/report.ergo:41:1*/ pc_2 -= 1
+			/*line api/report.ergo:42:44*/ if pc_2 == 0 {
+				/*line api/report.ergo:41:1*/ pc_2 = 1024
+				/*line api/report.ergo:41:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line api/report.ergo:45:1*/ (&b).WriteString("--\n")
 	/*line api/report.ergo:46:15*/ v_1 := Lines(env, source, fs)
@@ -14632,10 +14653,17 @@ func Project(env *Env, text_2 string, files map[string]string, ds []Diagnostic) 
 	/*line report/report.ergo:234:1*/ seen := map[string]bool{}
 	/*line report/report.ergo:235:1*/ indexes_1 := map[string]Index{}
 	/*line report/report.ergo:236:1*/ out := []Finding{}
+	/*line report/report.ergo:237:1*/ pc := 1024
 	/*line report/report.ergo:237:1*/ for _, d := range ds {
 		/*line report/report.ergo:238:2*/ key := strconv.FormatInt(int64(len(d.Code)), 10) + ":" + d.Code + (strconv.FormatInt(int64(len(d.File)), 10) + ":") + d.File + (strconv.FormatInt(int64(len(d.Message)), 10) + ":") + d.Message + (" " + strconv.FormatInt(int64(d.Span.Offset), 10) + " " + strconv.FormatInt(int64(d.Span.Length), 10))
 		/*line report/report.ergo:239:2*/ if GetOrMono_i1(seen, key, false) {
-			/*line report/report.ergo:240:3*/ env.task.Check()
+			/*line report/report.ergo:240:3*/ {
+				/*line report/report.ergo:240:3*/ pc -= 1
+				/*line report/report.ergo:240:3*/ if pc == 0 {
+					/*line report/report.ergo:240:3*/ pc = 1024
+					/*line report/report.ergo:240:3*/ env.task.Check()
+				}
+			}
 			/*line report/report.ergo:240:3*/ continue
 		}
 		/*line report/report.ergo:242:2*/ seen[key] = true
@@ -14711,7 +14739,13 @@ func Project(env *Env, text_2 string, files map[string]string, ds []Diagnostic) 
 			}
 		}
 		/*line report/report.ergo:271:2*/ out = append(out, f_1)
-		/*line report/report.ergo:237:1*/ env.task.Check()
+		/*line report/report.ergo:270:2*/ {
+			/*line report/report.ergo:237:1*/ pc -= 1
+			/*line report/report.ergo:270:2*/ if pc == 0 {
+				/*line report/report.ergo:237:1*/ pc = 1024
+				/*line report/report.ergo:237:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line report/report.ergo:273:1*/ v_2 := ergo.SlicesSortStableFunc[Finding](out, func(p_2 Finding, p_3 Finding) int {
 		/*line report/report.ergo:273:1*/ r_2, err := func(env_1 *Env, p Finding, p_1 Finding) (int, error) {
@@ -39947,9 +39981,16 @@ func (p *Printer) row(env *Env, names []ID[Node_1]) {
 func (p *Printer) members(env *Env, lbrace int, rbrace int, nodes []ID[Node_1], print_1 func(*Env, int, bool) (struct{}, error), tight bool) {
 	/*line format/nodes.ergo:471:1*/ env.task.Check()
 	/*line format/nodes.ergo:472:1*/ oneLine_1 := p.ln(lbrace) == p.ln(rbrace)
+	/*line format/nodes.ergo:473:1*/ pc := 1024
 	/*line format/nodes.ergo:473:1*/ for _, m := range nodes {
 		/*line format/nodes.ergo:474:2*/ oneLine_1 = oneLine_1 && !forcesBreak(p.P.Tree, m)
-		/*line format/nodes.ergo:473:1*/ env.task.Check()
+		/*line format/nodes.ergo:473:1*/ {
+			/*line format/nodes.ergo:473:1*/ pc -= 1
+			/*line format/nodes.ergo:473:1*/ if pc == 0 {
+				/*line format/nodes.ergo:473:1*/ pc = 1024
+				/*line format/nodes.ergo:473:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line format/nodes.ergo:476:1*/ if oneLine_1 {
 		/*line format/nodes.ergo:477:2*/ {
@@ -40358,9 +40399,16 @@ func (p *Printer) members(env *Env, lbrace int, rbrace int, nodes []ID[Node_1], 
 //line format/nodes.ergo:471:1
 func (p *Printer) membersKnown(env *Env, lbrace int, rbrace int, nodes []ID[Node_1], print_1 func(int, bool), tight bool) {
 	/*line format/nodes.ergo:472:1*/ oneLine_1 := p.ln(lbrace) == p.ln(rbrace)
+	/*line format/nodes.ergo:473:1*/ pc := 1024
 	/*line format/nodes.ergo:473:1*/ for _, m := range nodes {
 		/*line format/nodes.ergo:474:2*/ oneLine_1 = oneLine_1 && !forcesBreak(p.P.Tree, m)
-		/*line format/nodes.ergo:473:1*/ env.task.Check()
+		/*line format/nodes.ergo:473:1*/ {
+			/*line format/nodes.ergo:473:1*/ pc -= 1
+			/*line format/nodes.ergo:473:1*/ if pc == 0 {
+				/*line format/nodes.ergo:473:1*/ pc = 1024
+				/*line format/nodes.ergo:473:1*/ env.task.Check()
+			}
+		}
 	}
 	/*line format/nodes.ergo:476:1*/ if oneLine_1 {
 		/*line format/nodes.ergo:477:2*/ {
