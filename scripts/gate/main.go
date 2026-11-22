@@ -413,6 +413,7 @@ func main() {
 	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
 	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
 	newReds := flag.String("new-reds", "", "BASE: after the run, compare its failures by line with the record of BASE's tree in this tier (reds.go): print each NEW and FIXED line and exit 1 on a new one, 0 when every red line is BASE's; 2 when BASE has no record")
+	flag.BoolVar(&guardsOnly, "guards", false, "the fast tier's guard packages only (whole.go: granted the checkout or declared //gate:whole), run whole: a landing's check when it runs no tier")
 	flag.Parse()
 	if *blameTarget != "" {
 		if flag.NArg() != 1 {
@@ -447,6 +448,12 @@ func main() {
 	tier := tierFor(*full, *noCache, *merge, *recordDurations)
 	if *affected {
 		tier, roundBase = roundTier, flag.Arg(0)
+	}
+	if guardsOnly {
+		if tier != fastTier {
+			fatal(errors.New("-guards is the fast tier's guard steps: it takes no other tier"))
+		}
+		tier = guardsTier
 	}
 	// Before any process starts, so a stop finds every one (stop.go).
 	stopOnSignals()
@@ -619,12 +626,15 @@ func setUpTier(scope, scopeNote, tier string, beforeSteps func(*gate)) (*gate, e
 	if beforeSteps != nil {
 		beforeSteps(g)
 	}
-	if tier == fastTier {
+	if tier == fastTier || tier == guardsTier {
 		// The fast tier selects the compiler's tests against the coverage
 		// record of its cache (selectTests, gate-speed GS4).
 		g.steps, g.dropped, err = fastStepsSelected(g.root, g.cacheDir, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
 		}, false)
+		if err == nil && tier == guardsTier {
+			g.steps = guardSteps(g.steps)
+		}
 	} else if tier == roundTier {
 		// The round tier selects every package's tests against the
 		// coverage store's segment at the base (affected.go, CS-ROUND).

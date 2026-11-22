@@ -94,6 +94,9 @@ func stepsFor(root, tier string) ([]*Step, error) {
 	switch tier {
 	case fastTier:
 		return fastSteps(root)
+	case guardsTier:
+		steps, err := fastSteps(root)
+		return guardSteps(steps), err
 	case roundTier:
 		steps, _, err := fastStepsSelected(root, "", nil, true)
 		return steps, err
@@ -419,6 +422,8 @@ type plan struct {
 	fast, large []string
 	measured    map[string]float64
 	chosen      *selection
+	// whole is why the package runs whole (wholeOf), or "".
+	whole string
 }
 
 // planOf is the plan of p's fast-tier step (relative is its directory in
@@ -452,10 +457,16 @@ func planOf(root string, p testPackage, relative string, measured map[string]flo
 		return nil, err
 	}
 	fast, large := fastSelection(names, measured)
-	if round {
+	// A guard package runs whole: no size cut here, no selection after
+	// (whole.go).
+	whole, err := wholeOf(root, p)
+	if err != nil {
+		return nil, err
+	}
+	if round || whole != "" {
 		fast, large = names, nil
 	}
-	return &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured}, nil
+	return &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured, whole: whole}, nil
 }
 
 // fastStepsSelected is fastSteps, with the fast tests of each of
@@ -515,7 +526,7 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 		var wg sync.WaitGroup
 		slots := make(chan struct{}, runtime.GOMAXPROCS(0))
 		for _, pl := range plans {
-			if !round && !slices.Contains(selectPackages, pl.relative) {
+			if pl.whole != "" || (!round && !slices.Contains(selectPackages, pl.relative)) {
 				continue
 			}
 			wg.Go(func() {
@@ -537,6 +548,9 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 			suffix = roundTier
 		}
 		name := "go test " + pkg + " (" + suffix + ")"
+		if pl.whole != "" {
+			note = "whole: " + pl.whole
+		}
 		if pl.chosen != nil {
 			chosen := *pl.chosen
 			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
