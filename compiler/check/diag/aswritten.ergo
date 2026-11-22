@@ -6,7 +6,7 @@ import strings
 // that is no pure identity of one parameter (AW-ERGO, owner q230; the Go
 // checker's checkAsWritten, internal/sketch/check/aswritten.go): no
 // receiver and no extern, one parameter, one result of the parameter's
-// type, no failure row and no needs clause, and a body that is the
+// type, no needs clause and no failure row, and a body that is the
 // parameter (`{ v }` or `{ return v }`). The result's type is compared
 // with the parameter's as written, which the shapes the line is for
 // (`func AsWritten[T](v T) T { v }`) decide exactly.
