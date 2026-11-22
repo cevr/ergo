@@ -1,0 +1,53 @@
+{
+  "about": "module aws's mutants (wf10 GEN-EMIT): each is judged by the module's laws (scripts/examples -modules aws). A mutant of the generated s3.ergo stands for an emitter bug that writes that text; the emitter's own mutants are in modules/clientgen/testdata/mutants.json, killed there or by the drift case examples/clientgen/cases/s3-current. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "emit-label-not-greedy", "origin": "wf10 GEN-EMIT",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "Method: \"HEAD\", Path: \"/\" + r.Bucket + \"/\" + r.Key, RawPath: \"/\" + aws.Label(r.Bucket, false) + \"/\" + aws.Label(r.Key, true),",
+      "to": "Method: \"HEAD\", Path: \"/\" + r.Bucket + \"/\" + r.Key, RawPath: \"/\" + aws.Label(r.Bucket, false) + \"/\" + aws.Label(r.Key, false),",
+      "rule": "A {Key+} label keeps each '/' as a path separator, each segment escaped once: SlashesStayInThePath (drawn keys hold '/'). S3 decodes %2F to the same key, so ApiIsTheFake cannot see it; SigV4 signs the path as sent.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "emit-header-dropped", "origin": "wf10 GEN-EMIT",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "\t\tETag:                             aws.TextIn(h, \"ETag\"),\n\t\tChecksumCRC32:",
+      "to": "\t\tETag:                             None,\n\t\tChecksumCRC32:",
+      "rule": "Each output header is read: ApiIsTheFake (the fake's GetObject gives an ETag; the Api read over the handler must too).",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "emit-error-code-swapped", "origin": "wf10 GEN-EMIT",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "\tif e.Code == \"NoSuchKey\" {\n\t\treturn noSuchKey(e)\n",
+      "to": "\tif e.Code == \"InvalidObjectState\" {\n\t\treturn noSuchKey(e)\n",
+      "rule": "Each error code is read as its own failure: ApiIsTheFake (the fake fails GetObject with NoSuchKey for a missing key and InvalidObjectState for an archived one).",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "emit-prefix-headers-lost", "origin": "wf10 GEN-EMIT",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "\th = aws.PutPrefixed(h, \"x-amz-meta-\", r.Metadata)\n",
+      "to": "",
+      "rule": "PutObject sends its x-amz-meta-* headers: PutThenGetIsThePayload over the Api (and ApiIsTheFake).",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-key-in-header", "origin": "wf10 GEN-EMIT",
+      "file": "modules/aws/s3/s3.ergo",
+      "from": "RawPath: \"/\" + aws.Label(r.Bucket, false) + \"/\" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: \"\"}}\n\tlet resp = try a.net.Send(a.signer.Sign(req))\n\tif resp.Status < 200 || resp.Status > 299 {\n\t\treturn try headObjectFailed(",
+      "to": "RawPath: \"/\" + aws.Label(r.Bucket, false) + \"/\" + aws.Label(r.Key, true), Query: q, Header: a.signer.Sign(http.Request{Method: \"HEAD\", Path: \"/\", RawPath: \"/\", Query: q, Header: h, Body: http.Buffered{Text: \"\"}}).Header, Body: http.Buffered{Text: \"\"}}\n\tlet resp = try a.net.Send(a.signer.Sign(req))\n\tif resp.Status < 200 || resp.Status > 299 {\n\t\treturn try headObjectFailed(",
+      "rule": "The Api builds every request with no credential; only the signer adds one: KeyOnlyInTheSigner (here the Api copies a signed request's headers, the key with them, into the request it then signs).",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    },
+    {
+      "name": "aws-head-404-unnamed", "origin": "wf10 GEN-EMIT",
+      "file": "modules/aws/aws/aws.ergo",
+      "from": "\tif status == 404 {\n\t\treturn \"NotFound\"\n",
+      "to": "\tif status == 404 {\n\t\treturn \"Status404\"\n",
+      "rule": "An error answer with no body (a HEAD) gets its status's name as its code, so HeadObject's 404 is NotFound: ApiIsTheFake.",
+      "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
+    }
+  ]
+}
