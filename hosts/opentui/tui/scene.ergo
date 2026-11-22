@@ -37,10 +37,27 @@ func kindOf[E](n ui.Node[E]) int {
 		// Degraded: a Transition's motion is not run; its body shows at rest.
 		screen.Box
 	case ui.ReadoutNode:
-		// Degraded: a Readout's published text is not shown yet (OT-READOUT);
-		// its box keeps its place.
-		screen.Box
+		// A text: its reading, in its reserve's width (shownText).
+		screen.Text
 	}
+}
+
+// reserved is reading in the width of reserve, in cells (a glyph a cell):
+// cut where it is wider, padded with spaces where it is narrower, so a
+// readout's box is its reserve's whatever it reads and its siblings never
+// move (readout.ergo). Mutant OTRD-box-by-reading.
+func reserved(reading string, reserve string) string {
+	let w = utf8.RuneCount(reserve)
+	let mut out = ""
+	let mut n = 0
+	for r in runesOf(reading) {
+		if n == w {
+			break
+		}
+		out = out + r
+		n = n + 1
+	}
+	out + strings.Repeat(" ", w-n)
 }
 
 // textOf is the text a TEXT or an EDITOR node of n shows (an empty
@@ -61,7 +78,7 @@ func textOf[E](n ui.Node[E]) Option[string] {
 		// No text of their own: a Pressable's label is labelText's.
 		None
 	case ui.ReadoutNode:
-		// Degraded: the published text is not shown yet (OT-READOUT).
+		// Its reading is the session's, not the node's: shownText.
 		None
 	}
 }
@@ -119,7 +136,7 @@ func layoutOf[E](n ui.Node[E]) laid {
 	case ui.SemanticNode[E] as x:
 		laid{style: x.Style, row: false}
 	case ui.ReadoutNode as x:
-		// The box keeps its Style (the reserve's place); its text is OT-READOUT's.
+		// Laid with its Style; its text (shownText) is its reserve's width.
 		laid{style: x.Style, row: false}
 	case ui.TrackNode as x:
 		// Laid with its Style. Degraded: its motion is not run yet, so the
