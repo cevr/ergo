@@ -238,11 +238,24 @@ func (w *worker) restoreUnder(dir string) error {
 	known := map[string]bool{}
 	var errs []error
 	for _, f := range w.e.files {
-		if !under(f.path, dir) || f.mode&fs.ModeSymlink != 0 {
+		if !under(f.path, dir) {
 			continue
 		}
 		known[f.path] = true
 		p := filepath.Join(w.root, filepath.FromSlash(f.path))
+		if f.mode&fs.ModeSymlink != 0 {
+			// A link of the checkout stays a link with its target: the
+			// walk below removed every one it did not know (PREVIEW-TEST,
+			// conformance/upstream/foldkit-d21db423/CLAUDE.md).
+			if target, err := os.Readlink(p); err == nil && target == string(f.data) {
+				continue
+			}
+			os.Remove(p)
+			if err := os.Symlink(string(f.data), p); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
 		if data, err := os.ReadFile(p); err == nil && bytes.Equal(data, f.data) {
 			continue
 		}

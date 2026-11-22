@@ -254,7 +254,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			o = neverRan(o)
 			t := &covTest{ID: id, Seconds: o.seconds}
 			if o.reason != "" {
-				t.Failed, t.Detail = true, baseDetail(o)
+				t.Failed, t.Detail = true, baseDetail(id, o)
 				e.logf("baseline: %s fails on the unmutated tree (%s): its rows are unjudged\n%s", id, o.reason, lastLines(o.tail, 8))
 			}
 			mu.Lock()
@@ -696,10 +696,15 @@ func firstError(out string) string {
 	return ""
 }
 
-// baseDetail is a red baseline's Detail: its reason, its first error
-// line, then its output's last lines.
-func baseDetail(o outcome) string {
-	return o.reason + ": " + firstError(o.tail) + "\n" + lastLines(o.tail, 20)
+// baseDetail is the Detail of id's red run on the unmutated tree: its
+// reason, its first error line and the file that keeps its whole output
+// (keepRed), then its output's last lines.
+func baseDetail(id string, o outcome) string {
+	first := firstError(o.tail)
+	if path := keepRed(id, o); path != "" {
+		first += " (whole output: " + path + ")"
+	}
+	return o.reason + ": " + first + "\n" + lastLines(o.tail, 20)
 }
 
 // redDetail is the Detail of a row whose covering tests red fail on the

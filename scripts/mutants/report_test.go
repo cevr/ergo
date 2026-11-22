@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestVerifyCopyComparesLinksByTarget: at a run's end a symbolic link of
@@ -50,7 +53,7 @@ func TestVerifyCopyComparesLinksByTarget(t *testing.T) {
 // (testdata/mutants.json): rd-first-error-dropped.
 func TestRedBaselineNamesItsFirstError(t *testing.T) {
 	out := "=== RUN   TestX\n    x_test.go:12: got 1, want 2\n    x_test.go:13: later\n--- FAIL: TestX (0.01s)\nFAIL\n"
-	e := &engine{base: map[string]*covTest{"cmd/ergo:TestX": {ID: "cmd/ergo:TestX", Failed: true, Detail: baseDetail(outcome{reason: "fail", tail: out})}}}
+	e := &engine{base: map[string]*covTest{"cmd/ergo:TestX": {ID: "cmd/ergo:TestX", Failed: true, Detail: baseDetail("cmd/ergo:TestX", outcome{reason: "fail", tail: out})}}}
 	want := "cmd/ergo:TestX (x_test.go:12: got 1, want 2) fails on the unmutated tree"
 	if got := e.redDetail([]string{"cmd/ergo:TestX"}); got != want {
 		t.Errorf("redDetail: %q\nwant %q", got, want)
@@ -64,5 +67,36 @@ func TestRedBaselineNamesItsFirstError(t *testing.T) {
 	}
 	if got := firstError("skip modules/work: test git/checkout: the full tier runs it (full-tier)\nexit status 1\n"); got != "exit status 1" {
 		t.Errorf("firstError named a skip line: %q", got)
+	}
+}
+
+// TestRedBaselineKeepsItsWholeOutput: a child that fails has its whole
+// output kept in a file its Detail names, though the display tail drops
+// the middle (OWN1's no-verdict red lost its cause there; SUPERVISE-2's
+// TestStdActorLawsRun likewise), and a child that passes leaves none.
+// The child is sh, so it builds no Go. Mutant (testdata/mutants.json):
+// red-output-dropped.
+func TestRedBaselineKeepsItsWholeOutput(t *testing.T) {
+	red := t.TempDir()
+	t.Setenv(redVariable, red)
+	work := t.TempDir()
+	e := &engine{cfg: Config{Work: work}}
+	// 40 KiB before and after the error line: more than the tail keeps.
+	script := "yes filler | head -c 40000; echo; echo MIDDLE-ERROR; yes filler | head -c 40000; echo; exit 1"
+	o := e.exec(context.Background(), work, []string{"sh", "-c", script}, os.Environ(), time.Hour)
+	if o.reason == "" || strings.Contains(o.tail, "MIDDLE-ERROR") {
+		t.Fatalf("the child: reason %q, tail holds the middle %v; want a failure whose tail dropped it", o.reason, strings.Contains(o.tail, "MIDDLE-ERROR"))
+	}
+	detail := baseDetail("cmd/ergo:TestX", o)
+	_, path, ok := strings.Cut(firstLine(detail), "(whole output: ")
+	path = strings.TrimSuffix(path, ")")
+	if !ok || !strings.HasPrefix(path, red) {
+		t.Fatalf("the Detail names no kept output under %s: %q", red, firstLine(detail))
+	}
+	if data, err := os.ReadFile(path); err != nil || !strings.Contains(string(data), "MIDDLE-ERROR") {
+		t.Errorf("the kept output %s: %v; want the whole output with its middle", path, err)
+	}
+	if ok := e.exec(context.Background(), work, []string{"sh", "-c", "echo fine"}, os.Environ(), time.Hour); ok.reason != "" || ok.log != "" {
+		t.Errorf("a passing child: reason %q, kept %q; want no file", ok.reason, ok.log)
 	}
 }
