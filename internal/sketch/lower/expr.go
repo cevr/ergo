@@ -294,8 +294,6 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			return b.String()
 		}
 		return val + ".(" + fc.goType(conv.To) + ")"
-	case check.ConvNarrow:
-		return fc.narrowFunc(conv, val, site)
 	case check.ConvWiden:
 		return fc.widen(conv, val, site)
 	case check.ConvMachine:
@@ -323,28 +321,6 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // Assignability 4; subunion.go).
 func (fc *funcCtx) widen(conv check.Conversion, val string, site syntax.Node) string {
 	return fc.unionInto(conv.From, conv.To, val, site)
-}
-
-// narrowFunc is val, a function value of conv.From, as one of conv.To
-// (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
-// whose parameters that are a row value of one error type, a Go error,
-// are asserted to that type, the value's parameter, before val runs. val
-// is evaluated once, where the conversion is.
-func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Node) string {
-	from, ok := underlyingOf(conv.From).(*check.Signature)
-	to, ok2 := underlyingOf(conv.To).(*check.Signature)
-	if !ok || !ok2 || len(from.Params) != len(to.Params) {
-		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
-	}
-	var asserts []int
-	for i, p := range to.Params {
-		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-				asserts = append(asserts, i)
-			}
-		}
-	}
-	return fc.rowFunc(from, to, fc.goType(conv.From), fc.goType(conv.To), asserts, val, site) // rowgap.go
 }
 
 // expr lowers x; in a statement header, a composite literal value is
