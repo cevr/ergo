@@ -207,7 +207,6 @@ os	hostGetenv	library	HOST-ROW: os.Getenv through import go charges go.Foreign, 
 os	hostGetwd	library	HOST-ROW: os.Getwd through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostHasEnv	library	HOST-ROW: os.LookupEnv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 prelude	AlarmClock	type
-prelude	AsWritten	provider
 prelude	InForce	provider
 prelude	Sleep	provider
 prelude	Task	type

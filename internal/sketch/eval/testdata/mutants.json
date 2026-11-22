@@ -634,8 +634,8 @@
       "name": "oracle-o22-slice-allocates",
       "origin": "wf10 ORACLE O22",
       "file": "internal/sketch/eval/natives.go",
-      "from": "\t\t\tif shares[name] {",
-      "to": "\t\t\tif false && shares[name] {",
+      "from": "\t\t\tif shares()[name] {",
+      "to": "\t\t\tif false && shares()[name] {",
       "rule": "A substring is a view of its text: it allocates no value bytes.",
       "killers": ["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]
     },

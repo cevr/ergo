@@ -26,11 +26,13 @@ import (
 	"fmt"
 	"hash/crc32"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Row is one vouched fact.
@@ -83,10 +85,36 @@ var Rows = []Row{
 	{Target: "strings.Join", Fact: "reads", Param: "elems", Reason: "Go reports only that an element string flows to the result (leaking param: elems to result level=1): the slice's array is neither written nor kept, and a string is immutable", Source: "8aa66715ab45", CallStrings: func(r *rand.Rand, p []string) { strings.Join(p, seps[r.IntN(len(seps))]) }},
 	{Target: "path/filepath.Join", Fact: "reads", Param: "elem", Reason: "it is join(elem), which reslices elem and passes it to strings.Join (a reads row); Go's mutation verdict comes from the inlined Clean of the joined string, which is immutable", Source: "6fc7b1fadbe3", CallStrings: func(_ *rand.Rand, p []string) { filepath.Join(p...) }},
 	{Target: "hash/crc32.Update", Fact: "reads", Param: "p", Reason: "it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads", Source: "fadaf3baa7c7", Call: func(_ *rand.Rand, p []byte) { crc32.Update(0, crc32.IEEETable, p) }, View: true},
+	// An open file's Write (S2-COPY): a read loop writes the bytes it read,
+	// b[:n], which the value rule copied at each call.
+	{Target: "os.File.Write", Fact: "reads", Param: "b", Reason: "it passes b to poll.FD.Write, which hands each chunk of b to the write system call; the kernel only loads from it and nothing keeps it", Source: "623de74b5313", Call: func(_ *rand.Rand, p []byte) {
+		if f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+			f.Write(p)
+			f.Close()
+		}
+	}},
+	// WriteAt (S2-FILE): the positioned write takes the same path.
+	{Target: "os.File.WriteAt", Fact: "reads", Param: "b", Reason: "it passes each rest of b to File.pwrite, poll.FD.Pwrite, which hands it to the pwrite system call; the kernel only loads from it and nothing keeps it", Source: "adab3799e15d", Call: func(_ *rand.Rand, p []byte) {
+		if f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+			f.WriteAt(p, 0)
+			f.Close()
+		}
+	}},
 
 	// fresh rows (LF2c): the slice result is new memory on every call, so
 	// the lowering passes it to Ergo with no deep copy (lower/gocall.go,
 	// goResult). They were lower.freshGoResults.
+	{Target: "os.File.Readdirnames", Fact: "fresh", Param: "result", Reason: "File.readdir appends each name, a new string, to a nil slice (or returns a new empty one)", Source: "9564848e855e", Result: func(*rand.Rand) func() any {
+		return func() any {
+			f, err := os.Open(".")
+			if err != nil {
+				return []string(nil)
+			}
+			defer f.Close()
+			ns, _ := f.Readdirnames(-1)
+			return ns
+		}
+	}},
 	{Target: "strings.Split", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "65e3a355768c", Result: func(r *rand.Rand) func() any {
 		s, sep := text(r), seps[r.IntN(len(seps))]
 		return func() any { return strings.Split(s, sep) }
@@ -109,25 +137,25 @@ var Rows = []Row{
 	}},
 	{Target: "regexp.Regexp.FindAllString", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allString, which appends each match's substring to a nil slice", Source: "e0b9bb9db7ad", Result: func(r *rand.Rand) func() any {
 		s, n := text(r), r.IntN(4)-1
-		return func() any { return freshRE.FindAllString(s, n) }
+		return func() any { return freshRE().FindAllString(s, n) }
 	}},
 	{Target: "regexp.Regexp.FindStringSubmatch", Fact: "fresh", Param: "result", Reason: "it makes the result with make from the match's indexes", Source: "d6982e2c79d9", Result: func(r *rand.Rand) func() any {
 		s := text(r)
-		return func() any { return freshRE.FindStringSubmatch(s) }
+		return func() any { return freshRE().FindStringSubmatch(s) }
 	}},
 	{Target: "regexp.Regexp.FindAllStringSubmatch", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allStringSubmatch, which makes each match's slice with make", Source: "670036968b42", Result: func(r *rand.Rand) func() any {
 		s, n := text(r), r.IntN(4)-1
-		return func() any { return freshRE.FindAllStringSubmatch(s, n) }
+		return func() any { return freshRE().FindAllStringSubmatch(s, n) }
 	}},
 	{Target: "regexp.Regexp.Split", Fact: "fresh", Param: "result", Reason: "it makes the result with make and appends substrings of s", Source: "f9bf7fc8970d", Result: func(r *rand.Rand) func() any {
 		s, n := text(r), r.IntN(4)-1
-		return func() any { return freshRE.Split(s, n) }
+		return func() any { return freshRE().Split(s, n) }
 	}},
 }
 
 // freshRE is the receiver of the regexp rows' guards: a group, so a
 // submatch has two strings.
-var freshRE = regexp.MustCompile(`a(b*)`)
+var freshRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`a(b*)`) })
 
 // seps are the separators the fresh guards split on.
 var seps = []string{"", ",", "ab", " "}

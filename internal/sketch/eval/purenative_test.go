@@ -18,7 +18,7 @@ import (
 // A pure Go function is a std extern whose runtime/v1 body is marked pure
 // (check.BodyOf(f).Pure; stdlib.md, Pure bodies), or a function of a Go
 // package of v1.PureImports that a std package reaches through import go,
-// less the members v1.PureImportsExcept names. A call of one with no
+// less the members v1.PureImportsExcept() names. A call of one with no
 // native stops the evaluation as "a Go function (name), even a pure one".
 // The callees are read from std's calls, so a pure extern counts wherever
 // it is declared: in a std package, in the prelude (the built-in types'
@@ -49,7 +49,7 @@ func TestEveryPureStdExternHasANative(t *testing.T) {
 				continue
 			}
 			goPath, name := f.Decl.Extern.Split()
-			if goPath == "" || !slices.Contains(v1.PureImports, goPath) || slices.Contains(v1.PureImportsExcept[goPath], name) {
+			if goPath == "" || !slices.Contains(v1.PureImports, goPath) || slices.Contains(v1.PureImportsExcept()[goPath], name) {
 				continue
 			}
 			if goNativeOf(f) == nil {

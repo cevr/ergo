@@ -76,7 +76,7 @@ func Failure(who string, from string, to string, stderr string, unsupported []st
 		return work.NotSameVolume{From: from, To: to}
 	}
 	if strings.Contains(lower, "no space left") {
-		return work.NoSpace{Path: to}
+		return work.NoSpace{Path: to, Need: -1, Free: -1}
 	}
 	for phrase in unsupported {
 		if strings.Contains(lower, phrase) {
@@ -211,6 +211,46 @@ func CopyUsage(t Trees, who string, root string) work.Usage fails work.Unsupport
 	}
 	let bytes = try count(who, fields[0]) * 1024
 	work.Usage{Total: bytes, Exclusive: bytes, Shared: 0}
+}
+
+// FreeOf is the bytes free on the file system of the folder root, by
+// df -Pk (POSIX output: the fourth field of its second line, in KiB).
+func FreeOf(t Trees, who string, root string) int fails work.Unsupported | work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = Run(t, who, "df", []string{"-Pk", "--", root}) catch {
+	case work.CloneFailed as f:
+		return work.Unsupported{Cloner: who, Why: f.Reason}
+	}
+	if r.Status != 0 {
+		return work.Unsupported{Cloner: who, Why: FirstLine(strings.TrimSpace(r.Stderr))}
+	}
+	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
+	if len(lines) < 2 {
+		return work.Unsupported{Cloner: who, Why: "df printed no table"}
+	}
+	let fields = strings.Fields(lines[len(lines)-1])
+	if len(fields) < 4 {
+		return work.Unsupported{Cloner: who, Why: "df: \(lines[len(lines)-1])"}
+	}
+	try count(who, fields[3]) * 1024
+}
+
+// EntriesScript prints the number of entries under the folder $1, not
+// following a link: find never descends through one.
+let EntriesScript = "set -eu\nfind \"$1\" -mindepth 1 | wc -l\n"
+
+// EntriesOf is the number of files, folders and links under root.
+func EntriesOf(t Trees, who string, root string) int fails work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = try Run(t, who, "sh", []string{"-c", EntriesScript, "work-entries", root})
+	if r.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+	try count(who, strings.TrimSpace(r.Stdout))
 }
 
 func count(who string, text string) int fails work.CloneFailed {

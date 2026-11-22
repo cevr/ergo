@@ -221,7 +221,7 @@ func w%[1]s%[2]s(x %[3]s) %[3]s {
 	s
 }
 
-func wr%[1]s%[2]s(x %[3]s, r *%[1]s%[2]s) %[3]s {
+func wr%[1]s%[2]s(x %[3]s, r mut %[1]s%[2]s) %[3]s {
 	let mut s = x
 	%[6]s
 	r.s[0] = dm%[1]s%[2]s(r.m)

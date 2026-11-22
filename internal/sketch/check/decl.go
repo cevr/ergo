@@ -105,6 +105,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		// After the bodies: the rows a marked function must leave empty
+		// are final (aswritten.go).
+		c.checkAsWritten,
 		c.checkProviderFields,
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
@@ -2877,10 +2880,10 @@ func (c *checker) collectSelfFuncs() {
 					c.pkg.collFuncs = map[collKey]*Func{}
 				}
 				f.selfArgs = args
-				f.collOp = collOps[key] // collop.go
+				f.collOp = collOps()[key] // collop.go
 				c.pkg.collFuncs[key] = f
 			} else {
-				f.collOp = collMakers[f.Name] // collop.go
+				f.collOp = collMakers()[f.Name] // collop.go
 			}
 		}
 	}

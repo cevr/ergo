@@ -24,6 +24,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
+	"ergo.local/prototype/runtime/v1/hostfs"
 )
 
 // Kind is the kind of a Go declaration.
@@ -63,13 +64,27 @@ type Decl struct {
 	// binding writes no needs row and an `// ergo:effect none (vouched:
 	// <reason>)` line.
 	Effect string
+	// EffectFrom is the target of that row when a method Go promotes from
+	// an embedded field takes the declaring type's row (GB): the binding
+	// writes `// ergo:effect none from <EffectFrom> (vouched: <reason>)`.
+	EffectFrom string
+	// Host is the reason of the function's host row (gofacts.Hosts;
+	// HOST-ROW), acting on its guard line: the binding writes needs
+	// Ambient, not go.Foreign, and an `// ergo:effect ambient (vouched:
+	// <reason>)` line.
+	Host string
+	// Via is the Go function the binding calls in Go's function's place
+	// (ValueResults; HOST-ROW-3): one that returns values where Go's
+	// returns an interface, so reading the result needs no row. Empty
+	// for a declaration bound as Go writes it.
+	Via string
 	// Total: every platform proves the function total, no call of it
 	// panics (Derive's totalFact, total.go): the binding's
 	// `// ergo:total` line (GOBIND-TOTAL).
 	Total   bool
 	Refused string
 	// Writes is the binder of the parameter that Go writes in place
-	// (v1.GoWrites; GBX2), or "". The Ergo signature returns that
+	// (v1.GoWrites(); GBX2), or "". The Ergo signature returns that
 	// parameter's type: the call's value is the slice Go wrote, and the
 	// binding's `// ergo:writes` line names it.
 	Writes string
@@ -102,8 +117,39 @@ type Member struct {
 }
 
 // Target is the extern target of d in package path: `net/url.Parse`,
-// `net/url.URL.Hostname`.
-func (d Decl) Target(path string) string { return path + "." + d.Name }
+// `net/url.URL.Hostname`, or d's Via.
+func (d Decl) Target(path string) string {
+	if d.Via != "" {
+		return d.Via
+	}
+	return path + "." + d.Name
+}
+
+// HostFS is the import path of the toolchain's Go package that gives a
+// file's metadata as values (runtime/v1/hostfs).
+const HostFS = hostfs.Path
+
+// ValueResults are the Go functions whose binding calls another in their
+// place (HOST-ROW-3): Go's returns fs.FileInfo or []fs.DirEntry, whose
+// methods any Go type may implement, so a row on them would vouch for
+// every implementation; the function it names returns structs of the
+// same values, read once on the implementation os returns. The named
+// function is bound and reviewed as any Go function is (a host row, its
+// guard), and every binding of Go's, std's or a user's, gets the same
+// one. Keyed by Go's target, valued by the one the binding calls.
+//
+// A method's entry (S2-FILE-B) names a function that takes the receiver
+// first: the binding is still the method, `func (f *File) Stat()
+// hostfs.Info`, and its target is that function, which the call runs as
+// hostfs.FileStat(f).
+var ValueResults = map[string]string{
+	"os.Stat":         HostFS + ".Stat",
+	"os.Lstat":        HostFS + ".Lstat",
+	"os.ReadDir":      HostFS + ".ReadDir",
+	"os.File.Stat":    HostFS + ".FileStat",
+	"os.File.ReadDir": HostFS + ".FileReadDir",
+	"os.File.Readdir": HostFS + ".FileReaddir",
+}
 
 // Qualifier spells a package other than the bound one in Ergo source: the
 // name the binding's import gives it.
@@ -116,9 +162,16 @@ type Qualifier func(*types.Package) string
 // pointer as go.Ref[T] only with their nonNilResult, else as
 // Option[go.Ref[T]].
 func Map(obj types.Object, recv *types.Named, q Qualifier, facts Facts) Decl {
-	m := &mapper{pkg: obj.Pkg(), q: q, facts: facts}
+	return mapIn(obj.Pkg(), obj, recv, q, facts)
+}
+
+// mapIn is Map with obj's types spelled from the bound package home: a
+// type of obj's own package is qualified when home is another
+// (ValueResults). The target, and every row it reads, stay obj's.
+func mapIn(home *types.Package, obj types.Object, recv *types.Named, q Qualifier, facts Facts) Decl {
+	m := &mapper{pkg: obj.Pkg(), home: home, q: q, facts: facts}
 	if recv != nil {
-		m.pkg = recv.Obj().Pkg()
+		m.pkg, m.home = recv.Obj().Pkg(), recv.Obj().Pkg()
 		m.refs = []string{m.pkg.Path() + "." + recv.Obj().Name()}
 	}
 	d := m.decl(obj, recv)
@@ -131,7 +184,10 @@ func Map(obj types.Object, recv *types.Named, q Qualifier, facts Facts) Decl {
 }
 
 type mapper struct {
-	pkg   *types.Package
+	pkg *types.Package
+	// home is the package whose binding the declaration is written in:
+	// pkg, or os for a ValueResults function of hostfs.
+	home  *types.Package
 	q     Qualifier
 	facts Facts
 	// refs are the named types the Ergo text spells, "path.Name", and
@@ -147,6 +203,13 @@ type mapper struct {
 	// effect is the reason of the memory-only row the last funcDecl
 	// bound by (GBX6), or "".
 	effect string
+	// effectFrom is the target of that row when it is not the bound
+	// method's own: the declaring type's, for a method Go promotes from an
+	// embedded field (GB); else "".
+	effectFrom string
+	// host is the reason of the host row the last funcDecl wrote
+	// (HOST-ROW), or "".
+	host string
 }
 
 // readable is a parameter, or a method's receiver, that may carry a
@@ -267,7 +330,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context, d.Writes, d.Effect = text, variadic, ctx, m.writes, m.effect
+		d.Ergo, d.Variadic, d.Context, d.Writes, d.Effect, d.EffectFrom, d.Host = text, variadic, ctx, m.writes, m.effect, m.effectFrom, m.host
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -286,7 +349,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo = "let " + o.Name() + " " + t
 	case *types.Var:
 		d.Kind = Var
-		if v1.GoReadOnlyVars[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
+		if v1.GoReadOnlyVars()[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
 			// A reviewed variable no Go code of its package writes after
 			// init (GBX3): a read-only let, a pointer never nil, so a
 			// go.Ref. The table holds no interface variable.
@@ -336,10 +399,10 @@ func resourceType(t types.Type) bool {
 
 // pure reports whether a member of the bound package is in the reviewed
 // pure tier: a package of v1.PureImports whose guard line acts
-// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept.
+// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept().
 func (m *mapper) pure(name string) bool {
 	path := m.pkg.Path()
-	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept[path], name)
+	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept()[path], name)
 }
 
 func (m *mapper) needs(name string) string {
@@ -423,13 +486,25 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		params[i].own = goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off)
 	}
 	// A Go function that sorts or reverses its slice in place and returns
-	// nothing (the reviewed v1.GoWrites; GBX2) returns the slice in Ergo:
+	// nothing (the reviewed v1.GoWrites(); GBX2) returns the slice in Ergo:
 	// `let s = slices.Sort(s)`. The lowering passes Go the value the
 	// value rule gives it (a copy, or the dead local itself) and takes it
 	// back as the call's value.
-	if w, ok := v1.GoWrites[target]; ok && w.Reason != "" && recv == nil && results == "" && !fails {
+	// A function or method with results of its own (`(*os.File).Read`;
+	// HOST-ROW-3 slice 2) returns the written slice first, then Go's
+	// results: `func (f *File) Read(b []byte) ([]byte, int) fails
+	// go.Error`.
+	if w, ok := v1.GoWrites()[target]; ok && w.Reason != "" {
 		if i := w.Index; i >= 0 && i < len(params) && !(variadic && i == len(params)-1) && goSlice(sig.Params().At(i+first).Type()) {
-			results, m.writes = params[i].typ, params[i].name
+			switch {
+			case results == "":
+				results = params[i].typ
+			case strings.HasPrefix(results, "("):
+				results = "(" + params[i].typ + ", " + results[1:]
+			default:
+				results = "(" + params[i].typ + ", " + results + ")"
+			}
+			m.writes = params[i].name
 		}
 	}
 	var b strings.Builder
@@ -495,11 +570,23 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		// does not have).
 		needs = " needs go.Foreign"
 	}
-	m.effect = ""
-	if e, ok := gofacts.EffectOf(target); ok && needs != "" && !sm.ctx && effectActs(target) {
+	m.effect, m.effectFrom, m.host = "", "", ""
+	if e, ok := gofacts.HostOf(target); ok && needs == " needs go.Foreign" && !sm.ctx && hostActs(target) {
+		// A host call charges Ambient, the authority to choose the host,
+		// not go.Foreign (HOST-ROW); the binding says why.
+		needs, m.host = " needs Ambient", e.Reason
+	}
+	// A method Go promotes from an embedded field is the field's method:
+	// its memory-only row is the declaring type's (GB), and the binding
+	// names that row with `from`.
+	row := declaredTarget(f, target)
+	if e, ok := gofacts.EffectOf(row); ok && needs != "" && !sm.ctx && effectActs(row) {
 		// A memory-only call needs no capability (GBX6): its row is
 		// what is left, and the binding says why.
 		needs, m.effect = "", e.Reason
+		if row != target {
+			m.effectFrom = row
+		}
 	}
 	if sm.usedNeeds {
 		if needs == "" {
@@ -714,7 +801,7 @@ func binder(name string) bool {
 type sigMapper struct {
 	*mapper
 	subst map[*types.TypeParam]types.Type
-	// sync: the function is in v1.GoSyncCallbacks; method: it is a
+	// sync: the function is in v1.GoSyncCallbacks(); method: it is a
 	// method (row-free callbacks); outerFails: its last result is error.
 	// usedFails and usedNeeds record a callback that took the row
 	// parameters.
@@ -1025,7 +1112,7 @@ func (m *sigMapper) named(n *types.Named, at pos, cb bool) (string, error) {
 func (m *sigMapper) spell(obj *types.TypeName) string {
 	m.refs = append(m.refs, obj.Pkg().Path()+"."+obj.Name())
 	m.refPkgs = append(m.refPkgs, obj.Pkg())
-	if obj.Pkg() == m.pkg {
+	if obj.Pkg() == m.home {
 		return obj.Name()
 	}
 	return m.q(obj.Pkg()) + "." + obj.Name()
@@ -1104,7 +1191,7 @@ func typeRefusal(obj *types.TypeName) string {
 			return "an interface with no exported method"
 		}
 	case *types.Slice, *types.Map, *types.Array:
-		m := &sigMapper{mapper: &mapper{pkg: obj.Pkg(), q: func(p *types.Package) string { return p.Name() }}}
+		m := &sigMapper{mapper: &mapper{pkg: obj.Pkg(), home: obj.Pkg(), q: func(p *types.Package) string { return p.Name() }}}
 		if _, err := m.typ(u, atInner, false); err != nil {
 			return err.Error()
 		}
@@ -1302,11 +1389,39 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 }
 
 // syncActs reports a function whose callbacks the reviewed table
-// v1.GoSyncCallbacks lists as synchronous, with its guard line acting
+// v1.GoSyncCallbacks() lists as synchronous, with its guard line acting
 // (check.SyncActs; LAWFFI LF2d).
 func syncActs(target string) bool {
 	ok, _, _ := check.SyncActs(target)
 	return ok
+}
+
+// hostActs reports a function whose host row acts (check.HostActs;
+// HOST-ROW).
+func hostActs(target string) bool {
+	ok, _, _ := check.HostActs(target)
+	return ok
+}
+
+// declaredTarget is the target of f where Go declares it: for a method,
+// its own receiver type's (`sync/atomic.Int64.Add`), which differs from
+// target, the bound type's, when Go promotes f from an embedded field
+// (GB). A function, or a method whose receiver is not a named type, is
+// target itself.
+func declaredTarget(f *types.Func, target string) string {
+	sig, ok := f.Origin().Type().(*types.Signature)
+	if !ok || sig.Recv() == nil || f.Pkg() == nil {
+		return target
+	}
+	t := sig.Recv().Type()
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := t.(*types.Named)
+	if !ok {
+		return target
+	}
+	return f.Pkg().Path() + "." + n.Obj().Name() + "." + f.Name()
 }
 
 // effectActs reports a function whose memory-only row acts

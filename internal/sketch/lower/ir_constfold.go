@@ -61,7 +61,7 @@ var (
 
 var (
 	constFoldReleaseMu sync.Mutex
-	constFoldReleases  = map[string]string{}
+	constFoldReleases  map[string]string // made on first use
 )
 
 // constFoldBuildRelease is the release of the Go the build selects.
@@ -78,6 +78,9 @@ func constFoldBuildRelease() string {
 		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 		if b, err := cmd.Output(); err == nil {
 			v = strings.TrimSpace(string(b))
+		}
+		if constFoldReleases == nil {
+			constFoldReleases = map[string]string{}
 		}
 		constFoldReleases[t.Go] = v
 	}
