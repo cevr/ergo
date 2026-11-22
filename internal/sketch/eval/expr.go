@@ -1276,18 +1276,19 @@ func (c *closure) callerCaps(fr *frame) *capEnv {
 	return caps
 }
 
-// preludeCollection reports the prelude's Append, Get, Delete or Put,
+// preludeCollection reports the prelude's Append, Get, Delete, Put or Take,
 // which the evaluator runs as value operations, never by their Go bodies
 // (plan section 4: pure prelude collection operations).
 func preludeCollection(f *check.Func) bool {
 	switch check.CollOpOf(f) {
-	case check.CollAppend, check.CollGet, check.CollDelete, check.CollPut:
+	case check.CollAppend, check.CollGet, check.CollDelete, check.CollPut, check.CollTake:
 		return true
 	}
 	return false
 }
 
-// collectionCall runs xs.Append(x), m.Get(k), m.Delete(k) or m.Put(k, v).
+// collectionCall runs xs.Append(x), m.Get(k), m.Delete(k), m.Put(k, v) or
+// m.Take(k).
 // own is the slot an assignment hands the receiver over from (x =
 // x.Append(e), x.f = x.f.Append(e)), and at the path from own's value to
 // the receiver (stmt.go, handover); the receiver is then read without a
@@ -1341,6 +1342,21 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 		return in.deleteIn(fr, x, recv.(mapV), args[0], tok)
 	case check.CollPut:
 		return in.putIn(fr, x, recv.(mapV), args[0], args[1], tok)
+	case check.CollTake:
+		// k's value as an Option, and m without k (std ui's session takes
+		// a request in flight; b25's guard found it had no native).
+		if ab := in.charge(fr, x, 1); ab != nil {
+			return nil, ab
+		}
+		m := recv.(mapV)
+		v, found := m.b.get(args[0])
+		rest, ab := in.deleteIn(fr, x, m, args[0], tok)
+		if ab != nil {
+			return nil, ab
+		}
+		t := fr.rtypeOf(x)
+		u := t.under()
+		return tuple{elems: []Value{optionOf(rtype{t: u.t.(*check.Tuple).Types[0], env: u.env}, v, found), rest}}, nil
 	}
 	ice("the prelude function %s", c.Func.Name)
 	return nil, nil

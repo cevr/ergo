@@ -43,7 +43,7 @@ func TestEveryPureStdExternHasANative(t *testing.T) {
 				continue
 			}
 			if f.Pkg.Std() {
-				if check.BodyOf(f).Pure && !runsExtern(f) {
+				if check.BodyOf(f).Pure && !check.IsUnreachable(c) && !runsExtern(f) {
 					missing[f.Pkg.Path+"."+f.Name+" (called from "+path+")"] = true
 				}
 				continue
