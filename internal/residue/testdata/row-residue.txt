@@ -21,8 +21,6 @@ internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host
 # Comments: a verb or pronoun after needs, then a clause.
 compiler/check/rows/rows.ergo	signature needs it, or of an
 internal/selfhostcheck/testdata/rows/needs.ergo	needs it, or an operation
-examples/gointerop/uptime/uptime.ergo	which needs go.Foreign, so
-compiler/check/diag/aswritten.ergo	no needs clause, and a body
 # A comment naming Go packages a test imports, not capabilities.
 internal/sketch/lower/json_value_test.go	It needs json, strconv and strings.
 # Diagnostic text: "needs evaluating" is a verb phrase.
