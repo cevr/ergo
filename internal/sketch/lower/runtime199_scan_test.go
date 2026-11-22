@@ -214,6 +214,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
 		"irBuilder.adaptOperand":   "the IR's adapter of a std body's function parameter: the task block's Env copy, a local of the literal, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
+		"irBuilder.givenFunc":      "the IR's uniform-shape literal around a Go function a std body gives its callback: its *Env parameter, a local of the IR literal, unread, as adaptTaskFunc's callerEnv wrapper (ir_adapt.go, HIDDEN-ARGS)",
 		"irBuilder.releaseFuncs":   "the IR release helpers' headers, func xRelease(env *Env, ...) and xFree(env *Env, slot *T), with no body: their bodies are IR (ir_own.go, RELEASE-IR)",
 		"irBuilder.spawnLocalType": "the IR's type of a GoWith capture field: *Env for the environment local, a type, no closure (ir_spawn.go, GP-SPAWN2)",
 		"irBuilder.groupCall":      "the IR's group body of a component call: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
@@ -237,6 +238,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.initOnce":       "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
 		"irBuilder.ownDone":      "a slot's release closure for Static.Part takes no parameter; it runs on the helper's env",
 		"irBuilder.adaptOperand": "a std body's Go function parameter takes the body's own parameters (a task, values), as adaptTaskFunc's and adaptPlainFunc's; the Ergo value runs on the caller's env or the task block's copy",
+		"irBuilder.givenFunc":    "the Go function a std body gives its callback (an actor work's send) takes the signal alone; only the uniform-shape literal around it takes the Env",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
 		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {
