@@ -367,12 +367,20 @@ type Verdict = RestartAfter | GiveUp
 // the time since the first of them (0 for none): RestartAfter its delay,
 // or GiveUp when it stops.
 func Decide(s Supervision, past []duration, now duration) Verdict {
-	if !Allows(s.Intensity, past, now) {
+	let mut n = 0
+	let mut first = now
+	for t in past {
+		if t > now-s.Intensity.Period && t <= now {
+			if n == 0 {
+				first = t
+			}
+			n = n + 1
+		}
+	}
+	if n >= s.Intensity.Max {
 		return GiveUp
 	}
-	let recent = Recent(s.Intensity, past, now)
-	let since = if len(recent) == 0 { 0s } else { now - recent[0] }
-	match schedule.Decide(s.Backoff, len(recent)+1, since) {
+	match schedule.Decide(s.Backoff, n+1, now-first) {
 	case schedule.Continue as c:
 		RestartAfter{Wait: c.After}
 	case schedule.Stop:
