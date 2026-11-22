@@ -148,6 +148,9 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 			}
 		}
 	}
+	if c.Trailing == dense.NoID[syntax.Node]() && indexed && n == 1 && len(written) == 1 && isBuiltin(k, *t, fun, "decode") {
+		decodeCall(s, k, t, x, written[0])
+	}
 	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && n == 1 && isLen(k, *t, fun) {
 		return lenCall(s, k, t, syntax.Item(tr, c.Args, 0))
 	}

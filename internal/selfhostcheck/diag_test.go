@@ -54,6 +54,8 @@ func goUnused(ds []check.Diagnostic) []string {
 // the local has the invalid type, so no cascade). compiler/check/diag
 // reports no such error yet (S104, S108 are later units), so the Ergo
 // side's line there is dropped and counted.
+// It also holds the locals the Go checker releases at a scope end (D4:
+// d4Exempt), which binddump, untyped, cannot tell from unread ones.
 type unusedCase struct {
 	name   string
 	files  []string
@@ -131,6 +133,45 @@ func d3Exempt(file, src string, ds []check.Diagnostic) map[string]bool {
 	return out
 }
 
+// d4Exempt adds to out (nil for a new set) the "FILE L:C" of each local
+// the Go checker releases at a scope's end (Info.Releases): a let whose
+// type holds a resource is held for that release, not unused (rows.go
+// reportUnused, R42; D4). binddump binds without types, so it cannot
+// tell; checkdump types, and TestCompilerCheckAgrees compares those lets
+// (diag.Held). A local's offset is matched in each file of the package by
+// its name's text there.
+func d4Exempt(t *testing.T, pkg *check.Package, files []string, out map[string]bool) map[string]bool {
+	if out == nil {
+		out = map[string]bool{}
+	}
+	if pkg == nil || pkg.Info == nil {
+		return out
+	}
+	var srcs []string
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srcs = append(srcs, string(b))
+	}
+	for _, rs := range pkg.Info.Releases {
+		for _, r := range rs {
+			if r.Var == nil {
+				continue
+			}
+			at := int(r.Var.Pos)
+			for i, src := range srcs {
+				if at >= 0 && at+len(r.Var.Name) <= len(src) && src[at:at+len(r.Var.Name)] == r.Var.Name {
+					line, col := lineCol(src, at)
+					out[fmt.Sprintf("%s %d:%d", filepath.Base(files[i]), line, col)] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
 // lineCol is the 1-based line and byte column of offset in src.
 func lineCol(src string, offset int) (int, int) {
 	line, start := 1, 0
@@ -177,10 +218,12 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 	var cases []unusedCase
 	// The corpus: every folder the Go checker accepts has no line.
 	for _, dir := range corpusDirs(t) {
-		if typesPackage(dir) == nil {
+		pkg := typesPackage(dir)
+		if pkg == nil {
 			continue
 		}
-		cases = append(cases, unusedCase{name: rel(dir), files: ergoFiles(t, dir)})
+		files := ergoFiles(t, dir)
+		cases = append(cases, unusedCase{name: rel(dir), files: files, exempt: d4Exempt(t, pkg, files, nil)})
 	}
 	corpus := len(cases)
 	// The negative fixtures, each alone.
@@ -195,7 +238,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, ds := check.CheckSource(string(src))
+			pkg, ds := check.CheckSource(string(src))
 			if len(ds) > 0 && ds[0].Code == check.CodeSyntax {
 				continue // the parser's, not the checker's
 			}
@@ -207,7 +250,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 			}
 			f := filepath.Join(dir, filepath.Base(p))
 			writeLines(t, f, []string{strings.TrimSuffix(string(src), "\n")})
-			cases = append(cases, unusedCase{name: rel(p), files: []string{f}, want: prefixed(filepath.Base(p), goUnused(ds)), exempt: d3Exempt(filepath.Base(p), string(src), ds)})
+			cases = append(cases, unusedCase{name: rel(p), files: []string{f}, want: prefixed(filepath.Base(p), goUnused(ds)), exempt: d4Exempt(t, pkg, []string{f}, d3Exempt(filepath.Base(p), string(src), ds))})
 			fixtures++
 		}
 	}
@@ -222,7 +265,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		if !ok {
 			continue
 		}
-		_, ds := check.CheckSource(src)
+		pkg, ds := check.CheckSource(src)
 		if len(ds) > 0 && ds[0].Code == check.CodeSyntax {
 			t.Fatalf("seed %d: the perturbation does not parse: %v\n%s", seed, ds[0], src)
 		}
@@ -236,7 +279,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		}
 		f := filepath.Join(dir, "p.ergo")
 		writeLines(t, f, []string{strings.TrimSuffix(src, "\n")})
-		cases = append(cases, unusedCase{name: fmt.Sprintf("seed %d", seed), files: []string{f}, want: prefixed("p.ergo", want), src: src, seed: seed})
+		cases = append(cases, unusedCase{name: fmt.Sprintf("seed %d", seed), files: []string{f}, want: prefixed("p.ergo", want), exempt: d4Exempt(t, pkg, []string{f}, nil), src: src, seed: seed})
 		seeds++
 	}
 	// One binddump run over every case, a package per manifest line.
@@ -285,7 +328,7 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 		}
 		t.Error(msg)
 	}
-	t.Logf("%d corpus folders, %d fixtures, %d seeds; %d Go lines compared; %d Ergo lines dropped as D3 (a local bound to an erroneous value, or a name of a refused pattern); %d cases differ", corpus, fixtures, seeds, reported, dropped, failed)
+	t.Logf("%d corpus folders, %d fixtures, %d seeds; %d Go lines compared; %d Ergo lines dropped as D3 (a local bound to an erroneous value, or a name of a refused pattern) or D4 (a let held for its release); %d cases differ", corpus, fixtures, seeds, reported, dropped, failed)
 	if reported == 0 {
 		t.Fatal("no unused diagnostic was compared")
 	}

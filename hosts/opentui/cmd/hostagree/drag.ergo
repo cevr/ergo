@@ -1,0 +1,59 @@
+// The drag app: the edge scroll. An Area holds a list of 80 rows; while
+// the pointer, pressed in the Area, stays near the Area's top or bottom,
+// each frame scrolls the list (ui.EdgeScroll, ui.TestHost's Advance), and
+// the edged check holds the terminal's offset to the model's.
+
+import ergo.local/prototype/hosts/opentui/tui
+import ui
+
+// drag counts the presses in the Area; the list is the scene's.
+type drag { n int }
+
+func dragStep(s drag, e int) Decision[drag, int] { Enter[drag]{Next: drag{n: s.n + 1}} }
+
+func dragMachine() Machine[drag, int, int] {
+	Machine[drag, int, int]{Initial: drag{n: 0}, Step: dragStep, After: none[drag, int], Work: idle[drag, int], Exit: func(s drag) Option[func()] { None }}
+}
+
+func dragView(f mut ui.Frame[int], s drag) {
+	ui.Text(f, "\(s.n) presses")
+	ui.Area(f, "drag", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+		match p.Phase {
+		case ui.Down:
+			Some{Value: 1}
+		case _:
+			None
+		}
+	}) {
+		ui.Rows(f, "items", 80, ui.Length(32.0), func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
+			ui.Text(f, "item \(i)")
+		})
+	}
+}
+
+// edged is why a list the frames edge-scrolled is not where the model put
+// it, None when each is: after a frames step, each list's offset on
+// TestHost (its own edge scroll, in DIPs) rounds to the whole cells the
+// terminal shows.
+func edged[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			match tui.Viewport(d, x.Label) {
+			case Some[ui.Viewport] as v:
+				let want = float64(int(float64(x.Offset)/cellH+0.5)) * cellH
+				if want != float64(v.Value.Offset) {
+					return Some{Value: "list \(x.Label): TestHost's edge scroll is at \(float64(x.Offset)) (\(want) in whole cells), the terminal shows \(float64(v.Value.Offset))"}
+				}
+			case None:
+			}
+		case _:
+		}
+		match edged[E, S, D, F](d, sh.Kids) {
+		case Some[string] as why:
+			return Some{Value: why.Value}
+		case None:
+		}
+	}
+	None
+}

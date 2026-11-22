@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
@@ -656,14 +657,16 @@ func (g *gen) digest(ops []Op) string {
 
 // reserved are the names the generated functions use for their locals:
 // a parameter of one of these names would shadow it.
-var reserved = map[string]bool{"client": true, "req": true, "r": true, "text": true, "v": true, "f": true, "e": true, "u": true, "p": true, "x": true}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"client": true, "req": true, "r": true, "text": true, "v": true, "f": true, "e": true, "u": true, "p": true, "x": true}
+})
 
 // checkNames refuses names the generated source cannot use: a parameter
 // that shadows a local or an import, and two failures with one tag.
 func (g *gen) checkNames(ops []Op) error {
 	for _, op := range ops {
 		for _, p := range op.Params {
-			if reserved[p.Name] {
+			if reserved()[p.Name] {
 				return fmt.Errorf("%s.%s: the parameter name %s is one the generated code uses; rename it", g.op, op.Name, p.Name)
 			}
 			for _, name := range g.imports {

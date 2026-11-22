@@ -25,7 +25,9 @@ import (
 var wireReadLowering = ""
 
 // wireReadForms are the forms wireRead builds (wireReadForm's names).
-var wireReadForms = map[string]bool{"basic": true, "record": true, "list": true, "map": true}
+func wireReadForms(form string) bool {
+	return form == "basic" || form == "record" || form == "list" || form == "map"
+}
 
 // wireRead builds the decoder name of t on the Reader interface as an IR
 // body and reports whether it did; tc is the decoder's type context.
@@ -38,7 +40,7 @@ func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, 
 		st.codecText(name, "codec reader: own read")
 		return false
 	}
-	if form := l.wireReadForm(t); wireReadLowering == "text" || tc.readVia != 0 || !wireReadForms[form] {
+	if form := l.wireReadForm(t); wireReadLowering == "text" || tc.readVia != 0 || !wireReadForms(form) {
 		st.codecText(name, "codec reader: "+form)
 		return false
 	}
