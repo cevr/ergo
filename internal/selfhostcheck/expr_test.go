@@ -9,11 +9,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -66,9 +64,8 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		values          []goValue
 		forms           map[string]string
 	}
-	// The Go checker's side of each folder, the folders on GOMAXPROCS
-	// workers (the checker and its std importer are safe for concurrent
-	// use); the files are written after, in corpus order.
+	// The Go checker's side of each folder, one folder at a time
+	// (eachGoPackage); the files are written after, in corpus order.
 	type goSide struct {
 		ok              bool
 		path            string
@@ -79,28 +76,13 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	dirs := corpusDirs(t)
 	sides := make([]goSide, len(dirs))
-	next := make(chan int)
-	var wg sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for i := range next {
-				pkg := typesPackage(dirs[i])
-				if pkg == nil {
-					continue
-				}
-				want, forms := goExprTypes(pkg, "")
-				_, ext := goKinds(pkg)
-				_, foreign := goTypes(pkg)
-				values := goValues(pkg, "")
-				sides[i] = goSide{ok: true, path: importPath(dirs[i], pkg), want: dropChargedTypes(want), wantCalls: goCallArgs(pkg, ""), values: values, forms: forms, ext: ext, foreign: foreign}
-			}
-		})
-	}
-	for i := range dirs {
-		next <- i
-	}
-	close(next)
-	wg.Wait()
+	eachGoPackage(dirs, func(i int, pkg *check.Package) {
+		want, forms := goExprTypes(pkg, "")
+		_, ext := goKinds(pkg)
+		_, foreign := goTypes(pkg)
+		values := goValues(pkg, "")
+		sides[i] = goSide{ok: true, path: importPath(dirs[i], pkg), want: dropChargedTypes(want), wantCalls: goCallArgs(pkg, ""), values: values, forms: forms, ext: ext, foreign: foreign}
+	})
 	var folders []folder
 	var manifest []string
 	for i, g := range sides {
