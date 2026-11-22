@@ -1108,6 +1108,10 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	law := lr.Law
 	fmtPkg := l.helper("fmt")
 	title := l.lawTitle(law)
+	if byLicence(law) {
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("law "+title+" runs as its licence run (ergo.laws): "+law.Unrun) + ")\n")
+		return
+	}
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
 		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+title) + ", nil, " + strconv.Quote(law.Unrun) + ")\n")
@@ -1350,10 +1354,22 @@ func (l *lowerer) replayLine(law *check.Law, flags string) string {
 	return l.helper("fmt") + ".Println(" + l.helper("Replay") + "(" + strconv.Quote(file) + ", " + strconv.Quote(l.lawTitle(law)) + ", " + flags + "))"
 }
 
+// byLicence reports a rewrite law in scope that its cases cannot draw (a
+// function parameter): its licence run decides it, which ergo test runs as
+// it writes the ledger and which fails the test when skipped (AC10,
+// LICENCE-ADT). The runner prints a note for it and counts it neither as a
+// run nor as a skip.
+func byLicence(law *check.Law) bool {
+	return law.Unrun != "" && law.TopRewrite() != nil
+}
+
 // lawCounts are the runs of the law that count in the runner's total, and
 // the runs it skips: one per binding of its slots, and one per context it
 // runs under.
 func lawCounts(r check.LawRun) (runs, skips int) {
+	if byLicence(r.Law) {
+		return 0, 0
+	}
 	if r.Law.Unrun != "" {
 		return 0, 1
 	}
