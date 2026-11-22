@@ -187,6 +187,16 @@ func registerRunner(t nativeTables) {
 		}
 		return nil, fr.abrupt(ctlFail, at, a.fail.val, "")
 	}
+	// defectOf is ActorDefectReason: the text of the defect that ended the
+	// actor, "" when none did (ExitOf's Defected{Reason}).
+	t.reads["actor.defectOf"] = "host:actor.Actor"
+	natives["actor.defectOf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		a := actorOf(args[0])
+		if a.defect == nil {
+			return "", nil
+		}
+		return a.defect.msg, nil
+	}
 	t.reads["actor.exitKind"] = "host:actor.Actor"
 	natives["actor.exitKind"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
