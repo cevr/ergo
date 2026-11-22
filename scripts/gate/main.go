@@ -1166,7 +1166,7 @@ func (g *gate) run(out io.Writer) int {
 		var red *redStep
 		switch r.outcome {
 		case failed:
-			red = redsOf(g.reds, g.root, step.Name)
+			red = redsOf(g.reds, step.Name)
 			destination = io.MultiWriter(destination, red)
 		case blocked:
 			g.reds[redKey(stepFamily(step.Name), "", "not run")]++
@@ -1219,7 +1219,7 @@ func (g *gate) run(out io.Writer) int {
 	// A clean checkout's red lines are the record a later -new-reds
 	// against this tree reads (reds.go); a dirty one's are no tree's.
 	if g.whole != nil && g.whole.identity.clean {
-		if err := writeReds(g.cacheDir, g.whole.identity.tree, g.tier, g.reds); err != nil {
+		if err := writeReds(g.cacheDir, g.whole.identity.tree, g.tier, g.root, g.reds); err != nil {
 			fmt.Fprintf(out, "gate: record the red lines: %v\n", err)
 		}
 	}

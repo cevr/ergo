@@ -40,15 +40,11 @@ type redStep struct {
 	step string
 	test string
 	part []byte
-	// root is the checkout's folder: base and head run in different
-	// checkouts, so a path under it counts by its path in the module.
-	root string
 }
 
-// redsOf starts collecting the lines of the failed step name, run in the
-// checkout root, into set.
-func redsOf(set redSet, root, name string) *redStep {
-	return &redStep{set: set, step: stepFamily(name), root: root}
+// redsOf starts collecting the lines of the failed step name into set.
+func redsOf(set redSet, name string) *redStep {
+	return &redStep{set: set, step: stepFamily(name)}
 }
 
 func (w *redStep) Write(p []byte) (int, error) {
@@ -77,9 +73,6 @@ func (w *redStep) Close() error {
 // test that fails with no message still counts.
 func (w *redStep) line(text string) {
 	trimmed := strings.TrimSpace(text)
-	if w.root != "" {
-		trimmed = strings.ReplaceAll(trimmed, w.root+"/", "")
-	}
 	if trimmed == "" || trimmed == "FAIL" || strings.HasPrefix(trimmed, "=== ") {
 		return
 	}
@@ -97,11 +90,28 @@ func (w *redStep) line(text string) {
 	w.set[redKey(w.step, w.test, trimmed)]++
 }
 
-// redKey is a red line as the comparison sees it: the step's family, the
-// test, and the line with what moves between runs of the same failure
-// taken out (normalise).
+// redKey is a red line as a run printed it: the step's family, the test,
+// and the line. The comparison normalises it (compared), so a record
+// keeps what ran and a better rule needs no record rewritten.
 func redKey(step, test, line string) string {
-	return step + "\t" + test + "\t" + normalise(line)
+	return step + "\t" + test + "\t" + line
+}
+
+// compared is set as the comparison sees it, from a run in the checkout
+// root: each line with the checkout's folder taken out of its paths (base
+// and head run in different checkouts) and what moves between runs of the
+// same failure (normalise). Both sides go through it at compare time.
+func compared(set redSet, root string) redSet {
+	out := redSet{}
+	for key, n := range set {
+		step, rest, _ := strings.Cut(key, "\t")
+		test, line, _ := strings.Cut(rest, "\t")
+		if root != "" {
+			line = strings.ReplaceAll(line, root+"/", "")
+		}
+		out[step+"\t"+test+"\t"+normalise(line)] += n
+	}
+	return out
 }
 
 // stepFamily is a step's name without its shard ("[2/5]"): a new test
@@ -146,14 +156,16 @@ func tierFile(tier string) string {
 	return strings.NewReplacer("/", "-", " ", "-").Replace(tier)
 }
 
-// writeReds records set as the run of tree in tier: one line per red
-// line, sorted, with its count.
-func writeReds(cacheDir, tree, tier string, set redSet) error {
+// writeReds records set as the run of tree in tier, in the checkout root:
+// a line naming the root, then one line per red line, sorted, with its
+// count.
+func writeReds(cacheDir, tree, tier, root string, set redSet) error {
 	path := redsPath(cacheDir, tree, tier)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	var b strings.Builder
+	fmt.Fprintf(&b, "root\t%s\n", root)
 	for _, key := range slices.Sorted(maps.Keys(set)) {
 		fmt.Fprintf(&b, "%d\t%s\n", set[key], key)
 	}
@@ -164,24 +176,29 @@ func writeReds(cacheDir, tree, tier string, set redSet) error {
 	return os.Rename(temporary, path)
 }
 
-// readReds reads a record writeReds wrote.
-func readReds(path string) (redSet, error) {
+// readReds reads a record writeReds wrote: its lines and the root of its
+// run.
+func readReds(path string) (set redSet, root string, err error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	set := redSet{}
+	set = redSet{}
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	scanner.Buffer(nil, 1<<20)
 	for scanner.Scan() {
 		count, key, ok := strings.Cut(scanner.Text(), "\t")
+		if count == "root" {
+			root = key
+			continue
+		}
 		n := 0
 		if _, err := fmt.Sscanf(count, "%d", &n); !ok || err != nil || n <= 0 {
-			return nil, fmt.Errorf("%s: a line that is no count and red line: %q", path, scanner.Text())
+			return nil, "", fmt.Errorf("%s: a line that is no count and red line: %q", path, scanner.Text())
 		}
 		set[key] += n
 	}
-	return set, scanner.Err()
+	return set, root, scanner.Err()
 }
 
 // compareReds is what head has that base has not (new) and what base has
@@ -214,12 +231,12 @@ func reportReds(out io.Writer, root, cacheDir, base, tier string, head redSet) i
 		return 2
 	}
 	path := redsPath(cacheDir, strings.TrimSpace(string(tree)), tier)
-	baseSet, err := readReds(path)
+	baseSet, baseRoot, err := readReds(path)
 	if err != nil {
 		fmt.Fprintf(out, "gate: -new-reds %s: no record of a run of its tree in this tier (%v): run the same tier on a clean checkout of %s first\n", base, err, base)
 		return 2
 	}
-	added, fixed := compareReds(baseSet, head)
+	added, fixed := compareReds(compared(baseSet, baseRoot), compared(head, root))
 	for _, key := range added {
 		fmt.Fprintf(out, "reds: NEW   %s\n", strings.ReplaceAll(key, "\t", " | "))
 	}
