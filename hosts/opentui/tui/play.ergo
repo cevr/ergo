@@ -49,7 +49,8 @@ func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Opt
 
 // labelOf is the label a script names a node by, as ui.Find matches it:
 // a Pressable's, a Check's, a Toggle's, an Area's, a Canvas's or a
-// list's label, a Text's value, an Input's placeholder.
+// list's label, a Text's value, an Input's field label or else its
+// placeholder.
 func labelOf[E](n ui.Node[E]) Option[string] {
 	match n {
 	case ui.PressableNode[E] as x:
@@ -67,7 +68,9 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	case ui.TextNode as x:
 		Some{Value: x.Value}
 	case ui.InputNode as x:
-		Some{Value: x.Placeholder}
+		// its field label when it has one, else its placeholder, as
+		// ui.Find names a field (std ui's fieldName)
+		if x.Label != "" { Some{Value: x.Label} } else { Some{Value: x.Placeholder} }
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		// No label: ui.Find names none of these either.
 		None
