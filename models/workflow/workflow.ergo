@@ -838,7 +838,7 @@ func stepWith(m int, w World, a Act) Decision[World, string] {
 	}
 }
 
-func stepDesign(w World, a Act) Decision[World, string] { stepWith(ArmAfterParkMutant, w, a) }
+func stepDesign(w World, a Act) Decision[World, string]             { stepWith(NoMutant, w, a) }
 func stepDeleteBeforeWinner(w World, a Act) Decision[World, string] { stepWith(DeleteBeforeWinnerMutant, w, a) }
 func stepArmAfterPark(w World, a Act) Decision[World, string]       { stepWith(ArmAfterParkMutant, w, a) }
 func stepAckByKey(w World, a Act) Decision[World, string]           { stepWith(AckByKeyMutant, w, a) }
