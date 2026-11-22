@@ -276,6 +276,9 @@ type gate struct {
 	started  time.Time
 	root     string
 	cacheDir string
+	// reds are the run's red lines (reds.go): each failed step's output,
+	// by line, recorded under the checkout's tree and tier.
+	reds redSet
 	// spoolDir holds the steps' output spools (outputSpoolDir).
 	spoolDir string
 	noCache  bool
@@ -409,6 +412,7 @@ func main() {
 	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
 	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
 	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
+	newReds := flag.String("new-reds", "", "BASE: after the run, compare its failures by line with the record of BASE's tree in this tier (reds.go): print each NEW and FIXED line and exit 1 on a new one, 0 when every red line is BASE's; 2 when BASE has no record")
 	flag.Parse()
 	if *blameTarget != "" {
 		if flag.NArg() != 1 {
@@ -548,9 +552,16 @@ func main() {
 		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
 	}
 	if *merge {
+		if *newReds != "" {
+			fatal(errors.New("-new-reds goes with the fast, round or full tier: the merge tier compares its own runs"))
+		}
 		exitGate(g.mergeTier(os.Stdout))
 	}
-	exitGate(g.run(os.Stdout))
+	code := g.run(os.Stdout)
+	if *newReds != "" && code != 2 {
+		code = reportReds(os.Stdout, g.root, g.cacheDir, *newReds, g.tier, g.reds)
+	}
+	exitGate(code)
 }
 
 // setUp opens the gate's limiter, then finds the checkout and, when
@@ -874,6 +885,7 @@ func cacheDirectory() string {
 func (g *gate) run(out io.Writer) int {
 	started := time.Now()
 	g.started = started
+	g.reds = redSet{}
 	// The gate prints every step's output to out. A file in memory there
 	// would charge that output to the gate, so the gate refuses it before
 	// any step runs.
@@ -1141,7 +1153,19 @@ func (g *gate) run(out io.Writer) int {
 			}
 		}
 		objects[i] = object
-		if err := r.print(destination); err != nil {
+		var red *redStep
+		switch r.outcome {
+		case failed:
+			red = redsOf(g.reds, step.Name)
+			destination = io.MultiWriter(destination, red)
+		case blocked:
+			g.reds[redKey(stepFamily(step.Name), "", "not run")]++
+		}
+		err := r.print(destination)
+		if red != nil {
+			red.Close()
+		}
+		if err != nil {
 			fmt.Fprintf(out, "gate: %s: print output: %v\n", step.Name, err)
 			if !slices.Contains(failures, step.Name) {
 				failures = append(failures, step.Name)
@@ -1181,6 +1205,13 @@ func (g *gate) run(out io.Writer) int {
 		fmt.Fprintf(out, "gate: %s: %v\n", sweepCostFile, err)
 	} else if len(dirs) > 0 {
 		fmt.Fprintf(out, "gate: rewrote the rows of %s in %s from this run; commit them\n", strings.Join(dirs, ", "), sweepCostFile)
+	}
+	// A clean checkout's red lines are the record a later -new-reds
+	// against this tree reads (reds.go); a dirty one's are no tree's.
+	if g.whole != nil && g.whole.identity.clean {
+		if err := writeReds(g.cacheDir, g.whole.identity.tree, g.tier, g.reds); err != nil {
+			fmt.Fprintf(out, "gate: record the red lines: %v\n", err)
+		}
 	}
 	elapsed := time.Since(started).Seconds()
 	if len(failures) > 0 {
