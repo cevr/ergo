@@ -33,7 +33,7 @@ func recordWorld(files Map[string, string], config string) (work.Tool, Cloner, V
 	let lock = NewLock()
 	let sv = NewServing()
 	let runner exec.Runner = sv
-	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: disk, Writes: disk, Runner: runner, Clock: time.NewManual(1000)}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: time.NewManual(1000)}
 	let tool = work.NewTool(theBase, home, "/data", p, "/")
 	let _ = tool.Init() catch {
 	case work.BadConfig, work.Unkept, fs.Denied, fs.Failed:

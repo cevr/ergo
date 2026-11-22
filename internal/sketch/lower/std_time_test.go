@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/lawledger/parsed"
 )
 
 // TestTimeRuns (std-align S2b): std time lowers and runs. time.Since on a
@@ -339,7 +339,7 @@ var stdTimeLawStatements = map[string]string{
 func TestStdTimeLawsRun(t *testing.T) {
 	needsBuild(t)
 	if laws := lawProbe(t, "stdtime", stdTimeLawsProbe, stdTimeLawStatements); laws != nil {
-		lawledger.Run(t, laws)
+		parsed.Run(t, laws)
 	}
 }
 

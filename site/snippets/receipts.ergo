@@ -1,0 +1,134 @@
+import json
+import strconv
+import strings
+
+// A measured number reaches a page only from a receipt: a bench.v1 file
+// under site/receipts that `go run ./scripts/opcount -control -o` writes,
+// never a number typed by hand. site/receipts/shown.tsv lists each number
+// a page shows: the receipt's name, its case, its counter, the side it is
+// measured against (the comparison's base: "control", the same algorithm
+// in ordinary hand-written Go, or "floor", the fastest Go known for the
+// job) and the label the page prints with it. A shown number is Ergo's
+// ratio against that base, at or under 1.0, and its label names the base
+// it was measured against: a number over 1.0 is a bug, never a page, and
+// a ratio against hand Go is never labelled the floor. A comparison the
+// file holds and no row shows (a floor ratio over 1.0) is allowed.
+
+// Shown is one row of shown.tsv.
+type Shown { Receipt string, Case string, Counter string, Base string, Label string }
+
+// LabelHandGo and LabelFloor are the two labels a shown number may carry,
+// each naming its base.
+let LabelHandGo = "hand Go, same algorithm"
+let LabelFloor = "floor"
+
+// shownHeader is the first line of shown.tsv.
+let shownHeader = "receipt\tcase\tcounter\tbase\tlabel"
+
+// ShownRows is the reading of shown.tsv.
+type ShownRows { Rows []Shown, Problems []string }
+
+// ParseShown reads shown.tsv, named file.
+func ParseShown(file string, body string) ShownRows {
+	let lines = rows(body)
+	if len(lines) == 0 || lines[0] != shownHeader {
+		return ShownRows{Rows: []Shown{}, Problems: []string{"\(file):1: the first line is not \"receipt<TAB>case<TAB>counter<TAB>base<TAB>label\""}}
+	}
+	let mut out = []Shown{}
+	let mut problems = []string{}
+	for i in 1..len(lines) {
+		let c = strings.Split(lines[i], "\t")
+		if len(c) != 5 {
+			problems = problems.Append("\(file):\(i + 1): a row has 5 cells, this one \(len(c))")
+			continue
+		}
+		out = out.Append(Shown{Receipt: c[0], Case: c[1], Counter: c[2], Base: c[3], Label: c[4]})
+	}
+	ShownRows{Rows: out, Problems: problems}
+}
+
+// JudgeShown judges the shown number s against its receipt's text: the
+// label names the base, the receipt is bench.v1 with a commit, and its
+// comparison of Ergo against that base for that case and counter has a
+// ratio at or under 1.0.
+func JudgeShown(s Shown, receipt string) []string {
+	let at = "shown \(s.Receipt) \(s.Case) \(s.Counter)"
+	let mut problems = []string{}
+	if s.Label == "" {
+		problems = problems.Append("\(at): the number names no control: its label is \"\(LabelHandGo)\" or \"\(LabelFloor)\"")
+	} else if !(s.Base == "control" && s.Label == LabelHandGo) && !(s.Base == "floor" && s.Label == LabelFloor) {
+		problems = problems.Append("\(at): the label \(strconv.Quote(s.Label)) does not name the base \(strconv.Quote(s.Base)) it was measured against")
+	}
+	let v = json.Decode(json.Codec[json.Value]{MaxBytes: 1 << 24, MaxDepth: 64}, receipt) catch {
+	case _:
+		return problems.Append("\(at): the receipt is not JSON")
+	}
+	let o = match v {
+	case json.Object as o:
+		o
+	case _:
+		return problems.Append("\(at): the receipt is not a JSON object")
+	}
+	if stringOf(member(o, "schema")) != "bench.v1" {
+		problems = problems.Append("\(at): the receipt is not bench.v1")
+	}
+	if stringOf(member(o, "commit")) == "" {
+		problems = problems.Append("\(at): the receipt names no commit")
+	}
+	match ratio(o, s) {
+	case Some as r:
+		if r.Value > 1.0 {
+			problems = problems.Append("\(at): Ergo is \(strconv.FormatFloat(r.Value, 'f', 3)) of \(s.Base): a number over 1.0 is a bug to fix, never a number to show")
+		}
+	case None:
+		problems = problems.Append("\(at): the receipt has no ratio of ergo against \(s.Base) for this case and counter")
+	}
+	problems
+}
+
+// ratio is the ratio of the comparison head "ergo", base s.Base and
+// counter s.Counter in case s.Case of the receipt o.
+func ratio(o json.Object, s Shown) Option[float64] {
+	for c in items(member(o, "cases")) {
+		let co = object(c)
+		if stringOf(member(co, "case")) != s.Case {
+			continue
+		}
+		for p in items(member(co, "comparisons")) {
+			let po = object(p)
+			if stringOf(member(po, "head")) == "ergo" && stringOf(member(po, "base")) == s.Base && stringOf(member(po, "counter")) == s.Counter {
+				match member(po, "ratio") {
+				case json.Num as n:
+					let f = strconv.ParseFloat(n.Wire()) catch {
+					case _:
+						return None
+					}
+					return Some[float64]{Value: f}
+				case _:
+					return None
+				}
+			}
+		}
+	}
+	None
+}
+
+// items is the elements of the list v, none when v is not a list.
+func items(v json.Value) []json.Value {
+	match v {
+	case json.Array as a:
+		a.Items
+	case _:
+		[]json.Value{}
+	}
+}
+
+// object is the object v, an empty one when v is not an object.
+func object(v json.Value) json.Object {
+	match v {
+	case json.Object as o:
+		o
+	case _:
+		json.Object{Members: []json.Member{}}
+	}
+}
