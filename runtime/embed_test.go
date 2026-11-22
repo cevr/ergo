@@ -21,7 +21,7 @@ import (
 // every runtime package a file imports is in the package's declared
 // imports, so Files never leaves an import of an emitted module unmet.
 func TestPackagesMatchTheirDirectories(t *testing.T) {
-	for path, p := range packages {
+	for path, p := range packages() {
 		dir := strings.TrimPrefix(path, "runtime/")
 		entries, err := os.ReadDir(dir)
 		if err != nil {

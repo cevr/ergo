@@ -52,6 +52,11 @@ func (l *lowerer) wireOwnWrite(em wireEvents, tc *typeCtx, b *strings.Builder, t
 	if !ok {
 		return false
 	}
+	if _, emitted := l.adapters[key]; !emitted {
+		// Named but not emitted yet (wireread.go): the assertion below
+		// names it, so it is emitted now, once.
+		newFuncCtx(l, newNamer(l.names), false).operations(conv, "nil", tc.site)
+	}
 	a, is := scope.alloc("own"), scope.alloc("ok")
 	cell := "&" + a + ".v"
 	if _, ptr := conv.From.(*check.Pointer); ptr {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"sync"
 )
 
 // GenerateOrder writes the program of seed for F7's G2 families (lane GP):
@@ -16,7 +17,7 @@ import (
 //
 // Every form is reached by construction: seed s writes a function
 // `forced` whose body is form OrderForm(s) of orderForms, so the seeds
-// 0..len(orderForms)-1 write each form at least once, whatever the
+// 0..len(orderForms())-1 write each form at least once, whatever the
 // random statements draw.
 func GenerateOrder(seed uint64) string {
 	g := &fgen{r: rand.New(rand.NewPCG(seed, seed^0x6f7264657267656e)), order: true, force: OrderForm(seed)}
@@ -32,34 +33,36 @@ type orderForm struct {
 }
 
 // orderForms is the schedule of forms the forced functions write.
-var orderForms = []orderForm{
-	{"continue", 0, nil},
-	{"call inside an expression", 2, map[string]int{"calls2": 3}},
-	{"short-circuit operand with a call", 2, map[string]int{"calls2": 3, "expr": 6}},
-	{"step that gives no output", 2, map[string]int{"calls2": 3, "expr": 9}},
-	{"error row as a type argument", 2, map[string]int{"calls2": 3, "expr": 10}},
-	{"call with a call site", 2, map[string]int{"calls2": 3, "expr": 11}},
-	{"len and index of a named string", 2, map[string]int{"calls2": 3, "expr": 12}},
-	{"slice of a slice", 2, map[string]int{"calls2": 3, "expr": 13}},
-	{"for-in over a call", 5, nil},
-	{"loop condition with a call", 4, nil},
-	{"try of a non-call", 7, map[string]int{"try7": 1}},
-	{"try inside an expression", 8, nil},
-	{"catch arm that continues", 9, map[string]int{"try9": 1, "try9loop": 0}},
-	{"catch arm whose value is an if", 9, map[string]int{"try9": 1, "try9loop": 1}},
-	{"positional record literal", 2, map[string]int{"calls2": 0}},
-	{"fallible call with an empty row", 2, map[string]int{"calls2": 1}},
-	{"call of gate", 7, map[string]int{"try7": 0}},
-	{"catch of a match", 9, map[string]int{"try9": 0}},
-	{"op-assignment of a value with statements", 3, map[string]int{"calls3": 0}},
-}
+var orderForms = sync.OnceValue(func() []orderForm {
+	return []orderForm{
+		{"continue", 0, nil},
+		{"call inside an expression", 2, map[string]int{"calls2": 3}},
+		{"short-circuit operand with a call", 2, map[string]int{"calls2": 3, "expr": 6}},
+		{"step that gives no output", 2, map[string]int{"calls2": 3, "expr": 9}},
+		{"error row as a type argument", 2, map[string]int{"calls2": 3, "expr": 10}},
+		{"call with a call site", 2, map[string]int{"calls2": 3, "expr": 11}},
+		{"len and index of a named string", 2, map[string]int{"calls2": 3, "expr": 12}},
+		{"slice of a slice", 2, map[string]int{"calls2": 3, "expr": 13}},
+		{"for-in over a call", 5, nil},
+		{"loop condition with a call", 4, nil},
+		{"try of a non-call", 7, map[string]int{"try7": 1}},
+		{"try inside an expression", 8, nil},
+		{"catch arm that continues", 9, map[string]int{"try9": 1, "try9loop": 0}},
+		{"catch arm whose value is an if", 9, map[string]int{"try9": 1, "try9loop": 1}},
+		{"positional record literal", 2, map[string]int{"calls2": 0}},
+		{"fallible call with an empty row", 2, map[string]int{"calls2": 1}},
+		{"call of gate", 7, map[string]int{"try7": 0}},
+		{"catch of a match", 9, map[string]int{"try9": 0}},
+		{"op-assignment of a value with statements", 3, map[string]int{"calls3": 0}},
+	}
+})
 
 // OrderForm is the index in orderForms of the form seed's forced
 // function writes.
-func OrderForm(seed uint64) int { return int(seed % uint64(len(orderForms))) }
+func OrderForm(seed uint64) int { return int(seed % uint64(len(orderForms()))) }
 
 // OrderFormName is the name of the form seed's forced function writes.
-func OrderFormName(seed uint64) string { return orderForms[OrderForm(seed)].name }
+func OrderFormName(seed uint64) string { return orderForms()[OrderForm(seed)].name }
 
 // sub draws a sub-choice of n named id: the forced function's choice
 // while it is written, else a random one.
@@ -74,7 +77,7 @@ func (g *fgen) sub(id string, n int) int {
 // which main calls like the others: it fails E1 and prints, so each form
 // has what it needs.
 func (g *fgen) forcedFunction() {
-	form := orderForms[g.force]
+	form := orderForms()[g.force]
 	f := ffunc{name: "forced", params: 2, row: []string{"E1"}, needs: []string{"Console"}}
 	g.cur = f
 	g.locals = []string{"p0", "p1"}

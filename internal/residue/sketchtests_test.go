@@ -296,10 +296,16 @@ func splitPins(t *testing.T, name string, src []byte) []sketchFinding {
 }
 
 // buildsGo reports whether call builds Go: a call of buildAll or ergoCLI,
-// or exec.Command or exec.CommandContext of "go".
+// exec.Command or exec.CommandContext of "go", or ergobuild.Command or
+// CommandContext (the go command's build of the ergo tool, ERGO-STARTUP).
 func buildsGo(call *ast.CallExpr) bool {
 	if fun, ok := call.Fun.(*ast.Ident); ok {
 		return fun.Name == "buildAll" || fun.Name == "ergoCLI"
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if x, ok := sel.X.(*ast.Ident); ok && x.Name == "ergobuild" && (sel.Sel.Name == "Command" || sel.Sel.Name == "CommandContext") {
+			return true
+		}
 	}
 	if !isExecCommand(call.Fun) {
 		return false

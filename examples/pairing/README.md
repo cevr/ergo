@@ -41,7 +41,7 @@ The work and the timer run in the actor. The laws check the step's side of them 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/pairing/cmd/pairing < examples/pairing/cases/code/stdin
 ./bin/ergo test examples/pairing/pair    # 7 laws; the 2 Devices laws are skipped here (no provider)
 ./bin/ergo test examples/pairing/pad

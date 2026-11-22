@@ -46,8 +46,8 @@ func lowerFailArg(t *testing.T, u lower.Unit, mode string) lower.IRReport {
 // take their literal (a later argument, a body or the literal itself
 // that writes the counter) bind it. With the case off all three counts
 // are 0. A count, not a time: only the counters see the substitution
-// dropped (mutant fail-arg-refused) or the pass-through dropped
-// (fail-through-refused).
+// dropped, or a failure built in place no longer passed on as it is
+// (mutants fail-arg-refused, fail-through-refused).
 func TestIRFailArgCounts(t *testing.T) {
 	if !lower.IRInlineOn() || !lower.IRFailArgOn() {
 		t.Skip("the inliner or INLINE-FAILARG is off")
