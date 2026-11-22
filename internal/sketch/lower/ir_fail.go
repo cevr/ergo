@@ -232,7 +232,10 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			return b.catch(c, true)
 		}
 		call := b.fallibleCall(x.X)
-		if call == nil {
+		if call == nil || b.plainCallee(call) {
+			// A known variant's callback, which the checker types with the
+			// callee's own row parameters, is called plain: it cannot fail
+			// (ir_kcb.go; KNOWN-VARIANT K1).
 			// try covers the whole expression: each fallible call in it
 			// fails the frame where it runs (call, operand), as the
 			// emitter's try does.
