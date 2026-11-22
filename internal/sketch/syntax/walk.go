@@ -172,6 +172,9 @@ func Inspect(n Node, f func(Node) bool) {
 		for _, l := range n.Laws {
 			Inspect(l, f)
 		}
+		for _, h := range n.Harnesses {
+			Inspect(h.Name, f)
+		}
 		for _, t := range n.Terms {
 			Inspect(t.Type, f)
 		}

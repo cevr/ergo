@@ -106,7 +106,12 @@ func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
 			(0, 0)
 		}
 	case syntax.TestDecl as td:
-		(syntax.NodePos(p, td.Body), syntax.NodeEnd(p, td.Body))
+		match dense.Unpack(td.Body) {
+		case Some{Value: body}:
+			(syntax.NodePos(p, body), syntax.NodeEnd(p, body))
+		case None:
+			(0, 0)
+		}
 	case _:
 		(0, 0)
 	}
