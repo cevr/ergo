@@ -416,6 +416,8 @@ type Task[T any] struct {
 	// follows it.
 	out   T
 	ended bool
+	// why is the text of the defect TaskExit observed, for TaskReason.
+	why string
 	// ent is the entry of the Task's first owner (selfOwned), released
 	// by rel; a later owner makes an entry of its own (PARK2).
 	ent entry
@@ -557,9 +559,9 @@ const (
 )
 
 // TaskExit is std task's exitOf(t): it waits for the task to end, as Wait
-// does, and gives how it ended (taskDone, taskFailed, taskDefected) and,
-// for a defect, the text of its first defect as the runtime's report
-// writes it after "panic: " (defectReason, the helper ActorDefectReason
+// does, and gives how it ended (taskDone, taskFailed, taskDefected); for
+// a defect it keeps the text of its first defect, as the runtime's report
+// writes it after "panic: ", for TaskReason (defectReason, the helper ActorDefectReason
 // reads; Tasks 13). A lone typed failure is its returned error, which the
 // caller's catch takes. A defect is observed here: it is returned as a
 // value and never raised again, by this call or by the owner's release,
@@ -572,20 +574,21 @@ const (
 // value stays in the Task for TaskValue.
 //
 //ergo:wait handle
-func TaskExit[T any](t *Task[T]) (int, string, error) {
+func TaskExit[T any](t *Task[T]) (int, error) {
 	if t.used {
 		panic("task: ExitOf on a task that was already waited for, stopped or released")
 	}
 	t.used = true
 	_, err := t.h.Wait()
 	if err == nil {
-		return taskDone, "", nil
+		return taskDone, nil
 	}
 	if f, ok := rt.Failure(err); ok {
-		return taskFailed, "", f
+		return taskFailed, f
 	}
 	if why := defectReason(err); why != "" && !interrupted(err) {
-		return taskDefected, why, nil
+		t.why = why
+		return taskDefected, nil
 	}
 	raise(err)
 	panic("unreachable")
@@ -607,6 +610,12 @@ func interrupted(err error) bool {
 	}
 	return false
 }
+
+// TaskReason is std task's exitReason(t): the text of the defect TaskExit
+// gave as taskDefected (Tasks 13).
+//
+//ergo:wait none
+func TaskReason[T any](t *Task[T]) string { return t.why }
 
 // TaskValue is std task's exitValue(t): the value the block returned, read
 // after TaskExit gave taskDone. It takes the value: the Task's owner

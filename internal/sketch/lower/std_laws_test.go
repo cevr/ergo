@@ -437,6 +437,18 @@ test TaskExitOfWaitsForCleanup(n int) {
 	assert ok
 }
 
+test TaskExitOfAnywhere(n int) {
+	let outer = task.Go() { task.Go() { n } }
+	let t = outer.Wait()
+	let ok = match task.ExitOf(t) {
+	case task.Done[int] as d:
+		d.Value == n
+	case _:
+		false
+	}
+	assert ok
+}
+
 test TaskStopOfWaiterStillInterrupts() {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1205,6 +1217,7 @@ var stdLawsStatements = map[string]string{
 	"task WaitReturnsTheBlock":             `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
 	"task DefectIsObservedOnce":            `DefectIsObservedOnce(n int) { let k = ((n % 3) + 3) % 3 let t = Go() { try ended(k, n) } match ExitOf(t) { case Defected as d: k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)") case Failed[Odd] as f: k == 1 && f.Error.N == n case Done[int] as v: k == 2 && v.Value == n } }`,
 	"task ExitOfWaitsForCleanup":           `ExitOfWaitsForCleanup(n int) { let k = ((n % 4) + 4) % 4 let marks = queue.New[int](4) let t = Go() { crashed(k, marks) } match ExitOf(t) { case Defected: marks.Len() == k case _: false } }`,
+	"task ExitOfAnywhere":                  `ExitOfAnywhere(n int) { let outer = Go() { Go() { n } } let t = outer.Wait() match ExitOf(t) { case Done[int] as d: d.Value == n case _: false } }`,
 	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) Unreachable("ExitOf returned to a stopped waiter") } for m.Sleepers() == 0 { } waiter.Stop() m.Sleepers() == 0 } }`,
 	"testing HeldCallWaitsForRelease":      `HeldCallWaitsForRelease(k string, a int) { let s = Script[probe]{} s.Get.Answer(func(key string) int fails Absent { a }) s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let held = s.Get.Held() let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1 s.Get.Release(func(key string) int fails Absent { a + 1 }) let got = t.Wait() catch { case Absent: a } s.Get.Answer(func(key string) int fails Absent { a + 2 }) let later = probe.Get(k) catch { case Absent: a } waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ReleaseAnswersOldestFirst":    `ReleaseAnswersOldestFirst(k string, j string, a int) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let first = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let second = task.Go() { probe.Get(j) } Scheduler.Sleep(1s) let held = s.Get.Held() let order = len(held) == 2 && held[0] == k && held[1] == j s.Get.Release(func(key string) int fails Absent { a }) s.Get.Release(func(key string) int fails Absent { a + 1 }) let one = first.Wait() catch { case Absent: a - 1 } let two = second.Wait() catch { case Absent: a - 1 } s.Get.Release(func(key string) int fails Absent { a + 2 }) let three = probe.Get(k) catch { case Absent: a - 1 } order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0 } }`,

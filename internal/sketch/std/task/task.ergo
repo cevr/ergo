@@ -39,20 +39,23 @@ type Exit[T own, E] = Done[T] | Failed[E] | Defected
 // is the interruption with t's defects. A Go fatal error (out of memory, a
 // stack overflow) is no defect, and ends the program.
 func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
-	let (k, why) = exitOf(t) catch {
+	let k = exitOf(t) catch {
 	case err:
 		return Failed[E]{Error: err}
 	}
 	if k == 2 {
-		return Defected{Reason: why}
+		return Defected{Reason: exitReason(t)}
 	}
 	Done[T]{Value: exitValue(t)}
 }
 
 // exitOf waits for t and gives how it ended: 0 the block's value, 2 a
-// defect, with its text; a lone typed failure is its failure. It consumes
-// t, and leaves the value in it for exitValue.
-extern go ergo.local/prototype/runtime/v1.TaskExit func exitOf[T own, E](t Task[T, E]) (int, string) fails E
+// defect, whose text exitReason gives; a lone typed failure is its
+// failure. It consumes t, and leaves the value in it for exitValue.
+extern go ergo.local/prototype/runtime/v1.TaskExit func exitOf[T own, E](t Task[T, E]) int fails E
+
+// exitReason is the text of the defect exitOf gave as 2.
+extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t Task[T, E]) string
 
 // exitValue takes the value t's block returned, after exitOf gave 0.
 extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t own Task[T, E]) T
@@ -110,6 +113,20 @@ law ExitOfWaitsForCleanup(n int) {
 	match ExitOf(t) {
 	case Defected:
 		marks.Len() == k
+	case _:
+		false
+	}
+}
+
+// ExitOfAnywhere: ExitOf of a task that was returned out of the block of
+// the task that started it, and waited for elsewhere, gives the task's
+// end: the waiter is the task that calls ExitOf, not the starter.
+law ExitOfAnywhere(n int) {
+	let outer = Go() { Go() { n } }
+	let t = outer.Wait()
+	match ExitOf(t) {
+	case Done[int] as d:
+		d.Value == n
 	case _:
 		false
 	}
