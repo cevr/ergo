@@ -164,14 +164,18 @@ const (
 //   - parent: the caller is the parent of the task it starts;
 //   - settle: it waits until the rest of a manual clock's domain is parked;
 //   - end: it waits, uninterruptibly, for an actor's runner to end.
-var WaitKinds = map[string]bool{
-	"none": false, "caller": true, "handle": false, "drain": false, "child": true,
-	"member": true, "parent": true, "settle": true, "end": true,
-}
+var WaitKinds = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"none": false, "caller": true, "handle": false, "drain": false, "child": true,
+		"member": true, "parent": true, "settle": true, "end": true,
+	}
+})
 
 // ReleaseRoutes are the release routes a body states, each with whether it
 // takes the caller's task.
-var ReleaseRoutes = map[string]bool{"caller": true, "frame": false}
+var ReleaseRoutes = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"caller": true, "frame": false}
+})
 
 // BodyNames is the name of every exported function and method of Source
 // that BodyOf reads, sorted, a refused one included.
@@ -217,7 +221,7 @@ func (b Bodies) Body(name string) (Body, error) {
 	}
 	switch {
 	case body.Wait == "":
-		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
+		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds()))
 	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "":
 		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form or a view form, which only runtime/v1's bodies state", name)
 	}
@@ -256,26 +260,30 @@ var HostImports = []string{"os", "os/exec", "os/signal", "syscall", "net"}
 // maker is the claim). syscall.ECONNREFUSED is an errno constant a body
 // compares a failure with (httpDoErr). The local Network (http_local.go)
 // reaches them and nothing else of those packages.
-var HostImportsExcept = map[string][]string{
-	"net":     {"Pipe", "Conn", "Addr"},
-	"syscall": {"ECONNREFUSED"},
-}
+var HostImportsExcept = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"net":     {"Pipe", "Conn", "Addr"},
+		"syscall": {"ECONNREFUSED"},
+	}
+})
 
 // HostMembers names, for a Go package outside HostImports, its members
 // that reach host state: time's are PureImportHostMembers' (the clock, its
 // timers, the local zone), and math/rand/v2's are its top-level draws
 // from the host-seeded global source. Every other member computes on its
 // arguments (rand.New over a seeded PCG is a program's stream).
-var HostMembers = map[string][]string{
-	"time": PureImportHostMembers["time"],
-	"math/rand/v2": {"ExpFloat64", "Float32", "Float64", "Int", "Int32", "Int32N", "Int64", "Int64N", "IntN",
-		"N", "NormFloat64", "Perm", "Shuffle", "Uint", "Uint32", "Uint32N", "Uint64", "Uint64N", "UintN"},
-}
+var HostMembers = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"time": PureImportHostMembers()["time"],
+		"math/rand/v2": {"ExpFloat64", "Float32", "Float64", "Int", "Int32", "Int32N", "Int64", "Int64N", "IntN",
+			"N", "NormFloat64", "Perm", "Shuffle", "Uint", "Uint32", "Uint32N", "Uint64", "Uint64N", "UintN"},
+	}
+})
 
 // hostMember reports whether member of the Go package path reaches host
 // state.
 func hostMember(path, member string) bool {
-	return slices.Contains(HostImports, path) && !slices.Contains(HostImportsExcept[path], member) || slices.Contains(HostMembers[path], member)
+	return slices.Contains(HostImports, path) && !slices.Contains(HostImportsExcept()[path], member) || slices.Contains(HostMembers()[path], member)
 }
 
 // PureImports are the Go packages a file may import when one of its bodies
@@ -294,9 +302,11 @@ var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "uni
 // reach host state. A marked body that names one is refused. filepath.Abs
 // reads the working directory; EvalSymlinks, Glob, Walk and WalkDir read
 // the file system. Every other member of path/filepath is lexical.
-var PureImportsExcept = map[string][]string{
-	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
-}
+var PureImportsExcept = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
+	}
+})
 
 // PureImportHostMembers are the Go packages, beyond PureImports, that the
 // file of a marked body may import, each with its members that read host
@@ -310,10 +320,12 @@ var PureImportsExcept = map[string][]string{
 // writes the io.Reader and io.Writer it is given; a pure body can give it
 // only a strings.Reader or a strings.Builder, since its file imports
 // neither io nor os (std-csv U4), so it has no member to refuse.
-var PureImportHostMembers = map[string][]string{
-	"encoding/csv": nil,
-	"time":         {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
-}
+var PureImportHostMembers = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"encoding/csv": nil,
+		"time":         {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
+	}
+})
 
 // TypeParam is one Go type parameter of a body: its name and its
 // constraint as written (any, comparable).
@@ -837,18 +849,18 @@ func policy(fn *ast.FuncDecl, b *Body) error {
 			fields := strings.Fields(arg)
 			switch mark {
 			case WaitMark:
-				caller, known := WaitKinds[arg]
+				caller, known := WaitKinds()[arg]
 				if len(fields) != 1 || !known {
-					return fmt.Errorf("%s%s names no wait kind (%s)", WaitMark, arg, kindList(WaitKinds))
+					return fmt.Errorf("%s%s names no wait kind (%s)", WaitMark, arg, kindList(WaitKinds()))
 				}
 				if caller && !slices.Contains(b.Hidden, CallerTask) {
 					return fmt.Errorf("it waits by %s on the caller's task but takes no hidden *rt.Task", arg)
 				}
 				b.Wait = arg
 			case ReleaseMark:
-				caller, known := ReleaseRoutes[arg]
+				caller, known := ReleaseRoutes()[arg]
 				if len(fields) != 1 || !known {
-					return fmt.Errorf("%s%s names no release route (%s)", ReleaseMark, arg, kindList(ReleaseRoutes))
+					return fmt.Errorf("%s%s names no release route (%s)", ReleaseMark, arg, kindList(ReleaseRoutes()))
 				}
 				if caller && !slices.Contains(b.Hidden, CallerTask) {
 					return fmt.Errorf("it releases on the caller's task but takes no hidden *rt.Task")
@@ -977,13 +989,13 @@ func pureRefusal(g goDecl, b Body) string {
 		return "it is a method; only a function may be pure"
 	}
 	for _, p := range g.imports {
-		if _, guarded := PureImportHostMembers[p]; !slices.Contains(PureImports, p) && !guarded {
+		if _, guarded := PureImportHostMembers()[p]; !slices.Contains(PureImports, p) && !guarded {
 			return fmt.Sprintf("its file imports %s, which is not in %v", p, PureImports)
 		}
 	}
 	for local, p := range g.locals {
-		if local == "." && len(PureImportsExcept[p]) > 0 {
-			return fmt.Sprintf("its file dot-imports %s, whose members %v reach the host", p, PureImportsExcept[p])
+		if local == "." && len(PureImportsExcept()[p]) > 0 {
+			return fmt.Sprintf("its file dot-imports %s, whose members %v reach the host", p, PureImportsExcept()[p])
 		}
 	}
 	if len(b.Hidden) > 0 {
@@ -996,7 +1008,7 @@ func pureRefusal(g goDecl, b Body) string {
 	}
 	var host []string
 	for _, p := range g.imports {
-		host = append(host, PureImportHostMembers[p]...)
+		host = append(host, PureImportHostMembers()[p]...)
 	}
 	why := ""
 	var visit func(n ast.Node) bool
@@ -1013,7 +1025,7 @@ func pureRefusal(g goDecl, b Body) string {
 			// x.Sel names a field, a method or an imported package's
 			// member, never a top-level name of this package; x.X is
 			// walked by the same rules, nested selectors included.
-			if id, ok := x.X.(*ast.Ident); ok && slices.Contains(PureImportsExcept[g.locals[id.Name]], x.Sel.Name) {
+			if id, ok := x.X.(*ast.Ident); ok && slices.Contains(PureImportsExcept()[g.locals[id.Name]], x.Sel.Name) {
 				why = fmt.Sprintf("its body names %s.%s, which reaches the host (PureImportsExcept)", id.Name, x.Sel.Name)
 				return false
 			}

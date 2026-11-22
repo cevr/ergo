@@ -938,6 +938,14 @@ type stdEntry struct {
 }
 
 // Std is the importer of the embedded standard library (internal/sketch/std).
+//
+// Import may be called from several goroutines (each package is checked
+// or decoded once), but the checker is single-use-at-a-time: the packages
+// Std hands out are shared by every check, and a check completes their
+// lazy parts (a host binding's declarations, the underlying type of an
+// instance a std package wrote) on first read, so two checks must not run
+// at once. Nothing in the product checks concurrently (ergo dev serializes
+// its requests).
 var Std Importer = newStdImporter()
 
 func newStdImporter() *stdImporter {

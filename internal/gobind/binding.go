@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -259,7 +260,7 @@ func same(a, b Decl) bool {
 	return a.Kind == b.Kind && a.Go == b.Go && a.Ergo == b.Ergo && a.Variadic == b.Variadic && a.Context == b.Context && a.Writes == b.Writes && a.Refused == b.Refused && slices.Equal(a.Members, b.Members)
 }
 
-var placeholder = regexp.MustCompile(`⟦([^⟧]*)⟧`)
+var placeholder = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`⟦([^⟧]*)⟧`) })
 
 // Render writes the binding file of the Go package path, whose package
 // name is name, from its declarations; stamp is the rest of the
@@ -311,7 +312,7 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 	// Each referenced package gets an import; the name an import binds is
 	// the Go package's name, aliased when it is a keyword or taken.
 	var keys []string
-	for _, m := range placeholder.FindAllStringSubmatch(text, -1) {
+	for _, m := range placeholder().FindAllStringSubmatch(text, -1) {
 		if !slices.Contains(keys, m[1]) {
 			keys = append(keys, m[1])
 		}
@@ -336,7 +337,7 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 			imports.WriteString("import go " + n + " " + p + "\n")
 		}
 	}
-	text = placeholder.ReplaceAllStringFunc(text, func(s string) string { return local[s[len("⟦"):len(s)-len("⟧")]] })
+	text = placeholder().ReplaceAllStringFunc(text, func(s string) string { return local[s[len("⟦"):len(s)-len("⟧")]] })
 	src := Header + "\n// ergo:bind " + path + " " + stamp + "\n"
 	if module != "" {
 		src += ModuleLine + module + "\n"

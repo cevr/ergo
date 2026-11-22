@@ -68,7 +68,8 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Value}
 	case ui.InputNode as x:
 		Some{Value: x.Placeholder}
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No label: ui.Find names none of these either.
 		None
 	}
 }
@@ -105,7 +106,9 @@ func pointOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label
 		try Send(d, Mouse(0, x, y, true))
 	case ui.Up:
 		try Send(d, Mouse(0, x, y, false))
-	case ui.Moved:
+	case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
+		// A move: a drag while an Area holds the pointer (the composer
+		// tells Drag from Moved, not the host).
 		try Send(d, Mouse(if Captured(d) != None { 32 } else { 35 }, x, y, true))
 	case ui.Wheel as w:
 		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }
@@ -161,7 +164,7 @@ func typeInto[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], labe
 // history and send URLChanged, as ui.TestHost does. PointOn sends the
 // mouse bytes of its pointer event at the Area (pointOn); ScrollOn
 // scrolls the list to its offset (its height is the screen's, which the
-// list reports). AdvanceBy does nothing.
+// list reports). AdvanceBy moves the frames' time (Advance).
 func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for act in script {
 		match act {
@@ -197,7 +200,8 @@ func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fail
 			}
 		case ui.SettleAll:
 			try Settle(d)
-		case ui.AdvanceBy:
+		case ui.AdvanceBy as x:
+			try Advance(d, x.By)
 		case ui.ClickOn as x:
 			try tapOn(d, try located(d, x.At), "a located node")
 		case ui.FillIn as x:

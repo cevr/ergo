@@ -2880,10 +2880,10 @@ func (c *checker) collectSelfFuncs() {
 					c.pkg.collFuncs = map[collKey]*Func{}
 				}
 				f.selfArgs = args
-				f.collOp = collOps[key] // collop.go
+				f.collOp = collOps()[key] // collop.go
 				c.pkg.collFuncs[key] = f
 			} else {
-				f.collOp = collMakers[f.Name] // collop.go
+				f.collOp = collMakers()[f.Name] // collop.go
 			}
 		}
 	}

@@ -408,7 +408,7 @@ func (c *checker) textForm(e syntax.Expr, t Type) {
 	case *TypeParam:
 		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms (#49)", c.localTypeText(u))
 	default:
-		c.errorf(e, CodeType, "a value of type %s has no text form; interpolate a value of a basic type or of a type defined over one (grammar.md, Strings 5)", c.localTypeText(t))
+		c.errorf(e, CodeType, "a value of type %s has no text form; interpolate a value of a basic type or of a type defined over one (grammar.md, Literals 5)", c.localTypeText(t))
 	}
 }
 
@@ -471,7 +471,7 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			// Context 9).
 			return c.contextValue(x)
 		}
-		if form, ok := removedBuiltins[x.Name]; ok {
+		if form, ok := removedBuiltins()[x.Name]; ok {
 			c.errorf(x, CodeUnknown, "%s is not predeclared in Ergo; %s", x.Name, form)
 			return bad(x)
 		}

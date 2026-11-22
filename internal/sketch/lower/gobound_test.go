@@ -307,7 +307,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 					pt := goBoundOwned(qualify(text(fl.Type)))
 					pointerArg = pointerArg || strings.HasPrefix(text(fl.Type), "*")
 					_, isFunc := fl.Type.(*syntax.FuncType)
-					if isFunc && (fl.Own != nil || v1.GoSyncCallbacks[target] == "") {
+					if isFunc && (fl.Own != nil || v1.GoSyncCallbacks()[target] == "") {
 						// Go may keep a callback no review lists
 						// (check/hostclauses.go), so the use's own
 						// callback is owned (types.md, Function values 2).

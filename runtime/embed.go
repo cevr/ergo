@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
+	"sync"
 )
 
 //go:embed rt/alone.go rt/carrier.go rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/held.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/stall.go rt/task.go rt/tasks.go rt/text.go rt/timeout.go rt/trace.go rt/values.go
@@ -67,100 +68,102 @@ type pkg struct {
 // The list of files is every non-test file of the directory except those
 // that serve only the compiler (runtime/v1/files.go and files_gen.go); a test keeps both
 // lists and the imports equal to the directories.
-var packages = map[string]pkg{
-	"runtime/testgen": {files: []string{"classes.go", "near.go", "stream.go"}},
-	"runtime/explore": {
-		files: []string{"explore.go"},
-	},
-	"runtime/rt": {
-		files: []string{"alone.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go", "waiter.go"},
-	},
-	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
-		imports: []string{"runtime/explore/sched", "runtime/obs", "runtime/rt", "runtime/rt/rttrace", "runtime/tzdata"},
-	},
-	// std tz/iana's copy of the IANA zone database: runtime/v1 imports it,
-	// and its index has no package initializer, so Go's linker drops the
-	// copy from a program that never calls tz/iana.
-	"runtime/tzdata": {
-		files: []string{"tzdata.go", "zones.bin"},
-	},
-	// Go's tracer and pprof labels for the task tree: the --go-trace
-	// build's runtime/v1 imports it (gotrace_on.go).
-	"runtime/obs": {
-		files:   []string{"obs.go"},
-		imports: []string{"runtime/rt"},
-	},
-	// The schedule explorer's strategies and worker transport: the
-	// explored build's runtime/v1 imports it (explore_on.go).
-	"runtime/explore/sched": {
-		files: []string{"dfs.go", "pct.go", "sched.go", "token.go", "worker.go"},
-	},
-	// The leaves of runtime/v1: each brings Go packages of its own (and
-	// their init tasks, which the Go linker keeps for every imported
-	// package), so only a program that calls one imports it (binsize BS1).
-	"runtime/v1/csv": {
-		files: []string{"csv.go"},
-	},
-	// fmt and reflect: a test build's rewrite shadow (LF6c), which no run
-	// build imports.
-	"runtime/v1/shadow": {
-		files: []string{"shadow.go"},
-	},
-	"runtime/v1/digest": {
-		files: []string{"digest.go", "keyed.go"},
-	},
-	"runtime/v1/gofmt": {
-		files:   []string{"gofmt.go"},
-		imports: []string{"runtime/rt"},
-	},
-	"runtime/v1/hostwalk": {
-		files:   []string{"hostwalk.go"},
-		imports: []string{"runtime/rt"},
-	},
-	"runtime/v1/exec": {
-		files:   []string{"exec.go", "exec_confine.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_sandbox_linux.go", "exec_sandbox_other.go", "exec_spawn.go", "exec_spawn_darwin.go", "exec_spawn_linux.go", "exec_spawn_other.go", "exec_start.go", "exec_unix.go"},
-		imports: []string{"runtime/rt", "runtime/v1"},
-	},
-	// database/sql and reflect: std sql's Host (wf10 TX1).
-	"runtime/v1/sql": {
-		files:   []string{"sql.go"},
-		imports: []string{"runtime/rt"},
-	},
-	"runtime/v1/rand": {
-		files: []string{"rand.go"},
-	},
-	// Go's net: std net's sockets and memory pipe, and the Listener std
-	// http serves.
-	"runtime/v1/net": {
-		files:   []string{"net.go"},
-		imports: []string{"runtime/rt"},
-	},
-	// A file's metadata as values: os's Stat, Lstat and ReadDir are bound
-	// to it (HOST-ROW-3). Plain Go, bound as any Go package is, not a leaf
-	// of bodies (v1.Owns).
-	"runtime/v1/hostfs": {
-		files: []string{"hostfs.go"},
-	},
-	// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
-	"runtime/v1/http": {
-		files:   []string{"http.go", "http_client.go", "http_engine.go", "http_engine_fast.go", "http_local.go", "http_network.go", "http_peer.go", "http_peer_bsd.go", "http_peer_linux.go", "http_peer_other.go", "http_query.go"},
-		imports: []string{"runtime/rt", "runtime/v1", "runtime/v1/net"},
-	},
-	// fmt and log/slog: Redacted's Format and LogValue (binsize BS8).
-	"runtime/v1/redacted": {
-		files: []string{"redacted.go", "redacted_text.go"},
-	},
-	// encoding/json and net/http (binsize BS8).
-	"runtime/v1/rpc": {
-		files:   []string{"rpc.go"},
-		imports: []string{"runtime/rt", "runtime/v1"},
-	},
-	"runtime/rt/rttrace": {
-		files:   []string{"encode.go", "jsonl.go", "rttrace.go"},
-		imports: []string{"runtime/rt"},
-	},
-}
+var packages = sync.OnceValue(func() map[string]pkg {
+	return map[string]pkg{
+		"runtime/testgen": {files: []string{"classes.go", "near.go", "stream.go"}},
+		"runtime/explore": {
+			files: []string{"explore.go"},
+		},
+		"runtime/rt": {
+			files: []string{"alone.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go", "waiter.go"},
+		},
+		"runtime/v1": {
+			files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+			imports: []string{"runtime/explore/sched", "runtime/obs", "runtime/rt", "runtime/rt/rttrace", "runtime/tzdata"},
+		},
+		// std tz/iana's copy of the IANA zone database: runtime/v1 imports it,
+		// and its index has no package initializer, so Go's linker drops the
+		// copy from a program that never calls tz/iana.
+		"runtime/tzdata": {
+			files: []string{"tzdata.go", "zones.bin"},
+		},
+		// Go's tracer and pprof labels for the task tree: the --go-trace
+		// build's runtime/v1 imports it (gotrace_on.go).
+		"runtime/obs": {
+			files:   []string{"obs.go"},
+			imports: []string{"runtime/rt"},
+		},
+		// The schedule explorer's strategies and worker transport: the
+		// explored build's runtime/v1 imports it (explore_on.go).
+		"runtime/explore/sched": {
+			files: []string{"dfs.go", "pct.go", "sched.go", "token.go", "worker.go"},
+		},
+		// The leaves of runtime/v1: each brings Go packages of its own (and
+		// their init tasks, which the Go linker keeps for every imported
+		// package), so only a program that calls one imports it (binsize BS1).
+		"runtime/v1/csv": {
+			files: []string{"csv.go"},
+		},
+		// fmt and reflect: a test build's rewrite shadow (LF6c), which no run
+		// build imports.
+		"runtime/v1/shadow": {
+			files: []string{"shadow.go"},
+		},
+		"runtime/v1/digest": {
+			files: []string{"digest.go", "keyed.go"},
+		},
+		"runtime/v1/gofmt": {
+			files:   []string{"gofmt.go"},
+			imports: []string{"runtime/rt"},
+		},
+		"runtime/v1/hostwalk": {
+			files:   []string{"hostwalk.go"},
+			imports: []string{"runtime/rt"},
+		},
+		"runtime/v1/exec": {
+			files:   []string{"exec.go", "exec_confine.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_sandbox_linux.go", "exec_sandbox_other.go", "exec_spawn.go", "exec_spawn_darwin.go", "exec_spawn_linux.go", "exec_spawn_other.go", "exec_start.go", "exec_unix.go"},
+			imports: []string{"runtime/rt", "runtime/v1"},
+		},
+		// database/sql and reflect: std sql's Host (wf10 TX1).
+		"runtime/v1/sql": {
+			files:   []string{"sql.go"},
+			imports: []string{"runtime/rt"},
+		},
+		"runtime/v1/rand": {
+			files: []string{"rand.go"},
+		},
+		// Go's net: std net's sockets and memory pipe, and the Listener std
+		// http serves.
+		"runtime/v1/net": {
+			files:   []string{"net.go"},
+			imports: []string{"runtime/rt"},
+		},
+		// A file's metadata as values: os's Stat, Lstat and ReadDir are bound
+		// to it (HOST-ROW-3). Plain Go, bound as any Go package is, not a leaf
+		// of bodies (v1.Owns).
+		"runtime/v1/hostfs": {
+			files: []string{"hostfs.go"},
+		},
+		// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
+		"runtime/v1/http": {
+			files:   []string{"http.go", "http_client.go", "http_engine.go", "http_engine_fast.go", "http_local.go", "http_network.go", "http_peer.go", "http_peer_bsd.go", "http_peer_linux.go", "http_peer_other.go", "http_query.go"},
+			imports: []string{"runtime/rt", "runtime/v1", "runtime/v1/net"},
+		},
+		// fmt and log/slog: Redacted's Format and LogValue (binsize BS8).
+		"runtime/v1/redacted": {
+			files: []string{"redacted.go", "redacted_text.go"},
+		},
+		// encoding/json and net/http (binsize BS8).
+		"runtime/v1/rpc": {
+			files:   []string{"rpc.go"},
+			imports: []string{"runtime/rt", "runtime/v1"},
+		},
+		"runtime/rt/rttrace": {
+			files:   []string{"encode.go", "jsonl.go", "rttrace.go"},
+			imports: []string{"runtime/rt"},
+		},
+	}
+})
 
 // File is one runtime source file, at its slash-separated path relative to
 // the runtime module's root, such as runtime/rt/task.go.
@@ -179,7 +182,7 @@ func Files(imports ...string) ([]File, error) {
 		if need[path] {
 			return nil
 		}
-		p, ok := packages[path]
+		p, ok := packages()[path]
 		if !ok {
 			return fmt.Errorf("runtimefiles: %s is not a runtime package", path)
 		}
@@ -198,7 +201,7 @@ func Files(imports ...string) ([]File, error) {
 	}
 	var files []File
 	for path := range need {
-		for _, name := range packages[path].files {
+		for _, name := range packages()[path].files {
 			data, err := sources.ReadFile(path[len("runtime/"):] + "/" + name)
 			if err != nil {
 				return nil, fmt.Errorf("runtimefiles: %s/%s is not embedded: %w", path, name, err)

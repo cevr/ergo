@@ -112,7 +112,7 @@ func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
 	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
-	d, with, build := FuncLawDigest(law, ShippedForeignKeys)
+	d, with, build := FuncLawDigest(law, ShippedForeignKeys())
 	entry, found := e.entries[ledgerKey(key, "", "", build)]
 	return judgeFunc(key, build, entry, found, d, with, "the std law ledger: ", func() {})
 }
