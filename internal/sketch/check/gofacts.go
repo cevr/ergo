@@ -93,17 +93,34 @@ func (h *hostPkg) readsLine(fn *Func, text string) {
 // that `ergo bind go` binds with no `needs go.Foreign`.
 const effectMarker = "// ergo:effect "
 
-// effectLine records the memory-only line above fn. The row acts only on
-// its guard line current and validated (EffectActs); any other line, or a
-// row that does not act, is S108, since the binding then charges nothing
-// for Go that may read host state.
+// effectLine records the memory-only line above fn, or its host line
+// (`// ergo:effect ambient (vouched: <reason>)`, HOST-ROW). The row acts
+// only on its guard line current and validated (EffectActs, HostActs); any
+// other line, or a row that does not act, is S108, since the binding then
+// charges less than go.Foreign for Go that may read host state.
 func (h *hostPkg) effectLine(fn *Func, text string) {
 	if fn.Decl == nil || fn.Decl.Extern == nil {
 		return
 	}
 	target := fn.Decl.Extern.Target.Value
+	if strings.HasPrefix(text, "ambient (vouched: ") && strings.HasSuffix(text, ")") {
+		h.hostLine(fn, target)
+		return
+	}
+	// `none from <target> (vouched: …)` is a method Go promotes from an
+	// embedded field (GB): the row is its declaring type's method of the
+	// same name.
+	if rest, ok := strings.CutPrefix(text, "none from "); ok {
+		from, tail, _ := strings.Cut(rest, " ")
+		dot := strings.LastIndex(target, ".")
+		if dot < 0 || from == target || !strings.HasSuffix(from, target[dot:]) {
+			h.c.errorf(fn.Decl.Name, CodeType, "the `// ergo:effect` line above %s names %s, which is not a method of the same name", fn.Name, from)
+			return
+		}
+		target, text = from, "none "+tail
+	}
 	if !strings.HasPrefix(text, "none (vouched: ") || !strings.HasSuffix(text, ")") {
-		h.c.errorf(fn.Decl.Name, CodeType, "the `// ergo:effect` line above %s is not `// ergo:effect none (vouched: <reason>)`", fn.Name)
+		h.c.errorf(fn.Decl.Name, CodeType, "the `// ergo:effect` line above %s is not `// ergo:effect none (vouched: <reason>)` or `// ergo:effect ambient (vouched: <reason>)`", fn.Name)
 		return
 	}
 	switch ok, refuted, why := EffectActs(target); {
@@ -118,6 +135,65 @@ func (h *hostPkg) effectLine(fn *Func, text string) {
 		h.effect = map[*Func]bool{}
 	}
 	h.effect[fn] = true
+}
+
+// hostLine records the host line above fn (HOST-ROW): its row in
+// gofacts.Hosts acts, and its needs row is Ambient alone, the authority
+// the row charges in place of go.Foreign.
+func (h *hostPkg) hostLine(fn *Func, target string) {
+	if h.host == nil {
+		h.host = map[*Func]bool{}
+	}
+	// The line is read: a row that does not act is its one diagnostic,
+	// not also ambientUnvouched's.
+	h.host[fn] = false
+	switch ok, refuted, why := HostActs(target); {
+	case refuted:
+		h.c.errorf(fn.Decl.Name, CodeType, "%s is bound as a host call, and its reviewed row does not hold: %s", target, why)
+		return
+	case !ok:
+		h.c.errorf(fn.Decl.Name, CodeType, "%s is bound as a host call without a reviewed row that acts (%s); regenerate its binding", target, why)
+		return
+	}
+	if names := needsNames(fn); len(names) != 1 || names[0] != "Ambient" {
+		h.c.errorf(fn.Decl.Name, CodeType, "%s is bound as a host call, so its row is needs Ambient alone", target)
+		return
+	}
+	h.host[fn] = true
+}
+
+// ambientUnvouched reports a Go function or method of a binding that needs
+// Ambient with no host line that acts (S108): only a reviewed host row
+// charges Ambient in place of go.Foreign (HOST-ROW).
+func (h *hostPkg) ambientUnvouched(fn *Func) {
+	if _, lined := h.host[fn]; lined || fn.Decl == nil || fn.Decl.Extern == nil || !slices.Contains(needsNames(fn), "Ambient") {
+		return
+	}
+	h.c.errorf(fn.Decl.Name, CodeType, "%s is bound with needs Ambient and no host line: only a host row of internal/gofacts charges Ambient for a Go call (`// ergo:effect ambient (vouched: <reason>)`); bind it with needs go.Foreign", fn.Decl.Extern.Target.Value)
+}
+
+// needsNames is the names of fn's written needs row.
+func needsNames(fn *Func) []string {
+	if fn.Decl == nil || fn.Decl.Type == nil || fn.Decl.Type.Needs == nil {
+		return nil
+	}
+	var out []string
+	for _, x := range fn.Decl.Type.Needs.Names {
+		if id, ok := x.(*syntax.Ident); ok {
+			out = append(out, id.Name)
+		} else {
+			out = append(out, "?")
+		}
+	}
+	return out
+}
+
+// GoHost reports a Go function or method of import go bound as a host
+// call (`// ergo:effect ambient`; HOST-ROW): it charges Ambient, not
+// go.Foreign.
+func GoHost(f *Func) bool {
+	h := hostOf(f.Pkg)
+	return h != nil && h.host[f]
 }
 
 // GoEffect reports a Go function or method of import go bound as
