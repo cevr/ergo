@@ -120,7 +120,8 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		if b.fc.frame.fallible {
 			k = "fail"
 		}
-		return append(pre, &irStmt{K: k, Pos: p, X: e})
+		ft, ftp := b.failType(x) // for failJumps (FAILJUMP-TYPED)
+		return append(pre, &irStmt{K: k, Pos: p, X: e, FailT: ft, FailTP: ftp})
 	}
 	if b.result == nil {
 		// A no-value call returned for its effect (retExpr).
