@@ -216,13 +216,16 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 				// every package's Go initialization: a copy holds its zero
 				// value (Q13: address-routes's people.All read as an empty list,
 				// "person 3: not found"). The IR body reads it through a
-				// forwarding function instead (files), when the body runs.
+				// function that returns its address (files), when the body
+				// runs: *get() is the variable itself, a place whose
+				// address the body may take (TAB-IR's &tabFK[i]; the
+				// 20e3b4fbe fallout, where get() returned a value).
 				if len(n.Values) == 0 {
 					if n.Type == nil {
 						return "an IR body uses the variable " + name + " of another package, declared with no type"
 					}
 					get := freshName(taken, "ergoGet"+strings.ToUpper(name[:1])+name[1:])
-					extra[k].WriteString("\nfunc " + get + "() " + text(k, decl, n.Type) + " { return " + qualified(k, name) + " }\n")
+					extra[k].WriteString("\nfunc " + get + "() *" + text(k, decl, n.Type) + " { return &" + qualified(k, name) + " }\n")
 					if s.getters == nil {
 						s.getters = map[int]map[string]string{}
 					}
@@ -324,7 +327,9 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		if get := s.getters[p]; len(get) > 0 {
 			fn.exprs(func(x *irExpr) {
 				if g, ok := get[x.Name]; ok && x.K == "global" {
-					x.K, x.Name = "call", g
+					// *g(): the variable itself, a place, as the global
+					// is (&tabFK[i], a *T method's receiver), never a copy.
+					x.K, x.Name, x.X = "deref", "", &irExpr{K: "call", Pos: x.Pos, Name: g}
 				}
 			})
 		}
