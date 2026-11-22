@@ -23,6 +23,7 @@ import (
 
 type object struct {
 	body        string
+	etag        string
 	meta        map[string]string
 	contentType string
 	modified    int64
@@ -72,7 +73,7 @@ func (s *store) serve(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Last-Modified", time.Unix(epoch+o.modified, 0).UTC().Format(http.TimeFormat))
 		h.Set("Content-Length", strconv.Itoa(len(o.body)))
-		h.Set("ETag", etag(o.body))
+		h.Set("ETag", o.etag)
 		h.Set("Content-Type", o.contentType)
 		for k, v := range o.meta {
 			h.Set("x-amz-meta-"+k, v)
@@ -90,7 +91,7 @@ func (s *store) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.writes++
-		s.objects[at] = object{body: string(b), meta: meta, contentType: r.Header.Get("Content-Type"), modified: s.writes}
+		s.objects[at] = object{body: string(b), etag: etag(string(b)), meta: meta, contentType: r.Header.Get("Content-Type"), modified: s.writes}
 		w.Header().Set("ETag", etag(string(b)))
 		w.WriteHeader(200)
 	case "DELETE":

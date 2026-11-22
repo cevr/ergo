@@ -22,7 +22,7 @@ import sync
 import time
 
 // Object is one stored object.
-type Object { Body string, Meta Map[string, string], ContentType Option[string], Archived bool, Modified int64 }
+type Object { Body string, ETag string, Meta Map[string, string], ContentType Option[string], Archived bool, Modified int64 }
 
 // Memory is the fake: its objects by bucket and key, and its count of
 // writes.
@@ -61,7 +61,7 @@ func HeadObject(m Memory, r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.N
 			..s3.NewHeadObjectOutput(),
 			LastModified:  Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
 			ContentLength: Some[int]{len(o.Body)},
-			ETag:          Some[string]{etag(o.Body)},
+			ETag:          Some[string]{o.ETag},
 			ContentType:   o.ContentType,
 			Metadata:      o.Meta,
 			StorageClass:  storageOf(o),
@@ -85,7 +85,7 @@ func GetObject(m Memory, r s3.GetObjectRequest, put func(part string) fails http
 			..s3.NewGetObjectOutput(),
 			LastModified:  Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
 			ContentLength: Some[int]{len(o.Body)},
-			ETag:          Some[string]{etag(o.Body)},
+			ETag:          Some[string]{o.ETag},
 			ContentType:   o.ContentType,
 			Metadata:      o.Meta,
 			StorageClass:  storageOf(o),
@@ -107,14 +107,15 @@ func PutObject(m Memory, r s3.PutObjectRequest) s3.PutObjectOutput fails s3.Encr
 		false
 	}
 	m.writes.Update(func(n int64) int64 { n + 1 })
-	let o = Object{Body: r.Body, Meta: meta, ContentType: r.ContentType, Archived: glacier, Modified: m.writes.Get()}
+	let tag = etag(r.Body)
+	let o = Object{Body: r.Body, ETag: tag, Meta: meta, ContentType: r.ContentType, Archived: glacier, Modified: m.writes.Get()}
 	let k = at(r.Bucket, r.Key)
 	m.objects.Update(func(objects Map[string, Object]) Map[string, Object] {
 		let mut out = objects
 		out[k] = o
 		out
 	})
-	s3.PutObjectOutput{..s3.NewPutObjectOutput(), ETag: Some[string]{etag(r.Body)}}
+	s3.PutObjectOutput{..s3.NewPutObjectOutput(), ETag: Some[string]{tag}}
 }
 
 func DeleteObject(m Memory, r s3.DeleteObjectRequest) s3.DeleteObjectOutput fails aws.Failed | aws.Malformed | http.RequestFailed {
