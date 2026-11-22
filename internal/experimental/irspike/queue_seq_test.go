@@ -15,7 +15,8 @@ import "testing"
 //
 // Mutants: adapted-seq-refused (the Seq refused again, the gate before
 // ADAPTED-RESULTS), adapted-seq-false-ignored (the Seq goes on after yield
-// returns false), adapted-seq-error-dropped (yield's failure is dropped).
+// returns false). adapted-seq-error-dropped is the ledger's gap: no Ergo
+// consumer passes a yield that fails.
 func TestIRQueueSeqsMatchSource(t *testing.T) {
 	f7Property(t, "TestIRQueueSeqsMatchSource", GenerateQueueSeq, queueSeqFuncs...)
 }

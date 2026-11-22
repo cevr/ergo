@@ -21,7 +21,8 @@ var queueSeqFuncs = []string{"sumAll", "later", "stopAt", "words", "checked"}
 //     panic, and one that stopped early would leave more;
 //   - words iterates strings;
 //   - checked fails inside the loop body at a seeded value: the failure
-//     leaves the loop and the function, through yield's error.
+//     leaves the loop and the function (the loop's own return, Go's
+//     range-over-func rewrite).
 //
 // main calls each at seeded arguments and prints what they return.
 func GenerateQueueSeq(seed uint64) string {
