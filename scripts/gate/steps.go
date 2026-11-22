@@ -485,6 +485,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...), Class: classFast})
+	for _, step := range generatedSteps() {
+		add(step)
+	}
 
 	// The design models (models/<name>, wf10 X3): ergo test decides each
 	// model's laws by a search of its scope. A design law refuted, or a
@@ -576,6 +579,30 @@ func stagedBuild(root, out, pkg string) []string {
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
 	// The script's $0 names it, not a shell.
 	return stagedBuildScript.command("stagedbuild", staging, out, pkg)
+}
+
+// generatedStep and generatedFreshStep check every checked-in generated
+// file against a fresh regeneration (docs/spec/build.md, Generators;
+// MONOREPO WT2a): ergo.work's gen lines and each member's ergo gen
+// packages, in the order their inputs give. In every tier the step takes
+// the task store's hits, so a lane whose edit reaches no generator's input
+// pays a lookup (about 0.4 G instructions, all hits), and a stale file
+// fails naming it. The full and merge tiers also run it with --fresh,
+// which trusts no hit (a landing never rests on vouched reads). Neither
+// has Inputs: ergo task is its own cache. They write only the --check
+// copy, under .git. TestLinkedGoIsFresh and TestStdSnapshotIsCurrent run
+// beside them until the step has been green on three landings.
+const (
+	generatedStep      = "generated files (ergo task gen --check)"
+	generatedFreshStep = "generated files, fresh (ergo task gen --check --fresh)"
+)
+
+// generatedSteps are the steps generatedStep and generatedFreshStep.
+func generatedSteps() []*Step {
+	return []*Step{
+		{Name: generatedStep, Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "task", "gen", "--check"}, Class: classFast},
+		{Name: generatedFreshStep, Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "task", "gen", "--check", "--fresh"}, Class: classHeavy},
+	}
 }
 
 // effectMappingStep checks the Effect behavior mapping and its evidence
