@@ -115,7 +115,7 @@ func TestLedgerStatementIsTheParsers(t *testing.T) {
 					t.Errorf("std %s law %s: Statement gives %q, %v; the parser says %q", p.path, law, got, ok, want)
 					return
 				}
-				from, to := d.Name.End(), d.Body.End()
+				from, to := int(d.Name.End()), int(d.Body.End())
 				words := word.FindAllStringIndex(f.Src[from:to], -1)
 				if len(words) == 0 {
 					return
