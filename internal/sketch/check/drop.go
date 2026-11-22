@@ -1,6 +1,6 @@
 package check
 
-// Generated release (#197 L8 B2; resources R3, R23, R37, R39, Gap 36): the
+// Generated release (L8 B2; resources R3, R23, R37, R39, Gap 36): the
 // release of a value whose type holds a resource in its parts. The checker
 // derives it from the one property of resource.go (holdsResource), so the
 // lowering never decides what holds a resource (lesson 2): it walks the

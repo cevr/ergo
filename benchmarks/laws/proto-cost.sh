@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measures the laws prototype's cost (#125, review 1 m5) into
+# Measures the laws prototype's cost (review 1 m5) into
 # benchmarks/laws/runs/cost.txt, with the conditions and every raw sample.
 #   test     `ergo test` per target on a law program and on its control, the same
 #            program with its contract and satisfies blocks blanked; both carry

@@ -16,7 +16,7 @@ echo "== versions"
 echo "tsc $(node "$TSC" --version) (<repo>/$TS_DIR)"
 echo "node $(node --version)"
 echo "== ef build sample.ergo --target js"
-# The spike compiler reads .ef: build from a copy with that extension (#221).
+# The spike compiler reads .ef: build from a copy with that extension.
 cp sample.ergo out/sample.ef
 "$EF" build out/sample.ef --target js -o out/sample.mjs >/dev/null
 check "ef build" || finish

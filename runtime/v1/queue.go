@@ -357,7 +357,7 @@ func (q *Queue[T]) End() {
 	q.mu.Unlock()
 }
 
-// Drain is the release of a queue whose values are resources (#197 L8 B3;
+// Drain is the release of a queue whose values are resources (resource ownership L8 B3;
 // resources R13, Q7): it ends admission, as End does (a waiting Push is
 // rejected, and its caller releases its value), and takes every value left,
 // oldest first. The owner's generated release then releases them last

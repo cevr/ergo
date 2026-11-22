@@ -87,7 +87,7 @@ func (c *checker) collectTest(d *syntax.TestDecl, fi *fileInfo) {
 
 // claimTestName claims id's name for a test or a top-level law (kind) in
 // their one namespace (rule 1). A test report and a law report name the
-// declaration by its name alone (#162), so two of one name would be
+// declaration by its name alone, so two of one name would be
 // ambiguous: the second in source order is S108, and claimTestName reports
 // false. A member law is not in this namespace (its report names T.L).
 func (c *checker) claimTestName(id *syntax.Ident, kind string) bool {
@@ -148,7 +148,7 @@ func (c *checker) strayAsserts() {
 					c.tests.stray = map[*syntax.AssertStmt]bool{}
 				}
 				c.tests.stray[n] = true
-				c.errorf(n, CodeType, "assert stands only in a test or law body (196l)")
+				c.errorf(n, CodeType, "assert stands only in a test or law body")
 			}
 			return true
 		})
@@ -213,7 +213,7 @@ func (c *checker) checkTest(test *Test) {
 				typ = c.typExpr(field.Type, &typeCtx{param: true})
 				if !isInvalid(typ) {
 					if why := c.ungeneratable(typ); why != "" {
-						c.errorf(field.Type, CodeType, "a property parameter is generated, and %s cannot be: %s (196l)", typ, why)
+						c.errorf(field.Type, CodeType, "a property parameter is generated, and %s cannot be: %s", typ, why)
 						typ = invalid
 					}
 				}

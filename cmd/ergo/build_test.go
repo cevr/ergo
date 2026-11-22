@@ -451,7 +451,7 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 // relative to its root. An unchanged build names the same module and rewrites none
 // of its files; an edit names another module and changes the executable's
 // behavior; a build without -work prints no WORK line; and only build
-// takes -work. Spec D7, #224.
+// takes -work. Spec D7, the cached build.
 func TestBuildWorkNamesTheCachedModule(t *testing.T) {
 	t.Parallel()
 	binary := buildTestCLI(t)
