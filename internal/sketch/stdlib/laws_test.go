@@ -678,7 +678,7 @@ func TestStdHostLawsHold(t *testing.T) {
 		}},
 		// When a file is at from and none at to, and Rename(from, to)
 		// succeeds, a second Rename(from, to) fails NotFound.
-		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }`, Check: func(t *testing.T) {
+		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed, CrossDevice: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed, CrossDevice: return false } false }`, Check: func(t *testing.T) {
 			mv := filepath.Join(dir, "mv")
 			moved := 0
 			names := append([]string{"a", "b", "./a", "sub", "sub/a", "link", "a/", "d", "d/x"}, paths[6:]...)

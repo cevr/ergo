@@ -47,7 +47,7 @@ func Chmod(f Full, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs
 }
 
 // Rename changes the memory: a rename takes no room.
-func Rename(f Full, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {
+func Rename(f Full, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice {
 	try f.disk.Rename(from, to)
 }
 

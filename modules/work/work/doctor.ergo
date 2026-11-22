@@ -343,6 +343,8 @@ func rewriteBases(t Tool, bases []string) fails fs.Denied | fs.Failed {
 		return d
 	case fs.Failed as f:
 		return f
+	case fs.CrossDevice:
+		return fs.Failed{Path: file, Reason: "the temporary list is on another file system"}
 	}
 }
 
