@@ -19,7 +19,8 @@ import (
 // The cost rule reads checked facts only, never a package or function
 // name (internal/residue, TestLoweringKeysOnNoStdName). A call of a
 // declared function f is inlined when
-//   - f has an Ergo body: no extern, no Close, not main;
+//   - f has an Ergo body: no extern, no Close, not main, not marked
+//     `// ergo:aswritten` (check.AsWritten: its call stays a call);
 //   - its effects allow it: no task start or Task result, no capability
 //     in its footprint (a needs row it does not use changes nothing), no
 //     frame scope (a with that owns, an exit action), no context value,
@@ -332,6 +333,12 @@ func (l *lowerer) inlineRule(f *check.Func, budget int, slot bool) bool {
 	// A Slot row: only the IR's inliner binds it at the call (rowslot.go,
 	// INLINE-SLOT); the text path's copy binds only type parameters.
 	if l.hasGoRow(f.Sig) && !slot {
+		return false
+	}
+	if check.AsWritten(f) {
+		// Its call stays a call node, so the rewrite pass sees where the
+		// kept call tree starts (ir_rewrite.go, asWrittenCall); Go
+		// inlines the identity itself.
 		return false
 	}
 	info := f.Pkg.Info

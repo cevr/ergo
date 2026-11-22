@@ -200,7 +200,7 @@ func pureStates() (a, b ambient, done func(), err error) {
 	}
 	a = ambient{dir: da, home: "/home/a", tz: "UTC", local: time.UTC, procs: 1}
 	b = ambient{dir: db, home: "/home/b", tz: "Asia/Kolkata", local: time.FixedZone("IST", 19800), procs: 3}
-	return a, b, func() { os.Remove(da); os.Remove(db) }, nil
+	return a, b, func() { os.RemoveAll(da); os.RemoveAll(db) }, nil
 }
 
 // Pure is the members of the map (keyed "path.Name") whose outcome

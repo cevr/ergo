@@ -562,8 +562,11 @@ var goBoundCrossing = regexp.MustCompile(`takes (\w+) has no effect`)
 // goBoundReleaseNeed is S102 on a capability that the release of a value
 // the use owns requires (resources, Context ownership 6): the row is
 // written, not inferred (EX2), so the generator adds the capability to the
-// use's needs clause and checks the program again; not a step down.
-var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of function use\d+`)
+// use's row (and to its literal's row when the release is in the literal:
+// a method value's literal that returns an *os.File, whose Close charges
+// Ambient; HOST-ROW-3 slice 2) and checks the program again; not a step
+// down.
+var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of (?:function use\d+|this function literal)`)
 
 // goBoundOwnText is a kept parameter the generator writes: its name and
 // own before a type that is not a function's (a callback's own is its
@@ -597,15 +600,17 @@ func goBoundText(u goBoundUse, f goBoundForm) string {
 	if len(u.releaseNeeds) == 0 {
 		return text
 	}
-	// The function's own signature is the text's first line.
+	// The function's own signature is the text's first line; a literal in
+	// the body that states a row gets the needs too.
 	sig, body, _ := strings.Cut(text, " {\n")
-	needs := strings.Join(u.releaseNeeds, ", ")
+	needs := strings.Join(u.releaseNeeds, " | ")
 	switch {
 	case strings.Contains(sig, " needs "):
-		sig = strings.Replace(sig, " needs ", " needs "+needs+", ", 1)
+		sig = strings.Replace(sig, " needs ", " needs "+needs+" | ", 1)
 	default:
 		sig += " needs " + needs
 	}
+	body = strings.ReplaceAll(body, " needs ", " needs "+needs+" | ")
 	return sig + " {\n" + body
 }
 

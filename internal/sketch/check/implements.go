@@ -454,7 +454,7 @@ func (c *checker) clauseUnmet(v Type, it *Interface) bool {
 			return false
 		}
 	}
-	foreign := false // as checkImplementsClauses reads the clause
+	var foreign captured // as checkImplementsClauses reads the clause
 	return c.implementsCapturing(&Pointer{Elem: v}, it, true, &foreign) != ""
 }
 
@@ -498,11 +498,12 @@ func (c *checker) checkImplementsClauses() {
 				}
 				continue
 			}
-			// A method that needs go.Foreign beyond the operation's row
-			// implements it: the build of a value as the operation type
-			// holds go.Foreign, and that conversion charges it (README
-			// Gap 17), so the declaration admits what the conversion does.
-			foreign := false
+			// A method that needs go.Foreign or Ambient beyond the
+			// operation's row implements it: the build of a value as the
+			// operation type holds them, and that conversion charges them
+			// (README Gap 17; HOST-ROW), so the declaration admits what
+			// the conversion does.
+			var foreign captured
 			// A Go interface's method may keep the value it is called on
 			// (resources R19), so a value that may hold a resource meets it
 			// only by taking it. A generic type's parameters hold a resource
