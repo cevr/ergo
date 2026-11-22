@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"sort"
+	"sync"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -53,6 +55,81 @@ func TimeHostMono() int64 { return int64(time.Since(hostStart)) }
 type Timeline struct {
 	v     *rt.Virtual
 	start time.Time
+	auto  bool // a VirtualClock's: the time also moves on its own
+	// settled are the settled alarms (AlarmClock.AfterSettled) of a
+	// manual timeline, by deadline, ties in arming order; seq orders them.
+	mu      sync.Mutex
+	settled []*settledAlarm
+	seq     uint64
+}
+
+// settledAlarm is one alarm of a manual timeline that Advance fires at its
+// deadline after every timer of that instant fired and the domain settled:
+// each task woken at the instant has run to its next wait.
+type settledAlarm struct {
+	l    *Timeline
+	when rt.Instant
+	seq  uint64
+	f    func()
+}
+
+// Stop disarms the alarm and reports whether it was still armed.
+func (a *settledAlarm) Stop() bool {
+	l := a.l
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i, x := range l.settled {
+		if x == a {
+			l.settled = append(l.settled[:i:i], l.settled[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// afterSettled arms f to run in Advance once d has passed and the instant
+// has settled. A d of zero or less runs f at once, on a goroutine of its
+// own, as AfterFunc does. An auto clock moves on its own, with no Advance
+// to fire it, so it arms a plain alarm.
+func (l *Timeline) afterSettled(d time.Duration, f func()) Alarm {
+	if l.auto || d <= 0 {
+		return l.v.AfterFunc(rt.Span(d), f)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.seq++
+	a := &settledAlarm{l: l, when: l.v.Now() + rt.Instant(d), seq: l.seq, f: f}
+	i := sort.Search(len(l.settled), func(i int) bool {
+		x := l.settled[i]
+		return a.when < x.when || a.when == x.when && a.seq < x.seq
+	})
+	l.settled = append(l.settled, nil)
+	copy(l.settled[i+1:], l.settled[i:])
+	l.settled[i] = a
+	return a
+}
+
+// nextSettled is the deadline of the first settled alarm due by target.
+func (l *Timeline) nextSettled(target rt.Instant) (rt.Instant, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.settled) == 0 || l.settled[0].when > target {
+		return 0, false
+	}
+	return l.settled[0].when, true
+}
+
+// takeSettled takes the settled alarms due at or before now, in order.
+func (l *Timeline) takeSettled(now rt.Instant) []*settledAlarm {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := 0
+	for n < len(l.settled) && l.settled[n].when <= now {
+		n++
+	}
+	due := append([]*settledAlarm(nil), l.settled[:n]...)
+	l.settled = append(l.settled[:0], l.settled[n:]...)
+	return due
 }
 
 // NewTimeline is time.Manual's timeline: a manual clock (rt.NewManual)
@@ -73,7 +150,7 @@ func NewTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 //ergo:wait member
 func NewVirtualTimeline(t *rt.Task, sec int64, nsec int64) *Timeline {
 	start := time.Unix(sec, nsec).UTC()
-	return &Timeline{v: rt.NewAuto(t, start), start: start}
+	return &Timeline{v: rt.NewAuto(t, start), start: start, auto: true}
 }
 
 // Read is the timeline's time; Mono is the virtual time since the start.
@@ -118,7 +195,30 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 	if d < 0 {
 		panic("time.Manual: Advance by a negative duration")
 	}
-	if err := l.v.AdvanceSettled(t, rt.Span(d)); err != nil {
+	// A settled alarm due on the way splits the move: the clock moves to
+	// its instant, firing and settling every timer due by then, then the
+	// alarm fires and the domain settles again, so the alarm acts after
+	// every task woken at its instant has run to its next wait.
+	target := l.v.Now() + rt.Instant(d)
+	for {
+		when, ok := l.nextSettled(target)
+		if !ok {
+			break
+		}
+		l.advance(t, rt.Span(when-l.v.Now()))
+		for _, a := range l.takeSettled(l.v.Now()) {
+			a.f()
+		}
+		if err := l.v.Settle(t); err != nil {
+			raise(err)
+		}
+	}
+	l.advance(t, rt.Span(target-l.v.Now()))
+}
+
+// advance is one rt.AdvanceSettled of Advance.
+func (l *Timeline) advance(t *rt.Task, d rt.Span) {
+	if err := l.v.AdvanceSettled(t, d); err != nil {
 		if err == rt.AdvanceRunning {
 			panic("time.Manual: Advance while " + err.Error() + "; one task advances a clock")
 		}
@@ -130,7 +230,12 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 // Wait and the alarms of its AlarmClock.
 //
 //ergo:wait none
-func (l *Timeline) Sleepers() int { return l.v.Pending() }
+func (l *Timeline) Sleepers() int {
+	l.mu.Lock()
+	n := len(l.settled)
+	l.mu.Unlock()
+	return l.v.Pending() + n
+}
 
 // TimeAsleep is time.Asleep: whether the task of tk, or a task started
 // below it, sleeps on l. A task that ended sleeps on nothing (FK4-g2).
@@ -149,8 +254,10 @@ func TimeAsleep[T any](l *Timeline, tk *Task[T]) bool {
 //
 //ergo:wait none
 func (l *Timeline) Alarms() *AlarmClock {
-	return NewAlarmClock(func() time.Duration { return time.Duration(l.v.Now()) },
+	c := NewAlarmClock(func() time.Duration { return time.Duration(l.v.Now()) },
 		func(d time.Duration, f func()) Alarm { return l.v.AfterFunc(rt.Span(d), f) })
+	c.settled = l.afterSettled
+	return c
 }
 
 // AlarmClock is the prelude's AlarmClock, the result of Scheduler.Alarms:
@@ -166,6 +273,8 @@ type AlarmClock struct {
 	now    func() time.Duration
 	arm    func(d time.Duration, f func()) Alarm
 	report func(d time.Duration) // Reporting's, nil otherwise
+	// settled is AfterSettled's arm, a manual timeline's; nil elsewhere.
+	settled func(d time.Duration, f func()) Alarm
 }
 
 // Alarm is one armed deadline of an AlarmClock. Stop disarms it and
@@ -207,6 +316,19 @@ func (c *AlarmClock) Began(d time.Duration) {
 // After arms f to run on a goroutine of its own once d has passed on the
 // clock. A d of zero or less starts it at once.
 func (c *AlarmClock) After(d time.Duration, f func()) Alarm { return c.arm(d, f) }
+
+// AfterSettled is After for an alarm that acts after every other event of
+// its instant: on a time.Manual, Advance fires it once each timer due at
+// that instant has fired and every task those woke has run to its next
+// wait, whichever was armed first; f then runs on the advancing task's
+// goroutine. On the host and on an auto clock it is After: on the host no
+// two events share an instant (task.StopAfter, timeout.After).
+func (c *AlarmClock) AfterSettled(d time.Duration, f func()) Alarm {
+	if c.settled != nil {
+		return c.settled(d, f)
+	}
+	return c.arm(d, f)
+}
 
 // hostAlarms is the host's AlarmClock: the monotonic clock, and
 // time.AfterFunc.
