@@ -16,5 +16,5 @@ import "testing"
 // trace and its state's type), and the work's send runs on the actor's
 // task, which only a compiled run shows.
 func TestIRActorsMatchSource(t *testing.T) {
-	lyProperty(t, "TestIRActorsMatchSource", GenerateActor, nil, "runA", "planA", "runW", "workW", "launch")
+	lyProperty(t, "TestIRActorsMatchSource", GenerateActor, nil, "runA", "planA", "runW", "St.workW", "actor__launch")
 }
