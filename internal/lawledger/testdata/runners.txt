@@ -752,10 +752,13 @@ sync ReleaseOnInterrupt	TestSyncLaws
 sync UpdateComposes	TestSyncLaws
 sync UpdateIsAtomic	TestSyncLaws
 sync WaitSeesTheValue	TestSyncLaws
+task AlarmOutlivesItsTask	TestStdLawsRun
+task CancelBeforeFireNeverStops	TestStdLawsRun
 task DefectIsObservedOnce	TestStdLawsRun
 task ExitOfAnywhere	TestStdLawsRun
 task ExitOfWaitsForCleanup	TestStdLawsRun
 task SleepAdvancesNow	TestStdTimeLawsRun
+task StopAfterStopsAtD	TestStdLawsRun
 task StopIsIdempotent	TestStdLawsRun
 task StopOfWaiterStillInterrupts	TestStdLawsRun
 task WaitReturnsTheBlock	TestStdLawsRun

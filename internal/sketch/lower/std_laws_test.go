@@ -421,6 +421,8 @@ test TaskDefectIsObservedOnce(n int) {
 		k == 1 && f.Error.N == n
 	case task.Done[int] as v:
 		k == 2 && v.Value == n
+	case task.Stopped:
+		false
 	}
 	assert ok
 }
@@ -448,6 +450,117 @@ test TaskExitOfAnywhere(n int) {
 		false
 	}
 	assert ok
+}
+
+test TaskStopAfterStopsAtD(w int, d int, alarmFirst bool, k int) {
+	let wait = 1 + ((w % 6) + 6) % 6
+	let limit = 1 + ((d % 6) + 6) % 6
+	let n = ((k % 4) + 4) % 4
+	let m = time.NewManual(0)
+	let marks = queue.New[int](4)
+	let gate = queue.New[int](1)
+	with context { Scheduler: m } {
+		let t = task.Go() { try taskSlept(n, marks, gate, time.Times(1ms, wait)) }
+		let a = try taskArmed(t, gate, m, alarmFirst, time.Times(1ms, limit))
+		for _ in 0..7 {
+			m.Advance(1ms)
+		}
+		let ended = match task.ExitOf(t) {
+		case task.Done[int] as v:
+			wait <= limit && v.Value == 1
+		case task.Stopped:
+			wait > limit
+		case _:
+			false
+		}
+		assert ended && marks.Len() == n && !a.Cancel()
+	}
+}
+
+test TaskCancelBeforeFireNeverStops(w int, d int, c int) {
+	let wait = 1 + ((w % 6) + 6) % 6
+	let limit = 1 + ((d % 6) + 6) % 6
+	let after = ((c % 7) + 7) % 7
+	let m = time.NewManual(0)
+	let marks = queue.New[int](1)
+	let gate = queue.New[int](1)
+	with context { Scheduler: m } {
+		let t = task.Go() { try taskSlept(0, marks, gate, time.Times(1ms, wait)) }
+		let a = try taskArmed(t, gate, m, false, time.Times(1ms, limit))
+		m.Advance(time.Times(1ms, after))
+		let armedStill = a.Cancel()
+		for _ in 0..7 {
+			m.Advance(1ms)
+		}
+		let stopped = after >= limit && wait > limit
+		let ended = match task.ExitOf(t) {
+		case task.Done[int]:
+			!stopped
+		case task.Stopped:
+			stopped
+		case _:
+			false
+		}
+		assert ended && armedStill == (after < limit)
+	}
+}
+
+test TaskAlarmOutlivesItsTask(how int, d int) {
+	let limit = 1 + ((d % 6) + 6) % 6
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let other = task.Go() {
+			Scheduler.Sleep(1h)
+			0
+		}
+		let t = task.Go() { 1 }
+		let a = task.StopAfter(t, time.Times(1ms, limit))
+		let h = ((how % 3) + 3) % 3
+		let gave = if h == 0 {
+			match task.ExitOf(t) {
+			case task.Done[int] as v:
+				v.Value == 1
+			case _:
+				false
+			}
+		} else if h == 1 {
+			t.Wait() == 1
+		} else {
+			t.Stop()
+			true
+		}
+		for m.Sleepers() < 2 {
+		}
+		m.Advance(time.Times(1ms, limit + 1))
+		let asleep = m.Sleepers() == 1
+		other.Stop()
+		assert gave && asleep && !a.Cancel()
+	}
+}
+
+func taskSlept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs Scheduler {
+	for i in 0..n {
+		scope.OnExit() {
+			marks.Push(i) catch {
+			case queue.Closed:
+			}
+		}
+	}
+	try gate.Pop()
+	Scheduler.Sleep(wait)
+	1
+}
+
+func taskArmed(t Task[int, queue.Closed], gate queue.Queue[int], m time.Manual, first bool, d duration) task.Alarm fails queue.Closed needs Scheduler {
+	if first {
+		let a = task.StopAfter(t, d)
+		try gate.Push(0)
+		return a
+	}
+	try gate.Push(0)
+	for m.Sleepers() == 0 {
+	}
+	task.StopAfter(t, d)
 }
 
 test TaskStopOfWaiterStillInterrupts() {
@@ -1216,10 +1329,13 @@ var stdLawsStatements = map[string]string{
 	"scope ActionsRunLastFirst":            `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
 	"task StopIsIdempotent":                `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
 	"task WaitReturnsTheBlock":             `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
-	"task DefectIsObservedOnce":            `DefectIsObservedOnce(n int) { let k = ((n % 3) + 3) % 3 let t = Go() { try ended(k, n) } match ExitOf(t) { case Defected as d: k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)") case Failed[Odd] as f: k == 1 && f.Error.N == n case Done[int] as v: k == 2 && v.Value == n } }`,
+	"task DefectIsObservedOnce":            `DefectIsObservedOnce(n int) { let k = ((n % 3) + 3) % 3 let t = Go() { try ended(k, n) } match ExitOf(t) { case Defected as d: k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)") case Failed[Odd] as f: k == 1 && f.Error.N == n case Done[int] as v: k == 2 && v.Value == n case Stopped: false } }`,
 	"task ExitOfWaitsForCleanup":           `ExitOfWaitsForCleanup(n int) { let k = ((n % 4) + 4) % 4 let marks = queue.New[int](4) let t = Go() { crashed(k, marks) } match ExitOf(t) { case Defected: marks.Len() == k case _: false } }`,
 	"task ExitOfAnywhere":                  `ExitOfAnywhere(n int) { let outer = Go() { Go() { n } } let t = outer.Wait() match ExitOf(t) { case Done[int] as d: d.Value == n case _: false } }`,
 	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) Unreachable("ExitOf returned to a stopped waiter") } for m.Sleepers() == 0 { } waiter.Stop() m.Sleepers() == 0 } }`,
+	"task StopAfterStopsAtD":               `StopAfterStopsAtD(w int, d int, alarmFirst bool, k int) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let n = ((k % 4) + 4) % 4 let m = time.NewManual(0) let marks = queue.New[int](4) let gate = queue.New[int](1) with context { Scheduler: m } { let t = Go() { try slept(n, marks, gate, time.Times(1ms, wait)) } let a = try armed(t, gate, m, alarmFirst, time.Times(1ms, limit)) for _ in 0..7 { m.Advance(1ms) } let ended = match ExitOf(t) { case Done[int] as v: wait <= limit && v.Value == 1 case Stopped: wait > limit case _: false } ended && marks.Len() == n && !a.Cancel() } }`,
+	"task CancelBeforeFireNeverStops":      `CancelBeforeFireNeverStops(w int, d int, c int) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let after = ((c % 7) + 7) % 7 let m = time.NewManual(0) let marks = queue.New[int](1) let gate = queue.New[int](1) with context { Scheduler: m } { let t = Go() { try slept(0, marks, gate, time.Times(1ms, wait)) } let a = try armed(t, gate, m, false, time.Times(1ms, limit)) m.Advance(time.Times(1ms, after)) let armedStill = a.Cancel() for _ in 0..7 { m.Advance(1ms) } let stopped = after >= limit && wait > limit let ended = match ExitOf(t) { case Done[int]: !stopped case Stopped: stopped case _: false } ended && armedStill == (after < limit) } }`,
+	"task AlarmOutlivesItsTask":            `AlarmOutlivesItsTask(how int, d int) { let limit = 1 + ((d % 6) + 6) % 6 let m = time.NewManual(0) with context { Scheduler: m } { let other = Go() { Scheduler.Sleep(1h) 0 } let t = Go() { 1 } let a = StopAfter(t, time.Times(1ms, limit)) let h = ((how % 3) + 3) % 3 let gave = if h == 0 { match ExitOf(t) { case Done[int] as v: v.Value == 1 case _: false } } else if h == 1 { t.Wait() == 1 } else { t.Stop() true } for m.Sleepers() < 2 { } m.Advance(time.Times(1ms, limit + 1)) let asleep = m.Sleepers() == 1 other.Stop() gave && asleep && !a.Cancel() } }`,
 	"testing HeldCallWaitsForRelease":      `HeldCallWaitsForRelease(k string, a int) { let s = Script[probe]{} s.Get.Answer(func(key string) int fails Absent { a }) s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let held = s.Get.Held() let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1 s.Get.Release(func(key string) int fails Absent { a + 1 }) let got = t.Wait() catch { case Absent: a } s.Get.Answer(func(key string) int fails Absent { a + 2 }) let later = probe.Get(k) catch { case Absent: a } waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ReleaseAnswersOldestFirst":    `ReleaseAnswersOldestFirst(k string, j string, a int) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let first = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let second = task.Go() { probe.Get(j) } Scheduler.Sleep(1s) let held = s.Get.Held() let order = len(held) == 2 && held[0] == k && held[1] == j s.Get.Release(func(key string) int fails Absent { a }) s.Get.Release(func(key string) int fails Absent { a + 1 }) let one = first.Wait() catch { case Absent: a - 1 } let two = second.Wait() catch { case Absent: a - 1 } s.Get.Release(func(key string) int fails Absent { a + 2 }) let three = probe.Get(k) catch { case Absent: a - 1 } order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0 } }`,
 	"testing ScriptNamesTheHeldCall":       `ScriptNamesTheHeldCall(k string) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let report = Unanswered() let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered") let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0 s.Get.Release(func(key string) int fails Absent { 0 }) let _ = t.Wait() catch { case Absent: 0 } named && unread && Unanswered() == "" } }`,
