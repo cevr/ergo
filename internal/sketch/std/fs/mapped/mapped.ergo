@@ -1,0 +1,155 @@
+// Package mapped states the laws of a store that maps files and keeps
+// what it mapped (CAP-FILE): fs.MapBounded and fs.SameAs on the host. A
+// store in memory has no descriptors, so the contract has one provider,
+// the host's, and its laws run under OnTestHost, in a folder of the case's
+// own (rows.md, Test's ambient).
+
+import fs
+
+// Maps is a file store that maps a regular file of at most a limit, and
+// tells whether a path still leads to the file it mapped. Its files are
+// written and renamed through the store's Writes, so a law sets up the
+// files it maps.
+type Maps {
+	..fs.Files,
+	..fs.Writes,
+	// MapBounded is fs.MapBounded on the store's files.
+	MapBounded(path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge,
+	// SameAs is fs.SameAs on the store's files.
+	SameAs(m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed,
+	// BoundedIsTheText: a file of at most the limit maps to its text, of
+	// its size, and its path leads to the file mapped, also by the
+	// physical path the host gave.
+	law BoundedIsTheText(text string) { boundedIsTheText(text) },
+	// OverLimitIsTooLarge: a file of one byte more than the limit is
+	// TooLarge, naming its size and the limit.
+	law OverLimitIsTooLarge(text string) { overLimitIsTooLarge(text) },
+	// DirIsNotRegular: a directory is NotRegular, whatever the limit.
+	law DirIsNotRegular(limit int) { dirIsNotRegular(limit) },
+	// ReplacedIsNotSame: once another file is renamed over the path, the
+	// path no longer leads to the file mapped, and the Mapped still holds
+	// the text it read.
+	law ReplacedIsNotSame(a string, b string) { replacedIsNotSame(a, b) },
+}
+
+// Host is the host's Maps: fs.Host's files, with fs.MapBounded and
+// fs.SameAs.
+type Host { h fs.Host } implements Maps
+
+// NewHost is the Maps of the host file system h.
+func NewHost(h fs.Host) Host { Host{h: h} }
+
+// NewTestHost is the Maps of the case's folder (fs.NewTestHost).
+func NewTestHost() Host needs TestAmbient { Host{h: fs.NewTestHost()} }
+
+// OnTestHost runs Maps's laws on the host, in a folder of the case's own.
+let OnTestHost = context needs TestAmbient { Maps: NewTestHost() }
+
+func ReadFile(h Host, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadFile(h.h, path) }
+
+func ReadDir(h Host, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(h.h, path) }
+
+func Stat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Stat(h.h, path) }
+
+func Lstat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Lstat(h.h, path) }
+
+func WriteFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFile(h.h, path, text) }
+
+func MkdirAll(h Host, path string) fails fs.Denied | fs.Failed { try fs.MkdirAll(h.h, path) }
+
+func WriteFileMode(h Host, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFileMode(h.h, path, text, mode) }
+
+func MkdirAllMode(h Host, path string, mode fs.Mode) fails fs.Denied | fs.Failed { try fs.MkdirAllMode(h.h, path, mode) }
+
+func AppendFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.AppendFile(h.h, path, text) }
+
+func Chmod(h Host, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Chmod(h.h, path, mode) }
+
+func Rename(h Host, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Rename(h.h, from, to) }
+
+func Remove(h Host, path string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Remove(h.h, path) }
+
+func Mkdir(h Host, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { try fs.Mkdir(h.h, path, mode) }
+
+func MapBounded(h Host, path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { try fs.MapBounded(h.h, path, limit) }
+
+func SameAs(h Host, m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { try fs.SameAs(h.h, m, path) }
+
+func boundedIsTheText(text string) bool needs Maps {
+	Maps.WriteFile("f", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let m = Maps.MapBounded("f", len(text)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed, fs.NotRegular, fs.TooLarge:
+		return false
+	}
+	let same = Maps.SameAs(m, "f") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		false
+	}
+	let physical = Maps.SameAs(m, m.PhysicalPath()) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		false
+	}
+	let ok = same && physical && m.Size() == len(text) && fs.Clone(m.Text()) == text
+	m.Close()
+	ok
+}
+
+func overLimitIsTooLarge(text string) bool needs Maps {
+	if len(text) == 0 {
+		return true
+	}
+	Maps.WriteFile("f", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let m = Maps.MapBounded("f", len(text)-1) catch {
+	case fs.TooLarge as t:
+		return t.Size == len(text) && t.Limit == len(text)-1
+	case fs.NotFound, fs.Denied, fs.Failed, fs.NotRegular:
+		return false
+	}
+	m.Close()
+	false
+}
+
+func dirIsNotRegular(limit int) bool needs Maps {
+	Maps.MkdirAll("d") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	let m = Maps.MapBounded("d", limit) catch {
+	case fs.NotRegular:
+		return true
+	case fs.NotFound, fs.Denied, fs.Failed, fs.TooLarge:
+		return false
+	}
+	m.Close()
+	false
+}
+
+func replacedIsNotSame(a string, b string) bool needs Maps {
+	Maps.WriteFile("f", a) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let m = Maps.MapBounded("f", len(a)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed, fs.NotRegular, fs.TooLarge:
+		return false
+	}
+	// WriteFile writes a new file and renames it over f.
+	Maps.WriteFile("f", b) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		m.Close()
+		return false
+	}
+	let same = Maps.SameAs(m, "f") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		true
+	}
+	let ok = !same && fs.Clone(m.Text()) == a
+	m.Close()
+	ok
+}

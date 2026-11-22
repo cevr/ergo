@@ -27,6 +27,14 @@ extern go ergo.local/prototype/runtime/v1.Failed type Failed { Path string, Reas
 // Link never copies instead (G6).
 extern go ergo.local/prototype/runtime/v1.CrossDevice type CrossDevice { From string, To string }
 
+// NotRegular is the failure of MapBounded for a path that is not a
+// regular file: a directory, a pipe, a device (CAP-FILE).
+extern go ergo.local/prototype/runtime/v1.NotRegular type NotRegular { Path string }
+
+// TooLarge is the failure of MapBounded for a file of more than Limit
+// bytes; Size is its size when it was opened.
+extern go ergo.local/prototype/runtime/v1.TooLarge type TooLarge { Path string, Size int, Limit int }
+
 // Exists is the failure of Mkdir when something, a file, a directory or
 // a link, is at Path already.
 extern go ergo.local/prototype/runtime/v1.Exists type Exists { Path string }
@@ -381,6 +389,13 @@ extern go ergo.local/prototype/runtime/v1.Mapped type Mapped {
 	..Closer,
 	runtimeOnly(),
 	Text() Text,
+	// Size is the length of the text in bytes: the file's size when it
+	// was opened.
+	Size() int,
+	// PhysicalPath is the absolute path the host gave for the file when
+	// MapBounded opened it, its links resolved; "" for a Mapped of
+	// MapFile or MapText.
+	PhysicalPath() string,
 }
 
 // MapFile maps the file at path: its text is the whole file, as ReadFile
@@ -392,6 +407,26 @@ extern go ergo.local/prototype/runtime/v1.Mapped type Mapped {
 // alone, not an operation of Files.
 func MapFile(h Host, path string) Mapped fails NotFound | Denied | Failed {
 	try hostMapFile(try at(h, path))
+}
+
+// MapBounded maps the regular file at path, of at most limit bytes. It
+// opens the file once, without waiting (a pipe put at path does not block
+// it), and checks the open file, not the path: a file that is not regular
+// fails NotRegular and one over limit fails TooLarge, before anything is
+// read, so a file swapped in after a Stat of path is never read. The
+// Mapped keeps the identity of the file it read (SameAs) and the path the
+// host gives for it (Mapped.PhysicalPath). It is a function of Host alone,
+// as MapFile is (fs/mapped states its laws).
+func MapBounded(h Host, path string, limit int) Mapped fails NotFound | Denied | Failed | NotRegular | TooLarge {
+	try hostMapBounded(try at(h, path), limit)
+}
+
+// SameAs reports whether the file at path, its links followed as SameFile
+// reads a path, is the file m was mapped from by MapBounded: false once
+// another file is renamed over path. A Mapped of MapFile or MapText is the
+// same as no file.
+func SameAs(h Host, m Mapped, path string) bool fails NotFound | Denied | Failed {
+	try hostSameAs(m, try at(h, path))
 }
 
 // MapText is a Mapped whose text is text, held in memory: a provider in
@@ -532,6 +567,8 @@ extern go ergo.local/prototype/runtime/v1.FSLockFile func hostLockFile(path stri
 extern go ergo.local/prototype/runtime/v1.FSUnlockFile func hostUnlockFile(fd int)
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) Mapped fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSMapBounded func hostMapBounded(path string, limit int) Mapped fails NotFound | Denied | Failed | NotRegular | TooLarge
+extern go ergo.local/prototype/runtime/v1.FSSameAs func hostSameAs(m Mapped, path string) bool fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSLstat func hostLstat(path string) Info fails NotFound | Denied | Failed

@@ -270,6 +270,11 @@ type Mapped struct {
 	text string
 	data []byte // the mapping; nil for a text in memory or an unmapped one
 	id   uint64 // the rt registration of data
+	// The file's identity and physical path, kept by MapBounded alone
+	// (bounded.go): known is false for MapFile and MapText.
+	phys     string
+	dev, ino uint64
+	known    bool
 }
 
 // Text is the mapped text.
