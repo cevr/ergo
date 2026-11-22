@@ -54,8 +54,8 @@ func (f *fixture) diverge(otherOnX, otherOnY bool) {
 // whose configuration has no merge driver by the driver table of the
 // attributes, so a ledger both sides added to merges clean, writes no
 // configuration into the clone, and lists a real conflict by file with
-// exit 1. Mutant: trial passes git merge-tree no driver
-// (lanework-trial-no-drivers).
+// exit 1. Mutant: trial runs git's merge without the table's
+// drivers (lanework-trial-no-drivers).
 func TestTrialMergesWithTheTableDrivers(t *testing.T) {
 	f := newFixture(t, "no-push:workspaces-never-push-origin")
 	f.diverge(false, false)
