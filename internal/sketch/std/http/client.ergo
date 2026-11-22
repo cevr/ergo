@@ -4,6 +4,7 @@
 // a closed union and the caller's scope is the only time limit, so there
 // is no service tag, layer, middleware chain or implicit timeout.
 
+import config
 import fs
 import strings
 import sync
@@ -90,18 +91,49 @@ func DoFile(root fs.HostRoot, path string, r Request) Response fails RequestFail
 
 // Client is the host's Net for one origin. Its fields are this
 // package's, so only NewClient makes one.
-type Client { origin string, limits Limits } implements Net
+type Client { origin string, limits Limits, credentials []Credential } implements Net
 
 // NewClient is a Net to origin (scheme://authority) whose responses have
-// at most limits.MaxHeaderBytes of header and limits.MaxBodyBytes of body.
-// No request is made until a Send.
-func NewClient(origin string, limits Limits) Client fails InvalidClient | InvalidLimits needs Ambient {
+// at most limits.MaxHeaderBytes of header and limits.MaxBodyBytes of body,
+// and that sends each credential with every request, after the request's
+// own header. A credential is the only way to give a Net a secret header:
+// it stays Redacted inside the Client, so a provider wrapped around the
+// Net never sees it. A credential of another origin is InvalidClient. No
+// request is made until a Send.
+func NewClient(origin string, limits Limits, credentials []Credential) Client fails InvalidClient | InvalidLimits needs Ambient {
 	try checkOrigin(origin, limits)
-	Client{origin: origin, limits: limits}
+	Client{origin: origin, limits: limits, credentials: try bound(origin, credentials)}
 }
 
-// Send joins r.Path and r.Query to the origin and sends r. Redirects are
-// responses; there is no retry and no timeout of its own.
+// bound is credentials when each is origin's, or InvalidClient naming the
+// first that is not: a Net has one origin, and a credential goes only to
+// its own.
+func bound(origin string, credentials []Credential) []Credential fails InvalidClient {
+	if len(credentials) == 0 {
+		return credentials
+	}
+	let own = try originOf(origin)
+	for c in credentials {
+		if c.origin != own {
+			return InvalidClient{Origin: origin, Reason: "a credential of " + c.origin + " is not this Net's"}
+		}
+	}
+	credentials
+}
+
+// sent is header and then each credential's field: the header a Net's
+// transport sends.
+func sent(header []Field, credentials []Credential) []Field {
+	let mut out = header
+	for c in credentials {
+		out = out.Append(revealed(c))
+	}
+	out
+}
+
+// Send joins r.Path and r.Query to the origin and sends r with the
+// Client's credentials. Redirects are responses; there is no retry and no
+// timeout of its own.
 func Send(c Client, r Request) Response fails RequestFailed {
 	let text = match r.Body {
 	case Buffered as b:
@@ -109,7 +141,7 @@ func Send(c Client, r Request) Response fails RequestFailed {
 	case BodyTooLarge, BodyReadFailed:
 		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
 	}
-	send(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, r.Header, text) catch {
+	send(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, sent(r.Header, c.credentials), text) catch {
 	case SendFailed as f:
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
@@ -124,7 +156,7 @@ func SendInto(c Client, r Request, accept Accept, put func(part string) fails Si
 	case BodyTooLarge, BodyReadFailed:
 		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
 	}
-	try sendInto(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, r.Header, text, func(status int) bool { Accepts(accept, status) }, put) catch {
+	try sendInto(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, sent(r.Header, c.credentials), text, func(status int) bool { Accepts(accept, status) }, put) catch {
 	case SendFailed as f:
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
@@ -154,10 +186,87 @@ extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, l
 // Handler is a Net with no socket: Send calls handle under a Recorder, as
 // Serve would call it, and never fails. A test binds it so a client is
 // checked against its server in memory.
-type Handler { handle func(Request) Response needs Streaming } implements Net
+type Handler { handle func(Request) Response needs Streaming, credentials []Credential } implements Net
 
 // InMemory is a Net that answers with handle.
-func InMemory(handle own func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
+func InMemory(handle own func(Request) Response needs Streaming) Handler { Handler{handle: handle, credentials: []Credential{}} }
+
+// InMemoryAt is a Net of origin that answers with handle and sends it each
+// credential, as NewClient's Client sends them: handle reads the request's
+// own header and then each credential's field. A credential of another
+// origin is InvalidClient.
+func InMemoryAt(origin string, credentials []Credential, handle own func(Request) Response needs Streaming) Handler fails InvalidClient {
+	Handler{handle: handle, credentials: try bound(origin, credentials)}
+}
+
+// CredentialPassesUnseen: a Net wrapped around a Net that holds a
+// credential (a recorder, a logger) sees, in the whole text of every
+// request it forwards and every response and part it gets back, no byte
+// of the secret, while the handler behind it reads the request's own
+// header and then the credential's field, by Send and by SendInto. A
+// credential of another origin is refused where the Net is made.
+law CredentialPassesUnseen(secret string, header []Field, into bool) {
+	let key = "key-" + secret
+	let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: header, Body: Buffered{Text: ""}}
+	if strings.Contains("\(r)", key) {
+		return true
+	}
+	let c = ForOrigin("http://api.test", "X-Api-Key", config.NewRedacted(key)) catch {
+	case InvalidClient:
+		return false
+	}
+	let got = sync.NewRef[[]Field]([]Field{})
+	let inner = InMemoryAt("http://api.test", []Credential{c}, func(q Request) Response needs Streaming {
+		got.Set(q.Header)
+		Response{Status: 200, Header: []Field{}, Body: "ok"}
+	}) catch {
+	case InvalidClient:
+		return false
+	}
+	let w = watched{inner: inner, seen: sync.NewRef[string]("")}
+	if into {
+		let _ = w.SendInto(r, AnySuccess, func(part string) fails SinkFailed {}) catch {
+		case RequestFailed, StatusRefused, SinkFailed:
+			return false
+		}
+	} else {
+		let _ = w.Send(r) catch {
+		case RequestFailed:
+			return false
+		}
+	}
+	!strings.Contains(w.seen.Get(), key) && got.Get() == header.Append(Field{Name: "X-Api-Key", Value: key}) && refusesOther(c)
+}
+
+// watched is a Net around inner that keeps the text of every request it
+// forwards and every response and part it gets back, as a recorder would.
+type watched { inner Handler, seen sync.Ref[string] } implements Net
+
+func Send(w watched, r Request) Response fails RequestFailed {
+	w.seen.Update(func(s string) string { s + "\(r)" })
+	let response = try w.inner.Send(r)
+	w.seen.Update(func(s string) string { s + "\(response)" })
+	response
+}
+
+func SendInto(w watched, r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed {
+	w.seen.Update(func(s string) string { s + "\(r)" })
+	let response = try w.inner.SendInto(r, accept, func(part string) fails SinkFailed {
+		w.seen.Update(func(s string) string { s + part })
+		try put(part)
+	})
+	w.seen.Update(func(s string) string { s + "\(response)" })
+	response
+}
+
+// refusesOther is whether a Net of another origin refuses c.
+func refusesOther(c Credential) bool {
+	let _ = InMemoryAt("http://other.test", []Credential{c}, func(q Request) Response needs Streaming { Response{Status: 200, Header: []Field{}, Body: ""} }) catch {
+	case InvalidClient:
+		return true
+	}
+	false
+}
 
 // InMemorySendIntoIsSend: the in-memory Net's SendInto gives put exactly
 // Send's body, and an empty Body back, when accept takes the status; any
@@ -186,13 +295,13 @@ law InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, li
 }
 
 func Send(h Handler, r Request) Response fails RequestFailed {
-	with context { Streaming: NewRecorder() } { h.handle(r) }
+	with context { Streaming: NewRecorder() } { h.handle(Request{..r, Header: sent(r.Header, h.credentials)}) }
 }
 
 // SendInto answers as Send, then gives an accepted body to put in one
 // part (none when it is empty).
 func SendInto(h Handler, r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed {
-	let response = with context { Streaming: NewRecorder() } { h.handle(r) }
+	let response = with context { Streaming: NewRecorder() } { h.handle(Request{..r, Header: sent(r.Header, h.credentials)}) }
 	if !Accepts(accept, response.Status) {
 		return StatusRefused{Status: response.Status, Prefix: refusedPrefix(response.Body)}
 	}
