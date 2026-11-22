@@ -1,0 +1,72 @@
+// awss3bench is the generated S3 client's counted probe (wf10 GEN-EMIT),
+// with a hand Go twin in ../../testdata/control and a floor in
+// ../../testdata/floor (go run ./scripts/opcount -control -rounds 3
+// benchmarks/awss3/calls).
+//
+//	awss3bench bench calls N
+//
+// One unit is one round of three calls through s3.Api over
+// http.InMemory(memory.Handler(store)), so no socket is counted: a
+// HeadObject (the answer's headers read into the output record), a
+// GetObject of a 64 KB object into a sink, and a DeleteObject of a key
+// that is not there (S3 answers 204). The store holds the one object, put
+// before the count starts. Neither side signs.
+
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/memory
+import github.com/cevr/ergo/modules/aws/s3
+import http
+import os
+import strconv
+import strings
+import sync
+
+func bench(n int) int {
+	let store = memory.NewMemory()
+	let api = s3.New(http.InMemory(memory.Handler(store)), aws.Unsigned)
+	let body = strings.Repeat("0123456789abcdef", 4096)
+	let put = s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", "dir/obj"), Body: body, ContentType: Some[string]{"application/octet-stream"}, Metadata: Map[string, string]{"owner": "bench"}}
+	let _ = api.PutObject(put) catch {
+	case _:
+		return -1
+	}
+	let head = s3.NewHeadObjectRequest("bk", "dir/obj")
+	let get = s3.NewGetObjectRequest("bk", "dir/obj")
+	let gone = s3.NewDeleteObjectRequest("bk", "dir/missing")
+	let size = sync.NewRef[int](0)
+	let mut t = 0
+	for _ in 0..n {
+		let h = api.HeadObject(head) catch {
+		case _:
+			return -1
+		}
+		match h.ContentLength {
+		case Some as v:
+			t = t + v.Value
+		case None:
+		}
+		let _ = api.GetObject(get, func(part string) fails http.SinkFailed { size.Update(func(s int) int { s + len(part) }) }) catch {
+		case _:
+			return -1
+		}
+		let _ = api.DeleteObject(gone) catch {
+		case _:
+			return -1
+		}
+	}
+	t + size.Get()
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 || args[0] != "bench" || args[1] != "calls" {
+			return os.Exit{Code: 2, Message: "usage: awss3bench bench calls N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "awss3bench: N is not a count"}
+		}
+		Console.Println("\(bench(n))")
+	}
+}

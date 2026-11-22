@@ -1,0 +1,5 @@
+# NO-BUILTINS: nb bench repeat N, one unit per element.
+unit op
+sizes 409600 2457600
+args bench repeat {n}
+control benchmarks/nbexp/testdata/control

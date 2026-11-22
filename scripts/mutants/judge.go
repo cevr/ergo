@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
 // A package's mutants are judged in bounded work (GT-BOUND: the runner ran
@@ -254,7 +256,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			o = neverRan(o)
 			t := &covTest{ID: id, Seconds: o.seconds}
 			if o.reason != "" {
-				t.Failed, t.Detail = true, baseDetail(o)
+				t.Failed, t.Detail = true, baseDetail(id, o)
 				e.logf("baseline: %s fails on the unmutated tree (%s): its rows are unjudged\n%s", id, o.reason, lastLines(o.tail, 8))
 			}
 			mu.Lock()
@@ -367,11 +369,11 @@ func (w *worker) locate(m *Mutant, r *Result) (*target, bool) {
 		return nil, false
 	}
 	original := string(t.original)
-	if n := strings.Count(original, m.From); n != 1 {
-		r.Status, r.Detail = Stale, fmt.Sprintf("its from occurs %d times in %s", n, m.File)
+	at, err := anchor.Locate(m.File, t.original, m.Decl, m.From)
+	if err != nil {
+		r.Status, r.Detail = Stale, err.Error()
 		return nil, false
 	}
-	at := strings.Index(original, m.From)
 	r.Line = 1 + strings.Count(original[:at], "\n")
 	t.lo, t.hi = r.Line, r.Line+strings.Count(m.From, "\n")
 	t.header = headerLine(original, at) && m.Anchor == nil
@@ -673,28 +675,38 @@ func firstCompileError(detail string) string {
 }
 
 // testError is a line a failing Go test prints: a t.Error or t.Fatal
-// line (file_test.go:12: …), a panic, or a build error.
-var testError = regexp.MustCompile(`(?m)^\s*(\S+\.go:\d+(:\d+)?: .*|panic: .*)$`)
+// line (file_test.go:12: …), a panic, or a build error; or the FAIL line
+// of a command killer (scripts/examples: "FAIL modules/work: test: …").
+var testError = regexp.MustCompile(`(?m)^\s*(\S+\.go:\d+(:\d+)?: .*|panic: .*|FAIL \S+: .*)$`)
 
 // firstError is the first error line of a failed test's output, else its
-// first line that is not go test's own bookkeeping; "" when it has none.
+// first line that is neither go test's bookkeeping nor a passing or
+// skipped case of a command killer ("ok …", "skip …": I22's
+// clone-follows-links named the examples runner's full-tier skip line as
+// the failure); "" when it has none.
 func firstError(out string) string {
 	if line := testError.FindString(out); line != "" {
 		return strings.TrimSpace(line)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "=== ") && !strings.HasPrefix(line, "--- FAIL") && line != "FAIL" {
-			return line
+		if line == "" || line == "FAIL" || strings.HasPrefix(line, "=== ") || strings.HasPrefix(line, "--- FAIL") || strings.HasPrefix(line, "ok ") || strings.HasPrefix(line, "skip ") {
+			continue
 		}
+		return line
 	}
 	return ""
 }
 
-// baseDetail is a red baseline's Detail: its reason, its first error
-// line, then its output's last lines.
-func baseDetail(o outcome) string {
-	return o.reason + ": " + firstError(o.tail) + "\n" + lastLines(o.tail, 20)
+// baseDetail is the Detail of id's red run on the unmutated tree: its
+// reason, its first error line and the file that keeps its whole output
+// (keepRed), then its output's last lines.
+func baseDetail(id string, o outcome) string {
+	first := firstError(o.tail)
+	if path := keepRed(id, o); path != "" {
+		first += " (whole output: " + path + ")"
+	}
+	return o.reason + ": " + first + "\n" + lastLines(o.tail, 20)
 }
 
 // redDetail is the Detail of a row whose covering tests red fail on the

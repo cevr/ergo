@@ -3,7 +3,7 @@ package lower
 import (
 	"testing"
 
-	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/lawledger/parsed"
 )
 
 // stdLintLawsProbe restates the laws of std lint's laws.ergo as Ergo
@@ -170,6 +170,6 @@ var stdLintLawStatements = map[string]string{
 func TestStdLintLawsRun(t *testing.T) {
 	needsBuild(t)
 	if laws := lawProbe(t, "stdlint", stdLintLawsProbe, stdLintLawStatements); laws != nil {
-		lawledger.Run(t, laws)
+		parsed.Run(t, laws)
 	}
 }

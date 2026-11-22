@@ -136,7 +136,7 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 	default:
 		return nil, b.expr(x) // expr converts
 	}
-	e = b.valueCopy(unparen(x), e) // ir_copy.go
+	e = b.ownTemp(unparen(x), b.valueCopy(unparen(x), e)) // ir_copy.go // ir_own.go: a temporary its statement owns (R43)
 	if _, ok := b.l.info.Implicit[x]; !ok {
 		x = unparen(x)
 	}
@@ -144,11 +144,12 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 }
 
 // plain stops x if the emitter does more than compute it: an owned
-// temporary or a context value. The value rule's copy is built
+// temporary the frame does not register (ownTemp registers the rest,
+// ir_own.go) or a context value. The value rule's copy is built
 // (valueCopy, ir_copy.go); an implicit conversion is the caller's
 // (implicit, ir_union.go).
 func (b *irBuilder) plain(x syntax.Expr) {
-	if b.l.info.OwnedTemps[x] != nil {
+	if b.l.info.OwnedTemps[x] != nil && !b.tempOwnable(x, b.own) {
 		irNo("owned temporary")
 	}
 	if b.l.info.ContextValues[x] != nil {
@@ -203,7 +204,7 @@ func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 	if i, ok := b.preset[x]; ok {
 		return &irExpr{K: "local", Pos: b.pos(x, x.Pos()), I: i} // evaluated once already (ir_uigroup.go)
 	}
-	return b.implicit(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x)))) // ir_constfold.go // ir_copy.go
+	return b.implicit(x, b.ownTemp(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x))))) // ir_constfold.go // ir_copy.go // ir_own.go
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
@@ -237,9 +238,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, built := b.strBufs[o]; built {
 				return b.strCall("StrGet", i, p) // strbuf.go
 			}
-			if b.scalars[o] != nil {
-				// Its gather writes statements: a value (ir_scalar.go).
-				irNo("scalar-form local inside an expression")
+			if sc := b.scalars[o]; sc != nil {
+				// Its gather writes statements (ir_scalar.go): they run
+				// before the expression that holds the read, in order, as
+				// a call's do (ir_order.go), as the emitter's gather does.
+				pre, e := b.gather(sc, x, p)
+				b.runFirst(pre)
+				return e
 			}
 			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
 				// A package let lowered as a Go constant (constLet): its

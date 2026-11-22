@@ -47,6 +47,16 @@ func EffectActs(target string) (ok, refuted bool, why string) {
 	return gofacts.Acts(FactLedger(), gofacts.EffectKey(target), e.Digest(toolchain.Version), toolchain.Version)
 }
 
+// HostActs reports whether target's host row acts (HOST-ROW):
+// gofacts.Hosts has it, and its guard line is current and validated.
+func HostActs(target string) (ok, refuted bool, why string) {
+	e, found := gofacts.HostOf(target)
+	if !found {
+		return false, false, "the reviewed table gofacts.Hosts has no host row for it"
+	}
+	return gofacts.Acts(FactLedger(), gofacts.HostKey(target), e.HostDigest(toolchain.Version), toolchain.Version)
+}
+
 // PureActs reports whether the Go package path's pure row acts: it is in
 // v1.PureImports and its guard line is current and validated.
 func PureActs(path string) bool {

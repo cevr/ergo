@@ -20,7 +20,9 @@ import (
 // TestIRFilePerPackage: the IR path's package split (compile-speed CS10)
 // gives each Go package of a split program the IR file of its own bodies,
 // in its folder. On examples of several Ergo packages: the functions an
-// IR file names are exactly its package's functions without a Go body;
+// IR file names are exactly its package's functions without a Go body
+// (a generic one's Go body is the placeholder the patched compile
+// replaces, PATCH-MIN M3: no body of its own either);
 // some program has IR bodies in two packages; and every package-scope
 // name an IR body spells is declared in its own package, the one scope
 // the patched compile resolves it in, which for some program means a
@@ -40,7 +42,8 @@ import (
 // (cs-ir-foreign-undeclared); a generic name spelled before the split's
 // rename (m5-generic-unrenamed), not imported (m5-generic-unimported), or
 // called by a plain call (m5-generic-plain-call); a package let of another
-// package refused (q5b-foreign-let-refused).
+// package refused (q5b-foreign-let-refused); a placeholder the reader does
+// not match, a Go body the IR file also names (irf-placeholder-unread).
 func TestIRFilePerPackage(t *testing.T) {
 	twoPackages, foreign, generic := false, false, false
 	for _, name := range []string{"particles", "forge", "todo-shell", "calc", "sudoku", "stopwatch"} {
@@ -241,7 +244,7 @@ func goDecls(t *testing.T, f lower.File, decls, bodiless, imports map[string]boo
 			} else {
 				decls[name] = true
 			}
-			if d.Body == nil {
+			if d.Body == nil || irPlaceholder(d.Body) {
 				bodiless[name] = true
 			}
 		case *ast.GenDecl:
@@ -257,6 +260,33 @@ func goDecls(t *testing.T, f lower.File, decls, bodiless, imports map[string]boo
 			}
 		}
 	}
+}
+
+// irPlaceholder reports a body that is exactly the placeholder a generic
+// declaration whose body the IR gives takes (lower's irPlaceholder): one
+// call of panic with the string the patched compile's reader matches
+// (toolchain/ir/_go/.../ergoir/ergoir_placeholder.go, ergoPlaceholder).
+func irPlaceholder(body *ast.BlockStmt) bool {
+	if len(body.List) != 1 {
+		return false
+	}
+	st, ok := body.List[0].(*ast.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := st.X.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 || call.Ellipsis.IsValid() {
+		return false
+	}
+	if fun, ok := call.Fun.(*ast.Ident); !ok || fun.Name != "panic" {
+		return false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return false
+	}
+	text, err := strconv.Unquote(lit.Value)
+	return err == nil && text == "ergoir: no IR body"
 }
 
 // recvName is a receiver type's name.

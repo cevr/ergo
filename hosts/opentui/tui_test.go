@@ -118,7 +118,12 @@ func play(bin, script string, args ...string) (string, error) {
 }
 
 // agreeApps are the apps of cmd/hostagree; seed s plays app s mod their count.
-var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch", "spin", "drag"}
+var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch", "spin", "drag", "choice", "reading"}
+
+// readings are texts the reading app publishes: its first, equal to the
+// last, shorter and longer than the reserve "--:--" (clipped), and empty
+// ("-").
+var readings = []string{"00:00", "12:34", "9", "12:34:56", "-"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
@@ -140,6 +145,11 @@ func genScript(r *rand.Rand, app string) string {
 	if app == "list" {
 		// a turn of the wheel while the list (60 rows) has room to move
 		lines = append(lines, fmt.Sprintf("wheel list %d", 1+r.IntN(3)))
+	}
+	if app == "choice" {
+		// four Tabs: past "a" to "c" to "reset", where a Tab that took the
+		// disabled "d" would stop (mutant OTSEM-disabled-focused)
+		lines = append(lines, "focus 4")
 	}
 	if app == "drag" {
 		// a press held in the bottom band for some frames, so every drag
@@ -187,8 +197,19 @@ func genScript(r *rand.Rand, app string) string {
 			// frames a few at a time, so a spin (12 frames) ends in some
 			// scripts and runs through others
 			step = pick(r, "tap go", fmt.Sprintf("frames %d", 1+r.IntN(4)), fmt.Sprintf("frames %d", 1+r.IntN(4)), "cost frames 1")
+		case "choice":
+			// the radios by role and name ("d" is disabled), and Tab
+			// through them (focus below), which takes "a" to "c" only
+			step = pick(r, "click a", "click b", "click c", "click d", "tap reset")
+		case "reading":
+			step = pick(r, "publish "+pick(r, readings...), "publish "+pick(r, readings...), "tap tick")
 		case "sketch":
-			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(10))
+			// the canvas is 150 DIPs high, 9 whole rows of 16 on the
+			// terminal (Cells rounds 9.375 to 9), so y stays in rows 0 to
+			// 8: a press at 144 is in the Area on TestHost and below it on
+			// the terminal (follow-up OT-CANVAS-OFFGRID, as OFF-GRID-ROWS
+			// for lists)
+			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(9))
 		case "list":
 			// the wheel turns down more than up, so it moves a list that
 			// starts at its top
