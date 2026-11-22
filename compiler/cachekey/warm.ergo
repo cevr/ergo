@@ -24,10 +24,38 @@ let WarmVariable = "ERGO_BUILD"
 // answer, so it is not part of a key.
 let StageReportVariable = "ERGO_STAGE_REPORT"
 
+// WarmLocations are the GO*, CGO_* and ERGO_* variables that say where a
+// run keeps or reports things (caches, scratch, the store's own folder,
+// reports, the run budget's scheduling), not what it answers: a request
+// that differs only in one has the same key (GB-WARMENV). Every other
+// such variable, classified as an answer or unknown, is in the key.
+// internal/sketchfront's warmEnv names the same locations (its false
+// entries; TestWarmKeyAgreesWithErgo).
+let WarmLocations = []string{
+	"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV",
+	"GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT",
+	"ERGO_CACHE", StageReportVariable, WarmVariable, "ERGO_PARITY_LOG",
+	"ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE",
+	"ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET",
+	"ERGO_GATE_CPUS",
+}
+
+// answerEnviron is Environ less every location (WarmLocations).
+func answerEnviron(environ []string) []string {
+	let mut out = []string{}
+	for kv in Environ(environ, StageReportVariable) {
+		let name = strings.Split(kv, "=")[0]
+		if !slices.Contains(WarmLocations, name) {
+			out = out.Append(kv)
+		}
+	}
+	out
+}
+
 // WarmKey is the key of a request: the parts the caller names (command,
 // folder, options, toolchain), the compiler's identity, the environment's
-// build variables (Environ, without the stage report and ERGO_BUILD) and
-// the Go experiments, framed. It is "" when the compiler has no identity,
+// build variables that are not locations (answerEnviron) and the Go
+// experiments, framed. It is "" when the compiler has no identity,
 // or only one scoped to its process, which keys nothing another process
 // may trust.
 func WarmKey(compiler string, parts []string, environ []string, experiments []string) string {
@@ -38,7 +66,7 @@ func WarmKey(compiler string, parts []string, environ []string, experiments []st
 	for p in parts {
 		all = all.Append(p)
 	}
-	let env = Environ(Environ(environ, StageReportVariable), WarmVariable)
+	let env = answerEnviron(environ)
 	all = all.Append("\(len(env))")
 	for kv in env {
 		all = all.Append(kv)
@@ -47,17 +75,19 @@ func WarmKey(compiler string, parts []string, environ []string, experiments []st
 	Framed(all)
 }
 
-// WarmKeyCoversTheAnswer: a request that differs in a build variable or
-// in its experiments has another key (AnswerIsFresh needs it), and one
-// that differs only in where its stage report goes or in ERGO_BUILD has
-// the same key.
+// WarmKeyCoversTheAnswer: a request that differs in a build variable, in
+// a variable no class names, or in its experiments has another key
+// (AnswerIsFresh needs it), and one that differs only in a location (where
+// its stage report goes, ERGO_BUILD, its scratch folder) or in a variable
+// that is no build variable has the same key.
 law WarmKeyCoversTheAnswer(parts []string, value string) {
 	let base = WarmKey("ergo 1", parts, []string{}, []string{})
 	let byEnv = base != WarmKey("ergo 1", parts, []string{"GOFLAGS=" + value}, []string{})
+	let byUnknown = base != WarmKey("ergo 1", parts, []string{"ERGO_UNCLASSIFIED=" + value}, []string{})
 	// An empty experiment name names no experiment (Go's list is joined).
 	let byExperiment = value == "" || base != WarmKey("ergo 1", parts, []string{}, []string{value})
-	let quiet = base == WarmKey("ergo 1", parts, []string{StageReportVariable + "=" + value, WarmVariable + "=" + value, "HOME=" + value}, []string{})
-	byEnv && byExperiment && quiet
+	let quiet = base == WarmKey("ergo 1", parts, []string{StageReportVariable + "=" + value, WarmVariable + "=" + value, "GOTMPDIR=" + value, "HOME=" + value}, []string{})
+	byEnv && byUnknown && byExperiment && quiet
 }
 
 // Entry is one name of a folder listing and its type bits (Go's
