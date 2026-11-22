@@ -42,9 +42,10 @@ const wholeNote = "whole: "
 const wholeTestLimit = 80
 
 // wholeOf is why the fast tier runs p whole, or "" when it does not: the
-// grant of the checkout, or the reason p's own marker gives.
+// grant of the checkout, or the reason p's own marker gives. A table the
+// gate cannot read grants nothing (testPackage.unread).
 func wholeOf(root string, p testPackage) (string, error) {
-	if p.closure != nil && slices.Contains(p.closure.Declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {
+	if p.closure != nil && !p.unread && slices.Contains(p.closure.Declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree}) {
 		return "the closure table grants it the whole checkout", nil
 	}
 	dir := filepath.Join(root, filepath.FromSlash(p.dir))
