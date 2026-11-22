@@ -39,7 +39,7 @@ A page sees `title`, `url`, `body`, `meta` (its front matter, a record) and `pag
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 cp -R examples/ssg/testdata/site /tmp/site
 ./bin/ergo build examples/ssg/cmd/ssg -o /tmp/ssg
 /tmp/ssg -print /tmp/site
