@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
-	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -141,7 +140,7 @@ func checkScatteredEdit(p *Pass) {
 	for _, d := range p.File.Decls {
 		syntax.Inspect(d, func(n syntax.Node) bool {
 			if pkgs, ok := groups[n]; ok {
-				p.Report(n.Pos(), n.End(), fmt.Sprintf("this change adds the same code in %d packages: %s", len(pkgs), strings.Join(pkgs, ", ")))
+				p.Report(n.Pos(), n.End(), fmt.Sprintf("this change adds the same code in %d packages: %s", len(pkgs), listText(pkgs)))
 				return false
 			}
 			return true

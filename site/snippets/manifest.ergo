@@ -1,0 +1,147 @@
+import exec
+import json
+import strings
+
+// The manifest, site/examples/planned.tsv, lists every planned snippet:
+// a file under planned/ that shows a feature which has not landed. Its
+// columns are the path below site/examples, the feature in plain words,
+// and the check that turns green when the feature lands. A snippet with a
+// row carries the "next" badge on the site; nothing else gives it one.
+
+// Planned is one row of the manifest.
+type Planned { Path string, Feature string, Check string }
+
+// manifestHeader is the first line of the manifest.
+let manifestHeader = "path\tfeature\tcheck"
+
+// Manifest is the reading of the manifest: its rows, and the problems of
+// the rows that do not read.
+type Manifest { Rows []Planned, Problems []string }
+
+// ParseManifest reads the manifest named file.
+func ParseManifest(file string, body string) Manifest {
+	let lines = rows(body)
+	if len(lines) == 0 || lines[0] != manifestHeader {
+		return Manifest{Rows: []Planned{}, Problems: []string{"\(file):1: the first line is not \"path<TAB>feature<TAB>check\""}}
+	}
+	let mut out = []Planned{}
+	let mut problems = []string{}
+	for i in 1..len(lines) {
+		let cells = strings.Split(lines[i], "\t")
+		if len(cells) != 3 || cells[0] == "" || cells[1] == "" || cells[2] == "" {
+			problems = problems.Append("\(file):\(i + 1): a row is a path, a feature and a check, none empty")
+			continue
+		}
+		out = out.Append(Planned{Path: cells[0], Feature: cells[1], Check: cells[2]})
+	}
+	Manifest{Rows: out, Problems: problems}
+}
+
+// JudgeManifest judges the manifest m against the planned snippets on
+// disk, files, each a path below site/examples: every file has one row
+// and every row names a file under planned/.
+func JudgeManifest(file string, m Manifest, files []string) []string {
+	let mut problems = m.Problems
+	let mut seen = Map[string, int]{}
+	for r in m.Rows {
+		seen[r.Path] = count(seen, r.Path) + 1
+		if count(seen, r.Path) == 2 {
+			problems = problems.Append("\(file): \(r.Path) has two rows")
+		}
+		if !strings.HasPrefix(r.Path, "planned/") {
+			problems = problems.Append("\(file): \(r.Path) is not under planned/: a checked snippet has no row and no badge")
+		} else if !holds(files, r.Path) {
+			problems = problems.Append("\(file): \(r.Path) has a row and no file")
+		}
+	}
+	for f in files {
+		if count(seen, f) == 0 {
+			problems = problems.Append("\(file): \(f) is planned and has no row")
+		}
+	}
+	problems
+}
+
+// JudgeChecked judges `ergo check DIR` of a checked snippet: it exits 0
+// and its envelope has no diagnostic.
+func JudgeChecked(dir string, r exec.Result) []string {
+	if r.Status != 0 {
+		return []string{"\(dir): ergo check exits \(r.Status); a checked snippet checks:\n" + indent(r.Stdout+r.Stderr)}
+	}
+	let n = diagnostics(r.Stdout)
+	if n != 0 {
+		return []string{"\(dir): ergo check reports \(n) diagnostics; a checked snippet has none:\n" + indent(r.Stdout)}
+	}
+	[]string{}
+}
+
+// JudgeFormatted judges `ergo fmt --check` of the checked snippets.
+func JudgeFormatted(dir string, r exec.Result) []string {
+	if r.Status != 0 {
+		return []string{"\(dir): ergo fmt --check exits \(r.Status):\n" + indent(r.Stdout+r.Stderr)}
+	}
+	[]string{}
+}
+
+// JudgePlanned judges `ergo check --want FILE` of a planned snippet: it
+// passes while the snippet fails exactly as its `// want` markers say.
+// When the feature lands the marked diagnostics are gone, the run fails,
+// and the snippet moves to checked/ with its row and markers deleted.
+func JudgePlanned(file string, r exec.Result) []string {
+	if r.Status == 0 {
+		return []string{}
+	}
+	if strings.Contains(r.Stdout, "got []") {
+		return []string{"\(file): now checks: its feature has landed; move it to checked/, delete its // want markers and its row in planned.tsv"}
+	}
+	[]string{"\(file): fails other than its // want markers say:\n" + indent(r.Stdout+r.Stderr)}
+}
+
+// diagnostics is the number of diagnostics in a check envelope, or -1 when
+// out is not one.
+func diagnostics(out string) int {
+	let v = json.Decode(json.Codec[json.Value]{MaxBytes: 1 << 24, MaxDepth: 64}, out) catch {
+	case _:
+		return -1
+	}
+	match v {
+	case json.Object as o:
+		match member(o, "diagnostics") {
+		case json.Array as a:
+			len(a.Items)
+		case _:
+			-1
+		}
+	case _:
+		-1
+	}
+}
+
+// count is m's number for k, 0 when it has none.
+func count(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some as n:
+		n.Value
+	case None:
+		0
+	}
+}
+
+// holds reports whether xs holds x.
+func holds(xs []string, x string) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// indent is text with each line indented, for a problem's detail.
+func indent(text string) string {
+	let mut out = ""
+	for line in rows(text) {
+		out = out + "\t" + line + "\n"
+	}
+	out
+}

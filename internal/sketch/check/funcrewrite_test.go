@@ -25,7 +25,9 @@ import (
 // Mutants: lf6-impure-side-admitted, lf6-same-size-admitted,
 // lf6-orphan-admitted, lf6-ergo-only-law-refused (q195: the checker asks
 // for a Go function), lf6-wider-failure-row-admitted,
-// lf6-guarded-law-admitted.
+// lf6-guarded-law-admitted, lf6-impure-row-text-stale (the refusal names the
+// row the call charges: Ambient for os.Getenv, interop.md Purity and
+// authority).
 //
 // ERGO_FUNCREWRITE_SEED=N replays one seed.
 func TestFunctionRewriteShapes(t *testing.T) {
@@ -166,7 +168,7 @@ var frFuncs = []frFunc{
 	{name: "Check", arity: 1, pure: true, ergo: true, fails: true, local: true},
 	{name: "Apply", arity: 1, ergo: true, local: true, impureText: "function Apply calls"},
 	{name: "strings.ToUpper", arity: 1, pure: true},
-	{name: "os.Getenv", arity: 1, impureText: "Getenv needs {go.Foreign}"},
+	{name: "os.Getenv", arity: 1, impureText: "Getenv needs {Ambient}"},
 }
 
 // frExpr is a generated side: a parameter, a constant, a call of a
