@@ -137,7 +137,7 @@ func Number(r reader) string fails WireWrongKind {
 	case scalar as s:
 		match s.Value {
 		case json.Num as v:
-			return json.Wire(v)
+			return v.Wire()
 		case _:
 		}
 	case texts as t:
@@ -145,7 +145,7 @@ func Number(r reader) string fails WireWrongKind {
 		case json.Malformed:
 			return wrong(r, n, "number")
 		}
-		return json.Wire(v)
+		return v.Wire()
 	case _:
 	}
 	wrong(r, n, "number")
@@ -175,7 +175,7 @@ func numberText(n node) Option[string] {
 	match n {
 	case scalar as s:
 		match s.Value {
-		case json.Num as v: Some{Value: json.Wire(v)}
+		case json.Num as v: Some{Value: v.Wire()}
 		case _: None
 		}
 	case texts as t:

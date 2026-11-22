@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
 // ledgerFile is the schema of a package's testdata/mutants.json, as
@@ -28,6 +30,7 @@ type ledgerFile struct {
 		Name    string   `json:"name"`
 		Origin  string   `json:"origin"`
 		File    string   `json:"file"`
+		Decl    string   `json:"decl"` // scripts/mutants Mutant.Decl (MN0)
 		From    string   `json:"from"`
 		To      string   `json:"to"`
 		Rule    string   `json:"rule"`
@@ -130,8 +133,8 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 				t.Errorf("%s: %s: %v", path, m.Name, err)
 				continue
 			}
-			if n := strings.Count(string(src), m.From); n != 1 {
-				t.Errorf("%s: %s: from occurs %d times in %s, want exactly once", path, m.Name, n, m.File)
+			if _, err := anchor.Locate(m.File, src, m.Decl, m.From); err != nil {
+				t.Errorf("%s: %s: %v, want exactly once", path, m.Name, err)
 			}
 		}
 		return nil
