@@ -221,7 +221,8 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		p.Files[genprogram.Name(last)+"/unread.ergo"] = fmt.Sprintf("import %s/%s\n\n// unread is called by no test: no verdict of %s reads %s.\nfunc unread() int {\n\tlen(%s.Make0(0))\n}\n",
 			p.Module, unread, genprogram.Name(last), unread, unread)
 		p.Files[pkgFile(fresh[1])] += "\n// Probe is read by a call of " + genprogram.Name(last) + "'s tests.\nfunc Probe() int {\n\tlen(Make0(0))\n}\n"
-		p.Files[genprogram.Name(last)+"/reach.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\n\ntest ReadsByACall {\n\tassert %[2]s.Probe() == 0\n}\n\n// TotalIsNeverNegative is a law, whose verdict the store keeps.\nlaw TotalIsNeverNegative(n int) {\n\tassert Total(n %% 3 + 3) >= 0\n}\n", p.Module, byCall)
+		p.Files[genprogram.Name(last)+"/reach.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\n\ntest ReadsByACall {\n\tassert %[2]s.Probe() == 0\n}\n", p.Module, byCall)
+		p.Files[pkgFile(last)] += "\n// TotalIsNeverNegative is a law, whose verdict the store keeps.\nlaw TotalIsNeverNegative(n int) {\n\tTotal(n % 3 + 3) >= 0\n}\n"
 		p.Files["quiet/quiet.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\n\n// Q has no test: its evaluation holds no obligation.\nfunc Q() int {\n\tlen(%[2]s.Make0(0))\n}\n", p.Module, unread)
 		if seed%2 == 0 {
 			// A package let whose initializer calls Go: check time skips
@@ -281,14 +282,18 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 						same = false
 					}
 				}
-				// The normal path twice, with the store emptied (q14: the
-				// cutoff gives the verdicts a run that keeps nothing gives):
-				// its first run stores every verdict, so its second prints
-				// what every later run prints ("cached").
+				// The normal path twice, on a copy of the store the cutoff
+				// runs on (q14: the cutoff gives the verdicts a run that
+				// keeps nothing gives): a law's verdict is "cached" in the
+				// run after the one that stored it, on both sides alike.
 				store := os.Getenv("ERGO_CACHE")
-				t.Setenv("ERGO_CACHE", t.TempDir())
-				runCheckTree(t, pattern, true)
+				copied := t.TempDir()
+				if err := os.CopyFS(copied, os.DirFS(store)); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("ERGO_CACHE", copied)
 				want := runCheckTree(t, pattern, true)
+				wantAgain := runCheckTree(t, pattern, true)
 				t.Setenv("ERGO_CACHE", store)
 				after := treeFingerprints(t, pattern)
 				reran := map[string]bool{}
@@ -308,12 +313,12 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				if !bytes.Equal(got.out, want.out) || (got.err == nil) != (want.err == nil) {
 					fail("the answer differs from the normal path's\n got %v\n%s\nwant %v\n%s", got.err, got.out, want.err, want.out)
 				}
-				// The run after it: a run that stored verdicts keeps
-				// nothing, so this one prints what the emptied store's
-				// second run prints, never the first's
-				// (ws0b-keeps-after-puts).
-				if again := runCheckTree(t, pattern, false); !bytes.Equal(again.out, want.out) || (again.err == nil) != (want.err == nil) {
-					fail("the run after the edited one differs from the normal path's\n got %v\n%s\nwant %v\n%s", again.err, again.out, want.err, want.out)
+				// The run after it: a run that stored a verdict keeps
+				// nothing, so this one prints the verdict "cached", as the
+				// normal path's second run does, never the edited run's
+				// text (ws0b-keeps-after-puts: the law's verdict).
+				if again := runCheckTree(t, pattern, false); !bytes.Equal(again.out, wantAgain.out) || (again.err == nil) != (wantAgain.err == nil) {
+					fail("the run after the edited one differs from the normal path's\n got %v\n%s\nwant %v\n%s", again.err, again.out, wantAgain.err, wantAgain.out)
 				}
 				work := got.counts["files_parsed"] + got.counts["obligations_evaluated"] + got.counts["eval_steps"]
 				if kept && same != (work == 0) || !kept && work == 0 {
