@@ -324,7 +324,7 @@
     {
       "name": "wg0-new-writes-the-source", "origin": "wf10/semws WG0",
       "file": "modules/work/work/new.ergo",
-      "from": "\tlet marked = mark(t, m.Path, m.Id) catch {",
+      "from": "\tlet marked = mark(t, staging, m.Id) catch {",
       "to": "\tlet marked = mark(t, m.Parent, m.Id) catch {",
       "rule": "new writes nothing into its source: the new-carries case (the base's status).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
@@ -532,8 +532,8 @@
     {
       "name": "wg1-copy-under-the-lock", "origin": "wf10/semws WG1",
       "file": "modules/work/work/new.ergo",
-      "from": "\tlet (by, _) = cloned(t, m.Parent, m.Path, m.Copy, false) catch {\n\tcase NotSameVolume as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n",
-      "to": "\ttry hold(t)\n\tlet (by, _) = cloned(t, m.Parent, m.Path, m.Copy, false) catch {\n\tcase NotSameVolume as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n\tt.lock.Release(\"\")\n",
+      "from": "\tlet (by, _) = cloned(t, m.Parent, staging, m.Copy, false) catch {",
+      "to": "\ttry hold(t)\n\tlet (by, _) = cloned(t, m.Parent, staging, m.Copy, false) catch {",
       "rule": "No clone runs under the registry's lock: NoCopyUnderTheLock.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },

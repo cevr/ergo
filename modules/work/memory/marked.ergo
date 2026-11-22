@@ -1,3 +1,4 @@
+import filepath
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/work
@@ -44,13 +45,29 @@ func WriteFile(m Marked, path string, text string) fails fs.NotFound | fs.Denied
 	case Some[string] as root:
 		let _ = Write(m.trees, root.Value, work.MarkerFile, text)
 	case None:
+		try folderOf(m, path)
 		try m.disk.WriteFile(path, text)
+	}
+}
+
+// folderOf makes the disk's folder of path when path is in a tree: a
+// host has every folder of a tree it holds (a staged clone renamed into
+// place included), which the disk alone does not know.
+func folderOf(m Marked, path string) fails fs.Denied | fs.Failed {
+	for root, _ in m.trees.disk.Get().trees {
+		if strings.HasPrefix(path, root+"/") {
+			try m.disk.MkdirAll(filepath.Dir(path))
+			return
+		}
 	}
 }
 
 func MkdirAll(m Marked, path string) fails fs.Denied | fs.Failed { try m.disk.MkdirAll(path) }
 
-func WriteFileMode(m Marked, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.WriteFileMode(path, text, mode) }
+func WriteFileMode(m Marked, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	try folderOf(m, path)
+	try m.disk.WriteFileMode(path, text, mode)
+}
 
 func MkdirAllMode(m Marked, path string, mode fs.Mode) fails fs.Denied | fs.Failed { try m.disk.MkdirAllMode(path, mode) }
 

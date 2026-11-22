@@ -52,7 +52,7 @@ func small(n int, limit int) int { ((n % limit) + limit) % limit }
 // base on the same disk, with a workspace in its trash.
 let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
-type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
+type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk Marked, hooks Hooks, lock Lock, runner Runner }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
@@ -408,7 +408,7 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 		Unreachable("init of a memory base")
 		""
 	}
-	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock, disk: disk, hooks: hooks, lock: lock, runner: runner}
+	World{tool: tool, trees: trees, vcs: vcs, registry: registry, clock: clock, disk: MarkedOver(disk, trees), hooks: hooks, lock: lock, runner: runner}
 }
 
 // fresh are new's options with only the copy flag.
@@ -553,6 +553,9 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				case work.Unkept:
 				}
 				let cut = small(o.At, 4)
+				// The name's folder and staging folder are this crash's now.
+				let staging = work.StagingOf(work.Home(theBase, ""), crashId(name))
+				gone = slices.Filter(gone, func(p string) bool { p != path && p != staging })
 				if cut == 0 {
 					// An older work's new, which cloned in place, cut short
 					// before the clone (a folder with no checkout), or after

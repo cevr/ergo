@@ -16,7 +16,7 @@ import time
 // toolOf is a Tool over w's trees, registry, Git and disk, for the holder
 // lock (a process of its own) with the Cloners cloners.
 func toolOf(w World, lock Lock, cloners []work.Cloner) work.Tool {
-	let p = work.Providers{Cloners: cloners, Copier: Beside(w.trees, false), Registry: w.registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: w.vcs, Files: MarkedOver(w.disk, w.trees), Writes: MarkedOver(w.disk, w.trees), Runner: NewRunner(), Clock: w.clock}
+	let p = work.Providers{Cloners: cloners, Copier: Beside(w.trees, false), Registry: w.registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
 	work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 }
 
@@ -760,7 +760,7 @@ law SettleCostsAtMost(actives int, strands int, at int) {
 		}
 	}
 	let watch = Watch(Beside(w.trees, false), w.lock)
-	let p = work.Providers{Cloners: []work.Cloner{w.trees}, Copier: watch, Registry: w.registry, Lock: Sharing(w.lock, 99), Hooks: Recording(w.lock, ""), Vcs: w.vcs, Files: MarkedOver(w.disk, w.trees), Writes: MarkedOver(w.disk, w.trees), Runner: NewRunner(), Clock: w.clock}
+	let p = work.Providers{Cloners: []work.Cloner{w.trees}, Copier: watch, Registry: w.registry, Lock: Sharing(w.lock, 99), Hooks: Recording(w.lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
 	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = t.Pin("a0") catch {
 	case _:
