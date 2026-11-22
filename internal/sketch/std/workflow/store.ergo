@@ -21,8 +21,14 @@
 // failure, a defect, a stop), the store gives back a claim the block did
 // not settle, so the wake is claimable at once. Claimed is a resource that
 // only this package builds: Settle takes it, so a second Settle, or a
-// Commit after the Settle, does not check. A worker whose process dies
-// gives nothing back; its lease runs out and the wake comes back.
+// Commit after the Settle, does not check. The block can copy the claim's
+// Grant out; once the claim is settled or given back, the store refuses
+// it (a Commit or a Settle under it is Fenced). A worker whose process
+// dies gives nothing back; its lease runs out and the wake comes back.
+//
+// A store keeps wall time only, as a file can: every time it is given
+// loses its monotonic reading (Go's t.Round(0)), so the times Load and
+// Claim give are the same from every provider.
 //
 // Effect: effect/workflow's WorkflowEngine and cluster MessageStorage
 // (a run's journal and its resumption); Temporal's history with its
@@ -31,6 +37,7 @@
 // runs and a time-ordered wake per run under a mutex, a lease and an
 // epoch per run (a fencing token).
 
+import scope
 import time
 
 // RunID names a run: a payload's id gives the same run.
@@ -120,10 +127,13 @@ type Store {
 	// another cursor and Fenced when c is no longer the run's claim.
 	Commit(c Claimed, expected Cursor, events []Event, next Option[time.Time]) Cursor fails Conflict | Fenced | Failed,
 	// Settle ends c: it retires the wake when it is still the revision c
-	// claimed (a newer one stays), and gives back the lease.
-	Settle(c own Claimed) fails Failed,
+	// claimed (a newer one stays), and gives back the lease. It fails
+	// Fenced, and changes nothing, when c is no longer the run's claim.
+	Settle(c own Claimed) fails Fenced | Failed,
 	// GiveBack gives back the lease of g, when it is still the run's
-	// claim, and keeps the wake: the run is claimable at once.
+	// claim, and keeps the wake: the run is claimable at once. A grant
+	// that is no longer the run's claim (settled or given back already)
+	// changes nothing.
 	GiveBack(g Grant) fails Failed,
 	..Closer,
 
@@ -213,7 +223,7 @@ type Store {
 			0
 		}
 		let after = try Load(run, 0)
-		let whole = after.Events == before.Events.Concat(events) && dueOf(after.Wake) == Some[time.Time]{Value: due}
+		let whole = after.Events == before.Events.Concat(events) && dueIs(after.Wake, due)
 		if wrote != 0 {
 			return whole
 		}
@@ -233,7 +243,7 @@ type Store {
 		case None:
 			return false
 		}
-		if g.Run != run || g.Until != now.Add(lease) || try Claim(now, lease) != None {
+		if g.Run != run || !g.Until.Equal(now.Add(lease)) || try Claim(now, lease) != None {
 			return false
 		}
 		let _ = try Commit(Claimed{grant: g}, 1, done([]string{"a"}), Some[time.Time]{Value: now})
@@ -327,6 +337,118 @@ type Store {
 			false
 		}
 	},
+
+	// EscapedGrantIsFenced: a grant copied out of its claim and used
+	// after the claim was settled or given back (Work's end) is refused:
+	// a Commit under it is Fenced, and so is a Settle, and neither
+	// changes what Load gives.
+	law EscapedGrantIsFenced(run RunID, settled bool, sec int64) {
+		let now = at(sec)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		if settled {
+			try Settle(Claimed{grant: g}) catch {
+			case Fenced:
+				return false
+			}
+		} else {
+			try GiveBack(g)
+		}
+		let before = try Load(run, 0)
+		let late = try Commit(Claimed{grant: g}, 1, done([]string{"late"}), Some[time.Time]{Value: now}) catch {
+		case Fenced:
+			0
+		case Conflict:
+			return false
+		}
+		if late != 0 || try Load(run, 0) != before {
+			return false
+		}
+		try Settle(Claimed{grant: g}) catch {
+		case Fenced:
+			return try Load(run, 0) == before
+		}
+		false
+	},
+
+	// SettledGiveBackChangesNothing: the give-back Work's end makes after
+	// its block settled the claim changes nothing: the wake stays
+	// retired, and no claim finds it.
+	law SettledGiveBackChangesNothing(run RunID, sec int64) {
+		let now = at(sec)
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		try Settle(Claimed{grant: g}) catch {
+		case Fenced:
+			return false
+		}
+		let before = try Load(run, 0)
+		try GiveBack(g)
+		try Load(run, 0) == before && before.Wake == None && try Claim(now, 1s) == None
+	},
+}
+
+// dueIs is whether w is a wake due at t.
+func dueIs(w Option[Wake], t time.Time) bool {
+	match w {
+	case Some{Value: x}:
+		x.Due.Equal(t)
+	case None:
+		false
+	}
+}
+
+// wall is t with no monotonic reading: the time a store keeps.
+func wall(t time.Time) time.Time { time.Unix(t.UnixSeconds(), t.Nanosecond()) }
+
+// wallEvent is e with its times as a store keeps them.
+func wallEvent(e Event) Event {
+	match e {
+	case Started as s:
+		Started{Payload: s.Payload, Version: s.Version, At: wall(s.At)}
+	case StepAgain as a:
+		StepAgain{Op: a.Op, N: a.N, Attempt: a.Attempt, Due: wall(a.Due)}
+	case TimerSet as t:
+		TimerSet{Name: t.Name, Due: wall(t.Due)}
+	case _:
+		e
+	}
+}
+
+// wallOp is op with its times as a store keeps them.
+func wallOp(op Op) Op {
+	match op {
+	case Creating as c:
+		Creating{Run: c.Run, First: wallEvent(c.First), Now: wall(c.Now)}
+	case Admitting as a:
+		Admitting{Run: a.Run, Key: a.Key, Signal: a.Signal, Value: a.Value, Now: wall(a.Now)}
+	case Claiming as c:
+		Claiming{Now: wall(c.Now), Lease: c.Lease}
+	case Committing as c:
+		let mut events = []Event{}
+		for e in c.Events {
+			events = events.Append(wallEvent(e))
+		}
+		let next = match c.Next {
+		case Some{Value: t}:
+			Some[time.Time]{Value: wall(t)}
+		case None:
+			None
+		}
+		Committing{Grant: c.Grant, Expected: c.Expected, Events: events, Next: next}
+	case _:
+		op
+	}
 }
 
 // at is a time of the laws: sec seconds into the epoch, kept small.
@@ -358,14 +480,19 @@ func dueOf(w Option[Wake]) Option[time.Time] {
 // to work: it is false when no wake is due. When Work ends, on every
 // exit, the store gives back the claim unless work settled it, so the
 // wake is claimable at once; a give-back that fails leaves the lease to
-// run out.
+// run out. The give-back is an exit action of Work's own frame, so it
+// runs after the exit actions work registered (those end with work's
+// frame, inside the claim) and after the claim was settled, when it
+// changes nothing.
 func Work[E, R](s Store, now time.Time, lease duration, work func(c own Claimed) fails E needs R) bool fails E | Failed needs R {
 	match try s.Claim(now, lease) {
 	case Some{Value: g}:
-		try work(Claimed{grant: g})
-		s.GiveBack(g) catch {
-		case Failed:
+		scope.OnExit() {
+			s.GiveBack(g) catch {
+			case Failed:
+			}
 		}
+		try work(Claimed{grant: g})
 		true
 	case None:
 		false
@@ -449,11 +576,12 @@ func ended(events []Event) bool {
 
 // Apply runs op on s: the outcome, the state after it, and whether the
 // state changed (a claim that found no wake, a duplicate or refused
-// signal, a refused commit, and a settle or give-back of a claim that is
-// no longer the run's that leaves its wake, change nothing).
-func Apply(s State, op Op) (Outcome, State, bool) {
+// signal, a refused commit or settle (Behind, Unfenced), and a give-back
+// of a claim that is no longer the run's change nothing). Its times lose
+// their monotonic reading first (wall).
+func Apply(s State, given Op) (Outcome, State, bool) {
 	let mut st = s
-	match op {
+	match wallOp(given) {
 	case Creating as c:
 		if st.runs.Get(c.Run) != None {
 			return (Created{New: false}, st, false)
@@ -498,7 +626,7 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 			case None:
 				Unreachable("the best run is in the store")
 			}
-			let until = c.Now.Add(c.Lease)
+			let until = wall(c.Now.Add(c.Lease))
 			let g = Grant{Run: id, Rev: revOf(r.wake), Epoch: r.epoch + 1, Until: until}
 			st.runs[id] = run{..r, epoch: r.epoch + 1, held: true, until: until}
 			(Granted{Grant: Some[Grant]{Value: g}}, st, true)
@@ -532,14 +660,13 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 		case Some{Value: x}:
 			x
 		case None:
-			return (Done, st, false)
+			return (Unfenced{Run: e.Grant.Run}, st, false)
 		}
-		let mine = r.epoch == e.Grant.Epoch && r.held
+		if r.epoch != e.Grant.Epoch || !r.held {
+			return (Unfenced{Run: e.Grant.Run}, st, false)
+		}
 		let retire = r.wake != None && revOf(r.wake) == e.Grant.Rev
-		if !mine && !retire {
-			return (Done, st, false)
-		}
-		st.runs[e.Grant.Run] = run{..r, held: r.held && !mine, wake: if retire { None } else { r.wake }}
+		st.runs[e.Grant.Run] = run{..r, held: false, wake: if retire { None } else { r.wake }}
 		(Done, st, true)
 	case GivingBack as b:
 		let r = match st.runs.Get(b.Grant.Run) {

@@ -215,8 +215,12 @@ func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []work
 }
 
 // Settle ends c.
-func Settle(s Store, c own workflow.Claimed) fails workflow.Failed {
-	let _ = try apply(s, workflow.Settling{Grant: workflow.GrantOf(c)})
+func Settle(s Store, c own workflow.Claimed) fails workflow.Fenced | workflow.Failed {
+	match try apply(s, workflow.Settling{Grant: workflow.GrantOf(c)}) {
+	case workflow.Unfenced as u:
+		return workflow.Fenced{Run: u.Run}
+	case _:
+	}
 }
 
 // GiveBack gives back the lease of g.
@@ -279,7 +283,10 @@ func operation(s workflow.Store, i int, events []workflow.Event, now time.Time) 
 			case workflow.Conflict, workflow.Fenced:
 				Unreachable("the run's one claim commits at its cursor")
 			}
-			try s.Settle(c)
+			try s.Settle(c) catch {
+			case workflow.Fenced:
+				Unreachable("the run's one claim settles")
+			}
 		})
 	case _:
 		let _ = try s.Admit(runOf(0), "k", "go", "v", now)
@@ -451,7 +458,10 @@ func worked(s workflow.Store, now time.Time, lease duration, events []workflow.E
 		seen.Set([]int{g.Rev, g.Epoch, int(time.Milliseconds(g.Until)), int(l.Next), len(l.Events), k})
 		match mod(end, 3) {
 		case 0:
-			try s.Settle(c)
+			try s.Settle(c) catch {
+			case workflow.Fenced:
+				seen.Update(func(xs []int) []int { xs.Append(-1) })
+			}
 		case 1:
 			return stop
 		case _:
