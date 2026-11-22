@@ -298,53 +298,73 @@ func settled(t Tool) fails Unkept | Locked {
 	}
 	try hold(t)
 	t.lock.Release("")
+	let mut gone = []Workspace{}
 	for w in all {
-		if StateName(w.State) == "creating" {
-			buried(t, w)
+		if StateName(w.State) == "creating" && buried(t, w) {
+			gone = gone.Append(w)
 		}
 	}
+	dropped(t, gone)
 }
 
 // buried deletes the tomb of w, a reservation settle rolled back, with
 // the registry's lock free, so a big copy's delete never makes another
-// command wait on the lock. It holds the reservation's lock meanwhile:
-// another process's settle takes this process for the live maker and
-// leaves the record, and a cut in the delete gives the lock back to the
-// next command, which deletes again. The record is dropped after the
-// tomb is gone, under the lock, if it is still w. A delete that fails,
-// or a lock another command holds, leaves both for the next command.
-func buried(t Tool, w Workspace) {
+// command wait on the lock: true when the tomb is gone. It then holds
+// the reservation's lock, which dropped gives back: meanwhile another
+// process's settle takes this process for the live maker and leaves the
+// record, and a cut in the delete gives the lock back to the next
+// command, which deletes again. A delete that fails leaves the tomb and
+// the record for the next command.
+func buried(t Tool, w Workspace) bool {
 	let tomb = TombOf(t.home, w.Id)
 	if w.Id == "" || !t.copier.Has(tomb) {
-		return
+		return false
 	}
 	let gone = makerGone(t, w) catch {
 	case Unkept:
-		return
+		return false
 	}
 	if !gone {
-		return
+		return false
 	}
 	clonerNamed(t, w.Cloner).Discard(tomb) catch {
 	case Missing:
 	case CloneFailed:
 		unreserved(t, w)
+		return false
+	}
+	true
+}
+
+// dropped drops, in one hold, the records of the reservations whose
+// tombs buried deleted, each only while it is still the same
+// reservation, and gives their locks back. A lock another command holds,
+// or a registry that does not write, leaves the records for the next
+// command, whose settle drops them (no staging folder, no tomb).
+func dropped(t Tool, gone []Workspace) {
+	if len(gone) == 0 {
 		return
 	}
+	let mut held = true
 	hold(t) catch {
 	case Unkept, Locked:
-		unreserved(t, w)
-		return
+		held = false
 	}
-	let still = t.registry.All() catch {
-	case Unkept:
-		[]Workspace{}
-	}
-	if slices.IndexFunc(still, func(r Workspace) bool { r.Name == w.Name && r.Id == w.Id && StateName(r.State) == "creating" }) >= 0 {
-		t.registry.Drop(w.Name) catch {
+	if held {
+		let still = t.registry.All() catch {
 		case Unkept:
+			[]Workspace{}
 		}
+		for w in gone {
+			if slices.IndexFunc(still, func(r Workspace) bool { r.Name == w.Name && r.Id == w.Id && StateName(r.State) == "creating" }) >= 0 {
+				t.registry.Drop(w.Name) catch {
+				case Unkept:
+				}
+			}
+		}
+		t.lock.Release("")
 	}
-	t.lock.Release("")
-	unreserved(t, w)
+	for w in gone {
+		unreserved(t, w)
+	}
 }

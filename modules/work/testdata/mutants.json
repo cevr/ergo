@@ -52,7 +52,7 @@
     {
       "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
       "file": "modules/work/work/remove.ergo",
-      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {\n",
+      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") && !t.copier.Has(TombOf(t.home, w.Id)) {\n",
       "to": "\t\t\t} else if false {\n",
       "rule": "A crash between the reservation and the clone leaves Creating, and gc removes its record and its tree once its maker is gone: memory's ToolAgreesWithTheReference (CrashOp, GcOp), StoppedWriterIsFinished.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -1844,8 +1844,8 @@
     {
       "name": "wcg-gc-deletes-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
       "file": "modules/work/work/remove.ergo",
-      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {",
-      "to": "strings.HasPrefix(w.Path, t.home+\"/\") {",
+      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") && !t.copier.Has(TombOf",
+      "to": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(TombOf",
       "rule": "gc (bare, -idle, -id) never deletes a Creating record whose folder holds a checkout: its maker may have died after the clone, and an agent may work there (memory's ToolAgreesWithTheReference, CrashOp Cloned).",
       "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
     },
@@ -1972,9 +1972,9 @@
     {
       "name": "ns-staging-kept", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
       "file": "modules/work/work/hooks.ergo",
-      "from": "\tif t.copier.Has(staging) {\n\t\tclonerNamed(",
-      "to": "\tif false && t.copier.Has(staging) {\n\t\tclonerNamed(",
-      "rule": "A rollback deletes the staging folder before it drops the record: no staging folder outlives its record (ListShowsAStrandedReservation, SchedulesKeepTheInvariants' owned trees, ToolAgreesWithTheReference's gone paths).",
+      "from": "\tif t.copier.Has(staging) {\n\t\tt.copier.Move(staging, TombOf(",
+      "to": "\tif false && t.copier.Has(staging) {\n\t\tt.copier.Move(staging, TombOf(",
+      "rule": "A rollback renames the staging folder to its tomb, deleted before the record is dropped: no staging folder outlives its record (ListShowsAStrandedReservation, SchedulesKeepTheInvariants' owned trees, ToolAgreesWithTheReference's gone paths).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
@@ -2044,8 +2044,8 @@
     {
       "name": "rb-buried-drops-on-failure", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
       "file": "modules/work/work/hooks.ergo",
-      "from": "\tcase CloneFailed:\n\t\tunreserved(t, w)\n\t\treturn\n\t}\n\thold(t) catch {\n",
-      "to": "\tcase CloneFailed:\n\t}\n\thold(t) catch {\n",
+      "from": "\t\tunreserved(t, w)\n\t\treturn false\n\t}\n\ttrue\n}\n",
+      "to": "\t\tunreserved(t, w)\n\t}\n\ttrue\n}\n",
       "rule": "A tomb whose delete fails keeps its record for the next command.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -2068,8 +2068,8 @@
     {
       "name": "rb-no-burial", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
       "file": "modules/work/work/hooks.ergo",
-      "from": "\t\t\tburied(t, w)\n",
-      "to": "",
+      "from": "\t\tif StateName(w.State) == \"creating\" && buried(t, w) {\n",
+      "to": "\t\tif StateName(w.State) == \"creating\" && false {\n",
       "rule": "A command that settled deletes the tombs and drops their records.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }

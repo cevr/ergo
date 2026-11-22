@@ -758,7 +758,7 @@ law PlaceNeverCopies(copy bool) {
 law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
 	let w = world(true)
 	let home = work.Home(theBase, "")
-	let m = stranded(w, "a", 2, 1 + small(at, 2)) catch {
+	let m = stranded(w, "a", 2, 1+small(at, 2)) catch {
 	case _:
 		return false
 	}
