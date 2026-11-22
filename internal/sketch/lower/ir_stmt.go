@@ -383,7 +383,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if s.Tok != syntax.ASSIGN {
 			text := s.Tok.String()
 			op = text[:len(text)-1]
-			if !irOps[op] {
+			if !irOps()[op] {
 				irNo("assignment form %s", text)
 			}
 		}

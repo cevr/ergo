@@ -1,0 +1,251 @@
+// A canvas's paint list (ui.Canvas, H5c) drawn as a picture of pixels, two
+// to a cell each way, which the screen supersamples into quadrant blocks.
+// Paths are flattened to straight lines under the transforms in effect; a
+// fill covers the pixels whose centres the path holds under the nonzero
+// rule; a stroke is a fill of one quad a segment, the width wide in the
+// space it was drawn in; a clip is the box around its transformed
+// rectangle. Colors blend source over.
+
+import math
+import ui
+
+// pt is a point.
+type pt { X float64, Y float64 }
+
+// area is a box of pixels: x0, y0 inside, x1, y1 past it.
+type area { x0 float64, y0 float64, x1 float64, y1 float64 }
+
+// pushed is what a PopPaint undoes: the transform and the clip before it.
+type pushed { was ui.Affine, clip area }
+
+// picture is pixels being painted: rows of w RGBA pixels.
+type picture { px []byte, w int }
+
+// crossing is where a contour's edge crosses a scan line, and which way.
+type crossing { x float64, wind int }
+
+// curveSteps is how many lines a quadratic or cubic segment becomes.
+let curveSteps = 16
+
+// pixelsAcross is the picture's pixels across a canvas of width DIPs.
+func pixelsAcross(width ui.Length, unit float64) int { 2 * int(math.Ceil(Cells(width, unit))) }
+
+// drawCanvas gives the canvas's scene node n its picture.
+func drawCanvas[S, E, D, F](d mut Driver[S, E, D, F], n int, x ui.CanvasNode) needs go.Foreign {
+	let c = d.options.Cell
+	let w = pixelsAcross(x.Width, c.W)
+	let h = pixelsAcross(x.Height, c.H)
+	d.s.SetPixels(n, w, Raster(x.Paint, w, h, 2.0/c.W, 2.0/c.H))
+}
+
+// Raster is the picture of ops, w by h RGBA pixels (four bytes each, rows
+// top down), where a DIP is sx pixels across and sy down; pixels nothing
+// paints are transparent.
+func Raster(ops []ui.PaintOp, w int, h int, sx float64, sy float64) []byte {
+	let mut pic = picture{px: []byte{}, w: w}
+	if w > 0 && h > 0 {
+		pic.px = []byte{0}.Repeat(4 * w * h)
+	}
+	let mut m = ui.Scale(sx, sy)
+	let mut clip = area{x0: 0, y0: 0, x1: float64(w), y1: float64(h)}
+	let mut stack = []pushed{}
+	for op in ops {
+		match op {
+		case ui.FillOp as x:
+			fill(&pic, flatten(x.Path, m), x.Color, clip)
+		case ui.StrokeOp as x:
+			for c in flatten(x.Path, ui.Identity()) {
+				for i in 1..len(c) {
+					fill(&pic, [][]pt{quad(c[i-1], c[i], x.Width/2, m)}, x.Color, clip)
+				}
+			}
+		case ui.PushTransform as x:
+			stack = stack.Append(pushed{was: m, clip: clip})
+			m = compose(m, x.M)
+		case ui.PushClip as x:
+			stack = stack.Append(pushed{was: m, clip: clip})
+			let (lo, hi) = bounds(flatten(ui.RectPath(x.X, x.Y, x.W, x.H), m))
+			clip = area{x0: fmax(clip.x0, lo.X), y0: fmax(clip.y0, lo.Y), x1: fmin(clip.x1, hi.X), y1: fmin(clip.y1, hi.Y)}
+		case ui.ImageOp:
+			// The terminal decodes no image source yet: an image paints
+			// nothing (follow-up OT-IMAGE: decode Src and blend its pixels
+			// into the picture as fill does).
+		case ui.PopPaint:
+			if len(stack) > 0 {
+				let top = stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				m = top.was
+				clip = top.clip
+			}
+		}
+	}
+	pic.px
+}
+
+// quad is the stroke of the line from p to q, half wide on each side, in
+// the space p and q are in, under m.
+func quad(p pt, q pt, half float64, m ui.Affine) []pt {
+	let dx = q.X - p.X
+	let dy = q.Y - p.Y
+	let l = math.Sqrt(dx*dx + dy*dy)
+	if l == 0 {
+		return []pt{}
+	}
+	let nx = -dy / l * half
+	let ny = dx / l * half
+	[]pt{apply(m, p.X+nx, p.Y+ny), apply(m, q.X+nx, q.Y+ny), apply(m, q.X-nx, q.Y-ny), apply(m, p.X-nx, p.Y-ny)}
+}
+
+// fill paints with color the pixels inside clip whose centres the
+// contours cs hold under the nonzero rule.
+func fill(pic mut picture, cs [][]pt, color ui.Color, clip area) {
+	if len(cs) == 0 || color.A == 0 {
+		return
+	}
+	let (lo, hi) = bounds(cs)
+	let top = int(fmax(math.Floor(lo.Y), clip.y0))
+	let bottom = int(fmin(math.Ceil(hi.Y), clip.y1))
+	for y in top..bottom {
+		let sy = float64(y) + 0.5
+		let mut xs = []crossing{}
+		for c in cs {
+			for i in 0..len(c) {
+				let p = c[i]
+				let q = c[(i+1)%len(c)]
+				if (p.Y <= sy && sy < q.Y) || (q.Y <= sy && sy < p.Y) {
+					let x = p.X + (sy-p.Y)*(q.X-p.X)/(q.Y-p.Y)
+					xs = insert(xs, crossing{x: x, wind: if p.Y < q.Y { 1 } else { -1 }})
+				}
+			}
+		}
+		let mut wind = 0
+		for i in 0..len(xs) {
+			wind = wind + xs[i].wind
+			if wind != 0 && i+1 < len(xs) {
+				// The pixels whose centres lie in [xs[i].x, xs[i+1].x).
+				let from = int(fmax(math.Ceil(xs[i].x-0.5), clip.x0))
+				let to = int(fmin(math.Ceil(xs[i+1].x-0.5), clip.x1))
+				for x in from..to {
+					blend(pic, 4*(y*pic.w+x), color)
+				}
+			}
+		}
+	}
+}
+
+// blend puts color over the pixel at byte i.
+func blend(p mut picture, i int, c ui.Color) {
+	let a = int(c.A)
+	let under = int(p.px[i+3])
+	if a == 255 || under == 0 {
+		p.px[i] = c.R
+		p.px[i+1] = c.G
+		p.px[i+2] = c.B
+		p.px[i+3] = c.A
+		return
+	}
+	p.px[i] = byte((int(c.R)*a + int(p.px[i])*(255-a)) / 255)
+	p.px[i+1] = byte((int(c.G)*a + int(p.px[i+1])*(255-a)) / 255)
+	p.px[i+2] = byte((int(c.B)*a + int(p.px[i+2])*(255-a)) / 255)
+	p.px[i+3] = byte(a + under*(255-a)/255)
+}
+
+// insert puts c into xs, which is in order of x.
+func insert(xs []crossing, c crossing) []crossing {
+	let mut out = xs.Append(c)
+	let mut i = len(out) - 1
+	for i > 0 && out[i-1].x > out[i].x {
+		let t = out[i-1]
+		out[i-1] = out[i]
+		out[i] = t
+		i = i - 1
+	}
+	out
+}
+
+// compose is outer after inner: a point goes through inner, then outer.
+func compose(o ui.Affine, i ui.Affine) ui.Affine {
+	ui.Affine{
+		A: o.A*i.A + o.C*i.B,
+		B: o.B*i.A + o.D*i.B,
+		C: o.A*i.C + o.C*i.D,
+		D: o.B*i.C + o.D*i.D,
+		E: o.A*i.E + o.C*i.F + o.E,
+		F: o.B*i.E + o.D*i.F + o.F,
+	}
+}
+
+func apply(m ui.Affine, x float64, y float64) pt { pt{X: m.A*x + m.C*y + m.E, Y: m.B*x + m.D*y + m.F} }
+
+// flatten is path's contours as lines under m, each from its MoveTo; a
+// ClosePath ends its contour at the contour's first point.
+func flatten(path ui.Path, m ui.Affine) [][]pt {
+	let mut out = [][]pt{}
+	let mut cur = []pt{}
+	let mut at = pt{X: 0, Y: 0}
+	let mut start = pt{X: 0, Y: 0}
+	for s in path.Segs {
+		match s {
+		case ui.MoveTo as x:
+			if len(cur) > 1 {
+				out = out.Append(cur)
+			}
+			at = pt{X: x.X, Y: x.Y}
+			start = at
+			cur = []pt{apply(m, at.X, at.Y)}
+		case ui.LineTo as x:
+			at = pt{X: x.X, Y: x.Y}
+			cur = cur.Append(apply(m, at.X, at.Y))
+		case ui.QuadTo as x:
+			for k in 1..curveSteps+1 {
+				let t = float64(k) / float64(curveSteps)
+				let u = 1 - t
+				cur = cur.Append(apply(m, u*u*at.X+2*u*t*x.CX+t*t*x.X, u*u*at.Y+2*u*t*x.CY+t*t*x.Y))
+			}
+			at = pt{X: x.X, Y: x.Y}
+		case ui.CubicTo as x:
+			for k in 1..curveSteps+1 {
+				let t = float64(k) / float64(curveSteps)
+				let u = 1 - t
+				let px = u*u*u*at.X + 3*u*u*t*x.C1X + 3*u*t*t*x.C2X + t*t*t*x.X
+				let py = u*u*u*at.Y + 3*u*u*t*x.C1Y + 3*u*t*t*x.C2Y + t*t*t*x.Y
+				cur = cur.Append(apply(m, px, py))
+			}
+			at = pt{X: x.X, Y: x.Y}
+		case ui.ClosePath:
+			cur = cur.Append(apply(m, start.X, start.Y))
+			if len(cur) > 1 {
+				out = out.Append(cur)
+			}
+			at = start
+			cur = []pt{apply(m, start.X, start.Y)}
+		}
+	}
+	if len(cur) > 1 {
+		out = out.Append(cur)
+	}
+	out
+}
+
+// bounds is the box around every point of cs.
+func bounds(cs [][]pt) (pt, pt) {
+	let mut lo = pt{X: 0, Y: 0}
+	let mut hi = pt{X: 0, Y: 0}
+	let mut first = true
+	for c in cs {
+		for p in c {
+			if first {
+				lo = p
+				hi = p
+				first = false
+			}
+			lo = pt{X: fmin(p.X, lo.X), Y: fmin(p.Y, lo.Y)}
+			hi = pt{X: fmax(p.X, hi.X), Y: fmax(p.Y, hi.Y)}
+		}
+	}
+	(lo, hi)
+}
+
+func fmax(a float64, b float64) float64 { if a > b { a } else { b } }
+
+func fmin(a float64, b float64) float64 { if a < b { a } else { b } }

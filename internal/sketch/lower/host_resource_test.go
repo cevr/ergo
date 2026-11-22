@@ -41,9 +41,9 @@ func init() {
 		"hostres.Handle.Peek": "hresGo: returns a formatted string, stores no receiver",
 		"hostres.Show":        "hresGo: calls Peek synchronously and stores no parameter",
 	} {
-		v1.GoArgClauses[target] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}}
+		v1.GoArgClauses()[target] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}}
 	}
-	v1.GoArgClauses["hostres.Unreasoned"] = map[int]v1.GoArgClause{0: {Lent: true}}
+	v1.GoArgClauses()["hostres.Unreasoned"] = map[int]v1.GoArgClause{0: {Lent: true}}
 }
 
 const hresGo = `package hostres

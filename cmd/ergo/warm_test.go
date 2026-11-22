@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testwait"
 )
 
@@ -150,8 +151,8 @@ func TestWarmAnswerAgreesWithFullBuild(t *testing.T) {
 	// byte past it does not change, so that was the same compiler there
 	// (I19 macOS check at e08f49831: seed 1 answered warm, rightly).
 	other := filepath.Join(t.TempDir(), "ergo-other")
-	link := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-X=ergo.local/prototype/internal/sketch/lower.growthLowering=other-compiler", "-o", other, ".")
-	link.Env = testCLI.environment
+	link := ergobuild.Command(other, ".", "-buildvcs=false", "-ldflags=-X=ergo.local/prototype/internal/sketch/lower.growthLowering=other-compiler")
+	link.Env = ergobuild.Env(testCLI.environment)
 	if out, err := link.CombinedOutput(); err != nil {
 		t.Fatalf("build the other CLI: %v\n%s", err, out)
 	}
