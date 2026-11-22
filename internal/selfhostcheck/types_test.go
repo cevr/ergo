@@ -328,9 +328,13 @@ func paramKinds(n *check.Named) string {
 // computes from the import's source (-std).
 func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) {
 	own, parent := scopeNames(pkg.Scope)
+	var prelude *check.Package
 	for s := parent; s != nil; {
 		ns, next := scopeNames(s)
 		for name, o := range ns {
+			if tn, ok := o.(*check.TypeName); ok && tn.Pkg != nil && tn.Pkg.Path == "prelude" {
+				prelude = tn.Pkg
+			}
 			if _, shadowed := own[name]; shadowed {
 				continue
 			}
@@ -339,6 +343,14 @@ func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) 
 			}
 		}
 		s = next
+	}
+	// The prelude's hashTable is in no scope, yet a Map with a provider is
+	// an instance of it (Map[K, V, H]; types.preludeQual).
+	if prelude != nil && pkg != prelude {
+		ns, _ := scopeNames(prelude.Scope)
+		if tn, ok := ns["hashTable"].(*check.TypeName); ok {
+			f("@prelude", "hashTable", tn)
+		}
 	}
 	seen := map[string]bool{}
 	for id, o := range pkg.Info.Uses {
