@@ -8,7 +8,7 @@ import (
 
 // withFuncs are GenerateWith's functions: each gets an IR body in every
 // seed (G6).
-var withFuncs = []string{"show", "named", "inline", "nested", "multi", "local", "each", "adapted", "leak", "find", "touch", "caught", "tried", "silent", "branchy", "passed"}
+var withFuncs = []string{"show", "named", "inline", "nested", "multi", "local", "each", "adapted", "leak", "find", "touch", "caught", "tried", "silent", "branchy", "passed", "made", "liveValue", "viaValue", "embeds"}
 
 // GenerateWith is a program of withs (G6): a named context, an inline and
 // a local context, a with of two operands, nested withs, withs in value,
@@ -16,7 +16,10 @@ var withFuncs = []string{"show", "named", "inline", "nested", "multi", "local", 
 // records whose functions provide the capability (an operations
 // conversion), one of them a seeded record literal; a with
 // that leaves the outer environment as it was; withs whose block fails,
-// under catch and try and as a fallible result. main prints every
+// under catch and try and as a fallible result; Context values made from
+// an inline context in a pure function and from the named one, a with of
+// such a value, and a local context that embeds the named one (rows.md,
+// Context values). main prints every
 // function's result for seeded operands.
 func GenerateWith(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, seed^0x51afd7ed558ccd))
@@ -64,11 +67,19 @@ func GenerateWith(seed uint64) string {
 	b.WriteString("func silent(k int) needs Console {\n\twith Live { touch(k) } catch {\n\tcase Missing as m:\n\t\tConsole.Println(\"missing \\(m.Key)\")\n\t}\n}\n\n")
 	fmt.Fprintf(&b, "func branchy(k int) int fails Missing needs Console {\n\tlet n = with Live {\n\t\tlet a = try find(k)\n\t\tif a > %d {\n\t\t\tfind(a)\n\t\t} else {\n\t\t\ta\n\t\t}\n\t} catch {\n\tcase Missing as m:\n\t\tm.Key * 10\n\t}\n\tn\n}\n\n", base+r.IntN(10))
 	b.WriteString("func passed(t string, k int) int fails Missing needs Console {\n\twith Live, context { Store: Fixed{Text: t} } { find(k) }\n}\n\n")
+	b.WriteString("func made(t string) Context[Store] {\n\tcontext { Store: Fixed{Text: t + \"~\"} }\n}\n\n")
+	b.WriteString("func liveValue() Context[Store] {\n\tLive\n}\n\n")
+	b.WriteString("func viaValue(w Context[Store], k int) string needs Console {\n\twith w { show(k) }\n}\n\n")
+	b.WriteString("func embeds(k int) string needs Console {\n\tlet c = context { Live }\n\twith c { show(k) }\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for i := 0; i < 4; i++ {
 		k := r.IntN(20) - 5
 		t := word()
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d \\(named(%d)) \\(inline(%q, %d)) \\(nested(%q, %d)) \\(multi(%q, %d)) \\(local(%q, %d)) \\(adapted(%d, Mem{Base: %d})) \\(with Live { leak(%q, %d) })\")\n", i, k, t, k, t, k, t, k, t, k, k, r.IntN(9), t, k)
+	}
+	for i := 0; i < 2; i++ {
+		k := r.IntN(20) - 5
+		fmt.Fprintf(&b, "\tConsole.Println(\"v%d \\(viaValue(made(%q), %d)) \\(viaValue(liveValue(), %d)) \\(embeds(%d))\")\n", i, word(), k, k, k)
 	}
 	fmt.Fprintf(&b, "\teach(%d)\n", r.IntN(5))
 	for i := 0; i < 4; i++ {
