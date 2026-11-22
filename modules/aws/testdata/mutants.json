@@ -34,11 +34,11 @@
       "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
     },
     {
-      "name": "aws-key-in-header", "origin": "wf10 GEN-EMIT",
+      "name": "aws-signer-skipped", "origin": "wf10 GEN-EMIT",
       "file": "modules/aws/s3/s3.ergo",
-      "from": "RawPath: \"/\" + aws.Label(r.Bucket, false) + \"/\" + aws.Label(r.Key, true), Query: q, Header: h, Body: http.Buffered{Text: \"\"}}\n\tlet resp = try a.net.Send(a.signer.Sign(req))\n\tif resp.Status < 200 || resp.Status > 299 {\n\t\treturn try headObjectFailed(",
-      "to": "RawPath: \"/\" + aws.Label(r.Bucket, false) + \"/\" + aws.Label(r.Key, true), Query: q, Header: a.signer.Sign(http.Request{Method: \"HEAD\", Path: \"/\", RawPath: \"/\", Query: q, Header: h, Body: http.Buffered{Text: \"\"}}).Header, Body: http.Buffered{Text: \"\"}}\n\tlet resp = try a.net.Send(a.signer.Sign(req))\n\tif resp.Status < 200 || resp.Status > 299 {\n\t\treturn try headObjectFailed(",
-      "rule": "The Api builds every request with no credential; only the signer adds one: KeyOnlyInTheSigner (here the Api copies a signed request's headers, the key with them, into the request it then signs).",
+      "from": "\tlet resp = try a.net.Send(a.signer.Sign(req))\n\tif resp.Status < 200 || resp.Status > 299 {\n\t\treturn try headObjectFailed(",
+      "to": "\tlet resp = try a.net.Send(req)\n\tif resp.Status < 200 || resp.Status > 299 {\n\t\treturn try headObjectFailed(",
+      "rule": "Every request the net gets went through the signer once: KeyOnlyInTheNet (here HeadObject sends its request unsigned). The key itself never reaches the Api: it is an http.Credential of the Net (std http's own law CredentialPassesUnseen).",
       "anchor": {"tests": ["examples:modules/aws"]}, "killers": ["examples:modules/aws"]
     },
     {
