@@ -95,7 +95,7 @@ func Sig(n int) ` + pick("sig", "int { n }", "string { \"\\(n)\" }") + `
 import a
 
 // Plus counts by one.
-type Plus { By int }
+type Plus { By int } implements a.Counter
 
 // Next is n plus one.
 func Next(p Plus, n int) int { n + 1 }
@@ -304,6 +304,10 @@ func TestIncrementalCheckDecides(t *testing.T) {
 			if !fp.Clean() {
 				t.Fatalf("seed %d: %s of the first program does not check clean:\n%s", seed, fp.Path, prev.views[fp.Path])
 			}
+		}
+		// b's Plus runs a's law, so the law slot's edit reaches b.
+		if !strings.Contains(prev.views["b"], "\nlaw a.") {
+			t.Fatalf("seed %d: b runs no law of a.Counter:\n%s", seed, prev.views["b"])
 		}
 		var edits []string
 		for step := range 2*len(slots) + 24 {
