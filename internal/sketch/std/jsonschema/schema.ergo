@@ -212,7 +212,7 @@ func isType(t string, v json.Value) bool {
 	case json.Boolean:
 		t == "boolean"
 	case json.Num as n:
-		t == "number" || t == "integer" && integral(json.Wire(n))
+		t == "number" || t == "integer" && integral(n.Wire())
 	case json.Str:
 		t == "string"
 	case json.Array:
@@ -398,7 +398,7 @@ func checked(root json.Value, schema json.Value, path string) fails Invalid {
 		} else if k == "minItems" || k == "maxItems" {
 			let good = match m.Value {
 			case json.Num as n:
-				digits(json.Wire(n))
+				digits(n.Wire())
 			case json.Null, json.Boolean, json.Str, json.Array, json.Object:
 				false
 			}
@@ -546,7 +546,7 @@ func text(v json.Value) string {
 func count(v json.Value) int {
 	match v {
 	case json.Num as n:
-		let s = json.Wire(n)
+		let s = n.Wire()
 		let mut c = 0
 		for i in 0..len(s) {
 			if s[i] < '0' || s[i] > '9' {

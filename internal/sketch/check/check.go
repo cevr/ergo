@@ -326,11 +326,11 @@ type checker struct {
 	// (providerAssignability): R22 does not apply there.
 	providing bool
 	// capture, when not nil, lets the next assignability admit a provider
-	// whose operations need go.Foreign beyond the operation type's row, and
-	// records that it did: the site that builds the provider is charged
-	// go.Foreign (captureForeign; README Gap 17). assignability takes it
-	// and clears it, so no nested check inherits it.
-	capture *bool
+	// whose operations need go.Foreign or Ambient beyond the operation
+	// type's row, and records which: the site that builds the provider is
+	// charged them (captureForeign; README Gap 17; HOST-ROW). assignability
+	// takes it and clears it, so no nested check inherits it.
+	capture *captured
 	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
 	// final answers; cellSites are the type arguments checkCells decides
 	// (cells.go).
