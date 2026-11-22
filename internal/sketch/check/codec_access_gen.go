@@ -132,8 +132,6 @@ type Codec_guardedUse = guardedUse
 
 type Codec_hand = hand
 
-type Codec_harnessUse = harnessUse
-
 type Codec_hostPkg = hostPkg
 
 type Codec_importAlias = importAlias
@@ -469,14 +467,13 @@ func CodecFieldsOf_Info(v *Info) CodecFields_Info {
 }
 
 type CodecFields_Interface struct {
-	F_index    *map[string]*Method
 	F_byName   *[]*Method
 	F_obj      **TypeName
 	F_includes *[]*Named
 }
 
 func CodecFieldsOf_Interface(v *Interface) CodecFields_Interface {
-	return CodecFields_Interface{F_index: &v.index, F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
+	return CodecFields_Interface{F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
 }
 
 type CodecFields_Law struct {
@@ -597,14 +594,13 @@ func CodecFieldsOf_Scope(v *Scope) CodecFields_Scope {
 }
 
 type CodecFields_Struct struct {
-	F_index     *map[string]int
 	F_includes  *[]*include
 	F_expanding *bool
 	F_obj       **TypeName
 }
 
 func CodecFieldsOf_Struct(v *Struct) CodecFields_Struct {
-	return CodecFields_Struct{F_index: &v.index, F_includes: &v.includes, F_expanding: &v.expanding, F_obj: &v.obj}
+	return CodecFields_Struct{F_includes: &v.includes, F_expanding: &v.expanding, F_obj: &v.obj}
 }
 
 type CodecFields_Test struct {
@@ -1415,15 +1411,6 @@ type CodecFields_hand struct {
 
 func CodecFieldsOf_hand(v *hand) CodecFields_hand {
 	return CodecFields_hand{F_at: &v.at, F_how: &v.how, F_lend: &v.lend, F_yieldRoot: &v.yieldRoot, F_failed: &v.failed, F_provider: &v.provider, F_root: &v.root, F_endLoans: &v.endLoans, F_endKept: &v.endKept, F_hostLend: &v.hostLend, F_ret: &v.ret}
-}
-
-type CodecFields_harnessUse struct {
-	F_h  **Harness
-	F_at *syntax.Node
-}
-
-func CodecFieldsOf_harnessUse(v *harnessUse) CodecFields_harnessUse {
-	return CodecFields_harnessUse{F_h: &v.h, F_at: &v.at}
 }
 
 type CodecFields_hostPkg struct {
@@ -2477,11 +2464,10 @@ type CodecFields_target struct {
 	F_pending     *[]pendingClause
 	F_missErrors  **Row
 	F_missUses    **Row
-	F_harness     **harnessUse
 }
 
 func CodecFieldsOf_target(v *target) CodecFields_target {
-	return CodecFields_target{F_name: &v.name, F_declErrors: &v.declErrors, F_declUses: &v.declUses, F_errors: &v.errors, F_uses: &v.uses, F_scope: &v.scope, F_results: &v.results, F_resultKnown: &v.resultKnown, F_isFunc: &v.isFunc, F_law: &v.law, F_main: &v.main, F_context: &v.context, F_internal: &v.internal, F_charged: &v.charged, F_tries: &v.tries, F_tried: &v.tried, F_decl: &v.decl, F_pending: &v.pending, F_missErrors: &v.missErrors, F_missUses: &v.missUses, F_harness: &v.harness}
+	return CodecFields_target{F_name: &v.name, F_declErrors: &v.declErrors, F_declUses: &v.declUses, F_errors: &v.errors, F_uses: &v.uses, F_scope: &v.scope, F_results: &v.results, F_resultKnown: &v.resultKnown, F_isFunc: &v.isFunc, F_law: &v.law, F_main: &v.main, F_context: &v.context, F_internal: &v.internal, F_charged: &v.charged, F_tries: &v.tries, F_tried: &v.tried, F_decl: &v.decl, F_pending: &v.pending, F_missErrors: &v.missErrors, F_missUses: &v.missUses}
 }
 
 type CodecFields_taskNode struct {
