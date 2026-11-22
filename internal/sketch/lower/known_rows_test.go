@@ -93,6 +93,9 @@ func TestKnownVariantRowInstance(t *testing.T) {
 		t.Fatalf("lowering failed: %v %v %v %v", o.err, o.diags, o.refused, o.panicked)
 	}
 	text := goText(o)
+	if stats.Sites == 0 {
+		t.Error("text: no call goes to a known variant")
+	}
 	read := funcText(text, "func read(")
 	for _, name := range knownRowsCombinators {
 		// The call goes to the variant, or is inlined with its literal
