@@ -21,11 +21,19 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    a build or a test the toolchain (the go
    command's resolved path, size and modification time, GOROOT, GOOS and
    GOARCH, GOFLAGS, tags, the reference path and the strip setting), the
-   compiler's identity, and every `GO*`, `CGO_*` and `ERGO_*` variable but
-   `ERGO_STAGE_REPORT` and `ERGO_BUILD`, and the Go experiments
+   compiler's identity, every `GO*`, `CGO_*` and `ERGO_*` variable that can
+   change an answer, and the Go experiments
    `GOEXPERIMENT` turns on, from the environment or the go env file, since
    they choose a module's Go body files (docs/spec/interop.md, Trusted Go
-   3). The output path is not part of it.
+   3). The output path is not part of it. A table classifies the
+   variables (`warmEnv`, `internal/sketchfront/warm.go`). An answer
+   variable is in the key: the target, the Go build's flags, the toolchain
+   and the checker's switches. A location variable is left out: caches,
+   temporary folders (the run budget gives each run its own `GOTMPDIR`),
+   the stage report, the Ergo cache and the budget's scheduling. A variable
+   the table does not name is in the key, and `ergo version` lists it until
+   it is classified. `TestWarmEnvClassifiesTheScripts` holds the table to
+   every such variable the repository's scripts set.
 2. **The manifest.** One file per request key in the Ergo cache
    (`Root/warm/KEY`) lists every input the request read: each file with the
    SHA-256 and size of its bytes (the `.ergo` files, `ergo.mod`, the
@@ -403,7 +411,13 @@ would keep it current; `--list` names its writer.
   a package folder) is itself in the key. A generator is a hit, and does
   not run, when the key holds and every output hashes as kept. A failed
   run is never kept. Each hit prints its class: `vouched: declared
-  reads`, since the key is only as complete as the `reads` lines.
+  reads`, since the key is only as complete as the `reads` lines. The
+  last run is kept per tree (by its root), the results by content alone,
+  so checkouts that share the cache share results but never read each
+  other's last runs. Each miss prints its reason: no last run, the first
+  line of the environment that changed, the first input file whose digest
+  or folder whose names moved since the last run, or the output that no
+  longer hashes as kept; a miss never goes without one.
 - **`--check`** writes nothing in the tree: at the first miss the tree is
   copied (blocks shared where the file system can) and the generators
   that miss run in the copy; the run fails naming each file the copy's
