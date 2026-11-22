@@ -339,6 +339,34 @@ type BuildRequest struct {
 	Laws *lawcache.Store
 }
 
+// GoLibrary lowers the checked package folder a as the Go package name of
+// a Go module that `ergo go` builds (internal/gocmd): through the IR
+// (lower.LowerIRLibrary), every exported function behind its IG11 facade,
+// the declaration file and the IR file naming each .ergo file by its
+// absolute path, since the declaration file reaches the compile through
+// -overlay from ergo's cache, where a path relative to it would name a
+// file of the cache. A package that imports another Ergo package is
+// refused: this lowering copies an import into the importer's Go
+// package, so Go would see two copies of the import's types (an
+// errors.As of the import's failure would miss); ERGO-GO-IMPORTS lowers
+// each Ergo package as its own Go package.
+func GoLibrary(a Analysis, name string) ([]lower.File, error) {
+	if len(a.Diagnostics) > 0 || a.program == nil || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	if len(a.program.imports) > 0 {
+		var paths []string
+		for _, q := range a.program.imports {
+			paths = append(paths, q.path)
+		}
+		return nil, fmt.Errorf("%s imports the Ergo package %s: ergo go does not yet build an Ergo package that imports another (ERGO-GO-IMPORTS); Go would see two copies of its types", a.program.root.path, strings.Join(paths, ", "))
+	}
+	unit := a.program.unit()
+	unit.Root = ""
+	files, _, err := lower.LowerIRLibrary(unit, name)
+	return files, err
+}
+
 // compilerIdentity is the compiler's producer identity for the emission
 // key. Tests replace it with a process-scoped identity, which Linux and
 // signed darwin hosts never report, to exercise private builds.
