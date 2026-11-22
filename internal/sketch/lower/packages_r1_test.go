@@ -135,10 +135,10 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 			}
 		}
 		for _, i := range order {
-			tokens = append(tokens, fmt.Sprintf("ergoInitialM%d = ", i))
+			tokens = append(tokens, goHelperOf(fmt.Sprintf("p%d", 3-i), fmt.Sprintf("ergoInitialM%d", i))+" = ")
 		}
 		if mask%2 == 0 {
-			tokens = append(tokens, "ergoInitialMR = ")
+			tokens = append(tokens, goHelper("ergoInitialMR")+" = ")
 		}
 		for step, token := range tokens {
 			pos := strings.Index(code, token)
