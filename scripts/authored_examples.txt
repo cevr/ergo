@@ -1,10 +1,10 @@
 examples/editions/sketch/main.ergo
 models/baton/baton.ergo
-docs/research/ef-migrate/checkout.ergo
-docs/research/ef-migrate/data.ergo
-docs/research/ef-migrate/lifecycle.ergo
-docs/research/ef-migrate/machine-breaker.ergo
-docs/research/ef-migrate/main.ergo
+internal/sketch/sketchtest/testdata/migrated/checkout.ergo
+internal/sketch/sketchtest/testdata/migrated/data.ergo
+internal/sketch/sketchtest/testdata/migrated/lifecycle.ergo
+internal/sketch/sketchtest/testdata/migrated/machine-breaker.ergo
+internal/sketch/sketchtest/testdata/migrated/main.ergo
 models/children/children.ergo
 models/durable/durable.ergo
 models/free/free.ergo

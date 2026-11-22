@@ -115,6 +115,62 @@ func TestFullBudgetQueues(t *testing.T) {
 	}
 }
 
+// TestNarrowRunsPassABlockedHead is the queue of 2026-11-20 (22 width-4
+// runs waited over an hour behind a width-16 head that could not fit, with
+// 12 cores free), with the budget file's backfill at 2: two width-4 takes
+// pass the blocked head, the third waits, and status says why the head
+// waits. Mutants: budget-conf-backfill-ignored (the default 4 admits the
+// third), budget-why-no-cores.
+func TestNarrowRunsPassABlockedHead(t *testing.T) {
+	b := testBudget(t, 28, 0, "backfill 2")
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	held, err := b.Take(ctx, Request{Width: 16, Lane: "held"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan *Grant, 4)
+	take := func(width int, lane string) {
+		go func() {
+			g, err := b.Take(ctx, Request{Width: width, Lane: lane})
+			if err != nil && ctx.Err() == nil {
+				t.Error(err)
+			}
+			got <- g
+		}()
+	}
+	take(16, "head")
+	if !testwait.Until(t, func() bool { return waiters(t, b) == 1 }) {
+		t.Fatal("the head never queued")
+	}
+	for _, lane := range []string{"n1", "n2", "n3"} {
+		take(4, lane)
+	}
+	var passed []*Grant
+	for range 2 {
+		passed = append(passed, <-got)
+	}
+	if !testwait.Until(t, func() bool { return waiters(t, b) == 2 }) {
+		t.Fatal("the third narrow take never queued")
+	}
+	var out bytes.Buffer
+	if err := b.Status(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), ": needs 16 cores, 4 free; passed 2 of 2: no more passes") {
+		t.Errorf("status:\n%s", out.String())
+	}
+	for _, g := range passed {
+		g.Release()
+	}
+	held.Release()
+	for range 2 {
+		if g := <-got; g != nil {
+			g.Release()
+		}
+	}
+}
+
 // waiters is the count of waiters in b's saved state.
 func waiters(t *testing.T, b *Budget) int {
 	t.Helper()

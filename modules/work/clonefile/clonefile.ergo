@@ -65,8 +65,16 @@ func Has(c Cloner, root string) bool { system.Has(c.trees, root) }
 
 func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try system.Move(c.trees, "clonefile", from, to) }
 
+func Placeable(c Cloner, staging string, home string) fails work.NotSameVolume | work.CloneFailed { try system.Placeable(c.trees, "clonefile", staging, home) }
+
+func Place(c Cloner, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed { try system.Place(c.trees, "clonefile", from, to) }
+
 func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed { try system.Discard(c.trees, "clonefile", root) }
 
 func Usage(_ Cloner, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed {
 	work.Unsupported{Cloner: "clonefile", Why: "APFS does not report the blocks a tree shares"}
 }
+
+func Free(c Cloner, root string) int fails work.Unsupported | work.Missing | work.CloneFailed { try system.FreeOf(c.trees, "clonefile", root) }
+
+func Entries(c Cloner, root string) int fails work.Missing | work.CloneFailed { try system.EntriesOf(c.trees, "clonefile", root) }

@@ -112,10 +112,10 @@ func TestCoreHasNoInitRoots(t *testing.T) {
 			continue
 		}
 		seen[path] = true
-		if _, ok := packages[path]; !ok {
+		if _, ok := packages()[path]; !ok {
 			t.Fatalf("%s is imported by a shipped program but is no runtime package of embed.go", path)
 		}
-		for _, name := range packages[path].files {
+		for _, name := range packages()[path].files {
 			if !strings.HasSuffix(name, ".go") {
 				// An assembly file (exchange_darwin.s) imports nothing
 				// and declares no Go init; its symbols are reached only

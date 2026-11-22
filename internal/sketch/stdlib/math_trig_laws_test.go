@@ -61,7 +61,7 @@ func TestStdMathTrigLaws(t *testing.T) {
 	for _, key := range keys {
 		// The law's source text, with its lines (a let needs its own).
 		law := lawSource(t, sources, key[len("math "):])
-		if lawledger.Normalize(law) != lawledger.Normalize(stdMathTrigLaws[key]) {
+		if !lawledger.Same(law, stdMathTrigLaws[key]) {
 			t.Errorf("%s: the source law %q is not the restated %q", key, law, stdMathTrigLaws[key])
 		}
 		// One pass misses a call right after another's "(": repeat.

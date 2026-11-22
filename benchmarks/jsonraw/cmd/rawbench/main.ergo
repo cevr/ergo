@@ -1,0 +1,45 @@
+// rawbench holds std json's Raw counted probe (wf10 JSON-RAW), with a
+// hand Go twin in ../../testdata/control; the workload is ../../request
+// (go run ./scripts/opcount -control -rounds 5 benchmarks/jsonraw/request).
+//
+//	rawbench bench N
+//
+// An MCP tools/call request read N times into a record whose id and
+// params are json.Raw, each written back. One unit is one request. It
+// prints the sum of the written lengths, or -1 when a read fails.
+
+import json
+import os
+import strconv
+
+type request { Jsonrpc string, ID json.Raw, Method string, Params json.Raw }
+
+let text = "{\"jsonrpc\":\"2.0\",\"id\":\"req-42\",\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"query\":\"ergo raw\",\"limit\":10,\"filters\":{\"lang\":[\"go\",\"ergo\"],\"since\":\"2026-01-01\"}}}}"
+
+let codec = json.Codec[request]{MaxBytes: 0, MaxDepth: 0}
+
+func bench(n int) int {
+	let mut sum = 0
+	for _ in 0..n {
+		let r = json.Decode(codec, text) catch {
+		case _:
+			return -1
+		}
+		sum = sum + len(json.Encode(codec, r))
+	}
+	sum
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 2 {
+			return os.Exit{Code: 2, Message: "usage: rawbench bench N"}
+		}
+		let n = strconv.Atoi(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "rawbench: N is not a count"}
+		}
+		Console.Println("\(bench(n))")
+	}
+}

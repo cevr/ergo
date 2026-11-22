@@ -18,12 +18,14 @@ import json
 import time
 
 // Disk is the model: each root's tree (a file path to its block) and each
-// block's text.
+// block's text; capacity is its bytes (0: not measured, so Free is
+// Unsupported and every copy fits).
 type Disk {
-	trees  Map[string, Map[string, int]],
-	blocks Map[int, string],
-	next   int,
-	mounts Map[string, string],
+	trees    Map[string, Map[string, int]],
+	blocks   Map[int, string],
+	next     int,
+	mounts   Map[string, string],
+	capacity int,
 }
 
 // Cloner is a Cloner over a Disk: sharing (copy-on-write) or copying.
@@ -61,7 +63,27 @@ func Beside(c Cloner, shares bool) Cloner { Cloner{disk: c.disk, shares: shares,
 // where only a plain copy can make a workspace.
 func Refusing(c Cloner) Cloner { Cloner{disk: c.disk, shares: true, refuses: true} }
 
-func emptyDisk() Disk { Disk{trees: Map[string, Map[string, int]]{}, blocks: Map[int, string]{}, next: 1, mounts: Map[string, string]{}} }
+func emptyDisk() Disk { Disk{trees: Map[string, Map[string, int]]{}, blocks: Map[int, string]{}, next: 1, mounts: Map[string, string]{}, capacity: 0} }
+
+// Capacity gives c's disk room for bytes in all (0: not measured).
+func Capacity(c Cloner, bytes int) {
+	c.disk.Set(Disk{..c.disk.Get(), capacity: bytes})
+}
+
+// used is the bytes of the blocks some tree of d holds.
+func used(d Disk) int {
+	let mut seen = Map[int, bool]{}
+	let mut n = 0
+	for _, tree in d.trees {
+		for _, block in tree {
+			if !maps.GetOr(seen, block, false) {
+				seen[block] = true
+				n = n + len(text(d, block))
+			}
+		}
+	}
+	n
+}
 
 // Volume is the volume of root: the text before its first colon.
 func Volume(root string) string {
@@ -124,8 +146,19 @@ func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Uns
 	if held(d, to) {
 		return work.Exists{Path: to}
 	}
-	if volumeOf(d, from) != volumeOf(d, to) {
+	// A plain copy writes each file anew, so any volume takes it; only a
+	// clone that shares blocks needs the source's.
+	if c.shares && volumeOf(d, from) != volumeOf(d, to) {
 		return work.NotSameVolume{From: from, To: to}
+	}
+	if !c.shares && d.capacity > 0 {
+		let mut need = 0
+		for _, block in source {
+			need = need + len(text(d, block))
+		}
+		if used(d)+need > d.capacity {
+			return work.NoSpace{Path: to, Need: -1, Free: -1}
+		}
 	}
 	let mut blocks = d.blocks
 	let mut next = d.next
@@ -246,6 +279,36 @@ func Move(c Cloner, from string, to string) fails work.Exists | work.Missing | w
 	c.disk.Set(Disk{..d, trees: trees})
 }
 
+// Placeable: the model has no folders to make; staging on another
+// volume than home is NotSameVolume.
+func Placeable(c Cloner, staging string, home string) fails work.NotSameVolume | work.CloneFailed {
+	let d = c.disk.Get()
+	if volumeOf(d, staging) != volumeOf(d, home) {
+		return work.NotSameVolume{From: staging, To: home}
+	}
+}
+
+// Place moves the tree at from to to on one volume; across volumes it is
+// NotSameVolume and nothing moves (a rename, never a copy).
+func Place(c Cloner, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	let tree = match d.trees.Get(from) {
+	case Some[Map[string, int]] as t:
+		t.Value
+	case None:
+		return work.Missing{Path: from}
+	}
+	if held(d, to) || inner(d, to) != None {
+		return work.Exists{Path: to}
+	}
+	if volumeOf(d, from) != volumeOf(d, to) {
+		return work.NotSameVolume{From: from, To: to}
+	}
+	let mut trees = d.trees.Delete(from)
+	trees[to] = tree
+	c.disk.Set(Disk{..d, trees: trees})
+}
+
 // Discard deletes the tree at root, or the files under a folder inside
 // a tree.
 func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
@@ -294,6 +357,46 @@ func Usage(c Cloner, root string) work.Usage fails work.Unsupported | work.Missi
 		}
 	}
 	work.Usage{Total: exclusive + shared, Exclusive: exclusive, Shared: shared}
+}
+
+// Free is the bytes the disk has left; Unsupported when its capacity is
+// not set. root must be a tree, a folder in one, or under a tree's root
+// folder (a target's parent).
+func Free(c Cloner, root string) int fails work.Unsupported | work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	if d.capacity == 0 {
+		return work.Unsupported{Cloner: c.Name(), Why: "this disk is not measured"}
+	}
+	d.capacity - used(d)
+}
+
+// Entries is the files under root and the folders that hold them, root
+// not counted.
+func Entries(c Cloner, root string) int fails work.Missing | work.CloneFailed {
+	let d = c.disk.Get()
+	let (tree, folder) = match d.trees.Get(root) {
+	case Some[Map[string, int]] as found:
+		(found.Value, "")
+	case None:
+		match inner(d, root) {
+		case Some[Inside] as hit:
+			(maps.GetOr(d.trees, hit.Value.Root, Map[string, int]{}), hit.Value.Folder + "/")
+		case None:
+			return work.Missing{Path: root}
+		}
+	}
+	let mut seen = Map[string, bool]{}
+	for path, _ in tree {
+		if !strings.HasPrefix(path, folder) {
+			continue
+		}
+		let rel = strings.TrimPrefix(path, folder)
+		let parts = strings.Split(rel, "/")
+		for i in 1..(len(parts) + 1) {
+			seen[strings.Join(parts[0:i], "/")] = true
+		}
+	}
+	len(seen)
 }
 
 // UsageSplitsTheBlocks: a fresh clone's bytes are all shared, and after a
@@ -485,7 +588,7 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	case _:
 		return false
 	}
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false, Repair: false}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false, Here: false, Repair: false}) catch {
 	case _:
 		return false
 	}
@@ -541,7 +644,7 @@ func riftWorldOf(parents []int, bad []int) riftWorld {
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("sqlite3", []string{"-readonly", "-json", riftFile, work.RiftQuery})): exec.Result{Status: 0, Stdout: answer, Stderr: ""}}}
 	let lock = NewLock()
 	let registry = NewRegistry()
-	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: disk, Writes: disk, Runner: runner, Clock: time.NewManual(1000)}
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: time.NewManual(1000)}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = tool.Init() catch {
 	case _:
@@ -601,4 +704,92 @@ law LeaveOutLeavesOnlyThose(tree Map[string, string], modules bool, dist bool) {
 		}
 	}
 	outside(Files(w.trees, made.Path)) == want
+}
+
+// outRoot is a folder the clone laws clone into: an empty tree, so the
+// disk has a folder there and a clone's parent is present.
+let outRoot = "/w/out"
+
+// entriesOf is the files of a tree and every folder that holds one.
+func entriesOf(files Map[string, string]) int {
+	let mut seen = Map[string, bool]{}
+	for path, _ in files {
+		let parts = strings.Split(path, "/")
+		for i in 1..(len(parts) + 1) {
+			seen[strings.Join(parts[0:i], "/")] = true
+		}
+	}
+	len(seen)
+}
+
+// CloneIsTheSource: work clone of the base (or, with leave, of all but
+// node_modules) makes a tree holding exactly the base's other files, with
+// their text, shared, and answers the Cloner and the entries; the base is
+// unchanged, the only new tree is the clone, and no record or lock is
+// taken. Into a folder that is not there it is Missing with that folder,
+// and writes nothing.
+law CloneIsTheSource(tree Map[string, string], leave bool, noParent bool) {
+	let w = worldWith(true, tree, "", "")
+	Plant(w.trees, outRoot, Map[string, string]{})
+	let before = Files(w.trees, theBase)
+	let roots = Roots(w.trees)
+	let records = w.registry.All() catch {
+	case work.Unkept:
+		return false
+	}
+	let o = work.CloneOptions{LeaveOut: if leave { []string{"node_modules"} } else { []string{} }}
+	let dst = if noParent { "/w/nowhere/one" } else { outRoot + "/one" }
+	let got = w.tool.Clone(theBase, dst, o) catch {
+	case work.Missing as m:
+		return noParent && m.Path == "/w/nowhere" && Roots(w.trees) == roots && Files(w.trees, theBase) == before
+	case _:
+		return false
+	}
+	if noParent {
+		return false
+	}
+	let mut want = Map[string, string]{}
+	for path, text in before {
+		if !(leave && strings.HasPrefix(path, "node_modules/")) {
+			want[path] = text
+		}
+	}
+	let after = w.registry.All() catch {
+	case work.Unkept:
+		return false
+	}
+	let made = slices.Sort(roots.Append(dst))
+	Files(w.trees, dst) == want && Files(w.trees, theBase) == before && Roots(w.trees) == made && after == records && w.lock.Holds() == 0 && got.Cloner == "memory" && got.Shared && got.BytesCopied == 0 && got.Entries == entriesOf(want)
+}
+
+// CopyIsAnAnswer: where no Cloner can share blocks (the disk has no
+// copy-on-write clone, or the target is on another volume), work clone
+// copies: it answers the copier, not shared, with the bytes it copied.
+// Before it writes it measures the room where the clone goes: with less
+// free than the source's bytes it is NoSpace with both, and writes
+// nothing.
+law CopyIsAnAnswer(tree Map[string, string], across bool, room int) {
+	// across: a sharing Cloner, refused by the other volume; else one
+	// that refuses every clone.
+	let w = worldWith(across, tree, "", "")
+	Plant(w.trees, outRoot, Map[string, string]{})
+	if across {
+		Mount(w.trees, outRoot, "far")
+	}
+	let need = (w.trees.Usage(theBase) catch {
+	case work.Unsupported, work.Missing, work.CloneFailed:
+		return false
+	}).Total
+	let free = small(room, 2*need+2)
+	Capacity(w.trees, used(w.trees.disk.Get())+free)
+	let before = Files(w.trees, theBase)
+	let roots = Roots(w.trees)
+	let dst = outRoot + "/one"
+	let got = w.tool.Clone(theBase, dst, work.CloneOptions{LeaveOut: []string{}}) catch {
+	case work.NoSpace as e:
+		return need > free && e.Path == dst && e.Need == need && e.Free == free && Roots(w.trees) == roots
+	case _:
+		return false
+	}
+	need <= free && got.Cloner == "memory-copy" && !got.Shared && got.BytesCopied == need && Files(w.trees, dst) == before && Files(w.trees, theBase) == before
 }

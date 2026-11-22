@@ -117,8 +117,13 @@ func play(bin, script string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 7.
-var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list"}
+// agreeApps are the apps of cmd/hostagree; seed s plays app s mod their count.
+var agreeApps = []string{"counter", "shelf", "form", "load", "lock", "pad", "list", "sketch", "spin", "drag", "choice", "reading"}
+
+// readings are texts the reading app publishes: its first, equal to the
+// last, shorter and longer than the reserve "--:--" (clipped), and empty
+// ("-").
+var readings = []string{"00:00", "12:34", "9", "12:34:56", "-"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes (a wide one too), so Backspace must take a rune, not a byte.
@@ -141,7 +146,17 @@ func genScript(r *rand.Rand, app string) string {
 		// a turn of the wheel while the list (60 rows) has room to move
 		lines = append(lines, fmt.Sprintf("wheel list %d", 1+r.IntN(3)))
 	}
-	// held: a pad's pointer went down and has not come up. A person's
+	if app == "choice" {
+		// four Tabs: past "a" to "c" to "reset", where a Tab that took the
+		// disabled "d" would stop (mutant OTSEM-disabled-focused)
+		lines = append(lines, "focus 4")
+	}
+	if app == "drag" {
+		// a press held in the bottom band for some frames, so every drag
+		// script edge-scrolls the list (mutant OT5-edge-scroll-still)
+		lines = append(lines, "point drag down 40 352", fmt.Sprintf("point drag move 40 %d", 16*(36+r.IntN(3))), fmt.Sprintf("frames %d", 2+r.IntN(8)))
+	}
+	// held: a pad's or a sketch's pointer went down and has not come up. A person's
 	// mouse cannot press a button or Tab then, so the script does not.
 	held := false
 	for range 4 + r.IntN(16) {
@@ -168,8 +183,33 @@ func genScript(r *rand.Rand, app string) string {
 				step = fmt.Sprintf("point pad %s %d %d", pick(r, "down", "up", "move", "move"), x, 16*(2+r.IntN(5)))
 			}
 			if r.IntN(8) == 0 && !held {
-				step = "tap clear"
+				// over the pad's button (inside the Area: no crossing),
+				// a tap on it, or out of every Area (the pad's Leave)
+				step = pick(r, "tap clear", "tap reset", "point clear move 0 0", "leave")
 			}
+		case "drag":
+			// a press, moves and frames in the Area: y in its top band, in its
+			// bottom band (the screen is 40 rows) or its middle
+			y := pick(r, 16*r.IntN(2), 16*(36+r.IntN(3)), 16*(5+r.IntN(25)))
+			step = pick(r, fmt.Sprintf("point drag down 40 %d", y), fmt.Sprintf("point drag move 40 %d", y), fmt.Sprintf("point drag move 40 %d", y), "point drag up 40 0",
+				fmt.Sprintf("frames %d", 1+r.IntN(12)), fmt.Sprintf("frames %d", 1+r.IntN(12)))
+		case "spin":
+			// frames a few at a time, so a spin (12 frames) ends in some
+			// scripts and runs through others
+			step = pick(r, "tap go", fmt.Sprintf("frames %d", 1+r.IntN(4)), fmt.Sprintf("frames %d", 1+r.IntN(4)), "cost frames 1")
+		case "choice":
+			// the radios by role and name ("d" is disabled), and Tab
+			// through them (focus below), which takes "a" to "c" only
+			step = pick(r, "click a", "click b", "click c", "click d", "tap reset")
+		case "reading":
+			step = pick(r, "publish "+pick(r, readings...), "publish "+pick(r, readings...), "tap tick")
+		case "sketch":
+			// the canvas is 150 DIPs high, 9 whole rows of 16 on the
+			// terminal (Cells rounds 9.375 to 9), so y stays in rows 0 to
+			// 8: a press at 144 is in the Area on TestHost and below it on
+			// the terminal (follow-up OT-CANVAS-OFFGRID, as OFF-GRID-ROWS
+			// for lists)
+			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), 8*r.IntN(25), 16*r.IntN(9))
 		case "list":
 			// the wheel turns down more than up, so it moves a list that
 			// starts at its top
@@ -180,9 +220,9 @@ func genScript(r *rand.Rand, app string) string {
 		if r.IntN(5) == 0 && !held {
 			step = fmt.Sprintf("focus %d", r.IntN(6))
 		}
-		if strings.HasPrefix(step, "point pad down ") {
+		if strings.HasPrefix(step, "point pad down ") || strings.HasPrefix(step, "point sketch down ") || strings.HasPrefix(step, "point drag down ") {
 			held = true
-		} else if strings.HasPrefix(step, "point pad up ") {
+		} else if strings.HasPrefix(step, "point pad up ") || strings.HasPrefix(step, "point sketch up ") || strings.HasPrefix(step, "point drag up ") {
 			held = false
 		}
 		lines = append(lines, step)
@@ -235,7 +275,7 @@ func TestTuiHostAgreesWithTestHost(t *testing.T) {
 			switch {
 			case strings.HasPrefix(line, "ok "):
 				steps++
-			case line == "end":
+			case line == "end", strings.HasPrefix(line, "cost "):
 			default:
 				bad = append(bad, line)
 			}

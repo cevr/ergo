@@ -10,7 +10,9 @@ package sketchfront
 // copied as it is. go build is the authority on the rest.
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	pathpkg "path"
 	"path/filepath"
 	"slices"
@@ -52,6 +54,36 @@ type goMod struct {
 	goVersion  string
 	require    []goRequire
 	replace    []goReplace
+}
+
+// LocalReplaces are the folders the go.mod in dir replaces a module with,
+// as absolute paths, in the file's order: what a build of the module reads
+// beside its own folder. None when dir has no go.mod; an error when it
+// does not read.
+func LocalReplaces(dir string) ([]string, error) {
+	data, err := hostFS{}.ReadFile(filepath.Join(dir, GoModFile))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	gm, err := parseGoMod(string(data))
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, r := range gm.replace {
+		if !localReplacement(r.new) {
+			continue
+		}
+		target := filepath.Clean(r.new)
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		out = append(out, target)
+	}
+	return out, nil
 }
 
 // parseGoMod reads the module, go, require and replace directives of a go.mod,

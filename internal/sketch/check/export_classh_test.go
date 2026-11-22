@@ -385,6 +385,11 @@ func permuteDecls(src string, seed uint64, moves func(syntax.Decl) bool) (out st
 	orig := make([]span, len(decls))
 	for i, d := range decls {
 		orig[i] = span{int(d.Pos()), int(d.End())}
+		// A function moves with its doc comment, which may hold a line
+		// the checker reads (`// ergo:aswritten`; AW-ERGO).
+		if fd, ok := d.(*syntax.FuncDecl); ok && fd.Doc != nil && int(fd.Doc.Pos()) < orig[i].start {
+			orig[i].start = int(fd.Doc.Pos())
+		}
 		if orig[i].start < 0 || orig[i].end > len(src) || orig[i].start >= orig[i].end {
 			return "", nil, nil, false
 		}

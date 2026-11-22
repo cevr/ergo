@@ -13,6 +13,7 @@ package lint
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
@@ -165,6 +166,10 @@ func (p *Pass) Memo(make func() any) any {
 	}
 	return p.run.memo
 }
+
+// listText is a message's list of names, "a, b, c": a rule writes names
+// into what it reports and never reads them.
+func listText(names []string) string { return strings.Join(names, ", ") }
 
 // Report records a finding of the rule from from to to (byte offsets in
 // the pass's file): message says what is wrong; the rule's Instead says

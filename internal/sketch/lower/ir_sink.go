@@ -250,7 +250,7 @@ func sinkOp(op string) bool {
 	case "/", "%", "<<", ">>":
 		return false
 	}
-	return irOps[op]
+	return irOps()[op]
 }
 
 // sinkOperand is x (sinkOperandOK), read with the callee's info, each

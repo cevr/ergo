@@ -26,7 +26,7 @@ The program is a module of packages (`ergo.mod`: `module adventure`), in the Go 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/adventure/cmd/adventure        # type commands; quit or ^D ends
 ./bin/ergo test examples/adventure/game
 go run ./scripts/examples adventure
