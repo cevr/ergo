@@ -76,7 +76,7 @@
     {
       "name": "proclimit-no-group-kill",
       "origin": "wf10 WAITDELAY (2026-11-21: BUDGET-BACKFILL check1, `WaitDelay expired before I/O complete` after a passing model)",
-      "file": "internal/proclimit/wait_linux.go",
+      "file": "internal/proclimit/wait_group.go",
       "from": "\t\t\t_ = syscall.Kill(-pid, syscall.SIGKILL)\n",
       "to": "",
       "rule": "Once the program exits, Wait ends the processes it left in its group, which may hold its output.",
@@ -85,7 +85,7 @@
     {
       "name": "proclimit-no-own-group",
       "origin": "wf10 WAITDELAY (2026-11-21: BUDGET-BACKFILL check1, `WaitDelay expired before I/O complete` after a passing model)",
-      "file": "internal/proclimit/wait_linux.go",
+      "file": "internal/proclimit/wait_group.go",
       "from": "\t\ta.Setpgid = true\n",
       "to": "",
       "rule": "A watched program leads a process group of its own, so Wait can end what it leaves and nothing else.",

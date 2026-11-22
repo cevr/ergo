@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin || freebsd || netbsd || openbsd || dragonfly
 
 package proclimit
 
@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 
 	"ergo.local/prototype/internal/testwait"
@@ -70,12 +69,23 @@ func TestWaitReadsOutputAfterExit(t *testing.T) {
 	}
 }
 
+// ended reports a process that is gone or a zombie (ps prints its state,
+// on Linux, Darwin and the BSDs alike): killed, whoever reaps it.
+func ended(pid int) bool {
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	state := strings.TrimSpace(string(out))
+	_ = err // ps exits 1 for a pid that is gone, with no output
+	return state == "" || strings.HasPrefix(state, "Z")
+}
+
 // TestWaitEndsWhatTheProgramLeaves: a program that leaves a process
 // behind holding its output (sh's `sleep &`) does not hold Wait: Wait
 // kills the program's own process group once it exits, and the leftover
 // dies with it. The test's process, in another group, is untouched. The
 // only wait is the test's deadline, which names the hang. It needs real
 // processes: a group and a pipe held open by a process are the kernel's.
+// It runs on every unix Wait ends a group on (wait_group.go), Darwin and
+// the BSDs through kqueue's exit event (wait_bsd.go).
 // Mutants: proclimit-no-group-kill, proclimit-no-own-group.
 func TestWaitEndsWhatTheProgramLeaves(t *testing.T) {
 	var out bytes.Buffer
@@ -94,7 +104,7 @@ func TestWaitEndsWhatTheProgramLeaves(t *testing.T) {
 	if err != nil || pid <= 1 {
 		t.Fatalf("the leftover's pid: %q", out.String())
 	}
-	if !testwait.Until(t, func() bool { return syscall.Kill(pid, 0) == syscall.ESRCH || stoppedOrEnded(pid) }) {
+	if !testwait.Until(t, func() bool { return ended(pid) }) {
 		t.Errorf("the leftover %d still runs after Wait", pid)
 	}
 }
