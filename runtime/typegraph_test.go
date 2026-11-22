@@ -33,7 +33,7 @@ func typeGraph(t *testing.T, path string) *types.Package {
 	ctxt.JoinPath = gopath.Join
 	ctxt.OpenFile = func(p string) (io.ReadCloser, error) { return sources.Open(p) }
 	dir := strings.TrimPrefix(path, "runtime/")
-	for _, name := range packages[path].files {
+	for _, name := range packages()[path].files {
 		if ok, err := ctxt.MatchFile(dir, name); err != nil || !ok {
 			if err != nil {
 				t.Fatal(err)

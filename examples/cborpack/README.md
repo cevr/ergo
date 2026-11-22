@@ -23,7 +23,7 @@ The program is a module of packages (`ergo.mod`: `module cborpack`), in the Go l
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/cborpack/cmd/cborpack -- receipt 200
 ./bin/ergo test examples/cborpack/cbor
 go run ./scripts/examples cborpack

@@ -90,7 +90,7 @@ func TestIRStaticExits(t *testing.T) {
 			}
 		}
 		for _, f := range frameFuncs {
-			if got, want := strings.Join(forms[f], " "), strings.Join(exitForms[f], " "); got != want {
+			if got, want := strings.Join(forms[f], " "), strings.Join(exitForms()[f], " "); got != want {
 				t.Errorf("seed %d: %s registers its actions with %q, want %q\n%s", seed, f, got, want, text)
 			}
 		}

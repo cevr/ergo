@@ -26,7 +26,7 @@ The program is a module of packages (`ergo.mod`: `module todoshell`), in the Go 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/todo-shell/cmd/todo-shell      # type commands; quit or ^D ends
 ./bin/ergo test examples/todo-shell/shell
 go run ./scripts/examples todo-shell

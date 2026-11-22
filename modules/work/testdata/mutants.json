@@ -1866,6 +1866,14 @@
       "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
     },
     {
+      "name": "wcr-repair-activates-nothing", "origin": "wf10/semws WORK-CREATING (c)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\thead != \"\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "to": "\t\thead == \"never\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "rule": "doctor -repair activates a record left Creating over a whole clone whose maker is gone, and names it (memory's ToolAgreesWithTheReference, CrashOp Cloned then RepairOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
       "name": "clone-copy-is-failure", "origin": "wf10/semws WORK-CLONE",
       "file": "modules/work/work/api.ergo",
       "from": "\t\t\tif acrossVolumes {\n",
@@ -1904,14 +1912,6 @@
       "to": "[]string{\"-aL\", from, to}",
       "rule": "The copy Cloner copies a link that leaves the source as a link with its text, never its target (copy's CloneKeepsLinksAsLinks on the host).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
-    },
-    {
-      "name": "wcr-repair-activates-nothing", "origin": "wf10/semws WORK-CREATING (c)",
-      "file": "modules/work/work/doctor.ergo",
-      "from": "\t\thead != \"\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
-      "to": "\t\thead == \"never\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
-      "rule": "doctor -repair activates a record left Creating over a whole clone whose maker is gone, and names it (memory's ToolAgreesWithTheReference, CrashOp Cloned then RepairOp).",
-      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
     }
   ]
 }
