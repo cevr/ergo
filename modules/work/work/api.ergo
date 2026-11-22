@@ -258,7 +258,9 @@ type Api {
 	Trust() Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.Denied | fs.Failed,
 	// Doctor reports on the base: the clone providers, the file system,
 	// whether a purge is one call, a stale index, the trust; with -rift,
-	// the base's Rift copies no workspace holds yet.
+	// the base's Rift copies no workspace holds yet; the checkouts whose
+	// merge drivers are missing (with -here, only the one it runs in),
+	// which -fix registers.
 	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked,
 	// PluginTest runs the laws of the language contracts against a plugin
 	// (a command, or the [language.NAME] it names) on the base's files, and

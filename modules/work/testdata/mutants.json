@@ -1658,11 +1658,27 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
-      "name": "m0-no-rerere", "origin": "wf10/semws M0",
+      "name": "hmd-drivers-turn-on-rerere", "origin": "wf10/semws HUB-MERGE-DRIVERS",
       "file": "modules/work/work/merge.ergo",
-      "from": "\tout.Append([]string{\"rerere.enabled\", \"true\"})\n",
-      "to": "\tout\n",
-      "rule": "Every registered checkout reuses a recorded resolution (memory's NewWorkspaceMergesByClass).",
+      "from": "\tout\n}\n\n// DriversKey is",
+      "to": "\tout.Append([]string{\"rerere.enabled\", \"true\"})\n}\n\n// DriversKey is",
+      "rule": "A driver fix writes the drivers and nothing else: rerere.enabled stays as the checkout's owner set it (memory's RegisterDriversLeavesRerere, NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "hmd-here-checks-all", "origin": "wf10/semws HUB-MERGE-DRIVERS",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tlet roots = if here { holding(all, t.here) } else { all }\n",
+      "to": "\tlet roots = if here { holding(all, t.base) } else { all }\n",
+      "rule": "doctor -here names and fixes only the checkout it runs in, never another lane's clone (memory's DoctorHereFixesOnlyItsCheckout).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "hmd-here-nowhere-silent", "origin": "wf10/semws HUB-MERGE-DRIVERS",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tif here && len(roots) == 0 {\n",
+      "to": "\tif false {\n",
+      "rule": "doctor -here run in no checkout of the base says so, never passes silently (memory's DoctorHereFixesOnlyItsCheckout).",
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
