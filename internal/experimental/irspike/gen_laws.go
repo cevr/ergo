@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// lawBodies is the number of laws GenerateLaws writes: each gets an IR
-// body in every seed (G6).
-const lawBodies = 8
+// lawBodies is the number of law bodies GenerateLaws writes: each gets an
+// IR body in every seed (G6). Pair's two laws count once per provider's
+// instance, a copy each (mono.go lawMonoFor). Exits opens a frame scope (GP-FRAMES).
+const lawBodies = 13
 
 // GenerateLaws is a program of laws (G6): a law whose tail is a
 // comparison, one that returns early from an if, one whose tail is an if
@@ -25,7 +26,7 @@ func GenerateLaws(seed uint64) string {
 		}
 		return hold
 	}
-	b.WriteString("type Bad { N int }\n\n")
+	b.WriteString("import scope\n\ntype Bad { N int }\n\n")
 	b.WriteString("type Shape = Dot | Box\n\ntype Dot {}\n\ntype Box { W int }\n\n")
 	fmt.Fprintf(&b, "func scale(n int) int {\n\tn * %d\n}\n\n", k)
 	b.WriteString("func shapeOf(n int) Shape {\n\tif n % 2 == 0 {\n\t\treturn Dot\n\t}\n\tBox{W: n}\n}\n\n")
@@ -44,6 +45,21 @@ func GenerateLaws(seed uint64) string {
 	fmt.Fprintf(&b, "law Shapes(n int) {\n\tmatch shapeOf(n) {\n\tcase Dot:\n\t\tn %% 2 == 0\n\tcase Box as x:\n\t\tx.W %s n\n\t}\n}\n\n", cmp("==", "<"))
 	fmt.Fprintf(&b, "law Caught(n int) {\n\tlet v = check(n) catch {\n\tcase Bad:\n\t\treturn %s\n\t}\n\tv == n\n}\n\n", cmp("n % 7 == 3", "n < 0"))
 	fmt.Fprintf(&b, "law Tried(n int) {\n\tlet v = try check(n %% %d)\n\tv >= 0\n}\n\n", 3+r.IntN(5))
+	// A law that opens a frame scope (GP-FRAMES): its exit action runs at
+	// each case's end and, at a seeded modulus, raises a defect for some n.
+	fmt.Fprintf(&b, "law Exits(n int) {\n\tscope.OnExit() {\n\t\tlet ys = []int{1, 2, 3}\n\t\tlet _ = ys[(n %% %[1]d + %[1]d) %% %[1]d]\n\t}\n\tscale(n) %% %[2]d == 0\n}\n\n", 3+r.IntN(2), k)
+	// A generic operation type's member laws (G6: law of a generic
+	// operation type), run by two providers of different instances:
+	// Ints (Pair[int]) clamps, so Idem holds; Strs (Pair[string]) appends,
+	// so Idem is refuted with its site. Each runs a copy of each law at
+	// its instance (mono.go lawMonoFor).
+	b.WriteString("type Pair[T comparable] {\n\tPut(v T) T,\n\tTake(v T) T fails Bad,\n\tSame(a T, c T) bool,\n\n\tlaw Idem(v T) {\n\t\tlet w = Put(v)\n\t\tSame(Put(w), w)\n\t},\n\n\tlaw Taken(v T) {\n\t\tlet w = Take(v) catch {\n\t\tcase Bad:\n\t\t\treturn true\n\t\t}\n\t\tSame(w, v)\n\t},\n}\n\n")
+	fmt.Fprintf(&b, "type Ints {} implements Pair[int]\n\nfunc Put(_ Ints, v int) int {\n\tif v > %d {\n\t\treturn %d\n\t}\n\tv\n}\n\n", 3+r.IntN(5), 3+r.IntN(5))
+	fmt.Fprintf(&b, "func Take(_ Ints, v int) int fails Bad {\n\tif v %% %d == 0 {\n\t\treturn Bad{N: v}\n\t}\n\tv\n}\n\n", 2+r.IntN(4))
+	b.WriteString("func Same(_ Ints, a int, c int) bool {\n\ta == c\n}\n\n")
+	b.WriteString("type Strs {} implements Pair[string]\n\nfunc Put(_ Strs, v string) string {\n\tv + \"!\"\n}\n\n")
+	fmt.Fprintf(&b, "func Take(_ Strs, v string) string fails Bad {\n\tif len(v) %% %d == 0 {\n\t\treturn Bad{N: len(v)}\n\t}\n\tv\n}\n\n", 2+r.IntN(3))
+	b.WriteString("func Same(_ Strs, a string, c string) bool {\n\ta == c\n}\n\n")
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"\\(scale(2))\")\n}\n")
 	return b.String()
 }

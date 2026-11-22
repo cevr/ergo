@@ -6,11 +6,9 @@
 # the excerpt is text of one line of the file that contains the match; `*` covers the
 # whole file.
 
-# skipped: the history list of the 196n spec (docs/research/ef-migrate/*.ergo is parsed
-# in the current syntax and stays checked), the old-syntax parser and its inputs
+# skipped: the history list of the 196n spec, the old-syntax parser and its inputs
 !docs/receipts/
 !docs/previews/2026-
-!plans/
 !docs/research/
 !prototypes/sketch9/
 !internal/migrate196/oldsyntax/
@@ -22,11 +20,9 @@
 internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host provides only Console and Ambient
 # The Go team's golang.org/x/sync, copied unchanged (examples/admit's Go module): Go prose.
 examples/admit/testdata/sync/errgroup/errgroup.go	provides synchronization, error propagation
-CHANGELOG.md	a module function that provides it, or
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/rows.md	the entry that provides it, and
-docs/specs/actors.md	No guarantee needs syntax, so
 internal/sketch/check/context.go	written needs row, the
 internal/sketch/check/context.go	// the needs row, then
 internal/sketch/check/contextsum.go	in needs rows, and
@@ -61,6 +57,7 @@ internal/sketch/std/ui/testhost.ergo	needs R, clock time.Manual
 internal/sketch/std/ui/zone.ergo	needs R, at CallSite
 internal/sketch/std/ui/presence.ergo	needs R, at CallSite
 internal/sketch/std/ui/focus.ergo	needs R, at CallSite
+internal/sketch/std/ui/layer.ergo	needs R, at CallSite
 internal/sketch/lower/testdata/mutants.json	needs R, s S
 internal/sketch/lower/testdata/mutants.json	needs R, clock time.Manual
 internal/sketch/lower/testdata/mutants.json	needs R, at CallSite

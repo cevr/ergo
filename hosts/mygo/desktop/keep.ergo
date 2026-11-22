@@ -75,7 +75,8 @@ func keepKids[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E], line float32) {
 			let n = boxFor(d, k)
 			restyle(d, n, styleIn(list, i, h.Value.node, line))
 			if i >= from {
-				layout.Append(&d.tree, into, n) catch {
+				// A layer hangs from the window's box (UG4).
+				layout.Append(&d.tree, if isLayer(h.Value.node) { d.top } else { into }, n) catch {
 				case arena.Stale:
 				}
 			}
@@ -151,18 +152,44 @@ func styleIn[E](list Option[ui.RowsNode], i int, node ui.Node[E], line float32) 
 		st.Height = layout.Px{Value: rh}
 	case None:
 	}
+	// A layer is out of the flow, at its own size, where placeLayers
+	// moves it (UG4).
+	if isLayer(node) {
+		st.Position = layout.Absolute{Left: 0, Top: 0}
+	}
 	st
 }
 
+// layerBase is the style layer l lays out in before placeLayers moves it.
+func layerBase[S, E, D, F](d mut Driver[S, E, D, F], l ui.Id[E], line float32) Option[layout.Style] {
+	match (d.lparent.Get(l), d.nodes.Get(l)) {
+	case (Some[ui.Id[E]] as p, Some[held[E]] as h):
+		for i, k in kidsOf(d, p.Value) {
+			if k == l {
+				return Some{Value: styleIn(listOf(d, p.Value), i, h.Value.node, line)}
+			}
+		}
+		None
+	case _:
+		None
+	}
+}
+
 // layOutKept lays the kept tree out at the window's size: the window's
-// box takes its size, each list given room at the last paint goes back to
-// its own style, and after a layout each list no taller than 0 is given
-// the window's room below its top (giveRoom), as the reference does.
-func layOutKept[S, E, D, F](d mut Driver[S, E, D, F]) {
-	let mut rs = plainStyle()
-	rs.Width = layout.Px{Value: d.width}
-	rs.Height = layout.Px{Value: d.height}
-	restyle(d, d.top, rs)
+// box takes its size and insets, each list given room at the last paint
+// and each layer placed at it goes back to its own style, and after a
+// layout each list no taller than 0 is given the window's room below its
+// top (giveRoom), then each layer goes to its place, as the reference
+// does.
+func layOutKept[S, E, D, F](d mut Driver[S, E, D, F], line float32) {
+	restyle(d, d.top, rootStyle(d))
+	for l in stacked(d) {
+		match (d.lids.Get(l), layerBase(d, l, line)) {
+		case (Some[layout.Id] as n, Some[layout.Style] as s):
+			restyle(d, n.Value, s.Value)
+		case _:
+		}
+	}
 	for k, s in d.roomed {
 		match d.lids.Get(k) {
 		case Some[layout.Id] as l:
@@ -196,6 +223,11 @@ func layOutKept[S, E, D, F](d mut Driver[S, E, D, F]) {
 			}
 			d.work = d.work + layout.Work(d.tree)
 		}
+		// placeAll reads the driver beside the tree it moves layers in.
+		let mut t = d.tree
+		let w = placeAll(d, &t, d.top, d.lids)
+		d.tree = t
+		d.work = d.work + w
 	}
 }
 

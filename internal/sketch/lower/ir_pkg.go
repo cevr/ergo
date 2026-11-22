@@ -50,6 +50,11 @@ func (b *irBuilder) spelling(s string) string {
 			i += k
 			continue
 		}
+		if strings.HasPrefix(s[i:], "struct{") {
+			k := b.structSpelling(s, i, &out)
+			i += k
+			continue
+		}
 		j := i
 		for j < len(s) && isSpellingName(s[j]) {
 			j++
@@ -95,7 +100,10 @@ func (b *irBuilder) spelling(s string) string {
 			if strings.Contains(s, "[") && strings.HasPrefix(s[i:j], b.l.rt()+".") {
 				b.keepImport("var _ " + b.l.rt() + ".Site")
 			} else {
-				b.keepImport("var _ " + s)
+				// A host instance over a generic body's type parameter
+				// (config's *Redacted[T]) is kept at int, as valueSource
+				// keeps a generic body's element (ir_loops.go).
+				b.keepImport("var _ " + b.typeParamsAt(s, "int"))
 			}
 		}
 		out.WriteString(q)
@@ -124,6 +132,34 @@ func (b *irBuilder) namesTypeParam(s string) bool {
 		i = j
 	}
 	return false
+}
+
+// typeParamsAt is the Go type spelling s with each type parameter of the
+// function the builder lowers spelled as at: a type main.go's top level
+// can name.
+func (b *irBuilder) typeParamsAt(s, at string) string {
+	out := strings.Builder{}
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && isSpellingName(s[j]) {
+			j++
+		}
+		if j == i {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		name := s[i:j]
+		for tp, p := range b.fc.params {
+			if name == p && b.rwBound[tp] == nil {
+				name = at
+				break
+			}
+		}
+		out.WriteString(name)
+		i = j
+	}
+	return out.String()
 }
 
 func isSpellingName(c byte) bool {
@@ -164,17 +200,38 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // parameter has no Go type parameter). "" for a call of a function that
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
+	return b.sigTypeArgs(c.Func.Sig, c.TypeArgs, site)
+}
+
+// sigTypeArgs is typeArgs for the type arguments targs of a function of
+// signature sig: a call's, or an instance's named as a value (funcName).
+func (b *irBuilder) sigTypeArgs(sig *check.Signature, targs []check.Type, site syntax.Node) string {
 	var out []string
-	for i, tp := range c.Func.Sig.TParams {
+	for i, tp := range sig.TParams {
 		if !b.l.goParam(tp) {
 			continue
 		}
-		if i >= len(c.TypeArgs) {
+		if i >= len(targs) {
 			irNo("generic call without its type arguments")
 		}
-		out = append(out, b.goArg(tp, c.TypeArgs[i], site))
+		out = append(out, b.goArg(tp, targs[i], site))
 	}
 	return strings.Join(out, ", ")
+}
+
+// callerSlot is the Slot row parameter that the row argument a holds
+// alone (written as a row value or as a row argument), or nil.
+func callerSlot(a check.Type) *check.TypeParam {
+	r := check.SlotRow(a)
+	if ra, ok := a.(*check.RowArg); ok && r == nil {
+		if es := rowElems(ra.Row); len(es) == 1 {
+			r, _ = es[0].(*check.TypeParam)
+		}
+	}
+	if r == nil || !r.Slot {
+		return nil
+	}
+	return r
 }
 
 // goArg is the Go type argument a of the Go type parameter tp, as the
@@ -185,6 +242,13 @@ func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
 	if tp.Kind == check.KindType {
 		return b.goType(a, site)
+	}
+	if r := callerSlot(a); r != nil && tp.Kind != check.KindUses && irInlineSlotLowering != "off" {
+		// The caller's own Slot row passed on is its Go type parameter,
+		// as the emitter's slotType names it (rowslot.go, INLINE-SLOT).
+		if name, ok := b.fc.params[r]; ok {
+			return b.spelling(name)
+		}
 	}
 	if tp.Kind == check.KindUses || check.SlotRow(a) != nil {
 		irNo("generic call with a row type argument of the caller")
@@ -359,6 +423,13 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		return b.boundOpCall(x, c, n, p)
 	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	if id, ok := unparen(c.Recv).(*syntax.Ident); ok && vals[0].K == "toiface" {
+		if v, ok := b.l.info.Uses[id].(*check.Var); ok && b.fc.provs[v] != nil {
+			// The parameter of a copy for a known provider: the
+			// adapter's method, a static call (ir_known.go).
+			vals[0] = vals[0].X
+		}
+	}
 	env := &irExpr{K: "local", Pos: p, I: b.env}
 	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, vals[1:]...)
 	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}), true // ir_call.go
@@ -416,15 +487,18 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
 	filled := b.fillLoop(s, lp, field("Start"), v, p) // ir_fill.go
-	b.loopBody(loop, s, s.Body)                       // ir_stmt.go
+	ctr := b.loopBody(loop, s, s.Body)                // ir_stmt.go
 	filled()
 	// The Range's statements run first, once (rangeStmt).
 	loop.Pos = past(loop.Pos, pre) // ir_match.go
+	// The nest's counter follows the Range's definition (ir_poll.go).
+	head := append(append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}), ctr...)
 	if st := b.loopIdiomIR(s, lp, loop, field); st != nil {
-		// A fill, a move or a collect: the call, guarded, before the loop (ir_loops.go).
-		return append(append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}), st...)
+		// A fill, a move or a collect: the call, guarded, before the loop
+		// (ir_loops.go), which stays in the guard's else and counts there.
+		return append(head, st...)
 	}
-	return append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}, loop)
+	return append(head, loop)
 }
 
 // conversion is the conversion x, T(v), as the emitter writes it: a Go
@@ -568,25 +642,36 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
 			irNo("std call with an adapted result")
 		}
-		for i, r := range body.Results {
-			if !b.sameGo(tuple.Types[i], r) {
-				irNo("std call with a converted result")
-			}
-		}
 	}
 	// A generic body's instance (F1): each Go type parameter takes the
 	// call's type argument for the Ergo type parameter of its name, as the
 	// emitter's stdTypeArgs writes it; the body's Go types read with them.
 	targs, subst := b.stdTypeArgs(body, c, x)
+	if isTuple {
+		// Each result is the element's Go type, read as a single result
+		// is (below): spelled alike, or the runtime's at the instance
+		// (TakeAt's (T, []T), actor's shown (S, int), keyState's []byte
+		// as []uint8; CONV-RESULT).
+		for i, r := range body.Results {
+			if !b.sameGo(tuple.Types[i], r) && !b.sameRT(tuple.Types[i], r, subst, body.Package) {
+				irNo("std call with a converted result")
+			}
+		}
+	}
 	// The decoder takes an argument and a result of the runtime's Go type
 	// itself (types2.Identical), where Go text would also assign a
 	// defined type to its underlying one: each must be spelled alike.
+	convs := map[int]string{}
 	for i, q := range body.Params {
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		if !b.operandFits(ops[i], q.Type, subst, body.Package) { // ir_operand.go
+		conv, ok := b.operandConv(ops[i], q.Type, subst, body.Package) // ir_operand.go
+		if !ok {
 			irNo("std call with a converted operand")
+		}
+		if conv != "" {
+			convs[i] = conv
 		}
 	}
 	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
@@ -597,6 +682,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(ops)
+	convOperands(args, convs) // ir_operand.go
 	// The value rule (V3), as the emitter's std call (std.go): an
 	// appender's operand is clipped and a Map write's copied, unless the
 	// call writes it in place (bs = bs.AppendString(s)).
@@ -691,8 +777,38 @@ func (b *irBuilder) sameRT(t check.Type, goType string, subst map[string]string,
 	q := b.l.rt()
 	if pkg != "" && pkg != runtimeImport {
 		q = b.l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) // naming.go reserves every leaf
+		// A leaf names runtime/v1's own types through its import of it,
+		// v1.HostRoot (http's HTTPIntoFile): main.go's is rt (CONV-OPERAND).
+		goType = leafRootSpelling(goType, b.l.rt())
 	}
 	return b.fc.goType(t) == rtSpelling(goType, q, subst)
+}
+
+// leafRootQualifier is the name every runtime leaf imports runtime/v1 by
+// (`v1 "ergo.local/prototype/runtime/v1"`), which its bodies' Go types
+// spell runtime/v1's types with (no leaf imports it by another name).
+const leafRootQualifier = "v1"
+
+// leafRootSpelling is a leaf body's Go type spelling s with each
+// qualifier leafRootQualifier, a name before a dot that is not after one,
+// spelled rt.
+func leafRootSpelling(s, rt string) string {
+	var w strings.Builder
+	for i := 0; i < len(s); {
+		if strings.HasPrefix(s[i:], leafRootQualifier+".") && (i == 0 || !isIdentByte(s[i-1]) && s[i-1] != '.') {
+			w.WriteString(rt + ".")
+			i += len(leafRootQualifier) + 1
+			continue
+		}
+		w.WriteByte(s[i])
+		i++
+	}
+	return w.String()
+}
+
+// isIdentByte reports a byte of a Go identifier.
+func isIdentByte(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 // rtSpelling is a runtime/v1 body's Go type spelling s as main.go spells
@@ -785,7 +901,7 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 // membership: a trusted module's copy of std's type gets the same call
 // (TestStdOpCallCopyAgreesOnIR, internal/sketch/std).
 func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
-	name := n.Obj.Name + "." + c.Op.Name
+	name := check.RuntimeTypeName(n) + "." + c.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
@@ -802,26 +918,42 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
 		irNo("std call with an adapted result")
 	}
+	convs := map[int]string{} // by index of the receiver-first vals
 	for i, q := range body.Params {
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) { // ir_operand.go
+		conv, ok := b.operandConv(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) // ir_operand.go
+		if !ok {
 			irNo("std call with a converted operand")
+		}
+		if conv != "" {
+			convs[i+1] = conv
 		}
 	}
 	if failsHere(c) && !goFallible(body) {
 		irNo("fallible call with an empty row at its site")
 	}
+	resConv := "" // the Go conversion the result takes (ir_operand.go basicOver)
 	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) && !b.sameRT(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0]), nil, body.Package) {
-		irNo("std call with a converted result")
+		// A runtime type over the method's basic result (Mapped.Text's
+		// string for fs.Text) is the result converted, when the call is
+		// a single value (CONV-OPERAND).
+		if !basicOver(b.l.info.Types[x], body.Results[0]) || goFallible(body) && failsHere(c) {
+			irNo("std call with a converted result")
+		}
+		resConv = b.goType(b.l.info.Types[x], x)
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	convOperands(vals, convs)                                                 // ir_operand.go
 	pre = append(pre, b.adaptOperands(body.Params, x, x.Args, vals, 1, p)...) // ir_adapt.go
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here
+	}
+	if resConv != "" {
+		e = &irExpr{K: "conv", Pos: p, T: resConv, X: e}
 	}
 	return pre, e, !body.Pure
 }

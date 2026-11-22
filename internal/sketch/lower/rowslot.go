@@ -9,9 +9,40 @@ import "ergo.local/prototype/internal/sketch/check"
 // of F's row where Ergo does, so `Async[string, NotFound]` reaches the
 // function as itself, and `Async[string, NotFound | Denied]`, whose value
 // type is a Go error, as `Async[string, error]`. Every other row parameter
-// is erased, as before. A Slot row is inlined, specialised for a known
-// record and given a known variant by none of those rules (hasSlot), which
-// keeps its Go argument in one place: the call's type arguments (goArg).
+// is erased, as before. A Slot row is specialised for a known record and
+// given a known variant by none of those rules (hasGoRow), which keeps its
+// Go argument in one place: the call's type arguments (goArg). The IR's
+// inliner copies a function with a Slot row where the Slot's Go type is
+// known at the call: its row argument holds only error types, so goArg
+// spells it as that type or as error, and the copy's types take it as the
+// call's instance does (INLINE-SLOT, ir_forms_inline.go inlineMark). A row
+// argument that holds a row parameter of the caller stays a call.
+
+// irInlineSlotLowering is "off" for the reference: every call of a
+// function with a Slot row stays a call (INLINE-SLOT).
+var irInlineSlotLowering string
+
+// IRInlineSlotOn reports that calls of functions with a Slot row are
+// inlined where the Slot's Go type is known (the property's reach check).
+func IRInlineSlotOn() bool { return irInlineSlotLowering != "off" }
+
+// SetInlineSlotLoweringForTest sets irInlineSlotLowering ("" or "off") and
+// returns the previous mode.
+func SetInlineSlotLoweringForTest(mode string) string {
+	prev := irInlineSlotLowering
+	irInlineSlotLowering = mode
+	return prev
+}
+
+// hasHeldRow reports a signature with a held row (inforce.go).
+func (l *lowerer) hasHeldRow(sig *check.Signature) bool {
+	for _, tp := range sig.TParams {
+		if tp.Kind == check.KindUses && l.isHeld(tp) {
+			return true
+		}
+	}
+	return false
+}
 
 // goParam reports a type parameter that is a Go type parameter: a type, a
 // Slot row, or a held row (inforce.go).

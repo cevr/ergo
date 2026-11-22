@@ -25,8 +25,15 @@ import (
 // the keys' shown forms, and build the build configuration they depend on
 // (the entry's under field, LAW-BUILD-KEY).
 func FuncLawDigest(law *check.Law, keys ForeignKeys) (digest, with, build string) {
+	return funcLawDigest(nil, law, keys)
+}
+
+// funcLawDigest is FuncLawDigest with each declaration keyed by its
+// package's name in names (lawDigest).
+func funcLawDigest(names LedgerNames, law *check.Law, keys ForeignKeys) (digest, with, build string) {
 	d := newDigester()
-	d.decl("law "+law.Pkg.Path+"."+law.Name, law.Pkg, law.Decl)
+	d.names = names
+	d.decl("law "+d.names.Of(law.Pkg)+"."+law.Name, law.Pkg, law.Decl)
 	decls := make([]string, 0, len(d.decls))
 	for k := range d.decls {
 		decls = append(decls, k)
@@ -55,7 +62,7 @@ func (n LedgerNames) funcLaw(law *check.Law) string {
 // `at (…)` is a site's constants and a key part, and a value may be
 // private.
 func FuncLawEntry(law *check.Law, names LedgerNames, verdict string, keys ForeignKeys) LedgerEntry {
-	d, with, build := FuncLawDigest(law, keys)
+	d, with, build := funcLawDigest(names, law, keys)
 	by := "eval"
 	if verdict == "skipped" {
 		by = ""
@@ -93,7 +100,7 @@ func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
-	digest, with, build := FuncLawDigest(law, e.keys)
+	digest, with, build := funcLawDigest(e.names, law, e.keys)
 	full := ledgerKey(key, "", "", build)
 	entry, found := e.entries[full]
 	if found {
@@ -112,7 +119,7 @@ func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
 	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
-	d, with, build := FuncLawDigest(law, ShippedForeignKeys)
+	d, with, build := FuncLawDigest(law, ShippedForeignKeys())
 	entry, found := e.entries[ledgerKey(key, "", "", build)]
 	return judgeFunc(key, build, entry, found, d, with, "the std law ledger: ", func() {})
 }
@@ -125,11 +132,11 @@ func judgeFunc(key, build string, entry LedgerEntry, found bool, digest, with, l
 	key = ledgerKey(key, "", "", build)
 	switch {
 	case !found:
-		v.State, v.Why = "missing", ledger+key+" is missing; run ergo test"
+		v.State, v.Why = "missing", ledger+key+" is missing"+stdUntypedWhy()+"; run ergo test"
 	case digest != entry.Digest:
-		v.State, v.Why = "stale", ledger+key+" is stale; run ergo test"
+		v.State, v.Why = "stale", ledger+key+" is stale"+stdUntypedWhy()+"; run ergo test"
 		if entry.With != with {
-			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
+			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + stdUntypedWhy() + "; run ergo test"
 		}
 	case entry.Verdict == "refuted":
 		v.Why = "law " + key + " is refuted"

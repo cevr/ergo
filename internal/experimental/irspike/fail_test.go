@@ -202,12 +202,8 @@ func backEdgePolls(t *testing.T, file string) int {
 		switch v := v.(type) {
 		case map[string]any:
 			if k := v["k"]; k == "while" || k == "range" {
-				if body, _ := v["body"].([]any); len(body) > 0 {
-					last, _ := body[len(body)-1].(map[string]any)
-					x, _ := last["x"].(map[string]any)
-					if last["k"] == "expr" && x["k"] == "mcall" && x["name"] == "Check" {
-						n++
-					}
+				if body, _ := v["body"].([]any); len(body) > 0 && isPoll(body[len(body)-1]) {
+					n++ // isPoll (f7g_test.go): a Check, or a quiet loop's amortized poll
 				}
 			}
 			for _, x := range v {

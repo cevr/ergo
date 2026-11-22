@@ -408,13 +408,54 @@ func Configure(v Vcs, root string, key string, value string) fails work.VcsFaile
 	let _ = try writes(v, root, []string{"config", key, value})
 }
 
-// Setting is git config --get: status 1 is a key no file sets.
+// TreeOf is git rev-parse C^{tree}.
+func TreeOf(v Vcs, root string, commit string) string fails work.NoRevision | work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", commit + "^{tree}"})
+	if r.Status != 0 {
+		return work.NoRevision{Rev: commit}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+// Note is git notes --ref work show: status 1 with no note is "". The
+// text is as SetNote gave it (no whitespace cleaned).
+func Note(v Vcs, root string, commit string) string fails work.VcsFailed {
+	let args = []string{"notes", "--ref", "work", "show", commit}
+	let r = try reads(v, root, args)
+	if r.Status != 0 {
+		if strings.Contains(r.Stderr, "no note found") {
+			return ""
+		}
+		return try ok(r, root, args)
+	}
+	r.Stdout
+}
+
+// SetNote is git notes --ref work add -f with the text on standard
+// input, as it is (--no-stripspace).
+func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFailed {
+	let args = []string{"-C", root, "notes", "--ref", "work", "add", "-f", "--no-stripspace", "-F", "-", commit}
+	let r = v.run.Run(exec.New("git", args).WithStdin(text)) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+	let _ = try ok(r, root, args)
+}
+
+// Setting is git config --get: status 1 is a key no file sets. The value
+// is as Configure set it, its own spaces kept (Git quotes a value that
+// ends in one): only the newline git config ends its answer with goes.
 func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
 	let r = try reads(v, root, []string{"config", "--get", key})
 	if r.Status == 1 {
 		return ""
 	}
-	try ok(r, root, []string{"config", "--get", key})
+	let _ = try ok(r, root, []string{"config", "--get", key})
+	strings.TrimSuffix(r.Stdout, "\n")
 }
 
 // StatDirty counts the entries git diff-files reports (a stat that

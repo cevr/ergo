@@ -736,7 +736,7 @@ func copyEvidence(t *testing.T, pair copyPair) lower.RewriteEvidence {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return lower.NewLedgerEvidence(pair.copied, lower.LedgerNames{pair.copied: pair.path}, entries, lower.ShippedForeignKeys)
+	return lower.NewLedgerEvidence(pair.copied, lower.LedgerNames{pair.copied: pair.path}, entries, lower.ShippedForeignKeys())
 }
 
 // copyNormalise folds what differs between std and a user package by how

@@ -1,74 +1,74 @@
-// cores.ergo models the budget in cores: priority classes, a lane share,
-// wide takes and the interim load gate. It replaces the count-based
-// classes model (WS4 r1), after the r1 review: a take names its width
-// (its GOMAXPROCS), and the widths held never sum past the host's budget
-// B, a number the host's owner sets (a file or a flag), not the machine's
-// cores, since the host is shared.
+// cores.ergo models the budget in cores: priority classes, a lane share
+// and wide takes. It replaces the count-based classes model (WS4 r1),
+// after the r1 review: a take names its width (its GOMAXPROCS), and the
+// widths held never sum past the host's budget B, a number the host's
+// owner sets in the budget's file, not the machine's cores, since the
+// host is shared. WS4c deleted the interim load gate (and its mutants
+// GateAll, PollAfterLoad and GatedHead, the last the live bug of
+// 2026-11-20); memory admission (mem.ergo) replaces it.
 //
-// The world: B = 3 cores. Four runners, each with a width and a class:
+// The world: B = 3 cores. Five runners, each with a width and a class:
 // A and N are lane runners of width 1, H is a heavy run of width 2 (as
 // heavy.sh, one at a time), all of the lane class; C is a crit runner of
-// width 1. A, N and C run up to twice, H once. The host's load goes up
-// and down on its own.
+// width 1, and N2 a lane runner of width 1. A, N and C run up to twice, H
+// and N2 once.
 //
 // The design:
 //   - Admission is by cores: a take fits when the widths held plus its
 //     own are at most B.
-//   - One queue order, no backfill. A newcomer joins the queue, and it
-//     takes at once only when it is the next waiter and fits. A join, a
-//     release and the load falling hand the free cores on in the same step, to the next
-//     waiter by the rule below, as long as it fits; a next waiter that
-//     does not fit stops the hand-on (head of line), so a narrow
-//     newcomer never passes a wide older waiter.
+//   - One queue order, with a bounded backfill (BUDGET-BACKFILL). A join
+//     and a release hand the free cores on in the same step, to the next
+//     waiter by the rule below while it fits. When it does not fit, the
+//     oldest later waiter that fits takes past it (a pass), at most
+//     MaxPass times for one head; then the head stops the hand-on (head
+//     of line) until it fits. There is no clock: the bound counts takes.
 //   - The next waiter: the oldest lane waiter while the lane class holds
 //     fewer than Share cores, else the oldest crit waiter, else the
 //     oldest lane waiter.
-//   - The interim load gate (until memory admission lands): while the
-//     load is high, the lane class takes nothing new and is handed
-//     nothing; crit is never gated. When the load falls, the hand-on runs
-//     at once.
 //
 // The invariants (laws of Cores, each `always`):
 //   - WithinBudget: the widths held never sum past B.
-//   - NextNotIdle: the next waiter never waits while it fits. While the
-//     load is high the lane class is not eligible to be next, so the gate
-//     keeps only lane waiters idle, never a crit waiter behind them.
+//   - NextNotIdle: the next waiter never waits while it fits.
 //   - InOrder: no runner takes while an older waiter of its own class
 //     waits, and no lane runner takes while a crit waiter waits, unless
-//     the lane class is under its share.
+//     the lane class is under its share, except by a pass.
+//   - NoIdleBehindBlockedHead: while the head does not fit and has been
+//     passed fewer than MaxPass times, no waiter that fits waits.
+//   - HeadWithinBound: no head is passed more than MaxPass times.
 //
 // Mutants, each a machine whose law Breaks must hold:
 //   - ByCount: admission counts holders (at most 3), not cores
 //     (WithinBudget).
-//   - GateAll: the load gate stops crit too, as light.sh's does
-//     (NextNotIdle).
-//   - PollAfterLoad: the load falling hands nothing on; waiters find the
-//     cores at their next poll, as light.sh's 30-s sleep (NextNotIdle).
-//   - Backfill: a release hands free cores to any waiter that fits, and
-//     so a narrow runner passes a wide
-//     older one (InOrder).
-//   - GatedHead: a gated lane waiter can be next, and stops the hand-on,
-//     so a crit waiter behind it waits with cores free (NextNotIdle; the
-//     first build's bug, found live on 2026-11-20).
+//   - QuitIdle: a release hands nothing on; waiters find the cores at
+//     their next poll, as light.sh's sleep (NextNotIdle).
+//   - Backfill: passes with no bound, so H is passed again and again
+//     (HeadWithinBound).
+//   - NoBackfill: the hand-on stops at a head that does not fit, and N2
+//     waits behind H with a core free (NoIdleBehindBlockedHead); this was
+//     the code until BUDGET-BACKFILL.
 //
 // Witnesses (laws of Cores, each `sometimes`): H holds while a narrow
 // runner waits; a narrow runner waits behind H while a core is free (the
-// head of line); H takes after waiting; crit takes while the lane class is
-// gated; the budget is full with H and a narrow runner.
+// head of line); H takes after waiting; crit takes while a lane runner
+// waits (the lane class at its share); the budget is full with H and a
+// narrow runner.
 
-type Rn = A{} | N{} | H{} | C{}
+type Rn = A{} | N{} | H{} | C{} | N2{}
 
-type CoreAct = Join{R Rn} | Retry{R Rn} | Quit{R Rn} | Busy{} | Calm{}
+type CoreAct = Join{R Rn} | Quit{R Rn}
 
 let B = 3
 let Share = 1
 
 let CoreDesign = 0
 let ByCountMutant = 1
-let GateAllMutant = 2
-let PollAfterLoadMutant = 3
+let QuitIdleMutant = 2
 let BackfillMutant = 4
-let GatedHeadMutant = 5
+let NoBackfillMutant = 5
+
+// MaxPass is how many later waiters may take past one blocked head
+// (budget.conf `backfill`).
+let MaxPass = 1
 
 // Cores is a world of this model: per runner (A, N, H, C) its step (Idle,
 // Waiting, Holding), its finished runs and its ticket; Passed: a take
@@ -78,18 +78,19 @@ type Cores {
 	Done       []int,
 	Ticket     []int,
 	NextTicket int,
-	High       bool,
+	Passes     []int,
+	Backfilled bool,
 	Passed     bool,
 	WideHolds  bool,
 	HeadBlocks bool,
 	WideWaited bool,
-	CritGated  bool,
+	CritPassed bool,
 	Full       bool,
 }
 
 func coreWorld() Cores {
-	Cores{Pc: []int{0, 0, 0, 0}, Done: []int{0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1}, NextTicket: 0,
-		High: false, Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritGated: false, Full: false}
+	Cores{Pc: []int{0, 0, 0, 0, 0}, Done: []int{0, 0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1, -1}, NextTicket: 0,
+		Passes: []int{0, 0, 0, 0, 0}, Backfilled: false, Passed: false, WideHolds: false, HeadBlocks: false, WideWaited: false, CritPassed: false, Full: false}
 }
 
 func rn(r Rn) int {
@@ -102,10 +103,12 @@ func rn(r Rn) int {
 		return 2
 	case C:
 		return 3
+	case N2:
+		return 4
 	}
 }
 
-func all4() []int { []int{0, 1, 2, 3} }
+func all4() []int { []int{0, 1, 2, 3, 4} }
 
 func width(r int) int {
 	if r == 2 {
@@ -115,7 +118,7 @@ func width(r int) int {
 }
 
 func runsOf(r int) int {
-	if r == 2 {
+	if r == 2 || r == 4 {
 		return 1
 	}
 	return 2
@@ -161,10 +164,6 @@ func fits(m int, c Cores, r int) bool {
 	return used(c) + width(r) <= B
 }
 
-// gated reports the load gate: the lane class while the load is high;
-// every class under GateAll.
-func gatedFor(m int, c Cores, r int) bool { c.High && (!isCrit(r) || m == GateAllMutant) }
-
 func oldestIn(c Cores, critClass bool) int {
 	let mut best = -1
 	for r in all4() {
@@ -175,16 +174,9 @@ func oldestIn(c Cores, critClass bool) int {
 	return best
 }
 
-// nextWaiter is the waiter the hand-on serves next, -1 for none. A gated
-// waiter is not next: while the load is high the lane class is skipped, so
-// a crit waiter behind a gated lane waiter is served at once. (GatedHead,
-// the first build's rule, chose a gated lane waiter and stopped there: a
-// crit waiter waited with 12 of 16 cores free, live, 2026-11-20.)
-func nextWaiter(m int, c Cores) int {
-	let mut lane = oldestIn(c, false)
-	if c.High && m != GatedHeadMutant {
-		lane = -1
-	}
+// nextWaiter is the waiter the hand-on serves next, -1 for none.
+func nextWaiter(c Cores) int {
+	let lane = oldestIn(c, false)
 	let first = oldestIn(c, true)
 	if lane != -1 && laneUsed(c) < Share {
 		return lane
@@ -212,40 +204,61 @@ func breaksOrder(c Cores, r int) bool {
 	return false
 }
 
-func admit(c0 Cores, r int) Cores {
+func admit(c0 Cores, r int, pass bool) Cores {
 	let mut c = c0
-	if breaksOrder(c, r) {
+	if breaksOrder(c, r) && !pass {
 		c.Passed = true
 	}
 	if c.Pc[r] == Waiting && r == 2 {
 		c.WideWaited = true
 	}
-	if c.High && isCrit(r) {
-		c.CritGated = true
+	if isCrit(r) && (c.Pc[0] == Waiting || c.Pc[1] == Waiting || c.Pc[2] == Waiting) {
+		c.CritPassed = true
 	}
 	c.Pc[r] = Holding
 	c.Ticket[r] = -1
 	return c
 }
 
-// handOn serves waiters in order while the next fits and is not gated;
-// under Backfill, any waiter that fits.
+// oldestFitting is the oldest waiter other than h that fits, -1 for none.
+func oldestFitting(m int, c Cores, h int) int {
+	let mut best = -1
+	for r in all4() {
+		if r != h && c.Pc[r] == Waiting && fits(m, c, r) && (best == -1 || c.Ticket[r] < c.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+// handOn serves the next waiter while it fits. When it does not, the
+// oldest later waiter that fits takes past it (a pass), at most MaxPass
+// times for one head: then the hand-on stops at the head, as with no
+// backfill. Under NoBackfill there is no pass (the code before
+// BUDGET-BACKFILL); under Backfill the passes have no bound.
 func handOn(m int, c0 Cores) Cores {
 	let mut c = c0
 	for _ in all4() {
-		let mut to = nextWaiter(m, c)
-		if m == BackfillMutant {
-			to = -1
-			for r in all4() {
-				if to == -1 && c.Pc[r] == Waiting && fits(m, c, r) && !gatedFor(m, c, r) {
-					to = r
-				}
-			}
-		}
-		if to == -1 || !fits(m, c, to) || gatedFor(m, c, to) {
+		let to = nextWaiter(c)
+		if to == -1 {
 			return c
 		}
-		c = admit(c, to)
+		if fits(m, c, to) {
+			c = admit(c, to, false)
+			c.Passes[to] = 0
+		} else {
+			if m == NoBackfillMutant || (m != BackfillMutant && c.Passes[to] >= MaxPass) {
+				return c
+			}
+			let by = oldestFitting(m, c, to)
+			if by == -1 {
+				return c
+			}
+			c = admit(c, by, true)
+			c.Passes[by] = 0
+			c.Passes[to] = c.Passes[to] + 1
+			c.Backfilled = true
+		}
 	}
 	return c
 }
@@ -264,14 +277,6 @@ func coreNext(m int, c0 Cores, a CoreAct) Option[Cores] {
 		c.Ticket[r] = c.NextTicket
 		c.NextTicket = c.NextTicket + 1
 		c = handOn(m, c)
-	case Retry as x:
-		// Only PollAfterLoad's waiters poll: after the load fell, a waiter
-		// finds the free cores on its own.
-		let r = rn(x.R)
-		if m != PollAfterLoadMutant || c.Pc[r] != Waiting || r != nextWaiter(m, c) || !fits(m, c, r) || gatedFor(m, c, r) {
-			return None
-		}
-		c = admit(c, r)
 	case Quit as x:
 		let r = rn(x.R)
 		if c.Pc[r] != Holding {
@@ -279,21 +284,9 @@ func coreNext(m int, c0 Cores, a CoreAct) Option[Cores] {
 		}
 		c.Pc[r] = Idle
 		c.Done[r] = c.Done[r] + 1
-		c = handOn(m, c)
-	case Busy:
-		if c.High {
-			return None
-		}
-		c.High = true
-		// The lane class leaves the order: a crit waiter behind a lane
-		// head may now be next, and is served at once.
-		c = handOn(m, c)
-	case Calm:
-		if !c.High {
-			return None
-		}
-		c.High = false
-		if m != PollAfterLoadMutant {
+		// A release hands the cores on in the same step; under QuitIdle it
+		// hands nothing on, and the next waiter waits with cores free.
+		if m != QuitIdleMutant {
 			c = handOn(m, c)
 		}
 	}
@@ -318,19 +311,17 @@ func coreWith(m int, c Cores, a CoreAct) Decision[Cores, string] {
 	}
 }
 
-func coreDesign(c Cores, a CoreAct) Decision[Cores, string]    { coreWith(CoreDesign, c, a) }
-func byCount(c Cores, a CoreAct) Decision[Cores, string]       { coreWith(ByCountMutant, c, a) }
-func gateAll(c Cores, a CoreAct) Decision[Cores, string]       { coreWith(GateAllMutant, c, a) }
-func pollAfterLoad(c Cores, a CoreAct) Decision[Cores, string] { coreWith(PollAfterLoadMutant, c, a) }
-func backfill(c Cores, a CoreAct) Decision[Cores, string]      { coreWith(BackfillMutant, c, a) }
-func gatedHead(c Cores, a CoreAct) Decision[Cores, string]     { coreWith(GatedHeadMutant, c, a) }
+func coreDesign(c Cores, a CoreAct) Decision[Cores, string] { coreWith(CoreDesign, c, a) }
+func byCount(c Cores, a CoreAct) Decision[Cores, string]    { coreWith(ByCountMutant, c, a) }
+func quitIdle(c Cores, a CoreAct) Decision[Cores, string]   { coreWith(QuitIdleMutant, c, a) }
+func backfill(c Cores, a CoreAct) Decision[Cores, string]   { coreWith(BackfillMutant, c, a) }
+func noBackfill(c Cores, a CoreAct) Decision[Cores, string] { coreWith(NoBackfillMutant, c, a) }
 
 func withinBudget(c Cores) bool { used(c) <= B }
 
-// nextNotIdle: the design's next waiter, which is never gated, does not
-// wait while it fits.
+// nextNotIdle: the next waiter does not wait while it fits.
 func nextNotIdle(c Cores) bool {
-	let r = nextWaiter(CoreDesign, c)
+	let r = nextWaiter(c)
 	if r == -1 {
 		return true
 	}
@@ -339,14 +330,45 @@ func nextNotIdle(c Cores) bool {
 
 func inOrder2(c Cores) bool { !c.Passed }
 
-func overBudget(c Cores) bool  { !withinBudget(c) }
-func nextIdle(c Cores) bool    { !nextNotIdle(c) }
-func passed2(c Cores) bool     { !inOrder2(c) }
-func wideHolds(c Cores) bool   { c.WideHolds }
-func headBlocks(c Cores) bool  { c.HeadBlocks }
-func wideWaited(c Cores) bool  { c.WideWaited }
-func critGated(c Cores) bool   { c.CritGated }
-func full(c Cores) bool        { c.Full }
+// noIdleBehindBlockedHead: while the next waiter does not fit and has been
+// passed fewer than MaxPass times, no other waiter waits that fits (the
+// 2026-11-20 queue: 22 runs of width 4 waited behind a width-16 head that
+// could not fit, with 12 cores free).
+func noIdleBehindBlockedHead(c Cores) bool {
+	let h = nextWaiter(c)
+	if h == -1 || used(c) + width(h) <= B || c.Passes[h] >= MaxPass {
+		return true
+	}
+	for r in all4() {
+		if r != h && c.Pc[r] == Waiting && used(c) + width(r) <= B {
+			return false
+		}
+	}
+	return true
+}
+
+// headWithinBound: no waiter is passed more than MaxPass times.
+func headWithinBound(c Cores) bool {
+	for r in all4() {
+		if c.Passes[r] > MaxPass {
+			return false
+		}
+	}
+	return true
+}
+
+func idleBehindHead(c Cores) bool { !noIdleBehindBlockedHead(c) }
+func pastBound(c Cores) bool      { !headWithinBound(c) }
+
+func overBudget(c Cores) bool { !withinBudget(c) }
+func nextIdle(c Cores) bool   { !nextNotIdle(c) }
+func passed2(c Cores) bool    { !inOrder2(c) }
+func wideHolds(c Cores) bool  { c.WideHolds }
+func headBlocks(c Cores) bool { c.HeadBlocks }
+func wideWaited(c Cores) bool { c.WideWaited }
+func critPassed(c Cores) bool { c.CritPassed }
+func full(c Cores) bool       { c.Full }
+func backfilled(c Cores) bool { c.Backfilled }
 
 type CoreBudget machine[Cores, CoreAct] {
 	initial: coreWorld(),
@@ -355,12 +377,15 @@ type CoreBudget machine[Cores, CoreAct] {
 	law WithinBudget always withinBudget,
 	law NextNotIdle always nextNotIdle,
 	law InOrder always inOrder2,
+	law NoIdleBehindBlockedHead always noIdleBehindBlockedHead,
+	law HeadWithinBound always headWithinBound,
 
 	law WideHolds sometimes wideHolds,
 	law HeadOfLine sometimes headBlocks,
 	law WideTakesAfterWaiting sometimes wideWaited,
-	law CritUnderGate sometimes critGated,
+	law CritPassesLane sometimes critPassed,
 	law FullWithWide sometimes full,
+	law PassesBlockedHead sometimes backfilled,
 }
 
 type ByCount machine[Cores, CoreAct] {
@@ -370,16 +395,9 @@ type ByCount machine[Cores, CoreAct] {
 	law Breaks sometimes overBudget,
 }
 
-type GateAll machine[Cores, CoreAct] {
+type QuitIdle machine[Cores, CoreAct] {
 	initial: coreWorld(),
-	step:    gateAll,
-
-	law Breaks sometimes nextIdle,
-}
-
-type PollAfterLoad machine[Cores, CoreAct] {
-	initial: coreWorld(),
-	step:    pollAfterLoad,
+	step:    quitIdle,
 
 	law Breaks sometimes nextIdle,
 }
@@ -388,12 +406,12 @@ type Backfill machine[Cores, CoreAct] {
 	initial: coreWorld(),
 	step:    backfill,
 
-	law Breaks sometimes passed2,
+	law Breaks sometimes pastBound,
 }
 
-type GatedHead machine[Cores, CoreAct] {
+type NoBackfill machine[Cores, CoreAct] {
 	initial: coreWorld(),
-	step:    gatedHead,
+	step:    noBackfill,
 
-	law Breaks sometimes nextIdle,
+	law Breaks sometimes idleBehindHead,
 }

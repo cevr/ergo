@@ -52,7 +52,7 @@ func TestRoundsEmitWhatOneRoundEmits(t *testing.T) {
 		src := roundsProgram(seed)
 		u := factsUnit(t, src)
 		replay := fmt.Sprintf("replay: go test -run TestRoundsEmitWhatOneRoundEmits ./internal/sketch/lower -rounds.seed=%d", seed)
-		l, code, err := lowerIRRounds(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false, nil)
+		l, code, err := lowerIRRounds(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false, false, nil)
 		if err != nil {
 			t.Fatalf("seed %d: %v\n%s\n%s", seed, err, replay, src)
 		}
@@ -60,7 +60,7 @@ func TestRoundsEmitWhatOneRoundEmits(t *testing.T) {
 			t.Fatalf("seed %d: the program took %d round; the property needs a second\n%s\n%s", seed, l.ir.report.MapRounds, replay, src)
 		}
 		facts := intMapState{off: l.ir.maps.off, allGo: l.ir.maps.allGo}
-		_, once, err := lowerIRRound(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false, facts, nil)
+		_, once, err := lowerIRRound(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}, false, false, facts, nil)
 		if err != nil {
 			t.Fatalf("seed %d: one round: %v\n%s", seed, err, replay)
 		}

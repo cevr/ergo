@@ -1,7 +1,10 @@
-// The chat at a terminal: one loop draws. Two tasks feed it events, one
-// reading keys and one following the agent's states; the loop takes one
-// event at a time, edits the composer or sends the agent a signal, and
-// paints one frame. Nothing else writes to standard output.
+// The chat at a terminal: one loop draws. Three tasks feed it events, one
+// reading keys, one following the agent's states, and one asking for a
+// redraw every turn of the spinner (a request that carries no state: the
+// frame reads the clock, and nothing reaches the agent or its journal);
+// the loop takes one event at a time, edits the composer,
+// scrolls, or sends the agent a signal, and paints the lines of the frame
+// that changed. Nothing else writes to standard output.
 
 import exec
 import gent/agent
@@ -11,22 +14,27 @@ import io
 import machines
 import queue
 import slices
+import strconv
 import strings
 import task
 import term
 import testing
 import time
 
-// Event is what the loop takes: a key, or a state the agent committed.
-type Event = Pressed{Key term.Key} | Changed{State agent.State}
+// Event is what the loop takes: a key, a state the agent committed, or a
+// request to draw again.
+type Event = Pressed{Key term.Key} | Changed{State agent.State} | Redraw{}
 
 // Chat runs the session s at the terminal until it ends, and stops it.
-func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
+func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler | time.Clock {
 	let events = queue.New[Event](64)
 	let keys = task.Go() { readKeys(events) }
 	let states = task.Go() { follow(s, events) }
-	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: ""}}
-	paint(view)
+	let ticks = task.Go() { redraws(events) }
+	let now = time.Clock.Now()
+	let mut view = screen.View{State: s.Agent.State(), Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false, Since: now, Now: now}
+	let mut shown = Shown{Window: size(), Lines: []string{}}
+	shown = paint(shown, view)
 	for {
 		let e = events.Pop() catch {
 		case queue.Closed:
@@ -45,13 +53,19 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 				s.Agent.Send(agent.Submit{Text: view.Line.Text}) catch {
 				case _:
 				}
-				view = screen.View{..view, Line: screen.Line{Text: ""}}
+				view = screen.View{..view, Line: screen.Line{Text: "", At: 0}}
+			case screen.Page as pg:
+				view = screen.Paged(view, pg.Up, size())
+			case screen.Toggle:
+				view = screen.View{..view, Detail: !view.Detail}
 			case screen.Nothing:
 			}
 		case Changed as c:
-			view = screen.View{..view, State: c.State}
+			view = Began(view, c.State, time.Clock.Now())
+		case Redraw:
 		}
-		paint(view)
+		view = screen.View{..view, Now: time.Clock.Now()}
+		shown = paint(shown, view)
 		if view.State.Phase == agent.Ended {
 			break
 		}
@@ -59,6 +73,7 @@ func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler {
 	events.End()
 	keys.Stop()
 	states.Stop()
+	ticks.Stop()
 	s.Agent.Stop()
 }
 
@@ -91,6 +106,45 @@ func follow(s agent.Session, events queue.Queue[Event]) {
 	}
 }
 
+// Began is v showing the state st, seen at now: the work's start is now
+// when st works and v's state did not, else it stays.
+func Began(v screen.View, st agent.State, now time.Time) screen.View {
+	let since = if working(st) && !working(v.State) { now } else { v.Since }
+	screen.View{..v, State: st, Since: since}
+}
+
+// working reports whether s's phase works (the spinner turns).
+func working(s agent.State) bool { screen.Spin(screen.View{State: s, Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false, Since: time.Unix(0, 0), Now: time.Unix(0, 0)}) != "" }
+
+// SpinnerFollowsTheClock: the draw loop's spinner is the clock's: a turn
+// that begins at the clock's reading shows the third mark 240ms of the
+// clock later, and another state of the same work keeps its start.
+test SpinnerFollowsTheClock {
+	let c = testing.NewVirtualClock(0)
+	let asking = agent.Replay(agent.Recorded{Limits: agent.Limits{MaxSteps: 2, MaxRetries: 0}, Signals: []agent.Signal{agent.Submit{Text: "hi"}}})
+	let idle = agent.Start(agent.Limits{MaxSteps: 2, MaxRetries: 0})
+	let (first, later) = with context { Scheduler: c, time.Clock: c } {
+		let v = screen.View{State: idle, Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false, Since: time.Unix(0, 0), Now: time.Unix(0, 0)}
+		Scheduler.Sleep(1s)
+		let began = Began(v, asking, time.Clock.Now())
+		Scheduler.Sleep(240ms)
+		let more = Began(began, agent.State{..asking, Phase: agent.Asking{Draft: "H", Try: 0}}, time.Clock.Now())
+		(screen.Spin(screen.View{..began, Now: time.Clock.Now()}), screen.Spin(screen.View{..more, Now: time.Clock.Now()}))
+	}
+	assert first == screen.Marks[2] && later == screen.Marks[2]
+}
+
+// redraws asks for a redraw every turn of the spinner, until events end.
+func redraws(events queue.Queue[Event]) needs Scheduler {
+	for {
+		Scheduler.Sleep(screen.Turn)
+		events.Push(Redraw) catch {
+		case queue.Closed:
+			return
+		}
+	}
+}
+
 // DrawsOnlyStatesThatExisted is the draw loop's model: keys and the
 // model's deltas reach the one loop in either order, and under every
 // schedule (the explore leg searches them: explored) each frame painted
@@ -108,29 +162,76 @@ test DrawsOnlyStatesThatExisted {
 		Chat(s)
 		agent.RecordOf(s)
 	}
-	let lines = []screen.Line{screen.Line{Text: ""}, screen.Line{Text: "h"}, screen.Line{Text: "hi"}}
+	let lines = []screen.Line{screen.Line{Text: "", At: 0}, screen.Line{Text: "h", At: 1}, screen.Line{Text: "hi", At: 2}}
 	let mut seen = []string{}
 	for k in 0..(len(record.Signals) + 1) {
 		let st = agent.Replay(agent.Recorded{Limits: record.Limits, Signals: record.Signals[0:k]})
 		for line in lines {
-			seen = seen.Append(screen.Paint(screen.Frame(screen.View{State: st, Line: line}, w)))
+			for spin in 0..4 {
+				let since = time.Unix(0, 0)
+				seen = seen.Append(strings.Join(screen.Frame(screen.View{State: st, Line: line, Scroll: screen.Stuck(), Detail: false, Since: since, Now: since.Add(time.Times(screen.Turn, spin))}, w), "\n"))
+			}
 		}
 	}
-	let frames = strings.Split(out.Text(), "\x1b[H")
-	assert frames[0] == ""
-	for f in frames[1:] {
-		assert slices.Contains(seen, "\x1b[H"+f)
+	let paints = strings.Split(out.Text(), "\x1b[H")
+	assert paints[0] == ""
+	let mut at = []string{}
+	for p in paints[1:] {
+		at = painted(at, w.Rows, p)
+		assert slices.Contains(seen, strings.Join(at, "\n"))
 	}
-	let last = "\x1b[H" + frames[len(frames)-1]
 	let end = agent.Replay(record)
-	assert last == screen.Paint(screen.Frame(screen.View{State: end, Line: lines[0]}, w)) || last == screen.Paint(screen.Frame(screen.View{State: end, Line: lines[2]}, w))
+	let last = strings.Join(at, "\n")
+	assert last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[0], Scroll: screen.Stuck(), Detail: false, Since: time.Unix(0, 0), Now: time.Unix(0, 0)}, w), "\n") || last == strings.Join(screen.Frame(screen.View{State: end, Line: lines[2], Scroll: screen.Stuck(), Detail: false, Since: time.Unix(0, 0), Now: time.Unix(0, 0)}, w), "\n")
 }
 
-// paint draws v in the terminal's window (80 by 24 when it has none).
-func paint(v screen.View) needs io.Stdout | term.Terminal {
-	let w = term.Terminal.Size() catch {
+// painted is the screen of rows lines that a shows after the bytes p of
+// one paint (screen.PaintChanges after its leading cursor home): each
+// write moves to a row, writes its text and clears the rest of it. Bytes
+// that are no such write give a screen no frame is: one line that names
+// them.
+func painted(a []string, rows int, p string) []string {
+	let mut ws = []screen.Write{}
+	let parts = strings.Split(p, "\x1b[K")
+	for i, part in parts {
+		let at = strings.Index(part, ";1H")
+		if i == len(parts)-1 && part == "" {
+			break
+		}
+		if !strings.HasPrefix(part, "\x1b[") || at <= 2 {
+			return []string{"not a write: " + strconv.Quote(part)}
+		}
+		let row = strconv.Atoi(strings.Slice(part, 2, at)) catch {
+		case _:
+			return []string{"not a row: " + strconv.Quote(part)}
+		}
+		ws = ws.Append(screen.Write{Row: row - 1, Text: strings.Slice(part, at+3, len(part))})
+	}
+	screen.Apply(a, rows, ws)
+}
+
+// Shown is what the terminal shows: the lines last painted, in the window
+// they were painted for.
+type Shown { Window term.Window, Lines []string }
+
+// size is the terminal's window (80 by 24 when it has none).
+func size() term.Window needs term.Terminal {
+	term.Terminal.Size() catch {
 	case term.NotTerminal:
 		term.Window{Cols: 80, Rows: 24}
 	}
-	io.Stdout.Print(screen.Paint(screen.Frame(v, w)))
+}
+
+// paint draws v over what the terminal shows: only the lines that
+// changed, or every line when the window changed size. It gives what the
+// terminal shows after.
+func paint(was Shown, v screen.View) Shown needs io.Stdout | term.Terminal {
+	let w = size()
+	let before = if w == was.Window { was.Lines } else { []string{} }
+	let lines = screen.Frame(v, w)
+	let ws = screen.Changes(before, lines)
+	if len(ws) > 0 {
+		io.Stdout.Print("\x1b[H" + screen.PaintChanges(ws))
+	}
+	Shown{Window: w, Lines: lines}
 }

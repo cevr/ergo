@@ -384,6 +384,71 @@ func main() {
 	use(Mine)
 }
 `,
+	// std xml (XML-STD): Text is sealed by its private parts (raw, open,
+	// close, enter, finish), so its one provider, text, is a cell that
+	// encode writes by direct calls.
+	"xml.Text": `import xml
+
+type Mine {}
+
+func Null(_ Mine)                 {}
+func Number(_ Mine, text string)  {}
+func Bool(_ Mine, b bool)         {}
+func Int(_ Mine, n int64)         {}
+func Uint(_ Mine, n uint64)       {}
+func Float(_ Mine, f float64)     {}
+func String(_ Mine, s string)     {}
+func StringBytes(_ Mine, b []byte) {}
+func BeginList(_ Mine, n int)     {}
+func EndList(_ Mine)              {}
+func BeginObject(_ Mine, n int)   {}
+func Tag(_ Mine, name string)     {}
+func Key(_ Mine, k string)        {}
+func EndObject(_ Mine)            {}
+func Written(_ Mine) string       { "" }
+func raw(_ Mine, s string)        {}
+func open(_ Mine, name string)    {}
+func close(_ Mine)                {}
+func enter(_ Mine)                {}
+func finish(_ Mine, hint int) string { "" }
+
+func use(t xml.Text) { t.EndList() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std xml (XML-STD): Cursor is the prelude's Reader sealed (seal), so
+	// its one provider, reader, is a cell decode[T] may borrow.
+	"xml.Cursor": `import xml
+
+type Mine {}
+
+func TakeNull(_ Mine) bool              { false }
+func Peek(_ Mine) WireKind              { WireNull }
+func Number(_ Mine) string              { "" }
+func Path(_ Mine) string                { "" }
+func Bool(_ Mine) bool                  { false }
+func Int(_ Mine) int64                  { 0 }
+func Uint(_ Mine) uint64                { 0 }
+func Float(_ Mine) float64              { 0.0 }
+func String(_ Mine) string              { "" }
+func StringBytes(_ Mine, into []byte) []byte { into }
+func BeginList(_ Mine)                  {}
+func BeginObject(_ Mine)                {}
+func Tag(_ Mine) string                 { "" }
+func More(_ Mine) bool                  { false }
+func Key(_ Mine) string                 { "" }
+func Skip(_ Mine)                       {}
+func End(_ Mine)                        {}
+func seal(_ Mine)                       {}
+
+func use(c xml.Cursor) { c.End() }
+
+func main() {
+	use(Mine)
+}
+`,
 	"json.Cursor": `import json
 
 type Mine {}
@@ -408,6 +473,31 @@ func Skip(_ Mine)                    {}
 func End(_ Mine)                     {}
 
 func use(c json.Cursor) { c.End() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std cmp (CONSTRAINTS C3): an order a program writes.
+	"cmp.Order": `import cmp
+
+type Mine {} implements cmp.Order[int]
+
+func Compare(_ Mine, a int, b int) int { a - b }
+
+func use(o cmp.Order[int]) { _ = o.Compare(1, 2) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// The prelude's Map provider (CONSTRAINTS C5).
+	"prelude.Hashing": `type Mine {} implements Hashing[int]
+
+func Hash(_ Mine, k int) uint64 { uint64(k) }
+func Equal(_ Mine, a int, b int) bool { a == b }
+
+func use(h Hashing[int]) { _ = h.Equal(1, 2) }
 
 func main() {
 	use(Mine)
@@ -1399,6 +1489,98 @@ func main() {
 `,
 	// std pace (PACE1): open; a program provides it (pace.Default,
 	// pace.Percent).
+	// The store contracts of ST3 (stdlib.md, Stores): a program or a
+	// module provides each one over its own store and runs the same laws.
+	"jobs.Queue": `import jobs
+import time
+
+type Mine {} implements jobs.Queue[int]
+
+func EnqueueAt(_ Mine, job int, at time.Time) int fails jobs.Failed { return jobs.Failed{Reason: "x"} }
+func ReserveAt(_ Mine, now time.Time) Option[jobs.Lease[int]] fails jobs.Failed { None }
+func AckAt(_ Mine, t jobs.Ticket, now time.Time) fails jobs.Unknown | jobs.Failed { return jobs.Unknown{Ticket: t} }
+func FailAt(_ Mine, t jobs.Ticket, why string, now time.Time) fails jobs.Unknown | jobs.Failed { return jobs.Unknown{Ticket: t} }
+func DeadLetters(_ Mine) []jobs.Dead[int] fails jobs.Failed { []jobs.Dead[int]{} }
+func Count(_ Mine) jobs.Counts fails jobs.Failed { jobs.Counts{Waiting: 0, Leased: 0, Done: 0, Dead: 0} }
+
+func use(_ jobs.Queue[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"kv.Store": `import kv
+
+type Mine {} implements kv.Store
+
+func Get(_ Mine, key string) Option[string] fails kv.Failed { None }
+func Put(_ Mine, key string, value string) fails kv.Failed { return kv.Failed{Reason: "x"} }
+func Delete(_ Mine, key string) bool fails kv.Failed { false }
+func Scan(_ Mine, prefix string) Seq[kv.Entry] fails kv.Failed { return kv.Failed{Reason: "x"} }
+
+func use(_ kv.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"proof.Delivery": `import proof
+
+type Mine {} implements proof.Delivery
+
+func Send(_ Mine, dest string, purpose string, code string) fails proof.Undelivered { return proof.Undelivered{Reason: "x"} }
+
+func use(_ proof.Delivery) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"proof.Store": `import proof
+import time
+
+type Mine {} implements proof.Store
+
+func Issue(_ Mine, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed { return proof.Conflict }
+func Redeem(_ Mine, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed { return proof.Unknown }
+func Claim(_ Mine, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed { return proof.Spent }
+
+func use(_ proof.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ratelimit.Limiter": `import ratelimit
+import time
+
+type Mine {} implements ratelimit.Limiter
+
+func TakeAt(_ Mine, key string, cost int, now time.Time) ratelimit.Grant fails ratelimit.Limited | ratelimit.BadCost { return ratelimit.BadCost{Cost: cost, Limit: 0} }
+
+func use(_ ratelimit.Limiter) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"session.Store": `import session
+import time
+
+type Mine {} implements session.Store
+
+func Establish(_ Mine, d session.Digest, subject string, revision int, now time.Time) fails session.Conflict | session.Failed { return session.Conflict }
+func Verify(_ Mine, d session.Digest, now time.Time) session.Verdict fails session.Failed { session.Invalid }
+func Rotate(_ Mine, old session.Digest, new session.Digest, now time.Time) session.Record fails session.Conflict | session.Failed { return session.Conflict }
+func Revoke(_ Mine, d session.Digest) bool fails session.Failed { false }
+func RevokeAll(_ Mine, subject string, revision int) fails session.Failed { return session.Failed{Reason: "x"} }
+
+func use(_ session.Store) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"pace.Pacing": `import pace
 type Mine {} implements pace.Pacing
 func Edge(_ Mine) {}
@@ -1468,6 +1650,7 @@ var unexportedStd = map[string]string{
 	"fs.HostRoot":         "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 	"http.BodyFile":       "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
 	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
+	"xml.Text":            "raw is an unexported operation of xml.Text, so only a type of package xml implements it",
 	"explore.Hasher":      "size is an unexported operation of explore.Hasher, so only a type of package explore implements it",
 }
 
@@ -1508,7 +1691,10 @@ var openStd = map[string]bool{
 	"term.Terminal":     true,
 	// Declared after the migration with no private operation: a program
 	// provides each one, and cmd/<name>/main.ergo binds it.
-	"ui.Location":       true,
+	"ui.Location": true,
+	// Constraints a program's own types implement (CONSTRAINTS C3, C5).
+	"cmp.Order":         true,
+	"prelude.Hashing":   true,
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,
@@ -1522,6 +1708,12 @@ var openStd = map[string]bool{
 	"log.Sink":          true,
 	"tz.Zones":          true,
 	"tz.Local":          true,
+	"jobs.Queue":        true, // open: std's own providers are other packages (jobs/memory.Queue, jobs/file), and a database's queue is a module's
+	"kv.Store":          true, // open: examples/kvstore's memory.Table and file.Log implement it, beside std's kv/memory and kv/file
+	"proof.Delivery":    true, // open: the program sends the code (mail, SMS) by its own provider; std has only proof.Recorder, for tests
+	"proof.Store":       true, // open: std's own providers are other packages (proof/memory.Store, proof/file), and a database's is a module's
+	"ratelimit.Limiter": true, // open: std's provider is another package (ratelimit/memory), and a limiter shared across processes is a module's
+	"session.Store":     true, // open: std's own providers are other packages (session/memory.Store, session/file), and a database's is a module's
 	"testing.Allocs":    true,
 	"llm.Model":         true,
 	// The layout's text measure, which a host provides with its fonts.

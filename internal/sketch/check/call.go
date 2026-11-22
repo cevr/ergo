@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -599,15 +600,21 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		// A typed argument that does not match its parameter, or
 		// conflicts with what an earlier argument inferred (round-5 M3;
 		// go/types infer.go).
-		if want := c.subst(pt, in.m); in.hasFree(pt) || c.identical(want, pt) {
+		want := c.subst(pt, in.m)
+		switch n := in.notError; {
+		case n != nil && (in.hasFree(pt) || c.identical(want, pt)):
+			// The argument binds an error row parameter directly, F of
+			// `func one[F](f F) fails F`: it is no error type here.
+			c.errorf(at, CodeType, "the argument has type %s, which does not match %s: %s binds an error row parameter, and no error row or catch arm of this package names %s, so it is no error type here; name it in a fails row or a catch arm, or write the type arguments (types.md, Error types 1; D6)", t, pt, n, n)
+		case in.hasFree(pt) || c.identical(want, pt):
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s (D6; type inference)", t, pt)
-		} else if n := in.notError; n != nil {
+		case n != nil:
 			// An error row parameter binds only to error types: the
-			// argument's type is no error type here, since no error row of
-			// this package names it. A row argument written at the call
-			// names it in a row (Error types 1 and 4).
-			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s: %s binds an error row parameter, and no error row of this package names %s, so it is no error type here; name it in a row, or write the type arguments (types.md, Error types 1; D6)", t, want, pt, n, n)
-		} else {
+			// argument's type is no error type here, since no error row or
+			// catch arm of this package names it. A row argument written
+			// at the call names it in a row (Error types 1 and 4).
+			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s: %s binds an error row parameter, and no error row or catch arm of this package names %s, so it is no error type here; name it in a fails row or a catch arm, or write the type arguments (types.md, Error types 1; D6)", t, want, pt, n, n)
+		default:
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s (D6; type inference)", t, want, pt)
 		}
 	}
@@ -959,6 +966,7 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 		// invalid, so nothing that uses it cascades (D3).
 		return bad(x)
 	}
+	c.etaMethodValue(x, sig)
 	// Creating the literal runs nothing: an unknown row in its body makes
 	// only a call of it unknown, through its inferred row (stage D1 round 2
 	// review M1).
@@ -1270,7 +1278,7 @@ func groupedConstraint(f *Func, tp *TypeParam) string {
 			for j, n := range field.Names {
 				names[j] = n.Name
 			}
-			cons := exprText(field.Type)
+			cons := typeText(field.Type)
 			// The repair keeps the order (type arguments are written by
 			// position): the names before tp keep the constraint, tp ends an
 			// unconstrained group, and the names after it keep theirs.
@@ -1282,6 +1290,28 @@ func groupedConstraint(f *Func, tp *TypeParam) string {
 		}
 	}
 	return ""
+}
+
+// typeText is a written type as its source spells it, for a repair hint:
+// Order[T], []T, Map[K, V]. A form it does not spell is exprText's.
+func typeText(x syntax.Expr) string {
+	switch x := x.(type) {
+	case *syntax.IndexExpr:
+		args := make([]string, len(x.Indices))
+		for i, a := range x.Indices {
+			args[i] = typeText(a)
+		}
+		return typeText(x.X) + "[" + strings.Join(args, ", ") + "]"
+	case *syntax.ArrayType:
+		return "[" + x.Len + "]" + typeText(x.Elt)
+	case *syntax.MapType:
+		return "Map[" + typeText(x.Key) + ", " + typeText(x.Value) + "]"
+	case *syntax.ParenExpr:
+		return typeText(x.X)
+	case *syntax.SelectorExpr:
+		return typeText(x.X) + "." + x.Sel.Name
+	}
+	return exprText(x)
 }
 
 // IsInForce reports a call of the prelude's InForce, which the lowering
@@ -1353,6 +1383,9 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		c.silentArgs(x)
 		return bad(x)
 	}
+	if b.Name == "hash" {
+		return c.hashCall(x) // mapprovider.go
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)
@@ -1365,6 +1398,10 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	op := c.valueExpr(x.Args[0], nil)
 	if op.invalid() {
 		return bad(x)
+	}
+	if IsProviderMap(op.typ) {
+		c.mapSites = append(c.mapSites, mapSite{node: x}) // mapprovider.go
+		return operand{mode: modeValue, typ: Typ[Int]}
 	}
 	switch u := under(op.typ).(type) {
 	case *Basic:
@@ -1386,22 +1423,24 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 // removedBuiltins are Go's built-in functions that Ergo does not
 // predeclare, each with the Ergo form that replaces it (#196, fourth round,
 // item 2; spec D-D5). A use of one is S104 naming that form.
-var removedBuiltins = map[string]string{
-	"append":  "write xs.Append(x)",
-	"delete":  "write m.Delete(k)",
-	"make":    "write a literal: []T{} or Map[K, V]{}",
-	"new":     "write a literal T{…}",
-	"cap":     "a slice's capacity is not part of the language; use len",
-	"copy":    "build the slice with a for loop and xs.Append(x)",
-	"close":   "Ergo has no channels",
-	"clear":   "assign an empty literal",
-	"print":   "write Console.Println(\"…\")",
-	"println": "write Console.Println(\"…\")",
-	"min":     "write if a < b { a } else { b }",
-	"max":     "write if a > b { a } else { b }",
-	"panic":   "a failure is a value: declare it with fails and return it; for a path that cannot run, write Unreachable(\"why\")",
-	"recover": "a failure is a value: handle it with catch",
-	"complex": "Ergo has no complex built-ins",
-	"real":    "Ergo has no complex built-ins",
-	"imag":    "Ergo has no complex built-ins",
-}
+var removedBuiltins = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"append":  "write xs.Append(x)",
+		"delete":  "write m.Delete(k)",
+		"make":    "write a literal: []T{} or Map[K, V]{}",
+		"new":     "write a literal T{…}",
+		"cap":     "a slice's capacity is not part of the language; use len",
+		"copy":    "build the slice with a for loop and xs.Append(x)",
+		"close":   "Ergo has no channels",
+		"clear":   "assign an empty literal",
+		"print":   "write Console.Println(\"…\")",
+		"println": "write Console.Println(\"…\")",
+		"min":     "write if a < b { a } else { b }",
+		"max":     "write if a > b { a } else { b }",
+		"panic":   "a failure is a value: declare it with fails and return it; for a path that cannot run, write Unreachable(\"why\")",
+		"recover": "a failure is a value: handle it with catch",
+		"complex": "Ergo has no complex built-ins",
+		"real":    "Ergo has no complex built-ins",
+		"imag":    "Ergo has no complex built-ins",
+	}
+})

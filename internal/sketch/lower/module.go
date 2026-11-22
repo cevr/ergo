@@ -29,7 +29,11 @@ const (
 	runtimeDir    = "ergo"
 	runtimeImport = runtimeModule + "/runtime/v1"
 	taskImport    = runtimeModule + "/runtime/rt"
-	goVersion     = "1.27"
+	// hostFSImport is the toolchain's plain Go package that os's Stat,
+	// Lstat and ReadDir are bound to (HOST-ROW-3; gobind.ValueResults):
+	// an import go package of the runtime's module, copied with it.
+	hostFSImport = runtimeModule + "/runtime/v1/hostfs"
+	goVersion    = "1.27"
 )
 
 // File is one file of the emitted Go module, at a slash-separated path
@@ -49,12 +53,13 @@ func Runtime() []File {
 	// Every leaf of runtime/v1 is copied with it: a program imports only
 	// the leaves it calls (rtRef), and the Go linker reads only imported
 	// packages, so a leaf it does not import costs it no byte. The gofmt
-	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well.
+	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well,
+	// and hostfs, an import go package of the runtime's module.
 	pkgs := []string{"runtime/v1", "runtime/explore", "runtime/testgen"}
 	for _, leaf := range v1.Leaves {
 		pkgs = append(pkgs, "runtime/v1/"+leaf)
 	}
-	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"))
+	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"), strings.TrimPrefix(hostFSImport, runtimefiles.Module+"/"))
 	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
@@ -204,9 +209,12 @@ type lowerer struct {
 	src      string       // its admitted path, which //line directives name
 	cur      int          // its index in srcs
 
-	srcs    []srcFile                // every source file in canonical order (canon.srcs)
-	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
-	nodeIDs map[syntax.Node]int      // node identities for keys (nodeID)
+	srcs []srcFile // every source file in canonical order (canon.srcs)
+	// rowPlaces are the places a row gap can be found at in each
+	// package's Info (rowgap.go, findRowPlaces), found once for each.
+	rowPlaces map[*check.Info]*rowPlaces
+	tpSrc     map[*check.TypeParam]int // each type parameter's source file (paramFile)
+	nodeIDs   map[syntax.Node]int      // node identities for keys (nodeID)
 	// groups is the group function of each generic frame type, nil for
 	// one with none (uigroup.go, groupFrame).
 	groups map[*check.Named]*check.Func
@@ -238,6 +246,14 @@ type lowerer struct {
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
 	raw      bool       // Unit.Raw: program skips go/format
+	// unformatted skips go/format (the IR split, lowerIRSplit): only the
+	// compiler reads the split's Go, and the split parses main.go itself,
+	// so go/format's parse and print were the edit's second parse
+	// (SPLIT-AST; owner rule via the orchestrator, 2026-11-19: Go only the
+	// compiler reads needs no gofmt). unformattedText keeps the text before
+	// anchoring, for a refused split's one-package main.go (formatMain).
+	unformatted     bool
+	unformattedText []byte
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in under the reference growth rule (growth.go),
@@ -303,7 +319,7 @@ type lowerer struct {
 	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
 	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
+	sets     map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
 	holds    map[*check.Named]holdState
 	typeKeys map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
@@ -398,7 +414,7 @@ type lowerer struct {
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
 	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
-	monoCount map[*check.Func]int   // copies made per function (mono.go)
+	monoCount map[monoDecl]int      // copies made per declaration (mono.go)
 	// provParams memoizes each function's operation-type parameter a copy
 	// for a known provider is made for (provider.go).
 	provParams map[*check.Func]int
@@ -463,6 +479,11 @@ type lowerer struct {
 	// tests is the test build's state (tests.go, LowerTests); nil in the
 	// run build, which lowers no test.
 	tests *testLowering
+
+	// adapterConvs is the conversion of each adapter the naming pass
+	// named, by key, so a codec function that names one can emit it
+	// (wireread.go, wirewrite.go).
+	adapterConvs map[string]check.Conversion
 }
 
 // sortedRefusals orders refusals by position and drops repeats: a
@@ -526,12 +547,13 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		texts:     map[pkgKey]bool{},
 		defaults:  map[pkgKey]bool{},
 		equals:    map[pkgKey]bool{},
-		sets:      map[check.TypeSet]string{},
+		sets:      map[*check.TypeName]bool{},
 		holds:     map[*check.Named]holdState{},
 		typeKeys:  map[check.Type]string{},
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[string]string{},
 	}
+	l.adapterConvs = map[string]check.Conversion{}
 	l.reads = l.readVars()
 	return l
 }
@@ -763,6 +785,10 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(inits)
 	if l.raw {
 		return anchorLines([]byte(out.String())), nil
+	}
+	if l.unformatted {
+		l.unformattedText = []byte(out.String())
+		return anchorLines(l.unformattedText), nil
 	}
 	l.formats++
 	formatted, err := format.Source([]byte(out.String()))

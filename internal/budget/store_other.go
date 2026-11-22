@@ -8,11 +8,14 @@ import (
 	"io"
 )
 
-// Request is a take: its width in cores, its class, and its lane.
+// Request is a take: its width in cores, its class, its lane, its memory
+// and its command's key.
 type Request struct {
-	Width int
-	Crit  bool
-	Lane  string
+	Width  int
+	Crit   bool
+	Lane   string
+	Memory int64
+	Key    string
 }
 
 // Budget is unsupported where there is no flock.
@@ -27,3 +30,6 @@ func Open(Config) (*Budget, error) { return nil, errUnsupported }
 func Run(context.Context, *Budget, Request, []string, io.Reader, io.Writer, io.Writer) (int, error) {
 	return 1, errUnsupported
 }
+
+// Status fails: the budget needs flock.
+func (*Budget) Status(io.Writer) error { return errUnsupported }

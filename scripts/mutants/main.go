@@ -45,6 +45,7 @@ import (
 	"syscall"
 	"time"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -87,6 +88,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.Coverage, "coverage", "", "read the coverage from `FILE` instead of measuring it")
 	flags.DurationVar(&cfg.CoverDeadline, "cover-deadline", time.Hour, "deadline of each child of the coverage pass")
 	flags.StringVar(&jsonOut, "json", "", "write one JSON result per mutant to `FILE`")
+	var checkApplyFlag bool
+	flags.BoolVar(&checkApplyFlag, "check-apply", false, "judge nothing: print each selected row whose edit does not apply (ledger, row, owner, why, the commit that last changed its from in its file) and exit 1 if any")
+	var anchorDecls bool
+	flags.BoolVar(&anchorDecls, "anchor-decls", false, "judge nothing: give each row of every testdata/mutants.json below -root the declaration that holds its edit (decl, MN0), printing what it cannot anchor; with -write, rewrite the ledgers")
 	var alpha bool
 	var alphaOut, failLogs string
 	flags.BoolVar(&alpha, "alpha", false, "judge every killer of each row the packages' tests can kill (the kill matrix, testdata/kills.json) and print one row per test of the packages: class, seconds, unique and total kills, change coupling, failures, ranked as a deletion list (CS-ALPHA)")
@@ -101,6 +106,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return 2
+	}
+	if checkApplyFlag {
+		sel, err := regexp.Compile(selectRE)
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: -run: %v\n", err)
+			return 2
+		}
+		var ledgers []string
+		for _, arg := range flags.Args() {
+			ledgers = append(ledgers, ledgerPath(cfg.Root, arg))
+		}
+		return checkApply(cfg.Root, ledgers, sel.MatchString, stdout, stderr)
+	}
+	if anchorDecls {
+		sel, err := regexp.Compile(selectRE)
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: -run: %v\n", err)
+			return 2
+		}
+		return migrateDecls(cfg.Root, sel, write, stdout, stderr)
 	}
 	if flags.NArg() == 0 {
 		flags.Usage()
@@ -344,7 +369,7 @@ func addScope(cfg *Config, s scope) {
 // diagnostics of its own, such as S108; only new ones count).
 var ergoSources = []SourceCheck{{
 	Ext:    ".ergo",
-	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}},
+	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}},
 	Format: []string{"{bin:ergo}", "fmt", "--check", "{file}"},
 	Check:  []string{"{bin:ergo}", "check", "{dir}"},
 }}
@@ -355,7 +380,7 @@ var ergoSources = []SourceCheck{{
 func ergoSuites() ([]string, []Tool, []Suite) {
 	cover := []string{"./internal/sketch/check", "./internal/sketch/lower", "./internal/sketch/api", "./cmd/ergo"}
 	tools := []Tool{
-		{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}},
+		{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}},
 		{Name: "examples", Package: "./scripts/examples", Flags: []string{"-buildvcs=false"}},
 	}
 	suites := []Suite{
@@ -558,7 +583,7 @@ func commandsOf(jobs []Job) (Suite, []Tool, error) {
 var ergoTestsTool = Tool{Name: "ergotests", Package: "./scripts/ergotests", Flags: []string{"-buildvcs=false"}}
 
 // ergoTool is the ergo CLI, as ergoSuites builds it.
-var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}}
+var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}}
 
 // ergoPackage says whether dir is an Ergo package with no Go test of its
 // own (compiler/syntax): a killer DIR:Name there is the Ergo test Name,

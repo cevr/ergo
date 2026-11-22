@@ -579,14 +579,15 @@ func parseFuncType(p mut parser, ctx int) uint32 {
 	parseSignature(p, someTok(fn), ctx, false)
 }
 
-// isMapForm reports `Map[K, V]`: an IndexExpr of two indices on the name
-// Map.
+// isMapForm reports `Map[K, V]` or `Map[K, V, H]`: an IndexExpr of two
+// or three indices on the name Map. The third is the Hashing provider by
+// which the Map finds its keys (CONSTRAINTS C5).
 func isMapForm(p mut parser, x uint32) bool {
-	kindAt(p, x) == KIndexExpr && items(p.t, x, 2) == 2 && identIs(p, fixed(p.t, x, 2, 0), "Map")
+	kindAt(p, x) == KIndexExpr && (items(p.t, x, 2) == 2 || items(p.t, x, 2) == 3) && identIs(p, fixed(p.t, x, 2, 0), "Map")
 }
 
-// mapType turns `Map[K, V]` into a MapType, in place: the two kinds share
-// their record.
+// mapType turns `Map[K, V]` and `Map[K, V, H]` into a MapType, in place:
+// the two kinds share their record.
 func mapType(p mut parser, x uint32) uint32 {
 	if isMapForm(p, x) {
 		p.t.kind[int(x)] = uint32(KMapType)
@@ -674,12 +675,18 @@ func parseTypeArg(p mut parser) uint32 {
 
 // ---------------------------------------------------------------- contexts
 
-// parseContextLit parses `context [provides …] [needs …] { entries }`.
+// parseContextLit parses `context [provides …] [fails …] [needs …] { entries }`:
+// the header's rows in a signature's order (parseSignature), fails before
+// needs (CTX-ROWS-1b).
 func parseContextLit(p mut parser) uint32 {
 	let c = want(p, KwContext)
 	let mut prov = none
 	if p.tk == Provides {
 		prov = some(parseProvides(p))
+	}
+	let mut fl = none
+	if p.tk == Fails {
+		fl = some(parseFails(p))
 	}
 	let mut nd = none
 	if p.tk == Needs {
@@ -689,7 +696,7 @@ func parseContextLit(p mut parser) uint32 {
 		expected(p, "expected \"{\" after context, found ")
 	}
 	let body = parseContextBody(p)
-	mkContextLit(&p.t, mark(p.t), c, prov, nd, body)
+	mkContextLit(&p.t, mark(p.t), c, prov, fl, nd, body)
 }
 
 // parseContextBody parses `{ entry, … }`.
@@ -742,10 +749,7 @@ func parseContextBody(p mut parser) uint32 {
 // capability names to the entry: `, Name {, Name} :`.
 func keysContinue(p mut parser) bool {
 	let mut i = 0
-	for {
-		if peek(p, i) != Comma {
-			return false
-		}
+	for peek(p, i) == Comma {
 		i = i + 1
 		let k = peek(p, i)
 		if k != Ident && !(k == Go && peek(p, i+1) == Period) {

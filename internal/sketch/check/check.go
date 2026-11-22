@@ -110,6 +110,20 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.pkg.testOf = under
 	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
+	rewrite := len(c.mapSites) > 0 && !opts.mapsRewritten
+	shapes := !opts.shapesWritten && c.writeShapes() // mapshape.go
+	if rewrite || shapes {
+		if rewrite {
+			rewriteMapSites(c.mapSites, met)
+			opts.mapsRewritten = true
+		}
+		// The forms of Maps with a provider are now calls of the table's
+		// functions (mapprovider.go), and each provider with a normal
+		// form has its derived function (mapshape.go): check the
+		// rewritten package.
+		opts.shapesWritten = true
+		return check(path, files, imp, under, opts)
+	}
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
 		c.diags = append(c.diags, d)
@@ -152,8 +166,19 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
-	opts   Options
-	derive *derive.Package // the package's derive record (derive.go)
+	opts Options
+	// inConstraint counts the constraint positions being resolved (a
+	// bracket constraint, an implements clause, an include, a type-set
+	// term): only there may a type with a type set be written (typExpr).
+	inConstraint int
+	// deferBounds counts the positions where an instance's bounds wait
+	// (instantiateExprs): an implements clause, whose bound may be met by
+	// the clause itself (`type Level int implements Ranked[Level]`;
+	// checkImplementsClauses checks it, S106 at the clause), and a bracket
+	// constraint, whose bound may name a parameter whose constraint is not
+	// set yet (`[T Ranked[T]]`; checked once all are set, boundsUnmet).
+	deferBounds int
+	derive      *derive.Package // the package's derive record (derive.go)
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool
@@ -301,11 +326,11 @@ type checker struct {
 	// (providerAssignability): R22 does not apply there.
 	providing bool
 	// capture, when not nil, lets the next assignability admit a provider
-	// whose operations need go.Foreign beyond the operation type's row, and
-	// records that it did: the site that builds the provider is charged
-	// go.Foreign (captureForeign; README Gap 17). assignability takes it
-	// and clears it, so no nested check inherits it.
-	capture *bool
+	// whose operations need go.Foreign or Ambient beyond the operation
+	// type's row, and records which: the site that builds the provider is
+	// charged them (captureForeign; README Gap 17; HOST-ROW). assignability
+	// takes it and clears it, so no nested check inherits it.
+	capture *captured
 	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
 	// final answers; cellSites are the type arguments checkCells decides
 	// (cells.go).
@@ -515,9 +540,14 @@ type checker struct {
 	// Info.Defs does not list them.
 	variants  map[*syntax.VariantSpec]*TypeName
 	synthetic map[*syntax.Ident]bool
+	// slotBounds caches slotBound by generic type (slotbound.go).
+	slotBounds map[*Named][]string
 	// pkgPatterns holds the package-level lets that bind several names
 	// from one value (a pattern, or `let q, r = e`), each checked once.
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
+	// mapSites are the syntax forms of a Map with a provider that check
+	// rewrites to the table's functions and checks again (mapprovider.go).
+	mapSites []mapSite
 	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
 	mapInstances map[*syntax.MapType]*syntax.IndexExpr
 	// refining is set while checkRefinements reports; refusedWheres are
@@ -726,7 +756,7 @@ type universeState struct {
 var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
-// comparable, ordered and number, true,
+// lent, comparable and the codec one, true,
 // false and len, the one built-in function (#196, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
@@ -744,7 +774,8 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
+		// ordered and number are the prelude's type sets (prelude.ergo).
+		for _, set := range []TypeSet{SetWire, SetComparable} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -753,7 +784,7 @@ func universe() *Scope {
 		s.insert("error", errName)
 		s.insert("true", &Const{Name: "true", Type: Typ[Bool], Val: true})
 		s.insert("false", &Const{Name: "false", Type: Typ[Bool], Val: false})
-		for _, name := range []string{"len", "with", "encode", "decode", "embedded", WiredName} {
+		for _, name := range []string{"len", "hash", "with", "encode", "decode", "embedded", WiredName} {
 			s.insert(name, &Builtin{Name: name})
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are
@@ -849,7 +880,11 @@ func prelude() preludeResult {
 		}
 		ops := map[string]*Func{}
 		for name, o := range pkg.Scope.names {
-			if !isExported(name) {
+			if tn, isType := o.(*TypeName); !isExported(name) && (!isType || !typeSetOnly(tn.Type)) {
+				// The prelude's type sets, ordered and number, are in
+				// scope with their lowercase names, as comparable is: a
+				// constraint is spelled like the universe's names. The
+				// rule reads the declaration's shape, never its name.
 				continue
 			}
 			// An operation is reached by x.f(…), not a name in scope: a
@@ -903,6 +938,14 @@ type stdEntry struct {
 }
 
 // Std is the importer of the embedded standard library (internal/sketch/std).
+//
+// Import may be called from several goroutines (each package is checked
+// or decoded once), but the checker is single-use-at-a-time: the packages
+// Std hands out are shared by every check, and a check completes their
+// lazy parts (a host binding's declarations, the underlying type of an
+// instance a std package wrote) on first read, so two checks must not run
+// at once. Nothing in the product checks concurrently (ergo dev serializes
+// its requests).
 var Std Importer = newStdImporter()
 
 func newStdImporter() *stdImporter {

@@ -27,24 +27,34 @@ import (
 //     and a Cursor walks the tree.
 func registerNativesjson(t nativeTables) {
 	natives := t.std
+	t.reads["json.appendQuoted"] = "sliceV string bool"
 	natives["json.appendQuoted"] = jsonAppend(func(args []Value) string { return jsonQuote(args[0].(string), args[1].(bool)) })
+	t.reads["json.appendInt"] = "sliceV int64"
 	natives["json.appendInt"] = jsonAppend(func(args []Value) string { return strconv.FormatInt(args[0].(int64), 10) })
+	t.reads["json.appendUint"] = "sliceV uint64"
 	natives["json.appendUint"] = jsonAppend(func(args []Value) string { return strconv.FormatUint(args[0].(uint64), 10) })
+	t.reads["json.appendBool"] = "sliceV bool"
 	natives["json.appendBool"] = jsonAppend(func(args []Value) string { return strconv.FormatBool(args[0].(bool)) })
+	t.reads["json.appendFloat"] = "sliceV float64"
 	natives["json.appendFloat"] = jsonAppend(func(args []Value) string { return jsonFloat(args[0].(float64)) })
+	t.reads["json.bytesText"] = "sliceV"
 	natives["json.bytesText"] = bytesText
 	// std strings' borrowed buffer (NOPRIV-JSON): the evaluator keeps no
 	// pool, so Hint is no hint, Borrow an empty buffer and Give its buffer
 	// unchanged; builderText is FromBytes' copy.
+	t.reads["strings.Hint"] = ""
 	natives["strings.Hint"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return int64(0), in.charge(fr, at, 1)
 	}
+	t.reads["strings.Borrow"] = "int64"
 	natives["strings.Borrow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return newSlice(nil), in.charge(fr, at, 1)
 	}
+	t.reads["strings.Give"] = "sliceV int64"
 	natives["strings.Give"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return args[0], in.charge(fr, at, 1)
 	}
+	t.reads["strings.builderText"] = "sliceV"
 	natives["strings.builderText"] = bytesText
 	// std build's InFold, Known and Hole (CF1, CF2): the evaluator is what
 	// computes a build-time fold, so in a fold InFold is true, where
@@ -53,12 +63,15 @@ func registerNativesjson(t nativeTables) {
 	// law at check time) they answer as a built program does. They are no
 	// parity rows: the two differ by design, and a function that branches
 	// on them states a law that its branches agree (std/build).
+	t.reads["build.InFold"] = ""
 	natives["build.InFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.fold, in.charge(fr, at, 1)
 	}
+	t.reads["build.Known"] = "T"
 	holeNative(t, "build.Known", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.fold && !symbolic(args[0]), in.charge(fr, at, 1)
 	})
+	t.reads["build.Hole"] = "T"
 	holeNative(t, "build.Hole", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		_, hole := args[0].(*symbol)
 		return in.fold && hole, in.charge(fr, at, 1)
@@ -67,6 +80,9 @@ func registerNativesjson(t nativeTables) {
 	// with them): WriteString and WriteByte append as Go's append grows
 	// the buffer; Grow keeps no room here, so it is the buffer unchanged,
 	// and a negative count is Go's panic.
+	t.reads["strings.builderAppend"] = "sliceV string"
+	t.reads["strings.builderAppendByte"] = "sliceV uint8"
+	t.reads["strings.builderGrow"] = "sliceV int64"
 	natives["strings.builderAppend"] = jsonAppend(func(args []Value) string { return args[0].(string) })
 	natives["strings.builderAppendByte"] = jsonAppend(func(args []Value) string { return string([]byte{args[0].(uint8)}) })
 	natives["strings.builderGrow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -77,6 +93,7 @@ func registerNativesjson(t nativeTables) {
 	}
 	// MX-EVBUILDER: the rest of the Builder's writes, and std civil's
 	// buffer, on the same appends.
+	t.reads["strings.builderAppendBytes"] = "sliceV sliceV"
 	natives["strings.builderAppendBytes"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		out, ok := args[0].(sliceV)
 		if !ok {
@@ -91,17 +108,21 @@ func registerNativesjson(t nativeTables) {
 		}
 		return v, nil
 	}
+	t.reads["strings.builderAppendFrom"] = "sliceV int64 int64"
 	natives["strings.builderAppendFrom"] = builderAppendFrom
+	t.reads["civil.buffer"] = "int64"
 	natives["civil.buffer"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		// Go's make([]byte, 0, n) for civil's constant n: the room is
 		// the Go target's, so an empty buffer, as strings.Borrow's.
 		return newSlice(nil), in.charge(fr, at, 1)
 	}
+	t.reads["civil.bytesText"] = "sliceV"
 	natives["civil.bytesText"] = bytesText
 	// openChecked and settleText are Decode's one pass (JSON-VALUE-DECODE).
 	// The evaluator checks the text whole as open does, so a text that is
 	// not JSON fails before the decode, which is the outcome settleText gives,
 	// and settleText has nothing left to find.
+	t.reads["json.isNumber"] = "string"
 	natives["json.isNumber"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		// One number with nothing around it: the parser's number, the whole text.
 		text := args[0].(string)
@@ -109,12 +130,15 @@ func registerNativesjson(t nativeTables) {
 		number := why == "" && n.kind == 2 && strings.TrimSpace(text) == text
 		return number, in.charge(fr, at, 1+argWork(args))
 	}
+	t.reads["json.openChecked"] = "string int64 int64"
 	natives["json.openChecked"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return natives["json.open"](in, fr, at, fn, args)
 	}
+	t.reads["json.settleText"] = "host:json.Cursor"
 	natives["json.settleText"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return unit{}, in.charge(fr, at, 1)
 	}
+	t.reads["json.open"] = "string int64 int64"
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
@@ -231,6 +255,7 @@ type jsonNode struct {
 	kind  int
 	text  string
 	raw   string // a string's spelling, quotes and escapes as written
+	span  string // the value's text as written (json.Cursor SkipText)
 	keys  []string
 	elems []*jsonNode
 }
@@ -279,7 +304,17 @@ func jsonParse(text string, maxBytes, maxDepth int64) (*jsonNode, int, string) {
 	return n, 0, ""
 }
 
+// value parses one value and keeps its text as its span.
 func (p *jsonParser) value(depth int64) *jsonNode {
+	start := p.i
+	n := p.valueAt(depth)
+	if n != nil {
+		n.span = p.s[start:p.i]
+	}
+	return n
+}
+
+func (p *jsonParser) valueAt(depth int64) *jsonNode {
 	if p.i >= len(p.s) {
 		return p.fail("the text ends before a value")
 	}
@@ -714,6 +749,15 @@ func (c *jsonCursor) opCall(in *interp, fr *frame, at syntax.Node, name string, 
 			c.take()
 		}
 		return unit{}, nil
+	case "SkipText":
+		// Skip, giving the text it passed: the value's span, "" at the end.
+		// A substring of the input, as the built Cursor's: no allocation.
+		c.at()
+		if n := c.peek(); n != nil {
+			c.take()
+			return n.span, nil
+		}
+		return "", nil
 	case "End":
 		for c.more() {
 			c.take()

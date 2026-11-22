@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/scripts/gate/replay"
+	"ergo.local/prototype/scripts/mutants/anchor"
 	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
@@ -62,8 +63,8 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 		}
 		var l struct {
 			Mutants []struct {
-				Name, File, From, To string
-				Killers              []string
+				Name, File, Decl, From, To string
+				Killers                    []string
 			}
 		}
 		if err := json.Unmarshal([]byte(text), &l); err != nil {
@@ -74,11 +75,16 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 				continue
 			}
 			old, err := exec.Command("git", "--no-optional-locks", "-C", root, "cat-file", "blob", commit+":"+row.File).Output()
-			if err != nil || row.From == "" || strings.Count(string(old), row.From) != 1 {
+			if err != nil {
 				report.Stale++
 				continue
 			}
-			change := []fileChange{{Path: row.File, Old: old, New: []byte(strings.Replace(string(old), row.From, row.To, 1)), Was: true, Is: true}}
+			mutated, err := anchor.Apply(row.File, old, row.Decl, row.From, row.To)
+			if err != nil {
+				report.Stale++
+				continue
+			}
+			change := []fileChange{{Path: row.File, Old: old, New: mutated, Was: true, Is: true}}
 			counted := false
 			for _, id := range row.Killers {
 				suite, test, ok := strings.Cut(id, ":")

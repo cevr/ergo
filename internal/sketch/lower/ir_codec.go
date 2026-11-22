@@ -38,11 +38,29 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 		}
 	} else if !failsHere(c) {
 		irNo("fallible call with an empty row at its site")
-	} else if _, direct := b.l.directReaderIndex(b.l.info, x.Args[0]); direct {
-		irNo("decode on a direct reader")
+	} else if via, direct := b.l.directReaderIndex(b.l.info, x.Args[0]); direct {
+		return b.directDecode(x, c, via, p) // ir_codec_direct.go
 	}
 	if _, cell := b.l.cellOf(referenceEvents); cell {
 		irNo("codec on a cell writer")
+	}
+	// The reader or writer operand goes to the codec function as the
+	// prelude's Reader or Writer. A value of another operation type (a
+	// module's sealed Cursor lent to decode, as xml's Decode does) is a Go
+	// interface the text path assigns by Go's rule; the IR converts it,
+	// to, explicitly (IFACE-CONV: ergoir's toiface of an interface that
+	// implements the target).
+	io, ioAt, ioName := x.Args[0], 0, check.WireReaderName
+	if dir == "encode" {
+		io, ioAt, ioName = x.Args[1], 1, check.WireWriterName
+	}
+	var to string
+	if t, ok := b.l.info.Types[io].(*check.Named); ok && t.Underlying() != nil {
+		if _, ops := t.Underlying().(*check.Interface); ops {
+			if want := b.goType(check.PreludeType(ioName), io); b.goType(t, io) != want {
+				to = want
+			}
+		}
 	}
 	var pre []*irStmt
 	if b.fc.frame.polls {
@@ -50,6 +68,9 @@ func (b *irBuilder) codecCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	}
 	argPre, args := b.operands(x.Args)
 	pre = append(pre, argPre...)
+	if to != "" {
+		args[ioAt] = &irExpr{K: "toiface", Pos: args[ioAt].Pos, T: to, X: args[ioAt]}
+	}
 	if dir == "encode" {
 		args = []*irExpr{args[1], args[0]} // the writer, then the value
 	}

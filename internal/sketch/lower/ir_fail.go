@@ -90,10 +90,12 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			pre, v := b.try(call)
 			return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: b.implicit(x, v)}, "val"))
 		}
-		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call)) && b.result == nil {
-			// A function value's pair, or a generic's whose result is
-			// no value (unitPair): its failure leaves, then the frame
-			// returns with no value (ir_closure.go).
+		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call) || b.fc.frame.unit) && b.result == nil {
+			// A function value's pair, a generic's whose result is no
+			// value (unitPair), or any fallible call a literal with no
+			// value returns (its Go form is (struct{}, error), the call's
+			// is not: G6): its failure leaves, then the frame returns with
+			// no value (ir_closure.go, unitReturns).
 			pre, _ := b.try(call)
 			return append(pre, b.formed(&irStmt{K: "ret", Pos: p}, "unit"))
 		}
@@ -110,7 +112,7 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
-		return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e}, "tuple"))
+		return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e, Pair: true}, "tuple"))
 	}
 	if b.isFailure(x) {
 		pre, e := b.value(x)
@@ -118,7 +120,8 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		if b.fc.frame.fallible {
 			k = "fail"
 		}
-		return append(pre, b.formed(&irStmt{K: k, Pos: p, X: e}, "fail:"+failKey(b.l.info.Types[x])))
+		ft, ftp := b.failType(x) // for failJumps (FAILJUMP-TYPED)
+		return append(pre, b.formed(&irStmt{K: k, Pos: p, X: e, FailT: ft, FailTP: ftp}, "fail:"+failKey(b.l.info.Types[x])))
 	}
 	if b.result == nil {
 		// A no-value call returned for its effect (retExpr).
@@ -153,14 +156,22 @@ func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 	}
 	out := b.tail(list[:n-1], false)
 	b.part(func() {
-		if es, ok := list[n-1].(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+		s := list[n-1]
+		if es, ok := s.(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+			// It returns: the frame's exit releases what the statement
+			// owns (releasesAtExit's rule for a return).
+			if b.own != nil {
+				delete(b.own.keys, s)
+			}
 			out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...)
 			return
 		}
 		// A branch whose tail is an error value fails the frame there
 		// (tailTo, voidTail).
-		b.voidTail = b.failureTail(list[n-1], false)
-		out = append(out, b.stmt(list[n-1])...)
+		b.voidTail = b.failureTail(s, false)
+		// The statement's own releases (R43), as tailTo's scoped: its
+		// temporaries end with it, before the frame's exit.
+		out = append(out, b.scoped(s, b.stmt(s), b.pos(s, s.Pos()))...) // ir_own.go
 		b.voidTail = false
 	})
 	return out
@@ -227,7 +238,13 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			// emitter's try does.
 			return b.value(x.X)
 		}
-		return b.try(call)
+		pre, v := b.try(call)
+		if v != nil {
+			// The call's value, a temporary its statement owns (R43),
+			// registers once the failure has left (ownTemp, ir_own.go).
+			v = b.ownTemp(call, v)
+		}
+		return pre, v
 	case *syntax.CatchExpr:
 		return b.catch(x, false)
 	}
@@ -657,9 +674,21 @@ func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 		// loop's own position, Go's range-over-func rewrite also calls the
 		// adapter, and gc does not inline a call at a position already on
 		// its inlining stack (ir_seq.go).
-		return []*irStmt{b.pollAt(body, body.Rbrace)}
+		return []*irStmt{b.sited(b.pollAt(body, body.Rbrace))}
 	}
-	return []*irStmt{b.poll(s)}
+	return []*irStmt{b.sitePoll(s)}
+}
+
+// sitePoll is a poll of the innermost loop's iteration, recorded as one
+// of its sites (ir_poll.go), which amortize may rewrite.
+func (b *irBuilder) sitePoll(s syntax.Node) *irStmt { return b.sited(b.poll(s)) }
+
+// sited records the poll p as a site of the innermost loop (ir_poll.go).
+func (b *irBuilder) sited(p *irStmt) *irStmt {
+	if n := len(b.pollSites); n > 0 {
+		b.pollSites[n-1] = append(b.pollSites[n-1], p)
+	}
+	return p
 }
 
 // loopPolls reports a frame whose loops end each iteration in a poll.
@@ -672,7 +701,7 @@ func (b *irBuilder) loopPolls() bool { return b.env >= 0 && b.fc.frame.polls }
 func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
 	var out []*irStmt
 	if b.loopPolls() {
-		out = append(out, b.poll(s))
+		out = append(out, b.sitePoll(s))
 	}
 	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
 }

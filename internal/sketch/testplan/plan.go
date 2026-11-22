@@ -122,6 +122,54 @@ type Plan struct {
 	Count  int
 	Listed bool
 	Reason string
+	// Ties are, for each input, the earlier inputs whose value a generated
+	// case may repeat in its place (the tie rule: check.Law.Ties, mapped to
+	// inputs, providers left out). Nil when no input has one. Both
+	// generators read it, the test build's and the evaluator's, through
+	// testgen.Stream.Tie.
+	Ties [][]int
+	// Native names a provider whose operations call Go (LawProvider.Native):
+	// only the test binary's law case builds it, so the plan runs natively
+	// and the check-time evaluator reports it native.
+	Native string
+}
+
+// withTies sets p.Ties from the parameters' ties; the parameter i is the
+// input i+offset.
+func (p Plan) withTies(ties [][]int, offset int) Plan {
+	if ties == nil {
+		return p
+	}
+	out := make([][]int, len(p.Inputs))
+	some := false
+	for i, earlier := range ties {
+		at := i + offset
+		if at >= len(p.Inputs) || p.Inputs[at].Provider != nil {
+			continue
+		}
+		for _, j := range earlier {
+			if p.Inputs[j+offset].Provider == nil {
+				out[at] = append(out[at], j+offset)
+				some = true
+			}
+		}
+	}
+	if some {
+		p.Ties = out
+	}
+	return p
+}
+
+// Tie is the value of input i in a generated case: an earlier value it
+// repeats, when the stream draws a tie (testgen.Stream.Tie), else gen's.
+// vals holds the case's earlier values, by input.
+func Tie[V any](p Plan, r *testgen.Stream, i int, vals []V, gen func() V) V {
+	if i < len(p.Ties) && len(p.Ties[i]) > 0 {
+		if k := r.Tie(len(p.Ties[i])); k >= 0 {
+			return vals[p.Ties[i][k]]
+		}
+	}
+	return gen()
 }
 
 func makePlan(inputs []Input) Plan {
@@ -130,6 +178,9 @@ func makePlan(inputs []Input) Plan {
 		if in.Provider != nil {
 			if in.Provider.Unrun != "" {
 				p.Reason = in.Provider.Unrun
+			}
+			if in.Provider.Native && p.Native == "" {
+				p.Native = in.Provider.Type.Obj.Name
 			}
 			if in.Provider.Ctor != nil {
 				p.Listed = false
@@ -160,7 +211,7 @@ func Test(t *check.Test) Plan {
 	for i, v := range t.Params {
 		ins = append(ins, Input{Name: v.Name, Type: v.Type, Param: i})
 	}
-	return makePlan(ins)
+	return makePlan(ins).withTies(t.Ties, 0)
 }
 
 // Context is the plan of a law run under a named context (types.md, Laws
@@ -203,7 +254,7 @@ func Law(l *check.Law, bd []check.LawProvider) Plan {
 		}
 		ins = append(ins, in)
 	}
-	p := makePlan(ins)
+	p := makePlan(ins).withTies(l.Ties, len(ins)-len(l.Params))
 	if l.Unrun != "" {
 		p.Reason = l.Unrun
 	}
@@ -234,12 +285,15 @@ func (p Plan) At(k int) []Value {
 	return out
 }
 
-// SmallVariants is the checked value-rank decision at the depth boundary.
-func SmallVariants(variants []check.Type) []check.Type {
+// SmallVariants is the checked value-rank decision at the depth boundary,
+// with builder the builders of the package whose test build generates
+// (check.Package.Builder; eval and the Go build ask the same package, so
+// they pick the same variants).
+func SmallVariants(builder func(*check.Named) *check.Builder, variants []check.Type) []check.Type {
 	ranks, least := check.NewValueRanks(), -1
 	var small []check.Type
 	for _, v := range variants {
-		switch k := ranks.Rank(v); {
+		switch k := ranks.Rank(v, builder); {
 		case k < 0:
 		case least < 0 || k < least:
 			least, small = k, []check.Type{v}

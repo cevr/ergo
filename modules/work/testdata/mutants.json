@@ -52,7 +52,7 @@
     {
       "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
       "file": "modules/work/work/remove.ergo",
-      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") {\n",
+      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {\n",
       "to": "\t\t\t} else if false {\n",
       "rule": "A crash between the reservation and the clone leaves Creating, and gc removes its record and its tree once its maker is gone: memory's ToolAgreesWithTheReference (CrashOp, GcOp), StoppedWriterIsFinished.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -532,8 +532,8 @@
     {
       "name": "wg1-copy-under-the-lock", "origin": "wf10/semws WG1",
       "file": "modules/work/work/new.ergo",
-      "from": "\tlet by = cloned(t, m.Parent, m.Path, m.Copy) catch {\n\tcase NotSameVolume as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n",
-      "to": "\ttry hold(t)\n\tlet by = cloned(t, m.Parent, m.Path, m.Copy) catch {\n\tcase NotSameVolume as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n\tt.lock.Release(\"\")\n",
+      "from": "\tlet (by, _) = cloned(t, m.Parent, m.Path, m.Copy, false) catch {\n\tcase NotSameVolume as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n",
+      "to": "\ttry hold(t)\n\tlet (by, _) = cloned(t, m.Parent, m.Path, m.Copy, false) catch {\n\tcase NotSameVolume as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n\tt.lock.Release(\"\")\n",
       "rule": "No clone runs under the registry's lock: NoCopyUnderTheLock.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1736,6 +1736,182 @@
       "to": "\t\tif false {\n\t\t\tout = out.Append",
       "rule": "A candidate's check is a command work trust allows: a changed check asks again (law CandidateCommandsAreTrusted).",
       "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "notrash-delete-by-listing", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet due = try Collect(t, Some[string]{Value: r.Id}, 0s)\n",
+      "to": "\tlet due = try Collect(t, None, 0s)\n",
+      "rule": "trash = false deletes by the one record id rm removed, never everything a listing of the trash finds: a trash made before the key stays (memory's NoTrashDeletesForGood, rm path).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "notrash-key-ignored-by-gc", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tlet until = if c.Trash { at + int64(IdleTrash) } else { 0 }\n",
+      "to": "\t\tlet until = if c.Trash || true { at + int64(IdleTrash) } else { 0 }\n",
+      "rule": "gc -idle honours trash = false: the workspace it removes leaves no trash for a day (memory's NoTrashDeletesForGood, gc path).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "notrash-refusal-skipped", "origin": "wf10/semws WORK-NOTRASH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet env = try t.Check(c, name, expect, abandon)\n",
+      "to": "\tlet env = try t.Check(c, name, expect, abandon || !c.Trash)\n",
+      "rule": "trash = false deletes only after rm's refusal: a workspace with a commit only it has is NotHeld and stays (memory's NoTrashDeletesForGood, unsaved).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-comment-edit-in-change-set", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\tUnitChanges(file, b, a, Some[[]Change]{Value: indexed})\n",
+      "to": "\tlet _ = indexed\n\tUnitChanges(file, b, a, None)\n",
+      "rule": "A comment edit is in no change set: the record takes the language Indexer's changes (memory's ReadyWritesTheRecord: a comment added to unit A is no change).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-format-edit-is-a-change", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\tstrings.Slice(hex.Encode(sha256.Sum(strings.Join(strings.Fields(free), \" \"))), 0, 16)\n",
+      "to": "\tstrings.Slice(hex.Encode(sha256.Sum(free)), 0, 16)\n",
+      "rule": "A layout edit is no change: a fingerprint drops white space runs (RecordIsTheDiff with layout; ReadyWritesTheRecord's rewrap and row layout).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-rename-as-remove-and-add", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "a.File == r.File && a.After == r.Before {",
+      "to": "a.File == r.File && false {",
+      "rule": "A rename is one Renamed change from the old key (RenameIsOneChange; ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-on-not-computed", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, holds), changes, request)\n",
+      "to": "\ttry Recorded(w.Name, branch, tip, w.Base, UnlandedOn(tip, head, lanes, func(a string, b string) bool { holds(a, b) && false }), changes, request)\n",
+      "rule": "On is computed from ancestry, never typed or left empty: a workspace stacked on another names it (ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-unlanded-keeps-landed", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "holds(tip, l.Tip) && !holds(head, l.Tip) {",
+      "to": "holds(tip, l.Tip) {",
+      "rule": "A lane the base's head holds has landed and is not in On (OnIsTheUnlandedAncestry).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-record-on-the-branch-name", "origin": "wf10/semws M2",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry t.vcs.SetNote(w.Parent, held, record)\n",
+      "to": "\ttry t.vcs.SetNote(w.Parent, \"refs/heads/\" + branch, record)\n",
+      "rule": "The record is the note of the tip commit, not of the branch name (ReadyWritesTheRecord reads it by the tip).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-digest-of-the-wrong-text", "origin": "wf10/semws M2",
+      "file": "modules/work/work/record.ergo",
+      "from": "Sha256: hex.Encode(sha256.Sum(req.Text))",
+      "to": "Sha256: hex.Encode(sha256.Sum(req.Path))",
+      "rule": "The request's digest is the sha256 of its own text (RequestWithoutABlockIsItsFirstLine; ReadyWritesTheRecord).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "lm-regenerate-answered-clean", "origin": "wf10/semws WORK-LOCKMERGE",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif merged.Regenerate {\n\t\tlet then",
+      "to": "\tif merged.Regenerate && by == \"never\" {\n\t\tlet then",
+      "rule": "merge-file never answers clean a merge that must be made again: under Git's driver nothing regenerates, so ours would be kept silently (memory's MergeFileReportsWhatItCannotMerge).",
+      "anchor": {"tests": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]}, "killers": ["modules/work/memory:law:MergeFileReportsWhatItCannotMerge"]
+    },
+    {
+      "name": "wl-setting-trims-the-value", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/git/git.ergo",
+      "from": "\tstrings.TrimSuffix(r.Stdout, \"\\n\")\n",
+      "to": "\tstrings.TrimSpace(r.Stdout)\n",
+      "rule": "git.Setting reads back what Configure set, its own spaces kept; only git config's newline goes (git's law work.Vcs.SettingIsWhatConfigureSet under onShell).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wl-driver-plays-a-stated-status", "origin": "wf10/semws WORK-LAWS",
+      "file": "modules/work/memory/candidate.ergo",
+      "from": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) {\n",
+      "to": "func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {\n\tif StatesItsStatus(c) && c.Name == \"\" {\n",
+      "rule": "memory's Driver never answers a status a script did not state: a script ending in its own exit is NotFound (memory's law exec.Runner.ShellRunsAsWritten for Driver).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wcg-gc-deletes-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
+      "file": "modules/work/work/remove.ergo",
+      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {",
+      "to": "strings.HasPrefix(w.Path, t.home+\"/\") {",
+      "rule": "gc (bare, -idle, -id) never deletes a Creating record whose folder holds a checkout: its maker may have died after the clone, and an agent may work there (memory's ToolAgreesWithTheReference, CrashOp Cloned).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "wcg-rm-skips-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tcase Creating:\n\t\t\tt.copier.Has(w.Path + \"/.git\")\n",
+      "to": "\t\tcase Creating:\n\t\t\tfalse\n",
+      "rule": "rm on a Creating record over a checkout runs the unsaved-work check an Active one gets: work not held is NotHeld unless abandoned (memory's ToolAgreesWithTheReference, CrashOp Cloned then RmOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "tl-host-setting-ignored", "origin": "wf10/semws WORK-TRASH-LOCAL",
+      "file": "modules/work/work/api.ergo",
+      "from": "let local = try LocalTrash(c, setting)",
+      "to": "let local = try LocalTrash(c, strings.TrimPrefix(setting, setting))",
+      "rule": "the base's Git setting work.trash (host-local) decides rm's trash over work.toml and the default; doctor says which (memory's TheHostSettingDecidesTrash).",
+      "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
+    },
+    {
+      "name": "wcr-repair-activates-nothing", "origin": "wf10/semws WORK-CREATING (c)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\thead != \"\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "to": "\t\thead == \"never\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "rule": "doctor -repair activates a record left Creating over a whole clone whose maker is gone, and names it (memory's ToolAgreesWithTheReference, CrashOp Cloned then RepairOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "clone-copy-is-failure", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\t\tif acrossVolumes {\n",
+      "to": "\t\t\tif false && acrossVolumes {\n",
+      "rule": "work clone copies where the target is on another volume: the copy is an answer, not NotSameVolume (memory's CopyIsAnAnswer, across).",
+      "anchor": {"tests": ["modules/work/memory:law:CopyIsAnAnswer"]}, "killers": ["modules/work/memory:law:CopyIsAnAnswer"]
+    },
+    {
+      "name": "clone-nospace-unmeasured", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\tif free >= 0 && need > free {\n",
+      "to": "\t\tif false && free >= 0 && need > free {\n",
+      "rule": "A plain copy is measured before it writes: NoSpace names the bytes needed and free (memory's CopyIsAnAnswer).",
+      "anchor": {"tests": ["modules/work/memory:law:CopyIsAnAnswer"]}, "killers": ["modules/work/memory:law:CopyIsAnAnswer"]
+    },
+    {
+      "name": "clone-writes-dst-parent", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif !t.copier.Has(parent) {\n",
+      "to": "\tif false && !t.copier.Has(parent) {\n",
+      "rule": "work clone into a folder that is not there is Missing with that folder and writes nothing (memory's CloneIsTheSource, noParent).",
+      "anchor": {"tests": ["modules/work/memory:law:CloneIsTheSource"]}, "killers": ["modules/work/memory:law:CloneIsTheSource"]
+    },
+    {
+      "name": "clone-ignores-leave-out", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tfor folder in out {\n",
+      "to": "\tfor folder in out[0:0] {\n",
+      "rule": "work clone -leave-out leaves exactly those entries out (memory's CloneIsTheSource, leave).",
+      "anchor": {"tests": ["modules/work/memory:law:CloneIsTheSource"]}, "killers": ["modules/work/memory:law:CloneIsTheSource"]
+    },
+    {
+      "name": "clone-follows-links", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/copy/copy.ergo",
+      "from": "[]string{\"-a\", from, to}",
+      "to": "[]string{\"-aL\", from, to}",
+      "rule": "The copy Cloner copies a link that leaves the source as a link with its text, never its target (copy's CloneKeepsLinksAsLinks on the host).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

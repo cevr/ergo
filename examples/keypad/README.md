@@ -52,7 +52,7 @@ The program is a module of packages (`ergo.mod`: `module keypad`), in the Go lay
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/keypad/cmd/keypad < examples/keypad/cases/alarm/stdin
 ./bin/ergo test examples/keypad/keypad
 go run ./scripts/examples keypad

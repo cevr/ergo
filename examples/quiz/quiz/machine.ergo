@@ -4,12 +4,12 @@
 // in it (M48: Ergo has no eventless transition; this is the pattern).
 
 import slices
-type Quiz = Calculating{Set Set, Next int, Answers []Answer} | Asking{Set Set, Question int, Answers []Answer} | Showing{Set Set, Answers []Answer}
+type Quiz = Calculating{Set Set, Next int, Answers []Answer} | Settled
 
 // Settled is a state that a signal may see: a question or the results.
 // Asking and Showing are variants of both unions, so the type says that a
 // settled state is never Calculating.
-type Settled = Asking | Showing
+type Settled = Asking{Set Set, Question int, Answers []Answer} | Showing{Set Set, Answers []Answer}
 
 // Signal is what the user does: pick a choice of the question, go back to
 // the question before, pick an item of the results, or start again.
@@ -56,22 +56,13 @@ func Settle(q Quiz) Settled {
 			at = at + 1
 		}
 		Showing{Set: c.Set, Answers: c.Answers}
-	case Asking as a:
+	case Settled as a:
 		a
-	case Showing as s:
-		s
 	}
 }
 
 // AsQuiz is s as a Quiz.
-func AsQuiz(s Settled) Quiz {
-	match s {
-	case Asking as a:
-		a
-	case Showing as w:
-		w
-	}
-}
+func AsQuiz(s Settled) Quiz { s }
 
 // Begin is the first settled state of a quiz over set: the machine's
 // start function, so the set is the machine's input (V4), and a program

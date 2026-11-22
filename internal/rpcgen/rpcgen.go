@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
@@ -279,18 +280,22 @@ func (g *gen) fail(format string, args ...any) {
 }
 
 // importOf records p's import and is the name source uses for it.
-func (g *gen) importOf(p *check.Package) string {
+func (g *gen) importOf(p *check.Package) string { return importName(g.imports, g.pkg, g.path, p) }
+
+// importName records p's import in imports and is the name source uses for
+// it: "" for a prelude name, which is written unqualified. contract is the
+// contract's package, whose import path is path: checked as a root, the
+// checker names it main, so source imports it by its path.
+func importName(imports map[string]string, contract *check.Package, path string, p *check.Package) string {
 	if p == nil || p.Path == stdlib.PreludePath {
 		return ""
 	}
-	if p == g.pkg {
-		// The contract's package: checked as a root, the checker names
-		// it main; source imports it by its path.
-		name := lastElem(g.path)
-		g.imports[g.path] = name
+	if p == contract {
+		name := lastElem(path)
+		imports[path] = name
 		return name
 	}
-	g.imports[p.Path] = p.Name
+	imports[p.Path] = p.Name
 	return p.Name
 }
 
@@ -652,14 +657,16 @@ func (g *gen) digest(ops []Op) string {
 
 // reserved are the names the generated functions use for their locals:
 // a parameter of one of these names would shadow it.
-var reserved = map[string]bool{"client": true, "req": true, "r": true, "text": true, "v": true, "f": true, "e": true, "u": true, "p": true, "x": true}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"client": true, "req": true, "r": true, "text": true, "v": true, "f": true, "e": true, "u": true, "p": true, "x": true}
+})
 
 // checkNames refuses names the generated source cannot use: a parameter
 // that shadows a local or an import, and two failures with one tag.
 func (g *gen) checkNames(ops []Op) error {
 	for _, op := range ops {
 		for _, p := range op.Params {
-			if reserved[p.Name] {
+			if reserved()[p.Name] {
 				return fmt.Errorf("%s.%s: the parameter name %s is one the generated code uses; rename it", g.op, op.Name, p.Name)
 			}
 			for _, name := range g.imports {

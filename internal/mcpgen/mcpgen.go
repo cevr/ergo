@@ -1,6 +1,6 @@
 // Package mcpgen writes the Ergo source that puts an operation type on the
 // Model Context Protocol (`ergo gen mcp`; docs/spec/api.md, ergo gen mcp).
-// The output is ordinary Ergo over module mcp (modules/mcp), std rpc's
+// The output is ordinary Ergo over std mcp (moved from modules/mcp, MCP0), std rpc's
 // JSON and the contract's hub (`ergo gen api`), in the package <pkg>mcp
 // beside the contract's package, in one file, mcp.ergo:
 //
@@ -35,9 +35,9 @@ import (
 	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
-// ModulePath is the import path of module mcp, which the generated
-// package imports; the contract's module requires it.
-const ModulePath = "github.com/cevr/ergo/modules/mcp"
+// ModulePath is the import path of std mcp, which the generated package
+// imports; it is std, so the contract's module requires nothing for it.
+const ModulePath = "mcp"
 
 // Files is the generated package: its folder, relative to the contract's
 // package folder, and its files by name.
@@ -75,7 +75,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 	}
 	body := g.file(ops, tools)
 	for _, name := range g.imports {
-		if reserved[name] {
+		if reserved()[name] {
 			return Files{}, fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", opName, name)
 		}
 	}
@@ -90,7 +90,9 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 }
 
 // reserved are the locals the generated functions use.
-var reserved = map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true, "done": true, "rejected": true, "reply": true, "failure": true, "o": true, "c": true, "w": true, "g": true, "answer": true, "result": true, "tools": true, "server": true, "message": true, "carry": true, "toolOver": true}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"name": true, "arguments": true, "r": true, "x": true, "v": true, "e": true, "t": true, "p": true, "text": true, "back": true, "a": true, "done": true, "rejected": true, "reply": true, "failure": true, "o": true, "c": true, "w": true, "g": true, "answer": true, "result": true, "tools": true, "server": true, "message": true, "carry": true, "toolOver": true}
+})
 
 func lastElem(path string) string {
 	if i := strings.LastIndex(path, "/"); i >= 0 {

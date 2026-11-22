@@ -216,13 +216,16 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 				// every package's Go initialization: a copy holds its zero
 				// value (Q13: address-routes's people.All read as an empty list,
 				// "person 3: not found"). The IR body reads it through a
-				// forwarding function instead (files), when the body runs.
+				// function that returns its address (files), when the body
+				// runs: *get() is the variable itself, a place whose
+				// address the body may take (TAB-IR's &tabFK[i]; the
+				// 20e3b4fbe fallout, where get() returned a value).
 				if len(n.Values) == 0 {
 					if n.Type == nil {
 						return "an IR body uses the variable " + name + " of another package, declared with no type"
 					}
 					get := freshName(taken, "ergoGet"+strings.ToUpper(name[:1])+name[1:])
-					extra[k].WriteString("\nfunc " + get + "() " + text(k, decl, n.Type) + " { return " + qualified(k, name) + " }\n")
+					extra[k].WriteString("\nfunc " + get + "() *" + text(k, decl, n.Type) + " { return &" + qualified(k, name) + " }\n")
 					if s.getters == nil {
 						s.getters = map[int]map[string]string{}
 					}
@@ -287,15 +290,12 @@ func freshName(taken map[string]bool, prefix string) string {
 func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan) ([]File, int, error) {
 	byPkg := map[int][]irFunc{1: nil}
 	for i := range s.ir.Funcs {
-		// A copy: the split may still fall back to the one-package IR.
-		data, err := json.Marshal(&s.ir.Funcs[i])
-		if err != nil {
-			return nil, 0, err
-		}
-		var fn irFunc
-		if err := json.Unmarshal(data, &fn); err != nil {
-			return nil, 0, err
-		}
+		// Renamed in place: the split no longer falls back to the
+		// one-package IR once it writes the IR files, and an error here
+		// fails the lowering (lowerIRSplit). A JSON round trip of each
+		// function copied it before GP-SPLIT-EDIT, half of the split's
+		// own work.
+		fn := &s.ir.Funcs[i]
 		p := pkgOf(i)
 		renamed := func(n *string) {
 			if r, ok := rename[*n]; ok {
@@ -321,17 +321,19 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			fn.Name += "." + method
 		}
 		fn.walk(own, renamed)
-		if err := pcalls(&fn, s.qual[p]); err != nil {
-			return nil, 0, err
+		if err := pcalls(fn, s.qual[p]); err != nil {
+			return nil, 0, err // after the rename: the lowering fails (SplitReport.err)
 		}
 		if get := s.getters[p]; len(get) > 0 {
 			fn.exprs(func(x *irExpr) {
 				if g, ok := get[x.Name]; ok && x.K == "global" {
-					x.K, x.Name = "call", g
+					// *g(): the variable itself, a place, as the global
+					// is (&tabFK[i], a *T method's receiver), never a copy.
+					x.K, x.Name, x.X = "deref", "", &irExpr{K: "call", Pos: x.Pos, Name: g}
 				}
 			})
 		}
-		byPkg[p] = append(byPkg[p], fn)
+		byPkg[p] = append(byPkg[p], *fn)
 	}
 	var out []File
 	withIR := 0

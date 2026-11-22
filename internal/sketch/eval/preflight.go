@@ -82,7 +82,7 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:
+			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:
 			case check.CallFunc:
 				// Each witnessed operation's function runs where the
 				// callee calls the operation (witness.go).
@@ -174,6 +174,11 @@ func (p *preflight) generator(fr *frame, t check.Type, provider *check.LawProvid
 	}
 	var children []check.Type
 	switch u := t.(type) {
+	case *check.TypeParam:
+		if p.in.atInt[u] {
+			return ""
+		}
+		return fmt.Sprintf("a generator for %s", t)
 	case *check.Basic:
 		return ""
 	case *check.Slice:

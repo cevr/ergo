@@ -50,12 +50,38 @@ type CallTo { Call dense.ID[store.PNode], Callee Fn, Recv bool }
 // diagnostic (S3d5).
 type Diag { At dense.ID[store.PNode], Fn int }
 
+// CapCall is a call of an operation on the capability T named as the
+// call's receiver.
+type CapCall { Call dense.ID[store.PNode], T dense.ID[store.TKey] }
+
+// LitRows is the error and capability rows of the function literal at
+// At, each none when the literal infers it.
+type LitRows { At dense.ID[store.PNode], Errs Option[dense.ID[store.TKey]], Uses Option[dense.ID[store.TKey]] }
+
+// DecodeRow is a call decode[T](r) with its row, what T's wire form may
+// fail (wire.ergo; the Go checker's wireRow).
+type DecodeRow { Call dense.ID[store.PNode], Errs []dense.ID[store.TKey] }
+
 // Typer is the walk's state and result.
 type Typer {
 	Entries []Entry,
 	Diags   []Diag,
 	Insts   []Inst,
 	Calls   []CallTo,
+	// Caps is each call of an operation on a capability named as its
+	// receiver (Console.Println, io.Stdout.Print), with the operation type
+	// it charges (compiler/check/rows; the Go checker's modeCapFn).
+	Caps []CapCall,
+	// Lits is each function literal whose signature resolves, with the
+	// rows its body is checked against: the ones it writes, else its
+	// context's function type's when closed; none for a row it infers
+	// (compiler/check/rows; the Go checker's funcLit).
+	Lits []LitRows,
+	// Decodes is each decode[T](r) whose row this typer reads: a T whose
+	// wire form reaches only the package's records, unions, refined types
+	// and by-name pairs, Go's basic types, slices, maps and tuples
+	// (compiler/check/rows).
+	Decodes []DecodeRow,
 	// Outside is the values of a record literal of an import outside the
 	// run (outsideRec), whose fields' types the typer cannot read: they
 	// are typed with no expected type.
@@ -183,7 +209,7 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 	for _ in lets {
 		states = states.Append(0)
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Decodes: []DecodeRow{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	// An operation type's operations, by name in its laws.
 	for o in k.Ops {
 		t.file = o.File
@@ -381,7 +407,7 @@ func recordPattern(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node
 // writes, or else the row of the function type its context assigns it to
 // when that row names no type parameter (call.go funcLit); a row it
 // leaves to its body is not computed here, so the literal is not typed.
-func funcLit(s mut store.Store, k Pkg, t mut Typer, fl syntax.FuncLit, w Want) Option[dense.ID[store.TKey]] {
+func funcLit(s mut store.Store, k Pkg, t mut Typer, at dense.ID[syntax.Node], fl syntax.FuncLit, w Want) Option[dense.ID[store.TKey]] {
 	let sig = types.Resolve(s, envOf(*s, k, *t), fl.Type)
 	let ok = store.KindOfType(*s, sig) == store.KSig && valid(*s, sig)
 	let outer = t.res
@@ -412,6 +438,7 @@ func funcLit(s mut store.Store, k Pkg, t mut Typer, fl syntax.FuncLit, w Want) O
 	let n = len(ops)
 	let errs = if writesErrors(p, ft) { some(ops[n-2]) } else { closedRow(*s, expected, 2) }
 	let uses = if ft.Needs != dense.NoID[syntax.Node]() { some(ops[n-1]) } else { closedRow(*s, expected, 1) }
+	t.Lits = t.Lits.Append(LitRows{At: pnode(k, t.file, at), Errs: errs, Uses: uses})
 	match (errs, uses) {
 	case (Some[dense.ID[store.TKey]] as e, Some[dense.ID[store.TKey]] as u):
 		some(store.TSig(s, ops[0:n-3], ops[n-3], e.Value, u.Value))
@@ -1054,7 +1081,7 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		}
 		out
 	case syntax.FuncLit as fl:
-		funcLit(s, k, t, fl, w)
+		funcLit(s, k, t, x, fl, w)
 	case syntax.BlockStmt:
 		block(s, k, t, x)
 		None

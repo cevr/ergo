@@ -1,6 +1,7 @@
 package check
 
 import (
+	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -236,6 +237,7 @@ func (c *checker) checkTest(test *Test) {
 			}
 		}
 	}
+	test.Ties = c.ties(test.Params, nil)
 	c.functionBody(d.Body, name)
 	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)
@@ -355,12 +357,51 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 	if c.tests.ranks == nil {
 		c.tests.ranks = NewValueRanks()
 	}
+	builder := func(n *Named) *Builder {
+		if _, ops := n.Underlying().(*Interface); !ops {
+			return nil
+		}
+		b, _ := c.builderOf(n)
+		return b
+	}
+	// The builder that cannot start is the cause, so it is named before a
+	// record that holds its type; else the first by name, so the text does
+	// not depend on map order.
+	order := make([]*Named, 0, len(seen))
 	for n := range seen {
-		if c.tests.ranks.Rank(n) < 0 {
+		order = append(order, n)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		bi, bj := builder(order[i]) != nil, builder(order[j]) != nil
+		if bi != bj {
+			return bi
+		}
+		return order[i].String() < order[j].String()
+	})
+	for _, n := range order {
+		if c.tests.ranks.Rank(n, builder) < 0 {
+			if b := builder(n); b != nil {
+				// The builder needs a value of n before it builds one,
+				// directly or through a cycle, and a generator does not
+				// choose another (builders.go rule 2).
+				return n.String() + " has no finite value: its builder " + builderName(n, b) + " takes an argument that has none, as a builder that needs its own type does"
+			}
 			return n.String() + " has no finite value: each of its values holds another"
 		}
 	}
 	return ""
+}
+
+// builderName is b's function as a diagnostic about n names it: with n's
+// own qualifier when n's package declares it, so llm's text says
+// NewMetered beside Model and llm.NewMetered beside llm.Model, else by
+// its package's path (fstest.NewMemory).
+func builderName(n *Named, b *Builder) string {
+	if b.Func.Pkg != n.Obj.Pkg {
+		return b.Func.Pkg.Path + "." + b.Func.Name
+	}
+	q, _, _ := strings.Cut(n.String(), "[")
+	return strings.TrimSuffix(q, n.Obj.Name) + b.Func.Name
 }
 
 // constructorWhy reports whether a generator builds n by its constructor
@@ -441,27 +482,61 @@ func (c *checker) planConstructor(tn *TypeName) {
 // ValueRanks computes the rank of generatable types: the least depth of a
 // value of the type, where a basic type, a slice and a Map (empty) have
 // rank 0, a record or a tuple one more than its greatest element, and a
-// union one more than its least variant. A type with no finite value has
-// rank -1. Lowering's generators read it to stop at a finite value: at the
-// depth limit a union takes a variant of least rank. The checker refuses a
-// property parameter of rank -1 (rule 3), so the two never disagree.
+// union one more than its least variant. A named type is ranked as a
+// generator builds it (rule 3): an operation type one more than the
+// greatest parameter of its builder, and none with no builder; any other
+// by its underlying type. So a builder that needs a value of its own
+// type, directly or through a cycle (llm's NewMetered(inner Model) is
+// Model's), gives it rank -1. A type with no finite value has rank -1.
+// Every generator reads it to stop at a finite value: at the depth limit a
+// union takes a variant of least rank, and every other step at that limit
+// goes to a lower rank, so generation ends. The checker refuses a property
+// parameter or a provider that reaches a type of rank -1 (rule 3), so the
+// generators never meet one.
 type ValueRanks struct {
 	rank map[*Named]int
 }
 
-// NewValueRanks returns an empty memo.
+// NewValueRanks returns an empty memo. One memo ranks with one package's
+// builders: the builder argument of each Rank is that package's
+// (Package.Builder), since a test package may give an operation type its
+// builder.
 func NewValueRanks() *ValueRanks { return &ValueRanks{rank: map[*Named]int{}} }
 
 // infinite is the rank of a type with no finite value while it is solved.
 const infinite = int(^uint(0) >> 1)
 
-// Rank is t's rank, or -1 when t has no finite value. It solves the least
+// genInputs is what a generator draws to build a value of the operation
+// type n: its builder's parameters, or none built when it has no builder
+// (eval genBuilt, lower genFunc). built is false for any other type, which
+// is ranked by its underlying type, a type with a constructor too: the
+// constructor is chosen only when its parameters are generatable without
+// reaching the type (planConstructor), which this same rank decides.
+func genInputs(n *Named, builder func(*Named) *Builder) (params []Type, built, finite bool) {
+	if _, ops := n.Underlying().(*Interface); ops {
+		b := builder(n)
+		if b == nil {
+			return nil, true, false
+		}
+		_, params = b.Instance(n)
+		return params, true, true
+	}
+	return nil, false, true
+}
+
+// Rank is t's rank, or -1 when t has no finite value, with builder the
+// builder of an operation type (nil when it has none). It solves the least
 // fixpoint over the named types t reaches that are not solved yet, each
 // round lowering at least one rank, so the work is quadratic in that set at
 // worst and each named type is solved once per memo.
-func (r *ValueRanks) Rank(t Type) int {
+func (r *ValueRanks) Rank(t Type, builder func(*Named) *Builder) int {
 	var open []*Named
 	inOpen := map[*Named]bool{}
+	type input struct {
+		params        []Type
+		built, finite bool
+	}
+	inputs := map[*Named]input{}
 	var reach func(t Type)
 	reach = func(t Type) {
 		switch u := t.(type) {
@@ -480,7 +555,15 @@ func (r *ValueRanks) Rank(t Type) int {
 			}
 			inOpen[u] = true
 			open = append(open, u)
-			reach(u.Underlying())
+			params, built, finite := genInputs(u, builder)
+			inputs[u] = input{params, built, finite}
+			if !built {
+				reach(u.Underlying())
+				return
+			}
+			for _, p := range params {
+				reach(p)
+			}
 		case *Struct:
 			for _, f := range u.Fields {
 				reach(f.Type)
@@ -532,7 +615,14 @@ func (r *ValueRanks) Rank(t Type) int {
 	for changed := true; changed; {
 		changed = false
 		for _, n := range open {
-			if k := of(n.Underlying()); k < cur[n] {
+			k := infinite
+			switch in := inputs[n]; {
+			case !in.built:
+				k = of(n.Underlying())
+			case in.finite:
+				k = 1 + maxRank(in.params, of)
+			}
+			if k < cur[n] {
 				cur[n], changed = k, true
 			}
 		}

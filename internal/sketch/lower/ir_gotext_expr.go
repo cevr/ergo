@@ -10,6 +10,7 @@ import (
 	"go/types"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // irPrinter prints the body of one IR function.
@@ -218,11 +219,19 @@ func (p *irPrinter) stmt(s *irStmt, depth int) {
 		i := p.name(s.Local)
 		p.loop(s, depth, "for "+i+" := "+p.header(s.X, false).s+"; "+i+" < "+p.header(s.Y, true).s+"; "+i+"++ ")
 	case "range":
-		x := p.header(s.X, false).s
+		hx := p.header(s.X, false)
+		x := hx.s
+		overFunc := false
+		if hx.t != nil {
+			_, overFunc = hx.t.Underlying().(*types.Signature)
+		}
 		head := "for "
-		if s.Key != nil && s.Val == nil {
+		if s.Key != nil && s.Val == nil && overFunc {
 			// One variable: Go allows no second one over a func (a Seq
-			// loop, ir_seq.go), and k, _ means k over any other domain.
+			// loop, ir_seq.go). Over any other domain the decoder binds
+			// the value to _, so the text spells k, _ too: Go's tree of
+			// for k := range x has no value at all, and the two trees
+			// would differ (vt's Keys).
 			head += p.name(*s.Key) + " := "
 		} else if s.Key != nil || s.Val != nil {
 			lhs := []string{"_", "_"}
@@ -375,7 +384,7 @@ func (p *irPrinter) expr(x *irExpr, typed bool) gx {
 		return p.constant(x)
 	case "bin":
 		l, r := p.expr(x.X, true), p.expr(x.Y, true)
-		prec := irBinPrec[x.Op]
+		prec := irBinPrec()[x.Op]
 		if prec == 0 {
 			p.fail("operator %q", x.Op)
 		}
@@ -486,12 +495,14 @@ func (p *irPrinter) expr(x *irExpr, typed bool) gx {
 }
 
 // irBinPrec is the precedence of each binary operator.
-var irBinPrec = map[string]int{
-	"||": 1, "&&": 2,
-	"==": 3, "!=": 3, "<": 3, "<=": 3, ">": 3, ">=": 3,
-	"+": 4, "-": 4, "|": 4, "^": 4,
-	"*": 5, "/": 5, "%": 5, "<<": 5, ">>": 5, "&": 5, "&^": 5,
-}
+var irBinPrec = sync.OnceValue(func() map[string]int {
+	return map[string]int{
+		"||": 1, "&&": 2,
+		"==": 3, "!=": 3, "<": 3, "<=": 3, ">": 3, ">=": 3,
+		"+": 4, "-": 4, "|": 4, "^": 4,
+		"*": 5, "/": 5, "%": 5, "<<": 5, ">>": 5, "&": 5, "&^": 5,
+	}
+})
 
 // index is x[i]: a map's value by its key, a slice's, an array's or a
 // string's element.

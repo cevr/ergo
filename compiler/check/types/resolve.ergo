@@ -870,6 +870,11 @@ func Resolve(s mut store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.T
 			// The package's own Map hides the map type (L6).
 			return instance(s, e, headOf(*s, e, m.X), []dense.ID[syntax.Node]{m.Key, m.Value})
 		}
+		match dense.Unpack(m.Hashing) {
+		case Some[dense.ID[syntax.Node]] as h:
+			return providerMap(s, e, Resolve(s, e, m.Key), Resolve(s, e, m.Value), Resolve(s, e, h.Value))
+		case None:
+		}
 		return store.TMap(s, Resolve(s, e, m.Key), Resolve(s, e, m.Value))
 	}
 	if k == syntax.KStarExpr {
@@ -887,6 +892,49 @@ func Resolve(s mut store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.T
 		return signature(s, e, syntax.FuncTypeOf(e.p.Tree, x))
 	}
 	invalidType(s)
+}
+
+// preludeQual is the FOREIGN qualifier of the prelude's types that are
+// in no scope (hashTable): no source can write it, so no name resolves to
+// one; only Map[K, V, H] reaches it.
+let preludeQual = "@prelude"
+
+// providerMap is the type Map[k, v, h] (CONSTRAINTS C5; the Go checker's
+// mapOf, mapprovider.go): the Map type when h is the prelude's
+// Structural[k], else the prelude's record hashTable[k, h, v], which
+// prints as the Map it is (Text).
+func providerMap(s mut store.Store, e Env, k dense.ID[store.TKey], v dense.ID[store.TKey], h dense.ID[store.TKey]) dense.ID[store.TKey] {
+	if isStructural(*s, e.foreign, h, k) {
+		return store.TMap(s, k, v)
+	}
+	let args = []dense.ID[store.TKey]{k, h, v}
+	if store.PathOf(*s) == "prelude" {
+		return instanceOf(s, "hashTable", args)
+	}
+	let f = foreignIndex(e, preludeQual, "hashTable")
+	if f < 0 {
+		return invalidType(s)
+	}
+	store.TInstance(s, foreignRef(f), args)
+}
+
+// isStructural reports whether h is the prelude's Structural[k].
+func isStructural(s store.Store, foreign []Foreign, h dense.ID[store.TKey], k dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, h) != store.KInstance {
+		return false
+	}
+	let ops = store.OperandsOf(s, h)
+	len(ops) == 1 && ops[0] == k && preludeDecl(s, foreign, store.OriginOfType(s, h), "Structural")
+}
+
+// preludeDecl reports whether o is the prelude's type declaration name:
+// the prelude's own, or a FOREIGN entry of the prelude's path.
+func preludeDecl(s store.Store, foreign []Foreign, o store.XRef, name string) bool {
+	if int(o.Import) == store.ForeignBit {
+		let d = int(o.Decl)
+		return d < len(foreign) && foreign[d].Name == name && foreign[d].Path == "prelude"
+	}
+	o.Import == uint32(0) && store.PathOf(s) == "prelude" && int(o.Decl) < store.NumDecls(s) && store.DeclText(s, int(o.Decl)) == name
 }
 
 // named is the type a bare head names: a generic type needs arguments.
@@ -1091,6 +1139,11 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 	}
 	if k == store.KInstance {
 		let o = store.OriginOfType(s, t)
+		if len(ops) == 3 && preludeDecl(s, n.Foreign, o, "hashTable") {
+			// A Map with a provider prints as the Map it is (the Go
+			// checker's mapTypeString): hashTable[K, H, V] is Map[K, V, H].
+			return "Map[" + Text(s, n, ops[0]) + ", " + Text(s, n, ops[2]) + ", " + Text(s, n, ops[1]) + "]"
+		}
 		let mut name = ""
 		if int(o.Import) == store.ForeignBit {
 			// A Go import's generic type prints as its package names it
@@ -1150,6 +1203,10 @@ func joined(s store.Store, n Names, ts []dense.ID[store.TKey], sep string) strin
 
 // rowText is a row's elements by their sort keys, the invalid type left
 // out (Row.list).
+// RowText is the text of the row of ts as the Go checker prints a row,
+// "A | B" in its sort order, with no row interned (compiler/check/rows).
+func RowText(s store.Store, n Names, ts []dense.ID[store.TKey]) string { rowText(s, n, ts, " | ") }
+
 func rowText(s store.Store, n Names, ts []dense.ID[store.TKey], sep string) string {
 	let mut keyed = []string{}
 	for t in ts {

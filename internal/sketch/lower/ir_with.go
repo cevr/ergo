@@ -109,11 +109,10 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 		irNo("with that owns resources")
 	case w.Contexts[0].Lit == nil && !b.l.declaredContext(w.Contexts[0]):
 		irNo("with of an undeclared context")
-	case w.Contexts[0].TestAmbient != nil:
-		// The emitter opens the case's folder and removes it when the
-		// test's function returns (testAmbient, calls.go), a defer the IR
-		// has no form for.
-		irNo("with of a context that needs TestAmbient")
+	case w.Contexts[0].TestAmbient != nil && b.loops > 0:
+		// Go defers once per iteration and the IR decoder refuses a
+		// defer in a loop (ergoir deferStmt).
+		irNo("with of a context that needs TestAmbient in a loop")
 	}
 	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	p := b.pos(arg, arg.Pos())
@@ -127,6 +126,9 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	out := []*irStmt{
 		{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: b.env}}},
 		{K: "def", Pos: p, Local: ptr, X: &irExpr{K: "addr", Pos: p, X: &irExpr{K: "local", Pos: p, I: cp}}},
+	}
+	if ta := w.Contexts[0].TestAmbient; ta != nil {
+		out = append(out, b.testAmbient(ptr, ta, p, arg)...)
 	}
 	if lit {
 		b.l.localContext(w.Contexts[0], arg)
@@ -151,8 +153,8 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 // for a value of the program whose type's functions provide the
 // operations, &A{v: e} for a sealed std value, as the operation type.
 // The emitter declares the adapter; the IR builds its literal. A value
-// whose type is already an interface is itself; a script's, a type
-// parameter's, a generic adapter's and one with witnesses stay the
+// whose type is already an interface is itself; a Script's is &A{v: e}.
+// A type parameter's, a generic adapter's and one with witnesses stay the
 // emitter's.
 func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	l := b.l
@@ -171,7 +173,16 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
 	}
 	if check.ScriptOf(conv.From) != nil {
-		irNo("operations conversion of a script")
+		// A Script's adapter holds the Script alone (the emitter's
+		// scriptOperations): &A{v: e}, as the operation type.
+		b.fc.operations(conv, "_", x)
+		key, _, ok := l.adapterName(conv)
+		name := l.adapters[key]
+		if !ok || name == "" {
+			irNo("operations conversion of a script")
+		}
+		lit := &irExpr{K: "lit", Pos: e.Pos, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
+		return &irExpr{K: "toiface", Pos: e.Pos, T: b.goType(conv.To, x), X: &irExpr{K: "addr", Pos: e.Pos, X: lit}}
 	}
 	from, _ := conv.From.(*check.Named)
 	sealed := from != nil && l.runtimeNamed(from, x)
@@ -297,6 +308,23 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 		}
 	}
 	return out
+}
+
+// testAmbient is the emitter's testAmbientOpen (calls.go) on the IR: the
+// runner's provider of the test's ambient ta, over a fresh folder of the
+// case, goes into the environment ptr, and its end, deferred, removes the
+// folder when the test's function returns (G10; rows.md, Test's ambient).
+// The end is a method of the harness's provider (tests.go): the IR decoder
+// defers a call of the package or a method, not a runtime function.
+func (b *irBuilder) testAmbient(ptr int, ta *check.Named, p irPos, site syntax.Node) []*irStmt {
+	at := b.l.helper("TestAmbient")
+	amb := b.temp("ambient", at, p)
+	open := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestFolderOpen"}
+	return []*irStmt{
+		{K: "def", Pos: p, Local: amb, X: &irExpr{K: "lit", Pos: p, T: at, Keys: []string{"dir"}, Elems: []*irExpr{open}}},
+		{K: "defer", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "end", X: &irExpr{K: "local", Pos: p, I: amb}}},
+		{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: b.l.envField(ta), X: &irExpr{K: "local", Pos: p, I: ptr}}, Y: &irExpr{K: "toiface", Pos: p, T: b.goType(ta, site), X: &irExpr{K: "local", Pos: p, I: amb}}},
+	}
 }
 
 // withValue is the with x in a value position: a local of its type,
