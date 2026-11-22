@@ -431,6 +431,21 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 	parts := []string{"gate module/1", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
 		strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip)}
 	parts = append(parts, lawcache.Environ(os.Environ(), sketchfront.StageReportVariable)...)
+	tree, err := gateTreeParts(root, ledger)
+	if err != nil {
+		return ""
+	}
+	return lawcache.Key(append(parts, tree...)...)
+}
+
+// gateTreeParts are the key's lines for the files below root: "dir REL"
+// for each folder DIR/... walks (sketchfront.AdmitFolder, no nested
+// module), and "file REL SHA256" for each file in one, but ledger. The
+// root's ergo.bind is no package folder, but import go reads its bindings,
+// so its files are lines too, with no dir line.
+func gateTreeParts(root, ledger string) ([]string, error) {
+	var parts []string
+	bind := filepath.Join(root, sketchfront.BindFolder)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -439,20 +454,18 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 		if err != nil {
 			return err
 		}
+		inBind := path == bind || strings.HasPrefix(path, bind+string(filepath.Separator))
 		if d.IsDir() {
-			if path == root {
+			if path == root || inBind {
 				return nil
 			}
-			// The folders discovery skips: hidden, underscored, testdata
-			// and nested modules.
-			name := d.Name()
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
+			if !sketchfront.AdmitFolder(d.Name()) {
 				return filepath.SkipDir
 			}
 			if _, err := os.Stat(filepath.Join(path, sketchfront.ModFile)); err == nil {
 				return filepath.SkipDir
 			}
-			parts = append(parts, "dir "+rel)
+			parts = append(parts, "dir "+filepath.ToSlash(rel))
 			return nil
 		}
 		if path == ledger {
@@ -464,11 +477,8 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 		}
 		stage.Add(stage.BytesHashed, int64(len(data)))
 		sum := sha256.Sum256(data)
-		parts = append(parts, "file "+rel+" "+hex.EncodeToString(sum[:]))
+		parts = append(parts, "file "+filepath.ToSlash(rel)+" "+hex.EncodeToString(sum[:]))
 		return nil
 	})
-	if err != nil {
-		return ""
-	}
-	return lawcache.Key(parts...)
+	return parts, err
 }

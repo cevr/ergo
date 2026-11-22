@@ -284,14 +284,19 @@ or no module holds `DIR`; inside a module it takes that module's packages
 below `DIR`, as before. `internal/sketchfront.DiscoverWorkspace` finds it.
 Inside a module, `DIR/...` uses the same admission rule as discovery: it
 leaves out `testdata`, hidden and `_` folders and, since WS1, also
-`node_modules` and `vendor`. A package named by its folder
+`node_modules` and `vendor`, and `ergo.bind`, the module's Go bindings,
+which `import go` reads and no walk checks as a package
+([interop](interop.md#go-modules) 2). It is one rule,
+`sketchfront.AdmitFolder`, for every walk: `check`, `test`, `fmt`,
+`lint`, the task runner's members and `ergo gate`'s key (which still hashes
+the root's `ergo.bind` files, as inputs). A package named by its folder
 (`ergo check app/vendor/x`) still checks: the rule chooses what a
 pattern walks, never what a named folder is.
 
 - **Members.** Every folder below the root that holds an `ergo.mod` is a
   member, the root too, and a module nested in another is a member of its
   own. Discovery never enters a folder whose name starts with `.` or `_`,
-  `testdata`, `node_modules`, `vendor` or a folder `ergo.work` skips,
+  `testdata`, `node_modules`, `vendor`, `ergo.bind` or a folder `ergo.work` skips,
   and it follows no directory link: those hold fixtures and copies.
 - **Edges.** A member resolves another locally when a `replace` line of its
   `go.mod` names the other's folder (`./x`, `../x` or absolute). Each
