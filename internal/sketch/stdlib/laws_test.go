@@ -416,7 +416,7 @@ func TestStdLawLedger(t *testing.T) {
 			t.Errorf("stdlib.md:%d: row %s names no law of std source", r.Line, key)
 			continue
 		}
-		if r.Statement != statement {
+		if !lawledger.Same(r.Statement, statement) {
 			t.Errorf("stdlib.md:%d: the statement of %s is\n\t%s\nthe source says\n\t%s", r.Line, key, r.Statement, statement)
 		}
 		runsLaws, declared := tests[r.Runner]

@@ -116,6 +116,119 @@ func Normalize(statement string) string {
 	return strings.TrimSpace(spaces.ReplaceAllString(statement, " "))
 }
 
+// Same reports whether a and b state the same law: they are the same
+// tokens, so they differ at most in the white space the formatter adds or
+// drops, and a reformatted law is not a changed one. A token is a word
+// (letters, digits and _), a string, rune or raw literal as written, an
+// operator of Ergo's scanner (the longest of operators, below, that
+// starts there) or any other one character. White space only separates
+// tokens: a - -b is not a --b, but a!=-b is a != -b.
+func Same(a, b string) bool { return slices.Equal(tokens(a), tokens(b)) }
+
+// operators are the scanner's operators of more than one character
+// (internal/sketch/syntax/token.go), the longest first.
+var operators = []string{
+	"&^=", "<<=", ">>=", "...",
+	"!=", "%=", "&&", "&=", "&^", "*=", "++", "+=", "--", "-=", "..", "/=", ":=",
+	"<-", "<<", "<=", "==", ">=", ">>", "^=", "|=", "||",
+}
+
+// tokens is s as Same reads it.
+func tokens(s string) []string {
+	out, _ := scan(s, 0, false)
+	return out
+}
+
+// scan is the tokens of s from i. A semicolon is a line break, so white
+// space. In an interpolation (inner), it ends after the ) that closes it,
+// and gives the index after that.
+func scan(s string, i int, inner bool) ([]string, int) {
+	var out []string
+	depth := 0
+	for i < len(s) {
+		c := s[i]
+		n := 1
+		switch {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ';':
+			i++
+			continue
+		case c == '"' || c == '\'' || c == '`':
+			var lit []string
+			lit, i = literal(s, i)
+			out = append(out, lit...)
+			continue
+		case isWord(c):
+			for n < len(s)-i && isWord(s[i+n]) {
+				n++
+			}
+		default:
+			if inner && c == ')' && depth == 0 {
+				return out, i + 1
+			}
+			if c == '(' {
+				depth++
+			} else if c == ')' {
+				depth--
+			}
+			for _, op := range operators {
+				if strings.HasPrefix(s[i:], op) {
+					n = len(op)
+					break
+				}
+			}
+		}
+		out = append(out, s[i:i+n])
+		i += n
+	}
+	return out, i
+}
+
+// literal is the tokens of the literal that opens at s[i], and the index
+// after it: its text with each run of white space made one space, as the
+// ledger writes a statement, split at each interpolation \( … ) of a
+// string, whose code is tokens (the formatter formats it).
+func literal(s string, i int) ([]string, int) {
+	q := s[i]
+	var out []string
+	var b strings.Builder
+	b.WriteByte(q)
+	i++
+	space := false
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case q == '"' && c == '\\' && i+1 < len(s) && s[i+1] == '(':
+			code, next := scan(s, i+2, true)
+			out = append(append(append(out, b.String(), "\\("), code...), ")")
+			b.Reset()
+			i, space = next, false
+			continue
+		case c == '\\' && q != '`' && i+1 < len(s):
+			b.WriteString(s[i : i+2])
+			i, space = i+2, false
+			continue
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			if !space {
+				b.WriteByte(' ')
+			}
+			i, space = i+1, true
+			continue
+		}
+		b.WriteByte(c)
+		i, space = i+1, false
+		if c == q {
+			break
+		}
+	}
+	return append(out, b.String()), i
+}
+
+// isWord reports a byte of a word: a letter, a digit, _ or a byte of a
+// multi-byte rune.
+func isWord(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
+}
+
 // Read reads the ledger of the module that encloses the working directory.
 func Read() ([]Row, error) {
 	root, err := moduleRoot()
@@ -233,7 +346,7 @@ func Compare(runner string, rows []Row, laws map[string]Law) []string {
 			problems = append(problems, fmt.Sprintf("%s restates %s, which no row runs in it", runner, key))
 		case law.Check == nil:
 			problems = append(problems, fmt.Sprintf("%s restates %s with no check", runner, key))
-		case Normalize(law.Statement) != Normalize(row.Statement):
+		case !Same(law.Statement, row.Statement):
 			problems = append(problems, fmt.Sprintf("stdlib.md:%d: %s restates %s as\n\t%s\nthe ledger and the source say\n\t%s", row.Line, runner, key, Normalize(law.Statement), Normalize(row.Statement)))
 		}
 	}
