@@ -1022,6 +1022,10 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		}
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
+	case check.CallTestSeed:
+		// The run's --seed, for a harnessed test (check harness.go).
+		mustCharge(in, fr, 1)
+		return in.budget.Seed, nil
 	case check.CallHash:
 		v, ab := in.expr(fr, x.Args[0])
 		if ab != nil {

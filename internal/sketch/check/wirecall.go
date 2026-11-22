@@ -203,6 +203,8 @@ func builtinKind(b *Builtin) CallKind {
 		return CallEmbed
 	case "hash":
 		return CallHash
+	case TestSeedName:
+		return CallTestSeed
 	}
 	return CallLen
 }

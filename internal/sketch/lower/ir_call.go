@@ -157,6 +157,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.unreachableValue(x) // ir_defect.go
 	}
 	switch c.Kind {
+	case check.CallTestSeed:
+		// The run's --seed, for a harnessed test (check harness.go): the
+		// runtime reads it from the test binary's own arguments.
+		b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
+		return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
 	case check.CallHash:
 		return b.hashCall(x, p) // ir_mapprovider.go
 	case check.CallLen:
