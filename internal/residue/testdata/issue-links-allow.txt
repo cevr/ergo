@@ -1,0 +1,22 @@
+# The files TestNoIssueRefs admits with a link to an issue of this repository:
+# each is deleted by the unit the row names. A row is `path<TAB>unit`; a path
+# that ends in / is a directory. A row that admits no link fails, so the list
+# only shrinks.
+CHANGELOG.md	DEL-DEAD
+docs/bundled-modules.md	DEL-DEAD
+docs/conformance.md	TOOLING
+docs/contender-roadmap.md	DEL-DEAD
+docs/decisions.md	PRINCIPLES
+docs/lsp.md	DEL-DEAD
+docs/mcp.md	DEL-DEAD
+docs/previews/	DEL-DEAD
+docs/previews/2026-10-28-without-go-syntax.md	PREVIEW-TEST
+docs/prototype.md	DEL-DEAD
+docs/receipts/	RECEIPTS
+docs/research/	DEL-RESEARCH
+docs/showcases.md	DEL-DEAD
+docs/specs/	DEL-DEAD
+docs/specs/custom-lint.md	SPECS-CITED
+docs/specs/formatting.md	SPECS-CITED
+docs/testing.md	TOOLING
+docs/wayfinder/	WAYFINDER
