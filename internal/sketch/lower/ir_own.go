@@ -612,7 +612,7 @@ func (b *irBuilder) resultRelease(x *syntax.CallExpr, p irPos) *irExpr {
 	rel := b.spelling(b.l.rt() + ".Releaser[" + vt + "]")
 	d := b.l.info.ResultDrops[x]
 	if d == nil {
-		return &irExpr{K: "nil", Pos: p, T: rel}
+		return &irExpr{K: "zero", Pos: p, T: rel} // a nil Releaser: the value holds no resource
 	}
 	if d.Glue() || d.Close == nil {
 		irNo("std call with hidden argument release") // the generated release (glueOn)

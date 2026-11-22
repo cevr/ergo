@@ -70,13 +70,49 @@ func (b *irBuilder) givenFunc(t check.Type, task bool, site syntax.Node, p irPos
 	return w, local, gt
 }
 
+// adaptSlice is the adapter of e, the IR of a slice of Ergo function
+// values (the operand at site), to a std body's slice of Go functions of
+// shape (tasks.Race's blocks), as the emitter's adaptFuncs writes it: a
+// new slice of e's length whose element i adapts e's element i
+// (adaptOperand), each bound where the call is made.
+func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, shape *v1.Body, p irPos) ([]*irStmt, *irExpr) {
+	x, ok := site.(syntax.Expr)
+	if !ok {
+		irNo("std call that adapts a slice of functions") // a trailing block is one function
+	}
+	t := b.l.info.Types[x]
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	s, ok := t.(*check.Slice)
+	if !ok {
+		irNo("std call that adapts a slice of functions")
+	}
+	sig, ok := s.Elem.(*check.Signature)
+	if !ok {
+		irNo("std call that adapts a slice of functions")
+	}
+	fs := b.temp("fs", b.goType(t, site), p)
+	f := b.temp("f", b.goType(s.Elem, site), p)
+	i := b.temp("i", "int", p)
+	bind, lit := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, v1.Param{Func: shape}, p)
+	out := b.temp("blocks", "[]"+lit.T, p)
+	mk := &irExpr{K: "builtin", Pos: p, Name: "make", T: "[]" + lit.T, Args: []*irExpr{{K: "len", Pos: p, X: &irExpr{K: "local", Pos: p, I: fs}}}}
+	body := append(bind, &irStmt{K: "store", Pos: p, X: &irExpr{K: "index", Pos: p, X: &irExpr{K: "local", Pos: p, I: out}, Y: &irExpr{K: "local", Pos: p, I: i}}, Y: lit})
+	return []*irStmt{
+		{K: "def", Pos: p, Local: fs, X: e},
+		{K: "def", Pos: p, Local: out, X: mk},
+		{K: "range", Pos: p, End: p, X: &irExpr{K: "local", Pos: p, I: fs}, Key: &i, Val: &f, Body: body},
+	}, &irExpr{K: "local", Pos: p, I: out}
+}
+
 // adaptOperand is the adapter of e, the IR of a function value of the
 // signature sig (the operand at site), to the Go parameter q of a std
 // body, and the statements that bind e first.
 func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr) {
 	shape := q.Func
 	if q.Funcs != nil {
-		irNo("std call that adapts a slice of functions")
+		return b.adaptSlice(site, e, q.Funcs, p)
 	}
 	if b.env < 0 {
 		irNo("std call that adapts a function from a pure function")
