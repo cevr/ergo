@@ -1,0 +1,21 @@
+{
+  "about": "sorted-insert's planted mutant: the property drawn with std gen finds it, shrinks it and reports the seed, the named draws and a replay call. std gen's own rows are in internal/sketch/stdlib/testdata/mutants.json.",
+  "mutants": [
+    {
+      "name": "insert-before-equal-or-one-less",
+      "origin": "wf10 PROPERTY-TESTING P1",
+      "file": "examples/sorted-insert/ordered/ordered.ergo",
+      "from": "if !placed && x < y {",
+      "to": "if !placed && x < y - 1 {",
+      "rule": "ordered.Insert puts x before the first larger element (property InsertKeepsOrder, which shrinks the failure to xs = []int{0}, x = -1).",
+      "anchor": {
+        "tests": [
+          "examples/sorted-insert/ordered:InsertKeepsOrder"
+        ]
+      },
+      "killers": [
+        "examples/sorted-insert/ordered:InsertKeepsOrder"
+      ]
+    }
+  ]
+}
