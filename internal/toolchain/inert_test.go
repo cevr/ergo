@@ -43,7 +43,7 @@ func TestPatchedCompileIsInertWithoutErgoIR(t *testing.T) {
 		t.Fatalf("go env GOROOT: %v", err)
 	}
 	source := strings.TrimSpace(string(out))
-	c := PatchConfig{Cache: t.TempDir(), Source: source}
+	c := PatchConfig{Cache: ircDir(t), Source: source}
 	if dir := os.Getenv("ERGO_TOOLCHAIN_TEST_IR"); dir != "" {
 		c.lock = os.DirFS(dir)
 	}
