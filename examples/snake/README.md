@@ -26,7 +26,7 @@ The program is a module of packages (`ergo.mod`: `module snake`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/snake/cmd/snake -o /tmp/snake
 printf 'b\ns\na\nw\n\n' | /tmp/snake -seed 2 -width 6 -height 4
 /tmp/snake -live -tick 200          # type keys, then Enter

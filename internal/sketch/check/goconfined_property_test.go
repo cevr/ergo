@@ -31,7 +31,7 @@ type shapeField struct {
 
 // shapeModel is a generated Go package of structs T0…Tn-1, M and A. M and
 // A have a memory-only method (a planted gofacts.Effects row with a
-// validated guard line); A is listed in v1.GoConcurrentTypes; some Ti have
+// validated guard line); A is listed in v1.GoConcurrentTypes(); some Ti have
 // a memory-only method of their own, some a foreign one (no row), and the
 // rest none. I is a Go interface, which some fields hold.
 type shapeModel struct {
@@ -201,7 +201,7 @@ func (m *shapeModel) ergoSource() (string, map[int]string) {
 // TestGoConfinementReachesThroughShapes (GB-RACE2): a Go type is confined
 // to one task when any field, element, Map value, pointer or embedded type
 // reachable through its structure has a memory-only method that
-// v1.GoConcurrentTypes does not list. Each seed generates a Go package of
+// v1.GoConcurrentTypes() does not list. Each seed generates a Go package of
 // structs, binds it with ergo bind's own generator, and checks a program
 // that captures a go.Ref to each struct in a task and makes a queue of
 // each; the refused lines must be the reference reachability model's.
@@ -241,15 +241,20 @@ func checkShapes(t *testing.T, name, code string, program func(*shapeModel) (str
 		}
 	}
 	savedEffects := gofacts.Effects
-	savedConcurrent := v1.GoConcurrentTypes
+	// GoConcurrentTypes is built once per process (ERGO-STARTUP-2): plant
+	// the entry in it and take it out again.
+	concurrent := v1.GoConcurrentTypes()
+	savedPlanted, hadPlanted := concurrent["shapes.A"]
 	savedLedger := check.FactLedger
 	t.Cleanup(func() {
-		gofacts.Effects, v1.GoConcurrentTypes, check.FactLedger = savedEffects, savedConcurrent, savedLedger
+		gofacts.Effects, check.FactLedger = savedEffects, savedLedger
+		if hadPlanted {
+			concurrent["shapes.A"] = savedPlanted
+		} else {
+			delete(concurrent, "shapes.A")
+		}
 	})
-	v1.GoConcurrentTypes = map[string]string{"shapes.A": "planted: safe for concurrent use"}
-	for k, v := range savedConcurrent {
-		v1.GoConcurrentTypes[k] = v
-	}
+	concurrent["shapes.A"] = "planted: safe for concurrent use"
 	yes, no := 0, 0
 	for _, seed := range seeds {
 		m := newShapeModel(rand.New(rand.NewPCG(seed, 0x6b2ace)))

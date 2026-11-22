@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"math"
 	"strconv"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -228,12 +229,14 @@ func basicSize(k BasicKind) int {
 
 // ---------------------------------------------------------------- binary
 
-var tokenOf = map[syntax.Token]token.Token{
-	syntax.ADD: token.ADD, syntax.SUB: token.SUB, syntax.MUL: token.MUL, syntax.QUO: token.QUO, syntax.REM: token.REM,
-	syntax.AND: token.AND, syntax.OR: token.OR, syntax.XOR: token.XOR, syntax.SHL: token.SHL, syntax.SHR: token.SHR, syntax.AND_NOT: token.AND_NOT,
-	syntax.LAND: token.LAND, syntax.LOR: token.LOR,
-	syntax.EQL: token.EQL, syntax.NEQ: token.NEQ, syntax.LSS: token.LSS, syntax.LEQ: token.LEQ, syntax.GTR: token.GTR, syntax.GEQ: token.GEQ,
-}
+var tokenOf = sync.OnceValue(func() map[syntax.Token]token.Token {
+	return map[syntax.Token]token.Token{
+		syntax.ADD: token.ADD, syntax.SUB: token.SUB, syntax.MUL: token.MUL, syntax.QUO: token.QUO, syntax.REM: token.REM,
+		syntax.AND: token.AND, syntax.OR: token.OR, syntax.XOR: token.XOR, syntax.SHL: token.SHL, syntax.SHR: token.SHR, syntax.AND_NOT: token.AND_NOT,
+		syntax.LAND: token.LAND, syntax.LOR: token.LOR,
+		syntax.EQL: token.EQL, syntax.NEQ: token.NEQ, syntax.LSS: token.LSS, syntax.LEQ: token.LEQ, syntax.GTR: token.GTR, syntax.GEQ: token.GEQ,
+	}
+})
 
 func isComparison(op syntax.Token) bool {
 	switch op {
@@ -287,7 +290,7 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 			}
 		}
 		if l.mode == modeConst && r.mode == modeConst {
-			return operand{mode: modeConst, typ: Typ[Bool], val: constant.MakeBool(constant.Compare(l.val, tokenOf[x.Op], r.val))}
+			return operand{mode: modeConst, typ: Typ[Bool], val: constant.MakeBool(constant.Compare(l.val, tokenOf()[x.Op], r.val))}
 		}
 		return operand{mode: modeValue, typ: Typ[Bool]}
 	}
@@ -299,7 +302,7 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 			c.errorf(x, CodeType, "division by zero")
 			return bad(x)
 		}
-		tok := tokenOf[x.Op]
+		tok := tokenOf()[x.Op]
 		if x.Op == syntax.QUO && isInteger(t) {
 			tok = token.QUO_ASSIGN // integer division
 		}
@@ -504,7 +507,7 @@ func (c *checker) shift(x *syntax.BinaryExpr, hint Type) operand {
 			c.errorf(x.Y, CodeType, "shift count too large")
 			return bad(x)
 		}
-		v := constant.Shift(constant.ToInt(l.val), tokenOf[x.Op], uint(s))
+		v := constant.Shift(constant.ToInt(l.val), tokenOf()[x.Op], uint(s))
 		res := operand{mode: modeConst, typ: lt, val: v, expr: x}
 		if b, ok := under(lt).(*Basic); ok {
 			if !c.representable(&res, b) {

@@ -1,5 +1,7 @@
 package syntax
 
+import "sync"
+
 // Pos is a byte offset into a File's source. NoPos marks an absent
 // position, such as the parentheses of a match subject that has none.
 type Pos int
@@ -213,7 +215,7 @@ func (t Token) IsReserved() bool { return reservedBeg < t && t < reservedEnd }
 // IsLiteral reports whether t is an identifier or a basic literal.
 func (t Token) IsLiteral() bool { return IDENT <= t && t <= RUNE }
 
-var keywords = func() map[string]Token {
+var keywords = sync.OnceValue(func() map[string]Token {
 	m := map[string]Token{}
 	for t := keywordBeg + 1; t < keywordEnd; t++ {
 		m[tokens[t]] = t
@@ -222,12 +224,12 @@ var keywords = func() map[string]Token {
 		m[tokens[t]] = t
 	}
 	return m
-}()
+})
 
 // IsKeyword reports whether name is a keyword or a reserved word: no
 // declaration may use it.
 func IsKeyword(name string) bool {
-	_, ok := keywords[name]
+	_, ok := keywords()[name]
 	return ok
 }
 

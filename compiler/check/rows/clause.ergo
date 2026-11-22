@@ -128,5 +128,5 @@ func signature(s store.Store, names types.Names, p syntax.Parsed, fd syntax.Func
 	case None:
 		at
 	}
-	strings.Join(strings.Fields(src[start:at] + text + src[at:end]), " ")
+	strings.Join(strings.Fields(src[start:at]+text+src[at:end]), " ")
 }

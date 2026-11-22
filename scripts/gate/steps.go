@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
@@ -230,7 +231,7 @@ const buildCLIStep = "build bin/ergo"
 // buildCLI is the step buildCLIStep. A whole-gate replay runs it too
 // (rebuildOutputs), so bin/ergo matches the tree after a replay.
 func buildCLI(root string) *Step {
-	return &Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast}
+	return &Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Env: []string{ergobuild.Cgo}, Writes: gateOutputs, Class: classFast}
 }
 
 // cliTestPackages are the test packages whose tests run the ergo CLI. A

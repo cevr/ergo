@@ -39,7 +39,7 @@ The laws of `cli` and `file` run as they are; the `Board` laws run in `memory` a
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/tasks-cli/cmd/tasks-cli -- create write the spec
 ./bin/ergo run examples/tasks-cli/cmd/tasks-cli -- list --json
 for p in tasks memory file cli cmd/tasks-cli; do ./bin/ergo test examples/tasks-cli/$p; done

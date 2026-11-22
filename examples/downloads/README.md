@@ -57,7 +57,7 @@ The first 9 mutants were measured by `MB2/downloads/mutants.ts`, and the live on
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/downloads/cmd/downloads < examples/downloads/cases/files/stdin
 ./bin/ergo test examples/downloads/fetch
 ./bin/ergo test examples/downloads/memory
