@@ -55,12 +55,24 @@ func TestIRInlineSlotCounts(t *testing.T) {
 	for seed := first; seed < first+count; seed++ {
 		u, text := inlineSlotUnit(t, seed, t.TempDir())
 		on, off := lowerInlineSlot(t, u, ""), lowerInlineSlot(t, u, "off")
+		prev := lower.SetFailTypedLoweringForTest("off")
+		untyped := lowerInlineSlot(t, u, "")
+		lower.SetFailTypedLoweringForTest(prev)
 		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run '^TestIRInlineSlotCounts$' ./internal/experimental/irspike"
 		// pass[F] passes its own Slot row on: its Go type parameter on the
 		// IR, a source body with the case off.
 		const reason = "generic call with a row type argument of the caller"
 		if on.InlinedSlots != 8 || off.InlinedSlots != 0 || on.FailFields != 7 || len(on.Fallback) != 0 || off.Fallback[reason] != 1 {
 			t.Errorf("seed %d: %d calls with a Slot row inlined (%d off), %d field failures, fallback %v (off %v); want 8, 0, 7, none (off: pass's source body)\n%s\n%s", seed, on.InlinedSlots, off.InlinedSlots, on.FailFields, on.Fallback, off.Fallback, replay, text)
+		}
+		// FAILJUMP-TYPED: the failures read from a field or a local whose
+		// Go type is a struct jump to their arm (get(one(i))'s and pass's
+		// e.Error, the Slot bound to Lost; held's and once's l), and with them the
+		// literals that shared their switch (Pend, Torn): 8 jumps, and 1
+		// (fromParam's literal) with the case off (mutants
+		// failtyped-refused, failtyped-slot-unbound).
+		if on.FailTyped != 4 || on.FailJumps != 8 || untyped.FailTyped != 0 || untyped.FailJumps != 1 {
+			t.Errorf("seed %d: %d typed failures of %d jumps (typed off: %d of %d); want 4 of 8, 0 of 1\n%s\n%s", seed, on.FailTyped, on.FailJumps, untyped.FailTyped, untyped.FailJumps, replay, text)
 		}
 	}
 }
@@ -69,7 +81,9 @@ func TestIRInlineSlotCounts(t *testing.T) {
 // generated program prints the same and exits the same (0 when main
 // catches viaTwo's failure, 1 when it fails with it) under the source
 // (text) lowering, the IR, the IR with the case off (the reference:
-// every call of get stays a call), and the evaluator. A failing seed
+// every call of get stays a call), the IR with FAILJUMP-TYPED off (a
+// failure read from a field or a local keeps the catch's type switch),
+// and the evaluator. A failing seed
 // prints the Ergo source, the outcomes and its replay command.
 //
 // It builds Go because a copy whose Box names error where the caller's
@@ -93,9 +107,19 @@ func TestIRInlineSlotMatchesSource(t *testing.T) {
 		if _, err := Build(ir, IR, filepath.Join(dir, "iroff"), offBin, BuildOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		a, b, c := run(t, sb), run(t, ib), run(t, offBin)
-		if a != b || a != c {
-			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\nir off: %+v\n%s\n%s", seed, a, b, c, replay, text)
+		prev = lower.SetFailTypedLoweringForTest("off")
+		_, err = Emit(u, IR, filepath.Join(dir, "iruntyped"))
+		lower.SetFailTypedLoweringForTest(prev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		untypedBin := filepath.Join(dir, "iruntyped.bin")
+		if _, err := Build(ir, IR, filepath.Join(dir, "iruntyped"), untypedBin, BuildOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		a, b, c, d := run(t, sb), run(t, ib), run(t, offBin), run(t, untypedBin)
+		if a != b || a != c || a != d {
+			t.Fatalf("seed %d: the paths differ\nsource:  %+v\nir:      %+v\nir off:  %+v\nuntyped: %+v\n%s\n%s", seed, a, b, c, d, replay, text)
 		}
 		if want := int(seed % 2); a.exit != want {
 			t.Errorf("seed %d: exit %d, want %d\n%s", seed, a.exit, want, replay)
