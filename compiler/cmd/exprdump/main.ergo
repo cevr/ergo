@@ -205,7 +205,7 @@ func writeOwn(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
 // writeDiags prints the typer's diagnostics, "D FILE START END" after
 // prefix, one per line (S3d5).
 func writeDiags(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
-	for g in expr.Diags(d.T) {
+	for g in d.T.Diags {
 		let (f, row) = bind.RowOf(d.K.Ps, g.At)
 		let p = u.Files[f].Parsed
 		let id = syntax.NodeAt(p.Tree, row)
