@@ -246,8 +246,10 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				after := treeFingerprints(t, pattern)
 				reran := map[string]bool{}
 				var replayed []string
+				cutHit := map[string]bool{}
 				treeRerun = func(path string) { reran[path] = true }
 				treeCutReplayed = func(path string, narrowed, reads bool) {
+					cutHit[path] = true
 					replayed = append(replayed, fmt.Sprintf("%s (narrowed %v, reads %v)", path, narrowed, reads))
 				}
 				got := runCheckTree(t, pattern, false)
@@ -285,6 +287,18 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 						fail("nothing changed, but the run evaluated %v", slices.Sorted(maps.Keys(reran)))
 					}
 				} else {
+					// A defect stops the run at its package, as it stops the
+					// normal path's (the answers above are equal): a package
+					// after it was neither evaluated nor replayed, and the
+					// cutoff decided nothing of it.
+					if got.err != nil {
+						for path := range after {
+							if !reran[path] && !cutHit[path] {
+								delete(must, path)
+								delete(may, path)
+							}
+						}
+					}
 					for path, why := range must {
 						if !reran[path] {
 							fail("the cutoff kept %s, which it must evaluate (%s; evaluated %v; replayed %q; kept at the base: %v)", path, why, slices.Sorted(maps.Keys(reran)), replayed, cutKept)
