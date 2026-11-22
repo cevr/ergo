@@ -16,8 +16,8 @@ import (
 // irLibrary checks that `ergo lib` on the IR (lower.LowerIRLibrary;
 // LIB-ON-IR) gives Go the library the text lowering gave (lower.
 // LowerLibrary), on every example package that has tests, split by
-// package (TestIRLibraryAgreesOnExamplesPart0 …): the same exported Go
-// functions with the same signatures, the same functions not exported with
+// package (TestIRLibraryAgreesOnExamplesPart0 …): the same Go entries
+// (goEntry) with the same signatures, the same functions not exported with
 // the same reasons, and the same package clause. The bodies behind them are
 // the IR's, which TestIRAgreesOnExamples and TestIRTextChecks check in the
 // examples' programs; TestGoCallsErgo (package lower) runs a Go host
@@ -101,8 +101,34 @@ func libraryAgreeOn(t *testing.T, target exampleTarget) {
 	}
 	want, got := goAPI(t, text, "lib.go"), goAPI(t, ir, "lib.go")
 	if !slices.Equal(got, want) {
-		t.Errorf("%s: the IR library's Go API differs from the text library's\nIR:\n%s\ntext:\n%s", target.key(), strings.Join(got, "\n"), strings.Join(want, "\n"))
+		t.Errorf("%s: the IR library's Go API differs from the text library's\nonly in the IR library:\n%s\nonly in the text library:\n%s", target.key(), strings.Join(minus(got, want), "\n"), strings.Join(minus(want, got), "\n"))
 	}
+}
+
+// goEntry reports a Go entry of an exported Ergo function: its first
+// parameter is a context.Context (interop.md, A library). The library's
+// other exported Go functions are the lowering's own helpers (a std
+// function's Go body, such as strings' ToLower or NewBuilder), which each
+// lowering keeps or inlines as its bodies need: they are not the library's
+// Go API, and the two lowerings differ in them by design.
+func goEntry(fd *ast.FuncDecl) bool {
+	ps := fd.Type.Params.List
+	if len(ps) == 0 {
+		return false
+	}
+	sel, ok := ps[0].Type.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "Context"
+}
+
+// minus is the lines of a that b does not hold.
+func minus(a, b []string) []string {
+	var out []string
+	for _, x := range a {
+		if !slices.Contains(b, x) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // goAPI is the Go API of the file name of files: its package clause, each
@@ -122,7 +148,7 @@ func goAPI(t *testing.T, files []lower.File, name string) []string {
 	out := []string{"package " + f.Name.Name}
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv != nil || !fd.Name.IsExported() {
+		if !ok || fd.Recv != nil || !fd.Name.IsExported() || !goEntry(fd) {
 			continue
 		}
 		var b bytes.Buffer

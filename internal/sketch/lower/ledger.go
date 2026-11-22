@@ -1257,7 +1257,7 @@ func (e *LedgerEvidence) record(l *lowerer, applied int, levels map[string]int) 
 	sum := sha256.Sum256([]byte(e.Read()))
 	text := fmt.Sprintf("%s entries sha256:%x; rewrites applied %d%s", LedgerFile, sum, applied, byLevel)
 	rec, kept := l.names.alloc("ergoLaws"), l.names.alloc("ergoLawsKept")
-	return fmt.Appendf(nil, "package "+l.goPackage()+"\n\n// %s is the producer record of the law ledgers this binary was built\n// with (runtime.md, Tests 10).\nvar %s = %q\n\nvar %s string\n\nfunc init() { %s = %s }\n", rec, rec, "ergo producer: "+text, kept, kept, rec)
+	return fmt.Appendf(nil, "package main\n\n// %s is the producer record of the law ledgers this binary was built\n// with (runtime.md, Tests 10).\nvar %s = %q\n\nvar %s string\n\nfunc init() { %s = %s }\n", rec, rec, "ergo producer: "+text, kept, kept, rec)
 }
 
 // LedgerEntries are the ledger's entries from the check runs of ev, the

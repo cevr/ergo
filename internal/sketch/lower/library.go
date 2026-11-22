@@ -55,8 +55,12 @@ func LowerLibrary(u Unit, module, name string) ([]File, error) {
 	if !token.IsIdentifier(name) || name == "main" {
 		return nil, fmt.Errorf("lower: %q is not a Go package name for a library", name)
 	}
+	// The name rides in the unit, so a lowering that starts again (a flat
+	// union's restart builds a new lowerer from u) keeps writing the
+	// library: set on the first lowerer alone, the restart wrote a program
+	// with no main (examples/deploys/api; LIB-ON-IR).
+	u.lib = name
 	l := newLowerer(u)
-	l.lib = name
 	code, err := l.program()
 	if err != nil {
 		return nil, err
