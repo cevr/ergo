@@ -136,8 +136,8 @@ manifest.
    - its source fingerprint: tokens, `// ergo:` markers, the path it is
      checked as, and the environment;
    - its folder;
-   - the interface fingerprint of each local import ([Interface
-     fingerprint](#interface-fingerprint));
+   - the export fingerprint of each local import (item 2 of [the
+     fingerprints](#interface-fingerprint));
    - the inputs that are not sources, by bytes.
 
    When its answer holds an obligation, the implementation fingerprint of

@@ -12,7 +12,7 @@ import (
 )
 
 // The early cutoff of `ergo check DIR/...` (MONOREPO WS0b; docs/spec/
-// build.md, Warm answer by tokens 6). When the warm answer by tokens
+// build.md, Warm answer by tokens 5). When the warm answer by tokens
 // misses, the shared load checks every package again, but a package's
 // evaluation is taken from the store when nothing it can observe
 // changed:
