@@ -1,0 +1,188 @@
+// clientgen cuts committed model slices and writes provider clients from
+// them:
+//
+//	clientgen slice <model.json> <out.json> <source> <note> [drop:<trait id>]... <operation id>...
+//	clientgen emit [--check] <provider> <slice.json> <dir>
+//
+// slice reads a provider's whole Smithy model, prunes it to the operations
+// named (smithy.Prune) with the drop: traits left out, and writes the
+// slice with its provenance in the metadata: the source address, the
+// sha256 of the model text, the operations kept, the traits dropped and
+// the note. The corpus under modules/clientgen/testdata/models is made by
+// this binary and no other tool (orchestrator, q11: one path).
+//
+// emit writes the client package of a provider this binary names (s3)
+// from its slice into dir (emit.Emit); with --check it writes nothing and
+// fails when dir's files are not what emit writes, the drift guard until
+// a gen line can run an Ergo program (GEN-TASK). A module is a library
+// with no cmd/, so the binary lives here.
+
+import github.com/cevr/ergo/modules/clientgen/emit
+import github.com/cevr/ergo/modules/clientgen/smithy
+import fs
+import fstest
+import hex
+import io
+import json
+import os
+import sha256
+import strings
+
+let usage = "usage: clientgen slice <model.json> <out.json> <source> <note> [drop:<trait id>]... <operation id>...\n       clientgen emit [--check] <provider> <slice.json> <dir>"
+
+// providers are the clients this binary writes: what the model does not
+// say about each.
+let providers = Map[string, emit.Provider]{
+	"s3": emit.Provider{
+		Package:     "s3",
+		Runtime:     "github.com/cevr/ergo/modules/aws/aws",
+		RuntimeName: "aws",
+		Service:     "S3",
+		Operations:  []string{"com.amazonaws.s3#HeadObject", "com.amazonaws.s3#GetObject", "com.amazonaws.s3#PutObject", "com.amazonaws.s3#DeleteObject"},
+	},
+	// s3-list adds ListObjectsV2, which emit refuses until the XML wire
+	// rules (G4) let it read the listing's body.
+	"s3-list": emit.Provider{
+		Package:     "s3",
+		Runtime:     "github.com/cevr/ergo/modules/aws/aws",
+		RuntimeName: "aws",
+		Service:     "S3",
+		Operations:  []string{"com.amazonaws.s3#HeadObject", "com.amazonaws.s3#ListObjectsV2"},
+	},
+}
+
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: usage}
+	}
+	if args[0] == "slice" {
+		try slice(args[1:])
+	} else if args[0] == "emit" {
+		try write(args[1:])
+	} else {
+		return os.Exit{Code: 2, Message: usage}
+	}
+}
+
+func readModel(path string) (smithy.Model, string) fails os.Exit needs fs.Files {
+	let text = fs.Files.ReadFile(path) catch {
+	case _:
+		return os.Exit{Code: 1, Message: "clientgen: cannot read \(path)"}
+	}
+	let m = smithy.Read(text) catch {
+	case json.Malformed:
+		return os.Exit{Code: 1, Message: "clientgen: \(path) is not JSON"}
+	case smithy.NotSmithy as e:
+		return os.Exit{Code: 1, Message: "clientgen: \(path): \(e.Path): \(e.Reason)"}
+	}
+	(m, text)
+}
+
+func slice(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
+	if len(args) < 5 {
+		return os.Exit{Code: 2, Message: usage}
+	}
+	let mut drop = []string{}
+	let mut keep = []string{}
+	for a in args[4:] {
+		if strings.HasPrefix(a, "drop:") {
+			drop = drop.Append(strings.TrimPrefix(a, "drop:"))
+		} else {
+			keep = keep.Append(a)
+		}
+	}
+	let (m, text) = try readModel(args[0])
+	let cut = smithy.Prune(m, keep, drop) catch {
+	case smithy.Unknown as u:
+		return os.Exit{Code: 1, Message: "clientgen: \(u.Id) is not an operation of \(args[0])"}
+	}
+	let p = smithy.Provenance{Source: args[2], Sha256: hex.Encode(sha256.Sum(text)), Kept: keep, Dropped: drop, Note: args[3]}
+	let out = smithy.Write(smithy.WithProvenance(cut, p))
+	fs.Writes.WriteFile(args[1], out+"\n") catch {
+	case _:
+		return os.Exit{Code: 1, Message: "clientgen: cannot write \(args[1])"}
+	}
+	io.Stdout.Println("\(args[1]): \(len(cut.Shapes)) of \(len(m.Shapes)) shapes")
+}
+
+func write(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
+	let check = len(args) > 0 && args[0] == "--check"
+	let rest = if check { args[1:] } else { args }
+	if len(rest) != 3 {
+		return os.Exit{Code: 2, Message: usage}
+	}
+	let p = match providers.Get(rest[0]) {
+	case Some as v:
+		v.Value
+	case None:
+		return os.Exit{Code: 2, Message: "clientgen: no provider \(rest[0]); this binary writes s3"}
+	}
+	let (m, _) = try readModel(rest[1])
+	let files = emit.Emit(m, p) catch {
+	case emit.Refused as r:
+		return os.Exit{Code: 1, Message: "clientgen: refused \(r.Operation): \(r.Reason)"}
+	}
+	let dir = rest[2]
+	for f in files {
+		let path = dir + "/" + f.Path
+		if check {
+			let have = fs.Files.ReadFile(path) catch {
+			case _:
+				""
+			}
+			if have != f.Text {
+				return os.Exit{Code: 1, Message: "clientgen: \(path) is not what emit writes; run clientgen emit \(rest[0]) \(rest[1]) \(dir)"}
+			}
+		} else {
+			fs.Writes.WriteFile(path, f.Text) catch {
+			case _:
+				return os.Exit{Code: 1, Message: "clientgen: cannot write \(path)"}
+			}
+		}
+	}
+	let verb = if check { "matches" } else { "wrote" }
+	io.Stdout.Println("\(dir): \(verb) \(len(files)) files")
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The test runs run over an fstest.Memory holding a three-shape model.
+
+let tiny = "{\"smithy\":\"2.0\",\"shapes\":{\"t#Get\":{\"type\":\"operation\",\"input\":{\"target\":\"t#In\"},\"traits\":{\"smithy.api#http\":{\"method\":\"GET\",\"uri\":\"/x\"}}},\"t#In\":{\"type\":\"structure\",\"members\":{\"a\":{\"target\":\"smithy.api#String\",\"traits\":{\"smithy.api#documentation\":\"a\",\"x.test#tests\":{}}}}},\"t#Other\":{\"type\":\"string\"}}}"
+
+// ran is what run prints for args over a disk holding m.json = tiny, or
+// "exit <code>: <message>", and the slice it wrote ("" when none).
+func ran(args []string) (string, string) fails fs.NotFound | fs.Denied | fs.Failed {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("m.json", tiny)
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk, fs.Writes: disk } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	let written = disk.ReadFile("s.json") catch {
+	case _:
+		""
+	}
+	(out.Text(), written)
+}
+
+test SliceKeepsTheClosureAndRecordsWhere {
+	let (said, written) = try ran([]string{"slice", "m.json", "s.json", "src@1", "a note", "drop:x.test#tests", "t#Get"})
+	assert said == "s.json: 2 of 3 shapes\n"
+	assert strings.Contains(written, "\"clientgen.provenance\":{\"source\":\"src@1\",\"sha256\":\""+hex.Encode(sha256.Sum(tiny))+"\",\"kept\":[\"t#Get\"],\"dropped\":[\"x.test#tests\"],\"note\":\"a note\"}")
+	assert !strings.Contains(written, "x.test#tests\":{}")
+	assert !strings.Contains(written, "t#Other")
+}
+
+test UnknownOperationExits {
+	let (said, written) = try ran([]string{"slice", "m.json", "s.json", "src", "", "t#In"})
+	assert said == "exit 1: clientgen: t#In is not an operation of m.json\n"
+	assert written == ""
+}
