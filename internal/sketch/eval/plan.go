@@ -38,9 +38,6 @@ type funcPlan struct {
 	// call outside a generic body; bodyForm is its state.
 	body     fastBody
 	bodyForm uint8
-	// readAt is the obligation (readSet.epoch) that last entered the
-	// function's package through this plan (reads.go).
-	readAt uint64
 	// instances are a generic function's instances by the key of their
 	// type arguments (instanceOf).
 	instances map[string]*planInstance

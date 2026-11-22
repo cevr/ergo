@@ -2,7 +2,6 @@ package sketchfront
 
 import (
 	"errors"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -58,7 +57,6 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 		BytesLimit: rep.BytesLimit,
 	}
 	statuses := make([]string, 0, len(rep.Results))
-	var reads []string
 	out.Obligations = make([]report.Obligation, 0, len(rep.Results))
 	for _, res := range rep.Results {
 		o := report.Obligation{
@@ -88,15 +86,7 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 		}
 		statuses = append(statuses, o.Status)
 		out.Obligations = append(out.Obligations, o)
-		// The evaluation read what any of its verdicts read, cached or
-		// evaluated alike.
-		reads = append(reads, res.Reads...)
-		if res.ReadsUnknown {
-			out.ReadsUnknown++
-		}
 	}
-	slices.Sort(reads)
-	out.Reads = slices.Compact(reads)
 	out.Status = report.EvaluationStatus(statuses)
 	return out, nil
 }

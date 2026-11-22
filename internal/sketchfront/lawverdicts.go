@@ -129,10 +129,9 @@ func (v *evalVerdicts) Cached(law *check.Law, binding []check.LawProvider) (eval
 		if json.Unmarshal([]byte(stored.Text), &out) != nil || out.Evidence != stored.Evidence {
 			return eval.Verdict{}, false
 		}
-		out.Reads, out.ReadsUnknown = stored.Reads, !stored.ReadsKnown
 		return out, true
 	}
-	return eval.Verdict{Evidence: stored.Evidence, Cases: stored.Cases, TotalCases: stored.Cases, Reads: stored.Reads, ReadsUnknown: !stored.ReadsKnown}, true
+	return eval.Verdict{Evidence: stored.Evidence, Cases: stored.Cases, TotalCases: stored.Cases}, true
 }
 
 func (v *evalVerdicts) Held(law *check.Law, binding []check.LawProvider, held eval.Verdict) {
@@ -140,17 +139,14 @@ func (v *evalVerdicts) Held(law *check.Law, binding []check.LawProvider, held ev
 	if !ok {
 		return
 	}
-	reads := held.Reads
 	if t.Machine {
 		data, err := json.Marshal(held)
 		if err == nil {
-			v.store.Put(k, lawcache.Verdict{Evidence: held.Evidence, Cases: held.Cases, Text: string(data), Reads: reads, ReadsKnown: true}.Encode())
+			v.store.Put(k, lawcache.Verdict{Evidence: held.Evidence, Cases: held.Cases, Text: string(data)}.Encode())
 		}
 		return
 	}
-	out := lawcache.Evaluated(held.Evidence, held.Cases)
-	out.Reads, out.ReadsKnown = reads, true
-	v.store.Put(k, out.Encode())
+	v.store.Put(k, lawcache.Evaluated(held.Evidence, held.Cases).Encode())
 }
 
 // TestVerdicts is the store's view for one run of a's test build at seed

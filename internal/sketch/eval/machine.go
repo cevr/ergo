@@ -95,7 +95,6 @@ func (in *interp) initMachines(p *check.Package) *initFailure {
 			if !ok || spec.Initial == nil {
 				continue
 			}
-			in.enter(p)
 			tn, ok := p.Info.Defs[td.Name].(*check.TypeName)
 			if !ok {
 				ice("the machine %s has no Defs entry", td.Name.Name)

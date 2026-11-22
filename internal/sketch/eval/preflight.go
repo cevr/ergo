@@ -20,7 +20,6 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 	if fn == nil {
 		ice("no resolved callee")
 	}
-	p.in.enter(fn.Pkg)
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
 		// Go's append, at either shape, runs (interp.go callWitnessed).
 		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == "append" || p.in.goBody(fn) {

@@ -73,7 +73,9 @@ var treeEdits = []treeEdit{
 	{name: "unread import", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
 		// The body of the package the last one imports and no test of it
 		// enters (TestCheckTreeAnswersByTokens's unread.ergo): the last
-		// package is kept by its verdicts' reads (WS0c).
+		// package's law runs again and its verdict is stored, so this run
+		// keeps nothing and the next prints "cached"
+		// (ws0b-keeps-after-puts).
 		u := treeReached(f, "unread.ergo", 0)
 		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "\t\treturn Rect{W: it.Weight, H: ", "\t\treturn Rect{W: it.Weight + 3, H: ", 1)
 	}},
@@ -84,25 +86,11 @@ var treeEdits = []treeEdit{
 		f[pkgFile(u)] += "\n// Extra widens the interface.\nfunc Extra() int {\n\t0\n}\n"
 	}},
 	{name: "body read by a call", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
-		// The last package's ReadsByACall now fails: its verdict read
-		// the package only through the call (ws0c-plan-unrecorded).
+		// The last package's ReadsByACall now fails: a replay past an
+		// import's changed implementation prints it passing
+		// (ws0b-impl-not-verified).
 		u := treeReached(f, "reach.ergo", 0)
 		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "func Probe() int {\n\tlen(Make0(0))\n", "func Probe() int {\n\tlen(Make0(1))\n", 1)
-	}},
-	{name: "let read by a test", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
-		// The last package's ReadsByALet now fails: its verdict read the
-		// package only through the initializers' world
-		// (ws0c-init-unrecorded, ws0c-world-dropped).
-		u := treeReached(f, "reach.ergo", 1)
-		f[pkgFile(u)] = strings.Replace(f[pkgFile(u)], "let Seed = []int{}\n", "let Seed = []int{7}\n", 1)
-	}},
-	{name: "defect", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
-		// A body every verdict that enters it sees: Sum0 divides by
-		// zero, so each test whose run reaches it is a defect, and a
-		// verdict replayed past it (a read the cutoff did not record)
-		// prints passed where the normal path prints the defect.
-		i := r.IntN(len(p.Packages) - 1)
-		f[pkgFile(i)] = strings.Replace(f[pkgFile(i)], "func Sum0(items []Item) int {\n\tlet mut total = 0\n", "func Sum0(items []Item) int {\n\tlet mut total = 1 / (len(items) - len(items))\n", 1)
 	}},
 	{name: "test", apply: func(r *rand.Rand, f map[string]string, p genprogram.Program, dep int) {
 		name := genprogram.Name(r.IntN(len(p.Packages)-1)) + "/tests.ergo"
@@ -173,7 +161,9 @@ func treeText(src string) string {
 // `ergo check DIR/...` by tokens (MONOREPO WS0, checktree.go): over
 // generated modules and edit scripts (none, layout only, a comment, a
 // body, a signature, a new file, a test, a package outside the request
-// that it imports, the body of an import no test enters), for the whole module and for a sub-folder, the answer
+// that it imports, the body of an import no test enters, the body of an
+// import a test calls, the interface of an import of a package with no
+// obligation), for the whole module and for a sub-folder, the answer
 // is byte-equal to the normal path's (ERGO_BUILD=full) after every edit,
 // and, for a kept base, files_parsed, obligations_evaluated and
 // eval_steps are 0 exactly when nothing the request reaches changed in
@@ -183,9 +173,7 @@ func treeText(src string) string {
 // site, and is never kept. Mutants ws0-key-by-bytes, ws0-key-omits-imports,
 // ws0-key-omits-comments, ws0-site-replayed, ws0-revision-replayed,
 // ws0-keeps-site-reasons, ws0b-impl-not-verified, ws0b-keeps-after-puts,
-// ws0b-key-omits-interface, ws0b-replays-with-diagnostics,
-// ws0c-reads-not-verified, ws0c-plan-unrecorded, ws0c-init-unrecorded,
-// ws0c-world-dropped and ws0c-cached-reads-dropped.
+// ws0b-key-omits-interface.
 func TestCheckTreeAnswersByTokens(t *testing.T) {
 	seeds := []uint64{}
 	for s := range uint64(treeSeeds) {
@@ -212,21 +200,13 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 			t.Fatalf("seed %d: package %d imports nothing", seed, sub)
 		}
 		dep, _ := strconv.Atoi(deps[0][1])
-		// An import no obligation enters (WS0c): the last package also
-		// imports a first-layer package it does not otherwise import, in a
-		// function no test calls, so an edit of that package's body
-		// changes an import's implementation that its verdicts did not
-		// read (the "unread import" edit; its reads keep it).
-		//
-		// Two more first-layer packages it did not import are read by one
-		// way each (reach.ergo): a call (the plan hook) and a package let
-		// (the initializers' world). An edit of either flips a verdict of
-		// the last package, so a read the cutoff did not record replays a
-		// verdict the normal path does not print.
-		//
-		// A package with no test (quiet) imports the unread one: an edit
-		// of that package's interface must evaluate it again, which only
-		// the cut key's interfaces say (it has no obligation to check).
+		// The last package also imports two first-layer packages it did
+		// not import: one from a function no test calls (unread.ergo),
+		// and one whose Probe a test calls (reach.ergo), whose edit fails
+		// that test. It has a law, whose verdict the store keeps. A
+		// package with no test (quiet) imports the unread one: an edit of
+		// that package's interface must evaluate it again, which only the
+		// cut key's interfaces say (it has no obligation to check).
 		last := genprogram.Width + 1
 		var fresh []int
 		for u := range genprogram.Width {
@@ -234,15 +214,14 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				fresh = append(fresh, u)
 			}
 		}
-		if len(fresh) < 3 {
+		if len(fresh) < 2 {
 			t.Fatalf("seed %d: package %d imports all but %d first-layer packages", seed, last, len(fresh))
 		}
-		unread, byCall, byLet := genprogram.Name(fresh[0]), genprogram.Name(fresh[1]), genprogram.Name(fresh[2])
+		unread, byCall := genprogram.Name(fresh[0]), genprogram.Name(fresh[1])
 		p.Files[genprogram.Name(last)+"/unread.ergo"] = fmt.Sprintf("import %s/%s\n\n// unread is called by no test: no verdict of %s reads %s.\nfunc unread() int {\n\tlen(%s.Make0(0))\n}\n",
 			p.Module, unread, genprogram.Name(last), unread, unread)
 		p.Files[pkgFile(fresh[1])] += "\n// Probe is read by a call of " + genprogram.Name(last) + "'s tests.\nfunc Probe() int {\n\tlen(Make0(0))\n}\n"
-		p.Files[pkgFile(fresh[2])] += "\n// Seed is read by a let of " + genprogram.Name(last) + "'s tests.\nlet Seed = []int{}\n"
-		p.Files[genprogram.Name(last)+"/reach.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\nimport %[1]s/%[3]s\n\ntest ReadsByACall {\n\tassert %[2]s.Probe() == 0\n}\n\ntest ReadsByALet {\n\tassert len(%[3]s.Seed) == 0\n}\n", p.Module, byCall, byLet)
+		p.Files[genprogram.Name(last)+"/reach.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\n\ntest ReadsByACall {\n\tassert %[2]s.Probe() == 0\n}\n\n// TotalIsNeverNegative is a law, whose verdict the store keeps.\nlaw TotalIsNeverNegative(n int) {\n\tassert Total(n %% 3 + 3) >= 0\n}\n", p.Module, byCall)
 		p.Files["quiet/quiet.ergo"] = fmt.Sprintf("import %[1]s/%[2]s\n\n// Q has no test: its evaluation holds no obligation.\nfunc Q() int {\n\tlen(%[2]s.Make0(0))\n}\n", p.Module, unread)
 		if seed%2 == 0 {
 			// A package let whose initializer calls Go: check time skips
@@ -254,7 +233,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		dir := t.TempDir()
 		writeFiles(t, dir, p.Files)
 		patterns := []string{filepath.Join(dir, "..."), filepath.Join(dir, genprogram.Name(sub), "...")}
-		hits, misses, narrowed := 0, 0, 0
+		hits, misses := 0, 0
 		for _, edit := range treeEdits {
 			for _, pattern := range patterns {
 				// The base, kept: a run that stores verdicts keeps nothing,
@@ -313,15 +292,9 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				t.Setenv("ERGO_CACHE", store)
 				after := treeFingerprints(t, pattern)
 				reran := map[string]bool{}
-				var replayed []string
-				cutHit := map[string]bool{}
 				treeRerun = func(path string) { reran[path] = true }
-				treeCutReplayed = func(path string, narrowed, reads bool) {
-					cutHit[path] = true
-					replayed = append(replayed, fmt.Sprintf("%s (narrowed %v, reads %v)", path, narrowed, reads))
-				}
 				got := runCheckTree(t, pattern, false)
-				treeRerun, treeCutReplayed = nil, nil
+				treeRerun = nil
 				fail := func(format string, args ...any) {
 					t.Helper()
 					var diff strings.Builder
@@ -346,51 +319,25 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 				if kept && same != (work == 0) || !kept && work == 0 {
 					fail("no token or comment changed: %v, but the run parsed %d files and evaluated %d obligations in %d steps", same, got.counts["files_parsed"], got.counts["obligations_evaluated"], got.counts["eval_steps"])
 				}
-				// The cutoff (WS0b, WS0c; checkcut.go): a package is
-				// evaluated again when its base was not kept, it has a
-				// diagnostic, its source changed or an interface of the
-				// program changed (must); and only when that holds or it has
-				// an obligation and an import's implementation changed (may):
-				// within that, its verdicts' reads decide, and the answer
-				// above being the emptied store's is what proves them. The
-				// fingerprints are the reference loads' (CS5a,
-				// TestIncrementalCheckDecides).
-				if must, may, ok := treeWantRerun(before, after, cutKept); !ok {
+				// The cutoff (WS0b, checkcut.go): a package is evaluated
+				// again exactly when its base was not kept, it has a
+				// diagnostic, its source changed, an interface of the
+				// program changed, or it holds an obligation and an import's
+				// implementation changed. The fingerprints are the
+				// reference loads' (CS5a, TestIncrementalCheckDecides).
+				if want, ok := treeWantRerun(before, after, cutKept); !ok {
 					fail("the reference loads do not share a load")
-				} else if kept && same {
-					if len(reran) > 0 {
-						fail("nothing changed, but the run evaluated %v", slices.Sorted(maps.Keys(reran)))
-					}
 				} else {
-					// A defect stops the run at its package, as it stops the
-					// normal path's (the answers above are equal): a package
-					// after it was neither evaluated nor replayed, and the
-					// cutoff decided nothing of it.
-					if got.err != nil {
-						for path := range after {
-							if !reran[path] && !cutHit[path] {
-								delete(must, path)
-								delete(may, path)
-							}
-						}
-					}
-					for path, why := range must {
+					for path, why := range want {
 						if !reran[path] {
-							fail("the cutoff kept %s, which it must evaluate (%s; evaluated %v; replayed %q; kept at the base: %v)", path, why, slices.Sorted(maps.Keys(reran)), replayed, cutKept)
+							fail("the cutoff kept %s, which it must evaluate (%s; evaluated %v; kept at the base: %v)", path, why, slices.Sorted(maps.Keys(reran)), cutKept)
 						}
 					}
 					for path := range reran {
-						if !may[path] {
-							fail("the cutoff evaluated %s, which nothing it reads changed (kept at the base: %v)", path, cutKept)
+						if _, ok := want[path]; !ok {
+							fail("the cutoff evaluated %s, which nothing it observes changed (kept at the base: %v)", path, cutKept)
 						}
-						delete(may, path)
 					}
-					// What the implementation rule would run and the reads
-					// kept: the read set at work, as the run counts it.
-					if n := got.counts["packages_kept_by_reads"]; n != int64(len(may)) {
-						fail("the run counts %d packages kept by their reads, want %d: %v (replayed: %q; kept at the base: %v)", n, len(may), slices.Sorted(maps.Keys(may)), replayed, cutKept)
-					}
-					narrowed += len(may)
 				}
 				if len(reran) < len(after) {
 					hits++
@@ -405,11 +352,6 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 		// assert a hit, and hid a layout edit that missed).
 		if hits == 0 || misses == 0 {
 			t.Fatalf("seed %d is vacuous: %d runs took a kept evaluation, %d evaluated again", seed, hits, misses)
-		}
-		// A seed where every changed implementation was read proved
-		// nothing of the read set (WS0c).
-		if narrowed == 0 {
-			t.Fatalf("seed %d is vacuous: no package with an obligation was kept across an edit of an import it does not read", seed)
 		}
 	}
 }
@@ -454,14 +396,12 @@ func treeFingerprints(t *testing.T, pattern string) map[string]treeFP {
 
 // treeWantRerun are the packages the cutoff must evaluate after the base
 // (before, with cutKept, the packages whose evaluation the base kept and
-// whether each holds an obligation) is edited to after, and those it may:
-// the must, and each with an obligation whose import's implementation
-// changed (its verdicts' reads decide which; WS0c).
-func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (must map[string]string, may map[string]bool, ok bool) {
+// whether each holds an obligation) is edited to after, each with why.
+func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (map[string]string, bool) {
 	if before == nil || after == nil {
-		return nil, nil, false
+		return nil, false
 	}
-	must, may = map[string]string{}, map[string]bool{}
+	want := map[string]string{}
 	for path, a := range after {
 		b, ok := before[path]
 		obligations, kept := cutKept[path]
@@ -476,20 +416,15 @@ func treeWantRerun(before, after map[string]treeFP, cutKept map[string]bool) (mu
 		case a.source != b.source:
 			why = "its source changed"
 		case !maps.Equal(a.ifaces, b.ifaces):
-			for p := range a.ifaces {
-				if a.ifaces[p] != b.ifaces[p] {
-					why += " the interface of " + p
-				}
-			}
-			why = "changed:" + why
+			why = "an interface changed"
+		case obligations && !maps.Equal(a.impls, b.impls):
+			why = "an import's implementation changed"
 		}
 		if why != "" {
-			must[path], may[path] = why, true
-		} else if obligations && !maps.Equal(a.impls, b.impls) {
-			may[path] = true
+			want[path] = why
 		}
 	}
-	return must, may, true
+	return want, true
 }
 
 // treeReach are the folders (relative, slash-separated) a request
