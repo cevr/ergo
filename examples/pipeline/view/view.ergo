@@ -200,12 +200,12 @@ law HeldTryShowsRunningThenPassed(pick int) {
 	runner.Run.Hold()
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runner } {
-		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		let m, p = pipeline.Share(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
-		let mut h = ui.NewTestHost(a, View(m), clock, 8) catch {
+		let mut h = ui.NewTestHost(a, View(p), clock, 8) catch {
 		case ui.BadPatch:
 			return false
 		}

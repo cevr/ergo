@@ -53,7 +53,7 @@ func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain
 	let wait = retry.Delay(retry.Standard, 1)
 	let part = duration(int64(1+((at%999)+999)%999) * int64(wait) / 1000)
 	for i, id in []string{"build", "docs"} {
-		let _ = send(m, Envelope{ID: "c\(i)", Run: id, Command: run.Submit{Stages: 1}}) catch {
+		let _ = send(m.h, Envelope{ID: "c\(i)", Run: id, Command: run.Submit{Stages: 1}}) catch {
 		case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
 			return false
 		}

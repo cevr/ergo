@@ -232,6 +232,14 @@
       "to": "Args: \"-addr\\n127.0.0.1:0\",",
       "rule": "The server is told the port its outputs name: ServerListensOnTheOutputsPort (and, on the host, cmd/ergo TestPipelineInfraDeploysTheServer: the health check fails).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pc-close-leaves-the-actor", "origin": "wf10/lang PIPELINE-CLOSE",
+      "file": "examples/pipeline/pipeline/model.ergo",
+      "from": "\tm.h.desk.Stop() catch {\n\tcase _:\n\t}\n",
+      "to": "",
+      "rule": "The Model's release stops its actor, so no path needs a manual Stop: HandleEndsWithItsOwner (a command through the Handle after Close is taken, not Unavailable).",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]
 }

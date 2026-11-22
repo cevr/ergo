@@ -322,7 +322,7 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 	for i, a in acts {
 		match envelopeOf(from+i, a) {
 		case Some[Envelope] as e:
-			let _ = send(m, e.Value) catch {
+			let _ = send(m.h, e.Value) catch {
 			case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
 				Receipt{Command: "", Position: 0}
 			case Unavailable:
@@ -333,7 +333,7 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 		}
 		let _ = try Settle(m)
 	}
-	let d = m.desk.State().State
+	let d = m.h.desk.State().State
 	let v = Board(m)
 	(d, v)
 }
