@@ -30,7 +30,9 @@ import (
 // inputs are unchanged is replayed, not computed:
 //
 //   - the module's verdict: the bytes of every file of the module (the
-//     folders discovery walks), the law ledger as the run left it, the
+//     folders discovery walks) and of every folder its go.mod replaces a
+//     module with, transitively (a workspace member it builds against),
+//     the law ledger as the run left it, the
 //     toolchain, the options and the GO*, CGO_* and ERGO_* environment. A
 //     hit replays every package's verdicts with no discovery, parse,
 //     check, build or process.
@@ -428,10 +430,10 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 	if !ok {
 		return ""
 	}
-	parts := []string{"gate module/1", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
+	parts := []string{"gate module/2", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
 		strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip)}
 	parts = append(parts, lawcache.Environ(os.Environ(), sketchfront.StageReportVariable)...)
-	tree, err := gateTreeParts(root, ledger)
+	tree, err := gateTreeParts(root, ledger, map[string]bool{})
 	if err != nil {
 		return ""
 	}
@@ -440,10 +442,18 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 
 // gateTreeParts are the key's lines for the files below root: "dir REL"
 // for each folder DIR/... walks (sketchfront.AdmitFolder, no nested
-// module), and "file REL SHA256" for each file in one, but ledger. The
-// root's ergo.bind is no package folder, but import go reads its bindings,
-// so its files are lines too, with no dir line.
-func gateTreeParts(root, ledger string) ([]string, error) {
+// module), and "file REL SHA256" for each file in one, but skip (the law
+// ledger). The root's ergo.bind is no package folder, but import go reads
+// its bindings, so its files are lines too, with no dir line. Then, for
+// each folder root's go.mod replaces a module with, its own lines,
+// transitively: a build reads the replacing folder's sources, so an edit
+// there changes the key of every module that reaches it
+// (GATE-KEY-REACHES). A replaced folder is walked as a root, so its own
+// name is not judged (one named vendor, or under testdata or
+// node_modules, is still in the key); below it the one rule holds. seen
+// holds the folders already composed, so a cycle of replaces ends.
+func gateTreeParts(root, skip string, seen map[string]bool) ([]string, error) {
+	seen[root] = true
 	var parts []string
 	bind := filepath.Join(root, sketchfront.BindFolder)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -468,7 +478,7 @@ func gateTreeParts(root, ledger string) ([]string, error) {
 			parts = append(parts, "dir "+filepath.ToSlash(rel))
 			return nil
 		}
-		if path == ledger {
+		if path == skip {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -480,5 +490,23 @@ func gateTreeParts(root, ledger string) ([]string, error) {
 		parts = append(parts, "file "+filepath.ToSlash(rel)+" "+hex.EncodeToString(sum[:]))
 		return nil
 	})
-	return parts, err
+	if err != nil {
+		return nil, err
+	}
+	targets, err := sketchfront.LocalReplaces(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		if seen[target] {
+			continue
+		}
+		sub, err := gateTreeParts(target, "", seen)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, "replace "+target)
+		parts = append(parts, sub...)
+	}
+	return parts, nil
 }

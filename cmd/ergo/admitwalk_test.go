@@ -195,7 +195,7 @@ func TestDirWalksAgreeOnAdmittedFolders(t *testing.T) {
 		}
 		fail("task runner's member walk", got, own)
 
-		parts, err := gateTreeParts(root, "")
+		parts, err := gateTreeParts(root, "", map[string]bool{})
 		if err != nil {
 			t.Fatalf("seed %d: gate's key: %v", seed, err)
 		}
