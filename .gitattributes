@@ -20,6 +20,7 @@ scripts/gate/durations.json merge=ergo-measured
 scripts/gate/fast-cpu.json merge=ergo-measured
 # lines: allowlists and manifests, a set of lines.
 internal/residue/testdata/*.txt merge=ergo-lines
+internal/lawledger/testdata/runners.txt merge=ergo-lines
 internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
 # derived: generated files are made again, never merged. Git takes the
 # side that changed; when both changed, the driver keeps ours and prints

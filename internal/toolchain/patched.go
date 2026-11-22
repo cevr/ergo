@@ -32,10 +32,13 @@ import (
 //
 // The goroot is the release with the patched compile: every other entry
 // is a symbolic link to the release's own, so the go command, the linker
-// and the standard library are the release's. key digests the patch and
-// the release's GOROOT, and the directory names the release and the host
-// (compile is a host program for every target). It appears by one rename
-// under the release's install lock (Ensure's), whole or not at all.
+// and the standard library are the release's. key digests every input of
+// the compile (ircInputs: the patch, the release, its go command and path,
+// the host, the build's environment), and the directory names the release
+// and the host (compile is a host program for every target). It appears by
+// one rename under the folder's lock, whole or not at all, with a manifest
+// that proves it and read-only. Callers keep it in the host's shared root
+// (irc.go, IRCRoot).
 //
 // The patched compile without -ergoir compiles exactly as the stock one
 // does (stock equivalence, checked for every port by scripts/irport), and
@@ -89,33 +92,13 @@ const patchedSchema = "ergo-ir-patched-1"
 // toolchain/ir/lock does not port is refused: ergo never patches a Go the
 // patch was not ported to.
 func Patch(c PatchConfig) (Patched, error) {
-	source, err := filepath.Abs(c.Source)
+	l, err := c.locate()
 	if err != nil {
 		return Patched{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(source, "VERSION"))
-	if err != nil {
-		return Patched{}, fmt.Errorf("the Go at %s has no VERSION file: %w", source, err)
-	}
-	release, _, _ := strings.Cut(string(data), "\n")
-	release = strings.TrimSpace(release)
-	lockFS := c.lock
-	if lockFS == nil {
-		lockFS = ir.Files
-	}
-	port, err := portOf(lockFS, release)
-	if err != nil {
-		return Patched{}, err
-	}
-	var k keyer
-	k.add("schema", patchedSchema)
-	k.add("patch", port.digest)
-	k.add("source", source)
-	dir := Config{Cache: c.Cache, Version: release}.Dir()
-	out := filepath.Join(dir, "patched-"+k.sum()[:20])
-	p := Patched{Root: filepath.Join(out, "goroot"), Release: release, Digest: port.digest}
-	p.Go = filepath.Join(p.Root, "bin", "go"+exe())
-	if patchedReady(p.Root) {
+	source, release, port, inputs, unknown, key, dir, name, out, p := l.source, l.release, l.port, l.inputs, l.unknown, l.key, l.dir, l.name, l.out, l.p
+	if entryProblem(out, key) == "" {
+		markUsed(dir, name)
 		return p, nil
 	}
 	if !filepath.IsAbs(c.Cache) {
@@ -129,7 +112,9 @@ func Patch(c PatchConfig) (Patched, error) {
 		return Patched{}, err
 	}
 	defer unlock()
-	if patchedReady(p.Root) {
+	problem := entryProblem(out, key)
+	if problem == "" {
+		markUsed(dir, name)
 		return p, nil
 	}
 	// Under the lock no build runs: what an interrupted one left goes, and
@@ -137,10 +122,19 @@ func Patch(c PatchConfig) (Patched, error) {
 	if locks {
 		leftovers, _ := filepath.Glob(filepath.Join(dir, "tmp-*"))
 		for _, path := range leftovers {
-			os.RemoveAll(path)
+			removeEntry(path)
 		}
 	}
-	os.RemoveAll(out)
+	// An entry that is there but does not prove itself is replaced, and
+	// said so: never read, never kept.
+	if _, err := os.Lstat(out); err == nil {
+		if c.Log != nil {
+			fmt.Fprintf(c.Log, "ergo: replacing the IR compiler %s: %s\n", name, problem)
+		}
+		if err := removeEntry(out); err != nil {
+			return Patched{}, err
+		}
+	}
 	build := c.build
 	if build == nil {
 		build = buildCompile
@@ -148,7 +142,10 @@ func Patch(c PatchConfig) (Patched, error) {
 	if from, ok := c.toolsSet(release, port.digest); ok {
 		build = func(_, _, out string) error { return copyExecutable(from, out) }
 	} else if c.Log != nil {
-		fmt.Fprintf(c.Log, "%s%s (once per Go release and patch)\n", BuildNote, release)
+		fmt.Fprintf(c.Log, "%s%s (once per Go release and patch; key %s in %s)\n", BuildNote, release, key[:20], dir)
+		if len(unknown) > 0 {
+			fmt.Fprintf(c.Log, "ergo: the IR compiler's key holds variables no class names: %s\n", strings.Join(unknown, ", "))
+		}
 	}
 	tmp, err := os.MkdirTemp(dir, "tmp-")
 	if err != nil {
@@ -156,20 +153,82 @@ func Patch(c PatchConfig) (Patched, error) {
 	}
 	err = patchInto(tmp, source, port, build)
 	if err == nil {
-		err = os.Chmod(tmp, 0o755) // MkdirTemp's 0700, as the release's tree has
+		err = writeManifest(tmp, key, inputs)
+	}
+	if err == nil {
+		err = readOnly(tmp) // its folders 0555, its files without write bits
 	}
 	if err != nil {
-		os.RemoveAll(tmp)
+		removeEntry(tmp)
 		return Patched{}, fmt.Errorf("build the IR compiler for %s: %w", release, err)
 	}
 	if err := os.Rename(tmp, out); err != nil {
-		os.RemoveAll(tmp)
-		if patchedReady(p.Root) {
+		removeEntry(tmp)
+		if entryProblem(out, key) == "" {
 			return p, nil // another build won the rename (no flock)
 		}
 		return Patched{}, err
 	}
+	verified.Store(out, true) // this process wrote and listed every file
+	markUsed(dir, name)
+	// The root keeps the entries used last, and always this one: the
+	// current lock's (a removal that fails is left to the next build).
+	evict(dir, name, ircKeep)
 	return p, nil
+}
+
+// located is where Patch finds or puts the compile of c, and its key.
+type located struct {
+	source, release string
+	port            port
+	inputs          map[string]string
+	unknown         []string
+	key, dir, name  string
+	out             string
+	p               Patched
+}
+
+func (c PatchConfig) locate() (located, error) {
+	source, err := filepath.Abs(c.Source)
+	if err != nil {
+		return located{}, err
+	}
+	data, err := os.ReadFile(filepath.Join(source, "VERSION"))
+	if err != nil {
+		return located{}, fmt.Errorf("the Go at %s has no VERSION file: %w", source, err)
+	}
+	release, _, _ := strings.Cut(string(data), "\n")
+	release = strings.TrimSpace(release)
+	lockFS := c.lock
+	if lockFS == nil {
+		lockFS = ir.Files
+	}
+	port, err := portOf(lockFS, release)
+	if err != nil {
+		return located{}, err
+	}
+	inputs, unknown, err := ircInputs(source, release, port.digest, os.Environ())
+	if err != nil {
+		return located{}, err
+	}
+	key := keyOf(inputs)
+	dir := Config{Cache: c.Cache, Version: release}.Dir()
+	name := "patched-" + key[:20]
+	out := filepath.Join(dir, name)
+	p := Patched{Root: filepath.Join(out, "goroot"), Release: release, Digest: port.digest}
+	p.Go = filepath.Join(p.Root, "bin", "go"+exe())
+	return located{source, release, port, inputs, unknown, key, dir, name, out, p}, nil
+}
+
+// PatchedState is what `ergo version` says of c's compile: its key, its
+// entry's folder, and why the entry is not there to take ("" when it is: a
+// hit; else Patch would build it).
+func PatchedState(c PatchConfig) (key, entry, miss string, err error) {
+	l, err := c.locate()
+	if err != nil {
+		return "", "", "", err
+	}
+	return l.key[:20], l.out, entryProblem(l.out, l.key), nil
 }
 
 // patchedReady reports whether goroot holds a patched compile and its
@@ -287,22 +346,29 @@ func buildCompileFor(goos, goarch string) func(source, overlay, out string) erro
 	}
 }
 
+// buildEnviron is the environment the compile's build runs in, but its
+// GOROOT and GOMODCACHE: environ without the variables that would change
+// what it builds, which are set (no flags of the user's, no go env file,
+// cgo off) or, for target, the cross-build's. GOGC goes too: the compile
+// of cmd/compile/internal/ssa runs at Go's default pace, since a caller's
+// high percent grows its heap past a memory bound the caller set. GOGC=400
+// under a 2 GiB RLIMIT_DATA failed with "runtime: cannot allocate memory"
+// (merge tier at fca9f4f96, TestDenseAgreesWithModel), and the same build
+// at the default pace passes. GOMEMLIMIT stays: a limit only makes the
+// collector work harder. The shared root keys what is left (ircInputs).
+func buildEnviron(environ, target []string) []string {
+	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return slices.Contains([]string{"GOROOT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "GOMODCACHE", "GOGC", "GOENV"}, name)
+	})
+	env = append(env, "GOTOOLCHAIN=local", "GOFLAGS=", "GOWORK=off", "CGO_ENABLED=0", "GOENV=off")
+	return append(env, target...)
+}
+
 func runBuildCompile(source, overlay, out string, target []string) error {
 	cmd := exec.Command(filepath.Join(source, "bin", "go"+exe()), "build", "-trimpath", "-overlay="+overlay, "-o", out, "cmd/compile")
 	cmd.Dir = filepath.Join(source, "src")
-	// GOGC goes too: the compile of cmd/compile/internal/ssa runs at Go's
-	// default pace, since a caller's high percent grows its heap past a
-	// memory bound the caller set. GOGC=400 under a 2 GiB RLIMIT_DATA failed
-	// with "runtime: cannot allocate memory" (merge tier at fca9f4f96,
-	// TestDenseAgreesWithModel), and the same build at the default pace
-	// passes. GOMEMLIMIT stays: a limit only makes the collector work harder.
-	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		name, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"GOROOT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "GOMODCACHE", "GOGC"}, name)
-	})
-	cmd.Env = append(env, "GOROOT="+source, "GOTOOLCHAIN=local", "GOFLAGS=", "GOWORK=off", "CGO_ENABLED=0",
-		"GOMODCACHE="+filepath.Join(filepath.Dir(overlay), "modcache"))
-	cmd.Env = append(cmd.Env, target...)
+	cmd.Env = append(buildEnviron(os.Environ(), target), "GOROOT="+source, "GOMODCACHE="+filepath.Join(filepath.Dir(overlay), "modcache"))
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stderr, &stderr
 	stage.Add(stage.GoCommands, 1)
