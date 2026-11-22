@@ -6,8 +6,6 @@
 // (modules/clientgen). SigV4 is AWS-CORE's provider of Signer.
 
 import http
-import maps
-import slices
 import strconv
 import strings
 import time
@@ -17,9 +15,19 @@ import xml
 // Signer adds a request's credentials just before it is sent. Only a
 // signer reads a credential: a generated client builds its requests with
 // none, so no wrapper, log or recording of the network sees one.
-// law-exempt: a signer's output is the service's to judge; AWS-CORE states SigV4's laws over AWS's test vectors.
 type Signer {
 	Sign(r http.Request) http.Request,
+
+	// SignKeepsTheRequest: a signer only adds: the method, the paths, the
+	// query and the body are the request's, and every header it had is
+	// kept, in order, before the ones the signer adds. A service checks
+	// the signature over what was built; AWS-CORE states SigV4's
+	// signatures over AWS's test vectors.
+	law SignKeepsTheRequest(method string, path string, query []http.Field, header []http.Field, body string) {
+		let r = http.Request{Method: method, Path: path, RawPath: path, Query: query, Header: header, Body: http.Buffered{Text: body}}
+		let s = Sign(r)
+		s.Method == r.Method && s.Path == r.Path && s.RawPath == r.RawPath && s.Query == r.Query && s.Body == r.Body && len(s.Header) >= len(r.Header) && s.Header[0:len(r.Header)] == r.Header
+	},
 }
 
 // Unsigned sends a request as it was built: for tests, a local endpoint,
@@ -213,8 +221,19 @@ func Prefixed(h []http.Field, prefix string) Map[string, string] {
 // PutPrefixed adds a header prefix+name for each entry of m, in the
 // order of the names.
 func PutPrefixed(h []http.Field, prefix string, m Map[string, string]) []http.Field {
+	let mut names = []string{}
+	for k, _ in m {
+		// Insertion in order: a map of metadata holds a few names.
+		let mut at = len(names)
+		for i, n in names {
+			if at == len(names) && k < n {
+				at = i
+			}
+		}
+		names = names[0:at].Append(k).Concat(names[at:len(names)])
+	}
 	let mut out = h
-	for k in slices.Sorted(maps.Keys(m)) {
+	for k in names {
 		match m.Get(k) {
 		case Some as v:
 			out = out.Append(http.Field{Name: prefix + k, Value: v.Value})

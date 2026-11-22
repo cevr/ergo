@@ -9,15 +9,14 @@
 // lower-cased user metadata, its content type and its storage class. An
 // object stored in GLACIER is archived: GetObject fails
 // InvalidObjectState, as S3 does until it is restored. An object's ETag
-// is the quoted first 32 hex digits of its body's sha256, so putting the
-// same body twice gives one ETag (S3's is the MD5 of a single-part body),
+// is the quoted hex of its body's 64-bit FNV-1a hash, so putting the same
+// body twice gives one ETag (S3's is the MD5 of a single-part body),
 // and Last-Modified counts the store's writes from a fixed second.
 
 import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
-import hex
 import http
-import sha256
+import strconv
 import strings
 import sync
 import time
@@ -42,7 +41,13 @@ func at(bucket string, key string) string { "\(len(bucket)):\(bucket)/\(key)" }
 
 func find(m Memory, bucket string, key string) Option[Object] { m.objects.Get().Get(at(bucket, key)) }
 
-func etag(body string) string { "\"" + strings.Slice(hex.Encode(sha256.Sum(body)), 0, 32) + "\"" }
+func etag(body string) string {
+	let mut h uint64 = 14695981039346656037
+	for i in 0..len(body) {
+		h = (h ^ uint64(body[i])) * 1099511628211
+	}
+	"\"" + strconv.AppendUint([]byte{}, h, 16).Text() + "\""
+}
 
 func storageOf(o Object) Option[s3.StorageClass] {
 	if o.Archived { Some[s3.StorageClass]{s3.StorageClassGlacier} } else { None }

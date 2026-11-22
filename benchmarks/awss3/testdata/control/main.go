@@ -9,9 +9,8 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,8 +36,9 @@ type store struct {
 const epoch = 1700000000
 
 func etag(body string) string {
-	sum := sha256.Sum256([]byte(body))
-	return `"` + hex.EncodeToString(sum[:])[:32] + `"`
+	h := fnv.New64a()
+	io.WriteString(h, body)
+	return `"` + strconv.FormatUint(h.Sum64(), 16) + `"`
 }
 
 func target(raw string) (string, string, error) {
