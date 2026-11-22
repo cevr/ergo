@@ -275,13 +275,26 @@ func (l *lowerer) inlineBody(f *check.Func) bool { return l.inlineWithin(f, inli
 // field call of a known record in a copy (record.go) takes inlineGrowth,
 // since the copy is written once for its record, not at each call.
 func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
+	return l.inlineDecide(f, budget, false)
+}
+
+// inlineSlotBody is inlineBody for the IR inliner, which binds a Slot row
+// at the call (INLINE-SLOT): the text path, which also lowers an IR
+// build's fallback bodies, binds only type parameters and so keeps such
+// a callee a call.
+func (l *lowerer) inlineSlotBody(f *check.Func) bool {
+	return l.inlineDecide(f, inlineBudget, irInlineSlotLowering != "off")
+}
+
+// inlineDecide is inlineWithin, slot set for the IR inliner's question.
+func (l *lowerer) inlineDecide(f *check.Func, budget int, slot bool) bool {
 	if inlineLowering == "call" || f == nil {
 		return false
 	}
 	if l.inlineOK == nil {
 		l.inlineOK = map[inlineKey]knownState{}
 	}
-	key := inlineKey{f, budget}
+	key := inlineKey{f, budget, slot}
 	switch l.inlineOK[key] {
 	case knownYes:
 		return true
@@ -289,7 +302,7 @@ func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
 		return false
 	}
 	l.inlineOK[key] = knownDeciding
-	ok := l.inlineRule(f, budget)
+	ok := l.inlineRule(f, budget, slot)
 	l.inlineOK[key] = knownNo
 	if ok {
 		l.inlineOK[key] = knownYes
@@ -301,10 +314,11 @@ func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
 type inlineKey struct {
 	f      *check.Func
 	budget int
+	slot   bool // a Slot row may be bound at the call (inlineSlotBody)
 }
 
 // inlineRule is inlineWithin's decision for an undecided f.
-func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
+func (l *lowerer) inlineRule(f *check.Func, budget int, slot bool) bool {
 	// A negative budget is the fold's (knownmatch.go): a leaf Go would
 	// inline is inlined here too.
 	fold := budget < 0
@@ -312,7 +326,12 @@ func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 		budget = -budget
 	}
 	d := f.Decl
-	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil || l.hasGoRow(f.Sig) {
+	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil || l.hasHeldRow(f.Sig) {
+		return false
+	}
+	// A Slot row: only the IR's inliner binds it at the call (rowslot.go,
+	// INLINE-SLOT); the text path's copy binds only type parameters.
+	if l.hasGoRow(f.Sig) && !slot {
 		return false
 	}
 	info := f.Pkg.Info
@@ -1017,7 +1036,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, recs: o.recs, provs: o.provs, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {

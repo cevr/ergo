@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
 // A package's mutants are judged in bounded work (GT-BOUND: the runner ran
@@ -367,11 +369,11 @@ func (w *worker) locate(m *Mutant, r *Result) (*target, bool) {
 		return nil, false
 	}
 	original := string(t.original)
-	if n := strings.Count(original, m.From); n != 1 {
-		r.Status, r.Detail = Stale, fmt.Sprintf("its from occurs %d times in %s", n, m.File)
+	at, err := anchor.Locate(m.File, t.original, m.Decl, m.From)
+	if err != nil {
+		r.Status, r.Detail = Stale, err.Error()
 		return nil, false
 	}
-	at := strings.Index(original, m.From)
 	r.Line = 1 + strings.Count(original[:at], "\n")
 	t.lo, t.hi = r.Line, r.Line+strings.Count(m.From, "\n")
 	t.header = headerLine(original, at) && m.Anchor == nil
