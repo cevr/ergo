@@ -1,12 +1,20 @@
 package rt
 
+import "sync/atomic"
+
 // Handle is a started task: the runtime side of `Task[T, E]`. It is a
 // resource (runtime.md Tasks, rule 3): Wait and Stop consume it, and an owner
 // scope stops and drains it at scope end if neither ran. Its methods belong to
 // the owner task's goroutine.
 type Handle[T any] struct {
-	task  Task
-	owner *Task // the starting task, until the handle is consumed
+	task Task
+	// waiter is the task that waits for the end, which finish wakes: the
+	// starting task, until a WaitBy or StopBy names the task that calls it.
+	// A hand-off moves a Task to another task (runtime.md Tasks, rule 11),
+	// so the waiter is not always the starter (issue 236). finish reads it
+	// on the child's goroutine; the waiter clears it once it saw the end,
+	// so a consumed handle retains no task (G2).
+	waiter atomic.Pointer[Task]
 	// done is closed when the task ends, for a wait that selects on the
 	// end with other channels (After's race); nil for every other handle,
 	// whose waiter parks on its own task's word (park.go).
@@ -83,7 +91,7 @@ func spawn[T any](parent *Task, span string, masked, shield, selects bool, body 
 
 func start[T any](h *Handle[T], parent *Task, span string, masked, shield bool, b Body[T]) {
 	Point(parent, Op{OpSpawn, parent})
-	h.owner = parent
+	h.waiter.Store(parent)
 	h.task.init(parent, span, masked, shield)
 	schedSpawn(parent, &h.task)
 	Spread() // before the go statement (alone.go)
@@ -105,12 +113,13 @@ func (h *Handle[T]) run(b Body[T]) {
 // finish detaches the task and publishes the exit that Run settled. In an
 // auto clock's domain the waiter's join is unparked in the step that
 // sets ended, and the task leaves the domain after it. The waiter is the
-// parent, the only task that waits for the end; detach clears the link,
-// so it is read first. The waiter is resumed after ended is set, so the
-// woken waiter sees it.
+// one task that waits for the end (waiter), resumed after ended is set,
+// so the woken waiter sees it. A waiter that names itself after the first
+// read stores itself before it reads ended (WaitBy, StopBy), so either it
+// sees ended and does not park, or the second read finds it.
 func (h *Handle[T]) finish() {
 	Point(&h.task, Op{OpEnd, &h.task})
-	waiter := h.task.parent.Load()
+	waiter := h.waiter.Load()
 	h.task.detach()
 	m := waiter.waking(h)
 	h.task.stopped.setEnded()
@@ -119,6 +128,11 @@ func (h *Handle[T]) finish() {
 	}
 	m.unlock()
 	waiter.wake.unpark()
+	// A waiter that already returned cleared the word (nil): it saw ended.
+	if late := h.waiter.Load(); late != nil && late != waiter {
+		late.waking(h).unlock()
+		late.wake.unpark()
+	}
 	if own := h.task.member.Load(); own != nil {
 		own.leave()
 	}
@@ -158,10 +172,27 @@ func (h *Handle[T]) Task() *Task { return &h.task }
 // interruption point of the owner (I1): if the owner is stopped before or
 // while it waits, even when the task has already finished, Wait stops and
 // drains the task and returns the task's defects with the interruption. Wait
-// consumes the handle.
-func (h *Handle[T]) Wait() (T, error) {
-	owner := h.owner
-	h.task.consumed, h.owner = true, nil
+// consumes the handle. Wait is WaitBy by the starting task, for a handle
+// that its starter consumes.
+func (h *Handle[T]) Wait() (T, error) { return h.WaitBy(h.waiter.Load()) }
+
+// claim makes w the handle's waiter (finish wakes it), before w reads
+// whether the task ended. A second waiter is a defect: a Task has one
+// owner, so checked code never makes one (runtime.md Tasks, rule 11).
+func (h *Handle[T]) claim(w *Task) {
+	if !h.task.stopped.claim() {
+		panic("task: a second task waits for a Task that another task already waits for (runtime.md Tasks, rule 11)")
+	}
+	h.waiter.Store(w)
+}
+
+// WaitBy is Wait by owner, the task that calls it: the Task's owner, which
+// a hand-off may have made another task than the one that started it
+// (runtime.md Tasks, rule 11). owner's stop, not the starter's, ends the
+// wait (rule 9).
+func (h *Handle[T]) WaitBy(owner *Task) (T, error) {
+	h.claim(owner)
+	h.task.consumed = true
 	Point(owner, Op{OpJoin, &h.task})
 	if !owner.Stopped() {
 		// The owner parks on its own word until the task ends or a stop it
@@ -181,11 +212,13 @@ func (h *Handle[T]) Wait() (T, error) {
 			if h.task.trace != nil {
 				h.task.childEvent(TraceObserve, owner, true)
 			}
+			h.waiter.Store(nil) // the task ended: the handle holds no ancestry (G2)
 			return h.value, h.err
 		}
 	}
 	h.task.Interrupt()
 	h.join(owner)
+	h.waiter.Store(nil)
 	if h.task.trace != nil {
 		h.task.traceForget()
 	}
@@ -202,16 +235,22 @@ func (h *Handle[T]) Wait() (T, error) {
 // releases included (runtime.md Tasks, rule 4). It returns only the task's
 // defects: its interruption and an abandoned typed failure are the expected
 // result of the stop (laws R3, R6). Stop consumes the handle; on a consumed
-// handle it returns nil.
-func (h *Handle[T]) Stop() error {
+// handle it returns nil. Stop is StopBy by the starting task, for a handle
+// that its starter consumes.
+func (h *Handle[T]) Stop() error { return h.StopBy(h.waiter.Load()) }
+
+// StopBy is Stop by owner, the task that calls it (WaitBy): the join parks
+// owner, and finish wakes it.
+func (h *Handle[T]) StopBy(owner *Task) error {
 	if h.task.consumed {
 		return nil
 	}
-	owner := h.owner
-	h.task.consumed, h.owner = true, nil
+	h.claim(owner)
+	h.task.consumed = true
 	Point(owner, Op{OpStop, &h.task})
 	h.task.Interrupt()
 	h.join(owner)
+	h.waiter.Store(nil)
 	if h.task.trace != nil {
 		h.task.childEvent(TraceObserve, owner, false)
 	}

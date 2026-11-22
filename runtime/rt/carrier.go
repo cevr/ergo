@@ -53,7 +53,7 @@ func RestartOn[T any](h *Handle[T], c *Carrier, parent *Task, span string, b Bod
 		h = &Handle[T]{}
 	}
 	Point(parent, Op{OpSpawn, parent})
-	h.owner = parent
+	h.waiter.Store(parent)
 	h.task.init(parent, span, false, false)
 	schedSpawn(parent, &h.task)
 	if job == nil {

@@ -18,9 +18,11 @@ type Task struct {
 	// stopped is the stop flag, set by Interrupt from any goroutine, and in
 	// the same word the flag that publishes stop (stopFlags).
 	stopped stopFlags
-	// shielded is fixed before t is linked: t was started while its owner was
-	// inside a masked region, so the owner's ambient stop does not cascade
-	// into it. The cascade reads only this field, never the owner's mask. It
+	// shielded is fixed before t is linked, and widened only when its parent
+	// ends and hands it on (adopt), under both parents' locks: t was started
+	// while its owner was inside a masked region, so the owner's ambient stop
+	// does not cascade into it. The cascade reads only this field, under the
+	// parent's lock, never the owner's mask. It
 	// sits beside stopped so that the two share one word.
 	shielded bool
 	// waker marks a task with an OnInterrupt wake in wakers, guarded by mu;
@@ -114,24 +116,61 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 // detach unlinks a finished child from its parent (runtime.md Tasks, rule 1)
 // and drops its reference to the parent, so a finished task retains no
 // ancestors (G2, rule 3), and its context values, so a handle kept after the
-// task finished holds no context text (G1). Every descendant has finished by
-// now, so no chain walk or child start can still read either. It runs on t's
-// own goroutine, the only one that touches values.
+// task finished holds no context text (G1). A child of t that still runs
+// was handed out (a Task t's block returned, put in a field or a queue;
+// rule 11): t hands it to its parent first, so a stop of the parent still
+// reaches it (adopt). It runs on t's own goroutine, the only one that
+// touches values; a still-running child reads its own values, not t's.
 func (t *Task) detach() {
 	t.values = nil
-	p := t.parent.Load()
-	p.mu.Lock()
-	if t.prev != nil {
-		t.prev.next = t.next
-	} else {
-		p.first = t.next
+	for {
+		p := t.parent.Load()
+		p.mu.Lock()
+		// A parent that ended between the load and the lock handed t on to
+		// its own parent (adopt, under its lock): unlink from that one.
+		if t.parent.Load() != p {
+			p.mu.Unlock()
+			continue
+		}
+		if t.prev != nil {
+			t.prev.next = t.next
+		} else {
+			p.first = t.next
+		}
+		if t.next != nil {
+			t.next.prev = t.prev
+		}
+		t.prev, t.next = nil, nil
+		t.adopt(p)
+		p.mu.Unlock()
+		break
 	}
-	if t.next != nil {
-		t.next.prev = t.prev
-	}
-	t.prev, t.next = nil, nil
-	p.mu.Unlock()
 	t.parent.Store(nil)
+}
+
+// adopt hands t's running children to p, t's parent, whose lock the caller
+// holds; locks are taken ancestor first, as Interrupt takes them. A child
+// keeps what p's stop did to it through t: it is shielded when t was (the
+// cascade reads shielded under the parent's lock, which is held), and it is
+// stopped now when p's stop already reached it.
+func (t *Task) adopt(p *Task) {
+	t.mu.Lock()
+	for c := t.first; c != nil; {
+		next := c.next
+		c.shielded = c.shielded || t.shielded
+		c.parent.Store(p)
+		c.prev, c.next = nil, p.first
+		if p.first != nil {
+			p.first.prev = c
+		}
+		p.first = c
+		if !c.shielded && p.stopped.Load() {
+			c.Interrupt()
+		}
+		c = next
+	}
+	t.first = nil
+	t.mu.Unlock()
 }
 
 // ID is the task's number, unique in the process.
@@ -352,8 +391,8 @@ func (t *Task) makeStop() chan struct{} {
 	return t.stop
 }
 
-// stopFlags is one word of four flags: stopped (Load, set); made, which
-// publishes Task.stop to a read without the lock; ended (Handle.finish); and polled (WhenPolled). It is the size of the
+// stopFlags is one word of five flags: stopped (Load, set); made, which
+// publishes Task.stop to a read without the lock; ended (Handle.finish); polled (WhenPolled); and claimed (claim). It is the size of the
 // atomic.Bool it replaced, so a Task keeps its size class
 // (TestTraceHookKeepsTaskSize).
 type stopFlags struct{ v atomic.Uint32 }
@@ -365,7 +404,14 @@ const (
 	// flagPolled marks a task with a WhenPolled hook. Only the task's own
 	// goroutine sets or clears it.
 	flagPolled
+	// flagClaimed marks a task whose Handle a Wait or Stop took (claim): a
+	// second waiter is a defect (runtime.md Tasks, rule 11).
+	flagClaimed
 )
+
+// claim marks the task's Handle taken by a waiter, and reports whether no
+// waiter had taken it before.
+func (f *stopFlags) claim() bool { return f.v.Or(flagClaimed)&flagClaimed == 0 }
 
 // Load reports whether a stop was requested.
 func (f *stopFlags) Load() bool { return f.v.Load()&flagStopped != 0 }
