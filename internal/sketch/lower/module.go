@@ -479,6 +479,11 @@ type lowerer struct {
 	// tests is the test build's state (tests.go, LowerTests); nil in the
 	// run build, which lowers no test.
 	tests *testLowering
+
+	// adapterConvs is the conversion of each adapter the naming pass
+	// named, by key, so a codec function that names one can emit it
+	// (wireread.go, wirewrite.go).
+	adapterConvs map[string]check.Conversion
 }
 
 // sortedRefusals orders refusals by position and drops repeats: a
@@ -548,6 +553,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[string]string{},
 	}
+	l.adapterConvs = map[string]check.Conversion{}
 	l.reads = l.readVars()
 	return l
 }

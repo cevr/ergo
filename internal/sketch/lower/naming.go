@@ -230,6 +230,9 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if _, seen := l.adapterConvs[key]; !seen {
+				l.adapterConvs[key] = c
+			}
 			if c.Cell {
 				// The IR's cell of a direct writer (ir_codec_direct.go).
 				generated = append(generated, entry{pkgKey{"cell of", key}, "cell of " + key, "ergoCellOf" + base})
