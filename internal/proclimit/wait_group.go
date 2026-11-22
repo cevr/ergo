@@ -33,15 +33,16 @@ var waitingForOutput func(fixed bool)
 // never gives up a fixed time after the exit (exec.Cmd.WaitDelay); the
 // only deadline is ctx's, which stops a run whose output a process outside
 // its group still holds, and names it. The exit is an event that leaves
-// the program unreaped (exited: waitid WNOWAIT on Linux, a kqueue
-// NOTE_EXIT on Darwin and the BSDs), so the group's id is never another's
-// when it is killed: cmd.Wait reaps the program after.
+// the program unreaped (exited: a pidfd on Linux, a kqueue NOTE_EXIT on
+// Darwin and the BSDs), so the group's id is never another's when it is
+// killed: cmd.Wait reaps the program after. Where the exit cannot be
+// watched (exited reports false), no group is ended, so a running program
+// is never killed early.
 func Wait(ctx context.Context, cmd *exec.Cmd) error {
 	pid := cmd.Process.Pid
 	done := make(chan error, 1)
 	go func() {
-		exited(pid)
-		if a := cmd.SysProcAttr; a != nil && a.Setpgid && a.Pgid == 0 && pid > 1 {
+		if a := cmd.SysProcAttr; exited(pid) && a != nil && a.Setpgid && a.Pgid == 0 && pid > 1 {
 			_ = syscall.Kill(-pid, syscall.SIGKILL)
 		}
 		if waitingForOutput != nil {
