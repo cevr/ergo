@@ -519,6 +519,7 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 		l.rewrite = newRewriter(u.Package, u.Rewrite)
 	}
 	l.raw = u.Raw
+	l.lib = u.lib
 	return l
 }
 

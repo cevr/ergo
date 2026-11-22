@@ -178,11 +178,59 @@ func main() {
 // after a cancel (Call waits for it, so Wait never returns and the
 // deadline names it: mutant 16a-r5-cancel-watcher-stuck).
 //
+// It runs twice: on LowerLibrary's library and on the IR library `ergo
+// lib` writes (LowerIRLibrary, its text by irspike, LibraryModule), with
+// the same output (LIB-ON-IR). Mutants only the IR leg catches:
+// lib-ir-module-path (LibraryModule writes the program module's go.mod,
+// so the host's require of example.com/greet does not build) and
+// lib-ir-lowered-not-text (name.go keeps the lowered Go, whose IR
+// functions have no body, so the stock go refuses it).
+//
 // It builds Go because the subject is a Go program calling emitted Go: only
 // go build and a run show the exported functions, the adapter and the
 // cancellation.
 func TestGoCallsErgo(t *testing.T) {
 	needsBuild(t)
+	t.Run("text", func(t *testing.T) {
+		goCallsErgo(t, func(u Unit, name string) []File {
+			files, err := LowerLibrary(u, "example.com/"+name, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return files
+		})
+	})
+	// The IR library, as `ergo lib` writes it (LIB-ON-IR): the patched
+	// compile builds its IR bodies, and the Go host builds their text
+	// with the stock go, with the same output as the text lowering's.
+	// The text is irspike's (LibraryTextForTest, set by
+	// goexport_ir_test.go, whose package may import it).
+	t.Run("ir", func(t *testing.T) {
+		if LibraryTextForTest == nil {
+			t.Fatal("goexport_ir_test.go sets LibraryTextForTest")
+		}
+		goCallsErgo(t, func(u Unit, name string) []File {
+			files, _, err := LowerIRLibrary(u, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, err := LibraryTextForTest(files, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return LibraryModule(u, files, "example.com/"+name, name, text)
+		})
+	})
+}
+
+// LibraryTextForTest is irspike.LibraryText with the IR tests' patched
+// toolchain: the IR bodies of a LowerIRLibrary module printed as Go. It is
+// set by goexport_ir_test.go (package lower_test), since irspike imports
+// this package.
+var LibraryTextForTest func(files []File, name string) ([]byte, error)
+
+// goCallsErgo is TestGoCallsErgo over the libraries lib lowers.
+func goCallsErgo(t *testing.T, mk func(u Unit, name string) []File) {
 	lower := func(src, name string) []File {
 		file, err := syntax.Parse(src)
 		if err != nil {
@@ -192,12 +240,7 @@ func TestGoCallsErgo(t *testing.T) {
 		if len(diags) > 0 {
 			t.Fatalf("check: %v", diags)
 		}
-		u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
-		files, err := LowerLibrary(u, "example.com/"+name, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return files
+		return mk(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}, name)
 	}
 	files := lower(goExportLibrary, "greet")
 	root := t.TempDir()
