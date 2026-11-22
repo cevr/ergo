@@ -9,10 +9,12 @@ import "testing"
 // runtime's start passes the machine's graph accessor (v1.Graph). A
 // failing seed prints the Ergo source, both outcomes and its replay
 // command. Mutant ir-graph-refused (the graph argument refused again)
-// fails it.
+// fails it; ir-given-func-twice (the wrapper of the work's send calls it
+// twice) fails runW's state.
 //
 // It builds Go because the graph is read by the running actor (its
-// trace and its state's type), which only a compiled run shows.
+// trace and its state's type), and the work's send runs on the actor's
+// task, which only a compiled run shows.
 func TestIRActorsMatchSource(t *testing.T) {
-	lyProperty(t, "TestIRActorsMatchSource", GenerateActor, nil, "runA", "planA", "launch")
+	lyProperty(t, "TestIRActorsMatchSource", GenerateActor, nil, "runA", "planA", "runW", "workW", "launch")
 }
