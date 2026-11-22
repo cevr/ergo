@@ -6,6 +6,7 @@
 
 import config
 import fs
+import strconv
 import strings
 import sync
 
@@ -208,7 +209,7 @@ func InMemoryAt(origin string, credentials []Credential, handle own func(Request
 law CredentialPassesUnseen(secret string, header []Field, into bool) {
 	let key = "key-" + secret
 	let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: header, Body: Buffered{Text: ""}}
-	if strings.Contains("\(r)", key) {
+	if strings.Contains(requestText(r), key) {
 		return true
 	}
 	let c = ForOrigin("http://api.test", "X-Api-Key", config.NewRedacted(key)) catch {
@@ -243,19 +244,19 @@ law CredentialPassesUnseen(secret string, header []Field, into bool) {
 type watched { inner Handler, seen sync.Ref[string] } implements Net
 
 func Send(w watched, r Request) Response fails RequestFailed {
-	w.seen.Update(func(s string) string { s + "\(r)" })
+	w.seen.Update(func(s string) string { s + requestText(r) })
 	let response = try w.inner.Send(r)
-	w.seen.Update(func(s string) string { s + "\(response)" })
+	w.seen.Update(func(s string) string { s + responseText(response) })
 	response
 }
 
 func SendInto(w watched, r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed {
-	w.seen.Update(func(s string) string { s + "\(r)" })
+	w.seen.Update(func(s string) string { s + requestText(r) })
 	let response = try w.inner.SendInto(r, accept, func(part string) fails SinkFailed {
 		w.seen.Update(func(s string) string { s + part })
 		try put(part)
 	})
-	w.seen.Update(func(s string) string { s + "\(response)" })
+	w.seen.Update(func(s string) string { s + responseText(response) })
 	response
 }
 
@@ -266,6 +267,28 @@ func refusesOther(c Credential) bool {
 		return true
 	}
 	false
+}
+
+// requestText and responseText are every field a provider can read of a
+// request and a response, as one text.
+func requestText(r Request) string {
+	let body = match r.Body {
+	case Buffered as b:
+		b.Text
+	case BodyTooLarge, BodyReadFailed:
+		""
+	}
+	r.Method + " " + r.Path + " " + r.RawPath + fieldsText(r.Query) + fieldsText(r.Header) + "\n" + body
+}
+
+func responseText(r Response) string { strconv.Itoa(r.Status) + fieldsText(r.Header) + "\n" + r.Body }
+
+func fieldsText(fields []Field) string {
+	let mut out = ""
+	for f in fields {
+		out = out + "\n" + f.Name + ": " + f.Value
+	}
+	out
 }
 
 // InMemorySendIntoIsSend: the in-memory Net's SendInto gives put exactly
