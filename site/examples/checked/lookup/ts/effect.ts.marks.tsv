@@ -1,0 +1,18 @@
+line	col	end	class	text
+10	1	75	failure	export class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+11	3	23	failure	name: Schema.String,
+12	1	6	failure	}) {}
+14	1	47	service	export class Resolver extends Context.Service<
+15	3	12	service	Resolver,
+16	3	40	service	{ readonly resolve: (name: string) =>
+16	63	71	failure	NotFound
+17	1	25	service	>()("hosts/Resolver") {}
+21	3	35	supply	const resolver = yield* Resolver
+22	17	25	supply	resolver
+22	39	73	time	.pipe(Effect.timeout("2 seconds"))
+27	37	43	handling	.pipe(
+28	5	23	handling	Effect.catchTags({
+29	7	65	handling	NotFound: () => Effect.succeed({ name, addr: "unknown" }),
+30	7	71	handling	TimeoutError: () => Effect.succeed({ name, addr: "timed-out" }),
+31	5	8	handling	}),
+32	3	4	handling	)
