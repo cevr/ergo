@@ -994,16 +994,13 @@ func (c *checker) resolveNamed(n *Named) {
 	var later, checks []func()
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
-		// Option and Some are language types: their T admits a resource
-		// with no mark (types.md, Generics 9).
-		lang := c.pkg.Path == stdlib.PreludePath && (n.Obj.Name == "Option" || n.Obj.Name == "Some")
 		// Every parameter is declared before any constraint resolves, so a
 		// bound may name a later parameter or the type itself:
 		// type Ranked[T Ranked[T]] (types.md, Generics 2; CONSTRAINTS C2).
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, lang: lang, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
 				c.noteOwner(tp, n.Obj.Name)
 				c.def(name, tp)
 				switch {
@@ -1967,7 +1964,6 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		targs[i] = t
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
-	c.recordTypeMark(n, targs, at)
 	inst := c.instantiate(n, targs)
 	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
 		return invalid

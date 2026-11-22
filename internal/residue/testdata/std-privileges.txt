@@ -35,7 +35,6 @@ language	internal/sketch/check/authority.go:authorityText	a prelude constructor 
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
 language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test's host authority	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
-language	internal/sketch/check/decl.go:checker.resolveNamed	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
 language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
 language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-

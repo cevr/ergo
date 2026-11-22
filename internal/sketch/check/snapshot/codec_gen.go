@@ -2240,7 +2240,6 @@ func (e *encoder) encFieldsTypeParam(v *check.TypeParam) {
 	e.encSyntax_Pos(v.Pos)
 	e.encT14(v.Slot)
 	e.encT14(v.Own)
-	e.encT14(*f.F_lang)
 	e.encT14(*f.F_conflict)
 	e.encT1(*f.F_id)
 }
@@ -5680,7 +5679,6 @@ func (e *encoder) encFieldsownMarkSite(v *check.Codec_ownMarkSite) {
 	e.encT2(*f.F_name)
 	e.encPtrTypeParam(*f.F_tp)
 	e.encType(*f.F_arg)
-	e.encT14(*f.F_typ)
 }
 
 func (e *encoder) encownMarkSite(v check.Codec_ownMarkSite) { e.encFieldsownMarkSite(&v) }
@@ -13277,7 +13275,6 @@ func (d *decoder) decFieldsTypeParam(v *check.TypeParam) {
 	v.Pos = d.decSyntax_Pos()
 	v.Slot = d.decT14()
 	v.Own = d.decT14()
-	*f.F_lang = d.decT14()
 	*f.F_conflict = d.decT14()
 	*f.F_id = d.decT1()
 }
@@ -16620,7 +16617,6 @@ func (d *decoder) decFieldsownMarkSite(v *check.Codec_ownMarkSite) {
 	*f.F_name = d.decT2()
 	*f.F_tp = d.decPtrTypeParam()
 	*f.F_arg = d.decType()
-	*f.F_typ = d.decT14()
 }
 
 func (d *decoder) decownMarkSite() (v check.Codec_ownMarkSite) {

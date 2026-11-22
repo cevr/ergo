@@ -321,7 +321,6 @@ type TypeParam struct {
 	// value (types.md, Generics 9; EXM2). A parameter without it binds
 	// plain data only.
 	Own      bool
-	lang     bool // a parameter of Option or Some, which admits a resource unmarked
 	conflict bool // a kind conflict, already reported: resolves to nothing
 	id       int
 }

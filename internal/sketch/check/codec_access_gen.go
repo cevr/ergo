@@ -628,13 +628,12 @@ func CodecFieldsOf_TypeName(v *TypeName) CodecFields_TypeName {
 }
 
 type CodecFields_TypeParam struct {
-	F_lang     *bool
 	F_conflict *bool
 	F_id       *int
 }
 
 func CodecFieldsOf_TypeParam(v *TypeParam) CodecFields_TypeParam {
-	return CodecFields_TypeParam{F_lang: &v.lang, F_conflict: &v.conflict, F_id: &v.id}
+	return CodecFields_TypeParam{F_conflict: &v.conflict, F_id: &v.id}
 }
 
 type CodecFields_ValueRanks struct {
@@ -1854,11 +1853,10 @@ type CodecFields_ownMarkSite struct {
 	F_name *string
 	F_tp   **TypeParam
 	F_arg  *Type
-	F_typ  *bool
 }
 
 func CodecFieldsOf_ownMarkSite(v *ownMarkSite) CodecFields_ownMarkSite {
-	return CodecFields_ownMarkSite{F_file: &v.file, F_at: &v.at, F_name: &v.name, F_tp: &v.tp, F_arg: &v.arg, F_typ: &v.typ}
+	return CodecFields_ownMarkSite{F_file: &v.file, F_at: &v.at, F_name: &v.name, F_tp: &v.tp, F_arg: &v.arg}
 }
 
 type CodecFields_ownScope struct {
