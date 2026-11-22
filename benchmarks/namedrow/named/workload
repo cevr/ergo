@@ -3,8 +3,7 @@
 # seven, catches it with an arm per member, as the spelled kind does (the
 # two differ only in how the row is written); the cost of one call is the slope between the two
 # sizes. The control maps each failure with a type switch, as hand Go
-# does. The sealed form is this workload's program built with
-# -ldflags=-X=ergo.local/prototype/internal/sketch/lower.namedRowLowering=sealed.
+# does.
 unit call
 sizes 409600 2457600
 args bench named {n}

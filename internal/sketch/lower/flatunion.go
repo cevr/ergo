@@ -720,7 +720,7 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 	}
 	// A union whose every variant is an error type names a row, and it is
 	// that row: Go's error, which catch and ConvRow test by type
-	// (namedrow.go; a sealed interface under namedRowLowering=sealed).
+	// (namedrow.go).
 	// A union of which only some variants are error types (router's Signal
 	// holds Unknown, the registry's failure) is no row (a row makes every
 	// variant an error type), and its error variants are records in its

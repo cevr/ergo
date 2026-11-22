@@ -4,9 +4,7 @@
 // caught whole as the name (match),
 // each against its hand Go twin in ../../testdata/control, which tests the
 // error with a type switch (the floor); a workload per kind in ../../KIND (go run
-// ./scripts/opcount -control -rounds 5 benchmarks/namedrow/KIND). The
-// sealed form, the lowering before NR1, is the named kind built with
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.namedRowLowering=sealed.
+// ./scripts/opcount -control -rounds 5 benchmarks/namedrow/KIND).
 //
 //	namedrowbench bench KIND N
 //

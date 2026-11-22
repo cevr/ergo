@@ -57,8 +57,8 @@ func namedRowSource(r *rand.Rand) (src, spelled string) {
 // Other too; F's declaration is Go's alias of error. ERGO_NAMED_ROW_SEED
 // replays one seed.
 //
-// Mutants: nr-row-lowers-sealed (F a sealed interface: the handler's Go
-// type is not the row's, and go/types refuses the call) and
+// Mutants: nr-row-lowers-sealed (F no row, a sealed interface: the
+// handler's Go type is not the row's, and go/types refuses the call) and
 // nr-row-case-whole (an arm of F is Go's case F, an alias of error).
 func TestNamedRowLowersAsItsRow(t *testing.T) {
 	seeds := 24
