@@ -19,6 +19,9 @@ var wireWriterSites = []string{"show"}
 // another value changes the output.
 const wireWriterDecls = `type U = Ua{} | Ub{X int} | Uc{S string, Y []int, Z bool}
 
+// absent uses json in every seed, whether or not its fields draw it.
+func absent() json.Optional[int] { json.Absent }
+
 func show(evs []codec.Event) string {
 	let mut s = ""
 	for ev in evs {
