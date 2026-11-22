@@ -1098,19 +1098,6 @@ func (st *irState) fileOf(b *irBuilder, decl syntax.Node) string {
 	return file
 }
 
-// intrinsic records f, whose body is the lowerer's own Go text (an extern
-// body), in a census.
-func (st *irState) intrinsic(f *check.Func) {
-	if st.census == nil {
-		return
-	}
-	pkg := ""
-	if f.Pkg != nil {
-		pkg = f.Pkg.Path
-	}
-	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
-}
-
 // pos is n's position as the IR spells it: its file in the program's
 // sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
 // the path a std body's defect names; locate).
