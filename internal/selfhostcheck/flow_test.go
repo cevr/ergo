@@ -22,7 +22,8 @@ import (
 // handed off, a lend and a hand-off in one call, a dropped or `_` resource,
 // a replace from a block, a package let handed off or named by a with's
 // resource provider, a for-in's lent element, an element or a field
-// handed off, and a yielded root;
+// handed off, a field taken in place (used again, or its record used
+// whole) and a yielded root;
 // and each of those on a value of a type parameter marked own, which
 // names the mark, and such a value dropped at the end of its scope
 // (MODES-OWN-BODY; takes.go ownSite).
@@ -38,6 +39,11 @@ var flowTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ is a package let, which has no owner to hand it off`),
 	regexp.MustCompile(`^this resource provider names the package let \S+, which has no owner to hand it to the with`),
 	regexp.MustCompile(`^the yielded resource is rooted `),
+	regexp.MustCompile(`^a field of \S+ was taken at \d+:\d+, so \S+ cannot be used whole \(resources R39, Gap 38\)`),
+	regexp.MustCompile(`^\S+ was taken in place \(on this path or another\) and cannot be (used after that|taken again)`),
+	regexp.MustCompile(`^\S+ has its own Close, which runs before its fields are released`),
+	regexp.MustCompile(`^.+ cannot take \S+ \(.*\): \S+ belongs to the enclosing function`),
+	regexp.MustCompile(`^\S+ is lent to \S+, so its field \S+ cannot be taken`),
 	regexp.MustCompile(`^\S+ is lent from \S+, so it cannot be handed off \(.*\) \(resources R35, Gap 36\)`),
 	regexp.MustCompile(`^\S+\[…\] cannot be handed off: it is an element of \S+, lent by the index`),
 	regexp.MustCompile(`^\S+ cannot be handed off: it is a field of \S+; a field cannot be moved out of its record`),
