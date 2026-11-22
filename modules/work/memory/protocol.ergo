@@ -11,6 +11,7 @@ import github.com/cevr/ergo/modules/work/work
 import slices
 import sync
 import strings
+import time
 
 // toolOf is a Tool over w's trees, registry, Git and disk, for the holder
 // lock (a process of its own) with the Cloners cloners.
@@ -24,8 +25,14 @@ func on(name string) work.NewOptions { work.NewOptions{Copy: false, From: None, 
 func some(text string) Option[string] { Some[string]{Value: text} }
 
 // Watching is a Cloner that records whether the registry's lock was held
-// at any clone: the copy runs with no lock but its reservation's.
-type Watching { c Cloner, lock Lock, locked sync.Ref[bool] } implements work.Cloner
+// at any clone (the copy runs with no lock but its reservation's), and
+// counts its Has and Discard calls.
+type Watching { c Cloner, lock Lock, locked sync.Ref[bool], calls sync.Ref[int], refuse sync.Ref[int] } implements work.Cloner
+
+// Watch is a Watching of c under lock: locked is whether a Clone or a
+// Discard ran with the registry's lock held, calls counts the Has and
+// Discard calls, and the next refuse Discards fail.
+func Watch(c Cloner, lock Lock) Watching { Watching{c: c, lock: lock, locked: sync.NewRef(false), calls: sync.NewRef(0), refuse: sync.NewRef(0)} }
 
 func Name(w Watching) string { w.c.Name() }
 
@@ -40,11 +47,28 @@ func Clone(w Watching, from string, to string) fails work.NotSameVolume | work.U
 	try w.c.Clone(from, to)
 }
 
-func Has(w Watching, root string) bool { w.c.Has(root) }
+func Has(w Watching, root string) bool {
+	w.calls.Set(w.calls.Get() + 1)
+	w.c.Has(root)
+}
 
 func Move(w Watching, from string, to string) fails work.Exists | work.Missing | work.CloneFailed { try w.c.Move(from, to) }
 
-func Discard(w Watching, root string) fails work.Missing | work.CloneFailed { try w.c.Discard(root) }
+func Discard(w Watching, root string) fails work.Missing | work.CloneFailed {
+	w.calls.Set(w.calls.Get() + 1)
+	if w.lock.table.Get().Get("") != None {
+		w.locked.Set(true)
+	}
+	if w.refuse.Get() > 0 {
+		w.refuse.Set(w.refuse.Get() - 1)
+		return work.CloneFailed{Cloner: w.c.Name(), Reason: "rm: cannot remove \(root): Directory not empty"}
+	}
+	try w.c.Discard(root)
+}
+
+func Placeable(w Watching, staging string, home string) fails work.NotSameVolume | work.CloneFailed { try w.c.Placeable(staging, home) }
+
+func Place(w Watching, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed { try w.c.Place(from, to) }
 
 func Usage(w Watching, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try w.c.Usage(root) }
 
@@ -56,7 +80,7 @@ func Entries(w Watching, root string) int fails work.Missing | work.CloneFailed 
 // workspace of the base and one made on it.
 law NoCopyUnderTheLock(stack bool) {
 	let w = world(true)
-	let watch = Watching{c: w.trees, lock: w.lock, locked: sync.NewRef(false)}
+	let watch = Watch(w.trees, w.lock)
 	let t = toolOf(w, w.lock, []work.Cloner{watch})
 	let _ = t.New("a", fresh(false)) catch {
 	case _:
@@ -131,16 +155,16 @@ func callerOf(w World, c Call, owner int, first string) Caller {
 		let name = if small(n.Name, 2) == 0 { "y" } else { "z" }
 		let base = if n.OnX { on("x") } else { fresh(false) }
 		let o = if n.Token { work.NewOptions{..base, Token: some("t-" + name)} } else { base }
-		(newSteps(t, name, o, wrong), []int{0}, []int{2})
+		(newSteps(t, w.trees, name, o, wrong), []int{0}, []int{2})
 	case RmCall as r:
 		expects = r.Expect
 		(rmSteps(t, "x", if r.Expect { some(first) } else { None }, answers), []int{0}, []int{1})
 	case GcCall:
-		(gcSteps(t), []int{0}, []int{0})
+		(gcSteps(t, w.trees), []int{0}, []int{0})
 	case ReplaceCall:
-		(slices.Concat(rmSteps(t, "x", None, answers), newSteps(t, "x", fresh(false), wrong)), []int{0, 4}, []int{1, 6})
+		(joined(rmSteps(t, "x", None, answers), newSteps(t, w.trees, "x", fresh(false), wrong)), []int{0, 4}, []int{1, 6})
 	}
-	Caller{steps: steps, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, wrong: wrong, expects: expects}
+	Caller{steps: steps.run, cuts: steps.cut, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, wrong: wrong, expects: expects}
 }
 
 // scheduled is a world with x made, and the callers of calls; and x's id.
@@ -174,6 +198,11 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 		let holding = slices.Filter(live, func(c Caller) bool { c.lock.Held("") })
 		let c = if len(holding) > 0 { holding[0] } else { live[small(ch, len(live))] }
 		if dies && small(ch/3, 8) == 0 {
+			// A process stopped inside its next step: the part of it a
+			// cut leaves (a clone or a delete cut short).
+			if small(ch/24, 2) == 0 {
+				c.cuts[c.pc.Get()]()
+			}
 			Die(c.lock)
 			c.dead.Set(true)
 			stopped = true
@@ -182,6 +211,12 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 		step(c, clock)
 		clock = clock + 1
 		w.clock.Advance(1s)
+	}
+	// After a stop, any next command that takes the lock, by another
+	// process, settles what the stopped ones left: no reservation of a
+	// dead maker and no intent outlives it.
+	if stopped && !nextSettles(w, small(s/7, 4)) {
+		return false
 	}
 	let all = recovered(w) catch {
 	case _:
@@ -207,6 +242,39 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 		return held
 	}
 	sameRecords(all, serially(mine, callers))
+}
+
+// nextSettles runs the next command k of another process (a gc, a new
+// of a fresh name, an rm of x, a pin of x; its own answer does not
+// matter) and is whether it left no reservation and no intent.
+func nextSettles(w World, k int) bool {
+	let t = toolOf(w, Sharing(w.lock, 98), []work.Cloner{w.trees})
+	if k == 0 {
+		let _ = t.Gc(work.GcOptions{Older: Some[string]{Value: "1h"}, Idle: None, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+	} else if k == 1 {
+		let _ = t.New("w", fresh(false)) catch {
+		case _:
+			work.Created{Name: "", Id: "", Path: "", Branch: "", Deps: work.NoDeps, Hooks: work.HooksRan{Count: 0}}
+		}
+	} else if k == 2 {
+		let _ = t.Rm("x", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		case _:
+			[]work.Removed{}
+		}
+	} else {
+		let _ = t.Pin("x") catch {
+		case _:
+			work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+		}
+	}
+	let all = records(t) catch {
+	case _:
+		return false
+	}
+	slices.IndexFunc(all, func(x work.Workspace) bool { x.Moving != "" || work.StateName(x.State) == "creating" }) < 0 && w.lock.Holds() == 0
 }
 
 // recovered is the records after a gc of another process.
@@ -313,6 +381,7 @@ func reuses(calls []Call) bool {
 // and expects whether that rm expected x's first id.
 type Caller {
 	steps   []func() bool,
+	cuts    []func(),
 	parts   []int,
 	decides []int,
 	lock    Lock,
@@ -323,6 +392,16 @@ type Caller {
 	wrong   sync.Ref[[]string],
 	expects bool,
 }
+
+// Steps are a call's steps and, for each, what a cut inside it leaves
+// (nothing for a step of one write or one rename).
+type Steps { run []func() bool, cut []func() }
+
+// joined is the steps of a, then of b.
+func joined(a Steps, b Steps) Steps { Steps{run: slices.Concat(a.run, b.run), cut: slices.Concat(a.cut, b.cut)} }
+
+// uncut is a step a cut leaves as it was.
+func uncut() {}
 
 // Stamp is when part Part of caller Caller decided.
 type Stamp { At int, Caller int, Part int }
@@ -357,9 +436,11 @@ func step(c Caller, stamp int) {
 // lock). wrong keeps each failure the protocol never gives: Git's on a
 // parent an rm took (it is NoWorkspace), and any failed clone (a claimed
 // parent cannot be taken while its child is made).
-func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]string]) []func() bool {
+func newSteps(t work.Tool, trees Cloner, name string, o work.NewOptions, wrong sync.Ref[[]string]) Steps {
 	let made = sync.NewRef(work.Making{Name: "", Id: "", Path: "", Parent: "", ParentId: "", Branch: "", Start: "", Token: "", Config: work.EmptyConfig(), Copy: false, Cloner: ""})
-	[]func() bool{
+	// A cut inside Stage leaves its staging folder part copied.
+	let staged = func() { Plant(trees, work.StagingOf(work.Home(theBase, ""), made.Get().Id), Map[string, string]{"half": "a clone cut short"}) }
+	let run = []func() bool{
 		func() bool {
 			match (t.Look(name, o) catch {
 			case _:
@@ -406,9 +487,17 @@ func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]stri
 			}
 		},
 		func() bool {
-			made.Set(t.Fill(made.Get()) catch {
+			made.Set(t.Stage(made.Get()) catch {
 			case _:
-				wrong.Set(wrong.Get().Append("Fill of " + made.Get().Name + " failed"))
+				wrong.Set(wrong.Get().Append("Stage of " + made.Get().Name + " failed"))
+				return false
+			})
+			true
+		},
+		func() bool {
+			made.Set(t.Place(made.Get()) catch {
+			case _:
+				wrong.Set(wrong.Get().Append("Place of " + made.Get().Name + " failed"))
 				return false
 			})
 			true
@@ -421,14 +510,15 @@ func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]stri
 			true
 		},
 	}
+	Steps{run: run, cut: []func(){uncut, uncut, uncut, staged, uncut, uncut}}
 }
 
 // rmSteps are the steps of an rm by t: the check, then, under one hold of
 // the lock, the intent, the move and the settle. answers keeps each
 // Removed it answered.
-func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[]work.Removed]) []func() bool {
+func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[]work.Removed]) Steps {
 	let intent = sync.NewRef(work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0})
-	[]func() bool{
+	let run = []func() bool{
 		func() bool {
 			let _ = t.Check(work.EmptyConfig(), name, expect, true) catch {
 			case _:
@@ -465,13 +555,24 @@ func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[
 			true
 		},
 	}
+	// The move is one rename: a cut leaves it done or not.
+	Steps{run: run, cut: []func(){uncut, uncut, uncut, uncut}}
 }
 
 // gcSteps are the steps of a gc by t: the collect (under the lock), the
 // discards (with none), the purge (under the lock).
-func gcSteps(t work.Tool) []func() bool {
+func gcSteps(t work.Tool, trees Cloner) Steps {
 	let due = sync.NewRef([]work.Workspace{})
-	[]func() bool{
+	// A cut inside the discards leaves the first folder part deleted.
+	let halved = func() {
+		for x in due.Get() {
+			if trees.Has(x.Path) {
+				Plant(trees, x.Path, Map[string, string]{"rest": "a delete cut short"})
+				return
+			}
+		}
+	}
+	let run = []func() bool{
 		func() bool {
 			due.Set(t.Collect(None, 0s) catch {
 			case _:
@@ -496,4 +597,261 @@ func gcSteps(t work.Tool) []func() bool {
 			true
 		},
 	}
+	Steps{run: run, cut: []func(){uncut, halved, uncut}}
+}
+
+// stranded is the reservation of name by the holder owner of w, which
+// then dies: before its clone (at 0), inside Stage (1: its staging
+// folder part copied), after Stage (2: staged whole and marked) or after
+// Place (3: placed). It is the reservation.
+func stranded(w World, name string, owner int, at int) work.Making fails work.NoBase | work.BadConfig | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked | work.Busy {
+	let maker = Sharing(w.lock, owner)
+	let t = toolOf(w, maker, []work.Cloner{w.trees})
+	let m = match try t.Reserve(name, fresh(false)) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return work.Busy{Name: name, State: "active"}
+	}
+	let out = if at == 1 {
+		Plant(w.trees, work.StagingOf(work.Home(theBase, ""), m.Id), Map[string, string]{"half": "a clone cut short"})
+		m
+	} else if at == 2 {
+		try t.Stage(m)
+	} else if at == 3 {
+		try t.Fill(m)
+	} else {
+		m
+	}
+	Die(maker)
+	out
+}
+
+// ListShowsAStrandedReservation: a new stopped at any point of its
+// making leaves a reservation that list (which takes no lock) shows as
+// creating; the next command that takes the lock, here a pin of a name
+// that is not there, settles it: a placed clone is active at its path,
+// any other is gone, its staging folder with it.
+law ListShowsAStrandedReservation(at int) {
+	let w = world(true)
+	let cut = small(at, 4)
+	let m = stranded(w, "a", 2, cut) catch {
+	case _:
+		return false
+	}
+	let before = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let shown = len(before) == 1 && work.StateName(before[0].State) == "creating"
+	let pinned = w.tool.Pin("none") catch {
+	case work.NoWorkspace:
+		work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+	case _:
+		return false
+	}
+	let after = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let staging = work.StagingOf(work.Home(theBase, ""), m.Id)
+	let settledRight = if cut == 3 { len(after) == 1 && work.StateName(after[0].State) == "active" && w.trees.Has(m.Path) } else { len(after) == 0 && !w.trees.Has(m.Path) }
+	pinned.Name == "" && shown && settledRight && !w.trees.Has(staging) && !w.trees.Has(work.TombOf(work.Home(theBase, ""), m.Id)) && w.lock.Holds() == 0
+}
+
+// SettleNeverTakesALiveMaker: a reservation whose maker lives (it holds
+// its reservation's lock), staged and not yet placed, is left whole by
+// every command of another process, however long after (past the hour
+// a record with no id is given), and its maker then places and
+// activates it.
+law SettleNeverTakesALiveMaker(next int) {
+	let w = world(true)
+	let maker = Sharing(w.lock, 2)
+	let t = toolOf(w, maker, []work.Cloner{w.trees})
+	let m = match (t.Reserve("a", fresh(false)) catch {
+	case _:
+		return false
+	}) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return false
+	}
+	let staged = t.Stage(m) catch {
+	case _:
+		return false
+	}
+	let staging = work.StagingOf(work.Home(theBase, ""), m.Id)
+	let files = Files(w.trees, staging)
+	w.clock.Advance(time.Times(1s, 7200))
+	let other = toolOf(w, Sharing(w.lock, 3), []work.Cloner{w.trees})
+	let k = small(next, 4)
+	if k == 0 {
+		let _ = other.Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+	} else if k == 1 {
+		let _ = other.New("b", fresh(false)) catch {
+		case _:
+			return false
+		}
+	} else if k == 2 {
+		let _ = other.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		case work.Busy:
+			[]work.Removed{}
+		case _:
+			return false
+		}
+	} else {
+		let _ = other.Gc(work.GcOptions{Older: None, Idle: None, Id: some(m.Id), Archive: false}) catch {
+		case _:
+			return false
+		}
+	}
+	let mid = records(other) catch {
+	case _:
+		return false
+	}
+	let kept = slices.IndexFunc(mid, func(x work.Workspace) bool { x.Name == "a" && work.StateName(x.State) == "creating" }) >= 0 && Files(w.trees, staging) == files
+	let placed = t.Place(staged) catch {
+	case _:
+		return false
+	}
+	let done = t.Activate(placed) catch {
+	case _:
+		return false
+	}
+	kept && done.Path == m.Path && w.trees.Has(m.Path) && !w.trees.Has(staging)
+}
+
+// PlaceNeverCopies: with the staging folder on another file system than
+// the home, new refuses at Stage, before any copy (the refusal names the
+// staging folder and the home, not the workspace's folder), and leaves no
+// record, no tree under the home and no lock.
+law PlaceNeverCopies(copy bool) {
+	let w = world(!copy)
+	let home = work.Home(theBase, "")
+	Mount(w.trees, work.StagingFolder(home), "other")
+	let mut refused = false
+	let _ = w.tool.New("a", fresh(copy)) catch {
+	case work.NotSameVolume as e:
+		refused = e.From == work.StagingFolder(home) && e.To == home
+		nothing()
+	case _:
+		return false
+	}
+	let all = records(w.tool) catch {
+	case _:
+		return false
+	}
+	refused && len(all) == 0 && slices.Filter(Roots(w.trees), func(r string) bool { strings.HasPrefix(r, home+"/") }) == []string{} && w.lock.Holds() == 0
+}
+
+// NoDeleteUnderTheLock: a reservation whose maker died with its staging
+// folder there (cut at 1 or 2), or with the tomb a cut after settle's
+// rename left, is deleted by the next command (a pin, a gc or an rm of
+// it) with the registry's lock free. A delete that fails once leaves the
+// record, listed as creating, with its tomb, for the command after; the
+// gc and the rm leave it too. After that command no record, staging
+// folder or tomb is left, and no lock is held.
+law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let m = stranded(w, "a", 2, 1+small(at, 2)) catch {
+	case _:
+		return false
+	}
+	let staging = work.StagingOf(home, m.Id)
+	let tomb = work.TombOf(home, m.Id)
+	if renamed {
+		w.trees.Move(staging, tomb) catch {
+		case _:
+			return false
+		}
+	}
+	let copier = Watch(Beside(w.trees, false), w.lock)
+	let cloner = Watch(w.trees, w.lock)
+	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: copier, Registry: w.registry, Lock: Sharing(w.lock, 99), Hooks: Recording(w.lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
+	let t = work.NewTool(theBase, home, "/data", p, "/")
+	let mut kept = true
+	if refused {
+		copier.refuse.Set(1)
+		cloner.refuse.Set(1)
+		if !poked(t, small(by, 3)) {
+			return false
+		}
+		let mid = records(t) catch {
+		case _:
+			return false
+		}
+		kept = len(mid) == 1 && work.StateName(mid[0].State) == "creating" && w.trees.Has(tomb)
+	}
+	if !poked(t, small(by, 3)) {
+		return false
+	}
+	let after = records(t) catch {
+	case _:
+		return false
+	}
+	kept && len(after) == 0 && !w.trees.Has(staging) && !w.trees.Has(tomb) && !copier.locked.Get() && !cloner.locked.Get() && w.lock.Holds() == 0
+}
+
+// poked runs the command k of NoDeleteUnderTheLock on the name a: a pin
+// of a name that is not there, a gc, or an rm (which a reservation still
+// being deleted answers Busy, and one gone NoWorkspace). It is false on
+// any other failure.
+func poked(t work.Tool, k int) bool {
+	if k == 0 {
+		let _ = t.Pin("none") catch {
+		case work.NoWorkspace:
+			return true
+		case _:
+			return false
+		}
+	} else if k == 1 {
+		let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+	} else {
+		let _ = t.Rm("a", work.RmOptions{Abandon: true, Expect: None, Tree: false}) catch {
+		case work.Busy, work.NoWorkspace:
+			return true
+		case _:
+			return false
+		}
+	}
+	true
+}
+
+// SettleCostsAtMost: settling costs a command at most four folder calls
+// (a Has or a Discard; settle's rename to the tomb is a Move) per
+// reservation whose maker is gone, and none per
+// other record: a pin in a registry of active workspaces and stranded
+// reservations makes no more.
+law SettleCostsAtMost(actives int, strands int, at int) {
+	let w = world(true)
+	let a = 1 + small(actives, 6)
+	let c = small(strands, 4)
+	for i in 0..a {
+		let _ = w.tool.New("a\(i)", fresh(false)) catch {
+		case _:
+			return false
+		}
+	}
+	for i in 0..c {
+		let _ = stranded(w, "c\(i)", 10+i, small(at+i, 4)) catch {
+		case _:
+			return false
+		}
+	}
+	let watch = Watch(Beside(w.trees, false), w.lock)
+	let p = work.Providers{Cloners: []work.Cloner{w.trees}, Copier: watch, Registry: w.registry, Lock: Sharing(w.lock, 99), Hooks: Recording(w.lock, ""), Vcs: w.vcs, Files: w.disk, Writes: w.disk, Runner: NewRunner(), Clock: w.clock}
+	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
+	let _ = t.Pin("a0") catch {
+	case _:
+		return false
+	}
+	watch.calls.Get() <= 4*c
 }

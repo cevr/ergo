@@ -1,0 +1,191 @@
+import hex
+import json
+import sha256
+import strconv
+import strings
+
+// The tokens of an Ergo snippet come from the language's own scanner,
+// compiler/syntax.Scan, through compiler/cmd/scandump: its dump has an
+// "F path" line per file, then "T kind start end" per token and "C start
+// end" per comment, in bytes.
+
+// Scanned is the token spans of each file of a scandump dump, by path.
+func Scanned(dump string) Map[string, []Span] {
+	let mut out = Map[string, []Span]{}
+	let mut file = ""
+	for line in rows(dump) {
+		let cells = strings.Split(line, " ")
+		if cells[0] == "F" && len(cells) == 2 {
+			file = cells[1]
+			out[file] = []Span{}
+		} else if cells[0] == "T" && len(cells) == 4 {
+			out[file] = spansOf(out, file).Append(Span{Start: number(cells[2]), End: number(cells[3])})
+		} else if cells[0] == "C" && len(cells) == 3 {
+			out[file] = spansOf(out, file).Append(Span{Start: number(cells[1]), End: number(cells[2])})
+		}
+	}
+	out
+}
+
+// A tokens file, `<file>.tokens.json` beside a TypeScript or Go snippet,
+// is written by site/tokens/gen.ts with @pierre/highlights. It is one JSON
+// object: "source", the snippet's file name; "sha256", the hex digest of
+// the snippet's bytes; "highlighter", the package and version; and
+// "tokens", one [line, col, end, kind] row a highlighter record, columns
+// 1-based in bytes, end exclusive, blanks trimmed off the end. A record is
+// a run of one kind, not a lexical token: Highlights merges adjacent
+// records of one kind (`ctx context` is one variable record). So the
+// guard, not the highlighter, decides what a token is: a record whose kind
+// starts with "string" or "comment" is one token, and in any other record
+// each run of word bytes (letters, digits, `_` and `$`) is one.
+
+// Tokens is the reading of a tokens file.
+type Tokens { Source string, Digest string, Rows []TokenRow, Problems []string }
+
+// TokenRow is one highlighter record of a tokens file.
+type TokenRow { Line int, Col int, End int, Kind string }
+
+// ParseTokens reads the tokens file named file.
+func ParseTokens(file string, body string) Tokens {
+	let none = Tokens{Source: "", Digest: "", Rows: []TokenRow{}, Problems: []string{}}
+	let v = json.Decode(json.Codec[json.Value]{MaxBytes: 1 << 24, MaxDepth: 4}, body) catch {
+	case json.Malformed as m:
+		return Tokens{..none, Problems: []string{"\(file): not JSON at byte \(m.Offset): \(m.Reason)"}}
+	case _:
+		return Tokens{..none, Problems: []string{"\(file): not a JSON value"}}
+	}
+	let o = match v {
+	case json.Object as o:
+		o
+	case _:
+		return Tokens{..none, Problems: []string{"\(file): not a JSON object"}}
+	}
+	let mut problems = []string{}
+	let source = stringOf(member(o, "source"))
+	let digest = stringOf(member(o, "sha256"))
+	if source == "" || digest == "" {
+		problems = problems.Append("\(file): \"source\" and \"sha256\" are strings that are not empty")
+	}
+	let mut out = []TokenRow{}
+	match member(o, "tokens") {
+	case json.Array as a:
+		for i in 0..len(a.Items) {
+			let r = row(a.Items[i])
+			if r.Line < 1 || r.Col < 1 || r.End <= r.Col || r.Kind == "" {
+				problems = problems.Append("\(file): token \(i) is not [line, col, end, kind] with end after col")
+				continue
+			}
+			out = out.Append(r)
+		}
+	case _:
+		problems = problems.Append("\(file): \"tokens\" is not a list")
+	}
+	Tokens{Source: source, Digest: digest, Rows: out, Problems: problems}
+}
+
+// Digest is the text of a snippet's digest in a tokens file.
+func Digest(src string) string { hex.Encode(sha256.Sum(src)) }
+
+// TokenSpans is the tokens of src by the rule above, from its records.
+func TokenSpans(src string, records []TokenRow) []Span {
+	let starts = lineStarts(src)
+	let mut out = []Span{}
+	for r in records {
+		if r.Line > len(starts) {
+			continue
+		}
+		let first = starts[r.Line-1] + r.Col - 1
+		let last = starts[r.Line-1] + r.End - 1
+		if strings.HasPrefix(r.Kind, "string") || strings.HasPrefix(r.Kind, "comment") {
+			out = out.Append(Span{Start: first, End: last})
+			continue
+		}
+		let mut i = first
+		for i < last && i < len(src) {
+			if !isWord(src[i]) {
+				i = i + 1
+				continue
+			}
+			let mut j = i
+			for j < last && j < len(src) && isWord(src[j]) {
+				j = j + 1
+			}
+			out = out.Append(Span{Start: i, End: j})
+			i = j
+		}
+	}
+	out
+}
+
+// JudgeTokens judges the tokens file t, named file, of the snippet src
+// named source: it names that snippet, and its digest is the snippet's,
+// so a snippet edited without a new tokens file fails here.
+func JudgeTokens(file string, t Tokens, source string, src string) []string {
+	let mut problems = t.Problems
+	if t.Source != source {
+		problems = problems.Append("\(file): names the source \(strconv.Quote(t.Source)), not \(strconv.Quote(source))")
+	}
+	if t.Digest != Digest(src) {
+		problems = problems.Append("\(file): its digest is not \(source)'s: \(source) changed since its tokens were written; run bun site/tokens/gen.ts")
+	}
+	problems
+}
+
+// spansOf is the spans of file so far.
+func spansOf(m Map[string, []Span], file string) []Span {
+	match m.Get(file) {
+	case Some as s:
+		s.Value
+	case None:
+		[]Span{}
+	}
+}
+
+func isWord(c byte) bool {
+	(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$'
+}
+
+// member is the value of the first member key of o, or null.
+func member(o json.Object, key string) json.Value {
+	for m in o.Members {
+		if m.Key == key {
+			return m.Value
+		}
+	}
+	json.Null
+}
+
+// stringOf is the string v, or "" when v is not one.
+func stringOf(v json.Value) string {
+	match v {
+	case json.Str as s:
+		s.Value
+	case _:
+		""
+	}
+}
+
+// integer is the integer v, or -1 when v is not one.
+func integer(v json.Value) int {
+	match v {
+	case json.Num as n:
+		number(n.Wire())
+	case _:
+		-1
+	}
+}
+
+// row is the token row v, a list of three numbers and a kind, or a row
+// that does not hold when v is not one.
+func row(v json.Value) TokenRow {
+	let bad = TokenRow{Line: 0, Col: 0, End: 0, Kind: ""}
+	match v {
+	case json.Array as a:
+		if len(a.Items) != 4 {
+			return bad
+		}
+		TokenRow{Line: integer(a.Items[0]), Col: integer(a.Items[1]), End: integer(a.Items[2]), Kind: stringOf(a.Items[3])}
+	case _:
+		bad
+	}
+}

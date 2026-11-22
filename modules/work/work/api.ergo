@@ -260,7 +260,9 @@ type Api {
 	Trust() Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.Denied | fs.Failed,
 	// Doctor reports on the base: the clone providers, the file system,
 	// whether a purge is one call, a stale index, the trust; with -rift,
-	// the base's Rift copies no workspace holds yet.
+	// the base's Rift copies no workspace holds yet; the checkouts whose
+	// merge drivers are missing (with -here, only the one it runs in),
+	// which -fix registers.
 	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked,
 	// PluginTest runs the laws of the language contracts against a plugin
 	// (a command, or the [language.NAME] it names) on the base's files, and
@@ -825,6 +827,7 @@ func usage(t Tool, w Workspace) Usage fails Unsupported | Missing | CloneFailed 
 
 func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let folder = if filepath.IsAbs(dir) { filepath.Clean(dir) } else { filepath.Join([]string{t.base, dir}) }
 	let name = match o.Name {
 	case Some[string] as n:
@@ -844,9 +847,15 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	w
 }
 
-func Pin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked { try pinned(t, name, true) }
+func Pin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked {
+	try settled(t)
+	try pinned(t, name, true)
+}
 
-func Unpin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked { try pinned(t, name, false) }
+func Unpin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked {
+	try settled(t)
+	try pinned(t, name, false)
+}
 
 // pinned sets the pin of the live workspace name under the lock, from
 // the registry as it is under the lock.
@@ -926,6 +935,7 @@ func active(w Workspace) Workspace fails Busy {
 
 func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked | BadRequest {
 	try initialized(t)
+	try settled(t)
 	let w = try active(try chosen(t, o.Name))
 	let branch = try t.vcs.Branch(w.Path)
 	if branch == "" {
@@ -954,6 +964,7 @@ func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace |
 
 func Sync(t Tool, o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let c = try config(t)
 	let w = try active(try chosen(t, o.Name))
 	if !try t.vcs.Clean(w.Path) {
