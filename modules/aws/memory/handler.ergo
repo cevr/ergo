@@ -1,0 +1,243 @@
+// Handler: S3's REST protocol in front of a Memory, as much of it as the
+// four operations use. It reads a request the way S3 does (the bucket and
+// key from the escaped path, a greedy key's "/" kept; x-amz-meta-*,
+// Content-Type and x-amz-storage-class from the headers) and writes the
+// answer S3 writes: the object's headers, a 204 for a delete, and an
+// <Error> body (none for a HEAD) for a failure.
+
+import github.com/cevr/ergo/modules/aws/aws
+import github.com/cevr/ergo/modules/aws/s3
+import http
+import strings
+import sync
+import time
+import url
+
+let httpDate = time.Custom{Text: "Mon, 02 Jan 2006 15:04:05 GMT"}
+
+// Handler is m served as S3's REST API: give it to http.InMemory.
+func Handler(m Memory) func(http.Request) http.Response needs http.Streaming {
+	func(r http.Request) http.Response needs http.Streaming { answer(m, r) }
+}
+
+func answer(m Memory, r http.Request) http.Response {
+	let (bucket, key) = target(r.RawPath) catch {
+	case url.Malformed:
+		return failure(r.Method, 400, "InvalidURI", "Couldn't parse the specified URI.", "")
+	}
+	if r.Method == "HEAD" {
+		let o = m.HeadObject(s3.NewHeadObjectRequest(bucket, key)) catch {
+		case s3.NotFound as e:
+			return failure(r.Method, e.Status, "NotFound", e.Message, "")
+		case aws.Failed, aws.Malformed, http.RequestFailed:
+			return failure(r.Method, 500, "InternalError", "", "")
+		}
+		return http.Response{Status: 200, Header: objectHeader(o.LastModified, o.ContentLength, o.ETag, o.ContentType, o.Metadata, o.StorageClass), Body: ""}
+	}
+	if r.Method == "GET" {
+		let body = sync.NewRef[string]("")
+		let o = m.GetObject(s3.NewGetObjectRequest(bucket, key), func(part string) fails http.SinkFailed { body.Update(func(s string) string { s + part }) }) catch {
+		case s3.NoSuchKey as e:
+			return failure(r.Method, e.Status, "NoSuchKey", e.Message, "")
+		case s3.InvalidObjectState as e:
+			return failure(r.Method, e.Status, "InvalidObjectState", e.Message, "<StorageClass>GLACIER</StorageClass>")
+		case aws.Failed, aws.Malformed, http.RequestFailed, http.SinkFailed:
+			return failure(r.Method, 500, "InternalError", "", "")
+		}
+		return http.Response{Status: 200, Header: objectHeader(o.LastModified, o.ContentLength, o.ETag, o.ContentType, o.Metadata, o.StorageClass), Body: body.Get()}
+	}
+	if r.Method == "PUT" {
+		let text = match r.Body {
+		case http.Buffered as b:
+			b.Text
+		case http.BodyTooLarge, http.BodyReadFailed:
+			return failure(r.Method, 400, "IncompleteBody", "", "")
+		}
+		let class = match http.Header(r.Header, "x-amz-storage-class") {
+		case Some as v:
+			Some[s3.StorageClass]{classOf(v.Value)}
+		case None:
+			None
+		}
+		let req = s3.PutObjectRequest{..s3.NewPutObjectRequest(bucket, key), Body: text, ContentType: http.Header(r.Header, "Content-Type"), Metadata: aws.Prefixed(r.Header, "x-amz-meta-"), StorageClass: class}
+		let o = m.PutObject(req) catch {
+		case _:
+			return failure(r.Method, 500, "InternalError", "", "")
+		}
+		let mut h = []http.Field{}
+		match o.ETag {
+		case Some as v:
+			h = h.Append(http.Field{Name: "ETag", Value: v.Value})
+		case None:
+		}
+		return http.Response{Status: 200, Header: h, Body: ""}
+	}
+	if r.Method == "DELETE" {
+		let _ = m.DeleteObject(s3.NewDeleteObjectRequest(bucket, key)) catch {
+		case _:
+			return failure(r.Method, 500, "InternalError", "", "")
+		}
+		return http.Response{Status: 204, Header: []http.Field{}, Body: ""}
+	}
+	failure(r.Method, 405, "MethodNotAllowed", "The specified method is not allowed against this resource.", "")
+}
+
+// target is the bucket and key of an escaped path /bucket/key..., each
+// segment decoded.
+func target(raw string) (string, string) fails url.Malformed {
+	let parts = strings.SplitN(strings.TrimPrefix(raw, "/"), "/", 2)
+	let bucket = try url.PathUnescape(parts[0])
+	if len(parts) < 2 {
+		return (bucket, "")
+	}
+	let mut segs = []string{}
+	for s in strings.Split(parts[1], "/") {
+		segs = segs.Append(try url.PathUnescape(s))
+	}
+	(bucket, strings.Join(segs, "/"))
+}
+
+func objectHeader(modified Option[time.Time], length Option[int], tag Option[string], contentType Option[string], meta Map[string, string], class Option[s3.StorageClass]) []http.Field {
+	let mut h = []http.Field{}
+	match modified {
+	case Some as v:
+		h = h.Append(http.Field{Name: "Last-Modified", Value: time.Format(v.Value, httpDate)})
+	case None:
+	}
+	match length {
+	case Some as v:
+		h = h.Append(http.Field{Name: "Content-Length", Value: aws.IntText(v.Value)})
+	case None:
+	}
+	match tag {
+	case Some as v:
+		h = h.Append(http.Field{Name: "ETag", Value: v.Value})
+	case None:
+	}
+	match contentType {
+	case Some as v:
+		h = h.Append(http.Field{Name: "Content-Type", Value: v.Value})
+	case None:
+	}
+	match class {
+	case Some as v:
+		match v.Value {
+		case s3.StorageClassGlacier:
+			h = h.Append(http.Field{Name: "x-amz-storage-class", Value: "GLACIER"})
+		case s3.StorageClassStandard, s3.StorageClassReducedRedundancy, s3.StorageClassStandardIa, s3.StorageClassOnezoneIa, s3.StorageClassIntelligentTiering, s3.StorageClassDeepArchive, s3.StorageClassOutposts, s3.StorageClassGlacierIr, s3.StorageClassSnow, s3.StorageClassExpressOnezone, s3.StorageClassFsxOpenzfs, s3.StorageClassFsxOntap, s3.StorageClassAwsBackupWarm, s3.StorageClassAwsBackupLowCostWarm, s3.StorageClassOther:
+		}
+	case None:
+	}
+	aws.PutPrefixed(h, "x-amz-meta-", meta)
+}
+
+// failure is S3's error answer: <Error> with code, message and the extra
+// elements, and no body for a HEAD.
+func failure(method string, status int, code string, message string, extra string) http.Response {
+	let body = if method == "HEAD" { "" } else { "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>\(escape(code))</Code><Message>\(escape(message))</Message>\(extra)</Error>" }
+	http.Response{Status: status, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/xml"}}, Body: body}
+}
+
+func escape(s string) string { strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "&", "&amp;"), "<", "&lt;"), ">", "&gt;") }
+
+// classOf is the storage class a header names, as far as the fake reads one.
+func classOf(text string) s3.StorageClass {
+	let mut c s3.StorageClass = s3.StorageClassOther{Value: text}
+	if text == "GLACIER" {
+		c = s3.StorageClassGlacier
+	} else if text == "STANDARD" {
+		c = s3.StorageClassStandard
+	}
+	c
+}
+
+// ApiIsTheFake: the generated Api over http.InMemory(Handler(fake))
+// answers each drawn call as a fake of its own answers it: the same
+// output, the same failure (each of the operations' errors is drawn:
+// NotFound, NoSuchKey, InvalidObjectState), the same body. It checks the
+// client's request builder and response reader against the fake's
+// meaning, with no network.
+law ApiIsTheFake(steps []int, bodies []string, notes []string) {
+	let fake = NewMemory()
+	let api = s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned)
+	for i, n in steps {
+		if i < 8 {
+			let body = if i < len(bodies) { bodies[i] } else { "" }
+			let note = if i < len(notes) { notes[i] } else { "" }
+			if !agree(fake, api, n, body, note) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func agree(fake Memory, api s3.Api, n int, body string, note string) bool {
+	let key = keyOf(n)
+	let op = (n/8%5 + 5) % 5
+	if op == 0 {
+		let r = s3.NewHeadObjectRequest("bk", key)
+		let want = fake.HeadObject(r) catch {
+		case e:
+			let _ = api.HeadObject(r) catch {
+			case got:
+				return got == e
+			}
+			return false
+		}
+		let got = api.HeadObject(r) catch {
+		case _:
+			return false
+		}
+		return got == want
+	}
+	if op == 1 {
+		let r = s3.NewGetObjectRequest("bk", key)
+		let wantBody = sync.NewRef[string]("")
+		let gotBody = sync.NewRef[string]("")
+		let want = fake.GetObject(r, func(part string) fails http.SinkFailed { wantBody.Update(func(s string) string { s + part }) }) catch {
+		case e:
+			let _ = api.GetObject(r, func(part string) fails http.SinkFailed { gotBody.Update(func(s string) string { s + part }) }) catch {
+			case got:
+				return got == e && gotBody.Get() == ""
+			}
+			return false
+		}
+		let got = api.GetObject(r, func(part string) fails http.SinkFailed { gotBody.Update(func(s string) string { s + part }) }) catch {
+		case _:
+			return false
+		}
+		return got == want && gotBody.Get() == wantBody.Get()
+	}
+	if op == 2 || op == 3 {
+		let class = if op == 3 { Some[s3.StorageClass]{s3.StorageClassGlacier} } else { None }
+		let r = s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", key), Body: body, ContentType: Some[string]{"text/" + note}, Metadata: Map[string, string]{"Note": note}, StorageClass: class}
+		let want = fake.PutObject(r) catch {
+		case e:
+			let _ = api.PutObject(r) catch {
+			case got:
+				return got == e
+			}
+			return false
+		}
+		let got = api.PutObject(r) catch {
+		case _:
+			return false
+		}
+		return got == want
+	}
+	let r = s3.NewDeleteObjectRequest("bk", key)
+	let want = fake.DeleteObject(r) catch {
+	case e:
+		let _ = api.DeleteObject(r) catch {
+		case got:
+			return got == e
+		}
+		return false
+	}
+	let got = api.DeleteObject(r) catch {
+	case _:
+		return false
+	}
+	got == want
+}

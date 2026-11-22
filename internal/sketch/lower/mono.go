@@ -150,11 +150,19 @@ func (l *lowerer) reserveLawMono(law *check.Law) {
 	l.names.monoBases[name] = true
 }
 
+// monoTaken reports whether this build lowers generic code to copies: the
+// admission function of the shortcut mono-instance (shortcuts.go). A call
+// (monoAt), a law of a generic operation type (lawMonoFor) and the test
+// entry's choice of which laws it declares itself (testEntry) each read it,
+// so the three agree on one decision.
+func (l *lowerer) monoTaken() bool {
+	return l.takes("mono-instance")
+}
+
 // monoAt is the copy that a use of f at the type arguments args goes to,
 // made and queued for emission at its first use; nil when the use takes
 // the generic function. x and c are the call, or nil for an instance used
-// as a value. It is the admission function of the shortcut mono-instance
-// (shortcuts.go).
+// as a value. It takes a copy only where monoTaken admits it.
 func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args []check.Type) *specCopy {
 	if c != nil {
 		if c.Kind != check.CallFunc || c.Func != f || c.Site != nil || c.StartsTask {
@@ -164,7 +172,7 @@ func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args
 			return nil // the owned body (values.go, V5)
 		}
 	}
-	if !fc.l.takes("mono-instance") {
+	if !fc.l.monoTaken() {
 		return nil
 	}
 	sp := fc.monoFor(f, args)
@@ -346,7 +354,7 @@ func (l *lowerer) monoCopy(decl monoDecl, base string, spelled []string, site sy
 // nil under the reference (genericLowering "stencil"), whose run calls
 // the generic law at targs.
 func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Type) *specCopy {
-	if !l.takes("mono-instance") {
+	if !l.monoTaken() {
 		return nil
 	}
 	base, ok := l.pkgNames[monoLaw{law}.base()]
