@@ -9,11 +9,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/experimental/irspike"
@@ -81,26 +79,11 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		ext, foreign []string
 	}
 	sides := make([]side, len(dirs))
-	next := make(chan int)
-	var wg sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for i := range next {
-				pkg := typesPackage(dirs[i])
-				if pkg == nil {
-					continue
-				}
-				_, ext := goKinds(pkg)
-				_, foreign := goTypes(pkg)
-				sides[i] = side{ok: true, path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
-			}
-		})
-	}
-	for i := range dirs {
-		next <- i
-	}
-	close(next)
-	wg.Wait()
+	eachGoPackage(dirs, func(i int, pkg *check.Package) {
+		_, ext := goKinds(pkg)
+		_, foreign := goTypes(pkg)
+		sides[i] = side{ok: true, path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
+	})
 	var manifest, roots []string
 	for i, s := range sides {
 		if !s.ok {
