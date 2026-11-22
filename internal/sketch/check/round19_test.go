@@ -268,7 +268,7 @@ func TestContextBudgetHeadroom(t *testing.T) {
 		"../syntax/testdata/corpus/*/*.ergo",
 		"../syntax/testdata/corpus/*/*/*.ergo",
 		"../../../examples/*/*/*.ergo",
-		"../../../docs/research/ef-migrate/*.ergo",
+		"../../../internal/sketch/sketchtest/testdata/migrated/*.ergo",
 	} {
 		m, _ := filepath.Glob(pattern)
 		files = append(files, m...)

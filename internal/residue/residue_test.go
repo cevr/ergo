@@ -39,10 +39,6 @@ func (r residue) grepArgs() []string {
 	return args
 }
 
-// residueParsed are the inputs under a skipped history prefix that code
-// parses in the current syntax, so a residue check reads them.
-var residueParsed = regexp.MustCompile(`^docs/research/ef-migrate/[^/]+\.ergo$`)
-
 // run greps the tracked files and checks every match against the allowlist.
 // A match no row covers fails, and so does a row that covers no match.
 func (r residue) run(t *testing.T) {
@@ -102,9 +98,6 @@ func (r residue) run(t *testing.T) {
 }
 
 func residueSkipped(path string, skipped []string) bool {
-	if residueParsed.MatchString(path) {
-		return false
-	}
 	for _, h := range skipped {
 		if strings.HasPrefix(path, h) {
 			return true

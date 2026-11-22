@@ -2,7 +2,6 @@
 # number and a letter): `path<TAB>count<TAB>unit`. The unit deletes or
 # rewrites the file; the count is exact, so a row is lowered as tags go and
 # removed at zero.
-CHANGELOG.md	17	DEL-DEAD
 GLOSSARY.md	4	GLOSSARY
 cmd/ergo/ctxreach_test.go	1	ISSUE-TAGS (comments and test texts)
 cmd/ergo/main.go	1	ISSUE-TAGS (comments and test texts)
@@ -17,7 +16,6 @@ compiler/format/nodes.ergo	1	ISSUE-TAGS (comments and test texts)
 compiler/syntax/lexerror.ergo	1	ISSUE-TAGS (comments and test texts)
 docs/decisions.md	9	PRINCIPLES
 docs/previews/2026-10-28-without-go-syntax.md	150	PREVIEW-TEST
-docs/previews/2026-11-02-wire-to-context.md	2	DEL-DEAD
 docs/spec/README.md	9	SPEC-GRAMMAR-DIAG
 docs/spec/diagnostics.md	17	SPEC-GRAMMAR-DIAG
 docs/spec/grammar.md	24	SPEC-GRAMMAR-DIAG

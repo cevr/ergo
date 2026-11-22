@@ -55,10 +55,10 @@ func Corpus() (v0, superseded []Input, err error) {
 	return v0, superseded, err
 }
 
-// Repository returns the migrated examples (docs/research/ef-migrate) and
+// Repository returns the migrated examples (testdata/migrated) and
 // the 2026 example program.
 func Repository() ([]Input, error) {
-	paths, _ := filepath.Glob(filepath.Join(root(), "docs", "research", "ef-migrate", "*.ergo"))
+	paths, _ := filepath.Glob(filepath.Join(root(), "internal", "sketch", "sketchtest", "testdata", "migrated", "*.ergo"))
 	paths = append(paths, filepath.Join(root(), "examples", "editions", "sketch", "main.ergo"))
 	var inputs []Input
 	for _, path := range paths {
