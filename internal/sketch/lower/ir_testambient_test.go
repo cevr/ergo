@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -11,9 +12,10 @@ import (
 // opened the case's folder nor put the runner's TestAmbient in the copy,
 // so exec.NewTestHost read a nil TestAmbient and the test panicked (nil
 // pointer dereference in prelude TestFolder; modules/work git and reflink
-// tests). The IR has no defer, so the builder leaves such a with to the
-// emitter, which opens the folder and removes it at the case's end. The
-// check is the promised fact: the test's lowered body opens the folder.
+// tests). The IR now opens the folder itself and defers the provider's
+// end, which removes it at the case's end (G10). The check is the
+// promised fact: the test's lowered body opens the folder, and no body
+// falls back to the emitter.
 // Mutant (testdata/mutants.json): ir-with-test-ambient-not-opened.
 func TestIRWithOfTestAmbientOpensTheFolder(t *testing.T) {
 	const src = `import os
@@ -30,24 +32,38 @@ test Wd {
 }
 `
 	u := checkPackage(t, "main", []pkgSource{{testSourcePath, src}}, nil)
-	files, _, err := LowerIRTests(u)
+	files, report, err := LowerIRTests(u)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(report.Fallback) > 0 {
+		t.Fatalf("bodies fall back to the emitter: %v", report.Fallback)
+	}
+	// No body is Go text, so the folder's opening is in the test's IR
+	// body, which the patched compiler reads (ergoir.json). The law
+	// runner's cases under onShell open folders of their own, so only
+	// ergoTestWd's body counts.
 	for _, f := range files {
-		text := string(f.Data)
-		at := strings.Index(text, "func "+goHelper("ergoTestWd")+"(")
-		if at < 0 {
+		if !strings.HasSuffix(f.Path, IRFileName) {
 			continue
 		}
-		body := text[at:]
-		if end := strings.Index(body[1:], "func "); end >= 0 {
-			body = body[:end+1]
+		var ir irFile
+		if err := json.Unmarshal(f.Data, &ir); err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(body, ".TestFolderOpen()") {
-			t.Fatalf("the test's with of a context that needs TestAmbient does not open the case's folder:\n%s", body)
+		for _, fn := range ir.Funcs {
+			if fn.Name != goHelper("ergoTestWd") {
+				continue
+			}
+			body, err := json.Marshal(fn.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), `"TestFolderOpen"`) {
+				t.Fatalf("the test's with of a context that needs TestAmbient does not open the case's folder:\n%s", body)
+			}
+			return
 		}
-		return
 	}
-	t.Fatal("no lowered file declares " + goHelper("ergoTestWd"))
+	t.Fatal("no IR file holds " + goHelper("ergoTestWd") + "'s body")
 }
