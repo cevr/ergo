@@ -1,17 +1,18 @@
 package eval
 
 import (
-	"time"
+	"errors"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// The std time text functions (ORACLE O13), from Go's time package as the
-// std doc comments state them: format is Go's t.UTC().Format(layout) of
-// the instant (sec, nsec); parse is Go's time.ParseInLocation(layout,
-// value, time.UTC) as a Reading with no monotonic part, an error the
-// ParseError with Go's message. Neither reads the host's zone.
+// The std time text functions (ORACLE O13) are the runtime bodies the
+// build calls, v1.TimeFormat and v1.TimeParse, so a law over Format or
+// Parse run at check time runs the program's code: outside the years 0 to
+// 9999 both write and read ISO 8601's expanded year, where Go's own
+// Format writes a year its Parse refuses. Neither reads the host's zone.
 func registerNativestime(t nativeTables) {
 	natives := t.std
 	t.reads["time.format"] = "int64 int64 string"
@@ -19,7 +20,7 @@ func registerNativestime(t nativeTables) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
 		}
-		out := time.Unix(args[0].(int64), args[1].(int64)).UTC().Format(args[2].(string))
+		out := v1.TimeFormat(args[0].(int64), args[1].(int64), args[2].(string))
 		if ab := in.allocate(fr, at, valueSize(out)); ab != nil {
 			return nil, ab
 		}
@@ -31,10 +32,14 @@ func registerNativestime(t nativeTables) {
 			return nil, ab
 		}
 		layout, value := args[0].(string), args[1].(string)
-		t, err := time.ParseInLocation(layout, value, time.UTC)
+		r, err := v1.TimeParse(layout, value)
 		if err != nil {
-			return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "ParseError", map[string]Value{"Layout": layout, "Value": value, "Message": err.Error()}), "")
+			var pe v1.ParseError
+			if !errors.As(err, &pe) {
+				pe = v1.ParseError{Layout: layout, Value: value, Message: err.Error()}
+			}
+			return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "ParseError", map[string]Value{"Layout": pe.Layout, "Value": pe.Value, "Message": pe.Message}), "")
 		}
-		return stdRecord(fn, "Reading", map[string]Value{"Sec": t.Unix(), "Nsec": int64(t.Nanosecond()), "Mono": int64(0)}), nil
+		return stdRecord(fn, "Reading", map[string]Value{"Sec": r.Sec, "Nsec": r.Nsec, "Mono": int64(0)}), nil
 	}
 }

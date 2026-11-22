@@ -27,11 +27,14 @@ import (
 // (natives.go) to the runtime/v1 body the built program calls, on
 // generated inputs: texts with multi-byte and invalid UTF-8, empty
 // separators, negative and huge counts, every strconv base and bit size,
-// NaN and -0 in sorts, and the seeded rand stream draw for draw. The
-// natives are written from Go's standard library and the std's spec, never
-// by calling runtime/v1, so this is two implementations agreeing, value
-// for value, failure for failure (record and text) and defect for defect
-// (Go's panic text). A failing seed prints the native, the arguments and
+// NaN and -0 in sorts, instants past the years 0 to 9999, and the seeded
+// rand stream draw for draw. Most natives are written from Go's standard
+// library and the std's spec, so this is two implementations agreeing,
+// value for value, failure for failure (record and text) and defect for
+// defect (Go's panic text). time.format and time.parse call their runtime
+// bodies (nativestime.go), so a law run at check time runs the build's
+// code; their rows hold that the native is that body
+// (eval-time-format-is-gos, eval-time-parse-is-gos). A failing seed prints the native, the arguments and
 // both results, and the replay command.
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
@@ -297,7 +300,16 @@ func nativeCases(g nativeGen) []nativeCase {
 	layouts := []string{time.RFC3339, time.RFC3339Nano, time.DateTime, time.DateOnly, time.Kitchen, time.RFC1123Z, time.RFC1123, "Jan 2 15:04", "02/01/2006 15:04:05.000"}
 	lay := layouts[g.r.IntN(len(layouts))]
 	sec, nsec := g.r.Int64N(1<<34)-(1<<33), g.r.Int64N(1e9)
-	text := time.Unix(sec, nsec).UTC().Format(layouts[g.r.IntN(len(layouts))])
+	// Sometimes an instant at or past the years 0 to 9999, which std
+	// writes in ISO 8601's expanded year (time.Format), or any int64.
+	switch g.r.IntN(4) {
+	case 0:
+		bound := []int64{-62167219200, 253402300800}[g.r.IntN(2)]
+		sec = bound + g.r.Int64N(5) - 2
+	case 1:
+		sec = int64(g.r.Uint64())
+	}
+	text := v1.TimeFormat(sec, nsec, layouts[g.r.IntN(len(layouts))])
 	if g.r.IntN(4) == 0 {
 		text = text[:g.r.IntN(len(text)+1)]
 	}
