@@ -160,6 +160,23 @@ func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Resul
 	return in.cases(fr, t.Decl.Body, false, t.Params, p, res)
 }
 
+// AdmissionVerdict is why check time skips a law with a where over earlier
+// parameters (types.md, Laws 15): its admitted values come from the
+// near-variant search, which only the test binary runs, and a case drawn
+// without it would refute the law on values the where does not admit.
+const AdmissionVerdict = "a where over earlier parameters: ergo test runs it"
+
+// admits reports whether law has a where over earlier parameters
+// (check.Law.Admit).
+func admits(law *check.Law) bool {
+	for _, a := range law.Admit {
+		if a != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Result) {
 	defer func() {
 		if out.Status == Refuted {
@@ -172,6 +189,8 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 		why = law.Unrun
 	} else if law.Decl.Rewrite != nil && why == "" {
 		why = RewriteVerdict()
+	} else if why == "" && admits(law) {
+		why = AdmissionVerdict
 	}
 	if why != "" {
 		res.Status, res.Reason = Skipped, why
