@@ -4,6 +4,7 @@ import (
 	"math/rand/v2"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -30,14 +31,15 @@ func TestVouchedRowsReviewed(t *testing.T) {
 			t.Errorf("%s %s %s: Source %q, the declaration's hash is %q (reason %q): review the function again", r.Target, r.Fact, r.Param, r.Source, h, r.Reason)
 		}
 	}
-	// The memory-only rows (GBX6) are reviewed the same way.
-	for _, e := range Effects {
+	// The memory-only rows (GBX6) and the host rows (HOST-ROW) are
+	// reviewed the same way.
+	for _, e := range append(slices.Clone(Effects), Hosts...) {
 		h, err := SourceHash(goroot, e.Target)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if e.Reason == "" || h != e.Source {
-			t.Errorf("%s effect none: Source %q, the declaration's hash is %q (reason %q): review the function again", e.Target, e.Source, h, e.Reason)
+			t.Errorf("%s effect row: Source %q, the declaration's hash is %q (reason %q): review the function again", e.Target, e.Source, h, e.Reason)
 		}
 	}
 }

@@ -23,6 +23,13 @@ import json
 import strconv
 import strings
 
+type envelope { ID int, Meta json.Value }
+` + jsonDocSource + jsonValueProbeRest
+
+// jsonDocSource draws a JSON document (doc) and spells it with the white
+// space it is given between its tokens; the probes of TestJSONValueAgrees
+// and TestJSONRawAgrees share it. It needs json, strconv and strings.
+const jsonDocSource = `
 type docNull {}
 type docBool { V bool }
 type docInt { V int64 }
@@ -31,8 +38,6 @@ type docStr { V string }
 type docArr { Items []doc }
 type docObj { Keys []string, Vals []doc }
 type doc = docNull | docBool | docInt | docDigits | docStr | docArr | docObj
-
-type envelope { ID int, Meta json.Value }
 
 func c[T wire]() json.Codec[T] { json.Codec[T]{MaxBytes: 0, MaxDepth: 0} }
 
@@ -86,7 +91,10 @@ func spell(d doc, sp string) string {
 		out + sp + "}"
 	}
 }
+`
 
+// jsonValueProbeRest is jsonValueProbe after the shared documents.
+const jsonValueProbeRest = `
 func valueRoundTrips(d doc) bool {
 	let v = json.Decode(c[json.Value](), spell(d, " \n\t\r")) catch { case _: return false }
 	json.Encode(c[json.Value](), v) == spell(d, "")
