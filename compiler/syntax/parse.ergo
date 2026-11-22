@@ -30,6 +30,12 @@ type Parsed {
 	gLast   []int,
 	// cmt0 is the start of the first comment, -1 for none.
 	cmt0 int,
+	// HasFix reports that the error names a habit with its Ergo form:
+	// the FixLength bytes at FixOffset become FixText (`var` → `let`).
+	HasFix    bool,
+	FixOffset int,
+	FixLength int,
+	FixText   string,
 }
 
 // parser is the state of one parse: the token columns, the position in
@@ -72,6 +78,12 @@ type parser {
 	entTop      int,
 	quiet       int,
 	gHint       int,
+	// The first error's fix (errorFix): hasFix, then the span and the
+	// text that replaces it.
+	hasFix  bool,
+	fixOff  int,
+	fixLen  int,
+	fixText string,
 }
 
 // Parse parses one source file (the Go parser's Parse, the derived
@@ -123,6 +135,10 @@ func Parse(src string) Parsed {
 		quiet:    0,
 		gHint:    0,
 		toks:     s.toks,
+		hasFix:   false,
+		fixOff:   0,
+		fixLen:   0,
+		fixText:  "",
 	}
 	groupComments(&p)
 	parseFile(&p)
@@ -147,6 +163,11 @@ func Parse(src string) Parsed {
 		gFirst:  p.gFirst,
 		gLast:   p.gLast,
 		cmt0:    c0,
+
+		HasFix:    p.failed && p.hasFix,
+		FixOffset: p.fixOff,
+		FixLength: p.fixLen,
+		FixText:   p.fixText,
 	}
 }
 
@@ -811,6 +832,23 @@ func errorf(p mut parser, message string) {
 }
 
 func habit(p mut parser, at int, length int, h int) { errorAt(p, at, length, habitMessages[h]) }
+
+// errorFix records the first error, as errorAt does, with the fix that
+// rewrites the habit it names: the fixLen bytes at fixAt become fixText
+// (Parsed.HasFix; ergo fix applies it and parses again). A lexical error
+// that wins carries no fix.
+func errorFix(p mut parser, at int, length int, message string, fixAt int, fixLen int, fixText string) {
+	if p.failed {
+		return
+	}
+	errorAt(p, at, length, message)
+	if !p.lexical {
+		p.hasFix = true
+		p.fixOff = fixAt
+		p.fixLen = fixLen
+		p.fixText = fixText
+	}
+}
 
 // ---------------------------------------------------------------- nesting
 

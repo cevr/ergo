@@ -1,0 +1,68 @@
+// decode[T](r)'s row is what T's wire form may fail (types.md, Codecs 2):
+// WireWrongKind always, WireMissingField for a record with fields or a
+// union, WireUnknownTag for a union, Unsatisfied for a refined type, and
+// the row of each by-name ParseX it reaches.
+
+type Port int where 1 <= it && it <= 65535
+
+type Host { name string }
+
+type BadHost { Text string }
+
+func ParseHost(s string) Host fails BadHost {
+	if s == "" { return BadHost{Text: s} }
+	Host{name: s}
+}
+
+func Wire(h Host) string { h.name }
+
+type Up { At Host, Port Port }
+
+type Down {}
+
+type State = Up | Down
+
+type Flags { On bool }
+
+func flags(r Reader) Flags fails WireWrongKind {
+	decode[Flags](r) //want: rows
+}
+
+func ints(r Reader) []int fails WireWrongKind {
+	decode[[]int](r)
+}
+
+func state(r Reader) State fails WireWrongKind | WireMissingField | WireUnknownTag | Unsatisfied | BadHost {
+	decode[State](r)
+}
+
+func narrow(r Reader) State fails WireWrongKind | WireMissingField | WireUnknownTag | Unsatisfied {
+	decode[State](r) //want: rows
+}
+
+func host(r Reader) Host fails WireWrongKind {
+	decode[Host](r) //want: rows
+}
+
+func port(r Reader) Port fails WireWrongKind {
+	decode[Port](r) //want: rows
+}
+
+func hosts(r Reader) Map[string, []Host] fails WireWrongKind | BadHost {
+	decode[Map[string, []Host]](r)
+}
+
+func tags(r Reader) State fails WireWrongKind | WireMissingField | Unsatisfied | BadHost {
+	decode[State](r) //want: rows
+}
+
+type Empty {}
+
+func empty(r Reader) Empty fails WireWrongKind {
+	decode[Empty](r)
+}
+
+func tried(r Reader) int fails WireWrongKind {
+	let f = try decode[Flags](r) //want: rows
+	if f.On { 1 } else { 0 }
+}

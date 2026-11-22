@@ -26,7 +26,7 @@ func goRows(file string, ds []check.Diagnostic) []string {
 }
 
 // TestCompilerRowsAgreeWithChecker is S3-ROWS's agreement: the S101s and
-// S102s compiler/check/rows reports (exprdump -corpus, its R lines) are
+// S102s compiler/check/rows reports (exprdump -corpus, its S lines) are
 // the Go checker's, text, position and order, over testdata/rows: a
 // fixture per form the pass walks (a try, an argument under try, a
 // return, a tail and a branch tail; a call whose callee needs a
@@ -99,7 +99,7 @@ func TestCompilerRowsAgreeWithChecker(t *testing.T) {
 		switch {
 		case strings.HasPrefix(l, "@pkg "):
 			at++
-		case at >= 0 && at < len(cases) && strings.HasPrefix(l, "R "):
+		case at >= 0 && at < len(cases) && strings.HasPrefix(l, "S "):
 			got[at] = append(got[at], l[2:])
 		}
 	}

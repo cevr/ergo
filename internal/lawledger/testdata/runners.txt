@@ -383,6 +383,9 @@ json NoiseIsReported	TestStdJSONLooseLawsRun
 json NullableRoundTrips	TestJSONFieldsAgree
 json OptionalRoundTrips	TestJSONFieldsAgree
 json ParseNumIsOpened	TestJSONStreamAgrees
+json RawIsValue	TestJSONRawAgrees
+json RawReadsOneValue	TestJSONRawAgrees
+json RawRoundTrips	TestJSONRawAgrees
 json RepairIsIdempotent	TestStdJSONLooseLawsRun
 json RepairIsOnePass	#162
 json RoundTrips	TestStdJSONLawsRun

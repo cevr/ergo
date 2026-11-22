@@ -777,7 +777,7 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	if path == "time" {
 		return l.timePkg()
 	}
-	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) {
+	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) && path != hostFSImport {
 		ice(site, "the Go package %q is outside Go's standard library and in no module of the go.mod beside ergo.mod; the loader refuses it (IG7)", path)
 	}
 	if path == "unsafe" {
@@ -1660,9 +1660,11 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
 		// table function that needs capabilities (S108, with #37), except
-		// go.Foreign, which the converting site holds (README Gap 17) and
-		// which no environment holds (module.go).
-		if len(rowElems(f.Sig.Uses)) > 0 && !check.GoForeign(f.Sig) {
+		// go.Foreign and Ambient, which the converting site holds (README
+		// Gap 17; HOST-ROW): no environment holds go.Foreign (module.go),
+		// and the converting frame's, which the adapter keeps, holds
+		// Ambient.
+		if len(rowElems(f.Sig.Uses)) > 0 && !check.Captured(f.Sig) {
 			ice(site, "the operation %s of %s is provided by %s, which needs capabilities", op.Name, conv.To, f.Name)
 		}
 		l.useFunc(f, site)
