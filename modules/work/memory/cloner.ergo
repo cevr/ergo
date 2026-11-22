@@ -558,7 +558,7 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	case _:
 		return false
 	}
-	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false}) catch {
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: true, Registry: Some[string]{Value: riftFile}, Unguard: false, Fix: false, Repair: false}) catch {
 	case _:
 		return false
 	}
