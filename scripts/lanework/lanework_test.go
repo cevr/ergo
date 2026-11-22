@@ -80,7 +80,7 @@ func newFixture(t *testing.T, guard string) *fixture {
 
 func (f *fixture) git(dir string, args ...string) string {
 	f.t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks", "-C", dir}, args...)...)
 	cmd.Env = f.env
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -1,0 +1,629 @@
+// Package emit writes a provider client's Ergo source from a Smithy model
+// slice (wf10 GEN-EMIT; DISTILLED route C). Emit first builds a plan, a
+// record of what each kept operation sends and reads and where (the HTTP
+// bindings), then writes the plan's text. The plan is what the laws check;
+// the text is checked by ergo check and ergo fmt in the module's example
+// run (EmitIsCommitted).
+//
+// Departure (orchestrator q17): the text is written from one names table,
+// not through std code, which reads declarations and has no writer yet.
+// CODE-WRITER, a later unit, gives std code a writer; the emitter then
+// builds declarations through it.
+
+import github.com/cevr/ergo/modules/clientgen/smithy
+import json
+import strconv
+import strings
+
+// Provider is what the model does not say: the generated package's name,
+// the protocol runtime's import path and its package name, the service
+// type's name, and the operations to write, by shape id.
+type Provider { Package string, Runtime string, RuntimeName string, Service string, Operations []string }
+
+// File is one written file: a path relative to the package folder, and
+// its text as ergo fmt writes it.
+type File { Path string, Text string }
+
+// Refused is a model the emitter will not write: the operation (or
+// shape) and why. A refusal is never a skip: nothing is written.
+type Refused { Operation string, Reason string }
+
+// Ty is a member's Ergo type: a scalar, a model enum by name, a string
+// map (prefix headers), or a blob payload.
+type TString {}
+type TInt {}
+type TBool {}
+type TTime { Format string }
+type TEnum { Name string }
+type TMap {}
+type TBlob { Streaming bool }
+type Ty = TString | TInt | TBool | TTime | TEnum | TMap | TBlob
+
+// Where is a member's place on the wire (Smithy's HTTP bindings).
+type AtLabel { Greedy bool }
+type AtQuery { Name string }
+type AtHeader { Name string }
+type AtPrefix { Prefix string }
+type AtPayload {}
+type AtBody {}
+type Where = AtLabel | AtQuery | AtHeader | AtPrefix | AtPayload | AtBody
+
+// Field is one member of a request or an output.
+type Field { Name string, Ty Ty, Where Where, Required bool }
+
+// Seg is a piece of an operation's path: text, or a label.
+type SegText { Text string }
+type SegLabel { Member string, Greedy bool }
+type Seg = SegText | SegLabel
+
+// Lit is a query pair the path template fixes (`?x-id=GetObject`).
+type Lit { Name string, Value string }
+
+// Op is one operation's plan.
+type Op { Name string, Doc string, Method string, Path []Seg, Query []Lit, Input string, Output string, In []Field, Out []Field, Errors []string }
+
+// Enum is a model enum: its name and its values, each a variant name and
+// its wire text.
+type Value { Variant string, Wire string }
+type Enum { Name string, Doc string, Values []Value }
+
+// Failure is a model error: its name, its HTTP status if the model gives
+// one, and its members (read from the error body).
+type Failure { Name string, Doc string, Status Option[int], Fields []Field }
+
+// Plan is the whole package's plan.
+type Plan { Service string, Doc string, Ops []Op, Enums []Enum, Failures []Failure }
+
+// PlanOf is the plan of p's operations in m, or the first refusal.
+func PlanOf(m smithy.Model, p Provider) Plan fails Refused {
+	let index = indexOf(m)
+	let mut ops = []Op{}
+	let mut enums = []string{}
+	let mut errors = []string{}
+	for id in p.Operations {
+		let op = try opOf(index, id)
+		for f in op.In.Concat(op.Out) {
+			match f.Ty {
+			case TEnum as e:
+				enums = once(enums, e.Name)
+			case TString, TInt, TBool, TTime, TMap, TBlob:
+			}
+		}
+		for e in op.Errors {
+			errors = once(errors, e)
+		}
+		ops = ops.Append(op)
+	}
+	let mut failures = []Failure{}
+	for e in errors {
+		let f = try failureOf(index, e)
+		for x in f.Fields {
+			match x.Ty {
+			case TEnum as en:
+				enums = once(enums, en.Name)
+			case TString, TInt, TBool, TTime, TMap, TBlob:
+			}
+		}
+		failures = failures.Append(f)
+	}
+	let mut es = []Enum{}
+	for name in enums {
+		es = es.Append(try enumOf(index, name))
+	}
+	let mut doc = ""
+	for s in m.Shapes {
+		match s.Kind {
+		case smithy.Service:
+			doc = docOf(s.Traits)
+		case smithy.Simple, smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Structure, smithy.Union, smithy.Operation, smithy.Resource, smithy.Unsupported:
+		}
+	}
+	Plan{Service: p.Service, Doc: doc, Ops: ops, Enums: es, Failures: failures}
+}
+
+func indexOf(m smithy.Model) Map[string, smithy.Shape] {
+	let mut out = Map[string, smithy.Shape]{}
+	for s in m.Shapes {
+		out[s.Id] = s
+	}
+	out
+}
+
+func once(xs []string, x string) []string {
+	for y in xs {
+		if y == x {
+			return xs
+		}
+	}
+	xs.Append(x)
+}
+
+// local is a shape id's name (`ns#Name` -> `Name`).
+func local(id string) string {
+	let at = strings.Index(id, "#")
+	if at < 0 { id } else { strings.Slice(id, at+1, len(id)) }
+}
+
+func shapeAt(index Map[string, smithy.Shape], id string, op string) smithy.Shape fails Refused {
+	match index.Get(id) {
+	case Some as s:
+		s.Value
+	case None:
+		Refused{Operation: op, Reason: "\(id) is not in the slice"}
+	}
+}
+
+func traitOf(ts []smithy.Trait, id string) Option[json.Value] {
+	for t in ts {
+		match t {
+		case smithy.Known as k:
+			if k.Id == id {
+				return Some[json.Value]{k.Value}
+			}
+		case smithy.Refused as r:
+			if r.Id == id {
+				return Some[json.Value]{r.Value}
+			}
+		}
+	}
+	None
+}
+
+func traitText(ts []smithy.Trait, id string) string {
+	match traitOf(ts, id) {
+	case Some as v:
+		textOf(v.Value)
+	case None:
+		""
+	}
+}
+
+func has(ts []smithy.Trait, id string) bool {
+	match traitOf(ts, id) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+func textOf(v json.Value) string {
+	match v {
+	case json.Str as s:
+		s.Value
+	case json.Num as n:
+		n.Wire()
+	case json.Null, json.Boolean, json.Array, json.Object:
+		""
+	}
+}
+
+func member(o json.Value, key string) json.Value {
+	match o {
+	case json.Object as obj:
+		for m in obj.Members {
+			if m.Key == key {
+				return m.Value
+			}
+		}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+	}
+	json.Null
+}
+
+// docOf is the first sentence of a documentation trait, its HTML tags
+// and entities removed, at most 200 bytes.
+func docOf(ts []smithy.Trait) string {
+	match traitOf(ts, "smithy.api#documentation") {
+	case Some as d:
+		sentence(plain(textOf(d.Value)))
+	case None:
+		""
+	}
+}
+
+func plain(html string) string {
+	let mut out = []byte{}
+	let mut inTag = false
+	for i in 0..len(html) {
+		let c = html[i]
+		if c == '<' {
+			inTag = true
+		} else if c == '>' {
+			inTag = false
+			out = out.Append(' ')
+		} else if !inTag {
+			out = out.Append(if c == '\n' || c == '\t' { byte(' ') } else { c })
+		}
+	}
+	let text = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(out.Text(), "&lt;", "<"), "&gt;", ">"), "&quot;", "\""), "&amp;", "&")
+	strings.ReplaceAll(strings.ReplaceAll(strings.Join(strings.Fields(text), " "), " .", "."), " ,", ",")
+}
+
+func sentence(s string) string {
+	let at = strings.Index(s, ". ")
+	let first = if at < 0 { s } else { strings.Slice(s, 0, at+1) }
+	if len(first) <= 200 { first } else { strings.Slice(first, 0, 197) + "..." }
+}
+
+func opOf(index Map[string, smithy.Shape], id string) Op fails Refused {
+	let s = try shapeAt(index, id, id)
+	let o = match s.Kind {
+	case smithy.Operation as o:
+		o
+	case smithy.Simple, smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Structure, smithy.Union, smithy.Service, smithy.Resource, smithy.Unsupported:
+		return Refused{Operation: id, Reason: "not an operation"}
+	}
+	let http = match traitOf(s.Traits, "smithy.api#http") {
+	case Some as h:
+		h.Value
+	case None:
+		return Refused{Operation: id, Reason: "no smithy.api#http trait"}
+	}
+	let uri = textOf(member(http, "uri"))
+	let (path, query) = try templateOf(uri, id)
+	let input = match o.Input {
+	case Some as t:
+		t.Value
+	case None:
+		return Refused{Operation: id, Reason: "no input shape"}
+	}
+	let output = match o.Output {
+	case Some as t:
+		t.Value
+	case None:
+		return Refused{Operation: id, Reason: "no output shape"}
+	}
+	let ins = greedyOf(try fieldsOf(index, input, id, true), path)
+	let outs = try fieldsOf(index, output, id, false)
+	Op{Name: local(id), Doc: docOf(s.Traits), Method: textOf(member(http, "method")), Path: path, Query: query, Input: local(input), Output: local(output), In: ins, Out: outs, Errors: o.Errors}
+}
+
+// templateOf splits a uri template into path pieces and fixed query pairs.
+func templateOf(uri string, op string) ([]Seg, []Lit) fails Refused {
+	let parts = strings.SplitN(uri, "?", 2)
+	let mut segs = []Seg{}
+	let mut rest = parts[0]
+	for len(rest) > 0 {
+		let open = strings.Index(rest, "{")
+		if open < 0 {
+			segs = segs.Append(SegText{Text: rest})
+			rest = ""
+		} else {
+			let close = strings.Index(rest, "}")
+			if close < open {
+				return Refused{Operation: op, Reason: "a uri template with an unclosed label: \(uri)"}
+			}
+			if open > 0 {
+				segs = segs.Append(SegText{Text: strings.Slice(rest, 0, open)})
+			}
+			let name = strings.Slice(rest, open+1, close)
+			let greedy = strings.HasSuffix(name, "+")
+			segs = segs.Append(SegLabel{Member: strings.TrimSuffix(name, "+"), Greedy: greedy})
+			rest = strings.Slice(rest, close+1, len(rest))
+		}
+	}
+	let mut lits = []Lit{}
+	if len(parts) == 2 {
+		for pair in strings.Split(parts[1], "&") {
+			let kv = strings.SplitN(pair, "=", 2)
+			lits = lits.Append(Lit{Name: kv[0], Value: if len(kv) == 2 { kv[1] } else { "" }})
+		}
+	}
+	(segs, lits)
+}
+
+func fieldsOf(index Map[string, smithy.Shape], id string, op string, input bool) []Field fails Refused {
+	let s = try shapeAt(index, id, op)
+	let members = match s.Kind {
+	case smithy.Structure as st:
+		st.Members
+	case smithy.Simple, smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
+		return Refused{Operation: op, Reason: "\(id) is not a structure"}
+	}
+	let mut out = []Field{}
+	for m in members {
+		// An operation's member with no HTTP binding is in the XML body,
+		// refused before its type is read; an error's members are read
+		// from the error body (ErrorOf).
+		if op != id && unbound(m) {
+			return Refused{Operation: op, Reason: "member \(m.Name) is in the XML body: restXml structure bodies wait for the XML wire rules (G4)"}
+		}
+		out = out.Append(try fieldOf(index, m, op, input))
+	}
+	out
+}
+
+func fieldOf(index Map[string, smithy.Shape], m smithy.Member, op string, input bool) Field fails Refused {
+	let ty = try tyOf(index, m, op)
+	let mut where Where = AtBody
+	if has(m.Traits, "smithy.api#httpLabel") {
+		where = AtLabel{Greedy: false}
+	} else if has(m.Traits, "smithy.api#httpQuery") {
+		where = AtQuery{Name: traitText(m.Traits, "smithy.api#httpQuery")}
+	} else if has(m.Traits, "smithy.api#httpHeader") {
+		where = AtHeader{Name: traitText(m.Traits, "smithy.api#httpHeader")}
+	} else if has(m.Traits, "smithy.api#httpPrefixHeaders") {
+		where = AtPrefix{Prefix: traitText(m.Traits, "smithy.api#httpPrefixHeaders")}
+	} else if has(m.Traits, "smithy.api#httpPayload") {
+		where = AtPayload
+	}
+	Field{Name: m.Name, Ty: ty, Where: where, Required: has(m.Traits, "smithy.api#required")}
+}
+
+func tyOf(index Map[string, smithy.Shape], m smithy.Member, op string) Ty fails Refused {
+	let target = try shapeAt(index, m.Target, op)
+	let format = match traitOf(m.Traits, "smithy.api#timestampFormat") {
+	case Some as f:
+		textOf(f.Value)
+	case None:
+		match traitOf(target.Traits, "smithy.api#timestampFormat") {
+		case Some as f:
+			textOf(f.Value)
+		case None:
+			""
+		}
+	}
+	match target.Kind {
+	case smithy.Simple as sc:
+		match sc.Of {
+		case smithy.StringType:
+			TString
+		case smithy.IntegerType, smithy.LongType, smithy.ShortType, smithy.ByteType:
+			TInt
+		case smithy.BooleanType:
+			TBool
+		case smithy.TimestampType:
+			TTime{Format: format}
+		case smithy.BlobType:
+			TBlob{Streaming: has(target.Traits, "smithy.api#streaming")}
+		case smithy.FloatType, smithy.DoubleType, smithy.BigIntegerType, smithy.BigDecimalType, smithy.DocumentType:
+			Refused{Operation: op, Reason: "member \(m.Name): \(m.Target) has a type the emitter does not write yet"}
+		}
+	case smithy.Enum:
+		TEnum{Name: local(m.Target)}
+	case smithy.Mapping as mp:
+		if mp.Value.Target == "smithy.api#String" || isString(index, mp.Value.Target) {
+			TMap
+		} else {
+			Refused{Operation: op, Reason: "member \(m.Name): a map of other than strings"}
+		}
+	case smithy.IntEnum, smithy.List, smithy.Structure, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
+		Refused{Operation: op, Reason: "member \(m.Name): \(m.Target) is a shape the emitter does not write yet"}
+	}
+}
+
+func isString(index Map[string, smithy.Shape], id string) bool {
+	match index.Get(id) {
+	case Some as s:
+		match s.Value.Kind {
+		case smithy.Simple as sc:
+			match sc.Of {
+			case smithy.StringType:
+				true
+			case smithy.BlobType, smithy.BooleanType, smithy.ByteType, smithy.ShortType, smithy.IntegerType, smithy.LongType, smithy.FloatType, smithy.DoubleType, smithy.BigIntegerType, smithy.BigDecimalType, smithy.TimestampType, smithy.DocumentType:
+				false
+			}
+		case smithy.Enum, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Structure, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+func enumOf(index Map[string, smithy.Shape], name string) Enum fails Refused {
+	for _, s in index {
+		if local(s.Id) == name {
+			match s.Kind {
+			case smithy.Enum as e:
+				let mut vs = []Value{}
+				for m in e.Members {
+					let wireText = match traitOf(m.Traits, "smithy.api#enumValue") {
+					case Some as v:
+						textOf(v.Value)
+					case None:
+						m.Name
+					}
+					vs = vs.Append(Value{Variant: name + pascal(m.Name), Wire: wireText})
+				}
+				return Enum{Name: name, Doc: docOf(s.Traits), Values: vs}
+			case smithy.Simple, smithy.IntEnum, smithy.List, smithy.Mapping, smithy.Structure, smithy.Union, smithy.Operation, smithy.Service, smithy.Resource, smithy.Unsupported:
+			}
+		}
+	}
+	Refused{Operation: name, Reason: "no enum \(name) in the slice"}
+}
+
+// pascal is an enum member's name as a variant suffix: STANDARD_IA is
+// StandardIa, ABORTED is Aborted, crc32 is Crc32.
+func pascal(name string) string {
+	let mut out = ""
+	for part in strings.Split(name, "_") {
+		if len(part) > 0 {
+			out = out + strings.ToUpper(strings.Slice(part, 0, 1)) + strings.ToLower(strings.Slice(part, 1, len(part)))
+		}
+	}
+	out
+}
+
+func failureOf(index Map[string, smithy.Shape], id string) Failure fails Refused {
+	let s = try shapeAt(index, id, id)
+	let status = match traitOf(s.Traits, "smithy.api#httpError") {
+	case Some as v:
+		let n = strconv.Atoi(textOf(v.Value)) catch {
+		case _:
+			return Refused{Operation: id, Reason: "an httpError that is not a number"}
+		}
+		Some[int]{n}
+	case None:
+		None
+	}
+	let fields = try fieldsOf(index, id, id, false)
+	for f in fields {
+		match f.Ty {
+		case TString, TEnum:
+		case TInt, TBool, TTime, TMap, TBlob:
+			return Refused{Operation: id, Reason: "error member \(f.Name) is not text: the error body reader gives text"}
+		}
+	}
+	Failure{Name: local(id), Doc: docOf(s.Traits), Status: status, Fields: fields}
+}
+
+// greedyOf marks the labels the path template writes as `{Name+}`.
+func greedyOf(fs []Field, path []Seg) []Field {
+	let mut out = []Field{}
+	for f in fs {
+		let mut g = f
+		match f.Where {
+		case AtLabel:
+			for seg in path {
+				match seg {
+				case SegLabel as l:
+					if l.Member == f.Name && l.Greedy {
+						g = Field{..f, Where: AtLabel{Greedy: true}}
+					}
+				case SegText:
+				}
+			}
+		case AtQuery, AtHeader, AtPrefix, AtPayload, AtBody:
+		}
+		out = out.Append(g)
+	}
+	out
+}
+
+// EveryMemberIsBound: each member of a drawn operation's input lands in
+// exactly one field of the plan, in the place its trait names, and each
+// output member is read from exactly one place.
+law EveryMemberIsBound(ins []int, outs []int) {
+	let m = drawnModel(ins, outs)
+	let plan = PlanOf(m, Provider{Package: "t", Runtime: "rt", RuntimeName: "rt", Service: "T", Operations: []string{"t#Op"}}) catch {
+	case _:
+		return false
+	}
+	let op = plan.Ops[0]
+	bound(op.In, drawnMembers(ins, true)) && bound(op.Out, drawnMembers(outs, false))
+}
+
+// bound is whether fs holds each of want's (name, place) once and nothing else.
+func bound(fs []Field, want [](string, int)) bool {
+	if len(fs) != len(want) {
+		return false
+	}
+	for w in want {
+		let (name, place) = w
+		let mut n = 0
+		for f in fs {
+			if f.Name == name && placeOf(f.Where) == place {
+				n = n + 1
+			}
+		}
+		if n != 1 {
+			return false
+		}
+	}
+	true
+}
+
+func placeOf(w Where) int {
+	match w {
+	case AtLabel:
+		0
+	case AtQuery:
+		1
+	case AtHeader:
+		2
+	case AtPrefix:
+		3
+	case AtPayload:
+		4
+	case AtBody:
+		5
+	}
+}
+
+// drawnMembers are a drawn structure's members, at most four, by name
+// and place: an input's places are label, query, header, prefix and
+// payload, an output's header, prefix and payload; one prefix and one
+// payload at most.
+func drawnMembers(kinds []int, input bool) [](string, int) {
+	let mut out = [](string, int){}
+	let mut prefix = false
+	let mut payload = false
+	for i, k in kinds {
+		if i < 4 {
+			let mut place = if input { (k%5 + 5) % 5 } else { 2 + (k%3+3)%3 }
+			if place == 3 && prefix || place == 4 && payload {
+				place = 2
+			}
+			prefix = prefix || place == 3
+			payload = payload || place == 4
+			out = out.Append(("M\(i)", place))
+		}
+	}
+	out
+}
+
+func trait(id string, v json.Value) smithy.Trait { smithy.Known{Id: id, Value: v} }
+
+func drawnStruct(id string, ms [](string, int)) smithy.Shape {
+	let mut members = []smithy.Member{}
+	for x in ms {
+		let (name, place) = x
+		let low = strings.ToLower(name)
+		let mut ts = []smithy.Trait{}
+		let mut target = "smithy.api#String"
+		if place == 0 {
+			ts = ts.Append(trait("smithy.api#httpLabel", json.Object{Members: []json.Member{}})).Append(trait("smithy.api#required", json.Object{Members: []json.Member{}}))
+		} else if place == 1 {
+			ts = ts.Append(trait("smithy.api#httpQuery", json.Str{Value: low}))
+		} else if place == 2 {
+			ts = ts.Append(trait("smithy.api#httpHeader", json.Str{Value: "x-" + low}))
+		} else if place == 3 {
+			ts = ts.Append(trait("smithy.api#httpPrefixHeaders", json.Str{Value: "x-meta-"}))
+			target = "t#Meta"
+		} else {
+			ts = ts.Append(trait("smithy.api#httpPayload", json.Object{Members: []json.Member{}}))
+			target = "t#Blob"
+		}
+		members = members.Append(smithy.Member{Name: name, Target: target, Traits: ts})
+	}
+	smithy.Shape{Id: id, Kind: smithy.Structure{Members: members}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+}
+
+// drawnModel is one GET operation whose input and output hold the drawn
+// members; its uri names each label, the last one greedy.
+func drawnModel(ins []int, outs []int) smithy.Model {
+	let im = drawnMembers(ins, true)
+	let mut uri = ""
+	for x in im {
+		let (name, place) = x
+		if place == 0 {
+			uri = uri + "/{" + name + "}"
+		}
+	}
+	uri = (if uri == "" { "/" } else { strings.TrimSuffix(uri, "}") + "+}" }) + "?x-id=Op"
+	let http = json.Object{Members: []json.Member{json.Member{Key: "method", Value: json.Str{Value: "GET"}}, json.Member{Key: "uri", Value: json.Str{Value: uri}}}}
+	let op = smithy.Shape{Id: "t#Op", Kind: smithy.Operation{Input: Some[string]{"t#In"}, Output: Some[string]{"t#Out"}, Errors: []string{}}, Traits: []smithy.Trait{trait("smithy.api#http", http)}, Keys: []smithy.Unread{}}
+	let str = smithy.Shape{Id: "smithy.api#String", Kind: smithy.Simple{Of: smithy.StringType}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	let blob = smithy.Shape{Id: "t#Blob", Kind: smithy.Simple{Of: smithy.BlobType}, Traits: []smithy.Trait{trait("smithy.api#streaming", json.Object{Members: []json.Member{}})}, Keys: []smithy.Unread{}}
+	let meta = smithy.Shape{Id: "t#Meta", Kind: smithy.Mapping{Key: smithy.Member{Name: "key", Target: "smithy.api#String", Traits: []smithy.Trait{}}, Value: smithy.Member{Name: "value", Target: "smithy.api#String", Traits: []smithy.Trait{}}}, Traits: []smithy.Trait{}, Keys: []smithy.Unread{}}
+	smithy.Model{Version: "2.0", Metadata: json.Object{Members: []json.Member{}}, Shapes: []smithy.Shape{op, drawnStruct("t#In", im), drawnStruct("t#Out", drawnMembers(outs, false)), str, blob, meta}}
+}
+
+// GreedyLabelIsGreedy: the label a uri template writes as {Name+} is
+// planned greedy (its "/" stays a separator) and the others are not.
+test GreedyLabelIsGreedy {
+	let plan = try PlanOf(drawnModel([]int{0, 5}, []int{}), Provider{Package: "t", Runtime: "rt", RuntimeName: "rt", Service: "T", Operations: []string{"t#Op"}})
+	assert plan.Ops[0].In == []Field{Field{Name: "M0", Ty: TString, Where: AtLabel{Greedy: false}, Required: true}, Field{Name: "M1", Ty: TString, Where: AtLabel{Greedy: true}, Required: true}}
+}
+
+func unbound(m smithy.Member) bool {
+	for t in []string{"smithy.api#httpLabel", "smithy.api#httpQuery", "smithy.api#httpHeader", "smithy.api#httpPrefixHeaders", "smithy.api#httpPayload"} {
+		if has(m.Traits, t) {
+			return false
+		}
+	}
+	true
+}
