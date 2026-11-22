@@ -795,8 +795,7 @@ func (c *Cursor) Skip() {
 //
 //ergo:wait none
 func (c *Cursor) SkipText() string {
-	c.at()
-	c.ws()
+	c.at() // at passes the white space before the value
 	start := c.i
 	if c.check {
 		c.skipChecked()

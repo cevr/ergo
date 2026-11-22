@@ -102,9 +102,9 @@ func rawWant(v string) string {
 // It also runs std json's Raw laws (RawReadsOneValue, RawRoundTrips,
 // RawIsValue), restated over json's public names by the jsonrawlaws
 // probe. Mutants:
-// raw-skiptext-space (runtime SkipText keeps the white space before the
-// value), raw-eval-span (the evaluator's span), raw-escape-dropped
-// (WireWrite writes U+2028 as it is).
+// raw-skiptext-to-end (runtime SkipText gives the rest of the input),
+// raw-eval-span (the evaluator's span), raw-escape-dropped (WireWrite
+// writes U+2028 as it is), raw-own-write-dropped.
 //
 // It builds Go because the Raw read under test is the built Cursor's
 // SkipText and the codec functions the lowering makes for json's own
