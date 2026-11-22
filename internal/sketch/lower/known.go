@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -223,6 +224,32 @@ func plainSig(s *check.Signature) bool {
 	return s != nil && len(rowElems(s.Errors)) == 0 && len(rowElems(s.Uses)) == 0 && len(s.TParams) == 0 && len(s.Results) <= 1
 }
 
+// ownRows reports a row whose every element is a row parameter of g:
+// `needs R` or `fails E` with R and E g's own (KNOWN-VARIANT K1).
+func ownRows(r *check.Row, g *check.Func) bool {
+	for _, e := range rowElems(r) {
+		tp, ok := e.(*check.TypeParam)
+		if !ok || tp.Kind == check.KindType || !slices.Contains(g.Sig.TParams, tp) {
+			return false
+		}
+	}
+	return true
+}
+
+// rowPlainSig reports a callback signature of g that a known pure literal
+// fills plain (plainSig), its rows aside, which may hold only g's own row
+// parameters: `func(v T) U fails E needs R` (KNOWN-VARIANT K1). The rows
+// need no key of their own. A literal is known pure only when its own
+// checked rows are empty (pureLit), and Go erases row arguments (MONO1).
+// So the variant, which calls the literal directly with no environment and
+// no error, holds at every instance a known site reaches. The callee's own
+// failure and needs stay as its declaration states them: the variant
+// keeps the environment and the error result, which an empty row leaves
+// nil.
+func rowPlainSig(s *check.Signature, g *check.Func) bool {
+	return s != nil && ownRows(s.Errors, g) && ownRows(s.Uses, g) && len(s.TParams) == 0 && len(s.Results) <= 1
+}
+
 // paramVars are g's parameter objects in order, nil for an unnamed one.
 func paramVars(g *check.Func) []*check.Var {
 	var out []*check.Var
@@ -303,7 +330,9 @@ func (l *lowerer) knownBody(g *check.Func, closed bool) bool {
 	}
 	info := g.Pkg.Info
 	s := g.Sig
-	if len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 || l.hasGoRow(s) {
+	// A variant's needs may be its own row parameters, which its callbacks
+	// carry (rowPlainSig); a closed frame keeps an empty one.
+	if len(witnessParams(s)) > 0 || closed && len(rowElems(s.Uses)) > 0 || !ownRows(s.Uses, g) || l.hasGoRow(s) {
 		return false
 	}
 	fp, ok := info.Footprints[d]
@@ -323,7 +352,7 @@ func (l *lowerer) knownBody(g *check.Func, closed bool) bool {
 			// A non-escaping parameter lives no longer than the call
 			// (types.md, Function values 2): the checker's own guarantee
 			// that the plain literal is only called while the call runs.
-			if cb := s.Params[i].Type.(*check.Signature); !plainSig(cb) || !cb.NonEscaping {
+			if cb := s.Params[i].Type.(*check.Signature); !rowPlainSig(cb, g) || !cb.NonEscaping {
 				return false
 			}
 			if vars[i] != nil {
