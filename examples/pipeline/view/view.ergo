@@ -215,7 +215,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 		}
 		let busy = shows(&h, "took c1 at 1") && shows(&h, "running: "+name) && !shows(&h, "passed: "+name)
 		runner.Run.Release(func(id string, stage int, attempt int) bool fails pipeline.Offline { true })
-		let _ = pipeline.Settle(m) catch {
+		let _ = m.Settle() catch {
 		case pipeline.Unavailable:
 			return false
 		}

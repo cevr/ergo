@@ -331,10 +331,10 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 		case None:
 			clock.Advance(1h)
 		}
-		let _ = try Settle(m)
+		let _ = try m.Settle()
 	}
 	let d = m.h.desk.State().State
-	let v = Board(m)
+	let v = m.Board()
 	(d, v)
 }
 

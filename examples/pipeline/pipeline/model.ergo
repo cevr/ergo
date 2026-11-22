@@ -80,11 +80,11 @@ func endsWithItsOwner(c SubmitRun) bool fails domain.Conflict | domain.Reused | 
 // board. A first submit that is refused (the run exists) compares the
 // reads only.
 func sameWhileOpen(m Model, h Handle, once SubmitRun) bool {
-	let first = Submit(h, once) catch {
+	let first = h.Submit(once) catch {
 	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
 		return sameReads(m, h)
 	}
-	let again = Submit(m, once) catch {
+	let again = m.Submit(once) catch {
 	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
 		return false
 	}
@@ -93,21 +93,21 @@ func sameWhileOpen(m Model, h Handle, once SubmitRun) bool {
 
 // sameReads is whether m and h settle to one desk and read one board.
 func sameReads(m Model, h Handle) bool {
-	let byHandle = Settle(h) catch {
+	let byHandle = h.Settle() catch {
 	case Unavailable:
 		return false
 	}
-	let byModel = Settle(m) catch {
+	let byModel = m.Settle() catch {
 	case Unavailable:
 		return false
 	}
-	byHandle == byModel && Board(h) == Board(m)
+	byHandle == byModel && h.Board() == m.Board()
 }
 
 // unavailable is whether each command through h, and Settle, fails
 // Unavailable.
 func unavailable(h Handle, once SubmitRun) bool {
-	let _ = Submit(h, SubmitRun{..once, ID: once.ID + "+"}) catch {
+	let _ = h.Submit(SubmitRun{..once, ID: once.ID + "+"}) catch {
 	case Unavailable:
 		return cancelUnavailable(h, once)
 	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
@@ -117,7 +117,7 @@ func unavailable(h Handle, once SubmitRun) bool {
 }
 
 func cancelUnavailable(h Handle, once SubmitRun) bool {
-	let _ = Cancel(h, CancelRun{ID: once.ID + "-", Run: once.Run, Why: "closed"}) catch {
+	let _ = h.Cancel(CancelRun{ID: once.ID + "-", Run: once.Run, Why: "closed"}) catch {
 	case Unavailable:
 		return retryUnavailable(h, once)
 	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
@@ -127,7 +127,7 @@ func cancelUnavailable(h Handle, once SubmitRun) bool {
 }
 
 func retryUnavailable(h Handle, once SubmitRun) bool {
-	let _ = Retry(h, RetryRun{ID: once.ID + "*", Run: once.Run, Stage: 0}) catch {
+	let _ = h.Retry(RetryRun{ID: once.ID + "*", Run: once.Run, Stage: 0}) catch {
 	case Unavailable:
 		return settleUnavailable(h)
 	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
@@ -137,7 +137,7 @@ func retryUnavailable(h Handle, once SubmitRun) bool {
 }
 
 func settleUnavailable(h Handle) bool {
-	let _ = Settle(h) catch {
+	let _ = h.Settle() catch {
 	case Unavailable:
 		return true
 	}
@@ -207,23 +207,23 @@ func Settle(h Handle) Desk fails Unavailable {
 // The Model's operations are its Handle's.
 
 func Submit(m Model, c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	try Submit(m.h, c)
+	try m.h.Submit(c)
 }
 
 func Cancel(m Model, c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	try Cancel(m.h, c)
+	try m.h.Cancel(c)
 }
 
 func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	try Retry(m.h, c)
+	try m.h.Retry(c)
 }
 
-func Board(m Model) board.View { Board(m.h) }
+func Board(m Model) board.View { m.h.Board() }
 
-func RunOf(m Model, id string) run.Run fails NoSuchRun { try RunOf(m.h, id) }
+func RunOf(m Model, id string) run.Run fails NoSuchRun { try m.h.RunOf(id) }
 
 // Settle is Settle of the Model's Handle.
-func Settle(m Model) Desk fails Unavailable { try Settle(m.h) }
+func Settle(m Model) Desk fails Unavailable { try m.h.Settle() }
 
 // BoardFollowsTheLog: the board, a follower of the log, is the fold of
 // the desk's entries.

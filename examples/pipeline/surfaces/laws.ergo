@@ -60,7 +60,7 @@ func requests(acts []int) []Request {
 
 // settled is out with a line when m has stopped.
 func settled(out []string, m pipeline.Model) []string {
-	let _ = pipeline.Settle(m) catch {
+	let _ = m.Settle() catch {
 	case pipeline.Unavailable:
 		return out.Append("the context stopped")
 	}

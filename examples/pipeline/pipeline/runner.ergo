@@ -57,13 +57,13 @@ func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain
 		case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
 			return false
 		}
-		let _ = try Settle(m)
+		let _ = try m.Settle()
 		if i == 0 {
 			clock.Advance(part)
 		}
 	}
 	clock.Advance(wait - part)
-	let d = try Settle(m)
+	let d = try m.Settle()
 	match RunIn(BookOf(d), "build") {
 	case run.Done:
 		true
