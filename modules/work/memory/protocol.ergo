@@ -48,6 +48,10 @@ func Discard(w Watching, root string) fails work.Missing | work.CloneFailed { tr
 
 func Usage(w Watching, root string) work.Usage fails work.Unsupported | work.Missing | work.CloneFailed { try w.c.Usage(root) }
 
+func Free(w Watching, root string) int fails work.Unsupported | work.Missing | work.CloneFailed { try w.c.Free(root) }
+
+func Entries(w Watching, root string) int fails work.Missing | work.CloneFailed { try w.c.Entries(root) }
+
 // NoCopyUnderTheLock: new clones with the registry's lock free, for a
 // workspace of the base and one made on it.
 law NoCopyUnderTheLock(stack bool) {
