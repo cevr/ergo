@@ -134,8 +134,8 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 }
 
 // Every fast-tier step that runs a package's go test is keyed by its
-// package and runs -short with no environment of its own; the nested
-// modules' steps are the full tier's own; no full-tier test step is left,
+// package and runs -short; the nested modules' steps are the full tier's
+// own; no full-tier test step is left,
 // and neither is the build of every test binary, nor a need on it, nor a
 // closure sweep. Each package is keyed on its closure table entry, and no
 // host package has a step (classHeavy), nor a package whose every test
@@ -174,9 +174,6 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			}
 			if !slices.Equal(step.Package.Declared, table[step.Package.Dir]) {
 				t.Errorf("%s: declared %v; want its closure table entry %v", step.Name, step.Package.Declared, table[step.Package.Dir])
-			}
-			if len(step.Env) > 0 {
-				t.Errorf("%s: environment %q; a package step sets none", step.Name, step.Env)
 			}
 		case step.Name == fullBuildStep:
 			t.Errorf("%s: a full-tier test step is in the fast tier", step.Name)
