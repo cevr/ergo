@@ -729,9 +729,10 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
+func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool, ctl int) bool {
 	let mut ok = true
 	let mut under = off
+	let mut below = ctl
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
 	let typed = sent(ui.Handle(f, ui.Type[int]{Id: id, Text: "abc"}).Signal)
 	match ui.NodeOf(f, id) {
@@ -739,24 +740,38 @@ func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
 		match n.Value {
 		case ui.FieldsetNode as d:
 			under = off || d.Disabled
-			ok = pressed == -1 && typed == -1
+			ok = pressed == ctl && typed == -1
 		case ui.PressableNode[int] as p:
-			ok = pressed == p.On && typed == -1
+			below = if off { -1 } else { p.On }
+			ok = pressed == below && typed == -1
 		case ui.CheckNode[int] as c:
-			ok = pressed == c.On && typed == -1
+			below = if off { -1 } else { c.On }
+			ok = pressed == below && typed == -1
+		case ui.ToggleNode:
+			below = -1
+			ok = pressed == -1 && typed == -1
+		case ui.SemanticNode[int] as x:
+			match x.On {
+			case Some[int] as o:
+				below = if off || x.Access.Disabled { -1 } else { o.Value }
+				ok = pressed == below && typed == -1
+			case None:
+				ok = pressed == ctl && typed == -1
+			}
 		case ui.InputNode as i:
-			ok = i.Value == "v\(typed - 3)" && pressed == -1
+			if off {
+				ok = pressed == ctl && typed == -1
+			} else {
+				ok = pressed == ctl && i.Value == "v\(typed - 3)"
+			}
 		case _:
-			ok = pressed == -1 && typed == -1
-		}
-		if off {
-			ok = pressed == -1 && typed == -1
+			ok = pressed == ctl && typed == -1
 		}
 	case None:
 		return false
 	}
 	for k in ui.Kids(f, id) {
-		ok = ok && signalsAgree(f, k, under)
+		ok = ok && signalsAgree(f, k, under, below)
 	}
 	ok
 }
@@ -769,7 +784,7 @@ func lawPressGivesSignal(seed int) bool {
 	for _ in 0..3 {
 		let _ = pass(&f, ps, genState(&r))
 		for k in ui.Kids(&f, ui.Root(&f)) {
-			ok = ok && signalsAgree(&f, k, false)
+			ok = ok && signalsAgree(&f, k, false, -1)
 		}
 	}
 	ok
@@ -1892,7 +1907,7 @@ var stdUITreeStatements = map[string]string{
 	"ui IdempotentCommit":            `IdempotentCommit(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let s0 = genState(&r) let s1 = genState(&r) let _ = pass(&f, ps, s0) let _ = pass(&f, ps, s1) len(pass(&f, ps, s1)) == 0 }`,
 	"ui KeyedIdentity":               `KeyedIdentity(seed int, count int) { let mut r = seeded(seed) let mut xs = []int{} for i in 0..(count%12+12)%12+1 { xs = xs.Append(i * 7) } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, keyedRows, xs)) catch { case BadPatch: return false } let before = rowIds(&f, xs) for _ in 0..2 { let ys = shuffled(xs, &r) let ops = Render(&f, keyedRows, ys) Apply(&m, ops) catch { case BadPatch: return false } for op in ops { match op { case Move[int]: case _: return false } } let after = rowIds(&f, ys) if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) { return false } for x, ids in before { if after.Get(x) != (Some{Value: ids}) { return false } } } true }`,
 	"ui KeyedMovesFewest":            `KeyedMovesFewest(seed int, count int) { let mut r = seeded(seed) let mut xs = []int{} for i in 0..(count%12+12)%12+1 { xs = xs.Append(i) } let ys = shuffled(xs, &r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, keyedLines, xs)) catch { case BadPatch: return false } let ops = Render(&f, keyedLines, ys) Apply(&m, ops) catch { case BadPatch: return false } let mut moves = 0 for op in ops { match op { case Move[int]: moves = moves + 1 case _: return false } } SameShapes(MirrorShape(&m), FrameShape(&f)) && moves == len(ys)-longestRise(ys) }`,
-	"ui PressGivesSignal":            `PressGivesSignal(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut ok = true for _ in 0..3 { let _ = pass(&f, ps, genState(&r)) for k in Kids(&f, Root(&f)) { ok = ok && signalsAgree(&f, k, false) } } ok }`,
+	"ui PressGivesSignal":            `PressGivesSignal(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut ok = true for _ in 0..3 { let _ = pass(&f, ps, genState(&r)) for k in Kids(&f, Root(&f)) { ok = ok && signalsAgree(&f, k, false, -1) } } ok }`,
 	"ui LocatorAgreesWithAccessTree": `LocatorAgreesWithAccessTree(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for _ in 0..3 { let s = genState(&r) let ops = Render(&f, func(g mut Frame[int], st []int) { for p in ps { render(g, p, st, 0) catch { case Missing: Unreachable("ui laws: a read is drawn only under a boundary") case Pending: Unreachable("ui laws: a read is drawn only under a boundary") } } extras(g, st[0]) }, s) Apply(&m, ops) catch { case BadPatch: return false } let mut shapes = models(ps, s, 0) for x in extraShapes(s[0]) { shapes = shapes.Append(x) } let want = accessModel(shapes, false, "") let mut locs = []Locator{} for role in extraRoles() { locs = locs.Append(WithRole{Role: role, Name: ""}) } let w = want[draw(&r, len(want))] locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name}) locs = locs.Append(WithLabel{Label: w.a.Name}) locs = locs.Append(WithPlaceholder{Text: w.a.Name}) locs = locs.Append(WithText{Text: w.a.Name}) locs = locs.Append(WithLabel{Label: extraLabel(s[0]).Text}) locs = locs.Append(WithPlaceholder{Text: "ph\(s[0] % 2)"}) for loc in locs { let mut model = []seen{} for x in want { if wants(loc, x) { model = model.Append(x) } } let got = LocateIn(&m, loc) if len(got) != len(model) { return false } for i, id in got { if AccessOf(&m, id) != model[i].a { return false } } if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) { return false } if len(model) > 0 { let x = model[0] let checked = x.a.Checked == (Some{Value: true}) let unchecked = x.a.Checked == (Some{Value: false}) if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked || matches(&m, loc, ToBeInvalid) != x.a.Invalid { return false } if !matches(&m, loc, ToHaveDescription{Text: x.a.Description}) || matches(&m, loc, ToHaveDescription{Text: x.a.Description + "!"}) { return false } if !matches(&m, loc, ToContainText{Text: x.text}) || !matches(&m, loc, ToContainText{Text: ""}) || matches(&m, loc, ToContainText{Text: x.text + "!"}) { return false } match x.a.Value { case Some[string] as v: if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) { return false } case None: if matches(&m, loc, ToHaveValue{Value: ""}) { return false } } } } } true }`,
 	"ui ActsReadAsWritten":           `ActsReadAsWritten(seed int) { let mut r = seeded(seed) let labels = []string{"inc", "by 5", "say \"hi\"", "a\\b", "名前", ""} let mut want = []string{} let t = json.NewText() let n = draw(&r, 8) t.BeginList(n) for _ in 0..n { let label = labels[draw(&r, len(labels))] let k = draw(&r, 6) t.BeginObject(1) if k == 0 { t.Key("tap") t.String(label) want = want.Append(actWhole(TapOn{Label: label})) } else if k == 1 { let text = labels[draw(&r, len(labels))] t.Key("type") t.BeginList(2) t.String(label) t.String(text) t.EndList() want = want.Append(actWhole(TypeInto{Label: label, Text: text})) } else if k == 2 { t.Key("key") t.String(label) want = want.Append(actWhole(KeyIn{Press: KeyPress{Name: label, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}})) } else if k == 3 { t.Key("settle") t.Bool(true) want = want.Append(actWhole(SettleAll)) } else if k == 4 { let ms = draw(&r, 5000) t.Key("advance") t.Int(int64(ms)) want = want.Append(actWhole(AdvanceBy{By: duration(int64(ms) * int64(1000000))})) } else { let offset = float64(draw(&r, 400)) / 4.0 let height = float64(draw(&r, 400) + 1) t.Key("scroll") t.BeginList(3) t.String(label) t.Float(offset) t.Float(height) t.EndList() want = want.Append(actWhole(ScrollOn{Label: label, Offset: Length(offset), Height: Length(height)})) } t.EndObject() } t.EndList() let got = ParseActs(t.Written()) catch { case BadScript: return false } if len(got) != len(want) { return false } for i, a in got { if actWhole(a) != want[i] { return false } } true }`,
 	"ui TreeAgreesWithLocate":        `TreeAgreesWithLocate(seed int) { let mut r = seeded(seed) let ps = genRoot(&r) let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for _ in 0..3 { let s = genState(&r) let ops = Render(&f, func(g mut Frame[int], st []int) { for p in ps { render(g, p, st, 0) catch { case Missing: Unreachable("ui laws: a read is drawn only under a boundary") case Pending: Unreachable("ui laws: a read is drawn only under a boundary") } } extras(g, st[0]) }, s) Apply(&m, ops) catch { case BadPatch: return false } let mut shapes = models(ps, s, 0) for x in extraShapes(s[0]) { shapes = shapes.Append(x) } let mut want = []seen{} for x in accessModel(shapes, false, "") { match x.a.Role { case Generic: case _: want = want.Append(x) } } // The host's boxes: each node a role finds, the k-th of its role at // x = k, y = the role's name's length. let mut boxes = Map[Id[int], Rect]{} let mut ids = []Id[int]{} let mut taken = Map[string, int]{} for x in want { let role = RoleName(x.a.Role) let k = match taken.Get(role) { case Some[int] as n: n.Value case None: 0 } taken[role] = k + 1 let found = LocateIn(&m, WithRole{Role: x.a.Role, Name: ""}) if k >= len(found) { return false } ids = ids.Append(found[k]) boxes[found[k]] = Rect{X: Length(float64(k)), Y: Length(float64(len(role))), W: 1, H: 1} } let tree = TreeOf(&m, boxes) if len(tree) != len(want) { return false } for i, e in tree { let a = AccessOf(&m, ids[i]) if e.Role != RoleName(want[i].a.Role) || e.Name != a.Name || a != want[i].a || strings.Join(e.States, ",") != strings.Join(StatesOf(a), ",") { return false } // The states the model screen's access has, as ARIA names them. let states = "," + strings.Join(e.States, ",") + "," let checked = match a.Checked { case Some[bool] as c: if c.Value { ",checked," } else { ",unchecked," } case None: "" } let value = match a.Value { case Some[string] as v: ",value=\(v.Value)," case None: "" } if strings.Contains(states, ",disabled,") != a.Disabled || strings.Contains(states, ",invalid,") != a.Invalid || checked != "" && !strings.Contains(states, checked) || checked == "" && (strings.Contains(states, ",checked,") || strings.Contains(states, ",unchecked,")) || value != "" && !strings.Contains(states, value) { return false } match (e.Box, boxes.Get(ids[i])) { case (Some[Rect] as b, Some[Rect] as w): if b.Value != w.Value { return false } case _: return false } let line = TreeLine(e) if !strings.HasPrefix(line, "{\"role\":\"\(e.Role)\",\"name\":") || !strings.Contains(line, ",\"states\":[") || !strings.Contains(line, ",\"box\":[") { return false } } } true }`,

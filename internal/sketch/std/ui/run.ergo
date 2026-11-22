@@ -22,10 +22,13 @@ import queue
 // Type is an Edit with both at the end of the text.
 type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Edit{Id Id[E], Text string, Caret int, Anchor int} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
 
-// PressGivesSignal: a press of a Pressable or a Check sends its On, a
-// text into an Input sends the Input's signal, and any other node sends
-// nothing, after every commit of a run; under a disabled Fieldset no
-// node sends anything (H4r).
+// PressGivesSignal: a press of a Pressable or a Check sends its On, and
+// a press of any other node sends the On of the nearest of those above it
+// (pressTarget), or nothing; a text into an Input sends the Input's
+// signal, and into any other node nothing; after every commit of a run.
+// Under a disabled Fieldset a node's own press and text send nothing,
+// while a press that reaches a control above the Fieldset sends its On
+// (H4r).
 law PressGivesSignal(seed int) {
 	let mut r = seeded(seed)
 	let ps = genRoot(&r)
@@ -34,7 +37,7 @@ law PressGivesSignal(seed int) {
 	for _ in 0..3 {
 		let _ = pass(&f, ps, genState(&r))
 		for k in Kids(&f, Root(&f)) {
-			ok = ok && signalsAgree(&f, k, false)
+			ok = ok && signalsAgree(&f, k, false, -1)
 		}
 	}
 	ok
@@ -51,9 +54,14 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f mut Frame[int], id Id[int], off bool) bool {
+// signalsAgree is whether a press and a text on id and each node under it
+// send what PressGivesSignal says: ctl is the signal of the nearest
+// control above id (-1 for none, or for a control under a disabled
+// Fieldset), and off whether id is under a disabled Fieldset.
+func signalsAgree(f mut Frame[int], id Id[int], off bool, ctl int) bool {
 	let mut ok = true
 	let mut under = off
+	let mut below = ctl
 	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
 	let typed = sent(Handle(f, Type[int]{Id: id, Text: "abc"}).Signal)
 	match NodeOf(f, id) {
@@ -61,24 +69,38 @@ func signalsAgree(f mut Frame[int], id Id[int], off bool) bool {
 		match n.Value {
 		case FieldsetNode as d:
 			under = off || d.Disabled
-			ok = pressed == -1 && typed == -1
+			ok = pressed == ctl && typed == -1
 		case PressableNode[int] as p:
-			ok = pressed == p.On && typed == -1
+			below = if off { -1 } else { p.On }
+			ok = pressed == below && typed == -1
 		case CheckNode[int] as c:
-			ok = pressed == c.On && typed == -1
+			below = if off { -1 } else { c.On }
+			ok = pressed == below && typed == -1
+		case ToggleNode:
+			below = -1
+			ok = pressed == -1 && typed == -1
+		case SemanticNode[int] as x:
+			match x.On {
+			case Some[int] as o:
+				below = if off || x.Access.Disabled { -1 } else { o.Value }
+				ok = pressed == below && typed == -1
+			case None:
+				ok = pressed == ctl && typed == -1
+			}
 		case InputNode as i:
-			ok = i.Value == "v\(typed - 3)" && pressed == -1
+			if off {
+				ok = pressed == ctl && typed == -1
+			} else {
+				ok = pressed == ctl && i.Value == "v\(typed - 3)"
+			}
 		case _:
-			ok = pressed == -1 && typed == -1
-		}
-		if off {
-			ok = pressed == -1 && typed == -1
+			ok = pressed == ctl && typed == -1
 		}
 	case None:
 		return false
 	}
 	for k in Kids(f, id) {
-		ok = ok && signalsAgree(f, k, under)
+		ok = ok && signalsAgree(f, k, under, below)
 	}
 	ok
 }
