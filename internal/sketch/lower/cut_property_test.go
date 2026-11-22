@@ -47,8 +47,15 @@ func cutSeeds() []uint64 {
 	if *cutSeed != 0 {
 		return []uint64{*cutSeed}
 	}
-	return []uint64{1, 2, 3}
+	out := []uint64{}
+	for s := uint64(1); s <= uint64(max(*cutSeedCount, 1)); s++ {
+		out = append(out, s)
+	}
+	return out
 }
+
+// cutSeedCount is the seed count a receipt widens (-cut.seeds=50).
+var cutSeedCount = flag.Int("cut.seeds", 3, "run TestCut* on seeds 1..N")
 
 var cutShapes = []string{"own", "ownbox", "ownlive", "ownkept", "fresh", "root", "shared"}
 
@@ -74,7 +81,7 @@ func cutProgram(seed uint64) (src string, names, shapes []string) {
 		name := fmt.Sprintf("cut%d", k)
 		names = append(names, name)
 		a, b, c := 1+r.IntN(9), 10+r.IntN(9), 20+r.IntN(9)
-		n := 2 + r.IntN(5)
+		n := 3 + r.IntN(4) // 3 pushes from empty reach the room branch under the rule
 		switch shape {
 		case "own":
 			fmt.Fprintf(&fns, "func %s(xs []int, x int) []int {\n\tlet n = len(xs)\n\tif n < room(xs) {\n\t\tlet mut ys = xs[0:n + 1]\n\t\tys[n] = x\n\t\tys\n\t} else {\n\t\tlet mut ys = MakeSlice[int](2 * n + 1)[0:n + 1]\n\t\tlet _ = copyInto(&ys, xs)\n\t\tys[n] = x\n\t\tys\n\t}\n}\n\n", name)
@@ -118,6 +125,28 @@ func cutLower(t *testing.T, name, src string, ref bool) *lowered {
 	if ref {
 		cutLowering = "copy"
 	}
+	return mustLower(t, name, src)
+}
+
+// cutNoRoom is src with room, Go's cap, replaced by a function that
+// answers 0: every push takes its copy branch.
+func cutNoRoom(src string) string {
+	const ext = "extern go cap func room[T](xs []T) int\n"
+	if !strings.Contains(src, ext) {
+		panic("cutNoRoom: the program declares no room")
+	}
+	return strings.Replace(src, ext, "func room[T](xs []T) int {\n\tlen(xs) - len(xs)\n}\n", 1)
+}
+
+// cutLowerCopying is src lowered under the copying value rule
+// (valueLowering "copy"), the reference that owns nothing and copies
+// every shared value: TestCutAgrees's second reference, since the cut
+// reference keeps every other owned form of main's rule.
+func cutLowerCopying(t *testing.T, name, src string) *lowered {
+	t.Helper()
+	keep := valueLowering
+	defer func() { valueLowering = keep }()
+	valueLowering = "copy"
 	return mustLower(t, name, src)
 }
 
@@ -235,18 +264,30 @@ func TestCutKeepsUniqueness(t *testing.T) {
 	}
 }
 
-// TestCutAgrees runs each seed's program on the text path under the rule
-// and the reference, and on the IR through ergo run: all three print the
-// same lines.
+// TestCutAgrees runs each seed's program on the text path under the rule,
+// the cut reference and the copying value rule, under the rule again with
+// a room that is always 0 (cutNoRoom), and on the IR through ergo run:
+// all five print the same lines.
+//
+// The pushes branch on cap, which the spec leaves unspecified
+// (interop.md, Go builtins 13): two builds may give one slice different
+// room and so take different branches (r1's seed 1: the cut reference
+// reserved room for src3 and took the in-place branch, the copying rule
+// did not and took the copy branch, which shared each Box's S through Go's
+// copy; COPY-ELEMS). So agreement is not left to which branch each build
+// happens to take: the no-room run takes the copy branch at every push,
+// and under the rule each push loop from empty (3 pushes or more) reaches
+// the in-place branch, whose room the rule's fresh cut of MakeSlice keeps.
+// Every branch must print the same.
 //
 // It builds Go because the question is what the programs print at run
 // time, which only a run shows; the IR's run needs ergo's IR compiler.
 func TestCutAgrees(t *testing.T) {
 	needsBuild(t)
 	type run struct {
-		seed      uint64
-		src       string
-		rule, ref *lowered
+		seed                  uint64
+		src                   string
+		rule, ref, cpy, nocap *lowered
 	}
 	var runs []run
 	var programs []*lowered
@@ -254,8 +295,10 @@ func TestCutAgrees(t *testing.T) {
 		src, _, _ := cutProgram(seed)
 		rule := cutLower(t, fmt.Sprintf("cut%d", seed), src, false)
 		ref := cutLower(t, fmt.Sprintf("cut%dref", seed), src, true)
-		runs = append(runs, run{seed, src, rule, ref})
-		programs = append(programs, rule, ref)
+		cpy := cutLowerCopying(t, fmt.Sprintf("cut%dcopy", seed), src)
+		nocap := cutLower(t, fmt.Sprintf("cut%dnocap", seed), cutNoRoom(src), false)
+		runs = append(runs, run{seed, src, rule, ref, cpy, nocap})
+		programs = append(programs, rule, ref, cpy, nocap)
 	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
@@ -267,6 +310,12 @@ func TestCutAgrees(t *testing.T) {
 		want, werr, wcode := runExe(t, exes[r.ref.name])
 		if got != want || gcode != wcode || gcode != 0 {
 			t.Errorf("seed %d: the rule and the reference differ\n--- rule (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s\n--- diff\n%s\n%s", r.seed, gcode, got, gerr, wcode, want, werr, diffLines(got, want), replay)
+		}
+		if cp, cerr, ccode := runExe(t, exes[r.cpy.name]); cp != want || ccode != wcode {
+			t.Errorf("seed %d: the copying value rule and the reference differ\n--- copying (exit %d)\n%s%s\n--- reference\n%s\n--- diff\n%s\n%s", r.seed, ccode, cp, cerr, want, diffLines(cp, want), replay)
+		}
+		if nc, nerr, ncode := runExe(t, exes[r.nocap.name]); nc != want || ncode != wcode {
+			t.Errorf("seed %d: the rule with no room (the copy branch everywhere) and the reference differ\n--- no room (exit %d)\n%s%s\n--- reference\n%s\n--- diff\n%s\n%s", r.seed, ncode, nc, nerr, want, diffLines(nc, want), replay)
 		}
 		ir, err := ergoRun(t, r.src)
 		if err != nil || ir != want {
