@@ -3,7 +3,7 @@ package lower
 // IR builder: std results the emitter adapts (stdResult, std.go;
 // ADAPTED-RESULTS). The first shape: an operation whose runtime method
 // returns Go's comma-ok (T, bool), the Go form of the prelude's Option[T]
-// (stdlib.md, Types 5; queue.Queue's Poll). The emitter calls it inside a
+// (stdlib.md, v1 packages, item 5 of its Types; queue.Queue's Poll). The emitter calls it inside a
 // function literal called where it is made, returning Some of the value
 // when ok, else None (optionReturn). The IR binds both results and builds
 // the Option in a local, as go.As does (ir_golib.go): None, then Some of
@@ -39,10 +39,15 @@ import (
 // value is, None unless ok.
 func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos) ([]*irStmt, *irExpr, bool) {
 	t := b.l.info.Types[x]
-	if !isPreludeType(t, "Option") || failsHere(c) {
+	if !isOptionType(t) || failsHere(c) { // gocall.go
 		irNo("std call with an adapted result")
 	}
 	some, _ := optionVariants(t, x)
+	// Some's one field, the payload, by its declaration (ADT-NOPRIV).
+	st, ok := some.Underlying().(*check.Struct)
+	if !ok || len(st.Fields) != 1 {
+		ice(x, "the prelude's Some is not a record of one field")
+	}
 	elem := t.(*check.Named).TArgs[0]
 	goElem := b.recvTypeArgs(n, body.Results[0])
 	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, nil, body.Package) {
@@ -67,7 +72,7 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 	call := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	res := b.temp("opt", b.goType(t, x), p)
 	v, ok := b.temp("v", b.goType(elem, x), p), b.temp("ok", "bool", p)
-	lit := &irExpr{K: "lit", Pos: p, T: b.goType(some, x), Keys: []string{memberName("Value")}, Elems: []*irExpr{{K: "local", Pos: p, I: v}}}
+	lit := &irExpr{K: "lit", Pos: p, T: b.goType(some, x), Keys: []string{memberName(st.Fields[0].Name)}, Elems: []*irExpr{{K: "local", Pos: p, I: v}}}
 	pre = append(pre,
 		&irStmt{K: "def", Pos: p, Local: res, X: b.machineNone(t, p, x)}, // ir_machine.go
 		&irStmt{K: "tdef", Pos: p, X: call, Ls: []int{v, ok}},
