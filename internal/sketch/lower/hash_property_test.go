@@ -1,9 +1,13 @@
 package lower
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,9 +82,9 @@ test V {
 // types.md, Maps): on each seed's keys, hash through a Hashing provider
 // gives equal keys one hash and a Map keyed through the provider counts
 // as the model does, at check time and in the test build lowered three
-// ways: the IR (LowerIRTests), the emitter (LowerTests, the fallback of a
-// body the IR does not take, and every body of a census), and the
-// emitter under the reference lowerings. Before the emitter lowered
+// ways: the IR (ergo test --native), the emitter (LowerTests, the
+// fallback of a body the IR does not take, and every body of a census),
+// and the emitter under the reference lowerings. Before the emitter lowered
 // check.CallHash, its builds were an internal compiler error ("an unknown
 // call kind"; examples/triage). A failing seed prints its source, the
 // verdicts and the replay command.
@@ -114,14 +118,6 @@ func TestHashThroughProviderAgrees(t *testing.T) {
 			t.Fatal(err)
 		}
 		builds = append(builds, ref)
-		ir := &lowered{name: fmt.Sprintf("hash_%d_ir", seed), src: src}
-		u := checkPackage(t, "main", []pkgSource{{testSourcePath, src}}, nil)
-		files, _, err := LowerIRTests(u)
-		if err != nil {
-			t.Fatalf("seed %d: the IR test build: %v\n%s", seed, err, src)
-		}
-		ir.files = files
-		builds = append(builds, ir)
 	}
 	exes := buildAll(t, builds, true)
 	if exes == nil {
@@ -133,11 +129,27 @@ func TestHashThroughProviderAgrees(t *testing.T) {
 			t.Helper()
 			t.Errorf("seed %d: %s\n%s\nreplay: ERGO_HASH_SEED=%d go test -run '^TestHashThroughProviderAgrees$' ./internal/sketch/lower", seed, fmt.Sprintf(format, args...), src, seed)
 		}
-		for _, way := range []string{"", "_ref", "_ir"} {
+		for _, way := range []string{"", "_ref"} {
 			stdout, stderr, _ := runExeArgs(t, exes[fmt.Sprintf("hash_%d%s", seed, way)])
 			if got := nativeVerdict(stdout); got != "passed" {
-				fail("the test build%s says %s:\n%s\n%s", way, got, stdout, firstLines(stderr, 6))
+				fail("the emitter's test build%s says %s:\n%s\n%s", way, got, stdout, firstLines(stderr, 6))
 			}
+		}
+		// The IR: ergo test --native builds the test through the IR, as
+		// examples/triage's is.
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "hash.ergo"), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(ergoCLI(t), "test", dir, "--native")
+		cmd.Dir = dir
+		var out bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &out
+		_ = runProgram(t, cmd)
+		if !slices.ContainsFunc(lines(out.String()), func(l string) bool {
+			return (l == "ok V" || strings.HasPrefix(l, "ok V ")) && !strings.Contains(l, "(evaluated)")
+		}) {
+			fail("ergo test --native (the IR) does not pass V natively:\n%s", withoutBuildNote(out.Bytes()))
 		}
 		rep, err := evaluate(src)
 		if err != nil {
