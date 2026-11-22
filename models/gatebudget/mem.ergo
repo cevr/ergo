@@ -27,7 +27,7 @@
 //   - K: a crit runner of width 1, real peaks 1, 2 (a short run, then a
 //     full one that needs MDefault).
 // A holder first reaches its real peak (Grow), then ends (End). There is
-// no load gate: the order, head of line and the lane share are
+// no load gate: the order, the bounded pass and the lane share are
 // cores.ergo's.
 //
 // The invariants (laws of MemBudget, each `always`):
@@ -51,6 +51,8 @@
 //   - LastPeak: the recorded peak is the last run's, not the largest: G's
 //     light run shrinks it, and G's next heavy run is killed within a peak
 //     it already reached (KilledPastOwnPeak).
+//   - PassFitsCoresOnly: a pass past a blocked head (cores.ergo's
+//     bounded backfill) checks cores alone (WithinMemory).
 //   - CapAtPeak: a known command is capped at its recorded peak alone, so
 //     K's full run is killed at MDefault after its short run recorded 1
 //     (NotKilledBelowDefault); 28a172227 did this.
@@ -74,6 +76,7 @@ let ByCoresMutant = 1
 let LastPeakMutant = 2
 let CapUnknownMutant = 3
 let CapAtPeakMutant = 4
+let PassFitsCoresOnlyMutant = 5
 
 // Mems is a world of this model: per runner (Q, G, K) its step, its
 // finished runs, its ticket, the reservation it holds, its real use once
@@ -89,6 +92,8 @@ type Mems {
 	Use         []int,
 	Peak        []int,
 	MaxSeen     []int,
+	MPasses     []int,
+	MPassed     bool,
 	Passed      bool,
 	UnknownKill bool,
 	EarlyKill   bool,
@@ -101,7 +106,7 @@ type Mems {
 
 func memWorld() Mems {
 	Mems{Pc: []int{0, 0, 0}, Done: []int{0, 0, 0}, Ticket: []int{-1, -1, -1}, NextTicket: 0,
-		Held: []int{0, 0, 0}, Use: []int{0, 0, 0}, Peak: []int{0, 0, 0}, MaxSeen: []int{0, 0, 0},
+		Held: []int{0, 0, 0}, Use: []int{0, 0, 0}, Peak: []int{0, 0, 0}, MaxSeen: []int{0, 0, 0}, MPasses: []int{0, 0, 0}, MPassed: false,
 		Passed: false, UnknownKill: false, EarlyKill: false, LowKill: false, MemWaits: false, OwnKill: false, SliceKill: false, RaisedWait: false}
 }
 
@@ -248,16 +253,49 @@ func mBreaksOrder(c Mems, r int) bool {
 	return false
 }
 
+// mPassBy is the oldest waiter other than h that fits, -1 for none; under
+// PassFitsCoresOnly it is judged by cores alone.
+func mPassBy(m int, c Mems, h int) int {
+	let mut best = -1
+	for r in all3() {
+		let mut ok = mFits(m, c, r)
+		if m == PassFitsCoresOnlyMutant {
+			ok = coresFit(c, r)
+		}
+		if r != h && c.Pc[r] == Waiting && ok && (best == -1 || c.Ticket[r] < c.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+// mHandOn is cores.ergo's handOn, with memory: the next waiter takes
+// while it fits; when it does not, the oldest waiter that fits takes past
+// it, at most MaxPass times for one head.
 func mHandOn(m int, c0 Mems) Mems {
 	let mut c = c0
 	for _ in all3() {
-		let to = mNext(c)
-		if to == -1 || !mFits(m, c, to) {
+		let h = mNext(c)
+		if h == -1 {
 			return c
 		}
-		if mBreaksOrder(c, to) {
-			c.Passed = true
+		let mut to = h
+		if !mFits(m, c, h) {
+			if c.MPasses[h] >= MaxPass {
+				return c
+			}
+			to = mPassBy(m, c, h)
+			if to == -1 {
+				return c
+			}
+			c.MPasses[h] = c.MPasses[h] + 1
+			c.MPassed = true
+		} else {
+			if mBreaksOrder(c, to) {
+				c.Passed = true
+			}
 		}
+		c.MPasses[to] = 0
 		c.Pc[to] = Holding
 		c.Ticket[to] = -1
 		c.Held[to] = resOf(c, to)
@@ -357,6 +395,9 @@ func byCores(c Mems, a MemAct) Decision[Mems, string]    { memWith(ByCoresMutant
 func lastPeak(c Mems, a MemAct) Decision[Mems, string]   { memWith(LastPeakMutant, c, a) }
 func capUnknown(c Mems, a MemAct) Decision[Mems, string] { memWith(CapUnknownMutant, c, a) }
 func capAtPeak(c Mems, a MemAct) Decision[Mems, string]  { memWith(CapAtPeakMutant, c, a) }
+func passFitsCoresOnly(c Mems, a MemAct) Decision[Mems, string] {
+	memWith(PassFitsCoresOnlyMutant, c, a)
+}
 
 func withinMemory(c Mems) bool     { mMem(c) <= MM }
 func realWithinMemory(c Mems) bool { mReal(c) <= MM }
@@ -383,6 +424,7 @@ func memWaits(c Mems) bool      { c.MemWaits }
 func ownKill(c Mems) bool       { c.OwnKill }
 func sliceKill(c Mems) bool     { c.SliceKill }
 func raisedWait(c Mems) bool    { c.RaisedWait }
+func mPassed(c Mems) bool       { c.MPassed }
 
 type MemBudget machine[Mems, MemAct] {
 	initial: memWorld(),
@@ -401,6 +443,7 @@ type MemBudget machine[Mems, MemAct] {
 	law KilledPastItsPeak sometimes ownKill,
 	law SliceKillsUnknown sometimes sliceKill,
 	law RaisedReservationWaits sometimes raisedWait,
+	law PassesOnMemory sometimes mPassed,
 }
 
 type ByCores machine[Mems, MemAct] {
@@ -429,4 +472,11 @@ type CapAtPeak machine[Mems, MemAct] {
 	step:    capAtPeak,
 
 	law Breaks sometimes killedLow,
+}
+
+type PassFitsCoresOnly machine[Mems, MemAct] {
+	initial: memWorld(),
+	step:    passFitsCoresOnly,
+
+	law Breaks sometimes overMemory,
 }

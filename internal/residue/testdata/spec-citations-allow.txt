@@ -1,0 +1,56 @@
+# Source citations of a docs/spec item that does not exist:
+# file<TAB>citation<TAB>the spec file's rewrite unit, which fixes the
+# citation or restores the item. TestSpecCitationsResolve. The list is
+# exact: it only shrinks.
+benchmarks/level/cmd/level/main.ergo	types.md, Numeric types 5	SPEC-TYPES
+compiler/check/types/elide.ergo	grammar.md, Patterns 6	SPEC-GRAMMAR-DIAG
+examples/pairing/pair/flow.ergo	rows.md, Tail results 3	SPEC-ROWS-RES
+examples/regex/syntax/capture.ergo	patterns.md, Shapes 4	SPEC-INTEROP-SMALL
+internal/sketch/check/capture_test.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/check/context.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/check/context_local_test.go	rows.md, Composition law 9	SPEC-ROWS-RES
+internal/sketch/check/decl.go	grammar.md, Lexical 6	SPEC-GRAMMAR-DIAG
+internal/sketch/check/expr.go	grammar.md, Lexical 5	SPEC-GRAMMAR-DIAG
+internal/sketch/check/expr.go	interop.md, Errors 1	SPEC-INTEROP-SMALL
+internal/sketch/check/expr.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/check/expr.go	rows.md, Inference 6	SPEC-ROWS-RES
+internal/sketch/check/import_go_test.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/check/laws.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/check/literal_refs_test.go	rows.md, Inference 6	SPEC-ROWS-RES
+internal/sketch/check/selfcall_work_test.go	rows.md, Inference 6	SPEC-ROWS-RES
+internal/sketch/check/stage_d1_r5_test.go	rows.md, Inference 6	SPEC-ROWS-RES
+internal/sketch/check/stmt.go	rows.md, Tail results 3	SPEC-ROWS-RES
+internal/sketch/check/typeops.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/check/types.go	rows.md, Inference 6	SPEC-ROWS-RES
+internal/sketch/eval/effects_test.go	resources.md, What a with acquires 1	SPEC-ROWS-RES
+internal/sketch/eval/releases_test.go	resources.md, What a with acquires 1	SPEC-ROWS-RES
+internal/sketch/lower/calls.go	rows.md, Rows 7	SPEC-ROWS-RES
+internal/sketch/lower/defaults_ir_property_test.go	types.md, Defaults 3	SPEC-TYPES
+internal/sketch/lower/layout.go	interop.md, Limits 5	SPEC-INTEROP-SMALL
+internal/sketch/lower/library.go	rows.md, Entry 4	SPEC-ROWS-RES
+internal/sketch/lower/module.go	rows.md, Rows 7	SPEC-ROWS-RES
+internal/sketch/lower/std.go	rows.md, Rows 7	SPEC-ROWS-RES
+internal/sketch/lower/std_keys_test.go	stdlib.md, Types 4	SPEC-STDLIB
+internal/sketch/lower/std_queue_poll_test.go	stdlib.md, Types 5	SPEC-STDLIB
+internal/sketch/lower/types.go	rows.md, Rows 7	SPEC-ROWS-RES
+internal/sketch/std/base64/base64.ergo	types.md, Strings 1	SPEC-TYPES
+internal/sketch/std/crc32/crc32.ergo	types.md, Strings 1	SPEC-TYPES
+internal/sketch/std/journal/memory/memory.ergo	types.md, Values 1	SPEC-TYPES
+internal/sketch/std/slices/slices.ergo	stdlib.md, Slices and Maps 8	SPEC-STDLIB
+internal/sketch/stdlib/std_test.go	stdlib.md, Types 2	SPEC-STDLIB
+internal/sketch/stdlib/std_test.go	stdlib.md, Types 5	SPEC-STDLIB
+runtime/v1/collections_test.go	stdlib.md, Slices and Maps 4	SPEC-STDLIB
+runtime/v1/digest/digest.go	stdlib.md, Types 4	SPEC-STDLIB
+runtime/v1/digest/digest.go	types.md, Strings 1	SPEC-TYPES
+runtime/v1/exec/exec_spawn_other.go	stdlib.md, Detached start 4	SPEC-STDLIB
+runtime/v1/files.go	stdlib.md, Types 2	SPEC-STDLIB
+runtime/v1/heap.go	runtime.md, Entry 6	SPEC-RUNTIME
+runtime/v1/host.go	stdlib.md, Types 4	SPEC-STDLIB
+runtime/v1/json_append.go	types.md, Strings 1	SPEC-TYPES
+runtime/v1/path.go	stdlib.md, Types 4	SPEC-STDLIB
+runtime/v1/queue.go	stdlib.md, Types 3	SPEC-STDLIB
+runtime/v1/queue.go	stdlib.md, Types 5	SPEC-STDLIB
+runtime/v1/task.go	stdlib.md, Types 4	SPEC-STDLIB
+runtime/v1/text.go	stdlib.md, Types 4	SPEC-STDLIB
+runtime/v1/time.go	stdlib.md, Types 4	SPEC-STDLIB
+scripts/specrefs/specrefs_test.go	interop.md, Levels 9	SPEC-INTEROP-SMALL
