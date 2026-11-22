@@ -5,21 +5,43 @@
 //
 //	writerbench bench KIND N
 //
-// KIND record: a record written as JSON N times; KIND list: a list of
-// four records written N times. Each write makes a json.Text and encodes
-// by put, whose writer is the Writer interface, so the encoder that runs
-// is the interface one (ergoEncode*), not the direct one json.Encode
-// takes. One unit is one write.
+// KIND record: a record written N times; KIND list: a list of four
+// records written N times. Each write encodes by put, whose writer is the
+// Writer interface, so the encoder that runs is the interface one
+// (ergoEncode*), not a direct one. The writer is sizer, which adds up the
+// size each event would take as JSON text, so the work counted is the
+// encoder's and its interface calls, not a format's. One unit is one
+// write.
 
-import json
 import os
 import strconv
+import sync
 
 type box { Label string, Count int, Tags []string, Weight float64 }
 
 let one = box{Label: "crate", Count: 12, Tags: []string{"wood", "heavy"}, Weight: 30.5}
 
 let four = []box{one, one, one, one}
+
+// sizer adds up the size of the events written to it.
+type sizer { n sync.Ref[int] } implements Writer
+
+func add(s sizer, k int) { s.n.Set(s.n.Get() + k) }
+
+func Null(s sizer)                  { add(s, 4) }
+func Number(s sizer, text string)   { add(s, len(text)) }
+func Bool(s sizer, b bool)          { add(s, if b { 4 } else { 5 }) }
+func Int(s sizer, n int64)          { add(s, 8) }
+func Uint(s sizer, n uint64)        { add(s, 8) }
+func Float(s sizer, f float64)      { add(s, 8) }
+func String(s sizer, x string)      { add(s, len(x) + 2) }
+func StringBytes(s sizer, b []byte) { add(s, len(b) + 2) }
+func BeginList(s sizer, n int)      { add(s, 1) }
+func EndList(s sizer)               { add(s, 1) }
+func BeginObject(s sizer, n int)    { add(s, 1) }
+func Tag(s sizer, name string)      { add(s, len(name)) }
+func Key(s sizer, k string)         { add(s, len(k) + 3) }
+func EndObject(s sizer)             { add(s, 1) }
 
 func putBox(w Writer, b box) {
 	encode(b, w)
@@ -29,19 +51,17 @@ func putList(w Writer, bs []box) {
 	encode(bs, w)
 }
 
-// bench is the sum of the lengths of N writes.
+// bench is the size of N writes.
 func bench(kind string, n int) int {
-	let mut sum = 0
+	let s = sizer{n: sync.NewRef[int](0)}
 	for _ in 0..n {
-		let t = json.NewText()
 		if kind == "list" {
-			putList(t, four)
+			putList(s, four)
 		} else {
-			putBox(t, one)
+			putBox(s, one)
 		}
-		sum = sum + len(t.Written())
 	}
-	sum
+	s.n.Get()
 }
 
 func main() fails os.Exit needs Console | Ambient {
