@@ -258,12 +258,15 @@ func settle(t Tool, w Workspace) fails Unkept {
 		return
 	}
 	let staging = StagingOf(t.home, w.Id)
+	// A delete that fails leaves the record for the next command: a
+	// killed maker's copy (cp, a child that outlived it) may still be
+	// writing there. That never fails this command.
 	if t.copier.Has(staging) {
 		clonerNamed(t, w.Cloner).Discard(staging) catch {
 		case Missing:
-		case CloneFailed as e:
+		case CloneFailed:
 			unreserved(t, w)
-			return Unkept{Reason: "\(staging): the staged clone of \(w.Name) could not be deleted: \(e.Reason)"}
+			return
 		}
 	}
 	t.registry.Drop(w.Name) catch {

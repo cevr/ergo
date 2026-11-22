@@ -215,8 +215,10 @@ func Stage(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefu
 	}
 	let (by, _) = cloned(t, m.Parent, staging, m.Copy, false) catch {
 	case NotSameVolume as e:
+		// The staging folder is on the home's file system (Placeable):
+		// the refusal names the workspace's folder.
 		try unreserve(t, m)
-		return e
+		return NotSameVolume{From: e.From, To: m.Path}
 	case Unsupported as e:
 		try unreserve(t, m)
 		return e
