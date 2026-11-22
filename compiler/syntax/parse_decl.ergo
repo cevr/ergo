@@ -370,7 +370,12 @@ func memberList(p mut parser, lbrace int) members {
 			kind = memberLaw
 			let testTok = want(p, Test)
 			let name = parseIdent(p)
-			pushW(&p.t, mkTestDecl(&p.t, mark(p.t), doc, testTok, name, none, none))
+			let d = mkTestDecl(&p.t, mark(p.t), doc, testTok, name, none, none)
+			pushW(&p.t, d)
+			if r.laws == 0 {
+				r.firstLaw = d
+			}
+			r.laws = r.laws + 1
 		} else if typeSetStarts(p) && !(r.first == memberField && bareOneTerm(p)) {
 			// `~int | ~int64`: the type-set member of an operation type
 			// (types.md, Generics 2). It counts as an operation for the mix

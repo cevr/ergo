@@ -684,7 +684,7 @@
       "rule": "ListenFailed's Reason is Go's net.Listen error text.",
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
-    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash, check.CallTestSeed:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash, check.CallTestSeed:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
     {
       "name": "oracle-o23-preflight-go-extern",
       "origin": "wf10 ORACLE O23",

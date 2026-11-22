@@ -242,8 +242,10 @@ func (c *checker) bindHarnessNames(frame *Scope, pkgPath string) {
 	} else if p, err := c.imp.Import(pkgPath); err == nil {
 		pkg = p
 	}
-	if pkg != nil {
-		frame.insert(hiddenPrefix+pkgPath, &PkgName{Name: hiddenPrefix + pkgPath, Pkg: pkg, used: true})
+	// The package binds in the file's scope, where a qualified type looks
+	// (lookupType); no source spells the name, so it hides nothing.
+	if _, bound := c.cur.scope.names[hiddenPrefix+pkgPath]; pkg != nil && !bound {
+		c.cur.scope.insert(hiddenPrefix+pkgPath, &PkgName{Name: hiddenPrefix + pkgPath, Pkg: pkg, used: true})
 	}
 }
 
