@@ -47,7 +47,7 @@ func TestReviewSymlinkDotDot(t *testing.T) {
 // examples does not grant a deep read below them.
 func TestReviewAllowanceBreadth(t *testing.T) {
 	c := newClosure("internal/sketch/check", nil, nil)
-	e := entry{"open", "docs/research/ef-migrate/unused/deep/input.txt"}
+	e := entry{"open", "internal/sketch/sketchtest/testdata/migrated/unused/deep/input.txt"}
 	used := map[string]bool{}
 	if len(c.check([]entry{e}, used)) == 0 {
 		t.Fatalf("non-corpus content read accepted and marks declaration used: %v %v", e, used)
