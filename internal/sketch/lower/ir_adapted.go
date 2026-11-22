@@ -155,12 +155,13 @@ func (b *irBuilder) stdSeqCall(x *syntax.CallExpr, c *check.Call, body v1.Body, 
 }
 
 // seqElem is T of the Seq[T] the call x of body returns, which returns
-// Go's iter.Seq: a call that fails at its site, or a body that takes the
-// frame scope (a Seq outlives its frame), keeps the source body.
+// Go's iter.Seq: a call that fails at its site keeps the source body, as
+// one whose body takes the frame scope does (a Seq outlives its frame;
+// hidden refuses it inside the Seq).
 func (b *irBuilder) seqElem(x *syntax.CallExpr, c *check.Call, body v1.Body) check.Type {
 	t := b.l.info.Types[x]
 	seqT, ok := t.(*check.Named)
-	if !ok || !isPreludeType(t, "Seq") || len(seqT.TArgs) != 1 || failsHere(c) || hasHidden(body.Hidden, v1.Frame) {
+	if !ok || !isPreludeType(t, "Seq") || len(seqT.TArgs) != 1 || failsHere(c) {
 		irNo("std call with an adapted result")
 	}
 	if b.env < 0 {
@@ -211,9 +212,9 @@ func (b *irBuilder) seqLit(x *syntax.CallExpr, c *check.Call, elem check.Type, b
 	e := b.temp("e", envT, p)
 	yield := b.temp("yield", b.goType(sig.Params[0].Type, x), p)
 	outer := b.env
-	b.env = e // the hidden arguments take the iterating environment
+	b.env, b.inSeq = e, true // the hidden arguments take the iterating environment; a frame scope is refused (hidden)
 	hidden := b.hidden(body, x, c, p)
-	b.env = outer
+	b.env, b.inSeq = outer, false
 	v := b.temp("v", b.goType(elem, x), p)
 	yok, yerr := b.temp("ok", "bool", p), b.temp("err", "error", p)
 	b.keepImport("var _ = " + b.l.rt() + ".UnreachableAt")

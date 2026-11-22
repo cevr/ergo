@@ -619,8 +619,6 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
 	case commaOk(body):
 		irNo("std call with an adapted result")
-	case defersCall(body) && hasHidden(body.Hidden, v1.Frame):
-		irNo("std call with an adapted result") // a Seq outlives its frame (seqElem)
 	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
 	case x.Trailing != nil && !adapted(body.Params[len(ops)]):
@@ -891,6 +889,9 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 			// of the constant (spelling keeps the import).
 			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
 		case v1.Frame:
+			if b.inSeq {
+				irNo("std call with an adapted result") // a Seq outlives the frame (seqLit)
+			}
 			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
 		default:
 			irNo("std call with hidden argument %s", h)
