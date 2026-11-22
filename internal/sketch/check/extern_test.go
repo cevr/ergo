@@ -1703,6 +1703,7 @@ type Mine {}
 
 func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
 func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func bound(_ Mine) {}
 
 func use(_ sql.Tx) {}
 
@@ -1912,6 +1913,16 @@ func use(t Task[int, Fault]) { t.Stop() }
 func main() {
 	use(Mine) // want S109
 }
+`,
+		// A program's Tx would fake a transaction boundary: only
+		// Transaction binds it (std sql, Operation types 1).
+		"sql-tx-faked": `import sql
+
+type Mine {} implements sql.Tx // want S109
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func bound(_ Mine) {}
 `,
 		// Controls: a value of the std type itself converts nothing, and
 		// the prelude's Console takes a program provider.
