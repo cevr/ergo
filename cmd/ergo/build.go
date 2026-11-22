@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -583,7 +584,15 @@ func runEntryProcess(child *exec.Cmd, limit uint64, watch *proclimit.Watcher) er
 		return err
 	}
 	done := make(chan error, 1)
-	go func() { done <- child.Wait() }()
+	go func() {
+		if watch != nil {
+			// Its output is piped through the watcher: wait for every byte,
+			// with what it left behind ended (proclimit.Wait).
+			done <- proclimit.Wait(context.Background(), child)
+			return
+		}
+		done <- child.Wait()
+	}()
 	forwarded := map[syscall.Signal]bool{}
 	for {
 		select {
