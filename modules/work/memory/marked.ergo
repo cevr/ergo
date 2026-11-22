@@ -1,0 +1,63 @@
+import fs
+import fstest
+import github.com/cevr/ergo/modules/work/work
+import strings
+
+// Marked is the memory disk with each tree's marker (work.MarkerFile)
+// kept in the tree, as a host keeps it in the checkout's Git folder: so
+// a tree renamed (new's Place) or moved (rm) carries its marker, and a
+// deleted one takes it along. Every other path is the disk's.
+type Marked { disk fstest.Memory, trees Cloner } implements fs.Files, fs.Writes
+
+// MarkedOver is the disk with the markers of trees' trees in them.
+func MarkedOver(disk fstest.Memory, trees Cloner) Marked { Marked{disk: disk, trees: trees} }
+
+// markedTree is the root of the tree whose marker path is.
+func markedTree(m Marked, path string) Option[string] {
+	if !strings.HasSuffix(path, "/"+work.MarkerFile) {
+		return None
+	}
+	let root = strings.TrimSuffix(path, "/"+work.MarkerFile)
+	if held(m.trees.disk.Get(), root) { Some[string]{Value: root} } else { None }
+}
+
+func ReadFile(m Marked, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match markedTree(m, path) {
+	case Some[string] as root:
+		match Files(m.trees, root.Value).Get(work.MarkerFile) {
+		case Some[string] as text:
+			text.Value
+		case None:
+			return fs.NotFound{Path: path}
+		}
+	case None:
+		try m.disk.ReadFile(path)
+	}
+}
+
+func ReadDir(m Marked, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.ReadDir(path) }
+
+func Stat(m Marked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Stat(path) }
+
+func WriteFile(m Marked, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
+	match markedTree(m, path) {
+	case Some[string] as root:
+		let _ = Write(m.trees, root.Value, work.MarkerFile, text)
+	case None:
+		try m.disk.WriteFile(path, text)
+	}
+}
+
+func MkdirAll(m Marked, path string) fails fs.Denied | fs.Failed { try m.disk.MkdirAll(path) }
+
+func WriteFileMode(m Marked, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.WriteFileMode(path, text, mode) }
+
+func MkdirAllMode(m Marked, path string, mode fs.Mode) fails fs.Denied | fs.Failed { try m.disk.MkdirAllMode(path, mode) }
+
+func AppendFile(m Marked, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.AppendFile(path, text) }
+
+func Chmod(m Marked, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Chmod(path, mode) }
+
+func Rename(m Marked, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Rename(from, to) }
+
+func Remove(m Marked, path string) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Remove(path) }

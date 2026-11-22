@@ -1,5 +1,6 @@
 import fs
 import filepath
+import slices
 import strings
 
 // HookFailed is a hook command that did not end with status 0: the hook,
@@ -197,10 +198,16 @@ func hold(t Tool) fails Unkept | Locked {
 }
 
 // finish rolls each intent forward, under the lock: the folder moves to
-// the trash if it has not, and the record says it is there.
+// the trash if it has not, and the record says it is there. Then it
+// settles each reservation whose maker is gone (settle).
 func finish(t Tool) fails Unkept {
 	for w in try t.registry.All() {
 		if w.Moving == "" {
+			match w.State {
+			case Creating:
+				try settle(t, w)
+			case Active, Landing, Landed, Abandoned, Trashed:
+			}
 			continue
 		}
 		if t.copier.Has(w.Moving) && t.copier.Has(w.Path) {
@@ -218,5 +225,68 @@ func finish(t Tool) fails Unkept {
 			}
 		}
 		try t.registry.Put(Workspace{..w, Moving: ""})
+	}
+}
+
+// settle finishes or rolls back w, a reservation, under the lock, when
+// its maker is gone: only the kernel's lock of the reservation decides
+// that (makerGone; no pid, no time), so a live maker's reservation, this
+// process's own included, is never touched. A clone placed at its path
+// and marked with its id is made: it becomes Active, as Activate would
+// have written it. With no folder at its path, its staging folder (whole
+// or cut short) is deleted for good, never moved to the trash, and only
+// then the record is dropped: a cut in the delete leaves the record, and
+// the next settle deletes again, so no staging folder outlives its
+// record. A folder at the path with no marker, or another's, was written
+// by an older work (it cloned in place) or is not the record's: gc and
+// doctor keep their rules for it. A record with no id (no lock) is gc's.
+// It costs one lock attempt per such reservation, and nothing per other
+// record.
+func settle(t Tool, w Workspace) fails Unkept {
+	if w.Id == "" || !try makerGone(t, w) {
+		return
+	}
+	if t.copier.Has(w.Path) {
+		if markerOf(t, w.Path) == w.Id {
+			t.registry.Put(activation(t, w, now(t))) catch {
+			case Unkept as e:
+				unreserved(t, w)
+				return e
+			}
+		}
+		unreserved(t, w)
+		return
+	}
+	let staging = StagingOf(t.home, w.Id)
+	if t.copier.Has(staging) {
+		clonerNamed(t, w.Cloner).Discard(staging) catch {
+		case Missing:
+		case CloneFailed as e:
+			unreserved(t, w)
+			return Unkept{Reason: "\(staging): the staged clone of \(w.Name) could not be deleted: \(e.Reason)"}
+		}
+	}
+	t.registry.Drop(w.Name) catch {
+	case Unkept as e:
+		unreserved(t, w)
+		return e
+	}
+	unreserved(t, w)
+}
+
+// settled settles the reservations whose maker is gone before a command
+// that changes the registry decides anything: it takes the lock (and
+// gives it back) only when a reservation is there, so a command finds a
+// name a killed new held free, and its folder deleted or activated. A
+// registry that does not read is the command's to report.
+func settled(t Tool) fails Unkept | Locked {
+	let all = t.registry.All() catch {
+	case Unkept:
+		return
+	}
+	let any = slices.IndexFunc(all, func(w Workspace) bool { StateName(w.State) == "creating" }) >= 0
+	if any {
+		try hold(t)
+		t.lock.Release("")
 	}
 }

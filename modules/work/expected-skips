@@ -19,6 +19,7 @@ skip law work.Cloner.DiscardDiscards for Cloner: its values have no generator: s
 skip law work.Cloner.FailedCloneLeavesNothing for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.FreshCloneSharesItsBlocks for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.MoveMoves for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
+skip law work.Cloner.PlaceMoves for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 skip law work.Cloner.SecondCloneIsExists for Cloner: its values have no generator: system.Trees has an unexported field, so only package system builds it; use system.New; a func NewCloner() Cloner with no rows would build one for each case
 # git.Vcs runs git through an exec.Runner, as the Cloners do; its laws
 # run against memory.Vcs and under git/checkout's onHost (a real checkout,
