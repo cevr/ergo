@@ -797,6 +797,8 @@ text SubThenCutIsCutThenSlice	TestStdTextLawsRun
 text TruncateFits	TestStdTextWidthLaws
 text WrapFits	TestStdTextWidthLaws
 text WrapLosesNoRune	TestStdTextWidthLaws
+time AddDropsAnOverflowedReading	none
+time AddKeepsWallOnly	none
 time Clock.ElapsedIsNowSub	TestTimeLaws
 time Clock.NowNeverFalls	TestTimeLaws
 time CompareOrders	TestStdTimeLawsRun
