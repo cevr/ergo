@@ -193,12 +193,14 @@ type FuncDecl struct {
 	Derived *TypeDecl
 }
 
-// ContextDecl is `context Name [provides A | B] [needs C | D] { entries }`.
+// ContextDecl is `context Name [provides A | B] [fails E | F] [needs C | D] { entries }`.
 // Provides lists the capabilities the context exposes; the entries it builds
-// and does not list stay private to its build. Needs lists the capabilities
-// its providers require from the with site. Either clause may be nil.
+// and does not list stay private to its build. Fails is the failure row of
+// its build, a signature's error row (CTX-ROWS-1b). Needs lists the
+// capabilities its providers require from the with site. Any clause may be
+// nil.
 //
-// The decided spelling is `let Name = context [provides …] [needs …] { … }` at
+// The decided spelling is `let Name = context [provides …] [fails …] [needs …] { … }` at
 // package level (#196); Let is the position of `let`.
 type ContextDecl struct {
 	Doc      *CommentGroup
@@ -206,6 +208,7 @@ type ContextDecl struct {
 	Context  Pos
 	Name     *Ident
 	Provides *ProvidesClause
+	Fails    *ErrorRow
 	Needs    *NeedsClause
 	Body     *ContextBody
 }
@@ -352,7 +355,8 @@ type Field struct {
 	Key   *BasicLit // optional record field key, independent of the codec format
 	Any   Pos
 	// Lent is the position of a type parameter's `lent` written before
-	// its constraint, `[T lent Counter]` (types.md, Borrows 7), or NoPos.
+	// its constraint, `[T lent Counter]`, or NoPos. lent is gone (MODES-4):
+	// the parser keeps it for ergo fix, and the checker refuses it.
 	Lent    Pos
 	Include bool
 	Dots    Pos
@@ -369,8 +373,14 @@ type Field struct {
 	// Own is the mode word `own` (audit CSX §4.3, q168), or nil: between
 	// a parameter's names and its type (`f own File`), before an unnamed
 	// parameter's type (`func(own File)`), and before an operation's name
-	// for its receiver (`own Close()`). It is a word, not an expression.
+	// for its receiver (`own Close()`), and after a type parameter's
+	// names (`[T own]`, `[T own C]`; types.md, Generics 9). It is a
+	// word, not an expression.
 	Own *Word
+	// Mut is the mode word `mut` before an operation's name, `mut Bump()`:
+	// the operation writes its receiver in place (audit CSX §4.3, planner
+	// decision 8; MODES-4), or nil.
+	Mut *Word
 }
 
 // Word is a mode word written in a field (Field.Own): its position.
@@ -384,6 +394,9 @@ func (f *Field) Pos() Pos {
 	}
 	if f.Own != nil && (len(f.Names) == 0 || f.Own.At < f.Names[0].Pos()) {
 		return f.Own.At
+	}
+	if f.Mut != nil {
+		return f.Mut.At
 	}
 	if len(f.Names) > 0 {
 		return f.Names[0].Pos()
@@ -401,6 +414,9 @@ func (f *Field) End() Pos {
 		return f.Where.End()
 	}
 	if f.Type == nil {
+		if f.Own != nil {
+			return f.Own.At + Pos(len("own")) // [T own]
+		}
 		return f.Names[len(f.Names)-1].End()
 	}
 	return f.Type.End()
@@ -593,10 +609,13 @@ type (
 		TrailingFunc bool
 	}
 
-	// StarExpr is `*x`: a pointer type or an indirection.
+	// StarExpr is `*x`: a pointer type or an indirection. With Mut it
+	// is the mode word `mut x`, the borrow spelled as a mode (audit CSX
+	// §4.3, q169; SIMPLIFY U2): the same borrow type, Star at `mut`.
 	StarExpr struct {
 		Star Pos
 		X    Expr
+		Mut  bool
 	}
 
 	// UnaryExpr is `op x` for + - ! ^ & <-.
@@ -632,11 +651,12 @@ type (
 		Rbrace Pos
 	}
 
-	// ContextLit is a context literal `context [provides …] [needs …] { … }`; either
-	// clause may be nil.
+	// ContextLit is a context literal `context [provides …] [fails …] [needs …] { … }`;
+	// any clause may be nil.
 	ContextLit struct {
 		Context  Pos
 		Provides *ProvidesClause
+		Fails    *ErrorRow
 		Needs    *NeedsClause
 		Body     *ContextBody
 	}
@@ -652,15 +672,18 @@ type (
 		Elt    Expr
 	}
 
-	// MapType is `Map[K, V]`: Map is the position of the name, Lbrack and
-	// Rbrack of its brackets (#196, eighth round: a prelude name cannot be
-	// redeclared, so the name always means the map type).
+	// MapType is `Map[K, V]` or `Map[K, V, H]`: Map is the position of
+	// the name, Lbrack and Rbrack of its brackets (#196, eighth round: a
+	// prelude name cannot be redeclared, so the name always means the map
+	// type). Hashing is the third type argument, the provider by which
+	// the Map finds its keys, or nil (CONSTRAINTS C5).
 	MapType struct {
-		Map    Pos
-		Lbrack Pos
-		Key    Expr
-		Value  Expr
-		Rbrack Pos
+		Map     Pos
+		Lbrack  Pos
+		Key     Expr
+		Value   Expr
+		Hashing Expr
+		Rbrack  Pos
 	}
 
 	// FuncType is a signature. Func is NoPos in a declaration or method.
@@ -699,8 +722,22 @@ type (
 		Includes []*Field
 		Methods  []*Field
 		Laws     []*LawDecl
-		Union    []Expr
-		Rbrace   Pos
+		// Terms is the type-set member `~int | ~int64` (types.md,
+		// Generics 2): one term per `|`-separated type. Nil when the
+		// operation type has no type set; it then constrains by its
+		// operations alone. A type with a type set is a constraint only.
+		Terms []*TypeTerm
+		Union []Expr
+		// Rbrace closes the braces; NoPos for a union.
+		Rbrace Pos
+	}
+
+	// TypeTerm is one term of a type-set member: `~T` (Tilde set) admits
+	// every type whose underlying type is T, a bare `T` admits T alone,
+	// and the term `comparable` admits the comparable types.
+	TypeTerm struct {
+		Tilde Pos // NoPos for a bare term
+		Type  Expr
 	}
 
 	// ErrorRow is the failure row `fails A | B` of a signature: Error is the
@@ -851,6 +888,14 @@ func (x *FuncType) End() Pos {
 }
 func (x *StructType) Pos() Pos { return x.Fields.Pos() }
 func (x *StructType) End() Pos { return x.Fields.End() }
+func (x *TypeTerm) Pos() Pos {
+	if x.Tilde.IsValid() {
+		return x.Tilde
+	}
+	return x.Type.Pos()
+}
+func (x *TypeTerm) End() Pos { return x.Type.End() }
+
 func (x *InterfaceType) Pos() Pos {
 	if x.Lbrace.IsValid() {
 		return x.Lbrace

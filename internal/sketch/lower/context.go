@@ -103,7 +103,7 @@ func (fc *funcCtx) contextCall(f *check.Func, inst *check.Instance, val string, 
 	}
 	// A pure protocol function takes no environment (pure.go).
 	lead := fc.witnessArgs(f, inst, site)
-	if !fd.pure {
+	if !fd.envFree {
 		lead = append([]string{fc.envExpr(site)}, lead...)
 	}
 	if fd.method != nil {

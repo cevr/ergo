@@ -74,7 +74,7 @@ const cacheVersion = "ergo-examples-cache v2"
 // the lowering emits from std's bodies is in the emitted digest.
 var (
 	driverRoots   = []string{"./cmd/ergo", "./scripts/examples"}
-	emissionRoots = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/stdlib", "internal/sketch/std/gostd"}
+	emissionRoots = []string{"internal/sketch/check", "internal/sketch/check/snapshot", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/stdlib", "internal/sketch/std/gostd"}
 )
 
 // cacheKeep is how many entries of one program the cache keeps: the newest.

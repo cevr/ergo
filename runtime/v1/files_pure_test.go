@@ -49,7 +49,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 			}
 			for _, imp := range f.Imports {
 				p, _ := strconv.Unquote(imp.Path.Value)
-				if _, guarded := PureImportHostMembers[p]; !slices.Contains(PureImports, p) && !guarded {
+				if _, guarded := PureImportHostMembers()[p]; !slices.Contains(PureImports, p) && !guarded {
 					t.Errorf("%s: pure %s, but the file imports %s", name, fn.Name.Name, p)
 				}
 			}
@@ -65,7 +65,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 	}
 	for _, name := range []string{
 		"StringsJoin", "StringsSlice", "StrconvAtoi",
-		"TimeFormat", "TimeAppendUTC", "TimeParse", "TimeTruncate", "TimeRound", "TimeSub", "TimeSubMono",
+		"TimeFormat", "TimeAppendUTC", "TimeParse", "TimeTruncate", "TimeRound",
 		"Append", "Get", "Put", // the prelude's collection intrinsics (lw-pure-prelude; Delete binds Go's delete, OPT7)
 	} {
 		if !slices.Contains(marked, name) {

@@ -25,8 +25,9 @@ import (
 //     Go call takes it as an operand (w.Header().Set: goShares), when it
 //     is never an Ergo value and stays Go's, so a write reaches Go;
 //   - a nullable Go result (a pointer, an interface) whose Ergo type is
-//     Option[T] is None when nil; a go.Ref[S] result that is nil with a nil
-//     error is a defect naming the call (v1.GoNilDefect);
+//     Option[T] is None when nil; a go.Ref[S] result is one the binder
+//     proved non-nil when the error is nil (gobind's nonnil.go), so it
+//     takes no check;
 //   - several Go results are a tuple; a last error is fails go.Error, as G4
 //     lowers a user extern (v1.GoErrorOf);
 //   - a Go panic unwinds as any defect; the call's //line directive
@@ -122,7 +123,7 @@ func (fc *funcCtx) goSig(c *check.Call, site syntax.Node) (sig *check.Signature,
 		return c.Op.Sig, "." + c.Op.Name, n.Obj.Pkg.Path + "." + n.Obj.Name + "." + c.Op.Name, false
 	}
 	f := c.Func
-	if c.Recv != nil {
+	if c.Recv != nil && !f.Decl.Extern.FuncTarget() {
 		path, typ, m := f.Decl.Extern.SplitMethod()
 		return f.Sig, "." + m, path + "." + typ + "." + m, check.GoVariadic(f)
 	}
@@ -191,8 +192,9 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	mark := len(fc.goCompare)
 	vals := fc.callArgs(list, x)
+	recvVal := ""
 	if c.Recv != nil {
-		head, vals = vals[0]+head, vals[1:]
+		recvVal, head, vals = vals[0], vals[0]+head, vals[1:]
 	}
 	fc.goErrorArgs(sig, vals)
 	fc.goSeqArgs(sig, x.Args, vals, x)
@@ -200,16 +202,28 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
-	// A Go function that writes its slice argument in place (GBX2;
-	// check/gowrites.go): Go gets the operand the value rule gave (a copy,
-	// or the dead local itself), and the call's value is what Go wrote.
+	// A Go function or method that writes its slice argument in place
+	// (GBX2; check/gowrites.go): Go gets the operand the value rule gave
+	// (a copy, or the dead local itself), and the call's value is what Go
+	// wrote, first in a tuple with Go's own results (HOST-ROW-3 slice 2).
 	written := ""
-	if c.Kind == check.CallFunc && c.Recv == nil {
-		if i, ok := check.GoWrites(c.Func); ok && i < len(vals) {
-			written = fc.temp("w")
-			fc.line(written + " := " + vals[i])
-			vals[i] = written
+	if c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && (c.Recv == nil) == (c.Func.Decl.Recv == nil) {
+		if i, ok := check.GoWrites(c.Func); ok {
+			if c.Recv != nil {
+				i-- // vals holds no receiver
+			}
+			if i >= 0 && i < len(vals) {
+				written = fc.temp("w")
+				fc.line(written + " := " + vals[i])
+				vals[i] = written
+			}
 		}
+	}
+	if c.Kind == check.CallFunc && c.Recv != nil && c.Func.Decl.Extern.FuncTarget() {
+		// A method whose target is a Go function (S2-FILE-B) takes the
+		// receiver as its first argument, after a hidden context:
+		// hostfs.FileStat(f).
+		head, vals = fc.hostTarget(x, c.Func), append([]string{recvVal}, vals...)
 	}
 	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
 	if ctx {
@@ -217,11 +231,6 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	text := head + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
-	if written != "" {
-		fc.line(text)
-		fc.afterGoContext(x, ctx)
-		return operand{val: written}
-	}
 	var goResults []check.Type
 	if len(sig.Results) == 1 {
 		if t, ok := sig.Results[0].(*check.Tuple); ok {
@@ -229,6 +238,11 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		} else {
 			goResults = sig.Results
 		}
+	}
+	skip := 0 // the written slice, the first of the Ergo results, is no Go result
+	if written != "" && len(goResults) > 0 {
+		skip = 1
+		goResults = goResults[1:]
 	}
 	names := make([]string, len(goResults))
 	for i := range names {
@@ -244,7 +258,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		fc.line(text)
 		fc.compareReads(mark)
 		fc.afterGoContext(x, ctx)
-		return operand{}
+		return operand{val: written}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
 	fc.compareReads(mark)
@@ -261,17 +275,20 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 			// The call's checked type: a generic Go function's result
 			// names its own type parameter (maps.Keys's Seq[K]).
 			t = fc.typeOf(x)
-			if tuple, ok := t.(*check.Tuple); ok && len(goResults) > 1 {
-				t = tuple.Types[i]
+			if tuple, ok := t.(*check.Tuple); ok && len(goResults)+skip > 1 {
+				t = tuple.Types[i+skip]
 			}
 		}
 		vs[i] = fc.goResult(x, t, names[i], e, name)
 	}
-	if len(goResults) == 0 {
+	if written != "" {
+		vs = append([]string{written}, vs...)
+	}
+	if len(vs) == 0 {
 		return operand{err: e}
 	}
 	v := vs[0]
-	if len(goResults) > 1 {
+	if len(vs) > 1 {
 		parts := make([]string, len(vs))
 		for i, s := range vs {
 			parts[i] = tupleField(i) + ": " + s
@@ -382,13 +399,10 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("}")
 		return v
 	case isGoRef(t):
-		cond := r + " == nil"
-		if e != "" {
-			cond = e + " == nil && " + cond
-		}
-		fc.line("if " + cond + " {")
-		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
-		fc.line("}")
+		// ergo bind go writes go.Ref only where it proves Go's pointer
+		// non-nil when the error is (gobind's nonnil.go, GOBIND-NIL); an
+		// unproven one is an Option above. Only a user extern's adapter
+		// checks (AdaptNonNil, goExtern).
 		return r
 	case fc.l.holdsValue(t) && !goFresh(x, name) && valueRule() && !fc.goShares(x):
 		return fc.reportCopy(x, fc.cloneDeep(t, r, x), whyGoResult) // Go may still write an entry (V8)
@@ -526,11 +540,14 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
 	if c.Name == "go.New" && len(x.Args) == 1 {
 		// go.New(v) is a new Go T holding a copy of v (GBX5b;
-		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…}.
+		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…},
+		// in parentheses, so a method called on it is called on the
+		// pointer, not on n with the address taken of its result
+		// (GBX-CHAIN: go.New(v).Add(1) was &n.Add(1)).
 		v := fc.assigned(x.Args[0])
 		n := fc.temp("n")
 		fc.line(n + " := " + v)
-		return operand{val: "&" + n}
+		return operand{val: "(&" + n + ")"}
 	}
 	if c.Name == "go.New" {
 		// go.New[T]() is Go's new(T) (GBX1; check/gonew.go).

@@ -11,3 +11,7 @@ import (
 func CompileLibrary(src string) ([]byte, error) {
 	return impl.CompileLibrary(src)
 }
+
+func CompileLibraryFor(src, sdk, minVersion string) ([]byte, error) {
+	return impl.CompileLibraryFor(src, sdk, minVersion)
+}

@@ -102,6 +102,7 @@ fs	MapText	provider
 fs	Mapped	type
 fs	NotFound	type
 fs	OpenRoot	library	a scoped resource: the body acquires Go's *os.Root into the caller's Scope with its release route (rt.AcquireInto), the runtime's provider boundary, plus HOST-ROW for os.OpenRoot
+fs	Text	type
 fs	confine	provider
 fs	hostAppendFile	library	HOST-ROW: os.OpenFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its flags (os.O_APPEND) are constants, its errors need GBX3
 fs	hostChmod	library	HOST-ROW: os.Chmod through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
@@ -130,8 +131,9 @@ hmac	sum512	library	I22-B22CLASS: crypto/hmac with sha512 through import go (bat
 host	hostEnv	host
 host	hostLocal	host
 host	hostZone	host
+http	BadEscape	type
 http	BodyFile	type
-http	EncodeQuery	computation	NP4f-7
+http	DecodePath	computation	NP4f-7
 http	Exchange	type
 http	Field	type
 http	IntoFile	library	GB3, GB4 and HOST-ROW, as fetch; it writes through fs.HostRoot (GBX1b)
@@ -140,17 +142,13 @@ http	InvalidLimits	type
 http	Limits	type
 http	Listen	library	HOST-ROW: net.Listen through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; Listener holds a Go net.Listener (GB2, GBX1b)
 http	ListenFailed	type
-http	Listener	type
 http	OriginRefused	type
-http	ParseQuery	computation	NP4f-7
 http	RedirectLimit	type
 http	Response	type
 http	SendFailed	type
 http	SinkFailed	type
 http	StatusRefused	type
 http	WriteFailed	type
-http	checkNetwork	computation	NP4f-7
-http	checkOrigin	computation	NP4f-7
 http	fetch	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as send; plus the origin and redirect policy over http.Client.CheckRedirect, a Go callback field
 http	fetchInto	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch
 http	fetchLocal	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch
@@ -186,17 +184,21 @@ machines	firingOff	provider
 machines	firingOn	provider
 machines	notPositive	computation	RTF3: the defect is the runtime's MachineTimerDefect value, which the scheduler reads; an Ergo body raises no runtime type
 math	OutOfRange	type
-math	ToInt	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToInt16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToInt32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
-math	ToInt64	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToInt8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
-math	ToUint	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToUint16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToUint32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
-math	ToUint64	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToUint8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
-math	ToUintptr	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+net	Conn	type
+net	DialFailed	type
+net	Failed	type
+net	ListenFailed	type
+net	Listener	type
+net	hostDial	host
+net	hostListen	host
+nettest	PipeNet	type
+nettest	newPipeNet	provider
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type
@@ -205,7 +207,6 @@ os	hostGetenv	library	HOST-ROW: os.Getenv through import go charges go.Foreign, 
 os	hostGetwd	library	HOST-ROW: os.Getwd through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostHasEnv	library	HOST-ROW: os.LookupEnv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 prelude	AlarmClock	type
-prelude	AsWritten	provider
 prelude	InForce	provider
 prelude	Sleep	provider
 prelude	Task	type
@@ -301,8 +302,6 @@ time	hostNow	library	HOST-ROW: time.Now through import go charges go.Foreign, an
 time	newTimeline	provider
 time	parse	library	GBX6 rows for time (time.ParseInLocation, Time.Unix, Time.Nanosecond bind needs go.Foreign) and GBX3 (time.UTC is a Go variable)
 time	round	library	I22-B22CLASS: Go's Time.Round through import go (batch-22 extern, first class by I22; lane B confirms)
-time	subMono	computation	NP4f-7
-time	subWall	computation	NP4f-7
 time	timeAsleep	provider
 time	truncate	library	I22-B22CLASS: Go's Time.Truncate through import go (batch-22 extern, first class by I22; lane B confirms)
 timeout	After	provider

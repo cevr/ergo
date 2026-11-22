@@ -13,6 +13,7 @@
 // process only through a Host it was given or made under Ambient.
 
 import slices
+import strconv
 import strings
 import time
 import sync
@@ -135,8 +136,17 @@ type ToFile { Path string, Append bool }
 // or its lines from Lines, as they come.
 type ToCaller {}
 
+// ToStdout is a sink of standard error: the program writes it where its
+// standard output goes, to the same pipe, file or stream (the shell's
+// 2>&1; Go's CombinedOutput), so the bytes of the two keep the order the
+// program wrote them in. With a Stdout of ToCaller, Chunks and Lines give
+// them as one stream, none marked Stderr; with Discard both go to the null
+// device. As the sink of standard output it is Failed: standard output
+// cannot go to itself.
+type ToStdout {}
+
 // Sink is where a stream of a started program goes.
-type Sink = Inherit | Discard | ToFile | ToCaller
+type Sink = Inherit | Discard | ToFile | ToCaller | ToStdout
 
 // Streams are the sinks of a started program's standard output and
 // standard error.
@@ -241,9 +251,10 @@ type Runner {
 	Start(c Command, s Streams) Running fails NotFound | Denied | Failed,
 
 	// StartAgreesWithRun: a started program whose streams go to the
-	// caller gives the lines and the status Run gives.
-	law StartAgreesWithRun(name string) {
-		let c = New(name, []string{})
+	// caller gives the lines and the status Run gives. The program is a
+	// drawn Shell, so on a host each case runs one.
+	law StartAgreesWithRun(sh Shell) {
+		let c = ShellCommand(sh)
 		let want = Run(c) catch {
 		case NotFound, Denied, Failed:
 			return true
@@ -264,6 +275,50 @@ type Runner {
 		slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status
 	},
 
+	// StartMergedInterleavesRun: a started program whose standard error
+	// goes to its standard output (ToStdout), which goes to the caller,
+	// gives one stream, no byte of it marked Stderr: the bytes of Run's
+	// Stdout and Stderr, each in its order, interleaved; and Run's status.
+	law StartMergedInterleavesRun(sh Shell) {
+		let c = ShellCommand(sh)
+		let want = Run(c) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch {
+		case NotFound, Denied, Failed:
+			return false
+		}
+		let mut got = ""
+		for k in p.Chunks() {
+			if k.Stderr {
+				return false
+			}
+			got = got + k.Text
+		}
+		Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status
+	},
+
+	// ShellRunsAsWritten: a Shell that runs writes its texts, each to its
+	// stream, and exits with its Status's low 8 bits, so the Shell laws
+	// above run the program they draw.
+	law ShellRunsAsWritten(sh Shell) {
+		let r = Run(ShellCommand(sh)) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		let mut out = ""
+		let mut errs = ""
+		for w in sh.Writes {
+			if w.Stderr {
+				errs = errs + w.Text
+			} else {
+				out = out + w.Text
+			}
+		}
+		r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256
+	},
+
 	// NotFoundNamesTheProgram: a program that is not found is named by its
 	// failure.
 	law NotFoundNamesTheProgram(name string) {
@@ -276,6 +331,117 @@ type Runner {
 		true
 	},
 }
+
+// Interleaves reports whether s is a and b merged, each one's bytes kept
+// in its order: what a stream of a program whose Stderr is ToStdout holds
+// of the program's two streams (StartMergedInterleavesRun). It takes
+// time len(a) times len(b).
+func Interleaves(s string, a string, b string) bool {
+	if len(s) != len(a)+len(b) {
+		return false
+	}
+	// ok[j] is whether s's first i+j bytes merge a's first i and b's first
+	// j, for the row i.
+	let mut ok = []bool{}
+	for j in 0..len(b)+1 {
+		ok = ok.Append(j == 0 || ok[j-1] && b[j-1] == s[j-1])
+	}
+	for i in 1..len(a)+1 {
+		ok[0] = ok[0] && a[i-1] == s[i-1]
+		for j in 1..len(b)+1 {
+			ok[j] = (ok[j] && a[i-1] == s[i+j-1]) || (ok[j-1] && b[j-1] == s[i+j-1])
+		}
+	}
+	ok[len(b)]
+}
+
+// InterleavesMatchesModel: Interleaves agrees with a search written apart
+// from it, merged, on a merge of a and b by picks, that merge with its
+// first two bytes swapped, t, and the merge with a byte more (a and b and
+// t cut to 5 bytes).
+law InterleavesMatchesModel(a string, b string, picks []bool, t string) {
+	let x = upTo5(a)
+	let y = upTo5(b)
+	let s = pickMerge(x, y, picks)
+	let checks = []string{s, swapFirst(s), upTo5(t), s + "x"}
+	slices.All(checks, func(u string) bool { Interleaves(u, x, y) == merged(u, x, y) })
+}
+
+// upTo5 is s's first 5 bytes at most, so merged's search stays small.
+func upTo5(s string) string { if len(s) < 5 { s } else { strings.Slice(s, 0, 5) } }
+
+// pickMerge is a and b merged, each in its order: the next byte from a
+// when picks says so (cycling) or b is used up.
+func pickMerge(a string, b string, picks []bool) string {
+	let mut s = ""
+	let mut i = 0
+	let mut j = 0
+	for k in 0..len(a)+len(b) {
+		let fromA = j == len(b) || (i < len(a) && len(picks) > 0 && picks[k%len(picks)])
+		if fromA {
+			s = s + strings.Slice(a, i, i+1)
+			i = i + 1
+		} else {
+			s = s + strings.Slice(b, j, j+1)
+			j = j + 1
+		}
+	}
+	s
+}
+
+// swapFirst is s with its first two bytes swapped.
+func swapFirst(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	strings.Slice(s, 1, 2) + strings.Slice(s, 0, 1) + strings.Slice(s, 2, len(s))
+}
+
+// merged is Interleaves' model, written apart from it: the first byte of
+// s comes from a or from b, and the rest merges what is left.
+func merged(s string, a string, b string) bool {
+	if a == "" {
+		return s == b
+	}
+	if b == "" {
+		return s == a
+	}
+	if s == "" {
+		return false
+	}
+	let rest = strings.Slice(s, 1, len(s))
+	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, len(a)), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, len(b))))
+}
+
+// Shell is a program for the Runner laws that exists on every host: sh
+// writes each of Writes in order, then exits with Status (its low 8
+// bits). A law that draws a Shell runs a real program on a host provider,
+// where a drawn name would mostly be NotFound.
+type Shell { Writes []ShellWrite, Status int }
+
+// ShellWrite is one write of a Shell: Text, any bytes, to standard error
+// when Stderr, else to standard output.
+type ShellWrite { Text string, Stderr bool }
+
+// ShellCommand is sh as a Command: sh -c with a script of one printf per
+// write, each byte of its text written as an octal escape, so every byte,
+// NUL included, reaches the stream as it is.
+func ShellCommand(sh Shell) Command {
+	let mut script = ""
+	for w in sh.Writes {
+		let mut format = ""
+		for k in 0..len(w.Text) {
+			let b = int(w.Text[k])
+			format = format + "\\" + octal(b / 64) + octal(b / 8 % 8) + octal(b % 8)
+		}
+		script = script + "printf '" + format + "'" + (if w.Stderr { " >&2" } else { "" }) + "\n"
+	}
+	let status = (sh.Status % 256 + 256) % 256
+	New("sh", []string{"-c", script + "exit " + strconv.Itoa(status)})
+}
+
+// octal is the digit d, 0 to 7.
+func octal(d int) string { strings.Slice("01234567", d, d+1) }
 
 // Detached names a program started to outlive the code that started it
 // (Spawner.Spawn). It is plain data: it crosses, has no release, and is
@@ -352,6 +518,9 @@ func Spawn(p Processes, c Command, s Streams) Detached fails NotFound | Denied |
 	if toCaller(s.Stdout) || toCaller(s.Stderr) {
 		return Failed{Name: c.Name, Reason: "a detached program has no caller to read it (ToCaller)"}
 	}
+	if toStdout(s.Stdout) {
+		return Failed{Name: c.Name, Reason: toItself}
+	}
 	let pid = p.next.Get() + 1
 	p.next.Set(pid)
 	let mut m = p.live.Get()
@@ -390,11 +559,15 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 }
 
 // Start is the Running of the Result recorded for c (Ended). It fails
-// NotFound when Results holds no Result for c.
+// NotFound when Results holds no Result for c, and Failed for a Stdout of
+// ToStdout, as the host's does.
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
+	if toStdout(st.Stdout) {
+		return Failed{Name: c.Name, Reason: toItself}
+	}
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		return Ended(st, hit.Value)
+		return Ended(hit.Value, st)
 	case None:
 		return NotFound{Name: c.Name}
 	}
@@ -402,17 +575,19 @@ func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Fa
 
 // Ended is the Running of a program that has already ended with r: Chunks
 // gives r's Stdout, then its Stderr, each when its sink in s is ToCaller
-// (so Lines gives the lines of each), and Wait gives r's Status. It starts
+// (so Lines gives the lines of each), and Wait gives r's Status. A Stderr
+// of ToStdout joins Stdout's stream: r's Stdout then its Stderr as one
+// stream, unmarked, when Stdout's sink is ToCaller (a Result keeps no
+// order between the two, and this one is an interleaving). It starts
 // nothing and writes nothing to a file or a stream of this process. It is
 // how any Runner that runs no program, Script or a module's own fake, gives
 // the Running its Start returns: a Running is the runtime's value, so no
 // other package's type implements it.
-//
-// Its first parameter is the Streams, not the Result: a function of this
-// package on Result, a runtime type, would lower as a Go method that
-// v1.ExecResult does not have.
-func Ended(s Streams, r Result) Running {
+func Ended(r Result, s Streams) Running {
 	let mut cs = []Chunk{}
+	if toCaller(s.Stdout) && toStdout(s.Stderr) {
+		return replay(whole(cs, r.Stdout + r.Stderr, false), r.Status, true)
+	}
 	if toCaller(s.Stdout) {
 		cs = whole(cs, r.Stdout, false)
 	}
@@ -436,10 +611,22 @@ func toCaller(s Sink) bool {
 	match s {
 	case ToCaller:
 		true
-	case Inherit, Discard, ToFile:
+	case Inherit, Discard, ToFile, ToStdout:
 		false
 	}
 }
+
+func toStdout(s Sink) bool {
+	match s {
+	case ToStdout:
+		true
+	case Inherit, Discard, ToFile, ToCaller:
+		false
+	}
+}
+
+// toItself is the failure of a Stdout of ToStdout, as the runtime's.
+let toItself = "stdout: ToStdout is a sink of standard error, and standard output cannot go to itself"
 
 extern go ergo.local/prototype/runtime/v1/exec.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
 
@@ -509,6 +696,8 @@ func sinkKind(s Sink) int {
 		2
 	case ToCaller:
 		3
+	case ToStdout:
+		4
 	}
 }
 
@@ -516,7 +705,7 @@ func sinkPath(s Sink) string {
 	match s {
 	case ToFile as f:
 		f.Path
-	case Inherit, Discard, ToCaller:
+	case Inherit, Discard, ToCaller, ToStdout:
 		""
 	}
 }
@@ -525,7 +714,7 @@ func sinkAppends(s Sink) bool {
 	match s {
 	case ToFile as f:
 		f.Append
-	case Inherit, Discard, ToCaller:
+	case Inherit, Discard, ToCaller, ToStdout:
 		false
 	}
 }

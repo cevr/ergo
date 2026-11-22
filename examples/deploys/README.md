@@ -11,7 +11,7 @@ An HTTP/1.1 server of deployments: create, list and show deploys, and move one t
 | another method on a known path | 405 with `Allow` |
 | any other path | 404 |
 
-Ergo has no listener yet (G-ex-c-7), so the binary serves one connection on standard input and output, as a program under inetd does: `socat TCP-LISTEN:8080,reuseaddr,fork EXEC:'ergo run examples/deploys/cmd/deploys'` puts it on a port. Requests may be pipelined; `Connection: close`, a garbled request (400) or the end of input ends the connection.
+Std http's `Serve` is Go's `net/http`, which this program keeps out of its binary (it is the `deploys` size fixture: a program that links no `net`, `crypto` or `reflect`; G-ex-c-7), so the binary serves one connection on standard input and output, as a program under inetd does: `socat TCP-LISTEN:8080,reuseaddr,fork EXEC:'ergo run examples/deploys/cmd/deploys'` puts it on a port. Requests may be pipelined; `Connection: close`, a garbled request (400) or the end of input ends the connection.
 
 Tag: `default`. It is an original program, not a port.
 
@@ -23,19 +23,18 @@ The program is a module of packages (`ergo.mod`: `module deploys`), in the Go la
 | --- | --- |
 | `deploys/` | The domain, with no HTTP or JSON in it. `deploy.ergo` (`Unit`, `Draft`, `Deploy`, `Validate`, `Total`, `Create`, `Apply`, the failure `Invalid`), `lifecycle.ergo` (`Status`, `Event`, `Step`, the machine `Lifecycle`, the failure `Conflict`), `store.ergo` (`Store`, the store contract with four laws, the failures `NotFound` and `Taken`), `laws.ergo` (the lifecycle and total laws), `tests.ergo`. |
 | `memory/` | `Table`, the in-memory `deploys.Store`. |
-| `jsontext/` | A JSON value (`Value`, a union), `Parse` with the byte offset of each failure, `Encode`, `Quote`, `Member`, `Int`, and four laws. |
 | `api/` | The HTTP layer as plain functions over records: `message.ergo` (`Request`, `Response`, `Header`, `Problem`, `Reason`), `route.ergo` (`Route`, `RouteOf`), `codec.ergo` (`DraftOf`, `DeployJSON`, the failure `BadBody`), `handle.ergo` (`Handle`), `laws.ergo`. |
 | `http1/` | The HTTP/1.1 text: `format.ergo` (`ReadRequest`, `WriteRequest`, `WriteResponse`, the failure `Garbled`), `serve.ergo` (`Serve`, one connection), `laws.ergo`. |
 | `cmd/deploys/` | The binary: it binds the memory `Table` and the host's streams, and is the only place that chooses them. |
 
 ## What it shows
 
-- **Typed failures become status codes in one place.** `deploys.Create` fails `Invalid`, `deploys.Apply` fails `NotFound | Conflict`, the decoder fails `Unsupported | jsontext.Malformed | BadBody`. `api.Handle` catches each by name and gives it its status (422, 404, 409, 415, 400); a new failure in the domain stops the build until `Handle` maps it. The law `EveryRequestHasAStatus` states that no request reaches a status outside the documented list.
+- **Typed failures become status codes in one place.** `deploys.Create` fails `Invalid`, `deploys.Apply` fails `NotFound | Conflict`, the decoder fails `Unsupported | json.Malformed | BadBody`. `api.Handle` catches each by name and gives it its status (422, 404, 409, 415, 400); a new failure in the domain stops the build until `Handle` maps it. The law `EveryRequestHasAStatus` states that no request reaches a status outside the documented list.
 - **The lifecycle as a machine with exhaustive transitions.** `Step` matches on `(Status, Event)` and names all twelve pairs; the laws `FinalTakesNoEvent`, `NoWayBack`, `ApproveIsIdempotent` and `LiveWasApproved` state its shape. The machine's own invariant laws are decided on its whole graph: `AlwaysCancellable` (`always cancellable`: every status a deploy can reach is final or cancellable) and `Ends` (`sometimes Final`: some run ends a deploy; `ergo test` prints the shortest one as a test). A second approval is `Ignore`d, a release before approval is `Reject`ed and becomes 409.
 - **Routes as a union.** `RouteOf` is a `Route = List | Show | Create | Act | Wrong | Nowhere`, and `Handle` matches every variant. `UnknownPathIs404` and `WrongMethodNamesTheRight` (each method `Allow` names reaches the path) are its laws.
 - **A pure handler.** `api.Handle(Request) Response needs deploys.Store` has no I/O: the tests drive whole conversations with no socket, and a listener, when std has one, binds it unchanged.
 - **A store contract with laws, checked on its provider.** `Store` states `FindAfterAdd`, `AddTwiceIsTaken`, `ReplaceKeepsTheCount` and `AllInAddOrder`; `ergo test` runs them in `memory` against `memory.Table`, built by `NewTable`. The API laws take a `Store` as a law parameter and bind it in a context; `ergo test` runs them once per provider of `Store` that their package sees.
-- **A derived codec in two phases.** `api.DraftOf` is std json's `json.Decode` with a `Codec[deploys.Draft]` of 1 MiB and depth 32: the text is checked whole first (`json.Malformed`, 400), then the shape (`WireMissingField`, `WireWrongKind`, 422 with the member's path, `units[0].replicas`). The reading is derived from the `Draft` type, so the body cannot drift from it, and the test client's body is `json.Encode`. Responses stay `jsontext` values (`DeployJSON`): their status is a name, not the derived form of the union.
+- **A derived codec in two phases.** `api.DraftOf` is std json's `json.Decode` with a `Codec[deploys.Draft]` of 1 MiB and depth 32: the text is checked whole first (`json.Malformed`, 400), then the shape (`WireMissingField`, `WireWrongKind`, 422 with the member's path, `units[0].replicas`). The reading is derived from the `Draft` type, so the body cannot drift from it, and the test client's body is `json.Encode`. Responses are records std json writes too (`DeployBody`, `ProblemBody`): a deploy's status is its name, not the derived form of the union, and an error's `field` is a `json.Optional`, absent when the failure names none.
 - **Format laws.** `RequestRoundTrip` (a request written is read back as it was), `PipelinedRequestsAreAnsweredInOrder` and `ContentLengthIsTheBody`.
 
 `ergo test` runs each law that takes no `deploys.Store`; the tests run the others over a `memory.Table`. Each law has a mutant (`batch-13/retheme/RT1-A/deploys-mutants.json` in the run dir, translated from ex-c's `orders/mutants.ts`).
@@ -43,9 +42,8 @@ The program is a module of packages (`ergo.mod`: `module deploys`), in the Go la
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 printf 'GET /deploys HTTP/1.1\r\n\r\n' | ./bin/ergo run examples/deploys/cmd/deploys
-./bin/ergo test examples/deploys/jsontext
 ./bin/ergo test examples/deploys/deploys
 ./bin/ergo test examples/deploys/memory
 ./bin/ergo test examples/deploys/api
@@ -62,9 +60,10 @@ go run ./scripts/examples deploys
 
 Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run dir).
 
-- **G-ex-c-7: no std http, json or net, and no way to reach `net/http`.** `import go "net/http"` is S109 (#202), and a user `extern` may bind only pure Go packages. The program writes its own JSON (`jsontext`) and HTTP/1.1 text (`http1`), and serves one connection on stdin/stdout.
+- **G-ex-c-7: std http stands on Go's `net/http`.** Std `json` now writes and reads every body (DEPLOYS-PORT deleted the program's own `jsontext`). Std `http.Serve` and its client are bodies in `runtime/v1/http` that import Go's `net/http`, which brings `crypto/tls` and `reflect` into a binary; this program is the size fixture that links none of them, so it keeps its own HTTP/1.1 text (`http1`) and serves one connection on stdin/stdout until std http stands on Ergo bodies.
 - **G-ex-c-8: `io.Stdin` has no read of a given length.** The server reads the whole connection with `ReadAll` before it answers, so a client that waits for each response before the next request gets no answer until it half-closes.
 - Closed in batch 13: G-exup-1 and G-exup-3. `ergo test` runs `Store`'s laws in `memory` against `memory.Table`, and the `api` and `http1` laws that take a `deploys.Store` with `memory.Table` bound to the parameter, so `deploys/checks.ergo` and the tests that restated the laws are gone. The `api` properties that steer requests and drafts stay.
+- Fixed in DEPLOYS-PORT r2: two `Create`s at once on one `Table` read one count and named one ID, and the loser was refused as `Invalid` (422) for a valid draft. `Create` now takes the next ID when the Store says `Taken`; `memory`'s `TwoCreatesAtOnceBothLand` runs under every schedule of up to one preemption (the `explored` file).
 - **The machine has no live runner.** `Apply` steps one event with `Step` and moves with `machines.Next`; an `Emit` would move the deploy like an `Enter`, though `Step` never emits.
 - Friction, no gap: `number` is a prelude function name and cannot be redeclared (q30 admits only types), so the parser's numeral reader is `numeral`.
 

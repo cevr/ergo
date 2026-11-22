@@ -22,7 +22,7 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
 		// Go's append, at either shape, runs (interp.go callWitnessed).
-		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == "append" {
+		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == "append" || p.in.goBody(fn) {
 			return ""
 		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
@@ -82,7 +82,7 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:
+			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:
 			case check.CallFunc:
 				// Each witnessed operation's function runs where the
 				// callee calls the operation (witness.go).
@@ -142,6 +142,10 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				why = p.function(fr, fn)
 			case check.CallProviderOp, check.CallWith:
 				// The provider is the nearest with's, known at the run.
+			case check.CallGoError:
+				if c.Name != "go.New" && c.Name != "go.Zero" {
+					why = c.Name + " of a Go error chain"
+				}
 			default:
 				why = fmt.Sprintf("an unsupported call (kind %d)", c.Kind)
 			}

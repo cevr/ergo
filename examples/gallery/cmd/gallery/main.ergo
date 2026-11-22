@@ -1,0 +1,40 @@
+// gallery shows route transitions (stage b:
+// the view on std ui's test host): a gallery site whose navigations carry
+// data work. It plays a script of timed acts on the site's screen and
+// shows what changed after each. Package gallery is the site as a
+// machine; package screen is the view; package script plays the script
+// on the test host, whose history is the browser's; package memory keeps
+// the studio's drafts. This binary is the only place that chooses the
+// clock (a time.Manual that only the script moves) and the drafts' store
+// (memory.Drafts). With -stats it also prints the work of each step.
+
+import gallery/gallery
+import gallery/memory
+import gallery/script
+import flag
+import io
+import os
+import time
+
+let statsFlag = flag.Bool("stats", false, "print the work of each step (ui.Counts)")
+
+let set = flag.Set{Name: "gallery", Usage: "", Flags: []flag.Flag{statsFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: gallery [-stats] < script"
+
+func main() fails os.Exit needs Console | Ambient {
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), time.Clock: clock, Scheduler: clock, gallery.Drafts: memory.NewDrafts() } { script.Run(clock, statsFlag.Get(v)) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "gallery: the script did not run"}
+	}
+}

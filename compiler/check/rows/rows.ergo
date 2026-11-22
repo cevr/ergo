@@ -1,0 +1,531 @@
+// Package rows is the self-hosted checker's row pass (capstone S3, tip 5b
+// S3-ROWS; the Go checker's rows.go escape and charge, clausefix.go): what
+// a function declaration's body lets escape and what it charges, checked
+// against the rows its signature writes. Every check, build and test path
+// checks each declaration against its written signature (q137): an
+// unwritten fails or needs clause is the empty clause, and a body that
+// exceeds a clause is
+//
+//  1. S101, a failure that escapes the body and is not in the error row: a
+//     fallible call under try (the try itself, or an argument of a call
+//     under it), a fallible call returned or left as the body's value;
+//  2. S102, a capability the body charges and the capability row does not
+//     hold: a call of a function whose signature needs it, or of an
+//     operation of a capability named as the receiver (Console.Println).
+//
+// Each message carries the clause to write, the signature with every
+// missing element of that clause added ("; write: …"), as clauseReport
+// prints it.
+//
+// This part reads what the package says: the callee's signature is the one
+// the typer gave the call (compiler/check/expr), the capability a call
+// charges is the operation type the typer read its receiver as. Where it
+// cannot tell, it says nothing: a body or call it does not walk yet (a
+// call with a trailing block, so every with and go block; a context
+// literal's providers, charged at the with that names it; a catch's
+// operand; a law's and a test's body), a function literal whose row is
+// inferred, a row
+// whose elements are not all named types, and the failures the Go checker
+// also reads from values (a returned error value, a value tail that is not
+// a call, the covering rules of cover.go).
+
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import slices
+
+// The two clauses a site exceeds.
+let kErrors = 0
+let kUses = 1
+
+// site is one place where a body exceeds a clause of kind: its node and
+// the elements outside the written clause.
+type site { at dense.ID[syntax.Node], kind int, extra []dense.ID[store.TKey], lit bool, decl []dense.ID[store.TKey] }
+
+// walker is one function body's walk: the tables read for every node, the
+// declared rows (known is false for one with an element this pass does
+// not read: nothing is reported against it), the try depth and the sites.
+type walker {
+	types   dense.Col[store.PNode, dense.Opt[store.TKey]],
+	calls   dense.Col[store.PNode, dense.Opt[store.TKey]],
+	caps    dense.Col[store.PNode, dense.Opt[store.TKey]],
+	lits    dense.Col[store.PNode, int],
+	litRows []expr.LitRows,
+	// decs is the index in decRows of each decode[T](r) whose row expr
+	// reads (expr.DecodeRow), -1 for none.
+	decs    dense.Col[store.PNode, int],
+	decRows []expr.DecodeRow,
+	file    int,
+	errs    []dense.ID[store.TKey],
+	uses    []dense.ID[store.TKey],
+	known   []bool,
+	tries   int,
+	sites   []site,
+	// lit is whether the body walked is a function literal's.
+	lit bool,
+}
+
+// Rows is the S101 and S102 diagnostics of one typed package, in the Go
+// checker's order.
+func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
+	let mut rows = 0
+	for p in k.Parsed {
+		if !p.Failed {
+			rows = rows + syntax.NumNodes(p.Tree)
+		}
+	}
+	let mut ts = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut cs = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut ks = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut ls = dense.ColWithCap[store.PNode, int](rows)
+	let mut ds = dense.ColWithCap[store.PNode, int](rows)
+	for _ in 0..rows {
+		dense.Push(&ts, dense.NoID[store.TKey]())
+		dense.Push(&cs, dense.NoID[store.TKey]())
+		dense.Push(&ks, dense.NoID[store.TKey]())
+		dense.Push(&ls, -1)
+		dense.Push(&ds, -1)
+	}
+	for e in t.Entries {
+		if dense.In(ts, e.At) {
+			dense.SetOf(&ts, e.At, dense.OptOf(e.T))
+		}
+	}
+	for c in t.Calls {
+		if dense.In(cs, c.Call) {
+			dense.SetOf(&cs, c.Call, dense.OptOf(c.Callee.Sig))
+		}
+	}
+	for i, l in t.Lits {
+		if dense.In(ls, l.At) {
+			dense.SetOf(&ls, l.At, i)
+		}
+	}
+	for i, d in t.Decodes {
+		if dense.In(ds, d.Call) {
+			dense.SetOf(&ds, d.Call, i)
+		}
+	}
+	for c in t.Caps {
+		if dense.In(ks, c.Call) {
+			dense.SetOf(&ks, c.Call, dense.OptOf(c.T))
+		}
+	}
+	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false}
+	let mut out = []diag.Diag{}
+	let mut seen = Map[string, bool]{}
+	for f in k.Fns {
+		let p = k.Parsed[f.File]
+		if p.Failed {
+			continue
+		}
+		if syntax.KindOf(p.Tree, f.Decl) == syntax.KTestDecl {
+			// A test's capability row is empty: what it charges outside a
+			// with is S102 (E4). Its failures are not read here.
+			w.file = f.File
+			w.errs = []dense.ID[store.TKey]{}
+			w.uses = []dense.ID[store.TKey]{}
+			w.known = []bool{false, true}
+			w.tries = 0
+			w.sites = []site{}
+			body(&w, s, k, syntax.TestDeclOf(p.Tree, f.Decl).Body)
+			for d in reportTest(&w, s, k, f) {
+				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
+				if !isSome(seen.Get(key)) {
+					seen[key] = true
+					out = out.Append(d)
+				}
+			}
+			continue
+		}
+		if syntax.KindOf(p.Tree, f.Decl) != syntax.KFuncDecl {
+			continue
+		}
+		let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
+		match dense.Unpack(f.Body) {
+		case Some[dense.ID[syntax.Node]] as b:
+			let ops = store.OperandsOf(s, f.Sig)
+			if len(ops) < 3 {
+				continue
+			}
+			w.file = f.File
+			w.errs = store.OperandsOf(s, ops[len(ops)-2])
+			w.uses = store.OperandsOf(s, ops[len(ops)-1])
+			w.known = []bool{simple(s, w.errs), simple(s, w.uses)}
+			w.tries = 0
+			w.sites = []site{}
+			body(&w, s, k, b.Value)
+			for d in report(&w, s, k, f, fd) {
+				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
+				if !isSome(seen.Get(key)) {
+					seen[key] = true
+					out = out.Append(d)
+				}
+			}
+		case None:
+		}
+	}
+	diag.Sorted(out)
+}
+
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}
+
+// simple is whether every element of a row is a type this pass reads: a
+// named type of the package or an import, or a prelude or Go one.
+func simple(s store.Store, row []dense.ID[store.TKey]) bool {
+	for e in row {
+		let k = store.KindOfType(s, e)
+		if k != store.KNamed && k != store.KInstance && k != store.KForeign {
+			return false
+		}
+		if k == store.KInstance && len(store.OperandsOf(s, e)) > 0 {
+			return false
+		}
+	}
+	true
+}
+
+func un(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	if syntax.KindOf(tr, x) == syntax.KParenExpr { un(tr, syntax.ParenExprOf(tr, x).X) } else { x }
+}
+
+// body walks a function body: its statements, the last one the body's
+// value (a tail: rows.md, Error rows 4).
+func body(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	let l = syntax.BlockStmtOf(tr, b).List
+	let n = syntax.Len(l)
+	for i in 0..n {
+		let x = syntax.Item(tr, l, i)
+		if i == n-1 {
+			tailStmt(w, s, k, x)
+		} else {
+			walk(w, s, k, x)
+		}
+	}
+}
+
+// tailStmt walks the statement x that ends the body, or a branch of an
+// if or match that ends it: a fallible call there is the body's value,
+// whose failure escapes (tails.go, k.ret).
+func tailStmt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	match syntax.ViewOf(tr, x) {
+	case syntax.ExprStmt as es:
+		let y = un(tr, es.X)
+		if syntax.KindOf(tr, y) == syntax.KIfStmt || syntax.KindOf(tr, y) == syntax.KSwitchStmt || syntax.KindOf(tr, y) == syntax.KTypeSwitchStmt {
+			tailStmt(w, s, k, y)
+		} else {
+			valueAt(w, s, k, es.X, es.X)
+		}
+	case syntax.IfStmt as is:
+		walk(w, s, k, is.Cond)
+		body(w, s, k, is.Body)
+		match dense.Unpack(is.Else) {
+		case Some[dense.ID[syntax.Node]] as e:
+			if syntax.KindOf(tr, e.Value) == syntax.KBlockStmt { body(w, s, k, e.Value) } else { tailStmt(w, s, k, e.Value) }
+		case None:
+		}
+	case syntax.SwitchStmt as ss:
+		walk(w, s, k, ss.Tag)
+		clauses(w, s, k, ss.Clauses)
+	case syntax.TypeSwitchStmt as ss:
+		walk(w, s, k, ss.Subject)
+		clauses(w, s, k, ss.Clauses)
+	case _:
+		walk(w, s, k, x)
+	}
+}
+
+// clauses walks the case clauses of a match that ends the body: each
+// clause's last statement is a tail.
+func clauses(w mut walker, s store.Store, k expr.Pkg, l syntax.List) {
+	let tr = k.Parsed[w.file].Tree
+	for i in 0..syntax.Len(l) {
+		let cc = syntax.CaseClauseOf(tr, syntax.Item(tr, l, i))
+		for j in 0..syntax.Len(cc.List) {
+			walk(w, s, k, syntax.Item(tr, cc.List, j))
+		}
+		let n = syntax.Len(cc.Body)
+		for j in 0..n {
+			let y = syntax.Item(tr, cc.Body, j)
+			if j == n-1 { tailStmt(w, s, k, y) } else { walk(w, s, k, y) }
+		}
+	}
+}
+
+// valueAt walks x, a value that leaves the body (returned or its tail):
+// when x is a call that can fail, its failure escapes at at.
+func valueAt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	let y = un(tr, x)
+	if syntax.KindOf(tr, y) == syntax.KCallExpr {
+		call(w, s, k, y, Some[dense.ID[syntax.Node]]{Value: at})
+	} else {
+		walk(w, s, k, x)
+	}
+}
+
+// walk walks the node x of the body.
+func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	let kind = syntax.KindOf(tr, x)
+	if kind == syntax.KFuncLit {
+		funcLit(w, s, k, x)
+		return
+	}
+	if kind == syntax.KContextLit {
+		// A local context's provider expressions are charged at each with
+		// that names it (D-E5), which this pass does not walk yet.
+		return
+	}
+	if kind == syntax.KCallExpr {
+		let at = if w.tries > 0 { Some[dense.ID[syntax.Node]]{Value: x} } else { None }
+		call(w, s, k, x, at)
+		return
+	}
+	if kind == syntax.KTryExpr {
+		let te = syntax.TryExprOf(tr, x)
+		let y = un(tr, te.X)
+		if syntax.KindOf(tr, y) == syntax.KCatchExpr {
+			return
+		}
+		w.tries = w.tries + 1
+		if syntax.KindOf(tr, y) == syntax.KCallExpr {
+			call(w, s, k, y, Some[dense.ID[syntax.Node]]{Value: x})
+		} else {
+			walk(w, s, k, te.X)
+		}
+		w.tries = w.tries - 1
+		return
+	}
+	if kind == syntax.KCatchExpr {
+		// The operand's failures are the catch's; its arms are walked.
+		let ce = syntax.CatchExprOf(tr, x)
+		let saved = w.tries
+		w.tries = 0
+		walkNoEscape(w, s, k, ce.X)
+		w.tries = saved
+		for i in 0..syntax.Len(ce.Arms) {
+			walk(w, s, k, syntax.Item(tr, ce.Arms, i))
+		}
+		return
+	}
+	if kind == syntax.KReturnStmt {
+		match dense.Unpack(syntax.ReturnStmtOf(tr, x).Result) {
+		case Some[dense.ID[syntax.Node]] as r:
+			valueAt(w, s, k, r.Value, r.Value)
+		case None:
+		}
+		return
+	}
+	for c in syntax.Children(tr, x, []uint32{}) {
+		walk(w, s, k, syntax.NodeAt(tr, int(c)))
+	}
+}
+
+// funcLit walks the body of the function literal x, a target of its own
+// (call.go funcLit): its rows are the ones it writes, else its context's
+// function type's when closed (expr.LitRows). A row the literal infers is
+// checked against nothing.
+func funcLit(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	let n = bind.PNodeOf(k.Ps, w.file, x)
+	if !dense.In(w.lits, n) || dense.Of(w.lits, n) < 0 {
+		return
+	}
+	let lr = w.litRows[dense.Of(w.lits, n)]
+	let (errs, uses, known, tries, lit) = (w.errs, w.uses, w.known, w.tries, w.lit)
+	let (e, ek) = rowOf(s, lr.Errs)
+	let (u, uk) = rowOf(s, lr.Uses)
+	w.errs = e
+	w.uses = u
+	w.known = []bool{ek, uk}
+	w.tries = 0
+	w.lit = true
+	body(w, s, k, syntax.FuncLitOf(k.Parsed[w.file].Tree, x).Body)
+	w.errs = errs
+	w.uses = uses
+	w.known = known
+	w.tries = tries
+	w.lit = lit
+}
+
+// rowOf is the elements of a literal's row and whether it is known: a row
+// it infers, or one with an element this pass does not read, is not.
+func rowOf(s store.Store, r Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey], bool) {
+	match r {
+	case Some[dense.ID[store.TKey]] as row:
+		let xs = store.OperandsOf(s, row.Value)
+		(xs, simple(s, xs))
+	case None:
+		([]dense.ID[store.TKey]{}, false)
+	}
+}
+
+// walkNoEscape walks a catch's operand: its calls charge, and its
+// failures are the catch's, so a call there escapes nothing.
+func walkNoEscape(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	if syntax.KindOf(tr, un(tr, x)) == syntax.KCallExpr {
+		call(w, s, k, un(tr, x), None)
+	} else {
+		walk(w, s, k, x)
+	}
+}
+
+// call walks the call x: its callee and arguments, then what it charges
+// and, when esc is set, its failure escaping at esc.
+func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc Option[dense.ID[syntax.Node]]) {
+	let tr = k.Parsed[w.file].Tree
+	let c = syntax.CallExprOf(tr, x)
+	match dense.Unpack(c.Trailing) {
+	case Some[dense.ID[syntax.Node]] as b:
+		if isWith(k.Parsed[w.file], c.Fun) && syntax.KindOf(tr, b.Value) == syntax.KBlockStmt {
+			withBlock(w, s, k, b.Value)
+		}
+		// A go block or a block argument: not walked yet.
+		return
+	case None:
+	}
+	walk(w, s, k, c.Fun)
+	for i in 0..syntax.Len(c.Args) {
+		let a = syntax.Item(tr, c.Args, i)
+		if w.tries > 0 && syntax.KindOf(tr, un(tr, a)) == syntax.KCallExpr {
+			// Under try an argument's failure escapes at the argument
+			// (handled, argValue).
+			call(w, s, k, un(tr, a), Some[dense.ID[syntax.Node]]{Value: a})
+		} else {
+			walk(w, s, k, a)
+		}
+	}
+	let n = bind.PNodeOf(k.Ps, w.file, x)
+	if dense.In(w.caps, n) {
+		match dense.Unpack(dense.Of(w.caps, n)) {
+		case Some[dense.ID[store.TKey]] as cap:
+			charge(w, s, x, cap.Value)
+		case None:
+		}
+	}
+	if dense.In(w.decs, n) && dense.Of(w.decs, n) >= 0 {
+		// decode[T](r): its row is the codec's (expr.DecodeRow).
+		match esc {
+		case Some[dense.ID[syntax.Node]] as at:
+			let errs = w.decRows[dense.Of(w.decs, n)].Errs
+			if simple(s, errs) {
+				escape(w, at.Value, errs)
+			}
+		case None:
+		}
+		return
+	}
+	match sigOf(w, s, k, x, c.Fun) {
+	case Some[dense.ID[store.TKey]] as sig:
+		let ops = store.OperandsOf(s, sig.Value)
+		if len(ops) < 3 {
+			return
+		}
+		let uses = store.OperandsOf(s, ops[len(ops)-1])
+		if simple(s, uses) {
+			for u in uses {
+				charge(w, s, x, u)
+			}
+		}
+		match esc {
+		case Some[dense.ID[syntax.Node]] as at:
+			let errs = store.OperandsOf(s, ops[len(ops)-2])
+			if simple(s, errs) {
+				escape(w, at.Value, errs)
+			}
+		case None:
+		}
+	case None:
+	}
+}
+
+// isWith is whether the callee fun of a call with a trailing block is the
+// word with (bind's isWith): `with W { block }`.
+func isWith(p syntax.Parsed, fun dense.ID[syntax.Node]) bool {
+	syntax.KindOf(p.Tree, fun) == syntax.KIdent && types.NameText(p, fun) == "with"
+}
+
+// withBlock walks the block b of a with (context.go with): a try in it
+// lets its failure escape the target, as anywhere in the body (rows.md,
+// With 6). What it charges is not read: the with discharges what its
+// context binds, which this pass does not resolve, so the capability row
+// is unknown inside it. Its operands are not walked either: an inline
+// context's providers charge the target and a local context's are charged
+// at the with (D-E5), both unread here. Its last expression is the with's
+// value, not the body's, so no tail escapes from it.
+func withBlock(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	let (known, tries) = (w.known[kUses], w.tries)
+	w.known[kUses] = false
+	w.tries = 0
+	let l = syntax.BlockStmtOf(tr, b).List
+	for i in 0..syntax.Len(l) {
+		walk(w, s, k, syntax.Item(tr, l, i))
+	}
+	w.known[kUses] = known
+	w.tries = tries
+}
+
+// sigOf is the signature the typer gave the callee of the call x: the
+// package function it resolved, else the type of the callee expression.
+func sigOf(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], fun dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let tr = k.Parsed[w.file].Tree
+	let n = bind.PNodeOf(k.Ps, w.file, x)
+	if dense.In(w.calls, n) {
+		match dense.Unpack(dense.Of(w.calls, n)) {
+		case Some[dense.ID[store.TKey]] as sig:
+			return Some[dense.ID[store.TKey]]{Value: sig.Value}
+		case None:
+		}
+	}
+	let f = bind.PNodeOf(k.Ps, w.file, un(tr, fun))
+	if !dense.In(w.types, f) {
+		return None
+	}
+	match dense.Unpack(dense.Of(w.types, f)) {
+	case Some[dense.ID[store.TKey]] as ty:
+		if store.KindOfType(s, ty.Value) == store.KSig { Some[dense.ID[store.TKey]]{Value: ty.Value} } else { None }
+	case None:
+		None
+	}
+}
+
+// charge records that the call x charges cap: a site when the capability
+// row does not hold it.
+func charge(w mut walker, s store.Store, x dense.ID[syntax.Node], cap dense.ID[store.TKey]) {
+	if !w.known[kUses] || slices.Contains(w.uses, cap) {
+		return
+	}
+	w.sites = w.sites.Append(site{at: x, kind: kUses, extra: []dense.ID[store.TKey]{cap}, lit: w.lit, decl: w.uses})
+}
+
+// escape records that the failures errs escape at x: a site with the ones
+// the error row does not list.
+func escape(w mut walker, x dense.ID[syntax.Node], errs []dense.ID[store.TKey]) {
+	if !w.known[kErrors] {
+		return
+	}
+	let mut extra = []dense.ID[store.TKey]{}
+	for e in errs {
+		if !slices.Contains(w.errs, e) {
+			extra = extra.Append(e)
+		}
+	}
+	if len(extra) > 0 {
+		w.sites = w.sites.Append(site{at: x, kind: kErrors, extra: extra, lit: w.lit, decl: w.errs})
+	}
+}

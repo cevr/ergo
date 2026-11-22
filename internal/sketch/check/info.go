@@ -141,6 +141,13 @@ type Package struct {
 	// packages, by extern target (moduleDoor; docs/spec/interop.md,
 	// Trusted Go 3). Only the package's own check writes it.
 	goBodies map[string]v1.Body
+	// goSource are the effect-free bodies of goBodies standing alone
+	// (v1.Bodies.Source; LAWFFI LF2m), for the licence run's driver.
+	goSource map[string]GoBodySource
+	// withSpent is the with meter's work when the package's own check
+	// finished, plus one; 0 is a package this process did not check (a
+	// decoded one). WithWork reads it.
+	withSpent int
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg
@@ -270,6 +277,10 @@ type Info struct {
 	// only runs in place: a non-escaping frame (check/escaping.go,
 	// localFrames).
 	LocalFrames map[*syntax.FuncLit]bool
+	// Relends is every &x whose x is a mut parameter: the borrow it holds
+	// passed on, of x's type mut T, not a borrow of the parameter (types.md,
+	// Borrows 1). Every lowering passes x itself.
+	Relends map[*syntax.UnaryExpr]bool
 	// Loops is every for-in.
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
@@ -410,6 +421,17 @@ type Info struct {
 	// marks the field on the record's entry there, and the generated
 	// release skips it. Added in L8 B2 (additive).
 	FieldTakes map[*syntax.SelectorExpr]FieldTake
+	// MethodValues is each x.f that is not called and takes the function
+	// f on x's type as a value (types.md, Methods 2): f with x bound when
+	// the expression is evaluated, as Go's method value. A generic f has
+	// every type parameter bound by x's type, and its instance is
+	// Instances[x]. Added in CV1 (additive).
+	MethodValues map[*syntax.SelectorExpr]*Func
+	// etaMethodValues is each literal that is the exact eta closure of a
+	// method value with the same meaning (etamethodvalue.go), for lint
+	// (EtaMethodValue). It is not exported: only a program's own files
+	// are fixed, never an imported package's.
+	etaMethodValues map[*syntax.FuncLit]*syntax.SelectorExpr
 	// Handoffs is each use of an owned local or taken parameter that
 	// hands it off (a move or a take), with the owned local it hands off:
 	// the ident's own, or the root of the borrow a Close is called through
@@ -425,25 +447,6 @@ type Info struct {
 	// in Signature.Takes; a function that takes nothing has no key. Added
 	// in L8 A3 (additive).
 	Takes map[*Func][]int
-	// Copies is each generic function's copy sites (#197 L8 A3; plan 1.3;
-	// takes.go): per type parameter of its signature, the first place its
-	// body copies a value of that type (a second use after a hand-off, or a
-	// call of a function that copies it). A call that binds such a type
-	// parameter to a resource is S108. Added in L8 A3 (additive).
-	Copies map[*Func][]CopySite
-}
-
-// CopySite is one place a generic body copies a value of its type
-// parameter TParam (an index into the signature's TParams).
-type CopySite struct {
-	TParam int
-	At     syntax.Node
-	// Where is At as file:line:col; empty for a declaration with no body.
-	Where string
-	// What says how it copies, for the diagnostic: "x is used twice".
-	What string
-	// Key marks a map key (resources R40: S112 at the instantiation).
-	Key bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -545,6 +548,7 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		ValueCaptures: map[syntax.Node][]*Var{},
 		LocalFrames:   map[*syntax.FuncLit]bool{},
+		Relends:       map[*syntax.UnaryExpr]bool{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
@@ -569,10 +573,10 @@ func newInfo() *Info {
 		ReturnedTemps:  map[syntax.Expr]bool{},
 		ArmValues:      map[syntax.Expr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
+		MethodValues:   map[*syntax.SelectorExpr]*Func{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
 		Takes:          map[*Func][]int{},
-		Copies:         map[*Func][]CopySite{},
 	}
 }
 
@@ -687,7 +691,13 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
-			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			self := targs[i]
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness's function writes its receiver
+				// through a pointer (Generics 2; MODES-4).
+				self = &Pointer{Elem: self}
+			}
+			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
 				var why string
@@ -766,6 +776,10 @@ const (
 	// is true when it matches the whole of its first argument (types.md,
 	// Refinements 11). Added in FKre.
 	CallPattern
+	// CallHash is the hash built-in, hash(k): the uint64 hash of a value
+	// of a comparable type, generated from its declared type as == is
+	// (types.md, Maps; CONSTRAINTS C5).
+	CallHash
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -845,6 +859,10 @@ const (
 	// (narrowsRowParams): the type's function narrows each such row value to
 	// its one type and calls the value.
 	ConvNarrow
+	// ConvWiden puts a value of a declared union into a declared union
+	// that holds each of its variants (types.md, Assignability 4;
+	// DECL-VALUES Design B (b)): the value is the same variant.
+	ConvWiden
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value
@@ -1076,6 +1094,10 @@ type Test struct {
 	Name   string
 	Decl   *syntax.TestDecl
 	Params []*Var
+	// Ties are, for each parameter, the earlier parameters of an
+	// identical type whose drawn value a generated case may repeat
+	// (Law.Ties; runtime.md, Tests).
+	Ties [][]int
 
 	file *fileInfo // the declaring file, selected while the test is checked
 }
@@ -1127,6 +1149,24 @@ type Law struct {
 	// Where holds the refinement of each parameter that takes a where
 	// (refine.go), at its index in Params; nil without any.
 	Where []*Refinement
+	// Ties are, for each parameter, the earlier parameters of an
+	// identical type, neither with a where, whose drawn value a generated
+	// case may repeat, so that a run reaches equal arguments (the tie
+	// rule; runtime.md, Tests; CONSTRAINTS C2). A parameter of a generic
+	// owner's type parameter ties with another of the same parameter.
+	Ties [][]int
+	// Admit holds, at the index of each parameter whose where names an
+	// earlier parameter or an operation of the law's type (CONSTRAINTS
+	// C5; lawwhere.go), the admission law of that where: a law over the
+	// parameters up to it whose body is the where. A case is admitted
+	// when every admission holds. nil without any.
+	Admit []*Law
+	// Near holds, at the same index, the earlier parameter of an
+	// identical type that the where names, whose near variants the run
+	// searches for the parameter's value, or -1.
+	Near []int
+	// Admits is the law an admission law belongs to (Admit), or nil.
+	Admits *Law
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
@@ -1185,7 +1225,14 @@ type LawRun struct {
 // *Type, so *Type provides the slot and Type does not. The case's Type is
 // built as any provider's is (by Ctor, or generated), and the run binds
 // its address; Conv converts from *Type.
+//
+// Native is a provider whose operations call Go (README Gap 17): its
+// build holds go.Foreign, which the test binary's law case holds and
+// nothing else under a test does (types.md, Laws 10; owner q277). The
+// native run builds it; the check-time evaluator, which runs no Go,
+// reports the binding native, never passed.
 type LawProvider struct {
+	Native bool
 	// Value lends the runner's fresh provider record to pointer operations.
 	// It grants no implicit conversion to a user operation-type value.
 	Value  bool
@@ -1196,6 +1243,10 @@ type LawProvider struct {
 	Slot   *Named
 	Params []Type
 	Ptr    bool
+	// Witnesses are, for a law of a generic operation type whose type
+	// parameter operations constrain, the witness of each such parameter
+	// at the provider's instance (lawWitnesses), in order.
+	Witnesses []Witness
 
 	// noGenerator marks an Unrun that says the values have no generator;
 	// lawRuns adds the fix the law's shape admits (lawProviderFix).

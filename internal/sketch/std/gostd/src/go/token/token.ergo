@@ -294,6 +294,7 @@ extern go go/token.PERIOD let PERIOD Token
 extern go go/token.Pos type Pos int
 
 // ergo:go func (Pos).IsValid() bool
+// ergo:total
 extern go go/token.Pos.IsValid func (p Pos) IsValid() bool needs go.Foreign
 
 // ergo:go type Position struct
@@ -380,15 +381,19 @@ extern go go/token.TYPE let TYPE Token
 extern go go/token.Token type Token int
 
 // ergo:go func (Token).IsKeyword() bool
+// ergo:total
 extern go go/token.Token.IsKeyword func (tok Token) IsKeyword() bool needs go.Foreign
 
 // ergo:go func (Token).IsLiteral() bool
+// ergo:total
 extern go go/token.Token.IsLiteral func (tok Token) IsLiteral() bool needs go.Foreign
 
 // ergo:go func (Token).IsOperator() bool
+// ergo:total
 extern go go/token.Token.IsOperator func (tok Token) IsOperator() bool needs go.Foreign
 
 // ergo:go func (Token).Precedence() int
+// ergo:total
 extern go go/token.Token.Precedence func (op Token) Precedence() int needs go.Foreign
 
 // ergo:go func (Token).String() string

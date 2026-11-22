@@ -1,0 +1,124 @@
+// irdump builds the IR of each package of a corpus with compiler/lower
+// (capstone S4) and prints, after each package's "@pkg I" line:
+//
+//	P INDEX PATH        the IR file's Files, in order
+//	F PATH OFFSET JSON  a function lower built: its declaration's file and
+//	                    offset, and its IR (ir.WriteFunc; positions index
+//	                    the P lines)
+//	S PATH OFFSET CAUSE a function lower stopped at, and why
+//
+//	irdump [-std DIR] [-roots FILE] -corpus MANIFEST
+//
+// The roots file names, one per line, the import paths of the packages
+// that are a build's root (a program's main package, a package a test
+// build tests): their declarations' Go names are bare, every other
+// package's alias__name (lower.Package).
+//
+// The manifest is exprdump's (one package per line, "PATH EXT FOREIGN
+// FILE..."), typed by compiler/check/load as exprdump types it. Each
+// package is written as it is typed, so the run holds one package's
+// typing at a time. It is the Ergo side of internal/selfhostcheck's
+// TestCompilerIRAgreesWithBuilder.
+
+import compiler/check/bind
+import compiler/check/load
+import compiler/ir
+import compiler/lower
+import compiler/syntax
+import fs
+import io
+import os
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "irdump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "irdump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "irdump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
+	if len(g) < 2 {
+		return os.Exit{Code: 2, Message: "irdump: a package needs EXT FOREIGN FILE..."}
+	}
+	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
+	let paths = g[2:len(g)]
+	let mut files = []bind.File{}
+	for path in paths {
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	}
+	load.UnitOf(tab, files, paths)
+}
+
+// write prints one typed package's IR lines after its "@pkg I" line.
+func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool, sourced bool) {
+	b.WriteString("@pkg \(i)\n")
+	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root, sourced)
+	for j, path in out.File.Files {
+		b.WriteString("P \(j) \(path)\n")
+	}
+	for j, site in out.Sites {
+		let text = ir.WriteFunc(out.File, j) catch {
+		case ir.Malformed as m:
+			"malformed: " + m.Why
+		}
+		b.WriteString("F \(u.Paths[site.File]) \(site.At) \(text)\n")
+	}
+	for s in out.Stops {
+		b.WriteString("S \(u.Paths[s.File]) \(s.At) \(s.Cause)\n")
+	}
+}
+
+func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut std = ""
+	let mut argv = argv0
+	if len(argv) > 1 && argv[0] == "-std" {
+		std = argv[1]
+		argv = argv[2:len(argv)]
+	}
+	let mut roots = []string{}
+	if len(argv) > 1 && argv[0] == "-roots" {
+		roots = strings.Fields(try read(argv[1]))
+		argv = argv[2:len(argv)]
+	}
+	if len(argv) != 2 || argv[0] != "-corpus" {
+		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] -corpus MANIFEST"}
+	}
+	let mut units = []load.Unit{}
+	for line in strings.Split(try read(argv[1]), "\n") {
+		let g = strings.Fields(line)
+		if len(g) > 0 {
+			let mut u = try unitOf(g[1:len(g)])
+			u.Path = g[0]
+			units = units.Append(u)
+		}
+	}
+	let p = load.LoadAll(units, load.Outside(units, std), 4)
+	let mut b = strings.NewBuilder()
+	for i in 0..len(p.Loaded) {
+		let ui = p.Units[i]
+		let mut root = false
+		for r in roots {
+			root = root || r == units[ui].Path
+		}
+		// A std package is a library, lowered with no //line directives.
+		let sourced = std == "" || len(units[ui].Paths) == 0 || !strings.HasPrefix(units[ui].Paths[0], std+"/")
+		write(&b, ui, units[ui], load.TypeAt(p, i), root, sourced)
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

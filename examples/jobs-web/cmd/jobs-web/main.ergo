@@ -25,7 +25,7 @@ func site(root fs.Root, r http.Request) http.Response needs jobs.Jobs | http.Str
 		return rpc.Answer(r, "/rpc", jobsrpc.Handle)
 	}
 	if r.Path == "/" {
-		return http.Files(root, "/", http.Request{Method: r.Method, Path: "/index.html", Query: r.Query, Header: r.Header, Body: r.Body})
+		return http.Files(root, "/", http.Request{Method: r.Method, Path: "/index.html", RawPath: "/index.html", Query: r.Query, Header: r.Header, Body: r.Body})
 	}
 	http.Files(root, "/", r)
 }

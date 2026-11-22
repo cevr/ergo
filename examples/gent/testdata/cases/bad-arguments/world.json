@@ -1,0 +1,30 @@
+{
+ "replies": [
+  {
+   "_tag": "Says",
+   "pieces": [],
+   "calls": [
+    {
+     "id": "c1",
+     "name": "read",
+     "arguments": "{\"file\": 3"
+    }
+   ],
+   "end": {
+    "_tag": "ToolUse"
+   }
+  },
+  {
+   "_tag": "Says",
+   "pieces": [
+    "I wrote the arguments wrong."
+   ],
+   "calls": [],
+   "end": {
+    "_tag": "Finished"
+   }
+  }
+ ],
+ "files": {},
+ "shell": {}
+}

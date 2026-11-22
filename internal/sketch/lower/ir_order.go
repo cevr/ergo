@@ -85,7 +85,7 @@ func (b *irBuilder) binaryOf(x *syntax.BinaryExpr, op string) *irExpr {
 	p := b.pos(x, x.OpPos)
 	if op != "&&" && op != "||" {
 		xs := b.inOrder([]syntax.Expr{x.X, x.Y})
-		return &irExpr{K: "bin", Pos: p, Op: op, X: xs[0], Y: xs[1]}
+		return b.rounded(x, x, b.l.info.Types[x], &irExpr{K: "bin", Pos: p, Op: op, X: xs[0], Y: xs[1]}) // ir_float.go
 	}
 	l := b.expr(x.X)
 	pre, r := b.collect(func() ([]*irStmt, *irExpr) { return nil, b.expr(x.Y) })
@@ -133,14 +133,21 @@ func (b *irBuilder) whileStmt(s *syntax.ForStmt) []*irStmt {
 		pre, cond = b.condOf(s.Cond)
 	}
 	loop := &irStmt{K: "while", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
-	b.loopBody(loop, s, s.Body) // ir_stmt.go
+	// The condition's facts hold in the body (bounds.go; ir_bounds.go);
+	// the loop's head killed what the body writes (stmt).
+	mark := b.fc.factMark()
+	if s.Cond != nil {
+		b.fc.assume(s.Cond)
+	}
+	ctr := b.loopBody(loop, s, s.Body) // ir_stmt.go
+	b.fc.factReset(mark)
 	if len(pre) > 0 {
 		p := past(b.pos(s.Cond, s.Cond.Pos()), pre)
 		loop.X = nil
 		exit := &irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: cond}, Then: []*irStmt{{K: "break", Pos: p}}}
 		loop.Body = append(append(pre, exit), loop.Body...)
 	}
-	return []*irStmt{loop}
+	return append(ctr, loop)
 }
 
 // rangeValue is a range's domain and the statements it runs first, before

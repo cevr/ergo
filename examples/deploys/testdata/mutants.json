@@ -1,0 +1,10 @@
+{
+  "about": "deploys' application mutants; each is judged by the example's laws, tests and CLI case, not by a compiler test.",
+  "mutants": [
+    {"name":"dp-status-not-named","origin":"wf10 DEPLOYS-PORT","file":"examples/deploys/api/codec.ergo","from":"Status: deploys.Name(o.Status)","to":"Status: o.Service","rule":"A deploy's body names its status (\"pending\", \"approved\"), as std json writes DeployBody.","anchor":{"tests":["examples:deploys"]},"killers":["examples:deploys"]},
+    {"name":"dp-problem-field-always","origin":"wf10 DEPLOYS-PORT","file":"examples/deploys/api/codec.ergo","from":"if field == \"\" { json.Absent } else","to":"if false { json.Absent } else","rule":"An error's body has \"field\" only when the failure names one (json.Optional absent).","anchor":{"tests":["examples:deploys"]},"killers":["examples:deploys"]},
+    {"name":"dp-list-drops-deploys","origin":"wf10 DEPLOYS-PORT","file":"examples/deploys/api/codec.ergo","from":"MaxDepth: 32}, bodies)","to":"MaxDepth: 32}, bodies[0:0])","rule":"GET /deploys lists every deploy's body, in order.","anchor":{"tests":["examples:deploys"]},"killers":["examples:deploys"]},
+    {"name":"dp-respond-not-json","origin":"wf10 DEPLOYS-PORT","file":"examples/deploys/api/handle.ergo","from":"Value: \"application/json\"}}, Body: body}","to":"Value: \"application/json\"}}, Body: body + \",\"}","rule":"Every response body is JSON text (law EveryRequestHasAStatus).","anchor":{"tests":["examples:deploys"]},"killers":["examples:deploys"]},
+    {"name":"dp-create-taken-is-invalid","origin":"wf10 DEPLOYS-PORT r2","file":"examples/deploys/deploys/deploy.ergo","from":"\t\t\ttaken = t.ID\n\t\t\tcontinue","to":"\t\t\ttaken = t.ID\n\t\t\treturn Invalid{Field: \"id\", Reason: \"the store already holds \\(taken)\"}","rule":"Create takes the next ID when two creates at once named one: a valid draft is never refused because another create took its ID (memory TwoCreatesAtOnceBothLand, explore leg).","anchor":{"tests":["examples:deploys"]},"killers":["examples:deploys"]}
+  ]
+}

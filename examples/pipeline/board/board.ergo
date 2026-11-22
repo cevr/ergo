@@ -4,6 +4,7 @@
 // is the board of the runs' states.
 
 import pipeline/run
+import slices
 
 // View is the board. Each run is in one column.
 type View {
@@ -61,16 +62,6 @@ func moved(e run.Event) Option[Column] {
 	}
 }
 
-func without(xs []string, id string) []string {
-	let mut out = []string{}
-	for x in xs {
-		if x != id {
-			out = out.Append(x)
-		}
-	}
-	out
-}
-
 // put is v with id at the end of column c.
 func put(v View, c Column, id string) View {
 	match c {
@@ -92,7 +83,8 @@ func put(v View, c Column, id string) View {
 func Apply(v View, id string, e run.Event) View {
 	match moved(e) {
 	case Some[Column] as c:
-		let out = View{Queued: without(v.Queued, id), Running: without(v.Running, id), Failing: without(v.Failing, id), Passed: without(v.Passed, id), Stopped: without(v.Stopped, id)}
+		let other = func(x string) bool { x != id }
+		let out = View{Queued: slices.Filter(v.Queued, other), Running: slices.Filter(v.Running, other), Failing: slices.Filter(v.Failing, other), Passed: slices.Filter(v.Passed, other), Stopped: slices.Filter(v.Stopped, other)}
 		put(out, c.Value, id)
 	case None:
 		v
@@ -118,6 +110,49 @@ func Of(order []string, runs Map[string, run.Run]) View {
 	}
 	v
 }
+
+// BoardIsFoldOfEvents: the board folded from the events of every run is
+// the board of the runs' states, with each run once, in the column of
+// its state, in the order the runs moved last.
+law BoardIsFoldOfEvents(acts []Act) {
+	let mut runs = Map[string, run.Run]{}
+	let mut order = []string{}
+	let mut v = Empty
+	for a in acts {
+		let id = nameOf(a.Pick)
+		let s = match runs.Get(id) {
+		case Some[run.Run] as r:
+			r.Value
+		case None:
+			run.Unsubmitted
+		}
+		let c = if a.Move%4 == 0 { run.Cancel{Why: "stop"} } else { run.Forward(s, a.OK, a.Stages) }
+		let es = run.Decide(s, c) catch {
+		case run.WrongState, run.WrongStage, run.Closed, run.BadLength:
+			[]run.Event{}
+		}
+		for e in es {
+			v = Apply(v, id, e)
+			match moved(e) {
+			case Some[Column]:
+				order = slices.Filter(order, func(x string) bool { x != id }).Append(id)
+			case None:
+			}
+		}
+		runs[id] = run.Fold(s, es)
+	}
+	v == Of(order, runs)
+}
+
+// Act is one generated command: to the run Pick names (one of three),
+// a cancel when Move is a multiple of 4, else the command that moves the
+// run on (run.Forward), passed or failed by OK.
+type Act { Pick int, Move int, OK bool, Stages int }
+
+// Names are the runs of the law.
+let Names = []string{"a", "b", "c"}
+
+func nameOf(pick int) string { Names[((pick%3)+3)%3] }
 
 // Size is the number of runs on v.
 func Size(v View) int { len(v.Queued) + len(v.Running) + len(v.Failing) + len(v.Passed) + len(v.Stopped) }

@@ -1,0 +1,404 @@
+import go strconv
+
+// The spellings of the token kinds (the Go scanner's Token.String): an
+// operator, keyword or reserved word is its text, any other kind its class
+// name.
+let tokenNames = []string{
+	"ILLEGAL", "EOF", "COMMENT", "IDENT", "INT", "FLOAT", "DURATION", "STRING", "RUNE", "PATH",
+	"STRING_HEAD", "STRING_MID", "STRING_TAIL",
+	"+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "&^",
+	"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "&^=",
+	"&&", "||", "<-", "++", "--", "..", "==", "<", ">", "=", "!", "!=", "<=", ">=", ":=", "...",
+	"(", "[", "{", ",", ".", ")", "]", "}", ";", ":", "token(?)",
+	"break", "case", "continue", "else", "for", "func", "if", "import", "return", "type",
+	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
+	"escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as", "token(?)", "token(?)",
+	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
+	"range", "select", "struct", "switch", "var", "token(?)",
+	"~",
+}
+
+// KeywordTableIsTheRule: keyword says what keywordRule says for every
+// spelling of a kind, each with a letter more and a letter less, and for a
+// word of up to 12 letters drawn from the case.
+law KeywordTableIsTheRule(n int) {
+	let mut ok = true
+	for i in 0..len(tokenNames) {
+		let w = tokenNames[i]
+		ok = ok && kwAgrees(w) && kwAgrees(w+"s") && (len(w) == 0 || kwAgrees(w[:len(w)-1]))
+	}
+	let letters = "abcdefghijklmnopqrstuvwxyz_0"
+	let mut m = n
+	let mut w = ""
+	for j in 0..12 {
+		let d = ((m % 28) + 28) % 28
+		w = w + letters[d:d+1]
+		m = m/28 + j*7919
+		ok = ok && kwAgrees(w)
+	}
+	ok
+}
+
+// keywordRule is the kind of the word src[start:end] by its length and
+// then its bytes: the rule kwTable stands for.
+func keywordRule(src string, start int, end int) uint8 {
+	let n = end - start
+	if n < 2 || n > 11 {
+		return Ident
+	}
+	let c = src[start]
+	if c < 'a' || c > 'w' {
+		return Ident
+	}
+	let w = src[start:end]
+	if n == 2 {
+		if w == "if" {
+			return If
+		}
+		if w == "in" {
+			return In
+		}
+		if w == "as" {
+			return As
+		}
+		if w == "go" {
+			return Go
+		}
+		return Ident
+	}
+	if n == 3 {
+		if c == 'f' {
+			return if w == "for" { For } else { Ident }
+		}
+		if c == 'l' {
+			if w == "let" {
+				return Let
+			}
+			return if w == "law" { Law } else { Ident }
+		}
+		if c == 'm' {
+			if w == "mut" {
+				return Mut
+			}
+			return if w == "map" { KwMap } else { Ident }
+		}
+		if c == 't' {
+			return if w == "try" { Try } else { Ident }
+		}
+		if c == 'v' {
+			return if w == "var" { Var } else { Ident }
+		}
+		return Ident
+	}
+	if n == 4 {
+		if c == 'c' {
+			if w == "case" {
+				return Case
+			}
+			return if w == "chan" { Chan } else { Ident }
+		}
+		if c == 'e' {
+			return if w == "else" { Else } else { Ident }
+		}
+		if c == 'f' {
+			return if w == "func" { Func } else { Ident }
+		}
+		if c == 'g' {
+			return if w == "goto" { Goto } else { Ident }
+		}
+		if c == 't' {
+			if w == "type" {
+				return Type
+			}
+			return if w == "test" { Test } else { Ident }
+		}
+		if c == 'w' {
+			return if w == "with" { With } else { Ident }
+		}
+		return Ident
+	}
+	if n == 5 {
+		if c == 'b' {
+			return if w == "break" { Break } else { Ident }
+		}
+		if c == 'c' {
+			if w == "catch" {
+				return Catch
+			}
+			return if w == "const" { Const } else { Ident }
+		}
+		if c == 'd' {
+			return if w == "defer" { Defer } else { Ident }
+		}
+		if c == 'f' {
+			return if w == "fails" { Fails } else { Ident }
+		}
+		if c == 'm' {
+			return if w == "match" { Match } else { Ident }
+		}
+		if c == 'n' {
+			return if w == "needs" { Needs } else { Ident }
+		}
+		if c == 'r' {
+			return if w == "range" { KwRange } else { Ident }
+		}
+		if c == 't' {
+			return if w == "takes" { Takes } else { Ident }
+		}
+		return Ident
+	}
+	if n == 6 {
+		if c == 'a' {
+			return if w == "assert" { Assert } else { Ident }
+		}
+		if c == 'e' {
+			return if w == "extern" { Extern } else { Ident }
+		}
+		if c == 'i' {
+			return if w == "import" { Import } else { Ident }
+		}
+		if c == 'r' {
+			return if w == "return" { Return } else { Ident }
+		}
+		if c == 's' {
+			if w == "select" {
+				return Select
+			}
+			if w == "struct" {
+				return Struct
+			}
+			return if w == "switch" { Switch } else { Ident }
+		}
+		return Ident
+	}
+	if n == 7 {
+		if w == "context" {
+			return KwContext
+		}
+		if w == "default" {
+			return Default
+		}
+		if w == "machine" {
+			return KwMachine
+		}
+		return if w == "package" { Package } else { Ident }
+	}
+	if n == 8 {
+		if w == "continue" {
+			return Continue
+		}
+		if w == "escaping" {
+			return Escaping
+		}
+		return if w == "provides" { Provides } else { Ident }
+	}
+	if n == 9 {
+		return if w == "interface" { Interface } else { Ident }
+	}
+	if n == 11 {
+		return if w == "fallthrough" { Fallthrough } else { Ident }
+	}
+	Ident
+}
+
+// kwAgrees reports keyword and keywordRule giving one kind for word w.
+func kwAgrees(w string) bool { keyword(w, 0, len(w)) == keywordRule(w, 0, len(w)) }
+
+// tokenName is the spelling of kind k.
+func tokenName(k uint8) string { tokenNames[int(k)] }
+
+// isReserved reports one of the 15 Go keywords Ergo does not use.
+func isReserved(k uint8) bool { k >= Chan && k <= Var }
+
+// isKeyword reports one of the language's keywords.
+func isKeyword(k uint8) bool { k >= Break && k <= As }
+
+// precedence is the binary precedence of k, or 0 (Go's five levels).
+func precedence(k uint8) int {
+	if k == Lor {
+		return 1
+	}
+	if k == Land {
+		return 2
+	}
+	if k == Eql || k == Neq || k == Lss || k == Leq || k == Gtr || k == Geq {
+		return 3
+	}
+	if k == Add || k == Sub || k == Or || k == Xor {
+		return 4
+	}
+	if k == Mul || k == Quo || k == Rem || k == Shl || k == Shr || k == And || k == AndNot {
+		return 5
+	}
+	0
+}
+
+// isAssignOp reports `=` and the assignment operators.
+func isAssignOp(k uint8) bool { k == Assign || (k >= AddAssign && k <= AndNotAssign) }
+
+// The Go habits the parser names the Ergo form for (habits.go), in
+// grammar.md order.
+let habitPackage = 0
+let habitImportGroup = 1
+let habitImportQuoted = 2
+let habitDefine = 3
+let habitVar = 4
+let habitConst = 5
+let habitIfInit = 6
+let habitIncDec = 7
+let habitForClause = 8
+let habitRange = 9
+let habitSwitch = 10
+let habitTypeSwitch = 11
+let habitTypeAssert = 12
+let habitDefault = 13
+let habitStruct = 14
+let habitInterface = 15
+let habitReceiver = 16
+let habitErrorResult = 17
+let habitGo = 18
+let habitDefer = 19
+let habitChan = 20
+let habitArrow = 21
+let habitSelect = 22
+let habitMap = 23
+let habitVariadic = 24
+let habitArray = 25
+let habitLabel = 26
+let habitGoto = 27
+let habitFallthrough = 28
+
+let habitMessages = []string{
+	"Ergo has no package clause; the directory names the package",
+	"write one import per line: `import net/http`",
+	"an import path is unquoted: `import net/http`",
+	"Ergo declares names with `let x = e`, or `let mut x = e` for a name that is reassigned",
+	"Ergo has no var; declare with `let x = e`, `let x T = e` or `let mut x = e`",
+	"Ergo has no const; declare with `let x = e`: a literal takes the type its context expects",
+	"an if or match header has no init statement; write `let x = f()` on the line before",
+	"Ergo has no ++ or --; write `x += 1` or `x -= 1`",
+	"Ergo has no three-clause for; write `for i in 0..n`",
+	"Ergo has no range; write `for x in xs` or `for i, x in xs`",
+	"Ergo has no switch; write `match x { case p: … }`",
+	"Ergo has no type switch; write `match x { case T as t: … }`",
+	"Ergo has no type assertions; write `match x { case T as t: … }`",
+	"write `case _:` for the arm that matches the rest",
+	"Ergo has no struct keyword; declare a record with `type Name { fields }`",
+	"Ergo has no interface keyword; declare operations with `type Name { operations }` and a union with `type Name = A | B`",
+	"Ergo has no receivers; make the receiver the first parameter: `func M(r T, …)`",
+	"Ergo writes failures after the result: `func F(…) T fails E`",
+	"Ergo has no go statement; start a task with `task.Go() { f() }`",
+	"Ergo has no defer; register cleanup with `scope.OnExit`",
+	"Ergo has no channels; use a typed queue",
+	"Ergo has no channel operator; use a typed queue",
+	"Ergo has no select; race tasks with `task.Race`",
+	"Ergo has no map keyword; write `Map[K, V]`",
+	"Ergo has no variadic parameters; take a slice `[]T`",
+	"Ergo has no array of unknown length; write its length, `[N]T`, or use a slice `[]T`",
+	"Ergo has no labels; break and continue act on the innermost for",
+	"goto is not part of the language; use structured control flow",
+	"fallthrough is not part of the language; list the patterns in one case",
+}
+
+// tokenHabit is the habit a token names on its own, or -1: the reserved
+// Go keywords and the removed operators.
+func tokenHabit(k uint8) int {
+	if k == Chan {
+		return habitChan
+	}
+	if k == Const {
+		return habitConst
+	}
+	if k == Default {
+		return habitDefault
+	}
+	if k == Defer {
+		return habitDefer
+	}
+	if k == Fallthrough {
+		return habitFallthrough
+	}
+	if k == Go {
+		return habitGo
+	}
+	if k == Goto {
+		return habitGoto
+	}
+	if k == Interface {
+		return habitInterface
+	}
+	if k == KwMap {
+		return habitMap
+	}
+	if k == Package {
+		return habitPackage
+	}
+	if k == KwRange {
+		return habitRange
+	}
+	if k == Select {
+		return habitSelect
+	}
+	if k == Struct {
+		return habitStruct
+	}
+	if k == Switch {
+		return habitSwitch
+	}
+	if k == Var {
+		return habitVar
+	}
+	if k == Define {
+		return habitDefine
+	}
+	if k == Inc || k == Dec {
+		return habitIncDec
+	}
+	if k == Arrow {
+		return habitArrow
+	}
+	if k == Ellipsis {
+		return habitVariadic
+	}
+	-1
+}
+
+// localDeclMessage is the message of a Go local declaration (localDecl):
+// the habit's, then the let form it becomes, shown up to 48 bytes, and
+// why it is `let mut` or `let`. `count := 0` with a later `count = 1`
+// gives "…; here `let mut count = 0`, since count is reassigned".
+func localDeclMessage(h int, shown string, name string, reassigned bool) string {
+	let mut s = shown
+	if len(s) > 48 {
+		let mut n = 47
+		for n > 0 && (s[n]&0xC0) == 0x80 {
+			n = n - 1
+		}
+		s = s[:n] + "…"
+	}
+	let why = if reassigned { name + " is reassigned" } else { name + " is never reassigned" }
+	habitMessages[h] + "; here `" + s + "`, since " + why
+}
+
+// quote is s as Go's %q prints a string.
+func quote(s string) string { strconv.Quote(s) }
+
+// itoa is n in decimal.
+func itoa(n int) string { strconv.Itoa(n) }
+
+// notAValue is the message for a bare type in value position.
+let notAValue = "a type is not a value; write a literal or a conversion"
+
+// needsKeywordText ends the S001 at a binder spelled needs.
+let needsKeywordText = "needs is a keyword (the capability row) and is not a name; choose another name"
+
+// mixedMembers is the message of CodeMixedMembers.
+let mixedMembers = "a record holds data; declare the operations in their own type"
+
+// CodeMixedMembers is the code of a type declaration that mixes fields
+// with operations or laws.
+let CodeMixedMembers = "S108"
+
+// MaxNesting bounds the height of the tree, in levels (the Go parser's
+// MaxNesting).
+let MaxNesting = 1000

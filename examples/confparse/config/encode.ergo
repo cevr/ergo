@@ -17,6 +17,36 @@ func Encode(c Config) toml.Doc {
 	toml.Doc{Root: table("", false, []toml.Entry{entry("name", toml.Str{S: c.Name})}), Tables: tables}
 }
 
+// FailuresPointIntoTheText: when text parses and does not decode, the
+// failure's place is in the text: any text, and the text of a sample
+// with the edits that picks name.
+law FailuresPointIntoTheText(text string, seed int, picks []int) {
+	let mut edited = toml.Print(Encode(Sample(seed)))
+	for n in picks {
+		edited = edited + edits[natural(n)%len(edits)] + "\n"
+	}
+	for t in []string{text, edited} {
+		let d = toml.Parse(t) catch {
+		case _:
+			continue
+		}
+		let _ = Decode(d, Map[string, string]{}) catch {
+		case err:
+			if !PosIn(Where(err), t) {
+				return false
+			}
+			continue
+		}
+	}
+	true
+}
+
+// edits are lines a law adds to a valid file to break it.
+let edits = []string{"", "port = 0", "port = 'x'", "nope = 1", "[nope]", "[[listen]]", "level = 'loud'", "[[upstream]]", "name = 'a'", "addr = 1", "weight = 0", "backup = 1", "[log]", "[listen]"}
+
+// natural is n made not negative.
+func natural(n int) int { if n < 0 { -(n + 1) } else { n } }
+
 func nowhere() toml.Pos { toml.Pos{Line: 0, Column: 0} }
 
 func entry(key string, v toml.Value) toml.Entry {

@@ -282,7 +282,7 @@ func thousandths(part int, whole int) int {
 
 // depthOf is the longest import chain below package p, in packages; an
 // edge that closes a cycle adds nothing.
-func depthOf(p int, edges [][]int, memo *[]int, state *[]int) int {
+func depthOf(p int, edges [][]int, memo mut []int, state mut []int) int {
 	if (*state)[p] == 2 {
 		return (*memo)[p]
 	}

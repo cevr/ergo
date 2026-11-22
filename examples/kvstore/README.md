@@ -13,7 +13,7 @@ The program is a module of packages (`ergo.mod`: `module kvstore`), in the Go la
 | `kv/` | The domain. `store.ergo` (`Store`, the contract, with six laws, and the failures `Missing` and `Broken`), `checks.ergo` (one function per law, which each provider's tests call), `entries.ergo` (`Entry`, `Snapshot`, `Lookup`), `command.ergo` (`Command`, `Parse`, the failures `Unknown` and `Usage`), `session.ergo` (`Exec`, `Answer`, `Session`, `One`), `laws.ergo` (the laws of `Parse`), `tests.ergo`. |
 | `memory/` | `Table`, the in-memory `kv.Store` (`table.ergo`); `Full`, an `fs.Writes` of a full disk over an `fstest.Memory` (`full.ergo`). The tests' files are std's `fstest.Memory`. |
 | `file/` | `Log`, the `kv.Store` in a log file: `record.ergo` (`Record`, `Encode`, `Decode`, `Replay`, `Compacted`), `log.ergo` (`Log`, `Open`), `laws.ergo`, `tests.ergo`. |
-| `cmd/kvstore/` | The binary. `main.ergo` reads the command line with std `flag`, chooses the store, binds the host's file system and streams, and is the only place that chooses a provider. |
+| `cmd/kvstore/` | The binary. `main.ergo` reads the command line with std `flag`, chooses the store and the pacing, binds the host's file system and streams, and is the only place that chooses a provider. |
 
 ## What it shows
 
@@ -25,10 +25,12 @@ The program is a module of packages (`ergo.mod`: `module kvstore`), in the Go la
 - **Providers that hold the host.** A provider's operation cannot need a capability that the contract's operations do not write (rows.md, Context 2). So `file.Log` holds the `fs.Files` and `fs.Writes` values that `Open`'s caller gives it, as a Go type holds an `fs.FS`. `main` gives it `fs.NewHost()`, and most tests give it an `fstest.Memory`. `file/disk_tests.ergo` runs the `kv.Store` laws on the host disk too: its context `onDisk` states `needs TestAmbient`, the test's ambient, and binds a `Log` over `fs.NewTestHost()`, so each law case writes `kv.log` for real in a fresh folder of its own that the runner removes after the case; a path out of the folder is `fs.Denied` (the laws of `fstest.Confined`, bound to `fstest.NewFolder()`, run there too).
 - **Shared state in a `sync.Ref`.** A `Map` is a value, so a `Table` keeps its entries in a `sync.Ref`, which every copy shares: a provider bound in a context keeps its entries from one call to the next (`ACopySharesTheEntries`), and `Delete` is one `sync.Modify`. `Put`'s `Update` and `Delete`'s `sync.Modify` take their function as a trailing function literal, `sync.Modify(t.entries) func(entries Map[string, string]) (bool, Map[string, string]) { … }` (grammar.md, Expressions 9), which a `return` inside may leave early. `NewTable` is the constructor `ergo test` builds a provider with for each case of a law.
 
+- **Pacing between requests (std pace, wf10 GC-EDGE).** Each line of a session is one request, and `Session` marks a pacing edge (`pace.Pacing.Edge()`) once it is answered, so the collector may run between requests, where the request's garbage is dead, and not inside one. `main` alone chooses when Go collects: `-pace default` (Go's own pace with the runtime's heap floor), `percent` (`GOGC=400`) or `edges` (`pace.NewAtEdges(PaceLimit)`: no pacer, a 256 MiB memory limit, a collection at an edge once the heap has grown by a quarter of it). The test `SessionPacesEachRequest` (memory) holds a session to one edge for each line, whatever the line answers; the case `paced` answers the session case's lines the same under `edges`. The hand Go control and the counts are in `cmd/ergo/testdata/kvstore/control` and `docs/spec/stdlib.md`, Pacing 9.
+
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/kvstore/cmd/kvstore -- put greeting "hello, world"
 ./bin/ergo run examples/kvstore/cmd/kvstore -- get greeting      # prints: hello, world
 printf 'put a 1\ndump\n' | ./bin/ergo run examples/kvstore/cmd/kvstore -- -store memory
@@ -41,7 +43,7 @@ go run ./scripts/examples kvstore
 
 ## Cases
 
-`session` (every command and each failure of a line, on the memory store), `file` (a session on the file store: overwrite, delete, compaction), `persisted` (a log that `setup.sh` writes is replayed: an overwrite, a delete and a value of two lines), `corrupt` (a line that is not a record: status 1, and the line on standard error) and `usage` (an unknown store: status 2).
+`session` (every command and each failure of a line, on the memory store), `paced` (the same session under `-pace edges`), `file` (a session on the file store: overwrite, delete, compaction), `persisted` (a log that `setup.sh` writes is replayed: an overwrite, a delete and a value of two lines), `corrupt` (a line that is not a record: status 1, and the line on standard error) and `usage` (an unknown store: status 2).
 
 ## Limits found
 

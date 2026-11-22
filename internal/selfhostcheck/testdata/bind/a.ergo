@@ -1,0 +1,31 @@
+// Collect fixture: the package-level cases the corpus does not reach.
+
+import strings
+import strconv
+
+// Point is a record a pattern tests through.
+type Point { X int, Y int }
+
+// Shape is a union of inline variants.
+type Shape = Circle{R int} | Square{S int}
+
+// level is a lower-case refinement: it derives parseLevel.
+type level int where 0 <= it && it <= 9
+
+// Area is a member of Circle and of Square: one name, two functions.
+func Area(c Circle) int { c.R * c.R * 3 }
+
+func Area(q Square) int { q.S * q.S }
+
+// Text is a function first, then a type takes its name.
+func Text(t Text) string { t.V }
+
+type Text { V string }
+
+let (lo, hi) = (1, 2)
+
+let Point{X: px, Y: py} as origin = Point{X: 0, Y: 0}
+
+let (first, second) = (strings.ToUpper("a"), strconv.Itoa(2))
+
+func uses() int { lo + hi + px + py + origin.X + len(first) + len(second) + Circle{R: 1}.Area() + Square{S: 2}.Area() + len(Text{V: "t"}.Text()) + int(parseLevel(3) catch { case _: level(0) }) }

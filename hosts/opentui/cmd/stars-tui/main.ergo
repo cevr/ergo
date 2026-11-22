@@ -1,0 +1,230 @@
+// stars-tui is examples/stars-gui in a terminal: the example's table, app
+// and view (a required Ergo module, hosts/opentui/go.mod) on the OpenTUI
+// driver. It is the only place that chooses: the terminal and the live
+// clock, or, with -headless, a screen with no terminal that plays a
+// script from standard input and prints what the example's own
+// `stars-gui scene` prints.
+//
+//	stars-tui [-rows H] CATALOG            run in the terminal (Ctrl+C quits)
+//	stars-tui -headless [-rows H] CATALOG  play the script on standard input
+//
+// A cell is 8 by 20 DIPs, so a row of the table (20 DIPs) is one line of
+// the terminal. A headless script is the example's: each line is input
+// the screen gets where a person gives it. A key goes to the table, so
+// the focus is dropped first, as a person clicks the table before the
+// arrows; a typed text clicks the field, moves its caret to the end
+// (Ctrl+E) and types; sort, edit, filter, mark and extend click their
+// buttons. After each line the list scrolls to the table's window, as the
+// scene's host does.
+
+import actor
+import ergo.local/prototype/examples/starsgui/catalog
+import ergo.local/prototype/examples/starsgui/files
+import ergo.local/prototype/examples/starsgui/script
+import window ergo.local/prototype/examples/starsgui/screen
+import ergo.local/prototype/hosts/opentui/tui
+import go ergo.local/prototype/hosts/opentui/screen
+import fs
+import io
+import machines
+import os
+import strconv
+import strings
+import sync
+import term
+import time
+import ui
+
+let Usage = "usage: stars-tui [-headless] [-rows H] CATALOG"
+
+// Cols and Lines are the headless screen: stars-gui's window of 1000 by
+// 720 DIPs at 8 by 20 DIPs a cell.
+let Cols = 125
+
+let Lines = 36
+
+// options is the host's: a cell of 8 by 20 DIPs, one table row a line.
+func options() tui.Options { tui.Options{Cell: tui.Cell{W: 8, H: 20}, KeepInterrupt: false} }
+
+// opts is what the arguments chose.
+type opts { headless bool, rows int, catalogue string }
+
+func parse(args []string) opts fails os.Exit {
+	let mut o = opts{headless: false, rows: 10, catalogue: ""}
+	let mut i = 0
+	for i < len(args) {
+		let a = args[i]
+		if a == "-headless" {
+			o.headless = true
+		} else if a == "-rows" && i+1 < len(args) {
+			i = i + 1
+			o.rows = strconv.Atoi(args[i]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: Usage}
+			}
+		} else if o.catalogue == "" && !strings.HasPrefix(a, "-") {
+			o.catalogue = a
+		} else {
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		i = i + 1
+	}
+	if o.catalogue == "" || o.rows < 1 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	o
+}
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
+	let rows = try load(o.catalogue)
+	if o.headless {
+		try headless(rows, o.rows)
+		return
+	}
+	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+		let a = actor.StartMachine(machines.Start(window.App{}, window.Opening{Rows: rows, Height: o.rows}), 8, func(r catalog.Refused) {})
+		tui.RunTerminal(a, window.View, options()) catch {
+		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
+		case actor.Stopped:
+		case term.NotTerminal:
+			return os.Exit{Code: 1, Message: "stars-tui: standard input is not a terminal (try -headless)"}
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "stars-tui: \(b.Why)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
+		}
+	}
+}
+
+// load reads and parses the catalogue named name from the host's files.
+func load(name string) []catalog.Star fails os.Exit needs Ambient {
+	let text = with context { catalog.Shelf: files.New(fs.NewHost()) } {
+		catalog.Shelf.Text(name) catch {
+		case catalog.Unreadable as u:
+			return os.Exit{Code: 1, Message: "stars-tui: \(u.Name): \(u.Reason)"}
+		}
+	}
+	catalog.Parse(text) catch {
+	case catalog.Malformed as m:
+		return os.Exit{Code: 1, Message: "stars-tui: \(name): " + catalog.Describe(m)}
+	}
+}
+
+// headless plays the script on standard input through a screen with no
+// terminal, height rows a table window, and prints what the scene prints.
+func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.Foreign {
+	let text = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "stars-tui: cannot read the script"}
+	}
+	let out = io.NewHost()
+	with context { Scheduler: time.NewManual(0) } {
+		let s = screen.Headless(Cols, Lines) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "stars-tui: \(e.Text)"}
+		}
+		let refused = sync.NewRef[[]catalog.Refused]([]catalog.Refused{})
+		let a = actor.StartMachine(machines.Start(window.App{}, window.Opening{Rows: rows, Height: height}), 8, func(r catalog.Refused) {
+			refused.Update(func(old []catalog.Refused) []catalog.Refused { old.Append(r) })
+		})
+		let mut d = tui.NewWith(s, a, window.View, 64, options()) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "stars-tui: \(b.Why)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
+		}
+		try follow(&d)
+		for line in strings.Split(text, "\n") {
+			let l = strings.TrimSuffix(line, "\r")
+			if l == "" || strings.HasPrefix(l, "#") {
+				continue
+			}
+			let c = script.Parse(l) catch {
+			case script.BadLine as b:
+				out.Println("? " + catalog.Quote(b.Text) + ": want " + b.Want)
+				continue
+			}
+			match c {
+			case script.Show:
+				let g = catalog.GridOf(tui.StateOf(&d))
+				for t in script.Shown(tui.Screen(&d), script.Window{Top: g.Top, Height: g.Height}) {
+					out.Println(t)
+				}
+			case script.Send as m:
+				send(&d, s, m.Signal) catch {
+				case ui.NoNode as x:
+					out.Println("? no node " + x.Label)
+				case ui.Ambiguous as amb:
+					out.Println("? " + amb.At + " finds \(amb.Count) nodes")
+				case ui.Mismatch as miss:
+					out.Println("? want " + miss.Want + ", got " + miss.Got)
+				case ui.Closed, actor.Stopped:
+					return os.Exit{Code: 1, Message: "stars-tui: the app stopped"}
+				case ui.BadPatch as b:
+					return os.Exit{Code: 1, Message: "stars-tui: the view's patch did not apply: " + b.Why}
+				case tui.ScreenFailed as e:
+					return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
+				}
+				try follow(&d)
+				for r in refused.Get() {
+					out.Println(script.Refusal(r))
+				}
+				refused.Set([]catalog.Refused{})
+			}
+		}
+		a.Stop()
+		s.Quit() catch {
+		// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
+		case go.Error:
+		}
+	}
+}
+
+// send gives the screen the input of a table signal.
+func send[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen], sig catalog.Signal) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
+	match sig {
+	case catalog.Type as t:
+		// The field reports its whole text: the letters go after what it
+		// holds, at the end the caret moves to.
+		try tui.Play(d, []ui.Act{ui.TapOn{Label: "text"}})
+		try tui.Send(d, "\x05"+t.Text)
+	case _:
+		for act in script.Acts(sig, "") {
+			match act {
+			case ui.KeyIn:
+				try unfocus(d, s)
+			case _:
+			}
+			try tui.Play(d, []ui.Act{act})
+		}
+	}
+}
+
+// unfocus clicks the list, which takes no focus, so a key goes to the
+// table and not to a focused button or field.
+func unfocus[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F], s go.Ref[screen.Screen]) fails ui.Closed | actor.Stopped | ui.BadPatch | tui.ScreenFailed needs go.Foreign {
+	if tui.FocusId(d) == None {
+		return
+	}
+	match tui.Number(d, "stars") {
+	case Some[int] as n:
+		let b = s.BoxOf(n.Value)
+		try tui.Send(d, tui.Click(b.X+b.Width/2, b.Y+b.Height/2))
+	case None:
+	}
+}
+
+// follow scrolls the list to the table's window.
+func follow[D, F](d mut tui.Driver[catalog.State, window.Signal, D, F]) fails os.Exit needs go.Foreign {
+	let g = catalog.GridOf(tui.StateOf(d))
+	let rh = window.RowHeight
+	tui.Play(d, []ui.Act{ui.ScrollOn{Label: "stars", Offset: rh * ui.Length(float64(g.Top)), Height: rh * ui.Length(float64(g.Height))}}) catch {
+	case ui.NoNode, ui.Ambiguous, ui.Mismatch, ui.Closed, actor.Stopped:
+		return os.Exit{Code: 1, Message: "stars-tui: the screen has no list to scroll"}
+	case ui.BadPatch as b:
+		return os.Exit{Code: 1, Message: "stars-tui: the view's patch did not apply: " + b.Why}
+	case tui.ScreenFailed as e:
+		return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
+	}
+}

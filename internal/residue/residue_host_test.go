@@ -12,7 +12,7 @@ import (
 )
 
 // residues are the residue checks of this package.
-var residues = map[string]residue{"TestContextResidue": contextResidue, "TestRowResidue": rowResidue}
+var residues = map[string]residue{"TestRowResidue": rowResidue}
 
 var residueLiteral = regexp.MustCompile(`^[A-Za-z]+$`)
 
@@ -71,8 +71,7 @@ func (r residue) selects(line string) bool {
 // excerpt of each allowlist (each holds a match) and the spellings below.
 func TestResidueCandidatesCover(t *testing.T) {
 	samples := map[string][]string{
-		"TestContextResidue": {"wire", "Wire", "WIRES", "a wire format", "with(wire{ A = a })"},
-		"TestRowResidue":     {"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"},
+		"TestRowResidue": {"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"},
 	}
 	for name, r := range residues {
 		lines := samples[name]

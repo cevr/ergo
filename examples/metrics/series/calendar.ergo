@@ -2,6 +2,7 @@
 // dates, in UTC, through std civil.
 
 import civil
+import time
 
 // Period is the samples whose UTC day is in Span.
 type Period { Span civil.Span, Count int, Sum float64 }
@@ -47,4 +48,53 @@ func Calendar(samples []Sample, s civil.Span, u civil.Unit) []Period {
 		out = out.Append(p)
 	}
 	out
+}
+
+// CalendarTilesTheSpan: the periods of a span in days, weeks or months
+// cover it in order with no gap, and each counts the samples whose day it
+// holds. The run's steps are scaled to hours, so it crosses days.
+law CalendarTilesTheSpan(seed int, n int, k int) {
+	let mut samples = []Sample{}
+	for s in run(seed, 40) {
+		samples = samples.Append(Sample{At: s.At * 9600, Value: s.Value})
+	}
+	let m = if n < 0 { -(n + 1) } else { n }
+	let a = civil.AddDays(DayOf(samples[0].At), m%5)
+	let s = civil.NewSpan(a, civil.AddDays(a, m%40)) catch {
+	case civil.Reversed:
+		return false
+	}
+	let u = match (if k < 0 { -(k + 1) } else { k }) % 3 {
+	case 0:
+		civil.Days
+	case 1:
+		civil.Weeks{First: time.Monday}
+	case _:
+		civil.Months
+	}
+	let mut next = civil.From(s)
+	let mut total = 0
+	for p in Calendar(samples, s, u) {
+		if civil.From(p.Span) != next {
+			return false
+		}
+		let mut count = 0
+		for x in samples {
+			if civil.Contains(p.Span, DayOf(x.At)) {
+				count += 1
+			}
+		}
+		if p.Count != count {
+			return false
+		}
+		next = civil.AddDays(civil.To(p.Span), 1)
+		total += p.Count
+	}
+	let mut inside = 0
+	for x in samples {
+		if civil.Contains(s, DayOf(x.At)) {
+			inside += 1
+		}
+	}
+	next == civil.AddDays(civil.To(s), 1) && total == inside
 }

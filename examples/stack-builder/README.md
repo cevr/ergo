@@ -42,7 +42,7 @@ That children stop with their entry, nested ones before their parent (survey `No
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/stack-builder/cmd/stack-builder < examples/stack-builder/cases/nested/stdin
 ./bin/ergo test examples/stack-builder/stack
 ./bin/ergo test examples/stack-builder/memory
@@ -50,21 +50,6 @@ go run ./scripts/examples stack-builder
 ```
 
 Cases: `browse` (pages, a part, a node composite), `nested` (a twin: three editors deep, a back at the third depth and at the second, a back from the top that changes nothing), `search` (a part opened from a search returns to it; close returns to the page), `full` (the cluster refuses a large plan).
-
-## effect-machine side by side
-
-effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => self.spawn("editor", editorMachine, { input }))` and nested editors the same way with distinct ids; a screen would reach the current editor through the actor system by id, or through `ActorHost.acquire`; the hub would keep the page in its state for history, as here.
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| reaching the current child | look up by string id, or `ActorHost` with a generation check | an `actor.Host` in the parent's state, which the entry's work fills with `actor.ChildIn` before the entry is shown; a `Get` after the entry ended fails `Stopped`, and a Send to an ended child fails `Stopped` | compiler (the type) + runner (models/host) |
-| nested children of one machine | distinct ids per depth | identity, no id | runner |
-| child output | `sendParent` with an event the parent may not handle | `toParent` gives the parent's signal type, which the parent's total step decides | compiler |
-| stop order on leaving a state | not specified | innermost first, before the next entry | runner (MU5 model) |
-
-Where Ergo could not improve:
-
-- **A host names its address type.** `actor.NewHost[EditActor]()` writes the address type as a type argument, because a call infers no type argument from its expected type. The alias `EditActor` (F11) keeps it short.
 
 ## Benchmark
 

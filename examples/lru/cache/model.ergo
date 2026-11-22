@@ -2,6 +2,8 @@
 // a plain slice, newest first, with every operation a linear scan. It is
 // slow and obviously right; the Cache is fast and must agree with it.
 
+import slices
+
 // Op is one operation of a run against a cache.
 type Op = PutOp{Key int, Value int} | GetOp{Key int} | RemoveOp{Key int}
 
@@ -32,7 +34,7 @@ func Ops(seed int, count int) []Op {
 }
 
 // Apply runs op on c.
-func Apply(c *Cache[int, int], op Op) Outcome {
+func Apply(c mut Cache[int, int], op Op) Outcome {
 	match op {
 	case PutOp as p:
 		Stored{Evicted: c.Put(p.Key, p.Value)}
@@ -85,20 +87,12 @@ func Step(m Model, op Op) (Model, Outcome) {
 }
 
 // without is the entries of m, less the one of key.
-func without(m Model, key int) []Entry[int, int] {
-	let mut out = []Entry[int, int]{}
-	for e in m.entries {
-		if e.Key != key {
-			out = out.Append(e)
-		}
-	}
-	out
-}
+func without(m Model, key int) []Entry[int, int] { slices.Filter(m.entries, func(e Entry[int, int]) bool { e.Key != key }) }
 
 // ModelAgrees: over a run of operations drawn from seed, the cache gives
 // each outcome the model gives, and holds the model's entries in order.
 law ModelAgrees(n int, seed int) {
-	let size = SizeOf(n)
+	let size = sizeOf(n)
 	let mut c = New[int, int](size) catch {
 	case BadCapacity:
 		return false

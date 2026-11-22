@@ -13,7 +13,7 @@ import ui
 // the results the view's fetches posted, and writes each frame drawn
 // since: one Print a frame, so the terminal reads a pass whole. It ends at
 // the end of the input or on Ctrl-C, and fails when the actor stopped.
-func Run[E comparable, S, D, F](h *Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs term.Terminal | io.Stdout {
+func Run[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs term.Terminal | io.Stdout {
 	flush(h)
 	for {
 		let k = term.Terminal.ReadKey() catch {
@@ -82,7 +82,7 @@ func oneFramePerPatch(seed int) bool needs Scheduler {
 }
 
 // flush writes the frames drawn since the last flush.
-func flush[S, E, D, F](h *Host[S, E, D, F]) needs io.Stdout {
+func flush[S, E, D, F](h mut Host[S, E, D, F]) needs io.Stdout {
 	for f in Take(h) {
 		io.Stdout.Print(f)
 	}

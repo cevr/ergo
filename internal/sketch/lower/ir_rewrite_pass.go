@@ -29,6 +29,7 @@ package lower
 
 import (
 	"slices"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -110,15 +111,29 @@ type rwMatch struct {
 	ops  map[*check.Var]syntax.Expr
 }
 
-// rwMark is a body's locals before a site's temporaries.
-type rwMark struct{ locals, next int }
+// rwMark is a body's locals before a site's temporaries, and the number
+// of declarations each open loop's pre-header holds (ir_memo.go).
+type rwMark struct {
+	locals, next int
+	memos        []int
+}
 
-func (b *irBuilder) mark() rwMark { return rwMark{len(b.fn.Locals), b.next} }
+func (b *irBuilder) mark() rwMark {
+	memos := make([]int, len(b.memos))
+	for i, m := range b.memos {
+		memos[i] = len(m.decls)
+	}
+	return rwMark{len(b.fn.Locals), b.next, memos}
+}
 
-// unmark drops the locals declared since m: a site that was not applied
-// declares none.
+// unmark drops the locals declared since m, and the pre-header
+// declarations of the calls memoized since: a site that was not applied
+// declares none, and no later local reuses the index of one it declared.
 func (b *irBuilder) unmark(m rwMark) {
 	b.fn.Locals, b.next = b.fn.Locals[:m.locals], m.next
+	for i, n := range m.memos[:min(len(m.memos), len(b.memos))] {
+		b.memos[i].decls = b.memos[i].decls[:n]
+	}
 }
 
 // patterns are the scope's laws as patterns, by the head of their left
@@ -266,10 +281,12 @@ func (at *rwAt) placed() bool { return at.slot != nil && !at.cond && at.total }
 
 // rwSlotted are the statements that evaluate their expressions once,
 // before anything else they do.
-var rwSlotted = map[string]bool{
-	"def": true, "def2": true, "tdef": true, "var": true, "set": true, "store": true, "ret": true, "expr": true,
-	"discard": true, "panic": true, "if": true, "switch": true, "tswitch": true, "match": true, "range": true,
-}
+var rwSlotted = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"def": true, "def2": true, "tdef": true, "var": true, "set": true, "store": true, "ret": true, "expr": true,
+		"discard": true, "panic": true, "if": true, "switch": true, "tswitch": true, "match": true, "range": true,
+	}
+})
 
 // rwFuncs reports a lowering with laws over functions in its scope.
 func (b *irBuilder) rwFuncs() bool {
@@ -303,7 +320,7 @@ func (b *irBuilder) rwList(list []*irStmt) []*irStmt {
 func (b *irBuilder) rwStmt(s *irStmt) []*irStmt {
 	var slot []*irStmt
 	at := &rwAt{total: true}
-	if rwSlotted[s.K] {
+	if rwSlotted()[s.K] {
 		at.slot = &slot
 	}
 	s.X = b.rwExpr(s.X, at)

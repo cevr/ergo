@@ -1,0 +1,23 @@
+// address-routes is a routing program (stage b: the view
+// on std ui's test host): screens chosen by the address, with a URL
+// parameter, a query, nested and rest segments, and a not-found screen. It
+// plays a script of the user's acts on the screen and shows what changes
+// after each. Package route reads and writes addresses; package app is
+// the program as a machine; packages people and files are the data the
+// screens show; package screen is the view; package script plays the
+// script on the test host, whose history is the browser's. This binary
+// is the only place that chooses the clock: a time.Manual that only the
+// script's waits move.
+
+import addressroutes/script
+import io
+import os
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "address-routes: the script did not run"}
+	}
+}

@@ -192,9 +192,6 @@ func bodyLiteral(b Body) string {
 	if b.View != "" {
 		fields = append(fields, fmt.Sprintf("View: %q", b.View))
 	}
-	if b.AsWritten {
-		fields = append(fields, "AsWritten: true")
-	}
 	if b.Package != "" {
 		fields = append(fields, packageField(b.Package))
 	}

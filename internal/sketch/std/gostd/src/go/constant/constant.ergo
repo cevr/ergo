@@ -55,6 +55,7 @@ extern go go/constant.Kind.String func (i Kind) String() string needs go.Foreign
 extern go go/constant.Make func Make(x go.Any) Value needs go.Foreign
 
 // ergo:go func MakeBool(b bool) Value
+// ergo:total
 extern go go/constant.MakeBool func MakeBool(b bool) Value needs go.Foreign
 
 // ergo:go func MakeFloat64(x float64) Value
@@ -71,6 +72,7 @@ extern go go/constant.MakeFromLiteral func MakeFromLiteral(lit string, tok token
 extern go go/constant.MakeImag func MakeImag(x own Value) Value needs go.Foreign
 
 // ergo:go func MakeInt64(x int64) Value
+// ergo:total
 extern go go/constant.MakeInt64 func MakeInt64(x int64) Value needs go.Foreign
 
 // ergo:go func MakeString(s string) Value

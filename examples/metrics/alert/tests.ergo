@@ -38,7 +38,7 @@ test RateMutesTheThird {
 test GeneratedRunsMute {
 	let mut muted = 0
 	for seed in 0..50 {
-		for e in Drive(PolicyOf(0, 59), Signals(seed, 80)) {
+		for e in Drive(policyOf(0, 59), signals(seed, 80)) {
 			match e {
 			case Muted:
 				muted += 1

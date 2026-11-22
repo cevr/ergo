@@ -41,6 +41,7 @@ extern go math.Cos func Cos(x float64) float64
 extern go math.Cosh func Cosh(x float64) float64
 
 // ergo:go func Dim(x float64, y float64) float64
+// ergo:total
 extern go math.Dim func Dim(x float64, y float64) float64
 
 // ergo:go const E untyped float
@@ -104,6 +105,7 @@ extern go math.Inf func Inf(sign int) float64
 extern go math.IsInf func IsInf(f float64, sign int) bool
 
 // ergo:go func IsNaN(f float64) (is bool)
+// ergo:total
 extern go math.IsNaN func IsNaN(f float64) bool
 
 // ergo:go func J0(x float64) float64

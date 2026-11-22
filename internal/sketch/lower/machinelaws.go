@@ -457,6 +457,7 @@ func (l *lowerer) keyFunc(t check.Type, site syntax.Node) string {
 		line("\t" + l.keyStmt(u.Elem, k, e, site))
 		line("}")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: ranges over Go's map
 		k2, a, b := scope.alloc("k"), scope.alloc("a"), scope.alloc("b")
 		line(l.helper("explore") + ".Map(" + k + ", " + v + ", func(" + k2 + " *" + l.helper("explore") + ".Key, " + a + " " + tc.goType(u.Key) + ", " + b + " " + tc.goType(u.Elem) + ") {")
 		line("\t" + l.keyStmt(u.Key, k2, a, site))

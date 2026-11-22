@@ -1,0 +1,372 @@
+// The values the typer reads besides a function body's expressions
+// (CHECK-VALUE-TYPES): a package let, typed once, at its first use or in
+// declaration order; and an if, a match or a catch in value position,
+// whose branches yield one value (the Go checker's tails.go branches and
+// yieldList, handlers.go catch).
+//
+// A value if or match with an expected type has that type, whatever its
+// branches yield. Without one, the first branch with a value fixes the
+// type, and a later branch's constant takes it; a branch that leaves
+// (return, break, continue, Unreachable(…)) yields nothing and joins any
+// type, and when every branch leaves the value is no value. Branches of
+// different types join to the declared union that lists them
+// (types.Join); a value whose context the typer does not read is left
+// untyped. A catch's
+// value has the type of the call it catches; its arms yield that type.
+
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// pkgLet is a let of the package: its file and its spec.
+type pkgLet { file int, spec dense.ID[syntax.Node] }
+
+// packageLets is the package's lets in declaration order, and the index of
+// each name's row among them.
+func packageLets(k Pkg) ([]pkgLet, Map[int, int]) {
+	let mut out = []pkgLet{}
+	let mut at = Map[int, int]{}
+	for f, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, syntax.Root(p.Tree)).Decls
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KVarDecl {
+				continue
+			}
+			let spec = syntax.VarDeclOf(p.Tree, d).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KVarSpec {
+				continue
+			}
+			let names = syntax.VarSpecOf(p.Tree, spec).Names
+			for j in 0..syntax.Len(names) {
+				at[dense.Index(pnode(k, f, syntax.Item(p.Tree, names, j)))] = len(out)
+			}
+			out = out.Append(pkgLet{file: f, spec: spec})
+		}
+	}
+	(out, at)
+}
+
+// packageLet types the package's let i once, outside any function: its
+// written type, or its value's. A let its own value uses (a cycle, which
+// the Go checker refuses) is left untyped.
+func packageLet(s mut store.Store, k Pkg, t mut Typer, i int) {
+	if t.letState[i] != 0 {
+		return
+	}
+	t.letState[i] = 1
+	let file = t.file
+	let fn = t.fn
+	let res = t.res
+	t.file = t.lets[i].file
+	t.fn = -1
+	t.res = None
+	letSpec(s, k, t, t.lets[i].spec)
+	t.file = file
+	t.fn = fn
+	t.res = res
+	t.letState[i] = 2
+}
+
+// ownParams is the bracket parameters of the function being typed, none
+// for a package let.
+func ownParams(k Pkg, t Typer) []string { if t.fn >= 0 { k.Fns[t.fn].Params } else { []string{} } }
+
+// sink is where the branches of a value if, match or catch yield: the
+// expected type (want), else the type the first branch with a value gives
+// (join); valued is whether a branch gave a value, bad whether a branch's
+// value is not the join's or is not known.
+type sink { want Option[dense.ID[store.TKey]], join Option[dense.ID[store.TKey]], valued bool, bad bool }
+
+// tailWant is what a branch's tail is assigned to: the expected type,
+// else the join so far; Free before any; Unsure once the join is lost.
+func tailWant(k sink) Want {
+	if k.bad {
+		return Unsure
+	}
+	match k.want {
+	case Some[dense.ID[store.TKey]] as w:
+		Exactly{T: w.Value}
+	case None:
+		match k.join {
+		case Some[dense.ID[store.TKey]] as j:
+			Exactly{T: j.Value}
+		case None:
+			Free
+		}
+	}
+}
+
+// branches types an if or match in value position in w. In a context the
+// typer does not read, its branches are walked and it is left untyped.
+func branches(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
+	let mut kk = match w {
+	case Exactly as e:
+		sink{want: some(e.T), join: None, valued: false, bad: false}
+	case Free:
+		sink{want: None, join: None, valued: false, bad: false}
+	case Unsure:
+		sink{want: None, join: None, valued: false, bad: true}
+	}
+	yieldStmt(s, k, t, x, &kk)
+	match kk.want {
+	case Some[dense.ID[store.TKey]]:
+		kk.want
+	case None:
+		if kk.bad {
+			None
+		} else if kk.valued {
+			kk.join
+		} else {
+			// Every branch leaves: no value.
+			some(infer.NoValue(s))
+		}
+	}
+}
+
+// yieldList types a statement list whose last statement yields to k.
+func yieldList(s mut store.Store, k Pkg, t mut Typer, l syntax.List, kk mut sink) {
+	let tr = tree(k, t.file)
+	let n = syntax.Len(l)
+	if n == 0 {
+		kk.bad = true
+		return
+	}
+	for i in 0..n-1 {
+		stmt(s, k, t, syntax.Item(tr, l, i))
+	}
+	yieldStmt(s, k, t, syntax.Item(tr, l, n-1), kk)
+}
+
+// yieldStmt types the last statement x of a branch: an expression gives
+// its value, an if or match its branches', and a return, break or
+// continue none. Any other leaves the value unknown here.
+func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], kk mut sink) {
+	let tr = tree(k, t.file)
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KExprStmt {
+		let e = syntax.ExprStmtOf(tr, x).X
+		if unreachableCall(k, t.file, e) {
+			// Unreachable(…) leaves the branch: no value, any type. Its
+			// reason is walked; the call is not typed.
+			args(s, k, t, syntax.CallExprOf(tr, unparen(tr, e)), []dense.ID[store.TKey]{})
+			return
+		}
+		let ty = expr(s, k, t, e, tailWant(*kk))
+		joinBranch(s, k, *t, kk, ty)
+	} else if kd == syntax.KIfStmt {
+		let i = syntax.IfStmtOf(tr, x)
+		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
+		yieldBlock(s, k, t, i.Body, kk)
+		match dense.Unpack(i.Else) {
+		case Some[dense.ID[syntax.Node]] as e:
+			if syntax.KindOf(tr, e.Value) == syntax.KIfStmt {
+				yieldStmt(s, k, t, e.Value, kk)
+			} else {
+				yieldBlock(s, k, t, e.Value, kk)
+			}
+		case None:
+			// A value if needs an else (D-C2).
+			kk.bad = true
+		}
+	} else if kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
+		// A match's subject fixes the arguments of a generic pattern
+		// written bare; a match on a value's case values bind nothing.
+		let subj = if kd == syntax.KTypeSwitchStmt { header(s, k, t, syntax.TypeSwitchStmtOf(tr, x).Subject) } else { None }
+		let l = if kd == syntax.KSwitchStmt {
+			let ss = syntax.SwitchStmtOf(tr, x)
+			expr(s, k, t, ss.Tag, Unsure)
+			ss.Clauses
+		} else {
+			syntax.TypeSwitchStmtOf(tr, x).Clauses
+		}
+		for i in 0..syntax.Len(l) {
+			let c = syntax.Item(tr, l, i)
+			if syntax.KindOf(tr, c) == syntax.KCaseClause {
+				let cc = syntax.CaseClauseOf(tr, c)
+				patterns(s, k, t, cc.List, subj)
+				yieldList(s, k, t, cc.Body, kk)
+			} else {
+				stmt(s, k, t, c)
+			}
+		}
+	} else if kd == syntax.KReturnStmt || kd == syntax.KBranchStmt {
+		stmt(s, k, t, x)
+	} else {
+		stmt(s, k, t, x)
+		kk.bad = true
+	}
+}
+
+// yieldBlock types a branch's block.
+func yieldBlock(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node], kk mut sink) {
+	let tr = tree(k, t.file)
+	if syntax.KindOf(tr, b) == syntax.KBlockStmt {
+		yieldList(s, k, t, syntax.BlockStmtOf(tr, b).List, kk)
+	} else {
+		stmt(s, k, t, b)
+		kk.bad = true
+	}
+}
+
+// header types a match's subject as walk would: an expression in a
+// context the typer does not read. It is the subject's type, if known.
+func header(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let kind = syntax.KindOf(tree(k, t.file), x)
+	if kind >= syntax.KIdent && kind <= syntax.KCatchExpr && kind != syntax.KFuncLit && kind != syntax.KKeyValueExpr || kind == syntax.KTupleExpr || kind == syntax.KInterpolatedString {
+		expr(s, k, t, x, Unsure)
+	} else {
+		stmt(s, k, t, x)
+		None
+	}
+}
+
+// joinBranch joins a branch's value ty into kk: with an expected type any value
+// goes; the first value fixes the join; a later one is the join's type, a
+// variant of the union it is, or a variant of one union with it, which
+// becomes the join (types.Join).
+func joinBranch(s mut store.Store, k Pkg, t Typer, kk mut sink, ty Option[dense.ID[store.TKey]]) {
+	if isSome(kk.want) {
+		kk.valued = true
+		return
+	}
+	match ty {
+	case Some[dense.ID[store.TKey]] as v:
+		match kk.join {
+		case Some[dense.ID[store.TKey]] as j:
+			if j.Value != v.Value {
+				let e = envOf(*s, k, t)
+				if !types.Has(types.Variants(s, e, j.Value), v.Value) {
+					match types.Join(s, e, j.Value, v.Value) {
+					case Some[dense.ID[store.TKey]] as u:
+						kk.join = u
+					case None:
+						match optionJoin(s, k, j.Value, v.Value) {
+						case Some[dense.ID[store.TKey]] as o:
+							kk.join = o
+						case None:
+							kk.bad = true
+						}
+					}
+				}
+			}
+		case None:
+			kk.join = ty
+		}
+		kk.valued = true
+	case None:
+		kk.bad = true
+	}
+}
+
+// optionJoin is the prelude's generic union join (check/join.go
+// joinInstance) for its Option: Some[T] and None join to Option[T], and
+// an Option[T] stands with either (the first branch's type); none for any
+// other pair.
+func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let fo = foreignAt(k, "prelude", "Option")
+	let fs = foreignAt(k, "prelude", "Some")
+	let fn = foreignAt(k, "prelude", "None")
+	if fo < 0 || fs < 0 || fn < 0 {
+		return None
+	}
+	let none = store.TForeign(s, fn)
+	let (some1, arg) = optionArg(*s, cur, fs)
+	let (opt1, oarg) = optionArg(*s, cur, fo)
+	let (some2, arg2) = optionArg(*s, next, fs)
+	let (opt2, _) = optionArg(*s, next, fo)
+	if some1 && next == none || cur == none && some2 || cur == none && opt2 {
+		let a = if some1 { arg } else { arg2 }
+		return if opt2 { some(next) } else { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fo)}, []dense.ID[store.TKey]{a})) }
+	}
+	if opt1 && (next == none || some2 && arg2 == oarg) {
+		return some(cur)
+	}
+	None
+}
+
+// optionArg is whether t is the prelude's generic type at foreign index
+// f with one argument, and that argument.
+func optionArg(s store.Store, t dense.ID[store.TKey], f int) (bool, dense.ID[store.TKey]) {
+	if store.KindOfType(s, t) != store.KInstance {
+		return (false, t)
+	}
+	let o = store.OriginOfType(s, t)
+	let ops = store.OperandsOf(s, t)
+	if int(o.Import) != store.ForeignBit || int(o.Decl) != f || len(ops) != 1 {
+		return (false, t)
+	}
+	(true, ops[0])
+}
+
+// unreachableCall is whether x is a call of the prelude's Unreachable.
+func unreachableCall(k Pkg, file int, x0 dense.ID[syntax.Node]) bool {
+	let tr = tree(k, file)
+	let x = unparen(tr, x0)
+	if syntax.KindOf(tr, x) != syntax.KCallExpr {
+		return false
+	}
+	let fun = unparen(tr, syntax.CallExprOf(tr, x).Fun)
+	if syntax.KindOf(tr, fun) != syntax.KIdent {
+		return false
+	}
+	let p = k.Parsed[file]
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, file, fun)) {
+	case bind.Outside:
+		syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, fun))) == "Unreachable"
+	case _:
+		false
+	}
+}
+
+// caught types `x catch { … }`: its value has the type of the call it
+// catches, typed in w; each arm yields that type. A discarded catch's arms
+// discard their values; in a context the typer does not read, the arms'
+// tails are left untyped.
+func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, discard bool) Option[dense.ID[store.TKey]] {
+	let tr = tree(k, t.file)
+	let xt = expr(s, k, t, ce.X, w)
+	for i in 0..syntax.Len(ce.Arms) {
+		let a = syntax.Item(tr, ce.Arms, i)
+		if syntax.KindOf(tr, a) != syntax.KCatchArm {
+			stmt(s, k, t, a)
+			continue
+		}
+		let ca = syntax.CatchArmOf(tr, a)
+		patterns(s, k, t, ca.Types, None)
+		let read = match w {
+		case Unsure:
+			false
+		case _:
+			true
+		}
+		match xt {
+		case Some[dense.ID[store.TKey]] as v:
+			if !read {
+				stmts(s, k, t, ca.Body)
+			} else if discard {
+				discarded(s, k, t, ca.Body)
+			} else {
+				let mut kk = sink{want: some(v.Value), join: None, valued: false, bad: false}
+				yieldList(s, k, t, ca.Body, &kk)
+			}
+		case None:
+			stmts(s, k, t, ca.Body)
+		}
+	}
+	xt
+}
+
+// discarded types a statement list whose value is dropped: its last
+// expression is a statement too.
+func discarded(s mut store.Store, k Pkg, t mut Typer, l syntax.List) {
+	for i in 0..syntax.Len(l) {
+		stmt(s, k, t, syntax.Item(tree(k, t.file), l, i))
+	}
+}

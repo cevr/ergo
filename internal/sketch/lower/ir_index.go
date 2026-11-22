@@ -14,7 +14,16 @@ import (
 
 // indexOther is x, an index of a string or an array.
 func (b *irBuilder) indexOther(x *syntax.IndexExpr, p irPos) *irExpr {
-	switch t := b.l.info.Types[x.X].(type) {
+	t := b.l.info.Types[x.X]
+	if n, ok := t.(*check.Named); ok {
+		// A type defined over an array (`type Point [8]int32`): Go indexes
+		// it as its array, and the decoder reads the element through it.
+		if _, isArray := n.Defined().(*check.Array); isArray {
+			b.goType(n, x)
+			t = n.Defined()
+		}
+	}
+	switch t := t.(type) {
 	case *check.Array:
 		b.goType(t, x)
 	default:
@@ -23,7 +32,8 @@ func (b *irBuilder) indexOther(x *syntax.IndexExpr, p irPos) *irExpr {
 			irNo("index of a non-slice")
 		}
 	}
-	return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
+	xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
+	return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
 }
 
 // arrayPrefix is the "[N]" that starts the Go type spelling s of an

@@ -15,8 +15,11 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// sigType is the Go type of a function value of the signature s.
-func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
+// sigHead is the parameter half of the Go type of a function value of the
+// signature s, `func(*Env, P...)`, and the Go type of its value, "" when
+// it has none. It is the one reader of the env type for both shapes
+// (sigType, frameSigType), and writes no body.
+func (b *irBuilder) sigHead(s *check.Signature, site syntax.Node) (head, value string) {
 	if len(s.Results) > 1 {
 		irNo("function type with several results")
 	}
@@ -24,11 +27,41 @@ func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
 	for _, p := range s.Params {
 		parts = append(parts, b.goType(p.Type, site))
 	}
-	res := b.fc.valueResults(nil) // the emitter's (struct{}, error)
 	if len(s.Results) == 1 {
-		res = " (" + b.goType(s.Results[0], site) + ", error)"
+		value = b.goType(s.Results[0], site)
 	}
-	return "func(" + strings.Join(parts, ", ") + ")" + res
+	return "func(" + strings.Join(parts, ", ") + ")", value
+}
+
+// sigType is the Go type of a function value of the signature s.
+func (b *irBuilder) sigType(s *check.Signature, site syntax.Node) string {
+	head, value := b.sigHead(s, site)
+	if value == "" {
+		return head + b.fc.valueResults(nil) // the emitter's (struct{}, error)
+	}
+	return head + " (" + value + ", error)"
+}
+
+// frameSigType is sigType with its results named, as the emitter's
+// funcLitClosure writes a frame literal's (namedResults): `(_ R, err
+// error)`, struct{} for R with no value, so the frame's deferred End sets
+// the literal's error result after its return ("result" 1).
+func (b *irBuilder) frameSigType(s *check.Signature, site syntax.Node) string {
+	head, value := b.sigHead(s, site)
+	if value == "" {
+		value = "struct{}" // the emitter's unit shape
+	}
+	return head + " (_ " + value + ", ergoFrameErr error)"
+}
+
+// litParam is the local of a function literal's parameter: v's, written
+// id, or for a parameter named _ (v nil) a fresh local of its type t that
+// no statement reads, as the emitter's _p (funcLitClosure).
+func (b *irBuilder) litParam(v *check.Var, id *syntax.Ident, t check.Type, site syntax.Node, p irPos) int {
+	if v == nil {
+		return b.temp("p", b.goType(t, site), p)
+	}
+	return b.local(v, id)
 }
 
 // hasSig reports a slice type whose elements are, at some depth, function
@@ -74,7 +107,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if captureLowering != "reference" && len(l.info.ValueCaptures[n]) > 0 {
 		irNo("function literal that copies what it captures")
 	}
-	if l.info.TaskCaptures[n] != nil {
+	if c := l.info.TaskCaptures[n]; c != nil && !taskLendsOnly(c) {
 		irNo("function literal that a task captures")
 	}
 	var params []*check.Var
@@ -82,8 +115,13 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if ft != nil && ft.Params != nil {
 		for _, field := range ft.Params.List {
 			for _, id := range field.Names {
+				// A parameter named _ has no variable: a local of its own
+				// that nothing reads (litParam), the emitter's _p.
 				v, _ := l.info.Defs[id].(*check.Var)
-				if v == nil || id.Name == "_" {
+				switch {
+				case id.Name == "_":
+					v = nil
+				case v == nil:
 					irNo("function literal with an unnamed parameter")
 				}
 				params, ids = append(params, v), append(ids, id)
@@ -93,14 +131,21 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if len(params) != len(sig.Params) {
 		irNo("function literal with an unnamed parameter")
 	}
-	if l.bodyNeedsFrame(list) || l.ownsParams(params) {
-		irNo("function literal that is a frame")
-	}
+	// A literal that is a frame of its own (stage D3b, Rule 2: an owned
+	// parameter, a body that needs a frame) opens its scope first, and
+	// its Go results are named for the scope's End (frameSigType).
+	framed := l.bodyNeedsFrame(list) || l.ownsParams(params)
 	if x != nil && b.fc.plainLits[x] {
+		if framed {
+			irNo("function literal that is a frame")
+		}
 		return b.plainLitIR(x, sig, params, ids, list, end) // a known callback (ir_kcb.go)
 	}
 	p := b.pos(n, n.Pos())
 	typ := b.sigType(sig, n)
+	if framed {
+		typ = b.frameSigType(sig, n)
+	}
 	var result check.Type
 	if len(sig.Results) == 1 {
 		result = sig.Results[0]
@@ -111,9 +156,17 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	inner.env = "env"
 	inner.frame = newFrame(result, true, framePolls(l.info, n))
 	inner.frame.unit = result == nil
+	if framed {
+		inner.frame.plain = !l.bodyNeedsScope(list) // the emitter's funcLitClosure
+	}
 	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
+	own, frame, exits, exitsFC := b.own, b.frame, b.exits, b.exitsFC
+	amort, sites := b.amort, b.pollSites
+	b.amort, b.pollSites = nil, nil // a frame of its own: its nests count apart (ir_poll.go)
 	defer func() {
 		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
+		b.own, b.frame, b.exits, b.exitsFC = own, frame, exits, exitsFC
+		b.amort, b.pollSites = amort, sites
 	}()
 	// The literal's body is a frame of its own: no loop of the maker's
 	// memoizes a call of it (ir_memo.go).
@@ -121,9 +174,23 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	envLocal := b.temp("env", "*"+l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
-		lit.Params = append(lit.Params, b.local(v, ids[i]))
+		lit.Params = append(lit.Params, b.litParam(v, ids[i], sig.Params[i].Type, n, p))
 	}
 	b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, envLocal, result, 0, 0, 0, "", nil
+	if framed {
+		// The literal's own frame scope, its End on the named error
+		// result (frameSigType's second), then its taken parameters
+		// (the emitter's openFrame and ownVar), before the entry poll.
+		b.own, b.frame, b.exits, b.exitsFC = nil, 0, false, nil
+		var body *syntax.BlockStmt
+		if x != nil {
+			body = x.Body
+		} else {
+			body = site.Trailing
+		}
+		errArg := &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: 1}}
+		lit.Body = append(lit.Body, b.openScopeOf(body, n, n, params, errArg, false)...) // ir_own.go
+	}
 	if frameFootprint(l.info, n).EntryPoll && inner.frame.polls {
 		lit.Body = append(lit.Body, b.poll(n))
 	}
@@ -136,6 +203,26 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		lit.Body = b.unitReturns(lit.Body, e)
 	}
 	return lit
+}
+
+// taskLendsOnly reports a task's literal that moves no resource and only
+// borrows lets (R12, R27; check.TaskCapture): the emitter's taskSnapshot
+// then only rebinds each borrowed let to a sender local of the same value,
+// with no owner to hand at admission (captureCall), no root owner of a
+// repeated body (taskCaptureRoot) and no capture the literal's frame owns
+// (funcLitClosure). A let is never written, so the literal reading it is
+// that snapshot. A move, or a borrowed let mut, which the snapshot fixes
+// before later writes, stays the emitter's.
+func taskLendsOnly(c *check.TaskCapture) bool {
+	if len(c.Vars) > 0 {
+		return false
+	}
+	for _, v := range c.Borrowed {
+		if v.Mut() {
+			return false
+		}
+	}
+	return true
 }
 
 // unitReturns is the body of a literal with no value: each return gives
@@ -199,10 +286,12 @@ func irLiterals(s *irStmt, f func(*irExpr)) {
 
 // valueCall is the call x of a function value (CallFuncValue): the value,
 // then the environment and the operands, its (value, error) pair as it
-// is. A value of a named function type, a known callback's direct call
-// and a task's destination stay the emitter's.
+// is. A value of a type defined over a function type (Seq[T]) calls
+// through its signature, as Go calls it and as the emitter does
+// (GP-DEFINED, ir_defined.go). A known callback's direct call and a task's
+// destination stay the emitter's.
 func (b *irBuilder) valueCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr) {
-	if _, ok := b.l.info.Types[x.Fun].(*check.Signature); !ok {
+	if definedSig(b.l.info.Types[x.Fun]) == nil {
 		irNo("call of a value of a named function type")
 	}
 	if id, ok := unparen(x.Fun).(*syntax.Ident); ok {

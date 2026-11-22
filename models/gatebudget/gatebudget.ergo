@@ -1,0 +1,424 @@
+// The package gatebudget is the design model of the runner's host-wide
+// budget (MONOREPO findings §6.5, unit WS4): every `ergo gate` on the host
+// takes a slot before it starts a task, and a newer run of the same
+// workspace supersedes an older one. Checked by `ergo test <this folder>`:
+// a breadth-first search of every state in the scope below.
+//
+// The world: K = 2 slots and four runners. R0 and R1 are runs of one
+// workspace, and R2 and R3 of another; in each pair, whichever asks second
+// supersedes the other. Priority classes and admission are in
+// classes.ergo. Each runner starts up to two tasks, one child process
+// at a time. Each step is one atomic act, and a crash may come at any
+// step:
+//
+//	Want:  the runner asks for a slot. Asking bumps its workspace's
+//	       generation and takes the new value as the run's own. With a
+//	       slot free it holds it at once (flock); otherwise it waits, with
+//	       a ticket (a blocking flock in a queue the runner keeps in order).
+//	Start: a holding runner starts its next task, a child process. It
+//	       reads its workspace's generation in the same step: a superseded
+//	       run starts nothing and gives its slot back.
+//	End:   the child exits.
+//	Done:  a holding runner with no child left gives its slot back.
+//	Crash: the runner dies, holding, waiting or between steps. Its
+//	       children die with it (the runner's process group, or its
+//	       cgroup), and the kernel drops its locks.
+//
+// Giving a slot back hands it to the oldest waiting runner, in the same
+// step, as a queue lock does.
+//
+// The invariants (laws of Design, each `always`):
+//   - AtMostK: never more than K runners hold a slot.
+//   - CrashFrees: no slot is held by a runner that crashed.
+//   - StartsWhenFree: no runner waits while a slot is free.
+//   - InOrder: no runner takes a slot while an older waiter waits.
+//   - NoStartAfterSupersede: a superseded run starts no new task.
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run to a
+// state where the invariant named is false):
+//   - CheckThenTake: a runner sees a free slot and takes it in a second
+//     step (AtMostK).
+//   - LeakedChild: the child inherits the lock and outlives its crashed
+//     runner, as a light.sh child holding fd 9 does (CrashFrees).
+//   - Poll: a released slot is only freed, and waiters poll for it, as
+//     light.sh's retry loop does (StartsWhenFree).
+//   - Newest: a released slot goes to the newest waiter (InOrder).
+//   - NoGeneration: Start does not read the generation (NoStartAfterSupersede).
+//
+// Witnesses (laws of Design, each `sometimes`), so the invariants are not
+// vacuous: every slot held while a runner waits; a slot handed to a waiter;
+// a slot handed on after a crash; a superseded run stopped; a run that
+// started both its tasks.
+//
+// Scope: the four runners above, each run once; "proved" means proved in
+// this scope.
+
+type Runner = R0{} | R1{} | R2{} | R3{}
+
+type Act = Want{R Runner} | Take{R Runner} | Start{R Runner} | End{R Runner} | Done{R Runner} | Crash{R Runner}
+
+// The scope.
+let K = 2
+let Runners = 4
+let MaxTasks = 2
+
+// A runner's step (Pc).
+let Idle = 0
+let Waiting = 1
+let Holding = 2
+let Finished = 3
+let Crashed = 4
+let Saw = 5 // CheckThenTake only: it saw a free slot and has not taken it
+
+// The design and the mutants, as the argument of next.
+let NoMutant = 0
+let CheckThenTakeMutant = 1
+let LeakedChildMutant = 2
+let PollMutant = 3
+let NewestMutant = 4
+let NoGenerationMutant = 5
+
+// World is the model's state. Pc, Ticket, MyGen, Tasks, Child and Seen
+// have one element per runner; Slot one per slot (its holder, -1 for
+// none); Gen one per workspace. Ticket is the runner's place in the
+// queue, -1 when it does not wait. Seen is the slot CheckThenTake saw.
+// Passed: a runner took a slot while an older one waited. Late: a
+// superseded run started a task. The other flags are the witnesses'.
+type World {
+	Pc         []int,
+	Ticket     []int,
+	MyGen      []int,
+	Tasks      []int,
+	Child      []bool,
+	Seen       []int,
+	Slot       []int,
+	Gen        []int,
+	NextTicket int,
+	Passed     bool,
+	Late       bool,
+	Handed     bool,
+	CrashHand  bool,
+	Stopped    bool,
+	Contended  bool,
+}
+
+func world() World {
+	World{Pc: []int{0, 0, 0, 0}, Ticket: []int{-1, -1, -1, -1}, MyGen: []int{0, 0, 0, 0}, Tasks: []int{0, 0, 0, 0},
+		Child: []bool{false, false, false, false}, Seen: []int{-1, -1, -1, -1}, Slot: []int{-1, -1}, Gen: []int{0, 0},
+		NextTicket: 0, Passed: false, Late: false, Handed: false, CrashHand: false, Stopped: false, Contended: false}
+}
+
+func runner(r Runner) int {
+	match r {
+	case R0:
+		return 0
+	case R1:
+		return 1
+	case R2:
+		return 2
+	case R3:
+		return 3
+	}
+}
+
+func runners() []int { []int{0, 1, 2, 3} }
+
+func slots() []int { []int{0, 1} }
+
+// workspace is a runner's workspace: R0 and R1 share 0, R2 and R3 share 1.
+func workspace(r int) int {
+	if r >= 2 {
+		return 1
+	}
+	return 0
+}
+
+// free is a free slot, -1 for none.
+func free(w World) int {
+	for s in slots() {
+		if w.Slot[s] == -1 {
+			return s
+		}
+	}
+	return -1
+}
+
+// oldest is the waiting runner with the smallest ticket, -1 for none;
+// newest the one with the largest (Newest only).
+func oldest(w World) int {
+	let mut best = -1
+	for r in runners() {
+		if w.Pc[r] == Waiting && (best == -1 || w.Ticket[r] < w.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+func newest(w World) int {
+	let mut best = -1
+	for r in runners() {
+		if w.Pc[r] == Waiting && (best == -1 || w.Ticket[r] > w.Ticket[best]) {
+			best = r
+		}
+	}
+	return best
+}
+
+// olderWaits reports a waiting runner older than r.
+func olderWaits(w World, r int) bool {
+	for o in runners() {
+		if o != r && w.Pc[o] == Waiting && (w.Pc[r] != Waiting || w.Ticket[o] < w.Ticket[r]) {
+			return true
+		}
+	}
+	return false
+}
+
+// hold gives slot s to r and notes a runner passed over.
+func hold(w World, s int, r int) World {
+	let mut out = w
+	if olderWaits(out, r) {
+		out.Passed = true
+	}
+	out.Slot[s] = r
+	out.Pc[r] = Holding
+	out.Ticket[r] = -1
+	return out
+}
+
+// release gives r's slots back: to the oldest waiter (the newest under
+// Newest), or free under Poll.
+func release(m int, w World, r int) World {
+	let mut out = w
+	for s in slots() {
+		if out.Slot[s] == r {
+			out.Slot[s] = -1
+			let mut to = oldest(out)
+			if m == NewestMutant {
+				to = newest(out)
+			}
+			if m != PollMutant && to != -1 {
+				out = hold(out, s, to)
+				out.Handed = true
+				if out.Pc[r] == Crashed {
+					out.CrashHand = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+func holders(w World) int {
+	let mut n = 0
+	for r in runners() {
+		if w.Pc[r] == Holding {
+			n = n + 1
+		}
+	}
+	return n
+}
+
+func waiters(w World) int {
+	let mut n = 0
+	for r in runners() {
+		if w.Pc[r] == Waiting {
+			n = n + 1
+		}
+	}
+	return n
+}
+
+// next is the world after a, or None when a is not enabled.
+func next(m int, w0 World, a Act) Option[World] {
+	let mut w = w0
+	match a {
+	case Want as x:
+		let r = runner(x.R)
+		if w.Pc[r] != Idle {
+			return None
+		}
+		let ws = workspace(r)
+		w.Gen[ws] = w.Gen[ws] + 1
+		w.MyGen[r] = w.Gen[ws]
+		let s = free(w)
+		if m == CheckThenTakeMutant && s != -1 {
+			w.Pc[r] = Saw
+			w.Seen[r] = s
+		} else if m != PollMutant && s != -1 {
+			w = hold(w, s, r)
+		} else {
+			w.Pc[r] = Waiting
+			w.Ticket[r] = w.NextTicket
+			w.NextTicket = w.NextTicket + 1
+		}
+	case Take as x:
+		let r = runner(x.R)
+		if m == CheckThenTakeMutant && w.Pc[r] == Saw {
+			w = hold(w, w.Seen[r], r)
+		} else if m == PollMutant && w.Pc[r] == Waiting && free(w) != -1 {
+			w = hold(w, free(w), r)
+		} else {
+			return None
+		}
+	case Start as x:
+		let r = runner(x.R)
+		if w.Pc[r] != Holding || w.Child[r] || w.Tasks[r] == MaxTasks {
+			return None
+		}
+		let superseded = w.MyGen[r] != w.Gen[workspace(r)]
+		if superseded && m != NoGenerationMutant {
+			w.Pc[r] = Finished
+			w.Stopped = true
+			w = release(m, w, r)
+		} else {
+			if superseded {
+				w.Late = true
+			}
+			w.Tasks[r] = w.Tasks[r] + 1
+			w.Child[r] = true
+		}
+	case End as x:
+		let r = runner(x.R)
+		if !w.Child[r] {
+			return None
+		}
+		w.Child[r] = false
+		if w.Pc[r] == Crashed {
+			// LeakedChild's orphan exits: the kernel drops the lock it held.
+			w = release(m, w, r)
+		}
+	case Done as x:
+		let r = runner(x.R)
+		if w.Pc[r] != Holding || w.Child[r] {
+			return None
+		}
+		w.Pc[r] = Finished
+		w = release(m, w, r)
+	case Crash as x:
+		let r = runner(x.R)
+		if w.Pc[r] != Waiting && w.Pc[r] != Holding && w.Pc[r] != Saw {
+			return None
+		}
+		w.Pc[r] = Crashed
+		w.Ticket[r] = -1
+		// Under LeakedChild an orphan child keeps the lock until it exits (End).
+		if !(m == LeakedChildMutant && w.Child[r]) {
+			w.Child[r] = false
+			w = release(m, w, r)
+		}
+	}
+	if holders(w) == K && waiters(w) > 0 {
+		w.Contended = true
+	}
+	return Some[World]{Value: w}
+}
+
+func stepWith(m int, s World, a Act) Decision[World, string] {
+	match next(m, s, a) {
+	case None:
+		Ignore
+	case Some[World] as n:
+		Enter[World]{Next: n.Value}
+	}
+}
+
+func stepDesign(s World, a Act) Decision[World, string]        { stepWith(NoMutant, s, a) }
+func stepCheckThenTake(s World, a Act) Decision[World, string] { stepWith(CheckThenTakeMutant, s, a) }
+func stepLeakedChild(s World, a Act) Decision[World, string]   { stepWith(LeakedChildMutant, s, a) }
+func stepPoll(s World, a Act) Decision[World, string]          { stepWith(PollMutant, s, a) }
+func stepNewest(s World, a Act) Decision[World, string]        { stepWith(NewestMutant, s, a) }
+func stepNoGeneration(s World, a Act) Decision[World, string]  { stepWith(NoGenerationMutant, s, a) }
+
+// The invariants.
+
+func atMostK(w World) bool { holders(w) <= K }
+
+func crashFrees(w World) bool {
+	for s in slots() {
+		if w.Slot[s] != -1 && w.Pc[w.Slot[s]] == Crashed {
+			return false
+		}
+	}
+	return true
+}
+
+func startsWhenFree(w World) bool { free(w) == -1 || waiters(w) == 0 }
+
+func inOrder(w World) bool { !w.Passed }
+
+func noStartAfterSupersede(w World) bool { !w.Late }
+
+func overK(w World) bool          { !atMostK(w) }
+func keptPastCrash(w World) bool  { !crashFrees(w) }
+func starvedFill(w World) bool    { !startsWhenFree(w) }
+func passedOver(w World) bool     { !inOrder(w) }
+func lateStart(w World) bool      { !noStartAfterSupersede(w) }
+
+// The witnesses.
+
+func contended(w World) bool  { w.Contended }
+func handed(w World) bool     { w.Handed }
+func crashHanded(w World) bool { w.CrashHand }
+func stopped(w World) bool    { w.Stopped }
+func bothTasks(w World) bool {
+	for r in runners() {
+		if w.Tasks[r] == MaxTasks {
+			return true
+		}
+	}
+	return false
+}
+
+type Design machine[World, Act] {
+	initial: world(),
+	step:    stepDesign,
+
+	law AtMostK always atMostK,
+	law CrashFrees always crashFrees,
+	law StartsWhenFree always startsWhenFree,
+	law InOrder always inOrder,
+	law NoStartAfterSupersede always noStartAfterSupersede,
+
+	law Contends sometimes contended,
+	law HandsOn sometimes handed,
+	law HandsOnAfterCrash sometimes crashHanded,
+	law StopsSuperseded sometimes stopped,
+	law RunsBothTasks sometimes bothTasks,
+}
+
+type CheckThenTake machine[World, Act] {
+	initial: world(),
+	step:    stepCheckThenTake,
+
+	law Breaks sometimes overK,
+}
+
+type LeakedChild machine[World, Act] {
+	initial: world(),
+	step:    stepLeakedChild,
+
+	law Breaks sometimes keptPastCrash,
+}
+
+type Poll machine[World, Act] {
+	initial: world(),
+	step:    stepPoll,
+
+	law Breaks sometimes starvedFill,
+}
+
+type Newest machine[World, Act] {
+	initial: world(),
+	step:    stepNewest,
+
+	law Breaks sometimes passedOver,
+}
+
+type NoGeneration machine[World, Act] {
+	initial: world(),
+	step:    stepNoGeneration,
+
+	law Breaks sometimes lateStart,
+}

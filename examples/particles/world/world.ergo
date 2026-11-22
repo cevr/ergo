@@ -4,6 +4,8 @@
 // first particles from Random. Every number is an int, so a run is exact
 // and a seed replays it on every host.
 
+import rand
+
 // Particle is one particle: its number, its cell and its velocity in
 // cells per step.
 type Particle { ID int, X int, Y int, VX int, VY int }
@@ -101,6 +103,44 @@ func Energy(w World) int {
 		e = e + p.VX*p.VX + p.VY*p.VY
 	}
 	e
+}
+
+// EnergyNeverRises: a step never adds energy. Walls may take some away.
+law EnergyNeverRises(seed uint64, size int, n int, loss int) {
+	let w = newWorld(seed, size, n, loss)
+	let next, _ = Step(w)
+	Energy(next) <= Energy(w)
+}
+
+// within maps any n into lo..hi, both included.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let m = n % span
+	lo + (if m < 0 { m + span } else { m })
+}
+
+// newWorld is a box from a seed and any numbers: a side of 3 to 24, up to
+// 40 particles, a loss of 0 to 2. It never fails, because the numbers
+// are mapped into range first. It is World's constructor, so a generator
+// builds each World it draws with it (a test screen's frames hold one).
+func newWorld(seed uint64, size int, n int, loss int) World {
+	let width = within(size, MinSide, 24)
+	let height = within(size/7, MinSide, 12)
+	let count = within(n, 0, 40)
+	with context { Random: rand.Seeded(seed) } {
+		Spawn(width, height, if count > width*height { width * height } else { count }, within(loss, 0, 2)) catch {
+		case BadSize, BadLoss, TooMany:
+			Blank()
+		}
+	}
+}
+
+// ElasticKeepsEnergy: with no loss at the walls, a run of steps keeps the
+// energy exactly: a bounce turns a velocity and a meeting passes it on.
+law ElasticKeepsEnergy(seed uint64, size int, n int, steps int) {
+	let w = newWorld(seed, size, n, 0)
+	let after, _ = Run(w, within(steps, 0, 50))
+	Energy(after) == Energy(w)
 }
 
 // Inside reports whether every particle of w is in a cell of the box.

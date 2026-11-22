@@ -1,0 +1,76 @@
+// sessionbench is the Ergo side of AF3's session receipt (API-FIRST spec
+// §3, the CLI row for a script): it runs a script on standard input
+// through api.Session and the generated command line of counter.Counter,
+// and prints a checksum of what each line gives.
+//
+//	sessionbench gen N     print a script of N command lines
+//	sessionbench session   run the script on standard input; print "N steps, sum S"
+
+import api
+import io
+import os
+import sessionbench/counter
+import sessionbench/counter/counterapi
+import sessionbench/counter/countercli
+import strconv
+
+// cycle is the script's lines: values, --json, typed failures, a
+// positional argument, a quoted word, a comment and a blank line.
+func cycle() []string {
+	[]string{
+		"add -key=apple -n=3",
+		"--json add -key=pear -n=40",
+		"add -key=fig -n=-1",
+		"get -- plum",
+		"get -- zest",
+		"add \"-key=big apple\" -n=2",
+		"# a comment",
+		"",
+	}
+}
+
+// policy goes on after a typed failure: a script's refusals are answers.
+func policy() countercli.Policy {
+	let d = countercli.Defaults()
+	countercli.Policy{..d, Code: func(f counterapi.Failure) int { 0 }}
+}
+
+// Sum is the checksum of the steps: each status, the length of its
+// standard output, and 1 when it wrote to standard error.
+func Sum(steps []api.Step) int {
+	let mut sum = 0
+	for s in steps {
+		sum = sum + s.Output.Code + len(s.Output.Out)
+		if s.Output.Err != "" {
+			sum = sum + 1
+		}
+	}
+	sum
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) == 2 && args[0] == "gen" {
+		let n = strconv.Atoi(args[1]) catch {
+		case _:
+			return os.Exit{Code: 2, Message: "sessionbench: N is not a number"}
+		}
+		let c = cycle()
+		for i in 0..n {
+			Console.Println(c[i%len(c)])
+		}
+		return
+	}
+	if len(args) != 1 || args[0] != "session" {
+		return os.Exit{Code: 2, Message: "usage: sessionbench gen N | sessionbench session"}
+	}
+	let mut lines = []string{}
+	with context { io.Stdin: io.NewStdin() } {
+		for line in io.Stdin.Lines() {
+			lines = lines.Append(line)
+		}
+	}
+	let p = policy()
+	let steps = with context { counter.Counter: counter.Tally } { api.Session(lines, func(a []string) api.Output needs counter.Counter { countercli.Run(a, p) }) }
+	Console.Println("\(len(steps)) steps, sum \(Sum(steps))")
+}

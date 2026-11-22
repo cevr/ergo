@@ -307,7 +307,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 					pt := goBoundOwned(qualify(text(fl.Type)))
 					pointerArg = pointerArg || strings.HasPrefix(text(fl.Type), "*")
 					_, isFunc := fl.Type.(*syntax.FuncType)
-					if isFunc && (fl.Own != nil || v1.GoSyncCallbacks[target] == "") {
+					if isFunc && (fl.Own != nil || v1.GoSyncCallbacks()[target] == "") {
 						// Go may keep a callback no review lists
 						// (check/hostclauses.go), so the use's own
 						// callback is owned (types.md, Function values 2).
@@ -413,13 +413,16 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			fullC, _ := forms("rm."+fn, args)
 			// let mut rm = recv moves recv, so the use owns it (a Go
 			// receiver is lent, GB1); own on a crossing type narrows.
+			// rm = sameRecv(rm) makes rm a reassigned let mut before the
+			// capture; rm = rm would be S110 (a self-assignment, VET-CHECK
+			// rank 1), so the program declares the own identity sameRecv.
 			sigC := sig
 			if !takesRecv {
 				sigC = strings.Replace(sig, "recv "+recvType, "recv own "+recvType, 1)
 			}
 			out = append(out, goBoundUse{
 				target:  target + " (captured receiver)",
-				full:    sigC + " {\n\tlet mut rm = recv\n\trm = rm\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
+				full:    sigC + " {\n\tlet mut rm = recv\n\trm = sameRecv(rm)\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
 				short:   sig + " {\n\t" + short + "\n}\n",
 				imports: paths,
 				capture: true,
@@ -524,10 +527,15 @@ func goBoundRows(s string) string {
 // `*S`, q38). Any other type is t.
 func goBoundOwned(t string) string {
 	if s, ok := strings.CutPrefix(t, "*"); ok {
-		return "go.Ref[" + s + "]"
+		return "go.Ref[" + goBoundBorrows.ReplaceAllString(s, "${1}mut ") + "]"
 	}
-	return t
+	// A function type's borrow parameter (func(*Flag)) is the borrow,
+	// written mut in Ergo source (MODES-2).
+	return goBoundBorrows.ReplaceAllString(t, "${1}mut ")
 }
+
+// goBoundBorrows finds a borrow *T written as a function type's parameter.
+var goBoundBorrows = regexp.MustCompile(`([(,] ?|[(,] ?[a-z_][A-Za-z0-9_]* )\*`)
 
 // goBoundOwnFault marks a diagnostic that the generator's own text causes:
 // own on a name whose type is no resource after narrowing, a retired
@@ -554,8 +562,11 @@ var goBoundCrossing = regexp.MustCompile(`takes (\w+) has no effect`)
 // goBoundReleaseNeed is S102 on a capability that the release of a value
 // the use owns requires (resources, Context ownership 6): the row is
 // written, not inferred (EX2), so the generator adds the capability to the
-// use's needs clause and checks the program again; not a step down.
-var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of function use\d+`)
+// use's row (and to its literal's row when the release is in the literal:
+// a method value's literal that returns an *os.File, whose Close charges
+// Ambient; HOST-ROW-3 slice 2) and checks the program again; not a step
+// down.
+var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of (?:function use\d+|this function literal)`)
 
 // goBoundOwnText is a kept parameter the generator writes: its name and
 // own before a type that is not a function's (a callback's own is its
@@ -589,15 +600,17 @@ func goBoundText(u goBoundUse, f goBoundForm) string {
 	if len(u.releaseNeeds) == 0 {
 		return text
 	}
-	// The function's own signature is the text's first line.
+	// The function's own signature is the text's first line; a literal in
+	// the body that states a row gets the needs too.
 	sig, body, _ := strings.Cut(text, " {\n")
-	needs := strings.Join(u.releaseNeeds, ", ")
+	needs := strings.Join(u.releaseNeeds, " | ")
 	switch {
 	case strings.Contains(sig, " needs "):
-		sig = strings.Replace(sig, " needs ", " needs "+needs+", ", 1)
+		sig = strings.Replace(sig, " needs ", " needs "+needs+" | ", 1)
 	default:
 		sig += " needs " + needs
 	}
+	body = strings.ReplaceAll(body, " needs ", " needs "+needs+" | ")
 	return sig + " {\n" + body
 }
 
@@ -826,6 +839,12 @@ func goBoundProgram(uses []goBoundUse, forms []goBoundForm) (string, []int) {
 		starts[i] = line
 		line += strings.Count(text, "\n")
 		b.WriteString(text)
+	}
+	for i, u := range uses {
+		if u.capture && forms[i] == goBoundFull {
+			b.WriteString("func sameRecv[T own](x own T) T { x }\n")
+			break
+		}
 	}
 	return b.String(), starts
 }

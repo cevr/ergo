@@ -1,0 +1,66 @@
+import slices
+
+// Columns is a parse as one run of words, for a host that reads the rows
+// (the Go decoder of capstone S2d, internal/sketch/syntax/decode.go): only
+// basic types and slices cross a linked package, so the columns go across
+// packed. The layout is by column, so a column the parse holds as words
+// goes across in one copy (capstone S2f; version 1 interleaved the words
+// of a token and of a row, a word at a time):
+//
+//	header   7 words: ColumnsVersion, tokens, rows, extra words, comments,
+//	         comment groups, failed (1 or 0)
+//	tokens   the kinds, then the starts, then the ends, a word per token,
+//	         the ILLEGAL and EOF of a failed scan included
+//	rows     the kinds, then the tokens, then the a words, then the b
+//	         words, a word per row; the file is the last row
+//	extra    the extra pool
+//	comments start, end per comment
+//	groups   first and last comment of each comment group
+//
+// A failed parse has no rows, no extra words and no groups; its failure is
+// Parsed's Code, Message, Offset, Length, Line and Column.
+func Columns(p Parsed) []uint32 {
+	let ntok = len(p.kinds)
+	let nrows = if p.Failed { 0 } else { p.Tree.n }
+	let nextra = if p.Failed { 0 } else { p.Tree.ne }
+	let ncmt = NumComments(p.cmts)
+	let ngroups = if p.Failed { 0 } else { len(p.gFirst) }
+	let mut out = slices.WithCapacity[uint32](7 + 3*ntok + 4*nrows + nextra + 2*ncmt + 2*ngroups)
+	out = out.Append(ColumnsVersion)
+	out = out.Append(uint32(ntok))
+	out = out.Append(uint32(nrows))
+	out = out.Append(uint32(nextra))
+	out = out.Append(uint32(ncmt))
+	out = out.Append(uint32(ngroups))
+	out = out.Append(if p.Failed { uint32(1) } else { uint32(0) })
+	out = slices.AppendAll(out, slices.Slice(p.kinds, 0, ntok))
+	out = slices.AppendAll(out, slices.Slice(p.starts, 0, ntok))
+	// The parse stores a failed scan's ILLEGAL and EOF ends too, so the
+	// ends column is tokEnd's.
+	out = slices.AppendAll(out, slices.Slice(p.ends, 0, ntok))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.kind, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.tok, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.a, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.b, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.extra, 0, nextra))
+	for c in 0..ncmt {
+		let id = CommentAt(p.cmts, c)
+		out = out.Append(uint32(CommentStart(p.cmts, id)))
+		out = out.Append(uint32(CommentEnd(p.cmts, id)))
+	}
+	for g in 0..ngroups {
+		out = out.Append(uint32(p.gFirst[g]))
+		out = out.Append(uint32(p.gLast[g]))
+	}
+	out
+}
+
+// ColumnsVersion is the first word of Columns: a host that reads another
+// layout refuses it. 3: a law's row gains TypeParams, its word 2. 4: a
+// context declaration's and literal's rows gain Fails, before Needs
+// (CTX-ROWS-1b): 7 and 4 fixed words. 5: the rows are 4's, and a failed
+// parse's text (dump.Failure) carries its fix as lines after the error's
+// line, `fix exact|suggested offset length "text"` (VET-CHECK-VAR). A
+// change of the layout is bootstrapped (go run ./scripts/linked
+// -bootstrap): the host reads this layout and the one before it.
+let ColumnsVersion = uint32(5)

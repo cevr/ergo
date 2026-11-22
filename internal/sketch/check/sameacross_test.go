@@ -22,7 +22,7 @@ func TestSameAcrossTellsCapabilitiesApart(t *testing.T) {
 		"Ev[Bad]", "Ev[Worse]", "Ev[Bad | Worse]",
 		"Tab[[]Job]", "Tab[[2]Job]", "Tab[[3]Job]", "Tab[Map[Job, int]]", "Tab[Map[int, Job]]", "Tab[(Job, int)]",
 		"Tab[func(Job) int]", "Tab[func(Job) int fails Bad]", "Tab[func(Job) int fails Bad | Worse]", "Tab[func() needs A]",
-		"Tab[func(*Job)]", "Tab[func(f func())]", "Tab[func(f own func())]", "Tab[func(r RB)]", "Tab[func(r own RB)]",
+		"Tab[func(mut Job)]", "Tab[func(f func())]", "Tab[func(f own func())]", "Tab[func(r RB)]", "Tab[func(r own RB)]",
 	}
 	var b strings.Builder
 	b.WriteString("type Tab[K] { Put(k K) }\ntype Ev[E] { Do() fails E }\ntype Job { id int }\ntype Bad { text string }\ntype Worse { n int }\ntype A { Use() }\ntype RB { id int } implements Closer\nfunc Close(r RB) {}\n\n")

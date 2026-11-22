@@ -75,7 +75,7 @@ func TestCompilerReadsNoStdMembership(t *testing.T) {
 var stdScanDirs = []string{
 	"internal/sketch/check", "internal/sketch/lower", "internal/sketch/eval",
 	"internal/sketch/lint", "internal/sketch/derive", "internal/sketch/build",
-	"internal/sketch/format", "internal/sketchfront", "internal/tsproj",
+	"internal/hostsyntax", "internal/sketchfront", "internal/tsproj",
 	"internal/rpcgen", "cmd/ergo",
 }
 
@@ -574,19 +574,13 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/durable.go:TakesDurableMachine",
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
-	"internal/sketch/check/entry.go:IsStdEvery",
-	"internal/sketch/check/export_user.go:NewUserExport",
 	"internal/sketch/check/lintfacts.go:IsSchedulerSleep",
 	"internal/sketch/check/lintfacts.go:IsTimeoutPackage",
 	"internal/sketch/check/lintfacts.go:ProgramType",
 	"internal/sketch/check/lintfacts.go:RoleOf",
 	"internal/sketch/check/lintfacts.go:isStdObj",
 	"internal/sketch/check/lintfacts.go:stdRoles",
-	"internal/sketch/check/mappedtext.go:IsMappedText",
-	"internal/sketch/check/mappedtext.go:checker.textPlacement",
-	"internal/sketch/check/mappedtext.go:escWalk.endsBeforeReturn",
 	"internal/sketch/check/mappedtext.go:escWalk.textOwner",
-	"internal/sketch/check/mappedtext.go:isMapped",
 	"internal/sketch/check/mappedtext.go:ownWalk.textRootOf",
 	"internal/sketch/check/mappedtext.go:textTemporary",
 	"internal/sketch/check/never.go:IsNever",
@@ -658,7 +652,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/release.go:funcCtx.stdOp",
 	"internal/sketch/lower/std.go:funcCtx.graphArg",
 	"internal/sketch/lower/std.go:funcCtx.stdCall",
-	"internal/sketch/lower/std.go:lowerer.runtimeType",
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",
@@ -669,7 +662,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketchfront/rewrite.go:FreshStdLedger",
 	"internal/tsproj/http.go:httpFailureStatuses",
 	"internal/tsproj/http.go:httpTables",
-	"internal/tsproj/project.go:stdJSON",
 }
 
 // stringConsts are the lowering's package-level constants whose value is

@@ -31,7 +31,8 @@ package lower
 // expression. The temporaries go into the statement slot before the
 // statement that holds the site, only where nothing the statement
 // evaluates before the site can fail (rwAt). A call tree inside a call of
-// a body marked //ergo:aswritten (the prelude's AsWritten) is never the
+// a function marked `// ergo:aswritten` (the prelude's AsWritten, or a
+// user's; check.AsWritten) is never the
 // root or a part of a match; its matched sites keep their left side, and
 // the report says why.
 //
@@ -63,6 +64,8 @@ type funcRewrites struct {
 	// shipped ledger's evidence by package.
 	laws    []*check.Law
 	shipped map[*check.Package]*shippedEvidence
+	// fallible are the fallible laws unfoldAt places (ir_unfold.go).
+	fallible []*check.Law
 	// canarySites are the canary's site indexes by position: a lowering
 	// that runs again from the start (lowerAgain) meets a site again.
 	canarySites map[string]int
@@ -161,18 +164,11 @@ func (l *lowerer) funcVerdictOf(law *check.Law) funcVerdict {
 	return funcVerdict{Key: key, State: "missing", Why: "the build reads no ergo.laws for " + key}
 }
 
-// asWrittenCall reports a call of a body marked //ergo:aswritten.
+// asWrittenCall reports a call of a function marked `// ergo:aswritten`
+// (check.AsWritten), in any package.
 func (b *irBuilder) asWrittenCall(x *syntax.CallExpr) bool {
 	c := b.l.info.Calls[x]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
-		return false
-	}
-	path, name := c.Func.Decl.Extern.Split()
-	if !v1.Owns(path) {
-		return false
-	}
-	body, err := v1.BodyIn(path, name)
-	return err == nil && body.AsWritten
+	return c != nil && c.Kind == check.CallFunc && check.AsWritten(c.Func)
 }
 
 // rewriteAt is the site m, a call tree of the body's IR that a law's left

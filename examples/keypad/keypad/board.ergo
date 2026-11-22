@@ -1,4 +1,5 @@
 import machines
+import slices
 import strings
 
 // Key is a key of the on-screen keyboard: a character key with its cap,
@@ -90,7 +91,7 @@ func Open(specs []Spec) Pad fails NoFields | Duplicate | BadSpec {
 }
 
 func checkSpec(b Board, s Spec) fails Duplicate | BadSpec {
-	if indexOf(b, s.ID) >= 0 {
+	if slices.IndexFunc(b.Fields, func(f Field) bool { f.Spec.ID == s.ID }) >= 0 {
 		return Duplicate{ID: s.ID}
 	}
 	if s.Min < 0 || s.Max < 0 || (s.Max > 0 && s.Min > s.Max) {
@@ -98,19 +99,9 @@ func checkSpec(b Board, s Spec) fails Duplicate | BadSpec {
 	}
 }
 
-// indexOf is the position of the field id in b, or -1.
-func indexOf(b Board, id string) int {
-	for i, f in b.Fields {
-		if f.Spec.ID == id {
-			return i
-		}
-	}
-	-1
-}
-
 // Focused is the focused field of b.
 func Focused(b Board) Field {
-	let at = indexOf(b, b.Focus)
+	let at = slices.IndexFunc(b.Fields, func(f Field) bool { f.Spec.ID == b.Focus })
 	if at < 0 {
 		return Field{Spec: Spec{ID: b.Focus, Layout: AnyText, Min: 0, Max: 0}, Chars: []string{}}
 	}
@@ -126,17 +117,6 @@ func replaced(fields []Field, f Field) []Field {
 			out = out.Append(f)
 		} else {
 			out = out.Append(g)
-		}
-	}
-	out
-}
-
-// without is xs without the element at i, in a new slice.
-func without[T](xs []T, i int) []T {
-	let mut out = []T{}
-	for j, x in xs {
-		if j != i {
-			out = out.Append(x)
 		}
 	}
 	out
@@ -190,7 +170,7 @@ func Step(p Pad, s Signal) Decision[Pad, Output] fails NoSuchField | LastField |
 	case Pressed as k:
 		try press(b, k.Key, k.At)
 	case Focus as f:
-		if indexOf(b, f.ID) < 0 {
+		if slices.IndexFunc(b.Fields, func(g Field) bool { g.Spec.ID == f.ID }) < 0 {
 			return NoSuchField{ID: f.ID}
 		}
 		if f.ID == b.Focus {
@@ -201,14 +181,14 @@ func Step(p Pad, s Signal) Decision[Pad, Output] fails NoSuchField | LastField |
 		try checkSpec(b, a.Spec)
 		Stay[Pad]{Next: Board{..b, Fields: appended(b.Fields, Field{Spec: a.Spec, Chars: []string{}})}}
 	case Remove as r:
-		let at = indexOf(b, r.ID)
+		let at = slices.IndexFunc(b.Fields, func(f Field) bool { f.Spec.ID == r.ID })
 		if at < 0 {
 			return NoSuchField{ID: r.ID}
 		}
 		if len(b.Fields) == 1 {
 			return LastField{ID: r.ID}
 		}
-		let rest = without(b.Fields, at)
+		let rest = slices.Delete(b.Fields, at, at+1)
 		if r.ID != b.Focus {
 			return Stay[Pad]{Next: Board{..b, Fields: rest}}
 		}
@@ -238,7 +218,7 @@ func press(b Board, k Key, at duration) Decision[Pad, Output] fails TooShort {
 		if len(f.Chars) == 0 {
 			return Ignore
 		}
-		let erased = Field{..f, Chars: without(f.Chars, len(f.Chars)-1)}
+		let erased = Field{..f, Chars: slices.Delete(f.Chars, len(f.Chars)-1, len(f.Chars))}
 		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, erased)}, Output: Published{ID: f.Spec.ID, Text: Text(erased)}}
 	case Shift:
 		Stay[Pad]{Next: Board{..b, Mode: machines.Next(b.Mode, ShiftStep(b.Mode, ShiftTap{At: at}))}}

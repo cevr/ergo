@@ -57,7 +57,7 @@ The first 9 mutants were measured by `MB2/downloads/mutants.ts`, and the live on
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/downloads/cmd/downloads < examples/downloads/cases/files/stdin
 ./bin/ergo test examples/downloads/fetch
 ./bin/ergo test examples/downloads/memory
@@ -70,21 +70,6 @@ go run ./scripts/examples downloads
 - `cancel`: a file cancelled at its first wait, then fetched again. The server still counts the earlier timeout, so this time it times out once only.
 - `drain`: two files, then a drain: both still finish, and the `get` after the drain is refused.
 - `badscript`: a line that is not `get` or `drain` (status 1).
-
-## effect-machine side by side (README's first machine, widened; em-parity plan §2)
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| the fetch | `.task(State.Fetching, …)` with `onSuccess`/`onFailure` | `work: fetching`, with failures that are signals | compiler + runner |
-| retry wait | a `.timeout` per state, or `Schedule.exponential` in the task (inferred) | `after: Timer`, whose `In` is `Backoff(Try)` | runner + laws |
-| the end | `awaitExit` / final state | `Done[End]` and `ExitOf` | runner (MU12) |
-| progress | `subscribe` with a selector | `actor.Select(Changes, ViewOf)`, a loop | runner (MU12) |
-| a child per file | spawn a child actor in the parent's handler; the parent keeps its reference (inferred) | `actor.ChildIn` in the `Running` entry's work, in the entry's `Host`; the entry's end stops the child | runner (MU5, rule 13) + checker (the work's row) |
-| shutdown | interrupt the actor, or a "stopping" state by hand (inferred) | the order `Drain`: the queue finishes, `Done[Report]` has every end, a later add is `Closed` | laws |
-
-Where Ergo could not improve:
-
-- **The manual clock (MB2-G2).** `Play` moves the clock by the wait it reads from the view. The manager runs one file at a time, so there is only one retry timer at a time, and the script's view of the time stays the clock's.
 
 ## Benchmark
 

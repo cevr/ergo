@@ -25,6 +25,9 @@ type typeCtx struct {
 	// bound is the checked type each type parameter of a copy stands for
 	// (record.go), where it names no type parameter itself.
 	bound map[*check.TypeParam]check.Type
+	// readVia is the reader a codec body reads from: 0 the prelude's
+	// Reader interface, i+1 direct reader i (wirereader.go).
+	readVia int
 }
 
 // boundType is t with a type parameter that bound names replaced by its
@@ -95,6 +98,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 		if t.Orig != nil {
 			origin = t.Orig
 		}
+		tc.l.intMapFields(t) // intmap.go: a generic record's fields are Go's maps
 		var args []string
 		for i, a := range t.TArgs {
 			if i < len(origin.TParams) && origin.TParams[i].Kind == check.KindType {
@@ -110,6 +114,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 	case *check.Array:
 		return "[" + arrayLen(t) + "]" + tc.goType(t.Elem)
 	case *check.Map:
+		if tc.l.intMap(t) { // intmap.go (MI-2)
+			return "*" + tc.l.rtRef("IntMap") + "[" + tc.goType(t.Key) + ", " + tc.goType(t.Elem) + "]"
+		}
 		return "map[" + tc.goType(t.Key) + "]" + tc.goType(t.Elem)
 	case *check.Pointer:
 		return "*" + tc.goType(t.Elem)
@@ -286,6 +293,9 @@ func (tc *typeCtx) defaultValue(t check.Type) string {
 	}
 	switch u := t.(type) {
 	case *check.Map:
+		if tc.l.intMap(u) { // intmap.go: an empty table
+			return tc.l.rtRef("NewIntMap") + "[" + tc.goType(u.Key) + ", " + tc.goType(u.Elem) + "](0)"
+		}
 		return tc.goType(t) + "{}"
 	case *check.Tuple:
 		return tc.goType(t) + "{" + strings.Join(tc.tupleDefaults(u), ", ") + "}"

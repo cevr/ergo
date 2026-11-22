@@ -1,0 +1,28 @@
+// The smallest repro of a Seq loop's Go text (PORT-FORIN on M7): the
+// IR's range over the adapter literal binds one variable, and the printer
+// wrote `for v, _ := range`, which Go refuses over a func.
+
+func upTo(n int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for i in 0..n {
+			if !yield(i) {
+				return
+			}
+		}
+	})
+}
+
+func total(n int) int {
+	let mut t = 0
+	for v in upTo(n) {
+		if v > 5 {
+			break
+		}
+		t = t + v
+	}
+	t
+}
+
+func main() needs Console {
+	Console.Println("total \(total(9))")
+}

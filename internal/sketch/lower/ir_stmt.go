@@ -129,6 +129,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 			}
 			out = append(out, ss...)
 		})
+		b.fc.killWritten(s) // bounds.go: the statement's writes end the facts over them (ir_bounds.go)
 	}
 	if (ret || to != nil) && len(list) == 0 {
 		irNo("empty body with a result")
@@ -218,7 +219,11 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 // says its branches yield, into to or as the result.
 func (b *irBuilder) ifWith(s *syntax.IfStmt, cond *irExpr, ret bool, to *yieldTo) *irStmt {
 	st := &irStmt{K: "if", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
+	mark := b.fc.factMark()
+	// bounds.go: the facts the condition gives its body (ir_bounds.go).
+	b.fc.assume(s.Cond)
 	st.Then = b.scoped(s.Body, b.tailTo(s.Body.List, ret && to == nil, to), b.pos(s.Body, s.Body.Rbrace)) // ir_own.go
+	b.fc.factReset(mark)
 	switch e := s.Else.(type) {
 	case nil:
 	case *syntax.BlockStmt:
@@ -343,6 +348,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if !ok {
 				irNo("let without a variable")
 			}
+			b.recordLet(v, spec.Values[0]) // ir_unfold.go
 			if sl, ok := b.strLet(v, spec.Values[0], b.pos(s.Decl, s.Decl.Pos())); ok {
 				out = append(out, sl...) // strbuf.go
 				continue
@@ -361,6 +367,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
+			if i >= 0 {
+				b.fc.assumeLet(v, spec.Values[0]) // bounds.go (ir_bounds.go)
+			}
 			b.part(func() {
 				out = append(append(out, b.ownLet(v, i, id, spec.Values[0])...), b.releaseAt(spec, b.pos(id, id.Pos()))...)
 			}) // ir_own.go: the let's temporaries (R43)
@@ -374,7 +383,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if s.Tok != syntax.ASSIGN {
 			text := s.Tok.String()
 			op = text[:len(text)-1]
-			if !irOps[op] {
+			if !irOps()[op] {
 				irNo("assignment form %s", text)
 			}
 		}
@@ -420,13 +429,17 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			// The emitter reads the target before a value that writes
 			// statements (assign's old): x = old op v.
 			t := b.l.info.Types[s.Lhs[0]]
-			if op == "*" && isFloatType(t) {
-				irNo("op-assignment of a value with statements") // a float product rounds: T(old * v)
-			}
 			p := b.pos(s, s.Pos())
 			old := b.temp("old", b.goType(t, s), p)
 			out := append([]*irStmt{{K: "def", Pos: p, Local: old, X: &irExpr{K: "local", Pos: p, I: i}}}, pre...)
-			return append(out, &irStmt{K: "set", Pos: p, Local: i, X: &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: old}, Y: x}})
+			// A float product rounds: T(old * v) (ir_float.go).
+			return append(out, &irStmt{K: "set", Pos: p, Local: i, X: b.rounded(s, nil, t, &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: old}, Y: x})})
+		}
+		if t := b.l.info.Types[s.Lhs[0]]; op == "*" && roundsFloat(t) {
+			// x *= v of floats is x = T(x * v): the product rounds, as
+			// the emitter's assign writes it (ir_float.go).
+			p := b.pos(s, s.Pos())
+			return append(pre, &irStmt{K: "set", Pos: p, Local: i, X: b.rounded(s, nil, t, &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: i}, Y: x})})
 		}
 		return append(pre, &irStmt{K: "set", Pos: b.pos(s, s.Pos()), Local: i, X: x, Op: op})
 	case *syntax.ReturnStmt:
@@ -448,7 +461,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return b.matchStmt(s, false, nil) // ir_match.go
 	case *syntax.ForStmt:
-		return b.memoLoop(s, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
+		// bounds.go: at the loop's head (ir_bounds.go).
+		b.fc.killWritten(s.Body)
+		return b.memoLoop(b.next, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
@@ -471,14 +486,25 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
+		b.fc.killWritten(s.Body) // bounds.go: at the loop's head (ir_bounds.go)
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
-			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
+			return b.memoLoop(b.next, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
-		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
+		seq := b.seqLoop(s)                           // ir_seq.go
+		if lp == nil || !goRange(lp.Domain) && !seq { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
+		if _, ok := b.intMapOf(b.l.info.Types[s.X]); ok && lp.Domain == check.LoopMap {
+			irNo("for-in over an int map") // ir_intmap.go: its emitter body ranges over Go's map
+		}
 		pre, x := b.foldRangeValue(s) // ir_collectfold.go: rangeValue (ir_order.go), run once before the loop, unless fused
+		if seq {
+			var bind []*irStmt
+			bind, x = b.seqRange(s, lp, x) // ir_seq.go
+			pre = append(pre, bind...)
+		}
+		first := b.next // before the key and value: ir_memo.go
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
@@ -502,9 +528,16 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		loop := b.memoLoop(s, func() []*irStmt { // ir_memo.go
-			b.loopBody(st, s, s.Body)
-			return []*irStmt{st}
+		if seq {
+			// A range over a func has one variable, the element: the
+			// range's first (ir_seq.go).
+			st.Key, st.Val = st.Val, nil
+		}
+		loop := b.memoLoop(first, func() []*irStmt { // ir_memo.go
+			// The nest's counter goes before the loop, after the
+			// pre-header's memoized calls (ir_poll.go).
+			ctr := b.loopBody(st, s, s.Body)
+			return append(ctr, st)
 		})
 		st.Pos = past(st.Pos, pre) // ir_match.go
 		return append(pre, loop...)
@@ -515,12 +548,26 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 
 // loopBody gives st, loop s, its body, where break and continue stand,
 // then its back-edge poll in a polling frame (loopPoll, ir_fail.go), and
-// the label a break inside a switch names.
-func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) {
+// the label a break inside a switch names. A quiet loop polls amortized
+// (ir_poll.go); the outermost loop of a quiet nest returns its counter's
+// definition, which the caller puts before the loop.
+func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+	quiet := pollAmortLowering == "amortized" && b.loopPolls() && b.quietLoop(body) // ir_poll.go
+	var own *pollAmort
+	outer := b.amort
+	if quiet && b.amort == nil {
+		own = &pollAmort{ctr: -1, pos: st.Pos}
+		b.amort = own
+	}
 	b.loops++
+	b.pollSites = append(b.pollSites, nil)
 	switches, label := b.switches, b.label
 	b.switches, b.label = 0, ""
-	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
+	defer func() {
+		b.loops, b.switches, b.label = b.loops-1, switches, label
+		b.pollSites = b.pollSites[:len(b.pollSites)-1]
+		b.amort = outer
+	}()
 	st.Body = b.scoped(body, b.tail(body.List, false), b.pos(body, body.Rbrace)) // ir_own.go: the iteration's scope (R6)
 	poll := b.loopPoll(s, body)
 	// The back-edge poll follows a body that reaches its end: after a
@@ -530,6 +577,13 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 		st.Body = append(st.Body, poll...)
 	}
 	st.Label = b.label
+	if quiet {
+		b.amortize(b.pollSites[len(b.pollSites)-1])
+	}
+	if own != nil && own.ctr >= 0 {
+		return []*irStmt{{K: "def", Pos: st.Pos, Local: own.ctr, X: pollEveryConst(st.Pos)}}
+	}
+	return nil
 }
 
 // bodyEnd is what follows the IR body of a function with a result whose

@@ -1,7 +1,5 @@
 package rt
 
-import "sync/atomic"
-
 // Handle is a started task: the runtime side of `Task[T, E]`. It is a
 // resource (runtime.md Tasks, rule 3): Wait and Stop consume it, and an owner
 // scope stops and drains it at scope end if neither ran. Its methods belong to
@@ -12,11 +10,12 @@ type Handle[T any] struct {
 	// done is closed when the task ends, for a wait that selects on the
 	// end with other channels (After's race); nil for every other handle,
 	// whose waiter parks on its own task's word (park.go).
-	done     chan struct{}
-	value    T
-	err      error // canonical exit; written before ended is set
-	consumed bool
-	ended    atomic.Bool // the task has ended: value and err are final
+	done  chan struct{}
+	value T
+	err   error // canonical exit; written before the task's ended flag is set
+	// The handle's consumed flag and the task's ended flag (its value and
+	// err are final) live in task's first word (Task.consumed,
+	// stopFlags.ended), so a Handle[struct{}] stays in the 176 B class.
 }
 
 // Go starts body as a child of s's task, on its own goroutine, owned by s.
@@ -114,7 +113,7 @@ func (h *Handle[T]) finish() {
 	waiter := h.task.parent.Load()
 	h.task.detach()
 	m := waiter.waking(h)
-	h.ended.Store(true)
+	h.task.stopped.setEnded()
 	if h.done != nil {
 		close(h.done)
 	}
@@ -127,14 +126,14 @@ func (h *Handle[T]) finish() {
 }
 
 // finished reports whether the task has finished.
-func (h *Handle[T]) finished() bool { return h.ended.Load() }
+func (h *Handle[T]) finished() bool { return h.task.stopped.ended() }
 
 // join waits, uninterruptibly, until the task has finished, parked on h
 // when w, the waiter, is in an auto clock's domain.
 func (h *Handle[T]) join(w *Task) {
 	m := h.park(w, false)
 	Block(w)
-	for !h.ended.Load() {
+	for !h.task.stopped.ended() {
 		w.wake.park()
 	}
 	Unblock(w)
@@ -162,7 +161,7 @@ func (h *Handle[T]) Task() *Task { return &h.task }
 // consumes the handle.
 func (h *Handle[T]) Wait() (T, error) {
 	owner := h.owner
-	h.consumed, h.owner = true, nil
+	h.task.consumed, h.owner = true, nil
 	Point(owner, Op{OpJoin, &h.task})
 	if !owner.Stopped() {
 		// The owner parks on its own word until the task ends or a stop it
@@ -171,7 +170,7 @@ func (h *Handle[T]) Wait() (T, error) {
 		owner.Waits()
 		m := h.park(owner, !owner.Masked())
 		Block(owner)
-		for !h.ended.Load() && !owner.Stopped() {
+		for !h.task.stopped.ended() && !owner.Stopped() {
 			owner.wake.park()
 		}
 		Unblock(owner)
@@ -205,11 +204,11 @@ func (h *Handle[T]) Wait() (T, error) {
 // result of the stop (laws R3, R6). Stop consumes the handle; on a consumed
 // handle it returns nil.
 func (h *Handle[T]) Stop() error {
-	if h.consumed {
+	if h.task.consumed {
 		return nil
 	}
 	owner := h.owner
-	h.consumed, h.owner = true, nil
+	h.task.consumed, h.owner = true, nil
 	Point(owner, Op{OpStop, &h.task})
 	h.task.Interrupt()
 	h.join(owner)

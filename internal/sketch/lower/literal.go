@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketch/testplan"
 )
@@ -163,6 +162,7 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 		body.WriteString("\tfor _, " + e + " := range " + v + " {\n\t\t" + parts + " = append(" + parts + ", " + l.litExpr(u.Elem, e, site) + ")\n\t}\n")
 		body.WriteString("\treturn " + q(l.ergoType(t)+"{") + " + " + l.helper("strings") + ".Join(" + parts + ", \", \") + \"}\"\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: ranges over Go's map
 		less := "nil"
 		if b, basic := u.Key.(*check.Basic); basic && b.Kind != check.Bool && b.Kind != check.Complex64 && b.Kind != check.Complex128 {
 			kt := tc.goType(u.Key)
@@ -285,10 +285,7 @@ func (l *lowerer) ergoType(t check.Type) string {
 		}
 		return strings.Join(parts, " | ")
 	case *check.Named:
-		name := u.Obj.Name
-		if p := u.Obj.Pkg; p != nil && p != l.pkg && p.Path != stdlib.PreludePath {
-			name = l.importName(p) + "." + name
-		}
+		name := l.pkg.Qualified(u.Obj.Pkg, u.Obj.Name)
 		if len(u.TArgs) > 0 {
 			args := u.TArgs
 			for len(args) > 0 {
@@ -310,32 +307,4 @@ func (l *lowerer) ergoType(t check.Type) string {
 		return name
 	}
 	return t.String()
-}
-
-// importName is the name the root package imports p under: the import's
-// own name, in the first of the root's files that gives one, else the
-// package's name. It reads the root's files, not the current one, so the
-// name does not depend on which declaration is being lowered (196b).
-func (l *lowerer) importName(p *check.Package) string {
-	for _, f := range l.srcs {
-		if f.pkg != l.pkg {
-			continue
-		}
-		for _, d := range f.file.Decls {
-			g, ok := d.(*syntax.ImportDecl)
-			if !ok {
-				continue
-			}
-			for _, s := range g.Specs {
-				if s.Path == nil || s.Name == nil {
-					continue
-				}
-				if path, err := strconv.Unquote(s.Path.Value); err != nil || path != p.Path {
-					continue
-				}
-				return s.Name.Name
-			}
-		}
-	}
-	return p.Name
 }

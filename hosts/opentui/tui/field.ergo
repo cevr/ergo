@@ -1,0 +1,128 @@
+// A focused Input's keys (routing rule 3): they edit the field's text at
+// its caret in OpenTUI's edit buffer, and each change of the text is a
+// ui.Type with the whole text. The program has the last word: a value it
+// shows that differs from what was typed replaces the buffer's text.
+
+import actor
+import go ergo.local/prototype/hosts/opentui/screen
+import ui
+
+// EditOf is the edit a key makes in a focused field (screen.Edit*), None
+// for a key the field does not take (Enter, Escape, ArrowUp, ArrowDown, a
+// function key: they go on to the view's OnKey). A character typed with
+// no Ctrl, Alt or Meta inserts itself.
+func EditOf(name string, mods ui.Mods) Option[int] {
+	let chord = mods.Ctrl || mods.Alt || mods.Meta
+	if !chord {
+		if printable(name) {
+			return Some{Value: screen.EditInsert}
+		}
+		return match name {
+		case "Backspace":
+			Some{Value: screen.EditBackspace}
+		case "Delete":
+			Some{Value: screen.EditDelete}
+		case "ArrowLeft":
+			Some{Value: screen.EditLeft}
+		case "ArrowRight":
+			Some{Value: screen.EditRight}
+		case "Home":
+			Some{Value: screen.EditHome}
+		case "End":
+			Some{Value: screen.EditEnd}
+		case _:
+			None
+		}
+	}
+	if mods.Ctrl && !mods.Alt && !mods.Meta {
+		return match name {
+		case "a":
+			Some{Value: screen.EditHome}
+		case "e":
+			Some{Value: screen.EditEnd}
+		case "w":
+			Some{Value: screen.EditWordBack}
+		case "k":
+			Some{Value: screen.EditKillEnd}
+		case "u":
+			Some{Value: screen.EditKillStart}
+		case _:
+			None
+		}
+	}
+	if mods.Alt && !mods.Ctrl && !mods.Meta {
+		return match name {
+		case "ArrowLeft":
+			Some{Value: screen.EditWordLeft}
+		case "ArrowRight":
+			Some{Value: screen.EditWordRight}
+		case _:
+			None
+		}
+	}
+	None
+}
+
+// EditOfIsTheTable: the keys rule 3 names edit the field and the keys it
+// passes on do not: Enter, Escape, ArrowUp and ArrowDown, with any
+// modifiers, and a character under Ctrl that is no editing chord.
+law EditOfIsTheTable(shift bool, ctrl bool, alt bool, meta bool) {
+	let plain = ui.Mods{Shift: shift, Ctrl: false, Alt: false, Meta: false}
+	let every = ui.Mods{Shift: shift, Ctrl: ctrl, Alt: alt, Meta: meta}
+	let control = ui.Mods{Shift: shift, Ctrl: true, Alt: false, Meta: false}
+	let option = ui.Mods{Shift: shift, Ctrl: false, Alt: true, Meta: false}
+		EditOf("x", plain) == (Some{Value: screen.EditInsert}) &&
+		EditOf("日", plain) == (Some{Value: screen.EditInsert}) &&
+		EditOf("Backspace", plain) == (Some{Value: screen.EditBackspace}) &&
+		EditOf("Delete", plain) == (Some{Value: screen.EditDelete}) &&
+		EditOf("ArrowLeft", plain) == (Some{Value: screen.EditLeft}) &&
+		EditOf("ArrowRight", plain) == (Some{Value: screen.EditRight}) &&
+		EditOf("Home", plain) == (Some{Value: screen.EditHome}) &&
+		EditOf("End", plain) == (Some{Value: screen.EditEnd}) &&
+		EditOf("a", control) == (Some{Value: screen.EditHome}) &&
+		EditOf("e", control) == (Some{Value: screen.EditEnd}) &&
+		EditOf("w", control) == (Some{Value: screen.EditWordBack}) &&
+		EditOf("k", control) == (Some{Value: screen.EditKillEnd}) &&
+		EditOf("u", control) == (Some{Value: screen.EditKillStart}) &&
+		EditOf("ArrowLeft", option) == (Some{Value: screen.EditWordLeft}) &&
+		EditOf("ArrowRight", option) == (Some{Value: screen.EditWordRight}) &&
+		EditOf("x", control) == None &&
+		EditOf("Enter", every) == None &&
+		EditOf("Escape", every) == None &&
+		EditOf("ArrowUp", every) == None &&
+		EditOf("ArrowDown", every) == None &&
+		EditOf("F5", every) == None
+}
+
+// edited makes one edit in the field id, which shows value: a changed
+// text is a ui.Type; then the buffer takes the value the program shows,
+// if that differs from what was typed, and the screen shows the caret.
+func edited[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], value string, op int, col int, text string) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	let n = numOf(d, id)
+	let now = try edit(d.s, n, op, col, text)
+	if now != value {
+		try step(d, ui.Type[E]{Id: id, Text: now})
+	}
+	match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		match h.Value.node {
+		case ui.InputNode as x:
+			if x.Value != now {
+				d.s.SetText(n, x.Value)
+			}
+		case _:
+		}
+	case None:
+	}
+	try present(d.s)
+}
+
+// fieldValue is the text of the Input id shows, None when id is no Input.
+func fieldValue[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[string] {
+	match nodeOf(d, id) {
+	case ui.InputNode as x:
+		Some{Value: x.Value}
+	case _:
+		None
+	}
+}

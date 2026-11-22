@@ -1,0 +1,27 @@
+// The store laws run here against Engine (NewEngine), by ergo test. This
+// file holds what a law cannot say: two tasks at once.
+
+import respd/store
+import task
+
+// bump is n Incrs of key by 1, at one time.
+func bump(key string, n int) fails store.NotInteger | store.Overflow needs store.Engine {
+	for _ in 0..n {
+		let _ = try store.Engine.Incr(key, 1, store.At(0))
+	}
+}
+
+// IncrIsAtomic: two tasks that each Incr one key twice leave it at 4. An
+// Incr that reads its shard and writes it in two steps loses a count when
+// the other task writes between them. The program's explored file has the
+// explore leg search this test's schedules (testdata/mutants.json:
+// memory-incr-reads-then-writes).
+test IncrIsAtomic {
+	with context { store.Engine: NewEngine() } {
+		let a = task.Go() { try bump("n", 2) }
+		let b = task.Go() { try bump("n", 2) }
+		try a.Wait()
+		try b.Wait()
+		assert store.Lookup("n", store.At(0)) == Some[string]{Value: "4"}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/stdlib"
@@ -261,8 +262,13 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	for _, h := range res.Helpers {
 		r.Moves = append(r.Moves, fmt.Sprintf("moved %s (%s)", h, dir))
 	}
+	// A renamed file's old name is removed too (Result.Deleted), but its
+	// declarations live on under the new one: the report says renamed.
+	renamed := map[string]bool{}
 	for _, rn := range res.Renamed {
 		r.Moves = append(r.Moves, fmt.Sprintf("renamed %s (%s)", rn, dir))
+		from, _, _ := strings.Cut(rn, " -> ")
+		renamed[from] = true
 	}
 	for _, u := range res.Unplaced {
 		r.Unplaced = append(r.Unplaced, fmt.Sprintf("law %s in %s names nothing in its package; state it in the package it is about", u, dir))
@@ -274,7 +280,9 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	}
 	for _, name := range res.Deleted {
 		path := filepath.Join(dir, name)
-		r.Deleted = append(r.Deleted, path)
+		if !renamed[name] {
+			r.Deleted = append(r.Deleted, path)
+		}
 		if write {
 			if err := os.Remove(path); err != nil {
 				return err
@@ -284,7 +292,7 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 	return nil
 }
 
-var selector = regexp.MustCompile(`\.([A-Z][A-Za-z0-9_]*)`)
+var selector = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.([A-Z][A-Za-z0-9_]*)`) })
 
 // selectorNames maps each exported name that follows a dot in a .ergo or
 // .go file under roots to the folders of those files: a name another
@@ -319,7 +327,7 @@ func selectorNames(roots []string) (map[string]map[string]bool, error) {
 			if filepath.Ext(path) == ".go" {
 				dir += "#go" // a Go file is never the package's own source
 			}
-			for _, m := range selector.FindAllSubmatch(data, -1) {
+			for _, m := range selector().FindAllSubmatch(data, -1) {
 				n := string(m[1])
 				if out[n] == nil {
 					out[n] = map[string]bool{}

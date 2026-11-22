@@ -64,7 +64,8 @@ import (
 //     with no failure row whose result shares no storage but p's (a pure
 //     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
 //     rooted at a let mut or a borrow, passes p with no copy and takes
-//     the result with none;
+//     the result with none; so does p = T{..p, …} with its base, and a
+//     literal's base is apart from a field it sets (update.go);
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -216,6 +217,8 @@ type valueFacts struct {
 	lastRead map[*syntax.Ident]bool
 	// Slice literals that seed a let mut the body grows in place (seedcap.go).
 	seeds map[*syntax.CompositeLit]bool
+	// The fields of a parameter its function's body uses (fieldflow.go).
+	touches map[touchKey]touched
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -258,6 +261,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			copied:   map[*check.Var]bool{},
 			lastRead: map[*syntax.Ident]bool{},
 			seeds:    map[*syntax.CompositeLit]bool{},
+			touches:  map[touchKey]touched{},
 		}
 	}
 	return l.vals
@@ -974,6 +978,8 @@ func (w *valueWalk) decide() {
 				}
 			}
 		}
+		// The parts of an owned parameter that a let keeps (V5).
+		w.ownedKept()
 	}
 	// A generic result through a borrow (alias.go, borrowResult), or a
 	// part of a borrow returned shared (borrowret.go), when kept.
@@ -1662,7 +1668,12 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 // ownedParams are the owned parameters of f (V5), in order: a parameter
 // whose value holds a slice or Map and that f's body takes into a let mut
 // local once, at a bind in the body's own frame and outside any loop, and
-// otherwise only reads, before the bind, in uses that keep nothing. After
+// otherwise only reads, in the body's own frame, in uses that keep
+// nothing or as the value of a let or let mut (`let s = m.S`), before the
+// bind or after it in a statement that ends before the first use of the
+// local (beforeWrites), so the parameter and the local hold one value at
+// each use. A let that keeps a part is decided as a kept read of the
+// local (ownedKept): copied when a write through it can follow. After
 // the bind no failure can leave f: no call that can fail at its site, and
 // no returned value of an error type, so a caller never sees a value f
 // wrote and then failed on. f lowers as a Go function, not a method.
@@ -1717,6 +1728,9 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 						out = append(out, ownedParam{index: i, bind: use, consumed: true, v: v})
 					} else if w.fieldOwned(f, w.vars[v]) {
 						// Taken over through its fields (handover.go).
+						out = append(out, ownedParam{index: i, consumed: true, v: v})
+					} else if w.cutOwned(f, w.vars[v]) {
+						// Taken over as a cut of itself (cut.go).
 						out = append(out, ownedParam{index: i, consumed: true, v: v})
 					}
 				}
@@ -1891,6 +1905,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 	}
 	var bind *vocc
 	var value syntax.Expr
+	var into *vvar
 	for _, o := range w.owns {
 		id, ok := unparen(o.value).(*syntax.Ident)
 		if !ok || w.info.Uses[id] != check.Object(vv.v) {
@@ -1904,7 +1919,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 				bind = oc
 			}
 		}
-		value = o.value
+		value, into = o.value, o.root
 	}
 	if bind == nil || bind.frame != w.root || len(bind.loops) > 0 {
 		return nil
@@ -1916,11 +1931,14 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		if w.returnsBefore(o, bind) {
 			continue
 		}
-		if o.frame != w.root && !w.joinedBefore(o.frame) || o.pre > bind.pre && valueMutant != "own-live" {
+		if o.frame != w.root && !w.joinedBefore(o.frame) {
+			return nil
+		}
+		if o.pre > bind.pre && valueMutant != "own-live" && (o.frame != w.root || !w.beforeWrites(o, bind, into)) {
 			return nil
 		}
 		w.classify(vv, o)
-		if o.kind != occRead {
+		if o.kind != occRead && !w.letValue(o) {
 			return nil
 		}
 	}
@@ -1977,7 +1995,7 @@ func (w *valueWalk) openingCall(n syntax.Node) *syntax.CallExpr {
 }
 
 // joinsChildren reports a call of an extern whose runtime body (its body
-// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds):
+// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds()):
 // the caller is the parent of the tasks the body starts, and the body
 // joins them before it returns, running its function operands only on
 // itself and on them. So an escaping literal it is given runs no more once
@@ -1993,6 +2011,90 @@ func (w *valueWalk) joinsChildren(call *syntax.CallExpr) bool {
 	}
 	body, err := runtimeBody(name)
 	return err == nil && body.Wait == "child"
+}
+
+// letValue reports the use o as the whole value of a one-name let or let
+// mut: a part of the parameter that a local keeps.
+func (w *valueWalk) letValue(o *vocc) bool {
+	parent, child := w.unparenParent(o.path)
+	spec, ok := parent.(*syntax.VarSpec)
+	return ok && spec.Pattern == nil && len(spec.Names) == 1 && len(spec.Values) == 1 && syntax.Node(spec.Values[0]) == child
+}
+
+// beforeWrites reports the use o, after the bind of an owned parameter to
+// the let mut into, as one whose statement ends before the first use of
+// into: up to there the parameter and the local hold one value, which no
+// write has changed. o is outside any loop, in a statement of the body's
+// own block. The declared name of into precedes bind, and so does no
+// use.
+func (w *valueWalk) beforeWrites(o, bind *vocc, into *vvar) bool {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Body == nil || len(o.loops) > 0 {
+		return false
+	}
+	stmt := syntax.Node(o.id)
+	for w.parentOf(stmt) != syntax.Node(d.Body) {
+		if stmt = w.parentOf(stmt); stmt == nil {
+			return false
+		}
+	}
+	for _, u := range into.occs {
+		if u.pre > bind.pre && u.pre < w.postOf(stmt) {
+			return false
+		}
+	}
+	return true
+}
+
+// ownedKept decides the copies of the parts of the body's owned
+// parameters that a let keeps (ownedBind): the parameter and the local
+// its bind takes it into hold one value, so such a let reads the local's
+// value and is copied as a kept read of the local is (V2), when a write
+// through the local can follow it.
+func (w *valueWalk) ownedKept() {
+	for _, b := range w.ownedBinds() {
+		for _, o := range b.param.occs {
+			if o.path == b.bind || o.kind != occEscape || !w.letValue(o) || w.vf.moved[o.path] {
+				continue
+			}
+			if w.needsCopy(b.into, o) {
+				w.vf.clone[o.path] = true
+			}
+		}
+	}
+}
+
+// ownedBound is an owned parameter of the body (param) that its bind
+// (bind, the let mut's value) takes into the let mut into.
+type ownedBound struct {
+	param, into *vvar
+	bind        syntax.Expr
+}
+
+// ownedBinds are the body's owned parameters that a let mut takes whole
+// (ownedBind).
+func (w *valueWalk) ownedBinds() []ownedBound {
+	d, ok := w.root.node.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return nil
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok {
+		return nil
+	}
+	var out []ownedBound
+	for _, p := range w.l.ownedParams(f) {
+		vv := w.vars[p.v]
+		if p.consumed || p.bind == nil || vv == nil {
+			continue
+		}
+		for _, o := range w.owns {
+			if o.value == p.bind {
+				out = append(out, ownedBound{vv, o.root, p.bind})
+			}
+		}
+	}
+	return out
 }
 
 // failsAfter reports whether f's body can fail after the point at: a call
@@ -2346,6 +2448,17 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 				o.call, o.deps, o.result = p, true, true
 				w.readAtOnce(o, p)
 			}
+		case writtenOperand(p, c) == child:
+			// The slice a Go call writes in place (GBX2) is no escape: Go
+			// keeps no reference to it (v1.GoWrites). Whether Go gets it
+			// or a copy is the boundary rule's (goArgs: freshen), which
+			// reads its liveness after the call (S2-COPY).
+			o.kind, o.call = occRead, p
+		case c.Kind == check.CallFunc && c.Func != nil && goReadsAt(p, c, child):
+			// An operand Go only reads (a reads fact, LF1) is no escape
+			// either: Go neither writes nor keeps it (S2-COPY: Write(b[:n])
+			// leaves b fresh for `buf = b`).
+			o.kind, o.call = occRead, p
 		case w.unkept(p, c, child) && !w.l.isPure(c.Func):
 			// The callee keeps nothing of it (keeps.go), unless it sees a
 			// write to the root during the call (decide, callWrites).
@@ -2374,6 +2487,31 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			w.readAtOnce(o, p)
 		}
 	}
+}
+
+// writtenOperand is the operand of the Go call x that Go writes in place
+// (check.GoWrites; a method's receiver is operand 0), or nil.
+func writtenOperand(x *syntax.CallExpr, c *check.Call) syntax.Node {
+	if c.Kind != check.CallFunc || c.Func == nil || c.Func.Decl == nil || (c.Recv == nil) != (c.Func.Decl.Recv == nil) {
+		return nil
+	}
+	i, ok := check.GoWrites(c.Func)
+	ops := callOperands(x, c)
+	if !ok || i >= len(ops) {
+		return nil
+	}
+	return ops[i]
+}
+
+// goReadsAt reports a reads fact, checked or validated, of the operand
+// child of the Go call x.
+func goReadsAt(x *syntax.CallExpr, c *check.Call, child syntax.Node) bool {
+	j := operandIndex(x, c, child)
+	if j < 0 || check.GoFacts(c.Func) == nil {
+		return false
+	}
+	ok, _ := goReads(x, c.Func, j)
+	return ok
 }
 
 // recvOrFirst is the first operand of the call x: a dot call's receiver,
@@ -2704,20 +2842,42 @@ func (w *valueWalk) needsCopy(vv *vvar, o *vocc) bool {
 	if w.snapshotted(vv, o.frame) {
 		return false
 	}
-	for _, wr := range vv.writes {
-		if wr.frame != vv.frame {
-			return true // a write in another frame can run at any time
-		}
+	if o.kind == occReturn && o.frame == vv.frame {
+		// The binding's last use (KEPT-MOVE): no write can run after the
+		// return ends its frame. A write in that frame came before it, and
+		// a frame that writes a let mut of an enclosing frame is never
+		// escaping (the checker refuses the write in one that may outlive
+		// its call, types.md Function values 3), so it ran inside the
+		// frame, which has returned. The value moves: kidsOf's
+		// `change(f, r, func(n) { kids = n.kids }); kids` returns kids
+		// with no copy. A return from another frame (a literal's) may
+		// run while a write is still to come, and copies below.
+		return returnLowering == "copy" && w.writtenElsewhere(vv)
+	}
+	if w.writtenElsewhere(vv) {
+		return true // a write in another frame can run at any time
 	}
 	if o.frame != vv.frame {
 		return len(vv.writes) > 0
 	}
-	if o.kind == occReturn {
-		return false
-	}
 	for _, wr := range vv.writes {
 		if w.later(vv, o, wr) {
-			return !w.keptRead(vv, o)
+			return !w.keptRead(vv, o) && !w.apartRead(vv, o)
+		}
+	}
+	return false
+}
+
+// returnLowering "copy" selects the reference of the return rule
+// (KEPT-MOVE, needsCopy): a return of a root that another frame writes
+// copies. Empty in every build; a build may set it with -X.
+var returnLowering string
+
+// writtenElsewhere reports whether a frame nested in vv's writes it.
+func (w *valueWalk) writtenElsewhere(vv *vvar) bool {
+	for _, wr := range vv.writes {
+		if wr.frame != vv.frame {
+			return true
 		}
 	}
 	return false
@@ -2798,6 +2958,10 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			if v, ok := w.info.Uses[id].(*check.Var); ok {
 				return w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)
 			}
+		}
+		if s, ok := x.(*syntax.SliceExpr); ok && pathRoot(s) == nil {
+			// A cut of a fresh value (cut.go).
+			return w.freshCut(s)
 		}
 		return false
 	case *syntax.CompositeLit:
@@ -3106,9 +3270,20 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 	// is not when every later use reads it (p.paths[id] = path, then
 	// len(path)). Its later reads do not end its freshness.
 	stored := vv.mut && w.storedAsEntry(use)
+	// A later rebinding of the whole of vv that every run of the use runs
+	// next (killOf, S2-COPY) ends the value the use reads: a use after it,
+	// or one before the use that a loop runs again after it, reads the new
+	// value. A loop that runs the use again runs the kill first only when
+	// the kill is in it.
+	var kill *vocc
+	var killStmt syntax.Node
 	if !returning {
+		kill, killStmt = w.killOf(vv, use)
 		for _, l := range use.loops {
-			if !containsNode(loops, l) {
+			if containsNode(loops, l) {
+				continue
+			}
+			if kill == nil || !(w.preOf(l) <= w.preOf(killStmt) && w.preOf(killStmt) < w.postOf(l)) && valueMutant != "kill-loop-blind" {
 				return false
 			}
 		}
@@ -3117,8 +3292,16 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		if o == use || path != nil && valueOwned() && w.disjointRead(o.id, path) {
 			continue
 		}
-		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) {
-			// An update's base and a path under a field it names (parts.go).
+		// After the kill a use reads, keeps or writes the new value, which
+		// the kill stored as a let mut's every store is: a copy unless
+		// fresh. So it shares no storage with the value the use reads,
+		// even in a loop that runs the use again.
+		if kill != nil && (o == kill || o.pre >= w.postOf(killStmt) || valueMutant == "kill-between-blind" && o.pre > use.pre) {
+			continue
+		}
+		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) || w.baseDisjoint(o.id, use.id, unshared) || w.baseDisjoint(use.id, o.id, unshared) {
+			// An update's base and a path under a field it names (parts.go),
+			// or under a field it sets when the value is unshared (update.go).
 			continue
 		}
 		if o.frame != frame {
@@ -3177,6 +3360,89 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		return w.fresh(vv.whole)
 	}
 	return vv.init != nil && w.fresh(vv.init)
+}
+
+// killOf is the rebinding `v = e` of the whole of the let mut vv that ends
+// the value the use reads (S2-COPY), and its statement, or nil: a plain
+// assignment in the block that holds the use's statement, after that
+// statement, such that every run of the use runs it next: no break or
+// continue between the two leaves the block. A return, or a failure,
+// leaves the frame and ends vv too: a catch covers no failure inside a
+// block of its operand (rows.md, Catch), so none resumes after the kill.
+// The uses between the two, e's among them, still read the old value.
+//
+// The read loop `let (b, n) = try f.Read(buf); …; buf = b` hands Go its
+// buffer at each call, as hand Go does, where the value rule copied it.
+func (w *valueWalk) killOf(vv *vvar, use *vocc) (*vocc, syntax.Node) {
+	if !vv.mut || !valueOwned() {
+		return nil, nil
+	}
+	var stmt syntax.Node = use.id
+	var block *syntax.BlockStmt
+	for n := w.parentOf(use.id); n != nil; stmt, n = n, w.parentOf(n) {
+		if b, ok := n.(*syntax.BlockStmt); ok {
+			block = b
+			break
+		}
+		if w.frameOf[n] != nil {
+			return nil, nil
+		}
+	}
+	if block == nil {
+		return nil, nil
+	}
+	at := slices.IndexFunc(block.List, func(s syntax.Stmt) bool { return syntax.Node(s) == stmt })
+	if at < 0 {
+		return nil, nil
+	}
+	for i, s := range block.List[at:] {
+		if i > 0 {
+			if a, ok := s.(*syntax.AssignStmt); ok && a.Tok == syntax.ASSIGN && len(a.Lhs) == 1 && len(a.Rhs) == 1 {
+				if id, ok := unparen(a.Lhs[0]).(*syntax.Ident); ok && w.info.Uses[id] == check.Object(vv.v) {
+					for _, o := range vv.occs {
+						if o.id == id {
+							return o, a
+						}
+					}
+					return nil, nil
+				}
+			}
+		}
+		if w.leavesBlock(s) && valueMutant != "kill-branch-blind" {
+			return nil, nil
+		}
+	}
+	return nil, nil
+}
+
+// leavesBlock reports a break or continue in the statement s that is not
+// inside a loop of s: it leaves the block that holds s.
+func (w *valueWalk) leavesBlock(s syntax.Stmt) bool {
+	leaves := false
+	syntax.Inspect(s, func(n syntax.Node) bool {
+		if leaves {
+			return false
+		}
+		if _, ok := n.(*syntax.FuncLit); ok {
+			return false
+		}
+		b, ok := n.(*syntax.BranchStmt)
+		if !ok {
+			return true
+		}
+		for p := w.parentOf(b); p != nil; p = w.parentOf(p) {
+			switch p.(type) {
+			case *syntax.ForStmt, *syntax.RangeStmt:
+				return true
+			}
+			if p == syntax.Node(s) {
+				break
+			}
+		}
+		leaves = true
+		return false
+	})
+	return leaves
 }
 
 // fromKey names a parameter of a function: freshFrom's question.
@@ -3303,10 +3569,38 @@ func (w *valueWalk) resultsFresh() bool {
 	return ok
 }
 
+// copyElemSource is the type of src in x, a call of an extern bound to
+// Go's copy(dst, src), when src's elements hold a slice or Map, else nil.
+// Go's copy stores each element in dst's array, so an element's slice or
+// Map would be shared by dst and src, and a write through one would reach
+// the other (a []Box copied into a fresh array shared each Box's S with
+// the source, and `d[0].S[0] = 99` wrote the source's; found by NB-CUT's
+// TestCutAgrees). The value walk reads src as a read of a pure call whose
+// int result shares nothing with it, so the copy is here, where the
+// builtin is lowered, the text's and the IR's alike. A source whose
+// elements hold no slice or Map (the []int push) copies nothing.
+// TestGoCopyKeepsValues is its property.
+func copyElemSource(l *lowerer, x *syntax.CallExpr, c *check.Call, typeOf func(syntax.Expr) check.Type) check.Type {
+	if c == nil || c.Func == nil || check.GoBuiltin(c.Func) != "copy" {
+		return nil
+	}
+	ops := callOperands(x, c)
+	if len(ops) != 2 {
+		return nil
+	}
+	t := typeOf(ops[1])
+	if !l.holdsValue(elemOf(t)) {
+		return nil
+	}
+	return t
+}
+
 // valueSource lowers the source operand of a call of the prelude's Append,
 // Delete or Put that must not write it (V3): Append takes the source
 // clipped to its length, so Go's append makes a new array, and Delete and
 // Put take a copy of the Map. vals are the call's lowered operands, the source first.
+// Go's copy(dst, src) takes a copy of src when its elements hold a slice
+// or Map (copyElemSource).
 func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string) []string {
 	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || fc.l.valueFacts().lineage[x] || valueMutant == "in-place" {
 		return vals
@@ -3316,6 +3610,10 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
 	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
 		vals[0] = fc.reportCopy(x, fc.l.goPkg("maps")+".Clone("+vals[0]+")", whyMapWrite)
+	case len(vals) == 2:
+		if t := copyElemSource(fc.l, x, c, fc.typeOf); t != nil {
+			vals[1] = fc.reportCopy(x, fc.cloneValue(t, vals[1], x), whyCopyElem)
+		}
 	}
 	return vals
 }
@@ -3345,6 +3643,10 @@ func (tc *typeCtx) cloneOf(t check.Type, val string, site syntax.Node, deep bool
 	switch u := underEqual(t).(type) {
 	case *check.Map:
 		if !deep && !tc.l.entryWritten(t) || !tc.l.holdsValue(u.Elem) || valueMutant == "shallow" {
+			if _, plain := t.(*check.Map); plain && tc.l.intMap(u) { // intmap.go: the table's own copy
+				return val + ".Clone()"
+			}
+			tc.l.intMapConflict(u) // a defined Map type: maps.Clone
 			return tc.l.goPkg("maps") + ".Clone(" + val + ")"
 		}
 	case *check.Slice:
@@ -3445,6 +3747,7 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node, deep bool) (string, 
 		body.WriteString("\tfor " + i + ", " + e + " := range " + v + " {\n")
 		body.WriteString("\t\t" + c + "[" + i + "] = " + tc.cloneOf(u.Elem, e, site, deep) + "\n\t}\n\treturn " + c + "\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: a deep copy over Go's map
 		k, e := scope.alloc("k"), scope.alloc("e")
 		body.WriteString("\t" + c + " := make(" + goType + ", len(" + v + "))\n")
 		body.WriteString("\tfor " + k + ", " + e + " := range " + v + " {\n")

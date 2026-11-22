@@ -113,6 +113,40 @@ law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 	}
 }
 
+// gapAt is the gap before the i-th value, in milliseconds: gaps[i] mod 50,
+// or 0 past the end of gaps.
+func gapAt(gaps []int, i int) int {
+	if i < len(gaps) {
+		((gaps[i] % 50) + 50) % 50
+	} else {
+		0
+	}
+}
+
+// window is w as a window from 0 to 59 milliseconds: 0 keeps every value.
+func window(w int) int { ((w % 60) + 60) % 60 }
+
+// millis is n milliseconds.
+func millis(n int) duration { time.Times(1ms, n) }
+
+// collect is the values of s.
+func collect(s Seq[int]) []int {
+	let mut out = []int{}
+	for v in s {
+		out = out.Append(v)
+	}
+	out
+}
+
+// sameInts reports that a and b hold the same values in order.
+func sameInts(a []int, b []int) bool {
+	let mut same = len(a) == len(b)
+	for i in 0..len(a) {
+		same = same && i < len(b) && a[i] == b[i]
+	}
+	same
+}
+
 // debouncedModel is what Debounced emits for values xs arriving at at
 // (ms) with window d and src ending at end, as value, time pairs: each
 // xs[i] whose next value arrives more than d later, at at[i]+d, and the

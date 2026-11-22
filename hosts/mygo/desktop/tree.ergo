@@ -1,0 +1,18 @@
+// The window's screen as data (TREE-JSON): each node a locator finds by
+// its role, with its box as the window laid it out, one JSON line each.
+
+import ui
+
+// TreeLines is the screen as ui.TreeOf gives it, with the boxes of the last
+// paint, each a ui.TreeLine.
+func TreeLines[S, E, D, F](d mut Driver[S, E, D, F]) []string {
+	let mut boxes = Map[ui.Id[E], ui.Rect]{}
+	for id, b in d.boxes {
+		boxes[id] = rectOf(b)
+	}
+	let mut out = []string{}
+	for e in ui.TreeOf(&d.mirror, boxes) {
+		out = out.Append(ui.TreeLine(e))
+	}
+	out
+}

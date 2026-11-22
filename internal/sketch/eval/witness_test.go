@@ -17,14 +17,14 @@ import "testing"
 func TestWitnessedCallsRunAtCheckTime(t *testing.T) {
 	pkg := checked(t, `type Counter {
 	Get() int,
-	Add(n int),
+	mut Add(n int),
 }
 
 type box { n int } implements Counter
 
-func Get(b *box) int { b.n }
+func Get(b box) int { b.n }
 
-func Add(b *box, n int) { b.n += n }
+func Add(b mut box, n int) { b.n += n }
 
 type fixed { at int } implements Counter
 
@@ -33,13 +33,13 @@ func Get(f fixed) int { f.at }
 func Add(f fixed, n int) {}
 
 // bump adds n to s, then reads it.
-func bump[S lent Counter](s S, n int) int {
+func bump[S Counter](s mut S, n int) int {
 	s.Add(n)
 	s.Get()
 }
 
 // twice bumps s through bump: S's witness is twice's own.
-func twice[S lent Counter](s S, n int) int {
+func twice[S Counter](s mut S, n int) int {
 	let _ = bump(s, n)
 	bump(s, n)
 }
@@ -52,13 +52,14 @@ test ThroughABorrow {
 }
 
 test ByValue {
-	assert bump(fixed{at: 7}, 5) == 7
+	let mut f = fixed{at: 7}
+	assert bump(&f, 5) == 7
 }
 
 test AnOperationType {
-	let c Counter = fixed{at: 9}
-	assert bump(c, 1) == 9
-	assert twice(c, 1) == 9
+	let mut c Counter = fixed{at: 9}
+	assert bump(&c, 1) == 9
+	assert twice(&c, 1) == 9
 }
 `)
 	rep, err := Run(pkg, DefaultBudget())
@@ -97,7 +98,7 @@ func TestOwnedWritesStayLinear(t *testing.T) {
 
 type Grid { cells []Cell, flags []int }
 
-func fill(g *Grid, n int) {
+func fill(g mut Grid, n int) {
 	for i in 0..n {
 		g.cells = g.cells.Append(Cell{A: 0, B: 0})
 		g.cells[i] = Cell{A: i, B: 0}

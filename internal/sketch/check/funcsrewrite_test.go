@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 )
 
 // fusionFixture is std slices' Transform and Filter (internal/sketch/std/
@@ -69,7 +69,7 @@ func TestRewriteOverFunctions(t *testing.T) {
 			t.Errorf("law %s runs, and no run instantiates its type parameters", name)
 		}
 	}
-	out, err := format.Source(fusionFixture)
+	out, err := hostsyntax.Source(fusionFixture)
 	if err != nil || out != fusionFixture {
 		t.Errorf("the formatter changes the fusion laws (%v):\n%s", err, out)
 	}

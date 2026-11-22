@@ -1,2 +1,2 @@
 invalid value "s3" for flag -store: not one of file, memory
-usage: kvstore [-store file|memory] [-dir DIR] [COMMAND...]
+usage: kvstore [-store file|memory] [-dir DIR] [-pace default|percent|edges] [COMMAND...]

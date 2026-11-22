@@ -127,6 +127,9 @@ func (in *interp) planOf(fn *check.Func) *funcPlan {
 		} else {
 			p.nat = goNativeOf(fn)
 		}
+		if src, ok := check.ModuleBodySource(fn); ok && p.nat == nil && in.goBody(fn) {
+			p.nat = in.goBodyNative(src.Target)
+		}
 	} else {
 		if fn.Pkg.Info == nil {
 			ice("the package of %s has no Info", fn.Name)

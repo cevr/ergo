@@ -63,6 +63,33 @@
       "to": "\t\t\t\t\t\t_ = at\n",
       "rule": "A provider the member laws run against, written in a file of laws for them, goes beside their operation type (examples/shards refusing).",
       "killers": ["internal/sketch/lawfix:TestPlanKeepsProvidersAndNamesFiles"]
+    },
+    {
+      "name": "fix-leftover-test-unnamed",
+      "origin": "wf10 FIX-LEFTOVER (ld3 g11)",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "name, ok = \"tests\", rank == 5",
+      "to": "name, ok = \"\", rank == 5",
+      "rule": "A file of laws left holding only tests is a test file: ergo fix renames it tests.ergo, never after a Go type string.",
+      "killers": ["internal/sketch/lawfix:TestLawsFileLeftWithTestsIsTests"]
+    },
+    {
+      "name": "fix-leftover-rename-reported-deleted",
+      "origin": "wf10 FIX-LEFTOVER (ld3 g11)",
+      "file": "internal/sketch/lawfix/run.go",
+      "from": "if !renamed[name] {",
+      "to": "if true || !renamed[name] {",
+      "rule": "ergo fix reports a renamed file as renamed, not as deleted with no declaration left.",
+      "killers": ["internal/sketch/lawfix:TestLawsFileLeftWithTestsIsTests"]
+    },
+    {
+      "name": "fix-leftover-tests-file-ignored",
+      "origin": "wf10 FIX-LEFTOVER r2 (dray: tests.ergo already there)",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\tjoinLeftoverTests(&res, files, moving, put)\n",
+      "to": "\t_ = joinLeftoverTests\n",
+      "rule": "A file of laws left holding only tests joins its tests to the package's tests.ergo when there is one, rather than keeping its laws name.",
+      "killers": ["internal/sketch/lawfix:TestLeftoverTestsJoinTestsFile"]
     }
   ]
 }

@@ -1,0 +1,95 @@
+// counter-tui is examples/counter-gui in a terminal: the example's model
+// and view (a required Ergo module, hosts/opentui/go.mod) on the OpenTUI
+// driver. It is the only place that chooses: the terminal and the live
+// clock, or, with -headless, a screen with no terminal that plays a
+// script from standard input and prints what the example's own binary
+// prints.
+//
+//	counter-tui                 run in the terminal (Ctrl+C quits)
+//	counter-tui -headless < s   play the script s through the screen's input
+
+import actor
+import ergo.local/prototype/examples/countergui/counter
+import ergo.local/prototype/examples/countergui/script
+import ergo.local/prototype/examples/countergui/view
+import ergo.local/prototype/hosts/opentui/tui
+import go ergo.local/prototype/hosts/opentui/screen
+import io
+import os
+import term
+import time
+import ui
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) > 0 && args[0] == "-headless" {
+		try headless()
+		return
+	}
+	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
+		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
+		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
+		case actor.Stopped:
+		case term.NotTerminal:
+			return os.Exit{Code: 1, Message: "counter-tui: standard input is not a terminal (try -headless)"}
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "counter-tui: \(b.Why)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "counter-tui: \(e.Why)"}
+		}
+	}
+}
+
+// headless plays the script on standard input through a screen with no
+// terminal, 45 by 14 cells (the window of counter-gui at 8 by 16 DIPs a
+// cell): a tap is a mouse press and release at the node's first cell. It
+// prints the count after each step.
+func headless() fails os.Exit needs Ambient | go.Foreign {
+	let text = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "counter-tui: cannot read the script"}
+	}
+	let steps = script.Parse(text) catch {
+	case script.BadLine as b:
+		return os.Exit{Code: 2, Message: "counter-tui: line \(b.Line) is no step: \(b.Text)"}
+	}
+	let out = io.NewHost()
+	with context { Scheduler: time.NewManual(0) } {
+		let s = screen.Headless(45, 14) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "counter-tui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
+		let mut d = tui.New(s, a, view.View, 64) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "counter-tui: \(b.Why)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "counter-tui: \(e.Why)"}
+		}
+		for i, act in steps {
+			tui.Play(&d, []ui.Act{act}) catch {
+			case ui.NoNode as n:
+				out.Println("\(i + 1): no node \(n.Label)")
+				continue
+			case ui.Ambiguous as amb:
+				out.Println("\(i + 1): \(amb.At) finds \(amb.Count) nodes")
+				continue
+			case ui.Mismatch as m:
+				out.Println("\(i + 1): want \(m.Want), got \(m.Got)")
+				continue
+			case ui.Closed, actor.Stopped:
+				return os.Exit{Code: 1, Message: "counter-tui: the screen closed"}
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "counter-tui: \(b.Why)"}
+			case tui.ScreenFailed as e:
+				return os.Exit{Code: 1, Message: "counter-tui: \(e.Why)"}
+			}
+			out.Println("\(i + 1): \(counter.Summary(tui.StateOf(&d)))")
+		}
+		s.Quit() catch {
+		// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
+		case go.Error:
+		}
+	}
+}

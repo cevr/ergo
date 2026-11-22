@@ -2,6 +2,7 @@ package lower
 
 import (
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -68,7 +69,43 @@ func (l *lowerer) isPure(f *check.Func) bool {
 	if l.pure == nil {
 		l.pure = map[*check.Func]bool{}
 	}
-	if p, ok := l.pure[f]; ok {
+	return l.fixpoint(f, l.pure, false)
+}
+
+// Env-free functions (ENV-FREE-FALLIBLE). A function takes the
+// environment parameter if and only if it, or something it calls, reads
+// the environment: a capability, a task, a poll, an opaque call, an
+// adapter, an owned value's release. Whether it can fail decides nothing:
+// a typed failure is a returned Go error, so a failing body that reads no
+// environment, such as an Atoi or a verified loop's dispatch, is Go's
+// func(s string) (int, error). The rules are the pure function's above
+// with the error row allowed; the set is the same greatest fixed point,
+// kept apart from l.pure, since tabulation, memo, folding and the facts
+// export read pure as "fails with nothing" too. Every pure function is
+// env-free.
+//
+// envParamLowering selects the rule: "" is this one, "pure" the reference,
+// where only a pure function is env-free (the lowering before it), set
+// with -ldflags=-X=ergo.local/prototype/internal/sketch/lower.envParamLowering=pure.
+var envParamLowering string
+
+// isEnvFree reports whether f is env-free; l.free records every function
+// decided so far.
+func (l *lowerer) isEnvFree(f *check.Func) bool {
+	if envParamLowering == "pure" {
+		return l.isPure(f)
+	}
+	if l.free == nil {
+		l.free = map[*check.Func]bool{}
+	}
+	return l.fixpoint(f, l.free, true)
+}
+
+// fixpoint decides f, with every undecided function of its closure, into
+// memo: the greatest fixed point of pureCandidate (failing bodies admitted
+// when fails) over the call graph.
+func (l *lowerer) fixpoint(f *check.Func, memo map[*check.Func]bool, fails bool) bool {
+	if p, ok := memo[f]; ok {
 		return p
 	}
 	// Collect the undecided closure of f in a fixed order: f first, then
@@ -85,13 +122,13 @@ func (l *lowerer) isPure(f *check.Func) bool {
 		if g.Pkg == nil || g.Pkg.Info == nil {
 			continue
 		}
-		cs, ok := pureCandidate(g.Pkg.Info, g)
+		cs, ok := pureCandidate(g.Pkg.Info, g, fails)
 		if !ok || l.meetsHostProtocol(g) {
 			continue
 		}
 		cand[g], callees[g] = true, cs
 		for _, h := range cs {
-			if _, done := l.pure[h]; !done && !seen[h] {
+			if _, done := memo[h]; !done && !seen[h] {
 				seen[h] = true
 				queue = append(queue, h)
 			}
@@ -108,7 +145,7 @@ func (l *lowerer) isPure(f *check.Func) bool {
 		}
 		for _, h := range callees[g] {
 			callers[h] = append(callers[h], g)
-			if p, done := l.pure[h]; done && !p {
+			if p, done := memo[h]; done && !p {
 				impure = append(impure, g)
 			}
 		}
@@ -116,30 +153,30 @@ func (l *lowerer) isPure(f *check.Func) bool {
 	for len(impure) > 0 {
 		g := impure[0]
 		impure = impure[1:]
-		if _, done := l.pure[g]; done {
+		if _, done := memo[g]; done {
 			continue // found impure already
 		}
-		l.pure[g] = false
+		memo[g] = false
 		impure = append(impure, callers[g]...)
 	}
 	for _, g := range order {
-		if _, done := l.pure[g]; !done {
-			l.pure[g] = true
+		if _, done := memo[g]; !done {
+			memo[g] = true
 		}
 	}
-	return l.pure[f]
+	return memo[f]
 }
 
 // pureCandidate reports whether f meets every rule of a pure function but
 // the last's fixed point, with the Ergo-bodied functions its body calls,
 // of any package; info is f's own package's Info.
-func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
+func pureCandidate(info *check.Info, f *check.Func, fails bool) ([]*check.Func, bool) {
 	d := f.Decl
 	if d == nil || d.Body == nil || d.Extern != nil || f.Name == "main" || isClose(f) {
 		return nil, false
 	}
 	s := f.Sig
-	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
+	if !fails && len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
 		return nil, false
 	}
 	// A row type parameter by itself decides nothing: a row of f's own
@@ -157,9 +194,18 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 		// task (release.go, L8 B1).
 		return nil, false
 	}
+	return pureCalls(info, d.Body)
+}
+
+// pureCalls reports whether every call in n, outside the bodies of
+// function literals, is a pure call or a call of an Ergo-bodied function
+// (the candidates it gives, which isPure decides), and n converts no
+// value into a Go interface: pureCandidate's rule for a body, which a
+// quiet loop's body meets too (ir_poll.go).
+func pureCalls(info *check.Info, n syntax.Node) ([]*check.Func, bool) {
 	var callees []*check.Func
 	ok := true
-	syntax.Inspect(d.Body, func(n syntax.Node) bool {
+	syntax.Inspect(n, func(n syntax.Node) bool {
 		if !ok {
 			return false
 		}
@@ -175,7 +221,7 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 			switch {
 			case c == nil:
 				ok = false
-			case c.Kind == check.CallLen || c.Kind == check.CallConversion || c.Kind == check.CallGoError:
+			case c.Kind == check.CallLen || c.Kind == check.CallConversion || c.Kind == check.CallGoError || c.Kind == check.CallHash:
 			case c.Kind == check.CallFunc && !c.StartsTask && pureStdBody(c.Func):
 			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil && !c.StartsTask:
 				callees = append(callees, c.Func)
@@ -223,37 +269,39 @@ func (l *lowerer) pureIntrinsic(f *check.Func) bool {
 // method of go vet's stdmethods check (Go 1.27; Flush is not in vet's
 // table), each with the Go spellings of its parameters and results. A "="
 // marks a parameter go vet keys on; an exact match ignores the mark.
-var hostProtocols = map[string]struct{ args, results []string }{
-	"Error":         {nil, []string{"string"}},
-	"String":        {nil, []string{"string"}},
-	"GoString":      {nil, []string{"string"}},
-	"As":            {[]string{"any"}, []string{"bool"}},
-	"Format":        {[]string{"=fmt.State", "rune"}, nil},
-	"GobDecode":     {[]string{"[]byte"}, []string{"error"}},
-	"GobEncode":     {nil, []string{"[]byte", "error"}},
-	"Is":            {[]string{"error"}, []string{"bool"}},
-	"MarshalJSON":   {nil, []string{"[]byte", "error"}},
-	"MarshalXML":    {[]string{"*xml.Encoder", "xml.StartElement"}, []string{"error"}},
-	"ReadByte":      {nil, []string{"byte", "error"}},
-	"ReadFrom":      {[]string{"=io.Reader"}, []string{"int64", "error"}},
-	"ReadRune":      {nil, []string{"rune", "int", "error"}},
-	"Scan":          {[]string{"=fmt.ScanState", "rune"}, []string{"error"}},
-	"Seek":          {[]string{"=int64", "int"}, []string{"int64", "error"}},
-	"UnmarshalJSON": {[]string{"[]byte"}, []string{"error"}},
-	"UnmarshalXML":  {[]string{"*xml.Decoder", "xml.StartElement"}, []string{"error"}},
-	"UnreadByte":    {nil, []string{"error"}},
-	"UnreadRune":    {nil, []string{"error"}},
-	"Unwrap":        {nil, []string{"error"}},
-	"WriteByte":     {[]string{"byte"}, []string{"error"}},
-	"WriteTo":       {[]string{"=io.Writer"}, []string{"int64", "error"}},
-}
+var hostProtocols = sync.OnceValue(func() map[string]struct{ args, results []string } {
+	return map[string]struct{ args, results []string }{
+		"Error":         {nil, []string{"string"}},
+		"String":        {nil, []string{"string"}},
+		"GoString":      {nil, []string{"string"}},
+		"As":            {[]string{"any"}, []string{"bool"}},
+		"Format":        {[]string{"=fmt.State", "rune"}, nil},
+		"GobDecode":     {[]string{"[]byte"}, []string{"error"}},
+		"GobEncode":     {nil, []string{"[]byte", "error"}},
+		"Is":            {[]string{"error"}, []string{"bool"}},
+		"MarshalJSON":   {nil, []string{"[]byte", "error"}},
+		"MarshalXML":    {[]string{"*xml.Encoder", "xml.StartElement"}, []string{"error"}},
+		"ReadByte":      {nil, []string{"byte", "error"}},
+		"ReadFrom":      {[]string{"=io.Reader"}, []string{"int64", "error"}},
+		"ReadRune":      {nil, []string{"rune", "int", "error"}},
+		"Scan":          {[]string{"=fmt.ScanState", "rune"}, []string{"error"}},
+		"Seek":          {[]string{"=int64", "int"}, []string{"int64", "error"}},
+		"UnmarshalJSON": {[]string{"[]byte"}, []string{"error"}},
+		"UnmarshalXML":  {[]string{"*xml.Decoder", "xml.StartElement"}, []string{"error"}},
+		"UnreadByte":    {nil, []string{"error"}},
+		"UnreadRune":    {nil, []string{"error"}},
+		"Unwrap":        {nil, []string{"error"}},
+		"WriteByte":     {[]string{"byte"}, []string{"error"}},
+		"WriteTo":       {[]string{"=io.Writer"}, []string{"int64", "error"}},
+	}
+})
 
 // meetsHostProtocol reports whether f lowers to a Go method whose name and
 // Go signature, without an environment, are a host protocol's exactly
 // (case a). Only a function with a protocol's name is asked, so the
 // receiver of any other function is not resolved here.
 func (l *lowerer) meetsHostProtocol(f *check.Func) bool {
-	p, ok := hostProtocols[memberName(f.Name)]
+	p, ok := hostProtocols()[memberName(f.Name)]
 	if !ok {
 		return false
 	}
@@ -293,7 +341,7 @@ func goBasicName(t check.Type) string {
 // among td's fields and the functions on td, as a field renamed for Error
 // is (typeDecl).
 func (l *lowerer) protocolFreeName(f *check.Func, td *typeDecl, name string) string {
-	if _, ok := hostProtocols[name]; !ok {
+	if _, ok := hostProtocols()[name]; !ok {
 		return name
 	}
 	taken := map[string]bool{}
@@ -322,7 +370,7 @@ func (l *lowerer) protocolFreeName(f *check.Func, td *typeDecl, name string) str
 // envLead is the leading environment argument of a direct call of fd from
 // code whose environment is env: none for a pure function.
 func (fd *funcDecl) envLead(env string) []string {
-	if fd.pure {
+	if fd.envFree {
 		return nil
 	}
 	return []string{env}

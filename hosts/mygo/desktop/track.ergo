@@ -1,0 +1,61 @@
+// Tracks (TRACKS): the window runs each TrackNode on its own clock. A new
+// one rests on its target; a patch that writes another target retargets
+// it there and then, keeping where it is and how fast it moves; while a
+// track moves the window asks for frames, and each frame repaints it with
+// no pass of the session (a Tick with no Animate runs none).
+
+import ui
+
+// runTrack runs a TrackNode a patch wrote.
+func runTrack[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) needs go.Foreign {
+	match n {
+	case ui.TrackNode as x:
+		let now = duration(d.w.Now())
+		match d.tracks.Get(id) {
+		case Some[ui.TrackState] as t:
+			if t.Value.To != x.Target {
+				d.tracks[id] = ui.TrackRetarget(t.Value, x.Target, now)
+			}
+		case None:
+			d.tracks[id] = ui.TrackStill(x.Target, x.Curve)
+		}
+	case _:
+	}
+}
+
+// tracksMoving is whether a track of the window is not yet at rest.
+func tracksMoving[S, E, D, F](d mut Driver[S, E, D, F]) bool needs go.Foreign {
+	let now = duration(d.w.Now())
+	for _, t in d.tracks {
+		if !ui.TrackDone(t, now) {
+			return true
+		}
+	}
+	false
+}
+
+// trackedNow is the value id's track has at the paint's time (trackAt;
+// target: none yet).
+func trackedNow[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], target float64) float64 needs go.Foreign {
+	match d.tracks.Get(id) {
+	case Some[ui.TrackState] as t:
+		let (v, _) = ui.TrackAt(t.Value, duration(d.trackAt))
+		v
+	case None:
+		target
+	}
+}
+
+// trackFrame repaints the moving tracks at a frame, and stops the frames
+// once every track rests and nothing animates.
+func trackFrame[S, E, D, F](d mut Driver[S, E, D, F]) needs go.Foreign {
+	if len(d.tracks) == 0 {
+		return
+	}
+	paint(d)
+	let want = ui.SessionAnimates(&d.session) || tracksMoving(d)
+	if want != d.frames {
+		d.frames = want
+		d.w.Frames(want || fingerMoving(d))
+	}
+}

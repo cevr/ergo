@@ -79,7 +79,7 @@ type NewOptions { Copy bool, From Option[string], Branch Option[string], On Opti
 
 // ReadyOptions, SyncOptions and EnvOptions name the workspace (-name);
 // when absent it is the one the working folder is in.
-type ReadyOptions { Name Option[string] }
+type ReadyOptions { Name Option[string], Request Option[string] }
 
 type SyncOptions { Name Option[string] }
 
@@ -217,7 +217,13 @@ type Api {
 	// Ready snapshots the workspace and hands its branch (fast-forward
 	// only) and the snapshot to the parent's repository; it changes no
 	// file of the parent and never pushes to origin.
-	Ready(o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked,
+	// With -request FILE, the record ready writes (work record) takes the
+	// request's digest and its work-record block.
+	Ready(o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked | BadRequest,
+	// Record is the lane record ready wrote for the commit tip (HEAD
+	// too), read in the workspace the working folder is in, else the
+	// base.
+	Record(tip string) LaneRecord fails NoBase | NoRevision | NoRecord | BadRecord | Unkept | VcsFailed,
 	// Sync merges the parent's branch into the workspace's (Git's merge)
 	// and records the parent's commit as its base; it is that commit.
 	Sync(o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed | Locked,
@@ -253,7 +259,7 @@ type Api {
 	// Doctor reports on the base: the clone providers, the file system,
 	// whether a purge is one call, a stale index, the trust; with -rift,
 	// the base's Rift copies no workspace holds yet.
-	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread,
+	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked,
 	// PluginTest runs the laws of the language contracts against a plugin
 	// (a command, or the [language.NAME] it names) on the base's files, and
 	// refuses it with the law it broke.
@@ -261,8 +267,22 @@ type Api {
 	// Refresh refreshes the stat data of the base's Git index, so that a
 	// clone starts fresh; it is the number of stale entries it had.
 	Refresh() int fails NoBase | Unkept | VcsFailed,
-	// Bases is every base init registered on this host.
+	// Clone clones the folder src to dst, which must be absent with its
+	// parent there, as new clones a workspace but with no base, registry,
+	// lock, hook or record: every entry not left out, links as links,
+	// nothing written in src or outside dst. A plain copy where no
+	// Cloner can share blocks is an answer (cloner copy), measured for
+	// room before it writes; a failure leaves no dst.
+	Clone(src string, dst string, o CloneOptions) TreeCloned fails BadConfig | Unsupported | Exists | Missing | NoSpace | CloneFailed,
+	// Bases is every base init registered on this host whose folder is
+	// there.
 	Bases() []string fails Unkept,
+	// ForgetBase drops base from the list of bases; its folder and its
+	// workspaces stay. It is the bases still registered.
+	ForgetBase(base string) []string fails Unkept | fs.Denied | fs.Failed,
+	// PruneBases forgets every base whose folder is gone; it is the
+	// bases it forgot.
+	PruneBases() []string fails Unkept | fs.Denied | fs.Failed,
 	// ShellInit is a shell function for eval "$(work shell-init)": work
 	// new changes to the new workspace.
 	ShellInit() string,
@@ -410,6 +430,16 @@ func CheckName(name string) fails BadName {
 	}
 }
 
+// FolderIsOneLevel: the folder of a name that checks is one path element.
+law FolderIsOneLevel(name string) {
+	CheckName(name) catch {
+	case BadName:
+		return true
+	}
+	let folder = FolderOf(name)
+	folder != "" && !strings.Contains(folder, "/") && folder != "." && folder != ".."
+}
+
 func now(t Tool) int64 { t.clock.Now().UnixSeconds() }
 
 // initialized fails NoBase when the base has no registry.
@@ -424,14 +454,25 @@ func initialized(t Tool) fails NoBase {
 func config(t Tool) Config fails BadConfig {
 	let text = t.files.ReadFile(filepath.Join([]string{t.base, ConfigFile})) catch {
 	case fs.NotFound:
-		return Config{..EmptyConfig(), Classes: PresetLines([]ClassLine{}, presentLocks(t, t.base))}
+		return try overBase(t, EmptyConfig())
 	case fs.Denied:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): permission denied"}
 	case fs.Failed as f:
 		return BadConfig{Line: 0, Why: "\(ConfigFile): \(f.Reason)"}
 	}
-	let c = try ParseConfig(text)
-	Config{..c, Classes: PresetLines(c.Classes, presentLocks(t, t.base))}
+	try overBase(t, try ParseConfig(text))
+}
+
+// overBase is c with what the base adds: its own Git setting work.trash
+// (LocalTrash) and the presets of the lock files at its root.
+func overBase(t Tool, c Config) Config fails BadConfig {
+	// A base Git cannot read has no setting: the next source decides.
+	let setting = t.vcs.Setting(t.base, TrashKey) catch {
+	case VcsFailed:
+		""
+	}
+	let local = try LocalTrash(c, setting)
+	Config{..local, Classes: PresetLines(local.Classes, presentLocks(t, t.base))}
 }
 
 // live is the record of name unless it is trashed.
@@ -564,6 +605,9 @@ func startIn(t Tool, by Cloner, path string, branch string, start string) fails 
 	try t.vcs.Start(path, branch, start)
 	try guarded(t, path)
 	try t.vcs.Configure(path, "core.untrackedCache", "true")
+	// The merge drivers, in the clone's own config: a base registered
+	// before work wrote them, or never, gives its clones none (M0).
+	try RegisterDrivers(t, path)
 	if !by.KeepsInodes() {
 		try t.vcs.Configure(path, "core.checkStat", "minimal")
 		try t.vcs.Configure(path, "core.trustctime", "false")
@@ -609,7 +653,7 @@ func idOf(t Tool, name string, path string) string {
 
 // register adds the base to the user's list of bases, once.
 func register(t Tool) fails Unkept | fs.Denied | fs.Failed {
-	let all = try Bases(t)
+	let all = try registered(t)
 	for b in all {
 		if b == t.base {
 			return
@@ -656,10 +700,14 @@ func startOf(t Tool, parent string, branch string, from Option[string]) string f
 
 // cloned clones from to path with the first sharing Cloner the file
 // system supports, or with the copier when none is supported and a copy
-// is allowed; it is the Cloner that made the tree. A copy that is not
-// allowed is CopyRefused with the bytes it would copy: it is never picked
-// silently. A failure other than Unsupported stops at its Cloner.
-func cloned(t Tool, from string, path string, copyAllowed bool) Cloner fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed {
+// is allowed; it is the Cloner that made the tree and the bytes it
+// copied (0 for a sharing one). A copy that is not allowed is CopyRefused
+// with the bytes it would copy: it is never picked silently. A copy is
+// measured first: one the folder of path has no room for is NoSpace and
+// writes nothing. A failure other than Unsupported stops at its Cloner,
+// and so does NotSameVolume unless acrossVolumes (clone: a copy across
+// file systems is an answer; new: a workspace must share its blocks).
+func cloned(t Tool, from string, path string, copyAllowed bool, acrossVolumes bool) (Cloner, int) fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed {
 	let mut why = []string{}
 	for c in t.cloners {
 		c.Clone(from, path) catch {
@@ -667,6 +715,10 @@ func cloned(t Tool, from string, path string, copyAllowed bool) Cloner fails Not
 			why = why.Append("\(u.Cloner): \(u.Why)")
 			continue
 		case NotSameVolume as e:
+			if acrossVolumes {
+				why = why.Append("\(c.Name()): \(e.To) is on another file system than \(e.From)")
+				continue
+			}
 			return e
 		case Exists as e:
 			return e
@@ -677,17 +729,85 @@ func cloned(t Tool, from string, path string, copyAllowed bool) Cloner fails Not
 		case CloneFailed as e:
 			return e
 		}
-		return c
+		return (c, 0)
 	}
+	let need = (t.copier.Usage(from) catch {
+	case Unsupported, Missing, CloneFailed:
+		Usage{Total: -1, Exclusive: -1, Shared: 0}
+	}).Total
 	if !copyAllowed {
-		let bytes = t.copier.Usage(from) catch {
+		return CopyRefused{From: from, Bytes: need, Why: strings.Join(why, "; ")}
+	}
+	if need >= 0 {
+		let free = t.copier.Free(filepath.Dir(path)) catch {
 		case Unsupported, Missing, CloneFailed:
-			Usage{Total: -1, Exclusive: -1, Shared: 0}
+			-1
 		}
-		return CopyRefused{From: from, Bytes: bytes.Total, Why: strings.Join(why, "; ")}
+		if free >= 0 && need > free {
+			return NoSpace{Path: path, Need: need, Free: free}
+		}
 	}
 	try t.copier.Clone(from, path)
-	t.copier
+	(t.copier, need)
+}
+
+// CloneOptions are clone's flags: -leave-out PATH (repeatable) is an
+// entry of the source, relative to it, the clone does without.
+type CloneOptions { LeaveOut []string }
+
+// TreeCloned is clone's answer: the Cloner that made the tree, whether it
+// shares its blocks with the source, the entries the tree holds (root not
+// counted), the bytes copied (0 when shared) and the milliseconds the
+// clone took (the count after it not included).
+type TreeCloned { Cloner string, Shared bool, Entries int, BytesCopied int, Ms int }
+
+func Clone(t Tool, src string, dst string, o CloneOptions) TreeCloned fails BadConfig | Unsupported | Exists | Missing | NoSpace | CloneFailed {
+	let out = try folders(o.LeaveOut)
+	let from = if filepath.IsAbs(src) { filepath.Clean(src) } else { filepath.Join([]string{t.here, src}) }
+	let to = if filepath.IsAbs(dst) { filepath.Clean(dst) } else { filepath.Join([]string{t.here, dst}) }
+	// The parent must be there: making it would write outside dst.
+	let parent = filepath.Dir(to)
+	if !t.copier.Has(parent) {
+		return Missing{Path: parent}
+	}
+	let start = t.clock.Now()
+	let (by, copied) = cloned(t, from, to, true, true) catch {
+	case NotSameVolume as e:
+		return CloneFailed{Cloner: "copy", Reason: "\(e.To) is on another file system than \(e.From)"}
+	case CopyRefused as e:
+		return CloneFailed{Cloner: "copy", Reason: e.Why}
+	case Unsupported as e:
+		return e
+	case Exists as e:
+		return e
+	case Missing as e:
+		return e
+	case NoSpace as e:
+		return e
+	case CloneFailed as e:
+		return e
+	}
+	for folder in out {
+		let left = filepath.Join([]string{to, folder})
+		if by.Has(left) {
+			by.Discard(left) catch {
+			case Missing:
+			case CloneFailed as e:
+				by.Discard(to) catch {
+				case Missing, CloneFailed:
+				}
+				return e
+			}
+		}
+	}
+	let ms = int(time.Count(t.clock.Elapsed(start), 1ms))
+	let entries = by.Entries(to) catch {
+	case Missing as e:
+		return e
+	case CloneFailed as e:
+		return e
+	}
+	TreeCloned{Cloner: by.Name(), Shared: by.Shares(), Entries: entries, BytesCopied: copied, Ms: ms}
 }
 
 // usage is the bytes of w's tree, measured by the Cloner that made it
@@ -717,7 +837,6 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	if !t.copier.Has(folder) {
 		return Missing{Path: folder}
 	}
-	try guarded(t, folder)
 	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	try put(t, w)
 	w
@@ -808,13 +927,14 @@ func active(w Workspace) Workspace fails Busy {
 	}
 }
 
-func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked {
+func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked | BadRequest {
 	try initialized(t)
 	let w = try active(try chosen(t, o.Name))
 	let branch = try t.vcs.Branch(w.Path)
 	if branch == "" {
 		return Detached{Path: w.Path}
 	}
+	let request = try requestOf(t, o.Request)
 	let tree = try t.vcs.Snapshot(w.Path)
 	let commit = try t.vcs.Keep(w.Path, tree)
 	try t.vcs.SetRef(w.Path, LatestRef, try t.vcs.Ref(w.Path, LatestRef), commit)
@@ -826,6 +946,11 @@ func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace |
 	case VcsFailed as e:
 		return e
 	}
+	// The record is the tip's note, in the parent that holds the tip and
+	// in the workspace: never the branch name's.
+	let record = EncodeRecord(try recordOf(t, w, branch, held, request))
+	try t.vcs.SetNote(w.Parent, held, record)
+	try t.vcs.SetNote(w.Path, held, record)
 	try put(t, Workspace{..w, Branch: branch, Latest: tree, Since: now(t)})
 	Handed{Name: w.Name, Branch: branch, Commit: held, Snapshot: tree, Parent: w.Parent}
 }
@@ -884,7 +1009,7 @@ func MergeFile(t Tool, class string, base string, ours string, theirs string, o 
 		}
 		return BadClass{Name: class, Known: slices.Concat(slices.Concat(classes.ClassNames, names), []string{"auto"})}
 	}
-	try mergeWith(t, c, class, path, base, ours, theirs)
+	try mergeWith(t, c, class, "", path, base, ours, theirs)
 }
 
 // mark writes the marker of the workspace at path: its id in its Git

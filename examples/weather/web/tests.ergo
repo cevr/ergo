@@ -1,0 +1,89 @@
+// The three story tests of the fetch, restated (conformance/upstream maps
+// each) against an http.InMemoryNetwork that answers with the fixtures.
+// It routes by the URL: the origin and the path.
+
+import weather/weather
+import http
+
+// The fixtures: a geocoding answer and a weather answer.
+let geocoded = `{"results":[{"name":"Beverly Hills","latitude":34.07362,"longitude":-118.40036,"admin1":"California"}],"generationtime_ms":0.5}`
+let current = `{"current":{"time":"2026-03-10T01:30","interval":900,"temperature_2m":72.4,"relative_humidity_2m":45,"wind_speed_10m":9.8,"weather_code":0}}`
+
+func answer(status int, body string) http.Response { http.Response{Status: status, Header: []http.Field{}, Body: body} }
+
+// over is the forecast over a network of the two services, under Live's
+// policy and budget, that answers with handle.
+func over(handle own func(origin string, r http.Request) http.Response needs http.Streaming) OpenMeteo {
+	let n = http.InMemoryNetwork(Services, Budget, http.NoRedirects, handle) catch {
+	case http.InvalidClient, http.InvalidLimits:
+		Unreachable("Services and Budget are valid")
+	}
+	NewOpenMeteo(n)
+}
+
+// fixture is the forecast over a network that knows one place: a
+// geocoding ask for 90210 finds Beverly Hills, any other finds none, the
+// forecast service answers the fixture's weather, and any other URL is
+// not found.
+func fixture() OpenMeteo {
+	over(func(origin string, r http.Request) http.Response {
+		if origin == GeocodingOrigin && r.Path == "/v1/search" {
+			if http.Query(r.Query, "name") == (Some{"90210"}) { answer(200, geocoded) } else { answer(200, `{"results":[]}`) }
+		} else if origin == ForecastOrigin && r.Path == "/v1/forecast" {
+			answer(200, current)
+		} else {
+			answer(404, "")
+		}
+	})
+}
+
+// down is the forecast over a network that answers every ask with status.
+func down(status int) OpenMeteo {
+	over(func(origin string, r http.Request) http.Response { answer(status, "") })
+}
+
+test FetchGivesTheReport {
+	// fetchWeather returns SucceededFetchWeather with data on success
+	let r = try Fetch(fixture(), "90210")
+	assert r == weather.Report{Zip: "90210", Temperature: 72, Description: "Clear sky", Humidity: 45, WindSpeed: 10, Location: "Beverly Hills", Region: "California"}
+}
+
+// failure is the reason Fetch(o, zip) gives no report, or None when it
+// gives one.
+func failure(o OpenMeteo, zip string) Option[weather.Why] {
+	let _ = Fetch(o, zip) catch {
+	case weather.NotFound as m:
+		let why weather.Why = m
+		return Some{why}
+	case weather.Unavailable as u:
+		let why weather.Why = u
+		return Some{why}
+	}
+	None
+}
+
+test HTTPFailureFails {
+	// The fetch fails on HTTP failure: "Location not found" when the
+	// geocoding answer is not 200.
+	let why weather.Why = weather.NotFound{Zip: "invalid"}
+	assert failure(down(404), "invalid") == Some{why}
+}
+
+test NoPlaceIsNotFound {
+	// fetchWeather returns FailedFetchWeather when no results found
+	match failure(fixture(), "00000") {
+	case Some[weather.Why] as w:
+		assert weather.Said(w.Value) == "Location not found"
+	case None:
+		assert false
+	}
+}
+
+// ContractHoldsOverTheFixture: the Forecast laws hold for OpenMeteo over
+// the fixture network (the law runner cannot build an OpenMeteo itself: an
+// http.Network has no generator).
+test ContractHoldsOverTheFixture(n int) {
+	with context { weather.Forecast: fixture() } {
+		assert weather.ReportIsForTheZip(n) && weather.NotFoundNamesTheZip(n)
+	}
+}

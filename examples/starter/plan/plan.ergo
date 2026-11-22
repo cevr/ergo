@@ -7,8 +7,36 @@ import strings
 // License is the license a project starts with.
 type License = MIT{} | Apache{} | Unlicensed{}
 
+// UnlicensedHasNoLicenseFile: only a licensed plan makes a LICENSE.
+law UnlicensedHasNoLicenseFile(n int) {
+	let l = Licenses[(if n < 0 { -(n % 3) } else { n % 3 })]
+	let has = strings.Contains(strings.Join(Files(Plan{Name: "p", License: l, Features: []Feature{}, Git: false}), "\n"), "/LICENSE")
+	match l {
+	case Unlicensed:
+		!has
+	case MIT, Apache:
+		has
+	}
+}
+
 // Feature is an optional part of a project.
 type Feature = Tests{} | Docs{} | Workflow{}
+
+// EveryFeatureHasAFile: each feature of a plan makes one file, after the
+// README and the license, in the order chosen.
+law EveryFeatureHasAFile(name string, picks []int, git bool) {
+	let mut features = []Feature{}
+	for i in picks {
+		features = features.Append(Features[(if i < 0 { -(i % 3) } else { i % 3 })])
+	}
+	let p = Plan{Name: "p" + name, License: MIT, Features: features, Git: git}
+	let files = Files(p)
+	let mut ok = len(files) == 2+len(features)+(if git { 1 } else { 0 })
+	for i, f in features {
+		ok = ok && strings.HasSuffix(files[2+i], featureFile(f))
+	}
+	ok
+}
 
 // Plan is a new project: its name, its license, its features in the order
 // chosen, and whether it starts as a Git repository.
@@ -19,6 +47,18 @@ let Licenses = []License{MIT, Apache, Unlicensed}
 
 // Features are the features, in the order a person is offered them.
 let Features = []Feature{Tests, Docs, Workflow}
+
+// FeaturesHaveTheirOwnFiles: no two features make the same file.
+law FeaturesHaveTheirOwnFiles() {
+	let files = Files(Plan{Name: "p", License: Unlicensed, Features: Features, Git: false})
+	let mut ok = true
+	for i, a in files {
+		for j, b in files {
+			ok = ok && (i == j || a != b)
+		}
+	}
+	ok
+}
 
 // LicenseName is a license's name, as a flag spells it.
 func LicenseName(l License) string {
@@ -53,7 +93,6 @@ func Files(p Plan) []string {
 	case MIT, Apache:
 		out = out.Append(p.Name + "/LICENSE")
 	case Unlicensed:
-		out = out
 	}
 	for f in p.Features {
 		out = out.Append(p.Name + "/" + featureFile(f))

@@ -1,0 +1,95 @@
+// exprprobe is the self-hosted side of the checker's floor probe
+// (scripts/checkfloor; capstone S3d4): `exprprobe N MODE` writes a
+// package of N functions of one shape (checkfloor's shape, byte for
+// byte), then by MODE stops after writing it (gen), parsing it (parse),
+// binding and loading it (setup), or typing every body (check, keeping
+// each typed expression; check-fused, only counting them, S3d5). It prints
+// `fns=F typed=E` (check), or what it reached. `check-bad-RULE` checks
+// the package with one error in its last function, checkfloor's bad
+// package for RULE (badEdit): a rejected package prints its count of
+// errors and exits 1.
+
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import io
+import os
+import strings
+
+// badEdit is the edit of the last function that breaks rule: a type
+// error (type), a name nothing declares (name), an assignment to a
+// parameter (mut), a call of two arguments to one parameter (arity);
+// ("", "") for none. checkfloor's badEdit, byte for byte.
+func badEdit(rule string) (string, string) {
+	match rule {
+	case "type":
+		("q != \"x\"", "q != 1")
+	case "name":
+		("acc + a + c\n", "acc + a + zz\n")
+	case "mut":
+		("\t\tacc = acc + len(q)", "\t\tp = acc + len(q)")
+	case "arity":
+		("id(p)", "id(p, p)")
+	case _:
+		("", "")
+	}
+}
+
+// source is the package of n shaped functions, the last one edited to
+// break rule (badEdit).
+func source(n int, rule string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("func id[T](x T) T { x }\n")
+	let (from, to) = badEdit(rule)
+	for i in 0..n {
+		let f = "\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n"
+		b.WriteString(if i == n-1 && from != "" { strings.ReplaceAll(f, from, to) } else { f })
+	}
+	b.String()
+}
+
+func run(args []string) fails os.Exit needs io.Stdout {
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: "usage: exprprobe N gen|parse|setup|check|check-fused|check-bad-RULE"}
+	}
+	let mut n = 0
+	let w = args[0]
+	for i in 0..len(w) {
+		n = n*10 + int(w[i]) - 48
+	}
+	let mode = args[1]
+	let rule = if strings.HasPrefix(mode, "check-bad-") { mode[10:len(mode)] } else { "" }
+	let src = source(n, rule)
+	if mode == "gen" {
+		io.Stdout.Println("bytes=\(len(src))")
+		return
+	}
+	let p = syntax.Parse(src)
+	if mode == "parse" {
+		io.Stdout.Println("nodes=\(syntax.NumNodes(p.Tree))")
+		return
+	}
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: p}}
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	if mode == "setup" {
+		io.Stdout.Println("fns=\(len(k.Fns))")
+		return
+	}
+	let t = if mode == "check-fused" { expr.CheckFused(&s, k) } else { expr.Check(&s, k) }
+	let bad = len(expr.Diags(t))
+	if bad > 0 {
+		return os.Exit{Code: 1, Message: "rejected: \(bad) type errors"}
+	}
+	io.Stdout.Println("fns=\(len(k.Fns)) typed=\(expr.Typed(t))")
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

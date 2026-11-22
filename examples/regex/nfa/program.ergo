@@ -17,11 +17,18 @@ type Program { insts []Inst, start int }
 // Len is the number of instructions of p.
 func Len(p Program) int { len(p.insts) }
 
+// ProgramIsLinear: a program has at most one instruction per node of
+// its pattern, and Accept.
+law ProgramIsLinear(seed int) {
+	let p = syntax.Sample(seed)
+	Build(p).Len() <= syntax.Size(p)+1
+}
+
 // builder is a program while it is compiled.
 type builder { insts []Inst }
 
 // add appends i to b and is its index.
-func add(b *builder, i Inst) int {
+func add(b mut builder, i Inst) int {
 	b.insts = b.insts.Append(i)
 	len(b.insts) - 1
 }
@@ -36,7 +43,7 @@ func Build(n syntax.Node) Program {
 
 // emit adds the instructions of n, which go on to next after a match of
 // n, and is the index of the first.
-func emit(b *builder, n syntax.Node, next int) int {
+func emit(b mut builder, n syntax.Node, next int) int {
 	match n {
 	case syntax.Empty:
 		next

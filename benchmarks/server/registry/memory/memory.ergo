@@ -1,0 +1,44 @@
+// Package memory holds Table, a catalog.Pins whose pins live in a map for
+// the life of the process. api's law AgreesWithModel runs against a Table
+// that NewTable makes.
+
+import registry/catalog
+import sync
+
+// Shelf is a Table's state: each client's pins, and how many pins there
+// are in all.
+type Shelf { ByClient Map[string, []catalog.Pin], Total int }
+
+// Table is a catalog.Pins in memory. Its state is in a sync.Ref, so every
+// copy of a Table is the same store, and each change is one atomic
+// update: pins added at once by requests served at once are all kept.
+type Table { shelf sync.Ref[Shelf] } implements catalog.Pins
+
+// NewTable is an empty Table.
+func NewTable() Table { Table{shelf: sync.NewRef[Shelf](Shelf{ByClient: Map[string, []catalog.Pin]{}, Total: 0})} }
+
+// Add keeps pin after the client's earlier pins.
+func Add(t Table, client string, pin catalog.Pin) int {
+	sync.Modify(t.shelf, func(s Shelf) (int, Shelf) {
+		let pins = pinsOf(s, client).Append(pin)
+		let mut by = s.ByClient
+		by[client] = pins
+		(len(pins), Shelf{ByClient: by, Total: s.Total + 1})
+	})
+}
+
+// Of is the client's pins, oldest first.
+func Of(t Table, client string) []catalog.Pin { pinsOf(t.shelf.Get(), client) }
+
+// Total is the count of every client's pins.
+func Total(t Table) int { t.shelf.Get().Total }
+
+// pinsOf is the client's pins in s.
+func pinsOf(s Shelf, client string) []catalog.Pin {
+	match s.ByClient.Get(client) {
+	case Some[[]catalog.Pin] as p:
+		p.Value
+	case None:
+		[]catalog.Pin{}
+	}
+}

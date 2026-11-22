@@ -1,0 +1,10 @@
+> submit -id=c1 -run=build -stages=2
+  taken as c1 at log position 1
+  build: submitted (stages: 2)
+  build: started
+  build: stage 1 passed
+  build: stage 2 passed
+  build: finished
+  ! build passed
+> deploy build
+the runner ran 2 tries

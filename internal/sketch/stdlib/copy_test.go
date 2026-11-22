@@ -1,7 +1,6 @@
 package stdlib_test
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"go/ast"
@@ -44,19 +43,15 @@ import (
 //     against copy/P is equal after copyNormalise. Equal Go is equal work,
 //     so this is the counted-speed half too, in process, with no build.
 //
-// The verdict of each package is a row of testdata/std-copy.txt: `same`,
-// or `differs` with the stage and first reason and the unit that removes
-// it. A package that differs and is listed same fails; a package listed
-// differs that is now the same fails (drop the row to same); a package with
-// no row fails, and a differs row outside stdCopyBaseline fails: the file
-// only moves to same.
+// Every std package's copy is the same: one that differs fails with its
+// stage and first difference (std has no privileges; the baseline of
+// packages that differed went with STD-COPY-ZERO).
 //
 // ERGO_STD_COPY_SEED=<n> runs only seed n; ERGO_STD_COPY_PKG=<path> only
 // one package. A failing seed prints the program, both first differing
 // lines and the replay command.
 func TestStdCopyAgrees(t *testing.T) {
 	copyNormaliseKeepsMeaning(t)
-	rows := readStdCopy(t)
 	seeds := []uint64{0, 1, 2}
 	if s := os.Getenv("ERGO_STD_COPY_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -66,43 +61,23 @@ func TestStdCopyAgrees(t *testing.T) {
 		seeds = []uint64{n}
 	}
 	only := os.Getenv("ERGO_STD_COPY_PKG")
-	pkgs := append([]string{copyFixturePath}, stdlib.Packages()...)
-	seen := map[string]bool{}
-	for _, path := range pkgs {
+	for _, path := range append([]string{copyFixturePath}, stdlib.Packages()...) {
 		if only != "" && path != only {
 			continue
 		}
-		seen[path] = true
-		v := copyVerdict(t, path, seeds)
-		row, ok := rows[path]
-		switch {
-		case !ok:
-			t.Errorf("std package %s has no row in testdata/std-copy.txt; its copy %s", path, v)
-		case v.same() && !row.same():
-			t.Errorf("std package %s: its copy is the same now; set its row of testdata/std-copy.txt to same (it was: %s)", path, row.reason)
-		case !v.same() && row.same():
-			t.Errorf("std package %s: its copy differs, and testdata/std-copy.txt says same: %s", path, v)
-		case !v.same() && v.stage != row.stage:
-			t.Errorf("std package %s: its copy differs at %s, and testdata/std-copy.txt says %s: %s", path, v.stage, row.stage, v)
-		}
-		if !v.same() && !slices.Contains(stdCopyBaseline, path) {
-			t.Errorf("std package %s differs and was not in testdata/std-copy.txt's differs rows when the rule landed: a std package must be ordinary (%s)", path, v)
-		}
-	}
-	if only == "" {
-		for _, path := range slices.Sorted(mapsKeys(rows)) {
-			if !seen[path] {
-				t.Errorf("testdata/std-copy.txt lists %s, which is no std package", path)
-			}
+		if v := copyVerdict(t, path, seeds); !v.same() {
+			t.Errorf("std package %s: its copy %s: a std package must be ordinary", path, v)
 		}
 	}
 }
 
 // copyNormaliseKeepsMeaning checks the normaliser itself: what it must fold
-// (directives, the call table, the context namespace, positions, the order
-// of declarations, a uniqueness suffix) normalises equal, and one planted
+// (directives, the call table, the context namespace, positions and files,
+// the order of declarations, a uniqueness suffix in a name, which of two
+// declarations of one text a body names) normalises equal, and one planted
 // difference of each kind it must keep (a callee, a type, a hidden
-// argument, an allocation, a rewritten operand) normalises different. A
+// argument, an allocation, a rewritten operand, a file, a variant name, a
+// suffixed variant name, a value) normalises different. A
 // normaliser that folds too much would let a privilege through.
 func copyNormaliseKeepsMeaning(t *testing.T) {
 	t.Helper()
@@ -123,34 +98,62 @@ func h(env *Env, n int64, ns string) int64 { return n }
 
 type Pair struct{ Left int64 }
 
+func (x Pair) ErgoVariant() string { return [...]string{"Pair"}[0] }
+
+type Site struct{ File string }
+
+var site = Site{File: "std/copyfixture/fixture.ergo"}
+
+var called = "f calls copyfixture.g at 4:9"
+
+const none int64 = -1
+
+const none_1 int64 = -1
+
+func k() int64 { return none }
+
 type ergoCall = struct{ Func string }
 
 var ergoCalls = [...]ergoCall{{Func: "f"}}
 `
 	folded := map[string][2]string{
-		"directive":  {"//line /x/std/copyfixture/fixture.ergo:3:1\n", "//line /ergo-copy/std/copyfixture/fixture.ergo:9:1\n"},
-		"call table": {`{{Func: "f"}}`, `{{Func: "f"}, {Func: "g"}}`},
-		"namespace":  {`"std:copyfixture"`, `"copy/copyfixture"`},
-		"position":   {"at std/copyfixture/fixture.ergo:4:2", "at /ergo-copy/std/copyfixture/fixture.ergo:4:2"},
-		"order":      {"type Pair struct{ Left int64 }\n", ""},
-		"suffix":     {"Pair", "Pair_1"},
+		"directive":   {"//line /x/std/copyfixture/fixture.ergo:3:1\n", "//line /ergo-copy/std/copyfixture/fixture.ergo:9:1\n"},
+		"call table":  {`{{Func: "f"}}`, `{{Func: "f"}, {Func: "g"}}`},
+		"namespace":   {`"std:copyfixture"`, `"copy/copyfixture"`},
+		"callee path": {"calls copyfixture.g", "calls copy/copyfixture.g"},
+		"position":    {"at std/copyfixture/fixture.ergo:4:2", "at /ergo-copy/std/copyfixture/fixture.ergo:4:2"},
+		"file":        {`File: "std/copyfixture/fixture.ergo"`, `File: "/ergo-copy/std/copyfixture/fixture.ergo"`},
+		"order":       {"type Pair struct{ Left int64 }\n", ""},
+		"suffix":      {"Pair", "Pair_1"},
+		"same text":   {"return none }", "return none_1 }"},
 	}
 	kept := map[string][2]string{
-		"callee":     {"return g(", "return h("},
-		"type":       {"n int64, ns string) int64 { return n }\n\nfunc h", "n int32, ns string) int64 { return n }\n\nfunc h"},
-		"hidden":     {"g(env, q.Left", "g(nil, q.Left"},
-		"allocation": {"q := &Pair{", "q := Pair{"},
-		"rewrite":    {"return g(env, q.Left", "return g(env, p.Left"},
+		"callee":         {"return g(", "return h("},
+		"type":           {"n int64, ns string) int64 { return n }\n\nfunc h", "n int32, ns string) int64 { return n }\n\nfunc h"},
+		"hidden":         {"g(env, q.Left", "g(nil, q.Left"},
+		"allocation":     {"q := &Pair{", "q := Pair{"},
+		"rewrite":        {"return g(env, q.Left", "return g(env, p.Left"},
+		"file":           {`File: "std/copyfixture/fixture.ergo"`, `File: "std/copyfixture/other.ergo"`},
+		"variant name":   {`[...]string{"Pair"}`, `[...]string{"Left"}`},
+		"variant suffix": {`[...]string{"Pair"}`, `[...]string{"Pair_1"}`},
+		"value":          {"const none int64 = -1", "const none int64 = -2"},
+		"callee package": {"calls copyfixture.g", "calls other.g"},
+		"callee name":    {"calls copyfixture.g", "calls copyfixture.h"},
 	}
 	want := copyNormalise(base, copyFixturePath, false)
 	for kind, e := range folded {
 		text := strings.Replace(base, e[0], e[1], 1)
-		copied := kind == "namespace"
+		copied := kind == "namespace" || kind == "callee path"
 		switch kind {
 		case "order":
 			text += e[0]
 		case "suffix":
+			// The Go names: the variant's name stays its Ergo name.
 			text = strings.ReplaceAll(base, e[0], e[1])
+			text = strings.Replace(text, `{"Pair_1"}`, `{"Pair"}`, 1)
+		case "callee path":
+			// A copy's text: its namespace is the copy's too.
+			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
 		}
 		if text == base {
 			t.Fatalf("copyNormalise self-test: the %s plant does not apply", kind)
@@ -223,63 +226,6 @@ func (v copyVerdictT) String() string {
 		s += "\n" + v.detail
 	}
 	return s
-}
-
-// stdCopyRow is one row of testdata/std-copy.txt.
-type stdCopyRow struct{ stage, reason, unit string }
-
-func (r stdCopyRow) same() bool { return r.stage == "" }
-
-// readStdCopy reads testdata/std-copy.txt: `path<TAB>same`, or
-// `path<TAB>differs<TAB>stage: reason<TAB>unit`.
-func readStdCopy(t *testing.T) map[string]stdCopyRow {
-	t.Helper()
-	f, err := os.Open("testdata/std-copy.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	out := map[string]stdCopyRow{}
-	sc := bufio.NewScanner(f)
-	for n := 1; sc.Scan(); n++ {
-		line := sc.Text()
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		p := strings.Split(line, "\t")
-		switch {
-		case len(p) == 2 && p[1] == "same":
-			out[p[0]] = stdCopyRow{}
-		case len(p) == 4 && p[1] == "differs" && strings.TrimSpace(p[3]) != "":
-			stage, reason, ok := strings.Cut(p[2], ": ")
-			if !ok || !slices.Contains([]string{"check", "surface", "lower"}, stage) {
-				t.Errorf("testdata/std-copy.txt:%d: the reason %q does not start with check:, surface: or lower:", n, p[2])
-			}
-			out[p[0]] = stdCopyRow{stage: stage, reason: reason, unit: p[3]}
-		default:
-			t.Errorf("testdata/std-copy.txt:%d: want `path<TAB>same` or `path<TAB>differs<TAB>stage: reason<TAB>unit`, got %q", n, line)
-		}
-	}
-	if err := sc.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
-// stdCopyBaseline are the packages testdata/std-copy.txt held as differs
-// when the rule landed. A package may leave; none may join, except once:
-// bench, dense, lint, ui and ui/layout joined with the batch-19/20
-// integration, units developed beside the rule (flat-union-std,
-// join-under-directive; lint is LINT4's).
-var stdCopyBaseline = []string{
-	"bench", "dense", "lint", "ui", "ui/layout",
-	"actor", "arena", "atomic", "base64", "bits", "cmp", "codec", "config",
-	"crc32", "csv", "embed", "exec", "explore", "filepath", "flag", "fs",
-	"fstest", "hex", "http", "io", "journal", "journal/memory", "json",
-	"log", "machines", "maps", "math", "os", "prompt", "queue", "rand",
-	"rpc", "schedule", "scope", "sha256", "slices", "strconv", "strings",
-	"sync", "task", "tasks", "term", "testing", "text", "time", "timeout",
-	"toml", "trace", "ui", "utf8",
 }
 
 // copySource is one std file of a package under test.
@@ -472,10 +418,13 @@ func copySurface(p *check.Package) string {
 }
 
 // copyRow matches a fails or needs row of a printed signature.
-var copyRow = regexp.MustCompile(`\b(?:fails|needs) [^ |]+(?: \| [^ |]+)*`)
+var copyRow = regexp.MustCompile(`\b(?:fails|needs) [^ |\n]+(?: \| [^ |\n]+)*`)
 
 // copyRefs are the references a caller can take of the package's exported
 // functions: each is checked alone, against std, and kept when it checks.
+// A function no caller can take as a value (an extern, which the checker
+// has called directly, or a generic over rows, which only a call infers)
+// is taken through a declared function that calls it (copyCall).
 func copyRefs(t *testing.T, pair copyPair) []string {
 	t.Helper()
 	name := pair.std.Name
@@ -496,12 +445,153 @@ func copyRefs(t *testing.T, pair copyPair) []string {
 			src := copyMain(pair.path, []string{c})
 			if _, ds := checkMain(src, pair, false); len(ds) == 0 {
 				out = append(out, c)
+				cands = nil
+				break
+			}
+		}
+		if cands == nil {
+			continue
+		}
+		for _, arg := range []string{"int64", "string"} {
+			c, ok := copyCall(name, f, arg)
+			if !ok {
+				break
+			}
+			if _, ds := checkMain(copyMain(pair.path, []string{c}), pair, false); len(ds) == 0 {
+				out = append(out, c)
 				break
 			}
 		}
 	}
 	return out
 }
+
+// copyCall is a function declaration, call<F>, that calls pkg's function
+// f with its parameters: f's signature with each type parameter bound, a
+// type to arg, an error row to copyError and a capability row to the empty
+// row. A parameter f writes pure takes a value the checker sees: for a
+// Machine, copyMachine's machine, whose state, signal, output and error
+// row bind the Machine's parameters. ok is false for a signature it cannot
+// spell.
+func copyCall(pkg string, f *check.Func, arg string) (string, bool) {
+	var pure []bool
+	if f.Decl.Type != nil && f.Decl.Type.Params != nil {
+		for _, fld := range f.Decl.Type.Params.List {
+			for range max(len(fld.Names), 1) {
+				pure = append(pure, fld.Pure)
+			}
+		}
+	}
+	raw, _, ok := copySplitParams(strings.TrimPrefix(f.Sig.String(), "func"))
+	if !ok || len(pure) != len(raw) {
+		return "", false
+	}
+	bind := map[string]string{}
+	for _, tp := range f.Sig.TParams {
+		switch tp.Kind {
+		case check.KindErrors:
+			bind[tp.Name] = copyError
+		case check.KindUses:
+			bind[tp.Name] = copyNoRow
+		default:
+			bind[tp.Name] = arg
+		}
+	}
+	for i, p := range raw {
+		if !pure[i] {
+			continue
+		}
+		inner, ok := strings.CutPrefix(p, "Machine[")
+		if !ok {
+			return "", false // a pure function parameter: no fixture
+		}
+		args, _, _ := copySplitParams("(" + strings.TrimSuffix(inner, "]") + ")")
+		for k, to := range []string{"CopyState", "CopySignal", "int64", copyError} {
+			if k < len(args) {
+				bind[args[k]] = to
+			}
+		}
+	}
+	sig := f.Sig.String()
+	for name, to := range bind {
+		sig = regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\b`).ReplaceAllString(sig, to)
+	}
+	// The empty row: a member of a row with others, or the whole row.
+	for _, form := range []string{" | " + copyNoRow, copyNoRow + " | ", " needs " + copyNoRow} {
+		sig = strings.ReplaceAll(sig, form, "")
+	}
+	params, rest, ok := copySplitParams(strings.TrimPrefix(sig, "func"))
+	if !ok || len(params) != len(raw) {
+		return "", false
+	}
+	var decl, use []string
+	for i, p := range params {
+		if pure[i] {
+			use = append(use, "CopyMachine{}")
+			continue
+		}
+		decl = append(decl, fmt.Sprintf("p%d %s", i, strings.TrimSpace(p)))
+		use = append(use, fmt.Sprintf("p%d", i))
+	}
+	head := "func call" + f.Name + "(" + strings.Join(decl, ", ") + ")"
+	if rest = strings.Join(strings.Fields(rest), " "); rest != "" {
+		head += " " + rest
+	}
+	if strings.Contains(head, copyNoRow) {
+		return "", false // a capability row inside a type: no spelling
+	}
+	return head + " { " + pkg + "." + f.Name + "(" + strings.Join(use, ", ") + ") }", true
+}
+
+// copyNoRow stands for the empty capability row while copyCall spells a
+// signature: a row member it drops.
+const copyNoRow = "NoRow\x01"
+
+// copyMachine is the machine copyMain declares for a copyCall that passes
+// one to a pure parameter.
+const copyMachine = `type CopyState { N int64 }
+
+type CopySignal { N int64 }
+
+func copyStep(s CopyState, e CopySignal) Decision[CopyState, int64] fails ` + copyError + ` { Ignore }
+
+type CopyMachine machine[CopyState, CopySignal] { initial: CopyState{N: 0}, step: copyStep }
+
+`
+
+// copySplitParams splits "(A, B) rest" into its parameter types, at the
+// commas outside brackets, and the rest.
+func copySplitParams(s string) ([]string, string, bool) {
+	if !strings.HasPrefix(s, "(") {
+		return nil, "", false
+	}
+	depth, start := 0, 1
+	var params []string
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth--
+			if depth == 0 {
+				if p := strings.TrimSpace(s[start:i]); p != "" {
+					params = append(params, p)
+				}
+				return params, s[i+1:], true
+			}
+		case ',':
+			if depth == 1 {
+				params = append(params, strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	return nil, "", false
+}
+
+// copyError is the error type copyMain declares when a reference names it:
+// the error row a copyCall binds.
+const copyError = "Oops"
 
 // copyProgram is the caller program of seed: seed 0 takes every reference
 // in order, any other seed a drawn subset in a drawn order.
@@ -518,16 +608,53 @@ func copyProgram(pair copyPair, refs []string, seed uint64) string {
 }
 
 // copyMain is a main of the package at path that takes each reference as
-// a value; the import is rewritten to the copy by checkMain.
+// a value; the import is rewritten to the copy by checkMain. It imports the
+// other std packages a reference names (a copyCall's parameter types) and
+// declares copyError when one names it.
 func copyMain(path string, refs []string) string {
 	var b strings.Builder
-	b.WriteString("import " + path + "\n\nfunc main() {\n")
-	for i, r := range refs {
+	imports := []string{path}
+	for _, m := range copyQualifier.FindAllStringSubmatch(strings.Join(refs, "\n"), -1) {
+		if p := m[1]; !slices.Contains(imports, p) && p != pathBase(path) {
+			if _, err := check.Std.Import(p); err == nil {
+				imports = append(imports, p)
+			}
+		}
+	}
+	for _, p := range imports {
+		b.WriteString("import " + p + "\n")
+	}
+	b.WriteString("\n")
+	machine := slices.ContainsFunc(refs, func(r string) bool { return strings.Contains(r, "CopyMachine{}") })
+	if machine || slices.ContainsFunc(refs, func(r string) bool { return regexp.MustCompile(`\b` + copyError + `\b`).MatchString(r) }) {
+		b.WriteString("type " + copyError + " {}\n\n")
+	}
+	if machine {
+		b.WriteString(copyMachine)
+	}
+	var uses []string
+	for _, r := range refs {
+		if name, ok := strings.CutPrefix(r, "func "); ok {
+			// A copyCall: declared, and taken by its name.
+			b.WriteString(r + "\n\n")
+			name, _, _ = strings.Cut(name, "(")
+			r = name
+		}
+		uses = append(uses, r)
+	}
+	b.WriteString("func main() {\n")
+	for i, r := range uses {
 		fmt.Fprintf(&b, "\tlet v%d = %s\n\t_ = v%d\n", i, r, i)
 	}
 	b.WriteString("}\n")
 	return b.String()
 }
+
+// copyQualifier is a package qualifier in a reference's text.
+var copyQualifier = regexp.MustCompile(`\b([a-z][a-z0-9]*)\.[A-Z]`)
+
+// pathBase is the last element of a package path, its default name.
+func pathBase(path string) string { return path[strings.LastIndex(path, "/")+1:] }
 
 // copyTrust is the importer of a copy: std, and the root module's trust
 // line for the copy's module, `trust go copy` (docs/spec/interop.md, Trusted
@@ -574,6 +701,7 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 	}
 	if copied {
 		u.Imports = []lower.Unit{pair.unit}
+		u.Rewrite = copyEvidence(t, pair)
 	}
 	files, err := lower.Lower(u)
 	if err != nil {
@@ -581,6 +709,11 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 	}
 	var b strings.Builder
 	for _, f := range files {
+		if f.Path == "ergo_laws.go" {
+			// The producer record of the ledger the build read
+			// (copyEvidence): how the copy ships its evidence.
+			continue
+		}
 		text := string(f.Data)
 		if strings.HasSuffix(f.Path, ".go") {
 			text = copyNormalise(text, pair.path, copied)
@@ -588,6 +721,22 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 		b.WriteString("== " + f.Path + "\n" + text)
 	}
 	return b.String()
+}
+
+// copyEvidence is the law evidence of the copy's build: its module's
+// ledger, which holds the verdicts of std's ledger (stdlib.Ledger) under
+// the copy's names spelled as std's. A sourced package's laws are admitted
+// by its module's ledger and std's by the ledger it ships with (lower
+// evidenceFor); so a copy whose laws ran as std's did rewrites as std
+// does, and a law std's ledger does not admit (stale, unproved) is not
+// admitted for the copy either.
+func copyEvidence(t *testing.T, pair copyPair) lower.RewriteEvidence {
+	t.Helper()
+	entries, err := lower.ParseLedger(stdlib.Ledger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lower.NewLedgerEvidence(pair.copied, lower.LedgerNames{pair.copied: pair.path}, entries, lower.ShippedForeignKeys())
 }
 
 // copyNormalise folds what differs between std and a user package by how
@@ -599,7 +748,14 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 //     ergoInlines, and the types ergoDecl and ergoCall (a std body has no
 //     entry);
 //   - the context namespace: a string "std:P" and the copy's "copy/P";
-//   - positions written as text: the copy's root /ergo-copy/;
+//   - the package of a callee a site names as text: "calls P.f" and the
+//     copy's "calls copy/P.f" (the lowering names a callee by its
+//     package's path, std's and a user's alike);
+//   - positions and files written as text: the copy's root /ergo-copy/;
+//   - the suffix of a name the lowering made unique (copyCanonicalNames),
+//     in an identifier, and which of two declarations of the same text a
+//     body names; never in a variant's name, which is its Ergo name
+//     (lower machine.go, ergoVariantName);
 //   - the order of the top-level declarations, which means nothing in Go.
 //
 // A text that does not parse is returned whole.
@@ -618,7 +774,13 @@ func copyNormalise(text, path string, copied bool) string {
 			if b.Value == ns {
 				b.Value = `"<namespace>"`
 			}
+			if copied {
+				b.Value = strings.ReplaceAll(b.Value, " calls copy/"+path+".", " calls "+path+".")
+			}
 			b.Value = copyFileOfPosition.ReplaceAllString(b.Value, "$1")
+			// A file written as text (a CallSite's File): std's is
+			// relative, std/P/f.ergo, the copy's under copyRoot.
+			b.Value = strings.Replace(b.Value, `"`+copyRoot+"std/", `"std/`, 1)
 		}
 		return true
 	})
@@ -676,9 +838,12 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 	}
 	groups := map[string][]string{}
+	stems := map[string][2]string{}
 	for name := range declOf {
-		base := copySuffix.ReplaceAllString(name, "")
+		stem, inst := copyNameParts(name)
+		base := stem + inst
 		groups[base] = append(groups[base], name)
+		stems[base] = [2]string{stem, inst}
 	}
 	keep := map[*ast.Ident]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -706,11 +871,13 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	})
 	final := map[string]string{}
 	for base, names := range groups {
-		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(base) + `(?:_\d+)?\b`)
+		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(stems[base][0]) + `(?:_\d+)?` + regexp.QuoteMeta(stems[base][1]) + `\b`)
 		keys := map[string]string{}
 		for _, n := range names {
 			var buf bytes.Buffer
-			_ = printer.Fprint(&buf, fset, declOf[n])
+			// Printed with no positions: a copy's line directives move
+			// them, and the printer's line breaks follow them.
+			_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])
 			keys[n] = member.ReplaceAllString(buf.String(), base)
 		}
 		sort.Slice(names, func(i, j int) bool {
@@ -719,22 +886,41 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 			}
 			return names[i] < names[j]
 		})
+		// Declarations whose text is the same are interchangeable (two
+		// packages' `const none int = -1`, arena's and layout's): they
+		// share one name, so which of them a body names, which follows
+		// the naming order, does not count.
+		rank := -1
 		for i, n := range names {
-			final[n] = fmt.Sprintf("%s_#%d", base, i)
+			if i == 0 || keys[n] != keys[names[i-1]] {
+				rank++
+			}
+			final[n] = fmt.Sprintf("%s_#%d", base, rank)
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok && !keep[id] {
-			if to, ok := final[id.Name]; ok {
-				id.Name = to
+		if n, ok := n.(*ast.Ident); ok {
+			if to, ok := final[n.Name]; ok && !keep[n] {
+				n.Name = to
 			}
 		}
 		return true
 	})
 }
 
-// copySuffix is the suffix the lowering adds to make a Go name unique.
-var copySuffix = regexp.MustCompile(`_\d+$`)
+// copyNameParts splits a top-level Go name into its stem and the suffix
+// of a monomorphised instance (_i1), dropping the suffix the lowering adds
+// to make a name unique, which stands before the instance's: Pair_1 is
+// Pair, and DecodeMono_1_i1, toml's beside json's DecodeMono_i1, is
+// DecodeMono with _i1.
+func copyNameParts(name string) (stem, inst string) {
+	m := copyNameShape.FindStringSubmatch(name)
+	return m[1], m[2]
+}
+
+// copyNameShape is a Go name: its stem, a uniqueness suffix, and the suffix
+// of a monomorphised instance, each of the suffixes optional.
+var copyNameShape = regexp.MustCompile(`^(.+?)(?:_\d+)?(_i\d+)?$`)
 
 // copyFileOfPosition matches the file of a position written as text
 // (std/codec/codec.ergo:118:2, or a copy's file): only line and column are
@@ -777,6 +963,27 @@ func TestQueueCopyKeepsItsValues(t *testing.T) {
 	}
 }
 
+// TestFSCopyBorrowsItsText is STD-COPY-SAME's acceptance for fs: a
+// program that holds a Text of the copy of fs in a field is refused as one
+// that holds std fs's is (types.md, Borrows 8, rule 1). The borrow rule
+// reads the declaration of Text (it names the runtime's MappedText), not
+// the path fs. Mutant mapped-text-read-by-name (IsMappedText asks for std
+// fs) lets the copy's field through.
+func TestFSCopyBorrowsItsText(t *testing.T) {
+	pair := checkCopy(t, "fs")
+	const src = "import fs\n\ntype Keep { text fs.Text }\n\nfunc main() {}\n"
+	for _, copied := range []bool{false, true} {
+		_, ds := checkMain(src, pair, copied)
+		found := false
+		for _, d := range ds {
+			found = found || strings.Contains(d.Message, "is a borrow of its Mapped")
+		}
+		if !found {
+			t.Errorf("a field of fs.Text (copy %v): no borrow refusal; diagnostics %v", copied, ds)
+		}
+	}
+}
+
 func mapsKeys[V any](m map[string]V) func(func(string) bool) {
 	return func(yield func(string) bool) {
 		for k := range m {
@@ -789,7 +996,7 @@ func mapsKeys[V any](m map[string]V) func(func(string) bool) {
 
 // copyAPIText is the text of fs as api.Text printed it before SEM2a moved
 // the view to std code's ApiText: each function's name, signature, type
-// parameters, what it takes and the copies it makes.
+// parameters, what it takes and its own marks.
 func copyAPIText(fs []api.Function) string {
 	var b strings.Builder
 	for _, f := range fs {
@@ -806,12 +1013,8 @@ func copyAPIText(fs []api.Function) string {
 			origin = "inferred"
 		}
 		fmt.Fprintf(&b, "\n  takes %s (%s)\n", takes, origin)
-		for _, c := range f.Copies {
-			where := c.Where
-			if where == "" {
-				where = "foreign body"
-			}
-			fmt.Fprintf(&b, "  copies %s at %s (plain data only): %s\n", c.Parameter, where, c.What)
+		for _, n := range f.Own {
+			fmt.Fprintf(&b, "  own %s (a resource may bind it)\n", n)
 		}
 	}
 	if len(fs) == 0 {

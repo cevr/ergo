@@ -24,7 +24,7 @@ A script is one command a line: `down X Y`, `move X Y` and `up X Y` are the poin
 
 ## Layout
 
-- `canvas/`: the domain. `shape.ergo` (points, shapes, boxes, the hit test), `simplify.ergo`, `grid.ergo`, `drawing.ergo` (a picture: its shapes, ids and grid), `tool.ergo` (the view and the machine's step), `laws.ergo` (the machine and its laws), `frame.ergo` (a frame as text), `svg.ergo` (export and parse), `store.ergo`, `gen.ergo` (the seeded workload).
+- `canvas/`: the domain. `shape.ergo` (points, shapes, boxes, the hit test), `simplify.ergo`, `grid.ergo`, `drawing.ergo` (a picture: its shapes, ids and grid), `tool.ergo` (the view and the machine's step), `machine.ergo` (the machine and its laws), `frame.ergo` (a frame as text), `svg.ergo` (export and parse), `store.ergo`, `gen.ergo` (the seeded workload).
 - `script/`: the headless driver: a line to a command (`LineParsesBack`), a script played on the machine, and the scene that plays it on the window (`scene.ergo`).
 - `window/`: the window's view and app (`view.ergo`) and its paint list (`draw.ergo`).
 - `files/`, `memory/`: the providers of `Store`.

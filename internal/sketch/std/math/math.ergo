@@ -1,9 +1,13 @@
 // Package math is Go's math for float64 (docs/spec/stdlib.md, math and
 // bits; std-text-runes). Its functions call Go's math through import
 // go, as a user binds it (NP4f), so a call compiles to Go's own call, an
-// instruction for Floor, Ceil, Trunc, Sqrt and Abs on amd64 and arm64; the
-// externs ToInt … ToUintptr bind runtime/v1 bodies (runtime/v1/numbers.go),
-// guarded conversions, until an Ergo body counts within 1.02 of them
+// instruction for Floor, Ceil, Trunc, Sqrt and Abs on amd64 and arm64.
+// ToInt, ToInt64, ToUint, ToUint64 and ToUintptr are Ergo (NP4f-16): each
+// guards the conversion with the open interval in which the truncation
+// fits, and converts through int64(f) or uint64(f), whose helper's compare
+// is the guard's own, so Go's CSE and prove pass drop it. The externs
+// ToInt8 … ToUint32 bind runtime/v1 bodies (runtime/v1/numbers.go): an
+// Ergo body pays the helper's 64-bit compare and clamps inside its guard
 // (std-go-share.txt names why). Go's constants are functions here
 // (MaxInt64()): a std package let has no Go name in a build yet.
 
@@ -48,6 +52,95 @@ func Log(f float64) float64 { math.Log(f) }
 // Exp(NaN) is NaN, and a very large f gives +Inf and a very small one 0.
 func Exp(f float64) float64 { math.Exp(f) }
 
+// Sin is the sine of x radians, as Go's math.Sin: Sin(±0) is ±0, and
+// Sin(±Inf) and Sin(NaN) are NaN.
+func Sin(x float64) float64 { math.Sin(x) }
+
+// Sin is odd, bit for bit.
+law SinIsOdd(x float64) { IsNaN(Sin(x)) || Sin(-x) == -Sin(x) }
+
+// Cos is the cosine of x radians, as Go's math.Cos: Cos(±Inf) and
+// Cos(NaN) are NaN.
+func Cos(x float64) float64 { math.Cos(x) }
+
+// Cos is even, bit for bit.
+law CosIsEven(x float64) { IsNaN(Cos(x)) || Cos(-x) == Cos(x) }
+
+// Tan is the tangent of x radians, as Go's math.Tan: Tan(±0) is ±0, and
+// Tan(±Inf) and Tan(NaN) are NaN.
+func Tan(x float64) float64 { math.Tan(x) }
+
+// Tan is odd, bit for bit.
+law TanIsOdd(x float64) { IsNaN(Tan(x)) || Tan(-x) == -Tan(x) }
+
+// Asin is the arcsine of x in radians, as Go's math.Asin: Asin(±0) is ±0,
+// and Asin of x outside [-1, 1] is NaN.
+func Asin(x float64) float64 { math.Asin(x) }
+
+// Asin is odd, bit for bit.
+law AsinIsOdd(x float64) { IsNaN(Asin(x)) || Asin(-x) == -Asin(x) }
+
+// Acos is the arccosine of x in radians, as Go's math.Acos: Acos of x
+// outside [-1, 1] is NaN.
+func Acos(x float64) float64 { math.Acos(x) }
+
+// Acos lies in [0, Pi].
+law AcosInRange(x float64) { IsNaN(Acos(x)) || Acos(x) >= 0.0 && Acos(x) <= 3.141592653589793 }
+
+// Atan is the arctangent of x in radians, as Go's math.Atan: Atan(±0) is
+// ±0 and Atan(±Inf) is ±Pi/2.
+func Atan(x float64) float64 { math.Atan(x) }
+
+// Atan is odd, lies in [-Pi/2, Pi/2], and never falls as x rises.
+law AtanIsOddAndBounded(x float64) { IsNaN(x) || Atan(-x) == -Atan(x) && Atan(x) >= -1.5707963267948966 && Atan(x) <= 1.5707963267948966 }
+
+law AtanIsMonotonic(a float64, b float64) { IsNaN(a) || IsNaN(b) || a > b || Atan(a) <= Atan(b) }
+
+// Atan2 is the arctangent of y/x in radians, its quadrant from the signs
+// of both, as Go's math.Atan2 with its special cases (Atan2(y, NaN) is
+// NaN, Atan2(±0, x>=0) is ±0, Atan2(±0, x<=-0) is ±Pi, …).
+func Atan2(y float64, x float64) float64 { math.Atan2(y, x) }
+
+// On the right half plane Atan2 is Atan of the quotient.
+law Atan2IsAtanOnTheRight(y float64, x float64) { IsNaN(y) || IsInf(y, 0) || IsNaN(x) || IsInf(x, 0) || x <= 0.0 || Atan2(y, x) == Atan(y/x) }
+
+// Hypot is Sqrt(p*p + q*q) without needless overflow or underflow, as
+// Go's math.Hypot: Hypot(±Inf, q) and Hypot(p, ±Inf) are +Inf, and with a
+// NaN and no infinity it is NaN.
+func Hypot(p float64, q float64) float64 { math.Hypot(p, q) }
+
+// Hypot reads neither the signs nor the order of its sides.
+law HypotIgnoresSignAndOrder(p float64, q float64) { IsNaN(Hypot(p, q)) || Hypot(-q, p) == Hypot(p, q) && Hypot(p, -q) == Hypot(p, q) }
+
+// Cbrt is the cube root of x, as Go's math.Cbrt: Cbrt(±0) is ±0,
+// Cbrt(±Inf) is ±Inf and Cbrt(NaN) is NaN.
+func Cbrt(x float64) float64 { math.Cbrt(x) }
+
+// Cbrt is odd and gives back the root of an integer's cube exactly.
+law CbrtIsOdd(x float64) { IsNaN(x) || Cbrt(-x) == -Cbrt(x) }
+
+law CbrtOfCube(k int) {
+	let x = float64(k % 100000)
+	Cbrt(x * x * x) == x
+}
+
+// Log2 is the binary logarithm of x, as Go's math.Log2, with Log's
+// special cases.
+func Log2(x float64) float64 { math.Log2(x) }
+
+// Log2 of a power of two is its exponent exactly.
+law Log2OfPowerOfTwo(k int) {
+	let e = float64(k % 1023)
+	Log2(Pow(2.0, e)) == e
+}
+
+// Log10 is the decimal logarithm of x, as Go's math.Log10, with Log's
+// special cases.
+func Log10(x float64) float64 { math.Log10(x) }
+
+// Log10 never falls as x rises.
+law Log10IsMonotonic(a float64, b float64) { IsNaN(a) || IsNaN(b) || a > b || Log10(a) <= Log10(b) || a < 0.0 }
+
 // Inf is +Inf when sign is 0 or more, and -Inf otherwise.
 func Inf(sign int) float64 { math.Inf(sign) }
 
@@ -86,7 +179,12 @@ extern go ergo.local/prototype/runtime/v1.MathOutOfRange type OutOfRange { Value
 // caller that must know. byte is ToUint8 and rune is ToInt32.
 
 // ToInt is the checked int(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt func ToInt(f float64) int fails OutOfRange
+func ToInt(f float64) int fails OutOfRange {
+	if f < 9223372036854775808.0 && f >= -9223372036854775808.0 {
+		return int(int64(f))
+	}
+	OutOfRange{Value: f}
+}
 
 // ToInt8 is the checked int8(f).
 extern go ergo.local/prototype/runtime/v1.MathToInt8 func ToInt8(f float64) int8 fails OutOfRange
@@ -98,10 +196,20 @@ extern go ergo.local/prototype/runtime/v1.MathToInt16 func ToInt16(f float64) in
 extern go ergo.local/prototype/runtime/v1.MathToInt32 func ToInt32(f float64) int32 fails OutOfRange
 
 // ToInt64 is the checked int64(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt64 func ToInt64(f float64) int64 fails OutOfRange
+func ToInt64(f float64) int64 fails OutOfRange {
+	if f < 9223372036854775808.0 && f >= -9223372036854775808.0 {
+		return int64(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint is the checked uint(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint func ToUint(f float64) uint fails OutOfRange
+func ToUint(f float64) uint fails OutOfRange {
+	if f > -1.0 && f < 18446744073709551616.0 {
+		return uint(uint64(f))
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint8 is the checked uint8(f).
 extern go ergo.local/prototype/runtime/v1.MathToUint8 func ToUint8(f float64) uint8 fails OutOfRange
@@ -113,10 +221,20 @@ extern go ergo.local/prototype/runtime/v1.MathToUint16 func ToUint16(f float64) 
 extern go ergo.local/prototype/runtime/v1.MathToUint32 func ToUint32(f float64) uint32 fails OutOfRange
 
 // ToUint64 is the checked uint64(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint64 func ToUint64(f float64) uint64 fails OutOfRange
+func ToUint64(f float64) uint64 fails OutOfRange {
+	if f > -1.0 && f < 18446744073709551616.0 {
+		return uint64(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUintptr is the checked uintptr(f).
-extern go ergo.local/prototype/runtime/v1.MathToUintptr func ToUintptr(f float64) uintptr fails OutOfRange
+func ToUintptr(f float64) uintptr fails OutOfRange {
+	if f > -1.0 && f < 18446744073709551616.0 {
+		return uintptr(uint64(f))
+	}
+	OutOfRange{Value: f}
+}
 
 // FloorCeilBracket: a finite f lies between its Floor and its Ceil, which
 // are at most 1 apart.

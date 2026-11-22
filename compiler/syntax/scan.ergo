@@ -1,0 +1,1156 @@
+import dense
+import go strconv
+import go unicode
+import slices
+import strings
+import utf8
+
+// CodeSyntax is the code of every scan failure (the Go scanner's
+// CodeSyntax).
+let CodeSyntax = "S001"
+
+// Scanned is a scan of one source: its token and comment columns (the
+// line table is built only by a reader that reports a position: LinesOf),
+// and the first scan failure, if any (Failed; its span is Offset and
+// Length, with code CodeSyntax and the Go scanner's Message). A failed scan keeps the tokens before the
+// failure and has no EOF.
+type Scanned {
+	Toks     Toks,
+	Comments Comments,
+	Failed   bool,
+	Message  string,
+	Offset   int,
+	Length   int,
+}
+
+// scanner is the state of one scan, with Go's semicolon insertion and the
+// word contexts of import and extern (the Go scanner's doc comment).
+type scanner {
+	src    string,
+	offset int,
+	// toks is the token columns; its ids count the tokens.
+	toks     Toks,
+	comments Comments,
+	semi     bool,
+	failed   bool,
+	message  string,
+	at       int,
+	length   int,
+	paths    int,
+	pathGo   bool,
+	externs  bool,
+	goPath   bool,
+	// ctx is paths != 0 || pathGo || externs || goPath: a word context is
+	// open, and emit must move it.
+	ctx bool,
+	// The open interpolations `\( … )`: the opening quote of each one's
+	// string and the parentheses open inside it, open of them in use.
+	quotes []int,
+	depths []int,
+	open   int,
+}
+
+// Scan is the scan of src.
+func Scan(src string) Scanned {
+	let s = scanAll(src)
+	Scanned{
+		Toks:     s.toks,
+		Comments: s.comments,
+		Failed:   s.failed,
+		Message:  s.message,
+		Offset:   s.at,
+		Length:   s.length,
+	}
+}
+
+// scanAll is the scanner at the end of the scan of src, a failure's
+// ILLEGAL and EOF past its tokens. Parse takes it whole: a new value, so
+// its columns move into the parser with no copy.
+func scanAll(src string) scanner {
+	// Room for a token per five bytes: the corpus has one per 6.8.
+	let room = len(src)/5 + 16
+	let mut s = scanner{
+		src:    src,
+		offset: 0,
+		toks:   Toks{ids: dense.NewCount[Tok](), kind: zeros32(room), start: zeros32(room), end: zeros32(room)},
+		// Room for a comment per 64 bytes: the corpus has one per 132.
+		comments: newComments(len(src)/64 + 4),
+		semi:     false,
+		failed:   false,
+		message:  "",
+		at:       0,
+		length:   0,
+		paths:    0,
+		pathGo:   false,
+		externs:  false,
+		goPath:   false,
+		ctx:      false,
+		quotes:   []int{},
+		depths:   []int{},
+		open:     0,
+	}
+	run(&s)
+	if s.failed {
+		failTail(&s)
+	}
+	s
+}
+
+// failTail puts the ILLEGAL and EOF of the Go scanner's fail past the
+// tokens, where Toks keeps room for them and Parse reads them: at the
+// failure, or at the end of the last token when that is past it.
+func failTail(s mut scanner) {
+	let n = NumToks(s.toks)
+	let mut at = s.at
+	let mut end = s.at + s.length
+	if n > 0 && int(s.toks.end[n-1]) > at {
+		at = int(s.toks.end[n-1])
+		end = at
+	}
+	s.toks.kind[n] = uint32(Illegal)
+	s.toks.start[n] = uint32(at)
+	s.toks.end[n] = uint32(end)
+	s.toks.kind[n+1] = uint32(EOF)
+	s.toks.start[n+1] = uint32(end)
+	s.toks.end[n+1] = uint32(end)
+}
+
+// growToks doubles the token columns.
+func growToks(s mut scanner) {
+	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(len(s.toks.kind)))
+	s.toks.start = slices.AppendAll(s.toks.start, zeros32(len(s.toks.start)))
+	s.toks.end = slices.AppendAll(s.toks.end, zeros32(len(s.toks.end)))
+}
+
+// push appends a token with no change of context.
+func push(s mut scanner, kind uint8, start int, end int) {
+	let i = NumToks(s.toks)
+	if i+2 >= len(s.toks.kind) {
+		growToks(s)
+	}
+	s.toks.kind[i] = uint32(kind)
+	s.toks.start[i] = uint32(start)
+	s.toks.end[i] = uint32(end)
+	let _ = dense.Next(&s.toks.ids)
+}
+
+// semiAfter reports whether a newline after a token of kind inserts a
+// semicolon (Go's rule): semiRule as two masks, by the bit of the kind.
+func semiAfter(kind uint8) bool {
+	if kind < 64 {
+		return (semiLo>>kind)&uint64(1) == uint64(1)
+	}
+	(semiHi>>(kind-uint8(64)))&uint64(1) == uint64(1)
+}
+
+// SemiMasksAreTheRule: semiAfter's masks say what semiRule says, for every
+// kind a byte can hold.
+law SemiMasksAreTheRule(n int) {
+	let mut ok = true
+	for i in 0..256 {
+		let k = uint8((((n + i) % 256) + 256) % 256)
+		ok = ok && semiAfter(k) == semiRule(k)
+	}
+	ok
+}
+
+let semiLo uint64 = 0x470000c0000013f8
+
+let semiHi uint64 = 0x2000041
+
+// semiRule is the rule semiAfter reads from its masks (SemiMasksAreTheRule).
+func semiRule(kind uint8) bool {
+	(kind >= Ident && kind <= Path) || kind == StringTail || kind == RParen || kind == RBrack || kind == RBrace || kind == Inc || kind == Dec || kind == Return || kind == Break || kind == Continue || kind == Takes
+}
+
+// emit appends a token and moves the semicolon rule and the word contexts
+// on. It stays small enough for Go to inline: the contexts move in
+// moveContext, only while one is open or one opens.
+func emit(s mut scanner, kind uint8, start int, end int) {
+	push(s, kind, start, end)
+	s.semi = semiAfter(kind)
+	if s.ctx || kind == Import || kind == Extern {
+		moveContext(s, kind)
+	}
+}
+
+// moveContext moves the word contexts of import and extern on past a token
+// of kind.
+func moveContext(s mut scanner, kind uint8) {
+	if kind == Import {
+		s.paths = 2
+		s.pathGo = true
+		s.externs = false
+		s.goPath = false
+		s.ctx = true
+	} else if kind == Extern {
+		s.paths = 0
+		s.pathGo = false
+		s.externs = true
+		s.goPath = false
+		s.ctx = true
+	} else if s.ctx {
+		if kind == Go && s.externs {
+			s.paths = 1
+			s.pathGo = false
+			s.externs = false
+		} else if kind == Go && s.pathGo {
+			s.pathGo = false
+			s.goPath = true
+		} else if kind == Path {
+			s.paths = s.paths - 1
+			s.pathGo = false
+		} else {
+			s.paths = 0
+			s.pathGo = false
+			s.externs = false
+			s.goPath = false
+		}
+		s.ctx = s.paths != 0 || s.pathGo || s.externs || s.goPath
+	}
+}
+
+// insertSemi emits the semicolon a newline at pos implies.
+func insertSemi(s mut scanner, pos int) {
+	if s.ctx {
+		s.paths = 0
+		s.pathGo = false
+		s.externs = false
+		s.goPath = false
+		s.ctx = false
+	}
+	if s.semi {
+		push(s, Semicolon, pos, pos)
+		s.semi = false
+	}
+}
+
+// fail records the first scan failure: the span at pos of length bytes,
+// cut to the source and widened to whole code points (the Go scanner's
+// newError).
+func fail(s mut scanner, pos int, length int, message string) {
+	let n = len(s.src)
+	let offset = if pos > n { n } else { pos }
+	let mut l = if offset+length > n { n - offset } else { length }
+	if l < 0 {
+		l = 0
+	}
+	for l > 0 && offset+l < n && (s.src[offset+l]&0xC0) == 0x80 {
+		l = l + 1
+	}
+	s.failed = true
+	s.message = message
+	s.at = offset
+	s.length = l
+}
+
+func run(s mut scanner) {
+	let src = s.src
+	let n = len(src)
+	// The offset lives in i; s.offset holds it only across a call to a
+	// scan function, which reads it, moves it and may fail.
+	let mut i = s.offset
+	for {
+		if i >= n {
+			s.offset = i
+			if s.open > 0 {
+				fail(s, s.quotes[s.open-1], 1, "string literal not terminated")
+				return
+			}
+			insertSemi(s, n)
+			push(s, EOF, n, n)
+			return
+		}
+		let start = i
+		let c = src[start]
+		let k = classes[int(c)]
+		if k&clsBlank != 0 {
+			i = start + 1
+			for i < n && classes[int(src[i])]&clsBlank != 0 {
+				i = i + 1
+			}
+			continue
+		}
+		if c == '\n' {
+			if s.open > 0 {
+				fail(s, s.quotes[s.open-1], 1, "newline in string")
+				return
+			}
+			insertSemi(s, start)
+			i = start + 1
+			continue
+		}
+		if k&clsLetter != 0 && s.paths == 0 {
+			// An identifier or keyword that starts with an ASCII letter
+			// cannot fail: identifier's ASCII path, with the offset kept here,
+			// and identRest's ASCII loop written out (a call per word cost
+			// more than its loop, capstone S2f).
+			let mut end = start + 1
+			for end < n && classes[int(src[end])]&(clsLetter|clsDigit) != 0 {
+				end = end + 1
+			}
+			if end < n && src[end] >= 0x80 {
+				end = identRestWide(src, end)
+			}
+			emit(s, keyword(src, start, end), start, end)
+			i = end
+			continue
+		}
+		if punct[int(c)] != byte(0) && s.open == 0 {
+			// Punctuation that is its one byte, outside an interpolation
+			// (where a parenthesis counts depth): operator's kind, at once.
+			emit(s, uint8(punct[int(c)]), start, start+1)
+			i = start + 1
+			continue
+		}
+		if s.open == 0 && op1[int(c)] != byte(0) {
+			// An operator its first two bytes decide, kept in this arm:
+			// opFast written out (a call per operator cost more than its
+			// body, capstone S2f).
+			let c1 = if start+1 < n { src[start+1] } else { byte(0) }
+			let o = if c1 == '=' { uint8(opEq[int(c)]) } else { opAlone(c, c1) }
+			if o != uint8(0) {
+				let end = if c1 == '=' { start + 2 } else { start + 1 }
+				emit(s, o, start, end)
+				i = end
+				continue
+			}
+		}
+		s.offset = start
+		if c == '/' && start+1 < n && (src[start+1] == '/' || src[start+1] == '*') {
+			comment(s, start)
+		} else if s.paths > 0 && pathStart(src, start) {
+			pathWord(s, start)
+		} else if k&clsDigit != 0 || (c == '.' && start+1 < n && isDigit(src[start+1])) {
+			numberLit(s, start)
+		} else if c == '"' {
+			interpreted(s, start, start, String)
+		} else if c == '`' {
+			raw(s, start)
+		} else if c == '\'' {
+			runeLit(s, start)
+		} else if c >= 0x80 {
+			identifier(s, start)
+		} else {
+			operator(s, start)
+		}
+		if s.failed {
+			return
+		}
+		i = s.offset
+	}
+}
+
+// classes holds a class mask per byte (ClassesAreTheRule): clsLetter an
+// ASCII letter or `_`, clsDigit a decimal digit, clsBlank a space, tab or
+// carriage return, clsPath an ASCII byte that continues a path word (a
+// letter, a digit or one of `_ . / - ~ +`), clsHigh a byte of 0x80 or above,
+// clsOpNext a byte other than `=` that may continue an operator past its
+// first byte when it is not that byte again (`^ - . / *`).
+let classes = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x20\x08\x00\x28\x28\x28\x0a\x0a\x0a\x0a\x0a\x0a\x0a\x0a\x0a\x0a\x00\x00\x00\x00\x00\x00\x00\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x00\x00\x00\x20\x09\x00\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x09\x00\x00\x00\x08\x00\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+
+// ClassesAreTheRule: the class mask of every byte is the rule it names.
+law ClassesAreTheRule(n int) {
+	let mut ok = true
+	for i in 0..256 {
+		ok = ok && classOK(byte((((n+i)%256)+256)%256))
+	}
+	ok
+}
+
+// classOK reports byte c's class mask as the rule it names: clsLetter
+// isLetter, clsDigit isDigit, clsBlank a space, tab or carriage return,
+// clsPath an ASCII byte pathRune takes, clsHigh 0x80 or above.
+func classOK(c byte) bool {
+	let k = classes[int(c)]
+	let path = c < 0x80 && pathRune(rune(c))
+	(k&clsLetter != 0) == isLetter(c) && (k&clsDigit != 0) == isDigit(c) && (k&clsBlank != 0) == (c == ' ' || c == '\t' || c == '\r') && (k&clsPath != 0) == path && (k&clsHigh != 0) == (c >= 0x80) && (k&clsOpNext != 0) == (c == '^' || c == '-' || c == '.' || c == '/' || c == '*')
+}
+
+let clsLetter = uint8(1)
+
+let clsDigit = uint8(2)
+
+let clsBlank = uint8(4)
+
+let clsPath = uint8(8)
+
+let clsHigh = uint8(16)
+
+let clsOpNext = uint8(32)
+
+// op1 is the kind of the operator or punctuation that is byte c alone, 0
+// for a byte that starts none; opEq the kind of c followed by `=`, 0 when
+// that is no operator (OpFastIsOpKind checks both against opKind).
+let op1 = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x2d\x00\x00\x00\x11\x12\x00\x00\x00\x0f\x0d\x00\x0e\x37\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3c\x00\x2a\x2c\x2b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x13\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+// OpFastIsOpKind: where opFast names an operator for bytes c, c1, it is
+// the one opKind finds whatever byte follows, as long as its length says
+// (two bytes when c1 is `=`), and the bytes start no comment and no number.
+// Each case checks every first byte against every second byte, with the
+// third byte drawn from the case.
+law OpFastIsOpKind(n int) {
+	let c2 = byte((((n % 256) + 256) % 256))
+	let mut ok = true
+	for a in 0..256 {
+		let c = byte(a)
+		if op1[a] != byte(0) {
+			for b in 0..256 {
+				let c1 = byte(b)
+				let o = opFast(c, c1)
+				if o != uint8(0) {
+					let width = if c1 == '=' { 2 } else { 1 }
+					let comment = c == '/' && (c1 == '/' || c1 == '*')
+					let numeral = c == '.' && isDigit(c1)
+					ok = ok && o == opKind(c, c1, c2) && opLen(o) == width && !comment && !numeral
+				}
+			}
+		}
+	}
+	ok
+}
+
+let opEq = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x2e\x00\x00\x00\x1c\x1d\x00\x00\x00\x1a\x18\x00\x19\x00\x1b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x31\x00\x2f\x29\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1e\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+// opFast is the kind of the operator at bytes c, c1 when the two bytes
+// decide it alone, or 0 when they do not (no operator, a longer one, a
+// comment, or a number after `.`): then run asks operator, opKind and the
+// rest. The token is two bytes long when c1 is `=`, else one.
+func opFast(c byte, c1 byte) uint8 {
+	if op1[int(c)] == byte(0) {
+		return 0
+	}
+	if c1 == '=' {
+		return uint8(opEq[int(c)])
+	}
+	opAlone(c, c1)
+}
+
+// opAlone is opFast's kind of an operator byte c followed by c1, which is
+// not `=`; small enough for Go to inline into run.
+func opAlone(c byte, c1 byte) uint8 {
+	let k1 = classes[int(c1)]
+	if c1 == c || k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {
+		return 0
+	}
+	uint8(op1[int(c)])
+}
+
+// punct is the kind of each punctuation byte that is a token alone (`(`,
+// `[`, `{`, `,`, `)`, `]`, `}`, `;`), 0 for any other byte
+// (PunctIsOperator checks it against opKind and opLen).
+let punct = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x33\x38\x00\x00\x36\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x34\x00\x39\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x35\x00\x3a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+// PunctIsOperator: every byte punct names is the kind operator gives it
+// (opKind, or LParen and RParen) whatever follows, one byte long; every
+// byte it leaves 0 is not one of them.
+law PunctIsOperator(n int) {
+	let mut ok = true
+	let next = byte((((n % 256) + 256) % 256))
+	for i in 0..256 {
+		let c = byte(i)
+		let p = uint8(punct[i])
+		let k = if c == '(' { LParen } else if c == ')' { RParen } else { opKind(c, next, next) }
+		let alone = k == LParen || k == LBrack || k == LBrace || k == Comma || k == RParen || k == RBrack || k == RBrace || k == Semicolon
+		ok = ok && (if alone { p == k && opLen(k) == 1 } else { p == uint8(0) })
+	}
+	ok
+}
+
+// isLetter reports an ASCII letter or `_`.
+func isLetter(c byte) bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' }
+
+// isDigit reports a decimal digit.
+func isDigit(c byte) bool { c >= '0' && c <= '9' }
+
+// isBase reports a base prefix letter after a 0: x, o, b in either case.
+func isBase(c byte) bool { c == 'x' || c == 'X' || c == 'o' || c == 'O' || c == 'b' || c == 'B' }
+
+// identRune applies Go's identifier rule to one code point: a letter or
+// `_` anywhere, a decimal digit after the first.
+func identRune(r rune, first bool) bool {
+	r == '_' || unicode.IsLetter(r) || (!first && unicode.IsDigit(r))
+}
+
+// identRest is the end of the identifier runes from i on: ASCII ones
+// here, small enough for Go to inline, and from the first byte of 0x80 or
+// above on in identRestWide.
+func identRest(src string, i int) int {
+	let n = len(src)
+	let mut end = i
+	for end < n && classes[int(src[end])]&(clsLetter|clsDigit) != 0 {
+		end = end + 1
+	}
+	if end < n && src[end] >= 0x80 {
+		return identRestWide(src, end)
+	}
+	end
+}
+
+// identRestWide is the end of the identifier runes from i on, any rune.
+func identRestWide(src string, i int) int {
+	let n = len(src)
+	let mut end = i
+	for end < n {
+		let c = src[end]
+		if c < 0x80 {
+			if classes[int(c)]&(clsLetter|clsDigit) == 0 {
+				return end
+			}
+			end = end + 1
+		} else {
+			let d = utf8.DecodeRuneInString(src[end:])
+			if !identRune(d.Rune, false) {
+				return end
+			}
+			end = end + d.Size
+		}
+	}
+	end
+}
+
+// identEnd is the end of the identifier or keyword at start.
+func identEnd(src string, start int) int {
+	if src[start] < 0x80 {
+		return identRest(src, start+1)
+	}
+	identRest(src, start+utf8.DecodeRuneInString(src[start:]).Size)
+}
+
+func identifier(s mut scanner, start int) {
+	let src = s.src
+	let c = src[start]
+	let mut first = 1
+	if c >= 0x80 {
+		let d = utf8.DecodeRuneInString(src[start:])
+		if d.Rune == rune(0xFFFD) && d.Size == 1 {
+			fail(s, start, 1, "invalid UTF-8 byte "+hexByte(src[start]))
+			return
+		}
+		if !identRune(d.Rune, true) {
+			fail(s, start, d.Size, "unexpected character "+uPlus(d.Rune)+" "+strconv.QuoteRune(d.Rune))
+			return
+		}
+		first = d.Size
+	}
+	let end = identRest(src, start+first)
+	emit(s, keyword(src, start, end), start, end)
+	s.offset = end
+}
+
+// keyword is the kind of the word src[start:end]: a keyword or reserved
+// word, or Ident. A hash of its length and first two bytes picks the one
+// keyword it can be (kwTable), and one comparison decides
+// (KeywordTableIsTheRule checks it against keywordRule).
+func keyword(src string, start int, end int) uint8 {
+	let n = end - start
+	if n < 2 || n > 11 {
+		return Ident
+	}
+	// Any word hashes to a slot; a slot without a keyword holds 0 (the word
+	// ILLEGAL spells kind 0's name, so 0 is tested).
+	let h = (n + 3*int(src[start]) + 23*int(src[start+1])) & 255
+	let k = kwTable[h]
+	if k != byte(0) && src[start:end] == tokenNames[int(k)] {
+		return uint8(k)
+	}
+	Ident
+}
+
+// kwTable is the keyword kind at each hash (n + 3*b0 + 23*b1) & 255 of the
+// 44 keywords and reserved words, 0 elsewhere (no two share a hash).
+let kwTable = "\x00\x65\x00\x51\x00\x4d\x00\x00\x00\x00\x00\x00\x45\x00\x66\x00\x6a\x00\x67\x00\x00\x00\x00\x00\x59\x00\x00\x00\x6b\x00\x00\x50\x00\x00\x00\x00\x00\x00\x64\x5e\x00\x4c\x40\x00\x00\x00\x42\x00\x62\x00\x63\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x47\x00\x00\x00\x00\x60\x00\x5f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4e\x00\x00\x00\x00\x00\x00\x00\x4a\x00\x00\x00\x00\x44\x00\x3e\x00\x00\x00\x00\x00\x46\x00\x00\x68\x54\x00\x00\x00\x00\x00\x00\x5a\x00\x00\x00\x56\x00\x00\x00\x00\x00\x00\x5d\x00\x00\x00\x00\x00\x00\x52\x00\x00\x00\x00\x00\x00\x00\x00\x00\x4b\x00\x00\x00\x00\x00\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x43\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x69\x00\x4f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x58\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3f\x49\x00\x41\x00\x00\x00\x00\x00\x00\x53\x00\x00\x00\x00\x00\x61\x00\x00\x00\x00\x00\x00\x00\x00\x57\x55\x00"
+
+// comment scans a line or block comment at start into the comment
+// columns. A line comment, and a block comment that spans lines, end the
+// line: they insert a semicolon at their start.
+func comment(s mut scanner, start int) {
+	let src = s.src
+	let n = len(src)
+	if src[start+1] == '/' {
+		let mut end = start + strings.IndexByte(src[start:], '\n')
+		if end < start {
+			end = n
+		}
+		insertSemi(s, start)
+		let mut text = end
+		for text > start && src[text-1] == '\r' {
+			text = text - 1
+		}
+		addComment(&s.comments, start, text)
+		s.offset = end
+		return
+	}
+	let close = strings.Index(src[start+2:], "*/")
+	if close < 0 {
+		fail(s, start, 2, "block comment not terminated")
+		return
+	}
+	let end = start + close + 4
+	if strings.IndexByte(src[start:end], '\n') >= 0 {
+		insertSemi(s, start)
+	}
+	addComment(&s.comments, start, end)
+	s.offset = end
+}
+
+// pathStart reports whether a path word starts at i: a letter, a digit or
+// `_`.
+func pathStart(src string, i int) bool {
+	let c = src[i]
+	if c < 0x80 {
+		return isLetter(c) || isDigit(c)
+	}
+	let r = utf8.DecodeRuneInString(src[i:]).Rune
+	unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// pathRune reports whether r continues a path word.
+func pathRune(r rune) bool {
+	r == '_' || r == '.' || r == '/' || r == '-' || r == '~' || r == '+' || unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// pathEnd is the end of the path word at start: up to a comment or a code
+// point that cannot continue it.
+func pathEnd(src string, start int) int {
+	let n = len(src)
+	let mut end = start
+	for end < n {
+		let c = src[end]
+		if c == '/' && end+1 < n && (src[end+1] == '/' || src[end+1] == '*') {
+			return end
+		}
+		if c < 0x80 {
+			// An ASCII byte continues the path by its class alone.
+			if classes[int(c)]&clsPath == 0 {
+				return end
+			}
+			end = end + 1
+			continue
+		}
+		let d = utf8.DecodeRuneInString(src[end:])
+		if !pathRune(d.Rune) {
+			return end
+		}
+		end = end + d.Size
+	}
+	end
+}
+
+// pathWord scans an import or extern path, with grammar.md's
+// import_path rule (the Go scanner's pathWord). Right after import, the
+// word `go` is the keyword of a Go import.
+func pathWord(s mut scanner, start int) {
+	let src = s.src
+	let n = len(src)
+	let mut end = start
+	let mut elementStart = true
+	for end < n {
+		if src[end] == '/' && end+1 < n && (src[end+1] == '/' || src[end+1] == '*') {
+			break
+		}
+		let c = src[end]
+		if c < 0x80 {
+			// An ASCII byte, by its class: the same rule as below, for a
+			// one-byte rune.
+			let k = classes[int(c)]
+			if k&clsPath == 0 {
+				break
+			}
+			if s.goPath {
+				end = end + 1
+				elementStart = false
+				continue
+			}
+			if c == '/' || c == '.' {
+				if elementStart {
+					fail(s, end, 1, "an import path must have nonempty elements")
+					return
+				}
+				elementStart = true
+			} else {
+				if elementStart && k&clsLetter == 0 || !elementStart && k&(clsLetter|clsDigit) == 0 && c != '-' {
+					fail(s, end, 1, "invalid character "+strconv.QuoteRune(rune(c))+" in import path element")
+					return
+				}
+				elementStart = false
+			}
+			end = end + 1
+			continue
+		}
+		let d = utf8.DecodeRuneInString(src[end:])
+		if d.Rune == rune(0xFFFD) && d.Size == 1 {
+			fail(s, end, 1, "invalid UTF-8 byte "+hexByte(src[end]))
+			return
+		}
+		if !pathRune(d.Rune) {
+			break
+		}
+		if s.goPath {
+			end = end + d.Size
+			elementStart = false
+			continue
+		}
+		if d.Rune == '/' || d.Rune == '.' {
+			if elementStart {
+				fail(s, end, d.Size, "an import path must have nonempty elements")
+				return
+			}
+			elementStart = true
+		} else {
+			if !identRune(d.Rune, elementStart) && (elementStart || d.Rune != '-') {
+				fail(s, end, d.Size, "invalid character "+strconv.QuoteRune(d.Rune)+" in import path element")
+				return
+			}
+			elementStart = false
+		}
+		end = end + d.Size
+	}
+	if elementStart {
+		fail(s, end-1, 1, "an import path must not end with '/' or '.'")
+		return
+	}
+	s.offset = end
+	if s.pathGo && end-start == 2 && src[start:end] == "go" {
+		emit(s, Go, start, end)
+		return
+	}
+	emit(s, Path, start, end)
+}
+
+// digits is the end of the decimal digits and separators from i.
+func digits(src string, i int) int {
+	let n = len(src)
+	let mut j = i
+	for j < n && (isDigit(src[j]) || src[j] == '_') {
+		j = j + 1
+	}
+	j
+}
+
+// digitValue is the value of the digit c, or 99 when c is no digit.
+func digitValue(c byte) int {
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	if c >= 'a' && c <= 'f' {
+		return int(c-'a') + 10
+	}
+	if c >= 'A' && c <= 'F' {
+		return int(c-'A') + 10
+	}
+	99
+}
+
+// isDigitOf reports whether lit[i] is a digit of base.
+func isDigitOf(lit string, i int, base int) bool { i >= 0 && i < len(lit) && digitValue(lit[i]) < base }
+
+// badSeparator reports a `_` of lit that does not stand between two
+// digits of base, or right after a base prefix (Go's rule).
+func badSeparator(lit string, base int, prefixed bool) bool {
+	for i in 0..len(lit) {
+		if lit[i] == '_' && (!(isDigitOf(lit, i-1, base) || (prefixed && i == 2)) || !isDigitOf(lit, i+1, base)) {
+			return true
+		}
+	}
+	false
+}
+
+// baseOf is the base of a prefix letter.
+func baseOf(c byte) int {
+	if c == 'x' || c == 'X' {
+		return 16
+	}
+	if c == 'o' || c == 'O' {
+		return 8
+	}
+	2
+}
+
+// prefixed scans an integer with a base prefix: 0x1F, 0o600, 0b1010.
+func prefixed(s mut scanner, start int) {
+	let src = s.src
+	let n = len(src)
+	let base = baseOf(src[start+1])
+	let end = identRest(src, start+2)
+	let lit = src[start:end]
+	if base == 16 && (strings.ContainsRune(lit[2:], 'p') || strings.ContainsRune(lit[2:], 'P') || (end < n && src[end] == '.' && !strings.HasPrefix(src[end:], ".."))) {
+		fail(s, start, end-start, "hexadecimal float literals are not part of the language; write a decimal float")
+		return
+	}
+	let mut seen = false
+	for i in 2..len(lit) {
+		if lit[i] != '_' {
+			if digitValue(lit[i]) >= base {
+				fail(s, start, end-start, "invalid digit "+strconv.QuoteRune(utf8.DecodeRuneInString(lit[i:]).Rune)+" in the "+baseName(base)+" literal "+lit)
+				return
+			}
+			seen = true
+		}
+	}
+	if !seen {
+		fail(s, start, end-start, "the "+baseName(base)+" literal "+lit+" has no digits")
+		return
+	}
+	if badSeparator(lit, base, true) {
+		fail(s, start, end-start, "'_' must separate successive digits in "+lit)
+		return
+	}
+	emit(s, Int, start, end)
+	s.offset = end
+}
+
+// isDurationUnit reports a duration suffix: ns, us, ms, s, m, h.
+func isDurationUnit(u string) bool {
+	u == "ns" || u == "us" || u == "ms" || u == "s" || u == "m" || u == "h"
+}
+
+// numberLit scans a decimal integer, a decimal float or a duration, and hands
+// a prefixed integer to prefixed. `1..n` is 1 and the range operator.
+func numberLit(s mut scanner, start int) {
+	let src = s.src
+	let n = len(src)
+	if src[start] == '0' && start+1 < n && isBase(src[start+1]) {
+		prefixed(s, start)
+		return
+	}
+	let mut end = digits(src, start)
+	let mut float = false
+	if end < n && src[end] == '.' && !(end+1 < n && src[end+1] == '.') {
+		float = true
+		end = digits(src, end+1)
+	}
+	if end > start && end < n && (src[end] == 'e' || src[end] == 'E') {
+		let mut exp = end + 1
+		if exp < n && (src[exp] == '+' || src[exp] == '-') {
+			exp = exp + 1
+		}
+		let after = digits(src, exp)
+		if after > exp {
+			float = true
+			end = after
+		}
+	}
+	if badSeparator(src[start:end], 10, false) {
+		fail(s, start, end-start, "'_' must separate successive digits in "+src[start:end])
+		return
+	}
+	let suffixEnd = identRest(src, end)
+	if suffixEnd == end {
+		emit(s, if float { Float } else { Int }, start, end)
+		s.offset = end
+		return
+	}
+	if !float && isDurationUnit(src[end:suffixEnd]) {
+		emit(s, Duration, start, suffixEnd)
+		s.offset = suffixEnd
+		return
+	}
+	let suffix = src[end:suffixEnd]
+	fail(s, start, suffixEnd-start, if suffix == "i" { "imaginary literals are not part of the language" } else { "unknown number suffix " + strconv.Quote(suffix) })
+}
+
+// raw scans a raw string.
+func raw(s mut scanner, start int) {
+	let close = strings.IndexByte(s.src[start+1:], '`')
+	if close < 0 {
+		fail(s, start, 1, "raw string literal not terminated")
+		return
+	}
+	emit(s, String, start, start+close+2)
+	s.offset = start + close + 2
+}
+
+// interpreted scans an interpreted string segment from segStart: the
+// opening quote of a string (String), or the `)` that closes an
+// interpolation (StringMid). quote is the string's opening quote. A `\(`
+// ends the segment and opens an interpolation; the closing quote ends the
+// string.
+func interpreted(s mut scanner, quote int, segStart int, kind uint8) {
+	let src = s.src
+	let n = len(src)
+	let mut i = segStart + 1
+	for i < n {
+		let c = src[i]
+		if c == '\\' {
+			if i+1 < n && src[i+1] == '(' {
+				emit(s, if kind == String { StringHead } else { StringMid }, segStart, i+2)
+				openInterpolation(s, quote)
+				s.offset = i + 2
+				return
+			}
+			i = i + 1
+			if i < n && src[i] == '\n' {
+				fail(s, quote, 1, "newline in string")
+				return
+			}
+		} else if c == '\n' {
+			fail(s, quote, 1, "newline in string")
+			return
+		} else if c == '"' {
+			emit(s, if kind == String { String } else { StringTail }, segStart, i+1)
+			s.offset = i + 1
+			return
+		}
+		i = i + 1
+	}
+	fail(s, quote, 1, "string literal not terminated")
+}
+
+// openInterpolation pushes an interpolation of the string quoted at quote.
+func openInterpolation(s mut scanner, quote int) {
+	if s.open < len(s.quotes) {
+		s.quotes[s.open] = quote
+		s.depths[s.open] = 0
+	} else {
+		s.quotes = s.quotes.Append(quote)
+		s.depths = s.depths.Append(0)
+	}
+	s.open = s.open + 1
+}
+
+// runeLit scans a rune literal: one code point, as Go unquotes it.
+func runeLit(s mut scanner, start int) {
+	let src = s.src
+	let n = len(src)
+	let mut i = start + 1
+	for i < n {
+		let c = src[i]
+		if c == '\\' {
+			i = i + 1
+			if i < n && src[i] == '\n' {
+				fail(s, start, 1, "rune literal not terminated")
+				return
+			}
+		} else if c == '\n' {
+			fail(s, start, 1, "rune literal not terminated")
+			return
+		} else if c == '\'' {
+			if !oneRune(src[start : i+1]) {
+				fail(s, start, i+1-start, "invalid rune literal "+src[start:i+1])
+				return
+			}
+			emit(s, Rune, start, i+1)
+			s.offset = i + 1
+			return
+		}
+		i = i + 1
+	}
+	fail(s, start, 1, "rune literal not terminated")
+}
+
+// oneRune reports whether the rune literal lit (from its opening quote to
+// its closing one) is one character, as Go's strconv.Unquote reads it,
+// with no allocation: one code point (an invalid byte reads as U+FFFD), or
+// one escape (\a \b \f \n \r \t \v \\ \', \x and two hex digits, three
+// octal digits up to 255, \u and four or \U and eight hex digits naming a
+// valid code point), then the closing quote.
+func oneRune(lit string) bool {
+	let n = len(lit)
+	if n < 3 {
+		return false
+	}
+	let c = lit[1]
+	if c == '\\' {
+		if n < 4 {
+			return false
+		}
+		let e = lit[2]
+		if e == 'a' || e == 'b' || e == 'f' || e == 'n' || e == 'r' || e == 't' || e == 'v' || e == '\\' || e == '\'' {
+			return n == 4
+		}
+		if e == 'x' {
+			return n == 6 && hexDigits(lit, 3, 2) >= 0
+		}
+		if e == 'u' {
+			return n == 8 && validRune(hexDigits(lit, 3, 4))
+		}
+		if e == 'U' {
+			return n == 12 && validRune(hexDigits(lit, 3, 8))
+		}
+		if e >= '0' && e <= '7' {
+			if n != 6 || lit[3] < '0' || lit[3] > '7' || lit[4] < '0' || lit[4] > '7' {
+				return false
+			}
+			return int(e-'0')*64+int(lit[3]-'0')*8+int(lit[4]-'0') <= 255
+		}
+		return false
+	}
+	if c == '\'' || c == '\n' {
+		return false
+	}
+	if c < 0x80 {
+		return n == 3
+	}
+	n == 2+utf8.DecodeRuneInString(lit[1:]).Size
+}
+
+// hexDigits is the value of the k hex digits of s from i, or -1 when one
+// is not a hex digit.
+func hexDigits(s string, i int, k int) int {
+	let mut v = 0
+	for j in i..i+k {
+		let d = digitValue(s[j])
+		if d >= 16 {
+			return -1
+		}
+		v = v*16 + d
+	}
+	v
+}
+
+// validRune reports a Unicode code point that is not a surrogate.
+func validRune(v int) bool { (v >= 0 && v < 0xD800) || (v > 0xDFFF && v <= 0x10FFFF) }
+
+// opKind is the operator or punctuation that starts with the bytes c, c1
+// and c2 (0 past the end), longest first, or Illegal. The removed
+// operators (:=, <-, ++, --, ...) still scan, so `x <-y` is never
+// `x < -y`.
+func opKind(c byte, c1 byte, c2 byte) uint8 {
+	if c == '.' {
+		if c1 == '.' {
+			return if c2 == '.' { Ellipsis } else { DotDot }
+		}
+		return Period
+	}
+	if c == ',' {
+		return Comma
+	}
+	if c == '{' {
+		return LBrace
+	}
+	if c == '}' {
+		return RBrace
+	}
+	if c == '[' {
+		return LBrack
+	}
+	if c == ']' {
+		return RBrack
+	}
+	if c == ':' {
+		return if c1 == '=' { Define } else { Colon }
+	}
+	if c == ';' {
+		return Semicolon
+	}
+	if c == '=' {
+		return if c1 == '=' { Eql } else { Assign }
+	}
+	if c == '!' {
+		return if c1 == '=' { Neq } else { Not }
+	}
+	if c == '<' {
+		if c1 == '<' {
+			return if c2 == '=' { ShlAssign } else { Shl }
+		}
+		if c1 == '-' {
+			return Arrow
+		}
+		return if c1 == '=' { Leq } else { Lss }
+	}
+	if c == '>' {
+		if c1 == '>' {
+			return if c2 == '=' { ShrAssign } else { Shr }
+		}
+		return if c1 == '=' { Geq } else { Gtr }
+	}
+	if c == '&' {
+		if c1 == '^' {
+			return if c2 == '=' { AndNotAssign } else { AndNot }
+		}
+		if c1 == '&' {
+			return Land
+		}
+		return if c1 == '=' { AndAssign } else { And }
+	}
+	if c == '|' {
+		if c1 == '|' {
+			return Lor
+		}
+		return if c1 == '=' { OrAssign } else { Or }
+	}
+	if c == '+' {
+		if c1 == '+' {
+			return Inc
+		}
+		return if c1 == '=' { AddAssign } else { Add }
+	}
+	if c == '-' {
+		if c1 == '-' {
+			return Dec
+		}
+		return if c1 == '=' { SubAssign } else { Sub }
+	}
+	if c == '*' {
+		return if c1 == '=' { MulAssign } else { Mul }
+	}
+	if c == '/' {
+		return if c1 == '=' { QuoAssign } else { Quo }
+	}
+	if c == '%' {
+		return if c1 == '=' { RemAssign } else { Rem }
+	}
+	if c == '^' {
+		return if c1 == '=' { XorAssign } else { Xor }
+	}
+	if c == '~' {
+		return Tilde
+	}
+	Illegal
+}
+
+// operator scans an operator or punctuation at start. A `(` or `)` inside
+// an interpolation counts its depth, and the `)` that closes it goes on
+// with the string.
+func operator(s mut scanner, start int) {
+	let src = s.src
+	let n = len(src)
+	let c = src[start]
+	if s.open > 0 {
+		if c == '(' {
+			s.depths[s.open-1] = s.depths[s.open-1] + 1
+		} else if c == ')' {
+			if s.depths[s.open-1] == 0 {
+				// The `)` closes the interpolation: the string goes on.
+				s.open = s.open - 1
+				interpreted(s, s.quotes[s.open], start, StringMid)
+				return
+			}
+			s.depths[s.open-1] = s.depths[s.open-1] - 1
+		}
+	}
+	let c1 = if start+1 < n { src[start+1] } else { byte(0) }
+	let c2 = if start+2 < n { src[start+2] } else { byte(0) }
+	let k = if c == '(' { LParen } else if c == ')' { RParen } else { opKind(c, c1, c2) }
+	if k == Illegal {
+		fail(s, start, 1, "unexpected character "+strconv.QuoteRune(rune(c)))
+		return
+	}
+	emit(s, k, start, start+opLen(k))
+	s.offset = start + opLen(k)
+}
+
+// hexByte is c as Go's %#x prints a byte: 0x and its lower-case hex digits.
+func hexByte(c byte) string { "0x" + strconv.FormatInt(int64(c), 16) }
+
+// uPlus is r as Go's %U prints it: U+ and at least four upper-case hex
+// digits.
+func uPlus(r rune) string {
+	let mut h = strings.ToUpper(strconv.FormatInt(int64(r), 16))
+	for len(h) < 4 {
+		h = "0" + h
+	}
+	"U+" + h
+}
+
+// baseName names the base of a prefixed integer, as the Go scanner does.
+func baseName(base int) string {
+	if base == 16 {
+		return "hexadecimal"
+	}
+	if base == 8 {
+		return "octal"
+	}
+	"binary"
+}

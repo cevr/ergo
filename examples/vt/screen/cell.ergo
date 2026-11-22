@@ -1,4 +1,4 @@
-// Package screen is the dense vt.Screen: Ghostty's form in Ergo. A cell
+// Package screen is the dense vt.Screen. A cell
 // is 8 bytes with no pointer: a word of character and part, and the id
 // of its style. The cells of every row live in one slice, the alternate
 // buffer's rows first and then a ring of pages for the main buffer and

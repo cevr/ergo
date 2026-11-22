@@ -32,6 +32,9 @@ func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 }
 
 func (b *irBuilder) admit(t check.Type, depth int) {
+	if t == check.NoValue {
+		return // a type parameter bound by a block with no value: Go's struct{} (goType), which the decoder spells (PORT-CALLS-2)
+	}
 	switch t := t.(type) {
 	case *check.Basic:
 		switch t.Kind {
@@ -100,6 +103,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			b.keepImport("var _ " + b.l.rt() + ".GoError")
 			return
 		}
+		if check.IsGoAny(t) {
+			return // Go's any (GB2), the predeclared go.Any (IR-GOCALLS)
+		}
 		if t.Obj.Pkg != nil && t.Obj.Pkg.Host() || isGoRef(t) {
 			b.admitHost(t, depth) // ir_gocall.go (FORK-GOCALL, FORK-GOLIB)
 			return
@@ -133,6 +139,11 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		}
 		return
 	case *check.Union:
+		// The value of a Slot row alone is its Go type parameter
+		// (rowslot.go), a type the body declares.
+		if tp := check.SlotRow(t); tp != nil && tp.Slot {
+			return
+		}
 		// A row, the error of a fallible call (a catch's `case err:`): a
 		// Go error, its variants the error types (ir_tree.go).
 		if failureRow(b.fc, t) { // ir_field.go
@@ -141,6 +152,13 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 					// An error row parameter of the row: its errors are
 					// the Go error's values, whatever they are (the
 					// emitter's goType of a row), no Go type of their own.
+					continue
+				}
+				if _, ok := v.(*check.Wired); ok {
+					// wired[T]: decode[T]'s shape failures, error types
+					// T's argument decides (types.md, Codecs 2), values
+					// of the Go error as an error row parameter's are
+					// (the emitter's isErrorValue).
 					continue
 				}
 				b.admit(v, depth+1)

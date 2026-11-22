@@ -8,9 +8,17 @@ import maps
 import slices
 import strconv
 import strings
+import kvstore/kv
 
 // Record is one line of the log.
 type Record = Set{Key string, Value string} | Unset{Key string}
+
+// RoundTrip: a record's line decodes to the record, whatever its texts.
+law RoundTrip(key string, value string) {
+	let set = Set{Key: key, Value: value}
+	let unset = Unset{Key: key}
+	try Decode(1, Encode(set)) == set && try Decode(2, Encode(unset)) == unset
+}
 
 // Corrupt is a line of the log that is not a record. Line counts from 1.
 type Corrupt { Line int, Text string }
@@ -27,6 +35,10 @@ func Encode(r Record) string {
 		"del\t" + strconv.Quote(u.Key)
 	}
 }
+
+// OneLine: a record's line holds no line feed, so the log is one record
+// per line.
+law OneLine(key string, value string) { !strings.Contains(Encode(Set{Key: key, Value: value}), "\n") }
 
 // Decode is the record of line, the line number at of the log.
 func Decode(at int, line string) Record fails Corrupt {
@@ -77,6 +89,26 @@ func Compacted(entries Map[string, string]) string {
 			out = out + Encode(Set{Key: k, Value: v.Value}) + "\n"
 		case None:
 		}
+	}
+	out
+}
+
+// CompactedReplaysTheSame: the compacted log of what a log leaves leaves
+// the same entries.
+law CompactedReplaysTheSame(puts []string, drops []int) {
+	let entries = try Replay(logOf(puts, drops))
+	try Replay(Compacted(entries)) == entries
+}
+
+// logOf is the log of a put of each of puts, then a delete of the key
+// each of drops picks (kv.Pick).
+func logOf(puts []string, drops []int) string {
+	let mut out = ""
+	for k in puts {
+		out = out + Encode(Set{Key: k, Value: "v " + k}) + "\n"
+	}
+	for d in drops {
+		out = out + Encode(Unset{Key: kv.Pick(puts, d)}) + "\n"
 	}
 	out
 }

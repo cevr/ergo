@@ -46,6 +46,16 @@ func Opposite(d Dir) Dir {
 	}
 }
 
+// OppositeIsAnInvolution: the way back is another way, and its way back
+// is the way you came.
+law OppositeIsAnInvolution(n int) {
+	let d = DirOf(n)
+	Opposite(d) != d && Opposite(Opposite(d)) == d
+}
+
+// DirOf is one of the six directions, by n.
+func DirOf(n int) Dir { Dirs[((n%6)+6)%6] }
+
 // ParseDir reads a direction, by its word or its first letter.
 func ParseDir(word string) Option[Dir] {
 	for d in Dirs {
@@ -57,12 +67,33 @@ func ParseDir(word string) Option[Dir] {
 	None
 }
 
+// ParseDirReadsDirName: a direction's word and its first letter read back
+// to it.
+law ParseDirReadsDirName(n int) {
+	let d = DirOf(n)
+	let back = Some[Dir]{Value: d}
+	ParseDir(DirName(d)) == back && ParseDir(strings.Slice(DirName(d), 0, 1)) == back
+}
+
 // Room is a place: its name and what you see there.
 type Room { Name string, Text string }
 
 // Exit is a way from one room to another. Key is the item you must carry
 // to pass, or "" for none; Barred is what you are told without it.
 type Exit { From string, Way Dir, To string, Key string, Barred string }
+
+// EveryExitHasAWayBack: in the castle, each exit has an exit back by the
+// opposite way, with the same key.
+law EveryExitHasAWayBack(n int) {
+	let w = Castle()
+	let e = w.Exits[((n%len(w.Exits))+len(w.Exits))%len(w.Exits)]
+	match ExitOf(w, e.To, Opposite(e.Way)) {
+	case Some[Exit] as back:
+		back.Value.To == e.From && back.Value.Key == e.Key
+	case None:
+		false
+	}
+}
 
 // Place is where an item is: a room's name, or Carried.
 type Place { Item string, At string }

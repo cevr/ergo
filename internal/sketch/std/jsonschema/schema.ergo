@@ -1,0 +1,714 @@
+// The subset of JSON Schema (2020-12) that Ergo's codecs need: what
+// `ergo gen schema`, `ergo gen api` and `ergo gen mcp` write for a wire
+// type, what an MCP client checks a tool's arguments against, and what a
+// model is asked to answer in. Conforms reads the keywords type,
+// properties, required, additionalProperties, items, prefixItems,
+// minItems, maxItems, anyOf, const, $defs and $ref; it ignores every other
+// keyword, as JSON Schema does an unknown one, so a schema that uses more
+// is read as looser than it is. A $ref names a schema of the same
+// document's $defs (or the whole document, "#"): no $ref is followed out
+// of the document, so checking a value reads nothing but the schema.
+
+import json
+import strings
+
+// Schema is a JSON schema whose keywords this package reads are of the
+// kinds JSON Schema gives them, and whose every $ref names a schema of the
+// document. Only Of and Parse make one.
+type Schema { root json.Value }
+
+// Invalid is a document that is no Schema: Path is the JSON pointer of the
+// part that is wrong ("" for the whole), Reason what is wrong with it.
+type Invalid { Path string, Reason string }
+
+// Of is v as a Schema, or Invalid when a keyword this package reads has a
+// value of another kind, or a $ref names anything but a schema of v's
+// $defs.
+func Of(v json.Value) Schema fails Invalid {
+	try checked(v, v, "")
+	Schema{root: v}
+}
+
+// Parse is the Schema text spells.
+func Parse(text string) Schema fails Invalid {
+	let v = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return Invalid{Path: "", Reason: "the text is not JSON"}
+	}
+	try Of(v)
+}
+
+// Value is s's document.
+func Value(s Schema) json.Value { s.root }
+
+// Text is s's document as JSON text.
+func Text(s Schema) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, s.root) }
+
+// Conforms is whether v is an instance of s.
+func Conforms(s Schema, v json.Value) bool { fits(s.root, s.root, v, 0) }
+
+// Encoded is a Schema with its JSON text, written once: what a tool spec
+// or a response format carries, so a provider splices the text into each
+// request with no encode, and no text that is not a Schema reaches it.
+// Only Encode makes one.
+type Encoded { schema Schema, text string }
+
+// Encode is s with its text.
+func Encode(s Schema) Encoded { Encoded{schema: s, text: Text(s)} }
+
+// TextOf is e's JSON text.
+func TextOf(e Encoded) string { e.text }
+
+// SchemaOf is e's Schema.
+func SchemaOf(e Encoded) Schema { e.schema }
+
+// NewEncoded is the object schema whose properties are the keys, each a
+// string and each required, encoded: the simplest tool input, and the
+// constructor a law's generator calls for an Encoded (a Request with
+// tools).
+func NewEncoded(keys []string) Encoded {
+	let mut props = []json.Member{}
+	let mut required = []json.Value{}
+	for k in keys {
+		if member(json.Object{Members: props}, k) == None {
+			props = props.Append(json.Member{Key: k, Value: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "string"}}}}})
+			required = required.Append(json.Str{Value: k})
+		}
+	}
+	let mut members = []json.Member{json.Member{Key: "type", Value: json.Str{Value: "object"}}, json.Member{Key: "properties", Value: json.Object{Members: props}}}
+	if len(required) > 0 {
+		members = members.Append(json.Member{Key: "required", Value: json.Array{Items: required}})
+	}
+	Encode(Schema{root: json.Object{Members: members}})
+}
+
+// EncodedIsTheSchema: an Encoded's text is its schema's, and parses back
+// as the same schema.
+law EncodedIsTheSchema(key string, n int) {
+	let s = parsed("{\"type\":\"object\",\"properties\":{" + quoted(key) + ":{\"type\":\"integer\",\"const\":\(n)}},\"required\":[" + quoted(key) + "]}")
+	let e = Encode(s)
+	let back = Parse(TextOf(e)) catch {
+	case Invalid:
+		return false
+	}
+	TextOf(e) == Text(s) && SchemaOf(e) == s && back == s
+}
+
+// NewEncodedRequiresItsKeys: NewEncoded's schema is a Schema that an
+// object of a string per key fits, and an object without a key does not.
+law NewEncodedRequiresItsKeys(keys []string, s string) {
+	let e = NewEncoded(keys)
+	let back = Parse(TextOf(e)) catch {
+	case Invalid:
+		return false
+	}
+	let mut members = []json.Member{}
+	for k in keys {
+		members = members.Append(json.Member{Key: k, Value: json.Str{Value: s}})
+	}
+	let mut fits = back == SchemaOf(e) && Conforms(SchemaOf(e), json.Object{Members: members})
+	if len(keys) > 0 {
+		let mut rest = []json.Member{}
+		for m in members {
+			if m.Key != keys[0] {
+				rest = rest.Append(m)
+			}
+		}
+		fits = fits && !Conforms(SchemaOf(e), json.Object{Members: rest})
+	}
+	fits
+}
+
+// fits is whether v is an instance of schema, a part of the document
+// root. hops is the $refs followed since the last step into a member or
+// an item: a chain of more than the document's definitions never steps
+// in, so it decides nothing and the value does not fit.
+func fits(root json.Value, schema json.Value, v json.Value, hops int) bool {
+	let o = match schema {
+	case json.Boolean as b:
+		return b.Value
+	case json.Object as x:
+		x
+	case json.Null, json.Num, json.Str, json.Array:
+		return true
+	}
+	match member(o, "$ref") {
+	case Some[json.Value] as r:
+		if hops > len(definitions(root)) {
+			return false
+		}
+		match resolved(root, text(r.Value)) {
+		case Some[json.Value] as target:
+			if !fits(root, target.Value, v, hops+1) {
+				return false
+			}
+		case None:
+			return false
+		}
+	case None:
+	}
+	match member(o, "type") {
+	case Some[json.Value] as t:
+		if !typed(t.Value, v) {
+			return false
+		}
+	case None:
+	}
+	match member(o, "const") {
+	case Some[json.Value] as c:
+		if !same(c.Value, v) {
+			return false
+		}
+	case None:
+	}
+	match member(o, "anyOf") {
+	case Some[json.Value] as any:
+		let mut one = false
+		for s in items(any.Value) {
+			if fits(root, s, v, hops) {
+				one = true
+				break
+			}
+		}
+		if !one {
+			return false
+		}
+	case None:
+	}
+	match v {
+	case json.Object as x:
+		objectFits(root, o, x)
+	case json.Array as a:
+		arrayFits(root, o, a)
+	case json.Null, json.Boolean, json.Num, json.Str:
+		true
+	}
+}
+
+// typed is whether v is of the type t names, or of one of the types of
+// the list t.
+func typed(t json.Value, v json.Value) bool {
+	match t {
+	case json.Str as s:
+		isType(s.Value, v)
+	case json.Array as a:
+		for n in a.Items {
+			if isType(text(n), v) {
+				return true
+			}
+		}
+		false
+	case json.Null, json.Boolean, json.Num, json.Object:
+		true
+	}
+}
+
+// isType is whether v is of the JSON Schema type t. An integer is a
+// number with no fraction, whatever its spelling (2, 2.0 and 0.2e1).
+func isType(t string, v json.Value) bool {
+	match v {
+	case json.Null:
+		t == "null"
+	case json.Boolean:
+		t == "boolean"
+	case json.Num as n:
+		t == "number" || t == "integer" && integral(n.Wire())
+	case json.Str:
+		t == "string"
+	case json.Array:
+		t == "array"
+	case json.Object:
+		t == "object"
+	}
+}
+
+// integral is whether the JSON number spelled s has no fraction: every
+// digit after the decimal point, once the exponent has moved it, is 0.
+func integral(s string) bool {
+	let mut t = strings.TrimPrefix(s, "-")
+	let mut exp = 0
+	let mut e = strings.IndexByte(t, 'e')
+	if e < 0 {
+		e = strings.IndexByte(t, 'E')
+	}
+	if e >= 0 {
+		let spelled = strings.Slice(t, e+1, len(t))
+		let negative = strings.HasPrefix(spelled, "-")
+		let digits = strings.TrimPrefix(strings.TrimPrefix(spelled, "-"), "+")
+		for i in 0..len(digits) {
+			// A larger exponent moves the point past every digit a
+			// document can hold.
+			if exp < 100000000 {
+				exp = exp*10 + int(digits[i]-'0')
+			}
+		}
+		if negative {
+			exp = -exp
+		}
+		t = strings.Slice(t, 0, e)
+	}
+	let dot = strings.IndexByte(t, '.')
+	let whole = if dot < 0 { t } else { strings.Slice(t, 0, dot) }
+	let digits = if dot < 0 { t } else { whole + strings.Slice(t, dot+1, len(t)) }
+	let point = len(whole) + exp
+	for i in 0..len(digits) {
+		if i >= point && digits[i] != '0' {
+			return false
+		}
+	}
+	true
+}
+
+// same is whether a and b are one JSON value: numbers by their spelling,
+// objects by their members in order.
+func same(a json.Value, b json.Value) bool { a == b }
+
+// objectFits is whether o has every required key, and each member fits
+// its property's schema (or additionalProperties, for a key with none).
+func objectFits(root json.Value, schema json.Object, o json.Object) bool {
+	for k in items(or(member(schema, "required"))) {
+		match member(o, text(k)) {
+		case Some[json.Value]:
+		case None:
+			return false
+		}
+	}
+	let properties = or(member(schema, "properties"))
+	let extra = member(schema, "additionalProperties")
+	for m in o.Members {
+		match field(properties, m.Key) {
+		case Some[json.Value] as s:
+			if !fits(root, s.Value, m.Value, 0) {
+				return false
+			}
+		case None:
+			match extra {
+			case Some[json.Value] as s:
+				if !fits(root, s.Value, m.Value, 0) {
+					return false
+				}
+			case None:
+			}
+		}
+	}
+	true
+}
+
+// arrayFits is whether a has as many items as minItems and maxItems allow
+// and each item fits: the item at i fits prefixItems[i] when there is one,
+// else items. A prefixItems array also fixes the length.
+func arrayFits(root json.Value, schema json.Object, a json.Array) bool {
+	match member(schema, "minItems") {
+	case Some[json.Value] as n:
+		if len(a.Items) < count(n.Value) {
+			return false
+		}
+	case None:
+	}
+	match member(schema, "maxItems") {
+	case Some[json.Value] as n:
+		if len(a.Items) > count(n.Value) {
+			return false
+		}
+	case None:
+	}
+	match member(schema, "prefixItems") {
+	case Some[json.Value] as p:
+		let ps = items(p.Value)
+		if len(ps) != len(a.Items) {
+			return false
+		}
+		for i, s in ps {
+			if !fits(root, s, a.Items[i], 0) {
+				return false
+			}
+		}
+		return true
+	case None:
+	}
+	match member(schema, "items") {
+	case Some[json.Value] as s:
+		for e in a.Items {
+			if !fits(root, s.Value, e, 0) {
+				return false
+			}
+		}
+		true
+	case None:
+		true
+	}
+}
+
+// checked is Invalid at the first part of schema (at path in root) that a
+// read keyword has the wrong kind of value in, or whose $ref names no
+// schema of root's $defs.
+func checked(root json.Value, schema json.Value, path string) fails Invalid {
+	let o = match schema {
+	case json.Boolean:
+		return
+	case json.Object as x:
+		x
+	case json.Null, json.Num, json.Str, json.Array:
+		return Invalid{Path: path, Reason: "a schema is an object or a boolean"}
+	}
+	for m in o.Members {
+		let at = path + "/" + pointer(m.Key)
+		let k = m.Key
+		if k == "properties" || k == "$defs" {
+			match m.Value {
+			case json.Object as ps:
+				for p in ps.Members {
+					try checked(root, p.Value, at+"/"+pointer(p.Key))
+				}
+			case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+				return Invalid{Path: at, Reason: k + " is an object of schemas"}
+			}
+		} else if k == "additionalProperties" || k == "items" {
+			try checked(root, m.Value, at)
+		} else if k == "prefixItems" || k == "anyOf" {
+			match m.Value {
+			case json.Array as ss:
+				if len(ss.Items) == 0 {
+					return Invalid{Path: at, Reason: k + " is a list of one schema or more"}
+				}
+				for i, s in ss.Items {
+					try checked(root, s, at+"/\(i)")
+				}
+			case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+				return Invalid{Path: at, Reason: k + " is a list of schemas"}
+			}
+		} else if k == "required" {
+			try names(m.Value, at, "required is a list of keys")
+		} else if k == "type" {
+			match m.Value {
+			case json.Str as t:
+				if !known(t.Value) {
+					return Invalid{Path: at, Reason: "no JSON Schema type is named " + t.Value}
+				}
+			case json.Array as ts:
+				try names(m.Value, at, "type is a type's name or a list of them")
+				for t in ts.Items {
+					if !known(text(t)) {
+						return Invalid{Path: at, Reason: "no JSON Schema type is named " + text(t)}
+					}
+				}
+			case json.Null, json.Boolean, json.Num, json.Object:
+				return Invalid{Path: at, Reason: "type is a type's name or a list of them"}
+			}
+		} else if k == "minItems" || k == "maxItems" {
+			let good = match m.Value {
+			case json.Num as n:
+				digits(n.Wire())
+			case json.Null, json.Boolean, json.Str, json.Array, json.Object:
+				false
+			}
+			if !good {
+				return Invalid{Path: at, Reason: k + " is a count"}
+			}
+		} else if k == "$ref" {
+			match m.Value {
+			case json.Str as r:
+				match resolved(root, r.Value) {
+				case Some[json.Value]:
+				case None:
+					return Invalid{Path: at, Reason: "a $ref names a schema of this document (# or #/$defs/NAME), not " + r.Value}
+				}
+			case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+				return Invalid{Path: at, Reason: "a $ref is a reference's text"}
+			}
+		}
+	}
+}
+
+// names is Invalid{at, why} unless v is a list of strings.
+func names(v json.Value, at string, why string) fails Invalid {
+	match v {
+	case json.Array as a:
+		for x in a.Items {
+			match x {
+			case json.Str:
+			case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+				return Invalid{Path: at, Reason: why}
+			}
+		}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+		return Invalid{Path: at, Reason: why}
+	}
+}
+
+// digits is whether s is all decimal digits: a count's spelling.
+func digits(s string) bool {
+	for i in 0..len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	len(s) > 0
+}
+
+// known is whether t names one of JSON Schema's seven types.
+func known(t string) bool {
+	t == "null" || t == "boolean" || t == "object" || t == "array" || t == "number" || t == "integer" || t == "string"
+}
+
+// resolved is the schema ref names in root: root itself for "#", a
+// schema of root's $defs for "#/$defs/NAME"; None for anything else, a
+// URL above all, which this package never follows.
+func resolved(root json.Value, ref string) Option[json.Value] {
+	if ref == "#" {
+		return Some[json.Value]{Value: root}
+	}
+	if !strings.HasPrefix(ref, "#/$defs/") {
+		return None
+	}
+	let name = unpointer(strings.TrimPrefix(ref, "#/$defs/"))
+	match root {
+	case json.Object as o:
+		field(or(member(o, "$defs")), name)
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		None
+	}
+}
+
+// definitions is the schemas of root's $defs.
+func definitions(root json.Value) []json.Member {
+	match root {
+	case json.Object as o:
+		match or(member(o, "$defs")) {
+		case json.Object as d:
+			d.Members
+		case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+			[]json.Member{}
+		}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		[]json.Member{}
+	}
+}
+
+// pointer is key as a JSON pointer's token (RFC 6901): ~ as ~0, / as ~1.
+func pointer(key string) string { strings.ReplaceAll(strings.ReplaceAll(key, "~", "~0"), "/", "~1") }
+
+// unpointer is the key a JSON pointer's token names.
+func unpointer(token string) string { strings.ReplaceAll(strings.ReplaceAll(token, "~1", "/"), "~0", "~") }
+
+// member is the value of the member key of o.
+func member(o json.Object, key string) Option[json.Value] {
+	for m in o.Members {
+		if m.Key == key {
+			return Some[json.Value]{Value: m.Value}
+		}
+	}
+	None
+}
+
+// field is the value of the member key of v, when v is an object.
+func field(v json.Value, key string) Option[json.Value] {
+	match v {
+	case json.Object as o:
+		member(o, key)
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		None
+	}
+}
+
+// or is the value o holds, or null.
+func or(o Option[json.Value]) json.Value {
+	match o {
+	case Some[json.Value] as v:
+		v.Value
+	case None:
+		json.Null
+	}
+}
+
+// items is the items of list v, or none.
+func items(v json.Value) []json.Value {
+	match v {
+	case json.Array as a:
+		a.Items
+	case json.Null, json.Boolean, json.Num, json.Str, json.Object:
+		[]json.Value{}
+	}
+}
+
+// text is string v, or "".
+func text(v json.Value) string {
+	match v {
+	case json.Str as s:
+		s.Value
+	case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+		""
+	}
+}
+
+// count is the count number v spells (a checked minItems or maxItems), or
+// 0.
+func count(v json.Value) int {
+	match v {
+	case json.Num as n:
+		let s = n.Wire()
+		let mut c = 0
+		for i in 0..len(s) {
+			if s[i] < '0' || s[i] > '9' {
+				break
+			}
+			if c < 1000000000 {
+				c = c*10 + int(s[i]-'0')
+			}
+		}
+		c
+	case json.Null, json.Boolean, json.Str, json.Array, json.Object:
+		0
+	}
+}
+
+// parsed is the Schema text spells, or the schema no value fits.
+func parsed(text string) Schema {
+	Parse(text) catch {
+	case Invalid:
+		Schema{root: json.Boolean{Value: false}}
+	}
+}
+
+// value is the JSON value text spells, or null.
+func value(text string) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		json.Null
+	}
+}
+
+// refusal is the path Parse refuses text at, or None when it is a
+// Schema.
+func refusal(text string) Option[string] {
+	let _ = Parse(text) catch {
+	case Invalid as i:
+		return Some[string]{Value: i.Path}
+	}
+	None
+}
+
+// quoted is s as a JSON string.
+func quoted(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s) }
+
+// RequiredKeyIsRequired: an object fits a schema that requires key
+// exactly when it has a member key.
+law RequiredKeyIsRequired(key string, keys []string) {
+	let schema = parsed("{\"type\":\"object\",\"required\":[" + quoted(key) + "]}")
+	let mut members = []json.Member{}
+	let mut has = false
+	for k in keys {
+		members = members.Append(json.Member{Key: k, Value: json.Null})
+		has = has || k == key
+	}
+	Conforms(schema, json.Object{Members: members}) == has
+}
+
+// PropertiesAreChecked: a member fits its property's schema, or the
+// object does not fit; a member no property names fits
+// additionalProperties.
+law PropertiesAreChecked(n int, s string) {
+	let schema = parsed("{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"integer\"}},\"additionalProperties\":{\"type\":\"string\"}}")
+	let good = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.IntNumber(int64(n))}, json.Member{Key: "m", Value: json.Str{Value: s}}}}
+	let bad = json.Object{Members: []json.Member{json.Member{Key: "n", Value: json.Str{Value: s}}}}
+	let extra = json.Object{Members: []json.Member{json.Member{Key: "m", Value: json.IntNumber(int64(n))}}}
+	Conforms(schema, good) && !Conforms(schema, bad) && !Conforms(schema, extra)
+}
+
+// IntegerHasNoFraction: an integer is a number with no fraction, however
+// it is spelled; a number with one is a number and no integer.
+law IntegerHasNoFraction(n int) {
+	let integer = parsed("{\"type\":\"integer\"}")
+	let num = parsed("{\"type\":\"number\"}")
+	let frac = value("\(n).5")
+	let whole = value("\(n).0")
+	let exp = value("\(n)e1")
+	let small = value("\(n).25e1")
+	let moved = value("\(n).20e1")
+	Conforms(integer, json.IntNumber(int64(n))) && !Conforms(integer, frac) && Conforms(integer, whole) && Conforms(integer, exp) && !Conforms(integer, small) && Conforms(integer, moved) && Conforms(num, frac) && Conforms(num, small)
+}
+
+// AnyOfIsOneOfItsSchemas: a value fits anyOf when it fits one of its
+// schemas: here, one of two constants.
+law AnyOfIsOneOfItsSchemas(s string) {
+	let schema = parsed("{\"anyOf\":[{\"const\":\"A\"},{\"const\":\"B\"}]}")
+	Conforms(schema, json.Str{Value: s}) == (s == "A" || s == "B")
+}
+
+// ConstIsOneValue: a value fits const only when it is that value.
+law ConstIsOneValue(s string, t string, n int) {
+	let schema = parsed("{\"const\":{\"s\":" + quoted(s) + ",\"n\":\(n)}}")
+	let other = json.Object{Members: []json.Member{json.Member{Key: "s", Value: json.Str{Value: t}}, json.Member{Key: "n", Value: json.IntNumber(int64(n))}}}
+	Conforms(schema, value("{\"s\":"+quoted(s)+",\"n\":\(n)}")) && Conforms(schema, other) == (s == t) && !Conforms(schema, json.Str{Value: s})
+}
+
+// PrefixItemsFixTheLength: an array fits prefixItems of n schemas only
+// when it has n items, each fitting its own.
+law PrefixItemsFixTheLength(xs []string) {
+	let schema = parsed("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}")
+	let mut items = []json.Value{}
+	for x in xs {
+		items = items.Append(json.Str{Value: x})
+	}
+	let mixed = json.Array{Items: []json.Value{json.Str{Value: "a"}, json.IntNumber(1)}}
+	let swapped = json.Array{Items: []json.Value{json.IntNumber(1), json.Str{Value: "a"}}}
+	let longer = json.Array{Items: mixed.Items.Append(json.Str{Value: "c"})}
+	!Conforms(schema, json.Array{Items: items}) && Conforms(schema, mixed) && !Conforms(schema, swapped) && !Conforms(schema, longer)
+}
+
+// ItemsAreEachChecked: an array fits items when every item does, and
+// minItems and maxItems bound how many there are.
+law ItemsAreEachChecked(ns []int) {
+	let schema = parsed("{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"minItems\":1,\"maxItems\":3}")
+	let mut items = []json.Value{}
+	for n in ns {
+		items = items.Append(json.IntNumber(int64(n)))
+	}
+	Conforms(schema, json.Array{Items: items}) == (len(ns) >= 1 && len(ns) <= 3) && !Conforms(schema, json.Array{Items: items.Append(json.Str{Value: "x"})})
+}
+
+// RefsAreLocal: a $ref names a schema of the document's $defs, which a
+// value is checked against as if written there; a $ref to anything else,
+// a URL above all, is no Schema, so checking a value never reads outside
+// its document.
+law RefsAreLocal(name string, host string, s string) {
+	let defs = "{\"$defs\":{" + quoted(name) + ":{\"type\":\"string\"}},\"$ref\":" + quoted("#/$defs/"+pointer(name)) + "}"
+	let local = Parse(defs) catch {
+	case Invalid:
+		return false
+	}
+	let remote = refusal("{\"$ref\":" + quoted("https://"+host+"/schema.json") + "}")
+	Conforms(local, json.Str{Value: s}) && !Conforms(local, json.IntNumber(1)) && remote == Some[string]{Value: "/$ref"}
+}
+
+// RefsRecurse: a $ref may name the schema it is in, so a recursive type
+// has a schema: a chain of n links ending in null fits, and one ending in
+// a number does not.
+law RefsRecurse(n int) {
+	let schema = parsed("{\"$defs\":{\"list\":{\"anyOf\":[{\"type\":\"null\"},{\"type\":\"object\",\"properties\":{\"next\":{\"$ref\":\"#/$defs/list\"}},\"required\":[\"next\"]}]}},\"$ref\":\"#/$defs/list\"}")
+	let mut good = "null"
+	let mut bad = "1"
+	for _ in 0..(n%3+3)%3 {
+		good = "{\"next\":" + good + "}"
+		bad = "{\"next\":" + bad + "}"
+	}
+	Conforms(schema, value(good)) && !Conforms(schema, value(bad)) && !Conforms(parsed("{\"$defs\":{\"a\":{\"$ref\":\"#\"}},\"$ref\":\"#/$defs/a\"}"), value(good))
+}
+
+// KeywordsAreChecked: a keyword this package reads with a value of
+// another kind is no Schema, named by its JSON pointer.
+law KeywordsAreChecked(key string) {
+	let at = "/properties/" + pointer(key)
+	let bad = []string{"{\"type\":\"text\"}", "{\"required\":\"a\"}", "{\"required\":[1]}", "{\"items\":1}", "{\"anyOf\":[]}", "{\"minItems\":-1}", "{\"$ref\":1}"}
+	let mut all = true
+	for b in bad {
+		let refused = match refusal("{\"properties\":{" + quoted(key) + ":" + b + "}}") {
+		case Some[string] as path:
+			strings.HasPrefix(path.Value, at+"/")
+		case None:
+			false
+		}
+		all = all && refused
+	}
+	all
+}

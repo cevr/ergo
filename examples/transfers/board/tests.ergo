@@ -1,0 +1,122 @@
+// The seven story tests, restated on shape A (conformance/upstream maps
+// each): each transfer is a live actor on a time.Manual, a
+// press is a signal to it, and "resolve the command" is moving the clock.
+// No test resolves an interrupt: a cancel ends the Sending entry, and the
+// entry's end is the interruption, so the outcome needs no message.
+
+import transfers/transfer
+import time
+
+// words is the board's transfers' states, in order.
+func words(b Board) []string {
+	let mut out = []string{}
+	for x in b.Items {
+		out = out.Append(transfer.Word(x.Child.State()))
+	}
+	out
+}
+
+// first and second are the first two files' times.
+func first() duration { transfer.Took(transfer.Files[0].MB) }
+
+func second() duration { transfer.Took(transfer.Files[1].MB) }
+
+test StartAppendsASendingTransfer {
+	// starting an upload appends an Uploading entry and fires UploadFile.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		let shown = Lines(b) == []string{"0 trail-map.png sending"} && b.Next == 1
+		time.Advance(c, first())
+		let arrived = words(b) == []string{"sent"}
+		assert shown && arrived
+	}
+}
+
+test CancelEndsTheTransfer {
+	// cancelling an upload interrupts it and marks it Cancelled.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		Cancel(b, 0)
+		let cancelled = words(b) == []string{"cancelled"}
+		time.Advance(c, first())
+		let stays = words(b) == []string{"cancelled"}
+		assert cancelled && stays
+	}
+}
+
+test CancelAfterArrivalChangesNothing {
+	// a cancel that lands after completion resolves NotFound and changes
+	// nothing.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		time.Advance(c, first())
+		Cancel(b, 0)
+		let w = words(b)
+		assert w == []string{"sent"}
+	}
+}
+
+test CancelOneLeavesTheOther {
+	// cancelling one upload leaves the other running.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		b.Start()
+		Cancel(b, 0)
+		time.Advance(c, second())
+		let w = words(b)
+		assert w == []string{"cancelled", "sent"}
+	}
+}
+
+test StartWhileACancelIsPending {
+	// a new upload can start while a cancellation is still pending.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		Cancel(b, 0)
+		b.Start()
+		time.Advance(c, second())
+		let w = words(b)
+		assert w == []string{"cancelled", "sent"}
+	}
+}
+
+test RestartKeepsItsIdAndFile {
+	// restarting a cancelled upload reuses its id and file.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		Cancel(b, 0)
+		Restart(b, 0)
+		let again = Lines(b) == []string{"0 trail-map.png sending"}
+		time.Advance(c, first())
+		let w = words(b)
+		assert again && w == []string{"sent"}
+	}
+}
+
+test CancelAllStopsOnlyTheSending {
+	// cancel all interrupts every running upload and only those: the
+	// third file here is the shortest.
+	let c = time.NewManual(0)
+	with context { Scheduler: c } {
+		let mut b = New()
+		b.Start()
+		b.Start()
+		b.Start()
+		time.Advance(c, transfer.Took(transfer.Files[2].MB))
+		CancelAll(b)
+		let w = words(b)
+		assert w == []string{"cancelled", "cancelled", "sent"}
+	}
+}

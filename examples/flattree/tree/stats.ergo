@@ -29,7 +29,7 @@ func StatsOf(v Value) Stats {
 // walk is the stats so far and the keys seen.
 type walk { s Stats, keys Map[string, bool] }
 
-func tally(w *walk, v Value) {
+func tally(w mut walk, v Value) {
 	let s = &w.s
 	s.Values += 1
 	match v {

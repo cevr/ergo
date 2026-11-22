@@ -115,6 +115,28 @@ law RetryHonoursAfter(ms int) {
 	t.Text == "done" && waited >= duration(int64(wait)*1000000) && (wait > 0 || waited == 1ms)
 }
 
+// RetryKeepsUpTo: a timed schedule reads the time since the first ask
+// began: by Spaced(1s) up to k and a half seconds, llm.Retry asks k+1
+// times and then fails as the last ask did.
+law RetryKeepsUpTo(n int) {
+	let k = (n%5 + 5) % 5
+	let mut replies = []Reply{}
+	for _ in 0..8 {
+		let f llm.Failure = llm.Overloaded
+		replies = replies.Append(Fails{Failure: f})
+	}
+	let s = NewSequence(replies.Append(ok("done", none())))
+	let c = testing.NewVirtualClock(0)
+	let limit = duration(int64(k)*1000000000 + 500000000)
+	let _ = llm.Retry{Inner: s, Schedule: schedule.UpTo(schedule.Spaced(1s), limit), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case llm.Overloaded:
+		return Asks(s) == k+1
+	case _:
+		return false
+	}
+	false
+}
+
 // NoReplayAfterFirstDelta: a stream that failed after a delta reached
 // put is not asked again, by llm.Retry or by llm.Fallback: the failure is
 // the caller's, and the next reply or member is never asked.

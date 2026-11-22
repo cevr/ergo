@@ -10,6 +10,7 @@
 
 import strconv
 import strings
+import rand
 
 // Field is the values one field of an expression matches. Star is whether
 // the field is * or */s, one part with no list: the day of the month and
@@ -213,6 +214,60 @@ law FormatParseRoundTrips(seed uint64) {
 		return false
 	}
 	back == e
+}
+
+// drawnExpr is an expression drawn from seed: each field *, a value, a
+// range, a step of * or of a range, or a list of two parts. Two fields in
+// three are *, so that most expressions fire within a day or two.
+func drawnExpr(seed uint64) Expr {
+	let text = with context { Random: rand.Seeded(seed) } {
+		let mut fields = []string{}
+		fields = fields.Append(drawField(0, 59, []string{}))
+		fields = fields.Append(drawField(0, 23, []string{}))
+		fields = fields.Append(drawField(1, 31, []string{}))
+		fields = fields.Append(drawField(1, 12, []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"}))
+		fields = fields.Append(drawField(0, 7, []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}))
+		strings.Join(fields, " ")
+	}
+	Parse(text) catch {
+	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+		Unreachable("a drawn field is within its bounds")
+	}
+}
+
+// drawField is one field from lo to hi, with the names of its values.
+func drawField(lo int, hi int, names []string) string needs Random {
+	let span = hi - lo + 1
+	match Random.IntN(9) {
+	case 0:
+		drawValue(lo, hi, names)
+	case 1:
+		let a = lo + Random.IntN(span)
+		let z = a + Random.IntN(hi-a+1)
+		"\(a)-\(z)"
+	case 2:
+		"*/\(1 + Random.IntN(span))"
+	case 3:
+		let a = lo + Random.IntN(span)
+		let z = a + Random.IntN(hi-a+1)
+		"\(a)-\(z)/\(1 + Random.IntN(span))"
+	case 4:
+		drawValue(lo, hi, names) + "," + drawValue(lo, hi, names)
+	case 5:
+		"*/\(1 + Random.IntN(span))," + drawValue(lo, hi, names)
+	case _:
+		"*"
+	}
+}
+
+// drawValue is one value from lo to hi, as a number or, one time in four,
+// as its name in upper case.
+func drawValue(lo int, hi int, names []string) string needs Random {
+	let i = Random.IntN(hi - lo + 1)
+	if i < len(names) && Random.IntN(4) == 0 {
+		return strings.ToUpper(names[i])
+	}
+	strconv.Itoa(lo + i)
 }
 
 // MacrosAreTheirFields: each macro, in any case, is the five fields Vixie

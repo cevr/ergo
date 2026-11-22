@@ -48,6 +48,7 @@ extern go testing/quick.Generator type Generator {
 extern go testing/quick.SetupError type SetupError string
 
 // ergo:go func (SetupError).Error() string
+// ergo:total
 extern go testing/quick.SetupError.Error func (s SetupError) Error() string needs go.Foreign
 
 // ergo:go func Value(t reflect.Type, rand *rand.Rand) (value reflect.Value, ok bool)

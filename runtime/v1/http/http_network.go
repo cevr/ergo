@@ -392,26 +392,6 @@ func webScheme(s string) bool {
 	return s != ""
 }
 
-//ergo:wait none
-func HTTPCheckNetwork(origins []string, limits HTTPLimits) ([]string, error) {
-	if !limits.valid() {
-		return nil, HTTPInvalidLimits(limits)
-	}
-	out := make([]string, 0, len(origins))
-	for _, origin := range origins {
-		if err := HTTPCheckOrigin(origin, limits); err != nil {
-			return nil, err
-		}
-		u, _ := url.Parse(origin)
-		canonical, err := networkOrigin(u)
-		if err != nil {
-			return nil, HTTPInvalidClient{origin, "the origin is not valid"}
-		}
-		out = append(out, canonical)
-	}
-	return out, nil
-}
-
 func originAllowed(origin string, origins []string, anyOrigin bool) bool {
 	if anyOrigin {
 		return true

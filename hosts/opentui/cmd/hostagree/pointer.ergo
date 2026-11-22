@@ -1,0 +1,127 @@
+// The apps of areas and lists, as hosts/mygo's hostagree has them: a
+// pointer pad and a virtual list.
+
+import ui
+
+// pad: an Area whose pointer events become signals, over a Pressable
+// (the hit test takes the one painted last), with a Zone (key 7) below
+// it: a press over the Zone says where in the Zone it went down.
+type pad { last int, n int }
+
+func padStep(s pad, e int) Decision[pad, int] { Enter[pad]{Next: pad{last: e, n: s.n + 1}} }
+
+func padMachine() Machine[pad, int, int] {
+	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int], Exit: func(s pad) Option[func()] { None }}
+}
+
+func padView(f mut ui.Frame[int], s pad) {
+	ui.Text(f, "last \(s.last) of \(s.n)")
+	let mut area = ui.Plain()
+	area.Width = ui.Fixed{Value: 200}
+	area.Height = ui.Fixed{Value: 120}
+	ui.Area(f, "pad", area, func(p ui.PointerEvent) Option[int] {
+		match p.Phase {
+		case ui.Down:
+			match p.Zone {
+			case Some[ui.ZoneHit] as z:
+				Some{Value: 10000 + int(z.Value.X) + 1000*int(z.Value.Y) + 100000*len(z.Value.Path)}
+			case None:
+				Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+			}
+		case ui.Up:
+			Some{Value: 2000 + int(p.Y)}
+		case ui.Wheel as w:
+			Some{Value: 3000 + int(w.DY)}
+		case ui.Drag:
+			Some{Value: 4000 + int(p.Y)}
+			// The composer's crossings (UG3), which follow the Areas that
+			// hold the node under the pointer: a host that sends them other
+			// than TestHost does differs in the pad's state (OT-PHASES).
+		case ui.PointerEnter:
+			Some{Value: 7000}
+		case ui.PointerLeave:
+			Some{Value: 7001}
+		case ui.Moved:
+			None
+		}
+	}) {
+		ui.Text(f, "pad")
+		ui.Pressable(f, "clear", 5000) {
+			ui.Text(f, "Clear")
+		}
+		let mut spot = ui.Plain()
+		spot.Width = ui.Fixed{Value: 120}
+		spot.Height = ui.Fixed{Value: 48}
+		ui.Zone(f, ui.ByInt(7), spot) {
+			ui.Text(f, "spot")
+		}
+	}
+	// A button outside the Area: a press on it leaves the pad on both hosts
+	// only when the press goes to the node under the pointer (OT-PHASES;
+	// mutant OTPH-down-areas-only).
+	ui.Pressable(f, "reset", 6000) {
+		ui.Text(f, "Reset")
+	}
+}
+
+// list: a virtual list (ui.RowsKeeping) of n rows, a button each; "more"
+// adds 25 rows (-1), "less" takes 25 (-2), "note" shows or hides a line
+// above the list (-3), "down" and "up" move the cursor, the row the list
+// keeps in view, 17 rows (-4, -5; as hosts/mygo's hostagree has it), and
+// a row's button names its row. The list has no height of its own, so it takes the screen
+// below it, which the note moves.
+type rowsApp { n int, last int, note bool, cur int }
+
+func rowsStep(s rowsApp, e int) Decision[rowsApp, int] {
+	if e == -1 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note, cur: s.cur}}
+	}
+	if e == -2 {
+		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note, cur: s.cur}}
+	}
+	if e == -3 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note, cur: s.cur}}
+	}
+	if e == -4 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: s.cur + 17}}
+	}
+	if e == -5 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: s.note, cur: if s.cur > 17 { s.cur - 17 } else { 0 }}}
+	}
+	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note, cur: s.cur}}
+}
+
+func rowsMachine() Machine[rowsApp, int, int] {
+	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false, cur: 0}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int], Exit: func(s rowsApp) Option[func()] { None }}
+}
+
+func rowsView(f mut ui.Frame[int], s rowsApp) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "\(s.n) rows, last \(s.last)")
+		ui.Row(f, ui.Plain()) {
+			ui.Pressable(f, "more", -1) {
+				ui.Text(f, "More")
+			}
+			ui.Pressable(f, "less", -2) {
+				ui.Text(f, "Less")
+			}
+			ui.Pressable(f, "note", -3) {
+				ui.Text(f, "Note")
+			}
+			ui.Pressable(f, "down", -4) {
+				ui.Text(f, "Down")
+			}
+			ui.Pressable(f, "up", -5) {
+				ui.Text(f, "Up")
+			}
+		}
+		if s.note {
+			ui.Text(f, "a note above the list")
+		}
+		ui.RowsKeeping(f, "list", s.n, ui.Length(32.0), s.cur, func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
+			ui.Pressable(f, "row \(i)", i) {
+				ui.Text(f, "row \(i)")
+			}
+		})
+	}
+}

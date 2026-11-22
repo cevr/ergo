@@ -1,4 +1,3 @@
-import deploys/jsontext
 import json
 import deploys/deploys
 import strings
@@ -17,17 +16,13 @@ import strings
 func Handle(r Request) Response needs deploys.Store {
 	match RouteOf(r.Method, r.Path) {
 	case List:
-		let mut all = []jsontext.Value{}
-		for o in deploys.Store.All() {
-			all = all.Append(DeployJSON(o))
-		}
-		Respond(200, jsontext.Arr{Items: all})
+		Respond(200, ListText(deploys.Store.All()))
 	case Show as s:
 		let o = deploys.Store.Find(s.ID) catch {
 		case deploys.NotFound as n:
 			return Problem(404, "no deploy "+n.ID, "")
 		}
-		Respond(200, DeployJSON(o))
+		Respond(200, DeployText(o))
 	case Create:
 		let d = draftOf(r) catch {
 		case Unsupported as u:
@@ -41,7 +36,7 @@ func Handle(r Request) Response needs deploys.Store {
 		case deploys.Invalid as i:
 			return Problem(422, i.Reason, i.Field)
 		}
-		let created = Respond(201, DeployJSON(o))
+		let created = Respond(201, DeployText(o))
 		Response{..created, Headers: created.Headers.Append(Header{Name: "Location", Value: "/deploys/" + o.ID})}
 	case Act as a:
 		let o = deploys.Apply(a.ID, a.Event) catch {
@@ -50,12 +45,35 @@ func Handle(r Request) Response needs deploys.Store {
 		case deploys.Conflict as c:
 			return Problem(409, "deploy \(c.ID) is \(c.Status) and cannot \(c.Event)", "")
 		}
-		Respond(200, DeployJSON(o))
+		Respond(200, DeployText(o))
 	case Wrong as w:
 		let p = Problem(405, r.Method+" is not allowed here", "")
 		Response{..p, Headers: p.Headers.Append(Header{Name: "Allow", Value: w.Allow})}
 	case Nowhere:
 		Problem(404, "no route "+r.Method+" "+r.Path, "")
+	}
+}
+
+// CreateThenShow: for any Store, a valid draft posted is 201 with a
+// Location, and a GET of the Location is 200 with the same body; an
+// invalid one is 422.
+law CreateThenShow(store deploys.Store, d deploys.Draft) { createThenShowHolds(store, d) }
+
+// createThenShowHolds checks CreateThenShow.
+func createThenShowHolds(store deploys.Store, d deploys.Draft) bool {
+	with context { deploys.Store: store } {
+		let created = Handle(Request{Method: "POST", Path: "/deploys", Headers: []Header{}, Body: DraftText(d)})
+		deploys.Validate(d) catch {
+		case deploys.Invalid:
+			return created.Status == 422
+		}
+		match HeaderOf(created.Headers, "Location") {
+		case Some[string] as at:
+			let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
+			created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
+		case None:
+			false
+		}
 	}
 }
 
@@ -76,17 +94,13 @@ func draftOf(r Request) deploys.Draft fails Unsupported | json.Malformed | BadBo
 	try DraftOf(r.Body)
 }
 
-// Respond is a response of status with the JSON body v.
-func Respond(status int, v jsontext.Value) Response {
-	Response{Status: status, Headers: []Header{Header{Name: "Content-Type", Value: "application/json"}}, Body: jsontext.Encode(v)}
+// Respond is a response of status with the JSON text body.
+func Respond(status int, body string) Response {
+	Response{Status: status, Headers: []Header{Header{Name: "Content-Type", Value: "application/json"}}, Body: body}
 }
 
 // Problem is an error response: {"error": message}, and "field" when the
 // failure names one.
 func Problem(status int, message string, field string) Response {
-	let mut fields = []jsontext.Field{jsontext.Field{Name: "error", Value: jsontext.Str{V: message}}}
-	if field != "" {
-		fields = fields.Append(jsontext.Field{Name: "field", Value: jsontext.Str{V: field}})
-	}
-	Respond(status, jsontext.Obj{Fields: fields})
+	Respond(status, ProblemText(message, field))
 }

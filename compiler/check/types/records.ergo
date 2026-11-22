@@ -1,0 +1,149 @@
+import compiler/syntax
+import dense
+import strings
+
+// Record is a record declaration of a file: a `type R[…] { fields }`, or
+// an inline variant of a union, whose parameters are the union's its
+// fields mention, in the union's order (shapes.go variantParams).
+type Record { Name string, Params []string, Fields dense.ID[syntax.Node] }
+
+func fieldCount(p syntax.Parsed, l dense.ID[syntax.Node]) int {
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		syntax.Len(fl.List)
+	case _:
+		0
+	}
+}
+
+// NameText is the text of a name row, "" for any other row.
+func NameText(p syntax.Parsed, id dense.ID[syntax.Node]) string { nameText(p, id) }
+
+// Records is the record declarations of p, in source order, a union's
+// inline variants after it. In the prelude, Never written with no fields
+// is the empty union, not a record (never.go emptyUnion).
+func Records(p syntax.Parsed, prelude bool) []Record {
+	let mut out = []Record{}
+	for d in topDecls(p) {
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			let params = match dense.Unpack(td.TypeParams) {
+			case Some{Value: tp}:
+				let (names, _) = bracketNames(p, tp)
+				names
+			case None:
+				[]string{}
+			}
+			match dense.Unpack(td.Spec) {
+			case Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
+				case syntax.StructType as st:
+					if prelude && nameText(p, td.Name) == "Never" && len(params) == 0 && fieldCount(p, st.Fields) == 0 {
+						continue
+					}
+					out = out.Append(Record{Name: nameText(p, td.Name), Params: params, Fields: st.Fields})
+				case syntax.InterfaceType as it:
+					for m in listIDs(p, it.Members) {
+						match syntax.ViewOf(p.Tree, m) {
+						case syntax.VariantSpec as vs:
+							let used = mentioned(p, vs.Fields)
+							let mut vp = []string{}
+							for n in params {
+								if contains(used, n) {
+									vp = vp.Append(n)
+								}
+							}
+							out = out.Append(Record{Name: nameText(p, vs.Name), Params: vp, Fields: vs.Fields})
+						case _:
+						}
+					}
+				case _:
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// DefinedType is a defined type declaration of a file, `type N[…] T`:
+// its name, its parameters and its base expression.
+type DefinedType { Name string, Params []string, Base dense.ID[syntax.Node] }
+
+// Defined is the defined type declarations of p, in source order: a type
+// declaration whose body is no record, union, operation type or machine.
+func Defined(p syntax.Parsed) []DefinedType {
+	let mut out = []DefinedType{}
+	for d in topDecls(p) {
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			let params = match dense.Unpack(td.TypeParams) {
+			case Some{Value: tp}:
+				let (names, _) = bracketNames(p, tp)
+				names
+			case None:
+				[]string{}
+			}
+			match dense.Unpack(td.Spec) {
+			case Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
+				case syntax.StructType:
+				case syntax.InterfaceType:
+				case syntax.MachineType:
+				case _:
+					out = out.Append(DefinedType{Name: nameText(p, td.Name), Params: params, Base: sp})
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// RefinedType is a refined type declaration of a file, `type N B where
+// …`: its name, the name of the parse function it derives, and its base.
+type RefinedType { Name string, Parse string, Base dense.ID[syntax.Node] }
+
+// Refined is the refined type declarations of p, in source order. Each
+// derives func ParseN(it B) N fails Unsatisfied (parseN for a lower-case
+// N), which the Go parser writes into the file (syntax refine.go) and
+// this parser leaves to the checker.
+func Refined(p syntax.Parsed) []RefinedType {
+	let mut out = []RefinedType{}
+	for d in topDecls(p) {
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			match dense.Unpack(td.Where) {
+			case Some:
+				match dense.Unpack(td.Spec) {
+				case Some{Value: sp}:
+					let name = nameText(p, td.Name)
+					out = out.Append(RefinedType{Name: name, Parse: parseName(name), Base: sp})
+				case None:
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// ParseName is the name of the type name's parse function: a refinement's
+// derived one, a by-name wire pair's (syntax/refine.go ParseName).
+func ParseName(name string) string { parseName(name) }
+
+// parseName is the name of the parse function a refinement of the type
+// name derives: ParsePort for Port, parsePort for port.
+func parseName(name string) string {
+	if len(name) == 0 {
+		return "parse"
+	}
+	let first = name[0:1]
+	if strings.ToUpper(first) == first && strings.ToLower(first) != first {
+		return "Parse" + name
+	}
+	"parse" + strings.ToUpper(first) + name[1:len(name)]
+}

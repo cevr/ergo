@@ -1,0 +1,66 @@
+import compiler/syntax
+import slices
+import strconv
+
+// Columns is the parse of src as syntax.Columns packs it: the token
+// columns, the rows, the extra pool, the comments and their groups, for
+// the Go decoder (internal/sketch/syntax/decode.go).
+func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
+
+// ColumnsAll is Columns of each source, in the order of srcs, on at most
+// workers tasks, each a run of adjacent files (syntax.EachRun), as
+// syntax.ParseAll parses: a package's files, for the Go loader.
+func ColumnsAll(srcs []string, workers int) [][]uint32 { syntax.EachRun(srcs, workers, syntax.RunLeast, Columns) }
+
+// Tokens is the scan of src alone, for a host that reads tokens and no
+// tree (syntax.TokenText, WhereText): kind, start and end per token. A
+// failed scan's tokens stop at the failure, with no ILLEGAL and no EOF.
+func Tokens(src string) []uint32 {
+	let t = syntax.Scan(src).Toks
+	let n = syntax.NumToks(t)
+	let mut out = slices.WithCapacity[uint32](3 * n)
+	for i in 0..n {
+		let id = syntax.TokAt(t, i)
+		let k = syntax.Kind(t, id)
+		let start = syntax.Start(t, id)
+		out = out.Append(uint32(k))
+		out = out.Append(uint32(start))
+		out = out.Append(uint32(syntax.End(src, k, start)))
+	}
+	out
+}
+
+// Failure is the failure of the parse of src, "" when it parses. Its
+// first line is "code offset length line column " and the message, the
+// fields of the Go *syntax.Error. Each further line is one edit of the
+// error's fix, "fix exact offset length " and the replacement Go-quoted
+// (fixLines). A message and a quoted text hold no newline.
+func Failure(src string) string {
+	let p = syntax.Parse(src)
+	if !p.Failed {
+		return ""
+	}
+	p.Code + " " + strconv.Itoa(p.Offset) + " " + strconv.Itoa(p.Length) + " " + strconv.Itoa(p.Line) + " " + strconv.Itoa(p.Column) + " " + p.Message + fixLines(p)
+}
+
+// fixLines is the fix of a failed parse as Failure writes it: "" for
+// none, else its one edit. The parser's fixes are exact (VET-CHECK-VAR).
+func fixLines(p syntax.Parsed) string {
+	if !p.HasFix {
+		return ""
+	}
+	FixLines("exact", []int{p.FixOffset}, []int{p.FixLength}, []string{p.FixText})
+}
+
+// FixLines is a fix of class ("exact" or "suggested") as Failure writes
+// it: a line per edit, each after a newline, "fix class offset length "
+// and the edit's text Go-quoted, so it holds no newline. Edit i replaces
+// the lengths[i] bytes at offsets[i] with texts[i]; the three lists are
+// as long as each other.
+func FixLines(class string, offsets []int, lengths []int, texts []string) string {
+	let mut out = ""
+	for i in 0..len(offsets) {
+		out = out + "\nfix " + class + " " + strconv.Itoa(offsets[i]) + " " + strconv.Itoa(lengths[i]) + " " + strconv.Quote(texts[i])
+	}
+	out
+}

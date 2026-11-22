@@ -1,0 +1,132 @@
+// Aggregates, containers, unions and queues (ofGen's A4 forms): a field
+// taken in place or moved out (R39), an element lent or taken by index
+// (R35), a for-in's lent and owned elements (Q7), a match pattern that
+// moves its subject.
+
+import queue
+
+type Res { id int } implements Closer
+
+type Box { r Res, n int }
+
+type Empty {}
+
+type Held = Res | Empty
+
+func Close(r Res) {}
+
+func open(n int) Res { Res{id: n} }
+
+func lend(r Res) {}
+
+func keep(r own Res) {}
+
+func lendBox(b Box) {}
+
+func keepBox(b own Box) {}
+
+func newQueue() queue.Queue[Res] { queue.New[Res](2) }
+
+func run(f func()) { f() }
+
+func fieldClosed() {
+	let b = Box{r: open(1), n: 1}
+	b.r.Close()
+	lendBox(b) //want: flow
+}
+
+func fieldTakenTwice(n int) {
+	let b = Box{r: open(1), n: n}
+	if n > 1 {
+		b.r.Close()
+	}
+	lend(b.r) //want: flow
+	b.r.Close() //want: flow
+}
+
+func fieldTakenUsed() {
+	let b = Box{r: open(1), n: 1}
+	b.r.Close()
+	lend(b.r) //want: flow
+}
+
+func fieldTakenJoined(n int) {
+	let b = Box{r: open(1), n: n}
+	if n > 1 {
+		lend(b.r)
+	} else {
+		b.r.Close()
+	}
+	lend(b.r) //want: flow
+}
+
+func fieldTakenLent(b Box) {
+	b.r.Close() //want: flow
+}
+
+func fieldKept() {
+	let b = Box{r: open(1), n: 1}
+	keep(b.r) //want: flow
+	lendBox(b)
+}
+
+func fieldLent() {
+	let b = Box{r: open(1), n: 1}
+	lend(b.r)
+	keepBox(b)
+	lend(b.r) //want: flow
+}
+
+func litLent() {
+	let a = open(1)
+	lendBox(Box{r: a, n: 0})
+	lend(a) //want: flow
+}
+
+func indexed() {
+	let l = []Res{open(1)}
+	lend(l[0])
+	l[0].Close() //want: flow
+}
+
+func lentElements() {
+	let l = []Res{open(1)}
+	for e in l {
+		keep(e) //want: flow
+	}
+}
+
+func ownedElements() {
+	let u = newQueue()
+	for e in u.Values() {
+		keep(e)
+	}
+}
+
+func matched() {
+	let h Held = open(1)
+	match h {
+	case Res as v:
+		keep(v)
+	case Empty:
+	}
+	match h { //want: flow
+	case Res as v:
+		lend(v)
+	case Empty:
+	}
+}
+
+// A subject of the enclosing frame is lent to the block's pattern.
+func outerSubject() {
+	let h Held = open(1)
+	run() {
+		match h {
+		case Res as v:
+			lend(v)
+		case Empty:
+		}
+	}
+}
+
+func main() {}

@@ -3,7 +3,8 @@
 // with the test host's (ui.LookStateAt) and the look it painted is the
 // test host's look of that state (ui.LookShownAt), so the pointer, the
 // keys and the passes put both hosts' hover, focus and pressed looks on
-// the same nodes.
+// the same nodes. Each Text and Readout is drawn in the ink the test host
+// shows it in (inksDiffer).
 
 import ergo.local/prototype/hosts/mygo/desktop
 import ui
@@ -27,7 +28,7 @@ func stateText(s ui.LookState) string {
 // lookStatesDiffer is why a labelled node's look state on the window
 // differs from the test host's, None when they agree. A label the test
 // host finds more than once is skipped.
-func lookStatesDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F]) Option[string] {
+func lookStatesDiffer[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F]) Option[string] {
 	for at in desktop.LookStates(d) {
 		let ids = ui.Locate(h, ui.WithLabel{Label: at.Label})
 		if len(ids) == 1 {
@@ -41,4 +42,45 @@ func lookStatesDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desk
 		}
 	}
 	None
+}
+
+// inksDiffer is why a Text or a Readout the window drew is in another ink
+// than the test host shows it in (OpenTUI gap 1), None when they agree:
+// the test host's ink is the look of the node it shows for that text (a
+// Readout shows as a Text of its reading, with its Style), in the
+// node's state (rest, for a node the locator does not find). A text the
+// test host shows more than once is skipped.
+func inksDiffer[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut desktop.Driver[S, E, D, F]) Option[string] {
+	for at in desktop.Inks(d) {
+		let ids = ui.Locate(h, ui.WithLabel{Label: at.Label})
+		let shown = textsShowing(ui.Screen(h), at.Label)
+		if len(shown) == 1 {
+			// A Readout is no locator target (its node is not a Text in the
+			// tree): it is in its rest state.
+			let state = if len(ids) == 1 { ui.LookStateAt(h, ids[0]) } else { ui.Rest }
+			let want = ui.LookNow(ui.LooksOf(h, shown[0]), state).Ink
+			if at.Ink != want {
+				return Some{Value: "ink of \(at.Label) differs from the test host's"}
+			}
+		}
+	}
+	None
+}
+
+// textsShowing are the Text nodes of shapes whose value is label.
+func textsShowing[E](shapes []ui.Shape[E], label string) []ui.Node[E] {
+	let mut out = []ui.Node[E]{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			if t.Value == label {
+				out = out.Append(s.Node)
+			}
+		case _:
+		}
+		for n in textsShowing[E](s.Kids, label) {
+			out = out.Append(n)
+		}
+	}
+	out
 }

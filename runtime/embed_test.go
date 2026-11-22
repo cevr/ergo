@@ -14,13 +14,14 @@ import (
 )
 
 // TestPackagesMatchTheirDirectories: each runtime package's list of files is
-// every non-test Go file, .s assembly file and .bin asset of its directory except runtime/v1/files.go and its
-// generated table files_gen.go, which
-// serves only the compiler; each embedded file has the bytes on disk; and
+// every non-test Go file, .s assembly file and .bin asset of its directory except runtime/v1/files.go, its
+// generated table files_gen.go and modulebody.go (a module body's effect
+// reading over files.go's Bodies, LAWFFI LF2m), which
+// serve only the compiler; each embedded file has the bytes on disk; and
 // every runtime package a file imports is in the package's declared
 // imports, so Files never leaves an import of an emitted module unmet.
 func TestPackagesMatchTheirDirectories(t *testing.T) {
-	for path, p := range packages {
+	for path, p := range packages() {
 		dir := strings.TrimPrefix(path, "runtime/")
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -29,7 +30,7 @@ func TestPackagesMatchTheirDirectories(t *testing.T) {
 		var onDisk []string
 		for _, e := range entries {
 			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".bin") && !strings.HasSuffix(name, ".s") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" {
+			if e.IsDir() || !strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, ".bin") && !strings.HasSuffix(name, ".s") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" || path+"/"+name == "runtime/v1/modulebody.go" {
 				continue
 			}
 			onDisk = append(onDisk, name)

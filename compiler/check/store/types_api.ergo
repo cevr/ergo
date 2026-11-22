@@ -1,0 +1,127 @@
+// S3t's proposed additions to the store (selfhost/S3t/store-request.md):
+// the type constructors resolve needs that the pool does not have yet, and
+// the readers a package outside store needs to build and print types. It
+// is one new file, so lane C can adopt it whole, rewrite it, or move each
+// function where it belongs. Nothing here changes an existing kind's key.
+
+import dense
+
+// The kinds S3t adds: *T (a borrow), a tuple, a signature, and the own
+// mark of a parameter whose function type may outlive the call.
+let tPointer = 11
+let tTuple = 12
+let tSig = 13
+let tOwn = 14
+let tArray = 15
+let tForeign = 16
+let tEntry = 17
+
+// arrayLenBit marks the basic operand that carries an array's length
+// (the pool's key has no word for it; lane C may give it one).
+let arrayLenBit = 0x40000000
+
+// ForeignBit marks an XRef whose Decl indexes the resolver's foreign
+// table (a prelude, universe or imported type) until S3c's frozen
+// interfaces give such a type a real import index.
+let ForeignBit = 0x80000000
+
+// The kind of a type, as resolve and its printer read it.
+let KBasic = 1
+let KNamed = 2
+let KParam = 3
+let KSlice = 4
+let KMap = 5
+let KRow = 9
+let KInstance = 10
+let KPointer = 11
+let KTuple = 12
+let KSig = 13
+let KOwn = 14
+let KArray = 15
+let KForeign = 16
+let KEntry = 17
+
+// KindOfType is t's kind.
+func KindOfType(s Store, t dense.ID[TKey]) int { int(Key(s.pool, t).k) }
+
+// ArgOf is the a word of t's key: a basic's ordinal, a parameter's
+// position, a named type's TypeName index.
+func ArgOf(s Store, t dense.ID[TKey]) int { int(Key(s.pool, t).a) }
+
+// OperandsOf is t's type operands.
+func OperandsOf(s Store, t dense.ID[TKey]) []dense.ID[TKey] {
+	// A foreign type's a word is its table index, not a run of extra.
+	if int(Key(s.pool, t).k) == tForeign {
+		return []dense.ID[TKey]{}
+	}
+	Operands(s.pool, t)
+}
+
+// OriginOfType is the declaration an instance instantiates.
+func OriginOfType(s Store, t dense.ID[TKey]) XRef { OriginOf(s.pool, t) }
+
+// TBasic is the basic type of ordinal n; 0 is the invalid type.
+func TBasic(s mut Store, n int) dense.ID[TKey] { Basic(&s.pool, n) }
+
+// TParam is the type parameter at position i.
+func TParam(s mut Store, i int) dense.ID[TKey] { Param(&s.pool, i) }
+
+// TNamed is the type the package's type declaration d names.
+func TNamed(s mut Store, d dense.ID[Decl]) dense.ID[TKey] {
+	let r = DeclOf(*s, d).Obj
+	intern(&s.pool, TKey{k: uint8(tNamed), a: uint32(indexOf(r)), b: uint32(0)}, false)
+}
+
+// TSlice is []e.
+func TSlice(s mut Store, e dense.ID[TKey]) dense.ID[TKey] { Slice(&s.pool, e) }
+
+// TMap is Map[k, v], the map type.
+func TMap(s mut Store, k dense.ID[TKey], v dense.ID[TKey]) dense.ID[TKey] { MapOf(&s.pool, k, v) }
+
+// TRow is the row of ts.
+func TRow(s mut Store, ts []dense.ID[TKey]) dense.ID[TKey] { Row(&s.pool, ts) }
+
+// TInstance is origin o at args.
+func TInstance(s mut Store, o XRef, args []dense.ID[TKey]) dense.ID[TKey] { Instance(&s.pool, o, args) }
+
+// TPointer is *e.
+func TPointer(s mut Store, e dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tPointer, []dense.ID[TKey]{e}) }
+
+// TTuple is (ts…); the empty tuple is a signature's absent result.
+func TTuple(s mut Store, ts []dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tTuple, ts) }
+
+// TOwn marks a parameter's function type written own.
+func TOwn(s mut Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tOwn, []dense.ID[TKey]{t}) }
+
+// TSig is a signature: its operands are the parameters, then the result
+// (a tuple when there are several or none), the error row and the
+// capability row.
+func TSig(s mut Store, params []dense.ID[TKey], result dense.ID[TKey], errs dense.ID[TKey], uses dense.ID[TKey]) dense.ID[TKey] {
+	composite(&s.pool, tSig, params.Append(result).Append(errs).Append(uses))
+}
+
+// TForeign is the non-generic foreign type at index i of the resolver's
+// foreign table. (Not an Instance with no arguments: every empty operand
+// list has one start in extra, so two such instances of different origins
+// would share a key; S3t/store-request.md reports it.)
+func TForeign(s mut Store, i int) dense.ID[TKey] { intern(&s.pool, TKey{k: uint8(tForeign), a: uint32(i), b: uint32(0)}, false) }
+
+// TEntry marks a parameter's function type written entry.
+func TEntry(s mut Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tEntry, []dense.ID[TKey]{t}) }
+
+// TArray is [n]e: its operands are the length, as a marked basic, and e.
+func TArray(s mut Store, n int, e dense.ID[TKey]) dense.ID[TKey] {
+	composite(&s.pool, tArray, []dense.ID[TKey]{Basic(&s.pool, arrayLenBit|n), e})
+}
+
+// ArrayLen is the length of the array type t.
+func ArrayLen(s Store, t dense.ID[TKey]) int { int(Key(s.pool, Operands(s.pool, t)[0]).a) & (arrayLenBit - 1) }
+
+// TypeNameText is the name of the package's TypeName row at index i.
+func TypeNameText(s Store, i int) string { Text(s, dense.Rows(s.objects.typeNames)[i].Name) }
+
+// DeclText is the name of the package's declaration at index i.
+func DeclText(s Store, i int) string { Text(s, dense.Rows(s.decls)[i].Name) }
+
+// Path is the package's path.
+func Path(s Store) string { s.path }

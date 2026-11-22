@@ -1,0 +1,290 @@
+// Package script is the host of stage b: it runs the permit desk as an
+// actor on a manual clock, shows its screen on std ui's test host, plays
+// a script of the user's acts on the screen, and shows the screen after
+// each. A line is one of:
+//
+//	click LABEL   click the button named LABEL
+//	check LABEL   click the check box named LABEL
+//	code TEXT     type TEXT in the code field (the rest of the line)
+//	wait MS       let MS milliseconds pass (the filing office answers)
+//	stats         print the ops of the act before it
+//
+// A blank line or one that starts with # is skipped. An act whose
+// control is not on the screen, or is disabled, does nothing; the line
+// says which.
+
+import actor
+import permitwizard/desk
+import permitwizard/permit
+import permitwizard/screen
+import io
+import strconv
+import strings
+import time
+import ui
+
+// Clerk is the running desk.
+type Clerk = actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
+
+// Host is the desk on the test host.
+type Host = ui.TestHost[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
+
+// Bad is a script line the host cannot read.
+type Bad { Line int, Why string }
+
+// Do is what a line does: an act on the screen, or a count of the act
+// before it.
+type Do = Act{Act ui.Act} | Stats
+
+// Stats is the line `stats`.
+type Stats {}
+
+// Line is a read line: its text and what it does.
+type Line { Text string, Do Do }
+
+// Read reads the lines of a script.
+func Read(lines []string) []Line fails Bad {
+	let mut out = []Line{}
+	for i, raw in lines {
+		let n = i + 1
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let word = strings.Fields(line)[0]
+		let rest = strings.TrimSpace(strings.TrimPrefix(line, word))
+		let do Do = match word {
+		case "click":
+			Act{Act: ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: rest}}}
+		case "check":
+			Act{Act: ui.ClickOn{At: ui.WithRole{Role: ui.Checkbox, Name: rest}}}
+		case "code":
+			Act{Act: ui.FillIn{At: ui.WithPlaceholder{Text: screen.CodePlaceholder}, Text: rest}}
+		case "wait":
+			let ms = strconv.Atoi(rest) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return Bad{Line: n, Why: "wait takes a number of milliseconds"}
+			}
+			Act{Act: ui.AdvanceBy{By: time.Times(1ms, ms)}}
+		case "stats":
+			Stats
+		case _:
+			return Bad{Line: n, Why: "unknown word \(word)"}
+		}
+		if rest == "" && (word == "click" || word == "check") {
+			return Bad{Line: n, Why: "\(word) takes a label"}
+		}
+		out = out.Append(Line{Text: line, Do: do})
+	}
+	out
+}
+
+// Run plays the script on standard input with the desk's timers on
+// clock, which only a wait moves, and prints the screen first and after
+// each act. It returns the exit status: 0, or 1 for a line it cannot read
+// or a screen that fails.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+	let mut text = []string{}
+	for raw in io.Stdin.Lines() {
+		text = text.Append(raw)
+	}
+	let script = Read(text) catch {
+	case Bad as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n Never) {})
+	let status = play(clerk, clock, script) catch {
+	case actor.Stopped:
+		Console.Println("? the desk stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+	clerk.Stop()
+	status
+}
+
+func play(clerk Clerk, clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console {
+	let mut h = try ui.NewTestHost(clerk, screen.Screen, clock, 16)
+	Console.Println(Shown(&h))
+	for x in script {
+		Console.Println("> \(x.Text)")
+		match try step(&h, x) {
+		case Some[string] as line:
+			Console.Println(line.Value)
+		case None:
+		}
+	}
+	0
+}
+
+// step does the line x on h and is what the host prints after it: the
+// screen after an act, why an act did nothing, or the ops of the act
+// before a `stats` line (its work counters are TourWorkIsBounded's).
+func step(h mut Host, x Line) Option[string] fails actor.Stopped | ui.BadPatch {
+	match x.Do {
+	case Act as a:
+		ui.Play(h, []ui.Act{a.Act, ui.SettleAll}) catch {
+		case ui.NoNode as no:
+			return Some{Value: "? no node: \(no.Label)"}
+		case ui.Ambiguous as m:
+			return Some{Value: "? \(m.Count) nodes: \(m.At)"}
+		case ui.Mismatch:
+			return None
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as p:
+			return p
+		}
+		Some{Value: Shown(h)}
+	case Stats:
+		Some{Value: "stats: \(opsLine(ui.Counts(h)))"}
+	}
+}
+
+// opsLine is the ops of c by kind, as ui.CountsLine begins.
+func opsLine(c ui.StepCounts) string {
+	let mut out = ""
+	for k in [](int, string){(c.Inserted, "insert"), (c.Moved, "move"), (c.Removed, "remove"), (c.Set, "set")} {
+		let (n, name) = k
+		if n > 0 {
+			out = if out == "" { "\(n) \(name)" } else { out + ", \(n) \(name)" }
+		}
+	}
+	if out == "" { "no ops" } else { out }
+}
+
+// ScreenOffersOnlyTransitions: every control the screen offers enabled
+// is a step of the permit, never a signal the machine ignores. Over
+// generated walks that each time pick one of the screen's enabled
+// buttons, check boxes or the code field (with a known code, an unknown
+// one or none), and let a second pass while the office files, the desk
+// logs a transition for each pick, never "ignored".
+law ScreenOffersOnlyTransitions(picks []int) {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n Never) {})
+		let ok = walk(clerk, clock, picks) catch {
+		case _:
+			false
+		}
+		clerk.Stop()
+		ok
+	}
+}
+
+func walk(clerk Clerk, clock time.Manual, picks []int) bool fails actor.Stopped | ui.BadPatch needs Scheduler {
+	let mut h = try ui.NewTestHost(clerk, screen.Screen, clock, 16)
+	for p in picks {
+		let acts = enabled(ui.Screen(&h), false, p)
+		if len(acts) == 0 {
+			try ui.Advance(&h, permit.FilingTakes)
+			try ui.Settle(&h)
+			continue
+		}
+		let before = clerk.State().Next
+		ui.Play(&h, []ui.Act{acts[((p%len(acts))+len(acts))%len(acts)], ui.SettleAll}) catch {
+		case ui.NoNode, ui.Ambiguous, ui.Mismatch:
+			return false
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as b:
+			return b
+		}
+		let d = clerk.State()
+		if d.Next == before || strings.Contains(d.Log[0].Summary, " ignored in ") {
+			return false
+		}
+	}
+	true
+}
+
+// enabled is the acts on the screen's enabled controls; the code field's
+// text is a known code, an unknown one or none, by p.
+func enabled(shapes []ui.Shape[desk.Signal], off bool, p int) []ui.Act {
+	let mut out = []ui.Act{}
+	for s in shapes {
+		match s.Node {
+		case ui.PressableNode as b:
+			if !off {
+				out = out.Append(ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: b.Label}})
+			}
+		case ui.CheckNode as c:
+			if !off {
+				out = out.Append(ui.ClickOn{At: ui.WithRole{Role: ui.Checkbox, Name: c.Label}})
+			}
+		case ui.InputNode as i:
+			if !off {
+				let texts = []string{"ranger10", "bogus", ""}
+				out = out.Append(ui.FillIn{At: ui.WithPlaceholder{Text: i.Placeholder}, Text: texts[((p%3)+3)%3]})
+			}
+		case ui.FieldsetNode as fs:
+			for a in enabled(s.Kids, off || fs.Disabled, p) {
+				out = out.Append(a)
+			}
+		case _:
+			for a in enabled(s.Kids, off, p) {
+				out = out.Append(a)
+			}
+		}
+	}
+	out
+}
+
+// Shown is the screen in two lines: the permit's step, and the
+// inspector. Each heading is # NAME, a check box [x] LABEL or [ ] LABEL,
+// the code field <TEXT>, a button [LABEL] ([LABEL, disabled] in a disabled
+// fieldset), and each text itself; of the log, only the newest entry.
+func Shown(h mut Host) string {
+	let all = tokens(ui.Screen(h), false)
+	let mut i = 0
+	for k, t in all {
+		if t == "# \(screen.InspectorTitle)" {
+			i = k
+		}
+	}
+	let mut page = []string{}
+	let mut seen = []string{}
+	for k, t in all {
+		if k < i { page = page.Append(t) } else { seen = seen.Append(t) }
+	}
+	"  " + strings.Join(page, " | ") + "\n  " + strings.Join(seen, " | ")
+}
+
+func tokens(shapes []ui.Shape[desk.Signal], off bool) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.CheckNode as c:
+			out = out.Append(if c.Checked { "[x] \(c.Label)" } else { "[ ] \(c.Label)" })
+		case ui.InputNode as i:
+			out = out.Append("\(i.Placeholder)<\(i.Value)>")
+		case ui.PressableNode as p:
+			out = out.Append(if off { "[\(p.Label), disabled]" } else { "[\(p.Label)]" })
+		case ui.FieldsetNode as fs:
+			for t in tokens(s.Kids, off || fs.Disabled) {
+				out = out.Append(t)
+			}
+		case ui.SemanticNode as g:
+			if g.Access.Role == ui.Heading {
+				out = out.Append("# \(g.Access.Name)")
+			} else if g.Access.Name == screen.LogName {
+				let log = tokens(s.Kids, off)
+				out = out.Append(if len(log) == 0 { "log{}" } else { "log{\(log[0]) …\(len(log))}" })
+			} else {
+				for t in tokens(s.Kids, off) {
+					out = out.Append(t)
+				}
+			}
+		case _:
+			for t in tokens(s.Kids, off) {
+				out = out.Append(t)
+			}
+		}
+	}
+	out
+}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/check/snapshot"
 )
 
 var updateStdSnapshot = flag.Bool("update-std-snapshot", false, "rewrite stdsnap/std.snap and stdsnap_gen.go from the checker's source")
@@ -29,7 +30,7 @@ func TestStdSnapshotIsCurrent(t *testing.T) {
 	sources := stdSourcesDigest(deps)
 	check.ResetStdForTest()
 	t.Cleanup(check.ResetStdForTest)
-	data, err := check.ExportStd()
+	data, err := snapshot.ExportStd()
 	if err != nil {
 		t.Fatal(err)
 	}

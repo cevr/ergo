@@ -12,11 +12,6 @@
 //
 // Like the MyGo desktop driver, it is not a ui.Host provider: it steps the
 // Session itself, so a script is synchronous (ui.TestHost's choice, H4).
-//
-// Prior art: ratatui and Bubble Tea redraw a buffer per frame and write
-// its difference; Textual and Ink lay out a tree with flexbox and round
-// to cells; notcurses and Ghostty's renderer use mode 2026 to show a
-// frame whole.
 
 import actor
 import arena
@@ -66,7 +61,7 @@ type drawnAt { at Rect, vis Rect, nameC int, nameR int, name string, markR int }
 
 // New shows view of a's state on a terminal of cols by rows cells. room is
 // how many fetch results may wait for the host to take them.
-func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int, room int, view own func(f *ui.Frame[E], s S) needs R) Host[S, E, D, F] fails ui.BadPatch needs R {
+func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int, room int, view own func(f mut ui.Frame[E], s S) needs R) Host[S, E, D, F] fails ui.BadPatch needs R {
 	let posted = queue.New[ui.Event[E]](room)
 	let (s, first) = ui.Start(a, view, func(ev ui.Event[E]) {
 		posted.Push(ev) catch {
@@ -104,7 +99,7 @@ func New[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], cols int, rows int
 
 // show applies one pass's ops, every one, then draws the pass as one
 // frame.
-func show[E comparable, S, D, F](h *Host[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch {
+func show[E comparable, S, D, F](h mut Host[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch {
 	try ui.Apply(&h.mirror, ops)
 	for op in ops {
 		apply(h, op)
@@ -119,7 +114,7 @@ func show[E comparable, S, D, F](h *Host[S, E, D, F], ops []ui.Op[E]) fails ui.B
 }
 
 // apply changes the host's tree by one op.
-func apply[E comparable, S, D, F](h *Host[S, E, D, F], op ui.Op[E]) {
+func apply[E comparable, S, D, F](h mut Host[S, E, D, F], op ui.Op[E]) {
 	match op {
 	case ui.Insert[E] as x:
 		h.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
@@ -142,7 +137,7 @@ func apply[E comparable, S, D, F](h *Host[S, E, D, F], op ui.Op[E]) {
 
 // report tells the session the viewport of each list when it changed,
 // as the desktop driver does: the next pass writes the rows it shows.
-func report[E comparable, S, D, F](h *Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch {
+func report[E comparable, S, D, F](h mut Host[S, E, D, F]) fails actor.Stopped | ui.BadPatch {
 	for s in h.spots {
 		match s.node {
 		case ui.RowsNode:
@@ -158,7 +153,7 @@ func report[E comparable, S, D, F](h *Host[S, E, D, F]) fails actor.Stopped | ui
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
 	match h.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -181,7 +176,7 @@ func place[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], be
 }
 
 // unplace takes id out of parent's children.
-func unplace[S, E, D, F](h *Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
+func unplace[S, E, D, F](h mut Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 	match h.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -196,7 +191,7 @@ func unplace[S, E, D, F](h *Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 }
 
 // dropNode forgets id and its subtree, and takes it out of its parent.
-func dropNode[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E]) {
+func dropNode[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E]) {
 	for p, n in h.nodes {
 		for k in n.kids {
 			if k == id {
@@ -207,7 +202,7 @@ func dropNode[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E]) {
 	forget(h, id)
 }
 
-func forget[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E]) {
+func forget[S, E, D, F](h mut Host[S, E, D, F], id own ui.Id[E]) {
 	match h.nodes.Get(id) {
 	case Some[held[E]] as n:
 		for k in n.Value.kids {
@@ -224,7 +219,7 @@ func forget[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E]) {
 }
 
 // kidsOf is id's children in the host's tree.
-func kidsOf[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
+func kidsOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 	match h.nodes.Get(id) {
 	case Some[held[E]] as n:
 		n.Value.kids
@@ -234,7 +229,7 @@ func kidsOf[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 }
 
 // holdsText is whether a Text is below id.
-func holdsText[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) bool {
+func holdsText[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
 	for k in kidsOf(h, id) {
 		match h.nodes.Get(k) {
 		case Some[held[E]] as n:
@@ -253,7 +248,7 @@ func holdsText[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) bool {
 }
 
 // step steps the session with ev and shows its patch.
-func step[E comparable, S, D, F](h *Host[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch {
+func step[E comparable, S, D, F](h mut Host[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch {
 	let ops = try ui.Step(&h.session, ev)
 	if len(ops) > 0 {
 		try show(h, ops)
@@ -262,14 +257,14 @@ func step[E comparable, S, D, F](h *Host[S, E, D, F], ev ui.Event[E]) fails acto
 
 // redraw draws the screen again for a change the host made itself (the
 // focus moved, a Scroll scrolled): a frame with no patch.
-func redraw[S, E, D, F](h *Host[S, E, D, F]) {
+func redraw[S, E, D, F](h mut Host[S, E, D, F]) {
 	h.redraws = h.redraws + 1
 	draw(h)
 }
 
 // draw lays the tree out, draws it into a new grid, and keeps the frame
 // from the grid the terminal shows to it, when it changes a cell.
-func draw[S, E, D, F](h *Host[S, E, D, F]) {
+func draw[S, E, D, F](h mut Host[S, E, D, F]) {
 	let width = float32(h.cols) * CellW
 	let height = float32(h.rows) * CellH
 	let mut t = layout.New()
@@ -338,7 +333,7 @@ func writesTheChange(seed int) bool needs Scheduler {
 
 // roomForLists gives each list that laid out no taller than 0 the
 // screen's room below its top, as the desktop driver does.
-func roomForLists[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], height float32) bool {
+func roomForLists[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, ids Map[ui.Id[E], layout.Id], height float32) bool {
 	let mut changed = false
 	for k, n in h.nodes {
 		match n.node {
@@ -365,7 +360,7 @@ func roomForLists[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, ids Map[ui.Id
 
 // build adds id's children under into, and their subtrees. A list's row
 // is out of the flow, at its index's place below the list's top.
-func build[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids own Map[ui.Id[E], layout.Id]) Map[ui.Id[E], layout.Id] {
+func build[S, E, D, F](h mut Host[S, E, D, F], t mut layout.Tree, id ui.Id[E], into layout.Id, ids own Map[ui.Id[E], layout.Id]) Map[ui.Id[E], layout.Id] {
 	let mut out = ids
 	let list = match h.nodes.Get(id) {
 	case Some[held[E]] as p:
@@ -407,7 +402,7 @@ func build[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, id ui.Id[E], into la
 	out
 }
 
-func boxOf(t *layout.Tree, id layout.Id) layout.Box {
+func boxOf(t mut layout.Tree, id layout.Id) layout.Box {
 	layout.BoxOf(t, id) catch {
 	case arena.Stale:
 		layout.Box{X: 0, Y: 0, W: 0, H: 0}
@@ -416,7 +411,7 @@ func boxOf(t *layout.Tree, id layout.Id) layout.Box {
 
 // write puts text's runes from column c of row r in pen, in the cells of
 // vis; it is how many runes it put.
-func write(g *grid.Grid, text string, c int, r int, vis Rect, pen grid.Pen) int {
+func write(g mut grid.Grid, text string, c int, r int, vis Rect, pen grid.Pen) int {
 	let mut n = 0
 	for i, one in grid.Runes(text) {
 		if holds(vis, c+i, r) {
@@ -429,7 +424,7 @@ func write(g *grid.Grid, text string, c int, r int, vis Rect, pen grid.Pen) int 
 
 // named writes id's name at column c, row r and keeps where it began, when
 // its first cell shows.
-func named(g *grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) drawnAt {
+func named(g mut grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) drawnAt {
 	let _ = write(g, name, c, r, d.vis, pen)
 	if name != "" && holds(d.vis, c, r) {
 		return drawnAt{..d, nameC: c, nameR: r, name: name}
@@ -439,7 +434,7 @@ func named(g *grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) dra
 
 // drawNode draws id, lifted by dy rows (its Scrolls' offsets), within the
 // cells clip.
-func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids Map[ui.Id[E], layout.Id], id own ui.Id[E], dy int, clip Rect) {
+func drawNode[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.Tree, ids Map[ui.Id[E], layout.Id], id own ui.Id[E], dy int, clip Rect) {
 	let n = match h.nodes.Get(id) {
 	case Some[held[E]] as x:
 		x.Value.node
@@ -538,8 +533,22 @@ func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids
 		drawKids(h, g, t, ids, id, dy, clip)
 	case ui.TransitionNode:
 		drawKids(h, g, t, ids, id, dy, clip)
+	case ui.LayerNode[E], ui.TrackNode:
+		// a layer lays out in the flow and a track shows its target: the
+		// grid has no stacking and no motion (Omissions: Motion)
+		drawKids(h, g, t, ids, id, dy, clip)
 	case ui.LiveNode as x:
 		d = named(g, x.Text, at.C, at.R, d, pen)
+	case ui.ReadoutNode as x:
+		// what the readout reads now, in the reserve's box; its reserve
+		// before the first reading
+		let reading = match ui.ReadingIn(&h.session, x.Readout) {
+		case Some[string] as r:
+			r.Value
+		case None:
+			x.Reserve
+		}
+		d = named(g, reading, at.C, at.R, d, pen)
 	case ui.SemanticNode[E] as x:
 		if focusable(n) {
 			h.spots = h.spots.Append(s)
@@ -564,14 +573,14 @@ func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids
 }
 
 // drawKids draws id's children in order.
-func drawKids[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy int, clip Rect) {
+func drawKids[S, E, D, F](h mut Host[S, E, D, F], g mut grid.Grid, t mut layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy int, clip Rect) {
 	for k in kidsOf(h, id) {
 		drawNode(h, g, t, ids, k, dy, clip)
 	}
 }
 
 // inverse shows the cells of vis in reverse video: the focused control.
-func inverse(g *grid.Grid, vis Rect) {
+func inverse(g mut grid.Grid, vis Rect) {
 	for r in vis.R..vis.R+vis.H {
 		for c in vis.C..vis.C+vis.W {
 			let cell = grid.At(*g, c, r)
@@ -581,7 +590,7 @@ func inverse(g *grid.Grid, vis Rect) {
 }
 
 // scrolledBy is how many rows id's Scroll is scrolled.
-func scrolledBy[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) int {
+func scrolledBy[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) int {
 	match h.scrolled.Get(id) {
 	case Some[int] as v:
 		v.Value
@@ -593,7 +602,7 @@ func scrolledBy[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) int {
 // HitAt is the node on top at column c, row r: the last drawn spot whose
 // Span holds the cell, inside the cells its Scrolls leave visible;
 // Scrolls and lists left out.
-func HitAt[S, E, D, F](h *Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
+func HitAt[S, E, D, F](h mut Host[S, E, D, F], c int, r int) Option[ui.Id[E]] {
 	let mut hit Option[ui.Id[E]] = None
 	for s in h.spots {
 		if targeted(s.node) && holds(Span(s.box), c, r) && holds(s.clip, c, r) {
@@ -675,14 +684,14 @@ func sendersIn[E](spots []spot[E]) []ui.Id[E] {
 		match s.node {
 		case ui.ZoneNode, ui.SemanticNode[E]:
 			out = out.Append(s.id)
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 	}
 	out
 }
 
 // spotOf is id's spot, when it takes input.
-func spotOf[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
+func spotOf[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
 	for s in h.spots {
 		if s.id == id {
 			return Some{Value: s}
@@ -692,36 +701,36 @@ func spotOf[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
 }
 
 // Screen is what the host shows, as the patches built it.
-func Screen[S, E, D, F](h *Host[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&h.mirror) }
+func Screen[S, E, D, F](h mut Host[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&h.mirror) }
 
 // Grid is the grid the terminal shows.
-func Grid[S, E, D, F](h *Host[S, E, D, F]) grid.Grid { h.screen }
+func Grid[S, E, D, F](h mut Host[S, E, D, F]) grid.Grid { h.screen }
 
 // Screenshot is the terminal's screen as text, a line a row.
-func Screenshot[S, E, D, F](h *Host[S, E, D, F]) string { grid.Text(h.screen) }
+func Screenshot[S, E, D, F](h mut Host[S, E, D, F]) string { grid.Text(h.screen) }
 
 // StateOf is the actor's state.
-func StateOf[S, E, D, F](h *Host[S, E, D, F]) S { h.actor.State() }
+func StateOf[S, E, D, F](h mut Host[S, E, D, F]) S { h.actor.State() }
 
 // Take is the frames drawn since the last Take, in order: what the
 // terminal is to read next.
-func Take[S, E, D, F](h *Host[S, E, D, F]) []string {
+func Take[S, E, D, F](h mut Host[S, E, D, F]) []string {
 	let out = h.frames
 	h.frames = []string{}
 	out
 }
 
 // Written is how many cells the last frame wrote.
-func Written[S, E, D, F](h *Host[S, E, D, F]) int { h.written }
+func Written[S, E, D, F](h mut Host[S, E, D, F]) int { h.written }
 
 // Patches is how many patches the host has shown; Redraws how many frames
 // it drew of its own (a focus or a scroll).
-func Patches[S, E, D, F](h *Host[S, E, D, F]) int { h.patches }
+func Patches[S, E, D, F](h mut Host[S, E, D, F]) int { h.patches }
 
-func Redraws[S, E, D, F](h *Host[S, E, D, F]) int { h.redraws }
+func Redraws[S, E, D, F](h mut Host[S, E, D, F]) int { h.redraws }
 
 // Resize sets the terminal's size and draws again.
-func Resize[E comparable, S, D, F](h *Host[S, E, D, F], cols int, rows int) fails actor.Stopped | ui.BadPatch {
+func Resize[E comparable, S, D, F](h mut Host[S, E, D, F], cols int, rows int) fails actor.Stopped | ui.BadPatch {
 	h.cols = cols
 	h.rows = rows
 	redraw(h)

@@ -64,6 +64,58 @@ func Simulate(script []Command) []Event {
 	log
 }
 
+// StoreIsTheTotal: every store a backup records is the sum of its
+// files, and no backup records two stores.
+law StoreIsTheTotal(seed int) {
+	storesAreTotals(Simulate(Script(seed, 40)))
+}
+
+// storesAreTotals is the check of StoreIsTheTotal on a log.
+func storesAreTotals(log []Event) bool {
+	for id in []string{"a", "b"} {
+		let mut total = int64(0)
+		let mut stores = 0
+		for e in Of(log, id) {
+			match e {
+			case FileAdded as i:
+				total = total + int64(i.Count)*i.Size
+			case Stored as p:
+				stores = stores + 1
+				if p.Size != total || stores > 1 {
+					return false
+				}
+			case Planned, Verified, Aborted:
+			}
+		}
+	}
+	true
+}
+
+// FreedIsTheStored: an aborted backup frees what it stored, and an
+// unstored one frees nothing.
+law FreedIsTheStored(seed int) {
+	freedAreStored(Simulate(Script(seed, 40)))
+}
+
+// freedAreStored is the check of FreedIsTheStored on a log.
+func freedAreStored(log []Event) bool {
+	for id in []string{"a", "b"} {
+		let mut stored = int64(0)
+		for e in Of(log, id) {
+			match e {
+			case Stored as p:
+				stored = p.Size
+			case Aborted as x:
+				if x.Freed != stored {
+					return false
+				}
+			case Planned, FileAdded, Verified:
+			}
+		}
+	}
+	true
+}
+
 // Of is the events of log that belong to the backup.
 func Of(log []Event, backup string) []Event {
 	let mut events = []Event{}

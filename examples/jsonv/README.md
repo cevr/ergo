@@ -1,8 +1,8 @@
 # jsonv
 
-A JSON pretty-printer and a small JSON Schema validator. `jsonv fmt` prints a document indented (jq's layout), `jsonv min` prints it on one line, `jsonv check SCHEMA [FILE]` names every violation of a schema with its path (`$.tags[2]: want a string, got null`), and `jsonv infer [FILE]` prints the narrowest schema the document keeps. A missing file or `-` reads standard input.
+A JSON pretty-printer and a small JSON Schema validator. `jsonv fmt` prints a document indented (two spaces per level, `[]` and `{}` for empty containers), `jsonv min` prints it on one line, `jsonv check SCHEMA [FILE]` names every violation of a schema with its path (`$.tags[2]: want a string, got null`), and `jsonv infer [FILE]` prints the narrowest schema the document keeps. A missing file or `-` reads standard input.
 
-Tag: `default`. It is an original program, not a port. Its goldens were made by running the program and checked by hand; the `fmt`, `fmt-indent-4`, `fmt-tab-stdin` and `min` goldens are byte-identical to `jq .`, `jq --indent 4 .`, `jq --tab .` and `jq -c .` (jq 1.7), except that jq rewrites the number `1E9` as `1E+9` and jsonv keeps a number's text. The `malformed` case fails at the line and column jq names (`3:30`).
+Tag: `default`. It is an original program, not a port. Its goldens were made by running the program and checked by hand; the `fmt`, `fmt-indent-4` and `fmt-tab-stdin` goldens hold one member or element a line, indented by two spaces, four spaces or a tab per level, with `": "` after a key and `[]` and `{}` for empty containers; `min` has no white space at all. A number keeps its text (`1E9` stays `1E9`). The `malformed` case fails at line 3, column 30 (`3:30`).
 
 ## Layout
 
@@ -10,7 +10,7 @@ The program is a module of packages (`ergo.mod`: `module jsonv`), in the Go layo
 
 | folder | what it holds |
 | --- | --- |
-| `json/` | The JSON layer over std `json`. `value.ergo` (`Kind`, `Get` over std's `json.Value`), `parse.ergo` (`Parse`, std's `Decode` of a `Value` with the depth limit `MaxDepth`, and `Locate`), `print.ergo` (`Compact`, `Indent`, `Quoted`: jq's layout), `laws.ergo` (the drawn `Tree`, `Lawful`, the laws), `tests.ergo`. Pure. The package is named `json` and imports std `json` in its own files as `json`, as a Go package may; the other packages import both, std as `import stdjson json`. |
+| `json/` | The JSON layer over std `json`. `value.ergo` (`Kind`, `Get` over std's `json.Value`), `parse.ergo` (`Parse`, std's `Decode` of a `Value` with the depth limit `MaxDepth`, and `Locate`), `print.ergo` (`Compact`, `Indent`, `Quoted`: compact or indented two spaces per level), `laws.ergo` (the drawn `Tree`, `Lawful`, the laws), `tests.ergo`. Pure. The package is named `json` and imports std `json` in its own files as `json`, as a Go package may; the other packages import both, std as `import stdjson json`. |
 | `schema/` | The schema language. `schema.ergo` (the union `Schema`, `Infer`, `Join`), `validate.ergo` (`Validate`, `Check`, the union `Violation`, `Describe`, paths), `codec.ergo` (`FromJSON`, `ToJSON`, `BadSchema`), `laws.ergo`, `tests.ergo`. Pure. |
 | `app/` | The commands. `documents.ergo` (the contract `Documents`, an operation type with the law `ReadIsRepeatable`, and its failures), `commands.ergo` (the union `Cmd`, the flags, `Parse`), `run.ergo` (`Load`, `Answer`, `Run`). |
 | `memory/` | `Shelf`, the in-memory `Documents` for tests. |
@@ -27,7 +27,7 @@ The program is a module of packages (`ergo.mod`: `module jsonv`), in the Go layo
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/jsonv/cmd/jsonv -- fmt examples/jsonv/testdata/kitchen.json
 ./bin/ergo test examples/jsonv/json
 go run ./scripts/examples jsonv
@@ -42,7 +42,7 @@ go run ./scripts/examples jsonv
 Each is written up with a repro in the lane's gap file (`gaps-ex-d.md`).
 
 - **G-ex-d-6** (half closed in wf10 J1): the scanner and the `Value` union are std json's now. `schema/codec.ergo` stays a hand codec over std's `Value`: a schema's JSON form is JSON Schema's (`"type"` names the kind), not the derived codec's `"_tag"` form.
-- **G-ex-d-8** `jsonv min` of 8 MB is 1.8x jq's time and 2.3x its memory (one run, loaded host); the Go control is pending.
+- **G-ex-d-8** `jsonv min` of 8 MB is slower and larger than a native JSON tool (`docs/receipts/jsonv.md`); the Go control is pending.
 - A required positional argument's `Get` is an `Option` (std-strengths F1, S5a).
 - **G-exup-1** (closed in batch 13): `app.Documents.ReadIsRepeatable` runs against `memory.Shelf`. Since fu7a it runs on `files.Disk` too, built field by field: its `fs.Files` is an `fstest.Memory`, its `io.Stdin` an `io.Input` and its `sync.Ref` a new cell. `files/tests.ergo` restates it with a standard input that drains, as the host's does.
 

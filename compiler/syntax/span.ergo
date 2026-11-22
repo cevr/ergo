@@ -1,0 +1,318 @@
+// tokens is what a node's span is read from: the source, the token columns
+// (with the ILLEGAL and EOF of a failed scan) and the start of the first
+// comment, -1 for none.
+type tokens {
+	src    string,
+	kinds  []uint32,
+	starts []uint32,
+	ends   []uint32,
+	cmt0   int,
+}
+
+func tokPos(k tokens, j int) int { int(k.starts[j]) }
+
+func tokEnd(k tokens, j int) int { int(k.ends[j]) }
+
+// optPos is the offset of the optional token word w.
+func optPos(k tokens, w uint32) int { int(k.starts[int(w)-1]) }
+
+// lastItem is the last of the n items before the f fixed words of row i.
+func lastItem(t Tree, i uint32, f int) uint32 { t.extra[int(t.a[int(i)])+int(t.b[int(i)])-f-1] }
+
+// posOf is the offset where row x starts: the Go node's Pos.
+func posOf(t Tree, k tokens, x uint32) int {
+	if x >= uint32(t.n) {
+		return 0
+	}
+	let i = int(x)
+	let kd = uint8(t.kind[i])
+	let tok = int(t.tok[i])
+	let a = t.a[i]
+	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KTakesClause || kd == KProvidesClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
+		return tokPos(k, tok)
+	}
+	if kd == KSelectorExpr || kd == KBinaryExpr || kd == KKeyValueExpr || kd == KFuncLit || kd == KAsPattern || kd == KDeclStmt || kd == KExprStmt || kd == KAssignStmt || kd == KStructType {
+		return posOf(t, k, a)
+	}
+	if kd == KCallExpr {
+		return posOf(t, k, fixed(t, x, 5, 0))
+	}
+	if kd == KIndexExpr || kd == KMapType || kd == KCatchExpr {
+		return posOf(t, k, fixed(t, x, 2, 0))
+	}
+	if kd == KSliceExpr {
+		return posOf(t, k, fixed(t, x, 6, 0))
+	}
+	if kd == KCompositeLit {
+		let ty = fixed(t, x, 4, 0)
+		return if ty != uint32(0) { posOf(t, k, ty-uint32(1)) } else { tokPos(k, tok) }
+	}
+	if kd == KTupleExpr || kd == KInterfaceType || kd == KFieldList {
+		let open = fixed(t, x, 2, 0)
+		return if open != uint32(0) { optPos(k, open) } else { posOf(t, k, item(t, x, 0)) }
+	}
+	if kd == KOrPattern || kd == KInterpolatedString {
+		return posOf(t, k, item(t, x, 0))
+	}
+	if kd == KFuncType {
+		let esc = fixed(t, x, 7, 0)
+		let entry = fixed(t, x, 7, 1)
+		let fn = fixed(t, x, 7, 2)
+		if esc != uint32(0) {
+			return optPos(k, esc)
+		}
+		if entry != uint32(0) {
+			return optPos(k, entry)
+		}
+		if fn != uint32(0) {
+			return optPos(k, fn)
+		}
+		return posOf(t, k, fixed(t, x, 7, 3))
+	}
+	if kd == KField {
+		let dots = fixed(t, x, 11, 5)
+		if dots != uint32(0) {
+			return optPos(k, dots)
+		}
+		let own = fixed(t, x, 11, 9)
+		let names = items(t, x, 11)
+		if own != uint32(0) && (names == 0 || optPos(k, own) < posOf(t, k, item(t, x, 0))) {
+			return optPos(k, own)
+		}
+		let mutW = fixed(t, x, 11, 10)
+		if mutW != uint32(0) {
+			return optPos(k, mutW)
+		}
+		if names > 0 {
+			return posOf(t, k, item(t, x, 0))
+		}
+		return posOf(t, k, fixed(t, x, 11, 1)-uint32(1))
+	}
+	if kd == KVariantSpec {
+		return posOf(t, k, fixed(t, x, 3, 0))
+	}
+	if kd == KImportSpec {
+		return if tok != 0 { tokPos(k, tok-1) } else { posOf(t, k, t.b[i]) }
+	}
+	if kd == KVarDecl {
+		let ext = fixed(t, x, 4, 1)
+		return if ext != uint32(0) { posOf(t, k, ext-uint32(1)) } else { tokPos(k, tok) }
+	}
+	if kd == KVarSpec {
+		let pat = fixed(t, x, 4, 0)
+		return if pat != uint32(0) { posOf(t, k, pat-uint32(1)) } else { posOf(t, k, item(t, x, 0)) }
+	}
+	if kd == KTypeDecl {
+		let ext = fixed(t, x, 10, 1)
+		return if ext != uint32(0) { posOf(t, k, ext-uint32(1)) } else { tokPos(k, tok) }
+	}
+	if kd == KFuncDecl {
+		let ext = fixed(t, x, 7, 1)
+		return if ext != uint32(0) { posOf(t, k, ext-uint32(1)) } else { tokPos(k, tok) }
+	}
+	if kd == KLawReach {
+		let never = fixed(t, x, 6, 0)
+		return if never != uint32(0) { optPos(k, never) } else { tokPos(k, tok) }
+	}
+	if kd == KContextEntry {
+		let rep = fixed(t, x, 5, 1)
+		return if rep != uint32(0) { optPos(k, rep) } else { posOf(t, k, fixed(t, x, 5, 2)) }
+	}
+	// File: its first declaration, or EOF, or the first comment before.
+	let mut at = tokPos(k, tok)
+	if items(t, x, 0) > 0 {
+		at = posOf(t, k, item(t, x, 0))
+	}
+	if k.cmt0 >= 0 && k.cmt0 < at {
+		at = k.cmt0
+	}
+	at
+}
+
+// endOf is the offset after row x: the Go node's End.
+func endOf(t Tree, k tokens, x uint32) int {
+	if x >= uint32(t.n) {
+		return 0
+	}
+	let i = int(x)
+	let kd = uint8(t.kind[i])
+	let tok = int(t.tok[i])
+	let a = t.a[i]
+	let b = t.b[i]
+	if kd == KIdent || kd == KBasicLit || kd == KBranchStmt {
+		return tokEnd(k, tok)
+	}
+	if kd == KSkipStmt {
+		return tokEnd(k, int(a))
+	}
+	if kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KArrayType || kd == KDeclStmt || kd == KExprStmt || kd == KAssertStmt || kd == KStructType || kd == KMachineEntry || kd == KImportDecl {
+		return endOf(t, k, a)
+	}
+	if kd == KBinaryExpr || kd == KSelectorExpr || kd == KKeyValueExpr || kd == KFuncLit || kd == KAsPattern || kd == KAssignStmt || kd == KForStmt || kd == KImportSpec || kd == KExternSpec {
+		return endOf(t, k, b)
+	}
+	if kd == KParenExpr {
+		return tokPos(k, int(b)) + 1
+	}
+	if kd == KBlockStmt || kd == KContextBody {
+		return tokPos(k, int(fixed(t, x, 1, 0))) + 1
+	}
+	if kd == KIndexExpr || kd == KMapType || kd == KCatchExpr {
+		return tokPos(k, int(fixed(t, x, 2, 1))) + 1
+	}
+	if kd == KSwitchStmt || kd == KTypeSwitchStmt {
+		return tokPos(k, int(fixed(t, x, 3, 2))) + 1
+	}
+	if kd == KCompositeLit || kd == KMachineType {
+		return tokPos(k, int(fixed(t, x, 4, 3))) + 1
+	}
+	if kd == KSliceExpr {
+		return tokPos(k, int(fixed(t, x, 6, 5))) + 1
+	}
+	if kd == KCallExpr {
+		let tr = fixed(t, x, 5, 3)
+		if tr != uint32(0) {
+			return endOf(t, k, tr-uint32(1))
+		}
+		if fixed(t, x, 5, 4) != uint32(0) {
+			return endOf(t, k, lastItem(t, x, 5))
+		}
+		return optPos(k, fixed(t, x, 5, 2)) + 1
+	}
+	if kd == KTupleExpr || kd == KInterfaceType || kd == KFieldList {
+		let close = fixed(t, x, 2, 1)
+		return if close != uint32(0) { optPos(k, close) + 1 } else { endOf(t, k, lastItem(t, x, 2)) }
+	}
+	if kd == KOrPattern || kd == KInterpolatedString || kd == KErrorRow || kd == KNeedsClause || kd == KProvidesClause {
+		return endOf(t, k, lastItem(t, x, 0))
+	}
+	if kd == KTakesClause {
+		return if items(t, x, 0) == 0 { tokPos(k, tok) + 5 } else { endOf(t, k, lastItem(t, x, 0)) }
+	}
+	if kd == KCatchArm || kd == KCaseClause {
+		let nl = int(fixed(t, x, 2, 0))
+		if items(t, x, 2) > nl {
+			return endOf(t, k, lastItem(t, x, 2))
+		}
+		return tokPos(k, int(fixed(t, x, 2, 1))) + 1
+	}
+	if kd == KContextLit {
+		return endOf(t, k, fixed(t, x, 4, 3))
+	}
+	if kd == KVariantSpec {
+		return endOf(t, k, fixed(t, x, 3, 2))
+	}
+	if kd == KFuncType {
+		let tk = fixed(t, x, 7, 6)
+		let nd = fixed(t, x, 7, 5)
+		let results = fixed(t, x, 7, 4)
+		if tk != uint32(0) {
+			return endOf(t, k, tk-uint32(1))
+		}
+		if nd != uint32(0) {
+			return endOf(t, k, nd-uint32(1))
+		}
+		if results != uint32(0) {
+			return endOf(t, k, results-uint32(1))
+		}
+		return endOf(t, k, fixed(t, x, 7, 3))
+	}
+	if kd == KReturnStmt {
+		return if a != uint32(0) { endOf(t, k, a-uint32(1)) } else { tokPos(k, tok) + 6 }
+	}
+	if kd == KIfStmt {
+		let els = fixed(t, x, 4, 3)
+		return if els != uint32(0) { endOf(t, k, els-uint32(1)) } else { endOf(t, k, fixed(t, x, 4, 1)) }
+	}
+	if kd == KRangeStmt {
+		return endOf(t, k, fixed(t, x, 5, 4))
+	}
+	if kd == KField {
+		let key = fixed(t, x, 11, 2)
+		let any = fixed(t, x, 11, 3)
+		let where = fixed(t, x, 11, 6)
+		let ty = fixed(t, x, 11, 1)
+		let own = fixed(t, x, 11, 9)
+		if key != uint32(0) {
+			return endOf(t, k, key-uint32(1))
+		}
+		if any != uint32(0) {
+			return posOf(t, k, any-uint32(1)) + 3
+		}
+		if where != uint32(0) {
+			return endOf(t, k, where-uint32(1))
+		}
+		if ty == uint32(0) && own != uint32(0) {
+			return optPos(k, own) + 3 // [T own]
+		}
+		if ty == uint32(0) {
+			return endOf(t, k, lastItem(t, x, 11))
+		}
+		return endOf(t, k, ty-uint32(1))
+	}
+	if kd == KContextEntry {
+		let v = fixed(t, x, 5, 4)
+		return if v != uint32(0) { endOf(t, k, v-uint32(1)) } else { endOf(t, k, fixed(t, x, 5, 2)) }
+	}
+	if kd == KVarDecl {
+		return endOf(t, k, fixed(t, x, 4, 3))
+	}
+	if kd == KVarSpec {
+		let v = fixed(t, x, 4, 3)
+		let ty = fixed(t, x, 4, 1)
+		let pat = fixed(t, x, 4, 0)
+		if v != uint32(0) {
+			return endOf(t, k, v-uint32(1))
+		}
+		if ty != uint32(0) {
+			return endOf(t, k, ty-uint32(1))
+		}
+		if pat != uint32(0) {
+			return endOf(t, k, pat-uint32(1))
+		}
+		return endOf(t, k, lastItem(t, x, 4))
+	}
+	if kd == KTypeDecl {
+		let derive = fixed(t, x, 10, 8)
+		let where = fixed(t, x, 10, 6)
+		if derive != uint32(0) {
+			return endOf(t, k, derive-uint32(1))
+		}
+		if items(t, x, 10) > 0 {
+			return endOf(t, k, lastItem(t, x, 10))
+		}
+		if where != uint32(0) {
+			return endOf(t, k, where-uint32(1))
+		}
+		return endOf(t, k, fixed(t, x, 10, 4)-uint32(1))
+	}
+	if kd == KFuncDecl {
+		let body = fixed(t, x, 7, 6)
+		return if body != uint32(0) { endOf(t, k, body-uint32(1)) } else { endOf(t, k, fixed(t, x, 7, 5)) }
+	}
+	if kd == KContextDecl {
+		return endOf(t, k, fixed(t, x, 7, 6))
+	}
+	if kd == KTestDecl {
+		return endOf(t, k, fixed(t, x, 4, 3))
+	}
+	if kd == KLawDecl {
+		let r = fixed(t, x, 9, 5)
+		return if r != uint32(0) { endOf(t, k, r-uint32(1)) } else { endOf(t, k, fixed(t, x, 9, 4)-uint32(1)) }
+	}
+	if kd == KLawReach {
+		if fixed(t, x, 6, 1) != uint32(0) {
+			return optPos(k, fixed(t, x, 6, 3)) + 1
+		}
+		let pred = fixed(t, x, 6, 5)
+		if pred != uint32(0) {
+			return endOf(t, k, pred-uint32(1))
+		}
+		if items(t, x, 6) == 0 {
+			return tokPos(k, tok) + 1
+		}
+		return endOf(t, k, lastItem(t, x, 6))
+	}
+	// File: its EOF.
+	tokPos(k, tok)
+}

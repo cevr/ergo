@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/gobind"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/std/gostd"
 )
 
@@ -135,7 +135,9 @@ func TestGoStdBindingsMatchToolchain(t *testing.T) {
 	if !strings.Contains(stamp, " "+v+" ") {
 		t.Skipf("the bindings are of another toolchain than %s; go generate ./internal/sketch/std/gostd regenerates them", v)
 	}
-	files, err := gobind.StdBindings(t.TempDir(), os.Environ())
+	// The package's directory, in the toolchain's module: StdBindings also
+	// binds runtime/v1/hostfs (HOST-ROW-3), which go list finds only there.
+	files, err := gobind.StdBindings(".", os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}

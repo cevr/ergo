@@ -1,0 +1,57 @@
+// urlbench is STD-SURVEY SM2's receipt probe: std url's Parse over URLs
+// with no escape, against Go's url.Parse and the hand floor in
+// ../../testdata/control; a workload per kind in ../../KIND (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/url/KIND).
+//
+//	urlbench bench KIND N
+//
+// One unit is one URL parsed: the parts' lengths are summed, so a parse
+// whose result went unread cannot be dropped.
+
+import os
+import strconv
+import url
+
+// urls are the parsed texts: a page with a query and a fragment, a user
+// and a port, a bare path, an IPv6 host, an opaque mailto and a relative
+// path with dots; none has an escape.
+let urls = []string{
+	"https://example.com/docs/a/b?x=1&y=two#top",
+	"http://user:pw@host.example:8080/p/q",
+	"/search?q=go&page=2",
+	"http://[2001:db8::1]:443/index.html",
+	"mailto:someone@example.com",
+	"../up/./here?k=v",
+	"https://a.b.c.example.org/very/long/path/with/many/segments/to/read",
+	"ftp://files.example.net/pub/file.tar.gz",
+}
+
+func parsed(s string) int {
+	let u = url.Parse(s) catch {
+	case url.Malformed:
+		return -1
+	}
+	len(u.Scheme) + len(u.Opaque) + len(u.Host) + len(u.Path) + len(u.RawQuery) + len(u.Fragment) + if u.User == None { 0 } else { 1 }
+}
+
+func bench(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + parsed(urls[i & 7])
+	}
+	t
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: urlbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "urlbench: N is not a count"}
+		}
+		Console.Println("\(bench(n))")
+	}
+}

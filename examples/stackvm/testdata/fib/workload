@@ -1,0 +1,8 @@
+# scripts/opcount (go run ./scripts/opcount -control examples/stackvm/testdata/fib):
+# `stackvm fib N` sums fib(15) by recursion N times, on vm.Exec's call
+# loop; the cost of one round is the slope between the two sizes.
+unit round
+sizes 20 120
+args fib {n}
+control examples/stackvm/testdata/control
+floor examples/stackvm/testdata/floor

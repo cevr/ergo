@@ -1,0 +1,130 @@
+# The tracked Markdown documents: every tracked *.md outside
+# conformance/upstream/ and any testdata/ directory is one row's.
+# path-or-glob<TAB>budget<TAB>its one job. A glob's "*" stays inside one
+# path segment; "**/" is any depth. An exact row wins over a glob, and
+# names a tracked file. Budget "-" is a file not yet rewritten; a row
+# whose job starts "delete:" names the unit that removes the file.
+# TestDocsAreListed.
+AGENTS.md	-	how an agent works in this repository: rules only
+GLOSSARY.md	-	one definition per term of the language and its tools as built
+NORTH_STAR.md	-	the principles, their order, the tiebreaks, what stays rejected
+PRIOR_ART.md	-	index of sources: what Ergo took from each and what it refused
+README.md	-	what Ergo is, the first program, how to build and run it
+benchmarks/**/README.md	-	one benchmark
+compiler/CHANGES-since-seed.md	-	the formatter's changes since the seed, one row each
+compiler/README.md	-	the self-hosted compiler's packages
+conformance/README.md	-	what the conformance inputs are and who reads them
+conformance/size/README.md	-	the size corpus
+docs/conformance.md	-	delete: TOOLING (merged into its home)
+docs/decisions.md	-	delete: PRINCIPLES (each live decision to its home)
+docs/design.md	-	the high-level design: the pipeline and its seams as built
+docs/domain.md	-	how to model a domain in Ergo; every quote is held to examples/
+docs/previews/2026-10-28-without-go-syntax.md	-	delete: PREVIEW-TEST
+docs/receipts/check-speed.md	-	delete: DEL-DEAD
+docs/receipts/checker-maps.md	-	delete: DEL-DEAD
+docs/receipts/compile-speed.md	-	delete: DEL-DEAD
+docs/receipts/cutoff-count.md	-	delete: DEL-DEAD
+docs/receipts/dod0.md	-	delete: DEL-DEAD
+docs/receipts/fkre-patterns.md	-	delete: DEL-DEAD
+docs/receipts/foundations-2026-10-06/README.md	-	delete: DEL-DEAD
+docs/receipts/ir-layout.md	-	delete: DEL-DEAD
+docs/receipts/jsonv.md	-	delete: DEL-DEAD
+docs/receipts/lower-map.md	-	delete: DEL-DEAD
+docs/receipts/lower-state.md	-	delete: DEL-DEAD
+docs/receipts/lower-v1.md	-	delete: DEL-DEAD
+docs/receipts/retire-ef.md	-	delete: DEL-DEAD
+docs/receipts/runtime-199.md	-	delete: DEL-DEAD
+docs/receipts/self-host.md	-	delete: DEL-DEAD
+docs/receipts/self-layout.md	-	delete: DEL-DEAD
+docs/receipts/std-count.md	-	delete: STD-TABLES (moves to testdata)
+docs/receipts/work-locks.md	-	delete: RECEIPTS
+docs/receipts/work-race.md	-	delete: RECEIPTS
+docs/receipts/work-snapshot.md	-	delete: RECEIPTS
+docs/receipts/work-typescript.md	-	delete: RECEIPTS
+docs/receipts/work-vs-rift.md	-	delete: RECEIPTS
+docs/receipts/work.md	-	delete: RECEIPTS
+docs/research/actor-library.md	-	delete: DEL-DEAD
+docs/research/actor-model-and-durability.md	-	delete: DEL-DEAD
+docs/research/agent-mistakes.md	-	delete: DEL-DEAD
+docs/research/compiler-known-constructs-audit.md	-	delete: DEL-DEAD
+docs/research/ef-migrate-decision.md	-	delete: DEL-DEAD
+docs/research/effect-language-boundary.md	-	delete: DEL-DEAD
+docs/research/effect-native-showcases.md	-	delete: DEL-DEAD
+docs/research/effect-rows-as-types.md	-	delete: DEL-DEAD
+docs/research/gate-throughput.md	-	delete: DEL-DEAD
+docs/research/generalized-run-binding.md	-	delete: DEL-DEAD
+docs/research/generated-go-build-cost.md	-	delete: DEL-DEAD
+docs/research/go-line-directives.md	-	delete: DEL-DEAD
+docs/research/graph-number-admission.md	-	delete: DEL-DEAD
+docs/research/host-language-compilation.md	-	delete: DEL-DEAD
+docs/research/jsx-pragmas-and-runtime-selection.md	-	delete: DEL-DEAD
+docs/research/lawful-runtime-contract.md	-	delete: DEL-DEAD
+docs/research/laws.md	-	delete: DEL-DEAD
+docs/research/layer-composition.md	-	delete: DEL-DEAD
+docs/research/machines-and-transforming-codecs.md	-	delete: DEL-DEAD
+docs/research/native-runtime-retention.md	-	delete: DEL-DEAD
+docs/research/numeric-arithmetic.md	-	delete: DEL-DEAD
+docs/research/opaque-values-and-evidence.md	-	delete: DEL-DEAD
+docs/research/overflow-bench/results/20261027T150404Z/summary.md	-	delete: RESEARCH-CODE
+docs/research/overflow-bench/results/20261027T154229Z/summary.md	-	delete: RESEARCH-CODE
+docs/research/primitives.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader-key.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/A/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/B/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/C/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/D/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/E/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/H/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/P/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/blind-reader/today/questions.md	-	delete: DEL-DEAD
+docs/research/primitives/effect-study.md	-	delete: DEL-DEAD
+docs/research/primitives/prior-art.md	-	delete: DEL-DEAD
+docs/research/rows-and-constraints.md	-	delete: DEL-DEAD
+docs/research/rows-and-constraints/corpus/after/row-elision-unguarded/sketch10/sketch-10.md	-	delete: DEL-DEAD
+docs/research/rows-and-constraints/corpus/after/row-elision/sketch10/sketch-10.md	-	delete: DEL-DEAD
+docs/research/rows-and-constraints/corpus/before/sketch10/sketch-10.md	-	delete: DEL-DEAD
+docs/research/server-benchmark-design.md	-	delete: DEL-DEAD
+docs/research/statecharts-composition-and-evidence.md	-	delete: DEL-DEAD
+docs/research/traceability.md	-	delete: DEL-DEAD
+docs/research/union-repr.md	-	delete: DEL-DEAD
+docs/research/where-dispatch.md	-	delete: DEL-DEAD
+docs/spec/README.md	-	scope, conventions, reading order, generated status and surface tables
+docs/spec/api.md	-	operation-type hubs and their transports
+docs/spec/build.md	-	modules, workspaces, generators, pins
+docs/spec/code.md	-	ergo code: the fact tables and their queries
+docs/spec/diagnostics.md	-	every diagnostic code, one row each
+docs/spec/facts.md	-	facts and what the optimizer may use
+docs/spec/grammar.md	-	the grammar and its productions
+docs/spec/graph.md	-	ergo graph
+docs/spec/inserted.md	-	what the compiler inserts
+docs/spec/inspect.md	-	ergo inspect
+docs/spec/interop.md	-	import go, foreign facts, Go calls Ergo
+docs/spec/patterns.md	-	text patterns
+docs/spec/resources.md	-	ownership, release, scopes
+docs/spec/rows.md	-	failure and capability rows, contexts, totality
+docs/spec/rpc.md	-	delete: SPECS-CITED (merged into docs/spec)
+docs/spec/runtime.md	-	tasks, cancellation, machines, actors, tests at run time
+docs/spec/stdlib.md	-	std-wide rules and each package's guarantees that its source does not state
+docs/spec/support.md	-	generated support table
+docs/spec/types.md	-	types, unions, generics, refinements, laws
+docs/specs/bench.md	-	delete: SPECS-CITED (merged into docs/spec)
+docs/specs/custom-lint.md	-	delete: SPECS-CITED (merged into docs/spec)
+docs/specs/formatting.md	-	delete: SPECS-CITED (merged into docs/spec)
+docs/testing.md	-	delete: TOOLING (merged into its home)
+docs/tooling.md	-	the repository's own tooling rules: gate tiers, mutant ledger, closure rule, toolchain pin, regeneration order
+docs/wayfinder/ARCHIVE.md	-	delete: DEL-DEAD
+docs/wayfinder/README.md	-	delete: WAYFINDER
+examples/**/README.md	-	one example: what it shows and how to run it
+examples/README.md	-	the layout every example follows
+hosts/*/README.md	-	one host: what it provides and how to run it
+internal/**/README.md	-	one package's inputs
+modules/*/README.md	-	one module: what it is and how to use it
+modules/fluid/origin/README.md	-	one module part: what it is and how to use it
+plugins/*/README.md	-	one plugin
+prototypes/sketch9/README.md	-	delete: PROTOTYPES
+prototypes/sketch9/RECEIPT.md	-	delete: PROTOTYPES
+runtime/**/README.md	-	one package's inputs
+runtime/rt/MEASURED.md	-	delete: RECEIPTS
+scripts/**/README.md	-	one script
+toolchain/ir/ports.md	-	how the IR compiler patch is derived
+tools/**/README.md	-	one tool

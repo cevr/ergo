@@ -1,0 +1,61 @@
+// schemabench holds std jsonschema's counted probe (wf10 JS0), with a hand
+// Go twin in ../../testdata/control and a floor in ../../testdata/floor;
+// the workload is ../../conforms (go run ./scripts/opcount -control
+// -rounds 5 benchmarks/jsonschema/conforms).
+//
+//	schemabench bench conforms N
+//
+// KIND conforms: one value, a record of a string, an integer, a list of
+// two strings and a two-variant union with its "_tag", checked N times by
+// jsonschema.Conforms against the schema ergo gen schema writes for its
+// type. One unit is one check.
+
+import json
+import jsonschema
+import os
+import strconv
+
+// schema is what ergo gen schema writes for
+// type Box { Label string, Note json.Optional[string], Count int, Size Size, Tags []string }
+// with Size = Small{} | Large{Inches int}.
+let schema = "{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"note\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"},\"size\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Small\"}},\"required\":[\"_tag\"]},{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Large\"},\"inches\":{\"type\":\"integer\"}},\"required\":[\"_tag\",\"inches\"]}]},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"label\",\"count\",\"size\",\"tags\"]}"
+
+// box is the value: the codec's JSON of a Box.
+let box = "{\"label\":\"crate\",\"count\":12,\"size\":{\"_tag\":\"Large\",\"inches\":30},\"tags\":[\"wood\",\"heavy\"]}"
+
+// bench is the count of N checks that fit, or -1 when the schema or the
+// value does not read.
+func bench(kind string, n int) int {
+	if kind != "conforms" {
+		return -1
+	}
+	let s = jsonschema.Parse(schema) catch {
+	case jsonschema.Invalid:
+		return -1
+	}
+	let v = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, box) catch {
+	case _:
+		return -1
+	}
+	let mut fit = 0
+	for _ in 0..n {
+		if jsonschema.Conforms(s, v) {
+			fit = fit + 1
+		}
+	}
+	fit
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: schemabench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "schemabench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

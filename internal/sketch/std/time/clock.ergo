@@ -57,7 +57,16 @@ func Now(_ Host) Time {
 // clock, as Go's time.Since does; otherwise it is h.Now().Sub(t).
 func Elapsed(h Host, t Time) duration {
 	if t.hasMono {
-		subMono(hostMono(), t.mono)
+		// Sub's monotonic difference, saturated where it overflows.
+		let now = hostMono()
+		let m = now - t.mono
+		if m < 0 && now > t.mono {
+			return duration(maxDuration)
+		}
+		if m > 0 && now < t.mono {
+			return duration(minDuration)
+		}
+		duration(m)
 	} else {
 		h.Now().Sub(t)
 	}
@@ -110,6 +119,10 @@ extern go ergo.local/prototype/runtime/v1.Timeline type Timeline {
 // (TestStdHostProvidersHaveAuthority), and a Manual's timeline is state.
 // The calling task is the first member of its domain (stdlib.md, time 6).
 func NewManual(sec int64) Manual { Manual{line: newTimeline(sec, 0)} }
+
+// atEpoch is the context Timeline's laws run under (types.md, Laws 10):
+// each case starts a fresh timeline at the Unix epoch.
+let atEpoch = context { Timeline: newTimeline(0, 0) }
 
 // Now is the Manual's time. Its monotonic reading is the time Advance has
 // moved it since NewManual.

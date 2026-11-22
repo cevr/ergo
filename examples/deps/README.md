@@ -12,7 +12,7 @@ package web 2.3.1
   needs log ^1.4
 ```
 
-Constraints are semver-lite: `=V`, `>=V`, `>V`, `<=V`, `<V`, `^V` (Cargo's and npm's caret), `~V` (up to the next minor), a bare `V` (exact) and `*`, several in one want meaning all of them. A version is `MAJOR.MINOR.PATCH`, with missing parts 0.
+Constraints are npm ranges, read by std `semver` as node-semver reads them: `=V`, `>=V`, `>V`, `<=V`, `<V`, `^V`, `~V`, x-ranges (`1.x`, `*`), partial versions, hyphen ranges and `||`, several comparators in one want meaning all of them. A release version is a full `MAJOR.MINOR.PATCH`.
 
 Tag: `default`. It is an original program, not a port. Its goldens were made by running the program and checked by hand against the manifest in `testdata/`.
 
@@ -22,9 +22,8 @@ The program is a module of packages (`ergo.mod`: `module deps`), in the Go layou
 
 | folder | what it holds |
 | --- | --- |
-| `semver/` | Versions and constraints. `version.ergo` (`Version`, `ParseVersion`, `Format`, `Compare`), `constraint.ergo` (the union `Bound`, `Constraint`, `ParseConstraint`, `Holds`, `Satisfies`, `CaretLimit`, `And`), `laws.ergo`, `tests.ergo`. Pure. |
 | `graph/` | A directed graph over any ordered node type. `graph.ergo` (`Graph[N ordered]`, `Of`, `Add`, `Link`, `Order` failing `Cycle[N]` with the cycle's path, `Path`), `laws.ergo`, `tests.ergo`. Pure. |
-| `resolve/` | The resolver and its contract. `index.ergo` (the contract `Index`, an operation type with two laws, and its failures), `resolve.ergo` (`Resolve`, its failures `NoVersion`, `NoPlan`, `TooHard`, `Circular`, and `Why`), `table.ergo` (`Table`, an in-package `Index`, and the generators the laws run over), `laws.ergo`, `tests.ergo`. Pure but for its `Index`. |
+| `resolve/` | The resolver and its contract. `index.ergo` (the contract `Index`, an operation type with two laws, its failures, and `Constraint`: a std `semver.Range` with the text the manifest wrote), `resolve.ergo` (`Resolve`, its failures `NoVersion`, `NoPlan`, `TooHard`, `Circular`, and `Why`), `table.ergo` (`Table`, an in-package `Index`, and the generators the laws run over), `laws.ergo`, `tests.ergo`. Pure but for its `Index`. |
 | `manifest/` | The file format. `manifest.ergo` (`Manifest`, `BadLine`, the machine `Reader` whose state is the block being read, `Step`, `Read`), `laws.ergo` (`Format` and two laws), `tests.ergo`. Pure. |
 | `memory/` | `Registry`, the `Index` of a manifest's releases (`NewRegistry`), with tests that it keeps `Index`'s laws and resolves as `resolve.Table` does. |
 | `cmd/deps/` | The binary. `main.ergo` binds the host's `os.Process`, `fs.Files` and `io.Stdout`, and a `memory.Registry` of the manifest, and is the only place that chooses them. Its tests run the commands over an `fstest.Memory`. |
@@ -32,16 +31,16 @@ The program is a module of packages (`ergo.mod`: `module deps`), in the Go layou
 ## What it shows
 
 - **A typed failure that carries the evidence.** `graph.Order` fails `Cycle[N]{Path}`, the path of the cycle; `resolve.Resolve` fails `NoVersion{Name, Wants}` with every want on the package and who wrote it, `Circular{Path}` with the pinned versions in the ring, `NoPlan`, `TooHard{Steps}`, `UnknownPackage` or `UnknownVersion`. `cmd/deps` catches each by name, with no `case _`, and prints it (`deps: no version of log keeps every want:` and each want with its source).
-- **A union and exhaustive `match`.** `Bound` has eight variants, and `Holds` names every one; the manifest reader matches the pair `(first word, indented)`.
+- **A union and exhaustive `match`.** The manifest reader matches the pair `(first word, indented)`; versions and ranges are std `semver`'s.
 - **A machine.** `manifest.Reader` is `machine[Block, Signal]`: its state is `Top | InProject | InRelease`, a line `Enter`s a block, a needs line `Stay`s with one more need, a comment is `Ignore`d, and the end is `Done` with the manifest. `Read` runs it with `machines.Run`.
 - **A contract in the domain, providers named after their dependency.** `resolve` declares `Index` with the laws `VersionsAreNewestFirst` and `EveryVersionHasNeeds`; `resolve.Table` and `memory.Registry` provide it; `main` chooses `memory.Registry`.
 - **A backtracking search over a pointer.** `solve` is a Go programmer's depth-first search with a step budget in a `*search`, which also records the first dead end that one package is to blame for.
-- **Laws, each killed by its own mutant.** `semver` states six (`FormatRoundTrips`, `CompareIsAntisymmetric`, `CompareIsTransitive`, `CaretKeepsTheLeadingPart`, `AndIsBoth`, `TextRoundTrips`), `graph` five (`OrderRespectsEdges`, `OrderHasEveryNodeOnce`, `OrderIsDeterministic`, `CycleIsAClosedWalk`, `PathFollowsEdges`), `resolve` three (`ResolutionIsSound`, `ResolutionIsDeterministic`, `NoVersionIsHonest`) and two on `Index`, `manifest` two (`ReadInvertsFormat`, `NoiseChangesNothing`). `ergo test` runs each, and `cmd/deps` checks that a resolved plan, pinned exactly, resolves to itself. For each law there is a mutant of the program that breaks it, and the law itself fails on it (18 of 18, `mutants.json` in the batch-12 ex-upgrade run dir).
+- **Laws, each killed by its own mutant.** `graph` states five (`OrderRespectsEdges`, `OrderHasEveryNodeOnce`, `OrderIsDeterministic`, `CycleIsAClosedWalk`, `PathFollowsEdges`), `resolve` three (`ResolutionIsSound`, `ResolutionIsDeterministic`, `NoVersionIsHonest`) and two on `Index`, `manifest` two (`ReadInvertsFormat`, `NoiseChangesNothing`). `ergo test` runs each, and `cmd/deps` checks that a resolved plan, pinned exactly, resolves to itself. For each law there is a mutant of the program that breaks it, and the law itself fails on it (18 of 18 when `semver` was still this program's, `mutants.json` in the batch-12 ex-upgrade run dir; its six laws moved to std `semver`'s with SQ4).
 
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/deps/cmd/deps resolve -f examples/deps/testdata/deps.txt
 ./bin/ergo test examples/deps/resolve
 go run ./scripts/examples deps

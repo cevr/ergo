@@ -1,0 +1,8 @@
+tick 0 at 640.000,260.000 facing Down Idle collected 0/5, nothing in reach
+tick 20 at 733.320,260.000 facing Right Walking collected 0/5, nothing in reach
+saved one
+tick 40 at 826.640,260.000 facing Right Walking collected 0/5, nothing in reach
+loaded one
+tick 20 at 733.320,260.000 facing Right Walking collected 0/5, nothing in reach
+! nothing saved as two
+! cannot keep ../x: a slot is a plain name

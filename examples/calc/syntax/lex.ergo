@@ -56,6 +56,23 @@ func Lex(src string) []Token fails BadChar {
 	toks.Append(EndTok{At: len(src) + 1})
 }
 
+// ColumnsIncrease: the tokens of a text stand in order, each after the
+// one before it, and the end after them all.
+law ColumnsIncrease(src string) {
+	let toks = Lex(src) catch {
+	case BadChar:
+		return true
+	}
+	let mut last = 0
+	for t in toks {
+		if At(t) <= last {
+			return false
+		}
+		last = At(t)
+	}
+	last == len(src)+1
+}
+
 // symbolAt is the symbol that starts at byte i of src, or "".
 func symbolAt(src string, i int) string {
 	if i+2 <= len(src) {

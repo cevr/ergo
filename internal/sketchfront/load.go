@@ -150,8 +150,13 @@ type program struct {
 type loader struct {
 	fsys     FS
 	platform gobind.Platform
-	root     string // the module root, or the root package's folder
-	module   string // the module name; empty with no ergo.mod
+	// experiments are the Go experiments of the target (goExperiments):
+	// with platform, they choose the module Go files go build compiles
+	// (buildsFor). The check cache sees a flip through the digest of
+	// those files (goBodies); the warm key holds them (WarmKey).
+	experiments []string
+	root        string // the module root, or the root package's folder
+	module      string // the module name; empty with no ergo.mod
 	// trust are the required modules whose Go the root's ergo.mod trusts.
 	trust []string
 	pkgs  map[string]*loadedPackage
@@ -171,6 +176,12 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// goBodies are the module Go packages read (GoPackage), by import
+	// path: a digest of the names and bytes of the files go build
+	// compiles for the target, "" when there are none. The check cache
+	// keeps them with a checked package, so an edit of a body checks it
+	// again.
+	goBodies map[string]string
 	// modCache is Go's module cache folder, "" when none is known;
 	// modules is the build list, read on the first import of another
 	// module; deps the required modules read, by path (modules.go).
@@ -194,7 +205,7 @@ type loader struct {
 // newLoader is a loader of the package folder dir, an absolute path, that
 // reads required modules from the module cache folder modCache.
 func newLoader(fsys FS, platform gobind.Platform, dir, modCache string) *loader {
-	return &loader{fsys: fsys, platform: platform, root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
+	return &loader{fsys: fsys, platform: platform, experiments: goExperiments(), root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
 		state: map[*loadedPackage]int{}, texts: map[string]string{}, deps: map[string]*depModule{}}
 }
 
@@ -624,15 +635,24 @@ func (l *loader) read(path, dir string, mod *depModule) (*loadedPackage, error) 
 	p := &loadedPackage{path: path, dir: dir, mod: mod}
 	l.pkgs[path] = p
 	seen := map[string]bool{}
+	// The files are read first, then parsed together, each on a task of
+	// its own (syntax.ParseFiles); the results are taken in name order.
+	files := make([]loadedFile, len(names))
+	texts := make([]string, len(names))
 	for i, name := range names {
 		abs := filepath.Join(dir, name)
 		data, err := l.fsys.ReadFile(abs)
 		if err != nil {
 			return nil, err
 		}
-		f := loadedFile{rel: l.relIn(mod, abs), abs: abs, text: string(data)}
+		files[i] = loadedFile{rel: l.relIn(mod, abs), abs: abs, text: string(data)}
+		texts[i] = files[i].text
+	}
+	parsedAll, errsAll := syntax.ParseFiles(texts)
+	for i, name := range names {
+		f := files[i]
 		l.texts[f.rel] = f.text
-		parsed, err := syntax.Parse(f.text)
+		parsed, err := parsedAll[i], errsAll[i]
 		stage.Add(stage.FilesParsed, 1)
 		stage.Add(stage.BytesParsed, int64(len(f.text)))
 		if err != nil {
@@ -1039,10 +1059,16 @@ func (a Analysis) Text() string {
 	if a.program == nil {
 		return a.source
 	}
+	return ProgramText(a.program.texts)
+}
+
+// ProgramText is the text of a program read from a folder whose files
+// (Files) are texts: its revision is report.Revision of it.
+func ProgramText(texts map[string]string) string {
 	var b strings.Builder
-	for _, name := range sortedNames(a.program.texts) {
-		fmt.Fprintf(&b, "%d:%s%d:", len(name), name, len(a.program.texts[name]))
-		b.WriteString(a.program.texts[name])
+	for _, name := range sortedNames(texts) {
+		fmt.Fprintf(&b, "%d:%s%d:", len(name), name, len(texts[name]))
+		b.WriteString(texts[name])
 	}
 	return b.String()
 }

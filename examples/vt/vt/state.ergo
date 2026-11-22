@@ -1,12 +1,12 @@
 // Package vt is the parser of a terminal's input: the DEC escape-sequence
-// state machine of vt100.net, as Ghostty runs it, over a byte stream.
+// state machine of vt100.net, over a byte stream.
 //
 // The machine's states carry nothing. A byte is first put in one of 22
 // classes; the step reads the state and the class and gives the next
 // state and one of 11 transition actions. The collector (parameters,
 // intermediates) and the strings (OSC, DCS, APC) are records outside the
 // machine, which the actions change (C8: the machine stays small, the
-// data stays beside it, as Ghostty splits Parser from its stream handler).
+// data stays beside it).
 
 // State is where the parser is in a sequence: the 14 states of the DEC
 // parser.
@@ -39,7 +39,7 @@ type State = Ground{} | Escape{} | EscapeIntermediate{} | CsiEntry{} | CsiInterm
 //	High      0xa0-0xff
 type Class = C0{} | Bel{} | CanSub{} | EscByte{} | Inter{} | Digit{} | Colon{} | Semi{} | Private{} | Final{} | DcsIntro{} | SosIntro{} | CsiIntro{} | OscIntro{} | Del{} | C1{} | C1Dcs{} | C1Sos{} | C1Csi{} | C1St{} | C1Osc{} | High{}
 
-// Act is what a transition does with its byte: Ghostty's transition
+// Act is what a transition does with its byte: the 11 transition
 // actions.
 type Act = NoAct{} | IgnoreByte{} | PrintByte{} | ExecuteByte{} | CollectByte{} | ParamByte{} | EscDispatch{} | CsiDispatch{} | DcsPut{} | OscPut{} | ApcPut{}
 
@@ -112,7 +112,7 @@ func to(s State, a Act) Transition { Transition{To: s, Do: a} }
 
 // Next is the parser's step: the transition of a byte of class c in the
 // state s. It follows the state descriptions of vt100.net's DEC parser,
-// with Ghostty's changes: a colon is a parameter separator in CSI, DEL
+// with three changes: a colon is a parameter separator in CSI, DEL
 // prints in the ground state, and the high bytes inside a DCS or an OSC
 // string are its data, not 8-bit controls.
 func Next(s State, c Class) Transition {

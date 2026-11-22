@@ -1,0 +1,96 @@
+// todo-tui is examples/todo-gui in a terminal: the example's model and
+// view (a required Ergo module, hosts/opentui/go.mod) on the OpenTUI
+// driver. It is the only place that chooses: the terminal and the live
+// clock, or, with -headless, a screen with no terminal that plays a
+// script from standard input and prints what the example's own binary
+// prints.
+//
+//	todo-tui                 run in the terminal (Ctrl+C quits)
+//	todo-tui -headless < s   play the script s through the screen's input
+
+import actor
+import ergo.local/prototype/examples/todogui/script
+import ergo.local/prototype/examples/todogui/todo
+import ergo.local/prototype/examples/todogui/view
+import ergo.local/prototype/hosts/opentui/tui
+import go ergo.local/prototype/hosts/opentui/screen
+import io
+import os
+import term
+import time
+import ui
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) > 0 && args[0] == "-headless" {
+		try headless()
+		return
+	}
+	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
+		// ergo-lint-disable-next-line silent-catch -- the app stopped: the program ends as the example's own binary does
+		case actor.Stopped:
+		case term.NotTerminal:
+			return os.Exit{Code: 1, Message: "todo-tui: standard input is not a terminal (try -headless)"}
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-tui: \(b.Why)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "todo-tui: \(e.Why)"}
+		}
+	}
+}
+
+// headless plays the script on standard input through a screen with no
+// terminal, 53 by 33 cells (the window of todo-gui at 8 by 16 DIPs a
+// cell): a tap is a mouse press and release at the node's first cell, a
+// typed text is a tap on the field, Backspaces and the text. It prints the
+// list after each step.
+func headless() fails os.Exit needs Ambient | go.Foreign {
+	let text = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "todo-tui: cannot read the script"}
+	}
+	let steps = script.Parse(text) catch {
+	case script.BadLine as b:
+		return os.Exit{Code: 2, Message: "todo-tui: line \(b.Line) is no step: \(b.Text)"}
+	}
+	let out = io.NewHost()
+	with context { Scheduler: time.NewManual(0) } {
+		let s = screen.Headless(53, 33) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "todo-tui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(todo.Todo{}, 8, func(l todo.List) {})
+		let mut d = tui.New(s, a, view.View, 64) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "todo-tui: \(b.Why)"}
+		case tui.ScreenFailed as e:
+			return os.Exit{Code: 1, Message: "todo-tui: \(e.Why)"}
+		}
+		for i, act in steps {
+			tui.Play(&d, []ui.Act{act}) catch {
+			case ui.NoNode as n:
+				out.Println("\(i + 1): no node \(n.Label)")
+				continue
+			case ui.Ambiguous as amb:
+				out.Println("\(i + 1): \(amb.Count) nodes at \(amb.At)")
+				continue
+			case ui.Mismatch as m:
+				out.Println("\(i + 1): want \(m.Want), got \(m.Got)")
+				continue
+			case ui.Closed, actor.Stopped:
+				return os.Exit{Code: 1, Message: "todo-tui: the screen closed"}
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "todo-tui: \(b.Why)"}
+			case tui.ScreenFailed as e:
+				return os.Exit{Code: 1, Message: "todo-tui: \(e.Why)"}
+			}
+			out.Println("\(i + 1): \(todo.Summary(tui.StateOf(&d)))")
+		}
+		s.Quit() catch {
+		// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
+		case go.Error:
+		}
+	}
+}

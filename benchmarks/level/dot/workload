@@ -1,0 +1,9 @@
+# scripts/opcount: `level bench dot N` runs N multiply-adds of a dot
+# product, each product rounded; the cost of one is the slope between the
+# two sizes (U3 CPU-LEVEL). Count it at GOAMD64=v1 and at GOAMD64=v3: the
+# counts must match, as no level fuses a rounded product.
+unit madd
+sizes 4096000 24576000
+args bench dot {n}
+control benchmarks/level/testdata/control
+binary level

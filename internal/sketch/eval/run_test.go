@@ -76,8 +76,8 @@ func Same(n int) int { n }
 		if i >= len(want) || res.Status != want[i] {
 			t.Fatalf("results %+v, want statuses %v", rep.Results, want)
 		}
-		if res.Steps > rep.Limit {
-			t.Fatalf("%s used %d steps of %d", res.Name, res.Steps, rep.Limit)
+		if res.Steps > rep.Limit*int64(max(1, res.TotalCases)) {
+			t.Fatalf("%s used %d steps of %d for each of %d cases", res.Name, res.Steps, rep.Limit, res.TotalCases)
 		}
 	}
 
@@ -137,12 +137,23 @@ test After {
 // preflight skipped an obligation that reaches encode or decode, or a
 // program's extern of a Go function the evaluator calls, though the run
 // itself evaluates both (O18, O20), so 42 example obligations were
-// skipped. Mutants: oracle-o23-preflight-codec,
-// oracle-o23-preflight-go-extern.
+// skipped. GoStd: a pure function of Go's standard library through
+// `import go` runs as the same Go function; compiler/syntax's scanner
+// calls these, and its tests were skipped (wf10 TP-DIAG). Mutants:
+// oracle-o23-preflight-codec, oracle-o23-preflight-go-extern,
+// tpdiag-isletter-is-isdigit.
 func TestPreflightAdmitsWhatRuns(t *testing.T) {
 	pkg := checked(t, `import json
+import go strconv
+import go unicode
 
 extern go math.Log func log(x float64) float64
+
+test GoStd {
+	assert unicode.IsLetter('é') && !unicode.IsLetter('1') && unicode.IsDigit('7') && !unicode.IsDigit('a')
+	assert strconv.QuoteRune('\u00a0') == "'\\u00a0'" && strconv.Quote("a\"") == "\"a\\\"\""
+	assert strconv.Itoa(-3) == "-3" && strconv.FormatInt(255, 16) == "ff"
+}
 
 type P { X int, Name string }
 
@@ -181,5 +192,49 @@ func TestRunRefusesAnAbsentFootprint(t *testing.T) {
 	delete(pkg.Info.Footprints, pkg.Tests[0].Decl)
 	if _, err := Run(pkg, DefaultBudget()); err == nil {
 		t.Fatal("ran a test whose footprint is absent")
+	}
+}
+
+// TestRunInitializesUnderItsOwnBound is the smallest repro of LITERAL-LET's
+// check-time stop: a package let whose initializer takes more steps than
+// one obligation's budget (as a port's let that decodes a large text does)
+// is built once, under the initializers' own bound, and the law that reads
+// it passes within its own budget. Mutant: init-steps-obligation (the
+// initializers run under one obligation's budget, and every obligation is
+// incomplete).
+func TestRunInitializesUnderItsOwnBound(t *testing.T) {
+	pkg := checked(t, `func build() []int {
+	let mut xs = []int{}
+	for i in 0..20000 {
+		xs = xs.Append(i)
+	}
+	xs
+}
+
+let world = build()
+
+law WorldIsBuilt(n int) {
+	let i = (n%20000 + 20000) % 20000
+	world[i] == i
+}
+`)
+	rep, err := Run(pkg, Budget{Steps: 10_000, Depth: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Results) != 1 || rep.Results[0].Status != Passed {
+		t.Fatalf("results %+v, want the law passed", rep.Results)
+	}
+	// Past the initializer bound, the law is incomplete, and the reason
+	// names the package, the bound and that it is the initializers'.
+	defer func(n int64) { initSteps = n }(initSteps)
+	initSteps = 15_000
+	rep, err = Run(pkg, Budget{Steps: 10_000, Depth: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "the package initializers of " + pkg.Path + " used the initializer bound of 15000 steps (the bound of the initializers, not a law's budget)"
+	if len(rep.Results) != 1 || rep.Results[0].Status != Incomplete || rep.Results[0].Reason != want {
+		t.Fatalf("results %+v, want the law incomplete: %s", rep.Results, want)
 	}
 }

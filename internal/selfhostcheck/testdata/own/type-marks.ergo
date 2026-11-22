@@ -1,0 +1,43 @@
+// The type rules of [T own] (types.md, Generics 9): an unmarked type
+// parameter of a generic type binds plain data, as a function's does; a
+// generic type's own parameter, written in the type's package, needs an
+// own type parameter where an enclosing declaration's fills it; an own
+// type parameter is a resource to an unmarked one; a resource reached
+// through a record, a union, a slice, a Map or Option is one.
+type Res { n int } implements Closer
+
+func Close(r own Res) {}
+
+type Holder { r Res }
+
+type Either = Left { r Res } | Right { n int }
+
+type Box[T own] { v T }
+
+type Cell[T] { v T }
+
+type Plain { a Cell[int], b Box[Res], c Cell[Option[int]] }
+
+type Bad { a Cell[Res] } //want: own
+
+type Deep { a Cell[[]Holder] } //want: own
+
+type Union { a Cell[Either] } //want: own
+
+type Keyed { a Cell[Map[string, Option[Res]]] } //want: own
+
+type Pair[U] { b Box[U] } //want: own
+
+type OwnPair[U own] { b Box[U], c Cell[int] }
+
+type Passed[U own] { c Cell[U] } //want: own
+
+func open[U](b own Box[U]) {} //want: own
+
+func held[U own](b own Box[U]) {}
+
+func give[T own](x own T) T { pass(x) } //want: own
+
+func pass[T](x T) T { x }
+
+func main() {}

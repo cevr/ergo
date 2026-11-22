@@ -77,6 +77,9 @@ cmd_warm() {
     umask 022
     export GOCACHE="$SRC/.git/gocache" GOMEMLIMIT=6GiB GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=-p=2
     bounded go build ./...
+    # The ergo tool builds without cgo (internal/ergobuild), and a package
+    # above net is a separate cache entry per cgo setting.
+    CGO_ENABLED=0 bounded go build -o /dev/null ./cmd/ergo
     bounded go vet ./...
   ) 9>&-
 }
@@ -114,7 +117,11 @@ cmd_create() {
   [ "$(git -C "$path" symbolic-ref --quiet --short HEAD)" = "$branch" ] || fail "the lane at $path is not on $branch"
 
   # Lanes never push to origin; only `push` below, into the main checkout.
+  # work new guards every remote of the clone, main-checkout too
+  # (no-push:workspaces-never-push-origin); the main checkout is the one
+  # remote a lane pushes to, so its guard goes.
   git -C "$path" config remote.origin.pushurl 'no-push:lanes-never-push-origin'
+  git -C "$path" config --unset-all remote.main-checkout.pushurl || true
   git -C "$path" config remote.pushDefault main-checkout
   git -C "$path" config "branch.$branch.pushRemote" main-checkout
   lane_env "$path" >"$path/.git/lane.env"
@@ -134,7 +141,10 @@ cmd_push() {
   [ -z "$(git -C "$lane" status --porcelain --untracked-files=no)" ] || fail 'uncommitted changes; commit first'
   # A fast-forward push only (no --force): a rejected push means the main
   # checkout's branch moved; merge it in (git fetch main-checkout B; git merge).
-  git -C "$lane" push --quiet main-checkout "HEAD:refs/heads/$branch"
+  # It pushes to the main checkout's path, not to a remote: a lane made by
+  # an older create, or by work new alone, carries work's push guard on
+  # every remote, main-checkout included.
+  git -C "$lane" push --quiet "$MAIN" "HEAD:refs/heads/$branch"
   printf 'pushed %s %s into %s\n' "$branch" "$(git -C "$lane" rev-parse HEAD)" "$MAIN"
 }
 

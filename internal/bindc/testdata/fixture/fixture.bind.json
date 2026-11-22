@@ -1,6 +1,6 @@
 {
   "header": "fixture.h",
-  "header_sha256": "915501db7116c8687d5213f58e356c6c0329fccec84626aa91d31e8d46c08a56",
+  "header_sha256": "b1cbfc1620152fe364123f95fcc8dd1c8aa3029d57be5e97dcc0cf8698ec995e",
   "go": {
     "package": "fixture",
     "import_path": "ergo.local/bind/fixture"
@@ -59,7 +59,9 @@
   ],
   "exceptions": [
     {"callback": "fx_measure_callback", "position": "out_size", "class": "out_array", "array_length": 2,
-     "why": "out_size is two floats (width, height)"}
+     "why": "out_size is two floats (width, height)"},
+    {"function": "fx_box_z", "position": "clip", "class": "optional",
+     "why": "a NULL clip is no clip"}
   ],
   "skips": []
 }

@@ -1,13 +1,13 @@
 package check_test
 
 import (
+	"flag"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"go/types"
+	"maps"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,21 +48,70 @@ func (drvImporter) Import(path string) (*check.Package, error) {
 
 func (d drvImporter) GoBindings() *check.GoBindings { return d.set }
 
-// newDrvImporter binds drvGo with ergo bind's own generator.
+// drvBindingFile is the binding ergo bind writes for drvGo from its
+// source, checked in as gostd's bindings are, so TestDriverHandleIsLent
+// starts no go command; TestDrvBindingIsCurrent keeps it current. Each
+// result's Go-nil case is what the binder derives: Dial, Cmd and Query
+// return a fresh pointer when the error is nil (go.Ref), and Clone
+// returns its receiver, which a method called on a nil pointer may be
+// (Option; GOBIND-NIL).
+const drvBindingFile = "testdata/drv.binding"
+
+// drvUpdate is the one command that writes drvBindingFile, and drvHeader
+// the line it starts with.
+const (
+	drvUpdate = "go test ./internal/sketch/check -run '^TestDrvBindingIsCurrent$' -update-drv"
+	drvHeader = "// Written by ergo bind (gobind.Bind) from drvGo; do not edit. Rewrite it with: " + drvUpdate + "\n"
+)
+
+var updateDrv = flag.Bool("update-drv", false, "rewrite "+drvBindingFile+" from drvGo with ergo bind")
+
+// TestDrvBindingIsCurrent holds testdata/drv.binding to what ergo bind
+// writes for drvGo now. It builds Go because gobind.Bind reads go list
+// and the compiler's -m output (gobind.Derive), which no in-process
+// check gives. -update-drv rewrites the file.
+func TestDrvBindingIsCurrent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
+	}
+	dir := t.TempDir()
+	for name, text := range map[string]string{"go.mod": "module drv\n\ngo 1.27\n", "drv.go": drvGo} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := gobind.Bind(dir, os.Environ(), "go1.27", ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := files["drv"]
+	if !ok {
+		t.Fatalf("ergo bind wrote no binding for drv: %v", slices.Sorted(maps.Keys(files)))
+	}
+	got = drvHeader + got
+	if *updateDrv {
+		if err := os.WriteFile(drvBindingFile, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(drvBindingFile)
+	if err != nil || string(want) != got {
+		t.Errorf("%s is not what ergo bind writes for drvGo; rewrite it with %s", drvBindingFile, drvUpdate)
+	}
+}
+
+// newDrvImporter gives drvBindingFile's binding beside Go's standard
+// library.
 func newDrvImporter(t *testing.T) drvImporter {
 	t.Helper()
-	fs := token.NewFileSet()
-	f, err := parser.ParseFile(fs, "drv.go", drvGo, 0)
+	data, err := os.ReadFile(drvBindingFile)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v: the checked-in binding is missing; write it with %s", err, drvUpdate)
 	}
-	pkg, err := (&types.Config{IgnoreFuncBodies: true}).Check("drv", fs, []*ast.File{f}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding, err := gobind.File([]*types.Package{pkg}, []gobind.Platform{{GOOS: "linux", GOARCH: "amd64"}}, "go1.27")
-	if err != nil {
-		t.Fatal(err)
+	binding, ok := strings.CutPrefix(string(data), drvHeader)
+	if !ok {
+		t.Fatalf("%s does not start with ergo bind's header; rewrite it with %s", drvBindingFile, drvUpdate)
 	}
 	// The checker takes Clone's receiver whatever the binding writes
 	// (hostTakesRecv): an old or edited binding without the own gobind
@@ -183,11 +232,16 @@ func (m *dsModel) block(depth int) {
 			}
 		case 6:
 			if !m.kept(c.name) {
+				// Clone's result is Option (the receiver may be a nil
+				// pointer); the clone is a handle in its Some arm only.
 				v := m.name("c")
-				m.w("let %s = try %s.Clone()", v, c.name)
-				m.w("try %s.Ping()", v)
+				m.w("match try %s.Clone() {", c.name)
+				m.w("case None:")
+				m.w("\tsink(\"none\")")
+				m.w("case Some[go.Ref[drv.Client]] as %s:", v)
+				m.w("\ttry %s.Value.Ping()", v)
+				m.w("}")
 				c.dead = true
-				m.add(dsVar{name: v, kind: 'c'})
 			}
 		case 7:
 			if ks := m.vars('k', false); len(ks) > 0 {

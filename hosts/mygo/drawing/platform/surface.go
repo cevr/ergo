@@ -32,6 +32,16 @@ type ImmediateFrameSurface = impl.ImmediateFrameSurface
 
 type MaximizeButtonSurface = impl.MaximizeButtonSurface
 
+type InsetSurface = impl.InsetSurface
+
+type TouchSurface = impl.TouchSurface
+
+type StackSurface = impl.StackSurface
+
+type StackScreen = impl.StackScreen
+
+type PluginViewSurface = impl.PluginViewSurface
+
 type IdleSurface = impl.IdleSurface
 
 type BackgroundSurface = impl.BackgroundSurface
@@ -40,9 +50,70 @@ type FirstFrameSurface = impl.FirstFrameSurface
 
 type TextInputState = impl.TextInputState
 
+type TextTraits = impl.TextTraits
+
+type KeyboardKind = impl.KeyboardKind
+
+const (
+	KeyboardDefault = impl.KeyboardDefault
+	KeyboardEmail   = impl.KeyboardEmail
+	KeyboardNumber  = impl.KeyboardNumber
+	KeyboardDecimal = impl.KeyboardDecimal
+	KeyboardPhone   = impl.KeyboardPhone
+	KeyboardURL     = impl.KeyboardURL
+	KeyboardSearch  = impl.KeyboardSearch
+)
+
+type ReturnKeyKind = impl.ReturnKeyKind
+
+const (
+	ReturnDefault = impl.ReturnDefault
+	ReturnDone    = impl.ReturnDone
+	ReturnGo      = impl.ReturnGo
+	ReturnNext    = impl.ReturnNext
+	ReturnSearch  = impl.ReturnSearch
+	ReturnSend    = impl.ReturnSend
+)
+
+type CapitalizeKind = impl.CapitalizeKind
+
+const (
+	CapitalizeDefault    = impl.CapitalizeDefault
+	CapitalizeNone       = impl.CapitalizeNone
+	CapitalizeWords      = impl.CapitalizeWords
+	CapitalizeSentences  = impl.CapitalizeSentences
+	CapitalizeCharacters = impl.CapitalizeCharacters
+)
+
+type AutocorrectKind = impl.AutocorrectKind
+
+const (
+	AutocorrectDefault = impl.AutocorrectDefault
+	AutocorrectOn      = impl.AutocorrectOn
+	AutocorrectOff     = impl.AutocorrectOff
+)
+
+type AutofillKind = impl.AutofillKind
+
+const (
+	AutofillNone        = impl.AutofillNone
+	AutofillUsername    = impl.AutofillUsername
+	AutofillPassword    = impl.AutofillPassword
+	AutofillNewPassword = impl.AutofillNewPassword
+	AutofillOneTimeCode = impl.AutofillOneTimeCode
+	AutofillEmail       = impl.AutofillEmail
+	AutofillName        = impl.AutofillName
+	AutofillPhone       = impl.AutofillPhone
+	AutofillAddress     = impl.AutofillAddress
+	AutofillPostalCode  = impl.AutofillPostalCode
+	AutofillCreditCard  = impl.AutofillCreditCard
+)
+
 type SurfaceNative = impl.SurfaceNative
 
 type RectF = impl.RectF
+
+type Insets = impl.Insets
 
 type SurfaceEventKind = impl.SurfaceEventKind
 
@@ -80,7 +151,16 @@ const (
 	SurfaceRenew          = impl.SurfaceRenew
 	WebViewPress          = impl.WebViewPress
 	WebViewTabOut         = impl.WebViewTabOut
+	SurfaceLowMemory      = impl.SurfaceLowMemory
+	SurfaceBackGesture    = impl.SurfaceBackGesture
+	SurfaceScrollToTop    = impl.SurfaceScrollToTop
+	SurfaceStackPopped    = impl.SurfaceStackPopped
 	WebViewKey            = impl.WebViewKey
+	TouchDown             = impl.TouchDown
+	TouchMove             = impl.TouchMove
+	TouchUp               = impl.TouchUp
+	TouchCancel           = impl.TouchCancel
+	DragRegionAt          = impl.DragRegionAt
 )
 
 type SurfaceEvent = impl.SurfaceEvent

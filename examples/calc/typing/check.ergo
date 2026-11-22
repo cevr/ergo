@@ -3,6 +3,7 @@
 // expression does not get stuck when it runs (law Sound).
 
 import calc/ast
+import calc/eval
 
 // Mismatch is an operand In whose type is Got where Want is needed.
 type Mismatch { In string, Want ast.Type, Got ast.Type }
@@ -15,6 +16,28 @@ type Failure = Mismatch | Unbound
 
 // Check is the type of e, which has no free variables.
 func Check(e ast.Expr) ast.Type fails Failure { try In(e, ast.Top) }
+
+// Sound: a well-typed expression does not get stuck. It ends in a value
+// of its type, or in a division by zero, which no type rules out. It
+// holds for e and the samples of seed, half of them well-typed.
+law Sound(e ast.Expr, seed int) {
+	for x in ast.Samples(e, seed) {
+		let t = Check(x) catch {
+		case Failure:
+			continue
+		}
+		let v = eval.Eval(x) catch {
+		case eval.DivByZero:
+			continue
+		case eval.Stuck, eval.Unset:
+			return false
+		}
+		if eval.TypeOf(v) != t {
+			return false
+		}
+	}
+	true
+}
 
 // In is the type of e with the variables of s.
 func In(e ast.Expr, s ast.Scope) ast.Type fails Failure {

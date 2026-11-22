@@ -8,16 +8,33 @@ import (
 	"unsafe"
 )
 
-// renameSwap is RENAME_SWAP, renamex_np's flag that swaps the two paths
+// sysRenameatxNP is SYS_RENAMEATX_NP, the system call behind libc's
+// renameatx_np and renamex_np (xnu's syscalls.master; golang.org/x/sys/unix
+// zsysnum_darwin_{amd64,arm64}.go).
+const sysRenameatxNP = 488
+
+// renameSwap is RENAME_SWAP, renameatx_np's flag that swaps the two paths
 // (<stdio.h>).
 const renameSwap = 0x2
 
-// exchangePaths swaps the files at a and b with one renamex_np call
-// (RENAME_SWAP). Go's syscall package does not bind renamex_np, so it is
-// called through libc as golang.org/x/sys/unix calls it: a trampoline
-// (exchange_darwin.s) that jumps to the libSystem symbol, run by
-// syscall's own libc caller. A file system without RENAME_SWAP (ENOTSUP,
-// EINVAL) is errNoExchange.
+// atFDCWDDarwin is macOS's AT_FDCWD: a path relative to the working
+// directory.
+const atFDCWDDarwin = -2
+
+// exchangePaths swaps the files at a and b with one renameatx_np system
+// call (RENAME_SWAP). Go's syscall package does not bind it, so it is
+// the exported syscall.Syscall6 with its number. On darwin that function
+// is not libc: Go 1.27's syscall/asm_darwin_arm64.s:52-75 traps directly
+// (number in X16, the six arguments in X0-X5, SVC $0x80, carry set on
+// error) and asm_darwin_amd64.s:36-47 the same (DI, SI, DX, R10, R8, R9;
+// AX = number + 0x2000000, SYSCALL), so the five arguments arrive in the
+// registers the kernel reads. syscall's own wrappers (zsyscall_darwin_*.go)
+// go through libc instead, by the lowercase syscall.syscall6 and a
+// trampoline; Apple promises only that libc interface, so this body
+// rests on xnu's system call numbers, which Go's Syscall6 rests on too.
+// No assembly and no linkname of ours, so the runtime stays a package of
+// Go files that every build path, the direct one included, compiles. A
+// file system without RENAME_SWAP (ENOTSUP, EINVAL) is errNoExchange.
 func exchangePaths(a string, b string) error {
 	pa, err := syscall.BytePtrFromString(a)
 	if err != nil {
@@ -27,7 +44,8 @@ func exchangePaths(a string, b string) error {
 	if err != nil {
 		return err
 	}
-	_, _, errno := syscall_syscall(libc_renamex_np_trampoline_addr, uintptr(unsafe.Pointer(pa)), uintptr(unsafe.Pointer(pb)), renameSwap)
+	fd := atFDCWDDarwin
+	_, _, errno := syscall.Syscall6(sysRenameatxNP, uintptr(fd), uintptr(unsafe.Pointer(pa)), uintptr(fd), uintptr(unsafe.Pointer(pb)), renameSwap, 0)
 	switch errno {
 	case 0:
 		return nil
@@ -36,16 +54,3 @@ func exchangePaths(a string, b string) error {
 	}
 	return &os.LinkError{Op: "exchange", Old: a, New: b, Err: errno}
 }
-
-// syscall_syscall is syscall's libc caller on darwin: it calls fn with
-// three arguments on the system stack and gives back errno when fn
-// returns -1.
-//
-//go:linkname syscall_syscall syscall.syscall
-func syscall_syscall(fn, a1, a2, a3 uintptr) (r1, r2 uintptr, err syscall.Errno)
-
-// libc_renamex_np_trampoline_addr is the address of the trampoline to
-// libSystem's renamex_np (exchange_darwin.s).
-var libc_renamex_np_trampoline_addr uintptr
-
-//go:cgo_import_dynamic libc_renamex_np renamex_np "/usr/lib/libSystem.B.dylib"

@@ -65,14 +65,14 @@ func Parse(line string) Request fails Problem {
 // field is the text of a field and the column it starts at.
 type field { text string, column int }
 
-func skipSpaces(sc *scanner) {
+func skipSpaces(sc mut scanner) {
 	for sc.pos < len(sc.line) && sc.line[sc.pos] == ' ' {
 		sc.pos += 1
 	}
 }
 
 // word is the next field up to a space or the end of the line.
-func word(sc *scanner, want string) field fails Missing {
+func word(sc mut scanner, want string) field fails Missing {
 	skipSpaces(sc)
 	let start = sc.pos
 	for sc.pos < len(sc.line) && sc.line[sc.pos] != ' ' {
@@ -86,7 +86,7 @@ func word(sc *scanner, want string) field fails Missing {
 
 // closed is the next field between open and close, which a space may
 // be inside of; close may be escaped with a backslash.
-func closed(sc *scanner, open byte, close byte, want string) field fails Missing {
+func closed(sc mut scanner, open byte, close byte, want string) field fails Missing {
 	skipSpaces(sc)
 	let start = sc.pos
 	if sc.pos >= len(sc.line) || sc.line[sc.pos] != open {
@@ -111,7 +111,7 @@ func closed(sc *scanner, open byte, close byte, want string) field fails Missing
 	field{text: strings.Join(parts, ""), column: start + 2}
 }
 
-func stamp(sc *scanner) time.Time fails Missing | BadTime {
+func stamp(sc mut scanner) time.Time fails Missing | BadTime {
 	let f = try closed(sc, '[', ']', "the time in [ ]")
 	tz.ParseInstant(Layout, f.text) catch {
 	case civil.ParseError:
@@ -119,11 +119,11 @@ func stamp(sc *scanner) time.Time fails Missing | BadTime {
 	}
 }
 
-func quoted(sc *scanner, want string) field fails Missing {
+func quoted(sc mut scanner, want string) field fails Missing {
 	try closed(sc, '"', '"', want+" in quotes")
 }
 
-func integer(sc *scanner, name string) int fails Missing | BadNumber {
+func integer(sc mut scanner, name string) int fails Missing | BadNumber {
 	try digits(try word(sc, "the "+name), name)
 }
 

@@ -224,6 +224,11 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 					return sf, true
 				}
 			}
+			admissionNodes(p, func(law, n syntax.Node) {
+				if sf, ok := l.stdSrc[law]; ok {
+					l.stdSrc[n] = sf
+				}
+			})
 		}
 	}
 	return stdFile{}, false
@@ -388,10 +393,12 @@ func (l *lowerer) nameStdLet(s stdLet) {
 // whose build runs no such law. The first read of each std let queues its
 // declaration; initOrder keeps Go's order whatever the order of reads.
 //
-// A sourced library's constant let (constantLet) is lowered the same way:
-// it has no initializer to run, so a let no lowered body reads is not
-// declared, in a std package and in its copy in a user module alike
-// (SM-CODECOPY).
+// A sourced library's let is lowered the same way (libLetOnRead): a let no
+// lowered body reads is not declared, in a std package and in its copy in
+// a user module alike (SM-CODECOPY for a constant let; STD-COPY-SAME for
+// one with an initializer to run, such as flag's lawText in a copy of
+// flag, which reach.go's first-parameter edge reached through a law's
+// helper that no body calls).
 func (l *lowerer) reachStdLet(v *check.Var) {
 	s, ok := l.stdLetOf[v]
 	lib := false
@@ -399,7 +406,7 @@ func (l *lowerer) reachStdLet(v *check.Var) {
 		s, ok = l.libLetOf[v]
 		lib = true
 	}
-	if !ok || l.stdLetQueued[s.decl] {
+	if !ok || l.stdLetQueued[s.decl] || lib && !l.libLetOnRead(s.pkg, s.decl) {
 		return
 	}
 	if l.stdLetQueued == nil {
@@ -444,15 +451,38 @@ func (l *lowerer) constantLet(p *check.Package, d *syntax.VarDecl) bool {
 	return len(d.Specs) > 0
 }
 
-// noteLibLet records the constant let d of the sourced library p for
-// reachStdLet.
+// libLetLowering selects how a sourced library's let with an initializer
+// is lowered in a build with an entry: "" (the default), where a lowered
+// body reads it, as a std package's let is (reachStdLet); or "reach", the
+// reference, with its package whenever reach.go reaches its declaration.
+// A test build and a library-shaped lowering (no reach set) lower every
+// let of a sourced library under both.
+var libLetLowering string
+
+// libLetOnRead reports whether the let d of the sourced library p is
+// lowered where a body reads it (reachStdLet) rather than with its package
+// (module.go): a constant let always, one with an initializer under
+// libLetLowering "" in a build that reach cuts.
+func (l *lowerer) libLetOnRead(p *check.Package, d *syntax.VarDecl) bool {
+	return l.constantLet(p, d) || l.reached != nil && libLetLowering != "reach"
+}
+
+// noteLibLet records the let d of the sourced library p for reachStdLet:
+// each variable it binds, by name or by pattern.
 func (l *lowerer) noteLibLet(p *check.Package, d *syntax.VarDecl) {
 	if l.libLetOf == nil {
 		l.libLetOf = map[*check.Var]stdLet{}
 	}
 	for _, spec := range d.Specs {
 		for _, id := range spec.Names {
-			l.libLetOf[p.Info.Defs[id].(*check.Var)] = stdLet{p, d}
+			if v, ok := p.Info.Defs[id].(*check.Var); ok {
+				l.libLetOf[v] = stdLet{p, d}
+			}
+		}
+		if spec.Pattern != nil {
+			for _, v := range patternVars(p.Info.Patterns[spec.Pattern], nil) {
+				l.libLetOf[v] = stdLet{p, d}
+			}
 		}
 	}
 }

@@ -504,6 +504,7 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 			i := g.fc.temp("i")
 			b.WriteString("for " + i + " := len(" + x + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + x + "[" + i + "]; " + g.release(d.Elem, e) + "}; ")
 		case *check.Map:
+			g.fc.l.intMapConflict(d.Type) // intmap.go: ranges over Go's map
 			b.WriteString("for _, " + e + " := range " + x + " { " + g.release(d.Elem, e) + "}; ")
 		default:
 			ice(g.site, "a generated release of %s, which has elements but is no slice, array or Map", d.Type)
@@ -525,7 +526,7 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 		if n, ok := d.Type.(*check.Named); ok && g.fc.l.runtimeType(n, g.site) != "" {
 			// A runtime-backed type: its operations are the Go methods of
 			// the runtime's type, whose Go names are exported.
-			name := n.Obj.Name + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
+			name := check.RuntimeTypeName(n) + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
 			drain = g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
 		} else {
 			drain, _, _ = g.fc.opCall(d.Type, op, nil, []string{x}, g.env, nil, nil, g.site)
@@ -1174,8 +1175,10 @@ func (l *lowerer) ownsNode(n syntax.Node) bool {
 
 // ownsValues reports a declaration that owns a value anywhere in it, its
 // parameters and nested literals included: its frames release through a
-// frame scope on their task, so it is no pure function (pure.go).
-func ownsValues(info *check.Info, d *syntax.FuncDecl) bool {
+// frame scope on their task, so it is no pure function (pure.go). d may
+// be a loop's body: its iterations release on their task, so it is no
+// quiet loop (ir_poll.go).
+func ownsValues(info *check.Info, d syntax.Node) bool {
 	found := false
 	syntax.Inspect(d, func(n syntax.Node) bool {
 		switch n := n.(type) {

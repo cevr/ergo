@@ -292,6 +292,18 @@ These sources inform `ergo bench` ([specs/bench.md](docs/specs/bench.md); owner,
 
 Lowering paths: no compile-to-host language here lowers a benchmark construct in a special way. MoonBit and Go compile benchmarks into the test driver; Ergo compiles them into one harness binary per side and erases them from every other build.
 
+### Compiler data layout: flat trees in columns, 2026-11-14
+
+These sources shaped the layout of the self-hosted scanner and parser, `compiler/syntax` (capstone S2a and S2b; the self-layout plan, SL1 to SL7). The sources were opened on 2026-11-14 at the revisions given. The receipts are instruction counts from `scripts/opcount` on Ergo's own corpus: median of 5 runs, niced, under load. The S2 receipt is from wf10/s2-syntax 1576106de. Since S2d, `syntax.Parse` is the Ergo parser, and its scan, parse and decode into the Go AST cost **0.76** of the instructions of the Go parser it replaced (255.6 against 336.8 per source byte, over 2,195 files). The scan alone costs 0.074 of the Go scanner, and the parse 0.144 to 0.260 of the Go parser.
+
+| Source (pin / inspected paths) | What Ergo took | What Ergo changed, and why |
+| --- | --- | --- |
+| Zig: [PR #7920](https://github.com/ziglang/zig/pull/7920), "Rework AST memory layout"; [mitchellh.com/zig/parser](https://mitchellh.com/zig/parser) | **Tokens.** Two columns, a 1-byte kind and a 4-byte start. The end is found by scanning again (`End`, law `EndRescans`).<br>**Nodes.** A row of kind (1 byte), main token (4) and two 4-byte operands, kept in columns. One `extra` pool of `uint32` holds what does not fit, read by the kind (`compiler/syntax/tree.ergo`).<br>**Evidence.** Zig's author measured, for parsing, "28% fewer total instructions executed" and "22% faster wall clock time". On Ergo's grammar the row form is 20.3 bytes per node, against 54 live bytes per node in the Go compiler's tree. | **Readers do not decode operands by hand at each use** (Zig's `tree.fullCall`). They go through a closed view union (`View`, `Put`) and an exhaustive `match`, and the law `ViewRoundTrips` ties the view to the rows. This follows NORTH_STAR's closed unions: the kind and the payload cannot disagree.<br>**The cost Ergo does not count.** All of `zig fmt` took 34.5% more cache misses with 14.2% fewer instructions. Ergo's receipts count instructions only. |
+| [Yuku](https://github.com/yuku-toolchain/yuku/tree/d46da74b9f5e24526757744babd26f11f55a431e) `d46da74b` (0.28.0); `src/parser/ast.zig`; [design post](https://www.arshad.fyi/posts/yuku-parser.html) | **Order.** Children are appended before their parent, and the root is last (laws `ChildrenBeforeParent`, `OneParent`, `RootLast`).<br>**Lists.** One scratch stack per parse: a list notes the stack mark, pushes, copies its part to `extra` and cuts the stack back (std `dense.Stack`, `PutSince`).<br>**Backtracking.** A checkpoint is the lengths of the stores, and a rewind cuts them.<br>**Text.** Text is offsets into the source, and the scanner decodes nothing.<br>**Transfer.** A store without pointers is its own transfer form: the parse crosses to Go as one `[]uint32` (`syntax.Columns`), which `internal/sketch/syntax/decode.go` reads. | **Yuku's 52-byte row** (a 44-byte tagged union and a span) is not taken. Yuku keeps typed fields because its tree is a public API for other tools. Ergo's tree is internal to the compiler, and for Ergo's grammar a 52-byte row is no smaller than the Go heap objects it replaces (54.0 bytes per node, by model). |
+| [SWC Next](https://github.com/swc-project/swc-next/tree/bd14a9c800cac1544c9fc7060e785732fdb69128) `bd14a9c8`; `README.md`, `crates/swc_ecma_ast`, `crates/swc_ecma_parser`; [flat AST](https://next.swc.rs/architecture/flat-ast) | **From the Rust port of Yuku:** rows in columns, 32-bit ids with a reserved "none", the one extra pool, and a typed reader over an untyped store.<br>**Transfer.** A binary transfer across a runtime boundary, read by a decoder. In Ergo, Go is the other runtime: the Go checker reads the decoded nodes until S3, when it reads the rows.<br>**Evidence.** SWC Next published 2.4 to 3.7 times faster native parsing than SWC. On Ergo's host, its npm path counted 11.5 times fewer instructions than SWC. | **Row size.** SWC Next's 25-byte rows (span 8, kind 1, a 16-byte payload with a spill) are not taken. Ergo keeps Zig's 13-byte rows, because they measured 20.3 bytes per node against 28.5 by model.<br>**Handles.** SWC Next's handles are not tied to their tree, and its README says that a foreign or stale handle is undefined behaviour. In Ergo a foreign id is a defect at the read.<br>**Codecs.** SWC Next's codecs are generated: 78,984 lines from `ast_tools`. Ergo writes the view's encoding once and checks it with a law. The Go decoder is written by hand, and `TestDecodeAgreesWithView` holds it to the view. |
+
+What the receipt says: the gain is mostly in the scan, where columns with a first-byte switch replaced a token slice and an operator loop: 32 against 432 instructions per byte. The largest cost left in `syntax.Parse` is the decode into Go nodes, about 185 of the 256 instructions per byte. That cost goes when the checker reads the rows (S3). None of the compile-to-host peers (Gleam, ReScript, Elixir, MoonBit) lays out its compiler in columns: all four keep pointer trees on their host's heap, so no peer result could be copied.
+
 ### Client data and sync references, 2026-11-15
 
 This source informs the sync replica's design (`models/replica`; the owner asked on 2026-11-15 how fate "could relate to our sync engine work"). It was opened on 2026-11-15 at the revision given. The comparison was filed upstream, with the owner's approval, as [nkzw-tech/fate#36](https://github.com/nkzw-tech/fate/issues/36). A front-end source is a research record: the row names no JS projection as planned work. No row claims that Ergo currently supports the behavior it describes.
@@ -307,6 +319,117 @@ These sources inform std `ui`, the MyGo desktop host and module `fluid` (owner, 
 | [rune](https://github.com/anomalyco/rune/tree/78efd4a7876b5478dd72033ce6fd2b2f13ab9f9a) `78efd4a7` (MIT); `PLAN.md`, `WEB.md`, `crates/rune/README.md` ("Smooth scrolling", "High-frequency values", "State machines", "Requests off the main thread", "Agent tooling", "Measured"), `research/14-research-determinism-verification.md`, `research/38-view-rerun-and-commit-cost.md`, `crates/rune/tests/alloc.rs` | A Rust UI framework with its own wgpu renderer (one instanced quad pipeline, one draw call), Taffy layout and Parley text; `fn view(&S, &mut Cx<S>) -> El`, a keyed diff, and handlers that mutate state between frames. Taken: motion as property tracks a commit retargets (velocity kept) and the host runs with no view rerun; `Live`/`LiveText` values that skip view, diff and layout (a 2,000-card pinch fell from 42,124 allocations a frame to 78, research/38); a trace check that fails on motion glitches (`motion_gate`); a headless run that prints the tree as JSON. Already in Ergo, with laws where rune has conventions: hover painted with no pass (`HoverCostsNoPass`), newest-wins fetches (`Load`, `CancelledFetchStops`), state machines, scripts on a manual clock (`TestHost`, `Play`), counted budgets (`Stats`, `OnSlow`) in place of a counting allocator. | The GPU renderer and raster caches (MyGo owns the desktop rasterizer; a GPU host would be a host, not a std change); a WebGPU canvas on the web (SSR HTML keeps accessibility, links and a first paint without script); live code patching (a Go binary has no in-place patch). No rune code, test or text is copied. | Whether a wheel scroll over `Rows` reruns the view (to measure); a lowering that moves a kept subtree's lists instead of cloning them, as a general last-use rule; OpenType features in the text style's measure key. |
 | [ritmo](https://github.com/typeonce-dev/ritmo/tree/4e46848bcb15e6c4bc7c7a5b83b74a8c2a3691a8) `4e46848b` (MIT); `README.md` ("Packages", "Guarantees"), `packages/core/src/{Ops,System,Query,Schedule,Snapshot,Checkpoint,Machine}.ts` | A TypeScript ECS for games written by agents: systems declare their queries and resources, a fixed-step loop, seeded random, a failing system rolls back its writes, rollback and lockstep netcode, headless lints and invariants. Taken as an example port's goal: systems as functions whose rows name what they read and write, the world as a value (rollback by keeping the old one), game modes as machines with laws. | Its TypeScript schema and branding machinery: Ergo's types and rows say the same. Pixi rendering: Ergo draws on the std `ui` canvas. | The gaps a port meets: same-bits float math across machines (ritmo ships fdlibm in `Ops.ts`; Go may fuse `x*y+z` on arm64 unless the product is converted), image ops on the canvas, gamepad, touch and audio hosts, and the cost of a world snapshot each tick. |
 | [Solid 2.0](https://github.com/solidjs/solid/tree/82f71fddb1340cab46167db119da5702038e65ab) `82f71fdd` (`solid-js@2.0.1`; 2.0.0 is `a8186e67`, 2026-11-16; MIT); `documentation/solid-2.0/{01,02,03,04,05,06,10,11,12}-*.md`, `packages/signals/docs/RULES-FUNDAMENTALS.md`, `packages/signals/src/core/heap.ts`, `examples/effect/src/solid-effect.ts`; [SolidStart](https://github.com/solidjs/solid-start/tree/68784294b16692adf687c25bcd58c16c8a625cb3) `68784294` (2.2.3, still on `solid-js ^1.9`) | Owner, 2026-11-18: "solid 2.0 came out which is alsso i think the best ui lib - take that as a prior art, and as a fullstack client side prior art". As the TypeScript client of an Ergo service for app-like browser code (owner q4: "solid + effect + maybe a patch or lib that creates a seamless interop over the two"), over the contract the mapper projects from the `.ergo` file. Into std `ui` as library laws: holds (the last answer stays on screen while a new question loads; a re-ask is quiet), optimistic guesses that revert, ordered reveal. Into `web`: in-order streaming, the single-copy invariant (content as HTML or as data, never both), single-flight replies, a reconnect at an unchanged value that sends nothing. | Signals as an Ergo construct (a signal is a value plus subscribers; any need is a std `ui` library question, measured first). Proxy stores, `"use server"` and out-of-order streaming. Hydration's tracking run, which fakes `fetch` and `Promise` to record dependencies (Ergo's loads name their keys). Its untyped not-ready and error throws, where Ergo puts `Pending` and failures in rows. | The Effect example targets Effect 3 and squashes `Cause` before `<Errored>`, so typed failures need the interop library, or a Solid patch. Whether std `ui` needs dependency tracking is measured by pass cost against hand Go. Bundle sizes: 24.3 kB gzip for Solid with `@solidjs/html`, 35.2 kB with an Effect 4 bridge (probe, 2026-11-18). |
+
+### effect-machine side by side: examples/search, 2026-11-19
+
+Moved from `examples/search/README.md` (EX-NEUTRAL: an example names no inspiration). The effect-machine program is `examples/core/src/services-and-tasks.ts` at the pin in the table above; the Ergo program is `examples/search`.
+
+effect-machine writes this search with a `Context.Service` class for the index, `State`/`Event` schemas, `.task(State.Searching, ({ state }) => Effect.flatMap(Index, c => c.search(state.query)), { name, onSuccess, onFailure })`, an `.on` per (state, event), `.final` states, `Machine.run` with an input, and `Effect.provideService`.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| the service | a `Context.Service` class with a tag | `type Index { Find(query string) []Entry fails IndexDown, law … }`: an operation type whose laws every provider runs | compiler + laws |
+| the work of a state | `.task(State.Searching, …)` in the builder chain | `work: find`, one function over the state union: one work per state, the match exhaustive | compiler |
+| result → event | `onSuccess` and `onFailure`, pinned by overloads; a missing one is TS2769 "No overload matches this call" | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; `IndexDown` is handed on as a `Signal` | compiler |
+| a result after the state's exit | a plain `self.send` from the task fiber; a result queued before a re-entry can reach the new entry (inferred, em-parity §4.2) | the runner drops it by the entry's id | runner (MU4 model and property) |
+| required services | `R` in the machine's type, provided with `Effect.provideService` | `Work[Signal, Index \| Scheduler]`: the work's row, written as `R` is, a union; only `main` binds it | compiler (equal) |
+| debounce | a `.timeout` or a hand timer with a generation counter | `after: Timer`; `Enter` restarts it | runner + law `DebounceCoalesces` |
+| observing | `actor.subscribe` callbacks on the actor's fiber | `for c in actor.Changes(a, 64)`: a loop, no callback, every committed state once, holding 64 at most and reading a typed `Overflowed` after a gap | runner (MU12) |
+
+Where Ergo could not improve:
+
+- **The pins are state data, not a contract.** A provider has no state (M23), so a `Pins { Room, Add fails PinsFull }` contract cannot hold the entries; the pins are the state's data and `Room` a constant.
+- **The latency is the work's, not the index's.** A provider of an operation type cannot wait on the `Scheduler` (its methods name no capability), so the work waits `Latency` before it asks the index; its row is `Index | Scheduler`.
+- **Signatures and type arguments** are written where effect-machine infers (`Some[Timeout[Signal]]{…}`, `Emit[Search, Output]{…}`).
+
+### effect-machine side by side: more examples, 2026-11-19
+
+Moved from each example's README (EX-NEUTRAL: an example names no inspiration).
+
+#### examples/downloads (README's first machine, widened; em-parity plan §2)
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| the fetch | `.task(State.Fetching, …)` with `onSuccess`/`onFailure` | `work: fetching`, with failures that are signals | compiler + runner |
+| retry wait | a `.timeout` per state, or `Schedule.exponential` in the task (inferred) | `after: Timer`, whose `In` is `Backoff(Try)` | runner + laws |
+| the end | `awaitExit` / final state | `Done[End]` and `ExitOf` | runner (MU12) |
+| progress | `subscribe` with a selector | `actor.Select(Changes, ViewOf)`, a loop | runner (MU12) |
+| a child per file | spawn a child actor in the parent's handler; the parent keeps its reference (inferred) | `actor.ChildIn` in the `Running` entry's work, in the entry's `Host`; the entry's end stops the child | runner (MU5, rule 13) + checker (the work's row) |
+| shutdown | interrupt the actor, or a "stopping" state by hand (inferred) | the order `Drain`: the queue finishes, `Done[Report]` has every end, a later add is `Closed` | laws |
+
+Where Ergo could not improve:
+
+- **The manual clock (MB2-G2).** `Play` moves the clock by the wait it reads from the view. The manager runs one file at a time, so there is only one retry timer at a time, and the script's view of the time stays the clock's.
+
+#### examples/pairing
+
+The same flow in effect-machine would use: `State`/`Event` schemas; `Machine.make` with an input; `.on` per (state, event); `.onAny(Event.Cancel)`; `.immediate(State.Options, …)` for the eventless step; `.task(State.SendingCode, …, { onSuccess, onFailure })` and `.task(State.Verifying, …)`; `.timeout(State.Failed, { duration: "30 seconds", event: Event.Back })`; `.background` for the tag reader; `Machine.spawn`, `actor.call`, `actor.waitFor` and `actor.awaitExit`.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| every state × signal decided | an unhandled event is dropped at run time | `Step` is a total `match`; `(State, _): Ignore` is written | compiler |
+| Cancel from any state | `.onAny(Event.Cancel)`, which a specific `.on` overrides silently | `case (_, Cancel)` is the first arm: no state can override it | compiler (arm order is visible) |
+| eventless step | `.immediate`, run by the runtime before the next event | `Settle`, a plain function applied at every `Enter`, with the law `SettleIsStable` | law |
+| work result → event | `onSuccess`/`onFailure` handlers chosen by overloads (TS2769 when one is missing) | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; a failure that is a signal is handed on as a `Signal`, and `DeviceUnreachable` maps to `SendFailed` | compiler |
+| stale work result | a result sent after the state's exit may reach a later state (it is a plain `send`; inferred, em-parity §4.2) | dropped by the entry's epoch | runner (MU4 model and test) |
+| timer | `.timeout` compiles to a task in the state scope | `after: timer`, one function over the state union, exhaustive | compiler + runner |
+| sub-machine (pad) | a child actor, or fields updated in handlers | a pure function on a record field, with laws | law |
+| required services | `R` in the type | `needs Devices` from the work's row | compiler (equal) |
+| tag reader | `.background(effect)`, a device of the machine that runs in every state, with its own `send` | `actor.Feed(a, Taps(reader))`: a plain `Seq` of signals that the actor owns and stops; the machine stays a pure step, and the source is a value a test can read without an actor | runner (`TestActorFeedSourcesEndWithTheActor`) |
+
+Where Ergo could not improve:
+
+- **Signatures and type arguments.** `Stay[Flow]{…}`, `Done[Result]{…}`, `Timeout[Signal]{…}`, `Some[Flow]{…}` are written where effect-machine infers (em-parity §4.5 item 1).
+- **Ignore arms.** Seven `(State, _): Ignore` arms; effect-machine drops unhandled events with no line. The arms are the cost of totality (q40 keeps them explicit).
+- **The reader's beep.** A source's value is a `Send`: it returns when the value is queued, and nothing tells the screen when the flow has stepped it. The reader pushes a beep after each queued tag so the script can wait for it (finding MB2-G1). effect-machine's `.background` has no such answer either (inferred).
+
+#### examples/router (`docs/persistence-and-supervision.md`, ActorHost)
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| requests that wait | no postpone either; a queue in the state or the mailbox (inferred from its docs) | `Board.Queue`, with `Stay` so the current entry goes on | step laws |
+| one answer per request | `call` answers with the transition; a later answer is a second protocol | the answer lives in the state; `WaitFor` reads it; `AnsweredOnce` holds it | law |
+| persistence | `lifecycle.recovery.resolve` at spawn, `durability.save` after each commit | `SuperviseDurable(m, …, recover, save)`: save runs before anyone sees the state; the step must be pure (S108) | runner + checker |
+| supervision | `Supervisor` with a restart schedule | `tasks.Restart{Limit}`; a restart runs `recover` again | runner (MU7 model) |
+| a child named before it runs | `ActorHost.make` with `acquire` | a `Host` in the state, filled once by `ChildIn` in the entry's work, closed with the entry | runner (models/host) + law |
+| a child of a recovered actor | its docs give no rule; the user's recovery code makes the children again (inferred) | a host is entry data: a replay makes it again, empty, and the recovered first entry binds it; the journal keeps no live child | runner (models/host `Recovery`) + law |
+| observing | `subscribe`, `waitFor` | `Changes`, `WaitFor`, loops with no callback | runner (MU12) |
+
+The router and its couriers are one machine (wf10 DH1): `Idle` hosts the couriers and `Applying` checks with the registry, so a courier's crash restarts the router from its journal.
+
+#### examples/shards
+
+The same write in effect-machine would use `.spawn(State.Writing, ({ self }) => self.spawn("runner", runnerMachine) …)` with a child id per child, the child's output sent to the parent by `sendParent` or a forwarded stream, `.task` for the write and the erase, `.timeout` for the write and the summary, `.reenter` for the touch, and `ActorHost` if a consumer must reach the current runner.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| a child's output type | the parent's event type is not checked against the child's output map (MU5 request) | `toParent` must give the entry's signal type, through `send` | compiler |
+| several children of one machine | distinct string ids in the actor system | values kept by identity; no id | runner (MU5 `byKind` mutant) |
+| a late child answer | the program checks a generation by hand (`ActorHost`) | dropped by the entry's epoch | runner (MU5 model and test) |
+| stop order | not specified | last started first, before the next entry | runner (MU5 model) |
+| re-entry restarts a timer | `.reenter` vs `.on` | `Enter` vs `Stay`, written | compiler (the decision is a value) |
+| every state × signal decided | unhandled events dropped | total `match`, `(State, _): Ignore` written | compiler |
+| the services a work needs | `R` of the task's Effect | `Work[Signal, Targets \| Scheduler]`: the target is a capability the binary binds once (`cmd/shards`), not a value in every state | compiler (rows) |
+
+Where Ergo could not improve:
+
+- **The driver cannot reach a child.** The console talks to the parent machine only; children are owned by their entry (MQ10: no ambient registry). A screen that shows a write's progress would need the child's address handed out as a signal (the `ActorHost` pattern), which this program does not need.
+- Written type arguments and `Ignore` arms, as in pairing.
+
+#### examples/stack-builder
+
+effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => self.spawn("editor", editorMachine, { input }))` and nested editors the same way with distinct ids; a screen would reach the current editor through the actor system by id, or through `ActorHost.acquire`; the hub would keep the page in its state for history, as here.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| reaching the current child | look up by string id, or `ActorHost` with a generation check | an `actor.Host` in the parent's state, which the entry's work fills with `actor.ChildIn` before the entry is shown; a `Get` after the entry ended fails `Stopped`, and a Send to an ended child fails `Stopped` | compiler (the type) + runner (models/host) |
+| nested children of one machine | distinct ids per depth | identity, no id | runner |
+| child output | `sendParent` with an event the parent may not handle | `toParent` gives the parent's signal type, which the parent's total step decides | compiler |
+| stop order on leaving a state | not specified | innermost first, before the next entry | runner (MU5 model) |
+
+Where Ergo could not improve:
+
+- **A host names its address type.** `actor.NewHost[EditActor]()` writes the address type as a type argument, because a call infers no type argument from its expected type. The alias `EditActor` (F11) keeps it short.
 
 ## Semantic tools
 
@@ -356,6 +479,18 @@ The owner named [plusthree](https://tangled.org/rockorager.dev/plusthree) as pri
 Ergo machines do not have these plusthree features: compound and parallel states with entry and exit per state, shallow and deep history, eventless (`always`) transitions, several timers per state, delayed raise and send, choice states, wildcards and a rollback of the whole macrostep on error. Ergo writes hierarchy as a state whose payload is the sub-state, and writes regions as a record with one union per region. Entry per level, timers per region and history have no Ergo form. A form is admitted only after a count of its use in real programs.
 
 The compile-to-host peers do not compile a statechart either. Erlang/OTP `gen_statem` compiles to BEAM callbacks, with state enter calls and one `state_timeout` that a state change cancels. It has no hierarchy, regions or history, and it is tested with PropEr's `proper_statem`. gleam_otp's `actor` is a typed message loop with no machine construct. ReScript uses XState through bindings, interpreted in JavaScript: v6's `transition()` takes 2.3 to 11 µs per step (plusthree's BASELINES.md). So on the compiled path, plusthree's numbers and the Rust controls are the only comparison.
+### Orders and user constraints (CONSTRAINTS, #211, 2026-11-18)
+How each language orders a user type and lowers the call (the spec's decision 7). Go's rows are pinned to the toolchain this repository builds with (go1.27.4, `$GOROOT/src`, read 2026-11-18). The other rows come from each language's documentation as the planner read it, and are marked inferred: not yet pinned to a revision.
+| Source | Revision / paths | Read it for | Compare with |
+| Go | go1.27.4: `src/slices/sort.go` (`SortFunc[S ~[]E, E any](x S, cmp func(a, b E) int)`, line 30), `src/cmp/cmp.go` (`Or`, line 69; `Ordered`) | The order is a compare function passed to the call; `cmp.Ordered` is an ordinary interface with a type set; `comparable` is predeclared. Lowered by GC-shape stenciling with dictionaries: measured 1.29x (function value) and 1.31x (method constraint) of a concrete sort (CONSTRAINTS spec, decision 5). | Taken: the surface (type sets, `comparable` built in, `ordered` in the prelude, a sort that takes its order). Not taken: the dictionary call. Ergo copies the callee per instance. |
+| Gleam (inferred) | `gleam/list.sort(xs, by:)`, `gleam/order.break_tie` | No type classes; an order is a plain function argument. | `cmp.Then` is `break_tie`. Ergo adds laws on the contract and a direct call after the copy. |
+| ReScript and OCaml (inferred) | `Map.Make(Ord)`; Belt's `Belt.Id.comparable` | An instance is a module applied by name; a call through a functor is indirect unless flambda specialises it. | A provider type is the module; a generic function with a provider parameter is the functor. |
+| Elixir (inferred; PRIOR_ART row on protocols) | `Enum.sort(xs, Date)` | Sorting names a module with `compare/2`, not a protocol. | Same as Sketch B: the call names its order. Implicit protocol dispatch stays refused. |
+| Effect (inferred) | `Order<A>`, `Order.reverse`, `Order.combine`, `Order.struct` | An order is a value with combinators; several per type. | Taken: the intent (`Reverse`, `Then`). Not taken: `Order.struct` over an object, dual signatures, runtime `Equal`/`Hash` symbols. |
+| Haskell (inferred) | `class Ord`, `comparing f <> comparing g`, `newtype Down` | One instance per type (coherence); the `Ordering` monoid chains fields. | `Then` is the monoid. Not taken: global instance search, a newtype per extra order. |
+| Rust (inferred) | `trait Ord`, `sort_by`, `Ordering::then`, `#[derive(Ord)]` | Monomorphisation: a copy per instance, inlined. | Taken: the copy per instance (C4) and `then`. Not taken: derive by declaration order, the orphan rule. |
+| MoonBit (inferred; rows 117, 118) | `trait Compare`, `derive(Compare)` | Monomorphised; impls in the type's or the trait's package. | Taken: static dispatch. Not taken: implicit instance search, derive attributes. |
+Lowering paths: monomorphisation (Rust, MoonBit, GHC's specialise) is the only path in the table that reaches the concrete floor, so Ergo's default is a copy per instance (C4). Dictionary or witness passing (Go, Swift, Haskell) stays as the reference lowering and for open instances. None of the peers states laws in the contract and runs them for each instance.
 
 ## Patterns
 

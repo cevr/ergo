@@ -137,12 +137,6 @@ type Body struct {
 	// with its first operand a zero-field PROVIDER the call erases (the
 	// host Sleep of LiveScheduler).
 	BridgeTarget, BridgeProvider string
-	// AsWritten reports a body marked //ergo:aswritten (AsWrittenMark):
-	// a pure identity of one parameter, whose call keeps the call tree in
-	// its argument as written. A rewrite over functions never takes such a
-	// call tree as its root or a part of its match (docs/spec/types.md,
-	// Laws 14; lower/funcrewrite.go).
-	AsWritten bool
 	// Package is the import path of the body's package: runtime/v1 (Path)
 	// or one of its leaves (Leaves), which the lowering imports to call it.
 	Package string
@@ -170,14 +164,18 @@ const (
 //   - parent: the caller is the parent of the task it starts;
 //   - settle: it waits until the rest of a manual clock's domain is parked;
 //   - end: it waits, uninterruptibly, for an actor's runner to end.
-var WaitKinds = map[string]bool{
-	"none": false, "caller": true, "handle": false, "drain": false, "child": true,
-	"member": true, "parent": true, "settle": true, "end": true,
-}
+var WaitKinds = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"none": false, "caller": true, "handle": false, "drain": false, "child": true,
+		"member": true, "parent": true, "settle": true, "end": true,
+	}
+})
 
 // ReleaseRoutes are the release routes a body states, each with whether it
 // takes the caller's task.
-var ReleaseRoutes = map[string]bool{"caller": true, "frame": false}
+var ReleaseRoutes = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"caller": true, "frame": false}
+})
 
 // BodyNames is the name of every exported function and method of Source
 // that BodyOf reads, sorted, a refused one included.
@@ -216,11 +214,16 @@ func (b Bodies) Body(name string) (Body, error) {
 	if err != nil {
 		return Body{}, errors.New(strings.Replace(err.Error(), "runtime/v1: ", "", 1))
 	}
+	if body.Wait == "" && b.Effects(name) == "" {
+		// An effect-free body waits on nothing (LAWFFI LF2m): it needs
+		// no mark to say so.
+		body.Wait = "none"
+	}
 	switch {
 	case body.Wait == "":
-		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
-	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "" || body.AsWritten:
-		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form, a view form or %s, which only runtime/v1's bodies state", name, AsWrittenMark)
+		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds()))
+	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "":
+		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form or a view form, which only runtime/v1's bodies state", name)
 	}
 	return body, nil
 }
@@ -232,11 +235,6 @@ const PureMark = "//ergo:pure"
 // HostMark is the directive line that marks a body that reaches host
 // state, in the doc comment of an exported function or method.
 const HostMark = "//ergo:host"
-
-// AsWrittenMark is the directive line that marks a body that keeps its
-// argument's call tree as written (Body.AsWritten): a pure function of one
-// parameter whose result is of the parameter's type.
-const AsWrittenMark = "//ergo:aswritten"
 
 // OwnedMark starts the directive line that names a body's owned form
 // (Body.Owned): "//ergo:owned Name".
@@ -262,40 +260,53 @@ var HostImports = []string{"os", "os/exec", "os/signal", "syscall", "net"}
 // maker is the claim). syscall.ECONNREFUSED is an errno constant a body
 // compares a failure with (httpDoErr). The local Network (http_local.go)
 // reaches them and nothing else of those packages.
-var HostImportsExcept = map[string][]string{
-	"net":     {"Pipe", "Conn", "Addr"},
-	"syscall": {"ECONNREFUSED"},
-}
+var HostImportsExcept = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"net":     {"Pipe", "Conn", "Addr"},
+		"syscall": {"ECONNREFUSED"},
+	}
+})
 
 // HostMembers names, for a Go package outside HostImports, its members
 // that reach host state: time's are PureImportHostMembers' (the clock, its
 // timers, the local zone), and math/rand/v2's are its top-level draws
 // from the host-seeded global source. Every other member computes on its
 // arguments (rand.New over a seeded PCG is a program's stream).
-var HostMembers = map[string][]string{
-	"time": PureImportHostMembers["time"],
-	"math/rand/v2": {"ExpFloat64", "Float32", "Float64", "Int", "Int32", "Int32N", "Int64", "Int64N", "IntN",
-		"N", "NormFloat64", "Perm", "Shuffle", "Uint", "Uint32", "Uint32N", "Uint64", "Uint64N", "UintN"},
-}
+var HostMembers = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"time": PureImportHostMembers()["time"],
+		"math/rand/v2": {"ExpFloat64", "Float32", "Float64", "Int", "Int32", "Int32N", "Int64", "Int64N", "IntN",
+			"N", "NormFloat64", "Perm", "Shuffle", "Uint", "Uint32", "Uint32N", "Uint64", "Uint64N", "UintN"},
+	}
+})
 
 // hostMember reports whether member of the Go package path reaches host
 // state.
 func hostMember(path, member string) bool {
-	return slices.Contains(HostImports, path) && !slices.Contains(HostImportsExcept[path], member) || slices.Contains(HostMembers[path], member)
+	return slices.Contains(HostImports, path) && !slices.Contains(HostImportsExcept()[path], member) || slices.Contains(HostMembers()[path], member)
 }
 
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
-// except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac"}
+// except the members PureImportsExcept names. net/url and net/netip parse
+// and format text (NP4f-URL, G2: an entry keyed by Go path that any
+// user's import go reaches trusts Go); net/url's ParseQuery reads the
+// process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
+// every Go program has it, not state that changes between calls.
+// simd/archsimd (Go's GOEXPERIMENT=simd vector types and operations, LAWFFI
+// LF2m r3) computes on values in registers and reaches no host state; unsafe
+// stays out.
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip", "simd/archsimd"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
 // reads the working directory; EvalSymlinks, Glob, Walk and WalkDir read
 // the file system. Every other member of path/filepath is lexical.
-var PureImportsExcept = map[string][]string{
-	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
-}
+var PureImportsExcept = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
+	}
+})
 
 // PureImportHostMembers are the Go packages, beyond PureImports, that the
 // file of a marked body may import, each with its members that read host
@@ -309,10 +320,12 @@ var PureImportsExcept = map[string][]string{
 // writes the io.Reader and io.Writer it is given; a pure body can give it
 // only a strings.Reader or a strings.Builder, since its file imports
 // neither io nor os (std-csv U4), so it has no member to refuse.
-var PureImportHostMembers = map[string][]string{
-	"encoding/csv": nil,
-	"time":         {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
-}
+var PureImportHostMembers = sync.OnceValue(func() map[string][]string {
+	return map[string][]string{
+		"encoding/csv": nil,
+		"time":         {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
+	}
+})
 
 // TypeParam is one Go type parameter of a body: its name and its
 // constraint as written (any, comparable).
@@ -392,20 +405,20 @@ const Path = runtimefiles.Module + "/runtime/v1"
 // Leaves are the leaf packages of runtime/v1, by name: the package Path/LEAF
 // in the directory runtime/v1/LEAF (binsize BS1). A leaf holds the bodies
 // whose Go packages no other body needs (crypto/sha256, encoding/csv,
-// os/exec, math/rand/v2, net/http, encoding/json, log/slog, std's zone
-// copy runtime/tzdata; fmt and reflect
-// for a test build's rewrite shadow): the Go linker keeps the init task of every
+// os/exec, math/rand/v2, net/http, encoding/json, log/slog, database/sql;
+// fmt and reflect for a test build's rewrite shadow): the Go linker keeps
+// the init task of every
 // imported package, so a program imports a leaf only when it calls one of
 // its bodies, and a program that calls none links none of those packages.
 // A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
 // unique across runtime/v1 and its leaves (sourceDecls), so a body is named
 // by its Go name alone, as before, and PackageOf finds its package.
-var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc", "shadow", "tz"}
+var Leaves = []string{"csv", "digest", "exec", "http", "net", "rand", "redacted", "rpc", "shadow", "sql"}
 
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,
 // rt.TypedText; binsize BS2). It declares no body: a program imports it
-// for its init alone, when it imports go or names a body of hostTextUsers.
+// for its init alone, when it names a body of hostTextUsers.
 const HostText = Path + "/gofmt"
 
 // hostTextUsers are the exported declarations of runtime/v1 that can
@@ -536,7 +549,8 @@ type GoType struct {
 	// or one of its leaves (Leaves).
 	Package string
 	// Basic is the predeclared Go type a defined type is over
-	// (`type Code int`), or "".
+	// (`type Code int`), or that an alias names (`type MappedText =
+	// string`), or "".
 	Basic string
 }
 
@@ -577,7 +591,7 @@ func (d goDecls) goType(name string) (GoType, bool) {
 			t.Fields = fields
 		}
 	}
-	if id, ok := g.typ.Type.(*ast.Ident); ok && !g.typ.Assign.IsValid() && types.Universe.Lookup(id.Name) != nil {
+	if id, ok := g.typ.Type.(*ast.Ident); ok && types.Universe.Lookup(id.Name) != nil {
 		if _, basic := types.Universe.Lookup(id.Name).Type().(*types.Basic); basic {
 			t.Basic = id.Name
 		}
@@ -810,12 +824,6 @@ func (d goDecls) body(name string) (Body, error) {
 	if err := policy(g.fn, &b); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
-	if marked(g.fn, AsWrittenMark) {
-		if !b.Pure || len(b.Hidden) > 0 || len(b.Params) != 1 || len(b.Results) != 1 || b.Results[0] != b.Params[0].Type {
-			return Body{}, fmt.Errorf("runtime/v1: %s is marked %s, but is no pure function of one parameter whose result has its type", name, AsWrittenMark)
-		}
-		b.AsWritten = true
-	}
 	return b, nil
 }
 
@@ -841,18 +849,18 @@ func policy(fn *ast.FuncDecl, b *Body) error {
 			fields := strings.Fields(arg)
 			switch mark {
 			case WaitMark:
-				caller, known := WaitKinds[arg]
+				caller, known := WaitKinds()[arg]
 				if len(fields) != 1 || !known {
-					return fmt.Errorf("%s%s names no wait kind (%s)", WaitMark, arg, kindList(WaitKinds))
+					return fmt.Errorf("%s%s names no wait kind (%s)", WaitMark, arg, kindList(WaitKinds()))
 				}
 				if caller && !slices.Contains(b.Hidden, CallerTask) {
 					return fmt.Errorf("it waits by %s on the caller's task but takes no hidden *rt.Task", arg)
 				}
 				b.Wait = arg
 			case ReleaseMark:
-				caller, known := ReleaseRoutes[arg]
+				caller, known := ReleaseRoutes()[arg]
 				if len(fields) != 1 || !known {
-					return fmt.Errorf("%s%s names no release route (%s)", ReleaseMark, arg, kindList(ReleaseRoutes))
+					return fmt.Errorf("%s%s names no release route (%s)", ReleaseMark, arg, kindList(ReleaseRoutes()))
 				}
 				if caller && !slices.Contains(b.Hidden, CallerTask) {
 					return fmt.Errorf("it releases on the caller's task but takes no hidden *rt.Task")
@@ -981,13 +989,13 @@ func pureRefusal(g goDecl, b Body) string {
 		return "it is a method; only a function may be pure"
 	}
 	for _, p := range g.imports {
-		if _, guarded := PureImportHostMembers[p]; !slices.Contains(PureImports, p) && !guarded {
+		if _, guarded := PureImportHostMembers()[p]; !slices.Contains(PureImports, p) && !guarded {
 			return fmt.Sprintf("its file imports %s, which is not in %v", p, PureImports)
 		}
 	}
 	for local, p := range g.locals {
-		if local == "." && len(PureImportsExcept[p]) > 0 {
-			return fmt.Sprintf("its file dot-imports %s, whose members %v reach the host", p, PureImportsExcept[p])
+		if local == "." && len(PureImportsExcept()[p]) > 0 {
+			return fmt.Sprintf("its file dot-imports %s, whose members %v reach the host", p, PureImportsExcept()[p])
 		}
 	}
 	if len(b.Hidden) > 0 {
@@ -1000,7 +1008,7 @@ func pureRefusal(g goDecl, b Body) string {
 	}
 	var host []string
 	for _, p := range g.imports {
-		host = append(host, PureImportHostMembers[p]...)
+		host = append(host, PureImportHostMembers()[p]...)
 	}
 	why := ""
 	var visit func(n ast.Node) bool
@@ -1017,7 +1025,7 @@ func pureRefusal(g goDecl, b Body) string {
 			// x.Sel names a field, a method or an imported package's
 			// member, never a top-level name of this package; x.X is
 			// walked by the same rules, nested selectors included.
-			if id, ok := x.X.(*ast.Ident); ok && slices.Contains(PureImportsExcept[g.locals[id.Name]], x.Sel.Name) {
+			if id, ok := x.X.(*ast.Ident); ok && slices.Contains(PureImportsExcept()[g.locals[id.Name]], x.Sel.Name) {
 				why = fmt.Sprintf("its body names %s.%s, which reaches the host (PureImportsExcept)", id.Name, x.Sel.Name)
 				return false
 			}

@@ -1,0 +1,192 @@
+// Package sql runs statements against a relational database (docs/spec/
+// stdlib.md, Host packages, sql; wf10 TX1). It follows Go's database/sql
+// for its model, a pool of connections behind one handle, and Effect's
+// SqlClient for its guarantee: Transaction runs a block on one connection
+// in a transaction, commits when the block ends normally, rolls back when
+// it fails or is stopped, and a Transaction inside another is a savepoint.
+// Effect hides the transaction's connection in fiber state; here it is
+// the capability Tx in the block's row, so a function that must run in a
+// transaction says so (needs Tx), and the checker refuses a call of it
+// outside one.
+//
+// A provider gives the operation types DB and Conn. Package sqltest's
+// Script records each statement and answers from a script, for tests;
+// the host's provider, over database/sql, comes from NewHost.
+
+import scope
+import time
+
+// Value is one argument of a statement or one column of a row. Bytes
+// holds any bytes; Text holds text. Null is SQL's NULL.
+type Value = Null{} | Int{N int64} | Float{F float64} | Bool{B bool} | Text{S string} | Bytes{B []byte} | Stamp{At time.Time}
+
+// Row is one row a query gives: its columns' names and values, in the
+// query's column positions.
+type Row { Columns []string, Values []Value }
+
+// Result is what a statement that returns no rows did: the count of rows
+// it changed.
+type Result { Affected int64 }
+
+// The failures of a statement, named by what a program does about them.
+
+// Unique is a statement that broke a unique constraint, named by the
+// database (a duplicate key).
+type Unique { Constraint string }
+
+// Serialization is a transaction the database could not order with the
+// others it ran (SQLSTATE 40001): run it again.
+type Serialization { Message string }
+
+// Deadlock is a statement the database stopped to break a deadlock
+// (SQLSTATE 40P01): run its transaction again.
+type Deadlock { Message string }
+
+// Timeout is a statement that ran out of time: the database's own limit,
+// or the caller's.
+type Timeout { Message string }
+
+// NoRows is a query that had to give one row and gave none.
+type NoRows { Statement string }
+
+// Closed is a statement on a database handle, a connection or a
+// transaction that has ended.
+type Closed { Message string }
+
+// Other is any other failure: the database's code for it (SQLSTATE, or
+// empty) and its text.
+type Other { Code string, Message string }
+
+// Failure is any failure of a statement, as a value: what a Dialect
+// gives.
+type Failure = Unique | Serialization | Deadlock | Timeout | NoRows | Closed | Other
+
+// DB is a database: statements on any connection of its pool, and Begin,
+// which holds one connection in a transaction. A program starts a
+// transaction with Transaction, which ends it on every exit; Begin is the
+// provider's operation that Transaction calls.
+// law-exempt: a statement's effect is the database's; the transaction laws (CommitsOnce, RollsBackOnFailure, RollsBackOnInterrupt, NestedFailureKeepsTheOuter) are Transaction's, held over sqltest.Script's record.
+type DB {
+	// Exec runs stmt with args, a statement that returns no rows.
+	Exec(stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+	// Query runs stmt with args and is every row it returns.
+	Query(stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+	// Begin holds a connection and starts a transaction on it.
+	Begin() Conn fails Serialization | Deadlock | Timeout | Closed | Other,
+}
+
+// Conn is one connection in a transaction. Commit and Rollback end the
+// transaction; a savepoint marks a place inside it that RollbackTo goes
+// back to and Release forgets.
+// law-exempt: as DB's; Transaction's laws hold the order of its calls over sqltest.Script.
+type Conn {
+	Exec(stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+	Query(stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+	// Commit makes the transaction's changes the database's and ends it.
+	// A Commit that fails ends it too.
+	Commit() fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+	// Rollback discards the transaction's changes and ends it.
+	Rollback(),
+	Savepoint(name string) fails Timeout | Closed | Other,
+	Release(name string) fails Timeout | Closed | Other,
+	RollbackTo(name string) fails Timeout | Closed | Other,
+}
+
+// Tx is the capability of a block that runs in a transaction: its
+// statements run on the transaction's connection. Only Transaction binds
+// it, so a function whose row needs Tx runs only inside one.
+// law-exempt: Tx's statements are DB's; Transaction binds it to the connection that CommitsOnce and RollsBackOnFailure observe.
+type Tx {
+	Exec(stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+	Query(stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
+}
+
+// Transaction runs body in a transaction and is its value. It starts the
+// transaction with DB.Begin, binds Tx, and DB too, to its connection for
+// the body, so every statement of the body runs in it, a statement
+// through DB included. When the body ends normally it commits; when the
+// body fails, or its task is stopped, it rolls back, and the failure is
+// Transaction's. A Transaction inside another is a savepoint of the
+// outer one: its commit releases the savepoint, its rollback goes back to
+// it, and the outer transaction goes on.
+func Transaction[T, E, R](body func() T fails E needs R | Tx | DB) T fails E | Unique | Serialization | Deadlock | Timeout | Closed | Other needs R | DB {
+	let conn = try DB.Begin()
+	let mut ended = false
+	scope.OnExit() {
+		if !ended {
+			conn.Rollback()
+		}
+	}
+	let v = with context { Tx: held{conn: conn}, DB: inside{conn: conn} } {
+		try body()
+	}
+	ended = true
+	try conn.Commit()
+	v
+}
+
+// held is Tx on a transaction's connection.
+type held { conn Conn } implements Tx
+
+func Exec(h held, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try h.conn.Exec(stmt, args)
+}
+
+func Query(h held, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try h.conn.Query(stmt, args)
+}
+
+// inside is DB inside a transaction: its statements run on the
+// transaction's connection, and its Begin marks a savepoint. Its name is
+// ergo_savepoint on the transaction, and a savepoint's own savepoints add
+// their name to its (ergo_savepoint_ergo_savepoint), so a savepoint never
+// shares a name with one around it.
+type inside { conn Conn } implements DB
+
+func Exec(d inside, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try d.conn.Exec(stmt, args)
+}
+
+func Query(d inside, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try d.conn.Query(stmt, args)
+}
+
+func Begin(d inside) Conn fails Serialization | Deadlock | Timeout | Closed | Other {
+	let name = "ergo_savepoint"
+	try d.conn.Savepoint(name)
+	savepoint{conn: d.conn, name: name}
+}
+
+// savepoint is a Transaction inside another: a Conn whose Commit releases
+// its savepoint and whose Rollback goes back to it.
+type savepoint { conn Conn, name string } implements Conn
+
+func Exec(s savepoint, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try s.conn.Exec(stmt, args)
+}
+
+func Query(s savepoint, stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try s.conn.Query(stmt, args)
+}
+
+func Commit(s savepoint) fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
+	try s.conn.Release(s.name)
+}
+
+// Rollback goes back to the savepoint and releases it. A failure of
+// either leaves the outer transaction to fail at its next statement.
+func Rollback(s savepoint) {
+	s.conn.RollbackTo(s.name) catch {
+	case Timeout, Closed, Other:
+		return
+	}
+	s.conn.Release(s.name) catch {
+	case Timeout, Closed, Other:
+	}
+}
+
+func Savepoint(s savepoint, name string) fails Timeout | Closed | Other { try s.conn.Savepoint(s.name + "_" + name) }
+
+func Release(s savepoint, name string) fails Timeout | Closed | Other { try s.conn.Release(s.name + "_" + name) }
+
+func RollbackTo(s savepoint, name string) fails Timeout | Closed | Other { try s.conn.RollbackTo(s.name + "_" + name) }

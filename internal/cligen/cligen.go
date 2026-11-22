@@ -30,9 +30,9 @@ import (
 	"strings"
 	"sync"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
@@ -55,7 +55,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 		return Files{}, fmt.Errorf("the cli package is written over the hub; run ergo gen api first")
 	}
 	pkgName := lastElem(path)
-	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "io": "io", "json": "json", "prompt": "prompt", "rpc": "rpc", "strconv": "strconv", "strings": "strings", "term": "term"}}
+	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "io": "io", "json": "json", "prompt": "prompt", "rpc": "rpc", "slices": "slices", "strconv": "strconv", "strings": "strings", "term": "term"}}
 	g.importOf(pkg)
 	g.stdAPI = rpcgen.StdAPIName(g.imports)
 	g.imports["api"] = g.stdAPI
@@ -568,7 +568,9 @@ func kebab(s string) string {
 
 // reserved are the names the generated functions use for their locals: an
 // imported package of one of these names would be shadowed.
-var reserved = map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true, "o": true, "text": true, "t": true, "c": true, "w": true, "g": true, "answer": true, "carry": true, "runOver": true, "p": true, "q": true, "d": true, "k": true, "f": true, "same": true, "yes": true, "globals": true, "usage": true, "line": true, "front": true, "frontOf": true, "asked": true, "ended": true, "needsYes": true, "declined": true, "shell": true}
+var reserved = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true, "o": true, "text": true, "t": true, "c": true, "w": true, "g": true, "answer": true, "carry": true, "runOver": true, "p": true, "q": true, "d": true, "k": true, "f": true, "same": true, "yes": true, "globals": true, "usage": true, "line": true, "front": true, "frontOf": true, "asked": true, "ended": true, "needsYes": true, "declined": true, "shell": true}
+})
 
 var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[fatnuj][0-9]+$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
@@ -577,7 +579,7 @@ var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 func (g *gen) checkNames() error {
 	byName := map[string]string{}
 	for path, name := range g.imports {
-		if reserved[name] || localName().MatchString(name) {
+		if reserved()[name] || localName().MatchString(name) {
 			return fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", g.op, name)
 		}
 		if other, ok := byName[name]; ok {
@@ -644,8 +646,16 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 		fmt.Fprintf(&b, "\n// Parse reads args as a command line of %s, whose one operation\n// is the program itself: its flags and arguments, with no command name.\n", capName)
 		fmt.Fprintf(&b, "func Parse(args []string) Request fails flag.Failure {\nlet c = command%s()\nlet v = try flag.Parse(c.Set, args)\ntry c.Build(v)\n}\n", cmds[0].op.Name)
 	} else {
-		fmt.Fprintf(&b, "\n// Parse reads args as a command line of %s: a command and its\n// flags and arguments.\n", capName)
-		fmt.Fprintf(&b, "func Parse(args []string) Request fails flag.Failure {\ntry flag.ParseCommand(%q, %q, Commands(), args)\n}\n", pkgName, capName+" on a command line")
+		// A switch on the command's name builds only that command, as
+		// flag.ParseCommand reads a named command with no children; help,
+		// an unknown command and no command at all go to ParseCommand,
+		// which needs the whole list.
+		fmt.Fprintf(&b, "\n// Parse reads args as a command line of %s: a command and its\n// flags and arguments. It builds only the command args[0] names; the\n// list of every command is built only for help or an unknown command.\n", capName)
+		b.WriteString("func Parse(args []string) Request fails flag.Failure {\nlet first = if len(args) > 0 { args[0] } else { \"\" }\nmatch first {\n")
+		for _, c := range cmds {
+			fmt.Fprintf(&b, "case %q:\nlet c = command%s()\nlet v = try flag.Parse(flag.Set{..c.Set, Name: %q}, slices.Slice(args, 1, len(args)))\ntry c.Build(v)\n", c.name, c.op.Name, pkgName+" "+c.name)
+		}
+		fmt.Fprintf(&b, "case _:\ntry flag.ParseCommand(%q, %q, Commands(), args)\n}\n}\n", pkgName, capName+" on a command line")
 	}
 
 	b.WriteString("\n// Print is a command line that Parse reads as r again: the command,\n// each flag as -name=value, then \"--\" and the positional arguments.\n")

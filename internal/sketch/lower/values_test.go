@@ -116,7 +116,7 @@ func boxed(n int) Box {
 
 type Text { B []byte }
 
-func addRune(r rune, t *Text) { t.B = utf8.AppendRune(t.B, r) }
+func addRune(r rune, t mut Text) { t.B = utf8.AppendRune(t.B, r) }
 
 func runes(n int) Text {
 	let mut p = []byte{}
@@ -277,10 +277,148 @@ func bottoms(bottom int, k int) int {
 	a[0] + a[k % 12]
 }
 
+func growB(b Box, v int) Box {
+	Box{..b, S: b.S.Append(v)}
+}
+
+type Two { A []int, B []int }
+
+func growT(t Two, v int) Two {
+	Two{..t, A: t.A.Append(v)}
+}
+
+func regrowT(n int) int {
+	let mut t = Two{A: []int{}, B: []int{1}}
+	for i in 0..n {
+		t = growT(t, i)
+	}
+	len(t.A) + len(t.B)
+}
+
+type Tally { S []int, Best Map[int, int], Log []int }
+
+func note(t Tally, v int) Tally {
+	for x in t.Log {
+		if x == v {
+			return t
+		}
+	}
+	Tally{..t, Log: t.Log.Append(v)}
+}
+
+func audit(t Tally, n int) Tally {
+	let s = t.S
+	let mut at = t
+	let mut best = t.Best
+	for i in 0..n {
+		if i < len(s) {
+			at = note(at, s[i])
+		}
+		best[i] = i
+	}
+	at = Tally{..at, Best: best}
+	at
+}
+
+func setBest(t Tally, k int) Tally {
+	Tally{..t, Best: t.Best.Put(k, k)}
+}
+
+func keepBest(t Tally, k int) int {
+	let b = t.Best
+	let mut at = t
+	at.Best[k] = k
+	len(b) + len(at.Best)
+}
+
+func handBest(t Tally, k int) int {
+	let b = t.Best
+	let mut at = t
+	at = setBest(at, k)
+	len(b) + len(at.Best)
+}
+
+func peekTake(t Tally, k int) int {
+	let mut at = t
+	let mut best = t.Best
+	best[k] = k
+	let n = len(at.Best)
+	at = Tally{..at, Best: best}
+	n + len(at.Best)
+}
+
+func handTake(t Tally, k int) int {
+	let mut at = t
+	let mut best = t.Best
+	best[k] = k
+	at = setBest(at, k + 1)
+	at = Tally{..at, Best: best}
+	len(at.Best)
+}
+
+func viaBest(t Tally, k int) Tally { setBest(t, k) }
+
+func handVia(t Tally, k int) int {
+	let b = t.Best
+	let mut at = t
+	at = viaBest(at, k)
+	len(b) + len(at.Best)
+}
+
+func peekLate(t Tally, k int) int {
+	let mut at = t
+	let mut best = t.Best
+	best[k] = k
+	at = Tally{..at, Log: []int{k}}
+	let n = len(at.Best)
+	at = Tally{..at, Best: best}
+	n + len(at.Best)
+}
+
+func loopTake(t Tally, n int) int {
+	let mut at = t
+	let mut total = 0
+	for i in 0..n {
+		let mut best = at.Best
+		best[i] = i
+		total = total + len(best)
+	}
+	at = Tally{..at, Best: Map[int, int]{}}
+	total + len(at.Best)
+}
+
+func liveAfter(t Tally, k int) int {
+	let mut at = t
+	at.Best[k] = k
+	len(t.Best) + len(at.Best)
+}
+
+func tallies(k int) int {
+	let t = Tally{S: []int{1}, Best: Map[int, int]{}, Log: []int{}}
+	keepBest(Tally{..t, Best: Map[int, int]{}}, k) + handBest(Tally{..t, Best: Map[int, int]{}}, k) + peekTake(Tally{..t, Best: Map[int, int]{}}, k) + handTake(Tally{..t, Best: Map[int, int]{}}, k) + liveAfter(Tally{..t, Best: Map[int, int]{}}, k) + handVia(Tally{..t, Best: Map[int, int]{}}, k) + peekLate(Tally{..t, Best: Map[int, int]{}}, k) + loopTake(Tally{..t, Best: Map[int, int]{}}, k)
+}
+
+func audits(n int) int {
+	let mut t = Tally{S: []int{1, 2}, Best: Map[int, int]{}, Log: []int{}}
+	for i in 0..n {
+		t = audit(t, i)
+	}
+	len(t.Log) + len(t.Best)
+}
+
+func regrow(n int) int {
+	let mut b = Box{M: Map[int, int]{}, S: []int{}}
+	for i in 0..n {
+		b = growB(b, i)
+		b = Box{..b, M: Map[int, int]{i: i}}
+	}
+	len(b.S) + len(b.M)
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5)) \(len(joinedPut(build(2), 5)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5)) \(len(joinedPut(build(2), 5))) \(regrow(3)) \(regrowT(3)) \(audits(3)) \(tallies(3))")
 }
 `
 
@@ -384,6 +522,41 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "bottoms"); !strings.Contains(body, ".SlicesFill[int](make([]int, 12), ") {
 		t.Errorf("bottoms does not make its Repeat with a constant length:\n%s", body)
 	}
+	// A record update hands its base over (update.go): b = Box{..b, M: …}
+	// rebinds b, and growB's result shares only b's storage, so b = growB(b, i)
+	// hands b over (V7); neither copies the Box, its Map or its slice. The
+	// call stays (growB, or its owned variant growBOwned when b is handed).
+	if body := goFunc(t, code, "regrow"); strings.Contains(body, "Clone") || !strings.Contains(body, "growB") {
+		t.Errorf("regrow copies the Box its record updates hand over:\n%s", body)
+	}
+	// Two's fields have one type, so only the unshared premise (growT's
+	// parameter, handed over) makes t.A apart from the base's B.
+	if body := goFunc(t, code, "regrowT"); strings.Contains(body, "Clone") {
+		t.Errorf("regrowT copies the Two it hands over:\n%s", body)
+	}
+	// An owned parameter with field lets around its bind (ownedBind):
+	// audit takes t whole with no copy, s keeps t.S, which no write
+	// through at reaches, and best takes at.Best, which nothing reads
+	// before Tally{..at, Best: best} replaces it (moves.go, a late take).
+	if body := goFuncBody(t, code, "auditOwned"); strings.Contains(body, "Clone") {
+		t.Errorf("audit copies the Tally it owns:\n%s", body)
+	}
+	// And where a use reaches the field, the let copies it: keepBest's b
+	// beside a write at.Best[k], handBest's beside setBest(at, k), whose
+	// parameter selects Best; peekTake's best beside a read of at.Best,
+	// handTake's beside setBest; handVia's beside viaBest, which hands
+	// its parameter to setBest; peekLate's beside a read of at.Best after
+	// an update that sets another field; loopTake's, which a loop takes
+	// again before the update. liveAfter reads t after at's write, so t
+	// is not owned.
+	for _, fn := range []string{"keepBestOwned", "handBestOwned", "peekTakeOwned", "handTakeOwned", "handViaOwned", "peekLateOwned", "loopTakeOwned"} {
+		if body := goFuncBody(t, code, fn); !strings.Contains(body, "maps.Clone(") {
+			t.Errorf("%s shares a field a use of the record reaches:\n%s", fn, body)
+		}
+	}
+	if strings.Contains(code, "liveAfterOwned") {
+		t.Errorf("liveAfter owns a parameter it reads after its bind's write")
+	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
 	// Update's body takes the Map as it is passed, unshared, and calls
 	// bump through its plain site adapter (plainAdapter), with no copy.
@@ -476,7 +649,7 @@ func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind", "hand-shared", "consume-any"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind", "hand-shared", "consume-any", "kill-branch-blind", "kill-between-blind", "kill-loop-blind"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m

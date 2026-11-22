@@ -1,0 +1,15 @@
+# runtime-faults: the upstream tests of crash-view and slow-warnings at d21db423 and what restates each.
+# source names both folders, so each FILE starts with its folder's name.
+# No story or scene is an Ergo test: a law and the cases kill every mutant a test of it would (README.md, "Upstream tests").
+# slow-warnings/src/handleSlow.test.ts (not a story or scene test) checks that handleSlow logs to the console; the session sends each warning to the step instead (ui.OnSlow), and case `lab` prints the log.
+crash-view/src/story.test.ts: handling any Message throws to trigger the crash view -> `crash` law `CrashShowsTheCrashView`; case `crash`
+crash-view/src/scene.test.ts: initial view shows the Crash button -> case `crash` (the first screen); `crash` law `CrashShowsTheCrashView` (the screen after a reload)
+slow-warnings/src/story.test.ts: ClickedRunUpdateWork records update workload state -> `lab` law `StepFollowsTheModel`
+slow-warnings/src/story.test.ts: ClickedRunViewWork records view workload state -> `lab` law `StepFollowsTheModel`
+slow-warnings/src/story.test.ts: ClickedRunPatchWork mounts a large patch surface -> `lab` law `StepFollowsTheModel`; case `lab` (Patch row 400)
+slow-warnings/src/story.test.ts: ClickedRunSubscriptionDependenciesWork records subscription dependency workload state -> `lab` law `StepFollowsTheModel`
+slow-warnings/src/story.test.ts: RecordedSlowWarning stores the warning and clears active workload -> `lab` law `StepFollowsTheModel`; `lab` law `EachWorkloadWarnsItsPhase` (from the session's own warnings)
+slow-warnings/src/story.test.ts: ClickedClearWarnings clears warnings without resetting the patch surface -> `lab` law `StepFollowsTheModel`; case `lab` (Clear)
+slow-warnings/src/scene.test.ts: renders all workload controls -> case `lab` (the first finds)
+slow-warnings/src/scene.test.ts: clicking patch work renders patch rows -> case `lab` (Patch row 1); `lab` law `EachWorkloadWarnsItsPhase`
+slow-warnings/src/scene.test.ts: clear removes recorded warnings -> `lab` law `EachWorkloadWarnsItsPhase`; case `lab` (Clear)

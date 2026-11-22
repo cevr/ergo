@@ -32,14 +32,14 @@ func Load(_ Zones, name string) tz.Zone fails tz.UnknownZone {
 }
 
 // Names is every zone name of std's copy, in order.
-extern go ergo.local/prototype/runtime/v1/tz.TzdataNames func Names() []string
+extern go ergo.local/prototype/runtime/v1.TzdataNames func Names() []string
 
 // Release is the IANA release of std's copy, such as 2026c.
-extern go ergo.local/prototype/runtime/v1/tz.TzdataRelease func Release() string
+extern go ergo.local/prototype/runtime/v1.TzdataRelease func Release() string
 
 // TZif is the TZif bytes (RFC 8536) of the zone name of std's copy, or ""
 // when the copy has no such zone: tz.FromTZif reads them.
-extern go ergo.local/prototype/runtime/v1/tz.TzdataZone func TZif(name string) string
+extern go ergo.local/prototype/runtime/v1.TzdataZone func TZif(name string) string
 
 // EveryNameLoads: each name of Names loads, by that name, and the copy's
 // release is named.

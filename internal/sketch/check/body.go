@@ -162,7 +162,7 @@ func OpBodyOf(t Type, op string) OpBody {
 		return OpBody{}
 	}
 	o := n.origin().Obj
-	name := o.Name + "." + op
+	name := RuntimeTypeName(n) + "." + op
 	if _, err := v1.BodyOf(name); err != nil || !bindsRuntime(o.Pkg) {
 		return OpBody{}
 	}
@@ -266,9 +266,9 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 		}
 	case *syntax.Ident:
 		// A defined type over a basic type, a refinement too (os.Code):
-		// the Go type is a defined type over the same Go basic type. The
-		// refinement's predicate stays the checker's, as for any
-		// refinement.
+		// the Go type is a defined type over the same Go basic type, or an
+		// alias of it (fs.Text, v1.MappedText). The refinement's predicate
+		// stays the checker's, as for any refinement.
 		b, _ := n.Underlying().(*Basic)
 		if b == nil || b.Kind == Duration || gt.Basic != b.Name {
 			return fmt.Sprintf("extern go %s: %s is over %s, and v1.%s is not a defined type over the Go type %s (docs/spec/stdlib.md, The body contract)", target, tn.Name, n.Underlying(), name, n.Underlying())
@@ -289,6 +289,19 @@ func GoTypeOf(n *Named) (string, bool) {
 	}
 	path, name := n.origin().Obj.Decl.Extern.Split()
 	return name, v1.Owns(path)
+}
+
+// RuntimeTypeName is the name the runtime's body table keys n's
+// operations by (Type.Op, and Type+Op+"Owned" for an owned form): the Go
+// type its extern declaration binds (GoTypeOf), which may differ from the
+// Ergo name (`extern go …/digest.Sha256Hasher type Hasher`), else n's own
+// name. Every lookup of an operation's body reads it, so the binding is
+// the one source of the name (LOWER-EXTERN-METHOD-NAME).
+func RuntimeTypeName(n *Named) string {
+	if name, ok := GoTypeOf(n); ok {
+		return name
+	}
+	return n.origin().Obj.Name
 }
 
 // embedTreeBody is the runtime's embedded-tree constructor, which the

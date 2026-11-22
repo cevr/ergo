@@ -29,7 +29,11 @@ const (
 	runtimeDir    = "ergo"
 	runtimeImport = runtimeModule + "/runtime/v1"
 	taskImport    = runtimeModule + "/runtime/rt"
-	goVersion     = "1.27"
+	// hostFSImport is the toolchain's plain Go package that os's Stat,
+	// Lstat and ReadDir are bound to (HOST-ROW-3; gobind.ValueResults):
+	// an import go package of the runtime's module, copied with it.
+	hostFSImport = runtimeModule + "/runtime/v1/hostfs"
+	goVersion    = "1.27"
 )
 
 // File is one file of the emitted Go module, at a slash-separated path
@@ -49,12 +53,13 @@ func Runtime() []File {
 	// Every leaf of runtime/v1 is copied with it: a program imports only
 	// the leaves it calls (rtRef), and the Go linker reads only imported
 	// packages, so a leaf it does not import costs it no byte. The gofmt
-	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well.
+	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well,
+	// and hostfs, an import go package of the runtime's module.
 	pkgs := []string{"runtime/v1", "runtime/explore", "runtime/testgen"}
 	for _, leaf := range v1.Leaves {
 		pkgs = append(pkgs, "runtime/v1/"+leaf)
 	}
-	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"))
+	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"), strings.TrimPrefix(hostFSImport, runtimefiles.Module+"/"))
 	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
@@ -204,9 +209,12 @@ type lowerer struct {
 	src      string       // its admitted path, which //line directives name
 	cur      int          // its index in srcs
 
-	srcs    []srcFile                // every source file in canonical order (canon.srcs)
-	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
-	nodeIDs map[syntax.Node]int      // node identities for keys (nodeID)
+	srcs []srcFile // every source file in canonical order (canon.srcs)
+	// rowPlaces are the places a row gap can be found at in each
+	// package's Info (rowgap.go, findRowPlaces), found once for each.
+	rowPlaces map[*check.Info]*rowPlaces
+	tpSrc     map[*check.TypeParam]int // each type parameter's source file (paramFile)
+	nodeIDs   map[syntax.Node]int      // node identities for keys (nodeID)
 	// groups is the group function of each generic frame type, nil for
 	// one with none (uigroup.go, groupFrame).
 	groups map[*check.Named]*check.Func
@@ -228,6 +236,7 @@ type lowerer struct {
 	libsDone     bool
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
+	siteIDs      map[siteKey]int         // each call position's CallSite Id (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope
@@ -237,6 +246,14 @@ type lowerer struct {
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
 	raw      bool       // Unit.Raw: program skips go/format
+	// unformatted skips go/format (the IR split, lowerIRSplit): only the
+	// compiler reads the split's Go, and the split parses main.go itself,
+	// so go/format's parse and print were the edit's second parse
+	// (SPLIT-AST; owner rule via the orchestrator, 2026-11-19: Go only the
+	// compiler reads needs no gofmt). unformattedText keeps the text before
+	// anchoring, for a refused split's one-package main.go (formatMain).
+	unformatted     bool
+	unformattedText []byte
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in under the reference growth rule (growth.go),
@@ -268,6 +285,7 @@ type lowerer struct {
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl
 	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	free   map[*check.Func]bool       // the program's env-free functions (pure.go, isEnvFree), once computed
 	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
@@ -298,14 +316,18 @@ type lowerer struct {
 	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
 	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
 	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
+	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
 	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
 	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
+	sets     map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
 	holds    map[*check.Named]holdState
 	typeKeys map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
+	// directReaders are the types whose values decode reads directly
+	// (wirereader.go), in typeKey order.
+	directReaders []directReader
 	// cellRewrites are the rewriters of std cell writers' laws, by
 	// package (wiretext.go).
 	cellRewrites map[*check.Package]*rewriter
@@ -335,9 +357,9 @@ type lowerer struct {
 	// by import path.
 	rtLeaves map[string]bool
 	// hostText is set when main.go imports the gofmt leaf of runtime/v1
-	// (v1.HostText) for its init: the program uses a Go package (hostPkg),
-	// whose values only fmt can write, or names a body that writes a
-	// machine state (v1.NeedsHostText).
+	// (v1.HostText) for its init: the program names a body that writes a
+	// machine state (v1.NeedsHostText). A Go package's values need no fmt:
+	// rt.Text writes any value.
 	hostText bool
 	// hostWalk is set when main.go imports the hostwalk leaf of runtime/v1
 	// (v1.HostWalk) for its init: the program names a body that makes an
@@ -381,6 +403,9 @@ type lowerer struct {
 	// an actor's start names ergoMachineGraph (machine.go, graphAccessor).
 	machineGraphs []machineGraphEntry
 	graphsUsed    bool
+	// actorStarted records that the program starts a machine actor, whose
+	// runner reads the table typeNamesInit registers.
+	actorStarted bool
 	// entryInits records that the entry calls ergoInit; program checks it
 	// against hasInits once every declaration is lowered (F13).
 	entryInits bool
@@ -389,7 +414,7 @@ type lowerer struct {
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
 	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
-	monoCount map[*check.Func]int   // copies made per function (mono.go)
+	monoCount map[monoDecl]int      // copies made per declaration (mono.go)
 	// provParams memoizes each function's operation-type parameter a copy
 	// for a known provider is made for (provider.go).
 	provParams map[*check.Func]int
@@ -454,6 +479,11 @@ type lowerer struct {
 	// tests is the test build's state (tests.go, LowerTests); nil in the
 	// run build, which lowers no test.
 	tests *testLowering
+
+	// adapterConvs is the conversion of each adapter the naming pass
+	// named, by key, so a codec function that names one can emit it
+	// (wireread.go, wirewrite.go).
+	adapterConvs map[string]check.Conversion
 }
 
 // sortedRefusals orders refusals by position and drops repeats: a
@@ -517,12 +547,13 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		texts:     map[pkgKey]bool{},
 		defaults:  map[pkgKey]bool{},
 		equals:    map[pkgKey]bool{},
-		sets:      map[check.TypeSet]string{},
+		sets:      map[*check.TypeName]bool{},
 		holds:     map[*check.Named]holdState{},
 		typeKeys:  map[check.Type]string{},
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[string]string{},
 	}
+	l.adapterConvs = map[string]check.Conversion{}
 	l.reads = l.readVars()
 	return l
 }
@@ -618,14 +649,16 @@ func (l *lowerer) program() ([]byte, error) {
 		}
 	})
 	if l.ir != nil {
-		l.ir.reachAll(l) // CensusStd only (ir.go)
+		l.ir.reachAll(l) // CensusStd and LowerIRSplitReaching only (ir.go)
 	}
 	// Every initializer of every reached declaration of a sourced package
-	// is lowered here: a library's lets, and its machines' initial values
-	// (F13). A library's other declarations are lowered where they are
-	// used, and so is a std package's let (reachStdLet, wf10 defects D6),
-	// so the entry leaves a slot for the call of ergoInit, filled once
-	// every body is lowered.
+	// is lowered here: its machines' initial values (F13), and its lets
+	// where no reach set cuts the build (a test build, a library-shaped
+	// lowering) or under the reference libLetLowering "reach". A library's
+	// other declarations are lowered where they are used, and so are its
+	// lets otherwise, as a std package's are (reachStdLet, wf10 defects D6;
+	// libLetOnRead), so the entry leaves a slot for the call of ergoInit,
+	// filled once every body is lowered.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			if !l.declReached(d) {
@@ -633,9 +666,9 @@ func (l *lowerer) program() ([]byte, error) {
 			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
-				if l.constantLet(p, d) {
-					// No initializer to run: declared where a body reads
-					// it, as a std package's let is (reachStdLet).
+				if l.libLetOnRead(p, d) {
+					// Declared where a body reads it, as a std package's
+					// let is (reachStdLet).
 					return
 				}
 				l.packageLet(d)
@@ -696,7 +729,7 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	table := l.callTable()   // before the imports: it may name the runtime package
 	table += l.lineageDecl() // likewise (handover.go)
-	graphs := l.graphAccessor()
+	graphs := l.graphAccessor() + l.typeNamesInit()
 	inits := l.initFunc()
 	var out strings.Builder
 	out.WriteString("// Code generated by ergo from " + path.Base(strings.ReplaceAll(l.srcs[0].path, "\\", "/")) + ". DO NOT EDIT.\n\npackage " + l.goPackage() + "\n\n")
@@ -752,6 +785,10 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(inits)
 	if l.raw {
 		return anchorLines([]byte(out.String())), nil
+	}
+	if l.unformatted {
+		l.unformattedText = []byte(out.String())
+		return anchorLines(l.unformattedText), nil
 	}
 	l.formats++
 	formatted, err := format.Source([]byte(out.String()))

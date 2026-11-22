@@ -2,14 +2,12 @@ package lower
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"go/types"
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -43,9 +41,9 @@ func init() {
 		"hostres.Handle.Peek": "hresGo: returns a formatted string, stores no receiver",
 		"hostres.Show":        "hresGo: calls Peek synchronously and stores no parameter",
 	} {
-		v1.GoArgClauses[target] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}}
+		v1.GoArgClauses()[target] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}}
 	}
-	v1.GoArgClauses["hostres.Unreasoned"] = map[int]v1.GoArgClause{0: {Lent: true}}
+	v1.GoArgClauses()["hostres.Unreasoned"] = map[int]v1.GoArgClause{0: {Lent: true}}
 }
 
 const hresGo = `package hostres
@@ -180,6 +178,54 @@ func hresFiles() []File {
 	}
 }
 
+// hresBindingFile is the binding ergo bind writes for hresGo from its
+// source, checked in as gostd's bindings are, so the tests that read it
+// start no go command; TestHostresBindingIsCurrent keeps it current.
+const hresBindingFile = "testdata/hostres.binding"
+
+// hresUpdate is the one command that writes hresBindingFile, and
+// hresHeader the line it starts with.
+const (
+	hresUpdate = "go test ./internal/sketch/lower -run '^TestHostresBindingIsCurrent$' -update-hostres"
+	hresHeader = "// Written by ergo bind (gobind.Bind) from hresGo; do not edit. Rewrite it with: " + hresUpdate + "\n"
+)
+
+var updateHostres = flag.Bool("update-hostres", false, "rewrite "+hresBindingFile+" from hresGo with ergo bind")
+
+// TestHostresBindingIsCurrent holds testdata/hostres.binding to what ergo
+// bind writes for hresGo now: Open's fresh pointer is go.Ref by the
+// binder's non-nil proof (GOBIND-NIL), Missing stays Option. It builds Go
+// because gobind.Bind reads go list and the compiler's -m output.
+// -update-hostres rewrites the file.
+func TestHostresBindingIsCurrent(t *testing.T) {
+	needsBuild(t)
+	dir := t.TempDir()
+	for _, f := range hresFiles()[1:] { // the module's own go.mod and source
+		if err := os.WriteFile(filepath.Join(dir, filepath.Base(f.Path)), f.Data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := gobind.Bind(dir, os.Environ(), "go1.27", ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := files[hresPath]
+	if !ok {
+		t.Fatalf("ergo bind wrote no binding for %s", hresPath)
+	}
+	got = hresHeader + got
+	if *updateHostres {
+		if err := os.WriteFile(hresBindingFile, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(hresBindingFile)
+	if err != nil || string(want) != got {
+		t.Errorf("%s is not what ergo bind writes for hresGo; rewrite it with %s", hresBindingFile, hresUpdate)
+	}
+}
+
 // hresImporter gives the hostres binding beside Go's standard library.
 type hresImporter struct{ set *check.GoBindings }
 
@@ -197,30 +243,17 @@ var staleClauses = regexp.MustCompile(`\bown `)
 // newHresImporterOf is newHresImporter; stale strips staleClauses.
 func newHresImporterOf(t *testing.T, stale bool) hresImporter {
 	t.Helper()
-	// Use the generator's public seam, not a hand-written binding which
-	// could admit Shared while ergo bind refuses it (BV1). Import-only
-	// implementation dependencies are irrelevant to the declaration types.
-	fs := token.NewFileSet()
-	f, err := parser.ParseFile(fs, "hostres.go", hresGo, 0)
+	// The binding ergo bind writes from hresGo's source (hresBindingFile),
+	// not a hand-written one, which could admit Shared while ergo bind
+	// refuses it (BV1), nor gobind.File's, which reads no source and so
+	// derives no non-nil result (GOBIND-NIL).
+	data, err := os.ReadFile(hresBindingFile)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v: the checked-in binding is missing; write it with %s", err, hresUpdate)
 	}
-	var decls []ast.Decl
-	for _, d := range f.Decls {
-		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT {
-			continue
-		}
-		decls = append(decls, d)
-	}
-	f.Decls, f.Imports = decls, nil
-	cfg := types.Config{IgnoreFuncBodies: true}
-	pkg, err := cfg.Check(hresPath, fs, []*ast.File{f}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding, err := gobind.File([]*types.Package{pkg}, []gobind.Platform{{GOOS: "linux", GOARCH: "amd64"}}, "go1.27")
-	if err != nil {
-		t.Fatal(err)
+	binding, ok := strings.CutPrefix(string(data), hresHeader)
+	if !ok {
+		t.Fatalf("%s does not start with ergo bind's header; rewrite it with %s", hresBindingFile, hresUpdate)
 	}
 	if stale {
 		binding = staleClauses.ReplaceAllString(binding, "")

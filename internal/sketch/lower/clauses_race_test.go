@@ -147,7 +147,7 @@ var clauseTemplates = []clauseTemplate{
 	{keys: []string{"http.Net.SendInto.put"}, imports: []string{"http"}, resource: true, body: `
 	R
 	let h = http.InMemory(func(q http.Request) http.Response needs http.Streaming { http.Response{Status: 200, Header: []http.Field{}, Body: "ab"} })
-	let req = http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	let req = http.Request{Method: "GET", Path: "/", RawPath: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 	let status = with context { http.Net: h } {
 		let resp = http.Net.SendInto(req, http.AnySuccess, func(part string) fails http.SinkFailed {
 			CB
@@ -180,6 +180,7 @@ var clauseTemplates = []clauseTemplate{
 // hand a callback to, or that this property does not reach, each with the
 // reason.
 var clauseUnreached = map[string]string{
+	"api.Transport.Carry.answer":   "Transport is an operation type with no std provider: Carry has no body to call, and its providers are the generated transports' Wires in the program's own module (cmd/ergo's gen tests and each example's Agrees law run them)",
 	"actor.recovering.recover":     "recovering is unexported; StartDurable and SuperviseDurable call it with std literals over their escaping recover",
 	"actor.recovering.start":       "recovering is unexported; its start is a std literal over StartMachine or launch",
 	"http.sendInto.accepts":        "sendInto is unexported; accepts is Client.SendInto's literal over Accepts, with no capture",

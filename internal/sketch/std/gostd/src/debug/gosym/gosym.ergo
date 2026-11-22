@@ -113,6 +113,7 @@ extern go debug/gosym.Table.SymByAddr func (t *Table) SymByAddr(addr uint64) Opt
 extern go debug/gosym.UnknownFileError type UnknownFileError string
 
 // ergo:go func (UnknownFileError).Error() string
+// ergo:total
 extern go debug/gosym.UnknownFileError.Error func (e UnknownFileError) Error() string needs go.Foreign
 
 // ergo:go type UnknownLineError struct

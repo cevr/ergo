@@ -10,9 +10,10 @@
 import flag
 import fs
 import http
+import net
 import io
-import jobs/api
-import jobs/memory
+import jobsapp/api
+import jobsapp/memory
 import os
 import queue
 import strconv
@@ -100,14 +101,14 @@ func run(v flag.Values, handle own func(http.Request) http.Response needs api.Jo
 	}
 }
 
-func listen(addr string) http.Listener fails os.Exit needs Ambient {
+func listen(addr string) net.Listener fails os.Exit needs Ambient {
 	http.Listen(addr) catch {
 	case http.ListenFailed as f:
 		return os.Exit{Code: 1, Message: "jobs: cannot listen on " + f.Addr + ": " + f.Reason}
 	}
 }
 
-func serve(l http.Listener, handle own func(http.Request) http.Response needs api.Jobs | http.Streaming) fails os.Exit needs api.Jobs | Scheduler {
+func serve(l net.Listener, handle own func(http.Request) http.Response needs api.Jobs | http.Streaming) fails os.Exit needs api.Jobs | Scheduler {
 	http.Serve(l, limits, handle) catch {
 	case http.InvalidLimits:
 		return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}
@@ -134,7 +135,7 @@ func replay(clock time.Manual) fails os.Exit needs io.Stdout | io.Stdin | http.N
 			return os.Exit{Code: 2, Message: "jobs: not a request: " + line}
 		}
 		let body = if len(parts) == 3 { parts[2] } else { "" }
-		let r = http.Do(http.Request{Method: parts[0], Path: parts[1], Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: body}}) catch {
+		let r = http.Do(http.Request{Method: parts[0], Path: parts[1], RawPath: parts[1], Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: body}}) catch {
 		case http.RequestFailed as f:
 			return os.Exit{Code: 1, Message: "jobs: " + line + ": " + failure(f.Cause)}
 		}

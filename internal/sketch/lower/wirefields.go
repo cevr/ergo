@@ -51,6 +51,7 @@ func (fc *funcCtx) wireFieldWitness(tc *typeCtx, t check.Type, site syntax.Node)
 		return params, tc.valueResults(t), tc.wireDecode(field.Type, e, r, x, "*new("+gt+")", fc.scope) + "return " + tc.wrapperValue(present, field, x) + ", nil\n"
 	})
 	direct := fc.wireDirectFuncs(tc, t, field.Type, payload)
+	direct += fc.wireReadFuncs(tc, t, field.Type, func(x string) string { return tc.wrapperValue(present, field, x) })
 	v := fc.scope.alloc("v")
 	absent := "func(" + v + " " + gt + ") bool { _, ok := " + v + ".(" + tc.goType(empty) + "); return ok }"
 	return "&" + tc.wireFieldType(t) + "{Enc: " + enc + ", Dec: " + dec + direct + ", Absent: " + absent + ", Empty: " + tc.goType(empty) + "{}}"
@@ -90,7 +91,7 @@ func (l *lowerer) wireNullableEncode(em wireEvents, tc *typeCtx, b *strings.Buil
 
 func (l *lowerer) wireNullableDecode(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
 	empty, present, field := tc.wrapperParts(t)
-	b.WriteString("if " + r + ".TakeNull(" + task + ") {\nreturn " + tc.goType(empty) + "{}, nil\n}\n")
+	b.WriteString("if " + tc.readOp(env, r, "TakeNull") + " {\nreturn " + tc.goType(empty) + "{}, nil\n}\n")
 	x := scope.alloc("value")
 	b.WriteString(tc.wireDecode(field.Type, env, r, x, zero, scope))
 	b.WriteString("return " + tc.wrapperValue(present, field, x) + ", nil\n")

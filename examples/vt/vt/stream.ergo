@@ -1,3 +1,5 @@
+import vt/traffic
+
 // Event is what the parser hands to a screen: a run of text, one decoded
 // character, a control, or a whole sequence. Strings (OSC, DCS, APC) are
 // handed over once, when they end.
@@ -66,14 +68,58 @@ func NewStream(fast bool) Stream {
 	}
 }
 
+// SplitDoesNotMatter: feeding a stream in pieces gives the events and the
+// tally of feeding it whole. Pieces of 1 to 16 bytes cut UTF-8
+// characters, sequences, OSC strings and text runs.
+law SplitDoesNotMatter(seed int, cuts []int) {
+	let input = traffic.Gen(seed, 600)
+	replay(input, []int{}, true) == replay(input, cuts, true)
+}
+
+// replay is the rendered events and the tally of input fed in pieces:
+// piece k is 1 to 16 bytes long, by cuts[k % len(cuts)]; with no cuts,
+// one piece.
+func replay(input string, cuts []int, fast bool) []string {
+	let mut p = NewStream(fast)
+	let mut at = 0
+	let mut k = 0
+	for at < len(input) {
+		let mut size = len(input) - at
+		if len(cuts) > 0 {
+			let c = cuts[k%len(cuts)] % 16
+			size = (if c < 0 { -c } else { c }) + 1
+			if at+size > len(input) {
+				size = len(input) - at
+			}
+		}
+		p.Feed(input[at : at+size])
+		at += size
+		k += 1
+	}
+	p.Finish()
+	Render(p.Take()).Append(TallyText(p.Tally))
+}
+
+// TallyText is the tally as one line.
+func TallyText(t Tally) string {
+	"bytes \(t.Bytes) dropped \(t.Dropped) bad-text \(t.BadText) osc-cut \(t.OscCut)"
+}
+
+// FastPathMatchesStep: taking a run of text or of OSC data in one step
+// gives what taking each of its bytes through the machine gives.
+law FastPathMatchesStep(seed int, cuts []int) {
+	let input = traffic.Gen(seed, 600)
+	replay(input, cuts, true) == replay(input, cuts, false)
+}
+
 // At is the parser's state.
 func At(p Stream) State { p.parse.At }
 
 // Feed parses input, the next piece of the stream, and keeps its
 // events for Take. In the ground state a byte of 0x80 or more starts a
-// UTF-8 character, and does not reach the machine (Ghostty decodes UTF-8
-// before its parser, and takes no 8-bit control there).
-func Feed(p *Stream, input string) {
+// UTF-8 character, and does not reach the machine: UTF-8 is decoded before
+// the parser, which takes no 8-bit control there.
+func Feed(p mut Stream, input string) {
 	let n = len(input)
 	let mut i = 0
 	p.Tally.Bytes += n
@@ -143,7 +189,7 @@ func Feed(p *Stream, input string) {
 // collector, then the dispatch back to ground) and returns the place past
 // it. A sequence of any other shape, or one the piece cuts, returns i: the
 // machine takes it.
-func csiRun(p *Stream, input string, i int) int {
+func csiRun(p mut Stream, input string, i int) int {
 	let n = len(input)
 	if i+2 >= n || input[i+1] != '[' {
 		return i
@@ -187,7 +233,7 @@ func csiRun(p *Stream, input string, i int) int {
 }
 
 // Finish ends the stream: a character left unfinished is bad.
-func Finish(p *Stream) {
+func Finish(p mut Stream) {
 	if p.text.need > 0 {
 		p.text = idle
 		p.Tally.BadText += 1
@@ -196,20 +242,20 @@ func Finish(p *Stream) {
 }
 
 // Take is the events kept since the last Take, Flush or Clear.
-func Take(p *Stream) []Event {
+func Take(p mut Stream) []Event {
 	let got = p.out
 	p.out = []Event{}
 	got
 }
 
 // Clear forgets the events kept, and keeps their storage for the next.
-func Clear(p *Stream) { p.out = p.out[0:0] }
+func Clear(p mut Stream) { p.out = p.out[0:0] }
 
 // emit keeps the event e.
-func emit(p *Stream, e Event) { p.out = p.out.Append(e) }
+func emit(p mut Stream, e Event) { p.out = p.out.Append(e) }
 
 // lead starts a UTF-8 character with the byte b, or hands over a bad one.
-func lead(p *Stream, b byte) {
+func lead(p mut Stream, b byte) {
 	if b >= 0xc2 && b <= 0xdf {
 		p.text = utf{need: 1, seen: 0, cp: int(b & 0x1f), lower: 0x80, upper: 0xbf}
 	} else if b >= 0xe0 && b <= 0xef {
@@ -223,7 +269,7 @@ func lead(p *Stream, b byte) {
 }
 
 // keep adds data to the OSC string, up to OscLimit bytes.
-func keep(p *Stream, data string) {
+func keep(p mut Stream, data string) {
 	let room = OscLimit - len(p.osc)
 	if len(data) <= room {
 		p.osc = p.osc + data
@@ -238,7 +284,7 @@ func keep(p *Stream, data string) {
 // step runs the machine on the byte b: the exit action of the state it
 // leaves, the transition's action, and the entry action of the state it
 // enters, in that order.
-func step(p *Stream, b byte) {
+func step(p mut Stream, b byte) {
 	p.steps += 1
 	let from = p.parse
 	let t, k = Advance(from, ClassOf(b))
@@ -255,7 +301,7 @@ func step(p *Stream, b byte) {
 
 // exit is the exit action of the state s: a string hands over what it
 // held.
-func exit(p *Stream, s State) {
+func exit(p mut Stream, s State) {
 	match s {
 	case OscString:
 		p.emit(Osc{Data: p.osc})
@@ -269,7 +315,7 @@ func exit(p *Stream, s State) {
 
 // act is the transition action a of the byte b; k is the collector's
 // counts before it.
-func act(p *Stream, a Act, b byte, k Counts) {
+func act(p mut Stream, a Act, b byte, k Counts) {
 	match a {
 	case PrintByte:
 		p.emit(Text{Run: ByteText(b)})
@@ -316,7 +362,7 @@ func act(p *Stream, a Act, b byte, k Counts) {
 
 // complete is the parameters with the one being read completed, when
 // there is one; k.Params is below MaxParams.
-func complete(p *Stream, k Counts) []int {
+func complete(p mut Stream, k Counts) []int {
 	let mut n = k.Params
 	if k.Digits {
 		p.params[n] = p.acc
@@ -331,7 +377,7 @@ func complete(p *Stream, k Counts) []int {
 
 // enter is the entry action of the state s, entered on the byte b; k is
 // the collector's counts before the byte.
-func enter(p *Stream, s State, b byte, k Counts) {
+func enter(p mut Stream, s State, b byte, k Counts) {
 	match s {
 	case Escape, CsiEntry, DcsEntry:
 		p.inter = ""

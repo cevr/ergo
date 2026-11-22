@@ -36,8 +36,9 @@ import (
 //
 // What the walk cannot see widens the key to the whole package's files
 // (its Go and assembly files, tests excluded): a reached function with no
-// body (assembly, or a linkname), a file with a //go:linkname or a dot
-// import, a reached var with //go:embed, a file that does not parse, and a
+// body (assembly, or a linkname that pulls a symbol in), a file with a
+// //go:linkname that pushes one out (any but a pull onto a function of
+// its file with no body, which widens when reached), or a dot import, a reached var with //go:embed, a file that does not parse, and a
 // name the package does not declare. A function value passed in from
 // another package calls only what that package reaches, which its own key
 // covers.
@@ -87,6 +88,9 @@ type goWorld struct {
 	load goPackages
 	fset *token.FileSet
 	pkgs map[string]*goPkg // nil: outside the walk
+	// std types Go's standard library as the world's target compiles it
+	// (gostd.go); nil leaves std's packages empty.
+	std *stdTypes
 }
 
 func newGoWorld(load goPackages) *goWorld {
@@ -99,6 +103,11 @@ func newGoWorld(load goPackages) *goWorld {
 func (w *goWorld) Import(p string) (*types.Package, error) {
 	if g := w.get(p); g != nil && g.types != nil {
 		return g.types, nil
+	}
+	if isStdPath(p) {
+		if t := w.std.imported(p); t != nil {
+			return t, nil
+		}
 	}
 	name := path.Base(p)
 	if strings.HasPrefix(name, "v") && strings.Trim(name[1:], "0123456789") == "" && strings.Contains(p, "/") {
@@ -141,7 +150,7 @@ func (w *goWorld) parse(p string, files []GoSourceFile) *goPkg {
 			continue
 		}
 		g.ast = append(g.ast, file)
-		if strings.Contains(src, "//go:linkname") {
+		if strings.Contains(src, "//go:linkname") && !onlyPullLinknames(file) {
 			g.widen = true
 		}
 		names := map[string]string{}
@@ -308,7 +317,18 @@ func (w *goWorld) closure(entry, name string) GoClosure {
 	}
 	// object takes a resolved object of a package of the world.
 	object := func(obj types.Object) {
-		if obj == nil || obj.Pkg() == nil || w.pkgs[obj.Pkg().Path()] == nil {
+		if obj == nil || obj.Pkg() == nil {
+			return
+		}
+		// An interface method, of the world or of std (io.Writer.Write),
+		// may run any method of its name: by name, wherever it is declared.
+		if fn, ok := obj.(*types.Func); ok {
+			if recv := fn.Type().(*types.Signature).Recv(); recv != nil && types.IsInterface(recv.Type()) {
+				named(fn.Name())
+				return
+			}
+		}
+		if w.pkgs[obj.Pkg().Path()] == nil {
 			return
 		}
 		q := obj.Pkg().Path()
@@ -419,4 +439,31 @@ func (w *goWorld) closure(entry, name string) GoClosure {
 	sort.Strings(out.Widened)
 	out.Hash = hex.EncodeToString(h.Sum(nil))
 	return out
+}
+
+// onlyPullLinknames reports whether every //go:linkname directive of a
+// file pulls a symbol into a function of the file that has no body
+// (runtime/v1's syscall_syscall, runtime/rt's gopark): such a function
+// widens the key when the walk reaches it, so the directive hides
+// nothing. A directive on anything else may push a declaration of the
+// package to code the walk does not see, and widens the package.
+func onlyPullLinknames(file *ast.File) bool {
+	bodyless := map[string]bool{}
+	for _, d := range file.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Body == nil {
+			bodyless[fd.Name.Name] = true
+		}
+	}
+	for _, g := range file.Comments {
+		for _, c := range g.List {
+			rest, ok := strings.CutPrefix(c.Text, "//go:linkname ")
+			if !ok {
+				continue
+			}
+			if f := strings.Fields(rest); len(f) != 2 || !bodyless[f[0]] {
+				return false
+			}
+		}
+	}
+	return true
 }

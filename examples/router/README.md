@@ -63,7 +63,7 @@ The MB2 mutants were measured on the two-actor form. Of the wf10 DH1 mutants (`/
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/router/cmd/router < examples/router/cases/table/stdin
 ./bin/ergo test examples/router/route
 ./bin/ergo test examples/router/memory
@@ -75,20 +75,6 @@ go run ./scripts/examples router
 - `table`: a queue behind an operator's question; a taken id; an abort of a waiting request; a refused destination; aborts and replies with nothing open; a remove; a message carried, and one with no route.
 - `restart`: a dropped check restarts the router from its journal (twice: the budget); a courier crash restarts the router from its journal, with new couriers; a new process opens the router from the journal, and a taken id stays taken.
 - `badscript`: an id that is not a number (status 1).
-
-## effect-machine side by side (`docs/persistence-and-supervision.md`, ActorHost)
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| requests that wait | no postpone either; a queue in the state or the mailbox (inferred from its docs) | `Board.Queue`, with `Stay` so the current entry goes on | step laws |
-| one answer per request | `call` answers with the transition; a later answer is a second protocol | the answer lives in the state; `WaitFor` reads it; `AnsweredOnce` holds it | law |
-| persistence | `lifecycle.recovery.resolve` at spawn, `durability.save` after each commit | `SuperviseDurable(m, …, recover, save)`: save runs before anyone sees the state; the step must be pure (S108) | runner + checker |
-| supervision | `Supervisor` with a restart schedule | `tasks.Restart{Limit}`; a restart runs `recover` again | runner (MU7 model) |
-| a child named before it runs | `ActorHost.make` with `acquire` | a `Host` in the state, filled once by `ChildIn` in the entry's work, closed with the entry | runner (models/host) + law |
-| a child of a recovered actor | its docs give no rule; the user's recovery code makes the children again (inferred) | a host is entry data: a replay makes it again, empty, and the recovered first entry binds it; the journal keeps no live child | runner (models/host `Recovery`) + law |
-| observing | `subscribe`, `waitFor` | `Changes`, `WaitFor`, loops with no callback | runner (MU12) |
-
-The router and its couriers are one machine (wf10 DH1): `Idle` hosts the couriers and `Applying` checks with the registry, so a courier's crash restarts the router from its journal.
 
 ## Benchmark
 

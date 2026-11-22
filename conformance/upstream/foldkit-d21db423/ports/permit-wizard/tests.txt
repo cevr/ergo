@@ -1,0 +1,13 @@
+# permit-wizard: the upstream tests of state-machine at d21db423 and what restates each.
+# No story is an Ergo test: a law and the tour case kill every mutant a test of it would (README.md, "Upstream tests").
+src/story.test.ts: PlaceOrder waits before succeeding -> `permit` law `FilingTakesASecond`; case `tour` (wait 999, then wait 1)
+src/story.test.ts: physical carts visit Shipping before Payment -> `permit` law `Wizard.Confirms` (its run packs supplies); case `tour` (its first lines)
+src/story.test.ts: digital carts skip Shipping through the otherwise branch -> `permit` law `Wizard.DayTripsSkipSupplies`; case `tour` (check Day trip)
+src/story.test.ts: starting over after cancelling keeps the selected edition -> `permit` law `CancelFromEveryOpenStep`; case `tour` (Cancel permit, Start a permit again)
+src/story.test.ts: a known promo code resolves to a discount and an unknown one clears it -> `permit` laws `CodesIgnoreCaseAndSpace` and `EditClearsOnlyARefusal`; case `tour` (code, click Apply)
+src/story.test.ts: unaccepted review ignores place order without a Command -> `permit` law `ReviewGatesFile`; case `tour` (File disabled until the rules are agreed)
+src/story.test.ts: ready review emits PlaceOrder after its guard passes -> `permit` laws `ReviewGatesFile` and `FilingTakesASecond`; case `tour`
+src/story.test.ts: the transition log truncates to the newest twenty entries -> `desk` law `LogKeepsTheNewest`
+src/scene.test.ts: initial view shows the hardcover order and state machine inspector -> case `scenes` (the first screen: `# Your permit`, `[x] Overnight trip`, `# State machine inspector`); the graph is `ergo inspect machine ./permit` (README, The graph), not a text on the screen
+src/scene.test.ts: digital order skips Shipping and can be confirmed -> case `scenes` (check Day trip, Continue to `# Permit`, `[Review permit, disabled]` until the leader, `[File permit · $25.00, disabled]` until the rules, `wait 1000`: `# Permit DAY-1001 confirmed`); law `ScreenOffersOnlyTransitions`
+src/scene.test.ts: an applied promo code discounts the order total -> case `scenes` (`ranger10`, Apply: `RANGER10 applied · 10% off`, `Allowance · RANGER10 · -$2.50`, `[File permit · $22.50]`; `bogus`, Apply: `That code isn't recognized.`, `$25.00`)

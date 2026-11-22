@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -24,6 +24,12 @@ type Options struct {
 	// placeLaws reports S115 whatever lawPlacementReported says
 	// (checkWith; lawplace.go).
 	placeLaws bool
+	// mapsRewritten is set on the second check of a package whose Map
+	// forms were rewritten (mapprovider.go), which rewrites nothing more.
+	mapsRewritten bool
+	// shapesWritten is set on the check of a package after its providers'
+	// normal forms were derived (mapshape.go), which derives no more.
+	shapesWritten bool
 }
 
 // checkWith is Check, with S115 reported when placeLaws is set
@@ -442,7 +448,7 @@ func (s *speller) typ(t Type) string {
 		s.hide("Map") // the syntax's Map[K, V] (grammar.md, Parser 8)
 		return "Map[" + s.typ(t.Key) + ", " + s.typ(t.Elem) + "]"
 	case *Pointer:
-		return "*" + s.typ(t.Elem) // a borrow, as a function type's parameter
+		return "mut " + s.typ(t.Elem) // a borrow, as a function type's parameter (MODES-2)
 	case *Tuple:
 		return "(" + s.list(t.Types) + ")"
 	case *RowArg:

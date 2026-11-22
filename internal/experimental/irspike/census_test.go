@@ -117,6 +117,9 @@ func TestIRCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if len(c.Failed) > 0 {
+		t.Errorf("targets that did not lower:\n%s", strings.Join(c.Failed, "\n"))
+	}
 	if len(unowned) > 0 {
 		t.Fatalf("reasons no coverage unit owns (add each to reasonUnits): %q\n%s", unowned, b.String())
 	}

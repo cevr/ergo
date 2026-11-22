@@ -1,0 +1,67 @@
+// What a union that lists a union still refuses (types.md, Unions 1).
+
+// Another package's union is wrapped, as another package's record is.
+type Maybe = Option[int] | Nothing{} // want S108 "a union's variants are records of its package; wrap Option[int]"
+
+// A union that lists itself, through another, has no variants.
+type Loop1 = Loop2 | L1{} // want S108 "Loop1 lists Loop2, which lists Loop1 again"
+type Loop2 = Loop1 | L2{} // want S108 "Loop2 lists Loop1, which lists Loop2 again"
+
+type A = A1{} | A2{}
+type AB = A | B1{}
+
+// An arm after `case A as a` that names one of A's variants never runs.
+func late(x AB) int {
+	match x {
+	case A as a:
+		inA(a)
+	case A1: // want S108 "unreachable"
+		1
+	case B1:
+		2
+	}
+}
+
+// `case A as a` covers A's variants, no others.
+func short(x AB) int {
+	match x { // want S103 "no case handles B1"
+	case A:
+		1
+	}
+}
+
+func inA(a A) int {
+	match a {
+	case A1:
+		1
+	case A2:
+		2
+	}
+}
+
+// Widening is by subset: a union with a variant the target lacks is no value of it.
+type C = A1 | B1
+func narrowing(x AB) C { x } // want S108 "cannot use"
+
+// A union in a case holds only the subject's variants.
+func notHeld(x C) int {
+	match x {
+	case A: // want S108 "A holds A2, which is not a variant of C"
+		1
+	case _:
+		2
+	}
+}
+
+// A sub-union test is an arm of its own: not nested in a tuple or record pattern.
+type Pair { X AB }
+func nested(p Pair) int {
+	match p {
+	case Pair{X: A}: // want S108 "a case of its own"
+		1
+	case _:
+		2
+	}
+}
+
+func main() {}

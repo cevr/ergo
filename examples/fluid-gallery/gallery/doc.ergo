@@ -3,11 +3,11 @@ import ergo.dev/fluid/token
 import ergo.dev/fluid/web
 import html
 
-// Doc is a component's docs page as the original lays it out: the title and its lead, the
+// Doc is a component's docs page as the reference docs lay it out: the title and its lead, the
 // installation row, a section per specimen (a heading, an optional lead, the stage), and the
-// API reference. The page around the stages is drawn as the original's is because a stage's
+// API reference. The page around the stages is drawn as the reference's is because a stage's
 // pixels depend on it: the browser rasterizes in tiles anchored to the document, so a stage
-// must sit at the original's offset, and the reference's fade mask changes how the stages above
+// must sit at the reference's offset, and the reference's fade mask changes how the stages above
 // it are painted.
 type Doc { Title string, Lead string, Install string, Sections []Section, Api []Prop }
 

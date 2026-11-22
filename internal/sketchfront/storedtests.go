@@ -25,8 +25,8 @@ import (
 // own and says only which tier answers.
 
 // testKey is the store's key of test t of pkg's verdict at seed.
-func testKey(pkg *check.Package, t *check.Test, seed uint64) string {
-	return lawcache.Key("test", t.Name, lower.TestDigest(pkg, t), strconv.FormatUint(seed, 10))
+func testKey(pkg *check.Package, t *check.Test, seed uint64, keys lower.ForeignKeys) string {
+	return lawcache.Key("test", t.Name, lower.TestDigestWith(pkg, t, keys), strconv.FormatUint(seed, 10))
 }
 
 // routeKey is the key of the route note of the obligation whose verdict
@@ -45,12 +45,14 @@ type testVerdicts struct {
 	pkg   *check.Package
 	seed  uint64
 	keys  map[*check.Test]string
+	// foreign are the program's foreign keys (testKey).
+	foreign lower.ForeignKeys
 }
 
 func (v *testVerdicts) key(t *check.Test) string {
 	k, ok := v.keys[t]
 	if !ok {
-		k = testKey(v.pkg, t, v.seed)
+		k = testKey(v.pkg, t, v.seed, v.foreign)
 		v.keys[t] = k
 	}
 	return k
@@ -84,13 +86,13 @@ func (v *testVerdicts) Held(t *check.Test, held eval.Verdict) {
 
 // routes are the route-note keys of a package's obligations at a seed and
 // budget, by obligation name, as TestLines names them.
-func routes(pkg *check.Package, seed uint64, states int, steps int64) map[string]string {
+func routes(pkg *check.Package, seed uint64, states int, steps int64, keys lower.ForeignKeys) map[string]string {
 	out := map[string]string{}
 	for _, t := range pkg.Tests {
-		out[t.Name] = routeKey(testKey(pkg, t, seed), steps)
+		out[t.Name] = routeKey(testKey(pkg, t, seed, keys), steps)
 	}
 	for _, t := range lower.RunTargets(pkg) {
-		out[t.Label] = routeKey(targetKey(pkg, t, seed, states, runnerEval), steps)
+		out[t.Label] = routeKey(targetKey(pkg, t, seed, states, runnerEval, keys), steps)
 	}
 	return out
 }

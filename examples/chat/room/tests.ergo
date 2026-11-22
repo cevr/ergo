@@ -24,7 +24,7 @@ func refusal(s State, sig Signal) string {
 }
 
 test RefusalsAreTyped {
-	let s = RoomOf([]string{"ada"})
+	let s = roomOf([]string{"ada"})
 	assert refusal(s, Join{Name: "ada"}) == "taken ada"
 	assert refusal(s, Say{From: "eve", Text: "x"}) == "not member eve"
 	assert refusal(s, Shut{By: "eve"}) == "not member eve"

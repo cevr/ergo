@@ -285,6 +285,9 @@ func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: fal
 func Started(sv Serving) int { sv.runs.Get() }
 
 func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	if StatesItsStatus(c) {
+		return exec.NotFound{Name: c.Name}
+	}
 	sv.runs.Set(sv.runs.Get() + 1)
 	if sv.status != 0 {
 		return exec.Result{Status: sv.status, Stdout: "", Stderr: "the plugin died\n"}
@@ -417,10 +420,15 @@ func configuredDisk(lines Lines, files Map[string, string], config string, trust
 // configuredWith is configuredDisk with the runner sv (a plugin's, or
 // any command's).
 func configuredWith(sv exec.Runner, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
+	configuredOn(sv, fstest.NewMemory(), files, config, trusted)
+}
+
+// configuredOn is configuredWith on the disk disk (one the runner sv
+// writes too).
+func configuredOn(sv exec.Runner, disk fstest.Memory, files Map[string, string], config string, trusted bool) (work.Tool, fstest.Memory) {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	Repo(vcs, theBase, "main", files, "c0")
-	let disk = fstest.NewMemory()
 	let home = work.Home(theBase, "")
 	disk.MkdirAll(theBase) catch {
 	case fs.Denied, fs.Failed:
@@ -1062,6 +1070,6 @@ test DoctorNamesTheMountOfMount {
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("mount", []string{})): exec.Result{Status: 0, Stdout: list, Stderr: ""}}}
 	let (tool, _) = configuredWith(runner, Map[string, string]{}, "", false)
 	let _ = try tool.Init()
-	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None})
+	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Repair: false})
 	assert report.FileSystem == "apfs"
 }

@@ -1,6 +1,8 @@
 import json
 import logstat/stats
 import time
+import strconv
+import strings
 
 // Encode is s as one line of JSON, with the fields in a fixed order, as
 // Go's encoding/json writes a struct: std json's HTML Text, which escapes
@@ -80,4 +82,46 @@ func Quote(s string) string {
 	let t = json.NewHTMLText()
 	t.String(s)
 	t.Written()
+}
+
+// QuoteReadsBack: a JSON string of valid UTF-8 text reads back as the
+// text (Go's strconv.Unquote reads JSON's escapes), for s made valid and
+// with every escaped character added.
+law QuoteReadsBack(s string) {
+	let t = strings.ToValidUTF8(s, "\ufffd")
+	for x in []string{t, t + "\"\\<>&\n\r\t\x00\x7f\u2028\u2029é", "\x01" + t} {
+		let back = strconv.Unquote(Quote(x)) catch {
+		case strconv.Malformed:
+			return false
+		}
+		if back != x {
+			return false
+		}
+	}
+	true
+}
+
+// QuoteIsSafe: a JSON string holds no control character and no <, >
+// or &, and every quote in it is escaped, whatever bytes s holds.
+law QuoteIsSafe(s string) {
+	safe(Quote(s)) && safe(Quote(s+"\"\\")) && safe(Quote("<\x00>&\xff"+s))
+}
+
+// safe reports whether q, a quoted string, holds no control byte, no
+// <, > or &, and no quote but the first and last that a backslash does
+// not escape.
+func safe(q string) bool {
+	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+		return false
+	}
+	let mut i = 1
+	for i < len(q)-1 {
+		let c = q[i]
+		if c < 32 || c == '<' || c == '>' || c == '&' || c == '"' {
+			return false
+		}
+		i += if c == '\\' { 2 } else { 1 }
+	}
+	// a backslash before the last quote steps past it
+	i == len(q)-1
 }

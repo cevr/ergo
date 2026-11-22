@@ -13,6 +13,7 @@
 //	go run ./scripts/buildcost reuse [-work DIR] [-sizes 10,50] [-examples deps]
 //	go run ./scripts/buildcost pins -sets DIR [-work DIR] [-sizes 10] [-examples deps]
 //	go run ./scripts/buildcost dev [-work DIR] [-sizes 10,50] [-examples deps]
+//	go run ./scripts/buildcost tests [-work DIR] [-kinds property,diagnostics,built] [-rounds 5] [-kills] [-o FILE] [-data FILE] [-sets DIR]
 //	go run ./scripts/buildcost test [-work DIR] [-ergo PATH] [-packages example/pkg,...]
 //
 // The scenarios, for each generated program gN (internal/testinputs/
@@ -30,6 +31,10 @@
 // sets of DIR (pins.go). `dev` counts a warm check answered by `ergo dev`
 // (dev.go).
 // `test` is the test cost receipt (test-speed FT0, testcost.go).
+// `tests` is the TPROBE meter (tests.go): one Go test family
+// per kind of test against its Ergo forms, a hand Go control and a floor,
+// cold, warm and after an edit, with a verdict per kind; `-kills` writes
+// the kill matrix that decides equal coverage.
 //
 // Each run has its own Ergo cache under -work (XDG_CACHE_HOME), so a
 // scenario's predecessor is the one listed before it. -work defaults to a
@@ -50,6 +55,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testinputs/genprogram"
 )
 
@@ -60,6 +66,9 @@ func main() {
 	if len(os.Args) > 2 && os.Args[1] == "count" {
 		runner{}.leastOf(strings.Join(os.Args[2:], " "), os.Args[2:])
 		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "tests" {
+		os.Exit(probeMain(os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "test" {
 		os.Exit(testCost(os.Args[2:]))
@@ -151,7 +160,7 @@ func setUp(work, ergo string, keep, needsErgo bool) (runner, int) {
 	}
 	if r.ergo == "" && needsErgo {
 		r.ergo = filepath.Join(r.work, "bin", "ergo")
-		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
+		build := ergobuild.Command(r.ergo, "./cmd/ergo")
 		build.Stdout, build.Stderr = os.Stderr, os.Stderr
 		if err := build.Run(); err != nil {
 			fmt.Fprintln(os.Stderr, "buildcost: go build ./cmd/ergo:", err)

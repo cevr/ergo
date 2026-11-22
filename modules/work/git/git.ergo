@@ -300,6 +300,32 @@ func GuardPushes(v Vcs, root string) fails work.VcsFailed {
 	}
 }
 
+// Guarded reads each remote's push URLs (git config --get-all) and names
+// the remotes one of whose is Guard.
+func Guarded(v Vcs, root string) []string fails work.VcsFailed {
+	let mut out = []string{}
+	let remotes = exec.Split(try answer(v, root, []string{"remote"}))
+	for name in remotes {
+		let urls = answer(v, root, []string{"config", "--get-all", "remote.\(name).pushurl"}) catch {
+		case work.VcsFailed:
+			""
+		}
+		if slices.Contains(exec.Split(urls), Guard) {
+			out = out.Append(name)
+		}
+	}
+	out
+}
+
+// Unguard unsets, in each remote that has it, the push URL Guard only
+// (git config --unset-all with a value pattern), so a push URL the owner
+// set stays.
+func Unguard(v Vcs, root string) fails work.VcsFailed {
+	for name in try Guarded(v, root) {
+		let _ = try writes(v, root, []string{"config", "--unset-all", "remote.\(name).pushurl", "^" + Guard + "$"})
+	}
+}
+
 // Locals reads the branches by for-each-ref and the stash entries by
 // git stash list, the newest first.
 func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
@@ -336,8 +362,15 @@ func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
 	}
 }
 
-func Remote(v Vcs, root string, commit string) bool fails work.VcsFailed {
-	try answer(v, root, []string{"for-each-ref", "--count=1", "--contains", commit, "--format=%(refname)", "refs/remotes"}) != ""
+// Remote reads the remote-tracking refs that contain commit, and with
+// onDefault the refs each refs/remotes/R/HEAD names (%(symref)).
+func Remote(v Vcs, root string, commit string, onDefault bool) bool fails work.VcsFailed {
+	let holding = exec.Split(try answer(v, root, []string{"for-each-ref", "--contains", commit, "--format=%(refname)", "refs/remotes"}))
+	if !onDefault {
+		return len(holding) > 0
+	}
+	let defaults = exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(symref)", "refs/remotes"}))
+	slices.IndexFunc(holding, func(r string) bool { r != "" && slices.Contains(defaults, r) }) >= 0
 }
 
 func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotFastForward | work.VcsFailed {
@@ -373,6 +406,56 @@ func Merge(v Vcs, root string, parent string, branch string) string fails work.C
 
 func Configure(v Vcs, root string, key string, value string) fails work.VcsFailed {
 	let _ = try writes(v, root, []string{"config", key, value})
+}
+
+// TreeOf is git rev-parse C^{tree}.
+func TreeOf(v Vcs, root string, commit string) string fails work.NoRevision | work.VcsFailed {
+	let r = try reads(v, root, []string{"rev-parse", "--verify", "--quiet", commit + "^{tree}"})
+	if r.Status != 0 {
+		return work.NoRevision{Rev: commit}
+	}
+	strings.TrimSpace(r.Stdout)
+}
+
+// Note is git notes --ref work show: status 1 with no note is "". The
+// text is as SetNote gave it (no whitespace cleaned).
+func Note(v Vcs, root string, commit string) string fails work.VcsFailed {
+	let args = []string{"notes", "--ref", "work", "show", commit}
+	let r = try reads(v, root, args)
+	if r.Status != 0 {
+		if strings.Contains(r.Stderr, "no note found") {
+			return ""
+		}
+		return try ok(r, root, args)
+	}
+	r.Stdout
+}
+
+// SetNote is git notes --ref work add -f with the text on standard
+// input, as it is (--no-stripspace).
+func SetNote(v Vcs, root string, commit string, text string) fails work.VcsFailed {
+	let args = []string{"-C", root, "notes", "--ref", "work", "add", "-f", "--no-stripspace", "-F", "-", commit}
+	let r = v.run.Run(exec.New("git", args).WithStdin(text)) catch {
+	case exec.NotFound:
+		return work.VcsFailed{Reason: "git is not on PATH"}
+	case exec.Denied:
+		return work.VcsFailed{Reason: "git may not run"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "git: \(f.Reason)"}
+	}
+	let _ = try ok(r, root, args)
+}
+
+// Setting is git config --get: status 1 is a key no file sets. The value
+// is as Configure set it, its own spaces kept (Git quotes a value that
+// ends in one): only the newline git config ends its answer with goes.
+func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"config", "--get", key})
+	if r.Status == 1 {
+		return ""
+	}
+	let _ = try ok(r, root, []string{"config", "--get", key})
+	strings.TrimSuffix(r.Stdout, "\n")
 }
 
 // StatDirty counts the entries git diff-files reports (a stat that

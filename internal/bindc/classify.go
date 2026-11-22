@@ -18,6 +18,11 @@ const (
 	// ClassValue is a const input value: `const S *` for a struct S
 	// without pointers, or a parameter `const T name[N]`. Go passes a value.
 	ClassValue Class = "value"
+	// ClassOptional is a `const S *` for a struct S without pointers that
+	// C reads as absent when it is NULL (an exception names it): Go passes
+	// a *S, nil for NULL, and C gets a filled copy; the Ergo text writes
+	// Option[S].
+	ClassOptional Class = "optional"
 	// ClassOut is an out-parameter: Go returns the value.
 	ClassOut Class = "out"
 	// ClassInBuffer is a `const T *` with a length parameter: a Go slice.
@@ -602,6 +607,12 @@ func (k *classifier) checkException(f *Function, i int, e *Exception) string {
 			return ""
 		}
 		return "a value is a `const S *` (S a struct without pointers) or a `const T name[N]`"
+	case ClassOptional:
+		if isPtr && k.constPtr(t) && t.LenExpr == "" && t.Elem.Kind == TypeNamed && k.types[t.Elem.Name] != nil &&
+			k.types[t.Elem.Name].Kind == DeclStruct && k.pointerFree(t.Elem.Name) {
+			return ""
+		}
+		return "an optional value is a `const S *` (S a struct without pointers)"
 	case ClassOut:
 		if isPtr && k.nonConstPtr(t) && t.LenExpr == "" && k.element(*t.Elem) {
 			return ""

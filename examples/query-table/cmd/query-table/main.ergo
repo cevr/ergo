@@ -1,0 +1,42 @@
+// query-table is a query-synced table (stage b: the view
+// on std ui's test host): a table of dinosaurs whose every control, the
+// search, the sorting and two list-box filters, lives in the address's
+// query, so the address alone says what the table shows. It plays a
+// script of the user's acts on the screen and shows what changed after
+// each. Package query writes and reads the address; package table is the
+// table as a machine and its rows; package listbox is the list box as a
+// machine; package explorer is the program, the table and its two list
+// boxes; package screen is the view; package dino is the data; package
+// script plays the script on the test host. This binary is the only
+// place that chooses the clock: a time.Manual that nothing moves, since
+// the program has no timer. With -stats it also prints the work of each
+// act.
+
+import querytable/script
+import flag
+import io
+import os
+import time
+
+let statsFlag = flag.Bool("stats", false, "print the work of each act (ui.Counts)")
+
+let set = flag.Set{Name: "query-table", Usage: "", Flags: []flag.Flag{statsFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: query-table [-stats] < script"
+
+func main() fails os.Exit needs Console | Ambient {
+	let v = with context { os.Process: os.NewHost() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+				try flag.Exit(err, usage)
+			}
+			return
+		}
+	}
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock, statsFlag.Get(v)) }
+	if status != 0 {
+		return os.Exit{Code: 1, Message: "query-table: the script did not run"}
+	}
+}

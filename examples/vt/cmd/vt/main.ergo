@@ -71,7 +71,7 @@ func count(text string) int fails os.Exit {
 }
 
 // PlayOn plays input on the screen s and prints it.
-func PlayOn[S lent vt.Screen](s S, input string) needs Console {
+func PlayOn[S vt.Screen](s mut S, input string) needs Console {
 	let played = vt.Play(s, input, Chunk)
 	for line in vt.Screenshot(s) {
 		Console.Println(line)

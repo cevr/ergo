@@ -1,10 +1,24 @@
+import machines
+
 // Walk is the walker's progress. Left holds one byte per cell of the level,
 // 's' where a shell is still to collect, so a step never writes to the old
 // state.
 type Walk { At Pos, Tide int, Turn int, Shells int, Left string }
 
+law FinishedIsFinal(w Walk, m Move) { ignored(Step(Won{W: w}, m)) && ignored(Step(Drowned{W: w}, m)) }
+
+func ignored(d Decision[Game, Never]) bool {
+	return Word(d) == "ignore"
+}
+
 // A game is in play, won on the peak, or lost under the tide.
 type Game = Playing{W Walk} | Won{W Walk} | Drowned{W Walk}
+
+law TurnNeverFalls(g Game, m Move) { WalkOf(machines.Next(g, Step(g, m))).Turn >= WalkOf(g).Turn }
+
+law TideNeverFalls(g Game, m Move) { WalkOf(machines.Next(g, Step(g, m))).Tide >= WalkOf(g).Tide }
+
+law ShellsNeverFall(g Game, m Move) { WalkOf(machines.Next(g, Step(g, m))).Shells >= WalkOf(g).Shells }
 
 // Start is the game before the first move: the walker at '@', every shell
 // still to collect, the tide out.

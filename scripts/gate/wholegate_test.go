@@ -445,6 +445,7 @@ var declaredSources = map[string]string{
 	"TestMergeTierSandboxRegression step.Argv[0]":             "a regression row's step launched outside the gate as a witness",
 	"TestBudgetRecordDurationsScope binary":                   "the gate built by the test from this package",
 	"testBinaryPackages goCommand":                            "the real go of TestMain (realTools)",
+	"TestErgoCompilesOnEveryPlatform goCommand":               "the real go of TestMain (realTools)",
 	"TestGroupProcessZombieLeaderOfRealPS python":             "python3, as exec.LookPath resolved it",
 	"TestMain tool":                                           "go or git, to find the real tools",
 	"probe realTools[\"go\"]":                                 "the real go of TestMain (realTools)",

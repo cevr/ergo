@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketch/testplan"
 	"ergo.local/prototype/runtime/testgen"
@@ -37,7 +38,7 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 
 func qualifiedLaw(pkg *check.Package, law *check.Law) string {
 	n := lawName(law)
-	if law.Pkg != pkg {
+	if law.Pkg != pkg && law.Pkg.Path != stdlib.PreludePath { // a prelude law is named bare (check.Law.Title)
 		n = "law " + law.Pkg.Name + "." + strings.TrimPrefix(n, "law ")
 	}
 	return n
@@ -215,6 +216,11 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		out.Status, out.Reason = Skipped, p.Reason
 		return
 	}
+	if p.Native != "" {
+		out.Status, out.Reason = Native, NativeReason(p.Native)
+		return
+	}
+	in.casesBudget(p.Count)
 	opParams := map[*check.Var]check.Conversion{}
 	var own *check.Conversion
 	for _, input := range p.Inputs {
@@ -260,6 +266,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		// values are the generated ones, which the body cannot change: a
 		// write copies a store its slot does not own.
 		shows := make([]func() Argument, 0, len(p.Inputs))
+		drawn := make([]Value, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
 			if p.Listed {
@@ -276,11 +283,14 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 					for j, param := range ctor.Sig.Params {
 						shown[j] = in.argument(cf, param.Type, vs[j])
 					}
-					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
+					return Argument{Name: input.Name, Value: in.root.Qualified(ctor.Pkg, ctor.Name) + "(" + strings.Join(shown, ", ") + ")"}
 				})
 			} else {
-				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
+				// The tie rule (testplan.Tie): an input may repeat an
+				// earlier value of its type, as the test build's does.
+				v = testplan.Tie(p, r, i, drawn, func() Value { return in.generate(cf, r, input.Type, testplan.Depth, input.Where) })
 			}
+			drawn[i] = v
 			switch {
 			case len(shows) > i:
 			case input.Provider != nil:
@@ -339,31 +349,39 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 // result and arguments are the case's, its Drawn the drawn arguments when
 // they differ. A smallest tape that no longer fails the same way (the body
 // is not a function of its draws) leaves the drawn case. A replay the
-// evaluator cannot finish (a skipped form, the budget spent) is the
-// result: tier 1 cannot give the native runner's counterexample, so it
-// does not decide the obligation.
+// evaluator cannot finish (a skipped form, the budget spent) ends the
+// shrink, and the drawn case is the result: the refutation already
+// decided the obligation, so it is reported refuted with the case as
+// drawn, never downgraded to skipped or incomplete (EVAL-SHRINK-REFUTED;
+// the native runner would have shrunk it further). The drawn arguments
+// are written before the shrink, while the budget lasts.
 func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func() Argument, run func() (Result, []func() Argument)) (Result, []func() Argument) {
 	tape := r.Tape()
-	var stop *Result
+	large := shown(drawnShows)
+	drawnShows = make([]func() Argument, len(large))
+	for i, a := range large {
+		drawnShows[i] = func() Argument { return a }
+	}
+	stopped := false
 	replay := func(c []uint64) (Result, []func() Argument) {
 		r.Replay(c)
 		return run()
 	}
 	best, _ := shrinkTape(tape, func(c []uint64) bool {
-		if stop != nil {
+		if stopped {
 			return false
 		}
 		got, _ := replay(c)
 		switch got.Status {
 		case Skipped, Incomplete:
-			stop = &got
+			stopped = true
 			return false
 		}
 		return got.Status == Refuted && got.escaped == drawn.escaped
 	}, shrinkBudget)
 	defer r.EndReplay()
-	if stop != nil {
-		return *stop, nil
+	if stopped {
+		return drawn, drawnShows
 	}
 	if slices.Equal(best, tape) {
 		return drawn, drawnShows
@@ -372,7 +390,7 @@ func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func(
 	if got.Status != Refuted || got.escaped != drawn.escaped {
 		return drawn, drawnShows // not deterministic: the drawn case
 	}
-	small, large := shown(shows), shown(drawnShows)
+	small := shown(shows)
 	if !slices.Equal(small, large) {
 		got.Drawn = large
 	}
@@ -611,7 +629,7 @@ func (in *interp) genBuilt(fr *frame, r *testgen.Stream, n *check.Named, d int) 
 
 func (in *interp) genVariant(fr *frame, r *testgen.Stream, vs []check.Type, d int) Value {
 	if d <= 0 {
-		vs = testplan.SmallVariants(vs)
+		vs = testplan.SmallVariants(in.root.Builder, vs)
 	}
 	if len(vs) == 0 {
 		ice("a union with no finite variant")

@@ -429,6 +429,8 @@ Second cut, at `2f9663cb0` (load 45 to 46): a shard's cost counts the generic de
 
 ## Shared instances
 
+MONO-HOOKS-MIN (2026-11-19) replaced the mechanism below: shared instances are now MONO1's monomorphic copies, compiled once each, with no instance package and no hook in Go's compiler ([tooling](../tooling.md#package-split)). Its receipt follows this section's 2026-11-15 table, which stays as the record of MONO-SHARED.
+
 MONO-SHARED (`internal/sketch/lower/pkginst.go`, the patched compile's `noder/ergoshared.go`) compiles each shared generic instance once, in package `inst`, where before each package or shard that named it compiled it again ([tooling](../tooling.md#package-split)). This was measured on 2026-11-15 at `6980a712d` on the workbox, with the `deps/graph` and `deps/resolve` test modules that `ergo test` writes, each built twice with the patched compile (go1.27.4): once with the shared lists and once with them stripped. The stripped build is the reference, Go's own rule, and its total leaves `inst` out. The figures are compile instructions in millions, the median of 5 runs. The load was 62 to 78; instruction counts do not track load as times do. The two `deps/graph` split builds share nothing, so they are the same build twice, and the 1.8 % between them is the noise. With shards every non-root user shares; in a split, only an instance two packages name.
 
 | Program, profile | Costliest shard, an edit's cost (M): Go's rule / shared | Clean, all program packages with `inst` (M): Go's rule / shared | `inst` (M) |

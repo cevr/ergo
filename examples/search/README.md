@@ -52,7 +52,7 @@ The live laws run the actor for each generated case, so they also check the runn
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/search/cmd/search < examples/search/cases/browse/stdin
 ./bin/ergo test examples/search/search
 ./bin/ergo test examples/search/memory
@@ -65,26 +65,6 @@ go run ./scripts/examples search
 - `full`: the fourth choice is a problem, and back shows the hits again; a query over 12 letters fails `IndexDown`.
 - `tie`: a key at the very instant the pause ends: the timer goes first, the search starts, and the key stops it.
 - `badscript`: a hit that is not a number (status 1).
-
-## effect-machine side by side (`examples/core/src/services-and-tasks.ts`)
-
-effect-machine writes this search with a `Context.Service` class for the index, `State`/`Event` schemas, `.task(State.Searching, ({ state }) => Effect.flatMap(Index, c => c.search(state.query)), { name, onSuccess, onFailure })`, an `.on` per (state, event), `.final` states, `Machine.run` with an input, and `Effect.provideService`.
-
-| concern | effect-machine | Ergo here | who checks |
-| --- | --- | --- | --- |
-| the service | a `Context.Service` class with a tag | `type Index { Find(query string) []Entry fails IndexDown, law … }`: an operation type whose laws every provider runs | compiler + laws |
-| the work of a state | `.task(State.Searching, …)` in the builder chain | `work: find`, one function over the state union: one work per state, the match exhaustive | compiler |
-| result → event | `onSuccess` and `onFailure`, pinned by overloads; a missing one is TS2769 "No overload matches this call" | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; `IndexDown` is handed on as a `Signal` | compiler |
-| a result after the state's exit | a plain `self.send` from the task fiber; a result queued before a re-entry can reach the new entry (inferred, em-parity §4.2) | the runner drops it by the entry's id | runner (MU4 model and property) |
-| required services | `R` in the machine's type, provided with `Effect.provideService` | `Work[Signal, Index \| Scheduler]`: the work's row, written as `R` is, a union; only `main` binds it | compiler (equal) |
-| debounce | a `.timeout` or a hand timer with a generation counter | `after: Timer`; `Enter` restarts it | runner + law `DebounceCoalesces` |
-| observing | `actor.subscribe` callbacks on the actor's fiber | `for c in actor.Changes(a, 64)`: a loop, no callback, every committed state once, holding 64 at most and reading a typed `Overflowed` after a gap | runner (MU12) |
-
-Where Ergo could not improve:
-
-- **The pins are state data, not a contract.** A provider has no state (M23), so a `Pins { Room, Add fails PinsFull }` contract cannot hold the entries; the pins are the state's data and `Room` a constant.
-- **The latency is the work's, not the index's.** A provider of an operation type cannot wait on the `Scheduler` (its methods name no capability), so the work waits `Latency` before it asks the index; its row is `Index | Scheduler`.
-- **Signatures and type arguments** are written where effect-machine infers (`Some[Timeout[Signal]]{…}`, `Emit[Search, Output]{…}`).
 
 ## Benchmark
 

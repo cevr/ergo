@@ -1,2 +1,2 @@
 gent: standard input is not a terminal: pass -p TEXT for one turn, or --replay FILE
-usage: gent --script FILE [-p TEXT] [--record FILE] | gent --replay FILE
+usage: gent --script FILE [--here] [--session FILE] [-p TEXT [--allow-shell] [--record FILE]] | gent --replay FILE

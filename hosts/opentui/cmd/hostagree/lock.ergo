@@ -1,0 +1,39 @@
+// lock: a check that disables a Fieldset of a button and a field, and a
+// button after it. While locked, a press or a text under the Fieldset
+// does nothing and Tab passes over its nodes.
+
+import ui
+
+type lock { locked bool, n int, text string }
+
+type lockEvent = Locked{} | Bumped{} | Worded{Text string}
+
+func lockStep(s lock, e lockEvent) Decision[lock, int] {
+	match e {
+	case Locked:
+		Enter[lock]{Next: lock{locked: !s.locked, n: s.n, text: s.text}}
+	case Bumped:
+		Enter[lock]{Next: lock{locked: s.locked, n: s.n + 1, text: s.text}}
+	case Worded as w:
+		Enter[lock]{Next: lock{locked: s.locked, n: s.n, text: w.Text}}
+	}
+}
+
+func lockMachine() Machine[lock, lockEvent, int] {
+	Machine[lock, lockEvent, int]{Initial: lock{locked: false, n: 0, text: ""}, Step: lockStep, After: none[lock, lockEvent], Work: idle[lock, lockEvent], Exit: func(s lock) Option[func()] { None }}
+}
+
+func lockView(f mut ui.Frame[lockEvent], s lock) {
+	ui.Column(f, ui.Plain()) {
+		ui.Check(f, "locked", s.locked, Locked)
+		ui.Fieldset(f, s.locked, "the counter") {
+			ui.Pressable(f, "bump", Bumped) {
+				ui.Text(f, "Bump \(s.n)")
+			}
+			ui.Input(f, s.text, "word", func(t string) lockEvent { Worded{Text: t} })
+		}
+		ui.Pressable(f, "after", Bumped) {
+			ui.Text(f, "After \(s.n)")
+		}
+	}
+}

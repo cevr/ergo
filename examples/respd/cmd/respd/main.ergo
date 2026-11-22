@@ -1,0 +1,98 @@
+// respd is a key-value server that speaks RESP, the protocol of Redis,
+// with leases as commands of their own. This first build answers the
+// RESP requests it reads on standard input, one after another, on standard output,
+// as one connection would: `printf '*1\r\n$4\r\nPING\r\n' | respd`. A
+// server over sockets comes with std net. The keys live in memory for one
+// run. -at stops the clock at a Unix second, so expiries and lease ends
+// read the same on every run. This binary is the only place that chooses
+// the providers: the engine, the clock and the standard streams.
+
+import flag
+import io
+import os
+import respd/command
+import respd/memory
+import respd/resp
+import respd/store
+import strings
+import time
+
+let atFlag = flag.OptionalInt("at", "run on a clock stopped at this Unix `second`; the host's clock by default")
+
+let set = flag.Set{Name: "respd", Usage: "", Flags: []flag.Flag{atFlag}, Args: []flag.ArgSpec{}}
+
+// run is respd on args, on the host's clock unless -at stops one.
+func run(args []string, host time.Host) fails os.Exit needs io.Stdout | io.Source {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, "usage: respd [-at SECOND] < REQUESTS")
+		return
+	}
+	let engine = memory.NewEngine()
+	match atFlag.Get(v) {
+	case Some[int] as at:
+		with context { time.Clock: time.NewManual(int64(at.Value)), store.Engine: engine, store.Leases: engine } {
+			try serve()
+		}
+	case None:
+		with context { time.Clock: host, store.Engine: engine, store.Leases: engine } {
+			try serve()
+		}
+	}
+}
+
+// serve answers every request of standard input, chunk by chunk, and
+// writes the replies to each chunk's requests at once. Bytes that are not
+// RESP get a protocol error and end the run with status 1, as Redis
+// closes such a connection; so does input that ends inside a request.
+func serve() fails os.Exit needs io.Stdout | io.Source | store.Engine | store.Leases | time.Clock {
+	let mut r = resp.NewReader()
+	let mut s = command.NewSession()
+	for {
+		let chunk = io.Source.Read() catch {
+		case io.ReadFailed as f:
+			return os.Exit{Code: 1, Message: "respd: reading standard input: " + f.Reason}
+		}
+		match chunk {
+		case None:
+			if r.Buffered() > 0 {
+				return os.Exit{Code: 1, Message: "respd: the input ends inside a request"}
+			}
+			return
+		case Some[string] as c:
+			r.Feed(strings.Bytes(c.Value))
+			let a = answer(&r, &s)
+			io.Stdout.Print(strings.FromBytes(a.Out))
+			match a.Broken {
+			case Some[resp.Malformed] as m:
+				return os.Exit{Code: 1, Message: "respd: a request is not RESP: " + m.Value.Reason}
+			case None:
+			}
+		}
+	}
+}
+
+// Answers is the replies to the requests a reader holds, and the
+// Malformed that stopped them, if one did.
+type Answers { Out []byte, Broken Option[resp.Malformed] }
+
+// answer is the replies to every whole request r holds, in s.
+func answer(r mut resp.Reader, s mut command.Session) Answers needs store.Engine | store.Leases | time.Clock {
+	let mut out = []byte{}
+	for {
+		let v = r.Next() catch {
+		case resp.Incomplete:
+			return Answers{Out: out, Broken: None}
+		case resp.Malformed as m:
+			let reply = resp.Fault{Text: "ERR Protocol error: " + m.Reason}
+			return Answers{Out: resp.Append(out, reply, s.Protocol), Broken: Some[resp.Malformed]{Value: m}}
+		}
+		out = command.Answer(out, s, command.Parse(v))
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Source: io.NewStdin() } {
+		try run(os.Process.Args(), time.NewHost())
+	}
+}

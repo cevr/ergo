@@ -1,6 +1,6 @@
 // Package memory holds Table, the in-memory deploys.Store. The server
-// keeps its deploys for one run: Ergo has no listener yet, so a run is one
-// connection (cmd/deploys).
+// keeps its deploys for one run: the binary serves one connection on its
+// standard streams, so a run is one connection (cmd/deploys).
 
 import deploys/deploys
 import sync

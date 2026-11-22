@@ -1,0 +1,247 @@
+// A scene script (ui.Act) played through a headless screen: each step is
+// the terminal bytes a person's mouse or keyboard sends, fed to the
+// screen's input parser, at the cell where the scene shows the node it
+// names, so a script that ui.Play runs on ui.TestHost runs here through
+// OpenTUI's parser, layout and hit test, and the driver's focus.
+
+import actor
+import go ergo.local/prototype/hosts/opentui/screen
+import ui
+
+// Drain feeds the screen's queued input to d.
+func Drain[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	for {
+		let next = d.s.Take()
+		if next.Kind == screen.None {
+			return
+		}
+		try Feed(d, next)
+	}
+}
+
+// Send feeds the terminal bytes b to the screen, then d.
+func Send[E comparable, S, D, F](d mut Driver[S, E, D, F], b string) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	d.s.Feed(b)
+	if b == "\x1b" {
+		// A lone Escape is a key once the parser's pause is over.
+		d.s.Settle()
+	}
+	try Drain(d)
+}
+
+// found is the one node whose label is label, as ui.Play finds a TapOn's,
+// TypeInto's, PointOn's or ScrollOn's: none fails NoNode, more than one
+// Ambiguous with their count (std ui's found; mutant
+// OTMR-label-first-of-many).
+func found[S, E, D, F](d mut Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = withLabel(d, d.root, label, []ui.Id[E]{})
+	if len(ids) == 0 {
+		return ui.NoNode{Label: label}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// withLabel is acc and the nodes under id whose label is label, in tree
+// order, each with none under it: a match inside a match is the same
+// target (a Pressable "go" around a Text "go" is one), as std ui's
+// withLabel takes the outer one.
+func withLabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
+	let mut out = acc
+	for k in kidsOf(d, id) {
+		if labelOf(nodeOf(d, k)) == (Some{Value: label}) {
+			out = out.Append(k)
+			continue
+		}
+		out = withLabel[S, E, D, F](d, k, label, out)
+	}
+	out
+}
+
+// Find is the first node of the tree, in tree order, whose label is
+// label (labelOf).
+func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
+
+func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Option[ui.Id[E]] {
+	for k in kidsOf(d, id) {
+		if labelOf(nodeOf(d, k)) == (Some{Value: label}) {
+			return Some{Value: k}
+		}
+		match findIn[S, E, D, F](d, k, label) {
+		case Some[ui.Id[E]] as found:
+			return found
+		case None:
+		}
+	}
+	None
+}
+
+// labelOf is the label a script names a node by, as ui.Find matches it:
+// a Pressable's, a Check's, a Toggle's, an Area's, a Canvas's or a
+// list's label, a Text's value, an Input's field label or else its
+// placeholder.
+func labelOf[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.PressableNode[E] as x:
+		Some{Value: x.Label}
+	case ui.CanvasNode as x:
+		Some{Value: x.Label}
+	case ui.RowsNode as x:
+		Some{Value: x.Label}
+	case ui.CheckNode[E] as x:
+		Some{Value: x.Label}
+	case ui.ToggleNode as x:
+		Some{Value: x.Label}
+	case ui.AreaNode as x:
+		Some{Value: x.Label}
+	case ui.TextNode as x:
+		Some{Value: x.Value}
+	case ui.InputNode as x:
+		// its field label when it has one, else its placeholder, as
+		// ui.Find names a field (std ui's fieldName)
+		if x.Label != "" { Some{Value: x.Label} } else { Some{Value: x.Placeholder} }
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No label: ui.Find names none of these either.
+		None
+	}
+}
+
+// Box is the cell box where id shows, after the last frame.
+func Box[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) screen.Rect needs go.Foreign { d.s.BoxOf(numOf(d, id)) }
+
+// Click is the bytes of a left button press and release at column x, row
+// y (SGR mouse form, 1-based on the wire).
+func Click(x int, y int) string { Mouse(0, x, y, true) + Mouse(0, x, y, false) }
+
+// Mouse is the bytes of one SGR mouse report of button code b at column
+// x, row y: a press or a motion (down), else a release. Code 0 is the left
+// button, 32 a drag of it, 35 a move with no button, 64 and 65 a turn of
+// the wheel up and down, 66 and 67 left and right.
+func Mouse(b int, x int, y int, down bool) string { "\x1b[<\(b);\(x + 1);\(y + 1)\(if down { "M" } else { "m" })" }
+
+// pointOn sends the pointer event p at the Area id as the mouse bytes
+// that make it, at the cell of p's place in the Area's box (DIPs to cells
+// by the host's Cell): a Down a press, an Up a release, a Moved a drag
+// while an Area holds the pointer and a move with no button otherwise, a
+// Wheel a turn of the wheel for each WheelRows rows (or columns) of its
+// DY (DX), at least one.
+func pointOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, p ui.PointerEvent) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	if !d.s.Shown(numOf(d, id)) {
+		return ui.NoNode{Label: label}
+	}
+	let c = d.options.Cell
+	let b = Box(d, id)
+	let x = b.X + int(p.X/c.W)
+	let y = b.Y + int(p.Y/c.H)
+	match p.Phase {
+	case ui.Down:
+		try Send(d, Mouse(0, x, y, true))
+	case ui.Up:
+		try Send(d, Mouse(0, x, y, false))
+	case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
+		// A move: a drag while an Area holds the pointer (the composer
+		// tells Drag from Moved, not the host).
+		try Send(d, Mouse(if Captured(d) != None { 32 } else { 35 }, x, y, true))
+	case ui.Wheel as w:
+		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }
+		let turn = float64(WheelRows) * unit
+		let mut n = int((if by < 0 { -by } else { by })/turn + 0.5)
+		if n < 1 && by != 0 {
+			n = 1
+		}
+		for _ in 0..n {
+			try Send(d, Mouse(code, x, y, true))
+		}
+	}
+}
+
+// scrollOn scrolls the list (or Scroll) id to offset (DIPs, whole rows
+// by the host's Cell), as a person drags its bar there, and reports its
+// viewport.
+func scrollOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], offset ui.Length) fails ui.BadPatch | ScreenFailed needs go.Foreign {
+	let rows = float64(offset) / d.options.Cell.H
+	try scrollTo(d.s, numOf(d, id), int(rows+0.5), false)
+	try repaint(d)
+}
+
+// tapOn taps id at the first cell of its box, after the Scrolls around it
+// scrolled it into view, as a person scrolls to a row below the fold;
+// NoNode names it by label when it shows in no cell.
+func tapOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	try reveal(d.s, numOf(d, id))
+	try repaint(d)
+	if !d.s.Shown(numOf(d, id)) {
+		return ui.NoNode{Label: label}
+	}
+	let b = Box(d, id)
+	try Send(d, Click(b.X, b.Y))
+}
+
+// typeInto taps the field id, moves its caret to the end (Ctrl+E),
+// deletes its text (Ctrl+U) and types text.
+func typeInto[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, text string) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	try tapOn(d, id, label)
+	try Send(d, "\x05\x15")
+	if text != "" {
+		try Send(d, text)
+	}
+}
+
+// Play runs a script through the screen, in order, feeding the bytes each
+// step makes before the next. TapOn clicks the node's first cell;
+// TypeInto clicks the field, deletes its text with Backspace and types
+// the text; KeyIn sends the key's bytes; SettleAll settles; ClickOn and
+// FillIn act as TapOn and TypeInto on the first node the locator finds,
+// ExpectOn checks its matcher there, and NavigateTo and GoBack move the
+// history and send URLChanged, as ui.TestHost does. PointOn sends the
+// mouse bytes of its pointer event at the Area (pointOn); ScrollOn
+// scrolls the list to its offset (its height is the screen's, which the
+// list reports). AdvanceBy moves the frames' time (Advance).
+func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+	for act in script {
+		match act {
+		case ui.TapOn as x:
+			try tapOn(d, try found(d, x.Label), x.Label)
+		case ui.TypeInto as x:
+			try typeInto(d, try found(d, x.Label), x.Label, x.Text)
+		case ui.KeyIn as x:
+			try Send(d, Bytes(x.Press))
+		case ui.PointOn as x:
+			try pointOn(d, try found(d, x.Label), x.Label, x.Pointer)
+		case ui.ScrollOn as x:
+			try scrollOn(d, try found(d, x.Label), x.Offset)
+		case ui.SettleAll:
+			try Settle(d)
+		case ui.AdvanceBy as x:
+			try Advance(d, x.By)
+		case ui.ClickOn as x:
+			try tapOn(d, try located(d, x.At), "a located node")
+		case ui.FillIn as x:
+			try typeInto(d, try located(d, x.At), "a located node", x.Text)
+		case ui.ExpectOn as x:
+			try ui.ExpectIn(&d.mirror, x.At, x.Is)
+		case ui.NavigateTo as x:
+			let u = ui.ParseURL(x.Href)
+			ui.Push(d.history, u)
+			try step(d, ui.URLChanged{URL: u})
+		case ui.GoBack:
+			if ui.Back(d.history) {
+				try step(d, ui.URLChanged{URL: ui.Current(d.history)})
+			}
+		}
+	}
+}
+
+// Locate is the nodes of the tree loc finds, in tree order.
+func Locate[S, E, D, F](d mut Driver[S, E, D, F], loc ui.Locator) []ui.Id[E] { ui.LocateIn(&d.mirror, loc) }
+
+// located is the first node of the tree loc finds.
+func located[E comparable, S, D, F](d mut Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
+	let ids = ui.LocateIn(&d.mirror, loc)
+	if len(ids) == 0 {
+		return ui.NoNode{Label: "a locator"}
+	}
+	ids[0]
+}

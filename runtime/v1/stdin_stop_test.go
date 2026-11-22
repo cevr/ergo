@@ -24,7 +24,9 @@ import (
 //   - stop: stop that task, which must return (a stop that does not end the
 //     wait hangs the test, which its timeout reports);
 //   - read: with no reader running and a line left, take one line in the
-//     root with Lines and a break.
+//     root with Lines and a break;
+//   - peek: the same with TermPeek and TermDrop, as term's ReadKey takes a
+//     key: the bytes after the line stay in the buffer (UC1).
 //
 // At the end the pipe closes and the root's ReadAll takes the rest. The
 // model is the queue of written lines: the lines the readers kept, the
@@ -34,6 +36,9 @@ import (
 func TestIOStdinStopModel(t *testing.T) {
 	oldIn := os.Stdin
 	defer func() { os.Stdin = oldIn }()
+	// The SIGWINCH watch a peek makes is the process's, made once, and
+	// os/signal's loop that serves it never ends: make it before counting.
+	termResizes()
 	before := runtime.NumGoroutine()
 	for seed := uint64(0); seed < 300; seed++ {
 		if steps, diff := stdinStopRun(seed); diff != "" {
@@ -119,6 +124,23 @@ func stdinStopRun(seed uint64) (steps []string, diff string) {
 			steps = append(steps, "stop")
 			_ = reader.Stop()
 			reader = nil
+		case k == 3 && count() < len(written) && r.IntN(2) == 0:
+			// As term's ReadKey takes a key: peek until the buffer holds a
+			// whole line, then drop that line alone, leaving the rest.
+			steps = append(steps, "peek")
+			have := 0
+			for {
+				p, err := TermPeek(root, have)
+				if err != nil {
+					return steps, fmt.Sprintf("TermPeek failed: %v", err)
+				}
+				if i := strings.IndexByte(p.Bytes, '\n'); i >= 0 {
+					TermDrop(i + 1)
+					taken(p.Bytes[:i])
+					break
+				}
+				have = len(p.Bytes)
+			}
 		case k == 3 && count() < len(written):
 			steps = append(steps, "read")
 			for line := range IOLines(root) {

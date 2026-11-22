@@ -1,0 +1,104 @@
+// extract reads the receipt in a document by asking a model for it:
+//
+//	extract RECORDING DOCUMENT
+//
+// The model is a recording (llm/recorded): the exchanges a real model
+// gave for these documents, replayed with no network and no key. The
+// program prints the receipt, each repair its reply needed, and each
+// problem the receipt has; a reply that is no receipt exits 1 with the
+// reply and where it breaks. This binary is the only place that chooses
+// the model and the file system.
+
+import extract/reader
+import extract/receipt
+import fs
+import io
+import json
+import llm
+import llm/recorded
+import os
+
+// load is the text of file.
+func load(file string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(file) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 2, Message: "extract: no file \(file)"}
+	case fs.Denied:
+		return os.Exit{Code: 2, Message: "extract: cannot read \(file): permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 2, Message: "extract: cannot read \(file): \(e.Reason)"}
+	}
+}
+
+// show is a read receipt, its repairs and its problems as lines.
+func show(r receipt.Receipt, fixes []json.Fix) string {
+	let mut out = "merchant: \(r.Merchant)\n"
+	for i in r.Items {
+		out = out + "item: \(i.Count) x \(i.Name) at \(receipt.Money(i.Cents))\n"
+	}
+	out = out + "total: \(receipt.Money(r.Total))\npaid: \(receipt.Paid(r.Paid))\n"
+	match r.Note {
+	case json.Present[string] as n:
+		out = out + "note: \(n.Value)\n"
+	case json.Absent:
+	}
+	for f in fixes {
+		out = out + "repaired: \(reader.FixName(f))\n"
+	}
+	for p in receipt.Check(r) {
+		out = out + "problem: \(receipt.Describe(p))\n"
+	}
+	out
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout | llm.Model {
+	match reader.Read(try load(args[1])) {
+	case reader.Found as g:
+		io.Stdout.Print(show(g.Receipt, g.Fixes))
+	case reader.Unfit as u:
+		let at = if u.NoFit.Path == "" { "the reply" } else { u.NoFit.Path }
+		return os.Exit{Code: 1, Message: "extract: no receipt in the reply (\(at): \(u.NoFit.Reason)):\n\(u.NoFit.Reply)"}
+	case reader.Failed as f:
+		return os.Exit{Code: 1, Message: "extract: the model failed: \(failed(f.Failure))"}
+	}
+}
+
+// failed is a model's failure as the program prints it.
+func failed(f llm.Failure) string {
+	match f {
+	case llm.RateLimited:
+		"rate limited"
+	case llm.Overloaded:
+		"overloaded"
+	case llm.Unauthorized:
+		"unauthorized"
+	case llm.Refused:
+		"refused"
+	case llm.Truncated:
+		"the reply was cut off"
+	case llm.Transport as t:
+		t.Reason
+	case llm.InvalidRequest as r:
+		r.Reason
+	case llm.InvalidResponse as r:
+		r.Reason
+	case llm.UnsupportedSchema:
+		"the schema is not supported"
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 2 {
+			return os.Exit{Code: 2, Message: "usage: extract RECORDING DOCUMENT"}
+		}
+		let exchanges = recorded.Read(try load(args[0])) catch {
+		case recorded.Unreadable as u:
+			return os.Exit{Code: 2, Message: "extract: \(args[0]):\(u.Line): \(u.Reason)"}
+		}
+		with context { llm.Model: recorded.NewReplay(exchanges) } {
+			try run(args)
+		}
+	}
+}

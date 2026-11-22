@@ -21,6 +21,24 @@
 // Config is the whole configuration.
 type Config { Name string, Listen Listen, Log Level, Upstreams []Upstream }
 
+// EnvWins: a variable overrides the file's value of its key. A generated
+// Port is in its where, so p needs no clamping.
+law EnvWins(c Config, seed int, p Port) {
+	for x in []Config{c, Sample(seed)} {
+		if !Valid(x) {
+			continue
+		}
+		let back = Decode(Encode(x), Map[string, string]{"CONFPARSE_LISTEN_PORT": "\(p)"}) catch {
+		case _:
+			return false
+		}
+		if back != (Config{..x, Listen: Listen{..x.Listen, Port: p}}) {
+			return false
+		}
+	}
+	true
+}
+
 // Listen is where the proxy listens.
 type Listen { Host string, Port Port }
 

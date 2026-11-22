@@ -1,0 +1,1350 @@
+// ---------------------------------------------------------------- expressions
+
+// parseExpr parses `[ try ] CatchExpr`.
+func parseExpr(p mut parser) uint32 {
+	enter(p)
+	if p.tk == Try {
+		let t = p.i
+		next(p)
+		tryOperand(p, t)
+		let x = parseCatchExpr(p)
+		leave(p)
+		return row(&p.t, KTryExpr, uint32(t), x, none)
+	}
+	let x = parseCatchExpr(p)
+	leave(p)
+	x
+}
+
+// tryOperand reports a try with no operand after it.
+func tryOperand(p mut parser, t int) {
+	let k = p.tk
+	if k == Semicolon || k == RBrace || k == RParen || k == RBrack || k == Comma || k == Colon || k == EOF || k == Catch {
+		errorAt(p, tpos(p, t), 3, "try needs an operand")
+	}
+}
+
+func parseCatchExpr(p mut parser) uint32 {
+	let x = parseRange(p)
+	if p.tk == Catch {
+		return parseCatch(p, x)
+	}
+	x
+}
+
+// parseRange parses `Binary [ .. Binary ]`.
+func parseRange(p mut parser) uint32 {
+	let x = parseBinary(p, 1)
+	if p.tk != DotDot {
+		return x
+	}
+	let op = p.i
+	enter(p)
+	next(p)
+	let y = parseBinary(p, 1)
+	if p.tk == DotDot {
+		errorf(p, "a range does not chain: write the bounds of one range")
+	}
+	leave(p)
+	row(&p.t, KBinaryExpr, uint32(op), x, y)
+}
+
+// parseBinary parses a binary expression of precedence prec or tighter,
+// retaining the left spine's height as the Go parser does.
+func parseBinary(p mut parser, prec int) uint32 {
+	let o = p.nest
+	let saved = measure(p)
+	let mut x = parseUnary(p)
+	let mut h = height(p, saved)
+	for {
+		let op = p.tk
+		let opPrec = precedence(op)
+		if opPrec < prec || opPrec == 0 {
+			break
+		}
+		if o+h+1 > MaxNesting {
+			tooDeep(p)
+			break
+		}
+		enter(p)
+		let at = p.i
+		next(p)
+		let inner = measure(p)
+		let y = parseBinary(p, opPrec+1)
+		let hy = height(p, inner)
+		h = maxInt(hy, h) + 1
+		leave(p)
+		x = row(&p.t, KBinaryExpr, uint32(at), x, y)
+	}
+	p.nest = o
+	reach(p, o+h)
+	x
+}
+
+// parseUnary parses a unary expression.
+func parseUnary(p mut parser) uint32 {
+	let k = p.tk
+	if k == Add || k == Sub || k == Not || k == Xor || k == And || k == Mul || k == Try {
+		let at = p.i
+		enter(p)
+		next(p)
+		if k == Try {
+			tryOperand(p, at)
+		}
+		let x = parseUnary(p)
+		leave(p)
+		let kind = if k == Mul { KStarExpr } else if k == Try { KTryExpr } else { KUnaryExpr }
+		return row(&p.t, kind, uint32(at), x, none)
+	}
+	parsePrimaryExpr(p)
+}
+
+// parseCatch parses `catch { case P, Q: … }`.
+func parseCatch(p mut parser, x uint32) uint32 {
+	let c = want(p, Catch)
+	if p.tk != LBrace {
+		expected(p, "expected \"{\" after catch, found ")
+	}
+	next(p)
+	let saved = p.exprLev
+	p.exprLev = 0
+	let m = mark(p.t)
+	for p.tk == Case {
+		let cs = p.i
+		next(p)
+		let am = mark(p.t)
+		let n = parseCaseList(p)
+		let colon = want(p, Colon)
+		parseStmtList(p)
+		pushW(&p.t, mkClause(&p.t, am, KCatchArm, cs, n, colon))
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \"case\" or \"}\", found ")
+	}
+	let rb = p.i
+	next(p)
+	mkCatch(&p.t, m, x, c, rb)
+}
+
+// parsePrimaryExpr parses an operand and its selectors, indexes, calls and
+// literals, retaining the chain's height as parseBinary does.
+func parsePrimaryExpr(p mut parser) uint32 {
+	let o = p.nest
+	let saved = measure(p)
+	let mut x = parseOperand(p)
+	let mut h = height(p, saved)
+	let mut inner = 0
+	for {
+		if p.nest > o {
+			let hi = height(p, inner)
+			h = maxInt(hi, h) + 1
+			leave(p)
+		}
+		let k = p.tk
+		if k == LBrace && !isLiteralType(p, x) {
+			// The brace opens a body: a sibling, never a link.
+			headerLiteral(p, x)
+			break
+		}
+		if !(k == Period || k == LBrack || k == LParen || k == LBrace) {
+			break
+		}
+		if o+h+1 > MaxNesting {
+			tooDeep(p)
+			break
+		}
+		enter(p)
+		inner = measure(p)
+		if k == Period {
+			next(p)
+			if p.tk == Ident {
+				let sel = parseIdent(p)
+				x = row(&p.t, KSelectorExpr, uint32(0), x, sel)
+			} else if p.tk == LParen {
+				if peek(p, 1) == Type {
+					habit(p, pos(p), 1, habitTypeSwitch)
+				}
+				habit(p, pos(p), 1, habitTypeAssert)
+			} else {
+				expected(p, "expected a name after \".\", found ")
+			}
+		} else if k == LBrack {
+			x = parseIndexOrSlice(p, x)
+			if isMapForm(p, x) && (p.tk != LBrace || !isLiteralType(p, x)) {
+				// `Map[K, V]` is the map type: a value only as a composite
+				// literal's type.
+				errorAt(p, nodePos(p, x), 3, notAValue)
+			}
+		} else if k == LParen {
+			x = parseCall(p, x)
+		} else {
+			x = parseCompositeLit(p, some(mapType(p, x)))
+		}
+	}
+	p.nest = o
+	reach(p, o+h)
+	x
+}
+
+// isLiteralType reports whether x, followed by `{`, starts a composite
+// literal.
+func isLiteralType(p mut parser, x uint32) bool {
+	let k = kindAt(p, x)
+	if k == KIdent || k == KIndexExpr {
+		return p.exprLev >= 0
+	}
+	if k == KSelectorExpr {
+		return kindAt(p, p.t.a[int(x)]) == KIdent && p.exprLev >= 0
+	}
+	k == KArrayType || k == KMapType
+}
+
+// lineBetween reports a newline in src[a:b].
+func lineBetween(p mut parser, a int, b int) bool {
+	for j in a..b {
+		if p.src[j] == '\n' {
+			return true
+		}
+	}
+	false
+}
+
+// tokIdx is the index of the token n past the current one, or of the last.
+func tokIdx(p mut parser, n int) int {
+	let j = p.i + n
+	if j < p.ntok { j } else { p.ntok - 1 }
+}
+
+// headerLiteral reports a composite literal written bare in a control
+// clause header, `with Cfg{Port: 1} { … }`.
+func headerLiteral(p mut parser, x uint32) {
+	if p.exprLev >= 0 || lineBetween(p, tend(p, p.i), tpos(p, tokIdx(p, 1))) {
+		return
+	}
+	p.exprLev = 0
+	let literal = isLiteralType(p, x)
+	p.exprLev = -1
+	if !literal {
+		return
+	}
+	let n1 = peek(p, 1)
+	let n2 = peek(p, 2)
+	if (n1 == Ident && n2 == Colon) || (n1 == RBrace && n2 == LBrace) || positionalElement(p) {
+		let a = nodePos(p, x)
+		let name = p.src[a:nodeEnd(p, x)]
+		errorNode(p, x, "a composite literal in a header needs parentheses: write ("+name+"{…}), or bind it with let first")
+	}
+}
+
+// positionalElement reports whether the tokens after the brace begin a
+// positional literal on the brace's line.
+func positionalElement(p mut parser) bool {
+	let mut depth = 0
+	let mut prevEnd = tend(p, p.i)
+	let mut i = 1
+	for {
+		let j = tokIdx(p, i)
+		let k = uint8(p.toks.kind[j])
+		if k == EOF || lineBetween(p, prevEnd, tpos(p, j)) {
+			return false
+		}
+		prevEnd = tend(p, j)
+		if k >= Break && k <= As && k != Func {
+			return false
+		} else if k == LParen || k == LBrack || k == LBrace {
+			depth = depth + 1
+		} else if k == RParen || k == RBrack {
+			depth = depth - 1
+		} else if k == RBrace {
+			if depth == 0 {
+				let after = tokIdx(p, i+1)
+				return i > 1 && uint8(p.toks.kind[after]) == LBrace && !lineBetween(p, tend(p, j), tpos(p, after))
+			}
+			depth = depth - 1
+		} else if depth > 0 {
+		} else if k == Comma {
+			return i > 1
+		} else if k == Colon || k == Semicolon || k == Assign || k == Define || (k >= AddAssign && k <= AndNotAssign) {
+			return false
+		}
+		if depth < 0 {
+			return false
+		}
+		i = i + 1
+	}
+	false
+}
+
+func parseOperand(p mut parser) uint32 {
+	let k = p.tk
+	if k == Ident {
+		return parseIdent(p)
+	}
+	if k == Go && peek(p, 1) == Period {
+		let id = identRow(p, p.i)
+		next(p)
+		return id
+	}
+	if k == Int || k == Float || k == Duration || k == String || k == Rune {
+		return basicLit(p)
+	}
+	if k == StringHead {
+		return parseInterpolated(p)
+	}
+	if k == LParen {
+		enter(p)
+		let lp = p.i
+		next(p)
+		p.exprLev = p.exprLev + 1
+		let m = mark(p.t)
+		let x = parseExpr(p)
+		if p.tk != Comma {
+			p.exprLev = p.exprLev - 1
+			let rp = want(p, RParen)
+			leave(p)
+			return row(&p.t, KParenExpr, uint32(lp), x, uint32(rp))
+		}
+		refuseSingleton(p)
+		pushW(&p.t, x)
+		for got(p, Comma) && p.tk != RParen {
+			pushW(&p.t, parseExpr(p))
+		}
+		p.exprLev = p.exprLev - 1
+		let rp = want(p, RParen)
+		leave(p)
+		return mkTuple(&p.t, m, someTok(lp), someTok(rp))
+	}
+	if k == Func {
+		// In value position `func` always starts a literal; a signature
+		// with no block is a bare type.
+		let at = pos(p)
+		let length = tokLen(p)
+		let fn = want(p, Func)
+		if p.tk != LParen {
+			expected(p, "expected \"(\", found ")
+		}
+		let t = parseSignature(p, someTok(fn), ctxDecl, true)
+		if p.tk != LBrace {
+			errorAt(p, at, length, notAValue)
+		}
+		if p.litErr {
+			p.litErr = false
+			errorAt(p, p.litPos, p.litLen, "a function literal names its parameters: write `func(x)` or `func(x T)`")
+		}
+		let body = parseBlock(p)
+		return row(&p.t, KFuncLit, uint32(0), t, body)
+	}
+	if k == LBrack {
+		// A slice type is a value only as the type of a composite literal.
+		let at = pos(p)
+		let length = tokLen(p)
+		let t = parseType(p, ctxList)
+		if p.tk != LBrace {
+			errorAt(p, at, length, notAValue)
+		}
+		return t
+	}
+	if k == Escaping {
+		errorf(p, notAValue)
+		return noNode
+	}
+	if k == If {
+		return parseIf(p)
+	}
+	if k == Match {
+		return parseMatch(p)
+	}
+	if k == With {
+		return parseWith(p)
+	}
+	if k == KwContext {
+		return parseContextLit(p)
+	}
+	expected(p, "expected an expression, found ")
+	noNode
+}
+
+func basicLit(p mut parser) uint32 {
+	let b = row(&p.t, KBasicLit, uint32(p.i), none, none)
+	next(p)
+	b
+}
+
+// parseInterpolated parses `"a \(x) b"` from its STRING_HEAD: one list of
+// its parts, a text, then an expression and a text each.
+func parseInterpolated(p mut parser) uint32 {
+	let m = mark(p.t)
+	pushW(&p.t, basicLit(p))
+	let saved = p.exprLev
+	p.exprLev = 1
+	for {
+		pushW(&p.t, parseExpr(p))
+		if p.tk == StringMid {
+			pushW(&p.t, basicLit(p))
+		} else if p.tk == StringTail {
+			pushW(&p.t, basicLit(p))
+			break
+		} else {
+			expected(p, "expected \")\" to close the interpolation, found ")
+			break
+		}
+	}
+	p.exprLev = saved
+	rec(&p.t, KInterpolatedString, uint32(0), m)
+}
+
+func parseIndexOrSlice(p mut parser, x uint32) uint32 {
+	let lb = p.i
+	next(p)
+	p.exprLev = p.exprLev + 1
+	if p.tk == RBrack {
+		expected(p, "expected an index, found ")
+	}
+	let mut first = noNode
+	if p.tk != Colon {
+		first = parseIndexValue(p)
+	}
+	if p.tk == Colon {
+		next(p)
+		let mut high = none
+		if p.tk != Colon && p.tk != RBrack {
+			high = some(parseExpr(p))
+		}
+		let mut mx = none
+		let mut s3 = false
+		if p.tk == Colon {
+			s3 = true
+			next(p)
+			if high == none {
+				errorf(p, "middle index required in a 3-index slice")
+			}
+			if p.tk == RBrack {
+				errorf(p, "final index required in a 3-index slice")
+			}
+			mx = some(parseExpr(p))
+		}
+		let rb = want(p, RBrack)
+		p.exprLev = p.exprLev - 1
+		let low = if first == noNode { none } else { some(first) }
+		return mkSlice(&p.t, mark(p.t), x, lb, low, high, mx, s3, rb)
+	}
+	let m = mark(p.t)
+	pushW(&p.t, first)
+	for got(p, Comma) {
+		if p.tk == RBrack {
+			break
+		}
+		pushW(&p.t, parseIndexValue(p))
+	}
+	let rb = want(p, RBrack)
+	p.exprLev = p.exprLev - 1
+	mkIndex(&p.t, m, KIndexExpr, x, lb, rb)
+}
+
+// parseIndexValue parses one index, or one type argument of an
+// instantiation: a type is taken only when a `,` or `]` follows it.
+func parseIndexValue(p mut parser) uint32 {
+	let k = p.tk
+	let typeStart = k == Mul || k == LBrack || k == Func || k == Escaping || k == LParen || (isWord(p, "Map") && peek(p, 1) == LBrack)
+	if !typeStart {
+		return parseExpr(p)
+	}
+	if p.exprLev > 0 {
+		let st = save(p)
+		let paren = k == LParen
+		p.quiet = p.quiet + 1
+		let t = parseType(p, ctxList)
+		p.quiet = p.quiet - 1
+		if p.failed {
+			if p.lexical {
+				return t
+			}
+			let _ = attemptFailed(p, st)
+		} else if (p.tk == Comma || p.tk == RBrack) && (!paren || typeOnly(p, t)) {
+			return t
+		}
+		backtrack(p, st.i)
+		p.peak = st.peak
+		rewind(&p.t, st.tree)
+	}
+	parseExpr(p)
+}
+
+// typeOnly reports whether the tuple type t has an element, at any depth of
+// nested tuples, that only a type can be.
+func typeOnly(p mut parser, t uint32) bool {
+	if kindAt(p, t) != KTupleExpr {
+		return false
+	}
+	for j in 0..items(p.t, t, 2) {
+		let e = item(p.t, t, j)
+		let k = kindAt(p, e)
+		if k == KArrayType || k == KStarExpr || k == KFuncType || k == KMapType {
+			return true
+		}
+		if k == KTupleExpr && typeOnly(p, e) {
+			return true
+		}
+	}
+	false
+}
+
+func parseCall(p mut parser, fun uint32) uint32 {
+	let lp = want(p, LParen)
+	p.exprLev = p.exprLev + 1
+	let m = mark(p.t)
+	for p.tk != RParen {
+		pushW(&p.t, parseExpr(p))
+		if p.tk == Ellipsis {
+			errorf(p, "a call has no spread argument: pass the slice")
+		}
+		if !got(p, Comma) {
+			break
+		}
+	}
+	p.exprLev = p.exprLev - 1
+	if p.tk != RParen {
+		expected(p, "expected \")\" or \",\", found ")
+	}
+	let rp = p.i
+	next(p)
+	let mut trailing = none
+	if p.tk == LBrace && p.exprLev >= 0 {
+		trailing = some(parseBlock(p))
+	}
+	let mut tf = false
+	if p.tk == Func && p.exprLev >= 0 && trailing == none {
+		pushW(&p.t, parseOperand(p))
+		tf = true
+	}
+	mkCall(&p.t, m, fun, someTok(lp), someTok(rp), trailing, tf)
+}
+
+func parseCompositeLit(p mut parser, typ uint32) uint32 {
+	enter(p)
+	let lb = want(p, LBrace)
+	let saved = p.exprLev
+	p.exprLev = 1
+	let m = mark(p.t)
+	let mut more = true
+	let mut dotdot = none
+	let mut base = none
+	if p.tk == DotDot {
+		if typ == none || !isTypeName(p, typ-uint32(1)) {
+			errorf(p, "a record update names its record type: T{..base, F: v}")
+		}
+		dotdot = someTok(p.i)
+		next(p)
+		base = some(parseExpr(p))
+		more = got(p, Comma)
+	}
+	let mut keyed = -1
+	let mut positional = -1
+	let mut n = 0
+	for more && p.tk != RBrace {
+		if p.tk == DotDot && base != none {
+			errorf(p, "a record update has one base")
+		} else if p.tk == DotDot {
+			errorf(p, "the base of a record update comes first: T{..base, F: v}")
+		}
+		let elt = parseElement(p)
+		let isKV = kindAt(p, elt) == KKeyValueExpr
+		if !isKV && base != none {
+			errorNode(p, elt, "a record update sets fields by name: T{..base, F: v}")
+		}
+		if isKV {
+			keyed = n
+		} else {
+			positional = n
+		}
+		if keyed >= 0 && positional >= 0 {
+			errorNode(p, elt, "a composite literal mixes keyed and positional elements")
+		}
+		pushW(&p.t, elt)
+		n = n + 1
+		if !got(p, Comma) {
+			break
+		}
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \",\" or \"}\" in a composite literal, found ")
+	}
+	let rb = p.i
+	next(p)
+	leave(p)
+	mkCompositeLit(&p.t, m, typ, lb, dotdot, base, rb)
+}
+
+// isTypeName reports whether x is a type name with optional type
+// arguments: the only type a record update names.
+func isTypeName(p mut parser, x uint32) bool {
+	let k = kindAt(p, x)
+	if k == KIdent {
+		return true
+	}
+	if k == KSelectorExpr {
+		return kindAt(p, p.t.a[int(x)]) == KIdent
+	}
+	if k == KIndexExpr {
+		let inner = fixed(p.t, x, 2, 0)
+		let ik = kindAt(p, inner)
+		return (ik == KIdent || ik == KSelectorExpr) && isTypeName(p, inner)
+	}
+	false
+}
+
+func parseElement(p mut parser) uint32 {
+	let x = parseElementValue(p)
+	if p.tk == Colon {
+		let c = p.i
+		next(p)
+		let v = parseElementValue(p)
+		return row(&p.t, KKeyValueExpr, uint32(c), x, v)
+	}
+	x
+}
+
+func parseElementValue(p mut parser) uint32 {
+	if p.tk == LBrace {
+		return parseCompositeLit(p, none)
+	}
+	parseExpr(p)
+}
+
+// ---------------------------------------------------------------- if, match, with
+
+// parseHeader parses the expression of an if, match or with header, where
+// a `{` opens the body.
+func parseHeader(p mut parser) uint32 {
+	let saved = p.exprLev
+	p.exprLev = -1
+	let x = parseExpr(p)
+	p.exprLev = saved
+	x
+}
+
+// noInit reports an init statement in an if or match header.
+func noInit(p mut parser) {
+	let k = p.tk
+	if k == Define || k == Assign || (k >= AddAssign && k <= AndNotAssign) || (k == Semicolon && !inserted(p, p.i)) {
+		habit(p, pos(p), tokLen(p), habitIfInit)
+	}
+}
+
+// parseIf parses `if c { … } [else if … | else { … }]`.
+func parseIf(p mut parser) uint32 {
+	let iff = want(p, If)
+	if p.tk == Let || p.tk == Var {
+		habit(p, pos(p), tokLen(p), habitIfInit)
+	}
+	let cond = parseHeader(p)
+	noInit(p)
+	if p.tk != LBrace {
+		expected(p, "expected \"{\" after the if condition, found ")
+	}
+	let body = parseBlock(p)
+	let mut elsePos = none
+	let mut els = none
+	if p.tk == Else {
+		elsePos = someTok(p.i)
+		next(p)
+		if p.tk == If {
+			// Each else if nests one level deeper in the tree.
+			enter(p)
+			els = some(parseIf(p))
+			leave(p)
+		} else if p.tk == LBrace {
+			els = some(parseBlock(p))
+		} else {
+			expected(p, "expected \"if\" or \"{\" after else, found ")
+		}
+	}
+	mkIf(&p.t, mark(p.t), iff, cond, body, elsePos, els)
+}
+
+// parseMatch parses `match e { case P: … }`: a value switch when every
+// pattern is a literal (optionally negated) on a subject that is not a
+// tuple, else a type switch whose subject, or the elements of its tuple,
+// the cases match.
+func parseMatch(p mut parser) uint32 {
+	let mt = want(p, Match)
+	let subject = stripParens(p, parseHeader(p))
+	noInit(p)
+	if p.tk != LBrace {
+		expected(p, "expected \"{\" after the match subject, found ")
+	}
+	let lb = p.i
+	next(p)
+	let saved = p.exprLev
+	p.exprLev = 0
+	let m = mark(p.t)
+	let mut seen = false
+	let mut literal = true
+	for p.tk == Case {
+		let cs = p.i
+		next(p)
+		let cm = mark(p.t)
+		let mut n = parseCaseList(p)
+		if n == 1 && identIs(p, p.t.stack[cm], "_") && p.t.stack[cm] == uint32(p.t.n-1) {
+			// `case _:` lists no pattern.
+			dropLast(&p.t)
+			cutStack(&p.t, cm)
+			n = 0
+		}
+		for j in cm..cm+n {
+			let mut x = p.t.stack[j]
+			if kindAt(p, x) == KUnaryExpr && uint8(p.toks.kind[int(p.t.tok[int(x)])]) == Sub {
+				x = p.t.a[int(x)]
+			}
+			if kindAt(p, x) != KBasicLit {
+				literal = false
+			}
+			seen = true
+		}
+		let colon = want(p, Colon)
+		parseStmtList(p)
+		pushW(&p.t, mkClause(&p.t, cm, KCaseClause, cs, n, colon))
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \"case\" or \"}\", found ")
+	}
+	let rb = p.i
+	next(p)
+	if kindAt(p, subject) != KTupleExpr && seen && literal {
+		return mkSwitch(&p.t, m, KSwitchStmt, mt, subject, lb, rb)
+	}
+	mkSwitch(&p.t, m, KTypeSwitchStmt, mt, subject, lb, rb)
+}
+
+// parseCaseList pushes the patterns of a case up to the colon and returns
+// how many. A case whose nested alternatives expand to more than 64
+// patterns is S001 (orpattern.go; the expansion itself is the checker's).
+func parseCaseList(p mut parser) int {
+	let saved = p.orAllowed
+	p.orAllowed = true
+	let m = mark(p.t)
+	for {
+		pushW(&p.t, parsePattern(p))
+		if p.tk == Comma {
+			next(p)
+			continue
+		}
+		if p.tk == Colon {
+			break
+		}
+		if p.tk == Or {
+			errorf(p, "the alternatives of a case are separated by commas: case A, B:; | separates alternatives inside a tuple, a record pattern or parentheses")
+		} else if precedence(p.tk) > 0 || p.tk == LParen || p.tk == Period || p.tk == LBrack || p.tk == DotDot {
+			errorf(p, "a case lists patterns, not expressions; test a condition with `if`")
+		}
+		break
+	}
+	p.orAllowed = saved
+	let top = mark(p.t)
+	if !p.failed {
+		let mut total = 0
+		let mut has = false
+		for j in m..top {
+			let c = expandCount(p, p.t.stack[j])
+			has = has || c > 1
+			total = total + c
+		}
+		if has && total > maxAlternatives {
+			let a = nodePos(p, p.t.stack[m])
+			errorAt(p, a, nodeEnd(p, p.t.stack[top-1])-a, "this case expands to "+itoa(total)+" patterns, more than "+itoa(maxAlternatives)+": split it into several cases")
+		}
+	}
+	top - m
+}
+
+// maxAlternatives bounds the patterns one case expands to.
+let maxAlternatives = 64
+
+// expandCount is how many patterns x means, one per combination of its
+// alternatives (orpattern.go's expandPattern, counted).
+func expandCount(p mut parser, x uint32) int {
+	let k = kindAt(p, x)
+	if k == KOrPattern {
+		let mut n = 0
+		for j in 0..items(p.t, x, 0) {
+			n = n + expandCount(p, item(p.t, x, j))
+		}
+		return n
+	}
+	if k == KTupleExpr || k == KCompositeLit {
+		let f = if k == KTupleExpr { 2 } else { 4 }
+		let mut n = 1
+		for j in 0..items(p.t, x, f) {
+			n = n * expandCount(p, item(p.t, x, j))
+		}
+		return n
+	}
+	if k == KKeyValueExpr {
+		return expandCount(p, p.t.b[int(x)])
+	}
+	if k == KAsPattern || k == KParenExpr {
+		return expandCount(p, p.t.a[int(x)])
+	}
+	1
+}
+
+// parseWith parses `with E, F { body }` into the call shape
+// `with(E, F) { body }`.
+func parseWith(p mut parser) uint32 {
+	let w = want(p, With)
+	let fun = identRow(p, w)
+	let m = mark(p.t)
+	pushW(&p.t, parseHeader(p))
+	for got(p, Comma) {
+		pushW(&p.t, parseHeader(p))
+	}
+	if mark(p.t)-m == 1 {
+		let x = stripParens(p, p.t.stack[m])
+		p.t.stack[m] = x
+	}
+	if p.tk != LBrace {
+		expected(p, "expected \"{\" after the contexts of with, found ")
+	}
+	let tr = parseBlock(p)
+	mkCall(&p.t, m, fun, none, none, some(tr), false)
+}
+
+// stripParens removes the parentheses around a header expression that
+// reads the same without them: the ParenExpr row, the last, goes.
+func stripParens(p mut parser, x0 uint32) uint32 {
+	let mut x = x0
+	for kindAt(p, x) == KParenExpr && headerSafe(p, p.t.a[int(x)]) && x == uint32(p.t.n-1) {
+		let inner = p.t.a[int(x)]
+		dropLast(&p.t)
+		x = inner
+	}
+	x
+}
+
+// headerSafe reports whether x reads the same in a header without
+// parentheses.
+func headerSafe(p mut parser, x uint32) bool {
+	let k = kindAt(p, x)
+	if k == KIdent || k == KBasicLit || k == KInterpolatedString || k == KParenExpr || k == KTupleExpr || k == KContextLit {
+		return true
+	}
+	if k == KSelectorExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr {
+		return headerSafe(p, p.t.a[int(x)])
+	}
+	if k == KIndexExpr {
+		return headerSafe(p, fixed(p.t, x, 2, 0))
+	}
+	if k == KSliceExpr {
+		return headerSafe(p, fixed(p.t, x, 6, 0))
+	}
+	if k == KCallExpr {
+		return fixed(p.t, x, 5, 3) == none && fixed(p.t, x, 5, 1) != none && headerSafe(p, fixed(p.t, x, 5, 0))
+	}
+	if k == KBinaryExpr {
+		return headerSafe(p, p.t.a[int(x)]) && headerSafe(p, p.t.b[int(x)])
+	}
+	false
+}
+
+// ---------------------------------------------------------------- blocks and statements
+
+func parseBlock(p mut parser) uint32 {
+	enter(p)
+	let lb = want(p, LBrace)
+	let saved = p.exprLev
+	p.exprLev = 0
+	let m = mark(p.t)
+	parseStmtList(p)
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \"}\", found ")
+	}
+	let rb = p.i
+	next(p)
+	leave(p)
+	mkBlock(&p.t, m, lb, rb)
+}
+
+// parseStmtList pushes statements up to a closing brace or the next case.
+func parseStmtList(p mut parser) {
+	for p.tk != RBrace && p.tk != EOF && p.tk != Case && p.tk != Default {
+		if p.tk == Semicolon {
+			next(p)
+			continue
+		}
+		pushW(&p.t, parseStmt(p))
+		if p.tk == Semicolon {
+			next(p)
+		} else if p.tk != RBrace {
+			expected(p, "expected end of statement, found ")
+		}
+	}
+}
+
+// startsSkip reports a statement that starts with the contextual keyword
+// skip (runtime.md, Tests 4): the name skip followed directly by a string
+// literal. No other statement starts so, since a name followed by a
+// literal is no expression; so skip stays a name everywhere else (skip(x),
+// let skip, a field skip), and the scanner has no keyword for it.
+func startsSkip(p mut parser) bool {
+	if !isWord(p, "skip") {
+		return false
+	}
+	let n = peek(p, 1)
+	n == String || n == StringHead
+}
+
+// parseSkip parses skip "reason". The reason is a literal written in the
+// source, so an interpolated one is S001 at the literal, and the rest
+// parses as the expression it starts. Where the statement stands is the
+// checker's.
+func parseSkip(p mut parser) uint32 {
+	let s = p.i
+	next(p)
+	if p.tk == StringHead {
+		errorAt(p, pos(p), tokLen(p), "skip takes a string literal with no interpolation: its reason is written in the source")
+		let x = parseExpr(p)
+		return row(&p.t, KExprStmt, uint32(0), x, none)
+	}
+	let r = p.i
+	next(p)
+	row(&p.t, KSkipStmt, uint32(s), uint32(r), none)
+}
+
+func parseStmt(p mut parser) uint32 {
+	enter(p)
+	let s = parseStmt1(p)
+	leave(p)
+	s
+}
+
+func parseStmt1(p mut parser) uint32 {
+	let k = p.tk
+	if startsSkip(p) {
+		return parseSkip(p)
+	}
+	if k == Let {
+		let d = parseLetDecl(p, none, false)
+		return row(&p.t, KDeclStmt, uint32(0), d, none)
+	}
+	if k == Return {
+		let r = p.i
+		next(p)
+		let mut res = none
+		let n = p.tk
+		if !(n == Semicolon || n == RBrace || n == Case || n == Default || n == EOF) {
+			res = some(parseExpr(p))
+		}
+		return row(&p.t, KReturnStmt, uint32(r), res, none)
+	}
+	if k == Break || k == Continue {
+		let s = row(&p.t, KBranchStmt, uint32(p.i), none, none)
+		next(p)
+		if p.tk == Ident {
+			habit(p, pos(p), tokLen(p), habitLabel)
+		}
+		return s
+	}
+	if k == Assert {
+		let a = p.i
+		next(p)
+		let x = parseExpr(p)
+		return row(&p.t, KAssertStmt, uint32(a), x, none)
+	}
+	if k == If {
+		return parseIf(p)
+	}
+	if k == Match {
+		return parseMatch(p)
+	}
+	if k == For {
+		return parseForStmt(p)
+	}
+	if k == LBrace {
+		errorf(p, "unexpected \"{\": a block follows a header such as if, for or with")
+	} else if k == Var {
+		localDecl(p, habitVar)
+	} else if k == Ident {
+		if peek(p, 1) == Define {
+			localDecl(p, habitDefine)
+		}
+		if peek(p, 1) == Colon {
+			habit(p, pos(p), tokLen(p)+1, habitLabel)
+		}
+	} else if k == Type || k == Func || k == Extern || k == Test || k == Import {
+		if k != Func || peek(p, 1) != LParen {
+			errorf(p, "unexpected "+found(p)+" in a statement list: declarations stand at the top level")
+		}
+	}
+	if isReserved(p.tk) && !(p.tk == Go && peek(p, 1) == Period) {
+		expected(p, "unexpected ")
+	}
+	let x = parseExpr(p)
+	if isAssignOp(p.tk) {
+		let op = p.i
+		next(p)
+		let y = parseExpr(p)
+		return row(&p.t, KAssignStmt, uint32(op), x, y)
+	}
+	row(&p.t, KExprStmt, uint32(0), x, none)
+}
+
+// localDecl reports a Go local declaration at the start of a statement,
+// `var x [T] = e` or `x := e`, with the let form that replaces it and the
+// fix that writes it (VET-CHECK-VAR): `let mut` only when a later
+// statement of the declaring block assigns the name (assignedAfter; no
+// shadowing, so the name is the one variable there), else `let`. The fix
+// rewrites `var` or `x :=`, nothing else. A `var` with no name, or with no
+// `=` before the statement ends (`var x int`, which `let` cannot spell
+// without a value), returns: the plain habit is reported where the parser
+// meets the token. Quiet (an attempt), it builds nothing.
+func localDecl(p mut parser, h int) {
+	if !loud(p) {
+		return
+	}
+	let i = p.i
+	let def = h == habitDefine
+	if !def && tokKind(p, i+1) != Ident {
+		return
+	}
+	let nameTok = if def { i } else { i + 1 }
+	// rest is the first token after the name (var) or after `:=`.
+	let rest = i + 2
+	let stop = statementEnd(p, rest)
+	if !def && !assignAt(p, rest, stop) {
+		return
+	}
+	let name = lit(p, nameTok)
+	let reassigned = assignedAfter(p, name, stop)
+	let kw = if reassigned { "let mut" } else { "let" }
+	let text = if def { kw + " " + name + " =" } else { kw }
+	// The fix spans `var` alone, or `x :=` whole; the error is at `var` or
+	// at `:=`.
+	let at = if def { i + 1 } else { i }
+	// What the message shows: the fix's text, then the declaration's text
+	// after what the fix replaces.
+	let after = if def { rest } else { nameTok }
+	let shown = text + " " + trimBlank(p.src[tpos(p, after):tpos(p, stop)])
+	errorFix(p, tpos(p, at), tend(p, at)-tpos(p, at), localDeclMessage(h, shown, name, reassigned), tpos(p, i), tend(p, at)-tpos(p, i), text)
+}
+
+// tokKind is the kind of token j, the last token's (EOF) past the parse's.
+func tokKind(p mut parser, j int) uint8 {
+	if j < p.ntok {
+		return uint8(p.toks.kind[j])
+	}
+	uint8(p.toks.kind[p.ntok-1])
+}
+
+// statementEnd is the index of the token that ends the statement whose
+// tokens start at index start: a semicolon at its depth, the brace that
+// closes its block, or the last token.
+func statementEnd(p mut parser, start int) int {
+	let mut depth = 0
+	let mut j = start
+	for j < p.ntok-1 {
+		let k = tokKind(p, j)
+		if k == LBrace || k == LParen || k == LBrack {
+			depth = depth + 1
+		} else if k == RBrace || k == RParen || k == RBrack {
+			if depth == 0 {
+				return j
+			}
+			depth = depth - 1
+		} else if k == Semicolon && depth == 0 {
+			return j
+		}
+		j = j + 1
+	}
+	p.ntok - 1
+}
+
+// assignAt reports an `=` at depth zero among the tokens from index start
+// to index stop: a `var` declaration with a value.
+func assignAt(p mut parser, start int, stop int) bool {
+	let mut depth = 0
+	for j in start..stop {
+		let k = tokKind(p, j)
+		if k == LBrace || k == LParen || k == LBrack {
+			depth = depth + 1
+		} else if k == RBrace || k == RParen || k == RBrack {
+			depth = depth - 1
+		} else if k == Assign && depth == 0 {
+			return true
+		}
+	}
+	false
+}
+
+// assignedAfter reports whether a statement after index start, up to the
+// brace that closes the declaring block, assigns name: `name = e`, `name
+// += e`, `name.f = e` or `name[k] = e`, in a nested block or a function
+// literal too.
+func assignedAfter(p mut parser, name string, start int) bool {
+	let mut depth = 0
+	let mut atStart = true
+	let mut j = start
+	for j < p.ntok-1 {
+		let k = tokKind(p, j)
+		if k == LBrace {
+			depth = depth + 1
+			atStart = true
+		} else if k == RBrace {
+			if depth == 0 {
+				return false
+			}
+			depth = depth - 1
+			atStart = false
+		} else if k == Semicolon || k == Colon {
+			atStart = true
+		} else {
+			if atStart && k == Ident && lit(p, j) == name && assigns(p, j+1) {
+				return true
+			}
+			atStart = false
+		}
+		j = j + 1
+	}
+	false
+}
+
+// assigns reports whether the statement whose first name ends before index
+// start is an assignment: a selector or index chain, then an assignment
+// operator at the statement's depth.
+func assigns(p mut parser, start int) bool {
+	let mut depth = 0
+	let mut j = start
+	for j < p.ntok-1 {
+		let k = tokKind(p, j)
+		if k == LParen || k == LBrack {
+			depth = depth + 1
+		} else if k == RParen || k == RBrack {
+			depth = depth - 1
+		} else if isAssignOp(k) {
+			return depth == 0
+		} else if depth == 0 && k != Period && !(k == Ident && tokKind(p, j-1) == Period) {
+			return false
+		}
+		j = j + 1
+	}
+	false
+}
+
+// trimBlank is s without its leading and trailing spaces, tabs and line
+// ends.
+func trimBlank(s string) string {
+	let mut a = 0
+	let mut b = len(s)
+	for a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\n' || s[a] == '\r') {
+		a = a + 1
+	}
+	for b > a && (s[b-1] == ' ' || s[b-1] == '\t' || s[b-1] == '\n' || s[b-1] == '\r') {
+		b = b - 1
+	}
+	s[a:b]
+}
+
+// parseForStmt parses `for { }`, `for cond { }` and `for P {, P} in e { }`.
+// A Go header (three clauses, range) gets its habit message first.
+func parseForStmt(p mut parser) uint32 {
+	let f = want(p, For)
+	let mut i = 0
+	for {
+		let j = tokIdx(p, i)
+		let k = uint8(p.toks.kind[j])
+		if k == KwRange {
+			habit(p, tpos(p, j), tend(p, j)-tpos(p, j), habitRange)
+		}
+		if k == Semicolon && !inserted(p, j) {
+			habit(p, tpos(p, f), 3, habitForClause)
+		}
+		if k == Semicolon || k == EOF || k == LBrace {
+			break
+		}
+		i = i + 1
+	}
+	if p.tk == LBrace {
+		let b = parseBlock(p)
+		return row(&p.t, KForStmt, uint32(f), none, b)
+	}
+	if p.failed {
+		return noNode
+	}
+	let st = save(p)
+	let pm = mark(p.t)
+	p.quiet = p.quiet + 1
+	parsePatternList(p)
+	if p.tk != In {
+		errorf(p, "not a range header")
+	}
+	p.quiet = p.quiet - 1
+	if p.failed && p.lexical {
+		return noNode
+	}
+	if !attemptFailed(p, st) {
+		let rng = want(p, In)
+		let n = mark(p.t) - pm
+		let mut key = none
+		let mut value = p.t.stack[pm]
+		if n == 2 {
+			key = some(p.t.stack[pm])
+			value = p.t.stack[pm+1]
+		} else if n > 2 {
+			errorNode(p, p.t.stack[pm+2], "for binds an element, or an index and an element")
+		}
+		cutStack(&p.t, pm)
+		let x = parseHeader(p)
+		if p.tk != LBrace {
+			expected(p, "expected \"{\" after the range, found ")
+		}
+		let body = parseBlock(p)
+		return mkRange(&p.t, mark(p.t), f, key, value, rng, x, body)
+	}
+	let cond = parseHeader(p)
+	if p.tk == Define || p.tk == Assign {
+		habit(p, tpos(p, f), 3, habitForClause)
+	}
+	if p.tk != LBrace {
+		expected(p, "expected \"{\" after the for condition, found ")
+	}
+	let body = parseBlock(p)
+	row(&p.t, KForStmt, uint32(f), some(cond), body)
+}
+
+// ---------------------------------------------------------------- patterns
+
+func parsePatternList(p mut parser) {
+	pushW(&p.t, parsePattern(p))
+	for got(p, Comma) {
+		pushW(&p.t, parsePattern(p))
+	}
+}
+
+// parsePattern parses `PatternCore [ as name ]`.
+func parsePattern(p mut parser) uint32 {
+	enter(p)
+	let mut x = parsePatternCore(p)
+	if p.tk == As {
+		let asTok = p.i
+		next(p)
+		let name = parseIdent(p)
+		x = row(&p.t, KAsPattern, uint32(asTok), x, name)
+	}
+	leave(p)
+	x
+}
+
+// parsePatternCore parses `_`, a name, a literal (a number may be negated),
+// `TypeName [TypeArgs] [{ FieldPatterns }]` or a parenthesised tuple.
+func parsePatternCore(p mut parser) uint32 {
+	let k = p.tk
+	if (k == Ident || k == Go) && startsTypeName(p) {
+		let mut x = parseQualifiedName(p)
+		if p.tk == LBrack {
+			x = parseTypeArgs(p, x)
+		}
+		if p.tk == LBrace {
+			return parseRecordPattern(p, x)
+		}
+		return x
+	}
+	if k == Int || k == Float || k == Duration || k == String || k == Rune {
+		return basicLit(p)
+	}
+	if k == Sub {
+		let n = peek(p, 1)
+		if n == Int || n == Float || n == Duration {
+			let op = p.i
+			next(p)
+			let x = basicLit(p)
+			return row(&p.t, KUnaryExpr, uint32(op), x, none)
+		}
+	}
+	if k == LParen {
+		let lp = p.i
+		next(p)
+		let saved = p.exprLev
+		p.exprLev = 1
+		let m = mark(p.t)
+		let first = parseAlternatives(p)
+		if p.tk != Comma {
+			p.exprLev = saved
+			let rp = want(p, RParen)
+			return row(&p.t, KParenExpr, uint32(lp), first, uint32(rp))
+		}
+		refuseSingleton(p)
+		pushW(&p.t, first)
+		for got(p, Comma) && p.tk != RParen {
+			pushW(&p.t, parseAlternatives(p))
+		}
+		p.exprLev = saved
+		let rp = want(p, RParen)
+		return mkTuple(&p.t, m, someTok(lp), someTok(rp))
+	}
+	if k == Needs {
+		errorf(p, "expected a pattern, found \"needs\": "+needsKeywordText)
+		return noNode
+	}
+	expected(p, "expected a pattern, found ")
+	noNode
+}
+
+// parseRecordPattern parses `{ FieldPattern, … }` after a type name.
+func parseRecordPattern(p mut parser, typ uint32) uint32 {
+	let lb = want(p, LBrace)
+	let saved = p.exprLev
+	p.exprLev = 1
+	let mut keyed = false
+	let mut positional = false
+	let m = mark(p.t)
+	for p.tk != RBrace {
+		let mut elt = noNode
+		if p.tk == Ident && peek(p, 1) == Colon {
+			let key = parseIdent(p)
+			let colon = want(p, Colon)
+			let v = parseAlternatives(p)
+			elt = row(&p.t, KKeyValueExpr, uint32(colon), key, v)
+			keyed = true
+		} else {
+			elt = parseAlternatives(p)
+			positional = true
+		}
+		if keyed && positional {
+			errorNode(p, elt, "a record pattern mixes keyed and positional fields")
+		}
+		pushW(&p.t, elt)
+		if !got(p, Comma) {
+			break
+		}
+	}
+	p.exprLev = saved
+	if p.tk != RBrace {
+		expected(p, "expected \",\" or \"}\" in a record pattern, found ")
+	}
+	let rb = p.i
+	next(p)
+	mkCompositeLit(&p.t, m, some(typ), lb, none, none, rb)
+}
+
+// parseAlternatives parses `Pattern { "|" Pattern }` where a nested
+// pattern stands; outside a case's patterns a | is S001.
+func parseAlternatives(p mut parser) uint32 {
+	let first = parsePattern(p)
+	if p.tk != Or {
+		return first
+	}
+	if !p.orAllowed {
+		errorf(p, "alternatives with | stand only in a case's patterns; a let or for pattern matches one shape")
+		return first
+	}
+	let m = mark(p.t)
+	pushW(&p.t, first)
+	for p.tk == Or {
+		next(p)
+		pushW(&p.t, parsePattern(p))
+	}
+	rec(&p.t, KOrPattern, uint32(0), m)
+}

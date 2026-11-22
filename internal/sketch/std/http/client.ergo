@@ -5,6 +5,8 @@
 // is no service tag, layer, middleware chain or implicit timeout.
 
 import fs
+import strings
+import sync
 
 // InvalidClient is an origin that is not scheme://authority (http or
 // https), or a budget that is not positive.
@@ -98,8 +100,6 @@ func NewClient(origin string, limits Limits) Client fails InvalidClient | Invali
 	Client{origin: origin, limits: limits}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPCheckOrigin func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits
-
 // Send joins r.Path and r.Query to the origin and sends r. Redirects are
 // responses; there is no retry and no timeout of its own.
 func Send(c Client, r Request) Response fails RequestFailed {
@@ -109,7 +109,7 @@ func Send(c Client, r Request) Response fails RequestFailed {
 	case BodyTooLarge, BodyReadFailed:
 		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
 	}
-	send(c.origin, c.limits, r.Method, r.Path, r.Query, r.Header, text) catch {
+	send(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, r.Header, text) catch {
 	case SendFailed as f:
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
@@ -124,13 +124,13 @@ func SendInto(c Client, r Request, accept Accept, put func(part string) fails Si
 	case BodyTooLarge, BodyReadFailed:
 		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
 	}
-	try sendInto(c.origin, c.limits, r.Method, r.Path, r.Query, r.Header, text, func(status int) bool { Accepts(accept, status) }, put) catch {
+	try sendInto(c.origin, c.limits, r.Method, r.Path, r.RawPath, r.Query, r.Header, text, func(status int) bool { Accepts(accept, status) }, put) catch {
 	case SendFailed as f:
 		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, rawPath string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
 
 // SendFailed is the host's form of a RequestFailed: one record for the four
 // causes (a Go type cannot be a union variant), which Send turns into the
@@ -149,7 +149,7 @@ func causeOf(kind int, reason string, limit int) Cause {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, limits Limits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
+extern go ergo.local/prototype/runtime/v1/http.HTTPDo func send(origin string, limits Limits, method string, path string, rawPath string, query []Field, header []Field, body string) Response fails SendFailed
 
 // Handler is a Net with no socket: Send calls handle under a Recorder, as
 // Serve would call it, and never fails. A test binds it so a client is
@@ -158,6 +158,32 @@ type Handler { handle func(Request) Response needs Streaming } implements Net
 
 // InMemory is a Net that answers with handle.
 func InMemory(handle own func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
+
+// InMemorySendIntoIsSend: the in-memory Net's SendInto gives put exactly
+// Send's body, and an empty Body back, when accept takes the status; any
+// other status fails StatusRefused with the status and the body's first
+// 1024 bytes, and put gets nothing. accept is the 2xx rule, or values
+// with the status added when listed is odd.
+law InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) {
+	let text = if long { strings.Repeat(body+"x", 1100) } else { body }
+	let set = if listed%2 == 0 { values } else { values.Append(status) }
+	let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess }
+	let mut taken = !explicit && status >= 200 && status < 300
+	for v in set {
+		taken = taken || explicit && v == status
+	}
+	let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} })
+	let got = sync.NewRef[string]("")
+	let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}
+	let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch {
+	case StatusRefused as s:
+		let want = if len(text) > 1024 { text[0:1024] } else { text }
+		return !taken && s.Status == status && s.Prefix == want && got.Get() == ""
+	case RequestFailed, SinkFailed:
+		return false
+	}
+	taken && got.Get() == text && response.Status == status && response.Body == ""
+}
 
 func Send(h Handler, r Request) Response fails RequestFailed {
 	with context { Streaming: NewRecorder() } { h.handle(r) }

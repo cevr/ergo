@@ -1,0 +1,651 @@
+// Package script is the board's host on the test host (stage b): it shows
+// the screen, plays a script of pointer, keyboard and form acts on it,
+// one per line, runs what the program asks (a card's id, a save to the
+// board.Store in the context, a focus, where a keyboard move goes), and
+// prints what happens. The test host lays nothing out, so the host hit
+// tests its own layout (Box). A line is one of:
+//
+//	press CARD | press X Y    the pointer goes down (on a card's middle)
+//	move CARD upper|lower     the pointer moves over a card's half
+//	move COLUMN               ... over a column, below its cards
+//	move off | move X Y       ... over no column, or to a point
+//	release                   the pointer goes up where it is
+//	escape                    Escape
+//	lift CARD                 a press of the card's button: a keyboard drag
+//	up | down | left | right  an arrow key
+//	next | previous           Tab or Shift+Tab
+//	drop                      Space
+//	add COLUMN                the column's + Add card
+//	type TEXT                 the form's title (the rest of the line)
+//	submit | cancel           the form's Add and Cancel
+//	show                      the board as the screen shows it
+//	screen                    the whole screen, one node a line
+//	stats                     what the pass of the last line's input did
+//
+// A blank line or one that starts with # is skipped.
+
+import actor
+import taskboard/board
+import taskboard/drag
+import taskboard/kanban
+import taskboard/memory
+import taskboard/screen
+import io
+import queue
+import slices
+import strconv
+import strings
+import time
+import ui
+
+// Host is the program on the test host, the commands its actor asked
+// for and the host has not answered yet, the ids the host gave, where the
+// pointer is, what the live region last said, and what the pass of the
+// last line's own input did (not the pass Settle ends with).
+type Host {
+	view  ui.TestHost[kanban.Board, kanban.Signal, Decision[kanban.Board, []kanban.Command]],
+	app   actor.Actor[kanban.Board, kanban.Signal, Decision[kanban.Board, []kanban.Command]],
+	asked queue.Queue[[]kanban.Command],
+	Made  int,
+	X     float64,
+	Y     float64,
+	said  string,
+	acted ui.Stats,
+} implements Closer
+
+// Unread is a line the host cannot read or play.
+type Unread { Why string }
+
+func noTimer(b kanban.Board) Option[Timeout[kanban.Signal]] { None }
+
+func noWork(b kanban.Board) Option[func(send func(s kanban.Signal))] { None }
+
+// Open starts the program on columns on a test host on clock. The actor's
+// output goes to a queue the host answers from (Answer).
+func Open(columns []board.Column, clock time.Manual) Host fails Unread needs Scheduler {
+	let asked = queue.New[[]kanban.Command](256)
+	let m = Machine[kanban.Board, kanban.Signal, []kanban.Command]{Initial: kanban.Start(columns), Step: kanban.Step, After: noTimer, Work: noWork, Exit: func(s kanban.Board) Option[func()] { None }}
+	let app = actor.StartMachine(m, 16, func(o []kanban.Command) {
+		asked.Push(o) catch {
+		case queue.Closed:
+		}
+	})
+	let view = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+	case ui.BadPatch:
+		return Unread{Why: "the first screen's patch is refused"}
+	}
+	Host{view: view, app: app, asked: asked, Made: 0, X: 0.0, Y: 0.0, said: "", acted: ui.Stats{Signals: 0, Written: 0, Rows: 0, Skipped: 0, Stopped: 0, Committed: 0, Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}}
+}
+
+// Close stops the program.
+func Close(h mut Host) {
+	h.app.Stop()
+}
+
+// Board is the program's state.
+func Board(h mut Host) kanban.Board { ui.StateOf(&h.view) }
+
+// Run loads the board from the board.Store in the context (the default
+// board when nothing is saved), reads the script from io.Stdin and plays
+// it, printing each line as `> LINE` and what it did, and the board at the
+// end. It returns the exit status: 0, or 1 at a line it cannot read.
+func Run(clock time.Manual) int needs Console | io.Stdin | board.Store | Scheduler {
+	let start = board.Store.Load() catch {
+	case board.Broken as b:
+		Console.Println("? the saved board cannot be read (\(b.Why)); starting from the default board")
+		None
+	}
+	let columns = match start {
+	case Some[[]board.Column] as s:
+		s.Value
+	case None:
+		board.Defaults
+	}
+	let mut h = Open(columns, clock) catch {
+	case Unread as u:
+		Console.Println("? \(u.Why)")
+		return 1
+	}
+	let mut n = 0
+	for raw in io.Stdin.Lines() {
+		n = n + 1
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let out = Play(&h, line, raw) catch {
+		case Unread as u:
+			Console.Println("? line \(n): \(u.Why)")
+			Close(&h)
+			return 1
+		}
+		Console.Println("> " + line)
+		for l in out {
+			Console.Println("  " + l)
+		}
+	}
+	Console.Println("> end")
+	for l in Show(&h) {
+		Console.Println("  " + l)
+	}
+	Close(&h)
+	0
+}
+
+// Play plays one line on the screen and answers what the program asks,
+// and is what it did: the drag's phase and the form when they changed,
+// what the live region newly said, and each thing the program asked.
+func Play(h mut Host, line string, raw string) []string fails Unread needs board.Store {
+	let before = Board(h)
+	let w = strings.Fields(line)
+	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
+	let mut out = []string{}
+	if w[0] == "show" {
+		return Show(h)
+	}
+	if w[0] == "stats" {
+		let s = h.acted
+		return []string{"the pass wrote \(s.Written) nodes, kept \(s.Skipped) cards without running them, and patched \(s.Inserted + s.Moved + s.Removed + s.Set)"}
+	}
+	if w[0] == "screen" {
+		return strings.Split(strings.TrimSuffix(ui.Screenshot(&h.view), "\n"), "\n")
+	}
+	act(h, before, w, rest) catch {
+	case Unread as u:
+		return u
+	case actor.Stopped:
+		return Unread{Why: "the program stopped"}
+	case ui.BadPatch as p:
+		return Unread{Why: "a patch is refused: \(p.Why)"}
+	}
+	h.acted = ui.StatsOf(&h.view)
+	out = slices.Concat(out, try answer(h))
+	let after = Board(h)
+	let mut head = []string{}
+	if Phase(after.Drag.State) != Phase(before.Drag.State) {
+		head = head.Append("drag: " + Phase(after.Drag.State))
+	}
+	if Form(after) != Form(before) {
+		head = head.Append("form: " + Form(after))
+	}
+	// What the live region shows after the line, when it changed: the
+	// screen after Settle is the latest state's. (ui.Announced misses the
+	// text of Settle's own last pass, gap FK11-g5.)
+	let said = Live(h)
+	if said != h.said && said != "" {
+		head = head.Append("says: " + said)
+	}
+	h.said = said
+	slices.Concat(head, out)
+}
+
+// act sends the line's input to the screen.
+func act(h mut Host, b kanban.Board, w []string, rest string) fails Unread | actor.Stopped | ui.BadPatch {
+	match w[0] {
+	case "press":
+		let (x, y) = try aim(b, w)
+		try pointAt(h, b, x, y, ui.Down)
+	case "move":
+		let (x, y) = try aim(b, w)
+		try pointAt(h, b, x, y, ui.Moved)
+	case "release":
+		try pointAt(h, b, h.X, h.Y, ui.Up)
+	case "escape":
+		try key(h, "Escape", false)
+	case "lift":
+		if len(w) != 2 {
+			return Unread{Why: "lift is lift CARD"}
+		}
+		let title = board.Title(b.Columns, w[1])
+		if board.Where(b.Columns, w[1]) == None {
+			return Unread{Why: "the board has no card \(w[1])"}
+		}
+		try tap(h, title, 0)
+	case "up":
+		try key(h, "ArrowUp", false)
+	case "down":
+		try key(h, "ArrowDown", false)
+	case "left":
+		try key(h, "ArrowLeft", false)
+	case "right":
+		try key(h, "ArrowRight", false)
+	case "next":
+		try key(h, "Tab", false)
+	case "previous":
+		try key(h, "Tab", true)
+	case "drop":
+		try key(h, " ", false)
+	case "add":
+		if len(w) != 2 {
+			return Unread{Why: "add is add COLUMN"}
+		}
+		// Each column without the form open shows one add button, in
+		// order: the column's is the one after those of the columns
+		// before it.
+		let mut k = -1
+		let mut seen = 0
+		for c in b.Columns {
+			if c.ID == w[1] {
+				k = seen
+			}
+			if b.Adding != (Some{Value: c.ID}) {
+				seen = seen + 1
+			}
+		}
+		if k < 0 {
+			return Unread{Why: "the board has no column \(w[1])"}
+		}
+		try tap(h, screen.AddLabel, k)
+	case "type":
+		let ids = ui.Locate(&h.view, ui.WithPlaceholder{Text: screen.TitleLabel})
+		if len(ids) == 0 {
+			return Unread{Why: "the form is shut"}
+		}
+		try ui.TypeText(&h.view, ids[0], rest)
+	case "submit":
+		try tap(h, "Add", 0)
+	case "cancel":
+		try tap(h, "Cancel", 0)
+	case _:
+		return Unread{Why: "unknown word \(w[0])"}
+	}
+}
+
+// Column, Card, Pitch and Top are the host's layout: column c is the box
+// x in [Column*c, Column*c+Column-20), y in [0, 1000); its card i is
+// y in [Top+Pitch*i, Top+Pitch*i+Card) inside it, 10 in from each side.
+let Column = 300.0
+
+let Card = 40.0
+
+let Pitch = 50.0
+
+let Top = 60.0
+
+// aim is where the line points: a card's middle or a half of it, a
+// column below its cards, off the columns, or the point X Y.
+func aim(b kanban.Board, w []string) (float64, float64) fails Unread {
+	if len(w) == 3 && w[2] != "upper" && w[2] != "lower" {
+		return (float64(try num(w[1])), float64(try num(w[2])))
+	}
+	if len(w) < 2 || len(w) > 3 {
+		return Unread{Why: "\(w[0]) is \(w[0]) CARD, \(w[0]) X Y, or move COLUMN, move CARD upper|lower, move off"}
+	}
+	if w[1] == "off" {
+		return (Column*float64(len(b.Columns)) + 50.0, 100.0)
+	}
+	for c, col in b.Columns {
+		if col.ID == w[1] && len(w) == 2 {
+			return (Column*float64(c) + 100.0, 950.0)
+		}
+		for i, card in col.Cards {
+			if card.ID == w[1] {
+				let dy = if len(w) == 3 && w[2] == "upper" { 10.0 } else if len(w) == 3 { 30.0 } else { 20.0 }
+				return (Column*float64(c) + 100.0, Top + Pitch*float64(i) + dy)
+			}
+		}
+	}
+	if w[0] == "press" {
+		return Unread{Why: "the board has no card \(w[1])"}
+	}
+	Unread{Why: "the board has no card or column \(w[1])"}
+}
+
+// pointAt sends a pointer event at x, y in the Area's box, over the
+// topmost zone of the layout there.
+func pointAt(h mut Host, b kanban.Board, x float64, y float64, phase ui.Phase) fails Unread | actor.Stopped | ui.BadPatch {
+	h.X = x
+	h.Y = y
+	let areas = ui.Locate(&h.view, ui.WithLabel{Label: screen.Label})
+	if len(areas) == 0 {
+		return Unread{Why: "the screen has no board"}
+	}
+	let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
+	match Box(b, x, y) {
+	case Some[Hit] as hit:
+		let zones = ui.Locate(&h.view, ui.WithZone{Key: ui.ByText(hit.Value.Key)})
+		if len(zones) == 0 {
+			return Unread{Why: "the screen has no zone \(hit.Value.Key)"}
+		}
+		try ui.PointOver(&h.view, areas[0], zones[0], hit.Value.Box, p)
+	case None:
+		try ui.PointAt(&h.view, areas[0], p)
+	}
+}
+
+// Hit is the topmost zone of the layout at a point: a card's id or a
+// column's, and its box in the Area's box.
+type Hit { Key string, Box ui.Rect }
+
+// Box is the host's hit test of its layout at x, y.
+func Box(b kanban.Board, x float64, y float64) Option[Hit] {
+	if x < 0.0 || y < 0.0 || y >= 1000.0 {
+		return None
+	}
+	let c = int(x / Column)
+	if c >= len(b.Columns) || x-Column*float64(c) >= Column-20.0 {
+		return None
+	}
+	let col = b.Columns[c]
+	let left = Column * float64(c)
+	if y >= Top {
+		let i = int((y - Top) / Pitch)
+		let inside = x-left >= 10.0 && x-left < Column-30.0
+		if inside && i < len(col.Cards) && y-Top-Pitch*float64(i) < Card {
+			return Some{Value: Hit{Key: col.Cards[i].ID, Box: ui.Rect{X: ui.Length(left + 10.0), Y: ui.Length(Top + Pitch*float64(i)), W: ui.Length(Column - 40.0), H: ui.Length(Card)}}}
+		}
+	}
+	Some{Value: Hit{Key: col.ID, Box: ui.Rect{X: ui.Length(left), Y: ui.Length(0.0), W: ui.Length(Column - 20.0), H: ui.Length(1000.0)}}}
+}
+
+func key(h mut Host, name string, shift bool) fails actor.Stopped | ui.BadPatch {
+	try ui.PressKey(&h.view, ui.KeyPress{Name: name, Mods: ui.Mods{Shift: shift, Ctrl: false, Alt: false, Meta: false}})
+}
+
+// tap presses the k'th button named name.
+func tap(h mut Host, name string, k int) fails Unread | actor.Stopped | ui.BadPatch {
+	let ids = ui.Locate(&h.view, ui.WithRole{Role: ui.Button, Name: name})
+	if k >= len(ids) {
+		return Unread{Why: "the screen has no button \(name)"}
+	}
+	try ui.Tap(&h.view, ids[k])
+}
+
+// answer runs what the program asked until it asks nothing more, sending
+// each answer back as a signal, then settles the screen; it is a line per
+// thing asked.
+func answer(h mut Host) []string fails Unread needs board.Store {
+	let mut out = []string{}
+	for {
+		// The actor's state waits for every signal sent before it, so
+		// what they asked is in the queue after it.
+		let at = Board(h)
+		match h.asked.Poll() {
+		case Some[[]kanban.Command] as asked:
+			for c in asked.Value {
+				let (line, sig) = reply(h, at, c)
+				out = out.Append("asks: " + line)
+				h.app.Send(sig) catch {
+				case actor.Stopped:
+					return Unread{Why: "the program stopped"}
+				}
+			}
+		case None:
+			ui.Settle(&h.view) catch {
+			case actor.Stopped:
+				return Unread{Why: "the program stopped"}
+			case ui.BadPatch as p:
+				return Unread{Why: "a patch is refused: \(p.Why)"}
+			}
+			return out
+		}
+	}
+}
+
+// reply is how the host says a command, and its answer.
+func reply(h mut Host, b kanban.Board, c kanban.Command) (string, kanban.Signal) needs board.Store {
+	match c {
+	case kanban.MakeID as m:
+		h.Made = h.Made + 1
+		("an id for \"\(m.Title)\" in \(m.Column)", kanban.IDMade{ID: "new-\(h.Made)", Column: m.Column, Title: m.Title})
+	case kanban.Save as v:
+		let mut line = "save the board"
+		board.Store.Save(v.Columns) catch {
+		case board.Broken as x:
+			line = "save the board (? not saved: \(x.Why))"
+		}
+		(line, kanban.Saved)
+	case kanban.FocusForm:
+		("focus the form", kanban.FormFocused)
+	case kanban.FocusCard as f:
+		("focus \(f.ID)", kanban.Dragging{Signal: drag.Focused})
+	case kanban.Locate as l:
+		let to = board.Step(b.Columns, l.Item, l.At, l.Way)
+		("where a move goes from \(l.At.Column) \(l.At.Index): \(to.Column) \(to.Index)", kanban.Dragging{Signal: drag.Resolved{Container: to.Column, Index: to.Index}})
+	}
+}
+
+func num(word string) int fails Unread {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Unread{Why: "\(word) is not a number"}
+	}
+}
+
+// Phase is how a drag's phase shows.
+func Phase(s drag.State) string {
+	match s {
+	case drag.Idle:
+		"idle"
+	case drag.Pending as p:
+		"pressed \(p.Item)"
+	case drag.Dragging as g:
+		let over = match g.Target {
+		case Some[drag.Target] as t:
+			"over \(t.Value.Container) \(t.Value.Index)"
+		case None:
+			"over nothing"
+		}
+		"dragging \(g.Item) \(over)"
+	case drag.Lifted as l:
+		"lifted \(l.Item) to \(l.To) \(l.ToIndex)"
+	}
+}
+
+// Form is how the form shows.
+func Form(b kanban.Board) string {
+	match b.Adding {
+	case Some[string] as c:
+		"open on \(c.Value), title \"\(b.Title)\""
+	case None:
+		"shut"
+	}
+}
+
+// Live is the text of the screen's live region (ui.Announce), "" when it
+// has none.
+func Live(h mut Host) string {
+	let ids = ui.Locate(&h.view, ui.WithRole{Role: ui.Status, Name: ""})
+	if len(ids) == 0 {
+		return ""
+	}
+	ui.AccessAt(&h.view, ids[0]).Name
+}
+
+// Show is the board as the screen shows it: per column zone, its name,
+// its count and the ids of the card zones in it.
+func Show(h mut Host) []string {
+	let mut out = []string{}
+	for s in ui.Screen(&h.view) {
+		out = slices.Concat(out, columns(s))
+	}
+	out
+}
+
+// columns is the line of each column zone in the shape s.
+func columns(s ui.Shape[kanban.Signal]) []string {
+	match s.Node {
+	case ui.ZoneNode:
+		let mut texts = []string{}
+		let mut cards = []string{}
+		for k in s.Kids {
+			match k.Node {
+			case ui.TextNode as t:
+				texts = texts.Append(t.Value)
+			case ui.ZoneNode as c:
+				cards = cards.Append(keyName(c.Key))
+			case _:
+			}
+		}
+		let name = if len(texts) > 0 { texts[0] } else { "?" }
+		let count = if len(texts) > 1 { texts[1] } else { "?" }
+		let list = if len(cards) == 0 { "" } else { " " + strings.Join(cards, " ") }
+		[]string{"\(name) (\(count)):" + list}
+	case _:
+		let mut out = []string{}
+		for k in s.Kids {
+			out = slices.Concat(out, columns(k))
+		}
+		out
+	}
+}
+
+func keyName(k ui.Key) string {
+	match k {
+	case ui.TextKey as t:
+		t.Value
+	case ui.IntKey as i:
+		"\(i.Value)"
+	case ui.NoKey:
+		"?"
+	}
+}
+
+// The screen's laws, on the test host with the host's layout.
+
+// PointerDropLandsWhereShown: on the screen of the default board, a drawn
+// card pressed at its middle, moved over a drawn spot (the upper or lower
+// half of a card of a drawn column, or the column below its cards) and
+// released lands where the pointer showed: while it is over the spot, the
+// column shows the drop placeholder before as many of its other cards as
+// the reference counts (the other cards above the spot's card, and one
+// more for its lower half; all of them below the cards); and after the
+// release the screen shows the reference board, the program saved it once,
+// and the live region says where the card was dropped.
+law PointerDropLandsWhereShown(card int where 1 <= card && card <= 17, to int where 0 <= to && to <= 2, spot int where 0 <= spot && spot <= 6, lower bool) {
+	let shelf = memory.NewShelf()
+	let m = time.NewManual(0)
+	with context { board.Store: shelf, Scheduler: m } {
+		lands(card, to, spot, lower, shelf, m)
+	}
+}
+
+// AMoveRunsNoCard: during a pointer drag of a drawn card on the default
+// board, a move from one drawn spot to another runs the body of no card:
+// the pass keeps every card (its Same) and writes only the columns and
+// the placeholder, however many cards there are. The count is of the
+// move's own pass (Host.acted), not of the pass Settle ends with.
+law AMoveRunsNoCard(card int where 1 <= card && card <= 17, a int where 0 <= a && a <= 2, b int where 0 <= b && b <= 2) {
+	let m = time.NewManual(0)
+	with context { board.Store: memory.NewShelf(), Scheduler: m } {
+		movesRunNoCard("card-\(card)", board.Defaults[a].ID, board.Defaults[b].ID, m)
+	}
+}
+
+func movesRunNoCard(item string, a string, b string, m time.Manual) bool needs board.Store | Scheduler {
+	let mut h = Open(board.Defaults, m) catch {
+	case Unread:
+		return false
+	}
+	let mut ok = true
+	for line in []string{"press \(item)", "move \(a)", "move \(b)"} {
+		let _ = Play(&h, line, line) catch {
+		case Unread:
+			ok = false
+			[]string{}
+		}
+	}
+	let s = h.acted
+	Close(&h)
+	ok && s.Skipped == 17
+}
+
+func lands(card int, to int, spot int, lower bool, shelf memory.Shelf, m time.Manual) bool needs board.Store | Scheduler {
+	let item = "card-\(card)"
+	let from = match board.Where(board.Defaults, item) {
+	case Some[board.Spot] as s:
+		s.Value
+	case None:
+		return false
+	}
+	let col = board.Defaults[to]
+	// The reference: the spot's line and where it drops.
+	let mut target = col.ID
+	let mut index = 0
+	for x in col.Cards {
+		if spot < len(col.Cards) && x.ID == col.Cards[spot].ID {
+			target = x.ID + if lower { " lower" } else { " upper" }
+			if x.ID != item && lower {
+				index = index + 1
+			}
+			break
+		}
+		if x.ID != item {
+			index = index + 1
+		}
+	}
+	let mut h = Open(board.Defaults, m) catch {
+	case Unread:
+		return false
+	}
+	let ok = dropped(&h, item, from, col, target, index, shelf)
+	Close(&h)
+	ok
+}
+
+func dropped(h mut Host, item string, from board.Spot, col board.Column, target string, index int, shelf memory.Shelf) bool needs board.Store {
+	let _ = Play(h, "press \(item)", "press \(item)") catch {
+	case Unread:
+		return false
+	}
+	let _ = Play(h, "move \(target)", "move \(target)") catch {
+	case Unread:
+		return false
+	}
+	if placeholderAt(ui.Screen(&h.view), col.ID, item) != index {
+		return false
+	}
+	let _ = Play(h, "release", "release") catch {
+	case Unread:
+		return false
+	}
+	let want = board.Reorder(board.Defaults, item, from.Column, col.ID, index)
+	Board(h).Columns == want && Show(h) == lines(want) && memory.Saves(shelf) == 1 && Live(h) == "Dropped \(board.Title(board.Defaults, item)) in position \(index + 1) of \(col.Name)."
+}
+
+// lines is Show's lines for columns.
+func lines(columns []board.Column) []string {
+	let mut out = []string{}
+	for c in columns {
+		let mut ids = ""
+		for x in c.Cards {
+			ids = ids + " " + x.ID
+		}
+		out = out.Append("\(c.Name) (\(len(c.Cards))):" + ids)
+	}
+	out
+}
+
+// placeholderAt is how many of the column's cards other than item come
+// before the drop placeholder in its zone on the screen; -1 with no
+// placeholder there.
+func placeholderAt(shapes []ui.Shape[kanban.Signal], col string, item string) int {
+	for s in shapes {
+		match s.Node {
+		case ui.ZoneNode as z:
+			if z.Key == ui.ByText(col) {
+				let mut before = 0
+				for k in s.Kids {
+					match k.Node {
+					case ui.TextNode as t:
+						if t.Value == "(drop here)" {
+							return before
+						}
+					case ui.ZoneNode as c:
+						if c.Key != ui.ByText(item) {
+							before = before + 1
+						}
+					case _:
+					}
+				}
+				return -1
+			}
+		case _:
+		}
+		let at = placeholderAt(s.Kids, col, item)
+		if at != -1 {
+			return at
+		}
+	}
+	-1
+}

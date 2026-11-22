@@ -1,468 +1,95 @@
 {
   "about": "L8 B5 Scoped result-release mutants; runtime tests run in process. The standard mutant runner currently measures compiler suites only; the unit's runtime runner applies each edit in a scratch copy.",
   "mutants": [
-    {
-      "name": "L8-B5-scoped-result-lost",
-      "origin": "L8 B5",
-      "file": "runtime/rt/scope.go",
-      "from": "if returned && release != nil {",
-      "to": "if false && returned && release != nil {",
-      "rule": "Gap 47: a discarded successful result is released once",
-      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
-    },
-    {
-      "name": "L8-B5-scoped-failed-candidate",
-      "origin": "L8 B5",
-      "file": "runtime/rt/scope.go",
-      "from": "returned = err == nil",
-      "to": "returned = true",
-      "rule": "A failed body has no valid result",
-      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
-    },
-    {
-      "name": "L8-B5-scoped-unmasked",
-      "origin": "L8 B5",
-      "file": "runtime/rt/scope.go",
-      "from": "m := t.Mask()\n\t\t\t\ts.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)\n\t\t\t\tm.Unmask()",
-      "to": "s.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)",
-      "rule": "R9: result releases are masked",
-      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
-    },
-    {
-      "name": "L8-B5-scoped-defect-lost",
-      "origin": "L8 B5",
-      "file": "runtime/rt/scope.go",
-      "from": "err = c.Err()",
-      "to": "_ = c.Err()",
-      "rule": "R9: a result-release defect joins the failed exit",
-      "killers": ["runtime/rt:TestScopedResultReleaseModel"]
-    },
-    {
-      "name": "X5-new-task-runs-unpicked",
-      "origin": "X5",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "\te.v.mu.Unlock()\n\t<-x.baton\n}\n\n// schedEnd",
-      "to": "\te.v.mu.Unlock()\n\t_ = x\n}\n\n// schedEnd",
-      "rule": "Explored schedules: a new task does not run until the strategy picks it",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-wake-does-not-enable",
-      "origin": "X5",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "m != nil && m.parked {\n\t\treturn false",
-      "to": "m != nil && (m.parked || x.blocked) {\n\t\treturn false",
-      "rule": "Explored schedules: a waker enables the task it wakes",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-two-batons",
-      "origin": "X5",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif next != x {",
-      "to": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif false && next != x {",
-      "rule": "Explored schedules: one task holds the baton",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-stop-without-point",
-      "origin": "X5",
-      "file": "runtime/rt/handle.go",
-      "from": "\tPoint(owner, Op{OpStop, &h.task})\n",
-      "to": "",
-      "rule": "Explored schedules: a stop is a scheduling point",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-clock-moves-while-enabled",
-      "origin": "X5",
-      "file": "runtime/rt/idle.go",
-      "from": "\tif d.live == 0 || d.parked < d.live || d.running > 0 {\n\t\treturn\n",
-      "to": "\tif d.live == 0 || d.parked < d.live-1 || d.running > 0 {\n\t\treturn\n",
-      "rule": "Explored schedules: the clock moves only when no task is enabled",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-spawn-path-by-goroutine",
-      "origin": "X5",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "e.add(child, px.path+\".\"+strconv.Itoa(px.kids))",
-      "to": "e.add(child, px.path+\".\"+strconv.FormatUint(child.id, 10))",
-      "rule": "Explored schedules: a task's name is its spawn path, the same in every run of a schedule",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-deadlock-as-pass",
-      "origin": "X5",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "e.res.Deadlock = left",
-      "to": "e.res.Deadlock = nil",
-      "rule": "Explored schedules: no enabled task while tasks remain is a deadlock",
-      "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
-    },
-    {
-      "name": "X5-live-hook-body",
-      "origin": "X5",
-      "file": "runtime/rt/sched_live.go",
-      "from": "func Block(t *Task) {}",
-      "to": "func Block(t *Task) { t.Done() }",
-      "rule": "Explored schedules 7: without the tag a hook costs nothing",
-      "killers": ["runtime:TestSchedHooksCostNothingLive"]
-    },
-    {
-      "name": "X5-hook-argument-calls",
-      "origin": "X5",
-      "file": "runtime/rt/clock.go",
-      "from": "Point(t, Op{OpSleep, s})",
-      "to": "Point(t, Op{OpSleep, s.NewTimer(0)})",
-      "rule": "Explored schedules 7: a hook's arguments are plain values",
-      "killers": ["runtime:TestSchedHooksCostNothingLive"]
-    },
-    {
-      "name": "X5-hook-closure-unguarded",
-      "origin": "X5",
-      "file": "runtime/v1/actor.go",
-      "from": "\t\tif rt.Exploring {\n\t\t\trt.Await(at, isClosedTest(settled))\n\t\t}\n",
-      "to": "\t\trt.Await(at, isClosedTest(settled))\n",
-      "rule": "Explored schedules 7: a hook call that builds a closure sits inside if rt.Exploring",
-      "killers": ["runtime:TestSchedHooksCostNothingLive"]
-    },
-    {
-      "name": "X5-tags-not-linked",
-      "origin": "X5",
-      "file": "internal/sketch/build/action.go",
-      "from": "if len(t.Tags) > 0 {",
-      "to": "if false && len(t.Tags) > 0 {",
-      "rule": "Explored schedules: --explore links the tagged runtime",
-      "killers": ["internal/sketch/build:TestCacheInputs"]
-    },
-    {
-      "name": "x8-name-no-count",
-      "origin": "wf10/explorer/x8",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "\t\tname += \" (\" + strconv.Itoa(k) + \")\"\n",
-      "to": "\t\t_ = k\n",
-      "rule": "The k-th handle of one name in a run is named \"name (k)\".",
-      "killers": [
-        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
-      ]
-    },
-    {
-      "name": "gx4-member-stays-in-domain",
-      "origin": "wf10 GX4",
-      "file": "runtime/rt/group.go",
-      "from": "\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
-      "to": "\tt.detach()\n\treturn v, err",
-      "rule": "rt Group (GX4): a member that returned leaves its auto clock's domain.",
-      "killers": ["runtime/rt:TestGroupMembersLeave"]
-    },
-    {
-      "name": "gx4-member-stays-linked",
-      "origin": "wf10 GX4",
-      "file": "runtime/rt/group.go",
-      "from": "\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
-      "to": "\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
-      "rule": "rt Group (GX4): a member that returned leaves the task tree.",
-      "killers": ["runtime/rt:TestGroupMembersLeave"]
-    },
-    {
-      "name": "gx4-group-counted-live",
-      "origin": "wf10 GX4",
-      "file": "runtime/rt/group.go",
-      "from": "\t\tm.d.live--\n",
-      "to": "",
-      "rule": "rt Group (GX4): a group runs nothing, so it is no live member of its clock's domain.",
-      "killers": [
-        "runtime/rt:TestGroupMembersLeave"
-      ]
-    },
-    {
-      "name": "gx4-member-on-own-goroutine",
-      "origin": "wf10 GX4",
-      "file": "runtime/rt/group.go",
-      "from": "\tv, err := Run(t, body)\n",
-      "to": "\tvar v T\n\tvar err error\n\tran := make(chan struct{})\n\tgo func() { v, err = Run(t, body); close(ran) }()\n\t<-ran\n",
-      "rule": "std http Serve (GX4): a request's task runs on the goroutine that read the request.",
-      "killers": [
-        "runtime/v1/http:TestHTTPHandlerRunsOnTheConnection"
-      ]
-    },
-    {
-      "name": "gx5-exit-builds-cause",
-      "origin": "wf10 GX5",
-      "file": "runtime/rt/run.go",
-      "from": "\tif p == nil && (err == nil || err == Interrupted) {\n",
-      "to": "\tif false {\n",
-      "rule": "runtime.md, task exits (GX5): a stopped task's exit of nothing or of the interruption alone builds no Cause.",
-      "killers": [
-        "runtime/rt:TestQuietExitsAllocateNothing"
-      ]
-    },
-    {
-      "name": "gx5-live-timer-fresh",
-      "origin": "wf10 GX5",
-      "file": "runtime/rt/clock.go",
-      "from": "\tif _, ok := s.(Live); ok {\n\t\treturn sleepLive(t, d)\n\t}\n",
-      "to": "",
-      "rule": "rt Sleep (GX5): a live sleep reuses the host timer of an ended one.",
-      "killers": [
-        "runtime/rt:TestQuietExitsAllocateNothing"
-      ]
-    },
-    {
-      "name": "bs2-anytext-no-error",
-      "origin": "wf10 binsize BS2",
-      "file": "runtime/rt/text.go",
-      "from": "\tcase error:\n\t\treturn methodText(v, \"Error\", x.Error)\n",
-      "to": "\tcase error:\n\t\treturn \"error\"\n",
-      "rule": "stdlib.md Types 4 (binsize BS2): rt.Text writes an error as fmt's %v does, by its Error method.",
-      "killers": [
-        "runtime/rt:TestTextMatchesFmt"
-      ]
-    },
-    {
-      "name": "bs2-anytext-int",
-      "origin": "wf10 binsize BS2",
-      "file": "runtime/rt/text.go",
-      "from": "\tcase int:\n\t\treturn strconv.FormatInt(int64(x), 10)\n",
-      "to": "",
-      "rule": "stdlib.md Types 4 (binsize BS2): rt.Text writes every Go integer kind as fmt's %v does.",
-      "killers": [
-        "runtime/rt:TestTextMatchesFmt"
-      ]
-    },
-    {
-      "name": "bs2-anytext-nil-pointer",
-      "origin": "wf10 binsize BS2",
-      "file": "runtime/rt/text.go",
-      "from": "\t\t\tif nilPointer(v) {\n",
-      "to": "\t\t\tif false {\n",
-      "rule": "stdlib.md Types 4 (binsize BS2): an Error method that panics on a nil pointer writes <nil>, as fmt does.",
-      "killers": [
-        "runtime/rt:TestTextMatchesFmt"
-      ]
-    },
-    {
-      "name": "bs2-typename-generic",
-      "origin": "wf10 binsize BS2",
-      "file": "runtime/rt/text.go",
-      "from": "\t\tcase ']':\n\t\t\tbrackets++\n",
-      "to": "\t\tcase ']':\n",
-      "rule": "stdlib.md Types 4 (binsize BS2): rt.TypeName gives reflect's Type.Name, a generic type's name with its arguments.",
-      "killers": [
-        "runtime/rt:TestTypeStringMatchesReflect"
-      ]
-    },
-    {
-      "name": "ert-abort-ignored",
-      "origin": "wf10 EXPLORE-rt r2",
-      "file": "runtime/rt/sched_explore.go",
-      "from": "\te.res.Stopped = why\n\te.release()\n\treturn true\n",
-      "to": "\te.res.Stopped = why\n\treturn true\n",
-      "rule": "AbortExplore ends the active explored run and frees the explorer, even when a task waits where the scheduler cannot see.",
-      "killers": [
-        "runtime/rt[ergoexplore]:TestExploreAbortReleasesTheRun"
-      ]
-    },
+    {"name":"L8-B5-scoped-result-lost","origin":"L8 B5","file":"runtime/rt/scope.go","from":"if returned && release != nil {","to":"if false && returned && release != nil {","rule":"Gap 47: a discarded successful result is released once","killers":["runtime/rt:TestScopedResultReleaseModel"]},
+    {"name":"L8-B5-scoped-failed-candidate","origin":"L8 B5","file":"runtime/rt/scope.go","from":"returned = err == nil","to":"returned = true","rule":"A failed body has no valid result","killers":["runtime/rt:TestScopedResultReleaseModel"]},
+    {"name":"L8-B5-scoped-unmasked","origin":"L8 B5","file":"runtime/rt/scope.go","from":"m := t.Mask()\n\t\t\t\ts.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)\n\t\t\t\tm.Unmask()","to":"s.runRelease(entry{run: closeWith[T]{release}, v: left}, &c)","rule":"R9: result releases are masked","killers":["runtime/rt:TestScopedResultReleaseModel"]},
+    {"name":"L8-B5-scoped-defect-lost","origin":"L8 B5","file":"runtime/rt/scope.go","from":"err = c.Err()","to":"_ = c.Err()","rule":"R9: a result-release defect joins the failed exit","killers":["runtime/rt:TestScopedResultReleaseModel"]},
+    {"name":"X5-new-task-runs-unpicked","origin":"X5","file":"runtime/rt/sched_explore.go","from":"\te.v.mu.Unlock()\n\t<-x.baton\n}\n\n// schedEnd","to":"\te.v.mu.Unlock()\n\t_ = x\n}\n\n// schedEnd","rule":"Explored schedules: a new task does not run until the strategy picks it","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-wake-does-not-enable","origin":"X5","file":"runtime/rt/sched_explore.go","from":"m != nil && m.parked {\n\t\treturn false","to":"m != nil && (m.parked || x.blocked) {\n\t\treturn false","rule":"Explored schedules: a waker enables the task it wakes","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-two-batons","origin":"X5","file":"runtime/rt/sched_explore.go","from":"x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif next != x {","to":"x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif false && next != x {","rule":"Explored schedules: one task holds the baton","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-stop-without-point","origin":"X5","file":"runtime/rt/handle.go","from":"\tPoint(owner, Op{OpStop, &h.task})\n","to":"","rule":"Explored schedules: a stop is a scheduling point","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-clock-moves-while-enabled","origin":"X5","file":"runtime/rt/idle.go","from":"\tif d.live == 0 || d.parked < d.live || d.running > 0 {\n\t\treturn\n","to":"\tif d.live == 0 || d.parked < d.live-1 || d.running > 0 {\n\t\treturn\n","rule":"Explored schedules: the clock moves only when no task is enabled","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-spawn-path-by-goroutine","origin":"X5","file":"runtime/rt/sched_explore.go","from":"e.add(child, px.path+\".\"+strconv.Itoa(px.kids))","to":"e.add(child, px.path+\".\"+strconv.FormatUint(child.id, 10))","rule":"Explored schedules: a task's name is its spawn path, the same in every run of a schedule","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-deadlock-as-pass","origin":"X5","file":"runtime/rt/sched_explore.go","from":"e.res.Deadlock = left","to":"e.res.Deadlock = nil","rule":"Explored schedules: no enabled task while tasks remain is a deadlock","killers":["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]},
+    {"name":"X5-live-hook-body","origin":"X5","file":"runtime/rt/sched_live.go","from":"func Block(t *Task) {}","to":"func Block(t *Task) { t.Done() }","rule":"Explored schedules 7: without the tag a hook costs nothing","killers":["runtime:TestSchedHooksCostNothingLive"]},
+    {"name":"X5-hook-argument-calls","origin":"X5","file":"runtime/rt/clock.go","from":"Point(t, Op{OpSleep, s})","to":"Point(t, Op{OpSleep, s.NewTimer(0)})","rule":"Explored schedules 7: a hook's arguments are plain values","killers":["runtime:TestSchedHooksCostNothingLive"]},
+    {"name":"X5-hook-closure-unguarded","origin":"X5","file":"runtime/v1/actor.go","from":"\t\tif rt.Exploring {\n\t\t\trt.Await(at, isClosedTest(settled))\n\t\t}\n","to":"\t\trt.Await(at, isClosedTest(settled))\n","rule":"Explored schedules 7: a hook call that builds a closure sits inside if rt.Exploring","killers":["runtime:TestSchedHooksCostNothingLive"]},
+    {"name":"X5-tags-not-linked","origin":"X5","file":"internal/sketch/build/action.go","from":"if len(t.Tags) > 0 {","to":"if false && len(t.Tags) > 0 {","rule":"Explored schedules: --explore links the tagged runtime","killers":["internal/sketch/build:TestCacheInputs"]},
+    {"name":"x8-name-no-count","origin":"wf10/explorer/x8","file":"runtime/rt/sched_explore.go","from":"\t\tname += \" (\" + strconv.Itoa(k) + \")\"\n","to":"\t\t_ = k\n","rule":"The k-th handle of one name in a run is named \"name (k)\".","killers":["runtime/v1[ergoexplore]:TestHandlesNamedBySource"]},
+    {"name":"gx4-member-stays-in-domain","origin":"wf10 GX4","file":"runtime/rt/group.go","from":"\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err","to":"\tt.detach()\n\treturn v, err","rule":"rt Group (GX4): a member that returned leaves its auto clock's domain.","killers":["runtime/rt:TestGroupMembersLeave"]},
+    {"name":"gx4-member-stays-linked","origin":"wf10 GX4","file":"runtime/rt/group.go","from":"\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err","to":"\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err","rule":"rt Group (GX4): a member that returned leaves the task tree.","killers":["runtime/rt:TestGroupMembersLeave"]},
+    {"name":"gx4-group-counted-live","origin":"wf10 GX4","file":"runtime/rt/group.go","from":"\t\tm.d.live--\n","to":"","rule":"rt Group (GX4): a group runs nothing, so it is no live member of its clock's domain.","killers":["runtime/rt:TestGroupMembersLeave"]},
+    {"name":"gx4-member-on-own-goroutine","origin":"wf10 GX4","file":"runtime/rt/group.go","from":"\tv, err := Run(t, body)\n","to":"\tvar v T\n\tvar err error\n\tran := make(chan struct{})\n\tgo func() { v, err = Run(t, body); close(ran) }()\n\t<-ran\n","rule":"std http Serve (GX4): a request's task runs on the goroutine that read the request.","killers":["runtime/v1/http:TestHTTPHandlerRunsOnTheConnection"]},
+    {"name":"gx5-exit-builds-cause","origin":"wf10 GX5","file":"runtime/rt/run.go","from":"\tif p == nil && (err == nil || err == Interrupted) {\n","to":"\tif false {\n","rule":"runtime.md, task exits (GX5): a stopped task's exit of nothing or of the interruption alone builds no Cause.","killers":["runtime/rt:TestQuietExitsAllocateNothing"]},
+    {"name":"gx5-live-timer-fresh","origin":"wf10 GX5","file":"runtime/rt/clock.go","from":"\tif _, ok := s.(Live); ok {\n\t\treturn sleepLive(t, d)\n\t}\n","to":"","rule":"rt Sleep (GX5): a live sleep reuses the host timer of an ended one.","killers":["runtime/rt:TestQuietExitsAllocateNothing"]},
+    {"name":"bs2-anytext-no-error","origin":"wf10 binsize BS2","file":"runtime/rt/text.go","from":"\tcase error:\n\t\treturn methodText(v, \"Error\", x.Error)\n","to":"\tcase error:\n\t\treturn \"error\"\n","rule":"stdlib.md Types 4 (binsize BS2): rt.Text writes an error as fmt's %v does, by its Error method.","killers":["runtime/rt:TestTextMatchesFmt"]},
+    {"name":"bs2-anytext-int","origin":"wf10 binsize BS2","file":"runtime/rt/text.go","from":"\tcase int:\n\t\treturn strconv.FormatInt(int64(x), 10)\n","to":"","rule":"stdlib.md Types 4 (binsize BS2): rt.Text writes every Go integer kind as fmt's %v does.","killers":["runtime/rt:TestTextMatchesFmt"]},
+    {"name":"bs2-anytext-nil-pointer","origin":"wf10 binsize BS2","file":"runtime/rt/text.go","from":"\t\t\tif nilPointer(v) {\n","to":"\t\t\tif false {\n","rule":"stdlib.md Types 4 (binsize BS2): an Error method that panics on a nil pointer writes <nil>, as fmt does.","killers":["runtime/rt:TestTextMatchesFmt"]},
+    {"name":"bs2-typename-generic","origin":"wf10 binsize BS2","file":"runtime/rt/text.go","from":"\t\tcase ']':\n\t\t\tbrackets++\n","to":"\t\tcase ']':\n","rule":"stdlib.md Types 4 (binsize BS2): rt.TypeName gives reflect's Type.Name, a generic type's name with its arguments.","killers":["runtime/rt:TestTypeStringMatchesReflect"]},
+    {"name":"ert-abort-ignored","origin":"wf10 EXPLORE-rt r2","file":"runtime/rt/sched_explore.go","from":"\te.res.Stopped = why\n\te.release()\n\treturn true\n","to":"\te.res.Stopped = why\n\treturn true\n","rule":"AbortExplore ends the active explored run and frees the explorer, even when a task waits where the scheduler cannot see.","killers":["runtime/rt[ergoexplore]:TestExploreAbortReleasesTheRun"]},
     {"name":"sb8-no-flush-wait","origin":"wf10 SB8","file":"runtime/rt/park.go","from":"\tif waitFlush.pending.Load() {\n\t\twaitFlush.flush()\n\t}\n","to":"","rule":"stdlib.md io 10: a task's wait of the runtime (Done) flushes held standard output.","killers":["runtime/v1:TestStdoutFlushModel"]},
-    {
-      "name": "pace-ignores-user-gogc",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "\tif gogcSet {\n\t\treturn 0, false\n\t}\n",
-      "to": "",
-      "rule": "GOGC in the environment turns the heap pacing off: the user's setting wins",
-      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
-    },
-    {
-      "name": "pace-floor-above-limit",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "if limit > 0 && limit/4 < floor {",
-      "to": "if false && limit > 0 && limit/4 < floor {",
-      "rule": "A memory limit lowers the floor to a quarter of the limit",
-      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
-    },
-    {
-      "name": "pace-never-returns-to-100",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "if live+(live+roots)*basePercent/100 >= floor || heapMinimum",
-      "to": "if heapMinimum",
-      "rule": "Above the floor the pace is Go's GOGC=100: the goal stays within max(floor, Go's goal)",
-      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
-    },
-    {
-      "name": "pace-ignores-roots",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "ceilDiv((floor-live)*100, live+roots)",
-      "to": "ceilDiv((floor-live)*100, max(live, 1))",
-      "rule": "Go's goal scales the stacks and globals with the percent, so the percent accounts for them",
-      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
-    },
-    {
-      "name": "pace-ignores-heap-minimum",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "p := ceilDiv(floor*100, heapMinimum)",
-      "to": "p := ceilDiv(floor*100, 1)",
-      "rule": "Go scales its minimum heap with the percent, so a percent above floor*100/4MiB overshoots the floor",
-      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
-    },
-    {
-      "name": "pace-not-rearmed",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "\truntime.SetFinalizer(&paceSentinel{}, func(*paceSentinel) { p.cycle() })\n",
-      "to": "\t_ = runtime.SetFinalizer\n",
-      "rule": "The pace is recomputed after every cycle, so a live heap that grows past the floor returns to Go's pace",
-      "killers": ["runtime/rt:TestPaceFollowsTheCycles"]
-    },
-    {
-      "name": "pace-overrides-program-percent",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "p.set != -2 && int64(old) != p.set",
-      "to": "false && p.set != -2 && int64(old) != p.set",
-      "rule": "A percent the program sets itself wins: the pacer stops",
-      "killers": ["runtime/rt:TestPaceFollowsTheCycles"]
-    },
-    {
-      "name": "pace-cgroup-leaf-only",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/rt/pace.go",
-      "from": "\t\tif dir == \"/\" {\n\t\t\treturn limit\n\t\t}\n",
-      "to": "\t\tif true {\n\t\t\treturn limit\n\t\t}\n",
-      "rule": "The cgroup limit is the smallest memory.max of the process's cgroup and every cgroup above it",
-      "killers": ["runtime/rt:TestPaceReadsTheCgroupTree"]
-    },
-    {
-      "name": "pace-not-started",
-      "origin": "wf10/ir-guarantees/PACE1",
-      "file": "runtime/v1/exit.go",
-      "from": "\tstartPace()\n\tstatus := report(",
-      "to": "\tstatus := report(",
-      "rule": "Emitted main paces the program's heap",
-      "killers": ["runtime/v1:TestMainPacesTheHeap"]
-    },
-    {
-      "name": "size-hello-cgroup-root-lost",
-      "origin": "wf10 SIZE-HELLO",
-      "file": "runtime/rt/pace.go",
-      "from": "\tif len(out) == 0 {\n\t\treturn \"/\"\n\t}\n",
-      "to": "\tif len(out) == 0 {\n\t\treturn \"\"\n\t}\n",
-      "rule": "PACE1: a process in the root cgroup reads the root's memory.max.",
-      "killers": [
-        "runtime/rt:TestPaceReadsTheCgroupTree"
-      ]
-    },
-    {
-      "name": "size-hello-knob-swapped",
-      "origin": "wf10 SIZE-HELLO",
-      "file": "runtime/rt/gcknobs.go",
-      "from": "func memoryLimit(limit int64) int64 { return setMemoryLimit(limit) }",
-      "to": "func memoryLimit(limit int64) int64 { return int64(setGCPercent(int32(limit))) }",
-      "rule": "The runtime's knobs bound by name set what runtime/debug reads back.",
-      "killers": [
-        "runtime/rt:TestGCKnobsMatchRuntimeDebug"
-      ]
-    },
-    {
-      "name": "idle-moves-first-clock",
-      "origin": "wf10/research/P3 P3-9",
-      "file": "runtime/rt/idle.go",
-      "from": "(next == nil || c.timers[0].when-c.now < next.timers[0].when-next.now)",
-      "to": "next == nil",
-      "rule": "With several auto clocks armed, the one whose deadline is nearest its own now moves",
-      "killers": ["runtime/rt:TestDomainMovesNearestClock"]
-    },
-    {"name": "vsleep-fire-skips-wake", "origin": "wf10/research/P3 FU-virtual-sleep", "file": "runtime/rt/idle.go", "from": "\t\ttask.wake.unpark()\n", "to": "", "rule": "A fired sleep's timer resumes the sleeper's park word", "killers": ["runtime/rt:TestDomainMovesNearestClock"]},
-    {"name": "vsleep-ignores-stop", "origin": "wf10/research/P3 FU-virtual-sleep", "file": "runtime/rt/idle.go", "from": "for !tm.fired.Load() && !(stoppable && t.stopped.Load()) {", "to": "for !tm.fired.Load() {", "rule": "A stop ends a sleep on a clock with a domain", "killers": ["runtime/rt:TestSleepEndsOnStop", "runtime/v1:TestManualAdvanceSettles"]},
-    {"name": "vsleep-stop-loses-tie", "origin": "wf10/research/P3 FU-virtual-sleep", "file": "runtime/rt/idle.go", "from": "\tif tm.fired.Load() {\n\t\tv.putSpare(tm)\n\t\treturn nil", "to": "\tif tm.fired.Load() && !t.stopped.Load() {\n\t\tv.putSpare(tm)\n\t\treturn nil", "rule": "Tasks rule 8: a deadline at the instant of the stop ends the sleep as a sleep", "killers": ["runtime/rt:TestVirtualSleepTieEndsAsSleep"]},
-    {"name": "park-misses-early-wake", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park_word.go", "from": "\tif atomic.CompareAndSwapUintptr(&p.w, parkNotified, parkEmpty) {\n\t\treturn\n\t}\n\tgopark(", "to": "\tatomic.StoreUintptr(&p.w, parkEmpty)\n\tgopark(", "rule": "No lost wake: a park with a wake pending takes it and returns", "killers": ["runtime/rt:TestParkWordLaws"]},
-    {"name": "park-commit-drops-wake", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park_word.go", "from": "\tatomic.StoreUintptr((*uintptr)(w), parkEmpty) // only a waker writes notified\n\treturn false", "to": "\tatomic.StoreUintptr((*uintptr)(w), gp)\n\treturn true", "rule": "No lost wake: a wake that comes between park's look and its commit is taken, and the waiter runs on", "killers": ["runtime/rt:TestParkWordRaceKeepsWake"]},
-    {"name": "unpark-drops-pending", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park_word.go", "from": "\t\t\tif atomic.CompareAndSwapUintptr(&p.w, parkEmpty, parkNotified) {", "to": "\t\t\tif true {", "rule": "No lost wake: a wake with no sleeper is left for the next park", "killers": ["runtime/rt:TestParkWordLaws"]},
-    {"name": "unpark-skips-sleeper", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park_word.go", "from": "\t\t\t\tgoready(old, 1)\n", "to": "\t\t\t\t_ = old\n", "rule": "A wake reaches a sleeping waiter", "killers": ["runtime/rt:TestParkWordLaws"]},
-    {"name": "stock-park-misses-early-wake", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park.go", "from": "\tif p.state.CompareAndSwap(parkNotified, parkEmpty) {\n\t\treturn\n\t}\n", "to": "\tp.state.CompareAndSwap(parkNotified, parkEmpty)\n", "rule": "No lost wake, stock body: a park with a wake pending takes it and returns", "killers": ["runtime/rt:TestParkWordLaws"]},
-    {"name": "stock-unpark-drops-pending", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park.go", "from": "\t\t\tif p.state.CompareAndSwap(parkEmpty, parkNotified) {", "to": "\t\t\tif true {", "rule": "No lost wake, stock body: a wake with no sleeper is left for the next park", "killers": ["runtime/rt:TestParkWordLaws"]},
-    {"name": "park-reason-renumbered", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park_word.go", "from": "\tparkWaitReason  = 21", "to": "\tparkWaitReason  = 20", "rule": "The word body names the runtime's waitReasonSyncCondWait", "killers": ["runtime/rt:TestParkWordLinksTheRuntime"]},
-    {"name": "park-trace-reason-renumbered", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/park_word.go", "from": "\tparkTraceReason = 4", "to": "\tparkTraceReason = 5", "rule": "The word body names the runtime's traceBlockCondWait", "killers": ["runtime/rt:TestParkWordLinksTheRuntime"]},
-    {"name": "finish-skips-resume", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/handle.go", "from": "\tm.unlock()\n\twaiter.wake.unpark()\n", "to": "\tm.unlock()\n", "rule": "Join returns the task's exit: the end of a task wakes its owner's Wait", "killers": ["runtime/rt:TestJoinLaws"]},
-    {"name": "interrupt-skips-resume", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/task.go", "from": "\t\tt.wake.unpark()\n", "to": "", "rule": "A stop interrupts a task that sleeps on its park word", "killers": ["runtime/rt:TestJoinLaws"]},
-    {"name": "wait-ignores-stop", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/handle.go", "from": "\t\tfor !h.ended.Load() && !owner.Stopped() {", "to": "\t\tfor !h.ended.Load() {", "rule": "Wait is an interruption point: a stop ends it before the task ends", "killers": ["runtime/rt:TestJoinLaws"]},
-    {"name": "wait-ignores-ended", "origin": "wf10/rt-spike/PARK1", "file": "runtime/rt/handle.go", "from": "\t\tfor !h.ended.Load() && !owner.Stopped() {", "to": "\t\tfor !owner.Stopped() {", "rule": "Join returns the task's exit once it ended", "killers": ["runtime/rt:TestJoinLaws"]},
-    {"name": "carrier-always-goes", "origin": "wf10/research/P3 FU-actor-timer-slot", "file": "runtime/rt/carrier.go", "from": "\tif c.closed || c.job != nil {", "to": "\tif true {", "rule": "GoOn runs successive children on the carrier's one goroutine", "killers": ["runtime/rt:TestCarrierRunsChildrenOnOneGoroutine"]},
-    {"name": "carrier-close-skips-wake", "origin": "wf10/research/P3 FU-actor-timer-slot", "file": "runtime/rt/carrier.go", "from": "\tif started {\n\t\tc.wake.unpark()", "to": "\tif false && started {\n\t\tc.wake.unpark()", "rule": "Close ends the carrier's goroutine", "killers": ["runtime/rt:TestCarrierRunsChildrenOnOneGoroutine"]},
-    {"name": "carrier-run-skips-wake", "origin": "wf10/research/P3 FU-actor-timer-slot", "file": "runtime/rt/carrier.go", "from": "\tc.mu.Unlock()\n\tc.wake.unpark()\n}", "to": "\tc.mu.Unlock()\n}", "rule": "A child handed to a parked carrier wakes it", "killers": ["runtime/rt:TestCarrierRunsChildrenOnOneGoroutine"]},
-    {"name": "sleep-timer-not-reused", "origin": "wf10/research/P3 FU-sleep-timer-reuse", "file": "runtime/rt/idle.go", "from": "\tif !Exploring {\n\t\tif tm := v.spare.Swap(nil)", "to": "\tif false {\n\t\tif tm := v.spare.Swap(nil)", "rule": "A steady sleep on a test clock reuses the clock's spare timer", "killers": ["runtime/rt:TestVirtualSleepAllocatesNothing"]},
-    {"name": "timers-pop-reslices", "origin": "wf10/research/P3 FU-sleep-timer-reuse", "file": "runtime/rt/clock.go", "from": "\tn := copy(v.timers, v.timers[1:])\n\tv.timers[n] = nil\n\tv.timers = v.timers[:n]", "to": "\tv.timers = v.timers[1:]", "rule": "A fire keeps the timer list's room", "killers": ["runtime/rt:TestVirtualSleepAllocatesNothing"]},
-    {"name": "sleep-timer-stays-fired", "origin": "wf10/research/P3 FU-sleep-timer-reuse", "file": "runtime/rt/idle.go", "from": "\ttm.fired.Store(false)\n", "to": "", "rule": "A reused sleep timer starts unfired", "killers": ["runtime/rt:TestVirtualSleepAllocatesNothing"]},
-    {"name": "fire-reads-task-late", "origin": "wf10/research/P3 FU-sleep-timer-reuse (orchestrator: kill it)", "file": "runtime/rt/idle.go", "from": "\t\t\tfireGap()\n\t\t}\n\t\ttask.wake.unpark()", "to": "\t\t\tfireGap()\n\t\t}\n\t\tt.task.wake.unpark()", "rule": "fire wakes the task it read before it marked the timer fired: the sleeper may hand the timer on once it is marked", "killers": ["runtime/rt:TestFireOutlivesItsSleep"]},
-    {"name": "wait-hook-slot-stays", "origin": "wf10/research/P3 FU-timer-task-reuse", "file": "runtime/rt/task.go", "from": "\t\t\twaitHooks.one = nil\n\t\t\twaitHooks.oneTask.Store(nil)\n", "to": "\t\t\twaitHooks.one = nil\n", "rule": "A hook in the slot runs once and leaves it", "killers": ["runtime/rt:TestWaitHooksRunOnceAndClear"]},
-    {"name": "wait-hook-slot-shadows-map", "origin": "wf10/research/P3 FU-timer-task-reuse", "file": "runtime/rt/task.go", "from": "\tif waitHooks.oneTask.Load() == t {\n\t\twaitHooks.mu.Lock()\n\t\tif waitHooks.oneTask.Load() == t {", "to": "\tif waitHooks.oneTask.Load() != nil {\n\t\twaitHooks.mu.Lock()\n\t\tif waitHooks.oneTask.Load() != nil {", "rule": "Each task's wait runs its own hook", "killers": ["runtime/rt:TestWaitHooksRunOnceAndClear"]},
-    {"name": "wait-hook-slot-unused", "origin": "wf10/research/P3 FU-timer-task-reuse", "file": "runtime/rt/task.go", "from": "\tif waitHooks.oneTask.Load() == nil {\n\t\twaitHooks.one = f", "to": "\tif false {\n\t\twaitHooks.one = f", "rule": "A hook alone is stored with no allocation", "killers": ["runtime/rt:TestWaitHooksRunOnceAndClear"]},
-    {"name": "settle-skips-resume", "origin": "wf10/research/P3 FU-settle-word", "file": "runtime/rt/idle.go", "from": "\t\t\tw.Resume()\n", "to": "\t\t\t_ = w\n", "rule": "A member that parks or leaves wakes every Settle that waits", "killers": ["runtime/rt:TestSettleEndsWhenAMemberLeaves", "runtime/v1:TestManualAdvanceSettles"]},
-    {"name": "settles-not-bumped", "origin": "wf10/research/P3 FU-settle-word", "file": "runtime/rt/idle.go", "from": "\t\td.settles.Add(1)\n", "to": "", "rule": "A woken Settle sees that a member parked or left", "killers": ["runtime/rt:TestSettleEndsWhenAMemberLeaves", "runtime/v1:TestManualAdvanceSettles"]},
-    {"name": "settle-stop-ignored", "origin": "wf10/research/P3 FU-settle-word", "file": "runtime/rt/clock.go", "from": "for d.settles.Load() == g && !(stoppable && t.stopped.Load()) {", "to": "for d.settles.Load() == g {", "rule": "A stop of its caller ends a Settle with Interrupted", "killers": ["runtime/rt:TestSettleEndsOnStop"]},
-    {"name": "restart-never-reuses", "origin": "wf10/research/P3 FU-handle-reuse", "file": "runtime/rt/carrier.go", "from": "\tif h != nil && c.idleAfter(h) {", "to": "\tif false {", "rule": "A child restarts in its last handle once that handle's job returned on the carrier", "killers": ["runtime/rt:TestRestartOnReusesAFreeHandle"]},
-    {"name": "restart-ignores-running", "origin": "wf10/research/P3 FU-handle-reuse", "file": "runtime/rt/carrier.go", "from": "\tok := c.last == h && c.ran == c.handed", "to": "\tok := c.last == h", "rule": "A handle whose job still runs on the carrier is not reused", "killers": ["runtime/rt:TestRestartOnReusesAFreeHandle"]},
+    {"name":"pace-ignores-user-gogc","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"\tif gogcSet {\n\t\treturn 0, false\n\t}\n","to":"","rule":"GOGC in the environment turns the heap pacing off: the user's setting wins","killers":["runtime/rt:TestPaceKeepsItsBound"]},
+    {"name":"pace-floor-above-limit","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"if limit > 0 && limit/4 < floor {","to":"if false && limit > 0 && limit/4 < floor {","rule":"A memory limit lowers the floor to a quarter of the limit","killers":["runtime/rt:TestPaceKeepsItsBound"]},
+    {"name":"pace-never-returns-to-100","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"if live+(live+roots)*basePercent/100 >= floor || heapMinimum","to":"if heapMinimum","rule":"Above the floor the pace is Go's GOGC=100: the goal stays within max(floor, Go's goal)","killers":["runtime/rt:TestPaceKeepsItsBound"]},
+    {"name":"pace-ignores-roots","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"ceilDiv((floor-live)*100, live+roots)","to":"ceilDiv((floor-live)*100, max(live, 1))","rule":"Go's goal scales the stacks and globals with the percent, so the percent accounts for them","killers":["runtime/rt:TestPaceKeepsItsBound"]},
+    {"name":"pace-ignores-heap-minimum","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"p := ceilDiv(floor*100, heapMinimum)","to":"p := ceilDiv(floor*100, 1)","rule":"Go scales its minimum heap with the percent, so a percent above floor*100/4MiB overshoots the floor","killers":["runtime/rt:TestPaceKeepsItsBound"]},
+    {"name":"pace-not-rearmed","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"\truntime.SetFinalizer(&paceSentinel{}, func(*paceSentinel) { p.cycle() })\n","to":"\t_ = runtime.SetFinalizer\n","rule":"The pace is recomputed after every cycle, so a live heap that grows past the floor returns to Go's pace","killers":["runtime/rt:TestPaceFollowsTheCycles"]},
+    {"name":"pace-overrides-program-percent","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"p.set != -2 && int64(old) != p.set","to":"false && p.set != -2 && int64(old) != p.set","rule":"A percent the program sets itself wins: the pacer stops","killers":["runtime/rt:TestPaceFollowsTheCycles"]},
+    {"name":"pace-cgroup-leaf-only","origin":"wf10/ir-guarantees/PACE1","file":"runtime/rt/pace.go","from":"\t\tif dir == \"/\" {\n\t\t\treturn limit\n\t\t}\n","to":"\t\tif true {\n\t\t\treturn limit\n\t\t}\n","rule":"The cgroup limit is the smallest memory.max of the process's cgroup and every cgroup above it","killers":["runtime/rt:TestPaceReadsTheCgroupTree"]},
+    {"name":"pace-not-started","origin":"wf10/ir-guarantees/PACE1","file":"runtime/v1/exit.go","from":"\tstartPace()\n\tstatus := report(","to":"\tstatus := report(","rule":"Emitted main paces the program's heap","killers":["runtime/v1:TestMainPacesTheHeap"]},
+    {"name":"size-hello-cgroup-root-lost","origin":"wf10 SIZE-HELLO","file":"runtime/rt/pace.go","from":"\tif len(out) == 0 {\n\t\treturn \"/\"\n\t}\n","to":"\tif len(out) == 0 {\n\t\treturn \"\"\n\t}\n","rule":"PACE1: a process in the root cgroup reads the root's memory.max.","killers":["runtime/rt:TestPaceReadsTheCgroupTree"]},
+    {"name":"size-hello-knob-swapped","origin":"wf10 SIZE-HELLO","file":"runtime/rt/gcknobs.go","from":"func memoryLimit(limit int64) int64 { return setMemoryLimit(limit) }","to":"func memoryLimit(limit int64) int64 { return int64(setGCPercent(int32(limit))) }","rule":"The runtime's knobs bound by name set what runtime/debug reads back.","killers":["runtime/rt:TestGCKnobsMatchRuntimeDebug"]},
+    {"name":"idle-moves-first-clock","origin":"wf10/research/P3 P3-9","file":"runtime/rt/idle.go","from":"(next == nil || c.timers[0].when-c.now < next.timers[0].when-next.now)","to":"next == nil","rule":"With several auto clocks armed, the one whose deadline is nearest its own now moves","killers":["runtime/rt:TestDomainMovesNearestClock"]},
+    {"name":"vsleep-fire-skips-wake","origin":"wf10/research/P3 FU-virtual-sleep","file":"runtime/rt/idle.go","from":"\t\ttask.wake.unpark()\n","to":"","rule":"A fired sleep's timer resumes the sleeper's park word","killers":["runtime/rt:TestDomainMovesNearestClock"]},
+    {"name":"vsleep-ignores-stop","origin":"wf10/research/P3 FU-virtual-sleep","file":"runtime/rt/idle.go","from":"for !tm.fired.Load() && !(stoppable && t.stopped.Load()) {","to":"for !tm.fired.Load() {","rule":"A stop ends a sleep on a clock with a domain","killers":["runtime/rt:TestSleepEndsOnStop","runtime/v1:TestManualAdvanceSettles"]},
+    {"name":"vsleep-stop-loses-tie","origin":"wf10/research/P3 FU-virtual-sleep","file":"runtime/rt/idle.go","from":"\tif tm.fired.Load() {\n\t\tv.putSpare(tm)\n\t\treturn nil","to":"\tif tm.fired.Load() && !t.stopped.Load() {\n\t\tv.putSpare(tm)\n\t\treturn nil","rule":"Tasks rule 8: a deadline at the instant of the stop ends the sleep as a sleep","killers":["runtime/rt:TestVirtualSleepTieEndsAsSleep"]},
+    {"name":"park-misses-early-wake","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park_word.go","from":"\tif atomic.CompareAndSwapUintptr(&p.w, parkNotified, parkEmpty) {\n\t\treturn\n\t}\n\tgopark(","to":"\tatomic.StoreUintptr(&p.w, parkEmpty)\n\tgopark(","rule":"No lost wake: a park with a wake pending takes it and returns","killers":["runtime/rt:TestParkWordLaws"]},
+    {"name":"park-commit-drops-wake","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park_word.go","from":"\tatomic.CompareAndSwapUintptr((*uintptr)(w), parkNotified, parkEmpty)\n\treturn false","to":"\tatomic.StoreUintptr((*uintptr)(w), gp)\n\treturn true","rule":"No lost wake: a wake that comes between park's look and its commit is taken, and the waiter runs on","killers":["runtime/rt:TestParkWordRaceKeepsWake"]},
+    {"name":"unpark-drops-pending","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park_word.go","from":"\t\t\tif atomic.CompareAndSwapUintptr(&p.w, parkEmpty, parkNotified) {","to":"\t\t\tif true {","rule":"No lost wake: a wake with no sleeper is left for the next park","killers":["runtime/rt:TestParkWordLaws"]},
+    {"name":"unpark-skips-sleeper","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park_word.go","from":"\t\t\t\tgoready(old, 1)\n","to":"\t\t\t\t_ = old\n","rule":"A wake reaches a sleeping waiter","killers":["runtime/rt:TestParkWordLaws"]},
+    {"name":"stock-park-misses-early-wake","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park.go","from":"\tif p.state.CompareAndSwap(parkNotified, parkEmpty) {\n\t\treturn\n\t}\n","to":"\tp.state.CompareAndSwap(parkNotified, parkEmpty)\n","rule":"No lost wake, stock body: a park with a wake pending takes it and returns","killers":["runtime/rt:TestParkWordLaws"]},
+    {"name":"stock-unpark-drops-pending","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park.go","from":"\t\t\tif p.state.CompareAndSwap(parkEmpty, parkNotified) {","to":"\t\t\tif true {","rule":"No lost wake, stock body: a wake with no sleeper is left for the next park","killers":["runtime/rt:TestParkWordLaws"]},
+    {"name":"park-reason-renumbered","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park_word.go","from":"\tparkWaitReason  = 21","to":"\tparkWaitReason  = 20","rule":"The word body names the runtime's waitReasonSyncCondWait","killers":["runtime/rt:TestParkWordLinksTheRuntime"]},
+    {"name":"park-trace-reason-renumbered","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/park_word.go","from":"\tparkTraceReason = 4","to":"\tparkTraceReason = 5","rule":"The word body names the runtime's traceBlockCondWait","killers":["runtime/rt:TestParkWordLinksTheRuntime"]},
+    {"name":"finish-skips-resume","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/handle.go","from":"\tm.unlock()\n\twaiter.wake.unpark()\n","to":"\tm.unlock()\n","rule":"Join returns the task's exit: the end of a task wakes its owner's Wait","killers":["runtime/rt:TestJoinLaws"]},
+    {"name":"interrupt-skips-resume","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/task.go","from":"\t\tt.wake.unpark()\n","to":"","rule":"A stop interrupts a task that sleeps on its park word","killers":["runtime/rt:TestJoinLaws"]},
+    {"name":"wait-ignores-stop","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/handle.go","from":"\t\tfor !h.task.stopped.ended() && !owner.Stopped() {","to":"\t\tfor !h.task.stopped.ended() {","rule":"Wait is an interruption point: a stop ends it before the task ends","killers":["runtime/rt:TestJoinLaws"]},
+    {"name":"wait-ignores-ended","origin":"wf10/rt-spike/PARK1","file":"runtime/rt/handle.go","from":"\t\tfor !h.task.stopped.ended() && !owner.Stopped() {","to":"\t\tfor !owner.Stopped() {","rule":"Join returns the task's exit once it ended","killers":["runtime/rt:TestJoinLaws"]},
+    {"name":"carrier-always-goes","origin":"wf10/research/P3 FU-actor-timer-slot","file":"runtime/rt/carrier.go","from":"\tif c.closed || c.job != nil {","to":"\tif true {","rule":"GoOn runs successive children on the carrier's one goroutine","killers":["runtime/rt:TestCarrierRunsChildrenOnOneGoroutine"]},
+    {"name":"carrier-close-skips-wake","origin":"wf10/research/P3 FU-actor-timer-slot","file":"runtime/rt/carrier.go","from":"\tif started {\n\t\tc.wake.unpark()","to":"\tif false && started {\n\t\tc.wake.unpark()","rule":"Close ends the carrier's goroutine","killers":["runtime/rt:TestCarrierRunsChildrenOnOneGoroutine"]},
+    {"name":"carrier-run-skips-wake","origin":"wf10/research/P3 FU-actor-timer-slot","file":"runtime/rt/carrier.go","from":"\tc.mu.Unlock()\n\tc.wake.unpark()\n}","to":"\tc.mu.Unlock()\n}","rule":"A child handed to a parked carrier wakes it","killers":["runtime/rt:TestCarrierRunsChildrenOnOneGoroutine"]},
+    {"name":"sleep-timer-not-reused","origin":"wf10/research/P3 FU-sleep-timer-reuse","file":"runtime/rt/idle.go","from":"\tif !Exploring {\n\t\tif tm := v.spare.Swap(nil)","to":"\tif false {\n\t\tif tm := v.spare.Swap(nil)","rule":"A steady sleep on a test clock reuses the clock's spare timer","killers":["runtime/rt:TestVirtualSleepAllocatesNothing"]},
+    {"name":"timers-pop-reslices","origin":"wf10/research/P3 FU-sleep-timer-reuse","file":"runtime/rt/clock.go","from":"\tn := copy(v.timers, v.timers[1:])\n\tv.timers[n] = nil\n\tv.timers = v.timers[:n]","to":"\tv.timers = v.timers[1:]","rule":"A fire keeps the timer list's room","killers":["runtime/rt:TestVirtualSleepAllocatesNothing"]},
+    {"name":"sleep-timer-stays-fired","origin":"wf10/research/P3 FU-sleep-timer-reuse","file":"runtime/rt/idle.go","from":"\ttm.fired.Store(false)\n","to":"","rule":"A reused sleep timer starts unfired","killers":["runtime/rt:TestVirtualSleepAllocatesNothing"]},
+    {"name":"fire-reads-task-late","origin":"wf10/research/P3 FU-sleep-timer-reuse (orchestrator: kill it)","file":"runtime/rt/idle.go","from":"\t\t\tfireGap()\n\t\t}\n\t\ttask.wake.unpark()","to":"\t\t\tfireGap()\n\t\t}\n\t\tt.task.wake.unpark()","rule":"fire wakes the task it read before it marked the timer fired: the sleeper may hand the timer on once it is marked","killers":["runtime/rt:TestFireOutlivesItsSleep"]},
+    {"name":"wait-hook-slot-stays","origin":"wf10/research/P3 FU-timer-task-reuse","file":"runtime/rt/task.go","from":"\t\t\twaitHooks.one = nil\n\t\t\twaitHooks.oneTask.Store(nil)\n","to":"\t\t\twaitHooks.one = nil\n","rule":"A hook in the slot runs once and leaves it","killers":["runtime/rt:TestWaitHooksRunOnceAndClear"]},
+    {"name":"wait-hook-slot-shadows-map","origin":"wf10/research/P3 FU-timer-task-reuse","file":"runtime/rt/task.go","from":"\tif waitHooks.oneTask.Load() == t {\n\t\twaitHooks.mu.Lock()\n\t\tif waitHooks.oneTask.Load() == t {","to":"\tif waitHooks.oneTask.Load() != nil {\n\t\twaitHooks.mu.Lock()\n\t\tif waitHooks.oneTask.Load() != nil {","rule":"Each task's wait runs its own hook","killers":["runtime/rt:TestWaitHooksRunOnceAndClear"]},
+    {"name":"wait-hook-slot-unused","origin":"wf10/research/P3 FU-timer-task-reuse","file":"runtime/rt/task.go","from":"\tif waitHooks.oneTask.Load() == nil {\n\t\twaitHooks.one = f","to":"\tif false {\n\t\twaitHooks.one = f","rule":"A hook alone is stored with no allocation","killers":["runtime/rt:TestWaitHooksRunOnceAndClear"]},
+    {"name":"settle-skips-resume","origin":"wf10/research/P3 FU-settle-word","file":"runtime/rt/idle.go","from":"\t\t\tw.Resume()\n","to":"\t\t\t_ = w\n","rule":"A member that parks or leaves wakes every Settle that waits","killers":["runtime/rt:TestSettleEndsWhenAMemberLeaves","runtime/v1:TestManualAdvanceSettles"]},
+    {"name":"settles-not-bumped","origin":"wf10/research/P3 FU-settle-word","file":"runtime/rt/idle.go","from":"\t\td.settles.Add(1)\n","to":"","rule":"A woken Settle sees that a member parked or left","killers":["runtime/rt:TestSettleEndsWhenAMemberLeaves","runtime/v1:TestManualAdvanceSettles"]},
+    {"name":"settle-stop-ignored","origin":"wf10/research/P3 FU-settle-word","file":"runtime/rt/clock.go","from":"for d.settles.Load() == g && !(stoppable && t.stopped.Load()) {","to":"for d.settles.Load() == g {","rule":"A stop of its caller ends a Settle with Interrupted","killers":["runtime/rt:TestSettleEndsOnStop"]},
+    {"name":"restart-never-reuses","origin":"wf10/research/P3 FU-handle-reuse","file":"runtime/rt/carrier.go","from":"\tif h != nil && c.idleAfter(h) {","to":"\tif false {","rule":"A child restarts in its last handle once that handle's job returned on the carrier","killers":["runtime/rt:TestRestartOnReusesAFreeHandle"]},
+    {"name":"restart-ignores-running","origin":"wf10/research/P3 FU-handle-reuse","file":"runtime/rt/carrier.go","from":"\tok := c.last == h && c.ran == c.handed","to":"\tok := c.last == h","rule":"A handle whose job still runs on the carrier is not reused","killers":["runtime/rt:TestRestartOnReusesAFreeHandle"]},
     {"name":"alone-spawn-keeps","origin":"wf10/ir2-flip/REF-ALONE (OWN1)","file":"runtime/rt/handle.go","from":"\tSpread() // before the go statement (alone.go)\n","to":"","rule":"rt.Alone: starting a task ends Alone before the task's goroutine exists, so a Ref locks from then on","killers":["runtime/rt:TestStartsEndAlone"]},
     {"name":"alone-group-keeps","origin":"wf10/ir2-flip/REF-ALONE (OWN1)","file":"runtime/rt/group.go","from":"\tSpread() // its members run on goroutines the host starts (alone.go)\n","to":"","rule":"rt.Alone: making a group ends Alone, since host goroutines run its members","killers":["runtime/rt:TestStartsEndAlone"]},
     {"name":"alone-carrier-keeps","origin":"wf10/research/P3 I-FLIP #36 (REF-ALONE x PARK's carrier)","file":"runtime/rt/carrier.go","from":"\tSpread() // before the job reaches another goroutine (alone.go; I-FLIP: REF-ALONE x PARK's carrier)\n","to":"","rule":"rt.Alone: a child started on a carrier ends Alone before its job reaches the carrier's goroutine","killers":["runtime/rt:TestStartsEndAlone"]},
     {"name":"second-clock-leaves-domain","origin":"wf10/research/P3 P3-9","file":"runtime/rt/idle.go","from":"\tif m := t.member.Load(); m != nil {\n\t\td := m.d\n","to":"\tif m := t.member.Load(); m != nil {\n\t\tm.leave()\n\t}\n\tif m := t.member.Load(); false {\n\t\td := m.d\n","rule":"A clock that a member makes joins its domain; the maker stays a member, so an auto clock made before it still moves","killers":["runtime/rt:TestAutoClockMovesBesideAnotherClock"]},
-    {
-      "name": "rt-afterdrop-returned-ignored",
-      "origin": "wf10 std-spike RT-AFTERDROP",
-      "file": "runtime/rt/timeout.go",
-      "from": "\t\tif returned {\n",
-      "to": "\t\tif returned && false {\n",
-      "rule": "runtime.md Timeouts 4: a body that returned its value before the deadline's stop ended it gives that value, not Expired",
-      "killers": ["lower:TestStdLawsRun"]
-    },
-    {
-      "name": "rt-afterdrop-kept-not-set",
-      "origin": "wf10 std-spike RT-AFTERDROP",
-      "file": "runtime/rt/timeout.go",
-      "from": "kept, returned = v, true",
-      "to": "returned = true",
-      "rule": "runtime.md Timeouts 4: the value After gives is the one the body returned",
-      "killers": ["lower:TestStdLawsRun"]
-
-    },
-    {
-      "name": "virtual-alarm-never-runs",
-      "origin": "wf10 HTTP-FAST-b",
-      "file": "runtime/rt/idle.go",
-      "from": "\tif t.f != nil {\n\t\tv.runAlarm(t.f)\n\t\treturn\n\t}",
-      "to": "\tif t.f != nil {\n\t\treturn\n\t}",
-      "rule": "A virtual AfterFunc runs its function when the clock reaches its deadline, as NewTimer's channel delivers.",
-      "killers": [
-        "runtime/rt:TestVirtualAfterFuncIsTimer"
-      ]
-    },
-    {
-      "name": "virtual-alarm-now-never-runs",
-      "origin": "wf10 HTTP-FAST-b",
-      "file": "runtime/rt/clock.go",
-      "from": "\tif d <= 0 {\n\t\tv.runAlarm(f)\n\t\treturn t\n\t}",
-      "to": "\tif false {\n\t\tv.runAlarm(f)\n\t\treturn t\n\t}",
-      "rule": "A virtual AfterFunc of a span of zero or less starts its function at once.",
-      "killers": [
-        "runtime/rt:TestVirtualAfterFuncIsTimer"
-      ]
-    },
-    {
-      "name": "virtual-alarm-stop-keeps",
-      "origin": "wf10 HTTP-FAST-b",
-      "file": "runtime/rt/clock.go",
-      "from": "\t\tif u == t {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)",
-      "to": "\t\tif u == t && t.f == nil {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)",
-      "rule": "Stop disarms a virtual AfterFunc as it disarms a timer.",
-      "killers": [
-        "runtime/rt:TestVirtualAfterFuncIsTimer"
-      ]
-    },
-    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if d.parked >= d.live-self && d.running == 0 {","to":"if d.parked >= d.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}}
+    {"name":"rt-afterdrop-returned-ignored","origin":"wf10 std-spike RT-AFTERDROP","file":"runtime/rt/timeout.go","from":"\t\tif returned {\n","to":"\t\tif returned && false {\n","rule":"runtime.md Timeouts 4: a body that returned its value before the deadline's stop ended it gives that value, not Expired","killers":["lower:TestStdLawsRun"]},
+    {"name":"rt-afterdrop-kept-not-set","origin":"wf10 std-spike RT-AFTERDROP","file":"runtime/rt/timeout.go","from":"kept, returned = v, true","to":"returned = true","rule":"runtime.md Timeouts 4: the value After gives is the one the body returned","killers":["lower:TestStdLawsRun"]},
+    {"name":"virtual-alarm-never-runs","origin":"wf10 HTTP-FAST-b","file":"runtime/rt/idle.go","from":"\tif t.f != nil {\n\t\tv.runAlarm(t.f)\n\t\treturn\n\t}","to":"\tif t.f != nil {\n\t\treturn\n\t}","rule":"A virtual AfterFunc runs its function when the clock reaches its deadline, as NewTimer's channel delivers.","killers":["runtime/rt:TestVirtualAfterFuncIsTimer"]},
+    {"name":"virtual-alarm-now-never-runs","origin":"wf10 HTTP-FAST-b","file":"runtime/rt/clock.go","from":"\tif d <= 0 {\n\t\tv.runAlarm(f)\n\t\treturn t\n\t}","to":"\tif false {\n\t\tv.runAlarm(f)\n\t\treturn t\n\t}","rule":"A virtual AfterFunc of a span of zero or less starts its function at once.","killers":["runtime/rt:TestVirtualAfterFuncIsTimer"]},
+    {"name":"virtual-alarm-stop-keeps","origin":"wf10 HTTP-FAST-b","file":"runtime/rt/clock.go","from":"\t\tif u == t {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)","to":"\t\tif u == t && t.f == nil {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)","rule":"Stop disarms a virtual AfterFunc as it disarms a timer.","killers":["runtime/rt:TestVirtualAfterFuncIsTimer"]},
+    {"name":"c4-check-unpolled","origin":"wf10 HTTP-FAST-c4 (NG)","file":"runtime/rt/task.go","from":"\tif t.stopped.v.Load()&(flagStopped|flagPolled) != 0 {\n\t\tt.checkSlow()","to":"\tif t.stopped.v.Load()&flagStopped != 0 {\n\t\tt.checkSlow()","rule":"Check is an interruption point, so it runs a WhenPolled hook: a handler that only Checks is watched, and a client that leaves stops it.","killers":["runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"]},
+    {"name":"c4-stopped-unpolled","origin":"wf10 HTTP-FAST-c4 (NG)","file":"runtime/rt/task.go","from":"\tif t.stopped.v.Load()&(flagStopped|flagPolled) == 0 {\n\t\treturn false","to":"\tif t.stopped.v.Load()&flagStopped == 0 {\n\t\treturn false","rule":"Stopped is an interruption point, so it runs a WhenPolled hook.","killers":["runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"]},
+    {"name":"c4-done-unpolled","origin":"wf10 HTTP-FAST-c4 (NG)","file":"runtime/rt/park.go","from":"\tif t.stopped.v.Load()&flagPolled != 0 {\n\t\tt.firePollHook()\n\t}\n\tif waitHooks","to":"\tif waitHooks","rule":"A wait (Done) is an interruption point, so it runs a WhenPolled hook: a handler that waits is watched.","killers":["runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"]},
+    {"name":"c5-poll-hook-allocates","origin":"wf10 HTTP-FAST-c5 (NG)","file":"runtime/rt/task.go","from":"\tc := t.Bind(&h.s, pollKey{}, f)\n","to":"\tc := t.WithValue(pollKey{}, f)\n","rule":"Arming a poll hook allocates nothing: it lives in the caller's PollHook.","killers":["runtime/rt:TestQuietExitsAllocateNothing"]},
+    {"name":"c5-poll-hook-lost","origin":"wf10 HTTP-FAST-c5 (NG)","file":"runtime/rt/task.go","from":"\tif f, ok := t.Value(pollKey{}).(func()); ok {\n","to":"\tif f, ok := t.Value(struct{}{}).(func()); ok {\n","rule":"The interruption point that finds the poll flag runs the armed hook.","killers":["runtime/rt:TestQuietExitsAllocateNothing","runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"]},
+    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if d.parked >= d.live-self && d.running == 0 {","to":"if d.parked >= d.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}},
+    {"name":"park-commit-drops-parker","origin":"wf10/research/P3 WAITOR-WORD","file":"runtime/rt/park_word.go","from":"\tatomic.CompareAndSwapUintptr((*uintptr)(w), parkNotified, parkEmpty)\n\treturn false","to":"\tatomic.StoreUintptr((*uintptr)(w), parkEmpty)\n\treturn false","rule":"A second goroutine that parks on a word one sleeps on fails loudly (parkTwice); the sleeper is never dropped.","killers":["runtime/rt:TestParkTwiceFailsLoudly"]},
+    {"name":"stock-park-drops-parker","origin":"wf10/research/P3 WAITOR-WORD","file":"runtime/rt/park.go","from":"\tif !p.state.CompareAndSwap(parkNotified, parkEmpty) {\n\t\tpanic(parkTwice)","to":"\tif p.state.Swap(parkEmpty) == 99 {\n\t\tpanic(parkTwice)","rule":"A second goroutine that parks on a word one sleeps on fails loudly (parkTwice); the sleeper is never dropped.","killers":["runtime/rt:TestParkTwiceFailsLoudly"]},
+    {"name":"waiter-stop-skips-slot","origin":"wf10/research/P3 WAITOR-WORD","file":"runtime/rt/waiter.go","from":"\tif w := t.waiting.Load(); w != nil {\n\t\tw.Wake()\n","to":"\tif w := t.waiting.Load(); w != nil {\n\t\t_ = w\n","rule":"runtime.md Tasks: a stop ends every wait of the task outside a mask, a wait on a Waiter too.","killers":["runtime/rt:TestWaiterStopReachesSharedWaits"]},
+    {"name":"waiter-stop-skips-more","origin":"wf10/research/P3 WAITOR-WORD","file":"runtime/rt/waiter.go","from":"\tmoreWaits.wake(t)\n}","to":"}","rule":"runtime.md Tasks: a stop ends every wait of the task, two goroutines' waits on one task too.","killers":["runtime/rt:TestWaiterStopReachesSharedWaits"]},
+    {"name":"bs2-other-text-unknown","origin":"wf10 NP4f-15 reland (NS lane)","file":"runtime/rt/text.go","from":"\treturn otherText(v)\n}","to":"\treturn unknownText\n}","rule":"binsize BS2: rt.Text writes a value of any other Go type as Go's runtime writes a panic of it, (T) 0xADDR, without fmt.","killers":["runtime/rt:TestTextWritesAnyGoValue"]}
   ]
 }

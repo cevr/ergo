@@ -18,6 +18,7 @@
 import fieldnotes/journal
 import fs
 import machines
+import strconv
 import strings
 
 // BadLine is a line of a note that cannot be read; No counts from 1, and
@@ -163,6 +164,43 @@ func Format(e journal.Entry) string {
 		lines = lines.Append(p)
 	}
 	strings.Join(lines, "\n") + "\n"
+}
+
+// Note is e made a note Format can write and Read read back: its title
+// and each paragraph one line of words (none empty), a day made from day,
+// and related slugs.
+func Note(e journal.Entry, day int) journal.Entry {
+	let title = strings.Join(strings.Fields(e.Title), " ")
+	let mut body = []string{}
+	for p in e.Body {
+		let words = strings.Join(strings.Fields(p), " ")
+		if words != "" {
+			body = body.Append(words)
+		}
+	}
+	let mut related = []string{}
+	for r in e.Related {
+		related = related.Append(journal.Slug(r))
+	}
+	let d = if day < 0 { -(day % 10000) } else { day % 10000 }
+	journal.Entry{
+		Slug:    journal.Slug(e.Slug),
+		Title:   if title == "" { "Untitled" } else { title },
+		Day:     strings.PadLeft(strconv.Itoa(1900+d%100), 4, '0') + "-" + strings.PadLeft(strconv.Itoa(1+d%12), 2, '0') + "-" + strings.PadLeft(strconv.Itoa(1+d%28), 2, '0'),
+		Body:    body,
+		Related: related,
+	}
+}
+
+// FormatThenRead: a note Format writes reads back as the entry it was
+// written from.
+law FormatThenRead(e journal.Entry, day int) {
+	let n = Note(e, day)
+	let back = Read(n.Slug, Format(n)) catch {
+	case BadLine:
+		return false
+	}
+	journal.Same(back, n)
 }
 
 // BadNote is a note of the folder that cannot be read: its file, and the

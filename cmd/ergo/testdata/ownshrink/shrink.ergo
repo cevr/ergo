@@ -11,7 +11,7 @@ import strconv
 
 type Tree { kids []int, pool []int }
 
-func add(tr *Tree, kids []int) int {
+func add(tr mut Tree, kids []int) int {
 	tr.kids = tr.kids.Append(len(tr.pool))
 	for k in kids {
 		tr.pool = tr.pool.Append(k)

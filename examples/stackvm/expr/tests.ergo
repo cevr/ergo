@@ -28,7 +28,7 @@ test DivisionByZeroFailsBoth {
 test GeneratorCoversTheLanguage {
 	let mut kinds = Map[string, bool]{}
 	for seed in 0..300 {
-		let e = Of(seed)
+		let e = of(seed)
 		kinds[kindOf(e)] = true
 		let _ = Eval(e) catch {
 		case DivideByZero:

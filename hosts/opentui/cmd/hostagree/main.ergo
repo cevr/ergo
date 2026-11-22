@@ -1,0 +1,69 @@
+// hostagree runs one app's scene script on ui.TestHost and, through a
+// headless OpenTUI screen, on the terminal driver, and prints after each
+// step whether they agree: the same tree and the same app state, and each
+// text's words in the screen's cells on the rows of its box.
+// TestTuiHostAgreesWithTestHost writes the scripts.
+//
+// Standard input: the app's name on the first line (counter, shelf, form,
+// load, lock, pad, list, sketch, spin, drag or pane), then one step a line:
+//
+//	tap LABEL         a mouse press and release on the node labelled LABEL
+//	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
+//	key NAME          a key: the view's OnKey takes it ("+", "-", "x"), or,
+//	                  a character with a field focused, the field does
+//	point LABEL PHASE X Y  a pointer (down, up, move, wheel) on an Area, at
+//	                  X, Y DIPs in its box (a wheel of DY Y)
+//	scroll LABEL N    scroll the list LABEL to offset N (DIPs; TestHost
+//	                  takes the viewport the terminal reports)
+//	wheel LABEL K     K turns of the wheel at the list's centre (K < 0 up)
+//	focus K           Tab K times, then press the focused node with Enter
+//	                  (a field gets "z" typed); TestHost presses the same node
+//	settle            settle the loads
+//	frames N          move the time N frames of 16ms (Ticks while the view animates)
+//	cost STEP         STEP, then "cost N bytes M": the library calls it made
+//	                  and the bytes it wrote
+//
+// Output: "ok N" or "differ N: …" per step, then "end".
+
+import io
+import slices
+import strings
+import time
+
+func main() needs Console | Ambient | go.Foreign {
+	with context { io.Stdin: io.NewStdin(), Scheduler: time.NewManual(0) } {
+		let text = io.Stdin.ReadAll() catch {
+		case io.ReadFailed:
+			Console.Println("differ 0: no input")
+			return
+		}
+		let lines = strings.Split(strings.TrimSpace(text), "\n")
+		let steps = slices.Slice(lines, 1, len(lines))
+		match strings.TrimSpace(lines[0]) {
+		case "counter":
+			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
+		case "shelf":
+			agree(shelfMachine(), shelfView, sameShelf, steps)
+		case "form":
+			agree(formMachine(), formView, func(a form, b form) bool { a == b }, steps)
+		case "load":
+			agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, steps)
+		case "lock":
+			agree(lockMachine(), lockView, func(a lock, b lock) bool { a == b }, steps)
+		case "pad":
+			agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
+		case "list":
+			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
+		case "sketch":
+			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
+		case "pane":
+			agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, steps)
+		case "drag":
+			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
+		case "spin":
+			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
+		case _:
+			Console.Println("differ 0: no app \(lines[0])")
+		}
+	}
+}

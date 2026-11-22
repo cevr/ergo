@@ -96,9 +96,9 @@ type SplitReport struct {
 	// Shards counts the Go packages that declaration shards made below
 	// the packages of the program (pkgshard.go).
 	Shards int
-	// Instances counts the instances the instance package compiles for
-	// the others (pkginst.go), 0 when there is none.
-	Instances int
+	// err is the IR files' failure, after the split renamed the IR in
+	// place (irSplit.files): no fallback, the lowering fails.
+	err error
 }
 
 // splitDir is the folder of the Go packages of the program's Ergo
@@ -261,6 +261,7 @@ type splitGroup struct {
 	decls   []int // indexes into the file's Decls
 	natural int   // the package of its source, -1 for none
 	pin     bool  // stays in the root: main, init, an embedded asset
+	goInit  bool  // a Go func init: never cut into a shard, which would run it first
 	harness bool  // a test build's test or law run: starts in main (FT6)
 	embed   bool
 	generic bool // a generic function or type: its users compile its instantiations
@@ -389,6 +390,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				g.harness = true
 			}
 			g.generic = d.Type.TypeParams != nil
+			g.goInit = isGoInit(d.Name.Name)
 			if !isGoInit(d.Name.Name) {
 				groupOf[d.Name.Name] = len(groups)
 				defOf.add(d.Name.Name, d, i)
@@ -673,8 +675,19 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	shards := 0
 	if sh != nil {
 		name := func(g int) string { return declName(f.Decls[groups[g].decls[0]], groups[g].decls[0]) }
+		// A group's bytes are its Go text and, on the IR path, its IR
+		// bodies: a function the IR carries is a bodiless declaration in
+		// the Go text, and its body is what the compile spends on
+		// (SHARD-ROOT-CUT: with the bodies on the IR, no package reached
+		// the cut, and nothing was sharded).
+		irBytes := map[int]int{}
+		if irs != nil {
+			for i := range ir.Funcs {
+				irBytes[irs.owner[i]] += irBodyBytes(&ir.Funcs[i])
+			}
+		}
 		size := func(g int) int {
-			n := 0
+			n := irBytes[g]
 			for _, i := range groups[g].decls {
 				n += segEnd[i] - segStart[i]
 			}
@@ -737,6 +750,16 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				if groups[groupOf[name]].pkg != p {
 					cross[name] = true
 					irs.foreign(p, name)
+					// Its forwarder in p spells its signature, so each
+					// package-scope name the signature names of another
+					// package crosses too (SHARD-PRIVATE: a law run from
+					// main calls the root's function of an unexported
+					// record).
+					for _, n := range forwardedNames(defOf.node[name], groupOf) {
+						if groups[groupOf[n]].pkg != p {
+							cross[n] = true
+						}
+					}
 				}
 			}
 		}
@@ -744,25 +767,6 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	for name, ps := range memberPkgs {
 		if len(ps) > 1 {
 			cross[name] = true
-		}
-	}
-	// Shared instances (pkginst.go): on the IR path, the instance package
-	// names each instance two packages name, so every name in one crosses.
-	var insts []splitInst
-	var finder *splitInsts
-	instPkg := -1
-	if irs != nil && instShared {
-		finder = newSplitInsts(f, groups, groupOf)
-		var names map[string]bool
-		found := append(finder.collect(f, declGroup), irs.forwardedInsts(defOf, finder)...)
-		insts, names = finder.shared(found, plan, base, minUsers(shards))
-		if len(insts) > 0 {
-			instPkg = len(plan.pkgs)
-			plan.pkgs = append(plan.pkgs, splitPkg{dir: instDir, name: instName, sees: map[int]bool{}})
-			used[instPkg] = true
-			for name := range names {
-				cross[name] = true
-			}
 		}
 	}
 	rename := map[string]string{}
@@ -898,18 +902,6 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			}
 		}
 	}
-	var shared map[int][]string
-	instances := 0
-	if instPkg >= 0 {
-		w := &instWriter{s: finder, plan: plan, base: base, rename: rename}
-		uses := map[int]bool{}
-		var body string
-		shared, body, instances = w.lists(insts, uses)
-		for k := range uses {
-			needs[instPkg][k] = true
-		}
-		extra[instPkg].WriteString(body)
-	}
 
 	header := src[:off(f.Package)]
 	var outFiles []File
@@ -963,10 +955,6 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		for _, p := range slices.Sorted(maps.Keys(irImports[k])) {
 			specs = append(specs, "_ "+strconv.Quote(p))
 		}
-		if k == 1 && instPkg >= 0 {
-			// The root links the instance package; nothing else imports it.
-			specs = append(specs, "_ "+strconv.Quote(base+"/"+instDir))
-		}
 		if len(specs) > 0 {
 			b.WriteString("import (\n\t" + strings.Join(specs, "\n\t") + "\n)\n")
 		}
@@ -978,11 +966,10 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		outFiles = append(outFiles, File{Path: file, Data: b.Bytes()})
 	}
 	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign, Shards: shards}
-	rep.Instances = instances
 	if irs != nil {
-		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan, shared)
+		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan)
 		if err != nil {
-			return nil, SplitReport{Reason: err.Error()}
+			return nil, SplitReport{Reason: err.Error(), err: err}
 		}
 		outFiles = append(outFiles, files...)
 		rep.IRPackages = withIR

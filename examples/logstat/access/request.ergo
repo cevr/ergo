@@ -22,6 +22,32 @@ type Request {
 	Micros int,
 }
 
+// ColumnIsInTheLine: a line that does not parse fails at a column of
+// the line, or just after its end: any line, and the line of r made
+// Valid and damaged at i, j and cut.
+law ColumnIsInTheLine(line string, r Request, i int, j int, cut int) {
+	for l in []string{line, Damaged(Plain(r), i, j, cut)} {
+		let c = column(l)
+		if c != 0 && !inLine(c, l) {
+			return false
+		}
+	}
+	true
+}
+
+// inLine reports whether column is a column of line or the one after it.
+func inLine(column int, line string) bool { column >= 1 && column <= len(line)+1 }
+
+// column is the column a failure of Parse of line names, or 0 when the
+// line parses.
+func column(line string) int {
+	let _ = Parse(line) catch {
+	case err:
+		return ColumnOf(err)
+	}
+	0
+}
+
 // Class is the class of a status code, by its first digit.
 type Class = Informational | Success | Redirection | ClientError | ServerError | Unknown
 

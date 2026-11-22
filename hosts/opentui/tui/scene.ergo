@@ -1,0 +1,321 @@
+// The mapping of a ui.Node onto the scene: its kind (a BOX, a TEXT, a
+// scroll box or an EDITOR), its
+// text, its layout (ui.Style in cells, by the unit rule) and its look in
+// cells.
+
+import go ergo.local/prototype/hosts/opentui/screen
+import math
+import strings
+import utf8
+import ui
+
+// The host's colors (0xRRGGBBAA).
+let white = uint32(0xffffffff)
+let black = uint32(0x000000ff)
+let grey = uint32(0x808080ff)
+let button = uint32(0xd0d0d0ff)
+let buttonOn = uint32(0x5fafffff)
+let buttonOff = uint32(0x4e4e4eff)
+
+// kindOf is the scene kind of n: a TEXT for what shows a text of its own,
+// an EDITOR for an Input, a scroll box for a Scroll, a BOX for the rest.
+// Every kind is named (OT-TOTAL), so a new ui node kind is a check error
+// here, not a quiet box.
+func kindOf[E](n ui.Node[E]) int {
+	match n {
+	case ui.TextNode, ui.CheckNode[E], ui.ToggleNode, ui.LiveNode:
+		screen.Text
+	case ui.InputNode:
+		screen.Editor
+	case ui.ScrollNode:
+		screen.Scroller
+	case ui.RowsNode:
+		screen.Lister
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.PressableNode[E], ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
+		screen.Box
+	case ui.TransitionNode:
+		// Degraded: a Transition's motion is not run; its body shows at rest.
+		screen.Box
+	case ui.ReadoutNode:
+		// Degraded: a Readout's published text is not shown yet (OT-READOUT);
+		// its box keeps its place.
+		screen.Box
+	}
+}
+
+// textOf is the text a TEXT or an EDITOR node of n shows (an empty
+// field's placeholder is the editor's own: placeholderOf).
+func textOf[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.TextNode as x:
+		Some{Value: x.Value}
+	case ui.CheckNode[E] as x:
+		Some{Value: (if x.Checked { "[x] " } else { "[ ] " }) + x.Label}
+	case ui.ToggleNode as x:
+		Some{Value: (if x.On { "(on) " } else { "(off) " }) + x.Label}
+	case ui.InputNode as x:
+		Some{Value: x.Value}
+	case ui.LiveNode as x:
+		Some{Value: x.Text}
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.PressableNode[E], ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
+		// No text of their own: a Pressable's label is labelText's.
+		None
+	case ui.ReadoutNode:
+		// Degraded: the published text is not shown yet (OT-READOUT).
+		None
+	}
+}
+
+// placeholderOf is the text an empty field shows, None for no Input.
+func placeholderOf[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.InputNode as x:
+		Some{Value: x.Placeholder}
+	case _:
+		None
+	}
+}
+
+// labelText is the label a Pressable with no children shows.
+func labelText[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.PressableNode[E] as x:
+		Some{Value: " \(x.Label) "}
+	case _:
+		None
+	}
+}
+
+// layoutOf is how n lays out: its style, and whether it is a row.
+type laid { style ui.Style, row bool }
+
+func layoutOf[E](n ui.Node[E]) laid {
+	match n {
+	case ui.BoxNode as x:
+		laid{style: x.Style, row: false}
+	case ui.ColumnNode as x:
+		laid{style: x.Style, row: false}
+	case ui.RowNode as x:
+		laid{style: x.Style, row: true}
+	case ui.ScrollNode as x:
+		laid{style: x.Style, row: false}
+	case ui.TextNode as x:
+		laid{style: x.Style, row: false}
+	case ui.PressableNode[E] as x:
+		laid{style: x.Style, row: true}
+	case ui.AreaNode as x:
+		laid{style: x.Style, row: false}
+	case ui.ZoneNode as x:
+		laid{style: x.Style, row: false}
+	case ui.InputNode:
+		let mut s = ui.Plain()
+		s.Grow = 1
+		laid{style: s, row: false}
+	case ui.CanvasNode as x:
+		let mut s = ui.Plain()
+		s.Width = ui.Fixed{Value: x.Width}
+		s.Height = ui.Fixed{Value: x.Height}
+		laid{style: s, row: false}
+	case ui.SemanticNode[E] as x:
+		laid{style: x.Style, row: false}
+	case ui.ReadoutNode as x:
+		// The box keeps its Style (the reserve's place); its text is OT-READOUT's.
+		laid{style: x.Style, row: false}
+	case ui.TrackNode as x:
+		// Laid with its Style. Degraded: its motion is not run yet, so the
+		// body shows with no offset and no fade (OT-TRACKS).
+		laid{style: x.Style, row: false}
+	case ui.LayerNode[E] as x:
+		// Degraded: a Layer is laid in flow with its Style; its Z, anchor,
+		// placement and scrim are not shown yet.
+		laid{style: x.Style, row: false}
+	case ui.CheckNode[E], ui.ToggleNode, ui.LiveNode, ui.RowsNode, ui.FieldsetNode, ui.TransitionNode:
+		// No Style of their own.
+		laid{style: ui.Plain(), row: false}
+	}
+}
+
+// fixed is the length of a Size in cells, NaN for Auto.
+func fixed(s ui.Size, unit float64) float64 {
+	match s {
+	case ui.Auto:
+		math.NaN()
+	case ui.Fixed as f:
+		Cells(f.Value, unit)
+	}
+}
+
+func alignOf(a ui.Align) float64 {
+	match a {
+	case ui.AlignStart:
+		0
+	case ui.AlignCenter:
+		1
+	case ui.AlignEnd:
+		2
+	case ui.AlignStretch:
+		3
+	}
+}
+
+func justifyOf(j ui.Justify) float64 {
+	match j {
+	case ui.JustifyStart:
+		0
+	case ui.JustifyCenter:
+		1
+	case ui.JustifyEnd:
+		2
+	case ui.JustifyBetween:
+		3
+	}
+}
+
+// restyle sets the layout of scene node num from old's (None: a node just
+// made, every property) to node's, only where they differ.
+func restyle[S, E, D, F](d mut Driver[S, E, D, F], num int, old Option[ui.Node[E]], node ui.Node[E]) needs go.Foreign {
+	let c = d.options.Cell
+	let now = layoutOf(node)
+	let s = now.style
+	let (was, all) = match old {
+	case Some[ui.Node[E]] as o:
+		(layoutOf(o.Value), false)
+	case None:
+		(now, true)
+	}
+	let p = was.style
+	if all || was.row != now.row {
+		d.s.SetStyle(num, screen.Direction, -1, if now.row { 1 } else { 0 })
+	}
+	if (all && s.Grow != 0) || (!all && p.Grow != s.Grow) {
+		d.s.SetStyle(num, screen.Grow, -1, s.Grow)
+	}
+	if all || p.Shrink != s.Shrink {
+		d.s.SetStyle(num, screen.Shrink, -1, s.Shrink)
+	}
+	if (all && s.Width != ui.Auto) || (!all && p.Width != s.Width) {
+		d.s.SetStyle(num, screen.Width, -1, fixed(s.Width, c.W))
+	}
+	if (all && s.Height != ui.Auto) || (!all && p.Height != s.Height) {
+		d.s.SetStyle(num, screen.Height, -1, fixed(s.Height, c.H))
+	}
+	edges(d, num, screen.Padding, all, p.Padding, s.Padding)
+	edges(d, num, screen.Margin, all, p.Margin, s.Margin)
+	if (all && s.Gap != 0) || (!all && p.Gap != s.Gap) || (!all && was.row != now.row && s.Gap != 0) {
+		d.s.SetStyle(num, screen.Gap, -1, Cells(s.Gap, if now.row { c.W } else { c.H }))
+	}
+	if all || p.Align != s.Align {
+		d.s.SetStyle(num, screen.AlignItems, -1, alignOf(s.Align))
+	}
+	if (all && s.Justify != ui.JustifyStart) || (!all && p.Justify != s.Justify) {
+		d.s.SetStyle(num, screen.Justify, -1, justifyOf(s.Justify))
+	}
+}
+
+// edges sets the four edges of a Padding or a Margin that changed (all:
+// those that are not 0): left and right in columns, top and bottom in
+// rows.
+func edges[S, E, D, F](d mut Driver[S, E, D, F], num int, prop int, all bool, was ui.Edges, now ui.Edges) needs go.Foreign {
+	let c = d.options.Cell
+	if (all && now.Left != 0) || (!all && was.Left != now.Left) {
+		d.s.SetStyle(num, prop, 0, Cells(now.Left, c.W))
+	}
+	if (all && now.Top != 0) || (!all && was.Top != now.Top) {
+		d.s.SetStyle(num, prop, 1, Cells(now.Top, c.H))
+	}
+	if (all && now.Right != 0) || (!all && was.Right != now.Right) {
+		d.s.SetStyle(num, prop, 2, Cells(now.Right, c.W))
+	}
+	if (all && now.Bottom != 0) || (!all && was.Bottom != now.Bottom) {
+		d.s.SetStyle(num, prop, 3, Cells(now.Bottom, c.H))
+	}
+}
+
+// lookOf is the look of id's scene node: a Pressable is reverse video
+// (a light box with dark text), lit when focused and dark under a
+// disabled Fieldset; a focused Check, Toggle or Input is bold; an Input
+// is underlined (its placeholder dim, the editor's); a text under a Pressable is
+// dark, and bold when the Pressable is focused.
+func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
+	let n = nodeOf(d, id)
+	let on = d.focus == (Some{Value: id})
+	let off = disabled(d, id)
+	match n {
+	case ui.PressableNode[E]:
+		look{fg: 0, bg: if off { buttonOff } else if on { buttonOn } else { button }, attr: 0}
+	case ui.CheckNode[E], ui.ToggleNode:
+		look{fg: if off { grey } else { white }, bg: 0, attr: if on { screen.Bold } else { 0 }}
+	case ui.InputNode:
+		look{fg: if off { grey } else { white }, bg: 0, attr: screen.Underline + (if on { screen.Bold } else { 0 })}
+	case ui.TextNode, ui.LiveNode:
+		match pressableAbove(d, id) {
+		case Some[ui.Id[E]] as p:
+			textOn(d, p.Value)
+		case None:
+			look{fg: white, bg: 0, attr: 0}
+		}
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// The terminal's own colours: a container paints nothing of its own
+		// (a Style.Look is OT-LOOKS's).
+		look{fg: 0, bg: 0, attr: 0}
+	}
+}
+
+// textOn is the look of a text inside the Pressable p.
+func textOn[S, E, D, F](d mut Driver[S, E, D, F], p ui.Id[E]) look {
+	let on = d.focus == (Some{Value: p})
+	look{fg: if disabled(d, p) { grey } else { black }, bg: 0, attr: if on { screen.Bold } else { 0 }}
+}
+
+// pressableAbove is the nearest Pressable that holds id.
+func pressableAbove[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) Option[ui.Id[E]] {
+	let mut at = id
+	for at != d.root {
+		at = parentOf(d, at)
+		match nodeOf(d, at) {
+		case ui.PressableNode[E]:
+			return Some{Value: at}
+		case _:
+		}
+	}
+	None
+}
+
+// relook gives id's scene node (and a Pressable's label) its look, when
+// it changed.
+func relook[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+	paint(d, numOf(d, id), lookOf(d, id))
+	match d.labels.Get(id) {
+	case Some[int] as l:
+		paint(d, l.Value, textOn(d, id))
+	case None:
+	}
+}
+
+// relookTree relooks id's subtree.
+func relookTree[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
+	relook(d, id)
+	for k in kidsOf(d, id) {
+		relookTree[S, E, D, F](d, k)
+	}
+}
+
+func paint[S, E, D, F](d mut Driver[S, E, D, F], num int, l look) needs go.Foreign {
+	if num == 0 || d.looks.Get(num) == (Some{Value: l}) {
+		return
+	}
+	d.looks[num] = l
+	d.s.SetLook(num, l.fg, l.bg, l.attr)
+}
+
+// runesOf is the text of each rune of s, in order.
+func runesOf(s string) []string {
+	let mut out = []string{}
+	let mut at = 0
+	for at < len(s) {
+		let r = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+		out = out.Append(strings.Slice(s, at, at+r.Size))
+		at = at + r.Size
+	}
+	out
+}

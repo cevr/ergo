@@ -1,0 +1,12 @@
+# scripts/opcount: `loosebench bench fenced N` reads a model's reply (a
+# sentence and a markdown fence around a record's JSON) N times with
+# json.DecodeLoose (wf10 JL); the cost of one read is the slope between the
+# two sizes. The control is hand Go: the fence cut off by strings.Index and
+# the body read by encoding/json into the record's struct. The floor finds
+# the value's first and last brace and reads that by encoding/json: no
+# scan of the text past what finding the value takes.
+unit reply
+sizes 20000 120000
+args bench fenced {n}
+control benchmarks/jsonloose/testdata/control
+floor benchmarks/jsonloose/testdata/floor

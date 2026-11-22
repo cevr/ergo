@@ -1,1 +1,1 @@
-submit build 1
+submit -id=c1 -run=build -stages=1

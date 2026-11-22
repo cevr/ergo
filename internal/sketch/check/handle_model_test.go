@@ -132,7 +132,7 @@ func dhFunc(r *rand.Rand, i int) (string, int) {
 	case "taken":
 		param = "b own Board"
 	case "borrowed":
-		param = "b *Board"
+		param = "b mut Board"
 	}
 	name := fmt.Sprintf("F%d", i)
 	switch k := r.IntN(10); {
@@ -146,7 +146,7 @@ func dhFunc(r *rand.Rand, i int) (string, int) {
 		return text, 0
 	case k == 1 && root == "borrowed":
 		// Write the borrowed board in place: one owner.
-		return fmt.Sprintf("func %s(b *Board) {\n\tb.hs = b.hs.Append(fresh())\n\tb.h = fresh()\n}\n", name), 0
+		return fmt.Sprintf("func %s(b mut Board) {\n\tb.hs = b.hs.Append(fresh())\n\tb.h = fresh()\n}\n", name), 0
 	}
 	// The part read, its kind, and how it is bound.
 	type part struct{ path, kind string }

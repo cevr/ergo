@@ -5,15 +5,18 @@
 // unknown or missing flag refused with status 2, --json): a switch on the
 // command, one flag.FlagSet per command, strconv, and a hand append JSON
 // writer. `control bench N` prints what `clibench bench N` prints; `control
-// floor N` prints it too, by the floor (below).
+// floor N` prints it too, by the floor (below); `control session` runs a
+// script on standard input as sessionbench session does (AF3).
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type output struct {
@@ -176,6 +179,95 @@ func floor(args []string) output {
 	return usage(fmt.Errorf("unknown command %q", command))
 }
 
+// words splits a line as a shell splits a simple command, with no
+// expansion (std api's Words): blanks separate; '…' keeps its bytes; "…"
+// keeps its bytes but a backslash before " \ $ `; a bare backslash keeps
+// the next byte. ok is false for an unclosed quote.
+func words(line string) (out []string, ok bool) {
+	var word []byte
+	open := false
+	for i := 0; i < len(line); {
+		c := line[i]
+		switch {
+		case c == ' ' || c == '\t':
+			if open {
+				out = append(out, string(word))
+				word, open = word[:0], false
+			}
+			i++
+		case c == '\'':
+			end := strings.IndexByte(line[i+1:], '\'')
+			if end < 0 {
+				return nil, false
+			}
+			word, open = append(word, line[i+1:i+1+end]...), true
+			i += 2 + end
+		case c == '"':
+			open = true
+			i++
+			closed := false
+			for i < len(line) && !closed {
+				d := line[i]
+				switch {
+				case d == '"':
+					closed = true
+					i++
+				case d == '\\' && i+1 < len(line) && strings.IndexByte("\"\\$`", line[i+1]) >= 0:
+					word = append(word, line[i+1])
+					i += 2
+				default:
+					word = append(word, d)
+					i++
+				}
+			}
+			if !closed {
+				return nil, false
+			}
+		case c == '\\' && i+1 < len(line):
+			word, open = append(word, line[i+1]), true
+			i += 2
+		default:
+			word, open = append(word, c), true
+			i++
+		}
+	}
+	if open {
+		out = append(out, string(word))
+	}
+	return out, true
+}
+
+// session runs the script on standard input as sessionbench does: each
+// line through run, a typed failure going on (status 0, the bench's
+// policy), the session ending after a line whose status is not 0.
+func session() {
+	sc := bufio.NewScanner(os.Stdin)
+	steps, sum := 0, 0
+	for sc.Scan() {
+		text := strings.TrimSpace(sc.Text())
+		if text == "" || text[0] == '#' {
+			continue
+		}
+		args, ok := words(text)
+		o := output{err: "the quote does not close\n", code: 2}
+		if ok {
+			o = run(args)
+			if o.code == 1 {
+				o.code = 0
+			}
+		}
+		steps++
+		sum += o.code + len(o.out)
+		if o.err != "" {
+			sum++
+		}
+		if o.code != 0 {
+			break
+		}
+	}
+	fmt.Printf("%d steps, sum %d\n", steps, sum)
+}
+
 var cycle = [][]string{
 	{"add", "-key=apple", "-n=3"},
 	{"--json", "add", "-key=pear", "-n=40"},
@@ -187,8 +279,12 @@ var cycle = [][]string{
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "session" {
+		session()
+		return
+	}
 	if len(os.Args) != 3 || (os.Args[1] != "bench" && os.Args[1] != "floor") {
-		fmt.Fprintln(os.Stderr, "usage: control bench|floor N")
+		fmt.Fprintln(os.Stderr, "usage: control bench|floor N | control session")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[2])

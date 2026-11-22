@@ -34,19 +34,19 @@ extern go net/http.Client type Client {
 extern go net/http.Client.CloseIdleConnections func (c *Client) CloseIdleConnections() needs go.Foreign
 
 // ergo:go func (*Client).Do(req *Request) (*Response, error)
-extern go net/http.Client.Do func (c *Client) Do(req own *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Do func (c *Client) Do(req own *Request) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Client).Get(url string) (resp *Response, err error)
-extern go net/http.Client.Get func (c *Client) Get(url string) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Get func (c *Client) Get(url string) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Client).Head(url string) (resp *Response, err error)
-extern go net/http.Client.Head func (c *Client) Head(url string) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Head func (c *Client) Head(url string) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Client).Post(url string, contentType string, body io.Reader) (resp *Response, err error)
-extern go net/http.Client.Post func (c *Client) Post(url string, contentType string, body own io.Reader) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Post func (c *Client) Post(url string, contentType string, body own io.Reader) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Client).PostForm(url string, data url.Values) (resp *Response, err error)
-extern go net/http.Client.PostForm func (c *Client) PostForm(url string, data url.Values) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.PostForm func (c *Client) PostForm(url string, data url.Values) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go type ClientConn struct
 extern go net/http.ClientConn type ClientConn {} implements Closer
@@ -70,7 +70,7 @@ extern go net/http.ClientConn.Release func (cc *ClientConn) Release() needs go.F
 extern go net/http.ClientConn.Reserve func (cc *ClientConn) Reserve() fails go.Error needs go.Foreign
 
 // ergo:go func (*ClientConn).RoundTrip(req *Request) (*Response, error)
-extern go net/http.ClientConn.RoundTrip func (cc own *ClientConn) RoundTrip(req own *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.ClientConn.RoundTrip func (cc own *ClientConn) RoundTrip(req own *Request) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go func (*ClientConn).SetStateHook(f func(*ClientConn))
 extern go net/http.ClientConn.SetStateHook func (cc *ClientConn) SetStateHook(f own func(*ClientConn)) needs go.Foreign
@@ -254,7 +254,7 @@ extern go net/http.Flusher type Flusher {
 }
 
 // ergo:go func Get(url string) (resp *Response, err error)
-extern go net/http.Get func Get(url string) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Get func Get(url string) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go type HTTP2Config struct
 extern go net/http.HTTP2Config type HTTP2Config {
@@ -289,7 +289,7 @@ extern go net/http.Handler type Handler {
 // ergo:refused HandlerFunc: a Go function type maps to no Ergo host type in v1
 
 // ergo:go func Head(url string) (resp *Response, err error)
-extern go net/http.Head func Head(url string) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Head func Head(url string) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go type Header map[string][]string
 extern go net/http.Header type Header Map[string, []string]
@@ -417,10 +417,10 @@ extern go net/http.ParseSetCookie func ParseSetCookie(line string) go.Ref[Cookie
 extern go net/http.ParseTime func ParseTime(text string) time.Time fails go.Error needs go.Foreign
 
 // ergo:go func Post(url string, contentType string, body io.Reader) (resp *Response, err error)
-extern go net/http.Post func Post(url string, contentType string, body own io.Reader) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Post func Post(url string, contentType string, body own io.Reader) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go func PostForm(url string, data url.Values) (resp *Response, err error)
-extern go net/http.PostForm func PostForm(url string, data url.Values) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.PostForm func PostForm(url string, data url.Values) Option[go.Ref[Response]] fails go.Error needs go.Foreign
 
 // ergo:go type ProtocolError struct
 extern go net/http.ProtocolError type ProtocolError {
@@ -458,7 +458,7 @@ extern go net/http.Protocols.String func (p Protocols) String() string needs go.
 extern go net/http.Protocols.UnencryptedHTTP2 func (p Protocols) UnencryptedHTTP2() bool needs go.Foreign
 
 // ergo:go func ProxyFromEnvironment(req *Request) (*url.URL, error)
-extern go net/http.ProxyFromEnvironment func ProxyFromEnvironment(req own *Request) go.Ref[url.URL] fails go.Error needs go.Foreign
+extern go net/http.ProxyFromEnvironment func ProxyFromEnvironment(req own *Request) Option[go.Ref[url.URL]] fails go.Error needs go.Foreign
 
 // ergo:go func ProxyURL(fixedURL *url.URL) func(*Request) (*url.URL, error)
 // ergo:refused ProxyURL: result 1: a Go function as a result, a field or an element
@@ -530,7 +530,7 @@ extern go net/http.Request.Clone func (r *Request) Clone() Option[go.Ref[Request
 extern go net/http.Request.Context func (r *Request) Context() gocontext.Context needs go.Foreign
 
 // ergo:go func (*Request).Cookie(name string) (*Cookie, error)
-extern go net/http.Request.Cookie func (r *Request) Cookie(name string) go.Ref[Cookie] fails go.Error needs go.Foreign
+extern go net/http.Request.Cookie func (r *Request) Cookie(name string) Option[go.Ref[Cookie]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Request).Cookies() []*Cookie
 // ergo:refused Request.Cookies: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -606,7 +606,7 @@ extern go net/http.Response type Response {
 // ergo:refused Response.Cookies: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Response).Location() (*url.URL, error)
-extern go net/http.Response.Location func (r *Response) Location() go.Ref[url.URL] fails go.Error needs go.Foreign
+extern go net/http.Response.Location func (r *Response) Location() Option[go.Ref[url.URL]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Response).ProtoAtLeast(major int, minor int) bool
 extern go net/http.Response.ProtoAtLeast func (r *Response) ProtoAtLeast(major int, minor int) bool needs go.Foreign
@@ -641,7 +641,7 @@ extern go net/http.ResponseWriter type ResponseWriter {
 
 // ergo:go type RoundTripper interface
 extern go net/http.RoundTripper type RoundTripper {
-	RoundTrip(p0 own *Request) go.Ref[Response] fails go.Error needs go.Foreign,
+	RoundTrip(p0 own *Request) Option[go.Ref[Response]] fails go.Error needs go.Foreign,
 }
 
 // ergo:go type SameSite int
@@ -925,6 +925,7 @@ extern go net/http.StatusTeapot let StatusTeapot int
 extern go net/http.StatusTemporaryRedirect let StatusTemporaryRedirect int
 
 // ergo:go func StatusText(code int) string
+// ergo:total
 extern go net/http.StatusText func StatusText(code int) string needs go.Foreign
 
 // ergo:go const StatusTooEarly untyped int
@@ -1022,10 +1023,10 @@ extern go net/http.Transport.CloseIdleConnections func (t *Transport) CloseIdleC
 
 // ergo:go func (*Transport).NewClientConn(ctx context.Context, scheme string, address string) (*ClientConn, error)
 // ergo:context
-extern go net/http.Transport.NewClientConn func (t *Transport) NewClientConn(scheme string, address string) go.Ref[ClientConn] fails go.Error needs go.Foreign
+extern go net/http.Transport.NewClientConn func (t *Transport) NewClientConn(scheme string, address string) Option[go.Ref[ClientConn]] fails go.Error needs go.Foreign
 
 // ergo:go func (*Transport).RegisterProtocol(scheme string, rt RoundTripper)
 extern go net/http.Transport.RegisterProtocol func (t *Transport) RegisterProtocol(scheme string, rt own RoundTripper) needs go.Foreign
 
 // ergo:go func (*Transport).RoundTrip(req *Request) (*Response, error)
-extern go net/http.Transport.RoundTrip func (t *Transport) RoundTrip(req own *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Transport.RoundTrip func (t *Transport) RoundTrip(req own *Request) Option[go.Ref[Response]] fails go.Error needs go.Foreign

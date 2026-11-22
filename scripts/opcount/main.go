@@ -67,6 +67,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/build"
@@ -89,6 +90,11 @@ type options struct {
 	out, ergo, work  string
 	base, head, each string
 	memory           uint64
+	// profile is -profile FILE: write the program's CPU profile (and
+	// FILE.control, FILE.floor with -control) and count nothing; pgo is
+	// -pgo FILE: build the program with go build -pgo=FILE (each reference
+	// side with FILE.SIDE when it exists) and count (U4 PGO-RELEASE).
+	profile, pgo string
 }
 
 func run(args []string, stdout, stderr io.Writer) (int, error) {
@@ -107,8 +113,22 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 	flags.StringVar(&o.head, "head", "", "command mode: the head binary")
 	flags.StringVar(&o.each, "each", "", "command mode: a glob of targets; {} in ARGS is each")
 	flags.StringVar(&memory, "memory", "4GiB", "memory limit of each program the kernel enforces")
+	flags.StringVar(&o.profile, "profile", "", "write the CPU profile of -rounds runs of the program at the large size to `FILE` (each reference side's to FILE.SIDE with -control), merged, and count nothing")
+	flags.StringVar(&o.pgo, "pgo", "", "build the program with go build -pgo=`FILE`, and each reference side with FILE.SIDE when it exists")
 	if err := flags.Parse(args); err != nil {
 		return 2, nil
+	}
+	for _, p := range []*string{&o.profile, &o.pgo} {
+		if *p != "" {
+			abs, err := filepath.Abs(*p)
+			if err != nil {
+				return 2, err
+			}
+			*p = abs
+		}
+	}
+	if o.profile != "" && o.pgo != "" {
+		return 2, errors.New("-profile and -pgo: profile a build without a profile")
 	}
 	limit, err := proclimit.ParseSize(memory)
 	if err != nil {
@@ -146,6 +166,9 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 		c, err := programCase(o, flags.Arg(0), stderr)
 		if err != nil {
 			return 2, err
+		}
+		if o.profile != "" {
+			return 0, nil // the profiles are the output (measurer.profiles)
 		}
 		receipt.Cases = []opcount.Case{c}
 	}
@@ -371,6 +394,9 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 		}
 	}
 	m := measurer{o: o, w: w, inputs: inputs}
+	if o.profile != "" {
+		return opcount.Case{}, m.profiles(b, sides)
+	}
 	c := opcount.Case{Case: name, Unit: w.Unit, Sizes: []int{w.Small, w.Large}, Rounds: o.rounds, Workload: &w, Path: "ir", Bodies: ergoSide.bodies}
 	if o.text {
 		c.Path = "text"
@@ -501,6 +527,58 @@ func (m measurer) once(bin string, n int, gcOff bool) (one, error) {
 		return one{}, fmt.Errorf("%s: %w", bin, err)
 	}
 	return one{run: r, shares: shares, metrics: readMetrics(out)}, nil
+}
+
+// profiles writes -profile's files: for each side, -rounds runs at the
+// large size with the profile hook's variable set, merged into one
+// profile by go tool pprof -proto (pprof sums the samples), the program's
+// to -profile and each reference side's to -profile.SIDE. A run that does
+// not exit 0 fails it: a profile of a failed run is not the program's.
+func (m measurer) profiles(b builder, sides []side) error {
+	for _, s := range sides {
+		out := m.o.profile
+		if s.name != "ergo" {
+			out += "." + s.name
+		}
+		var parts []string
+		for r := range m.o.rounds {
+			part := filepath.Join(m.o.work, fmt.Sprintf("profile-%s-%d.pprof", s.name, r))
+			null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err != nil {
+				return err
+			}
+			cmd, done, err := m.command(s.bin, m.w.Large, null, null)
+			if err != nil {
+				null.Close()
+				return err
+			}
+			cmd.Env = append(cmd.Env, opcount.ProfileVariable+"="+part)
+			err = proclimit.Run(cmd, m.o.memory)
+			done()
+			null.Close()
+			if err != nil {
+				return fmt.Errorf("%s: the profiled run: %v", s.name, err)
+			}
+			parts = append(parts, part)
+		}
+		merged, err := os.Create(out)
+		if err != nil {
+			return err
+		}
+		cmd := exec.Command(b.release.Go, append([]string{"tool", "pprof", "-proto"}, parts...)...)
+		cmd.Env = append(os.Environ(), "GOROOT="+b.release.Root, "GOTOOLCHAIN=local")
+		var stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = merged, &stderr
+		err = cmd.Run()
+		if cerr := merged.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return fmt.Errorf("go tool pprof -proto: %v\n%s", err, stderr.Bytes())
+		}
+		fmt.Fprintf(b.log, "profile %s: %s (%d runs at %d)\n", s.name, out, len(parts), m.w.Large)
+	}
+	return nil
 }
 
 // readMetrics reads the hook's "NAME VALUE" lines; nil when it wrote none.
@@ -758,7 +836,10 @@ func (b builder) program(cmdDir, name string) (built, error) {
 	ergo := b.o.ergo
 	if ergo == "" {
 		ergo = filepath.Join(b.o.work, "ergo")
-		if err := b.exec(b.root, "go", "build", "-o", ergo, "./cmd/ergo"); err != nil {
+		build := ergobuild.Command(ergo, "./cmd/ergo")
+		build.Dir = b.root
+		build.Env = ergobuild.Env(append(os.Environ(), "GOWORK=off"))
+		if err := b.run(build); err != nil {
 			return built{}, err
 		}
 	}
@@ -795,7 +876,15 @@ func (b builder) program(cmdDir, name string) (built, error) {
 	if err := os.WriteFile(hook, []byte(opcount.Hook), 0o644); err != nil {
 		return built{}, err
 	}
-	overlay, err := json.Marshal(map[string]map[string]string{"Replace": {filepath.Join(work, opcount.HookFile): hook}})
+	replace := map[string]string{filepath.Join(work, opcount.HookFile): hook}
+	if b.o.profile != "" {
+		profileHook := filepath.Join(b.o.work, "profile-hook-"+name+".go")
+		if err := os.WriteFile(profileHook, []byte(opcount.ProfileHook), 0o644); err != nil {
+			return built{}, err
+		}
+		replace[filepath.Join(work, opcount.ProfileHookFile)] = profileHook
+	}
+	overlay, err := json.Marshal(map[string]map[string]string{"Replace": replace})
 	if err != nil {
 		return built{}, err
 	}
@@ -804,7 +893,7 @@ func (b builder) program(cmdDir, name string) (built, error) {
 		return built{}, err
 	}
 	out := built{bin: filepath.Join(b.o.work, name), goLine: goLine}
-	if err := b.run(moduleBuild(b.release, work, overlayFile, out.bin)); err != nil {
+	if err := b.run(moduleBuild(b.release, work, overlayFile, out.bin, b.o.pgo)); err != nil {
 		return built{}, err
 	}
 	if !b.o.text {
@@ -820,13 +909,15 @@ func (b builder) program(cmdDir, name string) (built, error) {
 // -checklinkname=0 (the exit hook's linkname) in GOFLAGS, after the
 // caller's own GOFLAGS (such as -tags=ergo_stockpark, the runtime's stock
 // park body: PARK1): each package that has an IR file is compiled with its
-// -ergoir.
-func moduleBuild(release toolchain.Patched, dir, overlay, bin string) *exec.Cmd {
+// -ergoir. A pgo profile builds it as ergo build --release does
+// (build.Toolchain.PGO).
+func moduleBuild(release toolchain.Patched, dir, overlay, bin, pgo string) *exec.Cmd {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = release.Go, release.Root
 	tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH
 	tc.GOFLAGS = strings.TrimSpace(os.Getenv("GOFLAGS") + " '-overlay=" + overlay + "' -ldflags=-checklinkname=0")
 	tc.GoBuild = true
+	tc.PGO = pgo
 	return tc.Command(build.Module{Dir: dir}, bin)
 }
 
@@ -928,9 +1019,24 @@ func (b builder) goPackage(rel, role, goLine string, hooked bool) (string, error
 		if err := os.WriteFile(filepath.Join(dir, opcount.HookFile), []byte(opcount.Hook), 0o644); err != nil {
 			return "", err
 		}
+		if b.o.profile != "" {
+			if err := os.WriteFile(filepath.Join(dir, opcount.ProfileHookFile), []byte(opcount.ProfileHook), 0o644); err != nil {
+				return "", err
+			}
+		}
 	}
 	bin := filepath.Join(b.o.work, role+"-bin")
-	cmd := exec.Command(b.release.Go, "build", "-trimpath", "-buildvcs=false", "-ldflags=-checklinkname=0", "-o", bin, ".")
+	args := []string{"build", "-trimpath", "-buildvcs=false", "-ldflags=-checklinkname=0"}
+	if b.o.pgo != "" && hooked {
+		// The reference side's own profile, taken by the same method
+		// (-profile wrote it beside the program's); none leaves it plain.
+		if _, err := os.Stat(b.o.pgo + "." + role); err == nil {
+			args = append(args, "-pgo="+b.o.pgo+"."+role)
+		} else {
+			fmt.Fprintf(b.log, "opcount: no %s.%s; the %s builds without a profile\n", b.o.pgo, role, role)
+		}
+	}
+	cmd := exec.Command(b.release.Go, append(args, "-o", bin, ".")...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOROOT="+b.release.Root, "GOTOOLCHAIN=local")
 	if err := b.run(cmd); err != nil {
@@ -976,7 +1082,8 @@ func commit() string {
 }
 
 func host() opcount.Host {
-	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions", SamplePeriod: opcount.Period()}
+	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions",
+		SamplePeriod: opcount.Period(), Level: build.Toolchain{GOARCH: runtime.GOARCH}.TargetLevel()}
 	if out, err := exec.Command("go", "env", "GOVERSION").Output(); err == nil {
 		h.GoVersion = strings.TrimSpace(string(out))
 	}

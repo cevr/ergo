@@ -15,30 +15,30 @@ import (
 // on it. It has no main, so no ergo test of its own writes a ledger.
 const importedTapeSource = `type Tape {
 	..Writer,
-	Written() string,
-	raw(text string),
+	mut Written() string,
+	mut raw(text string),
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }
 
 type tape { out string } implements Tape
 
-func raw(t *tape, s string) { t.out = t.out + s }
-func Written(t *tape) string { t.out }
-func Null(t *tape) { t.raw("n") }
-func Number(t *tape, text string) { t.raw(text) }
-func Bool(t *tape, b bool) { t.raw("b") }
-func Int(t *tape, n int64) { t.raw("i") }
-func Uint(t *tape, n uint64) { t.raw("u") }
-func Float(t *tape, f float64) { t.raw("f") }
-func String(t *tape, s string) { t.raw(s) }
-func StringBytes(t *tape, b []byte) { t.raw("s") }
-func BeginList(t *tape, n int) { t.raw("[") }
-func EndList(t *tape) { t.raw("]") }
-func BeginObject(t *tape, n int) { t.raw("{") }
-func Tag(t *tape, name string) { t.raw(name) }
-func Key(t *tape, k string) { t.raw(k) }
-func EndObject(t *tape) { t.raw("}") }
+func raw(t mut tape, s string) { t.out = t.out + s }
+func Written(t mut tape) string { t.out }
+func Null(t mut tape) { t.raw("n") }
+func Number(t mut tape, text string) { t.raw(text) }
+func Bool(t mut tape, b bool) { t.raw("b") }
+func Int(t mut tape, n int64) { t.raw("i") }
+func Uint(t mut tape, n uint64) { t.raw("u") }
+func Float(t mut tape, f float64) { t.raw("f") }
+func String(t mut tape, s string) { t.raw(s) }
+func StringBytes(t mut tape, b []byte) { t.raw("s") }
+func BeginList(t mut tape, n int) { t.raw("[") }
+func EndList(t mut tape) { t.raw("]") }
+func BeginObject(t mut tape, n int) { t.raw("{") }
+func Tag(t mut tape, name string) { t.raw(name) }
+func Key(t mut tape, k string) { t.raw(k) }
+func EndObject(t mut tape) { t.raw("}") }
 
 func Show[T wire](v T) string needs wired[T] {
 	let t Tape = tape{out: ""}

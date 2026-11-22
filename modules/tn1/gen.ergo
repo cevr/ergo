@@ -107,7 +107,7 @@ func mix(state uint64) Mix {
 }
 
 // randomRow is a row of n trits, each nonzero with chance 1 in every.
-func randomRow(state *uint64, n int, every int) string {
+func randomRow(state mut uint64, n int, every int) string {
 	let mut b = []byte{}
 	for _ in 0..n {
 		let m = mix(*state)

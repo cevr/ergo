@@ -3,8 +3,11 @@ package eval
 import (
 	"fmt"
 	"math/rand/v2"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +17,12 @@ import (
 )
 
 // TestHTTPPolicyAgreesWithRuntime holds std http's checks before the
-// network (nativeshttp.go) to runtime/v1/http's, on generated input: a
-// network policy's origins (schemes in any case, user information,
-// default and zero-padded ports, IPv6 with zones, paths, queries,
-// fragments) and limits; a URL fetched under a policy that allows no
+// network to runtime/v1/http's, on generated input: a network policy's
+// origins (schemes in any case, user information, default and
+// zero-padded ports, IPv6 with zones, paths, queries, fragments) and
+// limits, through std http's Ergo checkNetwork run here over Go's own
+// url.Parse and netip.ParseAddr (gohost.go), against the Go body it
+// replaced (NP4f-URL; oldCheckNetwork); a URL fetched under a policy that allows no
 // origin, so each one is refused or malformed before an exchange (control
 // bytes, backslashes, a scheme with one slash, bad ports); and Listen of
 // an address no host can bind. Both sides' outcomes are compared value for
@@ -51,7 +56,12 @@ func TestHTTPPolicyAgreesWithRuntime(t *testing.T) {
 	fr := in.newFrame(pkg, pkg.Tests[0].Decl)
 	call := func(name string, args ...Value) string {
 		in.steps, in.bytes = 0, 0
-		return outcome(func() (Value, *abrupt) { return natives[name](in, fr, fr.decl, funcs[name], args) })
+		return outcome(func() (Value, *abrupt) { return loadedNatives().std[name](in, fr, fr.decl, funcs[name], args) })
+	}
+	// callErgo runs a std function with an Ergo body.
+	callErgo := func(name string, args ...Value) string {
+		in.steps, in.bytes = 0, 0
+		return outcome(func() (Value, *abrupt) { return in.call(fr, nil, funcs[name], nil, args) })
 	}
 	fn := funcs["http.checkNetwork"]
 	runtime := func(f func() any) string {
@@ -83,7 +93,7 @@ func TestHTTPPolicyAgreesWithRuntime(t *testing.T) {
 		r := rand.New(rand.NewPCG(seed, 0x4778))
 		pick := func(xs ...string) string { return xs[r.IntN(len(xs))] }
 		host := func() string {
-			return pick("example.com", "EXAMPLE.com", "Ex.Org", "127.0.0.1", "[::1]", "[0:0::1]", "[fe80::1%25eth0]", "[::ffff:1.2.3.4]", "[zz::1]", "a_b.test", "")
+			return pick("example.com", "EXAMPLE.com", "Ex.Org", "127.0.0.1", "[::1]", "[0:0::1]", "[fe80::1%25eth0]", "[FE80::1%25En1]", "[::ffff:1.2.3.4]", "[zz::1]", "a_b.test", "")
 		}
 		port := func() string {
 			return pick("", "", ":80", ":443", ":8080", ":0080", ":0", ":65535", ":65536", ":x", ":")
@@ -108,9 +118,9 @@ func TestHTTPPolicyAgreesWithRuntime(t *testing.T) {
 		for i, o := range origins {
 			texts[i] = o
 		}
-		got := call("http.checkNetwork", newSlice(texts), limits)
+		got := callErgo("http.checkNetwork", newSlice(texts), limits)
 		want := runtime(func() any {
-			out, err := v1http.HTTPCheckNetwork(origins, lim)
+			out, err := oldCheckNetwork(origins, lim)
 			if err != nil {
 				return err
 			}
@@ -164,4 +174,71 @@ func TestHTTPPolicyAgreesWithRuntime(t *testing.T) {
 			t.Fatalf("seed %d: Listen(%q): the evaluator gives %s, runtime/v1 %s\nreplay: ERGO_EVAL_HTTP_SEED=%d go test -run TestHTTPPolicyAgreesWithRuntime ./internal/sketch/eval", seed, addr, got, want, seed)
 		}
 	}
+}
+
+// oldCheckNetwork is runtime/v1/http's HTTPCheckNetwork before NP4f-URL
+// moved it to std http's Ergo (with HTTPCheckOrigin and networkOrigin):
+// the reference the Ergo body is held to.
+func oldCheckNetwork(origins []string, limits v1http.HTTPLimits) ([]string, error) {
+	if !(limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0 && limits.IdleTimeout > 0 && limits.ReadHeaderTimeout > 0 && limits.ReadBodyTimeout > 0) {
+		return nil, v1http.HTTPInvalidLimits(limits)
+	}
+	out := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		u, err := url.Parse(origin)
+		switch {
+		case err != nil:
+			return nil, v1http.HTTPInvalidClient{Origin: origin, Reason: err.Error()}
+		case u.Scheme != "http" && u.Scheme != "https":
+			return nil, v1http.HTTPInvalidClient{Origin: origin, Reason: "the scheme is not http or https"}
+		case u.Host == "" || u.User != nil:
+			return nil, v1http.HTTPInvalidClient{Origin: origin, Reason: "the authority is not a host and port"}
+		case u.Path != "" && u.Path != "/", u.RawQuery != "", u.Fragment != "", u.ForceQuery:
+			return nil, v1http.HTTPInvalidClient{Origin: origin, Reason: "an origin has no path, query or fragment"}
+		}
+		canonical, ok := oldNetworkOrigin(u)
+		if !ok {
+			return nil, v1http.HTTPInvalidClient{Origin: origin, Reason: "the origin is not valid"}
+		}
+		out = append(out, canonical)
+	}
+	return out, nil
+}
+
+// oldNetworkOrigin is runtime/v1/http's networkOrigin, false where it fails.
+func oldNetworkOrigin(u *url.URL) (string, bool) {
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Opaque != "" {
+		return "", false
+	}
+	host, port := u.Hostname(), u.Port()
+	if strings.Contains(host, ":") {
+		address, zone, zoned := strings.Cut(host, "%")
+		ip, err := netip.ParseAddr(address)
+		if err != nil || !ip.Is6() {
+			return "", false
+		}
+		host = ip.String()
+		if zoned {
+			host += "%" + zone
+		}
+	} else {
+		host = strings.ToLower(host)
+	}
+	if port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return "", false
+		}
+		port = strconv.FormatUint(n, 10)
+	}
+	if port == "80" && u.Scheme == "http" || port == "443" && u.Scheme == "https" {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: host}).String(), true
 }

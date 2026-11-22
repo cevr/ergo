@@ -45,13 +45,32 @@ var repeatLowering string
 // call stays SlicesRepeat (Go would put the make on the heap anyway).
 const repeatFillLimit = 1 << 16
 
+// argSource is the operand x stands for: when x names a parameter of the
+// inlined body being lowered, the caller's operand (argOf), else x.
+func (fc *funcCtx) argSource(x syntax.Expr) syntax.Expr {
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		if v, ok := fc.l.info.Uses[id].(*check.Var); ok {
+			if a, ok := fc.argOf[v]; ok {
+				return a
+			}
+		}
+	}
+	return x
+}
+
 // repeatFill reports the Go text of the call x of slices.Repeat with the
 // operands args in its filled form, or false.
 func (fc *funcCtx) repeatFill(x *syntax.CallExpr, args []syntax.Expr) (string, bool) {
 	if repeatLowering == "call" || len(args) != 2 {
 		return "", false
 	}
-	lit, ok := unparen(args[0]).(*syntax.CompositeLit)
+	// The operands as the call's writer wrote them: since PRIM-4 std's
+	// slices.Repeat is the Ergo body { xs.Repeat(n) }, inlined at its site,
+	// so a Repeat of a literal and a constant reaches here as the inlined
+	// parameters xs and n. The elements are still read from the operand's
+	// lowered value below (the parameter's local), so nothing is evaluated
+	// twice; only the length comes from the literal and the count.
+	lit, ok := unparen(fc.argSource(args[0])).(*syntax.CompositeLit)
 	if !ok || lit.Base != nil || len(lit.Elts) == 0 {
 		return "", false
 	}
@@ -60,7 +79,7 @@ func (fc *funcCtx) repeatFill(x *syntax.CallExpr, args []syntax.Expr) (string, b
 			return "", false
 		}
 	}
-	b, ok := unparen(args[1]).(*syntax.BasicLit)
+	b, ok := unparen(fc.argSource(args[1])).(*syntax.BasicLit)
 	if !ok || b.Kind != syntax.INT {
 		return "", false
 	}
@@ -73,7 +92,12 @@ func (fc *funcCtx) repeatFill(x *syntax.CallExpr, args []syntax.Expr) (string, b
 		return "", false
 	}
 	elem := fc.goType(s.Elem)
-	vals := fc.callArgs(args[:1], x)
+	vals := fc.callArgs(args, x)
+	if unparen(args[1]) != syntax.Expr(b) {
+		// The count is an inlined parameter's local, which the fill does
+		// not read: Go refuses a local it never uses.
+		fc.line("_ = " + vals[1])
+	}
 	size := strconv.FormatInt(n*int64(len(lit.Elts)), 10)
 	fc.l.stats.RepeatFills++
 	return fc.l.rt() + ".SlicesFill[" + elem + "](make([]" + elem + ", " + size + "), " + vals[0] + ")", true

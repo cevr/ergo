@@ -1300,11 +1300,11 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 		return
 	}
 	for c := range a.subs {
-		if len(c.buf)-c.head >= c.room {
+		if c.held() >= c.room {
 			// Full: the unread states are dropped and counted, and s waits
 			// alone; the reader learns of the gap before s (Overflowed). A
 			// LatestChanges loop, of room 1, so holds the latest state.
-			c.missed += len(c.buf) - c.head
+			c.missed += c.held()
 			clear(c.buf)
 			c.buf, c.head = append(c.buf[:0], s), 0
 		} else {
@@ -1907,9 +1907,14 @@ func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 func (a *Actor[S, E, D]) Held() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.heldLocked()
+}
+
+// heldLocked is Held under the actor's mu, which the caller holds.
+func (a *Actor[S, E, D]) heldLocked() int {
 	n := 0
 	for c := range a.subs {
-		n += len(c.buf) - c.head
+		n += c.held()
 	}
 	return n
 }
@@ -2003,6 +2008,10 @@ func (a *Actor[S, E, D]) subscribe(t *rt.Task, room int) iter.Seq2[S, int] {
 		}
 	}
 }
+
+// held is how many states c holds and has not given yet. Hold the
+// actor's mu.
+func (c *changes[S]) held() int { return len(c.buf) - c.head }
 
 // changes is one Changes subscription: the committed states it has not
 // given yet, guarded by the actor's mu.

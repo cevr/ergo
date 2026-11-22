@@ -1,10 +1,13 @@
 package build
 
 import (
+	"cmp"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -29,6 +32,22 @@ type Toolchain struct {
 	// GOOS, GOARCH and GOFLAGS are set in the action's environment; an
 	// empty value leaves Go's own default.
 	GOOS, GOARCH, GOFLAGS string
+	// Level is the target's CPU level: GOAMD64 (v1 to v4) on amd64,
+	// GOARM64 (v8.0, v9.2,lse, …) on arm64, set in the action's
+	// environment under the variable of GOARCH (LevelVariable); empty
+	// leaves the environment's, else Go's default (v1, v8.0). It chooses
+	// instructions and runtime files, so it keys every compile and the
+	// pin sets (direct.go toolchainKey, pin.go pinKey), never the emitted
+	// module: the lowering writes code whose results do not depend on it
+	// (a float product rounds, ir_order.go rounded).
+	Level string
+	// PGO is the absolute path of a CPU profile the build compiles with
+	// (go build -pgo; U4 PGO-RELEASE), from `ergo build --release`; empty
+	// is none. A profile rebuilds every package of the program with it,
+	// std and the runtime too, so such a build takes no pin set and goes
+	// through go build (the direct path refuses it); the emitted module is
+	// the same with and without one.
+	PGO string
 	// Tags are the build tags of the action (-tags), such as ergoexplore
 	// for `ergo test --explore` (runtime.md, Explored schedules). They
 	// choose runtime files at link time and are no input of the lowering:
@@ -102,6 +121,42 @@ func HostToolchain() Toolchain {
 	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS"), GoBuild: os.Getenv(GoBuildVariable) == "go", Cover: os.Getenv(CoverVariable)}
 }
 
+// LevelVariable is the environment variable of goarch's CPU level, or
+// empty for an architecture without one Ergo builds for.
+func LevelVariable(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "GOAMD64"
+	case "arm64":
+		return "GOARM64"
+	}
+	return ""
+}
+
+// DefaultLevel is Go's default CPU level of goarch: what a build with no
+// level stated targets.
+func DefaultLevel(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "v1"
+	case "arm64":
+		return "v8.0"
+	}
+	return ""
+}
+
+// TargetLevel is the CPU level the toolchain builds for: Level, else the
+// environment's variable of the target's architecture, else Go's default.
+// It names the build in every key that holds the target (the warm answer,
+// a receipt).
+func (t Toolchain) TargetLevel() string {
+	goarch := cmp.Or(t.GOARCH, os.Getenv("GOARCH"), runtime.GOARCH)
+	if v := LevelVariable(goarch); v != "" {
+		return cmp.Or(t.Level, os.Getenv(v), DefaultLevel(goarch))
+	}
+	return ""
+}
+
 // Command is the Go build action that links the module's root package to
 // output: go build with receipt.GoBuildFlags, outside any workspace, in the
 // module directory, with exactly the toolchain's target and flags, and
@@ -114,14 +169,20 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	if len(t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(t.Tags, ","))
 	}
+	if t.PGO != "" {
+		args = append(args, "-pgo="+t.PGO)
+	}
 	for _, rel := range irDirs(module) {
 		// The pattern "." is the package in the module directory, the
 		// root, and "./D" the package in its folder D; the quotes keep a
 		// path with a space one word. Go's action cache keys the compile
-		// on the flag, whose path is in the module's folder, named by
-		// the module's key.
+		// on the flag and the Go files, never on the IR file, so the flag
+		// names it relative to the module's folder, where go build runs
+		// the compile: the same in every module an edit writes. The IR's
+		// digest is in a Go file of its package (lower.irKeyed), so its
+		// content changes the key (GP-SPLIT-EDIT).
 		ir := ergoIR(filepath.Join(module.Dir, rel))
-		args = append(args, "-gcflags="+irPattern(rel)+"='"+ir[0]+"="+ir[1]+"'")
+		args = append(args, "-gcflags="+irPattern(rel)+"='"+ir[0]+"="+irPattern(path.Join(rel, IRFile))+"'")
 	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
@@ -184,6 +245,9 @@ func (t Toolchain) env(goflags string) []string {
 	set := [][2]string{{"GOWORK", "off"}, {"CGO_ENABLED", "0"}, {"GOOS", t.GOOS}, {"GOARCH", t.GOARCH}, {"GOFLAGS", goflags}}
 	if t.Root != "" {
 		set = append(set, [2]string{"GOROOT", t.Root}, [2]string{"GOTOOLCHAIN", "local"})
+	}
+	if v := LevelVariable(cmp.Or(t.GOARCH, os.Getenv("GOARCH"), runtime.GOARCH)); v != "" && t.Level != "" {
+		set = append(set, [2]string{v, t.Level})
 	}
 	for _, kv := range set {
 		prefix := kv[0] + "="

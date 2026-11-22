@@ -1,10 +1,10 @@
-> submit build 3
+> submit -id=c2 -run=build -stages=3
   taken as c2 at log position 1
   build: submitted (stages: 3)
   build: started
   build: stage 1 passed
   build: stage 2 failed
-> submit docs 1
+> submit -id=c3 -run=docs -stages=1
   taken as c3 at log position 4
   docs: submitted (stages: 1)
 > board
@@ -31,10 +31,10 @@
   failing: -
   passed: build docs
   stopped: -
-> show build
-  build: passed
-> resend 2
+> run-of -- build
+  passed
+> submit -id=c2 -run=build -stages=3
   taken as c2 at log position 1
-> cancel docs late
-  refused: the run has ended (passed)
+> cancel -id=c9 -run=docs -why=late
+  refused: Closed: {"_tag":"Closed","status":"passed"}
 the runner ran 6 tries
