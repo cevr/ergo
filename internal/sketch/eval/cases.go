@@ -24,7 +24,16 @@ type lawTarget struct {
 func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	var out []lawTarget
 	for _, b := range run.Bindings {
-		out = append(out, lawTarget{name: bindingName(pkg, run.Law, b), binding: b})
+		// A provider the check cannot build honestly (LawProvider.Unrun)
+		// leaves the binding not run, as the lowering's does (bindingUnrun).
+		why := ""
+		for _, p := range b {
+			if p.Unrun != "" {
+				why = p.Unrun
+				break
+			}
+		}
+		out = append(out, lawTarget{name: bindingName(pkg, run.Law, b), why: why, binding: b})
 	}
 	for i := range run.Contexts {
 		c := &run.Contexts[i]

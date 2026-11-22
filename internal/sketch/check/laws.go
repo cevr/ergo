@@ -3,6 +3,7 @@ package check
 import (
 	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -774,11 +775,61 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		lp.Ctor = p.Obj.ctor
 	} else if ctor := c.nativeConstructor(p, captured); ctor != nil {
 		lp.Ctor = ctor
+	} else if why := c.builtOnlyBy(p); why != "" {
+		lp.Unrun = why
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why
 		lp.noGenerator = true
 	}
 	return lp, true
+}
+
+// builtOnlyBy is why a law case does not draw p from its fields, "" when
+// it may: p is a record with a field private to its package, and the
+// package declares a function, of any name and rows, whose one result is
+// p, a constructor that keeps the invariants p's laws assume (std
+// ratelimit/memory's New refuses a rule with a negative time; fstest's
+// NewFolder makes files and writes from one host). A law run in p's own
+// package sees the private fields, and a value drawn from them may be one
+// no program can hold (INPLACE-REFUTED), so the law is not run, never
+// refuted, until the constructor is one a case can call (planConstructor,
+// nativeConstructor).
+func (c *checker) builtOnlyBy(p *Named) string {
+	st, ok := p.Underlying().(*Struct)
+	tn := p.Obj
+	if !ok || tn == nil || tn.Pkg == nil {
+		return ""
+	}
+	private := slices.ContainsFunc(st.Fields, func(f *Field) bool { return !isExported(f.Name) })
+	if !private {
+		return ""
+	}
+	for _, f := range tn.Pkg.Funcs {
+		sig := f.Sig
+		if sig == nil || len(sig.TParams) > 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], p) {
+			continue
+		}
+		// A function that takes a p (x.With(…)) makes one from another,
+		// so it needs one first: it is no constructor.
+		if slices.ContainsFunc(sig.Params, func(v *Var) bool {
+			ptr, isPtr := v.Type.(*Pointer)
+			return c.identical(v.Type, p) || isPtr && c.identical(ptr.Elem, p)
+		}) {
+			continue
+		}
+		var how []string
+		if rowHolds(sig.Errors) {
+			how = append(how, "fails "+sig.Errors.String())
+		}
+		if rowHolds(sig.Uses) {
+			how = append(how, "needs "+sig.Uses.String())
+		}
+		if len(how) == 0 {
+			how = append(how, "takes a value a case cannot draw")
+		}
+		return p.String() + " is built only by its constructor " + f.Name + ", which " + strings.Join(how, " and ") + "; a value drawn from its fields may be one " + f.Name + " refuses"
+	}
+	return ""
 }
 
 // nativeConstructor is the constructor a law case of the test binary
