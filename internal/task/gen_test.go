@@ -604,6 +604,7 @@ func TestGenTreesShareAStore(t *testing.T) {
 func TestGenRunsWithNoStore(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "in.txt", "x")
+	writeFile(t, root, "a.txt", "stale") // b may run first: it reads a's old output
 	step := func(name, from, to string) Node {
 		return Node{
 			Name: name, Class: Vouched, Ident: name,
