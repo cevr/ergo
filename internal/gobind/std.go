@@ -54,7 +54,8 @@ func GoVersion(env []string) (string, error) {
 }
 
 // StdBindings writes the binding of every package of StdPaths, by import
-// path. dir is any directory: the standard library needs no module.
+// path, and of HostFS, whose functions os's bindings call (ValueResults).
+// dir is in the toolchain's module, which holds HostFS.
 func StdBindings(dir string, env []string) (map[string]string, error) {
 	paths, err := StdPaths(env)
 	if err != nil {
@@ -64,7 +65,7 @@ func StdBindings(dir string, env []string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Bind(dir, env, v, paths...)
+	return Bind(dir, env, v, append(paths, HostFS)...)
 }
 
 // FileName is where the binding of path lives under a binding root:
