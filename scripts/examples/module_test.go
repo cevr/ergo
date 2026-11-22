@@ -174,7 +174,7 @@ func TestModuleProgramRunsEveryPackage(t *testing.T) {
 	f.write(dir+"/hidden/hidden.ergo", "// MODULEHIDDEN\n// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"none\",\"obligations\":[]}}\nfunc h() {}\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	code, out := f.run()
-	want := "FAIL walker: test: ergo test ran the packages walker/cmd/walker walker/walk; the program's packages are walker/cmd/walker walker/hidden walker/walk"
+	want := "FAIL walker: test: ergo test DIR/... did not run the program's packages walker/hidden, and ran packages that are not the program's: none"
 	if code == 0 || !strings.Contains(out, want) {
 		t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
 	}
