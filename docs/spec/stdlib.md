@@ -1065,14 +1065,25 @@ both against net/http's `DetectContentType`.
     `Do(r Request) Response fails RequestFailed needs Net` sends one
     buffered request through the bound `Net`, the operation type
     `Net { Send(r Request) Response fails RequestFailed }`. The host's
-    provider is `NewClient(origin, limits Limits) Client fails InvalidClient | InvalidLimits needs Ambient`:
+    provider is `NewClient(origin, limits Limits, credentials []Credential) Client fails InvalidClient | InvalidLimits needs Ambient`:
     `origin` is `scheme://authority` (http or https, no user, path, query
     or fragment), and `limits` is the required response budget (header
     and body, both positive; `InvalidClient{Origin, Reason}` otherwise).
     No request is made until a Send. Send joins `r.Path` (the decoded
     path, which the client escapes) and `r.Query` (in its order) to the
-    origin and sends `r.Header` with the `Buffered` body; the Request type
-    is the server's. `RequestFailed{Cause}` has the closed cause union
+    origin and sends `r.Header`, then each credential's field, with the
+    `Buffered` body; the Request type is the server's. **A secret header
+    is a credential** (HTTP-SECRET): `ForOrigin` (11) makes one from a
+    `config.Redacted[string]`, the Client holds it as given, and its value
+    is revealed only where the transport writes the header. So no
+    provider wrapped around the Net (a recorder, a logger, a retry) sees
+    it, and the Client, like the Credential, has no text form and no wire
+    form. A credential of another origin is `InvalidClient`.
+    `InMemoryAt(origin, credentials, handle) Handler fails InvalidClient`
+    is `InMemory` with credentials: `handle` reads the request's header
+    and then each credential's field. The law `CredentialPassesUnseen`
+    wraps a recording Net around one and finds no byte of the secret in
+    any request, response or part it saw, while the handler read it. `RequestFailed{Cause}` has the closed cause union
     `Refused{Reason}` (nothing accepted the connection),
     `Transport{Reason}` (the exchange broke or was not HTTP),
     `TooLarge{Limit}` (the response's header or body over its budget;
@@ -1118,9 +1129,12 @@ both against net/http's `DetectContentType`.
     `URLRequest { URL string, Method string, Header []Field,
     Credentials []Credential, Body string }` takes an absolute http(s) URL.
     It does not hide a URL inside the server Request's decoded Path.
-    `ForOrigin(origin string, field Field) Credential fails InvalidClient`
+    `ForOrigin(origin string, name string, value config.Redacted[string]) Credential fails InvalidClient`
     marks one header as a credential of that origin. Its private fields
-    prevent a forged owner; no Ambient is needed to label data. Ordinary
+    prevent a forged owner; no Ambient is needed to label data. The value
+    stays a `Redacted` until the transport writes the header, so the
+    program never calls `Reveal` and a URLRequest that holds a credential
+    has no text form and no wire form. Ordinary
     Header fields are public and may cross origins: secret headers belong
     only in Credentials, including Authorization, cookies and custom keys.
 
