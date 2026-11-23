@@ -292,7 +292,7 @@ test ShowPair {
 }
 
 test ShowList {
-	let xs = gen.ListOf(func() int needs gen.Draws { gen.IntIn(0, 9) }, 0, 6)
+	let xs = gen.ListOf(0, 6, func() int needs gen.Draws { gen.IntIn(0, 9) })
 	assert xs == []int{}
 }
 
@@ -323,7 +323,7 @@ func replayHarness(t *testing.T, ergo string, seed uint64, src, native string) {
 	fails := map[string]string{}
 	var name string
 	for _, line := range strings.Split(native, "\n") {
-		if rest, ok := strings.CutPrefix(line, "FAIL "); ok {
+		if rest, ok := strings.CutPrefix(line, "FAIL "); ok && !strings.HasPrefix(rest, "(") {
 			name, _, _ = strings.Cut(rest, ":")
 			fails[name] = line
 			continue
