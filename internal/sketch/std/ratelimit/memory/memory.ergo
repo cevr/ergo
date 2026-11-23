@@ -361,7 +361,7 @@ law LateTakeCountsAsTheLastGrant(seed int64, back int) {
 		for at in []time.Time{t, early, early, t} {
 			let a = TakeAt(late, "k", 1, at) catch {
 			case ratelimit.Limited as x:
-				ratelimit.Grant{Remaining: -1 - int(int64(x.RetryAfter - t.Sub(at)))}
+				ratelimit.Grant{Remaining: -1 - int(int64(x.RetryAfter-t.Sub(at)))}
 			case ratelimit.BadCost:
 				return false
 			}
