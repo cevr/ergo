@@ -11,16 +11,15 @@ import (
 	"ergo.local/prototype/internal/budget"
 )
 
-const budgetHelp = `usage: ergo budget [--config FILE] [--width N] [--memory SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]
+const budgetHelp = `usage: ergo budget [--config FILE] [--width N] [--memory SIZE] [--ceiling SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]
        ergo budget [--config FILE] status
 
 Runs COMMAND once the host's budget has --width cores and its memory free
 for it, and gives them back when it ends (internal/budget; the design is
 models/gatebudget). COMMAND runs with GOMAXPROCS set to the width, in its
-own process group, which is killed when COMMAND ends; when the budget
-counts memory, it runs capped at its reservation, and its peak is kept for
-its next run. A COMMAND that runs ergo budget again runs in this grant and
-takes nothing.
+own process group, which is killed when COMMAND ends. Where systemd is
+available, the scope enforces memory caps. A COMMAND that runs ergo budget
+again runs in this grant's scope and takes nothing.
 
 Status prints the budget as the last decision left it: each holder and
 waiter with its width, charge and cap, and why the next waiter waits
@@ -32,8 +31,10 @@ budget file's backfill). It changes nothing.
                   state folder, and is read again at every decision
   --width N       cores (default 1)
   --memory SIZE   the memory to reserve, as 4G or 512M (default: the
-                  largest peak of this command, else the file's
-                  default-memory)
+                   largest peak of this command, else the file's
+                   default-memory)
+  --ceiling SIZE  a hard memory limit, as 8G or 512M, even without a
+                  recorded peak; does not change the reservation
   --class C       crit or lane (default lane, or $ERGO_BUDGET_CLASS)
   --lane NAME     the name in the budget's log (default: $ERGO_BUDGET_LANE,
                   else the working folder's name)
@@ -58,6 +59,15 @@ func budgetMain(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 	class := fs.String("class", classDefault, "")
 	lane := fs.String("lane", os.Getenv("ERGO_BUDGET_LANE"), "")
 	memory := fs.String("memory", "", "")
+	var ceiling int64
+	fs.Func("ceiling", "", func(s string) error {
+		v, err := budget.ParseSize(s)
+		if err != nil || v <= 0 {
+			return fmt.Errorf("want a positive size such as 8G or 512M")
+		}
+		ceiling = v
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return flagError(err, budgetHelp)
 	}
@@ -106,7 +116,7 @@ func budgetMain(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 	if err != nil {
 		return err
 	}
-	code, err := budget.Run(context.Background(), b, budget.Request{Width: *width, Crit: *class == "crit", Lane: *lane, Memory: asked}, argv, stdin, stdout, stderr)
+	code, err := budget.Run(context.Background(), b, budget.Request{Width: *width, Crit: *class == "crit", Lane: *lane, Memory: asked, Ceiling: ceiling}, argv, stdin, stdout, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "ergo budget:", err)
 	}
