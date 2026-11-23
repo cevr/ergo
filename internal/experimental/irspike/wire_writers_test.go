@@ -24,7 +24,7 @@ func TestIRWireWritersMatchSource(t *testing.T) {
 	f7PropertyWith(t, "TestIRWireWritersMatchSource", GenerateWireWriters, func(rep lower.IRReport) string {
 		var kept []string
 		for k := range rep.CodecText {
-			if strings.HasPrefix(k, "ergoEncode") {
+			if strings.HasPrefix(k, lower.HelperSpelling("", "ergoEncode")) {
 				kept = append(kept, strings.ReplaceAll(k, "\t", ": "))
 			}
 		}
@@ -33,7 +33,7 @@ func TestIRWireWritersMatchSource(t *testing.T) {
 			return "encoders on the Writer interface keep their text: " + strings.Join(kept, "; ")
 		}
 		for _, name := range rep.CodecWrite {
-			if strings.HasPrefix(name, "ergoEncodeR") {
+			if strings.HasPrefix(name, lower.HelperSpelling("", "ergoEncodeR")) {
 				return ""
 			}
 		}
