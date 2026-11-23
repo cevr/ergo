@@ -196,8 +196,8 @@
     {
       "name": "ws0-torn-line-kept", "origin": "wf10/semws WS0",
       "file": "modules/work/journal/registry.ergo",
-      "from": "\t\tif i == len(lines)-1 || line == \"\" {\n",
-      "to": "\t\tif line == \"\" {\n",
+      "from": "\t\tif i == len(lines)-1 || line == \"\" || (i == 0 && versioned) {\n",
+      "to": "\t\tif line == \"\" || (i == 0 && versioned) {\n",
       "rule": "A journal line a crash cut short is no record: journal's TornWriteIsDropped, the list case.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work", "examples:work"]
     },
@@ -2360,6 +2360,46 @@
       "to": "\"--no-merges\", \"--right-only\"",
       "rule": "Unpicked leaves out a commit whose patch the default branch has (git's ListStatusReadsInARepository: a cherry-picked commit).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "registry-treats-foreign-version-as-local", "origin": "WORK-REGISTRY-FORMAT-VERSION",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "if fields[1] != RegistryFormat {",
+      "to": "if fields[1] != RegistryFormat && false {",
+      "rule": "RegistryFormatFencesEveryOperation requires the unsupported version, writer, and recovery action before replay or mutation.",
+      "anchor": {"tests": ["modules/work/journal:RegistryFormatFencesEveryOperation"]}, "killers": ["modules/work/journal:RegistryFormatFencesEveryOperation"]
+    },
+    {
+      "name": "registry-appends-after-foreign-header", "origin": "WORK-REGISTRY-FORMAT-VERSION",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "func appendLine(r Registry, line string) fails work.Unkept {\n\tlet text = try load(r)\n\tlet versioned = try checkFormat(text)",
+      "to": "func appendLine(r Registry, line string) fails work.Unkept {\n\tlet text = try load(r)\n\tlet versioned = checkFormat(text) catch { case work.Unkept: true }",
+      "rule": "RegistryFormatFencesEveryOperation requires Put and Drop to refuse a newer header too, leaving the journal unchanged.",
+      "anchor": {"tests": ["modules/work/journal:RegistryFormatFencesEveryOperation"]}, "killers": ["modules/work/journal:RegistryFormatFencesEveryOperation"]
+    },
+    {
+      "name": "registry-first-write-omits-format", "origin": "WORK-REGISTRY-FORMAT-VERSION",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "(if versioned { \"\" } else { formatLine(r.writer) }) + complete + line",
+      "to": "complete + line",
+      "rule": "RegistryUpgradeKeepsCompleteRecords requires the format and writer stamp to appear on the very first legacy-journal mutation.",
+      "anchor": {"tests": ["modules/work/journal:law:RegistryUpgradeKeepsCompleteRecords"]}, "killers": ["modules/work/journal:law:RegistryUpgradeKeepsCompleteRecords"]
+    },
+    {
+      "name": "registry-compact-omits-format", "origin": "WORK-REGISTRY-FORMAT-VERSION",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "let mut text = formatLine(r.writer)",
+      "to": "let mut text = \"\"",
+      "rule": "RegistryUpgradeKeepsCompleteRecords requires compaction to retain the format fence as well as the records.",
+      "anchor": {"tests": ["modules/work/journal:law:RegistryUpgradeKeepsCompleteRecords"]}, "killers": ["modules/work/journal:law:RegistryUpgradeKeepsCompleteRecords"]
+    },
+    {
+      "name": "registry-appends-through-torn-tail", "origin": "WORK-REGISTRY-FORMAT-VERSION",
+      "file": "modules/work/journal/registry.ergo",
+      "from": "if !versioned || !strings.HasSuffix(text, \"\\n\") {",
+      "to": "if !versioned {",
+      "rule": "RegistryUpgradeKeepsCompleteRecords requires a write to a versioned journal after a torn append not to splice a valid mutation onto it.",
+      "anchor": {"tests": ["modules/work/journal:law:RegistryUpgradeKeepsCompleteRecords"]}, "killers": ["modules/work/journal:law:RegistryUpgradeKeepsCompleteRecords"]
     }
   ]
 }

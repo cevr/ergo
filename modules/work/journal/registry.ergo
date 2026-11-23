@@ -1,10 +1,10 @@
-// Package journal is a work.Registry kept in one journal file: plain
-// text, a record a line, appended and never rewritten, so a person can
-// read a damaged registry and Git alone can recover the workspaces. A
-// line is a word and tab-separated fields, each Go-quoted (a tab in a
-// field is \t, so a tab only separates):
+// Package journal is a work.Registry kept in a plain-text journal. The
+// first line of a versioned journal names its format and the Work build
+// that wrote it. Each record is a word and tab-separated fields (a tab
+// in a quoted field is \t, so a literal tab only separates):
 //
-//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"	"id"	"deps"	"token"	"moving"
+//	format	1	"work COMMIT built DATE"
+//	put	"name"	"path"	"parent"	"branch"	"cloner"	active	1763164800	"base"	"latest"	"id"	"deps"	"token"	"moving"	-	0
 //	drop	"name"
 //	tomb	"name"	1763164800	"id"
 //	buried	"id"	1763164800
@@ -15,13 +15,13 @@
 // token and the intent) reads with those empty. A tomb forgets the record
 // of its name and keeps its id; a buried line is a tomb Compact kept.
 //
-// A reader replays every whole line; the last put of a name is its
-// record, a drop forgets it. Each write is one append of one line, so two
-// writers never interleave within a line, and a crash in a write leaves
-// a line with no newline, which a reader drops. Every write is made under
-// the registry's lock (work.Lock). Compact writes the records and the
-// recent tombs to a new file and renames it over the journal: a reader
-// reads the old file or the new one, each whole.
+// A reader checks the format before replaying any row. No header means
+// a legacy journal, still readable. Under the registry lock, its first
+// mutation atomically replaces it with the header, its complete rows,
+// and the mutation. A normal write is one append of one line; readers
+// ignore a torn suffix and writers remove it before adding a record.
+// Compact atomically replaces the file with a header, records and recent
+// tombs. Readers see the old file or the new one.
 //
 // Go control: an append-only text log replayed at each read (a
 // write-ahead log with a checkpoint by rewrite).
@@ -34,16 +34,18 @@ import strconv
 import strings
 
 // Registry is the journal at path.
-type Registry { files fs.Files, writes fs.Writes, path string } implements work.Registry
+type Registry { files fs.Files, writes fs.Writes, path string, writer string } implements work.Registry
 
 // Open is the registry of the journal at path. The file is read at each
 // All, so a second process's records are seen.
-func Open(files fs.Files, writes fs.Writes, path string) Registry { Registry{files: files, writes: writes, path: path} }
+func Open(files fs.Files, writes fs.Writes, path string, writer string) Registry {
+	Registry{files: files, writes: writes, path: path, writer: writer}
+}
 
 // NewRegistry is a registry over an empty memory disk: the laws' value.
 func NewRegistry() Registry {
 	let disk = fstest.NewMemory()
-	Registry{files: disk, writes: disk, path: "/registry"}
+	Open(disk, disk, "/registry", "work journal test build")
 }
 
 func Put(r Registry, w work.Workspace) fails work.Unkept { try appendLine(r, PutLine(w)) }
@@ -56,10 +58,12 @@ func All(r Registry) []work.Workspace fails work.Unkept {
 }
 
 func Bury(r Registry, name string, at int64) fails work.Unkept {
-	let (records, _) = try read(r)
+	let text = try load(r)
+	let versioned = try checkFormat(text)
+	let (records, _) = try replayRows(text, versioned)
 	for w in records {
 		if w.Name == name {
-			try appendLine(r, "tomb\t"+strconv.Quote(name)+"\t"+strconv.FormatInt(at, 10)+"\t"+strconv.Quote(w.Id)+"\n")
+			try appendChecked(r, text, versioned, "tomb\t"+strconv.Quote(name)+"\t"+strconv.FormatInt(at, 10)+"\t"+strconv.Quote(w.Id)+"\n")
 			return
 		}
 	}
@@ -72,13 +76,17 @@ func Tombs(r Registry) []work.Tomb fails work.Unkept {
 
 func Compact(r Registry, since int64) fails work.Unkept {
 	let (records, tombs) = try read(r)
-	let mut text = ""
+	let mut text = formatLine(r.writer)
 	for w in records {
 		text = text + PutLine(w)
 	}
 	for t in memory.Recent(tombs, since) {
 		text = text + TombLine(t)
 	}
+	try replace(r, text)
+}
+
+func replace(r Registry, text string) fails work.Unkept {
 	r.writes.WriteFile(r.path, text) catch {
 	case fs.NotFound:
 		return work.Unkept{Reason: "\(r.path): its folder is not there; run work init"}
@@ -91,15 +99,18 @@ func Compact(r Registry, since int64) fails work.Unkept {
 
 // read is the records and tombs of the journal.
 func read(r Registry) ([]work.Workspace, []work.Tomb) fails work.Unkept {
-	let text = r.files.ReadFile(r.path) catch {
+	try ReplayAll(try load(r))
+}
+
+func load(r Registry) string fails work.Unkept {
+	r.files.ReadFile(r.path) catch {
 	case fs.NotFound:
-		return ([]work.Workspace{}, []work.Tomb{})
+		""
 	case fs.Denied:
 		return work.Unkept{Reason: "\(r.path): permission denied"}
 	case fs.Failed as f:
 		return work.Unkept{Reason: "\(r.path): \(f.Reason)"}
 	}
-	try ReplayAll(text)
 }
 
 // TombLine is the line of a compacted tomb: its id and time, with no
@@ -107,6 +118,20 @@ func read(r Registry) ([]work.Workspace, []work.Tomb) fails work.Unkept {
 func TombLine(t work.Tomb) string { "buried\t" + strconv.Quote(t.Id) + "\t" + strconv.FormatInt(t.Since, 10) + "\n" }
 
 func appendLine(r Registry, line string) fails work.Unkept {
+	let text = try load(r)
+	let versioned = try checkFormat(text)
+	if !versioned {
+		let _ = try replayRows(text, false)
+	}
+	try appendChecked(r, text, versioned, line)
+}
+
+func appendChecked(r Registry, text string, versioned bool, line string) fails work.Unkept {
+	if !versioned || !strings.HasSuffix(text, "\n") {
+		let complete = strings.Slice(text, 0, strings.LastIndex(text, "\n")+1)
+		try replace(r, (if versioned { "" } else { formatLine(r.writer) }) + complete + line)
+		return
+	}
 	r.writes.AppendFile(r.path, line) catch {
 	case fs.NotFound:
 		return work.Unkept{Reason: "\(r.path): its folder is not there; run work init"}
@@ -115,6 +140,30 @@ func appendLine(r Registry, line string) fails work.Unkept {
 	case fs.Failed as f:
 		return work.Unkept{Reason: "\(r.path): \(f.Reason)"}
 	}
+}
+
+// RegistryFormat is the protocol epoch (row layout and recovery rules).
+// A writer changes it when the earlier recovery rules cannot safely use
+// its journal, even if each individual workspace row has the same shape.
+let RegistryFormat = "1"
+
+func formatLine(writer string) string { "format\t"+RegistryFormat+"\t"+strconv.Quote(writer)+"\n" }
+
+func checkFormat(text string) bool fails work.Unkept {
+	let end = strings.IndexByte(text, '\n')
+	let first = if end < 0 { text } else { strings.Slice(text, 0, end) }
+	if first != "format" && !strings.HasPrefix(first, "format\t") {
+		return false
+	}
+	let fields = strings.Split(first, "\t")
+	if end < 0 || len(fields) != 3 || fields[1] == "" {
+		return bad(0, "incomplete format header; preserve the registry and recover it from a backup")
+	}
+	let writer = try field(0, fields[2])
+	if fields[1] != RegistryFormat {
+		return work.Unkept{Reason: "registry format \(fields[1]) was written by \(writer); use Work from that build or a newer build that supports registry format \(fields[1]); do not edit the header"}
+	}
+	true
 }
 
 // PutLine is the journal line of a put of w.
@@ -132,11 +181,15 @@ func Replay(text string) []work.Workspace fails work.Unkept {
 
 // ReplayAll is the records and the tombs of a journal's text.
 func ReplayAll(text string) ([]work.Workspace, []work.Tomb) fails work.Unkept {
+	try replayRows(text, try checkFormat(text))
+}
+
+func replayRows(text string, versioned bool) ([]work.Workspace, []work.Tomb) fails work.Unkept {
 	let mut records = []work.Workspace{}
 	let mut tombs = []work.Tomb{}
 	let lines = strings.Split(text, "\n")
 	for i, line in lines {
-		if i == len(lines)-1 || line == "" {
+		if i == len(lines)-1 || line == "" || (i == 0 && versioned) {
 			continue
 		}
 		let fields = strings.Split(line, "\t")
@@ -215,3 +268,71 @@ func field(i int, text string) string fails work.Unkept {
 }
 
 func bad(i int, why string) work.Unkept { work.Unkept{Reason: "registry line \(i + 1): \(why)"} }
+
+// RegistryFormatFencesEveryOperation checks the version before replaying
+// rows, and refuses every mutation without changing an unsupported file.
+test RegistryFormatFencesEveryOperation {
+	let r = NewRegistry()
+	let writer = "work future-commit built tomorrow"
+	let text = "format\t99\t"+strconv.Quote(writer)+"\nnot-a-known-record\n"
+	try r.writes.WriteFile(r.path, text)
+	let row = work.Workspace{Name: "one", Path: "/one", Parent: "/base", Branch: "one", Cloner: "", State: work.Active, Since: 1, Base: "", Latest: "", Id: "id-one", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
+	let diagnostic = func(reason string) bool {
+		strings.Contains(reason, "format 99") && strings.Contains(reason, writer) && strings.Contains(reason, "use Work") && !strings.Contains(reason, "not-a-known-record")
+	}
+	let list = func() bool {
+		let _ = r.All() catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		false
+	}
+	let tombs = func() bool {
+		let _ = r.Tombs() catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		false
+	}
+	assert list() && tombs()
+	let put = func() bool {
+		r.Put(row) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		false
+	}
+	let drop = func() bool {
+		r.Drop(row.Name) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		false
+	}
+	let bury = func() bool {
+		r.Bury(row.Name, 5) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		false
+	}
+	let compact = func() bool {
+		r.Compact(0) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		false
+	}
+	assert put() && drop() && bury() && compact()
+	assert try r.files.ReadFile(r.path) == text
+}
+
+// RegistryUpgradeKeepsCompleteRecords checks the exact first-write
+// boundary. A legacy read writes nothing, a first write discards a torn
+// suffix, and compaction keeps both the version fence and live data.
+law RegistryUpgradeKeepsCompleteRecords(a work.Workspace, b work.Workspace) {
+	let r = NewRegistry()
+	let kept = work.Workspace{..a, Name: "kept", Id: "id-kept"}
+	let tomb = work.Tomb{Id: "id-removed", Since: 10}
+	let legacy = PutLine(kept) + TombLine(tomb) + "drop\t\"interrupted"
+	try r.writes.WriteFile(r.path, legacy)
+	if (try r.All()) != []work.Workspace{kept} || (try r.files.ReadFile(r.path)) != legacy {
+		return false
+	}
+	let added = work.Workspace{..b, Name: "added", Id: "id-added"}
+	try r.Put(added)
+	let upgraded = try r.files.ReadFile(r.path)
+	let stamp = "format\t1\t\"work journal test build\"\n"
+	if !strings.HasPrefix(upgraded, stamp) || strings.Contains(upgraded, "interrupted") || (try r.All()) != []work.Workspace{kept, added} || (try r.Tombs()) != []work.Tomb{tomb} {
+		return false
+	}
+	try r.writes.AppendFile(r.path, "put\t\"interrupted again")
+	try r.Drop(added.Name)
+	if (try r.All()) != []work.Workspace{kept} {
+		return false
+	}
+	try r.Compact(0)
+	strings.HasPrefix(try r.files.ReadFile(r.path), stamp) && (try r.All()) == []work.Workspace{kept} && (try r.Tombs()) == []work.Tomb{tomb}
+}
