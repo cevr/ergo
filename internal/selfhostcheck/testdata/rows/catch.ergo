@@ -1,0 +1,43 @@
+// `try e catch { … }` is one partial catch: the rest of e's row, the
+// failures no arm names, escapes through the try, at the try
+// (handlers.go try).
+
+type A {}
+
+type B {}
+
+type C {}
+
+func fail() string fails A | B | C { return A }
+
+func rest() string fails B {
+	let v = try fail() catch { //want: rows
+	case B:
+		"b"
+	}
+	v
+}
+
+func listed() string fails A | C {
+	let v = try fail() catch {
+	case B:
+		"b"
+	}
+	v
+}
+
+func two() string {
+	let v = try fail() catch { //want: rows
+	case A, B:
+		"ab"
+	}
+	v
+}
+
+func all() string {
+	let v = try fail() catch {
+	case err:
+		"any"
+	}
+	v
+}

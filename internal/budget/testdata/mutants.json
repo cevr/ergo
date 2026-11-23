@@ -173,6 +173,15 @@
       "killers": ["internal/budget:TestReservationIsTheLargestPeak"]
     },
     {
+      "name": "CeilingIgnored",
+      "origin": "wf10 BUDGET-LIGHT-PER-RUN-MEMORY-CAP",
+      "file": "internal/budget/decide.go",
+      "from": "\tw.Cap = capAtCeiling(w.Cap, w.Ceiling)\n",
+      "to": "",
+      "rule": "A ceiling lowers the run's cap without changing its admission charge, even with no recorded peak.",
+      "killers": ["internal/budget:TestCeilingLimitsTheCapNotTheCharge"]
+    },
+    {
       "name": "budget-cap-unknown",
       "origin": "wf10 WS4c (model CapUnknown; c012b9af5's rule)",
       "file": "internal/budget/decide.go",
@@ -194,9 +203,9 @@
       "name": "budget-no-cap",
       "origin": "wf10 WS4c (model: a run over its reservation is killed alone)",
       "file": "internal/budget/run_unix.go",
-      "from": "\tif g.Memory() > 0 && scopes() {",
-      "to": "\tif false {",
-      "rule": "With memory budgeted, a command runs capped at its reservation.",
+      "from": "\t\tif g.capAt > 0 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "The command's scope enforces the run's chosen memory cap.",
       "killers": ["internal/budget:TestRunCapsAtTheReservation"]
     },
     {

@@ -387,127 +387,86 @@ func (c *checker) checkMachine(tn *TypeName) {
 		// A refused type (one a cycle captured before its declaration was
 		// refused, too) adds nothing here (D3; rows.md, Totality 6, P4).
 		if !containsInvalid(part.t) && !unionLike(part.t) {
-			c.errorf(part.x, CodeType, "a machine's %s type must be a union or a record, not %s", part.w, part.t)
+			c.errorf(part.x, CodeType, "a machine's %s type must be a union or a record, not %s%s", part.w, part.t, tupleRecordHint(tn.Name, part.w, part.t))
 		}
 	}
 	valid := !isInvalid(state) && !isInvalid(signal) && unionLike(state) && unionLike(signal)
 	if spec.Initial == nil || spec.Step == nil {
 		c.errorf(tn.Decl.Name, CodeType, "machine %s declares both initial and step (runtime.md, Machines and actors 1)", tn.Name)
 	}
-	if start := machineStart(c.pkg, spec); start != nil {
-		c.checkMachineStart(tn, start, spec.Initial.(*syntax.Ident), state, signal, valid)
-	} else if spec.Initial != nil {
-		t := &target{name: "the initial value of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
-		prev := c.fn
-		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
-		var hint Type
-		if valid {
-			hint = state
-		}
-		op := c.valueExpr(spec.Initial, hint)
-		if valid {
-			c.assign(&op, state, "machine "+tn.Name+"'s initial value")
-		}
-		c.fn = prev
+	if start := c.machineEntry(tn, entryStart); start != nil {
+		c.checkMachineStart(tn, start, state, valid)
 	}
 	if spec.Step == nil {
 		return
 	}
-	id, ok := spec.Step.(*syntax.Ident)
-	if !ok {
-		c.errorf(spec.Step, CodeType, "a machine's step names a function of this package (runtime.md, Machines and actors 1)")
-		return
-	}
-	o := c.pkg.Scope.names[id.Name]
-	if o == nil {
-		c.errorf(id, CodeUnknown, "unknown function %s", id.Name)
-		return
-	}
-	f, ok := o.(*Func)
-	if !ok {
-		c.errorf(id, CodeType, "%s is not a function; a machine's step names a function (runtime.md, Machines and actors 1)", id.Name)
-		return
-	}
-	f.called = true
-	c.pkg.Info.Uses[id] = f
-	if isExtern(f) && !externValue(f) {
-		// A step is a function value; a call-only extern is refused (P3).
-		// An extern value (G1) is checked as a step like any function; its
-		// basic-typed signature is never a step's.
-		c.errorf(id, CodeType, "%s", externCallOnlyText)
-		return
-	}
-	if !valid || f.Sig == nil {
-		return
-	}
-	sig := f.Sig
-	decision := preludeType("Decision")
-	want := "func(" + state.String() + ", " + signal.String() + ") Decision[" + state.String() + ", O]"
-	bad := len(sig.TParams) > 0 || len(sig.Params) != 2 || len(sig.Results) != 1
-	if !bad {
-		bad = !c.identical(sig.Params[0].Type, state) || !c.identical(sig.Params[1].Type, signal)
-	}
-	if !bad {
-		r, ok := sig.Results[0].(*Named)
-		bad = !ok || decision == nil || r.origin() != decision || len(r.TArgs) == 0 || !c.identical(r.TArgs[0], state)
-	}
-	if bad {
-		c.errorf(id, CodeType, "the step %s of machine %s must have the type %s, with any error and capability rows (runtime.md, Machines and actors 1)", id.Name, tn.Name, want)
-	}
+	c.checkMachineStep(tn, state, signal, valid)
 	if spec.After != nil {
-		c.checkMachineAfter(tn, spec.After, state, signal)
+		c.checkMachineAfter(tn, state, signal)
 	}
 	if spec.Work != nil {
-		c.checkMachineWork(tn, spec.Work, state, signal)
+		c.checkMachineWork(tn, state, signal)
 	}
 	if spec.Exit != nil {
-		c.checkMachineExit(tn, spec.Exit, state)
+		c.checkMachineExit(tn, state)
+	}
+	if view, step, sig := c.machineValue(n); view != nil {
+		if conv, why := c.machineConversion(n, view, step, sig, !isPreludeMachine(view)); why == "" {
+			c.pkg.Info.MachineEntries[tn].Conv = &conv
+		}
 	}
 }
 
-// machineStart is the function a machine declaration's initial names, when
-// it names one: such a machine starts from the function of an input (V4,
-// owner decision O3b), since no function is a value of the state union.
-func machineStart(pkg *Package, spec *syntax.MachineType) *Func {
-	id, ok := spec.Initial.(*syntax.Ident)
-	if !ok || pkg == nil {
-		return nil
+// checkMachineStep checks the machine's step entry: an expression of the
+// type func(S, E) Decision[S, O], with any error and capability rows, which
+// are the Machine's F and R (MACHINE-EXPR; runtime.md, Machines and actors
+// 1 and 8).
+func (c *checker) checkMachineStep(tn *TypeName, state, signal Type, valid bool) {
+	e := c.machineEntry(tn, entryStep)
+	if e == nil || !valid {
+		return
 	}
-	f, _ := pkg.Scope.names[id.Name].(*Func)
-	return f
+	if !c.stepShape(e.Type, state, signal) {
+		want := "func(" + state.String() + ", " + signal.String() + ") Decision[" + state.String() + ", O]"
+		c.errorf(e.Expr, CodeType, "the step %sof machine %s must have the type %s, with any error and capability rows; it has the type %s (runtime.md, Machines and actors 1)", entryLabel(e.Expr), tn.Name, want, e.Type)
+	}
 }
 
-// checkMachineStart checks a machine's `initial: start`: start is a package
-// function `func(i I) S`, one input and no rows, so that a run computes
-// the first state from the input it is given (runtime.md, Machines and
-// actors 10).
-func (c *checker) checkMachineStart(tn *TypeName, f *Func, id *syntax.Ident, state, signal Type, valid bool) {
-	f.called = true
-	c.pkg.Info.Uses[id] = f
-	// A call-only extern is refused (P3); an extern value (G1) is checked
-	// as a start like any function, and its basic-typed signature is never
-	// a start's.
-	if isExtern(f) && !externValue(f) {
-		c.errorf(id, CodeType, "%s", externCallOnlyText)
+// stepShape reports whether sig is a step of the state and signal:
+// func(S, E) Decision[S, O], no type parameters, any rows.
+func (c *checker) stepShape(sig *Signature, state, signal Type) bool {
+	decision := preludeType("Decision")
+	if sig == nil || decision == nil || len(sig.TParams) > 0 || len(sig.Params) != 2 || len(sig.Results) != 1 {
+		return false
+	}
+	if !c.identical(sig.Params[0].Type, state) || !c.identical(sig.Params[1].Type, signal) {
+		return false
+	}
+	r, ok := sig.Results[0].(*Named)
+	return ok && r.origin() == decision && len(r.TArgs) == 2 && c.identical(r.TArgs[0], state)
+}
+
+// entryLabel is the name an entry's message gives it, with a trailing
+// space: the name it is written as, or nothing for a computed entry.
+func entryLabel(x syntax.Expr) string {
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		return id.Name + " "
+	}
+	return ""
+}
+
+// checkMachineStart checks a machine's initial entry when it is a function
+// of an input: func(i I) S, its parameters the machine's input, no type
+// parameters and no rows, so that a run computes the first state from the
+// input it is given (runtime.md, Machines and actors 10).
+func (c *checker) checkMachineStart(tn *TypeName, e *MachineEntry, state Type, valid bool) {
+	if !valid {
 		return
 	}
-	if !valid || f.Sig == nil {
-		return
-	}
-	sig := f.Sig
+	sig := e.Type
 	if machineInput(sig, state, c) == nil {
-		c.errorf(id, CodeType, "the start %s of machine %s must have the type func(…) %s: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)", id.Name, tn.Name, state)
-		return
+		c.errorf(e.Expr, CodeType, "the start %sof machine %s must have the type func(…) %s: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)", entryLabel(e.Expr), tn.Name, state)
 	}
-	// Its rows: the value must be assignable to the same function type with
-	// empty rows; an inferred row is solved later, so assignment checks it.
-	want := &Signature{Params: sig.Params, Results: sig.Results, Errors: newRow(), Uses: newRow()}
-	t := &target{name: "the start of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
-	prev := c.fn
-	c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
-	op := c.valueExpr(id, want)
-	c.assign(&op, want, "machine "+tn.Name+"'s start")
-	c.fn = prev
 }
 
 // machineInput is the input type of a machine whose start function has the
@@ -527,83 +486,35 @@ func machineInput(sig *Signature, state Type, c *checker) Type {
 	return tup
 }
 
-// checkMachineAfter checks a machine's `after: g` entry: g names a package
-// function from the state to Option[Timeout[E]] with no rows, which the
-// runner calls after each commit that opens an entry (runtime.md, Machines
-// and actors 9). It returns g, or nil when the entry is refused.
-func (c *checker) checkMachineAfter(tn *TypeName, x syntax.Expr, state, signal Type) *Func {
-	want := "func(" + state.String() + ") Option[Timeout[" + signal.String() + "]]"
-	id, ok := x.(*syntax.Ident)
-	if !ok {
-		c.errorf(x, CodeType, "a machine's after names a function of this package of the type %s (runtime.md, Machines and actors 9)", want)
-		return nil
+// checkMachineAfter checks a machine's after entry: a function from the
+// state to Option[Timeout[E]] (or Option[machines.Every[E]]) with no rows,
+// which the runner calls after each commit that opens an entry (runtime.md,
+// Machines and actors 9).
+func (c *checker) checkMachineAfter(tn *TypeName, state, signal Type) {
+	e := c.machineEntry(tn, entryAfter)
+	if e == nil {
+		return
 	}
-	f, ok := c.pkg.Scope.names[id.Name].(*Func)
-	if !ok {
-		if c.pkg.Scope.names[id.Name] == nil {
-			c.errorf(id, CodeUnknown, "unknown function %s", id.Name)
-		} else {
-			c.errorf(id, CodeType, "%s is not a function; a machine's after names a function (runtime.md, Machines and actors 9)", id.Name)
-		}
-		return nil
+	if !c.machineAfterShape(e.Type, state, signal) {
+		want := "func(" + state.String() + ") Option[Timeout[" + signal.String() + "]]"
+		c.errorf(e.Expr, CodeType, "the after %sof machine %s must have the type %s, or Option[machines.Every[%s]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)", entryLabel(e.Expr), tn.Name, want, signal)
 	}
-	f.called = true
-	c.pkg.Info.Uses[id] = f
-	// A call-only extern is refused (P3); an extern value (G1) is checked
-	// as an after like any function, and its basic-typed signature is never
-	// an after's.
-	if isExtern(f) && !externValue(f) {
-		c.errorf(id, CodeType, "%s", externCallOnlyText)
-		return nil
+}
+
+// machineAfter is the after entry of the machine type t, or nil when it
+// has none or it is refused (checkMachineAfter reports that). Its type is
+// at t's type arguments.
+func (c *checker) machineAfter(t Type) (*MachineEntry, *Signature) {
+	n, tn, m := machineDeclOf(t)
+	if n == nil {
+		return nil, nil
 	}
-	if f.Sig == nil {
-		return nil
+	e := c.machineEntry(tn, entryAfter)
+	sig := c.entrySig(n, e)
+	if sig == nil || !c.machineAfterShape(sig, m.State, m.Signal) {
+		return nil, nil
 	}
-	if !c.machineAfterShape(f.Sig, state, signal) {
-		c.errorf(id, CodeType, "the after %s of machine %s must have the type %s, or Option[machines.Every[%s]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)", id.Name, tn.Name, want, signal)
-		return nil
-	}
-	if c.machineAfterEvery(f.Sig, signal) {
-		// An Every timer's after is not the Machine's After, which the
-		// conversion wraps (lower, machineAfter); its own rows are empty.
-		wantSig := &Signature{Params: f.Sig.Params, Results: f.Sig.Results, Errors: newRow(), Uses: newRow()}
-		t := &target{name: "the after of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
-		prev := c.fn
-		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
-		op := c.valueExpr(x, wantSig)
-		ok = c.assign(&op, wantSig, "machine "+tn.Name+"'s after")
-		c.fn = prev
-		if !ok {
-			return nil
-		}
-		return f
-	}
-	// Its rows: the value must be assignable to the Machine's After, whose
-	// rows are empty; an inferred row is solved later, so assignment
-	// checks it (rows.md, Error rows).
-	machine := preludeType("Machine")
-	if machine == nil {
-		return nil
-	}
-	view := c.instantiate(machine, []Type{state, signal, state, &RowArg{Row: newRow()}, &RowArg{Row: newRow()}})
-	st, _ := view.Underlying().(*Struct)
-	if st == nil {
-		return nil
-	}
-	field, _ := st.field("After")
-	if field == nil {
-		return nil
-	}
-	t := &target{name: "the after of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
-	prev := c.fn
-	c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
-	op := c.valueExpr(x, field.Type)
-	ok = c.assign(&op, field.Type, "machine "+tn.Name+"'s after")
-	c.fn = prev
-	if !ok {
-		return nil
-	}
-	return f
+	return e, sig
 }
 
 // machineAfterShape reports whether sig is func(S) Option[Timeout[E]] or
@@ -712,29 +623,6 @@ func EveryClock(sig *Signature) Type {
 	return clock.Type
 }
 
-// machineAfter is the after function of the machine declaration t, or nil
-// when it has none or it is refused (checkMachineAfter reports that).
-func (c *checker) machineAfter(t Type) *Func {
-	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
-		return nil
-	}
-	m, ok := n.Underlying().(*MachineType)
-	spec, ok2 := n.Obj.Decl.Spec.(*syntax.MachineType)
-	if !ok || !ok2 {
-		return nil
-	}
-	id, ok := spec.After.(*syntax.Ident)
-	if !ok {
-		return nil
-	}
-	f, ok := n.Obj.Pkg.Scope.names[id.Name].(*Func)
-	if !ok || f.Sig == nil || isExtern(f) || !c.machineAfterShape(f.Sig, m.State, m.Signal) {
-		return nil
-	}
-	return f
-}
-
 // isPreludeMachine reports whether t is an instance of the prelude's
 // Machine.
 func isPreludeMachine(t Type) bool {
@@ -751,41 +639,23 @@ func isPreludeMachine(t Type) bool {
 
 // machineValue is the prelude Machine[S, E, O, F, R, W] that a value of
 // the machine declaration t converts to (README Gap 46), with the
-// machine's step: O is the step's output, F its error row and R its
-// capability row; W is its work's and its exit action's capability row.
-// It is nil when t is not a machine declaration, or when its step is not
-// a function of the checked shape (checkMachine reports that).
-func (c *checker) machineValue(t Type) (*Named, *Func) {
-	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Decl == nil {
-		return nil, nil
+// machine's step entry and its type at t's type arguments: O is the
+// step's output, F its error row and R its capability row; W is its
+// work's and its exit action's capability row. It is nil when t is not a
+// machine declaration, or when an entry is refused (checkMachine reports
+// that).
+func (c *checker) machineValue(t Type) (*Named, *MachineEntry, *Signature) {
+	n, tn, m := machineDeclOf(t)
+	if n == nil {
+		return nil, nil, nil
 	}
-	m, ok := n.Underlying().(*MachineType)
-	if !ok {
-		return nil, nil
+	machine := preludeType("Machine")
+	step := c.machineEntry(tn, entryStep)
+	sig := c.entrySig(n, step)
+	if machine == nil || sig == nil || !c.stepShape(sig, m.State, m.Signal) {
+		return nil, nil, nil
 	}
-	spec, ok := n.Obj.Decl.Spec.(*syntax.MachineType)
-	if !ok || spec.Step == nil || n.Obj.Pkg == nil {
-		return nil, nil
-	}
-	id, ok := spec.Step.(*syntax.Ident)
-	if !ok {
-		return nil, nil
-	}
-	f, ok := n.Obj.Pkg.Scope.names[id.Name].(*Func)
-	machine, decision := preludeType("Machine"), preludeType("Decision")
-	if !ok || f.Sig == nil || machine == nil || decision == nil || isExtern(f) {
-		return nil, nil
-	}
-	sig := f.Sig
-	if len(sig.TParams) > 0 || len(sig.Params) != 2 || len(sig.Results) != 1 ||
-		!c.identical(sig.Params[0].Type, m.State) || !c.identical(sig.Params[1].Type, m.Signal) {
-		return nil, nil
-	}
-	r, ok := sig.Results[0].(*Named)
-	if !ok || r.origin() != decision || len(r.TArgs) != 2 || !c.identical(r.TArgs[0], m.State) {
-		return nil, nil
-	}
+	o := sig.Results[0].(*Named).TArgs[1]
 	errs, uses := sig.Errors, sig.Uses
 	if errs == nil {
 		errs = newRow()
@@ -805,25 +675,25 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	if _, xr := c.machineExit(t); xr != nil {
 		works = works.union(c.types, xr)
 	}
-	if after := c.machineAfter(t); after != nil && c.machineAfterEvery(after.Sig, m.Signal) {
+	if after, asig := c.machineAfter(t); after != nil && c.machineAfterEvery(asig, m.Signal) {
 		// An Every timer's runner reads time.Clock when it fires (FKG1):
 		// the runner's row W carries it, and a fold, which fires no
 		// timer, needs no clock.
-		if clock := EveryClock(after.Sig); clock != nil {
+		if clock := EveryClock(asig); clock != nil {
 			works = works.with(c.types, clock)
 		}
 	}
-	if start := machineStart(n.Obj.Pkg, spec); start != nil {
+	if start := c.machineEntry(tn, entryStart); start != nil {
 		// A machine with an input is an InputMachine (V4); a start of the
 		// wrong shape was reported by checkMachineStart.
 		im := preludeType("InputMachine")
-		input := machineInput(start.Sig, m.State, c)
-		if im == nil || input == nil || isExtern(start) {
-			return nil, nil
+		input := machineInput(c.entrySig(n, start), m.State, c)
+		if im == nil || input == nil {
+			return nil, nil, nil
 		}
-		return c.instantiate(im, []Type{input, m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}, &RowArg{Row: works}}), f
+		return c.instantiate(im, []Type{input, m.State, m.Signal, o, &RowArg{Row: errs}, &RowArg{Row: uses}, &RowArg{Row: works}}), step, sig
 	}
-	return c.instantiate(machine, []Type{m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}, &RowArg{Row: works}}), f
+	return c.instantiate(machine, []Type{m.State, m.Signal, o, &RowArg{Row: errs}, &RowArg{Row: uses}, &RowArg{Row: works}}), step, sig
 }
 
 // isPreludeMachineValue reports whether t is an instance of the prelude's

@@ -53,7 +53,7 @@ func TestStdRedGuard(t *testing.T) {
 // a provider's failure is the declaring law's failure
 // (LAW-RUNS-CREDIT-PROVIDERS). Mutant: nl-provider-run-uncredited.
 func TestStdRedCreditsProviders(t *testing.T) {
-	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, declared: map[string]string{"w Store.Kept": "w", "w Store.Unrun": "w", "w Store.Broken": "w"}}
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, declared: map[string]string{"w Store.Kept": "w", "w Store.Unrun": "w", "w Store.Broken": "w", "prelude Hashing.Kept": "prelude", "a Hashing.Own": "a"}}
 	for _, v := range []struct {
 		pkg, law string
 		status   eval.Status
@@ -61,6 +61,10 @@ func TestStdRedCreditsProviders(t *testing.T) {
 		{"w/memory", "w.Store.Kept", eval.Passed},
 		{"w/file", "w.Store.Kept", eval.Passed},
 		{"w/file", "w.Store.Broken", eval.Refuted},
+		// The prelude's member laws run unqualified in a provider's
+		// package; a package's own T.L stays its own.
+		{"a", "Hashing.Kept", eval.Passed},
+		{"a", "Hashing.Own", eval.Passed},
 	} {
 		key := run.key(v.pkg, v.law)
 		run.verdicts[key] = append(run.verdicts[key], v.status)
@@ -68,7 +72,10 @@ func TestStdRedCreditsProviders(t *testing.T) {
 			run.failed[key] = string(v.status)
 		}
 	}
-	got := strings.Join(redProblems([]string{"w Store.Kept", "w Store.Unrun", "w Store.Broken"}, run, map[string]redLine{}), "\n")
+	if _, ok := run.verdicts["a Hashing.Own"]; !ok {
+		t.Errorf("a package's own member law Hashing.Own was credited elsewhere: %v", run.verdicts)
+	}
+	got := strings.Join(redProblems([]string{"w Store.Kept", "w Store.Unrun", "w Store.Broken", "prelude Hashing.Kept"}, run, map[string]redLine{}), "\n")
 	for _, want := range []string{"w Store.Unrun is not run", "w Store.Broken is refuted"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the problems do not name %q:\n%s", want, got)
