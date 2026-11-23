@@ -1666,6 +1666,30 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
+      "name": "st-stray-unnamed", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tif !o.Here {\n\t\tnotes = slices.Concat(notes, try strayNotes(t))\n",
+      "to": "\tif false {\n\t\tnotes = slices.Concat(notes, try strayNotes(t))\n",
+      "rule": "doctor names a staging folder no record holds and deletes none (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "st-stray-names-held", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif slices.IndexFunc(all, func(w Workspace) bool { w.Id != \"\" && w.Id == id }) >= 0 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "a live maker's staging folder is its record's, not a stray (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "st-tomb-is-stray", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tlet id = strings.TrimSuffix(name, \".gone\")\n",
+      "to": "\t\tlet id = name\n",
+      "rule": "the tomb of a rolled-back reservation whose record is kept is that record's, not a stray (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
       "name": "rd-gone-folder-asks-git", "origin": "wf10/semws WORK-REPAIR-DANGLING",
       "file": "modules/work/work/doctor.ergo",
       "from": "\t\tif livesAt(w) && !t.copier.Has(w.Path) {\n",

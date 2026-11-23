@@ -1780,6 +1780,56 @@ law RegisterDriversLeavesRerere(set int) {
 	drivers && after == before
 }
 
+// DoctorNamesAStrayStaging: a staging folder no record holds (a work of
+// another version left it, as a folder or as its tomb) is named by
+// doctor, with or without -repair, and stays where it is; the staging
+// folder of a live maker's reservation, beside it, is not named and is
+// left whole (no delete without ownership), and nor is the tomb of a
+// rolled-back reservation whose record is still kept.
+law DoctorNamesAStrayStaging(repair bool, tomb bool) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let t = toolOf(w, Sharing(w.lock, 2), []work.Cloner{w.trees})
+	let m = match (t.Reserve("a", fresh(false)) catch {
+	case _:
+		return false
+	}) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return false
+	}
+	let _ = t.Stage(m) catch {
+	case _:
+		return false
+	}
+	let live = work.StagingOf(home, m.Id)
+	let files = Files(w.trees, live)
+	let stray = if tomb { work.TombOf(home, "stray") } else { work.StagingOf(home, "stray") }
+	w.trees.Clone(theBase, stray) catch {
+	case _:
+		return false
+	}
+	// A reservation settle rolled back keeps its record until its tomb is
+	// deleted: the tomb is its record's, not a stray.
+	let held = "crash-held"
+	w.registry.Put(work.Workspace{Name: "held", Path: home + "/" + work.FolderOf("held"), Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: held, Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+	case _:
+		return false
+	}
+	w.trees.Clone(theBase, work.TombOf(home, held)) catch {
+	case _:
+		return false
+	}
+	let other = toolOf(w, Sharing(w.lock, 3), []work.Cloner{w.trees})
+	let report = other.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
+	case _:
+		return false
+	}
+	let named = func(path string) bool { slices.Contains(report.Notes, work.StrayNote(path)) }
+	named(stray) && !named(live) && !named(work.TombOf(home, held)) && w.trees.Has(stray) && Files(w.trees, live) == files
+}
+
 // DoctorPassesAGoneFolder: an adopted workspace whose folder was deleted
 // outside work (the Bite base, 2026-11-22) does not stop doctor: doctor,
 // with or without -repair, answers, names the record with the two

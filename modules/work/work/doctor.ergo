@@ -167,11 +167,46 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	}
 	notes = slices.Concat(notes, try driverNotes(t, o.Fix, o.Here))
 	notes = slices.Concat(notes, try repairNotes(t, o.Repair, o.Here))
+	if !o.Here {
+		notes = slices.Concat(notes, try strayNotes(t))
+	}
 	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
 	if len(rift) > 0 {
 		notes = notes.Append("\(len(rift)) Rift copies of the base are no workspace: run work adopt-rift")
 	}
 	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes, Rift: rift}
+}
+
+// strayNotes are doctor's notes on the staging folders no record holds:
+// a folder in StagingFolder named by no record's id (its tomb's name, the
+// id and ".gone", counts as the id's). new writes its record before its
+// staging folder and settle drops a record only after its staging folder
+// is gone, so this work never leaves one; a work of another version on
+// the same home, or a hand edit of the registry, can. Doctor names each
+// and deletes none, -repair or not: a folder an older process still
+// writes into must not be guessed at (no delete without ownership).
+func strayNotes(t Tool) []string fails Unkept {
+	let staging = StagingFolder(t.home)
+	let names = t.files.ReadDir(staging) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return []string{}
+	}
+	let all = try t.registry.All()
+	let mut notes = []string{}
+	for name in names {
+		let id = strings.TrimSuffix(name, ".gone")
+		if slices.IndexFunc(all, func(w Workspace) bool { w.Id != "" && w.Id == id }) >= 0 {
+			continue
+		}
+		notes = notes.Append(StrayNote(staging + "/" + name))
+	}
+	notes
+}
+
+// StrayNote is doctor's note on a staging folder at path that no record
+// holds.
+func StrayNote(path string) string {
+	"\(path) is a staging folder no workspace record holds (a work of another version, or a registry edited by hand, left it): work deletes none; once no work runs on this home, check it and delete it by hand"
 }
 
 // Repairable reports whether w is a record left Creating over a whole
