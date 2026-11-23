@@ -226,6 +226,14 @@ type Map struct{ Key, Elem Type }
 // Pointer is *T, a borrow: only a parameter or receiver type.
 type Pointer struct{ Elem Type }
 
+// NoopFunc reports func() with no rows and no type parameters: a pure
+// function of nothing to nothing, whose one behaviour is to return. Its
+// generator is that function (LAW-GEN-FUNC), so a record that holds one,
+// such as a provider's Wait, is generated.
+func NoopFunc(s *Signature) bool {
+	return len(s.TParams) == 0 && len(s.Params) == 0 && len(s.Results) == 0 && s.Errors.Empty() && s.Uses.Empty() && !s.Entry
+}
+
 // Signature is a function type: parameters, value results and two rows. A
 // declaration's signature also holds its type parameters, every one
 // declared in brackets (196g). NBracket counts the ones a written type

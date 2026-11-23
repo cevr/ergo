@@ -1867,6 +1867,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/authority.go:isTestAmbient` | `TestAmbient` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
+| `internal/sketch/check/contextneeds.go:checker.readContextHeader` | `TestAmbient` in a named context's needs row: the test runner gives it; no with site does ([rows](rows.md#context)) |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
 | `internal/sketch/check/durable.go:pureSeer.stepValue` | `Machine`'s `Step` |

@@ -1,41 +1,31 @@
-// Package loopback is a job server through the wire: the generated RPC
-// Client of a server that its generated server serves in this process
-// (rpc.Loopback). Every operation crosses Effect RPC's HTTP wire and the
-// contract's codecs both ways. The package picks no server: its caller
-// passes one in. Its tests (tests.ergo) pass a memory server and hold the
-// jobs.Jobs laws through the wire, as the memory package holds them
-// directly.
+// Package loopback builds the generated clients of a job server its caller
+// passes in, served in this process: NewLoopback's RPC Client crosses
+// Effect RPC's HTTP wire and the contract's codecs both ways
+// (rpc.Loopback), and NewHub's hub Client carries each Request to a Call
+// on it. The package picks no server. Its tests (tests.ergo) pass a memory
+// server and hold the jobs.Jobs laws on both clients, as the memory
+// package holds them directly.
 
 import jobsweb/jobs
+import jobsweb/jobs/jobsapi
 import jobsweb/jobs/jobsrpc
 import rpc
 
-// Loopback is a jobs.Jobs whose every operation is an RPC call.
-type Loopback { client jobsrpc.Client } implements jobs.Jobs
-
-// NewLoopback serves inner in process and is its client. The server binds
-// inner for each call, so every call reaches the same jobs when the
+// NewLoopback serves inner in process and is its RPC client. The server
+// binds inner for each call, so every call reaches the same jobs when the
 // copies of inner share their state (a memory.Memory's do).
-func NewLoopback(inner jobs.Jobs) Loopback {
-	let conn = rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+func NewLoopback(inner jobs.Jobs) jobsrpc.Client {
+	jobsrpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
 		with context { jobs.Jobs: inner } {
 			try jobsrpc.Handle(tag, payload)
 		}
-	})
-	Loopback{client: jobsrpc.NewClient(conn)}
+	}))
 }
 
-// Submit is jobs.Jobs' Submit, over the wire.
-func Submit(l Loopback, spec jobs.Spec) int fails jobs.Rejected { try jobsrpc.Submit(l.client, spec) }
-
-// Cancel is jobs.Jobs' Cancel, over the wire.
-func Cancel(l Loopback, id int) fails jobs.NoSuchJob | jobs.AlreadyDone { try jobsrpc.Cancel(l.client, id) }
-
-// Status is jobs.Jobs' Status, over the wire.
-func Status(l Loopback, id int) Option[jobs.Job] { jobsrpc.Status(l.client, id) }
-
-// List is jobs.Jobs' List, over the wire.
-func List(l Loopback) []jobs.Job { jobsrpc.List(l.client) }
-
-// Work is jobs.Jobs' Work, over the wire.
-func Work(l Loopback, ticks int) { jobsrpc.Work(l.client, ticks) }
+// NewHub is the hub client of inner: each Request is a Call with inner
+// bound, so its laws hold exactly when inner's and Call's do.
+func NewHub(inner jobs.Jobs) jobsapi.Client {
+	jobsapi.NewClient(func(r jobsapi.Request) jobsapi.Outcome {
+		with context { jobs.Jobs: inner } { jobsapi.Call(r) }
+	})
+}

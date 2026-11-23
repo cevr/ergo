@@ -10,11 +10,9 @@ import (
 // test's ambient instead: a fresh folder per case, which only the test
 // runner provides. Each rule is an invariant over its whole domain:
 //
-//  1. A named context whose header is exactly `needs TestAmbient` may
-//     require it while it is built; it stays closed to every other
-//     capability (README Gap 6). Any other header row is still S109 for
-//     The v1 language stage b, as a provides clause and an inline or a local
-//     context's header are.
+//  1. A named context whose header's needs row lists TestAmbient may
+//     require it while it is built. The rest of the row is the with
+//     site's (contextneeds.go); TestAmbient is the runner's alone.
 //  2. No context entry binds TestAmbient (S106), as none binds
 //     Ambient: its one provider is the runner.
 //  3. A with of such a context stands only in a test's body, a function
@@ -30,28 +28,12 @@ import (
 
 const testAmbientEntryText = "no context binds TestAmbient: its one provider is the test runner, for a named context whose header says needs TestAmbient (rows.md, Test's ambient)"
 
-// contextTestAmbient reports whether the named context w's header is
-// exactly `needs TestAmbient` (rule 1). It reads the header once, in
-// w's file, reporting nothing: checkContexts reports a header it refuses.
+// contextTestAmbient reports whether the named context w's header needs
+// TestAmbient (rule 1), read once with the rest of its row
+// (readContextHeader).
 func (c *checker) contextTestAmbient(w *Context) bool {
-	if w == nil || w.headerRead || w.Decl == nil || w.pkg != c.pkg {
-		return w != nil && w.TestAmbient != nil
-	}
-	w.headerRead = true
-	if w.Decl.Needs == nil || w.Decl.Provides != nil {
-		return false
-	}
-	saved, savedFn := c.cur, c.fn
-	c.cur, c.fn = w.file, nil
-	c.silent++
-	row := c.rowExpr(w.Decl.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
-	c.silent--
-	c.cur, c.fn = saved, savedFn
-	elems := row.Elems()
-	if len(elems) == 1 && isTestAmbient(elems[0]) {
-		w.TestAmbient = elems[0].(*Named)
-	}
-	return w.TestAmbient != nil
+	c.readContextHeader(w)
+	return w != nil && w.TestAmbient != nil
 }
 
 // testAmbientWith refuses a with of a context that needs TestAmbient
