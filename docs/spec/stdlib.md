@@ -966,8 +966,9 @@ both against net/http's `DetectContentType`.
    handler, since a peer may have closed only its write half. A serving
    stop closes the listener and connections,
    stops all live children and joins their releases and transport workers.
-   A handler defect ends Serve and keeps the defect cause; it is not an
-   undeclared typed failure or an invented application status.
+   A defect in a handler or in writing its response ends Serve and keeps
+   the request's defect cause. It is not an undeclared typed failure or an
+   invented application status. An invalid buffered status is one such defect.
 7. `Match[T](routes, method, path)` returns `Found[T]{Route, Params}`, `NotFound`
    or `MethodNotAllowed{Allow}`. Routes are `Route[T]{Value, Method, Path, Status}`:
    `Value` is what the route stands for (an endpoint value), so a program
