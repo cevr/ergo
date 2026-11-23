@@ -132,7 +132,11 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			w.known = []bool{false, true}
 			w.tries = 0
 			w.sites = []site{}
-			body(&w, s, k, syntax.TestDeclOf(p.Tree, f.Decl).Body)
+			match dense.Unpack(syntax.TestDeclOf(p.Tree, f.Decl).Body) {
+			case Some[dense.ID[syntax.Node]] as tb:
+				body(&w, s, k, tb.Value)
+			case None:
+			}
 			for d in reportTest(&w, s, k, f) {
 				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
 				if !isSome(seen.Get(key)) {

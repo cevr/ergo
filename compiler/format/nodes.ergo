@@ -126,8 +126,10 @@ func decl(p mut Printer, d dense.ID[syntax.Node]) {
 		if some(x.Params) {
 			p.fieldList(the(x.Params), "(", ")")
 		}
-		p.space()
-		p.block(x.Body, true)
+		if some(x.Body) {
+			p.space()
+			p.block(the(x.Body), true)
+		}
 	} else if k == syntax.KLawDecl {
 		// A top-level law prints as a top-level test does (law-top).
 		let x = syntax.LawDeclOf(p.P.Tree, d)
@@ -538,7 +540,7 @@ func operationType(p mut Printer, t dense.ID[syntax.Node]) {
 	let mut nodes = []dense.ID[syntax.Node]{}
 	let mut terms = []dense.ID[syntax.Node]{}
 	for m in p.ids(x.Members) {
-		if p.kind(m) != syntax.KField && p.kind(m) != syntax.KLawDecl {
+		if p.kind(m) != syntax.KField && p.kind(m) != syntax.KLawDecl && p.kind(m) != syntax.KTestDecl {
 			if len(terms) == 0 {
 				nodes = nodes.Append(m)
 			}
@@ -551,6 +553,13 @@ func operationType(p mut Printer, t dense.ID[syntax.Node]) {
 		let m = nodes[i]
 		if p.kind(m) == syntax.KLawDecl {
 			p.memberLaw(m)
+			return
+		}
+		if p.kind(m) == syntax.KTestDecl {
+			let h = syntax.TestDeclOf(p.P.Tree, m)
+			p.token(p.tp(h.Test), "test")
+			p.space()
+			p.ident(h.Name)
 			return
 		}
 		if p.kind(m) != syntax.KField {

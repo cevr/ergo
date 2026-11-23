@@ -73,7 +73,7 @@ func TestBodyEditKeepsTheHarness(t *testing.T) {
 			t.Fatalf("seed %d: the program has no test or law function", seed)
 		}
 		for name := range harness {
-			if !strings.HasPrefix(name, "ergoTest") && !strings.HasPrefix(name, "ergoLaw") {
+			if !strings.HasPrefix(name, goHelper("ergoTest")) && !strings.HasPrefix(name, goHelper("ergoLaw")) {
 				continue
 			}
 			decl := regexp.MustCompile(`(?m)^(func X?|type )` + regexp.QuoteMeta(name) + `[( ]`)

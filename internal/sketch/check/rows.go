@@ -47,6 +47,9 @@ type target struct {
 	decl                 *Func
 	pending              []pendingClause
 	missErrors, missUses *Row
+	// harness is set on a test body with no parameters: the harnessed
+	// capability it charged (harness.go, rule 2).
+	harness *harnessUse
 }
 
 func (t *target) row(declared, inferred *Row) *Row {
@@ -105,6 +108,9 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 		return
 	}
 	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap), what) {
+		return
+	}
+	if t.harness != nil && c.chargeHarness(t, n, cap) {
 		return
 	}
 	switch {

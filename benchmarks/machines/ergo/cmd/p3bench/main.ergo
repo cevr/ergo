@@ -142,7 +142,7 @@ func stepS1(n int, sig []charts.Press) int {
 func stepS2(n int, sig []charts.Inc) int {
 	let mut s = machines.Initial(charts.S2{})
 	for i in 0..n {
-		s = machines.Next(s, charts.Count(s, sig[i%Chunk]))
+		s = machines.Next(s, charts.CountStep(s, sig[i%Chunk]))
 	}
 	s.Count
 }
