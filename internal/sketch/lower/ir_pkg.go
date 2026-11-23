@@ -655,7 +655,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 		}
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
-	case defersCall(body) || commaOk(body):
+	case commaOk(body):
 		irNo("std call with an adapted result")
 	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
@@ -718,7 +718,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
 		irNo("fallible call with an empty row at its site")
 	}
-	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
+	if !isTuple && !defersCall(body) && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
@@ -740,6 +740,17 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// leaf's import path, which rtRef imports.
 	name = b.consumedForm(x, body, name)    // ir_own.go
 	name, isExit := b.exitsForm(body, name) // ir_exits.go: OnExit on a static exit form
+	moved, repeated := b.movedCaptures(x)   // ir_taskmove.go
+	handles := b.captureHandles(moved)
+	if repeated {
+		// A Set's repeated body lends what it moves: the member's root owns
+		// it, TasksGoOwned's prepare (the emitter's movingRootArg).
+		if name != "TasksGo" || len(args) != 2 || x.Trailing == nil {
+			irNo("function literal that a task captures")
+		}
+		name = "TasksGoOwned"
+		args = []*irExpr{args[0], b.captureRoot(x.Trailing, moved, p), args[1]}
+	}
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -760,12 +771,33 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if pkg == "" {
 		pkg = runtimeImport
 	}
+	if defersCall(body) {
+		if isExit || len(args) != len(ops) {
+			irNo("std call with an adapted result")
+		}
+		seqPre, seq, impure := b.stdSeqCall(x, c, body, subst, pkg, name, targs, ops, args, convs, p) // ir_adapted.go: Go's iter.Seq[T], a Seq
+		return append(pre, seqPre...), seq, impure
+	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
 	if name == "Go" && pkg == runtimeImport && x.Trailing != nil && targs != "" {
 		call = b.spawnWith(call, targs, mark, p) // ir_spawn.go: task.Go's block, its captures in the Task (GP-SPAWN2)
 	}
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
+	}
+	if len(handles) > 0 {
+		// The admission step hands the moved captures out of the sender's
+		// list, or releases them on a failed one (ir_taskmove.go).
+		if isTuple || isExit || goFallible(body) && !failsHere(c) {
+			irNo("function literal that a task captures")
+		}
+		value := goValue(body)
+		typ := ""
+		if value {
+			typ = b.goType(b.l.info.Types[x], x)
+		}
+		spre, v := b.settleCaptures(call, handles, goFallible(body), value, typ, p)
+		return append(pre, spre...), v, !body.Pure
 	}
 	if isTuple && goFallible(body) {
 		b.tupleBound = call // bind binds its results and its error (tupleErrBind)
@@ -957,6 +989,9 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 			// of the constant (spelling keeps the import).
 			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
 		case v1.Frame:
+			if b.inSeq {
+				irNo("std call with an adapted result") // a Seq outlives the frame (seqLit)
+			}
 			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
 		default:
 			irNo("std call with hidden argument %s", h)
@@ -982,13 +1017,23 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	if err != nil || len(body.Params) != len(x.Args) {
 		irNo("std operation without its runtime method")
 	}
+	option := commaOk(body) && !goFallible(body) // Go's (T, bool): an Option (ir_adapted.go)
 	switch {
-	case defersCall(body) || commaOk(body):
+	case commaOk(body) && !option:
 		irNo("std call with an adapted result")
 	case b.l.info.Closes[x] != nil:
 		irNo("std Close")
 	}
-	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
+	if option {
+		return b.commaOkOpCall(x, c, n, body, p)
+	}
+	if defersCall(body) {
+		return b.seqOpCall(x, c, n, body, p) // Go's iter.Seq[T]: a Seq (ir_adapted.go)
+	}
+	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple && len(body.Results) != 1+btoi(goFallible(body)) {
+		// A tuple of the method's one result (Queue[(A, B)]'s Pop, Go's
+		// (T, error) at T the tuple's struct; ir_tuple.go) is that value;
+		// Go's several results, one per element, are adapted.
 		irNo("std call with an adapted result")
 	}
 	convs := map[int]string{} // by index of the receiver-first vals

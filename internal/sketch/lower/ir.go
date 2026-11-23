@@ -733,6 +733,7 @@ type irBuilder struct {
 	next     int
 	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
 	env      int                      // the environment's local, or -1 in a pure function
+	inSeq    bool                     // building a deferred call's hidden arguments inside its Seq (seqLit, ir_adapted.go)
 	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	// raw is the operand whose implicit conversion is not applied: a
 	// direct reader passed as itself (directDecode, ir_codec_direct.go).
