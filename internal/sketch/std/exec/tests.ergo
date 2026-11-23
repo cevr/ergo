@@ -1,0 +1,21 @@
+// The Runner laws on the host's provider, in place: `ergo test` of this
+// package runs them under each named context, as a module's laws run
+// (TestExecLaws runs it). Each case runs in a folder of its own (rows.md,
+// Test's ambient).
+
+// onTestHost is the test host as NewTestHost makes it: its Env() is only
+// TestHostKeys, so EnvIsExact sees those and the Command's own entries,
+// and LookupUsesChildPath finds no sh by name.
+let onTestHost = context needs TestAmbient { Runner: NewTestHost() }
+
+// onTestHostWithPath is the test host given a PATH, as a test that runs
+// programs by name chooses it: EnvIsExact sees the inherited entry, and the
+// Runner laws find their programs by name on it.
+let onTestHostWithPath = context needs TestAmbient { Runner: NewTestHost().InheritEnv(systemPath()) }
+
+// systemPath is a PATH of the system's program directories alone.
+func systemPath() Map[string, string] {
+	let mut env = Map[string, string]{}
+	env["PATH"] = "/usr/bin:/bin"
+	env
+}

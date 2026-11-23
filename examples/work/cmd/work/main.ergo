@@ -128,7 +128,9 @@ func main() fails os.Exit needs Ambient | Console {
 	}
 	let home = work.Home(base, work.StorageOf(files, base))
 	let data = if shared != "" { shared } else { filepath.Join([]string{home, ".data"}) }
-	let run = exec.NewHost()
+	// git, the clone tools and the hooks run as the user: with the user's
+	// whole environment (identity, signing, credentials, PATH).
+	let run = exec.NewHost().InheritEnv(process.Environ())
 	let p = work.Providers{
 		Cloners:  []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)},
 		Copier:   copy.New(run),

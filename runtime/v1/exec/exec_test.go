@@ -174,7 +174,7 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 			defer m.Unmask()
 		}
 		close(started)
-		out.res, out.err = ExecRun(task, "sh", []string{"-c", c.script}, nil, "", "", 0)
+		out.res, out.err = ExecRun(task, "/bin/sh", []string{"-c", c.script}, nil, "", "", 0)
 	}()
 	<-started
 	if c.stop == "running" || c.stop == "masked" {
@@ -386,7 +386,7 @@ echo late >> %[2]s
 		done := make(chan bool, 1)
 		go func() {
 			defer func() { done <- recover() == rt.Interrupted }()
-			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "", 0)
+			_, _ = ExecRun(task, "/bin/sh", []string{"-c", script}, nil, "", "", 0)
 		}()
 		var pids []int
 		testwait.Until(t, func() bool {
@@ -423,8 +423,10 @@ echo late >> %[2]s
 }
 
 // TestExecFailures maps each way a program fails to start to its failure,
-// and holds the rest of the call's contract: the environment over the
-// host's, the directory, the standard input and a status that is not 0.
+// and holds the rest of the call's contract: exactly env as the
+// environment (STD-EXEC-ENV), a name looked up on env's PATH alone, the
+// directory, the standard input and a status that is not 0. Mutants
+// exec-env-inherits-host and exec-lookup-on-host-path.
 func TestExecFailures(t *testing.T) {
 	task := rt.Root("exec test")
 	dir := t.TempDir()
@@ -432,44 +434,73 @@ func TestExecFailures(t *testing.T) {
 	if err := os.WriteFile(plain, []byte("echo x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// bin holds a program named only there, and a file of that name that
+	// may not run in a directory before it: the lookup passes over the
+	// file and runs the program.
+	bin, shadow := filepath.Join(dir, "bin"), filepath.Join(dir, "shadow")
+	for _, d := range []string{bin, shadow} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(bin, "ergo-exec-only-here"), []byte("#!/bin/sh\necho here\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shadow, "ergo-exec-only-here"), []byte("echo shadow\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", os.Getenv("PATH")+":"+bin) // this process's PATH, which no lookup reads
+	hostPath := map[string]string{"PATH": "/usr/bin:/bin"}
 	for _, c := range []struct {
 		name string
+		env  map[string]string
 		dir  string
 		want error
 	}{
-		{"ergo-exec-test-missing-7f3a", "", ExecNotFound{Name: "ergo-exec-test-missing-7f3a"}},
-		{"/nonexistent/loop-probe-x", "", ExecNotFound{Name: "/nonexistent/loop-probe-x"}},
-		{"", "", ExecNotFound{Name: ""}},
-		{plain, "", ExecDenied{Name: plain}},
-		{dir, "", ExecDenied{Name: dir}}, // Go's LookPath: a directory is not executable
-		{"sh", "", nil},
-		{"true", filepath.Join(dir, "nowhere"), ExecFailed{Name: "true", Reason: "dir " + filepath.Join(dir, "nowhere") + ": no such file or directory"}},
-		{"true", plain, ExecFailed{Name: "true", Reason: "dir " + plain + ": not a directory"}},
+		{"ergo-exec-test-missing-7f3a", nil, "", ExecNotFound{Name: "ergo-exec-test-missing-7f3a"}},
+		{"/nonexistent/loop-probe-x", nil, "", ExecNotFound{Name: "/nonexistent/loop-probe-x"}},
+		{"", nil, "", ExecNotFound{Name: ""}},
+		{plain, nil, "", ExecDenied{Name: plain}},
+		{dir, nil, "", ExecDenied{Name: dir}}, // Go's LookPath: a directory is not executable
+		{"sh", nil, "", ExecNotFound{Name: "sh"}}, // no PATH in env: this process's is not read
+		{"ergo-exec-only-here", nil, "", ExecNotFound{Name: "ergo-exec-only-here"}},
+		{"sh", hostPath, "", nil},
+		{"sh", map[string]string{"PATH": "usr/bin:.:"}, "/usr", ExecNotFound{Name: "sh"}}, // relative entries are passed over
+		{"ergo-exec-only-here", map[string]string{"PATH": shadow + ":" + bin}, "", nil},
+		{"ergo-exec-only-here", map[string]string{"PATH": shadow}, "", ExecDenied{Name: "ergo-exec-only-here"}},
+		{"true", nil, filepath.Join(dir, "nowhere"), ExecFailed{Name: "true", Reason: "dir " + filepath.Join(dir, "nowhere") + ": no such file or directory"}},
+		{"true", nil, plain, ExecFailed{Name: "true", Reason: "dir " + plain + ": not a directory"}},
 	} {
-		_, err := ExecRun(task, c.name, nil, nil, c.dir, "", 0)
+		_, err := ExecRun(task, c.name, nil, c.env, c.dir, "", 0)
 		if err != c.want {
-			t.Errorf("ExecRun(%q, dir %q) failed %#v, want %#v", c.name, c.dir, err, c.want)
+			t.Errorf("ExecRun(%q, env %v, dir %q) failed %#v, want %#v", c.name, c.env, c.dir, err, c.want)
 		}
+	}
+	if res, err := ExecRun(task, "ergo-exec-only-here", nil, map[string]string{"PATH": shadow + ":" + bin}, "", "", 0); err != nil || res.Stdout != "here\n" {
+		t.Errorf("ergo-exec-only-here on %s:%s = %#v, %v; want the program of bin", shadow, bin, res, err)
 	}
 	t.Setenv("ERGO_EXEC_HOST", "host")
 	t.Setenv("ERGO_EXEC_OVER", "host")
 	// The child runs in dir (its physical path, pwd -P: darwin's
-	// t.TempDir is under /var, a link to /private/var) and its PWD names
-	// dir as given, though env sets entries of its own.
+	// t.TempDir is under /var, a link to /private/var), sees env's entry
+	// and none of this process's, and is given no PWD.
 	physical, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := ExecRun(task, "sh", []string{"-c", `printf '%s %s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd -P)" "$PWD"; cat; echo oops >&2; exit 7`},
+	res, err := ExecRun(task, "/bin/sh", []string{"-c", `printf '%s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd -P)"; cat; echo oops >&2; exit 7`},
 		map[string]string{"ERGO_EXEC_OVER": "set"}, dir, "in\nput", 0)
-	want := ExecResult{Status: 7, Stdout: "host set " + physical + " " + dir + "|in\nput", Stderr: "oops\n"}
+	want := ExecResult{Status: 7, Stdout: " set " + physical + "|in\nput", Stderr: "oops\n"}
 	if err != nil || res != want {
 		t.Errorf("ExecRun = %#v, %v; want %#v", res, err, want)
 	}
-	// A shell replaces a PWD that does not name its directory; printenv
-	// reports the PWD the program was given.
-	if res, err := ExecRun(task, "printenv", []string{"PWD"}, map[string]string{"ERGO_EXEC_OVER": "set"}, dir, "", 0); err != nil || res.Stdout != dir+"\n" {
-		t.Errorf("printenv PWD in %s = %#v, %v; want the dir", dir, res, err)
+	// env prints the whole environment the program was given: env's
+	// entries, sorted, and nothing else.
+	if res, err := ExecRun(task, "/usr/bin/env", nil, map[string]string{"ERGO_EXEC_OVER": "set", "A": "1"}, dir, "", 0); err != nil || res.Stdout != "A=1\nERGO_EXEC_OVER=set\n" {
+		t.Errorf("env in %s = %#v, %v; want exactly A and ERGO_EXEC_OVER", dir, res, err)
+	}
+	if res, err := ExecRun(task, "/usr/bin/env", nil, nil, "", "", 0); err != nil || res.Stdout != "" {
+		t.Errorf("env with no entries = %#v, %v; want none", res, err)
 	}
 	if e := (ExecFailed{Name: "a", Reason: "b"}).Error(); e != "exec.Failed{Name:a Reason:b}" {
 		t.Errorf("Failed text %q", e)
@@ -529,7 +560,7 @@ func BenchmarkExecRunTrue(b *testing.B) {
 		task := rt.Root("exec bench")
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := ExecRun(task, "true", nil, nil, "", "", 0); err != nil {
+			if _, err := ExecRun(task, "/usr/bin/true", nil, nil, "", "", 0); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -558,7 +589,7 @@ func BenchmarkExecRunMiB(b *testing.B) {
 		task := rt.Root("exec bench")
 		b.ReportAllocs()
 		for b.Loop() {
-			res, err := ExecRun(task, "head", args, nil, "", "", 0)
+			res, err := ExecRun(task, "/usr/bin/head", args, nil, "", "", 0)
 			if err != nil || len(res.Stdout) != 1<<20 {
 				b.Fatal(err, len(res.Stdout))
 			}

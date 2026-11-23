@@ -2558,7 +2558,7 @@ func main() fails os.Exit needs Console | Ambient {
 
 | Declaration | Meaning |
 | --- | --- |
-| `type Process { Args() []string, Getenv(key string) Option[string], Getwd() string fails NoWorkdir, law GetenvIsStable(key string), law GetwdIsStable(), law GetwdIsAbsolute() }` | The capability. |
+| `type Process { Args() []string, Getenv(key string) Option[string], Environ() Map[string, string], Getwd() string fails NoWorkdir, law GetenvIsStable(key string), law EnvironAgreesWithGetenv(key string), law GetwdIsStable(), law GetwdIsAbsolute() }` | The capability. |
 | `type Host { live hostOnly }`; `func NewHost() Host needs Ambient`; `func Args(_ Host) []string`; `func Getenv(_ Host, key string) Option[string]`; `func Getwd(_ Host) string fails NoWorkdir` | The host's provider and its one constructor ([Host packages](#host-packages)). |
 | `type Code int where 1 <= it && it <= 125`; `type Exit { Code Code, Message string }` | The failure status and the failure that ends `main` with that status. `ParseCode(n)` checks a computed int, failing `Unsatisfied`. |
 | `type NoWorkdir { Message string }` | The failure of `Getwd` when the host cannot name the working directory. |
@@ -2828,6 +2828,7 @@ Std `exec` runs programs of the host (std-align S3c, G8). It follows Go's `os/ex
 
 ```go
 import exec
+import os
 
 func branch() string needs exec.Runner {
 	let r = exec.Runner.Run(exec.New("git", []string{"branch", "--show-current"})) catch {
@@ -2843,16 +2844,16 @@ func branch() string needs exec.Runner {
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { Console.Println(branch()) }
+	with context { exec.Runner: exec.NewHost().InheritEnv(os.NewHost().Environ()) } { Console.Println(branch()) }
 }
 ```
 
 | Declaration | Meaning |
 | --- | --- |
-| `type Command { Name string, Args []string, Env Map[string, string], Dir string, Stdin string }`; `func New(name string, args []string) Command`; `WithEnv(c, key, value)`, `WithDir(c, dir)`, `WithStdin(c, text)`; `func Key(c Command) string` | One program to run, and the builder of changed copies. |
+| `type Command { Name string, Args []string, Env Map[string, string], Dir string, Stdin string }`; `func New(name string, args []string) Command`; `WithEnv(c, key, value)`, `WithEnvFrom(c, env)`, `law WithEnvFromKeepsOwn`, `WithDir(c, dir)`, `WithStdin(c, text)`; `func Key(c Command) string` | One program to run, and the builder of changed copies. |
 | `type Result { Status int, Stdout string, Stderr string }` | What a program that ran gives back. |
-| `type Runner { Run(c Command) Result fails NotFound \| Denied \| Failed, law NotFoundNamesTheProgram(name string) }` | The capability. |
-| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient`; `func Run(_ Host, c Command) …` | The host's provider and its one constructor ([Host packages](#host-packages)). |
+| `type Runner { Run(c Command) Result fails NotFound \| Denied \| Failed, Env() Map[string, string], law NotFoundNamesTheProgram(name string), law EnvIsExact(values []string), law LookupUsesChildPath() }` | The capability; `Env()` is what it lays under each Command's `Env`. |
+| `type Host { root string, base Map[string, string] }`; `func NewHost() Host needs Ambient`; `func InheritEnv(h Host, env Map[string, string]) Host`; `func PathOf(env Map[string, string]) Map[string, string]`; `let TestHostKeys []string`; `func Run(_ Host, c Command) …` | The host's provider and its one constructor ([Host packages](#host-packages)). |
 | `type Script { Results Map[string, Result] }`; `func Run(s Script, c Command) …`; `func Start(s Script, c Command, st Streams) …` | The test provider: it runs nothing. |
 | `Runner.Start(c Command, s Streams) Running fails NotFound \| Denied \| Failed`, `law StartAgreesWithRun(sh Shell)`, `law StartMergedInterleavesRun(sh Shell)`; `type Shell { Writes []ShellWrite, Status int }`, `type ShellWrite { Text string, Stderr bool }`, `func ShellCommand(sh Shell) Command` | Start a program that runs while its output is read (CU4); the laws draw a `Shell`, a `sh` program that exists on every host, so on a host provider each case runs one. |
 | `type Sink = Inherit \| Discard \| ToFile{Path string, Append bool} \| ToCaller \| ToStdout`; `type Streams { Stdout Sink, Stderr Sink }`; `func Interleaves(s string, a string, b string) bool`, `law InterleavesMatchesModel(a string, b string, picks []bool, t string)` | Where each stream of a started program goes; `ToStdout` is standard error's, to where standard output goes (GENT-G5); `Interleaves` is the order a merged stream keeps. |
@@ -2861,7 +2862,7 @@ func main() needs Console | Ambient {
 | `Command.Grace duration`; `WithGrace(c, d)` | The time between SIGTERM and SIGKILL when a stop, a timeout or a release ends the program; 0 (New's) sends SIGKILL at once. |
 | `type NotFound { Name string }`; `type Denied { Name string }`; `type Failed { Name string, Reason string }` | The failures. |
 
-1. `Name` is a program on the `PATH`, or a path when it holds a `/`, as for Go's `exec.Command`. `Args` are the arguments after the name. `Env` holds entries set over the host process's environment: the program gets the host's environment with each entry of `Env` replacing or adding its key. `Dir` is the working directory, `""` for the caller's; with a `Dir`, `PWD` names it, as Go's `exec.Cmd` sets it, unless `Env` sets `PWD`. `Stdin` is the whole of the standard input; the program reads end of file after it.
+1. `Name` is a path when it holds a `/`, else a program looked up on the `PATH` the program will see (the absolute directories of `c.WithEnvFrom(Runner.Env())`'s `PATH`), never on the `PATH` of the process that runs it (law `LookupUsesChildPath`). `Args` are the arguments after the name. **The environment is a value** (STD-EXEC-ENV): the program sees exactly `Env` over the Runner's `Env()`, one entry per key, sorted by key, and nothing of the environment of the process that runs it (law `EnvIsExact`; no `PWD` is added for a `Dir`). The host's Runner as `NewHost` makes it has an empty `Env()`; `h.InheritEnv(env)` lays `env` under every Command's own, so the code that chooses the provider says what passes on: `exec.NewHost().InheritEnv(os.Process.Environ())` where a user's commands run, `exec.NewTestHost().InheritEnv(exec.PathOf(os.Process.Environ()))` where only `PATH` is needed. `WithEnvFrom(c, env)` does the same for one Command (law `WithEnvFromKeepsOwn`). Reading the environment needs the `os.Process` capability, so a row shows every program that passes environment on. A test's Host adds its `TestHostKeys` (`HOME`, `TMPDIR`, `GIT_CEILING_DIRECTORIES`) over everything. `Dir` is the working directory, `""` for the caller's. `Stdin` is the whole of the standard input; the program reads end of file after it.
 2. `WithEnv`, `WithDir` and `WithStdin` return a copy. `WithEnv` copies `Env`, so the command it is given keeps its own entries (the laws `WithEnvOverrides` and `WithEnvKeepsTheOriginal`).
 3. A status that is not 0 is a `Result`, not a failure: a CLI matches on it. A program that a signal ended has the status 128 plus the signal's number, as a shell reports it. `Stdout` and `Stderr` hold all the program wrote, read to their end.
 4. The failures are a closed row of three, for a program that did not start. `NotFound` is a name not on the `PATH`, a path with no file at it, or the empty name (Go's `exec.ErrNotFound`, `fs.ErrNotExist`). `Denied` is a file the process may not run, a directory included, as Go's `LookPath` reports it (`fs.ErrPermission`). `Failed` is every other reason, with the host's text, such as a `Dir` that does not exist (`dir /x: no such file or directory`). An uncaught one is written with its generated text and status 1, such as `error: exec.NotFound{Name:git}`. The law `NotFoundNamesTheProgram` states that `NotFound` names the program.

@@ -13,8 +13,8 @@ import slices
 import github.com/cevr/ergo/modules/work/work
 
 let onShell = context needs TestAmbient {
-	work.Vcs:    New(exec.NewTestHost()),
-	exec.Runner: exec.NewTestHost(),
+	work.Vcs:    New(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))),
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	os.Process:  os.NewTestHost(),
 }
 

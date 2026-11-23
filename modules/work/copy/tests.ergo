@@ -3,6 +3,7 @@
 // real, confined to its folder.
 
 import exec
+import os
 import fs
 import strings
 
@@ -10,9 +11,9 @@ import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 let onHost = context needs TestAmbient {
-	work.Cloner:         New(exec.NewTestHost()),
+	work.Cloner:         New(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))),
 	fs.Files, fs.Writes: fs.NewTestHost(),
-	exec.Runner:         exec.NewTestHost(),
+	exec.Runner:         exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 }
 
 test CloneCopiesATree {

@@ -4,11 +4,12 @@
 // below clones a real tree with cp -c.
 
 import exec
+import os
 import strings
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost()), exec.Runner: exec.NewTestHost() }
+let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))), exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())) }
 
 // ClonesARealTree: on APFS (macOS), cp -c of a planted tree is that
 // tree (APFS does not count shared blocks, so Usage is not read); on any

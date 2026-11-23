@@ -41,6 +41,7 @@ func TestExecRuns(t *testing.T) {
 	}
 	runBehaviors(t, []behavior{
 		{name: "exec", src: strings.NewReplacer("STARTED", started, "PIDFILE", pidfile, "LATE", late).Replace(`import exec
+import os
 import task
 
 func show(c exec.Command) needs Console | exec.Runner {
@@ -75,7 +76,7 @@ func run() needs Console | exec.Runner {
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { run() }
+	with context { exec.Runner: exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ())) } { run() }
 	let mut results = Map[string, exec.Result]{}
 	let c = exec.New("git", []string{"status"})
 	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "recorded", Stderr: ""}
@@ -143,6 +144,7 @@ func TestExecStartRuns(t *testing.T) {
 	file := filepath.Join(dir, "out")
 	runBehaviors(t, []behavior{
 		{name: "execStart", src: strings.NewReplacer("FILE", file).Replace(`import exec
+import os
 
 func show(c exec.Command) needs Console | exec.Runner {
 	let r = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
@@ -244,7 +246,7 @@ func run() needs Console | exec.Runner {
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { run() }
+	with context { exec.Runner: exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ())) } { run() }
 	let mut results = Map[string, exec.Result]{}
 	let c = exec.New("git", []string{"status"})
 	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "a\nb", Stderr: "e\n"}
@@ -268,6 +270,7 @@ func main() needs Console | Ambient {
 		// Stop's TERM to the group also reaches the sleep, so `wait`
 		// returns and dash runs the trap.
 		{name: "postStopStatus", src: `import exec
+import os
 import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
@@ -283,7 +286,7 @@ func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs e
 }
 
 func main() needs Ambient | Console {
-	let world = context { exec.Runner: exec.NewHost(), Scheduler: NewLiveScheduler() }
+	let world = context { exec.Runner: exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ())), Scheduler: NewLiveScheduler() }
 	let code = with world { stoppedStatus() } catch {
 	case _:
 		-1
@@ -315,6 +318,7 @@ func inGroup(pid, pgid string) bool {
 // a test of the same name (TestStdLawsRun's naming), and the Runner law
 // against a Script, the std's test provider.
 const execLawsProbe = `import exec
+import os
 import strings
 import slices
 import time
@@ -360,6 +364,13 @@ test ExecRunnerStartMergedInterleavesRun(name string, out string, errs string, s
 // onHost runs the Runner laws as written on the test host, in the
 // case's folder: each case runs the Shell it draws.
 let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
+
+// onHostWithPath is the test host given a PATH, as a test that runs
+// programs by name chooses it: EnvIsExact sees the inherited entry.
+let onHostWithPath = context needs TestAmbient { exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())) }
+
+// onProcess is the test host of os.Process: its Environ agrees with Getenv.
+let onProcess = context needs TestAmbient { os.Process: os.NewTestHost() }
 
 test ExecInterleavesMatchesModel(a string, b string, picks []bool, t string) {
 	let x = upTo5(a)
@@ -531,7 +542,7 @@ func TestExecLaws(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost"} {
+	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost", "ok law exec.Runner.EnvIsExact under onHost", "ok law exec.Runner.EnvIsExact under onHostWithPath", "ok law exec.Runner.LookupUsesChildPath under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHostWithPath", "ok law os.Process.EnvironAgreesWithGetenv under onProcess"} {
 		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \(\d+ cases\))?$`).MatchString(stdout) {
 			t.Errorf("no line %q:\n%s", line, stdout)
 		}
