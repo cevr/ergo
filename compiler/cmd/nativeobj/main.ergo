@@ -16,7 +16,7 @@
 // the independent decoders read the archive back and every metadata check
 // (nativeobj.Verify) must pass.
 //
-// The programs run with GODEBUG=gccheckmark=1, under a 300 s deadline
+// The programs run with GODEBUG=gccheckmark=1, under a watchdog
 // that only stops a hang and names it (Spin needs async preemption), and
 // with an 8 GiB address-space limit the kernel enforces. The work folder
 // is removed after a pass and kept after a failure (--keep keeps it
@@ -96,9 +96,10 @@ func program(dir string, std string, depA string, tinyA string, name string) str
 }
 
 let completion = "\nround trip complete\n"
+let hangSeconds = "30"
 
 func childCommand(bin string) exec.Command {
-	exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "--foreground", "-s", "QUIT", "-k", "5", "300", bin}).WithEnv("GODEBUG", "gccheckmark=1")
+	exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "--foreground", "-s", "QUIT", "-k", "5", hangSeconds, bin}).WithEnv("GODEBUG", "gccheckmark=1")
 }
 
 // execute waits for the bounded fixture to exit, and requires its final
@@ -111,7 +112,7 @@ func execute(bin string) string fails os.Exit needs exec.Runner {
 		return fail("cannot run \(bin): \(e.Reason)")
 	}
 	if r.Status == 124 {
-		return fail("\(bin) hung past 300 s:\n\(r.Stdout)\(r.Stderr)")
+		return fail("\(bin) hung past \(hangSeconds) s:\n\(r.Stdout)\(r.Stderr)")
 	}
 	if r.Status != 0 {
 		return fail("\(bin) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
@@ -192,8 +193,10 @@ func verify(seed int, keep bool) fails os.Exit needs exec.Runner | fs.Files | fs
 	try run(goTool([]string{"compile", "-p", nativeobj.TinyPath, "-importcfg", dir + "/ref.importcfg", "-pack", "-o", refA, dir + "/tinyref.go"}), "stock compile of the reference")
 	let ours = try program(dir, std, depA, tinyA, "ergo")
 	let theirs = try program(dir, std, depA, refA, "stock")
-	let got = try execute(ours)
+	// Observe the stock control even when the candidate fails.
 	let want = try execute(theirs)
+	io.Stdout.Println("stock runtime: final report received")
+	let got = try execute(ours)
 	io.Stdout.Print(got)
 	if got != want {
 		return fail("the program linked with the producer's archive printed\n\(got)but with the stock reference\n\(want)(work kept in \(dir))")
