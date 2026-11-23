@@ -63,7 +63,7 @@ func note(t []PcVal, pc int, v int) []PcVal {
 // begin records the tables' values in force at the instruction that
 // starts now.
 func begin(a mut Asm) {
-	let pc = a.Pc()
+	let pc = a.Code.Size()
 	a.Sp = note(a.Sp, pc, a.sp)
 	a.Line = note(a.Line, pc, a.line)
 	a.Smi = note(a.Smi, pc, a.smi)
@@ -202,23 +202,23 @@ func Ret(a mut Asm) {
 // The site's stack-map index is the one in force (SetSmi).
 func CallSym(a mut Asm, sym string, abi int, safe bool) {
 	a.begin()
-	let pc = a.Pc()
+	let pc = a.Code.Size()
 	a.Code.U8(0xE8)
 	a.Relocs = a.Relocs.Append(Reloc{Off: pc + 1, Size: 4, Type: RCall, Add: 0, Sym: sym, ABI: abi})
 	a.Code.U32(0)
-	a.Sites = a.Sites.Append(Site{Pc: pc, Ret: a.Pc(), Index: a.smi, Safe: safe})
+	a.Sites = a.Sites.Append(Site{Pc: pc, Ret: a.Code.Size(), Index: a.smi, Safe: safe})
 }
 
 // CallReg is CALL reg, with the zero-size RCallInd mark the stock
 // compiler puts on an indirect call.
 func CallReg(a mut Asm, r int) {
 	a.begin()
-	let pc = a.Pc()
+	let pc = a.Code.Size()
 	a.Relocs = a.Relocs.Append(Reloc{Off: pc, Size: 0, Type: RCallInd, Add: 0, Sym: "", ABI: 0})
 	a.rex(false, 0, 0, r)
 	a.Code.U8(0xFF)
 	a.modrm(3, 2, r)
-	a.Sites = a.Sites.Append(Site{Pc: pc, Ret: a.Pc(), Index: a.smi, Safe: true})
+	a.Sites = a.Sites.Append(Site{Pc: pc, Ret: a.Code.Size(), Index: a.smi, Safe: true})
 }
 
 // Branch condition codes (the low nibble of 0F 8x).
@@ -229,13 +229,13 @@ let JccLt = 0xC
 let JccGe = 0xD
 
 // Bind places label id at the next instruction.
-func Bind(a mut Asm, id int) { a.labels[id] = a.Pc() }
+func Bind(a mut Asm, id int) { a.labels[id] = a.Code.Size() }
 
 // Jmp is JMP to label id.
 func Jmp(a mut Asm, id int) {
 	a.begin()
 	a.Code.U8(0xE9)
-	a.fixups = a.fixups.Append(PcVal{Pc: a.Pc(), V: id})
+	a.fixups = a.fixups.Append(PcVal{Pc: a.Code.Size(), V: id})
 	a.Code.U32(0)
 }
 
@@ -244,7 +244,7 @@ func Jcc(a mut Asm, cc int, id int) {
 	a.begin()
 	a.Code.U8(0x0F)
 	a.Code.U8(0x80 + cc)
-	a.fixups = a.fixups.Append(PcVal{Pc: a.Pc(), V: id})
+	a.fixups = a.fixups.Append(PcVal{Pc: a.Code.Size(), V: id})
 	a.Code.U32(0)
 }
 
@@ -271,7 +271,7 @@ func RipLoad(a mut Asm, dst int, sym string) {
 	a.rex(true, dst, 0, 0)
 	a.Code.U8(0x8B)
 	a.modrm(0, dst, 5)
-	a.Relocs = a.Relocs.Append(Reloc{Off: a.Pc(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: ABI0})
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Code.Size(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: ABI0})
 	a.Code.U32(0)
 }
 
@@ -281,7 +281,7 @@ func RipStore(a mut Asm, src int, sym string) {
 	a.rex(true, src, 0, 0)
 	a.Code.U8(0x89)
 	a.modrm(0, src, 5)
-	a.Relocs = a.Relocs.Append(Reloc{Off: a.Pc(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: ABI0})
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Code.Size(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: ABI0})
 	a.Code.U32(0)
 }
 
@@ -291,7 +291,7 @@ func CmpFlagZero(a mut Asm, sym string) {
 	a.begin()
 	a.Code.U8(0x83)
 	a.modrm(0, 7, 5)
-	a.Relocs = a.Relocs.Append(Reloc{Off: a.Pc(), Size: 4, Type: RPcrel, Add: -1, Sym: sym, ABI: ABI0})
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Code.Size(), Size: 4, Type: RPcrel, Add: -1, Sym: sym, ABI: ABI0})
 	a.Code.U32(0)
 	a.Code.U8(0)
 }

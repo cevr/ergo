@@ -122,6 +122,45 @@ func FuncInfo(lf Lowered) string {
 	w.Bytes()
 }
 
+// DWARF of the pin (cmd/internal/dwarf, DWARF 5 on linux): the aux type
+// of a function's subprogram DIE, its symbol kind, the abbreviation the
+// linker's table gives a plain function, the frame-base operation, and the
+// first of the relocations that turn a function into its .debug_addr
+// index (one to four ULEB bytes, by the package's function count).
+let AuxDwarfInfo = 3
+let SDwarfFcn = 14
+let AbbrevFunction = 3
+let OpCallFrameCFA = 0x9c
+let RDwTxtAddrU1 = 103
+
+// SubprogramDIE is a function's DW_TAG_subprogram DIE as the stock
+// compiler writes one with no variables or inlined calls (PutDefaultFunc):
+// its name, low_pc as a .debug_addr index (a relocation to the function),
+// high_pc as its size, the call-frame CFA as frame base, file 1 and its
+// line, whether it is external, and the end of its children. The stock
+// linker needs one for every function it puts in a compilation unit.
+func SubprogramDIE(name string, size int, line int, external bool, fn SymRef, nfuncs int) (string, []ObjReloc) {
+	// Stock sizes the index for twice its function estimate.
+	let n = 2 * nfuncs
+	let width = if n <= 127 { 1 } else if n <= 16383 { 2 } else if n <= 2097151 { 3 } else { 4 }
+	let mut w = NewBuf()
+	w.Uvarint(AbbrevFunction)
+	w.Raw(name)
+	w.U8(0)
+	let at = w.Size()
+	for _ in 0..width {
+		w.U8(0)
+	}
+	w.Uvarint(size)
+	w.U8(1)
+	w.U8(OpCallFrameCFA)
+	w.U32(1)
+	w.Uvarint(line)
+	w.U8(if external { 1 } else { 0 })
+	w.U8(0)
+	(w.Bytes(), []ObjReloc{ObjReloc{Off: at, Size: width, Type: RDwTxtAddrU1 + width - 1, Add: 0, Sym: fn}})
+}
+
 // InitTask is the bytes of the package's inittask: state 0, the number
 // of init functions, then one pointer each (relocated).
 func InitTask(n int) string {
@@ -187,12 +226,15 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 		let pcline = b.addDef(dataDef(SRodata, 1, lf.Pcline))
 		let unsafe = b.addDef(dataDef(SRodata, 1, lf.Unsafe))
 		let smi = b.addDef(dataDef(SRodata, 1, lf.Smi))
+		let (die, dieRelocs) = SubprogramDIE(FuncSym(p, i), len(lf.Code), lf.Line, Exported(p.Funcs[i].Name), SymRef{Pkg: PkgIdxSelf, Idx: i}, len(lowered))
+		let dwarf = b.addDef(Def{Name: "", ABI: 0, Kind: SDwarfFcn, Flag: 0, Flag2: 0, Size: len(die), Align: 1, Data: die, Relocs: dieRelocs, Aux: []ObjAux{}})
 		let mut d = b.defs[i]
 		d.Relocs = rs
 		d.Aux = []ObjAux{
 			ObjAux{Type: AuxFuncInfo, Sym: info},
 			ObjAux{Type: AuxFuncdata, Sym: args},
 			ObjAux{Type: AuxFuncdata, Sym: locals},
+			ObjAux{Type: AuxDwarfInfo, Sym: dwarf},
 			ObjAux{Type: AuxPcsp, Sym: pcsp},
 			ObjAux{Type: AuxPcfile, Sym: pcfile},
 			ObjAux{Type: AuxPcline, Sym: pcline},
@@ -213,7 +255,7 @@ func addStr(t mut strtab, w mut Buf, s string) {
 		return
 	case None:
 	}
-	t.offs[s] = w.Size()
+	t.offs[s] = len(w.b)
 	w.Raw(s)
 }
 
