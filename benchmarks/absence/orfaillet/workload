@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench orfaillet N` makes N reads, a Map read through the prelude's OrFail bound by a let before the return (INLINE-SLOT probe)
+# (ABSENCE, PRELUDE-ORFAIL); half the keys miss. The control is hand Go
+# comma-ok with the error built on the miss only: the floor.
+unit read
+sizes 409600 2457600
+args bench orfaillet {n}
+control benchmarks/absence/testdata/control

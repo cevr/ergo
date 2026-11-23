@@ -39,7 +39,7 @@ import (
 func (w *valueWalk) lastReads() {
 	for _, call := range w.calls {
 		c := w.info.Calls[call]
-		if c == nil || !preludeAppend(c.Func) {
+		if c == nil || !appendsSource(c.Func) {
 			continue
 		}
 		parent, child := w.unparenParent(call)

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// The overlap rule's seeded property (#197 C2; types.md, Borrows 2). Each
+// The overlap rule's seeded property (C2; types.md, Borrows 2). Each
 // seed writes a main whose calls take two borrows: of two elements of one
 // slice (each index a constant, an immutable let, or a let mut), of the
 // same or two fields of one record, of a record and its field, of places

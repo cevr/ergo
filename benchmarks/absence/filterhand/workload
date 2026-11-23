@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench filterhand N` makes N reads, a Map read through the hand match with the filter's if in its Some arm
+# (ABSENCE r3); half the keys miss. The control is hand Go comma-ok:
+# the floor.
+unit read
+sizes 409600 2457600
+args bench filterhand {n}
+control benchmarks/absence/testdata/control

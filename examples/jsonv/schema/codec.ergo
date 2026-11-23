@@ -1,5 +1,5 @@
 // The schema's JSON form, written by hand: Ergo derives no codec yet
-// (#49; gap G-ex-d-6), so FromJSON walks the value and ToJSON builds one.
+// (gap G-ex-d-6), so FromJSON walks the value and ToJSON builds one.
 
 import jsonv/json
 import stdjson json

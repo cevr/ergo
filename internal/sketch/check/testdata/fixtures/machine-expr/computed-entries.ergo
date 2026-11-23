@@ -1,0 +1,65 @@
+// Every entry is an expression (MACHINE-EXPR, q16): a computed start, after,
+// work and exit, each a call that gives the entry's function, checked
+// against the Machine field's type as the step is.
+import machines
+
+type Phase = Open{N int} | Saving{N int} | Saved{N int}
+type Sig = Add{N int} | Save{} | Stored{}
+
+type seen {
+	Left(n int),
+}
+
+func step(s Phase, e Sig) Decision[Phase, int] {
+	match (s, e) {
+	case (Open as o, Add as a):
+		Stay[Phase]{Next: Open{N: o.N + a.N}}
+	case (Open as o, Save):
+		Enter[Phase]{Next: Saving{N: o.N}}
+	case (Saving as v, Stored):
+		Enter[Phase]{Next: Saved{N: v.N}}
+	case (_, _):
+		Ignore
+	}
+}
+
+func open(n int) Phase { Open{N: n} }
+
+func timer(s Phase) Option[Timeout[Sig]] {
+	match s {
+	case Saving:
+		Some[Timeout[Sig]]{Value: Timeout[Sig]{In: 1s, Signal: Stored}}
+	case Open, Saved:
+		None
+	}
+}
+
+func work(s Phase) Option[machines.Work[Sig, Scheduler]] {
+	match s {
+	case Saving:
+		Some[machines.Work[Sig, Scheduler]]{Value: machines.Do[Sig, Scheduler](func() Sig { Stored })}
+	case Open, Saved:
+		None
+	}
+}
+
+func leave(s Phase) Option[func() needs seen] {
+	match s {
+	case Saved as d:
+		Some{func() needs seen { seen.Left(d.N) }}
+	case Open, Saving:
+		None
+	}
+}
+
+func same[F](f own F) F { f }
+
+type Saver machine[Phase, Sig] {
+	initial: same(open),
+	step:    same(step),
+	after:   same(timer),
+	work:    same(work),
+	exit:    same(leave),
+}
+
+func main() {}

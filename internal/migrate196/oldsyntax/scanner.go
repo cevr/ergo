@@ -172,7 +172,7 @@ func (s *scanner) identifier(start int) {
 	s.offset = end
 }
 
-// number scans a decimal integer or a duration. The numeric forms of #81
+// number scans a decimal integer or a duration. The numeric forms of Go numeric types
 // (hexadecimal, octal, binary, separators, floating point) stay errors.
 func (s *scanner) number(start int) {
 	src := s.src
@@ -188,7 +188,7 @@ func (s *scanner) number(start int) {
 		if end+1 < len(src) && '0' <= src[end+1] && src[end+1] <= '9' {
 			length++
 		}
-		s.fail(start, length, "floating-point literals are not part of v0 (#81)")
+		s.fail(start, length, "floating-point literals are not part of v0")
 		return
 	}
 	suffixEnd := end
@@ -212,9 +212,9 @@ func (s *scanner) number(start int) {
 	}
 	switch {
 	case src[start:end] == "0" && strings.ContainsAny(suffix[:1], "xXbBoO"):
-		s.fail(start, suffixEnd-start, "hexadecimal, octal and binary literals are not part of v0 (#81)")
+		s.fail(start, suffixEnd-start, "hexadecimal, octal and binary literals are not part of v0")
 	case suffix[0] == '_':
-		s.fail(start, suffixEnd-start, "digit separators are not part of v0 (#81)")
+		s.fail(start, suffixEnd-start, "digit separators are not part of v0")
 	default:
 		s.fail(start, suffixEnd-start, "unknown number suffix %q", suffix)
 	}

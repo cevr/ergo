@@ -198,6 +198,22 @@ func SlicesFill[T any](out []T, xs []T) []T {
 //ergo:wait none
 func SlicesSlice[T any](xs []T, i int, j int) []T { return xs[i:j:j] }
 
+// SliceOfLen is a slice of n zero values, empty when n is negative: the
+// IR's presized fill (internal/sketch/lower ir_fill.go) makes a count
+// loop's slice at its final length, then fills it by index, where the
+// source appends one value per iteration to an empty slice. Small enough
+// for Go to inline, so a constant n is the slice's length where it is
+// read, and Go's prove pass drops the bounds checks it can then decide.
+//
+//ergo:pure
+//ergo:wait none
+func SliceOfLen[T any](n int) []T {
+	if n < 0 {
+		n = 0
+	}
+	return make([]T, n)
+}
+
 // MapsClone is maps.Clone(m): a new map with the keys and values of m.
 // It is restated because maps is not in PureImports.
 //

@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench filter N` makes N reads, a Map read through an Option Filter and Or (the bodies a prelude Filter and Or would have)
+# (ABSENCE r3); half the keys miss. The control is hand Go comma-ok:
+# the floor.
+unit read
+sizes 409600 2457600
+args bench filter {n}
+control benchmarks/absence/testdata/control

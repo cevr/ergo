@@ -1,0 +1,131 @@
+// mexpr is MACHINE-EXPR's speed receipt: one product machine over a
+// record state, run three ways over the same signals, each with a
+// workload in ../../KIND (go run ./scripts/opcount -control -rounds 5
+// benchmarks/mexpr/KIND):
+//   - computed: the machine's step is computed, step: Both(left, right),
+//     a generic builder whose body is one literal (its entry copy,
+//     internal/sketch/lower/entrycopy.go);
+//   - named: the same product written by hand as a named step;
+//   - fold: no machine, the hand fold of machines.Next in a loop.
+//
+// The hand Go twin is ../../testdata/control.
+//
+//	mexpr bench KIND N
+
+import machines
+import os
+import strconv
+
+type Pair[A, B] { L A, R B }
+
+// Both is the product of two steps over one signal: each part steps its
+// half of the record state, and the product enters the pair.
+func Both[S1, S2, E, O1, O2](a own func(s S1, e E) Decision[S1, O1], b own func(s S2, e E) Decision[S2, O2]) func(s Pair[S1, S2], e E) Decision[Pair[S1, S2], int] {
+	func(s Pair[S1, S2], e E) Decision[Pair[S1, S2], int] {
+		Enter[Pair[S1, S2]]{Next: Pair[S1, S2]{L: machines.Next(s.L, a(s.L, e)), R: machines.Next(s.R, b(s.R, e))}}
+	}
+}
+
+type S = Off{N int} | On{N int}
+type E = Flip{} | Hold{}
+
+func left(s S, e E) Decision[S, int] {
+	match (s, e) {
+	case (Off as o, Flip):
+		Enter[S]{Next: On{N: o.N + 1}}
+	case (On as o, Flip):
+		Enter[S]{Next: Off{N: o.N + 1}}
+	case (_, Hold):
+		Ignore
+	}
+}
+
+func right(s S, e E) Decision[S, int] {
+	match (s, e) {
+	case (Off as o, Hold):
+		Enter[S]{Next: On{N: o.N + 1}}
+	case (On as o, Hold):
+		Enter[S]{Next: Off{N: o.N + 1}}
+	case (_, Flip):
+		Ignore
+	}
+}
+
+type Computed machine[Pair[S, S], E] {
+	initial: Pair[S, S]{L: Off{N: 0}, R: Off{N: 0}},
+	step:    Both(left, right),
+}
+
+func both(s Pair[S, S], e E) Decision[Pair[S, S], int] {
+	Enter[Pair[S, S]]{Next: Pair[S, S]{L: machines.Next(s.L, left(s.L, e)), R: machines.Next(s.R, right(s.R, e))}}
+}
+
+type Named machine[Pair[S, S], E] {
+	initial: Pair[S, S]{L: Off{N: 0}, R: Off{N: 0}},
+	step:    both,
+}
+
+func signals(n int) []E {
+	let mut out = []E{}
+	for i in 0..n {
+		if i % 3 == 0 {
+			out = out.Append(Hold)
+		} else {
+			out = out.Append(Flip)
+		}
+	}
+	out
+}
+
+func count(s S) int {
+	match s {
+	case Off as o:
+		o.N
+	case On as o:
+		o.N
+	}
+}
+
+func show(p Pair[S, S]) string { "\(count(p.L)) \(count(p.R))" }
+
+func outcome(o machines.Outcome[Pair[S, S], int]) string {
+	match o {
+	case machines.Running[Pair[S, S], int] as r:
+		show(r.State)
+	case machines.Finished[Pair[S, S], int] as f:
+		show(f.State)
+	}
+}
+
+func run(kind string, n int) string fails machines.Rejected {
+	let xs = signals(n)
+	if kind == "computed" {
+		return outcome(try machines.Run(Computed{}, xs))
+	}
+	if kind == "named" {
+		return outcome(try machines.Run(Named{}, xs))
+	}
+	let mut s = Pair[S, S]{L: Off{N: 0}, R: Off{N: 0}}
+	for e in xs {
+		s = Pair[S, S]{L: machines.Next(s.L, left(s.L, e)), R: machines.Next(s.R, right(s.R, e))}
+	}
+	show(s)
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: mexpr bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "mexpr: N is not a count"}
+		}
+		let out = run(args[1], n) catch {
+		case machines.Rejected:
+			return os.Exit{Code: 1, Message: "mexpr: rejected"}
+		}
+		Console.Println(out)
+	}
+}

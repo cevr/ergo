@@ -9,7 +9,7 @@ import (
 )
 
 // TestOrderLawsRefuteBrokenOrders holds cmp.Order's member laws to their
-// meaning (CONSTRAINTS C3, #211): each runs at a user's provider, in the
+// meaning (CONSTRAINTS C3): each runs at a user's provider, in the
 // check-time evaluator, and refutes the provider that breaks it alone.
 // Cycle is reflexive and antisymmetric but not transitive (a rock, paper,
 // scissors order on n mod 3); Twisted puts a value after itself; Lawful,
