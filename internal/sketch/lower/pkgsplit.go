@@ -799,6 +799,15 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			cross[name] = true
 		}
 	}
+	if lib != nil {
+		// A Go-facing name placed outside its Ergo package is named there
+		// by an alias (libAliases): it crosses.
+		for name, ln := range lib.names {
+			if g, ok := groupOf[name]; ok && groups[g].pkg != lib.index[ln.pkg] {
+				cross[name] = true
+			}
+		}
+	}
 	rename := map[string]string{}
 	taken := maps.Clone(all)
 	for _, name := range slices.Sorted(maps.Keys(cross)) {
@@ -1016,11 +1025,13 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		if importsUsed == nil {
 			importsUsed = map[string]bool{}
 		}
+		embeds := false
 		for i := range f.Decls {
 			g := declGroup[i]
 			if g < 0 || groups[g].pkg != k {
 				continue
 			}
+			embeds = embeds || groups[g].embed
 			for name := range usesImport[i] {
 				importsUsed[name] = true
 			}
@@ -1047,7 +1058,10 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		var specs []string
 		for _, s := range f.Imports {
 			local := importLocal(s)
-			if importsUsed[local] || (k == 1 && (local == "_" || local == ".")) {
+			// A package that holds an embedded asset's declaration
+			// imports embed, as //go:embed requires.
+			embedImport := embeds && s.Path.Value == `"embed"`
+			if importsUsed[local] || embedImport || (k == 1 && (local == "_" || local == ".")) {
 				specs = append(specs, string(src[off(s.Pos()):off(s.End())]))
 			}
 		}
