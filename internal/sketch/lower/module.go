@@ -400,6 +400,9 @@ type lowerer struct {
 
 	gen  strings.Builder // generated and library declarations, before any //line
 	user strings.Builder // the user package's declarations, with //line
+	// hashSeeded is whether gen holds the hash seed's declaration
+	// (hashSeed, ir_mapprovider.go).
+	hashSeeded bool
 
 	// pending holds library declarations met while lowering, emitted into
 	// gen until none is left.

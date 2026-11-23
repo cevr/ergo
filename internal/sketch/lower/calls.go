@@ -56,6 +56,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.wireCall(x, c)
 	case check.CallPattern:
 		return fc.patternCall(x, c) // refinematch.go
+	case check.CallHash:
+		return fc.hashCall(x) // ir_mapprovider.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
