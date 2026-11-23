@@ -1843,9 +1843,9 @@ type envCap struct{ field, goType string }
 
 // envField is the environment's field for a capability: one per type, so
 // each instance of a generic capability has its own (Store[Job] and
-// Store[Note]; types.md, Capabilities 7), keyed by typeKey.
+// Store[Note]; types.md, Capabilities 7), even if Go erases their difference.
 func (l *lowerer) envField(cap *check.Named) string {
-	key := l.typeKey(cap)
+	key := l.semanticTypeKey(cap)
 	if f, ok := l.envFields[key]; ok {
 		return f
 	}

@@ -1,0 +1,49 @@
+// Package semaphore is the provider of jobs.Gate over Go's
+// golang.org/x/sync/semaphore: a weighted semaphore whose Acquire waits
+// with the calling task's context, so a stop of the task ends the wait.
+// The Go module is the copy under third_party/sync (go.mod replaces it),
+// and its binding is ergo.bind/golang.org/x/sync/semaphore.
+
+import admit/jobs
+import go golang.org/x/sync/semaphore
+
+// Gate is a jobs.Gate over a Go semaphore of weight capacity.
+type Gate { capacity int, w go.Ref[semaphore.Weighted] } implements jobs.Gate
+
+// New is a Gate of the given capacity, or None when Go gives no
+// semaphore.
+func New(capacity int) Option[Gate] needs go.Foreign {
+	match semaphore.NewWeighted(int64(capacity)) {
+	case Some[go.Ref[semaphore.Weighted]] as w:
+		Some[Gate]{Value: Gate{capacity: capacity, w: w.Value}}
+	case None:
+		None
+	}
+}
+
+// NewGate is a Gate of capacity 4, as memory's NewGate is: the law cases
+// of ergo test build it, and their build holds go.Foreign (types.md, Laws
+// 10). Go gives a semaphore for every weight.
+func NewGate() Gate needs go.Foreign {
+	match New(4) {
+	case Some[Gate] as g:
+		g.Value
+	case None:
+		Unreachable("semaphore.NewWeighted gave no semaphore")
+	}
+}
+
+// Capacity is the semaphore's whole weight.
+func Capacity(g Gate) int { g.capacity }
+
+// Take is the semaphore's TryAcquire.
+func Take(g Gate, n int) bool needs go.Foreign { g.w.TryAcquire(int64(n)) }
+
+// Wait is the semaphore's Acquire, which waits with the task's context: a
+// stopped wait is Go's error, and Stopped here.
+func Wait(g Gate, n int) fails jobs.Stopped needs go.Foreign {
+	g.w.Acquire(int64(n)) // want S101 "{go.Error} escapes function Wait"
+}
+
+// Give is the semaphore's Release.
+func Give(g Gate, n int) needs go.Foreign { g.w.Release(int64(n)) }

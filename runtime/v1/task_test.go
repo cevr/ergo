@@ -134,8 +134,8 @@ func reasons(err error) []rt.Reason {
 // queue.Queue[int]: the runtime values must be values of them.
 var (
 	_ interface {
-		Wait() (int, error)
-		Stop()
+		Wait(*rt.Task) (int, error)
+		Stop(*rt.Task)
 	} = (*Task[int])(nil)
 )
 
@@ -146,10 +146,10 @@ func TestWait(t *testing.T) {
 		return frame(root, func(s *Scope) error {
 			a := ownedGo(s, "a", func(*rt.Task) (int, error) { return 7, nil })
 			b := ownedGo(s, "b", func(*rt.Task) (int, error) { return 0, bad{"b"} })
-			if v, err := a.Wait(); v != 7 || err != nil {
+			if v, err := a.Wait(s.s.Task()); v != 7 || err != nil {
 				t.Errorf("a.Wait() = %d, %v; want 7, nil", v, err)
 			}
-			if v, err := b.Wait(); v != 0 || err != (bad{"b"}) {
+			if v, err := b.Wait(s.s.Task()); v != 0 || err != (bad{"b"}) {
 				t.Errorf("b.Wait() = %d, %v; want 0, bad b", v, err)
 			}
 			return nil
@@ -173,7 +173,7 @@ func TestWaitRaisesDefect(t *testing.T) {
 					return explode(), nil
 				})
 			})
-			v, err := c.Wait()
+			v, err := c.Wait(s.s.Task())
 			t.Errorf("Wait returned %d, %v; want it to raise the defect", v, err)
 			return nil
 		})
@@ -208,10 +208,10 @@ func TestDefectChainAcrossTasks(t *testing.T) {
 			c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
 					g := ownedGo(s, "grandchild", func(*rt.Task) (int, error) { return explode(), nil })
-					return g.Wait()
+					return g.Wait(s.s.Task())
 				})
 			})
-			_, err := c.Wait()
+			_, err := c.Wait(s.s.Task())
 			return err
 		})
 	})
@@ -257,7 +257,7 @@ func TestWaitInterrupted(t *testing.T) {
 				})
 			})
 			p := recovered(func() {
-				v, err := c.Wait()
+				v, err := c.Wait(s.s.Task())
 				t.Errorf("Wait returned %d, %v; want it to raise the interruption", v, err)
 			})
 			if p != rt.Interrupted {
@@ -296,16 +296,16 @@ func TestStop(t *testing.T) {
 				})
 			})
 			awaitClosed(root, started)
-			c.Stop()
+			c.Stop(s.s.Task())
 			if !cleaned.Load() {
 				t.Error("Stop returned before the task's exit action ended")
 			}
-			c.Stop() // a second Stop does nothing
+			c.Stop(s.s.Task()) // a second Stop does nothing
 			d := ownedGo(s, "defect", func(dt *rt.Task) (int, error) {
 				_ = untilStopped(dt)
 				return explode(), nil
 			})
-			p := recovered(d.Stop)
+			p := recovered(func() { d.Stop(s.s.Task()) })
 			x, ok := p.(*exit)
 			if !ok || len(reasons(x.err)) != 1 || reasons(x.err)[0].Kind != rt.KindDefect {
 				t.Errorf("Stop of a task that panics raised %#v; want its defect", p)
@@ -456,7 +456,7 @@ func TestExitCauses(t *testing.T) {
 		p := recovered(func() {
 			frameNoRow(rt.Root("main"), func(s *Scope) {
 				c := ownedGo(s, "child", func(*rt.Task) (int, error) { return explode(), nil })
-				OnExit(s, func() { _, _ = c.Wait() })
+				OnExit(s, func() { _, _ = c.Wait(s.s.Task()) })
 			})
 		})
 		x, ok := p.(*exit)
@@ -557,7 +557,7 @@ func TestTaskReturn(t *testing.T) {
 		var werr error
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
-				v, werr = start(root, s, func(*rt.Task) (int, error) { return 7, nil }).Wait()
+				v, werr = start(root, s, func(*rt.Task) (int, error) { return 7, nil }).Wait(s.s.Task())
 				return nil
 			})
 		})
@@ -620,7 +620,7 @@ func TestGoInExitAction(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
-					v, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { ran = true; return 1, nil }).Wait()
+					v, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { ran = true; return 1, nil }).Wait(s.s.Task())
 				})
 				return nil
 			})
@@ -675,7 +675,7 @@ func TestGoInExitAction(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
-					_, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { return explode(), nil }).Wait()
+					_, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { return explode(), nil }).Wait(s.s.Task())
 				})
 				return nil
 			})
@@ -695,7 +695,7 @@ func TestGoInExitAction(t *testing.T) {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
 					OnExit(s, func() {
-						v, _ = ownedGo(s, "inner", func(*rt.Task) (int, error) { return 1, nil }).Wait()
+						v, _ = ownedGo(s, "inner", func(*rt.Task) (int, error) { return 1, nil }).Wait(s.s.Task())
 					})
 				})
 				return nil
@@ -748,8 +748,8 @@ func TestGoOnEndedFrame(t *testing.T) {
 func TestSecondWait(t *testing.T) {
 	frameNoRow(rt.Root("main"), func(s *Scope) {
 		c := ownedGo(s, "child", func(*rt.Task) (int, error) { return 1, nil })
-		_, _ = c.Wait()
-		p := recovered(func() { _, _ = c.Wait() })
+		_, _ = c.Wait(s.s.Task())
+		p := recovered(func() { _, _ = c.Wait(s.s.Task()) })
 		if s, _ := p.(string); !strings.Contains(s, "already waited") {
 			t.Errorf("second Wait raised %#v; want the defect", p)
 		}
@@ -787,9 +787,9 @@ func TestNoTaskOutlivesItsFrame(t *testing.T) {
 				for _, k := range kids {
 					switch rng.IntN(4) {
 					case 0:
-						recovered(func() { _, _ = k.Wait() })
+						recovered(func() { _, _ = k.Wait(ct) })
 					case 1:
-						recovered(k.Stop)
+						recovered(func() { k.Stop(ct) })
 					}
 				}
 				switch rng.IntN(5) {
@@ -812,7 +812,7 @@ func TestNoTaskOutlivesItsFrame(t *testing.T) {
 				if rng.IntN(2) == 0 {
 					return bad{"leave it to the frame"}
 				}
-				recovered(c.Stop)
+				recovered(func() { c.Stop(root) })
 				return nil
 			})
 		})

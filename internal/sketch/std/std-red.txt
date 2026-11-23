@@ -19,7 +19,6 @@ prelude Hashing.EqualKeysNormalEqual	native skip: law Hashing.EqualKeysNormalEqu
 prelude Hashing.NormalKeyIsEqual	native skip: law Hashing.NormalKeyIsEqual runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
 prelude Random.Float64InUnit	native skip: law Random.Float64InUnit runs where Random has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
 prelude Random.IntNInRange	native skip: law Random.IntNInRange runs where Random has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
-prelude Task.StopIsIdempotent	native skip: skip law Task.StopIsIdempotent: its operation type Task has the row parameter E, and a run binds only type parameters	STD-PRELUDE-NATIVE-RED
 proof/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
 rand *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
 session/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES

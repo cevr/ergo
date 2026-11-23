@@ -439,9 +439,6 @@ func (b *irBuilder) providerCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]
 	// A test build calls a capability's operation as a program does
 	// (calls.go: only a law's own operation, CallLawOp, differs).
 	named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
-	if named != nil && b.l.runtimeNamed(named, x) {
-		irNo("law operation of an extern Go type") // calls.go writes its runtime call
-	}
 	if named == nil {
 		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 		if !ok {
@@ -457,9 +454,17 @@ func (b *irBuilder) providerCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]
 	if b.fc.frame.polls {
 		pre = append(pre, b.poll(x))
 	}
+	env := &irExpr{K: "local", Pos: p, I: b.env}
+	if c.Kind == check.CallLawOp && b.l.runtimeNamed(named, x) {
+		recv := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+		if b.lawOwn == 0 {
+			recv = &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
+		}
+		argPre, e, effect := b.boundOpCall(x, c, named, p, recv)
+		return append(pre, argPre...), e, effect
+	}
 	argPre, irArgs := b.operands(x.Args)
 	pre = append(pre, argPre...)
-	env := &irExpr{K: "local", Pos: p, I: b.env}
 	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 	if c.Kind == check.CallLawOp && b.lawOwn > 0 {
 		// A law of a generic operation type calls the provider it

@@ -674,7 +674,7 @@ func RunTargets(pkg *check.Package) []RunTarget {
 			if lc.Unrun != "" {
 				continue
 			}
-			add(RunTarget{Law: r.Law, Context: lc, Label: "law " + r.Law.Title(pkg) + " under " + lc.Context.Name})
+			add(RunTarget{Law: r.Law, Context: lc, Label: "law " + r.Law.Title(pkg) + " under " + lc.Title()})
 		}
 	}
 	return slices.DeleteFunc(out, func(t RunTarget) bool { return count[t.Label] > 1 })

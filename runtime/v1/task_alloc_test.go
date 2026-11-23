@@ -37,7 +37,7 @@ func TestTaskWithCapturesAllocatesOnce(t *testing.T) {
 		task := GoWith[int, taskAllocCaps](&fs, Site("allocs"), taskAllocCaps{env: &env, i: 2}, taskAllocWithBody)
 		own := fs.Owner()
 		Owning(own, task, ReleaseTask[int])
-		v, err := Hand(own, task).Wait()
+		v, err := Hand(own, task).Wait(taskAllocRoot)
 		if err != nil || v != 42 {
 			t.Fatalf("Wait = %v, %v; want 42, nil", v, err)
 		}
@@ -79,7 +79,7 @@ func TestTaskOwnsWithoutAllocating(t *testing.T) {
 		task := Go[int](&fs, Site("allocs"), taskAllocBody)
 		own := fs.Owner()
 		Owning(own, task, taskAllocRelease)
-		if _, err := Hand(own, task).Wait(); err != nil {
+		if _, err := Hand(own, task).Wait(taskAllocRoot); err != nil {
 			t.Fatal(err)
 		}
 	})

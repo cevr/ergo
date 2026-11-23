@@ -83,11 +83,9 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	b.env = b.next
 	b.next++
 	if own := lawGenericOwner(law); own != nil {
-		if !fc.mono || b.l.runtimeType(own, d) != "" {
-			// The generic law itself (the reference, genericLowering
-			// "stencil") is a Go generic function, whose body the IR
-			// does not fill; a std operation type's call takes its
-			// runtime binding (the emitter's opCall).
+		if !fc.mono {
+			// The stencil/reference is shared across instances. The
+			// normal IR path has a monomorphic body at each binding.
 			b.gate("law of a generic operation type")
 		}
 		// A copy of a law of a generic operation type at one instance

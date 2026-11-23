@@ -24,7 +24,7 @@ func TestFindingExcusesOnlyItsOwnAndGoesStale(t *testing.T) {
 	at := func(pkg, law, provider string) string {
 		return "examples/shop: " + pkg + lawCheck + "S108 at orders/disk.ergo:3:9: law " + law + ", declared at store.ergo:4:6, cannot run at " + provider + ": its values have no generator"
 	}
-	rest, notes := fs.apply([]string{
+	rest, notes, _ := fs.apply([]string{
 		at("orders", "Store.Keeps", "Disk"),
 		at("orders", "Store.Keeps", "Cloud"),
 		at("billing", "Store.Keeps", "Disk"),
@@ -38,6 +38,52 @@ func TestFindingExcusesOnlyItsOwnAndGoesStale(t *testing.T) {
 	stale := fs.stale()
 	if len(stale) != 1 || !strings.Contains(stale[0], "Store.Gone") {
 		t.Errorf("stale = %q; want the line of Store.Gone, which no problem matched", stale)
+	}
+}
+
+// A recorded S108 blocks its package and the example's executable cases,
+// not an independently runnable law. The fake compiler prints a native
+// refutation after check-time evaluation skips that law.
+// Mutant: findings-hide-independent-tests.
+func TestRecordedFindingDoesNotHideALawRefutation(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	const dir = "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "func main() {}\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	f.write(dir+"/blocked/shape.ergo", `
+type Shape {
+	Area() int,
+	law Positive() { Area() > 0 },
+}
+type Fn { f func(int) int } implements Shape
+func Area(s Fn) int { s.f(1) }
+`)
+	f.write(findingsFile, "walker blocked S108 Shape.Positive Fn OWED-SHAPE\n")
+	const refutation = `FAIL law Receipt (case 1 of 100, seed 1): law refuted at view.ergo:2:1: false`
+	f.write(dir+"/view/view.ergo", `func Ready() bool { true }
+law Receipt() { !Ready() }
+// CHECKJSON {"checked":true,"evaluation":{"schemaVersion":1,"status":"skipped","obligations":[{"name":"law Receipt","status":"skipped","reason":"native fixture"}]}}
+// NATIVE `+refutation+"\n")
+	code, out := f.run("walker")
+	if !strings.Contains(out, "red by record (owed OWED-SHAPE): examples/walker: blocked") {
+		t.Fatalf("fixture did not match a recorded finding: exit %d\n%s", code, out)
+	}
+	if code != 1 || !strings.Contains(out, refutation) {
+		t.Fatalf("recorded finding hid a refuted sibling law: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "red by record: walker: cases not run (1 cases)") ||
+		!strings.Contains(out, "red by record: walker: test blocked not run") {
+		t.Fatalf("runner did not report the blocked legs:\n%s", out)
+	}
+	for _, call := range readCalls(t, f) {
+		if strings.HasPrefix(call, "build ") || strings.HasSuffix(call, "/...") ||
+			strings.HasSuffix(call, "/blocked") {
+			t.Errorf("runner attempted a blocked leg: %s", call)
+		}
 	}
 }
 
