@@ -15,13 +15,16 @@
 // diagnostic, {"file","line","col","code","message"}, in the Go checker's
 // order (diag.Before). The diagnostics are the passes compiler/check/diag
 // has (the unused locals and imports, S110; the ownership flow; the own
-// marks), and the row pass, compiler/check/rows (S101, S102). A code the
+// marks), the row pass, compiler/check/rows (S101, S102), and the
+// providing check, compiler/check/providing (S106; the S108 of a
+// constraint-only operation type named as a value's type). A code the
 // Ergo checker does not report yet is the agreement's ratchet.
 
 import compiler/check/bind
 import compiler/check/diag
 import compiler/check/facts
 import compiler/check/load
+import compiler/check/providing
 import compiler/check/rows
 import compiler/check/types
 import compiler/syntax
@@ -173,7 +176,8 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let at = p.Units[i]
 		let u = units[at]
 		let d = load.TypeAt(p, i)
-		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), diag.Held(d.S, d.K, d.T, deps))
+		let held = diag.Held(d.S, d.K, d.T, deps)
+		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), providing.Quiet(d.K, held))
 		for g in diag.Flow(d.S, d.K, d.T, srcs[at]) {
 			ds = ds.Append(g)
 		}
@@ -190,6 +194,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			ds = ds.Append(g)
 		}
 		for g in rows.Rows(d.S, d.K, d.T) {
+			ds = ds.Append(g)
+		}
+		for g in providing.Check(d.S, d.K) {
 			ds = ds.Append(g)
 		}
 		let mut s = d.S

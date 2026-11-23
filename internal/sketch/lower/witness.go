@@ -29,7 +29,11 @@ func witnessParams(sig *check.Signature) []*check.TypeParam {
 		if tp.Kind != check.KindType {
 			continue
 		}
-		if it := constraintOf(tp); it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire) {
+		// A constraint only by a generic operation takes no witness: no
+		// Go function field holds a generic operation, so its function
+		// lowers only as copies, which call the providers directly
+		// (GENERIC-OP; directOp).
+		if it := constraintOf(tp); it != nil && !it.Generic && (len(it.Methods) > 0 || it.Set == check.SetWire) {
 			out = append(out, tp)
 		}
 	}
@@ -241,6 +245,36 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 // arguments' Go text and env the environment of the call. The field has
 // the uniform shape
 // (typeCtx.funcType), so the call has the operation's value and an error.
+// genericOpCall is the call of a generic operation op on a value of tp
+// in a copy (types.md, Interface assignability 8): the provider's copy at
+// tp's bound type's arguments and the call's own, called directly. Its
+// function takes no witness, so a call outside a copy, or one whose
+// provider has no copy, is the checker's contract broken.
+func (fc *funcCtx) genericOpCall(tp *check.TypeParam, op *check.Method, vals []string, env string, c *check.Call, site syntax.Node) (string, bool, bool) {
+	arg := fc.bound[tp]
+	if !fc.mono || arg == nil || c == nil {
+		ice(site, "the generic operation %s of the type parameter %s outside a copy", op.Name, tp.Name)
+	}
+	f := check.ProvidingFunc(arg, op.Name)
+	if f == nil {
+		ice(site, "the generic operation %s of %s has no providing function", op.Name, arg)
+	}
+	own := make([]check.Type, len(c.TypeArgs))
+	for i, t := range c.TypeArgs {
+		own[i] = fc.boundType(t)
+	}
+	targs := check.ProviderTypeArgs(arg, f, own)
+	sp := fc.monoFor(f, targs)
+	if targs == nil || sp == nil {
+		ice(site, "the generic operation %s of %s has no copy", op.Name, arg)
+	}
+	fd := fc.l.funcDecl(f)
+	if !fd.pure {
+		vals = append([]string{env}, vals...)
+	}
+	return sp.name + "(" + strings.Join(vals, ", ") + ")", len(op.Sig.Results) > 0, fd.fallible
+}
+
 func (fc *funcCtx) witnessCall(tp *check.TypeParam, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
 	if st := fc.static[tp]; st != nil {
 		if own := staticOp(st, op.Name); own != nil {

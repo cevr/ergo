@@ -134,7 +134,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
-	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {
+	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {
 		irNo("generic call kind %d", c.Kind)
 	}
 	if !stmt && b.l.info.Types[x] == nil {

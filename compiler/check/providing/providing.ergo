@@ -1,0 +1,1163 @@
+// The providing check (types.md, Interface assignability 1 and 8;
+// Methods 4; rows.md, Context 2): each implements clause of the package
+// at its claimant, a clause's bounds, a context entry's provider, and an
+// operation type with a generic operation named where a value goes. The
+// Go checker's checkImplementsClauses, clauseBounds, implementsAt, the
+// context entry's providerAssignability and typExpr's genericOpOnly, with
+// their texts (S3-PROVIDES).
+//
+// It reads the package's local operation types only: an imported one, a
+// release contract (Closer) and an operation type that includes another
+// (..X) are not checked here yet, so the Go checker's diagnostics there
+// stay the agreement's missing lines, never false ones.
+
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/expr
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import slices
+
+// tparam is one bracket parameter as written: its name and its
+// constraint's text, "" for none.
+type tparam { Name string, Cons string }
+
+// opMember is one operation of an operation type: its name, its own type
+// parameters, whether it is marked mut, and its signature's node.
+type opMember { Name string, Own []tparam, Mut bool, Sig dense.ID[syntax.Node] }
+
+// typeDecl is one type declaration of the package.
+type typeDecl {
+	File   int,
+	Node   dense.ID[syntax.Node],
+	Name   string,
+	Params []tparam,
+	// Op is whether it is an operation type this pass reads: braces of
+	// operations (and laws) only.
+	Op      bool,
+	Members []opMember,
+	// Generic is whether one of its operations has type parameters of
+	// its own: a constraint only (types.md, Interface assignability 8).
+	Generic bool,
+	Claims  []dense.ID[syntax.Node],
+}
+
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}
+
+func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
+	let mut out = []dense.ID[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			out = out.Append(syntax.Item(p.Tree, root.Decls, i))
+		}
+	case _:
+	}
+	out
+}
+
+// textOf is the source text of the node id.
+func textOf(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let src = syntax.SourceOf(p)
+	let at = syntax.NodePos(p, id)
+	let end = syntax.NodeEnd(p, id)
+	if at < 0 || end > len(src) || end < at { "" } else { src[at:end] }
+}
+
+// brackets is the parameters of the bracket list l, each with the
+// constraint its group writes.
+func brackets(p syntax.Parsed, l dense.Opt[syntax.Node]) []tparam {
+	let mut out = []tparam{}
+	match dense.Unpack(l) {
+	case Some{Value: n}:
+		match syntax.ViewOf(p.Tree, n) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+				case syntax.Field as fd:
+					let cons = match dense.Unpack(fd.Type) {
+					case Some{Value: t}:
+						textOf(p, t)
+					case None:
+						""
+					}
+					for j in 0..syntax.Len(fd.Names) {
+						out = out.Append(tparam{Name: textOf(p, syntax.Item(p.Tree, fd.Names, j)), Cons: cons})
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case None:
+	}
+	out
+}
+
+func names(ps []tparam) []string {
+	let mut out = []string{}
+	for x in ps {
+		out = out.Append(x.Name)
+	}
+	out
+}
+
+// opBody is the operations of the interface body sp, and whether this
+// pass reads it: every member an operation or a law.
+func opBody(p syntax.Parsed, sp dense.ID[syntax.Node]) ([]opMember, bool) {
+	let mut ops = []opMember{}
+	match syntax.ViewOf(p.Tree, sp) {
+	case syntax.InterfaceType as it:
+		if it.Lbrace < 0 {
+			return (ops, false)
+		}
+		for j in 0..syntax.Len(it.Members) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+			case syntax.Field as fd:
+				if fd.Dots >= 0 || syntax.Len(fd.Names) != 1 {
+					return (ops, false)
+				}
+				match dense.Unpack(fd.Type) {
+				case Some{Value: ft}:
+					if syntax.KindOf(p.Tree, ft) != syntax.KFuncType {
+						return (ops, false)
+					}
+					let own = brackets(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams)
+					ops = ops.Append(opMember{Name: textOf(p, syntax.Item(p.Tree, fd.Names, 0)), Own: own, Mut: fd.Mut >= 0, Sig: ft})
+				case None:
+					return (ops, false)
+				}
+			case syntax.LawDecl:
+			case _:
+				return (ops, false)
+			}
+		}
+		(ops, len(ops) > 0)
+	case _:
+		(ops, false)
+	}
+}
+
+// typeDecls is the package's type declarations by name.
+func typeDecls(k expr.Pkg) Map[string, typeDecl] {
+	let mut out = Map[string, typeDecl]{}
+	for f, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				let name = textOf(p, td.Name)
+				let mut ops = []opMember{}
+				let mut op = false
+				match dense.Unpack(td.Spec) {
+				case Some{Value: sp}:
+					let (o, ok) = opBody(p, sp)
+					ops = o
+					op = ok
+				case None:
+				}
+				let mut generic = false
+				for m in ops {
+					generic = generic || len(m.Own) > 0
+				}
+				let mut claims = []dense.ID[syntax.Node]{}
+				for j in 0..syntax.Len(td.Implements) {
+					claims = claims.Append(syntax.Item(p.Tree, td.Implements, j))
+				}
+				if !isSome(out.Get(name)) {
+					out[name] = typeDecl{File: f, Node: d, Name: name, Params: brackets(p, td.TypeParams), Op: op, Members: ops, Generic: op && generic, Claims: claims}
+				}
+			case _:
+			}
+		}
+	}
+	out
+}
+
+// headOf is the name a type expression's head writes: a name, or an
+// instance's; "" for any other form (a selector: an import's type).
+func headOf(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	let k = syntax.KindOf(p.Tree, x)
+	if k == syntax.KIdent {
+		return textOf(p, x)
+	}
+	if k == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(p.Tree, x)
+		if syntax.KindOf(p.Tree, ix.X) == syntax.KIdent {
+			return textOf(p, ix.X)
+		}
+	}
+	""
+}
+
+func isInvalid(s store.Store, t dense.ID[store.TKey]) bool { store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 0 }
+
+// at is a diagnostic at the node x of file f.
+func at(k expr.Pkg, f int, x dense.ID[syntax.Node], code string, msg string) diag.Diag {
+	let p = k.Parsed[f]
+	let pos = syntax.NodePos(p, x)
+	diag.Diag{File: f, Offset: pos, Length: syntax.NodeEnd(p, x) - pos, Code: code, Message: msg}
+}
+
+// typeID is the package's type declaration name, none when the name
+// declares something else.
+func typeID(s store.Store, name string) Option[dense.ID[store.Decl]] {
+	match store.Lookup(s, name) {
+	case Some{Value: id}:
+		if store.KindName(int(store.DeclOf(s, id).Kind)) == "type" { Some{Value: id} } else { None }
+	case None:
+		None
+	}
+}
+
+// claimOf is the type arguments the clause x of the claimant d gives the
+// operation type op, read at d's own parameters (expr.Claims, resolved
+// with the package's signatures); none when x is not a clause of d naming
+// op, or an argument is invalid.
+func claimOf(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, x dense.ID[syntax.Node]) Option[[]dense.ID[store.TKey]] {
+	let id = match typeID(s, op.Name) {
+	case Some{Value: i}:
+		i
+	case None:
+		return None
+	}
+	for c in k.Claims {
+		if c.File != d.File || c.At != x {
+			continue
+		}
+		let t = c.T
+		let kind = store.KindOfType(s, t)
+		if len(op.Params) == 0 {
+			return if kind == store.KNamed && store.TypeNameText(s, store.ArgOf(s, t)) == op.Name { Some{Value: []dense.ID[store.TKey]{}} } else { None }
+		}
+		if kind != store.KInstance {
+			return None
+		}
+		let o = store.OriginOfType(s, t)
+		if int(o.Import) != 0 || int(o.Decl) != dense.Index(id) {
+			return None
+		}
+		let args = store.OperandsOf(s, t)
+		if len(args) != len(op.Params) {
+			return None
+		}
+		for a in args {
+			if isInvalid(s, a) {
+				return None
+			}
+		}
+		return Some{Value: args}
+	}
+	None
+}
+
+// opSig is the signature of op's operation name (expr.OpSigs).
+func opSig(k expr.Pkg, op typeDecl, name string) Option[dense.ID[store.TKey]] {
+	for o in k.OpSigs {
+		if o.File == op.File && o.Decl == op.Node && o.Name == name {
+			return Some{Value: o.Sig}
+		}
+	}
+	None
+}
+
+// printer is the names types print with: Param(i) as params[i].
+func printer(k expr.Pkg, params []string) types.Names { types.Names{Params: params, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces} }
+
+// selfText is the claimant at its own parameters, as the Go checker
+// prints it: C, or C[T, U].
+func selfText(d typeDecl) string {
+	if len(d.Params) == 0 {
+		return d.Name
+	}
+	let mut b = d.Name + "["
+	for i, tp in d.Params {
+		if i > 0 {
+			b = b + ", "
+		}
+		b = b + tp.Name
+	}
+	b + "]"
+}
+
+// boundsWhy is the first parameter of op whose argument in the clause
+// does not satisfy its bound, with why; the Go checker's boundsUnmet, for
+// the bound comparable (another bound is not read here).
+func boundsWhy(s store.Store, d typeDecl, op typeDecl, args []dense.ID[store.TKey]) Option[(tparam, string)] {
+	for i, tp in op.Params {
+		if tp.Cons != "comparable" || i >= len(args) {
+			continue
+		}
+		let a = args[i]
+		if store.KindOfType(s, a) == store.KParam {
+			let j = store.ArgOf(s, a)
+			if j < len(d.Params) && d.Params[j].Cons != "comparable" && d.Params[j].Cons != "ordered" {
+				return Some{Value: (tp, "\(d.Params[j].Name) is not comparable")}
+			}
+		}
+	}
+	None
+}
+
+// isSelf is whether the first parameter's base t is the claimant d at
+// parameters only: C, or C[A, B] of the function's own parameters, which
+// the claimant's bind.
+func isSelf(s store.Store, d typeDecl, t dense.ID[store.TKey]) bool {
+	let kind = store.KindOfType(s, t)
+	if len(d.Params) == 0 {
+		return kind == store.KNamed && store.TypeNameText(s, store.ArgOf(s, t)) == d.Name
+	}
+	if kind != store.KInstance {
+		return false
+	}
+	let o = store.OriginOfType(s, t)
+	let same = match typeID(s, d.Name) {
+	case Some{Value: id}:
+		int(o.Import) == 0 && int(o.Decl) == dense.Index(id)
+	case None:
+		false
+	}
+	if !same {
+		return false
+	}
+	for a in store.OperandsOf(s, t) {
+		if store.KindOfType(s, a) != store.KParam {
+			return false
+		}
+	}
+	true
+}
+
+// provider is the function of k named name whose first parameter is the
+// claimant d, by value, mut or own.
+func provider(s store.Store, k expr.Pkg, d typeDecl, name string) Option[expr.Fn] {
+	for f in k.Fns {
+		if textOf(k.Parsed[f.File], f.Name) != name {
+			continue
+		}
+		let ops = store.OperandsOf(s, f.Sig)
+		if len(ops) < 4 {
+			continue
+		}
+		if isSelf(s, d, receiverBase(s, ops[0])) {
+			return Some{Value: f}
+		}
+	}
+	None
+}
+
+// receiverBase is t with its marks and one pointer taken off.
+func receiverBase(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let u = infer.Unmarked(s, t)
+	if store.KindOfType(s, u) == store.KPointer { store.OperandsOf(s, u)[0] } else { u }
+}
+
+// fnBrackets is the providing function's bracket parameters as written.
+func fnBrackets(k expr.Pkg, f expr.Fn) []tparam {
+	let p = k.Parsed[f.File]
+	match syntax.ViewOf(p.Tree, f.Decl) {
+	case syntax.FuncDecl as fd:
+		brackets(p, fd.TypeParams)
+	case _:
+		[]tparam{}
+	}
+}
+
+func consText(c string) string { if c == "" { "unconstrained" } else { c } }
+
+// A slot is what a type parameter stands for when two signatures are
+// compared at the claimant: a type of the claimant's (Type, its
+// parameters as Param(i)), the claimant's i-th parameter, or the
+// operation's i-th own one.
+let slotType = 0
+let slotClaimant = 1
+let slotOwn = 2
+
+type slot { Kind int, T dense.ID[store.TKey], N int }
+
+// side is one signature's reading at the claimant: Param(i) is at[i].
+type side { at []slot }
+
+// resolveParam is the slot Param(i) stands for on side v; the claimant's
+// own Param(i) on the identity side.
+func resolveParam(s store.Store, v Option[side], t dense.ID[store.TKey]) slot {
+	let i = store.ArgOf(s, t)
+	match v {
+	case Some{Value: sd}:
+		if i < len(sd.at) { sd.at[i] } else { slot{Kind: slotOwn, T: t, N: 1000 + i} }
+	case None:
+		slot{Kind: slotClaimant, T: t, N: i}
+	}
+}
+
+// settled is x with a claimant's type that is one of its parameters read
+// as that parameter.
+func settled(s store.Store, x slot) slot {
+	if x.Kind == slotType && store.KindOfType(s, x.T) == store.KParam {
+		return slot{Kind: slotClaimant, T: x.T, N: store.ArgOf(s, x.T)}
+	}
+	x
+}
+
+// same is whether a read on side va and b on side vb are one type at the
+// claimant: the Go checker's identical after the substitution, without
+// interning the substituted types (the store's body tasks have interned
+// into copies of it; compiler/check/store).
+func same(s store.Store, a dense.ID[store.TKey], va Option[side], b dense.ID[store.TKey], vb Option[side]) bool {
+	let ka = store.KindOfType(s, a)
+	let kb = store.KindOfType(s, b)
+	if ka == store.KParam || kb == store.KParam {
+		let sa = settled(s, if ka == store.KParam { resolveParam(s, va, a) } else { slot{Kind: slotType, T: a, N: 0} })
+		let sb = settled(s, if kb == store.KParam { resolveParam(s, vb, b) } else { slot{Kind: slotType, T: b, N: 0} })
+		if sa.Kind == slotType && sb.Kind == slotType {
+			// A parameter bound to a type of the claimant: compare it on
+			// the identity side (its own parameters are the claimant's).
+			let na = if ka == store.KParam { None } else { va }
+			let nb = if kb == store.KParam { None } else { vb }
+			return same(s, sa.T, na, sb.T, nb)
+		}
+		return sa.Kind == sb.Kind && sa.N == sb.N
+	}
+	if ka != kb {
+		return false
+	}
+	if ka == store.KBasic || ka == store.KNamed || ka == store.KForeign {
+		return a == b
+	}
+	if ka == store.KInstance && store.OriginOfType(s, a) != store.OriginOfType(s, b) {
+		return false
+	}
+	if ka == store.KArray && store.ArrayLen(s, a) != store.ArrayLen(s, b) {
+		return false
+	}
+	let oa = store.OperandsOf(s, a)
+	let ob = store.OperandsOf(s, b)
+	if len(oa) != len(ob) {
+		return false
+	}
+	for i, x in oa {
+		if !same(s, x, va, ob[i], vb) {
+			return false
+		}
+	}
+	true
+}
+
+// held is whether the row element e (side ve) is among es (side vs).
+func held(s store.Store, e dense.ID[store.TKey], ve Option[side], es []dense.ID[store.TKey], vs Option[side]) bool {
+	for x in es {
+		if same(s, e, ve, x, vs) {
+			return true
+		}
+	}
+	false
+}
+
+// shapeText is a signature's parameters and result as the Go checker's
+// shapeOf prints them: func(P, …) R, no rows.
+func shapeText(s store.Store, n types.Names, params []dense.ID[store.TKey], res dense.ID[store.TKey]) string {
+	let mut b = "func("
+	for i, p in params {
+		if i > 0 {
+			b = b + ", "
+		}
+		b = b + types.Text(s, n, p)
+	}
+	b = b + ")"
+	if store.KindOfType(s, res) == store.KTuple {
+		let rs = store.OperandsOf(s, res)
+		if len(rs) == 1 {
+			b = b + " " + types.Text(s, n, rs[0])
+		} else if len(rs) > 1 {
+			b = b + " " + types.Text(s, n, res)
+		}
+	} else {
+		b = b + " " + types.Text(s, n, res)
+	}
+	b
+}
+
+func setText(s store.Store, n types.Names, ts []dense.ID[store.TKey]) string {
+	if len(ts) == 0 { "{}" } else { "{" + types.RowText(s, n, ts) + "}" }
+}
+
+// whyNot is why the claimant d does not provide op at the clause
+// arguments args: the first operation that fails, in the order op
+// declares them; "" when it provides every one (the Go checker's
+// implementsAt at a clause).
+func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[store.TKey]) string {
+	let v = selfText(d)
+	let cnames = names(d.Params)
+	for mem in op.Members {
+		let f = match provider(s, k, d, mem.Name) {
+		case Some{Value: f}:
+			f
+		case None:
+			return "\(v) has no method \(mem.Name)"
+		}
+		let fops = store.OperandsOf(s, f.Sig)
+		let recv = infer.Unmarked(s, fops[0])
+		if store.KindOfType(s, recv) == store.KPointer && !mem.Mut {
+			return "\(v).\(mem.Name) writes its receiver (mut \(v)), and the operation \(mem.Name) does not: declare it mut \(mem.Name)(…)"
+		}
+		// The function's parameters its first parameter binds are the
+		// claimant's; the rest, in order, are its own.
+		let base = receiverBase(s, fops[0])
+		let mut bound = []int{}
+		for _ in f.Params {
+			bound = bound.Append(-1)
+		}
+		if store.KindOfType(s, base) == store.KInstance {
+			for j, a in store.OperandsOf(s, base) {
+				let i = store.ArgOf(s, a)
+				if i < len(bound) {
+					bound[i] = j
+				}
+			}
+		}
+		let written = fnBrackets(k, f)
+		let mut extra = []tparam{}
+		for i, b in bound {
+			if b < 0 {
+				extra = extra.Append(if i < len(written) { written[i] } else { tparam{Name: f.Params[i], Cons: ""} })
+			}
+		}
+		if len(extra) > 0 && len(mem.Own) == 0 {
+			return "\(v).\(mem.Name) has a type parameter of its own, \(extra[0].Name); the operation takes none"
+		}
+		if len(extra) != len(mem.Own) {
+			return "\(d.Name).\(mem.Name) has \(len(extra)) type parameters beyond its first parameter's, and \(op.Name).\(mem.Name) has \(len(mem.Own))"
+		}
+		for i, tp in extra {
+			let w = mem.Own[i]
+			if tp.Cons != w.Cons {
+				return "\(d.Name).\(mem.Name)'s type parameter \(tp.Name) is \(consText(tp.Cons)), and \(op.Name).\(mem.Name)'s \(w.Name) is \(consText(w.Cons))"
+			}
+		}
+		let wsig = match opSig(k, op, mem.Name) {
+		case Some{Value: t}:
+			t
+		case None:
+			continue
+		}
+		if store.KindOfType(s, wsig) != store.KSig {
+			continue
+		}
+		// The two sides: the function's parameters read as the
+		// claimant's or as the operation's own; the operation type's as
+		// the clause's arguments, its operation's own as themselves.
+		let mut fat = []slot{}
+		let mut fnames = []string{}
+		let mut e = 0
+		for i, b in bound {
+			if b >= 0 {
+				fat = fat.Append(slot{Kind: slotClaimant, T: fops[0], N: b})
+				fnames = fnames.Append(if b < len(cnames) { cnames[b] } else { f.Params[i] })
+			} else {
+				fat = fat.Append(slot{Kind: slotOwn, T: fops[0], N: e})
+				fnames = fnames.Append(if e < len(mem.Own) { mem.Own[e].Name } else { f.Params[i] })
+				e = e + 1
+			}
+		}
+		let mut wat = []slot{}
+		let mut wnames = []string{}
+		for a in args {
+			wat = wat.Append(slot{Kind: slotType, T: a, N: 0})
+			wnames = wnames.Append(types.Text(s, printer(k, cnames), a))
+		}
+		for i, o in mem.Own {
+			wat = wat.Append(slot{Kind: slotOwn, T: wsig, N: i})
+			wnames = wnames.Append(o.Name)
+		}
+		let fv = Some{Value: side{at: fat}}
+		let wv = Some{Value: side{at: wat}}
+		let want = store.OperandsOf(s, wsig)
+		let np = len(fops) - 3
+		let wp = len(want) - 3
+		let mut invalid = false
+		for i in 1..np+1 {
+			invalid = invalid || isInvalid(s, fops[i])
+		}
+		for i in 0..wp+1 {
+			invalid = invalid || isInvalid(s, want[i])
+		}
+		if invalid {
+			continue
+		}
+		let mut shaped = np-1 == wp && same(s, fops[np], fv, want[wp], wv)
+		if shaped {
+			for i in 0..wp {
+				shaped = shaped && same(s, fops[i+1], fv, want[i], wv)
+			}
+		}
+		let fnm = printer(k, fnames)
+		let wn = printer(k, wnames)
+		if !shaped {
+			let mut gp = []dense.ID[store.TKey]{}
+			for i in 1..np {
+				gp = gp.Append(fops[i])
+			}
+			let mut wps = []dense.ID[store.TKey]{}
+			for i in 0..wp {
+				wps = wps.Append(want[i])
+			}
+			return "\(v).\(mem.Name) has signature \(shapeText(s, fnm, gp, fops[np])), want \(shapeText(s, wn, wps, want[wp]))"
+		}
+		let ge = store.OperandsOf(s, fops[np+1])
+		let we = store.OperandsOf(s, want[wp+1])
+		let mut wider = []dense.ID[store.TKey]{}
+		for x in ge {
+			if !held(s, x, fv, we, wv) {
+				wider = wider.Append(x)
+			}
+		}
+		if len(wider) > 0 {
+			return "\(v).\(mem.Name) can fail with \(setText(s, fnm, wider)), wider than \(setText(s, wn, we))"
+		}
+		let gu = store.OperandsOf(s, fops[np+2])
+		let wu = store.OperandsOf(s, want[wp+2])
+		let mut more = []dense.ID[store.TKey]{}
+		for x in gu {
+			if !held(s, x, fv, wu, wv) {
+				more = more.Append(x)
+			}
+		}
+		if len(more) > 0 && !builtHeld(s, k, more) {
+			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)"
+		}
+	}
+	""
+}
+
+// builtHeld is whether every capability of more is one a provider's build
+// site holds for it: go.Foreign, which has no provider value, or Ambient
+// (README Gap 17; the Go checker's captured.add at a clause).
+func builtHeld(s store.Store, k expr.Pkg, more []dense.ID[store.TKey]) bool {
+	for x in more {
+		if store.KindOfType(s, x) != store.KForeign {
+			return false
+		}
+		let i = store.ArgOf(s, x)
+		if i >= len(k.Foreign) {
+			return false
+		}
+		let f = k.Foreign[i]
+		if !(f.Qual == "go" && f.Name == "Foreign") && !(f.Path == "prelude" && f.Name == "Ambient") {
+			return false
+		}
+	}
+	true
+}
+
+// clauses checks each implements clause of the package that names a
+// local operation type this pass reads.
+func clauses(s store.Store, k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.Diag {
+	let mut out = []diag.Diag{}
+	for name in order {
+		let d = match decls.Get(name) {
+		case Some{Value: d}:
+			d
+		case None:
+			continue
+		}
+		if len(d.Claims) == 0 || d.Op || !isSome(typeID(s, d.Name)) {
+			continue
+		}
+		let p = k.Parsed[d.File]
+		for x in d.Claims {
+			let op = match decls.Get(headOf(p, x)) {
+			case Some{Value: o}:
+				o
+			case None:
+				continue
+			}
+			if !op.Op || op.Name == "Closer" {
+				continue
+			}
+			let args = match claimOf(s, k, d, op, x) {
+			case Some{Value: a}:
+				a
+			case None:
+				continue
+			}
+			let claim = textOf(p, x)
+			match boundsWhy(s, d, op, args) {
+			case Some{Value: b}:
+				let (tp, why) = b
+				out = out.Append(at(k, d.File, x, "S106", "\(d.Name) implements \(claim), and \(op.Name)'s \(tp.Name) must satisfy \(tp.Cons): \(why)"))
+				continue
+			case None:
+			}
+			let why = whyNot(s, k, d, op, args)
+			if why != "" {
+				out = out.Append(at(k, d.File, x, "S106", "\(d.Name) does not implement \(claim): \(why) (types.md, Interface assignability 1)"))
+			}
+		}
+	}
+	out
+}
+
+// placedLits is the spans of p's context literals in their places: after
+// `let x =` (a body's or the package's) or as an operand of with
+// (grammar.md, Expressions 8; rows.md, Context 9). A literal anywhere else
+// is refused as misplaced, and its entries are not checked (the Go
+// checker's ContextLit case of expr).
+func placedLits(p syntax.Parsed) [](int, int) {
+	let mut out = [](int, int){}
+	for i in 0..syntax.NumNodes(p.Tree) {
+		let n = syntax.NodeAt(p.Tree, i)
+		let kind = syntax.KindOf(p.Tree, n)
+		if kind == syntax.KContextDecl {
+			// A package's `let Name = context { … }`, a declaration of its
+			// own: its entries are always in place.
+			out = out.Append((syntax.NodePos(p, n), syntax.NodeEnd(p, n)))
+		} else if kind == syntax.KVarSpec {
+			match dense.Unpack(syntax.VarSpecOf(p.Tree, n).Value) {
+			case Some{Value: v}:
+				out = withLit(p, out, v)
+			case None:
+			}
+		} else if kind == syntax.KCallExpr {
+			let c = syntax.CallExprOf(p.Tree, n)
+			if syntax.KindOf(p.Tree, c.Fun) == syntax.KIdent && textOf(p, c.Fun) == "with" {
+				for j in 0..syntax.Len(c.Args) {
+					out = withLit(p, out, syntax.Item(p.Tree, c.Args, j))
+				}
+			}
+		}
+	}
+	out
+}
+
+// withLit is spans with x's, when x is a context literal.
+func withLit(p syntax.Parsed, spans [](int, int), x dense.ID[syntax.Node]) [](int, int) {
+	if syntax.KindOf(p.Tree, x) != syntax.KContextLit {
+		return spans
+	}
+	spans.Append((syntax.NodePos(p, x), syntax.NodeEnd(p, x)))
+}
+
+func inSpans(spans [](int, int), at int) bool {
+	for sp in spans {
+		let (a, b) = sp
+		if at >= a && at < b {
+			return true
+		}
+	}
+	false
+}
+
+// entries checks each context entry whose capability is a local
+// operation type and whose provider names a local type of no parameters
+// with no implements clause: it does not declare that it implements the
+// operation type of its entry (types.md, Interface assignability 1).
+func entries(k expr.Pkg, decls Map[string, typeDecl]) []diag.Diag {
+	let mut out = []diag.Diag{}
+	for f, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		let placed = placedLits(p)
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let n = syntax.NodeAt(p.Tree, i)
+			if syntax.KindOf(p.Tree, n) != syntax.KContextEntry || !inSpans(placed, syntax.NodePos(p, n)) {
+				continue
+			}
+			let e = syntax.ContextEntryOf(p.Tree, n)
+			let value = match dense.Unpack(e.Value) {
+			case Some{Value: v}:
+				v
+			case None:
+				continue
+			}
+			let vk = syntax.KindOf(p.Tree, value)
+			let head = if vk == syntax.KIdent { textOf(p, value) } else if vk == syntax.KCompositeLit {
+				match dense.Unpack(syntax.CompositeLitOf(p.Tree, value).Type) {
+				case Some{Value: t}:
+					if syntax.KindOf(p.Tree, t) == syntax.KIdent { textOf(p, t) } else { "" }
+				case None:
+					""
+				}
+			} else {
+				""
+			}
+			if head == "" || shadowed(k, f, value, head) {
+				continue
+			}
+			let pt = match decls.Get(head) {
+			case Some{Value: d}:
+				d
+			case None:
+				continue
+			}
+			if pt.Op || len(pt.Params) > 0 || len(pt.Claims) > 0 {
+				continue
+			}
+			let mut keys = []dense.ID[syntax.Node]{e.Key}
+			for j in 0..syntax.Len(e.Keys) {
+				keys = keys.Append(syntax.Item(p.Tree, e.Keys, j))
+			}
+			for key in keys {
+				if syntax.KindOf(p.Tree, key) != syntax.KIdent {
+					continue
+				}
+				let cap = match decls.Get(textOf(p, key)) {
+				case Some{Value: c}:
+					c
+				case None:
+					continue
+				}
+				if !cap.Op || cap.Generic || len(cap.Params) > 0 || cap.Name == "Closer" {
+					continue
+				}
+				out = out.Append(at(k, f, value, "S106", "\(head) cannot provide \(cap.Name): \(head) does not declare that it implements \(cap.Name): write implements \(cap.Name) after \(head)'s body (types.md, Interface assignability 1) (rows.md, Context 2)"))
+			}
+		}
+	}
+	out
+}
+
+// shadowed is whether the name x (text name) of file f resolves to a
+// local binding rather than the package's declaration.
+func shadowed(k expr.Pkg, f int, x dense.ID[syntax.Node], name string) bool {
+	match bind.ResolutionOf(k.U, k.Ps, bind.PNodeOf(k.Ps, f, x)) {
+	case bind.Declared as dc:
+		let (df, row) = bind.RowOf(k.Ps, dc.At)
+		let p = k.Parsed[df]
+		let mut top = false
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				top = top || (dense.Index(td.Name) == row && textOf(p, td.Name) == name)
+			case _:
+			}
+		}
+		!top
+	case bind.Imported:
+		true
+	case _:
+		false
+	}
+}
+
+// valueTypes reports each type expression of a value's place (a
+// parameter, a result, a let, a record field, a function literal's
+// signature) that names an operation type with a generic operation
+// (decl.go typExpr, genericOpOnly). A constraint, an implements clause,
+// a needs row and an operation's own signature are not values' places.
+func valueTypes(k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.Diag {
+	let mut out = []diag.Diag{}
+	let mut any = false
+	for name in order {
+		match decls.Get(name) {
+		case Some{Value: d}:
+			any = any || d.Generic
+		case None:
+		}
+	}
+	if !any {
+		return out
+	}
+	for f, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				let hide = names(brackets(p, fd.TypeParams))
+				typePlace(&out, k, decls, f, p, hide, fd.Type)
+				match dense.Unpack(fd.Body) {
+				case Some{Value: b}:
+					bodyPlaces(&out, k, decls, f, p, hide, b)
+				case None:
+				}
+			case syntax.TypeDecl as td:
+				match dense.Unpack(td.Spec) {
+				case Some{Value: sp}:
+					if syntax.KindOf(p.Tree, sp) == syntax.KStructType {
+						typePlace(&out, k, decls, f, p, names(brackets(p, td.TypeParams)), sp)
+					}
+				case None:
+				}
+			case syntax.VarDecl as vd:
+				bodyPlaces(&out, k, decls, f, p, []string{}, vd.Spec)
+			case _:
+			}
+		}
+	}
+	out
+}
+
+func hidden(hide []string, name string) bool {
+	for h in hide {
+		if h == name {
+			return true
+		}
+	}
+	false
+}
+
+// constraintOnly is the declaration the name x writes when it is an
+// operation type with a generic operation.
+func constraintOnly(decls Map[string, typeDecl], p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) Option[typeDecl] {
+	if syntax.KindOf(p.Tree, x) != syntax.KIdent {
+		return None
+	}
+	let name = textOf(p, x)
+	if hidden(hide, name) {
+		return None
+	}
+	match decls.Get(name) {
+	case Some{Value: d}:
+		if d.Generic { Some{Value: d} } else { None }
+	case None:
+		None
+	}
+}
+
+// typePlace walks the type expression x of a value's place.
+func typePlace(out mut []diag.Diag, k expr.Pkg, decls Map[string, typeDecl], f int, p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) {
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		match constraintOnly(decls, p, hide, x) {
+		case Some{Value: d}:
+			*out = (*out).Append(at(k, f, x, "S108", "\(d.Name) has a generic operation, so it is a constraint and has no values; write [M \(textOf(p, x))] (types.md, Interface assignability, Generic operations)"))
+		case None:
+		}
+		return
+	}
+	if kind == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(p.Tree, x)
+		match constraintOnly(decls, p, hide, ix.X) {
+		case Some{Value: d}:
+			*out = (*out).Append(at(k, f, x, "S108", "\(d.Name) has a generic operation, so it is a constraint and has no values; write [M \(textOf(p, x))] (types.md, Interface assignability, Generic operations)"))
+			return
+		case None:
+		}
+		for i in 0..syntax.Len(ix.Indices) {
+			typePlace(out, k, decls, f, p, hide, syntax.Item(p.Tree, ix.Indices, i))
+		}
+		return
+	}
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.ArrayType as a:
+		typePlace(out, k, decls, f, p, hide, a.Elt)
+	case syntax.MapType as m:
+		typePlace(out, k, decls, f, p, hide, m.Key)
+		typePlace(out, k, decls, f, p, hide, m.Value)
+	case syntax.StarExpr as st:
+		typePlace(out, k, decls, f, p, hide, st.X)
+	case syntax.ParenExpr as pe:
+		typePlace(out, k, decls, f, p, hide, pe.X)
+	case syntax.TupleExpr as te:
+		for i in 0..syntax.Len(te.Elts) {
+			typePlace(out, k, decls, f, p, hide, syntax.Item(p.Tree, te.Elts, i))
+		}
+	case syntax.FuncType as ft:
+		fieldTypes(out, k, decls, f, p, hide, dense.OptOf(ft.Params))
+		fieldTypes(out, k, decls, f, p, hide, ft.Results)
+	case syntax.StructType as st:
+		fieldTypes(out, k, decls, f, p, hide, dense.OptOf(st.Fields))
+	case _:
+	}
+}
+
+func fieldTypes(out mut []diag.Diag, k expr.Pkg, decls Map[string, typeDecl], f int, p syntax.Parsed, hide []string, l dense.Opt[syntax.Node]) {
+	match dense.Unpack(l) {
+	case Some{Value: n}:
+		match syntax.ViewOf(p.Tree, n) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+				case syntax.Field as fd:
+					match dense.Unpack(fd.Type) {
+					case Some{Value: t}:
+						if syntax.KindOf(p.Tree, t) != syntax.KErrorRow {
+							typePlace(out, k, decls, f, p, hide, t)
+						}
+					case None:
+					}
+				case _:
+				}
+			}
+		case _:
+			typePlace(out, k, decls, f, p, hide, n)
+		}
+	case None:
+	}
+}
+
+// bodyPlaces walks the statements and expressions under x for the type
+// places they hold: a let's type and a function literal's signature.
+func bodyPlaces(out mut []diag.Diag, k expr.Pkg, decls Map[string, typeDecl], f int, p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.VarSpec as vs:
+		match dense.Unpack(vs.Type) {
+		case Some{Value: t}:
+			typePlace(out, k, decls, f, p, hide, t)
+		case None:
+		}
+		match dense.Unpack(vs.Value) {
+		case Some{Value: v}:
+			bodyPlaces(out, k, decls, f, p, hide, v)
+		case None:
+		}
+		return
+	case syntax.FuncLit as fl:
+		typePlace(out, k, decls, f, p, hide, fl.Type)
+		bodyPlaces(out, k, decls, f, p, hide, fl.Body)
+		return
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		bodyPlaces(out, k, decls, f, p, hide, syntax.NodeAt(p.Tree, int(c)))
+	}
+}
+
+// RefusedLets is the names the package's lets bind at a declared type
+// this check refuses (a constraint-only operation type as a value's type).
+// Such a local's type is invalid, so it is never reported unused (the Go
+// checker's declareLocal marks it used; S110 does not stack on S108).
+func RefusedLets(k expr.Pkg) []dense.ID[store.PNode] {
+	let mut out = []dense.ID[store.PNode]{}
+	let decls = typeDecls(k)
+	let mut any = false
+	for p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				match decls.Get(textOf(p, td.Name)) {
+				case Some{Value: t}:
+					any = any || t.Generic
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	if !any {
+		return out
+	}
+	for f, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				let hide = names(brackets(p, fd.TypeParams))
+				match dense.Unpack(fd.Body) {
+				case Some{Value: b}:
+					refusedLets(&out, k, decls, f, p, hide, b)
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	out
+}
+
+// Quiet is held, and also true of the names RefusedLets finds: the locals
+// whose S110 the unused check (diag.Unused) does not report.
+func Quiet(k expr.Pkg, held own func(n dense.ID[store.PNode]) bool) func(n dense.ID[store.PNode]) bool {
+	let refused = RefusedLets(k)
+	if len(refused) == 0 {
+		return held
+	}
+	func(n dense.ID[store.PNode]) bool { held(n) || slices.Contains(refused, n) }
+}
+
+func refusedLets(out mut []dense.ID[store.PNode], k expr.Pkg, decls Map[string, typeDecl], f int, p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.VarSpec as vs:
+		match dense.Unpack(vs.Type) {
+		case Some{Value: t}:
+			let mut ds = []diag.Diag{}
+			typePlace(&ds, k, decls, f, p, hide, t)
+			if len(ds) > 0 {
+				for i in 0..syntax.Len(vs.Names) {
+					*out = (*out).Append(bind.PNodeOf(k.Ps, f, syntax.Item(p.Tree, vs.Names, i)))
+				}
+			}
+		case None:
+		}
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		refusedLets(out, k, decls, f, p, hide, syntax.NodeAt(p.Tree, int(c)))
+	}
+}
+
+// Check is the providing check's diagnostics of the package.
+func Check(s store.Store, k expr.Pkg) []diag.Diag {
+	let decls = typeDecls(k)
+	let mut order = []string{}
+	for p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				order = order.Append(textOf(p, td.Name))
+			case _:
+			}
+		}
+	}
+	let mut out = clauses(s, k, decls, order)
+	for g in entries(k, decls) {
+		out = out.Append(g)
+	}
+	for g in valueTypes(k, decls, order) {
+		out = out.Append(g)
+	}
+	out
+}
+
+// MatchingProviderHasNoS106: a claim with one matching function per
+// operation is accepted at the types named in its brackets, even when
+// their order differs from the claimant's parameter order.
+law MatchingProviderHasNoS106(reversed bool) {
+	let parsed = syntax.Parse(providerSource(reversed))
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: parsed}}
+	let ps = bind.BuildParents(files)
+	// The providing check reads package signatures, not body uses.
+	let mut s = bind.Collect("p", files)
+	let u = bind.Join(&s, []bind.Body{})
+	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	if parsed.Failed || len(k.Claims) != 1 || len(k.OpSigs) != 2 || len(k.Fns) != 2 {
+		return false
+	}
+	for g in Check(s, k) {
+		if g.Code == "S106" {
+			return false
+		}
+	}
+	true
+}
+
+func providerSource(reversed bool) string {
+	let first = if reversed { "B" } else { "A" }
+	let second = if reversed { "A" } else { "B" }
+	"type Access[K, V] {\n\tKey(k K) K,\n\tValue(v V) V,\n}\n" +
+		"type Pair[A, B] {} implements Access[\(first), \(second)]\n" +
+		"func Key[A, B](_ Pair[A, B], k \(first)) \(first) { k }\n" +
+		"func Value[A, B](_ Pair[A, B], v \(second)) \(second) { v }\n"
+}
